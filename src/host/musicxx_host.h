@@ -39,6 +39,9 @@
 namespace musicxx {
 namespace extern_plugin {
 
+/// JS 运行时 (plan §4.6; 定义在 js/js_engine.h)
+class JsEngine;
+
 /* ==================== 有界等待槽 ==================== */
 
 /// 宿主线程完成工作后唤醒等待方 (调用方线程等待有上界)
@@ -67,6 +70,32 @@ struct WaitSlot {
         out = value;
         return true;
     }
+};
+
+/* ==================== 宿主内运行时接驳口 ==================== */
+
+/// 宿主内运行时 (JS 引擎) 的"任意线程动作请求"接驳口
+///
+/// 背景 (plan §2.3.1/§2.3.2 的无死锁不变式): JS 代码只在共享 JS 线程上执行, 而宿主
+/// 线程派发裁决型钩子时会**等待 JS 处理器**。因此 JS 侧发起的动作请求绝不能"投递到
+/// 宿主线程再等待" —— 那会和"宿主线程正等 JS"互锁。JS 引擎自己登记在途请求 (任意线程
+/// 可读写的表), 只把事件推给 Dart; Dart 的回复经 [MusicxxHostManager::actionRespond]
+/// 转交到这里。
+class InternalActionRelay {
+public:
+
+    virtual ~InternalActionRelay() = default;
+
+    /// 回复一条本接驳口登记的在途请求 (**任意线程**)
+    /// - 返回 false 表示该 requestId 不属于本接驳口 (调用方继续按"未找到"处理)
+    virtual bool respondAction(
+        int64_t            requestId,
+        int32_t            status,
+        const std::string& resultJson
+    ) = 0;
+
+    /// 取消某实例的全部在途请求 (**任意线程**; 实例卸载/禁用/宿主关闭时兜底)
+    virtual void cancelActionsOf(const std::string& instanceName) = 0;
 };
 
 /* ==================== 插件实例 ==================== */
@@ -276,6 +305,60 @@ public:
     /// 当前插件 id (由实例名推导; JS 实例名为 "js:<id>")
     static std::string pluginIdOf(std::string_view instanceName);
 
+    /// 按**插件 id 或实例名**解析实例 (JS 插件实例名是 `js:<id>`, 与插件 id 不同)
+    ///
+    /// 插件管理入口 (启停/卸载/能力调用/配置路径) 都接受 Dart 侧传来的插件 id,
+    /// 因此统一经这里解析; 原生插件的实例名恰好等于插件 id。
+    std::shared_ptr<MusicxxHostInstance> resolveInstance(const std::string& idOrInstance) const;
+
+    /* ---------- 宿主内运行时 (JS 引擎, plan §4.6) ---------- */
+
+    /// 注册宿主内运行时的动作请求接驳口 (JS 引擎创建时调用)
+    void setInternalActionRelay(std::shared_ptr<InternalActionRelay> relay);
+
+    /// 分配一个在途请求 id (**任意线程**; 原生插件与 JS 引擎共用同一计数器, 避免 id 撞车)
+    int64_t allocateRequestId();
+
+    /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做在途登记)
+    ///
+    /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态与超时 (见 [InternalActionRelay]),
+    /// 宿主这里只做命名空间校验与事件推送。
+    /// - 返回 0 = 已推送; -6 = 动作名命名空间非法; -1 = 参数非法
+    /// - `outEffectiveTimeoutMs` 输出实际生效的超时 (默认 5s, 限幅 1s~60s)
+    int32_t pushActionRequestEvent(
+        const std::string& pluginId,
+        int64_t            requestId,
+        const std::string& action,
+        const std::string& argsJson,
+        uint32_t           timeoutMs,
+        int64_t*           outEffectiveTimeoutMs
+    );
+
+    /// 插件发布事件 (**任意线程**; 主题归属校验后再投递到宿主线程)
+    int32_t publishPluginEventFrom(
+        const std::string& pluginId,
+        const std::string& topic,
+        const std::string& payloadJson
+    );
+
+    /// 取消某实例的全部在途请求 (**任意线程**): 宿主侧登记 + JS 引擎侧登记
+    void cancelActionsOfInstance(const std::string& instanceName);
+
+    /// JS 引擎实例 (未启用 JS 运行时或未启动时为空)
+    std::shared_ptr<JsEngine> jsEngine() const;
+
+    /// 注册 JS 插件的内置槽位并把插件目录登记到 discovered_ (装载前调用)
+    ///
+    /// - `pluginDir` 为插件目录; 脚本取 `entryHint` (以 .js 结尾时) 或 `plugin.js`;
+    /// - 返回 0 成功; -4 找不到脚本文件; -2 状态错误 (JS 运行时不可用/安全模式)。
+    int32_t prepareJsPlugin(
+        const std::string& pluginId,
+        const std::string& pluginDir,
+        const std::string& entryHint,
+        const std::string& version,
+        std::string&       err
+    );
+
     /* ---------- DomainHooks (事件主题规则对外可见: 插件 events 表入口要用) ---------- */
 
     std::shared_ptr<pluginxx::EventSource> eventSource() override;
@@ -321,6 +404,9 @@ private:
 
     /// 在宿主线程上绑定 IO 线程标识 (start() 里调用; 失败返回 false)
     bool bindIoThread();
+
+    /// 刷新 JS 引擎的宿主信息缓存 (语言/配置变化时; 供 JS 侧同步读)
+    void refreshJsHostInfo();
 
     /// 钩子处理器登记项
     struct HookHandler {
@@ -384,7 +470,14 @@ private:
 
     // 动作请求 (宿主线程)
     std::map<int64_t, PendingAction> pendingActions_;
-    int64_t                          nextRequestId_ = 1;
+    /// 在途请求 id 计数器 (原生插件与 JS 引擎共用; **任意线程**可用)
+    std::atomic<int64_t>             nextRequestId_{1};
+
+    /// 宿主内运行时的在途请求接驳口 (JS 引擎; 见 InternalActionRelay)
+    std::shared_ptr<InternalActionRelay> internalRelay_;
+
+    /// JS 运行时 (启用 JS 时在 start() 里创建, stop() 里释放)
+    std::shared_ptr<JsEngine> jsEngine_;
 
     // 配置
     std::string appVersion_  = "0.0.0";

@@ -157,6 +157,11 @@ int main(int argc, char** argv) {
     const std::string scanJson = take(scan);
     check(scanRc == MUSICXX_EXTERN_PLUGIN_OK, "plugin_scan 成功");
     std::printf("  [info] scanJson=%s\n", scanJson.substr(0, 400).c_str());
+    // 扫描应同时发现原生与 JS 示例插件 (M3: JS 插件零编译)
+    check(scanJson.find("example_native") != std::string::npos, "扫描发现 example_native");
+    check(scanJson.find("example_js") != std::string::npos, "扫描发现 example_js (JS 插件)");
+    check(scanJson.find("\"kind\":\"js\"") != std::string::npos, "JS 插件的 kind 为 js");
+    check(scanJson.find("本次运行未启用 JS 运行时") == std::string::npos, "JS 运行时可用 (未报未启用)");
 
     // 装载 (同步)
     MusicxxExternPluginString empty{};
@@ -525,6 +530,245 @@ int main(int argc, char** argv) {
         );
         freeStr(out);
         check(rc != MUSICXX_EXTERN_PLUGIN_OK, "卸载后能力调用失败");
+    }
+
+    // ==================== JS 插件 (plan §4.4 / §4.6, M3) ====================
+    //
+    // 同一套用例在 native/js 两条链路上跑: decision 裁决、observe 通知、能力探针、
+    // 状态镜像读取、事件订阅、定时器、禁用/卸载摘除。
+    {
+        MusicxxExternPluginString loadLog{};
+        const auto                jsLoadRc = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("example_js"),
+            viewCP(R"({"enabled":true})"),
+            15000,
+            &loadLog
+        );
+        if (jsLoadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+            std::printf("  [info] js load rc=%d log=%s\n", jsLoadRc, take(loadLog).c_str());
+        } else {
+            freeStr(loadLog);
+        }
+        check(jsLoadRc == MUSICXX_EXTERN_PLUGIN_OK, "JS 插件装载成功 (example_js)");
+
+        int32_t jsHookCount = 0;
+        check(
+            musicxx_extern_plugin_hook_count(
+                host,
+                viewCP("musicxx.player.beforePlaySong"),
+                &jsHookCount,
+                &log
+            )
+                == MUSICXX_EXTERN_PLUGIN_OK
+                && jsHookCount == 1,
+            "JS 钩子处理器已注册 (beforePlaySong = 1)"
+        );
+
+        // decision 钩子: 广告曲目 → skip
+        {
+            MusicxxExternPluginString out{};
+            const std::string        payload
+                = R"({"sid":"js1","song":{"name":"广告插播 - JS 测试","artist":"x"}})";
+            const auto rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.beforePlaySong"),
+                viewP(payload),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                300,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 钩子派发返回成功");
+            check(result.find("\"skip\"") != std::string::npos, "JS 裁决: 广告曲目 skip");
+        }
+
+        // decision 钩子: 普通曲目 → 无裁决
+        {
+            MusicxxExternPluginString out{};
+            const std::string        payload = R"({"sid":"js2","song":{"name":"普通歌曲 JS"}})";
+            const auto               rc      = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.beforePlaySong"),
+                viewP(payload),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                300,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 钩子 (普通曲目) 派发成功");
+            check(result.find("\"skip\"") == std::string::npos, "JS 裁决: 普通曲目无 skip");
+        }
+
+        // decision 钩子: 播放错误 → patch.tryNextSrc
+        {
+            MusicxxExternPluginString out{};
+            const std::string        payload = R"({"sid":"js3","srcKey":"k3","errorCode":-1})";
+            const auto               rc      = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.error"),
+                viewP(payload),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                300,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 错误钩子派发成功");
+            check(result.find("tryNextSrc") != std::string::npos, "JS 裁决: 首个错误建议换源");
+        }
+
+        // observe 钩子 (异步): 切歌通知 + 脚本日志
+        {
+            MusicxxExternPluginString out{};
+            const std::string        payload = R"({"sid":"js4","song":{"name":"观察目标 JS"}})";
+            const auto               rc      = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.song.changed"),
+                viewP(payload),
+                MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC,
+                0,
+                &out,
+                &log
+            );
+            freeStr(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 观察钩子入队成功");
+
+            // 等 JS 线程执行完 (含脚本定时器 50ms)
+            std::this_thread::sleep_for(std::chrono::milliseconds{500});
+            MusicxxExternPluginString events{};
+            const std::string        eventsJson = [&] {
+                musicxx_extern_plugin_poll_events(host, 500, &events, &log);
+                return take(events);
+            }();
+            check(eventsJson.find("musicxx.plugin.log") != std::string::npos, "JS 日志经事件回传");
+            check(eventsJson.find("切歌") != std::string::npos, "JS 观察钩子已执行 (切歌通知)");
+        }
+
+        // 能力探针 (Dart → JS): 自检信息 + 状态镜像同步读
+        {
+            MusicxxExternPluginString out{};
+            const auto rc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("example_js"),
+                viewCP("probe"),
+                viewCP("{}"),
+                5000,
+                &out,
+                &log
+            );
+            const std::string probe = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 能力调用成功 (probe)");
+            check(jsonStringField(probe, "pluginId") == "example_js", "JS 能力读到插件 id");
+            check(jsonIntField(probe, "hookCount") == "3", "JS 注册了 3 个钩子");
+            check(
+                jsonIntField(probe, "songChangedCount") == "1",
+                "JS 观察钩子计数为 1 (钩子真的执行了)"
+            );
+            check(
+                jsonStringField(probe, "currentSongName") == "镜像歌曲",
+                "JS 同步读状态镜像 (musicxx.state.song)"
+            );
+            check(
+                jsonStringField(probe, "hostPlatform") == "windows",
+                "JS 读到宿主信息 (平台)"
+            );
+        }
+
+        // 禁用 → 钩子摘除, 启用 → 重新注册 (脚本重跑)
+        {
+            check(
+                musicxx_extern_plugin_plugin_disable(host, viewCP("example_js"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "JS 插件禁用成功"
+            );
+            int32_t afterDisable = 0;
+            musicxx_extern_plugin_hook_count(
+                host,
+                viewCP("musicxx.player.beforePlaySong"),
+                &afterDisable,
+                &log
+            );
+            check(afterDisable == 0, "JS 插件禁用后钩子被摘除");
+
+            check(
+                musicxx_extern_plugin_plugin_enable(host, viewCP("example_js"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "JS 插件重新启用成功"
+            );
+            std::this_thread::sleep_for(std::chrono::milliseconds{300});
+            int32_t afterEnable = 0;
+            musicxx_extern_plugin_hook_count(
+                host,
+                viewCP("musicxx.player.beforePlaySong"),
+                &afterEnable,
+                &log
+            );
+            check(afterEnable == 1, "JS 插件启用后钩子重新注册");
+        }
+
+        // 调试信息含 JS 运行时状态
+        {
+            MusicxxExternPluginString debug{};
+            const auto rc = musicxx_extern_plugin_debug_info(host, &debug, &log);
+            const std::string debugJson = take(debug);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "debug_info 可读");
+            check(debugJson.find("\"available\":true") != std::string::npos, "调试信息含 JS 运行时");
+            check(debugJson.find("example_js") != std::string::npos, "调试信息含 JS 插件");
+        }
+
+        // 卸载 → 注册全部摘除
+        {
+            check(
+                musicxx_extern_plugin_plugin_unload(host, viewCP("example_js"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "JS 插件卸载成功"
+            );
+            int32_t after = 0;
+            musicxx_extern_plugin_hook_count(
+                host,
+                viewCP("musicxx.player.beforePlaySong"),
+                &after,
+                &log
+            );
+            check(after == 0, "JS 插件卸载后无钩子残留");
+            MusicxxExternPluginString out{};
+            const auto               rc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("example_js"),
+                viewCP("probe"),
+                viewCP("{}"),
+                1000,
+                &out,
+                &log
+            );
+            freeStr(out);
+            check(rc != MUSICXX_EXTERN_PLUGIN_OK, "JS 插件卸载后能力调用失败");
+        }
+    }
+
+    // 脚本错误安全降级: 非法脚本的插件不应装载成功, 宿主继续可用
+    {
+        MusicxxExternPluginString loadLog{};
+        const auto rc = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("broken_js"),
+            viewCP("{}"),
+            5000,
+            &loadLog
+        );
+        const std::string errText = take(loadLog);
+        check(rc != MUSICXX_EXTERN_PLUGIN_OK, "脚本错误的 JS 插件装载失败");
+        check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT, "脚本错误是明确失败而非超时");
+        std::printf("  [info] broken_js rc=%d log=%s\n", rc, errText.c_str());
+        MusicxxExternPluginString listed{};
+        check(
+            musicxx_extern_plugin_plugin_list(host, &listed, &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "脚本错误后宿主仍可用"
+        );
+        freeStr(listed);
     }
 
     check(musicxx_extern_plugin_host_stop(host, 5000, &log) == MUSICXX_EXTERN_PLUGIN_OK, "host_stop");

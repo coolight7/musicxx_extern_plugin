@@ -1,0 +1,15 @@
+name: example_js
+kind: js
+entry: plugin.js
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "JS 插件示例 (零编译): 跳过广告曲 / 观察切歌 / 错误换源建议 / 能力探针"
+platforms: [windows, linux, macos, android, ios]
+
+permissions:
+  - musicxx.player.control
+  - musicxx.library.read
+  - musicxx.ui
+  - musicxx.storage

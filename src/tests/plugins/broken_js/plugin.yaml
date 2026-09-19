@@ -1,0 +1,11 @@
+name: broken_js
+kind: js
+entry: plugin.js
+
+version: 1.0.0
+api_version: 1
+author: "test"
+description: "测试用: 脚本语法错误, 用于验证装载失败与回滚 (不应出现在正式发布里)"
+platforms: [windows, linux, macos, android, ios]
+
+permissions: []

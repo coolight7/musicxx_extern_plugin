@@ -16,7 +16,10 @@ src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_pa
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作；bindings_generated.dart 与 hook_ids.g.dart 为生成物）
 test/                Dart 侧测试（host_smoke_test.dart 对真实原生库做端到端冒烟）
 example/example_native/ 示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅）
+example/example_js/     示例插件（JS，零编译；与 native 版行为等价）
+src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
+docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
 tools/               build_native.ps1（环境准备 + 调 cmake）、gen_contract.dart（契约生成/校验）、
                      check_submodules.ps1（子模块检查）、smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
@@ -34,7 +37,10 @@ tools/               build_native.ps1（环境准备 + 调 cmake）、gen_contra
    | `cxx_utilxx_base` | 日志/JSON/字符串/取消令牌/系统探测 |
    | `fmt`、`yaml-cpp`、`simdjson` | 格式化、`plugin.yaml` 解析、JSON 后端 |
    | `libiconv-native`、`uchardet` | 字符编码转换与探测（`cxx_utilxx_base` 的 `string_util` **无条件**使用 `<iconv.h>` 与 uchardet，不能靠开关关掉） |
-   | `quickjs` | 已登记版本，供 M3（JS 插件运行时）使用，当前不编译 |
+   | `quickjs` | JS 插件运行时（`src/host/js/`），编入宿主库；不构建它自带的命令行工具 |
+
+   > JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）即可，宿主把它装成内置实例 `js:<pluginId>`。
+   > 关闭方式：`-DMUSICXX_EXTERN_PLUGIN_ENABLE_JS=OFF`（或去掉 quickjs 子模块，构建会自动跳过并打印警告）。
 
    ```powershell
    git submodule update --init --recursive             # 首次拉取

@@ -20,6 +20,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS   "构建原生测试" ON)
+# JS 插件运行时 (QuickJS): 关闭后宿主只支持原生插件 (内核与 Dart C ABI 不受影响)
+option(MUSICXX_EXTERN_PLUGIN_ENABLE_JS     "构建 JS 插件运行时 (QuickJS)" ON)
 
 # ===== 依赖前缀 =====
 # 顶层 superbuild 通过 -DMUSICXX_EXTERN_PLUGIN_DEP_PREFIX / -DXX_INSTALL_DIR 传入;
@@ -70,10 +72,35 @@ get_filename_component(MUSICXX_EXTERN_PLUGIN_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DI
 
 # ==================== 宿主库 ====================
 
+# JS 插件运行时: QuickJS 以 add_subdirectory 直接编入宿主库 (plan §11.2),
+# 不链接它的命令行/标准库模块 (qjs-libc 不参与链接), 也不开 JIT。
+set(MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/third_party/quickjs")
+set(MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE OFF)
+if (MUSICXX_EXTERN_PLUGIN_ENABLE_JS)
+  if (EXISTS "${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR}/CMakeLists.txt")
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(QJS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(QJS_BUILD_CLI_STATIC OFF CACHE BOOL "" FORCE)
+    set(QJS_BUILD_WERROR OFF CACHE BOOL "" FORCE)
+    set(QJS_BUILD_LIBC OFF CACHE BOOL "" FORCE)
+    set(QJS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    # EXCLUDE_FROM_ALL: QuickJS 自带的命令行工具/测试可执行文件不参与默认构建
+    # (qjs 静态库仍会作为本库的依赖被构建)
+    add_subdirectory("${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/quickjs" EXCLUDE_FROM_ALL)
+    set(MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE ON)
+    message(STATUS "[musicxx_ext] JS 插件运行时: QuickJS (${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR})")
+  else ()
+    message(WARNING
+      "[musicxx_ext] 找不到 QuickJS 子模块 (${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR}); "
+      "本次构建不含 JS 插件运行时 (请执行 git submodule update --init --recursive)")
+  endif ()
+endif ()
+
 set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host.cpp
   musicxx_host_tables.cpp
   musicxx_extern_plugin_api.cpp
+  js/js_engine.cpp
 )
 
 add_library(musicxx_extern_plugin SHARED ${MUSICXX_EXTERN_PLUGIN_HOST_SOURCES})
@@ -86,6 +113,11 @@ target_include_directories(musicxx_extern_plugin
 )
 
 target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_BUILD=1)
+
+if (MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE)
+  target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_HAS_JS=1)
+  target_link_libraries(musicxx_extern_plugin PRIVATE qjs)
+endif ()
 
 # 源码与头文件都是 UTF-8 (含中文注释); MSVC 默认按系统代码页(936)解析会吃掉换行导致语法错误
 if (MSVC)
@@ -175,6 +207,18 @@ if (TARGET example_native)
   install(TARGETS example_native RUNTIME DESTINATION plugins/example_native LIBRARY DESTINATION plugins/example_native)
   install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_native/plugin.yaml"
     DESTINATION plugins/example_native)
+endif ()
+
+# JS 插件示例: 纯脚本 + 清单, 无需编译
+if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_js/plugin.yaml")
+  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_js/"
+    DESTINATION plugins/example_js)
+endif ()
+
+# 原生测试用的插件夹具 (含故意损坏的插件, 用于验证失败降级)
+if (EXISTS "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/plugins/")
+  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/plugins/"
+    DESTINATION plugins)
 endif ()
 
 if (TARGET musicxx_extern_plugin_test)
