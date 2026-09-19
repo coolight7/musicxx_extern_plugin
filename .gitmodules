@@ -1,0 +1,21 @@
+[submodule "src/third_party/cxx_pluginxx"]
+	path = src/third_party/cxx_pluginxx
+	url = D:/0Acoolight/Program/cpp/agentxx/agent/third_party/cxx_pluginxx
+[submodule "src/third_party/cxx_utilxx_base"]
+	path = src/third_party/cxx_utilxx_base
+	url = https://github.com/coolight7/cxx_utilxx_base
+[submodule "src/third_party/fmt"]
+	path = src/third_party/fmt
+	url = https://github.com/fmtlib/fmt
+[submodule "src/third_party/yaml-cpp"]
+	path = src/third_party/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp
+[submodule "src/third_party/simdjson"]
+	path = src/third_party/simdjson
+	url = https://github.com/simdjson/simdjson
+[submodule "src/third_party/uchardet"]
+	path = src/third_party/uchardet
+	url = https://github.com/coolight7/uchardet
+[submodule "src/third_party/quickjs"]
+	path = src/third_party/quickjs
+	url = https://github.com/quickjs-ng/quickjs
