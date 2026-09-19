@@ -153,6 +153,44 @@ void main() {
 
     _step('11 unload 完成');
 
+    // ===== 声明式 UI 扩展 (plan §5.6) =====
+    // 重新装载原生示例插件, 读取 UI 项快照 (入口项 / 菜单项 / 顺序 / 动作描述)
+    runtime.plugins.load('example_native');
+    final List<MusicxxPluginUIItem> uiItems = runtime.plugins.uiSnapshot();
+    final List<MusicxxPluginUIItem> homeEntries =
+        MusicxxPluginUIItems.byType(uiItems, MusicxxPluginUIType.homeEntry);
+    final List<MusicxxPluginUIItem> songActions =
+        MusicxxPluginUIItems.byType(uiItems, MusicxxPluginUIType.songAction);
+    expect(
+      homeEntries.any((MusicxxPluginUIItem item) => item.plugin == 'example_native'),
+      isTrue,
+      reason: '快照: $uiItems',
+    );
+    final MusicxxPluginUIItem card = homeEntries
+        .firstWhere((MusicxxPluginUIItem item) => item.plugin == 'example_native');
+    expect(card.name, 'card');
+    expect(card.title, isNotEmpty);
+    expect(card.actionKind, MusicxxPluginUIActionKind.route);
+    expect(card.viewId, 'card');
+    expect(
+      songActions.any((MusicxxPluginUIItem item) => item.plugin == 'example_native'),
+      isTrue,
+      reason: '快照: $songActions',
+    );
+
+    _step('11.5 UI 项快照完成: ${uiItems.length} 项');
+    // 卸载后 UI 项被摘除 (宿主随实例摘除, Dart 侧不再渲染)
+    runtime.plugins.unload('example_native');
+    expect(
+      runtime.plugins
+          .uiSnapshot()
+          .any((MusicxxPluginUIItem item) => item.plugin == 'example_native'),
+      isFalse,
+      reason: '卸载后不应残留该插件的 UI 项',
+    );
+
+    _step('11.6 卸载后 UI 项摘除完成');
+
     // ===== JS 插件 (零编译, plan §4.4/§4.6) =====
     // 扫描结果里应有 JS 示例插件
     final List<MusicxxPluginInfo> found2 = runtime.plugins.scan();
@@ -168,6 +206,14 @@ void main() {
     expect(runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong), 1);
 
     _step('13 JS 插件装载完成');
+    // JS 插件的 UI 项 (顶层注册 → 宿主线程回放) 同样进快照
+    final List<MusicxxPluginUIItem> uiItemsJs = runtime.plugins.uiSnapshot();
+    expect(
+      uiItemsJs.any((MusicxxPluginUIItem item) =>
+          item.plugin == 'example_js' && item.type == MusicxxPluginUIType.homeEntry),
+      isTrue,
+      reason: '快照: $uiItemsJs',
+    );
     // 裁决型钩子 (JS 侧处理器)
     final Map<String, Object?>? jsVerdict = runtime.hooks.decide(
       MusicxxPluginHookId.playerBeforePlaySong,

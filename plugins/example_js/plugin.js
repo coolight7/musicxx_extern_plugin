@@ -1,6 +1,6 @@
 /// musicxx 外部插件示例 (JS, 零编译)
 ///
-/// 行为与 `example/example_native` 等价, 用来验证两条链路一致:
+/// 行为与 `plugins/example_native` 等价, 用来验证两条链路一致:
 /// - `musicxx.player.beforePlaySong` 裁决: 含"广告"的曲目 → skip;
 /// - `musicxx.song.changed` 观察: 切歌时记录名称并累加计数;
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
@@ -63,6 +63,59 @@ musicxx.timer.setInterval(function () {
     musicxx.host.log(2, "example_js 心跳: 切歌 " + songChangedCount + " 次, 错误 " + errorCount + " 次");
 }, 30000);
 
+/// 声明式 UI 扩展 (plan §5.6): 主页入口项 + 歌曲菜单项
+/// 说明: UI 项只做声明 (标题/图标/动作), 渲染由宿主负责; 运行期也能再注册/更新/注销。
+musicxx.ui.registerEntry({
+    name: "card",
+    type: "home.entry",
+    order: 110,
+    data: {
+        title: "JS 示例插件",
+        subtitle: "example_js 提供的入口",
+        icon: "addition",
+        action: { kind: "route", route: "ext://example_js/card" },
+    },
+});
+
+musicxx.ui.registerEntry({
+    name: "songInfo",
+    type: "song.action",
+    order: 910,
+    data: {
+        title: "JS 示例插件：查看歌曲信息",
+        action: { kind: "capability", name: "probe", args: { from: "ui" } },
+    },
+});
+
+/// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
+musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function () {
+    return null;
+}, function (err) {
+    musicxx.host.log(3, "发送通知失败: " + err.message);
+});
+
+/// 能力: 跨插件调用 (JS → 原生/内置插件; 结果为 Promise, 宿主线程执行)
+///
+/// - 目标是 JS 插件时同线程直接调用 (结果立即就绪);
+/// - 目标是原生插件时投递到宿主线程执行, 脚本不阻塞 (宿主线程可能正等 JS 处理器)。
+/// 能力处理器必须**同步返回** (plan §7.2), 所以跨插件调用的结果用"最后一次结果"记账,
+/// 由 probe 能力回读 (测试用; 真实插件应把异步结果写进自己的状态或 UI 项)。
+let crossCallState = { pending: 0, ok: 0, keys: 0, error: "" };
+
+musicxx.capability.register("crossCall", function (args) {
+    const target = (args && args.target) ? String(args.target) : "example_native";
+    const method = (args && args.method) ? String(args.method) : "probe";
+    crossCallState = { pending: 1, ok: 0, keys: 0, error: "" };
+    musicxx.capability.call(target, method, {}).then(function (result) {
+        crossCallState = { pending: 0, ok: 1, keys: Object.keys(result || {}).length, error: "" };
+        musicxx.host.log(2, "跨插件调用成功: " + target + " 返回 " + crossCallState.keys + " 个字段");
+    }, function (err) {
+        crossCallState = { pending: 0, ok: 0, keys: 0, error: err.message };
+        musicxx.host.log(3, "跨插件调用失败: " + err.message);
+    });
+    return { accepted: 1, target: target, method: method };
+});
+
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
@@ -75,6 +128,13 @@ musicxx.capability.register("probe", function (args) {
         timerTicks: timerTicks,
         hostPlatform: info.platform || "",
         currentSongName: currentSongName(),
+        uiEntries: musicxx.ui.entries().length,
+        // 自读统计 (plan §4.11: 只观测不限制; 插件可据此显示自己的用量)
+        selfStatsHooks: (musicxx.stats.getSelf() || {}).hooks || 0,
+        crossPending: crossCallState.pending,
+        crossOk: crossCallState.ok,
+        crossKeys: crossCallState.keys,
+        crossError: crossCallState.error,
     };
 });
 

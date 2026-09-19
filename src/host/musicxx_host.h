@@ -42,6 +42,9 @@ namespace extern_plugin {
 /// JS 运行时 (plan §4.6; 定义在 js/js_engine.h)
 class JsEngine;
 
+/// `musicxx.ui` 表的 C ABI 实现 (定义在 musicxx_host_ui.cpp; 供 query_interface 分发)
+const void* uiIfaceForQuery();
+
 /* ==================== 有界等待槽 ==================== */
 
 /// 宿主线程完成工作后唤醒等待方 (调用方线程等待有上界)
@@ -237,6 +240,19 @@ public:
         std::string&       err
     );
 
+    /// 调用插件能力 (**不等待版本**; 任意线程调用, 完成回调在宿主线程)
+    ///
+    /// 给"不能让宿主线程停下来等结果"的场景使用 (例如 JS 线程发起的跨插件调用:
+    /// 若在那里同步等待宿主线程, 而宿主线程可能正等待 JS 处理器 → 互锁)。
+    /// - 语义与 [pluginCall] 一致 (能力名前缀补齐、归属校验、错误码);
+    /// - `done(rc, text)` 在**宿主线程**恰好一次; rc == 0 时 text 是结果 JSON, 否则是错误说明。
+    void pluginCallAsync(
+        const std::string&                               id,
+        const std::string&                               method,
+        const std::string&                               argsJson,
+        std::function<void(int32_t, const std::string&)> done
+    );
+
     /* ---------- 钩子 ---------- */
 
     int32_t hookEmit(
@@ -302,8 +318,38 @@ public:
         int64_t*                          outRequestId
     );
 
+    /// 宿主线程执行器 (投递到宿主线程执行用; plan §2.3.1 的唯一原生插件线程)
+    ///
+    /// 供宿主内运行时 (JS 引擎) 把"运行期注册/订阅"等操作投递到宿主线程执行 ——
+    /// 宿主线程独占注册表, 因此这些操作不能直接在其他线程改状态。
+    asio::any_io_executor hostExecutor() const;
+
     /// 当前插件 id (由实例名推导; JS 实例名为 "js:<id>")
     static std::string pluginIdOf(std::string_view instanceName);
+
+    /* ---------- UI 声明式扩展 (plan §5.6; 均在宿主线程执行) ---------- */
+
+    /// 注册/覆盖一个 UI 项
+    ///
+    /// - `spec.item_id` 可以是短名 (宿主补 `plugin.<pluginId>.` 前缀) 或本插件的全名;
+    /// - 类型必须是官方 `MUSICXX_PLUGIN_UI_TYPE_*` 之一, data 结构按类型校验;
+    /// - 每个插件最多 [kMaxUiEntriesPerPlugin] 个项, 超出返回 `ERR_QUEUE_FULL`。
+    int32_t registerUiEntry(MusicxxHostInstance* inst, const MusicxxPluginUIEntrySpec& spec);
+
+    /// 注销一个 UI 项 (不存在返回 `ERR_NOT_FOUND`)
+    int32_t unregisterUiEntry(MusicxxHostInstance* inst, std::string_view itemId);
+
+    /// 更新一个 UI 项的声明式内容
+    int32_t updateUiEntry(MusicxxHostInstance* inst, std::string_view itemId, std::string_view dataJson);
+
+    /// 列出某插件已注册的 UI 项 (JSON 数组; `inst` 为空时列出全部)
+    int32_t listUiEntries(MusicxxHostInstance* inst, std::string& outJson);
+
+    /// 通知/提示 (fire-and-forget: 走动作 `musicxx.ui.notify`, 结果不回传插件)
+    int32_t notifyUi(MusicxxHostInstance* inst, std::string_view messageJson);
+
+    /// UI 项数量上限 (每个插件)
+    static constexpr size_t kMaxUiEntriesPerPlugin = 64;
 
     /// 按**插件 id 或实例名**解析实例 (JS 插件实例名是 `js:<id>`, 与插件 id 不同)
     ///
@@ -436,6 +482,14 @@ private:
         std::shared_ptr<asio::steady_timer> timer;
     };
 
+    /// 在宿主线程发起能力调用 (**必须已在宿主线程调用**; pluginCall / pluginCallAsync 共用)
+    void invokeCapabilityOnHostThread(
+        const std::string&                               id,
+        const std::string&                               method,
+        const std::string&                               argsJson,
+        std::function<void(int32_t, const std::string&)> done
+    );
+
     /// 宿主线程上执行的同步派发
     std::string dispatchHook(const std::string& hookId, const std::string& inputJson, uint32_t budgetMs, bool sync);
     void        clearPluginRegistrations(const std::string& instanceName);
@@ -468,6 +522,27 @@ private:
     std::map<std::string, std::vector<HookHandler>, std::less<>> hooks_;
     uint64_t                                                     hookSeq_ = 0;
 
+    /// 一个已注册的 UI 项 (声明式扩展; 生命周期 = 插件实例)
+    struct UiEntry {
+        std::string plugin;   ///< 实例名
+        std::string pluginId; ///< 插件 id (去掉 js: 前缀)
+        std::string id;       ///< 全名 plugin.<pluginId>.<名>
+        std::string type;     ///< MUSICXX_PLUGIN_UI_TYPE_*
+        std::string dataJson; ///< 声明式内容
+        int32_t     order = 0;
+        uint64_t    seq   = 0; ///< 注册顺序 (同 order 时稳定排序)
+    };
+
+    /// UI 项注册表 (仅宿主线程)
+    std::map<std::string, UiEntry, std::less<>> uiEntries_;
+    uint64_t                                    uiSeq_ = 0;
+
+    /// 摘除某实例的全部 UI 项 (宿主线程; 有变化时推送 musicxx.ui.changed)
+    void detachUiEntries(const std::string& instanceName);
+
+    /// 序列化 UI 项 (pluginId 为空 = 全部; 按 type/order/seq 排序)
+    std::string uiItemsJson(const std::string& pluginId) const;
+
     // 动作请求 (宿主线程)
     std::map<int64_t, PendingAction> pendingActions_;
     /// 在途请求 id 计数器 (原生插件与 JS 引擎共用; **任意线程**可用)
@@ -491,6 +566,8 @@ private:
     int32_t     flags_        = 0;
     int32_t     hookBudgetMs_ = 30;
     int32_t     hookHardMs_   = 100;
+    /// 可选 JS 执行上限 (毫秒; 0 = 关闭; 默认关闭, 决策 13)
+    int32_t     jsExecGuardMs_ = 0;
     bool        statsEnabled_ = true;
 
     // 已知插件 (宿主线程 + Dart 线程都读; 由 registryMutex_ 保护)

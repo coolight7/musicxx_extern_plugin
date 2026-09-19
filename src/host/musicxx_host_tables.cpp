@@ -1014,7 +1014,10 @@ const void* PLUGINXX_CALL xx_query_interface(const PluginxxHost*, const Pluginxx
     if (name == MUSICXX_PLUGIN_IFACE_HOST) {
         return &g_ifaceHost;
     }
-    // 预留表 (musicxx.player/library/lyrics/ui/storage/net/stats/agent): v1 返回空,
+    if (name == MUSICXX_PLUGIN_IFACE_UI) {
+        return uiIfaceForQuery();
+    }
+    // 预留表 (musicxx.player/library/lyrics/storage/net/stats/agent): v1 返回空,
     // 插件据此判空并降级 (IID 已冻结, 后续实现不再改动契约)
     return nullptr;
 }

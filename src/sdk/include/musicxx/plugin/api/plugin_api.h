@@ -176,9 +176,90 @@ typedef struct MusicxxPluginHostIface {
     void(PLUGINXX_CALL* cancel_action)(const PluginxxHost* host, int64_t request_id);
 } MusicxxPluginHostIface;
 
+/* ==================== 接口表: musicxx.ui (声明式 UI 扩展, plan §5.6) ==================== */
+
+#define MUSICXX_PLUGIN_IFACE_UI         "musicxx.ui"
+#define MUSICXX_PLUGIN_IFACE_UI_VERSION 1
+
+/* UI 项类型 (官方; 插件注册的项必须取其中之一, 否则注册被拒绝) */
+/// 功能主页入口项: data = {title, subtitle?, icon?, action?}
+#define MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY      "musicxx.ui.home.entry"
+/// 歌曲菜单项: data = {title, icon?, action?}
+#define MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION     "musicxx.ui.song.action"
+/// 歌单菜单项: data = {title, icon?, action?}
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
+/// 设置页: data = {title, groups:[...]}
+#define MUSICXX_PLUGIN_UI_TYPE_SETTINGS_PAGE   "musicxx.ui.settings.page"
+/// 播放页/悬浮歌词附加信息 (只读展示): data = {position, content:{kind,...}}
+#define MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET  "musicxx.ui.overlay.widget"
+
+/* UI 项动作类型 (data.action.kind; 缺省视为 callback/无动作) */
+/// 打开声明式插件页面: {"kind":"route","route":"ext://<本插件id>/<viewId>"}
+#define MUSICXX_PLUGIN_UI_ACTION_ROUTE      "route"
+/// 调用本插件自己的能力: {"kind":"capability","name":"<短名>","args":{...}}
+#define MUSICXX_PLUGIN_UI_ACTION_CAPABILITY "capability"
+/// 调用宿主官方动作: {"kind":"action","name":"musicxx.<域>.<动作>","args":{...}}
+#define MUSICXX_PLUGIN_UI_ACTION_HOST       "action"
+/// 无动作 (纯展示项)
+#define MUSICXX_PLUGIN_UI_ACTION_NONE       "none"
+
+/// UI 项注册规格
+///
+/// `item_id` 可以是本插件的**短名**（宿主自动补 `plugin.<pluginId>.` 前缀），
+/// 也可以是完整全名 `plugin.<pluginId>.<名>`（必须属于本插件命名空间，否则拒绝注册）。
+/// `data_json` 是类型相关的声明式内容（JSON 对象，单条上限 64 KiB）。
+typedef struct MusicxxPluginUIEntrySpec {
+    int32_t  version;      ///< == 1
+    uint32_t struct_size;  ///< == sizeof(MusicxxPluginUIEntrySpec)
+
+    PluginxxStringView item_id;   ///< 短名 "card" 或全名 "plugin.ad_skipper.card"
+    PluginxxStringView type;      ///< MUSICXX_PLUGIN_UI_TYPE_*
+    PluginxxStringView data_json; ///< 声明式内容 (JSON 对象)
+
+    int32_t order;  ///< 排序权重 (小者靠前; 同权重按注册顺序)
+    int32_t flags;  ///< 预留 (必须为 0)
+} MusicxxPluginUIEntrySpec;
+
+typedef struct MusicxxPluginUIIface {
+    int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_UI_VERSION
+    uint32_t struct_size;
+
+    /// 注册/覆盖一个 UI 项
+    /// - 返回 0 成功; -1 参数非法 (含 data 结构不合法);
+    ///   -2 状态错误 (未启动/已禁用); -4 未知类型; -6 命名空间不属于本插件; -7 项数超限
+    int32_t(PLUGINXX_CALL* register_entry)(
+        const PluginxxHost*                host,
+        const MusicxxPluginUIEntrySpec*    spec
+    );
+
+    /// 注销一个 UI 项 (item_id 必须是本插件的项; 不存在返回 -4)
+    int32_t(PLUGINXX_CALL* unregister_entry)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         item_id
+    );
+
+    /// 更新一个 UI 项的声明式内容 (data 校验规则与注册一致)
+    int32_t(PLUGINXX_CALL* update_entry)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         item_id,
+        const PluginxxStringView*         data_json
+    );
+
+    /// 列出本插件已注册的 UI 项 (JSON 数组)
+    int32_t(PLUGINXX_CALL* list_entries)(
+        const PluginxxHost*               host,
+        PluginxxString*                   out_json
+    );
+
+    /// 通知/提示 (等价于动作 `musicxx.ui.notify`; fire-and-forget, 不等待用户界面)
+    int32_t(PLUGINXX_CALL* notify)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         message_json
+    );
+} MusicxxPluginUIIface;
+
 /* ==================== 预留接口表 (v1 只冻结 IID 与版本; 表体后续实现) ==================== */
 
-#define MUSICXX_PLUGIN_IFACE_UI      "musicxx.ui"
 #define MUSICXX_PLUGIN_IFACE_PLAYER  "musicxx.player"
 #define MUSICXX_PLUGIN_IFACE_LIBRARY "musicxx.library"
 #define MUSICXX_PLUGIN_IFACE_LYRICS  "musicxx.lyrics"

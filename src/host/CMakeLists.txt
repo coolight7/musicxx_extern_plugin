@@ -99,6 +99,7 @@ endif ()
 set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host.cpp
   musicxx_host_tables.cpp
+  musicxx_host_ui.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
 )
@@ -166,10 +167,13 @@ if (MSVC)
 endif ()
 unset(_sdkInc)
 
-# ==================== 示例插件 ====================
+# ==================== 官方插件 (含示例) ====================
+#
+# 源码目录 `plugins/` 放官方实现与示例插件 (每个子目录一个插件); 示例插件的 C++ 版
+# 需要参与构建, JS 版是纯脚本 (只做安装/复制)。第三方作者可以参考它们的写法。
 
 if (MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE)
-  add_subdirectory("${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_native"
+  add_subdirectory("${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native"
                    "${CMAKE_CURRENT_BINARY_DIR}/example_native")
 endif ()
 
@@ -205,13 +209,13 @@ install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/include/"
 
 if (TARGET example_native)
   install(TARGETS example_native RUNTIME DESTINATION plugins/example_native LIBRARY DESTINATION plugins/example_native)
-  install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_native/plugin.yaml"
+  install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native/plugin.yaml"
     DESTINATION plugins/example_native)
 endif ()
 
 # JS 插件示例: 纯脚本 + 清单, 无需编译
-if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_js/plugin.yaml")
-  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/example/example_js/"
+if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_js/plugin.yaml")
+  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_js/"
     DESTINATION plugins/example_js)
 endif ()
 

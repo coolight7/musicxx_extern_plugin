@@ -15,6 +15,8 @@
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
 
+#include <asio/post.hpp>
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -140,7 +142,9 @@ constexpr const char* kPrelude = R"JS(
   var hookTable = new Map();
   var subTable = new Map();
   var capTable = new Map();
+  var uiTable = new Map();
   var actionWaiters = new Map();
+  var capabilityWaiters = new Map();
   var timerTable = new Map();
 
   function logError(message) {
@@ -153,6 +157,50 @@ constexpr const char* kPrelude = R"JS(
   }
   function safeJson(value) {
     try { return JSON.stringify(value); } catch (e) { return "{}"; }
+  }
+  /// UI 项名称: 允许短名或本插件全名 (宿主按短名登记, 全名去掉前缀)
+  function shortName(value) {
+    var text = String(value);
+    var prefix = "plugin." + musicxx.pluginId + ".";
+    return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
+  }
+  /// UI 项类型: 允许写官方全名 (`musicxx.ui.home.entry`) 或简称 (`home.entry`)
+  var UI_TYPES = {
+    "home.entry": "musicxx.ui.home.entry",
+    "song.action": "musicxx.ui.song.action",
+    "playlist.action": "musicxx.ui.playlist.action",
+    "settings.page": "musicxx.ui.settings.page",
+    "overlay.widget": "musicxx.ui.overlay.widget"
+  };
+  function normalizeType(value) {
+    assertName(value, "ui.registerEntry: type");
+    var text = String(value);
+    return UI_TYPES[text] || text;
+  }
+  function normalizeEntry(spec) {
+    if (typeof spec === "string") { spec = { name: spec }; }
+    if (!spec || typeof spec !== "object") { throw new Error("ui.registerEntry: 需要对象参数"); }
+    var name = (typeof spec.name === "string" && spec.name)
+                 ? spec.name
+                 : (typeof spec.id === "string" ? spec.id : "");
+    name = shortName(name);
+    assertName(name, "ui.registerEntry: name");
+    spec.type = normalizeType(spec.type);
+    var data = spec.data;
+    if (data === undefined || data === null) {
+      data = {};
+      Object.keys(spec).forEach(function (key) {
+        if (key === "name" || key === "id" || key === "type" || key === "order" || key === "data") { return; }
+        data[key] = spec[key];
+      });
+    }
+    if (typeof data !== "object" || data === null) { throw new Error("ui.registerEntry: data 必须是对象"); }
+    return {
+      name: name,
+      type: String(spec.type),
+      order: Number.isFinite(spec.order) ? Math.trunc(spec.order) : 0,
+      data: data
+    };
   }
 
   var musicxx = {};
@@ -271,6 +319,48 @@ constexpr const char* kPrelude = R"JS(
     },
     toast: function (args) {
       return musicxx.call("musicxx.ui.toast", typeof args === "string" ? { text: args } : args);
+    },
+    registerEntry: function (spec) {
+      var entry = normalizeEntry(spec);
+      uiTable.set(entry.name, { type: entry.type, order: entry.order, data: entry.data });
+      ext.uiOp("register", entry.name, entry.type, safeJson(entry.data), entry.order);
+      return musicxx;
+    },
+    updateEntry: function (name, data) {
+      assertName(name, "ui.updateEntry: 名称");
+      var key = shortName(name);
+      var previous = uiTable.get(key);
+      var type = previous ? previous.type : "";
+      if (previous) { previous.data = data; }
+      ext.uiOp("update", key, type, safeJson(data), 0);
+      return musicxx;
+    },
+    unregisterEntry: function (name) {
+      assertName(name, "ui.unregisterEntry: 名称");
+      var key = shortName(name);
+      uiTable.delete(key);
+      ext.uiOp("unregister", key, "", "{}", 0);
+      return musicxx;
+    },
+    entries: function () {
+      var list = [];
+      uiTable.forEach(function (value, name) {
+        list.push({ id: "plugin." + musicxx.pluginId + "." + name, name: name,
+                    type: value.type, order: value.order, data: value.data });
+      });
+      return list;
+    }
+  };
+
+  musicxx.stats = {
+    getSelf: function () {
+      try { return JSON.parse(ext.stats() || "{}"); } catch (e) { return {}; }
+    },
+    reportMemory: function (bytes) {
+      return musicxx.call("musicxx.stats.reportMemory", { bytes: Number(bytes) || 0 });
+    },
+    reportMetric: function (name, value) {
+      return musicxx.call("musicxx.stats.reportMetric", { name: String(name), value: value });
     }
   };
 
@@ -284,10 +374,16 @@ constexpr const char* kPrelude = R"JS(
     subscribe: function (topic, fn) {
       assertName(topic, "events.subscribe: 主题");
       if (typeof fn !== "function") { throw new Error("events.subscribe: 缺少处理函数"); }
+      var isNew = !subTable.has(topic);
       subTable.set(topic, fn);
+      if (isNew) { ext.subscribeHost(topic); }
       return undefined;
     },
-    unsubscribe: function (topic) { subTable.delete(String(topic)); }
+    unsubscribe: function (topic) {
+      var key = String(topic);
+      subTable.delete(key);
+      return undefined;
+    }
   };
   ext.onEvent = function (topic, json) {
     var fn = subTable.get(topic);
@@ -308,8 +404,49 @@ constexpr const char* kPrelude = R"JS(
       capTable.set(name, fn);
       return undefined;
     },
-    call: function () {
-      throw new Error("capability.call 暂未支持 (v1 只支持注册)");
+    call: function (pluginId, name, args, timeoutMs) {
+      assertName(pluginId, "capability.call: 插件 id");
+      assertName(name, "capability.call: 能力名");
+      var budget = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 3000;
+      if (budget < 1000) { budget = 1000; }
+      var text = ext.capabilityCall(String(pluginId), String(name),
+                                    safeJson(args === undefined ? {} : args), budget);
+      var info = null;
+      try { info = JSON.parse(text || "{}"); } catch (e) { info = null; }
+      if (!info || typeof info.status !== "string") {
+        return Promise.reject(new Error("跨插件调用失败: 宿主返回了非法结果"));
+      }
+      if (info.status === "ok") {
+        return Promise.resolve(info.result === undefined ? null : info.result);
+      }
+      if (info.status === "pending") {
+        // 原生/内置目标: 结果稍后经 ext.onCapabilityResult 回到 JS 线程
+        return new Promise(function (resolve, reject) {
+          var waiter = { resolve: resolve, reject: reject, timer: 0 };
+          waiter.timer = musicxx.timer.setTimeout(function () {
+            if (capabilityWaiters.delete(info.id)) {
+              reject(new Error("跨插件调用超时: " + pluginId + "." + name));
+            }
+          }, budget + 1000);
+          capabilityWaiters.set(info.id, waiter);
+        });
+      }
+      return Promise.reject(new Error("跨插件调用失败: " + (info.error || "capability_call_failed")));
+    }
+  };
+  ext.onCapabilityResult = function (id, json) {
+    var key = Number(id);
+    var waiter = capabilityWaiters.get(key);
+    if (!waiter) { return; }
+    capabilityWaiters.delete(key);
+    musicxx.timer.clear(waiter.timer);
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (info && info.ok === true) {
+      waiter.resolve(info.result === undefined ? null : info.result);
+    } else {
+      var reason = (info && info.error) ? info.error : "capability_call_failed";
+      waiter.reject(new Error("跨插件调用失败: " + reason));
     }
   };
   ext.invokeCapability = function (name, argsJson) {
@@ -404,11 +541,16 @@ constexpr const char* kPrelude = R"JS(
     hookTable.clear();
     subTable.clear();
     capTable.clear();
+    uiTable.clear();
     timerTable.clear();
     actionWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
     actionWaiters.clear();
+    capabilityWaiters.forEach(function (waiter) {
+      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+    });
+    capabilityWaiters.clear();
   };
 
   /* ---- console ---- */
@@ -610,11 +752,143 @@ JSValue jsEngineVersion(JSContext* ctx, JSValueConst, int /*argc*/, JSValueConst
     return JS_NewString(ctx, "0.1.0");
 }
 
+/// UI 项操作 (register | update | unregister)
+JSValue jsUiOp(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* inst = contextInstance(ctx);
+    if (!inst || !inst->engine || argc < 4) {
+        return JS_UNDEFINED;
+    }
+    const char* op     = JS_ToCString(ctx, argv[0]);
+    const char* name   = JS_ToCString(ctx, argv[1]);
+    const char* type   = JS_ToCString(ctx, argv[2]);
+    const char* data   = JS_ToCString(ctx, argv[3]);
+    int32_t     order  = 0;
+    if (argc >= 5) {
+        JS_ToInt32(ctx, &order, argv[4]);
+    }
+    inst->engine->bridgeUiOp(
+        inst->name,
+        op ? op : "",
+        name ? name : "",
+        type ? type : "",
+        data ? data : "{}",
+        order
+    );
+    if (op) {
+        JS_FreeCString(ctx, op);
+    }
+    if (name) {
+        JS_FreeCString(ctx, name);
+    }
+    if (type) {
+        JS_FreeCString(ctx, type);
+    }
+    if (data) {
+        JS_FreeCString(ctx, data);
+    }
+    return JS_UNDEFINED;
+}
+
+/// 运行期动态订阅 (顶层声明由回放处理; 这里只处理运行期新增)
+JSValue jsSubscribeHost(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* inst = contextInstance(ctx);
+    if (!inst || !inst->engine || argc < 1) {
+        return JS_UNDEFINED;
+    }
+    const char* topic = JS_ToCString(ctx, argv[0]);
+    inst->engine->bridgeSubscribeHost(inst->name, topic ? topic : "");
+    if (topic) {
+        JS_FreeCString(ctx, topic);
+    }
+    return JS_UNDEFINED;
+}
+
+/// 本实例统计 (JSON 文本)
+JSValue jsStats(JSContext* ctx, JSValueConst, int /*argc*/, JSValueConst* /*argv*/) {
+    auto* inst = contextInstance(ctx);
+    if (!inst || !inst->engine) {
+        return JS_NewString(ctx, "{}");
+    }
+    std::string json = inst->engine->instanceStatsJson(inst->name);
+    return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 跨插件能力调用 (返回控制对象 JSON, 由 prelude 决定同步解析还是等回执)
+JSValue jsCapabilityCall(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* inst = contextInstance(ctx);
+    if (!inst || !inst->engine || argc < 3) {
+        return JS_NewString(ctx, R"({"status":"error","error":"参数非法"})");
+    }
+    const char* pluginId = JS_ToCString(ctx, argv[0]);
+    const char* name     = JS_ToCString(ctx, argv[1]);
+    const char* args     = JS_ToCString(ctx, argv[2]);
+    int32_t     timeout  = 3000;
+    if (argc >= 4) {
+        JS_ToInt32(ctx, &timeout, argv[3]);
+    }
+    std::string   out;
+    std::string   err;
+    int64_t       pendingId = 0;
+    const int32_t rc        = inst->engine->callCapability(
+        inst->name,
+        pluginId ? pluginId : "",
+        name ? name : "",
+        args ? args : "{}",
+        timeout > 0 ? static_cast<uint32_t>(timeout) : 3000u,
+        &pendingId,
+        out,
+        err
+    );
+    if (pluginId) {
+        JS_FreeCString(ctx, pluginId);
+    }
+    if (name) {
+        JS_FreeCString(ctx, name);
+    }
+    if (args) {
+        JS_FreeCString(ctx, args);
+    }
+
+    Json payload;
+    if (rc == JsEngine::kCallCapabilityDone) {
+        payload["status"] = "ok";
+        payload["result"] = out.empty() ? Json(nullptr) : parseJsonSafe(out);
+    } else if (rc == JsEngine::kCallCapabilityPending) {
+        payload["status"] = "pending";
+        payload["id"]     = pendingId;
+    } else {
+        payload["status"] = "error";
+        payload["error"]  = err.empty() ? "capability_call_failed" : err;
+    }
+    const std::string text = payload.dump();
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
 JSValue jsPluginId(JSContext* ctx, JSValueConst, int /*argc*/, JSValueConst* /*argv*/) {
     auto* inst = contextInstance(ctx);
     return JS_NewString(ctx, inst ? inst->id.c_str() : "");
 }
 
+/* ==================== 可选执行上限 (plan §4.10; 默认关闭) ==================== */
+
+/// 本次进入脚本的执行截止时刻 (steady 毫秒; 0 = 不限制; 只在 JS 线程读写)
+thread_local int64_t gExecDeadlineMs = 0;
+
+/// QuickJS 中断回调: 返回非 0 让引擎中断当前脚本执行
+///
+/// 这是**用户可选的保护开关** (配置 `jsExecGuardMs`), 不是宿主默认限制:
+/// 关闭时本回调恒返回 0, 不会打断任何脚本 (决策 13)。
+int jsExecInterruptHandler(JSRuntime* /*rt*/, void* /*opaque*/) {
+    if (gExecDeadlineMs <= 0) {
+        return 0;
+    }
+    return nowSteadyMs() > gExecDeadlineMs ? 1 : 0;
+}
+
+/// 异常文本是否来自"执行上限中断"
+bool isInterruptError(const std::string& text) {
+    return text.find("interrupt") != std::string::npos;
+}
 /// 装好 `__ext` 桥接对象 (返回值的所有权交给调用方 / JS_SetPropertyStr)
 JSValue buildBridgeObject(JSContext* ctx) {
     struct Entry {
@@ -630,8 +904,12 @@ JSValue buildBridgeObject(JSContext* ctx) {
         {"action", jsAction, 3},
         {"actionCancel", jsActionCancel, 0},
         {"publish", jsPublish, 2},
+        {"subscribeHost", jsSubscribeHost, 1},
         {"timerSet", jsTimerSet, 2},
         {"timerClear", jsTimerClear, 1},
+        {"uiOp", jsUiOp, 5},
+        {"stats", jsStats, 0},
+        {"capabilityCall", jsCapabilityCall, 4},
         {"engineVersion", jsEngineVersion, 0},
         {"pluginId", jsPluginId, 0},
     };
@@ -952,6 +1230,27 @@ void JsEngine::runLoop() {
         fireDueTimers();
         expireActions();
 #if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
+        {
+            /// JS 堆用量采样 (plan §4.11: 只观测不限制; 默认 10 秒一次)
+            constexpr int64_t kHeapSampleIntervalMs = 10000;
+            const auto        now                  = nowSteadyMs();
+            if (now - heapSampledAtMs_ >= kHeapSampleIntervalMs) {
+                heapSampledAtMs_ = now;
+                std::vector<std::shared_ptr<Instance>> sample;
+                {
+                    std::lock_guard lock{mutex_};
+                    for (auto& [name, inst] : instances_) {
+                        (void)name;
+                        sample.push_back(inst);
+                    }
+                }
+                for (const auto& inst : sample) {
+                    sampleHeap(inst);
+                }
+            }
+        }
+#endif
+#if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
         // 执行挂起的 promise 任务 (每个实例的 runtime 各自推进)
         std::vector<std::shared_ptr<Instance>> list;
         {
@@ -1106,6 +1405,302 @@ void JsEngine::bridgeTimerClear(const std::string& instance, int64_t timerId) {
     });
 }
 
+/* ==================== 桥接: UI / 订阅 / 统计 / 能力调用 ==================== */
+
+void JsEngine::bridgeUiOp(
+    const std::string& instanceName,
+    const std::string& op,
+    const std::string& name,
+    const std::string& type,
+    const std::string& dataJson,
+    int32_t            order
+) {
+    auto inst = lookupInstance(instanceName);
+    if (!inst || !mgr_ || !mgr_->running()) {
+        return;
+    }
+    if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
+        /// 脚本顶层登记阶段: 先记账, 由 applyRegistrations 在宿主线程回放
+        /// (与钩子/能力/订阅同一套做法, 避免"宿主线程等 JS、JS 等宿主线程")
+        Instance::PendingUiOp entry;
+        entry.op       = op;
+        entry.name     = name;
+        entry.type     = type;
+        entry.dataJson = dataJson;
+        entry.order    = order;
+        inst->pendingUiOps.push_back(std::move(entry));
+        return;
+    }
+    /// 运行期: 投递不等待 (plan §2.3.2); 失败只记日志与事件, 不回传给脚本
+    const std::string pluginId = inst->id;
+    asio::post(mgr_->hostExecutor(), [this, pluginId, instanceName, op, name, type, dataJson, order] {
+        auto current = mgr_->resolveInstance(instanceName);
+        if (!current) {
+            return;
+        }
+        int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+        if (op == "register") {
+            MusicxxPluginUIEntrySpec spec{};
+            spec.version     = 1;
+            spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
+            spec.item_id     = PluginxxStringView{name.data(), name.size()};
+            spec.type        = PluginxxStringView{type.data(), type.size()};
+            spec.data_json   = PluginxxStringView{dataJson.data(), dataJson.size()};
+            spec.order       = order;
+            spec.flags       = 0;
+            rc               = mgr_->registerUiEntry(current.get(), spec);
+        } else if (op == "update") {
+            rc = mgr_->updateUiEntry(current.get(), name, dataJson);
+        } else if (op == "unregister") {
+            rc = mgr_->unregisterUiEntry(current.get(), name);
+        }
+        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+            Json payload;
+            payload["id"]      = pluginId;
+            payload["phase"]   = "ui";
+            payload["op"]      = op;
+            payload["item"]    = name;
+            payload["code"]    = rc;
+            payload["message"] = "UI 项操作被拒绝 (检查类型/命名空间/data 结构)";
+            mgr_->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
+            XX_LOGW("[musicxx_ext] JS 插件 `{}` 运行期 UI 操作 `{}` 失败 (code={})", pluginId, op, rc);
+        }
+    });
+}
+
+void JsEngine::bridgeSubscribeHost(const std::string& instanceName, const std::string& topic) {
+    auto inst = lookupInstance(instanceName);
+    if (!inst) {
+        return;
+    }
+    if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
+        /// 顶层登记阶段的订阅由 applyRegistrations 统一建立
+        return;
+    }
+    asio::post(mgr_->hostExecutor(), [this, instanceName, topic] {
+        auto current = lookupInstance(instanceName);
+        if (current) {
+            ensureSubscriptionOnHost(current, topic);
+        }
+    });
+}
+
+void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance>& inst, const std::string& topic) {
+    if (!inst || topic.empty() || !inst->hostInst) {
+        return;
+    }
+    for (const auto& existing : inst->subscriptions) {
+        if (existing && existing->topic == topic) {
+            return;
+        }
+    }
+    const PluginxxHost* host = inst->hostInst->hostView();
+    if (!host || !host->vtable || !host->vtable->query_interface) {
+        return;
+    }
+    const PluginxxStringView iid{"pluginxx.events", 15};
+    const auto*              events = static_cast<const PluginxxEventsIface*>(
+        host->vtable->query_interface(host, &iid)
+    );
+    if (!events || !events->subscribe) {
+        return;
+    }
+    auto holder      = std::make_shared<SubscriptionHolder>();
+    holder->engine   = this;
+    holder->instance = inst->name;
+    holder->topic    = topic;
+    const PluginxxStringView topicView{holder->topic.data(), holder->topic.size()};
+    auto*                    sub = events->subscribe(host, &topicView, &JsEngine::eventTrampoline, holder.get());
+    if (!sub) {
+        XX_LOGW("[musicxx_ext] JS 插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id, topic);
+        return;
+    }
+    inst->subscriptions.push_back(holder);
+    XX_LOGI("[musicxx_ext] JS 插件 `{}` 运行期订阅 `{}` 已生效", inst->id, topic);
+}
+
+std::vector<JsEngine::Instance::PendingUiOp> JsEngine::takePendingUiOps(const std::shared_ptr<Instance>& inst) {
+    std::vector<Instance::PendingUiOp> ops;
+    if (!inst) {
+        return ops;
+    }
+    ops.swap(inst->pendingUiOps);
+    return ops;
+}
+
+std::string JsEngine::instanceStatsJson(const std::string& instanceName) const {
+    auto inst = lookupInstance(instanceName);
+    if (!inst) {
+        return "{}";
+    }
+    int32_t timers      = 0;
+    int32_t pendingOps  = 0;
+    {
+        std::lock_guard lock{mutex_};
+        for (const auto& timer : timers_) {
+            if (timer.instance == inst->name) {
+                ++timers;
+            }
+        }
+        for (const auto& [id, item] : pendingActions_) {
+            (void)id;
+            if (item.instance == inst->name) {
+                ++pendingOps;
+            }
+        }
+    }
+    Json item;
+    item["id"]            = inst->id;
+    item["kind"]          = "js";
+    item["version"]       = inst->version;
+    item["script"]        = inst->scriptPath;
+    item["scriptLoaded"]  = inst->scriptLoaded;
+    item["hooks"]         = static_cast<int32_t>(inst->hooks.size());
+    item["capabilities"]  = static_cast<int32_t>(inst->capabilities.size());
+    item["subscriptions"] = static_cast<int32_t>(inst->subscriptions.size());
+    item["timers"]        = timers;
+    item["pendingActions"] = pendingOps;
+    item["jsRuns"]        = inst->jsRuns.load();
+    item["errors"]        = inst->errors.load(std::memory_order_relaxed);
+    item["jsHeapBytes"]   = inst->jsHeapBytes.load(std::memory_order_relaxed);
+    item["execGuardMs"]   = execGuardMs();
+    item["execGuardHits"] = inst->execGuardHits.load(std::memory_order_relaxed);
+    return item.dump();
+}
+
+void JsEngine::sampleHeap(const std::shared_ptr<Instance>& inst) {
+#if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
+    if (!inst || !inst->rt) {
+        return;
+    }
+    auto*        rt = static_cast<JSRuntime*>(inst->rt);
+    JSMemoryUsage usage{};
+    JS_ComputeMemoryUsage(rt, &usage);
+    /// 只取本实例 runtime 的 JS 堆占用 (malloc/字符串/对象/函数等本体大小)
+    const int64_t bytes = usage.malloc_size + usage.str_size + usage.obj_size + usage.prop_size
+                          + usage.shape_size + usage.js_func_size + usage.js_func_pc2line_size
+                          + usage.c_func_count * 0 + usage.atom_size;
+    inst->jsHeapBytes.store(bytes, std::memory_order_relaxed);
+#else
+    (void)inst;
+#endif
+}
+
+int64_t JsEngine::jsHeapBytesOf(const std::string& instanceName) const {
+    auto inst = lookupInstance(instanceName);
+    return inst ? inst->jsHeapBytes.load(std::memory_order_relaxed) : -1;
+}
+
+void JsEngine::armExecGuard() {
+#if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
+    const int32_t guard = execGuardMs();
+    gExecDeadlineMs     = guard > 0 ? (nowSteadyMs() + guard) : 0;
+#endif
+}
+
+void JsEngine::disarmExecGuard() {
+#if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
+    gExecDeadlineMs = 0;
+#endif
+}
+void JsEngine::setExecGuardMs(int32_t ms) {
+    execGuardMs_.store((std::max)(ms, 0), std::memory_order_release);
+}
+
+int32_t JsEngine::execGuardMs() const {
+    return execGuardMs_.load(std::memory_order_acquire);
+}
+
+int32_t JsEngine::callCapability(
+    const std::string& callerInstance,
+    const std::string& targetId,
+    const std::string& name,
+    const std::string& argsJson,
+    uint32_t           timeoutMs,
+    int64_t*           outPendingId,
+    std::string&       outJson,
+    std::string&       err
+) {
+    if (outPendingId) {
+        *outPendingId = 0;
+    }
+    if (targetId.empty() || name.empty()) {
+        err = "插件 id 与能力名都不能为空";
+        return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    }
+    /// JS 目标: 同一 JS 线程上直接调用 (脚本↔脚本零跨线程跳跃; plan §4.6)
+    auto target = lookupInstance("js:" + targetId);
+    if (target) {
+        if (!target->scriptLoaded) {
+            err = "目标 JS 插件未启用: " + targetId;
+            return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+        }
+        std::string shortName = name;
+        const std::string prefix = "plugin." + targetId + ".";
+        if (shortName.rfind("plugin.", 0) == 0) {
+            if (shortName.rfind(prefix, 0) != 0) {
+                err = "能力命名空间不属于目标插件";
+                return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+            }
+            shortName = shortName.substr(prefix.size());
+        }
+        std::string text;
+        if (!callBridgeString(target, "invokeCapability", {shortName, argsJson}, text)) {
+            err = "目标插件未声明该能力 (需要在 start 事务里注册): " + shortName;
+            return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+        }
+        bool        ok   = false;
+        Json        data = parseJsonSafe(text, &ok);
+        const bool  fine = ok && data.is_object() && data.contains("ok") && data["ok"].is_boolean()
+                          && data["ok"].get<bool>();
+        if (!fine) {
+            err = (ok && data.contains("error") && data["error"].is_string())
+                      ? data["error"].get<std::string>()
+                      : std::string{"capability_call_failed"};
+            return MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL;
+        }
+        outJson = data.contains("result") ? data["result"].dump() : std::string{"null"};
+        (void)callerInstance;
+        return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    /// 原生/内置目标: 投递到宿主线程执行, **JS 侧不等待** (宿主线程可能正等 JS 处理器,
+    /// 若在这里同步等待就会互锁); 结果经 `ext.onCapabilityResult` 回到 JS 线程。
+    if (!mgr_) {
+        err = "宿主不可用";
+        return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    }
+    const int64_t pendingId = nextCapabilityCallId_.fetch_add(1);
+    if (outPendingId) {
+        *outPendingId = pendingId;
+    }
+    auto self       = shared_from_this();
+    auto finishCall = [self, pendingId, callerInstance](int32_t rc, const std::string& text) {
+        Json payload;
+        payload["ok"] = (rc == MUSICXX_EXTERN_PLUGIN_OK);
+        if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+            payload["result"] = text.empty() ? Json(nullptr) : parseJsonSafe(text);
+        } else {
+            payload["error"] = text.empty() ? std::string{"capability_call_failed"} : text;
+        }
+        const std::string json = payload.dump();
+        /// 回执必须回到 JS 线程解析 (promise 只能在 JS 线程结算)
+        self->postTask([self, pendingId, callerInstance, json] {
+            auto inst = self->lookupInstance(callerInstance);
+            if (!inst || !inst->ctx) {
+                return;
+            }
+            std::string ignored;
+            self->callBridgeString(
+                inst,
+                "onCapabilityResult",
+                {std::to_string(pendingId), json},
+                ignored
+            );
+        });
+    };
+    mgr_->pluginCallAsync(targetId, name, argsJson, std::move(finishCall));
+    return kCallCapabilityPending;
+}
 void JsEngine::logPlugin(const std::string& pluginId, int32_t level, const std::string& message) {
     if (message.empty()) {
         return;
@@ -1266,6 +1861,8 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance>& inst, std::s
         }
         /// 栈深度上限 (宿主自我保护, 避免脚本深递归打爆线程栈; 不是对插件的资源限制)
         JS_SetMaxStackSize(rt, 1024 * 1024);
+        /// 可选执行上限的中断回调 (关闭时恒不打断; 见 setExecGuardMs)
+        JS_SetInterruptHandler(rt, &jsExecInterruptHandler, nullptr);
         JSContext* ctx = JS_NewContext(rt);
         if (!ctx) {
             JS_FreeRuntime(rt);
@@ -1291,9 +1888,15 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance>& inst, std::s
             return {};
         };
 
+        inst->engine->armExecGuard();
         std::string error = eval(prelude, "<musicxx-prelude>");
         if (error.empty()) {
             error = eval(code, scriptPath.c_str());
+        }
+        inst->engine->disarmExecGuard();
+        if (isInterruptError(error)) {
+            ++inst->execGuardHits;
+            error = "脚本执行超过可选执行上限 (jsExecGuardMs) 被中断";
         }
         if (!error.empty()) {
             slot->set("脚本错误: " + error);
@@ -1346,6 +1949,8 @@ bool JsEngine::callBridgeString(
     JSValue global = JS_GetGlobalObject(ctx);
     JSValue ext    = JS_GetPropertyStr(ctx, global, "__ext");
     JSValue fn     = JS_IsObject(ext) ? JS_GetPropertyStr(ctx, ext, fnName) : JS_UNDEFINED;
+    /// 进入脚本前套上可选执行上限 (关闭时无副作用)
+    inst->engine->armExecGuard();
     bool    ok     = false;
     if (JS_IsFunction(ctx, fn)) {
         std::vector<JSValue> argv;
@@ -1363,6 +1968,9 @@ bool JsEngine::callBridgeString(
         if (JS_IsException(value)) {
             const std::string text = takeException(ctx);
             XX_LOGW("[musicxx_ext] JS 桥接调用 `{}` 异常: {}", fnName, text);
+            if (isInterruptError(text)) {
+                ++inst->execGuardHits;
+            }
             ++inst->errors;
         } else {
             if (JS_IsString(value)) {
@@ -1382,6 +1990,7 @@ bool JsEngine::callBridgeString(
     JS_FreeValue(ctx, fn);
     JS_FreeValue(ctx, ext);
     JS_FreeValue(ctx, global);
+    inst->engine->disarmExecGuard();
     return ok;
 #endif
 }
@@ -1534,13 +2143,55 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance>& inst) {
         }
     }
 
+    // ---- UI 声明式扩展项 (plan §5.6) ----
+    int32_t uiApplied = 0;
+    for (const auto& op : takePendingUiOps(inst)) {
+        int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        if (op.op == "register") {
+            MusicxxPluginUIEntrySpec spec{};
+            spec.version     = 1;
+            spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
+            spec.item_id     = PluginxxStringView{op.name.data(), op.name.size()};
+            spec.type        = PluginxxStringView{op.type.data(), op.type.size()};
+            spec.data_json   = PluginxxStringView{op.dataJson.data(), op.dataJson.size()};
+            spec.order       = op.order;
+            spec.flags       = 0;
+            rc               = mgr_->registerUiEntry(inst->hostInst, spec);
+        } else if (op.op == "update") {
+            rc = mgr_->updateUiEntry(inst->hostInst, op.name, op.dataJson);
+        } else if (op.op == "unregister") {
+            rc = mgr_->unregisterUiEntry(inst->hostInst, op.name);
+        }
+        if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+            ++uiApplied;
+        } else {
+            Json payload;
+            payload["id"]      = inst->id;
+            payload["phase"]   = "ui";
+            payload["op"]      = op.op;
+            payload["item"]    = op.name;
+            payload["code"]    = rc;
+            payload["message"] = "UI 项注册被拒绝 (检查类型/命名空间/data 结构)";
+            mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
+            XX_LOGW(
+                "[musicxx_ext] JS 插件 `{}` 注册 UI 项 `{}` 被拒绝 (code={})",
+                inst->id,
+                op.name,
+                rc
+            );
+        }
+    }
+
     inst->registrationsApplied = true;
+    /// 运行期的 UI/订阅操作改为"投递不等待" (顶层登记阶段已结束)
+    inst->liveRegistrations.store(true, std::memory_order_release);
     XX_LOGI(
-        "[musicxx_ext] JS 插件 `{}` 注册回放完成 (钩子 {} / 能力 {} / 订阅 {})",
+        "[musicxx_ext] JS 插件 `{}` 注册回放完成 (钩子 {} / 能力 {} / 订阅 {} / UI {})",
         inst->id,
         inst->hooks.size(),
         inst->capabilities.size(),
-        inst->subscriptions.size()
+        inst->subscriptions.size(),
+        uiApplied
     );
 }
 
@@ -1548,6 +2199,9 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance>& inst) {
     if (!inst || !inst->hostInst || !mgr_) {
         return;
     }
+    /// 先关掉运行期注册: 摘除过程中脚本若再注册, 只会记在待回放表里 (随实例销毁丢弃)
+    inst->liveRegistrations.store(false, std::memory_order_release);
+    inst->pendingUiOps.clear();
     for (const auto& handler : inst->hooks) {
         mgr_->unregisterHook(inst->hostInst, handler->hookId, handler->ownerTag);
     }
@@ -1966,14 +2620,17 @@ std::string JsEngine::statsJson() const {
             item["pendingActions"] = pendingCount;
             item["jsRuns"]         = inst->jsRuns.load();
             item["errors"]         = inst->errors.load();
+            item["jsHeapBytes"]    = inst->jsHeapBytes.load(std::memory_order_relaxed);
+            item["execGuardHits"]  = inst->execGuardHits.load(std::memory_order_relaxed);
             plugins.push_back(item);
         }
     }
     Json result;
-    result["available"] = kJsCompiled;
-    result["running"]   = running_.load(std::memory_order_acquire);
-    result["threads"]   = 1;
-    result["plugins"]   = plugins;
+    result["available"]   = kJsCompiled;
+    result["running"]     = running_.load(std::memory_order_acquire);
+    result["threads"]     = 1;
+    result["execGuardMs"] = execGuardMs();
+    result["plugins"]     = plugins;
     return result.dump();
 }
 

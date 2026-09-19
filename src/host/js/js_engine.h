@@ -91,6 +91,58 @@ public:
     int64_t bridgeTimerSet(const std::string& instance, int64_t delayMs, bool repeat);
     void    bridgeTimerClear(const std::string& instance, int64_t timerId);
 
+    /// UI 项操作 (op = register | update | unregister; 只在 JS 线程调用)
+    ///
+    /// 脚本顶层登记阶段 (`liveRegistrations == false`) 只把操作记在实例上, 等
+    /// [applyRegistrations] 在宿主线程回放 (这样注册错误能即刻上报, 也不会出现
+    /// "宿主线程等 JS、JS 等宿主线程" 的互锁); 运行期则**投递不等待**地交给宿主线程。
+    void bridgeUiOp(
+        const std::string& instanceName,
+        const std::string& op,
+        const std::string& name,
+        const std::string& type,
+        const std::string& dataJson,
+        int32_t            order
+    );
+
+    /// 运行期动态订阅 (投递到宿主线程建立订阅; 顶层声明由回放处理)
+    void bridgeSubscribeHost(const std::string& instanceName, const std::string& topic);
+
+    /// 本实例统计 JSON (任意线程; 只读原子字段)
+    std::string instanceStatsJson(const std::string& instanceName) const;
+
+
+    /// 某实例的 JS 堆用量 (任意线程; 负数 = 未采样)
+    int64_t jsHeapBytesOf(const std::string& instanceName) const;
+
+    /// 跨插件能力调用 (只在 JS 线程调用)
+    ///
+    /// - 目标是 JS 插件: **同一 JS 线程上直接调用**, 结果同步返回 (返回 [kCallCapabilityDone]);
+    /// - 目标是原生/内置插件: 投递到宿主线程执行 (原生处理器只能在宿主线程跑), 结果稍后经
+    ///   `ext.onCapabilityResult(id, json)` 回到 JS 线程 —— JS 侧**不等待宿主线程**
+    ///   (plan §2.3.2 的无锁/无死锁不变式: 宿主线程可能正等待 JS 处理器)。
+    ///
+    /// 返回: `kCallCapabilityDone` = outJson 有结果; `kCallCapabilityPending` = 已受理,
+    /// *outPendingId 是回执 id; 负数 = 立即失败 (err 说明原因)。
+    static constexpr int32_t kCallCapabilityPending = 1;
+    static constexpr int32_t kCallCapabilityDone    = 0;
+
+    int32_t callCapability(
+        const std::string& callerInstance,
+        const std::string& targetId,
+        const std::string& name,
+        const std::string& argsJson,
+        uint32_t           timeoutMs,
+        int64_t*           outPendingId,
+        std::string&       outJson,
+        std::string&       err
+    );
+
+    /// 可选执行上限 (毫秒; 0 = 关闭, 默认关闭): 开启后单次进入脚本超时会被
+    /// QuickJS 中断并计为失败 (plan §4.10 的"用户自选保护", 不是宿主默认限制)
+    void    setExecGuardMs(int32_t ms);
+    int32_t execGuardMs() const;
+
     /// 刷新宿主信息缓存 (宿主线程: 语言/配置变化时调用)
     void setHostInfoCache(const std::string& json);
 
@@ -161,8 +213,25 @@ public:
         bool registrationsApplied = false;
         bool scriptLoaded         = false;
 
+        /// 运行期注册是否已生效 (脚本顶层登记阶段为 false; JS 线程读, 宿主线程写)
+        std::atomic<bool> liveRegistrations{false};
+
+        /// 脚本顶层登记的 UI 项操作 (JS 线程写, 宿主线程在回放时取走)
+        struct PendingUiOp {
+            std::string op; ///< register | update | unregister
+            std::string name;
+            std::string type;
+            std::string dataJson;
+            int32_t     order = 0;
+        };
+        std::vector<PendingUiOp> pendingUiOps;
+
         std::atomic<int64_t> jsRuns{0};
         std::atomic<int64_t> errors{0};
+        /// JS 堆用量 (字节; 负数 = 还没采样过; plan §4.11 只观测不限制)
+        std::atomic<int64_t> jsHeapBytes{-1};
+        /// 被可选执行上限中断的次数
+        std::atomic<int64_t> execGuardHits{0};
     };
 
     /* ---------- 内核内置插件入口 (C ABI 形态; 内核在宿主线程调用) ---------- */
@@ -248,6 +317,19 @@ private:
 
     /* ---------- JS 线程 ---------- */
 
+    /// 本次进入脚本的执行上界 (0 = 不限制; 见 setExecGuardMs)
+    void armExecGuard();
+    void disarmExecGuard();
+
+    /// 采样 JS 堆用量 (JS 线程调用; 结果写入实例字段供统计读取)
+    void sampleHeap(const std::shared_ptr<Instance>& inst);
+
+    /// 在宿主线程上建立一个事件订阅 (幂等; 同一 (实例, 主题) 只建一次)
+    void ensureSubscriptionOnHost(const std::shared_ptr<Instance>& inst, const std::string& topic);
+
+    /// 取回脚本登记的 UI 项操作 (宿主线程; 回放后清空实例上的缓存)
+    std::vector<Instance::PendingUiOp> takePendingUiOps(const std::shared_ptr<Instance>& inst);
+
     int32_t  startThread(std::string& err);
     void     runLoop();
     void     postTask(std::function<void()> fn);
@@ -289,6 +371,15 @@ private:
 
     std::atomic<bool> running_{false};
     std::atomic<bool> stopping_{false};
+
+    /// 可选执行上限 (毫秒; 0 = 关闭; 默认关闭, 见 setExecGuardMs)
+    std::atomic<int32_t> execGuardMs_{0};
+
+    /// 上次 JS 堆采样的时刻 (JS 线程使用)
+    int64_t heapSampledAtMs_ = 0;
+
+    /// 跨插件能力调用的回执 id 计数器 (任意线程)
+    std::atomic<int64_t> nextCapabilityCallId_{1};
 
     mutable std::mutex      mutex_;
     std::condition_variable cv_;

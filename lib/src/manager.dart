@@ -5,6 +5,7 @@ import 'bindings_generated.dart';
 import 'events.dart';
 import 'native_strings.dart';
 import 'plugin_info.dart';
+import 'ui.dart';
 import 'runtime.dart';
 
 /// 原生调用出参读取器（统一的 arena/错误串/JSON 处理）
@@ -243,6 +244,30 @@ class MusicxxPluginManager {
           .musicxx_extern_plugin_stats(_runtime.host, scopeView, out, log);
       _runtime.checkOrThrow(rc, log, 'stats');
       return decodeJsonObject(takeOutString(out, _runtime.bindings));
+    } finally {
+      arena.dispose();
+    }
+  }
+
+  /// 插件贡献的 UI 项全量快照（声明式 UI 扩展，plan §5.6）
+  ///
+  /// 变更会额外推送 `musicxx.ui.changed` 事件（载荷带该插件的全部项），
+  /// 应用侧按插件整批替换即可（见 [MusicxxPluginUIItems.replacePlugin]）。
+  List<MusicxxPluginUIItem> uiSnapshot() {
+    _requireRunning('ui_snapshot');
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginString> out = arena.outString();
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings
+          .musicxx_extern_plugin_ui_snapshot(_runtime.host, out, log);
+      _runtime.checkOrThrow(rc, log, 'ui_snapshot');
+      final String json = takeOutString(out, _runtime.bindings);
+      if (json.isEmpty) {
+        return const <MusicxxPluginUIItem>[];
+      }
+      final Object? decoded = tryDecodeJson(json);
+      return MusicxxPluginUIItem.parseList(decoded);
     } finally {
       arena.dispose();
     }

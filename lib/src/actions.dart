@@ -90,6 +90,39 @@ class MusicxxPluginActions {
     }
   }
 
+  /// 直接执行一个已注册的宿主动作（**应用侧 UI 触发**；不经插件 op 通道）
+  ///
+  /// 用途：插件用声明式 UI 声明 `{"kind":"action","name":"musicxx.player.toggle"}`，
+  /// 用户点击后由应用直接调用该动作实现（与插件发起动作走同一份实现与权限规则）。
+  /// - `pluginId`：调用上下文（权限判定与插件私有存储定位用；可为空）；
+  /// - 返回动作结果；动作未注册返回 `null`（调用方可据此提示）。
+  Future<Object?> invoke(
+    String action, {
+    String pluginId = '',
+    Map<String, Object?> args = const <String, Object?>{},
+  }) async {
+    final MusicxxPluginActionHandler? handler = _handlers[action];
+    if (handler == null) {
+      return null;
+    }
+    final MusicxxPluginActionInvocation invocation = MusicxxPluginActionInvocation(
+      requestId: 0,
+      plugin: pluginId,
+      action: action,
+      args: args,
+      extendDeadline: (Duration _) {},
+    );
+    try {
+      final Object? result = handler(invocation);
+      if (result is Future) {
+        return await result;
+      }
+      return result;
+    } catch (error) {
+      return <String, Object?>{'ok': false, 'error': error.toString()};
+    }
+  }
+
   // ==================== 内部 ====================
 
   /// `musicxx.action.request` 事件 → 同步调用 Dart 处理器并回复

@@ -42,6 +42,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
     int32_t dupHookRc       = 0; ///< 覆盖式重复注册: 期望 0
 
+    /// 声明式 UI 扩展自检 (plan §5.6)
+    int32_t uiHomeRc     = -100; ///< 注册主页入口项: 期望 0
+    int32_t uiSongRc     = -100; ///< 注册歌曲菜单项: 期望 0
+    int32_t uiForeignRc  = -100; ///< 注册他人命名空间的项: 期望 -6 (权限拒绝)
+    int32_t uiBadTypeRc  = -100; ///< 注册未知类型: 期望 -4 (未知类型)
+    int32_t uiBadDataRc  = -100; ///< 声明式内容缺少 title: 期望 -1 (参数非法)
+    int32_t uiUpdateRc   = -100; ///< 更新自己的项: 期望 0
+    int32_t uiNotifyRc   = -100; ///< 通知 (fire-and-forget 动作): 期望 0
+
     /// 事件订阅自检
     int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (宿主拒绝)
     int32_t stateEvents         = 0; ///< musicxx.state.changed 收到次数
@@ -137,7 +146,43 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         foreignPublishRc
             = publishOwnEvent("plugin.other_plugin.hello", "{\"from\":\"example_native\"}");
 
-        // 6) 能力: 供宿主/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
+        // 6) 声明式 UI 扩展 (plan §5.6): 注册主页入口与歌曲菜单项 + 通知
+        //    注意: UI 项只声明"长什么样、点了做什么", 渲染由宿主 (Dart 侧) 负责。
+        uiHomeRc = uiRegister(
+            "card",
+            MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+            R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"addition",
+                 "action":{"kind":"route","route":"ext://example_native/card"}})",
+            100
+        );
+        uiSongRc = uiRegister(
+            "songInfo",
+            MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
+            R"({"title":"示例插件：查看歌曲信息",
+                 "action":{"kind":"capability","name":"probe","args":{"ui":"1"}}})",
+            900
+        );
+        uiForeignRc = uiRegister(
+            "plugin.other_plugin.card",
+            MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+            R"({"title":"冒充他人"})",
+            0
+        );
+        uiBadTypeRc = uiRegister("bad", "musicxx.ui.unknown", R"({"title":"未知类型"})", 0);
+        uiBadDataRc = uiRegister(
+            "nodata",
+            MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+            R"({"subtitle":"缺少 title"})",
+            0
+        );
+        uiUpdateRc = uiUpdate(
+            "card",
+            R"({"title":"示例插件（已更新）","subtitle":"example_native 提供的入口","icon":"addition",
+                "action":{"kind":"route","route":"ext://example_native/card"}})"
+        );
+        uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
+
+        // 7) 能力: 供宿主/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
         capability(
             *this,
             "plugin.example_native.probe",
@@ -163,6 +208,13 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                     << ",\"lastActionStatus\":" << lastActionStatus
                     << ",\"lastActionPayloadLen\":" << lastActionPayloadLen
                     << ",\"consecutiveErrors\":" << consecutiveErrors
+                    << ",\"uiHomeRc\":" << uiHomeRc
+                    << ",\"uiSongRc\":" << uiSongRc
+                    << ",\"uiForeignRc\":" << uiForeignRc
+                    << ",\"uiBadTypeRc\":" << uiBadTypeRc
+                    << ",\"uiBadDataRc\":" << uiBadDataRc
+                    << ",\"uiUpdateRc\":" << uiUpdateRc
+                    << ",\"uiNotifyRc\":" << uiNotifyRc
                     << ",\"stateLen\":" << stateJson("musicxx.state.song").size()
                     << "}";
                 return oss.str();
