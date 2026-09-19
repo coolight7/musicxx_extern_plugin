@@ -1,6 +1,6 @@
 [submodule "src/third_party/cxx_pluginxx"]
 	path = src/third_party/cxx_pluginxx
-	url = D:/0Acoolight/Program/cpp/agentxx/agent/third_party/cxx_pluginxx
+	url = https://github.com/coolight7/cxx_pluginxx
 [submodule "src/third_party/cxx_utilxx_base"]
 	path = src/third_party/cxx_utilxx_base
 	url = https://github.com/coolight7/cxx_utilxx_base

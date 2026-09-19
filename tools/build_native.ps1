@@ -39,6 +39,15 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitect
 $prefix = Join-Path $Root ".native/$os-$arch"
 $buildRoot = Join-Path $Root '.native/build'
 
+# 内置 Boost (src/third_party/boost: include + lib/cmake/Boost-1.92.0) 优先于外部回退
+if (-not $BoostDir -and -not $BoostInclude) {
+    $localBoost = Join-Path $Root 'src/third_party/boost'
+    if (Test-Path (Join-Path $localBoost 'lib/cmake/Boost-1.92.0')) {
+        $BoostDir = "$localBoost/lib/cmake/Boost-1.92.0"
+        $BoostInclude = "$localBoost/include"
+        Write-Output "[deps] 使用本包内置 Boost: $localBoost (1.92.0)"
+    }
+}
 # Boost 回退解析
 if (-not $BoostDir -and -not $BoostInclude) {
     $fb = Join-Path $AgentxxFallback 'boost-windows-build-release'
@@ -90,8 +99,13 @@ if (-not $HostOnly) {
 
     Invoke-CmakeStep -Name 'fmt' -Source (Join-Path $thirdParty 'fmt') -ConfigureArgs ($common + @('-DFMT_TEST=OFF', '-DFMT_DOC=OFF'))
     Invoke-CmakeStep -Name 'yaml-cpp' -Source (Join-Path $thirdParty 'yaml-cpp') -ConfigureArgs ($common + @('-DYAML_CPP_BUILD_TESTS=OFF', '-DYAML_CPP_BUILD_TOOLS=OFF'))
+    # cxx_utilxx_base 的 JSON 后端依赖 simdjson (必须先进前缀)
+    Invoke-CmakeStep -Name 'simdjson' -Source (Join-Path $thirdParty 'simdjson') -ConfigureArgs ($common + @(
+        '-DSIMDJSON_JUST_LIBRARY=ON', '-DSIMDJSON_BUILD_STATIC=ON', '-DSIMDJSON_DEVELOPER_MODE=OFF', '-DSIMDJSON_ENABLE_THREADS=OFF'
+    ))
+    Invoke-CmakeStep -Name 'uchardet' -Source (Join-Path $thirdParty 'uchardet') -ConfigureArgs ($common + @('-DUCHARDET_BUILD_TESTS=OFF', '-DUCHARDET_BUILD_TOOLS=OFF'))
     Invoke-CmakeStep -Name 'cxx_utilxx_base' -Source (Join-Path $thirdParty 'cxx_utilxx_base') -ConfigureArgs ($common + @(
-        '-DXX_IS_WIN_D=1', '-DXX_IS_MSVC_D=1', '-DCXX_UTILXX_BASE_LINUX_IO_URING_SUPPORTED=OFF'
+        '-DXX_IS_WIN_D=1', '-DXX_IS_MSVC_D=1', '-DCXX_UTILXX_BASE_LINUX_IO_URING_SUPPORTED=OFF', '-DCXX_UTILXX_BASE_ENABLE_CHARSET=OFF'
     ))
     Invoke-CmakeStep -Name 'cxx_pluginxx' -Source (Join-Path $thirdParty 'cxx_pluginxx') -ConfigureArgs ($common + @(
         '-DXX_IS_WIN_D=1', '-DXX_IS_MSVC_D=1', '-DXX_IS_RELEASE_D=1', '-DXX_IS_DEBUG_D=0',

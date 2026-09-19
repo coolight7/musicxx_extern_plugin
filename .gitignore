@@ -5,3 +5,7 @@ build/
 *.suo
 .vs/
 __pycache__/
+
+# Boost 构建目录 (仅头文件, 约 236 MB): 由 agentxx 的 boost-windows-build-release 拷贝而来。
+# 需要随仓库分发时删除下面一行 (并把子模块/自动构建方案落地, 见 work.md)。
+src/third_party/boost/
