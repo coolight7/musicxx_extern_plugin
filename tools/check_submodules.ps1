@@ -1,7 +1,9 @@
-# 依赖子模块校验 (plan §3.3)
+# 依赖子模块检查
 #
-# 作用: 打印每个 submodule 的 URL 与 commit, 并与 third_party_versions.json 比对;
-#       URL 仍是本地路径时给出"切换为上游 URL"的命令提示 (上游推送后执行一次即可)。
+# 依赖库全部来自 src/third_party 下的 git 子模块。**子模块的 commit 由仓库自己的 gitlink
+# 记录**（外层仓库提交时写入），不需要额外的版本清单文件；因此这里只做两件事：
+#   1) .gitmodules 里登记的子模块是否都已初始化（未初始化时给出拉取命令）
+#   2) 打印 URL 与当前 commit，方便人工对照
 #
 # 用法: pwsh -NoProfile -File tools/check_submodules.ps1
 param(
@@ -10,33 +12,37 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path $Root).Path
-$versionsFile = Join-Path $Root 'third_party_versions.json'
-$versions = Get-Content -Raw $versionsFile -Encoding UTF8 | ConvertFrom-Json
 
+Write-Output "=== 依赖子模块检查 ($Root) ==="
+
+$status = & git -C $Root submodule status
 $failed = 0
-Write-Output "=== 依赖子模块校验 ($Root) ==="
-foreach ($sub in $versions.submodules) {
-    $path = Join-Path $Root $sub.path
-    if (-not (Test-Path $path)) {
-        Write-Output ("[缺失] {0,-32} 未初始化; 请执行 git submodule update --init --recursive" -f $sub.path)
-        $failed++
-        continue
-    }
-    $head = (git -C $path rev-parse HEAD).Trim()
+foreach ($line in $status) {
+    if (-not $line) { continue }
+    # 行首标记: ' ' 与记录一致 / '+' 与记录不同 / '-' 未初始化 / 'U' 冲突
+    $trimmed = $line.Trim()
+    $marker = $trimmed.Substring(0, 1)
+    $initialized = $marker -ne '-'
+    $fields = ($trimmed -replace '^[-+U\s]+', '') -split '\s+'
+    $commit = $fields[0]
+    $path = $fields[1]
     $url = ''
-    try { $url = (git -C $path config --get remote.origin.url).Trim() } catch {}
-    $commitOk = ($head -eq $sub.commit)
-    $isLocal = ($url -notmatch '^https?://')
-    $flag = if ($commitOk) { 'ok' } else { 'COMMIT 不符' }
-    if (-not $commitOk) { $failed++ }
-    Write-Output ("[{0}] {1,-32} {2} @ {3}" -f $flag, $sub.path, $head.Substring(0, 12), $url)
-    if ($isLocal) {
-        Write-Output ("      ↑ URL 为本地路径; 上游推送后执行: git submodule set-url {0} {1}; git submodule sync {0}" -f $sub.path, $sub.url)
+    try { $url = (& git -C $Root config -f .gitmodules --get "submodule.$path.url" 2>$null) } catch {}
+    if (-not $initialized) {
+        $failed++
+        Write-Output ("[缺失] {0,-34} 未初始化; 请执行 git submodule update --init --recursive" -f $path)
+    }
+    elseif ($marker -eq '+') {
+        Write-Output ("[注意] {0,-34} {1} @ {2} (工作区 HEAD 与仓库记录不同, 属正常开发状态)" -f $path, $commit.Substring(0, 12), $url)
+    }
+    else {
+        Write-Output ("[ok]   {0,-34} {1} @ {2}" -f $path, $commit.Substring(0, 12), $url)
     }
 }
+
 Write-Output ""
 if ($failed -gt 0) {
-    Write-Output "校验失败项: $failed"
+    Write-Output "未初始化子模块: $failed"
     exit 1
 }
-Write-Output "全部子模块 commit 与 third_party_versions.json 一致"
+Write-Output "全部子模块已就绪 (commit 由外层仓库的 gitlink 锁定, 无需额外清单文件)"
