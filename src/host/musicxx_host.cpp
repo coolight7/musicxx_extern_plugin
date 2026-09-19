@@ -957,6 +957,8 @@ void MusicxxHostManager::clearPluginRegistrations(const std::string& instanceNam
         }
     }
     stateSubscriptions_.erase(instanceName);
+    // 声明式 UI 项随实例摘除 (plan §5.6: 卸载后不再渲染该插件的入口/菜单)
+    detachUiEntries(instanceName);
     // JS 引擎登记的在途动作请求 (JS 侧自己保活) 也要一起取消
     cancelActionsOfInstance(instanceName);
 }
@@ -1536,6 +1538,104 @@ void PLUGINXX_CALL pluginCallDone(
 
 } // namespace
 
+namespace {
+
+/// 能力调用完成回调的持有者: 把内核回调转发给调用方给的闭包
+struct CapabilityCallBridge {
+    std::function<void(int32_t, const std::string&)> done;
+};
+
+/// 内核能力完成回调 (恒在宿主线程发布)
+void PLUGINXX_CALL capabilityCallTrampoline(
+    void*                     ud,
+    int32_t                   status,
+    const PluginxxStringView* payload
+) noexcept {
+    std::unique_ptr<CapabilityCallBridge> holder{static_cast<CapabilityCallBridge*>(ud)};
+    if (!holder) {
+        return;
+    }
+    std::string text;
+    if (payload && payload->data) {
+        text.assign(payload->data, static_cast<size_t>(payload->size));
+    }
+    if (holder->done) {
+        holder->done(status == PLUGINXX_OPERATOR_OK ? MUSICXX_EXTERN_PLUGIN_OK
+                                                    : MUSICXX_EXTERN_PLUGIN_ERR_STATE,
+                     text);
+    }
+}
+
+} // namespace
+
+void MusicxxHostManager::invokeCapabilityOnHostThread(
+    const std::string&                               id,
+    const std::string&                               method,
+    const std::string&                               argsJson,
+    std::function<void(int32_t, const std::string&)> done
+) {
+    auto fail = [&done](int32_t rc, const std::string& message) {
+        if (done) {
+            done(rc, message);
+        }
+    };
+    if (id.empty() || method.empty()) {
+        fail(MUSICXX_EXTERN_PLUGIN_ERR_ARG, "plugin_call: id 与 method 都不能为空");
+        return;
+    }
+    // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐 (plan §3.5)
+    const std::string cap = method.rfind("plugin.", 0) == 0 ? method : ("plugin." + id + "." + method);
+
+    auto inst = resolveInstance(id);
+    if (!inst) {
+        fail(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND, "插件未加载: " + id);
+        return;
+    }
+    const auto* entry = capabilities()->get(cap);
+    if (!entry || !entry->start) {
+        fail(
+            MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
+            "插件未声明该能力 (需要在 start 事务里注册): " + cap
+        );
+        return;
+    }
+    if (entry->provider != inst->name) {
+        fail(
+            MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION,
+            "能力归属校验失败 (声明的插件: " + entry->provider + ")"
+        );
+        return;
+    }
+
+    auto* bridge   = new CapabilityCallBridge{std::move(done)};
+    auto  capView  = std::string_view{cap};
+    auto  argsView = std::string_view{argsJson};
+    PluginxxString callErr{};
+    // caller 传目标实例自身: 内核要求"调用方实例"提供执行 lease (Dart 侧没有
+    // 插件实例, 用被调用者自己的 lease 覆盖本次调用, 卸载等待因此覆盖它)
+    auto* handle = invokeCapabilityAsync(
+        inst.get(),
+        capView,
+        capView, ///< method: 与能力全名一致 (插件按需再细分)
+        argsView,
+        &capabilityCallTrampoline,
+        bridge,
+        &callErr
+    );
+    if (!handle) {
+        // 受理失败: 完成回调不会被调用, 由这里回收 bridge 并终结本次调用
+        std::unique_ptr<CapabilityCallBridge> holder{bridge};
+        std::string message = callErr.data ? std::string{callErr.data, static_cast<size_t>(callErr.size)}
+                                           : std::string{"插件能力调用未被受理"};
+        if (callErr.data) {
+            pluginxx::hostMemoryFree(callErr.data);
+        }
+        if (holder->done) {
+            holder->done(MUSICXX_EXTERN_PLUGIN_ERR_STATE, message);
+        }
+    }
+}
+
 int32_t MusicxxHostManager::pluginCall(
     const std::string& id,
     const std::string& method,
@@ -1552,58 +1652,26 @@ int32_t MusicxxHostManager::pluginCall(
         err = "plugin_call: id 与 method 都不能为空";
         return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
     }
-    // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐 (plan §3.5)
     const std::string cap = method.rfind("plugin.", 0) == 0 ? method : ("plugin." + id + "." + method);
 
     auto self  = shared_from_this();
     auto state = std::make_shared<PluginCallState>();
 
     // 第一步在宿主线程执行: 实例查找、能力归属校验、发起异步调用 (完成回调也在该线程)
-    asio::post(ctx_->io, [self, state, id, cap, argsJson] {
-        auto inst = self->resolveInstance(id);
-        if (!inst) {
-            state->error = "插件未加载: " + id;
-            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
-            return;
-        }
-        const auto* entry = self->capabilities()->get(cap);
-        if (!entry || !entry->start) {
-            state->error = "插件未声明该能力 (需要在 start 事务里注册): " + cap;
-            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
-            return;
-        }
-        if (entry->provider != inst->name) {
-            state->error = "能力归属校验失败 (声明的插件: " + entry->provider + ")";
-            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION);
-            return;
-        }
-
-        auto* holder    = new std::shared_ptr<PluginCallState>(state);
-        auto  capView   = std::string_view{cap};
-        auto  argsView  = std::string_view{argsJson};
-        PluginxxString callErr{};
-        // caller 传目标实例自身: 内核要求"调用方实例"提供执行 lease (Dart 侧没有
-        // 插件实例, 用被调用者自己的 lease 覆盖本次调用, 卸载等待因此覆盖它)
-        auto*          handle = self->invokeCapabilityAsync(
-            inst.get(),
-            capView,
-            capView, ///< method: 与能力全名一致 (插件按需再细分)
-            argsView,
-            &pluginCallDone,
-            holder,
-            &callErr
-        );
-        if (!handle) {
-            // 受理失败: 完成回调不会被调用, 由这里回收 holder 并终结本次调用
-            delete holder;
-            state->error = callErr.data
-                               ? std::string{callErr.data, static_cast<size_t>(callErr.size)}
-                               : std::string{"插件能力调用未被受理"};
-            if (callErr.data) {
-                pluginxx::hostMemoryFree(callErr.data);
+    asio::post(ctx_->io, [self, state, id, method, argsJson] {
+        self->invokeCapabilityOnHostThread(
+            id,
+            method,
+            argsJson,
+            [state](int32_t rc, const std::string& text) {
+                if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+                    state->payload = text;
+                } else {
+                    state->error = text.empty() ? std::string{"plugin_call failed"} : text;
+                }
+                state->slot.set(rc);
             }
-            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
-        }
+        );
     });
 
     int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
@@ -1617,6 +1685,27 @@ int32_t MusicxxHostManager::pluginCall(
     }
     outJson = std::move(state->payload);
     return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+void MusicxxHostManager::pluginCallAsync(
+    const std::string&                               id,
+    const std::string&                               method,
+    const std::string&                               argsJson,
+    std::function<void(int32_t, const std::string&)> done
+) {
+    if (!running_.load(std::memory_order_acquire)) {
+        if (done) {
+            done(MUSICXX_EXTERN_PLUGIN_ERR_STATE, "plugin_call: host not started");
+        }
+        return;
+    }
+    auto self = shared_from_this();
+    asio::post(
+        ctx_->io,
+        [self, id, method, argsJson, done = std::move(done)]() mutable {
+            self->invokeCapabilityOnHostThread(id, method, argsJson, std::move(done));
+        }
+    );
 }
 
 std::shared_ptr<pluginxx::EventSource> MusicxxHostManager::eventSource() {
@@ -1851,7 +1940,25 @@ int32_t MusicxxHostManager::statsJson(const std::string* /*scopeJson*/, std::str
             {"events", inst->eventsPublished.load()},
             {"errors", inst->errors.load()},
         };
-        p["memory"] = {{"selfReportedBytes", inst->selfReportedBytes.load()}, {"jsHeapBytes", 0}};
+        /// JS 插件: 用 JS 运行时的堆用量采样值 (plan §4.11; native 插件无法精确统计,
+        /// 只能由插件经 musicxx.stats 自报, 见 plan 的边界说明)
+        int64_t jsHeap = -1;
+        if (jsEngine_ && inst->kind == "js") {
+            jsHeap = jsEngine_->jsHeapBytesOf(inst->name);
+            if (jsHeap < 0) {
+                jsHeap = 0;
+            }
+        }
+        p["memory"] = {
+            {"selfReportedBytes", inst->selfReportedBytes.load()},
+            {"jsHeapBytes", jsHeap < 0 ? 0 : jsHeap},
+            {"jsHeapSampled", jsHeap >= 0},
+        };
+        /// JS 插件附带运行时段的明细 (钩子/能力/订阅/定时器/脚本执行次数/堆用量/
+        /// 可选执行上限命中数), 供管理页与排障直接读取
+        if (jsEngine_ && inst->kind == "js") {
+            p["js"] = parseJsonSafe(jsEngine_->instanceStatsJson(inst->name));
+        }
         plugins.push_back(p);
     }
     j["plugins"] = plugins;
@@ -1872,9 +1979,17 @@ int32_t MusicxxHostManager::statsConfig(const std::string& cfgJson, std::string&
     return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
+asio::any_io_executor MusicxxHostManager::hostExecutor() const {
+    if (!ctx_) {
+        return asio::any_io_executor{};
+    }
+    return ctx_->io.get_executor();
+}
+
 int32_t MusicxxHostManager::uiSnapshot(std::string& outJson) {
-    // UI 声明式扩展按 M5 落地; v1 返回空数组 (Dart 侧渲染空列表)
-    outJson = "[]";
+    // 声明式 UI 扩展 (plan §5.6): 返回全部插件的 UI 项 (按 type/order/seq 排序),
+    // Dart 侧据此渲染主页入口 / 菜单项 / 设置页 / 附加信息块。
+    outJson = uiItemsJson(std::string{});
     return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
@@ -1901,6 +2016,14 @@ int32_t MusicxxHostManager::setConfig(const std::string& cfgJson, std::string& e
     }
     if (cfg.contains("hookHardBudgetMs") && cfg["hookHardBudgetMs"].is_number_integer()) {
         hookHardMs_ = cfg["hookHardBudgetMs"].get<int32_t>();
+    }
+    // 可选 JS 执行上限 (0 = 关闭; 默认关闭, 决策 13: 宿主不默认限制插件)
+    if (cfg.contains("jsExecGuardMs") && cfg["jsExecGuardMs"].is_number_integer()) {
+        const int32_t guardMs = (std::max)(cfg["jsExecGuardMs"].get<int32_t>(), 0);
+        if (jsEngine_) {
+            jsEngine_->setExecGuardMs(guardMs);
+        }
+        jsExecGuardMs_ = guardMs;
     }
     // JS 侧同步读宿主信息: 配置变化后刷新缓存 (避免跨线程读管理器字段)
     refreshJsHostInfo();

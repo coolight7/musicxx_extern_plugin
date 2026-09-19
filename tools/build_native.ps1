@@ -333,6 +333,20 @@ if ($LASTEXITCODE -ne 0) { throw 'cmake build 失败' }
 & cmake --install $BuildDir --config $Config | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'cmake install 失败' }
 
+# 宿主工程是嵌套 ExternalProject 构建: 生成器有时会判定上层的“构建/安装步骤已是最新”而跳过它,
+# 于是源码改动不会真正触发重编译 (表现为"构建成功但产物时间戳/体积不变")。这里显式再跑一次
+# 嵌套工程的增量构建与安装 (已经是新的就秒级结束), 保证脚本的"构建成功"与产物一致。
+if (-not $DepsOnly) {
+    $hostBuildDir = Join-Path (Join-Path $BuildDir 'e') 'host'
+    if (Test-Path (Join-Path $hostBuildDir 'CMakeCache.txt')) {
+        Write-Step 'build 宿主工程 (嵌套工程增量构建)'
+        & cmake --build $hostBuildDir --config $Config --parallel $parallel | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'cmake build (宿主工程) 失败' }
+        & cmake --install $hostBuildDir --config $Config | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'cmake install (宿主工程) 失败' }
+    }
+}
+
 # ==================== 产物 ====================
 
 Write-Step '产物'

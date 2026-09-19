@@ -1,4 +1,4 @@
-# 示例原生插件 (musicxx_extern_plugin/example/example_native)
+# 示例原生插件 (musicxx_extern_plugin/plugins/example_native)
 #
 # 只导出 musicxx_plugin_* 入口符号 (由 MUSICXX_PLUGIN_EXPORT 生成);
 # 头文件依赖由宿主构建提供的 INTERFACE 目标 musicxx_extern_plugin_sdk 带给插件。

@@ -13,10 +13,12 @@ src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_pa
                      其中 hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
   tests/             原生测试（不依赖 Dart）
   third_party/       依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
-lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作；bindings_generated.dart 与 hook_ids.g.dart 为生成物）
-test/                Dart 侧测试（host_smoke_test.dart 对真实原生库做端到端冒烟）
-example/example_native/ 示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅）
-example/example_js/     示例插件（JS，零编译；与 native 版行为等价）
+lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
+                     bindings_generated.dart 与 hook_ids.g.dart 为生成物）
+test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_smoke_test.dart 对真实原生库做端到端冒烟）
+plugins/            官方插件与示例（每个子目录一个插件，插件 id 取清单 name；见该目录 README）
+  example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
+  example_js/       示例插件（JS，零编译；与 native 版行为等价）
 src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
@@ -160,6 +162,18 @@ final Map<String, Object?>? verdict = runtime.hooks.decide(
 runtime.dispose();
 ```
 
+声明式 UI 扩展（插件不写 Flutter 代码，只声明；plan §5.6）：
+
+```dart
+// 拉到全部 UI 项（主页入口 / 歌曲菜单 / 设置页 / 附加信息块）
+final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
+final List<MusicxxPluginUIItem> entries =
+    MusicxxPluginUIItems.byType(items, MusicxxPluginUIType.homeEntry);
+// 变更会推送 musicxx.ui.changed 事件（载荷带该插件的全部项）→ 整批替换即可
+final List<MusicxxPluginUIItem> next =
+    MusicxxPluginUIItems.replacePlugin(items, 'example_native', newItems);
+```
+
 - 原生库定位顺序：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY` → `.native/output/*/bin/`（Release 优先、其次按修改时间）
   → `.native/build/*/musicxx-extern-plugin-install/bin/` → 纯库名（系统搜索路径）；
 - 找不到库时抛 `MusicxxPluginLibraryException`（含逐个候选与原因），版本不匹配抛 `MusicxxPluginApiVersionException`；
@@ -168,6 +182,17 @@ runtime.dispose();
 ## 当前状态
 
 见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`：
-- S2（原生宿主）：**已完成**，`pwsh tools/build_native.ps1 -RunTests` → `checks=57 failed=0`；
-- S3（Dart 包）：主干已落地（绑定/运行时/管理器/钩子派发/状态镜像/动作分发/契约生成），
-  `flutter test` 端到端冒烟通过；隔离 isolate、声明式 UI 扩展、压缩包安装排入后续阶段。
+- S2（原生宿主）：**已完成**（含 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张领域表）；
+- S3（Dart 包）：主干已落地（绑定/运行时/管理器/钩子派发/状态镜像/动作分发/声明式 UI 模型/契约生成）；
+- S5（JS 运行时）：已落地（QuickJS 编入宿主库、共享 JS 线程、`js:<id>` 合成实例、`musicxx` API 面）；
+- S6（UI 扩展 + 观测）：声明式 UI 表与 JS/原生 API 已落地，应用侧渲染（主页入口 / 歌曲菜单 /
+  插件页面）已接入；平台打包（Android/iOS/macOS/Linux）与 runner isolate 异步裁决排入后续阶段。
+
+验证命令与当前结果：
+
+```powershell
+pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 134 项全绿
+dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子）
+flutter analyze                                          # 0 issue
+flutter test                                             # 包内：端到端冒烟 + UI 模型单测
+```

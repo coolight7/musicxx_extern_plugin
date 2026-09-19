@@ -208,6 +208,15 @@ int main(int argc, char** argv) {
                 || eventsJson.find("musicxx.host.ready") != std::string::npos,
             "事件包含 host.ready / plugin.loaded"
         );
+        // UI 项注册/更新会推送 musicxx.ui.changed; 通知走动作请求通道 (musicxx.ui.notify)
+        check(
+            eventsJson.find("musicxx.ui.changed") != std::string::npos,
+            "UI 项变化推送 musicxx.ui.changed 事件"
+        );
+        check(
+            eventsJson.find("musicxx.ui.notify") != std::string::npos,
+            "通知走动作请求通道 (musicxx.ui.notify)"
+        );
     }
 
     // decision 钩子: 广告曲目 → skip
@@ -357,6 +366,34 @@ int main(int argc, char** argv) {
         check(rc == MUSICXX_EXTERN_PLUGIN_OK, "plugin_call(probe) 成功");
         std::printf("  [info] plugin_call rc=%d log=%s\n", rc, callErr.c_str());
         std::printf("  [info] probe=%s\n", probe.c_str());
+
+        // ==================== 声明式 UI 扩展 (plan §5.6, 原生插件) ====================
+        //
+        // 插件只做声明 (类型 + JSON 内容), 宿主负责渲染; 这里校验注册/更新/拒绝/快照/事件。
+        {
+            check(jsonIntField(probe, "uiHomeRc") == "0", "注册主页入口项成功 (rc=0)");
+            check(jsonIntField(probe, "uiSongRc") == "0", "注册歌曲菜单项成功 (rc=0)");
+            check(jsonIntField(probe, "uiForeignRc") == "-6", "他人命名空间的项被拒绝 (-6)");
+            check(jsonIntField(probe, "uiBadTypeRc") == "-4", "未知 UI 项类型被拒绝 (-4)");
+            check(jsonIntField(probe, "uiBadDataRc") == "-1", "缺少 title 的声明被拒绝 (-1)");
+            check(jsonIntField(probe, "uiUpdateRc") == "0", "更新自己的项成功 (rc=0)");
+            check(jsonIntField(probe, "uiNotifyRc") == "0", "通知受理成功 (fire-and-forget)");
+
+            MusicxxExternPluginString snap{};
+            const auto               snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+            const std::string        snapshot = take(snap);
+            check(snapRc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 成功");
+            check(snapshot.find("plugin.example_native.card") != std::string::npos, "快照含主页入口项");
+            check(snapshot.find("plugin.example_native.songInfo") != std::string::npos, "快照含歌曲菜单项");
+            check(snapshot.find("musicxx.ui.home.entry") != std::string::npos, "快照含官方 UI 项类型");
+            check(snapshot.find("plugin") != std::string::npos, "快照项带所属插件 id");
+            check(snapshot.find("示例插件（已更新）") != std::string::npos, "更新后的声明内容生效");
+            check(snapshot.find("plugin.other_plugin.card") == std::string::npos, "他人命名空间的项不在快照里");
+            check(snapshot.find("musicxx.ui.unknown") == std::string::npos, "未知类型不在快照里");
+            check(snapshot.find("nodata") == std::string::npos, "非法声明不在快照里");
+        }
+
+
 
         // 单宿主线程模型: start 事务与能力处理器必须在同一条线程上执行 (plan §2.3.1)
         const std::string startThread = jsonStringField(probe, "startThread");
@@ -675,6 +712,158 @@ int main(int argc, char** argv) {
                 jsonStringField(probe, "hostPlatform") == "windows",
                 "JS 读到宿主信息 (平台)"
             );
+            // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
+            check(jsonIntField(probe, "uiEntries") == "2", "JS 注册了 2 个 UI 项 (脚本侧记账)");
+            check(
+                jsonIntField(probe, "selfStatsHooks") == "3",
+                "JS 能读自己的统计 (stats.getSelf 的钩子计数)"
+            );
+        }
+
+        // JS 插件的 UI 项进入宿主快照 (与原生插件同一注册表)
+        {
+            MusicxxExternPluginString snap{};
+            const auto rc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+            const std::string snapshot = take(snap);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 可读 (含 JS 项)");
+            check(
+                snapshot.find("plugin.example_js.card") != std::string::npos,
+                "JS 插件的主页入口项进入快照"
+            );
+            check(
+                snapshot.find("plugin.example_js.songInfo") != std::string::npos,
+                "JS 插件的菜单项进入快照"
+            );
+        }
+
+        // ============ 跨插件能力调用 (plan §7.2 capability.call) ============
+        //
+        // JS 插件调用其它插件的能力: JS 目标同线程直接调用; 原生目标投递到宿主线程执行,
+        // 脚本侧不等待 (返回 Promise)。这里用"最后一次结果"记账, 由 probe 能力回读。
+        {
+            // 原生示例插件在前面的用例里被卸载了, 这里临时再装一次作为被调用方
+            MusicxxExternPluginString reloadLog{};
+            const auto                reloadRc = musicxx_extern_plugin_plugin_load_sync(
+                host,
+                viewCP("example_native"),
+                viewCP("{}"),
+                8000,
+                &reloadLog
+            );
+            check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "临时装载原生插件 (跨插件调用被调用方)");
+
+            MusicxxExternPluginString out{};
+            const auto                callRc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("example_js"),
+                viewCP("crossCall"),
+                viewCP(R"({"target":"example_native","method":"probe"})"),
+                5000,
+                &out,
+                &log
+            );
+            const std::string callJson = take(out);
+            check(callRc == MUSICXX_EXTERN_PLUGIN_OK, "触发跨插件调用 (JS → 原生)");
+            check(jsonIntField(callJson, "accepted") == "1", "跨插件调用被受理");
+
+            // 等回执回到 JS 线程 (宿主线程执行 + 投递回 JS 线程)
+            std::this_thread::sleep_for(std::chrono::milliseconds{800});
+            MusicxxExternPluginString probe3{};
+            const auto                probe3Rc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("example_js"),
+                viewCP("probe"),
+                viewCP("{}"),
+                3000,
+                &probe3,
+                &log
+            );
+            const std::string probe3Json = take(probe3);
+            check(probe3Rc == MUSICXX_EXTERN_PLUGIN_OK, "回读跨插件调用结果");
+            check(jsonIntField(probe3Json, "crossPending") == "0", "跨插件调用已结束 (无挂起)");
+            check(jsonIntField(probe3Json, "crossOk") == "1", "跨插件调用成功 (JS → 原生能力)");
+            check(jsonIntField(probe3Json, "crossKeys") != "0", "跨插件调用拿到结果内容");
+
+            check(
+                musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "卸载临时装载的原生插件"
+            );
+        }
+
+        // ============ 可选 JS 执行上限 (js_exec_guard, plan §4.10) ============
+        //
+        // 默认关闭 (决策 13: 宿主不主动打断脚本)。这里模拟用户在配置里显式开启, 验证:
+        // 死循环脚本会被中断 (共享 JS 线程不会永久被占住), 宿主与其它插件不受影响。
+        {
+            check(
+                musicxx_extern_plugin_set_config(host, viewP(R"({"jsExecGuardMs":400})"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "开启可选 JS 执行上限 (jsExecGuardMs)"
+            );
+            MusicxxExternPluginString loadLog{};
+            const auto                spinRc = musicxx_extern_plugin_plugin_load_sync(
+                host,
+                viewCP("spin_js"),
+                viewCP("{}"),
+                8000,
+                &loadLog
+            );
+            check(spinRc == MUSICXX_EXTERN_PLUGIN_OK, "死循环夹具装载成功 (顶层不阻塞)");
+
+            // 触发它的观察钩子 (异步派发: 宿主入队即返回, 不等脚本)
+            MusicxxExternPluginString out{};
+            const auto                emitRc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.completed"),
+                viewP(R"({"sid":"spin","playedMs":1})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC,
+                0,
+                &out,
+                &log
+            );
+            freeStr(out);
+            check(emitRc == MUSICXX_EXTERN_PLUGIN_OK, "触发死循环钩子 (入队即返回)");
+
+            // 等执行上限生效 (400 ms) 并留出余量
+            std::this_thread::sleep_for(std::chrono::milliseconds{1500});
+
+            // 统计里有中断计数 (只观测不限制: 中断只影响本次调用, 不卸载插件)
+            MusicxxExternPluginString stats{};
+            const auto                statsRc = musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
+            const std::string         statsJson = take(stats);
+            check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (执行上限)");
+            check(statsJson.find("spin_js") != std::string::npos, "统计含死循环夹具插件");
+            check(
+                statsJson.find("execGuardHits") != std::string::npos,
+                "统计含执行上限中断计数"
+            );
+
+            // 宿主与其它 JS 插件仍可用 (证明共享 JS 线程已恢复)
+            MusicxxExternPluginString probe2{};
+            const auto                probe2Rc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("example_js"),
+                viewCP("probe"),
+                viewCP("{}"),
+                3000,
+                &probe2,
+                &log
+            );
+            take(probe2);
+            check(probe2Rc == MUSICXX_EXTERN_PLUGIN_OK, "中断后共享 JS 线程仍可服务其它插件");
+
+            // 卸载夹具 (脚本线程已恢复) 并恢复默认 (关闭执行上限)
+            check(
+                musicxx_extern_plugin_plugin_unload(host, viewCP("spin_js"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "死循环夹具可卸载"
+            );
+            check(
+                musicxx_extern_plugin_set_config(host, viewP(R"({"jsExecGuardMs":0})"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "关闭可选执行上限 (恢复默认)"
+            );
         }
 
         // 禁用 → 钩子摘除, 启用 → 重新注册 (脚本重跑)
@@ -769,6 +958,16 @@ int main(int argc, char** argv) {
             "脚本错误后宿主仍可用"
         );
         freeStr(listed);
+    }
+
+    // 插件全部卸载后: UI 项应全部摘除 (无残留)
+    {
+        MusicxxExternPluginString snap{};
+        const auto               snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+        const std::string        snapshot = take(snap);
+        check(snapRc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 可读 (全部卸载后)");
+        check(snapshot.find("plugin.example_native.card") == std::string::npos, "原生插件卸载后 UI 项无残留");
+        check(snapshot.find("plugin.example_js.card") == std::string::npos, "JS 插件卸载后 UI 项无残留");
     }
 
     check(musicxx_extern_plugin_host_stop(host, 5000, &log) == MUSICXX_EXTERN_PLUGIN_OK, "host_stop");

@@ -36,6 +36,7 @@ namespace plugin {
 struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     const MusicxxPluginHooksIface* hooks = nullptr; ///< "musicxx.hooks"
     const MusicxxPluginHostIface*  host  = nullptr; ///< "musicxx.host"
+    const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
 
     /// 从宿主查询全部接口表 (host 为空时返回全 NULL 聚合)
     static MusicxxPluginIfaces query(const PluginxxHost* host) {
@@ -48,6 +49,10 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
         ifaces.host = pluginxx::queryInterface<MusicxxPluginHostIface>(
             host,
             MUSICXX_PLUGIN_IFACE_HOST
+        );
+        ifaces.ui = pluginxx::queryInterface<MusicxxPluginUIIface>(
+            host,
+            MUSICXX_PLUGIN_IFACE_UI
         );
         return ifaces;
     }
@@ -152,7 +157,6 @@ public:
     }
 
     /// 订阅宿主事件总线的主题 (**宿主线程**执行处理器; 处理器不得阻塞)
-    ///
     /// - 主题必须符合命名空间规则 (plan §3.5): 官方 `musicxx.*` 或插件自定义
     ///   `plugin.<本插件id>.*`; 其它前缀会被宿主拒绝 (返回 -1);
     /// - 处理器形如 `void(std::string_view event_json)`;
@@ -172,6 +176,68 @@ public:
         PluginxxStringView topicView = pluginxxView(topic ? topic : "");
         auto*              sub = iface.events->subscribe(host, &topicView, &EventHolder<FnT>::invoke, holderPtr);
         return sub ? 0 : -1;
+    }
+
+    /* ---------- 声明式 UI 扩展 (plan §5.6; 名字用短名, 宿主自动补前缀) ---------- */
+
+    /// 注册一个 UI 项: `itemName` 用短名 (如 "card"), `type` 取 MUSICXX_PLUGIN_UI_TYPE_*,
+    /// `dataJson` 是类型相关的声明式内容 (JSON 对象)
+    int32_t uiRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
+        if (!iface.ui || !iface.ui->register_entry) {
+            log.warn("musicxx.ui 表不可用: UI 项未注册 (宿主版本过旧?)");
+            return -1;
+        }
+        MusicxxPluginUIEntrySpec spec{};
+        spec.version     = 1;
+        spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
+        spec.item_id     = pluginxxView(itemName ? itemName : "");
+        spec.type        = pluginxxView(type ? type : "");
+        spec.data_json   = pluginxxView(dataJson ? dataJson : "");
+        spec.order       = order;
+        spec.flags       = 0;
+        return iface.ui->register_entry(host, &spec);
+    }
+
+    /// 更新一个 UI 项的声明式内容
+    int32_t uiUpdate(const char* itemName, const char* dataJson) {
+        if (!iface.ui || !iface.ui->update_entry) {
+            return -1;
+        }
+        PluginxxStringView itemView = pluginxxView(itemName ? itemName : "");
+        PluginxxStringView dataView = pluginxxView(dataJson ? dataJson : "");
+        return iface.ui->update_entry(host, &itemView, &dataView);
+    }
+
+    /// 注销一个 UI 项
+    int32_t uiUnregister(const char* itemName) {
+        if (!iface.ui || !iface.ui->unregister_entry) {
+            return -1;
+        }
+        PluginxxStringView itemView = pluginxxView(itemName ? itemName : "");
+        return iface.ui->unregister_entry(host, &itemView);
+    }
+
+    /// 本插件已注册的 UI 项 (JSON 数组; 表不可用时返回空数组)
+    std::string uiEntries() const {
+        if (!iface.ui || !iface.ui->list_entries) {
+            return "[]";
+        }
+        PluginxxString out{};
+        if (iface.ui->list_entries(host, &out) != 0 || !out.data) {
+            return "[]";
+        }
+        std::string result{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return result;
+    }
+
+    /// 通知/提示 (等价动作 `musicxx.ui.notify`; fire-and-forget, 不等待用户界面)
+    int32_t uiNotify(const char* messageJson) {
+        if (!iface.ui || !iface.ui->notify) {
+            return -1;
+        }
+        PluginxxStringView messageView = pluginxxView(messageJson ? messageJson : "{}");
+        return iface.ui->notify(host, &messageView);
     }
 
     /// 用宿主堆把字符串写进跨边界出参 (插件必须用宿主的分配器, 不得用 CRT malloc)

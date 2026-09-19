@@ -43,3 +43,4 @@ export 'src/runtime.dart'
         MusicxxPluginRuntime,
         MusicxxPluginRuntimeConfig;
 export 'src/state_mirror.dart' show MusicxxPluginState;
+export 'src/ui.dart' show MusicxxPluginUIItem, MusicxxPluginUIItems, MusicxxPluginUIType, MusicxxPluginUIActionKind;

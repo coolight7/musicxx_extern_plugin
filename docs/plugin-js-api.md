@@ -118,27 +118,111 @@ const lrc   = await musicxx.lyrics.getCurrent();
 
 动作全名与权限的对应关系见方案 §4.8；未授权动作会被 Dart 侧直接拒绝（`permission_denied`）。
 
-### 3.5 事件
+### 3.5 声明式 UI 扩展（不写 Flutter 代码）
+
+插件只做**声明**，渲染由宿主（musicxx 应用）负责。支持的类型：
+
+| `type` | 用途 | `data` 必需字段 |
+|---|---|---|
+| `home.entry`（`musicxx.ui.home.entry`） | 功能主页入口按钮 | `title` |
+| `song.action`（`musicxx.ui.song.action`） | 歌曲菜单项 | `title` |
+| `playlist.action` | 歌单菜单项 | `title` |
+| `settings.page` | 设置页 | `title` |
+| `overlay.widget` | 播放页只读信息块 | `position`、`content` |
+
+```js
+musicxx.ui.registerEntry({
+    name: "card",                       // 短名；id 会自动变成 plugin.<本插件id>.card
+    type: "home.entry",                 // 简称或全名都可以
+    order: 100,                         // 小者靠前（同权重按注册顺序）
+    data: {
+        title: "我的入口",
+        subtitle: "示例插件提供的入口",
+        icon: "addition",               // musicxx 内置 svg 名（未知名字会退化为默认图标）
+        action: { kind: "route", route: "ext://example_js/card" },
+    },
+});
+
+musicxx.ui.updateEntry("card", { title: "新标题", subtitle: "已更新", icon: "addition" });
+musicxx.ui.unregisterEntry("card");
+musicxx.ui.entries();                    // 本插件已注册的项（脚本侧镜像）
+```
+
+动作（`data.action`）三种形态：
+
+| 形态 | 字段 | 说明 |
+|---|---|---|
+| 打开插件页面 | `{kind:"route", route:"ext://<本插件id>/<视图id>"}` | 只能指向本插件；见下方"插件页面" |
+| 调用本插件能力 | `{kind:"capability", name:"<短名>", args:{...}}` | 宿主调用 `plugin.<本插件id>.<短名>` |
+| 调用官方动作 | `{kind:"action", name:"musicxx.<域>.<动作>", args:{...}}` | 与 `musicxx.call` 同一份实现与权限规则 |
+
+**插件页面（`ext://<插件id>/<视图id>`）**：宿主打开页面时会调用插件的**同名能力**
+（短名 = 视图 id，参数 `{"view":"<视图id>"}`），脚本返回视图描述：
+
+```js
+musicxx.capability.register("card", function (args) {
+    return {
+        title: "插件页面",
+        subtitle: "可选副标题",
+        blocks: [
+            { kind: "text", text: "一段说明", style: "main" },     // main | cross | thin
+            { kind: "divider" },
+            { kind: "button", title: "播放/暂停", style: "primary",
+              action: { kind: "action", name: "musicxx.player.toggle" } },
+            { kind: "list", items: [
+                { id: "a", title: "条目", subtitle: "说明", right: "3", icon: "addition",
+                  action: { kind: "capability", name: "openItem", args: { id: "a" } } },
+            ]},
+        ],
+    };
+});
+```
+
+- 能力处理器必须**同步返回**（返回 Promise 会被拒绝，见 §3.6）；
+- 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）；
+- 未识别的块类型会被忽略（向前兼容）。
+
+### 3.6 事件
 
 ```js
 musicxx.events.subscribe("musicxx.state.changed", (payload, topic) => { /* ... */ });
 musicxx.events.publish("plugin.my_plugin.hello", { at: Date.now() });
+musicxx.events.unsubscribe("musicxx.state.changed");
 ```
 
-- 订阅：**顶层声明**（v1 不支持运行时动态订阅）；可订阅官方 `musicxx.*` 或其它插件的 `plugin.<id>.*` 主题。
+- 订阅：顶层声明或运行期动态订阅都可以；可订阅官方 `musicxx.*` 或其它插件的 `plugin.<id>.*` 主题。
+  `unsubscribe` 之后宿主侧订阅仍保留，但该主题的回调不再触发（同一主题再次订阅会复用原订阅）。
 - 发布：只能发布官方主题或**自己命名空间**（`plugin.<自己的插件 id>.*`）的主题，冒充他人会被拒绝。
 
-### 3.6 能力（供 Dart / 其它插件调用）
+### 3.7 能力（注册 + 跨插件调用）
 
 ```js
+// 注册：能力全名 = plugin.<插件 id>.<短名>；Dart 侧用 MusicxxPluginManager.call(id, method) 调用
 musicxx.capability.register("probe", (args) => ({ ok: true, args }));
+
+// 调用别的插件（返回 Promise）：
+const info = await musicxx.capability.call("example_native", "probe", {});
+const again = await musicxx.capability.call("example_js", "plugin.example_js.probe"); // 全名也可以
 ```
 
-- 能力全名 = `plugin.<插件 id>.<短名>`，Dart 侧 `MusicxxPluginManager.call(id, method)` 可调用。
-- v1：能力处理器必须**同步返回**可 JSON 序列化的结果（返回 Promise 会以 `capability_async_not_supported` 失败）；
-  `musicxx.capability.call`（跨插件调用）暂未支持。
+- 处理器必须**同步返回**可 JSON 序列化的结果（返回 Promise 会以 `capability_async_not_supported` 失败）。
+- `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
+  - 目标是 **JS 插件** → 在共享 JS 线程上直接调用（同一线程，结果立即就绪）；
+  - 目标是**原生插件** → 由宿主线程执行、脚本**不阻塞**（宿主线程可能正在等 JS 处理器），
+    超时默认 3 s（下限 1 s）；失败时 Promise 拒绝，`err.message` 里带原因。
 
-### 3.7 定时器与工具
+### 3.8 统计与自检
+
+```js
+musicxx.stats.getSelf();                       // 本实例统计（钩子/能力/订阅/定时器/脚本执行/堆用量/执行上限命中）
+musicxx.stats.reportMemory(1024 * 1024);       // 可选：自报内存占用（只观测不限制）
+musicxx.stats.reportMetric("cacheHits", 42);   // 可选：自报自定义指标（名字须 plugin.<id>.<名>）
+```
+
+统计只用于展示与排障（plan §4.11），任何指标超标都**不会**导致插件被暂停或卸载；
+原生插件的内存无法精确统计，`reportMemory` 是"插件自报"，仅供参考。
+
+### 3.9 定时器与工具
 
 ```js
 const t = musicxx.timer.setInterval(() => { /* ... */ }, 30000);
@@ -150,16 +234,12 @@ musicxx.util.formatTime(83000);      // "1:23"
 musicxx.util.urlEncode("a b");       // "a%20b"
 musicxx.util.json.stringify({a: 1});
 musicxx.util.now();
-```
 
-定时器由宿主按实例管理：插件停用/卸载时自动清理。
-
-### 3.8 其它
-
-```js
 musicxx.version   // 宿主 JS 运行时版本
 musicxx.pluginId  // 本插件 id
 ```
+
+定时器由宿主按实例管理：插件停用/卸载时自动清理。
 
 ## 4. 一个最小可用例子
 
@@ -177,7 +257,7 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 musicxx.capability.register("ping", () => ({ pong: true }));
 ```
 
-完整示例见仓库 `example/example_js/`（与 `example/example_native/` 行为等价）。
+完整示例见仓库 `plugins/example_js/`（与 `plugins/example_native/` 行为等价）。
 
 ## 5. 调试与排障
 
@@ -191,9 +271,8 @@ musicxx.capability.register("ping", () => ({ pong: true }));
 
 | 边界 | 说明 |
 |---|---|
-| `capability.call` | 跨插件调用能力（v1 只支持注册） |
-| 动态订阅/注销 | 订阅只在顶层声明（v1 不支持运行期增删） |
 | 异步裁决 | 裁决型钩子必须同步返回（plan §5.4 的 runner isolate 派发落地后可支持） |
-| 声明式 UI | `musicxx.ui.registerEntry` 等 UI 扩展项（M5） |
-| 网络 | 宿主代理通道 `musicxx.net.fetch`（需要 `musicxx.net` 权限；M5 落地后可用） |
-| 资源限制 | 宿主不限制 JS 内存/执行时长（决策 13）；死循环会占住共享 JS 线程，可由管理页禁用该插件 |
+| 异步能力 | 能力处理器必须同步返回结果（返回 Promise 会失败） |
+| 设置页表单 | `musicxx.ui.settings.page` 可注册，但应用侧的表单渲染尚未接入（当前只渲染主页入口/歌曲菜单/插件页面） |
+| 网络 | 宿主代理通道 `musicxx.net.fetch`（需要 `musicxx.net` 权限）尚未接入，脚本可先用动作通道或等后续版本 |
+| 资源限制 | 宿主不限制 JS 内存/执行时长（决策 13）；死循环会占住共享 JS 线程。可在配置里显式开启**可选执行上限**（`jsExecGuardMs`），开启后单次脚本执行超时会被中断并计入统计 |
