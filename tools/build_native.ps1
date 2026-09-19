@@ -1,37 +1,38 @@
-# musicxx_extern_plugin 原生依赖与宿主库构建 (plan §11.2 的两阶段构建)
+# musicxx_extern_plugin 原生构建脚本
 #
-# 阶段一: 从 src/third_party 的子模块源码编译依赖, 安装到 .native/deps/<平台>-<架构>/
-#         依赖顺序: fmt → yaml-cpp → simdjson → libiconv-native → uchardet
-#                   → cxx_utilxx_base → cxx_pluginxx
-# 阶段二: 用该前缀配置并构建宿主库、示例插件与原生测试
+# 对应 agentxx 的 agent/script/windows_debug_build.bat: 负责"环境准备 + 调 cmake",
+# 具体的依赖库编译与宿主工程构建全部交给 src/CMakeLists.txt (superbuild + ExternalProject_Add):
 #
-# 依赖来源只有两处, 都不依赖任何"预编译库":
-#   1) src/third_party/ 下的 git 子模块 (commit 锁定见 third_party_versions.json);
-#   2) Boost 头文件 (只用 Boost.Asio 头, 不链接 Boost 编译库):
-#      src/third_party/boost/include 已内置时直接使用, 否则按固定版本从官方发布包下载解包,
-#      并由本脚本生成 <前缀>/lib/cmake/Boost-<版本>/BoostConfig.cmake (不依赖 b2 生成的配置)。
-#      字符集转换 (iconv + uchardet) 与上游默认保持一致: cxx_utilxx_base 的源码无条件使用
-#      <iconv.h> 与 uchardet, 因此两者都必须从源码构建, 不能靠开关关掉。
+#   src/CMakeLists.txt       顶层 superbuild: 推导 XX_IS_* 宏 → 生成 BoostConfig.cmake →
+#                            ExternalProject_Add 逐个构建 third_party 依赖 → 构建宿主工程
+#   src/host/CMakeLists.txt  嵌套宿主工程: find_package 取依赖 → 宿主库 / 插件 SDK / 示例插件 / 原生测试
+#
+# 本脚本负责的只有 cmake 不方便做的事:
+#   - 环境预检 (cmake / git / Visual Studio), UTF-8 控制台、关闭 vcpkg 集成、MSVC 英文输出
+#   - Boost 头文件的解析/复用/下载解包 (只用头文件, 不链接 Boost 编译库)
+#   - 按 -Config 传 XX_IS_RELEASE_D / CMAKE_BUILD_TYPE / CMAKE_CONFIGURATION_TYPES / 平台
+#   - 构建完成后把产物复制到稳定的输出目录, 可选跑原生测试
 #
 # 用法:
-#   pwsh -NoProfile -File tools/build_native.ps1                 # 依赖 + 宿主 (Release)
-#   pwsh -NoProfile -File tools/build_native.ps1 -DepsOnly       # 只构建依赖
-#   pwsh -NoProfile -File tools/build_native.ps1 -HostOnly       # 只构建宿主 (依赖已在先前缀)
-#   pwsh -NoProfile -File tools/build_native.ps1 -PrepareOnly    # 只做预检与 Boost 准备, 不构建
-#   pwsh -NoProfile -File tools/build_native.ps1 -Clean          # 先清空依赖前缀与构建目录
-#   pwsh -NoProfile -File tools/build_native.ps1 -RunTests       # 构建后跑原生测试
+#   pwsh -NoProfile -File tools/build_native.ps1                    # Release 全量 (依赖 + 宿主)
+#   pwsh -NoProfile -File tools/build_native.ps1 -Config Debug      # Debug (独立构建目录, 依赖也重编)
+#   pwsh -NoProfile -File tools/build_native.ps1 -DepsOnly          # 只构建依赖库
+#   pwsh -NoProfile -File tools/build_native.ps1 -ConfigureOnly     # 只做预检/Boost/configure
+#   pwsh -NoProfile -File tools/build_native.ps1 -Clean             # 先清空构建目录
+#   pwsh -NoProfile -File tools/build_native.ps1 -RunTests          # 构建后跑原生测试
+#   pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8            # 指定并行度
 #   pwsh -NoProfile -File tools/build_native.ps1 -BoostRoot <目录>       # 指定 Boost 头文件根 (含 boost/)
 #   pwsh -NoProfile -File tools/build_native.ps1 -BoostArchive <压缩包>  # 用本地 Boost 发布包解包
 param(
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
-    [ValidateSet('Release', 'Debug', 'RelWithDebInfo')][string]$Config = 'Release',
+    [ValidateSet('Release', 'Debug')][string]$Config = 'Release',
     [switch]$DepsOnly,
-    [switch]$HostOnly,
-    [switch]$PrepareOnly,
+    [switch]$ConfigureOnly,
     [switch]$Clean,
     [switch]$RunTests,
     [int]$Jobs = 0,
-    [string]$Prefix,
+    [string]$BuildDir,
+    [string]$OutputDir,
     [string]$BoostRoot,
     [string]$BoostArchive,
     [string]$Generator,
@@ -41,9 +42,23 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = (Resolve-Path $Root).Path
-$thirdParty = Join-Path $Root 'src/third_party'
-$versionsJson = Get-Content -Raw (Join-Path $Root 'third_party_versions.json') -Encoding UTF8 | ConvertFrom-Json
-$boostMeta = $versionsJson.external.boost
+$srcDir = Join-Path $Root 'src'
+$thirdParty = Join-Path $srcDir 'third_party'
+$nativeRoot = Join-Path $Root '.native'
+
+# ==================== 构建环境 (对应 .bat 里的 chcp / VSLANG / 关闭 vcpkg) ====================
+
+# 控制台按 UTF-8: 顶层 CMakeLists 会据此写 Directory.Build.targets,
+# 强制 MSBuild 的 CustomBuild 任务按 UTF-8 解码嵌套构建的输出 (修中文乱码)
+$env:MUSICXX_EXT_BUILD_CONSOLE_CP = '65001'
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+# MSVC 输出英文诊断
+$env:VSLANG = '1033'
+# 完全停用 vcpkg: 依赖全部来自 third_party 源码构建, 不需要 vcpkg;
+# VCPKG_ROOT 置空停用 CMake 工具链集成, VCPkgLocalAppDataDisabled=1 停用 MSBuild 的
+# 用户级集成 (否则每次构建都会跑 applocal.ps1 收集 DLL 并打印 "Failed to gather ..." 警告)
+$env:VCPKG_ROOT = ''
+$env:VCPkgLocalAppDataDisabled = '1'
 
 # ==================== 平台 / 目录 / 生成器 ====================
 
@@ -58,16 +73,25 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitect
     default { 'unknown' }
 }
 
-if (-not $Prefix) { $Prefix = Join-Path $Root ".native/deps/$os-$arch" }
-$Prefix = [System.IO.Path]::GetFullPath($Prefix)
-$nativeRoot = Join-Path $Root '.native'
-$buildRoot = Join-Path $nativeRoot 'build'
-$downloadRoot = Join-Path $nativeRoot 'downloads'
-
-function Write-Step([string]$Text) {
-    Write-Output ""
-    Write-Output "==> $Text"
+# VS 生成器的 -A 平台名 (x64/ARM64/Win32) 与 CMAKE_SYSTEM_PROCESSOR (AMD64/ARM64/x86) 不是一回事
+$generatorPlatform = switch ($arch) {
+    'x64' { 'x64' }
+    'arm64' { 'ARM64' }
+    'x86' { 'Win32' }
+    default { 'x64' }
 }
+$systemProcessor = switch ($arch) {
+    'x64' { 'AMD64' }
+    'arm64' { 'ARM64' }
+    'x86' { 'x86' }
+    default { 'AMD64' }
+}
+
+if (-not $BuildDir) { $BuildDir = Join-Path $nativeRoot "build/$os-$($Config.ToLower())" }
+if (-not $OutputDir) { $OutputDir = Join-Path $nativeRoot "output/$os-$arch-$($Config.ToLower())" }
+$BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
+$OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+$installDir = Join-Path $BuildDir 'musicxx-extern-plugin-install'
 
 if (-not $Generator) {
     if ($os -eq 'windows') {
@@ -82,41 +106,70 @@ if (-not $Generator) {
 }
 $isMultiConfig = $Generator -like 'Visual Studio*'
 $generatorArgs = @('-G', $Generator)
-if ($isMultiConfig) { $generatorArgs += @('-A', $arch) }
+if ($isMultiConfig) { $generatorArgs += @('-A', $generatorPlatform) }
+
+$isRelease = $Config -in @('Release', 'MinSizeRel')
+$xxIsRelease = if ($isRelease) { '1' } else { '0' }
+
+function Write-Step([string]$Text) {
+    Write-Output ""
+    Write-Output "==> $Text"
+}
 
 Write-Output "=== musicxx_extern_plugin 原生构建 ==="
 Write-Output "  源目录:     $Root"
-Write-Output "  依赖前缀:   $Prefix"
-Write-Output "  构建目录:   $buildRoot"
-Write-Output "  生成器:     $Generator$(if ($isMultiConfig) { " ($arch)" })    配置: $Config"
+Write-Output "  构建目录:   $BuildDir"
+Write-Output "  安装目录:   $installDir"
+Write-Output "  输出目录:   $OutputDir"
+Write-Output "  配置:       $Config (XX_IS_RELEASE_D=$xxIsRelease)   生成器: $Generator$(if ($isMultiConfig) { " ($generatorPlatform)" })"
 
-if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw '未找到 cmake; 请先安装 CMake 并加入 PATH' }
-if ($os -eq 'windows' -and -not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
-    Write-Output "  [警告] 未找到 pkg-config; cxx_utilxx_base / cxx_pluginxx 在配置阶段会失败 (find_package(PkgConfig REQUIRED))"
-}
+# ==================== 环境预检 (失败就给明确原因, 对应 .bat 的 env 检查) ====================
 
-# ==================== 子模块预检 ====================
-
-Write-Step '子模块预检'
-$missing = @()
-foreach ($sub in $versionsJson.submodules) {
-    $subPath = Join-Path $Root $sub.path
-    if (-not (Test-Path $subPath)) { $missing += $sub.path; continue }
-    $head = (& git -C $subPath rev-parse HEAD 2>$null)
-    if ($head) { $head = $head.Trim() }
-    if ($head -and $head -ne $sub.commit) {
-        Write-Output ("  [警告] {0} 当前 {1}, third_party_versions.json 记录 {2}" -f `
-                $sub.path, $head.Substring(0, 12), $sub.commit.Substring(0, 12))
+Write-Step '环境预检'
+foreach ($tool in @('cmake', 'git')) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        throw "未找到 $tool; 请先安装并加入 PATH"
     }
+}
+if ($os -eq 'windows') {
+    $vsFound = $false
+    foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+        if ($pf -and (Test-Path (Join-Path $pf 'Microsoft Visual Studio/Installer/vswhere.exe'))) { $vsFound = $true }
+    }
+    if (-not $vsFound) {
+        foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+            if ($pf -and (Test-Path (Join-Path $pf 'Microsoft Visual Studio'))) { $vsFound = $true }
+        }
+    }
+    if (-not $vsFound) {
+        Write-Output '  [警告] 未检测到 Visual Studio (vswhere 与安装目录都不存在); 若使用其它工具链请忽略'
+    }
+}
+if ($os -eq 'windows' -and -not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
+    Write-Output '  [警告] 未找到 pkg-config; cxx_utilxx_base / cxx_pluginxx 配置阶段会失败 (find_package(PkgConfig REQUIRED))'
+}
+Write-Output "  cmake: $((& cmake --version)[0])"
+
+# 子模块预检 (commit 由仓库 gitlink 记录, 这里只确认已初始化)
+Write-Output '  子模块:'
+$submoduleStatus = & git -C $Root submodule status 2>$null
+$missing = @()
+foreach ($line in $submoduleStatus) {
+    if (-not $line) { continue }
+    $trimmed = $line.TrimStart()
+    if ($trimmed.StartsWith('-')) { $missing += ($trimmed -split '\s+')[1] }
 }
 if ($missing.Count -gt 0) {
     throw ("以下子模块未初始化:`n  " + ($missing -join "`n  ") + "`n请先执行: git submodule update --init --recursive")
 }
-Write-Output ("  已就绪: {0} 个子模块" -f $versionsJson.submodules.Count)
+Write-Output ("    已就绪: {0} 个 (git submodule status)" -f $submoduleStatus.Count)
 
 # ==================== Boost (仅头文件) ====================
-
-# 说明: 下面三个函数会返回值, 因此函数体内的日志一律用 Write-Host (Write-Output 会混进返回值)
+# 只用 Boost.Asio 头, 不链接任何 Boost 编译库。cmake 侧只负责生成 BoostConfig.cmake 与校验版本,
+# 头文件的获取(复用/下载/解包/校验)放在这里。版本、下载地址与校验值一同维护在下面的常量里。
+$boostVersion = '1.92.0'    # 与 src/third_party/boost/include 中的 boost/version.hpp 一致
+$boostSourceUrl = 'https://archives.boost.io/release/@VERSION@/source/boost_@UNDERSCORE@.tar.gz'
+$boostSha256 = 'c4a3b310ddd2472416e091067166b0713be97c63f38c212c484ada022fd296ce'
 
 function Test-BoostRoot([string]$Path) {
     return [bool]($Path -and (Test-Path (Join-Path $Path 'boost/version.hpp')))
@@ -132,6 +185,7 @@ function Get-BoostVersionCode([string]$HeaderRoot) {
 function Expand-BoostArchive([string]$ArchivePath, [string]$Version, [string]$DestRoot) {
     # Boost 发布包 (archives.boost.io) 顶层是 boost_<下划线版本>/boost/...
     $dirName = 'boost_' + ($Version -replace '\.', '_')
+    $downloadRoot = Join-Path $nativeRoot 'downloads'
     $tmp = Join-Path $downloadRoot ("extract-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     Write-Host "  解包 $ArchivePath"
@@ -147,7 +201,7 @@ function Expand-BoostArchive([string]$ArchivePath, [string]$Version, [string]$De
 }
 
 function Resolve-BoostHeaderRoot {
-    $cached = Join-Path $nativeRoot ('boost/boost_' + ($boostMeta.version -replace '\.', '_'))
+    $cached = Join-Path $nativeRoot ('boost/boost_' + ($boostVersion -replace '\.', '_'))
 
     # 1) 显式参数
     if ($BoostRoot) {
@@ -159,7 +213,7 @@ function Resolve-BoostHeaderRoot {
     # 2) 显式指定的发布包 (优先于内置头文件, 便于离线/自备包)
     if ($BoostArchive) {
         if (-not (Test-Path $BoostArchive)) { throw "-BoostArchive 指向的文件不存在: $BoostArchive" }
-        $expanded = @(Expand-BoostArchive -ArchivePath $BoostArchive -Version $boostMeta.version -DestRoot $cached)
+        $expanded = @(Expand-BoostArchive -ArchivePath $BoostArchive -Version $boostVersion -DestRoot $cached)
         return $expanded[-1]
     }
 
@@ -179,214 +233,148 @@ function Resolve-BoostHeaderRoot {
     # 5) 按固定版本下载官方发布包
     if ($NoDownloadBoost) {
         throw ("未提供 Boost 头文件: 请用 -BoostRoot <含 boost/ 的目录> 或 -BoostArchive <发布包>, " +
-            "或去掉 -NoDownloadBoost 让脚本自动下载 $($boostMeta.source_url)")
+            "或去掉 -NoDownloadBoost 让脚本自动下载 $boostSourceUrl")
     }
-    $dirName = 'boost_' + ($boostMeta.version -replace '\.', '_')
+    $dirName = 'boost_' + ($boostVersion -replace '\.', '_')
+    $downloadRoot = Join-Path $nativeRoot 'downloads'
     New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
     $archivePath = Join-Path $downloadRoot "$dirName.tar.gz"
     if (Test-Path $archivePath) {
         Write-Host "  Boost: 复用已下载的发布包 $archivePath"
     }
     else {
-        $url = $boostMeta.source_url.Replace('@VERSION@', $boostMeta.version).Replace('@UNDERSCORE@', ($boostMeta.version -replace '\.', '_'))
+        $url = $boostSourceUrl.Replace('@VERSION@', $boostVersion).Replace('@UNDERSCORE@', ($boostVersion -replace '\.', '_'))
         Write-Host "  Boost: 下载 $url"
         & curl.exe -L --fail --retry 3 --retry-delay 2 -o $archivePath $url
         if ($LASTEXITCODE -ne 0) { throw "下载 Boost 发布包失败: $url" }
     }
-    if ($boostMeta.archive_sha256) {
+    if ($boostSha256) {
         $actual = (Get-FileHash -Algorithm SHA256 $archivePath).Hash.ToLower()
-        if ($actual -ne $boostMeta.archive_sha256.ToLower()) {
-            throw "Boost 发布包校验失败: $archivePath`n  期望 $($boostMeta.archive_sha256)`n  实际 $actual"
+        if ($actual -ne $boostSha256.ToLower()) {
+            throw "Boost 发布包校验失败: $archivePath`n  期望 $boostSha256`n  实际 $actual"
         }
         Write-Host "  Boost: 发布包 SHA256 校验通过"
     }
-    $expanded = @(Expand-BoostArchive -ArchivePath $archivePath -Version $boostMeta.version -DestRoot $cached)
+    $expanded = @(Expand-BoostArchive -ArchivePath $archivePath -Version $boostVersion -DestRoot $cached)
     return $expanded[-1]
 }
 
-function Write-BoostConfig([string]$HeaderRoot) {
-    # 内核与基础库都用 find_package(Boost CONFIG) 且只取头文件根, 因此这里生成一份最小配置
-    $cfgDir = Join-Path $Prefix ("lib/cmake/Boost-" + $boostMeta.version)
-    New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
-    $template = Get-Content -Raw (Join-Path $PSScriptRoot 'cmake/BoostConfig.cmake.in') -Encoding UTF8
-    $content = $template.
-        Replace('@BOOST_INCLUDE_DIR@', ($HeaderRoot -replace '\\', '/')).
-        Replace('@BOOST_VERSION@', $boostMeta.version)
-    Set-Content -Path (Join-Path $cfgDir 'BoostConfig.cmake') -Value $content -Encoding UTF8
-    Write-Host "  Boost: 生成 $cfgDir/BoostConfig.cmake (头文件根 $($HeaderRoot -replace '\\', '/'))"
+Write-Step 'Boost (仅头文件)'
+$boostHeaderRoot = Resolve-BoostHeaderRoot
+$boostParts = $boostVersion.Split('.')
+$expectCode = ([int]$boostParts[0] * 100000) + ([int]$boostParts[1] * 100) + [int]$boostParts[2]
+$boostCode = Get-BoostVersionCode $boostHeaderRoot
+if ($boostCode -ne $expectCode) {
+    throw ("Boost 版本不符: 脚本期望 $boostVersion (BOOST_VERSION=$expectCode), " +
+        "实际 BOOST_VERSION=$boostCode ($boostHeaderRoot)")
 }
-
-# ==================== 构建辅助 ====================
-
-New-Item -ItemType Directory -Force -Path $Prefix, $buildRoot | Out-Null
+Write-Host "  Boost 头文件根: $boostHeaderRoot (版本 $boostVersion)"
 
 if ($Clean) {
-    Write-Step '清理 (依赖前缀与构建目录)'
-    foreach ($p in @($Prefix, $buildRoot)) {
+    Write-Step '清理构建目录'
+    foreach ($p in @($BuildDir, $OutputDir)) {
         if (Test-Path $p) {
             Write-Output "  删除 $p"
             Remove-Item $p -Recurse -Force
         }
     }
-    New-Item -ItemType Directory -Force -Path $Prefix, $buildRoot | Out-Null
 }
 
-# 同一个构建目录换前缀/换 Boost 后必须重新配置, 否则 CMake 缓存里的 <包>_DIR 会继续指向旧前缀
-# (此前正是这样把依赖悄悄指到了别的预编译前缀上); 因此记录签名, 不一致就重置该构建目录。
-function Reset-BuildDirIfStale([string]$Name) {
-    $dir = Join-Path $buildRoot $Name
-    $signature = "prefix=$Prefix;boost=$script:boostHeaderRoot;config=$Config;generator=$Generator"
-    if (Test-Path $dir) {
-        $marker = Join-Path $dir '.build_signature'
-        $old = if (Test-Path $marker) { (Get-Content -Raw $marker).Trim() } else { '' }
-        if ($old -ne $signature) {
-            Write-Host "  [$Name] 构建目录的依赖前缀已变化, 重置 $dir"
-            Remove-Item $dir -Recurse -Force
-        }
+# ==================== configure (对应 .bat 的 cmake -D... -B -S) ====================
+
+Write-Step 'configure (superbuild: 依赖 + 宿主)'
+# 构建目录签名: 配置/生成器/平台/Boost 位置变化时重置目录, 避免 CMakeCache 里残留
+# 上一次的参数 (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
+$signature = "config=$Config;generator=$Generator;platform=$generatorPlatform;boost=$boostHeaderRoot;xxRelease=$xxIsRelease"
+$marker = Join-Path $BuildDir '.build_signature'
+if (Test-Path $BuildDir) {
+    $old = if (Test-Path $marker) { (Get-Content -Raw $marker).Trim() } else { '' }
+    if ($old -ne $signature) {
+        Write-Output "  构建目录的配置已变化, 重置: $BuildDir"
+        Remove-Item $BuildDir -Recurse -Force
     }
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    Set-Content -Path (Join-Path $dir '.build_signature') -Value $signature -Encoding UTF8
-    return $dir
 }
+New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
+Set-Content -Path $marker -Value $signature -Encoding UTF8
 
-function Invoke-CMakeStep {
-    param([string]$Name, [string]$Source, [string[]]$ConfigureArgs)
-    $dir = Reset-BuildDirIfStale $Name
-    Write-Host "  [$Name] configure"
-    & cmake -S $Source -B $dir @generatorArgs @ConfigureArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] configure 失败" }
-    Write-Host "  [$Name] build"
-    $buildArgs = @('--build', $dir, '--config', $Config, '--parallel')
-    if ($Jobs -gt 0) { $buildArgs[-1] = "$Jobs" }
-    & cmake @buildArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] build 失败" }
-    Write-Host "  [$Name] install"
-    & cmake --install $dir --config $Config | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] install 失败" }
-}
+$configureArgs = @(
+    "-DXX_IS_RELEASE_D=$xxIsRelease"
+    "-DCMAKE_BUILD_TYPE=$Config"
+    # 收窄可用配置到本次配置 (与 agentxx 的 windows_*_build.bat 一致): 一个构建目录只构建一个配置,
+    # 依赖安装前缀在构建目录内, 因此不会混入其它配置的产物
+    "-DCMAKE_CONFIGURATION_TYPES=$Config"
+    "-DCMAKE_SYSTEM_PROCESSOR=$systemProcessor"
+    '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
+    "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=$boostHeaderRoot"
+)
+if ($DepsOnly) { $configureArgs += '-DMUSICXX_EXTERN_PLUGIN_BUILD_HOST=OFF' }
 
-# ==================== Boost 准备 ====================
+& cmake @configureArgs @generatorArgs -B $BuildDir -S $srcDir | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'cmake configure 失败' }
 
-Write-Step 'Boost (仅头文件)'
-$script:boostHeaderRoot = Resolve-BoostHeaderRoot
-$boostCode = Get-BoostVersionCode $script:boostHeaderRoot
-$expectedParts = $boostMeta.version.Split('.')
-$expectCode = ([int]$expectedParts[0] * 100000) + ([int]$expectedParts[1] * 100) + [int]$expectedParts[2]
-if ($boostCode -ne $expectCode) {
-    throw ("Boost 版本不符: 期望 $($boostMeta.version) (BOOST_VERSION=$expectCode), " +
-        "实际 BOOST_VERSION=$boostCode ($script:boostHeaderRoot)")
-}
-Write-BoostConfig $script:boostHeaderRoot
-
-if ($PrepareOnly) {
+if ($ConfigureOnly) {
     Write-Output ""
-    Write-Output "PrepareOnly: 预检与 Boost 准备完成 (未构建)"
+    Write-Output "ConfigureOnly: 配置完成 (未构建)"
     exit 0
 }
 
-# ==================== 阶段一: 依赖 ====================
+# ==================== build ====================
 
-if (-not $HostOnly) {
-    Write-Step '阶段一: 从 src/third_party 构建依赖'
-    $common = @(
-        "-DCMAKE_INSTALL_PREFIX=$Prefix",
-        "-DCMAKE_PREFIX_PATH=$Prefix",
-        '-DBUILD_SHARED_LIBS=OFF',
-        "-DCMAKE_BUILD_TYPE=$Config"
-    )
+$parallel = if ($Jobs -gt 0) { "$Jobs" } else { "$([Environment]::ProcessorCount)" }
+$buildArgs = @('--build', $BuildDir, '--config', $Config, '--parallel', $parallel)
+# 只构建依赖: 直接以 cxx_pluginxx_repo 为目标 (host 工程不在依赖链上)
+if ($DepsOnly) { $buildArgs += @('--target', 'cxx_pluginxx_repo') }
 
-    Invoke-CMakeStep -Name 'fmt' -Source (Join-Path $thirdParty 'fmt') -ConfigureArgs ($common + @(
-            '-DFMT_TEST=OFF', '-DFMT_DOC=OFF', '-DFMT_INSTALL=ON'
-        ))
+Write-Step "build (--config $Config --parallel $parallel)"
+& cmake @buildArgs | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'cmake build 失败' }
 
-    Invoke-CMakeStep -Name 'yaml-cpp' -Source (Join-Path $thirdParty 'yaml-cpp') -ConfigureArgs ($common + @(
-            '-DYAML_CPP_BUILD_TESTS=OFF', '-DYAML_CPP_BUILD_TOOLS=OFF', '-DYAML_CPP_INSTALL=ON'
-        ))
-
-    # cxx_utilxx_base 的 JSON 后端依赖 simdjson
-    Invoke-CMakeStep -Name 'simdjson' -Source (Join-Path $thirdParty 'simdjson') -ConfigureArgs ($common + @(
-            '-DSIMDJSON_JUST_LIBRARY=ON', '-DSIMDJSON_BUILD_STATIC=ON',
-            '-DSIMDJSON_DEVELOPER_MODE=OFF', '-DSIMDJSON_ENABLE_THREADS=OFF'
-        ))
-
-    # 字符集: libiconv (C, 提供 iconv.h 与 iconvConfig.cmake) + uchardet (C++, 编码探测)
-    Invoke-CMakeStep -Name 'libiconv-native' -Source (Join-Path $thirdParty 'libiconv-native') -ConfigureArgs $common
-
-    # uchardet 的命令行工具需要 getopt.h (Windows 无): 只构建库与包配置, 不构建工具与测试
-    Invoke-CMakeStep -Name 'uchardet' -Source (Join-Path $thirdParty 'uchardet') -ConfigureArgs ($common + @(
-            '-DBUILD_BINARY=OFF', '-DUCHARDET_BUILD_TOOLS=OFF'
-        ))
-
-    Invoke-CMakeStep -Name 'cxx_utilxx_base' -Source (Join-Path $thirdParty 'cxx_utilxx_base') -ConfigureArgs ($common + @(
-            '-DCXX_UTILXX_BASE_ENABLE_CHARSET=ON', '-DCXX_UTILXX_BASE_USE_BOOST_ASIO=ON',
-            '-DCXX_UTILXX_BASE_LINUX_IO_URING_SUPPORTED=OFF'
-        ))
-
-    Invoke-CMakeStep -Name 'cxx_pluginxx' -Source (Join-Path $thirdParty 'cxx_pluginxx') -ConfigureArgs $common
-}
-
-# ==================== 阶段二: 宿主 ====================
-
-if (-not $DepsOnly) {
-    Write-Step '阶段二: 宿主库 / 示例插件 / 原生测试'
-    $hostDir = Reset-BuildDirIfStale 'host'
-    $boostCfgDir = Join-Path $Prefix ("lib/cmake/Boost-" + $boostMeta.version)
-    $hostArgs = @(
-        "-DMUSICXX_EXTERN_PLUGIN_NATIVE_PREFIX=$Prefix",
-        "-DMUSICXX_EXTERN_PLUGIN_DEP_PREFIX=$Prefix",
-        "-DBoost_DIR=$boostCfgDir",
-        "-DCMAKE_BUILD_TYPE=$Config"
-    )
-    Write-Host "  [host] configure"
-    & cmake -S (Join-Path $Root 'src') -B $hostDir @generatorArgs @hostArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw '[host] configure 失败' }
-    Write-Host "  [host] build"
-    $buildArgs = @('--build', $hostDir, '--config', $Config, '--parallel')
-    if ($Jobs -gt 0) { $buildArgs[-1] = "$Jobs" }
-    & cmake @buildArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw '[host] build 失败' }
-}
+# 顶层 superbuild 自身没有安装规则 (安装都由各 ExternalProject 完成); 这里保持一致行为
+& cmake --install $BuildDir --config $Config | Out-Host
+if ($LASTEXITCODE -ne 0) { throw 'cmake install 失败' }
 
 # ==================== 产物 ====================
 
 Write-Step '产物'
-$hostRelease = Join-Path $buildRoot 'host/Release'
 $artifacts = @()
-if (Test-Path $hostRelease) {
-    $artifacts += Get-ChildItem $hostRelease -File | Where-Object { $_.Extension -in @('.dll', '.so', '.dylib', '.exe', '.lib', '.a') }
+if (Test-Path (Join-Path $installDir 'bin')) {
+    $artifacts += Get-ChildItem (Join-Path $installDir 'bin') -File |
+        Where-Object { $_.Extension -in @('.dll', '.so', '.dylib', '.exe') }
 }
-if ($artifacts.Count -gt 0) {
-    foreach ($f in $artifacts) {
-        Write-Output ("  {0,-34} {1,10:N0} 字节" -f $f.Name, $f.Length)
+if (Test-Path (Join-Path $installDir 'plugins')) {
+    $artifacts += Get-ChildItem (Join-Path $installDir 'plugins') -Recurse -File |
+        Where-Object { $_.Extension -in @('.dll', '.so', '.dylib') }
+}
+foreach ($f in $artifacts) {
+    Write-Output ("  {0,-36} {1,10:N0} 字节" -f $f.Name, $f.Length)
+}
+if ($artifacts.Count -eq 0) { Write-Output '  (bin/plugins 下没有产物)' }
+
+# 复制到稳定输出目录 (对应 .bat 里 xcopy exec → output); 失败只提示不阻断,
+# 因为安装目录里的产物本身已经可用 (例如文件被正在运行的进程占用)
+if (-not $DepsOnly) {
+    Write-Output ""
+    Write-Output "  复制产物到输出目录: $OutputDir"
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+    foreach ($sub in @('bin', 'plugins')) {
+        $from = Join-Path $installDir $sub
+        if (Test-Path $from) {
+            Copy-Item $from (Join-Path $OutputDir $sub) -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
-else {
-    Write-Output '  (未找到产物; 上面若已构建成功请检查 Release 目录)'
-}
-Write-Output ""
-Write-Output "  依赖前缀: $Prefix"
-Write-Output "  构建目录: $buildRoot"
 
 # ==================== 原生测试 (可选) ====================
 
 if ($RunTests) {
     Write-Step '原生测试'
     if ($DepsOnly) { throw '-RunTests 不能与 -DepsOnly 同时使用' }
-    $testExe = Join-Path $hostRelease 'musicxx_extern_plugin_test.exe'
-    if (-not (Test-Path $testExe)) { $testExe = Join-Path $hostRelease 'musicxx_extern_plugin_test' }
+    $testName = if ($os -eq 'windows') { 'musicxx_extern_plugin_test.exe' } else { 'musicxx_extern_plugin_test' }
+    $testExe = Join-Path $installDir "bin/$testName"
     if (-not (Test-Path $testExe)) { throw "未找到测试可执行文件: $testExe" }
 
     # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
-    $pluginRoot = Join-Path $buildRoot 'host/test-plugins'
-    $exampleDir = Join-Path $pluginRoot 'example_native'
-    New-Item -ItemType Directory -Force -Path $exampleDir | Out-Null
-    $exampleBuilt = Join-Path $buildRoot 'host/example_native/Release'
-    if (-not (Test-Path $exampleBuilt)) { $exampleBuilt = Join-Path $buildRoot 'host/example_native' }
-    if (Test-Path $exampleBuilt) {
-        Get-ChildItem $exampleBuilt -File | Where-Object { $_.Extension -in @('.dll', '.so', '.dylib') } |
-            Copy-Item -Destination $exampleDir -Force
-    }
-    Copy-Item (Join-Path $Root 'example/example_native/plugin.yaml') $exampleDir -Force
+    $pluginRoot = Join-Path $installDir 'plugins'
     Write-Output "  插件目录: $pluginRoot"
     Write-Output "  运行: $testExe $pluginRoot"
     & $testExe $pluginRoot | Out-Host

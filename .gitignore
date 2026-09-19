@@ -1,10 +1,16 @@
-# 构建产物与本地依赖前缀（不进版本库）
+# 构建产物与本地缓存（不进版本库）
 #
-# .native/ 下三类内容全部可由 tools/build_native.ps1 重建:
-#   .native/deps/<平台>-<架构>/  依赖安装前缀（fmt / yaml-cpp / simdjson / libiconv / uchardet / cxx_utilxx_base / cxx_pluginxx + 生成的 BoostConfig.cmake）
-#   .native/build/             各依赖与宿主的构建目录（Visual Studio/Ninja 工程）
-#   .native/downloads/         Boost 发布包缓存（缺失内置头文件时按固定版本下载）
-#   .native/boost/             Boost 发布包解包出的头文件根
+# .native/ 下的内容全部可由 tools/build_native.ps1 重建:
+#   build/<平台>-<配置>/                            构建目录 (superbuild 的 CMake 工程; 一个配置一个目录)
+#     musicxx-extern-plugin-install/                依赖与宿主产物的安装前缀
+#       bin/                                       宿主库与原生测试
+#       include/                                   Dart C ABI 头 + 依赖头 + 插件 SDK
+#       lib/  share/                               依赖静态库与各依赖的 find_package 配置 (+ 生成的 BoostConfig)
+#       plugins/example_native/                     示例插件 (库文件 + plugin.yaml)
+#     e/<依赖短名>/                                  各依赖的嵌套构建目录 (短路径, 避免 MAX_PATH 超限)
+#   output/<平台>-<架构>-<配置>/                    构建脚本复制出的稳定产物 (bin/、plugins/)
+#   downloads/                                     Boost 发布包缓存 (缺失内置头文件时按固定版本下载)
+#   boost/                                         Boost 发布包解包出的头文件根
 .native/
 build/
 *.user
@@ -13,6 +19,6 @@ build/
 __pycache__/
 
 # Boost 头文件（仅头文件，约 151 MB，不随仓库分发）：
-# tools/build_native.ps1 按 third_party_versions.json 里锁定的版本与 SHA256 下载解包到 .native/boost/，
-# 因此全新克隆无需本目录即可构建；本机已有该目录时脚本优先复用（-BoostRoot / -BoostArchive 可覆盖）。
+# tools/build_native.ps1 按脚本内固定版本 + URL + SHA256 下载解包到 .native/boost/，因此全新克隆
+# 无需本目录即可构建；本机已有该目录时脚本优先复用（-BoostRoot / -BoostArchive 可覆盖）。
 src/third_party/boost/
