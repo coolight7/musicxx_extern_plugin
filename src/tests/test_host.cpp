@@ -11,9 +11,12 @@
 
 #include "musicxx_extern_plugin_api.h"
 
+#include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -37,11 +40,14 @@ MusicxxExternPluginStringView view(const std::string& s) {
     return v;
 }
 
-/// 指针版视图 (C ABI 入参形态); 单线程测试用, A/B 两个槽位足够一次调用用两个视图
+/// 指针版视图 (C ABI 入参形态)
+///
+/// 注意: 槽位是滚动复用的静态数组, 因此**一次调用里的视图个数必须 ≤ 槽位数**
+/// (C++ 不规定实参求值顺序, 槽位太少会让后写入的值覆盖先写入的视图)。
 MusicxxExternPluginStringView* viewP(const std::string& s) {
-    static MusicxxExternPluginStringView slots[2];
+    static MusicxxExternPluginStringView slots[8];
     static int                          next = 0;
-    auto&                               v    = slots[next++ % 2];
+    auto&                               v    = slots[next++ % 8];
     v.data                                   = s.data();
     v.size                                   = s.size();
     return &v;
@@ -55,9 +61,9 @@ MusicxxExternPluginStringView viewC(const char* s) {
 }
 
 MusicxxExternPluginStringView* viewCP(const char* s) {
-    static MusicxxExternPluginStringView slots[2];
+    static MusicxxExternPluginStringView slots[8];
     static int                          next = 0;
-    auto&                               v    = slots[next++ % 2];
+    auto&                               v    = slots[next++ % 8];
     v.data                                   = s;
     v.size                                   = std::strlen(s);
     return &v;
@@ -74,6 +80,37 @@ std::string take(MusicxxExternPluginString& s) {
     }
     freeStr(s);
     return out;
+}
+
+/// 取 JSON 字符串字段的裸值 (测试专用极简解析; 不支持转义)
+std::string jsonStringField(const std::string& json, const std::string& key) {
+    const std::string needle = "\"" + key + "\":\"";
+    const auto        pos    = json.find(needle);
+    if (pos == std::string::npos) {
+        return {};
+    }
+    const auto begin = pos + needle.size();
+    const auto end   = json.find('"', begin);
+    if (end == std::string::npos) {
+        return {};
+    }
+    return json.substr(begin, end - begin);
+}
+
+/// 取 JSON 整数字段的裸文本 (测试专用)
+std::string jsonIntField(const std::string& json, const std::string& key) {
+    const std::string needle = "\"" + key + "\":";
+    const auto        pos    = json.find(needle);
+    if (pos == std::string::npos) {
+        return {};
+    }
+    auto begin = pos + needle.size();
+    auto end   = begin;
+    while (end < json.size()
+           && (std::isdigit(static_cast<unsigned char>(json[end])) || json[end] == '-')) {
+        ++end;
+    }
+    return json.substr(begin, end - begin);
 }
 
 } // namespace
@@ -275,6 +312,178 @@ int main(int argc, char** argv) {
         freeStr(info);
     }
 
+    // 插件能力调用 (Dart → 插件) + 线程模型 / 命名空间自检
+    {
+        // 先让宿主发布一个测试主题 (插件已订阅), 再读探针 —— 两者都投递到宿主线程,
+        // 因此顺序确定 (先进先出), 探针一定看到已处理的事件
+        MusicxxExternPluginString pubLog{};
+        const auto pubRc = musicxx_extern_plugin_event_publish(
+            host,
+            viewCP("musicxx.test.ping"),
+            viewCP(R"({"n":1})"),
+            &pubLog
+        );
+        check(pubRc == MUSICXX_EXTERN_PLUGIN_OK, "event_publish 合法主题成功");
+        freeStr(pubLog);
+
+        MusicxxExternPluginString badPubLog{};
+        const auto badPubRc = musicxx_extern_plugin_event_publish(
+            host,
+            viewCP("foo.bar"),
+            viewCP("{}"),
+            &badPubLog
+        );
+        check(badPubRc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION, "event_publish 非法主题被拒绝");
+        freeStr(badPubLog);
+
+        MusicxxExternPluginString out{};
+        MusicxxExternPluginString callLog{};
+        const auto rc = musicxx_extern_plugin_plugin_call(
+            host,
+            viewCP("example_native"),
+            viewCP("plugin.example_native.probe"),
+            viewCP("{}"),
+            3000,
+            &out,
+            &callLog
+        );
+        const std::string probe   = take(out);
+        const std::string callErr = take(callLog);
+        check(rc == MUSICXX_EXTERN_PLUGIN_OK, "plugin_call(probe) 成功");
+        std::printf("  [info] plugin_call rc=%d log=%s\n", rc, callErr.c_str());
+        std::printf("  [info] probe=%s\n", probe.c_str());
+
+        // 单宿主线程模型: start 事务与能力处理器必须在同一条线程上执行 (plan §2.3.1)
+        const std::string startThread = jsonStringField(probe, "startThread");
+        const std::string callThread  = jsonStringField(probe, "callThread");
+        check(!startThread.empty() && startThread == callThread, "插件代码全部在宿主线程执行");
+
+        // 钩子 / 动作命名空间校验 (plan §3.5)
+        check(jsonIntField(probe, "unknownHookRc") == "-4", "未知前缀钩子注册被拒绝");
+        check(jsonIntField(probe, "foreignActionRc") == "-6", "他人命名空间动作被拒绝");
+        check(jsonIntField(probe, "dupHookRc") == "0", "同一钩子覆盖式重复注册成功");
+        // 事件命名空间与订阅 (plan §3.5 / §4.9)
+        check(jsonIntField(probe, "badTopicSubscribeRc") == "-1", "非法事件主题订阅被拒绝");
+        check(jsonIntField(probe, "ownPublishRc") == "0", "本插件命名空间事件可发布");
+        check(jsonIntField(probe, "foreignPublishRc") != "0", "他人命名空间事件发布被拒绝");
+        check(jsonIntField(probe, "pingEvents") == "1", "插件收到宿主发布的事件");
+        check(jsonIntField(probe, "stateEvents") != "0", "状态镜像变化通知到订阅插件");
+        // 状态镜像可被插件同步读到 (上一段推送过 musicxx.state.song)
+        check(jsonIntField(probe, "stateLen") != "0", "插件可同步读状态镜像");
+    }
+
+    // 动作请求超时保护 (plan §4.8): 插件请求 → Dart 不回复 → 宿主到点终结并推 cancel 事件
+    {
+        MusicxxExternPluginString out{};
+        const auto                rc = musicxx_extern_plugin_plugin_call(
+            host,
+            viewCP("example_native"),
+            viewCP("probe"),
+            viewCP(R"({"requestAction":"musicxx.test.neverRespond"})"),
+            3000,
+            &out,
+            &log
+        );
+        freeStr(out);
+        check(rc == MUSICXX_EXTERN_PLUGIN_OK, "probe 触发插件动作请求成功");
+
+        // 动作超时下限 1s; 等它过期后取事件与探针
+        std::this_thread::sleep_for(std::chrono::milliseconds{1600});
+
+        MusicxxExternPluginString events{};
+        const auto rcEv = musicxx_extern_plugin_poll_events(host, 500, &events, &log);
+        const std::string eventsJson = take(events);
+        check(rcEv == MUSICXX_EXTERN_PLUGIN_OK || rcEv == MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT, "poll_events 可调用");
+        check(
+            eventsJson.find("musicxx.action.request") != std::string::npos,
+            "Dart 侧收到动作请求事件"
+        );
+        check(
+            eventsJson.find("musicxx.action.cancel") != std::string::npos,
+            "动作超时后收到取消事件"
+        );
+
+        MusicxxExternPluginString probeOut{};
+        const auto                rcProbe = musicxx_extern_plugin_plugin_call(
+            host,
+            viewCP("example_native"),
+            viewCP("probe"),
+            viewCP("{}"),
+            3000,
+            &probeOut,
+            &log
+        );
+        const std::string probe2 = take(probeOut);
+        check(rcProbe == MUSICXX_EXTERN_PLUGIN_OK, "超时后探针可读");
+        // PLUGINXX_OPERATOR_CANCELLED == 1: 超时按取消终结, 插件侧收到恰好一次完成通知
+        check(jsonIntField(probe2, "lastActionStatus") == "1", "动作超时按取消终结并回调插件");
+    }
+
+    // 能力调用错误路径: 未加载插件 / 未声明能力
+    {
+        MusicxxExternPluginString out{};
+        const auto rc = musicxx_extern_plugin_plugin_call(
+            host,
+            viewCP("no_such_plugin"),
+            viewCP("probe"),
+            viewCP("{}"),
+            1000,
+            &out,
+            &log
+        );
+        freeStr(out);
+        check(rc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND, "plugin_call 未加载插件返回未找到");
+
+        MusicxxExternPluginString out2{};
+        const auto rc2 = musicxx_extern_plugin_plugin_call(
+            host,
+            viewCP("example_native"),
+            viewCP("noSuchCapability"),
+            viewCP("{}"),
+            1000,
+            &out2,
+            &log
+        );
+        freeStr(out2);
+        check(rc2 == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND, "plugin_call 未声明能力返回未找到");
+    }
+
+    // 装载失败安全降级 (plan §11.1): 不崩溃、明确失败、宿主继续可用
+    {
+        MusicxxExternPluginString loadLog{};
+        const auto                rc = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("definitely_missing_plugin"),
+            viewCP("{}"),
+            3000,
+            &loadLog
+        );
+        const std::string loadErr = take(loadLog);
+        check(rc != MUSICXX_EXTERN_PLUGIN_OK, "装载不存在的插件返回失败");
+        check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT, "失败是明确失败而非挂住超时");
+        check(!loadErr.empty(), "失败原因有可读文本");
+        std::printf("  [info] load-fail rc=%d log=%s\n", rc, loadErr.c_str());
+
+        MusicxxExternPluginString again{};
+        const auto                rc2 = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("definitely_missing_plugin"),
+            viewCP("{}"),
+            3000,
+            &again
+        );
+        take(again);
+        check(rc2 != MUSICXX_EXTERN_PLUGIN_OK, "失败后不会静默重试成功");
+
+        // 宿主仍可正常工作
+        MusicxxExternPluginString listed{};
+        check(
+            musicxx_extern_plugin_plugin_list(host, &listed, &log) == MUSICXX_EXTERN_PLUGIN_OK
+                && take(listed).find("example_native") != std::string::npos,
+            "装载失败后宿主仍可用"
+        );
+    }
+
     // 禁用 → 钩子摘除, 启用 → 重新注册
     {
         check(
@@ -297,6 +506,25 @@ int main(int argc, char** argv) {
         int32_t after = 0;
         musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.beforePlaySong"), &after, &log);
         check(after == 0, "卸载后无钩子残留");
+        // 幂等: 重复卸载视为已达目标状态 (Dart 侧状态不同步/重复点击都会走到这里)
+        check(
+            musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"), &log)
+                == MUSICXX_EXTERN_PLUGIN_OK,
+            "重复卸载幂等成功"
+        );
+        // 卸载后能力调用应返回未找到 (注册已随实例摘除)
+        MusicxxExternPluginString out{};
+        const auto               rc = musicxx_extern_plugin_plugin_call(
+            host,
+            viewCP("example_native"),
+            viewCP("probe"),
+            viewCP("{}"),
+            1000,
+            &out,
+            &log
+        );
+        freeStr(out);
+        check(rc != MUSICXX_EXTERN_PLUGIN_OK, "卸载后能力调用失败");
     }
 
     check(musicxx_extern_plugin_host_stop(host, 5000, &log) == MUSICXX_EXTERN_PLUGIN_OK, "host_stop");

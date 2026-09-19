@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -35,6 +37,81 @@ int64_t nowWallMs() {
         .count();
 }
 
+/// 当前线程标识文本 (诊断日志用)
+std::string currentThreadIdText() {
+    std::ostringstream oss;
+    oss << std::this_thread::get_id();
+    return oss.str();
+}
+
+/* ==================== 开发者日志 sink ==================== */
+
+/// 宿主侧日志输出口 (stderr)
+///
+/// 背景: 宿主库静态链入 cxx_utilxx_base, 它自带日志分发器**但默认没有任何 sink**,
+/// 因此原生侧出问题时"完全没有日志可看"(Dart 未接入时尤其明显)。
+/// 这里提供最小可用的诊断出口: 环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1`
+/// 时把宿主与插件的日志写到 stderr; 正式落盘/转发由 Dart 侧配置 (plan §9.3)。
+class StderrLogSink final : public utilxx_base::ThreadedLogSink {
+public:
+
+    /// 必须在最派生类析构里停线程 (基类析构时虚表已切换, 见 ThreadedLogSink 说明)
+    ~StderrLogSink() override {
+        shutdownThread();
+    }
+
+protected:
+
+    void onLog(const utilxx_base::LogEntry& entry) override {
+        std::fprintf(
+            stderr,
+            "[musicxx_ext][%s] %s\n",
+            levelName(entry.level),
+            entry.message.c_str()
+        );
+        std::fflush(stderr);
+    }
+
+private:
+
+    static const char* levelName(utilxx_base::LogLevel level) {
+        switch (level) {
+            case utilxx_base::LogLevel::Trace:
+                return "trace";
+            case utilxx_base::LogLevel::Debug:
+                return "debug";
+            case utilxx_base::LogLevel::Info:
+                return "info";
+            case utilxx_base::LogLevel::Warn:
+                return "warn";
+            case utilxx_base::LogLevel::Error:
+                return "error";
+            default:
+                return "out";
+        }
+    }
+};
+
+/// 安装 stderr 日志 sink (幂等)
+///
+/// - 注册方必须持有 shared_ptr (分发器只持 weak_ptr), 因此把强引用放在**故意泄漏**的
+///   静态持有者里: 避免进程退出时 sink 与分发器的静态析构顺序问题;
+/// - 仅当环境变量显式打开时安装, 默认零开销 (不写任何输出)。
+void ensureStderrLogSink() {
+    static std::shared_ptr<StderrLogSink>* holder = nullptr;
+    if (holder) {
+        return;
+    }
+    const char* env = std::getenv("MUSICXX_EXTERN_PLUGIN_LOG_STDERR");
+    if (!env || *env == '\0' || std::string_view{env} == "0") {
+        holder = new std::shared_ptr<StderrLogSink>{}; ///< 记住"已检查过", 不重复判断
+        return;
+    }
+    holder = new std::shared_ptr<StderrLogSink>{std::make_shared<StderrLogSink>()};
+    utilxx_base::LogDispatcher::instance().addSink(*holder);
+    std::fprintf(stderr, "[musicxx_ext] stderr 日志已开启 (MUSICXX_EXTERN_PLUGIN_LOG_STDERR)\n");
+}
+
 std::string readFileText(const fs::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -44,6 +121,86 @@ std::string readFileText(const fs::path& path) {
     oss << in.rdbuf();
     return oss.str();
 }
+
+/* ==================== 插件事件总线 (插件 ↔ 宿主) ==================== */
+
+/// 进程内主题事件总线 (pluginxx `events` 表的后端)
+///
+/// - 与 Dart 事件队列 (pushEvent/pollEvents) 是**两条独立通道**: 本总线服务插件之间
+///   与"宿主 → 插件"的事件; Dart 侧事件仍走有界队列;
+/// - 订阅/撤销在宿主线程簿记, 回调在**发布者线程**执行 (内核发布入口已投递到宿主线程),
+///   因此回调里不得阻塞 (与钩子处理器同一纪律);
+/// - 回调在锁外执行: 处理器内部再次订阅/撤销/发布不会自锁。
+class TopicEventBus final : public pluginxx::EventSource {
+public:
+
+    size_t subscribe(std::string_view topic, std::function<void(std::string_view)> handler)
+        override {
+        if (topic.empty() || !handler) {
+            return 0; ///< 0 = 订阅失败 (内核会记录并拒绝该主题)
+        }
+        std::lock_guard<std::mutex> lock{mutex_};
+        const size_t                id = ++nextId_;
+        subscribers_.push_back(Subscriber{std::string{topic}, id, std::move(handler)});
+        return id;
+    }
+
+    void unsubscribe(std::string_view topic, size_t subscriptionId) override {
+        std::lock_guard<std::mutex> lock{mutex_};
+        std::erase_if(subscribers_, [&](const Subscriber& sub) {
+            return sub.id == subscriptionId && sub.topic == topic;
+        });
+    }
+
+    int publish(std::string_view topic, std::string_view eventJson) override {
+        if (topic.empty()) {
+            return -1;
+        }
+        std::vector<std::function<void(std::string_view)>> targets;
+        {
+            std::lock_guard<std::mutex> lock{mutex_};
+            for (const auto& sub : subscribers_) {
+                if (sub.topic == topic) {
+                    targets.push_back(sub.handler);
+                }
+            }
+        }
+        for (const auto& fn : targets) {
+            try {
+                fn(eventJson);
+            } catch (const std::exception& e) {
+                XX_LOGW("[musicxx_ext] 事件处理器异常 (topic={}): {}", topic, e.what());
+            } catch (...) {
+                XX_LOGW("[musicxx_ext] 事件处理器未知异常 (topic={})", topic);
+            }
+        }
+        return 0;
+    }
+
+    /// 某主题当前订阅者数量 (用于"没人订阅就别推"的快速判断)
+    int32_t subscriberCount(std::string_view topic) const {
+        std::lock_guard<std::mutex> lock{mutex_};
+        int32_t                     count = 0;
+        for (const auto& sub : subscribers_) {
+            if (sub.topic == topic) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+private:
+
+    struct Subscriber {
+        std::string                           topic;
+        size_t                                id = 0;
+        std::function<void(std::string_view)> handler;
+    };
+
+    mutable std::mutex      mutex_;
+    std::vector<Subscriber> subscribers_;
+    size_t                  nextId_ = 0;
+};
 
 std::string hostArch() {
 #if defined(_M_ARM64) || defined(__aarch64__)
@@ -87,7 +244,10 @@ HostContext::~HostContext() {
 /* ==================== 创建 / 配置 ==================== */
 
 MusicxxHostManager::MusicxxHostManager(asio::any_io_executor ex) :
-    Base(std::move(ex)) {}
+    Base(std::move(ex)) {
+    // 事件后端在构造期就绪 (DomainHooks 的任何入口都可能被调用)
+    eventBus_ = std::make_shared<TopicEventBus>();
+}
 
 std::shared_ptr<MusicxxHostManager> MusicxxHostManager::create(
     HostContext&                         ctx,
@@ -98,6 +258,7 @@ std::shared_ptr<MusicxxHostManager> MusicxxHostManager::create(
         err = "host_create: config struct_size 不匹配 (Dart 与原生库版本不一致?)";
         return nullptr;
     }
+    ensureStderrLogSink();
     auto mgr   = std::shared_ptr<MusicxxHostManager>(new MusicxxHostManager(ctx.io.get_executor()));
     mgr->ctx_  = &ctx;
     mgr->setDomainHooks(mgr.get());
@@ -162,6 +323,16 @@ int32_t MusicxxHostManager::start(std::string& err) {
     running_.store(true, std::memory_order_release);
     startTime_ = std::chrono::steady_clock::now();
 
+    // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create), 内核
+    // PluginManagerBase 记录的是构造线程; 若不在宿主线程上重绑, 各 vtable 入口会误判
+    // "当前不在 IO 线程" → 投递回宿主线程并同步等待, 而宿主线程正卡在该调用栈里
+    // (插件 start/create/处理器都在这条线程上跑) → 单线程执行器自锁。
+    if (!bindIoThread()) {
+        running_.store(false, std::memory_order_release);
+        err = "host_start: 宿主 IO 线程未在预算内就绪";
+        return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    }
+
     {
         Json payload;
         payload["apiVersion"]       = MUSICXX_EXTERN_PLUGIN_API_VERSION;
@@ -183,6 +354,40 @@ int32_t MusicxxHostManager::start(std::string& err) {
         (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0
     );
     return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+bool MusicxxHostManager::bindIoThread() {
+    if (!ctx_) {
+        return false;
+    }
+    if (ioThreadBound_.load(std::memory_order_acquire)) {
+        return true; ///< 本次运行已绑定 (start 幂等)
+    }
+    // 注意: 这里**不能**用 `isIoThread()` 当快速路径 —— 内核记录的是"调用
+    // setIoExecutor 的线程", 而管理器是在宿主线程之外的线程构造的 (host_create),
+    // 因此调用线程上 isIoThread() 恰好为 true (误判)。必须无条件投递一次绑定。
+    auto                     self = shared_from_this();
+    auto                     slot = std::make_shared<WaitSlot<bool>>();
+    const asio::any_io_executor ex = ctx_->io.get_executor();
+    asio::post(ex, [self, slot, ex] {
+        self->setIoExecutor(ex); ///< 记录"当前线程"= 宿主 IO 线程
+        XX_LOGI(
+            "[musicxx_ext] 宿主 IO 线程已绑定 (thread={}, 原生插件代码只在该线程执行)",
+            currentThreadIdText()
+        );
+        slot->set(true);
+    });
+    bool ok = false;
+    if (!slot->wait(5000, ok) || !ok) {
+        return false;
+    }
+    ioThreadBound_.store(true, std::memory_order_release);
+    if (isIoThread()) {
+        // 绑定成功后调用线程仍被判为 IO 线程: 说明执行器被绑到了调用线程本身
+        // (宿主线程没跑起来 / 记录被覆盖) —— 这时 vtable 入口会在错误的线程就地执行
+        XX_LOGW("[musicxx_ext] IO 线程绑定异常: 调用线程被判定为 IO 线程");
+    }
+    return true;
 }
 
 int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string& err) {
@@ -389,6 +594,10 @@ std::string MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance& in
     j["version"]     = inst.version;
     j["description"] = inst.description;
     j["path"]        = inst.path;
+    j["source"]      = "loaded"; ///< 已加载项: 与扫描项的 user/builtin 区分
+    j["loaded"]      = true;
+    j["valid"]       = true;
+    j["supported"]   = true;
     j["enabled"]     = inst.enabled;
     j["configPath"]  = inst.configPath;
     j["counters"]    = {
@@ -500,6 +709,9 @@ void MusicxxHostManager::clearPluginRegistrations(const std::string& instanceNam
     }
     for (auto it = pendingActions_.begin(); it != pendingActions_.end();) {
         if (it->second.plugin == instanceName) {
+            if (it->second.timer) {
+                it->second.timer->cancel(); ///< 实例卸载: 撤销超时保护
+            }
             if (it->second.notify && it->second.notify->done) {
                 it->second.notify->done(
                     it->second.notify->host_ud,
@@ -517,8 +729,7 @@ void MusicxxHostManager::clearPluginRegistrations(const std::string& instanceNam
 
 /* ==================== 插件管理 ==================== */
 
-int32_t MusicxxHostManager::scanPlugins(std::string& outJson, std::string& err) {
-    if (!running_.load(std::memory_order_acquire)) {
+int32_t MusicxxHostManager::scanPlugins(std::string& outJson, std::string& err) {    if (!running_.load(std::memory_order_acquire)) {
         err = "plugin_scan: host not started";
         return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
     }
@@ -782,7 +993,38 @@ int32_t MusicxxHostManager::loadPlugin(
             }
         }
     }
-    const std::string pluginId = fs::path{path}.filename().string();
+    std::string pluginId;
+    {
+        std::error_code ec;
+        const fs::path  p{path};
+        // 目录形态: 以清单 name 为准 (目录名只作提示, plan §9.3)
+        if (fs::is_directory(p, ec)) {
+            std::string              manifestName;
+            std::string              manifestEntry;
+            std::vector<std::string> depends;
+            std::vector<std::string> optionalDepends;
+            if (pluginxx::parsePluginManifest(
+                    p,
+                    manifestName,
+                    manifestEntry,
+                    depends,
+                    optionalDepends,
+                    nullptr,
+                    nullptr
+                )
+                && !manifestName.empty()) {
+                pluginId = manifestName;
+            }
+        }
+        if (pluginId.empty()) {
+            // 库文件路径: 去掉扩展名与 Windows/Unix 的 "lib" 前缀
+            fs::path leaf = (fs::is_regular_file(p, ec) ? p.stem() : p.filename());
+            pluginId      = leaf.string();
+            if (pluginId.rfind("lib", 0) == 0 && pluginId.size() > 3) {
+                pluginId = pluginId.substr(3);
+            }
+        }
+    }
     if (pluginId.empty()) {
         err = "plugin_load: 无法从路径推导插件 id";
         return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
@@ -791,17 +1033,19 @@ int32_t MusicxxHostManager::loadPlugin(
 
     auto       self    = shared_from_this();
     auto       slot    = std::make_shared<WaitSlot<int32_t>>();
+    auto       failMsg = std::make_shared<std::string>();
     const auto created = std::chrono::steady_clock::now();
     asio::co_spawn(
         ctx_->io,
-        [self, path, options, slot, pluginId, created]() -> asio::awaitable<void> {
+        [self, path, options, slot, failMsg, pluginId, created]() -> asio::awaitable<void> {
             auto inst = co_await self->loadPluginAsync(path, options.get(), false);
             if (!inst) {
+                *failMsg = "插件装载失败 (缺失/无效入口符号, 必选依赖未加载, 或 start 事务失败; 详见日志)";
                 Json payload;
                 payload["id"]      = pluginId;
                 payload["phase"]   = "load";
                 payload["code"]    = "load_failed";
-                payload["message"] = "插件装载失败 (详见日志: 缺入口符号/依赖缺失/平台不匹配)";
+                payload["message"] = *failMsg;
                 self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
                 slot->set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
                 co_return;
@@ -828,7 +1072,7 @@ int32_t MusicxxHostManager::loadPlugin(
         return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
     }
     if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-        err = "plugin_load failed";
+        err = failMsg->empty() ? "plugin_load failed" : *failMsg;
     }
     return rc;
 }
@@ -870,13 +1114,20 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string& id, uint32_t timeout
     asio::co_spawn(
         ctx_->io,
         [self, slot, id, budget]() -> asio::awaitable<void> {
+            // 幂等: 未加载视为"已经是未加载状态" (重复卸载、启动清理、Dart 侧状态不同步
+            // 都会走到这条路径); 返回成功而不是 NOT_FOUND, 避免调用方反复重试。
+            if (!self->find(id)) {
+                XX_LOGI("[musicxx_ext] plugin_unload: `{}` 未加载, 视为已卸载", id);
+                slot->set(true);
+                co_return;
+            }
             slot->set(co_await self->unloadAsync(id, budget));
         },
         asio::detached
     );
     bool ok = false;
-    if (!slot->wait(timeoutMs == 0 ? 30000 : timeoutMs, ok) || !ok) {
-        err = "plugin_unload: 卸载未完成 (存在长时间运行的任务?)";
+    if (!slot->wait(timeoutMs == 0 ? 30000 : timeoutMs + 500, ok) || !ok) {
+        err = "plugin_unload: 卸载未完成 (存在长时间运行的任务或 stop 事务未返回)";
         return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
     }
     return MUSICXX_EXTERN_PLUGIN_OK;
@@ -946,6 +1197,188 @@ int32_t MusicxxHostManager::pluginConfigPath(
     return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
+/* ==================== 插件能力调用 (Dart → 插件) ==================== */
+
+namespace {
+
+/// 能力调用上下文: 宿主线程发布完成, 调用线程等待
+struct PluginCallState {
+    WaitSlot<int32_t> slot;
+    std::string       payload;
+    std::string       error;
+};
+
+/// 能力完成回调 (宿主线程调用; 负责回收 holder 并唤醒调用线程)
+void PLUGINXX_CALL pluginCallDone(
+    void*                     ud,
+    int32_t                   status,
+    const PluginxxStringView* payload
+) noexcept {
+    std::unique_ptr<std::shared_ptr<PluginCallState>> holder{
+        static_cast<std::shared_ptr<PluginCallState>*>(ud)
+    };
+    if (!holder || !*holder) {
+        return;
+    }
+    auto state = *holder; ///< 复制 shared_ptr: 完成回调期间保活调用状态
+    if (payload && payload->data) {
+        state->payload.assign(payload->data, static_cast<size_t>(payload->size));
+    }
+    if (status == PLUGINXX_OPERATOR_OK) {
+        state->slot.set(MUSICXX_EXTERN_PLUGIN_OK);
+    } else {
+        state->error = state->payload.empty() ? "插件能力执行失败" : state->payload;
+        state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
+    }
+}
+
+} // namespace
+
+int32_t MusicxxHostManager::pluginCall(
+    const std::string& id,
+    const std::string& method,
+    const std::string& argsJson,
+    uint32_t           timeoutMs,
+    std::string&       outJson,
+    std::string&       err
+) {
+    if (!running_.load(std::memory_order_acquire)) {
+        err = "plugin_call: host not started";
+        return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    }
+    if (id.empty() || method.empty()) {
+        err = "plugin_call: id 与 method 都不能为空";
+        return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    }
+    // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐 (plan §3.5)
+    const std::string cap = method.rfind("plugin.", 0) == 0 ? method : ("plugin." + id + "." + method);
+
+    auto self  = shared_from_this();
+    auto state = std::make_shared<PluginCallState>();
+
+    // 第一步在宿主线程执行: 实例查找、能力归属校验、发起异步调用 (完成回调也在该线程)
+    asio::post(ctx_->io, [self, state, id, cap, argsJson] {
+        auto inst = self->find(id);
+        if (!inst) {
+            state->error = "插件未加载: " + id;
+            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+            return;
+        }
+        const auto* entry = self->capabilities()->get(cap);
+        if (!entry || !entry->start) {
+            state->error = "插件未声明该能力 (需要在 start 事务里注册): " + cap;
+            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+            return;
+        }
+        if (entry->provider != inst->name) {
+            state->error = "能力归属校验失败 (声明的插件: " + entry->provider + ")";
+            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION);
+            return;
+        }
+
+        auto* holder    = new std::shared_ptr<PluginCallState>(state);
+        auto  capView   = std::string_view{cap};
+        auto  argsView  = std::string_view{argsJson};
+        PluginxxString callErr{};
+        // caller 传目标实例自身: 内核要求"调用方实例"提供执行 lease (Dart 侧没有
+        // 插件实例, 用被调用者自己的 lease 覆盖本次调用, 卸载等待因此覆盖它)
+        auto*          handle = self->invokeCapabilityAsync(
+            inst.get(),
+            capView,
+            capView, ///< method: 与能力全名一致 (插件按需再细分)
+            argsView,
+            &pluginCallDone,
+            holder,
+            &callErr
+        );
+        if (!handle) {
+            // 受理失败: 完成回调不会被调用, 由这里回收 holder 并终结本次调用
+            delete holder;
+            state->error = callErr.data
+                               ? std::string{callErr.data, static_cast<size_t>(callErr.size)}
+                               : std::string{"插件能力调用未被受理"};
+            if (callErr.data) {
+                pluginxx::hostMemoryFree(callErr.data);
+            }
+            state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
+        }
+    });
+
+    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    if (!state->slot.wait(timeoutMs == 0 ? 5000 : timeoutMs, rc)) {
+        err = "plugin_call: 未在预算内完成 (" + cap + ")";
+        return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    }
+    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+        err = state->error.empty() ? "plugin_call failed" : state->error;
+        return rc;
+    }
+    outJson = std::move(state->payload);
+    return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+std::shared_ptr<pluginxx::EventSource> MusicxxHostManager::eventSource() {
+    return eventBus_;
+}
+
+std::string MusicxxHostManager::qualifyEventTopic(std::string_view topic) {
+    // 命名空间规则 (plan §3.5): 官方 musicxx.* 与插件 plugin.<id>.* 之外一律拒绝
+    if (topic.rfind("musicxx.", 0) == 0) {
+        return std::string{topic};
+    }
+    if (topic.rfind("plugin.", 0) == 0) {
+        const auto rest = topic.substr(7);
+        const auto dot  = rest.find('.');
+        if (dot != std::string_view::npos && dot > 0 && dot + 1 < rest.size()) {
+            return std::string{topic};
+        }
+    }
+    XX_LOGW("[musicxx_ext] 拒绝非法事件主题 `{}` (必须是 musicxx.* 或 plugin.<pluginId>.*)", topic);
+    return {};
+}
+
+int32_t MusicxxHostManager::publishPluginEvent(
+    const std::string& topic,
+    const std::string& payloadJson
+) {
+    if (!running_.load(std::memory_order_acquire)) {
+        return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    }
+    // 宿主自身没有插件命名空间: 只允许发布官方主题 (插件自定义主题由插件自己发布)
+    if (topic.rfind("musicxx.", 0) != 0) {
+        XX_LOGW("[musicxx_ext] 宿主发布事件被拒绝: 主题 `{}` 必须以 musicxx. 开头", topic);
+        return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    }
+    const std::string payload = payloadJson.empty() ? std::string{"{}"} : payloadJson;
+    auto              self    = shared_from_this();
+    // 事件总线的订阅/发布约定在宿主线程: 投递后立即返回 (调用方通常是 Dart 线程)
+    asio::post(ctx_->io, [self, topic, payload] { self->publishOnHostThread(topic, payload); });
+    return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+int32_t MusicxxHostManager::publishOnHostThread(
+    const std::string& topic,
+    const std::string& payloadJson
+) {
+    const std::string fullTopic = qualifyEventTopic(topic);
+    if (fullTopic.empty()) {
+        return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    }
+    const std::string payload = payloadJson.empty() ? std::string{"{}"} : payloadJson;
+    const int32_t     rc      = eventBus_ ? eventBus_->publish(fullTopic, payload) : -1;
+    if (rc != 0) {
+        return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    }
+    // 观测回传 (plan §4.9): 仅在调试开关打开时把主题镜像给 Dart 侧 (默认关闭零开销)
+    if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
+        Json mirror;
+        mirror["topic"] = fullTopic;
+        mirror["data"]  = parseJsonSafe(payload);
+        pushEvent("musicxx.event.published", "", mirror.dump());
+    }
+    return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
 /* ==================== 状态镜像 (Dart → 原生) ==================== */
 
 int32_t MusicxxHostManager::stateUpdate(
@@ -972,7 +1405,18 @@ int32_t MusicxxHostManager::stateUpdate(
     }
     {
         std::lock_guard<std::mutex> lock{stateMutex_};
-        state_[key] = std::move(text);
+        state_[key] = text;
+    }
+    // 通知"声明关心该键"的插件 (plan §4.2 的 musicxx.host.subscribe_state):
+    // 事件处理必须回到宿主线程, 因此这里投递后立即返回 (调用方通常是 Dart 线程)
+    {
+        auto self = shared_from_this();
+        asio::post(ctx_->io, [self, key, text] {
+            Json payload;
+            payload["key"]   = key;
+            payload["value"] = parseJsonSafe(text);
+            self->eventBus_->publish("musicxx.state.changed", payload.dump());
+        });
     }
     if (truncated) {
         err = "state_update: 值超过 64 KiB, 已截断";

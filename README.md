@@ -10,10 +10,15 @@ src/CMakeLists.txt   顶层 superbuild：XX_IS_* 平台/编译器宏 → BoostCo
 src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_package 取依赖）
   include/           Dart ⇄ 原生 C ABI v1（ffigen 入口，唯一导出契约）
   sdk/include/       插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
+                     其中 hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
   tests/             原生测试（不依赖 Dart）
   third_party/       依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
-example/example_native/ 示例插件（C++，演示钩子/状态镜像/日志）
-tools/               build_native.ps1（环境准备 + 调 cmake）、check_submodules.ps1（子模块检查）、cmake/BoostConfig.cmake.in
+lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作；bindings_generated.dart 与 hook_ids.g.dart 为生成物）
+test/                Dart 侧测试（host_smoke_test.dart 对真实原生库做端到端冒烟）
+example/example_native/ 示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅）
+docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
+tools/               build_native.ps1（环境准备 + 调 cmake）、gen_contract.dart（契约生成/校验）、
+                     check_submodules.ps1（子模块检查）、smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
 ```
 
@@ -120,7 +125,43 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests      # 自动用 <安装�
     <构建目录>/musicxx-extern-plugin-install/plugins
 ```
 
+## Dart 侧（包内）
+
+```powershell
+flutter pub get                                # 依赖（ffi；dev: ffigen/flutter_test）
+dart run tools/gen_contract.dart               # 由 tools/hooks.def.json 生成 Dart 常量 + C++ 头 + 文档
+dart run tools/gen_contract.dart --check       # CI：生成物与定义不一致时退出码 1
+dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
+flutter analyze
+flutter test                                   # 端到端冒烟（需要先构建原生库）
+dart run tools/smoke_dart.dart                 # 纯 Dart 冒烟（不依赖 Flutter，便于定位 FFI 卡点）
+```
+
+Dart 侧用法（详见 `lib/musicxx_extern_plugin.dart` 文件头）：
+
+```dart
+final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.instance;
+runtime.init(config: MusicxxPluginRuntimeConfig(
+  appVersion: '0.87.0',
+  platform: MusicxxPluginRuntime.currentPlatform,
+  userPluginDir: '<appData>/plugins',
+), libraryPath: '<显式路径优先，见 plan §5.2>');
+runtime.events.listen((MusicxxPluginEvent event) => ...);
+runtime.plugins.scan();
+runtime.plugins.load('example_native');
+final Map<String, Object?>? verdict = runtime.hooks.decide(
+  MusicxxPluginHookId.playerBeforePlaySong, <String, Object?>{'sid': sid, 'song': songJson});
+runtime.dispose();
+```
+
+- 原生库定位顺序：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY` → `.native/output/*/bin/`（Release 优先、其次按修改时间）
+  → `.native/build/*/musicxx-extern-plugin-install/bin/` → 纯库名（系统搜索路径）；
+- 找不到库时抛 `MusicxxPluginLibraryException`（含逐个候选与原因），版本不匹配抛 `MusicxxPluginApiVersionException`；
+- 包内 `test/`、`docs/`、`lib/src/*.g.dart` 都是可重新生成/可重跑的，不要手工改生成物。
+
 ## 当前状态
 
 见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`：
-构建链路（从 `src/third_party` 源码到宿主库）已跑通；原生测试中「插件装载 + `host_stop` 收尾」仍待修（work.md §4.3）。
+- S2（原生宿主）：**已完成**，`pwsh tools/build_native.ps1 -RunTests` → `checks=57 failed=0`；
+- S3（Dart 包）：主干已落地（绑定/运行时/管理器/钩子派发/状态镜像/动作分发/契约生成），
+  `flutter test` 端到端冒烟通过；隔离 isolate、声明式 UI 扩展、压缩包安装排入后续阶段。

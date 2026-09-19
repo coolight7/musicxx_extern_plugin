@@ -193,6 +193,21 @@ public:
     int32_t setPluginArgs(const std::string& id, const std::string& argsJson, std::string& err);
     int32_t pluginConfigPath(const std::string& id, std::string& out, std::string& err);
 
+    /// 调用插件能力 (**Dart → 插件**; 调用线程等待, 完成回调在宿主线程)
+    ///
+    /// - `method` 为能力全名 (`plugin.<pluginId>.<名>`) 或去掉前缀的短名 (宿主自动补齐);
+    /// - 能力必须先由目标插件在自己的 `start` 事务里声明 (`pluginxx.capabilities` 表),
+    ///   且归属校验通过 (禁止调用他人命名空间);
+    /// - 超时按 ERR_TIMEOUT 返回, 在途操作继续由插件完成 (结果丢弃)。
+    int32_t pluginCall(
+        const std::string& id,
+        const std::string& method,
+        const std::string& argsJson,
+        uint32_t           timeoutMs,
+        std::string&       outJson,
+        std::string&       err
+    );
+
     /* ---------- 钩子 ---------- */
 
     int32_t hookEmit(
@@ -228,6 +243,14 @@ public:
     void    applyLanguage(const std::string& lang);
     void    logMessage(int32_t level, const std::string& message);
 
+    /// 宿主 → 插件事件总线发布 (主题按命名空间校验; 投递到宿主线程执行)
+    ///
+    /// Dart 侧 (C ABI) 入口: 宿主自身只能发布官方 `musicxx.*` 主题。
+    int32_t publishPluginEvent(const std::string& topic, const std::string& payloadJson);
+
+    /// 在宿主线程上发布事件 (插件 events 表入口调用; 调用方保证已在宿主线程)
+    int32_t publishOnHostThread(const std::string& topic, const std::string& payloadJson);
+
     /* ---------- 领域表实现 (供 tables 调用; 均在宿主线程执行) ---------- */
 
     int32_t registerHook(MusicxxHostInstance* inst, const MusicxxPluginHookSpec& spec);
@@ -252,6 +275,11 @@ public:
 
     /// 当前插件 id (由实例名推导; JS 实例名为 "js:<id>")
     static std::string pluginIdOf(std::string_view instanceName);
+
+    /* ---------- DomainHooks (事件主题规则对外可见: 插件 events 表入口要用) ---------- */
+
+    std::shared_ptr<pluginxx::EventSource> eventSource() override;
+    std::string qualifyEventTopic(std::string_view topic) override;
 
 protected:
 
@@ -291,6 +319,9 @@ private:
     /// 应用宿主配置 (create() 里调用; 解析路径/开关/预算)
     void applyConfig(const MusicxxExternPluginHostConfig& cfg);
 
+    /// 在宿主线程上绑定 IO 线程标识 (start() 里调用; 失败返回 false)
+    bool bindIoThread();
+
     /// 钩子处理器登记项
     struct HookHandler {
         std::string           plugin;   ///< 实例名
@@ -315,12 +346,12 @@ private:
         std::string                       action;
         const PluginxxOperatorNotify* notify = nullptr;
         std::chrono::steady_clock::time_point   deadline{};
+        /// 超时定时器 (宿主自我保护: Dart 若一直不回复, 到点终结该 op 并通知 Dart 收尾)
+        std::shared_ptr<asio::steady_timer> timer;
     };
 
     /// 宿主线程上执行的同步派发
     std::string dispatchHook(const std::string& hookId, const std::string& inputJson, uint32_t budgetMs, bool sync);
-    void        enqueueActionRequest(int64_t requestId, PendingAction pending);
-    void        sweepActionTimeouts();
     void        clearPluginRegistrations(const std::string& instanceName);
     std::string pluginInstanceJson(const MusicxxHostInstance& inst) const;
     std::string scanDir(const std::string& dir, const std::string& kindHint);
@@ -330,6 +361,9 @@ private:
 
     std::atomic<bool> running_{false};
     std::atomic<bool> started_{false};
+
+    /// 宿主 IO 线程标识是否已在 start() 里绑定 (见 bindIoThread 的说明)
+    std::atomic<bool> ioThreadBound_{false};
 
     // 事件队列 (多生产者: 宿主线程/工作线程池/Dart 线程)
     mutable std::mutex       eventMutex_;
@@ -377,6 +411,9 @@ private:
 
     // 已声明的状态订阅 (插件 id → 键列表; 宿主线程)
     std::map<std::string, std::vector<std::string>, std::less<>> stateSubscriptions_;
+
+    // 插件事件总线 (进程内主题表; 见 eventSource()/publishPluginEvent)
+    std::shared_ptr<pluginxx::EventSource> eventBus_;
 
     std::chrono::steady_clock::time_point startTime_{};
 };

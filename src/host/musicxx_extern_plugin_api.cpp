@@ -238,8 +238,11 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         setErr(log, "set_language: invalid handle");
         return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
     }
-    handle->manager->applyLanguage(viewToStd(lang));
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    const std::string langText = viewToStd(lang);
+    return onHostThread(handle->manager.get(), [&]() -> int32_t {
+        handle->manager->applyLanguage(langText);
+        return MUSICXX_EXTERN_PLUGIN_OK;
+    });
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
@@ -255,7 +258,9 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     }
     std::string       err;
     const std::string text = viewToStd(json);
-    const auto        rc   = handle->manager->setConfig(text.empty() ? "{}" : text, err);
+    const auto        rc   = onHostThread(handle->manager.get(), [&]() -> int32_t {
+        return handle->manager->setConfig(text.empty() ? "{}" : text, err);
+    });
     if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
         setErr(log, err);
     }
@@ -315,13 +320,13 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     }
     const std::string topicText = viewToStd(topic);
     const std::string payload   = viewToStd(payload_json);
-    // 命名空间校验: 宿主发布的事件恒为 musicxx.*
-    if (topicText.rfind("musicxx.", 0) != 0) {
-        setErr(log, "event_publish: 宿主事件主题必须以 musicxx. 开头");
-        return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    // 发布到**插件事件总线** (插件订阅者); 主题命名空间校验在宿主内完成。
+    // 注意与 musicxx.host.* / musicxx.plugin.* 事件区分: 那些是宿主 → Dart 的事件队列。
+    const auto rc = handle->manager->publishPluginEvent(topicText, payload.empty() ? "{}" : payload);
+    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+        setErr(log, "event_publish: 主题必须是 musicxx.* 或 plugin.<pluginId>.*");
     }
-    handle->manager->pushEvent(topicText, "", payload.empty() ? "{}" : payload);
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return rc;
 }
 
 /* ==================== 插件管理 ==================== */
@@ -562,16 +567,33 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*            out_json,
         MusicxxExternPluginString*            log
     ) {
-    (void)h;
-    (void)id;
-    (void)method;
-    (void)args_json;
-    (void)timeout_ms;
-    (void)out_json;
-    // v1 未实现: 能力调用需要 `pluginxx.capabilities` 的调用方语义与等待预算,
-    // 排在 M3 (与 JS 插件能力一起) 落地
-    setErr(log, "plugin_call: 未实现 (v1; 见 work.md 待完成清单)");
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    auto* handle = asHandle(h);
+    if (!handle || !handle->manager || !out_json) {
+        setErr(log, "plugin_call: invalid argument");
+        return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    }
+    return pluginxx::guardCall(
+        [log](std::string_view msg) { setErr(log, msg); },
+        MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL,
+        [&]() -> int32_t {
+            std::string out;
+            std::string err;
+            const auto  rc = handle->manager->pluginCall(
+                viewToStd(id),
+                viewToStd(method),
+                viewToStd(args_json),
+                timeout_ms,
+                out,
+                err
+            );
+            if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+                setErr(log, err);
+                return rc;
+            }
+            setOut(out_json, out);
+            return MUSICXX_EXTERN_PLUGIN_OK;
+        }
+    );
 }
 
 /* ==================== 钩子 ==================== */
@@ -815,7 +837,9 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
     }
     std::string err;
-    const auto  rc = handle->manager->statsConfig(viewToStd(cfg_json), err);
+    const auto  rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+        return handle->manager->statsConfig(viewToStd(cfg_json), err);
+    });
     if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
         setErr(log, err);
     }

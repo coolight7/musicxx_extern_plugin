@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "musicxx/plugin/api/hook_ids.g.h"
 #include "pluginxx/api/abi.h"
 #include "pluginxx/api/tables.h"
 
