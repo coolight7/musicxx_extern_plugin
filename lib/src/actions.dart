@@ -150,13 +150,53 @@ abstract final class MusicxxPluginActionNames {
   static const String playerPlay = 'musicxx.player.play';
   static const String playerPause = 'musicxx.player.pause';
   static const String playerToggle = 'musicxx.player.toggle';
+  static const String playerStop = 'musicxx.player.stop';
   static const String playerNext = 'musicxx.player.next';
   static const String playerPrev = 'musicxx.player.prev';
   static const String playerSeek = 'musicxx.player.seek';
   static const String playerSetVolume = 'musicxx.player.setVolume';
   static const String playerSetSpeed = 'musicxx.player.setSpeed';
+  static const String playerSetPitch = 'musicxx.player.setPitch';
+  static const String playerSetQuality = 'musicxx.player.setQuality';
+  static const String playerSetLoopMode = 'musicxx.player.setLoopMode';
+  static const String playerSetMediaType = 'musicxx.player.setMediaType';
+
   static const String libraryQuerySongs = 'musicxx.library.querySongs';
+  static const String libraryQuerySonglists = 'musicxx.library.querySonglists';
+  static const String libraryQuerySonglist = 'musicxx.library.querySonglist';
+  static const String libraryPlaySong = 'musicxx.library.playSong';
   static const String libraryPlaySonglist = 'musicxx.library.playSonglist';
+  static const String libraryAddSong = 'musicxx.library.addSong';
+  static const String libraryRemoveSong = 'musicxx.library.removeSong';
+  static const String libraryCreateSonglist = 'musicxx.library.createSonglist';
+  static const String librarySetSongInfo = 'musicxx.library.setSongInfo';
+  static const String librarySearch = 'musicxx.library.search';
+
   static const String lyricGetCurrent = 'musicxx.lyrics.getCurrent';
+  static const String lyricGetBySrc = 'musicxx.lyrics.getBySrc';
+  static const String lyricSet = 'musicxx.lyrics.set';
+  static const String lyricSync = 'musicxx.lyrics.sync';
+  static const String lyricSearch = 'musicxx.lyrics.search';
+
   static const String uiNotify = 'musicxx.ui.notify';
+  static const String uiToast = 'musicxx.ui.toast';
+  static const String uiDialog = 'musicxx.ui.dialog';
+  static const String uiOpenRoute = 'musicxx.ui.openRoute';
+  static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
+
+  static const String storageGet = 'musicxx.storage.get';
+  static const String storageSet = 'musicxx.storage.set';
+  static const String storageDelete = 'musicxx.storage.delete';
+  static const String storageList = 'musicxx.storage.list';
+
+  static const String netFetch = 'musicxx.net.fetch';
+  static const String netDownload = 'musicxx.net.download';
+
+  static const String hostOpenUrl = 'musicxx.host.openUrl';
+  static const String hostShareText = 'musicxx.host.shareText';
+  static const String hostClipboard = 'musicxx.host.clipboard';
+  static const String hostGetPath = 'musicxx.host.getPath';
+
+  static const String statsReportMemory = 'musicxx.stats.reportMemory';
+  static const String statsReportMetric = 'musicxx.stats.reportMetric';
 }
