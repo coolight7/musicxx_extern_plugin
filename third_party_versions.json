@@ -48,8 +48,11 @@
   "external": [
     {
       "name": "boost",
-      "why": "仅头文件（Asio）；内核与 utilxx_base 需要 `<asio/...>`（BOOST_ASIO_STANDALONE）与 Boost CMake 配置",
-      "status": "尚未子模块化：本地 boost 不是 git 仓库。构建脚本支持 -BoostDir / -BoostInclude 指向既有 Boost；后续可加 boostorg/boost 稀疏 checkout 或 asio 独立库子模块"
+      "version": "1.92.0",
+      "location": "src/third_party/boost (仅头文件, 约 236 MB, 当前不入版本库: 见 .gitignore)",
+      "source": "由 agentxx 的 agent/third_party/boost-windows-build-release 拷贝而来 (include + lib/cmake/Boost-1.92.0 + share)",
+      "why": "内核与 cxx_utilxx_base 需要 Boost CMake 配置 (find_package(Boost CONFIG)) 与 `<asio/...>` 头根 (BOOST_ASIO_STANDALONE)",
+      "status": "待办 (另起会话): 从零构建的完整自动化 (boost 子模块或稀疏 checkout + 脚本内构建), 与 uchardet/iconv 缺口的收尾一起做 (见 work.md §6.2)"
     }
   ]
 }
