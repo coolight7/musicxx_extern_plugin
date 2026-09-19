@@ -1,0 +1,55 @@
+{
+  "//": "第三方依赖版本锁定（plan §3.3）：submodule 引入，构建前由 tools/build_native.ps1 校验 commit",
+  "//how": "本地开发用 file:// 路径 ssubmodule 引入；上游推送后把 .gitmodules 里的 URL 换成 upstream 再 git submodule sync",
+  "submodules": [
+    {
+      "path": "src/third_party/cxx_pluginxx",
+      "url": "https://github.com/coolight7/cxx_pluginxx",
+      "commit": "c52dedf5e5206cc869fcfa5c10c8935c221aa9b1",
+      "note": "通用化改造（入口符号接缝 + Pluginxx*/PLUGINXX_*/pluginxx.*）目前只存在于本地提交，推送上游后把 URL 从本地路径切回本 URL"
+    },
+    {
+      "path": "src/third_party/cxx_utilxx_base",
+      "url": "https://github.com/coolight7/cxx_utilxx_base",
+      "commit": "e00bdf9e4e5dd670c129ac2ab3aae6733bd80c76",
+      "note": "日志/JSON/字符串/取消令牌/系统探测"
+    },
+    {
+      "path": "src/third_party/fmt",
+      "url": "https://github.com/fmtlib/fmt",
+      "commit": "1be298e1bd68957e4cd352e1f676f00e07dcfb57",
+      "note": "格式化（内核与 utilxx_base 的依赖）"
+    },
+    {
+      "path": "src/third_party/yaml-cpp",
+      "url": "https://github.com/jbeder/yaml-cpp",
+      "commit": "56e3bb550c91fd7005566f19c079cb7a503223cf",
+      "note": "plugin.yaml 清单解析"
+    },
+    {
+      "path": "src/third_party/simdjson",
+      "url": "https://github.com/simdjson/simdjson",
+      "commit": "9392a55f76ad9838efd1cdc1529f2607b3d613fb",
+      "note": "utilxx_base 的 JSON 解析后端"
+    },
+    {
+      "path": "src/third_party/uchardet",
+      "url": "https://github.com/coolight7/uchardet",
+      "commit": "dd792edf060b07ce02cb6dc2bddfcbc40794cdc2",
+      "note": "可选：字符集探测（CXX_UTILXX_BASE_ENABLE_CHARSET 打开时使用）"
+    },
+    {
+      "path": "src/third_party/quickjs",
+      "url": "https://github.com/quickjs-ng/quickjs",
+      "commit": "82626eacc81825340736af5a6f363f5ebdf8aede",
+      "note": "已登记版本，供 M3（JS 插件运行时）使用；当前构建不启用"
+    }
+  ],
+  "external": [
+    {
+      "name": "boost",
+      "why": "仅头文件（Asio）；内核与 utilxx_base 需要 `<asio/...>`（BOOST_ASIO_STANDALONE）与 Boost CMake 配置",
+      "status": "尚未子模块化：本地 boost 不是 git 仓库。构建脚本支持 -BoostDir / -BoostInclude 指向既有 Boost；后续可加 boostorg/boost 稀疏 checkout 或 asio 独立库子模块"
+    }
+  ]
+}

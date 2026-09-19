@@ -1,0 +1,7 @@
+# 构建产物与本地依赖前缀（不进版本库）
+.native/
+build/
+*.user
+*.suo
+.vs/
+__pycache__/

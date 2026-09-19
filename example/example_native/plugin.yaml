@@ -1,0 +1,16 @@
+# 示例原生插件清单 (musicxx 外部插件)
+# 内核字段: name(插件 id) / entry(库文件名) / depends / optional_depends
+# musicxx 扩展字段: kind / version / description / permissions / platforms / arch / api_version
+name: example_native
+entry: example_native.dll
+kind: native
+version: 1.0.0
+description: "musicxx 外部插件示例: 跳过广告曲目 / 观察切歌 / 错误换源建议"
+author: "coolight"
+api_version: 1
+platforms: [windows, linux, macos]
+permissions:
+  - musicxx.library.read
+  - musicxx.ui
+settings_schema:
+  - { key: "skipAds", type: "bool", title: "跳过广告曲目", default: true }
