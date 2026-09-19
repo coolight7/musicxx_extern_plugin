@@ -19,3 +19,6 @@
 [submodule "src/third_party/quickjs"]
 	path = src/third_party/quickjs
 	url = https://github.com/quickjs-ng/quickjs
+[submodule "src/third_party/libiconv-native"]
+	path = src/third_party/libiconv-native
+	url = https://github.com/coolight7/libiconv-native

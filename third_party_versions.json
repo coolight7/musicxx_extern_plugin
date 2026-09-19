@@ -1,12 +1,12 @@
 {
   "//": "第三方依赖版本锁定（plan §3.3）：submodule 引入，构建前由 tools/build_native.ps1 校验 commit",
-  "//how": "本地开发用 file:// 路径 ssubmodule 引入；上游推送后把 .gitmodules 里的 URL 换成 upstream 再 git submodule sync",
+  "//how": "新增/更新依赖：改 .gitmodules → git submodule update --init --recursive → 同步本文件 → 跑 tools/build_native.ps1 全量验证",
   "submodules": [
     {
       "path": "src/third_party/cxx_pluginxx",
       "url": "https://github.com/coolight7/cxx_pluginxx",
       "commit": "c52dedf5e5206cc869fcfa5c10c8935c221aa9b1",
-      "note": "通用化改造（入口符号接缝 + Pluginxx*/PLUGINXX_*/pluginxx.*）目前只存在于本地提交，推送上游后把 URL 从本地路径切回本 URL"
+      "note": "插件框架内核（入口符号接缝 + Pluginxx*/PLUGINXX_*/pluginxx.* 通用化）"
     },
     {
       "path": "src/third_party/cxx_utilxx_base",
@@ -33,10 +33,16 @@
       "note": "utilxx_base 的 JSON 解析后端"
     },
     {
+      "path": "src/third_party/libiconv-native",
+      "url": "https://github.com/coolight7/libiconv-native",
+      "commit": "8e42fe2e78e73d88089be8414e885ff18c986df5",
+      "note": "GNU libiconv 1.18 的原生 CMake 构建（提供 iconv.h / iconvConfig.cmake）；utilxx_base 的字符集转换必需"
+    },
+    {
       "path": "src/third_party/uchardet",
       "url": "https://github.com/coolight7/uchardet",
       "commit": "dd792edf060b07ce02cb6dc2bddfcbc40794cdc2",
-      "note": "可选：字符集探测（CXX_UTILXX_BASE_ENABLE_CHARSET 打开时使用）"
+      "note": "字符集探测（utilxx_base 的 string_util 无条件使用）；构建时须 -DBUILD_BINARY=OFF（命令行工具依赖 getopt.h，Windows 无）"
     },
     {
       "path": "src/third_party/quickjs",
@@ -45,14 +51,18 @@
       "note": "已登记版本，供 M3（JS 插件运行时）使用；当前构建不启用"
     }
   ],
-  "external": [
-    {
+  "external": {
+    "boost": {
       "name": "boost",
       "version": "1.92.0",
-      "location": "src/third_party/boost (仅头文件, 约 236 MB, 当前不入版本库: 见 .gitignore)",
-      "source": "由 agentxx 的 agent/third_party/boost-windows-build-release 拷贝而来 (include + lib/cmake/Boost-1.92.0 + share)",
-      "why": "内核与 cxx_utilxx_base 需要 Boost CMake 配置 (find_package(Boost CONFIG)) 与 `<asio/...>` 头根 (BOOST_ASIO_STANDALONE)",
-      "status": "待办 (另起会话): 从零构建的完整自动化 (boost 子模块或稀疏 checkout + 脚本内构建), 与 uchardet/iconv 缺口的收尾一起做 (见 work.md §6.2)"
+      "kind": "仅头文件（Boost.Asio standalone 用法，不链接任何 Boost 编译库）",
+      "vendored_path": "src/third_party/boost/include（含 boost/ 头文件根；build_native.ps1 优先使用它）",
+      "source_url": "https://archives.boost.io/release/@VERSION@/source/boost_@UNDERSCORE@.tar.gz",
+      "source_layout": "发布包顶层为 boost_<下划线版本>/boost/...；脚本只解出该 boost/ 子树，解包位置 .native/boost/boost_<下划线版本>/",
+      "archive_sha256": "c4a3b310ddd2472416e091067166b0713be97c63f38c212c484ada022fd296ce",
+      "cmake_config": "由 tools/build_native.ps1 依据 tools/cmake/BoostConfig.cmake.in 生成到 <依赖前缀>/lib/cmake/Boost-<版本>/BoostConfig.cmake；不再依赖 b2 生成的整套配置",
+      "why": "内核与 utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根（Boost_INCLUDE_DIRS），源码写 <asio/...> 时经 <头文件根>/boost/ 命中 Boost.Asio",
+      "status": "已可从源码获取：本机内置头文件直接使用；缺失时脚本按固定版本下载发布包并校验 SHA256"
     }
-  ]
+  }
 }
