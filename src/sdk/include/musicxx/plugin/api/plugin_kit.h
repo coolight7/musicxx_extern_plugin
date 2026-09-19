@@ -16,10 +16,12 @@
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/kit/kit.h"
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -111,6 +113,9 @@ public:
     }
 
     /// 发起宿主动作 (异步; 结果经 `notify->done` 恰好一次回调)
+    ///
+    /// 宿主会持有完成通知指针直到本次动作终结 (完成 / 超时 / 取消), 因此 SDK 把通知
+    /// **复制**到实例内部保存并转接回调 —— 插件可以放心传入栈上的 notify。
     int32_t requestAction(
         const char*                   action,
         const char*                   argsJson,
@@ -121,9 +126,52 @@ public:
         if (!iface.host || !iface.host->request_action) {
             return -1;
         }
+        if (!notify || !notify->done) {
+            return -1;
+        }
+        auto holder     = std::make_unique<ActionNotifyHolder>();
+        holder->user    = *notify;
+        holder->forward = PluginxxOperatorNotify{
+            &PluginBase::actionNotifyTrampoline,
+            holder.get(),
+        };
+        auto* holderPtr = holder.get();
+        actionNotifies_.push_back(std::move(holder));
+        pruneActionNotifies();
+
         PluginxxStringView actionView = pluginxxView(action);
         PluginxxStringView argsView   = pluginxxView(argsJson ? argsJson : "{}");
-        return iface.host->request_action(host, &actionView, &argsView, timeoutMs, notify, outRequestId);
+        return iface.host->request_action(
+            host,
+            &actionView,
+            &argsView,
+            timeoutMs,
+            &actionNotifies_.back()->forward,
+            outRequestId
+        );
+    }
+
+    /// 订阅宿主事件总线的主题 (**宿主线程**执行处理器; 处理器不得阻塞)
+    ///
+    /// - 主题必须符合命名空间规则 (plan §3.5): 官方 `musicxx.*` 或插件自定义
+    ///   `plugin.<本插件id>.*`; 其它前缀会被宿主拒绝 (返回 -1);
+    /// - 处理器形如 `void(std::string_view event_json)`;
+    /// - 订阅句柄由宿主按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
+    /// - 处理器持有者与钩子处理器同一存放位置, 生命周期 = 插件实例。
+    template<typename Fn>
+    int32_t subscribeTopic(const char* topic, Fn&& fn) {
+        if (!iface.events || !iface.events->subscribe) {
+            log.warn("pluginxx.events 表不可用: 事件订阅未生效 (宿主版本过旧?)");
+            return -1;
+        }
+        using FnT       = std::decay_t<Fn>;
+        auto  holder    = std::make_unique<EventHolder<FnT>>(std::forward<Fn>(fn));
+        void* holderPtr = holder.get();
+        eventHolders_.push_back(std::move(holder));
+
+        PluginxxStringView topicView = pluginxxView(topic ? topic : "");
+        auto*              sub = iface.events->subscribe(host, &topicView, &EventHolder<FnT>::invoke, holderPtr);
+        return sub ? 0 : -1;
     }
 
     /// 用宿主堆把字符串写进跨边界出参 (插件必须用宿主的分配器, 不得用 CRT malloc)
@@ -271,14 +319,153 @@ private:
 
     /// 同步处理器持有者 (生命周期与实例相同; start 事务里累积)
     std::vector<std::unique_ptr<HookHolderBase>> holders_;
+
+    /// 动作请求完成通知持有者 (宿主会长期持有该指针; 见 requestAction 说明)
+    struct ActionNotifyHolder {
+        PluginxxOperatorNotify user{};      ///< 插件传入的完成通知 (原样保留)
+        PluginxxOperatorNotify forward{};   ///< 转交给宿主的通知 (地址在堆上, 稳定)
+        bool                   doneCalled = false;
+    };
+
+    /// 完成通知转接 (宿主线程调用): 标记完成并转发给插件自己的回调
+    static void PLUGINXX_CALL actionNotifyTrampoline(
+        void*                     ud,
+        int32_t                   status,
+        const PluginxxStringView* payload
+    ) noexcept {
+        auto* holder = static_cast<ActionNotifyHolder*>(ud);
+        if (!holder || holder->doneCalled) {
+            return;
+        }
+        holder->doneCalled = true; ///< 宿主保证恰好一次; 这里再兜一层
+        if (holder->user.done) {
+            try {
+                holder->user.done(holder->user.host_ud, status, payload);
+            } catch (...) {
+                // 完成回调异常不得穿越 C ABI
+            }
+        }
+    }
+
+    /// 回收已完成的动作通知 (保留最近若干张作为墓碑, 防止迟到回调命中已释放内存)
+    void pruneActionNotifies() {
+        constexpr size_t kFinishedRetention = 8;
+        size_t           finished           = 0;
+        for (const auto& holder : actionNotifies_) {
+            if (holder && holder->doneCalled) {
+                ++finished;
+            }
+        }
+        while (finished > kFinishedRetention) {
+            const auto it = std::find_if(
+                actionNotifies_.begin(),
+                actionNotifies_.end(),
+                [](const std::unique_ptr<ActionNotifyHolder>& holder) {
+                    return holder && holder->doneCalled;
+                }
+            );
+            if (it == actionNotifies_.end()) {
+                break;
+            }
+            actionNotifies_.erase(it);
+            --finished;
+        }
+    }
+
+    std::vector<std::unique_ptr<ActionNotifyHolder>> actionNotifies_;
+
+    /// 事件订阅处理器持有者 (同上)
+    template<typename FnT>
+    struct EventHolder : HookHolderBase {
+        FnT fn;
+
+        explicit EventHolder(FnT f) :
+            fn(std::move(f)) {}
+
+        /// C ABI 事件处理器 trampoline (宿主线程调用; 异常必须就地吞掉)
+        static void PLUGINXX_CALL invoke(const PluginxxStringView* event_json, void* ud) noexcept {
+            auto* self = static_cast<EventHolder*>(ud);
+            if (!self) {
+                return;
+            }
+            try {
+                std::string_view data{};
+                if (event_json && event_json->data) {
+                    data = std::string_view{event_json->data, static_cast<size_t>(event_json->size)};
+                }
+                self->fn(data);
+            } catch (...) {
+                // 事件处理器异常不得穿越 C ABI
+            }
+        }
+    };
+
+    std::vector<std::unique_ptr<HookHolderBase>> eventHolders_;
 };
 
 } // namespace musicxx::plugin
 } // namespace musicxx
 
+/* ==================== 生命周期事务适配 ==================== */
+
+namespace musicxx {
+namespace plugin {
+namespace detail {
+
+/// 生命周期事务适配 (导出宏内部使用): 把插件作者的简单事务函数包装成内核入口
+///
+/// 支持两种写法:
+/// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按内核契约
+///   为本次事务调用一次完成通知 (`notify->done`), 插件无需关心通知协议;
+/// - **内核原始形式** `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`:
+///   由插件自己调用 `notify->done` (进阶写法, 与 cxx_pluginxx 的 kit 一致)。
+///
+/// 为什么必须有完成通知: 内核把"返回 NULL 且从未 done"判为协议违约
+/// (`protocol violation: null operation without done/error`), 会拒绝本次事务并回滚装载。
+template<typename Ctx, typename Fn>
+inline void* runLifecycleEntry(
+    Ctx&                          ctx,
+    const PluginxxOperatorNotify* notify,
+    PluginxxString*               error_out,
+    const char*                   label,
+    Fn&&                          fn
+) noexcept {
+    using FnT = std::decay_t<Fn>;
+    if constexpr (std::is_invocable_v<FnT&, Ctx&, const PluginxxOperatorNotify*, PluginxxString*>) {
+        // 内核原始签名: 完成通知由插件自己负责
+        return fn(ctx, notify, error_out);
+    } else {
+        int32_t     rc = -1;
+        std::string message;
+        try {
+            rc = static_cast<int32_t>(fn(ctx));
+        } catch (const std::exception& e) {
+            message = e.what();
+        } catch (...) {
+            message = "unknown exception";
+        }
+        if (notify && notify->done) {
+            if (rc == 0) {
+                notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+            } else {
+                if (message.empty()) {
+                    message = std::string{label ? label : "lifecycle"} + ": 事务返回失败";
+                }
+                PluginxxStringView view{message.data(), static_cast<uint64_t>(message.size())};
+                notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+            }
+        }
+        return nullptr;
+    }
+}
+
+} // namespace detail
+} // namespace plugin
+} // namespace musicxx
+
 /// 插件入口导出宏 (生成 `musicxx_plugin_{get_info,create,start,stop,destroy}`)
 ///
-/// 用法 (与 agentxx 插件一致的心智模型):
+/// 用法 (插件作者只写两个事务函数, 完成通知由 SDK 处理):
 /// ```cpp
 /// struct MyCtx : musicxx::plugin::PluginBase {};
 /// MUSICXX_PLUGIN_EXPORT(MyCtx, "example_native", "1.0.0", "示例插件",
@@ -286,9 +473,30 @@ private:
 ///                       [](MyCtx& ctx) -> int32_t { return 0; });
 /// ```
 /// 运行时宿主经 `entrySymbols()` 交出同一批符号名 (见 `pluginxx/api/entry.h`)。
-#define MUSICXX_PLUGIN_EXPORT(CtxType, Name, Ver, Desc, StartFn, StopFn) \
-    PLUGINXX_EXPORT_PLUGIN(musicxx_plugin_, CtxType, Name, Ver, Desc, StartFn, StopFn)
+#define MUSICXX_PLUGIN_EXPORT(CtxType, Name, Ver, Desc, StartFn, StopFn)                     \
+    PLUGINXX_EXPORT_PLUGIN(                                                                  \
+        musicxx_plugin_,                                                                     \
+        CtxType,                                                                             \
+        Name,                                                                                \
+        Ver,                                                                                 \
+        Desc,                                                                                \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
+            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin start", StartFn); \
+        },                                                                                    \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
+            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin stop", StopFn);   \
+        }                                                                                     \
+    )
 
 /// 只导出 start/stop (供手写 create/destroy 的插件使用)
-#define MUSICXX_PLUGIN_EXPORT_LIFECYCLE(CtxType, StartFn, StopFn) \
-    PLUGINXX_EXPORT_PLUGIN_LIFECYCLE(musicxx_plugin_, CtxType, StartFn, StopFn)
+#define MUSICXX_PLUGIN_EXPORT_LIFECYCLE(CtxType, StartFn, StopFn)                            \
+    PLUGINXX_EXPORT_PLUGIN_LIFECYCLE(                                                        \
+        musicxx_plugin_,                                                                     \
+        CtxType,                                                                             \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
+            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin start", StartFn); \
+        },                                                                                    \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
+            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin stop", StopFn);   \
+        }                                                                                     \
+    )

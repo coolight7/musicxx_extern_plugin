@@ -18,6 +18,14 @@ build/
 .vs/
 __pycache__/
 
+# Dart/Flutter 侧生成物（pubspec.lock 建议入库，便于锁定 CLI/工具链版本）
+.dart_tool/
+.packages
+build/
+*.iml
+.flutter-plugins
+.flutter-plugins-dependencies
+
 # Boost 头文件（仅头文件，约 151 MB，不随仓库分发）：
 # tools/build_native.ps1 按脚本内固定版本 + URL + SHA256 下载解包到 .native/boost/，因此全新克隆
 # 无需本目录即可构建；本机已有该目录时脚本优先复用（-BoostRoot / -BoostArchive 可覆盖）。

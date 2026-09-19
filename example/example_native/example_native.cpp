@@ -1,29 +1,81 @@
-/// 示例原生插件: 演示钩子注册、状态镜像读取、宿主动作请求与日志
+/// 示例原生插件: 演示钩子注册、状态镜像读取、宿主动作请求、能力注册与日志
 ///
 /// 行为:
 /// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回 skip 裁决;
 /// 2. 注册 `musicxx.song.changed` (observe): 读状态镜像里的歌曲名并写日志;
-/// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源。
+/// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
+/// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
+///    命名空间校验返回码、处理器调用次数), 供宿主原生测试读取。
 ///
 /// 纪律 (plan §4.5): start 事务里只做注册, 不阻塞、不发起网络/大文件操作。
 
 #include "musicxx/plugin/api/plugin_kit.h"
 
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 
 namespace {
+
+/// 当前线程标识文本 (用于验证"插件代码只在宿主线程执行")
+std::string threadIdText() {
+    std::ostringstream oss;
+    oss << std::this_thread::get_id();
+    return oss.str();
+}
+
+/// 能力调用的空完成通知 (示例里只做探测, 不等待完成)
+void PLUGINXX_CALL probeActionDone(void*, int32_t, const PluginxxStringView*) {}
 
 /// 插件实例上下文 (每个实例一份; 不得使用可变全局状态 —— 多实例铁律)
 struct ExampleCtx : public musicxx::plugin::PluginBase {
     /// 连续播放错误计数 (仅示例)
     int32_t consecutiveErrors = 0;
 
+    /// start 事务所在线程 (与钩子/能力处理器比对: 必须相同 = 单宿主线程模型)
+    std::string startThread;
+
+    /// 自检结果 (命名空间校验返回码)
+    int32_t unknownHookRc   = 0; ///< 注册未知前缀钩子: 期望 -4 (未知钩子)
+    int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
+    int32_t dupHookRc       = 0; ///< 覆盖式重复注册: 期望 0
+
+    /// 事件订阅自检
+    int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (宿主拒绝)
+    int32_t stateEvents         = 0; ///< musicxx.state.changed 收到次数
+    int32_t pingEvents          = 0; ///< musicxx.test.ping 收到次数
+    int32_t ownPublishRc        = 0; ///< 发布本插件命名空间事件: 期望 0
+    int32_t foreignPublishRc    = 0; ///< 发布他人命名空间事件: 期望非 0 (宿主拒绝)
+
+    /// 动作请求自检
+    int32_t lastActionStatus     = -100; ///< 最近一次动作请求终态 (-100 = 从未发起)
+    int32_t lastActionPayloadLen = 0;
+    int64_t lastActionRequestId  = 0;
+
+    /// 动作请求完成回调 (宿主线程调用)
+    static void PLUGINXX_CALL onProbeActionDone(
+        void*                     ud,
+        int32_t                   status,
+        const PluginxxStringView* payload
+    ) noexcept {
+        auto* self = static_cast<ExampleCtx*>(ud);
+        if (!self) {
+            return;
+        }
+        self->lastActionStatus     = status;
+        self->lastActionPayloadLen = (payload && payload->data)
+                                         ? static_cast<int32_t>(payload->size)
+                                         : 0;
+    }
+
     int32_t onStart() {
+        startThread = threadIdText();
+
         // 1) 跳过"广告"曲目 (决定型钩子: 返回 {"action":"skip"})
         hook(
-            "musicxx.player.beforePlaySong",
+            MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG,
             0,
             [this](std::string_view input, std::string& out) -> int32_t {
                 // 载荷: {"sid":"...","song":{"name":"...","artist":"..."},...}
@@ -36,7 +88,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         );
 
         // 2) 观察切歌 (只读状态镜像 + 日志)
-        observe("musicxx.song.changed", [this](std::string_view input, std::string& out) -> int32_t {
+        observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED, [this](std::string_view input, std::string& out) -> int32_t {
             (void)out;
             (void)input;
             const std::string song = stateJson("musicxx.state.song");
@@ -45,7 +97,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         });
 
         // 3) 播放错误: 连续 2 次错误后建议换源 (不改写宿主既有错误策略)
-        hook("musicxx.player.error", 0, [this](std::string_view input, std::string& out) -> int32_t {
+        hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0, [this](std::string_view input, std::string& out) -> int32_t {
             (void)input;
             ++consecutiveErrors;
             if (consecutiveErrors >= 2) {
@@ -54,11 +106,84 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
             return 0;
         });
 
+        // 4) 命名空间自检 (plan §3.5): 未知前缀的钩子必须被宿主拒绝
+        unknownHookRc = hook("foo.bar.baz", 0, [](std::string_view, std::string&) -> int32_t {
+            return 0;
+        });
+        // 同一 (实例, 钩子, owner_tag) 覆盖式注册: 再注册一次应成功
+        dupHookRc = observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED, [](std::string_view, std::string&) -> int32_t {
+            return 0;
+        });
+        // 他人命名空间的动作用请求必须被拒绝 (此处只探测返回码, 不会真的发出)
+        {
+            PluginxxOperatorNotify notify{&probeActionDone, nullptr};
+            foreignActionRc = requestAction("plugin.other_plugin.x", "{}", &notify, 1000);
+        }
+
+        // 5) 事件订阅 (宿主事件总线): 状态镜像变化 + 宿主发布的测试主题
+        badTopicSubscribeRc = subscribeTopic("foo.bar", [](std::string_view) {
+            // 非法主题: 宿主应在订阅时就拒绝 (返回 -1), 该处理器不会被调用
+        });
+        subscribeTopic("musicxx.state.changed", [this](std::string_view data) {
+            ++stateEvents;
+            (void)data;
+        });
+        subscribeTopic("musicxx.test.ping", [this](std::string_view data) {
+            ++pingEvents;
+            (void)data;
+        });
+        // 事件发布命名空间自检: 自己命名空间可发, 他人命名空间被拒绝
+        ownPublishRc = publishOwnEvent("plugin.example_native.hello", "{\"from\":\"example_native\"}");
+        foreignPublishRc
+            = publishOwnEvent("plugin.other_plugin.hello", "{\"from\":\"example_native\"}");
+
+        // 6) 能力: 供宿主/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
+        capability(
+            *this,
+            "plugin.example_native.probe",
+            [this](std::string_view, std::string_view args) -> std::string {
+                // args 里带 requestAction 时顺带发起一次动作请求 (用于验证宿主超时保护)
+                if (args.find("requestAction") != std::string_view::npos) {
+                    PluginxxOperatorNotify notify{&ExampleCtx::onProbeActionDone, this};
+                    lastActionStatus = -2; ///< 发起中
+                    requestAction("musicxx.test.neverRespond", "{}", &notify, 1000, &lastActionRequestId);
+                    log.info("example_native: 已发起动作请求 musicxx.test.neverRespond (等待宿主超时)");
+                }
+                std::ostringstream oss;
+                oss << "{\"startThread\":\"" << startThread << "\""
+                    << ",\"callThread\":\"" << threadIdText() << "\""
+                    << ",\"unknownHookRc\":" << unknownHookRc
+                    << ",\"dupHookRc\":" << dupHookRc
+                    << ",\"foreignActionRc\":" << foreignActionRc
+                    << ",\"badTopicSubscribeRc\":" << badTopicSubscribeRc
+                    << ",\"ownPublishRc\":" << ownPublishRc
+                    << ",\"foreignPublishRc\":" << foreignPublishRc
+                    << ",\"stateEvents\":" << stateEvents
+                    << ",\"pingEvents\":" << pingEvents
+                    << ",\"lastActionStatus\":" << lastActionStatus
+                    << ",\"lastActionPayloadLen\":" << lastActionPayloadLen
+                    << ",\"consecutiveErrors\":" << consecutiveErrors
+                    << ",\"stateLen\":" << stateJson("musicxx.state.song").size()
+                    << "}";
+                return oss.str();
+            }
+        );
+
         return 0;
     }
 
+    /// 发布本插件命名空间的事件 (经内核 events 表; 主题归属由宿主校验)
+    int32_t publishOwnEvent(const char* topic, const char* payload) {
+        if (!iface.events || !iface.events->publish) {
+            return -1;
+        }
+        PluginxxStringView topicView = pluginxxView(topic);
+        PluginxxStringView dataView  = pluginxxView(payload);
+        return iface.events->publish(host, &topicView, &dataView);
+    }
+
     int32_t onStop() {
-        // 撤销自管资源 (示例没有线程/定时器; 钩子注册由宿主在 detach 时兜底摘除)
+        // 撤销自管资源 (示例没有线程/定时器; 钩子/能力注册由宿主在 detach 时兜底摘除)
         consecutiveErrors = 0;
         return 0;
     }
@@ -66,14 +191,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
 /// start 事务: 只做注册 (禁止阻塞)
 ///
-/// 入口约定 (内核 kit): 返回 NULL 表示事务成功 (同步完成); 失败时写 error_out 并返回非空。
-void* exampleStart(ExampleCtx& ctx, const PluginxxOperatorNotify*, PluginxxString*) {
-    return ctx.onStart() == 0 ? nullptr : reinterpret_cast<void*>(1);
+/// 入口约定 (musicxx 插件 SDK): 返回 0 = 事务成功, 非 0 = 失败; SDK 负责按内核契约
+/// 调用完成通知 (见 `musicxx/plugin/api/plugin_kit.h` 的 `runLifecycleEntry`)。
+int32_t exampleStart(ExampleCtx& ctx) {
+    return ctx.onStart();
 }
 
-/// stop 事务: 撤销自管资源
-void* exampleStop(ExampleCtx& ctx, const PluginxxOperatorNotify*, PluginxxString*) {
-    return ctx.onStop() == 0 ? nullptr : reinterpret_cast<void*>(1);
+/// stop 事务: 撤销自管资源 (可重复调用)
+int32_t exampleStop(ExampleCtx& ctx) {
+    return ctx.onStop();
 }
 
 } // namespace

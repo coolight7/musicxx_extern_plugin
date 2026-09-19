@@ -1,0 +1,40 @@
+# ffigen 配置：由宿主 C ABI 头生成 Dart 绑定
+#
+# 用法（在包目录下）：
+#   dart run ffigen --config ffigen.yaml
+#
+# 说明：
+# - 唯一输入是宿主对外头文件 src/include/musicxx_extern_plugin_api.h（Dart ⇄ 原生契约）；
+# - 输出 lib/src/bindings_generated.dart 为生成物，**不要手改**；
+# - llvm-path：Windows 上必须显式给出（沿用 mediaxx 的写法），
+#   其它平台由 ffigen 自行探测（可用环境变量 MUSICXX_FFIGEN_LLVM_PATH 覆盖）。
+name: MusicxxExternPluginBindings
+description: musicxx_extern_plugin 宿主 C ABI 绑定（自动生成）
+output: 'lib/src/bindings_generated.dart'
+# Windows 上需要显式给出 LLVM 位置（与 mediaxx 一致）
+llvm-path:
+  - 'D:/0Acoolight/App/LLVM/'
+headers:
+  entry-points:
+    - 'src/include/musicxx_extern_plugin_api.h'
+  include-directives:
+    - '**musicxx_extern_plugin_api.h'
+functions:
+  include:
+    - 'musicxx_extern_plugin_.*'
+  # 导出函数带 __declspec(dllexport)，ffigen 需要它作为可见性标记
+  leaf:
+    include: []
+structs:
+  include:
+    - 'MusicxxExternPlugin.*'
+enums:
+  include: []
+macros:
+  include: []
+globals:
+  include: []
+comments: true
+preamble: |
+  // 自动生成（ffigen）—— 请勿手改；改动请修改头文件后重新运行 ffigen。
+  // ignore_for_file: type=lint, unused_field, camel_case_types, non_constant_identifier_names

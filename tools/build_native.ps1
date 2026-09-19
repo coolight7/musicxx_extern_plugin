@@ -357,9 +357,15 @@ if (-not $DepsOnly) {
     Write-Output "  复制产物到输出目录: $OutputDir"
     New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
     foreach ($sub in @('bin', 'plugins')) {
+        # 注意: `Copy-Item <源目录> <目标目录> -Recurse` 在目标已存在时会把源目录
+        # 整体嵌进目标 (得到 <目标>/<源>), 旧产物不会被覆盖 —— 必须按"内容合并"复制。
+        $to = Join-Path $OutputDir $sub
+        $nested = Join-Path $to $sub
+        if (Test-Path $nested) { Remove-Item $nested -Recurse -Force }   # 清掉历史误拷贝
         $from = Join-Path $installDir $sub
         if (Test-Path $from) {
-            Copy-Item $from (Join-Path $OutputDir $sub) -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $to | Out-Null
+            Copy-Item (Join-Path $from '*') $to -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }

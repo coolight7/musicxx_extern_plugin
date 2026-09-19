@@ -1,0 +1,26 @@
+name: musicxx_extern_plugin
+description: "musicxx 外部插件宿主 Dart 侧：加载/管理 C++ 与 JS 插件，派发钩子，转发接口。"
+version: 1.0.0
+homepage: https://github.com/coolight7/mymusic
+publish_to: none
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  # 跨边界内存与函数指针（唯一运行时依赖；重活都在原生宿主里）
+  ffi: ^2.1.4
+
+dev_dependencies:
+  # 由 src/include/musicxx_extern_plugin_api.h 生成 lib/src/bindings_generated.dart
+  ffigen: ^13.0.0
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+# 说明（与 plan §3.1 / §11.2 的差异，见 work.md S3 记录）：
+# 本包当前**不声明 Flutter 平台插件**（没有 `flutter: plugin: platforms:` 段），
+# 原因：原生宿主库由包内 tools/build_native.ps1 独立构建（superbuild 结构，见 plan §11.2），
+# Dart 侧按**显式路径**加载它（plan §5.2：显式路径优先，便于打包与调试）。
+# 接入 musicxx 应用时（S4/M4）再把平台工程与 CMake 接进 Flutter 构建。
+flutter:

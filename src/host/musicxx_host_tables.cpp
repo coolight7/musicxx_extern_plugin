@@ -6,9 +6,13 @@
 #include "host_json.h"
 #include "musicxx_host.h"
 
+#include "musicxx/plugin/api/hook_ids.g.h"
 #include "pluginxx/host/abi_util.h"
+#include "utilxx_base/asio_error.h"
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
+
+#include <asio/steady_timer.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -20,99 +24,16 @@ using utilxx_base::Json;
 
 namespace {
 
-/// 已知钩子表 (与 plan §8.2 的钩子总表一致; S3 的契约生成器
-/// `tools/hooks.def.json → hook_ids.g.h` 落地后由生成物替换, 字段一一对应)
+/// 已知钩子表 (与 plan §8.2 的钩子总表一致)
 ///
-/// policy: 0 firstNonNull / 1 anyCancel / 2 allMerge / 3 lastWrite
-/// mode:   0 observe / 1 decision
-struct HookMeta {
-    const char* id;
-    int32_t     mode;
-    int32_t     policy;
-    int32_t     budgetMs;
-    int32_t     hardMs;
-};
-
-constexpr HookMeta kKnownHooks[] = {
-    /* 应用/生命周期 */
-    {"musicxx.app.start", 0, 3, 0, 0},
-    {"musicxx.app.ready", 0, 3, 0, 0},
-    {"musicxx.app.background", 0, 3, 0, 0},
-    {"musicxx.app.foreground", 0, 3, 0, 0},
-    {"musicxx.app.exit", 1, 1, 30, 100},
-    {"musicxx.app.deepLink", 1, 1, 30, 100},
-    {"musicxx.app.upgrade", 0, 3, 0, 0},
-    /* 播放链路 */
-    {"musicxx.player.beforePlaySong", 1, 1, 30, 100},
-    {"musicxx.player.source.beforeParse", 1, 0, 50, 200},
-    {"musicxx.player.source.resolved", 0, 3, 0, 0},
-    {"musicxx.player.beforeOpen", 1, 0, 50, 200},
-    {"musicxx.player.state", 0, 3, 0, 0},
-    {"musicxx.player.position", 0, 3, 0, 0},
-    {"musicxx.player.seek", 1, 1, 30, 100},
-    {"musicxx.player.volume", 1, 1, 30, 100},
-    {"musicxx.player.speed", 1, 1, 30, 100},
-    {"musicxx.player.pitch", 1, 1, 30, 100},
-    {"musicxx.player.error", 1, 1, 30, 100},
-    {"musicxx.player.completed", 0, 3, 0, 0},
-    {"musicxx.player.qualityChanged", 0, 3, 0, 0},
-    {"musicxx.media.notification", 1, 3, 30, 100},
-    /* 歌曲/歌单/库 */
-    {"musicxx.song.changed", 0, 3, 0, 0},
-    {"musicxx.song.info.analyse", 1, 0, 30, 100},
-    {"musicxx.song.meta.writeback", 0, 3, 0, 0},
-    {"musicxx.song.beforeAdd", 1, 1, 30, 100},
-    {"musicxx.song.removed", 0, 3, 0, 0},
-    {"musicxx.playlist.loaded", 0, 3, 0, 0},
-    {"musicxx.playlist.filter", 1, 2, 50, 200},
-    {"musicxx.songlist.filter", 1, 2, 50, 200},
-    {"musicxx.history.record", 0, 3, 0, 0},
-    {"musicxx.local.scan.file", 1, 1, 30, 100},
-    {"musicxx.local.scan.finished", 0, 3, 0, 0},
-    /* 歌词 */
-    {"musicxx.lyric.load.before", 1, 0, 50, 200},
-    {"musicxx.lyric.loaded", 0, 3, 0, 0},
-    {"musicxx.lyric.transform", 1, 2, 50, 200},
-    {"musicxx.lyric.current", 0, 3, 0, 0},
-    {"musicxx.lyric.searchStr", 1, 0, 30, 100},
-    {"musicxx.lyric.provider", 1, 0, 50, 200},
-    /* 媒体信息/图像/分析 */
-    {"musicxx.icon.request", 1, 0, 50, 200},
-    {"musicxx.icon.generated", 0, 3, 0, 0},
-    {"musicxx.media.info.request", 1, 0, 50, 200},
-    {"musicxx.media.wave.ready", 0, 3, 0, 0},
-    {"musicxx.media.chorus.analysed", 0, 3, 0, 0},
-    /* 网络/服务 */
-    {"musicxx.net.request.before", 1, 1, 50, 200},
-    {"musicxx.net.response.after", 0, 3, 0, 0},
-    {"musicxx.net.server.route", 1, 0, 100, 500},
-    {"musicxx.net.mcp.tools", 1, 2, 50, 200},
-    {"musicxx.net.lan.event", 0, 3, 0, 0},
-    /* 下载/缓存/资源 */
-    {"musicxx.download.before", 1, 1, 50, 200},
-    {"musicxx.download.completed", 0, 3, 0, 0},
-    {"musicxx.cache.beforeTrim", 1, 1, 30, 100},
-    {"musicxx.cache.pathRequest", 1, 0, 30, 100},
-    /* UI/交互 */
-    {"musicxx.ui.home.entries", 1, 2, 30, 100},
-    {"musicxx.ui.song.actions", 1, 2, 30, 100},
-    {"musicxx.ui.playlist.actions", 1, 2, 30, 100},
-    {"musicxx.ui.route.resolve", 1, 0, 50, 200},
-    {"musicxx.ui.page.enter", 0, 3, 0, 0},
-    {"musicxx.ui.page.leave", 0, 3, 0, 0},
-    {"musicxx.ui.theme.changed", 0, 3, 0, 0},
-    {"musicxx.ui.notify", 1, 1, 30, 100},
-    {"musicxx.ui.user.action", 0, 3, 0, 0},
-    /* 脚本/自动化 */
-    {"musicxx.script.bound", 0, 3, 0, 0},
-    {"musicxx.script.disposed", 0, 3, 0, 0},
-    {"musicxx.script.action.executed", 0, 3, 0, 0},
-    {"musicxx.clocking.tick", 0, 3, 0, 0},
-    {"musicxx.listenTogether.event", 0, 3, 0, 0},
-};
+/// 定义只有一处: `tools/hooks.def.json` → `tools/gen_contract.dart` 生成
+/// `musicxx/plugin/api/hook_ids.g.h`（宿主与插件作者共用同一份）。
+/// policy: MUSICXX_PLUGIN_HOOK_POLICY_*；mode: MUSICXX_PLUGIN_HOOK_MODE_*。
+using HookMeta = musicxx::plugin::MusicxxPluginHookMeta;
 
 const HookMeta* findHookMeta(std::string_view hookId) {
-    for (const auto& meta : kKnownHooks) {
+    for (size_t i = 0; i < musicxx::plugin::musicxxPluginKnownHookCount; ++i) {
+        const auto& meta = musicxx::plugin::musicxxPluginKnownHooks[i];
         if (hookId == meta.id) {
             return &meta;
         }
@@ -132,6 +53,18 @@ bool isOwnPluginId(std::string_view id, std::string_view pluginId) {
     }
     const std::string prefix = "plugin." + std::string{pluginId} + ".";
     return id.size() > prefix.size() && id.substr(0, prefix.size()) == prefix;
+}
+
+/// 事件主题归属校验 (plan §3.5): 官方 `musicxx.*` 放行, 插件自定义主题必须属于本插件
+///
+/// 说明: 内核通用 `pluginxx.events` 表入口不携带发布者信息 (`qualifyEventTopic` 只有主题),
+/// 因此本宿主用**自己的 events 表入口**替换它 (见文件末尾), 以便在发布/订阅路径上拿到
+/// 实例做归属校验 —— 严禁插件冒充他人命名空间发布事件。
+bool isTopicOwnedBy(std::string_view topic, std::string_view pluginId) {
+    if (topic.rfind("musicxx.", 0) == 0) {
+        return true; ///< 官方命名空间: 插件可订阅/发布 (宿主能力主题)
+    }
+    return isOwnPluginId(topic, pluginId);
 }
 
 } // namespace
@@ -565,13 +498,53 @@ int32_t MusicxxHostManager::requestAction(
     }
 
     const int64_t requestId = nextRequestId_++;
+    // 超时预算 (plan §4.8): 默认 5s, 下限 1s (避免 Dart 侧被高频请求淹没), 上限 60s
+    const int64_t effectiveTimeoutMs = std::clamp<int64_t>(
+        (timeoutMs == 0) ? 5000 : static_cast<int64_t>(timeoutMs),
+        1000,
+        60000
+    );
     PendingAction pending;
     pending.plugin   = inst->name;
     pending.action   = actionName;
     pending.notify   = notify;
     pending.deadline = std::chrono::steady_clock::now()
-                       + std::chrono::milliseconds{static_cast<int64_t>((std::max)(timeoutMs, 1000u))};
-    pendingActions_[requestId] = pending;
+                       + std::chrono::milliseconds{effectiveTimeoutMs};
+    // 超时保护 (plan §4.8): 到点仍未收到 Dart 回复就终结 op, 并推事件让 Dart 中断在做的活
+    if (ctx_) {
+        auto timer = std::make_shared<asio::steady_timer>(ctx_->io);
+        timer->expires_after(std::chrono::milliseconds{effectiveTimeoutMs});
+        timer->async_wait([this, requestId](const utilxx_base::AsioErrorCode& ec) {
+            if (ec) {
+                return; ///< 已回复/已取消: 定时器被主动取消
+            }
+            auto it = pendingActions_.find(requestId);
+            if (it == pendingActions_.end()) {
+                return;
+            }
+            const std::string pluginId = pluginIdOf(it->second.plugin);
+            if (it->second.notify && it->second.notify->done) {
+                it->second.notify->done(
+                    it->second.notify->host_ud,
+                    PLUGINXX_OPERATOR_CANCELLED,
+                    nullptr
+                );
+            }
+            XX_LOGW(
+                "[musicxx_ext] 动作请求超时: plugin={} action={} id={}",
+                pluginId,
+                it->second.action,
+                requestId
+            );
+            Json payload;
+            payload["requestId"] = requestId;
+            payload["reason"]    = "timeout";
+            pushEvent("musicxx.action.cancel", pluginId, payload.dump());
+            pendingActions_.erase(it);
+        });
+        pending.timer = std::move(timer);
+    }
+    pendingActions_[requestId] = std::move(pending);
     if (outRequestId) {
         *outRequestId = requestId;
     }
@@ -581,7 +554,7 @@ int32_t MusicxxHostManager::requestAction(
     payload["requestId"] = requestId;
     payload["plugin"]    = pluginId;
     payload["action"]    = actionName;
-    payload["timeoutMs"] = static_cast<int64_t>((std::max)(timeoutMs, 1000u));
+    payload["timeoutMs"] = effectiveTimeoutMs;
     Json args            = parseJsonSafe(argsJson);
     payload["args"]      = args;
     pushEvent("musicxx.action.request", pluginId, payload.dump());
@@ -596,6 +569,9 @@ int32_t MusicxxHostManager::actionRespond(
     auto it = pendingActions_.find(requestId);
     if (it == pendingActions_.end()) {
         return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    }
+    if (it->second.timer) {
+        it->second.timer->cancel(); ///< 已回复: 撤销超时保护
     }
     if (it->second.notify && it->second.notify->done) {
         PluginxxString payload{};
@@ -616,6 +592,9 @@ void MusicxxHostManager::cancelAction(int64_t requestId) {
     auto it = pendingActions_.find(requestId);
     if (it == pendingActions_.end()) {
         return;
+    }
+    if (it->second.timer) {
+        it->second.timer->cancel();
     }
     if (it->second.notify && it->second.notify->done) {
         it->second.notify->done(it->second.notify->host_ud, PLUGINXX_OPERATOR_CANCELLED, nullptr);
@@ -937,6 +916,83 @@ void PLUGINXX_CALL xx_free_fn(void* ptr) {
     pluginxx::hostMemoryFree(ptr);
 }
 
+/* ==================== 事件表 (自定义入口: 增加发布归属校验) ==================== */
+
+/// 订阅事件 (任意线程; 内核入口语义 + 主题合法性校验)
+PluginxxSubscription* PLUGINXX_CALL xx_subscribe_event(
+    const PluginxxHost*       host,
+    const PluginxxStringView* topic,
+    void(PLUGINXX_CALL* handler)(const PluginxxStringView* event_json, void* ud),
+    void* ud
+) {
+    return pluginxx::guardVtableCall(nullptr, [&]() -> PluginxxSubscription* {
+        auto call = pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+        if (!call.ok() || !topic || !topic->data || !handler) {
+            return nullptr;
+        }
+        auto              mgr       = call.manager();
+        auto              inst      = call.instance();
+        const std::string topicText = std::string{topic->data, static_cast<size_t>(topic->size)};
+        // 订阅只要求主题形状合法 (可以订阅其它插件或官方主题); 发布才做归属校验
+        if (mgr->qualifyEventTopic(topicText).empty()) {
+            XX_LOGW("[musicxx_ext] 插件 `{}` 订阅非法主题 `{}` 被拒绝", inst->name, topicText);
+            return nullptr;
+        }
+        return pluginxx::ioCallSyncKeep<PluginxxSubscription*>(
+            call,
+            mgr,
+            [mgr, inst, topicText, handler, ud]() {
+                return mgr->subscribe(inst, topicText, handler, ud);
+            }
+        );
+    });
+}
+
+/// 撤销订阅 (幂等; 任意线程)
+void PLUGINXX_CALL xx_unsubscribe_event(PluginxxSubscription* sub) {
+    pluginxx::unsubscribePluginSubscription(sub);
+}
+
+/// 发布事件 (任意线程): 主题必须是官方 `musicxx.*` 或本插件自己的 `plugin.<id>.*`
+int32_t PLUGINXX_CALL xx_publish_event(
+    const PluginxxHost*       host,
+    const PluginxxStringView* topic,
+    const PluginxxStringView* event_json
+) {
+    return pluginxx::guardVtableCall(-1, [&]() -> int32_t {
+        auto call = pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+        if (!call.ok() || !topic || !topic->data || !event_json) {
+            return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto              mgr       = call.manager();
+        auto              inst      = call.instance();
+        const std::string topicText = std::string{topic->data, static_cast<size_t>(topic->size)};
+        const std::string pluginId  = MusicxxHostManager::pluginIdOf(inst->name);
+        if (!isTopicOwnedBy(topicText, pluginId)) {
+            XX_LOGW(
+                "[musicxx_ext] 插件 `{}` 发布事件被拒绝: 主题 `{}` 不属于该插件命名空间",
+                pluginId,
+                topicText
+            );
+            return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+        }
+        const std::string payload = (event_json->size > 0 && event_json->data)
+                                        ? std::string{event_json->data, static_cast<size_t>(event_json->size)}
+                                        : std::string{"{}"};
+        return pluginxx::ioCallSyncKeep<int32_t>(call, mgr, [mgr, topicText, payload]() -> int32_t {
+            return mgr->publishOnHostThread(topicText, payload);
+        });
+    });
+}
+
+const PluginxxEventsIface g_ifaceEvents = {
+    /* version */ PLUGINXX_IFACE_EVENTS_VERSION,
+    /* struct_size */ sizeof(PluginxxEventsIface),
+    /* subscribe */ xx_subscribe_event,
+    /* unsubscribe */ xx_unsubscribe_event,
+    /* publish */ xx_publish_event,
+};
+
 const void* PLUGINXX_CALL xx_query_interface(const PluginxxHost*, const PluginxxStringView* iid);
 
 const PluginxxHostVtable g_hostVtable = {
@@ -953,7 +1009,11 @@ const void* PLUGINXX_CALL xx_query_interface(const PluginxxHost*, const Pluginxx
     if (name == "__vtable") {
         return &g_hostVtable;
     }
-    // 通用表 (log/json/config/plugins/events/scheduler/coroutine_runtime/tasks/cancel/
+    // events 表用本宿主自己的入口 (需要在发布路径上做命名空间归属校验, 见 xx_publish_event)
+    if (name == PLUGINXX_IFACE_EVENTS) {
+        return &g_ifaceEvents;
+    }
+    // 其余通用表 (log/json/config/plugins/scheduler/coroutine_runtime/tasks/cancel/
     // capabilities) 由内核提供; 领域表在下面分发
     if (const void* generic
         = pluginxx::queryGenericPluginIface<MusicxxHostInstance, MusicxxHostManager>(name)) {
