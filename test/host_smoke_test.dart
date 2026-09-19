@@ -152,6 +152,80 @@ void main() {
     );
 
     _step('11 unload 完成');
+
+    // ===== JS 插件 (零编译, plan §4.4/§4.6) =====
+    // 扫描结果里应有 JS 示例插件
+    final List<MusicxxPluginInfo> found2 = runtime.plugins.scan();
+    final MusicxxPluginInfo? exampleJs =
+        found2.where((MusicxxPluginInfo info) => info.id == 'example_js').firstOrNull;
+    expect(exampleJs, isNotNull, reason: '扫描结果: ${found2.map((e) => e.id).toList()}');
+    expect(exampleJs!.kind, MusicxxPluginKind.js);
+    expect(exampleJs.supported, isTrue, reason: exampleJs.reason);
+
+    _step('12 scan 发现 JS 插件');
+    runtime.plugins.load('example_js');
+    expect(runtime.plugins.findLoaded('example_js'), isNotNull, reason: 'JS 插件实例应已加载');
+    expect(runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong), 1);
+
+    _step('13 JS 插件装载完成');
+    // 裁决型钩子 (JS 侧处理器)
+    final Map<String, Object?>? jsVerdict = runtime.hooks.decide(
+      MusicxxPluginHookId.playerBeforePlaySong,
+      <String, Object?>{'sid': 's-js-ad', 'song': <String, Object?>{'name': '广告插曲 - JS'}},
+    );
+    expect(jsVerdict, isNotNull);
+    expect(jsVerdict!['action'], 'skip');
+    expect(
+      runtime.hooks.decide(
+        MusicxxPluginHookId.playerBeforePlaySong,
+        <String, Object?>{'sid': 's-js-normal', 'song': <String, Object?>{'name': '普通歌曲 JS'}},
+      ),
+      isNull,
+    );
+
+    _step('14 JS decide 完成');
+    // 观察型钩子 (异步) + JS 侧日志
+    runtime.hooks.observe(
+      MusicxxPluginHookId.songChanged,
+      <String, Object?>{'sid': 's-js', 'song': <String, Object?>{'name': 'JS 观察目标'}},
+    );
+    await _pumpUntil(
+      () => seen.any((MusicxxPluginEvent e) =>
+          e.type == MusicxxPluginEventType.pluginLog && e.stringOf('message')?.contains('切歌') == true),
+    );
+
+    _step('15 JS 观察钩子执行完成');
+    // 能力探针: JS 侧同步读状态镜像 + 宿主信息
+    final Object? jsProbeRaw = runtime.plugins.call(
+      'example_js',
+      'plugin.example_js.probe',
+      const <String, Object?>{},
+    );
+    expect(jsProbeRaw, isA<Map<String, Object?>>());
+    final Map<String, Object?> jsProbe = jsProbeRaw! as Map<String, Object?>;
+    expect(jsProbe['pluginId'], 'example_js');
+    expect(jsProbe['hostPlatform'], MusicxxPluginRuntime.currentPlatform);
+    expect(jsProbe['currentSongName'], 'Dart 推送的歌曲', reason: 'JS 应能同步读到状态镜像');
+    expect(jsProbe['songChangedCount'], greaterThan(0));
+
+    _step('16 JS 能力调用完成');
+    // 禁用/启用: JS 脚本随 stop/start 重跑
+    runtime.plugins.disable('example_js');
+    expect(runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong), 0);
+    runtime.plugins.enable('example_js');
+    expect(runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong), 1);
+
+    _step('17 JS enable/disable 完成');
+    // 卸载: JS 实例与注册全部摘除, 槽位保留在宿主内置表里
+    runtime.plugins.unload('example_js');
+    expect(runtime.plugins.findLoaded('example_js'), isNull);
+    expect(
+      () => runtime.plugins.call('example_js', 'plugin.example_js.probe'),
+      throwsA(isA<MusicxxPluginApiException>()),
+    );
+
+    _step('18 JS unload 完成');
+
     // 统计快照可读
     final Map<String, Object?> stats = runtime.plugins.stats();
     expect(stats['host'], isA<Map<String, Object?>>());

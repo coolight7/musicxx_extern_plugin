@@ -4,6 +4,7 @@
 /// 已在宿主线程时就地执行 (内核 `ioCallSyncKeep` 语义)。
 
 #include "host_json.h"
+#include "host_naming.h"
 #include "musicxx_host.h"
 
 #include "musicxx/plugin/api/hook_ids.g.h"
@@ -41,31 +42,10 @@ const HookMeta* findHookMeta(std::string_view hookId) {
     return nullptr;
 }
 
-/// 命名空间校验 (plan §3.5): 官方 `musicxx.*`
-bool isOfficialId(std::string_view id) {
-    return id.size() > 8 && id.substr(0, 8) == "musicxx.";
-}
-
-/// 命名空间校验: `plugin.<pluginId>.*` 且归属给定插件 (禁止冒充他人)
-bool isOwnPluginId(std::string_view id, std::string_view pluginId) {
-    if (pluginId.empty() || id.size() < 9 || id.substr(0, 7) != "plugin.") {
-        return false;
-    }
-    const std::string prefix = "plugin." + std::string{pluginId} + ".";
-    return id.size() > prefix.size() && id.substr(0, prefix.size()) == prefix;
-}
-
-/// 事件主题归属校验 (plan §3.5): 官方 `musicxx.*` 放行, 插件自定义主题必须属于本插件
-///
-/// 说明: 内核通用 `pluginxx.events` 表入口不携带发布者信息 (`qualifyEventTopic` 只有主题),
-/// 因此本宿主用**自己的 events 表入口**替换它 (见文件末尾), 以便在发布/订阅路径上拿到
-/// 实例做归属校验 —— 严禁插件冒充他人命名空间发布事件。
-bool isTopicOwnedBy(std::string_view topic, std::string_view pluginId) {
-    if (topic.rfind("musicxx.", 0) == 0) {
-        return true; ///< 官方命名空间: 插件可订阅/发布 (宿主能力主题)
-    }
-    return isOwnPluginId(topic, pluginId);
-}
+/// 命名空间规则 (plan §3.5) 的单一实现在 host_naming.h
+using naming::isOfficial;
+using naming::isOwnPlugin;
+using naming::isTopicOwnedBy;
 
 } // namespace
 
@@ -492,7 +472,7 @@ int32_t MusicxxHostManager::requestAction(
     const std::string actionName{action};
     const std::string pluginId = pluginIdOf(inst->name);
     // 命名空间校验 (plan §3.5): 官方 musicxx.* 或本插件自己的 plugin.<id>.*
-    if (!isOfficialId(actionName) && !isOwnPluginId(actionName, pluginId)) {
+    if (!isOfficial(actionName) && !isOwnPlugin(actionName, pluginId)) {
         XX_LOGW("[musicxx_ext] 插件 `{}` 发起非法动作名 `{}` (命名空间校验失败)", pluginId, actionName);
         return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
     }
@@ -568,6 +548,15 @@ int32_t MusicxxHostManager::actionRespond(
 ) {
     auto it = pendingActions_.find(requestId);
     if (it == pendingActions_.end()) {
+        // 不属于原生插件登记表: 可能是 JS 引擎登记的在途请求 (见 InternalActionRelay)
+        std::shared_ptr<InternalActionRelay> relay;
+        {
+            std::lock_guard<std::mutex> lock{registryMutex_};
+            relay = internalRelay_;
+        }
+        if (relay && relay->respondAction(requestId, status, resultJson)) {
+            return MUSICXX_EXTERN_PLUGIN_OK;
+        }
         return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
     }
     if (it->second.timer) {
