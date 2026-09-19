@@ -22,11 +22,13 @@ if (NOT DEFINED MUSICXX_EXTERN_PLUGIN_NATIVE_PREFIX)
 endif ()
 list(APPEND CMAKE_PREFIX_PATH "${MUSICXX_EXTERN_PLUGIN_NATIVE_PREFIX}")
 
-# cxx_utilxx_base / fmt / yaml-cpp 的安装前缀 (当前阶段复用 agentxx 构建产物;
-# 后续随 .gitmodules 子模块化后可直接由 build_native 脚本产出)
-if (DEFINED MUSICXX_EXTERN_PLUGIN_DEP_PREFIX)
-  list(APPEND CMAKE_PREFIX_PATH "${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}")
+# cxx_utilxx_base / fmt / yaml-cpp 的安装前缀
+# 默认取本包自己的依赖前缀 (.native/<platform>-<arch>), 由 tools/build_native.ps1 阶段一产出;
+# 仍可用 -DMUSICXX_EXTERN_PLUGIN_DEP_PREFIX=<其它前缀> 覆盖 (例如复用已有依赖安装)。
+if (NOT DEFINED MUSICXX_EXTERN_PLUGIN_DEP_PREFIX)
+  set(MUSICXX_EXTERN_PLUGIN_DEP_PREFIX "${MUSICXX_EXTERN_PLUGIN_NATIVE_PREFIX}")
 endif ()
+list(APPEND CMAKE_PREFIX_PATH "${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}")
 
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
