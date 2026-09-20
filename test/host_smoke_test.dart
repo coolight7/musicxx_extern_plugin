@@ -258,6 +258,24 @@ void main() {
     expect(jsAsyncVerdict!['action'], 'skip');
 
     _step('14.5 JS 异步裁决完成');
+    // JS 裁决处理器返回 Promise (异步裁决): 宿主在等待预算内等脚本结算, 结算后裁决生效
+    final Map<String, Object?>? jsPromiseVerdict = runtime.hooks.decide(
+      MusicxxPluginHookId.playerSpeed,
+      <String, Object?>{'sid': 's-js-speed', 'from': 1.0, 'to': 8.0},
+    );
+    expect(jsPromiseVerdict, isNotNull, reason: 'example_js 的异步裁决应生效');
+    // 宿主把处理器返回的 patch 合并进结果对象（顶层键，与其它裁决钩子一致）
+    expect((jsPromiseVerdict!['to'] as num?)?.toDouble(), 3.0);
+    // 同一个处理器在"不需要裁决"的分支上同步返回 null → 没有裁决
+    expect(
+      runtime.hooks.decide(
+        MusicxxPluginHookId.playerSpeed,
+        <String, Object?>{'sid': 's-js-speed-ok', 'from': 1.0, 'to': 1.5},
+      ),
+      isNull,
+    );
+
+    _step('14.6 JS Promise 裁决完成');
     // 观察型钩子 (异步) + JS 侧日志
     runtime.hooks.observe(
       MusicxxPluginHookId.songChanged,

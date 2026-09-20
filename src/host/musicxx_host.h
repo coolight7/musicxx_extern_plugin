@@ -151,6 +151,17 @@ public:
     std::atomic<int64_t> eventsPublished{0};
     std::atomic<int64_t> errors{0};
     std::atomic<int64_t> selfReportedBytes{0};
+
+    /* ---------- 事件发布速率 (宿主线程维护; 统计只观测不限制) ---------- */
+
+    /// 装载完成的 steady 毫秒 (平均速率用)
+    int64_t loadedAtMs = 0;
+    /// 当前速率窗口起点 (steady 毫秒)
+    int64_t eventsWindowStartMs = 0;
+    /// 当前窗口内发布的事件数
+    int64_t eventsWindowCount = 0;
+    /// 最近一个完整窗口 (≥1 秒) 的速率 (空闲时为 0)
+    int64_t eventsPerSec = 0;
 };
 
 class MusicxxHostManager;
@@ -295,6 +306,9 @@ public:
 
     /// 在宿主线程上发布事件 (插件 events 表入口调用; 调用方保证已在宿主线程)
     int32_t publishOnHostThread(const std::string& topic, const std::string& payloadJson);
+
+    /// 事件计数与速率 (宿主线程; 只观测不限制): 按主题命名空间归属到插件实例
+    void accountEventForTopic(const std::string& topic);
 
     /* ---------- 领域表实现 (供 tables 调用; 均在宿主线程执行) ---------- */
 

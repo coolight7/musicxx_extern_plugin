@@ -108,6 +108,13 @@ public:
     /// 运行期动态订阅 (投递到宿主线程建立订阅; 顶层声明由回放处理)
     void bridgeSubscribeHost(const std::string& instanceName, const std::string& topic);
 
+    /// 裁决型钩子的异步结算 (只在 JS 线程调用)
+    ///
+    /// 裁决处理器返回 Promise 时, 宿主线程仍在 [hookSync] 里按等待预算等待; Promise 结算后
+    /// JS 侧调用本接口把结果交给对应的等待槽。**已经超时的调用不再接收结果** (只计入
+    /// "迟到丢弃"统计并打一条日志), 因此不会出现"用了过期裁决"的情况。
+    void bridgeHookWaitResolve(const std::string& waitId, const std::string& json);
+
     /// 本实例统计 JSON (任意线程; 只读原子字段)
     std::string instanceStatsJson(const std::string& instanceName) const;
 
@@ -232,6 +239,13 @@ public:
         std::atomic<int64_t> jsHeapBytes{-1};
         /// 被可选执行上限中断的次数
         std::atomic<int64_t> execGuardHits{0};
+
+        /// 裁决型钩子的 Promise 在等待预算内结算的次数 (异步裁决)
+        std::atomic<int64_t> asyncHookSettled{0};
+        /// Promise 未在等待预算内结算的次数 (按无裁决继续, 不计处理器失败)
+        std::atomic<int64_t> asyncHookTimeouts{0};
+        /// 超时之后才结算、被丢弃的次数 (只用于排障, 不改变裁决结果)
+        std::atomic<int64_t> asyncHookLateDrops{0};
     };
 
     /* ---------- 内核内置插件入口 (C ABI 形态; 内核在宿主线程调用) ---------- */
@@ -383,9 +397,20 @@ private:
 
     mutable std::mutex      mutex_;
     std::condition_variable cv_;
-    std::deque<std::function<void()>> tasks_;
-    std::vector<Timer>      timers_;
-    int64_t                 nextTimerId_ = 1;
+
+    /// JS 线程任务 (带入队时刻, 用于"排队等待时长"统计)
+    struct Task {
+        int64_t               enqueuedMs = 0;
+        std::function<void()> fn;
+    };
+
+    std::deque<Task>    tasks_;
+    std::vector<Timer>  timers_;
+    int64_t             nextTimerId_ = 1;
+
+    /// 任务排队等待时长 (最近一次 / 历史最大; 只观测不限制)
+    std::atomic<int64_t> queueWaitLastMs_{0};
+    std::atomic<int64_t> queueWaitMaxMs_{0};
 
     /// 已装载的实例 (key = js:<id>; 任意线程读写)
     std::map<std::string, std::shared_ptr<Instance>, std::less<>> instances_;
@@ -393,6 +418,27 @@ private:
     /// 在途动作请求 (任意线程读写)
     std::map<int64_t, PendingAction> pendingActions_;
     std::atomic<int64_t>             nextRequestId_{1};
+
+    /// 裁决型钩子的等待槽 (key = 等待 id)
+    ///
+    /// 宿主线程在 [hookSync] 里登记, JS 线程在 Promise 结算时取走。超时的条目保留为
+    /// "墓碑" (`slot == nullptr`), 只为了让迟到的结算能计入统计并打一条日志 —— 结果一律丢弃。
+    struct HookWait {
+        std::string                            instance; ///< js:<id> (统计归属)
+        std::shared_ptr<WaitSlot<std::string>> slot;     ///< nullptr = 已超时 (墓碑)
+    };
+
+    std::map<int64_t, HookWait> hookWaits_;
+    std::atomic<int64_t>        nextHookWaitId_{1};
+
+    /// 登记等待槽 (宿主线程); 返回等待 id
+    int64_t beginHookWait(const std::string& instance, const std::shared_ptr<WaitSlot<std::string>>& slot);
+    /// 正常完成: 移除等待槽 (JS 侧若再结算, 找不到条目即丢弃)
+    void finishHookWait(int64_t waitId);
+    /// 超时: 留墓碑, 用于统计迟到的结算 (宿主线程)
+    void expireHookWait(int64_t waitId);
+    /// 实例停止/卸载时清理它的等待条目
+    void clearHookWaitsOf(const std::string& instance);
 
     std::thread worker_;
 

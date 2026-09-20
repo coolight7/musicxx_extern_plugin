@@ -49,6 +49,9 @@ constexpr uint32_t kScriptStepBudgetMs = 10000;
 /// 其它 JS 交互 (回取注册/释放上下文/能力调用) 的等待预算
 constexpr uint32_t kInteractionBudgetMs = 3000;
 
+/// 处理器返回 Promise 时, JS 侧回给宿主的标记 (必须与 prelude 的 `kHookPendingMarker` 一致)
+constexpr const char* kHookPendingMarker = "~pending~";
+
 /// 编译期是否包含 QuickJS
 constexpr bool kJsCompiled = MUSICXX_EXTERN_PLUGIN_HAS_JS != 0;
 
@@ -146,6 +149,11 @@ constexpr const char* kPrelude = R"JS(
   var actionWaiters = new Map();
   var capabilityWaiters = new Map();
   var timerTable = new Map();
+  /// 裁决型钩子处理器的 Promise 等待登记 (key = 宿主给的等待 id)
+  var pendingHookWaits = new Map();
+  /// 处理器返回 Promise 时回给宿主的标记: 宿主看到它就继续等 (等 Promise 结算或预算耗尽)。
+  /// 取值必须与 C++ 侧 `kHookPendingMarker` 一致。
+  var kHookPendingMarker = "~pending~";
 
   function logError(message) {
     try { ext.log(4, String(message)); } catch (e) { /* 日志失败不影响脚本 */ }
@@ -509,23 +517,26 @@ constexpr const char* kPrelude = R"JS(
     _add: function (fn, ms, repeat) {
       if (typeof fn !== "function") { throw new Error("timer: 缺少处理函数"); }
       var id = ext.timerSet(Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0, repeat);
-      if (typeof id === "number" && id >= 0) { timerTable.set(id, { fn: fn, repeat: repeat }); }
+      if (typeof id === "number" && id >= 0) {
+        // 定时器表用**字符串键**: 宿主回调 `onTimerFire` 传进来的 id 是字符串
+        // (数字键会让查找落空 → 回调永远不执行)
+        timerTable.set(String(id), { fn: fn, repeat: repeat });
+      }
       return id;
     },
     setTimeout: function (fn, ms) { return musicxx.timer._add(fn, ms, false); },
     setInterval: function (fn, ms) { return musicxx.timer._add(fn, ms, true); },
     clear: function (id) {
-      var key = Number(id);
-      ext.timerClear(key);
-      timerTable.delete(key);
+      ext.timerClear(Number(id));
+      timerTable.delete(String(id));
     },
     clearTimeout: function (id) { musicxx.timer.clear(id); },
     clearInterval: function (id) { musicxx.timer.clear(id); }
   };
   ext.onTimerFire = function (id) {
-    var entry = timerTable.get(id);
+    var entry = timerTable.get(String(id));
     if (!entry) { return; }
-    if (!entry.repeat) { timerTable.delete(id); }
+    if (!entry.repeat) { timerTable.delete(String(id)); }
     try { entry.fn(); }
     catch (e) { logError("定时器异常: " + (e && e.message ? e.message : String(e))); }
   };
@@ -560,7 +571,14 @@ constexpr const char* kPrelude = R"JS(
     return JSON.stringify({ hooks: hooks, capabilities: capabilities, subscriptions: subscriptions });
   };
 
-  ext.invokeHook = function (hookId, inputJson) {
+  /// 调用钩子处理器
+  ///
+  /// - `waitId` 只有裁决型钩子才有 (宿主在等待预算内等结果); 观察型钩子为空字符串/undefined;
+  /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
+  ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
+  /// - Promise 超过宿主等待预算 (100 ms) 才结算: 结果被丢弃, 按"无裁决"继续,
+  ///   **不打断脚本、不计处理器失败**。
+  ext.invokeHook = function (hookId, inputJson, waitId) {
     var entry = hookTable.get(hookId);
     if (!entry) { return ""; }
     var ctx = {};
@@ -573,8 +591,27 @@ constexpr const char* kPrelude = R"JS(
     }
     if (result === null || result === undefined) { return ""; }
     if (typeof result === "object" && typeof result.then === "function") {
-      logError("钩子 " + hookId + " 返回 Promise (同步钩子不支持异步裁决, 已忽略)");
-      return "";
+      var key = (waitId === undefined || waitId === null || waitId === "") ? "" : String(waitId);
+      if (!key) {
+        Promise.resolve(result).then(function () { return null; }, function (e) {
+          logError("钩子 " + hookId + " 异步执行异常: " + (e && e.message ? e.message : String(e)));
+        });
+        return "";
+      }
+      pendingHookWaits.set(key, true);
+      Promise.resolve(result).then(function (value) {
+        if (!pendingHookWaits.has(key)) { return null; }
+        pendingHookWaits.delete(key);
+        ext.hookWaitResolve(key, (value === null || value === undefined) ? "" : safeJson(value));
+        return null;
+      }, function (e) {
+        if (!pendingHookWaits.has(key)) { return null; }
+        pendingHookWaits.delete(key);
+        logError("钩子 " + hookId + " 异步裁决失败: " + (e && e.message ? e.message : String(e)));
+        ext.hookWaitResolve(key, "");
+        return null;
+      });
+      return kHookPendingMarker;
     }
     try { return JSON.stringify(result); } catch (e) { return ""; }
   };
@@ -585,6 +622,7 @@ constexpr const char* kPrelude = R"JS(
     capTable.clear();
     uiTable.clear();
     timerTable.clear();
+    pendingHookWaits.clear();
     actionWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
@@ -845,6 +883,24 @@ JSValue jsSubscribeHost(JSContext* ctx, JSValueConst, int argc, JSValueConst* ar
     return JS_UNDEFINED;
 }
 
+/// 裁决型钩子的 Promise 结算 (JS 线程 → 等待槽; 见 JsEngine::bridgeHookWaitResolve)
+JSValue jsHookWaitResolve(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* inst = contextInstance(ctx);
+    if (!inst || !inst->engine || argc < 1) {
+        return JS_UNDEFINED;
+    }
+    const char* waitId = JS_ToCString(ctx, argv[0]);
+    const char* json   = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+    inst->engine->bridgeHookWaitResolve(waitId ? waitId : "", json ? json : "");
+    if (waitId) {
+        JS_FreeCString(ctx, waitId);
+    }
+    if (json) {
+        JS_FreeCString(ctx, json);
+    }
+    return JS_UNDEFINED;
+}
+
 /// 本实例统计 (JSON 文本)
 JSValue jsStats(JSContext* ctx, JSValueConst, int /*argc*/, JSValueConst* /*argv*/) {
     auto* inst = contextInstance(ctx);
@@ -947,6 +1003,7 @@ JSValue buildBridgeObject(JSContext* ctx) {
         {"actionCancel", jsActionCancel, 0},
         {"publish", jsPublish, 2},
         {"subscribeHost", jsSubscribeHost, 1},
+        {"hookWaitResolve", jsHookWaitResolve, 2},
         {"timerSet", jsTimerSet, 2},
         {"timerClear", jsTimerClear, 1},
         {"uiOp", jsUiOp, 5},
@@ -1165,6 +1222,7 @@ int32_t JsEngine::startThread(std::string& err) {
         tasks_.clear();
         timers_.clear();
         pendingActions_.clear();
+        hookWaits_.clear();
         instances_.clear();
         stopping_.store(false, std::memory_order_release);
     }
@@ -1191,7 +1249,7 @@ void JsEngine::stop() {
     /// (JS_FreeContext/JS_FreeRuntime 必须在拥有它们的线程上调用)
     {
         std::lock_guard lock{mutex_};
-        tasks_.push_back([this] {
+        tasks_.push_back(Task{nowSteadyMs(), [this] {
 #if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
             std::lock_guard inner{mutex_};
             for (auto& [name, inst] : instances_) {
@@ -1201,7 +1259,7 @@ void JsEngine::stop() {
                 }
             }
 #endif
-        });
+        }});
         stopping_.store(true, std::memory_order_release);
     }
     cv_.notify_all();
@@ -1215,6 +1273,7 @@ void JsEngine::stop() {
         timers_.clear();
         instances_.clear();
         pendingActions_.clear();
+        hookWaits_.clear();
     }
     XX_LOGI("[musicxx_ext] JS 线程已停止");
 }
@@ -1225,7 +1284,7 @@ void JsEngine::postTask(std::function<void()> fn) {
     }
     {
         std::lock_guard lock{mutex_};
-        tasks_.push_back(std::move(fn));
+        tasks_.push_back(Task{nowSteadyMs(), std::move(fn)});
     }
     cv_.notify_all();
 }
@@ -1245,7 +1304,7 @@ int64_t JsEngine::nextWaitMsLocked() const {
 
 void JsEngine::runLoop() {
     for (;;) {
-        std::function<void()> task;
+        Task task;
         {
             std::unique_lock lock{mutex_};
             if (tasks_.empty() && !stopping_.load(std::memory_order_acquire)) {
@@ -1260,9 +1319,15 @@ void JsEngine::runLoop() {
                 tasks_.pop_front();
             }
         }
-        if (task) {
+        if (task.fn) {
+            /// 排队等待时长 (从入队到开始执行): 观察共享 JS 线程是否被单个插件占满
+            const int64_t waited = nowSteadyMs() - task.enqueuedMs;
+            queueWaitLastMs_.store(waited, std::memory_order_relaxed);
+            if (waited > queueWaitMaxMs_.load(std::memory_order_relaxed)) {
+                queueWaitMaxMs_.store(waited, std::memory_order_relaxed);
+            }
             try {
-                task();
+                task.fn();
             } catch (const std::exception& e) {
                 XX_LOGE("[musicxx_ext] JS 任务异常: {}", e.what());
             } catch (...) {
@@ -1449,6 +1514,75 @@ void JsEngine::bridgeTimerClear(const std::string& instance, int64_t timerId) {
 
 /* ==================== 桥接: UI / 订阅 / 统计 / 能力调用 ==================== */
 
+/* ---- 裁决型钩子的 Promise 等待槽 (异步裁决) ---- */
+
+int64_t JsEngine::beginHookWait(
+    const std::string&                            instance,
+    const std::shared_ptr<WaitSlot<std::string>>& slot
+) {
+    const int64_t waitId = nextHookWaitId_.fetch_add(1);
+    std::lock_guard lock{mutex_};
+    hookWaits_[waitId] = HookWait{instance, slot};
+    return waitId;
+}
+
+void JsEngine::finishHookWait(int64_t waitId) {
+    std::lock_guard lock{mutex_};
+    hookWaits_.erase(waitId);
+}
+
+void JsEngine::expireHookWait(int64_t waitId) {
+    std::lock_guard lock{mutex_};
+    const auto      it = hookWaits_.find(waitId);
+    if (it != hookWaits_.end()) {
+        /// 留墓碑 (slot 置空): 迟到的结算只能被计入统计, 结果不再写回等待方
+        it->second.slot = nullptr;
+    }
+}
+
+void JsEngine::clearHookWaitsOf(const std::string& instance) {
+    std::lock_guard lock{mutex_};
+    std::erase_if(hookWaits_, [&](const auto& item) { return item.second.instance == instance; });
+}
+
+void JsEngine::bridgeHookWaitResolve(const std::string& waitId, const std::string& json) {
+    int64_t id = 0;
+    try {
+        size_t used = 0;
+        id          = std::stoll(waitId, &used);
+    } catch (const std::exception&) {
+        return;
+    }
+    std::string                            instance;
+    std::shared_ptr<WaitSlot<std::string>> slot;
+    {
+        std::lock_guard lock{mutex_};
+        const auto      it = hookWaits_.find(id);
+        if (it == hookWaits_.end()) {
+            return; ///< 不属于本引擎 / 已经正常完成
+        }
+        instance = it->second.instance;
+        slot     = it->second.slot;
+        hookWaits_.erase(it);
+    }
+    auto inst = lookupInstance(instance);
+    if (!slot) {
+        /// 迟到: 宿主早已按"无裁决"继续 (plan §4.10), 这里只记账与日志
+        if (inst) {
+            ++inst->asyncHookLateDrops;
+        }
+        XX_LOGD(
+            "[musicxx_ext] JS 插件 `{}` 的异步裁决在等待预算之后才结算 (结果已丢弃, 按无裁决处理)",
+            instance
+        );
+        return;
+    }
+    if (inst) {
+        ++inst->asyncHookSettled;
+    }
+    slot->set(json);
+}
+
 void JsEngine::bridgeUiOp(
     const std::string& instanceName,
     const std::string& op,
@@ -1607,6 +1741,10 @@ std::string JsEngine::instanceStatsJson(const std::string& instanceName) const {
     item["jsHeapBytes"]   = inst->jsHeapBytes.load(std::memory_order_relaxed);
     item["execGuardMs"]   = execGuardMs();
     item["execGuardHits"] = inst->execGuardHits.load(std::memory_order_relaxed);
+    /// 异步裁决统计 (裁决处理器返回 Promise 的情况)
+    item["asyncHookSettled"]   = inst->asyncHookSettled.load(std::memory_order_relaxed);
+    item["asyncHookTimeouts"]  = inst->asyncHookTimeouts.load(std::memory_order_relaxed);
+    item["asyncHookLateDrops"] = inst->asyncHookLateDrops.load(std::memory_order_relaxed);
     return item.dump();
 }
 
@@ -1851,6 +1989,7 @@ void JsEngine::stopInstance(const std::shared_ptr<Instance>& inst) {
         return;
     }
     detachRegistrations(inst);
+    clearHookWaitsOf(inst->name);
     if ((inst->ctx || inst->rt) && running_.load(std::memory_order_acquire)) {
         auto slot = std::make_shared<WaitSlot<bool>>();
         postTask([inst, slot] {
@@ -2270,30 +2409,59 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(
     if (!handler || !handler->engine) {
         return -1;
     }
-    JsEngine*         engine = handler->engine;
-    const std::string input  = inputJson ? viewToStr(inputJson) : std::string{"{}"};
-    auto              slot   = std::make_shared<WaitSlot<std::string>>();
-    const std::string hookId = handler->hookId;
-    const std::string name   = handler->instance;
-    engine->postTask([engine, name, hookId, input, slot] {
-        const auto  inst = engine->lookupInstance(name);
-        std::string result;
-        if (!inst || !engine->callBridgeString(inst, "invokeHook", {hookId, input}, result)) {
+    JsEngine* engine = handler->engine;
+    /// 处理器对象的生命周期由实例持有 (卸载/禁用会摘除注册): 等待期间它可能已经释放,
+    /// 因此这里先把要用的字段复制出来, 不在等待之后再读 handler。
+    const std::string pluginId = handler->pluginId;
+    const std::string hookId   = handler->hookId;
+    const std::string name     = handler->instance;
+    const std::string input    = inputJson ? viewToStr(inputJson) : std::string{"{}"};
+    auto              slot     = std::make_shared<WaitSlot<std::string>>();
+    /// 处理器返回 Promise 时为 true (超时原因不同, 统计与日志也分开)
+    auto              pending  = std::make_shared<std::atomic<bool>>(false);
+    /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.hookWaitResolve` 交回结果
+    const int64_t     waitId   = engine->beginHookWait(name, slot);
+    engine->postTask([engine, name, hookId, input, slot, pending, waitId] {
+        const auto   inst = engine->lookupInstance(name);
+        std::string  result;
+        if (!inst || !engine->callBridgeString(inst, "invokeHook", {hookId, input, std::to_string(waitId)}, result)) {
+            engine->finishHookWait(waitId);
             slot->set(std::string{});
             return;
         }
+        if (result == kHookPendingMarker) {
+            /// 处理器返回 Promise: 不结算, 等 [bridgeHookWaitResolve] 或等待预算耗尽
+            pending->store(true, std::memory_order_relaxed);
+            return;
+        }
+        engine->finishHookWait(waitId);
         slot->set(std::move(result));
     });
 
     std::string result;
     if (!slot->wait(kHookSyncBudgetMs, result)) {
-        XX_LOGW(
-            "[musicxx_ext] JS 插件 `{}` 的钩子 `{}` 未在 {} ms 内返回 (按无裁决继续)",
-            handler->pluginId,
-            handler->hookId,
-            kHookSyncBudgetMs
-        );
-        return 0; ///< 超时按"无裁决" (不打断脚本, 也不计为处理器失败)
+        /// 超时按"无裁决"继续 (plan §4.10): 不打断脚本、不计处理器失败
+        engine->expireHookWait(waitId);
+        if (pending->load(std::memory_order_relaxed)) {
+            if (auto inst = engine->lookupInstance(name)) {
+                ++inst->asyncHookTimeouts;
+            }
+            XX_LOGW(
+                "[musicxx_ext] JS 插件 `{}` 的钩子 `{}` 处理器返回的 Promise 未在 {} ms 内结算 "
+                "(按无裁决继续, 不计处理器失败)",
+                pluginId,
+                hookId,
+                kHookSyncBudgetMs
+            );
+        } else {
+            XX_LOGW(
+                "[musicxx_ext] JS 插件 `{}` 的钩子 `{}` 未在 {} ms 内返回 (按无裁决继续)",
+                pluginId,
+                hookId,
+                kHookSyncBudgetMs
+            );
+        }
+        return 0;
     }
     if (result.empty() || result == "null") {
         return 0;
@@ -2664,6 +2832,10 @@ std::string JsEngine::statsJson() const {
             item["errors"]         = inst->errors.load();
             item["jsHeapBytes"]    = inst->jsHeapBytes.load(std::memory_order_relaxed);
             item["execGuardHits"]  = inst->execGuardHits.load(std::memory_order_relaxed);
+            /// 异步裁决统计 (裁决处理器返回 Promise)
+            item["asyncHookSettled"]   = inst->asyncHookSettled.load(std::memory_order_relaxed);
+            item["asyncHookTimeouts"]  = inst->asyncHookTimeouts.load(std::memory_order_relaxed);
+            item["asyncHookLateDrops"] = inst->asyncHookLateDrops.load(std::memory_order_relaxed);
             plugins.push_back(item);
         }
     }
@@ -2672,7 +2844,17 @@ std::string JsEngine::statsJson() const {
     result["running"]     = running_.load(std::memory_order_acquire);
     result["threads"]     = 1;
     result["execGuardMs"] = execGuardMs();
-    result["plugins"]     = plugins;
+    /// 共享 JS 线程的排队情况 (plan §4.11): 队列越深 / 等待越长,
+    /// 说明某个脚本正长时间占住线程 (宿主不打断它, 只在管理页展示)
+    {
+        std::lock_guard lock{mutex_};
+        result["queueDepth"]     = static_cast<int64_t>(tasks_.size());
+        result["timers"]         = static_cast<int64_t>(timers_.size());
+        result["pendingActions"] = static_cast<int64_t>(pendingActions_.size());
+    }
+    result["queueWaitLastMs"] = queueWaitLastMs_.load(std::memory_order_relaxed);
+    result["queueWaitMaxMs"]  = queueWaitMaxMs_.load(std::memory_order_relaxed);
+    result["plugins"]         = plugins;
     return result.dump();
 }
 

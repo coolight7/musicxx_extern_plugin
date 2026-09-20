@@ -146,6 +146,10 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /* ==================== 宿主生命周期 ==================== */
 
 /// 创建宿主 (纯构造, 不起线程/不加载插件); 失败返回 NULL 并写 log
+///
+/// **进程单例**: 同一进程只允许存在一个宿主 (它持有宿主线程 / 插件实例 / 事件队列)。
+/// 已存在时返回 NULL 并写明确原因 —— 其它 isolate / 线程请复用已有句柄调用管理类 API。
+/// `host_destroy` 之后可以再次创建 (init → dispose → init 是正常路径)。
 MUSICXX_EXTERN_PLUGIN_EXPORT MusicxxExternPluginHost* MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_create(
         const MusicxxExternPluginHostConfig* cfg,

@@ -35,6 +35,23 @@ inline bool isTopicOwnedBy(std::string_view topic, std::string_view pluginId) {
     return isOwnPlugin(topic, pluginId);
 }
 
+/// 从主题里取出插件 id (`plugin.<id>.<名>` → `<id>`; 官方主题或非法形状返回空串)
+///
+/// 用途: 事件计数按主题归属到插件 (统计只观测不限制)。只认第一段, 因此
+/// `plugin.a.b.c` 归属插件 `a`。
+inline std::string pluginIdOfTopic(std::string_view topic) {
+    constexpr std::string_view kPrefix{"plugin."};
+    if (topic.size() <= kPrefix.size() || topic.substr(0, kPrefix.size()) != kPrefix) {
+        return {};
+    }
+    const size_t begin = kPrefix.size();
+    const size_t end   = topic.find('.', begin);
+    if (end == std::string_view::npos || end == begin) {
+        return {};
+    }
+    return std::string{topic.substr(begin, end - begin)};
+}
+
 } // namespace naming
 } // namespace extern_plugin
 } // namespace musicxx

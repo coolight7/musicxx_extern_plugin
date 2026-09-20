@@ -4,6 +4,7 @@
 /// - `musicxx.player.beforePlaySong` 裁决: 含"广告"的曲目 → skip;
 /// - `musicxx.song.changed` 观察: 切歌时记录名称并累加计数;
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
+/// - `musicxx.player.speed` 裁决 (异步): 处理器返回 Promise 也能生效 (限速演示);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
 /// - 声明式设置页 + 宿主网络代理通道 (musicxx.net.fetch) 演示。
 ///
@@ -58,6 +59,23 @@ musicxx.hooks.register("musicxx.player.error", { mode: "decision", priority: 0 }
     return null;
 });
 
+/// 裁决型钩子 (异步裁决): 处理器返回 Promise 也能生效 —— 宿主最多等 100 ms,
+/// 超时按"不裁决"继续 (不打断脚本, 也不计为处理器失败)。
+/// 这里演示"限速"这一常见需求: 先把 0.25~3 之外的速度夹回来。
+/// 说明: 真实插件通常在这里 `await` 一次异步来源 (存储/网络/其它插件能力);
+/// 用 Promise 只是让"异步裁决"这条路走通, 拿不到结果时插件应当不裁决。
+musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, function (ctx) {
+    const to = (ctx && typeof ctx.to === "number") ? ctx.to : 1;
+    if (to >= 0.25 && to <= 3) {
+        return null;   // 同步路径: 不需要裁决时立刻返回 (最省时)
+    }
+    return new Promise(function (resolve) {
+        setTimeout(function () {
+            resolve({ action: "continue", patch: { to: Math.min(3, Math.max(0.25, to)) } });
+        }, 20);
+    });
+});
+
 /// 定时器: 每 30 秒写一次日志 (演示定时器链路; 卸载/禁用时宿主自动清理)
 musicxx.timer.setInterval(function () {
     timerTicks += 1;
@@ -107,6 +125,13 @@ musicxx.ui.registerEntry({
                     { kind: "select", key: "logLevel", title: "日志级别", default: "info",
                       options: [ { value: "debug", label: "调试" }, { value: "info", label: "信息" } ] },
                     { kind: "info", text: "提示：这里改的值会立刻写入 config.json；脚本可用 musicxx.storage.getConfig 读取。" },
+                    // 只读块（不写配置）：进度条与列表，用来展示插件自己的状态
+                    { kind: "progress", title: "示例进度", depict: "只读：由插件声明 value/total", value: 1, total: 4 },
+                    { kind: "list", title: "本插件注册的钩子", items: [
+                        { title: "musicxx.player.beforePlaySong", depict: "跳过广告曲目" },
+                        { title: "musicxx.song.changed", depict: "切歌日志" },
+                        { title: "musicxx.player.speed", depict: "异步裁决：限速" },
+                    ] },
                     { kind: "button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
                 ],
             },
@@ -118,7 +143,7 @@ musicxx.ui.registerEntry({
 ///
 /// 位置: `player.top`(顶部栏下方) / `player.bottom`(进度条上方);
 /// 内容: `content.kind` = text / markdown / list / progress。
-/// 这里注册一个"文本 + 点击跳转到本插件页面"的块, 与原生示例插件一一对应。
+/// 这里注册一个 Markdown 块 (点击跳转到本插件页面), 与原生示例插件的纯文本块对应。
 musicxx.ui.registerEntry({
     name: "overlayInfo",
     type: "overlay.widget",
@@ -126,7 +151,7 @@ musicxx.ui.registerEntry({
     data: {
         position: "player.top",
         title: "JS 示例插件",
-        content: { kind: "text", text: "example_js：附加信息块（只读，点击查看插件页面）" },
+        content: { kind: "markdown", text: '**example_js**：附加信息块（只读，点击查看插件页面）\n\n- 支持 `text` / `markdown` / `list` / `progress`\n- 内容只展示，不参与播放逻辑' },
         action: { kind: "route", route: "ext://example_js/card" },
     },
 });
@@ -178,7 +203,7 @@ musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
     return {
         pluginId: musicxx.pluginId,
-        hookCount: 3,
+        hookCount: 4,
         songChangedCount: songChangedCount,
         lastSongName: lastSongName,
         errorCount: errorCount,

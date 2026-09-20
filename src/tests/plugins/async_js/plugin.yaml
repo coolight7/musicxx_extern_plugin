@@ -1,0 +1,9 @@
+name: async_js
+kind: js
+entry: plugin.js
+version: 1.0.0
+api_version: 1
+author: test
+description: "测试用: 裁决型钩子处理器返回 Promise（异步裁决）, 用于验证'预算内结算生效 / 超预算按不裁决' (不应出现在正式发布里)"
+platforms: [windows, linux, macos, android, ios]
+permissions: []

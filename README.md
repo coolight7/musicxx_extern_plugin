@@ -22,6 +22,7 @@ plugins/            官方插件与示例（每个子目录一个插件，插件
 src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
+docs/plugin-native-api.md 原生插件作者指南（SDK 用法/构建模板/线程纪律/权限/部署与排障）
 tools/               build_native.ps1（环境准备 + 调 cmake）、gen_contract.dart（契约生成/校验）、
                      check_submodules.ps1（子模块检查）、smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
@@ -165,6 +166,7 @@ musicxx_plugin_add_target(my_plugin SOURCES my_plugin.cpp MANIFEST plugin.yaml)
 - 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用。
 
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）。
+原生插件作者指南（完整流程 + 完整代码 + 构建/部署/排障）：`docs/plugin-native-api.md`；
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；JS 作者文档见 `docs/plugin-js-api.md`。
 
 ## 原生测试
@@ -243,7 +245,9 @@ final List<MusicxxPluginUIItem> next =
 - 异步裁决：原生 ASYNC 派发 + `musicxx.hook.decision.result` 事件 + Dart `hooks.decideAsync`（应用侧 `player.source.beforeParse` 已改用）+ `musicxx.hook.observe` 观测事件；
 - 平台能力单点（`ExternPluginPlatform.dart`：iOS/OHOS 只跑 JS 插件）；`overlay.widget` 附加信息块已渲染；SDK 构建模板与 `find_package` 配置已提供；
 - 平台打包：**Windows 已接入**（宿主库随应用分发到可执行文件旁，见上面「打包（随应用分发）」）；
-  Linux/Android/iOS/macOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）、JS 侧异步裁决处理器与 CI 排入后续阶段；
+  Linux/Android/iOS/macOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 CI 排入后续阶段；
+- JS 插件支持**异步裁决**（裁决处理器可返回 Promise，等待预算内结算生效、超时按不裁决且不计失败）；
+  原生插件作者指南见 `docs/plugin-native-api.md`；
 - 完整记录（每轮改了什么、验证命令与结果、偏差）见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`。
 
 测试夹具（只服务原生测试，不是可发布插件；随测试一起安装到 `<安装前缀>/plugins/`）：
@@ -259,7 +263,7 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 钩子 | `musicxx.hooks.register` / `pluginBase.hook` | 观察型与裁决型（裁决处理器同步返回；声明为 `dispatch: async` 的钩子由宿主异步派发，Dart 侧不阻塞）|
+| 钩子 | `musicxx.hooks.register` / `pluginBase.hook` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（异步裁决：预算内结算生效，超时按不裁决、不计失败）；声明为 `dispatch: async` 的钩子由宿主异步派发，Dart 侧不阻塞 |
 | 动作 | `musicxx.call` / `pluginBase.requestAction` | 播放/库/歌词/UI/存储/网络/杂项，逐条权限校验 |
 | 状态镜像 | `musicxx.state.get` | 只读快照（不含临时直链/token） |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`，与用户在设置页里改的是同一份 |
