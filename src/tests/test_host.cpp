@@ -273,6 +273,67 @@ int main(int argc, char** argv) {
         check(rc == MUSICXX_EXTERN_PLUGIN_OK, "hook_emit(async) 入队成功");
     }
 
+    // 裁决型钩子的异步派发 (plan §5.3): 立即拿到 callId, 结果经事件回传
+    {
+        MusicxxExternPluginString out{};
+        const std::string        payload
+            = R"({"sid":"s4","song":{"name":"广告插播 - 异步","artist":"z"}})";
+        const auto rc = musicxx_extern_plugin_hook_emit(
+            host,
+            viewCP("musicxx.player.beforePlaySong"),
+            viewP(payload),
+            MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC,
+            200,
+            &out,
+            &log
+        );
+        const std::string ack = take(out);
+        check(rc == MUSICXX_EXTERN_PLUGIN_OK, "裁决型钩子异步派发返回成功");
+        check(ack.find("\"async\":true") != std::string::npos, "异步派发确认 async=true");
+        const std::string callId = jsonIntField(ack, "callId");
+        check(!callId.empty(), "异步派发返回 callId");
+
+        // 结果经 `musicxx.hook.decision.result` 事件回传 (等一会儿让宿主线程跑完)
+        std::string eventsJson;
+        bool        seen = false;
+        for (int i = 0; i < 50 && !seen; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{20});
+            MusicxxExternPluginString events{};
+            const auto rcEv = musicxx_extern_plugin_poll_events(host, 500, &events, &log);
+            const std::string batch = take(events);
+            if (rcEv == MUSICXX_EXTERN_PLUGIN_OK) {
+                eventsJson += batch;
+            }
+            seen = eventsJson.find("musicxx.hook.decision.result") != std::string::npos;
+        }
+        check(seen, "异步裁决结果经事件回传");
+        const size_t at = eventsJson.find("musicxx.hook.decision.result");
+        if (at != std::string::npos) {
+            const std::string tail = eventsJson.substr(at);
+            check(tail.find("\"callId\":" + callId) != std::string::npos, "结果事件带同一个 callId");
+            check(tail.find("\"skip\"") != std::string::npos, "异步裁决结果为 skip");
+            check(
+                tail.find("\"hook\":\"musicxx.player.beforePlaySong\"") != std::string::npos,
+                "结果事件带钩子 id"
+            );
+        }
+
+        // 异步派发同样有等待预算: 派发过程不能卡住 Dart 侧 (emit 立即返回已由上面的 ack 证明)
+        MusicxxExternPluginString out2{};
+        const auto                rc2 = musicxx_extern_plugin_hook_emit(
+            host,
+            viewCP("musicxx.player.beforePlaySong"),
+            viewCP(R"({"sid":"s5","song":{"name":"普通歌曲"}})"),
+            MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC,
+            200,
+            &out2,
+            &log
+        );
+        const std::string ack2 = take(out2);
+        check(rc2 == MUSICXX_EXTERN_PLUGIN_OK, "异步派发普通曲目成功");
+        check(ack2.find("\"callId\"") != std::string::npos, "异步派发每次都分配 callId");
+    }
+
     // 未知钩子: 处理器数为 0 且派发不报错
     {
         MusicxxExternPluginString out{};
@@ -385,6 +446,12 @@ int main(int argc, char** argv) {
             check(snapRc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 成功");
             check(snapshot.find("plugin.example_native.card") != std::string::npos, "快照含主页入口项");
             check(snapshot.find("plugin.example_native.songInfo") != std::string::npos, "快照含歌曲菜单项");
+            check(
+                snapshot.find("plugin.example_native.overlayText") != std::string::npos
+                    && snapshot.find("\"kind\":\"text\"") != std::string::npos
+                    && snapshot.find("\"kind\":\"progress\"") != std::string::npos,
+                "快照含播放页附加信息块 (text/progress 两种内容)"
+            );
             check(snapshot.find("musicxx.ui.home.entry") != std::string::npos, "快照含官方 UI 项类型");
             check(snapshot.find("plugin") != std::string::npos, "快照项带所属插件 id");
             check(snapshot.find("示例插件（已更新）") != std::string::npos, "更新后的声明内容生效");
@@ -713,7 +780,8 @@ int main(int argc, char** argv) {
                 "JS 读到宿主信息 (平台)"
             );
             // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
-            check(jsonIntField(probe, "uiEntries") == "3", "JS 注册了 3 个 UI 项 (脚本侧记账)");
+            // 4 项 = 主页入口 + 歌曲菜单 + 设置页 + 播放页附加信息块
+            check(jsonIntField(probe, "uiEntries") == "4", "JS 注册了 4 个 UI 项 (脚本侧记账)");
             check(
                 jsonIntField(probe, "selfStatsHooks") == "3",
                 "JS 能读自己的统计 (stats.getSelf 的钩子计数)"
@@ -741,6 +809,11 @@ int main(int argc, char** argv) {
             check(
                 snapshot.find("musicxx.ui.settings.page") != std::string::npos,
                 "快照含设置页类型 (应用侧据此渲染设置页)"
+            );
+            check(
+                snapshot.find("plugin.example_js.overlayInfo") != std::string::npos
+                    && snapshot.find("\"position\":\"player.top\"") != std::string::npos,
+                "JS 插件的播放页附加信息块进入快照 (含 position)"
             );
         }
 

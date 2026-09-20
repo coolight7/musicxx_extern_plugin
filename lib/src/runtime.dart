@@ -403,6 +403,8 @@ class MusicxxPluginRuntime {
       switch (event.type) {
         case MusicxxPluginEventType.hookChanged:
           hooks.handleHookChangedEvent(event);
+        case MusicxxPluginEventType.hookDecisionResult:
+          hooks.handleDecisionResultEvent(event);
         case MusicxxPluginEventType.pluginLoaded:
         case MusicxxPluginEventType.pluginEnabled:
         case MusicxxPluginEventType.pluginDisabled:

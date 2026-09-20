@@ -490,8 +490,25 @@ private:
         std::function<void(int32_t, const std::string&)> done
     );
 
-    /// 宿主线程上执行的同步派发
-    std::string dispatchHook(const std::string& hookId, const std::string& inputJson, uint32_t budgetMs, bool sync);
+    /// 钩子派发模式（plan §8.1）
+    ///
+    /// - `Sync`：裁决型同步派发（Dart 线程等待结果，有等待预算）
+    /// - `Notify`：观察型派发（入队即返回，不等待、不回报结果）
+    /// - `AsyncDecide`：裁决型异步派发（不占用 Dart 线程，完成后推
+    ///   `musicxx.hook.decision.result` 事件；等待预算照常生效）
+    enum class HookDispatchMode {
+        Sync,
+        Notify,
+        AsyncDecide,
+    };
+
+    /// 宿主线程上执行的派发（按 [mode] 决定是否等待结果、是否回报事件）
+    std::string dispatchHook(
+        const std::string& hookId,
+        const std::string& inputJson,
+        uint32_t           budgetMs,
+        HookDispatchMode   mode
+    );
     void        clearPluginRegistrations(const std::string& instanceName);
     std::string pluginInstanceJson(const MusicxxHostInstance& inst) const;
     std::string scanDir(const std::string& dir, const std::string& kindHint);
@@ -547,6 +564,9 @@ private:
     std::map<int64_t, PendingAction> pendingActions_;
     /// 在途请求 id 计数器 (原生插件与 JS 引擎共用; **任意线程**可用)
     std::atomic<int64_t>             nextRequestId_{1};
+
+    /// 异步裁决派发的调用 id 计数器（配 `musicxx.hook.decision.result` 事件；**任意线程**可用）
+    std::atomic<int64_t> nextHookCallId_{1};
 
     /// 宿主内运行时的在途请求接驳口 (JS 引擎; 见 InternalActionRelay)
     std::shared_ptr<InternalActionRelay> internalRelay_;

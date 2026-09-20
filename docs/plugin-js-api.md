@@ -187,7 +187,32 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 | `song.action`（`musicxx.ui.song.action`） | 歌曲菜单项 | `title` |
 | `playlist.action` | 歌单菜单项 | `title` |
 | `settings.page` | 设置页 | `title` |
-| `overlay.widget` | 播放页只读信息块 | `position`、`content` |
+| `overlay.widget` | 播放页只读信息块（应用侧已渲染） | `position`、`content` |
+
+`overlay.widget` 的 `position` 与 `content.kind`（应用侧定义，其他取值会被忽略/归一化）：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `position` | `player.top` | 沉浸式播放页顶部栏下方 |
+| | `player.bottom` | 进度条上方（**未识别的位置按这里渲染**） |
+| `content.kind` | `text` | `{kind:"text", text:"..."}` |
+| | `markdown` | 同上（首期按纯文本渲染） |
+| | `list` | `{kind:"list", items:["a", {title:"b", depict:"c"}]}` |
+| | `progress` | `{kind:"progress", title?:"...", value:1, total:4}` |
+
+```js
+musicxx.ui.registerEntry({
+    name: "overlayInfo",
+    type: "overlay.widget",
+    order: 20,
+    data: {
+        position: "player.top",
+        title: "附加信息",
+        content: { kind: "text", text: "只读展示；点击可跳转插件页面" },
+        action: { kind: "route", route: "ext://example_js/card" },
+    },
+});
+```
 
 ```js
 musicxx.ui.registerEntry({
@@ -368,7 +393,6 @@ musicxx.capability.register("ping", () => ({ pong: true }));
 
 | 边界 | 说明 |
 |---|---|
-| 异步裁决 | 裁决型钩子必须同步返回（plan §5.4 的 runner isolate 派发落地后可支持） |
+| 异步裁决处理器 | 裁决处理器的 JS 函数必须**同步返回**裁决对象；返回 Promise 时按"不裁决"处理（需要异步数据的场景请先取好数据，或用 `musicxx.hooks.register(..., {mode:"observe"})` + 动作请求）。宿主对裁决型钩子有等待预算（声明为 `dispatch: "async"` 的钩子由宿主异步派发，Dart 侧不阻塞） |
 | 异步能力 | 能力处理器必须同步返回结果（返回 Promise 会失败） |
-| 覆盖信息块 | `overlay.widget` 可注册，应用侧尚未渲染（已渲染：主页入口 / 歌曲菜单 / 插件页面 / 设置页） |
 | 资源限制 | 宿主不限制 JS 内存/执行时长（决策 13）；死循环会占住共享 JS 线程。可在配置里显式开启**可选执行上限**（`jsExecGuardMs`），开启后单次脚本执行超时会被中断并计入统计 |

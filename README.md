@@ -139,6 +139,33 @@ windows/CMakeLists.txt   找到已构建的宿主库 → 写 musicxx_extern_plug
 
 其它平台（Linux/macOS/Android/iOS/OHOS）的打包属于 plan M4 的后续工作：Linux/macOS 可照 Windows 的写法
 （`<平台>_bundled_libraries`）接；Android 需要先用 NDK 交叉编译整套依赖（含 QuickJS），适合在 CI 里单独一条流水线。
+平台能力（哪些平台允许原生插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
+（iOS/OHOS 只跑 JS 插件，不允许加载未签名动态库）。
+
+## 写一个原生插件（SDK 与构建模板）
+
+插件作者只需要 SDK 头文件 + 一个 CMake 助手，不需要了解宿主工程结构：
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(my_plugin LANGUAGES CXX)
+
+# SDK 前缀 = `tools/build_native.ps1` 的安装前缀（含 include/ 与 lib/cmake/）
+set(musicxx_extern_plugin_DIR "<安装前缀>/lib/cmake/musicxx_extern_plugin")
+find_package(musicxx_extern_plugin CONFIG REQUIRED)
+
+musicxx_plugin_add_target(my_plugin SOURCES my_plugin.cpp MANIFEST plugin.yaml)
+```
+
+`musicxx_plugin_add_target`（`src/sdk/cmake/musicxx_plugin.cmake`）负责：
+
+- 建 SHARED 库并链接 SDK 与内核/工具库（`cxx_pluginxx_static`/`cxx_utilxx_base_static`/`fmt::fmt` 存在就链接，插件作者不用记名字）；
+- C++26 + MSVC `/utf-8` + 符号默认隐藏；
+- **只导出入口符号**：非 MSVC 平台加 version script（GNU/Clang）或导出符号表（Apple），因此插件不会把内核/C++ 运行时符号暴露出去；
+- 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用。
+
+参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）。
+钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；JS 作者文档见 `docs/plugin-js-api.md`。
 
 ## 原生测试
 
@@ -181,6 +208,9 @@ runtime.plugins.scan();
 runtime.plugins.load('example_native');
 final Map<String, Object?>? verdict = runtime.hooks.decide(
   MusicxxPluginHookId.playerBeforePlaySong, <String, Object?>{'sid': sid, 'song': songJson});
+// 异步裁决：调用点本身是 Future 时用它 —— 不占用调用线程，结果经 hook.decision.result 事件回来再合并
+final Map<String, Object?>? asyncVerdict = await runtime.hooks.decideAsync(
+  MusicxxPluginHookId.playerSourceBeforeParse, <String, Object?>{'sid': sid});
 runtime.dispose();
 ```
 
@@ -210,8 +240,11 @@ final List<MusicxxPluginUIItem> next =
 - S6（UI 扩展 + 观测）：声明式 UI 表与 JS/原生 API 已落地，应用侧渲染（主页入口 / 歌曲菜单 /
   插件页面 / 插件设置页）已接入；插件配置表单（清单 `settings_schema` + `config.json`）、
   `musicxx.net.fetch`/`download` 便利通道、管理页调试与统计页也已落地；
+- 异步裁决：原生 ASYNC 派发 + `musicxx.hook.decision.result` 事件 + Dart `hooks.decideAsync`（应用侧 `player.source.beforeParse` 已改用）+ `musicxx.hook.observe` 观测事件；
+- 平台能力单点（`ExternPluginPlatform.dart`：iOS/OHOS 只跑 JS 插件）；`overlay.widget` 附加信息块已渲染；SDK 构建模板与 `find_package` 配置已提供；
 - 平台打包：**Windows 已接入**（宿主库随应用分发到可执行文件旁，见上面「打包（随应用分发）」）；
-  Linux/Android/iOS/macOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 runner isolate 异步裁决排入后续阶段。
+  Linux/Android/iOS/macOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）、JS 侧异步裁决处理器与 CI 排入后续阶段；
+- 完整记录（每轮改了什么、验证命令与结果、偏差）见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`。
 
 测试夹具（只服务原生测试，不是可发布插件；随测试一起安装到 `<安装前缀>/plugins/`）：
 
@@ -226,7 +259,7 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 钩子 | `musicxx.hooks.register` / `pluginBase.hook` | 观察型与裁决型；无插件时埋点是常量判断 |
+| 钩子 | `musicxx.hooks.register` / `pluginBase.hook` | 观察型与裁决型（裁决处理器同步返回；声明为 `dispatch: async` 的钩子由宿主异步派发，Dart 侧不阻塞）|
 | 动作 | `musicxx.call` / `pluginBase.requestAction` | 播放/库/歌词/UI/存储/网络/杂项，逐条权限校验 |
 | 状态镜像 | `musicxx.state.get` | 只读快照（不含临时直链/token） |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`，与用户在设置页里改的是同一份 |
@@ -238,8 +271,8 @@ final List<MusicxxPluginUIItem> next =
 验证命令与当前结果：
 
 ```powershell
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 136 项全绿
-dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子）
+pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 179 项全绿
+dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子，12 个异步裁决）
 flutter analyze                                          # 0 issue
-flutter test                                             # 包内：端到端冒烟 + UI 模型单测
+flutter test                                             # 包内：端到端冒烟（含原生/JS 异步裁决）+ UI 模型/附加信息块单测
 ```

@@ -310,7 +310,10 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
 
 /// 派发钩子
 /// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链 (预算内) 并输出合并结果;
-///   MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回 (out_json 为 {"handled":bool})
+///   MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回
+/// - 裁决型钩子在 ASYNC 模式下为"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
+///   处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
+///   以及 result/timedOut/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
 /// - out_json 形如 {"handled":true,"result":{...},"timedOut":false,"handlers":2}
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_hook_emit(

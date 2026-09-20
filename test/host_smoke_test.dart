@@ -135,6 +135,25 @@ void main() {
     await _pumpUntil(() => runtime.recentEvents.isNotEmpty);
 
     _step('9 Dart 处理器链完成');
+    // 异步裁决（plan §5.3）：Dart 线程不等待，结果经 `musicxx.hook.decision.result` 回传后合并
+    final Map<String, Object?>? asyncVerdict = await runtime.hooks.decideAsync(
+      MusicxxPluginHookId.playerBeforePlaySong,
+      <String, Object?>{'sid': 's-async-ad', 'song': <String, Object?>{'name': '广告插曲 - 异步'}},
+    );
+    expect(asyncVerdict, isNotNull);
+    expect(asyncVerdict!['action'], 'skip', reason: '异步裁决结果应与同步一致');
+    expect(
+      await runtime.hooks.decideAsync(
+        MusicxxPluginHookId.playerBeforePlaySong,
+        <String, Object?>{'sid': 's-async-normal', 'song': <String, Object?>{'name': '普通歌曲'}},
+      ),
+      isNull,
+    );
+    expect(runtime.hooks.pendingAsyncDecisions, 0, reason: '异步裁决不应残留等待中的调用');
+    expect(runtime.hooks.asyncDecisionCalls, greaterThan(0));
+    expect(runtime.hooks.asyncDecisionTimeouts, 0, reason: '正常路径不应超时');
+
+    _step('9.5 异步裁决完成');
     // 禁用 → 原生处理器位图清零；启用 → 恢复
     runtime.plugins.disable('example_native');
     expect(runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong), 0);
@@ -230,6 +249,15 @@ void main() {
     );
 
     _step('14 JS decide 完成');
+    // 异步派发同样适用于 JS 处理器（宿主在自己的线程上等脚本，Dart 线程不阻塞）
+    final Map<String, Object?>? jsAsyncVerdict = await runtime.hooks.decideAsync(
+      MusicxxPluginHookId.playerBeforePlaySong,
+      <String, Object?>{'sid': 's-js-async-ad', 'song': <String, Object?>{'name': '广告插曲 - JS 异步'}},
+    );
+    expect(jsAsyncVerdict, isNotNull);
+    expect(jsAsyncVerdict!['action'], 'skip');
+
+    _step('14.5 JS 异步裁决完成');
     // 观察型钩子 (异步) + JS 侧日志
     runtime.hooks.observe(
       MusicxxPluginHookId.songChanged,

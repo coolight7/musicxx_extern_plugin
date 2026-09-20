@@ -247,6 +247,28 @@ install(FILES "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/include/musicxx_extern_plugin_ap
 install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/include/"
   DESTINATION include)
 
+# 插件 SDK 的 find_package 配置 + 构建助手（plan §7.1）：
+# 外部作者用 `find_package(musicxx_extern_plugin CONFIG)` 拿到 INTERFACE 目标与
+# `musicxx_plugin_add_target(...)`，不必自己拼包含目录与导出符号控制。
+set(MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS "${CMAKE_INSTALL_PREFIX}/include")
+foreach (_sdkDep "${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}/include" ${Boost_INCLUDE_DIRS})
+  if (_sdkDep AND EXISTS "${_sdkDep}")
+    list(APPEND MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS "${_sdkDep}")
+  endif ()
+endforeach ()
+list(REMOVE_DUPLICATES MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS)
+configure_file(
+  "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/cmake/musicxx_extern_pluginConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/musicxx_extern_pluginConfig.cmake"
+  @ONLY
+)
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/musicxx_extern_pluginConfig.cmake"
+  "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/cmake/musicxx_plugin.cmake"
+  DESTINATION "lib/cmake/musicxx_extern_plugin"
+)
+unset(_sdkDep)
+
 if (TARGET example_native)
   install(TARGETS example_native RUNTIME DESTINATION plugins/example_native LIBRARY DESTINATION plugins/example_native)
   install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native/plugin.yaml"
