@@ -7,7 +7,7 @@ import 'runtime.dart';
 
 /// 状态镜像推送（Dart → 原生，供插件**同步**读取）
 ///
-/// 语义（plan §4.7）：
+/// 语义：
 /// - 值是 JSON；单键上限 64 KiB，超限由宿主截断并告警；
 /// - 建议使用 [standardKeys] 里的标准键，插件按同一批键读取；
 /// - 高频键（播放进度）请用 [updateThrottled] 或自行 1 Hz 节流；
@@ -61,7 +61,10 @@ class MusicxxPluginState {
         log,
       );
       if (rc != 0) {
-        _runtime.log(3, 'state_update($key) 失败(code=$rc): ${takeOutString(log, _runtime.bindings)}');
+        _runtime.log(
+          3,
+          'state_update($key) 失败(code=$rc): ${takeOutString(log, _runtime.bindings)}',
+        );
         return false;
       }
       _lastPushed[key] = json;
@@ -73,11 +76,7 @@ class MusicxxPluginState {
   }
 
   /// 节流推送（高频键：同一键在 [minIntervalMs] 内只推最后一次）
-  bool updateThrottled(
-    String key,
-    Object? value, {
-    int minIntervalMs = 1000,
-  }) {
+  bool updateThrottled(String key, Object? value, {int minIntervalMs = 1000}) {
     final int now = DateTime.now().millisecondsSinceEpoch;
     final int? last = _lastPushedMs[key];
     if (last != null && now - last < minIntervalMs) {
@@ -113,7 +112,10 @@ class MusicxxPluginState {
         log,
       );
       if (rc != 0) {
-        _runtime.log(3, 'state_update_batch 失败(code=$rc): ${takeOutString(log, _runtime.bindings)}');
+        _runtime.log(
+          3,
+          'state_update_batch 失败(code=$rc): ${takeOutString(log, _runtime.bindings)}',
+        );
         return false;
       }
       for (final Map<String, Object?> item in payload) {

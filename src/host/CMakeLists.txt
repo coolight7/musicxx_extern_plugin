@@ -72,7 +72,7 @@ get_filename_component(MUSICXX_EXTERN_PLUGIN_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DI
 
 # ==================== 宿主库 ====================
 
-# JS 插件运行时: QuickJS 以 add_subdirectory 直接编入宿主库 (plan §11.2),
+# JS 插件运行时: QuickJS 以 add_subdirectory 直接编入宿主库,
 # 不链接它的命令行/标准库模块 (qjs-libc 不参与链接), 也不开 JIT。
 set(MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/third_party/quickjs")
 set(MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE OFF)
@@ -138,7 +138,7 @@ if (NOT MSVC)
   )
 endif ()
 
-# 导出面收口 (plan §11.2): 宿主库的可见导出只有 `musicxx_extern_plugin_*`
+# 导出面收口: 宿主库的可见导出只有 `musicxx_extern_plugin_*`
 # - GNU/Clang (Linux/Android): 用 version script 把其余符号全部本地化 —— 只靠
 #   `CXX_VISIBILITY_PRESET hidden` 挡不住静态库带进来的 `STB_GNU_UNIQUE` 符号
 #   (实测 Boost.Asio 的 error category 实例会以 GNU unique 符号出现在动态符号表里);
@@ -207,8 +207,8 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
   endif ()
 
   # 测试夹具插件 (编译进插件目录, 与 plugin.yaml 一起安装到 plugins/<名>/):
-  #   fail_native       处理器总是失败 → 验证熔断与派发暂停 (plan §4.10)
-  #   bad_entry_native  库文件缺 start/stop → 验证装载阶段按契约拒绝 (plan §13.1)
+  #   fail_native       处理器总是失败 → 验证熔断与派发暂停
+  #   bad_entry_native  库文件缺 start/stop → 验证装载阶段按契约拒绝
   # 它们只服务原生测试, 不是可发布的插件。
   foreach (_fixture fail_native bad_entry_native)
     set(_fixture_dir "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/fixtures/${_fixture}")
@@ -263,7 +263,7 @@ install(FILES "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/include/musicxx_extern_plugin_ap
 install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/include/"
   DESTINATION include)
 
-# 插件 SDK 的 find_package 配置 + 构建助手（plan §7.1）：
+# 插件 SDK 的 find_package 配置 + 构建助手：
 # 外部作者用 `find_package(musicxx_extern_plugin CONFIG)` 拿到 INTERFACE 目标与
 # `musicxx_plugin_add_target(...)`，不必自己拼包含目录与导出符号控制。
 set(MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS "${CMAKE_INSTALL_PREFIX}/include")

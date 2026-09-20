@@ -1,4 +1,4 @@
-/// 宿主事件模型（原生 → Dart，plan §4.9 / §6.3）
+/// 宿主事件模型（原生 → Dart）
 ///
 /// 事件结构：`{"seq":N,"ts":ms,"type":"...","plugin":"...","payload":{...}}`
 /// - `seq` 单调递增（可据此发现丢事件）；
@@ -104,8 +104,8 @@ class MusicxxPluginEvent {
       payload: payload is Map<String, Object?>
           ? payload
           : (payload is Map<Object?, Object?>
-              ? payload.cast<String, Object?>()
-              : const <String, Object?>{}),
+                ? payload.cast<String, Object?>()
+                : const <String, Object?>{}),
     );
   }
 
@@ -128,5 +128,6 @@ class MusicxxPluginEvent {
   }
 
   @override
-  String toString() => 'MusicxxPluginEvent(#$seq $type ${plugin.isEmpty ? '-' : plugin})';
+  String toString() =>
+      'MusicxxPluginEvent(#$seq $type ${plugin.isEmpty ? '-' : plugin})';
 }
