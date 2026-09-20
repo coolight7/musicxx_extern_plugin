@@ -82,6 +82,20 @@ std::string take(MusicxxExternPluginString& s) {
     return out;
 }
 
+/// 从扫描结果 JSON (扁平数组) 中取出指定插件 id 的片段 (到下一个条目的 "id" 之前)
+///
+/// 用途: 断言某个插件的 `valid`/`supported` 字段 —— 入口文件按平台解析后的结果是否正确
+/// (清单按 Linux 写 entry, Windows/macOS 由内核修正扩展名)。
+std::string scanItemOf(const std::string& scanJson, const std::string& id) {
+    const std::string key = "\"id\":\"" + id + "\"";
+    const auto        pos = scanJson.find(key);
+    if (pos == std::string::npos) {
+        return {};
+    }
+    const auto next = scanJson.find("\"id\":\"", pos + key.size());
+    return scanJson.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+}
+
 /// 取 JSON 字符串字段的裸值 (测试专用极简解析; 不支持转义)
 std::string jsonStringField(const std::string& json, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
@@ -162,6 +176,19 @@ int main(int argc, char** argv) {
     check(scanJson.find("example_js") != std::string::npos, "扫描发现 example_js (JS 插件)");
     check(scanJson.find("\"kind\":\"js\"") != std::string::npos, "JS 插件的 kind 为 js");
     check(scanJson.find("本次运行未启用 JS 运行时") == std::string::npos, "JS 运行时可用 (未报未启用)");
+
+    // 原生插件的入口解析: 清单按 Linux 写 entry (`example_native.so`), Windows/macOS 上由内核
+    // 修正扩展名。扫描阶段的校验必须与加载阶段用同一套解析, 否则会出现"扫描判缺库文件、
+    // 加载却能命中"的不一致 (本用例就是那次缺陷的回归防护)。
+    {
+        const std::string nativeItem = scanItemOf(scanJson, "example_native");
+        check(!nativeItem.empty(), "扫描结果含 example_native 条目");
+        check(
+            nativeItem.find("\"supported\":true") != std::string::npos,
+            "原生插件按平台解析 entry 后仍为可用 (未被判库文件缺失)"
+        );
+        check(nativeItem.find("库文件缺失") == std::string::npos, "原生插件未被判为库文件缺失");
+    }
 
     // 装载 (同步)
     MusicxxExternPluginString empty{};

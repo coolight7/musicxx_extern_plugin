@@ -23,8 +23,9 @@ src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
 docs/plugin-native-api.md 原生插件作者指南（SDK 用法/构建模板/线程纪律/权限/部署与排障）
-tools/               build_native.ps1（环境准备 + 调 cmake）、gen_contract.dart（契约生成/校验）、
-                     check_submodules.ps1（子模块检查）、smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
+tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
+                     gen_contract.dart（契约生成/校验）、check_submodules.ps1（子模块检查）、
+                     smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
 ```
 
@@ -52,11 +53,11 @@ tools/               build_native.ps1（环境准备 + 调 cmake）、gen_contra
 
 2. **Boost 头文件**（只用 Boost.Asio 头，不链接任何 Boost 编译库）
    - 本机已有 `src/third_party/boost/include`（含 `boost/`，约 151 MB，不入版本库）时脚本直接复用；
-   - 缺失时按 `tools/build_native.ps1` 顶部锁定的 **版本 + URL + SHA256** 下载官方发布包，
-     只解出 `boost/` 头文件子树到 `.native/boost/`；
+   - 缺失时按构建脚本顶部锁定的 **版本 + URL + SHA256** 下载官方发布包
+     （`tools/build_native.ps1` 与 `tools/build_native.sh` 里的常量保持一致），只解出 `boost/` 头文件子树到 `.native/boost/`；
    - `<安装前缀>/lib/cmake/Boost-<版本>/BoostConfig.cmake` 由顶层 CMake 依 `tools/cmake/BoostConfig.cmake.in`
      生成（只暴露头文件根 `Boost_INCLUDE_DIRS` 与 `Boost::headers`），不依赖 b2 生成的整套配置；
-   - 可用 `-BoostRoot <含 boost/ 的目录>` 或 `-BoostArchive <发布包>` 覆盖（离线/自备包）。
+   - 可用 `-BoostRoot <含 boost/ 的目录>`/`--boost-root <目录>` 或 `-BoostArchive <发布包>`/`--boost-archive <包>` 覆盖（离线/自备包）。
 
 ## 构建
 
@@ -87,13 +88,28 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests           # 构建后跑�
 pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8             # 指定并行度
 ```
 
+Linux / macOS 用同一套流程的 shell 版本（选项名不区分大小写，`--deps-only` 与 `-DepsOnly` 等价）：
+
+```bash
+./tools/build_native.sh                       # Release 全量 (依赖 + 宿主)
+./tools/build_native.sh --config Debug        # Debug (独立构建目录 .native/build/linux-debug)
+./tools/build_native.sh --deps-only           # 只构建依赖库
+./tools/build_native.sh --configure-only      # 只做预检/Boost/configure
+./tools/build_native.sh --clean               # 先清空构建目录与输出目录
+./tools/build_native.sh --run-tests           # 构建后跑原生测试 (失败时脚本返回非 0)
+./tools/build_native.sh --jobs 8              # 指定并行度
+```
+
 要点：
 
+- **工具链要求**（内核是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
+  Linux 上还需要 `pkg-config`（`cxx_utilxx_base` / `cxx_pluginxx` 配置阶段有 `find_package(PkgConfig REQUIRED)`）；
+  shell 脚本会在预检里检查编译器大版本与 `pkg-config`，不满足时给出警告。
 - **安装前缀**（`<构建目录>/musicxx-extern-plugin-install`）是唯一的依赖来源，里面同时有
   `lib/cmake/*` 供 `find_package` 使用、`bin/` 宿主产物、`plugins/` 示例插件；宿主工程找不到依赖时
-  会直接提示"先跑 `tools/build_native.ps1`"。
-- **一个构建目录一个配置**：Release/Debug 分别用 `.native/build/windows-release`、`.native/build/windows-debug`，
-  安装前缀在构建目录内，因此不会混入其它配置的产物；脚本会按"配置 + 生成器 + 平台 + Boost 位置"签名，
+  会直接提示"先跑构建脚本"。
+- **一个构建目录一个配置**：Release/Debug 分别用 `.native/build/<平台>-release`、`.native/build/<平台>-debug`，
+  安装前缀在构建目录内，因此不会混入其它配置的产物；脚本会按"配置 + 生成器 + 平台/架构 + Boost 位置"签名，
   变化时自动重置构建目录（避免 CMake 缓存残留上一次的参数）。
 - **依赖构建目录用短路径**（`<构建目录>/e/<依赖短名>`）：Windows 的 `MAX_PATH=260`，
   ExternalProject 默认的 `<项目名>-prefix/src/<项目名>-build` 叠加 `CMakeFiles/CMakeScratch/TryCompile-*/…/*.tlog`
@@ -102,44 +118,69 @@ pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8             # 指定并行�
   收窄可用配置会让探测失败；构建配置由 ExternalProject 自动带上 `--config <顶层配置>`。
 - **uchardet** 必须 `-DBUILD_BINARY=OFF`（其命令行工具依赖 Windows 没有的 `getopt.h`）。
 - **MSVC 必须带 `/utf-8`**（源码头文件含中文注释，否则按代码页 936 解析会破坏换行）；CMake 已在各目标上设置。
+- **导出面收口**：宿主库只导出 `musicxx_extern_plugin_*` —— MSVC 靠导出宏；GNU/Clang 另加
+  version script（`global: musicxx_extern_plugin_*; local: *;`，只靠 `-fvisibility=hidden` 挡不住静态库
+  带进来的 `STB_GNU_UNIQUE` 符号，实测 Boost.Asio 的 error category 会漏出来）；Apple 由 hidden
+  visibility 覆盖。
 
-产物（`-Config Release`）：
+产物（Release）：
 
 ```
+# Windows
 <构建目录>/musicxx-extern-plugin-install/bin/musicxx_extern_plugin.dll        宿主库（只导出 musicxx_extern_plugin_*）
 <构建目录>/musicxx-extern-plugin-install/bin/musicxx_extern_plugin_test.exe   原生测试
 <构建目录>/musicxx-extern-plugin-install/plugins/example_native/              示例插件（库文件 + plugin.yaml）
 .native/output/windows-x64-release/{bin,plugins}/                            上述产物的稳定复制（供打包/手工取用）
+
+# Linux / macOS（库名按平台：lib*.so / lib*.dylib，可执行文件无扩展名）
+<构建目录>/musicxx-extern-plugin-install/bin/libmusicxx_extern_plugin.so     宿主库
+<构建目录>/musicxx-extern-plugin-install/bin/musicxx_extern_plugin_test       原生测试
+.native/output/linux-x64-release/{bin,plugins}/                              上述产物的稳定复制
 ```
 
 校验导出面与运行期依赖：
 
 ```powershell
+# Windows
 dumpbin /exports   .native/output/windows-x64-release/bin/musicxx_extern_plugin.dll   # 仅 musicxx_extern_plugin_*
 dumpbin /dependents .native/output/windows-x64-release/bin/musicxx_extern_plugin.dll  # 仅系统 DLL（无第三方 DLL）
 ```
+
+```bash
+# Linux
+nm -D --defined-only .native/output/linux-x64-release/bin/libmusicxx_extern_plugin.so   # 仅 musicxx_extern_plugin_*（37 个）
+ldd .native/output/linux-x64-release/bin/libmusicxx_extern_plugin.so                     # 只有 libc/libstdc++/libgcc_s/libm
+```
+
+> 分发到 Linux 桌面时注意：宿主库的 glibc 需求取决于**构建机**（本仓实测 Ubuntu 22.04 上为 `GLIBC_2.35`），
+> 且运行期会用到应用自带的 `libstdc++`（`resource/libs/linux/lib/`）。发布用的 Linux 产物建议在
+> 目标发行版（或更老的发行版）上构建，并在 `flutter build linux` 后核对 `bundle/lib/libmusicxx_extern_plugin.so`。
 
 ## 打包（随应用分发）
 
 宿主库**不在 Flutter 构建里编译**（依赖链太重，见 plan §11.2），所以本包把它当作"预构建产物"来打包：
 
 ```
-pubspec.yaml        flutter.plugin.platforms.windows.ffiPlugin = true
+pubspec.yaml             flutter.plugin.platforms.{windows,linux}.ffiPlugin = true
 windows/CMakeLists.txt   找到已构建的宿主库 → 写 musicxx_extern_plugin_bundled_libraries
-                         → Flutter 把它放进 PLUGIN_BUNDLED_LIBRARIES → 安装到可执行文件旁边
+linux/CMakeLists.txt     同上（库名 libmusicxx_extern_plugin.so）
+                         → Flutter 放进 PLUGIN_BUNDLED_LIBRARIES → Windows 装到可执行文件旁、Linux 装到 <bundle>/lib/
 ```
 
 - 查找顺序（与 Dart 侧 `native_library.dart` 同一套约定）：
   `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY` → 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`
-  → `<包>/.native/output/windows-<架构>-<配置>/bin/` → `<包>/.native/build/windows-<配置>/musicxx-extern-plugin-install/bin/`
-  → `<仓库>/resource/libs/windows/lib/`；
+  → `<包>/.native/output/<平台>-<架构>-<配置>/bin/` → `<包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/bin/`
+  → 仓库预置目录（`resource/libs/windows/lib/`、`resource/libs/linux/lib/`）；
 - Debug 与 Release 两份产物都在时，按**当前 Flutter 构建配置**选择（`Profile` 取 Release）；
 - **找不到宿主库只打警告、不中断构建**（外部插件是可选功能，缺失时应用照常启动，Dart 侧给出提示）。
   发布流水线若要求"必须打包"，请显式传 `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<路径>`，并在 CI 里自行判定失败；
-- 例：`flutter build windows --release` → `build/windows/x64/runner/Release/musicxx_extern_plugin.dll` 与 `musicxx.exe` 同目录。
+- 例（Windows）：`flutter build windows --release` → `build/windows/x64/runner/Release/musicxx_extern_plugin.dll` 与 `musicxx.exe` 同目录；
+- 例（Linux）：`flutter build linux --release` → `build/linux/x64/release/bundle/lib/libmusicxx_extern_plugin.so`
+  （桌面应用的库都放 `bundle/lib/`，Dart 侧会去"可执行文件旁的 `lib/`"目录找它）。
 
-其它平台（Linux/macOS/Android/iOS/OHOS）的打包属于 plan M4 的后续工作：Linux/macOS 可照 Windows 的写法
-（`<平台>_bundled_libraries`）接；Android 需要先用 NDK 交叉编译整套依赖（含 QuickJS），适合在 CI 里单独一条流水线。
+其余平台（macOS/Android/iOS/OHOS）的打包属于 plan M4 的后续工作：macOS 可照 Windows/Linux 的写法
+（`<平台>_bundled_libraries`，另需注意 Hardened Runtime 下的 `disable-library-validation`）；
+Android 需要先用 NDK 交叉编译整套依赖（含 QuickJS），适合在 CI 里单独一条流水线。
 平台能力（哪些平台允许原生插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
 （iOS/OHOS 只跑 JS 插件，不允许加载未签名动态库）。
 
@@ -244,8 +285,9 @@ final List<MusicxxPluginUIItem> next =
   `musicxx.net.fetch`/`download` 便利通道、管理页调试与统计页也已落地；
 - 异步裁决：原生 ASYNC 派发 + `musicxx.hook.decision.result` 事件 + Dart `hooks.decideAsync`（应用侧 `player.source.beforeParse` 已改用）+ `musicxx.hook.observe` 观测事件；
 - 平台能力单点（`ExternPluginPlatform.dart`：iOS/OHOS 只跑 JS 插件）；`overlay.widget` 附加信息块已渲染；SDK 构建模板与 `find_package` 配置已提供；
-- 平台打包：**Windows 已接入**（宿主库随应用分发到可执行文件旁，见上面「打包（随应用分发）」）；
-  Linux/Android/iOS/macOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 CI 排入后续阶段；
+- 平台打包：**Windows 与 Linux 已接入**（宿主库随应用分发：Windows 到可执行文件旁、Linux 到 `bundle/lib/`，
+  见上面「打包（随应用分发）」；`tools/build_native.sh` 覆盖 Linux/macOS 的宿主库构建）；
+  macOS/Android/iOS/OHOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 CI 排入后续阶段；
 - JS 插件支持**异步裁决**（裁决处理器可返回 Promise，等待预算内结算生效、超时按不裁决且不计失败）；
   原生插件作者指南见 `docs/plugin-native-api.md`；
 - 完整记录（每轮改了什么、验证命令与结果、偏差）见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`。
@@ -275,7 +317,16 @@ final List<MusicxxPluginUIItem> next =
 验证命令与当前结果：
 
 ```powershell
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 179 项全绿
+# Windows
+pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 212 项全绿
+```
+
+```bash
+# Linux / macOS
+./tools/build_native.sh --run-tests                      # 原生测试 212 项全绿 (Linux 实测：WSL Ubuntu 22.04 + GCC 16)
+```
+
+```powershell
 dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子，12 个异步裁决）
 flutter analyze                                          # 0 issue
 flutter test                                             # 包内：端到端冒烟（含原生/JS 异步裁决）+ UI 模型/附加信息块单测

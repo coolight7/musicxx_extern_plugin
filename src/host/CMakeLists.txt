@@ -138,6 +138,22 @@ if (NOT MSVC)
   )
 endif ()
 
+# 导出面收口 (plan §11.2): 宿主库的可见导出只有 `musicxx_extern_plugin_*`
+# - GNU/Clang (Linux/Android): 用 version script 把其余符号全部本地化 —— 只靠
+#   `CXX_VISIBILITY_PRESET hidden` 挡不住静态库带进来的 `STB_GNU_UNIQUE` 符号
+#   (实测 Boost.Asio 的 error category 实例会以 GNU unique 符号出现在动态符号表里);
+# - Apple: 不做额外处理 —— hidden visibility 本身就等价于"导出符号表"
+#   (`__attribute__((visibility("default")))` 之外一律不导出), 而 ld64 的
+#   `-exported_symbols_list` 只接受字面量符号名, 无法用通配符表达这里的导出面;
+# - MSVC: 不需要, 导出宏已经限定了导出面。
+if (UNIX AND NOT APPLE)
+  set(MUSICXX_EXTERN_PLUGIN_EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/musicxx_extern_plugin.map")
+  file(WRITE "${MUSICXX_EXTERN_PLUGIN_EXPORT_MAP}"
+    "{\n  global:\n    musicxx_extern_plugin_*;\n  local:\n    *;\n};\n")
+  target_link_options(musicxx_extern_plugin PRIVATE
+    "-Wl,--version-script=${MUSICXX_EXTERN_PLUGIN_EXPORT_MAP}")
+endif ()
+
 if (WIN32)
   target_compile_definitions(musicxx_extern_plugin PRIVATE _WIN32_WINNT=0x0A00)
 endif ()

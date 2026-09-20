@@ -9,7 +9,7 @@
 ```text
 my_plugin/                     # 一个目录 = 一个插件；目录名只作提示，插件 id 取清单 name
 ├── plugin.yaml                # 清单（必填）
-├── my_plugin.dll              # 库文件（清单 entry 指向它；Linux/macOS 是 .so/.dylib）
+├── my_plugin.so               # 库文件（清单 entry 指向它；Windows 上是 my_plugin.dll、macOS 上是 my_plugin.dylib）
 ├── icon.png                   # 可选：管理页图标
 └── config.json                # 可选：插件配置（首次由用户/管理页生成）
 ```
@@ -18,7 +18,7 @@ my_plugin/                     # 一个目录 = 一个插件；目录名只作�
 
 ```yaml
 name: my_plugin                  # 唯一 id（宿主与 Dart 侧都用它；与别的插件重名 = 同一插件的升级覆盖）
-entry: my_plugin.dll             # 库文件名（也可用 entry_windows_x64 / entry_linux_x64 … 一目录多平台）
+entry: my_plugin.so              # 库文件名：**按 Linux 写法填**，扩展名由宿主按平台修正（.dll/.dylib）
 kind: native                     # native = 动态库；js = 脚本；builtin = 随宿主编译
 version: 1.0.0                   # 版本（升级比较用）
 api_version: 1                   # 兼容的插件 API 版本（宿主当前 1）
@@ -39,7 +39,14 @@ settings_schema:
   - { key: "apiKey", type: "string", title: "API Key", secret: true }
 ```
 
+> **`entry` 的写法（跨平台要点）**：统一按 Linux 写 `<名字>.so`，宿主在 Windows/macOS 上会把扩展名
+> 修正为 `.dll`/`.dylib`（内核 `pluginxx::resolvePluginEntryPath`）；因此**同一个插件目录可以三平台通用**，
+> 只要库文件基名一致（SDK 的构建助手已把 `PREFIX` 置空，产物就是 `my_plugin.dll`/`my_plugin.so`/`my_plugin.dylib`）。
+> 若 `entry` 指向的文件不存在，宿主会按平台默认库名再找一次（Linux `lib<name>.so`、Windows `<name>.dll`）。
+> 写 `entry: my_plugin.dll` 会让 Linux/macOS 上装载失败（扫描阶段就会提示"原生插件库文件缺失"）。
+
 安装方式：管理页「从压缩包安装」（把插件目录内容打包成 `.zip`）或直接把目录放进插件目录后「重新扫描」。
+随包分发的插件目录应包含**当前平台**的库文件（例如 Windows 包只放 `.dll`）。
 
 ## 2. 最小可用插件
 
@@ -179,10 +186,21 @@ musicxx_plugin_add_target(my_plugin
 ```
 
 ```powershell
+# Windows
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release
 # 产物：build/my_plugin.dll + build/plugin.yaml —— 这个目录可以直接当插件目录用
 ```
+
+```bash
+# Linux / macOS（Ninja 或 Unix Makefiles 均可）
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+# 产物：build/my_plugin.so（macOS 为 my_plugin.dylib）+ build/plugin.yaml
+```
+
+宿主库本身不在 Flutter 构建里编译：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`、
+Linux/macOS 用 `./tools/build_native.sh --run-tests`（见包 `README.md` 的「构建」一节）。
 
 `musicxx_plugin_add_target` 负责：
 
@@ -192,6 +210,8 @@ cmake --build build --config Release
 
 工具链要求：C++26（MSVC ≥ VS 2022 17.14 / GCC ≥ 14 / Clang 与 NDK ≥ 18）。
 插件若自己静态链入第三方库，务必保证符号不外泄（默认隐藏已由助手设置）。
+同宿主库一样，插件的导出面也由 version script / 导出符号表收口：`nm -D --defined-only`（Linux）
+或 `dumpbin /exports`（Windows）应当只看到 5 个 `musicxx_plugin_*` 入口。
 
 ## 6. 部署与排障
 

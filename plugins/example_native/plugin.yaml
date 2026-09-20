@@ -2,7 +2,8 @@
 # 内核字段: name(插件 id) / entry(库文件名) / depends / optional_depends
 # musicxx 扩展字段: kind / version / description / permissions / platforms / arch / api_version
 name: example_native
-entry: example_native.dll
+# entry 按 Linux 书写（内核 §manifest.h：Windows/macOS 下自动修正扩展名 .dll/.dylib）
+entry: example_native.so
 kind: native
 version: 1.0.0
 description: "musicxx 外部插件示例: 跳过广告曲目 / 观察切歌 / 错误换源建议"
