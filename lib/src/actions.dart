@@ -8,7 +8,8 @@ import 'native_strings.dart';
 import 'runtime.dart';
 
 /// 宿主动作处理器：接收插件参数，返回结果（JSON 可序列化）
-typedef MusicxxPluginActionHandler = Object? Function(MusicxxPluginActionInvocation invocation);
+typedef MusicxxPluginActionHandler =
+    Object? Function(MusicxxPluginActionInvocation invocation);
 
 /// 一次动作请求（插件 → Dart）
 class MusicxxPluginActionInvocation {
@@ -36,10 +37,11 @@ class MusicxxPluginActionInvocation {
   final void Function(Duration extra) extendDeadline;
 
   @override
-  String toString() => 'MusicxxPluginActionInvocation($plugin → $action #$requestId)';
+  String toString() =>
+      'MusicxxPluginActionInvocation($plugin → $action #$requestId)';
 }
 
-/// 宿主动作注册表（plan §4.8）
+/// 宿主动作注册表
 ///
 /// 插件经 `musicxx.host.request_action` 发起动作；Dart 侧在 [register] 注册实现。
 /// **未注册的动作会立即收到"未找到"**，避免插件 op 一直挂到超时。
@@ -105,13 +107,14 @@ class MusicxxPluginActions {
     if (handler == null) {
       return null;
     }
-    final MusicxxPluginActionInvocation invocation = MusicxxPluginActionInvocation(
-      requestId: 0,
-      plugin: pluginId,
-      action: action,
-      args: args,
-      extendDeadline: (Duration _) {},
-    );
+    final MusicxxPluginActionInvocation invocation =
+        MusicxxPluginActionInvocation(
+          requestId: 0,
+          plugin: pluginId,
+          action: action,
+          args: args,
+          extendDeadline: (Duration _) {},
+        );
     try {
       final Object? result = handler(invocation);
       if (result is Future) {
@@ -138,26 +141,30 @@ class MusicxxPluginActions {
     final Object? rawArgs = event.payload['args'];
     final Map<String, Object?> args = rawArgs is Map<String, Object?>
         ? rawArgs
-        : (rawArgs is Map<Object?, Object?> ? rawArgs.cast<String, Object?>() : const <String, Object?>{});
+        : (rawArgs is Map<Object?, Object?>
+              ? rawArgs.cast<String, Object?>()
+              : const <String, Object?>{});
     final MusicxxPluginActionHandler? handler = _handlers[action];
     if (handler == null) {
       respond(requestId, status: -4, error: 'action_not_registered: $action');
       return;
     }
-    final MusicxxPluginActionInvocation invocation = MusicxxPluginActionInvocation(
-      requestId: requestId,
-      plugin: event.plugin,
-      action: action,
-      args: args,
-      extendDeadline: (Duration _) {},
-    );
+    final MusicxxPluginActionInvocation invocation =
+        MusicxxPluginActionInvocation(
+          requestId: requestId,
+          plugin: event.plugin,
+          action: action,
+          args: args,
+          extendDeadline: (Duration _) {},
+        );
     try {
       final Object? result = handler(invocation);
       if (result is Future) {
         // 异步处理器：先说明"已受理"，完成后再由处理器自行 respond（或返回未来值）
         result.then<void>(
           (Object? value) => respond(requestId, result: value),
-          onError: (Object error) => respond(requestId, status: -99, error: error.toString()),
+          onError: (Object error) =>
+              respond(requestId, status: -99, error: error.toString()),
         );
         return;
       }
@@ -170,12 +177,16 @@ class MusicxxPluginActions {
   /// `musicxx.action.cancel`（插件取消 / 宿主超时）：通知已注册的处理器
   void handleActionCancel(MusicxxPluginEvent event) {
     // v1：仅记录；处理器可订阅事件流自行收尾（S4 接入取消令牌）
-    _runtime.log(3, '动作请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})');
+    _runtime.log(
+      3,
+      '动作请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
+    );
   }
 
   static String _encode(Object? value) => jsonEncode(value);
 
-  static String _errorJson(String message) => jsonEncode(<String, Object?>{'error': message});
+  static String _errorJson(String message) =>
+      jsonEncode(<String, Object?>{'error': message});
 }
 
 /// 已注册动作的默认实现（音乐应用侧在 S4 接入 Store；这里给出可用骨架）

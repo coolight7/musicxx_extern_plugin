@@ -9,11 +9,16 @@ import 'native_strings.dart';
 import 'runtime.dart';
 
 /// Dart 侧钩子处理器：返回 `null` 表示"不裁决"，交给下一个处理器
-typedef MusicxxPluginDartHandler = Map<String, Object?>? Function(MusicxxPluginHookContext ctx);
+typedef MusicxxPluginDartHandler =
+    Map<String, Object?>? Function(MusicxxPluginHookContext ctx);
 
 /// 派发给 Dart 处理器的上下文（不可变；载荷已解码为 JSON 对象）
 class MusicxxPluginHookContext {
-  const MusicxxPluginHookContext({required this.id, required this.payload, required this.sid});
+  const MusicxxPluginHookContext({
+    required this.id,
+    required this.payload,
+    required this.sid,
+  });
 
   /// 当前钩子
   final MusicxxPluginHookId id;
@@ -30,7 +35,7 @@ class MusicxxPluginHookContext {
 
 /// 钩子注册与派发（Dart 侧处理器链 + 原生/JS 处理器链）
 ///
-/// 执行顺序（plan §5.4）：
+/// 执行顺序：
 /// ```
 /// 快速路径（无任何处理器 → 直接返回，0 次 FFI、0 次 JSON 构造）
 ///   → Dart 处理器链（按 priority 升序，本线程就地执行）
@@ -67,13 +72,15 @@ class MusicxxPluginHooks {
       hasDartHandler(id) || nativeHandlerCount(id) > 0;
 
   /// 是否有 Dart 处理器
-  bool hasDartHandler(MusicxxPluginHookId id) => (_dartHandlers[id]?.isNotEmpty) ?? false;
+  bool hasDartHandler(MusicxxPluginHookId id) =>
+      (_dartHandlers[id]?.isNotEmpty) ?? false;
 
   /// 原生/JS 处理器数量（缓存值；宿主启动后由事件与首次查询填充）
   int nativeHandlerCount(MusicxxPluginHookId id) => _nativeCounts[id.id] ?? 0;
 
   /// 是否有任何钩子存在处理器（全局快速开关：false 时埋点零成本）
-  bool get active => _dartHandlers.isNotEmpty || _nativeCounts.values.any((int v) => v > 0);
+  bool get active =>
+      _dartHandlers.isNotEmpty || _nativeCounts.values.any((int v) => v > 0);
 
   /// 注册 Dart 处理器（同一钩子多个处理器按 priority 升序执行）
   void on(
@@ -81,8 +88,10 @@ class MusicxxPluginHooks {
     MusicxxPluginDartHandler handler, {
     int priority = 0,
   }) {
-    final List<_DartHandlerEntry> list =
-        _dartHandlers.putIfAbsent(id, () => <_DartHandlerEntry>[]);
+    final List<_DartHandlerEntry> list = _dartHandlers.putIfAbsent(
+      id,
+      () => <_DartHandlerEntry>[],
+    );
     list.add(_DartHandlerEntry(handler, priority, list.length));
     _sort(list);
   }
@@ -99,7 +108,7 @@ class MusicxxPluginHooks {
     }
   }
 
-  /// 观察型：不等待插件，入队即返回（plan §8.1）
+  /// 观察型：不等待插件，入队即返回
   void observe(MusicxxPluginHookId id, [Object? payload]) {
     if (id.isDecision) {
       throw ArgumentError('observe 不能用于裁决型钩子: ${id.id}');
@@ -139,18 +148,26 @@ class MusicxxPluginHooks {
     if (nativeHandlerCount(id) == 0 || !_runtime.isRunning) {
       return merged;
     }
-    final int budget = timeout?.inMilliseconds ??
+    final int budget =
+        timeout?.inMilliseconds ??
         (id.budgetMs > 0 ? id.budgetMs + (id.hardMs > 0 ? id.hardMs : 0) : 0);
-    final Map<String, Object?>? nativeResult = _emit(id, payloadMap, sync: true, timeoutMs: budget);
+    final Map<String, Object?>? nativeResult = _emit(
+      id,
+      payloadMap,
+      sync: true,
+      timeoutMs: budget,
+    );
     final Map<String, Object?>? mergedResult = _merge(id, merged, nativeResult);
     return (mergedResult == null || mergedResult.isEmpty) ? null : mergedResult;
   }
 
   /// 高频钩子的节流包装（进度/歌词行按最小间隔丢弃）
-  MusicxxPluginThrottle throttle(MusicxxPluginHookId id, {int minIntervalMs = 1000}) =>
-      MusicxxPluginThrottle._(this, id, minIntervalMs);
+  MusicxxPluginThrottle throttle(
+    MusicxxPluginHookId id, {
+    int minIntervalMs = 1000,
+  }) => MusicxxPluginThrottle._(this, id, minIntervalMs);
 
-  // ==================== 异步裁决（plan §5.3） ====================
+  // ==================== 异步裁决 ====================
 
   /// 裁决型（异步）：调用点本身是 `Future` 时使用
   ///
@@ -188,7 +205,10 @@ class MusicxxPluginHooks {
     if (callId == null) {
       return merged;
     }
-    final Map<String, Object?>? nativeResult = await _awaitAsyncDecision(callId, budget);
+    final Map<String, Object?>? nativeResult = await _awaitAsyncDecision(
+      callId,
+      budget,
+    );
     final Map<String, Object?>? mergedResult = _merge(id, merged, nativeResult);
     return (mergedResult == null || mergedResult.isEmpty) ? null : mergedResult;
   }
@@ -208,7 +228,9 @@ class MusicxxPluginHooks {
     if (callId == null) {
       return;
     }
-    final Completer<Map<String, Object?>?>? pending = _pendingDecisions.remove(callId);
+    final Completer<Map<String, Object?>?>? pending = _pendingDecisions.remove(
+      callId,
+    );
     _pendingDecisionTimers.remove(callId)?.cancel();
     if (pending == null || pending.isCompleted) {
       return; // 已超时收尾或不属于本处理器链：直接忽略
@@ -253,8 +275,11 @@ class MusicxxPluginHooks {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc =
-          _runtime.bindings.musicxx_extern_plugin_hook_stats(_runtime.host, out, log);
+      final int rc = _runtime.bindings.musicxx_extern_plugin_hook_stats(
+        _runtime.host,
+        out,
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'hook_stats');
       return decodeJsonObject(takeOutString(out, _runtime.bindings));
     } finally {
@@ -271,7 +296,8 @@ class MusicxxPluginHooks {
       entry.value.cancel();
     }
     _pendingDecisionTimers.clear();
-    for (final Completer<Map<String, Object?>?> completer in _pendingDecisions.values) {
+    for (final Completer<Map<String, Object?>?> completer
+        in _pendingDecisions.values) {
       if (!completer.isCompleted) {
         completer.complete(null);
       }
@@ -329,7 +355,10 @@ class MusicxxPluginHooks {
   }
 
   /// 执行 Dart 处理器链并合并（异常隔离：单个处理器失败不影响其它处理器）
-  Map<String, Object?>? _runDartHandlers(MusicxxPluginHookId id, Map<String, Object?> payload) {
+  Map<String, Object?>? _runDartHandlers(
+    MusicxxPluginHookId id,
+    Map<String, Object?> payload,
+  ) {
     final List<_DartHandlerEntry>? list = _dartHandlers[id];
     if (list == null || list.isEmpty) {
       return null;
@@ -372,7 +401,12 @@ class MusicxxPluginHooks {
     required bool sync,
     required int timeoutMs,
   }) {
-    final Map<String, Object?>? ack = _emitAck(id, payload, sync: sync, timeoutMs: timeoutMs);
+    final Map<String, Object?>? ack = _emitAck(
+      id,
+      payload,
+      sync: sync,
+      timeoutMs: timeoutMs,
+    );
     if (!sync || ack == null) {
       return null;
     }
@@ -385,7 +419,12 @@ class MusicxxPluginHooks {
     Map<String, Object?> payload,
     int budgetMs,
   ) {
-    final Map<String, Object?>? ack = _emitAck(id, payload, sync: false, timeoutMs: budgetMs);
+    final Map<String, Object?>? ack = _emitAck(
+      id,
+      payload,
+      sync: false,
+      timeoutMs: budgetMs,
+    );
     if (ack == null || ack['handled'] == false) {
       return null;
     }
@@ -395,11 +434,13 @@ class MusicxxPluginHooks {
 
   /// 等待异步裁决结果（结果事件优先；超时/事件丢失按"无裁决"收尾）
   Future<Map<String, Object?>?> _awaitAsyncDecision(int callId, int budgetMs) {
-    final Completer<Map<String, Object?>?> completer = Completer<Map<String, Object?>?>();
+    final Completer<Map<String, Object?>?> completer =
+        Completer<Map<String, Object?>?>();
     _pendingDecisions[callId] = completer;
     final int waitMs = (budgetMs > 0 ? budgetMs : 100) + _asyncDecisionSlackMs;
     _pendingDecisionTimers[callId] = Timer(Duration(milliseconds: waitMs), () {
-      final Completer<Map<String, Object?>?>? pending = _pendingDecisions.remove(callId);
+      final Completer<Map<String, Object?>?>? pending = _pendingDecisions
+          .remove(callId);
       _pendingDecisionTimers.remove(callId);
       if (pending != null && !pending.isCompleted) {
         ++_asyncDecisionTimeouts;
@@ -447,7 +488,10 @@ class MusicxxPluginHooks {
       );
       if (rc != 0) {
         // 派发失败不阻断业务（按"无裁决"处理，只记录）
-        _runtime.log(3, 'hook_emit ${id.id} 失败: ${takeOutString(log, _runtime.bindings)}');
+        _runtime.log(
+          3,
+          'hook_emit ${id.id} 失败: ${takeOutString(log, _runtime.bindings)}',
+        );
         return null;
       }
       return decodeJsonObject(takeOutString(out, _runtime.bindings));
@@ -494,7 +538,8 @@ class MusicxxPluginHooks {
       // 最保守：已出现的 cancel/skip 不被后续的 continue 覆盖
       final Object? current = merged['action'];
       final Object? incoming = later['action'];
-      if ((current == 'cancel' || current == 'skip') && incoming == 'continue') {
+      if ((current == 'cancel' || current == 'skip') &&
+          incoming == 'continue') {
         // 保留保守裁决
       } else if (incoming != null) {
         merged['action'] = incoming;
@@ -512,7 +557,10 @@ class MusicxxPluginHooks {
     return merged;
   }
 
-  static void _mergePatch(Map<String, Object?> target, Map<String, Object?> source) {
+  static void _mergePatch(
+    Map<String, Object?> target,
+    Map<String, Object?> source,
+  ) {
     final Object? patch = source['patch'];
     if (patch is! Map) {
       return;

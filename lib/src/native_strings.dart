@@ -7,7 +7,7 @@ import 'bindings_generated.dart';
 
 /// FFI 字符串与内存工具
 ///
-/// 契约（plan §6.1）：
+/// 契约：
 /// - 入参用**只读借用视图** [MusicxxExternPluginStringView]，指向调用方内存，
 ///   调用返回前不得释放；
 /// - 出参用**宿主堆字符串** [MusicxxExternPluginString]，必须调用
@@ -54,7 +54,8 @@ class MusicxxPluginArena {
 
   /// 分配一个宿主堆字符串出参槽（值由调用方/宿主填充，用 [takeOutString] 读取并释放）
   Pointer<MusicxxExternPluginString> outString() {
-    final Pointer<MusicxxExternPluginString> out = malloc<MusicxxExternPluginString>();
+    final Pointer<MusicxxExternPluginString> out =
+        malloc<MusicxxExternPluginString>();
     _blocks.add(out.cast<Uint8>());
     out.ref
       ..data = nullptr
@@ -83,7 +84,10 @@ class MusicxxPluginArena {
 }
 
 /// 读取并释放宿主堆字符串（幂等：释放后槽位清零）
-String takeOutString(Pointer<MusicxxExternPluginString> out, MusicxxExternPluginBindings b) {
+String takeOutString(
+  Pointer<MusicxxExternPluginString> out,
+  MusicxxExternPluginBindings b,
+) {
   final MusicxxExternPluginString value = out.ref;
   final String text = (value.data == nullptr || value.size == 0)
       ? ''

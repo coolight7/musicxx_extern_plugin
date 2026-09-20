@@ -8,7 +8,7 @@
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
 /// - 声明式设置页 + 宿主网络代理通道 (musicxx.net.fetch) 演示。
 ///
-/// 约束 (plan §7.2): 脚本顶层必须**同步**完成注册 (顶层不能用 await);
+/// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
 
 const BUDGET_KEY = "example_js.songChanged";
@@ -82,7 +82,7 @@ musicxx.timer.setInterval(function () {
     musicxx.host.log(2, "example_js 心跳: 切歌 " + songChangedCount + " 次, 错误 " + errorCount + " 次");
 }, 30000);
 
-/// 声明式 UI 扩展 (plan §5.6): 主页入口项 + 歌曲菜单项
+/// 声明式 UI 扩展: 主页入口项 + 歌曲菜单项
 /// 说明: UI 项只做声明 (标题/图标/动作), 渲染由宿主负责; 运行期也能再注册/更新/注销。
 musicxx.ui.registerEntry({
     name: "card",
@@ -106,7 +106,7 @@ musicxx.ui.registerEntry({
     },
 });
 
-/// 声明式设置页 (plan §5.6): 应用「设置 → 插件设置」里会出现这个页面,
+/// 声明式设置页: 应用「设置 → 插件设置」里会出现这个页面,
 /// 页内控件读写插件目录的 config.json (与清单 settings_schema 是同一份配置)。
 musicxx.ui.registerEntry({
     name: "settings",
@@ -122,16 +122,20 @@ musicxx.ui.registerEntry({
                     { kind: "switch", key: "skipAds", title: "跳过广告曲目", depict: "播放前裁决：名字含『广告』的曲目直接跳过" },
                     { kind: "number", key: "heartbeatMs", title: "心跳间隔(毫秒)", min: 5000, max: 600000 },
                     { kind: "input", key: "greeting", title: "启动提示语", placeholder: "加载时弹出的提示" },
-                    { kind: "select", key: "logLevel", title: "日志级别", default: "info",
-                      options: [ { value: "debug", label: "调试" }, { value: "info", label: "信息" } ] },
+                    {
+                        kind: "select", key: "logLevel", title: "日志级别", default: "info",
+                        options: [{ value: "debug", label: "调试" }, { value: "info", label: "信息" }]
+                    },
                     { kind: "info", text: "提示：这里改的值会立刻写入 config.json；脚本可用 musicxx.storage.getConfig 读取。" },
                     // 只读块（不写配置）：进度条与列表，用来展示插件自己的状态
                     { kind: "progress", title: "示例进度", depict: "只读：由插件声明 value/total", value: 1, total: 4 },
-                    { kind: "list", title: "本插件注册的钩子", items: [
-                        { title: "musicxx.player.beforePlaySong", depict: "跳过广告曲目" },
-                        { title: "musicxx.song.changed", depict: "切歌日志" },
-                        { title: "musicxx.player.speed", depict: "异步裁决：限速" },
-                    ] },
+                    {
+                        kind: "list", title: "本插件注册的钩子", items: [
+                            { title: "musicxx.player.beforePlaySong", depict: "跳过广告曲目" },
+                            { title: "musicxx.song.changed", depict: "切歌日志" },
+                            { title: "musicxx.player.speed", depict: "异步裁决：限速" },
+                        ]
+                    },
                     { kind: "button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
                 ],
             },
@@ -167,7 +171,7 @@ musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function 
 ///
 /// - 目标是 JS 插件时同线程直接调用 (结果立即就绪);
 /// - 目标是原生插件时投递到宿主线程执行, 脚本不阻塞 (宿主线程可能正等 JS 处理器)。
-/// 能力处理器必须**同步返回** (plan §7.2), 所以跨插件调用的结果用"最后一次结果"记账,
+/// 能力处理器必须**同步返回**, 所以跨插件调用的结果用"最后一次结果"记账,
 /// 由 probe 能力回读 (测试用; 真实插件应把异步结果写进自己的状态或 UI 项)。
 let crossCallState = { pending: 0, ok: 0, keys: 0, error: "" };
 
@@ -211,7 +215,7 @@ musicxx.capability.register("probe", function (args) {
         hostPlatform: info.platform || "",
         currentSongName: currentSongName(),
         uiEntries: musicxx.ui.entries().length,
-        // 自读统计 (plan §4.11: 只观测不限制; 插件可据此显示自己的用量)
+        // 自读统计 (只观测不限制; 插件可据此显示自己的用量)
         selfStatsHooks: (musicxx.stats.getSelf() || {}).hooks || 0,
         crossPending: crossCallState.pending,
         crossOk: crossCallState.ok,
@@ -225,7 +229,7 @@ musicxx.capability.register("probe", function (args) {
 
 /// 能力: 演示宿主网络代理通道 (musicxx.net.fetch)
 ///
-/// 说明 (plan §7.4 第 5 条): 这条通道是**可选便利能力**, `musicxx.net` 权限只表示
+/// 说明: 这条通道是**可选便利能力**, `musicxx.net` 权限只表示
 /// "允许用宿主代理通道"; 宿主不限定可访问的域名 (任意 http/https 地址都可以请求)。
 /// 非 2xx 也会正常返回 (status 交给脚本判断); 只有传输失败/超时才是 ok=false + error。
 let fetchState = { pending: 0, ok: 0, status: 0, bytes: 0, error: "" };

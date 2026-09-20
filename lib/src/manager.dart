@@ -9,16 +9,17 @@ import 'ui.dart';
 import 'runtime.dart';
 
 /// 原生调用出参读取器（统一的 arena/错误串/JSON 处理）
-typedef _OutCall = int Function(
-  MusicxxExternPluginBindings bindings,
-  Pointer<MusicxxExternPluginString> out,
-  Pointer<MusicxxExternPluginString> log,
-);
+typedef _OutCall =
+    int Function(
+      MusicxxExternPluginBindings bindings,
+      Pointer<MusicxxExternPluginString> out,
+      Pointer<MusicxxExternPluginString> log,
+    );
 
 /// 插件管理（Dart → 原生宿主的插件生命周期与查询）
 ///
 /// 全部方法都是**同步 FFI 调用**（有等待上界）：装载/卸载在宿主线程异步完成，
-/// 这里只做有界等待（plan §2.3）；长时间操作（安装压缩包等）留给 S4 的隔离 isolate。
+/// 这里只做有界等待；长时间操作（安装压缩包等）留给 S4 的隔离 isolate。
 class MusicxxPluginManager {
   MusicxxPluginManager.internal(this._runtime);
 
@@ -35,10 +36,12 @@ class MusicxxPluginManager {
   bool get safeMode => _runtime.config?.safeMode ?? false;
 
   /// 已加载插件（缓存快照；权威结果请调用 [list]）
-  List<MusicxxPluginInfo> get loaded => List<MusicxxPluginInfo>.unmodifiable(_cache);
+  List<MusicxxPluginInfo> get loaded =>
+      List<MusicxxPluginInfo>.unmodifiable(_cache);
 
   /// 最近一次扫描结果
-  List<MusicxxPluginInfo> get discovered => List<MusicxxPluginInfo>.unmodifiable(_scanned);
+  List<MusicxxPluginInfo> get discovered =>
+      List<MusicxxPluginInfo>.unmodifiable(_scanned);
 
   /// 扫描插件目录（用户目录 + 随包目录）
   ///
@@ -49,9 +52,11 @@ class MusicxxPluginManager {
     }
     final List<MusicxxPluginInfo> result = _readList(
       'plugin_scan',
-      (MusicxxExternPluginBindings b, Pointer<MusicxxExternPluginString> out,
-              Pointer<MusicxxExternPluginString> log) =>
-          b.musicxx_extern_plugin_plugin_scan(_runtime.host, out, log),
+      (
+        MusicxxExternPluginBindings b,
+        Pointer<MusicxxExternPluginString> out,
+        Pointer<MusicxxExternPluginString> log,
+      ) => b.musicxx_extern_plugin_plugin_scan(_runtime.host, out, log),
     );
     _scanned = result;
     return result;
@@ -64,16 +69,21 @@ class MusicxxPluginManager {
     }
     final List<MusicxxPluginInfo> result = _readList(
       'plugin_list',
-      (MusicxxExternPluginBindings b, Pointer<MusicxxExternPluginString> out,
-              Pointer<MusicxxExternPluginString> log) =>
-          b.musicxx_extern_plugin_plugin_list(_runtime.host, out, log),
+      (
+        MusicxxExternPluginBindings b,
+        Pointer<MusicxxExternPluginString> out,
+        Pointer<MusicxxExternPluginString> log,
+      ) => b.musicxx_extern_plugin_plugin_list(_runtime.host, out, log),
     );
     _cache = result;
     _byId
       ..clear()
-      ..addEntries(result.map(
-        (MusicxxPluginInfo info) => MapEntry<String, MusicxxPluginInfo>(info.id, info),
-      ));
+      ..addEntries(
+        result.map(
+          (MusicxxPluginInfo info) =>
+              MapEntry<String, MusicxxPluginInfo>(info.id, info),
+        ),
+      );
     return result;
   }
 
@@ -92,7 +102,10 @@ class MusicxxPluginManager {
   }) {
     _requireRunning('plugin_load_sync');
     final String options = _optionsJson(args);
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
       final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_load_sync(
         _runtime.host,
         arena.view(idOrPath),
@@ -109,7 +122,10 @@ class MusicxxPluginManager {
   void loadAsync(String idOrPath, {Map<String, Object?>? args}) {
     _requireRunning('plugin_load');
     final String options = _optionsJson(args);
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
       final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_load(
         _runtime.host,
         arena.view(idOrPath),
@@ -123,9 +139,15 @@ class MusicxxPluginManager {
   /// 启用插件（重新执行插件 `start` 事务，插件借此重新注册钩子/能力/订阅）
   void enable(String id) {
     _requireRunning('plugin_enable');
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_plugin_enable(_runtime.host, arena.view(id), log);
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
+      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_enable(
+        _runtime.host,
+        arena.view(id),
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'plugin_enable');
     });
     list();
@@ -134,9 +156,15 @@ class MusicxxPluginManager {
   /// 禁用插件（摘除注册并调用插件 `stop`；实例保留在内存，可再 [enable]）
   void disable(String id) {
     _requireRunning('plugin_disable');
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_plugin_disable(_runtime.host, arena.view(id), log);
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
+      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_disable(
+        _runtime.host,
+        arena.view(id),
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'plugin_disable');
     });
     list();
@@ -145,9 +173,15 @@ class MusicxxPluginManager {
   /// 卸载插件（释放实例与动态库；宿主侧卸载是幂等的）
   void unload(String id) {
     _requireRunning('plugin_unload');
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_plugin_unload(_runtime.host, arena.view(id), log);
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
+      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_unload(
+        _runtime.host,
+        arena.view(id),
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'plugin_unload');
     });
     list();
@@ -156,9 +190,15 @@ class MusicxxPluginManager {
   /// 卸载后按当前配置重新装载
   void reload(String id) {
     _requireRunning('plugin_reload');
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_plugin_reload(_runtime.host, arena.view(id), log);
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
+      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_reload(
+        _runtime.host,
+        arena.view(id),
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'plugin_reload');
     });
     list();
@@ -168,7 +208,10 @@ class MusicxxPluginManager {
   void setArgs(String id, Map<String, Object?> args) {
     _requireRunning('plugin_set_args');
     final String json = _optionsJson(args);
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
       final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_set_args(
         _runtime.host,
         arena.view(id),
@@ -186,12 +229,13 @@ class MusicxxPluginManager {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_get_config_path(
-        _runtime.host,
-        arena.view(id),
-        out,
-        log,
-      );
+      final int rc = _runtime.bindings
+          .musicxx_extern_plugin_plugin_get_config_path(
+            _runtime.host,
+            arena.view(id),
+            out,
+            log,
+          );
       _runtime.checkOrThrow(rc, log, 'plugin_get_config_path');
       return takeOutString(out, _runtime.bindings);
     } finally {
@@ -236,12 +280,17 @@ class MusicxxPluginManager {
     _requireRunning('stats');
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
-      final Pointer<MusicxxExternPluginStringView> scopeView =
-          scope == null ? nullptr : arena.view(_optionsJson(scope));
+      final Pointer<MusicxxExternPluginStringView> scopeView = scope == null
+          ? nullptr
+          : arena.view(_optionsJson(scope));
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_stats(_runtime.host, scopeView, out, log);
+      final int rc = _runtime.bindings.musicxx_extern_plugin_stats(
+        _runtime.host,
+        scopeView,
+        out,
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'stats');
       return decodeJsonObject(takeOutString(out, _runtime.bindings));
     } finally {
@@ -249,7 +298,7 @@ class MusicxxPluginManager {
     }
   }
 
-  /// 插件贡献的 UI 项全量快照（声明式 UI 扩展，plan §5.6）
+  /// 插件贡献的 UI 项全量快照（声明式 UI 扩展）
   ///
   /// 变更会额外推送 `musicxx.ui.changed` 事件（载荷带该插件的全部项），
   /// 应用侧按插件整批替换即可（见 [MusicxxPluginUIItems.replacePlugin]）。
@@ -259,8 +308,11 @@ class MusicxxPluginManager {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_ui_snapshot(_runtime.host, out, log);
+      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_snapshot(
+        _runtime.host,
+        out,
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'ui_snapshot');
       final String json = takeOutString(out, _runtime.bindings);
       if (json.isEmpty) {
@@ -277,17 +329,26 @@ class MusicxxPluginManager {
   void statsConfig(Map<String, Object?> cfg) {
     _requireRunning('stats_config');
     final String json = _optionsJson(cfg);
-    _withArena((MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) {
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_stats_config(_runtime.host, arena.view(json), log);
+    _withArena((
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    ) {
+      final int rc = _runtime.bindings.musicxx_extern_plugin_stats_config(
+        _runtime.host,
+        arena.view(json),
+        log,
+      );
       _runtime.checkOrThrow(rc, log, 'stats_config');
     });
   }
 
   /// 某插件的日志流（来自 `musicxx.plugin.log` 事件）
   Stream<MusicxxPluginLog> logs(String id) => _runtime.events
-      .where((MusicxxPluginEvent event) =>
-          event.type == MusicxxPluginEventType.pluginLog && event.plugin == id)
+      .where(
+        (MusicxxPluginEvent event) =>
+            event.type == MusicxxPluginEventType.pluginLog &&
+            event.plugin == id,
+      )
       .map(MusicxxPluginLog.fromEvent);
 
   // ==================== 内部 ====================
@@ -308,7 +369,9 @@ class MusicxxPluginManager {
         event.type == MusicxxPluginEventType.pluginUnloaded &&
         _byId.containsKey(id)) {
       _byId.remove(id);
-      _cache = _cache.where((MusicxxPluginInfo info) => info.id != id).toList(growable: false);
+      _cache = _cache
+          .where((MusicxxPluginInfo info) => info.id != id)
+          .toList(growable: false);
     }
     list();
   }
@@ -327,7 +390,11 @@ class MusicxxPluginManager {
   }
 
   void _withArena(
-    void Function(MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) body,
+    void Function(
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> log,
+    )
+    body,
   ) {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
@@ -345,9 +412,9 @@ class MusicxxPluginManager {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
       _runtime.checkOrThrow(call(_runtime.bindings, out, log), log, operation);
-      return decodeJsonArray(takeOutString(out, _runtime.bindings))
-          .map(MusicxxPluginInfo.fromJson)
-          .toList(growable: false);
+      return decodeJsonArray(
+        takeOutString(out, _runtime.bindings),
+      ).map(MusicxxPluginInfo.fromJson).toList(growable: false);
     } finally {
       arena.dispose();
     }

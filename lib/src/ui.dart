@@ -1,4 +1,4 @@
-/// 声明式 UI 扩展模型（plan §5.6）
+/// 声明式 UI 扩展模型
 ///
 /// 插件**不写 Flutter 代码**：它只注册"UI 项"，用官方类型 + JSON 内容描述
 /// "长什么样、点了做什么"；渲染由 musicxx 应用侧负责（见 `lib/plugin/externPlugin/ui/`）。
@@ -89,7 +89,8 @@ class MusicxxPluginUIItem {
       return null;
     }
     final Map<String, Object?> map = value.cast<String, Object?>();
-    final String kind = _stringOf(map['kind']) ?? MusicxxPluginUIActionKind.none;
+    final String kind =
+        _stringOf(map['kind']) ?? MusicxxPluginUIActionKind.none;
     if (kind == MusicxxPluginUIActionKind.none) {
       return null;
     }
@@ -120,7 +121,9 @@ class MusicxxPluginUIItem {
   /// 动作参数（`capability` / `action` 动作）
   Map<String, Object?> get actionArgs {
     final Object? args = action?['args'];
-    return args is Map ? args.cast<String, Object?>() : const <String, Object?>{};
+    return args is Map
+        ? args.cast<String, Object?>()
+        : const <String, Object?>{};
   }
 
   /// 能力短名（`capability` 动作）
@@ -205,9 +208,8 @@ abstract final class MusicxxPluginUIItems {
   static List<MusicxxPluginUIItem> byType(
     List<MusicxxPluginUIItem> items,
     String type,
-  ) =>
-      <MusicxxPluginUIItem>[
-        for (final MusicxxPluginUIItem item in items)
-          if (item.type == type) item,
-      ];
+  ) => <MusicxxPluginUIItem>[
+    for (final MusicxxPluginUIItem item in items)
+      if (item.type == type) item,
+  ];
 }

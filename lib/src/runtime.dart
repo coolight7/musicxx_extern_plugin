@@ -55,7 +55,7 @@ class MusicxxPluginRuntimeConfig {
   /// 0 trace .. 4 error
   final int logLevel;
 
-  /// 安全模式：本次运行不加载任何外部插件（崩溃后自检用，plan §12.3）
+  /// 安全模式：本次运行不加载任何外部插件（崩溃后自检用）
   final bool safeMode;
 
   /// 允许原生（DSO）插件
@@ -104,16 +104,17 @@ class MusicxxPluginApiException implements Exception {
   final String operation;
 
   @override
-  String toString() => 'musicxx_extern_plugin ${operation.isEmpty ? '' : '$operation '}'
+  String toString() =>
+      'musicxx_extern_plugin ${operation.isEmpty ? '' : '$operation '}'
       '失败 (code=$code): $message';
 }
 
 /// 外部插件宿主运行时（进程单例）
 ///
-/// 生命周期（plan §5.1）：[init] → 用 [plugins]/[hooks]/[state]/[actions] →
+/// 生命周期：[init] → 用 [plugins]/[hooks]/[state]/[actions] →
 /// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把钩子/动作接到业务上。
 ///
-/// 线程模型（plan §2.3）：宿主内所有插件代码运行在**原生宿主线程**上，Dart 线程只在
+/// 线程模型：宿主内所有插件代码运行在**原生宿主线程**上，Dart 线程只在
 /// 同步 FFI 调用（钩子派发、能力调用、状态推送）期间参与，且有等待上界。
 class MusicxxPluginRuntime {
   MusicxxPluginRuntime._();
@@ -156,7 +157,8 @@ class MusicxxPluginRuntime {
   bool get isLoaded => _library != null;
 
   /// 最近若干条事件（调试页/排障用；容量固定，不参与派发）
-  List<MusicxxPluginEvent> get recentEvents => List<MusicxxPluginEvent>.unmodifiable(_eventLog);
+  List<MusicxxPluginEvent> get recentEvents =>
+      List<MusicxxPluginEvent>.unmodifiable(_eventLog);
 
   /// 宿主丢事件计数（队列溢出时由宿主补发 `musicxx.host.error` 并累加）
   int get droppedEvents => _droppedEvents;
@@ -179,7 +181,10 @@ class MusicxxPluginRuntime {
     if (_disposed) {
       throw StateError('MusicxxPluginRuntime 已 dispose，不能再次 init');
     }
-    _library = MusicxxPluginNativeLibrary.open(path: libraryPath, packageRoot: packageRoot);
+    _library = MusicxxPluginNativeLibrary.open(
+      path: libraryPath,
+      packageRoot: packageRoot,
+    );
     _config = config;
     final MusicxxExternPluginBindings bindings = _library!.bindings;
 
@@ -204,10 +209,18 @@ class MusicxxPluginRuntime {
         final Pointer<MusicxxExternPluginString> log = arena.outString();
         _host = bindings.musicxx_extern_plugin_host_create(cfg, log);
         if (_host == nullptr) {
-          throw MusicxxPluginApiException(-99, takeOutString(log, bindings), operation: 'host_create');
+          throw MusicxxPluginApiException(
+            -99,
+            takeOutString(log, bindings),
+            operation: 'host_create',
+          );
         }
         try {
-          _check(bindings.musicxx_extern_plugin_host_start(_host, log), log, 'host_start');
+          _check(
+            bindings.musicxx_extern_plugin_host_start(_host, log),
+            log,
+            'host_start',
+          );
         } on MusicxxPluginApiException {
           bindings.musicxx_extern_plugin_host_destroy(_host);
           _host = nullptr;
@@ -225,7 +238,9 @@ class MusicxxPluginRuntime {
     // 注意 ABI 细节：C ABI 的唤醒回调返回 int32_t（宿主忽略其值，只用来触发安排），
     // 而 `NativeCallable.listener` 只支持 void 返回，因此这里做一次函数指针类型转换。
     try {
-      _wakeCallable = NativeCallable<Void Function(Pointer<Void>)>.listener(_onWake);
+      _wakeCallable = NativeCallable<Void Function(Pointer<Void>)>.listener(
+        _onWake,
+      );
       final int rc = bindings.musicxx_extern_plugin_set_wake_callback(
         _host,
         _wakeCallable!.nativeFunction
@@ -240,7 +255,10 @@ class MusicxxPluginRuntime {
       _wakeCallable?.close();
       _wakeCallable = null;
     }
-    _pollFallback = Timer.periodic(const Duration(milliseconds: 200), (_) => pumpEvents());
+    _pollFallback = Timer.periodic(
+      const Duration(milliseconds: 200),
+      (_) => pumpEvents(),
+    );
     _running = true;
     // 首轮立刻取一次（host.ready 已在队列里）
     pumpEvents();
@@ -299,7 +317,8 @@ class MusicxxPluginRuntime {
   /// 运行一次原生调用：构造 arena → 读错误串 → 释放 → 失败时抛异常
   T _call<T>(
     String operation,
-    T Function(MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log) body,
+    T Function(MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log)
+    body,
   ) {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
@@ -321,12 +340,16 @@ class MusicxxPluginRuntime {
       return;
     }
     final String message = takeOutString(log, bindings);
-    throw MusicxxPluginApiException(rc, message.isEmpty ? '宿主未给出原因' : message, operation: operation);
+    throw MusicxxPluginApiException(
+      rc,
+      message.isEmpty ? '宿主未给出原因' : message,
+      operation: operation,
+    );
   }
 
   // ==================== 事件泵 ====================
 
-  /// 原生线程 → Dart：只做"安排一次轮询"，绝不在这里做重活（plan §4.8 无死锁不变式）
+  /// 原生线程 → Dart：只做"安排一次轮询"，绝不在这里做重活（无死锁不变式）
   void _onWake(Pointer<Void> _) {
     _schedulePump();
   }
@@ -371,7 +394,12 @@ class MusicxxPluginRuntime {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = bindings.musicxx_extern_plugin_poll_events(_host, maxCount, out, log);
+      final int rc = bindings.musicxx_extern_plugin_poll_events(
+        _host,
+        maxCount,
+        out,
+        log,
+      );
       if (rc == -5) {
         return const <MusicxxPluginEvent>[]; // 无事件：正常路径
       }
@@ -380,7 +408,9 @@ class MusicxxPluginRuntime {
         throw MusicxxPluginApiException(rc, message, operation: 'poll_events');
       }
       final String json = takeOutString(out, bindings);
-      return decodeJsonArray(json).map(MusicxxPluginEvent.fromJson).toList(growable: false);
+      return decodeJsonArray(
+        json,
+      ).map(MusicxxPluginEvent.fromJson).toList(growable: false);
     } finally {
       arena.dispose();
     }
@@ -433,16 +463,27 @@ class MusicxxPluginRuntime {
   // ==================== 通用原生调用（供 manager/hooks/state/actions 使用） ====================
 
   /// 读取 `log` 出参并在失败时抛异常的通用包装（供子对象复用）
-  void checkOrThrow(int rc, Pointer<MusicxxExternPluginString> log, String operation) =>
-      _check(rc, log, operation);
+  void checkOrThrow(
+    int rc,
+    Pointer<MusicxxExternPluginString> log,
+    String operation,
+  ) => _check(rc, log, operation);
 
   /// 写 Dart → 原生日志（统一落盘/转发策略由原生侧配置）
   void log(int level, String message) {
     if (_host == nullptr) {
       return;
     }
-    _call<int>('log', (MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> logOut) {
-      bindings.musicxx_extern_plugin_log(_host, level, arena.view(message), logOut);
+    _call<int>('log', (
+      MusicxxPluginArena arena,
+      Pointer<MusicxxExternPluginString> logOut,
+    ) {
+      bindings.musicxx_extern_plugin_log(
+        _host,
+        level,
+        arena.view(message),
+        logOut,
+      );
       return 0;
     });
   }
@@ -454,7 +495,11 @@ class MusicxxPluginRuntime {
     }
     return _call<Map<String, Object?>>('debug_info', (arena, log) {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
-      _check(bindings.musicxx_extern_plugin_debug_info(_host, out, log), log, 'debug_info');
+      _check(
+        bindings.musicxx_extern_plugin_debug_info(_host, out, log),
+        log,
+        'debug_info',
+      );
       return decodeJsonObject(takeOutString(out, bindings));
     });
   }
