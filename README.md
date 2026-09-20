@@ -11,7 +11,7 @@ src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_pa
   include/           Dart ⇄ 原生 C ABI v1（ffigen 入口，唯一导出契约）
   sdk/include/       插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
                      其中 hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
-  tests/             原生测试（不依赖 Dart）
+  tests/             原生测试（不依赖 Dart；`plugins/` 是 JS 夹具、`fixtures/` 是原生夹具插件）
   third_party/       依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
                      bindings_generated.dart 与 hook_ids.g.dart 为生成物）
@@ -118,6 +118,28 @@ dumpbin /exports   .native/output/windows-x64-release/bin/musicxx_extern_plugin.
 dumpbin /dependents .native/output/windows-x64-release/bin/musicxx_extern_plugin.dll  # 仅系统 DLL（无第三方 DLL）
 ```
 
+## 打包（随应用分发）
+
+宿主库**不在 Flutter 构建里编译**（依赖链太重，见 plan §11.2），所以本包把它当作"预构建产物"来打包：
+
+```
+pubspec.yaml        flutter.plugin.platforms.windows.ffiPlugin = true
+windows/CMakeLists.txt   找到已构建的宿主库 → 写 musicxx_extern_plugin_bundled_libraries
+                         → Flutter 把它放进 PLUGIN_BUNDLED_LIBRARIES → 安装到可执行文件旁边
+```
+
+- 查找顺序（与 Dart 侧 `native_library.dart` 同一套约定）：
+  `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY` → 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`
+  → `<包>/.native/output/windows-<架构>-<配置>/bin/` → `<包>/.native/build/windows-<配置>/musicxx-extern-plugin-install/bin/`
+  → `<仓库>/resource/libs/windows/lib/`；
+- Debug 与 Release 两份产物都在时，按**当前 Flutter 构建配置**选择（`Profile` 取 Release）；
+- **找不到宿主库只打警告、不中断构建**（外部插件是可选功能，缺失时应用照常启动，Dart 侧给出提示）。
+  发布流水线若要求"必须打包"，请显式传 `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<路径>`，并在 CI 里自行判定失败；
+- 例：`flutter build windows --release` → `build/windows/x64/runner/Release/musicxx_extern_plugin.dll` 与 `musicxx.exe` 同目录。
+
+其它平台（Linux/macOS/Android/iOS/OHOS）的打包属于 plan M4 的后续工作：Linux/macOS 可照 Windows 的写法
+（`<平台>_bundled_libraries`）接；Android 需要先用 NDK 交叉编译整套依赖（含 QuickJS），适合在 CI 里单独一条流水线。
+
 ## 原生测试
 
 宿主按「父目录下的每个子目录 = 一个插件」扫描，因此测试参数要传**插件目录的父目录**：
@@ -188,7 +210,17 @@ final List<MusicxxPluginUIItem> next =
 - S6（UI 扩展 + 观测）：声明式 UI 表与 JS/原生 API 已落地，应用侧渲染（主页入口 / 歌曲菜单 /
   插件页面 / 插件设置页）已接入；插件配置表单（清单 `settings_schema` + `config.json`）、
   `musicxx.net.fetch`/`download` 便利通道、管理页调试与统计页也已落地；
-  平台打包（Android/iOS/macOS/Linux）与 runner isolate 异步裁决排入后续阶段。
+- 平台打包：**Windows 已接入**（宿主库随应用分发到可执行文件旁，见上面「打包（随应用分发）」）；
+  Linux/Android/iOS/macOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 runner isolate 异步裁决排入后续阶段。
+
+测试夹具（只服务原生测试，不是可发布插件；随测试一起安装到 `<安装前缀>/plugins/`）：
+
+| 夹具 | 验证点 |
+|---|---|
+| `src/tests/fixtures/fail_native/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（熔断，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载（plan §4.10） |
+| `src/tests/fixtures/bad_entry_native/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按契约拒绝（明确失败、有可读原因、无注册残留，plan §13.1 的 `test_entry_symbols`） |
+| `src/tests/plugins/spin_js/` | 观察钩子里死循环 → 可选执行上限（`jsExecGuardMs`）能中断脚本且不影响其它 JS 插件 |
+| `src/tests/plugins/broken_js/` | 脚本语法错误 → 装载失败并回滚，宿主继续可用 |
 
 插件侧可用的能力（对应 plan §4.8/§5.6/§7）：
 
@@ -198,7 +230,7 @@ final List<MusicxxPluginUIItem> next =
 | 动作 | `musicxx.call` / `pluginBase.requestAction` | 播放/库/歌词/UI/存储/网络/杂项，逐条权限校验 |
 | 状态镜像 | `musicxx.state.get` | 只读快照（不含临时直链/token） |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`，与用户在设置页里改的是同一份 |
-| 网络（可选便利通道） | `musicxx.net.fetch/download` | 经宿主网络栈；清单 `net_domains` 可限定域名 |
+| 网络（可选便利通道） | `musicxx.net.fetch/download` | 经宿主网络栈；宿主不限定可访问域名 |
 | 声明式 UI | `musicxx.ui.registerEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 设置页 / 附加信息块 |
 | 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→原生投递宿主线程、脚本不阻塞 |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |

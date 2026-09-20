@@ -15,11 +15,6 @@ permissions:
   - musicxx.storage
   - musicxx.net
 
-# 可选: 限定"宿主网络代理通道"(musicxx.net.fetch) 能访问的域名; 不写 = 不限制
-net_domains:
-  - api.github.com
-  - "*.githubusercontent.com"
-
 # 可选: 宿主生成的配置表单 (读写插件目录下的 config.json)
 settings_schema:
   - { key: "skipAds", type: "bool", title: "跳过广告曲目", default: true }

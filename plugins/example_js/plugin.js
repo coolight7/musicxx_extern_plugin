@@ -184,8 +184,8 @@ musicxx.capability.register("probe", function (args) {
 /// 能力: 演示宿主网络代理通道 (musicxx.net.fetch)
 ///
 /// 说明 (plan §7.4 第 5 条): 这条通道是**可选便利能力**, `musicxx.net` 权限只表示
-/// "允许用宿主代理通道"; 清单 net_domains 限定了可访问域名 (示例里是 api.github.com)。
-/// 非 2xx 也会正常返回 (status 交给脚本判断); 域名未授权时 ok=false + error=domain_not_allowed。
+/// "允许用宿主代理通道"; 宿主不限定可访问的域名 (任意 http/https 地址都可以请求)。
+/// 非 2xx 也会正常返回 (status 交给脚本判断); 只有传输失败/超时才是 ok=false + error。
 let fetchState = { pending: 0, ok: 0, status: 0, bytes: 0, error: "" };
 musicxx.capability.register("fetchEcho", function (args) {
     const url = (args && args.url) ? String(args.url) : "https://api.github.com/zen";

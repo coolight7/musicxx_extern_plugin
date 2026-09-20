@@ -978,6 +978,190 @@ int main(int argc, char** argv) {
         check(snapshot.find("plugin.example_js.card") == std::string::npos, "JS 插件卸载后 UI 项无残留");
     }
 
+    // ==================== 入口符号契约 (plan §4.1 P0 / §13.1 test_entry_symbols) ====================
+    //
+    // 夹具 bad_entry_native 的库文件导出了 get_info/create/destroy, 但**没有** start/stop。
+    // 契约要求 start/stop 成对存在 (create 只构造, start 才是注册事务), 宿主必须在
+    // "查找入口符号"阶段就拒绝装载: 明确失败 (不是超时)、有可读原因、不留注册残留。
+    {
+        MusicxxExternPluginString loadLog{};
+        const auto                rc = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("bad_entry_native"),
+            viewCP("{}"),
+            5000,
+            &loadLog
+        );
+        const std::string errText = take(loadLog);
+        check(rc != MUSICXX_EXTERN_PLUGIN_OK, "缺 start/stop 入口的库被拒绝装载");
+        check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT, "拒绝是明确失败而非挂住超时");
+        check(errText.find("入口符号") != std::string::npos, "失败原因指向缺失的入口符号");
+        std::printf("  [info] bad-entry rc=%d log=%s\n", rc, errText.c_str());
+
+        // 未装载 + 未注册任何钩子 (此时其它插件都已卸载)
+        MusicxxExternPluginString listed{};
+        const std::string        listJson = [&] {
+            musicxx_extern_plugin_plugin_list(host, &listed, &log);
+            return take(listed);
+        }();
+        check(listJson.find("bad_entry_native") == std::string::npos, "缺入口的库不出现在已装载列表");
+        int32_t badEntryHooks = -1;
+        musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"), &badEntryHooks, &log);
+        check(badEntryHooks == 0, "缺入口的库没有注册任何钩子");
+    }
+
+    // ==================== 熔断与派发暂停 (plan §4.10 / §13.1) ====================
+    //
+    // 夹具 fail_native 注册两个处理器:
+    //   musicxx.song.changed     → 每次失败 (返回非 0)
+    //   musicxx.player.completed → 每次成功
+    // 期望: 连续 3 次失败后只暂停出问题的处理器 (推送 musicxx.plugin.error 说明原因),
+    // 同一插件的另一个处理器照常工作, 插件本身保持装载 (熔断不等于卸载)。
+    {
+        MusicxxExternPluginString loadLog{};
+        const auto                loadRc = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("fail_native"),
+            viewCP("{}"),
+            8000,
+            &loadLog
+        );
+        if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+            std::printf("  [info] fail_native load rc=%d log=%s\n", loadRc, take(loadLog).c_str());
+        } else {
+            freeStr(loadLog);
+        }
+        check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "熔断夹具装载成功 (fail_native)");
+
+        int32_t fixtureHooks = -1;
+        musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"), &fixtureHooks, &log);
+        check(fixtureHooks == 1, "失败处理器的处理器数为 1 (其余插件已卸载)");
+
+        // 连续 3 次派发: 每次都真的调用了处理器 (called=1); 第 3 次触发熔断
+        for (int i = 1; i <= 3; ++i) {
+            MusicxxExternPluginString out{};
+            const auto                rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.song.changed"),
+                viewP(R"({"sid":"brk","song":{"name":"熔断目标"}})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                200,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "失败处理器派发可调用");
+            check(jsonIntField(result, "called") == "1", "失败处理器被调用 (每次计数 1)");
+        }
+
+        // 第 4 次: 处理器已在熔断期内 → 直接跳过 (不再调用, 也就不会再累加失败)
+        {
+            MusicxxExternPluginString out{};
+            const auto                rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.song.changed"),
+                viewP(R"({"sid":"brk","song":{"name":"熔断目标"}})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                200,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "熔断期内派发不报错");
+            check(jsonIntField(result, "called") == "0", "熔断期内处理器被跳过 (called=0)");
+        }
+
+        // 处理器级明细 (失败次数 / 暂停标记) 来自钩子统计接口 `hook_stats`:
+        // 宿主对"连续失败"的处理是**只暂停派发**, 不卸载插件 (plan §4.10)
+        {
+            MusicxxExternPluginString stats{};
+            const auto                statsRc = musicxx_extern_plugin_hook_stats(host, &stats, &log);
+            const std::string         statsJson = take(stats);
+            check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "hook_stats 可读 (熔断)");
+            check(statsJson.find("\"calls\":3") != std::string::npos, "失败处理器只被调用 3 次");
+            check(statsJson.find("\"failures\":3") != std::string::npos, "失败次数累计为 3");
+            check(statsJson.find("\"paused\":true") != std::string::npos, "熔断后处理器标记为暂停");
+            check(statsJson.find("\"failures\":0") != std::string::npos, "同插件的正常处理器无失败记录");
+        }
+
+        // 聚合统计 (宿主/插件维度) 仍然可读: 记录观测数据, 不做任何惩罚
+        {
+            MusicxxExternPluginString stats{};
+            const auto                statsRc = musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
+            const std::string         statsJson = take(stats);
+            check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (熔断)");
+            check(statsJson.find("fail_native") != std::string::npos, "聚合统计含熔断夹具插件");
+            check(statsJson.find("\"calls\":3") != std::string::npos, "聚合统计含钩子调用次数");
+        }
+
+        // 熔断事件 (说明原因, 便于用户/开发者定位)
+        {
+            MusicxxExternPluginString events{};
+            const std::string        eventsJson = [&] {
+                musicxx_extern_plugin_poll_events(host, 500, &events, &log);
+                return take(events);
+            }();
+            check(
+                eventsJson.find("musicxx.plugin.error") != std::string::npos,
+                "熔断推送 musicxx.plugin.error 事件"
+            );
+            check(
+                eventsJson.find("handler_failed") != std::string::npos,
+                "熔断事件说明原因是处理器失败"
+            );
+        }
+
+        // 同一插件的另一个处理器不受影响 (熔断粒度 = 单个处理器)
+        {
+            MusicxxExternPluginString out{};
+            const auto                rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.completed"),
+                viewP(R"({"sid":"brk","playedMs":1000})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                200,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "同插件的另一个处理器派发成功");
+            check(jsonIntField(result, "called") == "1", "另一个处理器不受熔断影响");
+        }
+
+        // 插件本身仍在装载状态 (熔断只暂停派发)
+        {
+            MusicxxExternPluginString probe{};
+            const auto                probeRc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("fail_native"),
+                viewCP("plugin.fail_native.probe"),
+                viewCP("{}"),
+                3000,
+                &probe,
+                &log
+            );
+            const std::string probeJson = take(probe);
+            check(probeRc == MUSICXX_EXTERN_PLUGIN_OK, "熔断后插件仍可响应能力调用 (未被卸载)");
+            check(
+                jsonIntField(probeJson, "failingCalls") == "3",
+                "失败处理器只被调用 3 次 (熔断期内未被调用)"
+            );
+            check(jsonIntField(probeJson, "goodCalls") == "1", "正常处理器按预期被调用 1 次");
+        }
+
+        // 卸载后无残留 (熔断状态随处理器一起消失)
+        {
+            check(
+                musicxx_extern_plugin_plugin_unload(host, viewCP("fail_native"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "熔断夹具卸载成功"
+            );
+            int32_t after = -1;
+            musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"), &after, &log);
+            check(after == 0, "熔断夹具卸载后无钩子残留");
+        }
+    }
+
     check(musicxx_extern_plugin_host_stop(host, 5000, &log) == MUSICXX_EXTERN_PLUGIN_OK, "host_stop");
     check(musicxx_extern_plugin_host_stop(host, 1000, &log) == MUSICXX_EXTERN_PLUGIN_OK, "host_stop 幂等");
     musicxx_extern_plugin_host_destroy(host);

@@ -29,11 +29,6 @@ permissions:                     # 声明式权限：安装时一次性确认，
   - musicxx.ui
   - musicxx.storage
 
-# 可选：限定"宿主网络代理通道"（musicxx.net.fetch）能访问的域名；不写 = 不限制
-net_domains:
-  - api.example.com
-  - "*.example.com"
-
 # 可选：宿主生成的配置表单（读写插件目录下的 config.json）
 settings_schema:
   - { key: "enabledFeature", type: "bool", title: "启用特性", default: true }
@@ -176,8 +171,8 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 // file = { ok, status, path, bytes }
 ```
 
-- **非 2xx 也会正常返回**（`ok: true` + `status`），由脚本自己判断；只有传输失败/超时/域名未授权才是 `ok: false`；
-- `ok: false` 时 `error` 可能是 `domain_not_allowed`（清单 `net_domains` 未包含该域名）、`请求失败：...`（网络/超时）；
+- **非 2xx 也会正常返回**（`ok: true` + `status`），由脚本自己判断；只有传输失败/超时才是 `ok: false`；
+- `ok: false` 时 `error` 是 `请求失败：...`（网络/超时）；宿主不限定可访问的域名（任意 http/https 地址都可以请求）；
 - 插件**不需要**这条通道也能联网（原生插件可用系统 API；JS 由于宿主内没有 `fetch`，用本通道最方便）——
   `musicxx.net` 权限只表示"允许使用宿主代理通道"（plan §7.4 第 5 条）；
 - `fileName` 只能是文件名：路径分隔符与 `..` 会被拒绝，落点固定在插件自己的数据目录内。

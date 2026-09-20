@@ -1,0 +1,10 @@
+# 测试夹具清单 (native): 处理器总是失败, 用于验证宿主熔断
+name: fail_native
+entry: fail_native.dll
+kind: native
+version: 1.0.0
+api_version: 1
+author: "test"
+description: "测试夹具: 总是失败的钩子处理器, 用于验证熔断与派发暂停 (不应出现在正式发布里)"
+platforms: [windows, linux, macos]
+permissions: []

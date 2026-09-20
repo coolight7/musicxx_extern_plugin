@@ -189,6 +189,46 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
   if (WIN32)
     target_compile_definitions(musicxx_extern_plugin_test PRIVATE _WIN32_WINNT=0x0A00)
   endif ()
+
+  # 测试夹具插件 (编译进插件目录, 与 plugin.yaml 一起安装到 plugins/<名>/):
+  #   fail_native       处理器总是失败 → 验证熔断与派发暂停 (plan §4.10)
+  #   bad_entry_native  库文件缺 start/stop → 验证装载阶段按契约拒绝 (plan §13.1)
+  # 它们只服务原生测试, 不是可发布的插件。
+  foreach (_fixture fail_native bad_entry_native)
+    set(_fixture_dir "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/fixtures/${_fixture}")
+    if (NOT EXISTS "${_fixture_dir}/plugin.yaml")
+      continue()
+    endif ()
+    add_library(${_fixture} SHARED "${_fixture_dir}/${_fixture}.cpp")
+    # 夹具也用 SDK 的包含目录 (bad_entry_native 不链接 cxx_pluginxx_static, 只用头文件里的 C ABI)
+    target_link_libraries(${_fixture} PRIVATE musicxx_extern_plugin_sdk)
+    if (_fixture STREQUAL "fail_native")
+      target_link_libraries(${_fixture} PRIVATE cxx_pluginxx_static fmt::fmt)
+    endif ()
+    if (MSVC)
+      target_compile_options(${_fixture} PRIVATE /utf-8)
+    endif ()
+    if (WIN32)
+      target_compile_definitions(${_fixture} PRIVATE _WIN32_WINNT=0x0A00)
+    endif ()
+    # 多配置生成器默认把产物放进 <目录>/<配置>/: 这里固定到同一层, 便于与清单一起安装
+    set_target_properties(${_fixture} PROPERTIES
+      PREFIX ""
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixtures/${_fixture}"
+    )
+    foreach (_cfg DEBUG RELEASE RELWITHDEBINFO MINSIZEREL PROFILE)
+      set_target_properties(${_fixture} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY_${_cfg} "${CMAKE_CURRENT_BINARY_DIR}/fixtures/${_fixture}")
+    endforeach ()
+    install(TARGETS ${_fixture}
+      RUNTIME DESTINATION "plugins/${_fixture}"
+      LIBRARY DESTINATION "plugins/${_fixture}")
+    install(FILES "${_fixture_dir}/plugin.yaml" DESTINATION "plugins/${_fixture}")
+  endforeach ()
+  unset(_fixture)
+  unset(_fixture_dir)
 endif ()
 
 # ==================== 安装 ====================
