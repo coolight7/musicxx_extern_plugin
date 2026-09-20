@@ -39,6 +39,14 @@ int64_t nowWallMs() {
         .count();
 }
 
+/// steady 时钟毫秒 (速率窗口/耗时统计用; 不受系统时间调整影响)
+int64_t steadyNowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()
+    )
+        .count();
+}
+
 /// 当前线程标识文本 (诊断日志用)
 std::string currentThreadIdText() {
     std::ostringstream oss;
@@ -887,6 +895,11 @@ void MusicxxHostManager::clearDomainRegistrations(MusicxxHostInstance* inst) {
 
 void MusicxxHostManager::onInstanceLoaded(MusicxxHostInstance& inst) {
     loaded_[inst.name] = find(inst.name);
+    /// 速率窗口与平均速率的时间基准 (统计只观测不限制)
+    inst.loadedAtMs          = steadyNowMs();
+    inst.eventsWindowStartMs = inst.loadedAtMs;
+    inst.eventsWindowCount   = 0;
+    inst.eventsPerSec        = 0;
     Json payload;
     payload["id"]         = pluginIdOf(inst.name);
     payload["instance"]   = inst.name;
@@ -1755,6 +1768,9 @@ int32_t MusicxxHostManager::publishOnHostThread(
     if (fullTopic.empty()) {
         return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
     }
+    /// 事件计数与速率 (plan §4.11; 只观测不限制): 只有插件自定义主题才归属到插件,
+    /// 官方 `musicxx.*` 主题 (宿主/Dart 发布) 不计入任何插件的速率
+    accountEventForTopic(fullTopic);
     const std::string payload = payloadJson.empty() ? std::string{"{}"} : payloadJson;
     const int32_t     rc      = eventBus_ ? eventBus_->publish(fullTopic, payload) : -1;
     if (rc != 0) {
@@ -1770,8 +1786,31 @@ int32_t MusicxxHostManager::publishOnHostThread(
     return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 状态镜像 (Dart → 原生) ==================== */
+void MusicxxHostManager::accountEventForTopic(const std::string& topic) {
+    const std::string ownerId = naming::pluginIdOfTopic(topic);
+    if (ownerId.empty()) {
+        return; ///< 官方主题: 不计入任何插件
+    }
+    auto inst = resolveInstance(ownerId);
+    if (!inst) {
+        return; ///< 插件已卸载 (在途事件); 不统计
+    }
+    ++inst->eventsPublished;
+    const int64_t now = steadyNowMs();
+    if (inst->eventsWindowStartMs == 0) {
+        inst->eventsWindowStartMs = now;
+    }
+    ++inst->eventsWindowCount;
+    const int64_t elapsed = now - inst->eventsWindowStartMs;
+    /// 速率窗口: 1 秒 (不足 1 秒不结算, 避免高频事件把显示刷成瞬时尖峰)
+    if (elapsed >= 1000) {
+        inst->eventsPerSec        = inst->eventsWindowCount * 1000 / elapsed;
+        inst->eventsWindowCount   = 0;
+        inst->eventsWindowStartMs = now;
+    }
+}
 
+/* ==================== 状态镜像 (Dart → 原生) ==================== */
 int32_t MusicxxHostManager::stateUpdate(
     const std::string& key,
     const std::string& valueJson,
@@ -1907,6 +1946,11 @@ int32_t MusicxxHostManager::statsJson(const std::string* /*scopeJson*/, std::str
         }
         host["hooks"] = hooks;
     }
+    /// 共享 JS 线程的排队情况 (plan §4.11: 队列深度/排队等待时长/定时器数;
+    /// 宿主不打断脚本, 只用这些数字在管理页提示"某个脚本正在占住 JS 线程")
+    if (jsEngine_) {
+        host["js"] = parseJsonSafe(jsEngine_->statsJson());
+    }
     j["host"] = host;
 
     Json plugins = Json::array();
@@ -1933,11 +1977,16 @@ int32_t MusicxxHostManager::statsJson(const std::string* /*scopeJson*/, std::str
             }
         }
         p["registrations"] = {{"hooks", hookCount}};
+        const int64_t uptimeMs = inst->loadedAtMs > 0 ? (steadyNowMs() - inst->loadedAtMs) : 0;
+        const int64_t events   = inst->eventsPublished.load();
         p["counters"]      = {
             {"hookCalls", inst->hookCalls.load()},
             {"hookTimeouts", inst->hookTimeouts.load()},
             {"actionRequests", inst->actionRequests.load()},
-            {"events", inst->eventsPublished.load()},
+            {"events", events},
+            /// 事件速率 (plan §4.11): eventsPerSec = 最近一个完整窗口; eventsAvgPerSec = 装载以来平均
+            {"eventsPerSec", inst->eventsPerSec},
+            {"eventsAvgPerSec", uptimeMs > 0 ? events * 1000 / uptimeMs : 0},
             {"errors", inst->errors.load()},
         };
         /// JS 插件: 用 JS 运行时的堆用量采样值 (plan §4.11; native 插件无法精确统计,

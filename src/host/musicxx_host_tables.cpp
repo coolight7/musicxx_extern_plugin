@@ -185,10 +185,12 @@ int32_t MusicxxHostManager::hookCount(const std::string& hookId, int32_t& outCou
 }
 
 int32_t MusicxxHostManager::hookStatsJson(std::string& outJson) {
-    Json hooks = Json::object();
+    Json       hooks = Json::object();
+    const auto now   = std::chrono::steady_clock::now();
     for (const auto& [hookId, handlers] : hooks_) {
         Json arr = Json::array();
         for (const auto& h : handlers) {
+            const bool paused = h.pausedUntil > now;
             arr.push_back({
                 {"plugin", h.pluginId},
                 {"ownerTag", h.ownerTag},
@@ -199,7 +201,11 @@ int32_t MusicxxHostManager::hookStatsJson(std::string& outJson) {
                 {"timeouts", h.timeouts},
                 {"avgUs", h.calls > 0 ? h.totalUs / h.calls : 0},
                 {"maxUs", h.maxUs},
-                {"paused", h.pausedUntil > std::chrono::steady_clock::now()},
+                {"paused", paused},
+                /// 熔断剩余时间 (ms; 未熔断为 0): 管理页据此显示"还有多久恢复派发"
+                {"pausedRemainMs",
+                 paused ? std::chrono::duration_cast<std::chrono::milliseconds>(h.pausedUntil - now).count()
+                        : 0},
             });
         }
         hooks[hookId] = arr;

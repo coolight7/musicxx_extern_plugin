@@ -379,6 +379,32 @@ int main(int argc, char** argv) {
         const std::string statsJson = take(stats);
         check(statsJson.find("example_native") != std::string::npos, "stats 含插件条目");
 
+        // 事件计数与速率 (plan §4.11): 插件发布的 plugin.<id>.* 事件归属到该插件
+        // (example_native 的 start 事务里发布过一次 plugin.example_native.hello)
+        const auto at = statsJson.find(R"("id":"example_native")");
+        const std::string entry
+            = (at == std::string::npos) ? std::string{} : statsJson.substr(at, 600);
+        const std::string eventsText = jsonIntField(entry, "events");
+        check(
+            !eventsText.empty() && std::stoll(eventsText) >= 1,
+            "插件发布的事件计入统计 (plugin.<id>.* 归属)"
+        );
+        check(entry.find("\"eventsPerSec\":") != std::string::npos, "stats 含事件速率字段");
+        check(entry.find("\"eventsAvgPerSec\":") != std::string::npos, "stats 含平均事件速率字段");
+
+        // 钩子统计的熔断剩余时间 (管理页据此显示"还有多久恢复派发")
+        MusicxxExternPluginString hookStats{};
+        check(
+            musicxx_extern_plugin_hook_stats(host, &hookStats, &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "hook_stats 可读"
+        );
+        const std::string hookStatsJson = take(hookStats);
+        check(hookStatsJson.find("\"paused\":false") != std::string::npos, "hook_stats 含派发暂停标记");
+        check(
+            hookStatsJson.find("\"pausedRemainMs\":0") != std::string::npos,
+            "hook_stats 含熔断剩余时间 (未熔断为 0)"
+        );
+
         MusicxxExternPluginString info{};
         check(
             musicxx_extern_plugin_debug_info(host, &info, &log) == MUSICXX_EXTERN_PLUGIN_OK,
@@ -766,7 +792,7 @@ int main(int argc, char** argv) {
             const std::string probe = take(out);
             check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 能力调用成功 (probe)");
             check(jsonStringField(probe, "pluginId") == "example_js", "JS 能力读到插件 id");
-            check(jsonIntField(probe, "hookCount") == "3", "JS 注册了 3 个钩子");
+            check(jsonIntField(probe, "hookCount") == "4", "JS 注册了 4 个钩子");
             check(
                 jsonIntField(probe, "songChangedCount") == "1",
                 "JS 观察钩子计数为 1 (钩子真的执行了)"
@@ -783,7 +809,7 @@ int main(int argc, char** argv) {
             // 4 项 = 主页入口 + 歌曲菜单 + 设置页 + 播放页附加信息块
             check(jsonIntField(probe, "uiEntries") == "4", "JS 注册了 4 个 UI 项 (脚本侧记账)");
             check(
-                jsonIntField(probe, "selfStatsHooks") == "3",
+                jsonIntField(probe, "selfStatsHooks") == "4",
                 "JS 能读自己的统计 (stats.getSelf 的钩子计数)"
             );
         }
@@ -814,6 +840,15 @@ int main(int argc, char** argv) {
                 snapshot.find("plugin.example_js.overlayInfo") != std::string::npos
                     && snapshot.find("\"position\":\"player.top\"") != std::string::npos,
                 "JS 插件的播放页附加信息块进入快照 (含 position)"
+            );
+            /// 声明式设置页里的只读块 (progress / list): 由插件声明, 宿主只存不解释
+            check(
+                snapshot.find("\"kind\":\"progress\"") != std::string::npos,
+                "设置页的只读进度块进入快照"
+            );
+            check(
+                snapshot.find("\"kind\":\"list\"") != std::string::npos,
+                "设置页的只读列表块进入快照"
             );
         }
 
@@ -987,6 +1022,21 @@ int main(int argc, char** argv) {
             check(rc == MUSICXX_EXTERN_PLUGIN_OK, "debug_info 可读");
             check(debugJson.find("\"available\":true") != std::string::npos, "调试信息含 JS 运行时");
             check(debugJson.find("example_js") != std::string::npos, "调试信息含 JS 插件");
+            // 共享 JS 线程的排队观测 (plan §4.11: 只观测不限制)
+            check(debugJson.find("\"queueDepth\":") != std::string::npos, "调试信息含 JS 任务队列深度");
+            check(debugJson.find("\"queueWaitMaxMs\":") != std::string::npos, "调试信息含 JS 排队等待时长");
+
+            MusicxxExternPluginString stats{};
+            check(
+                musicxx_extern_plugin_stats(host, nullptr, &stats, &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                "stats 可读 (含 JS 段)"
+            );
+            const std::string statsJson = take(stats);
+            check(statsJson.find("\"queueDepth\":") != std::string::npos, "stats 含 JS 任务队列深度");
+            check(
+                statsJson.find("\"queueWaitLastMs\":") != std::string::npos,
+                "stats 含 JS 最近一次排队等待时长"
+            );
         }
 
         // 卸载 → 注册全部摘除
@@ -1016,6 +1066,142 @@ int main(int argc, char** argv) {
             );
             freeStr(out);
             check(rc != MUSICXX_EXTERN_PLUGIN_OK, "JS 插件卸载后能力调用失败");
+        }
+    }
+
+    // ==================== JavaScript 异步裁决 (裁决处理器返回 Promise) ====================
+    //
+    // 语义 (plan §4.10 的等待预算 + §7.2 的 JS API):
+    // - Promise 在宿主等待预算 (100 ms) 内结算 → 裁决照常生效;
+    // - 超过预算 → 按"无裁决"继续: 不打断脚本、不计处理器失败; 迟到的结算被丢弃并计数。
+    {
+        MusicxxExternPluginString loadLog{};
+        const auto                jsAsyncRc = musicxx_extern_plugin_plugin_load_sync(
+            host,
+            viewCP("async_js"),
+            viewCP(R"({"enabled":true})"),
+            8000,
+            &loadLog
+        );
+        check(jsAsyncRc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决夹具装载成功 (async_js)");
+        if (jsAsyncRc != MUSICXX_EXTERN_PLUGIN_OK) {
+            std::printf("  [info] async_js rc=%d log=%s\n", jsAsyncRc, take(loadLog).c_str());
+        } else {
+            freeStr(loadLog);
+        }
+
+        int32_t seekHandlers = 0;
+        musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.seek"), &seekHandlers, &log);
+        check(seekHandlers == 1, "异步裁决处理器已注册 (player.seek = 1)");
+
+        // 1) Promise 在预算内结算 (30 ms) → 裁决生效
+        {
+            MusicxxExternPluginString out{};
+            const auto                rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.seek"),
+                viewP(R"({"sid":"async1","fromMs":1000,"toMs":2000})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                300,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            std::printf("  [info] async seek result=%s\n", result.c_str());
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决钩子派发成功");
+            check(jsonIntField(result, "toMs") == "12345", "Promise 结算的 patch 生效 (toMs)");
+        }
+
+        // 2) Promise 超过等待预算 (500 ms) → 无裁决, 且不等满 500 ms
+        {
+            MusicxxExternPluginString out{};
+            const auto                t0 = std::chrono::steady_clock::now();
+            const auto                rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.volume"),
+                viewP(R"({"sid":"async2","from":0.5,"to":0.9})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                300,
+                &out,
+                &log
+            );
+            const std::string result = take(out);
+            const auto        elapsedMs =
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+                    .count();
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "超预算的异步裁决派发返回成功");
+            check(result.find("\"result\"") == std::string::npos, "超预算的 Promise 不产生裁决");
+            check(elapsedMs < 300, "宿主没有等到 Promise 结算 (按等待预算返回)");
+        }
+
+        // 3) 等迟到的那次结算落地 (500 ms) + 余量: 结果被丢弃、进程不崩
+        std::this_thread::sleep_for(std::chrono::milliseconds{900});
+
+        // 4) 超时不算失败 (不熔断): 再次派发仍会调用该处理器
+        {
+            MusicxxExternPluginString out{};
+            const auto                rc = musicxx_extern_plugin_hook_emit(
+                host,
+                viewCP("musicxx.player.volume"),
+                viewP(R"({"sid":"async3","from":0.1,"to":0.2})"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_SYNC,
+                300,
+                &out,
+                &log
+            );
+            freeStr(out);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "迟到结算之后仍可派发 (处理器未被暂停)");
+        }
+
+        // 5) 统计: 预算内结算 1 次 / 超预算 2 次 (第 4 步又一次) / 迟到丢弃 1 次
+        {
+            MusicxxExternPluginString out{};
+            const auto                rc = musicxx_extern_plugin_plugin_call(
+                host,
+                viewCP("async_js"),
+                viewCP("probe"),
+                viewCP("{}"),
+                5000,
+                &out,
+                &log
+            );
+            const std::string probe = take(out);
+            std::printf("  [info] async probe=%s\n", probe.c_str());
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决夹具能力调用成功 (probe)");
+            check(jsonIntField(probe, "asyncHookSettled") == "1", "统计: 预算内结算 1 次");
+            check(jsonIntField(probe, "asyncHookTimeouts") == "2", "统计: 超预算 2 次");
+            check(jsonIntField(probe, "asyncHookLateDrops") == "1", "统计: 迟到结算被丢弃 1 次");
+            check(jsonIntField(probe, "runs") == "3", "处理器每次都被调用 (未被熔断或跳过)");
+        }
+
+        // 6) 钩子统计里没有"失败"(超时 ≠ 失败), 只有耗时记录
+        {
+            MusicxxExternPluginString stats{};
+            const auto                rc = musicxx_extern_plugin_hook_stats(host, &stats, &log);
+            const std::string         statsJson = take(stats);
+            check(rc == MUSICXX_EXTERN_PLUGIN_OK, "hook_stats 可读");
+            const auto        at    = statsJson.find("musicxx.player.volume");
+            const std::string entry = (at == std::string::npos)
+                                          ? std::string{}
+                                          : statsJson.substr(at, statsJson.find(']', at) - at);
+            check(
+                entry.find("\"failures\":0") != std::string::npos,
+                "超预算的异步裁决不计处理器失败"
+            );
+        }
+
+        // 7) 卸载 → 无残留 (含定时器与等待条目)
+        {
+            check(
+                musicxx_extern_plugin_plugin_unload(host, viewCP("async_js"), &log)
+                    == MUSICXX_EXTERN_PLUGIN_OK,
+                "异步裁决夹具卸载成功"
+            );
+            int32_t seekAfter   = 0;
+            int32_t volumeAfter = 0;
+            musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.seek"), &seekAfter, &log);
+            musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.volume"), &volumeAfter, &log);
+            check(seekAfter == 0 && volumeAfter == 0, "异步裁决夹具卸载后无钩子残留");
         }
     }
 

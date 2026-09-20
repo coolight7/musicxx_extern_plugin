@@ -14,6 +14,7 @@
 #include "pluginxx/kit/guard.h"
 #include "utilxx_base/json.h"
 
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -141,6 +142,19 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /* ==================== 宿主生命周期 ==================== */
 
+/// 进程级"宿主已存在"标记 (宿主是进程单例, plan §5.1)
+///
+/// 已存在的宿主意味着**一条宿主线程 + 一套插件实例 + 一条事件队列**; 若允许再次创建,
+/// 同一进程会出现两套插件加载 (重复生命周期, 插件目录/配置文件并发写), 因此第二次创建
+/// 直接拒绝并给出可读原因 (Dart 侧表现为 init 抛出带诊断的异常)。
+///
+/// 复位时机: 宿主被销毁 (`host_destroy`) 或创建失败时。因此"先销毁再创建"是正常路径
+/// (测试里的 init → dispose → init 不受影响), 只有"同时存在两个宿主"才会被拒绝。
+std::atomic<bool>& hostAliveFlag() {
+    static std::atomic<bool> flag{false};
+    return flag;
+}
+
 MUSICXX_EXTERN_PLUGIN_EXPORT MusicxxExternPluginHost* MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_create(
         const MusicxxExternPluginHostConfig* cfg,
@@ -154,10 +168,19 @@ MUSICXX_EXTERN_PLUGIN_EXPORT MusicxxExternPluginHost* MUSICXX_EXTERN_PLUGIN_CALL
         [log](std::string_view msg) { setErr(log, msg); },
         nullptr,
         [&]() -> MusicxxExternPluginHost* {
-            auto handle  = std::make_unique<HostHandle>();
-            std::string  err;
+            bool expected = false;
+            if (!hostAliveFlag().compare_exchange_strong(expected, true)) {
+                setErr(
+                    log,
+                    "host_create: 本进程已有宿主实例 (宿主是进程单例) —— 其它 isolate / 线程请复用它的句柄"
+                );
+                return nullptr;
+            }
+            auto        handle = std::make_unique<HostHandle>();
+            std::string err;
             handle->manager = MusicxxHostManager::create(handle->ctx, *cfg, err);
             if (!handle->manager) {
+                hostAliveFlag().store(false, std::memory_order_release);
                 setErr(log, err.empty() ? "host_create failed" : err);
                 return nullptr;
             }
@@ -225,6 +248,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
         }
         delete handle; ///< HostContext 析构会停线程与线程池
     });
+    /// 宿主已销毁: 允许再次创建 (进程单例标记复位)
+    hostAliveFlag().store(false, std::memory_order_release);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

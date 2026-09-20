@@ -53,9 +53,16 @@ settings_schema:
 
 1. 脚本顶层不能有 `await`（顶层 `await` 不允许）；异步逻辑请放到钩子、定时器或 Promise 回调里。
 2. 全部 JS 代码运行在宿主的**一条共享 JS 线程**上（多个 JS 插件共用），因此任何回调都要尽快返回，不要在里面做长时间同步计算；需要耗时工作请拆成小片段（定时器/异步动作）。
-3. 裁决型钩子是**同步**的：处理器必须同步返回裁决对象（返回 Promise 会被忽略并记日志）。处理时间超过 100 ms 的部分按"无裁决"处理（不打断脚本）。
+3. 裁决型钩子的**推荐写法是同步返回**裁决对象：宿主给整条处理器链的等待预算是 100 ms，同步返回能立刻参与合并。
+   处理器也可以返回 **Promise**（异步裁决）：宿主继续等到 Promise 结算或预算耗尽 ——
+   - 预算内结算 → 裁决照常生效；
+   - 超过预算才结算 → 按"无裁决"继续（**不打断脚本、不计处理器失败**），迟到的结果被丢弃
+     （可在管理页的插件统计里看到 `asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`）。
+   因此：需要 `await` 一次网络/存储再裁决时，请**先同步判断"这次需不需要裁决"**，只在需要的那次返回 Promise，
+   并给异步来源设一个明显小于 100 ms 的预期耗时（超时路径要能优雅降级为"不裁决"）。
 4. `require`、`fs`、`fetch`、原生模块都不存在；所有宿主能力都要经 `musicxx.*`（异步动作请求）。
 5. 插件之间不做隔离（同进程、同一 JS 线程）；不要依赖全局副作用，状态请放在插件私有存储里。
+6. 钩子处理器抛异常只记日志并跳过本次裁决；同一处理器连续 3 次**失败**会被宿主临时暂停派发 60 秒（超时不算失败）。
 
 ## 3. `musicxx` 全局对象
 
@@ -67,16 +74,29 @@ musicxx.hooks.unregister(id);
 musicxx.hooks.has(id);
 ```
 
-- `mode`：`decision`（可裁决，同步返回；默认）或 `observe`（只观察，返回值忽略）。
+- `mode`：`decision`（可裁决；默认）或 `observe`（只观察，返回值忽略）。
 - `priority`：小者先执行；同一个 `(插件, 钩子 id, ownerTag)` 重复注册是**覆盖**。
 - `fn(ctx)`：`ctx` 是钩子载荷（JSON 对象，字段见 `plugin-hooks.md`）。
 - 裁决返回形如 `{ action: "continue" | "skip" | "cancel" | "replace", patch: { ... }, error?: "" }`；
   返回 `null` / `undefined` 表示"不裁决"。
+- 裁决处理器也可以返回 **Promise**（异步裁决，见下面第 3 条硬约束的说明）。
 
 ```js
 musicxx.hooks.register("musicxx.player.beforePlaySong", { mode: "decision" }, (ctx) => {
     if (ctx.song && ctx.song.name.includes("广告")) return { action: "skip" };
     return null;
+});
+```
+
+异步裁决（返回 Promise）：同步能判断的先同步返回，只有确实需要异步结果时才返回 Promise，
+并保证"拿不到结果"时降级为不裁决：
+
+```js
+musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
+    if (ctx.to >= 0.25 && ctx.to <= 3) return null;          // 同步路径：最省时
+    return new Promise((resolve) => {                        // 异步路径：宿主最多等 100 ms
+        setTimeout(() => resolve({ action: "continue", patch: { to: 3 } }), 20);
+    });
 });
 ```
 
@@ -299,10 +319,14 @@ musicxx.ui.registerEntry({
 });
 ```
 
-- 控件值改动后立刻写入 `config.json`（`kind` 为 `info`/`button`/`divider` 的项不写配置）；
-- `musicxx.ui.updateEntry("settings", { ... })` 可以整批换掉页面结构（脚本运行期也能改）；
+- 控件种类：可写配置的 `switch` / `input` / `password` / `text` / `number` / `select`，
+  以及只读展示的 `info` / `progress` / `list` / `button` / `divider`
+  （`progress` = `{kind:"progress", title?, depict?, value, total}`，`list` = `{kind:"list", title?, items:["文本", {title, depict}]}`）；
+- 控件值改动后立刻写入 `config.json`（`info`/`progress`/`list`/`button`/`divider` 不写配置）；
+- `musicxx.ui.updateEntry("settings", { ... })` 可以整批换掉页面结构（脚本运行期也能改，只读块可用于
+  展示"任务进度/统计"这类插件自己的状态）；
 - 与清单 `settings_schema` 的区别：`settings_schema` 由宿主生成表单（插件无需声明结构），
-  `settings.page` 由插件完全控制页面结构（可带 `info`/`button`）。
+  `settings.page` 由插件完全控制页面结构（可带 `info`/`progress`/`list`/`button`）。
 
 ### 3.6 事件
 
@@ -393,6 +417,7 @@ musicxx.capability.register("ping", () => ({ pong: true }));
 
 | 边界 | 说明 |
 |---|---|
-| 异步裁决处理器 | 裁决处理器的 JS 函数必须**同步返回**裁决对象；返回 Promise 时按"不裁决"处理（需要异步数据的场景请先取好数据，或用 `musicxx.hooks.register(..., {mode:"observe"})` + 动作请求）。宿主对裁决型钩子有等待预算（声明为 `dispatch: "async"` 的钩子由宿主异步派发，Dart 侧不阻塞） |
-| 异步能力 | 能力处理器必须同步返回结果（返回 Promise 会失败） |
+| 异步裁决处理器 | **已支持**：裁决处理器可以返回 Promise（宿主在等待预算内等结算，超时按"不裁决"且不计失败）；同步返回仍是最省时的写法。声明为 `dispatch: "async"` 的钩子由宿主异步派发，Dart 侧完全不阻塞 |
+| 异步能力 | 能力处理器必须同步返回结果（返回 Promise 会失败）；需要异步时用动作请求或把结果记在插件状态里 |
 | 资源限制 | 宿主不限制 JS 内存/执行时长（决策 13）；死循环会占住共享 JS 线程。可在配置里显式开启**可选执行上限**（`jsExecGuardMs`），开启后单次脚本执行超时会被中断并计入统计 |
+| 定时器精度 | 定时器由宿主线程按实例轮询（循环等待粒度 ≤ 50 ms），因此 `setTimeout(fn, 0)` 到实际执行之间可能有几十毫秒的延迟；不要用它做高精度计时 |
