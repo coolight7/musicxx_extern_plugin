@@ -310,7 +310,41 @@ constexpr const char* kPrelude = R"JS(
       return musicxx.call("musicxx.storage.set", { key: String(key), value: value });
     },
     remove: function (key) { return musicxx.call("musicxx.storage.delete", { key: String(key) }); },
-    list: function () { return musicxx.call("musicxx.storage.list"); }
+    list: function () { return musicxx.call("musicxx.storage.list"); },
+    // 插件配置文件 config.json（与用户在设置页里改的是同一份）
+    getConfig: function (key, defaultValue) {
+      return musicxx.call("musicxx.storage.get", { key: String(key), namespace: "config" })
+        .then(function (value) {
+          if (value === null || value === undefined) {
+            return defaultValue === undefined ? null : defaultValue;
+          }
+          return value;
+        });
+    },
+    setConfig: function (key, value) {
+      return musicxx.call("musicxx.storage.set",
+                          { key: String(key), value: value, namespace: "config" });
+    }
+  };
+
+  // 网络：宿主代理通道（可选便利能力；需要 musicxx.net 权限）
+  // - 非 2xx 也会正常返回（status 交给插件判断）；传输失败/域名未授权时 ok=false
+  musicxx.net = {
+    fetch: function (options) {
+      var req = (typeof options === "string") ? { url: options } : (options || {});
+      if (!req.url) { return Promise.reject(new Error("net.fetch: 缺少 url")); }
+      // 动作 op 的预算要比 HTTP 超时更长，否则请求还没回来 op 就先超时了
+      var budget = (typeof req.timeoutMs === "number" && req.timeoutMs > 0)
+        ? Math.trunc(req.timeoutMs) + 5000 : 20000;
+      return musicxx.call("musicxx.net.fetch", req, budget);
+    },
+    download: function (options) {
+      var req = (typeof options === "string") ? { url: options } : (options || {});
+      if (!req.url) { return Promise.reject(new Error("net.download: 缺少 url")); }
+      var budget = (typeof req.timeoutMs === "number" && req.timeoutMs > 0)
+        ? Math.trunc(req.timeoutMs) + 5000 : 20000;
+      return musicxx.call("musicxx.net.download", req, budget);
+    }
   };
 
   musicxx.ui = {
@@ -319,6 +353,14 @@ constexpr const char* kPrelude = R"JS(
     },
     toast: function (args) {
       return musicxx.call("musicxx.ui.toast", typeof args === "string" ? { text: args } : args);
+    },
+    // 确认弹窗 (敏感操作前先问用户; 返回 { ok, confirmed })
+    dialog: function (args) {
+      return musicxx.call("musicxx.ui.dialog", typeof args === "string" ? { content: args } : args);
+    },
+    // 打开页面: 只允许本插件自己的 ext:// 页面, 或官方白名单页面 (见作者文档)
+    openRoute: function (route, args) {
+      return musicxx.call("musicxx.ui.openRoute", { route: String(route), arguments: args });
     },
     registerEntry: function (spec) {
       var entry = normalizeEntry(spec);

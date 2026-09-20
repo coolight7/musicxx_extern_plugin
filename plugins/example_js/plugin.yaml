@@ -5,7 +5,7 @@ entry: plugin.js
 version: 1.0.0
 api_version: 1
 author: "coolight"
-description: "JS 插件示例 (零编译): 跳过广告曲 / 观察切歌 / 错误换源建议 / 能力探针"
+description: "JS 插件示例 (零编译): 跳过广告曲 / 观察切歌 / 错误换源建议 / 能力探针 / 设置页"
 platforms: [windows, linux, macos, android, ios]
 
 permissions:
@@ -13,3 +13,15 @@ permissions:
   - musicxx.library.read
   - musicxx.ui
   - musicxx.storage
+  - musicxx.net
+
+# 可选: 限定"宿主网络代理通道"(musicxx.net.fetch) 能访问的域名; 不写 = 不限制
+net_domains:
+  - api.github.com
+  - "*.githubusercontent.com"
+
+# 可选: 宿主生成的配置表单 (读写插件目录下的 config.json)
+settings_schema:
+  - { key: "skipAds", type: "bool", title: "跳过广告曲目", default: true }
+  - { key: "heartbeatMs", type: "int", title: "心跳间隔(毫秒)", min: 5000, max: 600000, default: 30000 }
+  - { key: "greeting", type: "string", title: "启动提示语", default: "example_js 已加载" }

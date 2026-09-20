@@ -28,6 +28,18 @@ permissions:                     # 声明式权限：安装时一次性确认，
   - musicxx.player.control
   - musicxx.ui
   - musicxx.storage
+
+# 可选：限定"宿主网络代理通道"（musicxx.net.fetch）能访问的域名；不写 = 不限制
+net_domains:
+  - api.example.com
+  - "*.example.com"
+
+# 可选：宿主生成的配置表单（读写插件目录下的 config.json）
+settings_schema:
+  - { key: "enabledFeature", type: "bool", title: "启用特性", default: true }
+  - { key: "apiKey", type: "string", title: "API Key", secret: true }
+  - { key: "mode", type: "select", title: "模式", default: "a",
+      options: [ { value: "a", label: "模式 A" }, { value: "b", label: "模式 B" } ] }
 ```
 
 安装方式：管理页「从压缩包安装」（打包成 `.zip`，顶层就是插件目录内容）或直接把目录放进插件目录后扫描。
@@ -113,10 +125,62 @@ const lrc   = await musicxx.lyrics.getCurrent();
 | `musicxx.player` | `play` `pause` `toggle` `stop` `next` `prev` `seek` `setVolume` `setSpeed` `setLoopMode` |
 | `musicxx.library` | `querySongs` `querySonglists` `playSong` `playSonglist` |
 | `musicxx.lyrics` | `getCurrent` |
-| `musicxx.storage` | `get` `set` `remove` `list` |
-| `musicxx.ui` | `notify` `toast` |
+| `musicxx.storage` | `get` `set` `remove` `list` `getConfig` `setConfig` |
+| `musicxx.net` | `fetch` `download`（宿主代理通道，需 `musicxx.net` 权限） |
+| `musicxx.ui` | `notify` `toast` `dialog` `openRoute`（需 `musicxx.ui` 权限） |
+| `musicxx.stats` | `getSelf` `reportMemory` `reportMetric`（只观测不限制） |
 
 动作全名与权限的对应关系见方案 §4.8；未授权动作会被 Dart 侧直接拒绝（`permission_denied`）。
+
+**界面反馈**：
+
+```js
+await musicxx.ui.notify({ text: "已完成" });                       // 站内提示（失败也提示）
+const answer = await musicxx.ui.dialog({                          // 确认弹窗（敏感操作前先问用户）
+    title: "删除缓存", content: "会删除该插件的缓存文件，是否继续？",
+    textConfirm: "继续", textCancel: "取消",
+});
+if (answer && answer.confirmed) { /* 用户点了确认 */ }
+
+await musicxx.ui.openRoute("ext://my_plugin/card");               // 只能打开本插件自己的页面
+await musicxx.ui.openRoute("musicxx:settings");                   // 官方页面用白名单键（见下）
+```
+
+- 弹窗标题会自动带上插件来源前缀（`『<插件id>』…`），避免插件伪装成宿主自己的提示；
+- `openRoute` 只允许两类目标：**本插件自己的** `ext://<本插件id>/<视图id>`，以及官方页面白名单
+  （`musicxx:settings` 设置页、`musicxx:plugins` 插件管理、`musicxx:player` 播放页、`musicxx:home` 音乐主页、
+  `musicxx:search` 搜索、`musicxx:localSongs` 本地歌曲、`musicxx:history` 播放记录、`musicxx:lyrics` 歌词、`musicxx:about` 关于）；
+  其它地址会被拒绝并返回 `不允许打开的页面`。
+
+**插件配置（`config.json`）**：用户在管理页「详情 → 配置」里改的值与 `settings_schema` 声明的默认值都存在插件目录的 `config.json`。
+脚本用 `musicxx.storage.getConfig(key, 默认值)` 读、`setConfig(key, value)` 写（等价于 `namespace: "config"` 的 `storage.get/set`），
+与私有 KV（`kv.json`）互不影响。
+
+**网络（宿主代理通道）**：
+
+```js
+const resp = await musicxx.net.fetch({
+    url: "https://api.example.com/items?page=1",
+    method: "GET",                     // GET/POST/PUT/PATCH/DELETE/HEAD（缺省 GET）
+    headers: { "X-Token": "..." },     // 只允许合法头名；宿主不注入任何身份信息
+    body: { a: 1 },                    // 对象自动 JSON 编码；字符串原样发送
+    timeoutMs: 15000,                  // 1000 ~ 60000（缺省 15000）
+    responseType: "json",              // text（缺省，body 是字符串）/ json / bytes（bodyBase64）
+    maxBytes: 2097152,                 // 响应体上限（超出截断并标记 truncated），上限 16 MiB
+});
+// resp = { ok, status, url, headers, contentType, body | bodyBase64, bodyBytes, truncated }
+if (resp.ok && resp.status === 200) { /* 用 resp.body */ }
+
+// 下载到插件私有数据目录（<data>/downloads/）：
+const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a.mp3" });
+// file = { ok, status, path, bytes }
+```
+
+- **非 2xx 也会正常返回**（`ok: true` + `status`），由脚本自己判断；只有传输失败/超时/域名未授权才是 `ok: false`；
+- `ok: false` 时 `error` 可能是 `domain_not_allowed`（清单 `net_domains` 未包含该域名）、`请求失败：...`（网络/超时）；
+- 插件**不需要**这条通道也能联网（原生插件可用系统 API；JS 由于宿主内没有 `fetch`，用本通道最方便）——
+  `musicxx.net` 权限只表示"允许使用宿主代理通道"（plan §7.4 第 5 条）；
+- `fileName` 只能是文件名：路径分隔符与 `..` 会被拒绝，落点固定在插件自己的数据目录内。
 
 ### 3.5 声明式 UI 扩展（不写 Flutter 代码）
 
@@ -181,6 +245,44 @@ musicxx.capability.register("card", function (args) {
 - 能力处理器必须**同步返回**（返回 Promise 会被拒绝，见 §3.6）；
 - 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）；
 - 未识别的块类型会被忽略（向前兼容）。
+
+**设置页（`settings.page`）**：应用「设置」里会出现插件声明的设置页入口，页内控件读写插件的 `config.json`
+（与清单 `settings_schema` 生成的表单是同一份配置）：
+
+```js
+musicxx.ui.registerEntry({
+    name: "settings",
+    type: "settings.page",
+    order: 100,
+    data: {
+        title: "我的插件设置",
+        depict: "可选说明",
+        groups: [
+            {
+                title: "基础",
+                items: [
+                    { kind: "switch", key: "enabledFeature", title: "启用特性", depict: "说明文字" },
+                    { kind: "input", key: "apiKey", title: "API Key", placeholder: "粘贴密钥" },
+                    { kind: "password", key: "secret", title: "密钥" },       // 默认隐藏
+                    { kind: "number", key: "limit", title: "上限", min: 1, max: 100 },
+                    { kind: "select", key: "mode", title: "模式",
+                      options: [ { value: "a", label: "模式 A" }, { value: "b", label: "模式 B" } ] },
+                    { kind: "text", key: "note", title: "备注" },             // 多行
+                    { kind: "info", text: "只读说明（不写入配置）" },
+                    { kind: "button", title: "立即执行",
+                      action: { kind: "capability", name: "runNow" } },
+                    { kind: "divider" },
+                ],
+            },
+        ],
+    },
+});
+```
+
+- 控件值改动后立刻写入 `config.json`（`kind` 为 `info`/`button`/`divider` 的项不写配置）；
+- `musicxx.ui.updateEntry("settings", { ... })` 可以整批换掉页面结构（脚本运行期也能改）；
+- 与清单 `settings_schema` 的区别：`settings_schema` 由宿主生成表单（插件无需声明结构），
+  `settings.page` 由插件完全控制页面结构（可带 `info`/`button`）。
 
 ### 3.6 事件
 
@@ -273,6 +375,5 @@ musicxx.capability.register("ping", () => ({ pong: true }));
 |---|---|
 | 异步裁决 | 裁决型钩子必须同步返回（plan §5.4 的 runner isolate 派发落地后可支持） |
 | 异步能力 | 能力处理器必须同步返回结果（返回 Promise 会失败） |
-| 设置页表单 | `musicxx.ui.settings.page` 可注册，但应用侧的表单渲染尚未接入（当前只渲染主页入口/歌曲菜单/插件页面） |
-| 网络 | 宿主代理通道 `musicxx.net.fetch`（需要 `musicxx.net` 权限）尚未接入，脚本可先用动作通道或等后续版本 |
+| 覆盖信息块 | `overlay.widget` 可注册，应用侧尚未渲染（已渲染：主页入口 / 歌曲菜单 / 插件页面 / 设置页） |
 | 资源限制 | 宿主不限制 JS 内存/执行时长（决策 13）；死循环会占住共享 JS 线程。可在配置里显式开启**可选执行上限**（`jsExecGuardMs`），开启后单次脚本执行超时会被中断并计入统计 |
