@@ -1,6 +1,7 @@
 # 测试夹具清单 (native): 处理器总是失败, 用于验证宿主熔断
 name: fail_native
-entry: fail_native.dll
+# entry 按 Linux 书写（Windows/macOS 下由内核修正扩展名）
+entry: fail_native.so
 kind: native
 version: 1.0.0
 api_version: 1

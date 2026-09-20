@@ -65,7 +65,8 @@ class MusicxxPluginNativeLibrary {
   /// 1. 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`（显式路径，便于打包/调试，plan §5.2）；
   /// 2. `<包目录>/.native/output/*/bin/<库名>`（本包构建脚本的稳定输出目录）；
   /// 3. `<包目录>/.native/build/*/musicxx-extern-plugin-install/bin/<库名>`（安装前缀）；
-  /// 4. 可执行文件旁边（随应用分发的宿主库，见 `windows/CMakeLists.txt`）；
+  /// 4. 可执行文件旁边与其 `lib/` 子目录（随应用分发的宿主库，见 `windows|linux/CMakeLists.txt`；
+  ///    Linux 桌面应用的打包结果是 `<bundle>/musicxx` + `<bundle>/lib/*.so`，因此要一并覆盖）；
   /// 5. 纯库名（交给系统搜索路径，如随应用包分发时）。
   ///
   /// 说明：开发机的 `.native/` 产物排在"可执行文件旁边"之前，因为它每次构建都会刷新，
@@ -81,9 +82,11 @@ class MusicxxPluginNativeLibrary {
       _globLibraryFiles('$root/.native/build', libraryFileName, 'musicxx-extern-plugin-install/bin'),
     );
     try {
-      candidates.add('${File(Platform.resolvedExecutable).parent.path}/$libraryFileName');
+      final String exeDir = File(Platform.resolvedExecutable).parent.path;
+      candidates.add('$exeDir/$libraryFileName');
+      candidates.add('$exeDir/lib/$libraryFileName');
     } catch (_) {
-      // 某些平台上 `resolvedExecutable` 可能不可用：忽略该候选即可
+      // 某些平台上 `resolvedExecutable` 可能不可用：忽略这些候选即可
     }
     candidates.add(libraryFileName);
     return candidates;

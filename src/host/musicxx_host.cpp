@@ -1146,7 +1146,18 @@ std::string MusicxxHostManager::scanDir(const std::string& dir, const std::strin
         reason    = "插件要求的 API 版本高于当前宿主";
     }
     if (supported && kind == "native") {
-        if (entry.empty() || !fs::exists(dirPath / entry)) {
+        // 校验口径必须与加载阶段一致（否则扫描判"缺库文件"、加载却能命中）：
+        // 先用内核的 resolvePluginEntryPath（平台扩展名修正 + 配置子目录回退），
+        // 找不到再按平台默认库名回退（lib<名>.so / <名>.dll / lib<名>.dylib）——
+        // 例如清单按 Linux 写 entry=foo.so 时，Windows 上应解析到 foo.dll。
+        std::string entryPath;
+        if (!entry.empty()) {
+            entryPath = pluginxx::resolvePluginEntryPath(dirPath, entry);
+            if (!fs::exists(entryPath)) {
+                entryPath = defaultPluginLibraryPath(dirPath, name);
+            }
+        }
+        if (entryPath.empty() || !fs::exists(entryPath)) {
             supported = false;
             reason    = "原生插件库文件缺失 (entry=" + entry + ")";
         }
