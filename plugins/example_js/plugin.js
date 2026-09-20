@@ -5,6 +5,7 @@
 /// - `musicxx.song.changed` 观察: 切歌时记录名称并累加计数;
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
+/// - 声明式设置页 + 宿主网络代理通道 (musicxx.net.fetch) 演示。
 ///
 /// 约束 (plan §7.2): 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
@@ -87,6 +88,32 @@ musicxx.ui.registerEntry({
     },
 });
 
+/// 声明式设置页 (plan §5.6): 应用「设置 → 插件设置」里会出现这个页面,
+/// 页内控件读写插件目录的 config.json (与清单 settings_schema 是同一份配置)。
+musicxx.ui.registerEntry({
+    name: "settings",
+    type: "settings.page",
+    order: 120,
+    data: {
+        title: "JS 示例插件设置",
+        depict: "示例：开关 / 文本 / 数字 / 下拉 / 说明 / 按钮",
+        groups: [
+            {
+                title: "基础",
+                items: [
+                    { kind: "switch", key: "skipAds", title: "跳过广告曲目", depict: "播放前裁决：名字含『广告』的曲目直接跳过" },
+                    { kind: "number", key: "heartbeatMs", title: "心跳间隔(毫秒)", min: 5000, max: 600000 },
+                    { kind: "input", key: "greeting", title: "启动提示语", placeholder: "加载时弹出的提示" },
+                    { kind: "select", key: "logLevel", title: "日志级别", default: "info",
+                      options: [ { value: "debug", label: "调试" }, { value: "info", label: "信息" } ] },
+                    { kind: "info", text: "提示：这里改的值会立刻写入 config.json；脚本可用 musicxx.storage.getConfig 读取。" },
+                    { kind: "button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
+                ],
+            },
+        ],
+    },
+});
+
 /// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
 musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function () {
     return null;
@@ -116,6 +143,19 @@ musicxx.capability.register("crossCall", function (args) {
     return { accepted: 1, target: target, method: method };
 });
 
+/// 配置读取: config.json 由用户改 (设置页/手改文件), 脚本侧读用 getConfig (异步)。
+/// 能力处理器必须同步返回, 所以这里把最近一次读到的值记账, 由 probe 回读。
+musicxx.storage.configCache = { skipAds: null, greeting: "" };
+function refreshConfig() {
+    musicxx.storage.getConfig("skipAds").then(function (value) {
+        musicxx.storage.configCache.skipAds = value;
+    }, function () { return null; });
+    musicxx.storage.getConfig("greeting").then(function (value) {
+        musicxx.storage.configCache.greeting = value === null ? "" : value;
+    }, function () { return null; });
+}
+refreshConfig();
+
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
@@ -135,7 +175,52 @@ musicxx.capability.register("probe", function (args) {
         crossOk: crossCallState.ok,
         crossKeys: crossCallState.keys,
         crossError: crossCallState.error,
+        // 配置读取 (config.json; 缺省值由清单 settings_schema / 设置页声明)
+        configSkipAds: musicxx.storage.configCache.skipAds,
+        configGreeting: musicxx.storage.configCache.greeting,
     };
+});
+
+/// 能力: 演示宿主网络代理通道 (musicxx.net.fetch)
+///
+/// 说明 (plan §7.4 第 5 条): 这条通道是**可选便利能力**, `musicxx.net` 权限只表示
+/// "允许用宿主代理通道"; 清单 net_domains 限定了可访问域名 (示例里是 api.github.com)。
+/// 非 2xx 也会正常返回 (status 交给脚本判断); 域名未授权时 ok=false + error=domain_not_allowed。
+let fetchState = { pending: 0, ok: 0, status: 0, bytes: 0, error: "" };
+musicxx.capability.register("fetchEcho", function (args) {
+    const url = (args && args.url) ? String(args.url) : "https://api.github.com/zen";
+    fetchState = { pending: 1, ok: 0, status: 0, bytes: 0, error: "" };
+    musicxx.net.fetch({ url: url, timeoutMs: 10000 }).then(function (resp) {
+        fetchState = {
+            pending: 0,
+            ok: (resp && resp.ok) ? 1 : 0,
+            status: (resp && resp.status) ? resp.status : 0,
+            bytes: (resp && resp.bodyBytes) ? resp.bodyBytes : 0,
+            error: (resp && resp.ok) ? "" : ((resp && resp.error) || "unknown"),
+        };
+        musicxx.host.log(2, "net.fetch 完成: ok=" + fetchState.ok + " status=" + fetchState.status);
+    }, function (err) {
+        fetchState = { pending: 0, ok: 0, status: 0, bytes: 0, error: err.message };
+        musicxx.host.log(3, "net.fetch 失败: " + err.message);
+    });
+    return { accepted: 1, url: url };
+});
+
+/// 能力: 回读最近一次 net.fetch 的结果 (测试用)
+musicxx.capability.register("fetchProbe", function () {
+    return {
+        pending: fetchState.pending,
+        ok: fetchState.ok,
+        status: fetchState.status,
+        bytes: fetchState.bytes,
+        error: fetchState.error,
+    };
+});
+
+/// 能力: 重新读取 config.json (设置页改完配置后调用)
+musicxx.capability.register("reloadConfig", function () {
+    refreshConfig();
+    return { accepted: 1 };
 });
 
 console.log("example_js 已加载 (pid=" + musicxx.pluginId + ")");

@@ -713,7 +713,7 @@ int main(int argc, char** argv) {
                 "JS 读到宿主信息 (平台)"
             );
             // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
-            check(jsonIntField(probe, "uiEntries") == "2", "JS 注册了 2 个 UI 项 (脚本侧记账)");
+            check(jsonIntField(probe, "uiEntries") == "3", "JS 注册了 3 个 UI 项 (脚本侧记账)");
             check(
                 jsonIntField(probe, "selfStatsHooks") == "3",
                 "JS 能读自己的统计 (stats.getSelf 的钩子计数)"
@@ -733,6 +733,14 @@ int main(int argc, char** argv) {
             check(
                 snapshot.find("plugin.example_js.songInfo") != std::string::npos,
                 "JS 插件的菜单项进入快照"
+            );
+            check(
+                snapshot.find("plugin.example_js.settings") != std::string::npos,
+                "JS 插件的设置页项进入快照"
+            );
+            check(
+                snapshot.find("musicxx.ui.settings.page") != std::string::npos,
+                "快照含设置页类型 (应用侧据此渲染设置页)"
             );
         }
 

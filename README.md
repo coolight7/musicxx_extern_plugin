@@ -186,12 +186,27 @@ final List<MusicxxPluginUIItem> next =
 - S3（Dart 包）：主干已落地（绑定/运行时/管理器/钩子派发/状态镜像/动作分发/声明式 UI 模型/契约生成）；
 - S5（JS 运行时）：已落地（QuickJS 编入宿主库、共享 JS 线程、`js:<id>` 合成实例、`musicxx` API 面）；
 - S6（UI 扩展 + 观测）：声明式 UI 表与 JS/原生 API 已落地，应用侧渲染（主页入口 / 歌曲菜单 /
-  插件页面）已接入；平台打包（Android/iOS/macOS/Linux）与 runner isolate 异步裁决排入后续阶段。
+  插件页面 / 插件设置页）已接入；插件配置表单（清单 `settings_schema` + `config.json`）、
+  `musicxx.net.fetch`/`download` 便利通道、管理页调试与统计页也已落地；
+  平台打包（Android/iOS/macOS/Linux）与 runner isolate 异步裁决排入后续阶段。
+
+插件侧可用的能力（对应 plan §4.8/§5.6/§7）：
+
+| 能力 | 入口 | 说明 |
+|---|---|---|
+| 钩子 | `musicxx.hooks.register` / `pluginBase.hook` | 观察型与裁决型；无插件时埋点是常量判断 |
+| 动作 | `musicxx.call` / `pluginBase.requestAction` | 播放/库/歌词/UI/存储/网络/杂项，逐条权限校验 |
+| 状态镜像 | `musicxx.state.get` | 只读快照（不含临时直链/token） |
+| 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`，与用户在设置页里改的是同一份 |
+| 网络（可选便利通道） | `musicxx.net.fetch/download` | 经宿主网络栈；清单 `net_domains` 可限定域名 |
+| 声明式 UI | `musicxx.ui.registerEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 设置页 / 附加信息块 |
+| 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→原生投递宿主线程、脚本不阻塞 |
+| 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |
 
 验证命令与当前结果：
 
 ```powershell
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 134 项全绿
+pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 136 项全绿
 dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子）
 flutter analyze                                          # 0 issue
 flutter test                                             # 包内：端到端冒烟 + UI 模型单测
