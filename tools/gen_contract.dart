@@ -37,6 +37,12 @@ const Map<String, int> _policyCodes = <String, int>{
   'lastWrite': 3,
 };
 
+/// 裁决派发方式：`sync` = 调用点就地等待（`decide`）；`async` = 事件回传（`decideAsync`）
+const Map<String, int> _dispatchCodes = <String, int>{
+  'sync': 0,
+  'async': 1,
+};
+
 /// C++ 常量名后缀：`musicxx.player.beforePlaySong` → `PLAYER_BEFORE_PLAY_SONG`
 String _cppConstant(String id) {
   final String body = id.startsWith('musicxx.') ? id.substring('musicxx.'.length) : id;
@@ -101,6 +107,20 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  final int code;')
     ..writeln('}')
     ..writeln()
+    ..writeln('/// 派发方式（plan §5.3 / §8.1）')
+    ..writeln('enum MusicxxPluginHookDispatch {')
+    ..writeln('  /// 调用点就地等待裁决（`MusicxxPluginHooks.decide`；占用调用线程，有等待预算）')
+    ..writeln('  sync(0),')
+    ..writeln()
+    ..writeln('  /// 不占用调用线程：观察型 = 入队即返回；裁决型 = 异步派发（`decideAsync`，')
+    ..writeln('  /// 结果经 `musicxx.hook.decision.result` 事件回传）')
+    ..writeln('  async(1);')
+    ..writeln()
+    ..writeln('  const MusicxxPluginHookDispatch(this.code);')
+    ..writeln()
+    ..writeln('  final int code;')
+    ..writeln('}')
+    ..writeln()
     ..writeln('/// 埋点可用性阶段（plan §8.2）')
     ..writeln('enum MusicxxPluginHookPhase { P0, P1, P2 }')
     ..writeln()
@@ -114,11 +134,13 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     final String mode = hook['mode']! as String;
     final String policy = hook['policy']! as String;
     final String phase = (hook['phase'] as String?) ?? 'P1';
+    final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
     final int budget = (hook['budgetMs'] as num).toInt();
     final int hard = (hook['hardMs'] as num).toInt();
     sb.writeln(
       "  ${_dartEnumName(hook)}('${hook['id']}', MusicxxPluginHookMode.$mode, "
-      'MusicxxPluginDecisionPolicy.$policy, MusicxxPluginHookPhase.$phase, $budget, $hard),',
+      'MusicxxPluginDecisionPolicy.$policy, MusicxxPluginHookPhase.$phase, '
+      'MusicxxPluginHookDispatch.$dispatch, $budget, $hard),',
     );
   }
   sb
@@ -129,6 +151,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('    this.mode,')
     ..writeln('    this.policy,')
     ..writeln('    this.phase,')
+    ..writeln('    this.dispatch,')
     ..writeln('    this.budgetMs,')
     ..writeln('    this.hardMs,')
     ..writeln('  );')
@@ -145,6 +168,9 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  /// 埋点阶段')
     ..writeln('  final MusicxxPluginHookPhase phase;')
     ..writeln()
+    ..writeln('  /// 派发方式（是否占用调用线程；见 `tools/hooks.def.json`）')
+    ..writeln('  final MusicxxPluginHookDispatch dispatch;')
+    ..writeln()
     ..writeln('  /// 整链软等待预算（毫秒；0 = 用宿主默认）')
     ..writeln('  final int budgetMs;')
     ..writeln()
@@ -153,6 +179,12 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln()
     ..writeln('  /// 是否裁决型（观察型不参与合并）')
     ..writeln('  bool get isDecision => mode == MusicxxPluginHookMode.decision;')
+    ..writeln()
+    ..writeln('  /// 是否为异步派发（观察型恒为 true；裁决型表示调用点用 `decideAsync`）')
+    ..writeln('  bool get isAsyncDispatch => dispatch == MusicxxPluginHookDispatch.async;')
+    ..writeln()
+    ..writeln('  /// 整链等待预算上限（毫秒；异步派发的兜底等待按此计算）')
+    ..writeln('  int get budgetLimitMs => budgetMs + hardMs;')
     ..writeln()
     ..writeln('  /// 按 id 反查（未知 id 返回 null；插件注册未知钩子会被宿主拒绝）')
     ..writeln('  static MusicxxPluginHookId? tryFromId(String id) => _byId[id];')
@@ -250,16 +282,27 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('> 注册钩子时必须写全名（官方 `musicxx.*`）；插件自定义事件/能力/UI 项用')
     ..writeln('> `plugin.<pluginId>.*`。宿主会拒绝未知钩子与未知前缀。')
     ..writeln()
-    ..writeln('| 钩子 id | 模式 | 合并策略 | 软/硬预算 (ms) | 阶段 |')
-    ..writeln('|---|---|---|---|---|');
+    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 软/硬预算 (ms) | 阶段 |')
+    ..writeln('|---|---|---|---|---|---|');
   for (final Map<String, Object?> hook in hooks) {
     final String budget =
         '${(hook['budgetMs'] as num).toInt()} / ${(hook['hardMs'] as num).toInt()}';
+    final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
     sb.writeln(
-      "| `${hook['id']}` | ${hook['mode']} | ${hook['policy']} | $budget | ${hook['phase']} |",
+      "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $budget | ${hook['phase']} |",
     );
   }
   sb
+    ..writeln()
+    ..writeln('## 派发方式')
+    ..writeln()
+    ..writeln('| 派发 | 含义 | 调用点写法 |')
+    ..writeln('|---|---|---|')
+    ..writeln('| `sync` | 调用点就地等待裁决（占用调用线程，有等待预算） | `decide(...)` |')
+    ..writeln('| `async` | 调用点本身是 Future：异步派发，结果经事件回传 | `await decideAsync(...)` |')
+    ..writeln()
+    ..writeln('两种方式对插件处理器是**透明的**：处理器照常返回裁决对象即可；区别只在宿主侧'
+        '（同步派发阻塞调用线程，异步派发不阻塞、结果经 `musicxx.hook.decision.result` 回传）。')
     ..writeln()
     ..writeln('## 裁决对象通用外壳')
     ..writeln()
@@ -307,6 +350,13 @@ List<Map<String, Object?>> _loadHooks() {
     final String policy = hook['policy']! as String;
     if (!_policyCodes.containsKey(policy)) {
       throw StateError('未知合并策略: $id -> $policy');
+    }
+    final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
+    if (!_dispatchCodes.containsKey(dispatch)) {
+      throw StateError('未知派发方式: $id -> $dispatch');
+    }
+    if (mode == 'observe' && dispatch != 'async') {
+      throw StateError('观察型钩子必须是异步派发（入队即返回）: $id -> $dispatch');
     }
     hooks.add(hook);
   }

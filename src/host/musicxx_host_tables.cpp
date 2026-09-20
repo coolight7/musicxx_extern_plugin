@@ -244,12 +244,14 @@ std::string MusicxxHostManager::dispatchHook(
     const std::string& hookId,
     const std::string& inputJson,
     uint32_t           budgetMs,
-    bool               sync
+    HookDispatchMode   mode
 ) {
     const auto* meta = findHookMeta(hookId);
     if (!meta) {
         return R"({"handled":false,"error":"unknown_hook"})";
     }
+    /// 观察型派发不等待、不施加等待预算（入队即返回的语义）；两种裁决派发都要收敛时间
+    const bool waitBudget = mode != HookDispatchMode::Notify;
     auto it = hooks_.find(hookId);
     if (it == hooks_.end() || it->second.empty()) {
         return R"({"handled":false,"handlers":0})";
@@ -278,7 +280,7 @@ std::string MusicxxHostManager::dispatchHook(
                                    std::chrono::steady_clock::now() - started
         )
                                    .count();
-        if (sync && elapsedMs >= static_cast<int64_t>(budget)) {
+        if (waitBudget && elapsedMs >= static_cast<int64_t>(budget)) {
             timedOut = true;
             break;
         }
@@ -397,7 +399,7 @@ std::string MusicxxHostManager::dispatchHook(
     }
 
     Json result;
-    result["handled"]  = called > 0 && sync;
+    result["handled"]  = called > 0 && mode != HookDispatchMode::Notify;
     result["handlers"] = static_cast<int32_t>(handlers.size());
     result["called"]   = called;
     result["timedOut"] = timedOut;
@@ -406,6 +408,18 @@ std::string MusicxxHostManager::dispatchHook(
         result["result"]["action"] = action;
     } else if (hasPatch) {
         result["result"] = merged;
+    }
+
+    /// 观测回传 (plan §4.9 / 决策 10): 观察型钩子的执行镜像, 仅在调试开关打开时回传
+    /// (默认关闭 → 零开销、零事件量)。它只用于调试/统计, 调用点与插件都不得依赖它。
+    if (mode == HookDispatchMode::Notify
+        && (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
+        Json mirror;
+        mirror["hook"]     = hookId;
+        mirror["input"]    = parseJsonSafe(inputJson);
+        mirror["called"]   = called;
+        mirror["handlers"] = static_cast<int32_t>(handlers.size());
+        pushEvent("musicxx.hook.observe", "", mirror.dump());
     }
     return result.dump();
 }
@@ -426,6 +440,11 @@ int32_t MusicxxHostManager::hookEmit(
         err = "hook_emit: host not started";
         return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
     }
+    const auto* meta = findHookMeta(hookId);
+    if (!meta) {
+        outJson = R"({"handled":false,"error":"unknown_hook"})";
+        return MUSICXX_EXTERN_PLUGIN_OK;
+    }
     {
         auto it = hooks_.find(hookId);
         if (it == hooks_.end() || it->second.empty()) {
@@ -434,15 +453,37 @@ int32_t MusicxxHostManager::hookEmit(
         }
     }
 
+    /// 裁决型钩子的异步派发（plan §5.3）：不占用 Dart 线程，完成后经
+    /// `musicxx.hook.decision.result` 事件把结果回传（payload 带 callId 供配对）。
+    const bool asyncDecide = !sync && meta->mode == MUSICXX_PLUGIN_HOOK_MODE_DECISION;
+    const HookDispatchMode mode = sync ? HookDispatchMode::Sync
+                                       : (asyncDecide ? HookDispatchMode::AsyncDecide
+                                                      : HookDispatchMode::Notify);
+    const int64_t callId = asyncDecide ? nextHookCallId_.fetch_add(1, std::memory_order_relaxed) : 0;
+
     const uint32_t budget = timeoutMs > 0 ? timeoutMs : static_cast<uint32_t>(hookBudgetMs_);
     auto           slot   = std::make_shared<WaitSlot<std::string>>();
     auto           self   = shared_from_this();
-    asio::post(ctx_->io, [self, slot, hookId, inputJson, budget, sync]() {
-        slot->set(self->dispatchHook(hookId, inputJson, budget, sync));
+    asio::post(ctx_->io, [self, slot, hookId, inputJson, budget, mode, callId]() {
+        std::string result = self->dispatchHook(hookId, inputJson, budget, mode);
+        if (mode == HookDispatchMode::AsyncDecide) {
+            Json payload      = parseJsonSafe(result);
+            payload["callId"] = callId;
+            payload["hook"]   = hookId;
+            self->pushEvent("musicxx.hook.decision.result", "", payload.dump());
+            return;
+        }
+        slot->set(std::move(result));
     });
 
     if (!sync) {
-        outJson = R"({"handled":true,"async":true})";
+        Json ack;
+        ack["handled"] = true;
+        ack["async"]   = true;
+        if (asyncDecide) {
+            ack["callId"] = callId;
+        }
+        outJson = ack.dump();
         return MUSICXX_EXTERN_PLUGIN_OK;
     }
     std::string result;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 
@@ -47,6 +48,19 @@ class MusicxxPluginHooks {
 
   /// 原生/JS 处理器数量快照（由 `musicxx.hook.changed` 事件维护；O(1) 判定）
   final Map<String, int> _nativeCounts = <String, int>{};
+
+  /// 在途的异步裁决（callId → 完成器）：结果由 `musicxx.hook.decision.result` 事件回填
+  final Map<int, Completer<Map<String, Object?>?>> _pendingDecisions =
+      <int, Completer<Map<String, Object?>?>>{};
+
+  /// 异步裁决的兜底定时器（事件丢失时不至于永久悬挂）
+  final Map<int, Timer> _pendingDecisionTimers = <int, Timer>{};
+
+  /// 异步裁决的兜底余量（毫秒）：宿主预算之外给事件往返留的余量
+  static const int _asyncDecisionSlackMs = 600;
+
+  int _asyncDecisionCalls = 0;
+  int _asyncDecisionTimeouts = 0;
 
   /// 是否有任何启用中的处理器（Dart 或原生）；埋点快速路径用
   bool hasHandlers(MusicxxPluginHookId id) =>
@@ -136,6 +150,73 @@ class MusicxxPluginHooks {
   MusicxxPluginThrottle throttle(MusicxxPluginHookId id, {int minIntervalMs = 1000}) =>
       MusicxxPluginThrottle._(this, id, minIntervalMs);
 
+  // ==================== 异步裁决（plan §5.3） ====================
+
+  /// 裁决型（异步）：调用点本身是 `Future` 时使用
+  ///
+  /// 与 [decide] 的区别只有"谁在等"：Dart 处理器照常就地执行；原生/JS 处理器链由宿主在
+  /// 自己的线程上跑（**不占用调用线程**），结果经 `musicxx.hook.decision.result` 事件回来
+  /// 后再按 [MusicxxPluginHookId.policy] 合并。
+  ///
+  /// 超时/事件丢失按"无裁决"处理（返回 `null`，调用点走原逻辑）；调用点仍需自行校验
+  /// `sid` 等身份字段（切歌/切列表后到达的结果必须丢弃）。
+  Future<Map<String, Object?>?> decideAsync(
+    MusicxxPluginHookId id, [
+    Object? payload,
+    Duration? timeout,
+  ]) async {
+    if (!id.isDecision) {
+      throw ArgumentError('decideAsync 只能用于裁决型钩子: ${id.id}');
+    }
+    if (!active) {
+      return null;
+    }
+    final Map<String, Object?> payloadMap = _asPayload(payload);
+    Map<String, Object?>? merged;
+    final Map<String, Object?>? dartResult = _runDartHandlers(id, payloadMap);
+    if (dartResult != null) {
+      merged = dartResult;
+      if (id.policy == MusicxxPluginDecisionPolicy.firstNonNull) {
+        return merged;
+      }
+    }
+    if (nativeHandlerCount(id) == 0 || !_runtime.isRunning) {
+      return merged;
+    }
+    final int budget = timeout?.inMilliseconds ?? _defaultBudgetMs(id);
+    final int? callId = _emitAsyncDecision(id, payloadMap, budget);
+    if (callId == null) {
+      return merged;
+    }
+    final Map<String, Object?>? nativeResult = await _awaitAsyncDecision(callId, budget);
+    final Map<String, Object?>? mergedResult = _merge(id, merged, nativeResult);
+    return (mergedResult == null || mergedResult.isEmpty) ? null : mergedResult;
+  }
+
+  /// 在途异步裁决数量（调试页展示；只读）
+  int get pendingAsyncDecisions => _pendingDecisions.length;
+
+  /// 已完成的异步裁决次数（含超时）
+  int get asyncDecisionCalls => _asyncDecisionCalls;
+
+  /// 异步裁决超时/事件丢失次数（按"无裁决"收尾）
+  int get asyncDecisionTimeouts => _asyncDecisionTimeouts;
+
+  /// `musicxx.hook.decision.result`：把结果交给等待中的调用点
+  void handleDecisionResultEvent(MusicxxPluginEvent event) {
+    final int? callId = event.intOf('callId');
+    if (callId == null) {
+      return;
+    }
+    final Completer<Map<String, Object?>?>? pending = _pendingDecisions.remove(callId);
+    _pendingDecisionTimers.remove(callId)?.cancel();
+    if (pending == null || pending.isCompleted) {
+      return; // 已超时收尾或不属于本处理器链：直接忽略
+    }
+    ++_asyncDecisionCalls;
+    pending.complete(_verdictOf(event.payload));
+  }
+
   /// 刷新某钩子的原生处理器数量（事件丢包/宿主重启后手动兜底）
   int refreshNativeHandlerCount(MusicxxPluginHookId id) {
     if (!_runtime.isRunning) {
@@ -185,6 +266,17 @@ class MusicxxPluginHooks {
 
   void handleDisposed() {
     _nativeCounts.clear();
+    // 宿主已停：在途异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
+    for (final MapEntry<int, Timer> entry in _pendingDecisionTimers.entries) {
+      entry.value.cancel();
+    }
+    _pendingDecisionTimers.clear();
+    for (final Completer<Map<String, Object?>?> completer in _pendingDecisions.values) {
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+    }
+    _pendingDecisions.clear();
   }
 
   /// `musicxx.hook.changed`：维护"该钩子是否有原生处理器"的位图
@@ -280,6 +372,66 @@ class MusicxxPluginHooks {
     required bool sync,
     required int timeoutMs,
   }) {
+    final Map<String, Object?>? ack = _emitAck(id, payload, sync: sync, timeoutMs: timeoutMs);
+    if (!sync || ack == null) {
+      return null;
+    }
+    return _verdictOf(ack);
+  }
+
+  /// 发起一次异步裁决派发，返回配对的 `callId`（无处理器/失败返回 `null`）
+  int? _emitAsyncDecision(
+    MusicxxPluginHookId id,
+    Map<String, Object?> payload,
+    int budgetMs,
+  ) {
+    final Map<String, Object?>? ack = _emitAck(id, payload, sync: false, timeoutMs: budgetMs);
+    if (ack == null || ack['handled'] == false) {
+      return null;
+    }
+    final Object? callId = ack['callId'];
+    return callId is num ? callId.toInt() : null; // 未返回 callId（旧库）时按"无裁决"处理
+  }
+
+  /// 等待异步裁决结果（结果事件优先；超时/事件丢失按"无裁决"收尾）
+  Future<Map<String, Object?>?> _awaitAsyncDecision(int callId, int budgetMs) {
+    final Completer<Map<String, Object?>?> completer = Completer<Map<String, Object?>?>();
+    _pendingDecisions[callId] = completer;
+    final int waitMs = (budgetMs > 0 ? budgetMs : 100) + _asyncDecisionSlackMs;
+    _pendingDecisionTimers[callId] = Timer(Duration(milliseconds: waitMs), () {
+      final Completer<Map<String, Object?>?>? pending = _pendingDecisions.remove(callId);
+      _pendingDecisionTimers.remove(callId);
+      if (pending != null && !pending.isCompleted) {
+        ++_asyncDecisionTimeouts;
+        pending.complete(null);
+      }
+    });
+    return completer.future;
+  }
+
+  /// 整链默认等待预算：软预算 + 硬预算（与同步派发传给宿主的取值一致）
+  static int _defaultBudgetMs(MusicxxPluginHookId id) =>
+      id.budgetMs > 0 ? id.budgetLimitMs : 0;
+
+  /// 从宿主回执里取出裁决对象（`{"handled":..,"result":{...}}`）
+  static Map<String, Object?>? _verdictOf(Map<String, Object?> ack) {
+    final Object? verdict = ack['result'];
+    if (verdict is Map<String, Object?>) {
+      return verdict;
+    }
+    if (verdict is Map<Object?, Object?>) {
+      return verdict.cast<String, Object?>();
+    }
+    return null;
+  }
+
+  /// 调用原生/JS 处理器链并返回宿主回执（一次 FFI 调用）
+  Map<String, Object?>? _emitAck(
+    MusicxxPluginHookId id,
+    Map<String, Object?> payload, {
+    required bool sync,
+    required int timeoutMs,
+  }) {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
@@ -298,18 +450,7 @@ class MusicxxPluginHooks {
         _runtime.log(3, 'hook_emit ${id.id} 失败: ${takeOutString(log, _runtime.bindings)}');
         return null;
       }
-      final Map<String, Object?> result = decodeJsonObject(takeOutString(out, _runtime.bindings));
-      if (!sync) {
-        return null;
-      }
-      final Object? verdict = result['result'];
-      if (verdict is Map<String, Object?>) {
-        return verdict;
-      }
-      if (verdict is Map<Object?, Object?>) {
-        return verdict.cast<String, Object?>();
-      }
-      return null;
+      return decodeJsonObject(takeOutString(out, _runtime.bindings));
     } finally {
       arena.dispose();
     }
