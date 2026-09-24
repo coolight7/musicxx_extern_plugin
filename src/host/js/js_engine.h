@@ -103,6 +103,16 @@ public:
                   const std::string &name, const std::string &type,
                   const std::string &dataJson, int32_t order);
 
+  /// 钩子操作 (op = register | unregister; 只在 JS 线程调用)
+  ///
+  /// 与 [bridgeUiOp] 同一套规则: 顶层登记阶段只记账 (由
+  /// [applyRegistrations] 回放), 运行期投递到宿主线程执行 —— 否则
+  /// `musicxx.hooks.register/unregister` 只改了 JS 侧的表, 宿主注册没变
+  /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的钩子永远不触发")。
+  void bridgeHookOp(const std::string &instanceName, const std::string &op,
+                    const std::string &hookId, const std::string &mode,
+                    int32_t priority, const std::string &ownerTag);
+
   /// 运行期动态订阅 (投递到宿主线程建立订阅; 顶层声明由回放处理)
   void bridgeSubscribeHost(const std::string &instanceName,
                            const std::string &topic);
@@ -319,6 +329,12 @@ private:
   /// 在宿主线程上建立一个事件订阅 (幂等; 同一 (实例, 主题) 只建一次)
   void ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
                                 const std::string &topic);
+
+  /// 在宿主线程上落地一次运行期钩子操作 (register / unregister)
+  void applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
+                         const std::string &op, const std::string &hookId,
+                         const std::string &mode, int32_t priority,
+                         const std::string &ownerTag);
 
   /// 取回脚本登记的 UI 项操作 (宿主线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingUiOp>

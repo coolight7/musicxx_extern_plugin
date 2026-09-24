@@ -280,7 +280,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
     MusicxxExternPluginString*           log
 );
 
-/// 更新插件参数 (需 reload 生效, 由 Dart 决定何时重载)
+/// 更新插件参数 (下次 `reload` 生效, 由 Dart 决定何时重载)
+/// - `reload` 会把当前参数带过去, 因此"设置参数 → 重载"不会丢参数
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_plugin_set_args(
         MusicxxExternPluginHost*              h,
@@ -361,7 +362,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /* ==================== 状态镜像 (Dart → 原生) ==================== */
 
-/// 推送单个状态键 (值必须为合法 JSON; 单键上限 64 KiB, 超出截断并告警)
+/// 推送单个状态键 (值必须为合法 JSON; 单键上限 512 KiB, 超出直接拒绝写入)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_state_update(
         MusicxxExternPluginHost*              h,

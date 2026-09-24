@@ -281,6 +281,40 @@ std::string readManifestVersion(const fs::path &dir) {
   return {};
 }
 
+/// 读 `plugin.yaml` 的依赖声明 (`depends` / `optional_depends`; 支持标量与列表两种写法)
+///
+/// 用于 JS 插件的依赖检查: JS 插件走 `loadBuiltinAsync` (不经过内核的按名依赖检查,
+/// 而内核是按实例名查的, JS 实例名是 `js:<id>`), 因此这里按**插件 id** 自己校验一遍。
+void readManifestDepends(const fs::path &dir, std::vector<std::string> &depends,
+                         std::vector<std::string> &optionalDepends) {
+  const std::string text = readFileText(dir / "plugin.yaml");
+  if (text.empty()) {
+    return;
+  }
+  try {
+    auto node = YAML::Load(text);
+    auto readList = [&node](const char *key, std::vector<std::string> &out) {
+      if (!node[key]) {
+        return;
+      }
+      if (node[key].IsSequence()) {
+        for (const auto &item : node[key]) {
+          if (item.IsScalar()) {
+            out.push_back(item.as<std::string>());
+          }
+        }
+      } else if (node[key].IsScalar()) {
+        out.push_back(node[key].as<std::string>());
+      }
+    };
+    readList("depends", depends);
+    readList("optional_depends", optionalDepends);
+  } catch (const std::exception &e) {
+    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的依赖声明失败: {}", dir.string(),
+            e.what());
+  }
+}
+
 } // namespace
 
 /* ==================== HostContext ==================== */
@@ -1189,7 +1223,9 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   item["supported"] = supported;
   item["reason"] = reason;
   item["source"] = kindHint;
-  item["loaded"] = loaded_.find(name) != loaded_.end();
+  /// 已加载判定按**插件 id 或实例名**解析: JS 插件实例名是 `js:<id>`,
+  /// 直接用 id 查 loaded_ 会一直判定成未加载
+  item["loaded"] = resolveInstance(name) != nullptr;
 
   discovered_[name] = dir;
   return item.dump();
@@ -1285,6 +1321,42 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         const std::string manifestEntry = readManifestEntry(pluginPath);
         const std::string manifestVersion = readManifestVersion(pluginPath);
         if (manifestKind == "js") {
+          // 依赖检查 (JS 插件专用): 内核的按名依赖检查用实例名查表, 而 JS 实例名是
+          // `js:<id>`, 所以 JS 插件走不了那条路; 这里按**插件 id** 自己校验一遍,
+          // 语义与动态库插件一致 (必选依赖未加载 → 拒绝加载; 可选依赖 → 只记日志)。
+          // 记录到实例上的依赖用**实例名** (JS 依赖写成 `js:<id>`), 这样内核的
+          // "启用依赖 / 级联卸载依赖者" 也能在同一套命名空间里对上。
+          std::vector<std::string> jsDepends;
+          std::vector<std::string> jsOptionalDepends;
+          readManifestDepends(pluginPath, jsDepends, jsOptionalDepends);
+          std::vector<std::string> jsDependsResolved;
+          std::vector<std::string> jsOptionalDependsResolved;
+          for (const auto &dep : jsDepends) {
+            const auto depInst = self->resolveInstance(dep);
+            if (!depInst) {
+              *failMsg = "JS 插件加载失败: 必选依赖 `" + dep +
+                         "` 未加载 (请先加载它)";
+              Json payload;
+              payload["id"] = pluginId;
+              payload["phase"] = "load";
+              payload["code"] = "dependency_missing";
+              payload["message"] = *failMsg;
+              self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
+              XX_LOGE("[musicxx_ext] {}", *failMsg);
+              slot->set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+              co_return;
+            }
+            jsDependsResolved.push_back(depInst->name);
+          }
+          for (const auto &dep : jsOptionalDepends) {
+            const auto depInst = self->resolveInstance(dep);
+            if (!depInst) {
+              XX_LOGW("[musicxx_ext] JS 插件 `{}` 的可选依赖 `{}` 未加载",
+                      pluginId, dep);
+              continue;
+            }
+            jsOptionalDependsResolved.push_back(depInst->name);
+          }
           std::string prepareErr;
           const int32_t prepareRc = self->prepareJsPlugin(
               pluginId, path, manifestEntry, manifestVersion, prepareErr);
@@ -1299,8 +1371,10 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             slot->set(prepareRc);
             co_return;
           }
-          auto jsInst = co_await self->loadBuiltinAsync("js:" + pluginId, path,
-                                                        {}, {}, options.get());
+          // depends 只是记录 (内核 builtin 装载路径不再做检查): 依赖已在上面校验过
+          auto jsInst = co_await self->loadBuiltinAsync(
+              "js:" + pluginId, path, jsDependsResolved,
+              jsOptionalDependsResolved, options.get());
           if (!jsInst) {
             if (auto engine = self->jsEngine()) {
               engine->unregisterBuiltin(pluginId);
@@ -1787,11 +1861,12 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
     return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
   }
   std::string text = value.dump();
-  constexpr size_t kMaxSize = 64 * 1024; ///< 单键上限 (plan §4.7)
-  bool truncated = false;
+  /// 单键上限 (plan §4.7): 超限**直接拒绝写入** (不做截断 —— 截断后的 JSON
+  /// 既不是合法 JSON 也丢了一半内容, 插件读到的会是坏值)
+  constexpr size_t kMaxSize = 512 * 1024;
   if (text.size() > kMaxSize) {
-    text.resize(kMaxSize);
-    truncated = true;
+    err = "state_update: 值超过 512 KiB 上限, 已拒绝写入 (键 " + key + ")";
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   {
     std::lock_guard<std::mutex> lock{stateMutex_};
@@ -1807,10 +1882,6 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
       payload["value"] = parseJsonSafe(text);
       self->eventBus_->publish("musicxx.state.changed", payload.dump());
     });
-  }
-  if (truncated) {
-    err = "state_update: 值超过 64 KiB, 已截断";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

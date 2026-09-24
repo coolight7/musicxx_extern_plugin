@@ -58,6 +58,11 @@ class MusicxxPluginHooks {
   final Map<int, Completer<Map<String, Object?>?>> _pendingDecisions =
       <int, Completer<Map<String, Object?>?>>{};
 
+  /// 节流视图缓存（key = `钩子 id|间隔毫秒`）：同一组合复用同一个实例，
+  /// 节流状态才能跨调用累积
+  final Map<String, MusicxxPluginThrottle> _throttles =
+      <String, MusicxxPluginThrottle>{};
+
   /// 异步裁决的兜底定时器（事件丢失时不至于永久悬挂）
   final Map<int, Timer> _pendingDecisionTimers = <int, Timer>{};
 
@@ -162,10 +167,19 @@ class MusicxxPluginHooks {
   }
 
   /// 高频钩子的节流包装（进度/歌词行按最小间隔丢弃）
+  ///
+  /// 同一个 `(钩子, 间隔)` 返回**同一个实例**：节流状态（上次派发时刻）保存在节流
+  /// 对象上，调用点每次新建一个等于没有节流，所以这里统一缓存复用。
   MusicxxPluginThrottle throttle(
     MusicxxPluginHookId id, {
     int minIntervalMs = 1000,
-  }) => MusicxxPluginThrottle._(this, id, minIntervalMs);
+  }) {
+    final String key = '${id.id}|$minIntervalMs';
+    return _throttles.putIfAbsent(
+      key,
+      () => MusicxxPluginThrottle._(this, id, minIntervalMs),
+    );
+  }
 
   // ==================== 异步裁决 ====================
 
@@ -291,6 +305,7 @@ class MusicxxPluginHooks {
 
   void handleDisposed() {
     _nativeCounts.clear();
+    _throttles.clear();
     // 宿主已停：在途异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
     for (final MapEntry<int, Timer> entry in _pendingDecisionTimers.entries) {
       entry.value.cancel();
@@ -581,6 +596,9 @@ class MusicxxPluginHooks {
 }
 
 /// 节流视图（高频钩子：进度/歌词行）
+///
+/// 由 [MusicxxPluginHooks.throttle] 按 `(钩子, 间隔)` 缓存复用：节流状态在实例上，
+/// 每次新建实例会让节流失效（调用点不要自己 `new`，直接调 `throttle()` 即可）。
 class MusicxxPluginThrottle {
   MusicxxPluginThrottle._(this._hooks, this._id, this._minIntervalMs);
 

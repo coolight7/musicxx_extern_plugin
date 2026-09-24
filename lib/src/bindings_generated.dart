@@ -882,7 +882,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 推送单个状态键 (值必须为合法 JSON; 单键上限 64 KiB, 超出截断并告警)
+  /// 推送单个状态键 (值必须为合法 JSON; 单键上限 512 KiB, 超出直接拒绝写入)
   int musicxx_extern_plugin_state_update(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> key,

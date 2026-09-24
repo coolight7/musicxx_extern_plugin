@@ -9,8 +9,8 @@
 ///   Dart 线程的 `ui_snapshot` 经 C ABI 侧的 `onHostThread` 投递后读取;
 /// - **命名空间校验**: 项 id 必须是本插件命名空间 (`plugin.<pluginId>.<名>`),
 /// 短名由宿主补前缀;
-///   动作里的 `route` 只允许指向本插件页面, `action` 只允许官方 `musicxx.*`
-///   动作;
+///   动作里的 `route` 允许指向**任意插件**的 `ext://<插件id>/<视图id>` 页面
+///   (页面由被跳转插件自己绘制), `action` 只允许官方 `musicxx.*` 动作;
 /// - **结构校验在注册时做**: data 必须是 JSON 对象且按类型含必需字段 (title
 /// 等),
 ///   早报错好过让 Dart 侧渲染时才发现;
@@ -72,7 +72,8 @@ bool requiresTitle(std::string_view type) {
 /// 校验一个动作描述 (data.action)
 ///
 /// 允许的形态:
-/// - `{"kind":"route","route":"ext://<本插件id>/<viewId>"}`
+/// - `{"kind":"route","route":"ext://<插件id>/<视图id>"}` —— 允许指向任意插件
+///   (含自己): 页面由被跳转插件自己绘制, 发起方只是把它打开;
 /// - `{"kind":"capability","name":"<短名>","args":{...}}`
 /// - `{"kind":"action","name":"musicxx.<域>.<动作>","args":{...}}`
 /// - `{"kind":"none"}`
@@ -98,9 +99,20 @@ bool validateAction(const Json &action, std::string_view pluginId,
       return false;
     }
     const std::string route = action["route"].get<std::string>();
-    const std::string prefix = "ext://" + std::string{pluginId} + "/";
-    if (route.rfind(prefix, 0) != 0) {
-      err = "route 必须指向本插件页面 (" + prefix + "<viewId>)";
+    constexpr const char *kPrefix = "ext://";
+    constexpr size_t kPrefixLen = 6; ///< sizeof("ext://") - 1
+    const std::string hint =
+        "ext://<插件id>/<视图id> (本插件应为 ext://" + std::string{pluginId} +
+        "/<视图id>)";
+    if (route.rfind(kPrefix, 0) != 0) {
+      err = "route 必须以 ext:// 开头 (" + hint + ")";
+      return false;
+    }
+    const std::string rest = route.substr(kPrefixLen);
+    const size_t slash = rest.find('/');
+    if (slash == std::string::npos || slash == 0 ||
+        slash + 1 >= rest.size()) {
+      err = "route 地址不完整 (" + hint + ")";
       return false;
     }
     return true;

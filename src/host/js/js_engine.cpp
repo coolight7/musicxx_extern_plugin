@@ -223,15 +223,24 @@ constexpr const char *kPrelude = R"JS(
       if (typeof options === "function") { fn = options; options = null; }
       options = options || {};
       if (typeof fn !== "function") { throw new Error("hooks.register: 缺少处理函数"); }
-      hookTable.set(id, {
+      var entry = {
         mode: options.mode === "observe" ? "observe" : "decision",
         priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
         ownerTag: typeof options.ownerTag === "string" ? options.ownerTag : "",
         fn: fn
-      });
+      };
+      hookTable.set(id, entry);
+      /// 运行期注册要通知宿主 (顶层登记阶段由引擎统一回放, 这里只是记账)
+      ext.hookOp("register", String(id), entry.mode, entry.priority, entry.ownerTag);
       return musicxx;
     },
-    unregister: function (id) { hookTable.delete(String(id)); return musicxx; },
+    unregister: function (id) {
+      var key = String(id);
+      var entry = hookTable.get(key);
+      hookTable.delete(key);
+      ext.hookOp("unregister", key, "", 0, entry ? entry.ownerTag : "");
+      return musicxx;
+    },
     has: function (id) { return hookTable.has(String(id)); }
   };
 
@@ -368,7 +377,8 @@ constexpr const char *kPrelude = R"JS(
     dialog: function (args) {
       return musicxx.call("musicxx.ui.dialog", typeof args === "string" ? { content: args } : args);
     },
-    // 打开页面: 只允许本插件自己的 ext:// 页面, 或官方白名单页面 (见作者文档)
+    // 打开页面: 任意插件的声明式页面 (ext://<插件id>/<视图id>, 含本插件), 或官方白名单页面
+    // (见作者文档; 跨插件页面由对方插件自己绘制)
     openRoute: function (route, args) {
       return musicxx.call("musicxx.ui.openRoute", { route: String(route), arguments: args });
     },
@@ -870,6 +880,41 @@ JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_UNDEFINED;
 }
 
+/// 钩子操作 (register | unregister): 运行期注册/注销要落到宿主注册表
+///
+/// 顶层登记阶段 (liveRegistrations == false) 由 collectRegistrations 统一回放, 这里
+/// 不做任何事; 运行期由 C++ 侧投递到宿主线程执行 (投递不等待)。
+JSValue jsHookOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 2) {
+    return JS_UNDEFINED;
+  }
+  const char *op = JS_ToCString(ctx, argv[0]);
+  const char *hookId = JS_ToCString(ctx, argv[1]);
+  const char *mode = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
+  int32_t priority = 0;
+  if (argc >= 4) {
+    JS_ToInt32(ctx, &priority, argv[3]);
+  }
+  const char *ownerTag = (argc >= 5) ? JS_ToCString(ctx, argv[4]) : nullptr;
+  inst->engine->bridgeHookOp(inst->name, op ? op : "", hookId ? hookId : "",
+                             mode ? mode : "decision", priority,
+                             ownerTag ? ownerTag : "");
+  if (op) {
+    JS_FreeCString(ctx, op);
+  }
+  if (hookId) {
+    JS_FreeCString(ctx, hookId);
+  }
+  if (mode) {
+    JS_FreeCString(ctx, mode);
+  }
+  if (ownerTag) {
+    JS_FreeCString(ctx, ownerTag);
+  }
+  return JS_UNDEFINED;
+}
+
 /// 运行期动态订阅 (顶层声明由回放处理; 这里只处理运行期新增)
 JSValue jsSubscribeHost(JSContext *ctx, JSValueConst, int argc,
                         JSValueConst *argv) {
@@ -1004,6 +1049,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"actionCancel", jsActionCancel, 0},
       {"publish", jsPublish, 2},
       {"subscribeHost", jsSubscribeHost, 1},
+      {"hookOp", jsHookOp, 5},
       {"hookWaitResolve", jsHookWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
       {"timerClear", jsTimerClear, 1},
@@ -1701,6 +1747,103 @@ JsEngine::takePendingUiOps(const std::shared_ptr<Instance> &inst) {
   }
   ops.swap(inst->pendingUiOps);
   return ops;
+}
+
+void JsEngine::bridgeHookOp(const std::string &instanceName,
+                            const std::string &op, const std::string &hookId,
+                            const std::string &mode, int32_t priority,
+                            const std::string &ownerTag) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst || !mgr_ || !mgr_->running()) {
+    return;
+  }
+  if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
+    /// 脚本顶层登记阶段: 由 applyRegistrations 统一回放 (与 UI 项/订阅同一套做法,
+    /// 避免"宿主线程等 JS、JS 等宿主线程"的互锁)
+    return;
+  }
+  /// 运行期: 投递到宿主线程执行 (**不等待**): 宿主线程可能正等 JS 处理器,
+  /// 在这里同步等待就会互锁。失败只记日志与事件, 不回传给脚本。
+  auto self = shared_from_this();
+  asio::post(mgr_->hostExecutor(),
+             [self, instanceName, op, hookId, mode, priority, ownerTag] {
+               auto current = self->lookupInstance(instanceName);
+               if (current) {
+                 self->applyHookOpOnHost(current, op, hookId, mode, priority,
+                                         ownerTag);
+               }
+             });
+}
+
+void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
+                                 const std::string &op,
+                                 const std::string &hookId,
+                                 const std::string &mode, int32_t priority,
+                                 const std::string &ownerTag) {
+  if (!inst || !inst->hostInst || !mgr_ || hookId.empty()) {
+    return;
+  }
+  const bool unregister = op == "unregister";
+  if (!unregister && op != "register") {
+    return;
+  }
+  /// 同一个 (钩子, owner_tag) 只保留一份: 先摘掉宿主注册 (释放注册表对该
+  /// `HookHandler` 的引用), 再释放 JS 侧持有的对象, 避免出现"注册表指向已释放对象"
+  /// 的窗口; 覆盖式注册随后重新登记
+  for (auto it = inst->hooks.begin(); it != inst->hooks.end();) {
+    const auto &handler = *it;
+    if (handler && handler->hookId == hookId && handler->ownerTag == ownerTag) {
+      mgr_->unregisterHook(inst->hostInst, handler->hookId, handler->ownerTag);
+      it = inst->hooks.erase(it);
+      continue;
+    }
+    ++it;
+  }
+  if (unregister) {
+    return;
+  }
+
+  auto handler = std::make_shared<HookHandler>();
+  handler->engine = this;
+  handler->instance = inst->name;
+  handler->pluginId = inst->id;
+  handler->hookId = hookId;
+  handler->ownerTag = ownerTag;
+  handler->decision = mode != "observe";
+
+  MusicxxPluginHookSpec spec{};
+  spec.version = 1;
+  spec.struct_size = sizeof(MusicxxPluginHookSpec);
+  spec.hook_id =
+      PluginxxStringView{handler->hookId.data(), handler->hookId.size()};
+  spec.owner_tag = PluginxxStringView{handler->ownerTag.data(),
+                                      handler->ownerTag.size()};
+  spec.mode = handler->decision ? MUSICXX_PLUGIN_HOOK_MODE_DECISION
+                                : MUSICXX_PLUGIN_HOOK_MODE_OBSERVE;
+  spec.priority = priority;
+  spec.user_data = handler.get();
+  if (handler->decision) {
+    spec.hook_sync = &JsEngine::hookSync;
+  } else {
+    spec.hook_start = &JsEngine::hookStart;
+  }
+  const int32_t rc = mgr_->registerHook(inst->hostInst, spec);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    Json payload;
+    payload["id"] = inst->id;
+    payload["phase"] = "hook";
+    payload["hook"] = hookId;
+    payload["code"] = "hook_register_failed";
+    payload["message"] = "运行期钩子注册被拒绝 (未知钩子或命名空间非法)";
+    mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
+    XX_LOGW("[musicxx_ext] JS 插件 `{}` 运行期注册钩子 `{}` 被拒绝 (code={})",
+            inst->id, hookId, rc);
+    return;
+  }
+  inst->hooks.push_back(handler);
+  XX_LOGI("[musicxx_ext] JS 插件 `{}` 运行期注册钩子 `{}` 已生效 (mode={}, "
+          "priority={})",
+          inst->id, hookId, mode, priority);
 }
 
 std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
