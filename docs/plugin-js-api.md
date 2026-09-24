@@ -423,6 +423,10 @@ musicxx.capability.register("ping", () => ({ pong: true }));
 ## 5. 调试与排障
 
 - 管理页「详情」里有插件日志流（`console.*` 与 `musicxx.host.log` 都进这里）；
+- 点主页入口/菜单/按钮提示「没有提供『xxx』」：这项动作指向的能力没有注册。声明式页面
+  （`ext://<插件id>/<视图id>`）要求插件注册**同名能力**（见 §3.5「插件页面」），
+  `{kind:"capability"}` 动作里的 `name` 同理 —— 只声明了入口、没写对应能力就会出现这个提示
+  （`plugins/example_js/plugin.js` 的 `card` 能力是可照抄的例子）；
 - 脚本顶层报错会让装载失败并在管理页显示原因；运行期异常只记日志、不影响宿主；
 - 宿主调试信息（管理页「调试信息」/`musicxx_extern_plugin_debug_info`）里有 JS 运行时的 `plugins[]` 段：
   `hooks/capabilities/subscriptions/timers/pendingActions/jsRuns/errors` 都可直接读到；

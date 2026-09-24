@@ -239,6 +239,10 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`（见包 `README.md` 的�
   插件自己的设置页与功能页由插件绘制（`ext://<插件id>/<视图id>`）；
 - 宿主日志默认没有输出目标：排障时设置环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 让宿主打印到 stderr；
 - 插件自己的日志：`log.info(...)` + `console`（JS）/ 管理页「日志」区块；
+- 点主页入口/菜单/按钮提示「没有提供『xxx』」：这项动作指向的能力没有注册。声明式页面
+  （`ext://<插件id>/<视图id>`）要求插件在 `start` 事务里注册**同名能力**
+  （`capability(*this, "plugin.<id>.<视图id>", ...)`），`{"kind":"capability"}` 动作里的 `name` 同理 ——
+  只声明了入口、没写对应能力就会出现这个提示（`plugins/example_native/example_native.cpp` 的 `card` 能力是可照抄的例子）；
 - 装载失败：管理页会显示原因（清单非法、缺入口符号、api_version 不匹配、平台/架构不符、脚本错误…），
   **宿主不会自动重试**，可以修好后点「重载」；
 - 插件崩溃 = 应用崩溃（同进程）。宿主提供"安全模式"兜底：连续两次启动未完成则本次不加载任何外部插件。
