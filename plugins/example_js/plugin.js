@@ -113,23 +113,6 @@ musicxx.ui.registerEntry({
     },
 });
 
-/// 播放页附加信息块 (musicxx.ui.overlay.widget, 只读展示)
-///
-/// 位置: `player.top`(顶部栏下方) / `player.bottom`(进度条上方);
-/// 内容: `content.kind` = text / markdown / list / progress。
-/// 这里注册一个 Markdown 块 (点击跳转到本插件页面), 与原生示例插件的纯文本块对应。
-musicxx.ui.registerEntry({
-    name: "overlayInfo",
-    type: "overlay.widget",
-    order: 20,
-    data: {
-        position: "player.top",
-        title: "JS 示例插件",
-        content: { kind: "markdown", text: '**example_js**：附加信息块（只读，点击查看插件页面）\n\n- 支持 `text` / `markdown` / `list` / `progress`\n- 内容只展示，不参与播放逻辑' },
-        action: { kind: "route", route: "ext://example_js/card" },
-    },
-});
-
 /// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
 musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function () {
     return null;

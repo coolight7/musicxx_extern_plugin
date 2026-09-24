@@ -57,8 +57,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiBadDataRc = -100; ///< 声明式内容缺少 title: 期望 -1 (参数非法)
   int32_t uiUpdateRc = -100; ///< 更新自己的项: 期望 0
   int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget 动作): 期望 0
-  int32_t uiOverlayTextRc = -100; ///< 注册播放页附加信息块 (文本): 期望 0
-  int32_t uiOverlayProgressRc = -100; ///< 注册播放页附加信息块 (进度): 期望 0
+  int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
 
   /// 事件订阅自检
   int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (宿主拒绝)
@@ -178,21 +177,19 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                 "action":{"kind":"route","route":"ext://example_native/card"}})");
     uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
 
-    // 7) 播放页附加信息块 (musicxx.ui.overlay.widget, 只读展示):
-    //    位置 player.top / player.bottom (顶部栏下方 / 进度条上方), 内容用
-    //    content.kind 描述。 支持 text / markdown / list / progress 四种;
-    //    这里各注册一个演示两种常用形态。
-    uiOverlayTextRc = uiRegister(
-        "overlayText", MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET,
-        R"({"position":"player.bottom","content":{"kind":"text","text":"example_native：附加信息块演示"}})",
-        10);
-    uiOverlayProgressRc =
-        uiRegister("overlayProgress", MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET,
-                   R"({"position":"player.bottom","title":"示例进度",
-                 "content":{"kind":"progress","value":1,"total":4}})",
-                   11);
+    // 7) 播放页背景样式 (musicxx.ui.playing.background):
+    //    插件把一个预编译的 shader bundle 注册成一种"播放页背景样式",
+    //    用户在『设置 → 播放页面背景』里选中后才生效; 未选中时零成本。
+    //    这里注册一个跟宿主 4 个封面绘制色联动的动态背景。
+    uiBackgroundRc = uiRegister(
+        "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
+        R"({"title":"原生示例动态背景","depict":"跟随封面配色的动态背景",
+            "shader":{"bundle":"shader/bg.shaderbundle"},
+            "colors":{"source":"background"},"speed":4,"maxFps":16,
+            "foregroundStyle":"mask"})",
+        20);
 
-    // 7) 能力: 供宿主/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
+    // 8) 能力: 供宿主/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
     capability(
         *this, "plugin.example_native.probe",
         [this](std::string_view, std::string_view args) -> std::string {
@@ -226,8 +223,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiBadDataRc\":" << uiBadDataRc
               << ",\"uiUpdateRc\":" << uiUpdateRc
               << ",\"uiNotifyRc\":" << uiNotifyRc
-              << ",\"uiOverlayTextRc\":" << uiOverlayTextRc
-              << ",\"uiOverlayProgressRc\":" << uiOverlayProgressRc
+              << ",\"uiBackgroundRc\":" << uiBackgroundRc
               << ",\"stateLen\":" << stateJson("musicxx.state.song").size()
               << "}";
           return oss.str();
@@ -244,8 +240,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         [this](std::string_view, std::string_view) -> std::string {
           const int32_t uiOk = (uiHomeRc == 0 ? 1 : 0) +
                                (uiSongRc == 0 ? 1 : 0) +
-                               (uiOverlayTextRc == 0 ? 1 : 0) +
-                               (uiOverlayProgressRc == 0 ? 1 : 0);
+                               (uiBackgroundRc == 0 ? 1 : 0);
           std::ostringstream oss;
           oss << "{\"view\":{\"title\":\"示例插件\""
               << ",\"subtitle\":\"页面内容来自能力 "

@@ -48,7 +48,7 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
     MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
     MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION,
-    MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
 };
 
 bool isKnownUiType(std::string_view type) {
@@ -64,7 +64,8 @@ bool isKnownUiType(std::string_view type) {
 bool requiresTitle(std::string_view type) {
   return type == MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY ||
          type == MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION;
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION ||
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND;
 }
 
 /// 校验一个动作描述 (data.action)
@@ -160,13 +161,16 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
       return false;
     }
   }
-  if (type == MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET) {
-    if (!data.contains("position") || !data["position"].is_string()) {
-      err = "附加信息块缺少 position 字段";
+  if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND) {
+    // 播放页背景: 必须有 shader.bundle (插件目录内的相对路径), 宿主加载时再校验
+    if (!data.contains("shader") || !data["shader"].is_object()) {
+      err = "播放页背景缺少 shader 对象";
       return false;
     }
-    if (!data.contains("content") || !data["content"].is_object()) {
-      err = "附加信息块缺少 content 对象";
+    const Json &shader = data["shader"];
+    if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
+        shader["bundle"].get<std::string>().empty()) {
+      err = "播放页背景缺少 shader.bundle (非空字符串)";
       return false;
     }
   }

@@ -210,35 +210,39 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 | `home.entry`（`musicxx.ui.home.entry`） | 功能主页入口按钮 | `title` |
 | `song.action`（`musicxx.ui.song.action`） | 歌曲菜单项 | `title` |
 | `playlist.action` | 歌单菜单项 | `title` |
-| `overlay.widget` | 播放页只读信息块（应用侧已渲染） | `position`、`content` |
+| `playing.background` | 播放页背景样式（插件渲染，用户选中后生效） | `title`、`shader.bundle` |
 
 > 框架**没有**插件设置页类型：插件要提供设置界面，就把设置画在自己注册的页面里
 > （见下面「插件自己的设置页」），入口由插件自己给（主页入口 / 自己的功能页按钮等）。
 
-`overlay.widget` 的 `position` 与 `content.kind`（应用侧定义，其他取值会被忽略/归一化）：
+#### 播放页背景（`playing.background`）
 
-| 字段 | 取值 | 说明 |
-|---|---|---|
-| `position` | `player.top` | 沉浸式播放页顶部栏下方 |
-| | `player.bottom` | 进度条上方（**未识别的位置按这里渲染**） |
-| `content.kind` | `text` | `{kind:"text", text:"..."}` |
-| | `markdown` | 同上（首期按纯文本渲染） |
-| | `list` | `{kind:"list", items:["a", {title:"b", depict:"c"}]}` |
-| | `progress` | `{kind:"progress", title?:"...", value:1, total:4}` |
+插件把一个**打包期编译好的 shader bundle** 注册成一种"播放页背景样式"，用户在
+「设置 → 播放页面背景」里选中它之后才生效（未选中时零成本：不加载 bundle、不分析封面）。
+字段与打包方式见 [plugin-shader-bundle.md](plugin-shader-bundle.md)。
 
 ```js
 musicxx.ui.registerEntry({
-    name: "overlayInfo",
-    type: "overlay.widget",
+    name: "bg",
+    type: "playing.background",
     order: 20,
     data: {
-        position: "player.top",
-        title: "附加信息",
-        content: { kind: "text", text: "只读展示；点击可跳转插件页面" },
-        action: { kind: "route", route: "ext://example_js/card" },
+        title: "流光背景",              // 必填；设置列表里的样式名
+        depict: "跟随封面配色的动态背景",  // 可选；副标题
+        shader: { bundle: "shader/bg.shaderbundle" },  // 必填；插件目录内的相对路径
+        colors: { source: "background" },  // 4 个绘制色的来源（默认 background）
+        maxFps: 16,                     // 1..30，默认 16
+        animate: true,                  // false = 只画一帧
+        scrim: 0.0,                     // 0..0.8；背景上叠一层暗化
+        foregroundStyle: "mask",        // mask（默认）| neumorphism
     },
 });
 ```
+
+- 查询可选项与切换样式（也可以切到内置样式）用 `musicxx.render.list / current / select`；
+- 自己画"一键使用"按钮：`musicxx.call("musicxx.render.select", { slot: "player.background", id: "plugin.本插件id.bg" })`；
+- 想知道"现在是不是我在画"：读状态镜像 `musicxx.state.renderSlots`；
+- 需要更细的颜色数据：`musicxx.media.palette` / `musicxx.media.cover`。
 
 ```js
 musicxx.ui.registerEntry({
