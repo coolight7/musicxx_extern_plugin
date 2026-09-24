@@ -95,7 +95,7 @@ class MusicxxPluginEvent {
 
   /// 解析一条事件；缺字段用安全默认值（未知事件类型照常构造）
   factory MusicxxPluginEvent.fromJson(Map<String, Object?> json) {
-    final Object? payload = json['payload'];
+    final payload = json['payload'];
     return MusicxxPluginEvent(
       seq: (json['seq'] as num?)?.toInt() ?? 0,
       ts: (json['ts'] as num?)?.toInt() ?? 0,
@@ -111,19 +111,19 @@ class MusicxxPluginEvent {
 
   /// 载荷里的字符串字段（缺失返回 `null`）
   String? stringOf(String key) {
-    final Object? value = payload[key];
+    final value = payload[key];
     return value is String ? value : null;
   }
 
   /// 载荷里的布尔字段（缺失返回 `null`）
   bool? boolOf(String key) {
-    final Object? value = payload[key];
+    final value = payload[key];
     return value is bool ? value : null;
   }
 
   /// 载荷里的整数字段（缺失返回 `null`）
   int? intOf(String key) {
-    final Object? value = payload[key];
+    final value = payload[key];
     return value is num ? value.toInt() : null;
   }
 

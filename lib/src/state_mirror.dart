@@ -119,7 +119,7 @@ class MusicxxPluginState {
         return false;
       }
       for (final Map<String, Object?> item in payload) {
-        final Object? key = item['key'];
+        final key = item['key'];
         if (key is String) {
           _lastPushed[key] = _encode(item['value']);
           _lastPushedMs[key] = DateTime.now().millisecondsSinceEpoch;

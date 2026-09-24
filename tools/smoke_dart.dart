@@ -50,40 +50,54 @@ Future<void> main(List<String> args) async {
 
   step('3 scan…');
   final List<MusicxxPluginInfo> found = runtime.plugins.scan();
-  step('3 scan 完成: ${found.length} 项 ${found.map((MusicxxPluginInfo e) => '${e.id}/${e.statusText}').toList()}');
+  step(
+    '3 scan 完成: ${found.length} 项 ${found.map((MusicxxPluginInfo e) => '${e.id}/${e.statusText}').toList()}',
+  );
 
   step('4 load…');
   runtime.plugins.load('example_native');
   step('4 load 完成: loaded=${runtime.plugins.findLoaded('example_native')}');
 
   step('5 hook_count…');
-  final int count = runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong);
+  final int count = runtime.hooks.refreshNativeHandlerCount(
+    MusicxxPluginHookId.playerBeforePlaySong,
+  );
   step('5 hook_count 完成: $count');
 
   step('6 state.update…');
-  runtime.state.update(
-    MusicxxPluginState.keySong,
-    <String, Object?>{'sid': 's-smoke', 'name': '冒烟歌曲'},
-  );
+  runtime.state.update(MusicxxPluginState.keySong, <String, Object?>{
+    'sid': 's-smoke',
+    'name': '冒烟歌曲',
+  });
   step('6 state.update 完成');
 
   step('7 plugin_call…');
-  final Object? probe =
-      runtime.plugins.call('example_native', 'plugin.example_native.probe', const <String, Object?>{});
+  final probe = runtime.plugins.call(
+    'example_native',
+    'plugin.example_native.probe',
+    const <String, Object?>{},
+  );
   step('7 plugin_call 完成: $probe');
 
   step('8 decide…');
   final Map<String, Object?>? verdict = runtime.hooks.decide(
     MusicxxPluginHookId.playerBeforePlaySong,
-    <String, Object?>{'sid': 's-ad', 'song': <String, Object?>{'name': '广告插曲 - 测试'}},
+    <String, Object?>{
+      'sid': 's-ad',
+      'song': <String, Object?>{'name': '广告插曲 - 测试'},
+    },
   );
   step('8 decide 完成: $verdict');
 
   step('9 disable/enable…');
   runtime.plugins.disable('example_native');
-  step('9.1 disable 完成 (count=${runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong)})');
+  step(
+    '9.1 disable 完成 (count=${runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong)})',
+  );
   runtime.plugins.enable('example_native');
-  step('9.2 enable 完成 (count=${runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong)})');
+  step(
+    '9.2 enable 完成 (count=${runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong)})',
+  );
 
   step('10 unload…');
   runtime.plugins.unload('example_native');
@@ -99,7 +113,8 @@ Future<void> main(List<String> args) async {
 }
 
 String? _detectLibrary() {
-  for (final String candidate in MusicxxPluginNativeLibrary.defaultCandidates()) {
+  for (final String candidate
+      in MusicxxPluginNativeLibrary.defaultCandidates()) {
     if (File(candidate).existsSync()) {
       return candidate;
     }

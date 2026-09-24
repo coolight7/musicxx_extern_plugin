@@ -106,7 +106,7 @@ class MusicxxPluginInfo {
   }
 
   factory MusicxxPluginInfo.fromJson(Map<String, Object?> json) {
-    final Object? counters = json['counters'];
+    final counters = json['counters'];
     return MusicxxPluginInfo(
       id: json['id'] as String? ?? '',
       instance: json['instance'] as String? ?? (json['id'] as String? ?? ''),

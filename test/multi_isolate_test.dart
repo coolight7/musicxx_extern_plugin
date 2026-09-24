@@ -36,175 +36,202 @@ const int _rounds = 40;
 void main() {
   final _Environment? env = _Environment.detect();
 
-  test(
-    '多 isolate 并发调用：不崩溃、seq 单调、callId 不重复、裁决不串台',
-    () async {
-      if (env == null) {
-        markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
-        return;
-      }
+  test('多 isolate 并发调用：不崩溃、seq 单调、callId 不重复、裁决不串台', () async {
+    if (env == null) {
+      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
+      return;
+    }
 
-      final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.instance;
-      addTearDown(runtime.dispose);
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.instance;
+    addTearDown(runtime.dispose);
 
-      final List<MusicxxPluginEvent> seen = <MusicxxPluginEvent>[];
-      final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen(seen.add);
-      addTearDown(sub.cancel);
+    final List<MusicxxPluginEvent> seen = <MusicxxPluginEvent>[];
+    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen(
+      seen.add,
+    );
+    addTearDown(sub.cancel);
 
-      runtime.init(
-        config: MusicxxPluginRuntimeConfig(
-          appVersion: '0.0.0-isolate',
-          platform: MusicxxPluginRuntime.currentPlatform,
-          language: 'zh-cn',
-          userPluginDir: env.pluginRoot,
-        ),
-        libraryPath: env.libraryPath,
-      );
-      runtime.plugins.load('example_native');
-      expect(
-        runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong),
-        greaterThan(0),
-      );
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-isolate',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: env.pluginRoot,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    runtime.plugins.load('example_native');
+    expect(
+      runtime.hooks.refreshNativeHandlerCount(
+        MusicxxPluginHookId.playerBeforePlaySong,
+      ),
+      greaterThan(0),
+    );
 
-      // 1) 第二个 isolate 再次 init：必须被拒绝（宿主进程单例）
-      final ReceivePort guardPort = ReceivePort();
-      await Isolate.spawn(
-        _initGuardWorker,
-        <Object?>[guardPort.sendPort, env.libraryPath, env.pluginRoot],
-      );
-      final Object? guardResult = await guardPort.first.timeout(const Duration(seconds: 30));
-      guardPort.close();
-      _step('第二个 isolate 的 init 结果: $guardResult');
-      expect(guardResult, isNot('ok'), reason: '同一进程不允许存在第二个宿主');
-      expect(guardResult.toString(), contains('进程单例'), reason: '拒绝原因必须可读: $guardResult');
+    // 1) 第二个 isolate 再次 init：必须被拒绝（宿主进程单例）
+    final ReceivePort guardPort = ReceivePort();
+    await Isolate.spawn(_initGuardWorker, <Object?>[
+      guardPort.sendPort,
+      env.libraryPath,
+      env.pluginRoot,
+    ]);
+    final guardResult = await guardPort.first.timeout(
+      const Duration(seconds: 30),
+    );
+    guardPort.close();
+    _step('第二个 isolate 的 init 结果: $guardResult');
+    expect(guardResult, isNot('ok'), reason: '同一进程不允许存在第二个宿主');
+    expect(
+      guardResult.toString(),
+      contains('进程单例'),
+      reason: '拒绝原因必须可读: $guardResult',
+    );
 
-      // 2) 两个 worker 并发调用同一宿主
-      final ReceivePort portA = ReceivePort();
-      final ReceivePort portB = ReceivePort();
-      final Isolate isolateA = await Isolate.spawn(_apiWorker, <Object?>[
-        portA.sendPort,
-        runtime.host.address,
-        env.libraryPath,
-        'A',
-        _rounds,
-      ]);
-      final Isolate isolateB = await Isolate.spawn(_apiWorker, <Object?>[
-        portB.sendPort,
-        runtime.host.address,
-        env.libraryPath,
-        'B',
-        _rounds,
-      ]);
-      addTearDown(() {
-        isolateA.kill(priority: Isolate.immediate);
-        isolateB.kill(priority: Isolate.immediate);
-      });
+    // 2) 两个 worker 并发调用同一宿主
+    final ReceivePort portA = ReceivePort();
+    final ReceivePort portB = ReceivePort();
+    final Isolate isolateA = await Isolate.spawn(_apiWorker, <Object?>[
+      portA.sendPort,
+      runtime.host.address,
+      env.libraryPath,
+      'A',
+      _rounds,
+    ]);
+    final Isolate isolateB = await Isolate.spawn(_apiWorker, <Object?>[
+      portB.sendPort,
+      runtime.host.address,
+      env.libraryPath,
+      'B',
+      _rounds,
+    ]);
+    addTearDown(() {
+      isolateA.kill(priority: Isolate.immediate);
+      isolateB.kill(priority: Isolate.immediate);
+    });
 
-      // 3) 主 isolate 同时做同步派发（与 worker 的异步派发并发）
-      final List<Map<String, Object?>> verdicts = <Map<String, Object?>>[];
-      for (int i = 0; i < 15; ++i) {
-        final Map<String, Object?>? verdict = runtime.hooks.decide(
-          MusicxxPluginHookId.playerBeforePlaySong,
-          <String, Object?>{
-            'sid': 'main-$i',
-            'song': <String, Object?>{'name': '广告 - 主线程 $i'},
-          },
-        );
-        if (verdict != null) {
-          verdicts.add(verdict);
-        }
-        runtime.pumpEvents();
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
-      expect(verdicts.length, 15, reason: '并发期间同步派发必须照常拿到裁决');
-
-      // 4) worker 报告
-      final List<Object?> reports = await Future.wait<Object?>(<Future<Object?>>[
-        portA.first,
-        portB.first,
-      ]);
-      portA.close();
-      portB.close();
-      final List<Map<String, Object?>> workerReports = <Map<String, Object?>>[
-        for (final Object? item in reports)
-          (item! as Map<Object?, Object?>).cast<String, Object?>(),
-      ];
-      final List<int> callIds = <int>[];
-      for (final Map<String, Object?> report in workerReports) {
-        expect(report['error'], isNull, reason: 'worker 报错: ${report['error']}');
-        expect(report['hookCountOk'], _rounds, reason: '${report['name']}: hook_count');
-        expect(report['emitOk'], _rounds, reason: '${report['name']}: hook_emit(ASYNC)');
-        expect(report['stateOk'], _rounds, reason: '${report['name']}: state_update');
-        callIds.addAll((report['callIds']! as List<Object?>).cast<int>());
-      }
-      expect(callIds.length, _rounds * 2);
-      expect(
-        callIds.toSet().length,
-        callIds.length,
-        reason: 'callId 必须唯一（宿主分配器是进程级原子计数）',
-      );
-      _step(
-        'worker 报告: ${workerReports.map((Map<String, Object?> r) => '${r['name']}:'
-            'count=${r['hookCountOk']} emit=${r['emitOk']} state=${r['stateOk']}').join(', ')}; '
-        'callId=${callIds.length} 个且唯一',
-      );
-
-      // 5) 每个 callId 的结果事件都被（唯一的）事件队列回传到 UI isolate
-      await _pumpUntil(
-        () {
-          final Set<Object?> decided = seen
-              .where((MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hookDecisionResult)
-              .map((MusicxxPluginEvent e) => e.payload['callId'])
-              .toSet();
-          return callIds.every(decided.contains);
+    // 3) 主 isolate 同时做同步派发（与 worker 的异步派发并发）
+    final List<Map<String, Object?>> verdicts = <Map<String, Object?>>[];
+    for (int i = 0; i < 15; ++i) {
+      final Map<String, Object?>? verdict = runtime.hooks.decide(
+        MusicxxPluginHookId.playerBeforePlaySong,
+        <String, Object?>{
+          'sid': 'main-$i',
+          'song': <String, Object?>{'name': '广告 - 主线程 $i'},
         },
-        timeout: const Duration(seconds: 15),
       );
-      final Set<int> decidedIds = seen
-          .where((MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hookDecisionResult)
-          .map((MusicxxPluginEvent e) => e.payload['callId'])
-          .whereType<int>()
-          .toSet();
-      for (final int callId in callIds) {
-        expect(decidedIds, contains(callId), reason: '异步裁决结果必须按 callId 一一回传');
+      if (verdict != null) {
+        verdicts.add(verdict);
       }
+      runtime.pumpEvents();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    expect(verdicts.length, 15, reason: '并发期间同步派发必须照常拿到裁决');
 
-      // 6) 事件 seq 严格递增（跳号 = 丢事件；乱序 = 入队/取队有问题）
-      int lastSeq = -1;
-      for (final MusicxxPluginEvent event in seen) {
-        expect(event.seq, greaterThan(lastSeq), reason: '事件 seq 必须严格递增');
-        lastSeq = event.seq;
-      }
-
-      // 7) 多 isolate 写入的状态镜像确实落地（插件侧同步读到的字节数）
-      int stateLen = -1;
-      final DateTime deadline = DateTime.now().add(const Duration(seconds: 5));
-      while (DateTime.now().isBefore(deadline)) {
-        final Object? probeRaw = runtime.plugins.call(
-          'example_native',
-          'plugin.example_native.probe',
-          const <String, Object?>{},
-        );
-        final Map<String, Object?> probe = (probeRaw! as Map<Object?, Object?>).cast<String, Object?>();
-        stateLen = (probe['stateLen'] as num?)?.toInt() ?? -1;
-        if (stateLen == _statePayloadBytes) {
-          break;
-        }
-        runtime.pumpEvents();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-      expect(stateLen, _statePayloadBytes, reason: 'worker 写入的状态镜像必须可见');
-      _step('事件 ${seen.length} 条 (seq 单调)、裁决结果事件 ${decidedIds.length} 条、状态镜像 ${stateLen}B');
-
-      // 8) 并发风暴之后宿主仍然可用（插件没被卸载、处理器位图没丢）
+    // 4) worker 报告
+    final List<Object?> reports = await Future.wait<Object?>(<Future<Object?>>[
+      portA.first,
+      portB.first,
+    ]);
+    portA.close();
+    portB.close();
+    final List<Map<String, Object?>> workerReports = <Map<String, Object?>>[
+      for (final item in reports)
+        (item! as Map<Object?, Object?>).cast<String, Object?>(),
+    ];
+    final List<int> callIds = <int>[];
+    for (final Map<String, Object?> report in workerReports) {
+      expect(report['error'], isNull, reason: 'worker 报错: ${report['error']}');
       expect(
-        runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong),
-        greaterThan(0),
+        report['hookCountOk'],
+        _rounds,
+        reason: '${report['name']}: hook_count',
       );
-      expect(runtime.isRunning, isTrue);
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
+      expect(
+        report['emitOk'],
+        _rounds,
+        reason: '${report['name']}: hook_emit(ASYNC)',
+      );
+      expect(
+        report['stateOk'],
+        _rounds,
+        reason: '${report['name']}: state_update',
+      );
+      callIds.addAll((report['callIds']! as List<Object?>).cast<int>());
+    }
+    expect(callIds.length, _rounds * 2);
+    expect(
+      callIds.toSet().length,
+      callIds.length,
+      reason: 'callId 必须唯一（宿主分配器是进程级原子计数）',
+    );
+    _step(
+      'worker 报告: ${workerReports.map((Map<String, Object?> r) => '${r['name']}:'
+          'count=${r['hookCountOk']} emit=${r['emitOk']} state=${r['stateOk']}').join(', ')}; '
+      'callId=${callIds.length} 个且唯一',
+    );
+
+    // 5) 每个 callId 的结果事件都被（唯一的）事件队列回传到 UI isolate
+    await _pumpUntil(() {
+      final Set<Object?> decided = seen
+          .where(
+            (MusicxxPluginEvent e) =>
+                e.type == MusicxxPluginEventType.hookDecisionResult,
+          )
+          .map((MusicxxPluginEvent e) => e.payload['callId'])
+          .toSet();
+      return callIds.every(decided.contains);
+    }, timeout: const Duration(seconds: 15));
+    final Set<int> decidedIds = seen
+        .where(
+          (MusicxxPluginEvent e) =>
+              e.type == MusicxxPluginEventType.hookDecisionResult,
+        )
+        .map((MusicxxPluginEvent e) => e.payload['callId'])
+        .whereType<int>()
+        .toSet();
+    for (final int callId in callIds) {
+      expect(decidedIds, contains(callId), reason: '异步裁决结果必须按 callId 一一回传');
+    }
+
+    // 6) 事件 seq 严格递增（跳号 = 丢事件；乱序 = 入队/取队有问题）
+    int lastSeq = -1;
+    for (final MusicxxPluginEvent event in seen) {
+      expect(event.seq, greaterThan(lastSeq), reason: '事件 seq 必须严格递增');
+      lastSeq = event.seq;
+    }
+
+    // 7) 多 isolate 写入的状态镜像确实落地（插件侧同步读到的字节数）
+    int stateLen = -1;
+    final DateTime deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (DateTime.now().isBefore(deadline)) {
+      final probeRaw = runtime.plugins.call(
+        'example_native',
+        'plugin.example_native.probe',
+        const <String, Object?>{},
+      );
+      final Map<String, Object?> probe = (probeRaw! as Map<Object?, Object?>)
+          .cast<String, Object?>();
+      stateLen = (probe['stateLen'] as num?)?.toInt() ?? -1;
+      if (stateLen == _statePayloadBytes) {
+        break;
+      }
+      runtime.pumpEvents();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(stateLen, _statePayloadBytes, reason: 'worker 写入的状态镜像必须可见');
+    _step(
+      '事件 ${seen.length} 条 (seq 单调)、裁决结果事件 ${decidedIds.length} 条、状态镜像 ${stateLen}B',
+    );
+
+    // 8) 并发风暴之后宿主仍然可用（插件没被卸载、处理器位图没丢）
+    expect(
+      runtime.hooks.refreshNativeHandlerCount(
+        MusicxxPluginHookId.playerBeforePlaySong,
+      ),
+      greaterThan(0),
+    );
+    expect(runtime.isRunning, isTrue);
+  }, timeout: const Timeout(Duration(seconds: 120)));
 }
 
 /// 测试进度输出（定位卡死步骤用）
@@ -223,7 +250,9 @@ Future<void> _apiWorker(List<Object?> args) async {
 
   final Map<String, Object?> report = <String, Object?>{'name': name};
   try {
-    final MusicxxPluginNativeLibrary library = MusicxxPluginNativeLibrary.open(path: libraryPath);
+    final MusicxxPluginNativeLibrary library = MusicxxPluginNativeLibrary.open(
+      path: libraryPath,
+    );
     final MusicxxExternPluginBindings bindings = library.bindings;
     final Pointer<MusicxxExternPluginHost> host =
         Pointer<MusicxxExternPluginHost>.fromAddress(hostAddress);
@@ -266,8 +295,10 @@ Future<void> _apiWorker(List<Object?> args) async {
           log,
         );
         if (rc == 0) {
-          final Map<String, Object?> ack = decodeJsonObject(_takeString(out, bindings));
-          final Object? callId = ack['callId'];
+          final Map<String, Object?> ack = decodeJsonObject(
+            _takeString(out, bindings),
+          );
+          final callId = ack['callId'];
           if (callId is int) {
             callIds.add(callId);
           }
@@ -338,7 +369,10 @@ String _statePayload(String name, int index) {
 }
 
 /// 读取并释放宿主堆字符串（测试自带实现：包内不导出 takeOutString）
-String _takeString(Pointer<MusicxxExternPluginString> out, MusicxxExternPluginBindings bindings) {
+String _takeString(
+  Pointer<MusicxxExternPluginString> out,
+  MusicxxExternPluginBindings bindings,
+) {
   final MusicxxExternPluginString value = out.ref;
   final String text = value.data == nullptr
       ? ''
@@ -374,7 +408,8 @@ class _Environment {
 
   static _Environment? detect() {
     String? library;
-    for (final String candidate in MusicxxPluginNativeLibrary.defaultCandidates()) {
+    for (final String candidate
+        in MusicxxPluginNativeLibrary.defaultCandidates()) {
       if (File(candidate).existsSync()) {
         library = candidate;
         break;

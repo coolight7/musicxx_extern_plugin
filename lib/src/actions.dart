@@ -116,7 +116,7 @@ class MusicxxPluginActions {
           extendDeadline: (Duration _) {},
         );
     try {
-      final Object? result = handler(invocation);
+      final result = handler(invocation);
       if (result is Future) {
         return await result;
       }
@@ -138,7 +138,7 @@ class MusicxxPluginActions {
       return;
     }
     final String action = event.stringOf('action') ?? '';
-    final Object? rawArgs = event.payload['args'];
+    final rawArgs = event.payload['args'];
     final Map<String, Object?> args = rawArgs is Map<String, Object?>
         ? rawArgs
         : (rawArgs is Map<Object?, Object?>
@@ -158,7 +158,7 @@ class MusicxxPluginActions {
           extendDeadline: (Duration _) {},
         );
     try {
-      final Object? result = handler(invocation);
+      final result = handler(invocation);
       if (result is Future) {
         // 异步处理器：先说明"已受理"，完成后再由处理器自行 respond（或返回未来值）
         result.then<void>(
