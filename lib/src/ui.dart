@@ -21,8 +21,9 @@ abstract final class MusicxxPluginUIType {
   /// 歌单菜单项：`data = {title, icon?, action?}`
   static const String playlistAction = 'musicxx.ui.playlist.action';
 
-  /// 播放页/悬浮歌词附加信息块（只读展示）：`data = {position, content:{kind,...}}`
-  static const String overlayWidget = 'musicxx.ui.overlay.widget';
+  /// 播放页背景样式（渲染槽位 `player.background`）：
+  /// `data = {title, depict?, enabled?, shader:{bundle,...}, colors:{...}, ...}`
+  static const String playingBackground = 'musicxx.ui.playing.background';
 }
 
 /// UI 项动作类型（`data.action.kind`）

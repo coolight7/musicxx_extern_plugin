@@ -59,8 +59,12 @@ void main() {
       <String, Object?>{
         'id': 'plugin.demo.plain',
         'plugin': 'demo',
-        'type': MusicxxPluginUIType.overlayWidget,
-        'data': <String, Object?>{'title': '只读展示', 'action': <String, Object?>{'kind': 'none'}},
+        'type': MusicxxPluginUIType.playingBackground,
+        'data': <String, Object?>{
+          'title': '背景样式',
+          'shader': <String, Object?>{'bundle': 'shader/bg.shaderbundle'},
+          'action': <String, Object?>{'kind': 'none'},
+        },
       },
     ]);
 

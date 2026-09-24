@@ -188,8 +188,11 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION     "musicxx.ui.song.action"
 /// 歌单菜单项: data = {title, icon?, action?}
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
-/// 播放页/悬浮歌词附加信息 (只读展示): data = {position, content:{kind,...}}
-#define MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET  "musicxx.ui.overlay.widget"
+/// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
+/// data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
+///         colors:{source, slots?, convert?, values?, valuesNight?},
+///         speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND "musicxx.ui.playing.background"
 
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
 /// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。

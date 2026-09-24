@@ -260,7 +260,7 @@ runtime.dispose();
 声明式 UI 扩展（插件不写 Flutter 代码，只声明；plan §5.6）：
 
 ```dart
-// 拉到全部 UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 附加信息块）
+// 拉到全部 UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景）
 final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
 final List<MusicxxPluginUIItem> entries =
     MusicxxPluginUIItems.byType(items, MusicxxPluginUIType.homeEntry);
@@ -281,11 +281,11 @@ final List<MusicxxPluginUIItem> next =
 - S3（Dart 包）：主干已落地（绑定/运行时/管理器/钩子派发/状态镜像/动作分发/声明式 UI 模型/契约生成）；
 - S5（JS 运行时）：已落地（QuickJS 编入宿主库、共享 JS 线程、`js:<id>` 合成实例、`musicxx` API 面）；
 - S6（UI 扩展 + 观测）：声明式 UI 表与 JS/原生 API 已落地，应用侧渲染（主页入口 / 歌曲菜单 /
-  插件页面（插件自绘，设置界面也在插件自己的页面里）/ 附加信息块）已接入；插件配置（插件目录下的 `config.json`）、
+  插件页面（插件自绘，设置界面也在插件自己的页面里）/ 播放页背景）已接入；插件配置（插件目录下的 `config.json`）、
   `musicxx.net.fetch`/`download` 便利通道、管理页调试与统计页也已落地；
   （框架不管理设置入口：没有 `settings.page` 类型，也不渲染配置表单，清单 `settings_schema` 已移除）；
 - 异步裁决：原生 ASYNC 派发 + `musicxx.hook.decision.result` 事件 + Dart `hooks.decideAsync`（应用侧 `player.source.beforeParse` 已改用）+ `musicxx.hook.observe` 观测事件；
-- 平台能力单点（`ExternPluginPlatform.dart`：iOS/OHOS 只跑 JS 插件）；`overlay.widget` 附加信息块已渲染；SDK 构建模板与 `find_package` 配置已提供；
+- 平台能力单点（`ExternPluginPlatform.dart`：iOS/OHOS 只跑 JS 插件）；`playing.background` 播放页背景已接入（插件打包期编译 shader bundle，宿主运行期加载渲染）；SDK 构建模板与 `find_package` 配置已提供；
 - 平台打包：**Windows 与 Linux 已接入**（宿主库随应用分发：Windows 到可执行文件旁、Linux 到 `bundle/lib/`，
   见上面「打包（随应用分发）」；`tools/build_native.sh` 覆盖 Linux/macOS 的宿主库构建）；
   macOS/Android/iOS/OHOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 CI 排入后续阶段；
@@ -311,7 +311,7 @@ final List<MusicxxPluginUIItem> next =
 | 状态镜像 | `musicxx.state.get` | 只读快照（不含临时直链/token） |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络（可选便利通道） | `musicxx.net.fetch/download` | 经宿主网络栈；宿主不限定可访问域名 |
-| 声明式 UI | `musicxx.ui.registerEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 附加信息块 |
+| 声明式 UI | `musicxx.ui.registerEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景 |
 | 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→原生投递宿主线程、脚本不阻塞 |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |
 
@@ -330,5 +330,5 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 212 项�
 ```powershell
 dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子，12 个异步裁决）
 flutter analyze                                          # 0 issue
-flutter test                                             # 包内：端到端冒烟（含原生/JS 异步裁决）+ UI 模型/附加信息块单测
+flutter test                                             # 包内：端到端冒烟（含原生/JS 异步裁决）+ UI 模型/播放页背景单测
 ```
