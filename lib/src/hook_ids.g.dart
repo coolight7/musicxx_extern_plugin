@@ -1,6 +1,6 @@
 // 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。
 //
-// 钩子 id 是跨边界稳定契约：字符串值一旦发布不得修改，
+// 钩子 id 是跨边界稳定契约（plan §8.2）：字符串值一旦发布不得修改，
 // 只能新增或标记废弃。字段含义见 tools/hooks.def.json。
 // ignore_for_file: type=lint, constant_identifier_names
 
@@ -17,7 +17,7 @@ enum MusicxxPluginHookMode {
   final int code;
 }
 
-/// 多处理器裁决合并策略
+/// 多处理器裁决合并策略（plan §8.1）
 enum MusicxxPluginDecisionPolicy {
   /// 首个非空裁决生效，后续处理器不再询问
   firstNonNull(0),
@@ -36,7 +36,7 @@ enum MusicxxPluginDecisionPolicy {
   final int code;
 }
 
-/// 派发方式
+/// 派发方式（plan §5.3 / §8.1）
 enum MusicxxPluginHookDispatch {
   /// 调用点就地等待裁决（`MusicxxPluginHooks.decide`；占用调用线程，有等待预算）
   sync(0),
@@ -50,7 +50,7 @@ enum MusicxxPluginHookDispatch {
   final int code;
 }
 
-/// 埋点可用性阶段
+/// 埋点可用性阶段（plan §8.2）
 enum MusicxxPluginHookPhase { P0, P1, P2 }
 
 /// 钩子 id 与元信息（由 `tools/hooks.def.json` 生成）
@@ -118,12 +118,14 @@ enum MusicxxPluginHookId {
     0,
     0,
   ),
+
+  /// 调用点本身是 Future, 用异步派发避免卡住切歌 (切歌期间有新的请求时旧裁决丢弃)
   playerBeforePlaySong(
     'musicxx.player.beforePlaySong',
     MusicxxPluginHookMode.decision,
     MusicxxPluginDecisionPolicy.anyCancel,
     MusicxxPluginHookPhase.P0,
-    MusicxxPluginHookDispatch.sync,
+    MusicxxPluginHookDispatch.async,
     30,
     100,
   ),

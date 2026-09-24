@@ -263,7 +263,14 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     return R"({"handled":false,"handlers":0})";
   }
 
-  auto &handlers = it->second;
+  /// 派发前**快照**处理器列表 (plan §8.1 的注册表不变式)
+  ///
+  /// 插件处理器在宿主线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
+  /// `pluginxx.hooks` 的 register / unregister 会改动 hooks_ 里的同一条 vector:
+  /// 注册会重新分配, 注销最后一个会让整条 vector 失效 —— 直接遍历活表会出现
+  /// 迭代器/引用失效 (漏派发或读到已释放内存)。快照只决定"本轮派发谁被调用",
+  /// 注册表的变化从下一轮起生效; 统计写回按 (实例, ownerTag) 重新查活表。
+  std::vector<HookHandler> handlers = it->second;
   std::stable_sort(handlers.begin(), handlers.end(),
                    [](const HookHandler &a, const HookHandler &b) {
                      if (a.spec.priority != b.spec.priority) {
@@ -341,40 +348,53 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::steady_clock::now() - t0)
                         .count();
-    ++h.calls;
     ++called;
-    h.totalUs = h.totalUs + us;
-    h.maxUs = (std::max)(h.maxUs, us);
+    /// 统计写回**活表**: 上面的回调里插件可能已经把自己的处理器注销掉 (快照里还有),
+    /// 这时丢弃本次统计, 避免统计与注册表不一致
+    HookHandler *live = nullptr;
+    if (auto liveIt = hooks_.find(hookId); liveIt != hooks_.end()) {
+      for (auto &candidate : liveIt->second) {
+        if (candidate.plugin == h.plugin && candidate.ownerTag == h.ownerTag) {
+          live = &candidate;
+          break;
+        }
+      }
+    }
     if (auto instIt = loaded_.find(h.plugin);
         instIt != loaded_.end() && instIt->second) {
       instIt->second->hookCalls.fetch_add(1);
     }
 
-    if (rc != 0) {
-      ++h.failures;
-      if (++h.consecutiveErrors >= 3) {
-        h.pausedUntil =
-            std::chrono::steady_clock::now() + std::chrono::seconds{60};
-        h.consecutiveErrors = 0;
-        Json payload;
-        payload["id"] = h.pluginId;
-        payload["phase"] = "hook";
-        payload["hook"] = hookId;
-        payload["code"] = "handler_failed";
-        payload["message"] = "处理器连续失败, 已临时暂停派发 60 秒";
-        pushEvent("musicxx.plugin.error", h.pluginId, payload.dump());
-      }
-    } else {
-      h.consecutiveErrors = 0;
-      if (us > hardMs * 1000) {
-        ++h.timeouts;
-        Json payload;
-        payload["id"] = h.pluginId;
-        payload["phase"] = "hook";
-        payload["hook"] = hookId;
-        payload["code"] = "handler_slow";
-        payload["message"] = "处理器耗时超过硬预算 (未打断插件, 仅记录统计)";
-        pushEvent("musicxx.plugin.warn", h.pluginId, payload.dump());
+    if (live) {
+      ++live->calls;
+      live->totalUs = live->totalUs + us;
+      live->maxUs = (std::max)(live->maxUs, us);
+      if (rc != 0) {
+        ++live->failures;
+        if (++live->consecutiveErrors >= 3) {
+          live->pausedUntil =
+              std::chrono::steady_clock::now() + std::chrono::seconds{60};
+          live->consecutiveErrors = 0;
+          Json payload;
+          payload["id"] = h.pluginId;
+          payload["phase"] = "hook";
+          payload["hook"] = hookId;
+          payload["code"] = "handler_failed";
+          payload["message"] = "处理器连续失败, 已临时暂停派发 60 秒";
+          pushEvent("musicxx.plugin.error", h.pluginId, payload.dump());
+        }
+      } else {
+        live->consecutiveErrors = 0;
+        if (us > hardMs * 1000) {
+          ++live->timeouts;
+          Json payload;
+          payload["id"] = h.pluginId;
+          payload["phase"] = "hook";
+          payload["hook"] = hookId;
+          payload["code"] = "handler_slow";
+          payload["message"] = "处理器耗时超过硬预算 (未打断插件, 仅记录统计)";
+          pushEvent("musicxx.plugin.warn", h.pluginId, payload.dump());
+        }
       }
     }
 
@@ -418,11 +438,12 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
 
   Json result;
   result["handled"] = called > 0 && mode != HookDispatchMode::Notify;
+  /// handlers = 本轮快照里的处理器数量 (回调里注册/注销不影响本轮的计数)
   result["handlers"] = static_cast<int32_t>(handlers.size());
   result["called"] = called;
   result["timedOut"] = timedOut;
   if (!action.empty()) {
-    result["result"] = merged.is_object() ? merged : merged;
+    result["result"] = merged;
     result["result"]["action"] = action;
   } else if (hasPatch) {
     result["result"] = merged;

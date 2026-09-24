@@ -364,11 +364,24 @@ List<Map<String, Object?>> _loadHooks() {
 }
 
 /// 写入（或校验）单个生成物
-void _emit(String path, String content, {required bool check, required List<String> drift}) {
+///
+/// [ignoreFormatting] 给 Dart 生成物用：Dart 文件在提交前通常会被 `dart format`
+/// 重排（换行/缩进/尾逗号），那是格式差异而不是内容差异，校验时按"去空白 + 去收尾逗号"
+/// 比较；其它生成物（C++ 头、文档）按字节比较。
+void _emit(
+  String path,
+  String content, {
+  required bool check,
+  required List<String> drift,
+  bool ignoreFormatting = false,
+}) {
   final File file = File(path);
   if (check) {
     final String existing = file.existsSync() ? file.readAsStringSync() : '';
-    if (existing != content) {
+    final bool same = ignoreFormatting
+        ? _canonical(existing) == _canonical(content)
+        : existing == content;
+    if (!same) {
       drift.add(path);
     }
     return;
@@ -378,13 +391,20 @@ void _emit(String path, String content, {required bool check, required List<Stri
   stdout.writeln('  生成: $path');
 }
 
+/// 去掉空白与"收尾逗号"（`dart format` 只会动这两类字符）
+String _canonical(String text) => text
+    .replaceAll(RegExp(r'\s+'), '')
+    .replaceAll(RegExp(r',(?=[)\]};])'), '')
+    .replaceAll(RegExp(r',$'), '');
+
 void main(List<String> args) {
   final bool check = args.contains('--check');
   final List<Map<String, Object?>> hooks = _loadHooks();
   stdout.writeln('${check ? '校验' : '生成'}契约: ${hooks.length} 个钩子 (来源 $_defPath)');
 
   final List<String> drift = <String>[];
-  _emit(_dartOut, _generateDart(hooks), check: check, drift: drift);
+  _emit(_dartOut, _generateDart(hooks),
+      check: check, drift: drift, ignoreFormatting: true);
   _emit(_cppOut, _generateCpp(hooks), check: check, drift: drift);
   _emit(_docOut, _generateDoc(hooks), check: check, drift: drift);
 

@@ -194,7 +194,8 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET  "musicxx.ui.overlay.widget"
 
 /* UI 项动作类型 (data.action.kind; 缺省视为 callback/无动作) */
-/// 打开声明式插件页面: {"kind":"route","route":"ext://<本插件id>/<viewId>"}
+/// 打开声明式插件页面: {"kind":"route","route":"ext://<插件id>/<视图id>"}
+/// (允许指向任意插件: 页面由被跳转插件自己绘制)
 #define MUSICXX_PLUGIN_UI_ACTION_ROUTE      "route"
 /// 调用本插件自己的能力: {"kind":"capability","name":"<短名>","args":{...}}
 #define MUSICXX_PLUGIN_UI_ACTION_CAPABILITY "capability"

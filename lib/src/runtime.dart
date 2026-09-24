@@ -109,17 +109,31 @@ class MusicxxPluginApiException implements Exception {
       '失败 (code=$code): $message';
 }
 
-/// 外部插件宿主运行时（进程单例）
+/// 外部插件宿主运行时
 ///
 /// 生命周期：[init] → 用 [plugins]/[hooks]/[state]/[actions] →
 /// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把钩子/动作接到业务上。
+///
+/// **一次生命周期一个实例**：一个运行时 [dispose] 之后不能再 [init]（事件流、
+/// 钩子处理器链、事件序号都已经收尾）。需要"停掉宿主再启动"时必须用 [create]
+/// 新建一个实例 —— 原生侧 `host_destroy` 之后允许再次 `host_create`，
+/// 所以新建实例是安全的；应用侧 `ExternPluginStore` 每次启动宿主都新建一个。
 ///
 /// 线程模型：宿主内所有插件代码运行在**原生宿主线程**上，Dart 线程只在
 /// 同步 FFI 调用（钩子派发、能力调用、状态推送）期间参与，且有等待上界。
 class MusicxxPluginRuntime {
   MusicxxPluginRuntime._();
 
+  /// 进程内共享的运行时（包内测试与单例场景用；与 [create] 等价，只是提前建好）
+  ///
+  /// 注意：它同样遵守"一次生命周期一个实例"，[dispose] 之后不能再次 [init]。
   static final MusicxxPluginRuntime instance = MusicxxPluginRuntime._();
+
+  /// 新建一个运行时实例（每次启动宿主用一个）
+  ///
+  /// 用途：宿主需要停掉再启动时（配置变化、『拟声++』开关切换、用户点"重新初始化"）
+  /// 用新实例重新 [init]，避免复用一个已经 dispose 的运行时。
+  static MusicxxPluginRuntime create() => MusicxxPluginRuntime._();
 
   MusicxxPluginNativeLibrary? _library;
   Pointer<MusicxxExternPluginHost> _host = nullptr;
@@ -265,6 +279,8 @@ class MusicxxPluginRuntime {
   }
 
   /// 停止宿主并释放原生资源（幂等）
+  ///
+  /// 收尾后本实例**不能再次 [init]**（见类注释）：要重新启动请 `create()` 一个新实例。
   void dispose() {
     if (_disposed) {
       return;
@@ -281,7 +297,6 @@ class MusicxxPluginRuntime {
         library.bindings.musicxx_extern_plugin_host_stop(_host, 5000, log);
         library.bindings.musicxx_extern_plugin_host_destroy(_host);
       } finally {
-        arena.outString();
         arena.dispose();
       }
       _host = nullptr;

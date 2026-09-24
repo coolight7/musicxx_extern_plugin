@@ -14,7 +14,7 @@
 | `musicxx.app.exit` | decision | sync | anyCancel | 30 / 100 | P1 |
 | `musicxx.app.deepLink` | decision | sync | anyCancel | 30 / 100 | P1 |
 | `musicxx.app.upgrade` | observe | async | lastWrite | 0 / 0 | P1 |
-| `musicxx.player.beforePlaySong` | decision | sync | anyCancel | 30 / 100 | P0 |
+| `musicxx.player.beforePlaySong` | decision | async | anyCancel | 30 / 100 | P0 |
 | `musicxx.player.source.beforeParse` | decision | async | firstNonNull | 50 / 200 | P0 |
 | `musicxx.player.source.resolved` | observe | async | lastWrite | 0 / 0 | P0 |
 | `musicxx.player.beforeOpen` | decision | async | firstNonNull | 50 / 200 | P1 |

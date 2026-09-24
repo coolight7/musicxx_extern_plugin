@@ -76,6 +76,8 @@ musicxx.hooks.has(id);
 - 裁决返回形如 `{ action: "continue" | "skip" | "cancel" | "replace", patch: { ... }, error?: "" }`；
   返回 `null` / `undefined` 表示"不裁决"。
 - 裁决处理器也可以返回 **Promise**（异步裁决，见下面第 3 条硬约束的说明）。
+- 顶层同步注册由宿主在装载时统一登记；`register` / `unregister` 在**运行期**调用同样生效
+  （宿主会把它投递到宿主线程落地，不在脚本线程等待，因此不会卡住脚本）。
 
 ```js
 musicxx.hooks.register("musicxx.player.beforePlaySong", { mode: "decision" }, (ctx) => {
@@ -154,15 +156,17 @@ const answer = await musicxx.ui.dialog({                          // 确认弹�
 });
 if (answer && answer.confirmed) { /* 用户点了确认 */ }
 
-await musicxx.ui.openRoute("ext://my_plugin/card");               // 只能打开本插件自己的页面
+await musicxx.ui.openRoute("ext://my_plugin/card");               // 插件页面（可以指向任意插件，含自己）
+await musicxx.ui.openRoute("ext://other_plugin/settings");        // 跨插件跳转：页面由对方插件自己绘制
 await musicxx.ui.openRoute("musicxx:settings");                   // 官方页面用白名单键（见下）
 ```
 
 - 弹窗标题会自动带上插件来源前缀（`『<插件id>』…`），避免插件伪装成宿主自己的提示；
-- `openRoute` 只允许两类目标：**本插件自己的** `ext://<本插件id>/<视图id>`，以及官方页面白名单
+- `openRoute` 允许两类目标：**任意插件**的 `ext://<插件id>/<视图id>` 页面（含本插件自己；跨插件页面由
+  对方插件自己绘制，内容来自它的能力，发起方拿不到对方的数据），以及官方页面白名单
   （`musicxx:settings` 设置页、`musicxx:plugins` 插件管理、`musicxx:player` 播放页、`musicxx:home` 音乐主页、
   `musicxx:search` 搜索、`musicxx:localSongs` 本地歌曲、`musicxx:history` 播放记录、`musicxx:lyrics` 歌词、`musicxx:about` 关于）；
-  其它地址会被拒绝并返回 `不允许打开的页面`。
+  地址不完整（缺插件 id 或视图 id）或其它地址会被拒绝并返回 `不允许打开的页面`。
 
 **插件配置（`config.json`）**：插件目录下的 `config.json`，用户可以直接编辑，插件用
 `musicxx.storage.getConfig(key, 默认值)` 读、`setConfig(key, value)` 写（等价于 `namespace: "config"` 的
@@ -179,9 +183,10 @@ const resp = await musicxx.net.fetch({
     body: { a: 1 },                    // 对象自动 JSON 编码；字符串原样发送
     timeoutMs: 15000,                  // 1000 ~ 60000（缺省 15000）
     responseType: "json",              // text（缺省，body 是字符串）/ json / bytes（bodyBase64）
-    maxBytes: 2097152,                 // 响应体上限（超出截断并标记 truncated），上限 16 MiB
+    maxBytes: 2097152,                 // 读进内存的响应体上限（读满即断开并标记 truncated），上限 16 MiB
 });
-// resp = { ok, status, url, headers, contentType, body | bodyBase64, bodyBytes, truncated }
+// resp = { ok, status, url, headers, contentType, body | bodyBase64,
+//          bodyBytes, receivedBytes, contentLength, truncated }
 if (resp.ok && resp.status === 200) { /* 用 resp.body */ }
 
 // 下载到插件私有数据目录（<data>/downloads/）：
@@ -254,7 +259,7 @@ musicxx.ui.entries();                    // 本插件已注册的项（脚本侧
 
 | 形态 | 字段 | 说明 |
 |---|---|---|
-| 打开插件页面 | `{kind:"route", route:"ext://<本插件id>/<视图id>"}` | 只能指向本插件；见下方"插件页面" |
+| 打开插件页面 | `{kind:"route", route:"ext://<插件id>/<视图id>"}` | 可以指向任意插件（含自己，跨插件页面由对方插件绘制）；见下方"插件页面" |
 | 调用本插件能力 | `{kind:"capability", name:"<短名>", args:{...}}` | 宿主调用 `plugin.<本插件id>.<短名>` |
 | 调用官方动作 | `{kind:"action", name:"musicxx.<域>.<动作>", args:{...}}` | 与 `musicxx.call` 同一份实现与权限规则 |
 

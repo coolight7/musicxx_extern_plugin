@@ -8,7 +8,7 @@ import 'runtime.dart';
 /// 状态镜像推送（Dart → 原生，供插件**同步**读取）
 ///
 /// 语义：
-/// - 值是 JSON；单键上限 64 KiB，超限由宿主截断并告警；
+/// - 值是 JSON；单键上限 512 KiB，超限由宿主**直接拒绝写入**（[update] 返回 false 并记日志）；
 /// - 建议使用 [standardKeys] 里的标准键，插件按同一批键读取；
 /// - 高频键（播放进度）请用 [updateThrottled] 或自行 1 Hz 节流；
 /// - 变化会异步通知声明关心的插件（`musicxx.state.changed`）。

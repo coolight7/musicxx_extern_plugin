@@ -9,7 +9,7 @@
     { "id": "musicxx.app.exit", "dart": "appExit", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "budgetMs": 30, "hardMs": 100, "phase": "P1", "doc": "" },
     { "id": "musicxx.app.deepLink", "dart": "appDeepLink", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "budgetMs": 30, "hardMs": 100, "phase": "P1", "doc": "" },
     { "id": "musicxx.app.upgrade", "dart": "appUpgrade", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "budgetMs": 0, "hardMs": 0, "phase": "P1", "doc": "" },
-    { "id": "musicxx.player.beforePlaySong", "dart": "playerBeforePlaySong", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "budgetMs": 30, "hardMs": 100, "phase": "P0", "doc": "" },
+    { "id": "musicxx.player.beforePlaySong", "dart": "playerBeforePlaySong", "mode": "decision", "policy": "anyCancel", "dispatch": "async", "budgetMs": 30, "hardMs": 100, "phase": "P0", "doc": "调用点本身是 Future, 用异步派发避免卡住切歌 (切歌期间有新的请求时旧裁决丢弃)" },
     { "id": "musicxx.player.source.beforeParse", "dart": "playerSourceBeforeParse", "mode": "decision", "policy": "firstNonNull", "dispatch": "async", "budgetMs": 50, "hardMs": 200, "phase": "P0", "doc": "" },
     { "id": "musicxx.player.source.resolved", "dart": "playerSourceResolved", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "budgetMs": 0, "hardMs": 0, "phase": "P0", "doc": "" },
     { "id": "musicxx.player.beforeOpen", "dart": "playerBeforeOpen", "mode": "decision", "policy": "firstNonNull", "dispatch": "async", "budgetMs": 50, "hardMs": 200, "phase": "P1", "doc": "" },
