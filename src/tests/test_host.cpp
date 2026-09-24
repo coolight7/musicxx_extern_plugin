@@ -465,11 +465,12 @@ int main(int argc, char **argv) {
       check(snapshot.find("plugin.example_native.songInfo") !=
                 std::string::npos,
             "快照含歌曲菜单项");
-      check(snapshot.find("plugin.example_native.overlayText") !=
+      check(snapshot.find("plugin.example_native.playingBg") !=
                     std::string::npos &&
-                snapshot.find("\"kind\":\"text\"") != std::string::npos &&
-                snapshot.find("\"kind\":\"progress\"") != std::string::npos,
-            "快照含播放页附加信息块 (text/progress 两种内容)");
+                snapshot.find("musicxx.ui.playing.background") !=
+                    std::string::npos &&
+                snapshot.find("shader/bg.shaderbundle") != std::string::npos,
+            "快照含播放页背景样式 (shader bundle 声明)");
       check(snapshot.find("musicxx.ui.home.entry") != std::string::npos,
             "快照含官方 UI 项类型");
       check(snapshot.find("plugin") != std::string::npos,
@@ -736,7 +737,7 @@ int main(int argc, char **argv) {
       check(jsonStringField(probe, "hostPlatform") == "windows",
             "JS 读到宿主信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
-      // 3 项 = 主页入口 + 歌曲菜单 + 播放页附加信息块
+      // 3 项 = 主页入口 + 歌曲菜单 + 播放页背景样式
       // (设置界面是插件自己的页面, 不是 UI 项)
       check(jsonIntField(probe, "uiEntries") == "3",
             "JS 注册了 3 个 UI 项 (脚本侧记账)");
@@ -760,10 +761,11 @@ int main(int argc, char **argv) {
             "快照里没有设置页类型 (框架不管理插件设置入口)");
       check(snapshot.find("plugin.example_js.settings") == std::string::npos,
             "JS 插件不再注册设置页入口项");
-      check(
-          snapshot.find("plugin.example_js.overlayInfo") != std::string::npos &&
-              snapshot.find("\"position\":\"player.top\"") != std::string::npos,
-          "JS 插件的播放页附加信息块进入快照 (含 position)");
+      check(snapshot.find("plugin.example_js.bg") != std::string::npos &&
+                snapshot.find("musicxx.ui.playing.background") !=
+                    std::string::npos &&
+                snapshot.find("shader/bg.shaderbundle") != std::string::npos,
+            "JS 插件的播放页背景样式进入快照 (含 shader bundle)");
     }
 
     // 插件自己的设置界面: 就是插件页面的同名能力

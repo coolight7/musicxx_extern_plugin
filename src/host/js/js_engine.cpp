@@ -413,6 +413,37 @@ constexpr const char *kPrelude = R"JS(
     }
   };
 
+  // 渲染槽位 (插件渲染的背景等): 查询可用样式 / 切换样式 (允许切到宿主内置样式)
+  // - 未带 slot 时用宿主默认槽位 (当前是 player.background 播放页背景);
+  // - select 只在"该项可用"时成功; 失败返回 { ok:false, error }.
+  musicxx.render = {
+    list: function (args) {
+      return musicxx.call("musicxx.render.list", { slot: (args && args.slot) ? String(args.slot) : undefined });
+    },
+    current: function (args) {
+      return musicxx.call("musicxx.render.current", { slot: (args && args.slot) ? String(args.slot) : undefined });
+    },
+    select: function (id, args) {
+      var req = (args && typeof args === "object") ? args : {};
+      req.id = String(id);
+      return musicxx.call("musicxx.render.select", req);
+    }
+  };
+
+  // 封面数据 (只作为颜色/数据来源, 不参与画面绘制; 宿主不推任何直链)
+  musicxx.media = {
+    // 封面颜色分析结果 + 宿主内置背景实际使用的 4 色
+    palette: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.palette", req);
+    },
+    // 封面字节 (jpeg/png/rgba, base64 放在 data 字段; size 16..512)
+    cover: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.cover", req);
+    }
+  };
+
   musicxx.stats = {
     getSelf: function () {
       try { return JSON.parse(ext.stats() || "{}"); } catch (e) { return {}; }
