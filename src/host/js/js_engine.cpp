@@ -321,7 +321,7 @@ constexpr const char *kPrelude = R"JS(
     },
     remove: function (key) { return musicxx.call("musicxx.storage.delete", { key: String(key) }); },
     list: function () { return musicxx.call("musicxx.storage.list"); },
-    // 插件配置文件 config.json（与用户在设置页里改的是同一份）
+    // 插件配置文件 config.json（插件自绘的设置页改的就是这份）
     getConfig: function (key, defaultValue) {
       return musicxx.call("musicxx.storage.get", { key: String(key), namespace: "config" })
         .then(function (value) {

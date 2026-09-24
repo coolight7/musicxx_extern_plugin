@@ -1,7 +1,8 @@
 /// 声明式 UI 扩展模型
 ///
 /// 插件**不写 Flutter 代码**：它只注册"UI 项"，用官方类型 + JSON 内容描述
-/// "长什么样、点了做什么"；渲染由 musicxx 应用侧负责（见 `lib/plugin/externPlugin/ui/`）。
+/// "长什么样、点了做什么"；渲染由 musicxx 应用侧负责
+/// （见 `lib/pages/plugins/externPlugin/` 与 `lib/plugin/externPlugin/ExternPluginView.dart`）。
 ///
 /// 生命周期与来源：
 /// - 注册表在原生宿主里（`musicxx.ui` 表），宿主按插件实例维护，卸载/禁用自动摘除；
@@ -20,7 +21,11 @@ abstract final class MusicxxPluginUIType {
   /// 歌单菜单项：`data = {title, icon?, action?}`
   static const String playlistAction = 'musicxx.ui.playlist.action';
 
-  /// 设置页：`data = {title, groups:[...]}`
+  /// 设置页入口：`data = {title, subtitle?, icon?, action?}`
+  ///
+  /// 只声明"本插件有一个设置页"：页面内容由插件自己绘制
+  /// （`action` 通常指向本插件的视图 `ext://<插件id>/<视图id>`），
+  /// 宿主只在应用「设置 → 插件设置」与插件详情页里列出入口，不再渲染设置控件。
   static const String settingsPage = 'musicxx.ui.settings.page';
 
   /// 播放页/悬浮歌词附加信息块（只读展示）：`data = {position, content:{kind,...}}`

@@ -22,7 +22,7 @@ plugins/            官方插件与示例（每个子目录一个插件，插件
 src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
-docs/plugin-native-api.md 原生插件作者指南（SDK 用法/构建模板/线程纪律/权限/部署与排障）
+docs/plugin-native-api.md 动态库插件作者指南（SDK 用法/构建模板/线程纪律/权限/部署与排障）
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
                      gen_contract.dart（契约生成/校验）、check_submodules.ps1（子模块检查）、
                      smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
@@ -181,10 +181,10 @@ linux/CMakeLists.txt     同上（库名 libmusicxx_extern_plugin.so）
 其余平台（macOS/Android/iOS/OHOS）的打包属于 plan M4 的后续工作：macOS 可照 Windows/Linux 的写法
 （`<平台>_bundled_libraries`，另需注意 Hardened Runtime 下的 `disable-library-validation`）；
 Android 需要先用 NDK 交叉编译整套依赖（含 QuickJS），适合在 CI 里单独一条流水线。
-平台能力（哪些平台允许原生插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
+平台能力（哪些平台允许动态库插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
 （iOS/OHOS 只跑 JS 插件，不允许加载未签名动态库）。
 
-## 写一个原生插件（SDK 与构建模板）
+## 写一个动态库插件（SDK 与构建模板）
 
 插件作者只需要 SDK 头文件 + 一个 CMake 助手，不需要了解宿主工程结构：
 
@@ -207,7 +207,7 @@ musicxx_plugin_add_target(my_plugin SOURCES my_plugin.cpp MANIFEST plugin.yaml)
 - 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用。
 
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）。
-原生插件作者指南（完整流程 + 完整代码 + 构建/部署/排障）：`docs/plugin-native-api.md`；
+动态库插件作者指南（完整流程 + 完整代码 + 构建/部署/排障）：`docs/plugin-native-api.md`；
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；JS 作者文档见 `docs/plugin-js-api.md`。
 
 ## 原生测试
@@ -281,15 +281,16 @@ final List<MusicxxPluginUIItem> next =
 - S3（Dart 包）：主干已落地（绑定/运行时/管理器/钩子派发/状态镜像/动作分发/声明式 UI 模型/契约生成）；
 - S5（JS 运行时）：已落地（QuickJS 编入宿主库、共享 JS 线程、`js:<id>` 合成实例、`musicxx` API 面）；
 - S6（UI 扩展 + 观测）：声明式 UI 表与 JS/原生 API 已落地，应用侧渲染（主页入口 / 歌曲菜单 /
-  插件页面 / 插件设置页）已接入；插件配置表单（清单 `settings_schema` + `config.json`）、
+  插件页面（插件自绘，含设置页）/ 附加信息块）已接入；插件配置（插件目录下的 `config.json`）、
   `musicxx.net.fetch`/`download` 便利通道、管理页调试与统计页也已落地；
+  （设置页由插件自绘：`settings.page` 只声明入口，框架不再提供配置表单，清单 `settings_schema` 已移除）；
 - 异步裁决：原生 ASYNC 派发 + `musicxx.hook.decision.result` 事件 + Dart `hooks.decideAsync`（应用侧 `player.source.beforeParse` 已改用）+ `musicxx.hook.observe` 观测事件；
 - 平台能力单点（`ExternPluginPlatform.dart`：iOS/OHOS 只跑 JS 插件）；`overlay.widget` 附加信息块已渲染；SDK 构建模板与 `find_package` 配置已提供；
 - 平台打包：**Windows 与 Linux 已接入**（宿主库随应用分发：Windows 到可执行文件旁、Linux 到 `bundle/lib/`，
   见上面「打包（随应用分发）」；`tools/build_native.sh` 覆盖 Linux/macOS 的宿主库构建）；
   macOS/Android/iOS/OHOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 CI 排入后续阶段；
 - JS 插件支持**异步裁决**（裁决处理器可返回 Promise，等待预算内结算生效、超时按不裁决且不计失败）；
-  原生插件作者指南见 `docs/plugin-native-api.md`；
+  动态库插件作者指南见 `docs/plugin-native-api.md`；
 - 完整记录（每轮改了什么、验证命令与结果、偏差）见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`。
 
 测试夹具（只服务原生测试，不是可发布插件；随测试一起安装到 `<安装前缀>/plugins/`）：
@@ -306,11 +307,11 @@ final List<MusicxxPluginUIItem> next =
 | 能力 | 入口 | 说明 |
 |---|---|---|
 | 钩子 | `musicxx.hooks.register` / `pluginBase.hook` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（异步裁决：预算内结算生效，超时按不裁决、不计失败）；声明为 `dispatch: async` 的钩子由宿主异步派发，Dart 侧不阻塞 |
-| 动作 | `musicxx.call` / `pluginBase.requestAction` | 播放/库/歌词/UI/存储/网络/杂项，逐条权限校验 |
+| 动作 | `musicxx.call` / `pluginBase.requestAction` | 播放/库/歌词/UI/存储/网络/杂项（Dart 侧分派；不做权限校验） |
 | 状态镜像 | `musicxx.state.get` | 只读快照（不含临时直链/token） |
-| 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`，与用户在设置页里改的是同一份 |
+| 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`） | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络（可选便利通道） | `musicxx.net.fetch/download` | 经宿主网络栈；宿主不限定可访问域名 |
-| 声明式 UI | `musicxx.ui.registerEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 设置页 / 附加信息块 |
+| 声明式 UI | `musicxx.ui.registerEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 设置页入口（页面由插件自绘）/ 附加信息块 |
 | 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→原生投递宿主线程、脚本不阻塞 |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |
 
