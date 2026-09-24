@@ -16,6 +16,10 @@
 
 用户在「设置 → 播放页面背景」里选中它之后才生效；未选中时宿主不读 bundle、不分析封面（零成本）。
 
+> 现成的可编译例子：`plugins/example_js/shader/` 与 `plugins/example_native/shader/` 里的
+> 「晶格化」背景（随机点最近邻切块，配色用宿主的 4 个绘制色）。应用原本自带的"晶格化"内置样式
+> 已移除，这个效果现在由示例插件提供（正好演示"内置样式换成插件渲染"的完整流程）。
+
 ## 2. 目录结构（示例见 `plugins/example_js/shader/`）
 
 ```text
@@ -57,9 +61,13 @@ pwsh -NoProfile -File shader/build_bundle.ps1
 
 # 手工调用（FLUTTER_ROOT 为你使用的 Flutter SDK）
 "$FLUTTER_ROOT/bin/cache/artifacts/engine/windows-x64/impellerc.exe" \
-  --shader-bundle="$(cat shader/bundle.json)" \
+  --shader-bundle="$(tr -d '\n' < shader/bundle.json)" \
   --sl=shader/bg.shaderbundle
 ```
+
+> **`--shader-bundle=` 的内容必须压成一行**：`bundle.json` 带换行时会被 shell 拆成多个参数，
+> impellerc 会报 `Target shading language file name was empty`。示例脚本里就是用
+> `-replace "\`r?\`n", ' '`（PowerShell）/ `tr -d '\n'`（bash）先压平的。
 
 - 一次编译出 5 个后端（metal_ios / metal_desktop / opengl_es / opengl_desktop / vulkan），
   一个文件全平台通用，不需要按平台分别编；

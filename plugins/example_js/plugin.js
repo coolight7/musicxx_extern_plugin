@@ -124,8 +124,8 @@ musicxx.ui.registerEntry({
     type: "playing.background",
     order: 20,
     data: {
-        title: "JS 示例动态背景",
-        depict: "跟随封面配色的动态渐变",
+        title: "示例晶格背景",
+        depict: "跟随封面配色的晶格化动态背景",
         shader: { bundle: "shader/bg.shaderbundle" },
         colors: { source: "background" },
         speed: 4,
@@ -139,6 +139,21 @@ musicxx.ui.registerEntry({
 function backgroundState() {
     const slots = musicxx.state.get("musicxx.state.renderSlots") || {};
     return slots["player.background"] || {};
+}
+
+/// 最近一次"一键使用"请求的样式 id
+/// 宿主切换要经过一次动作往返，这里先记住请求，让页面当场就能看到"点了有反应"
+let lastBackgroundRequest = "";
+
+function backgroundStateText() {
+    const current = backgroundState().itemId || "";
+    if (lastBackgroundRequest !== "" && current !== lastBackgroundRequest) {
+        return "已请求： " + lastBackgroundRequest;
+    }
+    if (current === "plugin.example_js.bg") {
+        return "本插件生效中";
+    }
+    return current === "" ? "内置背景" : ("其它: " + current);
 }
 
 /// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
@@ -396,7 +411,7 @@ function cardView() {
                     {
                         id: "uiEntries",
                         title: "已注册的 UI 项",
-                        subtitle: "主页入口 / 歌曲菜单 / 附加信息块",
+                        subtitle: "主页入口 / 歌曲菜单 / 播放页背景",
                         right: String(musicxx.ui.entries().length),
                     },
                     {
@@ -415,9 +430,7 @@ function cardView() {
                         id: "background",
                         title: "播放页背景",
                         subtitle: "在『设置 → 播放页面背景』里也能选; 这里读的是状态镜像",
-                        right: backgroundState().itemId === "plugin.example_js.bg"
-                            ? "本插件生效中"
-                            : (backgroundState().itemId ? ("其它: " + backgroundState().itemId) : "内置背景"),
+                        right: backgroundStateText(),
                     },
                     {
                         id: "skipAds",
@@ -466,6 +479,9 @@ function cardView() {
 /// 能力处理器必须同步返回, 所以这里只说明"已请求", 实际结果看 card 页刷新后的状态。
 function useBackground(args) {
     const id = (args && args.id) ? String(args.id) : "plugin.example_js.bg";
+    // 先记一条：确认"按钮有没有点到插件"（排查时看宿主日志里有没有这一行）
+    musicxx.host.log(2, "收到切换播放页背景请求: " + id);
+    lastBackgroundRequest = id;
     musicxx.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
         musicxx.host.log(2, "切换播放页背景成功: " + JSON.stringify(r));
     }, function (err) {

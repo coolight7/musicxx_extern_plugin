@@ -180,10 +180,10 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 7) 播放页背景样式 (musicxx.ui.playing.background):
     //    插件把一个预编译的 shader bundle 注册成一种"播放页背景样式",
     //    用户在『设置 → 播放页面背景』里选中后才生效; 未选中时零成本。
-    //    这里注册一个跟宿主 4 个封面绘制色联动的动态背景。
+    //    这里注册一个晶格化（随机点最近邻切块）的动态背景, 配色来自宿主的 4 个绘制色。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
-        R"({"title":"原生示例动态背景","depict":"跟随封面配色的动态背景",
+        R"({"title":"原生示例晶格背景","depict":"跟随封面配色的晶格化动态背景",
             "shader":{"bundle":"shader/bg.shaderbundle"},
             "colors":{"source":"background"},"speed":4,"maxFps":16,
             "foregroundStyle":"mask"})",
