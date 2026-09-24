@@ -289,6 +289,10 @@ if (TARGET example_native)
   install(TARGETS example_native RUNTIME DESTINATION plugins/example_native LIBRARY DESTINATION plugins/example_native)
   install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native/plugin.yaml"
     DESTINATION plugins/example_native)
+  # 随插件分发的资源（播放页背景样式用的 shader bundle）：插件目录内用相对路径引用，
+  # 必须与库文件放在同一层（musicxx_plugin_add_target 的 ASSETS 会把它复制到构建产物旁）
+  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native/shader"
+    DESTINATION plugins/example_native)
 endif ()
 
 # JS 插件示例: 纯脚本 + 清单, 无需编译

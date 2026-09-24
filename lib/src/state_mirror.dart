@@ -26,6 +26,11 @@ class MusicxxPluginState {
   static const String keyLibrary = 'musicxx.state.library';
   static const String keyEnv = 'musicxx.state.env';
 
+  /// 渲染槽位状态（哪个插件样式正在画、是否可见、尺寸等）
+  ///
+  /// 不属于 [standardKeys]：宿主在生效/可见性/昼夜/尺寸变化时按需推送。
+  static const String keyRenderSlots = 'musicxx.state.renderSlots';
+
   /// 全部标准键（启动时一次推送）
   static const List<String> standardKeys = <String>[
     keyApp,

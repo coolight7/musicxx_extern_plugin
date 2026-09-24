@@ -236,6 +236,13 @@ abstract final class MusicxxPluginActionNames {
   static const String netFetch = 'musicxx.net.fetch';
   static const String netDownload = 'musicxx.net.download';
 
+  static const String renderList = 'musicxx.render.list';
+  static const String renderCurrent = 'musicxx.render.current';
+  static const String renderSelect = 'musicxx.render.select';
+
+  static const String mediaPalette = 'musicxx.media.palette';
+  static const String mediaCover = 'musicxx.media.cover';
+
   static const String hostOpenUrl = 'musicxx.host.openUrl';
   static const String hostShareText = 'musicxx.host.shareText';
   static const String hostClipboard = 'musicxx.host.clipboard';

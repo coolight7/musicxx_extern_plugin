@@ -113,6 +113,34 @@ musicxx.ui.registerEntry({
     },
 });
 
+/// 播放页背景样式 (musicxx.ui.playing.background)
+///
+/// 插件把一个预编译好的 shader bundle 声明成一种"播放页背景样式": 用户在
+/// 『设置 → 播放页面背景』里选中后才生效 (未选中时零成本: 不加载 bundle、不分析封面)。
+/// 4 个绘制色由宿主每帧写进 uniform (见 docs/plugin-shader-bundle.md);
+/// shader/ 目录里带 bundle.json 与编译好的 bg.shaderbundle (打包脚本 shader/build_bundle.ps1)。
+musicxx.ui.registerEntry({
+    name: "bg",
+    type: "playing.background",
+    order: 20,
+    data: {
+        title: "JS 示例动态背景",
+        depict: "跟随封面配色的动态渐变",
+        shader: { bundle: "shader/bg.shaderbundle" },
+        colors: { source: "background" },
+        speed: 4,
+        maxFps: 16,
+        animate: true,
+        foregroundStyle: "mask",
+    },
+});
+
+/// 读状态镜像: 当前是不是本插件的背景在画 (同步读取)
+function backgroundState() {
+    const slots = musicxx.state.get("musicxx.state.renderSlots") || {};
+    return slots["player.background"] || {};
+}
+
 /// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
 musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function () {
     return null;
@@ -384,6 +412,14 @@ function cardView() {
                         right: net,
                     },
                     {
+                        id: "background",
+                        title: "播放页背景",
+                        subtitle: "在『设置 → 播放页面背景』里也能选; 这里读的是状态镜像",
+                        right: backgroundState().itemId === "plugin.example_js.bg"
+                            ? "本插件生效中"
+                            : (backgroundState().itemId ? ("其它: " + backgroundState().itemId) : "内置背景"),
+                    },
+                    {
                         id: "skipAds",
                         title: "跳过广告曲目",
                         subtitle: "点这一条直接切换 (等于设置页里的开关)",
@@ -409,9 +445,39 @@ function cardView() {
                 title: "打开本插件设置页",
                 action: { kind: "route", route: "ext://example_js/settings" },
             },
+            {
+                kind: "button",
+                title: "使用本插件的动态背景",
+                style: "primary",
+                action: { kind: "capability", name: "useBackground", args: { id: "plugin.example_js.bg" } },
+            },
+            {
+                kind: "button",
+                title: "切回内置背景",
+                action: { kind: "capability", name: "useBackground", args: { id: "builtin:Auto" } },
+            },
         ],
     };
 }
+
+/// 一键切换播放页背景 (也可以切到内置样式: id 用 "builtin:<内置样式名>")
+///
+/// `musicxx.render.select` 是宿主官方动作: 选中后立即生效, 用户在设置里随时能改回来。
+/// 能力处理器必须同步返回, 所以这里只说明"已请求", 实际结果看 card 页刷新后的状态。
+function useBackground(args) {
+    const id = (args && args.id) ? String(args.id) : "plugin.example_js.bg";
+    musicxx.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
+        musicxx.host.log(2, "切换播放页背景成功: " + JSON.stringify(r));
+    }, function (err) {
+        musicxx.host.log(3, "切换播放页背景失败: " + err.message);
+    });
+    return { requested: 1, id: id };
+}
+
+musicxx.capability.register("useBackground", function (args) {
+    useBackground(args);
+    return { view: cardView() };
+});
 
 musicxx.capability.register("card", function () {
     return { view: cardView() };

@@ -29,8 +29,18 @@ endif ()
 set(MUSICXX_PLUGIN_ENTRY_PREFIX "musicxx_plugin"
     CACHE STRING "插件入口符号前缀（与宿主 entrySymbols() 一致，不要改）")
 
+# musicxx_plugin_add_target(<目标> SOURCES ... [MANIFEST plugin.yaml]
+#                           [ASSETS <文件或目录> ...] [OUTPUT_DIR <目录>])
+#
+# SOURCES  插件源码（至少一个）
+# MANIFEST 清单文件（会被复制到产物目录旁的 plugin.yaml）
+# ASSETS   需要随插件分发的资源（目录或文件）：复制到产物目录下**同名**位置，
+#          例如 ASSETS shader 会把 `shader/` 整个目录放到产物目录里，
+#          插件清单里的相对路径（如 `shader/bg.shaderbundle`）就能直接解析
+# OUTPUT_DIR 产物目录（默认当前构建目录）
 function(musicxx_plugin_add_target target)
-  cmake_parse_arguments(ARG "" "MANIFEST;OUTPUT_DIR" "SOURCES;LIBRARIES" ${ARGN})
+  cmake_parse_arguments(ARG "" "MANIFEST;OUTPUT_DIR" "SOURCES;LIBRARIES;ASSETS"
+                        ${ARGN})
   if (NOT ARG_SOURCES)
     message(FATAL_ERROR "musicxx_plugin_add_target(${target}): 必须提供 SOURCES")
   endif ()
@@ -127,4 +137,25 @@ function(musicxx_plugin_add_target target)
               "${ARG_MANIFEST}" "$<TARGET_FILE_DIR:${target}>/plugin.yaml"
       COMMENT "复制插件清单 plugin.yaml 到产物目录")
   endif ()
+
+  # ---- 资源（例如 shader bundle 目录）：按原名复制到产物目录 ----
+  foreach (_asset ${ARG_ASSETS})
+    if (NOT EXISTS "${_asset}")
+      message(FATAL_ERROR "musicxx_plugin_add_target(${target}): 资源不存在: ${_asset}")
+    endif ()
+    get_filename_component(_asset_name "${_asset}" NAME)
+    if (IS_DIRECTORY "${_asset}")
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${_asset}" "$<TARGET_FILE_DIR:${target}>/${_asset_name}"
+        COMMENT "复制插件资源目录 ${_asset_name}/ 到产物目录")
+    else ()
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${_asset}" "$<TARGET_FILE_DIR:${target}>/${_asset_name}"
+        COMMENT "复制插件资源 ${_asset_name} 到产物目录")
+    endif ()
+  endforeach ()
+  unset(_asset)
+  unset(_asset_name)
 endfunction()

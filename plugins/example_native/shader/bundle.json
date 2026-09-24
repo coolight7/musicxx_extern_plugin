@@ -1,0 +1,4 @@
+{
+  "MusicxxRenderVertex": { "type": "vertex", "file": "shaders/bg.vert" },
+  "MusicxxRenderFragment": { "type": "fragment", "file": "shaders/bg.frag" }
+}

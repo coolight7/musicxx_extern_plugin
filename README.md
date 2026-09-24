@@ -23,6 +23,7 @@ src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
 docs/plugin-native-api.md 动态库插件作者指南（SDK 用法/构建模板/线程纪律/权限/部署与排障）
+docs/plugin-shader-bundle.md 插件渲染背景：shader bundle 打包、格式版本与 uniform 契约
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
                      gen_contract.dart（契约生成/校验）、check_submodules.ps1（子模块检查）、
                      smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
@@ -209,6 +210,7 @@ musicxx_plugin_add_target(my_plugin SOURCES my_plugin.cpp MANIFEST plugin.yaml)
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）。
 动态库插件作者指南（完整流程 + 完整代码 + 构建/部署/排障）：`docs/plugin-native-api.md`；
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；JS 作者文档见 `docs/plugin-js-api.md`。
+插件渲染背景（shader bundle 打包 + uniform 契约）见 `docs/plugin-shader-bundle.md`。
 
 ## 原生测试
 
