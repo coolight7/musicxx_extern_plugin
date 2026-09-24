@@ -188,10 +188,11 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION     "musicxx.ui.song.action"
 /// 歌单菜单项: data = {title, icon?, action?}
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
-/// 设置页入口 (页面由插件自绘): data = {title, subtitle?, icon?, action?}
-#define MUSICXX_PLUGIN_UI_TYPE_SETTINGS_PAGE   "musicxx.ui.settings.page"
 /// 播放页/悬浮歌词附加信息 (只读展示): data = {position, content:{kind,...}}
 #define MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET  "musicxx.ui.overlay.widget"
+
+/// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
+/// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。
 
 /* UI 项动作类型 (data.action.kind; 缺省视为 callback/无动作) */
 /// 打开声明式插件页面: {"kind":"route","route":"ext://<插件id>/<视图id>"}

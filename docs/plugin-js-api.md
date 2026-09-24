@@ -171,7 +171,8 @@ await musicxx.ui.openRoute("musicxx:settings");                   // 官方页�
 **插件配置（`config.json`）**：插件目录下的 `config.json`，用户可以直接编辑，插件用
 `musicxx.storage.getConfig(key, 默认值)` 读、`setConfig(key, value)` 写（等价于 `namespace: "config"` 的
 `storage.get/set`），与私有 KV（`kv.json`）互不影响。默认值由插件自己在 `getConfig` 的第二个参数里给；
-框架不再提供配置表单（`settings_schema` 已移除），设置页由插件自己画（见 §3.5 的「设置页」）。
+框架不提供配置表单、也不管理设置入口（`settings_schema` 已移除）：设置界面由插件自己画成
+一个普通页面（见 §3.5 的「插件自己的设置页」）。
 
 **网络（宿主代理通道）**：
 
@@ -209,8 +210,10 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 | `home.entry`（`musicxx.ui.home.entry`） | 功能主页入口按钮 | `title` |
 | `song.action`（`musicxx.ui.song.action`） | 歌曲菜单项 | `title` |
 | `playlist.action` | 歌单菜单项 | `title` |
-| `settings.page` | 设置页入口（页面由插件自绘） | `title`、`action` |
 | `overlay.widget` | 播放页只读信息块（应用侧已渲染） | `position`、`content` |
+
+> 框架**没有**插件设置页类型：插件要提供设置界面，就把设置画在自己注册的页面里
+> （见下面「插件自己的设置页」），入口由插件自己给（主页入口 / 自己的功能页按钮等）。
 
 `overlay.widget` 的 `position` 与 `content.kind`（应用侧定义，其他取值会被忽略/归一化）：
 
@@ -289,25 +292,13 @@ musicxx.capability.register("card", function (args) {
 - 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）；
 - 未识别的块类型会被忽略（向前兼容）。
 
-**设置页（`settings.page`）**：**只声明入口，页面由插件自己画**——框架不再提供设置控件。
-应用「设置 → 插件设置」与插件详情页会把声明的入口列出来，点击后按 `action` 分派
-（通常是打开插件自己的视图 `ext://<插件id>/<视图id>`）：
+**插件自己的设置页**：框架**不提供设置控件，也不管理"插件设置"入口列表** —— 设置界面就是插件
+自己注册的一个普通页面（`ext://<插件id>/<视图id>`），入口由插件自己给（主页入口、或插件功能页里的
+一个按钮）：
 
 ```js
-// 1) 声明入口：告诉宿主"本插件有一个设置页"
-musicxx.ui.registerEntry({
-    name: "settings",
-    type: "settings.page",
-    order: 100,
-    data: {
-        title: "我的插件设置",
-        subtitle: "页面由插件绘制",
-        action: { kind: "route", route: "ext://my_plugin/settings" },
-    },
-});
-
-// 2) 页面本身：与普通插件页面一样，在 `settings` 能力里返回视图描述
-// 默认值由脚本给（框架不再声明；getConfig 的第二个参数就是默认值），
+// 页面本身：与普通插件页面一样，在 `settings` 能力里返回视图描述
+// 默认值由脚本给（框架不声明；getConfig 的第二个参数就是默认值），
 // 值变动由 storage.set 的回调刷新这里的记账。
 function featureEnabled() {
     return musicxx.storage.configCache.enabledFeature !== false;   // 未设置 = 默认开启
@@ -329,7 +320,7 @@ musicxx.capability.register("settings", function () {
     return { view: settingsView() };
 });
 
-// 3) 值改动：由插件的按钮能力自己写 config.json（返回 {view:...} 让宿主刷新页面）
+// 值改动：由插件的按钮能力自己写 config.json（返回 {view:...} 让宿主刷新页面）
 musicxx.capability.register("toggleFeature", function () {
     const next = !featureEnabled();
     musicxx.storage.configCache.enabledFeature = next;
@@ -338,10 +329,13 @@ musicxx.capability.register("toggleFeature", function () {
 });
 ```
 
-- 入口 `data` 与主页入口同构：`title` 必有，`subtitle`/`icon`/`action` 可选；
-- 页面能用的块与普通插件页面完全相同（`text` / `divider` / `button` / `list`，见上面的「插件页面」）；
+- 从插件自己的页面跳过去：按钮动作用 `{ kind:"route", route:"ext://my_plugin/settings" }`；
+- 也可以直接把它做成主页入口：`{ name:"settings", type:"home.entry", data:{ title:"我的插件设置", action:{ kind:"route", route:"ext://my_plugin/settings" } } }`
+  （主页入口只声明"打开哪个页面"，设置内容仍然由插件的 `settings` 能力提供）；
+- 页面能用的块与普通插件页面完全相同（`text` / `divider` / `button` / `list`）；
 - 配置读写用 `musicxx.storage.getConfig/setConfig`（`config.json`），默认值写在 `getConfig` 的第二个参数里；
-- 完整可运行示例见 `plugins/example_js/plugin.js` 的 `settingsView` / `settings` 能力。
+- 完整可运行示例见 `plugins/example_js/plugin.js`：`card` 功能页里的『打开本插件设置页』按钮 +
+  `settingsView` / `settings` 能力。
 
 ### 3.6 事件
 
