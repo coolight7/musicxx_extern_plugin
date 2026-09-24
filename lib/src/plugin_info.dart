@@ -59,7 +59,7 @@ class MusicxxPluginInfo {
   /// 目录名（仅提示用；id 以清单为准）
   final String dir;
 
-  /// 原生插件的库文件名
+  /// 动态库插件的库文件名
   final String entry;
 
   /// 来源：user / builtin
@@ -131,7 +131,9 @@ class MusicxxPluginInfo {
       optionalDepends: _stringList(json['optionalDepends']),
       configPath: json['configPath'] as String? ?? '',
       enabled: json['enabled'] as bool? ?? false,
-      counters: counters is Map<String, Object?> ? counters : const <String, Object?>{},
+      counters: counters is Map<String, Object?>
+          ? counters
+          : const <String, Object?>{},
     );
   }
 
@@ -166,7 +168,8 @@ class MusicxxPluginLog {
   final String message;
   final int ts;
 
-  factory MusicxxPluginLog.fromEvent(MusicxxPluginEvent event) => MusicxxPluginLog(
+  factory MusicxxPluginLog.fromEvent(MusicxxPluginEvent event) =>
+      MusicxxPluginLog(
         plugin: event.plugin,
         level: event.intOf('level') ?? 2,
         message: event.stringOf('message') ?? '',
