@@ -24,20 +24,16 @@ author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos, android, ios]
 
-permissions:                     # 声明式权限：安装时一次性确认，运行时只校验
+permissions:                     # 声明式权限：只做展示（安装确认页 / 插件详情），运行时不校验
   - musicxx.player.control
   - musicxx.ui
   - musicxx.storage
-
-# 可选：宿主生成的配置表单（读写插件目录下的 config.json）
-settings_schema:
-  - { key: "enabledFeature", type: "bool", title: "启用特性", default: true }
-  - { key: "apiKey", type: "string", title: "API Key", secret: true }
-  - { key: "mode", type: "select", title: "模式", default: "a",
-      options: [ { value: "a", label: "模式 A" }, { value: "b", label: "模式 B" } ] }
 ```
 
 安装方式：管理页「从压缩包安装」（打包成 `.zip`，顶层就是插件目录内容）或直接把目录放进插件目录后扫描。
+
+插件的设置与配置由插件**自己画页面**（见 §3.5 的「插件页面」），框架不再生成配置表单：
+配置默认值写在脚本里（`musicxx.storage.getConfig(key, 默认值)`），用户改过的值存在插件目录的 `config.json`。
 
 ## 2. 生命周期
 
@@ -145,7 +141,8 @@ const lrc   = await musicxx.lyrics.getCurrent();
 | `musicxx.ui` | `notify` `toast` `dialog` `openRoute`（需 `musicxx.ui` 权限） |
 | `musicxx.stats` | `getSelf` `reportMemory` `reportMetric`（只观测不限制） |
 
-动作全名与权限的对应关系见方案 §4.8；未授权动作会被 Dart 侧直接拒绝（`permission_denied`）。
+动作全名与权限的对应关系见方案 §4.8。**动作不做权限校验**：权限（清单 `permissions`）只做声明与展示
+（安装确认弹窗、插件详情的「权限」区块），不会拒绝任何动作调用。
 
 **界面反馈**：
 
@@ -167,9 +164,10 @@ await musicxx.ui.openRoute("musicxx:settings");                   // 官方页�
   `musicxx:search` 搜索、`musicxx:localSongs` 本地歌曲、`musicxx:history` 播放记录、`musicxx:lyrics` 歌词、`musicxx:about` 关于）；
   其它地址会被拒绝并返回 `不允许打开的页面`。
 
-**插件配置（`config.json`）**：用户在管理页「详情 → 配置」里改的值与 `settings_schema` 声明的默认值都存在插件目录的 `config.json`。
-脚本用 `musicxx.storage.getConfig(key, 默认值)` 读、`setConfig(key, value)` 写（等价于 `namespace: "config"` 的 `storage.get/set`），
-与私有 KV（`kv.json`）互不影响。
+**插件配置（`config.json`）**：插件目录下的 `config.json`，用户可以直接编辑，插件用
+`musicxx.storage.getConfig(key, 默认值)` 读、`setConfig(key, value)` 写（等价于 `namespace: "config"` 的
+`storage.get/set`），与私有 KV（`kv.json`）互不影响。默认值由插件自己在 `getConfig` 的第二个参数里给；
+框架不再提供配置表单（`settings_schema` 已移除），设置页由插件自己画（见 §3.5 的「设置页」）。
 
 **网络（宿主代理通道）**：
 
@@ -193,7 +191,7 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 
 - **非 2xx 也会正常返回**（`ok: true` + `status`），由脚本自己判断；只有传输失败/超时才是 `ok: false`；
 - `ok: false` 时 `error` 是 `请求失败：...`（网络/超时）；宿主不限定可访问的域名（任意 http/https 地址都可以请求）；
-- 插件**不需要**这条通道也能联网（原生插件可用系统 API；JS 由于宿主内没有 `fetch`，用本通道最方便）——
+- 插件**不需要**这条通道也能联网（动态库插件可用系统 API；JS 由于宿主内没有 `fetch`，用本通道最方便）——
   `musicxx.net` 权限只表示"允许使用宿主代理通道"（plan §7.4 第 5 条）；
 - `fileName` 只能是文件名：路径分隔符与 `..` 会被拒绝，落点固定在插件自己的数据目录内。
 
@@ -206,7 +204,7 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 | `home.entry`（`musicxx.ui.home.entry`） | 功能主页入口按钮 | `title` |
 | `song.action`（`musicxx.ui.song.action`） | 歌曲菜单项 | `title` |
 | `playlist.action` | 歌单菜单项 | `title` |
-| `settings.page` | 设置页 | `title` |
+| `settings.page` | 设置页入口（页面由插件自绘） | `title`、`action` |
 | `overlay.widget` | 播放页只读信息块（应用侧已渲染） | `position`、`content` |
 
 `overlay.widget` 的 `position` 与 `content.kind`（应用侧定义，其他取值会被忽略/归一化）：
@@ -286,47 +284,59 @@ musicxx.capability.register("card", function (args) {
 - 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）；
 - 未识别的块类型会被忽略（向前兼容）。
 
-**设置页（`settings.page`）**：应用「设置」里会出现插件声明的设置页入口，页内控件读写插件的 `config.json`
-（与清单 `settings_schema` 生成的表单是同一份配置）：
+**设置页（`settings.page`）**：**只声明入口，页面由插件自己画**——框架不再提供设置控件。
+应用「设置 → 插件设置」与插件详情页会把声明的入口列出来，点击后按 `action` 分派
+（通常是打开插件自己的视图 `ext://<插件id>/<视图id>`）：
 
 ```js
+// 1) 声明入口：告诉宿主"本插件有一个设置页"
 musicxx.ui.registerEntry({
     name: "settings",
     type: "settings.page",
     order: 100,
     data: {
         title: "我的插件设置",
-        depict: "可选说明",
-        groups: [
-            {
-                title: "基础",
-                items: [
-                    { kind: "switch", key: "enabledFeature", title: "启用特性", depict: "说明文字" },
-                    { kind: "input", key: "apiKey", title: "API Key", placeholder: "粘贴密钥" },
-                    { kind: "password", key: "secret", title: "密钥" },       // 默认隐藏
-                    { kind: "number", key: "limit", title: "上限", min: 1, max: 100 },
-                    { kind: "select", key: "mode", title: "模式",
-                      options: [ { value: "a", label: "模式 A" }, { value: "b", label: "模式 B" } ] },
-                    { kind: "text", key: "note", title: "备注" },             // 多行
-                    { kind: "info", text: "只读说明（不写入配置）" },
-                    { kind: "button", title: "立即执行",
-                      action: { kind: "capability", name: "runNow" } },
-                    { kind: "divider" },
-                ],
-            },
-        ],
+        subtitle: "页面由插件绘制",
+        action: { kind: "route", route: "ext://my_plugin/settings" },
     },
+});
+
+// 2) 页面本身：与普通插件页面一样，在 `settings` 能力里返回视图描述
+// 默认值由脚本给（框架不再声明；getConfig 的第二个参数就是默认值），
+// 值变动由 storage.set 的回调刷新这里的记账。
+function featureEnabled() {
+    return musicxx.storage.configCache.enabledFeature !== false;   // 未设置 = 默认开启
+}
+function settingsView() {
+    return {
+        title: "我的插件设置",
+        blocks: [
+            { kind: "text", text: "这些值保存在插件目录的 config.json 里。", style: "cross" },
+            { kind: "list", items: [
+                { id: "enabledFeature", title: "启用特性", right: featureEnabled() ? "已开启" : "已关闭" },
+            ]},
+            { kind: "button", title: "切换『启用特性』", style: "primary",
+              action: { kind: "capability", name: "toggleFeature" } },
+        ],
+    };
+}
+musicxx.capability.register("settings", function () {
+    return { view: settingsView() };
+});
+
+// 3) 值改动：由插件的按钮能力自己写 config.json（返回 {view:...} 让宿主刷新页面）
+musicxx.capability.register("toggleFeature", function () {
+    const next = !featureEnabled();
+    musicxx.storage.configCache.enabledFeature = next;
+    musicxx.storage.setConfig("enabledFeature", next);   // 异步写盘（失败只记日志）
+    return { view: settingsView() };
 });
 ```
 
-- 控件种类：可写配置的 `switch` / `input` / `password` / `text` / `number` / `select`，
-  以及只读展示的 `info` / `progress` / `list` / `button` / `divider`
-  （`progress` = `{kind:"progress", title?, depict?, value, total}`，`list` = `{kind:"list", title?, items:["文本", {title, depict}]}`）；
-- 控件值改动后立刻写入 `config.json`（`info`/`progress`/`list`/`button`/`divider` 不写配置）；
-- `musicxx.ui.updateEntry("settings", { ... })` 可以整批换掉页面结构（脚本运行期也能改，只读块可用于
-  展示"任务进度/统计"这类插件自己的状态）；
-- 与清单 `settings_schema` 的区别：`settings_schema` 由宿主生成表单（插件无需声明结构），
-  `settings.page` 由插件完全控制页面结构（可带 `info`/`progress`/`list`/`button`）。
+- 入口 `data` 与主页入口同构：`title` 必有，`subtitle`/`icon`/`action` 可选；
+- 页面能用的块与普通插件页面完全相同（`text` / `divider` / `button` / `list`，见上面的「插件页面」）；
+- 配置读写用 `musicxx.storage.getConfig/setConfig`（`config.json`），默认值写在 `getConfig` 的第二个参数里；
+- 完整可运行示例见 `plugins/example_js/plugin.js` 的 `settingsView` / `settings` 能力。
 
 ### 3.6 事件
 
@@ -354,7 +364,7 @@ const again = await musicxx.capability.call("example_js", "plugin.example_js.pro
 - 处理器必须**同步返回**可 JSON 序列化的结果（返回 Promise 会以 `capability_async_not_supported` 失败）。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
   - 目标是 **JS 插件** → 在共享 JS 线程上直接调用（同一线程，结果立即就绪）；
-  - 目标是**原生插件** → 由宿主线程执行、脚本**不阻塞**（宿主线程可能正在等 JS 处理器），
+  - 目标是**动态库插件** → 由宿主线程执行、脚本**不阻塞**（宿主线程可能正在等 JS 处理器），
     超时默认 3 s（下限 1 s）；失败时 Promise 拒绝，`err.message` 里带原因。
 
 ### 3.8 统计与自检

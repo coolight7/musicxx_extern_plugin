@@ -188,7 +188,7 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION     "musicxx.ui.song.action"
 /// 歌单菜单项: data = {title, icon?, action?}
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
-/// 设置页: data = {title, groups:[...]}
+/// 设置页入口 (页面由插件自绘): data = {title, subtitle?, icon?, action?}
 #define MUSICXX_PLUGIN_UI_TYPE_SETTINGS_PAGE   "musicxx.ui.settings.page"
 /// 播放页/悬浮歌词附加信息 (只读展示): data = {position, content:{kind,...}}
 #define MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET  "musicxx.ui.overlay.widget"

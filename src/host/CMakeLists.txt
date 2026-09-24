@@ -20,7 +20,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS   "构建原生测试" ON)
-# JS 插件运行时 (QuickJS): 关闭后宿主只支持原生插件 (内核与 Dart C ABI 不受影响)
+# JS 插件运行时 (QuickJS): 关闭后宿主只支持动态库插件 (内核与 Dart C ABI 不受影响)
 option(MUSICXX_EXTERN_PLUGIN_ENABLE_JS     "构建 JS 插件运行时 (QuickJS)" ON)
 
 # ===== 依赖前缀 =====

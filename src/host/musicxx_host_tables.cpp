@@ -595,7 +595,7 @@ int32_t MusicxxHostManager::actionRespond(int64_t requestId, int32_t status,
                                           const std::string &resultJson) {
   auto it = pendingActions_.find(requestId);
   if (it == pendingActions_.end()) {
-    // 不属于原生插件登记表: 可能是 JS 引擎登记的在途请求 (见
+    // 不属于动态库插件登记表: 可能是 JS 引擎登记的在途请求 (见
     // InternalActionRelay)
     std::shared_ptr<InternalActionRelay> relay;
     {

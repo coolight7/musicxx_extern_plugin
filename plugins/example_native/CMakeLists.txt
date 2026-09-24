@@ -1,4 +1,4 @@
-# 示例原生插件 (musicxx_extern_plugin/plugins/example_native)
+# 示例动态库插件 (musicxx_extern_plugin/plugins/example_native)
 #
 # 这是插件作者的最小参考：CMakeLists 只写几行 ——
 #   1) 引入 SDK 构建助手（宿主工程内部直接 include；外部作者用 find_package 后再拿）；

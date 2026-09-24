@@ -14,9 +14,3 @@ permissions:
   - musicxx.ui
   - musicxx.storage
   - musicxx.net
-
-# 可选: 宿主生成的配置表单 (读写插件目录下的 config.json)
-settings_schema:
-  - { key: "skipAds", type: "bool", title: "跳过广告曲目", default: true }
-  - { key: "heartbeatMs", type: "int", title: "心跳间隔(毫秒)", min: 5000, max: 600000, default: 30000 }
-  - { key: "greeting", type: "string", title: "启动提示语", default: "example_js 已加载" }

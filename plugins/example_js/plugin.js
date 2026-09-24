@@ -6,7 +6,7 @@
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
 /// - `musicxx.player.speed` 裁决 (异步): 处理器返回 Promise 也能生效 (限速演示);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
-/// - 声明式设置页 + 宿主网络代理通道 (musicxx.net.fetch) 演示。
+/// - 插件自绘设置页 (settings.page 入口 + ext:// 页面) + 宿主网络代理通道 (musicxx.net.fetch) 演示。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
@@ -28,8 +28,13 @@ function currentSongName() {
 }
 
 /// 裁决型钩子: 播放前跳过"广告"曲目
+/// 开关来自插件自己的配置 (config.json 的 skipAds; 脚本给默认值 true,
+/// 在自绘设置页里切换, 见下面的 settingsView)。
 musicxx.hooks.register("musicxx.player.beforePlaySong", { mode: "decision", priority: 0 }, function (ctx) {
     const name = (ctx && ctx.song && ctx.song.name) ? String(ctx.song.name) : "";
+    if (!skipAdsEnabled()) {
+        return null;
+    }
     if (name.indexOf("广告") >= 0) {
         musicxx.host.log(2, "跳过广告曲目: " + name);
         return { action: "skip" };
@@ -106,40 +111,20 @@ musicxx.ui.registerEntry({
     },
 });
 
-/// 声明式设置页: 应用「设置 → 插件设置」里会出现这个页面,
-/// 页内控件读写插件目录的 config.json (与清单 settings_schema 是同一份配置)。
+/// 声明式 UI 扩展: 设置页入口
+///
+/// 框架不再提供设置控件: 这个项只声明"本插件有一个设置页",
+/// 点击后打开插件自己画的页面 (ext://example_js/settings)。
+/// 页面内容由脚本在 `settings` 能力里返回 (text/list/button 块),
+/// 配置读写走 musicxx.storage.getConfig/setConfig (插件目录下的 config.json)。
 musicxx.ui.registerEntry({
     name: "settings",
     type: "settings.page",
     order: 120,
     data: {
         title: "JS 示例插件设置",
-        depict: "示例：开关 / 文本 / 数字 / 下拉 / 说明 / 按钮",
-        groups: [
-            {
-                title: "基础",
-                items: [
-                    { kind: "switch", key: "skipAds", title: "跳过广告曲目", depict: "播放前裁决：名字含『广告』的曲目直接跳过" },
-                    { kind: "number", key: "heartbeatMs", title: "心跳间隔(毫秒)", min: 5000, max: 600000 },
-                    { kind: "input", key: "greeting", title: "启动提示语", placeholder: "加载时弹出的提示" },
-                    {
-                        kind: "select", key: "logLevel", title: "日志级别", default: "info",
-                        options: [{ value: "debug", label: "调试" }, { value: "info", label: "信息" }]
-                    },
-                    { kind: "info", text: "提示：这里改的值会立刻写入 config.json；脚本可用 musicxx.storage.getConfig 读取。" },
-                    // 只读块（不写配置）：进度条与列表，用来展示插件自己的状态
-                    { kind: "progress", title: "示例进度", depict: "只读：由插件声明 value/total", value: 1, total: 4 },
-                    {
-                        kind: "list", title: "本插件注册的钩子", items: [
-                            { title: "musicxx.player.beforePlaySong", depict: "跳过广告曲目" },
-                            { title: "musicxx.song.changed", depict: "切歌日志" },
-                            { title: "musicxx.player.speed", depict: "异步裁决：限速" },
-                        ]
-                    },
-                    { kind: "button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
-                ],
-            },
-        ],
+        subtitle: "页面由插件绘制（开关 / 说明 / 按钮）",
+        action: { kind: "route", route: "ext://example_js/settings" },
     },
 });
 
@@ -170,7 +155,7 @@ musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function 
 /// 能力: 跨插件调用 (JS → 原生/内置插件; 结果为 Promise, 宿主线程执行)
 ///
 /// - 目标是 JS 插件时同线程直接调用 (结果立即就绪);
-/// - 目标是原生插件时投递到宿主线程执行, 脚本不阻塞 (宿主线程可能正等 JS 处理器)。
+/// - 目标是动态库插件时投递到宿主线程执行, 脚本不阻塞 (宿主线程可能正等 JS 处理器)。
 /// 能力处理器必须**同步返回**, 所以跨插件调用的结果用"最后一次结果"记账,
 /// 由 probe 能力回读 (测试用; 真实插件应把异步结果写进自己的状态或 UI 项)。
 let crossCallState = { pending: 0, ok: 0, keys: 0, error: "" };
@@ -189,18 +174,106 @@ musicxx.capability.register("crossCall", function (args) {
     return { accepted: 1, target: target, method: method };
 });
 
-/// 配置读取: config.json 由用户改 (设置页/手改文件), 脚本侧读用 getConfig (异步)。
-/// 能力处理器必须同步返回, 所以这里把最近一次读到的值记账, 由 probe 回读。
-musicxx.storage.configCache = { skipAds: null, greeting: "" };
+/// 配置读取: config.json 由插件自己读写 (自绘设置页 + 手改文件都改它),
+/// 用 getConfig 异步读、给默认值 (框架不再提供 settings_schema 默认值)。
+/// 能力处理器必须同步返回, 所以这里把最近一次读到的值记账, 由 probe / 设置页回读。
+musicxx.storage.configCache = { skipAds: null, greeting: "", heartbeatMs: null };
+
+/// 是否开启"跳过广告" (默认开启; 配置还没读到时也按默认值处理)
+function skipAdsEnabled() {
+    return musicxx.storage.configCache.skipAds !== false;
+}
+
 function refreshConfig() {
-    musicxx.storage.getConfig("skipAds").then(function (value) {
+    musicxx.storage.getConfig("skipAds", true).then(function (value) {
         musicxx.storage.configCache.skipAds = value;
     }, function () { return null; });
-    musicxx.storage.getConfig("greeting").then(function (value) {
-        musicxx.storage.configCache.greeting = value === null ? "" : value;
+    musicxx.storage.getConfig("greeting", "example_js 已加载").then(function (value) {
+        musicxx.storage.configCache.greeting = (value === null || value === undefined) ? "" : value;
+    }, function () { return null; });
+    musicxx.storage.getConfig("heartbeatMs", 30000).then(function (value) {
+        musicxx.storage.configCache.heartbeatMs = value;
     }, function () { return null; });
 }
 refreshConfig();
+
+/// 插件自绘设置页: 宿主打开 ext://example_js/settings 时调用同名能力取页面描述。
+///
+/// 页面只用 text / list / button 块画出插件自己的配置界面; 值改动由按钮触发能力写回
+/// config.json (返回 {view:...} 让宿主直接用新页面刷新)。框架不再提供设置控件。
+function settingsView(override) {
+    const cache = musicxx.storage.configCache;
+    const skipAds = (override && typeof override.skipAds === "boolean")
+        ? override.skipAds
+        : skipAdsEnabled();
+    const greeting = (override && typeof override.greeting === "string")
+        ? override.greeting
+        : (cache.greeting || "");
+    const heartbeatMs = (override && typeof override.heartbeatMs === "number")
+        ? override.heartbeatMs
+        : (typeof cache.heartbeatMs === "number" ? cache.heartbeatMs : 30000);
+    return {
+        title: "JS 示例插件设置",
+        subtitle: "页面由插件绘制; 值保存在插件目录的 config.json",
+        blocks: [
+            {
+                kind: "text",
+                text: "这些设置由脚本用 musicxx.storage.getConfig/setConfig 读写, 没有宿主提供的表单。",
+                style: "cross",
+            },
+            { kind: "divider" },
+            {
+                kind: "list",
+                items: [
+                    { id: "skipAds", title: "跳过广告曲目", subtitle: "播放前裁决: 名字含『广告』的曲目直接跳过", right: skipAds ? "已开启" : "已关闭" },
+                    { id: "greeting", title: "启动提示语", subtitle: "加载时弹出的提示", right: greeting === "" ? "(未设置)" : greeting },
+                    { id: "heartbeatMs", title: "心跳间隔(毫秒)", subtitle: "定时器写日志的间隔", right: String(heartbeatMs) },
+                ],
+            },
+            {
+                kind: "button",
+                title: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
+                style: "primary",
+                action: { kind: "capability", name: "toggleSkipAds" },
+            },
+            {
+                kind: "button",
+                title: "把提示语改回默认值",
+                action: { kind: "capability", name: "resetGreeting", args: { value: "example_js 已加载" } },
+            },
+            { kind: "button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
+        ],
+    };
+}
+
+/// 写一个配置项: 先更新脚本侧记账, 再异步写 config.json (失败只记日志)
+function saveConfig(key, value) {
+    musicxx.storage.configCache[key] = value;
+    musicxx.storage.setConfig(key, value).then(function () {
+        return null;
+    }, function (err) {
+        musicxx.host.log(3, "写配置失败: " + err.message);
+    });
+}
+
+musicxx.capability.register("settings", function () {
+    return { view: settingsView(null) };
+});
+
+/// 设置页按钮: 切换"跳过广告曲目"
+musicxx.capability.register("toggleSkipAds", function () {
+    const next = !skipAdsEnabled();
+    saveConfig("skipAds", next);
+    musicxx.host.log(2, "设置页: 跳过广告曲目 → " + next);
+    return { view: settingsView({ skipAds: next }) };
+});
+
+/// 设置页按钮: 把提示语改回默认值
+musicxx.capability.register("resetGreeting", function (args) {
+    const value = (args && args.value) ? String(args.value) : "example_js 已加载";
+    saveConfig("greeting", value);
+    return { view: settingsView({ greeting: value }) };
+});
 
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
@@ -221,7 +294,7 @@ musicxx.capability.register("probe", function (args) {
         crossOk: crossCallState.ok,
         crossKeys: crossCallState.keys,
         crossError: crossCallState.error,
-        // 配置读取 (config.json; 缺省值由清单 settings_schema / 设置页声明)
+        // 配置读取 (config.json; 默认值由脚本在 getConfig 里给)
         configSkipAds: musicxx.storage.configCache.skipAds,
         configGreeting: musicxx.storage.configCache.greeting,
     };
