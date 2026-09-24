@@ -7,6 +7,9 @@
 /// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
 /// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
 ///    命名空间校验返回码、处理器调用次数), 供宿主原生测试读取。
+/// 5. 注册能力 `plugin.example_native.card`: 返回声明式页面 (主页入口与播放页附加
+///    信息块都打开 `ext://example_native/card`)。入口声明的页面必须有**同名能力**,
+///    否则点开只会提示"未声明该能力"。
 ///
 /// 规定: start 事务里只做注册, 不阻塞、不发起网络/大文件操作。
 
@@ -225,6 +228,58 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiOverlayProgressRc\":" << uiOverlayProgressRc
               << ",\"stateLen\":" << stateJson("musicxx.state.song").size()
               << "}";
+          return oss.str();
+        });
+
+    // 8) 能力: 声明式页面 `ext://example_native/card`
+    //    主页入口与播放页附加信息块都指向这个页面: 宿主打开页面时调用**同名能力**,
+    //    插件返回视图描述 (text / divider / list / button 块), 渲染由宿主完成。
+    //    页面里的按钮可以调用本插件能力 (返回 {view:...} 时直接刷新当前页),
+    //    也可以执行官方动作 (这里演示发一条站内提示)。
+    capability(
+        *this, "plugin.example_native.card",
+        [this](std::string_view, std::string_view) -> std::string {
+          const int32_t uiOk = (uiHomeRc == 0 ? 1 : 0) + (uiSongRc == 0 ? 1 : 0) +
+                               (uiOverlayTextRc == 0 ? 1 : 0) +
+                               (uiOverlayProgressRc == 0 ? 1 : 0);
+          std::ostringstream oss;
+          oss << "{\"view\":{\"title\":\"示例插件\""
+              << ",\"subtitle\":\"页面内容来自能力 "
+                 "plugin.example_native.card\""
+              << ",\"blocks\":["
+              << "{\"kind\":\"text\",\"style\":\"cross\",\"text\":\"这个页面演示"
+                 "插件的声明式页面: 插件只返回块描述 (文本 / 列表 / 按钮), 不写界面"
+                 "代码。\"}"
+              << ",{\"kind\":\"divider\"}"
+              << ",{\"kind\":\"list\",\"items\":["
+              << "{\"id\":\"startThread\",\"title\":\"start 事务线程\","
+                 "\"subtitle\":\"钩子与能力处理器都在这一条线程上执行\","
+                 "\"right\":\""
+              << startThread << "\"}"
+              << ",{\"id\":\"callThread\",\"title\":\"当前调用线程\","
+                 "\"subtitle\":\"与 start 事务线程相同 = 单宿主线程\",\"right\":\""
+              << threadIdText() << "\"}"
+              << ",{\"id\":\"errors\",\"title\":\"连续播放错误\","
+                 "\"subtitle\":\"累计 2 次后建议换源\",\"right\":\""
+              << consecutiveErrors << "\"}"
+              << ",{\"id\":\"stateEvents\",\"title\":\"状态镜像变化事件\","
+                 "\"right\":\"" << stateEvents << "\"}"
+              << ",{\"id\":\"pingEvents\",\"title\":\"musicxx.test.ping 事件\","
+                 "\"right\":\"" << pingEvents << "\"}"
+              << ",{\"id\":\"uiItems\",\"title\":\"已注册的 UI 项\","
+                 "\"subtitle\":\"主页入口 / 歌曲菜单 / 附加信息块\",\"right\":\""
+              << uiOk << "\"}"
+              << ",{\"id\":\"stateLen\",\"title\":\"状态镜像 musicxx.state.song\","
+                 "\"subtitle\":\"宿主推送的最近一份歌曲快照 (字节)\",\"right\":\""
+              << stateJson("musicxx.state.song").size() << "\"}"
+              << "]}"
+              << ",{\"kind\":\"button\",\"title\":\"刷新本页\","
+                 "\"style\":\"primary\",\"action\":{\"kind\":\"capability\","
+                 "\"name\":\"card\"}}"
+              << ",{\"kind\":\"button\",\"title\":\"发送一条通知\","
+                 "\"action\":{\"kind\":\"action\",\"name\":\"musicxx.ui.notify\","
+                 "\"args\":{\"text\":\"来自 example_native 的通知\"}}}"
+              << "]}}";
           return oss.str();
         });
 

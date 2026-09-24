@@ -6,6 +6,7 @@
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
 /// - `musicxx.player.speed` 裁决 (异步): 处理器返回 Promise 也能生效 (限速演示);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
+/// - `example_js.card` 能力: 主页入口与播放页附加信息块打开的插件页面 (`ext://example_js/card`)。
 /// - 插件自绘设置页 (settings.page 入口 + ext:// 页面) + 宿主网络代理通道 (musicxx.net.fetch) 演示。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
@@ -261,11 +262,16 @@ musicxx.capability.register("settings", function () {
 });
 
 /// 设置页按钮: 切换"跳过广告曲目"
-musicxx.capability.register("toggleSkipAds", function () {
+///
+/// 功能页 (`card`) 的列表项也复用这个能力: 用 `args.view` 说明要刷新成哪个页面
+/// (缺省 = 设置页)。
+musicxx.capability.register("toggleSkipAds", function (args) {
     const next = !skipAdsEnabled();
     saveConfig("skipAds", next);
     musicxx.host.log(2, "设置页: 跳过广告曲目 → " + next);
-    return { view: settingsView({ skipAds: next }) };
+    return {
+        view: (args && args.view === "card") ? cardView() : settingsView({ skipAds: next }),
+    };
 });
 
 /// 设置页按钮: 把提示语改回默认值
@@ -340,6 +346,106 @@ musicxx.capability.register("fetchProbe", function () {
 musicxx.capability.register("reloadConfig", function () {
     refreshConfig();
     return { accepted: 1 };
+});
+
+/// 插件页面: 主页入口与播放页附加信息块都指向 `ext://example_js/card`
+///
+/// 宿主打开这个页面时调用**同名能力** (`card`), 由脚本返回视图描述 ——
+/// 页面内容由插件给, 排版与控件仍由宿主渲染 (text / divider / list / button 块)。
+/// 页面里的按钮可以调用本插件能力 (返回 `{view:...}` 时直接刷新当前页)、
+/// 执行官方动作, 或跳到另一个插件页面 (这里跳本插件的设置页)。
+function cardView() {
+    const cross = crossCallState.pending === 1
+        ? "调用中"
+        : (crossCallState.ok === 1
+            ? ("成功, 返回 " + crossCallState.keys + " 个字段")
+            : (crossCallState.error === "" ? "未调用" : ("失败: " + crossCallState.error)));
+    const net = fetchState.pending === 1
+        ? "请求中"
+        : (fetchState.error !== ""
+            ? ("失败: " + fetchState.error)
+            : (fetchState.ok === 1 ? ("HTTP " + fetchState.status + ", " + fetchState.bytes + " 字节") : "未调用"));
+    return {
+        title: "JS 示例插件",
+        subtitle: "页面内容来自能力 `card`, 渲染由宿主完成",
+        blocks: [
+            {
+                kind: "text",
+                text: "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 列表 / 按钮), 不写界面代码。",
+                style: "cross",
+            },
+            { kind: "divider" },
+            {
+                kind: "list",
+                items: [
+                    {
+                        id: "songChanged",
+                        title: "切歌次数",
+                        subtitle: lastSongName === "" ? "还没有切过歌" : ("最后播放: " + lastSongName),
+                        right: String(songChangedCount),
+                    },
+                    {
+                        id: "errorCount",
+                        title: "播放错误次数",
+                        subtitle: "第 1 次错误建议换源, 之后交给宿主原有策略",
+                        right: String(errorCount),
+                    },
+                    {
+                        id: "timerTicks",
+                        title: "定时器心跳",
+                        subtitle: "每 30 秒写一条日志",
+                        right: String(timerTicks),
+                    },
+                    {
+                        id: "uiEntries",
+                        title: "已注册的 UI 项",
+                        subtitle: "主页入口 / 歌曲菜单 / 设置入口 / 附加信息块",
+                        right: String(musicxx.ui.entries().length),
+                    },
+                    {
+                        id: "crossCall",
+                        title: "跨插件调用",
+                        subtitle: "目标: example_native 的 probe 能力",
+                        right: cross,
+                    },
+                    {
+                        id: "netFetch",
+                        title: "宿主网络通道",
+                        subtitle: "musicxx.net.fetch 最近一次结果",
+                        right: net,
+                    },
+                    {
+                        id: "skipAds",
+                        title: "跳过广告曲目",
+                        subtitle: "点这一条直接切换 (等于设置页里的开关)",
+                        right: skipAdsEnabled() ? "已开启" : "已关闭",
+                        action: { kind: "capability", name: "toggleSkipAds", args: { view: "card" } },
+                    },
+                ],
+            },
+            {
+                kind: "button",
+                title: "刷新本页",
+                style: "primary",
+                action: { kind: "capability", name: "card" },
+            },
+            {
+                kind: "button",
+                title: "调用 example_native 的能力",
+                action: { kind: "capability", name: "crossCall", args: { target: "example_native", method: "probe" } },
+            },
+            { kind: "button", title: "测试宿主网络通道", action: { kind: "capability", name: "fetchEcho" } },
+            {
+                kind: "button",
+                title: "打开本插件设置页",
+                action: { kind: "route", route: "ext://example_js/settings" },
+            },
+        ],
+    };
+}
+
+musicxx.capability.register("card", function () {
+    return { view: cardView() };
 });
 
 console.log("example_js 已加载 (pid=" + musicxx.pluginId + ")");

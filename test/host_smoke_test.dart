@@ -276,6 +276,24 @@ void main() {
     );
 
     _step('11.5 UI 项快照完成: ${uiItems.length} 项');
+    // 声明式页面：UI 项只声明"打开哪个页面"，页面本身由插件的**同名能力**绘制。
+    // 这里断言"声明了 route 入口的插件确实提供了同名能力" —— 只声明入口不实现能力时，
+    // 宿主打开页面只会得到"插件未声明该能力"。
+    final String? nativeViewId = card.viewId;
+    expect(nativeViewId, isNotNull);
+    final Object? nativeCardRaw = runtime.plugins.call(
+      'example_native',
+      'plugin.example_native.$nativeViewId',
+      <String, Object?>{'view': nativeViewId},
+    );
+    expect(nativeCardRaw, isA<Map<String, Object?>>(), reason: '原生示例应返回页面视图');
+    final Map<String, Object?> nativeView =
+        (nativeCardRaw! as Map<String, Object?>)['view']! as Map<String, Object?>;
+    expect(nativeView['title'], isNotEmpty);
+    expect(nativeView['blocks'], isA<List<Object?>>());
+    expect((nativeView['blocks']! as List<Object?>).length, greaterThan(1));
+
+    _step('11.6 原生示例的页面能力完成');
     // 卸载后 UI 项被摘除 (宿主随实例摘除, Dart 侧不再渲染)
     runtime.plugins.unload('example_native');
     expect(
@@ -286,7 +304,7 @@ void main() {
       reason: '卸载后不应残留该插件的 UI 项',
     );
 
-    _step('11.6 卸载后 UI 项摘除完成');
+    _step('11.7 卸载后 UI 项摘除完成');
 
     // ===== JS 插件 (零编译, plan §4.4/§4.6) =====
     // 扫描结果里应有 JS 示例插件
@@ -410,6 +428,30 @@ void main() {
     expect(jsProbe['songChangedCount'], greaterThan(0));
 
     _step('16 JS 能力调用完成');
+    // JS 示例的主页入口与播放页附加信息块都指向 ext://example_js/card:
+    // 页面由同名能力 `card` 绘制, 这里断言这条链路真的通 (只声明入口不实现能力时,
+    // 宿主打开页面只会得到"插件未声明该能力")
+    final List<MusicxxPluginUIItem> jsHomeEntries = MusicxxPluginUIItems.byType(
+      uiItemsJs,
+      MusicxxPluginUIType.homeEntry,
+    );
+    final MusicxxPluginUIItem jsCard = jsHomeEntries.firstWhere(
+      (MusicxxPluginUIItem item) => item.plugin == 'example_js',
+    );
+    expect(jsCard.viewId, isNotNull);
+    final Object? jsCardRaw = runtime.plugins.call(
+      'example_js',
+      'plugin.example_js.${jsCard.viewId}',
+      <String, Object?>{'view': jsCard.viewId},
+    );
+    expect(jsCardRaw, isA<Map<String, Object?>>(), reason: 'JS 示例应返回页面视图');
+    final Map<String, Object?> jsView =
+        (jsCardRaw! as Map<String, Object?>)['view']! as Map<String, Object?>;
+    expect(jsView['title'], isNotEmpty);
+    expect(jsView['blocks'], isA<List<Object?>>());
+    expect((jsView['blocks']! as List<Object?>).length, greaterThan(1));
+
+    _step('16.5 JS 示例的页面能力完成');
     // 禁用/启用: JS 脚本随 stop/start 重跑
     runtime.plugins.disable('example_js');
     expect(
