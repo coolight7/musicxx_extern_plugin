@@ -318,7 +318,7 @@ class MusicxxPluginManager {
       if (json.isEmpty) {
         return const <MusicxxPluginUIItem>[];
       }
-      final Object? decoded = tryDecodeJson(json);
+      final decoded = tryDecodeJson(json);
       return MusicxxPluginUIItem.parseList(decoded);
     } finally {
       arena.dispose();

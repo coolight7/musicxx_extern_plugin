@@ -123,13 +123,13 @@ Object? tryDecodeJson(String text) {
 
 /// 把 JSON 文本解析成字符串键映射（解析失败/类型不符返回空映射）
 Map<String, Object?> decodeJsonObject(String text) {
-  final Object? decoded = tryDecodeJson(text);
+  final decoded = tryDecodeJson(text);
   return decoded is Map<String, Object?> ? decoded : <String, Object?>{};
 }
 
 /// 把 JSON 文本解析成对象数组（解析失败/类型不符返回空列表）
 List<Map<String, Object?>> decodeJsonArray(String text) {
-  final Object? decoded = tryDecodeJson(text);
+  final decoded = tryDecodeJson(text);
   if (decoded is! List) {
     return <Map<String, Object?>>[];
   }

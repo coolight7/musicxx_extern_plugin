@@ -89,7 +89,7 @@ class MusicxxPluginUIItem {
 
   /// 动作描述（缺省或 `kind: none` 时为 `null`）
   Map<String, Object?>? get action {
-    final Object? value = data['action'];
+    final value = data['action'];
     if (value is! Map) {
       return null;
     }
@@ -125,7 +125,7 @@ class MusicxxPluginUIItem {
 
   /// 动作参数（`capability` / `action` 动作）
   Map<String, Object?> get actionArgs {
-    final Object? args = action?['args'];
+    final args = action?['args'];
     return args is Map
         ? args.cast<String, Object?>()
         : const <String, Object?>{};
@@ -138,7 +138,7 @@ class MusicxxPluginUIItem {
   String? get hostActionName => _stringOf(action?['name']);
 
   factory MusicxxPluginUIItem.fromJson(Map<String, Object?> json) {
-    final Object? data = json['data'];
+    final data = json['data'];
     return MusicxxPluginUIItem(
       id: json['id'] as String? ?? '',
       plugin: json['plugin'] as String? ?? '',
@@ -156,7 +156,7 @@ class MusicxxPluginUIItem {
       return const <MusicxxPluginUIItem>[];
     }
     final List<MusicxxPluginUIItem> result = <MusicxxPluginUIItem>[];
-    for (final Object? item in json) {
+    for (final item in json) {
       if (item is! Map) {
         continue;
       }

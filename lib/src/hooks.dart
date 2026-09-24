@@ -336,9 +336,9 @@ class MusicxxPluginHooks {
       return;
     }
     // 事件里带 hooks 列表时直接用它更新；否则留待下次派发时按需刷新
-    final Object? hooks = event.payload['hooks'];
+    final hooks = event.payload['hooks'];
     if (hooks is List) {
-      for (final Object? hook in hooks) {
+      for (final hook in hooks) {
         if (hook is String) {
           final MusicxxPluginHookId? id = MusicxxPluginHookId.tryFromId(hook);
           if (id != null) {
@@ -443,7 +443,7 @@ class MusicxxPluginHooks {
     if (ack == null || ack['handled'] == false) {
       return null;
     }
-    final Object? callId = ack['callId'];
+    final callId = ack['callId'];
     return callId is num ? callId.toInt() : null; // 未返回 callId（旧库）时按"无裁决"处理
   }
 
@@ -471,7 +471,7 @@ class MusicxxPluginHooks {
 
   /// 从宿主回执里取出裁决对象（`{"handled":..,"result":{...}}`）
   static Map<String, Object?>? _verdictOf(Map<String, Object?> ack) {
-    final Object? verdict = ack['result'];
+    final verdict = ack['result'];
     if (verdict is Map<String, Object?>) {
       return verdict;
     }
@@ -521,7 +521,7 @@ class MusicxxPluginHooks {
       case MusicxxPluginDecisionPolicy.firstNonNull:
         return true;
       case MusicxxPluginDecisionPolicy.anyCancel:
-        final Object? action = result['action'];
+        final action = result['action'];
         return action == 'cancel' || action == 'skip';
       default:
         return false;
@@ -551,8 +551,8 @@ class MusicxxPluginHooks {
     final Map<String, Object?> merged = Map<String, Object?>.of(earlier);
     if (id.policy == MusicxxPluginDecisionPolicy.anyCancel) {
       // 最保守：已出现的 cancel/skip 不被后续的 continue 覆盖
-      final Object? current = merged['action'];
-      final Object? incoming = later['action'];
+      final current = merged['action'];
+      final incoming = later['action'];
       if ((current == 'cancel' || current == 'skip') &&
           incoming == 'continue') {
         // 保留保守裁决
@@ -576,7 +576,7 @@ class MusicxxPluginHooks {
     Map<String, Object?> target,
     Map<String, Object?> source,
   ) {
-    final Object? patch = source['patch'];
+    final patch = source['patch'];
     if (patch is! Map) {
       return;
     }
@@ -586,7 +586,7 @@ class MusicxxPluginHooks {
       _ => <String, Object?>{},
     };
     for (final MapEntry<Object?, Object?> entry in patch.entries) {
-      final Object? key = entry.key;
+      final key = entry.key;
       if (key is String) {
         existing[key] = entry.value;
       }
