@@ -140,6 +140,8 @@ const lrc   = await musicxx.lyrics.getCurrent();
 | `musicxx.lyrics` | `getCurrent` |
 | `musicxx.storage` | `get` `set` `remove` `list` `getConfig` `setConfig` |
 | `musicxx.net` | `fetch` `download`（宿主代理通道，需 `musicxx.net` 权限） |
+| `musicxx.render` | `list` `current` `select`（插件渲染的可用样式与切换，见 §3.6） |
+| `musicxx.media` | `palette` `cover`（封面颜色与字节，见 §3.6） |
 | `musicxx.ui` | `notify` `toast` `dialog` `openRoute`（需 `musicxx.ui` 权限） |
 | `musicxx.stats` | `getSelf` `reportMemory` `reportMetric`（只观测不限制） |
 
@@ -292,7 +294,7 @@ musicxx.capability.register("card", function (args) {
 });
 ```
 
-- 能力处理器必须**同步返回**（返回 Promise 会被拒绝，见 §3.6）；
+- 能力处理器必须**同步返回**（返回 Promise 会被拒绝，见 §3.8）；
 - 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）；
 - 未识别的块类型会被忽略（向前兼容）。
 
@@ -341,7 +343,60 @@ musicxx.capability.register("toggleFeature", function () {
 - 完整可运行示例见 `plugins/example_js/plugin.js`：`card` 功能页里的『打开本插件设置页』按钮 +
   `settingsView` / `settings` 能力。
 
-### 3.6 事件
+### 3.6 渲染槽位与封面数据
+
+插件可以把**预编译的 shader bundle** 注册成宿主的一种渲染样式（当前只有"播放页背景"这一个槽位），
+由用户在设置里选中后生效；也可以拉取封面颜色/字节自己算。打包方式、`format_version`、
+uniform 契约与全部字段见 **`plugin-shader-bundle.md`**（本节只说 JS 侧怎么用）。
+
+```js
+// 注册一种播放页背景样式（类型简称 playing.background）
+musicxx.ui.registerEntry({
+    name: "bg",
+    type: "playing.background",
+    data: {
+        title: "流光背景",
+        depict: "跟随封面配色",
+        shader: { bundle: "shader/bg.shaderbundle" },
+        colors: { source: "background" },
+        maxFps: 16,
+    },
+});
+
+// 列出所有可选样式（含宿主内置项：id 形如 builtin:Auto）
+const r = await musicxx.render.list({ slot: "player.background" });
+// r.slots[0].items = [{ id, title, source: "builtin"|"plugin", available, selected, ... }]
+
+// 切换（可以切到内置样式）；不可用项会返回 { ok:false, error }
+await musicxx.render.select("plugin.my_plugin.bg");                 // 省略 slot 时用默认槽位
+await musicxx.render.select("builtin:Auto", { slot: "player.background" });
+
+// 当前生效项
+const cur = await musicxx.render.current();                        // { ok, slot, id, title, source, plugin, night }
+```
+
+```js
+// 封面色：分析结果（具名槽位 + 宿主内置背景实际用的 4 色）
+const palette = await musicxx.media.palette();                     // 需要最新结果时传 { force: true }
+// { ok, hasCover, analyzed, night, srcKey, version,
+//   raw: { main, light, lightMuted, dark, darkMuted, dominant: [...] },
+//   background: ["#rrggbbaa", ...] }
+
+// 封面字节（自己分析像素时用）：size 16..512，format = jpeg(默认) / png / rgba
+const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: true });
+// { ok, srcKey, kind: "local"|"cache"|"content"|"asset"|"network", path?, width, height,
+//   format, bytes, sha256, data(base64), fromCache }
+```
+
+- 宿主**每帧**把 4 个绘制色写进 uniform（来源由 `data.colors` 声明），所以"跟着封面配色"这类需求
+  什么都不用做；`musicxx.media.*` 只在需要更细的数据时用；
+- 封面不参与画面绘制：宿主不上传封面贴图，也不推任何直链（网络来源只说 `kind: "network"`）；
+  本地来源的路径只在 `includePath: true` 时给出；
+- `musicxx.state.renderSlots` 状态镜像告诉你"现在是不是我在画"：`itemId` 等于自己的项 id 时才是本插件生效，
+  `visible: false` 表示宿主已停止渲染（页面被遮挡/切后台），可以据此停掉自己的重活；
+- 切换是**用户可见、可改回**的：设置里随时能改回内置样式或别的插件样式。
+
+### 3.7 事件
 
 ```js
 musicxx.events.subscribe("musicxx.state.changed", (payload, topic) => { /* ... */ });
@@ -353,7 +408,7 @@ musicxx.events.unsubscribe("musicxx.state.changed");
   `unsubscribe` 之后宿主侧订阅仍保留，但该主题的回调不再触发（同一主题再次订阅会复用原订阅）。
 - 发布：只能发布官方主题或**自己命名空间**（`plugin.<自己的插件 id>.*`）的主题，冒充他人会被拒绝。
 
-### 3.7 能力（注册 + 跨插件调用）
+### 3.8 能力（注册 + 跨插件调用）
 
 ```js
 // 注册：能力全名 = plugin.<插件 id>.<短名>；Dart 侧用 MusicxxPluginManager.call(id, method) 调用
@@ -370,7 +425,7 @@ const again = await musicxx.capability.call("example_js", "plugin.example_js.pro
   - 目标是**动态库插件** → 由宿主线程执行、脚本**不阻塞**（宿主线程可能正在等 JS 处理器），
     超时默认 3 s（下限 1 s）；失败时 Promise 拒绝，`err.message` 里带原因。
 
-### 3.8 统计与自检
+### 3.9 统计与自检
 
 ```js
 musicxx.stats.getSelf();                       // 本实例统计（钩子/能力/订阅/定时器/脚本执行/堆用量/执行上限命中）
@@ -381,7 +436,7 @@ musicxx.stats.reportMetric("cacheHits", 42);   // 可选：自报自定义指标
 统计只用于展示与排障（plan §4.11），任何指标超标都**不会**导致插件被暂停或卸载；
 动态库插件的内存无法精确统计，`reportMemory` 是"插件自报"，仅供参考。
 
-### 3.9 定时器与工具
+### 3.10 定时器与工具
 
 ```js
 const t = musicxx.timer.setInterval(() => { /* ... */ }, 30000);
