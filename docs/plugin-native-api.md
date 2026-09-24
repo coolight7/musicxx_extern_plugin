@@ -41,7 +41,7 @@ permissions:                     # 声明式权限：只做展示（安装确认
 > 修正为 `.dll`/`.dylib`（内核 `pluginxx::resolvePluginEntryPath`）；因此**同一个插件目录可以三平台通用**，
 > 只要库文件基名一致（SDK 的构建助手已把 `PREFIX` 置空，产物就是 `my_plugin.dll`/`my_plugin.so`/`my_plugin.dylib`）。
 > 若 `entry` 指向的文件不存在，宿主会按平台默认库名再找一次（Linux `lib<name>.so`、Windows `<name>.dll`）。
-> 写 `entry: my_plugin.dll` 会让 Linux/macOS 上装载失败（扫描阶段就会提示"原生插件库文件缺失"）。
+> 写 `entry: my_plugin.dll` 会让 Linux/macOS 上装载失败（扫描阶段就会提示"动态库插件库文件缺失"）。
 
 安装方式：管理页「从压缩包安装」（把插件目录内容打包成 `.zip`）或直接把目录放进插件目录后「重新扫描」。
 随包分发的插件目录应包含**当前平台**的库文件（例如 Windows 包只放 `.dll`）。
@@ -131,7 +131,7 @@ MUSICXX_PLUGIN_EXPORT(
 
 线程模型（plan §2.3.1，务必理解）：
 
-- 全部原生插件的生命周期入口与钩子/能力处理器都跑在**同一条宿主线程**（插件管理器线程），
+- 全部动态库插件的生命周期入口与钩子/能力处理器都跑在**同一条宿主线程**（插件管理器线程），
   因此注册表、统计、状态镜像都不需要锁，处理器之间**稳定按注册顺序执行**；
 - **处理器里禁止阻塞**：网络请求、大文件、编解码、`sleep` 都不要直接做 ——
   单个插件阻塞会拖慢同一线程上的其它插件（宿主不会强行终止你，但会记录耗时并提示）；
@@ -269,7 +269,7 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`（见包 `README.md` 的�
 |---|---|
 | 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui`；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由 Dart 侧分派（动作不做权限校验） |
 | 进程隔离 | 插件与宿主同进程（无沙箱）；权限只是"防误用与用户知情" |
-| 平台 | Windows / Linux / macOS / Android 可加载原生插件（Android 默认启用，加载失败会安全降级并提示）；iOS / OHOS 只能跑 JS 插件 |
+| 平台 | Windows / Linux / macOS / Android 可加载动态库插件（Android 默认启用，加载失败会安全降级并提示）；iOS / OHOS 只能跑 JS 插件 |
 | 资源限制 | 宿主不限制插件的内存/耗时/网络，只做自我保护（等待预算 100 ms、动作超时、事件队列上限、连续失败熔断）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被宿主创建多个实例（不同 id/参数），因此**不得有可变全局状态** |
 
