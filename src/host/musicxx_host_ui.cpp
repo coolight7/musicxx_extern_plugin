@@ -48,7 +48,6 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
     MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
     MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION,
-    MUSICXX_PLUGIN_UI_TYPE_SETTINGS_PAGE,
     MUSICXX_PLUGIN_UI_TYPE_OVERLAY_WIDGET,
 };
 
@@ -65,8 +64,7 @@ bool isKnownUiType(std::string_view type) {
 bool requiresTitle(std::string_view type) {
   return type == MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY ||
          type == MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION ||
-         type == MUSICXX_PLUGIN_UI_TYPE_SETTINGS_PAGE;
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION;
 }
 
 /// 校验一个动作描述 (data.action)

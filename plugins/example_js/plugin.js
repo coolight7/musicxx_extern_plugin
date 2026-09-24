@@ -7,7 +7,8 @@
 /// - `musicxx.player.speed` 裁决 (异步): 处理器返回 Promise 也能生效 (限速演示);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
 /// - `example_js.card` 能力: 主页入口与播放页附加信息块打开的插件页面 (`ext://example_js/card`)。
-/// - 插件自绘设置页 (settings.page 入口 + ext:// 页面) + 宿主网络代理通道 (musicxx.net.fetch) 演示。
+/// - 插件自绘设置页 (`ext://example_js/settings`, 从 card 页的按钮进入; 框架不管理设置入口)
+///   + 宿主网络代理通道 (musicxx.net.fetch) 演示。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
@@ -112,23 +113,6 @@ musicxx.ui.registerEntry({
     },
 });
 
-/// 声明式 UI 扩展: 设置页入口
-///
-/// 框架不再提供设置控件: 这个项只声明"本插件有一个设置页",
-/// 点击后打开插件自己画的页面 (ext://example_js/settings)。
-/// 页面内容由脚本在 `settings` 能力里返回 (text/list/button 块),
-/// 配置读写走 musicxx.storage.getConfig/setConfig (插件目录下的 config.json)。
-musicxx.ui.registerEntry({
-    name: "settings",
-    type: "settings.page",
-    order: 120,
-    data: {
-        title: "JS 示例插件设置",
-        subtitle: "页面由插件绘制（开关 / 说明 / 按钮）",
-        action: { kind: "route", route: "ext://example_js/settings" },
-    },
-});
-
 /// 播放页附加信息块 (musicxx.ui.overlay.widget, 只读展示)
 ///
 /// 位置: `player.top`(顶部栏下方) / `player.bottom`(进度条上方);
@@ -200,8 +184,10 @@ refreshConfig();
 
 /// 插件自绘设置页: 宿主打开 ext://example_js/settings 时调用同名能力取页面描述。
 ///
-/// 页面只用 text / list / button 块画出插件自己的配置界面; 值改动由按钮触发能力写回
-/// config.json (返回 {view:...} 让宿主直接用新页面刷新)。框架不再提供设置控件。
+/// 设置界面属于插件自己的页面 (框架不管理设置入口, 也不渲染设置控件): 入口就是
+/// card 页里的『打开本插件设置页』按钮, 页面只用 text / list / button 块画出插件
+/// 自己的配置界面; 值改动由按钮触发能力写回 config.json (返回 {view:...} 让宿主
+/// 直接用新页面刷新)。
 function settingsView(override) {
     const cache = musicxx.storage.configCache;
     const skipAds = (override && typeof override.skipAds === "boolean")
@@ -399,7 +385,7 @@ function cardView() {
                     {
                         id: "uiEntries",
                         title: "已注册的 UI 项",
-                        subtitle: "主页入口 / 歌曲菜单 / 设置入口 / 附加信息块",
+                        subtitle: "主页入口 / 歌曲菜单 / 附加信息块",
                         right: String(musicxx.ui.entries().length),
                     },
                     {

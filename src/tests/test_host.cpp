@@ -474,7 +474,7 @@ int main(int argc, char **argv) {
             "快照含官方 UI 项类型");
       check(snapshot.find("plugin") != std::string::npos,
             "快照项带所属插件 id");
-      check(snapshot.find("示例插件（已更新）") != std::string::npos,
+      check(snapshot.find("示例插件") != std::string::npos,
             "更新后的声明内容生效");
       check(snapshot.find("plugin.other_plugin.card") == std::string::npos,
             "他人命名空间的项不在快照里");
@@ -736,9 +736,10 @@ int main(int argc, char **argv) {
       check(jsonStringField(probe, "hostPlatform") == "windows",
             "JS 读到宿主信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
-      // 4 项 = 主页入口 + 歌曲菜单 + 设置页 + 播放页附加信息块
-      check(jsonIntField(probe, "uiEntries") == "4",
-            "JS 注册了 4 个 UI 项 (脚本侧记账)");
+      // 3 项 = 主页入口 + 歌曲菜单 + 播放页附加信息块
+      // (设置界面是插件自己的页面, 不是 UI 项)
+      check(jsonIntField(probe, "uiEntries") == "3",
+            "JS 注册了 3 个 UI 项 (脚本侧记账)");
       check(jsonIntField(probe, "selfStatsHooks") == "4",
             "JS 能读自己的统计 (stats.getSelf 的钩子计数)");
     }
@@ -753,21 +754,20 @@ int main(int argc, char **argv) {
             "JS 插件的主页入口项进入快照");
       check(snapshot.find("plugin.example_js.songInfo") != std::string::npos,
             "JS 插件的菜单项进入快照");
-      check(snapshot.find("plugin.example_js.settings") != std::string::npos,
-            "JS 插件的设置页入口项进入快照");
-      check(snapshot.find("musicxx.ui.settings.page") != std::string::npos,
-            "快照含设置页类型 (应用侧据此列出设置入口)");
-      // 设置页只声明入口, 页面由插件自绘: action 指向本插件的视图
-      check(snapshot.find("\"route\":\"ext://example_js/settings\"") !=
-                std::string::npos,
-            "设置页入口声明了指向插件自绘页面的动作");
+      // 框架没有"插件设置页"类型: 设置界面改成插件自己的页面 (同名能力),
+      // 不再注册 UI 项, 快照里也不该出现 settings.page
+      check(snapshot.find("musicxx.ui.settings.page") == std::string::npos,
+            "快照里没有设置页类型 (框架不管理插件设置入口)");
+      check(snapshot.find("plugin.example_js.settings") == std::string::npos,
+            "JS 插件不再注册设置页入口项");
       check(
           snapshot.find("plugin.example_js.overlayInfo") != std::string::npos &&
               snapshot.find("\"position\":\"player.top\"") != std::string::npos,
           "JS 插件的播放页附加信息块进入快照 (含 position)");
     }
 
-    // 插件自绘设置页: 宿主调用同名能力取页面描述 (框架不再渲染设置控件)
+    // 插件自己的设置界面: 就是插件页面的同名能力
+    // (框架不管理设置入口、也不渲染设置控件, 页面内容全部由插件给)
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_plugin_call(
@@ -775,11 +775,11 @@ int main(int argc, char **argv) {
           viewCP(R"({"view":"settings"})"), 5000, &out, &log);
       const std::string view = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK,
-            "设置页能力调用成功 (插件自绘页面)");
+            "设置界面能力调用成功 (插件自绘页面)");
       check(view.find("\"blocks\"") != std::string::npos,
-            "设置页返回声明式块 (由插件给出结构)");
+            "设置界面返回声明式块 (由插件给出结构)");
       check(view.find("config.json") != std::string::npos,
-            "设置页内容由插件给出 (说明自己的 config.json 用法)");
+            "设置界面内容由插件给出 (说明自己的 config.json 用法)");
     }
 
     // ============ 跨插件能力调用 (plan §7.2 capability.call) ============

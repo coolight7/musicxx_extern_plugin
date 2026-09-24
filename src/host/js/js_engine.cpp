@@ -179,7 +179,6 @@ constexpr const char *kPrelude = R"JS(
     "home.entry": "musicxx.ui.home.entry",
     "song.action": "musicxx.ui.song.action",
     "playlist.action": "musicxx.ui.playlist.action",
-    "settings.page": "musicxx.ui.settings.page",
     "overlay.widget": "musicxx.ui.overlay.widget"
   };
   function normalizeType(value) {

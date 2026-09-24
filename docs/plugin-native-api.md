@@ -34,8 +34,8 @@ permissions:                     # 声明式权限：只做展示（安装确认
   - musicxx.storage
 ```
 
-插件的设置页由插件**自己画页面**（§4 的「声明式 UI」里给出写法），框架不再提供配置表单：
-配置默认值写在插件里（读不到就用默认值），用户改过的值存在插件目录的 `config.json`。
+插件的设置界面由插件**自己画页面**（§4 的「声明式 UI」里给出写法），框架既不提供配置表单、
+也不管理设置入口：配置默认值写在插件里（读不到就用默认值），用户改过的值存在插件目录的 `config.json`。
 
 > **`entry` 的写法（跨平台要点）**：统一按 Linux 写 `<名字>.so`，宿主在 Windows/macOS 上会把扩展名
 > 修正为 `.dll`/`.dylib`（内核 `pluginxx::resolvePluginEntryPath`）；因此**同一个插件目录可以三平台通用**，
@@ -161,16 +161,17 @@ MUSICXX_PLUGIN_EXPORT(
 跨边界内存铁律：字符串出参必须用宿主的分配器（`PluginBase::hostStringSet` / `hostStringFree`），
 **绝不要用 CRT 的 `malloc/free` 或把插件内部的字符串指针交给宿主长期持有**。
 
-**设置页（页面由插件自绘）**：框架不提供设置控件，插件注册一个 `settings.page` 入口指向自己的页面，
-页面内容由同名能力返回（`text` / `divider` / `button` / `list` 块，与 JS 插件一致）：
+**插件自己的设置页**：框架不提供设置控件，**也不管理设置入口**（没有 `settings.page` 类型）。
+设置界面就是插件注册的一个普通页面，入口由插件自己给（主页入口，或功能页里的一个按钮）：
 
 ```cpp
-// 入口：应用「设置 → 插件设置」与插件详情页会列出它，点击打开 ext://my_plugin/settings
-uiRegister("settings", MUSICXX_PLUGIN_UI_TYPE_SETTINGS_PAGE,
+// 入口：插件自己的页面（例如从主页入口直接打开，或从插件功能页的按钮跳过来）
+uiRegister("settings", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
            R"({"title":"我的插件设置","subtitle":"页面由插件绘制",
                "action":{"kind":"route","route":"ext://my_plugin/settings"}})", 120);
 
-// 页面：视图 id 与能力短名同名；配置读写自己做（configPath() 指向 config.json）
+// 页面：视图 id 与能力短名同名（`ext://my_plugin/settings` → 能力 `settings`）；
+// 配置读写自己做（configPath() 指向 config.json）
 capability(*this, "plugin.my_plugin.settings",
            [](std::string_view, std::string_view) -> std::string {
                return R"({"view":{"title":"我的插件设置","blocks":[

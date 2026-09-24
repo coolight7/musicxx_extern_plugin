@@ -21,13 +21,6 @@ abstract final class MusicxxPluginUIType {
   /// 歌单菜单项：`data = {title, icon?, action?}`
   static const String playlistAction = 'musicxx.ui.playlist.action';
 
-  /// 设置页入口：`data = {title, subtitle?, icon?, action?}`
-  ///
-  /// 只声明"本插件有一个设置页"：页面内容由插件自己绘制
-  /// （`action` 通常指向本插件的视图 `ext://<插件id>/<视图id>`），
-  /// 宿主只在应用「设置 → 插件设置」与插件详情页里列出入口，不再渲染设置控件。
-  static const String settingsPage = 'musicxx.ui.settings.page';
-
   /// 播放页/悬浮歌词附加信息块（只读展示）：`data = {position, content:{kind,...}}`
   static const String overlayWidget = 'musicxx.ui.overlay.widget';
 }
