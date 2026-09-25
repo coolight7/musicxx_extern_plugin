@@ -348,6 +348,9 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
                         std::chrono::steady_clock::now() - t0)
                         .count();
+    /// 说明: `us` 的类型是 chrono 的 rep (libc++/Android 上是 long long, 而 int64_t 是 long),
+    /// 直接把它交给 std::max 会因模板推导出两种类型而编译失败, 统一转成 int64_t 再统计
+    const int64_t usValue = static_cast<int64_t>(us);
     ++called;
     /// 统计写回**活表**: 上面的回调里插件可能已经把自己的处理器注销掉 (快照里还有),
     /// 这时丢弃本次统计, 避免统计与注册表不一致
@@ -367,8 +370,8 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
 
     if (live) {
       ++live->calls;
-      live->totalUs = live->totalUs + us;
-      live->maxUs = (std::max)(live->maxUs, us);
+      live->totalUs = live->totalUs + usValue;
+      live->maxUs = (std::max)(live->maxUs, usValue);
       if (rc != 0) {
         ++live->failures;
         if (++live->consecutiveErrors >= 3) {
@@ -385,7 +388,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
         }
       } else {
         live->consecutiveErrors = 0;
-        if (us > hardMs * 1000) {
+        if (usValue > hardMs * 1000) {
           ++live->timeouts;
           Json payload;
           payload["id"] = h.pluginId;

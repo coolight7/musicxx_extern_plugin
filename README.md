@@ -102,6 +102,25 @@ Linux / macOS 用同一套流程的 shell 版本（选项名不区分大小写�
 ./tools/build_native.sh --jobs 8              # 指定并行度
 ```
 
+Android 用 NDK 交叉编译（两个脚本同一套参数；每个 ABI 各构建一次，产物直接给 `android/build.gradle`
+收集进 APK，见「打包（随应用分发）」的 Android 一节）：
+
+```powershell
+pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a          # Windows
+pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a -Config Debug
+```
+
+```bash
+./tools/build_native.sh --android --abi arm64-v8a                             # Linux / macOS
+ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 显式指定 NDK
+```
+
+- NDK 位置：`-AndroidNdk`/`--ndk` → `$ANDROID_NDK_HOME` / `$ANDROID_NDK_ROOT`
+  → `$ANDROID_HOME|$ANDROID_SDK_ROOT/ndk` 下版本号最大者；
+- 固定 Ninja 生成器 + `c++_static`，最低系统版本默认 `android-24`（`-AndroidPlatform`/`--android-platform` 可改）；
+- `-RunTests`/`--run-tests` 在 Android 上跳过（测试可执行文件是给设备编的），产物在
+  `.native/output/android-<abi>-<配置>/{bin,plugins}`。
+
 要点：
 
 - **工具链要求**（内核是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
@@ -163,16 +182,19 @@ ldd .native/output/linux-x64-release/bin/libmusicxx_extern_plugin.so            
 宿主库**不在 Flutter 构建里编译**（依赖链太重，见 plan §11.2），所以本包把它当作"预构建产物"来打包：
 
 ```
-pubspec.yaml             flutter.plugin.platforms.{windows,linux}.ffiPlugin = true
+pubspec.yaml             flutter.plugin.platforms.{windows,linux,android}.ffiPlugin = true
 windows/CMakeLists.txt   找到已构建的宿主库 → 写 musicxx_extern_plugin_bundled_libraries
 linux/CMakeLists.txt     同上（库名 libmusicxx_extern_plugin.so）
                          → Flutter 放进 PLUGIN_BUNDLED_LIBRARIES → Windows 装到可执行文件旁、Linux 装到 <bundle>/lib/
+android/build.gradle     按 ABI 收集 .so 到 jniLibs（每个 build type 一个目录）
+                         → AGP 打进 APK 的 lib/<abi>/libmusicxx_extern_plugin.so
 ```
 
 - 查找顺序（与 Dart 侧 `native_library.dart` 同一套约定）：
-  `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY` → 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`
+  `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY` / `-PmusicxxExternPluginLibDir` → 环境变量
+  `MUSICXX_EXTERN_PLUGIN_LIBRARY`（Android 侧是 `MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR`）
   → `<包>/.native/output/<平台>-<架构>-<配置>/bin/` → `<包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/bin/`
-  → 仓库预置目录（`resource/libs/windows/lib/`、`resource/libs/linux/lib/`）；
+  → 仓库预置目录（`resource/libs/windows/lib/`、`resource/libs/linux/lib/`、`resource/libs/android/<abi>/`）；
 - Debug 与 Release 两份产物都在时，按**当前 Flutter 构建配置**选择（`Profile` 取 Release）；
 - **找不到宿主库只打警告、不中断构建**（外部插件是可选功能，缺失时应用照常启动，Dart 侧给出提示）。
   发布流水线若要求"必须打包"，请显式传 `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<路径>`，并在 CI 里自行判定失败；
@@ -180,9 +202,30 @@ linux/CMakeLists.txt     同上（库名 libmusicxx_extern_plugin.so）
 - 例（Linux）：`flutter build linux --release` → `build/linux/x64/release/bundle/lib/libmusicxx_extern_plugin.so`
   （桌面应用的库都放 `bundle/lib/`，Dart 侧会去"可执行文件旁的 `lib/`"目录找它）。
 
-其余平台（macOS/Android/iOS/OHOS）的打包属于 plan M4 的后续工作：macOS 可照 Windows/Linux 的写法
+### Android（已接入）
+
+```bash
+# 1) 交叉编译宿主库（每个 ABI 一次；Windows 侧同样支持）
+pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a      # Windows
+ANDROID_NDK_HOME=<ndk> tools/build_native.sh --android --abi arm64-v8a    # Linux/macOS
+# 2) 正常打包：库由 android/build.gradle 收集进 jniLibs
+flutter build apk --release
+```
+
+Android 与桌面端的差别（改这块之前先读 `android/README.md`）：
+
+- 宿主库**必须随 APK 分发**：Android 7 起动态链接器只允许应用从 APK 的原生库目录（与系统目录）加载
+  动态库，应用数据目录里的 `.so` 会失败（`is not accessible for the namespace "classloader-namespace"`）。
+  所以 Dart 侧在 Android 上**只按库名加载**（`DynamicLibrary.open('libmusicxx_extern_plugin.so')`，
+  由系统解析到 `lib/<abi>/`），桌面端那套绝对路径候选不参与；
+- **用户安装的动态库插件**因此可能装载失败：宿主按"安全降级"处理（标记不可用 + 事件 + 不重试），
+  应用与其它插件照常工作；JS 插件不受影响。管理页会提前说明这条限制，失败原因也会换成面向用户的说法；
+- 交叉编译统一 Ninja 生成器 + `c++_static`（C++ 运行库静态链进宿主库，APK 不需要额外的 `libc++_shared.so`）；
+  `-RunTests`/`--run-tests` 在 Android 上跳过（测试可执行文件是给设备编的）。
+
+其余平台（macOS/iOS/OHOS）的打包属于 plan M4 的后续工作：macOS 可照 Windows/Linux 的写法
 （`<平台>_bundled_libraries`，另需注意 Hardened Runtime 下的 `disable-library-validation`）；
-Android 需要先用 NDK 交叉编译整套依赖（含 QuickJS），适合在 CI 里单独一条流水线。
+iOS/OHOS 只跑 JS 插件，需要静态库 + podspec。
 平台能力（哪些平台允许动态库插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
 （iOS/OHOS 只跑 JS 插件，不允许加载未签名动态库）。
 
