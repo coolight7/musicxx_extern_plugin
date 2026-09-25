@@ -26,10 +26,18 @@
 #   tools/build_native.sh --boost-archive <压缩包>   # 用本地 Boost 发布包解包
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
 #   tools/build_native.sh --build-dir/--output-dir/--generator <值>   # 覆盖目录与生成器
+#   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 宿主库
+#
+# Android 说明 (与 .ps1 的 -Android 一一对应):
+#   - 产出: <包>/.native/output/android-<abi>-<配置>/{bin,plugins} (ABI 名直接用作架构段)
+#   - NDK 位置: --ndk > $ANDROID_NDK_HOME / $ANDROID_NDK_ROOT > $ANDROID_SDK_ROOT|$ANDROID_HOME/ndk 下版本最大者
+#   - 统一 Ninja 生成器与 c++_static (C++ 运行库静态链进宿主库, APK 不需要带 libc++_shared.so)
+#   - --run-tests 在 Android 上跳过 (测试可执行文件是给设备编的)
 #
 # 产物布局 (与 .ps1 一致):
 #   <包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/{bin,include,lib,plugins}
 #   <包>/.native/output/<平台>-<架构>-<配置>/{bin,plugins}     稳定输出目录
+#   Android 的平台-架构段用 android-<abi>: build/android-arm64-v8a-release、output/android-arm64-v8a-release
 set -euo pipefail
 
 step() { printf '\n==> %s\n' "$1"; }
@@ -79,6 +87,11 @@ boost_root=""
 boost_archive=""
 generator=""
 no_download_boost=0
+android=0
+android_abi="arm64-v8a"
+android_ndk=""
+android_platform="android-24"
+android_stl="c++_static"
 
 while [ $# -gt 0 ]; do
     arg="$1"
@@ -92,7 +105,7 @@ while [ $# -gt 0 ]; do
     fi
     # 需要取值的选项: 没写 = 形式时取下一个参数
     case "$name_lower" in
-    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root)
+    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl)
         if [ -z "$value" ]; then
             [ $# -gt 0 ] || die "选项 $name 缺少取值"
             value="$1"
@@ -109,11 +122,16 @@ while [ $# -gt 0 ]; do
     boostarchive) boost_archive="$value" ;;
     generator) generator="$value" ;;
     root) root="$value" ;;
+    abi) android_abi="$value" ;;
+    ndk) android_ndk="$value" ;;
+    androidplatform) android_platform="$value" ;;
+    androidstl) android_stl="$value" ;;
     clean) clean=1 ;;
     depsonly) deps_only=1 ;;
     configureonly) configure_only=1 ;;
     runtests) run_tests=1 ;;
     nodownloadboost) no_download_boost=1 ;;
+    android) android=1 ;;
     help | h)
         usage
         exit 0
@@ -126,6 +144,14 @@ case "$config" in
 Release | Debug | RelWithDebInfo | MinSizeRel) ;;
 *) die "不支持的配置: $config (取 Release / Debug / RelWithDebInfo / MinSizeRel)" ;;
 esac
+case "$android_abi" in
+arm64-v8a | armeabi-v7a | x86_64 | x86) ;;
+*) die "不支持的 ABI: $android_abi (取 arm64-v8a / armeabi-v7a / x86_64 / x86)" ;;
+esac
+case "$android_stl" in
+c++_static | c++_shared) ;;
+*) die "不支持的 STL: $android_stl (取 c++_static / c++_shared)" ;;
+esac
 if ! [[ "$jobs" =~ ^[0-9]+$ ]]; then
     die "--jobs 需要是非负整数, 收到: $jobs"
 fi
@@ -133,20 +159,95 @@ if [ "$deps_only" = 1 ] && [ "$run_tests" = 1 ]; then
     die "--run-tests 不能与 --deps-only 同时使用"
 fi
 
+# Android: 目标平台与宿主平台无关, 平台/架构段按 ABI 推导 (与 .ps1 的 -Android 一致)
+android_toolchain=""
+if [ "$android" = 1 ]; then
+    os=android
+    case "$android_abi" in
+    arm64-v8a) arch=arm64 ;;
+    armeabi-v7a) arch=arm ;;
+    x86_64) arch=x64 ;;
+    x86) arch=x86 ;;
+    esac
+fi
+
 root="$(cd "$root" && pwd)"
 src_dir="${root}/src"
 third_party="${src_dir}/third_party"
 native_root="${root}/.native"
 
+# NDK 位置解析 (显式参数 → 环境变量 → SDK 下版本号最大者); 只输出路径, 提示走 stderr
+resolve_android_ndk() {
+    local marker='build/cmake/android.toolchain.cmake'
+    if [ -n "$android_ndk" ]; then
+        [ -f "${android_ndk}/${marker}" ] ||
+            die "--ndk 指向的目录里没有 ${marker} : ${android_ndk}"
+        (cd "$android_ndk" && pwd)
+        return 0
+    fi
+    local env_name env_value
+    for env_name in ANDROID_NDK_HOME ANDROID_NDK_ROOT; do
+        env_value="$(eval "printf '%s' \"\${${env_name}:-}\"")"
+        if [ -n "$env_value" ] && [ -f "${env_value}/${marker}" ]; then
+            printf '   NDK: 取自 $%s (%s)\n' "$env_name" "$env_value" >&2
+            (cd "$env_value" && pwd)
+            return 0
+        fi
+    done
+    local sdk_name sdk_value ndk_root best="" best_version=""
+    for sdk_name in ANDROID_SDK_ROOT ANDROID_HOME; do
+        sdk_value="$(eval "printf '%s' \"\${${sdk_name}:-}\"")"
+        [ -n "$sdk_value" ] || continue
+        ndk_root="${sdk_value}/ndk"
+        [ -d "$ndk_root" ] || continue
+        for candidate in "$ndk_root"/*; do
+            [ -f "${candidate}/${marker}" ] || continue
+            # 目录名就是 NDK 版本号 (例如 29.0.14206865); 用 sort -V 比较大小
+            local version
+            version="$(basename "$candidate")"
+            if [ -z "$best_version" ] || [ "$version" = "$(printf '%s\n%s\n' "$best_version" "$version" | sort -V | tail -1)" ]; then
+                best="$candidate"
+                best_version="$version"
+            fi
+        done
+        if [ -n "$best" ]; then
+            printf '   NDK: 取自 $%s/ndk (%s)\n' "$sdk_name" "$best" >&2
+            (cd "$best" && pwd)
+            return 0
+        fi
+    done
+    die "未找到 Android NDK (需要 build/cmake/android.toolchain.cmake)。
+  请安装 NDK 并指定: --ndk <NDK 根目录>, 或设置环境变量 ANDROID_NDK_HOME"
+}
+
+if [ "$android" = 1 ]; then
+    android_ndk_root_path="$(resolve_android_ndk)"
+    android_toolchain="${android_ndk_root_path}/build/cmake/android.toolchain.cmake"
+    printf '   Android: ABI=%s platform=%s stl=%s\n' "$android_abi" "$android_platform" "$android_stl"
+fi
+
 config_lower="$(printf '%s' "$config" | tr '[:upper:]' '[:lower:]')"
-[ -n "$build_dir" ] || build_dir="${native_root}/build/${os}-${config_lower}"
-[ -n "$output_dir" ] || output_dir="${native_root}/output/${os}-${arch}-${config_lower}"
+# Android 一个 ABI 一个构建目录; 桌面端沿用 <平台>-<配置>
+if [ "$android" = 1 ]; then
+    [ -n "$build_dir" ] || build_dir="${native_root}/build/android-${android_abi}-${config_lower}"
+    [ -n "$output_dir" ] || output_dir="${native_root}/output/android-${android_abi}-${config_lower}"
+else
+    [ -n "$build_dir" ] || build_dir="${native_root}/build/${os}-${config_lower}"
+    [ -n "$output_dir" ] || output_dir="${native_root}/output/${os}-${arch}-${config_lower}"
+fi
 # 转成绝对路径 (目录可能还不存在, 因此先建父目录再规范化)
 mkdir -p "$(dirname "$build_dir")"
 build_dir="$(cd "$(dirname "$build_dir")" && pwd)/$(basename "$build_dir")"
 mkdir -p "$(dirname "$output_dir")"
 output_dir="$(cd "$(dirname "$output_dir")" && pwd)/$(basename "$output_dir")"
 install_dir="${build_dir}/musicxx-extern-plugin-install"
+
+if [ "$android" = 1 ]; then
+    # 交叉编译固定用 Ninja: 与 NDK 工具链配合最稳, 也不依赖宿主平台的 IDE 生成器
+    command -v ninja >/dev/null 2>&1 ||
+        die "Android 交叉编译需要 ninja (未在 PATH 上找到); 请安装 ninja"
+    generator=Ninja
+fi
 
 if [ -z "$generator" ]; then
     if command -v ninja >/dev/null 2>&1; then
@@ -167,6 +268,10 @@ info "构建目录:   ${build_dir}"
 info "安装目录:   ${install_dir}"
 info "输出目录:   ${output_dir}"
 info "配置:       ${config} (XX_IS_RELEASE_D=${xx_is_release})   生成器: ${generator}"
+if [ "$android" = 1 ]; then
+    info "目标:       android-${android_abi} (${android_platform}, ${android_stl})"
+    info "工具链:     ${android_toolchain}"
+fi
 
 # ==================== 环境预检 ====================
 
@@ -176,28 +281,34 @@ for tool in cmake git; do
 done
 info "cmake: $(cmake --version | head -1)"
 
-# 内核要求 C++26: GCC >= 14 / Clang >= 18 (plan §11.2 的工具链要求)
-cxx_compiler="$(command -v c++ || true)"
-if [ -z "$cxx_compiler" ]; then
-    warn '未找到 c++ 编译器 (请安装 g++ >= 14 或 clang++ >= 18)'
+if [ "$android" = 1 ]; then
+    # 交叉编译用 NDK 自带的 clang, 宿主编译器与 pkg-config 都不参与
+    [ -f "$android_toolchain" ] || die "找不到 NDK 工具链文件: ${android_toolchain}"
+    info "ninja: $(command -v ninja)"
 else
-    cxx_version_line="$("$cxx_compiler" --version | head -1)"
-    info "编译器: ${cxx_version_line}"
-    compiler_major="$(printf '%s' "$cxx_version_line" | grep -oE '[0-9]+' | head -1)"
-    if printf '%s' "$cxx_version_line" | grep -qi 'gcc\|g++\|gnu'; then
-        if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 14 ]; then
-            warn "GCC ${compiler_major} < 14: 内核要求 C++26 (CMAKE_CXX_STANDARD 26), 编译会失败"
-        fi
-    elif printf '%s' "$cxx_version_line" | grep -qi 'clang'; then
-        if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 18 ]; then
-            warn "Clang ${compiler_major} < 18: 内核要求 C++26, 编译可能失败"
+    # 内核要求 C++26: GCC >= 14 / Clang >= 18 (plan §11.2 的工具链要求)
+    cxx_compiler="$(command -v c++ || true)"
+    if [ -z "$cxx_compiler" ]; then
+        warn '未找到 c++ 编译器 (请安装 g++ >= 14 或 clang++ >= 18)'
+    else
+        cxx_version_line="$("$cxx_compiler" --version | head -1)"
+        info "编译器: ${cxx_version_line}"
+        compiler_major="$(printf '%s' "$cxx_version_line" | grep -oE '[0-9]+' | head -1)"
+        if printf '%s' "$cxx_version_line" | grep -qi 'gcc\|g++\|gnu'; then
+            if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 14 ]; then
+                warn "GCC ${compiler_major} < 14: 内核要求 C++26 (CMAKE_CXX_STANDARD 26), 编译会失败"
+            fi
+        elif printf '%s' "$cxx_version_line" | grep -qi 'clang'; then
+            if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 18 ]; then
+                warn "Clang ${compiler_major} < 18: 内核要求 C++26, 编译可能失败"
+            fi
         fi
     fi
-fi
 
-# cxx_utilxx_base / cxx_pluginxx 的配置阶段有 find_package(PkgConfig REQUIRED)
-command -v pkg-config >/dev/null 2>&1 ||
-    warn '未找到 pkg-config; cxx_utilxx_base / cxx_pluginxx 配置阶段会失败 (find_package(PkgConfig REQUIRED))'
+    # cxx_utilxx_base / cxx_pluginxx 的配置阶段有 find_package(PkgConfig REQUIRED)
+    command -v pkg-config >/dev/null 2>&1 ||
+        warn '未找到 pkg-config; cxx_utilxx_base / cxx_pluginxx 配置阶段会失败 (find_package(PkgConfig REQUIRED))'
+fi
 
 # 子模块预检 (commit 由仓库 gitlink 记录, 这里只确认已初始化)
 info '子模块:'
@@ -346,7 +457,7 @@ fi
 step 'configure (superbuild: 依赖 + 宿主)'
 # 构建目录签名: 配置/生成器/架构/Boost 位置变化时重置目录, 避免 CMakeCache 里残留
 # 上一次的参数 (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
-signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release}"
+signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl}"
 marker="${build_dir}/.build_signature"
 if [ -d "$build_dir" ]; then
     old_signature=""
@@ -367,10 +478,25 @@ configure_args=(
     # 收窄可用配置到本次配置 (与 Windows 侧一致): 一个构建目录只构建一个配置,
     # 依赖安装前缀在构建目录内, 因此不会混入其它配置的产物
     "-DCMAKE_CONFIGURATION_TYPES=${config}"
-    "-DCMAKE_SYSTEM_PROCESSOR=${machine_arch}"
+)
+# Android: 目标处理器由 NDK 工具链按 ANDROID_ABI 推导, 显式传值会造成两边不一致
+if [ "$android" != 1 ]; then
+    configure_args+=("-DCMAKE_SYSTEM_PROCESSOR=${machine_arch}")
+fi
+configure_args+=(
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=${boost_header_root}"
 )
+if [ "$android" = 1 ]; then
+    # 交叉编译参数交给 NDK 工具链 (superbuild 的 src/CMakeLists.txt 自动补 XX_IS_ANDROID_D=1,
+    # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与宿主工程的嵌套构建)
+    configure_args+=(
+        "-DCMAKE_TOOLCHAIN_FILE=${android_toolchain}"
+        "-DANDROID_ABI=${android_abi}"
+        "-DANDROID_PLATFORM=${android_platform}"
+        "-DANDROID_STL=${android_stl}"
+    )
+fi
 if [ "$deps_only" = 1 ]; then
     configure_args+=('-DMUSICXX_EXTERN_PLUGIN_BUILD_HOST=OFF')
 fi
@@ -463,26 +589,35 @@ fi
 
 if [ "$run_tests" = 1 ]; then
     step '原生测试'
-    test_exe="${install_dir}/bin/musicxx_extern_plugin_test"
-    [ -x "$test_exe" ] || die "未找到测试可执行文件: ${test_exe}"
-
-    # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
-    plugin_root="${install_dir}/plugins"
-    printf '  插件目录: %s\n' "$plugin_root"
-    printf '  运行: %s %s\n' "$test_exe" "$plugin_root"
-    # 测试可执行文件与宿主库同目录 (安装布局 bin/), 运行时按平台补库搜索路径
-    if [ "$os" = macos ]; then
-        export DYLD_LIBRARY_PATH="${install_dir}/bin${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+    if [ "$android" = 1 ]; then
+        # 测试可执行文件是给设备编的 (目标 ABI 与宿主不同), 宿主上跑不起来。
+        # 需要在设备上跑时: adb push bin/ + plugins/ 到设备目录, 用 LD_LIBRARY_PATH 指向 bin/ 再执行。
+        printf '  [跳过] Android 目标是交叉编译产物, 不能在当前主机运行; 产物在: %s\n' "${install_dir}/bin"
     else
-        export LD_LIBRARY_PATH="${install_dir}/bin${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-    fi
+        test_exe="${install_dir}/bin/musicxx_extern_plugin_test"
+        [ -x "$test_exe" ] || die "未找到测试可执行文件: ${test_exe}"
 
-    set +e
-    "$test_exe" "$plugin_root"
-    test_rc=$?
-    set -e
-    printf '  退出码: %s\n' "$test_rc"
-    [ "$test_rc" -eq 0 ] || die "原生测试失败 (exit=${test_rc}); 日志见上方输出"
+        # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
+        plugin_root="${install_dir}/plugins"
+        printf '  插件目录: %s\n' "$plugin_root"
+        printf '  运行: %s %s\n' "$test_exe" "$plugin_root"
+        # 测试可执行文件与宿主库同目录 (安装布局 bin/), 运行时按平台补库搜索路径
+        if [ "$os" = macos ]; then
+            export DYLD_LIBRARY_PATH="${install_dir}/bin${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+        else
+            export LD_LIBRARY_PATH="${install_dir}/bin${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        fi
+
+        set +e
+        "$test_exe" "$plugin_root"
+        test_rc=$?
+        set -e
+        printf '  退出码: %s\n' "$test_rc"
+        [ "$test_rc" -eq 0 ] || die "原生测试失败 (exit=${test_rc}); 日志见上方输出"
+    fi
 fi
 
 printf '\n构建完成\n'
+if [ "$android" = 1 ]; then
+    printf 'README: 宿主库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效\n'
+fi

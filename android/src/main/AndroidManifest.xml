@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 本模块只提供预编译的宿主库（jniLibs 由 android/build.gradle 的收集任务写入），
+         没有 Java/Kotlin 源码，也没有组件、权限或 provider 需要声明。 -->
+</manifest>

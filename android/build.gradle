@@ -1,0 +1,215 @@
+// musicxx_extern_plugin 的 Android 平台工程（Flutter FFI 插件）
+//
+// 与 windows/CMakeLists.txt、linux/CMakeLists.txt 同一套路：宿主库**不在 Flutter 构建里编译**。
+// 本文件只做两件事：
+//   1. 按约定目录找到"已经构建好的"各 ABI 宿主库；
+//   2. 把它们收集进 jniLibs，随 Flutter 的 Android 构建打进 APK 的 `lib/<abi>/`。
+//
+// 为什么要打进 APK：Android 7(API 24) 起，动态链接器只允许应用从 APK 的原生库目录
+// （以及系统目录）加载动态库，应用数据目录里的 .so 会以
+// `is not accessible for the namespace "classloader-namespace"` 失败 —— 用户装的动态库插件
+// 因此可能在设备上装载失败（宿主按"安全降级"处理，不影响其它插件与应用）。
+//
+// 构建宿主库（每个 ABI 一次；产物在 <包>/.native/output/android-<abi>-<配置>/bin/）：
+//   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a
+//   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a -Config Debug
+//
+// 找不到宿主库时只打警告、不中断构建：外部插件是可选功能，缺失时应用照常启动，
+// 由 Dart 侧给出"宿主库缺失"的提示（ExternPluginStore.lastError 与管理页状态区）。
+//
+// 显式指定库目录（CI/自定义目录）：
+//   -PmusicxxExternPluginLibDir=<目录>   或环境变量 MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR
+//   该目录的布局是 `<abi>/libmusicxx_extern_plugin.so`（<abi> 取 arm64-v8a / armeabi-v7a / x86_64 / x86）
+
+group = 'com.musicxx.extern_plugin'
+version = '1.0'
+
+apply plugin: 'com.android.library'
+
+// ==================== 宿主库定位 ====================
+
+// 包根目录（本文件在 <包>/android/ 下）
+def packageRoot = file("${projectDir}/..")
+// 仓库根目录（宿主应用的 resource/libs/ 里可能预置了库，与 libmediaxx.so 同一约定）
+def repoRoot = file("${packageRoot}/../..")
+def libFileName = 'libmusicxx_extern_plugin.so'
+// 原生构建的配置只有 Debug / Release 两种（构建脚本的 -Config）
+def androidConfigs = ['Debug', 'Release']
+
+// 显式目录：项目属性优先，其次环境变量
+def explicitLibDir = null
+if (project.hasProperty('musicxxExternPluginLibDir')) {
+    explicitLibDir = file(project.property('musicxxExternPluginLibDir'))
+} else if (System.getenv('MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR')) {
+    explicitLibDir = file(System.getenv('MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR'))
+}
+
+// 该 ABI 在某个原生配置下的候选路径（顺序与 Dart 侧 native_library.dart 的候选口径一致：
+// 便携输出目录 → 构建目录里的安装前缀 → 仓库预置目录）
+def candidatesOf = { String abi, String config ->
+    List<File> list = []
+    if (explicitLibDir != null) {
+        list.add(new File(explicitLibDir, "${abi}/${libFileName}"))
+    }
+    list.add(new File("${packageRoot}/.native/output/android-${abi}-${config.toLowerCase()}/bin/${libFileName}"))
+    list.add(new File("${packageRoot}/.native/build/android-${abi}-${config.toLowerCase()}/musicxx-extern-plugin-install/bin/${libFileName}"))
+    list.add(new File("${repoRoot}/resource/libs/android/${abi}/${libFileName}"))
+    return list
+}
+
+// 扫描出来的可用 ABI（两个配置的并集；.native/output 与 .native/build 都看）
+def discoverAbis = {
+    Set<String> abis = new LinkedHashSet<>()
+    if (explicitLibDir != null && explicitLibDir.isDirectory()) {
+        explicitLibDir.listFiles().each { f ->
+            if (f.isDirectory() && new File(f, libFileName).isFile()) {
+                abis.add(f.name)
+            }
+        }
+    }
+    ['output', 'build'].each { String kind ->
+        androidConfigs.each { String config ->
+            File base = new File("${packageRoot}/.native/${kind}")
+            if (!base.isDirectory()) {
+                return
+            }
+            String suffix = "-${config.toLowerCase()}"
+            base.listFiles().each { f ->
+                String name = f.name
+                if (name.startsWith('android-') && name.endsWith(suffix)) {
+                    String abi = name.substring('android-'.length(), name.length() - suffix.length())
+                    if (abi) {
+                        abis.add(abi)
+                    }
+                }
+            }
+        }
+    }
+    return abis.toList()
+}
+
+// Flutter 传给 Gradle 的目标平台（`-Ptarget-platform=android-arm64,android-x64`）→ ABI
+// 只收集本次构建真正要用的 ABI：`flutter run`/`--target-platform` 指定单 ABI 时，
+// 不必把其它 ABI 的宿主库也塞进这个 APK（每份约 3 MB）。没有这个属性（直接用 Gradle 构建）
+// 时不做限制，收集全部已构建的 ABI。
+def platformToAbi = [
+        'android-arm'  : 'armeabi-v7a',
+        'android-arm64': 'arm64-v8a',
+        'android-x64'  : 'x86_64',
+]
+def requestedAbis = null
+if (project.hasProperty('target-platform')) {
+    Set<String> list = new LinkedHashSet<>()
+    project.property('target-platform').toString().split(',').each { String item ->
+        String abi = platformToAbi[item.trim()]
+        if (abi != null) {
+            list.add(abi)
+        }
+    }
+    if (!list.isEmpty()) {
+        requestedAbis = list
+    }
+}
+
+def builtAbis = discoverAbis()
+def targetAbis = (requestedAbis == null) ? builtAbis : requestedAbis.toList()
+// 本次要打进包的 ABI（目标里已经构建好的）与"目标里还没构建的"（只提示，不中断构建）
+def packageAbis = targetAbis.findAll { builtAbis.contains(it) }
+def missingAbis = targetAbis.findAll { !builtAbis.contains(it) }
+
+// 找到某个 ABI 的库：先按本次的配置找，再退到另一种配置（与 linux/CMakeLists.txt 一致：
+// Profile 不是原生构建的配置，按 Release 处理；只有一种配置的产物时就用它）
+def findLibrary = { String abi, String config ->
+    List<String> order = [config] + androidConfigs.findAll { it != config }
+    for (String c : order) {
+        for (File candidate : candidatesOf(abi, c)) {
+            if (candidate.isFile()) {
+                return candidate
+            }
+        }
+    }
+    return null
+}
+
+def stagingRoot = new File(project.layout.buildDirectory.get().asFile, 'musicxxExternPluginJniLibs')
+
+android {
+    namespace = 'com.musicxx.extern_plugin'
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // 本模块没有源码，只有预编译的宿主库（jniLibs 由下面的收集任务写入）
+    buildFeatures {
+        buildConfig = false
+    }
+}
+
+// ==================== 收集到 jniLibs ====================
+//
+// 每个 build type 一个收集目录与一个任务：
+//   - 目录 <模块构建目录>/musicxxExternPluginJniLibs/<build type>/<abi>/libmusicxx_extern_plugin.so
+//     注册成该 build type 的 jniLibs 源目录（Debug 构建只带 Debug 产物，不会混用）；
+//   - 任务在该 build type 的 preBuild 之前执行（merge<Variant>JniLibFolders 依赖 preBuild），
+//     因此 AGP 合并、打包时库已经在位。
+android.buildTypes.all { buildType ->
+    String typeName = buildType.name
+    String nativeConfig = typeName.toLowerCase().contains('debug') ? 'Debug' : 'Release'
+    File staging = new File(stagingRoot, typeName)
+    String taskName = "syncMusicxxExternPluginJniLibs${typeName.capitalize()}"
+
+    // 该 build type 只收集自己这一份（Debug/Release 各自独立，避免把 Debug 库打进 Release 包）
+    android.sourceSets.maybeCreate(typeName).jniLibs.srcDir(staging)
+
+    def syncTask = tasks.register(taskName) {
+        group = 'flutter'
+        description = "收集 Android 宿主库到 jniLibs（${typeName} ← 原生配置 ${nativeConfig}）"
+        outputs.dir(staging)
+        outputs.upToDateWhen { false }
+        doLast {
+            // 先清掉上一次的结果：删掉不再构建的 ABI，避免旧库被误打进包
+            project.delete(staging)
+            List<String> copied = []
+            packageAbis.each { String abi ->
+                File source = findLibrary(abi, nativeConfig)
+                if (source == null) {
+                    return
+                }
+                File abiDir = new File(staging, abi)
+                abiDir.mkdirs()
+                project.copy {
+                    from(source)
+                    into(abiDir)
+                }
+                copied.add("${abi} ← ${source}")
+            }
+            if (copied.isEmpty()) {
+                logger.warn("[musicxx_extern_plugin] 未找到 Android 宿主库（${libFileName}，原生配置 ${nativeConfig}），" +
+                        "本次构建的 APK 里不会有它：外部插件功能在设备上不可用。\n" +
+                        "  构建: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>" +
+                        "（可选 -Config Debug）\n" +
+                        "  需要的 ABI: ${targetAbis.join('、')}\n" +
+                        "  候选: ${candidatesOf(targetAbis.isEmpty() ? 'arm64-v8a' : targetAbis[0], nativeConfig).join(' | ')}")
+            } else {
+                logger.lifecycle("[musicxx_extern_plugin] 宿主库随 APK 分发（${typeName}）：")
+                copied.each { logger.lifecycle("  ${it}") }
+                if (!missingAbis.isEmpty()) {
+                    logger.lifecycle("  未构建的 ABI（这些设备上外部插件不可用）：${missingAbis.join('、')}")
+                }
+            }
+        }
+    }
+
+    // preBuild 先跑收集；显式连一次，避免依赖 AGP 内部任务顺序的假设
+    String preBuildName = "pre${typeName.substring(0, 1).toUpperCase()}${typeName.substring(1)}Build"
+    tasks.matching { it.name == preBuildName }.configureEach {
+        dependsOn(syncTask)
+    }
+}

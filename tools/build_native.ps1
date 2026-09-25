@@ -23,6 +23,17 @@
 #   pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8            # 指定并行度
 #   pwsh -NoProfile -File tools/build_native.ps1 -BoostRoot <目录>       # 指定 Boost 头文件根 (含 boost/)
 #   pwsh -NoProfile -File tools/build_native.ps1 -BoostArchive <压缩包>  # 用本地 Boost 发布包解包
+#   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a # 用 NDK 交叉编译 Android 宿主库
+#
+# Android 说明:
+#   - 产出与桌面端同一套布局: <包>/.native/output/android-<abi>-<配置>/bin/libmusicxx_extern_plugin.so
+#     (Android 的 ABI 名直接用作目录里的架构段: arm64-v8a / armeabi-v7a / x86_64 / x86)
+#   - 宿主库不是靠本脚本进 APK 的: 包的 android/build.gradle 会把它按 ABI 收集到 jniLibs,
+#     随 Flutter 的 Android 构建打进去 (见 android/README.md)
+#   - NDK 位置优先取 -AndroidNdk, 其次 $env:ANDROID_NDK_HOME / $env:ANDROID_NDK_ROOT,
+#     最后在 $env:ANDROID_HOME|$env:ANDROID_SDK_ROOT\ndk 下挑版本号最大的一个
+#   - 统一用 Ninja 生成器与 c++_static (C++ 运行库静态链进宿主库, APK 不需要额外带 libc++_shared.so)
+#   - -RunTests 在 Android 上不执行: 测试可执行文件是给设备编的, 宿主上跑不起来 (需要 adb 手工跑)
 param(
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
     [ValidateSet('Release', 'Debug')][string]$Config = 'Release',
@@ -36,7 +47,13 @@ param(
     [string]$BoostRoot,
     [string]$BoostArchive,
     [string]$Generator,
-    [switch]$NoDownloadBoost
+    [switch]$NoDownloadBoost,
+    # Android 交叉编译: 目标平台/ABI/NDK 与最低系统版本
+    [switch]$Android,
+    [ValidateSet('arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86')][string]$Abi = 'arm64-v8a',
+    [string]$AndroidNdk,
+    [string]$AndroidPlatform = 'android-24',
+    [ValidateSet('c++_static', 'c++_shared')][string]$AndroidStl = 'c++_static'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +79,48 @@ $env:VCPkgLocalAppDataDisabled = '1'
 
 # ==================== 平台 / 目录 / 生成器 ====================
 
+# Android NDK 位置解析 (显式参数 → 环境变量 → SDK 下版本号最大的一个)
+function Resolve-AndroidNdk([string]$Explicit) {
+    $marker = 'build/cmake/android.toolchain.cmake'
+    if ($Explicit) {
+        if (-not (Test-Path (Join-Path $Explicit $marker))) {
+            throw "-AndroidNdk 指向的目录里没有 $marker : $Explicit"
+        }
+        return (Resolve-Path $Explicit).Path
+    }
+    foreach ($envName in @('ANDROID_NDK_HOME', 'ANDROID_NDK_ROOT')) {
+        $value = [Environment]::GetEnvironmentVariable($envName)
+        if ($value -and (Test-Path (Join-Path $value $marker))) {
+            # 说明: 只返回路径, 提示走 Write-Host —— 函数里的 Write-Output 会被当成返回值
+            Write-Host "   NDK: 取自 `$env:$envName ($value)"
+            return (Resolve-Path $value).Path
+        }
+    }
+    foreach ($sdkName in @('ANDROID_HOME', 'ANDROID_SDK_ROOT')) {
+        $sdk = [Environment]::GetEnvironmentVariable($sdkName)
+        if (-not $sdk) { continue }
+        $ndkRoot = Join-Path $sdk 'ndk'
+        if (-not (Test-Path $ndkRoot)) { continue }
+        $found = @()
+        foreach ($dir in Get-ChildItem $ndkRoot -Directory -ErrorAction SilentlyContinue) {
+            if (Test-Path (Join-Path $dir.FullName $marker)) {
+                # 目录名就是 NDK 版本号 (例如 29.0.14206865); 解析失败按 0.0.0 参与比较
+                $parsed = $null
+                try { $parsed = [version](($dir.Name -split '[^0-9.]')[0]) } catch { $parsed = $null }
+                if ($null -eq $parsed) { $parsed = [version]'0.0.0' }
+                $found += [pscustomobject]@{ Path = $dir.FullName; Version = $parsed }
+            }
+        }
+        if ($found.Count -gt 0) {
+            $pick = ($found | Sort-Object -Property Version -Descending)[0]
+            Write-Host "   NDK: 取自 `$env:$sdkName\ndk ($($pick.Path))"
+            return $pick.Path
+        }
+    }
+    throw ("未找到 Android NDK (需要 build/cmake/android.toolchain.cmake)。`n" +
+        "  请安装 NDK 并指定: -AndroidNdk <NDK 根目录>, 或设置环境变量 ANDROID_NDK_HOME")
+}
+
 $os = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'windows' }
 elseif ($IsMacOS) { 'macos' }
 else { 'linux' }
@@ -71,6 +130,24 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitect
     'Arm64' { 'arm64' }
     'X86' { 'x86' }
     default { 'unknown' }
+}
+
+# Android: 目标平台与宿主平台无关, 平台/架构段一律按 ABI 推导 (与桌面端目录命名对齐)
+$androidToolchain = ''
+$androidAbi = ''
+if ($Android) {
+    $os = 'android'
+    $androidAbi = $Abi
+    $arch = switch ($Abi) {
+        'arm64-v8a' { 'arm64' }
+        'armeabi-v7a' { 'arm' }
+        'x86_64' { 'x64' }
+        'x86' { 'x86' }
+        default { 'unknown' }
+    }
+    $androidNdkRoot = Resolve-AndroidNdk -Explicit $AndroidNdk
+    $androidToolchain = Join-Path $androidNdkRoot 'build/cmake/android.toolchain.cmake'
+    Write-Output "   Android: ABI=$androidAbi platform=$AndroidPlatform stl=$AndroidStl"
 }
 
 # VS 生成器的 -A 平台名 (x64/ARM64/Win32) 与 CMAKE_SYSTEM_PROCESSOR (AMD64/ARM64/x86) 不是一回事
@@ -86,9 +163,21 @@ $systemProcessor = switch ($arch) {
     'x86' { 'x86' }
     default { 'AMD64' }
 }
+if ($Android) {
+    # Android 的目标处理器由 NDK 工具链按 ANDROID_ABI 推导, 显式传值只会造成两边不一致
+    $systemProcessor = ''
+}
 
-if (-not $BuildDir) { $BuildDir = Join-Path $nativeRoot "build/$os-$($Config.ToLower())" }
-if (-not $OutputDir) { $OutputDir = Join-Path $nativeRoot "output/$os-$arch-$($Config.ToLower())" }
+if (-not $BuildDir) {
+    # Android 一个 ABI 一个构建目录 (桌面端沿用 <平台>-<配置>)
+    $BuildDir = if ($Android) { Join-Path $nativeRoot "build/android-$androidAbi-$($Config.ToLower())" }
+    else { Join-Path $nativeRoot "build/$os-$($Config.ToLower())" }
+}
+if (-not $OutputDir) {
+    # Android 用 ABI 名做架构段 (android-arm64-v8a-release), 桌面端沿用 <平台>-<架构>-<配置>
+    $OutputDir = if ($Android) { Join-Path $nativeRoot "output/android-$androidAbi-$($Config.ToLower())" }
+    else { Join-Path $nativeRoot "output/$os-$arch-$($Config.ToLower())" }
+}
 $BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 $installDir = Join-Path $BuildDir 'musicxx-extern-plugin-install'
@@ -103,6 +192,29 @@ if (-not $Generator) {
     if (-not $Generator) {
         if (Get-Command ninja -ErrorAction SilentlyContinue) { $Generator = 'Ninja' } else { $Generator = 'Unix Makefiles' }
     }
+}
+if ($Android) {
+    # 交叉编译固定用 Ninja: 与 NDK 工具链配合最稳, 也不依赖宿主平台的 IDE 生成器
+    if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+        # ninja 随 Android SDK 的 cmake 一起分发 (sdk/cmake/<版本>/bin/ninja.exe)
+        foreach ($sdkName in @('ANDROID_HOME', 'ANDROID_SDK_ROOT')) {
+            $sdk = [Environment]::GetEnvironmentVariable($sdkName)
+            if (-not $sdk) { continue }
+            foreach ($cmakeDir in Get-ChildItem (Join-Path $sdk 'cmake') -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object -Property Name -Descending) {
+                $ninjaCandidate = Join-Path $cmakeDir.FullName 'bin/ninja.exe'
+                if (Test-Path $ninjaCandidate) {
+                    $env:PATH = "$(Split-Path -Parent $ninjaCandidate);$env:PATH"
+                    break
+                }
+            }
+            if (Get-Command ninja -ErrorAction SilentlyContinue) { break }
+        }
+    }
+    if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+        throw "Android 交叉编译需要 ninja (未在 PATH 上找到); 请安装 ninja 或使用 Android SDK 自带的 cmake/bin/ninja.exe"
+    }
+    $Generator = 'Ninja'
 }
 $isMultiConfig = $Generator -like 'Visual Studio*'
 $generatorArgs = @('-G', $Generator)
@@ -122,6 +234,10 @@ Write-Output "  构建目录:   $BuildDir"
 Write-Output "  安装目录:   $installDir"
 Write-Output "  输出目录:   $OutputDir"
 Write-Output "  配置:       $Config (XX_IS_RELEASE_D=$xxIsRelease)   生成器: $Generator$(if ($isMultiConfig) { " ($generatorPlatform)" })"
+if ($Android) {
+    Write-Output "  目标:       android-$androidAbi ($AndroidPlatform, $AndroidStl)"
+    Write-Output "  工具链:     $androidToolchain"
+}
 
 # ==================== 环境预检 (失败就给明确原因, 对应 .bat 的 env 检查) ====================
 
@@ -130,6 +246,13 @@ foreach ($tool in @('cmake', 'git')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         throw "未找到 $tool; 请先安装并加入 PATH"
     }
+}
+if ($Android) {
+    # 交叉编译不依赖 Visual Studio / pkg-config: 编译器与依赖查找全由 NDK 工具链接管
+    if (-not (Test-Path $androidToolchain)) {
+        throw "找不到 NDK 工具链文件: $androidToolchain"
+    }
+    Write-Output "  ninja: $(Get-Command ninja | Select-Object -ExpandProperty Source)"
 }
 if ($os -eq 'windows') {
     $vsFound = $false
@@ -285,7 +408,7 @@ if ($Clean) {
 Write-Step 'configure (superbuild: 依赖 + 宿主)'
 # 构建目录签名: 配置/生成器/平台/Boost 位置变化时重置目录, 避免 CMakeCache 里残留
 # 上一次的参数 (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
-$signature = "config=$Config;generator=$Generator;platform=$generatorPlatform;boost=$boostHeaderRoot;xxRelease=$xxIsRelease"
+$signature = "config=$Config;generator=$Generator;platform=$generatorPlatform;boost=$boostHeaderRoot;xxRelease=$xxIsRelease;target=$os;abi=$androidAbi;ndk=$androidToolchain;androidPlatform=$AndroidPlatform;stl=$AndroidStl"
 $marker = Join-Path $BuildDir '.build_signature'
 if (Test-Path $BuildDir) {
     $old = if (Test-Path $marker) { (Get-Content -Raw $marker).Trim() } else { '' }
@@ -303,10 +426,21 @@ $configureArgs = @(
     # 收窄可用配置到本次配置 (与 agentxx 的 windows_*_build.bat 一致): 一个构建目录只构建一个配置,
     # 依赖安装前缀在构建目录内, 因此不会混入其它配置的产物
     "-DCMAKE_CONFIGURATION_TYPES=$Config"
-    "-DCMAKE_SYSTEM_PROCESSOR=$systemProcessor"
+    # Android: 目标处理器由 NDK 工具链按 ANDROID_ABI 推导, 显式传值会造成两边不一致
+    if (-not $Android) { "-DCMAKE_SYSTEM_PROCESSOR=$systemProcessor" }
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=$boostHeaderRoot"
 )
+if ($Android) {
+    # 交叉编译参数交给 NDK 工具链 (superbuild 的 src/CMakeLists.txt 会自动补 XX_IS_ANDROID_D=1,
+    # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与宿主工程的嵌套构建)
+    $configureArgs += @(
+        "-DCMAKE_TOOLCHAIN_FILE=$androidToolchain"
+        "-DANDROID_ABI=$androidAbi"
+        "-DANDROID_PLATFORM=$AndroidPlatform"
+        "-DANDROID_STL=$AndroidStl"
+    )
+}
 if ($DepsOnly) { $configureArgs += '-DMUSICXX_EXTERN_PLUGIN_BUILD_HOST=OFF' }
 
 & cmake @configureArgs @generatorArgs -B $BuildDir -S $srcDir | Out-Host
@@ -389,17 +523,26 @@ if (-not $DepsOnly) {
 if ($RunTests) {
     Write-Step '原生测试'
     if ($DepsOnly) { throw '-RunTests 不能与 -DepsOnly 同时使用' }
-    $testName = if ($os -eq 'windows') { 'musicxx_extern_plugin_test.exe' } else { 'musicxx_extern_plugin_test' }
-    $testExe = Join-Path $installDir "bin/$testName"
-    if (-not (Test-Path $testExe)) { throw "未找到测试可执行文件: $testExe" }
+    if ($Android) {
+        # 测试可执行文件是给设备编的 (目标 ABI 与宿主 Windows 机不同), 宿主上跑不起来。
+        # 需要在设备上跑时: adb push bin/ + plugins/ 到设备目录, 用 LD_LIBRARY_PATH 指向 bin/ 再执行。
+        Write-Output "  [跳过] Android 目标是交叉编译产物, 不能在当前主机运行; 产物在: $(Join-Path $installDir 'bin')"
+    } else {
+        $testName = if ($os -eq 'windows') { 'musicxx_extern_plugin_test.exe' } else { 'musicxx_extern_plugin_test' }
+        $testExe = Join-Path $installDir "bin/$testName"
+        if (-not (Test-Path $testExe)) { throw "未找到测试可执行文件: $testExe" }
 
-    # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
-    $pluginRoot = Join-Path $installDir 'plugins'
-    Write-Output "  插件目录: $pluginRoot"
-    Write-Output "  运行: $testExe $pluginRoot"
-    & $testExe $pluginRoot | Out-Host
-    Write-Output "  退出码: $LASTEXITCODE"
+        # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
+        $pluginRoot = Join-Path $installDir 'plugins'
+        Write-Output "  插件目录: $pluginRoot"
+        Write-Output "  运行: $testExe $pluginRoot"
+        & $testExe $pluginRoot | Out-Host
+        Write-Output "  退出码: $LASTEXITCODE"
+    }
 }
 
 Write-Output ""
+if ($Android) {
+    Write-Output "README: 宿主库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效"
+}
 Write-Output "构建完成"

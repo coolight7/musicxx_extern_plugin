@@ -65,7 +65,22 @@ class MusicxxPluginNativeLibrary {
     return 'libmusicxx_extern_plugin.so';
   }
 
+  /// 宿主库是否随应用包分发（Android 在 APK 的 `lib/<abi>/` 里，iOS 在 `.app` 内）
+  ///
+  /// 这类平台拿不到"能被系统接受的绝对路径"：Android 7 起动态链接器只允许应用从 APK 的原生库
+  /// 目录（以及系统目录）加载动态库，应用数据目录里的 `.so` 会被
+  /// `is not accessible for the namespace "classloader-namespace"` 拒绝；iOS 只允许包内静态链接。
+  /// 因此这些平台按"库名"加载，交给系统解析。
+  static bool get packagedWithApp => Platform.isAndroid || Platform.isIOS;
+
   /// 默认候选路径（按优先级）：
+  ///
+  /// **库随应用包分发的平台（Android/iOS）**：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`
+  /// （显式路径，便于调试）→ 库名（由系统在应用的原生库目录/应用包里解析）。桌面端那套
+  /// `.native/` 与"可执行文件旁"的候选在这里没有意义（Android 的 `Platform.resolvedExecutable`
+  /// 是 `/system/bin/app_process*`），只会给出误导性的失败原因，因此不参与。
+  ///
+  /// **桌面端**：
   /// 1. 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`（显式路径，便于打包/调试）；
   /// 2. `<包目录>/.native/output/*/bin/<库名>`（本包构建脚本的稳定输出目录）；
   /// 3. `<包目录>/.native/build/*/musicxx-extern-plugin-install/bin/<库名>`（安装前缀）；
@@ -75,11 +90,20 @@ class MusicxxPluginNativeLibrary {
   ///
   /// 说明：开发机的 `.native/` 产物排在"可执行文件旁边"之前，因为它每次构建都会刷新，
   /// 而随应用分发的那一份要等下一次 Flutter 构建才会更新（避免"改了原生代码却还是老行为"）。
-  static List<String> defaultCandidates({String? packageRoot}) {
+  ///
+  /// [packagedWithApp] 只用于测试注入（不传时按当前平台判断）。
+  static List<String> defaultCandidates({
+    String? packageRoot,
+    bool? packagedWithApp,
+  }) {
     final String? env = Platform.environment['MUSICXX_EXTERN_PLUGIN_LIBRARY'];
     final List<String> candidates = <String>[
       if (env != null && env.isNotEmpty) env,
     ];
+    if (packagedWithApp ?? MusicxxPluginNativeLibrary.packagedWithApp) {
+      candidates.add(libraryFileName);
+      return candidates;
+    }
     final String root = packageRoot ?? Directory.current.path;
     candidates.addAll(
       _globLibraryFiles('$root/.native/output', libraryFileName, 'bin'),
@@ -189,11 +213,25 @@ class MusicxxPluginNativeLibrary {
       }
     }
     throw MusicxxPluginLibraryException(
-      '无法加载 musicxx_extern_plugin 原生宿主库（请先运行 tools/build_native.ps1 构建，'
-      '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）:',
+      '无法加载 musicxx_extern_plugin 原生宿主库$hintForPlatform():',
       attempted: attempted,
       causes: causes,
     );
+  }
+
+  /// 加载失败时的下一步提示（按平台给出可执行的命令/原因说明）
+  static String hintForPlatform() {
+    if (Platform.isAndroid) {
+      // Android 不允许从应用数据目录加载动态库，宿主库必须随 APK 分发到 lib/<abi>/
+      return '（Android 需要宿主库随 APK 分发：先构建 '
+          'pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>，'
+          '再重新打包安装；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+    }
+    if (Platform.isIOS) {
+      return '（iOS 需要把宿主库静态链进应用；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+    }
+    return '（请先运行 tools/build_native.ps1 构建，'
+        '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
   }
 
   @override

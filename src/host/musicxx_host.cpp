@@ -544,6 +544,21 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
 }
 
 MusicxxHostManager::~MusicxxHostManager() {
+  // 成员按**声明逆序**销毁: registryMutex_ 声明在 internalRelay_ / jsEngine_ 之后,
+  // 因此会先被销毁。而 JS 引擎(同时是那个 InternalActionRelay)析构时会回调
+  // setInternalActionRelay(nullptr) 回来加锁 registryMutex_ —— 等到成员销毁阶段才放它,
+  // 锁已经没了: Android 的 bionic FORTIFY 会直接 abort (实测
+  // `FORTIFY: pthread_mutex_lock called on a destroyed mutex`), Windows/glibc 下则是
+  // "未定义但通常不发作"。
+  //
+  // 析构体执行时所有成员都还活着, 因此在这里先把两个引用搬到局部变量再释放:
+  // 引擎与接驳口在这时候一起收尾, 回调拿到的 registryMutex_ 仍然有效。
+  {
+    std::shared_ptr<InternalActionRelay> relay = std::move(internalRelay_);
+    std::shared_ptr<JsEngine> engine = std::move(jsEngine_);
+    engine.reset(); ///< 先放引擎自身的那份引用 (引擎此时仍由 relay 持有)
+    relay.reset();  ///< 最后一个引用消失时真正析构引擎, 这时锁仍然有效
+  }
   XX_LOGI("[musicxx_ext] host manager destroyed");
 }
 
