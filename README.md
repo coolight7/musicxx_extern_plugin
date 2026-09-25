@@ -16,10 +16,12 @@ src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_pa
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
                      bindings_generated.dart 与 hook_ids.g.dart 为生成物）
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_smoke_test.dart / plugin_config_smoke_test.dart
-                     对真实原生库做端到端冒烟，后者覆盖示例插件的设置读写往返与重新装载后的持久化）
+                     对真实原生库做端到端冒烟，后者覆盖示例插件（example_js / example_js_shader）的设置读写
+                     往返与重新装载后的持久化）
 plugins/            官方插件与示例（每个子目录一个插件，插件 id 取清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
+  example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置）
 src/host/js/            JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 docs/plugin-hooks.md 钩子总表（插件作者文档，生成物）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/musicxx API/硬约束/排障/v1 边界）
@@ -251,7 +253,8 @@ musicxx_plugin_add_target(my_plugin SOURCES my_plugin.cpp MANIFEST plugin.yaml)
 - **只导出入口符号**：非 MSVC 平台加 version script（GNU/Clang）或导出符号表（Apple），因此插件不会把内核/C++ 运行时符号暴露出去；
 - 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用。
 
-参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）。
+参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
+`plugins/example_js_shader/`（只演示播放页背景与动画速率）。
 动态库插件作者指南（完整流程 + 完整代码 + 构建/部署/排障）：`docs/plugin-native-api.md`；
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；JS 作者文档见 `docs/plugin-js-api.md`。
 插件渲染背景（shader bundle 打包 + uniform 契约）见 `docs/plugin-shader-bundle.md`。
