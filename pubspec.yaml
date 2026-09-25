@@ -18,14 +18,14 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
 
-# 说明（与 plan §3.1 / §11.2 的差异，见 work.md 的 S3/S9/S12 记录）：
+# 说明：
 # 本包声明的 Flutter 平台（Windows / Linux / Android）**不参与 Flutter 编译**：
 # 原生宿主库由包内 tools/build_native.ps1（Windows）/ tools/build_native.sh（Linux/macOS 与
-# Android 交叉编译）独立构建（superbuild 结构，见 plan §11.2）；`windows/CMakeLists.txt`、
+# Android 交叉编译）独立构建（superbuild 结构）；`windows/CMakeLists.txt`、
 # `linux/CMakeLists.txt` 只负责把已构建好的库交给 Flutter 随应用分发（PLUGIN_BUNDLED_LIBRARIES），
 # Android 由 `android/build.gradle` 把库收集进 jniLibs（打进 APK 的 lib/<abi>/，见 android/README.md），
-# Dart 侧再按显式路径/可执行文件目录/库名加载它（plan §5.2：显式路径优先，便于打包与调试）。
-# 其余平台（macOS/iOS/OHOS）的打包排入 plan M4 后续阶段。
+# Dart 侧再按显式路径/可执行文件目录/库名加载它（显式路径优先，便于打包与调试）。
+# 其余平台（macOS/iOS/OHOS）的打包排入后续阶段。
 flutter:
   plugin:
     platforms:

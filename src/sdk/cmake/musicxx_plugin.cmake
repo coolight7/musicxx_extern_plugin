@@ -1,4 +1,4 @@
-# musicxx 外部插件 SDK 的 CMake 助手（plan §7.1）
+# musicxx 外部插件 SDK 的 CMake 助手
 #
 # 用法（插件作者的 CMakeLists.txt）：
 # ```cmake

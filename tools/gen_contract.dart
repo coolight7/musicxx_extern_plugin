@@ -1,4 +1,4 @@
-/// 契约生成器：把 `tools/hooks.def.json` 生成三份产物（plan §8.3.1）
+/// 契约生成器：把 `tools/hooks.def.json` 生成三份产物
 ///
 /// 用法（在包目录下）：
 /// ```
@@ -16,7 +16,7 @@
 /// 为什么是这三处：Dart 侧埋点与派发要用枚举、原生宿主要用表拒绝未知钩子、
 /// 插件作者要有一份可查的清单。定义只有一处，避免常量漂移。
 ///
-/// 说明（与 plan §3.1 的差异）：C++ 头放在 **SDK 目录** 而不是 `src/host/include/`，
+/// 说明：C++ 头放在 **SDK 目录** 而不是 `src/host/include/`，
 /// 这样宿主（`find_package` 后拿到的 SDK 头）与插件作者（`musicxx_extern_plugin_sdk`）
 /// 都能直接包含同一份生成物，不需要维护两份。
 library;
@@ -70,7 +70,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
   final StringBuffer sb = StringBuffer()
     ..writeln('// 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。')
     ..writeln('//')
-    ..writeln('// 钩子 id 是跨边界稳定契约（plan §8.2）：字符串值一旦发布不得修改，')
+    ..writeln('// 钩子 id 是跨边界稳定契约：字符串值一旦发布不得修改，')
     ..writeln('// 只能新增或标记废弃。字段含义见 tools/hooks.def.json。')
     ..writeln('// ignore_for_file: type=lint, constant_identifier_names')
     ..writeln()
@@ -87,7 +87,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  final int code;')
     ..writeln('}')
     ..writeln()
-    ..writeln('/// 多处理器裁决合并策略（plan §8.1）')
+    ..writeln('/// 多处理器裁决合并策略')
     ..writeln('enum MusicxxPluginDecisionPolicy {')
     ..writeln('  /// 首个非空裁决生效，后续处理器不再询问')
     ..writeln('  firstNonNull(0),')
@@ -106,7 +106,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  final int code;')
     ..writeln('}')
     ..writeln()
-    ..writeln('/// 派发方式（plan §5.3 / §8.1）')
+    ..writeln('/// 派发方式')
     ..writeln('enum MusicxxPluginHookDispatch {')
     ..writeln('  /// 调用点就地等待裁决（`MusicxxPluginHooks.decide`；占用调用线程，有等待预算）')
     ..writeln('  sync(0),')
@@ -120,7 +120,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  final int code;')
     ..writeln('}')
     ..writeln()
-    ..writeln('/// 埋点可用性阶段（plan §8.2）')
+    ..writeln('/// 埋点可用性阶段')
     ..writeln('enum MusicxxPluginHookPhase { P0, P1, P2 }')
     ..writeln()
     ..writeln('/// 钩子 id 与元信息（由 `tools/hooks.def.json` 生成）')

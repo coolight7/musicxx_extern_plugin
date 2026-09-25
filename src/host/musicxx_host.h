@@ -1,6 +1,6 @@
 /// musicxx 外部插件原生宿主 (musicxx_extern_plugin host)
 ///
-/// 结构 (见 plan §4):
+/// 结构:
 /// - [MusicxxHostInstance]: 继承内核 `pluginxx::PluginInstanceBase`, 提供
 /// `musicxx_plugin_destroy`;
 /// - [MusicxxHostManager]: 继承内核 `PluginHostLifecycle`
@@ -10,7 +10,7 @@
 /// - [HostContext]: 宿主线程 (asio::io_context + 1 条线程)
 /// 与工作线程池的所有者。
 ///
-/// 线程模型 (plan §2.3.1): 全部动态库插件代码在**唯一**宿主线程上顺序执行; Dart
+/// 线程模型: 全部动态库插件代码在**唯一**宿主线程上顺序执行; Dart
 /// 线程只在 同步 FFI 调用期间被借用, 并有等待上界; 插件不得阻塞宿主线程
 /// (慢操作走 offload)。
 #pragma once
@@ -44,7 +44,7 @@
 namespace musicxx {
 namespace extern_plugin {
 
-/// JS 运行时 (plan §4.6; 定义在 js/js_engine.h)
+/// JS 运行时 (定义在 js/js_engine.h)
 class JsEngine;
 
 /// `musicxx.ui` 表的 C ABI 实现 (定义在 musicxx_host_ui.cpp; 供 query_interface
@@ -85,21 +85,21 @@ template <typename T> struct WaitSlot {
 
 /// 宿主内运行时 (JS 引擎) 的"任意线程动作请求"接驳口
 ///
-/// 背景 (plan §2.3.1/§2.3.2 的无死锁不变式): JS 代码只在共享 JS 线程上执行,
+/// 背景 (这样才不会出现互相等待): JS 代码只在共享 JS 线程上执行,
 /// 而宿主 线程派发裁决型钩子时会**等待 JS 处理器**。因此 JS
 /// 侧发起的动作请求绝不能"投递到 宿主线程再等待" —— 那会和"宿主线程正等
-/// JS"互锁。JS 引擎自己登记在途请求 (任意线程 可读写的表), 只把事件推给 Dart;
+/// JS"互锁。JS 引擎自己登记还没回复的请求 (任意线程 可读写的表), 只把事件推给 Dart;
 /// Dart 的回复经 [MusicxxHostManager::actionRespond] 转交到这里。
 class InternalActionRelay {
 public:
   virtual ~InternalActionRelay() = default;
 
-  /// 回复一条本接驳口登记的在途请求 (**任意线程**)
+  /// 回复一条本接驳口登记的请求 (**任意线程**)
   /// - 返回 false 表示该 requestId 不属于本接驳口 (调用方继续按"未找到"处理)
   virtual bool respondAction(int64_t requestId, int32_t status,
                              const std::string &resultJson) = 0;
 
-  /// 取消某实例的全部在途请求 (**任意线程**; 实例卸载/禁用/宿主关闭时兜底)
+  /// 取消某实例的全部未完成请求 (**任意线程**; 实例卸载/禁用/宿主关闭时兜底)
   virtual void cancelActionsOf(const std::string &instanceName) = 0;
 };
 
@@ -135,7 +135,7 @@ public:
   /// 配置文件路径 (config.json; 宿主推导)
   std::string configPath;
 
-  /// 资源与阶段耗时统计 (plan §4.11; 只观测不限制)
+  /// 资源与阶段耗时统计 (只观测不限制)
   struct PhaseMs {
     int64_t load = 0;
     int64_t create = 0;
@@ -241,7 +241,7 @@ public:
   /// - 能力必须先由目标插件在自己的 `start` 事务里声明 (`pluginxx.capabilities`
   /// 表),
   ///   且归属校验通过 (禁止调用他人命名空间);
-  /// - 超时按 ERR_TIMEOUT 返回, 在途操作继续由插件完成 (结果丢弃)。
+  /// - 超时按 ERR_TIMEOUT 返回, 插件已经开始的操作用它自己的节奏跑完 (结果丢弃)。
   int32_t pluginCall(const std::string &id, const std::string &method,
                      const std::string &argsJson, uint32_t timeoutMs,
                      std::string &outJson, std::string &err);
@@ -270,7 +270,7 @@ public:
   int32_t actionRespond(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 
-  /// 取消在途动作 (插件卸载/宿主关闭时兜底)
+  /// 取消未完成动作 (插件卸载/宿主关闭时兜底)
   void cancelAction(int64_t requestId);
 
   /* ---------- 状态镜像 (Dart → 原生) ---------- */
@@ -319,7 +319,7 @@ public:
                         const PluginxxOperatorNotify *notify,
                         int64_t *outRequestId);
 
-  /// 宿主线程执行器 (投递到宿主线程执行用; plan §2.3.1 的唯一动态库插件线程)
+  /// 宿主线程执行器 (投递到宿主线程执行用; 动态库插件代码都在这条线程上跑)
   ///
   /// 供宿主内运行时 (JS 引擎) 把"运行期注册/订阅"等操作投递到宿主线程执行 ——
   /// 宿主线程独占注册表, 因此这些操作不能直接在其他线程改状态。
@@ -328,7 +328,7 @@ public:
   /// 当前插件 id (由实例名推导; JS 实例名为 "js:<id>")
   static std::string pluginIdOf(std::string_view instanceName);
 
-  /* ---------- UI 声明式扩展 (plan §5.6; 均在宿主线程执行) ---------- */
+  /* ---------- UI 声明式扩展 (均在宿主线程执行) ---------- */
 
   /// 注册/覆盖一个 UI 项
   ///
@@ -362,16 +362,16 @@ public:
   std::shared_ptr<MusicxxHostInstance>
   resolveInstance(const std::string &idOrInstance) const;
 
-  /* ---------- 宿主内运行时 (JS 引擎, plan §4.6) ---------- */
+  /* ---------- 宿主内运行时 (JS 引擎) ---------- */
 
   /// 注册宿主内运行时的动作请求接驳口 (JS 引擎创建时调用)
   void setInternalActionRelay(std::shared_ptr<InternalActionRelay> relay);
 
-  /// 分配一个在途请求 id (**任意线程**; 动态库插件与 JS 引擎共用同一计数器,
+  /// 分配一个请求 id (**任意线程**; 动态库插件与 JS 引擎共用同一计数器,
   /// 避免 id 撞车)
   int64_t allocateRequestId();
 
-  /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做在途登记)
+  /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做请求登记)
   ///
   /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态与超时 (见
   /// [InternalActionRelay]), 宿主这里只做命名空间校验与事件推送。
@@ -388,7 +388,7 @@ public:
                                  const std::string &topic,
                                  const std::string &payloadJson);
 
-  /// 取消某实例的全部在途请求 (**任意线程**): 宿主侧登记 + JS 引擎侧登记
+  /// 取消某实例的全部未完成请求 (**任意线程**): 宿主侧登记 + JS 引擎侧登记
   void cancelActionsOfInstance(const std::string &instanceName);
 
   /// JS 引擎实例 (未启用 JS 运行时或未启动时为空)
@@ -471,7 +471,7 @@ private:
     std::chrono::steady_clock::time_point pausedUntil{};
   };
 
-  /// 在途动作请求
+  /// 未完成动作请求
   struct PendingAction {
     std::string plugin;
     std::string action;
@@ -489,7 +489,7 @@ private:
       const std::string &argsJson,
       std::function<void(int32_t, const std::string &)> done);
 
-  /// 钩子派发模式（plan §8.1）
+  /// 钩子派发模式
   ///
   /// - `Sync`：裁决型同步派发（Dart 线程等待结果，有等待预算）
   /// - `Notify`：观察型派发（入队即返回，不等待、不回报结果）
@@ -559,14 +559,14 @@ private:
 
   // 动作请求 (宿主线程)
   std::map<int64_t, PendingAction> pendingActions_;
-  /// 在途请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
+  /// 请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
   std::atomic<int64_t> nextRequestId_{1};
 
   /// 异步裁决派发的调用 id 计数器（配 `musicxx.hook.decision.result`
   /// 事件；**任意线程**可用）
   std::atomic<int64_t> nextHookCallId_{1};
 
-  /// 宿主内运行时的在途请求接驳口 (JS 引擎; 见 InternalActionRelay)
+  /// 宿主内运行时的请求接驳口 (JS 引擎; 见 InternalActionRelay)
   std::shared_ptr<InternalActionRelay> internalRelay_;
 
   /// JS 运行时 (启用 JS 时在 start() 里创建, stop() 里释放)
@@ -584,7 +584,7 @@ private:
   int32_t flags_ = 0;
   int32_t hookBudgetMs_ = 30;
   int32_t hookHardMs_ = 100;
-  /// 可选 JS 执行上限 (毫秒; 0 = 关闭; 默认关闭, 决策 13)
+  /// 可选 JS 执行上限 (毫秒; 0 = 关闭; 默认关闭)
   int32_t jsExecGuardMs_ = 0;
   bool statsEnabled_ = true;
 

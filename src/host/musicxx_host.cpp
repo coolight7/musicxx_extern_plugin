@@ -60,7 +60,7 @@ std::string currentThreadIdText() {
 /// 背景: 宿主库静态链入 cxx_utilxx_base, 它自带日志分发器**但默认没有任何
 /// sink**, 因此原生侧出问题时"完全没有日志可看"(Dart 未接入时尤其明显)。
 /// 这里提供最小可用的诊断出口: 环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1`
-/// 时把宿主与插件的日志写到 stderr; 正式落盘/转发由 Dart 侧配置 (plan §9.3)。
+/// 时把宿主与插件的日志写到 stderr; 正式落盘/转发由 Dart 侧配置。
 class StderrLogSink final : public utilxx_base::ThreadedLogSink {
 public:
   /// 必须在最派生类析构里停线程 (基类析构时虚表已切换, 见 ThreadedLogSink 说明)
@@ -424,7 +424,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
 
-  // 宿主内运行时: JS 线程 (plan §4.6; 全部 JS 插件实例共享这 1 条线程)
+  // 宿主内运行时: JS 线程 (全部 JS 插件实例共享这 1 条线程)
   // 启动失败不影响动态库插件: 记事件 + 禁用 JS 能力
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) == 0 &&
       JsEngine::available()) {
@@ -587,7 +587,7 @@ void MusicxxHostManager::pushEvent(const std::string &type,
     ev["payload"] = payload;
 
     if (events_.size() >= eventCapacity_) {
-      // 有界队列: 丢最旧并补发宿主错误 (plan §4.10)
+      // 有界队列: 丢最旧并补发宿主错误
       events_.pop_front();
       ++eventDropped_;
       Json overflow;
@@ -653,13 +653,13 @@ int32_t MusicxxHostManager::pushActionRequestEvent(
   if (action.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  // 命名空间校验 (plan §3.5): 官方 musicxx.* 或本插件自己的 plugin.<id>.*
+  // 命名空间校验: 官方 musicxx.* 或本插件自己的 plugin.<id>.*
   if (!naming::isOfficial(action) && !naming::isOwnPlugin(action, pluginId)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 发起非法动作名 `{}` (命名空间校验失败)",
             pluginId, action);
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
-  // 超时预算 (plan §4.8): 默认 5s, 下限 1s (避免 Dart 侧被高频请求淹没), 上限
+  // 超时预算: 默认 5s, 下限 1s (避免 Dart 侧被高频请求淹没), 上限
   // 60s
   const int64_t effectiveTimeoutMs = std::clamp<int64_t>(
       (timeoutMs == 0) ? 5000 : static_cast<int64_t>(timeoutMs), 1000, 60000);
@@ -731,7 +731,7 @@ MusicxxHostManager::publishPluginEventFrom(const std::string &pluginId,
   if (!running_.load(std::memory_order_acquire)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 归属校验 (plan §3.5): 插件只能发布官方主题或自己命名空间下的主题
+  // 归属校验: 插件只能发布官方主题或自己命名空间下的主题
   if (!naming::isTopicOwnedBy(topic, pluginId)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 发布事件被拒绝: 主题 `{}` "
             "不属于该插件命名空间",
@@ -893,7 +893,7 @@ pluginxx::PluginEntrySymbols MusicxxHostManager::entrySymbols() const {
 }
 
 std::string MusicxxHostManager::pluginIdOf(std::string_view instanceName) {
-  // JS 插件实例名形如 "js:<pluginId>" (plan §4.4); 其余即插件 id 本身
+  // JS 插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身
   if (instanceName.size() > 3 && instanceName.substr(0, 3) == "js:") {
     return std::string{instanceName.substr(3)};
   }
@@ -1002,9 +1002,9 @@ void MusicxxHostManager::clearPluginRegistrations(
     }
   }
   stateSubscriptions_.erase(instanceName);
-  // 声明式 UI 项随实例摘除 (plan §5.6: 卸载后不再渲染该插件的入口/菜单)
+  // 声明式 UI 项随实例摘除 (卸载后不再渲染该插件的入口/菜单)
   detachUiEntries(instanceName);
-  // JS 引擎登记的在途动作请求 (JS 侧自己保活) 也要一起取消
+  // JS 引擎登记的动作请求 (由 JS 侧自己保活) 也要一起取消
   cancelActionsOfInstance(instanceName);
 }
 
@@ -1294,7 +1294,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
   {
     std::error_code ec;
     const fs::path p{path};
-    // 目录形态: 以清单 name 为准 (目录名只作提示, plan §9.3)
+    // 目录形态: 以清单 name 为准 (目录名只作提示)
     if (fs::is_directory(p, ec)) {
       std::string manifestName;
       std::string manifestEntry;
@@ -1329,8 +1329,8 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
       ctx_->io,
       [self, path, options, slot, failMsg, pluginId,
        created]() -> asio::awaitable<void> {
-        // JS 插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 装载 (plan
-        // §4.4) 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
+        // JS 插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 装载;
+        // 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
         const fs::path pluginPath{path};
         const std::string manifestKind = readManifestKind(pluginPath);
         const std::string manifestEntry = readManifestEntry(pluginPath);
@@ -1654,7 +1654,7 @@ void MusicxxHostManager::invokeCapabilityOnHostThread(
     fail(MUSICXX_EXTERN_PLUGIN_ERR_ARG, "plugin_call: id 与 method 都不能为空");
     return;
   }
-  // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐 (plan §3.5)
+  // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐
   const std::string cap = method.rfind("plugin.", 0) == 0
                               ? method
                               : ("plugin." + id + "." + method);
@@ -1772,7 +1772,7 @@ std::shared_ptr<pluginxx::EventSource> MusicxxHostManager::eventSource() {
 }
 
 std::string MusicxxHostManager::qualifyEventTopic(std::string_view topic) {
-  // 命名空间规则 (plan §3.5): 官方 musicxx.* 与插件 plugin.<id>.* 之外一律拒绝
+  // 命名空间规则: 官方 musicxx.* 与插件 plugin.<id>.* 之外一律拒绝
   if (topic.rfind("musicxx.", 0) == 0) {
     return std::string{topic};
   }
@@ -1817,7 +1817,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   if (fullTopic.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
-  /// 事件计数与速率 (plan §4.11; 只观测不限制): 只有插件自定义主题才归属到插件,
+  /// 事件计数与速率 (只观测不限制): 只有插件自定义主题才归属到插件,
   /// 官方 `musicxx.*` 主题 (宿主/Dart 发布) 不计入任何插件的速率
   accountEventForTopic(fullTopic);
   const std::string payload =
@@ -1826,7 +1826,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   if (rc != 0) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 观测回传 (plan §4.9): 仅在调试开关打开时把主题镜像给 Dart 侧
+  // 观测回传: 仅在调试开关打开时把主题镜像给 Dart 侧
   // (默认关闭零开销)
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
     Json mirror;
@@ -1844,7 +1844,7 @@ void MusicxxHostManager::accountEventForTopic(const std::string &topic) {
   }
   auto inst = resolveInstance(ownerId);
   if (!inst) {
-    return; ///< 插件已卸载 (在途事件); 不统计
+    return; ///< 插件已卸载 (事件已经失效); 不统计
   }
   ++inst->eventsPublished;
   const int64_t now = steadyNowMs();
@@ -1876,7 +1876,7 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
     return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
   }
   std::string text = value.dump();
-  /// 单键上限 (plan §4.7): 超限**直接拒绝写入** (不做截断 —— 截断后的 JSON
+  /// 单键上限: 超限**直接拒绝写入** (不做截断 —— 截断后的 JSON
   /// 既不是合法 JSON 也丢了一半内容, 插件读到的会是坏值)
   constexpr size_t kMaxSize = 512 * 1024;
   if (text.size() > kMaxSize) {
@@ -1887,7 +1887,7 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
     std::lock_guard<std::mutex> lock{stateMutex_};
     state_[key] = text;
   }
-  // 通知"声明关心该键"的插件 (plan §4.2 的 musicxx.host.subscribe_state):
+  // 通知"声明关心该键"的插件 (musicxx.host.subscribe_state):
   // 事件处理必须回到宿主线程, 因此这里投递后立即返回 (调用方通常是 Dart 线程)
   {
     auto self = shared_from_this();
@@ -1996,7 +1996,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
     }
     host["hooks"] = hooks;
   }
-  /// 共享 JS 线程的排队情况 (plan §4.11: 队列深度/排队等待时长/定时器数;
+  /// 共享 JS 线程的排队情况 (队列深度/排队等待时长/定时器数;
   /// 宿主不打断脚本, 只用这些数字在管理页提示"某个脚本正在占住 JS 线程")
   if (jsEngine_) {
     host["js"] = parseJsonSafe(jsEngine_->statsJson());
@@ -2033,14 +2033,14 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"hookTimeouts", inst->hookTimeouts.load()},
         {"actionRequests", inst->actionRequests.load()},
         {"events", events},
-        /// 事件速率 (plan §4.11): eventsPerSec = 最近一个完整窗口;
+        /// 事件速率: eventsPerSec = 最近一个完整窗口;
         /// eventsAvgPerSec = 装载以来平均
         {"eventsPerSec", inst->eventsPerSec},
         {"eventsAvgPerSec", uptimeMs > 0 ? events * 1000 / uptimeMs : 0},
         {"errors", inst->errors.load()},
     };
-    /// JS 插件: 用 JS 运行时的堆用量采样值 (plan §4.11; native
-    /// 插件无法精确统计, 只能由插件经 musicxx.stats 自报, 见 plan 的边界说明)
+    /// JS 插件: 用 JS 运行时的堆用量采样值 (native
+    /// 插件无法精确统计, 只能由插件经 musicxx.stats 自报)
     int64_t jsHeap = -1;
     if (jsEngine_ && inst->kind == "js") {
       jsHeap = jsEngine_->jsHeapBytesOf(inst->name);
@@ -2087,7 +2087,7 @@ asio::any_io_executor MusicxxHostManager::hostExecutor() const {
 }
 
 int32_t MusicxxHostManager::uiSnapshot(std::string &outJson) {
-  // 声明式 UI 扩展 (plan §5.6): 返回全部插件的 UI 项 (按 type/order/seq 排序),
+  // 声明式 UI 扩展: 返回全部插件的 UI 项 (按 type/order/seq 排序),
   // Dart 侧据此渲染主页入口 / 菜单项 / 设置页入口 / 附加信息块。
   outJson = uiItemsJson(std::string{});
   return MUSICXX_EXTERN_PLUGIN_OK;
@@ -2119,7 +2119,7 @@ int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
       cfg["hookHardBudgetMs"].is_number_integer()) {
     hookHardMs_ = cfg["hookHardBudgetMs"].get<int32_t>();
   }
-  // 可选 JS 执行上限 (0 = 关闭; 默认关闭, 决策 13: 宿主不默认限制插件)
+  // 可选 JS 执行上限 (0 = 关闭; 默认关闭, 宿主不默认限制插件)
   if (cfg.contains("jsExecGuardMs") &&
       cfg["jsExecGuardMs"].is_number_integer()) {
     const int32_t guardMs = (std::max)(cfg["jsExecGuardMs"].get<int32_t>(), 0);

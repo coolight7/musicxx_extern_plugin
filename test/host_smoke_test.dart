@@ -1,6 +1,6 @@
-/// 冒烟测试：Dart 侧运行时对**真实原生宿主库**的端到端验证
+/// 端到端测试：Dart 侧运行时对**真实原生宿主库**的验证
 ///
-/// 覆盖（对应 plan §13.2/§13.3 的首批用例）：
+/// 覆盖：
 /// - 库加载与 C ABI 版本校验、宿主 init/dispose 幂等；
 /// - 事件泵（host.ready / plugin.loaded 等按序到达）；
 /// - 插件扫描/装载/能力调用/卸载；
@@ -20,7 +20,7 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 void main() {
   final _Environment? env = _Environment.detect();
 
-  test('原生宿主冒烟：init/事件泵/扫描/装载/钩子/能力/卸载', () async {
+  test('原生宿主：init/事件泵/扫描/装载/钩子/能力/卸载', () async {
     if (env == null) {
       markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
       return;
@@ -187,7 +187,7 @@ void main() {
     await _pumpUntil(() => runtime.recentEvents.isNotEmpty);
 
     _step('9 Dart 处理器链完成');
-    // 异步裁决（plan §5.3）：Dart 线程不等待，结果经 `musicxx.hook.decision.result` 回传后合并
+    // 异步裁决：Dart 线程不等待，结果经 `musicxx.hook.decision.result` 回传后合并
     final Map<String, Object?>? asyncVerdict = await runtime.hooks.decideAsync(
       MusicxxPluginHookId.playerBeforePlaySong,
       <String, Object?>{
@@ -241,7 +241,7 @@ void main() {
 
     _step('11 unload 完成');
 
-    // ===== 声明式 UI 扩展 (plan §5.6) =====
+    // ===== 声明式 UI 扩展 =====
     // 重新装载原生示例插件, 读取 UI 项快照 (入口项 / 菜单项 / 顺序 / 动作描述)
     runtime.plugins.load('example_native');
     final List<MusicxxPluginUIItem> uiItems = runtime.plugins.uiSnapshot();
@@ -306,7 +306,7 @@ void main() {
 
     _step('11.7 卸载后 UI 项摘除完成');
 
-    // ===== JS 插件 (零编译, plan §4.4/§4.6) =====
+    // ===== JS 插件 (零编译) =====
     // 扫描结果里应有 JS 示例插件
     final List<MusicxxPluginInfo> found2 = runtime.plugins.scan();
     final MusicxxPluginInfo? exampleJs = found2

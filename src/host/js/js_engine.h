@@ -198,7 +198,7 @@ public:
     bool repeat = false;
   };
 
-  /// 在途动作请求 (JS 侧登记; 任意线程读写, 由 mutex_ 保护)
+  /// 未完成动作请求 (JS 侧登记; 任意线程读写, 由 mutex_ 保护)
   struct PendingAction {
     int64_t requestId = 0;
     std::string instance;
@@ -418,7 +418,7 @@ private:
   /// 已装载的实例 (key = js:<id>; 任意线程读写)
   std::map<std::string, std::shared_ptr<Instance>, std::less<>> instances_;
 
-  /// 在途动作请求 (任意线程读写)
+  /// 未完成动作请求 (任意线程读写)
   std::map<int64_t, PendingAction> pendingActions_;
   std::atomic<int64_t> nextRequestId_{1};
 

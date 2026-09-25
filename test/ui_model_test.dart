@@ -1,6 +1,6 @@
 /// 声明式 UI 扩展模型单测（纯 Dart，不加载原生库）
 ///
-/// 覆盖 plan §5.6 的三种动作形态、命名空间校验后的 id 形态、快照解析容错与整批替换。
+/// 覆盖三种动作形态、命名空间校验后的 id 形态、快照解析容错与整批替换。
 library;
 
 import 'package:flutter_test/flutter_test.dart';

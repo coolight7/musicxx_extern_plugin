@@ -1,7 +1,7 @@
 # musicxx_extern_plugin
 
 musicxx 的**外部插件框架**（原生宿主库 + 插件 SDK + 示例插件 + 原生测试）。
-设计文档：`<musicxx 仓库>/resource/history/extern-plugin-impl/plan.md`（§3 仓库与包结构、§4 原生宿主、§6 C ABI、§11 构建打包）。
+设计要点见本文件与 `docs/` 目录；应用侧的接入说明见 musicxx 仓库。
 
 ## 目录
 
@@ -16,7 +16,7 @@ src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_pa
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
                      bindings_generated.dart 与 hook_ids.g.dart 为生成物）
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_smoke_test.dart / plugin_config_smoke_test.dart
-                     对真实原生库做端到端冒烟，后者覆盖示例插件（example_js / example_js_shader）的设置读写
+                     对真实原生库做端到端验证，后者覆盖示例插件（example_js / example_js_shader）的设置读写
                      往返与重新装载后的持久化）
 plugins/            官方插件与示例（每个子目录一个插件，插件 id 取清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
@@ -29,7 +29,7 @@ docs/plugin-native-api.md 动态库插件作者指南（SDK 用法/构建模板/
 docs/plugin-shader-bundle.md 插件渲染背景：shader bundle 打包、格式版本与 uniform 契约
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
                      gen_contract.dart（契约生成/校验）、check_submodules.ps1（子模块检查）、
-                     smoke_dart.dart（纯 Dart 冒烟，定位 FFI 卡点）、cmake/BoostConfig.cmake.in
+                     smoke_dart.dart（纯 Dart 自检，定位 FFI 卡住的位置）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
 ```
 
@@ -181,7 +181,7 @@ ldd .native/output/linux-x64-release/bin/libmusicxx_extern_plugin.so            
 
 ## 打包（随应用分发）
 
-宿主库**不在 Flutter 构建里编译**（依赖链太重，见 plan §11.2），所以本包把它当作"预构建产物"来打包：
+宿主库**不在 Flutter 构建里编译**（依赖链太重），所以本包把它当作"预构建产物"来打包：
 
 ```
 pubspec.yaml             flutter.plugin.platforms.{windows,linux,android}.ffiPlugin = true
@@ -225,7 +225,7 @@ Android 与桌面端的差别（改这块之前先读 `android/README.md`）：
 - 交叉编译统一 Ninja 生成器 + `c++_static`（C++ 运行库静态链进宿主库，APK 不需要额外的 `libc++_shared.so`）；
   `-RunTests`/`--run-tests` 在 Android 上跳过（测试可执行文件是给设备编的）。
 
-其余平台（macOS/iOS/OHOS）的打包属于 plan M4 的后续工作：macOS 可照 Windows/Linux 的写法
+其余平台（macOS/iOS/OHOS）的打包属于后续工作：macOS 可照 Windows/Linux 的写法
 （`<平台>_bundled_libraries`，另需注意 Hardened Runtime 下的 `disable-library-validation`）；
 iOS/OHOS 只跑 JS 插件，需要静态库 + podspec。
 平台能力（哪些平台允许动态库插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
@@ -282,8 +282,8 @@ dart run tools/gen_contract.dart               # 由 tools/hooks.def.json 生成
 dart run tools/gen_contract.dart --check       # CI：生成物与定义不一致时退出码 1
 dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
 flutter analyze
-flutter test                                   # 端到端冒烟（宿主/JS/配置读写；需要先构建原生库）
-dart run tools/smoke_dart.dart                 # 纯 Dart 冒烟（不依赖 Flutter，便于定位 FFI 卡点）
+flutter test                                   # 端到端验证（宿主/JS/配置读写；需要先构建原生库）
+dart run tools/smoke_dart.dart                 # 纯 Dart 自检（不依赖 Flutter，便于定位 FFI 卡住的位置）
 ```
 
 Dart 侧用法（详见 `lib/musicxx_extern_plugin.dart` 文件头）：
@@ -294,7 +294,7 @@ runtime.init(config: MusicxxPluginRuntimeConfig(
   appVersion: '0.87.0',
   platform: MusicxxPluginRuntime.currentPlatform,
   userPluginDir: '<appData>/plugins',
-), libraryPath: '<显式路径优先，见 plan §5.2>');
+), libraryPath: '<显式路径优先>');
 runtime.events.listen((MusicxxPluginEvent event) => ...);
 runtime.plugins.scan();
 runtime.plugins.load('example_native');
@@ -306,7 +306,7 @@ final Map<String, Object?>? asyncVerdict = await runtime.hooks.decideAsync(
 runtime.dispose();
 ```
 
-声明式 UI 扩展（插件不写 Flutter 代码，只声明；plan §5.6）：
+声明式 UI 扩展（插件不写 Flutter 代码，只声明）：
 
 ```dart
 // 拉到全部 UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景）
@@ -339,19 +339,18 @@ final List<MusicxxPluginUIItem> next =
   见上面「打包（随应用分发）」；`tools/build_native.sh` 覆盖 Linux/macOS 的宿主库构建）；
   macOS/Android/iOS/OHOS 的平台工程（Android 需要先用 NDK 交叉编译整套依赖）与 CI 排入后续阶段；
 - JS 插件支持**异步裁决**（裁决处理器可返回 Promise，等待预算内结算生效、超时按不裁决且不计失败）；
-  动态库插件作者指南见 `docs/plugin-native-api.md`；
-- 完整记录（每轮改了什么、验证命令与结果、偏差）见 musicxx 仓库 `resource/history/extern-plugin-impl/work.md`。
+  动态库插件作者指南见 `docs/plugin-native-api.md`。
 
 测试夹具（只服务原生测试，不是可发布插件；随测试一起安装到 `<安装前缀>/plugins/`）：
 
 | 夹具 | 验证点 |
 |---|---|
-| `src/tests/fixtures/fail_native/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（熔断，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载（plan §4.10） |
-| `src/tests/fixtures/bad_entry_native/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按契约拒绝（明确失败、有可读原因、无注册残留，plan §13.1 的 `test_entry_symbols`） |
+| `src/tests/fixtures/fail_native/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（熔断，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载 |
+| `src/tests/fixtures/bad_entry_native/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按契约拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
 | `src/tests/plugins/spin_js/` | 观察钩子里死循环 → 可选执行上限（`jsExecGuardMs`）能中断脚本且不影响其它 JS 插件 |
 | `src/tests/plugins/broken_js/` | 脚本语法错误 → 装载失败并回滚，宿主继续可用 |
 
-插件侧可用的能力（对应 plan §4.8/§5.6/§7）：
+插件侧可用的能力：
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
@@ -379,5 +378,5 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 原生测试 212 项�
 ```powershell
 dart run tools/gen_contract.dart --check                 # 契约生成物一致（66 个钩子，12 个异步裁决）
 flutter analyze                                          # 0 issue
-flutter test                                             # 包内：端到端冒烟（含原生/JS 异步裁决）+ UI 模型/播放页背景单测
+flutter test                                             # 包内：端到端验证（含原生/JS 异步裁决）+ UI 模型/播放页背景单测
 ```

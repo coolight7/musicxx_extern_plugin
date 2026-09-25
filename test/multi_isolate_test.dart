@@ -1,6 +1,6 @@
-/// 多 isolate 并发调用用例（plan §5.3 的 isolate 约定 / work.md §0.2 P1-7）
+/// 多 isolate 并发调用用例
 ///
-/// 约定（与 plan §5.3 一致）：
+/// 约定：
 /// - 宿主是**进程单例**：只在一个 isolate（应用的 UI isolate）里 `init`，其它 isolate
 ///   通过**同一个宿主句柄**调用管理/派发/状态类 API；本用例把句柄地址经 SendPort 传给 worker；
 /// - 在第二个 isolate 里再次 `init` 必须被拒绝（`host_create` 的进程单例校验），

@@ -4,7 +4,7 @@
 代码，只交出**打包期编译好的 shader bundle**，由宿主在运行期加载、按帧渲染。
 
 本文是插件作者的必读项；应用侧实现见 musicxx 仓库的
-`lib/plugin/externPlugin/render/`（通用层）与 `resource/history/extern-plugin-playing-background/plan.md`。
+`lib/plugin/externPlugin/render/`（通用层）。
 
 ## 1. 三个步骤
 

@@ -1,6 +1,6 @@
 /// musicxx 插件 SDK: 领域 C 契约 (与宿主领域相关, 与内核通用部分分离)
 ///
-/// 命名 (决策 14): 官方标识统一 `musicxx.*` 前缀; 插件自定义统一 `plugin.<pluginId>.*`。
+/// 命名: 官方标识统一 `musicxx.*` 前缀; 插件自定义统一 `plugin.<pluginId>.*`。
 /// 本头只声明**跨边界稳定契约** (类型/宏/IID), 纯 C 可包含 (便于 C 插件与外部工具)。
 ///
 /// 目录:
@@ -176,7 +176,7 @@ typedef struct MusicxxPluginHostIface {
     void(PLUGINXX_CALL* cancel_action)(const PluginxxHost* host, int64_t request_id);
 } MusicxxPluginHostIface;
 
-/* ==================== 接口表: musicxx.ui (声明式 UI 扩展, plan §5.6) ==================== */
+/* ==================== 接口表: musicxx.ui (声明式 UI 扩展) ==================== */
 
 #define MUSICXX_PLUGIN_IFACE_UI         "musicxx.ui"
 #define MUSICXX_PLUGIN_IFACE_UI_VERSION 1

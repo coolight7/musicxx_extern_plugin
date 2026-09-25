@@ -826,7 +826,7 @@ JSValue jsActionCancel(JSContext *ctx, JSValueConst, int /*argc*/,
                        JSValueConst * /*argv*/) {
   auto *inst = contextInstance(ctx);
   if (inst && inst->engine) {
-    /// v1: 取消该实例的全部在途请求 (单条取消留给后续版本)
+    /// v1: 取消该实例的全部未完成请求 (单条取消留给后续版本)
     inst->engine->cancelActionsOf(inst->name);
   }
   return JS_UNDEFINED;
@@ -1055,7 +1055,7 @@ thread_local int64_t gExecDeadlineMs = 0;
 /// QuickJS 中断回调: 返回非 0 让引擎中断当前脚本执行
 ///
 /// 这是**用户可选的保护开关** (配置 `jsExecGuardMs`), 不是宿主默认限制:
-/// 关闭时本回调恒返回 0, 不会打断任何脚本 (决策 13)。
+/// 关闭时本回调恒返回 0, 不会打断任何脚本。
 int jsExecInterruptHandler(JSRuntime * /*rt*/, void * /*opaque*/) {
   if (gExecDeadlineMs <= 0) {
     return 0;
@@ -1160,7 +1160,7 @@ std::shared_ptr<JsEngine> JsEngine::create(MusicxxHostManager *mgr) {
   slotTable().engine.store(engine.get(), std::memory_order_release);
   installBuiltinProvider();
   if (mgr) {
-    /// 动作请求接驳口: JS 侧的在途请求由引擎自己登记, Dart 的回复经它转交
+    /// 动作请求接驳口: JS 侧已发出、还没收到回复的请求由引擎自己登记, Dart 的回复经它转交
     mgr->setInternalActionRelay(engine);
   }
   return engine;

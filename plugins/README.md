@@ -41,4 +41,4 @@ plugins/
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h` |
 | JS 插件作者指南 | `docs/plugin-js-api.md` |
 | 插件渲染背景（shader bundle 打包与 uniform 契约） | `docs/plugin-shader-bundle.md` |
-| 框架设计（宿主/线程模型/权限/统计） | `<musicxx 仓库>/resource/history/extern-plugin-impl/plan.md` |
+| 框架设计（宿主/线程模型/权限/统计） | `docs/plugin-native-api.md` |
