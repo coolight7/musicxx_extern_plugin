@@ -404,8 +404,10 @@ const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: 
   什么都不用做；`musicxx.media.*` 只在需要更细的数据时用；
 - 封面不参与画面绘制：宿主不上传封面贴图，也不推任何直链（网络来源只说 `kind: "network"`）；
   本地来源的路径只在 `includePath: true` 时给出；
-- `musicxx.state.renderSlots` 状态镜像告诉你"现在是不是我在画"：`itemId` 等于自己的项 id 时才是本插件生效，
-  `visible: false` 表示宿主已停止渲染（页面被遮挡/切后台），可以据此停掉自己的重活；
+- `musicxx.state.renderSlots` 状态镜像告诉你"现在是不是我在画"：`itemId` 等于自己的项 id 时才是本插件生效
+  （`itemId` 为空 = 没有插件项在画，此时 `selectedId` 是用户选中的样式，可能是 `builtin:*`）；
+  `visible: false` 表示宿主当前没有渲染这份样式（播放页被遮挡/切后台，或播放页当前不在页面上），
+  可以据此停掉自己的重活；
 - 切换是**用户可见、可改回**的：设置里随时能改回内置样式或别的插件样式。
 - 完整可运行示例：`plugins/example_js_shader/`（JS，只演示播放页背景）：声明背景样式 +
   自绘设置页里的速率开关，改完用 `musicxx.ui.updateEntry` 重新声明，正在使用的背景立即用新速度。

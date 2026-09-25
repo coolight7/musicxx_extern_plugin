@@ -179,8 +179,12 @@ if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 我在画 */ }
 
 - `musicxx.render.select` 只允许选中**可用**项；不可用时返回 `{ok:false, error:"<原因>"}`；
 - 镜像 `musicxx.state.renderSlots` 含 `itemId` / `selectedId` / `visible` / `night` / `width` /
-  `height` / `animate` / `maxFps`；`visible:false` 时宿主已经停止渲染（页面被遮挡 / 切后台），
-  插件可以据此停掉自己的重活；
+  `height` / `animate` / `maxFps`；
+  - `itemId` = 现在由哪个插件项在画（为空 = 没有插件项在画），`selectedId` = 用户选中的是谁
+    （可能是内置样式 `builtin:*`）；槽位条目**一直存在**，所以"用户切回内置了"也能读出来，不用猜
+    "没有条目"是什么意思；
+  - `visible:false` 时宿主没有渲染这份样式：播放页被遮挡 / 切后台，或者播放页当前不在页面上
+    （此时 `width`/`height` 为 0）。插件可以据此停掉自己的重活；
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 宿主 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..512，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 

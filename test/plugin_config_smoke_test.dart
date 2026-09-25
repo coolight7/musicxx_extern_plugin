@@ -8,6 +8,8 @@
 /// - 改设置 → 写回 config.json → 重新装载（等价于重启）后仍然生效；
 /// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里
 ///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
+/// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着状态镜像走：
+///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要收敛（不能停在"已请求"）。
 ///
 /// 前置：先跑 `pwsh tools/build_native.ps1`（产出 `.native/output/<平台>-<配置>/`）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
@@ -70,10 +72,7 @@ void main() {
       () => _probe(runtime)['configSkipAds'] != null,
       runtime: runtime,
     );
-    expect(
-      _rowOf(_callView(runtime, 'settings'), 'skipAds')?['right'],
-      '已开启',
-    );
+    expect(_rowOf(_callView(runtime, 'settings'), 'skipAds')?['right'], '已开启');
 
     final File config = File(
       path.join(pluginRoot.path, 'example_js', 'config.json'),
@@ -105,10 +104,7 @@ void main() {
       runtime: runtime,
     );
     expect(_probe(runtime)['configSkipAds'], false, reason: '设置必须持久化');
-    expect(
-      _rowOf(_callView(runtime, 'settings'), 'skipAds')?['right'],
-      '已关闭',
-    );
+    expect(_rowOf(_callView(runtime, 'settings'), 'skipAds')?['right'], '已关闭');
     expect(
       _rowOf(_callView(runtime, 'settings'), 'heartbeatMs')?['right'],
       '60000',
@@ -168,8 +164,10 @@ void main() {
     );
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
     expect(
-      _rowOf(_callView(runtime, 'settings', plugin: pluginId), 'bgRate')?[
-          'right'],
+      _rowOf(
+        _callView(runtime, 'settings', plugin: pluginId),
+        'bgRate',
+      )?['right'],
       '1×',
     );
 
@@ -196,12 +194,132 @@ void main() {
     runtime.plugins.load(pluginId);
     await _pumpUntil(
       () =>
-          _rowOf(_callView(runtime, 'settings', plugin: pluginId), 'bgRate')?[
-              'right'] ==
+          _rowOf(
+            _callView(runtime, 'settings', plugin: pluginId),
+            'bgRate',
+          )?['right'] ==
           '2×',
       runtime: runtime,
     );
     expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('example_js_shader：背景状态文字跟着状态镜像收敛', () async {
+    if (env == null || !env.hasPlugin('example_js_shader')) {
+      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
+      return;
+    }
+
+    final Directory work = Directory.systemTemp.createTempSync(
+      'musicxx_plugin_shader_state_test',
+    );
+    addTearDown(() {
+      if (work.existsSync()) {
+        work.deleteSync(recursive: true);
+      }
+    });
+
+    const String pluginId = 'example_js_shader';
+    const String itemId = 'plugin.example_js_shader.bg';
+    final Directory pluginRoot = _copyPlugin(env, work, pluginId);
+
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+    addTearDown(runtime.dispose);
+    _registerHostActions(runtime, pluginRoot.path);
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: pluginRoot.path,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    runtime.plugins.scan();
+    runtime.plugins.load(pluginId);
+    expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+
+    /// 推一条播放页背景槽位的状态（应用侧就是 `musicxx.state.renderSlots`）
+    ///
+    /// 规则：`itemId` = 现在由哪个插件项在画（空 = 没有插件项在画），
+    /// `selectedId` = 用户选中的是谁（可能是 `builtin:*`）。
+    void pushSlot({
+      required String itemId,
+      required String selectedId,
+      required bool visible,
+      int width = 0,
+      int height = 0,
+    }) {
+      runtime.state.update('musicxx.state.renderSlots', <String, Object?>{
+        'player.background': <String, Object?>{
+          'itemId': itemId,
+          'plugin': itemId.isEmpty ? '' : pluginId,
+          'selectedId': selectedId,
+          'night': false,
+          'visible': visible,
+          'animate': true,
+          'width': width,
+          'height': height,
+          'maxFps': 16,
+        },
+      });
+    }
+
+    String? backgroundText() =>
+        _rowOf(
+              _callView(runtime, 'card', plugin: pluginId),
+              'background',
+            )?['right']
+            as String?;
+
+    String? renderText() =>
+        _rowOf(_callView(runtime, 'card', plugin: pluginId), 'render')?['right']
+            as String?;
+
+    // 宿主还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
+    expect(backgroundText(), '无状态');
+
+    // 用户选中的是内置样式（条目仍在，itemId 为空）
+    pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
+    expect(backgroundText(), '内置背景');
+    expect(renderText(), '未生效');
+
+    // 一键使用：动作还在往返，页面当场先显示"已请求"
+    final Object? requested = runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.useBackground',
+      <String, Object?>{'id': itemId, 'view': 'card'},
+    );
+    expect(requested, isA<Map<String, Object?>>());
+    expect(
+      _rowOf(
+        (requested! as Map<String, Object?>)['view']! as Map<String, Object?>,
+        'background',
+      )?['right'],
+      '已请求',
+      reason: '点击后当场要有反馈（镜像还没反映这次请求）',
+    );
+
+    // 镜像反映这次请求：选中本插件、但播放页没打开（没有挂载点 → 没有渲染）
+    pushSlot(itemId: itemId, selectedId: itemId, visible: false);
+    expect(backgroundText(), '生效中');
+    expect(renderText(), '未渲染');
+
+    // 播放页在前台：带上渲染尺寸与是否动态
+    pushSlot(
+      itemId: itemId,
+      selectedId: itemId,
+      visible: true,
+      width: 1280,
+      height: 720,
+    );
+    expect(renderText(), '动画中, 1280×720');
+
+    // 切回内置：条目还在（itemId 为空），状态文字要收敛，不能一直停在"已请求"
+    pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
+    await _pumpUntil(() => backgroundText() == '内置背景', runtime: runtime);
+    expect(backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须收敛（否则页面上看着像没生效）');
+    expect(renderText(), '未生效');
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
@@ -326,7 +444,9 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     try {
       final File file = configOf(pluginId);
       file.parent.createSync(recursive: true);
-      file.writeAsStringSync(const convert.JsonEncoder.withIndent('  ').convert(data));
+      file.writeAsStringSync(
+        const convert.JsonEncoder.withIndent('  ').convert(data),
+      );
       return '';
     } catch (error) {
       return '$error';
@@ -372,9 +492,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
   runtime.actions.register(MusicxxPluginActionNames.storageList, (invocation) {
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
-      return <String, Object?>{
-        'keys': readConfig(id).keys.toList()..sort(),
-      };
+      return <String, Object?>{'keys': readConfig(id).keys.toList()..sort()};
     }
     return <String, Object?>{
       'keys': <String>[
