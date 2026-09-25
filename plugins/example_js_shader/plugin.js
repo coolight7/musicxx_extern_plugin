@@ -104,35 +104,50 @@ function backgroundSlot() {
 
 /// 最近一次"一键使用"请求的样式 id
 ///
-/// 切换要经过一次动作往返 (musicxx.render.select), 这里先记住请求,
-/// 让页面当场就能看到"点了有反应", 而不是等宿主回推镜像。
+/// 切换要经过一次动作往返 (musicxx.render.select), 页面却是先于动作结果画出来的:
+/// 这里先记住请求, 让页面当场就能看到"点了有反应"; 镜像一反映这次请求就把它清掉。
 let lastBackgroundRequest = "";
 
 /// 当前生效项的文字说明
+///
+/// 镜像里的 `selectedId` 是"用户选中的是谁"(可能是 `builtin:*`), `itemId` 是"现在由哪个
+/// 插件项在画"(没有插件项生效时为空)。两个字段分开读, 才既能说清"内置背景", 又能说清
+/// 本插件到底有没有在画。
 function backgroundStateText() {
-    const current = backgroundSlot().itemId || "";
-    if (lastBackgroundRequest !== "" && current !== lastBackgroundRequest) {
-        return "已请求： " + lastBackgroundRequest;
+    const slot = backgroundSlot();
+    const selected = slot.selectedId || "";
+    const current = slot.itemId || "";
+    // 镜像还没反映这次请求(动作还在往返)时先显示"已请求"; 反映之后标记就没用了
+    if (lastBackgroundRequest !== "" && selected !== lastBackgroundRequest) {
+        return "已请求";
     }
+    lastBackgroundRequest = "";
     if (current === BG_ITEM_ID) {
-        return "本插件生效中";
+        return "生效中";
     }
-    return current === "" ? "内置背景" : ("其它: " + current);
+    if (selected === BG_ITEM_ID) {
+        return "已选中";
+    }
+    if (selected.indexOf("builtin:") === 0) {
+        return "内置背景";
+    }
+    return selected === "" ? "无状态" : ("其它插件: " + selected);
 }
 
 /// 本插件的渲染状态 (尺寸 / 是否在动)
 ///
-/// `visible:false` 表示宿主已经停止渲染 (播放页被遮挡或切到后台), 插件可以据此停掉自己的重活;
+/// `itemId` 是本插件时才有渲染可言: `visible:false` 表示宿主停止渲染(播放页被遮挡、
+/// 切到后台, 或者播放页当前根本不在页面上), 插件可以据此停掉自己的重活;
 /// `animate:false` 表示这个样式只画一帧。
 function renderStateText() {
     const slot = backgroundSlot();
     if (slot.itemId !== BG_ITEM_ID) {
         return "未生效";
     }
-    const size = (slot.width && slot.height) ? (slot.width + "×" + slot.height) : "—";
     if (slot.visible === false) {
-        return "已停止, " + size;
+        return "未在渲染";
     }
+    const size = (slot.width && slot.height) ? (slot.width + "×" + slot.height) : "—";
     return (slot.animate === false ? "静态一帧" : "动画中") + ", " + size;
 }
 
@@ -257,8 +272,12 @@ function requestBackground(id) {
     musicxx.host.log(2, "收到切换播放页背景请求: " + id);
     lastBackgroundRequest = id;
     musicxx.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
+        // 动作成功 = 选择已经落地 (镜像同步更新): 不再需要"已请求"提示
+        lastBackgroundRequest = "";
         musicxx.host.log(2, "切换播放页背景成功: " + JSON.stringify(r));
     }, function (err) {
+        // 失败时镜像里不会有这次请求, 留着标记会让页面一直显示"已请求"
+        lastBackgroundRequest = "";
         musicxx.host.log(3, "切换播放页背景失败: " + err.message);
     });
 }
