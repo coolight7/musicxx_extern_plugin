@@ -272,16 +272,20 @@ constexpr const char *kPrelude = R"JS(
         reject(new Error("动作请求未被受理: " + name + " (code=" + id + ")"));
         return;
       }
-      actionWaiters.set(id, { resolve: resolve, reject: reject });
+      // 表格用**字符串键**: 宿主回调 `onActionDone` 传进来的 id 是字符串
+      // (数字键会让查找落空 → 动作 Promise 永远不结算, 脚本读不到任何动作结果)
+      actionWaiters.set(String(id), { resolve: resolve, reject: reject });
     });
   };
   ext.onActionDone = function (id, status, json) {
-    var waiter = actionWaiters.get(id);
+    // 宿主按字符串传参: 键与状态都要先归一, 不能直接和数字比较
+    var key = String(id);
+    var waiter = actionWaiters.get(key);
     if (!waiter) { return; }
-    actionWaiters.delete(id);
+    actionWaiters.delete(key);
     var value = null;
     if (json) { try { value = JSON.parse(json); } catch (e) { value = json; } }
-    if (status === 0) {
+    if (Number(status) === 0) {
       waiter.resolve(value);
     } else {
       var reason = (value && value.error) ? value.error : ("status=" + status);

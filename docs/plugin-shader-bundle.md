@@ -156,7 +156,7 @@ void main() {
 | `title` | 必填 | — | 设置列表里的样式名 |
 | `depict` | `""` | — | 副标题 |
 | `enabled` | `true` | — | false = 不在设置里出现 |
-| `speed` | 4 | 0..20 | 写进 `uParams.w` |
+| `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`。**由插件自己决定**（想给用户一个速率开关就把它做成插件自己的设置项，见 §10）；宿主不做二次缩放 |
 | `maxFps` | 16 | 1..30 | 帧率上限（按 `ViewportAnimation` 限制） |
 | `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由 Flutter 放大 |
 | `animate` | true | — | false = 只渲染一帧 |
@@ -184,7 +184,43 @@ if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 我在画 */ }
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 宿主 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..512，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 
-## 10. 排查
+## 10. 动画速率由插件自己提供
+
+时间推进速度就是插件声明的 `speed`（写进 `uParams.w`），宿主不做二次缩放。用户想调速率时，
+界面与取值都由**插件自己**决定 —— 做法就是插件自绘设置页里的一个设置项（见 `plugin-js-api.md`
+的「插件自己的设置页」），值存插件目录的 `config.json`：
+
+```js
+var BG_BASE_SPEED = 1;                 // 本插件的基准速度（= 1×）
+var BG_RATE_OPTIONS = [0.5, 1, 2];     // 可选倍率
+
+function bgData(rate) {
+    return {
+        title: "流光背景",
+        shader: { bundle: "shader/bg.shaderbundle" },
+        speed: BG_BASE_SPEED * rate,   // 声明给宿主的速度
+        maxFps: 16,
+    };
+}
+
+// 顶层先按 1× 注册；读到 config.json 里的倍率后再改
+musicxx.ui.registerEntry({ name: "bg", type: "playing.background", data: bgData(1) });
+
+function applyRate(rate) {
+    // updateEntry 是**整体替换**：要把完整 data 传回去
+    musicxx.ui.updateEntry("bg", bgData(rate));
+    musicxx.storage.setConfig("bgRate", rate);
+}
+```
+
+- 运行期改速率会推 `musicxx.ui.changed`，宿主刷新候选后**正在使用的背景立即用新速度**
+  （不用重新选中；`speed` 是每帧现算的）；
+- `maxFps`、`resolutionScale`、`animate` 这类要改帧调度/分辨率创建的字段，运行期改完需要
+  重新选中该项才会完全生效；
+- 示例插件 `example_js` 就这么做：设置页里的「背景动画速率」（0.5× / 1× / 2×）就是它自己的设置项；
+  它把基准速度定为 **1**（此前声明 4，等价于整体降速到原来的 0.25×）、并把 1 定义为新的 1×。
+
+## 11. 排查
 
 | 现象 | 原因 |
 |---|---|
