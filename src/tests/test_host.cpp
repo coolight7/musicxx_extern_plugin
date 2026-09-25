@@ -1,6 +1,6 @@
 /// musicxx 外部插件宿主原生测试 (不依赖 Dart)
 ///
-/// 覆盖 (plan §13.1 的首批用例):
+/// 覆盖:
 /// - test_host_lifecycle: create/start/stop/destroy 幂等;
 /// - test_plugin_load: 扫描 + 装载示例插件 + 钩子注册生效;
 /// - test_hooks: decision 钩子裁决 (skip) / 观察钩子 / 未命中时零处理器;
@@ -179,7 +179,7 @@ int main(int argc, char **argv) {
   const std::string scanJson = take(scan);
   check(scanRc == MUSICXX_EXTERN_PLUGIN_OK, "plugin_scan 成功");
   std::printf("  [info] scanJson=%s\n", scanJson.substr(0, 400).c_str());
-  // 扫描应同时发现原生与 JS 示例插件 (M3: JS 插件零编译)
+  // 扫描应同时发现原生与 JS 示例插件 (JS 插件零编译)
   check(scanJson.find("example_native") != std::string::npos,
         "扫描发现 example_native");
   check(scanJson.find("example_js") != std::string::npos,
@@ -285,7 +285,7 @@ int main(int argc, char **argv) {
     check(rc == MUSICXX_EXTERN_PLUGIN_OK, "hook_emit(async) 入队成功");
   }
 
-  // 裁决型钩子的异步派发 (plan §5.3): 立即拿到 callId, 结果经事件回传
+  // 裁决型钩子的异步派发: 立即拿到 callId, 结果经事件回传
   {
     MusicxxExternPluginString out{};
     const std::string payload =
@@ -378,7 +378,7 @@ int main(int argc, char **argv) {
     check(statsJson.find("example_native") != std::string::npos,
           "stats 含插件条目");
 
-    // 事件计数与速率 (plan §4.11): 插件发布的 plugin.<id>.* 事件归属到该插件
+    // 事件计数与速率: 插件发布的 plugin.<id>.* 事件归属到该插件
     // (example_native 的 start 事务里发布过一次 plugin.example_native.hello)
     const auto at = statsJson.find(R"("id":"example_native")");
     const std::string entry =
@@ -437,7 +437,7 @@ int main(int argc, char **argv) {
     std::printf("  [info] plugin_call rc=%d log=%s\n", rc, callErr.c_str());
     std::printf("  [info] probe=%s\n", probe.c_str());
 
-    // ==================== 声明式 UI 扩展 (plan §5.6, 动态库插件)
+    // ==================== 声明式 UI 扩展 (动态库插件)
     // ====================
     //
     // 插件只做声明 (类型 + JSON 内容), 宿主负责渲染;
@@ -486,21 +486,20 @@ int main(int argc, char **argv) {
       check(snapshot.find("nodata") == std::string::npos, "非法声明不在快照里");
     }
 
-    // 单宿主线程模型: start 事务与能力处理器必须在同一条线程上执行 (plan
-    // §2.3.1)
+    // 单宿主线程模型: start 事务与能力处理器必须在同一条线程上执行
     const std::string startThread = jsonStringField(probe, "startThread");
     const std::string callThread = jsonStringField(probe, "callThread");
     check(!startThread.empty() && startThread == callThread,
           "插件代码全部在宿主线程执行");
 
-    // 钩子 / 动作命名空间校验 (plan §3.5)
+    // 钩子 / 动作命名空间校验
     check(jsonIntField(probe, "unknownHookRc") == "-4",
           "未知前缀钩子注册被拒绝");
     check(jsonIntField(probe, "foreignActionRc") == "-6",
           "他人命名空间动作被拒绝");
     check(jsonIntField(probe, "dupHookRc") == "0",
           "同一钩子覆盖式重复注册成功");
-    // 事件命名空间与订阅 (plan §3.5 / §4.9)
+    // 事件命名空间与订阅
     check(jsonIntField(probe, "badTopicSubscribeRc") == "-1",
           "非法事件主题订阅被拒绝");
     check(jsonIntField(probe, "ownPublishRc") == "0",
@@ -514,7 +513,7 @@ int main(int argc, char **argv) {
     check(jsonIntField(probe, "stateLen") != "0", "插件可同步读状态镜像");
   }
 
-  // 动作请求超时保护 (plan §4.8): 插件请求 → Dart 不回复 → 宿主到点终结并推
+  // 动作请求超时保护: 插件请求 → Dart 不回复 → 宿主到点终结并推
   // cancel 事件
   {
     MusicxxExternPluginString out{};
@@ -571,7 +570,7 @@ int main(int argc, char **argv) {
           "plugin_call 未声明能力返回未找到");
   }
 
-  // 装载失败安全降级 (plan §11.1): 不崩溃、明确失败、宿主继续可用
+  // 装载失败安全降级: 不崩溃、明确失败、宿主继续可用
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
@@ -631,7 +630,7 @@ int main(int argc, char **argv) {
     check(rc != MUSICXX_EXTERN_PLUGIN_OK, "卸载后能力调用失败");
   }
 
-  // ==================== JS 插件 (plan §4.4 / §4.6, M3) ====================
+  // ==================== JS 插件 (零编译) ====================
   //
   // 同一套用例在 native/js 两条链路上跑: decision 裁决、observe
   // 通知、能力探针、 状态镜像读取、事件订阅、定时器、禁用/卸载摘除。
@@ -850,7 +849,7 @@ int main(int argc, char **argv) {
             "卸载后背景示例的 UI 项无残留");
     }
 
-    // ============ 跨插件能力调用 (plan §7.2 capability.call) ============
+    // ============ 跨插件能力调用 (capability.call) ============
     //
     // JS 插件调用其它插件的能力: JS 目标同线程直接调用;
     // 原生目标投递到宿主线程执行, 脚本侧不等待 (返回
@@ -893,9 +892,9 @@ int main(int argc, char **argv) {
             "卸载临时装载的动态库插件");
     }
 
-    // ============ 可选 JS 执行上限 (js_exec_guard, plan §4.10) ============
+    // ============ 可选 JS 执行上限 (js_exec_guard) ============
     //
-    // 默认关闭 (决策 13: 宿主不主动打断脚本)。这里模拟用户在配置里显式开启,
+    // 默认关闭 (宿主不主动打断脚本)。这里模拟用户在配置里显式开启,
     // 验证: 死循环脚本会被中断 (共享 JS 线程不会永久被占住),
     // 宿主与其它插件不受影响。
     {
@@ -981,7 +980,7 @@ int main(int argc, char **argv) {
             "调试信息含 JS 运行时");
       check(debugJson.find("example_js") != std::string::npos,
             "调试信息含 JS 插件");
-      // 共享 JS 线程的排队观测 (plan §4.11: 只观测不限制)
+      // 共享 JS 线程的排队观测 (只观测不限制)
       check(debugJson.find("\"queueDepth\":") != std::string::npos,
             "调试信息含 JS 任务队列深度");
       check(debugJson.find("\"queueWaitMaxMs\":") != std::string::npos,
@@ -1019,7 +1018,7 @@ int main(int argc, char **argv) {
   // ==================== JavaScript 异步裁决 (裁决处理器返回 Promise)
   // ====================
   //
-  // 语义 (plan §4.10 的等待预算 + §7.2 的 JS API):
+  // 语义 (等待预算 + JS API):
   // - Promise 在宿主等待预算 (100 ms) 内结算 → 裁决照常生效;
   // - 超过预算 → 按"无裁决"继续: 不打断脚本、不计处理器失败;
   // 迟到的结算被丢弃并计数。
@@ -1168,7 +1167,7 @@ int main(int argc, char **argv) {
           "JS 插件卸载后 UI 项无残留");
   }
 
-  // ==================== 入口符号契约 (plan §4.1 P0 / §13.1 test_entry_symbols)
+  // ==================== 入口符号契约 (对应用例 test_entry_symbols)
   // ====================
   //
   // 夹具 bad_entry_native 的库文件导出了 get_info/create/destroy, 但**没有**
@@ -1201,7 +1200,7 @@ int main(int argc, char **argv) {
     check(badEntryHooks == 0, "缺入口的库没有注册任何钩子");
   }
 
-  // ==================== 熔断与派发暂停 (plan §4.10 / §13.1)
+  // ==================== 熔断与派发暂停
   // ====================
   //
   // 夹具 fail_native 注册两个处理器:
@@ -1254,7 +1253,7 @@ int main(int argc, char **argv) {
     }
 
     // 处理器级明细 (失败次数 / 暂停标记) 来自钩子统计接口 `hook_stats`:
-    // 宿主对"连续失败"的处理是**只暂停派发**, 不卸载插件 (plan §4.10)
+    // 宿主对"连续失败"的处理是**只暂停派发**, 不卸载插件
     {
       MusicxxExternPluginString stats{};
       const auto statsRc = musicxx_extern_plugin_hook_stats(host, &stats, &log);

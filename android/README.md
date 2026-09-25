@@ -17,7 +17,7 @@ dlopen failed: library "/data/user/0/<包名>/files/xxx.so" is not accessible fo
 - **宿主库**（`libmusicxx_extern_plugin.so`）必须随 APK 分发，本模块负责收集；
 - **用户安装的动态库插件**（放在 `<应用支持目录>/musicxx/extern_plugin/plugins/<插件id>/`）在部分
   设备/系统版本上会因同一条限制装载失败 —— 宿主按"安全降级"处理：该插件标记为不可用、给出原因、
-  不重试也不影响其它插件（见 `resource/history/extern-plugin-impl/plan.md` §11.1）。JS 插件不受影响。
+  不重试也不影响其它插件。JS 插件不受影响。
 
 ## 构建宿主库
 

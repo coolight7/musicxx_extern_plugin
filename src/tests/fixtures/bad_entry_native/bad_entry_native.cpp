@@ -1,4 +1,4 @@
-/// 测试夹具: 缺少 start/stop 入口符号的动态库 (plan §13.1 的 test_entry_symbols)
+/// 测试夹具: 缺少 start/stop 入口符号的动态库 (对应用例 test_entry_symbols)
 ///
 /// 只导出宿主会查找的部分入口: `get_info` / `create` / `destroy`;
 /// **故意不导出** `musicxx_plugin_start` 与 `musicxx_plugin_stop`。

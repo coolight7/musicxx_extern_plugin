@@ -1,7 +1,7 @@
 /// musicxx 外部插件宿主 C ABI (Dart ⇄ 原生, v1)
 ///
 /// 定位: 本头是 **Dart 侧唯一入口**(ffigen 由此生成绑定), 也是原生宿主的导出契约。
-/// 规范详见 `resource/history/extern-plugin-impl/plan.md` §6:
+/// 跨边界约定:
 /// - 对齐/类型: 8 字节对齐, 只用定长类型, 禁止裸 int/long/size_t;
 /// - 调用约定: 全部导出函数与回调带 `MUSICXX_EXTERN_PLUGIN_CALL`;
 /// - 结构体: 入参 `const Struct*`, 返回值一律经 `out` 参数 + `int32_t` 状态码;

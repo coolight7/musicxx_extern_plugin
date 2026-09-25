@@ -54,7 +54,7 @@ class MusicxxPluginHooks {
   /// 原生/JS 处理器数量快照（由 `musicxx.hook.changed` 事件维护；O(1) 判定）
   final Map<String, int> _nativeCounts = <String, int>{};
 
-  /// 在途的异步裁决（callId → 完成器）：结果由 `musicxx.hook.decision.result` 事件回填
+  /// 等结果回传的异步裁决（callId → 完成器）：结果由 `musicxx.hook.decision.result` 事件回填
   final Map<int, Completer<Map<String, Object?>?>> _pendingDecisions =
       <int, Completer<Map<String, Object?>?>>{};
 
@@ -227,7 +227,7 @@ class MusicxxPluginHooks {
     return (mergedResult == null || mergedResult.isEmpty) ? null : mergedResult;
   }
 
-  /// 在途异步裁决数量（调试页展示；只读）
+  /// 等结果回传的异步裁决数量（调试页展示；只读）
   int get pendingAsyncDecisions => _pendingDecisions.length;
 
   /// 已完成的异步裁决次数（含超时）
@@ -306,7 +306,7 @@ class MusicxxPluginHooks {
   void handleDisposed() {
     _nativeCounts.clear();
     _throttles.clear();
-    // 宿主已停：在途异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
+    // 宿主已停：还没结算的异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
     for (final MapEntry<int, Timer> entry in _pendingDecisionTimers.entries) {
       entry.value.cancel();
     }

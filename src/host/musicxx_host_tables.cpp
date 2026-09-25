@@ -263,7 +263,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     return R"({"handled":false,"handlers":0})";
   }
 
-  /// 派发前**快照**处理器列表 (plan §8.1 的注册表不变式)
+  /// 派发前**快照**处理器列表 (派发期间注册表变化不影响本轮遍历)
   ///
   /// 插件处理器在宿主线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
   /// `pluginxx.hooks` 的 register / unregister 会改动 hooks_ 里的同一条 vector:
@@ -619,7 +619,7 @@ int32_t MusicxxHostManager::actionRespond(int64_t requestId, int32_t status,
                                           const std::string &resultJson) {
   auto it = pendingActions_.find(requestId);
   if (it == pendingActions_.end()) {
-    // 不属于动态库插件登记表: 可能是 JS 引擎登记的在途请求 (见
+    // 不属于动态库插件登记表: 可能是 JS 引擎登记的动作请求 (见
     // InternalActionRelay)
     std::shared_ptr<InternalActionRelay> relay;
     {

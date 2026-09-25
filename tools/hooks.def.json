@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "钩子/动作/权限的单一定义来源（plan §8.3.1）。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头与插件作者文档；改动后必须重新生成并提交生成物。",
+  "comment": "钩子/动作/权限的单一定义来源。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头与插件作者文档；改动后必须重新生成并提交生成物。",
   "hooks": [
     { "id": "musicxx.app.start", "dart": "appStart", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "budgetMs": 0, "hardMs": 0, "phase": "P0", "doc": "" },
     { "id": "musicxx.app.ready", "dart": "appReady", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "budgetMs": 0, "hardMs": 0, "phase": "P0", "doc": "" },

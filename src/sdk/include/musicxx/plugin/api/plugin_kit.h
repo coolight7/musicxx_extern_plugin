@@ -2,13 +2,13 @@
 ///
 /// 组成:
 /// - 内核通用部分: `pluginxx/kit/kit.h` (通用表聚合 / 日志 / 任务 / 协程 / 能力注册) —
-///   直接使用内核 `Pluginxx*` 名字, **不引入别名层** (决策 11);
+///   直接使用内核 `Pluginxx*` 名字, **不引入别名层**;
 /// - musicxx 领域契约: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 领域聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
 /// - 便捷注册: `PluginBase::hook` / `observe` / `unregisterHook` / `requestAction` /
 ///   `stateJson` / `hostInfoJson`。
 ///
-/// 线程与纪律 (见 plan §4.5): `create` 只构造上下文; `start` 是注册事务, 在宿主线程
+/// 线程与纪律: `create` 只构造上下文; `start` 是注册事务, 在宿主线程
 /// 执行且**禁止阻塞** (慢操作走 `pluginxx` 的 offload / 后台任务); `stop` 撤销自管资源;
 /// `destroy` 只释放本地对象。插件内不得有可变全局状态 (多实例铁律)。
 #pragma once
@@ -157,7 +157,7 @@ public:
     }
 
     /// 订阅宿主事件总线的主题 (**宿主线程**执行处理器; 处理器不得阻塞)
-    /// - 主题必须符合命名空间规则 (plan §3.5): 官方 `musicxx.*` 或插件自定义
+    /// - 主题必须符合命名空间规则: 官方 `musicxx.*` 或插件自定义
     ///   `plugin.<本插件id>.*`; 其它前缀会被宿主拒绝 (返回 -1);
     /// - 处理器形如 `void(std::string_view event_json)`;
     /// - 订阅句柄由宿主按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
@@ -178,7 +178,7 @@ public:
         return sub ? 0 : -1;
     }
 
-    /* ---------- 声明式 UI 扩展 (plan §5.6; 名字用短名, 宿主自动补前缀) ---------- */
+    /* ---------- 声明式 UI 扩展 (名字用短名, 宿主自动补前缀) ---------- */
 
     /// 注册一个 UI 项: `itemName` 用短名 (如 "card"), `type` 取 MUSICXX_PLUGIN_UI_TYPE_*,
     /// `dataJson` 是类型相关的声明式内容 (JSON 对象)

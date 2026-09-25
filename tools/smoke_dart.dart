@@ -1,4 +1,4 @@
-/// Dart 侧冒烟脚本（纯 Dart VM，不依赖 Flutter；用于定位 FFI 卡点）
+/// Dart 侧自检脚本（纯 Dart VM，不依赖 Flutter；用于定位 FFI 卡住的位置）
 ///
 /// 用法：
 /// ```
@@ -67,7 +67,7 @@ Future<void> main(List<String> args) async {
   step('6 state.update…');
   runtime.state.update(MusicxxPluginState.keySong, <String, Object?>{
     'sid': 's-smoke',
-    'name': '冒烟歌曲',
+    'name': '自检歌曲',
   });
   step('6 state.update 完成');
 

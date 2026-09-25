@@ -286,7 +286,7 @@ if [ "$android" = 1 ]; then
     [ -f "$android_toolchain" ] || die "找不到 NDK 工具链文件: ${android_toolchain}"
     info "ninja: $(command -v ninja)"
 else
-    # 内核要求 C++26: GCC >= 14 / Clang >= 18 (plan §11.2 的工具链要求)
+    # 内核要求 C++26: GCC >= 14 / Clang >= 18
     cxx_compiler="$(command -v c++ || true)"
     if [ -z "$cxx_compiler" ]; then
         warn '未找到 c++ 编译器 (请安装 g++ >= 14 或 clang++ >= 18)'

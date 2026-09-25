@@ -86,11 +86,9 @@
 ## 裁决对象通用外壳
 
 ```jsonc
-{
-    "action": "continue" | "skip" | "cancel" | "replace",
-    "patch": { /* 钩子专属字段 */ },
-    "error": "可选说明" 
-}
+{ "action": "continue" | "skip" | "cancel" | "replace",
+  "patch": { /* 钩子专属字段 */ },
+  "error": "可选说明" }
 ```
 
 - 返回 `null` / 空对象表示"不裁决"，交给下一个处理器；
