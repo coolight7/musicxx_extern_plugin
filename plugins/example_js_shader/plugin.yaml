@@ -1,0 +1,13 @@
+name: example_js_shader
+kind: js
+entry: plugin.js
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "JS 插件示例 (零编译): 自定义播放页面背景 (shader bundle) + 动画速率设置"
+platforms: [windows, linux, macos, android, ios]
+
+permissions:
+  - musicxx.ui
+  - musicxx.storage

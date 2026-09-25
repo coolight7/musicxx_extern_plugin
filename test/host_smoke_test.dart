@@ -479,6 +479,41 @@ void main() {
 
     _step('18 JS unload 完成');
 
+    // 播放页背景示例已拆成独立插件 example_js_shader: 它注册背景槽位的 UI 项
+    // (shader bundle 声明), 速率是它自己的设置项。
+    if (Directory('${env.pluginRoot}/example_js_shader').existsSync()) {
+      final MusicxxPluginInfo? shaderPlugin = found2
+          .where((MusicxxPluginInfo info) => info.id == 'example_js_shader')
+          .firstOrNull;
+      expect(shaderPlugin, isNotNull);
+      expect(shaderPlugin!.kind, MusicxxPluginKind.js);
+      runtime.plugins.load('example_js_shader');
+      final MusicxxPluginUIItem background = MusicxxPluginUIItems.byType(
+        runtime.plugins.uiSnapshot(),
+        MusicxxPluginUIType.playingBackground,
+      ).firstWhere(
+        (MusicxxPluginUIItem item) => item.plugin == 'example_js_shader',
+      );
+      expect(
+        (background.data['shader']! as Map<String, Object?>)['bundle'],
+        'shader/bg.shaderbundle',
+        reason: 'bundle 用插件目录内的相对路径',
+      );
+      expect(background.data['speed'], 1, reason: '默认 1× = 基准速度 1');
+      // 设置页能力: 页面由插件给出 (改速率用的是同一个页面)
+      final Object? viewRaw = runtime.plugins.call(
+        'example_js_shader',
+        'plugin.example_js_shader.settings',
+        const <String, Object?>{},
+      );
+      final Map<String, Object?> shaderView =
+          (viewRaw! as Map<String, Object?>)['view']! as Map<String, Object?>;
+      expect(shaderView['title'], isNotEmpty);
+      expect(shaderView['blocks'], isA<List<Object?>>());
+      runtime.plugins.unload('example_js_shader');
+      _step('18.5 背景示例插件完成');
+    }
+
     // 统计快照可读
     final Map<String, Object?> stats = runtime.plugins.stats();
     expect(stats['host'], isA<Map<String, Object?>>());

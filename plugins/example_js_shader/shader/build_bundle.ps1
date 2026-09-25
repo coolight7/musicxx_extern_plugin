@@ -1,4 +1,4 @@
-# 打包示例插件的 shader bundle（Windows 用 pwsh）
+# 打包本插件（example_js_shader）的 shader bundle（Windows 用 pwsh）
 #
 # 用法：
 #   pwsh -NoProfile -File .\build_bundle.ps1 [-FlutterRoot <Flutter SDK 根目录>]

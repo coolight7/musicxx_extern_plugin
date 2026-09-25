@@ -184,6 +184,8 @@ int main(int argc, char **argv) {
         "扫描发现 example_native");
   check(scanJson.find("example_js") != std::string::npos,
         "扫描发现 example_js (JS 插件)");
+  check(scanJson.find("example_js_shader") != std::string::npos,
+        "扫描发现 example_js_shader (JS 插件)");
   check(scanJson.find("\"kind\":\"js\"") != std::string::npos,
         "JS 插件的 kind 为 js");
   check(scanJson.find("本次运行未启用 JS 运行时") == std::string::npos,
@@ -737,10 +739,10 @@ int main(int argc, char **argv) {
       check(jsonStringField(probe, "hostPlatform") == "windows",
             "JS 读到宿主信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
-      // 3 项 = 主页入口 + 歌曲菜单 + 播放页背景样式
-      // (设置界面是插件自己的页面, 不是 UI 项)
-      check(jsonIntField(probe, "uiEntries") == "3",
-            "JS 注册了 3 个 UI 项 (脚本侧记账)");
+      // 2 项 = 主页入口 + 歌曲菜单 (播放页背景样式已拆到 example_js_shader;
+      // 设置界面是插件自己的页面, 不是 UI 项)
+      check(jsonIntField(probe, "uiEntries") == "2",
+            "JS 注册了 2 个 UI 项 (脚本侧记账)");
       check(jsonIntField(probe, "selfStatsHooks") == "4",
             "JS 能读自己的统计 (stats.getSelf 的钩子计数)");
     }
@@ -761,11 +763,8 @@ int main(int argc, char **argv) {
             "快照里没有设置页类型 (框架不管理插件设置入口)");
       check(snapshot.find("plugin.example_js.settings") == std::string::npos,
             "JS 插件不再注册设置页入口项");
-      check(snapshot.find("plugin.example_js.bg") != std::string::npos &&
-                snapshot.find("musicxx.ui.playing.background") !=
-                    std::string::npos &&
-                snapshot.find("shader/bg.shaderbundle") != std::string::npos,
-            "JS 插件的播放页背景样式进入快照 (含 shader bundle)");
+      check(snapshot.find("plugin.example_js.bg") == std::string::npos,
+            "播放页背景示例已拆成独立插件 (example_js 不再注册背景项)");
     }
 
     // 插件自己的设置界面: 就是插件页面的同名能力
@@ -782,6 +781,73 @@ int main(int argc, char **argv) {
             "设置界面返回声明式块 (由插件给出结构)");
       check(view.find("config.json") != std::string::npos,
             "设置界面内容由插件给出 (说明自己的 config.json 用法)");
+    }
+
+    // 播放页背景示例已拆成独立插件 `example_js_shader`: 它声明背景样式,
+    // 速率 (0.5× / 1× / 2×) 是它自己的设置项, 改完重新声明 UI 项。
+    {
+      MusicxxExternPluginString loadLog{};
+      const auto shaderLoadRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP("example_js_shader"), viewCP(R"({"enabled":true})"),
+          8000, &loadLog);
+      if (shaderLoadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+        std::printf("  [info] shader js load rc=%d log=%s\n", shaderLoadRc,
+                    take(loadLog).c_str());
+      } else {
+        freeStr(loadLog);
+      }
+      check(shaderLoadRc == MUSICXX_EXTERN_PLUGIN_OK,
+            "背景示例插件装载成功 (example_js_shader)");
+
+      MusicxxExternPluginString snap{};
+      const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+      const std::string snapshot = take(snap);
+      check(snapRc == MUSICXX_EXTERN_PLUGIN_OK &&
+                snapshot.find("plugin.example_js_shader.bg") !=
+                    std::string::npos &&
+                snapshot.find("musicxx.ui.playing.background") !=
+                    std::string::npos &&
+                snapshot.find("shader/bg.shaderbundle") != std::string::npos,
+            "背景示例的播放页背景样式进入快照 (含 shader bundle)");
+      check(snapshot.find("plugin.example_js_shader.card") != std::string::npos,
+            "背景示例的主页入口项进入快照");
+
+      // 速率设置: 页面里能读到, 切一档后显示的值跟着变
+      MusicxxExternPluginString before{};
+      const auto beforeRc = musicxx_extern_plugin_plugin_call(
+          host, viewCP("example_js_shader"), viewCP("settings"), viewCP("{}"),
+          5000, &before, &log);
+      const std::string beforeView = take(before);
+      check(beforeRc == MUSICXX_EXTERN_PLUGIN_OK &&
+                beforeView.find("背景动画速率") != std::string::npos,
+            "背景示例的设置页含『背景动画速率』设置项");
+      const std::string beforeRate = jsonStringField(beforeView, "right");
+
+      MusicxxExternPluginString cycle{};
+      const auto cycleRc = musicxx_extern_plugin_plugin_call(
+          host, viewCP("example_js_shader"), viewCP("cycleBackgroundRate"),
+          viewCP(R"({"view":"settings"})"), 5000, &cycle, &log);
+      const std::string cycleView = take(cycle);
+      const std::string afterRate = jsonStringField(cycleView, "right");
+      check(cycleRc == MUSICXX_EXTERN_PLUGIN_OK,
+            "切换背景动画速率的能力可调用");
+      check(!beforeRate.empty() && !afterRate.empty() &&
+                beforeRate != afterRate,
+            "切换后设置页显示的速率随之变化");
+
+      // 卸载 → UI 项摘除
+      check(
+          musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_shader"),
+                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
+          "卸载背景示例插件");
+      MusicxxExternPluginString after{};
+      const auto afterRc =
+          musicxx_extern_plugin_ui_snapshot(host, &after, &log);
+      const std::string afterSnapshot = take(after);
+      check(afterRc == MUSICXX_EXTERN_PLUGIN_OK &&
+                afterSnapshot.find("plugin.example_js_shader.bg") ==
+                    std::string::npos,
+            "卸载后背景示例的 UI 项无残留");
     }
 
     // ============ 跨插件能力调用 (plan §7.2 capability.call) ============

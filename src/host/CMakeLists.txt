@@ -295,11 +295,14 @@ if (TARGET example_native)
     DESTINATION plugins/example_native)
 endif ()
 
-# JS 插件示例: 纯脚本 + 清单, 无需编译
-if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_js/plugin.yaml")
-  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_js/"
-    DESTINATION plugins/example_js)
-endif ()
+# JS 插件示例: 纯脚本 + 清单, 无需编译 (shader bundle 之类的资源直接放在插件目录里)
+foreach (_jsPlugin example_js example_js_shader)
+  if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_jsPlugin}/plugin.yaml")
+    install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_jsPlugin}/"
+      DESTINATION "plugins/${_jsPlugin}")
+  endif ()
+endforeach ()
+unset(_jsPlugin)
 
 # 原生测试用的插件夹具 (含故意损坏的插件, 用于验证失败降级)
 if (EXISTS "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/plugins/")

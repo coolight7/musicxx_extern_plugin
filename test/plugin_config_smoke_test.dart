@@ -6,7 +6,8 @@
 ///   直接把应答当值使用，包一层对象会让插件读不到自己写的内容；
 /// - 设置页能力读到的值与 config.json 一致；
 /// - 改设置 → 写回 config.json → 重新装载（等价于重启）后仍然生效；
-/// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里。
+/// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里
+///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
 ///
 /// 前置：先跑 `pwsh tools/build_native.ps1`（产出 `.native/output/<平台>-<配置>/`）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
@@ -24,7 +25,7 @@ void main() {
   final _Environment? env = _Environment.detect();
 
   test('example_js：设置读写落盘，重新装载后仍然生效', () async {
-    if (env == null) {
+    if (env == null || !env.hasPlugin('example_js')) {
       markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
       return;
     }
@@ -39,12 +40,7 @@ void main() {
     });
 
     // 复制一份示例插件：插件目录必须可写（设置就写在插件目录的 config.json 里）
-    final Directory pluginRoot = Directory(path.join(work.path, 'plugins'))
-      ..createSync(recursive: true);
-    _copyDirectory(
-      Directory(path.join(env.pluginRoot, 'example_js')),
-      Directory(path.join(pluginRoot.path, 'example_js')),
-    );
+    final Directory pluginRoot = _copyPlugin(env, work, 'example_js');
 
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
@@ -92,19 +88,13 @@ void main() {
     await _pumpUntil(() => config.existsSync(), runtime: runtime);
     expect(_readConfig(config)['skipAds'], false);
 
-    // 运行期改背景动画速率（插件自己的设置项）：插件重新声明 UI 项，宿主快照应看到新的 speed
-    //
-    // 两个条件都要等：UI 项更新走宿主线程，写配置走 Dart 侧动作请求，
-    // 只看其中一个会让"另一半还没被处理"时就开始断言。
-    _callView(runtime, 'cycleBackgroundRate');
+    // 再改另一项（同一个 config.json 的另一个键）：写新键不能丢掉已有的键
+    _callView(runtime, 'cycleHeartbeat');
     await _pumpUntil(
-      () =>
-          _backgroundSpeed(runtime) == 2 &&
-          _readConfig(config)['bgRate'] == 2,
+      () => _readConfig(config)['heartbeatMs'] == 60000,
       runtime: runtime,
     );
-    expect(_backgroundSpeed(runtime), 2, reason: '1× 的基准速度是 1，切到 2× 后声明 2');
-    expect(_readConfig(config)['bgRate'], 2);
+    expect(_readConfig(config)['heartbeatMs'], 60000, reason: '30 秒 → 60 秒');
     expect(_readConfig(config)['skipAds'], false, reason: '写新键不能丢掉已有的键');
 
     // 重新装载（等价于"重启应用后再加载插件"）：设置必须还在
@@ -120,17 +110,110 @@ void main() {
       '已关闭',
     );
     expect(
-      _rowOf(_callView(runtime, 'settings'), 'bgRate')?['right'],
-      '2×',
+      _rowOf(_callView(runtime, 'settings'), 'heartbeatMs')?['right'],
+      '60000',
     );
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('example_js_shader：背景动画速率落盘，重新装载后仍然生效', () async {
+    if (env == null || !env.hasPlugin('example_js_shader')) {
+      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
+      return;
+    }
+
+    final Directory work = Directory.systemTemp.createTempSync(
+      'musicxx_plugin_shader_config_test',
+    );
+    addTearDown(() {
+      if (work.existsSync()) {
+        work.deleteSync(recursive: true);
+      }
+    });
+
+    const String pluginId = 'example_js_shader';
+    final Directory pluginRoot = _copyPlugin(env, work, pluginId);
+
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+    addTearDown(runtime.dispose);
+    _registerHostActions(runtime, pluginRoot.path);
+
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: pluginRoot.path,
+        observeEvents: true,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    runtime.plugins.scan();
+    runtime.plugins.load(pluginId);
+    expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+
+    // 背景样式声明本身：类型、bundle 路径、默认速率（1× = 基准速度 1）
+    final MusicxxPluginUIItem? background = _backgroundItem(runtime, pluginId);
+    expect(background, isNotNull, reason: '插件应注册播放页背景样式');
+    expect(background!.type, MusicxxPluginUIType.playingBackground);
+    final Object? shader = background.data['shader'];
+    expect(
+      shader is Map ? shader['bundle'] : null,
+      'shader/bg.shaderbundle',
+      reason: 'bundle 用插件目录内的相对路径',
+    );
+    expect(_backgroundSpeed(runtime, pluginId), 1);
+
+    final File config = File(
+      path.join(pluginRoot.path, pluginId, 'config.json'),
+    );
+    expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
+    expect(
+      _rowOf(_callView(runtime, 'settings', plugin: pluginId), 'bgRate')?[
+          'right'],
+      '1×',
+    );
+
+    // 切一档速率（等价于用户在设置页点按钮）：UI 项重新声明 + 写回 config.json
+    //
+    // 两个条件都要等：UI 项更新走宿主线程，写配置走 Dart 侧动作请求，
+    // 只看其中一个会让"另一半还没被处理"时就开始断言。
+    _callView(runtime, 'cycleBackgroundRate', plugin: pluginId);
+    await _pumpUntil(
+      () =>
+          _backgroundSpeed(runtime, pluginId) == 2 &&
+          _readConfig(config)['bgRate'] == 2,
+      runtime: runtime,
+    );
+    expect(
+      _backgroundSpeed(runtime, pluginId),
+      2,
+      reason: '1× 的基准速度是 1，切到 2× 后声明 2',
+    );
+    expect(_readConfig(config)['bgRate'], 2);
+
+    // 重新装载：速率必须还在，设置页显示的也是新值
+    runtime.plugins.unload(pluginId);
+    runtime.plugins.load(pluginId);
+    await _pumpUntil(
+      () =>
+          _rowOf(_callView(runtime, 'settings', plugin: pluginId), 'bgRate')?[
+              'right'] ==
+          '2×',
+      runtime: runtime,
+    );
+    expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
 /// 调用插件能力并取回视图描述（`{view: {...}}`）
-Map<String, Object?> _callView(MusicxxPluginRuntime runtime, String method) {
+Map<String, Object?> _callView(
+  MusicxxPluginRuntime runtime,
+  String method, {
+  String plugin = 'example_js',
+}) {
   final Object? raw = runtime.plugins.call(
-    'example_js',
-    'plugin.example_js.$method',
+    plugin,
+    'plugin.$plugin.$method',
     const <String, Object?>{},
   );
   expect(raw, isA<Map<String, Object?>>(), reason: '$method 应返回视图描述');
@@ -162,7 +245,7 @@ Map<String, Object?>? _rowOf(Map<String, Object?> view, String id) {
   return null;
 }
 
-/// 插件探针（能力 `probe`）
+/// 插件探针（能力 `probe`，仅 example_js 有）
 Map<String, Object?> _probe(MusicxxPluginRuntime runtime) {
   final Object? raw = runtime.plugins.call(
     'example_js',
@@ -173,15 +256,25 @@ Map<String, Object?> _probe(MusicxxPluginRuntime runtime) {
   return raw! as Map<String, Object?>;
 }
 
-/// UI 项快照里背景样式声明的动画速度（`musicxx.ui.playing.background` 的 `data.speed`）
-num? _backgroundSpeed(MusicxxPluginRuntime runtime) {
+/// UI 项快照里的播放页背景样式（`musicxx.ui.playing.background`）
+MusicxxPluginUIItem? _backgroundItem(
+  MusicxxPluginRuntime runtime,
+  String pluginId,
+) {
   for (final MusicxxPluginUIItem item in runtime.plugins.uiSnapshot()) {
-    if (item.id == 'plugin.example_js.bg') {
-      final Object? value = item.data['speed'];
-      return value is num ? value : null;
+    if (item.plugin == pluginId &&
+        item.type == MusicxxPluginUIType.playingBackground) {
+      return item;
     }
   }
   return null;
+}
+
+/// 背景样式声明的动画速度（`data.speed`）
+num? _backgroundSpeed(MusicxxPluginRuntime runtime, String pluginId) {
+  final MusicxxPluginUIItem? item = _backgroundItem(runtime, pluginId);
+  final Object? value = item?.data['speed'];
+  return value is num ? value : null;
 }
 
 Map<String, Object?> _readConfig(File file) {
@@ -193,6 +286,20 @@ Map<String, Object?> _readConfig(File file) {
     return <String, Object?>{};
   }
   return decoded.cast<String, Object?>();
+}
+
+/// 把示例插件复制到临时目录（返回临时插件根目录）
+///
+/// 插件目录必须可写：设置就写在插件目录的 `config.json` 里，
+/// 直接用安装目录会把测试的写入留在产物里。
+Directory _copyPlugin(_Environment env, Directory work, String pluginId) {
+  final Directory pluginRoot = Directory(path.join(work.path, 'plugins'))
+    ..createSync(recursive: true);
+  _copyDirectory(
+    Directory(path.join(env.pluginRoot, pluginId)),
+    Directory(path.join(pluginRoot.path, pluginId)),
+  );
+  return pluginRoot;
 }
 
 /// 注册宿主动作（与音乐应用侧的语义一致：`storage.get` 返回**值本身**）
@@ -321,6 +428,10 @@ class _Environment {
   final String libraryPath;
   final String pluginRoot;
 
+  /// 该插件是否随产物一起安装（只有一个示例插件时也能跳过另一个用例）
+  bool hasPlugin(String id) =>
+      Directory(path.join(pluginRoot, id)).existsSync();
+
   static _Environment? detect() {
     String? library;
     for (final String candidate
@@ -338,7 +449,7 @@ class _Environment {
       '${binDir.parent.path}/plugins',
       '${binDir.path}/plugins',
     ]) {
-      if (Directory(path.join(root, 'example_js')).existsSync()) {
+      if (Directory(root).existsSync()) {
         return _Environment(library, root);
       }
     }
