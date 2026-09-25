@@ -15,7 +15,8 @@ src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_pa
   third_party/       依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
                      bindings_generated.dart 与 hook_ids.g.dart 为生成物）
-test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_smoke_test.dart 对真实原生库做端到端冒烟）
+test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_smoke_test.dart / plugin_config_smoke_test.dart
+                     对真实原生库做端到端冒烟，后者覆盖示例插件的设置读写往返与重新装载后的持久化）
 plugins/            官方插件与示例（每个子目录一个插件，插件 id 取清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
@@ -235,7 +236,7 @@ dart run tools/gen_contract.dart               # 由 tools/hooks.def.json 生成
 dart run tools/gen_contract.dart --check       # CI：生成物与定义不一致时退出码 1
 dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
 flutter analyze
-flutter test                                   # 端到端冒烟（需要先构建原生库）
+flutter test                                   # 端到端冒烟（宿主/JS/配置读写；需要先构建原生库）
 dart run tools/smoke_dart.dart                 # 纯 Dart 冒烟（不依赖 Flutter，便于定位 FFI 卡点）
 ```
 

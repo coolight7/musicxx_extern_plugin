@@ -9,6 +9,9 @@
 /// - `example_js.card` 能力: 主页入口与播放页附加信息块打开的插件页面 (`ext://example_js/card`)。
 /// - 插件自绘设置页 (`ext://example_js/settings`, 从 card 页的按钮进入; 框架不管理设置入口)
 ///   + 宿主网络代理通道 (musicxx.net.fetch) 演示。
+/// - 播放页背景 (shader bundle) 的动画速率是插件自己的设置项 (设置页里 0.5× / 1× / 2×):
+///   改完用 `musicxx.ui.updateEntry` 重新声明, 宿主刷新候选后立即生效;
+///   1× 的基准速度定为 1 (原先声明 4, 即整体降速到原来的 0.25×)。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
@@ -83,11 +86,45 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, function (c
     });
 });
 
-/// 定时器: 每 30 秒写一次日志 (演示定时器链路; 卸载/禁用时宿主自动清理)
-musicxx.timer.setInterval(function () {
-    timerTicks += 1;
-    musicxx.host.log(2, "example_js 心跳: 切歌 " + songChangedCount + " 次, 错误 " + errorCount + " 次");
-}, 30000);
+/// 定时器: 按"心跳间隔"配置写日志 (演示定时器链路; 卸载/禁用时宿主自动清理)
+///
+/// 间隔是插件的设置项 (默认 30 秒, 设置页里能改, 也可以直接编辑 config.json):
+/// 顶层先按默认值注册, 读到配置里的值后再换成实际间隔。
+const DEFAULT_HEARTBEAT_MS = 30000;
+const HEARTBEAT_OPTIONS = [10000, 30000, 60000];
+
+let heartbeatTimer = 0;
+let appliedHeartbeatMs = 0;
+
+/// 把任意值归一到允许的心跳间隔 (非法值回退默认)
+function normalizeHeartbeat(value) {
+    const ms = Number(value);
+    for (let i = 0; i < HEARTBEAT_OPTIONS.length; ++i) {
+        if (HEARTBEAT_OPTIONS[i] === ms) {
+            return ms;
+        }
+    }
+    return DEFAULT_HEARTBEAT_MS;
+}
+
+/// 按间隔 (重新) 注册心跳定时器; 间隔没变则什么都不做
+function applyHeartbeat(ms) {
+    const value = normalizeHeartbeat(ms);
+    if (value === appliedHeartbeatMs && heartbeatTimer !== 0) {
+        return;
+    }
+    appliedHeartbeatMs = value;
+    if (heartbeatTimer !== 0) {
+        musicxx.timer.clear(heartbeatTimer);
+    }
+    heartbeatTimer = musicxx.timer.setInterval(function () {
+        timerTicks += 1;
+        musicxx.host.log(2, "example_js 心跳: 切歌 " + songChangedCount + " 次, 错误 " + errorCount + " 次");
+    }, value);
+    musicxx.host.log(2, "心跳间隔 → " + value + "ms");
+}
+
+applyHeartbeat(DEFAULT_HEARTBEAT_MS);
 
 /// 声明式 UI 扩展: 主页入口项 + 歌曲菜单项
 /// 说明: UI 项只做声明 (标题/图标/动作), 渲染由宿主负责; 运行期也能再注册/更新/注销。
@@ -119,20 +156,66 @@ musicxx.ui.registerEntry({
 /// 『设置 → 播放页面背景』里选中后才生效 (未选中时零成本: 不加载 bundle、不分析封面)。
 /// 4 个绘制色由宿主每帧写进 uniform (见 docs/plugin-shader-bundle.md);
 /// shader/ 目录里带 bundle.json 与编译好的 bg.shaderbundle (打包脚本 shader/build_bundle.ps1)。
-musicxx.ui.registerEntry({
-    name: "bg",
-    type: "playing.background",
-    order: 20,
-    data: {
+///
+/// `speed` 是时间推进速度, 由插件自己决定 (设置页里的"背景动画速率"就是它):
+/// 1× = 基准速度 1 (2026-09 起把原先声明的 4 重新定义为 1×, 即整体降速到原来的 0.25×),
+/// 可选 0.5× / 1× / 2×。
+const BG_BASE_SPEED = 1;
+const BG_RATE_OPTIONS = [0.5, 1, 2];
+
+/// 把任意值归一到允许的动画速率倍率 (非法值回退 1×)
+function normalizeBgRate(value) {
+    const rate = Number(value);
+    for (let i = 0; i < BG_RATE_OPTIONS.length; ++i) {
+        if (BG_RATE_OPTIONS[i] === rate) {
+            return rate;
+        }
+    }
+    return 1;
+}
+
+/// 倍率的显示文本 (1 → "1×"、0.5 → "0.5×")
+function bgRateText(rate) {
+    return String(normalizeBgRate(rate)) + "×";
+}
+
+/// 倍率 → 声明给宿主的时间推进速度
+function bgSpeedOf(rate) {
+    return BG_BASE_SPEED * normalizeBgRate(rate);
+}
+
+/// 背景样式的完整声明 (updateEntry 是整体替换, 所以每次都从这一个函数取)
+function backgroundData(rate) {
+    return {
         title: "示例晶格背景",
         depict: "跟随封面配色的晶格化动态背景",
         shader: { bundle: "shader/bg.shaderbundle" },
         colors: { source: "background" },
-        speed: 4,
+        speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
         foregroundStyle: "mask",
-    },
+    };
+}
+
+let appliedBgRate = normalizeBgRate(1);
+
+/// 应用背景动画速率: 运行期改自己的背景声明 (宿主会刷新候选, 选中时立即生效)
+function applyBackgroundRate(rate) {
+    const value = normalizeBgRate(rate);
+    if (value === appliedBgRate) {
+        return;
+    }
+    appliedBgRate = value;
+    musicxx.ui.updateEntry("bg", backgroundData(value));
+    musicxx.host.log(2, "背景动画速率 → " + bgRateText(value));
+}
+
+musicxx.ui.registerEntry({
+    name: "bg",
+    type: "playing.background",
+    order: 20,
+    data: backgroundData(appliedBgRate),
 });
 
 /// 读状态镜像: 当前是不是本插件的背景在画 (同步读取)
@@ -157,11 +240,18 @@ function backgroundStateText() {
 }
 
 /// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
-musicxx.ui.notify({ text: "example_js 已加载", kind: "info" }).then(function () {
-    return null;
-}, function (err) {
-    musicxx.host.log(3, "发送通知失败: " + err.message);
-});
+///
+/// 提示语是插件设置项 (`greeting`): 等配置读完之后再弹，用户改了提示语下次启动就会看到。
+function notifyGreeting(greeting) {
+    const text = (typeof greeting === "string" && greeting !== "")
+        ? greeting
+        : "example_js 已加载";
+    musicxx.ui.notify({ text: text, kind: "info" }).then(function () {
+        return null;
+    }, function (err) {
+        musicxx.host.log(3, "发送通知失败: " + err.message);
+    });
+}
 
 /// 能力: 跨插件调用 (JS → 原生/内置插件; 结果为 Promise, 宿主线程执行)
 ///
@@ -188,7 +278,12 @@ musicxx.capability.register("crossCall", function (args) {
 /// 配置读取: config.json 由插件自己读写 (自绘设置页 + 手改文件都改它),
 /// 用 getConfig 异步读、给默认值 (框架不再提供 settings_schema 默认值)。
 /// 能力处理器必须同步返回, 所以这里把最近一次读到的值记账, 由 probe / 设置页回读。
-musicxx.storage.configCache = { skipAds: null, greeting: "", heartbeatMs: null };
+musicxx.storage.configCache = {
+    skipAds: null,
+    greeting: "",
+    heartbeatMs: null,
+    bgRate: null,
+};
 
 /// 是否开启"跳过广告" (默认开启; 配置还没读到时也按默认值处理)
 function skipAdsEnabled() {
@@ -197,13 +292,23 @@ function skipAdsEnabled() {
 
 function refreshConfig() {
     musicxx.storage.getConfig("skipAds", true).then(function (value) {
-        musicxx.storage.configCache.skipAds = value;
+        musicxx.storage.configCache.skipAds = (typeof value === "boolean") ? value : true;
     }, function () { return null; });
     musicxx.storage.getConfig("greeting", "example_js 已加载").then(function (value) {
-        musicxx.storage.configCache.greeting = (value === null || value === undefined) ? "" : value;
+        const text = (value === null || value === undefined) ? "" : String(value);
+        musicxx.storage.configCache.greeting = text;
+        // 读到了配置才弹提示: 用户设置的提示语才真正用得上
+        notifyGreeting(text);
     }, function () { return null; });
-    musicxx.storage.getConfig("heartbeatMs", 30000).then(function (value) {
-        musicxx.storage.configCache.heartbeatMs = value;
+    musicxx.storage.getConfig("heartbeatMs", DEFAULT_HEARTBEAT_MS).then(function (value) {
+        const ms = normalizeHeartbeat(value);
+        musicxx.storage.configCache.heartbeatMs = ms;
+        applyHeartbeat(ms);
+    }, function () { return null; });
+    musicxx.storage.getConfig("bgRate", 1).then(function (value) {
+        const rate = normalizeBgRate(value);
+        musicxx.storage.configCache.bgRate = rate;
+        applyBackgroundRate(rate);
     }, function () { return null; });
 }
 refreshConfig();
@@ -224,7 +329,10 @@ function settingsView(override) {
         : (cache.greeting || "");
     const heartbeatMs = (override && typeof override.heartbeatMs === "number")
         ? override.heartbeatMs
-        : (typeof cache.heartbeatMs === "number" ? cache.heartbeatMs : 30000);
+        : configuredHeartbeatMs();
+    const bgRate = (override && typeof override.bgRate === "number")
+        ? override.bgRate
+        : configuredBgRate();
     return {
         title: "JS 示例插件设置",
         subtitle: "页面由插件绘制; 值保存在插件目录的 config.json",
@@ -240,7 +348,8 @@ function settingsView(override) {
                 items: [
                     { id: "skipAds", title: "跳过广告曲目", subtitle: "播放前裁决: 名字含『广告』的曲目直接跳过", right: skipAds ? "已开启" : "已关闭" },
                     { id: "greeting", title: "启动提示语", subtitle: "加载时弹出的提示", right: greeting === "" ? "(未设置)" : greeting },
-                    { id: "heartbeatMs", title: "心跳间隔(毫秒)", subtitle: "定时器写日志的间隔", right: String(heartbeatMs) },
+                    { id: "heartbeatMs", title: "心跳间隔(毫秒)", subtitle: "定时器写日志的间隔, 改完立即换成新间隔", right: String(heartbeatMs) },
+                    { id: "bgRate", title: "背景动画速率", subtitle: "本插件背景的时间推进速度（1× 是基准，可选 0.5× / 1× / 2×），改完立即生效", right: bgRateText(bgRate) },
                 ],
             },
             {
@@ -248,6 +357,17 @@ function settingsView(override) {
                 title: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
                 style: "primary",
                 action: { kind: "capability", name: "toggleSkipAds" },
+            },
+            {
+                kind: "button",
+                title: "切换背景动画速率（0.5× / 1× / 2×）",
+                style: "primary",
+                action: { kind: "capability", name: "cycleBackgroundRate" },
+            },
+            {
+                kind: "button",
+                title: "切换心跳间隔（10 / 30 / 60 秒）",
+                action: { kind: "capability", name: "cycleHeartbeat" },
             },
             {
                 kind: "button",
@@ -267,6 +387,18 @@ function saveConfig(key, value) {
     }, function (err) {
         musicxx.host.log(3, "写配置失败: " + err.message);
     });
+}
+
+/// 当前生效的心跳间隔 (配置还没读到 / 值非法时用默认值)
+function configuredHeartbeatMs() {
+    const value = musicxx.storage.configCache.heartbeatMs;
+    return (typeof value === "number") ? value : DEFAULT_HEARTBEAT_MS;
+}
+
+/// 当前生效的背景动画速率倍率 (配置还没读到 / 值非法时用 1×)
+function configuredBgRate() {
+    const value = musicxx.storage.configCache.bgRate;
+    return (typeof value === "number") ? normalizeBgRate(value) : 1;
 }
 
 musicxx.capability.register("settings", function () {
@@ -291,6 +423,41 @@ musicxx.capability.register("resetGreeting", function (args) {
     const value = (args && args.value) ? String(args.value) : "example_js 已加载";
     saveConfig("greeting", value);
     return { view: settingsView({ greeting: value }) };
+});
+
+/// 设置页按钮: 循环切换背景动画速率 (0.5× → 1× → 2× → 0.5×)
+///
+/// 速率是插件自己的设置项: 改完用 `musicxx.ui.updateEntry` 重新声明背景样式,
+/// 宿主刷新候选后正在使用的背景立即用新速度 (无需重新选中)。
+musicxx.capability.register("cycleBackgroundRate", function (args) {
+    const current = configuredBgRate();
+    let index = 0;
+    for (let i = 0; i < BG_RATE_OPTIONS.length; ++i) {
+        if (BG_RATE_OPTIONS[i] === current) {
+            index = i;
+        }
+    }
+    const next = BG_RATE_OPTIONS[(index + 1) % BG_RATE_OPTIONS.length];
+    saveConfig("bgRate", next);
+    applyBackgroundRate(next);
+    return {
+        view: (args && args.view === "card") ? cardView() : settingsView({ bgRate: next }),
+    };
+});
+
+/// 设置页按钮: 循环切换心跳间隔 (10 → 30 → 60 秒 → 10)
+musicxx.capability.register("cycleHeartbeat", function () {
+    const current = configuredHeartbeatMs();
+    let index = 0;
+    for (let i = 0; i < HEARTBEAT_OPTIONS.length; ++i) {
+        if (HEARTBEAT_OPTIONS[i] === current) {
+            index = i;
+        }
+    }
+    const next = HEARTBEAT_OPTIONS[(index + 1) % HEARTBEAT_OPTIONS.length];
+    saveConfig("heartbeatMs", next);
+    applyHeartbeat(next);
+    return { view: settingsView({ heartbeatMs: next }) };
 });
 
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
@@ -405,7 +572,7 @@ function cardView() {
                     {
                         id: "timerTicks",
                         title: "定时器心跳",
-                        subtitle: "每 30 秒写一条日志",
+                        subtitle: "每 " + configuredHeartbeatMs() + " 毫秒写一条日志",
                         right: String(timerTicks),
                     },
                     {
@@ -431,6 +598,13 @@ function cardView() {
                         title: "播放页背景",
                         subtitle: "在『设置 → 播放页面背景』里也能选; 这里读的是状态镜像",
                         right: backgroundStateText(),
+                    },
+                    {
+                        id: "bgRate",
+                        title: "背景动画速率",
+                        subtitle: "点这一条循环切换 0.5× / 1× / 2×（1× 是基准速度）",
+                        right: bgRateText(configuredBgRate()),
+                        action: { kind: "capability", name: "cycleBackgroundRate", args: { view: "card" } },
                     },
                     {
                         id: "skipAds",

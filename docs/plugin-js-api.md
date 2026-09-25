@@ -126,10 +126,17 @@ await musicxx.player.next();
 await musicxx.player.setVolume(0.6);
 await musicxx.ui.notify({ text: "你好" });
 await musicxx.storage.set("myKey", { a: 1 });
-const value = await musicxx.storage.get("myKey", null);
+const value = await musicxx.storage.get("myKey", null);   // 键不存在时给默认值（这里是 null）
 const songs = await musicxx.library.querySongs({ pid: 123, keyword: "周杰伦" });
 const lrc   = await musicxx.lyrics.getCurrent();
 ```
+
+`musicxx.storage.*` 的取值语义：
+
+- `get(key, 默认值)` / `getConfig(key, 默认值)` 返回**值本身**；键不存在时返回你给的默认值
+  （不给默认值就是 `null`）；
+- `set/remove` 成功就是"写盘完成"（配置文件 `config.json` 是整份重写的）；
+- `list()` 返回 `{ keys: [...] }`（键名数组在 `keys` 字段里）。
 
 分类便捷封装（都等价于对应 `musicxx.call`）：
 
@@ -233,6 +240,7 @@ musicxx.ui.registerEntry({
         depict: "跟随封面配色的动态背景",  // 可选；副标题
         shader: { bundle: "shader/bg.shaderbundle" },  // 必填；插件目录内的相对路径
         colors: { source: "background" },  // 4 个绘制色的来源（默认 background）
+        speed: 4,                       // 0..20；时间推进速度（宿主直接用这个值，速率开关由插件自己做）
         maxFps: 16,                     // 1..30，默认 16
         animate: true,                  // false = 只画一帧
         scrim: 0.0,                     // 0..0.8；背景上叠一层暗化
@@ -244,6 +252,10 @@ musicxx.ui.registerEntry({
 - 查询可选项与切换样式（也可以切到内置样式）用 `musicxx.render.list / current / select`；
 - 自己画"一键使用"按钮：`musicxx.call("musicxx.render.select", { slot: "player.background", id: "plugin.本插件id.bg" })`；
 - 想知道"现在是不是我在画"：读状态镜像 `musicxx.state.renderSlots`；
+- **动画速率由插件自己提供**：`speed` 就是宿主使用的时间推进速度（宿主不做二次缩放）。想给用户一个
+  速率开关，就把它做成插件自己设置页里的设置项（例如 0.5×/1×/2×，值存 `config.json`），
+  改完用 `musicxx.ui.updateEntry(name, 完整 data)` 重新声明 —— 正在使用的背景立即用新速度
+  （`updateEntry` 是整体替换，`maxFps` 等要改帧调度的字段需重新选中该项，详见 `plugin-shader-bundle.md` §10）；
 - 需要更细的颜色数据：`musicxx.media.palette` / `musicxx.media.cover`。
 
 ```js
