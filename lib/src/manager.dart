@@ -19,13 +19,13 @@ typedef _OutCall =
 /// 插件管理（Dart → 原生宿主的插件生命周期与查询）
 ///
 /// 全部方法都是**同步 FFI 调用**（有等待上界）：装载/卸载在宿主线程异步完成，
-/// 这里只做有界等待；长时间操作（安装压缩包等）留给 S4 的隔离 isolate。
+/// 这里只做有界等待；耗时的准备工作（例如解压安装包）由调用方放到单独的 isolate 里完成。
 class MusicxxPluginManager {
   MusicxxPluginManager.internal(this._runtime);
 
   final MusicxxPluginRuntime _runtime;
 
-  /// 已加载插件缓存（由事件维护为"标脏 + 重查"，权威值来自宿主快照）
+  /// 已加载插件缓存（事件到达时重新查询；以宿主快照为准）
   List<MusicxxPluginInfo> _cache = const <MusicxxPluginInfo>[];
   final Map<String, MusicxxPluginInfo> _byId = <String, MusicxxPluginInfo>{};
 
@@ -275,7 +275,7 @@ class MusicxxPluginManager {
     }
   }
 
-  /// 资源与耗时统计快照（阶段耗时/钩子耗时/注册项/计数器；只观测不限制）
+  /// 资源与耗时统计快照（各阶段耗时/钩子耗时/注册项/计数器；只观测不限制）
   Map<String, Object?> stats({Map<String, Object?>? scope}) {
     _requireRunning('stats');
     final MusicxxPluginArena arena = MusicxxPluginArena();
@@ -359,7 +359,7 @@ class MusicxxPluginManager {
     _scanned = const <MusicxxPluginInfo>[];
   }
 
-  /// 生命周期事件：只做"标脏 + 重查"（避免事件顺序与快照不一致导致状态错乱）
+  /// 生命周期事件：只重新查询一次快照（避免事件顺序与快照不一致导致状态错乱）
   void handleLifecycleEvent(MusicxxPluginEvent event) {
     if (!_runtime.isRunning) {
       return;

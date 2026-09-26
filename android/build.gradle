@@ -44,7 +44,7 @@ if (project.hasProperty('musicxxExternPluginLibDir')) {
     explicitLibDir = file(System.getenv('MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR'))
 }
 
-// 该 ABI 在某个原生配置下的候选路径（顺序与 Dart 侧 native_library.dart 的候选口径一致：
+// 该 ABI 在某个原生配置下的候选路径（顺序与 Dart 侧 native_library.dart 一致：
 // 便携输出目录 → 构建目录里的安装前缀 → 仓库预置目录）
 def candidatesOf = { String abi, String config ->
     List<File> list = []

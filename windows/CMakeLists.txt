@@ -2,7 +2,8 @@
 #
 # 这个包与普通 FFI 插件不同：宿主库**不在 Flutter 构建里编译**。
 # 宿主库（musicxx_extern_plugin.dll）由包内 tools/build_native.ps1 的 superbuild 独立构建
-# （依赖链含 fmt / yaml-cpp / simdjson / libiconv / uchardet / QuickJS，见方案 §11.2），
+# （依赖链含 fmt / yaml-cpp / simdjson / libiconv / uchardet / QuickJS，都由包内构建脚本
+# 从 src/third_party 的源码构建），
 # 因此本文件只做两件事：
 #   1. 按约定目录找到"已经构建好的"宿主库；
 #   2. 把它交给 Flutter 的 PLUGIN_BUNDLED_LIBRARIES，随应用一起分发到可执行文件旁边。

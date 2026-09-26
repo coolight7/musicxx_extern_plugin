@@ -15,7 +15,7 @@
 /// 等),
 ///   早报错好过让 Dart 侧渲染时才发现;
 /// - **生命周期**: 项随插件实例 stop/卸载自动摘除 (宿主在
-/// `clearPluginRegistrations` 里兜底),
+/// `clearPluginRegistrations` 里统一清理),
 ///   每次变化推送 `musicxx.ui.changed` 事件 (payload 带该插件的全部项, Dart
 ///   整批替换);
 /// - **只存声明**: 宿主不解释 data 的业务含义 (除了动作描述的结构),
@@ -40,7 +40,7 @@ using utilxx_base::Json;
 
 namespace {
 
-/// 单条 UI 项 data 的体积上限 (状态镜像限制同口径)
+/// 单条 UI 项 data 的体积上限 (与状态镜像单键的上限相同)
 constexpr uint64_t kMaxUiDataBytes = 64 * 1024;
 
 /// 官方 UI 项类型 (与 plugin_api.h 的 MUSICXX_PLUGIN_UI_TYPE_* 一一对应)

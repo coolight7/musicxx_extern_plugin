@@ -138,7 +138,7 @@ if (NOT MSVC)
   )
 endif ()
 
-# 导出面收口: 宿主库的可见导出只有 `musicxx_extern_plugin_*`
+# 导出符号只保留 `musicxx_extern_plugin_*`
 # - GNU/Clang (Linux/Android): 用 version script 把其余符号全部本地化 —— 只靠
 #   `CXX_VISIBILITY_PRESET hidden` 挡不住静态库带进来的 `STB_GNU_UNIQUE` 符号
 #   (实测 Boost.Asio 的 error category 实例会以 GNU unique 符号出现在动态符号表里);
@@ -207,7 +207,7 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
   endif ()
 
   # 测试夹具插件 (编译进插件目录, 与 plugin.yaml 一起安装到 plugins/<名>/):
-  #   fail_native       处理器总是失败 → 验证熔断与派发暂停
+  #   fail_native       处理器总是失败 → 验证连续失败后暂停派发
   #   bad_entry_native  库文件缺 start/stop → 验证装载阶段按契约拒绝
   # 它们只服务原生测试, 不是可发布的插件。
   foreach (_fixture fail_native bad_entry_native)

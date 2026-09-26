@@ -8,9 +8,9 @@
 /// - 便捷注册: `PluginBase::hook` / `observe` / `unregisterHook` / `requestAction` /
 ///   `stateJson` / `hostInfoJson`。
 ///
-/// 线程与纪律: `create` 只构造上下文; `start` 是注册事务, 在宿主线程
+/// 线程与约定: `create` 只构造上下文; `start` 是注册事务, 在宿主线程
 /// 执行且**禁止阻塞** (慢操作走 `pluginxx` 的 offload / 后台任务); `stop` 撤销自管资源;
-/// `destroy` 只释放本地对象。插件内不得有可变全局状态 (多实例铁律)。
+/// `destroy` 只释放本地对象。插件内不得有可变全局状态 (多实例规则)。
 #pragma once
 
 #include "musicxx/plugin/api/plugin_api.h"

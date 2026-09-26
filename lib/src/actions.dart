@@ -176,7 +176,7 @@ class MusicxxPluginActions {
 
   /// `musicxx.action.cancel`（插件取消 / 宿主超时）：通知已注册的处理器
   void handleActionCancel(MusicxxPluginEvent event) {
-    // v1：仅记录；处理器可订阅事件流自行收尾（S4 接入取消令牌）
+    // v1 只记一条日志；需要中断的处理器的实现可以订阅事件流自行收尾（取消令牌尚未接入）
     _runtime.log(
       3,
       '动作请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
@@ -189,7 +189,7 @@ class MusicxxPluginActions {
       jsonEncode(<String, Object?>{'error': message});
 }
 
-/// 已注册动作的默认实现（音乐应用侧在 S4 接入 Store；这里给出可用骨架）
+/// 动作名常量（应用侧在 Store 里注册对应实现；这里只列名字）
 abstract final class MusicxxPluginActionNames {
   static const String playerPlay = 'musicxx.player.play';
   static const String playerPause = 'musicxx.player.pause';

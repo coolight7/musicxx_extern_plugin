@@ -129,7 +129,7 @@ uniform MusicxxRenderInfo {
 - **可以少声明成员**（宿主跳过不写，着色器读到 0），但不能声明错误的名字
   （成员在结构体里不存在时宿主会跳过；声明了名字却没有对应成员不会报错，只是没有值）；
 - 颜色是 `0..1` 的浮点（sRGB 分量）；`uEnv.y = 0` 表示当前没有有效的封面配色分析结果
-  （用 `icon.*` 来源的参数这时会用插件给的固定值兜底）。
+  （用 `icon.*` 来源的参数这时会用插件给的固定值）。
 
 **关于时间**：`uParams.z` 是这块渲染视图从创建起累计的**真实秒数，没有乘速度**；`uParams.w` 才是
 插件声明的 `speed`。想跟随速率变化，着色器要自己乘：
@@ -195,7 +195,7 @@ void main() {
 ```jsonc
 "args": [
   { "name": "uColor1", "source": "icon.themeMapping.0" },              // 具名来源（内置背景用的那 4 色）
-  { "name": "uColor2", "source": "icon.main", "convert": true, "value": "#8899aa" },  // 封面提取色 + 兜底值
+  { "name": "uColor2", "source": "icon.main", "convert": true, "value": "#8899aa" },  // 封面提取色 + 取不到来源时用的固定值
   { "name": "uColor3", "source": "theme.primary" },                    // 主题主色
   { "name": "uTint",   "value": "#ff8800" },                          // 固定颜色
   { "name": "uMix",    "value": [0.5, 0.25, 0, 1] },                   // 固定 vec4
@@ -209,7 +209,7 @@ void main() {
 | `name` | uniform 成员名：字母或下划线开头，最长 32 字符（`^[A-Za-z_][A-Za-z0-9_]{0,31}$`）；结构体里没有这个成员时宿主跳过不写 |
 | `source` | 具名来源（见下表）；空 = 只用固定值 |
 | `convert` | 只对 `icon.*` 有意义：取到的封面色是否套宿主的昼夜转换（默认 false，原样给） |
-| `value` | 固定值（白昼用）：数字（写到 x）、1~4 个数字的数组、`#rrggbb` / `#aarrggbb`；也是 `source` 取不到时的兜底 |
+| `value` | 固定值（白昼用）：数字（写到 x）、1~4 个数字的数组、`#rrggbb` / `#aarrggbb`；`source` 取不到值时也用它 |
 | `valueNight` | 固定值的夜间版本（缺省回退 `value`） |
 
 | `source` | 取到的颜色 |
@@ -222,7 +222,7 @@ void main() {
 | `theme.error` / `theme.wave` | 错误提示色 / 歌曲图波浪色 |
 | `icon.main` / `icon.light` / `icon.lightMuted` / `icon.dark` / `icon.darkMuted` | 当前歌曲封面的提取色（分析结果原始色；`convert: true` 时套昼夜转换） |
 | `icon.dominant.0` .. `icon.dominant.3` | 封面提取色的主色候选 |
-| `icon.themeMapping.0` .. `icon.themeMapping.3` | 封面颜色**经主题/背景映射后的 4 个绘制色**：内置播放页背景实际用的就是这 4 色（已经套过昼夜转换与观感归一，`convert` 对它不再生效；没有分析结果时是兜底色） |
+| `icon.themeMapping.0` .. `icon.themeMapping.3` | 封面颜色**经主题/背景映射后的 4 个绘制色**：内置播放页背景实际用的就是这 4 色（已经套过昼夜转换与观感归一，`convert` 对它不再生效；没有分析结果时是固定的默认色） |
 
 - 一份声明最多 **16 项**；名字非法、既没有来源也没有固定值的项会被**直接忽略**（不是报错）；
 - 只认 `args`：旧的 `data.colors` 字段**已移除** —— 还写着它的插件不会解析它（播放页背景会用默认的

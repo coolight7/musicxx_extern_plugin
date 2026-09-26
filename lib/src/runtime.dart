@@ -183,7 +183,7 @@ class MusicxxPluginRuntime {
   /// 初始化宿主（幂等：重复调用直接返回）
   ///
   /// 步骤：加载原生库 → 校验 C ABI 版本 → `host_create` → 注册唤醒回调 →
-  /// `host_start` → 启动事件泵与 200 ms 兜底轮询。
+  /// `host_start` → 启动事件泵与 200 ms 定时轮询。
   void init({
     required MusicxxPluginRuntimeConfig config,
     String? libraryPath,
@@ -364,7 +364,7 @@ class MusicxxPluginRuntime {
 
   // ==================== 事件泵 ====================
 
-  /// 原生线程 → Dart：只做"安排一次轮询"，绝不在这里做重活（无死锁不变式）
+  /// 原生线程 → Dart：只做"安排一次轮询"，不在回调里做耗时工作（否则会死锁）
   void _onWake(Pointer<Void> _) {
     _schedulePump();
   }

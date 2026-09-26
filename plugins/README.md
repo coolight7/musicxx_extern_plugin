@@ -46,7 +46,7 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests    # 顺带跑原生测�
 
 | 主题 | 文档 |
 |---|---|
-| 钩子总表（id / 模式 / 派发 / 预算 / 阶段 + 已埋点钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
+| 钩子总表（id / 模式 / 派发 / 预算 / 是否已埋点 + 已埋点钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（伞头）与 `plugin_api.h`（领域契约） |
 | 动态库插件作者指南（清单 / 构建 / 部署 / 排障） | `docs/plugin-native-api.md` |
 | JS 插件作者指南（`musicxx` API / 硬约束 / 排障） | `docs/plugin-js-api.md` |

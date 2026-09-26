@@ -168,7 +168,7 @@ function notifyGreeting(greeting) {
 ///
 /// - 目标是 JS 插件时同线程直接调用 (结果立即就绪);
 /// - 目标是动态库插件时投递到宿主线程执行, 脚本不阻塞 (宿主线程可能正等 JS 处理器)。
-/// 能力处理器必须**同步返回**, 所以跨插件调用的结果用"最后一次结果"记账,
+/// 能力处理器必须**同步返回**, 所以跨插件调用的结果用"最后一次结果"记下来,
 /// 由 probe 能力回读 (测试用; 真实插件应把异步结果写进自己的状态或 UI 项)。
 let crossCallState = { pending: 0, ok: 0, keys: 0, error: "" };
 
@@ -188,7 +188,7 @@ musicxx.capability.register("crossCall", function (args) {
 
 /// 配置读取: config.json 由插件自己读写 (自绘设置页 + 手改文件都改它),
 /// 用 getConfig 异步读、给默认值 (框架不再提供 settings_schema 默认值)。
-/// 能力处理器必须同步返回, 所以这里把最近一次读到的值记账, 由 probe / 设置页回读。
+/// 能力处理器必须同步返回, 所以这里把最近一次读到的值记下来, 由 probe / 设置页回读。
 musicxx.storage.configCache = {
     skipAds: null,
     greeting: "",
@@ -300,7 +300,7 @@ function settingsView(override) {
     };
 }
 
-/// 写一个配置项: 先更新脚本侧记账, 再异步写 config.json (失败只记日志)
+/// 写一个配置项: 先更新脚本里记下的值, 再异步写 config.json (失败只记日志)
 function saveConfig(key, value) {
     musicxx.storage.configCache[key] = value;
     musicxx.storage.setConfig(key, value).then(function () {

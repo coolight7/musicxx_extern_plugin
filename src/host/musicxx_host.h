@@ -99,13 +99,13 @@ public:
   virtual bool respondAction(int64_t requestId, int32_t status,
                              const std::string &resultJson) = 0;
 
-  /// 取消某实例的全部未完成请求 (**任意线程**; 实例卸载/禁用/宿主关闭时兜底)
+  /// 取消某实例的全部未完成请求 (**任意线程**; 实例卸载/禁用/宿主关闭时统一取消)
   virtual void cancelActionsOf(const std::string &instanceName) = 0;
 };
 
 /* ==================== 插件实例 ==================== */
 
-/// 宿主侧插件实例 (元信息/生命周期入口由内核骨架补齐)
+/// 宿主侧插件实例 (元信息/生命周期入口由内核框架补齐)
 ///
 /// 前置声明: 实例持有管理器弱引用 (内核 vtable 入口据此解析实例 → 管理器)
 class MusicxxHostManager;
@@ -125,7 +125,7 @@ public:
   /// 插件形态: native | js | builtin
   std::string kind = "native";
 
-  /// 清单声明的接口段 (内核生命周期骨架会写入; 本宿主 v1 不做接口协商)
+  /// 清单声明的接口段 (内核生命周期框架会写入; 本宿主 v1 不做接口协商)
   pluginxx::PluginManifestInterfaces interfaces;
 
   /// 管理器弱引用 (内核 vtable 入口据此解析"实例 → 管理器"; 由 createInstance
@@ -270,7 +270,7 @@ public:
   int32_t actionRespond(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 
-  /// 取消未完成动作 (插件卸载/宿主关闭时兜底)
+  /// 取消未完成动作 (插件卸载/宿主关闭时统一取消)
   void cancelAction(int64_t requestId);
 
   /* ---------- 状态镜像 (Dart → 原生) ---------- */

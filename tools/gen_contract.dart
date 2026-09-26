@@ -120,9 +120,6 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  final int code;')
     ..writeln('}')
     ..writeln()
-    ..writeln('/// 埋点可用性阶段')
-    ..writeln('enum MusicxxPluginHookPhase { P0, P1, P2 }')
-    ..writeln()
     ..writeln('/// 钩子 id 与元信息（由 `tools/hooks.def.json` 生成）')
     ..writeln('enum MusicxxPluginHookId {');
   for (final Map<String, Object?> hook in hooks) {
@@ -132,13 +129,13 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     }
     final String mode = hook['mode']! as String;
     final String policy = hook['policy']! as String;
-    final String phase = (hook['phase'] as String?) ?? 'P1';
+    final bool wired = hook['wired'] == true;
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
     final int budget = (hook['budgetMs'] as num).toInt();
     final int hard = (hook['hardMs'] as num).toInt();
     sb.writeln(
       "  ${_dartEnumName(hook)}('${hook['id']}', MusicxxPluginHookMode.$mode, "
-      'MusicxxPluginDecisionPolicy.$policy, MusicxxPluginHookPhase.$phase, '
+      'MusicxxPluginDecisionPolicy.$policy, $wired, '
       'MusicxxPluginHookDispatch.$dispatch, $budget, $hard),',
     );
   }
@@ -149,7 +146,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('    this.id,')
     ..writeln('    this.mode,')
     ..writeln('    this.policy,')
-    ..writeln('    this.phase,')
+    ..writeln('    this.wired,')
     ..writeln('    this.dispatch,')
     ..writeln('    this.budgetMs,')
     ..writeln('    this.hardMs,')
@@ -164,8 +161,9 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  /// 裁决合并策略（观察型无意义）')
     ..writeln('  final MusicxxPluginDecisionPolicy policy;')
     ..writeln()
-    ..writeln('  /// 埋点阶段')
-    ..writeln('  final MusicxxPluginHookPhase phase;')
+    ..writeln('  /// 应用侧是否已经埋点：true = 当前版本会派发；')
+    ..writeln('  /// false = 契约已冻结但尚未埋点（注册不会报错，当前版本也不会触发）')
+    ..writeln('  final bool wired;')
     ..writeln()
     ..writeln('  /// 派发方式（是否占用调用线程；见 `tools/hooks.def.json`）')
     ..writeln('  final MusicxxPluginHookDispatch dispatch;')
@@ -186,7 +184,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
       '  bool get isAsyncDispatch => dispatch == MusicxxPluginHookDispatch.async;',
     )
     ..writeln()
-    ..writeln('  /// 整链等待预算上限（毫秒；异步派发的兜底等待按此计算）')
+    ..writeln('  /// 整链等待预算上限（毫秒；异步派发时用来算等待上限）')
     ..writeln('  int get budgetLimitMs => budgetMs + hardMs;')
     ..writeln()
     ..writeln('  /// 按 id 反查（未知 id 返回 null；插件注册未知钩子会被宿主拒绝）')
@@ -300,8 +298,8 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('## 怎么读这张表')
     ..writeln()
     ..writeln(
-      '- **阶段**：`P0` = 应用侧**已经埋点**（当前版本会派发，插件注册后会被调用）；'
-      '`P1` = 钩子契约已冻结、应用侧**尚未埋点**（注册不会报错，但当前版本不会触发）。'
+      '- **是否已埋点**：`已埋点` = 应用侧已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
+      '`未埋点` = 钩子契约已冻结、应用侧**还没有接**（注册不会报错，但当前版本不会触发）。'
       '想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），'
       '或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。',
     )
@@ -323,23 +321,24 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       'JS 插件的处理器链还有一层固定上限：最多等 100 ms（Promise 超预算按不裁决处理）。',
     )
     ..writeln()
-    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 软/硬预算 (ms) | 阶段 |')
+    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 软/硬预算 (ms) | 是否已埋点 |')
     ..writeln('|---|---|---|---|---|---|');
   for (final Map<String, Object?> hook in hooks) {
     final String budget =
         '${(hook['budgetMs'] as num).toInt()} / ${(hook['hardMs'] as num).toInt()}';
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
+    final String wiredText = hook['wired'] == true ? '已埋点' : '未埋点';
     sb.writeln(
-      "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $budget | ${hook['phase']} |",
+      "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $budget | $wiredText |",
     );
   }
   sb
     ..writeln()
-    ..writeln('## 已埋点钩子的载荷与裁决（P0）')
+    ..writeln('## 已埋点钩子的载荷与裁决')
     ..writeln()
     ..writeln(
       '下面是应用侧**已经埋点**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
-      'P1 钩子只冻结了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐'
+      '尚未埋点的钩子只冻结了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐'
       '（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。',
     )
     ..writeln()
@@ -397,14 +396,14 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('- `action` 的宿主语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
     ..writeln('- 处理器必须尽快返回：宿主对整链有等待预算，超时按“无裁决”继续（不打断插件）。')
     ..writeln()
-    ..writeln('## 处理器失败与熔断')
+    ..writeln('## 处理器失败与暂停派发')
     ..writeln()
     ..writeln(
       '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**；',
     )
     ..writeln(
       '- 同一个处理器**连续 3 次失败**会被宿主临时暂停派发 60 秒（只暂停这一个处理器，'
-      '同插件的其它处理器照常工作，插件也不会被卸载）；熔断状态与管理页里的剩余时间见 '
+      '同插件的其它处理器照常工作，插件也不会被卸载）；暂停状态与管理页里的剩余时间见 '
       '`hook_stats()` 的 `paused` / `pausedRemainMs`；',
     )
     ..writeln(
@@ -450,6 +449,9 @@ List<Map<String, Object?>> _loadHooks() {
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
     if (!_dispatchCodes.containsKey(dispatch)) {
       throw StateError('未知派发方式: $id -> $dispatch');
+    }
+    if (hook['wired'] is! bool) {
+      throw StateError('wired 必须是布尔值（应用侧是否已经埋点）: $id');
     }
     if (mode == 'observe' && dispatch != 'async') {
       throw StateError('观察型钩子必须是异步派发（入队即返回）: $id -> $dispatch');

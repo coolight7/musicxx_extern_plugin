@@ -132,7 +132,7 @@ $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitect
     default { 'unknown' }
 }
 
-# Android: 目标平台与宿主平台无关, 平台/架构段一律按 ABI 推导 (与桌面端目录命名对齐)
+# Android: 目标平台与宿主平台无关, 平台/架构段一律按 ABI 推导 (与桌面端的目录命名保持一致)
 $androidToolchain = ''
 $androidAbi = ''
 if ($Android) {

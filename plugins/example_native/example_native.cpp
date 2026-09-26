@@ -64,7 +64,7 @@ std::string infoRowJson(const std::string &title, const std::string &subtitle,
 void PLUGINXX_CALL probeActionDone(void *, int32_t,
                                    const PluginxxStringView *) {}
 
-/// 插件实例上下文 (每个实例一份; 不得使用可变全局状态 —— 多实例铁律)
+/// 插件实例上下文 (每个实例一份; 不得使用可变全局状态 —— 多实例规则)
 struct ExampleCtx : public musicxx::plugin::PluginBase {
   /// 连续播放错误计数 (仅示例)
   int32_t consecutiveErrors = 0;
@@ -341,7 +341,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
   int32_t onStop() {
     // 撤销自管资源 (示例没有线程/定时器; 钩子/能力注册由宿主在 detach
-    // 时兜底摘除)
+    // 时统一摘除)
     consecutiveErrors = 0;
     return 0;
   }

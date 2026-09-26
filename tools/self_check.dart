@@ -2,9 +2,9 @@
 ///
 /// 用法：
 /// ```
-/// dart run tools/smoke_dart.dart [<原生库路径>]
+/// dart run tools/self_check.dart [<原生库路径>]
 /// ```
-/// 与 `test/host_smoke_test.dart` 走同一条链路，但每一步都打印进度，便于排查
+/// 与 `test/host_test.dart` 走同一条链路，但每一步都打印进度，便于排查
 /// "某个 FFI 调用不返回"这类问题（此时 Dart isolate 被阻塞，测试框架的计时器也不会触发）。
 library;
 
@@ -13,7 +13,7 @@ import 'dart:io';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 
 void step(String message) {
-  stdout.writeln('[smoke] $message');
+  stdout.writeln('[self-check] $message');
 }
 
 Future<void> main(List<String> args) async {
@@ -31,7 +31,7 @@ Future<void> main(List<String> args) async {
   step('1 init…');
   runtime.init(
     config: MusicxxPluginRuntimeConfig(
-      appVersion: '0.0.0-smoke',
+      appVersion: '0.0.0-selfcheck',
       platform: MusicxxPluginRuntime.currentPlatform,
       language: 'zh-cn',
       userPluginDir: pluginRoot,
@@ -66,7 +66,7 @@ Future<void> main(List<String> args) async {
 
   step('6 state.update…');
   runtime.state.update(MusicxxPluginState.keySong, <String, Object?>{
-    'sid': 's-smoke',
+    'sid': 's-selfcheck',
     'name': '自检歌曲',
   });
   step('6 state.update 完成');

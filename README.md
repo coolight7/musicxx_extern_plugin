@@ -39,21 +39,21 @@ src/tests/           原生测试（test_host.cpp，不依赖 Dart；`plugins/` 
 src/third_party/     依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
                      bindings_generated.dart 与 hook_ids.g.dart 为生成物）
-test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_smoke_test.dart 对真实原生库做
-                     端到端验证；plugin_config_smoke_test.dart 覆盖示例插件的设置读写往返与重新装载后的
+test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_test.dart 对真实原生库做
+                     端到端验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新装载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
 plugins/            官方插件与示例（每个子目录一个插件，插件 id 取清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
   example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置）
-docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 预算 / 阶段 + 已埋点钩子的载荷与裁决）
-docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程纪律/构建/部署/排障）
+docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 预算 / 是否已埋点 + 已埋点钩子的载荷与裁决）
+docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面块类型/设置页写法）
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
                      gen_contract.dart（约定生成/校验）、check_submodules.ps1（子模块检查）、
-                     smoke_dart.dart（纯 Dart 自检，定位 FFI 卡住的位置）、cmake/BoostConfig.cmake.in
+                     self_check.dart（纯 Dart 自检，定位 FFI 卡住的位置）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
 ```
 
@@ -165,7 +165,7 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
   收窄可用配置会让探测失败；构建配置由 ExternalProject 自动带上 `--config <顶层配置>`。
 - **uchardet** 必须 `-DBUILD_BINARY=OFF`（其命令行工具依赖 Windows 没有的 `getopt.h`）。
 - **MSVC 必须带 `/utf-8`**（源码头文件含中文注释，否则按代码页 936 解析会破坏换行）；CMake 已在各目标上设置。
-- **导出面收口**：宿主库只导出 `musicxx_extern_plugin_*` —— MSVC 靠导出宏；GNU/Clang 另加
+- **只导出宿主库入口**：宿主库只导出 `musicxx_extern_plugin_*` —— MSVC 靠导出宏；GNU/Clang 另加
   version script（`global: musicxx_extern_plugin_*; local: *;`，只靠 `-fvisibility=hidden` 挡不住静态库
   带进来的 `STB_GNU_UNIQUE` 符号，实测 Boost.Asio 的 error category 会漏出来）；Apple 由 hidden
   visibility 覆盖。
@@ -257,7 +257,7 @@ iOS/OHOS 只跑 JS 插件，需要静态库 + podspec。
 
 ## 写一个插件
 
-三种形态各有完整指南（本文件只给最小骨架与跳转）：
+三种形态各有完整指南（本文件只给最小示例与跳转）：
 
 | 形态 | 目录内容 | 指南 |
 |---|---|---|
@@ -352,7 +352,7 @@ dart run tools/gen_contract.dart --check       # CI：生成物与定义不一�
 dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
 flutter analyze
 flutter test                                   # 端到端验证（宿主/JS/配置读写；需要先构建原生库）
-dart run tools/smoke_dart.dart                 # 纯 Dart 自检（不依赖 Flutter，便于定位 FFI 卡住的位置）
+dart run tools/self_check.dart                 # 纯 Dart 自检（不依赖 Flutter，便于定位 FFI 卡住的位置）
 ```
 
 Dart 侧用法（详见 `lib/musicxx_extern_plugin.dart` 文件头）：
@@ -429,24 +429,24 @@ final List<MusicxxPluginUIItem> next =
 
 ## 能力现状
 
-宿主侧已经落地的能力（应用侧接入情况见 musicxx 仓库）：
+宿主侧已经实现的能力（应用侧接入情况见 musicxx 仓库）：
 
 - **领域接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张已实现；
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由应用侧分派；
 - **钩子**：约定 66 个（33 观察 / 33 裁决，其中 13 个异步派发的裁决钩子）；
-  应用侧当前**埋点 9 个**（`docs/plugin-hooks.md` 的「阶段」列标 `P0`），其余注册成功但不会触发；
+  应用侧当前**埋点 9 个**（`docs/plugin-hooks.md` 的「是否已埋点」列标「已埋点」），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入宿主库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
-  `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册投递到宿主线程落地；
+  `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由宿主线程执行；
   裁决处理器可以返回 Promise（100 ms 预算内结算生效，超时按不裁决且不计失败）；
 - **声明式 UI**：UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景）与插件自绘页面
-  （`ext://<插件id>/<视图id>`）都已落地；应用侧当前渲染主页入口、歌曲菜单与插件页面，
+  （`ext://<插件id>/<视图id>`）都已实现；应用侧当前渲染主页入口、歌曲菜单与插件页面，
   **歌单菜单项还没有渲染入口**（见 `docs/plugin-ui.md` §1.4）；
 - **插件渲染**：`player.background` 槽位已接入（插件交付 shader bundle，宿主运行期加载渲染，
   未选中时零成本）；页面里可以内联 `Shader` 块；
 - **配置与网络**：插件配置放在插件目录的 `config.json`（插件自己读写，框架不渲染配置表单）；
   `musicxx.net.fetch`/`download` 经应用统一网络栈（宿主不限定域名）；
-- **观测**：钩子统计（调用 / 耗时 / 超时 / 失败 / 熔断）、插件阶段耗时、注册项计数、
+- **观测**：钩子统计（调用 / 耗时 / 超时 / 失败 / 被暂停的处理器）、插件各阶段耗时、注册项计数、
   JS 实例统计与内存采样、内存环形事件日志；
 - **平台打包**：Windows 与 Linux 已接入（宿主库随应用分发，见「打包（随应用分发）」）、
   Android 已接入（NDK 交叉编译 + `jniLibs`，见 `android/README.md`）；
@@ -456,7 +456,7 @@ final List<MusicxxPluginUIItem> next =
 
 | 夹具 | 验证点 |
 |---|---|
-| `src/tests/fixtures/fail_native/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（熔断，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载 |
+| `src/tests/fixtures/fail_native/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（暂停派发，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载 |
 | `src/tests/fixtures/bad_entry_native/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
 | `src/tests/plugins/spin_js/` | 观察钩子里死循环 → 可选执行上限（`jsExecGuardMs`）能中断脚本且不影响其它 JS 插件 |
 | `src/tests/plugins/async_js/` | 裁决处理器返回 Promise → 预算内结算生效、超预算按不裁决且不计失败（`asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`） |

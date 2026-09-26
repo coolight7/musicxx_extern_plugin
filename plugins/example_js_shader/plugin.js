@@ -146,7 +146,7 @@ function backgroundStateText() {
 /// 本插件的渲染状态 (尺寸 / 是否在动)
 ///
 /// `itemId` 是本插件时才有渲染可言: `visible:false` 表示宿主停止渲染(播放页被遮挡、
-/// 切到后台, 或者播放页当前根本不在页面上), 插件可以据此停掉自己的重活;
+/// 切到后台, 或者播放页当前根本不在页面上), 插件可以据此停掉自己的耗时工作;
 /// `animate:false` 表示这个样式只画一帧。
 function renderStateText() {
     const slot = backgroundSlot();
@@ -185,7 +185,7 @@ function refreshConfig() {
 }
 refreshConfig();
 
-/// 写一个配置项: 先更新脚本侧记账, 再异步写 config.json (失败只记日志)
+/// 写一个配置项: 先更新脚本里记下的值, 再异步写 config.json (失败只记日志)
 function saveConfig(key, value) {
     if (key === "bgRate") {
         configBgRate = value;
@@ -247,7 +247,7 @@ function settingsView(override) {
             },
             { kind: "Divider" },
             // 页面里也能直接画一块着色器（`Shader` 块）：用 `SizedBox` 给它确定的高度，
-            // 参数同样用 `args` 声明 —— 第 2 个色是封面提取色（取不到时用固定值兜底）
+            // 参数同样用 `args` 声明 —— 第 2 个色是封面提取色（取不到时用固定值）
             {
                 kind: "Text",
                 text: "• 下面这块是页面内联的 Shader 块（同一个 bundle，参数取主题色与封面提取色）：",
@@ -331,7 +331,7 @@ function requestBackground(id) {
     musicxx.host.log(2, "收到切换播放页背景请求: " + id);
     lastBackgroundRequest = id;
     musicxx.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
-        // 动作成功 = 选择已经落地 (镜像同步更新): 不再需要"已请求"提示
+        // 动作成功 = 选择已经生效 (镜像同步更新): 不再需要"已请求"提示
         lastBackgroundRequest = "";
         musicxx.host.log(2, "切换播放页背景成功: " + JSON.stringify(r));
     }, function (err) {
