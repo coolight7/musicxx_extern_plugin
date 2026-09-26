@@ -4,7 +4,7 @@
 /// - 声明一种播放页背景样式 (`musicxx.ui.playing.background`): 画面由一个预编译好的
 ///   shader bundle 画 (插件不写界面代码), 用户在『设置 → 播放页面背景』里选中后才生效;
 ///   未选中时零成本 (宿主不读 bundle、不分析封面)。
-/// - 把动画速率做成插件自己的设置项 (0.5× / 1× / 2×), 改完立即生效。
+/// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效。
 ///
 /// 页面 (框架不管理插件设置入口, 入口由插件自己给):
 /// - `ext://example_js_shader/card` (主页入口): 当前生效项与渲染状态, 一键切换背景;
@@ -27,14 +27,14 @@ const BG_ITEM_ID = "plugin.example_js_shader." + BG_ITEM_NAME;
 
 /// 基准速度与可选倍率
 ///
-/// 声明给宿主的 `speed` = 基准速度 × 倍率, 宿主每帧直接用它推进时间 (不做二次缩放),
+/// 声明给宿主的 `speed` = 基准速度 x 倍率, 宿主每帧直接用它推进时间 (不做二次缩放),
 /// `speed` 最后会写进 uniform 的 `uParams.w`。基准速度定为 1
-/// (2026-09 起把原先声明的 4 重新定义为 1×, 即整体降速到原来的 0.25×)。
+/// (2026-09 起把原先声明的 4 重新定义为 1x, 即整体降速到原来的 0.25x)。
 const BG_BASE_SPEED = 1;
 const BG_RATE_OPTIONS = [0.5, 1, 2];
 const DEFAULT_BG_RATE = 1;
 
-/// 把任意值归一到允许的倍率 (非法值回退 1×)
+/// 把任意值归一到允许的倍率 (非法值回退 1x)
 function normalizeBgRate(value) {
     const rate = Number(value);
     for (let i = 0; i < BG_RATE_OPTIONS.length; ++i) {
@@ -45,9 +45,9 @@ function normalizeBgRate(value) {
     return DEFAULT_BG_RATE;
 }
 
-/// 倍率的显示文本 (1 → "1×"、0.5 → "0.5×")
+/// 倍率的显示文本 (1 → "1x"、0.5 → "0.5x")
 function bgRateText(rate) {
-    return String(normalizeBgRate(rate)) + "×";
+    return String(normalizeBgRate(rate)) + "x";
 }
 
 /// 倍率 → 声明给宿主的时间推进速度
@@ -88,7 +88,7 @@ function applyBackgroundRate(rate) {
     musicxx.host.log(2, "背景动画速率 → " + bgRateText(value));
 }
 
-/// 注册播放页背景样式 (顶层先按 1× 声明; 读到 config.json 后再换成实际倍率)
+/// 注册播放页背景样式 (顶层先按 1x 声明; 读到 config.json 后再换成实际倍率)
 musicxx.ui.registerEntry({
     name: BG_ITEM_NAME,
     type: "playing.background",
@@ -147,7 +147,7 @@ function renderStateText() {
     if (slot.visible === false) {
         return "未在渲染";
     }
-    const size = (slot.width && slot.height) ? (slot.width + "×" + slot.height) : "—";
+    const size = (slot.width && slot.height) ? (slot.width + "x" + slot.height) : "—";
     return (slot.animate === false ? "静态一帧" : "动画中") + ", " + size;
 }
 
@@ -165,7 +165,7 @@ function configuredBgRate() {
 function refreshConfig() {
     musicxx.storage.getConfig("bgRate", DEFAULT_BG_RATE).then(function (value) {
         // 读取是异步的, 结果可能后于用户操作才到: 已经改过速率就不再覆盖
-        // (否则用户刚切到的 2× 会被读回来的旧值/默认值改回去)
+        // (否则用户刚切到的 2x 会被读回来的旧值/默认值改回去)
         if (configBgRate !== null) {
             return;
         }
@@ -211,14 +211,14 @@ function settingsView(override) {
                     {
                         id: "bgRate",
                         title: "背景动画速率",
-                        subtitle: "本插件背景的时间推进速度（1× = 基准速度 1，可选 0.5× / 1× / 2×），改完立即生效",
+                        subtitle: "本插件背景的时间推进速度（1x = 基准速度 1，可选 0.5x / 1x / 2x），改完立即生效",
                         right: bgRateText(rate),
                     },
                 ],
             },
             {
                 kind: "button",
-                title: "切换背景动画速率（0.5× / 1× / 2×）",
+                title: "切换背景动画速率（0.5x / 1x / 2x）",
                 style: "primary",
                 action: { kind: "capability", name: "cycleBackgroundRate", args: { view: "settings" } },
             },
@@ -245,7 +245,7 @@ musicxx.capability.register("settings", function () {
     return { view: settingsView(null) };
 });
 
-/// 设置页按钮: 循环切换背景动画速率 (0.5× → 1× → 2× → 0.5×)
+/// 设置页按钮: 循环切换背景动画速率 (0.5x → 1x → 2x → 0.5x)
 musicxx.capability.register("cycleBackgroundRate", function (args) {
     const current = configuredBgRate();
     let index = 0;
@@ -307,11 +307,11 @@ musicxx.ui.registerEntry({
 function cardView() {
     return {
         title: "JS 背景插件示例",
-        subtitle: "页面内容来自能力 `card`, 渲染由宿主完成",
+        subtitle: "• 页面内容来自能力 `card`, 渲染由宿主完成",
         blocks: [
             {
                 kind: "text",
-                text: "本插件把预编译好的 shader bundle 注册成一种播放页背景样式: 用户在『设置 → 播放页面背景』里选中后才生效, 未选中时零成本。",
+                text: "• 本插件把预编译好的 shader bundle 注册成一种播放页背景样式: 用户在『设置 → 播放页面背景』里选中后才生效。",
                 style: "cross",
             },
             { kind: "divider" },
@@ -333,7 +333,7 @@ function cardView() {
                     {
                         id: "bgRate",
                         title: "背景动画速率",
-                        subtitle: "点这一条循环切换 0.5× / 1× / 2×（1× 是基准速度）",
+                        subtitle: "点这一条循环切换 0.5x / 1x / 2x (1x 是基准速度)",
                         right: bgRateText(configuredBgRate()),
                         action: { kind: "capability", name: "cycleBackgroundRate", args: { view: "card" } },
                     },

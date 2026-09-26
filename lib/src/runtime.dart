@@ -131,7 +131,7 @@ class MusicxxPluginRuntime {
 
   /// 新建一个运行时实例（每次启动宿主用一个）
   ///
-  /// 用途：宿主需要停掉再启动时（配置变化、『拟声++』开关切换、用户点"重新初始化"）
+  /// 用途：宿主需要停掉再启动时（配置变化、『拟声++』开关切换、用户点"重启插件框架"）
   /// 用新实例重新 [init]，避免复用一个已经 dispose 的运行时。
   static MusicxxPluginRuntime create() => MusicxxPluginRuntime._();
 
