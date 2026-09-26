@@ -22,7 +22,12 @@ abstract final class MusicxxPluginUIType {
   static const String playlistAction = 'musicxx.ui.playlist.action';
 
   /// 播放页背景样式（渲染槽位 `player.background`）：
-  /// `data = {title, depict?, enabled?, shader:{bundle,...}, colors:{...}, ...}`
+  /// `data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
+  ///          args:[{name, source?, convert?, value?, valueNight?}],
+  ///          speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}`
+  ///
+  /// 着色器参数只有 `args` 一种写法（旧的 `colors` 已移除）；不写 `args` 时宿主默认给内置背景的
+  /// 4 个绘制色（`icon.themeMapping.0..3`）。详见 `docs/plugin-shader-bundle.md`。
   static const String playingBackground = 'musicxx.ui.playing.background';
 }
 

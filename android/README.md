@@ -60,6 +60,10 @@ flutter build apk --release -PmusicxxExternPluginLibDir=/path/to/libs
 # 或环境变量 MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR=/path/to/libs
 ```
 
+只收集**本次构建真正要用的 ABI**：Flutter 传下来的 `-Ptarget-platform`（如
+`android-arm64`）会映射成 ABI，只把这些 ABI 的库放进 APK；没有该属性（直接用 Gradle 构建）时
+收集全部已构建的 ABI。每个 ABI 的宿主库约 3 MB，单 ABI 调试时可以用这条来缩小包体。
+
 ## 验证
 
 ```bash

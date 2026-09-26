@@ -190,8 +190,10 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
 /// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
 /// data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
-///         colors:{source, slots?, convert?, values?, valuesNight?},
+///         args:[{name, source?, convert?, value?, valueNight?}],
 ///         speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}
+/// 说明: 着色器参数只有 `args` 一种写法 (旧的 `colors` 字段已移除);
+/// 不声明 `args` 时宿主默认给内置背景的 4 个绘制色 (`icon.themeMapping.0..3`)。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND "musicxx.ui.playing.background"
 
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
@@ -282,6 +284,10 @@ typedef struct MusicxxPluginUIIface {
 #define MUSICXX_STATE_LYRIC    "musicxx.state.lyric"
 #define MUSICXX_STATE_LIBRARY  "musicxx.state.library"
 #define MUSICXX_STATE_ENV      "musicxx.state.env"
+
+/// 渲染槽位的运行状态 (谁在画 / 是否可见 / 尺寸 / 昼夜)
+/// 不随启动全量推送: 生效、可见性、昼夜或尺寸变化时按需推送
+#define MUSICXX_STATE_RENDER_SLOTS "musicxx.state.renderSlots"
 
 #pragma pack(pop)
 

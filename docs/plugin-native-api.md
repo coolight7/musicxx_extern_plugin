@@ -1,49 +1,76 @@
-# musicxx 动态库插件（++）作者指南（v1）
+# musicxx 动态库插件作者指南（C++ / v1）
 
-> 相关文档：钩子总表见 `plugin-hooks.md`（由 `tools/hooks.def.json` 生成）、JS 插件作者指南见 `plugin-js-api.md`。
-> 参考实现：`plugins/example_native/`（钩子 / 状态镜像 / 动作 / 事件 / UI / 能力 / 日志全演示）。
+本文写给**要写一个 C++ 动态库插件**的人：目录与清单、代码骨架、开发流程、能用的宿主能力、
+构建与部署、排障。相关文档：
 
-## 1. 一个动态库插件长什么样
+| 主题 | 文档 |
+|---|---|
+| 钩子 id / 模式 / 派发 / 预算，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
+| 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
+| 播放页背景（shader bundle 打包与 uniform 契约） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| JS 插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
+| 示例代码 | `plugins/example_native/`（C++）、`plugins/example_js/`（等价 JS） |
+
+> 动态库与宿主**同进程、同地址空间**：插件崩溃 = 应用崩溃。开发期请先在
+> `musicxx_extern_plugin_test` 与示例插件上验证，再放进正式环境；宿主的安全模式
+> （连续两次启动未完成 → 本次不加载任何外部插件）是最后一道兜底，不是沙箱。
+
+---
+
+## 1. 插件长什么样
+
+一个插件 = 一个目录：
 
 ```text
-my_plugin/                     # 一个目录 = 一个插件；目录名只作提示，插件 id 取清单 name
-├── plugin.yaml                # 清单（必填）
-├── my_plugin.so               # 库文件（清单 entry 指向它；Windows 上是 my_plugin.dll、macOS 上是 my_plugin.dylib）
-├── icon.png                   # 可选：管理页图标
-└── config.json                # 可选：插件配置（插件自己读写；用户也可以直接编辑，路径见 configPath()）
+my_plugin/                   # 目录名只是提示，插件 id 取清单的 name
+├── plugin.yaml              # 清单（必填）
+├── my_plugin.so             # 库文件（清单 entry 指向它；Windows 是 .dll、macOS 是 .dylib）
+├── shader/                  # 可选：随插件分发的资源（如 shader bundle）
+└── config.json              # 可选：插件自己的配置（插件读写，用户也可以直接编辑）
 ```
 
-`plugin.yaml`：
+### 1.1 清单字段
 
 ```yaml
-name: my_plugin                  # 唯一 id（宿主与 Dart 侧都用它；与别的插件重名 = 同一插件的升级覆盖）
-entry: my_plugin.so              # 库文件名：**按 Linux 写法填**，扩展名由宿主按平台修正（.dll/.dylib）
-kind: native                     # native = 动态库；js = 脚本；builtin = 随宿主编译
-version: 1.0.0                   # 版本（升级比较用）
-api_version: 1                   # 兼容的插件 API 版本（宿主当前 1）
+name: my_plugin                    # 插件 id（唯一；同名视为同一插件的升级覆盖）
+entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
+kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
+version: 1.0.0                     # 版本（升级比较用）
+api_version: 1                     # 兼容的插件 API 版本（宿主当前是 1）
 author: "你的名字"
 description: "插件说明"
-platforms: [windows, linux, macos]   # 允许的平台；arch: [x64, arm64] 可选
-min_app_version: 0.87.0          # 可选：最低应用版本
+platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限
+arch: [x64, arm64]                 # 允许的架构；不写 = 不限
+depends: [other_plugin]            # 必选依赖（宿主会先加载它们）
+optional_depends: [maybe_plugin]   # 可选依赖（有就排前面，没有也照常加载）
 
-permissions:                     # 声明式权限：只做展示（安装确认页 / 插件详情），运行时不校验
+permissions:                       # 声明式权限：只做展示，运行时不校验（见 §8）
   - musicxx.player.control
-  - musicxx.library.read
   - musicxx.ui
   - musicxx.storage
 ```
 
-插件的设置界面由插件**自己画页面**（§4 的「声明式 UI」里给出写法），框架既不提供配置表单、
-也不管理设置入口：配置默认值写在插件里（读不到就用默认值），用户改过的值存在插件目录的 `config.json`。
+`entry` 的写法（跨平台要点）：
 
-> **`entry` 的写法（跨平台要点）**：统一按 Linux 写 `<名字>.so`，宿主在 Windows/macOS 上会把扩展名
-> 修正为 `.dll`/`.dylib`（内核 `pluginxx::resolvePluginEntryPath`）；因此**同一个插件目录可以三平台通用**，
-> 只要库文件基名一致（SDK 的构建助手已把 `PREFIX` 置空，产物就是 `my_plugin.dll`/`my_plugin.so`/`my_plugin.dylib`）。
-> 若 `entry` 指向的文件不存在，宿主会按平台默认库名再找一次（Linux `lib<name>.so`、Windows `<name>.dll`）。
-> 写 `entry: my_plugin.dll` 会让 Linux/macOS 上装载失败（扫描阶段就会提示"动态库插件库文件缺失"）。
+- **统一按 Linux 写 `<名字>.so`**：宿主在 Windows/macOS 上会把扩展名修正为 `.dll`/`.dylib`
+  （插件目录因此可以三平台通用，只要库文件基名一致；SDK 的构建助手已把产物前缀置空）；
+- `entry` 指向的文件不存在时，宿主还会按平台默认库名再找一次
+  （Linux `lib<name>.so`、Windows `<name>.dll`）；
+- 写 `entry: my_plugin.dll` 会让 Linux/macOS 装载失败（扫描阶段就会提示「动态库插件库文件缺失」）。
 
-安装方式：管理页「从压缩包安装」（把插件目录内容打包成 `.zip`）或直接把目录放进插件目录后「重新扫描」。
-随包分发的插件目录应包含**当前平台**的库文件（例如 Windows 包只放 `.dll`）。
+清单里**没有**运行时行为相关的开关：配置由插件自己读写 `config.json`，宿主不解析插件配置。
+
+宿主**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
+要表达版本要求请用 `api_version`（宿主会拒绝 `api_version > 1` 的插件）。
+
+### 1.2 安装位置
+
+- 用户插件：`<应用支持目录>/musicxx/extern_plugin/plugins/<id>/`（管理页有「打开插件目录」）；
+- 随包插件：安装包放进应用的随包插件目录（宿主启动时把两个目录都扫描出来）；
+- 安装方式：管理页「从压缩包安装」（`.zip`，顶层就是插件目录的内容），或直接把目录放进插件目录后
+  「重新扫描」。
+
+---
 
 ## 2. 最小可用插件
 
@@ -56,27 +83,27 @@ permissions:                     # 声明式权限：只做展示（安装确认
 
 namespace {
 
-/// 实例上下文：**每个实例一份**，不得放可变全局/静态缓存（多实例铁律）
+/// 实例上下文：**每个实例一份**，不要放可变全局/静态状态（同一份库可以被创建多个实例）
 struct MyCtx : public musicxx::plugin::PluginBase {
     int32_t hits = 0;
 
-    /// start 事务：只做注册，禁止阻塞（网络 / 大文件 / 等待别的一方都不行）
+    /// start 事务：只做注册，禁止阻塞（网络 / 大文件 / 等别人都不行）
     int32_t onStart() {
-        // 裁决型钩子：歌曲名含"广告" → 跳过本曲
+        // 裁决型钩子：载荷里出现「广告」就跳过本曲
         hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
              [this](std::string_view input, std::string& out) -> int32_t {
                  if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
                      ++hits;
-                     out = R"({"action":"skip","reason":"我的插件: 广告曲目"})";
+                     out = R"({"action":"skip","error":"my_plugin: 广告曲目"})";
                  }
-                 return 0;   // 0 + 空 out = 不裁决，交给下一个处理器
+                 return 0;   // 返回 0 且 out 为空 = 不裁决，交给下一个处理器
              });
 
-        // 观察型钩子：切歌时读状态镜像并写日志
+        // 观察型钩子：切歌时同步读状态镜像并写日志
         observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
                 [](std::string_view, std::string&) -> int32_t {
                     const std::string song = stateJson(MUSICXX_STATE_SONG);
-                    log.info("切歌了，状态镜像长度=" + std::to_string(song.size()));
+                    log.info("切歌了，歌曲快照长度=" + std::to_string(song.size()));
                     return 0;
                 });
 
@@ -88,7 +115,7 @@ struct MyCtx : public musicxx::plugin::PluginBase {
         return 0;
     }
 
-    /// stop 事务：撤销自管资源（线程/定时器/临时文件）；可重复调用
+    /// stop 事务：撤销自管资源（线程 / 定时器 / 临时文件）；可能被调用多次
     int32_t onStop() {
         hits = 0;
         return 0;
@@ -112,179 +139,315 @@ MUSICXX_PLUGIN_EXPORT(
 
 要点：
 
-- `MUSICXX_PLUGIN_EXPORT` 生成宿主要找的 5 个入口符号 `musicxx_plugin_{get_info,create,start,stop,destroy}`；
-  **不要手写入口**（少了 `start`/`stop` 会被宿主按契约拒绝装载）；
-- 两个事务函数签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
-  （内核要求"返回前恰好一次 done"，手写容易漏，SDK 已包好）；
-- 需要更底层的写法（自己做异步 start）可以传内核原始签名
-  `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`。
+- `MUSICXX_PLUGIN_EXPORT` 生成宿主要找的 5 个入口符号
+  （`musicxx_plugin_{get_info,create,start,stop,destroy}`）。**不要手写入口**：少了 `start`/`stop`
+  会被宿主按契约拒绝装载（管理页会给出「缺失/无效入口符号」）；
+- 两个事务函数的签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
+  （内核要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用内核原始签名
+  `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`；
+- `hook` / `observe` / `capability` / `stateJson` 这些便捷方法都在
+  `musicxx::plugin::PluginBase`（头文件 `musicxx/plugin/api/plugin_kit.h`）上；
+- 注册失败会返回负错误码（见 §7 错误码），**不要忽略返回值**：未知钩子、命名空间非法、
+  数据不合法都会在注册时直接失败。
+
+---
 
 ## 3. 生命周期与线程
 
 | 阶段 | 谁调用 | 你要做什么 |
 |---|---|---|
-| `create` | 宿主线程 | 只构造实例上下文（不要注册、不要 IO） |
-| `start` | 宿主线程 | **注册事务**：钩子 / 能力 / UI / 订阅；失败返回非 0（宿主回滚，不留残留） |
-| `stop` | 宿主线程 | 撤销自管资源（线程、定时器、临时文件、后台任务）；注册由宿主兜底摘除 |
+| `create` | 宿主线程 | 只构造实例上下文（不注册、不做 IO） |
+| `start` | 宿主线程 | **注册事务**：钩子 / 能力 / UI 项 / 订阅；失败返回非 0（宿主回滚，不留残留） |
+| 启用中 | 宿主线程 | 处理器与能力被调用；可以做动作请求、事件发布、写自己的状态 |
+| `stop` | 宿主线程 | 撤销自管资源（线程、定时器、后台任务、临时文件）；注册由宿主兜底摘除 |
 | `destroy` | 宿主线程 | 只释放本地对象（不要在这里做 IO / 通知） |
 
-线程模型（务必理解）：
+- 全部动态库插件代码都在**同一条宿主线程**（插件管理器线程）上顺序执行：注册表、统计、状态镜像
+  都不需要锁，**处理器之间按 (priority, 注册顺序) 稳定执行**；
+- **处理器里禁止阻塞**：网络请求、大文件、编解码、`sleep` 都不要直接做 —— 一个插件卡住会拖慢
+  同一线程上的所有插件（宿主不会强杀你，只会记录耗时并提示）。耗时工作的正确做法：
+  1. 用内核的调度原语把阻塞工作交给宿主的线程池，完成后回到宿主线程
+     （`pluginxx::offload(ctx, work)` 与协程 `Task<T>`；`pluginxx::sleep(ctx, ms)` 是异步等待，
+     不占用线程）；
+  2. 把工作拆成「提交 + 回调」两段：`start` 只注册，真正的初始化放进异步任务，完成后再补注册 / 写状态；
+- 插件**可以**自己起线程或定时器，但要在 `stop` 里回收，并且**调用宿主接口一律经接口表**
+  （`iface.*` / `PluginBase` 的便捷方法），不要直接触碰宿主内部结构；
+- 状态镜像的读取是**同步**的（`stateJson(...)`），动作请求是**异步**的（结果经回调）。
 
-- 全部动态库插件的生命周期入口与钩子/能力处理器都跑在**同一条宿主线程**（插件管理器线程），
-  因此注册表、统计、状态镜像都不需要锁，处理器之间**稳定按注册顺序执行**；
-- **处理器里禁止阻塞**：网络请求、大文件、编解码、`sleep` 都不要直接做 ——
-  单个插件阻塞会拖慢同一线程上的其它插件（宿主不会强行终止你，但会记录耗时并提示）；
-- 慢操作的两种正确做法：
-  1. 用内核调度表 `pluginxx.scheduler`（`iface.scheduler->offload(...)` 把阻塞工作交给宿主的
-     工作线程池，完成后回到宿主线程；`post_to_io` 回到宿主线程；`sleep` 是异步等待）；
-  2. 把工作拆成"提交 + 回调"两段：`start` 只注册，真正的初始化放在异步任务里，完成后再补注册/写状态。
-- 插件自管线程是允许的（由插件负责 stop 时回收），但**调用宿主接口一律经接口表**，不要直接触碰宿主结构。
+---
 
 ## 4. 能用的宿主能力
 
 | 能力 | API | 说明 |
 |---|---|---|
-| 裁决钩子 | `hook(id, priority, fn)` | `int32_t(std::string_view input, std::string& out)`；`out` 为 `{"action":...,"patch":{...}}` 或空 = 不裁决 |
-| 观察钩子 | `observe(id, fn)` | 返回值忽略；处理器应尽快返回 |
-| 注销钩子 | `unregisterHook(id)` | 不调用也会在实例停用/卸载时被宿主摘除 |
-| 状态镜像（只读） | `stateJson(MUSICXX_STATE_SONG / _PLAYER / _PLAYLIST / _LYRIC / _LIBRARY / _ENV / _APP)` | 同步读 JSON 快照；镜像里没有临时直链/token |
-| 宿主信息 | `hostInfoJson()` | 应用版本 / 平台 / 语言 / 插件目录 |
-| 插件配置 | `configPath()`、`config()`、`argsJson()`、`language()` | `config.json` 在插件目录里；插件自己读写（默认可直接编辑该文件），没有宿主生成的表单 |
-| 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | 播放/歌单/歌词/界面等，返回结果经 `notify->done` **恰好一次**回调（SDK 会复制通知，传栈上对象也安全） |
-| 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己id>.*`；订阅他人 `plugin.*` 主题允许 |
-| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`；渲染由宿主负责。播放页背景（`MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND`）需要 `shader.bundle`，着色器参数用 `args` 声明（见 `plugin-shader-bundle.md` §7；不声明时宿主默认给内置背景 4 色） |
-| 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器须**同步返回**可 JSON 序列化的结果 |
-| 日志 | `log.info/warn/error`（内核 Logger） | 进插件日志 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
-| 后台任务/取消 | `iface.scheduler`、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |
+| 裁决钩子 | `hook(id, priority, fn)` | `fn = int32_t(std::string_view input, std::string& out)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决 |
+| 观察钩子 | `observe(id, fn)` | 返回值忽略；处理器要尽快返回 |
+| 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被宿主摘除 |
+| 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
+| 宿主信息 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}` |
+| 宿主环境 | `config()`、`language()`、`argsJson()` | `config()` 是宿主环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是装载时宿主给的参数（默认 `{}`） |
+| 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
+| 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
+| 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
+| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由宿主负责（见 [plugin-ui.md](plugin-ui.md)） |
+| 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器必须**同步返回**可 JSON 序列化的结果 |
+| 日志 | `log.trace/debug/info/warn/error` | 进插件日志流 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
+| 后台任务 / 取消 | `iface.scheduler`（`offload` / `sleep` / `post_to_io` / `op_cancel`）、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |
 
-跨边界内存铁律：字符串出参必须用宿主的分配器（`PluginBase::hostStringSet` / `hostStringFree`），
-**绝不要用 CRT 的 `malloc/free` 或把插件内部的字符串指针交给宿主长期持有**。
+跨边界内存铁律：出参字符串必须用宿主的分配器（`PluginBase::hostStringSet` / `hostStringFree`，
+或用内核的 `pluginxx::PluginString` RAII）。**绝不要用 CRT 的 `malloc/free` 把指针交给宿主长期持有。**
 
-**插件自己的设置页**：框架不提供设置控件，**也不管理设置入口**（没有 `settings.page` 类型）。
-设置界面就是插件注册的一个普通页面，入口由插件自己给（主页入口，或功能页里的一个按钮）：
+---
+
+## 5. 状态镜像（插件读宿主状态的最快方式）
+
+宿主把常用状态做成 JSON 快照，插件**同步**读（不需要动作往返，也不占用宿主线程）：
+
+| 键 | 内容 | 当前版本 |
+|---|---|---|
+| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送 |
+| `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 已推送（启动 / 切歌 / 播放状态变化时刷新） |
+| `musicxx.state.song` | 当前歌曲的只读视图（与 `song.changed` 的 `song` 同结构） | 已推送 |
+| `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 已推送 |
+| `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 已推送 |
+| `musicxx.state.lyric` / `musicxx.state.library` | 预留 | **当前版本没有推送**（`stateJson` 返回空串） |
+| `musicxx.state.renderSlots` | 渲染槽位的运行状态（谁在画、是否可见、尺寸、昼夜） | 按需推送，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10 |
+
+- 单键上限 **512 KiB**：超限时宿主**直接拒绝写入**并记日志（不会截断成半个 JSON）；
+- 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），插件可以订阅它做增量处理；
+- **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
+  `musicxx.player.position` 钩子也尚未埋点。不要把它当每秒更新的进度用；
+- 镜像里**不放临时直链与 token**：需要地址请走 `musicxx.net.*` 动作或自己请求。
+
+C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` / `_LIBRARY` / `_ENV` /
+`_RENDER_SLOTS`。
+
+---
+
+## 6. 三个已埋点裁决钩子的写法
+
+只有**应用侧已埋点**的钩子会被真正派发（`plugin-hooks.md` 的「阶段」列：`P0`）。
+下面三个裁决型钩子是当前版本可用的：
 
 ```cpp
-// 入口：插件自己的页面（例如从主页入口直接打开，或从插件功能页的按钮跳过来）
-uiRegister("settings", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
-           R"({"title":"我的插件设置","subtitle":"页面由插件绘制",
-               "action":{"kind":"route","route":"ext://my_plugin/settings"}})", 120);
+// ① 跳过本曲：只支持 skip（返回其它 action 会被记日志后忽略）
+hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
+     [](std::string_view input, std::string& out) -> int32_t {
+         if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
+             out = R"({"action":"skip"})";
+         }
+         return 0;
+     });
 
-// 页面：视图 id 与能力短名同名（`ext://my_plugin/settings` → 能力 `settings`）；
-// 配置读写自己做（configPath() 指向 config.json）
-//
-// 块类型名是首字母大写的驼峰 (Text / Divider / Button / Block / Row / Column /
-// Expanded / SizedBox / Padding)，宿主解析时忽略大小写；宽高、内边距与外边距按
-// 设计像素交给宿主换算 (XXSizedBox / XXEdgeInsets)。列表块已移除: 一行设置项
-// 用内容块 (Block, 卡片底色 + 边距) 包住布局块组合出来的行。
-capability(*this, "plugin.my_plugin.settings",
-           [](std::string_view, std::string_view) -> std::string {
-               return R"({"view":{"title":"我的插件设置","blocks":[
-                   {"kind":"Text","text":"这些值保存在插件目录的 config.json 里。"},
-                   {"kind":"Block","inContent":true,
-                    "margin":{"left":50,"right":50,"bottom":20},
-                    "child":{"kind":"Row","children":[
-                      {"kind":"Expanded","child":{"kind":"Text","text":"启用特性"}},
-                      {"kind":"Text","style":"cross","text":"已开启"}]}},
-                   {"kind":"Button","title":"切换","style":"primary",
-                    "action":{"kind":"capability","name":"toggleFeature"}}]}})";
-           });
+// ② 不解析某个音源（换下一个）/ 只为本轮换一个地址
+hook(MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_BEFORE_PARSE, 0,
+     [](std::string_view input, std::string& out) -> int32_t {
+         if (input.find("\"type\":\"Bili\"") != std::string_view::npos) {
+             out = R"({"action":"skip"})";   // 本轮不解析该音源
+             // 或者只替换本轮使用的音源（不改歌曲实体的音源列表）：
+             // out = R"({"action":"replace","patch":{"src":{"type":"UrlLink","src":"https://example.com/a.mp3"}}})";
+         }
+         return 0;
+     });
+
+// ③ 播放错误：停止 / 下一曲 / 不再重试当前源
+hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
+     [](std::string_view input, std::string& out) -> int32_t {
+         out = R"({"action":"continue","patch":{"tryNextSrc":false}})";
+         return 0;
+     });
 ```
 
-插件作者文档（生成物）里有每个钩子的 id、模式、合并策略、派发方式与载荷字段，写代码前先查 `plugin-hooks.md`；
-注册未知钩子会被拒绝（返回 `-4`）。
+- 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已埋点钩子的载荷与裁决（P0）」；
+- 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
+- **处理器要快**：裁决链有等待预算（同步钩子会被调用线程等待；`player.error` 只等 120 ms），
+  超时按「不裁决」继续，迟到的结果被丢弃；
+- 想确认自己的处理器有没有被调用：管理页「插件详情 → 统计」，或自己在处理器里 `log.info(...)`。
 
-## 5. 构建
+---
 
-插件只需要 SDK 头文件 + 一个 CMake 助手（`musicxx_extern_plugin_sdk` 与 `musicxx_plugin_add_target`）：
+## 7. 错误码与命名空间
+
+| 码 | 含义 | 常见原因 |
+|---|---|---|
+| `0` | 成功 | — |
+| `-1` | 参数非法 | `data` 不是 JSON 对象、缺 `title`、结构体大小不符 |
+| `-2` | 状态错误 | 实例未启动 / 已禁用 / 正在卸载 |
+| `-3` | JSON 非法 | 载荷解析失败 |
+| `-4` | 未找到 | **注册未知钩子**、未知 UI 类型、注销不存在的项 |
+| `-5` | 超时 | 动作请求 / 能力调用超时 |
+| `-6` | 权限拒绝 | 命名空间非法（冒充他人插件 / 非官方动作名） |
+| `-7` | 队列满 | UI 项超过 64 个 |
+| `-99` | 内部异常 | 宿主内部错误（看日志） |
+
+命名空间：官方标识一律 `musicxx.*`（钩子 / 事件主题 / 动作 / UI 类型 / 权限）；
+插件自定义一律 `plugin.<自己的插件 id>.*`（事件主题、能力名、UI 项 id）。冒充他人命名空间会被拒绝。
+
+---
+
+## 8. 权限（声明，不拦截）
+
+清单 `permissions` 里写出来，宿主在**安装确认弹窗**与**插件详情页**展示，让用户知情：
+
+| 权限 | 含义 |
+|---|---|
+| `musicxx.storage` | 插件私有数据目录与 KV |
+| `musicxx.ui` | 注册 UI 项 / 页面 / 通知 |
+| `musicxx.player.control` | 播放控制动作 |
+| `musicxx.library.read` / `musicxx.library.write` | 读 / 写歌单、歌曲、歌词、历史 |
+| `musicxx.net` | 使用宿主网络代理通道（`musicxx.net.fetch` / `download`） |
+| `musicxx.fs.read:<路径>` / `musicxx.fs.write:<路径>` | 直接文件访问（路径限定） |
+| `musicxx.system` | 打开链接 / 剪贴板 / 取目录等外围能力 |
+| `musicxx.agent` | 预留 |
+
+**运行时不做权限校验**：动作不会因为没声明而被拒绝，直接放进插件目录的插件同样不检查权限；
+权限是「防误用 + 用户知情」，不是沙箱（动态库插件与宿主同进程）。
+
+---
+
+## 9. 构建
+
+插件只需要 SDK 头文件 + 一个 CMake 助手：
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
 project(my_plugin LANGUAGES CXX)
 
-# SDK 前缀 = 宿主构建产物里的安装前缀（含 include/ 与 lib/cmake/）
-#   <musicxx_extern_plugin>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install
+# SDK 前缀 = 宿主构建产物的安装前缀（先跑一次 tools/build_native.ps1 / build_native.sh）
 set(musicxx_extern_plugin_DIR "<安装前缀>/lib/cmake/musicxx_extern_plugin")
 find_package(musicxx_extern_plugin CONFIG REQUIRED)
 
 musicxx_plugin_add_target(my_plugin
   SOURCES my_plugin.cpp
   MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.yaml"
+  ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/shader"      # 可选：随插件分发的资源目录
 )
 ```
 
+安装前缀在哪：
+
+```text
+<musicxx_extern_plugin>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/
+```
+
 ```powershell
-# Windows
-cmake -S . -B build -G "Visual Studio 18 2026" -A x64
+# Windows（VS 生成器）
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64 `
+      -Dmusicxx_extern_plugin_DIR="<安装前缀>/lib/cmake/musicxx_extern_plugin"
 cmake --build build --config Release
-# 产物：build/my_plugin.dll + build/plugin.yaml —— 这个目录可以直接当插件目录用
+# 产物：build/my_plugin.dll + build/plugin.yaml（这个目录可以直接当插件目录用）
 ```
 
 ```bash
-# Linux / macOS（Ninja 或 Unix Makefiles 均可）
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+# Linux / macOS（Ninja 或 Unix Makefiles）
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -Dmusicxx_extern_plugin_DIR="<安装前缀>/lib/cmake/musicxx_extern_plugin"
 cmake --build build
 # 产物：build/my_plugin.so（macOS 为 my_plugin.dylib）+ build/plugin.yaml
 ```
 
-宿主库本身不在 Flutter 构建里编译：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`、
-Linux/macOS 用 `./tools/build_native.sh --run-tests`（见包 `README.md` 的「构建」一节）。
+`musicxx_plugin_add_target` 负责（见 `src/sdk/cmake/musicxx_plugin.cmake`）：
 
-`musicxx_plugin_add_target` 负责：
-
-- 建 SHARED 库并链接 SDK（以及存在就链接的内核/工具库，作者不必记库名）；
-- C++26 + MSVC `/utf-8` + 符号默认隐藏，并**只导出 `musicxx_plugin_*` 入口**（GNU/Clang 用 version script，Apple 用导出符号表）；
-- 多配置生成器下把库文件与 `plugin.yaml` 放在同一层（该目录即插件目录）。
-
-工具链要求：C++26（MSVC ≥ VS 2022 17.14 / GCC ≥ 14 / Clang 与 NDK ≥ 18）。
-插件若自己静态链入第三方库，务必保证符号不外泄（默认隐藏已由助手设置）。
-同宿主库一样，插件的导出面也由 version script / 导出符号表收口：`nm -D --defined-only`（Linux）
-或 `dumpbin /exports`（Windows）应当只看到 5 个 `musicxx_plugin_*` 入口。
-
-## 6. 部署与排障
-
-- 插件目录：用户插件在 `{应用数据目录}/plugins/<id>/`（管理页可「打开插件目录」）；
-  随包插件由安装包/构建脚本放进应用数据目录的 `plugins/`；
-- 管理页（设置 → 插件 → 外部插件）：启用/禁用、重载、卸载、清理；
-  插件详情页展示清单信息、声明的权限、运行统计与日志，并可打开插件目录；
-  插件自己的设置页与功能页由插件绘制（`ext://<插件id>/<视图id>`）；
-- 宿主日志默认没有输出目标：排障时设置环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 让宿主打印到 stderr；
-- 插件自己的日志：`log.info(...)` + `console`（JS）/ 管理页「日志」区块；
-- 点主页入口/菜单/按钮提示「没有提供『xxx』」：这项动作指向的能力没有注册。声明式页面
-  （`ext://<插件id>/<视图id>`）要求插件在 `start` 事务里注册**同名能力**
-  （`capability(*this, "plugin.<id>.<视图id>", ...)`），`{"kind":"capability"}` 动作里的 `name` 同理 ——
-  只声明了入口、没写对应能力就会出现这个提示（`plugins/example_native/example_native.cpp` 的 `card` 能力是可照抄的例子）；
-- 装载失败：管理页会显示原因（清单非法、缺入口符号、api_version 不匹配、平台/架构不符、脚本错误…），
-  **宿主不会自动重试**，可以修好后点「重载」；
-- 插件崩溃 = 应用崩溃（同进程）。宿主提供"安全模式"兜底：连续两次启动未完成则本次不加载任何外部插件。
-  开发期请优先用 `musicxx_extern_plugin_test` 与示例插件做回归，再放进正式环境。
-
-## 7. 权限与命名空间
-
-| 权限 | 含义 |
+| 参数 | 作用 |
 |---|---|
-| `musicxx.storage` | 插件私有 KV 与数据目录 |
-| `musicxx.ui` | 注册 UI 项 / 通知 |
-| `musicxx.player.control` | 播放控制动作 |
-| `musicxx.library.read` / `musicxx.library.write` | 读 / 写歌单、歌曲、歌词、历史 |
-| `musicxx.net` | 允许使用宿主网络代理通道（`musicxx.net.fetch`；宿主不限定域名） |
-| `musicxx.fs.read:<路径>` / `musicxx.fs.write:<路径>` | 直接文件访问（路径限定） |
-| `musicxx.system` | 打开链接 / 剪贴板 / 托盘等外围能力 |
-| `musicxx.agent` | 预留（AI 方案落地后启用） |
+| `SOURCES` | 插件源码（至少一个） |
+| `MANIFEST` | 清单路径，构建后复制成产物目录旁边的 `plugin.yaml` |
+| `ASSETS` | 随插件分发的资源（目录按原名整体复制、文件按原名复制），例如 `shader/` |
+| `LIBRARIES` | 额外链接的库（可选） |
+| `OUTPUT_DIR` | 产物目录（默认当前构建目录；多配置生成器也不分子目录） |
 
-- 权限是**声明**：插件清单里写出来，宿主要在安装确认弹窗与插件详情页里展示（让用户知情）；
-  **不做运行时校验** —— 动作不会因为没授权而被拒绝，直接在插件目录里放插件也不检查权限；
-- 插件升级后新增的权限同样只展示，不会暂停启用；
-- 命名空间：官方标识一律 `musicxx.*`（钩子 / 事件主题 / 动作 / UI 类型 / 权限）；
-  插件自定义一律 `plugin.<自己的插件 id>.*`（事件主题、能力名、UI 项 id）。冒充他人命名空间会被拒绝。
+助手同时会：建 SHARED 库并链接 SDK（以及存在就链接的内核/工具库）；设 C++26 与 MSVC `/utf-8`；
+符号默认隐藏并**只导出 `musicxx_plugin_*` 入口**（GNU/Clang 用 version script，Apple 用导出符号表）。
 
-## 8. v1 已知边界
+工具链要求：C++26（MSVC ≥ VS 2022 17.14、GCC ≥ 14、Clang 与 NDK ≥ 18）。
+插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
+
+宿主库本身不在 Flutter 构建里编译：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`，
+Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
+
+---
+
+## 10. 开发流程（从零到跑起来）
+
+```text
+① 建目录 my_plugin/：plugin.yaml + my_plugin.cpp
+② 构建（§9）→ 得到 build/{my_plugin.dll, plugin.yaml}
+③ 让应用看到它：
+   - 用户插件目录：把 build/ 整个拷成 <插件目录>/my_plugin/（管理页「打开插件目录」），
+     或打包成 zip 用管理页「从压缩包安装」；
+   - 随包插件：放进应用的随包插件目录（开发期一般用上面那条）
+④ 管理页「外部插件」→「重新扫描」→ 启用（装载即执行 start 事务）
+⑤ 触发你挂的钩子 / 打开你的页面，看效果
+⑥ 改了代码：重新构建 → 管理页「重载」（或禁用再启用）→ 再试
+```
+
+开发期建议：
+
+- **先用示例插件做基线**：`plugins/example_native` 演示了钩子、能力、动作、事件、UI、日志，
+  行为与 `plugins/example_js` 等价，两边可以对照着读；
+- **宿主日志默认没有输出目标**：设环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 让宿主打印到 stderr，
+  再启动应用就能看到装载过程与你的 `log.info(...)`；
+- 管理页（设置 → 插件 → 外部插件）分「插件 / 设置 / 调试」三个分页：
+  插件分页做启用 / 禁用 / 重载 / 卸载 / 详情，设置分页管框架开关与安全模式，
+  调试分页给钩子与插件统计、最近事件；
+- 调试分页与「插件详情 → 运行统计」能看到：钩子调用次数 / 平均 / 最大 / 超时 / 失败 / 已暂停处理器、
+  插件阶段耗时、钩子数量（JS 插件还有能力 / 订阅 / 定时器数量）、计数器与最近事件；
+- 原生侧的回归手段是包内测试（宿主按「父目录下每个子目录 = 一个插件」扫描）：
+
+  ```powershell
+  pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
+  ```
+
+  也可以把 fixture 插件（`src/tests/fixtures/`）当成「故意失败」的对照来看宿主怎么保护自己。
+
+---
+
+## 11. 部署与分发
+
+- 用户安装的动态库插件在 **Android** 上可能装载失败：Android 7 起动态链接器只允许应用从 APK 的
+  原生库目录加载动态库（应用数据目录里的 `.so` 报
+  `is not accessible for the namespace "classloader-namespace"`）。宿主按「安全降级」处理：
+  标记该插件不可用、给出原因、不重试，其它插件照常工作；JS 插件不受影响。管理页会提前说明这条限制；
+- 随包分发要放**当前平台**的库文件（Windows 包放 `.dll`，Linux 包放 `.so`，或者按 `platforms` 分目录打包）；
+- 每个 ABI / 架构各构建一次（x64 与 arm64 的库不能互换）；
+- 插件的导出面应当只有 5 个入口符号，可以自查：
+
+  ```powershell
+  dumpbin /exports build\my_plugin.dll     # 只应看到 musicxx_plugin_{get_info,create,start,stop,destroy}
+  ```
+
+  ```bash
+  nm -D --defined-only build/my_plugin.so  # 同上（`_Z...` 之类的 C++ 符号不该出现）
+  ```
+
+---
+
+## 12. 排障
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名宿主会按平台修正） |
+| 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
+| 「api_version 不匹配」 | 插件声明的 `api_version` 高于宿主（当前 1） |
+| 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或宿主禁用了动态库插件 / 处于安全模式 |
+| 注册钩子返回 `-4` | 钩子 id 不在契约表里（拼错或用了未定义的钩子）；用 `hook_ids.g.h` 里的常量，不要手写字符串 |
+| 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
+| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标 `P1`（应用侧尚未埋点）；或插件被禁用 / 处理器已被熔断（管理页统计里 `paused`） |
+| 点入口提示「插件『<插件id>』没有提供『xxx』」 | 该动作指向的能力没有注册（页面视图 id 必须与能力短名一致） |
+| 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
+| 应用整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。宿主线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
+| 插件装载后应用启动异常 | 宿主连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
+
+---
+
+## 13. v1 边界与后续
 
 | 边界 | 说明 |
 |---|---|
-| 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui`；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由 Dart 侧分派（动作不做权限校验） |
-| 进程隔离 | 插件与宿主同进程（无沙箱）；权限只是"防误用与用户知情" |
-| 平台 | Windows / Linux / macOS / Android 可加载动态库插件（Android 默认启用，加载失败会安全降级并提示）；iOS / OHOS 只能跑 JS 插件 |
-| 资源限制 | 宿主不限制插件的内存/耗时/网络，只做自我保护（等待预算 100 ms、动作超时、事件队列上限、连续失败熔断）；统计只观测不限制 |
-| 多实例 | 同一份库文件可以被宿主创建多个实例（不同 id/参数），因此**不得有可变全局状态** |
-
-后续计划（不在 v1）：领域表体、插件独立进程、插件市场、Rust/WASM 插件形态。
+| 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由应用侧分派 |
+| 进程隔离 | 插件与宿主同进程（无沙箱）：插件崩溃 = 应用崩溃，权限只是声明 |
+| 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
+| 资源限制 | 宿主不限制插件的内存 / 耗时 / 网络，只做自我保护：等待预算、动作超时、事件队列上限、连续失败熔断；统计只观测不限制 |
+| 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
+| 钩子埋点 | 契约里有 66 个钩子，应用侧当前埋点的是 `plugin-hooks.md` 里标 `P0` 的那 9 个；其余钩子注册成功但不会触发 |

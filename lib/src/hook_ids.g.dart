@@ -55,6 +55,7 @@ enum MusicxxPluginHookPhase { P0, P1, P2 }
 
 /// 钩子 id 与元信息（由 `tools/hooks.def.json` 生成）
 enum MusicxxPluginHookId {
+  /// 载荷 `{version, platform, branch, installId, lang}`。应用启动阶段（业务 Store 与插件宿主都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事，观察型没有裁决。
   appStart(
     'musicxx.app.start',
     MusicxxPluginHookMode.observe,
@@ -64,6 +65,8 @@ enum MusicxxPluginHookId {
     0,
     0,
   ),
+
+  /// 载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后派发一次（比 `app.start` 晚），观察型。
   appReady(
     'musicxx.app.ready',
     MusicxxPluginHookMode.observe,
@@ -119,7 +122,7 @@ enum MusicxxPluginHookId {
     0,
   ),
 
-  /// 调用点本身是 Future, 用异步派发避免卡住切歌 (切歌期间有新的请求时旧裁决丢弃)
+  /// 载荷 `{sid, song, mode, quality}`：`song` 是只读视图（`sid/name/artist/album/durationMs/year/genre/srcKey/audio[]/video[]`，不含音频直链），`mode` = 播放模式、`quality` = 当前音质。裁决只实现 `{"action":"skip"}` = 跳过本曲（走应用既有的切下一曲流程）；`patch`（换音源/改音质）当前版本未实现，会被记一条日志后忽略。异步派发：切歌不会被插件拖慢；等待期间若又来了新的切歌请求，本次裁决被丢弃（插件可以自己用 `sid` 判断）。
   playerBeforePlaySong(
     'musicxx.player.beforePlaySong',
     MusicxxPluginHookMode.decision,
@@ -129,6 +132,8 @@ enum MusicxxPluginHookId {
     30,
     100,
   ),
+
+  /// 载荷 `{sid, srcKey, src, index, tryLocalOrCache}`：`src` 是音源视图（`type/empty/srcKey/quality/durationMs/hashMd5/size`），`index` = 本轮解析的音源下标。裁决：`{"action":"skip"}` = 本轮不解析该音源（调用方接着试下一个）；`patch.src = {"type":"Local|UrlLink|Bili|...","src":"<新地址>","info":{...}}` = 只替换本轮使用的音源（不改动歌曲实体的音源列表），字段不合法会被忽略。异步派发（不卡住解析），等待期间切歌则本次裁决作废。
   playerSourceBeforeParse(
     'musicxx.player.source.beforeParse',
     MusicxxPluginHookMode.decision,
@@ -138,6 +143,8 @@ enum MusicxxPluginHookId {
     50,
     200,
   ),
+
+  /// 载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后派发。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；观察型。
   playerSourceResolved(
     'musicxx.player.source.resolved',
     MusicxxPluginHookMode.observe,
@@ -156,6 +163,8 @@ enum MusicxxPluginHookId {
     50,
     200,
   ),
+
+  /// 载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个钩子）。
   playerState(
     'musicxx.player.state',
     MusicxxPluginHookMode.observe,
@@ -210,6 +219,8 @@ enum MusicxxPluginHookId {
     30,
     100,
   ),
+
+  /// 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子，调用点只等 120 ms，超时按无裁决继续。
   playerError(
     'musicxx.player.error',
     MusicxxPluginHookMode.decision,
@@ -219,6 +230,8 @@ enum MusicxxPluginHookId {
     30,
     100,
   ),
+
+  /// 载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。
   playerCompleted(
     'musicxx.player.completed',
     MusicxxPluginHookMode.observe,
@@ -246,6 +259,8 @@ enum MusicxxPluginHookId {
     30,
     100,
   ),
+
+  /// 载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前宿主会先刷新状态镜像，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。
   songChanged(
     'musicxx.song.changed',
     MusicxxPluginHookMode.observe,
