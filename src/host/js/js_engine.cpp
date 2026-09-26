@@ -229,7 +229,7 @@ constexpr const char *kPrelude = R"JS(
         fn: fn
       };
       hookTable.set(id, entry);
-      /// 运行期注册要通知宿主 (顶层登记阶段由引擎统一回放, 这里只是记账)
+      /// 运行期注册要通知宿主 (顶层登记阶段由引擎统一回放, 这里只是先记下来)
       ext.hookOp("register", String(id), entry.mode, entry.priority, entry.ownerTag);
       return musicxx;
     },
@@ -1644,7 +1644,7 @@ void JsEngine::bridgeHookWaitResolve(const std::string &waitId,
   }
   auto inst = lookupInstance(instance);
   if (!slot) {
-    /// 迟到: 宿主早已按"无裁决"继续, 这里只记账与日志
+    /// 迟到: 宿主早已按"无裁决"继续, 这里只做记录与日志
     if (inst) {
       ++inst->asyncHookLateDrops;
     }
@@ -1668,7 +1668,7 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
     return;
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
-    /// 脚本顶层登记阶段: 先记账, 由 applyRegistrations 在宿主线程回放
+    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在宿主线程回放
     /// (与钩子/能力/订阅同一套做法, 避免"宿主线程等 JS、JS 等宿主线程")
     Instance::PendingUiOp entry;
     entry.op = op;

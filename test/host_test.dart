@@ -532,7 +532,7 @@ void main() {
 /// 测试进度输出（定位卡死步骤用）
 void _step(String message) {
   // ignore: avoid_print
-  print('[smoke] $message');
+  print('[host-test] $message');
 }
 
 /// 原生库 + 示例插件目录探测（找不到就跳过需要它们的用例）

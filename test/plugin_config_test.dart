@@ -479,7 +479,7 @@ Directory _copyPlugin(_Environment env, Directory work, String pluginId) {
 
 /// 注册宿主动作（与音乐应用侧的语义一致：`storage.get` 返回**值本身**）
 ///
-/// 这里只实现本测试需要的那几个动作，行为对齐接入层：
+/// 这里只实现本测试需要的那几个动作，行为与应用侧接入层一致：
 /// - `namespace: "config"` 读写插件目录的 `config.json`；
 /// - 其它命名空间读写内存里的私有 KV（真实应用是 `data/kv.json`）；
 /// - `musicxx.ui.notify` 直接成功（不看界面）。

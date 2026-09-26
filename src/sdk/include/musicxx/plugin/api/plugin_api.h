@@ -273,7 +273,7 @@ typedef struct MusicxxPluginUIIface {
 #define MUSICXX_PLUGIN_IFACE_STORAGE "musicxx.storage"
 #define MUSICXX_PLUGIN_IFACE_NET     "musicxx.net"
 #define MUSICXX_PLUGIN_IFACE_STATS   "musicxx.stats"
-#define MUSICXX_PLUGIN_IFACE_AGENT   "musicxx.agent" ///< 预留: AI 方案落地时实现
+#define MUSICXX_PLUGIN_IFACE_AGENT   "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
 
 /* ==================== 状态镜像键 (官方) ==================== */
 

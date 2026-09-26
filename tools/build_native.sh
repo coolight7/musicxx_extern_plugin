@@ -96,7 +96,7 @@ android_stl="c++_static"
 while [ $# -gt 0 ]; do
     arg="$1"
     shift
-    # 三种写法都接受: --name value / --name=value / -Name value (与 PowerShell 的 -Config 对齐)
+    # 三种写法都接受: --name value / --name=value / -Name value (与 PowerShell 的 -Config 一致)
     name="${arg%%=*}"
     name_lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr -d '-')"
     value=""

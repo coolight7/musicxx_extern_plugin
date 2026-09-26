@@ -202,7 +202,7 @@ int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
           {"avgUs", h.calls > 0 ? h.totalUs / h.calls : 0},
           {"maxUs", h.maxUs},
           {"paused", paused},
-          /// 熔断剩余时间 (ms; 未熔断为 0): 管理页据此显示"还有多久恢复派发"
+          /// 暂停派发的剩余时间 (ms; 没有暂停时为 0): 管理页据此显示"还有多久恢复派发"
           {"pausedRemainMs",
            paused ? std::chrono::duration_cast<std::chrono::milliseconds>(
                         h.pausedUntil - now)
@@ -222,7 +222,7 @@ int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
 
 namespace {
 
-/// 浅合并 `patch` 子对象 (allMerge / anyCancel 的合并口径; 后续键覆盖先前键)
+/// 浅合并 `patch` 子对象 (allMerge / anyCancel 的合并规则; 后面的键覆盖先前的键)
 void mergePatch(Json &target, const Json &source) {
   if (!source.is_object()) {
     return;
@@ -303,7 +303,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     }
     const auto now = std::chrono::steady_clock::now();
     if (h.pausedUntil > now) {
-      continue; ///< 熔断中: 仅暂停派发, 不卸载插件
+      continue; ///< 暂停派发中: 只跳过这个处理器, 不卸载插件
     }
     if (!h.spec.hook_sync) {
       // 异步处理器: 本轮只做通知 (调用 hook_start, 结果不参与同步合并)

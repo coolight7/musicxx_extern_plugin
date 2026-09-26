@@ -92,7 +92,7 @@ class MusicxxPluginState {
 
   /// 批量推送（同帧多键合并成一次 FFI 调用）
   ///
-  /// 返回是否成功（单个键超限只会被截断，不影响其它键）。
+  /// 返回是否成功（某个键超限时只会被宿主拒绝写入，不影响其它键）。
   bool updateBatch(Map<String, Object?> items) {
     if (!_runtime.isRunning || items.isEmpty) {
       return false;

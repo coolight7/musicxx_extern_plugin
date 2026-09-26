@@ -27,7 +27,7 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 /// 与 C ABI 的 `MUSICXX_EXTERN_PLUGIN_HOOK_*` 一致（ffigen 不导出宏，这里显式声明）
 const int _hookAsync = 0;
 
-/// 状态镜像载荷的固定长度（worker 写入后由插件探针回读长度，证明写入真的落地）
+/// 状态镜像载荷的固定长度（worker 写入后由插件探针回读长度，证明写入真的生效）
 const int _statePayloadBytes = 200;
 
 /// worker 轮数（每个 worker 的调用次数）
@@ -200,7 +200,7 @@ void main() {
       lastSeq = event.seq;
     }
 
-    // 7) 多 isolate 写入的状态镜像确实落地（插件侧同步读到的字节数）
+    // 7) 多 isolate 写入的状态镜像确实生效（插件侧同步读到的字节数）
     int stateLen = -1;
     final DateTime deadline = DateTime.now().add(const Duration(seconds: 5));
     while (DateTime.now().isBefore(deadline)) {

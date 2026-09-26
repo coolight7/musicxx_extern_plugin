@@ -8,7 +8,7 @@ environment:
   sdk: ^3.8.0
 
 dependencies:
-  # 跨边界内存与函数指针（唯一运行时依赖；重活都在原生宿主里）
+  # 跨边界内存与函数指针（唯一运行时依赖；耗时工作都在原生宿主里）
   ffi: ^2.1.4
 
 dev_dependencies:
@@ -27,7 +27,7 @@ dev_dependencies:
 # `linux/CMakeLists.txt` 只负责把已构建好的库交给 Flutter 随应用分发（PLUGIN_BUNDLED_LIBRARIES），
 # Android 由 `android/build.gradle` 把库收集进 jniLibs（打进 APK 的 lib/<abi>/，见 android/README.md），
 # Dart 侧再按显式路径/可执行文件目录/库名加载它（显式路径优先，便于打包与调试）。
-# 其余平台（macOS/iOS/OHOS）的打包排入后续阶段。
+# macOS / iOS / OHOS 的打包尚未接入。
 flutter:
   plugin:
     platforms:

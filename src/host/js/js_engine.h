@@ -12,7 +12,7 @@
 ///   (动作请求走 [InternalActionRelay], 状态读取直接读互斥保护的镜像);
 /// - **顶层注册 + 回放**: 脚本顶层调用 `musicxx.hooks.register`
 /// 等注册接口时先在 JS 侧
-///   记账; 脚本执行结束、引擎回到宿主线程后再回放注册 —— 避免"宿主线程等 JS、JS
+///   先记下来; 脚本执行结束、引擎回到宿主线程后再回放注册 —— 避免"宿主线程等 JS、JS
 ///   等宿主线程" 的互锁 (无死锁不变式);
 /// - **规则与动态库插件一致**:
 /// 命名空间校验、未知钩子拒绝、禁用/卸载摘除注册都沿用同一套约定
@@ -105,7 +105,7 @@ public:
 
   /// 钩子操作 (op = register | unregister; 只在 JS 线程调用)
   ///
-  /// 与 [bridgeUiOp] 同一套规则: 顶层登记阶段只记账 (由
+  /// 与 [bridgeUiOp] 同一套规则: 顶层登记阶段只记下来 (由
   /// [applyRegistrations] 回放), 运行期投递到宿主线程执行 —— 否则
   /// `musicxx.hooks.register/unregister` 只改了 JS 侧的表, 宿主注册没变
   /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的钩子永远不触发")。
@@ -330,7 +330,7 @@ private:
   void ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
                                 const std::string &topic);
 
-  /// 在宿主线程上落地一次运行期钩子操作 (register / unregister)
+  /// 在宿主线程上执行一次运行期钩子操作 (register / unregister)
   void applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
                          const std::string &op, const std::string &hookId,
                          const std::string &mode, int32_t priority,

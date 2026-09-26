@@ -117,7 +117,7 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 ```
 
 顶层同步注册会在脚本执行结束后由引擎统一登记；**运行期**调用 `register` / `unregister` 同样生效
-（宿主把它投递到宿主线程落地，不在脚本线程等待）。
+（宿主把它投递到宿主线程执行，不在脚本线程等待）。
 
 ### 4.2 裁决型钩子的返回值
 
@@ -126,7 +126,7 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 ```
 
 `action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲）。当前版本已埋点的
-裁决钩子只有三个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已埋点钩子的载荷与裁决（P0）」：
+裁决钩子只有三个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已埋点钩子的载荷与裁决」：
 `player.beforePlaySong`（只支持 `skip`）、`player.source.beforeParse`（`skip` / `patch.src`）、
 `player.error`（`stop` / `skip` / `patch.tryNextSrc`）。
 
@@ -365,7 +365,7 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 | `musicxx.ui.changed` | 某个插件（可能是自己）的 UI 项变化（`{action, id, items}`） |
 | `musicxx.hook.changed` | 钩子处理器注册表变化（`{id, hook, mode, count, action}`） |
 | `musicxx.plugin.log` | 插件日志（`{id, level, message}`） |
-| `musicxx.plugin.error` / `musicxx.plugin.warn` | 插件失败 / 告警（含熔断提示） |
+| `musicxx.plugin.error` / `musicxx.plugin.warn` | 插件失败 / 告警（含处理器被暂停的提示） |
 | `musicxx.hook.decision.result` | 异步裁决结果（`{callId, hook, ...}`，调试用） |
 
 ---
@@ -456,12 +456,12 @@ const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: 
 ```
 
 - 宿主**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
-  「跟着封面/主题配色」这类需求什么都不用做（取不到来源时用参数里的固定值兜底）；
+  「跟着封面/主题配色」这类需求什么都不用做（取不到来源时用参数里的固定值）；
 - 封面不参与画面绘制：宿主不上传封面贴图，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态镜像见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
   （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（可能是 `builtin:*`），
-  `visible:false` = 宿主当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉重活。
+  `visible:false` = 宿主当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
 
 ---
 
@@ -572,7 +572,7 @@ musicxx.util.now();                   // Date.now()
 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查装载失败时很有用）。
 
 **统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到钩子调用次数 / 耗时 /
-超时 / 失败 / 是否熔断，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
+超时 / 失败 / 是否暂停派发，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
 `timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `execGuardHits` /
 `asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`。插件里也能自己读：
 `musicxx.stats.getSelf()`。
@@ -587,7 +587,7 @@ musicxx.util.now();                   // Date.now()
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（见 §7.1 的表尾） |
-| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标 `P1`（应用侧尚未埋点）；或处理器被熔断 |
+| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未埋点」（应用侧还没有接）；或处理器被暂停派发 |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，宿主侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
 | 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会装载失败）；先看日志 |

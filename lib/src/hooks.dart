@@ -63,10 +63,10 @@ class MusicxxPluginHooks {
   final Map<String, MusicxxPluginThrottle> _throttles =
       <String, MusicxxPluginThrottle>{};
 
-  /// 异步裁决的兜底定时器（事件丢失时不至于永久悬挂）
+  /// 异步裁决的超时定时器（结果事件丢失时不至于永久等待）
   final Map<int, Timer> _pendingDecisionTimers = <int, Timer>{};
 
-  /// 异步裁决的兜底余量（毫秒）：宿主预算之外给事件往返留的余量
+  /// 异步裁决额外等待的余量（毫秒）：在宿主预算之外给事件往返留的时间
   static const int _asyncDecisionSlackMs = 600;
 
   int _asyncDecisionCalls = 0;
@@ -129,7 +129,7 @@ class MusicxxPluginHooks {
 
   /// 裁决型（同步）：Dart 处理器 → 原生/JS 处理器 → 按策略合并
   ///
-  /// 返回 `null` 表示"无裁决"（调用点走原逻辑）；超时/熔断同样按"无裁决"处理。
+  /// 返回 `null` 表示"无裁决"（调用点走原逻辑）；超时/处理器被暂停同样按"无裁决"处理。
   Map<String, Object?>? decide(
     MusicxxPluginHookId id, [
     Object? payload,
@@ -253,7 +253,7 @@ class MusicxxPluginHooks {
     pending.complete(_verdictOf(event.payload));
   }
 
-  /// 刷新某钩子的原生处理器数量（事件丢包/宿主重启后手动兜底）
+  /// 刷新某钩子的原生处理器数量（事件丢包/宿主重启后手动重新查询）
   int refreshNativeHandlerCount(MusicxxPluginHookId id) {
     if (!_runtime.isRunning) {
       _nativeCounts[id.id] = 0;

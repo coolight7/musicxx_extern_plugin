@@ -134,9 +134,9 @@ std::string readFileText(const fs::path &path) {
 /// - 与 Dart 事件队列 (pushEvent/pollEvents) 是**两条独立通道**:
 /// 本总线服务插件之间
 ///   与"宿主 → 插件"的事件; Dart 侧事件仍走有界队列;
-/// - 订阅/撤销在宿主线程簿记, 回调在**发布者线程**执行
+/// - 订阅/撤销在宿主线程登记, 回调在**发布者线程**执行
 /// (内核发布入口已投递到宿主线程),
-///   因此回调里不得阻塞 (与钩子处理器同一纪律);
+///   因此回调里不得阻塞 (与钩子处理器同一条约定);
 /// - 回调在锁外执行: 处理器内部再次订阅/撤销/发布不会自锁。
 class TopicEventBus final : public pluginxx::EventSource {
 public:
@@ -1175,7 +1175,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
     reason = "插件要求的 API 版本高于当前宿主";
   }
   if (supported && kind == "native") {
-    // 校验口径必须与加载阶段一致（否则扫描判"缺库文件"、加载却能命中）：
+    // 校验方式必须与加载阶段一致（否则扫描判"缺库文件"、加载却能命中）：
     // 先用内核的 resolvePluginEntryPath（平台扩展名修正 + 配置子目录回退），
     // 找不到再按平台默认库名回退（lib<名>.so / <名>.dll / lib<名>.dylib）——
     // 例如清单按 Linux 写 entry=foo.so 时，Windows 上应解析到 foo.dll。

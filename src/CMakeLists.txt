@@ -38,7 +38,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ===== Debug / Release 开关 (口径与 agentxx 的 XX_IS_RELEASE_D 一致) =====
+# ===== Debug / Release 开关 (含义与 agentxx 的 XX_IS_RELEASE_D 一致) =====
 # 仅表示"是否按调试用途编译": XX_IS_DEBUG_D=1 时库内打开更多日志/断言, 不代表编译类型。
 # 构建脚本按 -Config 传 -DXX_IS_RELEASE_D=0|1。
 option(XX_IS_RELEASE_D "Release Build." ON)
