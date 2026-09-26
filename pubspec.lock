@@ -195,6 +195,13 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "1.9.1"
+  pluginxx_ui:
+    dependency: "direct main"
+    description:
+      path: "src/third_party/cxx_pluginxx_ui/dart"
+      relative: true
+    source: path
+    version: "0.1.0"
   quiver:
     dependency: transitive
     description:
