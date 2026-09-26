@@ -218,12 +218,43 @@ function refreshConfig() {
 }
 refreshConfig();
 
+/// 一行 "标题 + 说明 + 右侧状态" 的排版
+///
+/// 行放进**内容块** (`Block` = 应用里的卡片底色与边距), 等于原来的列表条目;
+/// 行本身用布局块组合 (Row / Expanded / Column / SizedBox / Text)。
+/// `action` 可选, 带上就是整块可点。
+function infoRow(title, subtitle, right, action) {
+    const left = {
+        kind: "Column",
+        children: subtitle
+            ? [{ kind: "Text", text: title },
+               { kind: "SizedBox", height: 6 },
+               { kind: "Text", text: subtitle, style: "cross" }]
+            : [{ kind: "Text", text: title }],
+    };
+    const children = [{ kind: "Expanded", child: left }];
+    if (right) {
+        children.push({ kind: "SizedBox", width: 30 });
+        children.push({ kind: "Text", text: right, style: "cross" });
+    }
+    const block = {
+        kind: "Block",
+        inContent: true,                                    // 内容块里的浅色底
+        margin: { left: 50, right: 50, bottom: 20 },         // 数值是设计像素
+        child: { kind: "Row", children: children },
+    };
+    if (action) {
+        block.action = action;
+    }
+    return block;
+}
+
 /// 插件自绘设置页: 宿主打开 ext://example_js/settings 时调用同名能力取页面描述。
 ///
 /// 设置界面属于插件自己的页面 (框架不管理设置入口, 也不渲染设置控件): 入口就是
-/// card 页里的『打开本插件设置页』按钮, 页面只用 text / list / button 块画出插件
-/// 自己的配置界面; 值改动由按钮触发能力写回 config.json (返回 {view:...} 让宿主
-/// 直接用新页面刷新)。
+/// card 页里的『打开本插件设置页』按钮, 页面只用 Text / Divider / Button 与布局块
+/// 画出插件自己的配置界面; 值改动由按钮触发能力写回 config.json (返回 {view:...}
+/// 让宿主直接用新页面刷新)。
 function settingsView(override) {
     const cache = musicxx.storage.configCache;
     const skipAds = (override && typeof override.skipAds === "boolean")
@@ -240,36 +271,31 @@ function settingsView(override) {
         subtitle: "页面由插件绘制; 值保存在插件目录的 config.json",
         blocks: [
             {
-                kind: "text",
+                kind: "Text",
                 text: "这些设置由脚本用 musicxx.storage.getConfig/setConfig 读写, 没有宿主提供的表单。",
                 style: "cross",
             },
-            { kind: "divider" },
+            { kind: "Divider" },
+            infoRow("跳过广告曲目", "播放前裁决: 名字含『广告』的曲目直接跳过", skipAds ? "已开启" : "已关闭"),
+            infoRow("启动提示语", "加载时弹出的提示", greeting === "" ? "(未设置)" : greeting),
+            infoRow("心跳间隔(毫秒)", "定时器写日志的间隔, 改完立即换成新间隔", String(heartbeatMs)),
             {
-                kind: "list",
-                items: [
-                    { id: "skipAds", title: "跳过广告曲目", subtitle: "播放前裁决: 名字含『广告』的曲目直接跳过", right: skipAds ? "已开启" : "已关闭" },
-                    { id: "greeting", title: "启动提示语", subtitle: "加载时弹出的提示", right: greeting === "" ? "(未设置)" : greeting },
-                    { id: "heartbeatMs", title: "心跳间隔(毫秒)", subtitle: "定时器写日志的间隔, 改完立即换成新间隔", right: String(heartbeatMs) },
-                ],
-            },
-            {
-                kind: "button",
+                kind: "Button",
                 title: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
                 style: "primary",
                 action: { kind: "capability", name: "toggleSkipAds" },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "切换心跳间隔（10 / 30 / 60 秒）",
                 action: { kind: "capability", name: "cycleHeartbeat" },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "把提示语改回默认值",
                 action: { kind: "capability", name: "resetGreeting", args: { value: "example_js 已加载" } },
             },
-            { kind: "button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
+            { kind: "Button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
         ],
     };
 }
@@ -399,7 +425,8 @@ musicxx.capability.register("reloadConfig", function () {
 /// 插件页面: 主页入口与播放页附加信息块都指向 `ext://example_js/card`
 ///
 /// 宿主打开这个页面时调用**同名能力** (`card`), 由脚本返回视图描述 ——
-/// 页面内容由插件给, 排版与控件仍由宿主渲染 (text / divider / list / button 块)。
+/// 页面内容由插件给, 排版与控件仍由宿主渲染 (Text / Divider / Button 与
+/// Row / Column / Expanded / SizedBox / Padding 等布局块)。
 /// 页面里的按钮可以调用本插件能力 (返回 `{view:...}` 时直接刷新当前页)、
 /// 执行官方动作, 或跳到另一个插件页面 (这里跳本插件的设置页)。
 function cardView() {
@@ -418,73 +445,36 @@ function cardView() {
         subtitle: "页面内容来自能力 `card`, 渲染由宿主完成",
         blocks: [
             {
-                kind: "text",
-                text: "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 列表 / 按钮), 不写界面代码。",
+                kind: "Text",
+                text: "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / 按钮), 不写界面代码。",
                 style: "cross",
             },
-            { kind: "divider" },
+            { kind: "Divider" },
+            infoRow("切歌次数",
+                lastSongName === "" ? "还没有切过歌" : ("最后播放: " + lastSongName),
+                String(songChangedCount)),
+            infoRow("播放错误次数", "第 1 次错误建议换源, 之后交给宿主原有策略", String(errorCount)),
+            infoRow("定时器心跳", "每 " + configuredHeartbeatMs() + " 毫秒写一条日志", String(timerTicks)),
+            infoRow("已注册的 UI 项", "主页入口 / 歌曲菜单", String(musicxx.ui.entries().length)),
+            infoRow("跨插件调用", "目标: example_native 的 probe 能力", cross),
+            infoRow("宿主网络通道", "musicxx.net.fetch 最近一次结果", net),
+            infoRow("跳过广告曲目", "点这一条直接切换 (等于设置页里的开关)",
+                skipAdsEnabled() ? "已开启" : "已关闭",
+                { kind: "capability", name: "toggleSkipAds", args: { view: "card" } }),
             {
-                kind: "list",
-                items: [
-                    {
-                        id: "songChanged",
-                        title: "切歌次数",
-                        subtitle: lastSongName === "" ? "还没有切过歌" : ("最后播放: " + lastSongName),
-                        right: String(songChangedCount),
-                    },
-                    {
-                        id: "errorCount",
-                        title: "播放错误次数",
-                        subtitle: "第 1 次错误建议换源, 之后交给宿主原有策略",
-                        right: String(errorCount),
-                    },
-                    {
-                        id: "timerTicks",
-                        title: "定时器心跳",
-                        subtitle: "每 " + configuredHeartbeatMs() + " 毫秒写一条日志",
-                        right: String(timerTicks),
-                    },
-                    {
-                        id: "uiEntries",
-                        title: "已注册的 UI 项",
-                        subtitle: "主页入口 / 歌曲菜单",
-                        right: String(musicxx.ui.entries().length),
-                    },
-                    {
-                        id: "crossCall",
-                        title: "跨插件调用",
-                        subtitle: "目标: example_native 的 probe 能力",
-                        right: cross,
-                    },
-                    {
-                        id: "netFetch",
-                        title: "宿主网络通道",
-                        subtitle: "musicxx.net.fetch 最近一次结果",
-                        right: net,
-                    },
-                    {
-                        id: "skipAds",
-                        title: "跳过广告曲目",
-                        subtitle: "点这一条直接切换 (等于设置页里的开关)",
-                        right: skipAdsEnabled() ? "已开启" : "已关闭",
-                        action: { kind: "capability", name: "toggleSkipAds", args: { view: "card" } },
-                    },
-                ],
-            },
-            {
-                kind: "button",
+                kind: "Button",
                 title: "刷新本页",
                 style: "primary",
                 action: { kind: "capability", name: "card" },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "调用 example_native 的能力",
                 action: { kind: "capability", name: "crossCall", args: { target: "example_native", method: "probe" } },
             },
-            { kind: "button", title: "测试宿主网络通道", action: { kind: "capability", name: "fetchEcho" } },
+            { kind: "Button", title: "测试宿主网络通道", action: { kind: "capability", name: "fetchEcho" } },
             {
-                kind: "button",
+                kind: "Button",
                 title: "打开本插件设置页",
                 action: { kind: "route", route: "ext://example_js/settings" },
             },

@@ -171,11 +171,21 @@ uiRegister("settings", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
 
 // 页面：视图 id 与能力短名同名（`ext://my_plugin/settings` → 能力 `settings`）；
 // 配置读写自己做（configPath() 指向 config.json）
+//
+// 块类型名是首字母大写的驼峰 (Text / Divider / Button / Block / Row / Column /
+// Expanded / SizedBox / Padding)，宿主解析时忽略大小写；宽高、内边距与外边距按
+// 设计像素交给宿主换算 (XXSizedBox / XXEdgeInsets)。列表块已移除: 一行设置项
+// 用内容块 (Block, 卡片底色 + 边距) 包住布局块组合出来的行。
 capability(*this, "plugin.my_plugin.settings",
            [](std::string_view, std::string_view) -> std::string {
                return R"({"view":{"title":"我的插件设置","blocks":[
-                   {"kind":"text","text":"这些值保存在插件目录的 config.json 里。"},
-                   {"kind":"button","title":"切换","style":"primary",
+                   {"kind":"Text","text":"这些值保存在插件目录的 config.json 里。"},
+                   {"kind":"Block","inContent":true,
+                    "margin":{"left":50,"right":50,"bottom":20},
+                    "child":{"kind":"Row","children":[
+                      {"kind":"Expanded","child":{"kind":"Text","text":"启用特性"}},
+                      {"kind":"Text","style":"cross","text":"已开启"}]}},
+                   {"kind":"Button","title":"切换","style":"primary",
                     "action":{"kind":"capability","name":"toggleFeature"}}]}})";
            });
 ```

@@ -9,7 +9,7 @@
 /// 页面 (框架不管理插件设置入口, 入口由插件自己给):
 /// - `ext://example_js_shader/card` (主页入口): 当前生效项与渲染状态, 一键切换背景;
 /// - `ext://example_js_shader/settings`: 改速率 (值存在插件目录的 config.json)。
-/// 两个页面都由脚本返回声明式块 (text / divider / list / button), 排版与控件由宿主渲染。
+/// 两个页面都由脚本返回声明式块 (Text / Divider / Button 与布局块), 排版与控件由宿主渲染。
 ///
 /// 这两件事原先和钩子/网络/页面示例一起放在 `example_js` 里, 2026-09 拆成独立插件,
 /// 便于单独照抄。要看"内置背景样式换成插件渲染"的完整流程 (着色器写法、bundle 打包、
@@ -188,6 +188,38 @@ function saveConfig(key, value) {
     });
 }
 
+/// 一行 "标题 + 说明 + 右侧状态" 的排版
+///
+/// 行放进**内容块** (`Block` = 应用里的卡片底色与边距), 等于原来的列表条目;
+/// 行本身用布局块组合 (Row / Expanded / Column / SizedBox / Text)。
+/// `action` 可选, 带上就是整块可点。
+function infoRow(title, subtitle, right, action) {
+    const left = {
+        kind: "Column",
+        children: subtitle
+            ? [{ kind: "Text", text: title },
+            { kind: "SizedBox", height: 6 },
+            { kind: "Text", text: subtitle, style: "cross" }]
+            : [{ kind: "Text", text: title }],
+    };
+    const children = [{ kind: "Expanded", child: left }];
+    if (right) {
+        children.push({ kind: "SizedBox", width: 30 });
+        children.push({ kind: "Text", text: right, style: "cross" });
+    }
+    const block = {
+        kind: "Block",
+        inContent: true,                             // 内容块里的浅色底
+        margin: { top: 30, bottom: 30 },             // 数值是设计像素
+        padding: { top: 30, bottom: 30 },
+        child: { kind: "Row", children: children },
+    };
+    if (action) {
+        block.action = action;
+    }
+    return block;
+}
+
 /// 插件自绘设置页: 宿主打开 ext://example_js_shader/settings 时调用同名能力取页面描述
 ///
 /// `override` 用来让按钮点完当场显示新值 (动作返回 {view:...} 时宿主直接刷新当前页)。
@@ -200,40 +232,35 @@ function settingsView(override) {
         subtitle: "页面由插件绘制; 值保存在插件目录的 config.json",
         blocks: [
             {
-                kind: "text",
+                kind: "Text",
                 text: "速率是插件自己的设置项: 改完用 musicxx.ui.updateEntry 重新声明背景样式, 正在使用的背景立即用新速度。",
                 style: "cross",
             },
-            { kind: "divider" },
+            { kind: "Divider" },
             {
-                kind: "list",
-                items: [
-                    {
-                        id: "bgRate",
-                        title: "背景动画速率",
-                        subtitle: "本插件背景的时间推进速度（1x = 基准速度 1，可选 0.5x / 1x / 2x），改完立即生效",
-                        right: bgRateText(rate),
-                    },
-                ],
+                kind: "Block",
+                child: infoRow("背景动画速率",
+                    "本插件背景的时间推进速度（1x = 基准速度 1，可选 0.5x / 1x / 2x），改完立即生效",
+                    bgRateText(rate)),
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "切换背景动画速率（0.5x / 1x / 2x）",
                 style: "primary",
                 action: { kind: "capability", name: "cycleBackgroundRate", args: { view: "settings" } },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "使用本插件的背景",
                 action: { kind: "capability", name: "useBackground", args: { id: BG_ITEM_ID, view: "settings" } },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "切回内置背景",
                 action: { kind: "capability", name: "useBackground", args: { id: "builtin:Auto", view: "settings" } },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "打开插件说明页",
                 action: { kind: "route", route: "ext://example_js_shader/card" },
             },
@@ -310,54 +337,44 @@ function cardView() {
         subtitle: "• 页面内容来自能力 `card`, 渲染由宿主完成",
         blocks: [
             {
-                kind: "text",
+                kind: "Text",
                 text: "• 本插件把预编译好的 shader bundle 注册成一种播放页背景样式: 用户在『设置 → 播放页面背景』里选中后才生效。",
                 style: "cross",
             },
-            { kind: "divider" },
+            { kind: "Divider" },
             {
-                kind: "list",
-                items: [
-                    {
-                        id: "background",
-                        title: "播放页背景",
-                        subtitle: "当前生效项 (读状态镜像 musicxx.state.renderSlots)",
-                        right: backgroundStateText(),
-                    },
-                    {
-                        id: "render",
-                        title: "渲染状态",
-                        subtitle: "页面被遮挡或切到后台时宿主会停止渲染",
-                        right: renderStateText(),
-                    },
-                    {
-                        id: "bgRate",
-                        title: "背景动画速率",
-                        subtitle: "点这一条循环切换 0.5x / 1x / 2x (1x 是基准速度)",
-                        right: bgRateText(configuredBgRate()),
-                        action: { kind: "capability", name: "cycleBackgroundRate", args: { view: "card" } },
-                    },
-                ],
+                kind: "Block",
+                child: {
+                    kind: "Column",
+                    children: [
+                        infoRow("播放页背景", "当前生效项 (读状态镜像 musicxx.state.renderSlots)",
+                            backgroundStateText()),
+                        infoRow("渲染状态", "页面被遮挡或切到后台时宿主会停止渲染", renderStateText()),
+                        infoRow("背景动画速率", "点这一条循环切换 0.5x / 1x / 2x (1x 是基准速度)",
+                            bgRateText(configuredBgRate()),
+                            { kind: "capability", name: "cycleBackgroundRate", args: { view: "card" } }),
+                    ]
+                }
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "刷新本页",
                 style: "primary",
                 action: { kind: "capability", name: "card" },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "使用本插件的背景",
                 style: "primary",
                 action: { kind: "capability", name: "useBackground", args: { id: BG_ITEM_ID, view: "card" } },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "切回内置背景",
                 action: { kind: "capability", name: "useBackground", args: { id: "builtin:Auto", view: "card" } },
             },
             {
-                kind: "button",
+                kind: "Button",
                 title: "打开本插件设置页",
                 action: { kind: "route", route: "ext://example_js_shader/settings" },
             },

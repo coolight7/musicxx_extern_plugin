@@ -72,7 +72,11 @@ void main() {
       () => _probe(runtime)['configSkipAds'] != null,
       runtime: runtime,
     );
-    expect(_rowOf(_callView(runtime, 'settings'), 'skipAds')?['right'], '已开启');
+    // 行的标题就是查找键（列表块已移除，行由布局块组合，见 `_rowOf`）
+    expect(
+      _rowOf(_callView(runtime, 'settings'), '跳过广告曲目')?['right'],
+      '已开启',
+    );
 
     final File config = File(
       path.join(pluginRoot.path, 'example_js', 'config.json'),
@@ -83,7 +87,7 @@ void main() {
 
     // 改设置：与用户在设置页点按钮等价
     final Map<String, Object?> toggled = _callView(runtime, 'toggleSkipAds');
-    expect(_rowOf(toggled, 'skipAds')?['right'], '已关闭');
+    expect(_rowOf(toggled, '跳过广告曲目')?['right'], '已关闭');
     await _pumpUntil(() => config.existsSync(), runtime: runtime);
     expect(_readConfig(config)['skipAds'], false);
 
@@ -104,9 +108,12 @@ void main() {
       runtime: runtime,
     );
     expect(_probe(runtime)['configSkipAds'], false, reason: '设置必须持久化');
-    expect(_rowOf(_callView(runtime, 'settings'), 'skipAds')?['right'], '已关闭');
     expect(
-      _rowOf(_callView(runtime, 'settings'), 'heartbeatMs')?['right'],
+      _rowOf(_callView(runtime, 'settings'), '跳过广告曲目')?['right'],
+      '已关闭',
+    );
+    expect(
+      _rowOf(_callView(runtime, 'settings'), '心跳间隔(毫秒)')?['right'],
       '60000',
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
@@ -147,7 +154,7 @@ void main() {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
-    // 背景样式声明本身：类型、bundle 路径、默认速率（1× = 基准速度 1）
+    // 背景样式声明本身：类型、bundle 路径、默认速率（1x = 基准速度 1）
     final MusicxxPluginUIItem? background = _backgroundItem(runtime, pluginId);
     expect(background, isNotNull, reason: '插件应注册播放页背景样式');
     expect(background!.type, MusicxxPluginUIType.playingBackground);
@@ -166,9 +173,9 @@ void main() {
     expect(
       _rowOf(
         _callView(runtime, 'settings', plugin: pluginId),
-        'bgRate',
+        '背景动画速率',
       )?['right'],
-      '1×',
+      '1x',
     );
 
     // 切一档速率（等价于用户在设置页点按钮）：UI 项重新声明 + 写回 config.json
@@ -185,7 +192,7 @@ void main() {
     expect(
       _backgroundSpeed(runtime, pluginId),
       2,
-      reason: '1× 的基准速度是 1，切到 2× 后声明 2',
+      reason: '1x 的基准速度是 1，切到 2x 后声明 2',
     );
     expect(_readConfig(config)['bgRate'], 2);
 
@@ -196,9 +203,9 @@ void main() {
       () =>
           _rowOf(
             _callView(runtime, 'settings', plugin: pluginId),
-            'bgRate',
+            '背景动画速率',
           )?['right'] ==
-          '2×',
+          '2x',
       runtime: runtime,
     );
     expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
@@ -268,13 +275,15 @@ void main() {
     String? backgroundText() =>
         _rowOf(
               _callView(runtime, 'card', plugin: pluginId),
-              'background',
+              '播放页背景',
             )?['right']
             as String?;
 
     String? renderText() =>
-        _rowOf(_callView(runtime, 'card', plugin: pluginId), 'render')?['right']
-            as String?;
+        _rowOf(
+          _callView(runtime, 'card', plugin: pluginId),
+          '渲染状态',
+        )?['right'] as String?;
 
     // 宿主还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
     expect(backgroundText(), '无状态');
@@ -294,7 +303,7 @@ void main() {
     expect(
       _rowOf(
         (requested! as Map<String, Object?>)['view']! as Map<String, Object?>,
-        'background',
+        '播放页背景',
       )?['right'],
       '已请求',
       reason: '点击后当场要有反馈（镜像还没反映这次请求）',
@@ -303,7 +312,7 @@ void main() {
     // 镜像反映这次请求：选中本插件、但播放页没打开（没有挂载点 → 没有渲染）
     pushSlot(itemId: itemId, selectedId: itemId, visible: false);
     expect(backgroundText(), '生效中');
-    expect(renderText(), '未渲染');
+    expect(renderText(), '未在渲染');
 
     // 播放页在前台：带上渲染尺寸与是否动态
     pushSlot(
@@ -313,7 +322,7 @@ void main() {
       width: 1280,
       height: 720,
     );
-    expect(renderText(), '动画中, 1280×720');
+    expect(renderText(), '动画中, 1280x720');
 
     // 切回内置：条目还在（itemId 为空），状态文字要收敛，不能一直停在"已请求"
     pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
@@ -340,27 +349,75 @@ Map<String, Object?> _callView(
   return view! as Map<String, Object?>;
 }
 
-/// 取视图里某个 list 块中指定 id 的行
-Map<String, Object?>? _rowOf(Map<String, Object?> view, String id) {
+/// 取视图里某一行的排版结果（按行标题找）
+///
+/// 列表块已移除：行由 `Column` + `Row` + `Expanded` + `Column` + `Text` 组合出来，
+/// 这里按"行内第一个文本 = 标题、行内最后一个文本 = 右侧状态"还原成 `{id, title, right}`，
+/// 调用方只关心右侧状态文字（原先是 list 条目里的 `right` 字段）。
+Map<String, Object?>? _rowOf(Map<String, Object?> view, String title) {
   final Object? blocks = view['blocks'];
   if (blocks is! List) {
     return null;
   }
   for (final Object? block in blocks) {
-    if (block is! Map || block['kind'] != 'list') {
-      continue;
-    }
-    final Object? items = block['items'];
-    if (items is! List) {
-      continue;
-    }
-    for (final Object? item in items) {
-      if (item is Map && item['id'] == id) {
-        return item.cast<String, Object?>();
+    for (final Object? row in _rowsIn(block)) {
+      final List<String> texts = <String>[];
+      _collectTexts(row, texts);
+      if (texts.isNotEmpty && texts.first == title) {
+        return <String, Object?>{
+          'id': title,
+          'title': title,
+          'right': texts.length > 1 ? texts.last : '',
+        };
       }
     }
   }
   return null;
+}
+
+/// 一个块里的所有行（行被 `Block`（内容块）或 `Column`（带行间距）包着）
+Iterable<Object?> _rowsIn(Object? block) sync* {
+  if (block is! Map) {
+    return;
+  }
+  if (block['kind'] == 'Row') {
+    yield block;
+    return;
+  }
+  final Object? child = block['child'];
+  if (null != child) {
+    yield* _rowsIn(child);
+  }
+  final Object? children = block['children'];
+  if (children is List) {
+    for (final Object? item in children) {
+      yield* _rowsIn(item);
+    }
+  }
+}
+
+/// 按布局块顺序收集文本（`child` / `children` 都算）
+void _collectTexts(Object? block, List<String> out) {
+  if (block is! Map) {
+    return;
+  }
+  if (block['kind'] == 'Text') {
+    final Object? text = block['text'];
+    if (text is String && text.isNotEmpty) {
+      out.add(text);
+    }
+    return;
+  }
+  for (final String key in <String>['child', 'children']) {
+    final Object? value = block[key];
+    if (value is List) {
+      for (final Object? item in value) {
+        _collectTexts(item, out);
+      }
+    } else if (null != value) {
+      _collectTexts(value, out);
+    }
+  }
 }
 
 /// 插件探针（能力 `probe`，仅 example_js 有）

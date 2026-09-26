@@ -32,6 +32,36 @@ std::string threadIdText() {
   return oss.str();
 }
 
+/// 声明式页面里一行 "标题 (+说明) + 右侧状态" 的排版
+///
+/// 行放进**内容块** (`Block` = 宿主里的卡片底色与边距), 等于原来的列表条目;
+/// 行本身由布局块组合出来 (Row / Expanded / Column / SizedBox / Text)。
+/// 想让整块可点, 就在外面这一层的对象上加 `"action":{...}`。
+std::string infoRowJson(const std::string &title, const std::string &subtitle,
+                        const std::string &right) {
+  std::ostringstream left;
+  left << "{\"kind\":\"Text\",\"text\":\"" << title << "\"}";
+  if (!subtitle.empty()) {
+    left << ",{\"kind\":\"SizedBox\",\"height\":6}"
+            ",{\"kind\":\"Text\",\"style\":\"cross\",\"text\":\""
+         << subtitle << "\"}";
+  }
+  std::ostringstream row;
+  row << "{\"kind\":\"Row\",\"children\":[{\"kind\":\"Expanded\",\"child\":"
+         "{\"kind\":\"Column\",\"children\":["
+      << left.str() << "]}}";
+  if (!right.empty()) {
+    row << ",{\"kind\":\"SizedBox\",\"width\":30}"
+           ",{\"kind\":\"Text\",\"style\":\"cross\",\"text\":\""
+        << right << "\"}";
+  }
+  row << "]}";
+  // 边距是设计像素 (50/50/20 = 左右留白 + 行间距), 由宿主换算
+  return "{\"kind\":\"Block\",\"inContent\":true,\"margin\":{\"left\":50,"
+         "\"right\":50,\"bottom\":20},\"child\":" +
+         row.str() + "}";
+}
+
 /// 能力调用的空完成通知 (示例里只做探测, 不等待完成)
 void PLUGINXX_CALL probeActionDone(void *, int32_t,
                                    const PluginxxStringView *) {}
@@ -231,10 +261,14 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
     // 8) 能力: 声明式页面 `ext://example_native/card`
     //    主页入口与播放页附加信息块都指向这个页面:
-    //    宿主打开页面时调用**同名能力**, 插件返回视图描述 (text / divider /
-    //    list / button 块), 渲染由宿主完成。 页面里的按钮可以调用本插件能力
+    //    宿主打开页面时调用**同名能力**, 插件返回视图描述 (文本 / 分隔线 /
+    //    布局块 / 按钮块), 渲染由宿主完成。 页面里的按钮可以调用本插件能力
     //    (返回 {view:...} 时直接刷新当前页), 也可以执行官方动作
     //    (这里演示发一条站内提示)。
+    //
+    //    块类型名是首字母大写的驼峰 (Row / Column / Expanded / SizedBox /
+    //    Padding / Text ...), 宿主解析时忽略大小写; 宽高与内边距按设计像素
+    //    交给宿主换算 (XXSizedBox / XXEdgeInsets)。
     capability(
         *this, "plugin.example_native.card",
         [this](std::string_view, std::string_view) -> std::string {
@@ -246,44 +280,39 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"subtitle\":\"页面内容来自能力 "
                  "plugin.example_native.card\""
               << ",\"blocks\":["
-              << "{\"kind\":\"text\",\"style\":\"cross\",\"text\":"
+              << "{\"kind\":\"Text\",\"style\":\"cross\",\"text\":"
                  "\"这个页面演示"
-                 "插件的声明式页面: 插件只返回块描述 (文本 / 列表 / 按钮), "
+                 "插件的声明式页面: 插件只返回块描述 (文本 / 布局 / 按钮), "
                  "不写界面"
                  "代码。\"}"
-              << ",{\"kind\":\"divider\"}"
-              << ",{\"kind\":\"list\",\"items\":["
-              << "{\"id\":\"startThread\",\"title\":\"start 事务线程\","
-                 "\"subtitle\":\"钩子与能力处理器都在这一条线程上执行\","
-                 "\"right\":\""
-              << startThread << "\"}"
-              << ",{\"id\":\"callThread\",\"title\":\"当前调用线程\","
-                 "\"subtitle\":\"与 start 事务线程相同 = "
-                 "单宿主线程\",\"right\":\""
-              << threadIdText() << "\"}"
-              << ",{\"id\":\"errors\",\"title\":\"连续播放错误\","
-                 "\"subtitle\":\"累计 2 次后建议换源\",\"right\":\""
-              << consecutiveErrors << "\"}"
-              << ",{\"id\":\"stateEvents\",\"title\":\"状态镜像变化事件\","
-                 "\"right\":\""
-              << stateEvents << "\"}"
-              << ",{\"id\":\"pingEvents\",\"title\":\"musicxx.test.ping 事件\","
-                 "\"right\":\""
-              << pingEvents << "\"}"
-              << ",{\"id\":\"uiItems\",\"title\":\"已注册的 UI 项\","
-                 "\"subtitle\":\"主页入口 / 歌曲菜单 / "
-                 "附加信息块\",\"right\":\""
-              << uiOk << "\"}"
-              << ",{\"id\":\"stateLen\",\"title\":\"状态镜像 "
-                 "musicxx.state.song\","
-                 "\"subtitle\":\"宿主推送的最近一份歌曲快照 "
-                 "(字节)\",\"right\":\""
-              << stateJson("musicxx.state.song").size() << "\"}"
-              << "]}"
-              << ",{\"kind\":\"button\",\"title\":\"刷新本页\","
+              << ",{\"kind\":\"Divider\"}"
+              << ","
+              << infoRowJson("start 事务线程",
+                             "钩子与能力处理器都在这一条线程上执行", startThread)
+              << ","
+              << infoRowJson("当前调用线程", "与 start 事务线程相同 = 单宿主线程",
+                             threadIdText())
+              << ","
+              << infoRowJson("连续播放错误", "累计 2 次后建议换源",
+                             std::to_string(consecutiveErrors))
+              << ","
+              << infoRowJson("状态镜像变化事件", "",
+                             std::to_string(stateEvents))
+              << ","
+              << infoRowJson("musicxx.test.ping 事件", "",
+                             std::to_string(pingEvents))
+              << ","
+              << infoRowJson("已注册的 UI 项", "主页入口 / 歌曲菜单",
+                             std::to_string(uiOk))
+              << ","
+              << infoRowJson("状态镜像 musicxx.state.song",
+                             "宿主推送的最近一份歌曲快照 (字节)",
+                             std::to_string(stateJson("musicxx.state.song")
+                                                .size()))
+              << ",{\"kind\":\"Button\",\"title\":\"刷新本页\","
                  "\"style\":\"primary\",\"action\":{\"kind\":\"capability\","
                  "\"name\":\"card\"}}"
-              << ",{\"kind\":\"button\",\"title\":\"发送一条通知\","
+              << ",{\"kind\":\"Button\",\"title\":\"发送一条通知\","
                  "\"action\":{\"kind\":\"action\",\"name\":\"musicxx.ui."
                  "notify\","
                  "\"args\":{\"text\":\"来自 example_native 的通知\"}}}"

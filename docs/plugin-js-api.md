@@ -292,22 +292,57 @@ musicxx.capability.register("card", function (args) {
         title: "插件页面",
         subtitle: "可选副标题",
         blocks: [
-            { kind: "text", text: "一段说明", style: "main" },     // main | cross | thin
-            { kind: "divider" },
-            { kind: "button", title: "播放/暂停", style: "primary",
+            { kind: "Text", text: "一段说明", style: "main" },     // main | cross | thin
+            { kind: "Divider" },
+            { kind: "Button", title: "播放/暂停", style: "primary",
               action: { kind: "action", name: "musicxx.player.toggle" } },
-            { kind: "list", items: [
-                { id: "a", title: "条目", subtitle: "说明", right: "3", icon: "addition",
-                  action: { kind: "capability", name: "openItem", args: { id: "a" } } },
-            ]},
+            // 一行 "标题 + 说明 + 右侧状态"：没有列表块，用内容块 + 布局块组合
+            // （内容块上带 action 时整块可点，等于原来的列表条目动作）
+            { kind: "Block", inContent: true,
+              margin: { left: 50, right: 50, bottom: 20 },
+              action: { kind: "capability", name: "openItem", args: { id: "a" } },
+              child: { kind: "Row", children: [
+                  { kind: "Expanded", child: { kind: "Column", children: [
+                      { kind: "Text", text: "条目" },
+                      { kind: "SizedBox", height: 6 },
+                      { kind: "Text", text: "说明", style: "cross" },
+                  ]}},
+                  { kind: "SizedBox", width: 30 },
+                  { kind: "Text", text: "3", style: "cross" },
+              ]}},
+            { kind: "Padding", left: 50, right: 50, top: 15, bottom: 15,
+              child: { kind: "Text", text: "带内边距的文本" } },
         ],
     };
 });
 ```
 
+块类型（`kind`）：
+
+| 块 | 字段 | 说明 |
+|---|---|---|
+| `Text` | `text`、`style`（`main` / `cross` / `thin`） | 一段文字 |
+| `Divider` | — | 分隔线 |
+| `Button` | `title`、`style`（`primary` / `normal`）、`action` | 按钮，点击执行 `action` |
+| `Block` | `child`、`inContent`、`margin` / `padding`（数字 = 四边，或对象 `{left,right,top,bottom,horizontal,vertical,all}`） | 内容块（卡片：底色 + 圆角 + 边距），行与分组放在它里面 |
+| `Row` | `children` | 横向排列子块（要占满剩余宽度就用 `Expanded`） |
+| `Column` | `children` | 纵向排列子块（内容从左边开始） |
+| `Expanded` | `child`、`flex`（默认 1） | 占满剩余空间（只能作为 `Row` / `Column` 的直接子块） |
+| `SizedBox` | `width` / `height`、`child` | 固定尺寸或占位（不写 `child` 就是纯占位） |
+| `Padding` | `left` / `right` / `top` / `bottom`、`child` | 内边距（也可以写成 `padding` 字段：数字 = 四边相同） |
+
+- 块类型名是**首字母大写的驼峰**，解析时**忽略大小写**（`Text` / `text` / `TEXT` 是同一个块）；
+  未识别的块类型被忽略（向前兼容）；
+- 布局数值（`width` / `height` / 内边距 / 外边距）是**设计像素**：宿主按屏幕尺寸换算（和页面其它内容一样
+  随窗口大小缩放），不是固定的物理像素；
+- 任意块都可以带 `action`（`Button` 用的是自己的按钮点击）：带上之后整块可点，用来组合"可点的行"；
+- `Block` 就是应用里的内容块：`inContent: true` 用内容块内的浅色底（适合列表行），不给 `margin` / `padding`
+  时用宿主内容块自己的默认边距；行/分组建议像下面示例那样放在 `Block` 里；
+- **列表块（`list`）已移除**：列表行由 `Block`（内容块）+ `Row` + `Expanded` + `Column` + `SizedBox` + `Text`
+  组合出来，可照抄 `plugins/example_js/plugin.js` 里的 `infoRow(...)`。
+
 - 能力处理器必须**同步返回**（返回 Promise 会被拒绝，见 §3.8）；
-- 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）；
-- 未识别的块类型会被忽略（向前兼容）。
+- 能力返回 `{ view: {...} }` 时，宿主用新视图直接刷新当前页面（翻页/刷新）。
 
 **插件自己的设置页**：框架**不提供设置控件，也不管理"插件设置"入口列表** —— 设置界面就是插件
 自己注册的一个普通页面（`ext://<插件id>/<视图id>`），入口由插件自己给（主页入口、或插件功能页里的
@@ -324,11 +359,13 @@ function settingsView() {
     return {
         title: "我的插件设置",
         blocks: [
-            { kind: "text", text: "这些值保存在插件目录的 config.json 里。", style: "cross" },
-            { kind: "list", items: [
-                { id: "enabledFeature", title: "启用特性", right: featureEnabled() ? "已开启" : "已关闭" },
+            { kind: "Text", text: "这些值保存在插件目录的 config.json 里。", style: "cross" },
+            // 一行设置项：左边标题占满剩余宽度，右边是状态文字
+            { kind: "Row", children: [
+                { kind: "Expanded", child: { kind: "Text", text: "启用特性" } },
+                { kind: "Text", text: featureEnabled() ? "已开启" : "已关闭", style: "cross" },
             ]},
-            { kind: "button", title: "切换『启用特性』", style: "primary",
+            { kind: "Button", title: "切换『启用特性』", style: "primary",
               action: { kind: "capability", name: "toggleFeature" } },
         ],
     };
@@ -349,7 +386,7 @@ musicxx.capability.register("toggleFeature", function () {
 - 从插件自己的页面跳过去：按钮动作用 `{ kind:"route", route:"ext://my_plugin/settings" }`；
 - 也可以直接把它做成主页入口：`{ name:"settings", type:"home.entry", data:{ title:"我的插件设置", action:{ kind:"route", route:"ext://my_plugin/settings" } } }`
   （主页入口只声明"打开哪个页面"，设置内容仍然由插件的 `settings` 能力提供）；
-- 页面能用的块与普通插件页面完全相同（`text` / `divider` / `button` / `list`）；
+- 页面能用的块与普通插件页面完全相同（Text / Divider / Button / Row / Column / Expanded / SizedBox / Padding）；
 - 配置读写用 `musicxx.storage.getConfig/setConfig`（`config.json`），默认值写在 `getConfig` 的第二个参数里；
 - 完整可运行示例见 `plugins/example_js/plugin.js`：`card` 功能页里的『打开本插件设置页』按钮 +
   `settingsView` / `settings` 能力。
