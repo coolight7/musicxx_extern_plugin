@@ -131,6 +131,43 @@ std::string jsonIntField(const std::string &json, const std::string &key) {
   return json.substr(begin, end - begin);
 }
 
+/// 取视图里第一个形如 `1x` / `0.5x` 的文本 (测试专用)
+///
+/// 设置页里「背景动画速率」那一行的右侧状态就是这个形态。列表块移除后，行由
+/// `Block`(内容块) 与布局块组合出来，没有 `right` 字段可读，因此按值的形态取
+/// （与 Dart 侧冒烟用例 `_rowOf` 同一个目的：读到那一行显示的状态文字）。
+std::string jsonFirstRateText(const std::string &json) {
+  const std::string needle = "\"text\":\"";
+  size_t pos = 0;
+  while ((pos = json.find(needle, pos)) != std::string::npos) {
+    const size_t begin = pos + needle.size();
+    const size_t end = json.find('"', begin);
+    if (end == std::string::npos) {
+      return {};
+    }
+    const std::string value = json.substr(begin, end - begin);
+    pos = end;
+    size_t i = 0;
+    bool digits = false;
+    while (i < value.size() &&
+           std::isdigit(static_cast<unsigned char>(value[i]))) {
+      ++i;
+      digits = true;
+    }
+    if (digits && i < value.size() && value[i] == '.') {
+      ++i;
+      while (i < value.size() &&
+             std::isdigit(static_cast<unsigned char>(value[i]))) {
+        ++i;
+      }
+    }
+    if (digits && i + 1 == value.size() && value[i] == 'x') {
+      return value;
+    }
+  }
+  return {};
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -812,6 +849,7 @@ int main(int argc, char **argv) {
             "背景示例的主页入口项进入快照");
 
       // 速率设置: 页面里能读到, 切一档后显示的值跟着变
+      // (设置页的行由布局块组合, 右侧状态按值的形态读: 见 jsonFirstRateText)
       MusicxxExternPluginString before{};
       const auto beforeRc = musicxx_extern_plugin_plugin_call(
           host, viewCP("example_js_shader"), viewCP("settings"), viewCP("{}"),
@@ -820,14 +858,14 @@ int main(int argc, char **argv) {
       check(beforeRc == MUSICXX_EXTERN_PLUGIN_OK &&
                 beforeView.find("背景动画速率") != std::string::npos,
             "背景示例的设置页含『背景动画速率』设置项");
-      const std::string beforeRate = jsonStringField(beforeView, "right");
+      const std::string beforeRate = jsonFirstRateText(beforeView);
 
       MusicxxExternPluginString cycle{};
       const auto cycleRc = musicxx_extern_plugin_plugin_call(
           host, viewCP("example_js_shader"), viewCP("cycleBackgroundRate"),
           viewCP(R"({"view":"settings"})"), 5000, &cycle, &log);
       const std::string cycleView = take(cycle);
-      const std::string afterRate = jsonStringField(cycleView, "right");
+      const std::string afterRate = jsonFirstRateText(cycleView);
       check(cycleRc == MUSICXX_EXTERN_PLUGIN_OK,
             "切换背景动画速率的能力可调用");
       check(!beforeRate.empty() && !afterRate.empty() &&

@@ -297,6 +297,32 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('> 注册钩子时必须写全名（官方 `musicxx.*`）；插件自定义事件/能力/UI 项用')
     ..writeln('> `plugin.<pluginId>.*`。宿主会拒绝未知钩子与未知前缀。')
     ..writeln()
+    ..writeln('## 怎么读这张表')
+    ..writeln()
+    ..writeln(
+      '- **阶段**：`P0` = 应用侧**已经埋点**（当前版本会派发，插件注册后会被调用）；'
+      '`P1` = 钩子契约已冻结、应用侧**尚未埋点**（注册不会报错，但当前版本不会触发）。'
+      '想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），'
+      '或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。',
+    )
+    ..writeln(
+      '- **模式**：`observe` = 只通知（返回值忽略、不等待、没有预算）；`decision` = 可裁决，'
+      '返回 `null` 表示这次不表态。',
+    )
+    ..writeln(
+      '- **派发**：`sync` = 调用点就地等待（占用调用线程）；`async` = 不占用调用线程，'
+      '裁决结果经 `musicxx.hook.decision.result` 事件回传（调用点用 `decideAsync` 时）。',
+    )
+    ..writeln(
+      '- **合并策略**：多个处理器给出裁决时怎么合并（`firstNonNull` 首个非空生效并停止询问、'
+      '`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。',
+    )
+    ..writeln(
+      '- **软/硬预算**：软预算 = 整条处理器链最多等多久（超时按“无裁决”继续，不打断插件）；'
+      '硬预算 = 单个处理器耗时超过它只记一条 `musicxx.plugin.warn` 与统计。'
+      'JS 插件的处理器链还有一层固定上限：最多等 100 ms（Promise 超预算按不裁决处理）。',
+    )
+    ..writeln()
     ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 软/硬预算 (ms) | 阶段 |')
     ..writeln('|---|---|---|---|---|---|');
   for (final Map<String, Object?> hook in hooks) {
@@ -306,6 +332,38 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     sb.writeln(
       "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $budget | ${hook['phase']} |",
     );
+  }
+  sb
+    ..writeln()
+    ..writeln('## 已埋点钩子的载荷与裁决（P0）')
+    ..writeln()
+    ..writeln(
+      '下面是应用侧**已经埋点**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
+      'P1 钩子只冻结了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐'
+      '（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。',
+    )
+    ..writeln()
+    ..writeln('> 载荷统一是 JSON 对象；不裁决时返回 `null`（JS）或把出参留空（C++）。')
+    ..writeln(
+      '> 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 宿主动作自行获取。',
+    );
+  for (final Map<String, Object?> hook in hooks) {
+    final String doc = (hook['doc'] as String?) ?? '';
+    if (doc.isEmpty) {
+      continue;
+    }
+    final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
+    final String budget =
+        '${(hook['budgetMs'] as num).toInt()} / ${(hook['hardMs'] as num).toInt()}';
+    sb
+      ..writeln()
+      ..writeln('### `${hook['id']}`')
+      ..writeln()
+      ..writeln(
+        '- 模式：`${hook['mode']}`；派发：`$dispatch`；'
+        '合并策略：`${hook['policy']}`；软/硬预算：`$budget` ms',
+      )
+      ..writeln('- $doc');
   }
   sb
     ..writeln()
@@ -322,6 +380,10 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '两种方式对插件处理器是**透明的**：处理器照常返回裁决对象即可；区别只在宿主侧'
       '（同步派发阻塞调用线程，异步派发不阻塞、结果经 `musicxx.hook.decision.result` 回传）。',
     )
+    ..writeln(
+      '异步派发的调用点在拿到结果前可能已经切歌/切列表，**插件要自己在载荷里带上身份字段'
+      '（`sid` 等）并在调用点校验**，宿主只负责丢弃过期结果。',
+    )
     ..writeln()
     ..writeln('## 裁决对象通用外壳')
     ..writeln()
@@ -331,9 +393,24 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('  "error": "可选说明" }')
     ..writeln('```')
     ..writeln()
-    ..writeln('- 返回 `null` / 空对象表示"不裁决"，交给下一个处理器；')
+    ..writeln('- 返回 `null` / 空对象表示“不裁决”，交给下一个处理器；')
     ..writeln('- `action` 的宿主语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
-    ..writeln('- 处理器必须尽快返回：宿主对整链有等待预算，超时按"无裁决"继续（不打断插件）。');
+    ..writeln('- 处理器必须尽快返回：宿主对整链有等待预算，超时按“无裁决”继续（不打断插件）。')
+    ..writeln()
+    ..writeln('## 处理器失败与熔断')
+    ..writeln()
+    ..writeln(
+      '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**；',
+    )
+    ..writeln(
+      '- 同一个处理器**连续 3 次失败**会被宿主临时暂停派发 60 秒（只暂停这一个处理器，'
+      '同插件的其它处理器照常工作，插件也不会被卸载）；熔断状态与管理页里的剩余时间见 '
+      '`hook_stats()` 的 `paused` / `pausedRemainMs`；',
+    )
+    ..writeln(
+      '- 超过硬预算只是慢，不计失败（记 `musicxx.plugin.warn`，`code = handler_slow`）；',
+    )
+    ..writeln('- 派发期间注册/注销钩子不会破坏本轮遍历：宿主在派发前对处理器列表做快照。');
   return sb.toString();
 }
 

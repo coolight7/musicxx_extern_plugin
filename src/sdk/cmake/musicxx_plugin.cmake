@@ -19,8 +19,8 @@
 #    GNU/Clang 用"默认隐藏 + version script"，Apple 用 `-exported_symbols_list`；
 # 3. 把 `plugin.yaml` 复制到产物目录旁边，使该目录可以直接作为"插件目录"使用。
 #
-# 说明：这里只做构建便利，不改变插件契约（入口符号名、清单字段见 `docs/plugin-hooks.md`
-# 与 `README.md`）。入口符号前缀默认 `musicxx_plugin`，与宿主 `entrySymbols()` 一致。
+# 说明：这里只做构建便利，不改变插件契约（入口符号名见 `docs/plugin-native-api.md`，
+# 清单字段与构建流程也在那一篇）。入口符号前缀默认 `musicxx_plugin`，与宿主 `entrySymbols()` 一致。
 
 if (COMMAND musicxx_plugin_add_target)
   return() # 已引入（宿主工程里可能被多次 include）

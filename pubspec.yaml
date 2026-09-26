@@ -17,6 +17,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # 端到端用例里拼插件目录/配置文件路径用（只在包内测试里用）
+  path: ^1.9.0
 
 # 说明：
 # 本包声明的 Flutter 平台（Windows / Linux / Android）**不参与 Flutter 编译**：
