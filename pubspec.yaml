@@ -10,6 +10,9 @@ environment:
 dependencies:
   # 跨边界内存与函数指针（唯一运行时依赖；耗时工作都在原生宿主里）
   ffi: ^2.1.4
+  # 插件界面描述层（模型 / 解析 / 适配 / 文本降级 / kit；随包内子模块一起构建）
+  pluginxx_ui:
+    path: src/third_party/cxx_pluginxx_ui/dart
 
 dev_dependencies:
   # 由 src/include/musicxx_extern_plugin_api.h 生成 lib/src/bindings_generated.dart
