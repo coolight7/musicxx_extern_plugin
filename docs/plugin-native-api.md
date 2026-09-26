@@ -152,7 +152,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 插件配置 | `configPath()`、`config()`、`argsJson()`、`language()` | `config.json` 在插件目录里；插件自己读写（默认可直接编辑该文件），没有宿主生成的表单 |
 | 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | 播放/歌单/歌词/界面等，返回结果经 `notify->done` **恰好一次**回调（SDK 会复制通知，传栈上对象也安全） |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己id>.*`；订阅他人 `plugin.*` 主题允许 |
-| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`；渲染由宿主负责 |
+| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`；渲染由宿主负责。播放页背景（`MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND`）需要 `shader.bundle`，着色器参数用 `args` 声明（见 `plugin-shader-bundle.md` §7；不声明时宿主默认给内置背景 4 色） |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器须**同步返回**可 JSON 序列化的结果 |
 | 日志 | `log.info/warn/error`（内核 Logger） | 进插件日志 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
 | 后台任务/取消 | `iface.scheduler`、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |

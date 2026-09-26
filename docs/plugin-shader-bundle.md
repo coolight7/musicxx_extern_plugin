@@ -88,21 +88,23 @@ pwsh -NoProfile -File shader/build_bundle.ps1
 
 ```glsl
 uniform MusicxxRenderInfo {
-  vec4 uParams;   // (目标宽, 目标高, 时间秒, 速度)
-  vec4 uEnv;      // x = 是否夜间(0/1); y = 调色板是否有效(0/1); z,w 保留
-  vec4 uColor1;   // 4 个绘制色（播放页背景槽位追加）
+  vec4 uParams;   // (目标宽, 目标高, 时间秒, 速度)  —— 宿主自动写
+  vec4 uEnv;      // x = 是否夜间(0/1); y = 调色板是否有效(0/1); z,w 保留  —— 宿主自动写
+  vec4 uColor1;   // 后面这些由插件在 args 里声明（名字随便取）
   vec4 uColor2;
   vec4 uColor3;
   vec4 uColor4;
+  vec4 uTint;     // 例：{"name":"uTint","source":"theme.primary"}
 } render_info;
 ```
 
 规则：
 
 - **结构体名与成员名必须完全一致**（宿主按名字寻址写入）；成员偏移必须 16 字节对齐；
+- `uParams` / `uEnv` 由宿主自动写（不用声明也能少写）；
 - **可以少声明成员**（宿主跳过不写，着色器读到 0），但不能声明错误的名字；
 - 结构体大小为 16 的倍数且 ≥ 16，否则该样式判为不可用并给出原因；
-- 颜色是 `0..1` 的浮点（线性无关的 sRGB 分量），`uEnv.y = 0` 表示这 4 个色是插件的兜底色。
+- 颜色是 `0..1` 的浮点（sRGB 分量），`uEnv.y = 0` 表示当前没有有效的封面颜色分析结果（插件参数里用封面取色时可能取不到，宿主会用插件给的固定值兜底）。
 
 ## 6. 着色器写法
 
@@ -128,26 +130,48 @@ void main() {
 }
 ```
 
-## 7. 颜色来源（`data.colors`）
+## 7. 参数（`args`）
 
-| `source` | 含义 | 备注 |
-|---|---|---|
-| `background`（默认） | 宿主内置背景实际使用的 4 色（已套昼夜转换） | `slots` 是 `[0,1,2,3]` 的下标重排；观感与内置背景一致 |
-| `palette` | 封面颜色分析结果的具名槽位 | `slots` 用名字（见下表）；`convert: true` 时套宿主昼夜转换 |
-| `fixed` | 固定颜色 | 用 `values`（夜间可用 `valuesNight`），完全不依赖封面 |
-
-可用槽位名：`main` / `light` / `lightMuted` / `dark` / `darkMuted` / `dominant.0..3`。
-`palette` / `background` 取不到数据时用 `values` 兜底，并把 `uEnv.y` 置 0。
+着色器的每个 `vec4` 成员都由 `args` 里的一项声明（播放页背景的 `data.args`、页面里
+`Shader` 块的 `args`，同一套写法）：
 
 ```jsonc
-"colors": {
-  "source": "palette",
-  "slots": ["main", "lightMuted", "darkMuted", "light"],
-  "convert": true,
-  "values": ["#112233", "#223344", "#334455", "#445566"],
-  "valuesNight": ["#0a0a0a", "#101010", "#181818", "#202020"]
-}
+"args": [
+  { "name": "uColor1", "source": "icon.themeMapping.0" },  // 具名来源（内置背景那 4 色）
+  { "name": "uColor2", "source": "icon.main", "convert": true },  // 封面提取色（套昼夜转换）
+  { "name": "uColor3", "source": "theme.primary" },       // 主题主色
+  { "name": "uTint",   "value": "#ff8800" },              // 固定颜色
+  { "name": "uMix",    "value": [0.5, 0.25, 0, 1] },      // 固定 vec4
+  { "name": "uFlag",   "value": 1 },                      // 固定标量（写到 x）
+  { "name": "uNight",  "value": "#ffffff", "valueNight": "#101010" }  // 固定值也分昼夜
+]
 ```
+
+| 字段 | 说明 |
+|---|---|
+| `name` | uniform 成员名（字母或下划线开头，最长 32 字符；结构体里没有就跳过不写） |
+| `source` | 具名来源（见下表）；空 = 只用固定值 |
+| `convert` | 只对 `icon.*` 有意义：取到的封面色是否套宿主昼夜转换（默认 false，原样给） |
+| `value` | 固定值（白昼用）：数字 / 1~4 个数字的数组 / `#rrggbb` / `#aarrggbb`；也是 `source` 取不到时的兜底 |
+| `valueNight` | 固定值的夜间版本（缺省回退 `value`） |
+
+| `source` | 取到的色 |
+|---|---|
+| `theme.primary` | 主题主色 |
+| `theme.background` / `theme.backgroundCross` | 主题背景色 / 第二背景色 |
+| `theme.textMain` / `theme.textCross` | 主要 / 次要文字色 |
+| `theme.textTitle` / `theme.titleBackground` | 标题文字色 / 标题底色 |
+| `theme.button` / `theme.buttonSelect` | 按钮内容色 / 按钮选中内容色 |
+| `theme.error` / `theme.wave` | 错误提示色 / 歌曲图波浪色 |
+| `icon.main` / `icon.light` / `icon.lightMuted` / `icon.dark` / `icon.darkMuted` | 当前歌曲封面提取色（分析结果的原始色；没有分析结果时取不到 → 用固定值兜底） |
+| `icon.dominant.0` .. `icon.dominant.3` | 封面提取色的主色候选 |
+| `icon.themeMapping.0` .. `icon.themeMapping.3` | 封面颜色**经主题/背景映射后的 4 个绘制色**：就是内置播放页背景实际用的那 4 色（已按昼夜转换与观感归一，`convert` 不再生效；没有分析结果时是兜底色） |
+
+- 一份声明最多 16 项；名字非法、既没有来源也没有固定值的项被直接忽略；
+- `icon.*` 需要封面颜色分析结果（宿主会按需触发一次，见 §10）；
+- 播放页背景**不声明 `args` 时**默认给 `uColor1..4 ← icon.themeMapping.0..3`（观感与内置背景一致）；
+  只想用参数里的主题色时，显式声明 `args` 即可（就不会套用默认 4 色）。
+- 旧的 `data.colors` 字段**已移除**：仍然写着它的插件不会解析它（播放页背景会用默认的内置 4 色），并在宿主日志里得到一条迁移提示。
 
 ## 8. 其它字段与上限
 
@@ -156,7 +180,8 @@ void main() {
 | `title` | 必填 | — | 设置列表里的样式名 |
 | `depict` | `""` | — | 副标题 |
 | `enabled` | `true` | — | false = 不在设置里出现 |
-| `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`。**由插件自己决定**（想给用户一个速率开关就把它做成插件自己的设置项，见 §10）；宿主不做二次缩放 |
+| `args` | 空 | ≤ 16 项 | 着色器参数（见 §7）；背景槽位不声明时默认给内置背景 4 色 |
+| `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`。**由插件自己决定**（想给用户一个速率开关就把它做成插件自己的设置项，见 §11）；宿主不做二次缩放 |
 | `maxFps` | 16 | 1..30 | 帧率上限（按 `ViewportAnimation` 限制） |
 | `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由 Flutter 放大 |
 | `animate` | true | — | false = 只渲染一帧 |
@@ -165,7 +190,31 @@ void main() {
 
 bundle 文件 ≤ 4 MiB，单条 UI 项 `data` ≤ 64 KiB；渲染目标最长边由宿主限制在 1280 像素。
 
-## 9. 运行期：查询与切换
+## 9. 页面里内联画一块着色器（`Shader` 块）
+
+同一个 bundle 也能画在插件自己的页面里（`ext://<插件id>/<视图id>` 的视图描述）：
+
+```jsonc
+{"kind": "SizedBox", "height": 300, "child": {
+    "kind": "Shader",
+    "bundle": "shader/bg.shaderbundle",
+    "speed": 1,
+    "maxFps": 16,
+    "args": [
+      {"name": "uColor1", "source": "theme.primary"},
+      {"name": "uColor2", "source": "icon.main", "convert": true, "value": "#8899aa"}
+    ]}}
+```
+
+- **尺寸由父块决定**：不写尺寸就用父块给的空间，所以通常要像上面这样用 `SizedBox`
+  （或 `Expanded`、`Row` 里的 `Expanded`）给它确定的高度；父块给不出确定尺寸时这一块**留空**
+  并记一条日志（不会崩、也不会画占位）；
+- `bundle` 只能是本插件目录内的相对路径；`args` / `speed` / `maxFps` / `animate` /
+  `resolutionScale` 与背景样式同一套语义（`scrim` 在页面块里没有意义，写也不生效）；
+- 页面不可见（被路由遮挡、进后台）时自动停帧；渲染失败时留空 + 日志（页面块不做背景那套重试）；
+- 完整示例见 `plugins/example_js_shader/plugin.js` 的 `card` 页（内联块 + 一键切换背景）。
+
+## 10. 运行期：查询与切换
 
 ```js
 // 查询所有可选样式（含内置项）
@@ -188,7 +237,7 @@ if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 我在画 */ }
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 宿主 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..512，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 
-## 10. 动画速率由插件自己提供
+## 11. 动画速率由插件自己提供
 
 时间推进速度就是插件声明的 `speed`（写进 `uParams.w`），宿主不做二次缩放。用户想调速率时，
 界面与取值都由**插件自己**决定 —— 做法就是插件自绘设置页里的一个设置项（见 `plugin-js-api.md`
@@ -225,7 +274,7 @@ function applyRate(rate) {
   （这个插件只演示播放页背景与速率，照抄它最直接）；它把基准速度定为 **1**（此前声明 4，
   等价于整体降速到原来的 0.25×）、并把 1 定义为新的 1×。
 
-## 11. 排查
+## 12. 排查
 
 | 现象 | 原因 |
 |---|---|

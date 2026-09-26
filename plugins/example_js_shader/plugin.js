@@ -59,12 +59,21 @@ function bgSpeedOf(rate) {
 ///
 /// `musicxx.ui.updateEntry` 是**整体替换**, 所以每次都要从这一个函数取完整 data,
 /// 不能只传改动的字段。
+///
+/// 参数用 `args`: 每项对应着色器 uniform 结构体里的一个 vec4 成员; `source` 是具名来源
+/// (主题色 `theme.*` / 封面提取色 `icon.*` / 封面经主题映射后的 4 色 `icon.themeMapping.0..3`),
+/// `value` 是取不到时用的固定值。不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
 function backgroundData(rate) {
     return {
         title: BG_TITLE,
         depict: BG_DEPICT,
         shader: { bundle: "shader/bg.shaderbundle" },
-        colors: { source: "background" },
+        args: [
+            { name: "uColor1", source: "icon.themeMapping.0" },
+            { name: "uColor2", source: "icon.themeMapping.1" },
+            { name: "uColor3", source: "icon.themeMapping.2" },
+            { name: "uColor4", source: "icon.themeMapping.3" },
+        ],
         speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
@@ -237,6 +246,29 @@ function settingsView(override) {
                 style: "cross",
             },
             { kind: "Divider" },
+            // 页面里也能直接画一块着色器（`Shader` 块）：用 `SizedBox` 给它确定的高度，
+            // 参数同样用 `args` 声明 —— 第 2 个色是封面提取色（取不到时用固定值兜底）
+            {
+                kind: "Text",
+                text: "• 下面这块是页面内联的 Shader 块（同一个 bundle，参数取主题色与封面提取色）：",
+                style: "cross",
+            },
+            {
+                kind: "SizedBox",
+                height: 300,
+                child: {
+                    kind: "Shader",
+                    bundle: "shader/bg.shaderbundle",
+                    speed: 1,
+                    maxFps: 16,
+                    args: [
+                        { name: "uColor1", source: "theme.primary" },
+                        { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },
+                        { name: "uColor3", source: "icon.dark", value: "#223344" },
+                        { name: "uColor4", source: "icon.themeMapping.3" },
+                    ],
+                },
+            },
             {
                 kind: "Block",
                 child: infoRow("背景动画速率",
