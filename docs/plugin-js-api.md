@@ -218,7 +218,7 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 | `home.entry`（`musicxx.ui.home.entry`） | 功能主页入口按钮 | `title` |
 | `song.action`（`musicxx.ui.song.action`） | 歌曲菜单项 | `title` |
 | `playlist.action` | 歌单菜单项 | `title` |
-| `playing.background` | 播放页背景样式（插件渲染，用户选中后生效） | `title`、`shader.bundle` |
+| `playing.background` | 播放页背景样式（插件渲染，用户选中后生效） | `title`、`shader.bundle`（`args` 可选，缺省给内置背景 4 色） |
 
 > 框架**没有**插件设置页类型：插件要提供设置界面，就把设置画在自己注册的页面里
 > （见下面「插件自己的设置页」），入口由插件自己给（主页入口 / 自己的功能页按钮等）。
@@ -238,7 +238,14 @@ musicxx.ui.registerEntry({
         title: "流光背景",              // 必填；设置列表里的样式名
         depict: "跟随封面配色的动态背景",  // 可选；副标题
         shader: { bundle: "shader/bg.shaderbundle" },  // 必填；插件目录内的相对路径
-        colors: { source: "background" },  // 4 个绘制色的来源（默认 background）
+        // 着色器参数（每项对应 uniform 结构体里的一个 vec4 成员），详见 plugin-shader-bundle.md §7；
+        // 不声明时宿主默认给 icon.themeMapping.0..3（内置背景实际用的那 4 色）
+        args: [
+            { name: "uColor1", source: "icon.themeMapping.0" },   // 封面经主题映射后的 4 色
+            { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },  // 封面提取色（带兜底）
+            { name: "uColor3", source: "theme.primary" },  // 主题色
+            { name: "uColor4", value: "#223344" },         // 固定值
+        ],
         speed: 4,                       // 0..20；时间推进速度（宿主直接用这个值，速率开关由插件自己做）
         maxFps: 16,                     // 1..30，默认 16
         animate: true,                  // false = 只画一帧
@@ -325,6 +332,7 @@ musicxx.capability.register("card", function (args) {
 | `Divider` | — | 分隔线 |
 | `Button` | `title`、`style`（`primary` / `normal`）、`action` | 按钮，点击执行 `action` |
 | `Block` | `child`、`inContent`、`margin` / `padding`（数字 = 四边，或对象 `{left,right,top,bottom,horizontal,vertical,all}`） | 内容块（卡片：底色 + 圆角 + 边距），行与分组放在它里面 |
+| `Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | 在页面里画一块插件着色器（尺寸由父块给：套一层 `SizedBox` / `Expanded`）；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 | `Row` | `children` | 横向排列子块（要占满剩余宽度就用 `Expanded`） |
 | `Column` | `children` | 纵向排列子块（内容从左边开始） |
 | `Expanded` | `child`、`flex`（默认 1） | 占满剩余空间（只能作为 `Row` / `Column` 的直接子块） |
@@ -406,7 +414,10 @@ musicxx.ui.registerEntry({
         title: "流光背景",
         depict: "跟随封面配色",
         shader: { bundle: "shader/bg.shaderbundle" },
-        colors: { source: "background" },
+        args: [
+            { name: "uColor1", source: "icon.themeMapping.0" },
+            { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },
+        ],
         maxFps: 16,
     },
 });
@@ -436,8 +447,9 @@ const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: 
 //   format, bytes, sha256, data(base64), fromCache }
 ```
 
-- 宿主**每帧**把 4 个绘制色写进 uniform（来源由 `data.colors` 声明），所以"跟着封面配色"这类需求
-  什么都不用做；`musicxx.media.*` 只在需要更细的数据时用；
+- 宿主**每帧**把 `args` 里声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员，见
+  `plugin-shader-bundle.md` §5、§7），所以"跟着封面/主题配色"这类需求什么都不用做
+  （封面取不到时用参数里的固定值兜底）；`musicxx.media.*` 只在需要更细的数据时用；
 - 封面不参与画面绘制：宿主不上传封面贴图，也不推任何直链（网络来源只说 `kind: "network"`）；
   本地来源的路径只在 `includePath: true` 时给出；
 - `musicxx.state.renderSlots` 状态镜像告诉你"现在是不是我在画"：`itemId` 等于自己的项 id 时才是本插件生效

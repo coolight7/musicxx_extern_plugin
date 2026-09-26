@@ -210,12 +210,20 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 7) 播放页背景样式 (musicxx.ui.playing.background):
     //    插件把一个预编译的 shader bundle 注册成一种"播放页背景样式",
     //    用户在『设置 → 播放页面背景』里选中后才生效; 未选中时零成本。
-    //    这里注册一个晶格化（随机点最近邻切块）的动态背景, 配色来自宿主的 4 个绘制色。
+    //    这里注册一个晶格化（随机点最近邻切块）的动态背景, 参数用 `args` 声明:
+    //    每项对应着色器 uniform 结构体里的一个 vec4 成员, `source` 是具名来源
+    //    (主题色 theme.* / 封面提取色 icon.* / 封面经主题映射后的 4 色
+    //    icon.themeMapping.0..3), `value` 是取不到时用的固定值。
+    //    这里用内置背景实际画的那 4 色 (观感与内置一致)。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色的晶格化动态背景",
             "shader":{"bundle":"shader/bg.shaderbundle"},
-            "colors":{"source":"background"},"speed":4,"maxFps":16,
+            "args":[{"name":"uColor1","source":"icon.themeMapping.0"},
+                    {"name":"uColor2","source":"icon.themeMapping.1"},
+                    {"name":"uColor3","source":"icon.themeMapping.2"},
+                    {"name":"uColor4","source":"icon.themeMapping.3"}],
+            "speed":4,"maxFps":16,
             "foregroundStyle":"mask"})",
         20);
 
