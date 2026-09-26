@@ -483,12 +483,33 @@ ExternalProject_Add(
   TEST_COMMAND ""
 )
 
+# cxx_pluginxx_ui (插件界面描述层: 模型/解析/适配/文本降级/kit)
+# - 只依赖 cxx_utilxx_base (JSON) 与 fmt; 自带单元测试, 这里只构建库
+ExternalProject_Add(
+  cxx_pluginxx_ui_repo
+  DEPENDS
+    cxx_utilxx_base_repo
+    fmt_repo
+  SOURCE_DIR "${MUSICXX_EXTERN_PLUGIN_THIRD_PARTY_DIR}/cxx_pluginxx_ui/"
+  BINARY_DIR "${MUSICXX_EXTERN_PLUGIN_BUILD_ROOT}/pluginxx_ui"
+  INSTALL_DIR "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}"
+  BUILD_ALWAYS TRUE
+  INSTALL_ALWAYS TRUE
+  CMAKE_ARGS
+    ${_COMMON_CMAKE_ARGS}
+    -DCXX_PLUGINXX_UI_BUILD_TESTS=OFF
+  CMAKE_CACHE_ARGS
+    ${_COMMON_CMAKE_CACHE_ARGS}
+  TEST_COMMAND ""
+)
+
 # ===== 宿主工程 (嵌套构建, 内部用 find_package 取上面的依赖) =====
 if (MUSICXX_EXTERN_PLUGIN_BUILD_HOST)
   ExternalProject_Add(
     musicxx_extern_plugin_host_repo
     DEPENDS
       cxx_pluginxx_repo
+      cxx_pluginxx_ui_repo
       fmt_repo
       yaml_cpp_repo
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/host/"

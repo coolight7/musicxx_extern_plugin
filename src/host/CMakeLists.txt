@@ -31,7 +31,7 @@ if (NOT MUSICXX_EXTERN_PLUGIN_DEP_PREFIX)
     set(MUSICXX_EXTERN_PLUGIN_DEP_PREFIX "${XX_INSTALL_DIR}")
   else ()
     message(FATAL_ERROR
-      "[musicxx_ext] 未指定依赖前缀 (找不到 cxx_pluginxx / fmt / yaml-cpp / Boost)\n"
+      "[musicxx_ext] 未指定依赖前缀 (找不到 cxx_pluginxx / cxx_pluginxx_ui / fmt / yaml-cpp / Boost)\n"
       "  请用顶层工程构建: pwsh -NoProfile -File tools/build_native.ps1\n"
       "  或显式指定: -DMUSICXX_EXTERN_PLUGIN_DEP_PREFIX=<依赖安装前缀>")
   endif ()
@@ -44,6 +44,11 @@ set(_musicxx_ext_missing "")
 find_package(cxx_pluginxx CONFIG QUIET)
 if (NOT cxx_pluginxx_FOUND)
   list(APPEND _musicxx_ext_missing "cxx_pluginxx")
+endif ()
+# 插件界面描述层 (模型/解析/适配/文本降级/kit; 宿主与插件 SDK 都用它)
+find_package(cxx_pluginxx_ui CONFIG QUIET)
+if (NOT cxx_pluginxx_ui_FOUND)
+  list(APPEND _musicxx_ext_missing "cxx_pluginxx_ui")
 endif ()
 find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
@@ -126,7 +131,7 @@ if (MSVC)
 endif ()
 
 target_link_libraries(musicxx_extern_plugin
-  PRIVATE cxx_pluginxx_static fmt::fmt yaml-cpp::yaml-cpp
+  PRIVATE cxx_pluginxx_static cxx_pluginxx_ui_static fmt::fmt yaml-cpp::yaml-cpp
 )
 
 # 导出面: 只导出 musicxx_extern_plugin_* (Windows 靠 __declspec(dllexport) 显式声明;
@@ -173,6 +178,10 @@ foreach (_sdkInc "${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}/include/boost" "${Boost_IN
     target_include_directories(musicxx_extern_plugin_sdk INTERFACE "${_sdkInc}")
   endif ()
 endforeach ()
+# 插件可以直接用界面描述层（pluginxx::ui 与 pluginxx_ui::kit）:
+# 头文件来自依赖前缀, 实现在静态库里 (kit 展开与解析都在里面)。
+target_link_libraries(musicxx_extern_plugin_sdk INTERFACE cxx_pluginxx_ui_static)
+
 target_compile_definitions(musicxx_extern_plugin_sdk INTERFACE
   BOOST_ASIO_STANDALONE=1
   ASIO_STANDALONE=1
