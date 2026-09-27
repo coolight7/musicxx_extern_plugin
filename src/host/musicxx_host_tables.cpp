@@ -727,6 +727,10 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson) {
   j["builtinPluginDir"] = builtinPluginDir_;
   j["apiVersion"] = MUSICXX_PLUGIN_API_VERSION;
   j["hostVersion"] = "0.1.0";
+  // 客户端界面能力段 (由界面描述层库生成, 宿主原样转发; 没配置时不出现这个字段)
+  if (!uiCapabilitiesJson_.empty()) {
+    j["ui"] = parseJsonSafe(uiCapabilitiesJson_);
+  }
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

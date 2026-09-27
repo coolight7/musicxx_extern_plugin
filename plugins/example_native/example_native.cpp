@@ -30,34 +30,42 @@ std::string threadIdText() {
   return oss.str();
 }
 
-/// 声明式页面里一行 "标题 (+说明) + 右侧状态" 的排版
+/// 页面里的行：用 musicxx 扩展 kit 装配（`listRow` = 卡片行：标题 + 说明 + 右侧状态）
 ///
-/// 行放进**内容块** (`Block` = 宿主里的卡片底色与边距), 等于原来的列表条目;
-/// 行本身由布局块组合出来 (Row / Expanded / Column / SizedBox / Text)。
-/// 想让整块可点, 就在外面这一层的对象上加 `"action":{...}`。
+/// kit 返回的是描述层模型（`pluginxx::ui::Item`），序列化成 JSON 块交给客户端；
+/// 排版细节（留白、深浅档位）由 kit 的写法决定，不需要插件作者算尺寸。
 std::string infoRowJson(const std::string &title, const std::string &subtitle,
                         const std::string &right) {
-  std::ostringstream left;
-  left << "{\"kind\":\"Text\",\"text\":\"" << title << "\"}";
+  namespace kit = musicxx::ui::kit;
+  pluginxx::ui::Json params = pluginxx::ui::Json::object({
+      {"title", title},
+  });
   if (!subtitle.empty()) {
-    left << ",{\"kind\":\"SizedBox\",\"height\":6}"
-            ",{\"kind\":\"Text\",\"style\":\"cross\",\"text\":\""
-         << subtitle << "\"}";
+    params["subtitle"] = subtitle;
   }
-  std::ostringstream row;
-  row << "{\"kind\":\"Row\",\"children\":[{\"kind\":\"Expanded\",\"child\":"
-         "{\"kind\":\"Column\",\"children\":["
-      << left.str() << "]}}";
   if (!right.empty()) {
-    row << ",{\"kind\":\"SizedBox\",\"width\":30}"
-           ",{\"kind\":\"Text\",\"style\":\"cross\",\"text\":\""
-        << right << "\"}";
+    params["trailing"] = right;
   }
-  row << "]}";
-  // 边距是设计像素 (50/50/20 = 左右留白 + 行间距), 由宿主换算
-  return "{\"kind\":\"Block\",\"inContent\":true,\"margin\":{\"left\":50,"
-         "\"right\":50,\"bottom\":20},\"child\":" +
-         row.str() + "}";
+  return pluginxx::ui::dumpItem(kit::listRow(params)).dump();
+}
+
+/// 一个动作参数（kit 的 `action` 参数：字符串短写 = dispatch，或完整对象）
+pluginxx::ui::Json dispatchAction(const std::string &name) {
+  pluginxx::ui::Json action = pluginxx::ui::Json::object({
+      {"kind", "dispatch"},
+      {"name", name},
+  });
+  return action;
+}
+
+/// 一个官方动作参数（`kind: command`，只允许 `musicxx.*`）
+pluginxx::ui::Json commandAction(const std::string &name,
+                                 pluginxx::ui::Json args) {
+  return pluginxx::ui::Json::object({
+      {"kind", "command"},
+      {"name", name},
+      {"args", std::move(args)},
+  });
 }
 
 /// 能力调用的空完成通知 (示例里只做探测, 不等待完成)
@@ -190,7 +198,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         100);
     uiSongRc = uiRegister("songInfo", MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
                           R"({"title":"示例插件：查看歌曲信息",
-                 "action":{"kind":"capability","name":"probe","args":{"ui":"1"}}})",
+                 "action":{"kind":"dispatch","name":"probe","args":{"ui":"1"}}})",
                           900);
     uiForeignRc = uiRegister("plugin.other_plugin.card",
                              MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
@@ -266,64 +274,86 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         });
 
     // 8) 能力: 声明式页面 `ext://example_native/card`
-    //    主页入口与播放页附加信息块都指向这个页面:
-    //    宿主打开页面时调用**同名能力**, 插件返回视图描述 (文本 / 分隔线 /
-    //    布局块 / 按钮块), 渲染由宿主完成。 页面里的按钮可以调用本插件能力
-    //    (返回 {view:...} 时直接刷新当前页), 也可以执行官方动作
-    //    (这里演示发一条站内提示)。
-    //
-    //    块类型名是首字母大写的驼峰 (Row / Column / Expanded / SizedBox /
-    //    Padding / Text ...), 宿主解析时忽略大小写; 宽高与内边距按设计像素
-    //    交给宿主换算 (XXSizedBox / XXEdgeInsets)。
+    //    主页入口指向这个页面: 宿主打开页面时调用**同名能力**, 插件返回视图描述
+    //    (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
+    //    页面内容用 musicxx 扩展 kit 装配: kit 只写中立的块描述 (不判断渲染目标),
+    //    客户端拿到后按自己的能力做降级适配。页面里的按钮可以调用本插件能力
+    //    (返回 {view:...} 时直接刷新当前页), 也可以执行官方动作 (这里演示发提示)。
     capability(
         *this, "plugin.example_native.card",
         [this](std::string_view, std::string_view) -> std::string {
+          namespace kit = musicxx::ui::kit;
+          using pluginxx::ui::Json;
           const int32_t uiOk = (uiHomeRc == 0 ? 1 : 0) +
                                (uiSongRc == 0 ? 1 : 0) +
                                (uiBackgroundRc == 0 ? 1 : 0);
-          std::ostringstream oss;
-          oss << "{\"view\":{\"title\":\"示例插件\""
-              << ",\"subtitle\":\"页面内容来自能力 "
-                 "plugin.example_native.card\""
-              << ",\"blocks\":["
-              << "{\"kind\":\"Text\",\"style\":\"cross\",\"text\":"
-                 "\"这个页面演示"
-                 "插件的声明式页面: 插件只返回块描述 (文本 / 布局 / 按钮), "
-                 "不写界面"
-                 "代码。\"}"
-              << ",{\"kind\":\"Divider\"}"
-              << ","
-              << infoRowJson("start 事务线程",
-                             "钩子与能力处理器都在这一条线程上执行", startThread)
-              << ","
-              << infoRowJson("当前调用线程", "与 start 事务线程相同 = 单宿主线程",
-                             threadIdText())
-              << ","
-              << infoRowJson("连续播放错误", "累计 2 次后建议换源",
-                             std::to_string(consecutiveErrors))
-              << ","
-              << infoRowJson("状态镜像变化事件", "",
-                             std::to_string(stateEvents))
-              << ","
-              << infoRowJson("musicxx.test.ping 事件", "",
-                             std::to_string(pingEvents))
-              << ","
-              << infoRowJson("已注册的 UI 项", "主页入口 / 歌曲菜单",
-                             std::to_string(uiOk))
-              << ","
-              << infoRowJson("状态镜像 musicxx.state.song",
-                             "宿主推送的最近一份歌曲快照 (字节)",
-                             std::to_string(stateJson("musicxx.state.song")
-                                                .size()))
-              << ",{\"kind\":\"Button\",\"title\":\"刷新本页\","
-                 "\"style\":\"primary\",\"action\":{\"kind\":\"capability\","
-                 "\"name\":\"card\"}}"
-              << ",{\"kind\":\"Button\",\"title\":\"发送一条通知\","
-                 "\"action\":{\"kind\":\"action\",\"name\":\"musicxx.ui."
-                 "notify\","
-                 "\"args\":{\"text\":\"来自 example_native 的通知\"}}}"
-              << "]}}";
-          return oss.str();
+
+          Json blocks = Json::array();
+          blocks.push_back(pluginxx::ui::dumpItem(kit::hint(Json::object({
+              {"text",
+               "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / "
+               "按钮), 不写界面代码。"},
+          }))));
+          blocks.push_back(pluginxx::ui::dumpItem(pluginxx::ui::build::divider()));
+          blocks.push_back(
+              pluginxx::ui::dumpItem(kit::listRow(Json::object({
+                  {"title", "start 事务线程"},
+                  {"subtitle", "钩子与能力处理器都在这一条线程上执行"},
+                  {"trailing", startThread},
+              }))));
+          blocks.push_back(
+              pluginxx::ui::dumpItem(kit::listRow(Json::object({
+                  {"title", "当前调用线程"},
+                  {"subtitle", "与 start 事务线程相同 = 单宿主线程"},
+                  {"trailing", threadIdText()},
+              }))));
+          blocks.push_back(
+              pluginxx::ui::dumpItem(kit::listRow(Json::object({
+                  {"title", "连续播放错误"},
+                  {"subtitle", "累计 2 次后建议换源"},
+                  {"trailing", std::to_string(consecutiveErrors)},
+              }))));
+          blocks.push_back(
+              pluginxx::ui::dumpItem(kit::listRow(Json::object({
+                  {"title", "状态镜像变化事件"},
+                  {"trailing", std::to_string(stateEvents)},
+              }))));
+          blocks.push_back(
+              pluginxx::ui::dumpItem(kit::listRow(Json::object({
+                  {"title", "musicxx.test.ping 事件"},
+                  {"trailing", std::to_string(pingEvents)},
+              }))));
+          blocks.push_back(
+              pluginxx::ui::dumpItem(kit::listRow(Json::object({
+                  {"title", "已注册的 UI 项"},
+                  {"subtitle", "主页入口 / 歌曲菜单"},
+                  {"trailing", std::to_string(uiOk)},
+              }))));
+          blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "状态镜像 musicxx.state.song"},
+              {"subtitle", "宿主推送的最近一份歌曲快照 (字节)"},
+              {"trailing", std::to_string(stateJson("musicxx.state.song").size())},
+          }))));
+          blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
+              {"label", "刷新本页"},
+              {"variant", "primary"},
+              {"action", dispatchAction("card")},
+          }))));
+          blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
+              {"label", "发送一条通知"},
+              {"action", commandAction("musicxx.ui.notify",
+                                       Json::object({{"text", "来自 "
+                                                             "example_native "
+                                                             "的通知"}}))},
+          }))));
+
+          Json doc = Json::object({
+              {"title", "示例插件"},
+              {"subtitle", "页面内容来自能力 plugin.example_native.card"},
+              {"blocks", std::move(blocks)},
+          });
+          Json out = Json::object({{"view", std::move(doc)}});
+          return out.dump();
         });
 
     return 0;

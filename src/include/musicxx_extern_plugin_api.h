@@ -110,6 +110,13 @@ typedef struct MusicxxExternPluginHostConfig {
     MusicxxExternPluginStringView data_dir;          ///< 插件私有数据根目录 (绝对路径; 可为空)
     MusicxxExternPluginStringView log_dir;           ///< 日志目录 (绝对路径; 可为空)
 
+    /// 客户端界面能力段 (JSON 文本; 可为空)
+    ///
+    /// 内容由界面描述层库生成 (支持的组件 / 控件 / 图标 / 上限等), 宿主只做转发:
+    /// `host.info().ui` 与 JS 侧 `musicxx.host.info().ui` 返回同一份,
+    /// 插件据此决定该给什么界面内容 (取页面时也会带一份, 见各客户端的取数参数)。
+    MusicxxExternPluginStringView ui_capabilities;
+
     int32_t  log_level;          ///< 0 trace .. 4 error
     int32_t  flags;              ///< MUSICXX_EXTERN_PLUGIN_FLAG_*
     uint32_t event_queue_capacity; ///< 0 = 默认 16384

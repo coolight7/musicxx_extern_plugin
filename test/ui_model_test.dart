@@ -1,6 +1,7 @@
 /// 声明式 UI 扩展模型单测（纯 Dart，不加载原生库）
 ///
-/// 覆盖三种动作形态、命名空间校验后的 id 形态、快照解析容错与整批替换。
+/// 覆盖三种动作形态（与插件页面里的动作同一套写法）、命名空间校验后的 id 形态、
+/// 快照解析容错与整批替换。
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -16,7 +17,7 @@ void main() {
         'order': 900,
         'data': <String, Object?>{
           'title': '菜单项',
-          'action': <String, Object?>{'kind': 'capability', 'name': 'probe', 'args': <String, Object?>{'a': 1}},
+          'action': <String, Object?>{'kind': 'dispatch', 'name': 'probe', 'args': <String, Object?>{'a': 1}},
         },
       },
       <String, Object?>{
@@ -46,9 +47,39 @@ void main() {
     expect(card.viewId, 'detail');
 
     final MusicxxPluginUIItem songItem = items.last;
-    expect(songItem.actionKind, MusicxxPluginUIActionKind.capability);
+    expect(songItem.actionKind, MusicxxPluginUIActionKind.dispatch);
     expect(songItem.capabilityName, 'probe');
     expect(songItem.actionArgs['a'], 1);
+  });
+
+  test('动作写法与界面描述层一致：短写/command/未知写法', () {
+    MusicxxPluginUIItem itemOf(Object? action) =>
+        MusicxxPluginUIItem.fromJson(<String, Object?>{
+          'id': 'plugin.demo.songInfo',
+          'plugin': 'demo',
+          'type': MusicxxPluginUIType.songAction,
+          'data': <String, Object?>{'title': '菜单项', 'action': action},
+        });
+
+    // 字符串短写 = 调用本插件能力
+    final MusicxxPluginUIItem shortForm = itemOf('probe');
+    expect(shortForm.actionKind, MusicxxPluginUIActionKind.dispatch);
+    expect(shortForm.capabilityName, 'probe');
+
+    // 官方动作用 command；命令名只在 command 形态下给出
+    final MusicxxPluginUIItem command = itemOf(<String, Object?>{
+      'kind': 'command',
+      'name': 'musicxx.ui.notify',
+      'args': <String, Object?>{'text': 'hi'},
+    });
+    expect(command.actionKind, MusicxxPluginUIActionKind.command);
+    expect(command.hostActionName, 'musicxx.ui.notify');
+    expect(command.capabilityName, isNull);
+
+    // 旧写法（capability / action）不再解析：当成没有动作
+    expect(itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action, isNull);
+    expect(itemOf(<String, Object?>{'kind': 'action', 'name': 'musicxx.ui.notify'}).action, isNull);
+    expect(itemOf(<String, Object?>{'kind': 'unknown'}).action, isNull);
   });
 
   test('容错：未知字段/非法项被忽略，缺省动作视为无动作', () {

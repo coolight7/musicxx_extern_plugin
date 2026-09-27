@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 1,
+  "kitVersion": 1,
+  "doc": "musicxx 扩展 kit：应用自己的留白口径 + 设置行/封面行/着色器块等本客户端常用组合（只装配，不含逻辑）",
+  "components": [
+    {
+      "name": "listRow",
+      "doc": "卡片里的一行（覆盖基础 kit：musicxx 的卡片行留白更紧，副标题用说明样式）",
+      "params": [
+        { "name": "title", "type": "text", "required": true },
+        { "name": "subtitle", "type": "text" },
+        { "name": "trailing", "type": "text" },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "action": "$action",
+            "children": [
+              {
+                "kind": "Row",
+                "gap": 10,
+                "cross": "center",
+                "children": [
+                  {
+                    "kind": "Expanded",
+                    "children": [
+                      {
+                        "kind": "Column",
+                        "gap": 2,
+                        "children": [
+                          { "kind": "Text", "text": "$title" },
+                          { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "tone": "hint" }
+                        ]
+                      }
+                    ]
+                  },
+                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "tone": "hint" }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "settingRow",
+      "doc": "设置行：标题 + 说明 + 右侧当前值（整行可点，点开会话由插件给的动作处理）",
+      "params": [
+        { "name": "title", "type": "text", "required": true },
+        { "name": "depict", "type": "text" },
+        { "name": "value", "type": "text" },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "action": "$action",
+            "children": [
+              {
+                "kind": "Row",
+                "gap": 12,
+                "cross": "center",
+                "children": [
+                  {
+                    "kind": "Expanded",
+                    "children": [
+                      {
+                        "kind": "Column",
+                        "gap": 2,
+                        "children": [
+                          { "kind": "Text", "text": "$title" },
+                          { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" }
+                        ]
+                      }
+                    ]
+                  },
+                  { "$require": "value", "kind": "Text", "text": "$value", "tone": "hint" }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "switchRow",
+      "doc": "开关行：标题 + 说明 + 右侧开关（值变化即派发动作，参数里带 id 与当前值）",
+      "params": [
+        { "name": "id", "type": "string", "required": true },
+        { "name": "title", "type": "text", "required": true },
+        { "name": "depict", "type": "text" },
+        { "name": "value", "type": "json" },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "children": [
+              {
+                "kind": "Row",
+                "gap": 12,
+                "cross": "center",
+                "children": [
+                  {
+                    "kind": "Expanded",
+                    "children": [
+                      {
+                        "kind": "Column",
+                        "gap": 2,
+                        "children": [
+                          { "kind": "Text", "text": "$title" },
+                          { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "Control",
+                    "control": "switch",
+                    "id": "$id",
+                    "value": "$value",
+                    "action": "$action"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "inputRow",
+      "doc": "输入行：标题 + 说明 + 右侧单行/多行输入框（输入完成即派发动作）",
+      "params": [
+        { "name": "id", "type": "string", "required": true },
+        { "name": "title", "type": "text", "required": true },
+        { "name": "depict", "type": "text" },
+        { "name": "value", "type": "json" },
+        { "name": "multiline", "type": "bool", "default": false },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "children": [
+              {
+                "kind": "Column",
+                "gap": 6,
+                "children": [
+                  { "kind": "Text", "text": "$title" },
+                  { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" },
+                  {
+                    "kind": "Control",
+                    "control": "text",
+                    "id": "$id",
+                    "value": "$value",
+                    "multiline": "$multiline",
+                    "action": "$action"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "shaderBlock",
+      "doc": "插件着色器块（musicxx 专属组件；终端之类不认识它的客户端会跳过）",
+      "params": [
+        { "name": "bundle", "type": "string", "required": true },
+        { "name": "args", "type": "json" },
+        { "name": "speed", "type": "float", "default": 1 },
+        { "name": "maxFps", "type": "int" },
+        { "name": "animate", "type": "bool", "default": true },
+        { "name": "resolutionScale", "type": "float", "default": 1 }
+      ],
+      "variants": [
+        {
+          "requires": ["musicxx.Shader"],
+          "template": {
+            "kind": "musicxx.Shader",
+            "bundle": "$bundle",
+            "args": "$args",
+            "speed": "$speed",
+            "maxFps": "$maxFps",
+            "animate": "$animate",
+            "resolutionScale": "$resolutionScale"
+          }
+        },
+        { "template": { "kind": "Text", "text": "（这个客户端不支持插件着色器）", "type": "caption", "tone": "hint" } }
+      ]
+    },
+    {
+      "name": "coverRow",
+      "doc": "带封面的行：封面 + 标题 + 副标题 + 可选右侧文字（取不到图片时显示标题）",
+      "params": [
+        { "name": "cover", "type": "string", "required": true },
+        { "name": "title", "type": "text", "required": true },
+        { "name": "subtitle", "type": "text" },
+        { "name": "trailing", "type": "text" },
+        { "name": "size", "type": "size", "default": 40 },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "requires": ["Image"],
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "action": "$action",
+            "children": [
+              {
+                "kind": "Row",
+                "gap": 10,
+                "cross": "center",
+                "children": [
+                  { "kind": "Image", "source": "file", "src": "$cover", "width": "$size", "height": "$size", "radius": 4, "alt": "$title" },
+                  {
+                    "kind": "Expanded",
+                    "children": [
+                      {
+                        "kind": "Column",
+                        "gap": 2,
+                        "children": [
+                          { "kind": "Text", "text": "$title" },
+                          { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "tone": "hint" }
+                        ]
+                      }
+                    ]
+                  },
+                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "tone": "hint" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "action": "$action",
+            "children": [
+              {
+                "kind": "Row",
+                "gap": 10,
+                "cross": "center",
+                "children": [
+                  {
+                    "kind": "Expanded",
+                    "children": [
+                      {
+                        "kind": "Column",
+                        "gap": 2,
+                        "children": [
+                          { "kind": "Text", "text": "$title" },
+                          { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "tone": "hint" }
+                        ]
+                      }
+                    ]
+                  },
+                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "tone": "hint" }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "progressRow",
+      "doc": "一行进度（覆盖基础 kit：musicxx 默认按百分比显示数值）",
+      "params": [
+        { "name": "label", "type": "text" },
+        { "name": "value", "type": "float", "required": true },
+        { "name": "total", "type": "float", "default": 100 },
+        { "name": "unit", "type": "string", "default": "%" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Row",
+            "gap": 12,
+            "cross": "center",
+            "children": [
+              { "$require": "label", "kind": "Text", "text": "$label" },
+              {
+                "kind": "Expanded",
+                "children": [
+                  { "kind": "Progress", "value": "$value", "total": "$total", "unit": "$unit" }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

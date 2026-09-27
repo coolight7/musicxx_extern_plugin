@@ -396,12 +396,13 @@ public:
 
   /// 注册 JS 插件的内置槽位并把插件目录登记到 discovered_ (装载前调用)
   ///
-  /// - `pluginDir` 为插件目录; 脚本取 `entryHint` (以 .js 结尾时) 或
-  /// `plugin.js`;
+  /// - `pluginDir` 为插件目录; 脚本取清单 `scripts`（按顺序执行），没写时取
+  /// `entryHint` (以 .js 结尾时) 或 `plugin.js`;
   /// - 返回 0 成功; -4 找不到脚本文件; -2 状态错误 (JS 运行时不可用/安全模式)。
   int32_t prepareJsPlugin(const std::string &pluginId,
                           const std::string &pluginDir,
                           const std::string &entryHint,
+                          const std::vector<std::string> &scriptHints,
                           const std::string &version, std::string &err);
 
   /* ---------- DomainHooks (事件主题规则对外可见: 插件 events 表入口要用)
@@ -446,6 +447,9 @@ private:
 
   /// 应用宿主配置 (create() 里调用; 解析路径/开关/预算)
   void applyConfig(const MusicxxExternPluginHostConfig &cfg);
+
+  /// 记录客户端界面能力段 (JSON 文本; 只校验是不是 JSON 对象, 不解释内容)
+  void setUiCapabilities(const std::string &capabilitiesJson);
 
   /// 在宿主线程上绑定 IO 线程标识 (start() 里调用; 失败返回 false)
   bool bindIoThread();
@@ -580,6 +584,8 @@ private:
   std::string builtinPluginDir_;
   std::string dataDir_;
   std::string logDir_;
+  /// 客户端界面能力段 (JSON 文本; 由 Dart 侧给出, 宿主原样转发到 host.info().ui)
+  std::string uiCapabilitiesJson_;
   int32_t logLevel_ = 2;
   int32_t flags_ = 0;
   int32_t hookBudgetMs_ = 30;

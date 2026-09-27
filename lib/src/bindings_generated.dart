@@ -117,6 +117,10 @@ class MusicxxExternPluginBindings {
       .asFunction<int Function(ffi.Pointer<MusicxxExternPluginString>)>();
 
   /// 创建宿主 (纯构造, 不起线程/不加载插件); 失败返回 NULL 并写 log
+  ///
+  /// **进程单例**: 同一进程只允许存在一个宿主 (它持有宿主线程 / 插件实例 / 事件队列)。
+  /// 已存在时返回 NULL 并写明确原因 —— 其它 isolate / 线程请复用已有句柄调用管理类 API。
+  /// `host_destroy` 之后可以再次创建 (init → dispose → init 是正常路径)。
   ffi.Pointer<MusicxxExternPluginHost> musicxx_extern_plugin_host_create(
     ffi.Pointer<MusicxxExternPluginHostConfig> cfg,
     ffi.Pointer<MusicxxExternPluginString> log,
@@ -614,7 +618,8 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 更新插件参数 (需 reload 生效, 由 Dart 决定何时重载)
+  /// 更新插件参数 (下次 `reload` 生效, 由 Dart 决定何时重载)
+  /// - `reload` 会把当前参数带过去, 因此"设置参数 → 重载"不会丢参数
   int musicxx_extern_plugin_plugin_set_args(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> id,
@@ -730,7 +735,10 @@ class MusicxxExternPluginBindings {
 
   /// 派发钩子
   /// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链 (预算内) 并输出合并结果;
-  /// MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回 (out_json 为 {"handled":bool})
+  /// MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回
+  /// - 裁决型钩子在 ASYNC 模式下为"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
+  /// 处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
+  /// 以及 result/timedOut/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
   /// - out_json 形如 {"handled":true,"result":{...},"timedOut":false,"handlers":2}
   int musicxx_extern_plugin_hook_emit(
     ffi.Pointer<MusicxxExternPluginHost> h,
@@ -1138,6 +1146,13 @@ final class MusicxxExternPluginHostConfig extends ffi.Struct {
 
   /// < 日志目录 (绝对路径; 可为空)
   external MusicxxExternPluginStringView log_dir;
+
+  /// 客户端界面能力段 (JSON 文本; 可为空)
+  ///
+  /// 内容由界面描述层库生成 (支持的组件 / 控件 / 图标 / 上限等), 宿主只做转发:
+  /// `host.info().ui` 与 JS 侧 `musicxx.host.info().ui` 返回同一份,
+  /// 插件据此决定该给什么界面内容 (取页面时也会带一份, 见各客户端的取数参数)。
+  external MusicxxExternPluginStringView ui_capabilities;
 
   /// < 0 trace .. 4 error
   @ffi.Int32()

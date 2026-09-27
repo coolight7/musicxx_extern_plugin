@@ -86,9 +86,12 @@ std::string viewToStr(const PluginxxStringView *view) {
 constexpr size_t kSlotCapacity = 64;
 
 /// 一个 JS 插件的内置槽位 (名称/脚本路径/版本)
+///
+/// `scripts` 按清单 `scripts` 的顺序排列: 同一个 JS 上下文里依次执行 (前面的脚本
+/// 先跑完才跑后面的), 装载失败会带上出错脚本的文件名。缺省是 `[plugin.js]`。
 struct Slot {
   std::string name; ///< js:<pluginId>
-  std::string scriptPath;
+  std::vector<std::string> scripts;
   std::string version;
   bool used = false;
 };
@@ -109,15 +112,37 @@ SlotTable &slotTable() {
   return table;
 }
 
-std::string slotScriptPath(std::string_view name) {
+std::vector<std::string> slotScripts(std::string_view name) {
   SlotTable &table = slotTable();
   std::lock_guard lock{table.mutex};
   for (auto &slot : table.slots) {
     if (slot.used && slot.name == name) {
-      return slot.scriptPath;
+      return slot.scripts;
     }
   }
   return {};
+}
+
+/// 脚本路径拼成一行（日志/调试信息用）
+std::string joinPaths(const std::vector<std::string> &paths) {
+  std::string out;
+  for (const std::string &path : paths) {
+    if (!out.empty()) {
+      out += ", ";
+    }
+    out += path;
+  }
+  return out;
+}
+
+/// 在调试信息里发布脚本名（只给文件名，路径可能含用户名等本机信息）
+utilxx_base::Json scriptNamesJson(const std::vector<std::string> &paths) {
+  utilxx_base::Json array = utilxx_base::Json::array();
+  for (const std::string &path : paths) {
+    const size_t slash = path.find_last_of("/\\");
+    array.push_back(slash == std::string::npos ? path : path.substr(slash + 1));
+  }
+  return array;
 }
 
 std::string slotVersion(std::string_view name) {
@@ -1223,11 +1248,17 @@ const PluginxxBuiltinManifest *JsEngine::builtinManifests(uint64_t *count) {
 }
 
 bool JsEngine::registerBuiltin(const std::string &pluginId,
-                               const std::string &scriptPath,
+                               const std::vector<std::string> &scriptPaths,
                                const std::string &version, std::string &err) {
-  if (pluginId.empty() || scriptPath.empty()) {
+  if (pluginId.empty() || scriptPaths.empty()) {
     err = "registerBuiltin: 插件 id 与脚本路径都不能为空";
     return false;
+  }
+  for (const std::string &script : scriptPaths) {
+    if (script.empty()) {
+      err = "registerBuiltin: 脚本路径不能为空";
+      return false;
+    }
   }
   SlotTable &table = slotTable();
   std::lock_guard lock{table.mutex};
@@ -1253,10 +1284,11 @@ bool JsEngine::registerBuiltin(const std::string &pluginId,
   }
   auto &slot = table.slots[index];
   slot.name = name;
-  slot.scriptPath = scriptPath;
+  slot.scripts = scriptPaths;
   slot.version = version.empty() ? std::string{"1.0.0"} : version;
   slot.used = true;
-  XX_LOGI("[musicxx_ext] JS 插件槽位已登记: {} (脚本 {})", name, scriptPath);
+  XX_LOGI("[musicxx_ext] JS 插件槽位已登记: {} (脚本 {})", name,
+          joinPaths(scriptPaths));
   return true;
 }
 
@@ -1268,7 +1300,7 @@ void JsEngine::unregisterBuiltin(const std::string &pluginId) {
     if (slot.used && slot.name == name) {
       slot.used = false;
       slot.name.clear();
-      slot.scriptPath.clear();
+      slot.scripts.clear();
       slot.version.clear();
       XX_LOGI("[musicxx_ext] JS 插件槽位已注销: {}", name);
       return;
@@ -1277,7 +1309,7 @@ void JsEngine::unregisterBuiltin(const std::string &pluginId) {
 }
 
 bool JsEngine::hasBuiltin(const std::string &pluginId) const {
-  return !slotScriptPath("js:" + pluginId).empty();
+  return !slotScripts("js:" + pluginId).empty();
 }
 
 /* ==================== 共享 JS 线程 ==================== */
@@ -1905,7 +1937,7 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
   item["id"] = inst->id;
   item["kind"] = "js";
   item["version"] = inst->version;
-  item["script"] = inst->scriptPath;
+  item["scripts"] = scriptNamesJson(inst->scriptPaths);
   item["scriptLoaded"] = inst->scriptLoaded;
   item["hooks"] = static_cast<int32_t>(inst->hooks.size());
   item["capabilities"] = static_cast<int32_t>(inst->capabilities.size());
@@ -2100,8 +2132,8 @@ JsEngine::instanceFromHost(const PluginxxHost *host, std::string &err) {
     return nullptr;
   }
   const std::string pluginId = MusicxxHostManager::pluginIdOf(hostInst->name);
-  const std::string script = slotScriptPath(hostInst->name);
-  if (script.empty()) {
+  const std::vector<std::string> scripts = slotScripts(hostInst->name);
+  if (scripts.empty()) {
     err = "JS 插件槽位不存在 (未登记或已注销): " + hostInst->name;
     return nullptr;
   }
@@ -2110,7 +2142,7 @@ JsEngine::instanceFromHost(const PluginxxHost *host, std::string &err) {
   inst->engine = engine;
   inst->id = pluginId;
   inst->name = hostInst->name;
-  inst->scriptPath = script;
+  inst->scriptPaths = scripts;
   inst->configPath = hostInst->configPath;
   inst->version = slotVersion(hostInst->name);
   inst->argsJson =
@@ -2209,15 +2241,21 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
   err = "本次构建未包含 JS 运行时 (未编译 QuickJS 子模块)";
   return false;
 #else
-  const std::string code = readTextFile(fs::path{inst->scriptPath});
-  if (code.empty()) {
-    err = "脚本读取失败或为空: " + inst->scriptPath;
-    return false;
+  // 清单里的多个脚本在**同一个 JS 上下文**里按顺序执行：前面（通常是随插件分发的
+  // kit 文件）先跑完，插件脚本才跑。任一脚本报错都算装载失败，错误里带上脚本名。
+  std::vector<std::pair<std::string, std::string>> scripts;
+  scripts.reserve(inst->scriptPaths.size());
+  for (const std::string &path : inst->scriptPaths) {
+    std::string code = readTextFile(fs::path{path});
+    if (code.empty()) {
+      err = "脚本读取失败或为空: " + path;
+      return false;
+    }
+    scripts.emplace_back(path, std::move(code));
   }
   auto slot = std::make_shared<WaitSlot<std::string>>(); ///< 空串 = 成功
-  const std::string scriptPath = inst->scriptPath;
   const std::string prelude{kPrelude};
-  postTask([inst, slot, code, scriptPath, prelude] {
+  postTask([inst, slot, scripts, prelude] {
     JSRuntime *rt = JS_NewRuntime();
     if (!rt) {
       slot->set("JSRuntime 创建失败");
@@ -2257,8 +2295,16 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
 
     inst->engine->armExecGuard();
     std::string error = eval(prelude, "<musicxx-prelude>");
-    if (error.empty()) {
+    for (const auto &[scriptPath, code] : scripts) {
+      if (!error.empty()) {
+        break;
+      }
       error = eval(code, scriptPath.c_str());
+      if (!error.empty()) {
+        // 带脚本名：多个脚本时能直接看出是哪一个出错
+        error = "脚本 " + scriptPath + ": " + error;
+        break;
+      }
     }
     inst->engine->disarmExecGuard();
     if (isInterruptError(error)) {
@@ -2974,7 +3020,7 @@ std::string JsEngine::statsJson() const {
       item["instance"] = inst->name;
       item["kind"] = "js";
       item["version"] = inst->version;
-      item["script"] = inst->scriptPath;
+      item["scripts"] = scriptNamesJson(inst->scriptPaths);
       item["scriptLoaded"] = inst->scriptLoaded;
       item["hooks"] = static_cast<int32_t>(inst->hooks.size());
       item["capabilities"] = static_cast<int32_t>(inst->capabilities.size());

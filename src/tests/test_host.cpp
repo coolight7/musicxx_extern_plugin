@@ -192,10 +192,15 @@ int main(int argc, char **argv) {
   const std::string appV = "0.0.0-test";
   const std::string plat = "windows";
   const std::string lang = "zh-cn";
+  /// 客户端界面能力段 (正常情况下由界面描述层库按客户端实现生成)
+  const std::string uiCaps =
+      R"({"apiVersion":1,"kind":"gui","blocks":["Text","Row","Column"],)"
+      R"("controls":["checkbox"],"gap":12})";
   cfg.app_version = view(appV);
   cfg.platform = view(plat);
   cfg.language = view(lang);
   cfg.user_plugin_dir = view(pluginDir);
+  cfg.ui_capabilities = view(uiCaps);
   cfg.log_level = 2;
   cfg.flags = MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS;
 
@@ -781,6 +786,11 @@ int main(int argc, char **argv) {
             "JS 注册了 2 个 UI 项 (脚本侧登记)");
       check(jsonIntField(probe, "selfStatsHooks") == "4",
             "JS 能读自己的统计 (stats.getSelf 的钩子计数)");
+      // 客户端界面能力段: 宿主配置里给的 ui 段原样出现在 host.info() 里
+      check(jsonStringField(probe, "hostUiKind") == "gui",
+            "JS 从 host.info().ui 读到客户端能力段 (渲染类型)");
+      check(jsonIntField(probe, "hostUiBlocks") == "3",
+            "JS 从 host.info().ui 读到客户端支持的组件数");
     }
 
     // JS 插件的 UI 项进入宿主快照 (与动态库插件同一注册表)
@@ -885,6 +895,41 @@ int main(int argc, char **argv) {
                 afterSnapshot.find("plugin.example_js_shader.bg") ==
                     std::string::npos,
             "卸载后背景示例的 UI 项无残留");
+    }
+
+    // ============ 清单 scripts: 多脚本按顺序装载 (JS 插件) ============
+    //
+    // `scripts: [kit.js, plugin.js]` 里的脚本在**同一个 JS 上下文**里依次执行:
+    // 前一个脚本定义的全局量在后一个里可见 (kit 随插件目录分发的用法)。
+    {
+      MusicxxExternPluginString loadLog{};
+      const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP("multi_script_js"), viewCP("{}"), 8000, &loadLog);
+      if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+        std::printf("  [info] multi_script_js load rc=%d log=%s\n", loadRc,
+                    take(loadLog).c_str());
+      } else {
+        freeStr(loadLog);
+      }
+      check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多脚本插件装载成功");
+
+      MusicxxExternPluginString out{};
+      const auto rc = musicxx_extern_plugin_plugin_call(
+          host, viewCP("multi_script_js"), viewCP("probe"), viewCP("{}"), 5000,
+          &out, &log);
+      const std::string probe = take(out);
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "多脚本插件的能力可调用");
+      check(jsonStringField(probe, "marker") == "kit-loaded",
+            "脚本按 scripts 顺序执行 (前一个脚本的全局量在后一个里可见)");
+      check(jsonStringField(probe, "rowKind") == "Text",
+            "后一个脚本能调用前一个脚本定义的函数");
+      check(jsonStringField(probe, "hostUiKind") == "gui",
+            "多脚本插件同样读到 host.info().ui");
+
+      check(musicxx_extern_plugin_plugin_unload(host,
+                                                viewCP("multi_script_js"),
+                                                &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "多脚本插件卸载成功");
     }
 
     // ============ 跨插件能力调用 (capability.call) ============
