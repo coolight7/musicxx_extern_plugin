@@ -319,6 +319,11 @@ void main() {
     );
     expect(exampleJs!.kind, MusicxxPluginKind.js);
     expect(exampleJs.supported, isTrue, reason: exampleJs.reason);
+    // 扫描结果带脚本清单（管理页展示；示例插件按清单的 scripts 顺序装载 kit 与脚本）
+    expect(
+      exampleJs.scripts,
+      <String>['pluginxx_ui_kit.js', 'musicxx_ui_kit.js', 'plugin.js'],
+    );
 
     _step('12 scan 发现 JS 插件');
     runtime.plugins.load('example_js');

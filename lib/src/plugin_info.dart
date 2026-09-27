@@ -37,6 +37,7 @@ class MusicxxPluginInfo {
     required this.configPath,
     required this.enabled,
     required this.counters,
+    this.scripts = const <String>[],
   });
 
   /// 插件 id（清单 `name`；同名视为同一插件）
@@ -61,6 +62,9 @@ class MusicxxPluginInfo {
 
   /// 动态库插件的库文件名
   final String entry;
+
+  /// JS 插件按清单 `scripts` 顺序执行的脚本（空 = 用 `entry` / `plugin.js`）
+  final List<String> scripts;
 
   /// 来源：user / builtin
   final String source;
@@ -131,6 +135,7 @@ class MusicxxPluginInfo {
       optionalDepends: _stringList(json['optionalDepends']),
       configPath: json['configPath'] as String? ?? '',
       enabled: json['enabled'] as bool? ?? false,
+      scripts: _stringList(json['scripts']),
       counters: counters is Map<String, Object?>
           ? counters
           : const <String, Object?>{},
