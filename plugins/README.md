@@ -14,9 +14,12 @@ plugins/
 │   └── plugin.yaml      清单（插件 id 取 name；库文件名取 entry，按 Linux 写法填）
 ├── example_js/          示例插件（JS 脚本，零编译）：钩子 / 能力 / 自绘页面 / 网络通道 / 设置页
 │   ├── plugin.js
-│   └── plugin.yaml      清单里 kind: js
-└── example_js_shader/   示例插件（JS 脚本）：播放页背景样式 + 动画速率设置 + 页面内联 Shader 块
+│   ├── pluginxx_ui_kit.js  随插件分发的界面 kit（基础）：由 tools/sync_ui_kit.ps1 复制
+│   ├── musicxx_ui_kit.js   随插件分发的界面 kit（musicxx 扩展）：由 tools/gen_ui_kit.ps1 生成后复制
+│   └── plugin.yaml      清单里 kind: js，scripts 按顺序列出上面三个脚本
+└── example_js_shader/   示例插件（JS 脚本）：播放页背景样式 + 动画速率设置 + 页面内联着色器块
     ├── plugin.js
+    ├── pluginxx_ui_kit.js / musicxx_ui_kit.js   界面 kit（同上）
     ├── shader/          shader bundle 的源码 + 打包脚本 + 编译产物（JS 插件的资源直接放在插件目录里）
     └── plugin.yaml
 ```
@@ -29,6 +32,11 @@ plugins/
 - **随插件分发的资源**（shader bundle、图标等）放在插件目录里：native 插件用
   `musicxx_plugin_add_target(... ASSETS <目录>)` 让构建助手复制到产物目录旁，js 插件直接放进去即可
   （照抄 `example_js_shader/shader/`）。
+- **界面 kit 要随插件一起分发**（宿主不提供 kit）：JS 插件用
+  `pwsh tools/sync_ui_kit.ps1` 把基础 kit（库的 `js/pluginxx_ui_kit.js`）与 musicxx 扩展 kit
+  （本包 `js/musicxx_ui_kit.js`，由 `pwsh tools/gen_ui_kit.ps1` 生成）复制进插件目录，
+  并在清单里写 `scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]` —— 宿主会在同一个
+  JS 上下文里按这个顺序执行；C++ 插件不用复制，直接用 SDK 头文件里的 `musicxx::ui::kit`。
 - 新增插件后跑一次 `pwsh tools/build_native.ps1`，产物会复制到
   `.native/output/<平台>-<架构>-<配置>/plugins/`（`-RunTests` 用的就是这个目录）。
 
@@ -50,5 +58,7 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests    # 顺带跑原生测�
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（伞头）与 `plugin_api.h`（领域契约） |
 | 动态库插件作者指南（清单 / 构建 / 部署 / 排障） | `docs/plugin-native-api.md` |
 | JS 插件作者指南（`musicxx` API / 硬约束 / 排障） | `docs/plugin-js-api.md` |
-| 界面（UI 项类型与字段 / 插件页面块类型 / 设置页写法） | `docs/plugin-ui.md` |
+| 界面（UI 项类型与字段 / 插件页面组件 / 用 kit 装配内容 / 设置页写法） | `docs/plugin-ui.md` |
+| musicxx 扩展 kit 的组件与参数（生成物） | `docs/musicxx-ui-kit.md` |
+| 界面描述层的组件全集、字段与适配规则（库的生成文档） | `src/third_party/cxx_pluginxx_ui/docs/ui-schema.md` |
 | 播放页背景（shader bundle 打包与 uniform 契约） | `docs/plugin-shader-bundle.md` |
