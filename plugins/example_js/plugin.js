@@ -6,15 +6,22 @@
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
 /// - `musicxx.player.speed` 裁决 (异步): 处理器返回 Promise 也能生效 (限速演示);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
-/// - `example_js.card` 能力: 主页入口与播放页附加信息块打开的插件页面 (`ext://example_js/card`)。
+/// - `example_js.card` 能力: 主页入口打开的插件页面 (`ext://example_js/card`)。
 /// - 插件自绘设置页 (`ext://example_js/settings`, 从 card 页的按钮进入; 框架不管理设置入口)
 ///   + 宿主网络代理通道 (musicxx.net.fetch) 演示。
+///
+/// 界面写法: 页面内容用**随插件分发的界面 kit** 装配 (`pluginxx.ui.kit`, 见 plugin.yaml 的
+/// `scripts`: 先加载两个 kit 文件再加载本脚本), kit 只装配块描述, 渲染由客户端完成。
+/// 页面里给的组件都会经客户端的适配步骤收口 —— 客户端不支持的组件会被降级, 插件不用自己判断。
 ///
 /// 说明: 播放页背景 (shader bundle) 与它的动画速率设置原先也在这里, 2026-09 已拆成独立插件
 /// `plugins/example_js_shader` —— 要照抄"插件渲染背景"那一套就看它。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
+
+/// 界面 kit（随插件目录分发: 基础 kit + musicxx 扩展 kit 都在 plugin.yaml 的 scripts 里）
+const kit = pluginxx.ui.kit;
 
 const BUDGET_KEY = "example_js.songChanged";
 
@@ -146,7 +153,7 @@ musicxx.ui.registerEntry({
     order: 910,
     data: {
         title: "JS 示例插件：查看歌曲信息",
-        action: { kind: "capability", name: "probe", args: { from: "ui" } },
+        action: { kind: "dispatch", name: "probe", args: { from: "ui" } },
     },
 });
 
@@ -218,44 +225,25 @@ function refreshConfig() {
 }
 refreshConfig();
 
-/// 一行 "标题 + 说明 + 右侧状态" 的排版
+/// 页面用的能力摘要: 客户端取页面时会把能力段放进参数 (`{"view":…,"ui":{…}}`)
 ///
-/// 行放进**内容块** (`Block` = 应用里的卡片底色与边距), 等于原来的列表条目;
-/// 行本身用布局块组合 (Row / Expanded / Column / SizedBox / Text)。
-/// `action` 可选, 带上就是整块可点。
-function infoRow(title, subtitle, right, action) {
-    const left = {
-        kind: "Column",
-        children: subtitle
-            ? [{ kind: "Text", text: title },
-               { kind: "SizedBox", height: 6 },
-               { kind: "Text", text: subtitle, style: "cross" }]
-            : [{ kind: "Text", text: title }],
-    };
-    const children = [{ kind: "Expanded", child: left }];
-    if (right) {
-        children.push({ kind: "SizedBox", width: 30 });
-        children.push({ kind: "Text", text: right, style: "cross" });
+/// 传给 kit 后它会挑"这个客户端支持的那个变体" (例如不支持图片时用文字行)。
+/// 拿不到就传 null: kit 产出中立描述, 由客户端自己的适配步骤收口。
+function viewEnv(args) {
+    if (args && typeof args.ui === "object" && args.ui !== null) {
+        return args.ui;
     }
-    const block = {
-        kind: "Block",
-        inContent: true,                                    // 内容块里的浅色底
-        margin: { left: 50, right: 50, bottom: 20 },         // 数值是设计像素
-        child: { kind: "Row", children: children },
-    };
-    if (action) {
-        block.action = action;
-    }
-    return block;
+    return null;
 }
 
 /// 插件自绘设置页: 宿主打开 ext://example_js/settings 时调用同名能力取页面描述。
 ///
 /// 设置界面属于插件自己的页面 (框架不管理设置入口, 也不渲染设置控件): 入口就是
-/// card 页里的『打开本插件设置页』按钮, 页面只用 Text / Divider / Button 与布局块
+/// card 页里的『打开本插件设置页』按钮, 页面只用 kit 的组合 (settingRow / button / ...)
 /// 画出插件自己的配置界面; 值改动由按钮触发能力写回 config.json (返回 {view:...}
 /// 让宿主直接用新页面刷新)。
-function settingsView(override) {
+function settingsView(args, override) {
+    const env = viewEnv(args);
     const cache = musicxx.storage.configCache;
     const skipAds = (override && typeof override.skipAds === "boolean")
         ? override.skipAds
@@ -270,32 +258,37 @@ function settingsView(override) {
         title: "JS 示例插件设置",
         subtitle: "页面由插件绘制; 值保存在插件目录的 config.json",
         blocks: [
-            {
-                kind: "Text",
-                text: "这些设置由脚本用 musicxx.storage.getConfig/setConfig 读写, 没有宿主提供的表单。",
-                style: "cross",
-            },
-            { kind: "Divider" },
-            infoRow("跳过广告曲目", "播放前裁决: 名字含『广告』的曲目直接跳过", skipAds ? "已开启" : "已关闭"),
-            infoRow("启动提示语", "加载时弹出的提示", greeting === "" ? "(未设置)" : greeting),
-            infoRow("心跳间隔(毫秒)", "定时器写日志的间隔, 改完立即换成新间隔", String(heartbeatMs)),
-            {
-                kind: "Button",
-                title: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
-                style: "primary",
-                action: { kind: "capability", name: "toggleSkipAds" },
-            },
-            {
-                kind: "Button",
-                title: "切换心跳间隔（10 / 30 / 60 秒）",
-                action: { kind: "capability", name: "cycleHeartbeat" },
-            },
-            {
-                kind: "Button",
-                title: "把提示语改回默认值",
-                action: { kind: "capability", name: "resetGreeting", args: { value: "example_js 已加载" } },
-            },
-            { kind: "Button", title: "测试网络通道", action: { kind: "capability", name: "fetchEcho" } },
+            kit.hint({ text: "这些设置由脚本用 musicxx.storage.getConfig/setConfig 读写, 没有宿主提供的表单。" }, env),
+            kit.divider({}, env),
+            kit.listRow({
+                title: "跳过广告曲目",
+                subtitle: "播放前裁决: 名字含『广告』的曲目直接跳过",
+                trailing: skipAds ? "已开启" : "已关闭",
+            }, env),
+            kit.listRow({
+                title: "启动提示语",
+                subtitle: "加载时弹出的提示",
+                trailing: greeting === "" ? "(未设置)" : greeting,
+            }, env),
+            kit.listRow({
+                title: "心跳间隔(毫秒)",
+                subtitle: "定时器写日志的间隔, 改完立即换成新间隔",
+                trailing: String(heartbeatMs),
+            }, env),
+            kit.button({
+                label: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
+                variant: "primary",
+                action: "toggleSkipAds",
+            }, env),
+            kit.button({
+                label: "切换心跳间隔（10 / 30 / 60 秒）",
+                action: "cycleHeartbeat",
+            }, env),
+            kit.button({
+                label: "把提示语改回默认值",
+                action: { kind: "dispatch", name: "resetGreeting", args: { value: "example_js 已加载" } },
+            }, env),
+            kit.button({ label: "测试网络通道", action: "fetchEcho" }, env),
         ],
     };
 }
@@ -316,8 +309,8 @@ function configuredHeartbeatMs() {
     return (typeof value === "number") ? value : DEFAULT_HEARTBEAT_MS;
 }
 
-musicxx.capability.register("settings", function () {
-    return { view: settingsView(null) };
+musicxx.capability.register("settings", function (args) {
+    return { view: settingsView(args, null) };
 });
 
 /// 设置页按钮: 切换"跳过广告曲目"
@@ -329,7 +322,7 @@ musicxx.capability.register("toggleSkipAds", function (args) {
     saveConfig("skipAds", next);
     musicxx.host.log(2, "设置页: 跳过广告曲目 → " + next);
     return {
-        view: (args && args.view === "card") ? cardView() : settingsView({ skipAds: next }),
+        view: (args && args.view === "card") ? cardView(args) : settingsView(args, { skipAds: next }),
     };
 });
 
@@ -337,11 +330,11 @@ musicxx.capability.register("toggleSkipAds", function (args) {
 musicxx.capability.register("resetGreeting", function (args) {
     const value = (args && args.value) ? String(args.value) : "example_js 已加载";
     saveConfig("greeting", value);
-    return { view: settingsView({ greeting: value }) };
+    return { view: settingsView(args, { greeting: value }) };
 });
 
 /// 设置页按钮: 循环切换心跳间隔 (10 → 30 → 60 秒 → 10)
-musicxx.capability.register("cycleHeartbeat", function () {
+musicxx.capability.register("cycleHeartbeat", function (args) {
     const current = configuredHeartbeatMs();
     let index = 0;
     for (let i = 0; i < HEARTBEAT_OPTIONS.length; ++i) {
@@ -352,12 +345,13 @@ musicxx.capability.register("cycleHeartbeat", function () {
     const next = HEARTBEAT_OPTIONS[(index + 1) % HEARTBEAT_OPTIONS.length];
     saveConfig("heartbeatMs", next);
     applyHeartbeat(next);
-    return { view: settingsView({ heartbeatMs: next }) };
+    return { view: settingsView(args, { heartbeatMs: next }) };
 });
 
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
+    const ui = (info && typeof info.ui === "object" && info.ui !== null) ? info.ui : null;
     return {
         pluginId: musicxx.pluginId,
         hookCount: 4,
@@ -366,6 +360,9 @@ musicxx.capability.register("probe", function (args) {
         errorCount: errorCount,
         timerTicks: timerTicks,
         hostPlatform: info.platform || "",
+        // 客户端界面能力段 (host.info().ui): 插件据此决定该给什么界面内容
+        hostUiKind: (ui && ui.kind) ? String(ui.kind) : "",
+        hostUiBlocks: (ui && Array.isArray(ui.blocks)) ? ui.blocks.length : -1,
         currentSongName: currentSongName(),
         uiEntries: musicxx.ui.entries().length,
         // 自读统计 (只观测不限制; 插件可据此显示自己的用量)
@@ -422,14 +419,14 @@ musicxx.capability.register("reloadConfig", function () {
     return { accepted: 1 };
 });
 
-/// 插件页面: 主页入口与播放页附加信息块都指向 `ext://example_js/card`
+/// 插件页面: 主页入口指向 `ext://example_js/card`
 ///
 /// 宿主打开这个页面时调用**同名能力** (`card`), 由脚本返回视图描述 ——
-/// 页面内容由插件给, 排版与控件仍由宿主渲染 (Text / Divider / Button 与
-/// Row / Column / Expanded / SizedBox / Padding 等布局块)。
+/// 页面内容由插件给 (这里用 kit 装配), 排版与控件仍由客户端渲染。
 /// 页面里的按钮可以调用本插件能力 (返回 `{view:...}` 时直接刷新当前页)、
 /// 执行官方动作, 或跳到另一个插件页面 (这里跳本插件的设置页)。
-function cardView() {
+function cardView(args) {
+    const env = viewEnv(args);
     const cross = crossCallState.pending === 1
         ? "调用中"
         : (crossCallState.ok === 1
@@ -442,48 +439,62 @@ function cardView() {
             : (fetchState.ok === 1 ? ("HTTP " + fetchState.status + ", " + fetchState.bytes + " 字节") : "未调用"));
     return {
         title: "JS 示例插件",
-        subtitle: "页面内容来自能力 `card`, 渲染由宿主完成",
+        subtitle: "页面内容来自能力 `card`, 渲染由客户端完成",
         blocks: [
-            {
-                kind: "Text",
-                text: "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / 按钮), 不写界面代码。",
-                style: "cross",
-            },
-            { kind: "Divider" },
-            infoRow("切歌次数",
-                lastSongName === "" ? "还没有切过歌" : ("最后播放: " + lastSongName),
-                String(songChangedCount)),
-            infoRow("播放错误次数", "第 1 次错误建议换源, 之后交给宿主原有策略", String(errorCount)),
-            infoRow("定时器心跳", "每 " + configuredHeartbeatMs() + " 毫秒写一条日志", String(timerTicks)),
-            infoRow("已注册的 UI 项", "主页入口 / 歌曲菜单", String(musicxx.ui.entries().length)),
-            infoRow("跨插件调用", "目标: example_native 的 probe 能力", cross),
-            infoRow("宿主网络通道", "musicxx.net.fetch 最近一次结果", net),
-            infoRow("跳过广告曲目", "点这一条直接切换 (等于设置页里的开关)",
-                skipAdsEnabled() ? "已开启" : "已关闭",
-                { kind: "capability", name: "toggleSkipAds", args: { view: "card" } }),
-            {
-                kind: "Button",
-                title: "刷新本页",
-                style: "primary",
-                action: { kind: "capability", name: "card" },
-            },
-            {
-                kind: "Button",
-                title: "调用 example_native 的能力",
-                action: { kind: "capability", name: "crossCall", args: { target: "example_native", method: "probe" } },
-            },
-            { kind: "Button", title: "测试宿主网络通道", action: { kind: "capability", name: "fetchEcho" } },
-            {
-                kind: "Button",
-                title: "打开本插件设置页",
+            kit.hint({ text: "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / 按钮), 不写界面代码。" }, env),
+            kit.divider({}, env),
+            kit.listRow({
+                title: "切歌次数",
+                subtitle: lastSongName === "" ? "还没有切过歌" : ("最后播放: " + lastSongName),
+                trailing: String(songChangedCount),
+            }, env),
+            kit.listRow({
+                title: "播放错误次数",
+                subtitle: "第 1 次错误建议换源, 之后交给宿主原有策略",
+                trailing: String(errorCount),
+            }, env),
+            kit.listRow({
+                title: "定时器心跳",
+                subtitle: "每 " + configuredHeartbeatMs() + " 毫秒写一条日志",
+                trailing: String(timerTicks),
+            }, env),
+            kit.listRow({
+                title: "已注册的 UI 项",
+                subtitle: "主页入口 / 歌曲菜单",
+                trailing: String(musicxx.ui.entries().length),
+            }, env),
+            kit.listRow({
+                title: "跨插件调用",
+                subtitle: "目标: example_native 的 probe 能力",
+                trailing: cross,
+            }, env),
+            kit.listRow({
+                title: "宿主网络通道",
+                subtitle: "musicxx.net.fetch 最近一次结果",
+                trailing: net,
+            }, env),
+            kit.listRow({
+                title: "跳过广告曲目",
+                subtitle: "点这一条直接切换 (等于设置页里的开关)",
+                trailing: skipAdsEnabled() ? "已开启" : "已关闭",
+                action: { kind: "dispatch", name: "toggleSkipAds", args: { view: "card" } },
+            }, env),
+            kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
+            kit.button({
+                label: "调用 example_native 的能力",
+                action: { kind: "dispatch", name: "crossCall", args: { target: "example_native", method: "probe" } },
+            }, env),
+            kit.button({ label: "测试宿主网络通道", action: "fetchEcho" }, env),
+            kit.button({
+                label: "打开本插件设置页",
                 action: { kind: "route", route: "ext://example_js/settings" },
-            },
+            }, env),
         ],
     };
 }
 
-musicxx.capability.register("card", function () {
-    return { view: cardView() };
+musicxx.capability.register("card", function (args) {
+    return { view: cardView(args) };
 });
 
 console.log("example_js 已加载 (pid=" + musicxx.pluginId + ")");

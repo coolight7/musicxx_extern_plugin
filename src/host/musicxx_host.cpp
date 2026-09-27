@@ -264,6 +264,40 @@ std::string readManifestEntry(const fs::path &dir) {
   return {};
 }
 
+/// 读 `plugin.yaml` 的 `scripts` 字段 (JS 插件: 按顺序执行的脚本文件, 相对插件目录)
+///
+/// 写成列表或单个标量都可以; 都没写时返回空 (调用方退回 `entry` / `plugin.js`)。
+std::vector<std::string> readManifestScripts(const fs::path &dir) {
+  const std::string text = readFileText(dir / "plugin.yaml");
+  if (text.empty()) {
+    return {};
+  }
+  std::vector<std::string> out;
+  try {
+    auto node = YAML::Load(text);
+    const auto &scripts = node["scripts"];
+    if (scripts && scripts.IsSequence()) {
+      for (const auto &item : scripts) {
+        if (item.IsScalar()) {
+          const std::string value = item.as<std::string>();
+          if (!value.empty()) {
+            out.push_back(value);
+          }
+        }
+      }
+    } else if (scripts && scripts.IsScalar()) {
+      const std::string value = scripts.as<std::string>();
+      if (!value.empty()) {
+        out.push_back(value);
+      }
+    }
+  } catch (const std::exception &e) {
+    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的 scripts 失败: {}", dir.string(),
+            e.what());
+  }
+  return out;
+}
+
 /// 读 `plugin.yaml` 的 `version` 字段
 std::string readManifestVersion(const fs::path &dir) {
   const std::string text = readFileText(dir / "plugin.yaml");
@@ -375,6 +409,7 @@ void MusicxxHostManager::applyConfig(const MusicxxExternPluginHostConfig &cfg) {
   setIfPresent(builtinPluginDir_, cfg.builtin_plugin_dir);
   setIfPresent(dataDir_, cfg.data_dir);
   setIfPresent(logDir_, cfg.log_dir);
+  setUiCapabilities(viewToString(cfg.ui_capabilities));
 
   logLevel_ = cfg.log_level;
   flags_ = cfg.flags;
@@ -384,6 +419,20 @@ void MusicxxHostManager::applyConfig(const MusicxxExternPluginHostConfig &cfg) {
   XX_LOGI(
       "[musicxx_ext] host config: app={} platform={} arch={} lang={} flags={}",
       appVersion_, platform_, hostArch(), language_, flags_);
+}
+
+void MusicxxHostManager::setUiCapabilities(const std::string &capabilitiesJson) {
+  if (capabilitiesJson.empty()) {
+    return;
+  }
+  bool parseOk = false;
+  Json caps = parseJsonSafe(capabilitiesJson, &parseOk);
+  if (!parseOk || !caps.is_object()) {
+    // 能力段是"给插件看的说明", 结构不对就不发布 (宿主不解释它的内容)
+    XX_LOGW("[musicxx_ext] 客户端界面能力段不是 JSON 对象, 已忽略");
+    return;
+  }
+  uiCapabilitiesJson_ = caps.dump();
 }
 
 /* ==================== 启停 ==================== */
@@ -691,6 +740,7 @@ void MusicxxHostManager::cancelActionsOfInstance(
 int32_t MusicxxHostManager::prepareJsPlugin(const std::string &pluginId,
                                             const std::string &pluginDir,
                                             const std::string &entryHint,
+                                            const std::vector<std::string> &scriptHints,
                                             const std::string &version,
                                             std::string &err) {
   auto engine = jsEngine();
@@ -705,20 +755,38 @@ int32_t MusicxxHostManager::prepareJsPlugin(const std::string &pluginId,
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
   const fs::path dir{pluginDir};
-  fs::path script;
-  if (!entryHint.empty() && entryHint.size() > 3 &&
-      entryHint.compare(entryHint.size() - 3, 3, ".js") == 0) {
-    script = dir / entryHint;
+  // 脚本清单：清单 `scripts` 为准；没写时退回 `entry`（写成 .js 时）→ `plugin.js`
+  std::vector<fs::path> scripts;
+  for (const std::string &hint : scriptHints) {
+    const fs::path candidate = dir / hint;
+    if (!fs::is_regular_file(candidate)) {
+      err = "JS 插件缺少脚本文件: " + candidate.string();
+      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    }
+    scripts.push_back(candidate);
   }
-  if (script.empty() || !fs::exists(script)) {
-    script = dir / "plugin.js";
+  if (scripts.empty()) {
+    fs::path script;
+    if (!entryHint.empty() && entryHint.size() > 3 &&
+        entryHint.compare(entryHint.size() - 3, 3, ".js") == 0) {
+      script = dir / entryHint;
+    }
+    if (script.empty() || !fs::exists(script)) {
+      script = dir / "plugin.js";
+    }
+    std::error_code ec;
+    if (!fs::is_regular_file(script, ec)) {
+      err = "JS 插件缺少脚本文件: " + script.string();
+      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    }
+    scripts.push_back(script);
   }
-  std::error_code ec;
-  if (!fs::is_regular_file(script, ec)) {
-    err = "JS 插件缺少脚本文件: " + script.string();
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  std::vector<std::string> paths;
+  paths.reserve(scripts.size());
+  for (const fs::path &script : scripts) {
+    paths.push_back(script.string());
   }
-  if (!engine->registerBuiltin(pluginId, script.string(), version, err)) {
+  if (!engine->registerBuiltin(pluginId, paths, version, err)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
@@ -1192,9 +1260,26 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
     }
   }
   if (supported && kind == "js") {
-    if (!fs::exists(dirPath / "plugin.js")) {
+    // 脚本: 清单 `scripts` 优先; 没写时退回 plugin.js（或 entry 里的 .js）
+    std::vector<std::string> scripts = readManifestScripts(dirPath);
+    if (scripts.empty()) {
+      if (!entry.empty() && entry.size() > 3 &&
+          entry.compare(entry.size() - 3, 3, ".js") == 0) {
+        scripts.push_back(entry);
+      } else {
+        scripts.push_back("plugin.js");
+      }
+    }
+    std::string missing;
+    for (const std::string &script : scripts) {
+      if (!fs::exists(dirPath / script)) {
+        missing = script;
+        break;
+      }
+    }
+    if (!missing.empty()) {
       supported = false;
-      reason = "JS 插件缺少 plugin.js";
+      reason = "JS 插件缺少脚本文件: " + missing;
     } else if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0) {
       supported = false;
       reason = "宿主配置禁用了 JS 插件";
@@ -1335,6 +1420,8 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         const std::string manifestKind = readManifestKind(pluginPath);
         const std::string manifestEntry = readManifestEntry(pluginPath);
         const std::string manifestVersion = readManifestVersion(pluginPath);
+        const std::vector<std::string> manifestScripts =
+            readManifestScripts(pluginPath);
         if (manifestKind == "js") {
           // 依赖检查 (JS 插件专用): 内核的按名依赖检查用实例名查表, 而 JS 实例名是
           // `js:<id>`, 所以 JS 插件走不了那条路; 这里按**插件 id** 自己校验一遍,
@@ -1374,7 +1461,8 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           }
           std::string prepareErr;
           const int32_t prepareRc = self->prepareJsPlugin(
-              pluginId, path, manifestEntry, manifestVersion, prepareErr);
+              pluginId, path, manifestEntry, manifestScripts, manifestVersion,
+              prepareErr);
           if (prepareRc != MUSICXX_EXTERN_PLUGIN_OK) {
             *failMsg = prepareErr;
             Json payload;
@@ -2109,6 +2197,14 @@ int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
   readString("language", language_);
   readString("userPluginDir", userPluginDir_);
   readString("builtinPluginDir", builtinPluginDir_);
+  // 界面能力段: 对象与 JSON 文本都接受 (非对象内容由 setUiCapabilities 忽略)
+  if (cfg.contains("uiCapabilities")) {
+    const Json &caps = cfg["uiCapabilities"];
+    setUiCapabilities(caps.is_object()
+                          ? caps.dump()
+                          : (caps.is_string() ? caps.get<std::string>()
+                                              : std::string{}));
+  }
   if (cfg.contains("flags") && cfg["flags"].is_number_integer()) {
     flags_ = cfg["flags"].get<int32_t>();
   }

@@ -23,6 +23,7 @@ class MusicxxPluginRuntimeConfig {
     this.builtinPluginDir = '',
     this.dataDir = '',
     this.logDir = '',
+    this.uiCapabilities = '',
     this.logLevel = 2,
     this.safeMode = false,
     this.enableNative = true,
@@ -51,6 +52,12 @@ class MusicxxPluginRuntimeConfig {
 
   /// 日志目录
   final String logDir;
+
+  /// 客户端界面能力段（JSON 文本；界面描述层库生成）
+  ///
+  /// 宿主原样转发：插件在 `musicxx.host.info().ui`（原生插件走 `host.info` 动作）
+  /// 里读到它，据此决定该给什么界面内容。空串 = 不发布这个字段。
+  final String uiCapabilities;
 
   /// 0 trace .. 4 error
   final int logLevel;
@@ -219,7 +226,8 @@ class MusicxxPluginRuntime {
           ..user_plugin_dir = arena.view(config.userPluginDir).ref
           ..builtin_plugin_dir = arena.view(config.builtinPluginDir).ref
           ..data_dir = arena.view(config.dataDir).ref
-          ..log_dir = arena.view(config.logDir).ref;
+          ..log_dir = arena.view(config.logDir).ref
+          ..ui_capabilities = arena.view(config.uiCapabilities).ref;
         final Pointer<MusicxxExternPluginString> log = arena.outString();
         _host = bindings.musicxx_extern_plugin_host_create(cfg, log);
         if (_host == nullptr) {

@@ -1,6 +1,8 @@
 name: example_js_shader
 kind: js
 entry: plugin.js
+# 脚本按顺序在同一个 JS 上下文里执行: 先加载两个界面 kit (随插件目录分发), 再加载插件脚本
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
 
 version: 1.0.0
 api_version: 1

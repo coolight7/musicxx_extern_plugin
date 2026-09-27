@@ -70,19 +70,28 @@ bool requiresTitle(std::string_view type) {
 
 /// 校验一个动作描述 (data.action)
 ///
-/// 允许的形态:
+/// 允许的形态 (与界面描述层的动作写法一致):
+/// - 字符串短写 `"openSettings"` —— 等于 `{"kind":"dispatch","name":"openSettings"}`;
+/// - `{"kind":"dispatch","name":"<本插件能力短名>","args":{...}}` —— 交回本插件处理;
 /// - `{"kind":"route","route":"ext://<插件id>/<视图id>"}` —— 允许指向任意插件
 ///   (含自己): 页面由被跳转插件自己绘制, 发起方只是把它打开;
-/// - `{"kind":"capability","name":"<短名>","args":{...}}`
-/// - `{"kind":"action","name":"musicxx.<域>.<动作>","args":{...}}`
+/// - `{"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}` —— 宿主动作;
 /// - `{"kind":"none"}`
 bool validateAction(const Json &action, std::string_view pluginId,
                     std::string &err) {
   if (action.is_null()) {
     return true; ///< 没有动作 = 纯展示项
   }
+  if (action.is_string()) {
+    /// 短写形态: 必须给出非空动作名
+    if (action.get<std::string>().empty()) {
+      err = "短写动作必须是插件能力的非空短名";
+      return false;
+    }
+    return true;
+  }
   if (!action.is_object()) {
-    err = "action 必须是对象";
+    err = "action 必须是对象或能力短名";
     return false;
   }
   const std::string kind =
@@ -116,23 +125,22 @@ bool validateAction(const Json &action, std::string_view pluginId,
     }
     return true;
   }
-  if (kind == MUSICXX_PLUGIN_UI_ACTION_CAPABILITY) {
+  if (kind == MUSICXX_PLUGIN_UI_ACTION_DISPATCH) {
     if (!action.contains("name") || !action["name"].is_string() ||
         action["name"].get<std::string>().empty()) {
-      err = "capability 动作缺少 name 字段";
+      err = "dispatch 动作缺少 name 字段";
       return false;
     }
     return true;
   }
-  if (kind == MUSICXX_PLUGIN_UI_ACTION_HOST) {
+  if (kind == MUSICXX_PLUGIN_UI_ACTION_COMMAND) {
     if (!action.contains("name") || !action["name"].is_string()) {
-      err = "action 动作缺少 name 字段";
+      err = "command 动作缺少 name 字段";
       return false;
     }
-    // 官方动作只能调 `musicxx.*`; 插件自定义动作 (`plugin.<自己id>.*`) 不作为
-    // UI 动作使用
+    // 官方动作只能调 `musicxx.*`; 插件自定义能力用默认的 dispatch 形态
     if (!naming::isOfficial(action["name"].get<std::string>())) {
-      err = "action 动作必须使用官方名称 (musicxx.<域>.<动作>)";
+      err = "command 动作必须使用官方名称 (musicxx.<域>.<动作>)";
       return false;
     }
     return true;

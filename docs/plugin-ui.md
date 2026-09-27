@@ -19,10 +19,13 @@
 
 | 类型（全名） | `data` 字段 | 渲染位置 | 当前版本的实际表现 |
 |---|---|---|---|
-| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在宿主内置入口之后，用户可以在主页排序里拖动） | 只显示 `title`：`subtitle` 与 `icon` 目前未使用（图标位留空） |
-| `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 写宿主内置的 svg 名（不写用默认图标；写不存在的名字不显示图标）；副标题位置固定显示 `外部插件：<插件id>` |
-| `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单菜单 | **当前版本没有渲染入口**：注册会成功，但界面上看不到（见 §1.4） |
+| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在宿主内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写宿主内置的 svg 名（不写用默认图标；写不存在的名字退回默认图标） |
+| `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
+| `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效 |
+
+`icon` 的取值来自客户端能力段里的 `icons`（`host.info().ui.icons`）：写客户端不认识的名字
+不会出错，只是退回默认图标。想知道当前客户端认哪些名字就读能力段，不要写死某一份清单。
 
 ### 1.2 注册
 
@@ -69,30 +72,33 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 
 ### 1.3 UI 项动作（`data.action`）
 
-| `kind` | 字段 | 行为 |
-|---|---|---|
-| `route` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面（**允许指向任意插件**：页面由被跳转插件自己绘制，发起方拿不到对方的数据） |
-| `capability` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
-| `action` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行宿主动作（与插件自己调 `musicxx.call` 同一份实现） |
-| `none` / 不写 | — | 纯展示项，点了没有动作 |
+动作写法与插件页面里的动作**完全一致**（同一套写法与同一个解析器）：
 
-- 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与视图 id；`capability` 必须有非空 `name`；
-  `action` 的 `name` 必须是官方 `musicxx.*`；
+| 写法 | 字段 | 行为 |
+|---|---|---|
+| `"openSettings"` | — | **字符串短写**，等于 `dispatch`：调用本插件的能力 |
+| `{"kind":"dispatch"}` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
+| `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面（**允许指向任意插件**：页面由被跳转插件自己绘制，发起方拿不到对方的数据） |
+| `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行宿主动作（与插件自己调 `musicxx.call` 同一份实现） |
+| `{"kind":"none"}` / 不写 | — | 纯展示项，点了没有动作 |
+
+- 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与视图 id；`dispatch` 必须有非空 `name`；
+  `command` 的 `name` 必须是官方 `musicxx.*`；
 - **动作指向的能力必须真的注册过**：没注册时宿主提示
   「插件『<插件id>』没有提供『<能力名>』」，`example_native` / `example_js` 的 `card` 页是可照抄的例子；
-- `capability` 动作成功时的表现：返回视图描述就直接打开页面（入口与页面合成一次调用），
-  否则提示「『<入口标题>』执行完成」。
+- `dispatch` 动作成功时的表现：返回视图描述就直接打开页面（入口与页面合成一次调用），
+  否则提示「『<入口标题>』执行完成」；
+- 动作参数里宿主会补上当前上下文：歌曲菜单项补 `sid`/`name`/`artist`，歌单菜单项补
+  `pid`/`name`/`songNum`（插件自己写的 `args` 保留，冲突时以宿主补的为准）。
 
 ### 1.4 当前版本的渲染缺口（写插件前先确认）
 
-- `musicxx.ui.playlist.action`：注册成功，但应用侧没有渲染点，界面上不会出现；
-- `home.entry` 的 `subtitle` / `icon`：主页入口按钮当前只画标题；
-- 主页入口的文字就是它显示在按钮上的样子：想换文案就改 `title`；需要图标生效就用歌曲菜单项
-  （`song.action` 的 `icon` 是生效的）。
+这一版把之前缺的渲染点补齐了：`home.entry` 的 `subtitle` / `icon` 都会画出来、`playlist.action`
+在歌单页的列表菜单里有位置。仍要注意的是：
 
-想确认自己注册了哪些项：`musicxx.ui.entries()`（JS）/ `uiEntries()`（C++）读自己注册的项；
-应用侧快照是 `musicxx_extern_plugin_ui_snapshot`（应用开发者/调试用）；界面表现直接看主页、
-歌曲菜单与「设置 → 播放页面背景」列表。
+- 入口的图标只在客户端认识的名字里挑（能力段 `icons`），写别的名字会退回默认图标；
+- 主页入口的文字是单行省略（标题、副标题各一行），别写长句；
+- 想确认自己注册了哪些项：`musicxx.ui.entries()`（JS）/ `uiEntries()`（C++）。
 
 ---
 
@@ -102,7 +108,8 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 
 1. 用户点入口 / 插件自己调 `musicxx.ui.openRoute("ext://my_plugin/settings")`；
 2. 宿主打开路由页面，调用**与被跳转插件同名的能力**：视图 id = 能力短名
-   （`ext://my_plugin/settings` → 能力 `plugin.my_plugin.settings`），参数 `{"view": "<视图id>"}`；
+   （`ext://my_plugin/settings` → 能力 `plugin.my_plugin.settings`），参数是
+   `{"view": "<视图id>", "ui": {客户端界面能力段}}`；
 3. 能力返回视图描述：`{"view": {...}}`（推荐）或直接返回视图对象；
 4. 宿主渲染；能力返回的每个块都不需要插件再调用任何接口。
 
@@ -131,71 +138,80 @@ capability(*this, "plugin.my_plugin.settings",
 }
 ```
 
-### 2.3 块类型
+### 2.3 块类型（界面描述层的组件）
 
-块类型名（`kind`）是**首字母大写的驼峰**，解析时**忽略大小写**（`Text` / `text` / `TEXT` 等价）；
-认不出来的块被忽略（向前兼容，不会报错）。
+页面内容是**界面描述层**（`cxx_pluginxx_ui`，插件包里带的是它的子模块）的组件：插件只写一份
+中立描述，客户端按自己的能力做降级适配 —— 同一份内容在图形界面与终端上都能画出来。
+完整组件表、字段与适配规则见库的生成文档
+`src/third_party/cxx_pluginxx_ui/docs/ui-schema.md`（每个组件都在那里，这里只列常用的）。
 
-| `kind` | 字段 | 说明 |
+| 常用 `kind` | 字段 | 说明 |
 |---|---|---|
-| `Text` | `text`、`style`（`main` 默认 / `cross` / `thin`） | 一段文字 |
+| `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…） |
 | `Divider` | — | 分隔线 |
-| `Button` | `title`、`style`（`normal` 默认 / `primary`）、`action` | 按钮，点击执行自己的 `action` |
-| `Block` | `child`、`inContent`、`margin`、`padding`、`action` | 内容块（应用的卡片：底色 + 圆角 + 边距），行与分组放它里面；`inContent: true` 用内容块内的浅色底（适合列表行）；不带 `margin`/`padding` 时用宿主默认边距 |
-| `Row` | `children` | 横向排列（要占满剩余宽度就用 `Expanded`） |
-| `Column` | `children` | 纵向排列（从左边开始） |
-| `Expanded` | `child`、`flex`（默认 1，小于 1 按 1） | 占满剩余空间；**只在 `Row` / `Column` 的直接子块位置生效**，放别处退化成普通子块 |
-| `SizedBox` | `width` / `height`、`child` | 固定尺寸或占位（不写 `child` 就是纯占位） |
-| `Padding` | `left` / `right` / `top` / `bottom`（单边写法）或 `padding`（数字 = 四边相同，或对象 `{all, horizontal, vertical, left, right, top, bottom}`）、`child` | 内边距；两种写法都写时以单边字段为准 |
-| `Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | 页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
+| `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
+| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action` |
+| `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块（应用的卡片：底色 + 圆角 + 边距）；`inset` 是内容块里的浅色底（列表行用它） |
+| `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
+| `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
+| `SizedBox` | `width`、`height`、`aspect`、`children` | 固定尺寸或占位 |
+| `Padding` | `padding`、`children` | 内边距 |
+| `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
+| `Badge` / `Progress` | 见库文档 | 状态小标签 / 进度条 |
+| `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`）、`id`、`label`、`value`、`options`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值） |
+| `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`） |
+| `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
-`Block` 的 `margin` / `padding` 与其它布局数值一样接受**数字**（四边相同）或对象
-（`all` / `horizontal` / `vertical` / `left` / `right` / `top` / `bottom`）。
+规则（解析层口径，与库文档一致）：
 
-### 2.4 布局约定
+- 组件名（`kind`）是**首字母大写的驼峰**，解析时**忽略大小写**；
+- 未知组件：有 `fallback` 就显示它，没有就跳过（不会报错）；未知字段忽略；未知枚举值取默认；
+- 尺寸只有一个单位 `u`（允许小数）：图形界面 1u = 1 逻辑像素，终端按客户端的格大小换算；
+  另有 `{"percent": 40}`（占父容器可用空间的比例）与 `"auto"`（内容决定）；
+- 边距只写一个字段（`padding` / `margin`），值是数字（四边）、`{"horizontal":20,"vertical":8}` 或单边对象。
 
-- 所有尺寸与边距都是**设计像素**：宿主按屏幕尺寸换算（和页面里其它内容一样随窗口缩放），
-  不是固定的物理像素。习惯写法：左右留白 `50`、行间距 `20~30`、间隔用小 `SizedBox`；
-- 任意块都可以带 `action`（`Button` 用自己的按钮点击语义）：带上之后**整块可点**，
-  用来组合「可点的行」；
-- 可点区域不做高亮反馈以外的额外视觉处理，所以可点的行建议放在 `Block` 里（有底色的卡片），
-  用户才知道那是一行；
-- **没有列表块**：列表行由 `Block`（内容块）+ `Row` + `Expanded` + `Column` + `SizedBox` + `Text`
-  组合出来，见下面的 `infoRow`。
+### 2.4 用 kit 装配（推荐写法）
 
-### 2.5 一行设置的排版（`infoRow`）
-
-左边「标题 + 说明」占满剩余宽度，右边是状态文字；外面套内容块（卡片），需要整行可点就在
-`Block` 上加 `action`。C++ 版见 `plugins/example_native/example_native.cpp` 的 `infoRowJson`，
-JS 版见 `plugins/example_js/plugin.js` 的 `infoRow`：
+写页面内容不必手拼这些块：**随插件分发的界面 kit** 把常用组合封装好了。
+JS 插件在清单里按顺序加载 kit（`scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]`），
+然后：
 
 ```js
-function infoRow(title, subtitle, right, action) {
-    const left = {
-        kind: "Column",
-        children: subtitle
-            ? [{ kind: "Text", text: title },
-               { kind: "SizedBox", height: 6 },
-               { kind: "Text", text: subtitle, style: "cross" }]
-            : [{ kind: "Text", text: title }],
-    };
-    const children = [{ kind: "Expanded", child: left }];
-    if (right) {
-        children.push({ kind: "SizedBox", width: 30 });
-        children.push({ kind: "Text", text: right, style: "cross" });
-    }
-    const block = {
-        kind: "Block",
-        inContent: true,
-        margin: { left: 50, right: 50, bottom: 20 },
-        child: { kind: "Row", children: children },
-    };
-    if (action) {
-        block.action = action;   // 整行可点
-    }
-    return block;
-}
+const kit = pluginxx.ui.kit;
+
+// env 是客户端能力段（取页面时宿主会放进参数：args.ui）；不传 = 中立描述，由客户端适配
+kit.listRow({ title: "切歌次数", trailing: "3" }, env);
+kit.settingRow({ title: "背景动画速率", depict: "改完立即生效", value: "1x" }, env);
+kit.switchRow({ id: "skipAds", title: "跳过广告曲目", value: true, action: "setSkipAds" }, env);
+kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env);
 ```
+
+C++ 插件用头文件里的 kit（命名空间 `musicxx::ui::kit`，由 `plugin_kit.h` 带进来）：
+
+```cpp
+namespace kit = musicxx::ui::kit;
+Json row = kit.listRow(Json::object({{"title", "切歌次数"}, {"trailing", "3"}}));
+blocks.push_back(pluginxx::ui::dumpItem(row));   // 序列化成 JSON 块
+```
+
+kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hint` / `text` / `badge` / `icon` /
+`gap` / `divider` / `button` / `actionsRow` / `card` / `listRow` / `section` / `kv` / `table` /
+`tree` / `sparkline` / `progressRow` / `settingRow` / `switchRow` / `inputRow` / `shaderBlock` /
+`coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
+
+- kit 只做**装配**，不含逻辑、不写死客户端的口径；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
+- **kit 随插件目录分发**（宿主不提供）：`tools/sync_ui_kit.ps1` 会把两个 kit 文件复制进 JS 插件目录，
+  C++ 插件用 SDK 头文件里的版本（改 kit 后跑 `tools/gen_ui_kit.ps1` 重新生成）。
+
+### 2.5 布局约定
+
+- 尺寸与边距都是描述层的 `u`：客户端按自己的体系换算（图形界面随窗口缩放），
+  习惯写法：左右留白 `16~20`、行间距 `8~12`、间隔用小的 `Gap` / `SizedBox`；
+- 能用相对布局就别写固定尺寸：`Expanded` / `Spacer` / `main: "spaceBetween"` / `percent` 优先；
+- 任意块都可以带 `action`（`Button` 用自己的按钮点击语义）：带上之后**整块可点**，
+  用来组合「可点的行」；可点的行建议放在 `Block`（有底色的卡片）里，用户才知道那是一行；
+- **没有列表块**：列表行由 `Block` + `Row` + `Expanded` + `Column` + `Text` 组合，kit 的 `listRow`
+  就是这个组合（示例见 `plugins/example_js/plugin.js`）。
 
 ### 2.6 页面之间的跳转与刷新
 
@@ -235,6 +251,7 @@ function infoRow(title, subtitle, right, action) {
 
 | 示例 | 演示了什么 |
 |---|---|
-| `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新 |
-| `plugins/example_js_shader/plugin.js` | 播放页背景样式 + 速率设置页 + 页面里内联的 `Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
-| `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、`infoRowJson` |
+| `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 装配 |
+| `plugins/example_js_shader/plugin.js` | 播放页背景样式 + 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 装配内容 |
+| `src/tests/plugins/multi_script_js/` | 清单 `scripts` 多脚本装载：先跑随插件分发的 kit，再跑插件脚本 |

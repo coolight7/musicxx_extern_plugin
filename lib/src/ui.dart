@@ -10,6 +10,8 @@
 ///   [MusicxxPluginEventType.uiChanged] 事件整批替换某个插件的项（事件载荷带 `items`）。
 library;
 
+import 'package:pluginxx_ui/pluginxx_ui.dart';
+
 /// UI 项类型（官方；与 `MUSICXX_PLUGIN_UI_TYPE_*` 一一对应）
 abstract final class MusicxxPluginUIType {
   /// 功能主页入口项：`data = {title, subtitle?, icon?, action?}`
@@ -31,16 +33,21 @@ abstract final class MusicxxPluginUIType {
   static const String playingBackground = 'musicxx.ui.playing.background';
 }
 
-/// UI 项动作类型（`data.action.kind`）
+/// UI 项动作：与界面描述层的动作写法**完全一致**（同一套解析器）
+///
+/// - 字符串短写 = `dispatch`（调用本插件的能力）；
+/// - `{kind: dispatch, name, args}` / `{kind: route, route}` / `{kind: command, name, args}` / `{kind: none}`。
+///
+/// 历史名称（`capability` / `action`）在本次界面重构里已废弃，不再解析。
 abstract final class MusicxxPluginUIActionKind {
   /// 打开声明式插件页面：`{kind:"route", route:"ext://<插件id>/<viewId>"}`
   static const String route = 'route';
 
-  /// 调用插件自己的能力：`{kind:"capability", name:"<短名>", args:{...}}`
-  static const String capability = 'capability';
+  /// 调用插件自己的能力：`{kind:"dispatch", name:"<短名>", args:{...}}`（或字符串短写）
+  static const String dispatch = 'dispatch';
 
-  /// 调用宿主官方动作：`{kind:"action", name:"musicxx.<域>.<动作>", args:{...}}`
-  static const String host = 'action';
+  /// 调用宿主官方动作：`{kind:"command", name:"musicxx.<域>.<动作>", args:{...}}`
+  static const String command = 'command';
 
   /// 无动作（纯展示项）
   static const String none = 'none';
@@ -87,54 +94,59 @@ class MusicxxPluginUIItem {
   String? get icon => _stringOf(data['icon']);
 
   /// 动作描述（缺省或 `kind: none` 时为 `null`）
-  Map<String, Object?>? get action {
-    final value = data['action'];
-    if (value is! Map) {
-      return null;
-    }
-    final Map<String, Object?> map = value.cast<String, Object?>();
-    final String kind =
-        _stringOf(map['kind']) ?? MusicxxPluginUIActionKind.none;
-    if (kind == MusicxxPluginUIActionKind.none) {
-      return null;
-    }
-    return map;
+  ///
+  /// 解析走界面描述层的 `parseAction`：UI 项的动作与插件页面里的动作是同一套写法，
+  /// 错误写法（未知 kind / 缺字段）会被忽略，不会抛异常。
+  UiAction? get action {
+    final UiAction? parsed = parseAction(data['action']);
+    return (null == parsed || parsed.isEmpty) ? null : parsed;
   }
 
   /// 动作类型（见 [MusicxxPluginUIActionKind]；无动作返回 [MusicxxPluginUIActionKind.none]）
-  String get actionKind =>
-      _stringOf(action?['kind']) ?? MusicxxPluginUIActionKind.none;
-
-  /// 声明式插件页面的视图 id（`route` 动作）
-  String? get viewId {
-    if (actionKind != MusicxxPluginUIActionKind.route) {
-      return null;
+  String get actionKind {
+    switch (action?.kind) {
+      case ActionKind.route:
+        return MusicxxPluginUIActionKind.route;
+      case ActionKind.dispatch:
+        return MusicxxPluginUIActionKind.dispatch;
+      case ActionKind.command:
+        return MusicxxPluginUIActionKind.command;
+      default:
+        return MusicxxPluginUIActionKind.none;
     }
-    final String? route = _stringOf(action?['route']);
-    if (null == route) {
+  }
+
+  /// 声明式插件页面的视图 id（`route` 动作；地址不属于本插件时返回 `null`）
+  String? get viewId {
+    final UiAction? value = action;
+    if (null == value || value.kind != ActionKind.route) {
       return null;
     }
     final String prefix = 'ext://$plugin/';
-    if (route.startsWith(prefix)) {
-      final String view = route.substring(prefix.length);
+    if (value.route.startsWith(prefix)) {
+      final String view = value.route.substring(prefix.length);
       return view.isEmpty ? null : view;
     }
     return null;
   }
 
-  /// 动作参数（`capability` / `action` 动作）
+  /// 动作参数（`dispatch` / `command` 动作）
   Map<String, Object?> get actionArgs {
-    final args = action?['args'];
+    final Object? args = action?.args;
     return args is Map
         ? args.cast<String, Object?>()
         : const <String, Object?>{};
   }
 
-  /// 能力短名（`capability` 动作）
-  String? get capabilityName => _stringOf(action?['name']);
+  /// 能力短名（`dispatch` 动作）
+  String? get capabilityName => actionKind == MusicxxPluginUIActionKind.dispatch
+      ? _nonEmpty(action?.name)
+      : null;
 
-  /// 官方动作全名（`action` 动作）
-  String? get hostActionName => _stringOf(action?['name']);
+  /// 官方动作全名（`command` 动作）
+  String? get hostActionName => actionKind == MusicxxPluginUIActionKind.command
+      ? _nonEmpty(action?.name)
+      : null;
 
   factory MusicxxPluginUIItem.fromJson(Map<String, Object?> json) {
     final data = json['data'];
@@ -186,6 +198,9 @@ class MusicxxPluginUIItem {
     }
     return null;
   }
+
+  static String? _nonEmpty(String? value) =>
+      (null == value || value.isEmpty) ? null : value;
 
   @override
   String toString() => 'MusicxxPluginUIItem($type $id)';

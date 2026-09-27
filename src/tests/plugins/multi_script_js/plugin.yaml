@@ -1,0 +1,13 @@
+# 多脚本装载夹具 (JS 插件)
+#
+# 清单 `scripts` 按顺序执行: 先跑随插件分发的 kit 文件, 再跑插件脚本。
+# 宿主在同一个 JS 上下文里依次执行, 任一脚本报错都算装载失败。
+name: multi_script_js
+kind: js
+scripts: [kit.js, plugin.js]
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "多脚本装载夹具: scripts 列表按顺序执行, 前一个脚本定义的全局量在后一个里可见"
+platforms: [windows, linux, macos, android, ios]

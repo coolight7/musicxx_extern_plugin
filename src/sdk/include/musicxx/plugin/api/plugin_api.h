@@ -199,14 +199,15 @@ typedef struct MusicxxPluginHostIface {
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
 /// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。
 
-/* UI 项动作类型 (data.action.kind; 缺省视为 callback/无动作) */
+/* UI 项动作类型 (data.action; 与界面描述层的动作写法一致) */
 /// 打开声明式插件页面: {"kind":"route","route":"ext://<插件id>/<视图id>"}
 /// (允许指向任意插件: 页面由被跳转插件自己绘制)
 #define MUSICXX_PLUGIN_UI_ACTION_ROUTE      "route"
-/// 调用本插件自己的能力: {"kind":"capability","name":"<短名>","args":{...}}
-#define MUSICXX_PLUGIN_UI_ACTION_CAPABILITY "capability"
-/// 调用宿主官方动作: {"kind":"action","name":"musicxx.<域>.<动作>","args":{...}}
-#define MUSICXX_PLUGIN_UI_ACTION_HOST       "action"
+/// 调用本插件自己的能力: {"kind":"dispatch","name":"<短名>","args":{...}}
+/// (字符串短写 "动作名" 等价于这一种)
+#define MUSICXX_PLUGIN_UI_ACTION_DISPATCH   "dispatch"
+/// 调用宿主官方动作: {"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}
+#define MUSICXX_PLUGIN_UI_ACTION_COMMAND    "command"
 /// 无动作 (纯展示项)
 #define MUSICXX_PLUGIN_UI_ACTION_NONE       "none"
 

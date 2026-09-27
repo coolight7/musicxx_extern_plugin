@@ -69,8 +69,10 @@ public:
   /* ---------- 内置插件槽位 (js:<pluginId>) ---------- */
 
   /// 登记/更新一个 JS 插件的内置槽位 (装载前调用; 宿主线程)
+  ///
+  /// `scriptPaths` 按清单 `scripts` 的顺序: 同一个 JS 上下文里依次执行。
   bool registerBuiltin(const std::string &pluginId,
-                       const std::string &scriptPath,
+                       const std::vector<std::string> &scriptPaths,
                        const std::string &version, std::string &err);
 
   /// 注销槽位 (卸载完成/装载失败回滚时调用; 宿主线程)
@@ -212,7 +214,8 @@ public:
     JsEngine *engine = nullptr;
     std::string id;
     std::string name; ///< js:<id>
-    std::string scriptPath;
+    /// 本实例的脚本（按清单 `scripts` 顺序，同一个上下文里依次执行）
+    std::vector<std::string> scriptPaths;
     std::string configPath;
     std::string version;
     std::string argsJson;

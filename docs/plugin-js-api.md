@@ -19,6 +19,7 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 my_plugin/
 ├── plugin.yaml     # 清单（必填）
 ├── plugin.js       # 脚本（必填；清单 entry 也可指向别的 .js 文件）
+├── pluginxx_ui_kit.js  # 可选：随插件分发的界面 kit（见 §11）
 ├── shader/         # 可选：随插件分发的资源（如 shader bundle）
 └── config.json     # 可选：插件自己的配置（运行时由脚本读写）
 ```
@@ -27,6 +28,7 @@ my_plugin/
 name: my_plugin                  # 插件 id（唯一；同名视为同一插件的升级覆盖）
 kind: js                         # js = 零编译脚本插件（缺省时按 entry 推导）
 entry: plugin.js                 # 可省略，缺省就是 plugin.js
+scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：按顺序执行的脚本（缺省取 entry / plugin.js）
 version: 1.0.0
 api_version: 1                   # 兼容的插件 API 版本（宿主当前是 1）
 author: "你的名字"
@@ -40,6 +42,10 @@ permissions:                     # 声明式权限：只做展示，运行时不
   - musicxx.ui
   - musicxx.storage
 ```
+
+`scripts` 里的文件在**同一个 JS 上下文**里按顺序执行（前一个脚本定义的全局量，后面的脚本
+直接能用）：随插件分发的 kit 文件就放在这里。任一脚本顶层报错都算装载失败，错误信息里带
+出错脚本的文件名；文件缺失在扫描阶段就会提示「JS 插件缺少脚本文件: &lt;名字&gt;」。
 
 安装：管理页「从压缩包安装」（`.zip`，顶层是插件目录内容），或把目录放进
 `<应用支持目录>/musicxx/extern_plugin/plugins/<id>/` 后「重新扫描」。JS 插件在
@@ -183,14 +189,35 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 
 ```js
 musicxx.host.info();
-// { appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion }
+// { appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, ui }
 //  platform: windows / linux / macos / android / ios / ohos
 //  dataDir:  插件数据根目录（私有 KV 在 <dataDir>/<插件id>/data/kv.json）
+//  ui:       客户端界面能力段（见下）
 
 musicxx.host.configPath();   // 本插件 config.json 的绝对路径
 musicxx.host.log(2, "文字"); // 0 trace / 1 debug / 2 info / 3 warn / 4 error
 console.log / info / warn / error   // 同上（映射到 info / warn / error）
 ```
+
+`host.info().ui` 是**客户端如实上报的界面能力**，由界面描述层库生成（宿主只做转发）：
+
+```js
+const ui = musicxx.host.info().ui;
+ui.kind        // "gui"（图形界面）或 "tui"（终端）
+ui.blocks      // 这个客户端真正支持的界面组件名（例如是否支持 "Icon" / "musicxx.Shader"）
+ui.controls    // 支持的控件形态（buttons / select / checkbox / switch / text / number）
+ui.icons       // 客户端认识的图标名（用得上再挑，其他情况用 Icon 的 glyph 兜底）
+ui.gap         // 客户端默认行距（u）
+ui.cell        // 只有终端有：每个字符格相当于多少 u（图形界面没有这个字段）
+ui.limits      // 上限（层数 / 数量 / 文本字节）
+```
+
+- **判断"能不能用某个组件"要按 `blocks`/`controls` 判断**，不要按 `kind` 写两套内容；
+  `kind` 只用于粗判断（比如终端不给图片、不推着色器）。
+- 取插件页面（`ext://<插件id>/<视图id>` 对应的能力）时，应用侧也会把同一份能力段放进能力参数
+  （`{"view":"...","ui":{…}}`）：需要在**生成页面内容的那一刻**就知道目标的插件用这个参数。
+- 这个字段只在客户端给了能力段时出现；没有时按 `undefined` 处理（当作"什么都能试，老客户端
+  会忽略不认识的组件"）。
 
 日志会进「管理页 → 插件详情 → 日志」；宿主也会把它作为 `musicxx.plugin.log` 事件推给应用侧。
 
