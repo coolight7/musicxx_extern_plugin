@@ -1313,6 +1313,17 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   item["author"] = author;
   item["homepage"] = homepage;
   item["entry"] = entry;
+  // JS 插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）——管理页据此展示
+  if (kind == "js") {
+    std::vector<std::string> scripts = readManifestScripts(dirPath);
+    if (scripts.empty()) {
+      scripts.push_back(entry.size() > 3 &&
+                                entry.compare(entry.size() - 3, 3, ".js") == 0
+                            ? entry
+                            : "plugin.js");
+    }
+    item["scripts"] = scripts;
+  }
   item["depends"] = depends;
   item["optionalDepends"] = optionalDepends;
   item["permissions"] = permissions;
