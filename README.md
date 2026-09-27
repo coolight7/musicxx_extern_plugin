@@ -37,8 +37,11 @@ src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖�
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
 src/tests/           原生测试（test_host.cpp，不依赖 Dart；`plugins/` 是 JS 夹具、`fixtures/` 是原生夹具插件）
 src/third_party/     依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
-lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作/声明式 UI 模型；
-                     bindings_generated.dart 与 hook_ids.g.dart 为生成物）
+lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作；插件界面模型来自子模块的
+                     pluginxx_ui，经 lib/pluginxx_ui.dart 转发；bindings_generated.dart 与
+                     hook_ids.g.dart 为生成物）
+schema/              musicxx 扩展 kit 的定义（musicxx-ui-kit.def.json；改完跑 tools/gen_ui_kit.ps1）
+js/                  生成的扩展 kit（musicxx_ui_kit.js；工具会把它复制进 JS 插件目录）
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_test.dart 对真实原生库做
                      端到端验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新装载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
@@ -49,10 +52,12 @@ plugins/            官方插件与示例（每个子目录一个插件，插件
 docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 预算 / 是否已埋点 + 已埋点钩子的载荷与裁决）
 docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
-docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面块类型/设置页写法）
+docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 装配内容/设置页写法）
+docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
-                     gen_contract.dart（约定生成/校验）、check_submodules.ps1（子模块检查）、
+                     gen_contract.dart（约定生成/校验）、gen_ui_kit.ps1（生成扩展 kit：C++ 头 + JS）、
+                     sync_ui_kit.ps1（把 kit 复制进 JS 插件目录）、check_submodules.ps1（子模块检查）、
                      self_check.dart（纯 Dart 自检，定位 FFI 卡住的位置）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
 ```

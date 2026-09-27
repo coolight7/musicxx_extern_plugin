@@ -202,6 +202,13 @@ public:
         return iface.ui->register_entry(host, &spec);
     }
 
+    /// 注册一个 UI 项（`data` 用 Json 对象传；与上面那版等价，便于用 Json 拼内容）
+    int32_t uiRegister(const char* itemName, const char* type,
+                       const utilxx_base::Json& data, int32_t order = 0) {
+        const std::string json = data.dump();
+        return uiRegister(itemName, type, json.c_str(), order);
+    }
+
     /// 更新一个 UI 项的声明式内容
     int32_t uiUpdate(const char* itemName, const char* dataJson) {
         if (!iface.ui || !iface.ui->update_entry) {
