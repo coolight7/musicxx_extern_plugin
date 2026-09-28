@@ -1,13 +1,13 @@
-/// 测试夹具: 缺少 start/stop 入口符号的动态库 (对应用例 test_entry_symbols)
+/// 对照示例: 缺少 start/stop 入口符号的动态库 (对应用例 test_entry_symbols)
 ///
 /// 只导出宿主会查找的部分入口: `get_info` / `create` / `destroy`;
 /// **故意不导出** `musicxx_plugin_start` 与 `musicxx_plugin_stop`。
 ///
 /// 契约要求 start/stop 成对存在 (create 只构造, start 才是注册事务), 因此宿主内核应在
 /// "查找入口符号"阶段直接拒绝装载并给出可读原因 —— 不是超时、不会调用 create,
-/// 也不会留下任何注册残留。
+/// 也不会留下任何注册残留。本插件故意装载失败。
 ///
-/// 这里不用 SDK 的导出宏: 宏会一并生成 start/stop, 而本夹具的目的正是"缺这两个符号"。
+/// 这里不用 SDK 的导出宏: 宏会一并生成 start/stop, 而本示例的目的正是"缺这两个符号"。
 
 #include "musicxx/plugin/api/plugin_api.h"
 
@@ -25,9 +25,9 @@ constexpr PluginxxStringView viewOf(const char* text, uint64_t size) {
 const PluginxxInfo kBadEntryInfo{
     PLUGINXX_API_VERSION,
     0,
-    BAD_ENTRY_VIEW("bad_entry_native"),
+    BAD_ENTRY_VIEW("example_native_bad_entry"),
     BAD_ENTRY_VIEW("1.0.0"),
-    BAD_ENTRY_VIEW("测试夹具: 缺少 start/stop 入口符号; 不应出现在正式发布里"),
+    BAD_ENTRY_VIEW("对照示例: 缺少 start/stop 入口符号; 只用于演示与原生测试"),
 };
 
 #undef BAD_ENTRY_VIEW

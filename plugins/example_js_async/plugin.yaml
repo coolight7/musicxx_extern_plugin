@@ -1,0 +1,16 @@
+# 对照示例（JS 插件）：裁决型钩子的处理器返回 Promise（异步裁决）
+#
+# 它演示的是「插件想慢一点再给裁决」时宿主的行为：在等待预算（100 ms）内结算 → 裁决生效；
+# 超预算才结算 → 按「无裁决」继续（不打断脚本、不计处理器失败），迟到的结果被丢弃。
+# 由于它会改变拖动进度/音量的裁决结果，只用于演示与原生测试，不要装到日常使用的环境里。
+name: example_js_async
+kind: js
+entry: plugin.js
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "对照示例: 裁决型钩子处理器返回 Promise, 演示异步裁决的预算内结算与超时按不裁决"
+platforms: [windows, linux, macos, android, ios]
+
+permissions: []

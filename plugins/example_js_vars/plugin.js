@@ -1,4 +1,4 @@
-// 变量通道测试夹具（只用于包内端到端测试，不是可发布的插件）
+// 变量通道示例（`musicxx.vars`）
 //
 // 覆盖：
 // - 顶层登记自己的变量（declared 模式：值由宿主代存，set 即提交）；
@@ -7,7 +7,7 @@
 // - 异步写官方变量（set 由应用落地，结果等 writeResult 事件）。
 //
 // 能力处理器**不能返回 Promise**（跨边界不支持异步返回值），因此把异步结果记在
-// 变量里，由 probe 能力回报。
+// 变量里，由 probe 能力回报。原生测试与包内端到端测试都读这几个字段。
 
 var changes = [];        // 绑定回调收到的变更（最近一条在最后）
 var readValue = null;    // 最近一次异步读到的值
@@ -64,7 +64,7 @@ musicxx.vars.bind("musicxx.test.bound", function (value, info) {
 musicxx.capability.register("probe", function () {
   return {
     own: musicxx.vars.own().map(function (item) { return item.key; }),
-    listCount: musicxx.vars.list("plugin.vars_js").length,
+    listCount: musicxx.vars.list("plugin.example_js_vars").length,
     tipPeek: musicxx.vars.peek("tip.start"),
     handlerTip: handlerTip,
     handlerPeek: musicxx.vars.peek("handler.tip"),

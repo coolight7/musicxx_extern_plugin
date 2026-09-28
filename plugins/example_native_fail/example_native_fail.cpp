@@ -1,13 +1,13 @@
-/// 测试夹具: "处理器总是失败"的动态库插件, 用于验证宿主暂停派发失败处理器的行为
+/// 对照示例: "处理器总是失败"的动态库插件, 演示宿主暂停派发失败处理器的行为
 ///
 /// 行为:
 /// - 注册 `musicxx.song.changed` (观察型): 每次返回非 0 (处理器失败) ——
 /// 宿主连续计数,
 ///   达到 3 次即临时暂停该处理器的派发 (只暂停, 不卸载插件);
 /// - 注册 `musicxx.player.completed` (观察型): 始终成功 ——
-/// 用于验证"暂停只影响出问题的
+/// 用于证明"暂停只影响出问题的
 ///   处理器, 同一插件的其它处理器照常被调用";
-/// - 能力 `plugin.fail_native.probe`: 回报两个处理器的调用次数, 供原生测试断言
+/// - 能力 `plugin.example_native_fail.probe`: 回报两个处理器的调用次数, 供原生测试断言
 ///   "暂停后处理器真的没有被调用"。
 ///
 /// 与示例插件同一套约定: `start` 事务里只做注册, 不阻塞、不做 IO。
@@ -41,7 +41,7 @@ struct FailCtx : public musicxx::plugin::PluginBase {
             });
 
     // 3) 探针能力: 回报调用次数 (宿主/测试据此判断处理器是否被执行)
-    capability(*this, "plugin.fail_native.probe",
+    capability(*this, "plugin.example_native_fail.probe",
                [this](std::string_view, std::string_view) -> std::string {
                  return std::string{"{\"failingCalls\":"} +
                         std::to_string(failingCalls) +
@@ -60,6 +60,6 @@ int32_t failStop(FailCtx &ctx) { return ctx.onStop(); }
 } // namespace
 
 MUSICXX_PLUGIN_EXPORT(
-    FailCtx, "fail_native", "1.0.0",
-    "测试夹具: 总是失败的钩子处理器 (验证暂停派发); 不应出现在正式发布里",
+    FailCtx, "example_native_fail", "1.0.0",
+    "对照示例: 总是失败的钩子处理器 (演示暂停派发); 只用于演示与原生测试",
     failStart, failStop)

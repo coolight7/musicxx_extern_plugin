@@ -525,8 +525,8 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('变量通道：声明/读/写/订阅（对真实原生库）', () async {
-    if (env == null) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
+    if (env == null || !env.hasPlugin('example_js_vars')) {
+      markTestSkipped('未找到原生宿主库或变量通道示例插件，跳过（先运行 tools/build_native.ps1）');
       return;
     }
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
@@ -589,11 +589,11 @@ void main() {
       isTrue,
     );
 
-    // 2) 装载夹具（顶层登记自己的变量 + 订阅官方键）
-    runtime.plugins.load('vars_js');
+    // 2) 装载变量通道示例（顶层登记自己的变量 + 订阅官方键）
+    runtime.plugins.load('example_js_vars');
 
     Map<String, Object?> probe() {
-      final Object? raw = runtime.plugins.call('vars_js', 'probe');
+      final Object? raw = runtime.plugins.call('example_js_vars', 'probe');
       return raw is Map
           ? raw.cast<String, Object?>()
           : <String, Object?>{};
@@ -601,17 +601,17 @@ void main() {
 
     // 3) 插件变量进了变量表，声明字段如实
     final List<Map<String, Object?>> own = runtime.vars.list(
-      prefix: 'plugin.vars_js',
+      prefix: 'plugin.example_js_vars',
     );
     final List<Object?> ownKeys = own
         .map((Map<String, Object?> e) => e['key'])
         .toList();
-    expect(ownKeys, contains('plugin.vars_js.tip.start'));
-    expect(ownKeys, contains('plugin.vars_js.stats.reads'));
+    expect(ownKeys, contains('plugin.example_js_vars.tip.start'));
+    expect(ownKeys, contains('plugin.example_js_vars.stats.reads'));
     final Map<String, Object?> tip = own.firstWhere(
-      (Map<String, Object?> e) => e['key'] == 'plugin.vars_js.tip.start',
+      (Map<String, Object?> e) => e['key'] == 'plugin.example_js_vars.tip.start',
     );
-    expect(tip['owner'], 'vars_js');
+    expect(tip['owner'], 'example_js_vars');
     expect(tip['caps'], <Object?>['get', 'set', 'notify']);
     expect(tip['type'], 'bool');
     // 声明了初值 → 同步读缓存里就有值（declared 模式由宿主代存）
@@ -635,14 +635,14 @@ void main() {
     expect(lastChange['by'], ''); // 写入方是应用（不是插件）
 
     // 5) 插件异步读官方键（宿主向应用取一次真实值）
-    runtime.plugins.call('vars_js', 'triggerRead', <String, Object?>{
+    runtime.plugins.call('example_js_vars', 'triggerRead', <String, Object?>{
       'key': 'musicxx.test.bound',
     });
     await _pumpUntil(() => probe()['readValue'] != null);
     expect(probe()['readValue'], 'v1', reason: '异步读应当拿到应用侧的真值');
 
     // 6) 插件异步写官方键（应用落地后才算数）
-    runtime.plugins.call('vars_js', 'triggerWrite', <String, Object?>{
+    runtime.plugins.call('example_js_vars', 'triggerWrite', <String, Object?>{
       'key': 'musicxx.test.bound',
       'value': 'v2',
     });
@@ -658,47 +658,47 @@ void main() {
     await _pumpUntil(() => _intOf(probe()['changes']) >= 2);
 
     // 7) 应用读/写插件键（declared 模式立即结算）
-    expect(runtime.vars.get('plugin.vars_js.tip.start'), false);
+    expect(runtime.vars.get('plugin.example_js_vars.tip.start'), false);
     final Map<String, Object?> setResult =
-        runtime.vars.set('plugin.vars_js.tip.start', true) ??
+        runtime.vars.set('plugin.example_js_vars.tip.start', true) ??
         <String, Object?>{};
     expect(setResult['accepted'], isTrue);
     expect(setResult['changed'], isTrue);
-    expect(runtime.vars.get('plugin.vars_js.tip.start'), true);
+    expect(runtime.vars.get('plugin.example_js_vars.tip.start'), true);
 
     // 7.5) handler 模式：读写在属主手里（宿主只留同步读缓存）
     //      - 读: 宿主把请求转给属主, 由 onRead 回答
     //      - 写: 宿主把请求转给 onWrite, 属主落地后回执
     expect(
-      runtime.vars.get('plugin.vars_js.handler.tip'),
+      runtime.vars.get('plugin.example_js_vars.handler.tip'),
       false,
       reason: 'handler 变量的读要走属主',
     );
     final Map<String, Object?> handlerWrite =
-        runtime.vars.set('plugin.vars_js.handler.tip', true) ??
+        runtime.vars.set('plugin.example_js_vars.handler.tip', true) ??
         <String, Object?>{};
     expect(handlerWrite['accepted'], isTrue);
     expect(handlerWrite['value'], true, reason: '回执带的是属主落地的最终值');
     expect(_intOf(probe()['handlerTip']), 0); // 插件侧状态是 bool, 这里只校验可取到
-    expect(runtime.vars.get('plugin.vars_js.handler.tip'), true);
+    expect(runtime.vars.get('plugin.example_js_vars.handler.tip'), true);
     // 属主自己改值时提交一次（不是应用写的）
-    runtime.plugins.call('vars_js', 'setHandlerInternal', <String, Object?>{
+    runtime.plugins.call('example_js_vars', 'setHandlerInternal', <String, Object?>{
       'value': false,
     });
-    expect(runtime.vars.get('plugin.vars_js.handler.tip'), false);
+    expect(runtime.vars.get('plugin.example_js_vars.handler.tip'), false);
 
     // 8) 不存在的键: 读/写都要明确失败（而不是静默成功）
-    expect(runtime.vars.get('plugin.vars_js.nope'), isNull);
-    expect(runtime.vars.set('plugin.vars_js.nope', 1), isNull);
+    expect(runtime.vars.get('plugin.example_js_vars.nope'), isNull);
+    expect(runtime.vars.set('plugin.example_js_vars.nope', 1), isNull);
 
     // 9) 卸载后变量随实例摘除
     expect(
-      runtime.vars.list(prefix: 'plugin.vars_js').isNotEmpty,
+      runtime.vars.list(prefix: 'plugin.example_js_vars').isNotEmpty,
       isTrue,
       reason: '卸载前应当能看到插件变量',
     );
-    runtime.plugins.unload('vars_js');
-    expect(runtime.vars.list(prefix: 'plugin.vars_js'), isEmpty);
+    runtime.plugins.unload('example_js_vars');
+    expect(runtime.vars.list(prefix: 'plugin.example_js_vars'), isEmpty);
   });
 
   test('库缺失时抛出可诊断异常', () {
@@ -723,6 +723,9 @@ class _Environment {
 
   final String libraryPath;
   final String pluginRoot;
+
+  /// 该插件是否随产物一起安装（只构建了一部分示例时，对应用例跳过而不是失败）
+  bool hasPlugin(String id) => Directory('$pluginRoot/$id').existsSync();
 
   static _Environment? detect() {
     String? library;

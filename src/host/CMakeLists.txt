@@ -195,13 +195,44 @@ unset(_sdkInc)
 
 # ==================== 官方插件 (含示例) ====================
 #
-# 源码目录 `plugins/` 放官方实现与示例插件 (每个子目录一个插件); 示例插件的 C++ 版
-# 需要参与构建, JS 版是纯脚本 (只做安装/复制)。第三方作者可以参考它们的写法。
+# 源码目录 `plugins/` 放官方实现与示例插件: **每个子目录一个插件**, 目录名 = 插件 id =
+# 清单 `name`, 因此构建产物里的插件集合与源码目录一一对应。
+#   - 动态库插件在该目录自己的 CMakeLists.txt 里建目标 (用 SDK 构建助手, 或像
+#     example_native_bad_entry 那样手工建库), 这里只做 add_subdirectory 与安装;
+#   - JS 插件是纯脚本, 只做安装复制 (shader bundle 之类的资源直接放在插件目录里)。
+#
+# 示例分两类:
+#   - 演示示例: 插件作者可以直接照抄 (钩子 / 能力 / 事件 / UI / 变量 / 多脚本 / 背景渲染);
+#   - 对照示例: 故意做出问题行为 (脚本语法错误、死循环、处理器总是失败、缺入口符号),
+#     用来演示与验证宿主的保护机制 (装载失败回滚 / 执行上限 / 暂停派发 / 入口符号契约),
+#     也让作者看清"写坏了会怎样"。它们只跟原生测试一起构建。
+set(MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE example_native)
+set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
+  example_js
+  example_js_shader
+  example_js_async
+  example_js_vars
+  example_js_multi_script
+)
+set(MUSICXX_EXTERN_PLUGIN_TEST_NATIVE example_native_fail example_native_bad_entry)
+set(MUSICXX_EXTERN_PLUGIN_TEST_JS example_js_spin example_js_broken)
 
+set(MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS "")
+set(MUSICXX_EXTERN_PLUGIN_JS_PLUGINS "")
 if (MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE)
-  add_subdirectory("${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native"
-                   "${CMAKE_CURRENT_BINARY_DIR}/example_native")
+  list(APPEND MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS ${MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE})
+  list(APPEND MUSICXX_EXTERN_PLUGIN_JS_PLUGINS ${MUSICXX_EXTERN_PLUGIN_DEMO_JS})
 endif ()
+if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
+  list(APPEND MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS ${MUSICXX_EXTERN_PLUGIN_TEST_NATIVE})
+  list(APPEND MUSICXX_EXTERN_PLUGIN_JS_PLUGINS ${MUSICXX_EXTERN_PLUGIN_TEST_JS})
+endif ()
+
+foreach (_plugin ${MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS})
+  add_subdirectory("${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_plugin}"
+                   "${CMAKE_CURRENT_BINARY_DIR}/plugins/${_plugin}")
+endforeach ()
+unset(_plugin)
 
 # ==================== 原生测试 ====================
 
@@ -216,45 +247,8 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
     target_compile_definitions(musicxx_extern_plugin_test PRIVATE _WIN32_WINNT=0x0A00)
   endif ()
 
-  # 测试夹具插件 (编译进插件目录, 与 plugin.yaml 一起安装到 plugins/<名>/):
-  #   fail_native       处理器总是失败 → 验证连续失败后暂停派发
-  #   bad_entry_native  库文件缺 start/stop → 验证装载阶段按契约拒绝
-  # 它们只服务原生测试, 不是可发布的插件。
-  foreach (_fixture fail_native bad_entry_native)
-    set(_fixture_dir "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/fixtures/${_fixture}")
-    if (NOT EXISTS "${_fixture_dir}/plugin.yaml")
-      continue()
-    endif ()
-    add_library(${_fixture} SHARED "${_fixture_dir}/${_fixture}.cpp")
-    # 夹具也用 SDK 的包含目录 (bad_entry_native 不链接 cxx_pluginxx_static, 只用头文件里的 C ABI)
-    target_link_libraries(${_fixture} PRIVATE musicxx_extern_plugin_sdk)
-    if (_fixture STREQUAL "fail_native")
-      target_link_libraries(${_fixture} PRIVATE cxx_pluginxx_static fmt::fmt)
-    endif ()
-    if (MSVC)
-      target_compile_options(${_fixture} PRIVATE /utf-8)
-    endif ()
-    if (WIN32)
-      target_compile_definitions(${_fixture} PRIVATE _WIN32_WINNT=0x0A00)
-    endif ()
-    # 多配置生成器默认把产物放进 <目录>/<配置>/: 这里固定到同一层, 便于与清单一起安装
-    set_target_properties(${_fixture} PROPERTIES
-      PREFIX ""
-      CXX_VISIBILITY_PRESET hidden
-      VISIBILITY_INLINES_HIDDEN ON
-      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixtures/${_fixture}"
-    )
-    foreach (_cfg DEBUG RELEASE RELWITHDEBINFO MINSIZEREL PROFILE)
-      set_target_properties(${_fixture} PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY_${_cfg} "${CMAKE_CURRENT_BINARY_DIR}/fixtures/${_fixture}")
-    endforeach ()
-    install(TARGETS ${_fixture}
-      RUNTIME DESTINATION "plugins/${_fixture}"
-      LIBRARY DESTINATION "plugins/${_fixture}")
-    install(FILES "${_fixture_dir}/plugin.yaml" DESTINATION "plugins/${_fixture}")
-  endforeach ()
-  unset(_fixture)
-  unset(_fixture_dir)
+  # 测试要用的对照示例插件 (example_native_fail / example_native_bad_entry) 与
+  # JS 对照示例都在上面的示例插件一节里随本选项一起构建, 并安装到 plugins/<id>/。
 endif ()
 
 # ==================== 安装 ====================
@@ -295,30 +289,35 @@ install(FILES
 )
 unset(_sdkDep)
 
-if (TARGET example_native)
-  install(TARGETS example_native RUNTIME DESTINATION plugins/example_native LIBRARY DESTINATION plugins/example_native)
-  install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native/plugin.yaml"
-    DESTINATION plugins/example_native)
-  # 随插件分发的资源（播放页背景样式用的 shader bundle）：插件目录内用相对路径引用，
-  # 必须与库文件放在同一层（musicxx_plugin_add_target 的 ASSETS 会把它复制到构建产物旁）
-  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/example_native/shader"
-    DESTINATION plugins/example_native)
-endif ()
-
-# JS 插件示例: 纯脚本 + 清单, 无需编译 (shader bundle 之类的资源直接放在插件目录里)
-foreach (_jsPlugin example_js example_js_shader)
-  if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_jsPlugin}/plugin.yaml")
-    install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_jsPlugin}/"
-      DESTINATION "plugins/${_jsPlugin}")
+# 插件安装规则: 统一装到 plugins/<插件 id>/, 与源码目录 `plugins/<插件 id>/` 一一对应
+#   - 动态库插件: 库文件由各插件的 CMakeLists.txt 建目标, 这里装库 + 目录里的清单与资源
+#     (源码与 CMakeLists 是构建输入, 不装);
+#   - JS 插件: 整个目录 (脚本 + 清单 + 资源) 直接复制。
+foreach (_plugin ${MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS})
+  if (TARGET ${_plugin})
+    install(TARGETS ${_plugin}
+      RUNTIME DESTINATION "plugins/${_plugin}"
+      LIBRARY DESTINATION "plugins/${_plugin}")
+    # 清单与随插件分发的资源（例如播放页背景用的 shader/）：插件目录内用相对路径引用，
+    # 必须与库文件放在同一层（musicxx_plugin_add_target 的 ASSETS 会把它复制到构建产物旁）
+    install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_plugin}/"
+      DESTINATION "plugins/${_plugin}"
+      PATTERN "CMakeLists.txt" EXCLUDE
+      PATTERN "*.cpp" EXCLUDE
+      PATTERN "*.cc" EXCLUDE
+      PATTERN "*.h" EXCLUDE
+      PATTERN "*.hpp" EXCLUDE)
   endif ()
 endforeach ()
-unset(_jsPlugin)
+unset(_plugin)
 
-# 原生测试用的插件夹具 (含故意损坏的插件, 用于验证失败降级)
-if (EXISTS "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/plugins/")
-  install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/plugins/"
-    DESTINATION plugins)
-endif ()
+foreach (_plugin ${MUSICXX_EXTERN_PLUGIN_JS_PLUGINS})
+  if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_plugin}/plugin.yaml")
+    install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_plugin}/"
+      DESTINATION "plugins/${_plugin}")
+  endif ()
+endforeach ()
+unset(_plugin)
 
 if (TARGET musicxx_extern_plugin_test)
   install(TARGETS musicxx_extern_plugin_test RUNTIME DESTINATION bin)

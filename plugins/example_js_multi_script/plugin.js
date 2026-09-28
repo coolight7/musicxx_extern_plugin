@@ -1,4 +1,4 @@
-/// 多脚本夹具的插件脚本（`scripts` 列表里的第二个）
+/// 多脚本示例的插件脚本（`scripts` 列表里的第二个）
 ///
 /// 顶层同步注册一个能力, 返回自己的状态 —— 用来证明前一个脚本（kit.js）已经执行过:
 /// 没有按顺序执行时 `multiScriptMarker` 是 undefined。
@@ -17,4 +17,4 @@ musicxx.capability.register("probe", function () {
     };
 });
 
-musicxx.host.log(2, "multi_script_js 已加载 (marker=" + globalThis.multiScriptMarker + ")");
+musicxx.host.log(2, "example_js_multi_script 已加载 (marker=" + globalThis.multiScriptMarker + ")");

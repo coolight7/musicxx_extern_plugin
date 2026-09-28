@@ -904,9 +904,9 @@ int main(int argc, char **argv) {
     {
       MusicxxExternPluginString loadLog{};
       const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
-          host, viewCP("multi_script_js"), viewCP("{}"), 8000, &loadLog);
+          host, viewCP("example_js_multi_script"), viewCP("{}"), 8000, &loadLog);
       if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
-        std::printf("  [info] multi_script_js load rc=%d log=%s\n", loadRc,
+        std::printf("  [info] example_js_multi_script load rc=%d log=%s\n", loadRc,
                     take(loadLog).c_str());
       } else {
         freeStr(loadLog);
@@ -915,7 +915,7 @@ int main(int argc, char **argv) {
 
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_plugin_call(
-          host, viewCP("multi_script_js"), viewCP("probe"), viewCP("{}"), 5000,
+          host, viewCP("example_js_multi_script"), viewCP("probe"), viewCP("{}"), 5000,
           &out, &log);
       const std::string probe = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "多脚本插件的能力可调用");
@@ -927,7 +927,7 @@ int main(int argc, char **argv) {
             "多脚本插件同样读到 host.info().ui");
 
       check(musicxx_extern_plugin_plugin_unload(host,
-                                                viewCP("multi_script_js"),
+                                                viewCP("example_js_multi_script"),
                                                 &log) == MUSICXX_EXTERN_PLUGIN_OK,
             "多脚本插件卸载成功");
     }
@@ -987,9 +987,9 @@ int main(int argc, char **argv) {
             "开启可选 JS 执行上限 (jsExecGuardMs)");
       MusicxxExternPluginString loadLog{};
       const auto spinRc = musicxx_extern_plugin_plugin_load_sync(
-          host, viewCP("spin_js"), viewCP("{}"), 8000, &loadLog);
+          host, viewCP("example_js_spin"), viewCP("{}"), 8000, &loadLog);
       check(spinRc == MUSICXX_EXTERN_PLUGIN_OK,
-            "死循环夹具装载成功 (顶层不阻塞)");
+            "死循环对照示例装载成功 (顶层不阻塞)");
 
       // 触发它的观察钩子 (异步派发: 宿主入队即返回, 不等脚本)
       MusicxxExternPluginString out{};
@@ -1009,8 +1009,8 @@ int main(int argc, char **argv) {
           musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
       const std::string statsJson = take(stats);
       check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (执行上限)");
-      check(statsJson.find("spin_js") != std::string::npos,
-            "统计含死循环夹具插件");
+      check(statsJson.find("example_js_spin") != std::string::npos,
+            "统计含死循环对照示例插件");
       check(statsJson.find("execGuardHits") != std::string::npos,
             "统计含执行上限中断计数");
 
@@ -1023,10 +1023,10 @@ int main(int argc, char **argv) {
       check(probe2Rc == MUSICXX_EXTERN_PLUGIN_OK,
             "中断后共享 JS 线程仍可服务其它插件");
 
-      // 卸载夹具 (脚本线程已恢复) 并恢复默认 (关闭执行上限)
+      // 卸载对照示例 (脚本线程已恢复) 并恢复默认 (关闭执行上限)
       check(musicxx_extern_plugin_plugin_unload(
-                host, viewCP("spin_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "死循环夹具可卸载");
+                host, viewCP("example_js_spin"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "死循环对照示例可卸载");
       check(musicxx_extern_plugin_set_config(host,
                                              viewP(R"({"jsExecGuardMs":0})"),
                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
@@ -1108,12 +1108,12 @@ int main(int argc, char **argv) {
   {
     MusicxxExternPluginString loadLog{};
     const auto jsAsyncRc = musicxx_extern_plugin_plugin_load_sync(
-        host, viewCP("async_js"), viewCP(R"({"enabled":true})"), 8000,
+        host, viewCP("example_js_async"), viewCP(R"({"enabled":true})"), 8000,
         &loadLog);
     check(jsAsyncRc == MUSICXX_EXTERN_PLUGIN_OK,
-          "异步裁决夹具装载成功 (async_js)");
+          "异步裁决对照示例装载成功 (example_js_async)");
     if (jsAsyncRc != MUSICXX_EXTERN_PLUGIN_OK) {
-      std::printf("  [info] async_js rc=%d log=%s\n", jsAsyncRc,
+      std::printf("  [info] example_js_async rc=%d log=%s\n", jsAsyncRc,
                   take(loadLog).c_str());
     } else {
       freeStr(loadLog);
@@ -1176,11 +1176,11 @@ int main(int argc, char **argv) {
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_plugin_call(
-          host, viewCP("async_js"), viewCP("probe"), viewCP("{}"), 5000, &out,
+          host, viewCP("example_js_async"), viewCP("probe"), viewCP("{}"), 5000, &out,
           &log);
       const std::string probe = take(out);
       std::printf("  [info] async probe=%s\n", probe.c_str());
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决夹具能力调用成功 (probe)");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决对照示例能力调用成功 (probe)");
       check(jsonIntField(probe, "asyncHookSettled") == "1",
             "统计: 预算内结算 1 次");
       check(jsonIntField(probe, "asyncHookTimeouts") == "2",
@@ -1209,15 +1209,15 @@ int main(int argc, char **argv) {
     // 7) 卸载 → 无残留 (含定时器与等待条目)
     {
       check(musicxx_extern_plugin_plugin_unload(
-                host, viewCP("async_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "异步裁决夹具卸载成功");
+                host, viewCP("example_js_async"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "异步裁决对照示例卸载成功");
       int32_t seekAfter = 0;
       int32_t volumeAfter = 0;
       musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.seek"),
                                        &seekAfter, &log);
       musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.volume"),
                                        &volumeAfter, &log);
-      check(seekAfter == 0 && volumeAfter == 0, "异步裁决夹具卸载后无钩子残留");
+      check(seekAfter == 0 && volumeAfter == 0, "异步裁决对照示例卸载后无钩子残留");
     }
   }
 
@@ -1225,12 +1225,12 @@ int main(int argc, char **argv) {
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
-        host, viewCP("broken_js"), viewCP("{}"), 5000, &loadLog);
+        host, viewCP("example_js_broken"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
     check(rc != MUSICXX_EXTERN_PLUGIN_OK, "脚本错误的 JS 插件装载失败");
     check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
           "脚本错误是明确失败而非超时");
-    std::printf("  [info] broken_js rc=%d log=%s\n", rc, errText.c_str());
+    std::printf("  [info] example_js_broken rc=%d log=%s\n", rc, errText.c_str());
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
               MUSICXX_EXTERN_PLUGIN_OK,
@@ -1253,14 +1253,14 @@ int main(int argc, char **argv) {
   // ==================== 入口符号契约 (对应用例 test_entry_symbols)
   // ====================
   //
-  // 夹具 bad_entry_native 的库文件导出了 get_info/create/destroy, 但**没有**
+  // 对照示例 example_native_bad_entry 的库文件导出了 get_info/create/destroy, 但**没有**
   // start/stop。 契约要求 start/stop 成对存在 (create 只构造, start
   // 才是注册事务), 宿主必须在 "查找入口符号"阶段就拒绝装载: 明确失败
   // (不是超时)、有可读原因、不留注册残留。
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
-        host, viewCP("bad_entry_native"), viewCP("{}"), 5000, &loadLog);
+        host, viewCP("example_native_bad_entry"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
     check(rc != MUSICXX_EXTERN_PLUGIN_OK, "缺 start/stop 入口的库被拒绝装载");
     check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
@@ -1275,7 +1275,7 @@ int main(int argc, char **argv) {
       musicxx_extern_plugin_plugin_list(host, &listed, &log);
       return take(listed);
     }();
-    check(listJson.find("bad_entry_native") == std::string::npos,
+    check(listJson.find("example_native_bad_entry") == std::string::npos,
           "缺入口的库不出现在已装载列表");
     int32_t badEntryHooks = -1;
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
@@ -1286,7 +1286,7 @@ int main(int argc, char **argv) {
   // ==================== 处理器连续失败与暂停派发
   // ====================
   //
-  // 夹具 fail_native 注册两个处理器:
+  // 对照示例 example_native_fail 注册两个处理器:
   //   musicxx.song.changed     → 每次失败 (返回非 0)
   //   musicxx.player.completed → 每次成功
   // 期望: 连续 3 次失败后只暂停出问题的处理器 (推送 musicxx.plugin.error
@@ -1295,14 +1295,14 @@ int main(int argc, char **argv) {
   {
     MusicxxExternPluginString loadLog{};
     const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
-        host, viewCP("fail_native"), viewCP("{}"), 8000, &loadLog);
+        host, viewCP("example_native_fail"), viewCP("{}"), 8000, &loadLog);
     if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
-      std::printf("  [info] fail_native load rc=%d log=%s\n", loadRc,
+      std::printf("  [info] example_native_fail load rc=%d log=%s\n", loadRc,
                   take(loadLog).c_str());
     } else {
       freeStr(loadLog);
     }
-    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "暂停派发夹具装载成功 (fail_native)");
+    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "暂停派发对照示例装载成功 (example_native_fail)");
 
     int32_t fixtureHooks = -1;
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
@@ -1359,8 +1359,8 @@ int main(int argc, char **argv) {
           musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
       const std::string statsJson = take(stats);
       check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (暂停派发)");
-      check(statsJson.find("fail_native") != std::string::npos,
-            "聚合统计含暂停派发夹具插件");
+      check(statsJson.find("example_native_fail") != std::string::npos,
+            "聚合统计含暂停派发对照示例插件");
       check(statsJson.find("\"calls\":3") != std::string::npos,
             "聚合统计含钩子调用次数");
     }
@@ -1394,7 +1394,7 @@ int main(int argc, char **argv) {
     {
       MusicxxExternPluginString probe{};
       const auto probeRc = musicxx_extern_plugin_plugin_call(
-          host, viewCP("fail_native"), viewCP("plugin.fail_native.probe"),
+          host, viewCP("example_native_fail"), viewCP("plugin.example_native_fail.probe"),
           viewCP("{}"), 3000, &probe, &log);
       const std::string probeJson = take(probe);
       check(probeRc == MUSICXX_EXTERN_PLUGIN_OK,
@@ -1408,12 +1408,12 @@ int main(int argc, char **argv) {
     // 卸载后无残留 (暂停派发状态随处理器一起消失)
     {
       check(musicxx_extern_plugin_plugin_unload(
-                host, viewCP("fail_native"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "暂停派发夹具卸载成功");
+                host, viewCP("example_native_fail"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "暂停派发对照示例卸载成功");
       int32_t after = -1;
       musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                        &after, &log);
-      check(after == 0, "暂停派发夹具卸载后无钩子残留");
+      check(after == 0, "暂停派发对照示例卸载后无钩子残留");
     }
   }
 

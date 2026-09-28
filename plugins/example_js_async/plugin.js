@@ -1,11 +1,11 @@
-/// 测试夹具: 裁决型钩子处理器返回 Promise (异步裁决)
+/// 对照示例: 裁决型钩子处理器返回 Promise (异步裁决)
 ///
-/// 用途:
+/// 演示/验证两件事:
 /// - `musicxx.player.seek`: Promise 在宿主等待预算 (100 ms) 内结算 → 裁决生效;
 /// - `musicxx.player.volume`: Promise 远超预算才结算 → 按"无裁决"继续
 ///   (不打断脚本、不计处理器失败), 迟到的结果被丢弃并计入 `asyncHookLateDrops`。
 ///
-/// 注意: 本插件只用于原生测试, 不要安装到正式环境。
+/// 注意: 它会改变拖动进度/音量的裁决结果, 只用于演示与测试。
 
 let runs = 0;      // 处理器被调用的次数 (验证"没有被暂停/跳过")
 let settled = 0;   // 脚本侧 Promise 结算的次数
@@ -45,4 +45,4 @@ musicxx.capability.register("probe", function () {
     };
 });
 
-console.log("async_js 已加载 (仅测试用)");
+console.log("example_js_async 已加载 (对照示例)");
