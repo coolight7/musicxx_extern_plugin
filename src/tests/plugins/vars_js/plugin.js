@@ -32,6 +32,23 @@ musicxx.vars.register({
   value: 0
 });
 
+// handler 模式: 值就是插件自己的状态 (唯一真值), 宿主只留一份同步读缓存 ——
+// 读写在属主手里, 因此别人写这个变量时会转到 onWrite, 读会转到 onRead。
+var handlerTip = false;
+musicxx.vars.register({
+  key: "handler.tip",
+  caps: ["get", "set", "notify"],
+  mode: "handler",
+  type: "bool",
+  refreshAfterMs: 1000,
+  title: "处理器模式示例",
+  onRead: function () { return handlerTip; },
+  onWrite: function (value) {
+    handlerTip = (value === true);
+    return handlerTip;
+  }
+});
+
 // 绑定官方变量：记录每次变化（这是"订阅 + 回调"）
 musicxx.vars.bind("musicxx.test.bound", function (value, info) {
   changes.push({
@@ -49,6 +66,8 @@ musicxx.capability.register("probe", function () {
     own: musicxx.vars.own().map(function (item) { return item.key; }),
     listCount: musicxx.vars.list("plugin.vars_js").length,
     tipPeek: musicxx.vars.peek("tip.start"),
+    handlerTip: handlerTip,
+    handlerPeek: musicxx.vars.peek("handler.tip"),
     boundInfo: musicxx.vars.info("musicxx.test.bound"),
     changes: changes.length,
     lastChange: changes.length ? changes[changes.length - 1] : null,
@@ -58,6 +77,13 @@ musicxx.capability.register("probe", function () {
     writeError: writeError,
     pendingReads: pendingReads
   };
+});
+
+/// 属主自己改了值: 提交一次别人才看得到 (也可以等 refreshAfterMs 让宿主来取)
+musicxx.capability.register("setHandlerInternal", function (args) {
+  handlerTip = args && args.value === true;
+  musicxx.vars.set("handler.tip", handlerTip);
+  return { tipStart: handlerTip };
 });
 
 musicxx.capability.register("triggerRead", function (args) {
