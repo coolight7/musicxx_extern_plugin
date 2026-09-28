@@ -147,6 +147,13 @@ public:
   /// 与需要等属主的 `get` 不同。
   std::string bridgeVarsRead(const std::string &op, const std::string &key);
 
+  /// handler 属主回答一次被转过来的请求 (`musicxx.vars.respond`; 任意线程)
+  ///
+  /// 投递不等待: 结果与失败都写日志/事件, 不回给脚本 (脚本侧只是"回答完了")。
+  void bridgeVarsRespond(const std::string &instanceName, int64_t requestId,
+                         bool ok, const std::string &valueJson,
+                         const std::string &error);
+
   /// 裁决型钩子的异步结算 (只在 JS 线程调用)
   ///
   /// 裁决处理器返回 Promise 时, 宿主线程仍在 [hookSync] 里按等待预算等待;

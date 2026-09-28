@@ -353,12 +353,15 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
   }
 
   if (spec.mode == MUSICXX_PLUGIN_VAR_MODE_HANDLER) {
-    // handler 模式 (读写都转给属主) 在下一阶段实现; 现在明确拒绝而不是静默降级,
-    // 否则作者会以为自己的 onRead/onWrite 生效了
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量 `{}`: handler 模式暂未实现 (用 "
-            "declared 模式或等后续版本)",
-            inst->name, key);
-    return MUSICXX_PLUGIN_VAR_ERR_UNSUPPORTED;
+    // handler 模式: 属主提供 onRead/onWrite (或自己处理 `musicxx.var.read` /
+    // `musicxx.var.write` 两个事件), 宿主只保留同步读缓存 —— 属主不必再为变量
+    // 维护一份副本
+    if ((spec.caps & MUSICXX_PLUGIN_VAR_CAP_GET) != 0 &&
+        (spec.caps & MUSICXX_PLUGIN_VAR_CAP_NOTIFY) == 0) {
+      // 读要能"取到真实值", 通知是"变了要让别人知道"。handler 属主通常两者都有,
+      // 但只要声明了 get, 就必须能回答读取请求 —— 这一点由属主自己保证,
+      // 这里不做强制 (缓存读取按 refreshAfterMs 保活)。
+    }
   }
 
   VarEntry entry;
@@ -586,11 +589,11 @@ int32_t MusicxxHostManager::beginVarRead(
     payload["key"] = key;
     pushEvent("musicxx.var.read", "", payload.dump());
   } else {
-    // handler 模式属主: 转给插件实例 (§M3; 当前不可达)
+    // handler 属主: 用事件总线把请求转给属主实例 (属主订阅 `musicxx.var.read`)
     Json payload;
     payload["requestId"] = requestId;
     payload["key"] = key;
-    pushEvent("musicxx.var.read", entry.pluginId, payload.dump());
+    eventBus_->publish(MUSICXX_PLUGIN_EVENT_VAR_READ, payload.dump());
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -721,6 +724,9 @@ int32_t MusicxxHostManager::beginVarWrite(
     // 这样也不会出现"属主写自己的变量还要转给自己"的死循环
     std::string prev;
     const bool changed = applyVarValue(entry, valueText, byPluginId, prev);
+    // 提交同时结算该键上未完成的请求: 写请求 = 落地回执, 读请求 = 这次读的答案
+    // (handler 属主用 `set` 回答与提交, 见设计文档 §3.5)
+    settleVarRequestsOnCommit(key, valueText);
     const int64_t revision = entry.revision;
     Json result;
     result["key"] = key;
@@ -803,8 +809,8 @@ int32_t MusicxxHostManager::beginVarWrite(
     // 官方键: 请求应用按"用户在设置里改"的同一条路径落地
     pushEvent("musicxx.var.write", "", payload.dump());
   } else {
-    // handler 模式属主 (§M3; 当前不可达)
-    pushEvent("musicxx.var.write", entry.pluginId, payload.dump());
+    // handler 属主: 用事件总线把写请求转给属主实例 (属主订阅 `musicxx.var.write`)
+    eventBus_->publish(MUSICXX_PLUGIN_EVENT_VAR_WRITE, payload.dump());
   }
 
   Json pending;
@@ -855,7 +861,19 @@ int32_t MusicxxHostManager::setVarForApp(
   if (key.empty() || !slot) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  return beginVarWrite(key, valueJson, "", "", nullptr, slot, outJson);
+  // `beginVarWrite` 在"转给属主落地"时会写一个 `{pending:true,...}` 信封 —— 那对
+  // 应用侧没有用 (应用要的是最终结果), 因此这里只把**已结算**的结果交出去:
+  // 结果是"待落地"时清空 outJson, 让调用方去等等待槽 (C ABI 就是这么区分的)。
+  std::string local;
+  const int32_t rc =
+      beginVarWrite(key, valueJson, "", "", nullptr, slot, local);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    outJson = local;
+    return rc;
+  }
+  outJson = (local.find("\"accepted\"") != std::string::npos) ? local
+                                                             : std::string{};
+  return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
 /* ==================== 结算 ==================== */
@@ -1441,6 +1459,8 @@ void MusicxxHostManager::refreshVarCare(const VarEntry &entry) {
   pushEvent("musicxx.var.subscriptions", "", payload.dump());
   // 关心数也进同步读镜像 (JS 侧 `subscribers()` 要读)
   publishVarMirror(entry);
+  // handler 属主不主动推时: 有人关心就按 refreshAfterMs 定期去取一次真实值
+  ensureVarRefresh(entry.key);
 }
 
 void MusicxxHostManager::cancelVarsOf(const std::string &instanceName) {
@@ -1570,6 +1590,102 @@ void MusicxxHostManager::pushVarChanged(const std::string &key,
                                                          : std::string{},
               text);
   }
+}
+
+/* ==================== handler 属主的保活与结算 ==================== */
+
+void MusicxxHostManager::ensureVarRefresh(const std::string &key) {
+  auto it = vars_.find(key);
+  if (it == vars_.end()) {
+    return;
+  }
+  VarEntry &entry = it->second;
+  const bool need = entry.mode == MUSICXX_PLUGIN_VAR_MODE_HANDLER &&
+                    !entry.owner.empty() && entry.refreshAfterMs > 0 &&
+                    entry.careCount() > 0;
+  if (!need) {
+    if (entry.refreshTimer) {
+      entry.refreshTimer->cancel();
+      entry.refreshTimer.reset();
+    }
+    return;
+  }
+  if (entry.refreshTimer || !ctx_) {
+    return; ///< 已经在跑 (或没有 io 上下文)
+  }
+  auto timer = std::make_shared<asio::steady_timer>(ctx_->io);
+  timer->expires_after(std::chrono::milliseconds{entry.refreshAfterMs});
+  entry.refreshTimer = timer;
+  auto self = shared_from_this();
+  timer->async_wait([self, key](const utilxx_base::AsioErrorCode &ec) {
+    if (ec) {
+      return; ///< 已取消 (没人关心了/变量摘除了)
+    }
+    self->onVarRefreshTick(key);
+  });
+}
+
+void MusicxxHostManager::onVarRefreshTick(const std::string &key) {
+  auto it = vars_.find(key);
+  if (it == vars_.end()) {
+    return;
+  }
+  it->second.refreshTimer.reset(); ///< 本次用完了, 下面重新排
+  if (it->second.refreshAfterMs <= 0 || it->second.careCount() == 0) {
+    return;
+  }
+  // 去属主那里取一次真实值: 没有等待者, 只为把同步读缓存刷新
+  beginVarRead(key, std::string{}, nullptr, nullptr, nullptr);
+  ensureVarRefresh(key);
+}
+
+void MusicxxHostManager::settleVarRequestsOnCommit(
+    const std::string &key, const std::string &valueJson) {
+  std::vector<int64_t> ids;
+  for (const auto &[id, request] : pendingVarRequests_) {
+    if (request.key == key) {
+      ids.push_back(id);
+    }
+  }
+  for (const int64_t id : ids) {
+    auto it = pendingVarRequests_.find(id);
+    if (it == pendingVarRequests_.end()) {
+      continue;
+    }
+    // 读: 属主提交的值就是答案; 写: 提交即落地回执
+    completeVarRequest(id, true, valueJson, std::string{});
+  }
+}
+
+int32_t MusicxxHostManager::respondVar(MusicxxHostInstance *inst,
+                                       int64_t requestId, bool ok,
+                                       const std::string &valueJson,
+                                       const std::string &error,
+                                       std::string &outJson) {
+  if (!inst || requestId <= 0) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  auto it = pendingVarRequests_.find(requestId);
+  if (it == pendingVarRequests_.end()) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  }
+  if (it->second.owner != inst->name) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 试图回答不属于自己的变量请求 {}", inst->name,
+            requestId);
+    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+  }
+  const bool isWrite = it->second.kind == VarRequestWrite;
+  completeVarRequest(requestId, ok, valueJson, error);
+  Json result;
+  result["requestId"] = requestId;
+  result[isWrite ? "accepted" : "ok"] = ok;
+  if (ok) {
+    result["value"] = parseJsonSafe(valueJson);
+  } else {
+    result["error"] = error.empty() ? "rejected" : error;
+  }
+  outJson = result.dump();
+  return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
 /* ==================== 同步读镜像 / 自省 ==================== */
@@ -2070,6 +2186,41 @@ int32_t PLUGINXX_CALL xx_vars_info(const PluginxxHost *host,
       });
 }
 
+int32_t PLUGINXX_CALL xx_vars_respond(const PluginxxHost *host,
+                                      int64_t requestId, int32_t ok,
+                                      const PluginxxStringView *valueJson,
+                                      const PluginxxStringView *error,
+                                      PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(
+      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+        if (!outJson) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok()) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string value = viewText(valueJson);
+        const std::string reason = viewText(error);
+        std::string result;
+        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, requestId, ok, value, reason,
+                        &result]() -> int32_t {
+              return mgr->respondVar(inst, requestId, ok != 0, value, reason,
+                                     result);
+            });
+        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+          return rc;
+        }
+        pluginxx::hostMemorySetString(outJson, result);
+        return MUSICXX_EXTERN_PLUGIN_OK;
+      });
+}
+
 const MusicxxPluginVarsIface g_ifaceVars = {
     /* version */ MUSICXX_PLUGIN_IFACE_VARS_VERSION,
     /* struct_size */ sizeof(MusicxxPluginVarsIface),
@@ -2084,6 +2235,7 @@ const MusicxxPluginVarsIface g_ifaceVars = {
     /* subscribe */ xx_vars_subscribe,
     /* unsubscribe */ xx_vars_unsubscribe,
     /* info */ xx_vars_info,
+    /* respond */ xx_vars_respond,
 };
 
 } // namespace

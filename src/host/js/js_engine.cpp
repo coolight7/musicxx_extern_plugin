@@ -321,12 +321,14 @@ constexpr const char *kPrelude = R"JS(
    * 键: 官方 `musicxx.<域>.<名>` 直接写全名; 自己的变量写短名 (如 `tip.start`),
    * 宿主自动补 `plugin.<本插件id>.` 前缀。
    */
-  var varsTable = new Map();     // 本插件注册的变量 (短名 → 声明)
-  var varBindTable = new Map();  // 键 → [回调]
-  var varWatchSet = new Set();   // watch 保活的键
-  var varGetWaiters = new Map(); // JS 侧请求号 → {resolve, reject, timer}
-  var varSetWaiters = new Map();
-  var varTopicsReady = { changed: false, result: false };
+  // 变量：注册
+  var varsTable = new Map();       // 本插件注册的变量 (短名 → 声明)
+  var varBindTable = new Map();    // 键 → [回调]
+  var varWatchSet = new Set();     // watch 保活的键
+  var varGetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
+  var varSetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
+  var varHandlers = new Map();     // handler 变量: 全名 → {onRead, onWrite}
+  var varTopicsReady = { changed: false, result: false, owner: false };
 
   function varShortKey(key) {
     var text = String(key);
@@ -359,6 +361,84 @@ constexpr const char *kPrelude = R"JS(
       }
       ext.subscribeHost("musicxx.var.writeResult");
     }
+  }
+
+  /// handler 属主要收"被转过来的读写请求", 也要让引擎把订阅建起来
+  function ensureVarOwnerTopics() {
+    if (varTopicsReady.owner) { return; }
+    varTopicsReady.owner = true;
+    ["musicxx.var.read", "musicxx.var.write"].forEach(function (topic) {
+      if (!subTable.has(topic)) { subTable.set(topic, function () {}); }
+      ext.subscribeHost(topic);
+    });
+  }
+
+  /// handler 属主回答一次请求 (投递不等待; 失败只记日志)
+  function varRespond(requestId, ok, value, error) {
+    try {
+      ext.varsRespond(Number(requestId), ok ? 1 : 0,
+                      safeJson(value === undefined ? null : value),
+                      error ? String(error) : "");
+    } catch (e) {
+      logError("变量回答失败: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  /// 把处理器的返回值(可能是 Promise)变成一次回答
+  function varAnswerWith(result, requestId) {
+    if (result && typeof result.then === "function") {
+      Promise.resolve(result).then(function (value) {
+        varRespond(requestId, true, value, null);
+        return null;
+      }, function (e) {
+        varRespond(requestId, false, null,
+                   (e && e.message) ? e.message : String(e));
+        return null;
+      });
+      return;
+    }
+    varRespond(requestId, true, result, null);
+  }
+
+  /// 属主被取真实值 (handler 模式): 交给 onRead, 返回值就是答案
+  function handleVarRead(json) {
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (!info || typeof info.key !== "string") { return; }
+    var entry = varHandlers.get(info.key);
+    if (!entry) { return; }   // 不是自己的变量: 忽略 (别的属主会回答)
+    var result;
+    try {
+      result = entry.onRead ? entry.onRead() : null;
+    } catch (e) {
+      varRespond(info.requestId, false, null,
+                 "onRead 异常: " + (e && e.message ? e.message : String(e)));
+      return;
+    }
+    varAnswerWith(result, info.requestId);
+  }
+
+  /// 属主收到写请求 (handler 模式): 交给 onWrite, 返回值就是最终值
+  function handleVarWrite(json) {
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (!info || typeof info.key !== "string") { return; }
+    var entry = varHandlers.get(info.key);
+    if (!entry) { return; }
+    if (!entry.onWrite) {
+      varRespond(info.requestId, false, null,
+                 "该变量是只读的 (没有提供 onWrite)");
+      return;
+    }
+    var result;
+    try {
+      result = entry.onWrite(info.value);
+    } catch (e) {
+      varRespond(info.requestId, false, null,
+                 "onWrite 异常: " + (e && e.message ? e.message : String(e)));
+      return;
+    }
+    varAnswerWith(result, info.requestId);
   }
   function varNormalizeCaps(value) {
     if (value === undefined || value === null) { return ["get"]; }
@@ -400,12 +480,21 @@ constexpr const char *kPrelude = R"JS(
         refreshAfterMs: Number.isFinite(spec.refreshAfterMs) ? Math.trunc(spec.refreshAfterMs) : 0
       };
       varsTable.set(key, declare);
+      if (declare.mode === "handler") {
+        // handler 模式: 读写都转回这里 (onRead/onWrite 只留在 JS 侧, 不进声明)
+        varHandlers.set("plugin." + musicxx.pluginId + "." + key, {
+          onRead: (typeof spec.onRead === "function") ? spec.onRead : null,
+          onWrite: (typeof spec.onWrite === "function") ? spec.onWrite : null
+        });
+        ensureVarOwnerTopics();
+      }
       ext.varsOp("register", key, safeJson(declare));
       return true;
     },
     unregister: function (key) {
       var short = varShortKey(key);
       varsTable.delete(short);
+      varHandlers.delete(varFullKey(short));
       ext.varsOp("unregister", short, "{}");
       return true;
     },
@@ -861,6 +950,9 @@ constexpr const char *kPrelude = R"JS(
     // 变量通道的内部回调: 变更通知与写结果 (与用户订阅同一主题时两边都会收到)
     if (topic === "musicxx.var.changed") { handleVarChanged(json); }
     if (topic === "musicxx.var.writeResult") { handleVarWriteResult(json); }
+    // handler 属主: 宿主转过来的读写请求
+    if (topic === "musicxx.var.read") { handleVarRead(json); }
+    if (topic === "musicxx.var.write") { handleVarWrite(json); }
     var fn = subTable.get(topic);
     if (!fn) { return; }
     var payload = {};
@@ -1051,8 +1143,10 @@ constexpr const char *kPrelude = R"JS(
     varsTable.clear();
     varBindTable.clear();
     varWatchSet.clear();
+    varHandlers.clear();
     varTopicsReady.changed = false;
     varTopicsReady.result = false;
+    varTopicsReady.owner = false;
     varGetWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
@@ -1446,6 +1540,29 @@ JSValue jsVarsSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
+/// handler 属主回答一次被转过来的请求 (投递不等待)
+JSValue jsVarsRespond(JSContext *ctx, JSValueConst, int argc,
+                      JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 3) {
+    return JS_UNDEFINED;
+  }
+  int64_t requestId = 0;
+  JS_ToInt64(ctx, &requestId, argv[0]);
+  const int32_t ok = JS_ToBool(ctx, argv[1]);
+  const char *value = JS_ToCString(ctx, argv[2]);
+  const char *error = (argc >= 4) ? JS_ToCString(ctx, argv[3]) : nullptr;
+  inst->engine->bridgeVarsRespond(inst->name, requestId, 0 != ok,
+                                  value ? value : "null", error ? error : "");
+  if (value) {
+    JS_FreeCString(ctx, value);
+  }
+  if (error) {
+    JS_FreeCString(ctx, error);
+  }
+  return JS_UNDEFINED;
+}
+
 /// 同步读缓存 (op = peek | info | list)
 ///
 /// 读的是宿主维护的**同步镜像** (互斥量保护), 因此不需要投递到宿主线程 ——
@@ -1592,6 +1709,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"varsGet", jsVarsGet, 1},
       {"varsSet", jsVarsSet, 2},
       {"varsRead", jsVarsRead, 2},
+      {"varsRespond", jsVarsRespond, 4},
       {"hookOp", jsHookOp, 5},
       {"hookWaitResolve", jsHookWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
@@ -2481,6 +2599,42 @@ std::string JsEngine::bridgeVarsRead(const std::string &op,
     return {};
   }
   return rc == MUSICXX_EXTERN_PLUGIN_OK ? out : std::string{};
+}
+
+void JsEngine::bridgeVarsRespond(const std::string &instanceName,
+                                 int64_t requestId, bool ok,
+                                 const std::string &valueJson,
+                                 const std::string &error) {
+  MusicxxHostManager *mgr = mgr_;
+  if (!mgr || !mgr->running()) {
+    return;
+  }
+  auto self = shared_from_this();
+  asio::post(mgr->hostExecutor(), [self, instanceName, requestId, ok,
+                                   valueJson, error] {
+    auto current = self->lookupInstance(instanceName);
+    if (!current || !current->hostInst) {
+      return;
+    }
+    std::string out;
+    const int32_t rc = self->mgr_->respondVar(current->hostInst, requestId, ok,
+                                              valueJson, error, out);
+    if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+      return;
+    }
+    /// 回答失败只记日志与事件 (脚本侧不等待结果): 常见原因是被转过来的请求
+    /// 已经超时结算, 或者回答的不是自己的变量
+    Json payload;
+    payload["id"] = current->id;
+    payload["phase"] = "vars";
+    payload["op"] = "respond";
+    payload["code"] = rc;
+    payload["requestId"] = requestId;
+    payload["message"] = "变量回答被拒绝 (请求已结算或不属于本插件)";
+    self->mgr_->pushEvent("musicxx.plugin.error", current->id, payload.dump());
+    XX_LOGW("[musicxx_ext] JS 插件 `{}` 回答变量请求 {} 失败 (code={})",
+            current->id, requestId, rc);
+  });
 }
 
 int64_t JsEngine::beginVarGet(const std::string &instanceName,

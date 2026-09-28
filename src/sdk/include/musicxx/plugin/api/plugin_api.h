@@ -456,6 +456,24 @@ typedef struct MusicxxPluginVarsIface {
         const PluginxxStringView* key,
         PluginxxString*           out_json
     );
+
+    /// 属主回答一次被转过来的请求 (`handler` 模式)
+    ///
+    /// 有两种等价写法（选一种即可）:
+    /// - **这条**: `respond(request_id, ok, value, error)` —— 读请求用它给答案,
+    ///   写请求用它回执（`ok = 0` 表示拒绝, 原因写在 `error`）；
+    /// - **提交**: 对自己的变量调 `set`（宿主的实现把"属主提交"当作该键上
+    ///   未结算请求的回执与回答, 因此原生插件可以只用 `set` 走通全流程）。
+    ///
+    /// 只有请求的属主能回答：别人的请求返回 `-6`; 请求已结算/不存在返回 `-4`。
+    int32_t(PLUGINXX_CALL* respond)(
+        const PluginxxHost*       host,
+        int64_t                   request_id,
+        int32_t                   ok,
+        const PluginxxStringView* value_json,
+        const PluginxxStringView* error,
+        PluginxxString*           out_json
+    );
 } MusicxxPluginVarsIface;
 
 /* ==================== 预留接口表 (v1 只冻结 IID 与版本; 表体后续实现) ==================== */

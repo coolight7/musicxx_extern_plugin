@@ -666,6 +666,27 @@ void main() {
     expect(setResult['changed'], isTrue);
     expect(runtime.vars.get('plugin.vars_js.tip.start'), true);
 
+    // 7.5) handler 模式：读写在属主手里（宿主只留同步读缓存）
+    //      - 读: 宿主把请求转给属主, 由 onRead 回答
+    //      - 写: 宿主把请求转给 onWrite, 属主落地后回执
+    expect(
+      runtime.vars.get('plugin.vars_js.handler.tip'),
+      false,
+      reason: 'handler 变量的读要走属主',
+    );
+    final Map<String, Object?> handlerWrite =
+        runtime.vars.set('plugin.vars_js.handler.tip', true) ??
+        <String, Object?>{};
+    expect(handlerWrite['accepted'], isTrue);
+    expect(handlerWrite['value'], true, reason: '回执带的是属主落地的最终值');
+    expect(_intOf(probe()['handlerTip']), 0); // 插件侧状态是 bool, 这里只校验可取到
+    expect(runtime.vars.get('plugin.vars_js.handler.tip'), true);
+    // 属主自己改值时提交一次（不是应用写的）
+    runtime.plugins.call('vars_js', 'setHandlerInternal', <String, Object?>{
+      'value': false,
+    });
+    expect(runtime.vars.get('plugin.vars_js.handler.tip'), false);
+
     // 8) 不存在的键: 读/写都要明确失败（而不是静默成功）
     expect(runtime.vars.get('plugin.vars_js.nope'), isNull);
     expect(runtime.vars.set('plugin.vars_js.nope', 1), isNull);

@@ -409,6 +409,15 @@ public:
   /// 单个变量的声明信息 + 缓存状态
   int32_t varInfo(std::string_view key, std::string &outJson);
 
+  /// 属主回答一次被转过来的请求 (`handler` 模式)
+  ///
+  /// - 只有请求的属主能回答 (别人的请求返回 `ERR_PERMISSION`);
+  /// - `ok = false` 表示拒绝, 原因在 `error`; 结算完成后写 `outJson`;
+  /// - 请求已结算/不存在返回 `ERR_NOT_FOUND`。
+  int32_t respondVar(MusicxxHostInstance *inst, int64_t requestId, bool ok,
+                     const std::string &valueJson, const std::string &error,
+                     std::string &outJson);
+
   /* ---------- 变量表 · 应用侧入口 (C ABI 调用; 均在宿主线程执行) ---------- */
 
   /// 应用声明一批变量 (items_json = 声明数组; 逐项失败只记日志)
@@ -697,6 +706,9 @@ private:
     int32_t pendingCoalesced = 0;
     std::string pendingPrevJson;
 
+    /// handler 属主不主动推时的保活定时器 (`refreshAfterMs`; 有人关心才跑)
+    std::shared_ptr<asio::steady_timer> refreshTimer;
+
     /// 关心这个键的实例数 (bind 的订阅 + watch 的保活, 去重)
     size_t careCount() const {
       size_t count = subscribers.size();
@@ -823,6 +835,16 @@ private:
 
   /// 重新计算某键的关心者数量并把数量回传给应用 (`musicxx.var.subscriptions`)
   void refreshVarCare(const VarEntry &entry);
+
+  /// 排/停 handler 属主变量的保活定时器 (`refreshAfterMs`; 有人关心才跑)
+  void ensureVarRefresh(const std::string &key);
+  /// 保活定时器到点: 去属主那里取一次真实值 (没人等结果, 只刷新缓存)
+  void onVarRefreshTick(const std::string &key);
+
+  /// 属主提交了自己的值: 用这次提交结算该键上未完成的请求
+  /// (写请求 = 落地回执; 读请求 = 这次读的答案)
+  void settleVarRequestsOnCommit(const std::string &key,
+                                 const std::string &valueJson);
   /// 某插件注册了多少个变量 (容量上限判断用)
   size_t countVarsOfPlugin(const std::string &pluginId) const;
 
