@@ -243,6 +243,12 @@ abstract final class MusicxxPluginActionNames {
   static const String mediaPalette = 'musicxx.media.palette';
   static const String mediaCover = 'musicxx.media.cover';
 
+  /// 应用能力导出（见 manager/featureExport/）：
+  /// - `list` 列出全部能力的声明（id/标题/说明/参数/输出形态）；
+  /// - `call` 调一个能力（`{id, args}`），与 MCP 工具共用同一份实现。
+  static const String featureList = 'musicxx.feature.list';
+  static const String featureCall = 'musicxx.feature.call';
+
   static const String hostOpenUrl = 'musicxx.host.openUrl';
   static const String hostShareText = 'musicxx.host.shareText';
   static const String hostClipboard = 'musicxx.host.clipboard';
