@@ -780,6 +780,20 @@ constexpr const char *kPrelude = R"JS(
     playSonglist: function (args) { return musicxx.call("musicxx.library.playSonglist", args); }
   };
 
+  /// 应用能力导出（与 MCP 工具同一份实现）：
+  /// - list() 拿能力的声明（id/说明/参数）；
+  /// - call(id, args) 调一个能力；频谱/副歌这类要解码分析的长任务给更长的超时，
+  ///   默认 30 秒（也可以自己传 timeoutMs）。
+  musicxx.feature = {
+    list: function () { return musicxx.call("musicxx.feature.list"); },
+    call: function (id, args, timeoutMs) {
+      assertName(id, "feature.call: 能力 id");
+      var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 30000;
+      return musicxx.call("musicxx.feature.call",
+                          { id: String(id), args: (args || {}) }, budget);
+    }
+  };
+
   musicxx.lyrics = {
     getCurrent: function () { return musicxx.call("musicxx.lyrics.getCurrent"); }
   };
