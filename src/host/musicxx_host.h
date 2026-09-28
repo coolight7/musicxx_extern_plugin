@@ -130,6 +130,12 @@ public:
   /// 插件形态: native | js | builtin
   std::string kind = "native";
 
+  /// 选中的平台/架构分支标签（空 = 用插件根目录的库文件；见 host_target.h）
+  std::string targetTag;
+
+  /// 选中的库文件（相对插件目录的路径；供管理页展示）
+  std::string targetEntry;
+
   /// 清单声明的接口段 (内核生命周期框架会写入; 本宿主 v1 不做接口协商)
   pluginxx::PluginManifestInterfaces interfaces;
 
@@ -616,6 +622,16 @@ private:
   std::string scanDir(const std::string &dir, const std::string &kindHint);
   std::string deriveConfigPath(const std::string &pluginId,
                                const std::string &pluginDir) const;
+
+  /// 装载原生插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给内核
+  /// `loadNativeAsync`（清单读 name/depends/资源声明，依赖检查与目录装载一致）。
+  ///
+  /// - `failReason` 在失败时给出用户可读原因（分支不匹配 / 库文件缺失 / 依赖未加载）；
+  /// - 目录形态之外的路径（直接给库文件）不经过这里，由内核按文件装载。
+  asio::awaitable<InstancePtr>
+  loadNativeDirAsync(const std::string &dirPath,
+                     const pluginxx::PluginLoadOptions *options,
+                     std::string &failReason);
 
   HostContext *ctx_ = nullptr;
 

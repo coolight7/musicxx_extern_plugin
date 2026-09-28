@@ -2,6 +2,7 @@
 library;
 
 import 'events.dart';
+import 'plugin_target.dart';
 
 /// 插件形态
 abstract final class MusicxxPluginKind {
@@ -38,6 +39,10 @@ class MusicxxPluginInfo {
     required this.enabled,
     required this.counters,
     this.scripts = const <String>[],
+    this.target = '',
+    this.targetEntry = '',
+    this.targetsDir = '',
+    this.targets = const <MusicxxPluginTarget_c>[],
   });
 
   /// 插件 id（清单 `name`；同名视为同一插件）
@@ -65,6 +70,18 @@ class MusicxxPluginInfo {
 
   /// JS 插件按清单 `scripts` 顺序执行的脚本（空 = 用 `entry` / `plugin.js`）
   final List<String> scripts;
+
+  /// 选中的平台/架构分支标签（空 = 用插件根目录的库文件；见 [MusicxxPluginTargets_c]）
+  final String target;
+
+  /// 选中的库文件（相对插件目录的路径）
+  final String targetEntry;
+
+  /// 分支根目录名（清单 `targets_dir`；缺省 `lib`）
+  final String targetsDir;
+
+  /// 包内识别到的分支（含不匹配当前环境的；空 = 没有分支，按旧布局）
+  final List<MusicxxPluginTarget_c> targets;
 
   /// 来源：user / builtin
   final String source;
@@ -136,10 +153,27 @@ class MusicxxPluginInfo {
       configPath: json['configPath'] as String? ?? '',
       enabled: json['enabled'] as bool? ?? false,
       scripts: _stringList(json['scripts']),
+      target: json['target'] as String? ?? '',
+      targetEntry: json['targetEntry'] as String? ?? '',
+      targetsDir: json['targetsDir'] as String? ?? '',
+      targets: _targetList(json['targets']),
       counters: counters is Map<String, Object?>
           ? counters
           : const <String, Object?>{},
     );
+  }
+
+  static List<MusicxxPluginTarget_c> _targetList(Object? value) {
+    if (value is! List) {
+      return const <MusicxxPluginTarget_c>[];
+    }
+    return value
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (Map<Object?, Object?> item) =>
+              MusicxxPluginTarget_c.fromJson(item.cast<String, Object?>()),
+        )
+        .toList(growable: false);
   }
 
   /// 用户可读的一行状态（管理页用）

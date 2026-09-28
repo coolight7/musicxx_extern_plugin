@@ -78,6 +78,42 @@ void main() {
     expect(example.supported, isTrue, reason: example.reason);
     expect(example.kind, MusicxxPluginKind.native);
 
+    // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）: 示例插件 example_native_multi
+    // 的库文件放在分支目录里，扫描应报告选中的分支，装载的也应是那一份构建。
+    final MusicxxPluginInfo? multi = found
+        .where((MusicxxPluginInfo info) => info.id == 'example_native_multi')
+        .firstOrNull;
+    expect(
+      multi,
+      isNotNull,
+      reason: '扫描结果: ${found.map((e) => e.id).toList()}',
+    );
+    expect(multi!.supported, isTrue, reason: multi.reason);
+    expect(multi.target, isNotEmpty, reason: '多目标包应报告选中的分支标签');
+    expect(multi.targetEntry, contains('lib/${multi.target}/'));
+    expect(
+      multi.targets.any((MusicxxPluginTarget_c item) => item.selected),
+      isTrue,
+    );
+    expect(
+      multi.target.contains(MusicxxPluginTargets.currentOs()),
+      isTrue,
+      reason: '选中的分支应属于当前系统 (${MusicxxPluginTargets.currentOs()})',
+    );
+    runtime.plugins.load('example_native_multi');
+    expect(runtime.plugins.findLoaded('example_native_multi'), isNotNull);
+    final Object? which = runtime.plugins.call(
+      'example_native_multi',
+      'plugin.example_native_multi.which',
+    );
+    expect(which, isA<Map<String, Object?>>());
+    expect(
+      (which! as Map<String, Object?>)['tag'],
+      multi.target,
+      reason: '装载的应是宿主选中的那个分支',
+    );
+    runtime.plugins.unload('example_native_multi');
+
     _step('3 scan 完成: ${found.length} 项');
     // 装载：同步等待 + 事件回报
     runtime.plugins.load('example_native');

@@ -15,8 +15,12 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -168,6 +172,323 @@ std::string jsonFirstRateText(const std::string &json) {
   return {};
 }
 
+/* ==================== 多目标打包（分支选择）测试辅助 ==================== */
+
+/// 与 `check` 同义，但允许拼出带变量的说明文本
+void checkText(bool ok, const std::string &what) {
+  ++g_checks;
+  if (!ok) {
+    ++g_failed;
+    std::printf("  [FAIL] %s\n", what.c_str());
+  } else {
+    std::printf("  [ ok ] %s\n", what.c_str());
+  }
+}
+
+/// 当前编译目标的规范系统名（与宿主上报的平台标识同口径）
+std::string testPlatform() {
+#if defined(__ANDROID__)
+  return "android";
+#elif defined(_WIN32)
+  return "windows";
+#elif defined(__APPLE__)
+  return "macos";
+#elif defined(__linux__)
+  return "linux";
+#else
+  return "unknown";
+#endif
+}
+
+/// 当前编译目标的规范架构名（与宿主 hostArch() 同口径）
+std::string testArch() {
+#if defined(_M_ARM64) || defined(__aarch64__)
+  return "arm64";
+#elif defined(_M_X64) || defined(__x86_64__)
+  return "x64";
+#elif defined(_M_IX86) || defined(__i386__)
+  return "x86";
+#else
+  return "unknown";
+#endif
+}
+
+/// 平台化后的库文件名（清单按 Linux 写 `<名>.so`，宿主按平台修正扩展名）
+std::string testLibFileName(const std::string &base) {
+#if defined(_WIN32)
+  return base + ".dll";
+#elif defined(__APPLE__)
+  return "lib" + base + ".dylib";
+#else
+  return base + ".so";
+#endif
+}
+
+void writeTextFile(const std::filesystem::path &path, const std::string &text) {
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  std::ofstream out(path, std::ios::binary);
+  out << text;
+}
+
+void removePath(const std::filesystem::path &path) {
+  std::error_code ec;
+  std::filesystem::remove_all(path, ec);
+}
+
+/// 建一个临时"插件根目录"：`<根>/<id>/plugin.yaml` + 参数里给的相对路径文件
+///
+/// 文件内容随便给（扫描只看文件在不在）；返回插件根目录（扫描入口）。
+std::filesystem::path makeTempPluginRoot(
+    const std::string &id, const std::string &manifest,
+    const std::vector<std::string> &files) {
+  static int counter = 0;
+  std::error_code ec;
+  const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::filesystem::path root =
+      std::filesystem::temp_directory_path(ec) /
+      ("musicxx_ext_pkg_" + std::to_string(stamp) + "_" +
+       std::to_string(++counter));
+  const std::filesystem::path dir = root / id;
+  std::filesystem::create_directories(dir, ec);
+  writeTextFile(dir / "plugin.yaml", manifest);
+  for (const std::string &relative : files) {
+    writeTextFile(dir / relative, "not a real library");
+  }
+  return root;
+}
+
+/// JSON 字符串转义（路径里有反斜杠时也能安全放进 JSON 文本）
+std::string jsonEscape(const std::string &text) {
+  std::string out;
+  out.reserve(text.size() + 8);
+  for (const char ch : text) {
+    if (ch == '\\' || ch == '"') {
+      out.push_back('\\');
+    }
+    out.push_back(ch);
+  }
+  return out;
+}
+
+/// 切换宿主的用户插件目录（扫描入口）并返回扫描结果里某个插件的片段
+std::string scanPluginItem(MusicxxExternPluginHost *host,
+                           const std::string &pluginRoot,
+                           const std::string &id) {
+  const std::string cfg = "{\"userPluginDir\":\"" + jsonEscape(pluginRoot) +
+                          "\"}";
+  MusicxxExternPluginString cfgLog{};
+  musicxx_extern_plugin_set_config(host, viewP(cfg), &cfgLog);
+  freeStr(cfgLog);
+  MusicxxExternPluginString out{};
+  MusicxxExternPluginString scanLog{};
+  const auto rc = musicxx_extern_plugin_plugin_scan(host, &out, &scanLog);
+  freeStr(scanLog);
+  const std::string json = take(out);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    return {};
+  }
+  return scanItemOf(json, id);
+}
+
+/// 取选中分支的标签（`"target":"..."`）
+std::string targetOf(const std::string &item) {
+  return jsonStringField(item, "target");
+}
+
+/// 多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：分支选择与装载
+///
+/// 用例覆盖：选择优先级（系统+架构 → 系统 → 架构 → 通用 → 根目录）、
+/// 不匹配分支的报错、未知标签目录被忽略、`targets_dir` 改名、
+/// "分支里唯一的动态库文件"自动识别、真实装载走分支。
+void testPluginTargetLayout(MusicxxExternPluginHost *host,
+                            const std::string &pluginsRoot) {
+  const std::string os = testPlatform();
+  const std::string arch = testArch();
+  const std::string otherOs = (os == "windows") ? "linux" : "windows";
+  const std::string exactTag = os + "-" + arch;
+  const std::string osTag = os;
+  const std::string archTag = arch;
+  const std::string otherTag = otherOs + "-" + arch;
+  const std::string libName = testLibFileName("tgt_multi");
+  const std::string manifest =
+      "name: tgt_multi\n"
+      "entry: tgt_multi.so\n"
+      "kind: native\n"
+      "version: 0.1.0\n";
+
+  // 1) 选择优先级：包内同时放 不匹配 / 系统+架构 / 只系统 / 只架构 / 通用，
+  //    以及一个不是分支的目录与根目录库文件
+  const std::filesystem::path root = makeTempPluginRoot(
+      "tgt_multi", manifest,
+      {"lib/" + otherTag + "/" + libName, "lib/" + exactTag + "/" + libName,
+       "lib/" + osTag + "/" + libName, "lib/" + archTag + "/" + libName,
+       "lib/universal/" + libName, "lib/notatag/" + libName,
+       testLibFileName("tgt_multi")});
+  const std::filesystem::path pkg = root / "tgt_multi";
+  {
+    const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
+    checkText(!item.empty(), "多目标包被扫描到");
+    checkText(item.find("\"supported\":true") != std::string::npos,
+              "多目标包（有匹配分支）判定为可用");
+    checkText(targetOf(item) == exactTag,
+              "优先选系统+架构分支 (" + exactTag + ")");
+    checkText(item.find("\"targetEntry\":\"lib/" + exactTag + "/" + libName +
+                            "\"") != std::string::npos,
+              "targetEntry 指向分支内的库文件");
+    checkText(item.find("\"targets\":[") != std::string::npos &&
+                  item.find("\"notatag\"") == std::string::npos,
+              "unknown 标签目录不算分支");
+    checkText(item.find("\"" + otherTag + "\"") != std::string::npos &&
+                  item.find("\"match\":-1") != std::string::npos,
+              "不匹配当前环境的分支照常列出（match=-1）");
+  }
+  // 2) 逐个删掉更高优先级的分支，验证剩下的按 只系统 → 只架构 → 通用 →
+  //    根目录 的顺序接管
+  removePath(pkg / "lib" / exactTag);
+  {
+    const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
+    checkText(targetOf(item) == osTag, "去掉系统+架构分支后选只系统分支");
+  }
+  removePath(pkg / "lib" / osTag);
+  {
+    const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
+    checkText(targetOf(item) == archTag, "再去掉只系统分支后选只架构分支");
+  }
+  removePath(pkg / "lib" / archTag);
+  {
+    const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
+    checkText(targetOf(item) == "universal", "再去掉只架构分支后选通用分支");
+  }
+  removePath(pkg / "lib" / "universal");
+  {
+    const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
+    checkText(targetOf(item).empty() && item.find("\"supported\":true") !=
+                                            std::string::npos,
+              "分支都不匹配时回退插件根目录的库文件");
+  }
+  removePath(pkg / testLibFileName("tgt_multi"));
+  {
+    const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
+    checkText(item.find("\"supported\":false") != std::string::npos,
+              "包内没有匹配分支且根目录也没有库文件时判为不可用");
+    checkText(item.find("包内没有匹配当前系统/架构的分支") !=
+                  std::string::npos,
+              "不可用原因写明没有匹配的分支, 并列出包内分支");
+  }
+  removePath(root);
+
+  // 3) 清单 targets_dir 改名：lib/ 里的分支不参与，改用 targets/
+  {
+    const std::filesystem::path customRoot = makeTempPluginRoot(
+        "tgt_custom",
+        "name: tgt_custom\nentry: tgt_custom.so\nkind: native\n"
+        "targets_dir: targets\n",
+        {"targets/" + exactTag + "/" + libName,
+         "lib/" + otherTag + "/" + libName});
+    const std::string item =
+        scanPluginItem(host, customRoot.string(), "tgt_custom");
+    checkText(targetOf(item) == exactTag,
+              "targets_dir 指定的分支目录按清单生效");
+    checkText(item.find("\"targetEntry\":\"targets/" + exactTag + "/") !=
+                  std::string::npos,
+              "targetEntry 指向 targets_dir 里的库文件");
+    removePath(customRoot);
+  }
+
+  // 4) 分支里的库文件名与清单 entry 不同：目录里只有一个动态库文件时直接用它
+  {
+    const std::string customLib = testLibFileName("whatever_name");
+    const std::filesystem::path uniRoot = makeTempPluginRoot(
+        "tgt_uni",
+        "name: tgt_uni\nentry: tgt_uni.so\nkind: native\n",
+        {"lib/universal/" + customLib});
+    const std::string item = scanPluginItem(host, uniRoot.string(), "tgt_uni");
+    checkText(targetOf(item) == "universal", "只有通用分支时选通用分支");
+    checkText(item.find("\"targetEntry\":\"lib/universal/" + customLib + "\"") !=
+                  std::string::npos,
+              "分支里唯一的动态库文件被自动识别（名字不必与 entry 相同）");
+    removePath(uniRoot);
+  }
+
+  // 5) 分支目录存在但没有库文件：报"分支里没有库文件"
+  {
+    const std::filesystem::path emptyRoot = makeTempPluginRoot(
+        "tgt_empty", "name: tgt_empty\nentry: tgt_empty.so\nkind: native\n",
+        {"lib/" + exactTag + "/readme.txt"});
+    const std::string item =
+        scanPluginItem(host, emptyRoot.string(), "tgt_empty");
+    checkText(item.find("\"supported\":false") != std::string::npos,
+              "分支里没有库文件时判为不可用");
+    checkText(item.find("没有可加载的库文件") != std::string::npos,
+              "不可用原因说明分支里没有库文件");
+    removePath(emptyRoot);
+  }
+
+  // 6) 真实装载：把示例动态库插件复制到分支目录里，验证装载走的也是分支
+  //    （装载后立即卸载，避免与后面的常规装载重名）
+  {
+    const std::filesystem::path nativeDir =
+        std::filesystem::path(pluginsRoot) / "example_native";
+    const std::filesystem::path nativeLib =
+        nativeDir / testLibFileName("example_native");
+    const std::filesystem::path nativeManifest = nativeDir / "plugin.yaml";
+    if (!std::filesystem::exists(nativeLib) ||
+        !std::filesystem::exists(nativeManifest)) {
+      checkText(false, "示例动态库插件缺失 (跳过真实装载用例)");
+      return;
+    }
+    // 清单原样复制（entry 仍是按 Linux 写的 example_native.so），库文件放进分支目录
+    std::error_code ec;
+    std::ifstream in(nativeManifest, std::ios::binary);
+    std::ostringstream oss;
+    oss << in.rdbuf();
+    const std::filesystem::path loadRoot =
+        makeTempPluginRoot("example_native", oss.str(), {});
+    const std::filesystem::path branchDir =
+        loadRoot / "example_native" / "lib" / exactTag;
+    std::filesystem::create_directories(branchDir, ec);
+    std::filesystem::copy_file(nativeLib, branchDir / nativeLib.filename(), ec);
+
+    const std::string item =
+        scanPluginItem(host, loadRoot.string(), "example_native");
+    checkText(targetOf(item) == exactTag, "示例插件放进分支目录后按分支选中");
+
+    MusicxxExternPluginString loadLog{};
+    const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
+        host, viewCP("example_native"), viewCP("{}"), 10000, &loadLog);
+    if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      std::printf("  [info] 分支装载失败 log=%s\n", take(loadLog).c_str());
+      freeStr(loadLog);
+    } else {
+      freeStr(loadLog);
+    }
+    checkText(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "分支里的库文件能真正装载");
+    {
+      MusicxxExternPluginString listOut{};
+      MusicxxExternPluginString listLog{};
+      musicxx_extern_plugin_plugin_list(host, &listOut, &listLog);
+      freeStr(listLog);
+      const std::string loadedItem =
+          scanItemOf(take(listOut), "example_native");
+      checkText(targetOf(loadedItem) == exactTag,
+                "已加载插件报告自己用的是哪个分支");
+      checkText(loadedItem.find("\"targetEntry\":\"lib/" + exactTag + "/") !=
+                    std::string::npos,
+                "已加载插件报告分支里的库文件");
+    }
+    {
+      MusicxxExternPluginString unloadLog{};
+      musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
+                                          &unloadLog);
+      freeStr(unloadLog);
+    }
+    removePath(loadRoot);
+    // 还原插件目录（后面的用例还要用常规目录里的插件）
+    scanPluginItem(host, pluginsRoot, "example_native");
+  }
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -190,7 +511,8 @@ int main(int argc, char **argv) {
   MusicxxExternPluginHostConfig cfg{};
   cfg.struct_size = sizeof(MusicxxExternPluginHostConfig);
   const std::string appV = "0.0.0-test";
-  const std::string plat = "windows";
+  /// 平台标识与编译目标一致（宿主按它选多目标分支，见 testPluginTargetLayout）
+  const std::string plat = testPlatform();
   const std::string lang = "zh-cn";
   /// 客户端界面能力段 (正常情况下由界面描述层库按客户端实现生成)
   const std::string uiCaps =
@@ -246,6 +568,9 @@ int main(int argc, char **argv) {
     check(nativeItem.find("库文件缺失") == std::string::npos,
           "动态库插件未被判为库文件缺失");
   }
+
+  // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：分支选择与装载
+  testPluginTargetLayout(host, pluginDir);
 
   // 装载 (同步)
   MusicxxExternPluginString empty{};
@@ -1281,6 +1606,51 @@ int main(int argc, char **argv) {
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                      &badEntryHooks, &log);
     check(badEntryHooks == 0, "缺入口的库没有注册任何钩子");
+  }
+
+  // ==================== 多目标打包示例 (lib/<系统>-<架构>/)
+  // ====================
+  //
+  // 示例插件 example_native_multi 的库文件放在 `lib/<构建目标标签>/` 里（SDK 助手按
+  // TARGET_TAG auto 摆放）。这里验证：扫描/装载都按当前系统与架构选中分支，并且
+  // 装载的确实是那一份构建（插件自报的构建标签与宿主选中的分支一致）。
+  {
+    const std::string multiItem = scanItemOf(scanJson, "example_native_multi");
+    check(!multiItem.empty(), "扫描发现 example_native_multi (多目标包)");
+    check(multiItem.find("\"supported\":true") != std::string::npos,
+          "多目标包按当前系统/架构选中分支后判定为可用");
+    const std::string selectedTag = jsonStringField(multiItem, "target");
+    check(!selectedTag.empty(), "多目标包报告了选中的分支标签");
+    check(multiItem.find("\"targetEntry\":\"lib/") != std::string::npos,
+          "多目标包的 targetEntry 指向分支目录里的库文件");
+
+    MusicxxExternPluginString loadLog{};
+    const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
+        host, viewCP("example_native_multi"), viewCP("{}"), 10000, &loadLog);
+    if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      std::printf("  [info] example_native_multi load rc=%d log=%s\n", loadRc,
+                  take(loadLog).c_str());
+    } else {
+      freeStr(loadLog);
+    }
+    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多目标包按分支装载成功");
+
+    MusicxxExternPluginString capOut{};
+    MusicxxExternPluginString capLog{};
+    const auto capRc = musicxx_extern_plugin_plugin_call(
+        host, viewCP("example_native_multi"),
+        viewCP("plugin.example_native_multi.which"), viewCP("{}"), 5000, &capOut,
+        &capLog);
+    freeStr(capLog);
+    const std::string cap = take(capOut);
+    check(capRc == MUSICXX_EXTERN_PLUGIN_OK, "多目标包的能力可调用");
+    check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
+          "装载的正是宿主选中的分支 (插件自报构建标签与分支标签一致)");
+
+    MusicxxExternPluginString unloadLog{};
+    musicxx_extern_plugin_plugin_unload(host, viewCP("example_native_multi"),
+                                        &unloadLog);
+    freeStr(unloadLog);
   }
 
   // ==================== 处理器连续失败与暂停派发
