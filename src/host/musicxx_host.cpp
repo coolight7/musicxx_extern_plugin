@@ -1072,6 +1072,8 @@ void MusicxxHostManager::clearPluginRegistrations(
   stateSubscriptions_.erase(instanceName);
   // 声明式 UI 项随实例摘除 (卸载后不再渲染该插件的入口/菜单)
   detachUiEntries(instanceName);
+  // 变量与订阅随实例摘除 (订阅者收到一条 removed 通知)
+  detachVars(instanceName);
   // JS 引擎登记的动作请求 (由 JS 侧自己保活) 也要一起取消
   cancelActionsOfInstance(instanceName);
 }
@@ -2055,6 +2057,8 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
     j["js"] = engine ? parseJsonSafe(engine->statsJson())
                      : parseJsonSafe(R"({"available":false,"running":false})");
   }
+  // 变量表诊断 (条数/能力分布/订阅数/未回执的读写请求)
+  j["vars"] = parseJsonSafe(varsDebugJson());
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

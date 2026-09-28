@@ -54,3 +54,4 @@ export 'src/ui.dart'
         MusicxxPluginUIItems,
         MusicxxPluginUIType,
         MusicxxPluginUIActionKind;
+export 'src/vars.dart' show MusicxxPluginVars, MusicxxPluginVarDeclare;

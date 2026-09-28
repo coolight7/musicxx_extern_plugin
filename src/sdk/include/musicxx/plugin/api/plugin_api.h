@@ -5,9 +5,10 @@
 ///
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由宿主在 entrySymbols() 中交出同一批名字)
-/// - 领域接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.player` /
-///   `musicxx.library` / `musicxx.lyrics` / `musicxx.storage` / `musicxx.net` / `musicxx.stats`
-///   (v1 已实现 hooks 与 host 两张; 其余 IID 先冻结, 表版本 1 留待后续实现)
+/// - 领域接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
+///   `musicxx.player` / `musicxx.library` / `musicxx.lyrics` / `musicxx.storage` /
+///   `musicxx.net` / `musicxx.stats`
+///   (v1 已实现 hooks / host / ui / vars 四张; 其余 IID 先冻结, 表版本 1 留待后续实现)
 /// - 钩子模式 / 标志 / 裁决动作常量
 #ifndef MUSICXX_PLUGIN_API_H
 #define MUSICXX_PLUGIN_API_H
@@ -265,6 +266,197 @@ typedef struct MusicxxPluginUIIface {
         const PluginxxStringView*         message_json
     );
 } MusicxxPluginUIIface;
+
+/* ==================== 接口表: musicxx.vars (变量) ==================== */
+
+/// 变量是第五条通道, 与既有四条分工不同:
+/// - 钩子 = 拦截/改写流程; 状态镜像 = 应用推、插件同步只读; 事件 = 只通知、没有"当前值";
+///   动作 = 插件向应用发命令;
+/// - **变量 = 有属主、可读、可写、可订阅变动的小值** (配置/小状态)。
+///
+/// 三条读法 (按需要选一条, 不是三种都能替代):
+/// - `get`  异步、权威: 宿主向属主取一次真实值, 结果回给调用方; 顺手刷新 `peek` 缓存;
+/// - `peek` 同步、读缓存: 不保证最新 (返回里带 revision/ageMs/stale), 热路径/钩子处理器里用;
+/// - 绑定变动: 订阅 (subscribe) 后由宿主推送 `musicxx.var.changed` 事件。
+///
+/// 命名空间:
+/// - 官方 `musicxx.<域>.<名>` —— 由**应用**声明并提供, 插件只能读/写已声明的;
+/// - 插件 `plugin.<插件id>.<分组>...` —— 分组可以多级 (`plugin.hello.tip.start`),
+///   注册时可以写短名 (`tip.start`), 宿主自动补 `plugin.<本插件id>.` 前缀。
+///
+/// 值: 一律 JSON (bool/number/string/array/object), 单个值上限 64 KiB, 超限拒绝写入。
+/// 权限: 与钩子/动作一样只做声明与展示, 不做运行时校验 (见清单 permissions)。
+#define MUSICXX_PLUGIN_IFACE_VARS         "musicxx.vars"
+#define MUSICXX_PLUGIN_IFACE_VARS_VERSION 1
+
+/* 能力位 (声明里三者可只实现一部分; 能力位不含某项时对应操作返回 -9) */
+#define MUSICXX_PLUGIN_VAR_CAP_GET    0x1 ///< 可读
+#define MUSICXX_PLUGIN_VAR_CAP_SET    0x2 ///< 可写
+#define MUSICXX_PLUGIN_VAR_CAP_NOTIFY 0x4 ///< 值变化可订阅 (watch 也要求这一位)
+
+/* 写权限 (只对插件注册的变量有意义) */
+#define MUSICXX_PLUGIN_VAR_WRITE_ANY   0 ///< 任何插件与应用都可写 (默认)
+#define MUSICXX_PLUGIN_VAR_WRITE_OWNER 1 ///< 只有属主自己可写
+
+/* 变量模式 */
+/// 值由宿主代存 (默认): 插件 `set` 自己的变量即提交, 不需要维护副本
+#define MUSICXX_PLUGIN_VAR_MODE_DECLARED 0
+/// 读写都转给属主 (宿主只留同步读缓存): 属主处理 `musicxx.var.read` /
+/// `musicxx.var.write` 两个事件, 用 `set` 自己完成回答/提交
+#define MUSICXX_PLUGIN_VAR_MODE_HANDLER  1
+
+/* 本接口表返回码 (含义与 C ABI 的错误码一致) */
+#define MUSICXX_PLUGIN_VAR_ERR_ARG         -1 ///< 参数非法 (键名/值超限/caps 为空等)
+#define MUSICXX_PLUGIN_VAR_ERR_STATE       -2 ///< 状态错误 (宿主未启动/未回执请求过多)
+#define MUSICXX_PLUGIN_VAR_ERR_JSON        -3 ///< 值不是合法 JSON
+#define MUSICXX_PLUGIN_VAR_ERR_NOT_FOUND   -4 ///< 键不存在 (含官方键还没被应用声明)
+#define MUSICXX_PLUGIN_VAR_ERR_TIMEOUT     -5 ///< 属主落地/回答超时
+#define MUSICXX_PLUGIN_VAR_ERR_PERMISSION  -6 ///< 命名空间不属于本插件 / 写权限不足
+/// 超限 (变量数/订阅数/变量总数等容量类限制)
+#define MUSICXX_PLUGIN_VAR_ERR_LIMIT       -7
+/// 该变量没有声明对应能力 (读只写变量、写只读变量)
+/// 说明: C ABI 的 -8 已用于"内存不足", 因此这里取 -9 避免同一数值两种含义
+#define MUSICXX_PLUGIN_VAR_ERR_UNSUPPORTED -9
+
+/* 变量变更事件 (宿主 → 插件; 订阅后经事件总线送达) */
+/// 载荷: {key, value, prev, by, revision, ts, removed?, coalesced?}
+/// - `by` = 写入方插件 id (空串 = 应用); 变量随插件停用/卸载消失时带 `removed:true`;
+/// - 被宿主按 `notifyThrottleMs` 合并过的通知带 `coalesced` (合并掉几次)
+#define MUSICXX_PLUGIN_EVENT_VAR_CHANGED "musicxx.var.changed"
+/// 写请求的最终结果 (发给发起 `set` 的插件)
+/// 载荷: {requestId, key, accepted, value?, changed?, error?}
+#define MUSICXX_PLUGIN_EVENT_VAR_WRITE_RESULT "musicxx.var.writeResult"
+/// 属主被取真实值 (handler 模式专用; 属主收到后用 set 自己回答)
+/// 载荷: {requestId, key}
+#define MUSICXX_PLUGIN_EVENT_VAR_READ "musicxx.var.read"
+/// 属主收到写请求 (handler 模式专用; 属主落地后用 set 自己提交最终值)
+/// 载荷: {requestId, key, value, by}
+#define MUSICXX_PLUGIN_EVENT_VAR_WRITE "musicxx.var.write"
+
+/// 变量注册规格
+typedef struct MusicxxPluginVarSpec {
+    int32_t  version;      ///< == 1
+    uint32_t struct_size;  ///< == sizeof(MusicxxPluginVarSpec)
+
+    PluginxxStringView key; ///< 短名 "tip.start" 或本插件全名 "plugin.<id>.tip.start"
+    int32_t caps;           ///< MUSICXX_PLUGIN_VAR_CAP_* (非 0)
+    int32_t write_scope;    ///< MUSICXX_PLUGIN_VAR_WRITE_*
+    int32_t mode;           ///< MUSICXX_PLUGIN_VAR_MODE_*
+
+    /// 属主侧的推送节流口径 (毫秒; 0 = 不节流)
+    ///
+    /// 只是声明 (宿主不强制度量): 属主在推送前按同一窗口合并变化。
+    /// 高频值 (超过约 5 Hz) 必须声明, 否则宿主会记一条警告日志。
+    int32_t throttle_ms;
+    /// 宿主侧通知合并窗口 (毫秒; 0 = 不合并; 上限 5000)
+    int32_t notify_throttle_ms;
+    /// handler 模式: 有人 watch 之后, 宿主每隔多久来取一次真实值
+    /// (0 = 只在 watch 时取一次; 非 0 时下限 1000)
+    int32_t refresh_after_ms;
+
+    PluginxxStringView type;       ///< 可空: bool | number | string | json (只做展示与粗校验)
+    PluginxxStringView value_json; ///< 可空: 缓存初值 (不是真值来源; handler 模式可留空)
+    /// 可空: {"title":"..","depict":"..","options":[".."],"risk":"low"}
+    PluginxxStringView meta_json;
+} MusicxxPluginVarSpec;
+
+typedef struct MusicxxPluginVarsIface {
+    int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_VARS_VERSION
+    uint32_t struct_size;
+
+    /// 注册/覆盖一个变量 (同一个 key 覆盖式注册)
+    /// - 返回 0 成功; -1 参数非法 (键/值超限、caps 为空、窗口超限);
+    ///   -2 状态错误; -3 meta_json 不是对象; -4 未知模式;
+    ///   -6 命名空间不属于本插件; -7 变量数超限
+    int32_t(PLUGINXX_CALL* register_var)(
+        const PluginxxHost*         host,
+        const MusicxxPluginVarSpec* spec
+    );
+
+    /// 注销一个变量 (只能注销自己的; 不存在返回 -4)
+    int32_t(PLUGINXX_CALL* unregister_var)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* key
+    );
+
+    /// 读 (异步、权威): 宿主向属主取一次真实值, 完成后调用 notify->done 恰好一次
+    /// - 结果同时写入 `peek` 缓存 (read-through);
+    /// - 同键在途读请求由宿主合并 (等待者不限);
+    /// - 返回 0 并写出 request_id; -4 键不存在; -9 无 get 能力; -2 未回执读请求过多
+    int32_t(PLUGINXX_CALL* get)(
+        const PluginxxHost*           host,
+        const PluginxxStringView*     key,
+        const PluginxxOperatorNotify* notify,
+        int64_t*                      out_request_id
+    );
+
+    /// 同步读缓存 (不保证最新)
+    /// - 返回 0 并写出 {"value":..,"revision":..,"ageMs":..,"stale":..};
+    /// - 没有缓存过 (没人推、也没人读过) 返回 -4; 无 get 能力返回 -9
+    int32_t(PLUGINXX_CALL* peek)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* key,
+        PluginxxString*           out_json
+    );
+
+    /// 保活缓存 (等价于"订阅但不回调"; 需要 notify 能力位)
+    /// - keys_json 是字符串数组; out_count 输出实际生效的条数
+    int32_t(PLUGINXX_CALL* watch)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* keys_json,
+        int32_t*                  out_count
+    );
+    int32_t(PLUGINXX_CALL* unwatch)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* keys_json,
+        int32_t*                  out_count
+    );
+
+    /// 写
+    /// - 写自己的变量 (或 declared 模式的变量) = 提交, 立即结算:
+    ///   out_json = {"key":..,"accepted":true,"value":..,"changed":..,"revision":..};
+    /// - 转给属主落地时 out_json = {"pending":true,"requestId":N}, 最终结果经事件
+    ///   `musicxx.var.writeResult` 送达;
+    /// - 返回 0 (含被拒绝的情况, 原因在 out_json 的 error 字段);
+    ///   -4 键不存在; -9 无 set 能力; -6 写权限不足; -1 参数非法;
+    ///   -2 未回执写请求过多
+    int32_t(PLUGINXX_CALL* set)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* key,
+        const PluginxxStringView* value_json,
+        PluginxxString*           out_json
+    );
+
+    /// 列出变量 (prefix 可空; 值字段是缓存值)
+    int32_t(PLUGINXX_CALL* list)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* prefix,
+        PluginxxString*           out_json
+    );
+
+    /// 订阅/退订变更通知 (keys_json = 字符串数组; 订阅还不存在的键是允许的)
+    /// - 订阅后请自行订阅事件主题 `musicxx.var.changed` (见下面的常量), 变更经它送达;
+    /// - out_count 输出实际生效条数 (超出容量上限的部分被忽略)
+    int32_t(PLUGINXX_CALL* subscribe)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* keys_json,
+        int32_t*                  out_count
+    );
+    int32_t(PLUGINXX_CALL* unsubscribe)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* keys_json,
+        int32_t*                  out_count
+    );
+
+    /// 单个变量的声明信息 + 缓存状态
+    /// (key/caps/mode/write/owner/type/options/title/depict/value/revision/ageMs/
+    ///  stale/subscribers)
+    int32_t(PLUGINXX_CALL* info)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* key,
+        PluginxxString*           out_json
+    );
+} MusicxxPluginVarsIface;
 
 /* ==================== 预留接口表 (v1 只冻结 IID 与版本; 表体后续实现) ==================== */
 
