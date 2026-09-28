@@ -4,6 +4,7 @@
 #include "musicxx_host.h"
 #include "host_json.h"
 #include "host_naming.h"
+#include "host_target.h"
 #include "js/js_engine.h"
 
 #include "pluginxx/host/abi_util.h"
@@ -921,6 +922,9 @@ MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance &inst) const {
   j["version"] = inst.version;
   j["description"] = inst.description;
   j["path"] = inst.path;
+  // 选中的平台/架构分支（空 = 用插件根目录的库文件；见 host_target.h）
+  j["target"] = inst.targetTag;
+  j["targetEntry"] = inst.targetEntry;
   j["source"] = "loaded"; ///< 已加载项: 与扫描项的 user/builtin 区分
   j["loaded"] = true;
   j["valid"] = true;
@@ -1210,6 +1214,15 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
     kind = "native";
   }
 
+  // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：解析包内分支，选出当前系统/架构
+  // 要用的库文件；没有匹配分支时回退插件根目录（旧布局）。扫描与装载共用
+  // resolvePluginTargets，两者的判定不会出现分歧。
+  MusicxxPluginTargets targets;
+  if (kind == "native") {
+    targets = resolvePluginTargets(dirPath, readManifestTargetsDir(dirPath),
+                                   entry, name, platform_, hostArch(), true);
+  }
+
   // 平台/架构/版本/文件过滤: 不支持的插件照常展示, 但标注 supported=false
   // 与原因
   bool supported = true;
@@ -1245,20 +1258,14 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
     reason = "插件要求的 API 版本高于当前宿主";
   }
   if (supported && kind == "native") {
-    // 校验方式必须与加载阶段一致（否则扫描判"缺库文件"、加载却能命中）：
-    // 先用内核的 resolvePluginEntryPath（平台扩展名修正 + 配置子目录回退），
-    // 找不到再按平台默认库名回退（lib<名>.so / <名>.dll / lib<名>.dylib）——
-    // 例如清单按 Linux 写 entry=foo.so 时，Windows 上应解析到 foo.dll。
-    std::string entryPath;
-    if (!entry.empty()) {
-      entryPath = pluginxx::resolvePluginEntryPath(dirPath, entry);
-      if (!fs::exists(entryPath)) {
-        entryPath = defaultPluginLibraryPath(dirPath, name);
-      }
-    }
-    if (entryPath.empty() || !fs::exists(entryPath)) {
+    // 库文件判定与装载阶段共用同一套目标解析（host_target.h）：先按多目标布局
+    // 选分支（lib/<系统>-<架构>/），没有匹配分支再回退插件根目录的旧布局，
+    // 这样扫描结果与真正装载到的东西不会不一致。
+    if (targets.selectedLib.empty()) {
       supported = false;
-      reason = "动态库插件库文件缺失 (entry=" + entry + ")";
+      reason = targets.note.empty()
+                   ? "动态库插件库文件缺失 (entry=" + entry + ")"
+                   : targets.note;
     }
   }
   if (supported && kind == "js") {
@@ -1315,6 +1322,28 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   item["author"] = author;
   item["homepage"] = homepage;
   item["entry"] = entry;
+  // 多目标布局信息（管理页展示"用了哪个分支 / 包里有哪些分支"）：
+  // target 为空串 = 用插件根目录的库文件；targets 含未匹配当前环境的分支
+  if (kind == "native") {
+    item["target"] = targets.selectedTag;
+    item["targetEntry"] = targets.selectedLib;
+    item["targetsDir"] = targets.dirName;
+    Json branches = Json::array();
+    for (const auto &branch : targets.all) {
+      Json node;
+      node["tag"] = branch.tag;
+      node["dir"] = branch.dir;
+      node["lib"] = branch.lib;
+      node["os"] = branch.os;
+      node["arch"] = branch.arch;
+      node["universal"] = branch.universal;
+      /// 与当前环境的匹配等级: 3 系统+架构 / 2 系统 / 1 架构 / 0 通用 / -1 不匹配
+      node["match"] = branch.matchLevel;
+      node["selected"] = branch.selected;
+      branches.push_back(std::move(node));
+    }
+    item["targets"] = std::move(branches);
+  }
   // JS 插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）——管理页据此展示
   if (kind == "js") {
     std::vector<std::string> scripts = readManifestScripts(dirPath);
@@ -1347,6 +1376,69 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
 int32_t MusicxxHostManager::pluginListJson(std::string &outJson) {
   outJson = pluginsJson();
   return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+asio::awaitable<MusicxxHostManager::InstancePtr>
+MusicxxHostManager::loadNativeDirAsync(const std::string &dirPath,
+                                       const pluginxx::PluginLoadOptions *options,
+                                       std::string &failReason) {
+  const fs::path dir{dirPath};
+  std::string name;
+  std::string entry;
+  std::vector<std::string> depends;
+  std::vector<std::string> optionalDepends;
+  pluginxx::PluginManifestResources resources;
+  pluginxx::PluginManifestInterfaces interfaces;
+  if (!pluginxx::parsePluginManifest(dir, name, entry, depends,
+                                     optionalDepends, &resources,
+                                     &interfaces) ||
+      name.empty()) {
+    // 清单读不出来时交回内核路径：报错与回退行为与以前一致
+    co_return co_await this->loadPluginAsync(dirPath, options, false);
+  }
+
+  // 多目标布局（仿 APK 的 lib/<系统>-<架构>/）：选当前系统/架构要用的分支；
+  // 没有匹配分支时回退插件根目录的库文件（旧布局）
+  const MusicxxPluginTargets targets =
+      resolvePluginTargets(dir, readManifestTargetsDir(dir), entry, name,
+                           platform_, hostArch(), true);
+  if (targets.selectedLibPath.empty()) {
+    failReason = targets.note.empty()
+                     ? ("动态库插件库文件缺失 (entry=" + entry + ")")
+                     : targets.note;
+    XX_LOGE("[musicxx_ext] 插件 `{}` 装载失败: {}", name, failReason);
+    co_return nullptr;
+  }
+  XX_LOGI("[musicxx_ext] 插件 `{}` 使用目标分支: {} (库文件 {})", name,
+          targets.selectedTag.empty() ? "插件根目录" : targets.selectedTag,
+          targets.selectedLib);
+
+  // 依赖检查：与内核的目录装载路径同一语义（必选依赖未加载 → 拒绝装载；
+  // 可选依赖未加载 → 只记日志）。依赖记录写回实例，级联卸载靠它。
+  for (const auto &dep : depends) {
+    if (!this->find(dep)) {
+      failReason = "插件装载失败: 必选依赖 `" + dep + "` 未加载 (请先加载它)";
+      XX_LOGE("[musicxx_ext] {}", failReason);
+      co_return nullptr;
+    }
+  }
+  for (const auto &dep : optionalDepends) {
+    if (!this->find(dep)) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 的可选依赖 `{}` 未加载", name, dep);
+    }
+  }
+
+  auto inst = co_await this->loadNativeAsync(targets.selectedLibPath, options,
+                                             false, resources, interfaces);
+  if (!inst) {
+    failReason = "插件装载失败 (缺失/无效入口符号, 或 start 事务失败; 详见日志)";
+    co_return nullptr;
+  }
+  inst->depends = std::move(depends);
+  inst->optionalDepends = std::move(optionalDepends);
+  inst->targetTag = targets.selectedTag;
+  inst->targetEntry = targets.selectedLib;
+  co_return inst;
 }
 
 int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
@@ -1519,10 +1611,18 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           co_return;
         }
 
-        auto inst = co_await self->loadPluginAsync(path, options.get(), false);
+        std::string loadFailReason;
+        std::error_code dirEc;
+        const bool isDir = fs::is_directory(pluginPath, dirEc);
+        auto inst = isDir ? co_await self->loadNativeDirAsync(path, options.get(),
+                                                              loadFailReason)
+                          : co_await self->loadPluginAsync(path, options.get(),
+                                                          false);
         if (!inst) {
-          *failMsg = "插件装载失败 (缺失/无效入口符号, 必选依赖未加载, 或 "
-                     "start 事务失败; 详见日志)";
+          *failMsg = loadFailReason.empty()
+                         ? std::string{"插件装载失败 (缺失/无效入口符号, 必选依赖"
+                                       "未加载, 或 start 事务失败; 详见日志)"}
+                         : loadFailReason;
           Json payload;
           payload["id"] = pluginId;
           payload["phase"] = "load";

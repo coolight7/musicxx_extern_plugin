@@ -29,6 +29,22 @@ my_plugin/                   # 目录名只是提示，插件 id 取清单的 na
 └── config.json              # 可选：插件自己的配置（插件读写，用户也可以直接编辑）
 ```
 
+一个包也可以同时支持**多个系统 / CPU 架构**（仿 APK 的 `lib/<abi>/`），库文件按分支摆放、
+清单只有一份 —— 运行时由宿主按当前系统与架构选分支，见 §1.3：
+
+```text
+my_plugin/
+├── plugin.yaml              # 清单只有一份（分支共用；entry 仍然是"分支里的库文件名"）
+├── lib/                     # 分支目录（缺省 lib；清单 targets_dir 可改名）
+│   ├── windows-x64/my_plugin.dll
+│   ├── linux-x64/my_plugin.so
+│   ├── linux-arm64/my_plugin.so
+│   ├── android-arm64-v8a/my_plugin.so
+│   └── universal/my_plugin.so        # 通用分支：任何系统/架构都能用
+├── shader/                  # 与分支无关的共享资源（放在包目录里，不在分支目录里）
+└── config.json
+```
+
 ### 1.1 清单字段
 
 ```yaml
@@ -39,8 +55,9 @@ version: 1.0.0                     # 版本（升级比较用）
 api_version: 1                     # 兼容的插件 API 版本（宿主当前是 1）
 author: "你的名字"
 description: "插件说明"
-platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限
+platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（多目标包通常不写，见 §1.3）
 arch: [x64, arm64]                 # 允许的架构；不写 = 不限
+targets_dir: lib                   # 多目标包的分支目录名（缺省 lib；空串 = 关闭分支扫描）
 depends: [other_plugin]            # 必选依赖（宿主会先加载它们）
 optional_depends: [maybe_plugin]   # 可选依赖（有就排前面，没有也照常加载）
 
@@ -69,6 +86,73 @@ permissions:                       # 声明式权限：只做展示，运行时�
 - 随包插件：安装包放进应用的随包插件目录（宿主启动时把两个目录都扫描出来）；
 - 安装方式：管理页「从压缩包安装」（`.zip`，顶层就是插件目录的内容），或直接把目录放进插件目录后
   「重新扫描」。
+
+### 1.3 多目标打包（一个包放多个系统 / 架构分支）
+
+仿 APK 的原生库目录：**一个包 = 一份清单 + 若干分支目录**，每个分支目录里放一份该目标的库文件；
+宿主在扫描与装载时按当前系统与 CPU 架构选一个分支，管理页的插件信息里会写出"已选分支 / 包内分支"。
+
+```text
+my_plugin/
+├── plugin.yaml                        # 清单只有一份（entry = 分支里的库文件名）
+└── lib/                               # 分支目录（清单 targets_dir 可改名，缺省 lib）
+    ├── windows-x64/my_plugin.dll      # 系统 + 架构
+    ├── linux-arm64/my_plugin.so
+    ├── android-arm64-v8a/my_plugin.so
+    ├── windows/my_plugin.dll          # 只限系统（架构不限）
+    ├── x64/my_plugin.so               # 只限架构（系统不限）
+    └── universal/my_plugin.so         # 通用分支（任何系统 / 架构都能用）
+```
+
+**选择顺序**（从具体到通用，先命中先用；每个分支目录名就是一个"标签"）：
+
+1. 系统 + 架构都匹配（`windows-x64`）
+2. 只声明系统（`windows`）
+3. 只声明架构（`x64`）
+4. 通用分支（`universal` / `any` / `noarch` …）
+5. 插件根目录里的库文件（旧布局，也是隐式通用分支）
+
+标签的写法很宽松（大小写、`-`/`_`/`.` 分隔符都能认，顺序也可以反过来）：
+
+- 系统名：`windows` / `win` / `win32` · `linux` · `macos` / `mac` / `osx` / `darwin` ·
+  `android` · `ios` / `iphoneos` · `ohos` / `harmonyos`；
+- 架构名：`x64` / `amd64` / `x86_64` · `x86` / `i386` / `ia32` · `arm64` / `aarch64` /
+  `arm64-v8a` · `armv7` / `armeabi-v7a` · `riscv64` · `loongarch64`。
+
+**分支里找库文件的顺序**：清单 `entry`（按平台修正扩展名，Windows `.dll` / macOS `.dylib`）→
+平台默认库名（`lib<name>.so` / `<name>.dll` / `lib<name>.dylib`）→ 分支目录里**唯一**的
+`*.dll`/`*.so`/`*.dylib`（所以各分支的文件名不必完全一致，但有两个以上就必须靠 `entry` 指明）。
+
+规则要点：
+
+- **不匹配当前系统/架构的分支不会被加载**：扫描结果里 `supported=false`，原因是"包内没有匹配当前
+  系统/架构的分支"（附带包内分支清单），应用侧安装时也会提前拒绝并说明；
+- 清单 `platforms` / `arch` 仍然有效，含义是"**整包**允许的平台/架构"（例如插件内含脚本或数据资源
+  只对某些系统有意义时的额外限制）；多目标包通常不用写它们，支持范围已经由分支表达；
+- **不认识的分支目录会被忽略**（例如 `lib/utils/`、`lib/shader/`），可以放心把辅助文件放在同一层；
+- `targets_dir` 显式写成空串 = 关闭分支扫描（插件自己管目录布局，宿主只看清单 `entry`）；
+- 分支目录里放的是"目标平台编出来的库"这一事实由你保证：标签与真实库不匹配时，装载阶段
+  `dlopen`/`LoadLibrary` 会失败（错误信息里带库路径）。
+
+**构建一个多目标包**：SDK 的构建助手按当前构建目标把库放进分支目录 ——
+
+```cmake
+musicxx_plugin_add_target(my_plugin
+  SOURCES my_plugin.cpp
+  MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.yaml"
+  TARGET_TAG auto            # 生成 lib/<系统>-<架构>/（Android 用 ABI 名：android-arm64-v8a）
+  # PACKAGE_DIR <目录>       # 可选：包目录（缺省 <当前构建目录>/package）
+)
+```
+
+每个平台/架构各构建一次（换机器或在有 NDK 的机器上 `-DANDROID_ABI=...` 交叉编译），
+把各次产物里的 `lib/<标签>/` 目录**合并进同一个包目录**，就得到一个通用包；打包用
+`pwsh tools/pack_plugin.ps1 -PluginDir <包目录>`（压缩包顶层就是插件目录内容，可直接用
+应用里的「从压缩包安装」），它会打印包内的分支清单，便于确认每个分支都有库文件。
+助手同时会注入编译宏 `MUSICXX_PLUGIN_BUILD_TAG="<标签>"`，插件可以把它写进日志或自检信息，
+便于确认宿主加载的是哪一份构建（示例见 `plugins/example_native_multi/`）。
+
+不传 `TARGET_TAG` 时行为与以前一致：库文件与清单放在同一层，该目录直接作为插件目录。
 
 ---
 

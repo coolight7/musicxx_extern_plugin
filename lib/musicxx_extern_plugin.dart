@@ -42,6 +42,7 @@ export 'src/native_library.dart'
 export 'src/native_strings.dart'
     show MusicxxPluginArena, decodeJsonArray, decodeJsonObject, tryDecodeJson;
 export 'src/plugin_info.dart';
+export 'src/plugin_target.dart';
 export 'src/runtime.dart'
     show
         MusicxxPluginApiException,

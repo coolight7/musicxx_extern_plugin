@@ -1,0 +1,21 @@
+# 示例动态库插件清单 (musicxx 外部插件): 多目标打包
+#
+# 这个插件演示**一个包里放多个系统/架构分支**（仿 APK 的 `lib/<abi>/`）：
+#   example_native_multi/
+#     plugin.yaml                     本清单（只有一份，分支共用）
+#     lib/windows-x64/example_native_multi.dll
+#     lib/linux-x64/example_native_multi.so
+#     lib/android-arm64-v8a/example_native_multi.so
+#     ...
+# 宿主在扫描与装载时按当前系统/CPU 架构选一个分支（选择规则见
+# `src/host/host_target.h` 顶部说明），所以清单里**不需要**再写 platforms/arch。
+name: example_native_multi
+# 每个分支里的库文件名；按 Linux 写法填，Windows/macOS 由宿主修正扩展名
+entry: example_native_multi.so
+kind: native
+version: 1.0.0
+description: "musicxx 外部插件示例: 多目标打包（一个包内含多个系统/架构分支）"
+author: "coolight"
+api_version: 1
+permissions:
+  - musicxx.library.read

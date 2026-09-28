@@ -106,6 +106,7 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host_tables.cpp
   musicxx_host_ui.cpp
   musicxx_host_vars.cpp
+  host_target.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
 )
@@ -206,7 +207,7 @@ unset(_sdkInc)
 #   - 对照示例: 故意做出问题行为 (脚本语法错误、死循环、处理器总是失败、缺入口符号),
 #     用来演示与验证宿主的保护机制 (装载失败回滚 / 执行上限 / 暂停派发 / 入口符号契约),
 #     也让作者看清"写坏了会怎样"。它们只跟原生测试一起构建。
-set(MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE example_native)
+set(MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE example_native example_native_multi)
 set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js
   example_js_shader
@@ -292,21 +293,30 @@ unset(_sdkDep)
 # 插件安装规则: 统一装到 plugins/<插件 id>/, 与源码目录 `plugins/<插件 id>/` 一一对应
 #   - 动态库插件: 库文件由各插件的 CMakeLists.txt 建目标, 这里装库 + 目录里的清单与资源
 #     (源码与 CMakeLists 是构建输入, 不装);
+#   - 多目标打包的插件 (musicxx_plugin_add_target 传了 TARGET_TAG): 库文件已经按
+#     `lib/<系统>-<架构>/` 摆好, 清单与资源也在包目录里, 因此直接装整个包目录;
 #   - JS 插件: 整个目录 (脚本 + 清单 + 资源) 直接复制。
 foreach (_plugin ${MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS})
   if (TARGET ${_plugin})
-    install(TARGETS ${_plugin}
-      RUNTIME DESTINATION "plugins/${_plugin}"
-      LIBRARY DESTINATION "plugins/${_plugin}")
-    # 清单与随插件分发的资源（例如播放页背景用的 shader/）：插件目录内用相对路径引用，
-    # 必须与库文件放在同一层（musicxx_plugin_add_target 的 ASSETS 会把它复制到构建产物旁）
-    install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_plugin}/"
-      DESTINATION "plugins/${_plugin}"
-      PATTERN "CMakeLists.txt" EXCLUDE
-      PATTERN "*.cpp" EXCLUDE
-      PATTERN "*.cc" EXCLUDE
-      PATTERN "*.h" EXCLUDE
-      PATTERN "*.hpp" EXCLUDE)
+    get_property(_package_dir GLOBAL PROPERTY
+                 "musicxx_plugin_package_${_plugin}")
+    if (_package_dir)
+      install(DIRECTORY "${_package_dir}/" DESTINATION "plugins/${_plugin}")
+      unset(_package_dir)
+    else ()
+      install(TARGETS ${_plugin}
+        RUNTIME DESTINATION "plugins/${_plugin}"
+        LIBRARY DESTINATION "plugins/${_plugin}")
+      # 清单与随插件分发的资源（例如播放页背景用的 shader/）：插件目录内用相对路径引用，
+      # 必须与库文件放在同一层（musicxx_plugin_add_target 的 ASSETS 会把它复制到构建产物旁）
+      install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/plugins/${_plugin}/"
+        DESTINATION "plugins/${_plugin}"
+        PATTERN "CMakeLists.txt" EXCLUDE
+        PATTERN "*.cpp" EXCLUDE
+        PATTERN "*.cc" EXCLUDE
+        PATTERN "*.h" EXCLUDE
+        PATTERN "*.hpp" EXCLUDE)
+    endif ()
   endif ()
 endforeach ()
 unset(_plugin)

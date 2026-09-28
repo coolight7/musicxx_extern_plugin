@@ -48,6 +48,7 @@ test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
 plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
+  example_native_multi/ 示例插件（C++，多目标打包：包内多个系统/架构分支，运行时按系统与架构选分支）
   example_native_fail/       对照示例（C++：处理器总是失败 → 暂停派发）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝装载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
@@ -67,6 +68,7 @@ docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本�
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
                      gen_contract.dart（约定生成/校验）、gen_ui_kit.ps1（生成扩展 kit：C++ 头 + JS）、
                      sync_ui_kit.ps1（把 kit 复制进 JS 插件目录）、check_submodules.ps1（子模块检查）、
+                     pack_plugin.ps1（把插件目录打成安装包 .zip，并列出包内分支）、
                      self_check.dart（纯 Dart 自检，定位 FFI 卡住的位置）、cmake/BoostConfig.cmake.in
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
 ```
@@ -276,6 +278,7 @@ iOS/OHOS 只跑 JS 插件，需要静态库 + podspec。
 | 形态 | 目录内容 | 指南 |
 |---|---|---|
 | C++ 动态库 | `plugin.yaml` + 库文件 + 可选 `shader/` | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
+| C++ 动态库（多目标包） | `plugin.yaml` + `lib/<系统>-<架构>/库文件`（一个包支持多个系统/架构） | 同上 §1.3 |
 | JS 脚本 | `plugin.yaml` + `plugin.js` | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 着色器（两种形态都能用） | `shader/*.frag` + `bundle.json` + `*.shaderbundle` | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
 
@@ -305,6 +308,29 @@ musicxx_plugin_add_target(my_plugin
 - **只导出入口符号**：非 MSVC 平台加 version script（GNU/Clang）或导出符号表（Apple），因此插件不会把内核/C++ 运行时符号暴露出去；
 - 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用；
 - `ASSETS` 声明的目录/文件按原名复制到产物目录（shader bundle、图标等随插件分发）。
+
+**多目标打包**（一个包同时支持多个系统 / 架构，仿 APK 的 `lib/<abi>/`）：多传
+`TARGET_TAG auto`，助手就把库文件放进 `<包目录>/lib/<系统>-<架构>/`，清单与 `ASSETS` 放在包目录里：
+
+```cmake
+musicxx_plugin_add_target(my_plugin
+  SOURCES my_plugin.cpp
+  MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.yaml"
+  TARGET_TAG auto            # 按当前构建目标推标签（Android 用 ABI 名：android-arm64-v8a）
+)
+```
+
+```text
+<构建目录>/package/
+├── plugin.yaml
+└── lib/windows-x64/my_plugin.dll      # 本次构建的分支
+```
+
+每个平台/架构各构建一次、把 `lib/<标签>/` 合并进同一个包目录，用
+`pwsh tools/pack_plugin.ps1 -PluginDir <包目录>` 打成安装包（它会打印包内分支与每个分支的库文件，
+便于确认齐全）；宿主运行时按当前系统与 CPU 架构选分支（选择顺序、标签别名与规则见
+[docs/plugin-native-api.md](docs/plugin-native-api.md) §1.3，示例插件 `plugins/example_native_multi/`）。
+不传 `TARGET_TAG` 时行为与以前一致（库与清单同一层，直接作为插件目录）。
 
 ### JS 插件
 
