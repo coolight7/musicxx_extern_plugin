@@ -225,6 +225,76 @@ C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` 
 
 ---
 
+## 5.5 变量（有属主、可读、可写、可订阅变动的小值）
+
+接口表 `musicxx.vars`（`MusicxxPluginVarsIface`，SDK 里是 `iface.vars`）。
+它和状态镜像的区别是：**能双向读写，而且能订阅"值变了"**。
+真值在属主那里（应用侧的配置，或你自己插件里的状态），宿主只保留一份服务同步读的缓存。
+
+```cpp
+// 声明式（declared）：值由宿主代存，set 即提交 —— 零代码
+MusicxxPluginVarSpec spec{};
+spec.version = 1;
+spec.struct_size = sizeof(spec);
+spec.key        = pluginxxView("stats.skipCount");          // 短名会自动补前缀
+spec.caps       = MUSICXX_PLUGIN_VAR_CAP_GET | MUSICXX_PLUGIN_VAR_CAP_SET | MUSICXX_PLUGIN_VAR_CAP_NOTIFY;
+spec.write_scope = MUSICXX_PLUGIN_VAR_WRITE_ANY;             // 或 ..._OWNER
+spec.mode        = MUSICXX_PLUGIN_VAR_MODE_DECLARED;
+spec.type        = pluginxxView("number");
+spec.value_json  = pluginxxView("0");                        // 缓存初值（不是真值来源）
+spec.meta_json   = pluginxxView(R"({"title":"跳过次数"})");
+iface.vars->register_var(host, &spec);
+// SDK 便利包装: varsRegister(spec) / varsUnregister("stats.skipCount")
+
+// 异步读（官方键由应用回答；结果经 notify->done 回来，不要就地等待）
+PluginxxOperatorNotify notify{};
+notify.done = [](void* ud, int32_t status, const PluginxxStringView* json) {
+  // status == 0 时 json 是值
+};
+int64_t requestId = 0;
+iface.vars->get(host, &pluginxxView("musicxx.ui.animatedLevel"), &notify, &requestId);
+
+// 同步读缓存（热路径用；不保证最新，返回里带 revision/ageMs/stale）
+PluginxxString cached{};
+iface.vars->peek(host, &pluginxxView("musicxx.ui.songIconWave"), &cached);
+hostStringFree(cached);   // 插件侧: host->vtable->free
+
+// 写官方键（由应用落地）：立即结算时 out_json 是结果，转给属主时是
+// {"pending":true,"requestId":N}，最终结果经事件 `musicxx.var.writeResult` 送达
+PluginxxString out{};
+iface.vars->set(host, &pluginxxView("musicxx.ui.particleAnimate"), &pluginxxView("false"), &out);
+
+// 订阅变动：先登记关心，再订阅事件主题 `musicxx.var.changed`（载荷里带 key）
+int32_t count = 0;
+iface.vars->subscribe(host, &pluginxxView(R"(["musicxx.ui.animatedLevel"])"), &count);
+// 事件表: events->subscribe(host, &pluginxxView(MUSICXX_PLUGIN_EVENT_VAR_CHANGED), cb, ud)
+```
+
+**handler 模式**（值本来就在你手里）：声明 `mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER`，
+订阅 `musicxx.var.read` / `musicxx.var.write` 两个事件，处理完用 `respond` 回答
+（也可以对自己的键 `set` 一次 = 提交，宿主把提交当作回执与回答）：
+
+```cpp
+// 收到 musicxx.var.read {requestId, key} 时：
+iface.vars->respond(host, requestId, /*ok=*/1, &pluginxxView(当前值), nullptr, &out);
+// 收到 musicxx.var.write {requestId, key, value, by} 时：
+//   校验/落地后回最终值；拒绝时 ok=0 并把原因写进 error
+iface.vars->respond(host, requestId, 1, &pluginxxView(最终值), nullptr, &out);
+```
+
+SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / `varsWatch` /
+`varsUnwatch` / `varsSet` / `varsList` / `varsInfo` / `varsSubscribe` / `varsUnsubscribe` / `varsRespond`。
+
+限制（硬数字）：键 ≤ 200 字符、单值 ≤ 64 KiB、每插件 ≤ 64 个变量、每插件订阅/watch 合计 ≤ 256 个键、
+未回执的读/写请求各 ≤ 32 条；读的超时 2 秒、写 3 秒（应用落地 5 秒）。
+错误码：`-1` 参数 / `-2` 状态 / `-3` 值不是合法 JSON / `-4` 键不存在 / `-6` 命名空间或写权限 /
+`-7` 超限 / `-9` 该变量没有声明对应能力（写只读变量、读只写变量）。
+
+官方变量（`musicxx.*`）的目录见 [plugin-vars.md](plugin-vars.md)：它们由应用声明并提供，
+没声明的键读/写一律返回「未找到」。
+
+---
+
 ## 6. 三个已埋点裁决钩子的写法
 
 只有**应用侧已埋点**的钩子会被真正派发（`plugin-hooks.md` 的「是否已埋点」列标「已埋点」）。

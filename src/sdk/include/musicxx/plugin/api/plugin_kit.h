@@ -41,6 +41,7 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     const MusicxxPluginHooksIface* hooks = nullptr; ///< "musicxx.hooks"
     const MusicxxPluginHostIface*  host  = nullptr; ///< "musicxx.host"
     const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
+    const MusicxxPluginVarsIface*  vars  = nullptr; ///< "musicxx.vars"
 
     /// 从宿主查询全部接口表 (host 为空时返回全 NULL 聚合)
     static MusicxxPluginIfaces query(const PluginxxHost* host) {
@@ -57,6 +58,10 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
         ifaces.ui = pluginxx::queryInterface<MusicxxPluginUIIface>(
             host,
             MUSICXX_PLUGIN_IFACE_UI
+        );
+        ifaces.vars = pluginxx::queryInterface<MusicxxPluginVarsIface>(
+            host,
+            MUSICXX_PLUGIN_IFACE_VARS
         );
         return ifaces;
     }
@@ -251,6 +256,114 @@ public:
         return iface.ui->notify(host, &messageView);
     }
 
+    /// ---------- 变量 (musicxx.vars) ----------
+    ///
+    /// 三条读法按需要选一条：
+    /// - `varsGet` 异步、权威（宿主向属主取一次真实值，结果经 [PluginxxOperatorNotify]
+    ///   回来 —— **不要在回调里等结果**，宿主线程上的就地等待等于死锁）；
+    /// - `varsPeek` 同步读缓存（可能旧，返回里带 revision/ageMs/stale）；
+    /// - 订阅变动：调 `varsSubscribe` 登记关心，再订阅事件主题
+    ///   `musicxx.var.changed`（载荷里带 key）。
+    ///
+    /// 写：`varsSet` 的返回值是 JSON —— 写自己的变量（或 `declared` 模式）立即结算，
+    /// 转给属主落地时是 `{"pending":true,"requestId":N}`，最终结果经事件
+    /// `musicxx.var.writeResult` 送达。
+    ///
+    /// 注册：`mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER` 时属主自己收
+    /// `musicxx.var.read` / `musicxx.var.write` 两个事件，用 `varsRespond` 回答。
+
+    /// 注册/覆盖一个变量（key 可写短名，宿主自动补 `plugin.<本插件id>.` 前缀）
+    int32_t varsRegister(const MusicxxPluginVarSpec& spec) {
+        if (!iface.vars || !iface.vars->register_var) {
+            return -1;
+        }
+        return iface.vars->register_var(host, &spec);
+    }
+
+    /// 注销自己的变量
+    int32_t varsUnregister(const char* key) {
+        if (!iface.vars || !iface.vars->unregister_var) {
+            return -1;
+        }
+        PluginxxStringView keyView = pluginxxView(key ? key : "");
+        return iface.vars->unregister_var(host, &keyView);
+    }
+
+    /// 异步读（结果经 notify 回来；同键在途请求由宿主合并）
+    int32_t varsGet(const char* key, const PluginxxOperatorNotify* notify,
+                    int64_t* outRequestId = nullptr) {
+        if (!iface.vars || !iface.vars->get) {
+            return -1;
+        }
+        PluginxxStringView keyView = pluginxxView(key ? key : "");
+        return iface.vars->get(host, &keyView, notify, outRequestId);
+    }
+
+    /// 同步读缓存（没有缓存过返回 -4；不保证最新）
+    std::string varsPeek(const char* key) const {
+        return readVarsString(&MusicxxPluginVarsIface::peek, key);
+    }
+
+    /// 保活缓存（订阅但不回调；需要 notify 能力位）
+    int32_t varsWatch(const char* keysJson) {
+        return writeVarsCount(&MusicxxPluginVarsIface::watch, keysJson);
+    }
+    int32_t varsUnwatch(const char* keysJson) {
+        return writeVarsCount(&MusicxxPluginVarsIface::unwatch, keysJson);
+    }
+
+    /// 写（自己的变量 = 提交；官方键与 handler 变量转给属主落地）
+    std::string varsSet(const char* key, const char* valueJson) {
+        if (!iface.vars || !iface.vars->set) {
+            return {};
+        }
+        PluginxxStringView keyView = pluginxxView(key ? key : "");
+        PluginxxStringView valueView = pluginxxView(valueJson ? valueJson : "null");
+        PluginxxString out{};
+        if (iface.vars->set(host, &keyView, &valueView, &out) != 0 || !out.data) {
+            return {};
+        }
+        std::string result{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return result;
+    }
+
+    /// 列出变量（prefix 可空；值字段是缓存值）
+    std::string varsList(const char* prefix = nullptr) const {
+        return readVarsString(&MusicxxPluginVarsIface::list, prefix);
+    }
+
+    /// 声明信息 + 缓存状态
+    std::string varsInfo(const char* key) const {
+        return readVarsString(&MusicxxPluginVarsIface::info, key);
+    }
+
+    /// 订阅/退订变更通知（keys_json 是字符串数组；订阅后事件走 `musicxx.var.changed`）
+    int32_t varsSubscribe(const char* keysJson) {
+        return writeVarsCount(&MusicxxPluginVarsIface::subscribe, keysJson);
+    }
+    int32_t varsUnsubscribe(const char* keysJson) {
+        return writeVarsCount(&MusicxxPluginVarsIface::unsubscribe, keysJson);
+    }
+
+    /// handler 属主回答一次被转过来的请求（ok = 0 表示拒绝，原因写 error）
+    std::string varsRespond(int64_t requestId, bool ok, const char* valueJson,
+                            const char* error = nullptr) {
+        if (!iface.vars || !iface.vars->respond) {
+            return {};
+        }
+        PluginxxStringView valueView = pluginxxView(valueJson ? valueJson : "null");
+        PluginxxStringView errorView = pluginxxView(error ? error : "");
+        PluginxxString out{};
+        if (iface.vars->respond(host, requestId, ok ? 1 : 0, &valueView, &errorView,
+                                &out) != 0 || !out.data) {
+            return {};
+        }
+        std::string result{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return result;
+    }
+
     /// 用宿主堆把字符串写进跨边界出参 (插件必须用宿主的分配器, 不得用 CRT malloc)
     static void hostStringSet(const PluginxxHost* host, PluginxxString* out, std::string_view text) {
         if (!out) {
@@ -278,6 +391,39 @@ public:
         }
         s.data = nullptr;
         s.size = 0;
+    }
+
+    /// 变量接口里"输入一个字符串、输出一段 JSON"的那些入口 (peek/info/list)
+    using VarsStringFn = int32_t (PLUGINXX_CALL* MusicxxPluginVarsIface::*)(
+        const PluginxxHost*, const PluginxxStringView*, PluginxxString*);
+    /// 变量接口里"输入一组键、输出条数"的那些入口 (watch/unwatch/subscribe/unsubscribe)
+    using VarsCountFn = int32_t (PLUGINXX_CALL* MusicxxPluginVarsIface::*)(
+        const PluginxxHost*, const PluginxxStringView*, int32_t*);
+
+    /// 调一个变量接口的 JSON 出参入口 (表不可用或失败返回空串)
+    std::string readVarsString(VarsStringFn fn, const char* text) const {
+        if (!iface.vars || !fn) {
+            return {};
+        }
+        PluginxxStringView view = pluginxxView(text ? text : "");
+        PluginxxString     out{};
+        if ((iface.vars->*fn)(host, &view, &out) != 0 || !out.data) {
+            return {};
+        }
+        std::string result{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return result;
+    }
+
+    /// 调一个变量接口的计数入口 (表不可用返回 -1; 失败返回错误码)
+    int32_t writeVarsCount(VarsCountFn fn, const char* keysJson) {
+        if (!iface.vars || !fn) {
+            return -1;
+        }
+        PluginxxStringView view = pluginxxView(keysJson ? keysJson : "[]");
+        int32_t            count = 0;
+        const int32_t      rc    = (iface.vars->*fn)(host, &view, &count);
+        return rc == 0 ? count : rc;
     }
 
 protected:

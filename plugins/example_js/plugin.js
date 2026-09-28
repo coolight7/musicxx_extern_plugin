@@ -348,10 +348,44 @@ musicxx.capability.register("cycleHeartbeat", function (args) {
     return { view: settingsView(args, { heartbeatMs: next }) };
 });
 
+/// 变量通道 (musicxx.vars)
+///
+/// 变量 = 有属主、可读、可写、可订阅变动的小值。这里演示两件事:
+/// 1. 注册自己的变量 (declared 模式: 值由宿主代存, set 即提交);
+/// 2. 绑定官方变量 (用户改设置时同步自己的行为) 与异步读一次 (权威值)。
+musicxx.vars.register({
+    key: "demo.greeting",
+    caps: ["get", "set", "notify"],
+    type: "string",
+    value: "",
+    title: "示例问候语",
+    depict: "演示用: 别的插件与应用都能读写它"
+});
+
+/// 官方变量变化 (bind): 用户改动画等级时会被叫到
+let animatedLevelChanges = 0;
+let lastAnimatedLevel = "";
+musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
+    ++animatedLevelChanges;
+    lastAnimatedLevel = String(value);
+    musicxx.host.log(2, "动画等级变成 " + value + " (by=" + (info.by || "应用") + ")");
+});
+
+/// 异步、权威读一次 (启动时读就好); 结果留给 probe 展示
+let readAnimatedLevel = "(读取中)";
+musicxx.vars.get("musicxx.ui.animatedLevel").then(function (value) {
+    readAnimatedLevel = String(value);
+    return null;
+}, function (e) {
+    readAnimatedLevel = "error:" + ((e && e.message) ? e.message : String(e));
+    return null;
+});
+
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
     const ui = (info && typeof info.ui === "object" && info.ui !== null) ? info.ui : null;
+    const greetingPeek = musicxx.vars.peek("demo.greeting");
     return {
         pluginId: musicxx.pluginId,
         hookCount: 4,
@@ -374,6 +408,13 @@ musicxx.capability.register("probe", function (args) {
         // 配置读取 (config.json; 默认值由脚本在 getConfig 里给)
         configSkipAds: musicxx.storage.configCache.skipAds,
         configGreeting: musicxx.storage.configCache.greeting,
+        // 变量: 自己注册的条数 / 官方变量的变化次数与最新值 / 异步读到值 / 自己变量的缓存值
+        varOwn: musicxx.vars.own().length,
+        animatedLevelChanges: animatedLevelChanges,
+        lastAnimatedLevel: lastAnimatedLevel,
+        readAnimatedLevel: readAnimatedLevel,
+        greetingPeek: (greetingPeek && greetingPeek.value !== undefined) ? greetingPeek.value : null,
+        greetingSubscribers: musicxx.vars.subscribers("demo.greeting"),
     };
 });
 
