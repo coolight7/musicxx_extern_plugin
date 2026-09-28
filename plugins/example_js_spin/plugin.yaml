@@ -1,0 +1,16 @@
+# 对照示例（JS 插件）：观察型钩子的处理器里死循环
+#
+# 它演示的是宿主**可选**的执行上限（`jsExecGuardMs`，默认关闭）：开启之后死循环会被
+# QuickJS 中断，共享 JS 线程不会被永久占住，其它 JS 插件照常工作。
+# 顶层注册是同步且快速的（不阻塞装载），死循环只发生在钩子被触发之后。
+name: example_js_spin
+kind: js
+entry: plugin.js
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "对照示例: 观察钩子里死循环, 演示可选执行上限 (jsExecGuardMs) 中断超长脚本"
+platforms: [windows, linux, macos, android, ios]
+
+permissions: []

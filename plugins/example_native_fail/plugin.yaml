@@ -1,0 +1,15 @@
+# 对照示例（动态库插件）：钩子处理器总是失败
+#
+# 它演示宿主的「暂停派发」：某个处理器连续失败 3 次后，宿主只暂停这一个处理器
+# （60 秒），同一插件的其它处理器照常被调用，插件本身也不会被卸载。
+# 因为它的行为就是「一直失败」，只用于演示与原生测试。
+name: example_native_fail
+# entry 按 Linux 书写（Windows/macOS 下由内核修正扩展名）
+entry: example_native_fail.so
+kind: native
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "对照示例: 总是失败的钩子处理器, 演示'连续失败只暂停该处理器、插件不被卸载'"
+platforms: [windows, linux, macos]
+permissions: []

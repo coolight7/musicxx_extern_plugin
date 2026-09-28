@@ -10,6 +10,7 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 播放页背景（shader bundle 打包与 uniform 契约） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | C++ 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
+| 单点示例（多脚本装载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
 
 ---
 
@@ -708,7 +709,9 @@ musicxx.util.now();                   // Date.now()
 | `musicxx.net.fetch` | 走宿主网络栈的请求 |
 | `musicxx.stats.reportMetric` | 自报指标（只展示） |
 
-只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）。
+只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）；
+只关心某一个特性时读对应的单点示例：`plugins/example_js_vars/`（变量通道）、
+`plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、`plugins/example_js_async/`（裁决处理器返回 Promise）。
 
 ---
 

@@ -1,0 +1,16 @@
+# 对照示例（JS 插件）：脚本里有语法错误
+#
+# 它演示的是「插件脚本写坏了会怎样」：QuickJS 在求值阶段就抛异常 → `start` 事务失败 →
+# 宿主回滚这个插件的注册内容并继续可用（其它插件不受影响）。
+# 故意不能正常装载，只用于演示与原生测试。
+name: example_js_broken
+kind: js
+entry: plugin.js
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "对照示例: 脚本语法错误, 演示装载失败与回滚 (脚本本身坏了, 装载一定失败)"
+platforms: [windows, linux, macos, android, ios]
+
+permissions: []

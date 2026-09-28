@@ -36,7 +36,7 @@ src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖�
                      plugin_api.h 是领域约定、plugin_kit.h 是伞头（含内核 kit）、
                      hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
-src/tests/           原生测试（test_host.cpp，不依赖 Dart；`plugins/` 是 JS 夹具、`fixtures/` 是原生夹具插件）
+src/tests/           原生测试（test_host.cpp，不依赖 Dart；被测插件就是 `plugins/` 下的那些 example_*）
 src/third_party/     依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作；插件界面模型来自子模块的
                      pluginxx_ui，经 lib/pluginxx_ui.dart 转发；bindings_generated.dart 与
@@ -46,10 +46,17 @@ js/                  生成的扩展 kit（musicxx_ui_kit.js；工具会把它�
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_test.dart 对真实原生库做
                      端到端验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新装载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
-plugins/            官方插件与示例（每个子目录一个插件，插件 id 取清单 name；见该目录 README）
+plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
+  example_native_fail/       对照示例（C++：处理器总是失败 → 暂停派发）
+  example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝装载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
   example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置）
+  example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
+  example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
+  example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
+  example_js_spin/  对照示例（JS：观察钩子里死循环 → 可选执行上限）
+  example_js_broken/ 对照示例（JS：脚本语法错误 → 装载失败并回滚）
 docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 预算 / 是否已埋点 + 已埋点钩子的载荷与裁决）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
@@ -332,7 +339,9 @@ bundle 里的 `format_version` 必须与目标应用的 Flutter 版本一致（�
 [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md)。
 
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
-`plugins/example_js_shader/`（只演示播放页背景与动画速率）。
+`plugins/example_js_shader/`（只演示播放页背景与动画速率）；另外 `plugins/example_js_vars/`（变量通道）、
+`plugins/example_js_multi_script/`（清单 `scripts` 多脚本），以及下面「对照示例」一组 —— 它们演示宿主在
+插件写坏时的保护行为，写插件前先看一眼可以少踩坑。
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；界面字段见 `docs/plugin-ui.md`。
 
 ## 原生测试
@@ -459,15 +468,16 @@ final List<MusicxxPluginUIItem> next =
   Android 已接入（NDK 交叉编译 + `jniLibs`，见 `android/README.md`）；
   macOS/iOS/OHOS 的平台工程属于后续工作（iOS/OHOS 只跑 JS 插件）。
 
-测试夹具（只服务原生测试，不是可发布插件；随测试一起安装到 `<安装前缀>/plugins/`）：
+对照示例（故意做出问题行为的示例插件：既服务原生测试，也让插件作者看清「写坏了会怎样」。
+它们随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 一起构建，并安装到 `<安装前缀>/plugins/`）：
 
-| 夹具 | 验证点 |
+| 对照示例 | 演示 / 验证点 |
 |---|---|
-| `src/tests/fixtures/fail_native/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（暂停派发，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载 |
-| `src/tests/fixtures/bad_entry_native/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
-| `src/tests/plugins/spin_js/` | 观察钩子里死循环 → 可选执行上限（`jsExecGuardMs`）能中断脚本且不影响其它 JS 插件 |
-| `src/tests/plugins/async_js/` | 裁决处理器返回 Promise → 预算内结算生效、超预算按不裁决且不计失败（`asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`） |
-| `src/tests/plugins/broken_js/` | 脚本语法错误 → 装载失败并回滚，宿主继续可用 |
+| `plugins/example_native_fail/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（暂停派发，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载 |
+| `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
+| `plugins/example_js_spin/` | 观察钩子里死循环 → 可选执行上限（`jsExecGuardMs`）能中断脚本且不影响其它 JS 插件 |
+| `plugins/example_js_async/` | 裁决处理器返回 Promise → 预算内结算生效、超预算按不裁决且不计失败（`asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`） |
+| `plugins/example_js_broken/` | 脚本语法错误 → 装载失败并回滚，宿主继续可用 |
 
 插件侧可用的能力：
 

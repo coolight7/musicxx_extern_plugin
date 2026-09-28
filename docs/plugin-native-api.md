@@ -469,7 +469,9 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
   pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
   ```
 
-  也可以把 fixture 插件（`src/tests/fixtures/`）当成「故意失败」的对照来看宿主怎么保护自己。
+  也可以把「对照示例」一组插件（`plugins/example_js_broken/`、`plugins/example_js_spin/`、
+  `plugins/example_native_fail/`、`plugins/example_native_bad_entry/`）当成「故意失败」的对照，
+  看宿主怎么保护自己。
 
 ---
 

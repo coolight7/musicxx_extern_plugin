@@ -254,4 +254,4 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 | `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 装配 |
 | `plugins/example_js_shader/plugin.js` | 播放页背景样式 + 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 装配内容 |
-| `src/tests/plugins/multi_script_js/` | 清单 `scripts` 多脚本装载：先跑随插件分发的 kit，再跑插件脚本 |
+| `plugins/example_js_multi_script/` | 清单 `scripts` 多脚本装载：先跑随插件分发的 kit，再跑插件脚本 |
