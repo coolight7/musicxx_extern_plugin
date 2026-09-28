@@ -119,6 +119,34 @@ public:
   void bridgeSubscribeHost(const std::string &instanceName,
                            const std::string &topic);
 
+  /// 变量操作 (op = register | unregister | subscribe | unsubscribe | watch | unwatch)
+  ///
+  /// 与 [bridgeUiOp] / [bridgeHookOp] 同一套规则: 脚本顶层调用只先记下来
+  /// (由 [applyRegistrations] 在宿主线程回放), 运行期投递到宿主线程执行 ——
+  /// 否则"顶层注册的变量"永远不存在, 而"运行期注销"只改了 JS 侧的表。
+  void bridgeVarsOp(const std::string &instanceName, const std::string &op,
+                    const std::string &key, const std::string &json);
+
+  /// JS 侧发起异步读 (`musicxx.vars.get`; 任意线程)
+  ///
+  /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onVarGetDone(id, json)` 回到 JS 线程;
+  /// 负数 = 没能发起 (实例不在了/宿主没跑)。
+  int64_t beginVarGet(const std::string &instanceName, const std::string &key);
+
+  /// JS 侧发起写 (`musicxx.vars.set`; 任意线程)
+  ///
+  /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onVarSetDone(id, json)` 回到 JS 线程;
+  /// 如果写请求被转给属主落地, JS 侧还要等 `musicxx.var.writeResult` 事件
+  /// (载荷里的 requestId 就是等待键)。
+  int64_t beginVarSet(const std::string &instanceName, const std::string &key,
+                      const std::string &valueJson);
+
+  /// 同步调用宿主 `musicxx.vars` 表的只读入口 (peek / info / list)
+  ///
+  /// 这些调用只查宿主注册表 (纳秒级), 因此可以直接在 JS 线程上同步做 ——
+  /// 与需要等属主的 `get` 不同。
+  std::string bridgeVarsRead(const std::string &op, const std::string &key);
+
   /// 裁决型钩子的异步结算 (只在 JS 线程调用)
   ///
   /// 裁决处理器返回 Promise 时, 宿主线程仍在 [hookSync] 里按等待预算等待;
@@ -191,6 +219,18 @@ public:
     std::string topic;
   };
 
+  /// 一次"JS 侧发起的变量读/写"的宿主侧登记
+  ///
+  /// `host_ud` 指向它的裸指针会被 `musicxx.vars` 表复制走, 属主回答/落地时经
+  /// [varGetDoneTrampoline] / [varSetDoneTrampoline] 回调; 因此它必须活到那一刻 ——
+  /// 由 [varWaits_] 持有 (实例停用时残余的登记进 [varWaitGraveyard_]).
+  struct VarWait {
+    JsEngine *engine = nullptr;
+    std::string instance; ///< js:<插件id>
+    int64_t id = 0;       ///< JS 侧请求号
+    int32_t kind = 1;     ///< 1 = 读 (get), 2 = 写 (set)
+  };
+
   /// 脚本定时器 (`musicxx.timer.*`)
   struct Timer {
     int64_t id = 0;
@@ -227,8 +267,7 @@ public:
 
     std::vector<std::shared_ptr<HookHandler>> hooks;
     std::vector<std::shared_ptr<CapabilityHandler>> capabilities;
-    std::vector<std::shared_ptr<SubscriptionHolder>> subscriptions;
-    bool registrationsApplied = false;
+    std::vector<std::shared_ptr<SubscriptionHolder>> subscriptions;    bool registrationsApplied = false;
     bool scriptLoaded = false;
 
     /// 运行期注册是否已生效 (脚本顶层登记阶段为 false; JS 线程读, 宿主线程写)
@@ -243,6 +282,14 @@ public:
       int32_t order = 0;
     };
     std::vector<PendingUiOp> pendingUiOps;
+
+    /// 脚本顶层登记的变量操作 (JS 线程写, 宿主线程在回放时取走)
+    struct PendingVarOp {
+      std::string op; ///< register | unregister | subscribe | unsubscribe | watch | unwatch
+      std::string key;
+      std::string json; ///< register 时的声明 (其余操作为 "{}")
+    };
+    std::vector<PendingVarOp> pendingVarOps;
 
     std::atomic<int64_t> jsRuns{0};
     std::atomic<int64_t> errors{0};
@@ -300,6 +347,13 @@ public:
   static void PLUGINXX_CALL eventTrampoline(const PluginxxStringView *eventJson,
                                             void *userData);
 
+  /// 变量等待的完成回调 (宿主线程调用; 只投递到 JS 线程, 不等待)
+  ///
+  /// `ud` 指向 [VarWait] (由 [varWaits_] 持有一份 shared_ptr)。回调里先把需要的
+  /// 字段拷出来再用, 因为结算之后登记就会被释放。
+  static void PLUGINXX_CALL varWaitDoneTrampoline(
+      void *ud, int32_t status, const PluginxxStringView *payload);
+
   /* ---------- InternalActionRelay (任意线程) ---------- */
 
   bool respondAction(int64_t requestId, int32_t status,
@@ -342,6 +396,25 @@ private:
   /// 取回脚本登记的 UI 项操作 (宿主线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingUiOp>
   takePendingUiOps(const std::shared_ptr<Instance> &inst);
+
+  /// 取回脚本登记的变量操作 (宿主线程; 回放后清空实例上的缓存)
+  std::vector<Instance::PendingVarOp>
+  takePendingVarOps(const std::shared_ptr<Instance> &inst);
+
+  /// 在宿主线程上落地一次变量操作 (register/unregister/subscribe/unwatch/watch)
+  int32_t applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
+                           const std::string &op, const std::string &key,
+                           const std::string &json);
+
+  /// 把变量等待结果交给 JS 线程 (任意线程; 投递后立即返回)
+  void postVarWaitResult(const std::string &instanceName, int64_t waitId,
+                         const std::string &callback, const std::string &json);
+
+  /// 释放一个变量等待登记 (JS 线程或宿主线程)
+  void finishVarWait(int64_t waitId);
+
+  /// 实例停用时清掉它的变量等待登记 (残余的进 [varWaitGraveyard_])
+  void clearVarWaitsOf(const std::string &instanceName);
 
   int32_t startThread(std::string &err);
   void runLoop();
@@ -400,6 +473,16 @@ private:
 
   /// 跨插件能力调用的回执 id 计数器 (任意线程)
   std::atomic<int64_t> nextCapabilityCallId_{1};
+
+  /// JS 侧的变量请求登记 (key = JS 侧请求号; 任意线程读写)
+  std::map<int64_t, std::shared_ptr<VarWait>> varWaits_;
+  /// 保护 [varWaits_] / [varWaitGraveyard_]
+  mutable std::mutex varWaitMutex_;
+  /// 实例停用时还没结算的登记 (不能直接释放: 属主的回答可能已经在路上, 回调
+  /// 仍会带着这个指针进来)。只在异常路径上积累, 随引擎一起销毁。
+  std::vector<std::shared_ptr<VarWait>> varWaitGraveyard_;
+  /// JS 侧变量请求号计数器 (任意线程)
+  std::atomic<int64_t> nextVarWaitId_{1};
 
   mutable std::mutex mutex_;
   std::condition_variable cv_;

@@ -524,6 +524,162 @@ void main() {
     expect(stats['host'], isA<Map<String, Object?>>());
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('变量通道：声明/读/写/订阅（对真实原生库）', () async {
+    if (env == null) {
+      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
+      return;
+    }
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+    addTearDown(runtime.dispose);
+
+    // 应用侧"官方键的真值"（真值在应用这里，宿主只留一份服务 peek 的缓存）
+    Object? officialValue = 'v0';
+
+    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen((
+      MusicxxPluginEvent e,
+    ) {
+      switch (e.type) {
+        case MusicxxPluginEventType.varRead:
+          // 插件发起异步读 → 应用回答（本地的直接问实现，权威且立刻可得）
+          runtime.vars.readResult(
+            e.intOf('requestId') ?? -1,
+            ok: true,
+            value: officialValue,
+          );
+        case MusicxxPluginEventType.varWrite:
+          // 插件发起写 → 应用落地（回执即落地）后回执
+          officialValue = e.payload['value'];
+          runtime.vars.writeResult(
+            e.intOf('requestId') ?? -1,
+            accepted: true,
+            value: officialValue,
+          );
+      }
+    });
+    addTearDown(sub.cancel);
+
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: env.pluginRoot,
+      ),
+      libraryPath: env.libraryPath,
+    );
+
+    // 旧宿主库诊断：本次构建必须带变量位
+    expect(runtime.featureBits, isNotNull);
+    expect(runtime.missingFeatures, isEmpty, reason: runtime.featureHint);
+
+    // 1) 声明官方键（必须赶在装载插件之前：脚本顶层就要能读到）
+    expect(
+      runtime.vars.declare(<MusicxxPluginVarDeclare>[
+        const MusicxxPluginVarDeclare(
+          key: 'musicxx.test.bound',
+          caps: <String>['get', 'set', 'notify'],
+          type: 'string',
+          options: <String>['v0', 'v1', 'v2'],
+          hasValue: true,
+          value: 'v0',
+          title: '绑定测试值',
+          risk: 'low',
+        ),
+      ]),
+      isTrue,
+    );
+
+    // 2) 装载夹具（顶层登记自己的变量 + 订阅官方键）
+    runtime.plugins.load('vars_js');
+
+    Map<String, Object?> probe() {
+      final Object? raw = runtime.plugins.call('vars_js', 'probe');
+      return raw is Map
+          ? raw.cast<String, Object?>()
+          : <String, Object?>{};
+    }
+
+    // 3) 插件变量进了变量表，声明字段如实
+    final List<Map<String, Object?>> own = runtime.vars.list(
+      prefix: 'plugin.vars_js',
+    );
+    final List<Object?> ownKeys = own
+        .map((Map<String, Object?> e) => e['key'])
+        .toList();
+    expect(ownKeys, contains('plugin.vars_js.tip.start'));
+    expect(ownKeys, contains('plugin.vars_js.stats.reads'));
+    final Map<String, Object?> tip = own.firstWhere(
+      (Map<String, Object?> e) => e['key'] == 'plugin.vars_js.tip.start',
+    );
+    expect(tip['owner'], 'vars_js');
+    expect(tip['caps'], <Object?>['get', 'set', 'notify']);
+    expect(tip['type'], 'bool');
+    // 声明了初值 → 同步读缓存里就有值（declared 模式由宿主代存）
+    final Map<String, Object?> peeked =
+        (probe()['tipPeek'] as Map<Object?, Object?>?)?.cast<String, Object?>() ??
+        <String, Object?>{};
+    expect(peeked['value'], false);
+
+    // 4) 应用推值 → 订阅了该键的插件收到通知（bind 回调）
+    officialValue = 'v1';
+    expect(runtime.vars.update('musicxx.test.bound', 'v1'), isTrue);
+    // 同一个值再推一次: 包层就不发了（去重）
+    expect(runtime.vars.update('musicxx.test.bound', 'v1'), isFalse);
+    await _pumpUntil(() => _intOf(probe()['changes']) >= 1);
+    expect(_intOf(probe()['changes']), greaterThanOrEqualTo(1));
+    final Map<String, Object?> lastChange =
+        (probe()['lastChange'] as Map<Object?, Object?>?)
+            ?.cast<String, Object?>() ??
+        <String, Object?>{};
+    expect(lastChange['value'], 'v1');
+    expect(lastChange['by'], ''); // 写入方是应用（不是插件）
+
+    // 5) 插件异步读官方键（宿主向应用取一次真实值）
+    runtime.plugins.call('vars_js', 'triggerRead', <String, Object?>{
+      'key': 'musicxx.test.bound',
+    });
+    await _pumpUntil(() => probe()['readValue'] != null);
+    expect(probe()['readValue'], 'v1', reason: '异步读应当拿到应用侧的真值');
+
+    // 6) 插件异步写官方键（应用落地后才算数）
+    runtime.plugins.call('vars_js', 'triggerWrite', <String, Object?>{
+      'key': 'musicxx.test.bound',
+      'value': 'v2',
+    });
+    await _pumpUntil(() => probe()['writeResult'] != null);
+    final Map<String, Object?> writeResult =
+        (probe()['writeResult'] as Map<Object?, Object?>?)
+            ?.cast<String, Object?>() ??
+        <String, Object?>{};
+    expect(writeResult['accepted'], isTrue);
+    expect(writeResult['value'], 'v2');
+    expect(officialValue, 'v2', reason: '写入由应用落地');
+    // 写成功后值真的变了 → 订阅者再收到一条通知
+    await _pumpUntil(() => _intOf(probe()['changes']) >= 2);
+
+    // 7) 应用读/写插件键（declared 模式立即结算）
+    expect(runtime.vars.get('plugin.vars_js.tip.start'), false);
+    final Map<String, Object?> setResult =
+        runtime.vars.set('plugin.vars_js.tip.start', true) ??
+        <String, Object?>{};
+    expect(setResult['accepted'], isTrue);
+    expect(setResult['changed'], isTrue);
+    expect(runtime.vars.get('plugin.vars_js.tip.start'), true);
+
+    // 8) 不存在的键: 读/写都要明确失败（而不是静默成功）
+    expect(runtime.vars.get('plugin.vars_js.nope'), isNull);
+    expect(runtime.vars.set('plugin.vars_js.nope', 1), isNull);
+
+    // 9) 卸载后变量随实例摘除
+    expect(
+      runtime.vars.list(prefix: 'plugin.vars_js').isNotEmpty,
+      isTrue,
+      reason: '卸载前应当能看到插件变量',
+    );
+    runtime.plugins.unload('vars_js');
+    expect(runtime.vars.list(prefix: 'plugin.vars_js'), isEmpty);
+  });
+
   test('库缺失时抛出可诊断异常', () {
     expect(
       () => MusicxxPluginNativeLibrary.open(
@@ -571,6 +727,9 @@ class _Environment {
     return null;
   }
 }
+
+/// 取一个数值字段（缺省或类型不符时按 0 处理；读插件的探针结果用）
+int _intOf(Object? value) => value is num ? value.toInt() : 0;
 
 /// 等待条件成立（最多 5 秒；每 20 ms 泵一次事件并让出事件循环）
 Future<void> _pumpUntil(

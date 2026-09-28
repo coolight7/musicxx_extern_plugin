@@ -12,6 +12,7 @@ import 'manager.dart';
 import 'native_library.dart';
 import 'native_strings.dart';
 import 'state_mirror.dart';
+import 'vars.dart';
 
 /// 宿主配置（对应 C ABI `MusicxxExternPluginHostConfig`）
 class MusicxxPluginRuntimeConfig {
@@ -155,6 +156,9 @@ class MusicxxPluginRuntime {
   late final MusicxxPluginState state = MusicxxPluginState.internal(this);
   late final MusicxxPluginActions actions = MusicxxPluginActions.internal(this);
 
+  /// 变量通道（`musicxx.vars`；官方键的真值在应用侧，见 [MusicxxPluginVars]）
+  late final MusicxxPluginVars vars = MusicxxPluginVars.internal(this);
+
   /// 原生 → Dart 唤醒回调
   ///
   /// 说明：`NativeCallable.listener` 只支持 void 返回，而 C ABI 的回调签名是
@@ -186,6 +190,44 @@ class MusicxxPluginRuntime {
 
   /// 原生库诊断信息（路径/库版本）
   String get libraryPath => _library?.path ?? '(未加载)';
+
+  /// 宿主能力位图（老宿主库上没有 `feature_bits` 这个符号时为空）
+  int? get featureBits => _library?.featureBits;
+
+  /// 宿主库缺少的能力（Dart 侧已有这些 API、加载到的老库里还没有）
+  ///
+  /// 非空表示**加载到的宿主库是旧构建的产物**：对应的 FFI 调用会以
+  /// `undefined symbol` 失败。用 [featureHint] 给出可执行的下一步。
+  List<String> get missingFeatures {
+    final int? bits = featureBits;
+    if (bits == null) {
+      return const <String>['feature_bits(宿主库过旧)'];
+    }
+    final List<String> missing = <String>[];
+    const List<(String, int)> known = <(String, int)>[
+      ('hooks', 0x1),
+      ('state', 0x2),
+      ('events', 0x4),
+      ('ui', 0x8),
+      ('vars', 0x10),
+    ];
+    for (final (String name, int bit) in known) {
+      if (bits & bit == 0) {
+        missing.add(name);
+      }
+    }
+    return missing;
+  }
+
+  /// 宿主库过旧时的下一步提示（空串 = 能力齐全）
+  String get featureHint {
+    final List<String> missing = missingFeatures;
+    if (missing.isEmpty) {
+      return '';
+    }
+    return '宿主库缺少能力: ${missing.join(', ')}；'
+        '请重新构建宿主库（pwsh tools/build_native.ps1，Linux/macOS 用 tools/build_native.sh）';
+  }
 
   /// 初始化宿主（幂等：重复调用直接返回）
   ///

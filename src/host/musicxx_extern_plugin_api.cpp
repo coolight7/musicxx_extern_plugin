@@ -698,6 +698,239 @@ musicxx_extern_plugin_state_update_batch(
   return rc;
 }
 
+/* ==================== 变量表 (第五条通道) ==================== */
+
+int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_feature_bits(void) {
+  return MUSICXX_EXTERN_PLUGIN_FEATURE_HOOKS |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_STATE |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_UI |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_VARS;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_declare(MusicxxExternPluginHost *h,
+                                  const MusicxxExternPluginStringView *items_json,
+                                  MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !items_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string items = viewToStd(items_json);
+  std::string message;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->declareVars(items, message);
+  });
+  if (!message.empty()) {
+    setErr(log, message);
+  }
+  return rc;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_update(MusicxxExternPluginHost *h,
+                                 const MusicxxExternPluginStringView *key,
+                                 const MusicxxExternPluginStringView *value_json,
+                                 MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !key || !key->data || !value_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string keyText = viewToStd(key);
+  const std::string value = viewToStd(value_json);
+  std::string err;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->updateVar(keyText, value, err);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, err.empty() ? "var_update failed" : err);
+  }
+  return rc;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_update_batch(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *items_json,
+    MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !items_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string items = viewToStd(items_json);
+  std::string err;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->updateVarsBatch(items, err);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, err.empty() ? "var_update_batch failed" : err);
+  }
+  return rc;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_write_result(
+    MusicxxExternPluginHost *h, int64_t request_id, int32_t accepted,
+    const MusicxxExternPluginStringView *value_json,
+    const MusicxxExternPluginStringView *error, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string value = value_json ? viewToStd(value_json) : std::string{};
+  const std::string reason = error ? viewToStd(error) : std::string{};
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->varWriteResult(request_id, accepted, value, reason);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, "var_write_result: 找不到对应的写请求 (可能已超时结算)");
+  }
+  return rc;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_read_result(
+    MusicxxExternPluginHost *h, int64_t request_id, int32_t ok,
+    const MusicxxExternPluginStringView *value_json,
+    const MusicxxExternPluginStringView *error, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string value = value_json ? viewToStd(value_json) : std::string{};
+  const std::string reason = error ? viewToStd(error) : std::string{};
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->varReadResult(request_id, ok, value, reason);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, "var_read_result: 找不到对应的读请求 (可能已超时结算)");
+  }
+  return rc;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_get(MusicxxExternPluginHost *h,
+                              const MusicxxExternPluginStringView *key,
+                              MusicxxExternPluginString *out_json,
+                              MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !key || !key->data || !out_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string keyText = viewToStd(key);
+  // 属主可能是插件 (declared 立即回, handler 要等属主), 因此用有界等待槽:
+  // C ABI 线程等结果, 宿主线程不等任何人
+  auto slot = std::make_shared<musicxx::extern_plugin::WaitSlot<std::string>>();
+  std::string err;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->getVarForApp(keyText, err, slot);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, err.empty() ? ("var_get failed: " + keyText) : err);
+    return rc;
+  }
+  std::string payload;
+  if (!slot->wait(2500, payload)) {
+    setErr(log, "var_get: 属主未在预算内回答 (" + keyText + ")");
+    return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+  }
+  setOut(out_json, payload);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_set(MusicxxExternPluginHost *h,
+                              const MusicxxExternPluginStringView *key,
+                              const MusicxxExternPluginStringView *value_json,
+                              MusicxxExternPluginString *out_json,
+                              MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !key || !key->data || !value_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string keyText = viewToStd(key);
+  const std::string value = viewToStd(value_json);
+  auto slot = std::make_shared<musicxx::extern_plugin::WaitSlot<std::string>>();
+  std::string immediate;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->setVarForApp(keyText, value, immediate, slot);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, immediate.empty() ? ("var_set failed: " + keyText) : immediate);
+    return rc;
+  }
+  if (!immediate.empty()) {
+    setOut(out_json, immediate); ///< 立即结算 (declared 模式)
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  std::string payload;
+  if (!slot->wait(3500, payload)) {
+    setErr(log, "var_set: 属主未在预算内落地 (" + keyText + ")");
+    return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+  }
+  setOut(out_json, payload);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_list(MusicxxExternPluginHost *h,
+                               const MusicxxExternPluginStringView *prefix,
+                               MusicxxExternPluginString *out_json,
+                               MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !out_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string head = prefix ? viewToStd(prefix) : std::string{};
+  std::string json;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->listVars(head, json);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, "var_list failed");
+    return rc;
+  }
+  setOut(out_json, json);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_subscribe(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *keys_json,
+    MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !keys_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string keys = viewToStd(keys_json);
+  std::string err;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->subscribeVarsForApp(keys, true, err);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, err.empty() ? "var_subscribe failed" : err);
+  }
+  return rc;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_var_unsubscribe(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *keys_json,
+    MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !keys_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const std::string keys = viewToStd(keys_json);
+  std::string err;
+  const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->subscribeVarsForApp(keys, false, err);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, err.empty() ? "var_unsubscribe failed" : err);
+  }
+  return rc;
+}
+
 /* ==================== UI / 日志 / 调试 / 统计 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

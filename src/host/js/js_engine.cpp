@@ -57,6 +57,30 @@ constexpr const char *kHookPendingMarker = "~pending~";
 /// 编译期是否包含 QuickJS
 constexpr bool kJsCompiled = MUSICXX_EXTERN_PLUGIN_HAS_JS != 0;
 
+/// 变量接口返回码 → 面向插件作者的原因文本 (JS 侧会把它包进异常)
+const char *varErrorText(int32_t rc) {
+  switch (rc) {
+    case MUSICXX_EXTERN_PLUGIN_ERR_ARG:
+      return "参数非法 (键名/值超限)";
+    case MUSICXX_EXTERN_PLUGIN_ERR_STATE:
+      return "宿主未启动或未回执的请求过多";
+    case MUSICXX_EXTERN_PLUGIN_ERR_JSON:
+      return "值不是合法 JSON";
+    case MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND:
+      return "变量不存在 (官方键要先由应用声明)";
+    case MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT:
+      return "属主没有在预算内回答";
+    case MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION:
+      return "命名空间不属于本插件, 或没有写权限";
+    case MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL:
+      return "超出容量上限";
+    case MUSICXX_PLUGIN_VAR_ERR_UNSUPPORTED:
+      return "该变量没有声明对应能力 (读只写变量 / 写只读变量)";
+    default:
+      return "变量操作失败";
+  }
+}
+
 int64_t nowSteadyMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::steady_clock::now().time_since_epoch())
@@ -287,6 +311,333 @@ constexpr const char *kPrelude = R"JS(
     configPath: function () { return ext.configPath(); }
   };
 
+  /* ---- 变量 (第五条通道: 有属主、可读、可写、可订阅变动的小值) ----
+   *
+   * 三条读法按需要选一条:
+   *   await get(key)  异步、权威 (宿主向属主取一次真实值);
+   *   peek(key)       同步、读缓存 (可能旧, 返回里带 revision/ageMs/stale);
+   *   bind(key, fn)   订阅变动 (由宿主推送)。
+   *
+   * 键: 官方 `musicxx.<域>.<名>` 直接写全名; 自己的变量写短名 (如 `tip.start`),
+   * 宿主自动补 `plugin.<本插件id>.` 前缀。
+   */
+  var varsTable = new Map();     // 本插件注册的变量 (短名 → 声明)
+  var varBindTable = new Map();  // 键 → [回调]
+  var varWatchSet = new Set();   // watch 保活的键
+  var varGetWaiters = new Map(); // JS 侧请求号 → {resolve, reject, timer}
+  var varSetWaiters = new Map();
+  var varTopicsReady = { changed: false, result: false };
+
+  function varShortKey(key) {
+    var text = String(key);
+    var prefix = "plugin." + musicxx.pluginId + ".";
+    return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
+  }
+  function varFullKey(key) {
+    assertName(key, "vars: 键");
+    var text = String(key);
+    if (text.indexOf("musicxx.") === 0 || text.indexOf("plugin.") === 0) { return text; }
+    return "plugin." + musicxx.pluginId + "." + text;
+  }
+  /// 变更通知与写结果都走事件总线: 各订阅一次就够 (宿主按 key 过滤交给 JS 侧)
+  ///
+  /// 注意: 必须同时记进 `subTable` —— 脚本顶层调用 `ext.subscribeHost` 会被引擎
+  /// 推迟到"注册回放"阶段执行, 而回放的内容正是 `collectRegistrations` 从
+  /// `subTable` 里取的; 只调原语不记账的话, 顶层绑定会静默地收不到任何事件。
+  function ensureVarTopics() {
+    if (!varTopicsReady.changed) {
+      varTopicsReady.changed = true;
+      if (!subTable.has("musicxx.var.changed")) {
+        subTable.set("musicxx.var.changed", function () {});
+      }
+      ext.subscribeHost("musicxx.var.changed");
+    }
+    if (!varTopicsReady.result) {
+      varTopicsReady.result = true;
+      if (!subTable.has("musicxx.var.writeResult")) {
+        subTable.set("musicxx.var.writeResult", function () {});
+      }
+      ext.subscribeHost("musicxx.var.writeResult");
+    }
+  }
+  function varNormalizeCaps(value) {
+    if (value === undefined || value === null) { return ["get"]; }
+    var list = Array.isArray(value) ? value : [value];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var item = String(list[i]);
+      if (item !== "get" && item !== "set" && item !== "notify") {
+        throw new Error("vars.register: 未知能力位 " + item);
+      }
+      if (out.indexOf(item) < 0) { out.push(item); }
+    }
+    if (out.length === 0) { throw new Error("vars.register: caps 不能为空"); }
+    return out;
+  }
+
+
+  musicxx.vars = {
+    /// 注册/覆盖一个变量; 返回 true (失败抛错, 原因写在异常里)
+    register: function (spec) {
+      if (!spec || typeof spec !== "object") {
+        throw new Error("vars.register: 需要对象参数");
+      }
+      var key = varShortKey(spec.key === undefined ? "" : spec.key);
+      assertName(key, "vars.register: key");
+      var declare = {
+        key: key,
+        caps: varNormalizeCaps(spec.caps),
+        mode: spec.mode === "handler" ? "handler" : "declared",
+        write: spec.write === "owner" ? "owner" : "any",
+        type: typeof spec.type === "string" ? spec.type : "",
+        hasValue: spec.value !== undefined,
+        value: spec.value === undefined ? null : spec.value,
+        title: typeof spec.title === "string" ? spec.title : "",
+        depict: typeof spec.depict === "string" ? spec.depict : "",
+        options: Array.isArray(spec.options) ? spec.options : [],
+        throttleMs: Number.isFinite(spec.throttleMs) ? Math.trunc(spec.throttleMs) : 0,
+        notifyThrottleMs: Number.isFinite(spec.notifyThrottleMs) ? Math.trunc(spec.notifyThrottleMs) : 0,
+        refreshAfterMs: Number.isFinite(spec.refreshAfterMs) ? Math.trunc(spec.refreshAfterMs) : 0
+      };
+      varsTable.set(key, declare);
+      ext.varsOp("register", key, safeJson(declare));
+      return true;
+    },
+    unregister: function (key) {
+      var short = varShortKey(key);
+      varsTable.delete(short);
+      ext.varsOp("unregister", short, "{}");
+      return true;
+    },
+    /// 变量是否登记过 (读注册表, 不读值)
+    has: function (key) {
+      if (varsTable.has(varShortKey(key))) { return true; }
+      var text = ext.varsRead("info", varFullKey(key));
+      return !!text;
+    },
+    /// 异步、权威读: 宿主向属主取一次真实值 (顺手刷新 peek 缓存)
+    get: function (key, options) {
+      var full = varFullKey(key);
+      var budget = (options && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0)
+        ? Math.trunc(options.timeoutMs) : 2000;
+      var control = null;
+      try { control = JSON.parse(ext.varsGet(full) || "null"); }
+      catch (e) { control = null; }
+      if (!control || control.status !== "pending") {
+        var reason = (control && control.error) ? control.error : "vars_get_failed";
+        return Promise.reject(new Error("读取变量失败: " + full + " (" + reason + ")"));
+      }
+      return new Promise(function (resolve, reject) {
+        var id = String(control.id);
+        var waiter = { resolve: resolve, reject: reject, timer: 0 };
+        // 表用**字符串键**: 宿主回调传进来的 id 是字符串 (数字键会让查找落空)
+        waiter.timer = musicxx.timer.setTimeout(function () {
+          if (varGetWaiters.delete(id)) {
+            reject(new Error("读取超时: " + full));
+          }
+        }, budget + 500);
+        varGetWaiters.set(id, waiter);
+      });
+    },
+    /// 一次读多个键 (同键在途请求由宿主合并); 单项失败不影响其它项
+    getMany: function (keys, options) {
+      var list = Array.isArray(keys) ? keys : [keys];
+      var result = {};
+      var jobs = [];
+      for (var i = 0; i < list.length; i++) {
+        (function (key) {
+          var name = String(key);
+          jobs.push(musicxx.vars.get(name, options).then(function (value) {
+            result[name] = value;
+            return null;
+          }, function (e) {
+            result[name] = null;
+            return null;
+          }));
+        })(list[i]);
+      }
+      return Promise.all(jobs).then(function () { return result; });
+    },
+    /// 同步读缓存 (不保证最新); 没有缓存过返回 null
+    peek: function (key) {
+      var text = null;
+      try { text = ext.varsRead("peek", varFullKey(key)); } catch (e) { text = null; }
+      if (!text) { return null; }
+      try { return JSON.parse(text); } catch (e) { return null; }
+    },
+    /// 保活缓存 (等价于"订阅但不回调"; 需要 notify 能力位)
+    watch: function (key) {
+      var full = varFullKey(key);
+      varWatchSet.add(full);
+      ensureVarTopics();
+      ext.varsOp("watch", full, "{}");
+      return true;
+    },
+    unwatch: function (key) {
+      var full = varFullKey(key);
+      varWatchSet.delete(full);
+      ext.varsOp("unwatch", full, "{}");
+      return true;
+    },
+    /// 异步写; 结果 {key, accepted, value, changed, error?}
+    set: function (key, value) {
+      var full = varFullKey(key);
+      var control = null;
+      try { control = JSON.parse(ext.varsSet(full, safeJson(value)) || "null"); }
+      catch (e) { control = null; }
+      if (!control || control.status !== "pending") {
+        var reason = (control && control.error) ? control.error : "vars_set_failed";
+        return Promise.reject(new Error("写入变量失败: " + full + " (" + reason + ")"));
+      }
+      return new Promise(function (resolve, reject) {
+        var id = String(control.id);
+        var waiter = { resolve: resolve, reject: reject, timer: 0 };
+        waiter.timer = musicxx.timer.setTimeout(function () {
+          if (varSetWaiters.delete(id)) {
+            reject(new Error("写入未回执: " + full));
+          }
+        }, 6000);
+        varSetWaiters.set(id, waiter);
+      });
+    },
+    /// 绑定变动: fn(value, info); 返回解绑函数
+    bind: function (key, fn) {
+      var full = varFullKey(key);
+      if (typeof fn !== "function") { throw new Error("vars.bind: 缺少回调"); }
+      var list = varBindTable.get(full);
+      var isNew = !list;
+      if (!list) { list = []; varBindTable.set(full, list); }
+      list.push(fn);
+      if (isNew) {
+        ensureVarTopics();
+        ext.varsOp("subscribe", full, "{}");
+      }
+      return function () { musicxx.vars.unbind(full, fn); };
+    },
+    unbind: function (key, fn) {
+      var full = varFullKey(key);
+      var list = varBindTable.get(full);
+      if (!list) { return true; }
+      if (typeof fn === "function") {
+        var index = list.indexOf(fn);
+        if (index >= 0) { list.splice(index, 1); }
+      } else {
+        list.length = 0;
+      }
+      if (list.length === 0) {
+        varBindTable.delete(full);
+        ext.varsOp("unsubscribe", full, "{}");
+      }
+      return true;
+    },
+    /// 声明 + 缓存状态 (key/caps/mode/owner/type/title/value/revision/ageMs/stale/subscribers)
+    info: function (key) {
+      var text = null;
+      try { text = ext.varsRead("info", varFullKey(key)); } catch (e) { text = null; }
+      if (!text) { return null; }
+      try { return JSON.parse(text); } catch (e) { return null; }
+    },
+    /// 列出变量 (prefix 可空); 值字段是缓存值
+    list: function (prefix) {
+      var text = null;
+      try { text = ext.varsRead("list", prefix === undefined ? "" : String(prefix)); }
+      catch (e) { text = null; }
+      if (!text) { return []; }
+      try { return JSON.parse(text); } catch (e) { return []; }
+    },
+    /// 本插件注册的变量声明
+    own: function () {
+      var out = [];
+      varsTable.forEach(function (value, key) { out.push({ key: key, declare: value }); });
+      return out;
+    },
+    /// 关心 (订阅或 watch) 该键的数量: 插件自己判断"还要不要继续高频推"的依据
+    subscribers: function (key) {
+      var info = musicxx.vars.info(key);
+      return info && Number.isFinite(info.subscribers) ? info.subscribers : 0;
+    }
+  };
+
+  /// 异步读的回执 (宿主在 JS 线程上调用)
+  ext.onVarGetDone = function (id, json) {
+    var key = String(id);
+    var waiter = varGetWaiters.get(key);
+    if (!waiter) { return; }
+    varGetWaiters.delete(key);
+    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (info && info.ok === true) {
+      waiter.resolve(info.value === undefined ? null : info.value);
+    } else {
+      waiter.reject(new Error("读取变量失败: " + ((info && info.error) ? info.error : "read_failed")));
+    }
+  };
+
+  /// 写请求的即时回执 (宿主在 JS 线程上调用)
+  /// - 已经在属主那里结算完: 直接给出结果;
+  /// - 转给属主落地: 结果等 `musicxx.var.writeResult` 事件 (键 = requestId)
+  ext.onVarSetDone = function (id, json) {
+    var key = String(id);
+    var waiter = varSetWaiters.get(key);
+    if (!waiter) { return; }
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (!info || info.ok !== true) {
+      varSetWaiters.delete(key);
+      if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
+      waiter.reject(new Error("写入变量失败: " + ((info && info.error) ? info.error : "write_failed")));
+      return;
+    }
+    var result = info.result || {};
+    if (result.pending === true) {
+      // 等属主落地: 换到 writeResult 的等待表里 (键 = 宿主给的 requestId)
+      varSetWaiters.delete(key);
+      varSetWaiters.set(String(result.requestId), waiter);
+      return;
+    }
+    varSetWaiters.delete(key);
+    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
+    waiter.resolve(result);
+  };
+
+  /// 变量变更 (宿主经事件总线送达; 载荷带 key/value/prev/by/revision/ts)
+  function handleVarChanged(json) {
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (!info || typeof info.key !== "string") { return; }
+    var list = varBindTable.get(info.key);
+    if (!list || list.length === 0) { return; }
+    var snapshot = list.slice();
+    for (var i = 0; i < snapshot.length; i++) {
+      try {
+        snapshot[i](info.value, info);
+      } catch (e) {
+        logError("变量回调异常 (" + info.key + "): " + (e && e.message ? e.message : String(e)));
+      }
+    }
+  }
+
+  /// 写结果 (宿主经事件总线送达; 键 = requestId)
+  function handleVarWriteResult(json) {
+    var info = null;
+    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
+    if (!info) { return; }
+    var id = String(info.requestId);
+    var waiter = varSetWaiters.get(id);
+    if (!waiter) { return; }
+    varSetWaiters.delete(id);
+    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
+    if (info.accepted === true) {
+      waiter.resolve(info);
+    } else {
+      waiter.reject(new Error("写入被拒绝: " + (info.error || "rejected")));
+    }
+  }
+
+  ext.onVarChanged = handleVarChanged;
+  ext.onVarWriteResult = handleVarWriteResult;
+
   musicxx.call = function (name, args, timeoutMs) {
     assertName(name, "call: 动作名");
     return new Promise(function (resolve, reject) {
@@ -507,6 +858,9 @@ constexpr const char *kPrelude = R"JS(
     }
   };
   ext.onEvent = function (topic, json) {
+    // 变量通道的内部回调: 变更通知与写结果 (与用户订阅同一主题时两边都会收到)
+    if (topic === "musicxx.var.changed") { handleVarChanged(json); }
+    if (topic === "musicxx.var.writeResult") { handleVarWriteResult(json); }
     var fn = subTable.get(topic);
     if (!fn) { return; }
     var payload = {};
@@ -694,6 +1048,19 @@ constexpr const char *kPrelude = R"JS(
     uiTable.clear();
     timerTable.clear();
     pendingHookWaits.clear();
+    varsTable.clear();
+    varBindTable.clear();
+    varWatchSet.clear();
+    varTopicsReady.changed = false;
+    varTopicsReady.result = false;
+    varGetWaiters.forEach(function (waiter) {
+      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+    });
+    varGetWaiters.clear();
+    varSetWaiters.forEach(function (waiter) {
+      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+    });
+    varSetWaiters.clear();
     actionWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
@@ -989,6 +1356,119 @@ JSValue jsSubscribeHost(JSContext *ctx, JSValueConst, int argc,
   return JS_UNDEFINED;
 }
 
+/// 变量操作 (register | unregister | subscribe | unsubscribe | watch | unwatch)
+JSValue jsVarsOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 2) {
+    return JS_UNDEFINED;
+  }
+  const char *op = JS_ToCString(ctx, argv[0]);
+  const char *key = JS_ToCString(ctx, argv[1]);
+  const char *json = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
+  inst->engine->bridgeVarsOp(inst->name, op ? op : "", key ? key : "",
+                             json ? json : "{}");
+  if (op) {
+    JS_FreeCString(ctx, op);
+  }
+  if (key) {
+    JS_FreeCString(ctx, key);
+  }
+  if (json) {
+    JS_FreeCString(ctx, json);
+  }
+  return JS_UNDEFINED;
+}
+
+/// 异步读的发起 (返回控制对象 JSON; 结果经 ext.onVarGetDone 回到 JS 线程)
+JSValue jsVarsGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 1) {
+    return JS_NewString(ctx, R"({"status":"error","error":"参数非法","code":-1})");
+  }
+  const char *key = JS_ToCString(ctx, argv[0]);
+  const std::string text = key ? key : "";
+  if (key) {
+    JS_FreeCString(ctx, key);
+  }
+  Json out;
+  if (text.empty()) {
+    out["status"] = "error";
+    out["error"] = "键不能为空";
+    out["code"] = -1;
+  } else {
+    const int64_t id = inst->engine->beginVarGet(inst->name, text);
+    if (id < 0) {
+      out["status"] = "error";
+      out["error"] = "宿主未启动或插件实例已停止";
+      out["code"] = -2;
+    } else {
+      out["status"] = "pending";
+      out["id"] = id;
+    }
+  }
+  const std::string json = out.dump();
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 写入的发起 (返回控制对象 JSON; 结果经 ext.onVarSetDone 回到 JS 线程)
+JSValue jsVarsSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 2) {
+    return JS_NewString(ctx, R"({"status":"error","error":"参数非法","code":-1})");
+  }
+  const char *key = JS_ToCString(ctx, argv[0]);
+  const char *value = JS_ToCString(ctx, argv[1]);
+  const std::string keyText = key ? key : "";
+  const std::string valueText = value ? value : "null";
+  if (key) {
+    JS_FreeCString(ctx, key);
+  }
+  if (value) {
+    JS_FreeCString(ctx, value);
+  }
+  Json out;
+  if (keyText.empty()) {
+    out["status"] = "error";
+    out["error"] = "键不能为空";
+    out["code"] = -1;
+  } else {
+    const int64_t id = inst->engine->beginVarSet(inst->name, keyText, valueText);
+    if (id < 0) {
+      out["status"] = "error";
+      out["error"] = "宿主未启动或插件实例已停止";
+      out["code"] = -2;
+    } else {
+      out["status"] = "pending";
+      out["id"] = id;
+    }
+  }
+  const std::string json = out.dump();
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 同步读缓存 (op = peek | info | list)
+///
+/// 读的是宿主维护的**同步镜像** (互斥量保护), 因此不需要投递到宿主线程 ——
+/// JS 线程绝不等宿主线程 (宿主线程可能正等着 JS 处理器)。
+JSValue jsVarsRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 2) {
+    return JS_NewString(ctx, "");
+  }
+  const char *op = JS_ToCString(ctx, argv[0]);
+  const char *key = JS_ToCString(ctx, argv[1]);
+  const std::string opText = op ? op : "";
+  const std::string keyText = key ? key : "";
+  if (op) {
+    JS_FreeCString(ctx, op);
+  }
+  if (key) {
+    JS_FreeCString(ctx, key);
+  }
+  const std::string json = inst->engine->bridgeVarsRead(opText, keyText);
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
 /// 裁决型钩子的 Promise 结算 (JS 线程 → 等待槽; 见
 /// JsEngine::bridgeHookWaitResolve)
 JSValue jsHookWaitResolve(JSContext *ctx, JSValueConst, int argc,
@@ -1108,6 +1588,10 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"actionCancel", jsActionCancel, 0},
       {"publish", jsPublish, 2},
       {"subscribeHost", jsSubscribeHost, 1},
+      {"varsOp", jsVarsOp, 3},
+      {"varsGet", jsVarsGet, 1},
+      {"varsSet", jsVarsSet, 2},
+      {"varsRead", jsVarsRead, 2},
       {"hookOp", jsHookOp, 5},
       {"hookWaitResolve", jsHookWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
@@ -1813,6 +2297,343 @@ JsEngine::takePendingUiOps(const std::shared_ptr<Instance> &inst) {
   }
   ops.swap(inst->pendingUiOps);
   return ops;
+}
+
+std::vector<JsEngine::Instance::PendingVarOp>
+JsEngine::takePendingVarOps(const std::shared_ptr<Instance> &inst) {
+  std::vector<Instance::PendingVarOp> ops;
+  if (!inst) {
+    return ops;
+  }
+  ops.swap(inst->pendingVarOps);
+  return ops;
+}
+
+/* ==================== 变量 (musicxx.vars) ==================== */
+
+/// 在宿主线程上落地一次变量声明/订阅操作 (**必须已在宿主线程调用**)
+int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
+                                   const std::string &op, const std::string &key,
+                                   const std::string &json) {
+  if (!inst || !inst->hostInst) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  MusicxxHostInstance *host = inst->hostInst;
+  if (op == "register") {
+    bool parseOk = false;
+    Json spec = parseJsonSafe(json, &parseOk);
+    if (!parseOk || !spec.is_object()) {
+      return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+    }
+    MusicxxPluginVarSpec native{};
+    native.version = 1;
+    native.struct_size = sizeof(MusicxxPluginVarSpec);
+    native.key = PluginxxStringView{key.data(), key.size()};
+    int32_t caps = 0;
+    if (spec.contains("caps") && spec["caps"].is_array()) {
+      for (const auto &item : spec["caps"]) {
+        if (!item.is_string()) {
+          continue;
+        }
+        const std::string name = item.get<std::string>();
+        if (name == "get") {
+          caps |= MUSICXX_PLUGIN_VAR_CAP_GET;
+        } else if (name == "set") {
+          caps |= MUSICXX_PLUGIN_VAR_CAP_SET;
+        } else if (name == "notify") {
+          caps |= MUSICXX_PLUGIN_VAR_CAP_NOTIFY;
+        }
+      }
+    }
+    native.caps = caps;
+    const std::string mode = (spec.contains("mode") && spec["mode"].is_string())
+                                 ? spec["mode"].get<std::string>()
+                                 : std::string{"declared"};
+    native.mode = (mode == "handler") ? MUSICXX_PLUGIN_VAR_MODE_HANDLER
+                                      : MUSICXX_PLUGIN_VAR_MODE_DECLARED;
+    const std::string write = (spec.contains("write") && spec["write"].is_string())
+                                  ? spec["write"].get<std::string>()
+                                  : std::string{"any"};
+    native.write_scope = (write == "owner") ? MUSICXX_PLUGIN_VAR_WRITE_OWNER
+                                            : MUSICXX_PLUGIN_VAR_WRITE_ANY;
+    native.throttle_ms = (spec.contains("throttleMs") && spec["throttleMs"].is_number())
+                             ? spec["throttleMs"].get<int32_t>()
+                             : 0;
+    native.notify_throttle_ms =
+        (spec.contains("notifyThrottleMs") && spec["notifyThrottleMs"].is_number())
+            ? spec["notifyThrottleMs"].get<int32_t>()
+            : 0;
+    native.refresh_after_ms =
+        (spec.contains("refreshAfterMs") && spec["refreshAfterMs"].is_number())
+            ? spec["refreshAfterMs"].get<int32_t>()
+            : 0;
+    const std::string type = (spec.contains("type") && spec["type"].is_string())
+                                 ? spec["type"].get<std::string>()
+                                 : std::string{};
+    native.type = PluginxxStringView{type.data(), type.size()};
+    std::string valueText;
+    if (spec.contains("hasValue") && spec["hasValue"].is_boolean() &&
+        spec["hasValue"].get<bool>() && spec.contains("value")) {
+      valueText = spec["value"].dump();
+    }
+    native.value_json = PluginxxStringView{valueText.data(), valueText.size()};
+    Json meta = Json::object();
+    for (const char *field : {"title", "depict"}) {
+      if (spec.contains(field) && spec[field].is_string() &&
+          !spec[field].get<std::string>().empty()) {
+        meta[field] = spec[field].get<std::string>();
+      }
+    }
+    if (spec.contains("options") && spec["options"].is_array() &&
+        !spec["options"].empty()) {
+      meta["options"] = spec["options"];
+    }
+    const std::string metaText = meta.empty() ? std::string{} : meta.dump();
+    native.meta_json = PluginxxStringView{metaText.data(), metaText.size()};
+    const int32_t rc = mgr_->registerVar(host, native);
+    return rc;
+  }
+  if (op == "unregister") {
+    return mgr_->unregisterVar(host, key);
+  }
+  // subscribe / unsubscribe / watch / unwatch: 单键的数组形式
+  Json keys = Json::array();
+  keys.push_back(key);
+  const std::string keysJson = keys.dump();
+  int32_t count = 0;
+  if (op == "subscribe") {
+    return mgr_->subscribeVars(host, keysJson, count);
+  }
+  if (op == "unsubscribe") {
+    return mgr_->unsubscribeVars(host, keysJson, count);
+  }
+  if (op == "watch") {
+    return mgr_->watchVars(host, keysJson, true, count);
+  }
+  if (op == "unwatch") {
+    return mgr_->watchVars(host, keysJson, false, count);
+  }
+  return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+}
+
+void JsEngine::bridgeVarsOp(const std::string &instanceName,
+                            const std::string &op, const std::string &key,
+                            const std::string &json) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst || !mgr_ || !mgr_->running()) {
+    return;
+  }
+  if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
+    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在宿主线程回放
+    /// (与钩子/能力/UI 项同一套做法, 避免"宿主线程等 JS、JS 等宿主线程")
+    Instance::PendingVarOp entry;
+    entry.op = op;
+    entry.key = key;
+    entry.json = json;
+    inst->pendingVarOps.push_back(std::move(entry));
+    return;
+  }
+  const std::string pluginId = inst->id;
+  auto self = shared_from_this();
+  asio::post(mgr_->hostExecutor(),
+             [self, pluginId, instanceName, op, key, json] {
+               auto current = self->lookupInstance(instanceName);
+               if (!current) {
+                 return;
+               }
+               const int32_t rc =
+                   self->applyVarOpOnHost(current, op, key, json);
+               if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+                 return;
+               }
+               Json payload;
+               payload["id"] = pluginId;
+               payload["phase"] = "vars";
+               payload["op"] = op;
+               payload["key"] = key;
+               payload["code"] = rc;
+               payload["message"] =
+                   "变量操作被拒绝 (检查 key/caps/命名空间, 或宿主是否支持该模式)";
+               self->mgr_->pushEvent("musicxx.plugin.error", pluginId,
+                                     payload.dump());
+               XX_LOGW(
+                   "[musicxx_ext] JS 插件 `{}` 运行期变量操作 `{}` `{}` 失败 "
+                   "(code={})",
+                   pluginId, op, key, rc);
+             });
+}
+
+std::string JsEngine::bridgeVarsRead(const std::string &op,
+                                     const std::string &key) {
+  MusicxxHostManager *mgr = mgr_;
+  if (!mgr) {
+    return {};
+  }
+  std::string out;
+  int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  if (op == "peek") {
+    rc = mgr->peekVar(key, out);
+  } else if (op == "info") {
+    rc = mgr->varInfo(key, out);
+  } else if (op == "list") {
+    rc = mgr->listVars(key, out);
+  } else {
+    return {};
+  }
+  return rc == MUSICXX_EXTERN_PLUGIN_OK ? out : std::string{};
+}
+
+int64_t JsEngine::beginVarGet(const std::string &instanceName,
+                              const std::string &key) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst || !inst->hostInst || !mgr_ || !mgr_->running()) {
+    return -1;
+  }
+  auto wait = std::make_shared<VarWait>();
+  wait->engine = this;
+  wait->instance = instanceName;
+  wait->id = nextVarWaitId_.fetch_add(1);
+  wait->kind = 1;
+  {
+    std::lock_guard<std::mutex> lock{varWaitMutex_};
+    varWaits_[wait->id] = wait;
+  }
+  const int64_t waitId = wait->id;
+  PluginxxOperatorNotify notify{};
+  notify.done = &JsEngine::varWaitDoneTrampoline;
+  notify.host_ud = wait.get();
+  auto self = shared_from_this();
+  asio::post(mgr_->hostExecutor(), [self, instanceName, key, notify, waitId] {
+    auto current = self->lookupInstance(instanceName);
+    int64_t requestId = 0;
+    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    if (current && current->hostInst) {
+      rc = self->mgr_->getVar(current->hostInst, key, &notify, &requestId);
+    }
+    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+      /// 未受理: 属主不会被通知, done 也不会被调用 —— 这里自己回一条失败
+      Json out;
+      out["ok"] = false;
+      out["error"] = varErrorText(rc);
+      out["code"] = rc;
+      self->postVarWaitResult(instanceName, waitId, "onVarGetDone", out.dump());
+    }
+  });
+  return waitId;
+}
+
+int64_t JsEngine::beginVarSet(const std::string &instanceName,
+                              const std::string &key,
+                              const std::string &valueJson) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst || !inst->hostInst || !mgr_ || !mgr_->running()) {
+    return -1;
+  }
+  auto wait = std::make_shared<VarWait>();
+  wait->engine = this;
+  wait->instance = instanceName;
+  wait->id = nextVarWaitId_.fetch_add(1);
+  wait->kind = 2;
+  {
+    std::lock_guard<std::mutex> lock{varWaitMutex_};
+    varWaits_[wait->id] = wait;
+  }
+  const int64_t waitId = wait->id;
+  auto self = shared_from_this();
+  asio::post(mgr_->hostExecutor(), [self, instanceName, key, valueJson, waitId] {
+    auto current = self->lookupInstance(instanceName);
+    std::string result;
+    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    if (current && current->hostInst) {
+      rc = self->mgr_->setVar(current->hostInst, key, valueJson, result);
+    }
+    Json out;
+    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+      out["ok"] = false;
+      out["error"] = varErrorText(rc);
+      out["code"] = rc;
+    } else {
+      /// 结果可能是"已结算"(accepted) 或"转给属主"(pending + requestId):
+      /// 后者由预置层换到 `musicxx.var.writeResult` 的等待表里继续等
+      out["ok"] = true;
+      out["result"] = parseJsonSafe(result);
+    }
+    self->postVarWaitResult(instanceName, waitId, "onVarSetDone", out.dump());
+  });
+  return waitId;
+}
+
+void PLUGINXX_CALL
+JsEngine::varWaitDoneTrampoline(void *ud, int32_t status,
+                                const PluginxxStringView *payload) {
+  auto *wait = static_cast<VarWait *>(ud);
+  if (!wait || !wait->engine) {
+    return;
+  }
+  /// 先把需要的字段拷出来: 结算之后登记就会被释放 (见 VarWait 的说明)
+  JsEngine *engine = wait->engine;
+  const int64_t id = wait->id;
+  const int kind = wait->kind;
+  const std::string instance = wait->instance;
+  std::string text;
+  if (payload && payload->data) {
+    text.assign(payload->data, static_cast<size_t>(payload->size));
+  }
+  Json out;
+  if (status == PLUGINXX_OPERATOR_OK) {
+    out["ok"] = true;
+    if (kind == 2) {
+      out["result"] = parseJsonSafe(text);
+    } else {
+      out["value"] = parseJsonSafe(text);
+    }
+  } else {
+    out["ok"] = false;
+    out["error"] = text.empty() ? "variables_op_failed" : text;
+  }
+  engine->postVarWaitResult(instance, id,
+                            kind == 2 ? "onVarSetDone" : "onVarGetDone",
+                            out.dump());
+}
+
+void JsEngine::postVarWaitResult(const std::string &instanceName,
+                                 int64_t waitId, const std::string &callback,
+                                 const std::string &json) {
+  auto self = shared_from_this();
+  postTask([self, instanceName, waitId, callback, json] {
+    auto inst = self->lookupInstance(instanceName);
+    if (inst) {
+      std::string ignored;
+      self->callBridgeString(inst, callback.c_str(),
+                             {std::to_string(waitId), json}, ignored);
+    }
+    self->finishVarWait(waitId);
+  });
+}
+
+void JsEngine::finishVarWait(int64_t waitId) {
+  std::lock_guard<std::mutex> lock{varWaitMutex_};
+  varWaits_.erase(waitId);
+}
+
+void JsEngine::clearVarWaitsOf(const std::string &instanceName) {
+  std::vector<std::shared_ptr<VarWait>> leftovers;
+  {
+    std::lock_guard<std::mutex> lock{varWaitMutex_};
+    for (auto it = varWaits_.begin(); it != varWaits_.end();) {
+      if (it->second && it->second->instance == instanceName) {
+        leftovers.push_back(it->second);
+        it = varWaits_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    /// 不能直接释放: 属主的回答可能已经在路上, 回调仍会带着这个指针进来。
+    /// 残余登记随引擎一起销毁 (正常路径上属主都已经结算完了)。
+    for (auto &item : leftovers) {
+      varWaitGraveyard_.push_back(std::move(item));
+    }
+  }
 }
 
 void JsEngine::bridgeHookOp(const std::string &instanceName,
@@ -2584,13 +3405,34 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     }
   }
 
+  // ---- 变量登记与订阅 ----
+  int32_t varsApplied = 0;
+  for (const auto &op : takePendingVarOps(inst)) {
+    const int32_t rc = applyVarOpOnHost(inst, op.op, op.key, op.json);
+    if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+      ++varsApplied;
+      continue;
+    }
+    Json payload;
+    payload["id"] = inst->id;
+    payload["phase"] = "vars";
+    payload["op"] = op.op;
+    payload["key"] = op.key;
+    payload["code"] = rc;
+    payload["message"] =
+        "变量注册被拒绝 (检查 key/caps/命名空间, 或宿主是否支持该模式)";
+    mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
+    XX_LOGW("[musicxx_ext] JS 插件 `{}` 注册变量 `{}` 被拒绝 (code={})",
+            inst->id, op.key, rc);
+  }
+
   inst->registrationsApplied = true;
-  /// 运行期的 UI/订阅操作改为"投递不等待" (顶层登记阶段已结束)
+  /// 运行期的 UI/订阅/变量操作改为"投递不等待" (顶层登记阶段已结束)
   inst->liveRegistrations.store(true, std::memory_order_release);
   XX_LOGI("[musicxx_ext] JS 插件 `{}` 注册回放完成 (钩子 {} / 能力 {} / 订阅 "
-          "{} / UI {})",
+          "{} / UI {} / 变量 {})",
           inst->id, inst->hooks.size(), inst->capabilities.size(),
-          inst->subscriptions.size(), uiApplied);
+          inst->subscriptions.size(), uiApplied, varsApplied);
 }
 
 void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
@@ -2601,6 +3443,10 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   /// (随实例销毁丢弃)
   inst->liveRegistrations.store(false, std::memory_order_release);
   inst->pendingUiOps.clear();
+  inst->pendingVarOps.clear();
+  /// 变量登记 (声明/订阅/保活) 与未结算的变量请求都随实例作废
+  /// (变量本身由 `clearPluginRegistrations` → `detachVars` 摘除)
+  clearVarWaitsOf(inst->name);
   for (const auto &handler : inst->hooks) {
     mgr_->unregisterHook(inst->hostInst, handler->hookId, handler->ownerTag);
   }

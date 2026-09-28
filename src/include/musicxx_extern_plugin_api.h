@@ -386,6 +386,132 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
+/* ==================== 变量表 (Dart ⇄ 原生; 第五条通道) ==================== */
+
+/// 变量 = 有属主、可读、可写、可订阅变动的小值 (配置/小状态)。
+///
+/// 与状态镜像的区别: 状态镜像只能应用推、插件同步只读; 变量可以双向读写, 且能订阅
+/// "值变了"。**宿主里没有真值**: 真值只在属主那里 (应用侧 Store/配置, 或插件自己的
+/// 状态), 宿主只保留一份服务 `peek` 同步读的缓存。
+///
+/// 命名空间: 官方 `musicxx.<域>.<名>` (由应用声明), 插件 `plugin.<插件id>.<分组>...`。
+///
+/// Dart 侧要处理两个事件 (插件发起的读写):
+/// - `musicxx.var.read`  {requestId, key}         → 用 var_read_result 回答
+/// - `musicxx.var.write` {requestId, key, value, by} → 用 var_write_result 回执
+
+/// 宿主能力位 (Dart 侧据此判断加载到的宿主库是不是这次构建的产物)
+///
+/// 缺位时**不要**继续调用对应的一批 API: 老库上没有这些符号, 报错会是一句难懂的
+/// `undefined symbol`。包层在 init 时读一次并给出"请重新构建宿主库"的说明。
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_HOOKS  0x1
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_STATE  0x2
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS 0x4
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_UI     0x8
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_VARS   0x10
+
+/// 宿主能力位图 (无需宿主实例; 任意线程可调用)
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_feature_bits(void);
+
+/// 变量表 · 应用声明: items_json = [{"key":"musicxx.ui.animatedLevel",
+///   "caps":["get","set","notify"],"type":"string","options":["a","b"],
+///   "value":true,"title":"..","depict":"..","risk":"low",
+///   "throttleMs":0,"notifyThrottleMs":0}, ...]
+///
+/// 逐项失败只写进 `log` (不影响其它项; 也不影响启动 —— 与"启动绝不失败"一致)。
+/// 应用需要在宿主启动后、装载插件之前声明一次, 插件才能读到这些键。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_declare(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* items_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用推值 (官方键的应用侧变动; 值没变不会通知)
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_update(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* key,
+        const MusicxxExternPluginStringView* value_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用批量推值: [{"key":"...","value":...}, ...]
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_update_batch(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* items_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用回执写请求 (**回执即落地**): accepted 且带 value 时落值并按需广播
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_write_result(
+        MusicxxExternPluginHost*              h,
+        int64_t                               request_id,
+        int32_t                               accepted,
+        const MusicxxExternPluginStringView* value_json,
+        const MusicxxExternPluginStringView* error,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用回答读取请求 (插件 `get` 官方键时宿主转过来的那条)
+/// - 一条读请求只回答一次; 不答则调用方按 `read_timeout` 结算
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_read_result(
+        MusicxxExternPluginHost*              h,
+        int64_t                               request_id,
+        int32_t                               ok,
+        const MusicxxExternPluginStringView* value_json,
+        const MusicxxExternPluginStringView* error,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用读插件键 (有界等待宿主与属主; 结果经 out_json 给出)
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_get(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* key,
+        MusicxxExternPluginString*           out_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用写插件键 (declared 立即结算; handler 等属主, 有界等待)
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_set(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* key,
+        const MusicxxExternPluginStringView* value_json,
+        MusicxxExternPluginString*           out_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用列变量 (prefix 可空; 值字段是缓存值, 带 revision/ageMs/stale)
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_list(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* prefix,
+        MusicxxExternPluginString*           out_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 变量表 · 应用订阅/退订插件键的变动
+/// - keys_json = 字符串数组, 支持前缀写法 ("plugin." / "plugin.<id>.")
+/// - 应用订阅了某个键, 该键变化时才会推 `musicxx.var.changed` 事件
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_subscribe(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* keys_json,
+        MusicxxExternPluginString*           log
+    );
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_var_unsubscribe(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* keys_json,
+        MusicxxExternPluginString*           log
+    );
+
 /* ==================== UI / 日志 / 调试 / 统计 ==================== */
 
 /// 插件贡献的 UI 项快照 (JSON 数组; 变更另有 musicxx.ui.changed 事件)

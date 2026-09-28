@@ -36,6 +36,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -50,6 +51,10 @@ class JsEngine;
 /// `musicxx.ui` 表的 C ABI 实现 (定义在 musicxx_host_ui.cpp; 供 query_interface
 /// 分发)
 const void *uiIfaceForQuery();
+
+/// `musicxx.vars` 表的 C ABI 实现 (定义在 musicxx_host_vars.cpp; 供
+/// query_interface 分发)
+const void *varsIfaceForQuery();
 
 /* ==================== 有界等待槽 ==================== */
 
@@ -355,6 +360,94 @@ public:
   /// UI 项数量上限 (每个插件)
   static constexpr size_t kMaxUiEntriesPerPlugin = 64;
 
+  /* ---------- 变量表 (均在宿主线程执行) ---------- */
+
+  /// 变量表容量与上限 (硬数字; 「超限」一律拒绝并返回明确错误码, 不做截断)
+  static constexpr size_t kMaxVarsTotal = 4096;
+  static constexpr size_t kMaxVarsPerPlugin = 64;
+  static constexpr size_t kMaxVarKeyLength = 200;
+  static constexpr size_t kMaxVarValueBytes = 64 * 1024;
+  static constexpr size_t kMaxVarSubscriptionsPerPlugin = 256;
+  static constexpr int32_t kMaxVarPendingPerPlugin = 32;
+  static constexpr int32_t kMaxVarNotifyThrottleMs = 5000;
+  static constexpr int32_t kMinVarRefreshAfterMs = 1000;
+
+  /// 注册/覆盖一个变量 (插件注册自己的; 应用声明的官方键走 [declareVars])
+  int32_t registerVar(MusicxxHostInstance *inst,
+                      const MusicxxPluginVarSpec &spec);
+
+  /// 注销一个变量 (只能注销自己的; 不存在返回 `ERR_NOT_FOUND`)
+  int32_t unregisterVar(MusicxxHostInstance *inst, std::string_view key);
+
+  /// 异步读: 宿主向属主取一次真实值, 完成后调用 `notify->done` 恰好一次
+  ///
+  /// - 官方键由应用回答 (`musicxx.var.read` → `var_read_result`);
+  /// - `declared` 模式的插件变量由宿主立即作答 (值就在注册表里);
+  /// - 同键在途读请求合并 (新的读只挂到等待者列表上)。
+  int32_t getVar(MusicxxHostInstance *inst, std::string_view key,
+                 const PluginxxOperatorNotify *notify, int64_t *outRequestId);
+
+  /// 同步读缓存 (给 `peek` 用; 不保证最新)
+  int32_t peekVar(std::string_view key, std::string &outJson);
+
+  /// 写: 写自己的变量 (或 declared 模式的变量) = 提交, 立即结算;
+  /// 官方键与 handler 模式转给属主落地, 最终结果经 `musicxx.var.writeResult` 送达
+  int32_t setVar(MusicxxHostInstance *inst, std::string_view key,
+                 std::string_view valueJson, std::string &outJson);
+
+  /// 列出变量 (prefix 可空; 值字段是缓存值)
+  int32_t listVars(std::string_view prefix, std::string &outJson);
+
+  /// 订阅/退订/保活某个键的变更 (keys_json = 字符串数组)
+  int32_t subscribeVars(MusicxxHostInstance *inst, const std::string &keysJson,
+                        int32_t &outCount);
+  int32_t unsubscribeVars(MusicxxHostInstance *inst,
+                          const std::string &keysJson, int32_t &outCount);
+  int32_t watchVars(MusicxxHostInstance *inst, const std::string &keysJson,
+                    bool watch, int32_t &outCount);
+
+  /// 单个变量的声明信息 + 缓存状态
+  int32_t varInfo(std::string_view key, std::string &outJson);
+
+  /* ---------- 变量表 · 应用侧入口 (C ABI 调用; 均在宿主线程执行) ---------- */
+
+  /// 应用声明一批变量 (items_json = 声明数组; 逐项失败只记日志)
+  int32_t declareVars(const std::string &itemsJson, std::string &log);
+
+  /// 应用推值 (官方键的应用侧变动; 只有真变化才通知)
+  int32_t updateVar(const std::string &key, const std::string &valueJson,
+                    std::string &err);
+  int32_t updateVarsBatch(const std::string &itemsJson, std::string &err);
+
+  /// 应用回执 (回执即落地: accepted 且带 value 时落值并按需广播)
+  int32_t varWriteResult(int64_t requestId, int32_t accepted,
+                         const std::string &valueJson,
+                         const std::string &error);
+
+  /// 应用回答读取请求 (官方键被插件 `get` 时用)
+  int32_t varReadResult(int64_t requestId, int32_t ok,
+                        const std::string &valueJson,
+                        const std::string &error);
+
+  /// 应用读插件键 (有界等待; 见 musicxx_extern_plugin_api.cpp)
+  int32_t getVarForApp(const std::string &key, std::string &outJson,
+                       std::shared_ptr<WaitSlot<std::string>> slot);
+
+  /// 应用写插件键 (有界等待)
+  int32_t setVarForApp(const std::string &key, const std::string &valueJson,
+                       std::string &outJson,
+                       std::shared_ptr<WaitSlot<std::string>> slot);
+
+  /// 应用订阅/退订插件键的变动 (keys_json = 数组或 "plugin." 前缀)
+  int32_t subscribeVarsForApp(const std::string &keysJson, bool subscribe,
+                              std::string &err);
+
+  /// 变量表快照 (管理页"变量"区块 / 宿主调试信息)
+  std::string varsDebugJson() const;
+
+  /// 摘除某实例的全部变量与订阅 (生命周期钩子; 推送 `removed` 通知)
+  void detachVars(const std::string &instanceName);
+
   /// 按**插件 id 或实例名**解析实例 (JS 插件实例名是 `js:<id>`, 与插件 id 不同)
   ///
   /// 插件管理入口 (启停/卸载/能力调用/配置路径) 都接受 Dart 侧传来的插件 id,
@@ -560,6 +653,178 @@ private:
 
   /// 序列化 UI 项 (pluginId 为空 = 全部; 按 type/order/seq 排序)
   std::string uiItemsJson(const std::string &pluginId) const;
+
+  /* ---------- 变量表 (仅宿主线程) ---------- */
+
+  /// 一个变量 (注册项 + **同步读缓存**)
+  ///
+  /// 这里**没有真值**: 真值只在属主那里 (应用侧的 Store/配置, 或插件自己的状态)。
+  /// `valueJson` 只是"最后一次已知值", 服务 `peek` 这条同步捷径, 来源三处:
+  /// 属主推送、每次异步读的结果 (read-through)、注册时的初值。
+  struct VarEntry {
+    std::string key;
+    std::string owner;    ///< 实例名; 空 = 应用 (官方键)
+    std::string pluginId; ///< 空 = 应用
+    int32_t caps = 0;     ///< MUSICXX_PLUGIN_VAR_CAP_*
+    int32_t mode = 0;     ///< MUSICXX_PLUGIN_VAR_MODE_*
+    int32_t writeScope = 0;
+
+    std::string type;
+    std::string optionsJson; ///< 数组或空
+    std::string title;
+    std::string depict;
+    std::string risk;
+
+    /// 同步读缓存 (见结构体说明)
+    std::string valueJson;
+    int64_t revision = 0;
+    int64_t valueMs = 0; ///< 写入时刻 (steady 毫秒; 算 ageMs)
+    /// handler 模式下缓存有没有被属主回答过一次 (没回答过时 peek 返回空)
+    bool everRefreshed = false;
+
+    int32_t throttleMs = 0;
+    int32_t notifyThrottleMs = 0;
+    int32_t refreshAfterMs = 0;
+
+    uint64_t seq = 0; ///< 注册顺序 (list 与调试信息用稳定排序)
+    /// 订阅变更的实例 (bind 与 watch 都算"有人关心")
+    std::set<std::string> subscribers;
+    /// 只用过 watch (不带回调) 的实例: unwatch 不能把 bind 的订阅一起摘掉
+    std::set<std::string> watchers;
+
+    /// 通知合并窗口 (notifyThrottleMs > 0 时用; 窗口结束时发一条带 coalesced 的通知)
+    std::shared_ptr<asio::steady_timer> notifyTimer;
+    int32_t pendingCoalesced = 0;
+    std::string pendingPrevJson;
+
+    /// 关心这个键的实例数 (bind 的订阅 + watch 的保活, 去重)
+    size_t careCount() const {
+      size_t count = subscribers.size();
+      for (const std::string &item : watchers) {
+        if (subscribers.find(item) == subscribers.end()) {
+          ++count;
+        }
+      }
+      return count;
+    }
+  };
+
+  /// 变量表 (仅宿主线程)
+  std::map<std::string, VarEntry, std::less<>> vars_;
+  uint64_t varSeq_ = 0;
+
+  /// 未完成的变量请求 (读/写都要等属主回答或落地)
+  struct PendingVarRequest {
+    std::string key;
+    std::string byPluginId; ///< 发起方插件 id (空 = 应用; 写请求里作为 `by`)
+    std::string byInstance; ///< 发起方实例名 (写结果的 `musicxx.var.writeResult` 发给它)
+    int32_t kind = 0;       ///< VarRequestKind
+    std::string valueJson;  ///< 写请求值
+    std::string owner;      ///< 属主实例名; 空 = 应用
+    int32_t caps = 0;       ///< 申请时的能力位 (结算时回执用)
+    /// 插件侧等待者 (同键在途读合并后, 答案扇出给全部等待者)
+    std::vector<PluginxxOperatorNotify> pluginWaiters;
+    /// 应用侧等待者 (C ABI 的有界等待槽)
+    std::vector<std::shared_ptr<WaitSlot<std::string>>> appWaiters;
+    std::shared_ptr<asio::steady_timer> timer;
+  };
+
+  enum VarRequestKind {
+    VarRequestRead = 1,
+    VarRequestWrite = 2,
+  };
+
+  std::map<int64_t, PendingVarRequest> pendingVarRequests_;
+  /// 键 → 在途的"向属主取真实值"请求 id (同键合并)
+  std::map<std::string, int64_t, std::less<>> pendingReadByKey_;
+
+  /// 应用订阅的插件键前缀/全名 (var_subscribe; 只用来决定要不要推给应用)
+  std::vector<std::string> appVarSubscriptions_;
+
+  /// 实例订阅的键 (bind; 去重的唯一来源)
+  std::map<std::string, std::set<std::string>, std::less<>> varSubscriptions_;
+  /// 实例只做保活 (watch) 的键: unwatch 不能把 bind 的订阅一起摘掉
+  std::map<std::string, std::set<std::string>, std::less<>> varWatchers_;
+
+  /// 全部键的关心者合计 (变化时回传 `musicxx.var.subscriptions`)
+  int64_t varCareTotal_ = 0;
+
+  /// 结算一条变量请求 (宿主线程): 读 → 写缓存并扇出答案; 写 → 落值并广播
+  void completeVarRequest(int64_t requestId, bool ok, const std::string &valueJson,
+                          const std::string &error);
+  /// 结算超时的变量请求 (宿主线程): 读按 read_timeout, 写按 not_served / owner_timeout
+  void expireVarRequest(int64_t requestId);
+
+  /// 读请求的公共实现 (插件侧与应用侧共用)
+  int32_t beginVarRead(const std::string &key, const std::string &byPluginId,
+                       const PluginxxOperatorNotify *notify,
+                       std::shared_ptr<WaitSlot<std::string>> appSlot,
+                       int64_t *outRequestId);
+
+  /// 写请求的公共实现 (立即结算或转给属主落地)
+  int32_t beginVarWrite(const std::string &key, const std::string &valueJson,
+                        const std::string &byPluginId,
+                        const std::string &byInstance,
+                        const PluginxxOperatorNotify *notify,
+                        std::shared_ptr<WaitSlot<std::string>> appSlot,
+                        std::string &outJson);
+  /// 请求 id 是否属于变量表 (供 C ABI 的 write_result / read_result 路由)
+  bool hasPendingVarRequest(int64_t requestId) const;
+
+  /// 落值 + 广播 (宿主线程; changed 才广播; 返回是否真的变了)
+  bool applyVarValue(VarEntry &entry, const std::string &valueJson,
+                     const std::string &byPluginId, std::string &prevJson);
+  /// 广播一条变量变更 (宿主线程; 按 notifyThrottleMs 合并)
+  void pushVarChanged(const std::string &key, const std::string &valueJson,
+                      const std::string &prevJson, const std::string &byPluginId,
+                      bool removed, int32_t coalesced);
+  /// 应用是否订阅了这个键 (决定要不要把插件键的变化推给 Dart)
+  bool appCaresAboutVar(const std::string &key) const;
+  /// 把一个值写进某个键的缓存并向关心者广播 (官方键的应用侧推值走这条)
+  int32_t applyAppVarValue(const std::string &key, const std::string &valueJson,
+                           std::string &err);
+
+  /// 序列化一个变量 (list/info/debug 共用; 值字段明确标为缓存值)
+  std::string varToJsonText(const VarEntry &entry) const;
+
+  /* ---------- 同步读镜像 (任何线程可读; 给 JS 侧的 peek/info/list 用) ----------
+   *
+   * 为什么需要: 插件侧绝不能在 JS 线程上等宿主线程 (宿主线程可能正等着 JS
+   * 处理器 —— 那是死锁)。因此 `peek`/`info`/`list` 不能投递到宿主线程去查注册表,
+   * 而是读这份由宿主线程维护、用互斥量保护的**快照** (与状态镜像同一套做法)。
+   * 快照里的值仍然是"缓存值", 不是真值。
+   */
+
+  /// 保护 [varMirror_]
+  mutable std::mutex varMirrorMutex_;
+  /// key → 变量快照 JSON (含 valueMs; ageMs/stale 在读取时算)
+  std::map<std::string, std::string, std::less<>> varMirror_;
+
+  /// 把变量的当前快照写进镜像 (宿主线程; 每次注册/落值/订阅变化后调用)
+  void publishVarMirror(const VarEntry &entry);
+  /// 从镜像里摘掉一个键 (宿主线程)
+  void eraseVarMirror(const std::string &key);
+  /// 变量快照的 JSON (镜像内容; 不含 ageMs/stale 这两个与时刻有关的字段)
+  std::string varMirrorJsonText(const VarEntry &entry) const;
+
+  /// 变量表快照的文本 (调试信息用; 与 [varToJsonText] 同一份口径)
+  std::string varsSnapshotText() const;
+
+  /// 取消某实例的变量等待者 (实例停用/卸载时; 宿主线程)
+  void cancelVarsOf(const std::string &instanceName);
+
+  /// 记一次订阅/退订 (实例 ↔ 键; 同步维护 VarEntry 上的订阅集合与关心计数)
+  ///
+  /// - `watch` = true 表示"保活缓存"(不带回调), false 表示订阅 (bind);
+  /// - 订阅还不存在的键也会被记下来 (键出现时自动挂上并补一条初始通知);
+  /// - `outCount` 累计本次实际生效的条数 (超出容量上限的部分被忽略, 不报错)。
+  void markVarSubscriber(const std::string &instanceName, const std::string &key,
+                         bool watch, bool add, int32_t &outCount);
+
+  /// 重新计算某键的关心者数量并把数量回传给应用 (`musicxx.var.subscriptions`)
+  void refreshVarCare(const VarEntry &entry);
+  /// 某插件注册了多少个变量 (容量上限判断用)
+  size_t countVarsOfPlugin(const std::string &pluginId) const;
 
   // 动作请求 (宿主线程)
   std::map<int64_t, PendingAction> pendingActions_;
