@@ -311,7 +311,6 @@ musicxx_plugin_add_target(my_plugin
 
 **多目标打包**（一个包同时支持多个系统 / 架构，仿 APK 的 `lib/<abi>/`）：多传
 `TARGET_TAG auto`，助手就把库文件放进 `<包目录>/lib/<系统>-<架构>/`，清单与 `ASSETS` 放在包目录里：
-
 ```cmake
 musicxx_plugin_add_target(my_plugin
   SOURCES my_plugin.cpp
@@ -330,7 +329,8 @@ musicxx_plugin_add_target(my_plugin
 `pwsh tools/pack_plugin.ps1 -PluginDir <包目录>` 打成安装包（它会打印包内分支与每个分支的库文件，
 便于确认齐全）；宿主运行时按当前系统与 CPU 架构选分支（选择顺序、标签别名与规则见
 [docs/plugin-native-api.md](docs/plugin-native-api.md) §1.3，示例插件 `plugins/example_native_multi/`）。
-不传 `TARGET_TAG` 时行为与以前一致（库与清单同一层，直接作为插件目录）。
+**分支选择规则只有宿主一处实现**：扫描、装载与应用侧安装预检（C ABI `plugin_inspect`）跑的是同一份
+判定，Dart 侧只解析结果。不传 `TARGET_TAG` 时行为与以前一致（库与清单同一层，直接作为插件目录）。
 
 ### JS 插件
 

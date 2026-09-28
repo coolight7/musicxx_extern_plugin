@@ -7,6 +7,7 @@
 ///   装载/卸载是异步事务, 在调用线程做有界等待 (不占宿主线程)。
 
 #include "musicxx_extern_plugin_api.h"
+#include "host_inspect.h"
 #include "host_json.h"
 #include "musicxx_host.h"
 
@@ -16,6 +17,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -356,6 +358,35 @@ musicxx_extern_plugin_plugin_scan(MusicxxExternPluginHost *h,
           return rc;
         }
         setOut(out_json, json);
+        return MUSICXX_EXTERN_PLUGIN_OK;
+      });
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_plugin_inspect(MusicxxExternPluginHost *h,
+                                     const MusicxxExternPluginStringView *dir,
+                                     const MusicxxExternPluginStringView *os,
+                                     const MusicxxExternPluginStringView *arch,
+                                     MusicxxExternPluginString *out_json,
+                                     MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !dir || !out_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  // 只读的目录判定: 不经过宿主线程 (纯文件系统 + 清单解析), 宿主未 start 也能用
+  return pluginxx::guardCall(
+      [log](std::string_view msg) { setErr(log, msg); },
+      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL,
+      [&]() -> int32_t {
+        const std::string dirText = viewToStd(dir);
+        if (dirText.empty()) {
+          setErr(log, "plugin_inspect: dir 不能为空");
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        const musicxx::extern_plugin::MusicxxPluginInspect info =
+            musicxx::extern_plugin::inspectPluginDir(
+                std::filesystem::path{dirText}, viewToStd(os), viewToStd(arch));
+        setOut(out_json, musicxx::extern_plugin::inspectToJson(info));
         return MUSICXX_EXTERN_PLUGIN_OK;
       });
 }

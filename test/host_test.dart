@@ -96,9 +96,9 @@ void main() {
       isTrue,
     );
     expect(
-      multi.target.contains(MusicxxPluginTargets.currentOs()),
+      multi.target.contains(MusicxxPluginEnv.currentOs()),
       isTrue,
-      reason: '选中的分支应属于当前系统 (${MusicxxPluginTargets.currentOs()})',
+      reason: '选中的分支应属于当前系统 (${MusicxxPluginEnv.currentOs()})',
     );
     runtime.plugins.load('example_native_multi');
     expect(runtime.plugins.findLoaded('example_native_multi'), isNotNull);
@@ -113,6 +113,42 @@ void main() {
       reason: '装载的应是宿主选中的那个分支',
     );
     runtime.plugins.unload('example_native_multi');
+
+    // 安装预检入口（plugin_inspect）：与扫描同源，可指定目标环境
+    final MusicxxPluginInspect_c inspected = runtime.plugins.inspect(
+      multi.path,
+      os: MusicxxPluginEnv.currentOs(),
+      arch: MusicxxPluginEnv.currentArch(),
+    );
+    expect(inspected.valid, isTrue, reason: inspected.error);
+    expect(inspected.id, 'example_native_multi');
+    expect(inspected.kind, MusicxxPluginKind.native);
+    expect(inspected.supported, isTrue, reason: inspected.reason);
+    expect(
+      inspected.target,
+      multi.target,
+      reason: '预检与扫描选中的分支必须一致（原生侧同一份判定）',
+    );
+    expect(inspected.targetEntry, multi.targetEntry);
+    expect(inspected.targets.length, multi.targets.length);
+
+    // 指定目标环境：示例包只有本机那一份构建，换个系统就应当选不到分支
+    final String otherOs =
+        MusicxxPluginEnv.currentOs() == 'windows' ? 'linux' : 'windows';
+    final MusicxxPluginInspect_c mismatched = runtime.plugins.inspect(
+      multi.path,
+      os: otherOs,
+      arch: MusicxxPluginEnv.currentArch(),
+    );
+    expect(mismatched.supported, isFalse);
+    expect(mismatched.reason, contains('没有匹配当前系统/架构的分支'));
+
+    // 目录不存在：valid=false + 可读原因（不抛异常）
+    final MusicxxPluginInspect_c missing = runtime.plugins.inspect(
+      '${multi.path}_missing',
+    );
+    expect(missing.valid, isFalse);
+    expect(missing.error, isNotEmpty);
 
     _step('3 scan 完成: ${found.length} 项');
     // 装载：同步等待 + 事件回报

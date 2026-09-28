@@ -71,7 +71,7 @@ class MusicxxPluginInfo {
   /// JS 插件按清单 `scripts` 顺序执行的脚本（空 = 用 `entry` / `plugin.js`）
   final List<String> scripts;
 
-  /// 选中的平台/架构分支标签（空 = 用插件根目录的库文件；见 [MusicxxPluginTargets_c]）
+  /// 选中的平台/架构分支标签（空 = 用插件根目录的库文件；见 [MusicxxPluginTarget_c]）
   final String target;
 
   /// 选中的库文件（相对插件目录的路径）
@@ -156,24 +156,11 @@ class MusicxxPluginInfo {
       target: json['target'] as String? ?? '',
       targetEntry: json['targetEntry'] as String? ?? '',
       targetsDir: json['targetsDir'] as String? ?? '',
-      targets: _targetList(json['targets']),
+      targets: MusicxxPluginTarget_c.parseList(json['targets']),
       counters: counters is Map<String, Object?>
           ? counters
           : const <String, Object?>{},
     );
-  }
-
-  static List<MusicxxPluginTarget_c> _targetList(Object? value) {
-    if (value is! List) {
-      return const <MusicxxPluginTarget_c>[];
-    }
-    return value
-        .whereType<Map<Object?, Object?>>()
-        .map(
-          (Map<Object?, Object?> item) =>
-              MusicxxPluginTarget_c.fromJson(item.cast<String, Object?>()),
-        )
-        .toList(growable: false);
   }
 
   /// 用户可读的一行状态（管理页用）

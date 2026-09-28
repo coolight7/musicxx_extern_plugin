@@ -401,6 +401,66 @@ class MusicxxExternPluginBindings {
             )
           >();
 
+  /// 检查一个插件目录 (**只读**, 不装载、不改动任何状态) → JSON 对象
+  ///
+  /// 用途: 应用侧「从压缩包安装」的预检 —— 把解包出来的临时目录交给宿主判定
+  /// (清单可解析 / 当前系统与架构该用哪个分支 / 库文件或脚本在不在), 装之前就有结论。
+  /// 判定与扫描、装载**完全同源** (同一份 `inspectPluginDir`), 不会出现
+  /// "预检通过、装载却用另一个分支"的分歧。
+  ///
+  /// - `dir`: 插件目录 (绝对路径; 压缩包解包后的临时目录同样可以);
+  /// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用宿主自己的);
+  /// - 出参 JSON: `{valid, error, path, dirName, id, kind, version, description, author,
+  /// homepage, entry, apiVersion, depends, optionalDepends, permissions, platforms,
+  /// arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason}`
+  /// (动态库插件才有 target/targetEntry/targetsDir/targets; JS 插件才有 scripts);
+  /// - 返回 OK 表示"判定完成", 目录不存在/清单非法时 `valid=false` + `error`
+  /// (同样返回 OK —— 调用方看 `valid`);
+  /// - 不看运行期开关 (JS 运行时是否可用、安全模式、禁用动态库), 那些由 `plugin_scan` 叠加。
+  int musicxx_extern_plugin_plugin_inspect(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> dir,
+    ffi.Pointer<MusicxxExternPluginStringView> os,
+    ffi.Pointer<MusicxxExternPluginStringView> arch,
+    ffi.Pointer<MusicxxExternPluginString> out_json,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_plugin_inspect(
+      h,
+      dir,
+      os,
+      arch,
+      out_json,
+      log,
+    );
+  }
+
+  late final _musicxx_extern_plugin_plugin_inspectPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<MusicxxExternPluginString>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_plugin_inspect');
+  late final _musicxx_extern_plugin_plugin_inspect =
+      _musicxx_extern_plugin_plugin_inspectPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
   /// 当前已加载插件状态快照 (JSON 数组)
   int musicxx_extern_plugin_plugin_list(
     ffi.Pointer<MusicxxExternPluginHost> h,
