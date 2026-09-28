@@ -19,7 +19,7 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 my_plugin/
 ├── plugin.yaml     # 清单（必填）
 ├── plugin.js       # 脚本（必填；清单 entry 也可指向别的 .js 文件）
-├── pluginxx_ui_kit.js  # 可选：随插件分发的界面 kit（见 §11）
+├── pluginxx_ui_kit.js  # 可选：随插件分发的界面 kit（见 §12）
 ├── shader/         # 可选：随插件分发的资源（如 shader bundle）
 └── config.json     # 可选：插件自己的配置（运行时由脚本读写）
 ```
@@ -113,7 +113,7 @@ musicxx.hooks.has(id);
 - `mode`：`"observe"` = 只观察（返回值忽略）；其它值（含不写）= `"decision"` 裁决型；
 - `priority`：小者先执行；同优先级按注册顺序；
 - `ownerTag`：同一插件在同一个钩子上区分多个处理器的标记（**不要用不同 ownerTag 注册同一个钩子**，
-  见 §14 常见坑）；
+  见 §15 常见坑）；
 - `fn(ctx)`：`ctx` 是钩子载荷（JSON 对象，字段见 [plugin-hooks.md](plugin-hooks.md)）；
   返回 `null` / `undefined` = 不裁决。
 
@@ -276,9 +276,9 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.storage.list` | `{namespace?}` | `{keys:[...]}` |
 | `musicxx.net.fetch` | 见 §7.2 | 见 §7.2 |
 | `musicxx.net.download` | 见 §7.2 | `{ok, status, path, bytes}` |
-| `musicxx.render.list` / `current` / `select` | 见 §10 | 见 §10 |
-| `musicxx.media.palette` | `{force?}` | 见 §10 |
-| `musicxx.media.cover` | `{size?, format?, includePath?}` | 见 §10 |
+| `musicxx.render.list` / `current` / `select` | 见 §11 | 见 §11 |
+| `musicxx.media.palette` | `{force?}` | 见 §11 |
+| `musicxx.media.cover` | `{size?, format?, includePath?}` | 见 §11 |
 | `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` |
 | `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` |
 | `musicxx.host.openUrl` | `{url}`（只允许 http/https） | `{ok:true}` |
@@ -383,7 +383,7 @@ musicxx.events.unsubscribe("musicxx.state.changed");
   但再次 `subscribe` 会复用原来那条订阅（不会重复建立）。
 - **发布**：只能发布官方主题或**自己命名空间**（`plugin.<自己的插件 id>.*`）的主题；主题非法时
   `publish` 直接抛异常。
-- 插件之间做协作时，用「对方的 `plugin.<对方id>.*` 主题」或能力调用（§9）都行：
+- 插件之间做协作时，用「对方的 `plugin.<对方id>.*` 主题」或能力调用（§10）都行：
   事件是单向通知，能力调用有返回值。
 
 常用的可订阅主题：
@@ -396,10 +396,137 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 | `musicxx.plugin.log` | 插件日志（`{id, level, message}`） |
 | `musicxx.plugin.error` / `musicxx.plugin.warn` | 插件失败 / 告警（含处理器被暂停的提示） |
 | `musicxx.hook.decision.result` | 异步裁决结果（`{callId, hook, ...}`，调试用） |
+| `musicxx.var.changed` | 变量变化（`{key, value, prev, by, revision, ts, removed?, coalesced?}`；`by` 空串表示应用改的） |
+| `musicxx.var.writeResult` | 自己发起的写入最终结果（`musicxx.vars.set` 内部就是等它，一般不用手动订阅） |
 
 ---
 
-## 9. 能力（注册 + 跨插件调用）
+## 9. 变量（有属主、可读、可写、可订阅变动的小值）
+
+> 定位：**一份有当前值的小状态/配置**——要读、要改、改了要让别人知道。
+> 与邻居的分工（选哪条通道看这里，不要硬凑）：
+>
+> | 需要 | 用什么 |
+> |---|---|
+> | 每秒多次读的实时数据（播放进度、歌词行） | 状态镜像（§5，同步读、一次推送多个读者） |
+> | 一次性命令（播放、搜索、发通知、开页面） | 动作（§7） |
+> | 广播一件"发生了某事"（没有当前值） | 事件（§8） |
+> | **要有当前值、要能改、改了要让别人知道** | **变量（本节）** |
+> | 钩子/热路径里**同步**判断 | 变量 + `watch`（保活缓存）+ `peek` |
+
+### 9.1 三条读法（按需要选一条，不是三种都能互相替代）
+
+| 写法 | 时延与新鲜度 | 适合 |
+|---|---|---|
+| `await musicxx.vars.get(key)` | 一次往返；值一定来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
+| `musicxx.vars.peek(key)` | 宿主线程查表（纳秒级）；可能旧，返回里如实带 `ageMs`/`stale` | 钩子处理器、按帧/按事件的热路径（先用 `watch` 保活） |
+| `musicxx.vars.bind(key, fn)` | 变化时回调 | 要跟着变化做事 |
+| `musicxx.vars.watch(key)` | 不回调，只保证 `peek` 新鲜 | 只要同步读、不要回调 |
+
+```js
+// 权威读（异步）
+var level = await musicxx.vars.get("musicxx.ui.animatedLevel");
+// 一次读多个键（宿主的同键在途请求会合并）
+var values = await musicxx.vars.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
+
+// 热路径：先保活缓存，再同步读
+musicxx.vars.watch("musicxx.ui.songIconWave");
+musicxx.hooks.observe("musicxx.player.state", function () {
+  var cached = musicxx.vars.peek("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
+  if (cached && cached.value === true) { /* ... */ }
+});
+
+// 订阅变化：回调 (value, info)，info = {key, prev, by, revision, removed, coalesced}
+var off = musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
+  musicxx.host.log(2, "动画等级变成 " + value + "（由 " + (info.by || "应用") + " 改的）");
+});
+```
+
+读的失败也走 Promise 拒绝（`变量不存在` / `该变量不可读` / 读取超时）；
+同步的 `peek` 则返回 `null`（没有缓存过就是没有，不抛异常）。
+
+### 9.2 写
+
+```js
+var result = await musicxx.vars.set("musicxx.theme.mode", "night");
+if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
+```
+
+写入一律**转给属主落地**：官方键由应用落地（走用户在设置里改的同一条路径）；
+你自己注册的 `declared` 变量由宿主代存（立即结算）；`handler` 变量转回你自己的 `onWrite`。
+
+### 9.3 注册自己的变量（给别的插件与应用用）
+
+键名写**短名**（`tip.start`），宿主补成 `plugin.<你的插件id>.tip.start`；
+分组可以多级。每个插件最多 64 个变量，单个值上限 64 KiB。
+
+```js
+// declared（默认）：值由宿主代存，set 即提交 —— 零代码
+musicxx.vars.register({
+  key: "tip.start",
+  caps: ["get", "set", "notify"],   // 可省，缺省 ["get"]；三者可以只实现一部分
+  type: "bool",                      // 可选：bool|number|string|json（展示 + 粗校验）
+  value: false,                      // 可选：缓存初值（不是真值来源）
+  title: "开场提示",
+  depict: "为真时播放页显示一句开场提示",
+  write: "any"                       // 可选：any（默认，谁都能写）| owner（只有自己）
+});
+
+// 读/写自己的变量
+musicxx.vars.set("tip.start", true).then(function (r) { /* r.accepted === true */ });
+```
+
+**handler 模式**：值本来就在你自己手里（不想再维护一份副本，或写入要立刻做别的事）：
+
+```js
+var tipStart = false;                       // 插件自己的状态（唯一真值）
+
+musicxx.vars.register({
+  key: "tip.start",
+  caps: ["get", "set", "notify"],
+  mode: "handler",
+  type: "bool",
+  refreshAfterMs: 5000,                     // 有人 watch 时，宿主最多 5 秒来取一次真实值
+  onRead:  function () { return tipStart; },             // 宿主来取真实值时求值（回答 get）
+  onWrite: function (value) {                            // 别人写这个变量时落地
+    tipStart = (value === true);
+    return tipStart;                                     // 返回值 = 提交给宿主的最终值
+  }
+});
+
+// 插件内部改了自己的状态：主动提交一次，别人才看得到
+function setTipStart(next) { tipStart = next; musicxx.vars.set("tip.start", next); }
+```
+
+`onRead` / `onWrite` 的返回值也可以是 Promise；`onWrite` 抛异常（或 Promise 拒绝）时
+框架会自动回一条「拒绝」并把异常文案带给写入方。
+
+### 9.4 自省与发现
+
+```js
+musicxx.vars.has("musicxx.theme.available");     // 变量登记过没有（读注册表，不读值）
+musicxx.vars.info("plugin.other.flag");          // {key, caps, mode, owner, type, title, value, revision, ageMs, stale, subscribers}
+musicxx.vars.list("plugin.other.");              // 列出（值字段是缓存值）
+musicxx.vars.own();                              // 自己注册的变量
+musicxx.vars.subscribers("tip.start");           // 有多少人在看（订阅 + watch）：判断"还要不要继续高频推"
+musicxx.vars.unregister("tip.start");
+```
+
+官方变量目录见 `docs/plugin-vars.md`（键 / 能力位 / 取值 / 风险）。
+
+### 9.5 高频与零成本
+
+- **不禁止高频，但必须节流**：声明 `throttleMs`（推送侧合并）与 `notifyThrottleMs`
+  （宿主侧把通知合并成一条，载荷带 `coalesced`）。超过约 5 Hz 的键请务必声明；
+  每秒多次 + 只想被轮询读的数据更建议放状态镜像（§5）。
+- **没人看就不推**：宿主会告诉应用"哪些键有人订阅或 watch"，没人看的键值变化不产生
+  任何 FFI/事件/回调。因此"插件没在跑"或"没人订阅"时，高频变量的成本是零。
+- 变量的读写预算：读默认 2 秒、写（应用）5 秒 /（handler 属主）3 秒；
+  超时按 `读取超时` / `not accepted` 结算，**缓存保持不变**。
+
+---
+
+## 10. 能力（注册 + 跨插件调用）
 
 ```js
 musicxx.capability.register("probe", (args) => ({ ok: true, args }));
@@ -421,11 +548,11 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
   （`plugin_capability_not_found: xxx` / `capability_call_failed` / `跨插件调用超时: ...`）；
-- 插件页面也走能力：宿主打开 `ext://<插件id>/<视图id>` 时调用同名能力（见 §11）。
+- 插件页面也走能力：宿主打开 `ext://<插件id>/<视图id>` 时调用同名能力（见 §12）。
 
 ---
 
-## 10. 渲染槽位与封面数据
+## 11. 渲染槽位与封面数据
 
 插件可以把**预编译的 shader bundle** 注册成宿主的一种渲染样式（当前只有「播放页背景」一个槽位），
 由用户在设置里选中后生效；也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
@@ -494,7 +621,7 @@ const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: 
 
 ---
 
-## 11. 界面（UI 项与插件页面）
+## 12. 界面（UI 项与插件页面）
 
 完整字段、块类型与排版约定见 **[plugin-ui.md](plugin-ui.md)**（C++ 与 JS 共用同一份）。
 
@@ -542,7 +669,7 @@ musicxx.capability.register("card", function (args) {
 
 ---
 
-## 12. 定时器与工具
+## 13. 定时器与工具
 
 ```js
 const t = musicxx.timer.setInterval(() => { /* ... */ }, 30000);
@@ -563,7 +690,7 @@ musicxx.util.now();                   // Date.now()
 
 ---
 
-## 13. 一个完整例子
+## 14. 一个完整例子
 
 `plugins/example_js/plugin.js` 是可直接照抄的完整插件，它把常用东西都串了一遍：
 
@@ -585,7 +712,7 @@ musicxx.util.now();                   // Date.now()
 
 ---
 
-## 14. 调试与排障
+## 15. 调试与排障
 
 **开发流程**
 
@@ -624,7 +751,7 @@ musicxx.util.now();                   // Date.now()
 
 ---
 
-## 15. v1 边界
+## 16. v1 边界
 
 | 边界 | 说明 |
 |---|---|
