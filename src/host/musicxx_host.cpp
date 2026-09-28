@@ -2,7 +2,9 @@
 /// (配置/启停/事件/领域钩子/生命周期接缝/插件管理)
 
 #include "musicxx_host.h"
+#include "host_inspect.h"
 #include "host_json.h"
+#include "host_manifest.h"
 #include "host_naming.h"
 #include "host_target.h"
 #include "js/js_engine.h"
@@ -11,7 +13,6 @@
 #include "pluginxx/host/manifest.h"
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
-#include "yaml-cpp/yaml.h"
 
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
@@ -118,16 +119,6 @@ void ensureStderrLogSink() {
       "[musicxx_ext] stderr 日志已开启 (MUSICXX_EXTERN_PLUGIN_LOG_STDERR)\n");
 }
 
-std::string readFileText(const fs::path &path) {
-  std::ifstream in(path, std::ios::binary);
-  if (!in) {
-    return {};
-  }
-  std::ostringstream oss;
-  oss << in.rdbuf();
-  return oss.str();
-}
-
 /* ==================== 插件事件总线 (插件 ↔ 宿主) ==================== */
 
 /// 进程内主题事件总线 (pluginxx `events` 表的后端)
@@ -226,128 +217,6 @@ std::string viewToString(const MusicxxExternPluginStringView &v) {
     return {};
   }
   return std::string{v.data, static_cast<size_t>(v.size)};
-}
-
-/* ==================== 插件清单读取 (JS 判定用) ==================== */
-
-/// 读 `plugin.yaml` 的 `kind` 字段 (空 = 未声明, 由调用方按 entry 推导)
-std::string readManifestKind(const fs::path &dir) {
-  const std::string text = readFileText(dir / "plugin.yaml");
-  if (text.empty()) {
-    return {};
-  }
-  try {
-    auto node = YAML::Load(text);
-    if (node["kind"] && node["kind"].IsScalar()) {
-      return node["kind"].as<std::string>();
-    }
-  } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的 kind 失败: {}", dir.string(),
-            e.what());
-  }
-  return {};
-}
-
-/// 读 `plugin.yaml` 的 `entry` 字段 (JS 插件可能写成 plugin.js)
-std::string readManifestEntry(const fs::path &dir) {
-  const std::string text = readFileText(dir / "plugin.yaml");
-  if (text.empty()) {
-    return {};
-  }
-  try {
-    auto node = YAML::Load(text);
-    if (node["entry"] && node["entry"].IsScalar()) {
-      return node["entry"].as<std::string>();
-    }
-  } catch (const std::exception &) {
-    // 解析失败按无 entry 处理 (真正的清单校验在装载路径)
-  }
-  return {};
-}
-
-/// 读 `plugin.yaml` 的 `scripts` 字段 (JS 插件: 按顺序执行的脚本文件, 相对插件目录)
-///
-/// 写成列表或单个标量都可以; 都没写时返回空 (调用方退回 `entry` / `plugin.js`)。
-std::vector<std::string> readManifestScripts(const fs::path &dir) {
-  const std::string text = readFileText(dir / "plugin.yaml");
-  if (text.empty()) {
-    return {};
-  }
-  std::vector<std::string> out;
-  try {
-    auto node = YAML::Load(text);
-    const auto &scripts = node["scripts"];
-    if (scripts && scripts.IsSequence()) {
-      for (const auto &item : scripts) {
-        if (item.IsScalar()) {
-          const std::string value = item.as<std::string>();
-          if (!value.empty()) {
-            out.push_back(value);
-          }
-        }
-      }
-    } else if (scripts && scripts.IsScalar()) {
-      const std::string value = scripts.as<std::string>();
-      if (!value.empty()) {
-        out.push_back(value);
-      }
-    }
-  } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的 scripts 失败: {}", dir.string(),
-            e.what());
-  }
-  return out;
-}
-
-/// 读 `plugin.yaml` 的 `version` 字段
-std::string readManifestVersion(const fs::path &dir) {
-  const std::string text = readFileText(dir / "plugin.yaml");
-  if (text.empty()) {
-    return {};
-  }
-  try {
-    auto node = YAML::Load(text);
-    if (node["version"] && node["version"].IsScalar()) {
-      return node["version"].as<std::string>();
-    }
-  } catch (const std::exception &) {
-    // 同上
-  }
-  return {};
-}
-
-/// 读 `plugin.yaml` 的依赖声明 (`depends` / `optional_depends`; 支持标量与列表两种写法)
-///
-/// 用于 JS 插件的依赖检查: JS 插件走 `loadBuiltinAsync` (不经过内核的按名依赖检查,
-/// 而内核是按实例名查的, JS 实例名是 `js:<id>`), 因此这里按**插件 id** 自己校验一遍。
-void readManifestDepends(const fs::path &dir, std::vector<std::string> &depends,
-                         std::vector<std::string> &optionalDepends) {
-  const std::string text = readFileText(dir / "plugin.yaml");
-  if (text.empty()) {
-    return;
-  }
-  try {
-    auto node = YAML::Load(text);
-    auto readList = [&node](const char *key, std::vector<std::string> &out) {
-      if (!node[key]) {
-        return;
-      }
-      if (node[key].IsSequence()) {
-        for (const auto &item : node[key]) {
-          if (item.IsScalar()) {
-            out.push_back(item.as<std::string>());
-          }
-        }
-      } else if (node[key].IsScalar()) {
-        out.push_back(node[key].as<std::string>());
-      }
-    };
-    readList("depends", depends);
-    readList("optional_depends", optionalDepends);
-  } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的依赖声明失败: {}", dir.string(),
-            e.what());
-  }
 }
 
 } // namespace
@@ -1135,177 +1004,68 @@ int32_t MusicxxHostManager::scanPlugins(std::string &outJson,
 std::string MusicxxHostManager::scanDir(const std::string &dir,
                                         const std::string &kindHint) {
   const fs::path dirPath{dir};
-  const fs::path manifestPath = dirPath / "plugin.yaml";
   std::error_code ec;
-  if (!fs::is_regular_file(manifestPath, ec)) {
+  // 没有 plugin.yaml 的目录不算插件（扫描结果里不出现）
+  if (!fs::is_regular_file(dirPath / "plugin.yaml", ec)) {
     return {};
   }
-  const std::string yamlText = readFileText(manifestPath);
-  if (yamlText.empty()) {
+
+  // 目录静态判定：清单字段 + 多目标分支选择 + 库文件判定（见 host_inspect.h）。
+  // 与安装预检（`plugin_inspect`）、原生装载共用同一份实现，扫描结果不会与它们分歧。
+  const MusicxxPluginInspect info =
+      inspectPluginDir(dirPath, platform_, hostArch());
+  if (!info.valid) {
     Json bad;
-    bad["id"] = dirPath.filename().string();
+    bad["id"] = info.dirName;
     bad["path"] = dir;
     bad["valid"] = false;
-    bad["error"] = "plugin.yaml 为空";
+    bad["error"] = info.error;
     bad["source"] = kindHint;
     return bad.dump();
   }
 
-  // 内核解析 name/entry/depends (权威路径); 扩展字段本宿主用 yaml-cpp 读
-  std::string name;
-  std::string entry;
-  std::vector<std::string> depends;
-  std::vector<std::string> optionalDepends;
-  const bool ok = pluginxx::parsePluginManifest(
-      dirPath, name, entry, depends, optionalDepends, nullptr, nullptr);
-  if (!ok || name.empty()) {
-    Json bad;
-    bad["id"] = dirPath.filename().string();
-    bad["path"] = dir;
-    bad["valid"] = false;
-    bad["error"] = "plugin.yaml 解析失败 (缺少 name 或 YAML 非法)";
-    bad["source"] = kindHint;
-    return bad.dump();
-  }
-
-  std::string kind = entry.empty() ? "js" : "native";
-  std::string version;
-  std::string description;
-  std::string author;
-  std::string homepage;
-  int32_t apiVersion = 1;
+  // 摊平成局部变量：下面的 JSON 组装与运行期开关判定沿用原有写法
+  const std::string &name = info.id;
+  const std::string &entry = info.entry;
+  const std::string &kind = info.kind;
+  const std::string &version = info.version;
+  const std::string &description = info.description;
+  const std::string &author = info.author;
+  const std::string &homepage = info.homepage;
+  const int32_t apiVersion = info.apiVersion;
+  const std::vector<std::string> &depends = info.depends;
+  const std::vector<std::string> &optionalDepends = info.optionalDepends;
+  const MusicxxPluginTargets &targets = info.targets;
   Json permissions = Json::array();
+  for (const std::string &item : info.permissions) {
+    permissions.push_back(item);
+  }
   Json platforms = Json::array();
+  for (const std::string &item : info.platforms) {
+    platforms.push_back(item);
+  }
   Json arch = Json::array();
-  try {
-    auto node = YAML::Load(yamlText);
-    auto readScalar = [&node](const char *key, std::string &dst) {
-      if (node[key] && node[key].IsScalar()) {
-        dst = node[key].as<std::string>();
-      }
-    };
-    readScalar("kind", kind);
-    readScalar("version", version);
-    readScalar("description", description);
-    readScalar("author", author);
-    readScalar("homepage", homepage);
-    if (node["api_version"] && node["api_version"].IsScalar()) {
-      apiVersion = node["api_version"].as<int32_t>();
-    }
-    auto readList = [&node](const char *key, Json &dst) {
-      if (!node[key]) {
-        return;
-      }
-      if (node[key].IsSequence()) {
-        for (const auto &item : node[key]) {
-          dst.push_back(item.as<std::string>());
-        }
-      } else if (node[key].IsScalar()) {
-        dst.push_back(node[key].as<std::string>());
-      }
-    };
-    readList("permissions", permissions);
-    readList("platforms", platforms);
-    readList("arch", arch);
-  } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 清单扩展字段解析失败: {}", name, e.what());
-  }
-  if (kind.empty()) {
-    kind = "native";
+  for (const std::string &item : info.arch) {
+    arch.push_back(item);
   }
 
-  // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：解析包内分支，选出当前系统/架构
-  // 要用的库文件；没有匹配分支时回退插件根目录（旧布局）。扫描与装载共用
-  // resolvePluginTargets，两者的判定不会出现分歧。
-  MusicxxPluginTargets targets;
-  if (kind == "native") {
-    targets = resolvePluginTargets(dirPath, readManifestTargetsDir(dirPath),
-                                   entry, name, platform_, hostArch(), true);
-  }
-
-  // 平台/架构/版本/文件过滤: 不支持的插件照常展示, 但标注 supported=false
-  // 与原因
-  bool supported = true;
-  std::string reason;
-  if (!platforms.empty()) {
-    bool match = false;
-    for (const auto &p : platforms) {
-      if (p.is_string() && p.get<std::string>() == platform_) {
-        match = true;
-        break;
-      }
-    }
-    if (!match) {
-      supported = false;
-      reason = "当前平台不在清单声明内";
-    }
-  }
-  if (supported && !arch.empty()) {
-    bool match = false;
-    for (const auto &a : arch) {
-      if (a.is_string() && a.get<std::string>() == hostArch()) {
-        match = true;
-        break;
-      }
-    }
-    if (!match) {
-      supported = false;
-      reason = "当前架构不在清单声明内";
-    }
-  }
-  if (supported && apiVersion > MUSICXX_PLUGIN_API_VERSION) {
-    supported = false;
-    reason = "插件要求的 API 版本高于当前宿主";
-  }
-  if (supported && kind == "native") {
-    // 库文件判定与装载阶段共用同一套目标解析（host_target.h）：先按多目标布局
-    // 选分支（lib/<系统>-<架构>/），没有匹配分支再回退插件根目录的旧布局，
-    // 这样扫描结果与真正装载到的东西不会不一致。
-    if (targets.selectedLib.empty()) {
-      supported = false;
-      reason = targets.note.empty()
-                   ? "动态库插件库文件缺失 (entry=" + entry + ")"
-                   : targets.note;
-    }
-  }
-  if (supported && kind == "js") {
-    // 脚本: 清单 `scripts` 优先; 没写时退回 plugin.js（或 entry 里的 .js）
-    std::vector<std::string> scripts = readManifestScripts(dirPath);
-    if (scripts.empty()) {
-      if (!entry.empty() && entry.size() > 3 &&
-          entry.compare(entry.size() - 3, 3, ".js") == 0) {
-        scripts.push_back(entry);
-      } else {
-        scripts.push_back("plugin.js");
-      }
-    }
-    std::string missing;
-    for (const std::string &script : scripts) {
-      if (!fs::exists(dirPath / script)) {
-        missing = script;
-        break;
-      }
-    }
-    if (!missing.empty()) {
-      supported = false;
-      reason = "JS 插件缺少脚本文件: " + missing;
-    } else if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0) {
-      supported = false;
-      reason = "宿主配置禁用了 JS 插件";
-    } else if (!jsEngine()) {
-      supported = false;
-      reason = "本次运行未启用 JS 运行时 (未编译 QuickJS 或启动失败)";
-    }
-  }
-  if (supported && (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_NATIVE) != 0 &&
-      kind == "native") {
-    supported = false;
-    reason = "宿主配置禁用了动态库插件";
-  }
-  if (supported && (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0 &&
-      kind == "js") {
+  // 静态判定（平台 / 架构 / API 版本 / 分支与库文件缺失）已由 inspectPluginDir 给出；
+  // 这里只叠加**运行期开关**（与"这个包本身对不对"无关）
+  bool supported = info.supported;
+  std::string reason = info.reason;
+  if (supported && kind == "js" &&
+      (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0) {
     supported = false;
     reason = "宿主配置禁用了 JS 插件";
+  }
+  if (supported && kind == "js" && !jsEngine()) {
+    supported = false;
+    reason = "本次运行未启用 JS 运行时 (未编译 QuickJS 或启动失败)";
+  }
+  if (supported && kind == "native" &&
+      (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_NATIVE) != 0) {
+    supported = false;
+    reason = "宿主配置禁用了动态库插件";
   }
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_SAFE_MODE) != 0) {
     supported = false;
@@ -1346,14 +1106,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   }
   // JS 插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）——管理页据此展示
   if (kind == "js") {
-    std::vector<std::string> scripts = readManifestScripts(dirPath);
-    if (scripts.empty()) {
-      scripts.push_back(entry.size() > 3 &&
-                                entry.compare(entry.size() - 3, 3, ".js") == 0
-                            ? entry
-                            : "plugin.js");
-    }
-    item["scripts"] = scripts;
+    item["scripts"] = info.scripts;
   }
   item["depends"] = depends;
   item["optionalDepends"] = optionalDepends;
@@ -1400,7 +1153,7 @@ MusicxxHostManager::loadNativeDirAsync(const std::string &dirPath,
   // 多目标布局（仿 APK 的 lib/<系统>-<架构>/）：选当前系统/架构要用的分支；
   // 没有匹配分支时回退插件根目录的库文件（旧布局）
   const MusicxxPluginTargets targets =
-      resolvePluginTargets(dir, readManifestTargetsDir(dir), entry, name,
+      resolvePluginTargets(dir, readManifestFields(dir).targetsDir, entry, name,
                            platform_, hostArch(), true);
   if (targets.selectedLibPath.empty()) {
     failReason = targets.note.empty()
@@ -1522,20 +1275,34 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         // JS 插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 装载;
         // 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
         const fs::path pluginPath{path};
-        const std::string manifestKind = readManifestKind(pluginPath);
-        const std::string manifestEntry = readManifestEntry(pluginPath);
-        const std::string manifestVersion = readManifestVersion(pluginPath);
-        const std::vector<std::string> manifestScripts =
-            readManifestScripts(pluginPath);
+        // 清单字段只有一处实现: 内核解析 name/entry/depends, 宿主读自己的扩展字段
+        std::string manifestName;
+        std::string manifestEntry;
+        std::vector<std::string> manifestDepends;
+        std::vector<std::string> manifestOptionalDepends;
+        pluginxx::parsePluginManifest(pluginPath, manifestName, manifestEntry,
+                                      manifestDepends,
+                                      manifestOptionalDepends, nullptr,
+                                      nullptr);
+        const MusicxxManifestFields manifestFields =
+            readManifestFields(pluginPath);
+        // 清单没写 kind 时按 entry 推导（都拿不到就不当成 JS 插件，走内核路径报错）
+        const std::string manifestKind =
+            !manifestFields.kind.empty()
+                ? manifestFields.kind
+                : (manifestEntry.empty() ? std::string{}
+                                         : std::string{"native"});
+        const std::string manifestVersion = manifestFields.version;
+        const std::vector<std::string> manifestScripts = manifestFields.scripts;
         if (manifestKind == "js") {
           // 依赖检查 (JS 插件专用): 内核的按名依赖检查用实例名查表, 而 JS 实例名是
           // `js:<id>`, 所以 JS 插件走不了那条路; 这里按**插件 id** 自己校验一遍,
           // 语义与动态库插件一致 (必选依赖未加载 → 拒绝加载; 可选依赖 → 只记日志)。
           // 记录到实例上的依赖用**实例名** (JS 依赖写成 `js:<id>`), 这样内核的
           // "启用依赖 / 级联卸载依赖者" 也能在同一套命名空间里对上。
-          std::vector<std::string> jsDepends;
-          std::vector<std::string> jsOptionalDepends;
-          readManifestDepends(pluginPath, jsDepends, jsOptionalDepends);
+          const std::vector<std::string> &jsDepends = manifestDepends;
+          const std::vector<std::string> &jsOptionalDepends =
+              manifestOptionalDepends;
           std::vector<std::string> jsDependsResolved;
           std::vector<std::string> jsOptionalDependsResolved;
           for (const auto &dep : jsDepends) {

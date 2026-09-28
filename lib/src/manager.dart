@@ -5,6 +5,7 @@ import 'bindings_generated.dart';
 import 'events.dart';
 import 'native_strings.dart';
 import 'plugin_info.dart';
+import 'plugin_inspect.dart';
 import 'ui.dart';
 import 'runtime.dart';
 
@@ -60,6 +61,43 @@ class MusicxxPluginManager {
     );
     _scanned = result;
     return result;
+  }
+
+  /// 检查一个插件目录（**只读**，不装载、不改动任何状态）
+  ///
+  /// 与 [scan] 同源：原生侧是同一份 `inspectPluginDir`，因此"预检通过、装载却用另一个
+  /// 分支"这类分歧不会出现。用途是应用侧「从压缩包安装」的预检：把解包出来的临时目录
+  /// 交给宿主判定，装之前就知道"当前系统/架构能不能用、会用哪个分支、库文件在不在"。
+  ///
+  /// - [dir] 插件目录（绝对路径；压缩包解包后的临时目录同样可以）；
+  /// - [os] / [arch] 要判定的目标环境（留空 = 宿主自己的平台与架构）；
+  /// - 目录不存在 / 清单非法时返回的对象里 `valid == false`（不抛异常，看 [error]）；
+  /// - 不看运行期开关（JS 运行时是否可用、安全模式、禁用动态库）——那些由 [scan] 叠加。
+  MusicxxPluginInspect_c inspect(
+    String dir, {
+    String os = '',
+    String arch = '',
+  }) {
+    _requireRunning('plugin_inspect');
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginString> out = arena.outString();
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_inspect(
+        _runtime.host,
+        arena.view(dir),
+        arena.view(os),
+        arena.view(arch),
+        out,
+        log,
+      );
+      _runtime.checkOrThrow(rc, log, 'plugin_inspect');
+      return MusicxxPluginInspect_c.fromJson(
+        decodeJsonObject(takeOutString(out, _runtime.bindings)),
+      );
+    } finally {
+      arena.dispose();
+    }
   }
 
   /// 当前已加载插件状态快照
@@ -223,8 +261,7 @@ class MusicxxPluginManager {
   }
 
   /// 插件配置文件路径（管理页/插件自读配置用）
-  String configPath(String id) {
-    _requireRunning('plugin_get_config_path');
+  String configPath(String id) {    _requireRunning('plugin_get_config_path');
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();

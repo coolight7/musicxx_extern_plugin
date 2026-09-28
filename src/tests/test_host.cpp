@@ -489,6 +489,114 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
   }
 }
 
+/// 插件目录静态判定（`plugin_inspect`）：安装预检入口，与扫描/装载同源
+///
+/// 用例覆盖：清单字段、按当前或**指定**目标环境选分支、没有匹配分支的原因、
+/// JS 插件的脚本清单、目录不存在，以及"inspect 与 scan 对同一目录结论一致"。
+void testPluginInspect(MusicxxExternPluginHost *host,
+                       const std::string &pluginsRoot) {
+  auto inspect = [&](const std::string &dir, const std::string &os,
+                     const std::string &arch) -> std::string {
+    MusicxxExternPluginString out{};
+    MusicxxExternPluginString log{};
+    const auto rc = musicxx_extern_plugin_plugin_inspect(
+        host, viewP(dir), viewP(os), viewP(arch), &out, &log);
+    freeStr(log);
+    const std::string json = take(out);
+    return rc == MUSICXX_EXTERN_PLUGIN_OK ? json : std::string{};
+  };
+
+  const std::string os = testPlatform();
+  const std::string arch = testArch();
+  const std::string exactTag = os + "-" + arch;
+  const std::string libName = testLibFileName("tgt_inspect");
+  const std::string manifest =
+      "name: tgt_inspect\n"
+      "entry: tgt_inspect.so\n"
+      "kind: native\n"
+      "version: 0.2.0\n"
+      "author: \"probe\"\n";
+  const std::filesystem::path root = makeTempPluginRoot(
+      "tgt_inspect", manifest,
+      {"lib/" + exactTag + "/" + libName, "lib/linux-arm64/" + libName});
+  const std::filesystem::path pkg = root / "tgt_inspect";
+
+  // 1) 用宿主当前环境判定（os/arch 传空）
+  const std::string info = inspect(pkg.string(), "", "");
+  checkText(!info.empty(), "plugin_inspect 有出参");
+  checkText(info.find("\"valid\":true") != std::string::npos,
+            "plugin_inspect 判定清单可解析");
+  checkText(jsonStringField(info, "id") == "tgt_inspect",
+            "plugin_inspect 给出插件 id");
+  checkText(jsonStringField(info, "kind") == "native",
+            "plugin_inspect 给出形态");
+  checkText(jsonStringField(info, "version") == "0.2.0",
+            "plugin_inspect 给出清单字段");
+  checkText(info.find("\"supported\":true") != std::string::npos,
+            "plugin_inspect 判定为可用");
+  checkText(jsonStringField(info, "target") == exactTag,
+            "plugin_inspect 按当前系统/架构选中分支");
+
+  // 2) 与扫描同源：同一个目录，两边报的分支与库文件必须一致
+  {
+    const std::string scanItem =
+        scanPluginItem(host, root.string(), "tgt_inspect");
+    checkText(jsonStringField(scanItem, "target") ==
+                  jsonStringField(info, "target"),
+              "plugin_inspect 与扫描选中的分支一致");
+    checkText(jsonStringField(scanItem, "targetEntry") ==
+                  jsonStringField(info, "targetEntry"),
+              "plugin_inspect 与扫描的库文件一致");
+    checkText(jsonStringField(scanItem, "reason") ==
+                  jsonStringField(info, "reason"),
+              "plugin_inspect 与扫描的可用性原因一致（均没有原因）");
+  }
+
+  // 3) 指定目标环境：按传进来的 os/arch 选分支（不需要在那种机器上）
+  checkText(jsonStringField(inspect(pkg.string(), "linux", "arm64"), "target") ==
+                "linux-arm64",
+            "plugin_inspect 按指定目标环境选分支");
+
+  // 4) 目标环境没有匹配分支：标明不可用并给出原因
+  {
+    const std::string mac = inspect(pkg.string(), "macos", "arm64");
+    checkText(mac.find("\"supported\":false") != std::string::npos,
+              "plugin_inspect 对没有匹配分支的环境判为不可用");
+    checkText(mac.find("没有匹配当前系统/架构的分支") != std::string::npos,
+              "plugin_inspect 给出没有匹配分支的原因");
+  }
+  removePath(root);
+
+  // 5) JS 插件：形态与脚本清单；动态库分支字段不出现
+  {
+    const std::filesystem::path jsDir =
+        std::filesystem::path(pluginsRoot) / "example_js";
+    const std::string jsInfo = inspect(jsDir.string(), "", "");
+    checkText(jsonStringField(jsInfo, "kind") == "js",
+              "plugin_inspect 识别 JS 插件");
+    checkText(jsInfo.find("\"scripts\":[\"") != std::string::npos,
+              "plugin_inspect 给出 JS 插件的脚本清单");
+    checkText(jsInfo.find("\"targetsDir\"") == std::string::npos &&
+                  jsInfo.find("\"targetEntry\"") == std::string::npos,
+              "JS 插件不出现动态库分支字段");
+  }
+
+  // 6) 目录不存在：valid=false + 可读原因（调用本身仍然成功）
+  {
+    const std::filesystem::path missing =
+        std::filesystem::path(pluginsRoot) / "definitely_missing_plugin";
+    const std::string missingInfo = inspect(missing.string(), "", "");
+    checkText(!missingInfo.empty(), "plugin_inspect 对不存在的目录也有出参");
+    checkText(missingInfo.find("\"valid\":false") != std::string::npos,
+              "plugin_inspect 对不存在的目录判 valid=false");
+    checkText(missingInfo.find("插件目录不存在") != std::string::npos,
+              "plugin_inspect 说明目录不存在");
+  }
+
+  // 还原插件目录（本用例中途把扫描入口指向了临时包，后面的用例要用常规目录里的插件）
+  scanPluginItem(host, pluginsRoot, "example_native");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -571,6 +679,9 @@ int main(int argc, char **argv) {
 
   // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：分支选择与装载
   testPluginTargetLayout(host, pluginDir);
+
+  // 插件目录静态判定（plugin_inspect）：安装预检用的入口，与扫描同源
+  testPluginInspect(host, pluginDir);
 
   // 装载 (同步)
   MusicxxExternPluginString empty{};

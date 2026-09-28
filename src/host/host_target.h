@@ -110,9 +110,6 @@ std::string normalizeTargetArch(std::string_view name);
 std::string currentTargetOs();
 std::string currentTargetArch();
 
-/// 读清单 `targets_dir` (缺省 lib; 清单里显式写空串 = 关闭分支扫描)
-std::string readManifestTargetsDir(const std::filesystem::path &pluginDir);
-
 /// 平台默认库文件名 (与内核 defaultPluginLibraryPath 同一规则):
 /// windows → `<名>.dll` / `lib<名>.dll`, macos → `lib<名>.dylib`, 其余 → `lib<名>.so`
 std::string defaultPluginLibraryName(std::string_view pluginName);

@@ -4,12 +4,9 @@
 
 #include "pluginxx/host/manifest.h"
 #include "utilxx_base/log.h"
-#include "yaml-cpp/yaml.h"
 
 #include <algorithm>
 #include <cctype>
-#include <fstream>
-#include <sstream>
 #include <system_error>
 
 namespace musicxx {
@@ -275,31 +272,6 @@ MusicxxTargetTag parseTargetTag(std::string_view tag) {
     }
   }
   return out;
-}
-
-std::string readManifestTargetsDir(const fs::path &pluginDir) {
-  const fs::path manifest = pluginDir / "plugin.yaml";
-  std::ifstream in(manifest, std::ios::binary);
-  if (!in) {
-    return "lib";
-  }
-  std::ostringstream oss;
-  oss << in.rdbuf();
-  const std::string text = oss.str();
-  if (text.empty()) {
-    return "lib";
-  }
-  try {
-    const auto node = YAML::Load(text);
-    if (node["targets_dir"] && node["targets_dir"].IsScalar()) {
-      // 显式写空串 = 关闭分支扫描 (插件自己管目录布局)
-      return node["targets_dir"].as<std::string>();
-    }
-  } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的 targets_dir 失败: {}",
-            pluginDir.string(), e.what());
-  }
-  return "lib";
 }
 
 std::string defaultPluginLibraryName(std::string_view pluginName) {
