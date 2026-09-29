@@ -199,7 +199,11 @@ void main() {
       reason: '插件代码必须只在宿主线程执行',
     );
     expect(probe['unknownHookRc'], -4, reason: '未知前缀钩子必须被拒绝');
-    expect(probe['foreignActionRc'], -6, reason: '他人命名空间动作必须被拒绝');
+    expect(
+      probe['foreignActionRc'],
+      0,
+      reason: '动作名不再做命名空间校验（任意动作都被受理）',
+    );
     expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的状态镜像');
 
     _step('7 能力调用完成: $probeRaw');
@@ -281,7 +285,6 @@ void main() {
     );
     expect(runtime.hooks.pendingAsyncDecisions, 0, reason: '异步裁决不应残留等待中的调用');
     expect(runtime.hooks.asyncDecisionCalls, greaterThan(0));
-    expect(runtime.hooks.asyncDecisionTimeouts, 0, reason: '正常路径不应超时');
 
     _step('9.5 异步裁决完成');
     // 禁用 → 原生处理器位图清零；启用 → 恢复
@@ -458,7 +461,7 @@ void main() {
     expect(jsAsyncVerdict!['action'], 'skip');
 
     _step('14.5 JS 异步裁决完成');
-    // JS 裁决处理器返回 Promise (异步裁决): 宿主在等待预算内等脚本结算, 结算后裁决生效
+    // JS 裁决处理器返回 Promise (异步裁决): 宿主一直等到脚本结算, 结算后裁决生效
     final Map<String, Object?>? jsPromiseVerdict = runtime.hooks.decide(
       MusicxxPluginHookId.playerSpeed,
       <String, Object?>{'sid': 's-js-speed', 'from': 1.0, 'to': 8.0},
@@ -501,6 +504,18 @@ void main() {
     final Map<String, Object?> jsProbe = jsProbeRaw! as Map<String, Object?>;
     expect(jsProbe['pluginId'], 'example_js');
     expect(jsProbe['hostPlatform'], MusicxxPluginRuntime.currentPlatform);
+
+    // 异步能力处理器 (返回 Promise): 宿主等到它结算再给调用方结果
+    final Object? slowRaw = runtime.plugins.call(
+      'example_js',
+      'plugin.example_js.slowProbe',
+      const <String, Object?>{'waitMs': 250},
+    );
+    expect(slowRaw, isA<Map<String, Object?>>(), reason: '异步能力应有结果');
+    final Map<String, Object?> slow = slowRaw! as Map<String, Object?>;
+    expect(slow['ok'], true);
+    expect(slow['waitedMs'], 250);
+    expect(slow['pluginId'], 'example_js');
     expect(jsProbe['currentSongName'], 'Dart 推送的歌曲', reason: 'JS 应能同步读到状态镜像');
     expect(jsProbe['songChangedCount'], greaterThan(0));
 

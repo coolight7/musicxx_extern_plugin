@@ -44,8 +44,9 @@ const HookMeta *findHookMeta(std::string_view hookId) {
 }
 
 /// 命名空间规则 单一实现在 host_naming.h
-using naming::isOfficial;
-using naming::isOwnPlugin;
+///
+/// 说明: 动作名不再做归属校验 (插件可以调任意名字的动作), 这里只保留事件主题的
+/// 归属判定 (发布事件仍要求 `musicxx.*` 或自己命名空间)。
 using naming::isTopicOwnedBy;
 
 } // namespace
@@ -168,8 +169,6 @@ int32_t MusicxxHostManager::hookInfoJson(std::string_view hookId,
   j["id"] = std::string{hookId};
   j["mode"] = meta->mode;
   j["policy"] = meta->policy;
-  j["budgetMs"] = meta->budgetMs > 0 ? meta->budgetMs : hookBudgetMs_;
-  j["hardMs"] = meta->hardMs > 0 ? meta->hardMs : hookHardMs_;
   auto it = hooks_.find(std::string{hookId});
   j["handlers"] =
       (it == hooks_.end()) ? 0 : static_cast<int32_t>(it->second.size());
@@ -186,11 +185,9 @@ int32_t MusicxxHostManager::hookCount(const std::string &hookId,
 
 int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
   Json hooks = Json::object();
-  const auto now = std::chrono::steady_clock::now();
   for (const auto &[hookId, handlers] : hooks_) {
     Json arr = Json::array();
     for (const auto &h : handlers) {
-      const bool paused = h.pausedUntil > now;
       arr.push_back({
           {"plugin", h.pluginId},
           {"ownerTag", h.ownerTag},
@@ -198,16 +195,8 @@ int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
           {"priority", h.spec.priority},
           {"calls", h.calls},
           {"failures", h.failures},
-          {"timeouts", h.timeouts},
           {"avgUs", h.calls > 0 ? h.totalUs / h.calls : 0},
           {"maxUs", h.maxUs},
-          {"paused", paused},
-          /// 暂停派发的剩余时间 (ms; 没有暂停时为 0): 管理页据此显示"还有多久恢复派发"
-          {"pausedRemainMs",
-           paused ? std::chrono::duration_cast<std::chrono::milliseconds>(
-                        h.pausedUntil - now)
-                        .count()
-                  : 0},
       });
     }
     hooks[hookId] = arr;
@@ -250,14 +239,11 @@ std::string actionOf(const Json &j) {
 
 std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
                                              const std::string &inputJson,
-                                             uint32_t budgetMs,
                                              HookDispatchMode mode) {
   const auto *meta = findHookMeta(hookId);
   if (!meta) {
     return R"({"handled":false,"error":"unknown_hook"})";
   }
-  /// 观察型派发不等待、不施加等待预算（入队即返回的语义）；两种裁决派发都要收敛时间
-  const bool waitBudget = mode != HookDispatchMode::Notify;
   auto it = hooks_.find(hookId);
   if (it == hooks_.end() || it->second.empty()) {
     return R"({"handled":false,"handlers":0})";
@@ -279,32 +265,12 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
                      return a.seq < b.seq;
                    });
 
-  const auto budget =
-      budgetMs > 0 ? budgetMs
-                   : static_cast<uint32_t>((std::max)(meta->budgetMs, 1));
-  const auto hardMs =
-      static_cast<int64_t>((std::max)(meta->hardMs, meta->budgetMs));
-  const auto started = std::chrono::steady_clock::now();
-
   int32_t called = 0;
-  bool timedOut = false;
   Json merged = Json::object();
   bool hasPatch = false;
   std::string action;
 
   for (auto &h : handlers) {
-    const auto elapsedMs =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - started)
-            .count();
-    if (waitBudget && elapsedMs >= static_cast<int64_t>(budget)) {
-      timedOut = true;
-      break;
-    }
-    const auto now = std::chrono::steady_clock::now();
-    if (h.pausedUntil > now) {
-      continue; ///< 暂停派发中: 只跳过这个处理器, 不卸载插件
-    }
     if (!h.spec.hook_sync) {
       // 异步处理器: 本轮只做通知 (调用 hook_start, 结果不参与同步合并)
       if (h.spec.hook_start) {
@@ -373,31 +339,8 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
       live->totalUs = live->totalUs + usValue;
       live->maxUs = (std::max)(live->maxUs, usValue);
       if (rc != 0) {
+        /// 处理器失败只记统计 (不再连续失败暂停派发): 日志在上面, 这里只累计次数
         ++live->failures;
-        if (++live->consecutiveErrors >= 3) {
-          live->pausedUntil =
-              std::chrono::steady_clock::now() + std::chrono::seconds{60};
-          live->consecutiveErrors = 0;
-          Json payload;
-          payload["id"] = h.pluginId;
-          payload["phase"] = "hook";
-          payload["hook"] = hookId;
-          payload["code"] = "handler_failed";
-          payload["message"] = "处理器连续失败, 已临时暂停派发 60 秒";
-          pushEvent("musicxx.plugin.error", h.pluginId, payload.dump());
-        }
-      } else {
-        live->consecutiveErrors = 0;
-        if (usValue > hardMs * 1000) {
-          ++live->timeouts;
-          Json payload;
-          payload["id"] = h.pluginId;
-          payload["phase"] = "hook";
-          payload["hook"] = hookId;
-          payload["code"] = "handler_slow";
-          payload["message"] = "处理器耗时超过硬预算 (未打断插件, 仅记录统计)";
-          pushEvent("musicxx.plugin.warn", h.pluginId, payload.dump());
-        }
       }
     }
 
@@ -444,7 +387,6 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
   /// handlers = 本轮快照里的处理器数量 (回调里注册/注销不影响本轮的计数)
   result["handlers"] = static_cast<int32_t>(handlers.size());
   result["called"] = called;
-  result["timedOut"] = timedOut;
   if (!action.empty()) {
     result["result"] = merged;
     result["result"]["action"] = action;
@@ -469,8 +411,8 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
 
 int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
                                      const std::string &inputJson, bool sync,
-                                     uint32_t timeoutMs, std::string &outJson,
-                                     std::string &err) {
+                                     uint32_t /*timeoutMs*/,
+                                     std::string &outJson, std::string &err) {
   if (hookId.empty()) {
     err = "hook_emit: empty hook id";
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
@@ -504,12 +446,10 @@ int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
   const int64_t callId =
       asyncDecide ? nextHookCallId_.fetch_add(1, std::memory_order_relaxed) : 0;
 
-  const uint32_t budget =
-      timeoutMs > 0 ? timeoutMs : static_cast<uint32_t>(hookBudgetMs_);
   auto slot = std::make_shared<WaitSlot<std::string>>();
   auto self = shared_from_this();
-  asio::post(ctx_->io, [self, slot, hookId, inputJson, budget, mode, callId]() {
-    std::string result = self->dispatchHook(hookId, inputJson, budget, mode);
+  asio::post(ctx_->io, [self, slot, hookId, inputJson, mode, callId]() {
+    std::string result = self->dispatchHook(hookId, inputJson, mode);
     if (mode == HookDispatchMode::AsyncDecide) {
       Json payload = parseJsonSafe(result);
       payload["callId"] = callId;
@@ -530,13 +470,10 @@ int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
     outJson = ack.dump();
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
+  /// 同步派发没有等待预算: 一直等到处理器链结束 (处理器链里包含插件自己的代码,
+  /// 慢就是调用线程一起等。超时参数保留在 C ABI 里但不再使用)。
   std::string result;
-  if (!slot->wait(budget + static_cast<uint32_t>(hookHardMs_) + 20, result)) {
-    outJson = R"({"handled":false,"timedOut":true})";
-    err = "hook_emit: 派发未在预算内完成";
-    XX_LOGW("[musicxx_ext] 钩子 `{}` 派发超时 (按无裁决继续)", hookId);
-    return MUSICXX_EXTERN_PLUGIN_OK; ///< 超时按"无裁决"处理, 不是错误
-  }
+  slot->wait(result);
   outJson = std::move(result);
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -554,17 +491,15 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
   }
   const std::string actionName{action};
   const std::string pluginId = pluginIdOf(inst->name);
-  // 命名空间校验: 官方 musicxx.* 或本插件自己的 plugin.<id>.*
-  if (!isOfficial(actionName) && !isOwnPlugin(actionName, pluginId)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 发起非法动作名 `{}` (命名空间校验失败)",
-            pluginId, actionName);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
-  }
+  /// 动作名不校验、不拒绝: 插件想调什么就调什么, 由 Dart 侧按"注册了没有"决定
+  /// 理不理它 (没注册的动作立刻回"未找到")。
+  /// 命名建议: 官方动作 `musicxx.<域>.<动作>`; 插件自己的动作用 `plugin.<包名>.*`
+  /// 以免与别的插件撞名。
 
   const int64_t requestId = nextRequestId_++;
-  // 超时预算: 默认 5s, 下限 1s (避免 Dart 侧被高频请求淹没), 上限 60s
-  const int64_t effectiveTimeoutMs = std::clamp<int64_t>(
-      (timeoutMs == 0) ? 5000 : static_cast<int64_t>(timeoutMs), 1000, 60000);
+  /// 超时不再限制区间: 传 0 表示不设超时 (一直等 Dart 侧回复); 非 0 时按插件给的值
+  /// 到点终结该 op 并通知 Dart 收尾。
+  const int64_t effectiveTimeoutMs = static_cast<int64_t>(timeoutMs);
   PendingAction pending;
   pending.plugin = inst->name;
   pending.action = actionName;
@@ -572,7 +507,8 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
   pending.deadline = std::chrono::steady_clock::now() +
                      std::chrono::milliseconds{effectiveTimeoutMs};
   // 超时保护: 到点仍未收到 Dart 回复就终结 op, 并推事件让 Dart 中断在做的活
-  if (ctx_) {
+  // (只有调用方给了超时才建定时器)
+  if (ctx_ && effectiveTimeoutMs > 0) {
     auto timer = std::make_shared<asio::steady_timer>(ctx_->io);
     timer->expires_after(std::chrono::milliseconds{effectiveTimeoutMs});
     timer->async_wait([this, requestId](const utilxx_base::AsioErrorCode &ec) {

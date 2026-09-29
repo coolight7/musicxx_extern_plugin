@@ -79,7 +79,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln("  /// 观察型：不等待、不裁决（入队即返回）")
     ..writeln('  observe(0),')
     ..writeln()
-    ..writeln("  /// 裁决型：等待处理器链结果（有等待预算）")
+    ..writeln("  /// 裁决型：等待处理器链结果")
     ..writeln('  decision(1);')
     ..writeln()
     ..writeln('  const MusicxxPluginHookMode(this.code);')
@@ -108,7 +108,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln()
     ..writeln('/// 派发方式')
     ..writeln('enum MusicxxPluginHookDispatch {')
-    ..writeln('  /// 调用点就地等待裁决（`MusicxxPluginHooks.decide`；占用调用线程，有等待预算）')
+    ..writeln('  /// 调用点就地等待裁决（`MusicxxPluginHooks.decide`；占用调用线程）')
     ..writeln('  sync(0),')
     ..writeln()
     ..writeln('  /// 不占用调用线程：观察型 = 入队即返回；裁决型 = 异步派发（`decideAsync`，')
@@ -131,12 +131,10 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     final String policy = hook['policy']! as String;
     final bool wired = hook['wired'] == true;
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
-    final int budget = (hook['budgetMs'] as num).toInt();
-    final int hard = (hook['hardMs'] as num).toInt();
     sb.writeln(
       "  ${_dartEnumName(hook)}('${hook['id']}', MusicxxPluginHookMode.$mode, "
       'MusicxxPluginDecisionPolicy.$policy, $wired, '
-      'MusicxxPluginHookDispatch.$dispatch, $budget, $hard),',
+      'MusicxxPluginHookDispatch.$dispatch),',
     );
   }
   sb
@@ -148,8 +146,6 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('    this.policy,')
     ..writeln('    this.wired,')
     ..writeln('    this.dispatch,')
-    ..writeln('    this.budgetMs,')
-    ..writeln('    this.hardMs,')
     ..writeln('  );')
     ..writeln()
     ..writeln('  /// 跨边界稳定 id（`musicxx.<域>.<名>`）')
@@ -168,12 +164,6 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  /// 派发方式（是否占用调用线程；见 `tools/hooks.def.json`）')
     ..writeln('  final MusicxxPluginHookDispatch dispatch;')
     ..writeln()
-    ..writeln('  /// 整链软等待预算（毫秒；0 = 用宿主默认）')
-    ..writeln('  final int budgetMs;')
-    ..writeln()
-    ..writeln('  /// 整链硬等待预算（毫秒；超过只记统计，不打断插件）')
-    ..writeln('  final int hardMs;')
-    ..writeln()
     ..writeln('  /// 是否裁决型（观察型不参与合并）')
     ..writeln(
       '  bool get isDecision => mode == MusicxxPluginHookMode.decision;',
@@ -183,9 +173,6 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln(
       '  bool get isAsyncDispatch => dispatch == MusicxxPluginHookDispatch.async;',
     )
-    ..writeln()
-    ..writeln('  /// 整链等待预算上限（毫秒；异步派发时用来算等待上限）')
-    ..writeln('  int get budgetLimitMs => budgetMs + hardMs;')
     ..writeln()
     ..writeln('  /// 按 id 反查（未知 id 返回 null；插件注册未知钩子会被宿主拒绝）')
     ..writeln(
@@ -211,7 +198,7 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
     )
     ..writeln('///')
     ..writeln('/// C++ 侧钩子契约：id 常量 + 已知钩子表（宿主据此拒绝未知钩子、按声明的')
-    ..writeln('/// 模式/策略/预算派发；插件按常量注册，避免手写字符串打错）。')
+    ..writeln('/// 模式/策略派发；插件按常量注册，避免手写字符串打错）。')
     ..writeln('#ifndef MUSICXX_PLUGIN_HOOK_IDS_G_H')
     ..writeln('#define MUSICXX_PLUGIN_HOOK_IDS_G_H')
     ..writeln()
@@ -244,15 +231,13 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
     ..writeln('namespace musicxx {')
     ..writeln('namespace plugin {')
     ..writeln()
-    ..writeln('/// 已知钩子条目: id / 模式 / 合并策略 / 软硬等待预算 (毫秒; 0 = 宿主默认)')
+    ..writeln('/// 已知钩子条目: id / 模式 / 合并策略')
     ..writeln('struct MusicxxPluginHookMeta {')
     ..writeln('    const char* id;')
     ..writeln(
       '    int32_t     mode;     ///< 0 观察型 / 1 裁决型 (MUSICXX_PLUGIN_HOOK_MODE_*)',
     )
     ..writeln('    int32_t     policy;   ///< MUSICXX_PLUGIN_HOOK_POLICY_*')
-    ..writeln('    int32_t     budgetMs; ///< 整链软等待预算')
-    ..writeln('    int32_t     hardMs;   ///< 整链硬等待预算 (超过只记统计)')
     ..writeln('};')
     ..writeln()
     ..writeln('/// 已知钩子表 (宿主拒绝表外钩子: 插件不得制造宿主不认识的钩子点)')
@@ -262,9 +247,7 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
   for (final Map<String, Object?> hook in hooks) {
     final int mode = _modeCode(hook['mode']! as String);
     final int policy = _policyCodes[hook['policy']]!;
-    final int budget = (hook['budgetMs'] as num).toInt();
-    final int hard = (hook['hardMs'] as num).toInt();
-    sb.writeln("    {\"${hook['id']}\", $mode, $policy, $budget, $hard},");
+    sb.writeln("    {\"${hook['id']}\", $mode, $policy},");
   }
   sb
     ..writeln('};')
@@ -304,7 +287,7 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。',
     )
     ..writeln(
-      '- **模式**：`observe` = 只通知（返回值忽略、不等待、没有预算）；`decision` = 可裁决，'
+      '- **模式**：`observe` = 只通知（返回值忽略、不等待）；`decision` = 可裁决，'
       '返回 `null` 表示这次不表态。',
     )
     ..writeln(
@@ -316,20 +299,18 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。',
     )
     ..writeln(
-      '- **软/硬预算**：软预算 = 整条处理器链最多等多久（超时按“无裁决”继续，不打断插件）；'
-      '硬预算 = 单个处理器耗时超过它只记一条 `musicxx.plugin.warn` 与统计。'
-      'JS 插件的处理器链还有一层固定上限：最多等 100 ms（Promise 超预算按不裁决处理）。',
+      '- **耗时**：宿主不设等待预算（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），'
+      '处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在宿主线程上，'
+      '慢就是别人一起等。',
     )
     ..writeln()
-    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 软/硬预算 (ms) | 是否已埋点 |')
-    ..writeln('|---|---|---|---|---|---|');
+    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 是否已埋点 |')
+    ..writeln('|---|---|---|---|---|');
   for (final Map<String, Object?> hook in hooks) {
-    final String budget =
-        '${(hook['budgetMs'] as num).toInt()} / ${(hook['hardMs'] as num).toInt()}';
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
     final String wiredText = hook['wired'] == true ? '已埋点' : '未埋点';
     sb.writeln(
-      "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $budget | $wiredText |",
+      "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $wiredText |",
     );
   }
   sb
@@ -352,15 +333,13 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       continue;
     }
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
-    final String budget =
-        '${(hook['budgetMs'] as num).toInt()} / ${(hook['hardMs'] as num).toInt()}';
     sb
       ..writeln()
       ..writeln('### `${hook['id']}`')
       ..writeln()
       ..writeln(
         '- 模式：`${hook['mode']}`；派发：`$dispatch`；'
-        '合并策略：`${hook['policy']}`；软/硬预算：`$budget` ms',
+        '合并策略：`${hook['policy']}`',
       )
       ..writeln('- $doc');
   }
@@ -370,7 +349,7 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln()
     ..writeln('| 派发 | 含义 | 调用点写法 |')
     ..writeln('|---|---|---|')
-    ..writeln('| `sync` | 调用点就地等待裁决（占用调用线程，有等待预算） | `decide(...)` |')
+    ..writeln('| `sync` | 调用点就地等待裁决（占用调用线程） | `decide(...)` |')
     ..writeln(
       '| `async` | 调用点本身是 Future：异步派发，结果经事件回传 | `await decideAsync(...)` |',
     )
@@ -394,21 +373,14 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln()
     ..writeln('- 返回 `null` / 空对象表示“不裁决”，交给下一个处理器；')
     ..writeln('- `action` 的宿主语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
-    ..writeln('- 处理器必须尽快返回：宿主对整链有等待预算，超时按“无裁决”继续（不打断插件）。')
+    ..writeln('- 处理器必须尽快返回：它跑在宿主线程上，慢就是业务与其它插件一起等（宿主不设等待预算、也不会强行中断）。')
     ..writeln()
-    ..writeln('## 处理器失败与暂停派发')
+    ..writeln('## 处理器失败')
     ..writeln()
     ..writeln(
-      '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**；',
+      '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**（宿主不会因为失败次数暂停派发、也不会卸载插件）；',
     )
-    ..writeln(
-      '- 同一个处理器**连续 3 次失败**会被宿主临时暂停派发 60 秒（只暂停这一个处理器，'
-      '同插件的其它处理器照常工作，插件也不会被卸载）；暂停状态与管理页里的剩余时间见 '
-      '`hook_stats()` 的 `paused` / `pausedRemainMs`；',
-    )
-    ..writeln(
-      '- 超过硬预算只是慢，不计失败（记 `musicxx.plugin.warn`，`code = handler_slow`）；',
-    )
+    ..writeln('- 处理器耗时只记统计（管理页「外部插件 → 调试」分页可看单处理器平均/最大耗时）；')
     ..writeln('- 派发期间注册/注销钩子不会破坏本轮遍历：宿主在派发前对处理器列表做快照。');
   return sb.toString();
 }

@@ -11,7 +11,7 @@
 | 写一个 **JS 脚本插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
 | 给插件加**界面**（主页入口、歌曲菜单、插件页面、设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
-| 查**钩子** id / 模式 / 预算 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
+| 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
 | 读 / 改 / 订阅**变量**（官方变量目录与口径） | [docs/plugin-vars.md](docs/plugin-vars.md) |
 | 构建宿主库、把宿主库随应用分发 | 本文件「构建」「打包（随应用分发）」 |
 | 在 Dart 侧接入宿主（应用开发者） | 本文件「Dart 侧（包内）」+ `lib/musicxx_extern_plugin.dart` 文件头 |
@@ -49,16 +49,15 @@ test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_
 plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
   example_native_multi/ 示例插件（C++，多目标打包：包内多个系统/架构分支，运行时按系统与架构选分支）
-  example_native_fail/       对照示例（C++：处理器总是失败 → 暂停派发）
+  example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝装载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
   example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置）
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
-  example_js_spin/  对照示例（JS：观察钩子里死循环 → 可选执行上限）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 装载失败并回滚）
-docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 预算 / 是否已埋点 + 已埋点钩子的载荷与裁决）
+docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 是否已埋点 + 已埋点钩子的载荷与裁决）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
@@ -480,7 +479,7 @@ final List<MusicxxPluginUIItem> next =
   应用侧当前**埋点 9 个**（`docs/plugin-hooks.md` 的「是否已埋点」列标「已埋点」），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入宿主库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由宿主线程执行；
-  裁决处理器可以返回 Promise（100 ms 预算内结算生效，超时按不裁决且不计失败）；
+  裁决处理器可以返回 Promise（宿主一直等到它结算，结算后裁决生效）；
 - **声明式 UI**：UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景）与插件自绘页面
   （`ext://<插件id>/<视图id>`）都已实现；应用侧当前渲染主页入口、歌曲菜单与插件页面，
   **歌单菜单项还没有渲染入口**（见 `docs/plugin-ui.md` §1.4）；
@@ -499,17 +498,16 @@ final List<MusicxxPluginUIItem> next =
 
 | 对照示例 | 演示 / 验证点 |
 |---|---|
-| `plugins/example_native_fail/` | 钩子处理器总是失败 → 宿主连续 3 次失败后**只暂停该处理器**（暂停派发，`hook_stats` 里 `failures`/`paused`）、同插件的其它处理器照常工作、插件不被卸载 |
+| `plugins/example_native_fail/` | 钩子处理器总是失败 → 宿主只记统计（`hook_stats` 里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
 | `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
-| `plugins/example_js_spin/` | 观察钩子里死循环 → 可选执行上限（`jsExecGuardMs`）能中断脚本且不影响其它 JS 插件 |
-| `plugins/example_js_async/` | 裁决处理器返回 Promise → 预算内结算生效、超预算按不裁决且不计失败（`asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`） |
+| `plugins/example_js_async/` | 裁决处理器返回 Promise → 宿主一直等到结算，裁决生效（`asyncHookSettled`） |
 | `plugins/example_js_broken/` | 脚本语法错误 → 装载失败并回滚，宿主继续可用 |
 
 插件侧可用的能力：
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 钩子 | `musicxx.hooks.register` / `PluginBase::hook` / `observe` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（JS：预算内结算生效，超时按不裁决、不计失败）；`dispatch: async` 的钩子由宿主异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
+| 钩子 | `musicxx.hooks.register` / `PluginBase::hook` / `observe` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（JS：宿主一直等到结算，结算后裁决生效）；`dispatch: async` 的钩子由宿主异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 库 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（应用侧分派；不做权限校验） |
 | 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键与推送情况见 `docs/plugin-js-api.md` §5 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
@@ -535,4 +533,4 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests
 dart run tools/gen_contract.dart --check                 # 约定生成物一致（66 个钩子；改动 hooks.def.json 后必须重新生成）
 flutter analyze                                          # 期望 0 issue
 flutter test                                             # 包内端到端：宿主/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
-```
+| 钩子总表（id / 模式 / 派发 / 是否已埋点 + 已埋点钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |

@@ -84,6 +84,16 @@ template <typename T> struct WaitSlot {
     out = value;
     return true;
   }
+
+  /// 无上界等待 (插件处理器/脚本/能力没有等待预算时用)
+  ///
+  /// 只有"调用方自己决定不做超时"时使用: 被等待的一侧不返回时, 调用线程会一直停留
+  /// 在这里 (同步 FFI 场景下就是整个 Dart 线程停下), 因此调用方要清楚这一后果。
+  void wait(T &out) {
+    std::unique_lock<std::mutex> lock{mutex};
+    cv.wait(lock, [this] { return done; });
+    out = value;
+  }
 };
 
 /* ==================== 宿主内运行时接驳口 ==================== */
@@ -252,7 +262,8 @@ public:
   /// - 能力必须先由目标插件在自己的 `start` 事务里声明 (`pluginxx.capabilities`
   /// 表),
   ///   且归属校验通过 (禁止调用他人命名空间);
-  /// - 超时按 ERR_TIMEOUT 返回, 插件已经开始的操作用它自己的节奏跑完 (结果丢弃)。
+  /// - `timeoutMs` = 0 时不设超时（调用线程一直等到插件给出结果）；
+  ///   非 0 时到点按 ERR_TIMEOUT 返回, 插件已经开始的操作用它自己的节奏跑完 (结果丢弃)。
   int32_t pluginCall(const std::string &id, const std::string &method,
                      const std::string &argsJson, uint32_t timeoutMs,
                      std::string &outJson, std::string &err);
@@ -270,6 +281,10 @@ public:
 
   /* ---------- 钩子 ---------- */
 
+  /// 派发钩子
+  ///
+  /// `timeoutMs` 保留在签名里（C ABI 冻结）但**不再使用**: 宿主不设等待预算,
+  /// 同步派发会一直等到处理器链结束。
   int32_t hookEmit(const std::string &hookId, const std::string &inputJson,
                    bool sync, uint32_t timeoutMs, std::string &outJson,
                    std::string &err);
@@ -346,7 +361,7 @@ public:
   /// - `spec.item_id` 可以是短名 (宿主补 `plugin.<pluginId>.` 前缀)
   /// 或本插件的全名;
   /// - 类型必须是官方 `MUSICXX_PLUGIN_UI_TYPE_*` 之一, data 结构按类型校验;
-  /// - 每个插件最多 [kMaxUiEntriesPerPlugin] 个项, 超出返回 `ERR_QUEUE_FULL`。
+  /// - 项数不设上限。
   int32_t registerUiEntry(MusicxxHostInstance *inst,
                           const MusicxxPluginUIEntrySpec &spec);
 
@@ -363,20 +378,13 @@ public:
   /// 通知/提示 (fire-and-forget: 走动作 `musicxx.ui.notify`, 结果不回传插件)
   int32_t notifyUi(MusicxxHostInstance *inst, std::string_view messageJson);
 
-  /// UI 项数量上限 (每个插件)
-  static constexpr size_t kMaxUiEntriesPerPlugin = 64;
+  /// UI 项数量不设上限 (早期版本每个插件最多 64 项, 已移除)
 
   /* ---------- 变量表 (均在宿主线程执行) ---------- */
 
-  /// 变量表容量与上限 (硬数字; 「超限」一律拒绝并返回明确错误码, 不做截断)
-  static constexpr size_t kMaxVarsTotal = 4096;
-  static constexpr size_t kMaxVarsPerPlugin = 64;
-  static constexpr size_t kMaxVarKeyLength = 200;
-  static constexpr size_t kMaxVarValueBytes = 64 * 1024;
-  static constexpr size_t kMaxVarSubscriptionsPerPlugin = 256;
+  /// 变量表只保留"未回执请求"这一个容量限制 (避免慢属主把宿主事件队列灌满);
+  /// 变量数、变量总数、键长、值大小、订阅数都不再限制。
   static constexpr int32_t kMaxVarPendingPerPlugin = 32;
-  static constexpr int32_t kMaxVarNotifyThrottleMs = 5000;
-  static constexpr int32_t kMinVarRefreshAfterMs = 1000;
 
   /// 注册/覆盖一个变量 (插件注册自己的; 应用声明的官方键走 [declareVars])
   int32_t registerVar(MusicxxHostInstance *inst,
@@ -481,10 +489,10 @@ public:
 
   /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做请求登记)
   ///
-  /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态与超时 (见
-  /// [InternalActionRelay]), 宿主这里只做命名空间校验与事件推送。
-  /// - 返回 0 = 已推送; -6 = 动作名命名空间非法; -1 = 参数非法
-  /// - `outEffectiveTimeoutMs` 输出实际生效的超时 (默认 5s, 限幅 1s~60s)
+  /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态 (见 [InternalActionRelay]),
+  /// 宿主这里只做事件推送 (动作名不做校验, 由 Dart 侧按注册表决定理不理它)。
+  /// - 返回 0 = 已推送; -1 = 参数非法
+  /// - `outEffectiveTimeoutMs` 输出实际生效的超时 (0 = 不设超时, 由调用方/插件自担)
   int32_t pushActionRequestEvent(const std::string &pluginId, int64_t requestId,
                                  const std::string &action,
                                  const std::string &argsJson,
@@ -553,7 +561,7 @@ protected:
 private:
   MusicxxHostManager(asio::any_io_executor ex);
 
-  /// 应用宿主配置 (create() 里调用; 解析路径/开关/预算)
+  /// 应用宿主配置 (create() 里调用; 解析路径/开关)
   void applyConfig(const MusicxxExternPluginHostConfig &cfg);
 
   /// 记录客户端界面能力段 (JSON 文本; 只校验是不是 JSON 对象, 不解释内容)
@@ -574,13 +582,11 @@ private:
     MusicxxPluginHookSpec spec{};
     uint64_t seq = 0;
 
+    /// 只观测不限制的统计 (耗时/失败次数都只写进管理页, 不参与任何判定)
     int64_t calls = 0;
     int64_t failures = 0;
-    int64_t timeouts = 0;
     int64_t totalUs = 0;
     int64_t maxUs = 0;
-    int32_t consecutiveErrors = 0;
-    std::chrono::steady_clock::time_point pausedUntil{};
   };
 
   /// 未完成动作请求
@@ -589,8 +595,8 @@ private:
     std::string action;
     const PluginxxOperatorNotify *notify = nullptr;
     std::chrono::steady_clock::time_point deadline{};
-    /// 超时定时器 (宿主自我保护: Dart 若一直不回复, 到点终结该 op 并通知 Dart
-    /// 收尾)
+    /// 超时定时器 (只在调用方给了超时时创建: Dart 若一直不回复, 到点终结该 op
+    /// 并通知 Dart 收尾)
     std::shared_ptr<asio::steady_timer> timer;
   };
 
@@ -603,10 +609,10 @@ private:
 
   /// 钩子派发模式
   ///
-  /// - `Sync`：裁决型同步派发（Dart 线程等待结果，有等待预算）
+  /// - `Sync`：裁决型同步派发（Dart 线程等待结果；宿主不设等待预算）
   /// - `Notify`：观察型派发（入队即返回，不等待、不回报结果）
   /// - `AsyncDecide`：裁决型异步派发（不占用 Dart 线程，完成后推
-  ///   `musicxx.hook.decision.result` 事件；等待预算照常生效）
+  ///   `musicxx.hook.decision.result` 事件）
   enum class HookDispatchMode {
     Sync,
     Notify,
@@ -615,7 +621,7 @@ private:
 
   /// 宿主线程上执行的派发（按 [mode] 决定是否等待结果、是否回报事件）
   std::string dispatchHook(const std::string &hookId,
-                           const std::string &inputJson, uint32_t budgetMs,
+                           const std::string &inputJson,
                            HookDispatchMode mode);
   void clearPluginRegistrations(const std::string &instanceName);
   std::string pluginInstanceJson(const MusicxxHostInstance &inst) const;
@@ -845,7 +851,7 @@ private:
   ///
   /// - `watch` = true 表示"保活缓存"(不带回调), false 表示订阅 (bind);
   /// - 订阅还不存在的键也会被记下来 (键出现时自动挂上并补一条初始通知);
-  /// - `outCount` 累计本次实际生效的条数 (超出容量上限的部分被忽略, 不报错)。
+  /// - `outCount` 累计本次实际生效的条数 (当前框架不设订阅数量上限)。
   void markVarSubscriber(const std::string &instanceName, const std::string &key,
                          bool watch, bool add, int32_t &outCount);
 
@@ -861,7 +867,7 @@ private:
   /// (写请求 = 落地回执; 读请求 = 这次读的答案)
   void settleVarRequestsOnCommit(const std::string &key,
                                  const std::string &valueJson);
-  /// 某插件注册了多少个变量 (容量上限判断用)
+  /// 某插件注册了多少个变量 (统计与调试信息用)
   size_t countVarsOfPlugin(const std::string &pluginId) const;
 
   // 动作请求 (宿主线程)
@@ -891,10 +897,6 @@ private:
   std::string uiCapabilitiesJson_;
   int32_t logLevel_ = 2;
   int32_t flags_ = 0;
-  int32_t hookBudgetMs_ = 30;
-  int32_t hookHardMs_ = 100;
-  /// 可选 JS 执行上限 (毫秒; 0 = 关闭; 默认关闭)
-  int32_t jsExecGuardMs_ = 0;
   bool statsEnabled_ = true;
 
   // 已知插件 (宿主线程 + Dart 线程都读; 由 registryMutex_ 保护)

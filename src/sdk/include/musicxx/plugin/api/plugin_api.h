@@ -32,8 +32,16 @@ extern "C" {
 #define MUSICXX_PLUGIN_SYMBOL_STOP     "musicxx_plugin_stop"
 #define MUSICXX_PLUGIN_SYMBOL_DESTROY  "musicxx_plugin_destroy"
 
-/// 插件 ABI 版本 (清单 api_version 必须 >= 本值)
+/// 插件 ABI 版本 (当前框架版本; 供插件读 `get_info` 展示与能力判定)
 #define MUSICXX_PLUGIN_API_VERSION 1
+
+/// 框架支持的最低插件 API 版本 (清单 `api_version` 与 `PluginxxInfo.api_version`
+/// 都按它检查)
+///
+/// 口径只有一条: **插件版本必须 >= 本值**。声明比当前框架更高的版本不再被拒绝
+/// (插件自己按 `host.info()` 里的 `apiVersion` 决定降级), 声明更低版本只要不低于
+/// 本值也照常加载。
+#define MUSICXX_PLUGINXX_MIN_API_VERSION PLUGINXX_MIN_API_VERSION
 
 #pragma pack(push, 8)
 
@@ -43,9 +51,6 @@ extern "C" {
 #define MUSICXX_PLUGIN_HOOK_MODE_OBSERVE  0
 /// 裁决型: 处理器可返回裁决对象 (JSON), 宿主按钩子的合并策略处理
 #define MUSICXX_PLUGIN_HOOK_MODE_DECISION 1
-
-/// 只允许同步处理器 (异步处理器注册会被拒绝)
-#define MUSICXX_PLUGIN_HOOK_FLAG_SYNC_ONLY 0x0001
 
 /// 裁决动作 (与 Dart 侧 `MusicxxPluginHookAction` 一一对应)
 #define MUSICXX_PLUGIN_HOOK_ACTION_CONTINUE "continue"
@@ -87,7 +92,7 @@ typedef struct MusicxxPluginHookSpec {
 
     int32_t mode;     ///< MUSICXX_PLUGIN_HOOK_MODE_*
     int32_t priority; ///< 小者先执行; 同优先级按注册顺序
-    int32_t flags;    ///< MUSICXX_PLUGIN_HOOK_FLAG_*
+    int32_t flags;    ///< 预留 (必须为 0)
 
     MusicxxPluginHookSyncFn  hook_sync;   ///< 可与 hook_start 二者取一 (推荐决定型用同步)
     MusicxxPluginHookStartFn hook_start;  ///< 异步处理器
@@ -120,7 +125,7 @@ typedef struct MusicxxPluginHooksIface {
         const PluginxxStringView*         owner_tag
     );
 
-    /// 钩子信息 (mode/policy/budget 等; JSON 对象); 未知钩子返回 -4
+    /// 钩子信息 (mode/policy 等; JSON 对象); 未知钩子返回 -4
     int32_t(PLUGINXX_CALL* hook_info)(
         const PluginxxHost*               host,
         const PluginxxStringView*         hook_id,
@@ -216,7 +221,7 @@ typedef struct MusicxxPluginHostIface {
 ///
 /// `item_id` 可以是本插件的**短名**（宿主自动补 `plugin.<pluginId>.` 前缀），
 /// 也可以是完整全名 `plugin.<pluginId>.<名>`（必须属于本插件命名空间，否则拒绝注册）。
-/// `data_json` 是类型相关的声明式内容（JSON 对象，单条上限 64 KiB）。
+/// `data_json` 是类型相关的声明式内容（JSON 对象）。
 typedef struct MusicxxPluginUIEntrySpec {
     int32_t  version;      ///< == 1
     uint32_t struct_size;  ///< == sizeof(MusicxxPluginUIEntrySpec)
@@ -235,7 +240,7 @@ typedef struct MusicxxPluginUIIface {
 
     /// 注册/覆盖一个 UI 项
     /// - 返回 0 成功; -1 参数非法 (含 data 结构不合法);
-    ///   -2 状态错误 (未启动/已禁用); -4 未知类型; -6 命名空间不属于本插件; -7 项数超限
+    ///   -2 状态错误 (未启动/已禁用); -4 未知类型; -6 命名空间不属于本插件
     int32_t(PLUGINXX_CALL* register_entry)(
         const PluginxxHost*                host,
         const MusicxxPluginUIEntrySpec*    spec
@@ -284,7 +289,7 @@ typedef struct MusicxxPluginUIIface {
 /// - 插件 `plugin.<插件id>.<分组>...` —— 分组可以多级 (`plugin.hello.tip.start`),
 ///   注册时可以写短名 (`tip.start`), 宿主自动补 `plugin.<本插件id>.` 前缀。
 ///
-/// 值: 一律 JSON (bool/number/string/array/object), 单个值上限 64 KiB, 超限拒绝写入。
+/// 值: 一律 JSON (bool/number/string/array/object), 大小不限。
 /// 权限: 与钩子/动作一样只做声明与展示, 不做运行时校验 (见清单 permissions)。
 #define MUSICXX_PLUGIN_IFACE_VARS         "musicxx.vars"
 #define MUSICXX_PLUGIN_IFACE_VARS_VERSION 1
@@ -306,13 +311,14 @@ typedef struct MusicxxPluginUIIface {
 #define MUSICXX_PLUGIN_VAR_MODE_HANDLER  1
 
 /* 本接口表返回码 (含义与 C ABI 的错误码一致) */
-#define MUSICXX_PLUGIN_VAR_ERR_ARG         -1 ///< 参数非法 (键名/值超限/caps 为空等)
-#define MUSICXX_PLUGIN_VAR_ERR_STATE       -2 ///< 状态错误 (宿主未启动/未回执请求过多)
+#define MUSICXX_PLUGIN_VAR_ERR_ARG         -1 ///< 参数非法 (键名不合法 / caps 为空等)
+#define MUSICXX_PLUGIN_VAR_ERR_STATE       -2 ///< 状态错误 (宿主未启动)
 #define MUSICXX_PLUGIN_VAR_ERR_JSON        -3 ///< 值不是合法 JSON
 #define MUSICXX_PLUGIN_VAR_ERR_NOT_FOUND   -4 ///< 键不存在 (含官方键还没被应用声明)
-#define MUSICXX_PLUGIN_VAR_ERR_TIMEOUT     -5 ///< 属主落地/回答超时
+#define MUSICXX_PLUGIN_VAR_ERR_TIMEOUT     -5 ///< 属主没在预算内回答 (读写请求)
 #define MUSICXX_PLUGIN_VAR_ERR_PERMISSION  -6 ///< 命名空间不属于本插件 / 写权限不足
-/// 超限 (变量数/订阅数/变量总数等容量类限制)
+/// 超限: 当前框架已无容量类限制 (变量数 / 变量总数 / 订阅数 / 值大小都不再限制),
+/// 该错误码保留供老插件兼容, 不会再由此类检查产生
 #define MUSICXX_PLUGIN_VAR_ERR_LIMIT       -7
 /// 该变量没有声明对应能力 (读只写变量、写只读变量)
 /// 说明: C ABI 的 -8 已用于"内存不足", 因此这里取 -9 避免同一数值两种含义
@@ -346,12 +352,12 @@ typedef struct MusicxxPluginVarSpec {
     /// 属主侧的推送节流口径 (毫秒; 0 = 不节流)
     ///
     /// 只是声明 (宿主不强制度量): 属主在推送前按同一窗口合并变化。
-    /// 高频值 (超过约 5 Hz) 必须声明, 否则宿主会记一条警告日志。
+    /// 高频值 (超过约 5 Hz) 建议声明, 否则宿主会记一条警告日志。
     int32_t throttle_ms;
-    /// 宿主侧通知合并窗口 (毫秒; 0 = 不合并; 上限 5000)
+    /// 宿主侧通知合并窗口 (毫秒; 0 = 不合并)
     int32_t notify_throttle_ms;
     /// handler 模式: 有人 watch 之后, 宿主每隔多久来取一次真实值
-    /// (0 = 只在 watch 时取一次; 非 0 时下限 1000)
+    /// (0 = 只在 watch 时取一次)
     int32_t refresh_after_ms;
 
     PluginxxStringView type;       ///< 可空: bool | number | string | json (只做展示与粗校验)
@@ -365,9 +371,9 @@ typedef struct MusicxxPluginVarsIface {
     uint32_t struct_size;
 
     /// 注册/覆盖一个变量 (同一个 key 覆盖式注册)
-    /// - 返回 0 成功; -1 参数非法 (键/值超限、caps 为空、窗口超限);
+    /// - 返回 0 成功; -1 参数非法 (键名不合法、caps 为空);
     ///   -2 状态错误; -3 meta_json 不是对象; -4 未知模式;
-    ///   -6 命名空间不属于本插件; -7 变量数超限
+    ///   -6 命名空间不属于本插件
     int32_t(PLUGINXX_CALL* register_var)(
         const PluginxxHost*         host,
         const MusicxxPluginVarSpec* spec
@@ -436,7 +442,7 @@ typedef struct MusicxxPluginVarsIface {
 
     /// 订阅/退订变更通知 (keys_json = 字符串数组; 订阅还不存在的键是允许的)
     /// - 订阅后请自行订阅事件主题 `musicxx.var.changed` (见下面的常量), 变更经它送达;
-    /// - out_count 输出实际生效条数 (超出容量上限的部分被忽略)
+    /// - out_count 输出本次生效条数 (当前框架不设订阅数量上限)
     int32_t(PLUGINXX_CALL* subscribe)(
         const PluginxxHost*       host,
         const PluginxxStringView* keys_json,

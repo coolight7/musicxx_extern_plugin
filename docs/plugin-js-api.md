@@ -5,7 +5,7 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 
 | 主题 | 文档 |
 |---|---|
-| 钩子 id / 模式 / 派发 / 预算，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
+| 钩子 id / 模式 / 派发，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景（shader bundle 打包与 uniform 契约） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | C++ 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
@@ -19,7 +19,7 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 ```text
 my_plugin/
 ├── plugin.yaml     # 清单（必填）
-├── plugin.js       # 脚本（必填；清单 entry 也可指向别的 .js 文件）
+├── plugin.js       # 脚本（entry / scripts 至少要有一个可用脚本；缺省就是它）
 ├── pluginxx_ui_kit.js  # 可选：随插件分发的界面 kit（见 §12）
 ├── shader/         # 可选：随插件分发的资源（如 shader bundle）
 └── config.json     # 可选：插件自己的配置（运行时由脚本读写）
@@ -28,10 +28,10 @@ my_plugin/
 ```yaml
 name: my_plugin                  # 插件 id（唯一；同名视为同一插件的升级覆盖）
 kind: js                         # js = 零编译脚本插件（缺省时按 entry 推导）
-entry: plugin.js                 # 可省略，缺省就是 plugin.js
+entry: plugin.js                 # 可省略（清单只要求 name）：缺省用 plugin.js
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：按顺序执行的脚本（缺省取 entry / plugin.js）
 version: 1.0.0
-api_version: 1                   # 兼容的插件 API 版本（宿主当前是 1）
+api_version: 1                   # 插件 API 版本：只要不低于宿主支持的最低版本（当前 1）就照常加载；比宿主更高也不会被拒
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos, android, ios]   # 不写 = 不限
@@ -75,10 +75,10 @@ permissions:                     # 声明式权限：只做展示，运行时不
 2. 所有 JS 代码跑在宿主的**一条共享 JS 线程**上（多个 JS 插件共用一个线程、各自独立运行时）：
    回调要尽快返回，不要在里面做长时间同步计算。
 3. 裁决型钩子的**推荐写法是同步返回**裁决对象；需要 `await` 才能决定时可以先同步判断
-   "这次要不要裁决"，只在需要的那次返回 Promise（见 §4.3）。JS 处理器链最多等 **100 ms**。
+   "这次要不要裁决"，只在需要的那次返回 Promise（见 §4.3）。返回 Promise 时宿主会一直等到它结算。
 4. `require`、`fs`、`fetch`、原生模块都**不存在**；宿主能力全部经 `musicxx.*`。
 5. 插件之间不做隔离（同一条 JS 线程）；不要依赖全局副作用，状态放插件自己的存储里。
-6. 钩子处理器抛异常只记日志并跳过本次裁决；**同一个处理器连续 3 次失败会被暂停派发 60 秒**
+6. 钩子处理器抛异常只记日志与统计（**不会暂停派发、也不会卸载插件**）
    （超时不算失败；统计里看得到 `paused`）。
 7. 脚本顶层与处理器里**都可以**读写 `musicxx`；但处理器里不要递归触发同一个钩子。
 8. 脚本每次启用都会重新执行：**注册语句要写成幂等的**（重复执行不会累积副作用），
@@ -153,10 +153,9 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 });
 ```
 
-- 宿主最多等 **100 ms**：预算内结算 → 裁决生效；超预算才结算 → 按「无裁决」继续
-  （**不打断脚本、不计失败**，迟到的结果被丢弃，可在统计里看到
-  `asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`）；
-- 所以异步路径要保证「拿不到结果时降级为不裁决」，并让来源明显快于 100 ms。
+- 宿主一直等到 Promise 结算：结算后裁决生效（没有等待预算，也不会按「无裁决」继续）；
+- 所以异步路径要保证 Promise **一定会结算**（失败就 reject），否则调用点会一直等；
+- 结算次数可在统计里看到（`asyncHookSettled`，见 `musicxx.stats.getSelf()`）。
 
 ---
 
@@ -215,7 +214,7 @@ ui.controls    // 支持的控件形态（buttons / select / checkbox / switch /
 ui.icons       // 客户端认识的图标名（用得上再挑，其他情况用 Icon 的 glyph 兜底）
 ui.gap         // 客户端默认行距（u）
 ui.cell        // 只有终端有：每个字符格相当于多少 u（图形界面没有这个字段）
-ui.limits      // 上限（层数 / 数量 / 文本字节）
+ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 ```
 
 - **判断"能不能用某个组件"要按 `blocks`/`controls` 判断**，不要按 `kind` 写两套内容；
@@ -235,11 +234,13 @@ ui.limits      // 上限（层数 / 数量 / 文本字节）
 const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超时毫秒?);
 ```
 
-- 默认超时 **5000 ms**（宿主把实际生效值限制在 1 s ~ 60 s；超时会拒绝 Promise）；
+- 默认超时 **5000 ms**（宿主按你给的值生效，不再钳制区间；传 0 = 一直等）；
 - Promise 拒绝时 `err.message` 里带原因，例如 `action_not_registered: xxx`、
   `请求失败：...`、`status=...`；
 - **动作不做权限校验**：清单里的 `permissions` 只做展示，不会拒绝任何调用；
 - 动作未注册（当前版本没实现）会立刻失败，不会挂到超时。
+- **动作名不校验**：宿主受理任意名字的动作，由应用侧按「注册了没有」决定理不理它（没注册立刻失败）；
+  官方动作是 `musicxx.<域>.<动作>`，插件自己的动作建议写成 `plugin.<包名>.*` 以免与别的插件撞名；
 
 ### 7.1 分类便捷封装
 
@@ -285,7 +286,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.media.cover` | `{size?, format?, includePath?}` | 见 §11 |
 | `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` |
 | `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` |
-| `musicxx.host.openUrl` | `{url}`（只允许 http/https） | `{ok:true}` |
+| `musicxx.host.openUrl` | `{url}`（协议不限，交给系统处理） | `{ok:true}` |
 | `musicxx.host.clipboard` | `{text}` | `{ok:true}` |
 | `musicxx.host.getPath` | 无 | `{pluginId, pluginDir, dataDir, logDir, platform}` |
 
@@ -462,7 +463,7 @@ if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
 ### 9.3 注册自己的变量（给别的插件与应用用）
 
 键名写**短名**（`tip.start`），宿主补成 `plugin.<你的插件id>.tip.start`；
-分组可以多级。每个插件最多 64 个变量，单个值上限 64 KiB。
+分组可以多级。变量数量、键长度、值大小与订阅数都不设上限（早期版本的限制已移除）。
 
 ```js
 // declared（默认）：值由宿主代存，set 即提交 —— 零代码
@@ -520,7 +521,7 @@ musicxx.vars.unregister("tip.start");
 
 ### 9.5 高频与零成本
 
-- **不禁止高频，但必须节流**：声明 `throttleMs`（推送侧合并）与 `notifyThrottleMs`
+- **不禁止高频，建议节流**：声明 `throttleMs`（推送侧合并）与 `notifyThrottleMs`
   （宿主侧把通知合并成一条，载荷带 `coalesced`）。超过约 5 Hz 的键请务必声明；
   每秒多次 + 只想被轮询读的数据更建议放状态镜像（§5）。
 - **没人看就不推**：宿主会告诉应用"哪些键有人订阅或 watch"，没人看的键值变化不产生
@@ -541,14 +542,13 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 
 - 能力全名是 `plugin.<插件 id>.<短名>`；应用侧（Dart）用
   `MusicxxPluginManager.call(id, "probe", args)`，宿主用同名能力名调用；
-- 处理器必须**同步返回**可 JSON 序列化的结果；返回 Promise 会以
-  `capability_async_not_supported` 失败（要异步就把结果写进自己的状态，或改用动作 + 事件）；
+- 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（宿主会等到它结算再给调用方结果）；
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
 
   | 目标 | 行为 |
   |---|---|
   | JS 插件 | 在共享 JS 线程上**直接调用**，结果立即就绪 |
-  | 动态库插件 | 投递到宿主线程执行，脚本**不阻塞**；结果经 `ext.onCapabilityResult` 回到 JS 线程（超时缺省 3 s、下限 1 s） |
+  | 动态库插件 | 投递到宿主线程执行，脚本**不阻塞**；结果经 `ext.onCapabilityResult` 回到 JS 线程（超时缺省 3 s；传 0 = 一直等） |
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
   （`plugin_capability_not_found: xxx` / `capability_call_failed` / `跨插件调用超时: ...`）；
@@ -733,10 +733,10 @@ musicxx.util.now();                   // Date.now()
 **日志**：`console.*` 与 `musicxx.host.log(...)` 都进插件日志；宿主自己的日志设环境变量
 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查装载失败时很有用）。
 
-**统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到钩子调用次数 / 耗时 /
-超时 / 失败 / 是否暂停派发，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
-`timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `execGuardHits` /
-`asyncHookSettled` / `asyncHookTimeouts` / `asyncHookLateDrops`。插件里也能自己读：
+**统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到钩子调用次数 / 耗时 / 失败（只观测不限制：没有超时与暂停派发）、
+插件声明的注册项与计数，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
+`timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `asyncHookSettled`。
+插件里也能自己读：`musicxx.stats.getSelf()`。
 `musicxx.stats.getSelf()`。
 
 **常见坑**
@@ -749,11 +749,11 @@ musicxx.util.now();                   // Date.now()
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（见 §7.1 的表尾） |
-| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未埋点」（应用侧还没有接）；或处理器被暂停派发 |
+| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未埋点」（应用侧还没有接） |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，宿主侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
 | 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会装载失败）；先看日志 |
-| 应用整体卡住 | 脚本里有死循环或长时间同步计算（共享 JS 线程）。可在宿主配置里开启可选的执行上限 `jsExecGuardMs`（默认关闭）来中断超长脚本 |
+| 应用整体卡住 | 脚本里有死循环或长时间同步计算（共享 JS 线程）。宿主不打断脚本、也没有中断开关，只能重启应用 —— 写脚本时自己保证循环能结束 |
 
 ---
 
@@ -761,8 +761,9 @@ musicxx.util.now();                   // Date.now()
 
 | 边界 | 说明 |
 |---|---|
-| 异步裁决 | **已支持**：裁决处理器可以返回 Promise（100 ms 预算内结算生效，超时按「不裁决」且不计失败）；同步返回仍是最省时的写法 |
-| 异步能力 | 能力处理器必须同步返回（返回 Promise 会失败）；需要异步时用动作请求 / 事件 / 定时器 |
-| 资源限制 | 宿主不限制 JS 内存与执行时长；死循环会占住共享 JS 线程。可选执行上限 `jsExecGuardMs` 是「用户自选的保护」，默认关闭 |
+| 异步裁决 | **已支持**：裁决处理器可以返回 Promise（宿主一直等到结算，结算后裁决生效）；同步返回仍是最省时的写法 |
+| 异步能力 | **已支持**：能力处理器可以返回 Promise（宿主会等到结算再给调用方结果）；长时间后台任务仍建议用动作请求 / 事件 / 定时器 |
+| 资源限制 | 宿主不限制 JS 内存、执行时长与 JS 插件数量；死循环会占住共享 JS 线程（没有中断开关） |
 | 定时器精度 | 宿主线程按 ≤ 50 ms 粒度轮询，不适合高精度计时 |
-| 与动态库插件的差别 | JS 插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`；不能注册原生线程；能力处理器不能异步 |
+| 与动态库插件的差别 | JS 插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`；不能注册原生线程；能力处理器可以是异步的（返回 Promise，宿主等它结算） |
+

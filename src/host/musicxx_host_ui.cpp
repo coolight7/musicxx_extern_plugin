@@ -40,9 +40,6 @@ using utilxx_base::Json;
 
 namespace {
 
-/// 单条 UI 项 data 的体积上限 (与状态镜像单键的上限相同)
-constexpr uint64_t kMaxUiDataBytes = 64 * 1024;
-
 /// 官方 UI 项类型 (与 plugin_api.h 的 MUSICXX_PLUGIN_UI_TYPE_* 一一对应)
 const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
@@ -152,10 +149,6 @@ bool validateAction(const Json &action, std::string_view pluginId,
 /// 校验并规范化一条 UI 项的内容 (注册与更新共用)
 bool validateUiData(std::string_view type, const std::string &dataJson,
                     std::string_view pluginId, std::string &err) {
-  if (dataJson.size() > kMaxUiDataBytes) {
-    err = "data 超过 64 KiB 上限";
-    return false;
-  }
   bool parseOk = false;
   Json data = parseJsonSafe(dataJson, &parseOk);
   if (!parseOk || !data.is_object()) {
@@ -273,21 +266,7 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   }
 
   const auto existing = uiEntries_.find(itemId);
-  if (existing == uiEntries_.end()) {
-    size_t owned = 0;
-    for (const auto &[key, entry] : uiEntries_) {
-      (void)key;
-      if (entry.pluginId == pluginId) {
-        ++owned;
-      }
-    }
-    if (owned >= kMaxUiEntriesPerPlugin) {
-      XX_LOGW(
-          "[musicxx_ext] 插件 `{}` 的 UI 项数量已达上限 ({}), 注册 `{}` 被拒绝",
-          inst->name, kMaxUiEntriesPerPlugin, itemId);
-      return MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL;
-    }
-  } else if (existing->second.pluginId != pluginId) {
+  if (existing != uiEntries_.end() && existing->second.pluginId != pluginId) {
     // 理论上 normalizeItemId 已经挡掉; 这里再兜一层 (防止 id
     // 规范化逻辑变动引入漏洞)
     XX_LOGW("[musicxx_ext] 插件 `{}` 试图覆盖他人 UI 项 `{}`", inst->name,

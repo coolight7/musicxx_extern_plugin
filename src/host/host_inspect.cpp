@@ -133,7 +133,6 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     info.error = "plugin.yaml 解析失败 (缺少 name 或 YAML 非法)";
     return info;
   }
-
   const MusicxxManifestFields fields = readManifestFields(pluginDir);
   info.valid = true;
   info.id = name;
@@ -168,9 +167,11 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     info.supported = false;
     info.reason = "当前架构不在清单声明内";
   }
-  if (info.supported && info.apiVersion > MUSICXX_PLUGIN_API_VERSION) {
+  if (info.supported && info.apiVersion < MUSICXX_PLUGINXX_MIN_API_VERSION) {
     info.supported = false;
-    info.reason = "插件要求的 API 版本高于当前宿主";
+    info.reason = "插件声明的 API 版本低于当前宿主支持的最低版本 (最低 " +
+                  std::to_string(MUSICXX_PLUGINXX_MIN_API_VERSION) + ", 插件声明 " +
+                  std::to_string(info.apiVersion) + ")";
   }
   if (info.supported && info.kind == "native" &&
       info.targets.selectedLib.empty()) {

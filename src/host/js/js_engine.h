@@ -163,6 +163,14 @@ public:
   void bridgeHookWaitResolve(const std::string &waitId,
                              const std::string &json);
 
+  /// 能力处理器的异步结算 (只在 JS 线程调用)
+  ///
+  /// 能力处理器返回 Promise 时 (`musicxx.capability.register` 的处理器写成
+  /// `async`), JS 侧登记等待并在结算后把结果交给对应的等待槽 —— 与裁决型钩子的
+  /// Promise 同一套做法, 宿主线程在此期间一直等 (没有等待预算)。
+  void bridgeCapabilityWaitResolve(const std::string &waitId,
+                                   const std::string &json);
+
   /// 本实例统计 JSON (任意线程; 只读原子字段)
   std::string instanceStatsJson(const std::string &instanceName) const;
 
@@ -189,10 +197,8 @@ public:
                          int64_t *outPendingId, std::string &outJson,
                          std::string &err);
 
-  /// 可选执行上限 (毫秒; 0 = 关闭, 默认关闭): 开启后单次进入脚本超时会被
-  /// QuickJS 中断并计为失败 ("用户自选保护", 不是宿主默认限制)
-  void setExecGuardMs(int32_t ms);
-  int32_t execGuardMs() const;
+  /// 可选执行上限已移除: 宿主不限制脚本执行时长 (死循环会占住共享 JS 线程,
+  /// 由插件作者自己避免)。
 
   /// 刷新宿主信息缓存 (宿主线程: 语言/配置变化时调用)
   void setHostInfoCache(const std::string &json);
@@ -302,15 +308,9 @@ public:
     std::atomic<int64_t> errors{0};
     /// JS 堆用量 (字节; 负数 = 还没采样过; 只观测不限制)
     std::atomic<int64_t> jsHeapBytes{-1};
-    /// 被可选执行上限中断的次数
-    std::atomic<int64_t> execGuardHits{0};
 
-    /// 裁决型钩子的 Promise 在等待预算内结算的次数 (异步裁决)
+    /// 裁决型钩子的 Promise 结算次数 (异步裁决)
     std::atomic<int64_t> asyncHookSettled{0};
-    /// Promise 未在等待预算内结算的次数 (按无裁决继续, 不计处理器失败)
-    std::atomic<int64_t> asyncHookTimeouts{0};
-    /// 超时之后才结算、被丢弃的次数 (只用于排障, 不改变裁决结果)
-    std::atomic<int64_t> asyncHookLateDrops{0};
   };
 
   /* ---------- 内核内置插件入口 (C ABI 形态; 内核在宿主线程调用) ---------- */
@@ -382,10 +382,6 @@ private:
   JsEngine();
 
   /* ---------- JS 线程 ---------- */
-
-  /// 本次进入脚本的执行上界 (0 = 不限制; 见 setExecGuardMs)
-  void armExecGuard();
-  void disarmExecGuard();
 
   /// 采样 JS 堆用量 (JS 线程调用; 结果写入实例字段供统计读取)
   void sampleHeap(const std::shared_ptr<Instance> &inst);
@@ -472,9 +468,6 @@ private:
   std::atomic<bool> running_{false};
   std::atomic<bool> stopping_{false};
 
-  /// 可选执行上限 (毫秒; 0 = 关闭; 默认关闭, 见 setExecGuardMs)
-  std::atomic<int32_t> execGuardMs_{0};
-
   /// 上次 JS 堆采样的时刻 (JS 线程使用)
   int64_t heapSampledAtMs_ = 0;
 
@@ -533,10 +526,18 @@ private:
                         const std::shared_ptr<WaitSlot<std::string>> &slot);
   /// 正常完成: 移除等待槽 (JS 侧若再结算, 找不到条目即丢弃)
   void finishHookWait(int64_t waitId);
-  /// 超时: 留墓碑, 用于统计迟到的结算 (宿主线程)
-  void expireHookWait(int64_t waitId);
   /// 实例停止/卸载时清理它的等待条目
   void clearHookWaitsOf(const std::string &instance);
+
+  /// 能力处理器的等待槽 (与钩子同一套做法; 处理器返回 Promise 时用)
+  std::map<int64_t, HookWait> capabilityWaits_;
+  std::atomic<int64_t> nextCapabilityWaitId_{1};
+
+  int64_t beginCapabilityWait(
+      const std::string &instance,
+      const std::shared_ptr<WaitSlot<std::string>> &slot);
+  void finishCapabilityWait(int64_t waitId);
+  void clearCapabilityWaitsOf(const std::string &instance);
 
   std::thread worker_;
 

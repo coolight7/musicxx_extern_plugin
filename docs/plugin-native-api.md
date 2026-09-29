@@ -5,7 +5,7 @@
 
 | 主题 | 文档 |
 |---|---|
-| 钩子 id / 模式 / 派发 / 预算，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
+| 钩子 id / 模式 / 派发，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景（shader bundle 打包与 uniform 契约） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | JS 插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
@@ -52,7 +52,7 @@ name: my_plugin                    # 插件 id（唯一；同名视为同一插�
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
 version: 1.0.0                     # 版本（升级比较用）
-api_version: 1                     # 兼容的插件 API 版本（宿主当前是 1）
+api_version: 1                     # 插件 API 版本：不低于宿主支持的最低版本即可（当前最低 1）；声明更高也不拒绝
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（多目标包通常不写，见 §1.3）
@@ -78,7 +78,7 @@ permissions:                       # 声明式权限：只做展示，运行时�
 清单里**没有**运行时行为相关的开关：配置由插件自己读写 `config.json`，宿主不解析插件配置。
 
 宿主**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
-要表达版本要求请用 `api_version`（宿主会拒绝 `api_version > 1` 的插件）。
+要表达版本要求请用 `api_version`：只要不低于宿主支持的最低版本（`MUSICXX_PLUGINXX_MIN_API_VERSION`，当前 1）就照常加载，声明更高也不会被拒。
 
 ### 1.2 安装位置
 
@@ -301,7 +301,7 @@ MUSICXX_PLUGIN_EXPORT(
 | `musicxx.state.lyric` / `musicxx.state.library` | 预留 | **当前版本没有推送**（`stateJson` 返回空串） |
 | `musicxx.state.renderSlots` | 渲染槽位的运行状态（谁在画、是否可见、尺寸、昼夜） | 按需推送，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10 |
 
-- 单键上限 **512 KiB**：超限时宿主**直接拒绝写入**并记日志（不会截断成半个 JSON）；
+- 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
 - 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），插件可以订阅它做增量处理；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未埋点。不要把它当每秒更新的进度用；
@@ -372,7 +372,7 @@ iface.vars->respond(host, requestId, 1, &pluginxxView(最终值), nullptr, &out)
 SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / `varsWatch` /
 `varsUnwatch` / `varsSet` / `varsList` / `varsInfo` / `varsSubscribe` / `varsUnsubscribe` / `varsRespond`。
 
-限制（硬数字）：键 ≤ 200 字符、单值 ≤ 64 KiB、每插件 ≤ 64 个变量、每插件订阅/watch 合计 ≤ 256 个键、
+容量（已移除限制）：变量数、键长、值大小、订阅数都不再限制；
 未回执的读/写请求各 ≤ 32 条；读的超时 2 秒、写 3 秒（应用落地 5 秒）。
 错误码：`-1` 参数 / `-2` 状态 / `-3` 值不是合法 JSON / `-4` 键不存在 / `-6` 命名空间或写权限 /
 `-7` 超限 / `-9` 该变量没有声明对应能力（写只读变量、读只写变量）。
@@ -418,8 +418,8 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 
 - 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已埋点钩子的载荷与裁决」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
-- **处理器要快**：裁决链有等待预算（同步钩子会被调用线程等待；`player.error` 只等 120 ms），
-  超时按「不裁决」继续，迟到的结果被丢弃；
+- **处理器要快**：同步派发的钩子会被调用线程等待，而且宿主不设等待预算（处理器返回前调用线程不会继续），
+  因此慢处理器会拖住业务与其它插件；观察型处理器只做通知、不受影响。
 - 想确认自己的处理器有没有被调用：管理页「插件详情 → 统计」，或自己在处理器里 `log.info(...)`。
 
 ---
@@ -434,8 +434,8 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 | `-3` | JSON 非法 | 载荷解析失败 |
 | `-4` | 未找到 | **注册未知钩子**、未知 UI 类型、注销不存在的项 |
 | `-5` | 超时 | 动作请求 / 能力调用超时 |
-| `-6` | 权限拒绝 | 命名空间非法（冒充他人插件 / 非官方动作名） |
-| `-7` | 队列满 | UI 项超过 64 个 |
+| `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 变量键；**动作名与钩子 id 不受此限**：动作任意名都受理、钩子必须是契约里已有的） |
+| `-7` | 队列满 | 保留的错误码（当前没有容量类限制，不会再产生） |
 | `-99` | 内部异常 | 宿主内部错误（看日志） |
 
 命名空间：官方标识一律 `musicxx.*`（钩子 / 事件主题 / 动作 / UI 类型 / 权限）；
@@ -556,7 +556,7 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
   pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
   ```
 
-  也可以把「对照示例」一组插件（`plugins/example_js_broken/`、`plugins/example_js_spin/`、
+  也可以把「对照示例」一组插件（`plugins/example_js_broken/`、
   `plugins/example_native_fail/`、`plugins/example_native_bad_entry/`）当成「故意失败」的对照，
   看宿主怎么保护自己。
 
@@ -588,11 +588,11 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 |---|---|
 | 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名宿主会按平台修正） |
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
-| 「api_version 不匹配」 | 插件声明的 `api_version` 高于宿主（当前 1） |
+| 「API 版本过低」 | 插件声明的 `api_version` 低于宿主支持的最低版本（当前 1）；声明更高不会因此失败 |
 | 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或宿主禁用了动态库插件 / 处于安全模式 |
 | 注册钩子返回 `-4` | 钩子 id 不在契约表里（拼错或用了未定义的钩子）；用 `hook_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
-| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标「未埋点」（应用侧还没有接）；或插件被禁用 / 处理器已被暂停派发（管理页统计里 `paused`） |
+| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标「未埋点」（应用侧还没有接）；或插件被禁用 / 处理器没注册成功 |
 | 点入口提示「插件『<插件id>』没有提供『xxx』」 | 该动作指向的能力没有注册（页面视图 id 必须与能力短名一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
 | 应用整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。宿主线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
@@ -607,6 +607,6 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 | 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由应用侧分派 |
 | 进程隔离 | 插件与宿主同进程（无沙箱）：插件崩溃 = 应用崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
-| 资源限制 | 宿主不限制插件的内存 / 耗时 / 网络，只做自我保护：等待预算、动作超时、事件队列上限、连续失败后暂停该处理器；统计只观测不限制 |
+| 资源限制 | 宿主不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
 | 钩子埋点 | 契约里有 66 个钩子，应用侧当前已经埋点的是 `plugin-hooks.md` 里标「已埋点」的那 9 个；其余钩子注册成功但不会触发 |

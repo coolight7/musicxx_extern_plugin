@@ -218,7 +218,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js_multi_script
 )
 set(MUSICXX_EXTERN_PLUGIN_TEST_NATIVE example_native_fail example_native_bad_entry)
-set(MUSICXX_EXTERN_PLUGIN_TEST_JS example_js_spin example_js_broken)
+set(MUSICXX_EXTERN_PLUGIN_TEST_JS example_js_broken)
 
 set(MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS "")
 set(MUSICXX_EXTERN_PLUGIN_JS_PLUGINS "")

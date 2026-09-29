@@ -1,13 +1,14 @@
 /// 对照示例: 裁决型钩子处理器返回 Promise (异步裁决)
 ///
 /// 演示/验证两件事:
-/// - `musicxx.player.seek`: Promise 在宿主等待预算 (100 ms) 内结算 → 裁决生效;
-/// - `musicxx.player.volume`: Promise 远超预算才结算 → 按"无裁决"继续
-///   (不打断脚本、不计处理器失败), 迟到的结果被丢弃并计入 `asyncHookLateDrops`。
+/// - `musicxx.player.seek`: Promise 很快 (30 ms) 结算 → 裁决生效;
+/// - `musicxx.player.volume`: Promise 1.5 秒后才结算 → 宿主**一直等到它结算**
+///   (没有等待预算, 也不会按"无裁决"继续), 裁决同样生效。
 ///
 /// 注意: 它会改变拖动进度/音量的裁决结果, 只用于演示与测试。
+/// 处理器返回 Promise 时请自己保证它能结算: 宿主会一直等, 不结算就是调用点一直等。
 
-let runs = 0;      // 处理器被调用的次数 (验证"没有被暂停/跳过")
+let runs = 0;      // 处理器被调用的次数 (验证"没有被跳过")
 let settled = 0;   // 脚本侧 Promise 结算的次数
 
 /// 裁决型钩子 (异步): 30 ms 后返回 patch
@@ -21,14 +22,14 @@ musicxx.hooks.register("musicxx.player.seek", { mode: "decision" }, function () 
     });
 });
 
-/// 裁决型钩子 (异步): 500 ms 后才结算 (宿主只等 100 ms, 因此按无裁决继续)
+/// 裁决型钩子 (异步): 1.5 秒后才结算 (宿主会等到它结算, 裁决照常生效)
 musicxx.hooks.register("musicxx.player.volume", { mode: "decision" }, function () {
     runs += 1;
     return new Promise(function (resolve) {
         setTimeout(function () {
             settled += 1;
             resolve({ action: "cancel" });
-        }, 500);
+        }, 1500);
     });
 });
 
@@ -40,8 +41,6 @@ musicxx.capability.register("probe", function () {
         runs: runs,
         settled: settled,
         asyncHookSettled: stats.asyncHookSettled || 0,
-        asyncHookTimeouts: stats.asyncHookTimeouts || 0,
-        asyncHookLateDrops: stats.asyncHookLateDrops || 0,
     };
 });
 

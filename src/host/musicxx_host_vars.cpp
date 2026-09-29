@@ -16,8 +16,11 @@
 ///   Dart 线程的入口经 C ABI 侧投递后执行;
 /// - **零成本**: 宿主没启动时不声明、不订阅; 应用侧值变化只在"该键有人关心 (订阅或
 ///   watch) 且宿主在跑"时才推 (关心数由这里回传给 Dart);
-/// - **高频值必须节流**: 属主按 `throttleMs` 合并推送, 宿主按 `notifyThrottleMs` 合并
-///   通知 (载荷带 `coalesced`), 且没人关心就不推。
+/// - **高频值建议节流**: 属主按 `throttleMs` 合并推送, 宿主按 `notifyThrottleMs` 合并
+///   通知 (载荷带 `coalesced`), 且没人关心就不推; 这些窗口只是声明, 宿主不强制度量。
+///
+/// 容量与大小都不再限制 (变量数 / 变量总数 / 键长 / 值大小 / 订阅数); 唯一的容量类
+/// 限制是"每个插件未回执的读写请求数" (避免慢属主把宿主事件队列灌满)。
 #include "host_json.h"
 #include "host_naming.h"
 #include "musicxx_host.h"
@@ -53,12 +56,11 @@ int64_t steadyNowMs() {
 
 /// 键的字符集与形状校验
 ///
-/// - 非空、长度 ≤ [MusicxxHostManager::kMaxVarKeyLength];
+/// - 非空;
 /// - 只允许 `A-Za-z0-9_.-`;
 /// - 不含连续点、不以点开头或结尾。
 bool isValidVarKeyText(std::string_view key) {
-  if (key.empty() ||
-      key.size() > MusicxxHostManager::kMaxVarKeyLength) {
+  if (key.empty()) {
     return false;
   }
   if (key.front() == '.' || key.back() == '.') {
@@ -189,15 +191,11 @@ const char *varWriteScopeName(int32_t scope) {
   return scope == MUSICXX_PLUGIN_VAR_WRITE_OWNER ? "owner" : "any";
 }
 
-/// 值文本 → 规范化 JSON 文本 (非法返回 false)
+/// 值文本 → 规范化 JSON 文本 (非法返回 false; 大小不限制)
 ///
 /// 规范化很重要: "值有没有变" 用文本比较, 同一个值的不同写法 (空白/键顺序) 必须归一,
 /// 否则会出现"没变也通知"。
 bool normalizeValueText(std::string_view raw, std::string &out, std::string &err) {
-  if (raw.size() > MusicxxHostManager::kMaxVarValueBytes) {
-    err = "值超过 64 KiB 上限, 已拒绝写入";
-    return false;
-  }
   bool parseOk = false;
   Json value = parseJsonSafe(raw, &parseOk);
   if (!parseOk) {
@@ -205,10 +203,6 @@ bool normalizeValueText(std::string_view raw, std::string &out, std::string &err
     return false;
   }
   out = value.dump();
-  if (out.size() > MusicxxHostManager::kMaxVarValueBytes) {
-    err = "值超过 64 KiB 上限, 已拒绝写入";
-    return false;
-  }
   return true;
 }
 
@@ -268,20 +262,8 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
             inst->name, spec.mode);
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
-  if (spec.notify_throttle_ms < 0 ||
-      spec.notify_throttle_ms > kMaxVarNotifyThrottleMs) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量: notifyThrottleMs 必须在 0..{}",
-            inst->name, kMaxVarNotifyThrottleMs);
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
-  if (spec.refresh_after_ms != 0 && spec.refresh_after_ms < kMinVarRefreshAfterMs) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量: refreshAfterMs 要么为 0, 要么 >= {}",
-            inst->name, kMinVarRefreshAfterMs);
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
-  if (spec.throttle_ms < 0) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
+  /// 节流/保活窗口只是"属主侧的口径声明", 不再做取值范围校验 (负值按 0 处理):
+  /// 它不参与宿主的行为判定, 拒绝注册只会给作者添麻烦。
 
   const std::string pluginId = pluginIdOf(inst->name);
   std::string key;
@@ -294,15 +276,15 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
 
-  // 类型与展示字段
+  // 类型与展示字段 (type 只是给界面看的提示: 不认识的值不拒绝, 按无类型处理)
   std::string type;
   if (spec.type.data && spec.type.size > 0) {
     type = std::string{spec.type.data, static_cast<size_t>(spec.type.size)};
     if (type != "bool" && type != "number" && type != "string" &&
         type != "json") {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量 `{}`: 未知 type `{}`",
+      XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量 `{}`: 未知 type `{}` (按无类型处理)",
               inst->name, key, type);
-      return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+      type.clear();
     }
   }
 
@@ -336,33 +318,11 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
   }
 
   auto existing = vars_.find(key);
-  if (existing == vars_.end()) {
-    if (vars_.size() >= kMaxVarsTotal) {
-      XX_LOGW("[musicxx_ext] 变量总数已达上限 ({}), 注册 `{}` 被拒绝",
-              kMaxVarsTotal, key);
-      return MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL;
-    }
-    if (countVarsOfPlugin(pluginId) >= kMaxVarsPerPlugin) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 的变量数已达上限 ({}), 注册 `{}` 被拒绝",
-              inst->name, kMaxVarsPerPlugin, key);
-      return MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL;
-    }
-  } else if (existing->second.owner != inst->name) {
+  if (existing != vars_.end() && existing->second.owner != inst->name) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 试图覆盖他人变量 `{}`", inst->name, key);
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
-
-  if (spec.mode == MUSICXX_PLUGIN_VAR_MODE_HANDLER) {
-    // handler 模式: 属主提供 onRead/onWrite (或自己处理 `musicxx.var.read` /
-    // `musicxx.var.write` 两个事件), 宿主只保留同步读缓存 —— 属主不必再为变量
-    // 维护一份副本
-    if ((spec.caps & MUSICXX_PLUGIN_VAR_CAP_GET) != 0 &&
-        (spec.caps & MUSICXX_PLUGIN_VAR_CAP_NOTIFY) == 0) {
-      // 读要能"取到真实值", 通知是"变了要让别人知道"。handler 属主通常两者都有,
-      // 但只要声明了 get, 就必须能回答读取请求 —— 这一点由属主自己保证,
-      // 这里不做强制 (缓存读取按 refreshAfterMs 保活)。
-    }
-  }
+  /// 变量数不设上限 (早期版本的"每插件 64 个 / 总数 4096"已移除)。
 
   VarEntry entry;
   entry.key = key;
@@ -1097,30 +1057,18 @@ int32_t MusicxxHostManager::declareVars(const std::string &itemsJson,
     bool hasValue = false;
     if (item.contains("value")) {
       valueText = item["value"].dump();
-      if (valueText.size() > kMaxVarValueBytes) {
-        failures += " " + key + " 的初值超过 64 KiB;";
-        continue;
-      }
       hasValue = true;
     }
     const int32_t notifyThrottle =
         item.contains("notifyThrottleMs") && item["notifyThrottleMs"].is_number()
             ? item["notifyThrottleMs"].get<int32_t>()
             : 0;
-    if (notifyThrottle < 0 || notifyThrottle > kMaxVarNotifyThrottleMs) {
-      failures += " " + key + " 的 notifyThrottleMs 超限;";
-      continue;
-    }
     const int32_t throttle =
         item.contains("throttleMs") && item["throttleMs"].is_number()
             ? item["throttleMs"].get<int32_t>()
             : 0;
 
     auto existing = vars_.find(key);
-    if (existing == vars_.end() && vars_.size() >= kMaxVarsTotal) {
-      failures += " " + key + " 超出变量总数上限;";
-      continue;
-    }
     if (existing != vars_.end() && !existing->second.owner.empty()) {
       failures += " " + key + " 与插件变量重名;";
       continue;
@@ -1322,22 +1270,10 @@ void MusicxxHostManager::markVarSubscriber(const std::string &instanceName,
   }
   auto &table = watch ? varWatchers_ : varSubscriptions_;
   auto &other = watch ? varSubscriptions_ : varWatchers_;
+  (void)other;
   auto instIt = table.find(instanceName);
   if (add) {
-    // 每个实例的订阅 + 保活合计不超过容量上限: 超出部分忽略并如实回报
-    size_t total = 0;
-    if (instIt != table.end()) {
-      total += instIt->second.size();
-    }
-    const auto otherIt = other.find(instanceName);
-    if (otherIt != other.end()) {
-      total += otherIt->second.size();
-    }
-    if (instIt == table.end() || instIt->second.count(key) == 0) {
-      if (total >= kMaxVarSubscriptionsPerPlugin) {
-        return; ///< 挂不上就算了, 不报错
-      }
-    }
+    /// 订阅 + 保活不设数量上限 (早期版本的"每插件 256 条"已移除)
     table[instanceName].insert(key);
     ++outCount;
   } else {
