@@ -805,8 +805,7 @@ int main(int argc, char **argv) {
             "结果事件带钩子 id");
     }
 
-    // 异步派发同样有等待预算: 派发过程不能卡住 Dart 侧 (emit 立即返回已由上面的
-    // ack 证明)
+    // 异步派发不占用 Dart 线程: 派发调用立即返回 ack (由上面的 ack 证明)
     MusicxxExternPluginString out2{};
     const auto rc2 = musicxx_extern_plugin_hook_emit(
         host, viewCP("musicxx.player.beforePlaySong"),
@@ -869,16 +868,18 @@ int main(int argc, char **argv) {
     check(entry.find("\"eventsAvgPerSec\":") != std::string::npos,
           "stats 含平均事件速率字段");
 
-    // 钩子统计里暂停派发的剩余时间 (管理页据此显示"还有多久恢复派发")
+    // 钩子统计按处理器给出调用次数/失败次数/耗时 (只观测不限制: 没有"暂停派发"这个概念)
     MusicxxExternPluginString hookStats{};
     check(musicxx_extern_plugin_hook_stats(host, &hookStats, &log) ==
               MUSICXX_EXTERN_PLUGIN_OK,
           "hook_stats 可读");
     const std::string hookStatsJson = take(hookStats);
-    check(hookStatsJson.find("\"paused\":false") != std::string::npos,
-          "hook_stats 含派发暂停标记");
-    check(hookStatsJson.find("\"pausedRemainMs\":0") != std::string::npos,
-          "hook_stats 含暂停派发剩余时间 (没有暂停时为 0)");
+    check(hookStatsJson.find("\"failures\":") != std::string::npos,
+          "hook_stats 含失败次数");
+    check(hookStatsJson.find("\"paused\"") == std::string::npos,
+          "hook_stats 不再含暂停派发标记");
+    check(hookStatsJson.find("\"timeouts\"") == std::string::npos,
+          "hook_stats 不再含超时统计");
 
     MusicxxExternPluginString info{};
     check(musicxx_extern_plugin_debug_info(host, &info, &log) ==
@@ -970,11 +971,11 @@ int main(int argc, char **argv) {
     check(!startThread.empty() && startThread == callThread,
           "插件代码全部在宿主线程执行");
 
-    // 钩子 / 动作命名空间校验
+    // 钩子 / 事件命名空间校验 (动作名不再校验: 插件的动作请求一律受理)
     check(jsonIntField(probe, "unknownHookRc") == "-4",
           "未知前缀钩子注册被拒绝");
-    check(jsonIntField(probe, "foreignActionRc") == "-6",
-          "他人命名空间动作被拒绝");
+    check(jsonIntField(probe, "foreignActionRc") == "0",
+          "任意动作名都被受理 (不再做命名空间校验)");
     check(jsonIntField(probe, "dupHookRc") == "0",
           "同一钩子覆盖式重复注册成功");
     // 事件命名空间与订阅
@@ -1002,7 +1003,7 @@ int main(int argc, char **argv) {
     freeStr(out);
     check(rc == MUSICXX_EXTERN_PLUGIN_OK, "probe 触发插件动作请求成功");
 
-    // 动作超时下限 1s; 等它过期后取事件与探针
+    // 动作超时: 插件给的时间就是生效的超时 (不再钳制区间); 等它过期后取事件与探针
     std::this_thread::sleep_for(std::chrono::milliseconds{1600});
 
     MusicxxExternPluginString events{};
@@ -1411,62 +1412,25 @@ int main(int argc, char **argv) {
             "卸载临时装载的动态库插件");
     }
 
-    // ============ 可选 JS 执行上限 (js_exec_guard) ============
+    // ============ JS 执行上限已移除 ============
     //
-    // 默认关闭 (宿主不主动打断脚本)。这里模拟用户在配置里显式开启,
-    // 验证: 死循环脚本会被中断 (共享 JS 线程不会永久被占住),
-    // 宿主与其它插件不受影响。
+    // 早期版本有一个可选的 `jsExecGuardMs`（超时中断超长脚本）。现在宿主不限制脚本执行
+    // 时长、也不提供中断开关：死循环脚本会一直占住共享 JS 线程（对照示例 example_js_spin
+    // 因此不再装载 —— 它会真的把线程占死，连卸载都做不了）。
     {
       check(musicxx_extern_plugin_set_config(host,
-                                             viewP(R"({"jsExecGuardMs":400})"),
-                                             &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "开启可选 JS 执行上限 (jsExecGuardMs)");
-      MusicxxExternPluginString loadLog{};
-      const auto spinRc = musicxx_extern_plugin_plugin_load_sync(
-          host, viewCP("example_js_spin"), viewCP("{}"), 8000, &loadLog);
-      check(spinRc == MUSICXX_EXTERN_PLUGIN_OK,
-            "死循环对照示例装载成功 (顶层不阻塞)");
-
-      // 触发它的观察钩子 (异步派发: 宿主入队即返回, 不等脚本)
-      MusicxxExternPluginString out{};
-      const auto emitRc = musicxx_extern_plugin_hook_emit(
-          host, viewCP("musicxx.player.completed"),
-          viewP(R"({"sid":"spin","playedMs":1})"),
-          MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC, 0, &out, &log);
-      freeStr(out);
-      check(emitRc == MUSICXX_EXTERN_PLUGIN_OK, "触发死循环钩子 (入队即返回)");
-
-      // 等执行上限生效 (400 ms) 并留出余量
-      std::this_thread::sleep_for(std::chrono::milliseconds{1500});
-
-      // 统计里有中断计数 (只观测不限制: 中断只影响本次调用, 不卸载插件)
+                                            viewP(R"({"jsExecGuardMs":400})"),
+                                            &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "执行上限配置项被忽略 (不再报错)");
       MusicxxExternPluginString stats{};
       const auto statsRc =
           musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
       const std::string statsJson = take(stats);
-      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (执行上限)");
-      check(statsJson.find("example_js_spin") != std::string::npos,
-            "统计含死循环对照示例插件");
-      check(statsJson.find("execGuardHits") != std::string::npos,
-            "统计含执行上限中断计数");
-
-      // 宿主与其它 JS 插件仍可用 (证明共享 JS 线程已恢复)
-      MusicxxExternPluginString probe2{};
-      const auto probe2Rc = musicxx_extern_plugin_plugin_call(
-          host, viewCP("example_js"), viewCP("probe"), viewCP("{}"), 3000,
-          &probe2, &log);
-      take(probe2);
-      check(probe2Rc == MUSICXX_EXTERN_PLUGIN_OK,
-            "中断后共享 JS 线程仍可服务其它插件");
-
-      // 卸载对照示例 (脚本线程已恢复) 并恢复默认 (关闭执行上限)
-      check(musicxx_extern_plugin_plugin_unload(
-                host, viewCP("example_js_spin"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "死循环对照示例可卸载");
-      check(musicxx_extern_plugin_set_config(host,
-                                             viewP(R"({"jsExecGuardMs":0})"),
-                                             &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "关闭可选执行上限 (恢复默认)");
+      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (无执行上限)");
+      check(statsJson.find("execGuardHits") == std::string::npos,
+            "统计不再含执行上限中断计数");
+      check(statsJson.find("execGuardMs") == std::string::npos,
+            "统计不再含执行上限配置");
     }
 
     // 禁用 → 钩子摘除, 启用 → 重新注册 (脚本重跑)
@@ -1537,10 +1501,9 @@ int main(int argc, char **argv) {
   // ==================== JavaScript 异步裁决 (裁决处理器返回 Promise)
   // ====================
   //
-  // 语义 (等待预算 + JS API):
-  // - Promise 在宿主等待预算 (100 ms) 内结算 → 裁决照常生效;
-  // - 超过预算 → 按"无裁决"继续: 不打断脚本、不计处理器失败;
-  // 迟到的结算被丢弃并计数。
+  // 语义 (无等待预算):
+  // - 处理器返回 Promise 时, 宿主一直等到它结算, 裁决照常生效;
+  // - 没有"超预算按无裁决继续"这回事, 也没有迟到丢弃。
   {
     MusicxxExternPluginString loadLog{};
     const auto jsAsyncRc = musicxx_extern_plugin_plugin_load_sync(
@@ -1560,7 +1523,7 @@ int main(int argc, char **argv) {
                                      &seekHandlers, &log);
     check(seekHandlers == 1, "异步裁决处理器已注册 (player.seek = 1)");
 
-    // 1) Promise 在预算内结算 (30 ms) → 裁决生效
+    // 1) Promise 30 ms 后结算 → patch 生效
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_hook_emit(
@@ -1574,7 +1537,7 @@ int main(int argc, char **argv) {
             "Promise 结算的 patch 生效 (toMs)");
     }
 
-    // 2) Promise 超过等待预算 (500 ms) → 无裁决, 且不等满 500 ms
+    // 2) Promise 1.5 s 后才结算 → 宿主一直等, 裁决照样生效 (没有等待预算)
     {
       MusicxxExternPluginString out{};
       const auto t0 = std::chrono::steady_clock::now();
@@ -1587,16 +1550,15 @@ int main(int argc, char **argv) {
           std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - t0)
               .count();
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "超预算的异步裁决派发返回成功");
-      check(result.find("\"result\"") == std::string::npos,
-            "超预算的 Promise 不产生裁决");
-      check(elapsedMs < 300, "宿主没有等到 Promise 结算 (按等待预算返回)");
+      std::printf("  [info] async volume result=%s (%lld ms)\n", result.c_str(),
+                  static_cast<long long>(elapsedMs));
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "长 Promise 的派发返回成功");
+      check(result.find("\"cancel\"") != std::string::npos,
+            "宿主等到 Promise 结算, 裁决生效 (cancel)");
+      check(elapsedMs >= 1200, "宿主等满了 Promise 的等待时间");
     }
 
-    // 3) 等迟到的那次结算生效 (500 ms) + 余量: 结果被丢弃、进程不崩
-    std::this_thread::sleep_for(std::chrono::milliseconds{900});
-
-    // 4) 超时不算失败 (不会暂停派发): 再次派发仍会调用该处理器
+    // 3) 结算之后可以继续派发 (处理器没有被跳过)
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_hook_emit(
@@ -1604,11 +1566,10 @@ int main(int argc, char **argv) {
           viewP(R"({"sid":"async3","from":0.1,"to":0.2})"),
           MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 300, &out, &log);
       freeStr(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK,
-            "迟到结算之后仍可派发 (处理器未被暂停)");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "再次派发成功 (处理器未被跳过)");
     }
 
-    // 5) 统计: 预算内结算 1 次 / 超预算 2 次 (第 4 步又一次) / 迟到丢弃 1 次
+    // 4) 统计: 三次派发的 Promise 都结算 (没有超时/迟到这两个概念)
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_plugin_call(
@@ -1617,17 +1578,17 @@ int main(int argc, char **argv) {
       const std::string probe = take(out);
       std::printf("  [info] async probe=%s\n", probe.c_str());
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决对照示例能力调用成功 (probe)");
-      check(jsonIntField(probe, "asyncHookSettled") == "1",
-            "统计: 预算内结算 1 次");
-      check(jsonIntField(probe, "asyncHookTimeouts") == "2",
-            "统计: 超预算 2 次");
-      check(jsonIntField(probe, "asyncHookLateDrops") == "1",
-            "统计: 迟到结算被丢弃 1 次");
+      check(jsonIntField(probe, "asyncHookSettled") == "3",
+            "统计: 三次派发都在结算后拿到结果");
       check(jsonIntField(probe, "runs") == "3",
-            "处理器每次都被调用 (未被暂停或跳过)");
+            "处理器每次都被调用 (未被跳过)");
+      check(probe.find("asyncHookTimeouts") == std::string::npos,
+            "统计不再有超时字段");
+      check(probe.find("asyncHookLateDrops") == std::string::npos,
+            "统计不再有迟到丢弃字段");
     }
 
-    // 6) 钩子统计里没有"失败"(超时 ≠ 失败), 只有耗时记录
+    // 5) 钩子统计里没有失败 (慢不等于失败)
     {
       MusicxxExternPluginString stats{};
       const auto rc = musicxx_extern_plugin_hook_stats(host, &stats, &log);
@@ -1639,10 +1600,10 @@ int main(int argc, char **argv) {
               ? std::string{}
               : statsJson.substr(at, statsJson.find(']', at) - at);
       check(entry.find("\"failures\":0") != std::string::npos,
-            "超预算的异步裁决不计处理器失败");
+            "慢的异步裁决不计处理器失败");
     }
 
-    // 7) 卸载 → 无残留 (含定时器与等待条目)
+    // 6) 卸载 → 无残留 (含等待条目)
     {
       check(musicxx_extern_plugin_plugin_unload(
                 host, viewCP("example_js_async"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
@@ -1764,15 +1725,14 @@ int main(int argc, char **argv) {
     freeStr(unloadLog);
   }
 
-  // ==================== 处理器连续失败与暂停派发
+  // ==================== 处理器失败只记统计 (不再暂停派发)
   // ====================
   //
   // 对照示例 example_native_fail 注册两个处理器:
   //   musicxx.song.changed     → 每次失败 (返回非 0)
   //   musicxx.player.completed → 每次成功
-  // 期望: 连续 3 次失败后只暂停出问题的处理器 (推送 musicxx.plugin.error
-  // 说明原因), 同一插件的另一个处理器照常工作, 插件本身保持装载
-  // (暂停派发不等于卸载)。
+  // 期望: 失败只累计到统计 (hook_stats 的 failures), 处理器每次都照常被调用;
+  // 没有"连续失败暂停派发"这回事, 插件也不会被卸载。
   {
     MusicxxExternPluginString loadLog{};
     const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
@@ -1783,52 +1743,38 @@ int main(int argc, char **argv) {
     } else {
       freeStr(loadLog);
     }
-    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "暂停派发对照示例装载成功 (example_native_fail)");
+    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "失败对照示例装载成功 (example_native_fail)");
 
     int32_t fixtureHooks = -1;
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                      &fixtureHooks, &log);
     check(fixtureHooks == 1, "失败处理器的处理器数为 1 (其余插件已卸载)");
 
-    // 连续 3 次派发: 每次都真的调用了处理器 (called=1); 第 3 次触发暂停派发
-    for (int i = 1; i <= 3; ++i) {
+    // 连续 5 次派发: 每次都真的调用了处理器 (called=1), 不做任何跳过
+    for (int i = 1; i <= 5; ++i) {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_hook_emit(
           host, viewCP("musicxx.song.changed"),
-          viewP(R"({"sid":"brk","song":{"name":"暂停目标"}})"),
+          viewP(R"({"sid":"brk","song":{"name":"失败目标"}})"),
           MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &out, &log);
       const std::string result = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "失败处理器派发可调用");
       check(jsonIntField(result, "called") == "1",
-            "失败处理器被调用 (每次计数 1)");
+            "失败处理器每次都被调用 (不跳过)");
     }
 
-    // 第 4 次: 处理器已在暂停派发期间 → 直接跳过 (不再调用, 也就不会再累加失败)
-    {
-      MusicxxExternPluginString out{};
-      const auto rc = musicxx_extern_plugin_hook_emit(
-          host, viewCP("musicxx.song.changed"),
-          viewP(R"({"sid":"brk","song":{"name":"暂停目标"}})"),
-          MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &out, &log);
-      const std::string result = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "暂停派发期间派发不报错");
-      check(jsonIntField(result, "called") == "0",
-            "暂停派发期间处理器被跳过 (called=0)");
-    }
-
-    // 处理器级明细 (失败次数 / 暂停标记) 来自钩子统计接口 `hook_stats`:
-    // 宿主对"连续失败"的处理是**只暂停派发**, 不卸载插件
+    // 处理器级明细来自钩子统计接口 `hook_stats`: 只有次数与失败次数
     {
       MusicxxExternPluginString stats{};
       const auto statsRc = musicxx_extern_plugin_hook_stats(host, &stats, &log);
       const std::string statsJson = take(stats);
-      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "hook_stats 可读 (暂停派发)");
-      check(statsJson.find("\"calls\":3") != std::string::npos,
-            "失败处理器只被调用 3 次");
-      check(statsJson.find("\"failures\":3") != std::string::npos,
-            "失败次数累计为 3");
-      check(statsJson.find("\"paused\":true") != std::string::npos,
-            "暂停派发后处理器被标记为暂停");
+      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "hook_stats 可读 (失败统计)");
+      check(statsJson.find("\"calls\":5") != std::string::npos,
+            "失败处理器被调用 5 次 (每次都派发)");
+      check(statsJson.find("\"failures\":5") != std::string::npos,
+            "失败次数累计为 5");
+      check(statsJson.find("\"paused\"") == std::string::npos,
+            "hook_stats 不再有暂停派发标记");
       check(statsJson.find("\"failures\":0") != std::string::npos,
             "同插件的正常处理器无失败记录");
     }
@@ -1839,27 +1785,14 @@ int main(int argc, char **argv) {
       const auto statsRc =
           musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
       const std::string statsJson = take(stats);
-      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (暂停派发)");
+      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (失败统计)");
       check(statsJson.find("example_native_fail") != std::string::npos,
-            "聚合统计含暂停派发对照示例插件");
-      check(statsJson.find("\"calls\":3") != std::string::npos,
+            "聚合统计含失败对照示例插件");
+      check(statsJson.find("\"calls\":") != std::string::npos,
             "聚合统计含钩子调用次数");
     }
 
-    // 暂停派发事件 (说明原因, 便于用户/开发者定位)
-    {
-      MusicxxExternPluginString events{};
-      const std::string eventsJson = [&] {
-        musicxx_extern_plugin_poll_events(host, 500, &events, &log);
-        return take(events);
-      }();
-      check(eventsJson.find("musicxx.plugin.error") != std::string::npos,
-            "暂停派发时推送 musicxx.plugin.error 事件");
-      check(eventsJson.find("handler_failed") != std::string::npos,
-            "暂停派发事件说明原因是处理器失败");
-    }
-
-    // 同一插件的另一个处理器不受影响 (暂停派发的范围 = 单个处理器)
+    // 同一插件的另一个处理器照常工作
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_hook_emit(
@@ -1868,10 +1801,10 @@ int main(int argc, char **argv) {
           MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &out, &log);
       const std::string result = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "同插件的另一个处理器派发成功");
-      check(jsonIntField(result, "called") == "1", "另一个处理器不受暂停派发影响");
+      check(jsonIntField(result, "called") == "1", "另一个处理器不受影响");
     }
 
-    // 插件本身仍在装载状态 (暂停派发只影响出问题的处理器)
+    // 插件本身仍在装载状态
     {
       MusicxxExternPluginString probe{};
       const auto probeRc = musicxx_extern_plugin_plugin_call(
@@ -1879,22 +1812,22 @@ int main(int argc, char **argv) {
           viewCP("{}"), 3000, &probe, &log);
       const std::string probeJson = take(probe);
       check(probeRc == MUSICXX_EXTERN_PLUGIN_OK,
-            "暂停派发后插件仍可响应能力调用 (未被卸载)");
-      check(jsonIntField(probeJson, "failingCalls") == "3",
-            "失败处理器只被调用 3 次 (暂停派发期间未被调用)");
+            "失败之后插件仍可响应能力调用 (未被卸载)");
+      check(jsonIntField(probeJson, "failingCalls") == "5",
+            "失败处理器被调用 5 次 (全部派发)");
       check(jsonIntField(probeJson, "goodCalls") == "1",
             "正常处理器按预期被调用 1 次");
     }
 
-    // 卸载后无残留 (暂停派发状态随处理器一起消失)
+    // 卸载后无残留
     {
       check(musicxx_extern_plugin_plugin_unload(
                 host, viewCP("example_native_fail"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
-            "暂停派发对照示例卸载成功");
+            "失败对照示例卸载成功");
       int32_t after = -1;
       musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                        &after, &log);
-      check(after == 0, "暂停派发对照示例卸载后无钩子残留");
+      check(after == 0, "失败对照示例卸载后无钩子残留");
     }
   }
 

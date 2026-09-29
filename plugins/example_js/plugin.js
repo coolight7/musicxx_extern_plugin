@@ -381,6 +381,18 @@ musicxx.vars.get("musicxx.ui.animatedLevel").then(function (value) {
     return null;
 });
 
+/// 异步能力 (返回 Promise): 宿主会一直等到它结算, 再把结果交给调用方
+///
+/// 与钩子处理器同一套做法 (没有等待预算): 慢就是调用方多等一会儿。
+musicxx.capability.register("slowProbe", function (args) {
+    const waitMs = (args && Number.isFinite(args.waitMs)) ? Math.trunc(args.waitMs) : 200;
+    return new Promise(function (resolve) {
+        setTimeout(function () {
+            resolve({ ok: true, waitedMs: waitMs, pluginId: musicxx.pluginId });
+        }, waitMs);
+    });
+});
+
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();

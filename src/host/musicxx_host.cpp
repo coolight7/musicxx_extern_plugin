@@ -572,16 +572,11 @@ int32_t MusicxxHostManager::pushActionRequestEvent(
   if (action.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  // 命名空间校验: 官方 musicxx.* 或本插件自己的 plugin.<id>.*
-  if (!naming::isOfficial(action) && !naming::isOwnPlugin(action, pluginId)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 发起非法动作名 `{}` (命名空间校验失败)",
-            pluginId, action);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
-  }
-  // 超时预算: 默认 5s, 下限 1s (避免 Dart 侧被高频请求淹没), 上限
-  // 60s
-  const int64_t effectiveTimeoutMs = std::clamp<int64_t>(
-      (timeoutMs == 0) ? 5000 : static_cast<int64_t>(timeoutMs), 1000, 60000);
+  /// 动作名不校验、不拒绝 (与动态库插件的动作请求同一口径): 由 Dart 侧按注册表
+  /// 决定理不理它。命名建议见 `requestAction`。
+  ///
+  /// 超时也不再限制区间: 0 = 不设超时。
+  const int64_t effectiveTimeoutMs = static_cast<int64_t>(timeoutMs);
   Json payload;
   payload["requestId"] = requestId;
   payload["plugin"] = pluginId;
@@ -1705,8 +1700,11 @@ int32_t MusicxxHostManager::pluginCall(const std::string &id,
         });
   });
 
+  /// timeoutMs = 0 = 不设超时 (一直等到插件给出结果)。
   int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
-  if (!state->slot.wait(timeoutMs == 0 ? 5000 : timeoutMs, rc)) {
+  if (timeoutMs == 0) {
+    state->slot.wait(rc);
+  } else if (!state->slot.wait(timeoutMs, rc)) {
     err = "plugin_call: 未在预算内完成 (" + cap + ")";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
@@ -1844,13 +1842,7 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
     return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
   }
   std::string text = value.dump();
-  /// 单键上限: 超限**直接拒绝写入** (不做截断 —— 截断后的 JSON
-  /// 既不是合法 JSON 也丢了一半内容, 插件读到的会是坏值)
-  constexpr size_t kMaxSize = 512 * 1024;
-  if (text.size() > kMaxSize) {
-    err = "state_update: 值超过 512 KiB 上限, 已拒绝写入 (键 " + key + ")";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
+  /// 单键不再限制大小 (早期版本 512 KiB 上限已移除): 只要求是合法 JSON。
   {
     std::lock_guard<std::mutex> lock{stateMutex_};
     state_[key] = text;
@@ -1948,20 +1940,20 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
     Json hooks = Json::object();
     for (const auto &[hookId, handlers] : hooks_) {
       int64_t calls = 0;
+      int64_t failures = 0;
       int64_t totalUs = 0;
       int64_t maxUs = 0;
-      int64_t timeouts = 0;
       for (const auto &h : handlers) {
         calls += h.calls;
+        failures += h.failures;
         totalUs += h.totalUs;
         maxUs = (std::max)(maxUs, h.maxUs);
-        timeouts += h.timeouts;
       }
       hooks[hookId] = {
           {"calls", calls},
           {"avgUs", calls > 0 ? totalUs / calls : 0},
           {"maxUs", maxUs},
-          {"timeouts", timeouts},
+          {"failures", failures},
       };
     }
     host["hooks"] = hooks;
@@ -2024,7 +2016,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"jsHeapSampled", jsHeap >= 0},
     };
     /// JS 插件附带运行时段的明细 (钩子/能力/订阅/定时器/脚本执行次数/堆用量/
-    /// 可选执行上限命中数), 供管理页与排障直接读取
+    /// 异步裁决结算次数), 供管理页与排障直接读取
     if (jsEngine_ && inst->kind == "js") {
       p["js"] = parseJsonSafe(jsEngine_->instanceStatsJson(inst->name));
     }
@@ -2089,22 +2081,6 @@ int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
   }
   if (cfg.contains("flags") && cfg["flags"].is_number_integer()) {
     flags_ = cfg["flags"].get<int32_t>();
-  }
-  if (cfg.contains("hookBudgetMs") && cfg["hookBudgetMs"].is_number_integer()) {
-    hookBudgetMs_ = cfg["hookBudgetMs"].get<int32_t>();
-  }
-  if (cfg.contains("hookHardBudgetMs") &&
-      cfg["hookHardBudgetMs"].is_number_integer()) {
-    hookHardMs_ = cfg["hookHardBudgetMs"].get<int32_t>();
-  }
-  // 可选 JS 执行上限 (0 = 关闭; 默认关闭, 宿主不默认限制插件)
-  if (cfg.contains("jsExecGuardMs") &&
-      cfg["jsExecGuardMs"].is_number_integer()) {
-    const int32_t guardMs = (std::max)(cfg["jsExecGuardMs"].get<int32_t>(), 0);
-    if (jsEngine_) {
-      jsEngine_->setExecGuardMs(guardMs);
-    }
-    jsExecGuardMs_ = guardMs;
   }
   // JS 侧同步读宿主信息: 配置变化后刷新缓存 (避免跨线程读管理器字段)
   refreshJsHostInfo();

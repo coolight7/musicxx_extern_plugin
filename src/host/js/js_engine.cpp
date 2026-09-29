@@ -41,14 +41,9 @@ using utilxx_base::Json;
 
 namespace {
 
-/// 裁决型钩子处理器在宿主线程上的等待上界 (与钩子 meta 的 hardMs 默认值一致):
-/// 超时按"无裁决"返回, 不打断脚本 (宿主等待预算)
-constexpr uint32_t kHookSyncBudgetMs = 100;
-
-/// 建 runtime / 执行脚本的等待预算
-constexpr uint32_t kScriptStepBudgetMs = 10000;
-/// 其它 JS 交互 (回取注册/释放上下文/能力调用) 的等待预算
-constexpr uint32_t kInteractionBudgetMs = 3000;
+/// 能力处理器返回 Promise 时的回给宿主的标记 (与 prelude 的
+/// `kCapabilityPendingMarker` 一致)
+constexpr const char *kCapabilityPendingMarker = "~pending~";
 
 /// 处理器返回 Promise 时, JS 侧回给宿主的标记 (必须与 prelude 的
 /// `kHookPendingMarker` 一致)
@@ -107,8 +102,6 @@ std::string viewToStr(const PluginxxStringView *view) {
 
 /* ==================== 进程级内置槽位表 ==================== */
 
-constexpr size_t kSlotCapacity = 64;
-
 /// 一个 JS 插件的内置槽位 (名称/脚本路径/版本)
 ///
 /// `scripts` 按清单 `scripts` 的顺序排列: 同一个 JS 上下文里依次执行 (前面的脚本
@@ -120,12 +113,14 @@ struct Slot {
   bool used = false;
 };
 
-/// 槽位表: 内核要求内置插件描述数组在进程生命周期内地址稳定 (实现注记),
-/// 因此这里用固定容量数组 + 宿主维护的内容 (而不是可增长的 vector)。
+/// 槽位表: 槽位数量不设上限 (按需增长)
+///
+/// 交给内核的两份描述数组 (`infos` / `manifests`) 在每次调用时按当前槽位重建,
+/// 内核拿到指针后立即取用 (注册与装载都在宿主线程串行, 不会跨调用持有旧指针)。
 struct SlotTable {
-  std::array<Slot, kSlotCapacity> slots;
-  std::array<PluginxxBuiltinInfo, kSlotCapacity> infos{};
-  std::array<PluginxxBuiltinManifest, kSlotCapacity> manifests{};
+  std::vector<Slot> slots; ///< 槽位 (含已注销的, 下标稳定便于复用)
+  std::vector<PluginxxBuiltinInfo> infos;
+  std::vector<PluginxxBuiltinManifest> manifests;
   std::mutex mutex;
   /// 当前 JS 引擎 (宿主为进程单例; 内置入口是静态函数, 只能经它找到引擎)
   std::atomic<JsEngine *> engine{nullptr};
@@ -202,9 +197,13 @@ constexpr const char *kPrelude = R"JS(
   var timerTable = new Map();
   /// 裁决型钩子处理器的 Promise 等待登记 (key = 宿主给的等待 id)
   var pendingHookWaits = new Map();
-  /// 处理器返回 Promise 时回给宿主的标记: 宿主看到它就继续等 (等 Promise 结算或预算耗尽)。
-  /// 取值必须与 C++ 侧 `kHookPendingMarker` 一致。
+  /// 处理器返回 Promise 时回给宿主的标记 (与 C++ 侧 `kHookPendingMarker` 一致)。
   var kHookPendingMarker = "~pending~";
+  /// 能力处理器返回 Promise 时回给宿主的标记 (与 C++ 侧
+  /// `kCapabilityPendingMarker` 一致)
+  var kCapabilityPendingMarker = "~pending~";
+  /// 异步能力处理器还没结算的等待号 (JSON 结果由宿主等待槽接收)
+  var pendingCapabilityWaits = new Map();
 
   function logError(message) {
     try { ext.log(4, String(message)); } catch (e) { /* 日志失败不影响脚本 */ }
@@ -988,8 +987,9 @@ constexpr const char *kPrelude = R"JS(
     call: function (pluginId, name, args, timeoutMs) {
       assertName(pluginId, "capability.call: 插件 id");
       assertName(name, "capability.call: 能力名");
+      // 超时是调用方自己的选择: 不传 = 3 秒; 传 0 = 一直等
       var budget = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 3000;
-      if (budget < 1000) { budget = 1000; }
+      if (budget < 0) { budget = 0; }
       var text = ext.capabilityCall(String(pluginId), String(name),
                                     safeJson(args === undefined ? {} : args), budget);
       var info = null;
@@ -1004,11 +1004,14 @@ constexpr const char *kPrelude = R"JS(
         // 原生/内置目标: 结果稍后经 ext.onCapabilityResult 回到 JS 线程
         return new Promise(function (resolve, reject) {
           var waiter = { resolve: resolve, reject: reject, timer: 0 };
-          waiter.timer = musicxx.timer.setTimeout(function () {
-            if (capabilityWaiters.delete(info.id)) {
-              reject(new Error("跨插件调用超时: " + pluginId + "." + name));
-            }
-          }, budget + 1000);
+          // 不传超时 / 传 0 时不设本地兜底定时器 (一直等结果)
+          if (budget > 0) {
+            waiter.timer = musicxx.timer.setTimeout(function () {
+              if (capabilityWaiters.delete(info.id)) {
+                reject(new Error("跨插件调用超时: " + pluginId + "." + name));
+              }
+            }, budget + 1000);
+          }
           capabilityWaiters.set(info.id, waiter);
         });
       }
@@ -1020,7 +1023,7 @@ constexpr const char *kPrelude = R"JS(
     var waiter = capabilityWaiters.get(key);
     if (!waiter) { return; }
     capabilityWaiters.delete(key);
-    musicxx.timer.clear(waiter.timer);
+    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
     if (info && info.ok === true) {
@@ -1030,7 +1033,7 @@ constexpr const char *kPrelude = R"JS(
       waiter.reject(new Error("跨插件调用失败: " + reason));
     }
   };
-  ext.invokeCapability = function (name, argsJson) {
+  ext.invokeCapability = function (name, argsJson, waitId) {
     var fn = capTable.get(name);
     if (!fn) { return JSON.stringify({ ok: false, error: "plugin_capability_not_found: " + name }); }
     var args = {};
@@ -1039,7 +1042,22 @@ constexpr const char *kPrelude = R"JS(
     try { result = fn(args); }
     catch (e) { return JSON.stringify({ ok: false, error: (e && e.message ? e.message : String(e)) }); }
     if (result && typeof result.then === "function") {
-      return JSON.stringify({ ok: false, error: "capability_async_not_supported" });
+      // 异步能力处理器: 记下等待号, Promise 结算后经 capabilityWaitResolve 回结果
+      var key = (waitId === undefined || waitId === null || waitId === "") ? "" : String(waitId);
+      if (!key) { return JSON.stringify({ ok: false, error: "capability_async_without_wait" }); }
+      pendingCapabilityWaits.set(key, true);
+      Promise.resolve(result).then(function (value) {
+        if (!pendingCapabilityWaits.has(key)) { return null; }
+        pendingCapabilityWaits.delete(key);
+        ext.capabilityWaitResolve(key, JSON.stringify({ ok: true, result: value === undefined ? null : value }));
+        return null;
+      }, function (e) {
+        if (!pendingCapabilityWaits.has(key)) { return null; }
+        pendingCapabilityWaits.delete(key);
+        ext.capabilityWaitResolve(key, JSON.stringify({ ok: false, error: (e && e.message ? e.message : String(e)) }));
+        return null;
+      });
+      return kCapabilityPendingMarker;
     }
     return JSON.stringify({ ok: true, result: result === undefined ? null : result });
   };
@@ -1104,11 +1122,10 @@ constexpr const char *kPrelude = R"JS(
 
   /// 调用钩子处理器
   ///
-  /// - `waitId` 只有裁决型钩子才有 (宿主在等待预算内等结果); 观察型钩子为空字符串/undefined;
+  /// - `waitId` 只有裁决型钩子才有 (宿主一直等到结果); 观察型钩子为空字符串/undefined;
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
-  /// - Promise 超过宿主等待预算 (100 ms) 才结算: 结果被丢弃, 按"无裁决"继续,
-  ///   **不打断脚本、不计处理器失败**。
+  /// - 宿主不设等待预算: Promise 结算多晚都会被接住。
   ext.invokeHook = function (hookId, inputJson, waitId) {
     var entry = hookTable.get(hookId);
     if (!entry) { return ""; }
@@ -1154,6 +1171,7 @@ constexpr const char *kPrelude = R"JS(
     uiTable.clear();
     timerTable.clear();
     pendingHookWaits.clear();
+    pendingCapabilityWaits.clear();
     varsTable.clear();
     varBindTable.clear();
     varWatchSet.clear();
@@ -1620,6 +1638,27 @@ JSValue jsHookWaitResolve(JSContext *ctx, JSValueConst, int argc,
   return JS_UNDEFINED;
 }
 
+/// 能力处理器的 Promise 结算 (JS 线程 → 等待槽; 见
+/// JsEngine::bridgeCapabilityWaitResolve)
+JSValue jsCapabilityWaitResolve(JSContext *ctx, JSValueConst, int argc,
+                                JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 1) {
+    return JS_UNDEFINED;
+  }
+  const char *waitId = JS_ToCString(ctx, argv[0]);
+  const char *json = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+  inst->engine->bridgeCapabilityWaitResolve(waitId ? waitId : "",
+                                          json ? json : "");
+  if (waitId) {
+    JS_FreeCString(ctx, waitId);
+  }
+  if (json) {
+    JS_FreeCString(ctx, json);
+  }
+  return JS_UNDEFINED;
+}
+
 /// 本实例统计 (JSON 文本)
 JSValue jsStats(JSContext *ctx, JSValueConst, int /*argc*/,
                 JSValueConst * /*argv*/) {
@@ -1683,26 +1722,6 @@ JSValue jsPluginId(JSContext *ctx, JSValueConst, int /*argc*/,
   return JS_NewString(ctx, inst ? inst->id.c_str() : "");
 }
 
-/* ==================== 可选执行上限 (默认关闭) ==================== */
-
-/// 本次进入脚本的执行截止时刻 (steady 毫秒; 0 = 不限制; 只在 JS 线程读写)
-thread_local int64_t gExecDeadlineMs = 0;
-
-/// QuickJS 中断回调: 返回非 0 让引擎中断当前脚本执行
-///
-/// 这是**用户可选的保护开关** (配置 `jsExecGuardMs`), 不是宿主默认限制:
-/// 关闭时本回调恒返回 0, 不会打断任何脚本。
-int jsExecInterruptHandler(JSRuntime * /*rt*/, void * /*opaque*/) {
-  if (gExecDeadlineMs <= 0) {
-    return 0;
-  }
-  return nowSteadyMs() > gExecDeadlineMs ? 1 : 0;
-}
-
-/// 异常文本是否来自"执行上限中断"
-bool isInterruptError(const std::string &text) {
-  return text.find("interrupt") != std::string::npos;
-}
 /// 装好 `__ext` 桥接对象 (返回值的所有权交给调用方 / JS_SetPropertyStr)
 JSValue buildBridgeObject(JSContext *ctx) {
   struct Entry {
@@ -1726,6 +1745,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"varsRespond", jsVarsRespond, 4},
       {"hookOp", jsHookOp, 5},
       {"hookWaitResolve", jsHookWaitResolve, 2},
+      {"capabilityWaitResolve", jsCapabilityWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
       {"timerClear", jsTimerClear, 1},
       {"uiOp", jsUiOp, 5},
@@ -1822,45 +1842,45 @@ void JsEngine::installBuiltinProvider() {
 const PluginxxBuiltinInfo *JsEngine::builtinPlugins(uint64_t *count) {
   SlotTable &table = slotTable();
   std::lock_guard lock{table.mutex};
-  for (size_t i = 0; i < kSlotCapacity; ++i) {
-    PluginxxBuiltinInfo &info = table.infos[i];
-    if (table.slots[i].used) {
-      info.name = PluginxxStringView{table.slots[i].name.data(),
-                                     table.slots[i].name.size()};
-      info.get_info = &JsEngine::builtinGetInfo;
-      info.create = &JsEngine::builtinCreate;
-      info.destroy = &JsEngine::builtinDestroy;
-      info.start = &JsEngine::builtinStart;
-      info.stop = &JsEngine::builtinStop;
-    } else {
-      info.name = PluginxxStringView{nullptr, 0};
-      info.get_info = nullptr;
-      info.create = nullptr;
-      info.destroy = nullptr;
-      info.start = nullptr;
-      info.stop = nullptr;
+  table.infos.clear();
+  table.infos.reserve(table.slots.size());
+  for (Slot &slot : table.slots) {
+    if (!slot.used) {
+      continue;
     }
+    PluginxxBuiltinInfo info{};
+    info.name = PluginxxStringView{slot.name.data(), slot.name.size()};
+    info.get_info = &JsEngine::builtinGetInfo;
+    info.create = &JsEngine::builtinCreate;
+    info.destroy = &JsEngine::builtinDestroy;
+    info.start = &JsEngine::builtinStart;
+    info.stop = &JsEngine::builtinStop;
+    table.infos.push_back(info);
   }
   if (count) {
-    *count = kSlotCapacity;
+    *count = static_cast<uint64_t>(table.infos.size());
   }
-  return table.infos.data();
+  return table.infos.empty() ? nullptr : table.infos.data();
 }
 
 const PluginxxBuiltinManifest *JsEngine::builtinManifests(uint64_t *count) {
   SlotTable &table = slotTable();
   std::lock_guard lock{table.mutex};
-  for (size_t i = 0; i < kSlotCapacity; ++i) {
-    table.manifests[i].name =
-        table.slots[i].used ? PluginxxStringView{table.slots[i].name.data(),
-                                                 table.slots[i].name.size()}
-                            : PluginxxStringView{nullptr, 0};
-    table.manifests[i].yaml = PluginxxStringView{nullptr, 0};
+  table.manifests.clear();
+  table.manifests.reserve(table.slots.size());
+  for (Slot &slot : table.slots) {
+    if (!slot.used) {
+      continue;
+    }
+    PluginxxBuiltinManifest manifest{};
+    manifest.name = PluginxxStringView{slot.name.data(), slot.name.size()};
+    manifest.yaml = PluginxxStringView{nullptr, 0};
+    table.manifests.push_back(manifest);
   }
   if (count) {
-    *count = kSlotCapacity;
+    *count = static_cast<uint64_t>(table.manifests.size());
   }
-  return table.manifests.data();
+  return table.manifests.empty() ? nullptr : table.manifests.data();
 }
 
 bool JsEngine::registerBuiltin(const std::string &pluginId,
@@ -1879,30 +1899,30 @@ bool JsEngine::registerBuiltin(const std::string &pluginId,
   SlotTable &table = slotTable();
   std::lock_guard lock{table.mutex};
   const std::string name = "js:" + pluginId;
-  size_t index = kSlotCapacity;
-  for (size_t i = 0; i < kSlotCapacity; ++i) {
-    if (table.slots[i].used && table.slots[i].name == name) {
-      index = i;
+  /// 槽位数量不设上限: 先复用同名槽位, 再找空槽, 都没有就追加一个
+  Slot *slot = nullptr;
+  for (Slot &candidate : table.slots) {
+    if (candidate.used && candidate.name == name) {
+      slot = &candidate;
       break;
     }
   }
-  if (index == kSlotCapacity) {
-    for (size_t i = 0; i < kSlotCapacity; ++i) {
-      if (!table.slots[i].used) {
-        index = i;
+  if (!slot) {
+    for (Slot &candidate : table.slots) {
+      if (!candidate.used) {
+        slot = &candidate;
         break;
       }
     }
   }
-  if (index == kSlotCapacity) {
-    err = "JS 插件槽位已满 (上限 " + std::to_string(kSlotCapacity) + " 个)";
-    return false;
+  if (!slot) {
+    table.slots.emplace_back();
+    slot = &table.slots.back();
   }
-  auto &slot = table.slots[index];
-  slot.name = name;
-  slot.scripts = scriptPaths;
-  slot.version = version.empty() ? std::string{"1.0.0"} : version;
-  slot.used = true;
+  slot->name = name;
+  slot->scripts = scriptPaths;
+  slot->version = version.empty() ? std::string{"1.0.0"} : version;
+  slot->used = true;
   XX_LOGI("[musicxx_ext] JS 插件槽位已登记: {} (脚本 {})", name,
           joinPaths(scriptPaths));
   return true;
@@ -2253,20 +2273,57 @@ void JsEngine::finishHookWait(int64_t waitId) {
   hookWaits_.erase(waitId);
 }
 
-void JsEngine::expireHookWait(int64_t waitId) {
-  std::lock_guard lock{mutex_};
-  const auto it = hookWaits_.find(waitId);
-  if (it != hookWaits_.end()) {
-    /// 留墓碑 (slot 置空): 迟到的结算只能被计入统计, 结果不再写回等待方
-    it->second.slot = nullptr;
-  }
-}
-
 void JsEngine::clearHookWaitsOf(const std::string &instance) {
   std::lock_guard lock{mutex_};
   std::erase_if(hookWaits_, [&](const auto &item) {
     return item.second.instance == instance;
   });
+}
+
+int64_t JsEngine::beginCapabilityWait(
+    const std::string &instance,
+    const std::shared_ptr<WaitSlot<std::string>> &slot) {
+  const int64_t waitId = nextCapabilityWaitId_.fetch_add(1);
+  std::lock_guard lock{mutex_};
+  capabilityWaits_[waitId] = HookWait{instance, slot};
+  return waitId;
+}
+
+void JsEngine::finishCapabilityWait(int64_t waitId) {
+  std::lock_guard lock{mutex_};
+  capabilityWaits_.erase(waitId);
+}
+
+void JsEngine::clearCapabilityWaitsOf(const std::string &instance) {
+  std::lock_guard lock{mutex_};
+  std::erase_if(capabilityWaits_, [&](const auto &item) {
+    return item.second.instance == instance;
+  });
+}
+
+void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
+                                           const std::string &json) {
+  int64_t id = 0;
+  try {
+    size_t used = 0;
+    id = std::stoll(waitId, &used);
+  } catch (const std::exception &) {
+    return;
+  }
+  std::shared_ptr<WaitSlot<std::string>> slot;
+  {
+    std::lock_guard lock{mutex_};
+    const auto it = capabilityWaits_.find(id);
+    if (it == capabilityWaits_.end()) {
+      return; ///< 不属于本引擎 / 已经完成
+    }
+    slot = it->second.slot;
+    capabilityWaits_.erase(it);
+  }
+  if (!slot) {
+    return;
+  }
+  slot->set(json);
 }
 
 void JsEngine::bridgeHookWaitResolve(const std::string &waitId,
@@ -2284,24 +2341,16 @@ void JsEngine::bridgeHookWaitResolve(const std::string &waitId,
     std::lock_guard lock{mutex_};
     const auto it = hookWaits_.find(id);
     if (it == hookWaits_.end()) {
-      return; ///< 不属于本引擎 / 已经正常完成
+      return; ///< 不属于本引擎 / 已经完成
     }
     instance = it->second.instance;
     slot = it->second.slot;
     hookWaits_.erase(it);
   }
-  auto inst = lookupInstance(instance);
   if (!slot) {
-    /// 迟到: 宿主早已按"无裁决"继续, 这里只做记录与日志
-    if (inst) {
-      ++inst->asyncHookLateDrops;
-    }
-    XX_LOGD("[musicxx_ext] JS 插件 `{}` 的异步裁决在等待预算之后才结算 "
-            "(结果已丢弃, 按无裁决处理)",
-            instance);
     return;
   }
-  if (inst) {
+  if (auto inst = lookupInstance(instance)) {
     ++inst->asyncHookSettled;
   }
   slot->set(json);
@@ -2936,15 +2985,9 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
   item["jsRuns"] = inst->jsRuns.load();
   item["errors"] = inst->errors.load(std::memory_order_relaxed);
   item["jsHeapBytes"] = inst->jsHeapBytes.load(std::memory_order_relaxed);
-  item["execGuardMs"] = execGuardMs();
-  item["execGuardHits"] = inst->execGuardHits.load(std::memory_order_relaxed);
   /// 异步裁决统计 (裁决处理器返回 Promise 的情况)
   item["asyncHookSettled"] =
       inst->asyncHookSettled.load(std::memory_order_relaxed);
-  item["asyncHookTimeouts"] =
-      inst->asyncHookTimeouts.load(std::memory_order_relaxed);
-  item["asyncHookLateDrops"] =
-      inst->asyncHookLateDrops.load(std::memory_order_relaxed);
   return item.dump();
 }
 
@@ -2970,26 +3013,6 @@ void JsEngine::sampleHeap(const std::shared_ptr<Instance> &inst) {
 int64_t JsEngine::jsHeapBytesOf(const std::string &instanceName) const {
   auto inst = lookupInstance(instanceName);
   return inst ? inst->jsHeapBytes.load(std::memory_order_relaxed) : -1;
-}
-
-void JsEngine::armExecGuard() {
-#if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
-  const int32_t guard = execGuardMs();
-  gExecDeadlineMs = guard > 0 ? (nowSteadyMs() + guard) : 0;
-#endif
-}
-
-void JsEngine::disarmExecGuard() {
-#if defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
-  gExecDeadlineMs = 0;
-#endif
-}
-void JsEngine::setExecGuardMs(int32_t ms) {
-  execGuardMs_.store((std::max)(ms, 0), std::memory_order_release);
-}
-
-int32_t JsEngine::execGuardMs() const {
-  return execGuardMs_.load(std::memory_order_acquire);
 }
 
 int32_t JsEngine::callCapability(const std::string &callerInstance,
@@ -3190,6 +3213,7 @@ void JsEngine::stopInstance(const std::shared_ptr<Instance> &inst) {
   }
   detachRegistrations(inst);
   clearHookWaitsOf(inst->name);
+  clearCapabilityWaitsOf(inst->name);
   if ((inst->ctx || inst->rt) && running_.load(std::memory_order_acquire)) {
     auto slot = std::make_shared<WaitSlot<bool>>();
     postTask([inst, slot] {
@@ -3199,10 +3223,9 @@ void JsEngine::stopInstance(const std::shared_ptr<Instance> &inst) {
       slot->set(true);
     });
     bool ok = false;
-    if (!slot->wait(kInteractionBudgetMs, ok)) {
-      XX_LOGW("[musicxx_ext] JS 实例 `{}` 上下文释放在预算内未完成",
-              inst->name);
-    }
+    /// 不设等待上界: 上下文释放要么完成, 要么进程已经退出
+    slot->wait(ok);
+    (void)ok;
   }
   inst->scriptLoaded = false;
 }
@@ -3253,8 +3276,6 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
     /// 栈深度上限 (宿主自我保护, 避免脚本深递归打爆线程栈;
     /// 不是对插件的资源限制)
     JS_SetMaxStackSize(rt, 1024 * 1024);
-    /// 可选执行上限的中断回调 (关闭时恒不打断; 见 setExecGuardMs)
-    JS_SetInterruptHandler(rt, &jsExecInterruptHandler, nullptr);
     JSContext *ctx = JS_NewContext(rt);
     if (!ctx) {
       JS_FreeRuntime(rt);
@@ -3282,7 +3303,6 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
       return {};
     };
 
-    inst->engine->armExecGuard();
     std::string error = eval(prelude, "<musicxx-prelude>");
     for (const auto &[scriptPath, code] : scripts) {
       if (!error.empty()) {
@@ -3294,11 +3314,6 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
         error = "脚本 " + scriptPath + ": " + error;
         break;
       }
-    }
-    inst->engine->disarmExecGuard();
-    if (isInterruptError(error)) {
-      ++inst->execGuardHits;
-      error = "脚本执行超过可选执行上限 (jsExecGuardMs) 被中断";
     }
     if (!error.empty()) {
       slot->set("脚本错误: " + error);
@@ -3314,11 +3329,8 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
   });
 
   std::string result;
-  if (!slot->wait(kScriptStepBudgetMs, result)) {
-    err = "脚本执行未在预算内完成 (可能是死循环)";
-    ++inst->errors;
-    return false;
-  }
+  /// 不设等待上界: 脚本跑多久就等多久 (死循环会占住共享 JS 线程, 由作者自己避免)
+  slot->wait(result);
   if (!result.empty()) {
     err = result;
     ++inst->errors;
@@ -3350,8 +3362,6 @@ bool JsEngine::callBridgeString(const std::shared_ptr<Instance> &inst,
   JSValue ext = JS_GetPropertyStr(ctx, global, "__ext");
   JSValue fn =
       JS_IsObject(ext) ? JS_GetPropertyStr(ctx, ext, fnName) : JS_UNDEFINED;
-  /// 进入脚本前套上可选执行上限 (关闭时无副作用)
-  inst->engine->armExecGuard();
   bool ok = false;
   if (JS_IsFunction(ctx, fn)) {
     std::vector<JSValue> argv;
@@ -3365,9 +3375,6 @@ bool JsEngine::callBridgeString(const std::shared_ptr<Instance> &inst,
     if (JS_IsException(value)) {
       const std::string text = takeException(ctx);
       XX_LOGW("[musicxx_ext] JS 桥接调用 `{}` 异常: {}", fnName, text);
-      if (isInterruptError(text)) {
-        ++inst->execGuardHits;
-      }
       ++inst->errors;
     } else {
       if (JS_IsString(value)) {
@@ -3387,7 +3394,6 @@ bool JsEngine::callBridgeString(const std::shared_ptr<Instance> &inst,
   JS_FreeValue(ctx, fn);
   JS_FreeValue(ctx, ext);
   JS_FreeValue(ctx, global);
-  inst->engine->disarmExecGuard();
   return ok;
 #endif
 }
@@ -3409,7 +3415,8 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     slot->set(ok);
   });
   bool ok = false;
-  if (!slot->wait(kInteractionBudgetMs, ok) || !ok) {
+  slot->wait(ok);
+  if (!ok) {
     XX_LOGW("[musicxx_ext] JS 实例 `{}` 注册信息回取失败", inst->name);
     return;
   }
@@ -3650,11 +3657,9 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
   const std::string input =
       inputJson ? viewToStr(inputJson) : std::string{"{}"};
   auto slot = std::make_shared<WaitSlot<std::string>>();
-  /// 处理器返回 Promise 时为 true (超时原因不同, 统计与日志也分开)
-  auto pending = std::make_shared<std::atomic<bool>>(false);
   /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.hookWaitResolve` 交回结果
   const int64_t waitId = engine->beginHookWait(name, slot);
-  engine->postTask([engine, name, hookId, input, slot, pending, waitId] {
+  engine->postTask([engine, name, hookId, input, slot, waitId] {
     const auto inst = engine->lookupInstance(name);
     std::string result;
     if (!inst || !engine->callBridgeString(
@@ -3665,33 +3670,17 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
       return;
     }
     if (result == kHookPendingMarker) {
-      /// 处理器返回 Promise: 不结算, 等 [bridgeHookWaitResolve] 或等待预算耗尽
-      pending->store(true, std::memory_order_relaxed);
+      /// 处理器返回 Promise: 不结算, 等 [bridgeHookWaitResolve] 把结果交回来
       return;
     }
     engine->finishHookWait(waitId);
     slot->set(std::move(result));
   });
 
+  /// 不设等待上界: 处理器返回 Promise 时一直等到它结算
+  /// (宿主不因为处理器慢而按"无裁决"继续)
   std::string result;
-  if (!slot->wait(kHookSyncBudgetMs, result)) {
-    /// 超时按"无裁决"继续: 不打断脚本、不计处理器失败
-    engine->expireHookWait(waitId);
-    if (pending->load(std::memory_order_relaxed)) {
-      if (auto inst = engine->lookupInstance(name)) {
-        ++inst->asyncHookTimeouts;
-      }
-      XX_LOGW("[musicxx_ext] JS 插件 `{}` 的钩子 `{}` 处理器返回的 Promise "
-              "未在 {} ms 内结算 "
-              "(按无裁决继续, 不计处理器失败)",
-              pluginId, hookId, kHookSyncBudgetMs);
-    } else {
-      XX_LOGW("[musicxx_ext] JS 插件 `{}` 的钩子 `{}` 未在 {} ms 内返回 "
-              "(按无裁决继续)",
-              pluginId, hookId, kHookSyncBudgetMs);
-    }
-    return 0;
-  }
+  slot->wait(result);
   if (result.empty() || result == "null") {
     return 0;
   }
@@ -3747,27 +3736,32 @@ void *JsEngine::capabilityStart(void *ctx, const PluginxxHost * /*callerHost*/,
   const std::string shortName = handler->shortName;
   auto slot = std::make_shared<WaitSlot<std::string>>();
   const std::string name = handler->instance;
-  engine->postTask([engine, name, shortName, args, slot] {
+  /// 等待槽 id: 处理器返回 Promise 时, JS 侧在结算后经
+  /// `ext.capabilityWaitResolve` 把结果交回来
+  const int64_t waitId = engine->beginCapabilityWait(name, slot);
+  engine->postTask([engine, name, shortName, args, slot, waitId] {
     const auto inst = engine->lookupInstance(name);
     std::string text;
-    if (!inst || !engine->callBridgeString(inst, "invokeCapability",
-                                           {shortName, args}, text)) {
+    if (!inst ||
+        !engine->callBridgeString(inst, "invokeCapability",
+                                  {shortName, args, std::to_string(waitId)},
+                                  text)) {
+      engine->finishCapabilityWait(waitId);
       slot->set(
           std::string{R"({"ok":false,"error":"capability_invoke_failed"})"});
       return;
     }
+    if (text == kCapabilityPendingMarker) {
+      /// 处理器返回 Promise: 不结算, 等 [bridgeCapabilityWaitResolve]
+      return;
+    }
+    engine->finishCapabilityWait(waitId);
     slot->set(std::move(text));
   });
 
+  /// 不设等待上界: 能力处理器可以是异步的 (返回 Promise 时会一直等到它结算)
   std::string text;
-  if (!slot->wait(kInteractionBudgetMs, text)) {
-    if (errorOut) {
-      pluginxx::hostMemorySetString(errorOut, "能力调用未在预算内完成");
-    }
-    XX_LOGW("[musicxx_ext] JS 插件 `{}` 的能力 `{}` 未在预算内完成",
-            handler->pluginId, handler->fullName);
-    return nullptr; ///< 未受理 (error_out 已填), 内核据此终结本次调用
-  }
+  slot->wait(text);
 
   bool parseOk = false;
   Json result = parseJsonSafe(text, &parseOk);
@@ -4044,15 +4038,9 @@ std::string JsEngine::statsJson() const {
       item["jsRuns"] = inst->jsRuns.load();
       item["errors"] = inst->errors.load();
       item["jsHeapBytes"] = inst->jsHeapBytes.load(std::memory_order_relaxed);
-      item["execGuardHits"] =
-          inst->execGuardHits.load(std::memory_order_relaxed);
       /// 异步裁决统计 (裁决处理器返回 Promise)
       item["asyncHookSettled"] =
           inst->asyncHookSettled.load(std::memory_order_relaxed);
-      item["asyncHookTimeouts"] =
-          inst->asyncHookTimeouts.load(std::memory_order_relaxed);
-      item["asyncHookLateDrops"] =
-          inst->asyncHookLateDrops.load(std::memory_order_relaxed);
       plugins.push_back(item);
     }
   }
@@ -4060,7 +4048,6 @@ std::string JsEngine::statsJson() const {
   result["available"] = kJsCompiled;
   result["running"] = running_.load(std::memory_order_acquire);
   result["threads"] = 1;
-  result["execGuardMs"] = execGuardMs();
   /// 共享 JS 线程的排队情况: 队列越深 / 等待越长,
   /// 说明某个脚本正长时间占住线程 (宿主不打断它, 只在管理页展示)
   {

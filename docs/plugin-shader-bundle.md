@@ -247,8 +247,8 @@ void main() {
 | `scrim` | 0 | 0..0.8 | 背景上叠一层暗化（页面里的 `Shader` 块没有这个字段） |
 | `foregroundStyle` | `mask` | `mask` / `neumorphism` | 播放页前景（歌曲名/图标）用浅色遮罩还是常规样式；未知值按 `mask` |
 
-上限：bundle 文件 ≤ **4 MiB**；单条 UI 项 `data` ≤ **64 KiB**；渲染目标最长边由宿主限制在 **1280 px**
-（超出的部分按比例缩小，再交给 Flutter 放大）；每个插件最多 64 个 UI 项。
+渲染目标最长边由宿主限制在 **1280 px**
+（超出的部分按比例缩小，再交给 Flutter 放大）；bundle 体积、路径长度与 UI 项数量都不设上限。
 
 字段写错只会退化成默认表现（数值会被 clamp），不会让整项不可用；不可用的原因只来自
 bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期加载失败。
@@ -364,7 +364,7 @@ function applyRate(rate) {
 | 「shader.bundle 必须是插件目录内的相对路径」 | 写了绝对路径、含 `..`、含反斜杠或以 `/` 开头 |
 | 「shader bundle 版本不符（1 != 2）」 | bundle 是用别的 Flutter 版本编译的，用当前 SDK 重新打包 |
 | 「不是可用的 shader bundle（读不到格式版本）」 | 文件不是 impellerc 产物（或为空 / 被截断） |
-| 「bundle 超过 4 MiB 上限」 | 换更小的着色器，或减少内联常量表 |
+| 「不是可用的 shader bundle（读不到格式版本）」 | 用当前 Flutter SDK 的 `impellerc --shader-bundle` 重新编译 |
 | 「bundle 里找不到片元入口『MusicxxRenderFragment』」 | `bundle.json` 的键名与 `shader.fragment` 不一致 |
 | 「着色器没有声明 uniform 结构体 MusicxxRenderInfo」 | 结构体名写错，或只在顶点着色器里声明 |
 | 「MusicxxRenderInfo.uColor1 偏移非法」 | 结构体布局不符（成员顺序 / 类型不对，或插了非 16 字节对齐的成员） |

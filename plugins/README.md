@@ -16,12 +16,11 @@
 | 演示示例 | `example_native_multi` | C++ 动态库：**多目标打包**（一个包里放多个系统/架构分支，运行时按当前系统与 CPU 架构选分支） |
 | 演示示例 | `example_js` | JS 脚本：与 native 版行为等价（零编译） |
 | 演示示例 | `example_js_shader` | JS 脚本：播放页背景样式 + 动画速率设置 + 页面内联着色器块 |
-| 演示示例 | `example_js_async` | JS 脚本：裁决型钩子返回 Promise（异步裁决：预算内结算生效 / 超预算按不裁决） |
+| 演示示例 | `example_js_async` | JS 脚本：裁决型钩子返回 Promise（异步裁决：宿主一直等到结算，结算后裁决生效） |
 | 演示示例 | `example_js_vars` | JS 脚本：变量通道（登记插件变量、绑定与读写官方变量） |
 | 演示示例 | `example_js_multi_script` | JS 脚本：清单 `scripts` 多脚本按顺序装载（kit 随插件目录分发） |
-| 对照示例 | `example_js_spin` | JS 脚本：观察钩子里死循环 → 演示可选执行上限 `jsExecGuardMs` |
 | 对照示例 | `example_js_broken` | JS 脚本：脚本语法错误 → 演示装载失败与回滚（**永远装载失败**） |
-| 对照示例 | `example_native_fail` | C++ 动态库：处理器总是失败 → 演示“只暂停出问题的处理器” |
+| 对照示例 | `example_native_fail` | C++ 动态库：处理器总是失败 → 演示"失败只记统计"（不暂停、不卸载） |
 | 对照示例 | `example_native_bad_entry` | C++ 动态库：缺 `start`/`stop` 入口符号 → 演示装载阶段按契约拒绝（**永远装载失败**） |
 
 > **对照示例是故意做出问题行为的插件**：它们既服务原生测试（`src/tests/test_host.cpp`），
@@ -52,7 +51,6 @@ plugins/
 ├── example_js_async/            JS 脚本（只要 plugin.yaml + plugin.js）
 ├── example_js_vars/             JS 脚本
 ├── example_js_multi_script/     JS 脚本 + 自己的 kit.js（清单 scripts 里两个脚本）
-├── example_js_spin/             JS 脚本
 └── example_js_broken/           JS 脚本（脚本里有语法错误）
 ```
 
