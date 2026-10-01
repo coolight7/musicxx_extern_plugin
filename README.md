@@ -52,7 +52,7 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝装载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
-  example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置）
+  example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带两种背景样式：晶格 / 光圈）
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
@@ -364,7 +364,8 @@ bundle 里的 `format_version` 必须与目标应用的 Flutter 版本一致（�
 [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md)。
 
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
-`plugins/example_js_shader/`（只演示播放页背景与动画速率）；另外 `plugins/example_js_vars/`（变量通道）、
+`plugins/example_js_shader/`（只演示播放页背景与动画速率；两种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`）；
+另外 `plugins/example_js_vars/`（变量通道）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本），以及下面「对照示例」一组 —— 它们演示宿主在
 插件写坏时的保护行为，写插件前先看一眼可以少踩坑。
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；界面字段见 `docs/plugin-ui.md`。

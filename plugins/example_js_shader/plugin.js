@@ -1,10 +1,12 @@
 /// musicxx 外部插件示例 (JS, 零编译): 自定义播放页面背景 + shader 动画速率
 ///
 /// 这个插件只演示"插件渲染槽位"这一条链路, 内容就两件事:
-/// - 声明一种播放页背景样式 (`musicxx.ui.playing.background`): 画面由一个预编译好的
-///   shader bundle 画 (插件不写界面代码), 用户在『设置 → 播放页面背景』里选中后才生效;
-///   未选中时零成本 (宿主不读 bundle、不分析封面)。
-/// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效。
+/// - 声明播放页背景样式 (`musicxx.ui.playing.background`), 本插件给了两种可选样式:
+///   『示例晶格背景』(`shader/bg.shaderbundle`) 与『光圈』(`shader/ring.shaderbundle`,
+///   频谱圆环: 圆圈是基线, 圆上左右对称的频带尖峰跟着音乐向内/向外突出)。
+///   画面都由预编译好的 shader bundle 画 (插件不写界面代码), 用户在
+///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (宿主不读 bundle、不分析封面)。
+/// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
 ///
 /// 页面 (框架不管理插件设置入口, 入口由插件自己给):
 /// - `ext://example_js_shader/card` (主页入口): 当前生效项与渲染状态, 一键切换背景;
@@ -25,9 +27,27 @@ const kit = pluginxx.ui.kit;
 const BG_TITLE = "示例晶格背景";
 const BG_DEPICT = "跟随封面配色与音乐律动的晶格化动态背景";
 
+/// 第二个背景样式: 『光圈』(频谱圆环)
+///
+/// 画面 = 细亮线画的基线圆 + 圆上左右对称的 16 个频带尖峰 + 圆心光源:
+/// 从正上方(12 点)往下, 角度位置对应频率由低到高, 左右两侧互为镜像,
+/// 每个频带同时向圆外与圆内突出, 突出的高度就是这一帧的振幅。
+const RING_TITLE = "光圈";
+const RING_DEPICT = "圆圈是基线, 圆上左右对称的频带尖峰跟着音乐向内/向外突出";
+
 /// 本插件背景样式的 UI 项短名与完整 id (完整 id 由宿主拼成 plugin.<插件id>.<短名>)
 const BG_ITEM_NAME = "bg";
 const BG_ITEM_ID = "plugin.example_js_shader." + BG_ITEM_NAME;
+const RING_ITEM_NAME = "ring";
+const RING_ITEM_ID = "plugin.example_js_shader." + RING_ITEM_NAME;
+
+/// 样式全名 → 设置列表里的名字 (状态文字与页面按钮用它把 id 说成人话)
+const BACKGROUND_TITLES = {};
+BACKGROUND_TITLES[BG_ITEM_ID] = BG_TITLE;
+BACKGROUND_TITLES[RING_ITEM_ID] = RING_TITLE;
+
+/// 内置样式的候选 id (设置页与说明页的"切回内置背景"用它)
+const BUILTIN_AUTO_ID = "builtin:Auto";
 
 /// 基准速度与可选倍率
 ///
@@ -59,7 +79,7 @@ function bgSpeedOf(rate) {
     return BG_BASE_SPEED * normalizeBgRate(rate);
 }
 
-/// 背景样式的完整声明
+/// 『示例晶格背景』的完整声明
 ///
 /// `musicxx.ui.updateEntry` 是**整体替换**, 所以每次都要从这一个函数取完整 data,
 /// 不能只传改动的字段。
@@ -68,7 +88,7 @@ function bgSpeedOf(rate) {
 /// (主题色 `theme.*` / 封面提取色 `icon.*` / 封面经主题映射后的 4 色 `icon.themeMapping.0..3`
 /// / 当前音频频谱 `spectrum.*`), `value` 是取不到时用的固定值 (频谱来源例外: 没有数据时
 /// 写 0, 要区分状态用着色器里的 `uEnv.z`)。不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
-function backgroundData(rate) {
+function latticeBackgroundData(rate) {
     return {
         title: BG_TITLE,
         depict: BG_DEPICT,
@@ -91,9 +111,41 @@ function backgroundData(rate) {
     };
 }
 
+/// 『光圈』的完整声明 (频谱圆环, 与上面同一套字段语义)
+///
+/// 与晶格背景的区别只在 bundle 与参数: 这个着色器要把 16 个频带全部映射到圆上,
+/// 所以声明 `spectrum.bands.0..3` 四项 (每项 = 4 个连续频带, 低频在前, 写在 xyzw),
+/// 再加一个亮色的线条色 (基线圆与尖峰轮廓用它画)。没有频谱数据时宿主写 0,
+/// 圆上的尖峰长度为 0, 只剩基线圆与圆心光源。
+function ringBackgroundData(rate) {
+    return {
+        title: RING_TITLE,
+        depict: RING_DEPICT,
+        shader: { bundle: "shader/ring.shaderbundle" },
+        args: [
+            { name: "uColor1", source: "icon.themeMapping.0" },
+            { name: "uColor2", source: "icon.themeMapping.1" },
+            { name: "uColor3", source: "icon.themeMapping.2" },
+            { name: "uColor4", source: "icon.themeMapping.3" },
+            // 线条色: 没有来源, 昼夜各给一个固定值 (夜间稍暗, 免得抢前景文字)
+            { name: "uLine", value: "#f6faff", valueNight: "#dbe7f7" },
+            // 频谱: uLevel = 当前响度, uBands0..uBands3 = 16 个频带 (低频在前)
+            { name: "uLevel", source: "spectrum.level" },
+            { name: "uBands0", source: "spectrum.bands.0" },
+            { name: "uBands1", source: "spectrum.bands.1" },
+            { name: "uBands2", source: "spectrum.bands.2" },
+            { name: "uBands3", source: "spectrum.bands.3" },
+        ],
+        speed: bgSpeedOf(rate),
+        maxFps: 16,
+        animate: true,
+        foregroundStyle: "mask",
+    };
+}
+
 let appliedBgRate = normalizeBgRate(DEFAULT_BG_RATE);
 
-/// 应用背景动画速率: 运行期改自己的背景声明
+/// 应用背景动画速率: 运行期改自己的背景声明 (两种样式一起改)
 ///
 /// 宿主收到后会刷新候选; 正在使用的背景立即用新速度 (不用重新选中, `speed` 每帧现算)。
 /// 改 `maxFps` / `resolutionScale` 这类要换帧调度的字段则不在这里生效, 需要用户重新选中。
@@ -103,16 +155,28 @@ function applyBackgroundRate(rate) {
         return;
     }
     appliedBgRate = value;
-    musicxx.ui.updateEntry(BG_ITEM_NAME, backgroundData(value));
+    musicxx.ui.updateEntry(BG_ITEM_NAME, latticeBackgroundData(value));
+    musicxx.ui.updateEntry(RING_ITEM_NAME, ringBackgroundData(value));
     musicxx.host.log(2, "背景动画速率 → " + bgRateText(value));
 }
 
 /// 注册播放页背景样式 (顶层先按 1x 声明; 读到 config.json 后再换成实际倍率)
+///
+/// 两种样式是同一个槽位里的两个候选: 注册顺序与权重决定设置列表里的先后
+/// (晶格在前 order 20, 光圈在后 order 21), 用户可以任选其一, 也可以随时切回内置样式。
 musicxx.ui.registerEntry({
     name: BG_ITEM_NAME,
     type: "playing.background",
     order: 20,
-    data: backgroundData(appliedBgRate),
+    data: latticeBackgroundData(appliedBgRate),
+});
+
+/// 『光圈』: 与晶格背景同一个槽位 (`musicxx.ui.playing.background`), 只是换一个 bundle
+musicxx.ui.registerEntry({
+    name: RING_ITEM_NAME,
+    type: "playing.background",
+    order: 21,
+    data: ringBackgroundData(appliedBgRate),
 });
 
 /// 读状态镜像: 播放页背景槽位的当前状态 (同步读取, 不用等动作往返)
@@ -132,6 +196,8 @@ let lastBackgroundRequest = "";
 /// 镜像里的 `selectedId` 是"用户选中的是谁"(可能是 `builtin:*`), `itemId` 是"现在由哪个
 /// 插件项在画"(没有插件项生效时为空)。两个字段分开读, 才既能说清"内置背景", 又能说清
 /// 本插件到底有没有在画。
+///
+/// 本插件有两种样式, 这里说"是不是本插件在画"就够了; 具体是哪一种看 `backgroundStyleText`。
 function backgroundStateText() {
     const slot = backgroundSlot();
     const selected = slot.selectedId || "";
@@ -141,16 +207,42 @@ function backgroundStateText() {
         return "已请求";
     }
     lastBackgroundRequest = "";
-    if (current === BG_ITEM_ID) {
+    if (ownStyleTitle(current) !== "") {
         return "生效中";
     }
-    if (selected === BG_ITEM_ID) {
+    if (ownStyleTitle(selected) !== "") {
         return "已选中";
     }
     if (selected.indexOf("builtin:") === 0) {
         return "内置背景";
     }
     return selected === "" ? "无状态" : ("其它插件: " + selected);
+}
+
+/// 本插件的样式名 (UI 项全名 → 设置列表里的名字；不是本插件的样式返回空串)
+function ownStyleTitle(id) {
+    return BACKGROUND_TITLES[id] || "";
+}
+
+/// 正在画的样式名: 本插件的哪一种, 或者是内置/别人的样式
+///
+/// `backgroundStateText` 只说"是不是本插件在画", 两种样式共用一个说法,
+/// 想知道到底是『示例晶格背景』还是『光圈』就看这一行。
+function backgroundStyleText() {
+    const slot = backgroundSlot();
+    const current = ownStyleTitle(slot.itemId || "");
+    if (current !== "") {
+        return current;
+    }
+    const selected = ownStyleTitle(slot.selectedId || "");
+    if (selected !== "") {
+        return selected + "（未渲染）";
+    }
+    const id = slot.selectedId || "";
+    if (id.indexOf("builtin:") === 0) {
+        return "内置背景";
+    }
+    return id === "" ? "无状态" : id;
 }
 
 /// 本插件的渲染状态 (尺寸 / 是否在动)
@@ -160,7 +252,7 @@ function backgroundStateText() {
 /// `animate:false` 表示这个样式只画一帧。
 function renderStateText() {
     const slot = backgroundSlot();
-    if (slot.itemId !== BG_ITEM_ID) {
+    if (ownStyleTitle(slot.itemId || "") === "") {
         return "未生效";
     }
     if (slot.visible === false) {
@@ -258,12 +350,27 @@ function settingsView(args, override) {
                 text: "速率是插件自己的设置项: 改完用 musicxx.ui.updateEntry 重新声明背景样式, 正在使用的背景立即用新速度。",
             }, env),
             kit.hint({
-                text: "• 背景声明里的 `spectrum.level` / `spectrum.bands.0` / `spectrum.bands.2` 每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。",
+                text: "• 本插件注册了两种背景样式:『" + BG_TITLE + "』(晶格化) 与『" + RING_TITLE + "』(频谱圆环)。两者占同一个槽位 player.background, 设置里同时只能选中一个。",
+            }, env),
+            kit.hint({
+                text: "• 背景声明里的 `spectrum.level` / `spectrum.bands.0..3` 每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。",
             }, env),
             kit.divider({}, env),
+            kit.card({ children: [
+                kit.listRow({
+                    title: "生效样式",
+                    subtitle: "本插件两种样式里现在在画的是哪一种（读状态镜像）",
+                    trailing: backgroundStyleText(),
+                }, env),
+                kit.listRow({
+                    title: "播放页背景",
+                    subtitle: "生效中 = 本插件在画（按下面按钮即可换样式）",
+                    trailing: backgroundStateText(),
+                }, env),
+            ] }, env),
             // 页面里也能直接画一块着色器（`musicxx.Shader` 块）：用 `SizedBox` 给它确定的高度，
             // 参数同样用 `args` 声明 —— 第 2 个色是封面提取色（取不到时用固定值）
-            kit.hint({ text: "• 下面这块是页面内联的 Shader 块（同一个 bundle，参数取主题色与封面提取色）：" }, env),
+            kit.hint({ text: "• 下面两块是页面内联的 Shader 块（同一个 bundle）：上面是晶格，下面是光圈（带频谱参数，会跟着音乐起伏）：" }, env),
             kit.card({
                 children: [
                     { kind: "SizedBox", height: 300, children: [
@@ -281,6 +388,29 @@ function settingsView(args, override) {
                     ] },
                 ],
             }, env),
+            kit.card({
+                children: [
+                    { kind: "SizedBox", height: 300, children: [
+                        kit.shaderBlock({
+                            bundle: "shader/ring.shaderbundle",
+                            speed: 1,
+                            maxFps: 16,
+                            args: [
+                                { name: "uColor1", source: "theme.primary" },
+                                { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },
+                                { name: "uColor3", source: "icon.dark", value: "#223344" },
+                                { name: "uColor4", source: "icon.themeMapping.3" },
+                                { name: "uLine", value: "#f6faff" },
+                                { name: "uLevel", source: "spectrum.level" },
+                                { name: "uBands0", source: "spectrum.bands.0" },
+                                { name: "uBands1", source: "spectrum.bands.1" },
+                                { name: "uBands2", source: "spectrum.bands.2" },
+                                { name: "uBands3", source: "spectrum.bands.3" },
+                            ],
+                        }, env),
+                    ] },
+                ],
+            }, env),
             kit.settingRow({
                 title: "背景动画速率",
                 depict: "本插件背景的时间推进速度（1x = 基准速度 1，可选 0.5x / 1x / 2x），改完立即生效",
@@ -292,12 +422,17 @@ function settingsView(args, override) {
                 action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: "settings" } },
             }, env),
             kit.button({
-                label: "使用本插件的背景",
+                label: "使用『" + RING_TITLE + "』（频谱圆环）",
+                variant: "primary",
+                action: { kind: "dispatch", name: "useBackground", args: { id: RING_ITEM_ID, view: "settings" } },
+            }, env),
+            kit.button({
+                label: "使用『" + BG_TITLE + "』（晶格化）",
                 action: { kind: "dispatch", name: "useBackground", args: { id: BG_ITEM_ID, view: "settings" } },
             }, env),
             kit.button({
                 label: "切回内置背景",
-                action: { kind: "dispatch", name: "useBackground", args: { id: "builtin:Auto", view: "settings" } },
+                action: { kind: "dispatch", name: "useBackground", args: { id: BUILTIN_AUTO_ID, view: "settings" } },
             }, env),
             kit.button({
                 label: "打开插件说明页",
@@ -382,6 +517,11 @@ function cardView(args) {
             kit.divider({}, env),
             kit.card({ children: [
                 kit.listRow({
+                    title: "生效样式",
+                    subtitle: "本插件两种样式（晶格 / 光圈）里现在在画的是哪一种",
+                    trailing: backgroundStyleText(),
+                }, env),
+                kit.listRow({
                     title: "播放页背景",
                     subtitle: "当前生效项 (读状态镜像 musicxx.state.renderSlots)",
                     trailing: backgroundStateText(),
@@ -409,13 +549,17 @@ function cardView(args) {
                 action: { kind: "dispatch", name: "spectrumProbe", args: { view: "card" } },
             }, env),
             kit.button({
-                label: "使用本插件的背景",
+                label: "使用『" + RING_TITLE + "』（频谱圆环）",
                 variant: "primary",
+                action: { kind: "dispatch", name: "useBackground", args: { id: RING_ITEM_ID, view: "card" } },
+            }, env),
+            kit.button({
+                label: "使用『" + BG_TITLE + "』（晶格化）",
                 action: { kind: "dispatch", name: "useBackground", args: { id: BG_ITEM_ID, view: "card" } },
             }, env),
             kit.button({
                 label: "切回内置背景",
-                action: { kind: "dispatch", name: "useBackground", args: { id: "builtin:Auto", view: "card" } },
+                action: { kind: "dispatch", name: "useBackground", args: { id: BUILTIN_AUTO_ID, view: "card" } },
             }, env),
             kit.button({
                 label: "打开本插件设置页",
