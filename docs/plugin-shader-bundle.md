@@ -9,7 +9,9 @@
 [plugin-native-api.md](plugin-native-api.md)。
 
 > 现成可编译的例子：`plugins/example_js_shader/shader/` 与 `plugins/example_native/shader/`
-> —— 「晶格化」背景（随机点最近邻切块，配色用宿主的 4 个绘制色）。基线版本 3.47.5 的 Flutter SDK
+> —— 「晶格化」背景（随机点最近邻切块，配色用宿主的 4 个绘制色）。`example_js_shader` 里还有
+> 第二个 bundle：**「光圈」背景**（`shaders/ring.frag`：基线圆 + 圆上左右对称的 16 频带尖峰 +
+> 中心光源），照抄同一份打包脚本即可编译。基线版本 3.47.5 的 Flutter SDK
 > 编译出来的 bundle 可以直接用（`format_version = 2`）。
 
 ---
@@ -32,12 +34,18 @@
 ├── plugin.yaml
 ├── plugin.js / <插件库文件>
 └── shader/
-    ├── bundle.json           impellerc 的 bundle 描述
-    ├── shaders/bg.vert       顶点着色器
-    ├── shaders/bg.frag       片元着色器
-    ├── build_bundle.ps1      打包脚本（照抄示例）
-    └── bg.shaderbundle       编译产物（随插件分发）
+    ├── bundle.json           impellerc 的 bundle 描述（晶格背景）
+    ├── bundle_ring.json      第二个 bundle 的描述（光圈背景）
+    ├── shaders/bg.vert       顶点着色器（两个 bundle 共用一个全屏三角形）
+    ├── shaders/bg.frag       片元着色器（晶格）
+    ├── shaders/ring.frag     片元着色器（光圈：基线圆 + 频谱尖峰）
+    ├── build_bundle.ps1      打包脚本（照抄示例；它按描述文件逐个编译）
+    ├── bg.shaderbundle       编译产物（晶格，随插件分发）
+    └── ring.shaderbundle     编译产物（光圈，随插件分发）
 ```
+
+一个插件可以有**多个** bundle（同一个槽位注册多项，或者不同槽位/页面各用一个），
+每个 bundle 一份描述文件 + 一个产物文件即可。
 
 `bundle.json`：
 
@@ -184,9 +192,14 @@ void main() {
 
 - 结构体必须在**片元着色器**里声明（宿主按片元入口查它的 uniform 槽）；
 - `gl_FragCoord.xy` 是像素坐标，除以 `uParams.xy` 得到 `0..1` 的 uv；
+- **渲染目标是左上角为原点的像素坐标：`gl_FragCoord.y` 越大越靠下**（与画布一致，宿主不会再翻）。
+  要按"画面上方"判断（上下不对称的效果）就自己翻一下 y：
+  `vec2 p = (gl_FragCoord.xy - 0.5 * res) / (0.5 * min(res.x, res.y)); p.y = -p.y;`
+  —— 光圈示例就是这么做的（正上方 = 最低频，写反了频率轴会上下颠倒）；
 - 输出写在 `layout(location = 0) out`；
 - 完整效果参考 `plugins/example_js_shader/shader/shaders/bg.frag`（晶格化：Worley 噪声切块 +
-  4 色双线性混合 + 夜间压暗 + 轻微暗角）。
+  4 色双线性混合 + 夜间压暗 + 轻微暗角）与同目录的 `ring.frag`（光圈：极坐标把 16 个频带铺到
+  圆上 + 轮廓距离场画线 + 中心光源）。
 
 ---
 
@@ -231,6 +244,8 @@ void main() {
 
 **频谱来源（`spectrum.*`）** 读的是内置『音乐动效』插件提取的数据（每 100 ms 一帧）：
 
+- 想要全部 16 个频带就声明 `spectrum.bands.0` ~ `spectrum.bands.3` 四项（每项 4 个连续频带）——
+  『光圈』示例就是这么用的：16 个频带按左右对称铺到圆周上，每项对应圆上的一段圆弧；
 - 没有数据时**写全 0（静音），不看参数里给的 `value`**：频谱的"没有数据"就是没声音，
   要区分"静音 / 没启用 / 正在加载"就看 `uEnv.z`；
 - 16 个频带是 256 个频点按线性分组取平均（与能力的 `GetAudioSpectrum` 同一口径，
@@ -390,7 +405,9 @@ function applyRate(rate) {
 - `maxFps` / `resolutionScale` / `animate` 这类要改帧调度或分辨率创建的字段，运行期改完需要
   **重新选中该项**才完全生效；
 - 示例插件 `example_js_shader` 就是这么做的：它的设置页有「背景动画速率」（0.5× / 1× / 2×），
-  基准速度定为 1（即 `speed` 1/2/4）；`example_native` 的 C++ 版声明 `speed: 4`。
+  基准速度定为 1（即 `speed` 1/2/4）；它注册了两种背景样式（晶格 / 光圈），改速率时
+  **两项都要重新声明**（`musicxx.ui.updateEntry` 是整体替换，逐个调用即可）；
+  `example_native` 的 C++ 版声明 `speed: 4`。
 
 ---
 
