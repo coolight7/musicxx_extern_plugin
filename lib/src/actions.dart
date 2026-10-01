@@ -243,6 +243,13 @@ abstract final class MusicxxPluginActionNames {
   static const String mediaPalette = 'musicxx.media.palette';
   static const String mediaCover = 'musicxx.media.cover';
 
+  /// 当前音频频谱（内置『音乐动效』插件提取的数据）
+  ///
+  /// 参数：`bandCount`（1~64，必须整除 256，缺省 16）、`unit`（`normalized` 缺省 /
+  /// `db` / `raw`）、`includeBins`（附带当前帧的 256 个频点）。
+  /// 没有数据不是错误：结果里用 `status` / `available` / `loading` / `reason` 表达。
+  static const String mediaSpectrum = 'musicxx.media.spectrum';
+
   /// 应用能力导出（见 manager/featureExport/）：
   /// - `list` 列出全部能力的声明（id/标题/说明/参数/输出形态）；
   /// - `call` 调一个能力（`{id, args}`），与 MCP 工具共用同一份实现。

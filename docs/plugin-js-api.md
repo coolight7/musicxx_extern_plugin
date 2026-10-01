@@ -174,11 +174,17 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 | `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 已推送 |
 | `musicxx.state.lyric` / `musicxx.state.library` | 预留 | **当前版本没有推送**（`get` 返回 `null`） |
 | `musicxx.state.renderSlots` | 渲染槽位运行状态（谁在画、是否可见、尺寸、昼夜） | 按需推送（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
+| `musicxx.state.spectrum` | 当前音频频谱：`{status, available, loading, reason, source, srcKey, frameHz, frameIndex, frames, bandCount, level, bands[16]}` | 播放中约 10 Hz 推送（数据本身 10 帧/秒），停止/切歌/拿到或读不到数据时各推一次 |
 
 - 判断「是否在播放」用 `musicxx.state.env.isPlaying`（布尔）：`musicxx.state.player.state` 的取值
   在暂停/播放/停止事件里是小写 `play`/`pause`/`stop`，其它变化是枚举名 `Play`/`Pause`/`Stop`/`Completed`；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未埋点 —— 不要把它当每秒更新的进度用；
+- `musicxx.state.spectrum` 是**当前音频频谱**（内置『音乐动效』插件提取的数据，值都是 0~1）：
+  `status` = `ready` / `loading` / `none` / `off` / `unavailable`，`available` 为假时
+  `level` 与 `bands` 都是 0（要看原因读 `reason`）。它只在播放中推进，暂停时不刷新；
+  想要当前帧的更多细节（dB、256 个频点）用动作 `musicxx.media.spectrum`，想跟着每帧渲染
+  用着色器的 `spectrum.*` 参数来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
 - 镜像里**不放临时直链与 token**；需要地址请自己请求（见 §7 网络）；
 - 每个键更新都会推事件 `musicxx.state.changed`（载荷 `{key, value}`）：
 
@@ -252,7 +258,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
-| `musicxx.media` | `palette(args?)` `cover(args?)` |
+| `musicxx.media` | `palette(args?)` `cover(args?)` `spectrum(args?)` |
 | `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
@@ -284,6 +290,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.render.list` / `current` / `select` | 见 §11 | 见 §11 |
 | `musicxx.media.palette` | `{force?}` | 见 §11 |
 | `musicxx.media.cover` | `{size?, format?, includePath?}` | 见 §11 |
+| `musicxx.media.spectrum` | `{bandCount?=16, unit?="normalized", includeBins?}` | 当前音频频谱（内置『音乐动效』提取）：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs, positionMs, frameHz, frameIndex, frames, binCount, bandCount, unit, level, bands[], frameData?}`；没有数据也回 `ok:true` |
 | `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` |
 | `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` |
 | `musicxx.host.openUrl` | `{url}`（协议不限，交给系统处理） | `{ok:true}` |
@@ -613,10 +620,24 @@ const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: 
 // { ok, srcKey, kind:"local"|"cache"|"content"|"asset"|"network", path?, width, height,
 //   format, bytes, sha256, data(base64), fromCache }
 // 失败：{ ok:false, error:"no_cover" | "cover_decode_failed" | "读取封面失败：..." }
+
+// 当前音频频谱（内置『音乐动效』插件提取的数据；每帧 256 个频点、10 帧/秒）
+const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
+// { ok, status:"ready"|"loading"|"none"|"off"|"unavailable", available, loading, reason,
+//   source:"extracted"|"live", srcKey, name, artist, durationMs, positionMs,
+//   frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
+//   level, bands:[...], frameData?:[256 个频点] }   // frameData 需要 includeBins: true
+// 没有数据（未启用『音乐动效』/ 正在提取 / 来源不支持）也回 ok:true，用 status 判断
 ```
 
 - 宿主**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
   「跟着封面/主题配色」这类需求什么都不用做（取不到来源时用参数里的固定值）；
+  频谱来源（`spectrum.*`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）
+  是例外：没有数据时写 0（静音），要看 `uEnv.z` 判断"现在有没有数据"；
+- 只想让画面跟着音乐动，用着色器参数来源就够了（每帧现读、零成本）；需要把频谱画成
+  自己的界面（柱状图、波形历史）时，用 `musicxx.state.get("musicxx.state.spectrum")`
+  在自己的定时器里同步读（播放中约 10 Hz 更新），或按自己的节奏调用
+  `musicxx.media.spectrum`；
 - 封面不参与画面绘制：宿主不上传封面贴图，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态镜像见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
