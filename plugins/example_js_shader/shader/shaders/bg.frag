@@ -1,15 +1,22 @@
 #version 460 core
 
-// 播放页背景示例着色器：把宿主每帧写入的 4 个绘制色画成缓慢流动的"晶格化"图案。
+// 播放页背景示例着色器：把宿主每帧写入的 4 个绘制色画成缓慢流动的"晶格化"图案，
+// 并跟着当前音频的频谱律动（频谱数据来自内置『音乐动效』插件提取的结果）。
 //
 // 做法（Worley / 随机点最近邻）：把画面按固定格子切开，每格放一个随时间缓慢漂移的随机点，
 // 取离当前像素最近的那个点所在的位置作为采样坐标，再去混合 4 个绘制色 —— 于是画面被切成
 // 一块块多边形，边界随点漂移而流动。
 //
+// 频谱律动：响度越大格子越碎、整体越亮、边缘高光越强，底部再叠一层低频光晕，
+// 中高频控制高光的"空气感"。没有频谱数据时（uEnv.z = 0）这些项都是 0，
+// 画面与不带频谱时完全一致 —— 所以不要靠"值为 0"判断有没有音乐，看 uEnv.z。
+//
 // uniform 契约（宿主固定填充，成员名字不能改）：
 //   uParams = (目标宽, 目标高, 时间秒, 速度)
-//   uEnv.x = 是否夜间；uEnv.y = 调色板是否有效（0 = 用的是兜底色）
+//   uEnv.x = 是否夜间；uEnv.y = 是否有有效的封面配色；uEnv.z = 现在是否有频谱数据
 //   uColor1..uColor4 = 4 个绘制色（按插件声明的来源解析）
+//   uLevel = 当前响度（x = y = z = w，0~1）
+//   uBands = 最低的 4 个频带；uBands2 = 中间偏高的 4 个频带（都是 0~1，低频在前）
 uniform MusicxxRenderInfo {
   vec4 uParams;
   vec4 uEnv;
@@ -17,6 +24,9 @@ uniform MusicxxRenderInfo {
   vec4 uColor2;
   vec4 uColor3;
   vec4 uColor4;
+  vec4 uLevel;
+  vec4 uBands;
+  vec4 uBands2;
 }
 render_info;
 
@@ -32,8 +42,8 @@ vec2 random2(vec2 p) {
 }
 
 // 晶格化采样坐标：返回最近随机点的所在位置（用画面比例表示）
-vec2 crystallizeUV(vec2 uv) {
-  vec2 cells = max(render_info.uParams.xy, vec2(1.0)) / kCellSize;
+vec2 crystallizeUV(vec2 uv, float cellSize) {
+  vec2 cells = max(render_info.uParams.xy, vec2(1.0)) / max(cellSize, 4.0);
   vec2 scaled = uv * cells;
   vec2 base = floor(scaled);
   vec2 frac = fract(scaled);
@@ -70,19 +80,36 @@ vec3 blendColors(vec2 uv, float dim) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / max(render_info.uParams.xy, vec2(1.0));
+
+  // 频谱：没有数据时全部按 0 走（画面与不带频谱时一致）
+  float spectrumOn = render_info.uEnv.z > 0.5 ? 1.0 : 0.0;
+  float level = clamp(render_info.uLevel.x, 0.0, 1.0) * spectrumOn;
+  float bass = clamp(dot(render_info.uBands, vec4(0.25)), 0.0, 1.0) * spectrumOn;
+  float air = clamp(dot(render_info.uBands2, vec4(0.25)), 0.0, 1.0) * spectrumOn;
+
+  // 越响格子越碎（律动最直观的一处：画面跟着节奏"呼吸"）
+  float cellSize = kCellSize * (1.0 - 0.28 * level);
+
   // 稍微放大再取格子，避免边缘那一圈格子被裁成半块
   vec2 centered = (uv - 0.5) * 1.1 + 0.5;
-  vec2 crystal = crystallizeUV(centered);
+  vec2 crystal = crystallizeUV(centered, cellSize);
 
   // 夜间压暗；用的是兜底色时降一点对比度
   float dim = render_info.uEnv.x > 0.5 ? 0.72 : 1.0;
   float valid = render_info.uEnv.y > 0.5 ? 1.0 : 0.88;
   vec3 color = blendColors(crystal, dim * valid);
 
-  // 格子边缘加一层很淡的高光，让晶格边界更清楚
+  // 格子边缘加一层很淡的高光，让晶格边界更清楚（响度与中高频把它点亮）
   vec2 edgeDist = abs(centered - crystal) * 8.0;
   float edge = 1.0 - clamp(max(edgeDist.x, edgeDist.y), 0.0, 1.0);
-  color += color * edge * 0.12;
+  color += color * edge * (0.12 + 0.45 * level + 0.30 * air);
+
+  // 低频光晕：从画面底部往上衰减
+  float bottomWeight = pow(clamp(1.0 - uv.y, 0.0, 1.0), 3.0);
+  color += color * bass * bottomWeight * 0.9;
+
+  // 整体亮度随响度轻微提升（上限 1.35 倍，避免夜间过曝）
+  color *= 1.0 + 0.35 * level;
 
   // 轻微暗角
   color *= 1.0 - 0.18 * length(uv - 0.5);

@@ -23,7 +23,7 @@ const kit = pluginxx.ui.kit;
 
 /// 背景样式在设置列表里的名字与副标题
 const BG_TITLE = "示例晶格背景";
-const BG_DEPICT = "跟随封面配色的晶格化动态背景";
+const BG_DEPICT = "跟随封面配色与音乐律动的晶格化动态背景";
 
 /// 本插件背景样式的 UI 项短名与完整 id (完整 id 由宿主拼成 plugin.<插件id>.<短名>)
 const BG_ITEM_NAME = "bg";
@@ -65,8 +65,9 @@ function bgSpeedOf(rate) {
 /// 不能只传改动的字段。
 ///
 /// 参数用 `args`: 每项对应着色器 uniform 结构体里的一个 vec4 成员; `source` 是具名来源
-/// (主题色 `theme.*` / 封面提取色 `icon.*` / 封面经主题映射后的 4 色 `icon.themeMapping.0..3`),
-/// `value` 是取不到时用的固定值。不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
+/// (主题色 `theme.*` / 封面提取色 `icon.*` / 封面经主题映射后的 4 色 `icon.themeMapping.0..3`
+/// / 当前音频频谱 `spectrum.*`), `value` 是取不到时用的固定值 (频谱来源例外: 没有数据时
+/// 写 0, 要区分状态用着色器里的 `uEnv.z`)。不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
 function backgroundData(rate) {
     return {
         title: BG_TITLE,
@@ -77,6 +78,11 @@ function backgroundData(rate) {
             { name: "uColor2", source: "icon.themeMapping.1" },
             { name: "uColor3", source: "icon.themeMapping.2" },
             { name: "uColor4", source: "icon.themeMapping.3" },
+            // 频谱（内置『音乐动效』提取的数据）: 每帧现读, 零成本
+            // uLevel = 当前响度, uBands = 最低的 4 个频带, uBands2 = 第 8~11 个频带
+            { name: "uLevel", source: "spectrum.level" },
+            { name: "uBands", source: "spectrum.bands.0" },
+            { name: "uBands2", source: "spectrum.bands.2" },
         ],
         speed: bgSpeedOf(rate),
         maxFps: 16,
@@ -164,6 +170,30 @@ function renderStateText() {
     return (slot.animate === false ? "静态一帧" : "动画中") + ", " + size;
 }
 
+/// 频谱状态文字 (读状态镜像 `musicxx.state.spectrum`, 播放中约 10 Hz 推送)
+///
+/// 镜像里的数据是"现在这一帧"的响度与 16 个频带(都是 0~1); `available` 为假时
+/// `level` / `bands` 都是 0, 用 `status` 说明原因 ("正在提取" / "未启用音乐动效" / ...)。
+function spectrumStateText() {
+    const s = musicxx.state.get("musicxx.state.spectrum");
+    if (!s) {
+        return "无状态";
+    }
+    if (s.available === true) {
+        return "有数据（响度 " + Math.round((s.level || 0) * 100) + "%）";
+    }
+    switch (s.status) {
+        case "loading":
+            return "正在提取";
+        case "off":
+            return "『音乐动效』未启用";
+        case "unavailable":
+            return "该来源没有频谱";
+        default:
+            return "无数据";
+    }
+}
+
 /// 配置读取: config.json 由插件自己读写 (设置页按钮与手改文件都改它)
 ///
 /// 用 `getConfig(键, 默认值)` 异步读, 默认值由脚本给; 读到之后再换成实际倍率。
@@ -226,6 +256,9 @@ function settingsView(args, override) {
         blocks: [
             kit.hint({
                 text: "速率是插件自己的设置项: 改完用 musicxx.ui.updateEntry 重新声明背景样式, 正在使用的背景立即用新速度。",
+            }, env),
+            kit.hint({
+                text: "• 背景声明里的 `spectrum.level` / `spectrum.bands.0` / `spectrum.bands.2` 每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。",
             }, env),
             kit.divider({}, env),
             // 页面里也能直接画一块着色器（`musicxx.Shader` 块）：用 `SizedBox` 给它确定的高度，
@@ -364,8 +397,17 @@ function cardView(args) {
                     trailing: bgRateText(configuredBgRate()),
                     action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: "card" } },
                 }, env),
+                kit.listRow({
+                    title: "音频频谱",
+                    subtitle: "读状态镜像 musicxx.state.spectrum（播放中约 10 Hz 刷新）",
+                    trailing: spectrumStateText(),
+                }, env),
             ] }, env),
             kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
+            kit.button({
+                label: "读取当前频谱（动作）",
+                action: { kind: "dispatch", name: "spectrumProbe", args: { view: "card" } },
+            }, env),
             kit.button({
                 label: "使用本插件的背景",
                 variant: "primary",
@@ -385,6 +427,57 @@ function cardView(args) {
 
 musicxx.capability.register("card", function (args) {
     return { view: cardView(args) };
+});
+
+/// 频谱说明文本 (演示异步动作 `musicxx.media.spectrum`)
+///
+/// 没有数据不是错误: 结果里用 `status` / `available` / `loading` 说明原因,
+/// 这时 `level` 与 `bands` 都是 0, 但数组长度仍按请求给 (结构稳定, 不用判键在不在)。
+function spectrumProbeText(s, err) {
+    if (err) {
+        return "读取失败: " + err;
+    }
+    const bands = (s.bands || []).map(function (v) {
+        return String(Math.round(v * 100));
+    }).join(" / ");
+    const head = "status = " + s.status
+        + "，available = " + (s.available === true)
+        + "，unit = " + s.unit
+        + "，bandCount = " + s.bandCount
+        + "，频带(%) = " + bands;
+    return (s.reason ? (head + "（原因: " + s.reason + "）") : head);
+}
+
+/// 频谱探测页: 能力处理器返回 Promise, 宿主会等到动作结算后再取这一页
+function spectrumProbeView(args, text) {
+    const env = viewEnv(args);
+    return {
+        title: "当前音频频谱",
+        subtitle: "数据来自内置『音乐动效』插件提取的频谱",
+        blocks: [
+            kit.hint({ text: text }, env),
+            kit.hint({
+                text: "• 没有数据时 status 是 loading（正在提取）/ off（未启用音乐动效）/ unavailable（来源不是本地或缓存、时长超限），这时值恒为 0，请按 status 判断，不要按数值判断。",
+            }, env),
+            kit.button({
+                label: "重新读取",
+                variant: "primary",
+                action: { kind: "dispatch", name: "spectrumProbe", args: { view: "spectrum" } },
+            }, env),
+            kit.button({
+                label: "返回说明页",
+                action: { kind: "route", route: "ext://example_js_shader/card" },
+            }, env),
+        ],
+    };
+}
+
+musicxx.capability.register("spectrumProbe", function (args) {
+    return musicxx.media.spectrum({ bandCount: 8, unit: "normalized" }).then(function (s) {
+        return { view: spectrumProbeView(args, spectrumProbeText(s, null)) };
+    }, function (err) {
+        return { view: spectrumProbeView(args, spectrumProbeText(null, err.message)) };
+    });
 });
 
 console.log("example_js_shader 已加载 (pid=" + musicxx.pluginId + ")");

@@ -923,6 +923,15 @@ constexpr const char *kPrelude = R"JS(
     cover: function (args) {
       var req = (args && typeof args === "object") ? args : {};
       return musicxx.call("musicxx.media.cover", req);
+    },
+    // 当前音频频谱 (内置『音乐动效』提取的数据):
+    //   args.bandCount 1..64 且能整除 256 (缺省 16)
+    //   args.unit      normalized(缺省) | db | raw
+    //   args.includeBins 是否附带当前帧的 256 个频点
+    // 没有数据不是错误: 结果里的 status / available / loading / reason 说明原因
+    spectrum: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.spectrum", req);
     }
   };
 

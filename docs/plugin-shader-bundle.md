@@ -112,7 +112,8 @@ $spec = ((Get-Content shader/bundle.json -Raw) -replace "`r?`n", ' ').Trim()
 ```glsl
 uniform MusicxxRenderInfo {
   vec4 uParams;   // (目标宽 px, 目标高 px, 经过的秒数, 插件声明的 speed)
-  vec4 uEnv;      // x = 是否夜间(0/1), y = 是否有有效的封面配色(0/1), z/w = 保留
+  vec4 uEnv;      // x = 是否夜间(0/1), y = 是否有有效的封面配色(0/1),
+                  // z = 现在是否有音频频谱数据(0/1), w = 保留
   vec4 uColor1;   // 下面这些由插件在 args 里声明（名字随便取，见 §7）
   vec4 uColor2;
   vec4 uColor3;
@@ -129,7 +130,9 @@ uniform MusicxxRenderInfo {
 - **可以少声明成员**（宿主跳过不写，着色器读到 0），但不能声明错误的名字
   （成员在结构体里不存在时宿主会跳过；声明了名字却没有对应成员不会报错，只是没有值）；
 - 颜色是 `0..1` 的浮点（sRGB 分量）；`uEnv.y = 0` 表示当前没有有效的封面配色分析结果
-  （用 `icon.*` 来源的参数这时会用插件给的固定值）。
+  （用 `icon.*` 来源的参数这时会用插件给的固定值）；
+- `uEnv.z = 1` 表示**现在有音频频谱数据**（`spectrum.*` 来源这时才是真实的声压与频带）；
+  没有数据时 `spectrum.*` 一律是 0（静音），要区分"静音"与"没有数据"就看这一位。
 
 **关于时间**：`uParams.z` 是这块渲染视图从创建起累计的**真实秒数，没有乘速度**；`uParams.w` 才是
 插件声明的 `speed`。想跟随速率变化，着色器要自己乘：
@@ -223,6 +226,18 @@ void main() {
 | `icon.main` / `icon.light` / `icon.lightMuted` / `icon.dark` / `icon.darkMuted` | 当前歌曲封面的提取色（分析结果原始色；`convert: true` 时套昼夜转换） |
 | `icon.dominant.0` .. `icon.dominant.3` | 封面提取色的主色候选 |
 | `icon.themeMapping.0` .. `icon.themeMapping.3` | 封面颜色**经主题/背景映射后的 4 个绘制色**：内置播放页背景实际用的就是这 4 色（已经套过昼夜转换与观感归一，`convert` 对它不再生效；没有分析结果时是固定的默认色） |
+| `spectrum.level` | 当前音频响度（0~1）写在 4 个分量（x = y = z = w），方便直接当标量或向量用 |
+| `spectrum.bands.0` .. `spectrum.bands.3` | 当前音频的 16 个频带（低频在前，0~1；每项 4 个连续频带写在 xyzw） |
+
+**频谱来源（`spectrum.*`）** 读的是内置『音乐动效』插件提取的数据（每 100 ms 一帧）：
+
+- 没有数据时**写全 0（静音），不看参数里给的 `value`**：频谱的"没有数据"就是没声音，
+  要区分"静音 / 没启用 / 正在加载"就看 `uEnv.z`；
+- 16 个频带是 256 个频点按线性分组取平均（与能力的 `GetAudioSpectrum` 同一口径，
+  频带 0 最低、频带 15 最高）；想要别的口径或整曲数据用 `musicxx.media.spectrum`
+  动作自己算；
+- 能取到数据的条件：正在播放**本地/缓存**的音频（网络流要先有本地缓存），时长不超过
+  15 分钟，且内置『音乐动效』插件处于启用状态。
 
 - 一份声明最多 **16 项**；名字非法、既没有来源也没有固定值的项会被**直接忽略**（不是报错）；
 - 只认 `args`：旧的 `data.colors` 字段**已移除** —— 还写着它的插件不会解析它（播放页背景会用默认的
@@ -317,6 +332,29 @@ const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.back
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 宿主 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..512，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 
+**当前音频频谱**（内置『音乐动效』提取的数据）有两条读法，着色器与 JS 各用一条：
+
+```js
+// ① 着色器参数（每帧现读，零成本）：见 §7 的 spectrum.* 来源
+// ② JS 侧读一帧快照（异步动作）：当前这一帧的响度与频带
+const s = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
+// s = { ok:true, status:"ready"|"loading"|"none"|"off"|"unavailable",
+//       available, loading, reason, source:"extracted"|"live",
+//       srcKey, name, artist, durationMs, positionMs,
+//       frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
+//       level, bands:[...], frameData? }        // frameData 需要 includeBins:true
+
+// ③ 同步读状态镜像（播放中约 10 Hz 推送，适合插件自己的绘制循环）
+const live = musicxx.state.get("musicxx.state.spectrum");
+// { status, available, loading, reason, source, srcKey,
+//   frameHz, frameIndex, frames, bandCount, level, bands:[16] }
+```
+
+- 没有数据（未启用『音乐动效』/ 正在提取 / 来源不支持）都回 `ok: true`：
+  `status` = `off` / `loading` / `none` / `unavailable`，`available` 为假、`bands` 与 `level` 是 0；
+- `unit` 可选 `normalized`（0~1，缺省）/ `db`（频点 -80~0 dB，响度 -60~+20 dB）/ `raw`（0~255）；
+  想自己分析整曲频谱用能力 `GetAudioSpectrum`（`musicxx.feature.call`）。
+
 ---
 
 ## 11. 动画速率由插件自己提供
@@ -371,4 +409,5 @@ function applyRate(rate) {
 | 页面里那块 `Shader` 一直是空白 | 父块没有给出确定尺寸（用 `SizedBox` / `Expanded` 给它高度）；或 bundle 不可用（日志里有原因） |
 | 选中后回到内置背景 | 加载或渲染报错被停用（连续失败 3 次才停用，其间保留最后一帧）；看宿主日志与「外部插件 → 调试」里的背景段落 |
 | 动画不动 | `animate: false`、`speed: 0`，或着色器没有把 `uParams.z` 乘上 `uParams.w`；播放页被遮挡 / 切后台时本来就不渲染（`visible: false`） |
+| `spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：内置『音乐动效』插件没启用、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
 | 画面比预期快/慢 | `uParams.z` 是真实秒数、`uParams.w` 是插件声明的速度：宿主的基准速度就是插件给的值（示例把 1 当 1×） |

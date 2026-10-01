@@ -219,16 +219,20 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    这里注册一个晶格化（随机点最近邻切块）的动态背景, 参数用 `args` 声明:
     //    每项对应着色器 uniform 结构体里的一个 vec4 成员, `source` 是具名来源
     //    (主题色 theme.* / 封面提取色 icon.* / 封面经主题映射后的 4 色
-    //    icon.themeMapping.0..3), `value` 是取不到时用的固定值。
-    //    这里用内置背景实际画的那 4 色 (观感与内置一致)。
+    //    icon.themeMapping.0..3 / 当前音频频谱 spectrum.*), `value` 是取不到时用的固定值
+    //    (频谱来源例外: 没有数据时宿主写 0, 要区分状态用着色器里的 uEnv.z)。
+    //    这里用内置背景实际画的那 4 色 (观感与内置一致), 再叠上频谱律动。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
-        R"({"title":"原生示例晶格背景","depict":"跟随封面配色的晶格化动态背景",
+        R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
             "shader":{"bundle":"shader/bg.shaderbundle"},
             "args":[{"name":"uColor1","source":"icon.themeMapping.0"},
                     {"name":"uColor2","source":"icon.themeMapping.1"},
                     {"name":"uColor3","source":"icon.themeMapping.2"},
-                    {"name":"uColor4","source":"icon.themeMapping.3"}],
+                    {"name":"uColor4","source":"icon.themeMapping.3"},
+                    {"name":"uLevel","source":"spectrum.level"},
+                    {"name":"uBands","source":"spectrum.bands.0"},
+                    {"name":"uBands2","source":"spectrum.bands.2"}],
             "speed":4,"maxFps":16,
             "foregroundStyle":"mask"})",
         20);

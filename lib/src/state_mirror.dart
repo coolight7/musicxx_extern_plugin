@@ -31,6 +31,13 @@ class MusicxxPluginState {
   /// 不属于 [standardKeys]：宿主在生效/可见性/昼夜/尺寸变化时按需推送。
   static const String keyRenderSlots = 'musicxx.state.renderSlots';
 
+  /// 当前音频频谱（内置『音乐动效』插件提取的数据）
+  ///
+  /// 不属于 [standardKeys]：播放中约 10 Hz 推送（数据本身就是 10 帧/秒），
+  /// 停止播放、切歌、拿到/读不到数据时也各推一次。没有数据时用
+  /// `status` / `available` / `loading` / `reason` 表达，`level` 与 `bands` 为 0。
+  static const String keySpectrum = 'musicxx.state.spectrum';
+
   /// 全部标准键（启动时一次推送）
   static const List<String> standardKeys = <String>[
     keyApp,
