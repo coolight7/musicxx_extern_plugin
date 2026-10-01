@@ -66,9 +66,24 @@ float pick4(vec4 v, int k) {
   return v.w;
 }
 
+// 把频带下标限制在 [0, kBandCount - 1]（越界时按最近的频带处理）
+//
+// 不要在这里用 clamp / min / max 的**整型**版本：源码会先被编成 SPIR-V，运行时再按后端
+// 翻译（GLES 后端翻译成 GLSL ES 1.00），而 GLSL ES 1.00 只有浮点版本的重载 —— 整型
+// clamp 会让翻译出来的着色器编不过，表现为背景"渲染失败"然后被停用。用 if 自己写。
+int clampBandIndex(int index) {
+  if (index < 0) {
+    return 0;
+  }
+  if (index > kBandCount - 1) {
+    return kBandCount - 1;
+  }
+  return index;
+}
+
 // 第 index 个频带的原始值（0~1，低频在前）；越界时按最近的频带处理
 float bandRaw(int index) {
-  int i = clamp(index, 0, kBandCount - 1);
+  int i = clampBandIndex(index);
   if (i < 4) {
     return pick4(render_info.uBands0, i);
   }
@@ -184,8 +199,11 @@ void main() {
   float treble = clamp(dot(render_info.uBands3, vec4(0.25)), 0.0, 1.0) * spectrumOn;
 
   // 本像素所在的频带，以及它两侧的边界角度（边界处就是两个频带之间的竖直边）
+  //
+  // 下标先在浮点上钳制再转 int：同 `clampBandIndex` 的说明，整型 clamp 在 GLSL ES 1.00
+  // 里不存在（这一个也会被翻译成整型 clamp）。
   float slot = freq * float(kBandCount);
-  int index = clamp(int(floor(slot)), 0, kBandCount - 1);
+  int index = int(clamp(floor(slot), 0.0, float(kBandCount - 1)));
   float angLeft = float(index) * kPi / float(kBandCount);
   float angRight = float(index + 1) * kPi / float(kBandCount);
 

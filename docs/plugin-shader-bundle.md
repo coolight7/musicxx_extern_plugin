@@ -201,6 +201,20 @@ void main() {
   4 色双线性混合 + 夜间压暗 + 轻微暗角）与同目录的 `ring.frag`（光圈：极坐标把 16 个频带铺到
   圆上 + 轮廓距离场画线 + 中心光源）。
 
+**写法限制（一份源码要过所有后端）**：源码先被 `impellerc` 编成 SPIR-V，运行时再按后端翻译一次
+（GLES 后端翻译成 **GLSL ES 1.00**，也就是 `#version 100`）：
+
+- 内置函数**只用浮点版**：GLSL ES 1.00 里 `clamp` / `min` / `max` / `abs` 只有浮点重载，
+  对 `int` 用它们会翻译出编不过的代码 —— 表现为选中后报「渲染失败」、连续失败 3 次被停用
+  （`clamp(int(index), 0, 15)` 就是踩过的坑，见 `ring.frag` 的 `clampBandIndex`）。
+  整型的钳制用 `if`（或三元表达式）自己写；要 `int` 下标时先在浮点上钳制再 `int(...)`；
+- 整型的比较、加减与 `float(i)` / `int(f)` 转换都是安全的；数组下标只能用常量或循环下标
+  （GLSL ES 1.00 不允许任意变量当下标）；
+- 循环上界写常量（`for (int i = 0; i < 5; ++i)`）；
+- 拿不准的写法就在本地验证一次：`impellerc --runtime-stage-gles --gles-language-version=100
+  --input=<片元> --input-type=frag --spirv=<临时>.spv --sl=<临时>.glsl` 会把后端要编的那份
+  GLSL 打出来（整型 `clamp` 这种问题直接在输出里就能看到）。
+
 ---
 
 ## 7. 参数（`args`）
