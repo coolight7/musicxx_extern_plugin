@@ -7,11 +7,15 @@
 ///   画面都由预编译好的 shader bundle 画 (插件不写界面代码), 用户在
 ///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (宿主不读 bundle、不分析封面)。
 /// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
+/// - 频谱的两条读法 (『读取当前频谱』按钮): 状态镜像 (`musicxx.state.spectrum`, 同步、实时)
+///   与动作 (`musicxx.media.spectrum`, 异步)。动作**不能在能力处理器里等** —— 能力是同步
+///   进宿主调用的, 处理器里 await 动作会与调用方互锁; 这里异步读、结果记下来回读。
 ///
 /// 页面 (框架不管理插件设置入口, 入口由插件自己给):
 /// - `ext://example_js_shader/card` (主页入口): 当前生效项与渲染状态, 一键切换背景;
-/// - `ext://example_js_shader/settings`: 改速率 (值存在插件目录的 config.json)。
-/// 两个页面都由脚本返回声明式内容 (用随插件分发的界面 kit 装配, 见 plugin.yaml 的 `scripts`),
+/// - `ext://example_js_shader/settings`: 改速率 (值存在插件目录的 config.json);
+/// - 频谱页 (`spectrumProbe` 能力): 镜像与动作结果 (见上面第三条)。
+/// 页面都由脚本返回声明式内容 (用随插件分发的界面 kit 装配, 见 plugin.yaml 的 `scripts`),
 /// 排版与控件由客户端渲染。
 ///
 /// 这两件事原先和钩子/网络/页面示例一起放在 `example_js` 里, 2026-09 拆成独立插件,
@@ -539,13 +543,13 @@ function cardView(args) {
                 }, env),
                 kit.listRow({
                     title: "音频频谱",
-                    subtitle: "读状态镜像 musicxx.state.spectrum（播放中约 10 Hz 刷新）",
+                    subtitle: "状态镜像 musicxx.state.spectrum（同步、实时）；完整结果点下面的按钮（异步读动作）",
                     trailing: spectrumStateText(),
                 }, env),
             ] }, env),
             kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
             kit.button({
-                label: "读取当前频谱（动作）",
+                label: "读取当前频谱（镜像 + 异步动作）",
                 action: { kind: "dispatch", name: "spectrumProbe", args: { view: "card" } },
             }, env),
             kit.button({
@@ -573,38 +577,106 @@ musicxx.capability.register("card", function (args) {
     return { view: cardView(args) };
 });
 
-/// 频谱说明文本 (演示异步动作 `musicxx.media.spectrum`)
+/// 频谱动作结果的说明文本 (动作 `musicxx.media.spectrum` 的返回)
 ///
 /// 没有数据不是错误: 结果里用 `status` / `available` / `loading` 说明原因,
 /// 这时 `level` 与 `bands` 都是 0, 但数组长度仍按请求给 (结构稳定, 不用判键在不在)。
-function spectrumProbeText(s, err) {
+function spectrumActionText(s, err) {
     if (err) {
         return "读取失败: " + err;
     }
     const bands = (s.bands || []).map(function (v) {
         return String(Math.round(v * 100));
     }).join(" / ");
+    const where = (typeof s.positionMs === "number" && typeof s.durationMs === "number")
+        ? ("，位置 " + Math.round(s.positionMs / 1000) + "s / " + Math.round(s.durationMs / 1000) + "s")
+        : "";
     const head = "status = " + s.status
         + "，available = " + (s.available === true)
         + "，unit = " + s.unit
         + "，bandCount = " + s.bandCount
-        + "，频带(%) = " + bands;
+        + "，频带(%) = " + bands
+        + where;
     return (s.reason ? (head + "（原因: " + s.reason + "）") : head);
 }
 
-/// 频谱探测页: 能力处理器返回 Promise, 宿主会等到动作结算后再取这一页
-function spectrumProbeView(args, text) {
+/// 最近一次异步读取到的动作结果 (还没读回 / 失败都在这里说明)
+///
+/// 为什么不在这里 `await` 动作:
+/// 应用侧打开页面、点按钮都是**同步进宿主**调用这个能力的 (应用线程全程等宿主返回),
+/// 而动作要由应用线程执行 —— 处理器里等动作就会与调用方互相等下去, 最后只能等到超时,
+/// 表现是"整个应用卡住几秒 + 调用插件能力失败, 未在预算内完成"。
+/// 所以这一页当场用状态镜像 (同步、实时) 画出来, 动作结果异步读取、读完记下来回读
+/// (与 `example_js` 的 `crossCall` 同一做法)。
+let spectrumActionState = { pending: 0, text: "", error: "" };
+
+/// 异步读一次动作结果 (不等待; 读完记进 spectrumActionState, 由页面回读)
+function refreshSpectrumAction() {
+    spectrumActionState.pending = 1;
+    musicxx.media.spectrum({ bandCount: 8, unit: "normalized" }).then(function (s) {
+        spectrumActionState = {
+            pending: 0,
+            text: spectrumActionText(s, null),
+            error: "",
+        };
+        musicxx.host.log(2, "动作 musicxx.media.spectrum 返回: " + spectrumActionState.text);
+    }, function (err) {
+        spectrumActionState = { pending: 0, text: "", error: err.message };
+        musicxx.host.log(3, "动作 musicxx.media.spectrum 失败: " + err.message);
+    });
+}
+
+/// 动作结果那一行的说明 (第一次打开时通常已经有值: 插件装载时就发起过一次读取)
+function spectrumActionResultText() {
+    if (spectrumActionState.error !== "") {
+        return "读取失败: " + spectrumActionState.error;
+    }
+    if (spectrumActionState.pending === 1) {
+        return "读取中（动作已发起，读回后下一次刷新这一页就能看到）";
+    }
+    if (spectrumActionState.text === "") {
+        return "还没读回结果（点按钮会发起读取，读回后再点一次就能看到）";
+    }
+    return spectrumActionState.text;
+}
+
+/// 动作结果那一行的短状态 (具体内容看下面的说明)
+function spectrumActionShortText() {
+    if (spectrumActionState.pending === 1) {
+        return "读取中…";
+    }
+    if (spectrumActionState.error !== "") {
+        return "读取失败";
+    }
+    return (spectrumActionState.text === "") ? "还没有结果" : "已读回";
+}
+
+/// 频谱探测页: 处理器**同步返回** (镜像当场可用, 动作结果取自上一次异步读取)
+function spectrumProbeView(args) {
     const env = viewEnv(args);
     return {
         title: "当前音频频谱",
         subtitle: "数据来自内置『音乐动效』插件提取的频谱",
         blocks: [
-            kit.hint({ text: text }, env),
+            kit.listRow({
+                title: "状态镜像",
+                subtitle: "musicxx.state.spectrum（同步读，播放中约 10 Hz 刷新）",
+                trailing: spectrumStateText(),
+            }, env),
+            kit.listRow({
+                title: "动作结果",
+                subtitle: "musicxx.media.spectrum（异步读取，这一行是最近一次读回的结果）",
+                trailing: spectrumActionShortText(),
+            }, env),
+            kit.hint({ text: "动作结果: " + spectrumActionResultText() }, env),
             kit.hint({
                 text: "• 没有数据时 status 是 loading（正在提取）/ off（未启用音乐动效）/ unavailable（来源不是本地或缓存、时长超限），这时值恒为 0，请按 status 判断，不要按数值判断。",
             }, env),
+            kit.hint({
+                text: "• 这一页也演示了『能力处理器里不能等动作』这条规则：能力是同步进宿主调用的（应用线程在等它返回），处理器里 await 动作会与调用方互锁、只能等到超时；要实时数据读状态镜像，要动作结果就异步读、把结果记下来回读（本页与 example_js 的 crossCall 都是这么做的）。",
+            }, env),
             kit.button({
-                label: "重新读取",
+                label: "重新读取（镜像实时 + 发起一次动作读取）",
                 variant: "primary",
                 action: { kind: "dispatch", name: "spectrumProbe", args: { view: "spectrum" } },
             }, env),
@@ -616,12 +688,20 @@ function spectrumProbeView(args, text) {
     };
 }
 
+/// 打开 / 点按钮都走这里: 处理器同步返回页面, 同时发起一次异步动作读取
+///
+/// 顺序很重要：**先按上一次读回的结果画页面，再发起新的读取** —— 反过来的话页面读到的
+/// `pending` 永远是自己刚设的那一次，只能一直显示"读取中"。
+///
+/// 也不能写成 `musicxx.media.spectrum(...)` 然后 `return ...then(...)`：
+/// 那样处理器要等动作结算, 而动作只有应用线程能执行、应用线程又卡在这次能力调用里。
 musicxx.capability.register("spectrumProbe", function (args) {
-    return musicxx.media.spectrum({ bandCount: 8, unit: "normalized" }).then(function (s) {
-        return { view: spectrumProbeView(args, spectrumProbeText(s, null)) };
-    }, function (err) {
-        return { view: spectrumProbeView(args, spectrumProbeText(null, err.message)) };
-    });
+    const view = spectrumProbeView(args);
+    refreshSpectrumAction();
+    return { view: view };
 });
+
+// 插件装载时先读一次: 第一次打开这一页时动作结果通常已经就位
+refreshSpectrumAction();
 
 console.log("example_js_shader 已加载 (pid=" + musicxx.pluginId + ")");

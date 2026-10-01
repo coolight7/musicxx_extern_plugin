@@ -10,6 +10,8 @@
 ///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
 /// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着状态镜像走：
 ///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要收敛（不能停在"已请求"）。
+/// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
+///   异步回读 —— 处理器里等动作会与同步进宿主的调用方互锁，只能等到 5 秒超时（这条用例守它）。
 ///
 /// 前置：先跑 `pwsh tools/build_native.ps1`（产出 `.native/output/<平台>-<配置>/`）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
@@ -330,6 +332,114 @@ void main() {
     expect(backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须收敛（否则页面上看着像没生效）');
     expect(renderText(), '未生效');
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
+    if (env == null || !env.hasPlugin('example_js_shader')) {
+      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
+      return;
+    }
+
+    final Directory work = Directory.systemTemp.createTempSync(
+      'musicxx_plugin_shader_spectrum_test',
+    );
+    addTearDown(() {
+      if (work.existsSync()) {
+        work.deleteSync(recursive: true);
+      }
+    });
+
+    const String pluginId = 'example_js_shader';
+    final Directory pluginRoot = _copyPlugin(env, work, pluginId);
+
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+    addTearDown(runtime.dispose);
+    _registerHostActions(runtime, pluginRoot.path);
+
+    // 频谱动作用一条固定结果回答（真实实现读播放器提取的频谱，这里只验证链路）
+    int spectrumCalls = 0;
+    runtime.actions.register(MusicxxPluginActionNames.mediaSpectrum, (
+      invocation,
+    ) {
+      ++spectrumCalls;
+      return <String, Object?>{
+        'ok': true,
+        'status': 'ready',
+        'available': true,
+        'loading': false,
+        'reason': '',
+        'unit': 'normalized',
+        'bandCount': 8,
+        'level': 0.5,
+        'bands': <double>[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+        'positionMs': 1000,
+        'durationMs': 200000,
+      };
+    });
+
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: pluginRoot.path,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    runtime.plugins.scan();
+    runtime.plugins.load(pluginId);
+    expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+
+    // 插件装载时就发起过一次动作读取（脚本顶层的 refreshSpectrumAction）
+    await _pumpUntil(() => spectrumCalls >= 1, runtime: runtime);
+    expect(
+      spectrumCalls,
+      greaterThanOrEqualTo(1),
+      reason: '插件装载后应异步读一次频谱动作',
+    );
+
+    // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒预算
+    // （应用侧表现是整机卡住几秒 + "调用插件能力失败，未在预算内完成"）
+    final Stopwatch watch = Stopwatch()..start();
+    Map<String, Object?> view = _callView(
+      runtime,
+      'spectrumProbe',
+      plugin: pluginId,
+    );
+    watch.stop();
+    expect(
+      watch.elapsedMilliseconds,
+      lessThan(1000),
+      reason: '能力处理器不能等动作：这一页必须立刻返回（等动作会卡到超时）',
+    );
+    // 镜像还没推过：镜像那一行只能说"无状态"（动作结果照旧异步读，不影响这一页当场画出来）
+    expect(_rowOf(view, '状态镜像')?['right'], '无状态');
+
+    // 推一条"有数据"的镜像：镜像那一行按镜像说真话（同步、实时）
+    runtime.state.update('musicxx.state.spectrum', <String, Object?>{
+      'status': 'ready',
+      'available': true,
+      'loading': false,
+      'reason': '',
+      'level': 0.42,
+      'bands': List<double>.filled(16, 0.1),
+      'frameHz': 10,
+    });
+    view = _callView(runtime, 'spectrumProbe', plugin: pluginId);
+    expect(_rowOf(view, '状态镜像')?['right'], '有数据（响度 42%）');
+
+    // 动作结果由页面回读：每次取页面都会再发起一次读取，所以这里反复取页面，
+    // 直到某一次读到的就是异步读回的结果（处理器同步返回，每次取都是立即的）
+    Map<String, Object?> page = <String, Object?>{};
+    await _pumpUntil(() {
+      page = _callView(runtime, 'spectrumProbe', plugin: pluginId);
+      return _textStartingWith(page, '动作结果: ').contains('bandCount = 8');
+    }, runtime: runtime);
+    final String detail = _textStartingWith(page, '动作结果: ');
+    expect(detail, contains('status = ready'));
+    expect(detail, contains('bandCount = 8'));
+    expect(detail, contains('频带(%) = 10 / 20 / 30 / 40 / 50 / 60 / 70 / 80'));
+    expect(detail, contains('位置 1s / 200s'));
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
 /// 调用插件能力并取回视图描述（`{view: {...}}`）
@@ -418,6 +528,23 @@ void _collectTexts(Object? block, List<String> out) {
       _collectTexts(value, out);
     }
   }
+}
+
+/// 视图里第一个以 [prefix] 开头的文本（没有就返回空串）
+String _textStartingWith(Map<String, Object?> view, String prefix) {
+  final List<String> texts = <String>[];
+  final Object? blocks = view['blocks'];
+  if (blocks is List) {
+    for (final Object? block in blocks) {
+      _collectTexts(block, texts);
+    }
+  }
+  for (final String text in texts) {
+    if (text.startsWith(prefix)) {
+      return text;
+    }
+  }
+  return '';
 }
 
 /// 插件探针（能力 `probe`，仅 example_js 有）

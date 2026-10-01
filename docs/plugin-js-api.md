@@ -550,6 +550,15 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 - 能力全名是 `plugin.<插件 id>.<短名>`；应用侧（Dart）用
   `MusicxxPluginManager.call(id, "probe", args)`，宿主用同名能力名调用；
 - 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（宿主会等到它结算再给调用方结果）；
+- **处理器里不要等动作**：应用侧打开页面 / 点按钮是**同步进宿主**调用能力的（应用线程全程在等它
+  返回），而动作要由应用线程执行 —— 处理器里 `await` 一个动作会与调用方互相等下去，最后只能等到
+  超时（表现是"整个应用卡住几秒 + 调用插件能力失败，未在预算内完成"）。异步处理器本身没问题
+  （例如等 JS 定时器、等跨插件调用），只是不要等**宿主**的动作：
+  - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）读状态镜像（`musicxx.state.get`）；
+  - 要动作结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
+    —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
+  同一条规则也适用于**同步派发**的钩子（`musicxx.player.beforePlaySong` 等调用点就地等待的钩子）：
+  处理器里等动作会一直卡住调用线程（宿主侧连超时都没有）。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
 
   | 目标 | 行为 |
