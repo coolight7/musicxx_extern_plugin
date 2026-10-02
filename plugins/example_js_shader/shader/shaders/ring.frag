@@ -4,12 +4,14 @@
 //
 // 画面是一圈"频率光圈"：
 // * 细亮线画出的圆是基线（半径固定），圆心是光源：高亮核心 + 光晕 + 缓慢转动的光束；
-// * 圆上按**左右对称**的方式排布 16 个频带的尖峰：从正上方（12 点方向）往下，角度位置
-//   对应频率由低到高，左右两侧互为镜像；每个频带同时向**圆外**与**圆内**突出，
-//   突出的高度就是这一帧的振幅，相邻频带之间用径向直边连接，于是整圈看起来是一圈
-//   多边形的"光圈"（参考图用的就是这个形状）；
+// * 基线圆上按**左右对称**的方式排布 16 个频率点：从正上方（12 点方向）往下，角度位置
+//   对应频率由低到高，左右两侧互为镜像。每个点同时向**圆外**与**圆内**凸出一段尖角
+//   （长度就是这一帧该频带的振幅）；相邻点的**外沿之间**、**内沿之间**都用直线连起来，
+//   同一个点的内外沿之间再连一条径向线 —— 整圈看起来是一张长在圆上的"蛛网"：
+//   一圈尖角，尖与尖之间用直线收口（参考图用的就是这个形状），
+//   而不是每一段各自画成一个圆环扇形（那样看起来像一圈圆盘）；
 // * 振幅取自内置『音乐动效』提取的当前音频频谱（`spectrum.bands.0..3`）。没有频谱数据时
-//   （uEnv.z = 0）尖峰长度为 0，只剩基线圆与中心光源 —— 这时画面不动是正常的，
+//   （uEnv.z = 0）尖角长度为 0，只剩基线圆与中心光源 —— 这时画面不动是正常的，
 //   判断"没有数据"看 uEnv.z，不要看数值是不是 0。
 //
 // uniform 契约（宿主固定填充，成员名字不能改）：
@@ -42,10 +44,10 @@ const float kPi = 3.14159265;
 
 // 基线圆半径（画面短边的一半记作 1.0）
 const float kRingRadius = 0.62;
-// 频带尖峰向外 / 向内的最大长度（都在基线的振幅方向上量：半径 0.62 + 0.32 = 0.94，
-// 不会超出画面；向内 0.24 稍小一点，把圆心让给光源）
+// 频率点向圆外 / 向内的最大尖角长度（都在基线的振幅方向上量：半径 0.62 + 0.32 = 0.94，
+// 不会超出画面；向内 0.30 稍小一点，把圆心让给光源，也留出"蛛网"向内收的空间）
 const float kSpikeOut = 0.32;
-const float kSpikeIn = 0.24;
+const float kSpikeIn = 0.30;
 // 频带振幅的增益与曲线：归一化频带多数时候取不满，抬一点画面才有起伏
 const float kGain = 1.35;
 const float kCurve = 0.8;
@@ -102,14 +104,11 @@ float bandAmp(int index) {
   return pow(clamp(raw * kGain, 0.0, 1.0), kCurve);
 }
 
-// 点到"径向直边"的距离：直边是角度 dAng = 0 处、半径区间 [r0, r1] 的那一段
-float distToWall(float r, float dAng, float r0, float r1) {
-  float s = sin(dAng);
-  float c = cos(dAng);
-  float y = r * c;
-  float yc = clamp(y, r0, r1);
-  float x = r * s;
-  return sqrt(x * x + (y - yc) * (y - yc));
+// 点到线段的距离（两个端点都是画布坐标；蛛网的每条边都是直的线段）
+float distToSegment(vec2 p, vec2 a, vec2 b) {
+  vec2 ab = b - a;
+  float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-9), 0.0, 1.0);
+  return length(p - (a + ab * t));
 }
 
 // 等边三角形的距离场（中心在原点，inRadius 是内切圆半径，尖角朝上）
@@ -189,8 +188,6 @@ void main() {
   // 角度：正上方为 0、顺时针为正；取绝对值后左右两侧互为镜像
   float signedAng = atan(p.x, p.y);
   float ang = abs(signedAng);
-  // 频率位置：0 = 正上方（最低频，12 点方向）→ 1 = 正下方（最高频，6 点方向）
-  float freq = clamp(ang / kPi, 0.0, 1.0);
 
   // 频谱：没有数据时全部按 0 走（画面与不带频谱时一致）
   float spectrumOn = render_info.uEnv.z > 0.5 ? 1.0 : 0.0;
@@ -198,47 +195,45 @@ void main() {
   float bass = clamp(dot(render_info.uBands0, vec4(0.25)), 0.0, 1.0) * spectrumOn;
   float treble = clamp(dot(render_info.uBands3, vec4(0.25)), 0.0, 1.0) * spectrumOn;
 
-  // 本像素所在的频带，以及它两侧的边界角度（边界处就是两个频带之间的竖直边）
+  // ---- 光圈轮廓：半圈 kBandCount 段的"蛛网" ----
   //
-  // 下标先在浮点上钳制再转 int：同 `clampBandIndex` 的说明，整型 clamp 在 GLSL ES 1.00
-  // 里不存在（这一个也会被翻译成整型 clamp）。
-  float slot = freq * float(kBandCount);
-  int index = int(clamp(floor(slot), 0.0, float(kBandCount - 1)));
-  float angLeft = float(index) * kPi / float(kBandCount);
-  float angRight = float(index + 1) * kPi / float(kBandCount);
-
-  float ampSelf = bandAmp(index);
-  float outSelf = kSpikeOut * ampSelf;
-  float inSelf = kSpikeIn * ampSelf;
-  float outLeft = kSpikeOut * bandAmp(index - 1);
-  float inLeft = kSpikeIn * bandAmp(index - 1);
-  float outRight = kSpikeOut * bandAmp(index + 1);
-  float inRight = kSpikeIn * bandAmp(index + 1);
-
-  // 轮廓 = 本频带的两段圆弧 + 两侧与邻带共用的竖直边（两条频带都含基线半径，
-  // 所以它们的并集在边界上就是从最内到最外的一整段，画出来是连贯的）
+  // 半圈上有 kBandCount + 1 个频率点（角度 i * delta，i = 0..kBandCount；0 = 正上方、
+  // pi = 正下方），第 i 个点的振幅就是第 i 个频带；每个点因此有两个半径：外沿
+  // R + kSpikeOut * 振幅、内沿 R - kSpikeIn * 振幅。相邻点的**同侧半径**用直线连起来
+  // （外连外、内连内），同一个点的内外沿之间再连一条径向线：整圈是一张左右对称的蛛网，
+  // 每个频率点向内外各凸出一个尖，尖与尖之间由直线收口（就是参考图的形状）。
   //
-  // 正上方（角度 0）与正下方（角度 π）是左右镜像的接缝：那两侧是同一个频带、
-  // 半径完全相同，没有台阶，画竖直边只会多出一条从内沿到外沿的直线 —— 跳过不画。
-  float dOuter = abs(r - (kRingRadius + outSelf));
-  float dInner = abs(r - (kRingRadius - inSelf));
-  bool seamLeft = (index == 0);
-  bool seamRight = (index == kBandCount - 1);
-  float dWallLeft = seamLeft
-      ? 1e3
-      : distToWall(
-            r,
-            ang - angLeft,
-            min(kRingRadius - inSelf, kRingRadius - inLeft),
-            max(kRingRadius + outSelf, kRingRadius + outLeft));
-  float dWallRight = seamRight
-      ? 1e3
-      : distToWall(
-            r,
-            ang - angRight,
-            min(kRingRadius - inSelf, kRingRadius - inRight),
-            max(kRingRadius + outSelf, kRingRadius + outRight));
-  float dOutline = min(min(dOuter, dInner), min(dWallLeft, dWallRight));
+  // 本像素落在哪一段：角度除以段宽（下标先在浮点上钳制再转 int，见 clampBandIndex 的说明）
+  float delta = kPi / float(kBandCount);
+  int seg = int(clamp(floor(ang / delta), 0.0, float(kBandCount - 1)));
+  float angA = float(seg) * delta;
+  float angB = float(seg + 1) * delta;
+  float ampA = bandAmp(seg);
+  float ampB = bandAmp(seg + 1);
+  float outA = kRingRadius + kSpikeOut * ampA;
+  float outB = kRingRadius + kSpikeOut * ampB;
+  float inA = kRingRadius - kSpikeIn * ampA;
+  float inB = kRingRadius - kSpikeIn * ampB;
+
+  // 本段要画的四条边：外沿弦、内沿弦、两端点的径向线；
+  // 相邻段共用端点（第 i 段的外沿弦终点 = 第 i+1 段的外沿弦起点），所以整圈是连起来的
+  float cosA = cos(angA);
+  float sinA = sin(angA);
+  float cosB = cos(angB);
+  float sinB = sin(angB);
+  vec2 cursor = vec2(sin(ang), cos(ang)) * r;
+  vec2 vOutA = vec2(sinA, cosA) * outA;
+  vec2 vOutB = vec2(sinB, cosB) * outB;
+  vec2 vInA = vec2(sinA, cosA) * inA;
+  vec2 vInB = vec2(sinB, cosB) * inB;
+  float dOutline = min(
+      min(distToSegment(cursor, vOutA, vOutB), distToSegment(cursor, vInA, vInB)),
+      min(distToSegment(cursor, vInA, vOutA), distToSegment(cursor, vInB, vOutB)));
+
+  // 本段内部的填充范围（在两端之间按角度线性插值；尖角里只有很淡的一层，让蛛网有厚度）
+  float localT = (ang - angA) / delta;
+  float outLocal = mix(outA, outB, localT);
+  float inLocal = mix(inA, inB, localT);
 
   // 时间：uParams.z 是真实秒数、uParams.w 是插件声明的速度（着色器要自己乘）
   float t = render_info.uParams.z * render_info.uParams.w;
@@ -267,13 +262,13 @@ void main() {
   color += lightColor * core * 2.0;
   color += lightColor * exp(-r * 10.0) * (0.18 + 0.12 * level);
 
-  // 频带尖峰内部：一层很淡的填充，越靠外越亮，让"多边形"看起来有厚度
-  float span = max(inSelf + outSelf, 1e-4);
-  float fillEdge = clamp((r - (kRingRadius - inSelf)) / span, 0.0, 1.0);
-  float inside = (r <= kRingRadius + outSelf && r >= kRingRadius - inSelf) ? 1.0 : 0.0;
-  color += lightColor * inside * (0.05 + 0.11 * fillEdge) * (0.45 + 0.55 * level);
+  // 尖角内部：一层很淡的填充，越靠外越亮（参考图里尖角基本是空心的，所以这里压得很低）
+  float span = max(outLocal - inLocal, 1e-4);
+  float fillEdge = clamp((r - inLocal) / span, 0.0, 1.0);
+  float inside = (r <= outLocal && r >= inLocal) ? 1.0 : 0.0;
+  color += lightColor * inside * (0.03 + 0.07 * fillEdge) * (0.45 + 0.55 * level);
 
-  // 基线圆与频带轮廓：细亮线；响应越大越亮，外面再套一层淡淡的光（bloom）
+  // 基线圆与蛛网边线：细亮线；响应越大越亮，外面再套一层淡淡的光（bloom）
   float width = max(aa * 1.1, 0.0012);
   float outline = 1.0 - smoothstep(0.0, width, dOutline);
   float baseLine = 1.0 - smoothstep(0.0, width * 0.85, abs(r - kRingRadius));
