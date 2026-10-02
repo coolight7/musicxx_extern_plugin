@@ -3,7 +3,8 @@
 /// 这个插件只演示"插件渲染槽位"这一条链路, 内容就两件事:
 /// - 声明播放页背景样式 (`musicxx.ui.playing.background`), 本插件给了两种可选样式:
 ///   『示例晶格背景』(`shader/bg.shaderbundle`) 与『光圈』(`shader/ring.shaderbundle`,
-///   频谱圆环: 圆圈是基线, 圆上左右对称的频带尖峰跟着音乐向内/向外突出)。
+///   频谱圆环: 圆圈是基线, 圆上左右对称的频带尖角跟着音乐向内/向外突出, 相邻尖角之间、
+///   同一个尖角的内外沿之间都用直线相连 —— 整圈是一张长在圆上的"蛛网")。
 ///   画面都由预编译好的 shader bundle 画 (插件不写界面代码), 用户在
 ///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (宿主不读 bundle、不分析封面)。
 /// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
@@ -37,7 +38,7 @@ const BG_DEPICT = "跟随封面配色与音乐律动的晶格化动态背景";
 /// 从正上方(12 点)往下, 角度位置对应频率由低到高, 左右两侧互为镜像,
 /// 每个频带同时向圆外与圆内突出, 突出的高度就是这一帧的振幅。
 const RING_TITLE = "光圈";
-const RING_DEPICT = "圆圈是基线, 圆上左右对称的频带尖峰跟着音乐向内/向外突出";
+const RING_DEPICT = "圆圈是基线, 圆上左右对称的频带尖角跟着音乐向内/向外突出, 相邻尖角用直线连成蛛网";
 
 /// 本插件背景样式的 UI 项短名与完整 id (完整 id 由宿主拼成 plugin.<插件id>.<短名>)
 const BG_ITEM_NAME = "bg";
@@ -83,31 +84,52 @@ function bgSpeedOf(rate) {
     return BG_BASE_SPEED * normalizeBgRate(rate);
 }
 
+/// 频谱来源的"快起慢落"声明
+///
+/// 频谱数据是 10 帧/秒，直接取会有台阶感（每 100 ms 跳一次）：`smooth` 让值在
+/// 跳变时快速跟上、回落时平滑过渡（`attackMs` 小、`releaseMs` 大 = 电平表手感）。
+/// 宿主还会按播放位置在两帧频谱之间插值，两者叠加后画面才是连续的。
+function smoothSpectrum(name) {
+    return {
+        kind: "smooth",
+        attackMs: 20,
+        releaseMs: 260,
+        of: { kind: "source", name: name },
+    };
+}
+
 /// 『示例晶格背景』的完整声明
 ///
 /// `musicxx.ui.updateEntry` 是**整体替换**, 所以每次都要从这一个函数取完整 data,
 /// 不能只传改动的字段。
 ///
-/// 参数用 `args`: 每项对应着色器 uniform 结构体里的一个 vec4 成员; `source` 是具名来源
-/// (主题色 `theme.*` / 封面提取色 `icon.*` / 封面经主题映射后的 4 色 `icon.themeMapping.0..3`
-/// / 当前音频频谱 `spectrum.*`), `value` 是取不到时用的固定值 (频谱来源例外: 没有数据时
-/// 写 0, 要区分状态用着色器里的 `uEnv.z`)。不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
+/// `args` 只有一种写法: **成员名 → 值表达式**（`{kind: "...", ...}`，可以像 widget 一样
+/// 嵌套）。这里的晶格背景用了三类节点: `source`（具名来源：主题色 `theme.*` / 封面提取色
+/// `icon.*` / 映射后的 4 色 `icon.themeMapping.0..3` / 当前音频频谱 `spectrum.*`）、
+/// `smooth`（过渡）、`mul` + `lfo`（把响度乘上一个缓慢的呼吸曲线）。
+/// 不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
 function latticeBackgroundData(rate) {
     return {
         title: BG_TITLE,
         depict: BG_DEPICT,
         shader: { bundle: "shader/bg.shaderbundle" },
-        args: [
-            { name: "uColor1", source: "icon.themeMapping.0" },
-            { name: "uColor2", source: "icon.themeMapping.1" },
-            { name: "uColor3", source: "icon.themeMapping.2" },
-            { name: "uColor4", source: "icon.themeMapping.3" },
+        args: {
+            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+            uColor2: { kind: "source", name: "musicxx.icon.themeMapping.1" },
+            uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
+            uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
             // 频谱（内置『音乐动效』提取的数据）: 每帧现读, 零成本
-            // uLevel = 当前响度, uBands = 最低的 4 个频带, uBands2 = 第 8~11 个频带
-            { name: "uLevel", source: "spectrum.level" },
-            { name: "uBands", source: "spectrum.bands.0" },
-            { name: "uBands2", source: "spectrum.bands.2" },
-        ],
+            // uLevel = 当前响度 × 呼吸曲线, uBands = 最低的 4 个频带, uBands2 = 第 8~11 个频带
+            uLevel: {
+                kind: "mul",
+                of: [
+                    smoothSpectrum("musicxx.spectrum.level"),
+                    { kind: "lfo", shape: "sine", periodMs: 2600, from: 0.92, to: 1.0 },
+                ],
+            },
+            uBands: smoothSpectrum("musicxx.spectrum.bands.0"),
+            uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
+        },
         speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
@@ -119,27 +141,28 @@ function latticeBackgroundData(rate) {
 ///
 /// 与晶格背景的区别只在 bundle 与参数: 这个着色器要把 16 个频带全部映射到圆上,
 /// 所以声明 `spectrum.bands.0..3` 四项 (每项 = 4 个连续频带, 低频在前, 写在 xyzw),
-/// 再加一个亮色的线条色 (基线圆与尖峰轮廓用它画)。没有频谱数据时宿主写 0,
-/// 圆上的尖峰长度为 0, 只剩基线圆与圆心光源。
+/// 再加一个亮色的线条色 (基线圆与蛛网边线用它画; 用 `const` 节点, 昼夜各一个值)。
+/// 频带同样包一层 `smooth`: 尖角跟着音乐起伏时才不会一格一格地跳。
+/// 没有频谱数据时宿主写 0, 圆上的尖角长度为 0, 只剩基线圆与圆心光源。
 function ringBackgroundData(rate) {
     return {
         title: RING_TITLE,
         depict: RING_DEPICT,
         shader: { bundle: "shader/ring.shaderbundle" },
-        args: [
-            { name: "uColor1", source: "icon.themeMapping.0" },
-            { name: "uColor2", source: "icon.themeMapping.1" },
-            { name: "uColor3", source: "icon.themeMapping.2" },
-            { name: "uColor4", source: "icon.themeMapping.3" },
+        args: {
+            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+            uColor2: { kind: "source", name: "musicxx.icon.themeMapping.1" },
+            uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
+            uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
             // 线条色: 没有来源, 昼夜各给一个固定值 (夜间稍暗, 免得抢前景文字)
-            { name: "uLine", value: "#f6faff", valueNight: "#dbe7f7" },
+            uLine: { kind: "const", value: "#f6faff", night: "#dbe7f7" },
             // 频谱: uLevel = 当前响度, uBands0..uBands3 = 16 个频带 (低频在前)
-            { name: "uLevel", source: "spectrum.level" },
-            { name: "uBands0", source: "spectrum.bands.0" },
-            { name: "uBands1", source: "spectrum.bands.1" },
-            { name: "uBands2", source: "spectrum.bands.2" },
-            { name: "uBands3", source: "spectrum.bands.3" },
-        ],
+            uLevel: smoothSpectrum("musicxx.spectrum.level"),
+            uBands0: smoothSpectrum("musicxx.spectrum.bands.0"),
+            uBands1: smoothSpectrum("musicxx.spectrum.bands.1"),
+            uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
+            uBands3: smoothSpectrum("musicxx.spectrum.bands.3"),
+        },
         speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
@@ -359,6 +382,9 @@ function settingsView(args, override) {
             kit.hint({
                 text: "• 背景声明里的 `spectrum.level` / `spectrum.bands.0..3` 每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。",
             }, env),
+            kit.hint({
+                text: "• `args` 只有一种写法：成员名 → 值表达式（`{\"kind\": \"...\"}`，可以嵌套）。来源用 `source`、常量用 `const`、过渡用 `smooth`、动画用 `tween` / `lfo`、组合用 `mul` / `mix` / `clamp` 等；宿主每帧求值一次，插件不用在着色器里写时间与滤波逻辑。",
+            }, env),
             kit.divider({}, env),
             kit.card({ children: [
                 kit.listRow({
@@ -373,8 +399,8 @@ function settingsView(args, override) {
                 }, env),
             ] }, env),
             // 页面里也能直接画一块着色器（`musicxx.Shader` 块）：用 `SizedBox` 给它确定的高度，
-            // 参数同样用 `args` 声明 —— 第 2 个色是封面提取色（取不到时用固定值）
-            kit.hint({ text: "• 下面两块是页面内联的 Shader 块（同一个 bundle）：上面是晶格，下面是光圈（带频谱参数，会跟着音乐起伏）：" }, env),
+            // 参数同样用 `args` 声明 —— 两块都带频谱参数（与背景声明同一套来源），会跟着音乐起伏
+            kit.hint({ text: "• 下面两块是页面内联的 Shader 块（同一个 bundle）：上面是晶格，下面是光圈；两块都带频谱参数，会跟着音乐起伏：" }, env),
             kit.card({
                 children: [
                     { kind: "SizedBox", height: 300, children: [
@@ -382,12 +408,17 @@ function settingsView(args, override) {
                             bundle: "shader/bg.shaderbundle",
                             speed: 1,
                             maxFps: 16,
-                            args: [
-                                { name: "uColor1", source: "theme.primary" },
-                                { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },
-                                { name: "uColor3", source: "icon.dark", value: "#223344" },
-                                { name: "uColor4", source: "icon.themeMapping.3" },
-                            ],
+                            args: {
+                                // 颜色来源：主题色 + 封面提取色（取不到时用 fallback）
+                                uColor1: { kind: "source", name: "musicxx.theme.primary" },
+                                uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
+                                // 频谱（与背景声明同一套来源）：晶格跟着响度与中高频"呼吸"
+                                uLevel: smoothSpectrum("musicxx.spectrum.level"),
+                                uBands: smoothSpectrum("musicxx.spectrum.bands.0"),
+                                uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
+                            },
                         }, env),
                     ] },
                 ],
@@ -399,18 +430,18 @@ function settingsView(args, override) {
                             bundle: "shader/ring.shaderbundle",
                             speed: 1,
                             maxFps: 16,
-                            args: [
-                                { name: "uColor1", source: "theme.primary" },
-                                { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },
-                                { name: "uColor3", source: "icon.dark", value: "#223344" },
-                                { name: "uColor4", source: "icon.themeMapping.3" },
-                                { name: "uLine", value: "#f6faff" },
-                                { name: "uLevel", source: "spectrum.level" },
-                                { name: "uBands0", source: "spectrum.bands.0" },
-                                { name: "uBands1", source: "spectrum.bands.1" },
-                                { name: "uBands2", source: "spectrum.bands.2" },
-                                { name: "uBands3", source: "spectrum.bands.3" },
-                            ],
+                            args: {
+                                uColor1: { kind: "source", name: "musicxx.theme.primary" },
+                                uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
+                                uLine: { kind: "const", value: "#f6faff" },
+                                uLevel: smoothSpectrum("musicxx.spectrum.level"),
+                                uBands0: smoothSpectrum("musicxx.spectrum.bands.0"),
+                                uBands1: smoothSpectrum("musicxx.spectrum.bands.1"),
+                                uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
+                                uBands3: smoothSpectrum("musicxx.spectrum.bands.3"),
+                            },
                         }, env),
                     ] },
                 ],

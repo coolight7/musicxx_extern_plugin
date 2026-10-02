@@ -10,8 +10,9 @@
 
 > 现成可编译的例子：`plugins/example_js_shader/shader/` 与 `plugins/example_native/shader/`
 > —— 「晶格化」背景（随机点最近邻切块，配色用宿主的 4 个绘制色）。`example_js_shader` 里还有
-> 第二个 bundle：**「光圈」背景**（`shaders/ring.frag`：基线圆 + 圆上左右对称的 16 频带尖峰 +
-> 中心光源），照抄同一份打包脚本即可编译。基线版本 3.47.5 的 Flutter SDK
+> 第二个 bundle：**「光圈」背景**（`shaders/ring.frag`：基线圆 + 圆上左右对称的 16 个频谱尖角 +
+> 中心光源；尖角之间、尖角内外沿之间都用直线连成一张"蛛网"），照抄同一份打包脚本即可编译。
+> 基线版本 3.47.5 的 Flutter SDK
 > 编译出来的 bundle 可以直接用（`format_version = 2`）。
 
 ---
@@ -38,7 +39,7 @@
     ├── bundle_ring.json      第二个 bundle 的描述（光圈背景）
     ├── shaders/bg.vert       顶点着色器（两个 bundle 共用一个全屏三角形）
     ├── shaders/bg.frag       片元着色器（晶格）
-    ├── shaders/ring.frag     片元着色器（光圈：基线圆 + 频谱尖峰）
+    ├── shaders/ring.frag     片元着色器（光圈：基线圆 + 频谱尖角连成的蛛网）
     ├── build_bundle.ps1      打包脚本（照抄示例；它按描述文件逐个编译）
     ├── bg.shaderbundle       编译产物（晶格，随插件分发）
     └── ring.shaderbundle     编译产物（光圈，随插件分发）
@@ -126,7 +127,7 @@ uniform MusicxxRenderInfo {
   vec4 uColor2;
   vec4 uColor3;
   vec4 uColor4;
-  vec4 uTint;     // 例：{"name":"uTint","source":"theme.primary"}
+  vec4 uTint;     // 例：{"name":"uTint","source":"musicxx.theme.primary"}
 } render_info;
 ```
 
@@ -138,9 +139,9 @@ uniform MusicxxRenderInfo {
 - **可以少声明成员**（宿主跳过不写，着色器读到 0），但不能声明错误的名字
   （成员在结构体里不存在时宿主会跳过；声明了名字却没有对应成员不会报错，只是没有值）；
 - 颜色是 `0..1` 的浮点（sRGB 分量）；`uEnv.y = 0` 表示当前没有有效的封面配色分析结果
-  （用 `icon.*` 来源的参数这时会用插件给的固定值）；
-- `uEnv.z = 1` 表示**现在有音频频谱数据**（`spectrum.*` 来源这时才是真实的声压与频带）；
-  没有数据时 `spectrum.*` 一律是 0（静音），要区分"静音"与"没有数据"就看这一位。
+  （用 `musicxx.icon.*` 来源的参数这时会用插件给的固定值）；
+- `uEnv.z = 1` 表示**现在有音频频谱数据**（`musicxx.spectrum.*` 来源这时才是真实的声压与频带）；
+  没有数据时 `musicxx.spectrum.*` 一律是 0（静音），要区分"静音"与"没有数据"就看这一位。
 
 **关于时间**：`uParams.z` 是这块渲染视图从创建起累计的**真实秒数，没有乘速度**；`uParams.w` 才是
 插件声明的 `speed`。想跟随速率变化，着色器要自己乘：
@@ -199,7 +200,7 @@ void main() {
 - 输出写在 `layout(location = 0) out`；
 - 完整效果参考 `plugins/example_js_shader/shader/shaders/bg.frag`（晶格化：Worley 噪声切块 +
   4 色双线性混合 + 夜间压暗 + 轻微暗角）与同目录的 `ring.frag`（光圈：极坐标把 16 个频带铺到
-  圆上 + 轮廓距离场画线 + 中心光源）。
+  圆上，每个频率点向内外凸出尖角、相邻点与内外沿之间用直线连成蛛网 + 中心光源）。
 
 **写法限制（一份源码要过所有后端）**：源码先被 `impellerc` 编成 SPIR-V，运行时再按后端翻译一次
 （GLES 后端翻译成 **GLSL ES 1.00**，也就是 `#version 100`）：
@@ -217,62 +218,144 @@ void main() {
 
 ---
 
-## 7. 参数（`args`）
+## 7. 参数（`args`）：值表达式
 
-着色器的每个 `vec4` 成员都由 `args` 里的一项声明（播放页背景的 `data.args`、页面里 `Shader` 块的
-`args` 是同一套写法）：
+着色器的每个 `vec4` 成员都在 `args` 里声明，**只有一种写法**：`args` 是一个对象，
+键是 uniform 成员名（字母或下划线开头，最长 32 字符），值是一条**值表达式**：
+`{"kind": "<节点类型>", ...参数}`。表达式可以像 widget 一样互相嵌套，宿主**每帧**从根节点
+求值一次，结果直接写进 uniform —— 插件不用在着色器里重复写时间/滤波逻辑。
+
+**名字空间与解析顺序**（与页面/`AnimatedBuilder` 里用的是同一套值系统）：
+
+- **`musicxx.*` 是框架/应用保留的**：派生来源（主题色 / 封面取色 / 频谱 / 环境量）与官方变量；
+  插件不要登记这个前缀的自定义变量；
+- **其它名字（允许含 `.`）是自定义的**：`AnimatedBuilder.values` 里的局部通道，或变量目录里的键
+  （应用登记、插件登记，如 `plugin.<插件id>.<名>`）；名字里的 `.` 不再用来判别"系统还是自定义"；
+- `source` 取值的顺序：**局部作用域（最近一层 `AnimatedBuilder`）→ 变量目录 → 派生来源**；
+  都取不到就用 `fallback` / 零值，并记一条日志；
+- 需要绕开顺序时写 `scope`：`"auto"`（缺省，按上面的顺序）、`"local"`（只看局部）、
+  `"var"`（跳过局部，只看变量与派生来源）。
+
+**值的类型**：只有两类 —— `vec4`（数值 / 颜色 / 向量；标量位置取 `.x`）与**文本**；
+开关用 `vec4` 的 0/1（非 0 即真）；尺寸位置可用 `unit: "percent"`（或不带 `kind` 的
+`{"percent":40}`，两者等价）。
 
 ```jsonc
-"args": [
-  { "name": "uColor1", "source": "icon.themeMapping.0" },              // 具名来源（内置背景用的那 4 色）
-  { "name": "uColor2", "source": "icon.main", "convert": true, "value": "#8899aa" },  // 封面提取色 + 取不到来源时用的固定值
-  { "name": "uColor3", "source": "theme.primary" },                    // 主题主色
-  { "name": "uTint",   "value": "#ff8800" },                          // 固定颜色
-  { "name": "uMix",    "value": [0.5, 0.25, 0, 1] },                   // 固定 vec4
-  { "name": "uFlag",   "value": 1 },                                   // 固定标量（写在 x，其余为 0）
-  { "name": "uNight",  "value": "#ffffff", "valueNight": "#101010" }   // 固定值也分昼夜
-]
+"args": {
+  // 来源：取不到时的兜底值写在节点里（fallback / fallbackNight）
+  "uColor1": { "kind": "source", "name": "musicxx.icon.themeMapping.0" },
+  "uColor2": { "kind": "source", "name": "musicxx.icon.main", "convert": true, "fallback": "#8899aa" },
+
+  // 常量：数字（广播到 4 个分量）/ 4 个数字的数组 / 颜色；night = 夜间换一个值
+  "uTint": { "kind": "const", "value": "#ff8800" },
+  "uMix":  { "kind": "const", "value": [0.5, 0.25, 0, 1] },
+  "uLine": { "kind": "const", "value": "#f6faff", "night": "#dbe7f7" },
+
+  // 过渡：频谱是 10 帧/秒，包一层 smooth 就没有台阶感（快起慢落 = 电平表手感）
+  "uLevel": { "kind": "smooth", "attackMs": 20, "releaseMs": 260,
+              "of": { "kind": "source", "name": "musicxx.spectrum.level" } },
+
+  // 动画：时间轴（一次性 / 循环 / 往返）与周期振荡
+  "uSpin":   { "kind": "tween", "from": 0, "to": 6.2832, "durationMs": 8000, "repeat": "loop" },
+  "uBreath": { "kind": "lfo", "shape": "sine", "periodMs": 2600, "from": 0.92, "to": 1.0 },
+
+  // 组合：波形 × 呼吸曲线、两个颜色按另一条通道混合
+  "uWave": { "kind": "mul", "of": [
+      { "kind": "smooth", "attackMs": 20, "releaseMs": 260,
+        "of": { "kind": "source", "name": "musicxx.spectrum.bands.0" } },
+      { "kind": "lfo", "shape": "sine", "periodMs": 2600, "from": 0.92, "to": 1.0 } ] },
+  "uTint2": { "kind": "mix",
+      "a": { "kind": "source", "name": "musicxx.theme.primary" },
+      "b": { "kind": "source", "name": "musicxx.icon.main" },
+      "t": { "kind": "lfo", "shape": "triangle", "periodMs": 6000, "from": 0, "to": 1 } },
+
+  // 钳制与重映射
+  "uGain": { "kind": "remap", "of": { "kind": "source", "name": "musicxx.spectrum.level" },
+             "inMin": 0, "inMax": 1, "outMin": 0.6, "outMax": 1.4 }
+}
 ```
 
-| 字段 | 说明 |
+值统一是 `vec4`（4 个 float）：数字常量广播到 4 个分量，数组按位取前 4 个（缺的补 0），
+颜色写 `#rrggbb` / `#aarrggbb`。运算节点都是**逐分量**的。
+
+### 7.1 节点
+
+| 节点 | 参数 | 说明 |
+|---|---|---|
+| `source` | `name`(必填)、`convert`、`scope`(auto / local / var)、`fallback`、`fallbackNight` | 具名来源（见 7.2）；取不到时用 `fallback`（夜间优先 `fallbackNight`） |
+| `const` | `value`(必填)、`night`、`unit`(`u` / `percent`) | 常量：数字、4 个数字的数组、`#rrggbb` / `#aarrggbb`、文本 |
+| `smooth` | `of`(必填)、`ms` 或 `attackMs` + `releaseMs`（缺省 150 / 150） | 一阶过渡：上升用 `attackMs`、回落用 `releaseMs`（"快起慢落"）；文本直接透传 |
+| `tween` | `from`(0)、`to`(1)、`durationMs`(1000)、`delayMs`(0)、`ease`(linear)、`repeat`(once / loop / pingpong)、`phase`(0) | 时间轴过渡；`repeat` 不是 once 时 `phase`（0~1）用来错开相位 |
+| `lfo` | `shape`(sine / triangle / saw / square)、`periodMs`(1000)、`from`(0)、`to`(1)、`phase`(0) | 周期振荡（呼吸、扫光、摆动） |
+| `add` / `mul` / `min` / `max` | `of`: 节点数组（≥1） | 逐分量组合 |
+| `mix` | `a`、`b`、`t` | 逐分量按 `t` 混合（`t` 写常量时就是 lerp）；任一边是文本时按 `t` 的开关选值 |
+| `clamp` | `of`、`min`(0)、`max`(1) | 逐分量钳制 |
+| `remap` | `of`、`inMin`(0)、`inMax`(1)、`outMin`(0)、`outMax`(1) | 线性重映射 |
+| `format` | `value`、`text`(模板，`{0}` 占位) | 值 → 文本（数字按整数/小数自动格式化；`{{`/`}}` 是字面大括号） |
+| `concat` | `of`: 节点数组（≥1，可直接写字符串） | 文本拼接 |
+| `cmp` | `a`、`b`、`op`(`lt`/`le`/`gt`/`ge`/`eq`/`ne`) | 比较 → 0/1（两边都是文本时按字典序比较） |
+| `logicAnd` / `logicOr` | `of`: 节点数组（≥1） | 逻辑与 / 或 → 0/1 |
+| `logicNot` | `of` | 逻辑非 → 0/1 |
+| `select` | `cond`、`then`、`else` | 按条件选值（数值或文本都能选） |
+
+`ease` 可选：`linear` / `inQuad` / `outQuad` / `inOutQuad` / `inCubic` / `outCubic` /
+`inOutCubic` / `inSine` / `outSine` / `inOutSine` / `outBack` / `outElastic`
+（不认识的按 `linear` 处理，日志里会提示）。
+
+### 7.2 来源
+
+| `source.name` | 取到的值 |
 |---|---|
-| `name` | uniform 成员名：字母或下划线开头，最长 32 字符（`^[A-Za-z_][A-Za-z0-9_]{0,31}$`）；结构体里没有这个成员时宿主跳过不写 |
-| `source` | 具名来源（见下表）；空 = 只用固定值 |
-| `convert` | 只对 `icon.*` 有意义：取到的封面色是否套宿主的昼夜转换（默认 false，原样给） |
-| `value` | 固定值（白昼用）：数字（写到 x）、1~4 个数字的数组、`#rrggbb` / `#aarrggbb`；`source` 取不到值时也用它 |
-| `valueNight` | 固定值的夜间版本（缺省回退 `value`） |
+| `musicxx.theme.primary` | 主题主色 |
+| `musicxx.theme.background` / `musicxx.theme.backgroundCross` | 主题背景色 / 第二背景色 |
+| `musicxx.theme.textMain` / `musicxx.theme.textCross` | 主要 / 次要文字色 |
+| `musicxx.theme.textTitle` / `musicxx.theme.titleBackground` | 标题文字色 / 标题底色 |
+| `musicxx.theme.button` / `musicxx.theme.buttonSelect` | 按钮内容色 / 按钮选中内容色 |
+| `musicxx.theme.error` / `musicxx.theme.wave` | 错误提示色 / 歌曲图波浪色 |
+| `musicxx.icon.main` / `musicxx.icon.light` / `musicxx.icon.lightMuted` / `musicxx.icon.dark` / `musicxx.icon.darkMuted` | 当前歌曲封面的提取色（分析结果原始色；`convert: true` 时套昼夜转换） |
+| `musicxx.icon.dominant.0` .. `musicxx.icon.dominant.3` | 封面提取色的主色候选 |
+| `musicxx.icon.themeMapping.0` .. `musicxx.icon.themeMapping.3` | 封面颜色**经主题/背景映射后的 4 个绘制色**：内置播放页背景实际用的就是这 4 色（已经套过昼夜转换与观感归一，`convert` 对它不再生效；没有分析结果时是固定的默认色） |
+| `musicxx.spectrum.level` | 当前音频响度（0~1）写在 4 个分量（x = y = z = w） |
+| `musicxx.spectrum.bands.0` .. `musicxx.spectrum.bands.3` | 当前音频的 16 个频带（低频在前，0~1；每项 4 个连续频带写在 xyzw） |
+| `musicxx.env.night` / `musicxx.env.hasPalette` / `musicxx.env.hasSpectrum` | 环境量：是否夜间 / 有没有封面配色 / 有没有频谱数据（0 或 1，写在 4 个分量）；配 `mix` 就能写出"按环境切换"的值 |
+| **其它任意名字（可含 `.`）** | 变量目录里的键：应用登记的官方变量、插件登记的自定义变量（如 `plugin.<插件id>.<名>`）；值是数字 / 布尔 / 文本，宿主按字段期望的类型转换 |
+| **局部通道名（`AnimatedBuilder.values` 的键）** | 优先于上面两类；只在那一层作用域里可见（页面里的用法见 `plugin-ui.md`） |
 
-| `source` | 取到的颜色 |
-|---|---|
-| `theme.primary` | 主题主色 |
-| `theme.background` / `theme.backgroundCross` | 主题背景色 / 第二背景色 |
-| `theme.textMain` / `theme.textCross` | 主要 / 次要文字色 |
-| `theme.textTitle` / `theme.titleBackground` | 标题文字色 / 标题底色 |
-| `theme.button` / `theme.buttonSelect` | 按钮内容色 / 按钮选中内容色 |
-| `theme.error` / `theme.wave` | 错误提示色 / 歌曲图波浪色 |
-| `icon.main` / `icon.light` / `icon.lightMuted` / `icon.dark` / `icon.darkMuted` | 当前歌曲封面的提取色（分析结果原始色；`convert: true` 时套昼夜转换） |
-| `icon.dominant.0` .. `icon.dominant.3` | 封面提取色的主色候选 |
-| `icon.themeMapping.0` .. `icon.themeMapping.3` | 封面颜色**经主题/背景映射后的 4 个绘制色**：内置播放页背景实际用的就是这 4 色（已经套过昼夜转换与观感归一，`convert` 对它不再生效；没有分析结果时是固定的默认色） |
-| `spectrum.level` | 当前音频响度（0~1）写在 4 个分量（x = y = z = w），方便直接当标量或向量用 |
-| `spectrum.bands.0` .. `spectrum.bands.3` | 当前音频的 16 个频带（低频在前，0~1；每项 4 个连续频带写在 xyzw） |
+**频谱来源（`musicxx.spectrum.*`）** 读的是内置『音乐动效』插件提取的数据（每 100 ms 一帧）：
 
-**频谱来源（`spectrum.*`）** 读的是内置『音乐动效』插件提取的数据（每 100 ms 一帧）：
-
-- 想要全部 16 个频带就声明 `spectrum.bands.0` ~ `spectrum.bands.3` 四项（每项 4 个连续频带）——
-  『光圈』示例就是这么用的：16 个频带按左右对称铺到圆周上，每项对应圆上的一段圆弧；
-- 没有数据时**写全 0（静音），不看参数里给的 `value`**：频谱的"没有数据"就是没声音，
-  要区分"静音 / 没启用 / 正在加载"就看 `uEnv.z`；
+- 想要全部 16 个频带就写 `musicxx.spectrum.bands.0` ~ `musicxx.spectrum.bands.3` 四项（每项 4 个连续频带）——
+  『光圈』示例就是这么用的：它把 16 个频带按左右对称摆到圆周上（每项对应圆上的一个频率点，
+  第 i 项的分量 = 第 4i..4i+3 个频带），每个点向内外凸出一个尖角；
+- **数据本身的过渡由宿主自动做**：按播放位置在两帧频谱之间插值（就是内置动效"自动插入过渡值"
+  的做法），所以 10 帧/秒的数据在几十帧/秒的渲染里也是连续的；只有逐帧数据（结果里的
+  `source` 是 `live`）时没有下一帧可用，这时用 `smooth` 节点做过渡；
+- 没有数据时**写全 0（静音），不看 `fallback`**：要区分"静音 / 没启用 / 正在加载"就看
+  `musicxx.env.hasSpectrum`（或着色器里的 `uEnv.z`）；
 - 16 个频带是 256 个频点按线性分组取平均（与能力的 `GetAudioSpectrum` 同一口径，
-  频带 0 最低、频带 15 最高）；想要别的口径或整曲数据用 `musicxx.media.spectrum`
-  动作自己算；
+  频带 0 最低、频带 15 最高）；想要别的口径或整曲数据用 `musicxx.media.spectrum` 动作自己算；
 - 能取到数据的条件：正在播放**本地/缓存**的音频（网络流要先有本地缓存），时长不超过
   15 分钟，且内置『音乐动效』插件处于启用状态。
 
-- 一份声明最多 **16 项**；名字非法、既没有来源也没有固定值的项会被**直接忽略**（不是报错）；
-- 只认 `args`：旧的 `data.colors` 字段**已移除** —— 还写着它的插件不会解析它（播放页背景会用默认的
-  内置 4 色），宿主日志里会给一条迁移提示；
-- 播放页背景**完全不写 `args`** 时，宿主默认给 `uColor1..4 ← icon.themeMapping.0..3`
-  （观感与内置背景一致）；只想用主题色时显式声明 `args` 即可（也不会再套默认 4 色）。
+### 7.3 时间与状态
+
+- `tween` / `lfo` 用的是**动画时间**：与着色器里的 `t = uParams.z * uParams.w` 同一口径，
+  插件设置页里的"动画速率"会一起带动它们；`animate: false` 时时间恒为 0（动画停在起点）；
+- `smooth` 的状态（上一帧输出）跟着**参数表**走：插件重新声明**同一份参数**时沿用旧状态
+  （只是改了 `speed` 这类字段不会打断正在跑的过渡）；声明变了、换 bundle 或换样式时从新声明
+  开始 —— 第一次求值直接取目标值，不会从 0 慢慢爬上来；
+- 首帧、长时间没出帧（不可见恢复、卡顿）之后的那一步不做过渡（不会"一步跳完"）。
+
+### 7.4 上限与降级
+
+- 一份 `args` 最多 **16 个成员**；单个成员最多 **32 个节点**、**8 层**嵌套；
+  `durationMs` / `periodMs` 会钳制在 16 ms ~ 3600000 ms；
+- 写错的项**被忽略并记一条日志**（未知 `kind`、缺必填参数、成员名非法、超过上限…），
+  不影响同一份声明里的其它成员，也不会让整个样式不可用；
+- 播放页背景**完全不写 `args`** 时，宿主默认给 `uColor1..4 ← musicxx.icon.themeMapping.0..3`
+  （观感与内置背景一致）；页面里的 `Shader` 块不做这个兜底（不写就没有颜色）；
+- 旧的 `data.colors` 字段与旧的扁平 `args` 写法（数组 + `source` / `value` / `valueNight` /
+  `convert` 字段）**都已移除**：还写着的插件不会解析 `args`（当作"没有参数"），
+  宿主日志里会给一条迁移提示。
 
 ---
 
@@ -283,7 +366,7 @@ void main() {
 | `title` | 必填 | — | 设置列表里的样式名 |
 | `depict` | `""` | — | 副标题（写 `subtitle` 也可以，且优先） |
 | `enabled` | `true` | — | false = 不在设置列表里出现 |
-| `args` | 空 | ≤ 16 项 | 着色器参数（见 §7）；背景槽位不声明时默认给内置 4 色 |
+| `args` | 空 | ≤ 16 个成员 | 着色器参数：成员名 → 值表达式（见 §7）；背景槽位不声明时默认给内置 4 色 |
 | `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`（着色器要自己乘，见 §5）。**由插件自己决定**，宿主不做二次缩放 |
 | `maxFps` | 16 | 1..30 | 帧率上限 |
 | `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由宿主放大（省 GPU） |
@@ -309,10 +392,10 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
     "bundle": "shader/bg.shaderbundle",
     "speed": 1,
     "maxFps": 16,
-    "args": [
-      {"name": "uColor1", "source": "theme.primary"},
-      {"name": "uColor2", "source": "icon.main", "convert": true, "value": "#8899aa"}
-    ]}}
+    "args": {
+      "uColor1": {"kind": "source", "name": "musicxx.theme.primary"},
+      "uColor2": {"kind": "source", "name": "musicxx.icon.main", "convert": true, "fallback": "#8899aa"}
+    }}}
 ```
 
 - **尺寸由父块决定**：不写尺寸就用父块给的空间，所以通常要像上面这样用 `SizedBox`
@@ -364,7 +447,7 @@ const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.back
 **当前音频频谱**（内置『音乐动效』提取的数据）有两条读法，着色器与 JS 各用一条：
 
 ```js
-// ① 着色器参数（每帧现读，零成本）：见 §7 的 spectrum.* 来源
+// ① 着色器参数（每帧现读，零成本）：见 §7 的 musicxx.spectrum.* 来源
 // ② JS 侧读一帧快照（异步动作）：当前这一帧的响度与频带
 const s = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 // s = { ok:true, status:"ready"|"loading"|"none"|"off"|"unavailable",
@@ -399,7 +482,7 @@ function bgData(rate) {
     return {
         title: "流光背景",
         shader: { bundle: "shader/bg.shaderbundle" },
-        args: [ /* ... */ ],
+        args: { /* 成员名 → 值表达式，见 §7 */ },
         speed: BG_BASE_SPEED * rate,   // 声明给宿主的速度
         maxFps: 16,
     };
@@ -440,5 +523,5 @@ function applyRate(rate) {
 | 页面里那块 `Shader` 一直是空白 | 父块没有给出确定尺寸（用 `SizedBox` / `Expanded` 给它高度）；或 bundle 不可用（日志里有原因） |
 | 选中后回到内置背景 | 加载或渲染报错被停用（连续失败 3 次才停用，其间保留最后一帧）；看宿主日志与「外部插件 → 调试」里的背景段落 |
 | 动画不动 | `animate: false`、`speed: 0`，或着色器没有把 `uParams.z` 乘上 `uParams.w`；播放页被遮挡 / 切后台时本来就不渲染（`visible: false`） |
-| `spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：内置『音乐动效』插件没启用、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
+| `musicxx.spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：内置『音乐动效』插件没启用、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
 | 画面比预期快/慢 | `uParams.z` 是真实秒数、`uParams.w` 是插件声明的速度：宿主的基准速度就是插件给的值（示例把 1 当 1×） |

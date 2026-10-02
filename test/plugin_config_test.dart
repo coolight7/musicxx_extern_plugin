@@ -168,6 +168,36 @@ void main() {
     );
     expect(_backgroundSpeed(runtime, pluginId), 1);
 
+    // 第二种样式『光圈』：16 个频带必须全部声明（每项 4 个连续频带），否则圆上的尖角会缺一段
+    final MusicxxPluginUIItem? ring = _uiItemOf(
+      runtime,
+      'plugin.$pluginId.ring',
+    );
+    expect(ring, isNotNull, reason: '插件应注册『光圈』样式');
+    expect(ring!.type, MusicxxPluginUIType.playingBackground);
+    expect(
+      (ring.data['shader'] as Map?)?['bundle'],
+      'shader/ring.shaderbundle',
+    );
+    final Map<String, Set<String>> ringSources = _argSources(ring);
+    expect(ringSources.containsKey('uLine'), true, reason: 'uLine 也要声明');
+    expect(
+      ringSources['uLine'],
+      isEmpty,
+      reason: '线条色是 const 节点（不读任何来源）',
+    );
+    expect(ringSources['uLevel'], contains('musicxx.spectrum.level'));
+    for (int i = 0; i < 4; ++i) {
+      expect(ringSources['uBands$i'], contains('musicxx.spectrum.bands.$i'));
+    }
+    // 频谱必须包一层过渡（10 帧/秒的数据直接取会有台阶感）
+    final Object? levelNode = (ring.data['args'] as Map?)?['uLevel'];
+    expect(
+      levelNode is Map ? levelNode['kind'] : null,
+      'smooth',
+      reason: '频谱来源要声明过渡',
+    );
+
     final File config = File(
       path.join(pluginRoot.path, pluginId, 'config.json'),
     );
@@ -570,6 +600,56 @@ MusicxxPluginUIItem? _backgroundItem(
     }
   }
   return null;
+}
+
+/// UI 项快照里指定 id 的项（id 是全名 `plugin.<插件id>.<短名>`）
+MusicxxPluginUIItem? _uiItemOf(MusicxxPluginRuntime runtime, String id) {
+  for (final MusicxxPluginUIItem item in runtime.plugins.uiSnapshot()) {
+    if (item.id == id) {
+      return item;
+    }
+  }
+  return null;
+}
+
+/// UI 项 `args`（成员名 → 值表达式）里每个成员用到的**具名来源**
+///
+/// 值表达式可以嵌套（`smooth` / `mul` / `mix` …），要把树走一遍才知道成员实际读的是哪些来源；
+/// 测试只关心"声明里连的是哪个来源"（没有来源的成员给空集合）。
+Map<String, Set<String>> _argSources(MusicxxPluginUIItem item) {
+  final Map<String, Set<String>> out = <String, Set<String>>{};
+  final Object? args = item.data['args'];
+  if (args is Map) {
+    for (final MapEntry<Object?, Object?> entry in args.entries) {
+      final Set<String> names = <String>{};
+      _collectSourceNames(entry.value, names);
+      out['${entry.key}'] = names;
+    }
+  }
+  return out;
+}
+
+/// 走一遍值表达式，收集 `source` 节点的名字
+void _collectSourceNames(Object? node, Set<String> out) {
+  if (node is! Map) {
+    return;
+  }
+  if (node['kind'] == 'source') {
+    final Object? name = node['name'];
+    if (name is String && name.isNotEmpty) {
+      out.add(name);
+    }
+  }
+  for (final String key in <String>['of', 'a', 'b', 't']) {
+    final Object? child = node[key];
+    if (child is List) {
+      for (final Object? item in child) {
+        _collectSourceNames(item, out);
+      }
+    } else {
+      _collectSourceNames(child, out);
+    }
+  }
 }
 
 /// 背景样式声明的动画速度（`data.speed`）
