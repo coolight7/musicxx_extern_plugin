@@ -176,7 +176,7 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 | `musicxx.state.renderSlots` | 渲染槽位运行状态（谁在画、是否可见、尺寸、昼夜） | 按需推送（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
 | `musicxx.state.spectrum` | 当前音频频谱：`{status, available, loading, reason, source, srcKey, frameHz, frameIndex, frames, bandCount, level, bands[16]}` | 播放中约 10 Hz 推送（数据本身 10 帧/秒），停止/切歌/拿到或读不到数据时各推一次 |
 
-- 判断「是否在播放」用 `musicxx.state.env.isPlaying`（布尔）：`musicxx.state.player.state` 的取值
+- 判断「是否在播放」用 `musicxx.state.musicxx.env.isPlaying`（布尔）：`musicxx.state.player.state` 的取值
   在暂停/播放/停止事件里是小写 `play`/`pause`/`stop`，其它变化是枚举名 `Play`/`Pause`/`Stop`/`Completed`；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未埋点 —— 不要把它当每秒更新的进度用；
@@ -184,7 +184,7 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
   `status` = `ready` / `loading` / `none` / `off` / `unavailable`，`available` 为假时
   `level` 与 `bands` 都是 0（要看原因读 `reason`）。它只在播放中推进，暂停时不刷新；
   想要当前帧的更多细节（dB、256 个频点）用动作 `musicxx.media.spectrum`，想跟着每帧渲染
-  用着色器的 `spectrum.*` 参数来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
+  用着色器的 `musicxx.spectrum.*` 参数来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
 - 镜像里**不放临时直链与 token**；需要地址请自己请求（见 §7 网络）；
 - 每个键更新都会推事件 `musicxx.state.changed`（载荷 `{key, value}`）：
 
@@ -588,12 +588,17 @@ musicxx.ui.registerEntry({
         title: "流光背景",
         depict: "跟随封面配色的动态背景",
         shader: { bundle: "shader/bg.shaderbundle" },   // 插件目录内的相对路径
-        args: [
-            { name: "uColor1", source: "icon.themeMapping.0" },
-            { name: "uColor2", source: "icon.main", convert: true, value: "#8899aa" },
-            { name: "uColor3", source: "theme.primary" },
-            { name: "uColor4", value: "#223344" },
-        ],
+        // args：成员名 → 值表达式（可嵌套；这里是来源 + 过渡 + 组合）
+        args: {
+            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+            uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+            uColor3: { kind: "source", name: "musicxx.theme.primary" },
+            uColor4: { kind: "const", value: "#223344" },
+            uLevel: {
+                kind: "smooth", attackMs: 20, releaseMs: 260,
+                of: { kind: "source", name: "musicxx.spectrum.level" },
+            },
+        },
         speed: 1,          // 时间推进速度（宿主直接用这个值，不做二次缩放）
         maxFps: 16,
     },
@@ -641,7 +646,7 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
 
 - 宿主**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
   「跟着封面/主题配色」这类需求什么都不用做（取不到来源时用参数里的固定值）；
-  频谱来源（`spectrum.*`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）
+  频谱来源（`musicxx.spectrum.*`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）
   是例外：没有数据时写 0（静音），要看 `uEnv.z` 判断"现在有没有数据"；
 - 只想让画面跟着音乐动，用着色器参数来源就够了（每帧现读、零成本）；需要把频谱画成
   自己的界面（柱状图、波形历史）时，用 `musicxx.state.get("musicxx.state.spectrum")`

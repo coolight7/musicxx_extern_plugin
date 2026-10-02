@@ -217,22 +217,27 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    插件把一个预编译的 shader bundle 注册成一种"播放页背景样式",
     //    用户在『设置 → 播放页面背景』里选中后才生效; 未选中时零成本。
     //    这里注册一个晶格化（随机点最近邻切块）的动态背景, 参数用 `args` 声明:
-    //    每项对应着色器 uniform 结构体里的一个 vec4 成员, `source` 是具名来源
-    //    (主题色 theme.* / 封面提取色 icon.* / 封面经主题映射后的 4 色
-    //    icon.themeMapping.0..3 / 当前音频频谱 spectrum.*), `value` 是取不到时用的固定值
-    //    (频谱来源例外: 没有数据时宿主写 0, 要区分状态用着色器里的 uEnv.z)。
+    //    只有一种写法 —— **成员名 → 值表达式**（{"kind":"...", ...}，可嵌套），
+    //    这里的节点: `source`（具名来源: 主题色 theme.* / 封面提取色 icon.* /
+    //    封面经主题映射后的 4 色 icon.themeMapping.0..3 / 当前音频频谱 spectrum.*）、
+    //    `smooth`（过渡: 频谱是 10 帧/秒，直接取会有台阶感，快起慢落才顺）。
+    //    频谱来源没有数据时宿主写 0 (要区分状态用着色器里的 uEnv.z)。
     //    这里用内置背景实际画的那 4 色 (观感与内置一致), 再叠上频谱律动。
+    //    JS 侧的等价声明见 plugins/example_js_shader/plugin.js。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
             "shader":{"bundle":"shader/bg.shaderbundle"},
-            "args":[{"name":"uColor1","source":"icon.themeMapping.0"},
-                    {"name":"uColor2","source":"icon.themeMapping.1"},
-                    {"name":"uColor3","source":"icon.themeMapping.2"},
-                    {"name":"uColor4","source":"icon.themeMapping.3"},
-                    {"name":"uLevel","source":"spectrum.level"},
-                    {"name":"uBands","source":"spectrum.bands.0"},
-                    {"name":"uBands2","source":"spectrum.bands.2"}],
+            "args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},
+                    "uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},
+                    "uColor3":{"kind":"source","name":"musicxx.icon.themeMapping.2"},
+                    "uColor4":{"kind":"source","name":"musicxx.icon.themeMapping.3"},
+                    "uLevel":{"kind":"smooth","attackMs":20,"releaseMs":260,
+                              "of":{"kind":"source","name":"musicxx.spectrum.level"}},
+                    "uBands":{"kind":"smooth","attackMs":20,"releaseMs":260,
+                              "of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},
+                    "uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,
+                               "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
             "speed":4,"maxFps":16,
             "foregroundStyle":"mask"})",
         20);
