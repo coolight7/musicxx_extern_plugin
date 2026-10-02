@@ -240,6 +240,11 @@ void main() {
 开关用 `vec4` 的 0/1（非 0 即真）；尺寸位置可用 `unit: "percent"`（或不带 `kind` 的
 `{"percent":40}`，两者等价）。
 
+**同一套值系统也用在页面块上**（界面描述层）：尺寸 / 数值字段（`SizedBox` 宽高、`Gap.size`、
+`Progress.value`、过渡块的 `value`/`from`/`to`…）、**文本字段**（`Text.text`、KV / Table / Tree 的文本…）
+与公共字段 **`visible`** 都能写值表达式；文本字段求值失败时用字面量兜底，`visible` 求值为假时这一块不渲染。
+页面侧逐帧驱动与过渡块见 `plugin-ui.md` §2.3.2。
+
 ```jsonc
 "args": {
   // 来源：取不到时的兜底值写在节点里（fallback / fallbackNight）

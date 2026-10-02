@@ -29,6 +29,12 @@
 | `inputRow` | `id`* `title`* `depict` `value` `multiline`=false `action` | 输入行：标题 + 说明 + 右侧单行/多行输入框（输入完成即派发动作） |
 | `shaderBlock` | `bundle`* `args` `speed`=1 `maxFps` `animate`=true `resolutionScale`=1 | 插件着色器块（musicxx 专属组件；终端之类不认识它的客户端会跳过） |
 | `coverRow` | `cover`* `title`* `subtitle` `trailing` `size`=40 `action` | 带封面的行：封面 + 标题 + 副标题 + 可选右侧文字（取不到图片时显示标题） |
+| `animScope` | `values`* `maxFps` `children`* | 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder） |
+| `fadeTransition` | `value`* `curve` `children`* | 透明度过渡：按 value（0~1，字面量或值表达式）淡入淡出；curve 是简写缓动 |
+| `sizeTransition` | `value`* `axis` `curve` `children`* | 尺寸过渡：按 value（0~1）把子块从 0 撑开 / 收拢（axis 缺省竖直） |
+| `scaleTransition` | `value`* `from` `to` `curve` `children`* | 缩放过渡：按 value（0~1）从 from 缩放到 to（缺省 0 → 1） |
+| `rotationTransition` | `value`* `from` `to` `curve` `children`* | 旋转过渡：按 value（0~1）从 from 转到 to（单位 = 圈数，缺省 0 → 1） |
+| `slideTransition` | `value`* `from` `to` `curve` `children`* | 位移过渡：按 value（0~1）从 from 移到 to（单位 = 自身尺寸的倍数，如 [0, 0.1] → [0, 0]） |
 
 按格换算的辅助函数（用客户端 `cell`，缺省取 `defaults.cell`）：
 

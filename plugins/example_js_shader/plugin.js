@@ -772,7 +772,7 @@ function spectrumProbeView(args) {
                         ],
                     },
                     kit.hint({
-                        text: "• 值表达式也能写在普通字段上（尺寸 / 进度）：例如 `Progress.value` 写成 `{\"kind\":\"source\",\"name\":\"plugin.<插件id>.<键>\"}` 就能跟着插件推的变量动；节点表与来源见 docs/plugin-shader-bundle.md §7。",
+                        text: "• 值表达式也能写在普通字段上（尺寸 / 进度 / 文本 / visible）：例如 `Progress.value` 写成 `{\"kind\":\"source\",\"name\":\"plugin.<插件id>.<键>\"}` 就能跟着插件推的变量动。上面的块手写了 JSON；kit 里有现成装配（kit.animScope / kit.fadeTransition / kit.sizeTransition / kit.slideTransition / kit.scaleTransition / kit.rotationTransition）。节点表与来源见 docs/plugin-shader-bundle.md §7。",
                     }, env),
                 ],
             }, env),

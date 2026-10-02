@@ -72,6 +72,18 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
          R"KIT({"variants":[{"requires":["musicxx.Shader"],"template":{"kind":"musicxx.Shader","bundle":"$bundle","args":"$args","speed":"$speed","maxFps":"$maxFps","animate":"$animate","resolutionScale":"$resolutionScale"}},{"template":{"kind":"Text","text":"（这个客户端不支持插件着色器）","type":"caption","tone":"hint"}}],"params":{"bundle":null,"args":null,"speed":1,"maxFps":null,"animate":true,"resolutionScale":1}})KIT"},
         {"coverRow",
          R"KIT({"variants":[{"requires":["Image"],"template":{"kind":"Block","variant":"inset","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Image","source":"file","src":"$cover","width":"$size","height":"$size","radius":4,"alt":"$title"},{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","tone":"hint"}]}]},{"$require":"trailing","kind":"Text","text":"$trailing","tone":"hint"}]}]}},{"template":{"kind":"Block","variant":"inset","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","tone":"hint"}]}]},{"$require":"trailing","kind":"Text","text":"$trailing","tone":"hint"}]}]}}],"params":{"cover":null,"title":null,"subtitle":null,"trailing":null,"size":40,"action":null}})KIT"},
+        {"animScope",
+         R"KIT({"variants":[{"template":{"kind":"musicxx.AnimatedBuilder","values":"$values","children":"$children"}},{"template":{"kind":"musicxx.AnimatedBuilder","values":"$values","$require":"maxFps","maxFps":"$maxFps","children":"$children"}}],"params":{"values":null,"maxFps":null,"children":null}})KIT"},
+        {"fadeTransition",
+         R"KIT({"variants":[{"template":{"kind":"musicxx.FadeTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.FadeTransition","value":"$value","$require":"curve","curve":"$curve","children":"$children"}}],"params":{"value":null,"curve":null,"children":null}})KIT"},
+        {"sizeTransition",
+         R"KIT({"variants":[{"template":{"kind":"musicxx.SizeTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.SizeTransition","value":"$value","$require":"curve","curve":"$curve","children":"$children"}},{"template":{"kind":"musicxx.SizeTransition","value":"$value","$require":"curve","axis":"$axis","curve":"$curve","children":"$children"}}],"params":{"value":null,"axis":null,"curve":null,"children":null}})KIT"},
+        {"scaleTransition",
+         R"KIT({"variants":[{"template":{"kind":"musicxx.ScaleTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.ScaleTransition","value":"$value","$require":"curve","curve":"$curve","children":"$children"}},{"template":{"kind":"musicxx.ScaleTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","children":"$children"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"children":null}})KIT"},
+        {"rotationTransition",
+         R"KIT({"variants":[{"template":{"kind":"musicxx.RotationTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.RotationTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","children":"$children"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"children":null}})KIT"},
+        {"slideTransition",
+         R"KIT({"variants":[{"template":{"kind":"musicxx.SlideTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.SlideTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","children":"$children"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"children":null}})KIT"},
     };
     const auto it = kTable.find(name);
     if (it == kTable.end()) {
@@ -289,6 +301,60 @@ inline pluginxx::ui::Item coverRow(
     const pluginxx::ui::Capabilities* env = nullptr
 ) {
     return pluginxx::ui::detail::expandKit("coverRow", params, env, &kitTemplate);
+}
+
+/// 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder）
+/// 参数：values(json, 必填)、maxFps(int)、children(items, 必填)
+inline pluginxx::ui::Item animScope(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("animScope", params, env, &kitTemplate);
+}
+
+/// 透明度过渡：按 value（0~1，字面量或值表达式）淡入淡出；curve 是简写缓动
+/// 参数：value(value, 必填)、curve(enum:ease)、children(items, 必填)
+inline pluginxx::ui::Item fadeTransition(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("fadeTransition", params, env, &kitTemplate);
+}
+
+/// 尺寸过渡：按 value（0~1）把子块从 0 撑开 / 收拢（axis 缺省竖直）
+/// 参数：value(value, 必填)、axis(enum:axis)、curve(enum:ease)、children(items, 必填)
+inline pluginxx::ui::Item sizeTransition(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("sizeTransition", params, env, &kitTemplate);
+}
+
+/// 缩放过渡：按 value（0~1）从 from 缩放到 to（缺省 0 → 1）
+/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、children(items, 必填)
+inline pluginxx::ui::Item scaleTransition(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("scaleTransition", params, env, &kitTemplate);
+}
+
+/// 旋转过渡：按 value（0~1）从 from 转到 to（单位 = 圈数，缺省 0 → 1）
+/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、children(items, 必填)
+inline pluginxx::ui::Item rotationTransition(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("rotationTransition", params, env, &kitTemplate);
+}
+
+/// 位移过渡：按 value（0~1）从 from 移到 to（单位 = 自身尺寸的倍数，如 [0, 0.1] → [0, 0]）
+/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、children(items, 必填)
+inline pluginxx::ui::Item slideTransition(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("slideTransition", params, env, &kitTemplate);
 }
 
 } // namespace kit
