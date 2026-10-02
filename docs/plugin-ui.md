@@ -189,6 +189,9 @@ capability(*this, "plugin.my_plugin.settings",
 
 - 求值结果按 `u` 解释；写 `unit: "percent"`（或 `{"kind":"const","value":40,"unit":"percent"}`）
   就是"父容器比例"，与 `{"percent":40}` 同一口径；
+- **文本字段**（`Text.text`、`Badge.text`、按钮文案、KV / Table / Tree 的文本…）也能写值表达式：
+  求值结果当文本用，求值失败或没有上下文时用字面量兜底（`{"kind":"format", …}` 可以把数值写进文案）；
+- **公共字段 `visible`**（每个块都能写）：布尔字面量或值表达式，求值为假时这一块**不渲染**；
 - 节点表、来源（`musicxx.theme.*` / `musicxx.icon.*` / `musicxx.spectrum.*` / `musicxx.env.*`、
   变量目录里的自定义键）、上限与降级规则见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7；
 - 名字空间：`musicxx.` 前缀是框架保留的（派生来源与官方变量），**自定义名字允许含 `.`**
@@ -241,6 +244,10 @@ capability(*this, "plugin.my_plugin.settings",
 - 状态（`smooth` 的上一帧值）跟着通道表走：同一份声明不被打断，声明变了重新开始；
 - **没有 `AnimatedBuilder` 包裹的字段仍然是"每次重画算一次"**（插件可以用"能力返回新视图"刷新页面，
   但那是跳变，不是动画）。
+- **kit 里有现成装配**：`kit.animScope({values, maxFps, children})` / `kit.fadeTransition({value, curve, children})` /
+  `kit.sizeTransition({value, axis, curve, children})` / `kit.slideTransition({value, from, to, curve, children})` /
+  `kit.scaleTransition({value, from, to, curve, children})` / `kit.rotationTransition({value, from, to, curve, children})`
+  （参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
 ### 2.4 用 kit 装配（推荐写法）
 
