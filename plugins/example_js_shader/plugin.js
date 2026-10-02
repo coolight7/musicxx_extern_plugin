@@ -706,6 +706,76 @@ function spectrumProbeView(args) {
             kit.hint({
                 text: "• 这一页也演示了『能力处理器里不能等动作』这条规则：能力是同步进宿主调用的（应用线程在等它返回），处理器里 await 动作会与调用方互锁、只能等到超时；要实时数据读状态镜像，要动作结果就异步读、把结果记下来回读（本页与 example_js 的 crossCall 都是这么做的）。",
             }, env),
+            // 动画示例：值表达式 + 动画块（musicxx.AnimatedBuilder / SizeTransition / FadeTransition）
+            //
+            // 一次声明就够：通道表里定义"这一页用到的几个值"，子树里的字段用 {"kind":"source","name":...}
+            // 读它们；宿主每帧求值并只重建读到值的块。没有动画块包裹的字段按"每次重画算一次"。
+            kit.card({
+                title: "动画示例",
+                children: [
+                    kit.hint({
+                        text: "下面这块由 musicxx.AnimatedBuilder 驱动：高度跟着响度呼吸（smooth + lfo），进场先淡入再撑开（tween 驱动 SizeTransition / FadeTransition）。没有频谱数据时高度取 lfo 的下限，所以画面仍然在动。",
+                    }, env),
+                    {
+                        kind: "musicxx.AnimatedBuilder",
+                        maxFps: 30,
+                        values: {
+                            // 进场进度：打开这一页后从 0 到 1（once，停在终点）
+                            "demo.intro": {
+                                kind: "tween",
+                                from: 0,
+                                to: 1,
+                                durationMs: 900,
+                                ease: "outCubic",
+                            },
+                            // 呼吸高度：响度（快起慢落）× 缓慢摆动，取不到频谱时是 60~90 的摆动
+                            "demo.h": {
+                                kind: "mul",
+                                of: [
+                                    {
+                                        kind: "smooth",
+                                        attackMs: 20,
+                                        releaseMs: 260,
+                                        of: { kind: "source", name: "musicxx.spectrum.level" },
+                                    },
+                                    {
+                                        kind: "lfo",
+                                        shape: "sine",
+                                        periodMs: 2600,
+                                        from: 60,
+                                        to: 90,
+                                    },
+                                ],
+                            },
+                        },
+                        children: [
+                            {
+                                kind: "musicxx.FadeTransition",
+                                value: { kind: "source", name: "demo.intro" },
+                                children: [
+                                    {
+                                        kind: "musicxx.SizeTransition",
+                                        axis: "vertical",
+                                        value: { kind: "source", name: "demo.intro" },
+                                        children: [
+                                            {
+                                                kind: "SizedBox",
+                                                height: { kind: "source", name: "demo.h" },
+                                                children: [
+                                                    { kind: "Text", text: "跟着音乐呼吸的一块（高度由通道驱动）", type: "caption", tone: "hint" },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    kit.hint({
+                        text: "• 值表达式也能写在普通字段上（尺寸 / 进度）：例如 `Progress.value` 写成 `{\"kind\":\"source\",\"name\":\"plugin.<插件id>.<键>\"}` 就能跟着插件推的变量动；节点表与来源见 docs/plugin-shader-bundle.md §7。",
+                    }, env),
+                ],
+            }, env),
             kit.button({
                 label: "重新读取（镜像实时 + 发起一次动作读取）",
                 variant: "primary",

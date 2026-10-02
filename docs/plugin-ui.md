@@ -197,6 +197,51 @@ capability(*this, "plugin.my_plugin.settings",
 - 当前版本：字段求值是"每次重画算一次"（`tween` / `lfo` 这类随时间变化的节点要等页面里的
   帧驱动接上才有动画效果）；着色器块（`musicxx.Shader`）本来就是每帧渲染，不受这一条限制。
 
+### 2.3.2 动画（`musicxx.AnimatedBuilder` + 过渡块）
+
+页面里要**逐帧动**的东西放在 `musicxx.AnimatedBuilder` 里：它声明一张**通道表**（名字 → 值表达式）
+并驱动子树按帧重建，子树里的字段用 `{"kind":"source","name":"<通道名>"}` 读通道：
+
+```jsonc
+{ "kind": "musicxx.AnimatedBuilder",
+  "maxFps": 30,                                  // 缺省 30，上限 30
+  "values": {
+    "card.h": { "kind": "mul", "of": [
+        { "kind": "smooth", "attackMs": 20, "releaseMs": 260,
+          "of": { "kind": "source", "name": "musicxx.spectrum.level" } },
+        { "kind": "lfo", "shape": "sine", "periodMs": 2600, "from": 60, "to": 90 } ] },
+    "card.intro": { "kind": "tween", "from": 0, "to": 1, "durationMs": 900, "ease": "outCubic" }
+  },
+  "children": [
+    { "kind": "musicxx.FadeTransition", "value": { "kind": "source", "name": "card.intro" },
+      "children": [
+        { "kind": "musicxx.SizeTransition", "axis": "vertical", "value": { "kind": "source", "name": "card.intro" },
+          "children": [ { "kind": "SizedBox", "height": { "kind": "source", "name": "card.h" } } ] } ] }
+  ] }
+```
+
+| 块 | 字段 | 说明 |
+|---|---|---|
+| `musicxx.AnimatedBuilder` | `values`（通道表）、`maxFps`、`children` | 通道作用域 + 每帧重建；没有通道时零成本（不建帧调度） |
+| `musicxx.SizeTransition` | `axis`（`vertical`/`horizontal`）、`axisAlignment`、`value`(0~1)、`curve`、`children` | 按进度把子块从 0 撑开 / 收拢 |
+| `musicxx.FadeTransition` | `value`(0~1)、`curve`、`children` | 透明度 |
+| `musicxx.SlideTransition` | `from`/`to`（`[x,y]`，单位 = 自身尺寸倍数）、`value`、`curve`、`children` | 位移 |
+| `musicxx.ScaleTransition` | `from`/`to`（倍数）、`value`、`curve`、`children` | 缩放 |
+| `musicxx.RotationTransition` | `from`/`to`（圈数）、`value`、`curve`、`children` | 旋转 |
+
+规则与预算：
+
+- `value` 可以写字面量、值表达式或通道引用；`curve` 是"通道没带缓动"时的简写（取
+  `linear`/`inQuad`/`outQuad`/`inOutQuad`/`inCubic`/`outCubic`/`inOutCubic`/`inSine`/`outSine`/
+  `inOutSine`/`outBack`/`outElastic`）；
+- 每个 `AnimatedBuilder` 最多 **32 条通道**（超过的被忽略并记日志）；每帧只重建"读到值的块"；
+- 帧调度走宿主的视口动画（**限帧 + 页面被遮挡 / 进后台时自动停**）；**动画等级低时只出构建那一帧**
+  （等于静态，与主题的"低等级少动效"一致）；
+- 过渡块只画自己（尺寸 / 透明度 / 位移 / 缩放 / 旋转），**子块完全不用改**；
+- 状态（`smooth` 的上一帧值）跟着通道表走：同一份声明不被打断，声明变了重新开始；
+- **没有 `AnimatedBuilder` 包裹的字段仍然是"每次重画算一次"**（插件可以用"能力返回新视图"刷新页面，
+  但那是跳变，不是动画）。
+
 ### 2.4 用 kit 装配（推荐写法）
 
 写页面内容不必手拼这些块：**随插件分发的界面 kit** 把常用组合封装好了。
