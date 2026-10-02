@@ -170,6 +170,33 @@ capability(*this, "plugin.my_plugin.settings",
   另有 `{"percent": 40}`（占父容器可用空间的比例）与 `"auto"`（内容决定）；
 - 边距只写一个字段（`padding` / `margin`），值是数字（四边）、`{"horizontal":20,"vertical":8}` 或单边对象。
 
+### 2.3.1 值表达式（尺寸 / 进度等字段也能"算"）
+
+尺寸类字段（`SizedBox.width`/`height`、`Gap.size`、`Row`/`Column.gap`、`KV.keyWidth`、
+`Table` 列宽、`Icon.size`、`Image.width`/`height`、`Progress.width`）与 `Progress.value`
+除了写字面量，还能写**值表达式**：一个带 `kind` 的对象，图形界面用与着色器参数**同一套引擎**
+每帧求值（来源、过渡、动画、组合都在一份声明里）：
+
+```jsonc
+{ "kind": "SizedBox",
+  // 高度跟着当前音频响度呼吸（10 帧/秒的数据包一层 smooth 才不会有台阶感）
+  "height": { "kind": "mul", "of": [
+      { "kind": "smooth", "attackMs": 20, "releaseMs": 260,
+        "of": { "kind": "source", "name": "musicxx.spectrum.level" } },
+      { "kind": "lfo", "shape": "sine", "periodMs": 2600, "from": 120, "to": 160 } ] },
+  "children": [ { "kind": "Progress", "value": { "kind": "source", "name": "plugin.demo.progress" }, "total": 100 } ] }
+```
+
+- 求值结果按 `u` 解释；写 `unit: "percent"`（或 `{"kind":"const","value":40,"unit":"percent"}`）
+  就是"父容器比例"，与 `{"percent":40}` 同一口径；
+- 节点表、来源（`musicxx.theme.*` / `musicxx.icon.*` / `musicxx.spectrum.*` / `musicxx.env.*`、
+  变量目录里的自定义键）、上限与降级规则见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7；
+- 名字空间：`musicxx.` 前缀是框架保留的（派生来源与官方变量），**自定义名字允许含 `.`**
+  （例如 `plugin.<插件id>.progress`）；
+- 求值失败（未知 `kind`、参数写错）只**忽略该字段**并按缺省处理，日志里留一条原因；
+- 当前版本：字段求值是"每次重画算一次"（`tween` / `lfo` 这类随时间变化的节点要等页面里的
+  帧驱动接上才有动画效果）；着色器块（`musicxx.Shader`）本来就是每帧渲染，不受这一条限制。
+
 ### 2.4 用 kit 装配（推荐写法）
 
 写页面内容不必手拼这些块：**随插件分发的界面 kit** 把常用组合封装好了。
