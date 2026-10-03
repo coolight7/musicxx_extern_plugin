@@ -5,12 +5,13 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 
 | 主题 | 文档 |
 |---|---|
-| 钩子 id / 模式 / 派发，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
+| 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
+| 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
-| 播放页背景（shader bundle 打包与 uniform 契约） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | C++ 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
-| 单点示例（多脚本装载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
+| 单特性示例（多脚本装载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
 
 ---
 
@@ -83,6 +84,9 @@ permissions:                     # 声明式权限：只做展示，运行时不
 7. 脚本顶层与处理器里**都可以**读写 `musicxx`；但处理器里不要递归触发同一个钩子。
 8. 脚本每次启用都会重新执行：**注册语句要写成幂等的**（重复执行不会累积副作用），
    定时器在 `stop` 时由宿主清理，不要假设它还在。
+9. **应用整体卡住**（脚本死循环、长时间同步计算）时，宿主不会打断脚本：应用连续两次启动没走完
+   会**自动进入安全模式（本次不运行不加载任何外部插件）**，用户也可以在管理页手动开关。
+   启动阶段不要做重活，循环要保证能结束（详见 [plugin-guide.md](plugin-guide.md) §5.1 / §5.9）。
 
 ---
 
@@ -113,7 +117,7 @@ musicxx.hooks.unregister(id);
 musicxx.hooks.has(id);
 ```
 
-- `id` 必须是**全名**（官方 `musicxx.*`）；宿主的契约表里没有的钩子会被拒绝；
+- `id` 必须是**全名**（官方 `musicxx.*`）；宿主的约定表里没有的钩子会被拒绝；
 - `mode`：`"observe"` = 只观察（返回值忽略）；其它值（含不写）= `"decision"` 裁决型；
 - `priority`：小者先执行；同优先级按注册顺序；
 - `ownerTag`：同一插件在同一个钩子上区分多个处理器的标记（**不要用不同 ownerTag 注册同一个钩子**，
@@ -137,8 +141,8 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 { action: "continue" | "skip" | "cancel" | "replace", patch: { ... }, error?: "说明" }
 ```
 
-`action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲）。当前版本已埋点的
-裁决钩子只有三个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已埋点钩子的载荷与裁决」：
+`action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲）。当前版本已接入的
+裁决钩子只有三个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」：
 `player.beforePlaySong`（只支持 `skip`）、`player.source.beforeParse`（`skip` / `patch.src`）、
 `player.error`（`stop` / `skip` / `patch.tryNextSrc`）。
 
@@ -153,7 +157,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 });
 ```
 
-- 宿主一直等到 Promise 结算：结算后裁决生效（没有等待预算，也不会按「无裁决」继续）；
+- 宿主一直等到 Promise 结算：结算后裁决生效（没有等待超时，也不会按「无裁决」继续）；
 - 所以异步路径要保证 Promise **一定会结算**（失败就 reject），否则调用点会一直等；
 - 结算次数可在统计里看到（`asyncHookSettled`，见 `musicxx.stats.getSelf()`）。
 
@@ -179,7 +183,7 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 - 判断「是否在播放」用 `musicxx.state.musicxx.env.isPlaying`（布尔）：`musicxx.state.player.state` 的取值
   在暂停/播放/停止事件里是小写 `play`/`pause`/`stop`，其它变化是枚举名 `Play`/`Pause`/`Stop`/`Completed`；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
-  `musicxx.player.position` 钩子也尚未埋点 —— 不要把它当每秒更新的进度用；
+  `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
 - `musicxx.state.spectrum` 是**当前音频频谱**（内置『音乐动效』插件提取的数据，值都是 0~1）：
   `status` = `ready` / `loading` / `none` / `off` / `unavailable`，`available` 为假时
   `level` 与 `bands` 都是 0（要看原因读 `reason`）。它只在播放中推进，暂停时不刷新；
@@ -217,7 +221,7 @@ const ui = musicxx.host.info().ui;
 ui.kind        // "gui"（图形界面）或 "tui"（终端）
 ui.blocks      // 这个客户端真正支持的界面组件名（例如是否支持 "Icon" / "musicxx.Shader"）
 ui.controls    // 支持的控件形态（buttons / select / checkbox / switch / text / number）
-ui.icons       // 客户端认识的图标名（用得上再挑，其他情况用 Icon 的 glyph 兜底）
+ui.icons       // 客户端认识的图标名（用得上再挑，其他情况交给 Icon 的 glyph）
 ui.gap         // 客户端默认行距（u）
 ui.cell        // 只有终端有：每个字符格相当于多少 u（图形界面没有这个字段）
 ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
@@ -304,7 +308,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 ### 7.2 存储（插件私有数据）
 
-| 用途 | API | 落点 |
+| 用途 | API | 存放位置 |
 |---|---|---|
 | 私有 KV | `musicxx.storage.get/set/remove/list` | `<插件数据目录>/<插件id>/data/kv.json` |
 | 用户可见的设置 | `musicxx.storage.getConfig/setConfig`（= 带 `namespace:"config"`） | 插件目录里的 `config.json` |
@@ -340,7 +344,7 @@ const resp = await musicxx.net.fetch({
   （`receivedBytes` = 实际从网络读到的字节数，`contentLength` = 响应头声明的总长度，-1 = 未知）；
 - 宿主**不限定可访问的域名**（任意 http/https 都可以）；`musicxx.net` 权限只表示
   「允许使用宿主这条通道」，不代表插件不能自己联网（动态库插件可以直接用系统 API）；
-- `musicxx.net.fetch` 的动作预算会按 `timeoutMs + 5 s` 放宽，所以 HTTP 超时不会被动作超时先打断。
+- `musicxx.net.fetch` 的动作超时会按 `timeoutMs + 5 s` 放宽，所以 HTTP 超时不会被动作超时先打断。
 
 下载到插件自己的数据目录（`<data>/downloads/`）：
 
@@ -350,7 +354,7 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 ```
 
 - 只支持 `GET` / `HEAD`；`fileName` 只能是**纯文件名**（含路径分隔符或 `..` 会被拒绝），
-  不写时按 URL 推导；落点固定在插件自己的数据目录内。
+  不写时按 URL 推导；存放位置固定在插件自己的数据目录内。
 
 ### 7.4 界面反馈与页面跳转
 
@@ -438,7 +442,7 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 ```js
 // 权威读（异步）
 var level = await musicxx.vars.get("musicxx.ui.animatedLevel");
-// 一次读多个键（宿主的同键在途请求会合并）
+// 一次读多个键（宿主的同键进行中请求会合并）
 var values = await musicxx.vars.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
 
 // 热路径：先保活缓存，再同步读
@@ -464,7 +468,7 @@ var result = await musicxx.vars.set("musicxx.theme.mode", "night");
 if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
 ```
 
-写入一律**转给属主落地**：官方键由应用落地（走用户在设置里改的同一条路径）；
+写入一律**交给属主**：官方键由应用写入（走用户在设置里改的同一条路径）；
 你自己注册的 `declared` 变量由宿主代存（立即结算）；`handler` 变量转回你自己的 `onWrite`。
 
 ### 9.3 注册自己的变量（给别的插件与应用用）
@@ -500,7 +504,7 @@ musicxx.vars.register({
   type: "bool",
   refreshAfterMs: 5000,                     // 有人 watch 时，宿主最多 5 秒来取一次真实值
   onRead:  function () { return tipStart; },             // 宿主来取真实值时求值（回答 get）
-  onWrite: function (value) {                            // 别人写这个变量时落地
+  onWrite: function (value) {                            // 别人写这个变量时由这里处理
     tipStart = (value === true);
     return tipStart;                                     // 返回值 = 提交给宿主的最终值
   }
@@ -533,7 +537,7 @@ musicxx.vars.unregister("tip.start");
   每秒多次 + 只想被轮询读的数据更建议放状态镜像（§5）。
 - **没人看就不推**：宿主会告诉应用"哪些键有人订阅或 watch"，没人看的键值变化不产生
   任何 FFI/事件/回调。因此"插件没在跑"或"没人订阅"时，高频变量的成本是零。
-- 变量的读写预算：读默认 2 秒、写（应用）5 秒 /（handler 属主）3 秒；
+- 变量的读写超时：读默认 2 秒、写（应用）5 秒 /（handler 属主）3 秒；
   超时按 `读取超时` / `not accepted` 结算，**缓存保持不变**。
 
 ---
@@ -552,7 +556,7 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 - 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（宿主会等到它结算再给调用方结果）；
 - **处理器里不要等动作**：应用侧打开页面 / 点按钮是**同步进宿主**调用能力的（应用线程全程在等它
   返回），而动作要由应用线程执行 —— 处理器里 `await` 一个动作会与调用方互相等下去，最后只能等到
-  超时（表现是"整个应用卡住几秒 + 调用插件能力失败，未在预算内完成"）。异步处理器本身没问题
+  超时（表现是"整个应用卡住几秒 + 调用插件能力失败，未在时限内完成"）。异步处理器本身没问题
   （例如等 JS 定时器、等跨插件调用），只是不要等**宿主**的动作：
   - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）读状态镜像（`musicxx.state.get`）；
   - 要动作结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
@@ -748,7 +752,7 @@ musicxx.util.now();                   // Date.now()
 | `musicxx.stats.reportMetric` | 自报指标（只展示） |
 
 只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）；
-只关心某一个特性时读对应的单点示例：`plugins/example_js_vars/`（变量通道）、
+只关心某一个特性时读对应的单特性示例：`plugins/example_js_vars/`（变量通道）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、`plugins/example_js_async/`（裁决处理器返回 Promise）。
 
 ---
@@ -772,7 +776,9 @@ musicxx.util.now();                   // Date.now()
 插件声明的注册项与计数，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
 `timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `asyncHookSettled`。
 插件里也能自己读：`musicxx.stats.getSelf()`。
-`musicxx.stats.getSelf()`。
+
+**应用卡住时**：应用日志目录下有一份 `host_call.log`（进宿主调用的同步轨迹，卡住后
+**最后一行就是没有返回的那次调用**）；配合「插件详情 → 日志」一起看，就能区分是脚本死循环还是动作等待。
 
 **常见坑**
 
@@ -784,7 +790,7 @@ musicxx.util.now();                   // Date.now()
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（见 §7.1 的表尾） |
-| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未埋点」（应用侧还没有接） |
+| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（应用侧还没有接） |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，宿主侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
 | 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会装载失败）；先看日志 |

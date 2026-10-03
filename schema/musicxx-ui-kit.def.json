@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kitVersion": 1,
-  "doc": "musicxx 扩展 kit：应用自己的留白口径 + 设置行/封面行/着色器块等本客户端常用组合（只装配，不含逻辑）",
+  "doc": "musicxx 扩展 kit：应用自己的留白规则 + 设置行/封面行/着色器块等本客户端常用组合（只装配，不含逻辑）",
   "components": [
     {
       "name": "title",

@@ -64,7 +64,7 @@ const char *varErrorText(int32_t rc) {
     case MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND:
       return "变量不存在 (官方键要先由应用声明)";
     case MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT:
-      return "属主没有在预算内回答";
+      return "属主没有在超时前回答";
     case MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION:
       return "命名空间不属于本插件, 或没有写权限";
     case MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL:
@@ -527,7 +527,7 @@ constexpr const char *kPrelude = R"JS(
         varGetWaiters.set(id, waiter);
       });
     },
-    /// 一次读多个键 (同键在途请求由宿主合并); 单项失败不影响其它项
+    /// 一次读多个键 (同键进行中请求由宿主合并); 单项失败不影响其它项
     getMany: function (keys, options) {
       var list = Array.isArray(keys) ? keys : [keys];
       var result = {};
@@ -664,7 +664,7 @@ constexpr const char *kPrelude = R"JS(
 
   /// 写请求的即时回执 (宿主在 JS 线程上调用)
   /// - 已经在属主那里结算完: 直接给出结果;
-  /// - 转给属主落地: 结果等 `musicxx.var.writeResult` 事件 (键 = requestId)
+  /// - 交给属主写入: 结果等 `musicxx.var.writeResult` 事件 (键 = requestId)
   ext.onVarSetDone = function (id, json) {
     var key = String(id);
     var waiter = varSetWaiters.get(key);
@@ -679,7 +679,7 @@ constexpr const char *kPrelude = R"JS(
     }
     var result = info.result || {};
     if (result.pending === true) {
-      // 等属主落地: 换到 writeResult 的等待表里 (键 = 宿主给的 requestId)
+      // 等属主写入: 换到 writeResult 的等待表里 (键 = 宿主给的 requestId)
       varSetWaiters.delete(key);
       varSetWaiters.set(String(result.requestId), waiter);
       return;
@@ -833,7 +833,7 @@ constexpr const char *kPrelude = R"JS(
     fetch: function (options) {
       var req = (typeof options === "string") ? { url: options } : (options || {});
       if (!req.url) { return Promise.reject(new Error("net.fetch: 缺少 url")); }
-      // 动作 op 的预算要比 HTTP 超时更长，否则请求还没回来 op 就先超时了
+      // 动作 op 的超时要比 HTTP 超时更长，否则请求还没回来 op 就先超时了
       var budget = (typeof req.timeoutMs === "number" && req.timeoutMs > 0)
         ? Math.trunc(req.timeoutMs) + 5000 : 20000;
       return musicxx.call("musicxx.net.fetch", req, budget);
@@ -1013,7 +1013,7 @@ constexpr const char *kPrelude = R"JS(
         // 原生/内置目标: 结果稍后经 ext.onCapabilityResult 回到 JS 线程
         return new Promise(function (resolve, reject) {
           var waiter = { resolve: resolve, reject: reject, timer: 0 };
-          // 不传超时 / 传 0 时不设本地兜底定时器 (一直等结果)
+          // 不传超时 / 传 0 时不设本地备用定时器 (一直等结果)
           if (budget > 0) {
             waiter.timer = musicxx.timer.setTimeout(function () {
               if (capabilityWaiters.delete(info.id)) {
@@ -1134,7 +1134,7 @@ constexpr const char *kPrelude = R"JS(
   /// - `waitId` 只有裁决型钩子才有 (宿主一直等到结果); 观察型钩子为空字符串/undefined;
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
-  /// - 宿主不设等待预算: Promise 结算多晚都会被接住。
+  /// - 宿主不设等待超时: Promise 结算多晚都会被接住。
   ext.invokeHook = function (hookId, inputJson, waitId) {
     var entry = hookTable.get(hookId);
     if (!entry) { return ""; }
@@ -2501,7 +2501,7 @@ JsEngine::takePendingVarOps(const std::shared_ptr<Instance> &inst) {
 
 /* ==================== 变量 (musicxx.vars) ==================== */
 
-/// 在宿主线程上落地一次变量声明/订阅操作 (**必须已在宿主线程调用**)
+/// 在宿主线程上执行一次变量声明/订阅操作 (**必须已在宿主线程调用**)
 int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
                                    const std::string &op, const std::string &key,
                                    const std::string &json) {
@@ -3872,7 +3872,7 @@ void *PLUGINXX_CALL JsEngine::builtinStart(void *ctx,
   if (rc != 0 && errorOut) {
     pluginxx::hostMemorySetString(errorOut, err);
   }
-  /// 内核契约: start 事务必须恰好调用一次完成通知 (返回 nullptr = 无异步 op)
+  /// 内核约定: start 事务必须恰好调用一次完成通知 (返回 nullptr = 无异步 op)
   if (notify && notify->done) {
     notify->done(notify->host_ud,
                  rc == 0 ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,

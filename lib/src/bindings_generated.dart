@@ -794,7 +794,7 @@ class MusicxxExternPluginBindings {
           >();
 
   /// 派发钩子
-  /// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链 (预算内) 并输出合并结果;
+  /// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链结束 (等待期间不设超时) 并输出合并结果;
   /// MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回
   /// - 裁决型钩子在 ASYNC 模式下为"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
   /// 处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
@@ -1119,7 +1119,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 应用回执写请求 (**回执即落地**): accepted 且带 value 时落值并按需广播
+  /// 变量表 · 应用回执写请求 (**回执即写入**): accepted 且带 value 时写入值并按需广播
   int musicxx_extern_plugin_var_write_result(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int request_id,

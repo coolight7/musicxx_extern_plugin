@@ -48,7 +48,7 @@ class MusicxxPluginVarDeclare {
   /// 风险等级：low / medium / high（管理页排序用）
   final String risk;
 
-  /// 属主侧的推送节流口径（毫秒；0 = 不节流）
+  /// 属主侧的推送节流设置（毫秒；0 = 不节流）
   ///
   /// 只影响应用侧"要不要合并后再推"：高频值必须声明（见设计文档 §3.11）。
   final int throttleMs;
@@ -73,7 +73,7 @@ class MusicxxPluginVarDeclare {
 /// 变量通道（`runtime.vars`）：有属主、可读、可写、可订阅变动的小值
 ///
 /// 语义要点：
-/// - **应用侧是官方键的真值所在**：值由应用推（[update]），写入由应用落地
+/// - **应用侧是官方键的真值所在**：值由应用推（[update]），写入由应用执行
 ///   （[readResult] / [writeResult]）；
 /// - `get` / `peek` / `list` 是只读查询：插件键可以读，官方键只能由应用自己持有；
 /// - 没有真值存在宿主里：宿主只保留一份服务 `peek` 的同步读缓存。
@@ -200,7 +200,7 @@ class MusicxxPluginVars {
     }
   }
 
-  /// 回执插件对官方键的写请求（**回执即落地**：accepted 且带值时宿主机落值并广播）
+  /// 回执插件对官方键的写请求（**回执即写入**：accepted 且带值时宿主机写入值并广播）
   bool writeResult(
     int requestId, {
     required bool accepted,

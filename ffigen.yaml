@@ -4,7 +4,7 @@
 #   dart run ffigen --config ffigen.yaml
 #
 # 说明：
-# - 唯一输入是宿主对外头文件 src/include/musicxx_extern_plugin_api.h（Dart ⇄ 原生契约）；
+# - 唯一输入是宿主对外头文件 src/include/musicxx_extern_plugin_api.h（Dart ⇄ 原生约定）；
 # - 输出 lib/src/bindings_generated.dart 为生成物，**不要手改**；
 # - llvm-path：Windows 上必须显式给出（沿用 mediaxx 的写法），
 #   其它平台由 ffigen 自行探测（可用环境变量 MUSICXX_FFIGEN_LLVM_PATH 覆盖）。

@@ -1,4 +1,4 @@
-# 插件渲染：shader bundle 打包与 uniform 契约
+# 插件渲染：shader bundle 打包与 uniform 约定
 
 插件可以把**打包期编译好的 shader bundle** 注册成一种宿主渲染样式（当前只有「播放页背景」
 一个渲染槽位），由用户在「设置 → 播放页面背景」里选中后生效；同一个 bundle 也能画在插件自己的
@@ -6,7 +6,7 @@
 
 插件不写 Dart/Flutter 代码，只交出 bundle + 一份参数声明。相关文档：界面与页面块类型见
 [plugin-ui.md](plugin-ui.md)，JS 与 C++ 的写法见 [plugin-js-api.md](plugin-js-api.md) /
-[plugin-native-api.md](plugin-native-api.md)。
+[plugin-native-api.md](plugin-native-api.md)，整体流程与注意事项见 [plugin-guide.md](plugin-guide.md)。
 
 > 现成可编译的例子：`plugins/example_js_shader/shader/` 与 `plugins/example_native/shader/`
 > —— 「晶格化」背景（随机点最近邻切块，配色用宿主的 4 个绘制色）。`example_js_shader` 里还有
@@ -114,7 +114,7 @@ $spec = ((Get-Content shader/bundle.json -Raw) -replace "`r?`n", ' ').Trim()
 
 ---
 
-## 5. uniform 契约
+## 5. uniform 约定
 
 宿主每帧填充一个固定名字的结构体 `MusicxxRenderInfo`：
 
@@ -247,12 +247,12 @@ void main() {
 
 **同一套值系统也用在页面块上**（界面描述层）：尺寸 / 数值字段（`SizedBox` 宽高、`Gap.size`、
 `Progress.value`、过渡块的 `value`/`from`/`to`…）、**文本字段**（`Text.text`、KV / Table / Tree 的文本…）
-与公共字段 **`visible`** 都能写值表达式；文本字段求值失败时用字面量兜底，`visible` 求值为假时这一块不渲染。
+与公共字段 **`visible`** 都能写值表达式；文本字段求值失败时用字面量作为回退，`visible` 求值为假时这一块不渲染。
 页面侧逐帧驱动与过渡块见 `plugin-ui.md` §2.3.2。
 
 ```jsonc
 "args": {
-  // 来源：取不到时的兜底值写在节点里（fallback / fallbackNight）
+  // 来源：取不到时的回退值写在节点里（fallback / fallbackNight）
   "uColor1": { "kind": "source", "name": "musicxx.icon.themeMapping.0" },
   "uColor2": { "kind": "source", "name": "musicxx.icon.main", "convert": true, "fallback": "#8899aa" },
 
@@ -350,13 +350,13 @@ void main() {
 - 没有数据时**写全 0（静音），不看 `fallback`**：要区分"静音 / 没启用 / 正在加载"就看
   `musicxx.env.hasSpectrum`（或着色器里的 `uEnv.z`）；
 - 一帧有 **256 个频点**，频带是这些频点按线性分组取平均后的 16 个值（与能力的 `GetAudioSpectrum`
-  同一口径，频带 0 最低、频带 15 最高）；想要别的口径或整曲数据用 `musicxx.media.spectrum` 动作自己算；
+  一致，频带 0 最低、频带 15 最高）；想要别的规则或整曲数据用 `musicxx.media.spectrum` 动作自己算；
 - 能取到数据的条件：正在播放**本地/缓存**的音频（网络流要先有本地缓存），时长不超过
   15 分钟，且内置『音乐动效』插件处于启用状态。
 
 ### 7.3 时间与状态
 
-- `tween` / `lfo` 用的是**动画时间**：与着色器里的 `t = uParams.z * uParams.w` 同一口径，
+- `tween` / `lfo` 用的是**动画时间**：与着色器里的 `t = uParams.z * uParams.w` 一致，
   插件设置页里的"动画速率"会一起带动它们；`animate: false` 时时间恒为 0（动画停在起点）；
 - `smooth` 的状态（上一帧输出）跟着**参数表**走：插件重新声明**同一份参数**时沿用旧状态
   （只是改了 `speed` 这类字段不会打断正在跑的过渡）；声明变了、换 bundle 或换样式时从新声明
@@ -373,7 +373,7 @@ void main() {
 - 写错的项**被忽略并记一条日志**（未知 `kind`、缺必填参数、成员名非法、超过上限…），
   不影响同一份声明里的其它成员，也不会让整个样式不可用；
 - 播放页背景**完全不写 `args`** 时，宿主默认给 `uColor1..4 ← musicxx.icon.themeMapping.0..3`
-  （观感与内置背景一致）；页面里的 `Shader` 块不做这个兜底（不写就没有颜色）；
+  （观感与内置背景一致）；页面里的 `Shader` 块不做这个回退（不写就没有颜色）；
 - 旧的 `data.colors` 字段与旧的扁平 `args` 写法（数组 + `source` / `value` / `valueNight` /
   `convert` 字段）**都已移除**：还写着的插件不会解析 `args`（当作"没有参数"），
   宿主日志里会给一条迁移提示。

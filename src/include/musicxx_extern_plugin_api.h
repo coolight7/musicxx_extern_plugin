@@ -1,6 +1,6 @@
 /// musicxx 外部插件宿主 C ABI (Dart ⇄ 原生, v1)
 ///
-/// 定位: 本头是 **Dart 侧唯一入口**(ffigen 由此生成绑定), 也是原生宿主的导出契约。
+/// 定位: 本头是 **Dart 侧唯一入口**(ffigen 由此生成绑定), 也是原生宿主的导出约定。
 /// 跨边界约定:
 /// - 对齐/类型: 8 字节对齐, 只用定长类型, 禁止裸 int/long/size_t;
 /// - 调用约定: 全部导出函数与回调带 `MUSICXX_EXTERN_PLUGIN_CALL`;
@@ -68,7 +68,7 @@
 
 /* ==================== 钩子派发标志 ==================== */
 
-#define MUSICXX_EXTERN_PLUGIN_HOOK_SYNC  1 ///< 等待处理器链结果 (有等待预算)
+#define MUSICXX_EXTERN_PLUGIN_HOOK_SYNC  1 ///< 等待处理器链结果 (等待期间不设超时)
 #define MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 0 ///< 入队即返回
 
 #ifdef __cplusplus
@@ -350,13 +350,13 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
 /* ==================== 钩子 ==================== */
 
 /// 派发钩子
-/// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链结束 (没有等待预算) 并输出合并结果;
+/// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链结束 (等待期间不设超时) 并输出合并结果;
 ///   MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回
 /// - 裁决型钩子在 ASYNC 模式下为"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
 ///   处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
 ///   以及 result/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
 /// - out_json 形如 {"handled":true,"result":{...},"called":1,"handlers":2}
-/// - `timeout_ms` 保留在签名里 (契约冻结) 但不再使用: 宿主不设等待预算, 处理器链慢就是
+/// - `timeout_ms` 保留在签名里 (约定固定) 但不再使用: 宿主不设等待超时, 处理器链慢就是
 ///   调用线程一起等
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_hook_emit(
@@ -476,7 +476,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 变量表 · 应用回执写请求 (**回执即落地**): accepted 且带 value 时落值并按需广播
+/// 变量表 · 应用回执写请求 (**回执即写入**): accepted 且带 value 时写入值并按需广播
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_var_write_result(
         MusicxxExternPluginHost*              h,

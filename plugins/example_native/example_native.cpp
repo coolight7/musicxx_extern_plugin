@@ -389,7 +389,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 /// start 事务: 只做注册 (禁止阻塞)
 ///
 /// 入口约定 (musicxx 插件 SDK): 返回 0 = 事务成功, 非 0 = 失败; SDK
-/// 负责按内核契约 调用完成通知 (见 `musicxx/plugin/api/plugin_kit.h` 的
+/// 负责按内核约定 调用完成通知 (见 `musicxx/plugin/api/plugin_kit.h` 的
 /// `runLifecycleEntry`)。
 int32_t exampleStart(ExampleCtx &ctx) { return ctx.onStart(); }
 

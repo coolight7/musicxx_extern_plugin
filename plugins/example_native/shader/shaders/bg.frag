@@ -11,7 +11,7 @@
 // 中高频控制高光的"空气感"。没有频谱数据时（uEnv.z = 0）这些项都是 0，
 // 画面与不带频谱时完全一致 —— 所以不要靠"值为 0"判断有没有音乐，看 uEnv.z。
 //
-// uniform 契约（宿主固定填充，成员名字不能改）：
+// uniform 约定（宿主固定填充，成员名字不能改）：
 //   uParams = (目标宽, 目标高, 时间秒, 速度)
 //   uEnv.x = 是否夜间；uEnv.y = 是否有有效的封面配色；uEnv.z = 现在是否有频谱数据
 //   uColor1..uColor4 = 4 个绘制色（按插件声明的来源解析）
@@ -94,7 +94,7 @@ void main() {
   vec2 centered = (uv - 0.5) * 1.1 + 0.5;
   vec2 crystal = crystallizeUV(centered, cellSize);
 
-  // 夜间压暗；用的是兜底色时降一点对比度
+  // 夜间压暗；用的是备用色时降一点对比度
   float dim = render_info.uEnv.x > 0.5 ? 0.72 : 1.0;
   float valid = render_info.uEnv.y > 0.5 ? 1.0 : 0.88;
   vec3 color = blendColors(crystal, dim * valid);

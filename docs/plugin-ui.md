@@ -10,6 +10,7 @@
 两边的写法只有 API 名字不同（C++ 用 `uiRegister`/`capability`，JS 用 `musicxx.ui.registerEntry`/`musicxx.capability.register`），
 **字段与块类型完全一致**，所以这份文档对两种插件都适用。语言相关的 API 见
 [plugin-native-api.md](plugin-native-api.md)（C++）与 [plugin-js-api.md](plugin-js-api.md)（JS）。
+第一次写插件、想知道从哪一步开始，先看 [plugin-guide.md](plugin-guide.md)。
 
 ---
 
@@ -162,7 +163,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`） |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
-规则（解析层口径，与库文档一致）：
+规则（解析层规则，与库文档一致）：
 
 - 组件名（`kind`）是**首字母大写的驼峰**，解析时**忽略大小写**；
 - 未知组件：有 `fallback` 就显示它，没有就跳过（不会报错）；未知字段忽略；未知枚举值取默认；
@@ -188,9 +189,9 @@ capability(*this, "plugin.my_plugin.settings",
 ```
 
 - 求值结果按 `u` 解释；写 `unit: "percent"`（或 `{"kind":"const","value":40,"unit":"percent"}`）
-  就是"父容器比例"，与 `{"percent":40}` 同一口径；
+  就是"父容器比例"，与 `{"percent":40}` 一致；
 - **文本字段**（`Text.text`、`Badge.text`、按钮文案、KV / Table / Tree 的文本…）也能写值表达式：
-  求值结果当文本用，求值失败或没有上下文时用字面量兜底（`{"kind":"format", …}` 可以把数值写进文案）；
+  求值结果当文本用，求值失败或没有上下文时用字面量作为回退（`{"kind":"format", …}` 可以把数值写进文案）；
 - **公共字段 `visible`**（每个块都能写）：布尔字面量或值表达式，求值为假时这一块**不渲染**；
 - 节点表、来源（`musicxx.theme.*` / `musicxx.icon.*` / `musicxx.spectrum.*` / `musicxx.env.*`、
   变量目录里的自定义键）、上限与降级规则见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7；
@@ -232,7 +233,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `musicxx.ScaleTransition` | `from`/`to`（倍数）、`value`、`curve`、`children` | 缩放 |
 | `musicxx.RotationTransition` | `from`/`to`（圈数）、`value`、`curve`、`children` | 旋转 |
 
-规则与预算：
+规则与上限：
 
 - `value` 可以写字面量、值表达式或通道引用；`curve` 是"通道没带缓动"时的简写（取
   `linear`/`inQuad`/`outQuad`/`inOutQuad`/`inCubic`/`outCubic`/`inOutCubic`/`inSine`/`outSine`/
@@ -278,7 +279,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 `tree` / `sparkline` / `progressRow` / `settingRow` / `switchRow` / `inputRow` / `shaderBlock` /
 `coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
-- kit 只做**装配**，不含逻辑、不写死客户端的口径；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
+- kit 只做**装配**，不含逻辑、不写死客户端的规则；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
 - **kit 随插件目录分发**（宿主不提供）：`tools/sync_ui_kit.ps1` 会把两个 kit 文件复制进 JS 插件目录，
   C++ 插件用 SDK 头文件里的版本（改 kit 后跑 `tools/gen_ui_kit.ps1` 重新生成）。
 

@@ -39,7 +39,7 @@ class MusicxxPluginHookContext {
 /// ```
 /// 快速路径（无任何处理器 → 直接返回，0 次 FFI、0 次 JSON 构造）
 ///   → Dart 处理器链（按 priority 升序，本线程就地执行）
-///   → 原生/JS 处理器链（`hook_emit`，宿主线程执行，有等待预算）
+///   → 原生/JS 处理器链（`hook_emit`，宿主线程执行）
 ///   → 按 policy 合并
 /// ```
 class MusicxxPluginHooks {
@@ -65,7 +65,7 @@ class MusicxxPluginHooks {
 
   int _asyncDecisionCalls = 0;
 
-  /// 是否有任何启用中的处理器（Dart 或原生）；埋点快速路径用
+  /// 是否有任何启用中的处理器（Dart 或原生）；调用快速路径用
   bool hasHandlers(MusicxxPluginHookId id) =>
       hasDartHandler(id) || nativeHandlerCount(id) > 0;
 
@@ -76,7 +76,7 @@ class MusicxxPluginHooks {
   /// 原生/JS 处理器数量（缓存值；宿主启动后由事件与首次查询填充）
   int nativeHandlerCount(MusicxxPluginHookId id) => _nativeCounts[id.id] ?? 0;
 
-  /// 是否有任何钩子存在处理器（全局快速开关：false 时埋点零成本）
+  /// 是否有任何钩子存在处理器（全局快速开关：false 时调用零成本）
   bool get active =>
       _dartHandlers.isNotEmpty || _nativeCounts.values.any((int v) => v > 0);
 
@@ -124,7 +124,7 @@ class MusicxxPluginHooks {
   ///
   /// 返回 `null` 表示"无裁决"（调用点走原逻辑）。
   ///
-  /// 宿主不设等待预算：处理器链返回之前，本调用会一直占用调用线程（热路径上调用
+  /// 宿主不设等待超时：处理器链返回之前，本调用会一直占用调用线程（热路径上调用
   /// 就要自己判断能不能接受这一点）。
   Map<String, Object?>? decide(
     MusicxxPluginHookId id, [
@@ -424,7 +424,7 @@ class MusicxxPluginHooks {
     return callId is num ? callId.toInt() : null; // 未返回 callId（旧库）时按"无裁决"处理
   }
 
-  /// 等待异步裁决结果（由 `musicxx.hook.decision.result` 事件回填；没有等待预算）
+  /// 等待异步裁决结果（由 `musicxx.hook.decision.result` 事件回填；没有等待超时）
   Future<Map<String, Object?>?> _awaitAsyncDecision(int callId) {
     final Completer<Map<String, Object?>?> completer =
         Completer<Map<String, Object?>?>();

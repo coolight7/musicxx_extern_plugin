@@ -12,7 +12,7 @@
 ///
 /// 界面写法: 页面内容用**随插件分发的界面 kit** 装配 (`pluginxx.ui.kit`, 见 plugin.yaml 的
 /// `scripts`: 先加载两个 kit 文件再加载本脚本), kit 只装配块描述, 渲染由客户端完成。
-/// 页面里给的组件都会经客户端的适配步骤收口 —— 客户端不支持的组件会被降级, 插件不用自己判断。
+/// 页面里给的组件都会经客户端的适配步骤限制到客户端支持的组件 —— 客户端不支持的组件会被降级, 插件不用自己判断。
 ///
 /// 说明: 播放页背景 (shader bundle) 与它的动画速率设置原先也在这里, 2026-09 已拆成独立插件
 /// `plugins/example_js_shader` —— 要照抄"插件渲染背景"那一套就看它。
@@ -228,7 +228,7 @@ refreshConfig();
 /// 页面用的能力摘要: 客户端取页面时会把能力段放进参数 (`{"view":…,"ui":{…}}`)
 ///
 /// 传给 kit 后它会挑"这个客户端支持的那个变体" (例如不支持图片时用文字行)。
-/// 拿不到就传 null: kit 产出中立描述, 由客户端自己的适配步骤收口。
+/// 拿不到就传 null: kit 产出中立描述, 由客户端自己的适配步骤限制。
 function viewEnv(args) {
     if (args && typeof args.ui === "object" && args.ui !== null) {
         return args.ui;
@@ -383,7 +383,7 @@ musicxx.vars.get("musicxx.ui.animatedLevel").then(function (value) {
 
 /// 异步能力 (返回 Promise): 宿主会一直等到它结算, 再把结果交给调用方
 ///
-/// 与钩子处理器同一套做法 (没有等待预算): 慢就是调用方多等一会儿。
+/// 与钩子处理器同一套做法 (没有等待超时): 慢就是调用方多等一会儿。
 musicxx.capability.register("slowProbe", function (args) {
     const waitMs = (args && Number.isFinite(args.waitMs)) ? Math.trunc(args.waitMs) : 200;
     return new Promise(function (resolve) {

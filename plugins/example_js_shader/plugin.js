@@ -23,7 +23,7 @@
 ///
 /// 这两件事原先和钩子/网络/页面示例一起放在 `example_js` 里, 2026-09 拆成独立插件,
 /// 便于单独照抄。要看"内置背景样式换成插件渲染"的完整流程 (着色器写法、bundle 打包、
-/// uniform 契约), 见 `docs/plugin-shader-bundle.md` 与 shader/ 目录。
+/// uniform 约定), 见 `docs/plugin-shader-bundle.md` 与 shader/ 目录。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await); 异步逻辑放到钩子或定时器里。
 
@@ -361,7 +361,7 @@ function saveConfig(key, value) {
 /// 页面用的能力摘要: 客户端取页面时会把能力段放进参数 (`{"view":…,"ui":{…}}`)
 ///
 /// 传给 kit 后它会挑"这个客户端支持的那个变体" (例如客户端不支持图片时用文字行);
-/// 拿不到就传 null: kit 产出中立描述, 由客户端自己的适配步骤收口。
+/// 拿不到就传 null: kit 产出中立描述, 由客户端自己的适配步骤限制。
 function viewEnv(args) {
     if (args && typeof args.ui === "object" && args.ui !== null) {
         return args.ui;
@@ -643,7 +643,7 @@ function spectrumActionText(s, err) {
 /// 为什么不在这里 `await` 动作:
 /// 应用侧打开页面、点按钮都是**同步进宿主**调用这个能力的 (应用线程全程等宿主返回),
 /// 而动作要由应用线程执行 —— 处理器里等动作就会与调用方互相等下去, 最后只能等到超时,
-/// 表现是"整个应用卡住几秒 + 调用插件能力失败, 未在预算内完成"。
+/// 表现是"整个应用卡住几秒 + 调用插件能力失败, 未在时限内完成"。
 /// 所以这一页当场用状态镜像 (同步、实时) 画出来, 动作结果异步读取、读完记下来回读
 /// (与 `example_js` 的 `crossCall` 同一做法)。
 let spectrumActionState = { pending: 0, text: "", error: "" };

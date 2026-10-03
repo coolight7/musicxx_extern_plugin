@@ -470,7 +470,7 @@ int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
     outJson = ack.dump();
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
-  /// 同步派发没有等待预算: 一直等到处理器链结束 (处理器链里包含插件自己的代码,
+  /// 同步派发没有等待超时: 一直等到处理器链结束 (处理器链里包含插件自己的代码,
   /// 慢就是调用线程一起等。超时参数保留在 C ABI 里但不再使用)。
   std::string result;
   slot->wait(result);
@@ -1067,7 +1067,7 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
     return varsIfaceForQuery();
   }
   // 预留表 (musicxx.player/library/lyrics/storage/net/stats/agent): v1 返回空,
-  // 插件据此判空并降级 (IID 已冻结, 后续实现不再改动契约)
+  // 插件据此判空并降级 (IID 已冻结, 后续实现不再改动约定)
   return nullptr;
 }
 

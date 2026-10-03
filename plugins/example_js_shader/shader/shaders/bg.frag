@@ -6,9 +6,9 @@
 // 取离当前像素最近的那个点所在的位置作为采样坐标，再去混合 4 个绘制色 —— 于是画面被切成
 // 一块块多边形，边界随点漂移而流动。
 //
-// uniform 契约（宿主固定填充，成员名字不能改）：
+// uniform 约定（宿主固定填充，成员名字不能改）：
 //   uParams = (目标宽, 目标高, 时间秒, 速度)
-//   uEnv.x = 是否夜间；uEnv.y = 调色板是否有效（0 = 用的是兜底色）
+//   uEnv.x = 是否夜间；uEnv.y = 调色板是否有效（0 = 用的是备用色）
 //   uColor1..uColor4 = 4 个绘制色（按插件声明的来源解析）
 uniform MusicxxRenderInfo {
   vec4 uParams;
@@ -74,7 +74,7 @@ void main() {
   vec2 centered = (uv - 0.5) * 1.1 + 0.5;
   vec2 crystal = crystallizeUV(centered);
 
-  // 夜间压暗；用的是兜底色时降一点对比度
+  // 夜间压暗；用的是备用色时降一点对比度
   float dim = render_info.uEnv.x > 0.5 ? 0.72 : 1.0;
   float valid = render_info.uEnv.y > 0.5 ? 1.0 : 0.88;
   vec3 color = blendColors(crystal, dim * valid);

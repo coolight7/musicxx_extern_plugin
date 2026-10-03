@@ -7,12 +7,13 @@
 
 | 你要做的事 | 读这篇 |
 |---|---|
+| **第一次写插件**（选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查） | [docs/plugin-guide.md](docs/plugin-guide.md) |
 | 写一个 **C++ 动态库插件**（钩子 / 能力 / 动作 / 日志） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
 | 写一个 **JS 脚本插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
 | 给插件加**界面**（主页入口、歌曲菜单、插件页面、设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
 | 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
-| 读 / 改 / 订阅**变量**（官方变量目录与口径） | [docs/plugin-vars.md](docs/plugin-vars.md) |
+| 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
 | 构建宿主库、把宿主库随应用分发 | 本文件「构建」「打包（随应用分发）」 |
 | 在 Dart 侧接入宿主（应用开发者） | 本文件「Dart 侧（包内）」+ `lib/musicxx_extern_plugin.dart` 文件头 |
 
@@ -57,7 +58,8 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 装载失败并回滚）
-docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 是否已埋点 + 已埋点钩子的载荷与裁决）
+docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
+docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 应用是否已接入 + 已接入钩子的载荷与裁决）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
@@ -267,7 +269,7 @@ Android 与桌面端的差别（改这块之前先读 `android/README.md`）：
 其余平台（macOS/iOS/OHOS）的打包属于后续工作：macOS 可照 Windows/Linux 的写法
 （`<平台>_bundled_libraries`，另需注意 Hardened Runtime 下的 `disable-library-validation`）；
 iOS/OHOS 只跑 JS 插件，需要静态库 + podspec。
-平台能力（哪些平台允许动态库插件、入口是否可见）在应用侧单点判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
+平台能力（哪些平台允许动态库插件、入口是否可见）在应用侧统一判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
 （iOS/OHOS 只跑 JS 插件，不允许加载未签名动态库）。
 
 ## 写一个插件
@@ -477,7 +479,7 @@ final List<MusicxxPluginUIItem> next =
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由应用侧分派；
 - **钩子**：约定 66 个（33 观察 / 33 裁决，其中 13 个异步派发的裁决钩子）；
-  应用侧当前**埋点 9 个**（`docs/plugin-hooks.md` 的「是否已埋点」列标「已埋点」），其余注册成功但不会触发；
+  应用侧当前**已接入 9 个**（`docs/plugin-hooks.md` 的「应用是否已接入」列标「已接入」），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入宿主库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由宿主线程执行；
   裁决处理器可以返回 Promise（宿主一直等到它结算，结算后裁决生效）；
@@ -534,4 +536,4 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests
 dart run tools/gen_contract.dart --check                 # 约定生成物一致（66 个钩子；改动 hooks.def.json 后必须重新生成）
 flutter analyze                                          # 期望 0 issue
 flutter test                                             # 包内端到端：宿主/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
-| 钩子总表（id / 模式 / 派发 / 是否已埋点 + 已埋点钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
+| 钩子总表（id / 模式 / 派发 / 应用是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |

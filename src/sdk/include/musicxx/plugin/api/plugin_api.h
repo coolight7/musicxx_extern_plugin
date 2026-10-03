@@ -1,7 +1,7 @@
-/// musicxx 插件 SDK: 领域 C 契约 (与宿主领域相关, 与内核通用部分分离)
+/// musicxx 插件 SDK: 领域 C 约定 (与宿主领域相关, 与内核通用部分分离)
 ///
 /// 命名: 官方标识统一 `musicxx.*` 前缀; 插件自定义统一 `plugin.<pluginId>.*`。
-/// 本头只声明**跨边界稳定契约** (类型/宏/IID), 纯 C 可包含 (便于 C 插件与外部工具)。
+/// 本头只声明**跨边界稳定约定** (类型/宏/IID), 纯 C 可包含 (便于 C 插件与外部工具)。
 ///
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由宿主在 entrySymbols() 中交出同一批名字)
@@ -38,7 +38,7 @@ extern "C" {
 /// 框架支持的最低插件 API 版本 (清单 `api_version` 与 `PluginxxInfo.api_version`
 /// 都按它检查)
 ///
-/// 口径只有一条: **插件版本必须 >= 本值**。声明比当前框架更高的版本不再被拒绝
+/// 规则只有一条: **插件版本必须 >= 本值**。声明比当前框架更高的版本不再被拒绝
 /// (插件自己按 `host.info()` 里的 `apiVersion` 决定降级), 声明更低版本只要不低于
 /// 本值也照常加载。
 #define MUSICXX_PLUGINXX_MIN_API_VERSION PLUGINXX_MIN_API_VERSION
@@ -315,7 +315,7 @@ typedef struct MusicxxPluginUIIface {
 #define MUSICXX_PLUGIN_VAR_ERR_STATE       -2 ///< 状态错误 (宿主未启动)
 #define MUSICXX_PLUGIN_VAR_ERR_JSON        -3 ///< 值不是合法 JSON
 #define MUSICXX_PLUGIN_VAR_ERR_NOT_FOUND   -4 ///< 键不存在 (含官方键还没被应用声明)
-#define MUSICXX_PLUGIN_VAR_ERR_TIMEOUT     -5 ///< 属主没在预算内回答 (读写请求)
+#define MUSICXX_PLUGIN_VAR_ERR_TIMEOUT     -5 ///< 属主没在超时前回答 (读写请求)
 #define MUSICXX_PLUGIN_VAR_ERR_PERMISSION  -6 ///< 命名空间不属于本插件 / 写权限不足
 /// 超限: 当前框架已无容量类限制 (变量数 / 变量总数 / 订阅数 / 值大小都不再限制),
 /// 该错误码保留供老插件兼容, 不会再由此类检查产生
@@ -335,7 +335,7 @@ typedef struct MusicxxPluginUIIface {
 /// 属主被取真实值 (handler 模式专用; 属主收到后用 set 自己回答)
 /// 载荷: {requestId, key}
 #define MUSICXX_PLUGIN_EVENT_VAR_READ "musicxx.var.read"
-/// 属主收到写请求 (handler 模式专用; 属主落地后用 set 自己提交最终值)
+/// 属主收到写请求 (handler 模式专用; 属主写入后用 set 自己提交最终值)
 /// 载荷: {requestId, key, value, by}
 #define MUSICXX_PLUGIN_EVENT_VAR_WRITE "musicxx.var.write"
 
@@ -349,7 +349,7 @@ typedef struct MusicxxPluginVarSpec {
     int32_t write_scope;    ///< MUSICXX_PLUGIN_VAR_WRITE_*
     int32_t mode;           ///< MUSICXX_PLUGIN_VAR_MODE_*
 
-    /// 属主侧的推送节流口径 (毫秒; 0 = 不节流)
+    /// 属主侧的推送节流设置 (毫秒; 0 = 不节流)
     ///
     /// 只是声明 (宿主不强制度量): 属主在推送前按同一窗口合并变化。
     /// 高频值 (超过约 5 Hz) 建议声明, 否则宿主会记一条警告日志。
@@ -387,7 +387,7 @@ typedef struct MusicxxPluginVarsIface {
 
     /// 读 (异步、权威): 宿主向属主取一次真实值, 完成后调用 notify->done 恰好一次
     /// - 结果同时写入 `peek` 缓存 (read-through);
-    /// - 同键在途读请求由宿主合并 (等待者不限);
+    /// - 同键进行中读请求由宿主合并 (等待者不限);
     /// - 返回 0 并写出 request_id; -4 键不存在; -9 无 get 能力; -2 未回执读请求过多
     int32_t(PLUGINXX_CALL* get)(
         const PluginxxHost*           host,
@@ -421,7 +421,7 @@ typedef struct MusicxxPluginVarsIface {
     /// 写
     /// - 写自己的变量 (或 declared 模式的变量) = 提交, 立即结算:
     ///   out_json = {"key":..,"accepted":true,"value":..,"changed":..,"revision":..};
-    /// - 转给属主落地时 out_json = {"pending":true,"requestId":N}, 最终结果经事件
+    /// - 交给属主写入时 out_json = {"pending":true,"requestId":N}, 最终结果经事件
     ///   `musicxx.var.writeResult` 送达;
     /// - 返回 0 (含被拒绝的情况, 原因在 out_json 的 error 字段);
     ///   -4 键不存在; -9 无 set 能力; -6 写权限不足; -1 参数非法;

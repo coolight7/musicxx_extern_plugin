@@ -120,7 +120,7 @@ abstract final class MusicxxPluginEnv {
     return Platform.operatingSystem;
   }
 
-  /// 当前进程的规范架构名（与宿主 `hostArch()` 同一口径：x64 / arm64 / x86 …）
+  /// 当前进程的规范架构名（与宿主 `hostArch()` 一致：x64 / arm64 / x86 …）
   static String currentArch() {
     final String abi = Abi.current().toString().toLowerCase();
     if (abi.contains('arm64') || abi.contains('aarch64')) {
