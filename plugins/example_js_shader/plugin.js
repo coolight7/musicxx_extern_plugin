@@ -3,8 +3,9 @@
 /// 这个插件只演示"插件渲染槽位"这一条链路, 内容就两件事:
 /// - 声明播放页背景样式 (`musicxx.ui.playing.background`), 本插件给了两种可选样式:
 ///   『示例晶格背景』(`shader/bg.shaderbundle`) 与『光圈』(`shader/ring.shaderbundle`,
-///   频谱圆环: 圆圈是基线, 圆上左右对称的频带尖角跟着音乐向内/向外突出, 相邻尖角之间、
-///   同一个尖角的内外沿之间都用直线相连 —— 整圈是一张长在圆上的"蛛网")。
+///   频谱圆环: 从正上方开始顺时针排 64 个点 (左右不镜像, 一个点一个频带), 每个点向圆外
+///   与圆内各凸出一个尖角 (高度取过指数, 高低对比明显), 相邻尖角之间、同一个尖角的内外沿
+///   之间都用直线相连 —— 整圈是一张长在圆上的"蛛网", 不画基线圆)。
 ///   画面都由预编译好的 shader bundle 画 (插件不写界面代码), 用户在
 ///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (宿主不读 bundle、不分析封面)。
 /// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
@@ -34,11 +35,11 @@ const BG_DEPICT = "跟随封面配色与音乐律动的晶格化动态背景";
 
 /// 第二个背景样式: 『光圈』(频谱圆环)
 ///
-/// 画面 = 细亮线画的基线圆 + 圆上左右对称的 16 个频带尖峰 + 圆心光源:
-/// 从正上方(12 点)往下, 角度位置对应频率由低到高, 左右两侧互为镜像,
-/// 每个频带同时向圆外与圆内突出, 突出的高度就是这一帧的振幅。
+/// 画面 = 圆心光源 + 圆上一圈蛛网(没有基线圆线): 从正上方(12 点)开始**顺时针**排
+/// 64 个点(左右不镜像), 角度位置对应频率由低到高, 每个点向圆外与圆内各凸出一个尖角,
+/// 突出的高度就是这一点的振幅(取过指数, 高点更高、低点几乎收回)。
 const RING_TITLE = "光圈";
-const RING_DEPICT = "圆圈是基线, 圆上左右对称的频带尖角跟着音乐向内/向外突出, 相邻尖角用直线连成蛛网";
+const RING_DEPICT = "64 个频点从正上方顺时针排成一圈, 尖角跟着音乐向内/向外突出, 相邻尖角用直线连成蛛网";
 
 /// 本插件背景样式的 UI 项短名与完整 id (完整 id 由宿主拼成 plugin.<插件id>.<短名>)
 const BG_ITEM_NAME = "bg";
@@ -137,32 +138,49 @@ function latticeBackgroundData(rate) {
     };
 }
 
+/// 『光圈』的参数声明: 4 个绘制色 + 线条色 + 响度 + **64 个频带**
+///
+/// 圆上顺时针排 64 个点(左右不镜像, 起点是正上方), 一个点一个频带, 所以数据要用
+/// **64 个频带**(`spectrum.bands64.0..15`, 每项 4 个连续频带写在 xyzw):
+/// 16 个频带太粗(一个点占不到一个值), 一帧 256 个频点又要声明 64 个 vec4 成员、
+/// 而且每个像素都得按算出来的组号在 64 个成员里挑一次(GLSL ES 1.00 不允许用运行时
+/// 下标取 uniform, 只能逐组比较) —— 实测 1280x720 单帧渲染要多花 90 ms 以上,
+/// 播放页会明显卡。64 个频带 = 16 个成员, 每个像素只在 16 组里挑一次。
+/// 每个频带包一层 `smooth`: 频谱是 10 帧/秒的数据, 直接取尖角会有台阶感
+/// (帧间插值由宿主做, `smooth` 再补上"快起慢落"的手感)。
+/// 颜色从外面传进来: 背景声明用映射后的 4 个绘制色, 页面里的内联块用主题色 + 封面提取色。
+function ringArgs(color1, color2, color3, color4) {
+    const args = {
+        uColor1: color1,
+        uColor2: color2,
+        uColor3: color3,
+        uColor4: color4,
+        // 线条色: 没有来源, 昼夜各给一个固定值 (夜间稍暗, 免得抢前景文字)
+        uLine: { kind: "const", value: "#f6faff", night: "#dbe7f7" },
+        // 响度: 中心光源与光束的亮度
+        uLevel: smoothSpectrum("musicxx.spectrum.level"),
+    };
+    for (let i = 0; i < 16; ++i) {
+        args["uBands" + i] = smoothSpectrum("musicxx.spectrum.bands64." + i);
+    }
+    return args;
+}
+
 /// 『光圈』的完整声明 (频谱圆环, 与上面同一套字段语义)
 ///
-/// 与晶格背景的区别只在 bundle 与参数: 这个着色器要把 16 个频带全部映射到圆上,
-/// 所以声明 `spectrum.bands.0..3` 四项 (每项 = 4 个连续频带, 低频在前, 写在 xyzw),
-/// 再加一个亮色的线条色 (基线圆与蛛网边线用它画; 用 `const` 节点, 昼夜各一个值)。
-/// 频带同样包一层 `smooth`: 尖角跟着音乐起伏时才不会一格一格地跳。
-/// 没有频谱数据时宿主写 0, 圆上的尖角长度为 0, 只剩基线圆与圆心光源。
+/// 与晶格背景的区别只在 bundle 与参数: 参数见 `ringArgs` (64 个频带, 圆上 64 个点),
+/// 没有频谱数据时宿主写 0, 圆上的尖角长度为 0, 只剩圆心光源。
 function ringBackgroundData(rate) {
     return {
         title: RING_TITLE,
         depict: RING_DEPICT,
         shader: { bundle: "shader/ring.shaderbundle" },
-        args: {
-            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
-            uColor2: { kind: "source", name: "musicxx.icon.themeMapping.1" },
-            uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
-            uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
-            // 线条色: 没有来源, 昼夜各给一个固定值 (夜间稍暗, 免得抢前景文字)
-            uLine: { kind: "const", value: "#f6faff", night: "#dbe7f7" },
-            // 频谱: uLevel = 当前响度, uBands0..uBands3 = 16 个频带 (低频在前)
-            uLevel: smoothSpectrum("musicxx.spectrum.level"),
-            uBands0: smoothSpectrum("musicxx.spectrum.bands.0"),
-            uBands1: smoothSpectrum("musicxx.spectrum.bands.1"),
-            uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
-            uBands3: smoothSpectrum("musicxx.spectrum.bands.3"),
-        },
+        args: ringArgs(
+            { kind: "source", name: "musicxx.icon.themeMapping.0" },
+            { kind: "source", name: "musicxx.icon.themeMapping.1" },
+            { kind: "source", name: "musicxx.icon.themeMapping.2" },
+            { kind: "source", name: "musicxx.icon.themeMapping.3" }
+        ),
         speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
@@ -380,7 +398,7 @@ function settingsView(args, override) {
                 text: "• 本插件注册了两种背景样式:『" + BG_TITLE + "』(晶格化) 与『" + RING_TITLE + "』(频谱圆环)。两者占同一个槽位 player.background, 设置里同时只能选中一个。",
             }, env),
             kit.hint({
-                text: "• 背景声明里的 `spectrum.level` / `spectrum.bands.0..3` 每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。",
+                text: "• 背景声明里的 `spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，晶格背景用它）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
             }, env),
             kit.hint({
                 text: "• `args` 只有一种写法：成员名 → 值表达式（`{\"kind\": \"...\"}`，可以嵌套）。来源用 `source`、常量用 `const`、过渡用 `smooth`、动画用 `tween` / `lfo`、组合用 `mul` / `mix` / `clamp` 等；宿主每帧求值一次，插件不用在着色器里写时间与滤波逻辑。",
@@ -430,18 +448,13 @@ function settingsView(args, override) {
                             bundle: "shader/ring.shaderbundle",
                             speed: 1,
                             maxFps: 16,
-                            args: {
-                                uColor1: { kind: "source", name: "musicxx.theme.primary" },
-                                uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                                uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
-                                uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
-                                uLine: { kind: "const", value: "#f6faff" },
-                                uLevel: smoothSpectrum("musicxx.spectrum.level"),
-                                uBands0: smoothSpectrum("musicxx.spectrum.bands.0"),
-                                uBands1: smoothSpectrum("musicxx.spectrum.bands.1"),
-                                uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
-                                uBands3: smoothSpectrum("musicxx.spectrum.bands.3"),
-                            },
+                            // 与背景声明同一套参数(256 个频点 + 颜色), 直接复用
+                            args: ringArgs(
+                                { kind: "source", name: "musicxx.theme.primary" },
+                                { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                { kind: "source", name: "musicxx.icon.themeMapping.3" }
+                            ),
                         }, env),
                     ] },
                 ],
