@@ -31,7 +31,7 @@
 const kit = pluginxx.ui.kit;
 
 /// 背景样式在设置列表里的名字与副标题
-const BG_TITLE = "示例晶格背景";
+const BG_TITLE = "晶格化";
 const BG_DEPICT = "跟随封面配色的晶格化动态背景";
 
 /// 第二个背景样式: 『光圈』(频谱圆环)
@@ -385,7 +385,7 @@ function settingsView(args, override) {
                 text: "速率是插件自己的设置项: 改完用 musicxx.ui.updateEntry 重新声明背景样式, 正在使用的背景立即用新速度。",
             }, env),
             kit.hint({
-                text: "• 本插件注册了两种背景样式:『" + BG_TITLE + "』(晶格化) 与『" + RING_TITLE + "』(频谱圆环)。两者占同一个槽位 player.background, 设置里同时只能选中一个。",
+                text: "• 本插件注册了两种背景样式:『" + BG_TITLE + "』与『" + RING_TITLE + "』。两者占同一个槽位 player.background, 设置里同时只能选中一个。",
             }, env),
             kit.hint({
                 text: "• 『" + RING_TITLE + "』的声明用了频谱来源：`spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，控制点少时用）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
@@ -396,11 +396,6 @@ function settingsView(args, override) {
             kit.divider({}, env),
             kit.card({
                 children: [
-                    kit.listRow({
-                        title: "生效样式",
-                        subtitle: "本插件两种样式里现在在画的是哪一种（读状态镜像）",
-                        trailing: backgroundStyleText(),
-                    }, env),
                     kit.listRow({
                         title: "播放页背景",
                         subtitle: "生效中 = 本插件在画（按下面按钮即可换样式）",
@@ -462,12 +457,12 @@ function settingsView(args, override) {
                 action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: "settings" } },
             }, env),
             kit.button({
-                label: "使用『" + RING_TITLE + "』（频谱圆环）",
+                label: "使用『" + RING_TITLE + "』",
                 variant: "primary",
                 action: { kind: "dispatch", name: "useBackground", args: { id: RING_ITEM_ID, view: "settings" } },
             }, env),
             kit.button({
-                label: "使用『" + BG_TITLE + "』（晶格化）",
+                label: "使用『" + BG_TITLE + "』",
                 action: { kind: "dispatch", name: "useBackground", args: { id: BG_ITEM_ID, view: "settings" } },
             }, env),
             kit.button({
@@ -552,19 +547,14 @@ function cardView(args) {
         subtitle: "• 页面内容来自能力 `card`, 渲染由客户端完成",
         blocks: [
             kit.hint({
-                text: "• 本插件把预编译好的 shader bundle 注册成一种播放页背景样式: 用户在『设置 → 播放页面背景』里选中后才生效。",
+                text: "• 本插件把预编译好的 shader bundle 注册成一种播放页背景样式: 用户在『设置 → 播放页面背景』里可选择新增的播放页面背景样式",
             }, env),
             kit.divider({}, env),
             kit.card({
                 children: [
                     kit.listRow({
-                        title: "生效样式",
-                        subtitle: "本插件两种样式（晶格 / 光圈）里现在在画的是哪一种",
-                        trailing: backgroundStyleText(),
-                    }, env),
-                    kit.listRow({
                         title: "播放页背景",
-                        subtitle: "当前生效项 (读状态镜像 musicxx.state.renderSlots)",
+                        subtitle: "当前生效项 (状态镜像 musicxx.state.renderSlots)",
                         trailing: backgroundStateText(),
                     }, env),
                     kit.listRow({
@@ -574,7 +564,7 @@ function cardView(args) {
                     }, env),
                     kit.listRow({
                         title: "背景动画速率",
-                        subtitle: "点这一条循环切换 0.5x / 1x / 2x (1x 是基准速度)",
+                        subtitle: "点击循环切换 0.5x / 1x / 2x (1x 是基准速度)",
                         trailing: bgRateText(configuredBgRate()),
                         action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: "card" } },
                     }, env),
@@ -591,12 +581,12 @@ function cardView(args) {
                 action: { kind: "dispatch", name: "spectrumProbe", args: { view: "card" } },
             }, env),
             kit.button({
-                label: "使用『" + RING_TITLE + "』（频谱圆环）",
+                label: "使用『" + RING_TITLE + "』",
                 variant: "primary",
                 action: { kind: "dispatch", name: "useBackground", args: { id: RING_ITEM_ID, view: "card" } },
             }, env),
             kit.button({
-                label: "使用『" + BG_TITLE + "』（晶格化）",
+                label: "使用『" + BG_TITLE + "』",
                 action: { kind: "dispatch", name: "useBackground", args: { id: BG_ITEM_ID, view: "card" } },
             }, env),
             kit.button({
