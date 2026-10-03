@@ -8,7 +8,6 @@
 #include "pluginxx/host/manifest.h"
 #include "utilxx_base/json.h"
 
-#include <algorithm>
 #include <system_error>
 
 namespace musicxx {
@@ -39,9 +38,57 @@ std::vector<std::string> scriptsOf(const MusicxxManifestFields &fields,
   return {"plugin.js"};
 }
 
-bool listContains(const std::vector<std::string> &values,
-                  const std::string &value) {
-  return std::find(values.begin(), values.end(), value) != values.end();
+/// 名字归一化函数的类型（系统与架构各一张别名表，见 host_target.h）
+using NameNormalizer = std::string (*)(std::string_view);
+
+/// 目标系统 / 架构名：调用方传空时用宿主当前环境
+///
+/// 别名（`win32` / `osx` / `amd64` …）归一成规范名，认不出来的取值保持原文
+/// （按原样比较，不做猜测）。
+std::string resolveTargetOs(const std::string &os) {
+  if (os.empty()) {
+    return currentTargetOs();
+  }
+  const std::string normalized = normalizeTargetOs(os);
+  return normalized.empty() ? os : normalized;
+}
+
+std::string resolveTargetArch(const std::string &arch) {
+  if (arch.empty()) {
+    return currentTargetArch();
+  }
+  const std::string normalized = normalizeTargetArch(arch);
+  return normalized.empty() ? arch : normalized;
+}
+
+/// 清单里的取值（`platforms` / `arch`）是否声明了目标环境
+///
+/// 与多目标分支标签共用同一张别名表：`win32` / `osx` / `amd64` 这类写法都认，
+/// 否则会出现"分支目录认别名、清单里的 platforms 不认"的分歧。
+bool declaresTarget(const std::vector<std::string> &values,
+                    const std::string &target, NameNormalizer normalize) {
+  for (const std::string &value : values) {
+    if (value == target) {
+      return true;
+    }
+    const std::string normalized = normalize(value);
+    if (!normalized.empty() && normalized == target) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// 字符串数组拼成用户可读文本（例：`windows、linux`；空 = "无"）
+std::string joinText(const std::vector<std::string> &values) {
+  std::string text;
+  for (const std::string &value : values) {
+    if (!text.empty()) {
+      text += "、";
+    }
+    text += value;
+  }
+  return text;
 }
 
 /// 字符串数组 → JSON 数组
@@ -113,6 +160,11 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   MusicxxPluginInspect info;
   info.dir = pluginDir.string();
   info.dirName = pluginDir.filename().string();
+  // 目标环境：`os` / `arch` 传空 = 用宿主当前环境（C ABI `plugin_inspect` 的约定，
+  // 应用侧安装预检就不传）。**这一步不能省**：清单声明了 `platforms` 的插件一旦
+  // 拿空串去比对，会被判成"当前平台不在清单声明内"，表现为"这类插件永远装不上"。
+  const std::string targetOs = resolveTargetOs(os);
+  const std::string targetArch = resolveTargetArch(arch);
 
   std::error_code ec;
   if (!fs::is_directory(pluginDir, ec)) {
@@ -155,17 +207,21 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：解析包内分支，选出目标环境要用的库文件
   if (info.kind == "native") {
     info.targets = resolvePluginTargets(pluginDir, fields.targetsDir, entry, name,
-                                        os, arch, true);
+                                        targetOs, targetArch, true);
   }
 
   // 静态可用性（不含运行期开关：JS 运行时是否可用、安全模式、禁用动态库由调用方叠加）
-  if (!info.platforms.empty() && !listContains(info.platforms, os)) {
+  if (!info.platforms.empty() &&
+      !declaresTarget(info.platforms, targetOs, normalizeTargetOs)) {
     info.supported = false;
-    info.reason = "当前平台不在清单声明内";
+    info.reason = "当前平台不在清单声明内 (当前 " + targetOs +
+                  "，清单声明: " + joinText(info.platforms) + ")";
   }
-  if (info.supported && !info.arch.empty() && !listContains(info.arch, arch)) {
+  if (info.supported && !info.arch.empty() &&
+      !declaresTarget(info.arch, targetArch, normalizeTargetArch)) {
     info.supported = false;
-    info.reason = "当前架构不在清单声明内";
+    info.reason = "当前架构不在清单声明内 (当前 " + targetArch +
+                  "，清单声明: " + joinText(info.arch) + ")";
   }
   if (info.supported && info.apiVersion < MUSICXX_PLUGINXX_MIN_API_VERSION) {
     info.supported = false;

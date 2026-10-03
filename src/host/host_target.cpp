@@ -214,13 +214,22 @@ std::string currentTargetOs() {
 }
 
 std::string currentTargetArch() {
-  // 与宿主上报给插件的 hostArch() 一致 (x64 / arm64 / x86)
+  // 与宿主上报给插件的架构标识一致 (`hostArch()`, 见 musicxx_host.cpp)。
+  // 取值必须是 `normalizeTargetArch` 认得的规范名 —— 上报的架构、清单 `arch` 声明与
+  // 分支目录标签比较的是同一个名字, 认不出来就会变成"谁都不匹配" (旧实现只认 64/32 位
+  // x86 与 64 位 ARM, 32 位 ARM 上返回 unknown)。
 #if defined(_M_ARM64) || defined(__aarch64__)
   return "arm64";
 #elif defined(_M_X64) || defined(__x86_64__)
   return "x64";
+#elif defined(_M_ARM) || defined(__arm__)
+  return "armv7"; ///< 32 位 ARM (Android armeabi-v7a / Linux armhf)
 #elif defined(_M_IX86) || defined(__i386__)
   return "x86";
+#elif defined(__riscv) && (__riscv_xlen == 64)
+  return "riscv64";
+#elif defined(__loongarch64)
+  return "loongarch64";
 #else
   return "unknown";
 #endif

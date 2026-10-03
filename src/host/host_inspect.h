@@ -62,7 +62,8 @@ struct MusicxxPluginInspect {
 
 /// 检查一个插件目录（**只读**）：清单字段 + 多目标分支选择 + 库文件判定
 ///
-/// - `os` / `arch` 为空时用宿主当前平台/架构（别名都认，见 host_target.h）；
+/// - `os` / `arch` 为空时用宿主当前平台/架构（与分支标签同一张别名表：`win32` / `osx` /
+///   `amd64` 这类写法都认）；清单 `platforms` / `arch` 里的取值按同样规则比较；
 /// - 目录不存在、缺 `plugin.yaml`、YAML 非法、缺 `name` → `valid=false` + `error`；
 /// - 不读取运行期开关（JS 运行时是否可用、安全模式、禁用动态库等由调用方叠加）。
 MusicxxPluginInspect inspectPluginDir(const std::filesystem::path &pluginDir,

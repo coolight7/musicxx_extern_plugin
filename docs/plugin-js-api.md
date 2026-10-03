@@ -35,7 +35,7 @@ version: 1.0.0
 api_version: 1                   # 插件 API 版本：只要不低于宿主支持的最低版本（当前 1）就照常加载；比宿主更高也不会被拒
 author: "你的名字"
 description: "插件说明"
-platforms: [windows, linux, macos, android, ios]   # 不写 = 不限
+platforms: [windows, linux, macos, android, ios]   # 不写 = 不限（别名 win32 / osx 也认）
 depends: [other_js_plugin]       # 必选依赖：缺失时拒绝加载
 optional_depends: [maybe_plugin] # 可选依赖：只影响加载顺序
 

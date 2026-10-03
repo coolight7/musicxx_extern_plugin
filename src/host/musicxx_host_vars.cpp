@@ -243,9 +243,11 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
   if (!spec.key.data || spec.key.size == 0) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
+  /// 声明里的键原文：C ABI 的 size 是 uint64_t，32 位目标上要显式收窄给 std::string
+  const std::string keyText{spec.key.data, static_cast<size_t>(spec.key.size)};
   if (spec.caps == 0) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量 `{}` 被拒绝: caps 不能为空",
-            inst->name, std::string{spec.key.data, spec.key.size});
+            inst->name, keyText);
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   if ((spec.caps & ~(MUSICXX_PLUGIN_VAR_CAP_GET | MUSICXX_PLUGIN_VAR_CAP_SET |
@@ -268,11 +270,9 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
   const std::string pluginId = pluginIdOf(inst->name);
   std::string key;
   std::string err;
-  if (!normalizeVarKey(
-          std::string_view{spec.key.data, static_cast<size_t>(spec.key.size)},
-          pluginId, key, err)) {
+  if (!normalizeVarKey(keyText, pluginId, key, err)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册变量 `{}` 被拒绝: {}", inst->name,
-            std::string{spec.key.data, spec.key.size}, err);
+            keyText, err);
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
 

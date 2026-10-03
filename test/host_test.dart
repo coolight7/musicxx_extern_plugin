@@ -132,6 +132,29 @@ void main() {
     expect(inspected.targetEntry, multi.targetEntry);
     expect(inspected.targets.length, multi.targets.length);
 
+    // 应用侧安装预检的调用形状：**不传** os/arch（= 用宿主当前环境）
+    //
+    // 回归：声明了 `platforms` 的插件曾被一律判成"当前平台不在清单声明内"，
+    // 于是「从压缩包安装」永远失败 —— 示例插件几乎都声明了 platforms。
+    final MusicxxPluginInfo? declared = found
+        .where((MusicxxPluginInfo info) => info.id == 'example_js_shader')
+        .firstOrNull;
+    expect(declared, isNotNull, reason: '扫描结果里应有 example_js_shader');
+    final MusicxxPluginInspect_c declaredByHost = runtime.plugins.inspect(
+      declared!.path,
+    );
+    expect(declaredByHost.valid, isTrue, reason: declaredByHost.error);
+    expect(
+      declaredByHost.platforms,
+      isNotEmpty,
+      reason: '该示例插件声明了 platforms，正是这条回归的样本',
+    );
+    expect(
+      declaredByHost.supported,
+      isTrue,
+      reason: '不传 os/arch 时按宿主当前环境判定：${declaredByHost.reason}',
+    );
+
     // 指定目标环境：示例包只有本机那一份构建，换个系统就应当选不到分支
     final String otherOs =
         MusicxxPluginEnv.currentOs() == 'windows' ? 'linux' : 'windows';

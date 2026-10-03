@@ -200,17 +200,13 @@ private:
   size_t nextId_ = 0;
 };
 
-std::string hostArch() {
-#if defined(_M_ARM64) || defined(__aarch64__)
-  return "arm64";
-#elif defined(_M_X64) || defined(__x86_64__)
-  return "x64";
-#elif defined(_M_IX86) || defined(__i386__)
-  return "x86";
-#else
-  return "unknown";
-#endif
-}
+/// 当前宿主的规范架构名（编译目标）
+///
+/// 判定与多目标分支选择共用一份实现（`currentTargetArch()`，见 host_target.cpp）：
+/// 上报给插件的架构、清单 `arch` 声明、分支目录标签比较的必须是同一个名字，
+/// 两处各写一份 `#if` 迟早会对不上（32 位 ARM 上就是"宿主报 unknown、分支标签是
+/// android-armeabi-v7a，谁都匹配不上"）。
+std::string hostArch() { return currentTargetArch(); }
 
 std::string viewToString(const MusicxxExternPluginStringView &v) {
   if (!v.data || v.size == 0) {
