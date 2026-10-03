@@ -168,7 +168,8 @@ void main() {
     );
     expect(_backgroundSpeed(runtime, pluginId), 1);
 
-    // 第二种样式『光圈』：16 个频带必须全部声明（每项 4 个连续频带），否则圆上的尖角会缺一段
+    // 第二种样式『光圈』：圆上 64 个点、一个点一个频带，所以数据要用 64 个频带
+    // （`spectrum.bands64.0..15`，每项 4 个连续频带），少一项圆上就会缺一段
     final MusicxxPluginUIItem? ring = _uiItemOf(
       runtime,
       'plugin.$pluginId.ring',
@@ -187,9 +188,19 @@ void main() {
       reason: '线条色是 const 节点（不读任何来源）',
     );
     expect(ringSources['uLevel'], contains('musicxx.spectrum.level'));
-    for (int i = 0; i < 4; ++i) {
-      expect(ringSources['uBands$i'], contains('musicxx.spectrum.bands.$i'));
+    for (int i = 0; i < 16; ++i) {
+      expect(
+        ringSources['uBands$i'],
+        contains('musicxx.spectrum.bands64.$i'),
+        reason: '第 $i 组频带（频带 ${i * 4}..${i * 4 + 3}）必须声明',
+      );
     }
+    expect(
+      ringSources.length,
+      22,
+      reason: '4 个绘制色 + 线条色 + 响度 + 16 组频带（64 个频带）；'
+          '一帧 256 个频点那种写法有 64 个成员，逐像素按组挑一次会很卡，别改回去',
+    );
     // 频谱必须包一层过渡（10 帧/秒的数据直接取会有台阶感）
     final Object? levelNode = (ring.data['args'] as Map?)?['uLevel'];
     expect(
