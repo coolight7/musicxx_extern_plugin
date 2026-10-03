@@ -4,8 +4,133 @@
   "doc": "musicxx 扩展 kit：应用自己的留白口径 + 设置行/封面行/着色器块等本客户端常用组合（只装配，不含逻辑）",
   "components": [
     {
+      "name": "title",
+      "doc": "标题行（覆盖基础 kit：自带上下留白，框架不再给隐含边距）",
+      "params": [{ "name": "text", "type": "text", "required": true }],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "vertical": 15 },
+            "children": [{ "kind": "Text", "text": "$text", "type": "title" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "hint",
+      "doc": "次要说明行（覆盖基础 kit：自带上下留白，框架不再给隐含边距）",
+      "params": [{ "name": "text", "type": "text", "required": true }],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "vertical": 15 },
+            "children": [
+              { "kind": "Text", "text": "$text", "type": "caption", "tone": "hint" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "text",
+      "doc": "正文行（覆盖基础 kit：自带上下留白，框架不再给隐含边距）",
+      "params": [
+        { "name": "text", "type": "text", "required": true },
+        { "name": "tone", "type": "tone", "default": "normal" },
+        { "name": "mono", "type": "bool", "default": false }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "vertical": 15 },
+            "children": [
+              { "kind": "Text", "text": "$text", "tone": "$tone", "mono": "$mono" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "divider",
+      "doc": "分隔线（覆盖基础 kit：自带上下留白）",
+      "params": [],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "vertical": 15 },
+            "children": [{ "kind": "Divider" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "button",
+      "doc": "按钮（覆盖基础 kit：自带上下留白）",
+      "params": [
+        { "name": "label", "type": "text", "required": true },
+        { "name": "variant", "type": "enum:buttonVariant", "default": "secondary" },
+        { "name": "icon", "type": "string" },
+        { "name": "disabled", "type": "bool", "default": false },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "vertical": 15 },
+            "children": [
+              {
+                "kind": "Button",
+                "label": "$label",
+                "variant": "$variant",
+                "icon": "$icon",
+                "disabled": "$disabled",
+                "action": "$action"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "card",
+      "doc": "内容块（卡片，覆盖基础 kit：留白在这里声明，框架不再给隐含边距）",
+      "params": [
+        { "name": "title", "type": "text" },
+        { "name": "variant", "type": "enum:blockVariant", "default": "card" },
+        {
+          "name": "padding",
+          "type": "edges",
+          "default": { "horizontal": 50, "vertical": 50 }
+        },
+        { "name": "margin", "type": "edges", "default": { "vertical": 50 } },
+        { "name": "children", "type": "items" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "title": "$title",
+            "variant": "$variant",
+            "padding": "$padding",
+            "margin": "$margin",
+            "children": "$children"
+          }
+        }
+      ]
+    },
+    {
       "name": "listRow",
-      "doc": "卡片里的一行（覆盖基础 kit：musicxx 的卡片行留白更紧，副标题用说明样式）",
+      "doc": "卡片里的一行（不带底色：卡片里直接按列表排列；右侧状态用说明字号）",
       "params": [
         { "name": "title", "type": "text", "required": true },
         { "name": "subtitle", "type": "text" },
@@ -16,7 +141,7 @@
         {
           "template": {
             "kind": "Block",
-            "variant": "inset",
+            "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
             "children": [
@@ -38,7 +163,7 @@
                       }
                     ]
                   },
-                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "tone": "hint" }
+                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "tone": "hint" }
                 ]
               }
             ]
@@ -48,7 +173,7 @@
     },
     {
       "name": "settingRow",
-      "doc": "设置行：标题 + 说明 + 右侧当前值（整行可点，点开会话由插件给的动作处理）",
+      "doc": "设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号）",
       "params": [
         { "name": "title", "type": "text", "required": true },
         { "name": "depict", "type": "text" },
@@ -59,7 +184,7 @@
         {
           "template": {
             "kind": "Block",
-            "variant": "inset",
+            "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
             "children": [
@@ -81,7 +206,7 @@
                       }
                     ]
                   },
-                  { "$require": "value", "kind": "Text", "text": "$value", "tone": "hint" }
+                  { "$require": "value", "kind": "Text", "text": "$value", "type": "caption", "tone": "hint" }
                 ]
               }
             ]
@@ -91,7 +216,7 @@
     },
     {
       "name": "switchRow",
-      "doc": "开关行：标题 + 说明 + 右侧开关（值变化即派发动作，参数里带 id 与当前值）",
+      "doc": "开关行：标题 + 说明 + 右侧开关（不带底色，值变化即派发动作、参数带 id 与当前值）",
       "params": [
         { "name": "id", "type": "string", "required": true },
         { "name": "title", "type": "text", "required": true },
@@ -103,7 +228,7 @@
         {
           "template": {
             "kind": "Block",
-            "variant": "inset",
+            "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "children": [
               {
@@ -140,7 +265,7 @@
     },
     {
       "name": "inputRow",
-      "doc": "输入行：标题 + 说明 + 右侧单行/多行输入框（输入完成即派发动作）",
+      "doc": "输入行：标题 + 说明 + 输入框（不带底色，输入完成即派发动作）",
       "params": [
         { "name": "id", "type": "string", "required": true },
         { "name": "title", "type": "text", "required": true },
@@ -153,7 +278,7 @@
         {
           "template": {
             "kind": "Block",
-            "variant": "inset",
+            "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "children": [
               {
@@ -206,7 +331,7 @@
     },
     {
       "name": "coverRow",
-      "doc": "带封面的行：封面 + 标题 + 副标题 + 可选右侧文字（取不到图片时显示标题）",
+      "doc": "带封面的行：封面 + 标题 + 副标题 + 可选右侧状态（不带底色；取不到图片时显示标题）",
       "params": [
         { "name": "cover", "type": "string", "required": true },
         { "name": "title", "type": "text", "required": true },
@@ -220,7 +345,7 @@
           "requires": ["Image"],
           "template": {
             "kind": "Block",
-            "variant": "inset",
+            "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
             "children": [
@@ -243,7 +368,7 @@
                       }
                     ]
                   },
-                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "tone": "hint" }
+                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "tone": "hint" }
                 ]
               }
             ]
@@ -252,7 +377,7 @@
         {
           "template": {
             "kind": "Block",
-            "variant": "inset",
+            "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
             "children": [
@@ -274,7 +399,7 @@
                       }
                     ]
                   },
-                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "tone": "hint" }
+                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "tone": "hint" }
                 ]
               }
             ]

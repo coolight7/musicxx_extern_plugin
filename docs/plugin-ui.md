@@ -147,11 +147,11 @@ capability(*this, "plugin.my_plugin.settings",
 
 | 常用 `kind` | 字段 | 说明 |
 |---|---|---|
-| `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…） |
+| `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
 | `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action` |
-| `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块（应用的卡片：底色 + 圆角 + 边距）；`inset` 是内容块里的浅色底（列表行用它） |
+| `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
 | `SizedBox` | `width`、`height`、`aspect`、`children` | 固定尺寸或占位 |
@@ -286,6 +286,12 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 - 尺寸与边距都是描述层的 `u`：客户端按自己的体系换算（图形界面随窗口缩放），
   习惯写法：左右留白 `16~20`、行间距 `8~12`、间隔用小的 `Gap` / `SizedBox`；
+- **块不带隐含边距**：客户端只把块画成它自己的样子（`Text` 就是一段文本、`Button` 就是一个按钮、
+  `Divider` 就是一条线），边距只有描述里写的那几个（`padding` / `margin` / `gap`）；页面第一层
+  的页面边距由客户端统一给一次，块与块、块内部的留白由 kit 模板或插件自己组合（kit 的
+  `title` / `hint` / `text` / `button` / `divider` / `card` 都已经带上了自己的留白，直接写基础块
+  就要自己写）；
+- **加粗要显式写**：只有 `bold: true` 或 `type: "title"` 是粗体，其余都是常规字重；
 - 能用相对布局就别写固定尺寸：`Expanded` / `Spacer` / `main: "spaceBetween"` / `percent` 优先；
 - 任意块都可以带 `action`（`Button` 用自己的按钮点击语义）：带上之后**整块可点**，
   用来组合「可点的行」；可点的行建议放在 `Block`（有底色的卡片）里，用户才知道那是一行；
