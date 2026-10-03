@@ -2,7 +2,8 @@
 ///
 /// 这个插件只演示"插件渲染槽位"这一条链路, 内容就两件事:
 /// - 声明播放页背景样式 (`musicxx.ui.playing.background`), 本插件给了两种可选样式:
-///   『示例晶格背景』(`shader/bg.shaderbundle`) 与『光圈』(`shader/ring.shaderbundle`,
+///   『示例晶格背景』(`shader/bg.shaderbundle`, 固定格子大小的 Worley 切块 + 封面配色,
+///   画面只随时间缓慢漂移, 不跟音乐律动) 与『光圈』(`shader/ring.shaderbundle`,
 ///   频谱圆环: 从正上方开始顺时针排 64 个点 (左右不镜像, 一个点一个频带), 每个点向圆外
 ///   与圆内各凸出一个尖角 (高度取过指数, 高低对比明显), 相邻尖角之间、同一个尖角的内外沿
 ///   之间都用直线相连 —— 整圈是一张长在圆上的"蛛网", 不画基线圆)。
@@ -31,7 +32,7 @@ const kit = pluginxx.ui.kit;
 
 /// 背景样式在设置列表里的名字与副标题
 const BG_TITLE = "示例晶格背景";
-const BG_DEPICT = "跟随封面配色与音乐律动的晶格化动态背景";
+const BG_DEPICT = "跟随封面配色的晶格化动态背景";
 
 /// 第二个背景样式: 『光圈』(频谱圆环)
 ///
@@ -105,10 +106,11 @@ function smoothSpectrum(name) {
 /// 不能只传改动的字段。
 ///
 /// `args` 只有一种写法: **成员名 → 值表达式**（`{kind: "...", ...}`，可以像 widget 一样
-/// 嵌套）。这里的晶格背景用了三类节点: `source`（具名来源：主题色 `theme.*` / 封面提取色
-/// `icon.*` / 映射后的 4 色 `icon.themeMapping.0..3` / 当前音频频谱 `spectrum.*`）、
-/// `smooth`（过渡）、`mul` + `lfo`（把响度乘上一个缓慢的呼吸曲线）。
-/// 不声明 `args` 时宿主默认给 `icon.themeMapping.0..3`。
+/// 嵌套）。这里只用了一类节点 `source`（具名来源）：封面颜色经主题映射后的 4 个绘制色
+/// （内置播放页背景实际用的就是这 4 色, 已套过昼夜转换；不声明 `args` 时宿主默认给的就是它们）。
+///
+/// 晶格背景的着色器不读频谱: 格子大小固定, 画面只有随机点的缓慢漂移, 不跟音乐律动。
+/// 频谱参数怎么写看下面的『光圈』（`ringArgs`）与页面里的内联块。
 function latticeBackgroundData(rate) {
     return {
         title: BG_TITLE,
@@ -119,17 +121,6 @@ function latticeBackgroundData(rate) {
             uColor2: { kind: "source", name: "musicxx.icon.themeMapping.1" },
             uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
             uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
-            // 频谱（内置『音乐动效』提取的数据）: 每帧现读, 零成本
-            // uLevel = 当前响度 × 呼吸曲线, uBands = 最低的 4 个频带, uBands2 = 第 8~11 个频带
-            uLevel: {
-                kind: "mul",
-                of: [
-                    smoothSpectrum("musicxx.spectrum.level"),
-                    { kind: "lfo", shape: "sine", periodMs: 2600, from: 0.92, to: 1.0 },
-                ],
-            },
-            uBands: smoothSpectrum("musicxx.spectrum.bands.0"),
-            uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
         },
         speed: bgSpeedOf(rate),
         maxFps: 16,
@@ -317,7 +308,7 @@ function spectrumStateText() {
         return "无状态";
     }
     if (s.available === true) {
-        return "有数据（响度 " + Math.round((s.level || 0) * 100) + "%）";
+        return "有数据";
     }
     switch (s.status) {
         case "loading":
@@ -325,7 +316,6 @@ function spectrumStateText() {
         case "off":
             return "『音乐动效』未启用";
         case "unavailable":
-            return "该来源没有频谱";
         default:
             return "无数据";
     }
@@ -398,65 +388,67 @@ function settingsView(args, override) {
                 text: "• 本插件注册了两种背景样式:『" + BG_TITLE + "』(晶格化) 与『" + RING_TITLE + "』(频谱圆环)。两者占同一个槽位 player.background, 设置里同时只能选中一个。",
             }, env),
             kit.hint({
-                text: "• 背景声明里的 `spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，晶格背景用它）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
+                text: "• 『" + RING_TITLE + "』的声明用了频谱来源：`spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，控制点少时用）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
             }, env),
             kit.hint({
                 text: "• `args` 只有一种写法：成员名 → 值表达式（`{\"kind\": \"...\"}`，可以嵌套）。来源用 `source`、常量用 `const`、过渡用 `smooth`、动画用 `tween` / `lfo`、组合用 `mul` / `mix` / `clamp` 等；宿主每帧求值一次，插件不用在着色器里写时间与滤波逻辑。",
             }, env),
             kit.divider({}, env),
-            kit.card({ children: [
-                kit.listRow({
-                    title: "生效样式",
-                    subtitle: "本插件两种样式里现在在画的是哪一种（读状态镜像）",
-                    trailing: backgroundStyleText(),
-                }, env),
-                kit.listRow({
-                    title: "播放页背景",
-                    subtitle: "生效中 = 本插件在画（按下面按钮即可换样式）",
-                    trailing: backgroundStateText(),
-                }, env),
-            ] }, env),
-            // 页面里也能直接画一块着色器（`musicxx.Shader` 块）：用 `SizedBox` 给它确定的高度，
-            // 参数同样用 `args` 声明 —— 两块都带频谱参数（与背景声明同一套来源），会跟着音乐起伏
-            kit.hint({ text: "• 下面两块是页面内联的 Shader 块（同一个 bundle）：上面是晶格，下面是光圈；两块都带频谱参数，会跟着音乐起伏：" }, env),
             kit.card({
                 children: [
-                    { kind: "SizedBox", height: 300, children: [
-                        kit.shaderBlock({
-                            bundle: "shader/bg.shaderbundle",
-                            speed: 1,
-                            maxFps: 16,
-                            args: {
-                                // 颜色来源：主题色 + 封面提取色（取不到时用 fallback）
-                                uColor1: { kind: "source", name: "musicxx.theme.primary" },
-                                uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                                uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
-                                uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
-                                // 频谱（与背景声明同一套来源）：晶格跟着响度与中高频"呼吸"
-                                uLevel: smoothSpectrum("musicxx.spectrum.level"),
-                                uBands: smoothSpectrum("musicxx.spectrum.bands.0"),
-                                uBands2: smoothSpectrum("musicxx.spectrum.bands.2"),
-                            },
-                        }, env),
-                    ] },
+                    kit.listRow({
+                        title: "生效样式",
+                        subtitle: "本插件两种样式里现在在画的是哪一种（读状态镜像）",
+                        trailing: backgroundStyleText(),
+                    }, env),
+                    kit.listRow({
+                        title: "播放页背景",
+                        subtitle: "生效中 = 本插件在画（按下面按钮即可换样式）",
+                        trailing: backgroundStateText(),
+                    }, env),
+                ]
+            }, env),
+            // 页面里也能直接画一块着色器（`musicxx.Shader` 块）：用 `SizedBox` 给它确定的高度，
+            // 参数同样用 `args` 声明 —— 晶格那块只用 4 个绘制色（不跟音乐动效），光圈那块带频谱参数
+            kit.hint({ text: "• 下面两块是页面内联的 Shader 块：上面是晶格（固定格子大小，只缓慢漂移），下面是光圈（跟着频谱起伏）：" }, env),
+            kit.card({
+                children: [
+                    {
+                        kind: "SizedBox", height: 300, children: [
+                            kit.shaderBlock({
+                                bundle: "shader/bg.shaderbundle",
+                                speed: 1,
+                                maxFps: 16,
+                                args: {
+                                    // 颜色来源：主题色 + 封面提取色（取不到时用 fallback）
+                                    uColor1: { kind: "source", name: "musicxx.theme.primary" },
+                                    uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                    uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                    uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
+                                },
+                            }, env),
+                        ]
+                    },
                 ],
             }, env),
             kit.card({
                 children: [
-                    { kind: "SizedBox", height: 300, children: [
-                        kit.shaderBlock({
-                            bundle: "shader/ring.shaderbundle",
-                            speed: 1,
-                            maxFps: 16,
-                            // 与背景声明同一套参数(256 个频点 + 颜色), 直接复用
-                            args: ringArgs(
-                                { kind: "source", name: "musicxx.theme.primary" },
-                                { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                                { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
-                                { kind: "source", name: "musicxx.icon.themeMapping.3" }
-                            ),
-                        }, env),
-                    ] },
+                    {
+                        kind: "SizedBox", height: 300, children: [
+                            kit.shaderBlock({
+                                bundle: "shader/ring.shaderbundle",
+                                speed: 1,
+                                maxFps: 16,
+                                // 与背景声明同一套参数(256 个频点 + 颜色), 直接复用
+                                args: ringArgs(
+                                    { kind: "source", name: "musicxx.theme.primary" },
+                                    { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                    { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                    { kind: "source", name: "musicxx.icon.themeMapping.3" }
+                                ),
+                            }, env),
+                        ]
+                    },
                 ],
             }, env),
             kit.settingRow({
@@ -563,34 +555,36 @@ function cardView(args) {
                 text: "• 本插件把预编译好的 shader bundle 注册成一种播放页背景样式: 用户在『设置 → 播放页面背景』里选中后才生效。",
             }, env),
             kit.divider({}, env),
-            kit.card({ children: [
-                kit.listRow({
-                    title: "生效样式",
-                    subtitle: "本插件两种样式（晶格 / 光圈）里现在在画的是哪一种",
-                    trailing: backgroundStyleText(),
-                }, env),
-                kit.listRow({
-                    title: "播放页背景",
-                    subtitle: "当前生效项 (读状态镜像 musicxx.state.renderSlots)",
-                    trailing: backgroundStateText(),
-                }, env),
-                kit.listRow({
-                    title: "渲染状态",
-                    subtitle: "页面被遮挡或切到后台时宿主会停止渲染",
-                    trailing: renderStateText(),
-                }, env),
-                kit.listRow({
-                    title: "背景动画速率",
-                    subtitle: "点这一条循环切换 0.5x / 1x / 2x (1x 是基准速度)",
-                    trailing: bgRateText(configuredBgRate()),
-                    action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: "card" } },
-                }, env),
-                kit.listRow({
-                    title: "音频频谱",
-                    subtitle: "状态镜像 musicxx.state.spectrum（同步、实时）；完整结果点下面的按钮（异步读动作）",
-                    trailing: spectrumStateText(),
-                }, env),
-            ] }, env),
+            kit.card({
+                children: [
+                    kit.listRow({
+                        title: "生效样式",
+                        subtitle: "本插件两种样式（晶格 / 光圈）里现在在画的是哪一种",
+                        trailing: backgroundStyleText(),
+                    }, env),
+                    kit.listRow({
+                        title: "播放页背景",
+                        subtitle: "当前生效项 (读状态镜像 musicxx.state.renderSlots)",
+                        trailing: backgroundStateText(),
+                    }, env),
+                    kit.listRow({
+                        title: "渲染状态",
+                        subtitle: "页面被遮挡或切到后台时宿主会停止渲染",
+                        trailing: renderStateText(),
+                    }, env),
+                    kit.listRow({
+                        title: "背景动画速率",
+                        subtitle: "点这一条循环切换 0.5x / 1x / 2x (1x 是基准速度)",
+                        trailing: bgRateText(configuredBgRate()),
+                        action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: "card" } },
+                    }, env),
+                    kit.listRow({
+                        title: "音频频谱",
+                        subtitle: "状态镜像 musicxx.state.spectrum（同步、实时）；完整结果点下面的按钮（异步读动作）",
+                        trailing: spectrumStateText(),
+                    }, env),
+                ]
+            }, env),
             kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
             kit.button({
                 label: "读取当前频谱（镜像 + 异步动作）",
