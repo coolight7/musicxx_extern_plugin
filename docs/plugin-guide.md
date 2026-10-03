@@ -227,7 +227,14 @@ musicxx.capability.register("card", function () {
 - 清单 `entry` **按 Linux 写法填 `<名字>.so`**：Windows / macOS 的扩展名由宿主按平台修正，一份清单三平台通用；
 - 多目标包的分支目录用 `lib/<系统>-<架构>/`，运行时按「系统+架构 → 只系统 → 只架构 → 通用 → 插件根目录」
   选分支（不认识的分支目录会被忽略）；
-- 每个架构各构建一次，库文件不能互换。
+- 清单 `platforms` / `arch` 是**整包**的额外限制（不写 = 不限）：取值与分支标签共用同一张别名表
+  （`win32` / `osx` / `gnu`、`amd64` / `aarch64` 都认）。它只在"当前运行环境能不能用"这一层比较，
+  写错平台的表现是**装不上 / 扫描结果里 `supported=false`**：管理页与安装提示会写明
+  「当前平台不在清单声明内 (当前 windows，清单声明: linux)」，照提示改清单即可；
+- 每个架构各构建一次，库文件不能互换；
+- **32 位 ARM（`armeabi-v7a` / armhf）**：宿主的架构标识报 `armv7`，分支目录按 `lib/android-armeabi-v7a/`
+  写即可（`musicxx_plugin_add_target(... TARGET_TAG auto)` 在 Android 上直接用 ABI 名）；清单 `arch` 写
+  `armv7` / `arm` / `armeabi-v7a` 都认。
 
 ### 5.9 失败与安全模式
 

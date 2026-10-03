@@ -7,6 +7,8 @@
 /// 运行：`flutter test test/plugin_target_test.dart`
 library;
 
+import 'dart:ffi';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 
@@ -31,6 +33,18 @@ void main() {
         'armv7',
         'riscv64',
       ], contains(arch));
+    });
+
+    test('32 位 ARM 报 armv7（Android armeabi-v7a / Linux armhf）', () {
+      // 与宿主 `currentTargetArch()` 同一套取值：清单 `arch`、分支标签都用这些名字
+      expect(MusicxxPluginEnv.currentArch(Abi.androidArm), 'armv7');
+      expect(MusicxxPluginEnv.currentArch(Abi.linuxArm), 'armv7');
+      // 64 位 ARM 不能被 32 位的判断吃掉
+      expect(MusicxxPluginEnv.currentArch(Abi.androidArm64), 'arm64');
+      expect(MusicxxPluginEnv.currentArch(Abi.linuxArm64), 'arm64');
+      expect(MusicxxPluginEnv.currentArch(Abi.androidX64), 'x64');
+      expect(MusicxxPluginEnv.currentArch(Abi.androidIA32), 'x86');
+      expect(MusicxxPluginEnv.currentArch(Abi.linuxRiscv64), 'riscv64');
     });
 
     test('平台默认库名与宿主同一规则', () {

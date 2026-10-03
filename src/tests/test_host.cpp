@@ -200,17 +200,53 @@ std::string testPlatform() {
 #endif
 }
 
-/// 当前编译目标的规范架构名（与宿主 hostArch() 同规则）
+/// 当前编译目标的规范架构名（与宿主 `currentTargetArch()` / `hostArch()` 同规则）
 std::string testArch() {
 #if defined(_M_ARM64) || defined(__aarch64__)
   return "arm64";
 #elif defined(_M_X64) || defined(__x86_64__)
   return "x64";
+#elif defined(_M_ARM) || defined(__arm__)
+  return "armv7"; ///< 32 位 ARM (Android armeabi-v7a / Linux armhf)
 #elif defined(_M_IX86) || defined(__i386__)
   return "x86";
+#elif defined(__riscv) && (__riscv_xlen == 64)
+  return "riscv64";
+#elif defined(__loongarch64)
+  return "loongarch64";
 #else
   return "unknown";
 #endif
+}
+
+/// 当前系统的别名写法（清单 `platforms` 里写别名与写规范名必须等效）
+std::string testOsAlias() {
+  const std::string os = testPlatform();
+  if (os == "windows") {
+    return "win32";
+  }
+  if (os == "linux") {
+    return "gnu";
+  }
+  if (os == "macos") {
+    return "osx";
+  }
+  return os;
+}
+
+/// 当前架构的别名写法（清单 `arch` 里写别名与写规范名必须等效）
+std::string testArchAlias() {
+  const std::string arch = testArch();
+  if (arch == "x64") {
+    return "amd64";
+  }
+  if (arch == "arm64") {
+    return "aarch64";
+  }
+  if (arch == "x86") {
+    return "i686";
+  }
+  return arch;
 }
 
 /// 平台化后的库文件名（清单按 Linux 写 `<名>.so`，宿主按平台修正扩展名）
@@ -492,7 +528,8 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
 /// 插件目录静态判定（`plugin_inspect`）：安装预检入口，与扫描/装载同源
 ///
 /// 用例覆盖：清单字段、按当前或**指定**目标环境选分支、没有匹配分支的原因、
-/// JS 插件的脚本清单、目录不存在，以及"inspect 与 scan 对同一目录结论一致"。
+/// 清单 `platforms` / `arch` 的声明（含别名与 32 位 ARM）、JS 插件的脚本清单、
+/// 目录不存在，以及"inspect 与 scan 对同一目录结论一致"。
 void testPluginInspect(MusicxxExternPluginHost *host,
                        const std::string &pluginsRoot) {
   auto inspect = [&](const std::string &dir, const std::string &os,
@@ -567,7 +604,81 @@ void testPluginInspect(MusicxxExternPluginHost *host,
   }
   removePath(root);
 
-  // 5) JS 插件：形态与脚本清单；动态库分支字段不出现
+  // 5) 清单声明了 platforms / arch：按目标环境比较（传空 = 宿主当前环境）
+  //
+  // 回归：应用侧安装预检（`host.plugins.inspect(dir)`）**不传** os/arch，早期实现
+  // 拿空串去比对清单里的 platforms，于是声明了 platforms 的插件一律被判成
+  // "当前平台不在清单声明内" —— 这类插件永远装不上（示例插件几乎都声明了 platforms）。
+  {
+    const std::string libName2 = testLibFileName("tgt_declared");
+    const std::filesystem::path declaredRoot = makeTempPluginRoot(
+        "tgt_declared",
+        "name: tgt_declared\nentry: tgt_declared.so\nkind: native\n"
+        "platforms: [" + testOsAlias() + "]\narch: [" + testArchAlias() + "]\n",
+        {libName2});
+    const std::string pkgDir = (declaredRoot / "tgt_declared").string();
+
+    const std::string hostEnv = inspect(pkgDir, "", "");
+    checkText(hostEnv.find("\"supported\":true") != std::string::npos,
+              "清单声明了 platforms / arch 时，按宿主当前环境（传空）判定为可用");
+    checkText(jsonStringField(hostEnv, "reason").empty(),
+              "按宿主当前环境判定时没有不可用原因");
+
+    const std::string scanItem =
+        scanPluginItem(host, declaredRoot.string(), "tgt_declared");
+    checkText(scanItem.find("\"supported\":true") != std::string::npos,
+              "扫描对声明了别名平台/架构的插件同样判为可用");
+
+    // 换个平台：明确报"当前平台不在清单声明内"，并带上当前环境与声明内容
+    const std::string otherOs = (testPlatform() == "windows") ? "linux" : "windows";
+    const std::string mismatch = inspect(pkgDir, otherOs, testArch());
+    checkText(mismatch.find("\"supported\":false") != std::string::npos,
+              "换成别的平台后判为不可用");
+    checkText(mismatch.find("当前平台不在清单声明内") != std::string::npos &&
+                  mismatch.find(otherOs) != std::string::npos,
+              "不可用原因写明平台不在声明内，并给出目标环境");
+    removePath(declaredRoot);
+  }
+
+  // 6) 32 位 ARM：`android-armeabi-v7a` 分支与清单里的别名写法（arm / armv7 / armeabi-v7a）
+  //
+  // 本用例在 x64 机上跑：目标环境由参数注入（`plugin_inspect` 的 os/arch 参数就是为这种
+  // 验证准备的）。编译目标本身的架构判定（32 位 ARM 上报 armv7）由 `debug_info` 的
+  // `arch` 断言覆盖（见 main 里的"宿主上报的架构"）。
+  {
+    const std::string armLib = testLibFileName("tgt_armv7");
+    const std::filesystem::path armRoot = makeTempPluginRoot(
+        "tgt_armv7",
+        "name: tgt_armv7\nentry: tgt_armv7.so\nkind: native\n"
+        "platforms: [android, linux]\narch: [arm]\n",
+        {"lib/android-armeabi-v7a/" + armLib, "lib/android-arm64-v8a/" + armLib,
+         "lib/linux-armv7/" + armLib});
+    const std::string armPkg = (armRoot / "tgt_armv7").string();
+
+    const std::string androidArm = inspect(armPkg, "android", "armv7");
+    checkText(androidArm.find("\"supported\":true") != std::string::npos,
+              "32 位 ARM（armv7）判定为可用");
+    checkText(jsonStringField(androidArm, "target") == "android-armeabi-v7a",
+              "选中 32 位 ARM 分支 android-armeabi-v7a");
+    checkText(androidArm.find("\"arch\":[\"arm\"]") != std::string::npos,
+              "清单 arch 写别名 arm 照常解析");
+
+    // Linux armhf：同一份包按 linux-armv7 分支
+    const std::string linuxArm = inspect(armPkg, "linux", "armv7");
+    checkText(jsonStringField(linuxArm, "target") == "linux-armv7",
+              "Linux 32 位 ARM 选 linux-armv7 分支");
+
+    // 换个架构（arm64）：清单 arch 只声明了 32 位 ARM，应判为不可用并说明原因
+    const std::string arm64Info = inspect(armPkg, "android", "arm64");
+    checkText(arm64Info.find("\"supported\":false") != std::string::npos,
+              "只声明 32 位 ARM 的插件在 arm64 环境判为不可用");
+    checkText(arm64Info.find("当前架构不在清单声明内") != std::string::npos &&
+                  arm64Info.find("当前 arm64") != std::string::npos,
+              "架构不匹配的原因写明当前架构与清单声明");
+    removePath(armRoot);
+  }
+
+  // 7) JS 插件：形态与脚本清单；动态库分支字段不出现
   {
     const std::filesystem::path jsDir =
         std::filesystem::path(pluginsRoot) / "example_js";
@@ -579,9 +690,12 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     checkText(jsInfo.find("\"targetsDir\"") == std::string::npos &&
                   jsInfo.find("\"targetEntry\"") == std::string::npos,
               "JS 插件不出现动态库分支字段");
+    // 示例插件都声明了 platforms：按宿主当前环境判定必须是可用（安装预检的调用形状）
+    checkText(jsInfo.find("\"supported\":true") != std::string::npos,
+              "声明了 platforms 的 JS 示例插件按宿主当前环境判定为可用");
   }
 
-  // 6) 目录不存在：valid=false + 可读原因（调用本身仍然成功）
+  // 8) 目录不存在：valid=false + 可读原因（调用本身仍然成功）
   {
     const std::filesystem::path missing =
         std::filesystem::path(pluginsRoot) / "definitely_missing_plugin";
@@ -882,10 +996,18 @@ int main(int argc, char **argv) {
           "hook_stats 不再含超时统计");
 
     MusicxxExternPluginString info{};
-    check(musicxx_extern_plugin_debug_info(host, &info, &log) ==
-              MUSICXX_EXTERN_PLUGIN_OK,
-          "debug_info 可读");
-    freeStr(info);
+    const auto infoRc = musicxx_extern_plugin_debug_info(host, &info, &log);
+    const std::string infoJson = take(info);
+    check(infoRc == MUSICXX_EXTERN_PLUGIN_OK, "debug_info 可读");
+
+    // 架构标识: 上报给插件的 `arch` 必须是规范名, 而且与"选分支/判清单 arch 用的架构"
+    // 是同一个名字 (32 位 ARM 上曾经报 unknown, 于是 armeabi-v7a 分支与 `arch: [arm]`
+    // 声明谁都匹配不上)
+    const std::string reportedArch = jsonStringField(infoJson, "arch");
+    checkText(reportedArch != "unknown",
+              "宿主上报的架构不是 unknown (32 位 ARM 应报 armv7)");
+    checkText(reportedArch == testArch(),
+              "宿主上报的架构与用例期望一致 (" + reportedArch + ")");
   }
 
   // 插件能力调用 (Dart → 插件) + 线程模型 / 命名空间自检

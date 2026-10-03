@@ -56,8 +56,8 @@ version: 1.0.0                     # 版本（升级比较用）
 api_version: 1                     # 插件 API 版本：不低于宿主支持的最低版本即可（当前最低 1）；声明更高也不拒绝
 author: "你的名字"
 description: "插件说明"
-platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（多目标包通常不写，见 §1.3）
-arch: [x64, arm64]                 # 允许的架构；不写 = 不限
+platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（别名 win32 / osx 也认；多目标包通常不写，见 §1.3）
+arch: [x64, arm64]                 # 允许的架构；不写 = 不限（别名 amd64 / aarch64 也认）
 targets_dir: lib                   # 多目标包的分支目录名（缺省 lib；空串 = 关闭分支扫描）
 depends: [other_plugin]            # 必选依赖（宿主会先加载它们）
 optional_depends: [maybe_plugin]   # 可选依赖（有就排前面，没有也照常加载）
@@ -126,13 +126,19 @@ my_plugin/
 
 规则要点：
 
+- **宿主的架构标识**：`x64` / `x86` / `arm64` / `armv7` / `riscv64` / `loongarch64`。
+  **32 位 ARM 报 `armv7`**（Android `armeabi-v7a`、Linux armhf），所以 `lib/android-armeabi-v7a/`
+  这类分支目录与清单 `arch: [armv7]`（或别名 `arm` / `arm32` / `armeabi-v7a`）能对上；
+  宿主上报给插件的 `host.info().arch` 也是这个名字；
 - **不匹配当前系统/架构的分支不会被加载**：扫描结果里 `supported=false`，原因是"包内没有匹配当前
   系统/架构的分支"（附带包内分支清单），应用侧安装时也会提前拒绝并说明；
 - **判定只有宿主一处实现**：扫描（`plugin_scan`）、装载与安装预检（C ABI `plugin_inspect`）跑的是
   同一份 `inspectPluginDir`，所以"预检说能不能用、装载就用哪个分支"不会出现分歧；
   Dart 侧只有数据模型与环境取值，不复制别名表与目录遍历；
 - 清单 `platforms` / `arch` 仍然有效，含义是"**整包**允许的平台/架构"（例如插件内含脚本或数据资源
-  只对某些系统有意义时的额外限制）；多目标包通常不用写它们，支持范围已经由分支表达；
+  只对某些系统有意义时的额外限制）；多目标包通常不用写它们，支持范围已经由分支表达。
+  取值与分支标签**共用同一张别名表**（`win32` / `osx` / `gnu` / `amd64` / `aarch64` 都认），
+  比较的是"当前环境与清单声明"，不写 = 不限；
 - **不认识的分支目录会被忽略**（例如 `lib/utils/`、`lib/shader/`），可以放心把辅助文件放在同一层；
 - `targets_dir` 显式写成空串 = 关闭分支扫描（插件自己管目录布局，宿主只看清单 `entry`）；
 - 分支目录里放的是"目标平台编出来的库"这一事实由你保证：标签与真实库不匹配时，装载阶段

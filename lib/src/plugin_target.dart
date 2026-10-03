@@ -120,19 +120,24 @@ abstract final class MusicxxPluginEnv {
     return Platform.operatingSystem;
   }
 
-  /// 当前进程的规范架构名（与宿主 `hostArch()` 一致：x64 / arm64 / x86 …）
-  static String currentArch() {
-    final String abi = Abi.current().toString().toLowerCase();
-    if (abi.contains('arm64') || abi.contains('aarch64')) {
+  /// 当前进程的规范架构名（与宿主 `currentTargetArch()` 一致：x64 / x86 / arm64 / armv7 …）
+  ///
+  /// 32 位 ARM（Android `armeabi-v7a` / Linux armhf）报 `armv7`；取值要与宿主认得的
+  /// 规范名一致，否则清单 `arch` 与分支标签比较时会对不上。
+  ///
+  /// [abi] 只用于测试注入（不传时取 `Abi.current()`）。
+  static String currentArch([Abi? abi]) {
+    final String name = (abi ?? Abi.current()).toString().toLowerCase();
+    if (name.contains('arm64') || name.contains('aarch64')) {
       return 'arm64';
     }
-    if (abi.contains('ia32') || abi.contains('x86_32') || abi.contains('i686')) {
+    if (name.contains('ia32') || name.contains('x86_32') || name.contains('i686')) {
       return 'x86';
     }
-    if (abi.contains('arm')) {
+    if (name.contains('arm')) {
       return 'armv7';
     }
-    if (abi.contains('riscv64')) {
+    if (name.contains('riscv64')) {
       return 'riscv64';
     }
     return 'x64';
