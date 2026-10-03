@@ -31,7 +31,7 @@ abstract final class MusicxxPluginEventType {
   /// 插件加载/运行失败
   static const String pluginError = 'musicxx.plugin.error';
 
-  /// 插件运行告警（例如处理器超出硬预算，仅记录统计）
+  /// 插件运行告警（例如处理器超出硬性上限，仅记录统计）
   static const String pluginWarn = 'musicxx.plugin.warn';
 
   /// 插件日志

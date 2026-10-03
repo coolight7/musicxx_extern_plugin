@@ -1,4 +1,4 @@
-/// 契约生成器：把 `tools/hooks.def.json` 生成三份产物
+/// 钩子清单生成器：把 `tools/hooks.def.json` 生成三份产物
 ///
 /// 用法（在包目录下）：
 /// ```
@@ -13,8 +13,8 @@
 /// | `src/sdk/include/musicxx/plugin/api/hook_ids.g.h` | C++ 侧钩子 id 常量 + 已知钩子表（宿主与插件共用） |
 /// | `docs/plugin-hooks.md` | 插件作者文档（钩子总表） |
 ///
-/// 为什么是这三处：Dart 侧埋点与派发要用枚举、原生宿主要用表拒绝未知钩子、
-/// 插件作者要有一份可查的清单。定义只有一处，避免常量漂移。
+/// 为什么是这三处：Dart 侧调用与派发要用枚举、原生宿主要用表拒绝未知钩子、
+/// 插件作者要有一份可查的清单。定义只有一处，避免常量不一致。
 ///
 /// 说明：C++ 头放在 **SDK 目录** 而不是 `src/host/include/`，
 /// 这样宿主（`find_package` 后拿到的 SDK 头）与插件作者（`musicxx_extern_plugin_sdk`）
@@ -70,7 +70,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
   final StringBuffer sb = StringBuffer()
     ..writeln('// 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。')
     ..writeln('//')
-    ..writeln('// 钩子 id 是跨边界稳定契约：字符串值一旦发布不得修改，')
+    ..writeln('// 钩子 id 是跨边界稳定的约定：字符串值一旦发布不得修改，')
     ..writeln('// 只能新增或标记废弃。字段含义见 tools/hooks.def.json。')
     ..writeln('// ignore_for_file: type=lint, constant_identifier_names')
     ..writeln()
@@ -157,8 +157,8 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  /// 裁决合并策略（观察型无意义）')
     ..writeln('  final MusicxxPluginDecisionPolicy policy;')
     ..writeln()
-    ..writeln('  /// 应用侧是否已经埋点：true = 当前版本会派发；')
-    ..writeln('  /// false = 契约已冻结但尚未埋点（注册不会报错，当前版本也不会触发）')
+    ..writeln('  /// 应用侧是否已经接入这个钩子：true = 当前版本会派发；')
+    ..writeln('  /// false = 约定已固定，但应用侧还没有接入（注册不会报错，当前版本也不会触发）')
     ..writeln('  final bool wired;')
     ..writeln()
     ..writeln('  /// 派发方式（是否占用调用线程；见 `tools/hooks.def.json`）')
@@ -197,7 +197,7 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
       '/// 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。',
     )
     ..writeln('///')
-    ..writeln('/// C++ 侧钩子契约：id 常量 + 已知钩子表（宿主据此拒绝未知钩子、按声明的')
+    ..writeln('/// C++ 侧钩子约定：id 常量 + 已知钩子表（宿主据此拒绝未知钩子、按声明的')
     ..writeln('/// 模式/策略派发；插件按常量注册，避免手写字符串打错）。')
     ..writeln('#ifndef MUSICXX_PLUGIN_HOOK_IDS_G_H')
     ..writeln('#define MUSICXX_PLUGIN_HOOK_IDS_G_H')
@@ -281,8 +281,8 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('## 怎么读这张表')
     ..writeln()
     ..writeln(
-      '- **是否已埋点**：`已埋点` = 应用侧已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
-      '`未埋点` = 钩子契约已冻结、应用侧**还没有接**（注册不会报错，但当前版本不会触发）。'
+      '- **应用是否已接入**：`已接入` = 应用侧已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
+      '`未接入` = 钩子约定已经定下来、应用侧**还没有接**（注册不会报错，但当前版本不会触发）。'
       '想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），'
       '或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。',
     )
@@ -299,27 +299,27 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。',
     )
     ..writeln(
-      '- **耗时**：宿主不设等待预算（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），'
+      '- **耗时**：宿主不设置等待超时（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），'
       '处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在宿主线程上，'
       '慢就是别人一起等。',
     )
     ..writeln()
-    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 是否已埋点 |')
+    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 应用是否已接入 |')
     ..writeln('|---|---|---|---|---|');
   for (final Map<String, Object?> hook in hooks) {
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
-    final String wiredText = hook['wired'] == true ? '已埋点' : '未埋点';
+    final String wiredText = hook['wired'] == true ? '已接入' : '未接入';
     sb.writeln(
       "| `${hook['id']}` | ${hook['mode']} | $dispatch | ${hook['policy']} | $wiredText |",
     );
   }
   sb
     ..writeln()
-    ..writeln('## 已埋点钩子的载荷与裁决')
+    ..writeln('## 已接入钩子的载荷与裁决')
     ..writeln()
     ..writeln(
-      '下面是应用侧**已经埋点**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
-      '尚未埋点的钩子只冻结了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐'
+      '下面是应用侧**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
+      '尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐'
       '（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。',
     )
     ..writeln()
@@ -373,7 +373,7 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln()
     ..writeln('- 返回 `null` / 空对象表示“不裁决”，交给下一个处理器；')
     ..writeln('- `action` 的宿主语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
-    ..writeln('- 处理器必须尽快返回：它跑在宿主线程上，慢就是业务与其它插件一起等（宿主不设等待预算、也不会强行中断）。')
+    ..writeln('- 处理器必须尽快返回：它跑在宿主线程上，慢就是业务与其它插件一起等（宿主不设置等待超时、也不会强行中断）。')
     ..writeln()
     ..writeln('## 处理器失败')
     ..writeln()
@@ -423,7 +423,7 @@ List<Map<String, Object?>> _loadHooks() {
       throw StateError('未知派发方式: $id -> $dispatch');
     }
     if (hook['wired'] is! bool) {
-      throw StateError('wired 必须是布尔值（应用侧是否已经埋点）: $id');
+      throw StateError('wired 必须是布尔值（应用侧是否已经接入）: $id');
     }
     if (mode == 'observe' && dispatch != 'async') {
       throw StateError('观察型钩子必须是异步派发（入队即返回）: $id -> $dispatch');
@@ -471,7 +471,7 @@ void main(List<String> args) {
   final bool check = args.contains('--check');
   final List<Map<String, Object?>> hooks = _loadHooks();
   stdout.writeln(
-    '${check ? '校验' : '生成'}契约: ${hooks.length} 个钩子 (来源 $_defPath)',
+    '${check ? '校验' : '生成'}钩子约定: ${hooks.length} 个钩子 (来源 $_defPath)',
   );
 
   final List<String> drift = <String>[];

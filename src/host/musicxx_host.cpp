@@ -339,7 +339,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
   // 单线程执行器自锁。
   if (!bindIoThread()) {
     running_.store(false, std::memory_order_release);
-    err = "host_start: 宿主 IO 线程未在预算内就绪";
+    err = "host_start: 宿主 IO 线程未在超时前就绪";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
 
@@ -437,7 +437,7 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
 
   bool ok = false;
   if (!slot->wait(timeoutMs == 0 ? 30000 : timeoutMs + 500, ok) || !ok) {
-    XX_LOGW("[musicxx_ext] host stop: 插件卸载未在预算内完成 (可再次调用重试)");
+    XX_LOGW("[musicxx_ext] host stop: 插件卸载未在时限内完成 (可再次调用重试)");
   }
 
   running_.store(false, std::memory_order_release);
@@ -572,7 +572,7 @@ int32_t MusicxxHostManager::pushActionRequestEvent(
   if (action.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  /// 动作名不校验、不拒绝 (与动态库插件的动作请求同一口径): 由 Dart 侧按注册表
+  /// 动作名不校验、不拒绝 (与动态库插件的动作请求一致): 由 Dart 侧按注册表
   /// 决定理不理它。命名建议见 `requestAction`。
   ///
   /// 超时也不再限制区间: 0 = 不设超时。
@@ -1412,7 +1412,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
   }
   int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   if (!slot->wait(timeoutMs == 0 ? 10000 : timeoutMs, rc)) {
-    err = "plugin_load: 装载未在预算内完成 (结果稍后经事件回报)";
+    err = "plugin_load: 装载未在时限内完成 (结果稍后经事件回报)";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
@@ -1705,7 +1705,7 @@ int32_t MusicxxHostManager::pluginCall(const std::string &id,
   if (timeoutMs == 0) {
     state->slot.wait(rc);
   } else if (!state->slot.wait(timeoutMs, rc)) {
-    err = "plugin_call: 未在预算内完成 (" + cap + ")";
+    err = "plugin_call: 未在时限内完成 (" + cap + ")";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {

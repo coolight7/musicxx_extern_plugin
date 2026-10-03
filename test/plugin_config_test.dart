@@ -1,7 +1,7 @@
 /// 端到端测试：示例插件（JS）的**配置读写**在真实原生宿主上的验证
 ///
 /// 覆盖：
-/// - 宿主动作 `musicxx.storage.get/set` 的契约：`get` 的应答就是**值本身**
+/// - 宿主动作 `musicxx.storage.get/set` 的约定：`get` 的应答就是**值本身**
 ///   （键不存在时为空应答）—— JS 便捷封装 `musicxx.storage.getConfig(key, 默认值)`
 ///   直接把应答当值使用，包一层对象会让插件读不到自己写的内容；
 /// - 设置页能力读到的值与 config.json 一致；
@@ -438,8 +438,8 @@ void main() {
       reason: '插件装载后应异步读一次频谱动作',
     );
 
-    // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒预算
-    // （应用侧表现是整机卡住几秒 + "调用插件能力失败，未在预算内完成"）
+    // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒超时
+    // （应用侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
     final Stopwatch watch = Stopwatch()..start();
     Map<String, Object?> view = _callView(
       runtime,
@@ -732,7 +732,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     final String key = '${invocation.args['key']}';
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
-      // 契约：返回**值本身**（缺失即 null → 空应答 → 插件用自己给的默认值）
+      // 约定：返回**值本身**（缺失即 null → 空应答 → 插件用自己给的默认值）
       return readConfig(id)[key];
     }
     return kv['$id:$key'];

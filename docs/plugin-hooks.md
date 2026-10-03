@@ -7,84 +7,84 @@
 
 ## 怎么读这张表
 
-- **是否已埋点**：`已埋点` = 应用侧已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；`未埋点` = 钩子契约已冻结、应用侧**还没有接**（注册不会报错，但当前版本不会触发）。想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。
+- **应用是否已接入**：`已接入` = 应用侧已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；`未接入` = 钩子约定已经定下来、应用侧**还没有接**（注册不会报错，但当前版本不会触发）。想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。
 - **模式**：`observe` = 只通知（返回值忽略、不等待）；`decision` = 可裁决，返回 `null` 表示这次不表态。
 - **派发**：`sync` = 调用点就地等待（占用调用线程）；`async` = 不占用调用线程，裁决结果经 `musicxx.hook.decision.result` 事件回传（调用点用 `decideAsync` 时）。
 - **合并策略**：多个处理器给出裁决时怎么合并（`firstNonNull` 首个非空生效并停止询问、`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。
-- **耗时**：宿主不设等待预算（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在宿主线程上，慢就是别人一起等。
+- **耗时**：宿主不设置等待超时（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在宿主线程上，慢就是别人一起等。
 
-| 钩子 id | 模式 | 派发 | 合并策略 | 是否已埋点 |
+| 钩子 id | 模式 | 派发 | 合并策略 | 应用是否已接入 |
 |---|---|---|---|---|
-| `musicxx.app.start` | observe | async | lastWrite | 已埋点 |
-| `musicxx.app.ready` | observe | async | lastWrite | 已埋点 |
-| `musicxx.app.background` | observe | async | lastWrite | 未埋点 |
-| `musicxx.app.foreground` | observe | async | lastWrite | 未埋点 |
-| `musicxx.app.exit` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.app.deepLink` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.app.upgrade` | observe | async | lastWrite | 未埋点 |
-| `musicxx.player.beforePlaySong` | decision | async | anyCancel | 已埋点 |
-| `musicxx.player.source.beforeParse` | decision | async | firstNonNull | 已埋点 |
-| `musicxx.player.source.resolved` | observe | async | lastWrite | 已埋点 |
-| `musicxx.player.beforeOpen` | decision | async | firstNonNull | 未埋点 |
-| `musicxx.player.state` | observe | async | lastWrite | 已埋点 |
-| `musicxx.player.position` | observe | async | lastWrite | 未埋点 |
-| `musicxx.player.seek` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.player.volume` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.player.speed` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.player.pitch` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.player.error` | decision | sync | anyCancel | 已埋点 |
-| `musicxx.player.completed` | observe | async | lastWrite | 已埋点 |
-| `musicxx.player.qualityChanged` | observe | async | lastWrite | 未埋点 |
-| `musicxx.media.notification` | decision | sync | lastWrite | 未埋点 |
-| `musicxx.song.changed` | observe | async | lastWrite | 已埋点 |
-| `musicxx.song.info.analyse` | decision | sync | firstNonNull | 未埋点 |
-| `musicxx.song.meta.writeback` | observe | async | lastWrite | 未埋点 |
-| `musicxx.song.beforeAdd` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.song.removed` | observe | async | lastWrite | 未埋点 |
-| `musicxx.playlist.loaded` | observe | async | lastWrite | 未埋点 |
-| `musicxx.playlist.filter` | decision | async | allMerge | 未埋点 |
-| `musicxx.songlist.filter` | decision | async | allMerge | 未埋点 |
-| `musicxx.history.record` | observe | async | lastWrite | 未埋点 |
-| `musicxx.local.scan.file` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.local.scan.finished` | observe | async | lastWrite | 未埋点 |
-| `musicxx.lyric.load.before` | decision | async | firstNonNull | 未埋点 |
-| `musicxx.lyric.loaded` | observe | async | lastWrite | 未埋点 |
-| `musicxx.lyric.transform` | decision | async | allMerge | 未埋点 |
-| `musicxx.lyric.current` | observe | async | lastWrite | 未埋点 |
-| `musicxx.lyric.searchStr` | decision | sync | firstNonNull | 未埋点 |
-| `musicxx.lyric.provider` | decision | async | firstNonNull | 未埋点 |
-| `musicxx.icon.request` | decision | async | firstNonNull | 未埋点 |
-| `musicxx.icon.generated` | observe | async | lastWrite | 未埋点 |
-| `musicxx.media.info.request` | decision | async | firstNonNull | 未埋点 |
-| `musicxx.media.wave.ready` | observe | async | lastWrite | 未埋点 |
-| `musicxx.media.chorus.analysed` | observe | async | lastWrite | 未埋点 |
-| `musicxx.net.request.before` | decision | async | anyCancel | 未埋点 |
-| `musicxx.net.response.after` | observe | async | lastWrite | 未埋点 |
-| `musicxx.net.server.route` | decision | async | firstNonNull | 未埋点 |
-| `musicxx.net.mcp.tools` | decision | sync | allMerge | 未埋点 |
-| `musicxx.net.lan.event` | observe | async | lastWrite | 未埋点 |
-| `musicxx.download.before` | decision | async | anyCancel | 未埋点 |
-| `musicxx.download.completed` | observe | async | lastWrite | 未埋点 |
-| `musicxx.cache.beforeTrim` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.cache.pathRequest` | decision | sync | firstNonNull | 未埋点 |
-| `musicxx.ui.home.entries` | decision | sync | allMerge | 未埋点 |
-| `musicxx.ui.song.actions` | decision | sync | allMerge | 未埋点 |
-| `musicxx.ui.playlist.actions` | decision | sync | allMerge | 未埋点 |
-| `musicxx.ui.route.resolve` | decision | sync | firstNonNull | 未埋点 |
-| `musicxx.ui.page.enter` | observe | async | lastWrite | 未埋点 |
-| `musicxx.ui.page.leave` | observe | async | lastWrite | 未埋点 |
-| `musicxx.ui.theme.changed` | observe | async | lastWrite | 未埋点 |
-| `musicxx.ui.notify` | decision | sync | anyCancel | 未埋点 |
-| `musicxx.ui.user.action` | observe | async | lastWrite | 未埋点 |
-| `musicxx.script.bound` | observe | async | lastWrite | 未埋点 |
-| `musicxx.script.disposed` | observe | async | lastWrite | 未埋点 |
-| `musicxx.script.action.executed` | observe | async | lastWrite | 未埋点 |
-| `musicxx.clocking.tick` | observe | async | lastWrite | 未埋点 |
-| `musicxx.listenTogether.event` | observe | async | lastWrite | 未埋点 |
+| `musicxx.app.start` | observe | async | lastWrite | 已接入 |
+| `musicxx.app.ready` | observe | async | lastWrite | 已接入 |
+| `musicxx.app.background` | observe | async | lastWrite | 未接入 |
+| `musicxx.app.foreground` | observe | async | lastWrite | 未接入 |
+| `musicxx.app.exit` | decision | sync | anyCancel | 未接入 |
+| `musicxx.app.deepLink` | decision | sync | anyCancel | 未接入 |
+| `musicxx.app.upgrade` | observe | async | lastWrite | 未接入 |
+| `musicxx.player.beforePlaySong` | decision | async | anyCancel | 已接入 |
+| `musicxx.player.source.beforeParse` | decision | async | firstNonNull | 已接入 |
+| `musicxx.player.source.resolved` | observe | async | lastWrite | 已接入 |
+| `musicxx.player.beforeOpen` | decision | async | firstNonNull | 未接入 |
+| `musicxx.player.state` | observe | async | lastWrite | 已接入 |
+| `musicxx.player.position` | observe | async | lastWrite | 未接入 |
+| `musicxx.player.seek` | decision | sync | anyCancel | 未接入 |
+| `musicxx.player.volume` | decision | sync | anyCancel | 未接入 |
+| `musicxx.player.speed` | decision | sync | anyCancel | 未接入 |
+| `musicxx.player.pitch` | decision | sync | anyCancel | 未接入 |
+| `musicxx.player.error` | decision | sync | anyCancel | 已接入 |
+| `musicxx.player.completed` | observe | async | lastWrite | 已接入 |
+| `musicxx.player.qualityChanged` | observe | async | lastWrite | 未接入 |
+| `musicxx.media.notification` | decision | sync | lastWrite | 未接入 |
+| `musicxx.song.changed` | observe | async | lastWrite | 已接入 |
+| `musicxx.song.info.analyse` | decision | sync | firstNonNull | 未接入 |
+| `musicxx.song.meta.writeback` | observe | async | lastWrite | 未接入 |
+| `musicxx.song.beforeAdd` | decision | sync | anyCancel | 未接入 |
+| `musicxx.song.removed` | observe | async | lastWrite | 未接入 |
+| `musicxx.playlist.loaded` | observe | async | lastWrite | 未接入 |
+| `musicxx.playlist.filter` | decision | async | allMerge | 未接入 |
+| `musicxx.songlist.filter` | decision | async | allMerge | 未接入 |
+| `musicxx.history.record` | observe | async | lastWrite | 未接入 |
+| `musicxx.local.scan.file` | decision | sync | anyCancel | 未接入 |
+| `musicxx.local.scan.finished` | observe | async | lastWrite | 未接入 |
+| `musicxx.lyric.load.before` | decision | async | firstNonNull | 未接入 |
+| `musicxx.lyric.loaded` | observe | async | lastWrite | 未接入 |
+| `musicxx.lyric.transform` | decision | async | allMerge | 未接入 |
+| `musicxx.lyric.current` | observe | async | lastWrite | 未接入 |
+| `musicxx.lyric.searchStr` | decision | sync | firstNonNull | 未接入 |
+| `musicxx.lyric.provider` | decision | async | firstNonNull | 未接入 |
+| `musicxx.icon.request` | decision | async | firstNonNull | 未接入 |
+| `musicxx.icon.generated` | observe | async | lastWrite | 未接入 |
+| `musicxx.media.info.request` | decision | async | firstNonNull | 未接入 |
+| `musicxx.media.wave.ready` | observe | async | lastWrite | 未接入 |
+| `musicxx.media.chorus.analysed` | observe | async | lastWrite | 未接入 |
+| `musicxx.net.request.before` | decision | async | anyCancel | 未接入 |
+| `musicxx.net.response.after` | observe | async | lastWrite | 未接入 |
+| `musicxx.net.server.route` | decision | async | firstNonNull | 未接入 |
+| `musicxx.net.mcp.tools` | decision | sync | allMerge | 未接入 |
+| `musicxx.net.lan.event` | observe | async | lastWrite | 未接入 |
+| `musicxx.download.before` | decision | async | anyCancel | 未接入 |
+| `musicxx.download.completed` | observe | async | lastWrite | 未接入 |
+| `musicxx.cache.beforeTrim` | decision | sync | anyCancel | 未接入 |
+| `musicxx.cache.pathRequest` | decision | sync | firstNonNull | 未接入 |
+| `musicxx.ui.home.entries` | decision | sync | allMerge | 未接入 |
+| `musicxx.ui.song.actions` | decision | sync | allMerge | 未接入 |
+| `musicxx.ui.playlist.actions` | decision | sync | allMerge | 未接入 |
+| `musicxx.ui.route.resolve` | decision | sync | firstNonNull | 未接入 |
+| `musicxx.ui.page.enter` | observe | async | lastWrite | 未接入 |
+| `musicxx.ui.page.leave` | observe | async | lastWrite | 未接入 |
+| `musicxx.ui.theme.changed` | observe | async | lastWrite | 未接入 |
+| `musicxx.ui.notify` | decision | sync | anyCancel | 未接入 |
+| `musicxx.ui.user.action` | observe | async | lastWrite | 未接入 |
+| `musicxx.script.bound` | observe | async | lastWrite | 未接入 |
+| `musicxx.script.disposed` | observe | async | lastWrite | 未接入 |
+| `musicxx.script.action.executed` | observe | async | lastWrite | 未接入 |
+| `musicxx.clocking.tick` | observe | async | lastWrite | 未接入 |
+| `musicxx.listenTogether.event` | observe | async | lastWrite | 未接入 |
 
-## 已埋点钩子的载荷与裁决
+## 已接入钩子的载荷与裁决
 
-下面是应用侧**已经埋点**的钩子：处理器拿到的载荷字段与裁决语义都在这里。尚未埋点的钩子只冻结了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。
+下面是应用侧**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。
 
 > 载荷统一是 JSON 对象；不裁决时返回 `null`（JS）或把出参留空（C++）。
 > 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 宿主动作自行获取。
@@ -122,7 +122,7 @@
 ### `musicxx.player.error`
 
 - 模式：`decision`；派发：`sync`；合并策略：`anyCancel`
-- 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子，调用点只等 120 ms，超时按无裁决继续。
+- 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子：调用点会一直等到处理器链返回（宿主不设置等待超时），处理器请尽快给出裁决。
 
 ### `musicxx.player.completed`
 
@@ -154,7 +154,7 @@
 
 - 返回 `null` / 空对象表示“不裁决”，交给下一个处理器；
 - `action` 的宿主语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；
-- 处理器必须尽快返回：它跑在宿主线程上，慢就是业务与其它插件一起等（宿主不设等待预算、也不会强行中断）。
+- 处理器必须尽快返回：它跑在宿主线程上，慢就是业务与其它插件一起等（宿主不设置等待超时、也不会强行中断）。
 
 ## 处理器失败
 

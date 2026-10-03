@@ -634,7 +634,7 @@ void main() {
             value: officialValue,
           );
         case MusicxxPluginEventType.varWrite:
-          // 插件发起写 → 应用落地（回执即落地）后回执
+          // 插件发起写 → 应用写入（回执即写入）后回执
           officialValue = e.payload['value'];
           runtime.vars.writeResult(
             e.intOf('requestId') ?? -1,
@@ -728,7 +728,7 @@ void main() {
     await _pumpUntil(() => probe()['readValue'] != null);
     expect(probe()['readValue'], 'v1', reason: '异步读应当拿到应用侧的真值');
 
-    // 6) 插件异步写官方键（应用落地后才算数）
+    // 6) 插件异步写官方键（应用写入后才算数）
     runtime.plugins.call('example_js_vars', 'triggerWrite', <String, Object?>{
       'key': 'musicxx.test.bound',
       'value': 'v2',
@@ -740,7 +740,7 @@ void main() {
         <String, Object?>{};
     expect(writeResult['accepted'], isTrue);
     expect(writeResult['value'], 'v2');
-    expect(officialValue, 'v2', reason: '写入由应用落地');
+    expect(officialValue, 'v2', reason: '写入由应用执行');
     // 写成功后值真的变了 → 订阅者再收到一条通知
     await _pumpUntil(() => _intOf(probe()['changes']) >= 2);
 
@@ -755,7 +755,7 @@ void main() {
 
     // 7.5) handler 模式：读写在属主手里（宿主只留同步读缓存）
     //      - 读: 宿主把请求转给属主, 由 onRead 回答
-    //      - 写: 宿主把请求转给 onWrite, 属主落地后回执
+    //      - 写: 宿主把请求转给 onWrite, 属主写入后回执
     expect(
       runtime.vars.get('plugin.example_js_vars.handler.tip'),
       false,
@@ -765,7 +765,7 @@ void main() {
         runtime.vars.set('plugin.example_js_vars.handler.tip', true) ??
         <String, Object?>{};
     expect(handlerWrite['accepted'], isTrue);
-    expect(handlerWrite['value'], true, reason: '回执带的是属主落地的最终值');
+    expect(handlerWrite['value'], true, reason: '回执带的是属主写入的最终值');
     expect(_intOf(probe()['handlerTip']), 0); // 插件侧状态是 bool, 这里只校验可取到
     expect(runtime.vars.get('plugin.example_js_vars.handler.tip'), true);
     // 属主自己改值时提交一次（不是应用写的）

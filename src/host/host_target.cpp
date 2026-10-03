@@ -214,7 +214,7 @@ std::string currentTargetOs() {
 }
 
 std::string currentTargetArch() {
-  // 与宿主上报给插件的 hostArch() 同一口径 (x64 / arm64 / x86)
+  // 与宿主上报给插件的 hostArch() 一致 (x64 / arm64 / x86)
 #if defined(_M_ARM64) || defined(__aarch64__)
   return "arm64";
 #elif defined(_M_X64) || defined(__x86_64__)

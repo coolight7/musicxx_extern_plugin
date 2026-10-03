@@ -1,6 +1,6 @@
 # 对照示例（动态库插件）：库文件缺少 start/stop 入口符号
 #
-# 它演示「入口符号契约」：start/stop 必须成对存在（create 只构造实例，start 才是注册事务），
+# 它演示「入口符号约定」：start/stop 必须成对存在（create 只构造实例，start 才是注册事务），
 # 缺任何一个时宿主在"查找入口符号"阶段就拒绝装载并给出可读原因 —— 不是超时、不会调用
 # create，也不会留下任何注册残留。本插件故意装载失败，只用于演示与原生测试。
 name: example_native_bad_entry
@@ -10,6 +10,6 @@ kind: native
 version: 1.0.0
 api_version: 1
 author: "coolight"
-description: "对照示例: 缺少 start/stop 入口符号, 演示装载阶段按契约拒绝"
+description: "对照示例: 缺少 start/stop 入口符号, 演示装载阶段按约定拒绝"
 platforms: [windows, linux, macos]
 permissions: []

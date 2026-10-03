@@ -1,6 +1,6 @@
 // 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。
 //
-// 钩子 id 是跨边界稳定契约：字符串值一旦发布不得修改，
+// 钩子 id 是跨边界稳定的约定：字符串值一旦发布不得修改，
 // 只能新增或标记废弃。字段含义见 tools/hooks.def.json。
 // ignore_for_file: type=lint, constant_identifier_names
 
@@ -75,7 +75,7 @@ enum MusicxxPluginHookId {
   playerVolume('musicxx.player.volume', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
   playerSpeed('musicxx.player.speed', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
   playerPitch('musicxx.player.pitch', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
-  /// 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子，调用点只等 120 ms，超时按无裁决继续。
+  /// 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子：调用点会一直等到处理器链返回（宿主不设置等待超时），处理器请尽快给出裁决。
   playerError('musicxx.player.error', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.sync),
   /// 载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。
   playerCompleted('musicxx.player.completed', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
@@ -146,8 +146,8 @@ enum MusicxxPluginHookId {
   /// 裁决合并策略（观察型无意义）
   final MusicxxPluginDecisionPolicy policy;
 
-  /// 应用侧是否已经埋点：true = 当前版本会派发；
-  /// false = 契约已冻结但尚未埋点（注册不会报错，当前版本也不会触发）
+  /// 应用侧是否已经接入这个钩子：true = 当前版本会派发；
+  /// false = 约定已固定，但应用侧还没有接入（注册不会报错，当前版本也不会触发）
   final bool wired;
 
   /// 派发方式（是否占用调用线程；见 `tools/hooks.def.json`）

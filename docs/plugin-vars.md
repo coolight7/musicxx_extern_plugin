@@ -1,6 +1,6 @@
 # musicxx 官方变量目录（`musicxx.*`）
 
-> 本文件是**官方变量**的清单与口径说明。变量属于「第五条通道」：有属主、可读、可写、
+> 本文件是**官方变量**的清单与取值规则说明。变量属于「第五条通道」：有属主、可读、可写、
 > 可订阅变动的小值（配置 / 小状态）。通道本身的能力见 `docs/plugin-js-api.md`
 > （JS 插件）与 `docs/plugin-native-api.md`（动态库插件）的「变量」章节。
 >
@@ -13,10 +13,10 @@
 | 列 | 含义 |
 |---|---|
 | `caps` | 能力位（`get` 可读 / `set` 可写 / `notify` 可订阅变化）；三者可只实现一部分 |
-| 值 | 取值口径；枚举一律用**稳定字符串 id**（不要用本地化文案），部分也接受原有 int 编码 |
+| 值 | 取值规则；枚举一律用**稳定字符串 id**（不要用本地化文案），部分也接受原有 int 编码 |
 | 风险 | 管理页排序用：`low` 纯观感 / `medium` 会影响用户持久设置 / `high` 影响数据 |
 
-写官方变量由**应用落地**（走用户在设置里改的同一条路径），因此
+写官方变量由**应用写入**（走用户在设置里改的同一条路径），因此
 `set` 的 Promise/事件回执里带的是应用最终接受的值：被拒绝时 `accepted=false` +
 `error` 说明原因。
 
@@ -49,7 +49,7 @@ var off = musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
   if (value === "disable") { musicxx.host.log(2, "动画已关闭"); }
 });
 
-// 插件也想改：由应用落地，应用不接受时会给出原因
+// 插件也想改：由应用写入，应用不接受时会给出原因
 var result = await musicxx.vars.set("musicxx.theme.mode", "night");
 if (!result.accepted) { musicxx.host.log(3, "写入被拒绝: " + result.error); }
 

@@ -26,7 +26,7 @@
 // 实测 1280x720 单帧渲染要多花 90 ms 以上（同一个 harness 里晶格背景只花 4 ms）——
 // 播放页会明显卡。64 个频带只要 16 个成员、每个像素挑 16 组里的一组，代价小得多。
 //
-// uniform 契约（宿主固定填充，成员名字不能改）：
+// uniform 约定（宿主固定填充，成员名字不能改）：
 //   uParams = (目标宽, 目标高, 真实秒数, 速度)
 //   uEnv.x = 是否夜间；uEnv.y = 是否有封面配色；uEnv.z = 现在是否有频谱数据
 //   uColor1..uColor4 = 4 个绘制色（插件在 args 里声明来源）
@@ -135,7 +135,7 @@ float bandRaw(int index) {
   return value.w;
 }
 
-// 频带振幅（0~1）：没有频谱数据时是 0（按静音处理，不用固定值兜底）
+// 频带振幅（0~1）：没有频谱数据时是 0（按静音处理，不用固定值）
 //
 // 对比度来自两处：削掉 kFloor 以下的底噪（那部分直接按 0 画，尖角收回基线），
 // 剩下的再取 kCurve 次幂 —— 指数把"有点能量"和"很响"拉开，画面才有高低起伏。
@@ -195,7 +195,7 @@ float glints(vec2 p, float t, float treble, float lineWidth) {
   return sum;
 }
 
-// 4 个绘制色按"左上-右上-左下-右下"四角双线性混合（与晶格示例同一口径）
+// 4 个绘制色按"左上-右上-左下-右下"四角双线性混合（与晶格示例一致）
 vec3 blendColors(vec2 uv, float dim) {
   float xBlend = smoothstep(0.0, 1.0, clamp(uv.x, 0.0, 1.0));
   float yBlend = smoothstep(0.0, 1.0, clamp(uv.y, 0.0, 1.0));

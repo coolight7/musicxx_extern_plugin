@@ -5,9 +5,10 @@
 
 | 主题 | 文档 |
 |---|---|
-| 钩子 id / 模式 / 派发，以及已埋点钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
+| 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
+| 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
-| 播放页背景（shader bundle 打包与 uniform 契约） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | JS 插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 示例代码 | `plugins/example_native/`（C++）、`plugins/example_js/`（等价 JS） |
 
@@ -228,7 +229,7 @@ MUSICXX_PLUGIN_EXPORT(
 
 - `MUSICXX_PLUGIN_EXPORT` 生成宿主要找的 5 个入口符号
   （`musicxx_plugin_{get_info,create,start,stop,destroy}`）。**不要手写入口**：少了 `start`/`stop`
-  会被宿主按契约拒绝装载（管理页会给出「缺失/无效入口符号」）；
+  会被宿主按约定拒绝装载（管理页会给出「缺失/无效入口符号」）；
 - 两个事务函数的签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
   （内核要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用内核原始签名
   `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`；
@@ -304,7 +305,7 @@ MUSICXX_PLUGIN_EXPORT(
 - 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
 - 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），插件可以订阅它做增量处理；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
-  `musicxx.player.position` 钩子也尚未埋点。不要把它当每秒更新的进度用；
+  `musicxx.player.position` 钩子也尚未接入。不要把它当每秒更新的进度用；
 - 镜像里**不放临时直链与 token**：需要地址请走 `musicxx.net.*` 动作或自己请求。
 
 C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` / `_LIBRARY` / `_ENV` /
@@ -346,7 +347,7 @@ PluginxxString cached{};
 iface.vars->peek(host, &pluginxxView("musicxx.ui.songIconWave"), &cached);
 hostStringFree(cached);   // 插件侧: host->vtable->free
 
-// 写官方键（由应用落地）：立即结算时 out_json 是结果，转给属主时是
+// 写官方键（由应用写入）：立即结算时 out_json 是结果，转给属主时是
 // {"pending":true,"requestId":N}，最终结果经事件 `musicxx.var.writeResult` 送达
 PluginxxString out{};
 iface.vars->set(host, &pluginxxView("musicxx.ui.particleAnimate"), &pluginxxView("false"), &out);
@@ -365,7 +366,7 @@ iface.vars->subscribe(host, &pluginxxView(R"(["musicxx.ui.animatedLevel"])"), &c
 // 收到 musicxx.var.read {requestId, key} 时：
 iface.vars->respond(host, requestId, /*ok=*/1, &pluginxxView(当前值), nullptr, &out);
 // 收到 musicxx.var.write {requestId, key, value, by} 时：
-//   校验/落地后回最终值；拒绝时 ok=0 并把原因写进 error
+//   校验/写入后回最终值；拒绝时 ok=0 并把原因写进 error
 iface.vars->respond(host, requestId, 1, &pluginxxView(最终值), nullptr, &out);
 ```
 
@@ -373,7 +374,7 @@ SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / 
 `varsUnwatch` / `varsSet` / `varsList` / `varsInfo` / `varsSubscribe` / `varsUnsubscribe` / `varsRespond`。
 
 容量（已移除限制）：变量数、键长、值大小、订阅数都不再限制；
-未回执的读/写请求各 ≤ 32 条；读的超时 2 秒、写 3 秒（应用落地 5 秒）。
+未回执的读/写请求各 ≤ 32 条；读的超时 2 秒、写 3 秒（应用写入 5 秒）。
 错误码：`-1` 参数 / `-2` 状态 / `-3` 值不是合法 JSON / `-4` 键不存在 / `-6` 命名空间或写权限 /
 `-7` 超限 / `-9` 该变量没有声明对应能力（写只读变量、读只写变量）。
 
@@ -382,9 +383,9 @@ SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / 
 
 ---
 
-## 6. 三个已埋点裁决钩子的写法
+## 6. 三个已接入裁决钩子的写法
 
-只有**应用侧已埋点**的钩子会被真正派发（`plugin-hooks.md` 的「是否已埋点」列标「已埋点」）。
+只有**应用侧已接入**的钩子会被真正派发（`plugin-hooks.md` 的「应用是否已接入」列标「已接入」）。
 下面三个裁决型钩子是当前版本可用的：
 
 ```cpp
@@ -416,9 +417,9 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
      });
 ```
 
-- 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已埋点钩子的载荷与裁决」；
+- 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
-- **处理器要快**：同步派发的钩子会被调用线程等待，而且宿主不设等待预算（处理器返回前调用线程不会继续），
+- **处理器要快**：同步派发的钩子会被调用线程等待，而且宿主不设等待超时（处理器返回前调用线程不会继续），
   因此慢处理器会拖住业务与其它插件；观察型处理器只做通知、不受影响。
 - 想确认自己的处理器有没有被调用：管理页「插件详情 → 统计」，或自己在处理器里 `log.info(...)`。
 
@@ -434,7 +435,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 | `-3` | JSON 非法 | 载荷解析失败 |
 | `-4` | 未找到 | **注册未知钩子**、未知 UI 类型、注销不存在的项 |
 | `-5` | 超时 | 动作请求 / 能力调用超时 |
-| `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 变量键；**动作名与钩子 id 不受此限**：动作任意名都受理、钩子必须是契约里已有的） |
+| `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 变量键；**动作名与钩子 id 不受此限**：动作任意名都受理、钩子必须是约定里已有的） |
 | `-7` | 队列满 | 保留的错误码（当前没有容量类限制，不会再产生） |
 | `-99` | 内部异常 | 宿主内部错误（看日志） |
 
@@ -590,13 +591,14 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
 | 「API 版本过低」 | 插件声明的 `api_version` 低于宿主支持的最低版本（当前 1）；声明更高不会因此失败 |
 | 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或宿主禁用了动态库插件 / 处于安全模式 |
-| 注册钩子返回 `-4` | 钩子 id 不在契约表里（拼错或用了未定义的钩子）；用 `hook_ids.g.h` 里的常量，不要手写字符串 |
+| 注册钩子返回 `-4` | 钩子 id 不在约定表里（拼错或用了未定义的钩子）；用 `hook_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
-| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标「未埋点」（应用侧还没有接）；或插件被禁用 / 处理器没注册成功 |
+| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标「未接入」（应用侧还没有接）；或插件被禁用 / 处理器没注册成功 |
 | 点入口提示「插件『<插件id>』没有提供『xxx』」 | 该动作指向的能力没有注册（页面视图 id 必须与能力短名一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
 | 应用整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。宿主线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
 | 插件装载后应用启动异常 | 宿主连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
+| 应用卡住、不知道卡在哪一次调用 | 看应用日志目录下的 `host_call.log`：进宿主调用是同步的，卡住后最后一行就是没返回的那次调用 |
 
 ---
 
@@ -609,4 +611,4 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
 | 资源限制 | 宿主不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
-| 钩子埋点 | 契约里有 66 个钩子，应用侧当前已经埋点的是 `plugin-hooks.md` 里标「已埋点」的那 9 个；其余钩子注册成功但不会触发 |
+| 钩子接入 | 约定里有 66 个钩子，应用侧当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 9 个；其余钩子注册成功但不会触发 |

@@ -9,8 +9,8 @@
 ///   这里的 `VarEntry::valueJson` 只是服务 `peek` 这条同步捷径的**缓存**, 来源有三处 ——
 ///   属主推送、每次异步读的结果 (read-through)、注册时的初值;
 /// - **读默认异步**(`get`): 宿主把请求转给属主, 属主回答后回给调用方; 宿主的线程全程
-///   不等 (等的是发起方)。同一个键的在途读请求合并成一次属主往返, 答案扇出给全部等待者;
-/// - **写一律转给属主落地**: 官方键交给应用 (走设置同一条路径), 插件 `declared` 模式由
+///   不等 (等的是发起方)。同一个键的进行中读请求合并成一次属主往返, 答案分发给全部等待者;
+/// - **写一律交给属主写入**: 官方键交给应用 (走设置同一条路径), 插件 `declared` 模式由
 ///   宿主代存 (= 属主已同意), `handler` 模式转给属主插件 (§M3 实现);
 /// - **注册表归宿主线程独占** (无锁不变式): 注册/注销/读写/通知/摘除都在宿主线程;
 ///   Dart 线程的入口经 C ABI 侧投递后执行;
@@ -42,7 +42,7 @@ using utilxx_base::Json;
 
 namespace {
 
-/// 属主回答读取、落地写入的等待预算
+/// 等属主回答读取、写入值的超时
 constexpr int64_t kVarReadTimeoutMs = 2000;
 constexpr int64_t kVarWriteOwnerTimeoutMs = 3000;
 constexpr int64_t kVarWriteAppTimeoutMs = 5000;
@@ -262,7 +262,7 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
             inst->name, spec.mode);
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
-  /// 节流/保活窗口只是"属主侧的口径声明", 不再做取值范围校验 (负值按 0 处理):
+  /// 节流/保活窗口只是"属主侧的规则声明", 不再做取值范围校验 (负值按 0 处理):
   /// 它不参与宿主的行为判定, 拒绝注册只会给作者添麻烦。
 
   const std::string pluginId = pluginIdOf(inst->name);
@@ -478,7 +478,7 @@ int32_t MusicxxHostManager::beginVarRead(
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
 
-  // 同键在途读合并: 只向属主发一次请求, 答案扇出给全部等待者
+  // 同键进行中读合并: 只向属主发一次请求, 答案分发给全部等待者
   auto pendingIt = pendingReadByKey_.find(key);
   if (pendingIt != pendingReadByKey_.end()) {
     auto reqIt = pendingVarRequests_.find(pendingIt->second);
@@ -607,7 +607,7 @@ int32_t MusicxxHostManager::peekVar(std::string_view key, std::string &outJson) 
   if (!ok || !item.is_object()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
-  // 能力位没有 get 时不给 peek (与 get 的口径一致)
+  // 能力位没有 get 时不给 peek (与 get 的规则一致)
   if (item.contains("caps") && item["caps"].is_array()) {
     bool hasGet = false;
     for (const auto &cap : item["caps"]) {
@@ -673,18 +673,18 @@ int32_t MusicxxHostManager::beginVarWrite(
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
 
-  // 属主是应用 (官方键) 或插件 handler 模式: 一律转给属主落地, 属主点头才算数
+  // 属主是应用 (官方键) 或插件 handler 模式: 一律交给属主写入, 属主点头才算数
   const std::string ownerInstance = entry.owner;
   const bool forward = ownerInstance.empty() ||
                        entry.mode == MUSICXX_PLUGIN_VAR_MODE_HANDLER;
   const bool isOwnerWrite = (byInstance == ownerInstance);
 
   if (!forward || isOwnerWrite) {
-    // 属主自己写自己的变量 = 提交 (declared 模式的宿主就是落地者);
+    // 属主自己写自己的变量 = 提交 (declared 模式的宿主就是写入者);
     // 这样也不会出现"属主写自己的变量还要转给自己"的死循环
     std::string prev;
     const bool changed = applyVarValue(entry, valueText, byPluginId, prev);
-    // 提交同时结算该键上未完成的请求: 写请求 = 落地回执, 读请求 = 这次读的答案
+    // 提交同时结算该键上未完成的请求: 写请求 = 写入回执, 读请求 = 这次读的答案
     // (handler 属主用 `set` 回答与提交, 见设计文档 §3.5)
     settleVarRequestsOnCommit(key, valueText);
     const int64_t revision = entry.revision;
@@ -766,7 +766,7 @@ int32_t MusicxxHostManager::beginVarWrite(
   payload["value"] = parseJsonSafe(valueText);
   payload["by"] = byPluginId;
   if (ownerInstance.empty()) {
-    // 官方键: 请求应用按"用户在设置里改"的同一条路径落地
+    // 官方键: 请求应用按"用户在设置里改"的同一条路径写入
     pushEvent("musicxx.var.write", "", payload.dump());
   } else {
     // handler 属主: 用事件总线把写请求转给属主实例 (属主订阅 `musicxx.var.write`)
@@ -821,9 +821,9 @@ int32_t MusicxxHostManager::setVarForApp(
   if (key.empty() || !slot) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  // `beginVarWrite` 在"转给属主落地"时会写一个 `{pending:true,...}` 信封 —— 那对
+  // `beginVarWrite` 在"交给属主写入"时会写一个 `{pending:true,...}` 信封 —— 那对
   // 应用侧没有用 (应用要的是最终结果), 因此这里只把**已结算**的结果交出去:
-  // 结果是"待落地"时清空 outJson, 让调用方去等等待槽 (C ABI 就是这么区分的)。
+  // 结果是"待写入"时清空 outJson, 让调用方去等等待槽 (C ABI 就是这么区分的)。
   std::string local;
   const int32_t rc =
       beginVarWrite(key, valueJson, "", "", nullptr, slot, local);
@@ -919,7 +919,7 @@ void MusicxxHostManager::completeVarRequest(int64_t requestId, bool ok,
     return;
   }
 
-  // 读: 顺手写进缓存 (read-through), 再把答案扇出给全部等待者
+  // 读: 顺手写进缓存 (read-through), 再把答案分发给全部等待者
   std::string answer;
   if (ok) {
     auto entryIt = vars_.find(request.key);
@@ -1588,7 +1588,7 @@ void MusicxxHostManager::settleVarRequestsOnCommit(
     if (it == pendingVarRequests_.end()) {
       continue;
     }
-    // 读: 属主提交的值就是答案; 写: 提交即落地回执
+    // 读: 属主提交的值就是答案; 写: 提交即视为写完
     completeVarRequest(id, true, valueJson, std::string{});
   }
 }

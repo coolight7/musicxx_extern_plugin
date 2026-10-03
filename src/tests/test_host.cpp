@@ -185,7 +185,7 @@ void checkText(bool ok, const std::string &what) {
   }
 }
 
-/// 当前编译目标的规范系统名（与宿主上报的平台标识同口径）
+/// 当前编译目标的规范系统名（与宿主上报的平台标识同规则）
 std::string testPlatform() {
 #if defined(__ANDROID__)
   return "android";
@@ -200,7 +200,7 @@ std::string testPlatform() {
 #endif
 }
 
-/// 当前编译目标的规范架构名（与宿主 hostArch() 同口径）
+/// 当前编译目标的规范架构名（与宿主 hostArch() 同规则）
 std::string testArch() {
 #if defined(_M_ARM64) || defined(__aarch64__)
   return "arm64";
@@ -1501,9 +1501,9 @@ int main(int argc, char **argv) {
   // ==================== JavaScript 异步裁决 (裁决处理器返回 Promise)
   // ====================
   //
-  // 语义 (无等待预算):
+  // 语义 (无等待超时):
   // - 处理器返回 Promise 时, 宿主一直等到它结算, 裁决照常生效;
-  // - 没有"超预算按无裁决继续"这回事, 也没有迟到丢弃。
+  // - 没有"等太久就按无裁决继续"这回事, 也没有迟到丢弃。
   {
     MusicxxExternPluginString loadLog{};
     const auto jsAsyncRc = musicxx_extern_plugin_plugin_load_sync(
@@ -1537,7 +1537,7 @@ int main(int argc, char **argv) {
             "Promise 结算的 patch 生效 (toMs)");
     }
 
-    // 2) Promise 1.5 s 后才结算 → 宿主一直等, 裁决照样生效 (没有等待预算)
+    // 2) Promise 1.5 s 后才结算 → 宿主一直等, 裁决照样生效 (没有等待超时)
     {
       MusicxxExternPluginString out{};
       const auto t0 = std::chrono::steady_clock::now();
@@ -1647,11 +1647,11 @@ int main(int argc, char **argv) {
           "JS 插件卸载后 UI 项无残留");
   }
 
-  // ==================== 入口符号契约 (对应用例 test_entry_symbols)
+  // ==================== 入口符号约定 (对应用例 test_entry_symbols)
   // ====================
   //
   // 对照示例 example_native_bad_entry 的库文件导出了 get_info/create/destroy, 但**没有**
-  // start/stop。 契约要求 start/stop 成对存在 (create 只构造, start
+  // start/stop。 约定要求 start/stop 成对存在 (create 只构造, start
   // 才是注册事务), 宿主必须在 "查找入口符号"阶段就拒绝装载: 明确失败
   // (不是超时)、有可读原因、不留注册残留。
   {
@@ -1946,7 +1946,7 @@ int main(int argc, char **argv) {
             "值没变时不涨修订号 (也就不通知)");
     }
 
-    // 非法值: 拒绝 (不落值、不通知)
+    // 非法值: 拒绝 (不写入值、不通知)
     {
       MusicxxExternPluginString message{};
       const int32_t rc = musicxx_extern_plugin_var_update(

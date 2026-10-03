@@ -136,7 +136,7 @@ public:
   /// JS 侧发起写 (`musicxx.vars.set`; 任意线程)
   ///
   /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onVarSetDone(id, json)` 回到 JS 线程;
-  /// 如果写请求被转给属主落地, JS 侧还要等 `musicxx.var.writeResult` 事件
+  /// 如果写请求被交给属主写入, JS 侧还要等 `musicxx.var.writeResult` 事件
   /// (载荷里的 requestId 就是等待键)。
   int64_t beginVarSet(const std::string &instanceName, const std::string &key,
                       const std::string &valueJson);
@@ -156,7 +156,7 @@ public:
 
   /// 裁决型钩子的异步结算 (只在 JS 线程调用)
   ///
-  /// 裁决处理器返回 Promise 时, 宿主线程仍在 [hookSync] 里按等待预算等待;
+  /// 裁决处理器返回 Promise 时, 宿主线程仍在 [hookSync] 里一直等到它结算;
   /// Promise 结算后 JS
   /// 侧调用本接口把结果交给对应的等待槽。**已经超时的调用不再接收结果** (只计入
   /// "迟到丢弃"统计并打一条日志), 因此不会出现"用了过期裁决"的情况。
@@ -167,7 +167,7 @@ public:
   ///
   /// 能力处理器返回 Promise 时 (`musicxx.capability.register` 的处理器写成
   /// `async`), JS 侧登记等待并在结算后把结果交给对应的等待槽 —— 与裁决型钩子的
-  /// Promise 同一套做法, 宿主线程在此期间一直等 (没有等待预算)。
+  /// Promise 同一套做法, 宿主线程在此期间一直等 (没有等待超时)。
   void bridgeCapabilityWaitResolve(const std::string &waitId,
                                    const std::string &json);
 
@@ -203,7 +203,7 @@ public:
   /// 刷新宿主信息缓存 (宿主线程: 语言/配置变化时调用)
   void setHostInfoCache(const std::string &json);
 
-  /* ---------- 内部数据结构 (宿主内部使用, 不是对外契约) ---------- */
+  /* ---------- 内部数据结构 (宿主内部使用, 不是对外约定) ---------- */
 
   /// 一个已注册的钩子处理器 (生命周期 = 实例)
   struct HookHandler {
@@ -234,7 +234,7 @@ public:
 
   /// 一次"JS 侧发起的变量读/写"的宿主侧登记
   ///
-  /// `host_ud` 指向它的裸指针会被 `musicxx.vars` 表复制走, 属主回答/落地时经
+  /// `host_ud` 指向它的裸指针会被 `musicxx.vars` 表复制走, 属主回答/写入时经
   /// [varGetDoneTrampoline] / [varSetDoneTrampoline] 回调; 因此它必须活到那一刻 ——
   /// 由 [varWaits_] 持有 (实例停用时残余的登记进 [varWaitGraveyard_]).
   struct VarWait {
@@ -404,7 +404,7 @@ private:
   std::vector<Instance::PendingVarOp>
   takePendingVarOps(const std::shared_ptr<Instance> &inst);
 
-  /// 在宿主线程上落地一次变量操作 (register/unregister/subscribe/unwatch/watch)
+  /// 在宿主线程上执行一次变量操作 (register/unregister/subscribe/unwatch/watch)
   int32_t applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
                            const std::string &op, const std::string &key,
                            const std::string &json);

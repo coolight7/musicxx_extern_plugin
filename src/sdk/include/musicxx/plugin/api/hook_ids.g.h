@@ -1,6 +1,6 @@
 /// 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。
 ///
-/// C++ 侧钩子契约：id 常量 + 已知钩子表（宿主据此拒绝未知钩子、按声明的
+/// C++ 侧钩子约定：id 常量 + 已知钩子表（宿主据此拒绝未知钩子、按声明的
 /// 模式/策略派发；插件按常量注册，避免手写字符串打错）。
 #ifndef MUSICXX_PLUGIN_HOOK_IDS_G_H
 #define MUSICXX_PLUGIN_HOOK_IDS_G_H

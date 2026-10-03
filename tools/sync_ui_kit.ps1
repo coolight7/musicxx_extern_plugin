@@ -13,7 +13,7 @@
 # - 只有 JS 插件需要 kit（动态库插件用 C++ 头文件里的 kit，见 src/sdk/include/…/musicxx_ui_kit.g.h）；
 # - 基础 kit 来自子模块 `src/third_party/cxx_pluginxx_ui/js/pluginxx_ui_kit.js`；
 #   扩展 kit 来自本包 `js/musicxx_ui_kit.js`（由 tools/gen_ui_kit.ps1 生成）；
-# - 插件作者改 kit（比如按自己的留白口径改基础组件）时，直接改插件目录里的副本即可。
+# - 插件作者改 kit（比如按自己的留白规则改基础组件）时，直接改插件目录里的副本即可。
 param(
     [string]$Root = (Split-Path -Parent $PSScriptRoot),
     [string]$Plugin = ''

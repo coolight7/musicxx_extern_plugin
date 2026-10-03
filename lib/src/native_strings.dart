@@ -7,7 +7,7 @@ import 'bindings_generated.dart';
 
 /// FFI 字符串与内存工具
 ///
-/// 契约：
+/// 约定：
 /// - 入参用**只读借用视图** [MusicxxExternPluginStringView]，指向调用方内存，
 ///   调用返回前不得释放；
 /// - 出参用**宿主堆字符串** [MusicxxExternPluginString]，必须调用

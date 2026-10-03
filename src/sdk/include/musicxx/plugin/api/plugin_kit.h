@@ -3,7 +3,7 @@
 /// 组成:
 /// - 内核通用部分: `pluginxx/kit/kit.h` (通用表聚合 / 日志 / 任务 / 协程 / 能力注册) —
 ///   直接使用内核 `Pluginxx*` 名字, **不引入别名层**;
-/// - musicxx 领域契约: `musicxx/plugin/api/plugin_api.h`;
+/// - musicxx 领域约定: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 领域聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
 /// - 便捷注册: `PluginBase::hook` / `observe` / `unregisterHook` / `requestAction` /
 ///   `stateJson` / `hostInfoJson`。
@@ -266,7 +266,7 @@ public:
     ///   `musicxx.var.changed`（载荷里带 key）。
     ///
     /// 写：`varsSet` 的返回值是 JSON —— 写自己的变量（或 `declared` 模式）立即结算，
-    /// 转给属主落地时是 `{"pending":true,"requestId":N}`，最终结果经事件
+    /// 交给属主写入时是 `{"pending":true,"requestId":N}`，最终结果经事件
     /// `musicxx.var.writeResult` 送达。
     ///
     /// 注册：`mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER` 时属主自己收
@@ -289,7 +289,7 @@ public:
         return iface.vars->unregister_var(host, &keyView);
     }
 
-    /// 异步读（结果经 notify 回来；同键在途请求由宿主合并）
+    /// 异步读（结果经 notify 回来；同键进行中请求由宿主合并）
     int32_t varsGet(const char* key, const PluginxxOperatorNotify* notify,
                     int64_t* outRequestId = nullptr) {
         if (!iface.vars || !iface.vars->get) {
@@ -312,7 +312,7 @@ public:
         return writeVarsCount(&MusicxxPluginVarsIface::unwatch, keysJson);
     }
 
-    /// 写（自己的变量 = 提交；官方键与 handler 变量转给属主落地）
+    /// 写（自己的变量 = 提交；官方键与 handler 变量交给属主写入）
     std::string varsSet(const char* key, const char* valueJson) {
         if (!iface.vars || !iface.vars->set) {
             return {};
@@ -638,7 +638,7 @@ namespace detail {
 /// 生命周期事务适配 (导出宏内部使用): 把插件作者的简单事务函数包装成内核入口
 ///
 /// 支持两种写法:
-/// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按内核契约
+/// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按内核约定
 ///   为本次事务调用一次完成通知 (`notify->done`), 插件无需关心通知协议;
 /// - **内核原始形式** `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`:
 ///   由插件自己调用 `notify->done` (进阶写法, 与 cxx_pluginxx 的 kit 一致)。

@@ -861,7 +861,7 @@ musicxx_extern_plugin_var_get(MusicxxExternPluginHost *h,
   }
   std::string payload;
   if (!slot->wait(2500, payload)) {
-    setErr(log, "var_get: 属主未在预算内回答 (" + keyText + ")");
+    setErr(log, "var_get: 属主未在超时前回答 (" + keyText + ")");
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   setOut(out_json, payload);
@@ -895,7 +895,7 @@ musicxx_extern_plugin_var_set(MusicxxExternPluginHost *h,
   }
   std::string payload;
   if (!slot->wait(3500, payload)) {
-    setErr(log, "var_set: 属主未在预算内落地 (" + keyText + ")");
+    setErr(log, "var_set: 属主未在时限内写入 (" + keyText + ")");
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   setOut(out_json, payload);

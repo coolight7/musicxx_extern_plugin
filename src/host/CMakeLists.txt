@@ -207,7 +207,7 @@ unset(_sdkInc)
 # 示例分两类:
 #   - 演示示例: 插件作者可以直接照抄 (钩子 / 能力 / 事件 / UI / 变量 / 多脚本 / 背景渲染);
 #   - 对照示例: 故意做出问题行为 (脚本语法错误、死循环、处理器总是失败、缺入口符号),
-#     用来演示与验证宿主的保护机制 (装载失败回滚 / 执行上限 / 暂停派发 / 入口符号契约),
+#     用来演示与验证宿主的保护机制 (装载失败回滚 / 执行上限 / 暂停派发 / 入口符号约定),
 #     也让作者看清"写坏了会怎样"。它们只跟原生测试一起构建。
 set(MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE example_native example_native_multi)
 set(MUSICXX_EXTERN_PLUGIN_DEMO_JS

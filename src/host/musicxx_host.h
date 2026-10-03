@@ -85,7 +85,7 @@ template <typename T> struct WaitSlot {
     return true;
   }
 
-  /// 无上界等待 (插件处理器/脚本/能力没有等待预算时用)
+  /// 无上界等待 (插件处理器/脚本/能力没有等待超时时用)
   ///
   /// 只有"调用方自己决定不做超时"时使用: 被等待的一侧不返回时, 调用线程会一直停留
   /// 在这里 (同步 FFI 场景下就是整个 Dart 线程停下), 因此调用方要清楚这一后果。
@@ -283,7 +283,7 @@ public:
 
   /// 派发钩子
   ///
-  /// `timeoutMs` 保留在签名里（C ABI 冻结）但**不再使用**: 宿主不设等待预算,
+  /// `timeoutMs` 保留在签名里（C ABI 冻结）但**不再使用**: 宿主不设等待超时,
   /// 同步派发会一直等到处理器链结束。
   int32_t hookEmit(const std::string &hookId, const std::string &inputJson,
                    bool sync, uint32_t timeoutMs, std::string &outJson,
@@ -397,7 +397,7 @@ public:
   ///
   /// - 官方键由应用回答 (`musicxx.var.read` → `var_read_result`);
   /// - `declared` 模式的插件变量由宿主立即作答 (值就在注册表里);
-  /// - 同键在途读请求合并 (新的读只挂到等待者列表上)。
+  /// - 同一键上未完成的读请求合并 (新的读只挂到等待者列表上)。
   int32_t getVar(MusicxxHostInstance *inst, std::string_view key,
                  const PluginxxOperatorNotify *notify, int64_t *outRequestId);
 
@@ -405,7 +405,7 @@ public:
   int32_t peekVar(std::string_view key, std::string &outJson);
 
   /// 写: 写自己的变量 (或 declared 模式的变量) = 提交, 立即结算;
-  /// 官方键与 handler 模式转给属主落地, 最终结果经 `musicxx.var.writeResult` 送达
+  /// 官方键与 handler 模式交给属主写入, 最终结果经 `musicxx.var.writeResult` 送达
   int32_t setVar(MusicxxHostInstance *inst, std::string_view key,
                  std::string_view valueJson, std::string &outJson);
 
@@ -442,7 +442,7 @@ public:
                     std::string &err);
   int32_t updateVarsBatch(const std::string &itemsJson, std::string &err);
 
-  /// 应用回执 (回执即落地: accepted 且带 value 时落值并按需广播)
+  /// 应用回执 (回执即写入: accepted 且带 value 时写入值并按需广播)
   int32_t varWriteResult(int64_t requestId, int32_t accepted,
                          const std::string &valueJson,
                          const std::string &error);
@@ -609,7 +609,7 @@ private:
 
   /// 钩子派发模式
   ///
-  /// - `Sync`：裁决型同步派发（Dart 线程等待结果；宿主不设等待预算）
+  /// - `Sync`：裁决型同步派发（Dart 线程等待结果；宿主不设等待超时）
   /// - `Notify`：观察型派发（入队即返回，不等待、不回报结果）
   /// - `AsyncDecide`：裁决型异步派发（不占用 Dart 线程，完成后推
   ///   `musicxx.hook.decision.result` 事件）
@@ -747,7 +747,7 @@ private:
   std::map<std::string, VarEntry, std::less<>> vars_;
   uint64_t varSeq_ = 0;
 
-  /// 未完成的变量请求 (读/写都要等属主回答或落地)
+  /// 未完成的变量请求 (读/写都要等属主回答或写入)
   struct PendingVarRequest {
     std::string key;
     std::string byPluginId; ///< 发起方插件 id (空 = 应用; 写请求里作为 `by`)
@@ -756,7 +756,7 @@ private:
     std::string valueJson;  ///< 写请求值
     std::string owner;      ///< 属主实例名; 空 = 应用
     int32_t caps = 0;       ///< 申请时的能力位 (结算时回执用)
-    /// 插件侧等待者 (同键在途读合并后, 答案扇出给全部等待者)
+    /// 插件侧等待者 (同键进行中读合并后, 答案分发给全部等待者)
     std::vector<PluginxxOperatorNotify> pluginWaiters;
     /// 应用侧等待者 (C ABI 的有界等待槽)
     std::vector<std::shared_ptr<WaitSlot<std::string>>> appWaiters;
@@ -769,7 +769,7 @@ private:
   };
 
   std::map<int64_t, PendingVarRequest> pendingVarRequests_;
-  /// 键 → 在途的"向属主取真实值"请求 id (同键合并)
+  /// 键 → 进行中的"向属主取真实值"请求 id (同键合并)
   std::map<std::string, int64_t, std::less<>> pendingReadByKey_;
 
   /// 应用订阅的插件键前缀/全名 (var_subscribe; 只用来决定要不要推给应用)
@@ -783,7 +783,7 @@ private:
   /// 全部键的关心者合计 (变化时回传 `musicxx.var.subscriptions`)
   int64_t varCareTotal_ = 0;
 
-  /// 结算一条变量请求 (宿主线程): 读 → 写缓存并扇出答案; 写 → 落值并广播
+  /// 结算一条变量请求 (宿主线程): 读 → 写缓存并分发答案; 写 → 写入值并广播
   void completeVarRequest(int64_t requestId, bool ok, const std::string &valueJson,
                           const std::string &error);
   /// 结算超时的变量请求 (宿主线程): 读按 read_timeout, 写按 not_served / owner_timeout
@@ -795,7 +795,7 @@ private:
                        std::shared_ptr<WaitSlot<std::string>> appSlot,
                        int64_t *outRequestId);
 
-  /// 写请求的公共实现 (立即结算或转给属主落地)
+  /// 写请求的公共实现 (立即结算或交给属主写入)
   int32_t beginVarWrite(const std::string &key, const std::string &valueJson,
                         const std::string &byPluginId,
                         const std::string &byInstance,
@@ -805,7 +805,7 @@ private:
   /// 请求 id 是否属于变量表 (供 C ABI 的 write_result / read_result 路由)
   bool hasPendingVarRequest(int64_t requestId) const;
 
-  /// 落值 + 广播 (宿主线程; changed 才广播; 返回是否真的变了)
+  /// 写入值 + 广播 (宿主线程; changed 才广播; 返回是否真的变了)
   bool applyVarValue(VarEntry &entry, const std::string &valueJson,
                      const std::string &byPluginId, std::string &prevJson);
   /// 广播一条变量变更 (宿主线程; 按 notifyThrottleMs 合并)
@@ -834,14 +834,14 @@ private:
   /// key → 变量快照 JSON (含 valueMs; ageMs/stale 在读取时算)
   std::map<std::string, std::string, std::less<>> varMirror_;
 
-  /// 把变量的当前快照写进镜像 (宿主线程; 每次注册/落值/订阅变化后调用)
+  /// 把变量的当前快照写进镜像 (宿主线程; 每次注册/写入值/订阅变化后调用)
   void publishVarMirror(const VarEntry &entry);
   /// 从镜像里摘掉一个键 (宿主线程)
   void eraseVarMirror(const std::string &key);
   /// 变量快照的 JSON (镜像内容; 不含 ageMs/stale 这两个与时刻有关的字段)
   std::string varMirrorJsonText(const VarEntry &entry) const;
 
-  /// 变量表快照的文本 (调试信息用; 与 [varToJsonText] 同一份口径)
+  /// 变量表快照的文本 (调试信息用; 与 [varToJsonText] 同一份规则)
   std::string varsSnapshotText() const;
 
   /// 取消某实例的变量等待者 (实例停用/卸载时; 宿主线程)
@@ -864,7 +864,7 @@ private:
   void onVarRefreshTick(const std::string &key);
 
   /// 属主提交了自己的值: 用这次提交结算该键上未完成的请求
-  /// (写请求 = 落地回执; 读请求 = 这次读的答案)
+  /// (写请求 = 写入回执; 读请求 = 这次读的答案)
   void settleVarRequestsOnCommit(const std::string &key,
                                  const std::string &valueJson);
   /// 某插件注册了多少个变量 (统计与调试信息用)

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "钩子的单一定义来源（动作名与权限清单不在这里，见 docs/plugin-js-api.md 与 docs/plugin-native-api.md）。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头与插件作者文档；改动后必须重新生成并提交生成物。doc 字段会写进 Dart 枚举注释与作者文档：应用侧已经埋点的钩子（wired: true）在这里写清载荷字段与裁决语义，其余保持空。",
+  "comment": "钩子的单一定义来源（动作名与权限清单不在这里，见 docs/plugin-js-api.md 与 docs/plugin-native-api.md）。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头与插件作者文档；改动后必须重新生成并提交生成物。doc 字段会写进 Dart 枚举注释与作者文档：应用侧已经接入的钩子（wired: true）在这里写清载荷字段与裁决语义，其余保持空。",
   "hooks": [
     { "id": "musicxx.app.start", "dart": "appStart", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "wired": true, "doc": "载荷 `{version, platform, branch, installId, lang}`。应用启动阶段（业务 Store 与插件宿主都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事，观察型没有裁决。" },
     { "id": "musicxx.app.ready", "dart": "appReady", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "wired": true, "doc": "载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后派发一次（比 `app.start` 晚），观察型。" },
@@ -19,7 +19,7 @@
     { "id": "musicxx.player.volume", "dart": "playerVolume", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "wired": false, "doc": "" },
     { "id": "musicxx.player.speed", "dart": "playerSpeed", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "wired": false, "doc": "" },
     { "id": "musicxx.player.pitch", "dart": "playerPitch", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "wired": false, "doc": "" },
-    { "id": "musicxx.player.error", "dart": "playerError", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "wired": true, "doc": "载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{\"action\":\"stop\"}` = 停止播放；`{\"action\":\"skip\"}`（或 `cancel`）= 跳到下一曲；`{\"action\":\"continue\",\"patch\":{\"tryNextSrc\":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子，调用点只等 120 ms，超时按无裁决继续。" },
+    { "id": "musicxx.player.error", "dart": "playerError", "mode": "decision", "policy": "anyCancel", "dispatch": "sync", "wired": true, "doc": "载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{\"action\":\"stop\"}` = 停止播放；`{\"action\":\"skip\"}`（或 `cancel`）= 跳到下一曲；`{\"action\":\"continue\",\"patch\":{\"tryNextSrc\":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子：调用点会一直等到处理器链返回（宿主不设置等待超时），处理器请尽快给出裁决。" },
     { "id": "musicxx.player.completed", "dart": "playerCompleted", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "wired": true, "doc": "载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。" },
     { "id": "musicxx.player.qualityChanged", "dart": "playerQualityChanged", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "wired": false, "doc": "" },
     { "id": "musicxx.media.notification", "dart": "mediaNotification", "mode": "decision", "policy": "lastWrite", "dispatch": "sync", "wired": false, "doc": "" },
