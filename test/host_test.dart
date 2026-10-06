@@ -629,6 +629,88 @@ void main() {
       _step('18.5 背景示例插件完成');
     }
 
+    // 新槽位示例 playing_bg_image: 同时注册『播放页背景样式』与『播放页歌曲图接管项』
+    // （`musicxx.ui.playing.icon` 是这一轮新增的 UI 项类型）。它顶层还注册了
+    // `musicxx.media.palette.provide` 取色钩子 —— 这两条都能挡住"忘了重建宿主库"
+    // （旧宿主库会以未知 UI 项类型 / 未知钩子拒绝注册）。
+    if (Directory('${env.pluginRoot}/playing_bg_image').existsSync()) {
+      final MusicxxPluginInfo? imagePlugin = found2
+          .where((MusicxxPluginInfo info) => info.id == 'playing_bg_image')
+          .firstOrNull;
+      expect(imagePlugin, isNotNull);
+      expect(imagePlugin!.kind, MusicxxPluginKind.js);
+      runtime.plugins.load('playing_bg_image');
+      expect(
+        runtime.hooks.refreshNativeHandlerCount(
+          MusicxxPluginHookId.mediaPaletteProvide,
+        ),
+        1,
+        reason: '取色钩子的处理器要在宿主侧登记成功（宿主库没重建时这里会是 0）',
+      );
+      final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
+      final MusicxxPluginUIItem background = MusicxxPluginUIItems.byType(
+        items,
+        MusicxxPluginUIType.playingBackground,
+      ).firstWhere(
+        (MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image',
+      );
+      expect(
+        (background.data['shader']! as Map<String, Object?>)['bundle'],
+        'shader/heat.shaderbundle',
+      );
+      expect(
+        (background.data['cover']! as Map<String, Object?>)['blur'],
+        14,
+        reason: '封面纹理的预模糊强度由插件声明（默认档"标准"，设置页可切清晰/柔和）',
+      );
+      // 歌曲图接管项：mode = none（保留占位、不显示内容）
+      final MusicxxPluginUIItem icon = MusicxxPluginUIItems.byType(
+        items,
+        MusicxxPluginUIType.playingIcon,
+      ).firstWhere((MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image');
+      expect(icon.data['mode'], 'none');
+      expect(icon.data['keepSpace'], true);
+      // 取色钩子的处理器必须**同步**返回（不能在里面 await 宿主动作）：应用是在需要颜色的
+      // 时候等这次裁决的（切换背景样式、切歌、渲染准备都在 await 这条链上），处理器里等动作
+      // 会把两边互相拖住 —— 实测表现是"启用插件后切歌 / 换背景样式卡几秒"。
+      final Stopwatch paletteWatch = Stopwatch()..start();
+      final Map<String, Object?>? paletteVerdict = await runtime.hooks
+          .decideAsync(
+            MusicxxPluginHookId.mediaPaletteProvide,
+            <String, Object?>{
+              'srcKey': 'test-key',
+              'name': '测试歌曲',
+              'artist': '测试歌手',
+              'hasCover': true,
+              'night': false,
+            },
+          );
+      paletteWatch.stop();
+      expect(
+        paletteWatch.elapsedMilliseconds,
+        lessThan(300),
+        reason: '取色钩子的处理器要同步返回：在里面等宿主动作会让应用一直等到超时',
+      );
+      expect(
+        paletteVerdict,
+        isNull,
+        reason: '没命中取色缓存时返回 null（应用走内置快速取色，算好后用 setPalette 写回）',
+      );
+      // 设置页能力：页面由插件给出（宿主只做结构校验，渲染在应用侧）
+      final Object? imageViewRaw = runtime.plugins.call(
+        'playing_bg_image',
+        'plugin.playing_bg_image.settings',
+        const <String, Object?>{},
+      );
+      final Map<String, Object?> imageView =
+          (imageViewRaw! as Map<String, Object?>)['view']!
+              as Map<String, Object?>;
+      expect(imageView['title'], isNotEmpty);
+      expect(imageView['blocks'], isA<List<Object?>>());
+      runtime.plugins.unload('playing_bg_image');
+      _step('18.7 热浪封面插件完成');
+    }
+
     // 统计快照可读
     final Map<String, Object?> stats = runtime.plugins.stats();
     expect(stats['host'], isA<Map<String, Object?>>());

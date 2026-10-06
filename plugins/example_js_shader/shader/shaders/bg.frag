@@ -95,10 +95,11 @@ void main() {
   // 没有封面（还没加载好 / 这首歌没有封面）时 `uCoverBackInfo.w` 是 0，画面与原来一致。
   float coverOn = render_info.uCoverBackInfo.w > 0.5 ? 1.0 : 0.0;
   vec2 texSize = max(render_info.uCoverBackInfo.xy, vec2(1.0));
-  // cover 裁切：纹理铺满画面、超出部分裁掉（不拉伸变形）
+  // cover 裁切：纹理铺满画面、超出部分裁掉（不拉伸变形）。
+  // 采样步长逐分量相除（屏幕尺寸 / 纹理在屏幕上的尺寸）：写成相乘会把画面拉伸变形。
   float coverScale = max(res.x / texSize.x, res.y / texSize.y);
-  vec2 coverRatio = (texSize * coverScale) / res;
-  vec2 coverUV = (uv - 0.5) * coverRatio + 0.5;
+  vec2 uvStep = res / (texSize * coverScale);
+  vec2 coverUV = (uv - 0.5) * uvStep + 0.5;
   vec3 coverColor = texture(uCoverBack, coverUV).rgb;
   color = mix(color, coverColor, coverOn * 0.58);
 

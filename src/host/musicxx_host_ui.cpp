@@ -46,6 +46,7 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
     MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON,
 };
 
 bool isKnownUiType(std::string_view type) {
@@ -62,7 +63,8 @@ bool requiresTitle(std::string_view type) {
   return type == MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY ||
          type == MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION ||
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND;
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND ||
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON;
 }
 
 /// 校验一个动作描述 (data.action)
@@ -172,6 +174,54 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
     if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
         shader["bundle"].get<std::string>().empty()) {
       err = "播放页背景缺少 shader.bundle (非空字符串)";
+      return false;
+    }
+  }
+  if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON) {
+    // 播放页歌曲图: 三种接管方式 (none / shader / view)。
+    // 这里只做结构校验 (字段类型与组合的合法性), 渲染细节留给 Dart 侧。
+    if (data.contains("mode")) {
+      if (!data["mode"].is_string()) {
+        err = "播放页歌曲图 mode 必须是字符串 (none / shader / view)";
+        return false;
+      }
+      const std::string mode = data["mode"].get<std::string>();
+      if (mode != "none" && mode != "shader" && mode != "view") {
+        err = "播放页歌曲图 mode 只支持 none / shader / view";
+        return false;
+      }
+    }
+    // shader 形态: 给出 shader 就必须带可用的 bundle (与播放页背景同一份要求)
+    if (data.contains("shader")) {
+      if (!data["shader"].is_object()) {
+        err = "播放页歌曲图 shader 必须是对象";
+        return false;
+      }
+      const Json &shader = data["shader"];
+      if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
+          shader["bundle"].get<std::string>().empty()) {
+        err = "播放页歌曲图缺少 shader.bundle (非空字符串)";
+        return false;
+      }
+    }
+    // view 形态: 视图 id 字符串或直接给视图对象 / 数组
+    if (data.contains("view") && !data["view"].is_string() &&
+        !data["view"].is_object() && !data["view"].is_array()) {
+      err = "播放页歌曲图 view 必须是视图 id 字符串或视图对象";
+      return false;
+    }
+    // 明确声明 shader / view 形态但缺字段时早报错 (none 形态可以什么都不给)
+    const std::string mode =
+        (data.contains("mode") && data["mode"].is_string())
+            ? data["mode"].get<std::string>()
+            : std::string{};
+    if (mode == "shader" &&
+        (!data.contains("shader") || !data["shader"].is_object())) {
+      err = "播放页歌曲图声明 mode=shader 时必须给出 shader.bundle";
+      return false;
+    }
+    if (mode == "view" && !data.contains("view")) {
+      err = "播放页歌曲图声明 mode=view 时必须给出 view";
       return false;
     }
   }

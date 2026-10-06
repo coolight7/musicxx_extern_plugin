@@ -14,6 +14,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+# bundle 描述里的 file 路径是相对**当前工作目录**解析的：统一在 shader 目录里编译
+Push-Location $here
 
 if ([string]::IsNullOrEmpty($FlutterRoot)) {
     # 优先用当前 flutter（fvm 环境也能取到）
@@ -42,3 +44,5 @@ if ($LASTEXITCODE -ne 0) {
     throw "impellerc 编译失败（exit=$LASTEXITCODE）"
 }
 Write-Output "已生成: $out ($((Get-Item $out).Length) 字节)"
+
+Pop-Location

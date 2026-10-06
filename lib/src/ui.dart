@@ -32,6 +32,25 @@ abstract final class MusicxxPluginUIType {
   /// 4 个绘制色（`icon.themeMapping.0..3`）。`cover` 由宿主解码 + 缩放（可选预模糊）后上传成
   /// GPU 纹理、每帧绑定给着色器，插件不搬字节。详见 `docs/plugin-shader-bundle.md`。
   static const String playingBackground = 'musicxx.ui.playing.background';
+
+  /// 播放页歌曲图（渲染槽位 `player.icon`）：接管播放页中间那张歌曲图 / 视频的显示
+  ///
+  /// `data = {title, depict?, enabled?, mode?: "none"|"shader"|"view", keepSpace?, fill?,
+  ///          shader?: {bundle, vertex?, fragment?}, view?: "<视图id>" | {视图对象},
+  ///          cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}`
+  ///
+  /// 三种接管方式（不写 `mode` 时按字段推断：有 `shader.bundle` → `shader`，有 `view` → `view`，
+  /// 都没有 → `none`）：
+  /// - `shader`：插件着色器绘制（渲染输入与播放页背景**完全一致**，见
+  ///   docs/plugin-shader-bundle.md：`cover` / `image` / `args` / `speed` / `maxFps` /
+  ///   `resolutionScale` / `animate`）；
+  /// - `view`：插件用声明式界面组合（`view` 写视图 id 或直接给视图对象），
+  ///   渲染与动作（`dispatch` / `command` / `route`）和插件页面同一套；
+  /// - `none`：不显示内容；`keepSpace`（缺省 true）决定是否保留原来的占位尺寸。
+  ///
+  /// 接管后原来的"点击歌曲图播放 / 暂停"不再生效（整个显示被替换）：需要这个交互就在自己的
+  /// 界面里放按钮，动作用 `command` 调官方动作 `musicxx.player.toggle`。
+  static const String playingIcon = 'musicxx.ui.playing.icon';
 }
 
 /// UI 项动作：与界面描述层的动作写法**完全一致**（同一套解析器）

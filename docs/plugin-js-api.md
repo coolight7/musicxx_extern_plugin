@@ -582,11 +582,21 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 
 ## 11. 渲染槽位与封面数据
 
-插件可以把**预编译的 shader bundle** 注册成宿主的一种渲染样式（当前只有「播放页背景」一个槽位），
-由用户在设置里选中后生效；也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
+插件可以把**预编译的 shader bundle** 注册成宿主的一种渲染样式（当前有两个槽位：「播放页背景」
+`player.background` 与「播放页歌曲图」`player.icon`，后者见
+[plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3），由用户在设置里选中后生效；
+也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
 [plugin-shader-bundle.md](plugin-shader-bundle.md)，本节只说 JS 侧怎么用。
 
 ```js
+// 接管播放页中间的歌曲图（类型简称 playing.icon）：不显示内容、只保留占位
+// 也可以声明 shader（插件着色器绘制）或 view（声明式界面组合）—— 三个字段挑一个
+musicxx.ui.registerEntry({
+    name: "icon",
+    type: "playing.icon",
+    data: { title: "不显示歌曲图", mode: "none", keepSpace: true },
+});
+
 // 注册一种播放页背景样式（类型简称 playing.background，或写全名）
 musicxx.ui.registerEntry({
     name: "bg",
@@ -659,12 +669,34 @@ await musicxx.media.unbindImage({ key: "art" });
 await musicxx.media.setPalette({ main: "#ff8844", dark: "#20222a" });
 
 // 注册"封面取色实现"（替代内置分析）：应用在需要封面色时先问插件
+//
+// **处理器里不要 await 宿主动作**（`musicxx.media.cover` 之类）：应用是在需要颜色的
+// 时候同步等这次裁决的（切换背景样式、切歌、渲染准备都在 await 这条链上），在处理器里
+// 等动作会把两边互相拖住，表现是"切歌 / 换背景样式卡几秒"（实测踩过）。
+// 正确写法：命中的缓存**同步**返回，没命中就返回 null（应用走它自己的快速取色），
+// 同时在后台算，算好用 `musicxx.media.setPalette` 主动写回。
 musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
     // payload = { srcKey, name, artist, hasCover, night }
-    const colors = myPaletteOf(payload);        // 自己算（要图可以调 musicxx.media.cover）
-    if (!colors) return null;                   // 这次不提供 → 应用照旧走内置分析
-    return { colors: { main: colors.main, light: colors.light, dark: colors.dark } };
+    if (!payload || payload.hasCover !== true) return null;
+    const cached = paletteCache[payload.srcKey];
+    if (cached) return { colors: cached };      // 同步给（应用当场用上）
+    warmPalette(payload.srcKey);                // 异步算，不 await
+    return null;                                // 这次不提供 → 应用走内置快速取色
 });
+
+// 换歌时先把颜色算起来（观察型），应用来问时通常已经命中缓存
+musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (payload) => {
+    if (payload && payload.hasCover === true) warmPalette(payload.srcKey);
+});
+
+function warmPalette(key) {
+    return musicxx.media.cover({ size: 64, format: "rgba" }).then((cover) => {
+        if (!cover || cover.ok !== true) return null;
+        const colors = myPaletteOfRgba(cover.data);   // 自己算（统计主要色点）
+        paletteCache[key] = colors;
+        return musicxx.media.setPalette(colors);      // 主动写回，颜色跟着换
+    });
+}
 
 // 当前音频频谱（内置『音乐动效』插件提取的数据；每帧 256 个频点、10 帧/秒）
 const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
@@ -678,7 +710,11 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
 - **取色钩子**（`musicxx.media.palette.provide`）是**裁决型**：有插件给出可解析的颜色就用它，
   没人给 / 一个颜色都没解析出来就走内置分析；`musicxx.media.palette` 的返回里 `source` 会告诉
   你这套颜色是 `"plugin"` 还是 `"builtin"`；异步派发，等待期间切歌时本次结果会被丢弃
-  （`srcKey` 可自行校验）。钩子载荷与写法的完整说明见 [plugin-hooks.md](plugin-hooks.md)；
+  （`srcKey` 可自行校验）。**处理器必须尽快返回**：应用最多等 800ms（超时按"没给"处理，
+  走内置快速取色），并且**绝不要在处理器里 `await` 宿主动作**（切换背景样式、切歌、渲染准备
+  都在等这次裁决，等动作会互相拖到超时 —— 表现是"卡几秒"）；用上面的写法：
+  同步返回缓存、未命中返回 null 并异步预热、算好用 `musicxx.media.setPalette` 写回。钩子载荷与
+  写法的完整说明见 [plugin-hooks.md](plugin-hooks.md)；
 - `musicxx.media.palette.set` 是**主动写**：只覆盖你给的键，其余保持不变；换歌后内置分析会照旧
   重跑（想持续提供就用上面的钩子）；
 - **封面变化**（`musicxx.media.cover.changed`）是**观察型**：注册 handle 后，换歌、同一首歌换了

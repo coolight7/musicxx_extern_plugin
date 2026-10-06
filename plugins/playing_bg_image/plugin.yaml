@@ -1,0 +1,16 @@
+name: playing_bg_image
+kind: js
+entry: plugin.js
+# 脚本按顺序在同一个 JS 上下文里执行: 先加载两个界面 kit (随插件目录分发), 再加载插件脚本
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
+
+version: 1.0.0
+api_version: 1
+author: "coolight"
+description: "播放页背景『热浪封面』: 当前歌曲封面预模糊后放大 2 倍铺满屏幕、缓慢四处漂移、局部偶尔轻微扭曲；启用时接管播放页歌曲图（保留占位、不显示内容），并提供自己的封面取色算法（统计出现最多的 4 个色点）"
+platforms: [windows, linux, macos, android, ios]
+
+permissions:
+  - musicxx.ui
+  - musicxx.library.read
+  - musicxx.storage
