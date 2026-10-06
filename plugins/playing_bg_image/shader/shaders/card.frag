@@ -3,10 +3,14 @@
 // 播放页背景『渐变贴边』（示例封面背景 · 模式二）：封面主色做渐变底，清晰封面贴着屏幕的
 // 边缘铺一片（自由边模糊渐隐），最后按主题叠一层亮暗遮罩。
 //
-//   · 竖屏（res.y >= res.x）：封面贴上、左、右三条边 —— 占满宽度、高度按封面比例，
+//   · 竖屏（res.y >= res.x）：封面贴上、左、右三条边 —— 占满宽度，高度取
+//     「按封面比例」与「屏幕高度 × 图片占比」里较大的那个（封面很扁时也占得满），
 //     下边缘（自由边）模糊并渐隐到渐变底；
-//   · 横屏：封面贴左、上、下三条边 —— 占满高度、宽度按封面比例，右边缘（自由边）同样处理。
+//   · 横屏：封面贴左、上、下三条边 —— 占满高度，宽度同样取两者的较大值，
+//     右边缘（自由边）同样处理。
 //
+// **图片占比（`uShare`）** 就是这个"至少占屏幕多少"：调大它图片占比更多、渐变底更少
+// （图片按卡片铺满、超出裁掉），调小则更像一张贴边的卡片。
 // 放大倍数（1~3）只改取景：数值越大，卡片里看到的封面越局部（居中裁剪，铺满卡片的部分不变），
 // 卡片本身贴住的边与尺寸不跟着变 —— 否则"贴着边缘"就不成立了。
 // 热浪扭曲波纹开关打开时，封面采样位置每帧有几像素的偏移，渐变底也跟着轻微起伏。
@@ -19,6 +23,7 @@
 //   uBase2     = 封面的暗色（渐变暗端）
 //   uMask      = 主题背景色（亮暗遮罩的颜色：浅色主题是浅色、深色主题是深色）
 //   uZoom      = x 是放大倍数（1~3）
+//   uShare     = x 是"图片至少占屏幕这个比例"（0.45~0.95；0 = 只用封面比例决定卡片大小）
 //   uRipple    = x 是热浪扭曲波纹开关（1 开 / 0 关）
 // 纹理：uniform sampler2D uCover（清晰封面；没有封面时是 1×1 透明占位，这时只画渐变底）
 
@@ -30,6 +35,7 @@ uniform MusicxxRenderInfo {
   vec4 uBase2;
   vec4 uMask;
   vec4 uZoom;
+  vec4 uShare;
   vec4 uRipple;
 } render_info;
 
@@ -37,8 +43,9 @@ uniform sampler2D uCover;
 
 layout(location = 0) out vec4 frag_color;
 
-// 卡片在自由方向最多占屏幕的比例（另一边贴满）：留出渐变底的位置
-const float kCardLimit = 0.62;
+// 封面比例的可用范围（极端的宽/高比不让卡片变得过大或过小）
+const float kAspectMin = 0.45;
+const float kAspectMax = 3.0;
 
 // 自由边：模糊从卡片自由方向的这个位置开始变强，渐隐从更靠边的地方开始
 const float kFreeBlurStart = 0.35;
@@ -93,12 +100,18 @@ void main() {
       render_info.uBase2.rgb, vec3(0.0), night * 0.30 + (1.0 - night) * 0.10);
   vec3 color = mix(bright, deep, smoothstep(0.0, 1.0, g));
 
-  // 2) 卡片尺寸：竖屏占满宽度、横屏占满高度，另一边按封面比例（贴屏幕左上角）
-  float aspect = clamp(render_info.uCoverInfo.z, 0.45, 2.4);
+  // 2) 卡片尺寸：竖屏占满宽度、横屏占满高度；自由方向取「按封面比例」与「屏幕 × uShare」里大的那个
+  //    —— uShare 是"图片至少占屏幕这个比例"：调大它图片占比更多（图片按卡片铺满、超出裁掉），
+  //    封面本身很扁/很长时仍按封面比例给足空间（不会因为比例被压成一条）
+  float aspect = clamp(render_info.uCoverInfo.z, kAspectMin, kAspectMax);
+  float share = clamp(render_info.uShare.x, 0.0, 1.0);
   bool portrait = res.y >= res.x;
+  float free = portrait
+      ? max(res.x / aspect, res.y * share)
+      : max(res.y * aspect, res.x * share);
   vec2 card = portrait
-      ? vec2(res.x, min(res.x / aspect, res.y * kCardLimit))
-      : vec2(min(res.y * aspect, res.x * kCardLimit), res.y);
+      ? vec2(res.x, min(free, res.y))
+      : vec2(min(free, res.x), res.y);
   card = max(card, vec2(1.0));
 
   // 卡片范围掩码：范围外的像素不画封面（与"没有封面"一样只剩渐变底）
