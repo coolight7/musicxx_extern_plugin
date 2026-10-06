@@ -4,10 +4,10 @@ entry: plugin.js
 # 脚本按顺序在同一个 JS 上下文里执行: 先加载两个界面 kit (随插件目录分发), 再加载插件脚本
 scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
 
-version: 1.0.0
+version: 1.1.1
 api_version: 1
 author: "coolight"
-description: "播放页背景『热浪封面』: 当前歌曲封面预模糊后放大 2 倍铺满屏幕、缓慢四处漂移、局部偶尔轻微扭曲；启用时接管播放页歌曲图（保留占位、不显示内容），并提供自己的封面取色算法（统计出现最多的 4 个色点）"
+description: "示例封面背景 (playing_bg_image): 两种播放页背景模式 —— 1) 封面高斯模糊后放大、缓慢四处移动 (模糊程度 0~30、放大倍数 1~3 可在插件设置页调); 2) 封面主色做渐变底 + 贴边封面卡片 (竖屏贴上/左/右、横屏贴左/上/下, 自由边模糊渐隐) + 按主题的亮暗遮罩; 两种模式都能开关热浪扭曲波纹与隐藏歌曲图, 并自带封面取色算法 (统计封面里最多的 4 个色点)"
 platforms: [windows, linux, macos, android, ios]
 
 permissions:

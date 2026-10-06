@@ -629,8 +629,8 @@ void main() {
       _step('18.5 背景示例插件完成');
     }
 
-    // 新槽位示例 playing_bg_image: 同时注册『播放页背景样式』与『播放页歌曲图接管项』
-    // （`musicxx.ui.playing.icon` 是这一轮新增的 UI 项类型）。它顶层还注册了
+    // 新槽位示例 playing_bg_image（示例封面背景）: 同时注册『播放页背景样式』与『播放页歌曲图
+    // 接管项』（`musicxx.ui.playing.icon` 是这一轮新增的 UI 项类型）。它顶层还注册了
     // `musicxx.media.palette.provide` 取色钩子 —— 这两条都能挡住"忘了重建宿主库"
     // （旧宿主库会以未知 UI 项类型 / 未知钩子拒绝注册）。
     if (Directory('${env.pluginRoot}/playing_bg_image').existsSync()) {
@@ -648,20 +648,31 @@ void main() {
         reason: '取色钩子的处理器要在宿主侧登记成功（宿主库没重建时这里会是 0）',
       );
       final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
-      final MusicxxPluginUIItem background = MusicxxPluginUIItems.byType(
+      // 两种模式 = 同一个槽位里的两个候选样式（注册顺序决定设置列表里的先后）
+      final List<MusicxxPluginUIItem> backgrounds = MusicxxPluginUIItems.byType(
         items,
         MusicxxPluginUIType.playingBackground,
-      ).firstWhere(
-        (MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image',
-      );
+      ).where((MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image').toList();
+      expect(backgrounds.length, 2, reason: '两种背景模式各注册一个样式: $backgrounds');
       expect(
-        (background.data['shader']! as Map<String, Object?>)['bundle'],
+        (backgrounds[0].data['shader']! as Map<String, Object?>)['bundle'],
         'shader/heat.shaderbundle',
+        reason: '第一个是『模糊热浪』',
       );
       expect(
-        (background.data['cover']! as Map<String, Object?>)['blur'],
+        (backgrounds[0].data['cover']! as Map<String, Object?>)['blur'],
         14,
-        reason: '封面纹理的预模糊强度由插件声明（默认档"标准"，设置页可切清晰/柔和）',
+        reason: '封面纹理的预模糊强度由插件声明（默认 14，设置页可在 0~30 之间调）',
+      );
+      expect(
+        (backgrounds[1].data['shader']! as Map<String, Object?>)['bundle'],
+        'shader/card.shaderbundle',
+        reason: '第二个是『渐变贴边』（清晰封面 + 渐变底 + 亮暗遮罩）',
+      );
+      expect(
+        (backgrounds[1].data['cover']! as Map<String, Object?>)['blur'],
+        0,
+        reason: '『渐变贴边』的封面卡片要是原图，不做预模糊',
       );
       // 歌曲图接管项：mode = none（保留占位、不显示内容）
       final MusicxxPluginUIItem icon = MusicxxPluginUIItems.byType(
@@ -707,8 +718,38 @@ void main() {
               as Map<String, Object?>;
       expect(imageView['title'], isNotEmpty);
       expect(imageView['blocks'], isA<List<Object?>>());
+      // 说明页（主页入口指向的页面）同样由插件绘制
+      final Object? imageCardRaw = runtime.plugins.call(
+        'playing_bg_image',
+        'plugin.playing_bg_image.card',
+        const <String, Object?>{},
+      );
+      final Map<String, Object?> imageCard =
+          (imageCardRaw! as Map<String, Object?>)['view']!
+              as Map<String, Object?>;
+      expect(imageCard['title'], isNotEmpty);
+      expect(imageCard['blocks'], isA<List<Object?>>());
+      // 设置项：控件把自己的 id 与值交回来（`args.id` / `args.value`），插件写 config.json
+      // 并重新登记背景样式；处理器同步返回页面（动作结果由页面自己从状态镜像读到）。
+      final Object? setOptionRaw = runtime.plugins.call(
+        'playing_bg_image',
+        'plugin.playing_bg_image.setOption',
+        const <String, Object?>{'id': 'zoom', 'value': 2.5, 'view': 'settings'},
+      );
+      expect(
+        ((setOptionRaw! as Map<String, Object?>)['view']!
+            as Map<String, Object?>)['blocks'],
+        isA<List<Object?>>(),
+        reason: '改设置要同步返回页面（不能在这里等异步动作）',
+      );
+      // 改回默认值，别把测试写下的配置留给下一次运行
+      runtime.plugins.call(
+        'playing_bg_image',
+        'plugin.playing_bg_image.setOption',
+        const <String, Object?>{'id': 'zoom', 'value': 2},
+      );
       runtime.plugins.unload('playing_bg_image');
-      _step('18.7 热浪封面插件完成');
+      _step('18.7 示例封面背景插件完成');
     }
 
     // 统计快照可读

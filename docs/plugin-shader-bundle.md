@@ -16,8 +16,11 @@
 > 频带，尖角向内外凸出、相邻点之间用直线连成一张"蛛网"，不画基线圆），照抄同一份打包脚本即可编译。
 > 基线版本 3.47.5 的 Flutter SDK
 > 编译出来的 bundle 可以直接用（`format_version = 2`）。
-> 另一个现成的例子是 `plugins/playing_bg_image/shader/`：**「热浪封面」**背景
-> （`shaders/heat.frag`：封面预模糊后放大 2 倍铺满屏幕、缓慢四处漂移、局部偶尔轻微扭曲），
+> 另一个现成的例子是 `plugins/playing_bg_image/shader/`（插件名「示例封面背景」，**两种背景模式
+> 各自一个 bundle**）：**「模糊热浪」**（`shaders/heat.frag`：封面预模糊后放大铺满屏幕、缓慢四处
+> 漂移、局部偶尔轻微扭曲，模糊程度 0~30 与放大倍数 1~3 由插件的设置页决定）与**「渐变贴边」**
+> （`shaders/card.frag`：封面主色做渐变底、清晰封面贴着屏幕边缘铺一片、自由边模糊渐隐，
+> 再按主题叠一层亮暗遮罩；同一个 `player.background` 槽位里注册两项，用户选哪一项就是哪种模式）。
 > 它同时演示了歌曲图槽位（§5.3）与封面取色钩子 —— 见 `plugins/playing_bg_image/plugin.js`。
 
 ---
@@ -52,6 +55,9 @@
 
 一个插件可以有**多个** bundle（同一个槽位注册多项，或者不同槽位/页面各用一个），
 每个 bundle 一份描述文件 + 一个产物文件即可。
+（`plugins/playing_bg_image/` 是另一种布局：两种背景模式的两个 bundle 共用一份顶点着色器
+`shaders/full.vert`，描述文件是 `bundle.json` → `heat.shaderbundle` 与
+`bundle_card.json` → `card.shaderbundle`，同一个 `build_bundle.ps1` 逐个编译。）
 
 `bundle.json`：
 
@@ -224,12 +230,14 @@ void main() {
   `scale = max(res.x / texSize.x, res.y / texSize.y) * 放大倍数`。写成 `texSize * scale / res`（倒数）
   在屏幕与纹理宽高比不同时会把画面**拉伸变形**（表现为"左右压缩上下拉伸"），叠加的坐标偏移还会被
   `clamp` 到纹理边缘吃掉（看起来完全没有动画）。示例见
-  `plugins/playing_bg_image/shader/shaders/heat.frag` 与 `plugins/example_js_shader/shader/shaders/bg.frag`；
+  `plugins/playing_bg_image/shader/shaders/heat.frag`（铺满全屏）与同目录的 `card.frag`
+  （只在卡片里铺满、还要居中裁剪）以及 `plugins/example_js_shader/shader/shaders/bg.frag`；
 - 想让画面只显示封面的一部分（"放大"背景），**用一个自己声明的 `args` 成员传倍率**，
   在着色器里按"总体放大倍率"算采样步长：`coverScale = max(fillScale, uZoom.x)`、
   `uvStep = res / (texSize * coverScale)`（`fillScale = max(res.x/texSize.x, res.y/texSize.y)`
-  是铺满所需的最小倍率）—— `plugins/playing_bg_image` 就是这么做的（设置页可切 2× / 3× / 5×，
-  真机自检里有"倍率越大画面越局部"的回归用例）；
+  是铺满所需的最小倍率）—— `plugins/playing_bg_image` 就是这么做的（设置页可切 1× / 1.5× / 2× /
+  2.5× / 3×，真机自检里有"倍率越大画面越局部"的回归用例；`card.frag` 是同一个套路的第二种用法：
+  卡片尺寸固定、只把纹理在卡片里放大，居中取景）；
 - 没声明 `cover` 时**零成本**：不解码、不上传、不占显存（一张 512×512 的纹理约 1 MiB）；
   连参数里都没问 `musicxx.env.hasCover` 时，渲染每帧也不会去读"现在有没有封面"；
 - **不保留解码结果**：纹理只活在"正在用它的那个渲染视图"里 —— 视图销毁、用户切回内置样式、
@@ -366,11 +374,12 @@ void main() {
   颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
 - 槽位状态镜像：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
-  例如"背景是自己时才接管歌曲图"这种联动（`plugins/playing_bg_image` 就是这么做的）；
+  例如"背景是自己时才接管歌曲图"这种联动（`plugins/playing_bg_image` 就是这么做的：它的两种
+  背景模式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
 - 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时
   自动回退内置显示，原因写在设置列表的那一行。
 
-完整示例：`plugins/playing_bg_image/`（背景 + 歌曲图接管 + 封面取色三件事一起做的插件）。
+完整示例：`plugins/playing_bg_image/`（两种背景模式 + 歌曲图接管 + 封面取色三件事一起做的插件）。
 
 ---
 

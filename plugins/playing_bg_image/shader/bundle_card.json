@@ -1,4 +1,4 @@
 {
   "MusicxxRenderVertex": { "type": "vertex", "file": "shaders/full.vert" },
-  "MusicxxRenderFragment": { "type": "fragment", "file": "shaders/heat.frag" }
+  "MusicxxRenderFragment": { "type": "fragment", "file": "shaders/card.frag" }
 }
