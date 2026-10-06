@@ -216,6 +216,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js_async
   example_js_vars
   example_js_multi_script
+  playing_bg_image
 )
 set(MUSICXX_EXTERN_PLUGIN_TEST_NATIVE example_native_fail example_native_bad_entry)
 set(MUSICXX_EXTERN_PLUGIN_TEST_JS example_js_broken)

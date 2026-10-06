@@ -1,13 +1,15 @@
-# 打包示例插件的 shader bundle（Windows 用 pwsh）
+# 打包本插件（playing_bg_image）的 shader bundle（Windows 用 pwsh）
+#
+#   bundle.json + shaders/heat.vert + shaders/heat.frag → heat.shaderbundle
 #
 # 用法：
 #   pwsh -NoProfile -File .\build_bundle.ps1 [-FlutterRoot <Flutter SDK 根目录>]
 #
-# 产物：bg.shaderbundle（与 bundle.json 同目录），随插件一起分发。
+# 产物与描述文件同目录，随插件一起分发。
 #
 # Linux / macOS 用同样的参数调用对应平台的 impellerc（无 .exe 后缀）：
 #   "$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/impellerc" \
-#     --shader-bundle="$(tr -d '\n' < bundle.json)" --sl=bg.shaderbundle
+#     --shader-bundle="$(tr -d '\n' < bundle.json)" --sl=heat.shaderbundle
 param(
     [string]$FlutterRoot = ""
 )
@@ -34,15 +36,26 @@ if ([string]::IsNullOrEmpty($impellerc)) {
     throw "找不到 impellerc.exe（$engineDir）"
 }
 
-# bundle 描述必须以「单行」传给 --shader-bundle：带换行时会被当成多个参数，
-# impellerc 会报 "Target shading language file name was empty"
-$spec = ((Get-Content (Join-Path $here 'bundle.json') -Raw) -replace "`r?`n", ' ').Trim()
-$out = Join-Path $here 'bg.shaderbundle'
+# 要编译的 bundle：描述文件 → 产物文件名
+$targets = @(
+    @{ Spec = 'bundle.json'; Out = 'heat.shaderbundle' }
+)
 
-& $impellerc --shader-bundle="$spec" --sl="$out"
-if ($LASTEXITCODE -ne 0) {
-    throw "impellerc 编译失败（exit=$LASTEXITCODE）"
+foreach ($target in $targets) {
+    $specPath = Join-Path $here $target.Spec
+    if (-not (Test-Path $specPath)) {
+        throw "找不到 bundle 描述文件：$specPath"
+    }
+    # bundle 描述必须以「单行」传给 --shader-bundle：带换行时会被当成多个参数，
+    # impellerc 会报 "Target shading language file name was empty"
+    $spec = ((Get-Content $specPath -Raw) -replace "`r?`n", ' ').Trim()
+    $out = Join-Path $here $target.Out
+
+    & $impellerc --shader-bundle="$spec" --sl="$out"
+    if ($LASTEXITCODE -ne 0) {
+        throw "impellerc 编译失败（$($target.Spec)，exit=$LASTEXITCODE）"
+    }
+    Write-Output "已生成: $out ($((Get-Item $out).Length) 字节)"
 }
-Write-Output "已生成: $out ($((Get-Item $out).Length) 字节)"
 
 Pop-Location

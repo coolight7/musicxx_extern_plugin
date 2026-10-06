@@ -1,7 +1,8 @@
 # 插件渲染：shader bundle 打包与 uniform 约定
 
-插件可以把**打包期编译好的 shader bundle** 注册成一种宿主渲染样式（当前只有「播放页背景」
-一个渲染槽位），由用户在「设置 → 播放页面背景」里选中后生效（命令行 / agent 用
+插件可以把**打包期编译好的 shader bundle** 注册成一种宿主渲染样式（当前有两个渲染槽位：
+「播放页背景」`player.background` 与「播放页歌曲图」`player.icon`，后者见 §5.3），由用户在
+「设置 → 主题」里选中后生效（命令行 / agent 用
 `musicxx-cli render list|select` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 同一个 bundle 也能画在插件自己的页面里（`Shader` 块）。
 
@@ -15,6 +16,9 @@
 > 频带，尖角向内外凸出、相邻点之间用直线连成一张"蛛网"，不画基线圆），照抄同一份打包脚本即可编译。
 > 基线版本 3.47.5 的 Flutter SDK
 > 编译出来的 bundle 可以直接用（`format_version = 2`）。
+> 另一个现成的例子是 `plugins/playing_bg_image/shader/`：**「热浪封面」**背景
+> （`shaders/heat.frag`：封面预模糊后放大 2 倍铺满屏幕、缓慢四处漂移、局部偶尔轻微扭曲），
+> 它同时演示了歌曲图槽位（§5.3）与封面取色钩子 —— 见 `plugins/playing_bg_image/plugin.js`。
 
 ---
 
@@ -194,7 +198,7 @@ void main() {
 | `texture` | `uCover` | GLSL 标识符 | 着色器里的 `sampler2D` 名 |
 | `info` | `uCoverInfo` | GLSL 标识符 | 封面信息写到哪个结构体成员（与 `texture` 同名时退回缺省名） |
 | `size` | 512 | 128..1024 | 纹理最长边（px）：等比缩放、**不放大** |
-| `blur` | 0 | 0..64 | 预模糊强度（sigma，px）；0 = 原图 |
+| `blur` | 0 | 0..64 | 预模糊强度（sigma，px）；0 = 原图。**注意这是"纹理上的" sigma**：纹理会铺满屏幕（还可能被插件再放大），屏幕上看到的模糊 ≈ `blur × 纹理→屏幕的放大倍数` —— 512 的纹理铺在 1280 宽的窗口里放大 5 倍左右，`blur: 34` 会糊成一片渐变，`blur: 10~16` 才看得出封面内容 |
 | `square` | false | — | true = 中心裁剪成正方形（`size` × `size`），false = 保持原图比例 |
 | `smooth` | true | — | 采样过滤：true = 线性（缩放平滑），false = 最近邻（像素风） |
 
@@ -215,11 +219,25 @@ void main() {
 - **纹理坐标与渲染目标同向**：渲染目标是左上角原点（`gl_FragCoord.y` 向下增大），纹理也是
   v = 0 在图片顶部，直接用 `uv` 采样就是正立的；把坐标翻过（`p.y` 向上为正）的着色器要记得翻回去
   （`vec2(disk.x, -disk.y) * 0.5 + 0.5`，见 `ring.frag` 的圆心封面）；
+- **"铺满 / 放大"的采样步长要逐分量相除**：`uCoverInfo.xy` 是纹理尺寸、`uParams.xy` 是渲染目标尺寸，
+  把纹理按 cover 铺满（超出裁掉）时采样步长是 `res / (texSize * scale)`，其中
+  `scale = max(res.x / texSize.x, res.y / texSize.y) * 放大倍数`。写成 `texSize * scale / res`（倒数）
+  在屏幕与纹理宽高比不同时会把画面**拉伸变形**（表现为"左右压缩上下拉伸"），叠加的坐标偏移还会被
+  `clamp` 到纹理边缘吃掉（看起来完全没有动画）。示例见
+  `plugins/playing_bg_image/shader/shaders/heat.frag` 与 `plugins/example_js_shader/shader/shaders/bg.frag`；
+- 想让画面只显示封面的一部分（"放大"背景），**用一个自己声明的 `args` 成员传倍率**，
+  在着色器里按"总体放大倍率"算采样步长：`coverScale = max(fillScale, uZoom.x)`、
+  `uvStep = res / (texSize * coverScale)`（`fillScale = max(res.x/texSize.x, res.y/texSize.y)`
+  是铺满所需的最小倍率）—— `plugins/playing_bg_image` 就是这么做的（设置页可切 2× / 3× / 5×，
+  真机自检里有"倍率越大画面越局部"的回归用例）；
 - 没声明 `cover` 时**零成本**：不解码、不上传、不占显存（一张 512×512 的纹理约 1 MiB）；
   连参数里都没问 `musicxx.env.hasCover` 时，渲染每帧也不会去读"现在有没有封面"；
 - **不保留解码结果**：纹理只活在"正在用它的那个渲染视图"里 —— 视图销毁、用户切回内置样式、
   插件停用或卸载、关闭『拟声++』时都会立即释放（丢引用并释放包装用的图像）；没有跨视图缓存，
-  也不会留一份"以后可能用到"的解码图；解码用的（独立命名空间的）图片缓存也是用前清空；
+  也不会留一份"以后可能用到"的解码图；解码用的（独立命名空间的）图片缓存按
+  （provider + 解码尺寸）键控、**不在每次准备前清空**（每清一次就会让切歌时反复解码、
+  网络封面还要重新下载，表现为"切歌卡几秒"）；纹理准备还有 120ms 防抖（切歌时封面源
+  常连着变几次）；
 - 封面变化（换歌、同一首歌换封面）时宿主重新准备一次（几毫秒），**不是每帧上传**；模糊也是一次性
   预生成，不是每帧做 —— 想在着色器里自己模糊当然也行（多采样几次，代价自己算）；
 - 同一张封面可以被多个渲染项各自声明（背景与页面里的 `Shader` 块各拿一份纹理，各自释放，互不影响）；
@@ -298,6 +316,61 @@ void main() {
   要翻回去，见 `ring.frag` 的圆心封面）；
 - 与 `cover` 一样，**着色器里声明了 `sampler2D` 就必须在渲染项里有同名的 `image`（或 `cover`）声明**
   —— 采样一张从未绑定的纹理在部分后端上行为未定义。
+
+---
+
+## 5.3 播放页歌曲图槽位（`musicxx.ui.playing.icon`）：接管中间那张歌曲图
+
+除了背景，插件还能接管沉浸式播放页**中间那张歌曲图**（内置显示是"封面图 + 播放状态按钮 / 视频"）。
+它是一个独立的渲染槽位 `player.icon`：用户在「设置 → 主题 → 播放页歌曲图」里选择，或插件用
+`musicxx.render.select(id, {slot: "player.icon"})` 切换（内置项 id 是 `builtin:default`）。
+
+```jsonc
+// 渲染项（musicxx.ui.playing.icon 的 data）—— 三种形态挑一种
+{
+  // 1) shader：插件着色器绘制（渲染输入与播放页背景**完全一致**）
+  "title": "我的歌曲图", "mode": "shader",
+  "shader": {"bundle": "shader/icon.shaderbundle"},
+  "cover": {"texture": "uCover", "info": "uCoverInfo", "size": 512},
+  "args": { "uTint": {"kind": "source", "name": "musicxx.icon.themeMapping.0"} },
+  "speed": 1, "maxFps": 30, "resolutionScale": 1.0, "animate": true,
+
+  // 2) view：插件用声明式界面组合（`view` 写视图 id，或直接给视图对象）
+  //    "mode": "view",
+  //    "view": "iconView",           // 同名能力取页面描述（快照语义）
+  //    "view": {"blocks": [...]},    // 内联视图
+
+  // 3) none：不显示内容（`keepSpace` 缺省 true = 保留原来的占位尺寸）
+  //    "mode": "none", "keepSpace": true
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `mode` | 按字段推断 | `shader`（有 `shader.bundle`）/ `view`（有 `view`）/ `none`（都没有）；显式写错的值按推断走并记日志 |
+| `shader` | — | `shader` 形态的 bundle（`{bundle, vertex?, fragment?}`），必填 `bundle` |
+| `view` | — | `view` 形态：视图 id 字符串（调插件同名能力取页面）或内联视图对象 |
+| `keepSpace` | `true` | 只有 `none` 形态用：是否保留占位尺寸（false = 完全不占位，播放页其余元素会跟着上移） |
+| `fill` | `false` | `shader` 形态：false = 在可用宽度里居中画一个方形（边长 = 内置歌曲图的高度），true = 铺满可用区域 |
+| `cover` / `image` / `args` / `speed` / `maxFps` / `resolutionScale` / `animate` | 同背景 | 渲染输入与播放页背景**共用同一份解析与渲染宿主**，写法和含义完全一样 |
+
+约定与代价：
+
+- **接管是"整个显示"**：原来的"点击歌曲图播放 / 暂停"、滑动切歌（`musicxx.ui` 设置里的
+  「滑动切换歌曲」）、视频播放按钮都不再出现。需要这些交互的插件自己在界面里放按钮 ——
+  `view` 形态可以声明动作（`dispatch` 调自己的能力、`command` 调官方动作如
+  `musicxx.player.toggle`）；
+- `shader` 形态的渲染区域就是**内置歌曲图占的那块**：`uParams.xy` 是它的像素尺寸（不是整屏），
+  插件按这个尺寸画；`animate: false` 时只出一帧；
+- 没有额外 uniform 成员：通用成员（`uParams` / `uEnv`）够描述"画在多大的一块里"，
+  颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
+- 槽位状态镜像：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
+  `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
+  例如"背景是自己时才接管歌曲图"这种联动（`plugins/playing_bg_image` 就是这么做的）；
+- 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时
+  自动回退内置显示，原因写在设置列表的那一行。
+
+完整示例：`plugins/playing_bg_image/`（背景 + 歌曲图接管 + 封面取色三件事一起做的插件）。
 
 ---
 
@@ -578,6 +651,9 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 ---
 
 ## 10. 运行期：查询、切换与状态镜像
+
+槽位用 `slot` 参数区分（省略 = 默认槽位 `player.background`）：`player.background`（播放页背景）
+与 `player.icon`（播放页歌曲图，§5.3）各有自己的候选列表与选择，互不影响。
 
 ```js
 // 有哪些可选样式（含内置项）

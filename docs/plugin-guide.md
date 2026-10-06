@@ -135,7 +135,7 @@ musicxx.capability.register("card", function () {
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` | [plugin-js-api.md](plugin-js-api.md) §10 |
 | **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 | `musicxx.ui.registerEntry` | [plugin-ui.md](plugin-ui.md) §1 |
 | **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `{ view: … }` + 路由 `ext://<插件id>/<视图id>` | [plugin-ui.md](plugin-ui.md) §2 |
-| **着色器 / 渲染槽位** | 播放页背景、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` / `playing.icon` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **封面取色 / 封面变化** | 读 / 写封面取色（`palette` / `setPalette`），用钩子注册取色实现替代内置分析；也可以订阅封面变化（`musicxx.media.cover.changed`，可随时移除） | 动作 + 钩子 `musicxx.media.palette.provide` / `musicxx.media.cover.changed` | [plugin-js-api.md](plugin-js-api.md) §11 |
 | **存储** | 插件私有 KV 与用户可见配置（`config.json`） | `musicxx.storage.*` | 本文 §5.6 |
 | **网络** | 走应用统一网络栈取数据、下载文件（可作为便利通道） | `musicxx.net.fetch/download` | [plugin-js-api.md](plugin-js-api.md) §7.3 |

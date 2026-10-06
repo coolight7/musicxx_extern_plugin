@@ -54,7 +54,8 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝装载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
-  example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带两种背景样式：晶格 / 光圈）
+  example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带三种背景样式：晶格 / 光圈 / 插件纹理铺底）
+  playing_bg_image/ 示例插件（JS，零编译；播放页背景『热浪封面』+ 接管播放页歌曲图 + 自定义封面取色：一个插件把背景、图标槽位与取色钩子串起来）
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
@@ -387,7 +388,10 @@ musicxx-cli plugin uninstall my_plugin                                     # 卸
 [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md)。
 
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
-`plugins/example_js_shader/`（只演示播放页背景与动画速率；两种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`）；
+`plugins/example_js_shader/`（只演示播放页背景与动画速率；三种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`、
+插件纹理铺底复用 `bg.frag`）、
+`plugins/playing_bg_image/`（播放页背景『热浪封面』+ 接管播放页歌曲图 + 自定义封面取色：背景、图标槽位与钩子
+在同一个插件里串起来，覆盖 `cover` 纹理、`playing.icon` 三种形态里的 `none`、`musicxx.media.palette.provide`）；
 另外 `plugins/example_js_vars/`（变量通道）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本），以及下面「对照示例」一组 —— 它们演示宿主在
 插件写坏时的保护行为，写插件前先看一眼可以少踩坑。

@@ -196,11 +196,20 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
 /// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
 /// data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
-///         args:[{name, source?, convert?, value?, valueNight?}],
+///         args? (成员名 → 值表达式), cover? (封面纹理), image? (插件绑定的图片),
 ///         speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}
-/// 说明: 着色器参数只有 `args` 一种写法 (旧的 `colors` 字段已移除);
-/// 不声明 `args` 时宿主默认给内置背景的 4 个绘制色 (`icon.themeMapping.0..3`)。
+/// 说明: 着色器参数只有 `args` 一种写法 (旧的 `colors` 与扁平写法都已移除);
+/// 不声明 `args` 时宿主默认给内置背景的 4 个绘制色 (`icon.themeMapping.0..3`);
+/// 声明 `cover` / `image` 时宿主准备纹理并每帧绑定 (见 docs/plugin-shader-bundle.md §5)。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND "musicxx.ui.playing.background"
+/// 播放页歌曲图 (渲染槽位 `player.icon`): 接管播放页中间那张歌曲图 / 视频的显示
+/// data = {title, depict?, enabled?, mode?: "none"|"shader"|"view", keepSpace?,
+///         fill?, shader?:{bundle, vertex?, fragment?}, view?: "<视图id>"|{视图对象},
+///         cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}
+/// 说明: 三种接管方式 —— none = 不显示内容 (keepSpace 决定是否保留占位),
+/// shader = 插件着色器绘制 (渲染输入与播放页背景完全一致),
+/// view = 插件声明的界面组合; 不写 `mode` 时按字段推断。
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON "musicxx.ui.playing.icon"
 
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
 /// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。

@@ -227,7 +227,8 @@ constexpr const char *kPrelude = R"JS(
     "home.entry": "musicxx.ui.home.entry",
     "song.action": "musicxx.ui.song.action",
     "playlist.action": "musicxx.ui.playlist.action",
-    "playing.background": "musicxx.ui.playing.background"
+    "playing.background": "musicxx.ui.playing.background",
+    "playing.icon": "musicxx.ui.playing.icon"
   };
   function normalizeType(value) {
     assertName(value, "ui.registerEntry: type");
