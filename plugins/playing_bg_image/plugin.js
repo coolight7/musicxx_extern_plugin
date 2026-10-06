@@ -24,7 +24,7 @@
 ///    按亮度映射成 main / light / lightMuted / dark / darkMuted，替代内置的颜色分析。
 ///    『渐变贴边』的渐变底用的就是这套颜色（`musicxx.icon.main` / `musicxx.icon.dark`）。
 ///
-/// 设置（4 项，存在插件目录的 config.json）：模糊程度、放大倍数、热浪扭曲波纹、隐藏歌曲图。
+/// 设置（5 项，存在插件目录的 config.json）：模糊程度、放大倍数、图片占比、热浪扭曲波纹、隐藏歌曲图。
 ///
 /// 排查入口：宿主日志（`musicxx.host.log`）、设置页（`ext://playing_bg_image/settings`）、
 /// 说明页（`ext://playing_bg_image/card`）、状态镜像里的 `player.background` / `player.icon`
@@ -55,7 +55,7 @@ const MODE_DEPICTS = {};
 MODE_DEPICTS[MODE_BLUR] =
     "封面高斯模糊后放大铺满屏幕、缓慢四处漂移；模糊程度 0~30、放大倍数 1~3 可调";
 MODE_DEPICTS[MODE_CARD] =
-    "封面主色做渐变底、清晰封面贴着屏幕边缘铺一片（自由边模糊），按主题叠一层亮暗遮罩";
+    "封面主色做渐变底、清晰封面贴着屏幕边缘铺一片（自由边模糊、图片占比可调），按主题叠亮暗遮罩";
 
 /// 两种模式各自的 UI 项短名与完整 id
 ///
@@ -98,12 +98,17 @@ const BLUR_DEFAULT = 14;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 3;
 const ZOOM_DEFAULT = 2;
+/// 图片占比（只影响『渐变贴边』）：图片至少占屏幕这个比例，越大图片越多、渐变底越少
+const SHARE_MIN = 0.3;
+const SHARE_MAX = 1;
+const SHARE_DEFAULT = 0.75;
 const RIPPLE_DEFAULT = true;
 const HIDE_ICON_DEFAULT = true;
 
 /// 设置页上的一排候选项（精调走输入框）
 const BLUR_CHOICES = [0, 8, 16, 24, 30];
 const ZOOM_CHOICES = [1, 1.5, 2, 2.5, 3];
+const SHARE_CHOICES = [0.45, 0.6, 0.75, 0.9];
 
 /// 错误对象 → 文本（钩子、定时器里的失败只记日志）
 function errText(err) {
@@ -116,6 +121,7 @@ function errText(err) {
 const CONFIG_DEFAULTS = {
     blur: BLUR_DEFAULT,
     zoom: ZOOM_DEFAULT,
+    share: SHARE_DEFAULT,
     ripple: RIPPLE_DEFAULT,
     hideIcon: HIDE_ICON_DEFAULT,
 };
@@ -164,6 +170,8 @@ function normalizeConfig(key, value) {
             return Math.round(configNumber(value, BLUR_MIN, BLUR_MAX, BLUR_DEFAULT));
         case "zoom":
             return configNumber(value, ZOOM_MIN, ZOOM_MAX, ZOOM_DEFAULT);
+        case "share":
+            return configNumber(value, SHARE_MIN, SHARE_MAX, SHARE_DEFAULT);
         case "ripple":
             return configBool(value, RIPPLE_DEFAULT);
         case "hideIcon":
@@ -192,6 +200,11 @@ function configuredBlur() {
 /// 放大倍数（1~3，两种模式共用）
 function configuredZoom() {
     return configValue("zoom");
+}
+
+/// 图片占比（只影响『渐变贴边』：图片至少占屏幕这个比例）
+function configuredShare() {
+    return configValue("share");
 }
 
 /// 热浪扭曲波纹开关
@@ -294,7 +307,8 @@ function blurBackgroundData() {
 /// 『渐变贴边』的完整声明
 ///
 /// 与『模糊热浪』的区别：清晰封面（`blur: 0`，尺寸给大一点，卡片里是原图）+ 封面主色做的
-/// 渐变底 + 按主题叠的亮暗遮罩；取景与卡片贴边都由着色器按屏幕方向决定。
+/// 渐变底 + 按主题叠的亮暗遮罩；图片占比（`uShare`）决定图片至少占屏幕多少（越大图片越多、
+/// 渐变底越少），取景与卡片贴边都由着色器按屏幕方向决定。
 function cardBackgroundData() {
     return {
         title: MODE_TITLES[MODE_CARD],
@@ -327,6 +341,8 @@ function cardBackgroundData() {
                 fallback: "#12151c",
             },
             uZoom: { kind: "const", value: configuredZoom() },
+            // 图片占比（只在『渐变贴边』里用：图片至少占屏幕的这个比例）
+            uShare: { kind: "const", value: configuredShare() },
             uRipple: { kind: "const", value: configuredRipple() ? 1 : 0 },
         },
         speed: 1,
@@ -804,7 +820,7 @@ function iconStateText() {
         return "无状态";
     }
     if (slot.itemId === ICON_ITEM_ID) {
-        return (slot.visible === true) ? "已隐藏" : "已隐藏 · 不在画";
+        return (slot.visible === true) ? "已隐藏" : "已隐藏 · 未渲染";
     }
     if (!slot.selectedId) {
         return "显示中";
@@ -822,7 +838,7 @@ function renderStateText() {
         return "未生效";
     }
     if (slot.visible !== true) {
-        return "不在画";
+        return "未渲染";
     }
     return (slot.width || 0) + "×" + (slot.height || 0) + " · " +
         ((slot.animate === false) ? "静态" : ((slot.maxFps || 0) + " fps"));
@@ -905,7 +921,7 @@ function statusRows() {
         infoRow(
             "封面取色",
             "钩子 musicxx.media.palette.provide：统计封面里出现最多的 4 个色点（" +
-                paletteDetailText() + "）；『渐变贴边』的渐变底用的就是它写的颜色",
+            paletteDetailText() + "）；『渐变贴边』的渐变底用的就是它写的颜色",
             paletteStateText()),
         infoRow(
             "渲染状态",
@@ -1033,12 +1049,12 @@ function choiceControl(title, help, id, current, viewId, options) {
 
 /// 模式选择那一行（说明页与设置页共用：[viewId] 决定动作返回哪一页去刷新）
 function modeControl(viewId) {
-    return choiceControl("选择模式", "选中后立即生效；选『内置背景』则本插件的两种模式都不画",
+    return choiceControl("选择模式", "",
         "mode", currentMode(), viewId, [
-            { value: MODE_BLUR, label: "模糊热浪" },
-            { value: MODE_CARD, label: "渐变贴边" },
-            { value: MODE_BUILTIN, label: "内置背景" },
-        ]);
+        { value: MODE_BLUR, label: "模糊热浪" },
+        { value: MODE_CARD, label: "渐变贴边" },
+        { value: MODE_BUILTIN, label: "内置背景" },
+    ]);
 }
 
 /// 设置页：模式、参数、开关与状态
@@ -1061,10 +1077,6 @@ function settingsView(args) {
             kit.card({
                 title: "参数",
                 children: [
-                    numberControl("blur", "背景模糊程度（" + BLUR_MIN + "~" + BLUR_MAX + "）",
-                        "只影响『模糊热浪』：越小越看得清封面内容，越大越柔和" +
-                        "（输入后点一下别处生效）",
-                        configuredBlur(), BLUR_MIN, BLUR_MAX),
                     choiceControl("常用模糊档位", "点一下就用这个值（当前档位高亮）",
                         "blur", configuredBlur(), SETTINGS_VIEW_ID,
                         BLUR_CHOICES.map(function (value) {
@@ -1075,6 +1087,13 @@ function settingsView(args) {
                         "zoom", configuredZoom(), SETTINGS_VIEW_ID,
                         ZOOM_CHOICES.map(function (value) {
                             return { value: value, label: value + "×" };
+                        })),
+                    choiceControl("图片占比（只影响『渐变贴边』）",
+                        "图片至少占屏幕的比例：越大图片越多、渐变底越少" +
+                        "（图片按卡片铺满、超出部分裁掉）",
+                        "share", configuredShare(), SETTINGS_VIEW_ID,
+                        SHARE_CHOICES.map(function (value) {
+                            return { value: value, label: Math.round(value * 100) + "%" };
                         })),
                 ],
             }, env),
@@ -1093,22 +1112,6 @@ function settingsView(args) {
             kit.card({
                 title: "操作",
                 children: [
-                    kit.button({
-                        label: "立即隐藏歌曲图",
-                        action: {
-                            kind: "dispatch",
-                            name: "takeIcon",
-                            args: { view: SETTINGS_VIEW_ID },
-                        },
-                    }, env),
-                    kit.button({
-                        label: "交还歌曲图",
-                        action: {
-                            kind: "dispatch",
-                            name: "releaseIcon",
-                            args: { view: SETTINGS_VIEW_ID },
-                        },
-                    }, env),
                     kit.button({
                         label: "清空取色缓存",
                         action: {
@@ -1145,8 +1148,8 @@ function cardView(args) {
             kit.hint({
                 text: "• 『" + MODE_TITLES[MODE_CARD] + "』：竖屏时封面贴上、左、右三条边" +
                     "（下边缘模糊并渐隐到渐变底），横屏时贴左、上、下三条边（右边缘同样处理）；" +
-                    "放大倍数只改取景（越大越局部），最后按主题叠一层亮暗遮罩 —— " +
-                    "遮罩色就是主题背景色，浅色主题提亮、深色主题压暗。",
+                    "图片占比（45%~90%）决定图片至少占屏幕多少，放大倍数只改取景（越大越局部），" +
+                    "最后按主题叠一层亮暗遮罩 —— 遮罩色就是主题背景色，浅色主题提亮、深色主题压暗。",
             }, env),
             kit.hint({
                 text: "• 两种模式都能开关『热浪扭曲波纹』（热浪场的轻微折射感）与『隐藏歌曲图』" +
@@ -1210,7 +1213,8 @@ musicxx.capability.register("setOption", function (args) {
         }
         return { view: pageView(args) };
     }
-    if (id === "blur" || id === "zoom" || id === "ripple" || id === "hideIcon") {
+    if (id === "blur" || id === "zoom" || id === "share" ||
+        id === "ripple" || id === "hideIcon") {
         saveConfig(id, value);
         // 关掉「隐藏歌曲图」时立刻交还，不用等下一秒的跟随检查
         if (id === "hideIcon") {
