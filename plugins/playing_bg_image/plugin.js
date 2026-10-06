@@ -576,6 +576,22 @@ function paletteFromCurrentCover() {
 /// 取色缓存（srcKey → 颜色表）：同一首歌只算一次
 let paletteCache = {};
 
+/// 取色缓存最多留这么多首歌
+///
+/// 它是"最近放过的歌"的缓存，不是长期存储：一首歌一条（5 个颜色文本），不设上限时
+/// 长时间播放会一直涨。满了就丢最早的一条（字符串键按插入顺序排列），要立刻清空用
+/// 设置页的「清空取色缓存」。
+const PALETTE_CACHE_LIMIT = 64;
+
+/// 写进取色缓存，超出上限时丢掉最早的一条
+function cachePalette(key, colors) {
+    paletteCache[key] = colors;
+    const keys = Object.keys(paletteCache);
+    while (keys.length > PALETTE_CACHE_LIMIT) {
+        delete paletteCache[keys.shift()];
+    }
+}
+
 /// 正在计算的取色任务（srcKey → Promise）：同一首歌不重复计算
 let paletteTasks = {};
 
@@ -601,7 +617,7 @@ function warmPalette(key) {
             return null;
         }
         if (key) {
-            paletteCache[key] = colors;
+            cachePalette(key, colors);
         }
         ++paletteReady;
         return musicxx.media.setPalette(colors).then(function () {
@@ -849,7 +865,8 @@ function paletteStateText() {
     if (false == musicxx.hooks.has("musicxx.media.palette.provide")) {
         return "未注册";
     }
-    return "已注册 · 缓存 " + Object.keys(paletteCache).length + " 首";
+    return "已注册 · 缓存 " + Object.keys(paletteCache).length + "/" +
+        PALETTE_CACHE_LIMIT + " 首";
 }
 
 /// 取色的详细计数（写在说明里：它是会变的数字，放在右侧状态位会把行撑长）
@@ -1239,6 +1256,8 @@ musicxx.capability.register("releaseIcon", function (args) {
 });
 
 /// 清空取色缓存（下次换歌 / 换背景样式时重新按封面算一遍）
+///
+/// 缓存本身最多留 PALETTE_CACHE_LIMIT 首（超出自动丢最早的），这里只是立刻清空。
 musicxx.capability.register("clearPaletteCache", function (args) {
     paletteCache = {};
     paletteTasks = {};

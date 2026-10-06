@@ -291,6 +291,10 @@ public:
   int32_t hookCount(const std::string &hookId, int32_t &outCount);
   int32_t hookStatsJson(std::string &outJson);
 
+  /// 某实例当前注册的钩子 id（去重；生命周期事件带上它，Dart 侧据此对齐
+  /// "该钩子有没有处理器"——钩子计数只靠 `musicxx.hook.changed` 维护，丢一条就会停在旧值）
+  std::vector<std::string> hooksOfInstance(const std::string &instanceName) const;
+
   /* ---------- 动作请求 (插件 → Dart) ---------- */
 
   int32_t actionRespond(int64_t requestId, int32_t status,

@@ -319,10 +319,15 @@ class MusicxxPluginRuntime {
       _wakeCallable?.close();
       _wakeCallable = null;
     }
-    _pollFallback = Timer.periodic(
-      const Duration(milliseconds: 200),
-      (_) => pumpEvents(),
-    );
+    _pollFallback = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      // 唤醒回调可用时事件由原生侧主动推过来，这个定时器只是兜底：只有"有东西在等
+      // 结果"（异步裁决、异步动作回复）时才需要它；没有未决请求时不排帧、不做 FFI。
+      // 唤醒回调没注册成功时必须每轮都取，否则事件永远拿不到。
+      if (false == _shouldPollFallback()) {
+        return;
+      }
+      pumpEvents();
+    });
     _running = true;
     // 首轮立刻取一次（host.ready 已在队列里）
     pumpEvents();
@@ -358,6 +363,7 @@ class MusicxxPluginRuntime {
     }
     plugins.handleDisposed();
     hooks.handleDisposed();
+    actions.handleDisposed();
   }
 
   // ==================== 内部：绑定/宿主访问 ====================
@@ -428,6 +434,24 @@ class MusicxxPluginRuntime {
       _pollScheduled = false;
       pumpEvents();
     });
+  }
+
+  /// 现在有没有"等宿主答复"的东西（异步裁决的结果、异步动作回复）
+  ///
+  /// 只有等结果时才需要兜底轮询：结果就是经事件回传的，没人等的时候事件会由唤醒
+  /// 回调即时送达（或等下一次真正的调用再取）。
+  bool get hasPendingWork =>
+      hooks.pendingAsyncDecisions > 0 || actions.pendingResponses > 0;
+
+  /// 兜底轮询这一轮要不要跑（见 `init` 里对定时器的说明）
+  bool _shouldPollFallback() {
+    if (!_running || _host == nullptr) {
+      return false;
+    }
+    if (null == _wakeCallable) {
+      return true; // 没有唤醒回调：只能靠定时取
+    }
+    return hasPendingWork;
   }
 
   /// 批量取事件并分发（默认每次最多 200 条，避免长时间占用 UI 线程）
