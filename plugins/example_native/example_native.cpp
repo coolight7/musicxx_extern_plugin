@@ -223,6 +223,10 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    `smooth`（过渡: 频谱是 10 帧/秒，直接取会有台阶感，快起慢落才顺）。
     //    频谱来源没有数据时宿主写 0 (要区分状态用着色器里的 uEnv.z)。
     //    这里用内置背景实际画的那 4 色 (观感与内置一致), 再叠上频谱律动。
+    //    另外声明了 `cover`（封面纹理）: 宿主把当前歌曲封面中心裁剪成方形、缩到 384、
+    //    **预模糊**后绑定到着色器里的 `uCoverBack`, 并把 (纹理宽, 纹理高, 原图宽高比,
+    //    是否有封面) 写进 `uCoverBackInfo` —— 着色器拿它当底层 (模糊封面铺满画面)。
+    //    没有封面时这一位是 0; 没声明 cover 的样式宿主不解码、不上传、不占显存。
     //    JS 侧的等价声明见 plugins/example_js_shader/plugin.js。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
@@ -238,6 +242,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                               "of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},
                     "uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,
                                "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
+            "cover":{"texture":"uCoverBack","info":"uCoverBackInfo",
+                     "size":384,"blur":28},
             "speed":4,"maxFps":16,
             "foregroundStyle":"mask"})",
         20);

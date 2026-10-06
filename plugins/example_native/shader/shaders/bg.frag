@@ -11,12 +11,17 @@
 // 中高频控制高光的"空气感"。没有频谱数据时（uEnv.z = 0）这些项都是 0，
 // 画面与不带频谱时完全一致 —— 所以不要靠"值为 0"判断有没有音乐，看 uEnv.z。
 //
+// 封面铺底：声明 `cover`（这里用预模糊的那张）后，模糊封面按 cover 方式铺满画面、
+// 再叠上晶格图案；没有封面时画面与不带封面时一致（只看 `uCoverBackInfo.w`）。
+//
 // uniform 约定（宿主固定填充，成员名字不能改）：
 //   uParams = (目标宽, 目标高, 时间秒, 速度)
 //   uEnv.x = 是否夜间；uEnv.y = 是否有有效的封面配色；uEnv.z = 现在是否有频谱数据
 //   uColor1..uColor4 = 4 个绘制色（按插件声明的来源解析）
 //   uLevel = 当前响度（x = y = z = w，0~1）
 //   uBands = 最低的 4 个频带；uBands2 = 中间偏高的 4 个频带（都是 0~1，低频在前）
+//   uCoverBackInfo = (纹理宽, 纹理高, 原图宽高比, 是否有封面) —— 声明了 cover 才有
+// 纹理：uniform sampler2D uCoverBack（预模糊的封面）
 uniform MusicxxRenderInfo {
   vec4 uParams;
   vec4 uEnv;
@@ -27,8 +32,12 @@ uniform MusicxxRenderInfo {
   vec4 uLevel;
   vec4 uBands;
   vec4 uBands2;
+  vec4 uCoverBackInfo;
 }
 render_info;
+
+// 预模糊的封面（插件在 UI 项里声明 cover.texture = "uCoverBack"）
+uniform sampler2D uCoverBack;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -79,7 +88,8 @@ vec3 blendColors(vec2 uv, float dim) {
 }
 
 void main() {
-  vec2 uv = gl_FragCoord.xy / max(render_info.uParams.xy, vec2(1.0));
+  vec2 res = max(render_info.uParams.xy, vec2(1.0));
+  vec2 uv = gl_FragCoord.xy / res;
 
   // 频谱：没有数据时全部按 0 走（画面与不带频谱时一致）
   float spectrumOn = render_info.uEnv.z > 0.5 ? 1.0 : 0.0;
@@ -97,7 +107,20 @@ void main() {
   // 夜间压暗；用的是备用色时降一点对比度
   float dim = render_info.uEnv.x > 0.5 ? 0.72 : 1.0;
   float valid = render_info.uEnv.y > 0.5 ? 1.0 : 0.88;
-  vec3 color = blendColors(crystal, dim * valid);
+  vec3 color = blendColors(crystal, 1.0);
+
+  // 封面铺底：预模糊的封面按 cover 方式铺满画面（超出裁掉、不拉伸），再叠上晶格图案。
+  // 没有封面（还没加载好 / 这首歌没有封面）时 `uCoverBackInfo.w` 是 0，画面与原来一致。
+  float coverOn = render_info.uCoverBackInfo.w > 0.5 ? 1.0 : 0.0;
+  vec2 texSize = max(render_info.uCoverBackInfo.xy, vec2(1.0));
+  float coverScale = max(res.x / texSize.x, res.y / texSize.y);
+  vec2 coverRatio = (texSize * coverScale) / res;
+  vec2 coverUV = (uv - 0.5) * coverRatio + 0.5;
+  vec3 coverColor = texture(uCoverBack, coverUV).rgb;
+  color = mix(color, coverColor, coverOn * 0.58);
+
+  // 封面版整体压暗一点：模糊的亮封面铺满后，前景浅色文字会看不清
+  color *= dim * valid * mix(1.0, 0.86, coverOn);
 
   // 格子边缘加一层很淡的高光，让晶格边界更清楚（响度与中高频把它点亮）
   vec2 edgeDist = abs(centered - crystal) * 8.0;

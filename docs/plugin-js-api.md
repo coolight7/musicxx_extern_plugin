@@ -263,7 +263,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
-| `musicxx.media` | `palette(args?)` `cover(args?)` `spectrum(args?)` |
+| `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
 | `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
@@ -294,7 +294,10 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.net.download` | 见 §7.2 | `{ok, status, path, bytes}` |
 | `musicxx.render.list` / `current` / `select` | 见 §11 | 见 §11 |
 | `musicxx.media.palette` | `{force?}` | 见 §11 |
-| `musicxx.media.cover` | `{size?, format?, includePath?}` | 见 §11 |
+| `musicxx.media.palette.set` | `{main?, light?, lightMuted?, dark?, darkMuted?}`（`#rrggbb` / `#aarrggbb`） | `{ok:true}`；写的是与内置分析同一批封面取色字段 |
+| `musicxx.media.cover` | `{size?, format?, includePath?, bind?}` | 见 §11 |
+| `musicxx.media.bindImage` | `{key, data(base64), format, width?, height?}` | `{ok, key, width, height}` 或 `{ok:false, error}` |
+| `musicxx.media.unbindImage` | `{key}` | `{ok:true, released:bool}` |
 | `musicxx.media.spectrum` | `{bandCount?=16, unit?="normalized", includeBins?}` | 当前音频频谱（内置『音乐动效』提取）：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs, positionMs, frameHz, frameIndex, frames, binCount, bandCount, unit, level, bands[], frameData?}`；没有数据也回 `ok:true` |
 | `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` |
 | `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` |
@@ -593,6 +596,10 @@ musicxx.ui.registerEntry({
         title: "流光背景",
         depict: "跟随封面配色的动态背景",
         shader: { bundle: "shader/bg.shaderbundle" },   // 插件目录内的相对路径
+        // 封面纹理：宿主把当前歌曲封面解码、缩放、按 blur 预模糊后上传成 GPU 纹理，
+        // 每帧绑定到 texture 指定的 sampler2D；信息写在 info 成员
+        // （(纹理宽, 纹理高, 原图宽高比, 是否有封面)，没有封面时最后一位是 0）
+        cover: { texture: "uCover", info: "uCoverInfo", size: 512, blur: 24 },
         // args：成员名 → 值表达式（可嵌套；这里是来源 + 过渡 + 组合）
         args: {
             uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
@@ -640,6 +647,25 @@ const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: 
 //   format, bytes, sha256, data(base64), fromCache }
 // 失败：{ ok:false, error:"no_cover" | "cover_decode_failed" | "读取封面失败：..." }
 
+// 把封面（或自己的图片）绑成纹理给着色器采样
+// 渲染项里用 `image: {key: "mini", texture: "uMini"}` 引用（见 plugin-shader-bundle.md §5.2）
+const bound = await musicxx.media.cover({ size: 128, format: "rgba", bind: "mini" });
+// { ..., bound: true, bindKey: "mini" } —— 复用了同一次解码的像素，不重复解码
+await musicxx.media.bindImage({ key: "art", data: base64Png, format: "png" });
+await musicxx.media.unbindImage({ key: "art" });
+
+// 写封面取色：算好自己的颜色后交给宿主（与内置分析是同一批字段，
+// 内置背景、插件背景与 musicxx.icon.* 来源都会用上）
+await musicxx.media.setPalette({ main: "#ff8844", dark: "#20222a" });
+
+// 注册"封面取色实现"（替代内置分析）：应用在需要封面色时先问插件
+musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
+    // payload = { srcKey, name, artist, hasCover, night }
+    const colors = myPaletteOf(payload);        // 自己算（要图可以调 musicxx.media.cover）
+    if (!colors) return null;                   // 这次不提供 → 应用照旧走内置分析
+    return { colors: { main: colors.main, light: colors.light, dark: colors.dark } };
+});
+
 // 当前音频频谱（内置『音乐动效』插件提取的数据；每帧 256 个频点、10 帧/秒）
 const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 // { ok, status:"ready"|"loading"|"none"|"off"|"unavailable", available, loading, reason,
@@ -647,6 +673,29 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
 //   frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
 //   level, bands:[...], frameData?:[256 个频点] }   // frameData 需要 includeBins: true
 // 没有数据（未启用『音乐动效』/ 正在提取 / 来源不支持）也回 ok:true，用 status 判断
+```
+
+- **取色钩子**（`musicxx.media.palette.provide`）是**裁决型**：有插件给出可解析的颜色就用它，
+  没人给 / 一个颜色都没解析出来就走内置分析；`musicxx.media.palette` 的返回里 `source` 会告诉
+  你这套颜色是 `"plugin"` 还是 `"builtin"`；异步派发，等待期间切歌时本次结果会被丢弃
+  （`srcKey` 可自行校验）。钩子载荷与写法的完整说明见 [plugin-hooks.md](plugin-hooks.md)；
+- `musicxx.media.palette.set` 是**主动写**：只覆盖你给的键，其余保持不变；换歌后内置分析会照旧
+  重跑（想持续提供就用上面的钩子）；
+- **封面变化**（`musicxx.media.cover.changed`）是**观察型**：注册 handle 后，换歌、同一首歌换了
+  封面图、封面被清空时各收到一次（同一个封面源被重复设置不会重复派发）。载荷
+  `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` /
+  `network`）里**没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里
+  采样就声明渲染项的 `cover` / `image`；**可以回退移除**：`musicxx.hooks.unregister(...)` 之后
+  宿主不再派发，重新 `register` 即恢复，插件停用 / 卸载时宿主也会自动摘掉处理器：
+
+```js
+musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (ctx) => {
+    // ctx = { srcKey, name, artist, hasCover, kind }
+    myOverlay.refresh(ctx);          // 例如自己算色、刷新自己的界面、通知自己下载的素材
+});
+
+// 回退移除这个绑定（移除后不再收到通知）
+musicxx.hooks.unregister("musicxx.media.cover.changed");
 ```
 
 - 宿主**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
@@ -657,7 +706,12 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
   自己的界面（柱状图、波形历史）时，用 `musicxx.state.get("musicxx.state.spectrum")`
   在自己的定时器里同步读（播放中约 10 Hz 更新），或按自己的节奏调用
   `musicxx.media.spectrum`；
-- 封面不参与画面绘制：宿主不上传封面贴图，也不推任何直链（网络来源只给 `kind:"network"`，
+- 想让画面跟着封面配色动，用 `args` 里的来源就够了（`musicxx.icon.*`，每帧现读、零成本）；
+  要用**封面图本身**（铺底、圆盘、像素化…）就在渲染项里声明 `cover`：
+  宿主解码 + 缩放 + 可选预模糊后上传成 GPU 纹理，每帧绑定给着色器，插件不搬字节
+  （见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1）；
+- `musicxx.media.cover` 这条动作是**读数据**用的（自己分析像素：哈希、取色、外部识别…）：
+  返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态镜像见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
   （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（可能是 `builtin:*`），

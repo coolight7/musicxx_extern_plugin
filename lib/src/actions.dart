@@ -243,6 +243,21 @@ abstract final class MusicxxPluginActionNames {
   static const String mediaPalette = 'musicxx.media.palette';
   static const String mediaCover = 'musicxx.media.cover';
 
+  /// 写封面取色（与内置分析写入同一批字段，之后 `musicxx.media.palette` 读到的就是它）
+  ///
+  /// 参数：`main` / `light` / `lightMuted` / `dark` / `darkMuted`（`#rrggbb` 或 `#aarrggbb`），
+  /// 可选 `dominant`（数组）。没给的键保持原样。
+  static const String mediaPaletteSet = 'musicxx.media.palette.set';
+
+  /// 把插件自己准备的图片绑定成纹理（渲染项用 `image` 声明引用）
+  ///
+  /// 参数：`key`（本地名字，渲染项里引用它）、`data`（base64）、
+  /// `format`（`png` / `jpeg` / `rgba`；`rgba` 需要 `width` / `height`）。
+  static const String mediaBindImage = 'musicxx.media.bindImage';
+
+  /// 释放之前绑定的图片纹理（参数 `key`）
+  static const String mediaUnbindImage = 'musicxx.media.unbindImage';
+
   /// 当前音频频谱（内置『音乐动效』插件提取的数据）
   ///
   /// 参数：`bandCount`（1~64，必须整除 256，缺省 16）、`unit`（`normalized` 缺省 /

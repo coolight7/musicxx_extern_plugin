@@ -19,6 +19,9 @@
 //   再取指数（`kCurve` > 1）把剩下的差异放大 —— 有的点高、有的点低，画面才有对比。
 //   没有频谱数据时（uEnv.z = 0）尖角长度为 0，只剩圆心光源 —— 这时画面不动是正常的，
 //   判断"没有数据"看 uEnv.z，不要看数值是不是 0。
+// * **中心封面**：声明了封面（UI 项里的 `cover`）时，圆心放一张圆形封面（`uCover`），
+//   正立、边缘抗锯齿，压在蛛网与光源**下面** —— 封面中心带着光晕，边缘有蛛网穿过。
+//   没有封面（还没加载好 / 这首歌没有封面）时 `uCoverInfo.w` 是 0，这部分完全不动画面。
 //
 // 为什么是 64 个频带而不是一帧 256 个频点（`spectrum.bins.0..63`）：频点要声明成
 // 64 个 vec4 成员，并且**每个像素**都要按算出来的组号去 64 个成员里挑一次
@@ -33,6 +36,8 @@
 //   uLine = 线条色（亮色，用于暗背景；亮背景上自动按背景亮度换成墨色）
 //   uLevel = 当前响度（x = y = z = w，0~1）
 //   uBands0..uBands15 = 64 个频带，低频在前，每 4 个写在 xyzw（0~1）
+//   uCoverInfo = (纹理宽, 纹理高, 原图宽高比, 是否有封面) —— 声明了 cover 才有
+// 纹理：uniform sampler2D uCover（方形裁剪的当前歌曲封面；画在圆心，没有封面时不参与合成）
 //
 // 写法限制（源码先编成 SPIR-V，运行时再按后端翻译，GLES 后端翻译成 GLSL ES 1.00）：
 // * 内置函数只用浮点版：那里 `clamp` / `min` / `max` 只有浮点重载，对 int 用会翻译出
@@ -48,8 +53,7 @@ uniform MusicxxRenderInfo {
   vec4 uColor3;
   vec4 uColor4;
   vec4 uLine;
-  vec4 uLevel;
-  vec4 uBands0;
+  vec4 uLevel;  vec4 uBands0;
   vec4 uBands1;
   vec4 uBands2;
   vec4 uBands3;
@@ -65,8 +69,12 @@ uniform MusicxxRenderInfo {
   vec4 uBands13;
   vec4 uBands14;
   vec4 uBands15;
+  vec4 uCoverInfo;
 }
 render_info;
+
+// 当前歌曲封面（声明 `cover` 后由宿主每帧绑定；`uCoverInfo.w` 是 0 时表示没有封面）
+uniform sampler2D uCover;
 
 layout(location = 0) out vec4 frag_color;
 
@@ -93,6 +101,11 @@ const float kCurve = 2.6;
 // （换算见 main 里的 aa：aa 就是"一个像素"有多宽）
 const float kLineWidth = 2.4;
 const float kGlintWidth = 1.8;
+
+// 中心封面圆盘的半径（相对短边的一半 = 1.0）：留在 0.62 的蛛网基线之内，四周有一圈空隙
+const float kCoverRadius = 0.34;
+// 圆盘上的封面亮度：压一点，免得盖住蛛网与光晕，也让前景文字更清楚
+const float kCoverDim = 0.82;
 
 // 取第 group 组的 4 个频带（0~1，写在 xyzw）
 //
@@ -341,11 +354,24 @@ void main() {
   float glintTerm = glints(p, t, treble, max(aa * kGlintWidth, 0.0026));
   float litTerm = haloTerm + beamTerm + coreTerm + fillTerm + webTerm + glintTerm;
 
+  // 中心封面圆盘：声明了 cover 且当前有封面时，在圆心放一张圆形封面（正立、边缘抗锯齿）。
+  // 光源与蛛网在它上面继续叠加：封面中心带着光晕、边缘有蛛网穿过。
+  // 采样坐标要翻 y（p.y 向上为正，纹理 y 向下为正），否则封面会上下颠倒。
+  vec2 coverDisk = p / kCoverRadius;
+  float coverDist = length(coverDisk);
+  float coverAA = max(fwidth(coverDist), 1e-5);
+  vec2 coverUV = vec2(coverDisk.x, -coverDisk.y) * 0.5 + 0.5;
+  vec3 coverColor = texture(uCover, coverUV).rgb;
+  // 没有封面时 `uCoverInfo.w` 是 0：这一次混合不去动画面（采样到的是占位纹理）
+  float coverOn = render_info.uCoverInfo.w > 0.5 ? 1.0 : 0.0;
+  float coverMask =
+      (1.0 - smoothstep(1.0 - coverAA * 2.0, 1.0, coverDist)) * coverOn;
+  color = mix(color, coverColor * kCoverDim, coverMask);
+
   // 暗背景：加亮（原来的发光；inkAmount = 0 时与之前完全一致）
   color += lightColor * litTerm * (1.0 - inkAmount);
   // 亮背景：把背景朝墨色混合（覆盖度就是同一份强度，钳制到 1 → 线条是干净的墨色）
   color = mix(color, inkColor, clamp(litTerm, 0.0, 1.0) * inkAmount);
-
   // 轻微暗角；夜间再压一点，避免大面积过曝
   color *= 1.0 - 0.20 * smoothstep(0.25, 1.35, r);
   frag_color = vec4(max(color, vec3(0.0)), 1.0);
