@@ -183,6 +183,29 @@ int32_t MusicxxHostManager::hookCount(const std::string &hookId,
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
+std::vector<std::string>
+MusicxxHostManager::hooksOfInstance(const std::string &instanceName) const {
+  std::vector<std::string> ids;
+  if (instanceName.empty()) {
+    return ids;
+  }
+  std::set<std::string> seen;
+  for (const auto &[hookId, handlers] : hooks_) {
+    for (const HookHandler &h : handlers) {
+      if (h.plugin != instanceName) {
+        continue;
+      }
+      /// 同一个钩子上可能有多个处理器（例如 enabled/disabled 各注册一次）：
+      /// 这里的列表是"该实例碰过哪些钩子"，每个 id 只列一次
+      if (seen.insert(hookId).second) {
+        ids.push_back(hookId);
+      }
+      break;
+    }
+  }
+  return ids;
+}
+
 int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
   Json hooks = Json::object();
   for (const auto &[hookId, handlers] : hooks_) {

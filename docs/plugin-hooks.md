@@ -32,7 +32,7 @@
 | `musicxx.player.volume` | decision | sync | anyCancel | 未接入 |
 | `musicxx.player.speed` | decision | sync | anyCancel | 未接入 |
 | `musicxx.player.pitch` | decision | sync | anyCancel | 未接入 |
-| `musicxx.player.error` | decision | sync | anyCancel | 已接入 |
+| `musicxx.player.error` | decision | async | anyCancel | 已接入 |
 | `musicxx.player.completed` | observe | async | lastWrite | 已接入 |
 | `musicxx.player.qualityChanged` | observe | async | lastWrite | 未接入 |
 | `musicxx.media.notification` | decision | sync | lastWrite | 未接入 |
@@ -123,8 +123,8 @@
 
 ### `musicxx.player.error`
 
-- 模式：`decision`；派发：`sync`；合并策略：`anyCancel`
-- 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子：调用点会一直等到处理器链返回（宿主不设置等待超时），处理器请尽快给出裁决。
+- 模式：`decision`；派发：`async`；合并策略：`anyCancel`
+- 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。异步派发（不占用调用线程，应用不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。应用侧只在"该钩子有处理器"时才派发。
 
 ### `musicxx.player.completed`
 

@@ -117,7 +117,7 @@ class MusicxxPluginHooks {
     if (nativeHandlerCount(id) == 0 || !_runtime.isRunning) {
       return;
     }
-    _emit(id, payloadMap, sync: false, timeoutMs: 0);
+    _emitAsync(id, payloadMap);
   }
 
   /// 裁决型（同步）：Dart 处理器 → 原生/JS 处理器 → 按策略合并
@@ -148,12 +148,15 @@ class MusicxxPluginHooks {
     if (nativeHandlerCount(id) == 0 || !_runtime.isRunning) {
       return merged;
     }
-    final Map<String, Object?>? nativeResult = _emit(
+    final Map<String, Object?>? ack = _emitAck(
       id,
       payloadMap,
       sync: true,
       timeoutMs: 0,
     );
+    final Map<String, Object?>? nativeResult = null == ack
+        ? null
+        : _verdictOf(ack);
     final Map<String, Object?>? mergedResult = _merge(id, merged, nativeResult);
     return (mergedResult == null || mergedResult.isEmpty) ? null : mergedResult;
   }
@@ -308,22 +311,36 @@ class MusicxxPluginHooks {
     _nativeCounts[hook] = count < 0 ? 0 : count;
   }
 
-  /// 插件生命周期事件：加载/启用/卸载会批量改变处理器数量 → 触发一次全量重查
+  /// 插件生命周期事件：加载/启用/卸载会批量改变处理器数量 → 用宿主的权威值对齐一遍
+  ///
+  /// 计数平时靠 `musicxx.hook.changed` 维护（每次注册/注销一条）；它一旦丢一条就会停在
+  /// 旧值——"有处理器却被当成没有"会让该钩子静默失效，所以每次插件生命周期变化都用宿主
+  /// 里的真实数量覆盖一次：载荷带 `hooks` 时只查这些钩子（新宿主），否则把应用已接入的
+  /// 钩子全部查一遍（旧宿主库，行为与以前一致）。
   void handlePluginLifecycleEvent(MusicxxPluginEvent event) {
     if (!_runtime.isRunning) {
       return;
     }
-    // 事件里带 hooks 列表时直接用它更新；否则留待下次派发时按需刷新
+    final List<MusicxxPluginHookId> targets = <MusicxxPluginHookId>[];
     final hooks = event.payload['hooks'];
-    if (hooks is List) {
+    if (hooks is List && hooks.isNotEmpty) {
       for (final hook in hooks) {
         if (hook is String) {
           final MusicxxPluginHookId? id = MusicxxPluginHookId.tryFromId(hook);
-          if (id != null) {
-            refreshNativeHandlerCount(id);
+          if (null != id) {
+            targets.add(id);
           }
         }
       }
+    } else {
+      for (final MusicxxPluginHookId id in MusicxxPluginHookId.values) {
+        if (id.wired) {
+          targets.add(id);
+        }
+      }
+    }
+    for (final MusicxxPluginHookId id in targets) {
+      refreshNativeHandlerCount(id);
     }
   }
 
@@ -387,23 +404,35 @@ class MusicxxPluginHooks {
     return merged;
   }
 
-  /// 调用原生/JS 处理器链（同步等待或入队）
-  Map<String, Object?>? _emit(
-    MusicxxPluginHookId id,
-    Map<String, Object?> payload, {
-    required bool sync,
-    required int timeoutMs,
-  }) {
-    final Map<String, Object?>? ack = _emitAck(
-      id,
-      payload,
-      sync: sync,
-      timeoutMs: timeoutMs,
-    );
-    if (!sync || ack == null) {
-      return null;
+  /// 观察型派发（不做回执解析）
+  ///
+  /// 宿主收到的是"入队即返回"（`sync = 0`）：这里不等结果，回执内容也没有读者，
+  /// 所以只把出参内存释放掉，不做 JSON 解析（观察型在热路径上，能省一次解析）。
+  void _emitAsync(MusicxxPluginHookId id, Map<String, Object?> payload) {
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginString> out = arena.outString();
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings.musicxx_extern_plugin_hook_emit(
+        _runtime.host,
+        arena.view(id.id),
+        arena.view(jsonEncode(payload)),
+        0,
+        0,
+        out,
+        log,
+      );
+      if (rc != 0) {
+        // 派发失败不阻断业务（按"无插件"处理，只记录）
+        _runtime.log(
+          3,
+          'hook_emit ${id.id} 失败: ${takeOutString(log, _runtime.bindings)}',
+        );
+      }
+      discardOutString(out, _runtime.bindings);
+    } finally {
+      arena.dispose();
     }
-    return _verdictOf(ack);
   }
 
   /// 发起一次异步裁决派发，返回配对的 `callId`（无处理器/失败返回 `null`）

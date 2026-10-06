@@ -55,6 +55,19 @@ std::string currentThreadIdText() {
   return oss.str();
 }
 
+/// 钩子 id 列表 → JSON 数组（插件生命周期事件里的 `hooks` 字段）
+///
+/// Dart 侧收到生命周期事件后会按这份列表逐个回查宿主里的处理器数量：钩子注册表
+/// 靠 `musicxx.hook.changed` 事件维护，事件丢一条就会停在旧值（表现为"插件注册过
+/// 的钩子不再被派发"），这份随事件带上来的列表是它的对齐依据。
+Json hookIdsJson(const std::vector<std::string> &ids) {
+  Json arr = Json::array();
+  for (const std::string &id : ids) {
+    arr.push_back(id);
+  }
+  return arr;
+}
+
 /* ==================== 开发者日志 sink ==================== */
 
 /// 宿主侧日志输出口 (stderr)
@@ -878,28 +891,41 @@ void MusicxxHostManager::onInstanceLoaded(MusicxxHostInstance &inst) {
   payload["version"] = inst.version;
   payload["path"] = inst.path;
   payload["configPath"] = inst.configPath;
+  /// 该实例注册的钩子 id 列表 (装载已在 start 之后: 列表是完整的)
+  payload["hooks"] = hookIdsJson(hooksOfInstance(inst.name));
   payload["ok"] = true;
   pushEvent("musicxx.plugin.loaded", pluginIdOf(inst.name), payload.dump());
 }
 
 void MusicxxHostManager::onInstanceUnloaded(MusicxxHostInstance &inst) {
+  /// 先取钩子列表: clearPluginRegistrations 之后就查不到了
+  const std::vector<std::string> removedHooks = hooksOfInstance(inst.name);
   clearPluginRegistrations(inst.name);
   loaded_.erase(inst.name);
   Json payload;
   payload["id"] = pluginIdOf(inst.name);
   payload["instance"] = inst.name;
+  /// 被摘掉的钩子 (Dart 侧按它回查"现在这些钩子还有没有处理器")
+  payload["hooks"] = hookIdsJson(removedHooks);
   pushEvent("musicxx.plugin.unloaded", pluginIdOf(inst.name), payload.dump());
 }
 
 void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
                                                   bool enabled) {
-  if (!enabled) {
+  std::vector<std::string> hooks;
+  if (false == enabled) {
+    /// 先取钩子列表: 停用会把这些注册摘掉
+    hooks = hooksOfInstance(inst.name);
     clearPluginRegistrations(inst.name);
+  } else {
+    /// 启用: start 事务已经跑完 (内核在 start 成功之后才回调这里), 列表是新的
+    hooks = hooksOfInstance(inst.name);
   }
   Json payload;
   payload["id"] = pluginIdOf(inst.name);
   payload["instance"] = inst.name;
   payload["enabled"] = enabled;
+  payload["hooks"] = hookIdsJson(hooks);
   pushEvent(enabled ? "musicxx.plugin.enabled" : "musicxx.plugin.disabled",
             pluginIdOf(inst.name), payload.dump());
 }

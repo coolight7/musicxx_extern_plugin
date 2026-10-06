@@ -75,8 +75,8 @@ enum MusicxxPluginHookId {
   playerVolume('musicxx.player.volume', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
   playerSpeed('musicxx.player.speed', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
   playerPitch('musicxx.player.pitch', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
-  /// 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。这是**同步派发**的钩子：调用点会一直等到处理器链返回（宿主不设置等待超时），处理器请尽快给出裁决。
-  playerError('musicxx.player.error', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.sync),
+  /// 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按应用的换源/下一曲策略走）。异步派发（不占用调用线程，应用不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。应用侧只在"该钩子有处理器"时才派发。
+  playerError('musicxx.player.error', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.async),
   /// 载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。
   playerCompleted('musicxx.player.completed', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
   playerQualityChanged('musicxx.player.qualityChanged', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),

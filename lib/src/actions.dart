@@ -56,6 +56,12 @@ class MusicxxPluginActions {
   /// 已注册动作名
   Set<String> get registeredActions => Set<String>.unmodifiable(_handlers.keys);
 
+  /// 还没回复的异步动作数量（异步处理器返回 Future 时记一笔）
+  ///
+  /// 给"兜底轮询要不要跑"用：这些回复还在等结果，事件回传不能漏（见 runtime 的定时器）。
+  int get pendingResponses => _pendingResponses;
+  int _pendingResponses = 0;
+
   /// 注册动作实现（同名覆盖）
   void register(String action, MusicxxPluginActionHandler handler) {
     _handlers[action] = handler;
@@ -161,10 +167,16 @@ class MusicxxPluginActions {
       final result = handler(invocation);
       if (result is Future) {
         // 异步处理器：先说明"已受理"，完成后再由处理器自行 respond（或返回未来值）
+        ++_pendingResponses;
         result.then<void>(
-          (Object? value) => respond(requestId, result: value),
-          onError: (Object error) =>
-              respond(requestId, status: -99, error: error.toString()),
+          (Object? value) {
+            --_pendingResponses;
+            respond(requestId, result: value);
+          },
+          onError: (Object error) {
+            --_pendingResponses;
+            respond(requestId, status: -99, error: error.toString());
+          },
         );
         return;
       }
@@ -181,6 +193,11 @@ class MusicxxPluginActions {
       3,
       '动作请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
     );
+  }
+
+  /// 宿主收尾：没回复完的异步动作不再有人接，计数归零
+  void handleDisposed() {
+    _pendingResponses = 0;
   }
 
   static String _encode(Object? value) => jsonEncode(value);

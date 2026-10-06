@@ -98,6 +98,16 @@ String takeOutString(
   return text;
 }
 
+/// 释放宿主堆字符串但**不读取内容**（观察型派发的回执没有读者）
+void discardOutString(
+  Pointer<MusicxxExternPluginString> out,
+  MusicxxExternPluginBindings b,
+) {
+  if (out.ref.data != nullptr) {
+    b.musicxx_extern_plugin_string_free(out);
+  }
+}
+
 /// 只读借用视图 → Dart 字符串（不释放内存）
 String viewToDartString(Pointer<MusicxxExternPluginStringView> view) {
   final MusicxxExternPluginStringView value = view.ref;
