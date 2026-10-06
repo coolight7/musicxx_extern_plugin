@@ -1,6 +1,7 @@
-# 打包本插件（playing_bg_image）的 shader bundle（Windows 用 pwsh）
+# 打包本插件（playing_bg_image / 示例封面背景）的两个 shader bundle（Windows 用 pwsh）
 #
-#   bundle.json + shaders/heat.vert + shaders/heat.frag → heat.shaderbundle
+#   bundle.json      + shaders/full.vert + shaders/heat.frag → heat.shaderbundle（『模糊热浪』）
+#   bundle_card.json + shaders/full.vert + shaders/card.frag → card.shaderbundle（『渐变贴边』）
 #
 # 用法：
 #   pwsh -NoProfile -File .\build_bundle.ps1 [-FlutterRoot <Flutter SDK 根目录>]
@@ -38,7 +39,8 @@ if ([string]::IsNullOrEmpty($impellerc)) {
 
 # 要编译的 bundle：描述文件 → 产物文件名
 $targets = @(
-    @{ Spec = 'bundle.json'; Out = 'heat.shaderbundle' }
+    @{ Spec = 'bundle.json'; Out = 'heat.shaderbundle' },
+    @{ Spec = 'bundle_card.json'; Out = 'card.shaderbundle' }
 )
 
 foreach ($target in $targets) {
