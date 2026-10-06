@@ -12,6 +12,7 @@
 | 写一个 **JS 脚本插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
 | 给插件加**界面**（主页入口、歌曲菜单、插件页面、设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
+| 用**命令行 / MCP** 装插件、刷新、看日志（AI agent 与自动化） | [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md) |
 | 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
 | 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
 | 构建宿主库、把宿主库随应用分发 | 本文件「构建」「打包（随应用分发）」 |
@@ -66,6 +67,7 @@ docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 装配内容/设置页写法）
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
+docs/plugin-agent-cli.md 用命令行 / MCP 装插件、刷新、看日志（开发期快捷控制，给 AI agent 与自动化）
 tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
                      gen_contract.dart（约定生成/校验）、gen_ui_kit.ps1（生成扩展 kit：C++ 头 + JS）、
                      sync_ui_kit.ps1（把 kit 复制进 JS 插件目录）、check_submodules.ps1（子模块检查）、
@@ -364,6 +366,25 @@ bundle 用 Flutter SDK 自带的 `impellerc` 编译（**一个 bundle 五个后�
 bundle 里的 `format_version` 必须与目标应用的 Flutter 版本一致（基线版本 3.47.5 对应 2），
 编好后在 UI 项里绑定它。完整字段、uniform 约定与排障见
 [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md)。
+
+### 装上去、改完刷新（命令行 / MCP）
+
+应用自带命令行工具 `musicxx-cli`（与主程序同目录，macOS 在 `Musicxx.app/Contents/MacOS/`），
+一条命令就能完成"安装 → 启用 → 看日志 → 改完重载 → 卸载"，也能经 `musicxx-cli mcp` 把这些
+操作交给 AI 客户端：
+
+```bash
+pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 打包（顶层是插件目录内容）
+musicxx-cli plugin install "D:/work/my_plugin.zip" --enable                # 安装并启用
+musicxx-cli plugin list                                                    # 每个插件的状态与失败原因
+musicxx-cli plugin logs my_plugin --limit 50                               # 最近日志（新的在前）
+musicxx-cli plugin reload my_plugin                                        # 改完代码重新加载
+musicxx-cli render select plugin.my_plugin.bg                              # 让播放页用上插件的背景样式
+musicxx-cli plugin uninstall my_plugin                                     # 卸载（--keep-data 保留私有数据）
+```
+
+完整命令表、MCP 工具名与参数、退出码约定见
+[docs/plugin-agent-cli.md](docs/plugin-agent-cli.md)。
 
 参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
 `plugins/example_js_shader/`（只演示播放页背景与动画速率；两种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`）；

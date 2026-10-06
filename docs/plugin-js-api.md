@@ -9,6 +9,7 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | C++ 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
 | 单特性示例（多脚本装载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
@@ -768,6 +769,10 @@ musicxx.util.now();                   // Date.now()
 ④ 触发钩子 / 打开页面看效果；日志看「插件详情 → 日志」
 ⑤ 改了 plugin.js：管理页「重载」（或禁用再启用）→ 脚本会重新执行
 ```
+
+不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>" --enable`
+→ `plugin list` / `plugin logs` → 改完 `plugin reload <插件id>`。完整用法与 MCP 工具见
+[plugin-agent-cli.md](plugin-agent-cli.md)。
 
 **日志**：`console.*` 与 `musicxx.host.log(...)` 都进插件日志；宿主自己的日志设环境变量
 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查装载失败时很有用）。

@@ -91,6 +91,10 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests    # 顺带跑原生测�
 在应用里试：把 `.native/output/<平台>-<架构>-<配置>/plugins/<插件>/` 整个拷进用户插件目录
 （管理页「打开插件目录」），或打包成 `.zip` 用「从压缩包安装」，然后启用。
 
+不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>" --enable`
+安装并启用，之后用 `plugin list` / `plugin logs` / `plugin reload` 控制（见
+`docs/plugin-agent-cli.md`）。
+
 ## 写作参考
 
 | 主题 | 文档 |
@@ -104,3 +108,4 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests    # 顺带跑原生测�
 | musicxx 扩展 kit 的组件与参数（生成物） | `docs/musicxx-ui-kit.md` |
 | 界面描述层的组件全集、字段与适配规则（库的生成文档） | `src/third_party/cxx_pluginxx_ui/docs/ui-schema.md` |
 | 播放页背景（shader bundle 打包与 uniform 约定） | `docs/plugin-shader-bundle.md` |
+| 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化） | `docs/plugin-agent-cli.md` |
