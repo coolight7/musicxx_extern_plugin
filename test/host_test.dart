@@ -1,4 +1,4 @@
-/// 端到端测试：Dart 侧运行时对**真实原生宿主库**的验证
+/// 整套流程测试：Dart 侧运行时对**真实原生宿主库**的验证
 ///
 /// 覆盖：
 /// - 库加载与 C ABI 版本校验、宿主 init/dispose 幂等；
@@ -544,7 +544,7 @@ void main() {
 
     _step('16 JS 能力调用完成');
     // JS 示例的主页入口与播放页附加信息块都指向 ext://example_js/card:
-    // 页面由同名能力 `card` 绘制, 这里断言这条链路真的通 (只声明入口不实现能力时,
+    // 页面由同名能力 `card` 绘制, 这里断言这条路径真的通 (只声明入口不实现能力时,
     // 宿主打开页面只会得到"插件未声明该能力")
     final List<MusicxxPluginUIItem> jsHomeEntries = MusicxxPluginUIItems.byType(
       uiItemsJs,

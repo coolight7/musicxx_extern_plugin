@@ -1,7 +1,7 @@
 /// musicxx 外部插件宿主 C ABI 实现 (Dart ⇄ 原生, v1)
 ///
 /// 约定 (见 src/include/musicxx_extern_plugin_api.h):
-/// - 所有导出函数用 `pluginxx::guardCall` 兜住异常, 绝不把异常带过 C ABI;
+/// - 所有导出函数用 `pluginxx::guardCall` 捕获异常, 绝不把异常带过 C ABI;
 /// - 出参字符串一律经宿主堆分配 (musicxx_extern_plugin_string_free 释放);
 /// - 涉及宿主线程状态的操作投递到宿主线程执行 (ioCallSync);
 ///   装载/卸载是异步事务, 在调用线程做有界等待 (不占宿主线程)。

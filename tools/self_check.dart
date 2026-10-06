@@ -4,7 +4,7 @@
 /// ```
 /// dart run tools/self_check.dart [<原生库路径>]
 /// ```
-/// 与 `test/host_test.dart` 走同一条链路，但每一步都打印进度，便于排查
+/// 与 `test/host_test.dart` 走同一套流程，但每一步都打印进度，便于排查
 /// "某个 FFI 调用不返回"这类问题（此时 Dart isolate 被阻塞，测试框架的计时器也不会触发）。
 library;
 

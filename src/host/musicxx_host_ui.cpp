@@ -317,7 +317,7 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
 
   const auto existing = uiEntries_.find(itemId);
   if (existing != uiEntries_.end() && existing->second.pluginId != pluginId) {
-    // 理论上 normalizeItemId 已经挡掉; 这里再兜一层 (防止 id
+    // 理论上 normalizeItemId 已经挡掉; 这里再查一次 (防止 id
     // 规范化逻辑变动引入漏洞)
     XX_LOGW("[musicxx_ext] 插件 `{}` 试图覆盖他人 UI 项 `{}`", inst->name,
             itemId);

@@ -143,7 +143,7 @@ public:
 
   /// 同步调用宿主 `musicxx.vars` 表的只读入口 (peek / info / list)
   ///
-  /// 这些调用只查宿主注册表 (纳秒级), 因此可以直接在 JS 线程上同步做 ——
+  /// 这些调用只查宿主注册表 (耗时是几纳秒), 因此可以直接在 JS 线程上同步做 ——
   /// 与需要等属主的 `get` 不同。
   std::string bridgeVarsRead(const std::string &op, const std::string &key);
 

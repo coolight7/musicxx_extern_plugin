@@ -469,7 +469,7 @@ if ($LASTEXITCODE -ne 0) { throw 'cmake install 失败' }
 
 # 宿主工程是嵌套 ExternalProject 构建: 生成器有时会判定上层的“构建/安装步骤已是最新”而跳过它,
 # 于是源码改动不会真正触发重编译 (表现为"构建成功但产物时间戳/体积不变")。这里显式再跑一次
-# 嵌套工程的增量构建与安装 (已经是新的就秒级结束), 保证脚本的"构建成功"与产物一致。
+# 嵌套工程的增量构建与安装 (已经是新的就几秒钟结束), 保证脚本的"构建成功"与产物一致。
 if (-not $DepsOnly) {
     $hostBuildDir = Join-Path (Join-Path $BuildDir 'e') 'host'
     if (Test-Path (Join-Path $hostBuildDir 'CMakeCache.txt')) {

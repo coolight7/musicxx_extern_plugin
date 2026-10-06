@@ -1,6 +1,6 @@
 /// musicxx 外部插件示例 (JS, 零编译)
 ///
-/// 行为与 `plugins/example_native` 等价, 用来验证两条链路一致:
+/// 行为与 `plugins/example_native` 等价, 用来验证原生插件与 JS 插件行为一致:
 /// - `musicxx.player.beforePlaySong` 裁决: 含"广告"的曲目 → skip;
 /// - `musicxx.song.changed` 观察: 切歌时记录名称并累加计数;
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
@@ -93,7 +93,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, function (c
     });
 });
 
-/// 定时器: 按"心跳间隔"配置写日志 (演示定时器链路; 卸载/禁用时宿主自动清理)
+/// 定时器: 按"心跳间隔"配置写日志 (演示定时器用法; 卸载/禁用时宿主自动清理)
 ///
 /// 间隔是插件的设置项 (默认 30 秒, 设置页里能改, 也可以直接编辑 config.json):
 /// 顶层先按默认值注册, 读到配置里的值后再换成实际间隔。

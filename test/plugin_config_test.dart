@@ -1,4 +1,4 @@
-/// 端到端测试：示例插件（JS）的**配置读写**在真实原生宿主上的验证
+/// 整套流程测试：示例插件（JS）的**配置读写**在真实原生宿主上的验证
 ///
 /// 覆盖：
 /// - 宿主动作 `musicxx.storage.get/set` 的约定：`get` 的应答就是**值本身**
@@ -9,7 +9,7 @@
 /// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里
 ///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
 /// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着状态镜像走：
-///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要收敛（不能停在"已请求"）。
+///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要更新（不能停在"已请求"）。
 /// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
 ///   异步回读 —— 处理器里等动作会与同步进宿主的调用方互锁，只能等到 5 秒超时（这条用例守它）。
 ///
@@ -254,7 +254,7 @@ void main() {
     expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('example_js_shader：背景状态文字跟着状态镜像收敛', () async {
+  test('example_js_shader：背景状态文字跟着状态镜像更新', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
       return;
@@ -367,10 +367,10 @@ void main() {
     );
     expect(renderText(), '动画中, 1280x720');
 
-    // 切回内置：条目还在（itemId 为空），状态文字要收敛，不能一直停在"已请求"
+    // 切回内置：条目还在（itemId 为空），状态文字要更新，不能一直停在"已请求"
     pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
     await _pumpUntil(() => backgroundText() == '内置背景', runtime: runtime);
-    expect(backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须收敛（否则页面上看着像没生效）');
+    expect(backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须更新（否则页面上看着像没生效）');
     expect(renderText(), '未生效');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
@@ -396,7 +396,7 @@ void main() {
     addTearDown(runtime.dispose);
     _registerHostActions(runtime, pluginRoot.path);
 
-    // 频谱动作用一条固定结果回答（真实实现读播放器提取的频谱，这里只验证链路）
+    // 频谱动作用一条固定结果回答（真实实现读播放器提取的频谱，这里只验证调用能走通）
     int spectrumCalls = 0;
     runtime.actions.register(MusicxxPluginActionNames.mediaSpectrum, (
       invocation,

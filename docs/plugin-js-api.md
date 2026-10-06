@@ -439,7 +439,7 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 | 写法 | 时延与新鲜度 | 适合 |
 |---|---|---|
 | `await musicxx.vars.get(key)` | 一次往返；值一定来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
-| `musicxx.vars.peek(key)` | 宿主线程查表（纳秒级）；可能旧，返回里如实带 `ageMs`/`stale` | 钩子处理器、按帧/按事件的热路径（先用 `watch` 保活） |
+| `musicxx.vars.peek(key)` | 宿主线程查表（只花几纳秒）；可能旧，返回里如实带 `ageMs`/`stale` | 钩子处理器、按帧/按事件的热路径（先用 `watch` 保活） |
 | `musicxx.vars.bind(key, fn)` | 变化时回调 | 要跟着变化做事 |
 | `musicxx.vars.watch(key)` | 不回调，只保证 `peek` 新鲜 | 只要同步读、不要回调 |
 

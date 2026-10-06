@@ -221,7 +221,7 @@ class MusicxxPluginNativeLibrary {
 
   /// 宿主能力位图（`musicxx_extern_plugin_feature_bits`）
   ///
-  /// 老宿主库上没有这个符号（Dart 侧 `lookup` 会抛），因此这里兜住异常返回 `null`，
+  /// 老宿主库上没有这个符号（Dart 侧 `lookup` 会抛），因此这里捕获异常后返回 `null`，
   /// 让调用方给出"重新构建宿主库"的明确提示，而不是在某个 FFI 调用处抛
   /// 一句难懂的 `undefined symbol`。
   int? get featureBits {
