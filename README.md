@@ -46,7 +46,7 @@ lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/�
 schema/              musicxx 扩展 kit 的定义（musicxx-ui-kit.def.json；改完跑 tools/gen_ui_kit.ps1）
 js/                  生成的扩展 kit（musicxx_ui_kit.js；工具会把它复制进 JS 插件目录）
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_test.dart 对真实原生库做
-                     端到端验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新装载后的
+                     整套流程验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新装载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
 plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
@@ -421,7 +421,7 @@ dart run tools/gen_contract.dart               # 由 tools/hooks.def.json 生成
 dart run tools/gen_contract.dart --check       # CI：生成物与定义不一致时退出码 1
 dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
 flutter analyze
-flutter test                                   # 端到端验证（宿主/JS/配置读写；需要先构建原生库）
+flutter test                                   # 整套流程验证（宿主/JS/配置读写；需要先构建原生库）
 dart run tools/self_check.dart                 # 纯 Dart 自检（不依赖 Flutter，便于定位 FFI 卡住的位置）
 ```
 
@@ -561,5 +561,5 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests
 ```powershell
 dart run tools/gen_contract.dart --check                 # 约定生成物一致（66 个钩子；改动 hooks.def.json 后必须重新生成）
 flutter analyze                                          # 期望 0 issue
-flutter test                                             # 包内端到端：宿主/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
+flutter test                                             # 包内整套流程：宿主/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
 | 钩子总表（id / 模式 / 派发 / 应用是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |

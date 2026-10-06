@@ -670,7 +670,7 @@ let followPausedUntil = 0;
 let lastRequestTarget = "";
 let lastRequestAt = 0;
 
-/// 最近一次联动 / 操作的说明文本（页面显示）
+/// 最近一次自动接管 / 操作的说明文本（页面显示）
 let lastLinkNote = "";
 
 /// 读一个槽位的状态（同步读，不产生动作往返）

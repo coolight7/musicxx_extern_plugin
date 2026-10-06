@@ -139,7 +139,7 @@ std::string jsonIntField(const std::string &json, const std::string &key) {
 ///
 /// 设置页里「背景动画速率」那一行的右侧状态就是这个形态。列表块移除后，行由
 /// `Block`(内容块) 与布局块组合出来，没有 `right` 字段可读，因此按值的形态取
-/// （与 Dart 侧端到端用例 `_rowOf` 同一个目的：读到那一行显示的状态文字）。
+/// （与 Dart 侧整套流程测试里的 `_rowOf` 同一个目的：读到那一行显示的状态文字）。
 std::string jsonFirstRateText(const std::string &json) {
   const std::string needle = "\"text\":\"";
   size_t pos = 0;
@@ -249,7 +249,7 @@ std::string testArchAlias() {
   return arch;
 }
 
-/// 平台化后的库文件名（清单按 Linux 写 `<名>.so`，宿主按平台修正扩展名）
+/// 按平台修正扩展名后的库文件名（清单按 Linux 写 `<名>.so`，宿主按平台修正扩展名）
 std::string testLibFileName(const std::string &base) {
 #if defined(_WIN32)
   return base + ".dll";
@@ -1233,7 +1233,7 @@ int main(int argc, char **argv) {
 
   // ==================== JS 插件 (零编译) ====================
   //
-  // 同一套用例在 native/js 两条链路上跑: decision 裁决、observe
+  // 同一套用例在原生插件与 JS 插件上都跑: decision 裁决、observe
   // 通知、能力探针、 状态镜像读取、事件订阅、定时器、禁用/卸载摘除。
   {
     MusicxxExternPluginString loadLog{};

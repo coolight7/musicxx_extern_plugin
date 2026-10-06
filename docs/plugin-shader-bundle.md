@@ -374,7 +374,7 @@ void main() {
   颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
 - 槽位状态镜像：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
-  例如"背景是自己时才接管歌曲图"这种联动（`plugins/playing_bg_image` 就是这么做的：它的两种
+  例如"背景是自己时才接管歌曲图"这种跟随（`plugins/playing_bg_image` 就是这么做的：它的两种
   背景模式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
 - 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时
   自动回退内置显示，原因写在设置列表的那一行。
@@ -522,7 +522,7 @@ void main() {
 |---|---|---|
 | `source` | `name`(必填)、`convert`、`scope`(auto / local / var)、`fallback`、`fallbackNight` | 具名来源（见 7.2）；取不到时用 `fallback`（夜间优先 `fallbackNight`） |
 | `const` | `value`(必填)、`night`、`unit`(`u` / `percent`) | 常量：数字、4 个数字的数组、`#rrggbb` / `#aarrggbb`、文本 |
-| `smooth` | `of`(必填)、`ms` 或 `attackMs` + `releaseMs`（缺省 150 / 150） | 一阶过渡：上升用 `attackMs`、回落用 `releaseMs`（"快起慢落"）；文本直接透传 |
+| `smooth` | `of`(必填)、`ms` 或 `attackMs` + `releaseMs`（缺省 150 / 150） | 一阶过渡：上升用 `attackMs`、回落用 `releaseMs`（"快起慢落"）；文本原样返回 |
 | `tween` | `from`(0)、`to`(1)、`durationMs`(1000)、`delayMs`(0)、`ease`(linear)、`repeat`(once / loop / pingpong)、`phase`(0) | 时间轴过渡；`repeat` 不是 once 时 `phase`（0~1）用来错开相位 |
 | `lfo` | `shape`(sine / triangle / saw / square)、`periodMs`(1000)、`from`(0)、`to`(1)、`phase`(0) | 周期振荡（呼吸、扫光、摆动） |
 | `add` / `mul` / `min` / `max` | `of`: 节点数组（≥1） | 逐分量组合 |

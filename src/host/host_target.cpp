@@ -39,7 +39,7 @@ struct NameAlias {
   const char *canon;
 };
 
-/// 系统别名: 覆盖各生态里的常见写法 (win32 / osx / darwin / harmonyos ...)
+/// 系统别名: 覆盖各平台的常见写法 (win32 / osx / darwin / harmonyos ...)
 constexpr NameAlias kOsAliases[] = {
     {"windows", "windows"},   {"win", "windows"},       {"win32", "windows"},
     {"win64", "windows"},     {"windowsnt", "windows"}, {"msvc", "windows"},
