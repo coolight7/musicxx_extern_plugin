@@ -25,11 +25,12 @@ abstract final class MusicxxPluginUIType {
 
   /// 播放页背景样式（渲染槽位 `player.background`）：
   /// `data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
-  ///          args:[{name, source?, convert?, value?, valueNight?}],
+  ///          args?（成员名 → 值表达式）, cover?（封面纹理，见 docs/plugin-shader-bundle.md §5.1）,
   ///          speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}`
   ///
   /// 着色器参数只有 `args` 一种写法（旧的 `colors` 已移除）；不写 `args` 时宿主默认给内置背景的
-  /// 4 个绘制色（`icon.themeMapping.0..3`）。详见 `docs/plugin-shader-bundle.md`。
+  /// 4 个绘制色（`icon.themeMapping.0..3`）。`cover` 由宿主解码 + 缩放（可选预模糊）后上传成
+  /// GPU 纹理、每帧绑定给着色器，插件不搬字节。详见 `docs/plugin-shader-bundle.md`。
   static const String playingBackground = 'musicxx.ui.playing.background';
 }
 

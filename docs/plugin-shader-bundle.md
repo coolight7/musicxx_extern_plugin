@@ -129,6 +129,7 @@ uniform MusicxxRenderInfo {
   vec4 uColor3;
   vec4 uColor4;
   vec4 uTint;     // 例：{"name":"uTint","source":"musicxx.theme.primary"}
+  vec4 uCoverInfo; // 只在声明了 cover 时由宿主自动写：见 §5.1
 } render_info;
 ```
 
@@ -136,7 +137,8 @@ uniform MusicxxRenderInfo {
 
 - **结构体名与成员名必须完全一致**（宿主按名字寻址写入）；成员偏移必须 16 字节对齐；
 - 结构体大小必须是 **16 的倍数且 ≥ 16**，否则该样式判为不可用并给出原因；
-- `uParams` / `uEnv` 由宿主自动写（不用在 `args` 里声明）；
+- `uParams` / `uEnv` 由宿主自动写（不用在 `args` 里声明）；声明了 `cover` 时，封面信息成员
+  （缺省名 `uCoverInfo`，见 §5.1）同样由宿主自动写，也不要在 `args` 里声明；
 - **可以少声明成员**（宿主跳过不写，着色器读到 0），但不能声明错误的名字
   （成员在结构体里不存在时宿主会跳过；声明了名字却没有对应成员不会报错，只是没有值）；
 - 颜色是 `0..1` 的浮点（sRGB 分量）；`uEnv.y = 0` 表示当前没有有效的封面配色分析结果
@@ -153,6 +155,149 @@ float t = render_info.uParams.z * render_info.uParams.w;   // 速率变了立即
 
 也注意 `animate: false` 时 `uParams.z` 恒为 0，并且渲染视图被遮挡 / 切后台期间不推进渲染、
 但时间不重置（回到前台可能跳一段）—— 连续动画建议用周期函数（示例用 `sin` / `fract`）。
+
+---
+
+## 5.1 封面纹理（`cover`）：把当前歌曲封面交给着色器采样
+
+播放页背景经常要用当前歌曲封面（模糊铺底、圆心盘、扭曲、像素化…）。**不要把封面字节读进插件再想办法画**
+—— 动作 `musicxx.media.cover` 那套是给"读数据"用的（插件脚本拿到的是 base64 字节，进不了 GPU）。
+渲染项里声明 `cover`，剩下的事由宿主做：解码 → 缩放（可选中心裁剪成正方形）→ 可选**预模糊**
+（引擎的图像滤镜，GPU 一次）→ 上传成 GPU 纹理 → 每帧绑定到你指定的 `sampler2D`。
+
+```jsonc
+// 渲染项（musicxx.ui.playing.background 的 data）
+{
+  "shader": {"bundle": "shader/bg.shaderbundle"},
+  "cover": {"texture": "uCover", "info": "uCoverInfo", "size": 512, "blur": 0, "square": false}
+}
+```
+
+```glsl
+uniform sampler2D uCover;            // 名字与 cover.texture 一致（缺省 uCover）
+
+uniform MusicxxRenderInfo {
+  vec4 uCoverInfo;                   // 名字与 cover.info 一致（缺省 uCoverInfo；不用在 args 里声明）
+} render_info;
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / max(render_info.uParams.xy, vec2(1.0));
+  // 没有封面时 uCoverInfo.w 是 0：这时不要用采样结果（宿主绑的是 1×1 透明占位纹理）
+  float coverOn = render_info.uCoverInfo.w > 0.5 ? 1.0 : 0.0;
+  vec3 coverColor = texture(uCover, uv).rgb;
+  ...
+}
+```
+
+| 字段 | 默认 | 范围 | 说明 |
+|---|---|---|---|
+| `texture` | `uCover` | GLSL 标识符 | 着色器里的 `sampler2D` 名 |
+| `info` | `uCoverInfo` | GLSL 标识符 | 封面信息写到哪个结构体成员（与 `texture` 同名时退回缺省名） |
+| `size` | 512 | 128..1024 | 纹理最长边（px）：等比缩放、**不放大** |
+| `blur` | 0 | 0..64 | 预模糊强度（sigma，px）；0 = 原图 |
+| `square` | false | — | true = 中心裁剪成正方形（`size` × `size`），false = 保持原图比例 |
+| `smooth` | true | — | 采样过滤：true = 线性（缩放平滑），false = 最近邻（像素风） |
+
+`cover` 也可以写成 `true`（全用默认值）、一个名字字符串（只改纹理名），或者**数组**（多张纹理，
+例如"原图 + 预模糊"各一张，每张用自己的 `texture` / `info` 名字）。
+
+`uCoverInfo = (纹理宽, 纹理高, 原图宽高比, 是否有封面)`：
+
+- 纹理是**等比缩放**的（`square: false` 时宽高比就是原图），拿 `uCoverInfo.xy` 可以算自己的 uv
+  —— 例如"铺满画面、超出裁掉"（cover 裁切）的写法见
+  `plugins/example_js_shader/shader/shaders/bg.frag`；
+- `uCoverInfo.w = 0` 表示这一帧**没有封面**（还没加载好 / 这首歌没有封面）：宿主仍然会绑定纹理，
+  但内容是 1×1 透明占位 —— **不要靠采样到的颜色判断有没有封面**，看这一位；
+- `uCoverInfo.z` 是原图宽高比（`square: true` 时纹理是方的，这一位仍是原图比例）。
+
+约定与代价：
+
+- **纹理坐标与渲染目标同向**：渲染目标是左上角原点（`gl_FragCoord.y` 向下增大），纹理也是
+  v = 0 在图片顶部，直接用 `uv` 采样就是正立的；把坐标翻过（`p.y` 向上为正）的着色器要记得翻回去
+  （`vec2(disk.x, -disk.y) * 0.5 + 0.5`，见 `ring.frag` 的圆心封面）；
+- 没声明 `cover` 时**零成本**：不解码、不上传、不占显存（一张 512×512 的纹理约 1 MiB）；
+  连参数里都没问 `musicxx.env.hasCover` 时，渲染每帧也不会去读"现在有没有封面"；
+- **不保留解码结果**：纹理只活在"正在用它的那个渲染视图"里 —— 视图销毁、用户切回内置样式、
+  插件停用或卸载、关闭『拟声++』时都会立即释放（丢引用并释放包装用的图像）；没有跨视图缓存，
+  也不会留一份"以后可能用到"的解码图；解码用的（独立命名空间的）图片缓存也是用前清空；
+- 封面变化（换歌、同一首歌换封面）时宿主重新准备一次（几毫秒），**不是每帧上传**；模糊也是一次性
+  预生成，不是每帧做 —— 想在着色器里自己模糊当然也行（多采样几次，代价自己算）；
+- 同一张封面可以被多个渲染项各自声明（背景与页面里的 `Shader` 块各拿一份纹理，各自释放，互不影响）；
+- 封面可能带透明（PNG）：采样到的 `a` 就是原图的 alpha，透明处 `rgb` 是 0，需要不透明底就自己 `mix`；
+- **着色器里声明了 `sampler2D`，就一定要在渲染项里有同名的 `cover` 声明**：宿主只绑定
+  `cover.texture` 里写出的名字；只声明了 `cover` 而着色器里没有对应 uniform 时宿主会记一条日志并
+  跳过（安全），反过来（着色器有 sampler、渲染项没声明）就是**采样一张从未绑定的纹理**，
+  在部分后端上行为未定义（软件后端实测会崩）。声明了 `cover` 而当前没有封面时宿主绑的是
+  1×1 透明占位纹理，采样是安全的 —— 用 `uCoverInfo.w` 判断要不要用它；
+- 声明了名字但着色器里没有对应的 `uniform sampler2D` 时，宿主记一条日志并跳过这一张，
+  不影响这一帧的其它内容（不会让整个样式失效）；
+- 页面里的 `Shader` 块（§9）目前还没有 `cover` 字段（描述层字段表里没有它），要用封面纹理
+  先做成背景样式；`musicxx.state.renderSlots` / `musicxx.media.palette` 之类的状态读法与以前一样。
+
+---
+
+## 5.2 插件绑定的图片（`image`）：把插件自己的图交给着色器
+
+`cover` 只能画"当前歌曲封面"。要让着色器画**插件自己准备的图**（自己下载的素材、脚本合成的图片、
+处理过的封面），就先把图片交给宿主绑定，再在渲染项里引用它：
+
+```js
+// 1) 把图片交给宿主（宿主解码 + 上传成 GPU 纹理，登记进这个插件的图像表）
+await musicxx.call("musicxx.media.bindImage", {
+    key: "mini",            // 本地名字，渲染项里用它引用
+    data: base64,           // 图片字节（png / jpeg / rgba）
+    format: "png",          // png / jpeg / rgba（rgba 还要 width / height）
+});
+
+// 或者"读封面顺便绑"：复用同一次解码的像素，不重复解码
+await musicxx.call("musicxx.media.cover", { size: 96, format: "rgba", bind: "mini" });
+
+// 不再需要时释放（不释放也会随插件停用/卸载、宿主停止自动摘掉）
+await musicxx.call("musicxx.media.unbindImage", { key: "mini" });
+```
+
+```jsonc
+// 2) 渲染项里引用它
+{
+  "shader": {"bundle": "shader/bg.shaderbundle"},
+  "image": {"key": "mini", "texture": "uMini", "info": "uMiniInfo"}
+}
+```
+
+```glsl
+uniform sampler2D uMini;                 // 名字 = image.texture（必填）
+
+uniform MusicxxRenderInfo {
+  vec4 uMiniInfo;                        // 名字 = image.info（缺省 <texture>Info）
+} render_info;
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / max(render_info.uParams.xy, vec2(1.0));
+  // 插件还没绑定 / 已解绑时这一位是 0（宿主绑的是 1×1 透明占位纹理）
+  float hasImage = render_info.uMiniInfo.w > 0.5 ? 1.0 : 0.0;
+  vec3 color = texture(uMini, uv).rgb;
+  ...
+}
+```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `key` | 必填 | 插件图像表里的键（与 `musicxx.media.bindImage` 的 `key` 相同；1..64 位字母数字与 `_ - .`） |
+| `texture` | 必填 | 着色器里的 `sampler2D` 名（不合法就忽略这一条并记日志） |
+| `info` | `<texture>Info` | 信息成员名：`(纹理宽, 纹理高, 宽高比, 是否有内容)`；写成 `""` 或与 `texture` 同名时不写信息成员 |
+
+约定与代价：
+
+- **图片由插件提供，宿主只做解码与上传**（不检查内容）：单张最长边 1024（超出拒绝）、
+  每个插件最多同时绑定 8 张、base64 字符串上限 6 MiB；
+- **绑定是临时资源**：插件卸载 / 停用、宿主停止、关闭『拟声++』时整张表被摘掉（只丢引用，
+  交给垃圾回收）；渲染视图每帧只做一次整数比较，没绑定就是零成本；
+- **没声明 `image` 的渲染项**：不查表、不绑定、不占显存；声明了但还没绑定时绑 1×1 透明占位纹理；
+- 插件用同一个 key 重新绑定（换成新图）时，正在画的背景会在下一帧用上新图；
+- 采样坐标与 `cover` 完全一致（渲染目标与纹理都是 y 向下；把 `p.y` 翻过（向上为正）的着色器
+  要翻回去，见 `ring.frag` 的圆心封面）；
+- 与 `cover` 一样，**着色器里声明了 `sampler2D` 就必须在渲染项里有同名的 `image`（或 `cover`）声明**
+  —— 采样一张从未绑定的纹理在部分后端上行为未定义。
 
 ---
 
@@ -330,7 +475,7 @@ void main() {
 | `musicxx.spectrum.bands.0` .. `musicxx.spectrum.bands.3` | 当前音频的 16 个频带（低频在前，0~1；每项 4 个连续频带写在 xyzw） |
 | `musicxx.spectrum.bands64.0` .. `musicxx.spectrum.bands64.15` | 当前音频的 **64 个频带**（低频在前，0~1；每项 4 个连续频带写在 xyzw）——画面上要摆很多点时用这一档 |
 | `musicxx.spectrum.bins.0` .. `musicxx.spectrum.bins.63` | 当前音频的**全部 256 个频点**（低频在前，0~1；每项 4 个连续频点写在 xyzw） |
-| `musicxx.env.night` / `musicxx.env.hasPalette` / `musicxx.env.hasSpectrum` | 环境量：是否夜间 / 有没有封面配色 / 有没有频谱数据（0 或 1，写在 4 个分量）；配 `mix` 就能写出"按环境切换"的值 |
+| `musicxx.env.night` / `musicxx.env.hasPalette` / `musicxx.env.hasSpectrum` / `musicxx.env.hasCover` | 环境量：是否夜间 / 有没有封面配色 / 有没有频谱数据 / 有没有封面图（0 或 1，写在 4 个分量）；配 `mix` 就能写出"按环境切换"的值 |
 | **其它任意名字（可含 `.`）** | 变量目录里的键：应用登记的官方变量、插件登记的自定义变量（如 `plugin.<插件id>.<名>`）；值是数字 / 布尔 / 文本，宿主按字段期望的类型转换 |
 | **局部通道名（`AnimatedBuilder.values` 的键）** | 优先于上面两类；只在那一层作用域里可见（页面里的用法见 `plugin-ui.md`） |
 
@@ -389,6 +534,8 @@ void main() {
 | `depict` | `""` | — | 副标题（写 `subtitle` 也可以，且优先） |
 | `enabled` | `true` | — | false = 不在设置列表里出现 |
 | `args` | 空 | ≤ 80 个成员 | 着色器参数：成员名 → 值表达式（见 §7）；背景槽位不声明时默认给内置 4 色 |
+| `cover` | 不声明 | 对象 / `true` / 名字 / 数组 | 封面纹理（`texture` / `info` / `size` / `blur` / `square` / `smooth`，见 §5.1）；不声明 = 零成本 |
+| `image` | 不声明 | 对象 / 数组 | 插件绑定的图片纹理（`key` / `texture` / `info` / `smooth`，见 §5.2）；不声明 = 零成本 |
 | `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`（着色器要自己乘，见 §5）。**由插件自己决定**，宿主不做二次缩放 |
 | `maxFps` | 16 | 1..30 | 帧率上限 |
 | `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由宿主放大（省 GPU） |
@@ -548,4 +695,9 @@ function applyRate(rate) {
 | 选中后回到内置背景 | 加载或渲染报错被停用（连续失败 3 次才停用，其间保留最后一帧）；看宿主日志与「外部插件 → 调试」里的背景段落 |
 | 动画不动 | `animate: false`、`speed: 0`，或着色器没有把 `uParams.z` 乘上 `uParams.w`；播放页被遮挡 / 切后台时本来就不渲染（`visible: false`） |
 | `musicxx.spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：内置『音乐动效』插件没启用、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
+| 封面没画出来（`cover` 声明了） | 按顺序看：① `uCoverInfo.w` 是不是 0（当前歌曲没有封面 / 封面还没加载好 / 封面源解析失败，宿主日志里有"插件封面纹理准备失败"）；② 着色器里有没有 `uniform sampler2D <cover.texture>;`（名字不一致时宿主会记"没有声明这个纹理 uniform，已跳过绑定"）；③ 采样坐标要对：渲染目标与纹理都是 y 向下，把 `p.y` 翻过的着色器要翻回去；④ 采样到的是 1×1 透明占位纹理时颜色全黑，别用它判断"有没有封面" |
+| 用了封面纹理后崩溃 / 画面异常 | 着色器里的 `sampler2D` 名字与渲染项 `cover.texture` 不一致，或**渲染项压根没声明 `cover`**：那种 sampler 从未被绑定，采样未绑定的纹理在部分后端上行为未定义（软件后端实测会崩）。名字必须两边一致；当前没有封面时宿主会绑 1×1 透明占位纹理，所以"声明了但没封面"是安全的 |
+| `image` 纹理没画出来 | ① 插件有没有先 `musicxx.media.bindImage`（或 `cover` 的 `bind`）——返回里看 `ok` 与 `bindError`；② 渲染项 `image.key` 与绑定的 `key` 是否一致；③ `image.texture` 与着色器里的 `sampler2D` 名是否一致；④ `uXxxInfo.w` 是不是 0（还没绑定 / 已解绑） |
+| 绑定图片失败 | 键不合法（1..64 位字母数字与 `_ - .`）、base64 超过 6 MiB、单张超过 1024 像素、同一插件已绑满 8 张、`format: "rgba"` 缺 `width` / `height` 或字节数与尺寸不匹配 —— 原因都在动作返回的 `bindError` / `error` 里 |
+| 封面上下颠倒 | 纹理坐标要把"向上为正"的坐标翻回去（`vec2(x, -y) * 0.5 + 0.5`），见 §5.1 |
 | 画面比预期快/慢 | `uParams.z` 是真实秒数、`uParams.w` 是插件声明的速度：宿主的基准速度就是插件给的值（示例把 1 当 1×） |

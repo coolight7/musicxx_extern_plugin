@@ -104,6 +104,10 @@ enum MusicxxPluginHookId {
   mediaInfoRequest('musicxx.media.info.request', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.firstNonNull, false, MusicxxPluginHookDispatch.async),
   mediaWaveReady('musicxx.media.wave.ready', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),
   mediaChorusAnalysed('musicxx.media.chorus.analysed', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{srcKey, name, artist, hasCover, night}`：应用要为当前歌曲封面取色（内置实现是封面颜色分析）时派发一次。处理器返回 `{"colors": {"main": "#rrggbb", ...}}`（键可取 `main` / `light` / `lightMuted` / `dark` / `darkMuted`，写法 `#rrggbb` 或 `#aarrggbb`）就用插件提供的这套颜色替代内置分析：它写进与内置分析同一批字段，内置背景、插件背景与 `musicxx.icon.*` 来源都会拿到；不返回 / 没有 `colors` / 颜色一个都解析不出来 = 这次不提供，应用照旧走内置分析。异步派发：不会卡住渲染准备；等待期间切歌时本次结果会被丢弃（可用 `srcKey` 自行校验）。
+  mediaPaletteProvide('musicxx.media.palette.provide', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.firstNonNull, true, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.hooks.unregister("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时宿主也会自动摘掉处理器）。
+  mediaCoverChanged('musicxx.media.cover.changed', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
   netRequestBefore('musicxx.net.request.before', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.async),
   netResponseAfter('musicxx.net.response.after', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),
   netServerRoute('musicxx.net.server.route', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.firstNonNull, false, MusicxxPluginHookDispatch.async),

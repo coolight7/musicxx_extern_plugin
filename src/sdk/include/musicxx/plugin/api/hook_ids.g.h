@@ -60,6 +60,8 @@
 #define MUSICXX_PLUGIN_HOOK_MEDIA_INFO_REQUEST "musicxx.media.info.request"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_WAVE_READY "musicxx.media.wave.ready"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_CHORUS_ANALYSED "musicxx.media.chorus.analysed"
+#define MUSICXX_PLUGIN_HOOK_MEDIA_PALETTE_PROVIDE "musicxx.media.palette.provide"
+#define MUSICXX_PLUGIN_HOOK_MEDIA_COVER_CHANGED "musicxx.media.cover.changed"
 #define MUSICXX_PLUGIN_HOOK_NET_REQUEST_BEFORE "musicxx.net.request.before"
 #define MUSICXX_PLUGIN_HOOK_NET_RESPONSE_AFTER "musicxx.net.response.after"
 #define MUSICXX_PLUGIN_HOOK_NET_SERVER_ROUTE "musicxx.net.server.route"
@@ -141,6 +143,8 @@ inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
     {"musicxx.media.info.request", 1, 0},
     {"musicxx.media.wave.ready", 0, 3},
     {"musicxx.media.chorus.analysed", 0, 3},
+    {"musicxx.media.palette.provide", 1, 0},
+    {"musicxx.media.cover.changed", 0, 3},
     {"musicxx.net.request.before", 1, 1},
     {"musicxx.net.response.after", 0, 3},
     {"musicxx.net.server.route", 1, 0},

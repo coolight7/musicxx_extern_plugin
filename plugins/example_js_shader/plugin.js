@@ -1,14 +1,19 @@
 /// musicxx 外部插件示例 (JS, 零编译): 自定义播放页面背景 + shader 动画速率
 ///
 /// 这个插件只演示"插件渲染槽位"这一条链路, 内容就两件事:
-/// - 声明播放页背景样式 (`musicxx.ui.playing.background`), 本插件给了两种可选样式:
-///   『示例晶格背景』(`shader/bg.shaderbundle`, 固定格子大小的 Worley 切块 + 封面配色,
-///   画面只随时间缓慢漂移, 不跟音乐律动) 与『光圈』(`shader/ring.shaderbundle`,
-///   频谱圆环: 从正上方开始顺时针排 64 个点 (左右不镜像, 一个点一个频带), 每个点向圆外
-///   与圆内各凸出一个尖角 (高度取过指数, 高低对比明显), 相邻尖角之间、同一个尖角的内外沿
-///   之间都用直线相连 —— 整圈是一张长在圆上的"蛛网", 不画基线圆)。
+/// - 声明播放页背景样式 (`musicxx.ui.playing.background`), 本插件给了三种可选样式:
+///   『示例晶格背景』(`shader/bg.shaderbundle`, 固定格子大小的 Worley 切块 + 封面配色 +
+///   预模糊的封面铺底, 画面只随时间缓慢漂移, 不跟音乐律动)、『光圈』
+///   (`shader/ring.shaderbundle`, 频谱圆环: 从正上方开始顺时针排 64 个点 (左右不镜像,
+///   一个点一个频带), 每个点向圆外与圆内各凸出一个尖角 (高度取过指数, 高低对比明显),
+///   相邻尖角之间、同一个尖角的内外沿之间都用直线相连 —— 整圈是一张长在圆上的"蛛网",
+///   不画基线圆, 圆心放一张圆形封面) 与『插件纹理铺底』(与晶格同一个 bundle, 但底层纹理
+///   来自**插件自己绑定的图片**: `musicxx.media.cover` 的 `bind` 参数 / `musicxx.media.bindImage`).
 ///   画面都由预编译好的 shader bundle 画 (插件不写界面代码), 用户在
 ///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (宿主不读 bundle、不分析封面)。
+/// - 两种封面相关的纹理通路都演示了: 前两种样式用**宿主准备的封面纹理** (`cover` 声明:
+///   宿主把当前歌曲封面解码、缩放、可选预模糊后上传成 GPU 纹理)，第三种用**插件绑定的图片**
+///   (`image` 声明 + 动作绑定)。
 /// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
 /// - 频谱的两条读法 (『读取当前频谱』按钮): 状态镜像 (`musicxx.state.spectrum`, 同步、实时)
 ///   与动作 (`musicxx.media.spectrum`, 异步)。动作**不能在能力处理器里等** —— 能力是同步
@@ -42,6 +47,20 @@ const BG_DEPICT = "跟随封面配色的晶格化动态背景";
 const RING_TITLE = "光圈";
 const RING_DEPICT = "64 个频点从正上方顺时针排成一圈, 尖角跟着音乐向内/向外突出, 相邻尖角用直线连成蛛网";
 
+/// 第三个背景样式: 『插件纹理铺底』(演示"插件把图片交给宿主当纹理")
+///
+/// 与晶格背景同一个 bundle, 区别在底层纹理的来源: 那张图不是宿主准备的封面纹理
+/// (渲染项 `cover`), 而是**插件自己绑定的图片**(`musicxx.media.cover` 的 `bind` 参数,
+/// 或 `musicxx.media.bindImage`), 渲染项用 `image: {key, texture}` 引用它。
+/// 插件还没绑定时宿主绑 1×1 透明占位纹理, 画面只剩晶格图案。
+const BOUND_TITLE = "插件纹理铺底";
+const BOUND_DEPICT = "底层是插件自己绑定的图片(先在设置页把当前封面绑成纹理)";
+const BOUND_ITEM_NAME = "boundBg";
+const BOUND_ITEM_ID = "plugin.example_js_shader." + BOUND_ITEM_NAME;
+
+/// 插件图像表里的键 (渲染项 `image.key` 与动作 `musicxx.media.bindImage` 的 `key` 用它)
+const BOUND_IMAGE_KEY = "coverArt";
+
 /// 本插件背景样式的 UI 项短名与完整 id (完整 id 由宿主拼成 plugin.<插件id>.<短名>)
 const BG_ITEM_NAME = "bg";
 const BG_ITEM_ID = "plugin.example_js_shader." + BG_ITEM_NAME;
@@ -52,6 +71,7 @@ const RING_ITEM_ID = "plugin.example_js_shader." + RING_ITEM_NAME;
 const BACKGROUND_TITLES = {};
 BACKGROUND_TITLES[BG_ITEM_ID] = BG_TITLE;
 BACKGROUND_TITLES[RING_ITEM_ID] = RING_TITLE;
+BACKGROUND_TITLES[BOUND_ITEM_ID] = BOUND_TITLE;
 
 /// 内置样式的候选 id (设置页与说明页的"切回内置背景"用它)
 const BUILTIN_AUTO_ID = "builtin:Auto";
@@ -122,6 +142,11 @@ function latticeBackgroundData(rate) {
             uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
             uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
         },
+        // 封面铺底: 宿主把当前歌曲封面中心裁剪成方形、缩到 384、**预模糊**后绑定到
+        // `uCoverBack`, 并把 (纹理宽, 纹理高, 原图宽高比, 是否有封面) 写进 `uCoverBackInfo`。
+        // 着色器拿它当底层 (mix 上晶格图案); 没有封面时这一位是 0, 画面与不带封面时一致。
+        // 声明 `cover` 才会有这份成本: 没声明就不解码、不上传、不占显存。
+        cover: { texture: "uCoverBack", info: "uCoverBackInfo", size: 384, blur: 28 },
         speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
@@ -161,6 +186,9 @@ function ringArgs(color1, color2, color3, color4) {
 ///
 /// 与晶格背景的区别只在 bundle 与参数: 参数见 `ringArgs` (64 个频带, 圆上 64 个点),
 /// 没有频谱数据时宿主写 0, 圆上的尖角长度为 0, 只剩圆心光源。
+/// 它还声明了**清晰封面**（`square: true` = 中心裁剪成正方形）画在圆心:
+/// 同一份封面在晶格背景里是"预模糊铺底"（`blur: 28`），这里却是圆盘上的原图 ——
+/// 两张纹理各自独立准备（`texture` / `info` 名字不同），互不影响。
 function ringBackgroundData(rate) {
     return {
         title: RING_TITLE,
@@ -172,6 +200,32 @@ function ringBackgroundData(rate) {
             { kind: "source", name: "musicxx.icon.themeMapping.2" },
             { kind: "source", name: "musicxx.icon.themeMapping.3" }
         ),
+        // 圆心封面: 中心裁剪成正方形、缩到 512, 不模糊
+        cover: { texture: "uCover", info: "uCoverInfo", size: 512, square: true },
+        speed: bgSpeedOf(rate),
+        maxFps: 16,
+        animate: true,
+        foregroundStyle: "mask",
+    };
+}
+
+/// 『插件纹理铺底』的完整声明: 底层用**插件自己绑定的图片**
+///
+/// 与晶格背景同一个 bundle(shader/bg.shaderbundle), 只是把那张"铺底纹理"从宿主准备的
+/// 封面(`cover`)换成插件绑定的图片(`image`): `key` 指向图像表里的条目, `texture` 是
+/// 着色器里的 sampler 名; 不写 `info` 时缺省用 `<texture>Info`(正好是 bundle 里已有的成员)。
+function boundBackgroundData(rate) {
+    return {
+        title: BOUND_TITLE,
+        depict: BOUND_DEPICT,
+        shader: { bundle: "shader/bg.shaderbundle" },
+        args: {
+            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+            uColor2: { kind: "source", name: "musicxx.icon.themeMapping.1" },
+            uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
+            uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
+        },
+        image: { key: BOUND_IMAGE_KEY, texture: "uCoverBack" },
         speed: bgSpeedOf(rate),
         maxFps: 16,
         animate: true,
@@ -193,6 +247,7 @@ function applyBackgroundRate(rate) {
     appliedBgRate = value;
     musicxx.ui.updateEntry(BG_ITEM_NAME, latticeBackgroundData(value));
     musicxx.ui.updateEntry(RING_ITEM_NAME, ringBackgroundData(value));
+    musicxx.ui.updateEntry(BOUND_ITEM_NAME, boundBackgroundData(value));
     musicxx.host.log(2, "背景动画速率 → " + bgRateText(value));
 }
 
@@ -214,6 +269,83 @@ musicxx.ui.registerEntry({
     order: 21,
     data: ringBackgroundData(appliedBgRate),
 });
+
+/// 『插件纹理铺底』: 底层纹理来自插件绑定的图片 (`image` 声明, 见 BOUND_IMAGE_KEY)
+musicxx.ui.registerEntry({
+    name: BOUND_ITEM_NAME,
+    type: "playing.background",
+    order: 22,
+    data: boundBackgroundData(appliedBgRate),
+});
+
+/// 插件纹理的绑定状态(页面回读; 动作是异步的, 能力处理器里不能等它)
+let boundImageState = "未绑定";
+
+/// 把当前歌曲封面绑成纹理(异步发起, 不等待)
+///
+/// `cover` 动作的 `bind` 参数: 宿主复用这一次解码出来的像素上传成 GPU 纹理, 不重复解码。
+/// 绑定后『插件纹理铺底』的 `image` 声明就能采样到它(表格版本变化, 背景下一帧用上新图)。
+function bindCoverImage() {
+    boundImageState = "绑定中…";
+    musicxx.media.cover({ size: 128, format: "rgba", bind: BOUND_IMAGE_KEY }).then(function (r) {
+        if (r && r.ok === true && r.bound === true) {
+            boundImageState = "已绑定 " + r.width + "x" + r.height;
+            musicxx.host.log(2, "已把封面绑成纹理: " + boundImageState);
+            return;
+        }
+        boundImageState = "失败: " + ((r && (r.bindError || r.error)) || "未知原因");
+        musicxx.host.log(3, "绑定封面纹理失败: " + boundImageState);
+    }, function (err) {
+        boundImageState = "失败: " + (err && err.message ? err.message : String(err));
+        musicxx.host.log(3, "绑定封面纹理失败: " + boundImageState);
+    });
+}
+
+/// 释放绑定的纹理(异步发起, 不等待)
+function unbindCoverImage() {
+    musicxx.media.unbindImage({ key: BOUND_IMAGE_KEY }).then(function (r) {
+        boundImageState = (r && r.ok === true) ? "未绑定" : "解绑失败";
+        musicxx.host.log(2, "释放插件纹理: " + boundImageState);
+    }, function (err) {
+        boundImageState = "解绑失败: " + (err && err.message ? err.message : String(err));
+    });
+}
+
+/// 最近一次"封面变化"通知(演示**封面变化 handle**: 注册了就收到, 随时可以移除)
+let lastCoverNotice = "(未收到)";
+
+/// 封面变化处理器当前有没有注册(演示"回退移除绑定")
+let coverHookBound = true;
+
+/// 封面变化处理器: 宿主在换歌 / 同一首歌换了封面图时派发一次
+///
+/// 载荷 = `{srcKey, name, artist, hasCover, kind}`(`kind` = local/cache/content/asset/network),
+/// **没有直链也没有图片字节** —— 要图片自己调 `musicxx.media.cover`, 要在着色器里采样就声明
+/// 渲染项的 `cover` / `image`。观察型: 返回值忽略, 处理器出错也不会影响播放。
+function onCoverChanged(payload) {
+    const name = (payload && payload.name) ? payload.name : "未知歌曲";
+    const kind = (payload && payload.hasCover === true) ? (payload.kind || "有封面") : "无封面";
+    lastCoverNotice = name + " · " + kind;
+    musicxx.host.log(2, "封面变化: " + JSON.stringify(payload || {}));
+}
+
+musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, onCoverChanged);
+
+/// 绑定 / 解除封面变化处理器
+///
+/// 解除(`unregister`)后宿主不再派发, 重新注册即可恢复; 插件停用 / 卸载时宿主也会自动摘掉。
+function setCoverHookBound(bound) {
+    if (bound === coverHookBound) {
+        return;
+    }
+    if (bound) {
+        musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, onCoverChanged);
+    } else {
+        musicxx.hooks.unregister("musicxx.media.cover.changed");
+    }
+    coverHookBound = bound;
+    musicxx.host.log(2, "封面变化处理器: " + (bound ? "已绑定" : "已移除"));
+}
 
 /// 读状态镜像: 播放页背景槽位的当前状态 (同步读取, 不用等动作往返)
 function backgroundSlot() {
@@ -308,7 +440,9 @@ function spectrumStateText() {
         return "无状态";
     }
     if (s.available === true) {
-        return "有数据";
+        // 有数据时把当前响度一起显示出来(镜像同步、实时, 约 10 Hz 更新)
+        const level = (typeof s.level === "number" && isFinite(s.level)) ? s.level : 0;
+        return "有数据（响度 " + Math.round(level * 100) + "%）";
     }
     switch (s.status) {
         case "loading":
@@ -385,7 +519,13 @@ function settingsView(args, override) {
                 text: "速率是插件自己的设置项: 改完用 musicxx.ui.updateEntry 重新声明背景样式, 正在使用的背景立即用新速度。",
             }, env),
             kit.hint({
-                text: "• 本插件注册了两种背景样式:『" + BG_TITLE + "』与『" + RING_TITLE + "』。两者占同一个槽位 player.background, 设置里同时只能选中一个。",
+                text: "• 本插件注册了三种背景样式:『" + BG_TITLE + "』、『" + RING_TITLE + "』与『" + BOUND_TITLE + "』。它们占同一个槽位 player.background, 设置里同时只能选中一个。",
+            }, env),
+            kit.hint({
+                text: "• 『" + BOUND_TITLE + "』演示**插件绑定的图片**（`image` 声明）：先在下面把当前封面绑成纹理（`musicxx.media.cover` 的 `bind` 参数复用这次解码的像素，不重复解码；也可以用 `musicxx.media.bindImage` 交自己的图片），渲染项用 `image: {key, texture}` 引用它 —— 与 `cover` 的区别是这张图来自插件、不是宿主准备的当前歌曲封面。绑定是临时资源：插件停用 / 卸载、宿主停止、关闭『拟声++』时自动摘掉，插件也可以主动 `musicxx.media.unbindImage`。",
+            }, env),
+            kit.hint({
+                text: "• 两种样式都声明了 `cover`（封面纹理）：宿主把当前歌曲封面解码、缩放、按 `blur` 预模糊后上传成 GPU 纹理，每帧绑定到 `texture` 指定的 `sampler2D`，并把 (纹理宽, 纹理高, 原图宽高比, 是否有封面) 写进 `info` 成员。『" + BG_TITLE + "』拿它做模糊铺底（`size: 384, blur: 28`），『" + RING_TITLE + "』拿它做圆心上的圆形封面（`size: 512, square: true`）。没有封面时信息位是 0，画面与不带封面时一致；要读封面字节（而不是采样）用 `musicxx.media.cover` 动作，那一条不参与绘制。",
             }, env),
             kit.hint({
                 text: "• 『" + RING_TITLE + "』的声明用了频谱来源：`spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，控制点少时用）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
@@ -450,6 +590,33 @@ function settingsView(args, override) {
                 title: "背景动画速率",
                 depict: "本插件背景的时间推进速度（1x = 基准速度 1，可选 0.5x / 1x / 2x），改完立即生效",
                 value: bgRateText(rate),
+            }, env),
+            kit.settingRow({
+                title: "插件纹理",
+                depict: "把当前歌曲封面绑成纹理（『" + BOUND_TITLE + "』的底层就是它）",
+                value: boundImageState,
+            }, env),
+            kit.settingRow({
+                title: "封面变化通知",
+                depict: "注册 handle 后收到 `musicxx.media.cover.changed`（只在封面真的换了时派发；载荷里没有图片字节）",
+                value: coverHookBound ? ("已绑定 · " + lastCoverNotice) : "已移除",
+            }, env),
+            kit.button({
+                label: "把当前封面绑成纹理",
+                variant: "primary",
+                action: { kind: "dispatch", name: "bindCoverTexture", args: { view: "settings" } },
+            }, env),
+            kit.button({
+                label: "释放绑定的纹理",
+                action: { kind: "dispatch", name: "unbindCoverTexture", args: { view: "settings" } },
+            }, env),
+            kit.button({
+                label: coverHookBound ? "移除封面变化处理器（回退绑定）" : "重新绑定封面变化处理器",
+                action: { kind: "dispatch", name: "toggleCoverHook", args: { view: "settings" } },
+            }, env),
+            kit.button({
+                label: "使用『" + BOUND_TITLE + "』",
+                action: { kind: "dispatch", name: "useBackground", args: { id: BOUND_ITEM_ID, view: "settings" } },
             }, env),
             kit.button({
                 label: "切换背景动画速率（0.5x / 1x / 2x）",
@@ -521,6 +688,30 @@ function requestBackground(id) {
 musicxx.capability.register("useBackground", function (args) {
     const id = (args && args.id) ? String(args.id) : BG_ITEM_ID;
     requestBackground(id);
+    return {
+        view: (args && args.view === "settings") ? settingsView(args, null) : cardView(args),
+    };
+});
+
+/// 设置页按钮: 把当前封面绑成纹理(异步发起, 处理器同步返回)
+musicxx.capability.register("bindCoverTexture", function (args) {
+    bindCoverImage();
+    return {
+        view: (args && args.view === "settings") ? settingsView(args, null) : cardView(args),
+    };
+});
+
+/// 设置页按钮: 释放绑定的纹理
+musicxx.capability.register("unbindCoverTexture", function (args) {
+    unbindCoverImage();
+    return {
+        view: (args && args.view === "settings") ? settingsView(args, null) : cardView(args),
+    };
+});
+
+/// 设置页按钮: 绑定 / 解除封面变化处理器(演示"回退移除绑定")
+musicxx.capability.register("toggleCoverHook", function (args) {
+    setCoverHookBound(!coverHookBound);
     return {
         view: (args && args.view === "settings") ? settingsView(args, null) : cardView(args),
     };

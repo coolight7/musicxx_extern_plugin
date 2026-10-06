@@ -919,10 +919,26 @@ constexpr const char *kPrelude = R"JS(
       var req = (args && typeof args === "object") ? args : {};
       return musicxx.call("musicxx.media.palette", req);
     },
-    // 封面字节 (jpeg/png/rgba, base64 放在 data 字段; size 16..512)
+    // 写封面取色 (与内置分析是同一批字段): {main, light, lightMuted, dark, darkMuted}
+    setPalette: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.palette.set", req);
+    },
+    // 封面字节 (jpeg/png/rgba, base64 放在 data 字段; size 16..512);
+    // args.bind 非空时同时把这次解码出来的封面绑成纹理 (渲染项 image 引用那个 key)
     cover: function (args) {
       var req = (args && typeof args === "object") ? args : {};
       return musicxx.call("musicxx.media.cover", req);
+    },
+    // 把插件自己的图片绑成纹理: {key, data(base64), format: png|jpeg|rgba, width?, height?}
+    bindImage: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.bindImage", req);
+    },
+    // 释放之前绑定的图片纹理: {key}
+    unbindImage: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.unbindImage", req);
     },
     // 当前音频频谱 (内置『音乐动效』提取的数据):
     //   args.bandCount 1..64 且能整除 256 (缺省 16)
