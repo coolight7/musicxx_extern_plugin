@@ -9,6 +9,7 @@
 | 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | JS 插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 示例代码 | `plugins/example_native/`（C++）、`plugins/example_js/`（等价 JS） |
 
@@ -546,6 +547,10 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 ⑥ 改了代码：重新构建 → 管理页「重载」（或禁用再启用）→ 再试
 ```
 
+不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>" --enable`
+→ `plugin list` / `plugin logs` → 重新构建后 `plugin reload <插件id>`。完整用法与 MCP 工具见
+[plugin-agent-cli.md](plugin-agent-cli.md)。
+
 开发期建议：
 
 - **先用示例插件做基线**：`plugins/example_native` 演示了钩子、能力、动作、事件、UI、日志，
@@ -604,6 +609,7 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
 | 应用整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。宿主线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
 | 插件装载后应用启动异常 | 宿主连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
+| 想知道现在装了什么、某个插件为什么没跑起来 | 命令行 / MCP 一条命令看完：`musicxx-cli plugin list`（每个插件的 `loaded` / `error`）与 `plugin logs <插件id>`，见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 应用卡住、不知道卡在哪一次调用 | 看应用日志目录下的 `host_call.log`：进宿主调用是同步的，卡住后最后一行就是没返回的那次调用 |
 
 ---

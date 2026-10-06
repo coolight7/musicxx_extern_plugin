@@ -1,8 +1,9 @@
 # 插件渲染：shader bundle 打包与 uniform 约定
 
 插件可以把**打包期编译好的 shader bundle** 注册成一种宿主渲染样式（当前只有「播放页背景」
-一个渲染槽位），由用户在「设置 → 播放页面背景」里选中后生效；同一个 bundle 也能画在插件自己的
-页面里（`Shader` 块）。
+一个渲染槽位），由用户在「设置 → 播放页面背景」里选中后生效（命令行 / agent 用
+`musicxx-cli render list|select` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
+同一个 bundle 也能画在插件自己的页面里（`Shader` 块）。
 
 插件不写 Dart/Flutter 代码，只交出 bundle + 一份参数声明。相关文档：界面与页面块类型见
 [plugin-ui.md](plugin-ui.md)，JS 与 C++ 的写法见 [plugin-js-api.md](plugin-js-api.md) /
@@ -448,6 +449,8 @@ const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.back
 
 - 内置候选 id 是 `builtin:<内置样式名>`，例如 `builtin:Auto`（内置换算出来的列表见
   `musicxx.render.list` 的返回）；
+- 命令行 / agent 不用写插件也能切：`musicxx-cli render list` / `render current` /
+  `render select plugin.my_plugin.bg`（见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 - 镜像 `musicxx.state.renderSlots` 每个槽位一个条目，字段：
 
   | 字段 | 含义 |

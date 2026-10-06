@@ -11,6 +11,7 @@
 | 读 / 改 / 订阅变量 | [plugin-vars.md](plugin-vars.md) |
 | 加界面（主页入口、歌曲菜单、插件页面） | [plugin-ui.md](plugin-ui.md) |
 | 写着色器（播放页背景 / 页面内联块） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
+| **用命令行 / AI agent 装插件、刷新、看日志**（不点管理页） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 构建宿主库、把宿主库随应用分发 | 本包 `README.md` |
 
 三句话理解这套框架：
@@ -114,9 +115,11 @@ musicxx.capability.register("card", function () {
 |---|---|
 | 直接放目录（开发期最常用） | 把插件目录放进 `<应用支持目录>/musicxx/extern_plugin/plugins/<插件 id>/`，管理页有「打开插件目录」；「重新扫描」后在插件页启用 |
 | 压缩包安装 | 打包成 `.zip`（**顶层就是插件目录内容**），管理页「从压缩包安装」 |
+| 命令行 / AI agent | `musicxx-cli plugin install "<zip绝对路径>" --enable`（非交互、不弹确认框；之后用 `plugin list` / `plugin logs` / `plugin reload` 控制）。见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 随包插件 | 放进应用的随包插件目录，宿主启动时与用户目录一起扫描 |
 
 改完代码：JS 插件点「重载」（脚本会重新执行一遍）；动态库插件重新构建后再「重载」。
+用命令行时对应 `musicxx-cli plugin reload <插件id>`（插件目录见 `plugin list` 的 `path` 字段）。
 
 ---
 
@@ -263,6 +266,7 @@ musicxx.capability.register("card", function () {
 | 手段 | 看什么 |
 |---|---|
 | 管理页「插件」分页 | 扫描结果、启用 / 禁用 / 重载 / 卸载、插件详情（清单、声明的权限、注册项、日志、统计） |
+| 命令行 / MCP | 同一批操作不用点界面：`musicxx-cli plugin list / install / enable / disable / reload / uninstall / restart / logs`，MCP 工具同名对应（见 [plugin-agent-cli.md](plugin-agent-cli.md)） |
 | 管理页「调试」分页 | 钩子统计（调用次数 / 平均 / 最大 / 超时 / 失败）、每个插件的阶段耗时与计数、JS 实例统计与内存采样、最近事件、变量快照、界面描述层版本 |
 | 管理页「设置」分页 | 框架开关（总开关、动态库 / JS 开关、安全模式、事件日志开关） |
 | 插件日志 | `console.*` / `musicxx.host.log(...)` 与宿主日志；设 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可让宿主日志打到 stderr |
@@ -312,6 +316,7 @@ musicxx.capability.register("card", function () {
 - [plugin-vars.md](plugin-vars.md) —— 官方变量目录与读写规则
 - [plugin-ui.md](plugin-ui.md) —— UI 项、插件页面组件、用 kit 装配、页面间跳转
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— bundle 打包、uniform 约定、参数表达式、排查
+- [plugin-agent-cli.md](plugin-agent-cli.md) —— 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化）
 - [musicxx-ui-kit.md](musicxx-ui-kit.md) —— musicxx 扩展 kit 的组件与参数（生成物）
 - 本包 `README.md` —— 构建宿主库、随应用打包、包内 Dart 接入、能力现状
 - `plugins/` —— 官方示例与对照示例（每个子目录一个插件）
