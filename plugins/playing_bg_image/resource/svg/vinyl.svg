@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- 示例封面背景插件的主页入口图标：插件自己带的 svg（resource/svg/vinyl.svg） -->
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="#2f6f68"/>
+  <circle cx="24" cy="24" r="13" fill="#16211f"/>
+  <circle cx="24" cy="24" r="9.4" fill="none" stroke="#3f4a48" stroke-width="1.2"/>
+  <circle cx="24" cy="24" r="6.6" fill="none" stroke="#3f4a48" stroke-width="1.2"/>
+  <circle cx="24" cy="24" r="4.2" fill="#e0b06a"/>
+  <circle cx="24" cy="24" r="1.1" fill="#16211f"/>
+</svg>

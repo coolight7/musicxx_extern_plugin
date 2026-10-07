@@ -13,6 +13,12 @@ library;
 import 'package:pluginxx_ui/pluginxx_ui.dart';
 
 /// UI 项类型（官方；与 `MUSICXX_PLUGIN_UI_TYPE_*` 一一对应）
+///
+/// 入口项与菜单项的 `icon` 写**插件自己带的 svg 路径**：一条相对插件目录的路径
+/// （`"resource/svg/logo.svg"` 或省掉后缀的 `"resource/svg/logo"`；用 `/` 分隔，允许子目录）。
+/// **`resource/svg/` 只是推荐位置**，插件可以按自己的目录结构放图标。宿主不接受自己的图标名，
+/// 路径不合法或文件缺失时按"没有图标"处理（入口/菜单退回默认图标，页面里的 `Icon` 块退回
+/// `glyph`）—— 详见包内 `docs/plugin-ui.md` §1.5。
 abstract final class MusicxxPluginUIType {
   /// 功能主页入口项：`data = {title, subtitle?, icon?, action?}`
   static const String homeEntry = 'musicxx.ui.home.entry';
@@ -110,7 +116,7 @@ class MusicxxPluginUIItem {
   /// 副标题（可选）
   String? get subtitle => _stringOf(data['subtitle']);
 
-  /// 图标名（可选；由宿主侧图标表解析，解析不到时用默认图标）
+  /// 图标路径（可选；**相对插件目录**的 svg 路径，可省 `.svg` 后缀，缺失时渲染方退回默认图标）
   String? get icon => _stringOf(data['icon']);
 
   /// 动作描述（缺省或 `kind: none` 时为 `null`）

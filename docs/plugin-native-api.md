@@ -28,6 +28,7 @@ my_plugin/                   # 目录名只是提示，插件 id 取清单的 na
 ├── plugin.yaml              # 清单（必填）
 ├── my_plugin.so             # 库文件（清单 entry 指向它；Windows 是 .dll、macOS 是 .dylib）
 ├── shader/                  # 可选：随插件分发的资源（如 shader bundle）
+├── resource/svg/logo.svg    # 可选：插件自己的图标（icon 写相对插件目录的路径，见 plugin-ui.md §1.5）
 └── config.json              # 可选：插件自己的配置（插件读写，用户也可以直接编辑）
 ```
 
@@ -282,7 +283,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 宿主信息 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}` |
 | 宿主环境 | `config()`、`language()`、`argsJson()` | `config()` 是宿主环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是装载时宿主给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
-| 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
+| 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由宿主负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
@@ -487,6 +488,7 @@ musicxx_plugin_add_target(my_plugin
   SOURCES my_plugin.cpp
   MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.yaml"
   ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/shader"      # 可选：随插件分发的资源目录
+  # ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/resource"  # 可选：插件自己的图标（resource/svg/*.svg）
 )
 ```
 
@@ -518,7 +520,7 @@ cmake --build build
 |---|---|
 | `SOURCES` | 插件源码（至少一个） |
 | `MANIFEST` | 清单路径，构建后复制成产物目录旁边的 `plugin.yaml` |
-| `ASSETS` | 随插件分发的资源（目录按原名整体复制、文件按原名复制），例如 `shader/` |
+| `ASSETS` | 随插件分发的资源（目录按原名整体复制、文件按原名复制），例如 `shader/`、`resource/` |
 | `LIBRARIES` | 额外链接的库（可选） |
 | `OUTPUT_DIR` | 产物目录（默认当前构建目录；多配置生成器也不分子目录） |
 

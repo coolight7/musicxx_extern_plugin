@@ -191,9 +191,11 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
     // 6) 声明式 UI 扩展: 注册主页入口与歌曲菜单项 + 通知
     //    注意: UI 项只声明"长什么样、点了做什么", 渲染由宿主 (Dart 侧) 负责。
+    //    图标是**插件自己带的 svg**（写相对插件目录的路径；文件在 resource/svg/native.svg，
+    //    resource/svg/ 只是推荐位置，随 ASSETS 分发），宿主不接受自己的图标名。
     uiHomeRc = uiRegister(
         "card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
-        R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"addition",
+        R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
                  "action":{"kind":"route","route":"ext://example_native/card"}})",
         100);
     uiSongRc = uiRegister("songInfo", MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
@@ -209,7 +211,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                              R"({"subtitle":"缺少 title"})", 0);
     uiUpdateRc = uiUpdate(
         "card",
-        R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"addition",
+        R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
                 "action":{"kind":"route","route":"ext://example_native/card"}})");
     uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
 

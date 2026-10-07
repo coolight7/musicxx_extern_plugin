@@ -490,8 +490,10 @@ musicxx.ui.registerEntry({
     data: {
         title: PLUGIN_TITLE,
         subtitle: "playing_bg_image：三种播放页背景模式 + 封面取色",
-        // 图标名放在 data 里（`registerEntry` 只在没有 data 时才把顶层字段并进去）
-        icon: "addition",
+        // 图标名放在 data 里（`registerEntry` 只在没有 data 时才把顶层字段并进去）；
+        // 图标是插件自己带的 svg：相对插件目录的路径（resource/svg/ 只是推荐位置，
+        // 宿主不接受自己的图标名，见 docs/plugin-ui.md §1.5）
+        icon: "resource/svg/vinyl.svg",
         action: { kind: "route", route: "ext://" + PLUGIN_ID + "/" + HOME_VIEW_ID },
     },
 });

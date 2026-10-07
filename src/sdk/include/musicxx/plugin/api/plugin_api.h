@@ -211,6 +211,11 @@ typedef struct MusicxxPluginHostIface {
 /// view = 插件声明的界面组合; 不写 `mode` 时按字段推断。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON "musicxx.ui.playing.icon"
 
+/// 说明: 入口项与菜单项的 `icon` 写**插件自己带的 svg 路径** (一条相对插件目录的路径,
+/// 可省 `.svg` 后缀, 用 `/` 分隔; 例如 `resource/svg/logo.svg`) —— `resource/svg/` 只是
+/// 推荐位置, 插件可以按自己的目录结构放。宿主不接受自己的 svg 名字: 路径不合法或找不到文件
+/// 就按"没有图标"处理 (入口/菜单退回默认图标, 页面里的 `Icon` 块退回 `glyph`)。
+/// 详见 docs/plugin-ui.md §1.5。
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
 /// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。
 

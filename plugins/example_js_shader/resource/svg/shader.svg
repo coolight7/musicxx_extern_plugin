@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- 示例背景插件的主页入口图标：插件自己带的 svg（resource/svg/shader.svg） -->
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="#7a5cd9"/>
+  <circle cx="24" cy="24" r="10.5" fill="none" stroke="#ffffff" stroke-width="2.8"/>
+  <circle cx="24" cy="24" r="3" fill="#ffffff"/>
+  <path d="M24 7.6v4.2M24 36.2v4.2M7.6 24h4.2M36.2 24h4.2" stroke="#ffffff"
+        stroke-width="2.6" stroke-linecap="round"/>
+</svg>
