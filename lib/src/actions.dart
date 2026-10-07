@@ -244,6 +244,9 @@ abstract final class MusicxxPluginActionNames {
   static const String uiDialog = 'musicxx.ui.dialog';
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
+  static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
+  static const String uiGetFontFamily = 'musicxx.ui.getFontFamily';
+  static const String uiLoadFont = 'musicxx.ui.loadFont';
 
   static const String storageGet = 'musicxx.storage.get';
   static const String storageSet = 'musicxx.storage.set';

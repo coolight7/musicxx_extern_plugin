@@ -20,14 +20,15 @@
 
 | 类型（全名） | `data` 字段 | 渲染位置 | 当前版本的实际表现 |
 |---|---|---|---|
-| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在宿主内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写宿主内置的 svg 名（不写用默认图标；写不存在的名字退回默认图标） |
+| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在宿主内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） |
 | `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
 | `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效 |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容） |
 
-`icon` 的取值来自客户端能力段里的 `icons`（`host.info().ui.icons`）：写客户端不认识的名字
-不会出错，只是退回默认图标。想知道当前客户端认哪些名字就读能力段，不要写死某一份清单。
+`icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写宿主
+（musicxx）自己的图标名 —— 宿主的 svg 名字不会命中任何文件，等于"没有图标"，各渲染点会按
+各自的规则退回默认图标。
 
 ### 1.2 注册
 
@@ -98,9 +99,39 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 这一版把之前缺的渲染点补齐了：`home.entry` 的 `subtitle` / `icon` 都会画出来、`playlist.action`
 在歌单页的列表菜单里有位置。仍要注意的是：
 
-- 入口的图标只在客户端认识的名字里挑（能力段 `icons`），写别的名字会退回默认图标；
+- 入口与菜单项的图标只能来自插件自己（相对插件目录的路径，见 §1.5），写宿主图标名等于没写；
 - 主页入口的文字是单行省略（标题、副标题各一行），别写长句；
 - 想确认自己注册了哪些项：`musicxx.ui.entries()`（JS）/ `uiEntries()`（C++）。
+
+### 1.5 图标：插件自己带 svg
+
+插件要图标（主页入口与菜单项的 `icon`、页面里的 `Button.icon` / `Icon.name`）就写一条
+**相对插件目录**的 svg 路径：
+
+```text
+my_plugin/
+  plugin.yaml
+  plugin.js                    # 或动态库
+  resource/svg/logo.svg        # 声明处写 icon: "resource/svg/logo.svg"
+  assets/icons/tip.svg         # 也可以按自己的目录结构放，写 icon: "assets/icons/tip.svg"
+```
+
+- 路径相对**插件目录**，可省 `.svg` 后缀（`"resource/svg/logo"` 与 `"resource/svg/logo.svg"`
+  等价）；用 `/` 分隔，允许子目录；
+- **`resource/svg/` 只是推荐位置**（示例插件都放这里，便于插件目录一眼看懂），不强制；
+- 只认 svg：写成别的后缀（`logo.png`）按"没有图标"处理；
+- 写法不合法（空路径、绝对路径、`..`、`\`）同样按"没有图标"处理，不会去插件目录外面找
+  文件，也不会报错；
+- **不能引用宿主（musicxx）自己的图标名**：`host.info().ui` 里没有 `icons` 清单（musicxx 不发布），
+  写宿主的 svg 名字只会在插件目录里找一个同名文件，找不到就按"没有图标"处理 ——
+  主页入口 / 菜单项退回默认图标，页面里的 `Icon` 块退回 `glyph` 文本；**按钮例外**：
+  `Button.icon` 没有回落，文件缺失就是按钮里一个空位（框架只拼路径，不替插件判文件在不在）；
+- 路径由**框架**拼接：插件在 JSON 里只写相对路径，客户端拿到内容、构造界面时才拼上自己的插件
+  目录（所以插件目录换到别的地方、同一个插件包在哪台机器上装，声明都不用改）；
+- 颜色：主页入口 / 菜单项按 svg 自己的颜色画；页面里的 `Icon` 与 `Button` 会按 `tone`
+  **单色渲染**（`BlendMode.srcIn`），这两个位置用单色的形状图标（不带渐变、不带多色）更合适；
+- 图标随插件目录一起分发（打包时把图标目录放进插件包；动态库插件在 `CMakeLists.txt` 里把
+  资源目录写进 `ASSETS`，见 [plugin-native-api.md](plugin-native-api.md)）。
 
 ---
 
@@ -152,7 +183,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
-| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action` |
+| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
@@ -161,7 +192,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
 | `Badge` / `Progress` | 见库文档 | 状态小标签 / 进度条 |
 | `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`）、`id`、`label`、`value`、`options`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值） |
-| `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`） |
+| `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
 规则（解析层规则，与库文档一致）：
@@ -342,7 +373,41 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 ---
 
-## 4. 可照抄的示例
+## 4. 全局字体与输入框字体控制
+
+插件可以控制应用全局文本（所有 `XXText*` 组件）和输入框（原生输入框、`XXInput*`、插件自绘页输入框等）使用的字体：
+
+1. **设置已有系统字体名**：
+   ```js
+   // 切换为指定字体
+   await musicxx.ui.setFontFamily("Microsoft YaHei");
+
+   // 恢复默认字体
+   await musicxx.ui.setFontFamily("default"); // 或 "" 或 null
+   ```
+2. **加载并注册插件自带的字体文件**：
+   插件可以将 `.ttf` / `.otf` 字体文件随插件目录分发（例如 `resource/fonts/my_font.ttf`），在运行时动态加载并生效：
+   ```js
+   // 加载并立即设为全局字体
+   await musicxx.ui.loadFont({
+     family: "MyPluginFont",
+     path: "resource/fonts/my_font.ttf", // 相对插件目录的相对路径
+     apply: true,                         // 可选，默认 true
+   });
+   ```
+3. **通过官方变量读取/设置**：
+   ```js
+   // 读当前生效字体
+   var current = await musicxx.vars.get("musicxx.ui.fontFamily");
+   // 设置字体
+   await musicxx.vars.set("musicxx.ui.fontFamily", "SimSun");
+   ```
+4. **生命周期自动恢复**：
+   当设置字体的插件被停用或卸载、或插件宿主停止时，宿主会自动恢复为默认字体，避免残留不可用的字体配置。
+
+---
+
+## 5. 可照抄的示例
 
 | 示例 | 演示了什么 |
 |---|---|
