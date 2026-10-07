@@ -648,12 +648,12 @@ void main() {
         reason: '取色钩子的处理器要在宿主侧登记成功（宿主库没重建时这里会是 0）',
       );
       final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
-      // 两种模式 = 同一个槽位里的两个候选样式（注册顺序决定设置列表里的先后）
+      // 三种模式 = 同一个槽位里的三个候选样式（注册顺序决定设置列表里的先后）
       final List<MusicxxPluginUIItem> backgrounds = MusicxxPluginUIItems.byType(
         items,
         MusicxxPluginUIType.playingBackground,
       ).where((MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image').toList();
-      expect(backgrounds.length, 2, reason: '两种背景模式各注册一个样式: $backgrounds');
+      expect(backgrounds.length, 3, reason: '三种背景模式各注册一个样式: $backgrounds');
       expect(
         (backgrounds[0].data['shader']! as Map<String, Object?>)['bundle'],
         'shader/heat.shaderbundle',
@@ -673,6 +673,21 @@ void main() {
         (backgrounds[1].data['cover']! as Map<String, Object?>)['blur'],
         0,
         reason: '『渐变贴边』的封面卡片要是原图，不做预模糊',
+      );
+      expect(
+        (backgrounds[2].data['shader']! as Map<String, Object?>)['bundle'],
+        'shader/vinyl.shaderbundle',
+        reason: '第三个是『黑胶』（唱盘 + 圆裁封面 + 唱臂）',
+      );
+      expect(
+        (backgrounds[2].data['cover']! as Map<String, Object?>)['square'],
+        true,
+        reason: '『黑胶』的盘心是圆裁的封面：纹理要中心裁剪成正方形',
+      );
+      expect(
+        backgrounds[2].data['speed'],
+        1,
+        reason: '『黑胶』的转速由 speed 决定（默认 1×；改转速不用重新选中该样式）',
       );
       // 歌曲图接管项：mode = none（保留占位、不显示内容）
       final MusicxxPluginUIItem icon = MusicxxPluginUIItems.byType(
@@ -747,6 +762,27 @@ void main() {
         'playing_bg_image',
         'plugin.playing_bg_image.setOption',
         const <String, Object?>{'id': 'zoom', 'value': 2},
+      );
+      // 『黑胶』的唱片转速：同一个入口，改完重新声明样式 —— 快照里立刻是新速度
+      // （转速走 UI 项的 `speed`，运行期不用重新选中该样式）
+      runtime.plugins.call(
+        'playing_bg_image',
+        'plugin.playing_bg_image.setOption',
+        const <String, Object?>{'id': 'spin', 'value': 2, 'view': 'settings'},
+      );
+      final MusicxxPluginUIItem vinylAfterSpin = MusicxxPluginUIItems.byType(
+        runtime.plugins.uiSnapshot(),
+        MusicxxPluginUIType.playingBackground,
+      ).where((MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image').last;
+      expect(
+        vinylAfterSpin.data['speed'],
+        2,
+        reason: '改「唱片转速」要重新声明样式（把新速度写进 speed）',
+      );
+      runtime.plugins.call(
+        'playing_bg_image',
+        'plugin.playing_bg_image.setOption',
+        const <String, Object?>{'id': 'spin', 'value': 1},
       );
       runtime.plugins.unload('playing_bg_image');
       _step('18.7 示例封面背景插件完成');

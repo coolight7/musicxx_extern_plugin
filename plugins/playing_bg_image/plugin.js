@@ -2,7 +2,7 @@
 ///
 /// 三件事（都由『拟声++』与用户在设置里的选择门控，未选中时零成本）：
 ///
-/// 1. **播放页背景的两种模式**（渲染槽位 `player.background`，同一个槽位里的两个候选样式）：
+/// 1. **播放页背景的三种模式**（渲染槽位 `player.background`，同一个槽位里的三个候选样式）：
 ///
 ///    · 『示例封面背景 · 模糊热浪』（`shader/heat.shaderbundle`）：当前歌曲封面预模糊后放大
 ///      铺满屏幕、缓慢四处漂移，局部偶尔轻微扭曲 —— 类似夏天地面温度高、空气被折射时看到的
@@ -14,17 +14,26 @@
 ///      上、下三条边（右边缘模糊渐隐）；放大倍数（1~3）只改取景（越大越局部），
 ///      最后按主题叠一层亮暗遮罩（遮罩色就是主题背景色，浅色主题提亮、深色主题压暗）。
 ///
+///    · 『示例封面背景 · 黑胶』（`shader/vinyl.shaderbundle`）：封面主色铺底，画面中间一张
+///      黑胶唱片 —— 盘面是细密的音轨纹路加一道来自左上方的柔光与外缘倒角高光，盘心圆裁
+///      当前歌曲封面、像唱片一样缓慢旋转；盘沿上方一支白色唱臂（转轴圆钮 + **折线**臂管
+///      （肘部圆角过渡，像手臂那样折一下）+ 贴着盘沿的一小段唱头壳，周围一层很软的淡阴影，
+///      轻拟物），唱头压在盘面的外圈上。
+///      转速档位（0.5× / 1× / 2×）在设置页里调，没有封面时盘心画一个两色渐变的标签。
+///
 /// 2. **接管播放页歌曲图**（渲染槽位 `player.icon`）：声明 `mode: "none"` + `keepSpace: true`
-///    —— 不显示内容、只保留占位（封面已经铺满画面，原来的封面圆盘与它重复）。
-///    设置页的「隐藏歌曲图」打开后，背景是本插件的两种模式之一时自动接管：每秒读一次状态
+///    —— 不显示内容、只保留占位（封面已经铺满画面 / 已经在盘心，原来的封面圆盘与它重复）。
+///    设置页的「隐藏歌曲图」打开后，背景是本插件的三种模式之一时自动接管：每秒读一次状态
 ///    镜像 `musicxx.state.renderSlots` 判断，背景切走（或关掉开关）就自动交还。
 ///
 /// 3. **封面取色**（钩子 `musicxx.media.palette.provide`）：自己算封面配色 ——
 ///    把封面缩到 64×64 读 RGBA，按 4 bit/通道量化统计，取出现次数最多的 4 个色点，
 ///    按亮度映射成 main / light / lightMuted / dark / darkMuted，替代内置的颜色分析。
-///    『渐变贴边』的渐变底用的就是这套颜色（`musicxx.icon.main` / `musicxx.icon.dark`）。
+///    『渐变贴边』的渐变底用的就是这套颜色（`musicxx.icon.main` / `musicxx.icon.dark`），
+///    『黑胶』的底色也从它来（`musicxx.icon.themeMapping.0` / `.1`；唱臂是固定的近白色）。
 ///
-/// 设置（5 项，存在插件目录的 config.json）：模糊程度、放大倍数、图片占比、热浪扭曲波纹、隐藏歌曲图。
+/// 设置（6 项，存在插件目录的 config.json）：模糊程度、放大倍数、图片占比、唱片转速、
+/// 热浪扭曲波纹、隐藏歌曲图。
 ///
 /// 排查入口：宿主日志（`musicxx.host.log`）、设置页（`ext://playing_bg_image/settings`）、
 /// 说明页（`ext://playing_bg_image/card`）、状态镜像里的 `player.background` / `player.icon`
@@ -37,33 +46,53 @@ const kit = pluginxx.ui.kit;
 const PLUGIN_ID = musicxx.pluginId;
 const PLUGIN_TITLE = "示例封面背景";
 
-/// 两种模式（同一个槽位里的两个候选样式：用户在『设置 → 主题 → 播放页面背景』里选一个）
+/// 三种模式（同一个槽位里的三个候选样式：用户在『设置 → 主题 → 播放页面背景』里选一个）
 const MODE_BLUR = "blur";
 const MODE_CARD = "card";
-/// 模式选择里的"用内置背景"（不是本插件的模式，只是让两个样式都不生效）
+const MODE_VINYL = "vinyl";
+/// 模式选择里的"用内置背景"（不是本插件的模式，只是让三个样式都不生效）
 const MODE_BUILTIN = "builtin";
 
 /// 模式的显示名与副标题（设置列表里的样式名 = 这里的标题）
 const MODE_TITLES = {};
 MODE_TITLES[MODE_BLUR] = PLUGIN_TITLE + " · 模糊热浪";
 MODE_TITLES[MODE_CARD] = PLUGIN_TITLE + " · 渐变贴边";
+MODE_TITLES[MODE_VINYL] = PLUGIN_TITLE + " · 黑胶";
 /// 模式的短名（状态行里用；完整标题太长，窄窗口里放不下）
 const MODE_SHORT = {};
 MODE_SHORT[MODE_BLUR] = "模糊热浪";
 MODE_SHORT[MODE_CARD] = "渐变贴边";
+MODE_SHORT[MODE_VINYL] = "黑胶";
 const MODE_DEPICTS = {};
 MODE_DEPICTS[MODE_BLUR] =
     "封面高斯模糊后放大铺满屏幕、缓慢四处漂移；模糊程度 0~30、放大倍数 1~3 可调";
 MODE_DEPICTS[MODE_CARD] =
     "封面主色做渐变底、清晰封面贴着屏幕边缘铺一片（自由边模糊、图片占比可调），按主题叠亮暗遮罩";
+MODE_DEPICTS[MODE_VINYL] =
+    "封面主色铺底，中间一张黑胶唱片（音轨纹路 + 左上柔光），盘心是缓慢旋转的歌曲封面，" +
+    "盘沿上方一支白色唱臂（转轴 + 折线臂管 + 一小段唱头壳，轻拟物淡阴影）压在盘面外圈；转速档位可调";
 
-/// 两种模式各自的 UI 项短名与完整 id
+/// 三种模式各自的 UI 项短名与完整 id
 ///
 /// 模式一沿用原来的短名 `bg`：已经选中它的用户不会因为这次重构而失效。
 const BG_ITEM_NAME = "bg";
 const BG_ITEM_ID = "plugin." + PLUGIN_ID + "." + BG_ITEM_NAME;
 const CARD_ITEM_NAME = "bgCard";
 const CARD_ITEM_ID = "plugin." + PLUGIN_ID + "." + CARD_ITEM_NAME;
+const VINYL_ITEM_NAME = "bgVinyl";
+const VINYL_ITEM_ID = "plugin." + PLUGIN_ID + "." + VINYL_ITEM_NAME;
+
+/// 插件项 id → 模式名（判断"背景现在是不是本插件在画"、状态行里显示哪一个模式都用它）
+const MODE_OF_ITEM = {};
+MODE_OF_ITEM[BG_ITEM_ID] = MODE_BLUR;
+MODE_OF_ITEM[CARD_ITEM_ID] = MODE_CARD;
+MODE_OF_ITEM[VINYL_ITEM_ID] = MODE_VINYL;
+
+/// 模式名 → 插件项 id（模式选择按钮切槽位时用它）
+const ITEM_OF_MODE = {};
+ITEM_OF_MODE[MODE_BLUR] = BG_ITEM_ID;
+ITEM_OF_MODE[MODE_CARD] = CARD_ITEM_ID;
+ITEM_OF_MODE[MODE_VINYL] = VINYL_ITEM_ID;
 
 /// 歌曲图接管项的短名与完整 id
 const ICON_ITEM_NAME = "icon";
@@ -90,6 +119,9 @@ const COVER_TEXTURE = "uCover";
 const COVER_INFO = "uCoverInfo";
 const BLUR_COVER_SIZE = 512;
 const CARD_COVER_SIZE = 768;
+/// 『黑胶』盘心是圆裁的封面：纹理声明成正方形（`square: true`），圆内正好是它的内切圆，
+/// 尺寸给得比另两种大一点（盘心在屏幕上的直径可能有六七百像素）
+const VINYL_COVER_SIZE = 768;
 
 /// 设置的取值范围与默认值
 const BLUR_MIN = 0;
@@ -102,6 +134,12 @@ const ZOOM_DEFAULT = 2;
 const SHARE_MIN = 0.3;
 const SHARE_MAX = 1;
 const SHARE_DEFAULT = 0.75;
+/// 唱片转速（只影响『黑胶』）：写进 UI 项的 `speed`，着色器按它推进封面转角
+const SPIN_MIN = 0.25;
+const SPIN_MAX = 4;
+const SPIN_DEFAULT = 1;
+/// 『黑胶』的基准转速：speed = 1 时盘心封面转一圈的秒数（与 vinyl.frag 的 kSpinSeconds 一致）
+const VINYL_SPIN_SECONDS = 30;
 const RIPPLE_DEFAULT = true;
 const HIDE_ICON_DEFAULT = true;
 
@@ -109,6 +147,7 @@ const HIDE_ICON_DEFAULT = true;
 const BLUR_CHOICES = [0, 8, 16, 24, 30];
 const ZOOM_CHOICES = [1, 1.5, 2, 2.5, 3];
 const SHARE_CHOICES = [0.45, 0.6, 0.75, 0.9];
+const SPIN_CHOICES = [0.5, 1, 2];
 
 /// 错误对象 → 文本（钩子、定时器里的失败只记日志）
 function errText(err) {
@@ -122,6 +161,7 @@ const CONFIG_DEFAULTS = {
     blur: BLUR_DEFAULT,
     zoom: ZOOM_DEFAULT,
     share: SHARE_DEFAULT,
+    spin: SPIN_DEFAULT,
     ripple: RIPPLE_DEFAULT,
     hideIcon: HIDE_ICON_DEFAULT,
 };
@@ -172,6 +212,8 @@ function normalizeConfig(key, value) {
             return configNumber(value, ZOOM_MIN, ZOOM_MAX, ZOOM_DEFAULT);
         case "share":
             return configNumber(value, SHARE_MIN, SHARE_MAX, SHARE_DEFAULT);
+        case "spin":
+            return configNumber(value, SPIN_MIN, SPIN_MAX, SPIN_DEFAULT);
         case "ripple":
             return configBool(value, RIPPLE_DEFAULT);
         case "hideIcon":
@@ -207,6 +249,11 @@ function configuredShare() {
     return configValue("share");
 }
 
+/// 唱片转速（只影响『黑胶』：写进 UI 项的 `speed`，1 = 着色器里的基准转速）
+function configuredSpin() {
+    return configValue("spin");
+}
+
 /// 热浪扭曲波纹开关
 function configuredRipple() {
     return configValue("ripple");
@@ -217,17 +264,18 @@ function configuredHideIcon() {
     return configValue("hideIcon");
 }
 
-/// 把设置应用到两个背景样式
+/// 把设置应用到三个背景样式
 ///
 /// `musicxx.ui.updateEntry` 是**整体替换**（每次都取完整的 data），宿主收到后会刷新候选；
 /// 正在使用的样式立即换用新参数（封面纹理按新参数重新解码一次，『模糊热浪』改模糊程度时
-/// 就能当场看到变化）。
+/// 就能当场看到变化；『黑胶』改转速只换 `speed`，正在画的封面下一帧就按新转速转）。
 function applySettings() {
     musicxx.ui.updateEntry(BG_ITEM_NAME, blurBackgroundData());
     musicxx.ui.updateEntry(CARD_ITEM_NAME, cardBackgroundData());
+    musicxx.ui.updateEntry(VINYL_ITEM_NAME, vinylBackgroundData());
 }
 
-/// 异步读配置（默认值由脚本给；四个键都读完 / 失败后再换用实际值）
+/// 异步读配置（默认值由脚本给；所有键都读完 / 失败后再换用实际值）
 ///
 /// 放在定时器里读：顶层同步注册阶段不能投递动作（宿主这时还在回放注册）。
 function refreshConfig() {
@@ -354,6 +402,48 @@ function cardBackgroundData() {
     };
 }
 
+/// 『黑胶』的完整声明
+///
+/// 与另两种的区别：封面**正方形圆裁**（`square: true`，盘心圆内正好是它的内切圆）+
+/// 盘心旋转 —— 转速由 `speed` 决定（写进 `uParams.w`，着色器按它推进封面转角，
+/// 所以改转速不用重新选中这个样式）；底色与唱臂色都从封面配色来（取色钩子提供的算法）。
+function vinylBackgroundData() {
+    return {
+        title: MODE_TITLES[MODE_VINYL],
+        depict: MODE_DEPICTS[MODE_VINYL],
+        shader: { bundle: "shader/vinyl.shaderbundle" },
+        cover: {
+            texture: COVER_TEXTURE,
+            info: COVER_INFO,
+            size: VINYL_COVER_SIZE,
+            blur: 0,
+            // 盘心是圆裁的封面：正方形纹理的内切圆正好铺满它
+            square: true,
+        },
+        args: {
+            // 底：封面主色；四周要暗下去，着色器里再往第二个绘制色靠一点
+            uBg: {
+                kind: "source",
+                name: "musicxx.icon.themeMapping.0",
+                fallback: { kind: "const", value: "#2d6c96" },
+            },
+            uBg2: {
+                kind: "source",
+                name: "musicxx.icon.themeMapping.1",
+                fallback: { kind: "const", value: "#1b3d56" },
+            },
+            // 唱臂的颜色（近白；夜间稍微压一点，别在暗底上过曝）
+            uArm: { kind: "const", value: "#f2f6fb", night: "#e2eaf4" },
+        },
+        // 转速：着色器里的基准转速（30 秒一圈）再乘这个倍率
+        speed: configuredSpin(),
+        maxFps: 24,
+        // 盘心的封面要清晰：不降采样
+        resolutionScale: 1,
+        animate: true,
+    };
+}
+
 /// 接管歌曲图的 UI 项内容：不显示内容、保留占位
 function iconData() {
     return {
@@ -364,7 +454,7 @@ function iconData() {
     };
 }
 
-/// 注册两个背景样式（同一个槽位的两个候选，注册顺序决定设置列表里的先后）
+/// 注册三个背景样式（同一个槽位的三个候选，注册顺序决定设置列表里的先后）
 musicxx.ui.registerEntry({
     name: BG_ITEM_NAME,
     type: "playing.background",
@@ -380,6 +470,13 @@ musicxx.ui.registerEntry({
 });
 
 musicxx.ui.registerEntry({
+    name: VINYL_ITEM_NAME,
+    type: "playing.background",
+    order: 42,
+    data: vinylBackgroundData(),
+});
+
+musicxx.ui.registerEntry({
     name: ICON_ITEM_NAME,
     type: "playing.icon",
     order: 40,
@@ -392,7 +489,7 @@ musicxx.ui.registerEntry({
     order: 130,
     data: {
         title: PLUGIN_TITLE,
-        subtitle: "playing_bg_image：两种播放页背景模式 + 封面取色",
+        subtitle: "playing_bg_image：三种播放页背景模式 + 封面取色",
         // 图标名放在 data 里（`registerEntry` 只在没有 data 时才把顶层字段并进去）
         icon: "addition",
         action: { kind: "route", route: "ext://" + PLUGIN_ID + "/" + HOME_VIEW_ID },
@@ -707,10 +804,14 @@ function slotSelectedIdOf(slotId) {
     return (slot && typeof slot.selectedId === "string") ? slot.selectedId : "";
 }
 
+/// 插件项 id 对应的模式名（不是本插件的项时返回空串）
+function modeOfItemId(itemId) {
+    return MODE_OF_ITEM[itemId] || "";
+}
+
 /// 背景槽位现在是不是本插件的样式在画
 function backgroundIsMine() {
-    const itemId = slotItemIdOf(BACKGROUND_SLOT);
-    return itemId === BG_ITEM_ID || itemId === CARD_ITEM_ID;
+    return "" !== modeOfItemId(slotItemIdOf(BACKGROUND_SLOT));
 }
 
 /// 请求切换一个槽位（异步动作，不等待结果）
@@ -783,25 +884,20 @@ function viewEnv(args) {
     return null;
 }
 
-/// 现在生效的是哪种模式：`blur` / `card` / `builtin`（都不是 = 别人的样式或没选中）
+/// 现在生效的是哪种模式：`blur` / `card` / `vinyl` / `builtin`（都不是 = 别人的样式或没选中）
 ///
 /// 已经在画的看 `itemId`（现在由谁在画），还没生效的看 `selectedId`（用户选中了谁）：
 /// 切换要经过一次动作往返，选中后到生效之间用后者，按钮才算"点得动、有反应"。
 function currentMode() {
-    const itemId = slotItemIdOf(BACKGROUND_SLOT);
-    if (itemId === BG_ITEM_ID) {
-        return MODE_BLUR;
+    const itemMode = modeOfItemId(slotItemIdOf(BACKGROUND_SLOT));
+    if (itemMode) {
+        return itemMode;
     }
-    if (itemId === CARD_ITEM_ID) {
-        return MODE_CARD;
+    const selectedMode = modeOfItemId(slotSelectedIdOf(BACKGROUND_SLOT));
+    if (selectedMode) {
+        return selectedMode;
     }
     const selected = slotSelectedIdOf(BACKGROUND_SLOT);
-    if (selected === BG_ITEM_ID) {
-        return MODE_BLUR;
-    }
-    if (selected === CARD_ITEM_ID) {
-        return MODE_CARD;
-    }
     if (selected === "" || selected.indexOf("builtin:") === 0) {
         return MODE_BUILTIN;
     }
@@ -814,13 +910,12 @@ function backgroundStateText() {
     if (!slot) {
         return "无状态";
     }
-    const itemId = slotItemIdOf(BACKGROUND_SLOT);
-    if (itemId === BG_ITEM_ID || itemId === CARD_ITEM_ID) {
-        const which = (itemId === BG_ITEM_ID) ? MODE_SHORT[MODE_BLUR] : MODE_SHORT[MODE_CARD];
-        return which + (slot.visible === true ? " · 生效中" : " · 不在画");
+    const itemMode = modeOfItemId(slotItemIdOf(BACKGROUND_SLOT));
+    if (itemMode) {
+        return MODE_SHORT[itemMode] + (slot.visible === true ? " · 生效中" : " · 不在画");
     }
     const selected = slotSelectedIdOf(BACKGROUND_SLOT);
-    if (selected === BG_ITEM_ID || selected === CARD_ITEM_ID) {
+    if (modeOfItemId(selected)) {
         return "检查中";
     }
     if (selected === "" || selected.indexOf("builtin:") === 0) {
@@ -938,7 +1033,7 @@ function statusRows() {
         infoRow(
             "封面取色",
             "钩子 musicxx.media.palette.provide：统计封面里出现最多的 4 个色点（" +
-            paletteDetailText() + "）；『渐变贴边』的渐变底用的就是它写的颜色",
+            paletteDetailText() + "）；『渐变贴边』的渐变底与『黑胶』的底色用的就是它写的颜色",
             paletteStateText()),
         infoRow(
             "渲染状态",
@@ -1070,6 +1165,7 @@ function modeControl(viewId) {
         "mode", currentMode(), viewId, [
         { value: MODE_BLUR, label: "模糊热浪" },
         { value: MODE_CARD, label: "渐变贴边" },
+        { value: MODE_VINYL, label: "黑胶" },
         { value: MODE_BUILTIN, label: "内置背景" },
     ]);
 }
@@ -1079,11 +1175,12 @@ function settingsView(args) {
     const env = viewEnv(args);
     return {
         title: PLUGIN_TITLE + " · 设置",
-        subtitle: "两种背景模式的参数与开关；值存在插件目录的 config.json",
+        subtitle: "三种背景模式的参数与开关；值存在插件目录的 config.json",
         blocks: [
             kit.hint({
-                text: "• 本插件注册了两种播放页背景：『" + MODE_TITLES[MODE_BLUR] + "』与『" +
-                    MODE_TITLES[MODE_CARD] + "』。它们占同一个槽位 player.background，" +
+                text: "• 本插件注册了三种播放页背景：『" + MODE_TITLES[MODE_BLUR] + "』、『" +
+                    MODE_TITLES[MODE_CARD] + "』与『" + MODE_TITLES[MODE_VINYL] + "』。" +
+                    "它们占同一个槽位 player.background，" +
                     "「设置 → 主题 → 播放页面背景」里同时只能选中一个。",
             }, env),
             kit.card({ children: statusRows() }, env),
@@ -1100,7 +1197,8 @@ function settingsView(args) {
                             return { value: value, label: String(value) };
                         })),
                     choiceControl("背景放大倍数（" + ZOOM_MIN + "~" + ZOOM_MAX + "）",
-                        "两种模式共用：数值越大画面越局部（1 = 封面铺满、内容最完整）",
+                        "『模糊热浪』与『渐变贴边』共用：数值越大画面越局部" +
+                        "（1 = 封面铺满、内容最完整）",
                         "zoom", configuredZoom(), SETTINGS_VIEW_ID,
                         ZOOM_CHOICES.map(function (value) {
                             return { value: value, label: value + "×" };
@@ -1112,6 +1210,12 @@ function settingsView(args) {
                         SHARE_CHOICES.map(function (value) {
                             return { value: value, label: Math.round(value * 100) + "%" };
                         })),
+                    choiceControl("唱片转速（只影响『黑胶』）",
+                        "盘心的封面转一圈的快慢：1× 是 " + VINYL_SPIN_SECONDS + " 秒一圈",
+                        "spin", configuredSpin(), SETTINGS_VIEW_ID,
+                        SPIN_CHOICES.map(function (value) {
+                            return { value: value, label: value + "×" };
+                        })),
                 ],
             }, env),
             kit.card({
@@ -1121,7 +1225,7 @@ function settingsView(args) {
                         "关掉后『模糊热浪』只剩缓慢漂移、『渐变贴边』完全静止",
                         configuredRipple()),
                     switchControl("hideIcon", "隐藏歌曲图",
-                        "背景是本插件的两种模式之一时，接管播放页中间的歌曲图" +
+                        "背景是本插件的三种模式之一时，接管播放页中间的歌曲图" +
                         "（保留占位、不显示内容）",
                         configuredHideIcon()),
                 ],
@@ -1150,12 +1254,12 @@ function settingsView(args) {
     };
 }
 
-/// 说明页（主页入口）：这个插件做了什么、两种模式各是什么样
+/// 说明页（主页入口）：这个插件做了什么、三种模式各是什么样
 function cardView(args) {
     const env = viewEnv(args);
     return {
         title: PLUGIN_TITLE,
-        subtitle: "playing_bg_image：两种播放页背景模式 + 歌曲图接管 + 封面取色",
+        subtitle: "playing_bg_image：三种播放页背景模式 + 歌曲图接管 + 封面取色",
         blocks: [
             kit.hint({
                 text: "• 『" + MODE_TITLES[MODE_BLUR] + "』：" + MODE_DEPICTS[MODE_BLUR] +
@@ -1169,9 +1273,17 @@ function cardView(args) {
                     "最后按主题叠一层亮暗遮罩 —— 遮罩色就是主题背景色，浅色主题提亮、深色主题压暗。",
             }, env),
             kit.hint({
-                text: "• 两种模式都能开关『热浪扭曲波纹』（热浪场的轻微折射感）与『隐藏歌曲图』" +
+                text: "• 『" + MODE_TITLES[MODE_VINYL] + "』：底色是封面主色，中间一张黑胶唱片 ——" +
+                    "盘面有细密的音轨纹路，一道来自左上方的柔光与外缘倒角高光；盘心圆裁当前封面" +
+                    "并缓慢旋转（转速档位 " + SPIN_CHOICES.join("× / ") + "×，1× 是 " +
+                    VINYL_SPIN_SECONDS + " 秒一圈），盘沿上方一支白色唱臂（转轴圆钮 + 折线臂管" +
+                    "（肘部圆角过渡，像手臂那样折一下）+ 贴着盘沿的一小段唱头壳，周围一圈很软的" +
+                    "淡阴影）压在盘面外圈。没有封面时盘心画一个两色渐变的标签。",
+            }, env),
+            kit.hint({
+                text: "• 三种模式都能开关『热浪扭曲波纹』（热浪场的轻微折射感）与『隐藏歌曲图』" +
                     "（背景是本插件的样式时接管播放页中间的歌曲图：保留占位、不画内容 —— " +
-                    "封面已经铺满画面，原来的封面圆盘与它重复）。",
+                    "封面已经铺满画面 / 已经在盘心，原来的封面圆盘与它重复）。",
             }, env),
             kit.hint({
                 text: "• 封面取色由本插件提供（钩子 musicxx.media.palette.provide）：把封面缩到 " +
@@ -1212,17 +1324,17 @@ musicxx.capability.register("settings", function (args) {
 
 /// 控件值变化统一入口：控件把自己的 `id` 与当前值带进参数
 ///
-/// 模式选择走槽位动作（`musicxx.render.select`，异步）；其余四项写 config.json 并重新登记
-/// 两个背景样式（`updateEntry` 是整体替换）；处理器**同步返回**页面（动作结果稍后由页面
+/// 模式选择走槽位动作（`musicxx.render.select`，异步）；其余几项写 config.json 并重新登记
+/// 三个背景样式（`updateEntry` 是整体替换）；处理器**同步返回**页面（动作结果稍后由页面
 /// 自己从状态镜像读到，见 [currentMode]）。
 musicxx.capability.register("setOption", function (args) {
     const id = (args && typeof args.id === "string") ? args.id : "";
     const value = args ? args.value : null;
     if (id === "mode") {
-        if (value === MODE_BLUR || value === MODE_CARD) {
+        if (value === MODE_BLUR || value === MODE_CARD || value === MODE_VINYL) {
             requestSlotSelect(
                 BACKGROUND_SLOT,
-                (value === MODE_BLUR) ? BG_ITEM_ID : CARD_ITEM_ID,
+                ITEM_OF_MODE[value],
                 "切到" + MODE_SHORT[value],
                 false);
         } else if (value === MODE_BUILTIN) {
@@ -1230,7 +1342,7 @@ musicxx.capability.register("setOption", function (args) {
         }
         return { view: pageView(args) };
     }
-    if (id === "blur" || id === "zoom" || id === "share" ||
+    if (id === "blur" || id === "zoom" || id === "share" || id === "spin" ||
         id === "ripple" || id === "hideIcon") {
         saveConfig(id, value);
         // 关掉「隐藏歌曲图」时立刻交还，不用等下一秒的跟随检查
@@ -1266,5 +1378,5 @@ musicxx.capability.register("clearPaletteCache", function (args) {
 });
 
 musicxx.host.log(2, "playing_bg_image（" + PLUGIN_TITLE + "）已装载：背景样式『" +
-    MODE_TITLES[MODE_BLUR] + "』/『" + MODE_TITLES[MODE_CARD] +
-    "』+ 歌曲图接管项 + 封面取色钩子");
+    MODE_TITLES[MODE_BLUR] + "』/『" + MODE_TITLES[MODE_CARD] + "』/『" +
+    MODE_TITLES[MODE_VINYL] + "』+ 歌曲图接管项 + 封面取色钩子");
