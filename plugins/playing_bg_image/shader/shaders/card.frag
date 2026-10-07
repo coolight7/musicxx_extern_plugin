@@ -1,6 +1,6 @@
 #version 460 core
 
-// 播放页背景『渐变贴边』（示例封面背景 · 模式二）：封面主色做渐变底，清晰封面贴着屏幕的
+// 播放页背景『沉浸』（示例封面背景 · 模式二）：封面主色做渐变底，清晰封面贴着屏幕的
 // 边缘铺一片（自由边模糊渐隐），最后按主题叠一层亮暗遮罩。
 //
 //   · 竖屏（res.y >= res.x）：封面贴上、左、右三条边 —— 占满宽度，高度取
@@ -55,7 +55,7 @@ const float kFreeFadeStart = 0.72;
 const float kEdgeBlurPixels = 12.0;
 const float kEdgeBlurWeight = 0.85;
 
-// 热浪强度（像素）与斑块的疏密、游走速度（与『模糊热浪』同一份场，观感一致）
+// 热浪强度（像素）与斑块的疏密、游走速度（与『模糊』同一份场，观感一致）
 const float kHeatPixels = 5.0;
 const float kHeatScale = 5.2;
 const float kHeatSpeed = 0.32;
