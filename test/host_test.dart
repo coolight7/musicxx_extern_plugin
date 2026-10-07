@@ -657,7 +657,7 @@ void main() {
       expect(
         (backgrounds[0].data['shader']! as Map<String, Object?>)['bundle'],
         'shader/heat.shaderbundle',
-        reason: '第一个是『模糊热浪』',
+        reason: '第一个是『模糊』',
       );
       expect(
         (backgrounds[0].data['cover']! as Map<String, Object?>)['blur'],
@@ -667,12 +667,12 @@ void main() {
       expect(
         (backgrounds[1].data['shader']! as Map<String, Object?>)['bundle'],
         'shader/card.shaderbundle',
-        reason: '第二个是『渐变贴边』（清晰封面 + 渐变底 + 亮暗遮罩）',
+        reason: '第二个是『沉浸』（清晰封面 + 渐变底 + 亮暗遮罩）',
       );
       expect(
         (backgrounds[1].data['cover']! as Map<String, Object?>)['blur'],
         0,
-        reason: '『渐变贴边』的封面卡片要是原图，不做预模糊',
+        reason: '『沉浸』的封面卡片要是原图，不做预模糊',
       );
       expect(
         (backgrounds[2].data['shader']! as Map<String, Object?>)['bundle'],

@@ -1,7 +1,7 @@
 # 打包本插件（playing_bg_image / 示例封面背景）的三个 shader bundle（Windows 用 pwsh）
 #
-#   bundle.json       + shaders/full.vert + shaders/heat.frag  → heat.shaderbundle（『模糊热浪』）
-#   bundle_card.json  + shaders/full.vert + shaders/card.frag  → card.shaderbundle（『渐变贴边』）
+#   bundle.json       + shaders/full.vert + shaders/heat.frag  → heat.shaderbundle（『模糊』）
+#   bundle_card.json  + shaders/full.vert + shaders/card.frag  → card.shaderbundle（『沉浸』）
 #   bundle_vinyl.json + shaders/full.vert + shaders/vinyl.frag → vinyl.shaderbundle（『黑胶』）
 #
 # 用法：

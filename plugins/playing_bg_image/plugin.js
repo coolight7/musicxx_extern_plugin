@@ -4,12 +4,12 @@
 ///
 /// 1. **播放页背景的三种模式**（渲染槽位 `player.background`，同一个槽位里的三个候选样式）：
 ///
-///    · 『示例封面背景 · 模糊热浪』（`shader/heat.shaderbundle`）：当前歌曲封面预模糊后放大
+///    · 『示例封面背景 · 模糊』（`shader/heat.shaderbundle`）：当前歌曲封面预模糊后放大
 ///      铺满屏幕、缓慢四处漂移，局部偶尔轻微扭曲 —— 类似夏天地面温度高、空气被折射时看到的
 ///      轻微晃动。模糊程度（0~30）与放大倍数（1~3）在设置页里调，扭曲波纹可以关掉；
 ///      没有封面时回退成暗底 + 光斑。
 ///
-///    · 『示例封面背景 · 渐变贴边』（`shader/card.shaderbundle`）：封面主色做渐变底，
+///    · 『示例封面背景 · 沉浸』（`shader/card.shaderbundle`）：封面主色做渐变底，
 ///      清晰封面贴着屏幕边缘铺一片 —— 竖屏贴上、左、右三条边（下边缘模糊渐隐），横屏贴左、
 ///      上、下三条边（右边缘模糊渐隐）；放大倍数（1~3）只改取景（越大越局部），
 ///      最后按主题叠一层亮暗遮罩（遮罩色就是主题背景色，浅色主题提亮、深色主题压暗）。
@@ -29,7 +29,7 @@
 /// 3. **封面取色**（钩子 `musicxx.media.palette.provide`）：自己算封面配色 ——
 ///    把封面缩到 64×64 读 RGBA，按 4 bit/通道量化统计，取出现次数最多的 4 个色点，
 ///    按亮度映射成 main / light / lightMuted / dark / darkMuted，替代内置的颜色分析。
-///    『渐变贴边』的渐变底用的就是这套颜色（`musicxx.icon.main` / `musicxx.icon.dark`），
+///    『沉浸』的渐变底用的就是这套颜色（`musicxx.icon.main` / `musicxx.icon.dark`），
 ///    『黑胶』的底色也从它来（`musicxx.icon.themeMapping.0` / `.1`；唱臂是固定的近白色）。
 ///
 /// 设置（6 项，存在插件目录的 config.json）：模糊程度、放大倍数、图片占比、唱片转速、
@@ -55,13 +55,13 @@ const MODE_BUILTIN = "builtin";
 
 /// 模式的显示名与副标题（设置列表里的样式名 = 这里的标题）
 const MODE_TITLES = {};
-MODE_TITLES[MODE_BLUR] = PLUGIN_TITLE + " · 模糊热浪";
-MODE_TITLES[MODE_CARD] = PLUGIN_TITLE + " · 渐变贴边";
+MODE_TITLES[MODE_BLUR] = PLUGIN_TITLE + " · 模糊";
+MODE_TITLES[MODE_CARD] = PLUGIN_TITLE + " · 沉浸";
 MODE_TITLES[MODE_VINYL] = PLUGIN_TITLE + " · 黑胶";
 /// 模式的短名（状态行里用；完整标题太长，窄窗口里放不下）
 const MODE_SHORT = {};
-MODE_SHORT[MODE_BLUR] = "模糊热浪";
-MODE_SHORT[MODE_CARD] = "渐变贴边";
+MODE_SHORT[MODE_BLUR] = "模糊";
+MODE_SHORT[MODE_CARD] = "沉浸";
 MODE_SHORT[MODE_VINYL] = "黑胶";
 const MODE_DEPICTS = {};
 MODE_DEPICTS[MODE_BLUR] =
@@ -114,7 +114,7 @@ const BUILTIN_ICON_ID = "builtin:default";
 /// `cover.blur` 是**纹理上的** sigma：纹理铺满屏幕后再放大，屏幕上看到的模糊 ≈
 /// `blur × 纹理→屏幕的放大倍数` —— 512 的纹理在 1280 宽的窗口里大约放大 5 倍，
 /// 所以 30 会糊成一片渐变（只剩色带），14 才能看出封面的大致内容。
-/// 两个模式各用一份纹理：『模糊热浪』按设置预模糊，『渐变贴边』要清晰（blur = 0）。
+/// 两个模式各用一份纹理：『模糊』按设置预模糊，『沉浸』要清晰（blur = 0）。
 const COVER_TEXTURE = "uCover";
 const COVER_INFO = "uCoverInfo";
 const BLUR_COVER_SIZE = 512;
@@ -130,7 +130,7 @@ const BLUR_DEFAULT = 14;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 3;
 const ZOOM_DEFAULT = 2;
-/// 图片占比（只影响『渐变贴边』）：图片至少占屏幕这个比例，越大图片越多、渐变底越少
+/// 图片占比（只影响『沉浸』）：图片至少占屏幕这个比例，越大图片越多、渐变底越少
 const SHARE_MIN = 0.3;
 const SHARE_MAX = 1;
 const SHARE_DEFAULT = 0.75;
@@ -234,7 +234,7 @@ function setConfigValue(key, value) {
     configSettled[key] = true;
 }
 
-/// 『模糊热浪』的预模糊强度（0~30）
+/// 『模糊』的预模糊强度（0~30）
 function configuredBlur() {
     return configValue("blur");
 }
@@ -244,7 +244,7 @@ function configuredZoom() {
     return configValue("zoom");
 }
 
-/// 图片占比（只影响『渐变贴边』：图片至少占屏幕这个比例）
+/// 图片占比（只影响『沉浸』：图片至少占屏幕这个比例）
 function configuredShare() {
     return configValue("share");
 }
@@ -267,7 +267,7 @@ function configuredHideIcon() {
 /// 把设置应用到三个背景样式
 ///
 /// `musicxx.ui.updateEntry` 是**整体替换**（每次都取完整的 data），宿主收到后会刷新候选；
-/// 正在使用的样式立即换用新参数（封面纹理按新参数重新解码一次，『模糊热浪』改模糊程度时
+/// 正在使用的样式立即换用新参数（封面纹理按新参数重新解码一次，『模糊』改模糊程度时
 /// 就能当场看到变化；『黑胶』改转速只换 `speed`，正在画的封面下一帧就按新转速转）。
 function applySettings() {
     musicxx.ui.updateEntry(BG_ITEM_NAME, blurBackgroundData());
@@ -313,7 +313,7 @@ function saveConfig(key, value) {
 
 /* ==================== UI 项声明 ==================== */
 
-/// 『模糊热浪』的完整声明
+/// 『模糊』的完整声明
 ///
 /// 封面纹理每帧绑定到 `uCover`，`(纹理宽, 纹理高, 原图宽高比, 是否有封面)` 写进 `uCoverInfo`；
 /// 两个绘制色跟着封面配色走（取色钩子提供的算法），没有分析结果时用固定色。
@@ -352,9 +352,9 @@ function blurBackgroundData() {
     };
 }
 
-/// 『渐变贴边』的完整声明
+/// 『沉浸』的完整声明
 ///
-/// 与『模糊热浪』的区别：清晰封面（`blur: 0`，尺寸给大一点，卡片里是原图）+ 封面主色做的
+/// 与『模糊』的区别：清晰封面（`blur: 0`，尺寸给大一点，卡片里是原图）+ 封面主色做的
 /// 渐变底 + 按主题叠的亮暗遮罩；图片占比（`uShare`）决定图片至少占屏幕多少（越大图片越多、
 /// 渐变底越少），取景与卡片贴边都由着色器按屏幕方向决定。
 function cardBackgroundData() {
@@ -389,7 +389,7 @@ function cardBackgroundData() {
                 fallback: "#12151c",
             },
             uZoom: { kind: "const", value: configuredZoom() },
-            // 图片占比（只在『渐变贴边』里用：图片至少占屏幕的这个比例）
+            // 图片占比（只在『沉浸』里用：图片至少占屏幕的这个比例）
             uShare: { kind: "const", value: configuredShare() },
             uRipple: { kind: "const", value: configuredRipple() ? 1 : 0 },
         },
@@ -632,7 +632,7 @@ const PALETTE_TOP_COLORS = 4;
 ///
 /// 数量不足时按已有的复用（只求"这套颜色来自封面"）。这里同时做一点调整：
 /// 最亮的提亮一点、最暗的压暗一点，让内置背景与插件背景都有明暗层次可用 ——
-/// 『渐变贴边』的渐变底（`musicxx.icon.main` → `musicxx.icon.dark`）用的就是这两个。
+/// 『沉浸』的渐变底（`musicxx.icon.main` → `musicxx.icon.dark`）用的就是这两个。
 function paletteFromTopColors(picked) {
     if (!picked || picked.length === 0) {
         return null;
@@ -976,7 +976,7 @@ function paletteDetailText() {
 /// 一行「标题 + 说明 + 右侧状态」
 ///
 /// 不用 kit 的 `listRow` / `settingRow`：它们的右侧文本没有宽度约束，状态文字一长
-/// （例如"示例封面背景 · 模糊热浪（生效中 · 当前不在画）"）在窄窗口里会把整行撑出可见区域
+/// （例如"示例封面背景 · 模糊（生效中 · 当前不在画）"）在窄窗口里会把整行撑出可见区域
 /// （报 `RenderFlex overflow`），左侧说明还会被挤成一字一行、整页被拉得很长。
 /// 这里两侧都放进 `Expanded`（左 3 右 2），文字各自在给定宽度里换行 —— 不论状态文字多长都不会溢出。
 function infoRow(title, depict, value) {
@@ -1033,7 +1033,7 @@ function statusRows() {
         infoRow(
             "封面取色",
             "钩子 musicxx.media.palette.provide：统计封面里出现最多的 4 个色点（" +
-            paletteDetailText() + "）；『渐变贴边』的渐变底与『黑胶』的底色用的就是它写的颜色",
+            paletteDetailText() + "）；『沉浸』的渐变底与『黑胶』的底色用的就是它写的颜色",
             paletteStateText()),
         infoRow(
             "渲染状态",
@@ -1163,8 +1163,8 @@ function choiceControl(title, help, id, current, viewId, options) {
 function modeControl(viewId) {
     return choiceControl("选择模式", "",
         "mode", currentMode(), viewId, [
-        { value: MODE_BLUR, label: "模糊热浪" },
-        { value: MODE_CARD, label: "渐变贴边" },
+        { value: MODE_BLUR, label: "模糊" },
+        { value: MODE_CARD, label: "沉浸" },
         { value: MODE_VINYL, label: "黑胶" },
         { value: MODE_BUILTIN, label: "内置背景" },
     ]);
@@ -1197,13 +1197,13 @@ function settingsView(args) {
                             return { value: value, label: String(value) };
                         })),
                     choiceControl("背景放大倍数（" + ZOOM_MIN + "~" + ZOOM_MAX + "）",
-                        "『模糊热浪』与『渐变贴边』共用：数值越大画面越局部" +
+                        "『模糊』与『沉浸』共用：数值越大画面越局部" +
                         "（1 = 封面铺满、内容最完整）",
                         "zoom", configuredZoom(), SETTINGS_VIEW_ID,
                         ZOOM_CHOICES.map(function (value) {
                             return { value: value, label: value + "×" };
                         })),
-                    choiceControl("图片占比（只影响『渐变贴边』）",
+                    choiceControl("图片占比（只影响『沉浸』）",
                         "图片至少占屏幕的比例：越大图片越多、渐变底越少" +
                         "（图片按卡片铺满、超出部分裁掉）",
                         "share", configuredShare(), SETTINGS_VIEW_ID,
@@ -1222,7 +1222,7 @@ function settingsView(args) {
                 title: "开关",
                 children: [
                     switchControl("ripple", "热浪扭曲波纹",
-                        "关掉后『模糊热浪』只剩缓慢漂移、『渐变贴边』完全静止",
+                        "关掉后『模糊』只剩缓慢漂移、『沉浸』完全静止",
                         configuredRipple()),
                     switchControl("hideIcon", "隐藏歌曲图",
                         "背景是本插件的三种模式之一时，接管播放页中间的歌曲图" +
