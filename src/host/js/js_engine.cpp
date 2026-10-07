@@ -864,6 +864,19 @@ constexpr const char *kPrelude = R"JS(
     openRoute: function (route, args) {
       return musicxx.call("musicxx.ui.openRoute", { route: String(route), arguments: args });
     },
+    // 更换全局字体 (支持设置系统字体名, 或传入 'default'/null/'' 恢复默认)
+    setFontFamily: function (args) {
+      var req = (typeof args === "string") ? { fontFamily: args } : (args || {});
+      return musicxx.call("musicxx.ui.setFontFamily", req);
+    },
+    // 获取当前生效的全局字体与默认字体信息
+    getFontFamily: function () {
+      return musicxx.call("musicxx.ui.getFontFamily", {});
+    },
+    // 动态加载并注册字体文件 (支持插件目录相对路径 path 或 base64 data, 默认立即应用)
+    loadFont: function (options) {
+      return musicxx.call("musicxx.ui.loadFont", options || {});
+    },
     registerEntry: function (spec) {
       var entry = normalizeEntry(spec);
       uiTable.set(entry.name, { type: entry.type, order: entry.order, data: entry.data });

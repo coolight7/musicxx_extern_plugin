@@ -301,7 +301,8 @@ find_package(musicxx_extern_plugin CONFIG REQUIRED)
 musicxx_plugin_add_target(my_plugin
   SOURCES my_plugin.cpp
   MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.yaml"
-  ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/shader"   # 可选：随插件分发的资源
+  ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/shader"     # 可选：随插件分发的资源（如 shader bundle）
+         "${CMAKE_CURRENT_SOURCE_DIR}/resource"   # 可选：插件自己的图标（声明处写相对插件目录的路径）
 )
 ```
 
@@ -340,8 +341,10 @@ musicxx_plugin_add_target(my_plugin
 
 ```text
 my_plugin/
-├── plugin.yaml     # name / kind: js / version / api_version / permissions ...
-└── plugin.js       # 顶层同步注册钩子与能力
+├── plugin.yaml              # name / kind: js / version / api_version / permissions ...
+├── plugin.js                # 顶层同步注册钩子与能力
+└── resource/svg/example.svg # 可选：插件自己的图标（UI 项写 icon: "resource/svg/example.svg"，
+                             #   resource/svg/ 只是推荐位置）
 ```
 
 不需要 CMake、不需要编译；放进插件目录后「重新扫描」即可。完整 API、硬约束与排障见

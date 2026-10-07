@@ -28,7 +28,8 @@ void main() {
         'data': <String, Object?>{
           'title': '入口',
           'subtitle': '说明',
-          'icon': 'addition',
+          // 图标是插件自己带的 svg：写相对插件目录的路径（resource/svg/ 只是推荐位置）
+          'icon': 'resource/svg/entry.svg',
           'action': <String, Object?>{'kind': 'route', 'route': 'ext://demo/detail'},
         },
       },
@@ -42,7 +43,7 @@ void main() {
     expect(card.name, 'card');
     expect(card.title, '入口');
     expect(card.subtitle, '说明');
-    expect(card.icon, 'addition');
+    expect(card.icon, 'resource/svg/entry.svg');
     expect(card.actionKind, MusicxxPluginUIActionKind.route);
     expect(card.viewId, 'detail');
 

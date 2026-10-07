@@ -19,6 +19,10 @@ endif ()
 musicxx_plugin_add_target(example_native
   SOURCES example_native.cpp
   MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/plugin.yaml"
-  # 播放页背景样式用的 shader bundle（随插件分发；清单里的路径相对插件目录）
-  ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/shader"
+  # 随插件分发的资源（清单里的路径相对插件目录）
+  ASSETS
+    # 播放页背景样式用的 shader bundle
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader"
+    # 插件自己的图标（声明处写相对插件目录的路径，例如 "resource/svg/native.svg"）
+    "${CMAKE_CURRENT_SOURCE_DIR}/resource"
 )

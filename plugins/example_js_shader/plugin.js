@@ -718,6 +718,8 @@ musicxx.capability.register("toggleCoverHook", function (args) {
 });
 
 /// 主页入口: 打开插件说明页 (页面内容来自同名能力 `card`)
+/// 图标是**插件自己带的 svg**: 相对插件目录的路径 `resource/svg/shader.svg`
+/// (资源目录只是推荐位置, 宿主不接受自己的图标名)
 musicxx.ui.registerEntry({
     name: "card",
     type: "home.entry",
@@ -725,7 +727,7 @@ musicxx.ui.registerEntry({
     data: {
         title: "JS 背景插件示例",
         subtitle: "example_js_shader 提供的入口",
-        icon: "addition",
+        icon: "resource/svg/shader.svg",
         action: { kind: "route", route: "ext://example_js_shader/card" },
     },
 });

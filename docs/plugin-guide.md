@@ -27,8 +27,8 @@
 
 | 形态 | 目录内容 | 适合 | 代价 |
 |---|---|---|---|
-| **JS 插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走宿主网络 | 不能调系统 API，没有 `require`/`fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
-| **C++ 动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS / OHOS 不能加载未签名动态库 |
+| **JS 插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走宿主网络 | 不能调系统 API，没有 `require`/`fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
+| **C++ 动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS / OHOS 不能加载未签名动态库 |
 | **C++ 多目标包** | `plugin.yaml` + `lib/<系统>-<架构>/库文件` | 一个包同时发布 Windows / Linux / macOS / Android | 打包步骤多一些（分支选择规则见 [plugin-native-api.md](plugin-native-api.md) §1.3） |
 
 建议：**先用 JS 把想法跑通**（改完在管理页「重载」即可，不用编译），确实需要原生能力再换 C++；
@@ -186,9 +186,12 @@ musicxx.capability.register("card", function () {
   「插件『<插件id>』没有提供『xxx』」；
 - **动作写法只有四种**：`route` / `dispatch` / `command` / `none`（`route` 允许跳到任意插件的
   `ext://<插件id>/<视图id>` 页面）；
-- **组件要按客户端能力降级**：`host.info().ui` 是客户端如实上报的能力段 —— 它支持哪些块、控件、
-  图标都在里面；用 `fallback` 或 kit 的变体处理不支持的情况（不要假设所有客户端都支持 `Image`、
+- **组件要按客户端能力降级**：`host.info().ui` 是客户端如实上报的能力段 —— 它支持哪些块、控件
+  都在里面；用 `fallback` 或 kit 的变体处理不支持的情况（不要假设所有客户端都支持 `Image`、
   `Icon` 或 `musicxx.Shader`）；
+- **图标要插件自己带**：写一条**相对插件目录**的 svg 路径（`icon: "resource/svg/logo.svg"`，
+  `resource/svg/` 只是推荐位置，可省 `.svg` 后缀）；能力段里**没有** `icons` 清单，写宿主图标名
+  等于没写图标（见 [plugin-ui.md](plugin-ui.md) §1.5）；
 - **块只画自己的职责**：文本就是一段文本、按钮就是一个按钮，没有隐含边距；要留白就自己写
   `margin` / `padding`（见 [plugin-ui.md](plugin-ui.md) §2.5 与 `docs/musicxx-ui-kit.md`）；
 - **字重只来自 `bold: true` 或 `type: "title"`**，正文不要指望客户端的默认字重。

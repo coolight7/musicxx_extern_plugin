@@ -141,6 +141,8 @@ applyHeartbeat(DEFAULT_HEARTBEAT_MS);
 
 /// 声明式 UI 扩展: 主页入口项 + 歌曲菜单项
 /// 说明: UI 项只做声明 (标题/图标/动作), 渲染由宿主负责; 运行期也能再注册/更新/注销。
+/// 图标是**插件自己带的 svg**: 写一条相对插件目录的路径, 文件在 `resource/svg/example.svg`
+/// (相对路径 + `resource/svg/` 只是推荐位置, 见 docs/plugin-ui.md §1.5)。
 musicxx.ui.registerEntry({
     name: "card",
     type: "home.entry",
@@ -148,7 +150,7 @@ musicxx.ui.registerEntry({
     data: {
         title: "JS 示例插件",
         subtitle: "example_js 提供的入口",
-        icon: "addition",
+        icon: "resource/svg/example.svg",
         action: { kind: "route", route: "ext://example_js/card" },
     },
 });

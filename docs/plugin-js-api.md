@@ -222,11 +222,14 @@ const ui = musicxx.host.info().ui;
 ui.kind        // "gui"（图形界面）或 "tui"（终端）
 ui.blocks      // 这个客户端真正支持的界面组件名（例如是否支持 "Icon" / "musicxx.Shader"）
 ui.controls    // 支持的控件形态（buttons / select / checkbox / switch / text / number）
-ui.icons       // 客户端认识的图标名（用得上再挑，其他情况交给 Icon 的 glyph）
 ui.gap         // 客户端默认行距（u）
 ui.cell        // 只有终端有：每个字符格相当于多少 u（图形界面没有这个字段）
 ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 ```
+
+- **图标不在能力段里**：musicxx 不接受宿主自己的图标名（`ui.icons` 不发布），插件要图标就
+  自带 svg —— 写一条**相对插件目录**的路径（`resource/svg/` 只是推荐位置，见
+  [plugin-ui.md](plugin-ui.md) §1.5）。
 
 - **判断"能不能用某个组件"要按 `blocks`/`controls` 判断**，不要按 `kind` 写两套内容；
   `kind` 只用于粗判断（比如终端不给图片、不推着色器）。
@@ -286,6 +289,9 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.ui.toast` | `{text}` | `{ok:true}` |
 | `musicxx.ui.dialog` | `{title?, content, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` |
+| `musicxx.ui.setFontFamily` | `{fontFamily?}`（字符串，传 `default` / `""` / `null` 恢复默认） | `{ok:true, fontFamily, isCustom}` 更换全局 `XXText*` 与输入框字体 |
+| `musicxx.ui.getFontFamily` | 无 | `{ok:true, fontFamily, defaultFontFamily, customFontFamily, isCustom}` |
+| `musicxx.ui.loadFont` | `{family, path?, data?, apply?=true}` | `{ok:true, family, applied}` 加载注册字体并可选立即设为全局字体 |
 | `musicxx.storage.get` | `{key, namespace?}` | **值本身**（键不存在 → 空应答，JS 封装回退到默认值） |
 | `musicxx.storage.set` | `{key, value, namespace?}` | `{ok:true}` 或 `{ok:false,error}` |
 | `musicxx.storage.delete` | `{key, namespace?}` | 同上 |
