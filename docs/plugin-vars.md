@@ -28,6 +28,7 @@
 | `musicxx.ui.particleAnimate` | get+set+notify | bool | low | 点击/拖动的粒子效果 |
 | `musicxx.ui.songIconRotate` | get+set+notify | bool | low | 播放时圆形歌曲图旋转（方形歌曲图下不生效） |
 | `musicxx.ui.songIconWave` | get+set+notify | bool | low | 播放时歌曲图随节拍起伏（方形歌曲图下不生效） |
+| `musicxx.ui.fontFamily` | get+set+notify | 字符串（如 `"Microsoft YaHei"`；设置 `default`、空串或 `null` 恢复默认） | low | 全局 `XXText*` 与输入框使用的字体名称 |
 
 ## 主题（`musicxx.theme.*`）
 
