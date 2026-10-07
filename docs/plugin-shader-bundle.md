@@ -16,11 +16,14 @@
 > 频带，尖角向内外凸出、相邻点之间用直线连成一张"蛛网"，不画基线圆），照抄同一份打包脚本即可编译。
 > 基线版本 3.47.5 的 Flutter SDK
 > 编译出来的 bundle 可以直接用（`format_version = 2`）。
-> 另一个现成的例子是 `plugins/playing_bg_image/shader/`（插件名「示例封面背景」，**两种背景模式
+> 另一个现成的例子是 `plugins/playing_bg_image/shader/`（插件名「示例封面背景」，**三种背景模式
 > 各自一个 bundle**）：**「模糊热浪」**（`shaders/heat.frag`：封面预模糊后放大铺满屏幕、缓慢四处
-> 漂移、局部偶尔轻微扭曲，模糊程度 0~30 与放大倍数 1~3 由插件的设置页决定）与**「渐变贴边」**
+> 漂移、局部偶尔轻微扭曲，模糊程度 0~30 与放大倍数 1~3 由插件的设置页决定）、**「渐变贴边」**
 > （`shaders/card.frag`：封面主色做渐变底、清晰封面贴着屏幕边缘铺一片（图片占比可调，越大图片越多）、自由边模糊渐隐，
-> 再按主题叠一层亮暗遮罩；同一个 `player.background` 槽位里注册两项，用户选哪一项就是哪种模式）。
+> 再按主题叠一层亮暗遮罩）与**「黑胶」**（`shaders/vinyl.frag`：封面主色铺底、中间一张黑胶唱片 ——
+> 音轨纹路 + 左上柔光 + 外缘倒角高光，盘心圆裁封面（`cover.square = true`）并按 `speed` 旋转，
+> 右上方一支白亮唱臂（线段距离场画的管身与针杆）、唱针落在盘边；同一个 `player.background` 槽位里
+> 注册三项，用户选哪一项就是哪种模式）。
 > 它同时演示了歌曲图槽位（§5.3）与封面取色钩子 —— 见 `plugins/playing_bg_image/plugin.js`。
 
 ---
@@ -55,9 +58,10 @@
 
 一个插件可以有**多个** bundle（同一个槽位注册多项，或者不同槽位/页面各用一个），
 每个 bundle 一份描述文件 + 一个产物文件即可。
-（`plugins/playing_bg_image/` 是另一种布局：两种背景模式的两个 bundle 共用一份顶点着色器
-`shaders/full.vert`，描述文件是 `bundle.json` → `heat.shaderbundle` 与
-`bundle_card.json` → `card.shaderbundle`，同一个 `build_bundle.ps1` 逐个编译。）
+（`plugins/playing_bg_image/` 是另一种布局：三种背景模式的三个 bundle 共用一份顶点着色器
+`shaders/full.vert`，描述文件是 `bundle.json` → `heat.shaderbundle`、
+`bundle_card.json` → `card.shaderbundle` 与 `bundle_vinyl.json` → `vinyl.shaderbundle`，
+同一个 `build_bundle.ps1` 逐个编译。）
 
 `bundle.json`：
 
@@ -238,6 +242,9 @@ void main() {
   是铺满所需的最小倍率）—— `plugins/playing_bg_image` 就是这么做的（设置页可切 1× / 1.5× / 2× /
   2.5× / 3×，真机自检里有"倍率越大画面越局部"的回归用例；`card.frag` 是同一个套路的第二种用法：
   卡片尺寸固定、只把纹理在卡片里放大，居中取景）；
+- 要把封面裁成**圆形**（唱片标签、头像那样的圆形封面），声明 `"square": true`（纹理是中心裁剪的
+  正方形），再在圆内用 `uv = 圆内坐标 × 0.5 + 0.5` 采样：圆内正好对应纹理的内切圆
+  （`plugins/playing_bg_image` 的『黑胶』盘心就是这么做的，见 `shaders/vinyl.frag`）。
 - 没声明 `cover` 时**零成本**：不解码、不上传、不占显存（一张 512×512 的纹理约 1 MiB）；
   连参数里都没问 `musicxx.env.hasCover` 时，渲染每帧也不会去读"现在有没有封面"；
 - **不保留解码结果**：纹理只活在"正在用它的那个渲染视图"里 —— 视图销毁、用户切回内置样式、
@@ -374,12 +381,12 @@ void main() {
   颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
 - 槽位状态镜像：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
-  例如"背景是自己时才接管歌曲图"这种跟随（`plugins/playing_bg_image` 就是这么做的：它的两种
+  例如"背景是自己时才接管歌曲图"这种跟随（`plugins/playing_bg_image` 就是这么做的：它的三种
   背景模式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
 - 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时
   自动回退内置显示，原因写在设置列表的那一行。
 
-完整示例：`plugins/playing_bg_image/`（两种背景模式 + 歌曲图接管 + 封面取色三件事一起做的插件）。
+完整示例：`plugins/playing_bg_image/`（三种背景模式 + 歌曲图接管 + 封面取色三件事一起做的插件）。
 
 ---
 
