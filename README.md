@@ -7,11 +7,12 @@
 
 | 你要做的事 | 读这篇 |
 |---|---|
+| 给 **AI Agent / 自动化脚本** 的浓缩指南（宿主是什么 / 框架怎么跑 / 插件怎么写 / 命令 / 排障） | [AGENTS.md](AGENTS.md) |
 | **第一次写插件**（选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查） | [docs/plugin-guide.md](docs/plugin-guide.md) |
 | 写一个 **C++ 动态库插件**（钩子 / 能力 / 动作 / 日志） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
 | 写一个 **JS 脚本插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
-| 给插件加**界面**（主页入口、歌曲菜单、插件页面、设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
+| 给插件加**界面**（主页入口、歌曲菜单、插件页面、插件自己画的设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
 | 用**命令行 / MCP** 装插件、刷新、看日志（AI agent 与自动化） | [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md) |
 | 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
 | 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
@@ -21,7 +22,7 @@
 简而言之理解：
 
 - **两种插件形态**：C++ 动态库（同进程、能自己起线程、iOS/OHOS 不可用）与 JS 脚本
-  （零编译、跨平台、能力处理器必须同步返回）；两者共用同一套钩子、UI、动作约定；
+  （零编译、跨平台、处理器可以同步返回也可以返回 Promise）；两者共用同一套钩子、UI、动作约定；
 - **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面）/ shader 由宿主渲染；
 - **动态加载 shader 支持**：插件可以利用 `flutter_gpu` 编译 shader，并打包进插件安装包内，宿主可以在运行时动态加载并渲染
 - **宿主是可选功能**：宿主库缺失或初始化失败时应用照常启动，只是没有外部插件。
@@ -30,6 +31,7 @@
 ## 目录
 
 ```
+AGENTS.md            Agent 指南（宿主 / 框架 / 插件开发 / 命令 / 排障的浓缩版，给 AI 与自动化脚本）
 src/CMakeLists.txt   顶层 superbuild：XX_IS_* 平台/编译器宏 → BoostConfig.cmake → ExternalProject_Add 构建依赖 → 构建宿主工程
 src/include/         Dart ⇄ 原生 C ABI v1（musicxx_extern_plugin_api.h，ffigen 入口，唯一导出约定）
 src/host/            宿主工程（嵌套构建，CMakeLists.txt 里用 find_package 取依赖）
@@ -59,13 +61,14 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
+  example_js_font/  示例插件（JS：全局字体切换 —— 系统字体 / 插件自带字体文件 / 恢复默认，演示"按钮动作立刻返回 + 后台执行"）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 装载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
 docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 应用是否已接入 + 已接入钩子的载荷与裁决）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
-docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 装配内容/设置页写法）
+docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 装配内容/插件自己的设置页写法）
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
 docs/plugin-agent-cli.md 用命令行 / MCP 装插件、刷新、看日志（开发期快捷控制，给 AI agent 与自动化）
@@ -507,16 +510,17 @@ final List<MusicxxPluginUIItem> next =
 - **领域接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张已实现；
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由应用侧分派；
-- **钩子**：约定 66 个（33 观察 / 33 裁决，其中 13 个异步派发的裁决钩子）；
-  应用侧当前**已接入 9 个**（`docs/plugin-hooks.md` 的「应用是否已接入」列标「已接入」），其余注册成功但不会触发；
+- **钩子**：约定 68 个（34 观察 / 34 裁决，其中 49 个异步派发）；
+  应用侧当前**已接入 11 个**（`docs/plugin-hooks.md` 的「应用是否已接入」列标「已接入」），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入宿主库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由宿主线程执行；
   裁决处理器可以返回 Promise（宿主一直等到它结算，结算后裁决生效）；
-- **声明式 UI**：UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景）与插件自绘页面
-  （`ext://<插件id>/<视图id>`）都已实现；应用侧当前渲染主页入口、歌曲菜单与插件页面，
-  **歌单菜单项还没有渲染入口**（见 `docs/plugin-ui.md` §1.4）；
-- **插件渲染**：`player.background` 槽位已接入（插件交付 shader bundle，宿主运行期加载渲染，
-  未选中时零成本）；页面里可以内联 `Shader` 块；
+- **声明式 UI**：UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景 / 播放页歌曲图）与插件自绘页面
+  （`ext://<插件id>/<视图id>`）都已实现；应用侧的主页入口、歌曲菜单、歌单菜单与插件页面都已有渲染点
+  （字段与渲染表现见 `docs/plugin-ui.md`）；
+- **插件渲染**：两个渲染槽位都已接入 —— `player.background`（播放页背景）与 `player.icon`
+  （播放页歌曲图，可接管的形态有 `shader` / 界面视图 / 只占位三种）。插件交付 shader bundle（或界面视图），
+  宿主运行期加载并渲染；**用户选中才生效**，没被选中时零成本。插件页面里还可以内联 `Shader` 块；
 - **配置与网络**：插件配置放在插件目录的 `config.json`（插件自己读写，框架不渲染配置表单）；
   `musicxx.net.fetch`/`download` 经应用统一网络栈（宿主不限定域名）；
 - **观测**：钩子统计（调用 / 耗时 / 超时 / 失败 / 被暂停的处理器）、插件各阶段耗时、注册项计数、
@@ -545,7 +549,7 @@ final List<MusicxxPluginUIItem> next =
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络（可选便利通道） | `musicxx.net.fetch/download` | 经宿主网络栈；宿主不限定可访问域名 |
 | 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单（当前版本无渲染点）/ 播放页背景；字段见 `docs/plugin-ui.md` |
-| 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→原生投递宿主线程、脚本不阻塞；处理器必须同步返回 |
+| 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→原生投递宿主线程、脚本不阻塞；JS 处理器可以同步返回，也可以返回 Promise（宿主等到结算）；C++ 处理器同步返回 |
 | 插件页面 | `ext://<插件id>/<视图id>` | 宿主调用插件同名能力取视图描述（Text / Divider / Button / Block / 布局块 / Shader 块） |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |
 
@@ -562,7 +566,7 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests
 ```
 
 ```powershell
-dart run tools/gen_contract.dart --check                 # 约定生成物一致（66 个钩子；改动 hooks.def.json 后必须重新生成）
+dart run tools/gen_contract.dart --check                 # 约定生成物一致（68 个钩子；改动 hooks.def.json 后必须重新生成）
 flutter analyze                                          # 期望 0 issue
 flutter test                                             # 包内整套流程：宿主/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
 | 钩子总表（id / 模式 / 派发 / 应用是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
