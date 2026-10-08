@@ -19,6 +19,7 @@
 | 演示示例 | `example_js_async` | JS 脚本：裁决型钩子返回 Promise（异步裁决：宿主一直等到结算，结算后裁决生效） |
 | 演示示例 | `example_js_vars` | JS 脚本：变量通道（登记插件变量、绑定与读写官方变量） |
 | 演示示例 | `example_js_multi_script` | JS 脚本：清单 `scripts` 多脚本按顺序装载（kit 随插件目录分发） |
+| 演示示例 | `example_js_font` | JS 脚本：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
 | 对照示例 | `example_js_broken` | JS 脚本：脚本语法错误 → 演示装载失败与回滚（**永远装载失败**） |
 | 对照示例 | `example_native_fail` | C++ 动态库：处理器总是失败 → 演示"失败只记统计"（不暂停、不卸载） |
 | 对照示例 | `example_native_bad_entry` | C++ 动态库：缺 `start`/`stop` 入口符号 → 演示装载阶段按约定拒绝（**永远装载失败**） |

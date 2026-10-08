@@ -405,6 +405,29 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 4. **生命周期自动恢复**：
    当设置字体的插件被停用或卸载、或插件宿主停止时，宿主会自动恢复为默认字体，避免残留不可用的字体配置。
 
+### 4.1 在页面按钮里切换字体：**处理器里不要 `await` 这些动作**
+
+换字体会重建整棵界面、耗时几百毫秒到几秒。页面按钮走的是 `dispatch` →
+`plugin_call`，**应用线程全程阻塞等这次能力调用返回**；处理器里 `await`
+`musicxx.ui.setFontFamily` / `loadFont` 就会与调用方互锁：
+
+- 应用侧表现：点一下**整个程序卡几秒**，然后插件收到 `action_timeout` 报"切换失败"，
+  可字体其实已经切过去了（动作是在超时之后才轮到应用线程处理的）；
+- 正确写法（可照抄 `plugins/example_js_font/plugin.js`）：
+  1. **立刻返回**：先按新模式画页面（乐观更新），处理器直接返回视图；
+  2. 动作**后台执行**：`musicxx.ui.setFontFamily(...)` 只跟 `.then(...)`，不 `await`；
+  3. 成功后把模式写进自己的状态与 `config.json`；失败就回滚显示、异步提示（那时调用早已返回，
+     用 `musicxx.ui.notify` 这类动作是安全的）；
+  4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
+     插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
+- 想知道"应用侧现在到底是什么字体"：`musicxx.vars.watch("musicxx.ui.fontFamily")` 保活后
+  用 `musicxx.vars.peek("musicxx.ui.fontFamily")` **同步**读缓存（值形如 `{value, revision, ageMs, stale}`），
+  不要为了显示状态再 `await` 一次 `vars.get`。
+
+> 这条规则对**所有**"改应用状态"的动作都成立（播放页背景、播放控制、存储写入…）：能力处理器必须
+> 快速返回，长活儿发给动作后在 `.then` 里收尾。处理器返回 Promise 时宿主会一直等它结算
+> （`plugin_call` 的等待上界是 5 秒，超时就是上面那种"卡几秒 + 失败"）。
+
 ---
 
 ## 5. 可照抄的示例
@@ -412,6 +435,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 | 示例 | 演示了什么 |
 |---|---|
 | `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 装配 |
+| `plugins/example_js_font/plugin.js` | 全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认）+ 文字与输入框字体预览；**按钮动作"立刻返回 + 后台执行"的样板**（见 §4.1） |
 | `plugins/example_js_shader/plugin.js` | 播放页背景样式（两种：晶格 / 光圈）+ 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 装配内容 |
 | `plugins/example_js_multi_script/` | 清单 `scripts` 多脚本装载：先跑随插件分发的 kit，再跑插件脚本 |

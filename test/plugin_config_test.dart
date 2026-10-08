@@ -12,6 +12,8 @@
 ///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要更新（不能停在"已请求"）。
 /// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
 ///   异步回读 —— 处理器里等动作会与同步进宿主的调用方互锁，只能等到 5 秒超时（这条用例守它）。
+/// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（乐观更新 +
+///   回读），处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
 ///
 /// 前置：先跑 `pwsh tools/build_native.ps1`（产出 `.native/output/<平台>-<配置>/`）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
@@ -480,6 +482,195 @@ void main() {
     expect(detail, contains('bandCount = 8'));
     expect(detail, contains('频带(%) = 10 / 20 / 30 / 40 / 50 / 60 / 70 / 80'));
     expect(detail, contains('位置 1s / 200s'));
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('example_js_font：字体切换立刻返回（动作后台执行，不再互锁到超时）', () async {
+    if (env == null || !env.hasPlugin('example_js_font')) {
+      markTestSkipped('未找到原生宿主库或字体示例插件，跳过（先运行 tools/build_native.ps1）');
+      return;
+    }
+
+    final Directory work = Directory.systemTemp.createTempSync(
+      'musicxx_plugin_font_test',
+    );
+    addTearDown(() {
+      if (work.existsSync()) {
+        work.deleteSync(recursive: true);
+      }
+    });
+
+    const String pluginId = 'example_js_font';
+    final Directory pluginRoot = _copyPlugin(env, work, pluginId);
+
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+    addTearDown(runtime.dispose);
+    _registerHostActions(runtime, pluginRoot.path);
+
+    /// 取页面视图：能力可以返回 `{view:{...}}`，也可以直接返回视图对象
+    /// （与 `ExternPluginViewBody._applyView` 同一套判定）
+    Map<String, Object?> viewOf(String method) {
+      final Object? raw = runtime.plugins.call(
+        pluginId,
+        'plugin.$pluginId.$method',
+        const <String, Object?>{},
+      );
+      expect(raw, isA<Map<String, Object?>>(), reason: '$method 应返回视图描述');
+      final Map<String, Object?> map = raw! as Map<String, Object?>;
+      final Object? view = map['view'] ?? map;
+      expect(view, isA<Map<String, Object?>>(), reason: '$method 的视图缺失');
+      return view! as Map<String, Object?>;
+    }
+
+    // 字体动作：故意做慢（400ms 同步阻塞，模拟应用侧"换字体重建整棵界面"）
+    //
+    // 这一步是关键：能力处理器里 `await` 这个动作时，动作要回到调用线程处理，而调用线程
+    // 正阻塞在这次能力调用里 —— 两边互等到动作超时（5 秒）。正确写法是"发出去就返回"。
+    final List<String> fontCalls = <String>[];
+    const Duration fontWork = Duration(milliseconds: 400);
+    runtime.actions.register(MusicxxPluginActionNames.uiSetFontFamily, (
+      invocation,
+    ) {
+      final String family = '${invocation.args['fontFamily']}';
+      fontCalls.add(family);
+      sleep(fontWork);
+      return <String, Object?>{
+        'ok': true,
+        'fontFamily': family,
+        'isCustom': family != 'default',
+      };
+    });
+    runtime.actions.register(MusicxxPluginActionNames.uiLoadFont, (invocation) {
+      final String family = '${invocation.args['family']}';
+      fontCalls.add('file:$family');
+      sleep(fontWork);
+      return <String, Object?>{
+        'ok': true,
+        'family': family,
+        'applied': true,
+        'fontFamily': family,
+      };
+    });
+    runtime.actions.register(
+      MusicxxPluginActionNames.uiToast,
+      (invocation) => <String, Object?>{'ok': true},
+    );
+
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: pluginRoot.path,
+        observeEvents: true,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    // 官方变量：插件顶层会 watch 它（应用侧就是 MusicxxVariableCatalog 的 musicxx.ui.fontFamily）
+    runtime.vars.declare(<MusicxxPluginVarDeclare>[
+      const MusicxxPluginVarDeclare(
+        key: 'musicxx.ui.fontFamily',
+        caps: <String>['get', 'notify'],
+        type: 'string',
+        hasValue: true,
+        value: 'default',
+      ),
+    ]);
+    runtime.plugins.scan();
+    runtime.plugins.load(pluginId);
+    expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+
+    // 页面：默认模式 + "应用侧生效字体"（同步读变量缓存）
+    Map<String, Object?> view = viewOf('card');
+    expect(_rowOf(view, '选择的模式')?['right'], contains('拟声默认'));
+
+    // 点『微软雅黑』：能力必须**立刻**返回
+    final Stopwatch watch = Stopwatch()..start();
+    final Object? selectRaw = runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.selectYahei',
+      const <String, Object?>{},
+    );
+    watch.stop();
+    expect(
+      watch.elapsedMilliseconds,
+      lessThan(1000),
+      reason:
+          '按钮能力必须立刻返回：处理器里 await 字体动作会与调用方互锁，'
+          '一直卡到动作超时（应用侧表现是整机卡几秒 + 报 action_timeout，但字体其实切成功了）',
+    );
+    expect(selectRaw, isA<Map<String, Object?>>());
+    final Object? selectView = (selectRaw! as Map<String, Object?>)['view'];
+    expect(selectView, isA<Map<String, Object?>>());
+    // 当场给反馈：按乐观更新显示新模式（这时动作还没被处理）
+    expect(
+      _rowOf(selectView! as Map<String, Object?>, '选择的模式')?['right'],
+      contains('微软雅黑'),
+    );
+    expect(fontCalls, isEmpty, reason: '动作还在后台排队（能力已经返回了）');
+
+    // 后台动作随后到达（慢动作 400ms）并落盘
+    final File config = File(
+      path.join(pluginRoot.path, pluginId, 'config.json'),
+    );
+    await _pumpUntil(
+      () => fontCalls.length == 1 && _readConfig(config)['fontMode'] == 'yahei',
+      runtime: runtime,
+    );
+    expect(fontCalls, <String>['Microsoft YaHei']);
+    expect(_readConfig(config)['fontMode'], 'yahei');
+
+    // 应用侧推一次官方变量（真实应用在字体变化时推）：页面用同步 peek 读到它
+    runtime.vars.update('musicxx.ui.fontFamily', 'Microsoft YaHei');
+    await _pumpUntil(
+      () => _rowOf(viewOf('card'), '应用侧生效字体')?['right'] == 'Microsoft YaHei',
+      runtime: runtime,
+    );
+    expect(
+      _rowOf(viewOf('card'), '应用侧生效字体')?['right'],
+      'Microsoft YaHei',
+      reason: '页面用 peek 同步读变量缓存（不做 FFI 往返，也不阻塞能力调用）',
+    );
+
+    // 动作成功后再取页面：不再显示"切换中"
+    view = viewOf('card');
+    expect(_rowOf(view, '选择的模式')?['right'], contains('微软雅黑'));
+    expect(_rowOf(view, '选择的模式')?['right'], isNot(contains('切换中')));
+
+    // 『字体文件示例』：同样的写法走 loadFont 分支
+    final Stopwatch fileWatch = Stopwatch()..start();
+    final Object? fileRaw = runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.selectFile',
+      const <String, Object?>{},
+    );
+    fileWatch.stop();
+    expect(fileWatch.elapsedMilliseconds, lessThan(1000));
+    expect(fileRaw, isA<Map<String, Object?>>());
+    final Object? fileView = (fileRaw! as Map<String, Object?>)['view'];
+    expect(
+      _rowOf(fileView! as Map<String, Object?>, '选择的模式')?['right'],
+      contains('字体文件示例'),
+    );
+    await _pumpUntil(
+      () => fontCalls.length == 2 && _readConfig(config)['fontMode'] == 'file',
+      runtime: runtime,
+    );
+    expect(fontCalls.last, 'file:ExampleFont');
+    expect(_readConfig(config)['fontMode'], 'file');
+
+    // 『拟声默认』：恢复默认字体
+    runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.selectDefault',
+      const <String, Object?>{},
+    );
+    await _pumpUntil(
+      () =>
+          fontCalls.length == 3 &&
+          _readConfig(config)['fontMode'] == 'default',
+      runtime: runtime,
+    );
+    expect(fontCalls.last, 'default');
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
