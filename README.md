@@ -72,12 +72,18 @@ docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
 docs/plugin-agent-cli.md 用命令行 / MCP 装插件、刷新、看日志（开发期快捷控制，给 AI agent 与自动化）
-tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、build_native.sh（Linux/macOS：同一套流程）、
+tools/               setup_native_env.ps1（Windows：配置开发编译环境 —— 预检 / 子模块 / Boost / NDK → 缓存）、
+                     build_native.ps1（Windows：构建插件框架 = 宿主库 + 插件 SDK）、
+                     build_examples.ps1（Windows：构建并打包示例插件）、
+                     build_native.sh（Linux/macOS：环境配置、框架构建与示例插件合在一个脚本里，选项同名）、
+                     native_common.ps1（上面几个 ps1 的公共库，不单独执行）、
                      gen_contract.dart（约定生成/校验）、gen_ui_kit.ps1（生成扩展 kit：C++ 头 + JS）、
                      sync_ui_kit.ps1（把 kit 复制进 JS 插件目录）、check_submodules.ps1（子模块检查）、
                      pack_plugin.ps1（把插件目录打成安装包 .zip，并列出包内分支）、
-                     self_check.dart（纯 Dart 自检，定位 FFI 卡住的位置）、cmake/BoostConfig.cmake.in
-.native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 缓存，**全部可重建，不入版本库**）
+                     self_check.dart（纯 Dart 自检，定位 FFI 卡住的位置）、
+                     cmake/BoostConfig.cmake.in、cmake/host_autobuild.cmake（平台工程里自动触发宿主库构建）
+.native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 下载与解包缓存 /
+                     env/environment.json 环境描述缓存，**全部可重建，不入版本库**）
 ```
 
 ## 依赖管理
@@ -105,50 +111,86 @@ tools/               build_native.ps1（Windows：环境准备 + 调 cmake）、
 2. **Boost 头文件**（只用 Boost.Asio 头，不链接任何 Boost 编译库）
    - 本机已有 `src/third_party/boost/include`（含 `boost/`，约 151 MB，不入版本库）时脚本直接复用；
    - 缺失时按构建脚本顶部锁定的 **版本 + URL + SHA256** 下载官方发布包
-     （`tools/build_native.ps1` 与 `tools/build_native.sh` 里的常量保持一致），只解出 `boost/` 头文件子树到 `.native/boost/`；
+     （常量在 `tools/native_common.ps1` 与 `tools/build_native.sh` 里，两边保持一致），只解出 `boost/` 头文件子树到 `.native/boost/`；
    - `<安装前缀>/lib/cmake/Boost-<版本>/BoostConfig.cmake` 由顶层 CMake 依 `tools/cmake/BoostConfig.cmake.in`
      生成（只暴露头文件根 `Boost_INCLUDE_DIRS` 与 `Boost::headers`），不依赖 b2 生成的整套配置；
    - 可用 `-BoostRoot <含 boost/ 的目录>`/`--boost-root <目录>` 或 `-BoostArchive <发布包>`/`--boost-archive <包>` 覆盖（离线/自备包）。
 
 ## 构建
 
-结构仿照 agentxx（`agent/CMakeLists.txt` + `agent/script/windows_*_build.bat`）：
+三条线分开：**配环境**（一次就够，结果存缓存）、**构建插件框架**（应用与插件作者都要的东西）、
+**构建示例插件**（只想跑示例/测试时才需要）。结构仿照 agentxx（`agent/CMakeLists.txt` + `agent/script/windows_*_build.bat`）：
 
 ```text
-tools/build_native.ps1            环境预检 (cmake/git/VS) + UTF-8 控制台/关闭 vcpkg/MSVC 英文输出 + Boost 头文件准备
+tools/setup_native_env.ps1        配置开发编译环境: 工具预检 + 子模块 + Boost 头文件 + Android NDK
+  └─ 结果写进 .native/env/environment.json（缓存; 已就绪时重复执行只是读一遍缓存）
+tools/build_native.ps1            构建插件框架（宿主库 + 插件 SDK）; 先复用上面那份缓存, 没配过就现场配
   └─ cmake -S src -B .native/build/<平台>-<配置> -G <生成器> -A <平台> \
            -DXX_IS_RELEASE_D=<0|1> -DCMAKE_BUILD_TYPE=<配置> -DCMAKE_CONFIGURATION_TYPES=<配置> \
-           -DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=<含 boost/ 的目录>
+           -DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=<含 boost/ 的目录> \
+           -DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=<0|1> -DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=<0|1>
        └─ src/CMakeLists.txt (superbuild)
             XX_IS_* 宏 + BoostConfig.cmake + _COMMON_CMAKE_ARGS / _COMMON_CMAKE_CACHE_ARGS
             ExternalProject_Add: fmt → yaml-cpp → simdjson → libiconv-native → uchardet
                                  → cxx_utilxx_base → cxx_pluginxx
             ExternalProject_Add: musicxx_extern_plugin_host_repo (src/host, 内部 find_package 取依赖)
+tools/build_examples.ps1          构建示例插件（plugins/ 下的动态库插件 + JS 插件）, 可选打成安装包
 ```
 
 ```powershell
-# Release 全量（依赖 + 宿主），产物装到 <构建目录>/musicxx-extern-plugin-install 并复制到 .native/output/<平台>-<架构>-<配置>/
+# 0) 配环境（可选：不跑也行，构建脚本会自己配；跑一次能提前看到环境问题）
+pwsh -NoProfile -File tools/setup_native_env.ps1              # 写缓存，已就绪时秒返回
+pwsh -NoProfile -File tools/setup_native_env.ps1 -Check       # 只检查并报告，不下载也不写缓存
+pwsh -NoProfile -File tools/setup_native_env.ps1 -Android     # 顺带解析 Android NDK（交叉编译用）
+
+# 1) 构建插件框架：宿主库 + 插件 SDK（应用侧要的就是这一份）
+#    产物装到 <构建目录>/musicxx-extern-plugin-install 并复制到 .native/output/<平台>-<架构>-<配置>/
 pwsh -NoProfile -File tools/build_native.ps1
 
-# 常用开关
+# 2) 要示例插件/原生测试时才跑这个
+pwsh -NoProfile -File tools/build_examples.ps1                # 构建示例插件并打包成 .zip
+pwsh -NoProfile -File tools/build_examples.ps1 -RunTests      # 顺带跑原生测试
+```
+
+**应用构建会自动触发插件框架构建**：`flutter build windows` / `flutter build linux` / `flutter build apk`
+都会在配置阶段调用上面第 1 步（自动模式），因此不必先手工构建 —— 已经是最新时只花一次脚本启动的时间，
+源码改过就增量重建，环境没配过就现场配（会按需下载 Boost）。关掉与调整：
+
+```powershell
+$env:MUSICXX_EXTERN_PLUGIN_AUTO_BUILD = '0'      # 关掉自动构建（全平台；Android 也可用 -PmusicxxExternPluginAutoBuild=false）
+$env:MUSICXX_EXTERN_PLUGIN_CONFIG = 'Debug'      # 自动构建改用 Debug 宿主库（默认 Release；Android 用 -PmusicxxExternPluginConfig=Debug）
+# 桌面端也可以直接在 CMake 上关: cmake ... -DMUSICXX_EXTERN_PLUGIN_AUTO_BUILD=OFF
+```
+
+框架构建的常用开关：
+
+```powershell
 pwsh -NoProfile -File tools/build_native.ps1 -Config Debug       # Debug (独立构建目录)
+pwsh -NoProfile -File tools/build_native.ps1 -WithExamples       # 连示例插件一起构建
+pwsh -NoProfile -File tools/build_native.ps1 -WithTests          # 连原生测试一起构建（含对照示例）
+pwsh -NoProfile -File tools/build_native.ps1 -RunTests           # 构建后跑原生测试（隐含示例与测试）
 pwsh -NoProfile -File tools/build_native.ps1 -DepsOnly           # 只构建依赖库 (target cxx_pluginxx_repo)
 pwsh -NoProfile -File tools/build_native.ps1 -ConfigureOnly      # 只做预检/Boost/configure
 pwsh -NoProfile -File tools/build_native.ps1 -Clean              # 先清空构建目录与输出目录
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests           # 构建后跑原生测试
 pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8             # 指定并行度
+pwsh -NoProfile -File tools/build_native.ps1 -Force              # 不跳过，强制走一遍构建
+pwsh -NoProfile -File tools/build_native.ps1 -Auto               # 自动模式：已是最新则秒退、失败不阻断
 ```
 
-Linux / macOS 用同一套流程的 shell 版本（选项名不区分大小写，`--deps-only` 与 `-DepsOnly` 等价）：
+Linux / macOS 用同一套能力的 shell 版本（选项名不区分大小写，`--deps-only` 与 `-DepsOnly` 等价；
+环境配置与示例插件构建同在这一个脚本里，用选项区分）：
 
 ```bash
-./tools/build_native.sh                       # Release 全量 (依赖 + 宿主)
+./tools/build_native.sh                       # 插件框架（宿主库 + SDK）
 ./tools/build_native.sh --config Debug        # Debug (独立构建目录 .native/build/linux-debug)
+./tools/build_native.sh --with-examples       # 连示例插件一起构建
+./tools/build_native.sh --with-tests          # 连原生测试一起构建
 ./tools/build_native.sh --deps-only           # 只构建依赖库
 ./tools/build_native.sh --configure-only      # 只做预检/Boost/configure
 ./tools/build_native.sh --clean               # 先清空构建目录与输出目录
 ./tools/build_native.sh --run-tests           # 构建后跑原生测试 (失败时脚本返回非 0)
 ./tools/build_native.sh --jobs 8              # 指定并行度
+./tools/build_native.sh --auto                # 自动模式：已是最新则秒退、失败只警告（应用构建用它）
 ```
 
 Android 用 NDK 交叉编译（两个脚本同一套参数；每个 ABI 各构建一次，产物直接给 `android/build.gradle`
@@ -172,6 +214,16 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
 
 要点：
 
+- **环境缓存**：`tools/setup_native_env.ps1` 把解析结果（生成器 / 工具路径 / Boost 头文件根 / NDK）写进
+  `.native/env/environment.json`，构建脚本直接复用 —— 重复构建不再重新探测工具链、不再重复解析 Boost。
+  删掉这个文件（或加 `-Force`）就会重新解析一遍。
+- **"已是最新"怎么判断**：每次成功构建会在构建目录写下 `.build_stamp_<framework|examples|tests>` 标记
+  （`-DepsOnly` / `-ConfigureOnly` 不写），自动模式比较"标记 vs 源码最后一次改动时间"，
+  因此 `flutter build` 不必每次重新走一遍 CMake；判定不成立（源码改过、产物被删、配置变了）时才重编。
+- **示例插件默认不构建**（`-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=OFF`）：应用只需要宿主库，示例插件交给
+  `tools/build_examples.ps1`（Linux/macOS 用 `--with-examples`），装包/跑测试时再构建。
+  `plugins/` 里新增插件后同样跑一次它，产物会复制到 `.native/output/<平台>-<架构>-<配置>/plugins/`
+  （原生测试用的就是这个目录）。
 - **工具链要求**（内核是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
   Linux 上还需要 `pkg-config`（`cxx_utilxx_base` / `cxx_pluginxx` 配置阶段有 `find_package(PkgConfig REQUIRED)`）；
   shell 脚本会在预检里检查编译器大版本与 `pkg-config`，不满足时给出警告。
@@ -193,7 +245,7 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
   带进来的 `STB_GNU_UNIQUE` 符号，实测 Boost.Asio 的 error category 会漏出来）；Apple 由 hidden
   visibility 覆盖。
 
-产物（Release）：
+产物（Release；示例插件与原生测试要跑过 `tools/build_examples.ps1` 才有）：
 
 ```
 # Windows
@@ -228,17 +280,36 @@ ldd .native/output/linux-x64-release/bin/libmusicxx_extern_plugin.so            
 
 ## 打包（随应用分发）
 
-宿主库**不在 Flutter 构建里编译**（依赖链太重），所以本包把它当作"预构建产物"来打包：
+宿主库**不是普通的"插件源码编译"**（依赖链太重：fmt / yaml-cpp / simdjson / libiconv / uchardet / QuickJS），
+所以本包把它当作"外部构建产物"来打包，并且在应用构建时**按需自动构建**：
 
 ```
 pubspec.yaml             flutter.plugin.platforms.{windows,linux,android}.ffiPlugin = true
-windows/CMakeLists.txt   找到已构建的宿主库 → 写 musicxx_extern_plugin_bundled_libraries
-linux/CMakeLists.txt     同上（库名 libmusicxx_extern_plugin.so）
+windows/CMakeLists.txt   ① 缺库/过期时调包内构建脚本的自动模式（tools/cmake/host_autobuild.cmake）
+linux/CMakeLists.txt        （已是最新则秒级返回；关掉见下面的开关）
+                         ② 找到已构建的宿主库 → 写 musicxx_extern_plugin_bundled_libraries
                          → Flutter 放进 PLUGIN_BUNDLED_LIBRARIES → Windows 装到可执行文件旁、Linux 装到 <bundle>/lib/
-android/build.gradle     按 ABI 收集 .so 到 jniLibs（每个 build type 一个目录）
+android/build.gradle     ① 本次要用的 ABI 缺库时自动交叉编译（每个 ABI 一次）
+                         ② 按 ABI 收集 .so 到 jniLibs（每个 build type 一个目录）
                          → AGP 打进 APK 的 lib/<abi>/libmusicxx_extern_plugin.so
 ```
 
+也就是说：`flutter build windows` / `flutter build linux` / `flutter build apk` **不需要先手工构建宿主库**。
+自动构建可以关掉（CI 里通常关掉它，改成显式构建 + `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<库路径>` 保证"必须打包"）：
+
+```powershell
+$env:MUSICXX_EXTERN_PLUGIN_AUTO_BUILD = '0'           # 全平台关掉自动构建
+# 桌面端也可以在 CMake 上关: -DMUSICXX_EXTERN_PLUGIN_AUTO_BUILD=OFF
+# Android 也可以: -PmusicxxExternPluginAutoBuild=false
+```
+
+- 自动构建的时机是**平台工程的 configure 阶段**：查找结果要交给 `PLUGIN_BUNDLED_LIBRARIES`，而应用侧的
+  `install(FILES ...)` 在构建末尾要求文件已经在位（放到 build 期的自定义目标会来不及）；
+- 自动构建的目标配置默认是 **Release**（Flutter 构建在 configure 阶段分辨不出 Debug/Release）；
+  需要 Debug 宿主库时用 `$env:MUSICXX_EXTERN_PLUGIN_CONFIG='Debug'`（Android 用
+  `-PmusicxxExternPluginConfig=Debug`），或者手工 `tools/build_native.ps1 -Config Debug` 构建一次
+  （两份都存在时，桌面端按 Flutter 的构建配置选，Profile 取 Release）；
+- 自动构建失败**不会中断应用构建**：只打警告，本次产物里不带宿主库（外部插件功能不可用）；
 - 查找顺序（与 Dart 侧 `native_library.dart` 同一套约定）：
   `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY` / `-PmusicxxExternPluginLibDir` → 环境变量
   `MUSICXX_EXTERN_PLUGIN_LIBRARY`（Android 侧是 `MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR`）
@@ -254,7 +325,8 @@ android/build.gradle     按 ABI 收集 .so 到 jniLibs（每个 build type 一�
 ### Android（已接入）
 
 ```bash
-# 1) 交叉编译宿主库（每个 ABI 一次；Windows 侧同样支持）
+# 1) 宿主库由 android/build.gradle 按需自动交叉编译（本次要用的 ABI 缺库时才跑一次）
+#    想手工先构建也可以：每个 ABI 一次，Windows 侧同样支持
 pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a      # Windows
 ANDROID_NDK_HOME=<ndk> tools/build_native.sh --android --abi arm64-v8a    # Linux/macOS
 # 2) 正常打包：库由 android/build.gradle 收集进 jniLibs
@@ -409,7 +481,7 @@ musicxx-cli plugin uninstall my_plugin                                     # 卸
 宿主按「父目录下的每个子目录 = 一个插件」扫描，因此测试参数要传**插件目录的父目录**：
 
 ```powershell
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests      # 自动用 <安装前缀>/plugins 作为插件目录
+pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 自动用 <安装前缀>/plugins 作为插件目录
 ```
 
 手工运行：
@@ -557,7 +629,7 @@ final List<MusicxxPluginUIItem> next =
 
 ```powershell
 # Windows（构建 + 原生测试；测试结束会打印 checks=... failed=...，失败时退出码非 0）
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests
+pwsh -NoProfile -File tools/build_examples.ps1 -RunTests
 ```
 
 ```bash

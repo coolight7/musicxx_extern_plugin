@@ -1,7 +1,7 @@
 # Android 平台接入（宿主库随 APK 分发）
 
 本目录是 `musicxx_extern_plugin` 的 Android 平台工程（Flutter FFI 插件）。
-它的职责只有一个：**把已经构建好的宿主库放进 APK**，让应用能被 Dart 侧加载。
+它的职责有两个：**按需交叉编译宿主库**，以及**把宿主库放进 APK**，让应用能被 Dart 侧加载。
 
 ## 为什么必须打进 APK
 
@@ -21,7 +21,9 @@ dlopen failed: library "/data/user/0/<包名>/files/xxx.so" is not accessible fo
 
 ## 构建宿主库
 
-每个 ABI 各构建一次（Release 用于发布的 APK，Debug 用于调试构建）：
+**默认会自动构建**：`flutter build apk` / `flutter run` 时，`android/build.gradle` 发现本次要用的 ABI
+缺少宿主库就调包内构建脚本的自动模式（已是最新则秒退，每个 ABI 各构建一次）。关掉自动构建
+（`-PmusicxxExternPluginAutoBuild=false` 或环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`）后，按下手工构建：
 
 ```bash
 # Windows（NDK 位置自动解析：-AndroidNdk > $env:ANDROID_NDK_HOME > $env:ANDROID_HOME/ndk 下版本号最大的一个）
@@ -34,6 +36,9 @@ pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi x86_64
 ANDROID_NDK_HOME=<ndk> tools/build_native.sh --android --abi arm64-v8a
 ```
 
+Release 用于发布的 APK、Debug 用于调试构建；自动构建默认只产出 Release（Debug 原生产物是另一整条依赖链），
+要 Debug 就用 `-PmusicxxExternPluginConfig=Debug` 或上面的 `-Config Debug` 手工构建一次。
+
 产物：
 
 ```text
@@ -45,10 +50,12 @@ ANDROID_NDK_HOME=<ndk> tools/build_native.sh --android --abi arm64-v8a
 
 `android/build.gradle` 会：
 
-1. 扫描上面两个目录（以及仓库预置目录 `resource/libs/android/<abi>/`），按 ABI 找到宿主库；
-2. 把它们复制到 `<模块构建目录>/musicxxExternPluginJniLibs/<build type>/<abi>/`，并把这个目录注册成
+1. 本次要用的 ABI（Flutter 的 `target-platform`）里缺库时，先调包内构建脚本的自动模式补上；
+2. 扫描上面两个目录（以及仓库预置目录 `resource/libs/android/<abi>/`），按 ABI 找到宿主库；
+3. 把它们复制到 `<模块构建目录>/musicxxExternPluginJniLibs/<build type>/<abi>/`，并把这个目录注册成
    对应 build type 的 `jniLibs` 源目录；
-3. 收集任务挂在该 build type 的 `preBuild` 之前，因此 AGP 合并、打包时库已经在位。
+4. 上述两个任务都挂在该 build type 的 `preBuild` 之前，因此 AGP 合并、打包时库已经在位
+   （收集任务在**执行期**重新扫描一遍，所以"本次刚自动构建出来的库"也会被收进这个 APK，不会晚一版）。
 
 Debug 与 Release 各自收集自己那一份（不会把 Debug 库打进 Release 包）。某个 ABI 没构建时只警告、
 不中断构建：APK 里就没有那个 ABI 的库，对应设备上外部插件不可用（应用与其它功能不受影响）。

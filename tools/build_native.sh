@@ -15,18 +15,25 @@
 #   - 构建完成后把产物复制到稳定的输出目录, 可选跑原生测试
 #
 # 用法 (选项名不区分大小写, --deps-only 与 -DepsOnly 等价):
-#   tools/build_native.sh                            # Release 全量 (依赖 + 宿主)
+#   tools/build_native.sh                            # 插件框架: Release 宿主库 + 插件 SDK
+#   tools/build_native.sh --with-examples            # 连示例插件一起构建 (Windows 侧见 tools/build_examples.ps1)
+#   tools/build_native.sh --with-tests               # 连原生测试一起构建 (含对照示例)
 #   tools/build_native.sh --config Debug             # Debug (独立构建目录, 依赖也重编)
 #   tools/build_native.sh --deps-only                # 只构建依赖库
 #   tools/build_native.sh --configure-only           # 只做预检/Boost/configure
 #   tools/build_native.sh --clean                    # 先清空构建目录
-#   tools/build_native.sh --run-tests                # 构建后跑原生测试 (失败返回非 0)
+#   tools/build_native.sh --run-tests                # 构建后跑原生测试 (失败返回非 0; 隐含示例与测试)
 #   tools/build_native.sh --jobs 8                   # 指定并行度
+#   tools/build_native.sh --auto                     # 自动模式(应用构建调用): 已是最新则秒退, 失败不阻断
 #   tools/build_native.sh --boost-root <目录>        # 指定 Boost 头文件根 (含 boost/)
 #   tools/build_native.sh --boost-archive <压缩包>   # 用本地 Boost 发布包解包
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
 #   tools/build_native.sh --build-dir/--output-dir/--generator <值>   # 覆盖目录与生成器
 #   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 宿主库
+#
+# 关于自动模式 (--auto): Windows 侧的 tools/build_native.ps1 与它同等地位, 都是给
+# "flutter build" 触发的入口 —— 环境/Boost 复用已有缓存, 已是最新就立即返回, 构建失败只警告
+# (外部插件是可选功能, 不该让应用构建失败)。
 #
 # Android 说明 (与 .ps1 的 -Android 一一对应):
 #   - 产出: <包>/.native/output/android-<abi>-<配置>/{bin,plugins} (ABI 名直接用作架构段)
@@ -80,6 +87,9 @@ deps_only=0
 configure_only=0
 clean=0
 run_tests=0
+with_examples=0
+with_tests=0
+auto=0
 jobs=0
 build_dir=""
 output_dir=""
@@ -92,6 +102,15 @@ android_abi="arm64-v8a"
 android_ndk=""
 android_platform="android-24"
 android_stl="c++_static"
+
+# 自动模式要再起一个子进程跑"不带 --auto 的普通流程" (失败只警告), 这里先把 --auto 摘掉
+forward_args=()
+for forward_arg in "$@"; do
+    case "$(printf '%s' "$forward_arg" | tr '[:upper:]' '[:lower:]' | tr -d '-')" in
+    auto) ;;
+    *) forward_args+=("$forward_arg") ;;
+    esac
+done
 
 while [ $# -gt 0 ]; do
     arg="$1"
@@ -130,6 +149,11 @@ while [ $# -gt 0 ]; do
     depsonly) deps_only=1 ;;
     configureonly) configure_only=1 ;;
     runtests) run_tests=1 ;;
+    withexamples | examples) with_examples=1 ;;
+    noexamples) with_examples=0 ;;
+    withtests) with_tests=1 ;;
+    notests) with_tests=0 ;;
+    auto) auto=1 ;;
     nodownloadboost) no_download_boost=1 ;;
     android) android=1 ;;
     help | h)
@@ -158,6 +182,11 @@ fi
 if [ "$deps_only" = 1 ] && [ "$run_tests" = 1 ]; then
     die "--run-tests 不能与 --deps-only 同时使用"
 fi
+# --run-tests 需要测试可执行文件与对照示例插件, 因此隐含示例与测试 (与 Windows 侧一致)
+if [ "$run_tests" = 1 ]; then
+    with_examples=1
+    with_tests=1
+fi
 
 # Android: 目标平台与宿主平台无关, 平台/架构段按 ABI 推导 (与 .ps1 的 -Android 一致)
 android_toolchain=""
@@ -176,12 +205,15 @@ src_dir="${root}/src"
 third_party="${src_dir}/third_party"
 native_root="${root}/.native"
 
-# NDK 位置解析 (显式参数 → 环境变量 → SDK 下版本号最大者); 只输出路径, 提示走 stderr
+# NDK 位置解析 (显式参数 → 环境变量 → SDK 下版本号最大者); 只输出路径, 提示走 stderr。
+# 找不到时返回 1 (调用方决定是报错还是跳过), 因此这里的失败信息只写 stderr。
 resolve_android_ndk() {
     local marker='build/cmake/android.toolchain.cmake'
     if [ -n "$android_ndk" ]; then
-        [ -f "${android_ndk}/${marker}" ] ||
-            die "--ndk 指向的目录里没有 ${marker} : ${android_ndk}"
+        if [ ! -f "${android_ndk}/${marker}" ]; then
+            printf '  --ndk 指向的目录里没有 %s : %s\n' "$marker" "$android_ndk" >&2
+            return 1
+        fi
         (cd "$android_ndk" && pwd)
         return 0
     fi
@@ -216,12 +248,19 @@ resolve_android_ndk() {
             return 0
         fi
     done
-    die "未找到 Android NDK (需要 build/cmake/android.toolchain.cmake)。
-  请安装 NDK 并指定: --ndk <NDK 根目录>, 或设置环境变量 ANDROID_NDK_HOME"
+    printf '  未找到 Android NDK (需要 %s)\n' "$marker" >&2
+    return 1
 }
 
 if [ "$android" = 1 ]; then
-    android_ndk_root_path="$(resolve_android_ndk)"
+    if ! android_ndk_root_path="$(resolve_android_ndk)"; then
+        if [ "$auto" = 1 ]; then
+            warn '未找到 Android NDK, 跳过自动构建 (手工构建: tools/build_native.sh --android --abi <abi>)'
+            exit 0
+        fi
+        die "未找到 Android NDK (需要 build/cmake/android.toolchain.cmake)。
+  请安装 NDK 并指定: --ndk <NDK 根目录>, 或设置环境变量 ANDROID_NDK_HOME"
+    fi
     android_toolchain="${android_ndk_root_path}/build/cmake/android.toolchain.cmake"
     printf '   Android: ABI=%s platform=%s stl=%s\n' "$android_abi" "$android_platform" "$android_stl"
 fi
@@ -241,6 +280,12 @@ build_dir="$(cd "$(dirname "$build_dir")" && pwd)/$(basename "$build_dir")"
 mkdir -p "$(dirname "$output_dir")"
 output_dir="$(cd "$(dirname "$output_dir")" && pwd)/$(basename "$output_dir")"
 install_dir="${build_dir}/musicxx-extern-plugin-install"
+# 宿主库与测试可执行文件的文件名 (供自动模式判断产物是否在位; 与安装前缀/输出目录里的名字一致)
+lib_name='libmusicxx_extern_plugin.so'
+test_name='musicxx_extern_plugin_test'
+if [ "$os" = macos ]; then
+    lib_name='libmusicxx_extern_plugin.dylib'
+fi
 
 if [ "$android" = 1 ]; then
     # 交叉编译固定用 Ninja: 与 NDK 工具链配合最稳, 也不依赖宿主平台的 IDE 生成器
@@ -442,6 +487,87 @@ if [ "$boost_code" != "$expect_code" ]; then
 fi
 printf '  Boost 头文件根: %s (版本 %s)\n' "$boost_header_root" "$boost_version"
 
+# 构建目录签名 (配置/生成器/架构/Boost 位置/Android 目标变化时重置构建目录) 与
+# 本次构建覆盖的内容 (framework / examples / tests) —— 自动模式与构建标记都要用。
+# Android 之外的构建不写 ABI 段 (与 Windows 侧的签名格式保持一致, 便于人工对照)。
+android_abi_tag=""
+if [ "$android" = 1 ]; then
+    android_abi_tag="$android_abi"
+fi
+signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl}"
+stamp_kinds='framework'
+if [ "$with_examples" = 1 ]; then stamp_kinds="${stamp_kinds} examples"; fi
+if [ "$with_tests" = 1 ]; then stamp_kinds="${stamp_kinds} tests"; fi
+
+# ==================== 自动模式 (--auto) ====================
+#
+# 给"应用构建时自动触发宿主库构建"用 (见 tools/cmake/host_autobuild.cmake):
+#   1) 产物已是最新 → 打印一行就返回 (秒级), 应用构建几乎不付代价;
+#   2) 否则起一个子进程跑完整流程 (不带 --auto), 失败只警告并返回 0 ——
+#      外部插件是可选功能, 不该让应用构建失败。
+if [ "$auto" = 1 ]; then
+    # 1) 本次要覆盖的构建标记都在, 并找出最早的那个 (每个标记都要比源码新)
+    stamp_ok=1
+    oldest_stamp=""
+    for stamp_kind in $stamp_kinds; do
+        stamp_file="${build_dir}/.build_stamp_${stamp_kind}"
+        if [ ! -f "$stamp_file" ]; then
+            stamp_ok=0
+            break
+        fi
+        if [ -z "$oldest_stamp" ] || [ "$stamp_file" -ot "$oldest_stamp" ]; then
+            oldest_stamp="$stamp_file"
+        fi
+    done
+
+    # 2) 产物在位
+    product_ok=1
+    if [ ! -f "${output_dir}/bin/${lib_name}" ]; then product_ok=0; fi
+    if [ "$with_examples" = 1 ] && [ -z "$(ls -A "${output_dir}/plugins" 2>/dev/null)" ]; then product_ok=0; fi
+    if [ "$with_tests" = 1 ] && [ ! -f "${output_dir}/bin/${test_name}" ]; then product_ok=0; fi
+
+    # 3) 构建目录已 configure 且签名一致
+    config_ok=1
+    if [ ! -f "${build_dir}/CMakeCache.txt" ] || [ ! -f "${build_dir}/.build_signature" ]; then
+        config_ok=0
+    elif [ "$(tr -d '\r\n' <"${build_dir}/.build_signature")" != "$signature" ]; then
+        config_ok=0
+    fi
+
+    # 4) 源码没有比标记更新的 (third_party 里的 Boost 头文件不算: 它不参与编译, 只被 include)
+    source_ok=1
+    if [ "$stamp_ok" = 1 ]; then
+        for source_path in "${src_dir}/CMakeLists.txt" "${src_dir}/host" "${src_dir}/include" \
+            "${src_dir}/sdk" "${src_dir}/third_party" "${root}/plugins" "${root}/tools/cmake"; do
+            [ -e "$source_path" ] || continue
+            if [ -n "$(find "$source_path" -type d -name boost -prune -o -type f -newer "$oldest_stamp" -print -quit 2>/dev/null)" ]; then
+                source_ok=0
+                break
+            fi
+        done
+    fi
+
+    if [ "$stamp_ok" = 1 ] && [ "$product_ok" = 1 ] && [ "$config_ok" = 1 ] && [ "$source_ok" = 1 ] &&
+        [ "$clean" = 0 ] && [ "$configure_only" = 0 ] && [ "$deps_only" = 0 ] && [ "$run_tests" = 0 ]; then
+        printf '  已是最新, 跳过构建: %s\n' "${output_dir}/bin/${lib_name}"
+        exit 0
+    fi
+
+    printf '\n==> 自动构建: 起子进程执行完整流程 (失败只警告)\n'
+    set +e
+    bash "${script_dir}/build_native.sh" ${forward_args[@]+"${forward_args[@]}"}
+    auto_rc=$?
+    set -e
+    if [ "$auto_rc" -ne 0 ]; then
+        printf '\n' >&2
+        warn "插件框架自动构建失败 (退出码 ${auto_rc}), 本次应用构建不打包外部插件宿主库。"
+        warn '应用照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
+        warn "  tools/build_native.sh --config ${config}"
+        exit 0
+    fi
+    exit 0
+fi
+
 if [ "$clean" = 1 ]; then
     step '清理构建目录'
     for p in "$build_dir" "$output_dir"; do
@@ -455,9 +581,9 @@ fi
 # ==================== configure ====================
 
 step 'configure (superbuild: 依赖 + 宿主)'
-# 构建目录签名: 配置/生成器/架构/Boost 位置变化时重置目录, 避免 CMakeCache 里残留
-# 上一次的参数 (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
-signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl}"
+# 构建目录签名在 Boost 之后就已经算好 (自动模式要用它判断"是否已是最新"); 这里只写入标记文件。
+# 配置/生成器/架构/Boost 位置变化时重置目录, 避免 CMakeCache 里残留上一次的参数
+# (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
 marker="${build_dir}/.build_signature"
 if [ -d "$build_dir" ]; then
     old_signature=""
@@ -486,6 +612,9 @@ fi
 configure_args+=(
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=${boost_header_root}"
+    # 示例插件与原生测试: 默认关 (示例插件单独构建; Windows 侧见 tools/build_examples.ps1)
+    "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=${with_examples}"
+    "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=${with_tests}"
 )
 if [ "$android" = 1 ]; then
     # 交叉编译参数交给 NDK 工具链 (superbuild 的 src/CMakeLists.txt 自动补 XX_IS_ANDROID_D=1,
@@ -617,7 +746,21 @@ if [ "$run_tests" = 1 ]; then
     fi
 fi
 
+# ==================== 构建标记 ====================
+#
+# 全部做完 (含测试) 之后才写标记: 失败时没有标记, 下一次构建就不会被误判成"已是最新"。
+if [ "$configure_only" = 0 ] && [ "$deps_only" = 0 ]; then
+    for stamp_kind in $stamp_kinds; do
+        : >"${build_dir}/.build_stamp_${stamp_kind}"
+    done
+    printf '  构建标记: %s → %s\n' "$stamp_kinds" "$build_dir"
+fi
+
 printf '\n构建完成\n'
 if [ "$android" = 1 ]; then
     printf 'README: 宿主库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效\n'
+fi
+printf '插件框架构建完成: %s\n' "${output_dir}/bin/${lib_name}"
+if [ "$with_examples" = 1 ]; then
+    printf '示例插件在: %s (打包 .zip 需要 PowerShell: tools/pack_plugin.ps1)\n' "${output_dir}/plugins"
 fi

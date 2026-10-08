@@ -45,9 +45,11 @@
 
 ```text
 ① git submodule update --init --recursive      # 本仓库依赖全是子模块，不用预编译库
-② pwsh -NoProfile -File tools/build_native.ps1 # Windows：构建依赖 + 宿主 + 示例插件（Linux/macOS 用 build_native.sh）
+② pwsh -NoProfile -File tools/build_native.ps1 # Windows：构建插件框架（宿主库 + 插件 SDK）
+   pwsh -NoProfile -File tools/build_examples.ps1  # 想要示例插件/原生测试时再跑
+   Linux/macOS 用 tools/build_native.sh（加 --with-examples 连示例插件一起构建）
 ③ 产物：<构建目录>/musicxx-extern-plugin-install/
-   ├── bin/     宿主库 + 原生测试
+   ├── bin/     宿主库（+ 跑过示例插件脚本后还有原生测试）
    └── plugins/ 示例插件（每个子目录一个插件，可直接拷进应用插件目录试用）
 ```
 
@@ -275,8 +277,8 @@ musicxx.capability.register("card", function () {
 | 管理页「设置」分页 | 框架开关（总开关、动态库 / JS 开关、安全模式、事件日志开关） |
 | 插件日志 | `console.*` / `musicxx.host.log(...)` 与宿主日志；设 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可让宿主日志打到 stderr |
 | `host_call.log` | 应用日志目录下的同步调用轨迹：应用卡住时最后一行就是没返回的那次调用 |
-| 原生测试 | `pwsh -NoProfile -File tools/build_native.ps1 -RunTests`（用安装前缀的 `plugins/` 当插件目录） |
-| 包内 Dart 测试 | `flutter test`（对真实宿主库做整套流程验证；需要先构建原生库） |
+| 原生测试 | `pwsh -NoProfile -File tools/build_examples.ps1 -RunTests`（用安装前缀的 `plugins/` 当插件目录；Linux/macOS 用 `tools/build_native.sh --with-examples --run-tests`） |
+| 包内 Dart 测试 | `flutter test`（对真实宿主库做整套流程验证；先跑一次 `tools/build_examples.ps1` 产出原生库与示例插件） |
 
 **对照示例**（故意写坏的插件，演示宿主怎么保护自己）：`plugins/example_native_fail/`（处理器总是失败）、
 `plugins/example_native_bad_entry/`（缺入口符号 → 拒绝装载）、`plugins/example_js_async/`（异步裁决）、

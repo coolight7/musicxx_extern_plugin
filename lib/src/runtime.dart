@@ -226,7 +226,8 @@ class MusicxxPluginRuntime {
       return '';
     }
     return '宿主库缺少能力: ${missing.join(', ')}；'
-        '请重新构建宿主库（pwsh tools/build_native.ps1，Linux/macOS 用 tools/build_native.sh）';
+        '请重新构建宿主库（flutter build 会自动重建，也可以手工跑 '
+        'pwsh tools/build_native.ps1，Linux/macOS 用 tools/build_native.sh）';
   }
 
   /// 初始化宿主（幂等：重复调用直接返回）

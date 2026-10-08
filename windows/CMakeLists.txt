@@ -1,17 +1,16 @@
 # musicxx_extern_plugin 的 Windows 平台工程（Flutter FFI 插件）
 #
-# 这个包与普通 FFI 插件不同：宿主库**不在 Flutter 构建里编译**。
-# 宿主库（musicxx_extern_plugin.dll）由包内 tools/build_native.ps1 的 superbuild 独立构建
-# （依赖链含 fmt / yaml-cpp / simdjson / libiconv / uchardet / QuickJS，都由包内构建脚本
-# 从 src/third_party 的源码构建），
-# 因此本文件只做两件事：
-#   1. 按约定目录找到"已经构建好的"宿主库；
-#   2. 把它交给 Flutter 的 PLUGIN_BUNDLED_LIBRARIES，随应用一起分发到可执行文件旁边。
+# 这个包与普通 FFI 插件不同：宿主库不是普通的"插件源码编译"，而是一条独立的依赖链
+# （fmt / yaml-cpp / simdjson / libiconv / uchardet / QuickJS 都由包内构建脚本从
+# src/third_party 的源码构建，见 tools/build_native.ps1）。因此本文件做三件事：
+#   1. 按约定目录自动触发宿主库构建（已是最新则秒退，见 tools/cmake/host_autobuild.cmake）；
+#   2. 按约定目录找到"已经构建好的"宿主库；
+#   3. 把它交给 Flutter 的 PLUGIN_BUNDLED_LIBRARIES，随应用一起分发到可执行文件旁边。
 #
 # 找不到宿主库时只打警告、不中断构建：外部插件是可选功能，缺失时应用照常启动，
 # 由 Dart 侧给出"宿主库缺失"的提示（ExternPluginStore 的加载失败路径）。
 # 需要"必须打包"的场景（发布流水线）请显式传 -DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<路径>，
-# 缺失时由 CI 自行判定失败。
+# 并把 -DMUSICXX_EXTERN_PLUGIN_AUTO_BUILD=OFF 关掉自动构建，缺失时由 CI 自行判定失败。
 
 cmake_minimum_required(VERSION 3.14)
 
@@ -51,6 +50,18 @@ set(_mx_out_release "${_mx_pkg_dir}/.native/output/windows-${_mx_arch_tag}-relea
 set(_mx_install_debug "${_mx_pkg_dir}/.native/build/windows-debug/musicxx-extern-plugin-install/bin/${_mx_lib_name}")
 set(_mx_install_release "${_mx_pkg_dir}/.native/build/windows-release/musicxx-extern-plugin-install/bin/${_mx_lib_name}")
 set(_mx_repo_library "${_mx_repo_root}/resource/libs/windows/lib/${_mx_lib_name}")
+
+# 构建应用时自动触发宿主库构建 (已是最新则秒级返回; 关掉: -DMUSICXX_EXTERN_PLUGIN_AUTO_BUILD=OFF)
+# 必须在下面的"查找宿主库"之前: 查找结果要被交给 PLUGIN_BUNDLED_LIBRARIES, 装包时文件必须在位。
+option(MUSICXX_EXTERN_PLUGIN_AUTO_BUILD "构建应用时自动构建外部插件宿主库（已是最新则跳过）" ON)
+include("${_mx_pkg_dir}/tools/cmake/host_autobuild.cmake")
+musicxx_extern_plugin_autobuild_host(
+  PACKAGE_DIR      "${_mx_pkg_dir}"
+  PLATFORM         windows
+  ARCH_TAG         "${_mx_arch_tag}"
+  LIBRARY_NAME     "${_mx_lib_name}"
+  EXPLICIT_LIBRARY "${MUSICXX_EXTERN_PLUGIN_HOST_LIBRARY}"
+)
 
 set(_mx_host_library "")
 
@@ -110,6 +121,7 @@ else()
       "[musicxx_extern_plugin] 未找到外部插件宿主库（musicxx_extern_plugin.dll），"
       "本次构建不会把它打包进应用：外部插件功能在运行期不可用。\n"
       "  构建宿主库: pwsh -NoProfile -File ${_mx_pkg_dir}/tools/build_native.ps1\n"
+      "  (应用构建默认会自动触发它; 若已用 -DMUSICXX_EXTERN_PLUGIN_AUTO_BUILD=OFF 关掉, 请手工跑)\n"
       "  或显式指定: -DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<库路径>\n"
       "  查找过的位置: ${_mx_out_debug} | ${_mx_out_release} | ${_mx_install_debug} | ${_mx_install_release} | ${_mx_repo_library}")
   set(musicxx_extern_plugin_bundled_libraries "" PARENT_SCOPE)

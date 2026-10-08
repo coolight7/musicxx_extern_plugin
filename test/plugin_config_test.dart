@@ -15,7 +15,7 @@
 /// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（乐观更新 +
 ///   回读），处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
 ///
-/// 前置：先跑 `pwsh tools/build_native.ps1`（产出 `.native/output/<平台>-<配置>/`）。
+/// 前置：先跑 `pwsh tools/build_examples.ps1`（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
 library;
 
@@ -32,7 +32,7 @@ void main() {
 
   test('example_js：设置读写落盘，重新装载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js')) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -124,7 +124,7 @@ void main() {
 
   test('example_js_shader：背景动画速率落盘，重新装载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
-      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -258,7 +258,7 @@ void main() {
 
   test('example_js_shader：背景状态文字跟着状态镜像更新', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
-      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -378,7 +378,7 @@ void main() {
 
   test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
-      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -486,7 +486,7 @@ void main() {
 
   test('example_js_font：字体切换立刻返回（动作后台执行，不再互锁到超时）', () async {
     if (env == null || !env.hasPlugin('example_js_font')) {
-      markTestSkipped('未找到原生宿主库或字体示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或字体示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 

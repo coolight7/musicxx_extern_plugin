@@ -7,7 +7,7 @@
 /// - 钩子派发：Dart 处理器链 + 原生处理器链 + 合并，以及"无处理器"快速路径；
 /// - 状态镜像推送（插件侧同步可读）。
 ///
-/// 前置：先跑 `pwsh tools/build_native.ps1`（产出 `.native/output/<平台>-<配置>/`）。
+/// 前置：先跑 `pwsh tools/build_examples.ps1`（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败（CI 里可以先构建再跑）。
 library;
 
@@ -22,7 +22,7 @@ void main() {
 
   test('原生宿主：init/事件泵/扫描/装载/钩子/能力/卸载', () async {
     if (env == null) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -818,7 +818,7 @@ void main() {
 
   test('变量通道：声明/读/写/订阅（对真实原生库）', () async {
     if (env == null || !env.hasPlugin('example_js_vars')) {
-      markTestSkipped('未找到原生宿主库或变量通道示例插件，跳过（先运行 tools/build_native.ps1）');
+      markTestSkipped('未找到原生宿主库或变量通道示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();

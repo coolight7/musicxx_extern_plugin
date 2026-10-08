@@ -168,11 +168,20 @@ my_plugin/
 
 ```powershell
 git submodule update --init --recursive       # 首次
-pwsh -NoProfile -File tools/build_native.ps1               # Release 全量（依赖 + 宿主 + 示例插件）
-pwsh -NoProfile -File tools/build_native.ps1 -Config Debug # 独立构建目录
-pwsh -NoProfile -File tools/build_native.ps1 -DepsOnly     # 只构建依赖库（调试依赖链用，不产出 SDK 安装前缀）
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests     # 构建后跑原生测试
+pwsh -NoProfile -File tools/setup_native_env.ps1            # 配置开发编译环境（子模块/Boost/NDK → 缓存，可先跳过）
+pwsh -NoProfile -File tools/build_native.ps1                # 插件框架：Release 宿主库 + 插件 SDK
+pwsh -NoProfile -File tools/build_examples.ps1              # 示例插件（构建 + 打包成 .zip）
+pwsh -NoProfile -File tools/build_native.ps1 -Config Debug  # 独立构建目录
+pwsh -NoProfile -File tools/build_native.ps1 -DepsOnly      # 只构建依赖库（调试依赖链用，不产出 SDK 安装前缀）
+pwsh -NoProfile -File tools/build_native.ps1 -RunTests      # 构建后跑原生测试（隐含示例与测试）
+pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 同上，从示例插件那条线走
 ```
+
+- **应用构建会自动触发**：`flutter build windows|linux|apk` 会在配置阶段调用 `build_native.ps1` 的自动模式
+  （已是最新则秒级返回；关掉用环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`），因此改完宿主 C++ 直接
+  `flutter run` 就会重新构建，不需要先手工跑脚本。
+- **分三条线**：`setup_native_env.ps1` = 配环境（写 `.native/env/environment.json` 缓存，重复执行只读缓存）；
+  `build_native.ps1` = 插件框架（宿主库 + SDK，示例插件默认不建）；`build_examples.ps1` = 示例插件（构建 + 打包）。
 
 ```bash
 ./tools/build_native.sh --run-tests                # Linux / macOS（同一套流程）
@@ -212,10 +221,11 @@ MCP 客户端用 `musicxx-cli mcp`（stdio ↔ 本机 `/mcp` 的桥），工具�
 
 ```powershell
 flutter pub get
+pwsh -NoProfile -File tools/build_examples.ps1   # 先构建示例插件与原生测试（测试需要它们；已是最新则只重新打包）
 dart run tools/gen_contract.dart --check   # 钩子约定生成物一致（改动后必须重新生成）
 dart run ffigen --config ffigen.yaml       # 改过 C ABI 后重新生成 Dart 绑定
 flutter analyze                            # 期望 0 issue
-flutter test                               # 真实原生库上的整套流程（需先构建；找不到库时跳过）
+flutter test                               # 真实原生库上的整套流程（找不到库/示例插件时跳过）
 dart run tools/self_check.dart             # 纯 Dart 自检（定位 FFI 卡住的位置）
 ```
 
@@ -223,6 +233,7 @@ dart run tools/self_check.dart             # 纯 Dart 自检（定位 FFI 卡住
 
 ```powershell
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 产物 .zip（顶层就是插件目录内容）
+pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # 构建示例插件并把它们全部打包
 ```
 
 ## 7. 改这个包时（框架 / SDK 自身）
@@ -247,11 +258,17 @@ pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 产
 - **示例插件**：`plugins/` 下每个子目录一个插件，**目录名 = 插件 id = 清单 `name`**；
   演示示例一律 `example_` 开头；故意做坏的对照示例（`*_fail` / `*_bad_entry` / `*_broken`）用来演示宿主的保护机制，
   随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 构建；新增动态库插件要在 `src/host/CMakeLists.txt` 的插件列表登记。
+  构建与打包走 `tools/build_examples.ps1`（插件框架本身默认不构建它们，见下一条）。
 - **文档纪律**：任何"插件作者会遇到的行为、限制、排查方法"都必须写进本包（应用不开源，写在应用侧等于没写）；
   改 API / UI 项 / 钩子 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
 - **构建结构**：`src/CMakeLists.txt` 是 superbuild（`XX_IS_*` 宏 + `ExternalProject_Add` 构建 `src/third_party` 依赖），
   `src/host/CMakeLists.txt` 是嵌套宿主工程（`find_package` 取依赖）；依赖全部从子模块源码构建（不用预编译库），
   升级子模块后核对选项名与目标名。
+- **三个构建脚本的分工**（Windows 侧）：`tools/setup_native_env.ps1` 配环境并写缓存
+  `.native/env/environment.json`；`tools/build_native.ps1` 构建宿主库 + SDK（`-Auto` 供应用构建自动调用、
+  已是最新则秒退）；`tools/build_examples.ps1` 构建示例插件并可打包。公共实现在 `tools/native_common.ps1`。
+  平台工程（`windows/CMakeLists.txt`、`linux/CMakeLists.txt`、`android/build.gradle`）通过
+  `tools/cmake/host_autobuild.cmake` 在应用构建时触发 `build_native` 的自动模式；改这套触发方式要同时看这三处。
 
 ## 8. 排障速查
 
@@ -264,6 +281,7 @@ pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 产
 | 「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全拼错（未识别的块会被忽略） |
 | 应用卡住几秒 / 一直卡 | 处理器里在等宿主动作或做了长时间同步计算；应用日志目录下 `host_call.log` 的**最后一行**就是没返回的那次调用 |
 | 改完没生效 | JS 需要 `plugin reload`；宿主库被正在运行的应用占用时复制的是旧文件；影响帧调度的字段要重新选中该项 |
+| 改了宿主 C++ 但应用里行为没变 | 应用构建会自动重建宿主库（`flutter build` 日志里有"宿主库就绪"一行）；没生效时先看它是不是跳过了（"已是最新"判定看的是 `src/`、`plugins/` 的改动时间与构建标记），必要时 `tools/build_native.ps1 -Force` |
 | 选中了插件样式但画面没变 / 黑屏 | 用户要先在设置里选中；检查日志里的渲染失败；没有封面时 `uCoverInfo.w` 是 0 |
 | 着色器报渲染失败 | 检查整型内置函数、运行时下标取 uniform、采样步长（`res / (texSize * 缩放)`）与 sampler 名字是否和渲染项一致 |
 | 应用进了安全模式 | 说明上次启动没走完（插件崩溃 / 死循环）；在管理页恢复，并修掉触发问题 |
