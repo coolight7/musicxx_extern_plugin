@@ -2124,6 +2124,61 @@ int main(int argc, char **argv) {
     }
   }
 
+  // ============ 卸载 = 释放动态库: 卸载后的插件文件要能删能换 (回归) ============
+  //
+  // 卸载要把实例与动态库一起放掉: 之后插件目录必须能整个删掉 (管理页的"彻底卸载")
+  // 或把库文件换成新构建的那一份 (改完代码 reload/更新插件都靠这一步)。Windows 上
+  // 内核没关掉动态库句柄时文件一直被映射着, 删除/替换只会拿到"拒绝访问"。
+  {
+    std::error_code ec;
+    const std::filesystem::path source =
+        std::filesystem::path(pluginDir) / "example_native";
+    const std::filesystem::path probeRoot =
+        std::filesystem::temp_directory_path(ec) / "musicxx_ext_unload_probe";
+    const std::filesystem::path probe = probeRoot / "example_native";
+    removePath(probeRoot);
+    std::filesystem::create_directories(probe, ec);
+    if (!ec) {
+      std::filesystem::copy(source, probe,
+                            std::filesystem::copy_options::recursive |
+                                std::filesystem::copy_options::overwrite_existing,
+                            ec);
+    }
+    check(!ec, "准备卸载用插件副本");
+    if (ec) {
+      std::printf("  [info] 复制失败原因: %s\n", ec.message().c_str());
+    }
+    if (!ec) {
+      /// 同名实例只有一个: 先放下常规目录里那一份, 免得按 id 卸载打到别的实例
+      musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"), &log);
+
+      const std::string probePath = probe.string();
+      MusicxxExternPluginString probeLog{};
+      const auto probeRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP(probePath.c_str()), viewCP("{}"), 8000, &probeLog);
+      check(probeRc == MUSICXX_EXTERN_PLUGIN_OK, "副本插件装载成功");
+      if (probeRc != MUSICXX_EXTERN_PLUGIN_OK) {
+        std::printf("  [info] 副本装载失败原因: %s\n", take(probeLog).c_str());
+      } else {
+        freeStr(probeLog);
+      }
+      check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
+                                                &log) ==
+                MUSICXX_EXTERN_PLUGIN_OK,
+            "副本插件卸载成功");
+
+      ec.clear();
+      std::filesystem::remove_all(probe, ec);
+      if (ec) {
+        checkText(false, "卸载后插件目录能删除被拒绝 (动态库句柄没释放): " +
+                             ec.message());
+      } else {
+        checkText(true, "卸载后插件目录能删除");
+      }
+      removePath(probeRoot);
+    }
+  }
+
   check(musicxx_extern_plugin_host_stop(host, 5000, &log) ==
             MUSICXX_EXTERN_PLUGIN_OK,
         "host_stop");
