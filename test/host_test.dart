@@ -404,6 +404,29 @@ void main() {
 
     _step('11.7 卸载后 UI 项摘除完成');
 
+    // ===== 卸载 = 释放动态库：插件目录要能删 =====
+    //
+    // 管理页的「彻底卸载」= 卸载实例 → 删除插件目录；宿主没关掉动态库句柄时目录一直
+    // 被占着，删除只会拿到"拒绝访问"。这里用一份可自由删除的插件副本走同一条路。
+    {
+      final Directory copyRoot = Directory.systemTemp.createTempSync('mx-unload-');
+      final Directory copyDir = Directory('${copyRoot.path}/example_native');
+      addTearDown(() {
+        try {
+          copyRoot.deleteSync(recursive: true);
+        } catch (_) {}
+      });
+      _copyDirectory(Directory('${env.pluginRoot}/example_native'), copyDir);
+      runtime.plugins.load(copyDir.path);
+      expect(runtime.plugins.findLoaded('example_native'), isNotNull);
+      runtime.plugins.unload('example_native');
+      expect(runtime.plugins.findLoaded('example_native'), isNull);
+      copyDir.deleteSync(recursive: true);
+      expect(copyDir.existsSync(), isFalse, reason: '卸载后插件目录应能删除');
+    }
+
+    _step('11.8 卸载后插件目录可删');
+
     // ===== JS 插件 (零编译) =====
     // 扫描结果里应有 JS 示例插件
     final List<MusicxxPluginInfo> found2 = runtime.plugins.scan();
@@ -1023,6 +1046,21 @@ class _Environment {
 
 /// 取一个数值字段（缺省或类型不符时按 0 处理；读插件的探针结果用）
 int _intOf(Object? value) => value is num ? value.toInt() : 0;
+
+/// 递归复制目录（用例里用来做一份可以随便删的插件副本）
+void _copyDirectory(Directory from, Directory to) {
+  to.createSync(recursive: true);
+  for (final FileSystemEntity item in from.listSync()) {
+    final String name = item.uri.pathSegments
+        .where((String segment) => segment.isNotEmpty)
+        .last;
+    if (item is Directory) {
+      _copyDirectory(item, Directory('${to.path}/$name'));
+    } else if (item is File) {
+      item.copySync('${to.path}/$name');
+    }
+  }
+}
 
 /// 等待条件成立（最多 5 秒；每 20 ms 泵一次事件并让出事件循环）
 Future<void> _pumpUntil(
