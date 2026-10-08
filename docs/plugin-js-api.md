@@ -629,7 +629,20 @@ musicxx.ui.registerEntry({
         },
         speed: 1,          // 时间推进速度（宿主直接用这个值，不做二次缩放）
         maxFps: 16,
+        // 自定义播放页前景的三色（普通色 / 减淡色 / block 背景色）：
+        // 选中本样式后，播放页的文本、歌词、进度条与块状背景都用这三色；
+        // 只写一部分也行，没写的用宿主默认色（见 plugin-shader-bundle.md §8.1）
+        foregroundColors: { main: "#ffe8f0ff", cross: "#80e8f0ff", block: "#1f5a7bb8" },
     },
+});
+```
+
+```js
+// 运行期改这三色（不用让用户重新选一次背景）：整体重登记同一项
+musicxx.ui.updateEntry({
+    name: "bg",
+    type: "playing.background",
+    data: { /* 与注册时同一份声明，只改 foregroundColors */ },
 });
 ```
 
