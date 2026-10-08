@@ -530,8 +530,11 @@ cmake --build build
 工具链要求：C++26（MSVC ≥ VS 2022 17.14、GCC ≥ 14、Clang 与 NDK ≥ 18）。
 插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
 
-宿主库本身不在 Flutter 构建里编译：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`，
-Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
+宿主库不在 Flutter 构建里"顺带编译"（依赖链太重），但**应用构建会自动触发它**：平台工程在配置阶段调用
+包内构建脚本的自动模式（已是最新则秒级返回；关掉见 `README.md`「打包（随应用分发）」）。
+需要手工构建时：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`（示例插件用
+`tools/build_examples.ps1`），Linux/macOS 用 `./tools/build_native.sh`（`--with-examples` 连示例插件），
+Android 见 §11。
 
 ---
 
@@ -567,7 +570,7 @@ Linux/macOS 用 `./tools/build_native.sh --run-tests`，Android 见 §11。
 - 原生侧的回归手段是包内测试（宿主按「父目录下每个子目录 = 一个插件」扫描）：
 
   ```powershell
-  pwsh -NoProfile -File tools/build_native.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
+  pwsh -NoProfile -File tools/build_examples.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
   ```
 
   也可以把「对照示例」一组插件（`plugins/example_js_broken/`、

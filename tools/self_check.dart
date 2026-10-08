@@ -19,7 +19,7 @@ void step(String message) {
 Future<void> main(List<String> args) async {
   final String? library = args.isNotEmpty ? args.first : _detectLibrary();
   if (library == null) {
-    stderr.writeln('未找到原生库；先运行 pwsh tools/build_native.ps1');
+    stderr.writeln('未找到原生库；先运行 pwsh tools/build_native.ps1（或让 flutter build 自动构建）');
     exitCode = 2;
     return;
   }

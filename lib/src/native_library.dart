@@ -236,15 +236,16 @@ class MusicxxPluginNativeLibrary {
   static String hintForPlatform() {
     if (Platform.isAndroid) {
       // Android 不允许从应用数据目录加载动态库，宿主库必须随 APK 分发到 lib/<abi>/
-      return '（Android 需要宿主库随 APK 分发：先构建 '
+      return '（Android 需要宿主库随 APK 分发：重新打包安装即可 —— android/build.gradle 会自动交叉编译'
+          '缺失的 ABI；也可以先手工构建 '
           'pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>，'
-          '再重新打包安装；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+          '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
     if (Platform.isIOS) {
       return '（iOS 需要把宿主库静态链进应用；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
-    return '（请先运行 tools/build_native.ps1 构建，'
-        '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+    return '（flutter build 会自动构建宿主库（tools/build_native.ps1 -Auto）；'
+        '也可以手工跑 tools/build_native.ps1，或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
   }
 
   @override

@@ -79,14 +79,14 @@ plugins/
   并在清单里写 `scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]` —— 宿主会在同一个
   JS 上下文里按这个顺序执行；清单 `scripts` 里没写 kit 的插件（例如只演示多脚本装载的
   `example_js_multi_script`）不会被同步，C++ 插件不用复制，直接用 SDK 头文件里的 `musicxx::ui::kit`。
-- 新增插件后跑一次 `pwsh tools/build_native.ps1`，产物会复制到
-  `.native/output/<平台>-<架构>-<配置>/plugins/`（`-RunTests` 用的就是这个目录）。
+- 新增插件后跑一次 `pwsh tools/build_examples.ps1`，产物会复制到
+  `.native/output/<平台>-<架构>-<配置>/plugins/`（原生测试用的就是这个目录）。
 
 ## 试着跑一下
 
 ```powershell
-pwsh -NoProfile -File tools/build_native.ps1              # 构建宿主 + 示例插件
-pwsh -NoProfile -File tools/build_native.ps1 -RunTests    # 顺带跑原生测试（父目录 = 插件目录）
+pwsh -NoProfile -File tools/build_examples.ps1              # 构建示例插件（并打包成 .zip）
+pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测试（父目录 = 插件目录）
 ```
 
 在应用里试：把 `.native/output/<平台>-<架构>-<配置>/plugins/<插件>/` 整个拷进用户插件目录

@@ -334,7 +334,9 @@ endforeach ()
 unset(_plugin)
 
 # example_js_font 示例字体：若 resource/font/example-font.ttf 存在则打包进去，没有就算了
-if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/resource/font/example-font.ttf")
+# （只在构建示例插件时安装：关掉 MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE 的构建不该产出任何插件目录）
+if (MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE AND
+    EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/resource/font/example-font.ttf")
   install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/resource/font/example-font.ttf"
     DESTINATION "plugins/example_js_font/resource/font")
 endif ()
