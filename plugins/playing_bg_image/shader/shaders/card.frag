@@ -55,11 +55,17 @@ const float kFreeFadeStart = 0.72;
 const float kEdgeBlurPixels = 12.0;
 const float kEdgeBlurWeight = 0.85;
 
-// 热浪强度（像素）与斑块的疏密、游走速度（与『模糊』同一份场，观感一致）
+// 热浪强度（像素）与斑块的疏密、游走速度、细波纹的疏密
+// （与『模糊』同一份场、同一组数：两个模式的观感一致）
 const float kHeatPixels = 5.0;
-const float kHeatScale = 5.2;
-const float kHeatSpeed = 0.32;
-const float kHeatRippleSpeed = 1.45;
+const float kHeatScale = 8.0;
+const float kHeatSpeed = 0.42;
+const float kHeatRippleSpeed = 1.9;
+const vec2 kHeatRippleFreq = vec2(38.0, 23.0);
+
+// "能看见扭曲"的门限：热浪场落在这一段里的地方才晃（调低 = 出现扭曲的地方更多）
+const float kHeatVisibleLow = 0.16;
+const float kHeatVisibleHigh = 0.82;
 
 // 亮暗遮罩的浓度：白昼与夜间各一份（夜间铺得更重一些）
 const float kMaskDay = 0.22;
@@ -87,9 +93,9 @@ void main() {
 
   // 热浪场：只在波峰附近出现（"偶尔某些地方"）
   float field = heatField(uv, t);
-  float heatMask = smoothstep(0.25, 0.95, field);
+  float heatMask = smoothstep(kHeatVisibleLow, kHeatVisibleHigh, field);
   float rippleWave = sin(
-      dot(uv, vec2(31.0, 19.0)) + t * kHeatRippleSpeed + field * 4.6);
+      dot(uv, kHeatRippleFreq) + t * kHeatRippleSpeed + field * 4.6);
   float rippleAmount = rippleWave * heatMask * rippleOn;
 
   // 1) 渐变底：封面主色 → 封面暗色的斜向渐变（夜间两端都压暗一点）

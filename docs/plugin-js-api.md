@@ -172,7 +172,7 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 
 | 键 | 内容 | 当前版本 |
 |---|---|---|
-| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送 |
+| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送（启动时推一次） |
 | `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 已推送（启动 / 切歌 / 播放状态变化时刷新） |
 | `musicxx.state.song` | 当前歌曲的只读视图（`sid/name/artist/album/durationMs/year/genre/srcKey/audio[]/video[]`） | 已推送 |
 | `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 已推送 |
@@ -183,6 +183,10 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 
 - 判断「是否在播放」用 `musicxx.state.musicxx.env.isPlaying`（布尔）：`musicxx.state.player.state` 的取值
   在暂停/播放/停止事件里是小写 `play`/`pause`/`stop`，其它变化是枚举名 `Play`/`Pause`/`Stop`/`Completed`；
+- **`musicxx.state.app.isNight` 是启动时的快照**：运行期切了主题（白昼 ↔ 夜间）它不会跟着变，
+  拿它当"当前值"定时刷新会让画面配色来回跳。要当前值就当场问一次：动作
+  `musicxx.media.palette` 或 `musicxx.render.current` 的 `night`（都读当时的主题态）；
+  `musicxx.state.renderSlots` 里槽位条目的 `night` 只在槽位状态变化时才刷新，同样不能当"当前值"；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
 - `musicxx.state.spectrum` 是**当前音频频谱**（内置『音乐动效』插件提取的数据，值都是 0~1）：
