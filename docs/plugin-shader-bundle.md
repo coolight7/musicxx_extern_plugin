@@ -50,7 +50,7 @@
     ├── bundle_ring.json      第二个 bundle 的描述（光圈背景）
     ├── shaders/bg.vert       顶点着色器（两个 bundle 共用一个全屏三角形）
     ├── shaders/bg.frag       片元着色器（晶格）
-    ├── shaders/ring.frag     片元着色器（光圈：基线圆 + 频谱尖角连成的蛛网）
+    ├── shaders/ring.frag     片元着色器（光圈：64 个频带尖角连成的蛛网，不画基线圆）
     ├── build_bundle.ps1      打包脚本（照抄示例；它按描述文件逐个编译）
     ├── bg.shaderbundle       编译产物（晶格，随插件分发）
     └── ring.shaderbundle     编译产物（光圈，随插件分发）
