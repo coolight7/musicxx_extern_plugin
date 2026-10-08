@@ -189,7 +189,8 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
   `musicxx.state.renderSlots` 里槽位条目的 `night` 只在槽位状态变化时才刷新，同样不能当"当前值"；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
-- `musicxx.state.spectrum` 是**当前音频频谱**（内置『音乐动效』插件提取的数据，值都是 0~1）：
+- `musicxx.state.spectrum` 是**当前音频频谱**（由插件提供的实现提取：内置『音乐动效』插件，
+  或注册了提取钩子 `musicxx.media.spectrum.extract` 的插件；值都是 0~1）：
   `status` = `ready` / `loading` / `none` / `off` / `unavailable`，`available` 为假时
   `level` 与 `bands` 都是 0（要看原因读 `reason`）。它只在播放中推进，暂停时不刷新；
   想要当前帧的更多细节（dB、256 个频点）用动作 `musicxx.media.spectrum`，想跟着每帧渲染
@@ -308,7 +309,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.media.cover` | `{size?, format?, includePath?, bind?}` | 见 §11 |
 | `musicxx.media.bindImage` | `{key, data(base64), format, width?, height?}` | `{ok, key, width, height}` 或 `{ok:false, error}` |
 | `musicxx.media.unbindImage` | `{key}` | `{ok:true, released:bool}` |
-| `musicxx.media.spectrum` | `{bandCount?=16, unit?="normalized", includeBins?}` | 当前音频频谱（内置『音乐动效』提取）：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs, positionMs, frameHz, frameIndex, frames, binCount, bandCount, unit, level, bands[], frameData?}`；没有数据也回 `ok:true` |
+| `musicxx.media.spectrum` | `{bandCount?=16, unit?="normalized", includeBins?}` | 当前音频频谱（由插件提供的实现提取，内置『音乐动效』是默认那一份）：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs, positionMs, frameHz, frameIndex, frames, binCount, bandCount, unit, level, bands[], frameData?}`；没有数据也回 `ok:true` |
 | `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` |
 | `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` |
 | `musicxx.host.openUrl` | `{url}`（协议不限，交给系统处理） | `{ok:true}` |
@@ -721,13 +722,43 @@ function warmPalette(key) {
     });
 }
 
-// 当前音频频谱（内置『音乐动效』插件提取的数据；每帧 256 个频点、10 帧/秒）
+// 当前音频频谱（由插件提供的实现提取：内置『音乐动效』或注册了提取钩子的插件；
+// 每帧 256 个频点、10 帧/秒）
 const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 // { ok, status:"ready"|"loading"|"none"|"off"|"unavailable", available, loading, reason,
 //   source:"extracted"|"live", srcKey, name, artist, durationMs, positionMs,
 //   frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
 //   level, bands:[...], frameData?:[256 个频点] }   // frameData 需要 includeBins: true
-// 没有数据（未启用『音乐动效』/ 正在提取 / 来源不支持）也回 ok:true，用 status 判断
+// 没有数据（没有任何插件提供提取实现 / 正在提取 / 来源不支持）也回 ok:true，用 status 判断
+
+// 提供"整曲频谱提取"实现（替代内置提取）：应用要提取某首歌的频谱时先问插件
+//
+// 应用会等这次裁决（最多 30 s），数据量大（4 分钟歌曲约 600 KB 频点，base64 后约 800 KB），
+// 所以只在自己本来就要分析音频时才注册它。给了数据 → 应用直接用它（进度条波形、播放页动效、
+// 状态镜像、MCP 能力都用这一份）；返回 null → 应用接着用已登记的实现（装了『音乐动效』
+// 就是它自己的提取）；都没有 → 这个功能整体不可用（用户会看到"没有插件提供频谱提取实现"）。
+musicxx.hooks.register("musicxx.media.spectrum.extract", function (payload) {
+    // payload = { srcKey, name, artist, kind, path, durationMs,
+    //             frames, binCount, frameHz, maxSeconds }
+    const hit = spectrumCache[payload.srcKey];
+    if (!hit) return null;                    // 没算好/算不了 → 这次不提供
+    // spectrums：整曲频点（帧数 × 256 个字节，0~255 表示 -80~0 dB，每秒 10 帧）
+    // waveform ：每帧 1 字节 RMS 响度（0~255 表示 -60~+20 dB；省略时应用按每帧频点均值补）
+    return { spectrum: { spectrums: hit.spectrums, waveform: hit.waveform } };
+});
+
+// 提供"副歌分析"实现（替代内置算法）：应用要分析副歌时先问插件
+musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
+    // payload = { srcKey, name, artist, kind, path, durationMs, hasWave,
+    //             frames, binCount, frameHz, spectrums?, waveform?, config }
+    // hasWave 为真时附带应用已经拿到的整曲频谱（base64，可能几百 KB）：可以用自己的算法
+    // 分析同一份数据；只想按文件自己读音频就忽略它（用 payload.path）
+    const hit = chorusCache[payload.srcKey];
+    if (!hit) return null;
+    // 区段形状：{ start, end, confidence, energy, similarity, repeat }（毫秒，start/end 必需）
+    // sections 为空数组 = 分析过了、这首歌没有副歌（应用据此显示"没有副歌"）
+    return { chorus: { sections: hit, totalDuration: payload.durationMs } };
+});
 ```
 
 - **取色钩子**（`musicxx.media.palette.provide`）是**裁决型**：有插件给出可解析的颜色就用它，
@@ -738,6 +769,16 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
   都在等这次裁决，等动作会互相拖到超时 —— 表现是"卡几秒"）；用上面的写法：
   同步返回缓存、未命中返回 null 并异步预热、算好用 `musicxx.media.setPalette` 写回。钩子载荷与
   写法的完整说明见 [plugin-hooks.md](plugin-hooks.md)；
+- **频谱提取钩子**（`musicxx.media.spectrum.extract`）是**裁决型**：应用要提取一首歌的整曲频谱时
+  先问你。返回合法的 `spectrum`（`spectrums` 必需）就用你的数据，没返回 / 数据不合法就用已登记的
+  实现（内置『音乐动效』），两边都没有则这个功能整体不可用（进度条波形、播放页动效、
+  `musicxx.state.spectrum` 都会是"没有数据"）。**应用最多等 30 s**：数据提前算好
+  （换歌时用观察型钩子预热），处理器里同步返回缓存或 null，别在里面 `await` 宿主动作
+  （那会再加一次往返）；
+- **副歌分析钩子**（`musicxx.media.chorus.analyse`）是**裁决型**：应用要分析一首歌的副歌时先问你，
+  载荷里带上已经拿到的整曲频谱（`hasWave` 为真）。返回 `{chorus: {sections: [...]}}` 就用你的区段
+  （空数组 = 分析过了、没有副歌），返回 null 就用已登记的实现。**应用最多等 20 s**，写法同上。
+  两个钩子的载荷字段、数据格式、超时与失效规则见 [plugin-hooks.md](plugin-hooks.md)；
 - `musicxx.media.palette.set` 是**主动写**：只覆盖你给的键，其余保持不变；换歌后内置分析会照旧
   重跑（想持续提供就用上面的钩子）；
 - **封面变化**（`musicxx.media.cover.changed`）是**观察型**：注册 handle 后，换歌、同一首歌换了

@@ -122,7 +122,7 @@ my_plugin/
 | 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`） |
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
-| 音频频谱 | 动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡 |
+| 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用 |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
 | 网络 | `musicxx.net.fetch/download` | 走应用网络栈（继承代理/超时）；响应体流式读取，上限 16 MiB（默认 2 MiB）；**非 2xx 也算请求完成** |
 | 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具 |

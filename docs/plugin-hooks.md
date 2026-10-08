@@ -58,6 +58,8 @@
 | `musicxx.media.info.request` | decision | async | firstNonNull | 未接入 |
 | `musicxx.media.wave.ready` | observe | async | lastWrite | 未接入 |
 | `musicxx.media.chorus.analysed` | observe | async | lastWrite | 未接入 |
+| `musicxx.media.spectrum.extract` | decision | async | firstNonNull | 已接入 |
+| `musicxx.media.chorus.analyse` | decision | async | firstNonNull | 已接入 |
 | `musicxx.media.palette.provide` | decision | async | firstNonNull | 已接入 |
 | `musicxx.media.cover.changed` | observe | async | lastWrite | 已接入 |
 | `musicxx.net.request.before` | decision | async | anyCancel | 未接入 |
@@ -135,6 +137,16 @@
 
 - 模式：`observe`；派发：`async`；合并策略：`lastWrite`
 - 载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前宿主会先刷新状态镜像，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。
+
+### `musicxx.media.spectrum.extract`
+
+- 模式：`decision`；派发：`async`；合并策略：`firstNonNull`
+- 载荷 `{srcKey, name, artist, kind, path, durationMs, frames, binCount, frameHz, maxSeconds}`：应用要提取一首歌的**整曲频谱**时派发一次（`path` 是本地/缓存文件路径，不是网络直链；`kind` = `local` / `cache` / `content` / `other`；`frames` 按时长推算、只作提示）。处理器返回 `{"spectrum": {"spectrums": "<base64>", "waveform": "<base64，可省>", "binCount": 256, "frameHz": 10}}` 就用插件的数据替代内置提取（内置实现是应用自己用 mediaxx 提取）：`spectrums` 是整曲频点（帧数 × 256 个字节，0~255 表示 -80~0 dB，默认每秒 10 帧），`waveform` 是每帧 1 字节 RMS 响度（0~255 表示 -60~+20 dB；省掉或长度对不上时按每帧频点均值补一份近似响度）。不返回 / 没有 `spectrum` / 数据不合法（不是 base64、长度不是 256 的整数倍、`binCount` 与 `frameHz` 不是 256 与 10）= 这次不提供，应用接着用已登记的实现（内置『音乐动效』）。异步派发：应用最多等 30 s（超时按没给处理）；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。应用侧只在"该钩子有处理器"时才派发。
+
+### `musicxx.media.chorus.analyse`
+
+- 模式：`decision`；派发：`async`；合并策略：`firstNonNull`
+- 载荷 `{srcKey, name, artist, kind, path, durationMs, hasWave, frames, binCount, frameHz, spectrums?, waveform?, config}`：应用要分析一首歌的**副歌（高潮）区段**时派发一次。`hasWave` 为真时附带应用已经拿到的整曲频谱（`spectrums` / `waveform` 的 base64，4 分钟歌曲约 800 KB —— 用不上的插件请不要注册这个钩子）；`config` 是内置算法的参数（`bandCount` / `hopFrames` / `windowFrames` / `minRepeatLagSeconds` / `segmentSimilarity` / `minSegmentSeconds` / `maxSegmentSeconds` / `mergeGapSeconds`）。处理器返回 `{"chorus": {"sections": [{"start": 64000, "end": 100000, "confidence": 0.8, "energy": 0.7, "similarity": 0.9, "repeat": 3}], "totalDuration": 253000, "analyseTimeMs": 120}}`（时间单位毫秒）就用插件的区段替代内置分析；`sections` 是必需项（空数组 = 分析过了、这首歌没有副歌），每段至少要有 `start` 与 `end`，其余字段缺失按 0 处理。不返回 / 缺少 `sections` / 一个区段都解析不出来 = 这次不提供。异步派发：应用最多等 20 s；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。应用侧只在"该钩子有处理器"时才派发。
 
 ### `musicxx.media.palette.provide`
 

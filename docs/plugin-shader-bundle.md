@@ -568,7 +568,8 @@ void main() {
 | **其它任意名字（可含 `.`）** | 变量目录里的键：应用登记的官方变量、插件登记的自定义变量（如 `plugin.<插件id>.<名>`）；值是数字 / 布尔 / 文本，宿主按字段期望的类型转换 |
 | **局部通道名（`AnimatedBuilder.values` 的键）** | 优先于上面两类；只在那一层作用域里可见（页面里的用法见 `plugin-ui.md`） |
 
-**频谱来源（`musicxx.spectrum.*`）** 读的是内置『音乐动效』插件提取的数据（每 100 ms 一帧）：
+**频谱来源（`musicxx.spectrum.*`）** 读的是**插件提供的实现**提取的数据（内置『音乐动效』插件是
+应用默认登记的那一份，注册了钩子 `musicxx.media.spectrum.extract` 的插件可以替代它；每 100 ms 一帧）：
 
 - 有三档粒度（都是一帧 256 个频点按线性分组取平均，低频在前）：`bands.0..3`（16 个频带）、
   `bands64.0..15`（64 个频带）、`bins.0..63`（256 个频点，等于原始频点）。画面上要摆几十个点时
@@ -587,7 +588,8 @@ void main() {
 - 一帧有 **256 个频点**，频带是这些频点按线性分组取平均后的 16 个值（与能力的 `GetAudioSpectrum`
   一致，频带 0 最低、频带 15 最高）；想要别的规则或整曲数据用 `musicxx.media.spectrum` 动作自己算；
 - 能取到数据的条件：正在播放**本地/缓存**的音频（网络流要先有本地缓存），时长不超过
-  15 分钟，且内置『音乐动效』插件处于启用状态。
+  15 分钟，且有插件提供频谱提取实现（内置『音乐动效』，或注册了钩子
+  `musicxx.media.spectrum.extract` 的插件）。
 
 ### 7.3 时间与状态
 
@@ -741,7 +743,8 @@ const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.back
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 宿主 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..512，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 
-**当前音频频谱**（内置『音乐动效』提取的数据）有两条读法，着色器与 JS 各用一条：
+**当前音频频谱**（由插件提供的实现提取：内置『音乐动效』或注册了提取钩子的插件）有两条读法，
+着色器与 JS 各用一条：
 
 ```js
 // ① 着色器参数（每帧现读，零成本）：见 §7 的 musicxx.spectrum.* 来源
@@ -759,7 +762,7 @@ const live = musicxx.state.get("musicxx.state.spectrum");
 //   frameHz, frameIndex, frames, bandCount, level, bands:[16] }
 ```
 
-- 没有数据（未启用『音乐动效』/ 正在提取 / 来源不支持）都回 `ok: true`：
+- 没有数据（没有任何插件提供提取实现 / 正在提取 / 来源不支持）都回 `ok: true`：
   `status` = `off` / `loading` / `none` / `unavailable`，`available` 为假、`bands` 与 `level` 是 0；
 - `unit` 可选 `normalized`（0~1，缺省）/ `db`（频点 -80~0 dB，响度 -60~+20 dB）/ `raw`（0~255）；
   想自己分析整曲频谱用能力 `GetAudioSpectrum`（`musicxx.feature.call`）。
@@ -820,7 +823,7 @@ function applyRate(rate) {
 | 页面里那块 `Shader` 一直是空白 | 父块没有给出确定尺寸（用 `SizedBox` / `Expanded` 给它高度）；或 bundle 不可用（日志里有原因） |
 | 选中后回到内置背景 | 加载或渲染报错被停用（连续失败 3 次才停用，其间保留最后一帧）；看宿主日志与「外部插件 → 调试」里的背景段落 |
 | 动画不动 | `animate: false`、`speed: 0`，或着色器没有把 `uParams.z` 乘上 `uParams.w`；播放页被遮挡 / 切后台时本来就不渲染（`visible: false`） |
-| `musicxx.spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：内置『音乐动效』插件没启用、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
+| `musicxx.spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：没有任何插件提供频谱提取实现（没装『音乐动效』，也没有注册 `musicxx.media.spectrum.extract` 的插件）、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
 | 封面没画出来（`cover` 声明了） | 按顺序看：① `uCoverInfo.w` 是不是 0（当前歌曲没有封面 / 封面还没加载好 / 封面源解析失败，宿主日志里有"插件封面纹理准备失败"）；② 着色器里有没有 `uniform sampler2D <cover.texture>;`（名字不一致时宿主会记"没有声明这个纹理 uniform，已跳过绑定"）；③ 采样坐标要对：渲染目标与纹理都是 y 向下，把 `p.y` 翻过的着色器要翻回去；④ 采样到的是 1×1 透明占位纹理时颜色全黑，别用它判断"有没有封面" |
 | 用了封面纹理后崩溃 / 画面异常 | 着色器里的 `sampler2D` 名字与渲染项 `cover.texture` 不一致，或**渲染项压根没声明 `cover`**：那种 sampler 从未被绑定，采样未绑定的纹理在部分后端上行为未定义（软件后端实测会崩）。名字必须两边一致；当前没有封面时宿主会绑 1×1 透明占位纹理，所以"声明了但没封面"是安全的 |
 | `image` 纹理没画出来 | ① 插件有没有先 `musicxx.media.bindImage`（或 `cover` 的 `bind`）——返回里看 `ok` 与 `bindError`；② 渲染项 `image.key` 与绑定的 `key` 是否一致；③ `image.texture` 与着色器里的 `sampler2D` 名是否一致；④ `uXxxInfo.w` 是不是 0（还没绑定 / 已解绑） |
