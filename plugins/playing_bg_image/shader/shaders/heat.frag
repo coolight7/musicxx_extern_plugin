@@ -6,6 +6,7 @@
 //
 // 模糊强度与放大倍率由设置页决定（写进 UI 项的 `cover.blur` 与 `args.uZoom`），
 // 扭曲波纹可以用设置页的开关关掉（`args.uRipple`）：关掉后画面只剩缓慢漂移。
+// 波纹的疏密与快慢是着色器里的常量（kHeat* 那几个），不分模式、也不进设置项。
 //
 // 封面由宿主准备（UI 项的 `cover` 声明）：解码 + 缩放 + 预模糊（sigma = 设置页的模糊程度），
 // 着色器只做放大、漂移、扭曲与压暗 —— 比逐像素自己模糊便宜得多（那是每帧全屏多次采样）。
@@ -45,10 +46,19 @@ const float kDrift = 0.045;
 // 热浪扭曲强度（像素，按画面短边折算）：很小，只是"微微晃一下"
 const float kHeatPixels = 4.0;
 
-// 热浪斑块的疏密、游走速度与"能看见"的门限
-const float kHeatScale = 5.2;
-const float kHeatSpeed = 0.32;
-const float kHeatRippleSpeed = 1.45;
+// 热浪斑块的疏密、游走速度与细波纹的疏密
+//
+// `kHeatScale` 越大斑块越多、越小（同样一屏里挤下更多波峰），`kHeatSpeed` /
+// `kHeatRippleSpeed` 是它们各自推进的快慢，`kHeatRippleFreq` 是细波纹一屏里绕多少圈：
+// 这几个值一起决定"扭曲出现的频率"，现在比早先的版本密一档、快一档。
+const float kHeatScale = 8.0;
+const float kHeatSpeed = 0.42;
+const float kHeatRippleSpeed = 1.9;
+const vec2 kHeatRippleFreq = vec2(38.0, 23.0);
+
+// "能看见扭曲"的门限：热浪场落在这一段里的地方才晃（调低 = 出现扭曲的地方更多）
+const float kHeatVisibleLow = 0.16;
+const float kHeatVisibleHigh = 0.82;
 
 /// 热浪场：两列低频行波叠加（值域约 -1..1），随时间缓慢游走
 float heatField(vec2 uv, float t) {
@@ -88,9 +98,9 @@ void main() {
 
   // 3) 局部热浪：只在场的波峰附近出现（"偶尔某些地方"），幅度只有几像素
   float field = heatField(uv + driftUV * 0.5, t);
-  float heatMask = smoothstep(0.30, 0.95, field);
+  float heatMask = smoothstep(kHeatVisibleLow, kHeatVisibleHigh, field);
   float ripple = sin(
-      dot(uv, vec2(31.0, 19.0)) + t * kHeatRippleSpeed + field * 4.6);
+      dot(uv, kHeatRippleFreq) + t * kHeatRippleSpeed + field * 4.6);
   vec2 heatUV = vec2(1.0, 0.4) * (ripple * heatMask * kHeatPixels * heatOn) / res;
 
   // 4) 采样：漂移与热浪叠加后夹在纹理内（采样的地址模式本身也是 clampToEdge）

@@ -302,7 +302,7 @@ MUSICXX_PLUGIN_EXPORT(
 
 | 键 | 内容 | 当前版本 |
 |---|---|---|
-| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送 |
+| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送（启动时推一次） |
 | `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 已推送（启动 / 切歌 / 播放状态变化时刷新） |
 | `musicxx.state.song` | 当前歌曲的只读视图（与 `song.changed` 的 `song` 同结构） | 已推送 |
 | `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 已推送 |
@@ -312,6 +312,8 @@ MUSICXX_PLUGIN_EXPORT(
 
 - 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
 - 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），插件可以订阅它做增量处理；
+- **`musicxx.state.app.isNight` 是启动时的快照**：运行期切了主题它不会跟着变，定时读它再刷新画面会让
+  配色来回跳；要当前值就当场问一次（动作 `musicxx.media.palette` / `musicxx.render.current` 的 `night`）；
 - **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未接入。不要把它当每秒更新的进度用；
 - 镜像里**不放临时直链与 token**：需要地址请走 `musicxx.net.*` 动作或自己请求。

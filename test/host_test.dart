@@ -756,6 +756,25 @@ void main() {
               as Map<String, Object?>;
       expect(imageView['title'], isNotEmpty);
       expect(imageView['blocks'], isA<List<Object?>>());
+      // 设置页要有「自动调整前景色」的开关与状态行（插件按封面主色 + 亮暗主题推前景三色）
+      final List<String> settingsText = <String>[];
+      _collectText(imageView, settingsText);
+      expect(
+        settingsText.any((String text) => text.contains('自动调整前景色')),
+        isTrue,
+        reason: '设置页缺少自动前景色的开关/状态行: $settingsText',
+      );
+      // 状态行报的是"已关闭 / 读取中 / 等待封面取色"其中之一（测试环境里没有封面与昼夜）
+      expect(
+        settingsText.any(
+          (String text) =>
+              text.contains('已关闭') ||
+              text.contains('读取中') ||
+              text.contains('等待封面取色'),
+        ),
+        isTrue,
+        reason: '设置页没有自动前景色的状态文本: $settingsText',
+      );
       // 说明页（主页入口指向的页面）同样由插件绘制
       final Object? imageCardRaw = runtime.plugins.call(
         'playing_bg_image',
@@ -1046,6 +1065,25 @@ class _Environment {
 
 /// 取一个数值字段（缺省或类型不符时按 0 处理；读插件的探针结果用）
 int _intOf(Object? value) => value is num ? value.toInt() : 0;
+
+/// 递归收集界面描述里的文本（断言"这一页里有没有某段文案"用）
+void _collectText(Object? node, List<String> out) {
+  if (node is String) {
+    out.add(node);
+    return;
+  }
+  if (node is Map) {
+    for (final Object? value in node.values) {
+      _collectText(value, out);
+    }
+    return;
+  }
+  if (node is List) {
+    for (final Object? value in node) {
+      _collectText(value, out);
+    }
+  }
+}
 
 /// 递归复制目录（用例里用来做一份可以随便删的插件副本）
 void _copyDirectory(Directory from, Directory to) {
