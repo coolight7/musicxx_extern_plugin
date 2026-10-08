@@ -63,6 +63,22 @@ if ($targetsDir -ne "") {
   }
 }
 
+# ---- example_js_font 示例字体支持 ----
+# 编译打包示例插件时如果 resource/font/example-font.ttf 文件存在则打包进去，没有就算了
+if ($name -eq "example_js_font") {
+  $fontFile = Join-Path $pluginDirFull "resource/font/example-font.ttf"
+  if (-not (Test-Path -LiteralPath $fontFile -PathType Leaf)) {
+    $repoRoot = Split-Path -Parent $PSScriptRoot
+    $srcFont = Join-Path $repoRoot "resource/font/example-font.ttf"
+    if (Test-Path -LiteralPath $srcFont -PathType Leaf) {
+      $dstDir = Join-Path $pluginDirFull "resource/font"
+      New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+      Copy-Item -LiteralPath $srcFont -Destination $fontFile -Force
+      Write-Output "已将示例字体文件打包包含: $fontFile"
+    }
+  }
+}
+
 $allFiles = Get-ChildItem -LiteralPath $pluginDirFull -Recurse -File
 $totalBytes = ($allFiles | Measure-Object -Property Length -Sum).Sum
 if (-not $totalBytes) { $totalBytes = 0 }

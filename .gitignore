@@ -30,3 +30,7 @@ build/
 # tools/build_native.ps1 按脚本内固定版本 + URL + SHA256 下载解包到 .native/boost/，因此全新克隆
 # 无需本目录即可构建；本机已有该目录时脚本优先复用（-BoostRoot / -BoostArchive 可覆盖）。
 src/third_party/boost/
+resource/font/
+plugins/example_js_font/resource/font/
+*.ttf
+*.otf

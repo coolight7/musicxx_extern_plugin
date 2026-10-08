@@ -216,6 +216,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js_async
   example_js_vars
   example_js_multi_script
+  example_js_font
   playing_bg_image
 )
 set(MUSICXX_EXTERN_PLUGIN_TEST_NATIVE example_native_fail example_native_bad_entry)
@@ -331,6 +332,12 @@ foreach (_plugin ${MUSICXX_EXTERN_PLUGIN_JS_PLUGINS})
   endif ()
 endforeach ()
 unset(_plugin)
+
+# example_js_font 示例字体：若 resource/font/example-font.ttf 存在则打包进去，没有就算了
+if (EXISTS "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/resource/font/example-font.ttf")
+  install(FILES "${MUSICXX_EXTERN_PLUGIN_ROOT_DIR}/resource/font/example-font.ttf"
+    DESTINATION "plugins/example_js_font/resource/font")
+endif ()
 
 if (TARGET musicxx_extern_plugin_test)
   install(TARGETS musicxx_extern_plugin_test RUNTIME DESTINATION bin)
