@@ -314,6 +314,21 @@ abstract final class MusicxxPluginActionNames {
   /// 同一功能点 + 同一调用方的上一次调用没结束时返回 `busy`（不排队）。
   static const String featurePointCall = 'musicxx.feature.point.call';
 
+  /// 声明一个**自己的**功能点（id 必须形如 `plugin.<自己的插件 id>.<名字>`）
+  ///
+  /// 插件声明的功能点共用**一条**通用通道钩子（`musicxx.feature.point.call`），而不是每个点
+  /// 各占一个钩子 id（宿主只认固定的钩子表）。声明只描述"我提供什么功能"：
+  /// 参数 `id`（必填）、`title`（展示名）、`depict`（一句话说明）、`args`（参数说明）、
+  /// `result`（结果说明）。同一 id 重复声明 = 覆盖（最后一次生效）。
+  /// 声明跟着插件生命周期走（禁用 / 卸载自动撤销），不持久化；重新启用时脚本会再声明一遍。
+  /// 声明之后，别的插件与应用都能用 `musicxx.feature.point.call` 调它（`id` 就是这个点）。
+  static const String featurePointDefine = 'musicxx.feature.point.define';
+
+  /// 收回自己声明的功能点（参数 `id`）
+  ///
+  /// 一般不用调：插件被禁用 / 卸载时宿主会撤销它的全部声明。
+  static const String featurePointUndefine = 'musicxx.feature.point.undefine';
+
   /// 读某个钩子当前的处理器列表（自省：谁注册了、什么形态、排第几）
   ///
   /// 参数：`hook`（钩子 id，如 `musicxx.media.spectrum.extract`）。

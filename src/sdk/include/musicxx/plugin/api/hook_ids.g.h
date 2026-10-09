@@ -87,6 +87,7 @@
 #define MUSICXX_PLUGIN_HOOK_SCRIPT_ACTION_EXECUTED "musicxx.script.action.executed"
 #define MUSICXX_PLUGIN_HOOK_CLOCKING_TICK "musicxx.clocking.tick"
 #define MUSICXX_PLUGIN_HOOK_LISTEN_TOGETHER_EVENT "musicxx.listenTogether.event"
+#define MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL "musicxx.feature.point.call"
 
 #ifdef __cplusplus
 
@@ -172,6 +173,7 @@ inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
     {"musicxx.script.action.executed", 0, 3},
     {"musicxx.clocking.tick", 0, 3},
     {"musicxx.listenTogether.event", 0, 3},
+    {"musicxx.feature.point.call", 1, 0},
 };
 
 /// 已知钩子条目数
