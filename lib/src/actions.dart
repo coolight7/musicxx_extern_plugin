@@ -297,6 +297,23 @@ abstract final class MusicxxPluginActionNames {
   /// 参数：`id`（只看一个埋点）、`provided`（只看有实现的埋点）。
   static const String featurePointList = 'musicxx.feature.point.list';
 
+  /// 调一个功能点并拿到结果（应用留出的埋点，或插件自己声明的功能点）
+  ///
+  /// 参数：
+  /// - `id`：功能点 id（应用埋点如 `musicxx.media.spectrum.extract`，
+  ///   插件点如 `plugin.<插件id>.<名字>`）；
+  /// - `args`：给这个功能点的参数（对象，可省；每个功能点的参数见 `list` 里的 `callDoc`）；
+  /// - `refresh`：布尔，可省。true = 跳过值仓重新算一遍。
+  ///
+  /// 返回 `{ok, id, value, by, identity, fromCache, ms}`；失败是
+  /// `{ok:false, error, message}`，`error` 取 `not_callable` / `bad_args` / `no_impl` /
+  /// `disabled` / `busy` / `failed`。
+  ///
+  /// **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 插件调一次封面取色
+  /// 不会换掉用户看到的背景色（要改观感请看 `musicxx.media.palette.set`）。
+  /// 同一功能点 + 同一调用方的上一次调用没结束时返回 `busy`（不排队）。
+  static const String featurePointCall = 'musicxx.feature.point.call';
+
   /// 读某个钩子当前的处理器列表（自省：谁注册了、什么形态、排第几）
   ///
   /// 参数：`hook`（钩子 id，如 `musicxx.media.spectrum.extract`）。
