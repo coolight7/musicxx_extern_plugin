@@ -2124,6 +2124,136 @@ int main(int argc, char **argv) {
     }
   }
 
+  // ==================== 钩子处理器列表 (自省查询 hook_handlers)
+  // ====================
+  //
+  // 自省要回答"这个钩子现在有谁在提供、谁先执行": 列表按**调用顺序**给出
+  // (priority 升序, 同优先级按注册顺序), 只暴露 plugin / instance / kind / priority /
+  // ownerTag —— 不暴露处理器地址、载荷与内部状态。应用侧把它写进功能埋点自省,
+  // 插件侧用动作 `musicxx.hook.handlers` 读同一份数据。
+  {
+    // 先归一状态: 这两个插件在前面的用例里可能还装着
+    musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"), &log);
+    musicxx_extern_plugin_plugin_unload(host, viewCP("example_js"), &log);
+
+    MusicxxExternPluginString nativeLoadLog{};
+    const auto nativeRc = musicxx_extern_plugin_plugin_load_sync(
+        host, viewCP("example_native"), viewCP("{}"), 8000, &nativeLoadLog);
+    if (nativeRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      std::printf("  [info] example_native load rc=%d log=%s\n", nativeRc,
+                  take(nativeLoadLog).c_str());
+    } else {
+      freeStr(nativeLoadLog);
+    }
+    check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例装载动态库插件");
+
+    MusicxxExternPluginString jsLoadLog{};
+    const auto jsRc = musicxx_extern_plugin_plugin_load_sync(
+        host, viewCP("example_js"), viewCP(R"({"enabled":true})"), 15000,
+        &jsLoadLog);
+    if (jsRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      std::printf("  [info] example_js load rc=%d log=%s\n", jsRc,
+                  take(jsLoadLog).c_str());
+    } else {
+      freeStr(jsLoadLog);
+    }
+    check(jsRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例装载 JS 插件");
+
+    // 未知钩子 id 明确报"没找到", 不是"没有处理器"
+    {
+      MusicxxExternPluginString out{};
+      const auto rc = musicxx_extern_plugin_hook_handlers(
+          host, viewCP("musicxx.no.such.hook"), &out, &log);
+      freeStr(out);
+      check(rc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND, "未知钩子查询返回未找到");
+    }
+
+    // 两种形态同时在: 列表给出两个处理器, 并带上 kind 与实例名
+    {
+      MusicxxExternPluginString out{};
+      const auto rc = musicxx_extern_plugin_hook_handlers(
+          host, viewCP("musicxx.player.beforePlaySong"), &out, &log);
+      const std::string json = take(out);
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "hook_handlers 可读");
+      check(jsonStringField(json, "hook") == "musicxx.player.beforePlaySong",
+            "回报的是同一个钩子 id");
+      check(jsonIntField(json, "count") == "2", "两种形态的处理器都在列表里");
+      check(json.find("\"kind\":\"native\"") != std::string::npos,
+            "列表含原生处理器");
+      check(json.find("\"kind\":\"js\"") != std::string::npos, "列表含 JS 处理器");
+      check(json.find("\"plugin\":\"example_native\"") != std::string::npos,
+            "原生处理器给出插件 id");
+      check(json.find("\"instance\":\"js:example_js\"") != std::string::npos,
+            "JS 处理器用内核的实例名");
+      check(json.find("\"ownerTag\":") != std::string::npos,
+            "列表带 ownerTag 字段");
+
+      // 列表按调用顺序: priority 必须单调不减
+      const std::string priorityKey = "\"priority\":";
+      std::vector<int> priorities;
+      for (size_t pos = json.find(priorityKey); pos != std::string::npos;
+           pos = json.find(priorityKey, pos + priorityKey.size())) {
+        size_t at = pos + priorityKey.size();
+        const bool negative = at < json.size() && json[at] == '-';
+        if (negative) {
+          ++at;
+        }
+        int value = 0;
+        for (; at < json.size() && json[at] >= '0' && json[at] <= '9'; ++at) {
+          value = value * 10 + (json[at] - '0');
+        }
+        priorities.push_back(negative ? -value : value);
+      }
+      bool ordered = priorities.size() == 2;
+      for (size_t i = 1; i < priorities.size(); ++i) {
+        if (priorities[i] < priorities[i - 1]) {
+          ordered = false;
+        }
+      }
+      check(ordered, "处理器按调用顺序给出 (priority 升序)");
+
+      // 与计数接口一致: 列表长度 = hook_count
+      int32_t counted = -1;
+      musicxx_extern_plugin_hook_count(
+          host, viewCP("musicxx.player.beforePlaySong"), &counted, &log);
+      check(counted == 2, "hook_count 与列表长度一致");
+    }
+
+    // 禁用 JS 插件 → 列表只剩原生那一条; 重新启用 → 又回来
+    {
+      check(musicxx_extern_plugin_plugin_disable(
+                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "禁用 JS 插件");
+      MusicxxExternPluginString out{};
+      musicxx_extern_plugin_hook_handlers(
+          host, viewCP("musicxx.player.beforePlaySong"), &out, &log);
+      const std::string json = take(out);
+      check(jsonIntField(json, "count") == "1", "禁用后列表只剩一个处理器");
+      check(json.find("\"kind\":\"js\"") == std::string::npos,
+            "禁用后 JS 处理器从列表里消失");
+
+      check(musicxx_extern_plugin_plugin_enable(
+                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "重新启用 JS 插件");
+      std::this_thread::sleep_for(std::chrono::milliseconds{300});
+      MusicxxExternPluginString out2{};
+      musicxx_extern_plugin_hook_handlers(
+          host, viewCP("musicxx.player.beforePlaySong"), &out2, &log);
+      const std::string json2 = take(out2);
+      check(jsonIntField(json2, "count") == "2", "启用后列表恢复两个处理器");
+    }
+
+    // 收尾: 两个插件都放掉 (后面还有"卸载要释放动态库"的用例)
+    musicxx_extern_plugin_plugin_unload(host, viewCP("example_js"), &log);
+    musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"), &log);
+    MusicxxExternPluginString empty{};
+    musicxx_extern_plugin_hook_handlers(
+        host, viewCP("musicxx.player.beforePlaySong"), &empty, &log);
+    const std::string emptyJson = take(empty);
+    check(jsonIntField(emptyJson, "count") == "0",
+          "都卸载后钩子上没有处理器 (列表为空)");
+  }
+
   // ============ 卸载 = 释放动态库: 卸载后的插件文件要能删能换 (回归) ============
   //
   // 卸载要把实例与动态库一起放掉: 之后插件目录必须能整个删掉 (管理页的"彻底卸载")

@@ -291,6 +291,19 @@ abstract final class MusicxxPluginActionNames {
   static const String featureList = 'musicxx.feature.list';
   static const String featureCall = 'musicxx.feature.call';
 
+  /// 列出功能埋点与各自的实现（谁在提供这个功能、排第几、谁把功能关掉了）
+  ///
+  /// 与命令行 `featurePoint.list`、MCP 工具 `GetFeatureProviders` 共用同一份自省数据。
+  /// 参数：`id`（只看一个埋点）、`provided`（只看有实现的埋点）。
+  static const String featurePointList = 'musicxx.feature.point.list';
+
+  /// 读某个钩子当前的处理器列表（自省：谁注册了、什么形态、排第几）
+  ///
+  /// 参数：`hook`（钩子 id，如 `musicxx.media.spectrum.extract`）。
+  /// 返回 `{hook, count, handlers, listAvailable}`；`listAvailable=false` 表示宿主库太旧，
+  /// 只能报处理器数量（此时看 `count`）。
+  static const String hookHandlers = 'musicxx.hook.handlers';
+
   static const String hostOpenUrl = 'musicxx.host.openUrl';
   static const String hostShareText = 'musicxx.host.shareText';
   static const String hostClipboard = 'musicxx.host.clipboard';
