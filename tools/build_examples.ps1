@@ -8,6 +8,8 @@
 #      增量构建开销 —— 示例插件的库文件要链接宿主库与内核，必须有它;
 #   2. 构建示例插件(plugins/ 下的动态库插件 + JS 插件); 默认连原生测试与对照示例一起构建;
 #   3. 把构建产物里的每个插件目录打包成安装包 .zip (顶层就是插件目录内容，可直接「从压缩包安装」)。
+#      包名带上插件版本号: <插件 id>-<清单 version 里的 . 换成 _>.zip，例 example_js_shader-20261010_1_0.zip
+#      (版本号约定「日期.小版本号1.小版本号2」，第一段是发版日期)。
 #
 # 用法:
 #   pwsh -NoProfile -File tools/build_examples.ps1                 # 构建示例插件 + 打包 (已是最新则直接打包)
@@ -22,7 +24,7 @@
 #   pwsh -NoProfile -File tools/build_examples.ps1 -Android -Abi arm64-v8a           # Android 交叉编译
 #
 # 装到应用里试:
-#   musicxx-cli plugin install "<包>/.native/output/<平台>-<配置>/packages/<插件>.zip" --enable
+#   musicxx-cli plugin install "<包>/.native/output/<平台>-<配置>/packages/<插件id>-<版本号>.zip" --enable
 #
 # 说明: [CmdletBinding()] 让写错的参数名直接报错, 而不是被当成多余参数悄悄忽略。
 [CmdletBinding()]
@@ -111,6 +113,7 @@ foreach ($dir in (Get-ChildItem $paths.PluginsDir -Directory | Sort-Object -Prop
     $plugins += [pscustomobject]@{
         Id      = $dir.Name
         Path    = $dir.FullName
+        Version = Read-MxPluginVersion $dir.FullName
         Count   = $files.Count
         Bytes   = ($files | Measure-Object -Property Length -Sum).Sum
         Broken  = $dir.Name -match '(_fail|_bad_entry|_broken)$'
@@ -123,7 +126,8 @@ if ($plugins.Count -eq 0) {
 }
 foreach ($plugin in $plugins) {
     $mark = if ($plugin.Broken) { ' [对照示例: 故意做坏的]' } else { '' }
-    Write-MxInfo ("{0,-24} {1,4} 个文件 {2,9:N0} 字节{3}" -f $plugin.Id, $plugin.Count, $plugin.Bytes, $mark)
+    $ver = if ($plugin.Version -ne '') { $plugin.Version } else { '未声明版本' }
+    Write-MxInfo ("{0,-24} {1,4} 个文件 {2,9:N0} 字节  版本 {3}{4}" -f $plugin.Id, $plugin.Count, $plugin.Bytes, $ver, $mark)
 }
 if ($RunTests) { Write-MxInfo '原生测试已在构建阶段执行 (见上方输出)' }
 
@@ -140,12 +144,16 @@ New-Item -ItemType Directory -Force -Path $packDir | Out-Null
 $packScript = Join-Path $PSScriptRoot 'pack_plugin.ps1'
 $zips = @()
 foreach ($plugin in $plugins) {
-    $zip = Join-Path $packDir "$($plugin.Id).zip"
+    # 包名 = <插件 id>-<清单 version 里的 . 换成 _>.zip (与 pack_plugin.ps1 的默认名一致)
+    $zipName = Get-MxPluginPackageFileName -PluginId $plugin.Id -Version $plugin.Version
+    if ($plugin.Version -eq '') { Write-MxWarn "$($plugin.Id): 清单没写 version，包名不带版本号" }
+    $zip = Join-Path $packDir $zipName
     & $pwshExe -NoProfile -File $packScript -PluginDir $plugin.Path -Out $zip
     if ($LASTEXITCODE -ne 0) { throw "打包失败: $($plugin.Id) (退出码 $LASTEXITCODE)" }
     if (Test-Path $zip) {
         $zips += [pscustomobject]@{
             Id    = $plugin.Id
+            Name  = $zipName
             Path  = $zip
             Bytes = (Get-Item $zip).Length
             Sha   = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
@@ -156,9 +164,9 @@ foreach ($plugin in $plugins) {
 Write-Host ''
 Write-Host "示例插件构建与打包完成: $($zips.Count) 个安装包"
 foreach ($zip in $zips) {
-    Write-MxInfo ("{0,-24} {1,9:N2} MiB  sha256={2}" -f "$($zip.Id).zip", ($zip.Bytes / 1MB), $zip.Sha.Substring(0, 16))
+    Write-MxInfo ("{0,-40} {1,9:N2} MiB  sha256={2}" -f $zip.Name, ($zip.Bytes / 1MB), $zip.Sha.Substring(0, 16))
 }
 Write-Host ''
 Write-Host '装到应用里试 (应用需已开启『拟声++』):'
-Write-Host "  musicxx-cli plugin install `"$packDir\example_native.zip`" --enable"
+Write-Host "  musicxx-cli plugin install `"$($zips[0].Path)`" --enable"
 Write-Host '  也可以直接把插件目录放进 <应用支持目录>/musicxx/extern_plugin/plugins/ 再在管理页重新扫描'

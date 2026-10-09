@@ -54,7 +54,7 @@ my_plugin/
 name: my_plugin                    # 插件 id（唯一；同名视为同一插件的升级覆盖）
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
-version: 1.0.0                     # 版本（升级比较用）
+version: 20261010.1.0              # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期）；打包脚本用它拼安装包名
 api_version: 1                     # 插件 API 版本：不低于宿主支持的最低版本即可（当前最低 1）；声明更高也不拒绝
 author: "你的名字"
 description: "插件说明"

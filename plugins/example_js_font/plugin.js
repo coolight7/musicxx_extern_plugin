@@ -13,7 +13,7 @@
 ///    第 1 条这次调用里 —— 两边互等到动作超时（5 秒）。表现为：点击后**整个程序卡几秒**，
 ///    然后插件收到 `action_timeout` 报"切换失败"，可字体其实已经切过去了。
 ///    正确做法是**先把动作发出去**（`musicxx.ui.setFontFamily(...)` 不 await，只跟 `.then`），
-///    带上**乐观更新**后的界面状态立刻返回视图；动作结果在后台回读。
+///    界面状态立刻返回视图；动作结果在后台回读。
 /// 3. **应用会自己补一次刷新**：`dispatch` 拿到视图后 500ms 会再静默取一次页面（见
 ///    `ExternPluginViewBody._scheduleQuietReload`），所以后台改好的真实状态会自动显示出来，
 ///    插件不需要额外做刷新逻辑。
@@ -36,7 +36,7 @@ const MODE_LABELS = {
     default: "拟声默认",
 };
 
-/// 页面显示的模式：点下去先按新值显示（乐观更新），动作失败时回滚
+/// 页面显示的模式：点下去先按新值显示，动作失败时回滚
 let currentMode = "default";
 /// 最近一次确认应用成功的模式（成功回执到达后才更新）
 let appliedMode = "default";
@@ -101,14 +101,14 @@ function applyFontMode(mode) {
     });
 }
 
-/// 页面按钮动作：**立刻返回视图**（乐观更新 + 后台执行）
+/// 页面按钮动作：**立刻返回视图**（后台执行）
 ///
 /// 页面拿到的就是"点完的样子"；动作失败时回滚显示，并异步提示（那时调用早就返回了，
 /// 用提示/通知这类动作是安全的）。
 function selectMode(mode, args) {
     const target = normalizeMode(mode);
     const previous = currentMode;
-    currentMode = target;                       // 乐观更新：页面先按新值画
+    currentMode = target;                       // 页面先按新值画
     applyFontMode(target).then(function (res) {
         if (res && res.ok) {
             musicxx.ui.toast("已切换字体：" + MODE_LABELS[target]).then(function () {
@@ -180,7 +180,7 @@ function cardView(args) {
         kit.divider({}, env),
         kit.listRow({
             title: "选择的模式",
-            subtitle: "点按钮后立即显示（乐观更新）",
+            subtitle: "点按钮后立即显示",
             trailing: (MODE_LABELS[currentMode] || "未知") + (pending ? "（切换中…）" : ""),
         }, env),
         kit.listRow({

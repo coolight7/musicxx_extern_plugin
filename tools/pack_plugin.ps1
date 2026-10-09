@@ -9,6 +9,9 @@
 #   pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir <插件目录> -Out <输出.zip>
 #   pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir <插件目录> -Check    # 只检查，不打包
 #
+# 包名：不给 -Out 时是 <插件 id>-<清单 version 里的 . 换成 _>.zip，与插件目录同级
+# （例：example_js_shader 的 version 是 20261010.1.0 → example_js_shader-20261010_1_0.zip）。
+#
 # 例（打包构建产物里的多目标示例插件）：
 #   pwsh -NoProfile -File tools/pack_plugin.ps1 `
 #     -PluginDir .native/output/windows-x64-release/plugins/example_native_multi
@@ -19,6 +22,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# 包名里的版本号取自清单 version：与 build_examples.ps1 共用公共库里的同一份实现
+. (Join-Path $PSScriptRoot 'native_common.ps1')
 
 if (-not (Test-Path -LiteralPath $PluginDir -PathType Container)) {
   throw "插件目录不存在: $PluginDir"
@@ -39,6 +45,7 @@ function Read-ManifestScalar([string]$key, [string]$default) {
 $name = Read-ManifestScalar "name" ""
 $kind = Read-ManifestScalar "kind" ""
 $entry = Read-ManifestScalar "entry" ""
+$version = Read-ManifestScalar "version" ""
 $targetsDir = Read-ManifestScalar "targets_dir" "lib"
 if ($name -eq "") {
   throw "清单里缺少 name（插件 id）: $manifestPath"
@@ -52,8 +59,8 @@ if ($targetsDir -ne "") {
   if (Test-Path -LiteralPath $branchRoot -PathType Container) {
     $branches = Get-ChildItem -LiteralPath $branchRoot -Directory |
       ForEach-Object {
-        $libs = Get-ChildItem -LiteralPath $_.FullName -File |
-          Where-Object { $_.Name -match '\.(dll|so|dylib)$' -and -not $_.Name.StartsWith('.') }
+        $libs = @(Get-ChildItem -LiteralPath $_.FullName -File |
+          Where-Object { $_.Name -match '\.(dll|so|dylib)$' -and -not $_.Name.StartsWith('.') })
         [pscustomobject]@{
           Tag   = $_.Name
           Lib   = if ($libs.Count -gt 0) { ($libs | ForEach-Object { $_.Name }) -join ", " } else { "(缺库文件)" }
@@ -79,11 +86,12 @@ if ($name -eq "example_js_font") {
   }
 }
 
-$allFiles = Get-ChildItem -LiteralPath $pluginDirFull -Recurse -File
+$allFiles = @(Get-ChildItem -LiteralPath $pluginDirFull -Recurse -File)
 $totalBytes = ($allFiles | Measure-Object -Property Length -Sum).Sum
 if (-not $totalBytes) { $totalBytes = 0 }
 
 Write-Output "插件: $name ($kind)"
+Write-Output $(if ($version -ne "") { "清单 version: $version" } else { "清单 version: 未声明（包名不带版本号）" })
 if ($entry -ne "") { Write-Output "清单 entry: $entry" }
 Write-Output "文件数: $($allFiles.Count)（约 $([math]::Round($totalBytes / 1MB, 2)) MiB）"
 if ($branches.Count -gt 0) {
@@ -104,7 +112,8 @@ if ($Check) {
 }
 
 if ($Out -eq "") {
-  $Out = Join-Path (Split-Path -Parent $pluginDirFull) "$name.zip"
+  $Out = Join-Path (Split-Path -Parent $pluginDirFull) `
+    (Get-MxPluginPackageFileName -PluginId $name -Version $version)
 }
 $outFull = [System.IO.Path]::GetFullPath($Out)
 $outParent = Split-Path -Parent $outFull

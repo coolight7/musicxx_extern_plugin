@@ -8,7 +8,7 @@ name: example_js_async
 kind: js
 entry: plugin.js
 
-version: 1.0.0
+version: 20261010.1.0
 api_version: 1
 author: "coolight"
 description: "对照示例: 裁决型钩子处理器返回 Promise, 演示异步裁决(结算后裁决生效)"

@@ -32,7 +32,7 @@ name: my_plugin                  # 插件 id（唯一；同名视为同一插件
 kind: js                         # js = 零编译脚本插件（缺省时按 entry 推导）
 entry: plugin.js                 # 可省略（清单只要求 name）：缺省用 plugin.js
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：按顺序执行的脚本（缺省取 entry / plugin.js）
-version: 1.0.0
+version: 20261010.1.0            # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期）
 api_version: 1                   # 插件 API 版本：只要不低于宿主支持的最低版本（当前 1）就照常加载；比宿主更高也不会被拒
 author: "你的名字"
 description: "插件说明"
@@ -349,7 +349,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.ui.toast` | `{text}` | `{ok:true}` |
 | `musicxx.ui.dialog` | `{title?, content, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` |
-| `musicxx.ui.setFontFamily` | `{fontFamily?}`（字符串，传 `default` / `""` / `null` 恢复默认） | `{ok:true, fontFamily, isCustom}` 更换全局 `XXText*` 与输入框字体；**换字体要重建整棵界面，动作本身可能耗时几百毫秒到几秒**：页面按钮的能力处理器里必须"发出去就返回"（乐观更新 + `.then` 收尾），`await` 它会与同步进宿主的调用方互锁到超时（见 [plugin-ui.md](plugin-ui.md) §4.1） |
+| `musicxx.ui.setFontFamily` | `{fontFamily?}`（字符串，传 `default` / `""` / `null` 恢复默认） | `{ok:true, fontFamily, isCustom}` 更换全局 `XXText*` 与输入框字体；**换字体要重建整棵界面，动作本身可能耗时几百毫秒到几秒**：页面按钮的能力处理器里必须"发出去就返回"（`.then` 收尾），`await` 它会与同步进宿主的调用方互锁到超时（见 [plugin-ui.md](plugin-ui.md) §4.1） |
 | `musicxx.ui.getFontFamily` | 无 | `{ok:true, fontFamily, defaultFontFamily, customFontFamily, isCustom}` |
 | `musicxx.ui.loadFont` | `{family, path?, data?, apply?=true}` | `{ok:true, family, applied}` 加载注册字体并可选立即设为全局字体（同上的"不要 await"约定） |
 | `musicxx.storage.get` | `{key, namespace?}` | **值本身**（键不存在 → 空应答，JS 封装回退到默认值） |
