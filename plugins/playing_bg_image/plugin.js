@@ -1927,7 +1927,7 @@ function choiceControl(title, help, id, current, viewId, options) {
 
 /// 模式选择那一行（说明页与设置页共用：[viewId] 决定动作返回哪一页去刷新）
 function modeControl(viewId) {
-    return choiceControl("选择模式", "",
+    return choiceControl("", "",
         "mode", currentMode(), viewId, [
         { value: MODE_BLUR, label: "模糊" },
         { value: MODE_CARD, label: "沉浸" },
@@ -1957,7 +1957,7 @@ function settingsView(args) {
             kit.card({
                 title: "参数",
                 children: [
-                    choiceControl("常用模糊档位", "点一下就用这个值（当前档位高亮）",
+                    choiceControl("模糊档位", "",
                         "blur", configuredBlur(), SETTINGS_VIEW_ID,
                         BLUR_CHOICES.map(function (value) {
                             return { value: value, label: String(value) };
@@ -1969,14 +1969,14 @@ function settingsView(args) {
                         ZOOM_CHOICES.map(function (value) {
                             return { value: value, label: value + "×" };
                         })),
-                    choiceControl("图片占比（只影响『沉浸』）",
+                    choiceControl("图片占比（『沉浸』模式）",
                         "图片至少占屏幕的比例：越大图片越多、渐变底越少" +
                         "（图片按卡片铺满、超出部分裁掉）",
                         "share", configuredShare(), SETTINGS_VIEW_ID,
                         SHARE_CHOICES.map(function (value) {
                             return { value: value, label: Math.round(value * 100) + "%" };
                         })),
-                    choiceControl("唱片转速（只影响『黑胶』）",
+                    choiceControl("唱片转速（『黑胶』模式）",
                         "盘心的封面转一圈的快慢：1× 是 " + VINYL_SPIN_SECONDS + " 秒一圈",
                         "spin", configuredSpin(), SETTINGS_VIEW_ID,
                         SPIN_CHOICES.map(function (value) {
@@ -2078,7 +2078,7 @@ function cardView(args) {
             }, env),
             kit.card({ children: statusRows() }, env),
             kit.card({
-                title: "模式",
+                title: "选择模式",
                 children: [modeControl(HOME_VIEW_ID)],
             }, env),
             kit.button({
