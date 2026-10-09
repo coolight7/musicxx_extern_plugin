@@ -54,7 +54,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | `plugin reload [插件id]` | 给 id 只重载这一个；不给 id = 重扫插件目录 + 重载全部启用中的 | **是** |
 | `plugin restart` | 重启插件框架（插件文件与安装记录都保留） | **是**（重启后仍未运行会失败，原因在错误里） |
 | `plugin uninstall <插件id> [--keep-data]` | 卸载：停实例 → 删插件目录 → 清记录；`--keep-data` 保留插件私有数据 | 否 |
-| `plugin logs [插件id] [--limit N]` | 最近日志（新的在前，1~200 条，默认 50） | 否 |
+| `plugin logs [插件id] [--limit N] [--offset N] [--level N] [--keyword 子串]` | 最近日志（新的在前，1~500 条，默认 50；`--offset` 翻页，`--level` 最低级别：800 info / 900 warning / 1000 severe） | 否 |
 | `plugin clear-logs` | 清空日志缓冲（不影响插件行为） | 否 |
 
 几个别名：`plugin remove` = `uninstall`，`plugin log` = `logs`，`plugin clearlogs` = `clear-logs`。
@@ -75,6 +75,13 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | `plugin uninstall` | `externPlugin.uninstall` |
 | `plugin logs` | `externPlugin.logs` |
 | `plugin clear-logs` | `externPlugin.clearLogs` |
+
+插件之外的两条排障命令（同样可以用 `call` 直调）：
+
+| CLI | 服务端命令 id | 作用 |
+|---|---|---|
+| `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `app.logs` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
+| `musicxx-cli call featurePoint.list [--args '{"provided":true}']` | `featurePoint.list` | 功能埋点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了 |
 
 ## 5. 常用做法
 
@@ -121,6 +128,10 @@ musicxx-cli plugin list                # 给人看：框架状态 + 逐条插件
 musicxx-cli plugin list --json         # 给 agent：data 里是完整状态，字段见下
 musicxx-cli plugin logs --limit 20     # 全部插件的最近日志
 musicxx-cli plugin logs my_plugin      # 只看一个插件
+musicxx-cli plugin logs --level 1000 --keyword 失败   # 只看错误级别（1000 = severe）
+musicxx-cli plugin logs --offset 50    # 翻到更早的一页（新的在前，--offset 从最新往回跳过）
+musicxx-cli logs --level severe --limit 20            # musicxx 自己的日志（error.log / info.log）
+musicxx-cli logs error --keyword 插件 --offset 20      # 只看 error.log，接着翻下一页
 ```
 
 `plugin list` 的 `data` 里（重载 / 重启 / 启停 / 卸载的结果里也是同一份字段；安装结果里它在
@@ -134,10 +145,14 @@ musicxx-cli plugin logs my_plugin      # 只看一个插件
 | `pluginCount` / `loadedCount` | 已登记插件数 / 已加载数 |
 | `plugins[]` | 每个插件：`id`、`version`、`kind`、`enabled`、`loaded`、`supported`、`reason`（不可用原因）、`target`（动态库插件选中的分支）、`path`（插件目录）、`permissions`（声明的权限）、`error`（最近一次失败原因） |
 
-- 日志是**内存里的环形缓冲**（最多 200 条，新的在前，不落盘、重启应用就没了）：宿主事件、
+- 日志是**内存里的环形缓冲**（最多 500 条，新的在前，不落盘、重启应用就没了）：宿主事件、
   插件日志（`console.*` / `musicxx.host.log`）与错误都在里面，和管理页「调试」页签看的是同一份；
+  结果里 `total` 是**过滤后**的条数、`hasMore` 说明还有没有更早的（翻页用 `--offset`）；
 - **装载失败不会让安装失败**：安装结果只说明"文件装好了"；是否真的跑起来要看该插件的
-  `loaded` 与 `error`，再去 `plugin logs <id>` 看明细。
+  `loaded` 与 `error`，再去 `plugin logs <id>` 看明细；
+- 应用自己的日志（`error.log` / `info.log`）用 `musicxx-cli logs` 看：从文件尾往前读（不整个读进
+  内存），结果里带 `fileSize`、`parseErrors`（跳过的坏行数）与 `flushedHint`（最后几行可能还在写入
+  缓冲里，稍后再读就能看到）。
 
 ### 5.4 停用与卸载
 
@@ -205,7 +220,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 }
 ```
 
-插件相关的 8 个工具（名字、参数、说明对外就是契约）：
+插件与排障相关的 10 个工具（名字、参数、说明对外就是契约）：
 
 | MCP 工具 | 参数 | 等价命令 |
 |---|---|---|
@@ -215,8 +230,10 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `ReloadExternPlugins` | `id?` | `plugin reload` |
 | `RestartExternPluginHost` | 无 | `plugin restart` |
 | `UninstallExternPlugin` | `id`、`keepData?` | `plugin uninstall` |
-| `GetExternPluginLogs` | `id?`、`limit?`（1~200，默认 50） | `plugin logs` |
+| `GetExternPluginLogs` | `id?`、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?` | `plugin logs` |
 | `ClearExternPluginLogs` | 无 | `plugin clear-logs` |
+| `GetAppLogs` | `file?`（error / info / both）、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?`、`exclude?` | `logs` |
+| `GetFeatureProviders` | `id?`、`provided?` | `call featurePoint.list` |
 
 - 工具结果里都带一份**现在的插件清单**（装了什么、启用/加载状态、失败原因），一次调用就能确认
   结果，不用再问一次；
@@ -260,7 +277,8 @@ musicxx-cli plugin uninstall my_plugin
   （启用/禁用只记录状态，下次启动生效），但未开启『拟声++』时应用不加载插件记录 —— 先开启再操作。
 - **命令行是桌面端能力**：Android / iOS 用管理页。Android 上动态库插件可能装载失败的平台限制
   与这里无关，见 [plugin-native-api.md](plugin-native-api.md) §11。
-- **日志有上限**：最近 200 条、只在内存里；要长期保留就自己落盘。
+- **日志有上限**：最近 500 条、只在内存里（`musicxx-cli logs` 读的是应用自己落盘的 `error.log` /
+  `info.log`，那份由应用自己按大小裁剪）；要长期保留就自己落盘。
 - **一次只让一个 agent 装/卸同一个插件**：两台同时在装会出现"文件是这次、记录是那次"的竞争。
 - **以运行状态为准**：安装/启用命令成功 ≠ 插件跑起来了，最终看 `plugin list` 的 `loaded` 与
   该插件的 `error`，以及 `plugin logs`。

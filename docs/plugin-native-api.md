@@ -284,6 +284,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 宿主环境 | `config()`、`language()`、`argsJson()` | `config()` 是宿主环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是装载时宿主给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
 | 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
+| 自省（异步） | `requestAction("musicxx.hook.handlers", "{\"hook\":\"<钩子 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这个钩子现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这个钩子再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由宿主负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
