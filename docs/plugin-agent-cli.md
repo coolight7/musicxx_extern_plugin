@@ -81,7 +81,8 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | CLI | 服务端命令 id | 作用 |
 |---|---|---|
 | `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `app.logs` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
-| `musicxx-cli call featurePoint.list [--args '{"provided":true}']` | `featurePoint.list` | 功能埋点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了 |
+| `musicxx-cli call featurePoint.list [--args '{"provided":true}']` | `featurePoint.list` | 功能点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`） |
+| `musicxx-cli featurePoint.call <功能点id> --args JSON [--refresh]` | `featurePoint.call` | **调一个功能点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
 
 ## 5. 常用做法
 
@@ -187,6 +188,43 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 | `musicxx-cli var list` / `var get <键>` | 看官方变量当前值（与插件的变量通道对照） |
 | `musicxx-cli feature call GetAudioSpectrum --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
 
+### 5.7 取一次应用的功能结果（`featurePoint.call`）
+
+`featurePoint.call` 调的是**功能点**：应用留出的扩展点（`musicxx.media.*`），或插件自己声明的点
+（`plugin.<插件id>.<名字>`）。它和 §5.6 里的 `feature call` 不是一回事：
+
+| | `feature call <能力id>`（能力导出） | `featurePoint.call <功能点id>`（功能埋点） |
+|---|---|---|
+| 是什么 | 应用**能做什么**（读文件、格式化文本） | 应用/插件**留出了什么功能**（谁实现都行） |
+| 结果 | 给模型读的文本结论 | 原始数据（base64 等）+ 出处（`by` / `identity` / `ms`） |
+| 适合 | 让 agent 自己看一眼频谱/副歌/主色调 | 让插件处理数据，或校验别人的实现 |
+
+```bash
+# 取一张指定图片的颜色（三种来源三选一：path / url / data；都不给 = 当前歌曲的封面）
+musicxx-cli featurePoint.call musicxx.media.palette.provide --args '{"path":"D:/covers/a.jpg"}'
+
+# 分析一首歌的副歌区段（结果很小，适合直接看）
+musicxx-cli featurePoint.call musicxx.media.chorus.analyse --args '{"path":"D:/a.flac"}'
+
+# 整曲频谱（base64，4 分钟约 820 KB）：重定向到文件，别直接打屏
+musicxx-cli featurePoint.call musicxx.media.spectrum.extract --args '{"path":"D:/a.flac"}' --json > spectrum.json
+
+# 调插件自己声明的功能点（参数与结果形状看它声明的 args / result）
+musicxx-cli featurePoint.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
+```
+
+- **参数与结果形状**一律看 `featurePoint.list` 的 `callDoc`（每个功能点一段），不要凭猜；
+- 结果形状：`{ok, id, value, by, identity, fromCache, ms}`。`by` 是这次是谁给的
+  （`extern:<插件id>` / `builtin:<插件key>:<实现>` / `core:<域>:<实现>`），
+  `identity` 是资源身份（音源 md5 / 文件路径），调用方可以据此自己缓存；
+- 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这个功能点没对外开放）/
+  `bad_args`（参数不对）/ `no_impl`（现在没有实现）/ `disabled`（被某个实现显式置空）/
+  `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`；
+- **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 调一次封面取色**不会**换掉用户看到的
+  背景色（要改观感请用动作 `musicxx.media.palette.set`）；
+- 默认超时 60 秒，频谱要解码整曲、慢的话用 `--timeout` 加长；`--refresh` 跳过值仓重新算一遍；
+- 结果不进值仓、不落盘：要长期留着就自己重定向到文件。
+
 ## 6. 给 agent 与脚本的约定
 
 - **`--json`**：stdout 只放那份 JSON（缩进多行；形状 `{ok, cmd, data}` 或 `{ok:false, error}`），
@@ -220,7 +258,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 }
 ```
 
-插件与排障相关的 10 个工具（名字、参数、说明对外就是契约）：
+插件与排障相关的 11 个工具（名字、参数、说明对外就是契约）：
 
 | MCP 工具 | 参数 | 等价命令 |
 |---|---|---|
@@ -234,9 +272,14 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `ClearExternPluginLogs` | 无 | `plugin clear-logs` |
 | `GetAppLogs` | `file?`（error / info / both）、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?`、`exclude?` | `logs` |
 | `GetFeatureProviders` | `id?`、`provided?` | `call featurePoint.list` |
+| `CallFeaturePoint` | `id`、`args?`、`refresh?` | `featurePoint.call` |
 
 - 工具结果里都带一份**现在的插件清单**（装了什么、启用/加载状态、失败原因），一次调用就能确认
   结果，不用再问一次；
+- `CallFeaturePoint` 的文本形态里**超大字符串字段会被压成摘要**
+  （超过 4 KB 的字符串给 `{"omitted":true,"bytes":N,"head":"<前 256 个字符>"}`）：
+  频谱一次 820 KB base64，整块塞进模型上下文既没用又挤掉别的东西 —— 只要可读的频谱文本请用
+  `GetAudioSpectrum`（那是"能力导出"那条路：文本形态）；
 - 拟声没在运行时桥**不会退出**：请求返回可读的 JSON-RPC 错误（`-32000`），默认会自动拉起主程序
   （`--no-start` 关掉），应用起来后下一次调用自动可用；
 - stdout 只放协议消息，日志都在 stderr；排查用 `musicxx-cli mcp --verbose`。
