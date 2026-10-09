@@ -135,6 +135,7 @@ musicxx.capability.register("card", function () {
 | **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-js-api.md](plugin-js-api.md) §7 |
 | **事件** | 插件之间 / 插件与宿主之间广播小消息 | `musicxx.events.*` | [plugin-js-api.md](plugin-js-api.md) §8 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` | [plugin-js-api.md](plugin-js-api.md) §10 |
+| **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-js-api.md](plugin-js-api.md) §4.4 / [plugin-native-api.md](plugin-native-api.md) §6.5 |
 | **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 | `musicxx.ui.registerEntry` | [plugin-ui.md](plugin-ui.md) §1 |
 | **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `{ view: … }` + 路由 `ext://<插件id>/<视图id>` | [plugin-ui.md](plugin-ui.md) §2 |
 | **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` / `playing.icon` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
@@ -160,13 +161,18 @@ musicxx.capability.register("card", function () {
 
 ### 5.2 不要"等宿主"（最容易踩的坑）
 
-打开插件页面、点按钮、调用能力，都是**同步进宿主**的（应用线程全程等宿主返回）。所以：
+打开插件页面、点按钮、调用能力，处理器都在宿主一侧执行；而**宿主动作要由应用线程执行**。所以：
 
-- 能力处理器里 `await` 一个宿主动作，就会与调用方互相等下去：表现为**整个应用卡住几秒**，
-  最后以「调用插件能力失败，未在时限内完成」结束；
+- 能力处理器里 `await` 一个宿主动作，就会与动作执行互相等下去：表现为**整个应用卡住几秒**，
+  最后以「调用插件能力失败」结束；
 - 正确做法：当场要的数据同步读状态镜像（`musicxx.state.get`）；动作结果异步读回来，
   记进自己的状态，由页面下一次调用时回读（示例：`plugins/example_js` 的 `crossCall`、
   `plugins/example_js_shader` 的频谱读取）；
+- **长任务不要写在处理器里**：能力调用是异步的（调用方不会因为插件慢而卡住界面），
+  但处理器仍然占着 JS 线程 / 宿主线程。native 用 `co_await pluginxx::offload(*this, work)`
+  把重活交给工作线程池（或返回 `pluginxx::Task<T>` 的服务端协程），
+  JS 返回 Promise 但别在 Promise 里做同步大计算；功能点的处理函数必须**同步返回**（通道是同步裁决），
+  长任务请提前算好或做成能力；
 - 排查"应用卡住"：看应用日志目录下的 `host_call.log`（进宿主调用的同步轨迹，
   **最后一行就是没有返回的那次调用**）。
 

@@ -177,9 +177,47 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 - 所以异步路径要保证 Promise **一定会结算**（失败就 reject），否则调用点会一直等；
 - 结算次数可在统计里看到（`asyncHookSettled`，见 `musicxx.stats.getSelf()`）。
 
----
+### 4.4 功能点（声明 + 实现 + 调用）
 
-## 5. 状态镜像（同步只读）
+功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。三类用法：
+
+```js
+// 1) 声明自己的功能点（id 必须落在自己的命名空间里）
+musicxx.feature.define({
+    id: "plugin." + musicxx.pluginId + ".beat",
+    title: "节拍检测",
+    depict: "按 BPM 与拍号算出若干拍的时刻",
+    args: "bpm（每分钟拍数，缺省 120）、beats（要几拍，缺省 4）",
+    result: "{bpm, beats: [ms, ...], confident}",
+});
+
+// 2) 给出实现：返回的是**值**（糖自动包成 {"patch":{"value": …}}）
+musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args, ctx) {
+    const bpm = (args && args.bpm) || 120;
+    return { bpm: bpm, beats: [0, Math.round(60000 / bpm)], confident: 0.9 };
+});
+musicxx.feature.provide(["plugin.a.x", "plugin.a.y"], (args) => ({ ok: true }));  // 一组点共用一个实现
+
+// 3) 调一个功能点（应用留出的，或别的插件声明的）
+const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", {});
+
+musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除实现
+```
+
+- `callPoint(id, args?, timeoutMs?)`：默认 60 秒（频谱要解码整曲）。**调用零副作用**：
+  不写应用的值仓、不改应用状态；要改观感请用对应的设置动作（如 `musicxx.media.palette.set`）。
+  同一功能点 + 同一调用方的上一次没结束时拿到 `busy`。
+- 现在可调的应用功能点有三个（`musicxx.feature.points()` 看 `callDoc`）：整曲频谱
+  `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
+  `musicxx.media.palette.provide`。
+- `provide` 的 `fn(args, ctx)` **必须同步返回**：功能点走**同步裁决**通道（宿主就地等结果），
+  返回 Promise 拿不到结果（会记一条日志）。长任务请提前算好，或做成**能力**（`musicxx.capability.call`）。
+- 糖自动做三件事：按 `point` 过滤（同一条通道上所有实现都收到同一次调用）、`ctx.caller` 等于自己时
+  不回答（避免把自己算出的结果再问回去）、把返回值包成 `{"patch": {"value": …}}`。
+  要返回"算过了、结果是空"就给 `null`（`undefined` 与空串 = 这次不回答）。
+- 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本再声明一遍（声明不落盘）。
+- 手写钩子处理器（不用糖）时，约定见 [plugin-hooks.md](plugin-hooks.md) 的
+  `musicxx.feature.point.call`：**回答必须用 `patch` 包一层**，否则后面的处理器会覆盖你的结果。
 
 ```js
 const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
@@ -284,7 +322,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)` |
 | `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)` |
 | `musicxx.lyrics` | `getCurrent()` |
-| `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` |
+| `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
@@ -334,7 +372,10 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.host.getPath` | 无 | `{pluginId, pluginDir, dataDir, logDir, platform}` |
 | `musicxx.feature.list` | 无 | `{ok:true, features:[...]}`：应用导出的能力清单（id / 说明 / 参数 / 输出形态）。JS 封装 `musicxx.feature.list()` |
 | `musicxx.feature.call` | `{id, args}` | `{ok:true, text?\|json?, output}`：调一个导出能力（`GetAudioSpectrum` / `AnalyseAudioChorus` 这类要解码的长任务给更长超时）。JS 封装 `musicxx.feature.call(id, args?, timeoutMs?)`，默认 30 秒 |
-| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id,title,type,depict,available,rows:[{type,layer,owner,name,priority,enabled,effective,note}]}]}`：功能埋点清单（应用留出了哪些扩展点、现在谁在提供、谁把它关掉了）。JS 封装 `musicxx.feature.points({id, provided}?)` |
+| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id,title,type,depict,available,callable,callDoc,callStat,rows:[{type,layer,owner,name,priority,enabled,effective,note}]}]}`：功能埋点清单（应用留出了哪些扩展点、现在谁在提供、谁把它关掉了；`callable` / `callDoc` 说明"能不能被主动调用、参数与结果形状"）。JS 封装 `musicxx.feature.points({id, provided}?)` |
+| `musicxx.feature.point.call` | `{id, args?}` | `{ok, value, by, identity, ms}` 或 `{ok:false, error, message}`：**主动调一个功能点**（应用留出的埋点或插件声明的点）。`args` 形状看 `callDoc`。**调用零副作用**：不写应用的值仓、不改应用状态。JS 封装 `musicxx.feature.callPoint(id, args?, timeoutMs?)`，默认 60 秒 |
+| `musicxx.feature.point.define` | `{id, title?, depict?, args?, result?}` | `{ok:true, id}` 或 `{ok:false, error}`：声明自己的功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）。JS 封装 `musicxx.feature.define(specOrId, spec?)` |
+| `musicxx.feature.point.undefine` | `{id}` | `{ok, removed}`：收回自己声明的功能点。JS 封装 `musicxx.feature.unprovide`（摘实现）与 `musicxx.feature` 无独立封装（一般不用调：停用/卸载自动撤） |
 | `musicxx.hook.handlers` | `{hook}` | `{ok:true, hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}`：某个钩子当前的处理器列表（按调用顺序）。JS 封装 `musicxx.hooks.handlers(id)` |
 
 > 名字里有、但**当前版本没有实现**的动作（调用会得到 `action_not_registered`）：
@@ -588,22 +629,23 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 ```
 
 - 能力全名是 `plugin.<插件 id>.<短名>`；应用侧（Dart）用
-  `MusicxxPluginManager.call(id, "probe", args)`，宿主用同名能力名调用；
+  `MusicxxPluginManager.call(id, "probe", args)`（返回 `Future`，默认 30 秒超时），宿主用同名能力名调用；
 - 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（宿主会等到它结算再给调用方结果）；
-- **处理器里不要等动作**：应用侧打开页面 / 点按钮是**同步进宿主**调用能力的（应用线程全程在等它
-  返回），而动作要由应用线程执行 —— 处理器里 `await` 一个动作会与调用方互相等下去，最后只能等到
-  超时（表现是"整个应用卡住几秒 + 调用插件能力失败，未在时限内完成"）。异步处理器本身没问题
-  （例如等 JS 定时器、等跨插件调用），只是不要等**宿主**的动作：
+- **调用只有异步形态**（Dart 侧只受理不等待，结果经事件回填）：插件慢或卡住不会再让应用界面没反应，
+  处理器里发起的动作也能被处理完（应用侧那条路不会互锁）。
+- **处理器里不要等动作**：应用侧打开页面 / 点按钮会等能力结果，而动作要由应用线程执行 ——
+  处理器里 `await` 一个动作会与动作执行互相等下去（表现是"整个应用卡住几秒 + 调用插件能力失败"）。
+  异步处理器本身没问题（例如等 JS 定时器、等跨插件调用），只是不要等**宿主**的动作：
   - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）读状态镜像（`musicxx.state.get`）；
   - 要动作结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
     —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
   同一条规则也适用于**同步派发**的钩子（`musicxx.player.beforePlaySong` 等调用点就地等待的钩子）：
-  处理器里等动作会一直卡住调用线程（宿主侧连超时都没有）。
+  处理器里等动作会一直卡住调用线程。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
 
   | 目标 | 行为 |
   |---|---|
-  | JS 插件 | 在共享 JS 线程上**直接调用**，结果立即就绪 |
+  | JS 插件 | 在共享 JS 线程上**直接调用**；处理器同步返回时结果立即就绪，返回 Promise 时等它结算（同一条线程，不跳线程） |
   | 动态库插件 | 投递到宿主线程执行，脚本**不阻塞**；结果经 `ext.onCapabilityResult` 回到 JS 线程（超时缺省 3 s；传 0 = 一直等） |
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
