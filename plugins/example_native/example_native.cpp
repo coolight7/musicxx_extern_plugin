@@ -290,6 +290,33 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           return oss.str();
         });
 
+    // 9) 能力: **异步完成** (协程形态)
+    //
+    // 约定: 被调方不许占住宿主线程 / JS 线程 —— 长任务要异步完成。
+    // 这里 `co_await pluginxx::sleep(...)` 等一段时间再给结果: 等待期间宿主线程是空闲的
+    // (能处理别的插件、卸载与停机), 调用方也能看到"已受理但结果还没到"这一状态。
+    // `args.waitMs` 控制等多久 (缺省 200 毫秒)。
+    capability(
+        *this, "plugin.example_native.asyncProbe",
+        [this](std::string_view, std::string_view args)
+            -> pluginxx::Task<std::string> {
+          int64_t waitMs = 200;
+          const size_t at = args.find("\"waitMs\":");
+          if (at != std::string_view::npos) {
+            int64_t parsed = 0;
+            size_t pos = at + 9;
+            while (pos < args.size() && args[pos] >= '0' && args[pos] <= '9') {
+              parsed = parsed * 10 + (args[pos] - '0');
+              ++pos;
+            }
+            if (parsed > 0) {
+              waitMs = parsed;
+            }
+          }
+          co_await pluginxx::sleep(*this, waitMs);
+          co_return std::string{R"({"ok":true,"async":true})"};
+        });
+
     // 8) 能力: 声明式页面 `ext://example_native/card`
     //    主页入口指向这个页面: 宿主打开页面时调用**同名能力**, 插件返回视图描述
     //    (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。

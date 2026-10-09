@@ -102,7 +102,7 @@ void main() {
     );
     runtime.plugins.load('example_native_multi');
     expect(runtime.plugins.findLoaded('example_native_multi'), isNotNull);
-    final Object? which = runtime.plugins.call(
+    final Object? which = await runtime.plugins.call(
       'example_native_multi',
       'plugin.example_native_multi.which',
     );
@@ -209,7 +209,7 @@ void main() {
 
     _step('6 state 推送完成');
     // 能力调用：读取插件自检信息（线程归属 + 命名空间校验结果）
-    final probeRaw = runtime.plugins.call(
+    final probeRaw = await runtime.plugins.call(
       'example_native',
       'plugin.example_native.probe',
       const <String, Object?>{},
@@ -332,8 +332,8 @@ void main() {
     runtime.plugins.unload('example_native');
     expect(runtime.plugins.findLoaded('example_native'), isNull);
     expect(
-      () =>
-          runtime.plugins.call('example_native', 'plugin.example_native.probe'),
+      () async =>
+          await runtime.plugins.call('example_native', 'plugin.example_native.probe'),
       throwsA(isA<MusicxxPluginApiException>()),
     );
 
@@ -379,7 +379,7 @@ void main() {
     // 宿主打开页面只会得到"插件未声明该能力"。
     final String? nativeViewId = card.viewId;
     expect(nativeViewId, isNotNull);
-    final Object? nativeCardRaw = runtime.plugins.call(
+    final Object? nativeCardRaw = await runtime.plugins.call(
       'example_native',
       'plugin.example_native.$nativeViewId',
       <String, Object?>{'view': nativeViewId},
@@ -541,7 +541,7 @@ void main() {
 
     _step('15 JS 观察钩子执行完成');
     // 能力探针: JS 侧同步读状态镜像 + 宿主信息
-    final jsProbeRaw = runtime.plugins.call(
+    final jsProbeRaw = await runtime.plugins.call(
       'example_js',
       'plugin.example_js.probe',
       const <String, Object?>{},
@@ -552,7 +552,7 @@ void main() {
     expect(jsProbe['hostPlatform'], MusicxxPluginRuntime.currentPlatform);
 
     // 异步能力处理器 (返回 Promise): 宿主等到它结算再给调用方结果
-    final Object? slowRaw = runtime.plugins.call(
+    final Object? slowRaw = await runtime.plugins.call(
       'example_js',
       'plugin.example_js.slowProbe',
       const <String, Object?>{'waitMs': 250},
@@ -577,7 +577,7 @@ void main() {
       (MusicxxPluginUIItem item) => item.plugin == 'example_js',
     );
     expect(jsCard.viewId, isNotNull);
-    final Object? jsCardRaw = runtime.plugins.call(
+    final Object? jsCardRaw = await runtime.plugins.call(
       'example_js',
       'plugin.example_js.${jsCard.viewId}',
       <String, Object?>{'view': jsCard.viewId},
@@ -611,7 +611,7 @@ void main() {
     runtime.plugins.unload('example_js');
     expect(runtime.plugins.findLoaded('example_js'), isNull);
     expect(
-      () => runtime.plugins.call('example_js', 'plugin.example_js.probe'),
+      () async => await runtime.plugins.call('example_js', 'plugin.example_js.probe'),
       throwsA(isA<MusicxxPluginApiException>()),
     );
 
@@ -639,7 +639,7 @@ void main() {
       );
       expect(background.data['speed'], 1, reason: '默认 1× = 基准速度 1');
       // 设置页能力: 页面由插件给出 (改速率用的是同一个页面)
-      final Object? viewRaw = runtime.plugins.call(
+      final Object? viewRaw = await runtime.plugins.call(
         'example_js_shader',
         'plugin.example_js_shader.settings',
         const <String, Object?>{},
@@ -746,7 +746,7 @@ void main() {
         reason: '没命中取色缓存时返回 null（应用走内置快速取色，算好后用 setPalette 写回）',
       );
       // 设置页能力：页面由插件给出（宿主只做结构校验，渲染在应用侧）
-      final Object? imageViewRaw = runtime.plugins.call(
+      final Object? imageViewRaw = await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.settings',
         const <String, Object?>{},
@@ -776,7 +776,7 @@ void main() {
         reason: '设置页没有自动前景色的状态文本: $settingsText',
       );
       // 说明页（主页入口指向的页面）同样由插件绘制
-      final Object? imageCardRaw = runtime.plugins.call(
+      final Object? imageCardRaw = await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.card',
         const <String, Object?>{},
@@ -788,7 +788,7 @@ void main() {
       expect(imageCard['blocks'], isA<List<Object?>>());
       // 设置项：控件把自己的 id 与值交回来（`args.id` / `args.value`），插件写 config.json
       // 并重新登记背景样式；处理器同步返回页面（动作结果由页面自己从状态镜像读到）。
-      final Object? setOptionRaw = runtime.plugins.call(
+      final Object? setOptionRaw = await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.setOption',
         const <String, Object?>{'id': 'zoom', 'value': 2.5, 'view': 'settings'},
@@ -800,14 +800,14 @@ void main() {
         reason: '改设置要同步返回页面（不能在这里等异步动作）',
       );
       // 改回默认值，别把测试写下的配置留给下一次运行
-      runtime.plugins.call(
+      await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.setOption',
         const <String, Object?>{'id': 'zoom', 'value': 2},
       );
       // 『黑胶』的唱片转速：同一个入口，改完重新声明样式 —— 快照里立刻是新速度
       // （转速走 UI 项的 `speed`，运行期不用重新选中该样式）
-      runtime.plugins.call(
+      await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.setOption',
         const <String, Object?>{'id': 'spin', 'value': 2, 'view': 'settings'},
@@ -821,7 +821,7 @@ void main() {
         2,
         reason: '改「唱片转速」要重新声明样式（把新速度写进 speed）',
       );
-      runtime.plugins.call(
+      await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.setOption',
         const <String, Object?>{'id': 'spin', 'value': 1},
@@ -833,6 +833,78 @@ void main() {
     // 统计快照可读
     final Map<String, Object?> stats = runtime.plugins.stats();
     expect(stats['host'], isA<Map<String, Object?>>());
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('能力调用：异步受理、超时丢弃、停机收尾（不悬挂）', () async {
+    if (env == null || !env.hasPlugin('example_js')) {
+      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      return;
+    }
+    final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+    addTearDown(runtime.dispose);
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: env.pluginRoot,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    runtime.plugins.scan();
+    runtime.plugins.load('example_js');
+
+    // 宿主库支持异步能力调用（旧库没有 plugin_call_async 这个符号）
+    expect(runtime.plugins.supportsAsyncCall, isTrue);
+
+    // 1) 正常路径：异步完成的处理器（返回 Promise）也能等到结果
+    final Object? slow = await runtime.plugins.call(
+      'example_js',
+      'plugin.example_js.slowProbe',
+      const <String, Object?>{'waitMs': 120},
+    );
+    expect(slow, isA<Map<String, Object?>>());
+    expect((slow! as Map<String, Object?>)['waitedMs'], 120);
+    expect(runtime.plugins.pendingCallCount, 0, reason: '结果回来后不再有等待中的调用');
+
+    // 2) 调用方自己的超时：到点抛超时错误，晚到的结果丢弃（不悬挂）
+    await expectLater(
+      runtime.plugins.call(
+        'example_js',
+        'plugin.example_js.slowProbe',
+        const <String, Object?>{'waitMs': 800},
+        const Duration(milliseconds: 100),
+      ),
+      throwsA(isA<MusicxxPluginApiException>()),
+    );
+    expect(runtime.plugins.pendingCallCount, 0, reason: '超时后清掉等待中的调用');
+    // 晚到的结果到达时没有等待方：按丢弃处理（不抛、不串台）
+    await _pumpUntil(() => true, timeout: const Duration(seconds: 1));
+
+    // 3) 受理失败：未加载的插件直接报未找到
+    await expectLater(
+      runtime.plugins.call('no_such_plugin', 'probe'),
+      throwsA(isA<MusicxxPluginApiException>()),
+    );
+
+    // 4) 宿主停机：还没回来的调用不能被悬挂（由 handleDisposed 收尾）
+    final Future<Object?> pending = runtime.plugins.call(
+      'example_js',
+      'plugin.example_js.slowProbe',
+      const <String, Object?>{'waitMs': 5000},
+    );
+    expect(runtime.plugins.pendingCallCount, 1);
+    runtime.dispose();
+    await expectLater(
+      pending,
+      throwsA(
+        isA<MusicxxPluginApiException>().having(
+          (MusicxxPluginApiException e) => e.message,
+          'message',
+          contains('宿主已停止'),
+        ),
+      ),
+    );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('变量通道：声明/读/写/订阅（对真实原生库）', () async {
@@ -903,12 +975,14 @@ void main() {
     // 2) 装载变量通道示例（顶层登记自己的变量 + 订阅官方键）
     runtime.plugins.load('example_js_vars');
 
-    Map<String, Object?> probe() {
-      final Object? raw = runtime.plugins.call('example_js_vars', 'probe');
-      return raw is Map
+    Map<String, Object?> probeCache = <String, Object?>{};
+    Future<void> refreshProbe() async {
+      final Object? raw = await runtime.plugins.call('example_js_vars', 'probe');
+      probeCache = raw is Map
           ? raw.cast<String, Object?>()
           : <String, Object?>{};
     }
+    Map<String, Object?> probe() => probeCache;
 
     // 3) 插件变量进了变量表，声明字段如实
     final List<Map<String, Object?>> own = runtime.vars.list(
@@ -926,6 +1000,7 @@ void main() {
     expect(tip['caps'], <Object?>['get', 'set', 'notify']);
     expect(tip['type'], 'bool');
     // 声明了初值 → 同步读缓存里就有值（declared 模式由宿主代存）
+    await refreshProbe();
     final Map<String, Object?> peeked =
         (probe()['tipPeek'] as Map<Object?, Object?>?)?.cast<String, Object?>() ??
         <String, Object?>{};
@@ -936,8 +1011,10 @@ void main() {
     expect(runtime.vars.update('musicxx.test.bound', 'v1'), isTrue);
     // 同一个值再推一次: 包层就不发了（去重）
     expect(runtime.vars.update('musicxx.test.bound', 'v1'), isFalse);
-    await _pumpUntil(() => _intOf(probe()['changes']) >= 1);
-    expect(_intOf(probe()['changes']), greaterThanOrEqualTo(1));
+    await _pumpUntil(() async {
+      await refreshProbe();
+      return _intOf(probe()['changes']) >= 1;
+    });
     final Map<String, Object?> lastChange =
         (probe()['lastChange'] as Map<Object?, Object?>?)
             ?.cast<String, Object?>() ??
@@ -946,18 +1023,24 @@ void main() {
     expect(lastChange['by'], ''); // 写入方是应用（不是插件）
 
     // 5) 插件异步读官方键（宿主向应用取一次真实值）
-    runtime.plugins.call('example_js_vars', 'triggerRead', <String, Object?>{
+    await runtime.plugins.call('example_js_vars', 'triggerRead', <String, Object?>{
       'key': 'musicxx.test.bound',
     });
-    await _pumpUntil(() => probe()['readValue'] != null);
+    await _pumpUntil(() async {
+      await refreshProbe();
+      return probe()['readValue'] != null;
+    });
     expect(probe()['readValue'], 'v1', reason: '异步读应当拿到应用侧的真值');
 
     // 6) 插件异步写官方键（应用写入后才算数）
-    runtime.plugins.call('example_js_vars', 'triggerWrite', <String, Object?>{
+    await runtime.plugins.call('example_js_vars', 'triggerWrite', <String, Object?>{
       'key': 'musicxx.test.bound',
       'value': 'v2',
     });
-    await _pumpUntil(() => probe()['writeResult'] != null);
+    await _pumpUntil(() async {
+      await refreshProbe();
+      return probe()['writeResult'] != null;
+    });
     final Map<String, Object?> writeResult =
         (probe()['writeResult'] as Map<Object?, Object?>?)
             ?.cast<String, Object?>() ??
@@ -966,7 +1049,10 @@ void main() {
     expect(writeResult['value'], 'v2');
     expect(officialValue, 'v2', reason: '写入由应用执行');
     // 写成功后值真的变了 → 订阅者再收到一条通知
-    await _pumpUntil(() => _intOf(probe()['changes']) >= 2);
+    await _pumpUntil(() async {
+      await refreshProbe();
+      return _intOf(probe()['changes']) >= 2;
+    });
 
     // 7) 应用读/写插件键（declared 模式立即结算）
     expect(runtime.vars.get('plugin.example_js_vars.tip.start'), false);
@@ -990,10 +1076,11 @@ void main() {
         <String, Object?>{};
     expect(handlerWrite['accepted'], isTrue);
     expect(handlerWrite['value'], true, reason: '回执带的是属主写入的最终值');
+    await refreshProbe();
     expect(_intOf(probe()['handlerTip']), 0); // 插件侧状态是 bool, 这里只校验可取到
     expect(runtime.vars.get('plugin.example_js_vars.handler.tip'), true);
     // 属主自己改值时提交一次（不是应用写的）
-    runtime.plugins.call('example_js_vars', 'setHandlerInternal', <String, Object?>{
+    await runtime.plugins.call('example_js_vars', 'setHandlerInternal', <String, Object?>{
       'value': false,
     });
     expect(runtime.vars.get('plugin.example_js_vars.handler.tip'), false);
@@ -1102,12 +1189,12 @@ void _copyDirectory(Directory from, Directory to) {
 
 /// 等待条件成立（最多 5 秒；每 20 ms 泵一次事件并让出事件循环）
 Future<void> _pumpUntil(
-  bool Function() condition, {
+  FutureOr<bool> Function() condition, {
   Duration timeout = const Duration(seconds: 5),
 }) async {
   final DateTime deadline = DateTime.now().add(timeout);
   final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.instance;
-  while (!condition()) {
+  while (!await condition()) {
     if (DateTime.now().isAfter(deadline)) {
       return;
     }

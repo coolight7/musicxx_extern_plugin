@@ -2354,6 +2354,11 @@ void JsEngine::clearCapabilityWaitsOf(const std::string &instance) {
   std::erase_if(capabilityWaits_, [&](const auto &item) {
     return item.second.instance == instance;
   });
+  /// "JS → JS"的异步调用: 调用方或目标任一方停了，这条等待都没意义了
+  /// （调用方的 Promise 由 JS 侧 `ext.reset` 收尾）
+  std::erase_if(jsCallWaits_, [&](const auto &item) {
+    return item.second.first == instance || item.second.second == instance;
+  });
 }
 
 void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
@@ -2365,6 +2370,26 @@ void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
   } catch (const std::exception &) {
     return;
   }
+  /// ① "JS 插件 → JS 插件"的异步能力: 按调用方实例把结果回执过去
+  ///    （本函数就在 JS 线程上, 可以直接回调 JS）
+  {
+    std::string caller;
+    bool found = false;
+    {
+      std::lock_guard lock{mutex_};
+      const auto it = jsCallWaits_.find(id);
+      if (it != jsCallWaits_.end()) {
+        caller = it->second.first;
+        jsCallWaits_.erase(it);
+        found = true;
+      }
+    }
+    if (found) {
+      deliverCapabilityResult(caller, id, json);
+      return;
+    }
+  }
+  /// ② 被调用的 JS 能力处理器 (等待槽形态): 交给等着的宿主线程
   std::shared_ptr<WaitSlot<std::string>> slot;
   {
     std::lock_guard lock{mutex_};
@@ -2379,6 +2404,18 @@ void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
     return;
   }
   slot->set(json);
+}
+
+void JsEngine::deliverCapabilityResult(const std::string &callerInstance,
+                                       int64_t pendingId,
+                                       const std::string &json) {
+  auto inst = lookupInstance(callerInstance);
+  if (!inst || !inst->ctx) {
+    return; ///< 调用方已经不在了 (停用 / 卸载): 结果丢弃
+  }
+  std::string ignored;
+  callBridgeString(inst, "onCapabilityResult",
+                   {std::to_string(pendingId), json}, ignored);
 }
 
 void JsEngine::bridgeHookWaitResolve(const std::string &waitId,
@@ -3099,11 +3136,26 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
       }
       shortName = shortName.substr(prefix.size());
     }
+    /// 等待号: 处理器的 **同步返回** 当场就有结果; 返回 Promise 时它按这个号
+    /// 在结算后经 `ext.capabilityWaitResolve` 交回来, 这条路以前会直接失败
+    /// (`capability_async_without_wait`), 现在与"JS → 原生"一样能拿到结果。
+    const int64_t pendingId = nextJsCallWaitId_.fetch_add(1);
     std::string text;
-    if (!callBridgeString(target, "invokeCapability", {shortName, argsJson},
+    if (!callBridgeString(target, "invokeCapability",
+                          {shortName, argsJson, std::to_string(pendingId)},
                           text)) {
       err = "目标插件未声明该能力 (需要在 start 事务里注册): " + shortName;
       return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    }
+    if (text == kCapabilityPendingMarker) {
+      {
+        std::lock_guard lock{mutex_};
+        jsCallWaits_[pendingId] = std::make_pair(callerInstance, target->name);
+      }
+      if (outPendingId) {
+        *outPendingId = pendingId;
+      }
+      return kCallCapabilityPending;
     }
     bool ok = false;
     Json data = parseJsonSafe(text, &ok);
@@ -3117,7 +3169,6 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
     }
     outJson =
         data.contains("result") ? data["result"].dump() : std::string{"null"};
-    (void)callerInstance;
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
   /// 原生/内置目标: 投递到宿主线程执行, **JS 侧不等待** (宿主线程可能正等 JS

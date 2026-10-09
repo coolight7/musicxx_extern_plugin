@@ -126,6 +126,87 @@ public:
         return readHostString(&MusicxxPluginHostIface::get_plugin_config_path);
     }
 
+    /// 调另一个插件的能力 (**协程形态, 推荐**)
+    ///
+    /// 返回内核的 awaiter, 用法:
+    /// ```cpp
+    /// pluginxx::Task<void> demo() {
+    ///     auto result = co_await capabilityCall("plugin.other.probe", "probe", R"({"n":3})");
+    ///     // result 按内核约定给出结果 / 失败 (见内核 kit 的 invoke_cap 说明)
+    /// }
+    /// ```
+    /// - **直连内核**: 不经过应用 (Dart), 调用方就是本插件实例 (目标处理器里的 `callerHost`
+    ///   是本插件); 期间协程由本实例的驱动桥分步推进, 不会占住宿主 IO 线程;
+    /// - **不要找同步版**: 内核的 `invoke_capability_blocking` 在 IO 线程会被直接拒绝
+    ///   (`use co_await invoke_cap instead`), 本 SDK 不暴露它;
+    /// - 长任务请在协程里 `co_await pluginxx::offload(*this, work)` 把重活交给宿主工作线程池。
+    auto capabilityCall(
+        std::string_view capability,
+        std::string_view method,
+        std::string_view argsJson = "{}"
+    ) {
+        return pluginxx::invoke_cap(*this, capability, method, argsJson);
+    }
+
+    /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
+    ///
+    /// - 结果经 `notify->done` **恰好一次** (宿主 IO 线程) 回调; status == 0 时载荷是结果 JSON;
+    /// - `notify` 由 SDK 复制保存 (与 [requestAction] 同一做法), 插件可以传栈上的 notify;
+    /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
+    int32_t capabilityCall(
+        std::string_view              capability,
+        std::string_view              method,
+        std::string_view              argsJson,
+        const PluginxxOperatorNotify* notify
+    ) {
+        if (!iface.capabilities || !iface.capabilities->invoke_capability_async) {
+            return -1;
+        }
+        if (!notify || !notify->done) {
+            return -1;
+        }
+        auto holder     = std::make_unique<ActionNotifyHolder>();
+        holder->user    = *notify;
+        holder->forward = PluginxxOperatorNotify{
+            &PluginBase::actionNotifyTrampoline,
+            holder.get(),
+        };
+        auto* holderPtr = holder.get();
+        actionNotifies_.push_back(std::move(holder));
+        pruneActionNotifies();
+
+        PluginxxStringView capView  = pluginxxView(capability);
+        PluginxxStringView methView = pluginxxView(method);
+        PluginxxStringView argsView = pluginxxView(argsJson.empty() ? "{}" : argsJson);
+        PluginxxString     errorOut{};
+        auto* op = iface.capabilities->invoke_capability_async(
+            host,
+            &capView,
+            &methView,
+            &argsView,
+            &actionNotifyTrampoline,
+            holderPtr,
+            &errorOut
+        );
+        if (errorOut.data) {
+            hostStringFree(errorOut);
+        }
+        if (!op) {
+            /// 未受理: 完成回调不会被调用, 这里补一次 (与 requestAction 的约定一致)
+            if (!holderPtr->doneCalled) {
+                holderPtr->doneCalled = true;
+                if (holderPtr->user.done) {
+                    try {
+                        holderPtr->user.done(holderPtr->user.host_ud, -1, nullptr);
+                    } catch (...) {
+                    }
+                }
+            }
+            return -1;
+        }
+        return 0;
+    }
+
     /// 发起宿主动作 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
     /// 宿主会持有完成通知指针直到本次动作终结 (完成 / 超时 / 取消), 因此 SDK 把通知

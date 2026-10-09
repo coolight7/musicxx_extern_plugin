@@ -190,8 +190,9 @@ let crossCallState = { pending: 0, ok: 0, keys: 0, error: "" };
 musicxx.capability.register("crossCall", function (args) {
     const target = (args && args.target) ? String(args.target) : "example_native";
     const method = (args && args.method) ? String(args.method) : "probe";
+    const callArgs = (args && args.args && typeof args.args === "object") ? args.args : {};
     crossCallState = { pending: 1, ok: 0, keys: 0, error: "" };
-    musicxx.capability.call(target, method, {}).then(function (result) {
+    musicxx.capability.call(target, method, callArgs).then(function (result) {
         crossCallState = { pending: 0, ok: 1, keys: Object.keys(result || {}).length, error: "" };
         musicxx.host.log(2, "跨插件调用成功: " + target + " 返回 " + crossCallState.keys + " 个字段");
     }, function (err) {

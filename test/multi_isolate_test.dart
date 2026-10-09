@@ -204,7 +204,7 @@ void main() {
     int stateLen = -1;
     final DateTime deadline = DateTime.now().add(const Duration(seconds: 5));
     while (DateTime.now().isBefore(deadline)) {
-      final probeRaw = runtime.plugins.call(
+      final probeRaw = await runtime.plugins.call(
         'example_native',
         'plugin.example_native.probe',
         const <String, Object?>{},

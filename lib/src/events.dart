@@ -46,6 +46,13 @@ abstract final class MusicxxPluginEventType {
   /// 异步裁决钩子完成
   static const String hookDecisionResult = 'musicxx.hook.decision.result';
 
+  /// 插件能力调用的结果（受理是异步的：Dart 侧按 `requestId` 回填等待中的 `Future`）
+  ///
+  /// 载荷 `{requestId, id, method, ok, result|error, ms}`。
+  /// **受理成功 ⇒ 一定有终局**：结果、执行失败、插件卸载（`plugin_unloaded`）、
+  /// 宿主停机（`host_stopped`）四条路都会推一条；受理失败只在返回码上体现，不推事件。
+  static const String pluginCallResult = 'musicxx.plugin.call.result';
+
   /// 插件请求宿主动作（Dart 侧执行后必须 action_respond）
   static const String actionRequest = 'musicxx.action.request';
 

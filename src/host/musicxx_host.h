@@ -255,29 +255,38 @@ public:
   int32_t pluginConfigPath(const std::string &id, std::string &out,
                            std::string &err);
 
-  /// 调用插件能力 (**Dart → 插件**; 调用线程等待, 完成回调在宿主线程)
+  /// 调用插件能力 (**Dart → 插件**; 异步, 不占调用线程)
   ///
-  /// - `method` 为能力全名 (`plugin.<pluginId>.<名>`) 或去掉前缀的短名
-  /// (宿主自动补齐);
-  /// - 能力必须先由目标插件在自己的 `start` 事务里声明 (`pluginxx.capabilities`
-  /// 表),
-  ///   且归属校验通过 (禁止调用他人命名空间);
-  /// - `timeoutMs` = 0 时不设超时（调用线程一直等到插件给出结果）；
-  ///   非 0 时到点按 ERR_TIMEOUT 返回, 插件已经开始的操作用它自己的节奏跑完 (结果丢弃)。
-  int32_t pluginCall(const std::string &id, const std::string &method,
-                     const std::string &argsJson, uint32_t timeoutMs,
-                     std::string &outJson, std::string &err);
+  /// - **只受理不等待结果**: 受理成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出
+  ///   `outRequestId`; 结果经事件 `musicxx.plugin.call.result` 回给调用方
+  ///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
+  /// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 宿主没在跑) 直接返回负错误码,
+  ///   **不推结果事件**;
+  /// - **没有 timeout 参数**: 超时是调用方的事 (它自己不等了, 结果丢弃);
+  /// - **受理成功 ⇒ 一定有终局**: 正常结果、执行失败、插件卸载 (`plugin_unloaded`)、
+  ///   宿主停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
+  /// - 受理判定要在宿主线程上做 (实例表与能力表都归它), 因此这里等一个**很短的受理窗口**:
+  ///   宿主线程正忙于别的插件代码时不无限期占用调用线程, 超过窗口按"未及时受理"失败。
+  int32_t pluginCallAsync(const std::string &id, const std::string &method,
+                          const std::string &argsJson, int64_t &outRequestId,
+                          std::string &err);
 
   /// 调用插件能力 (**不等待版本**; 任意线程调用, 完成回调在宿主线程)
   ///
   /// 给"不能让宿主线程停下来等结果"的场景使用 (例如 JS 线程发起的跨插件调用:
   /// 若在那里同步等待宿主线程, 而宿主线程可能正等待 JS 处理器 → 互锁)。
-  /// - 语义与 [pluginCall] 一致 (能力名前缀补齐、归属校验、错误码);
+  /// - 语义与 [pluginCallAsync] 一致 (能力名前缀补齐、归属校验、错误码);
   /// - `done(rc, text)` 在**宿主线程**恰好一次; rc == 0 时 text 是结果 JSON,
   /// 否则是错误说明。
   void pluginCallAsync(const std::string &id, const std::string &method,
                        const std::string &argsJson,
                        std::function<void(int32_t, const std::string &)> done);
+
+  /// 受理窗口 (毫秒): 等宿主线程判定"这次能不能受理"的上界
+  ///
+  /// 只是**受理判定** (查实例表与能力表), 不含插件能力本身执行的时间 —— 后者不等待。
+  /// 宿主线程正忙于别的插件代码时, 超过这个窗口就按"未及时受理"失败, 不占用调用线程。
+  static constexpr uint32_t capabilityAcceptWaitMs = 2000;
 
   /* ---------- 钩子 ---------- */
 
@@ -617,12 +626,65 @@ private:
     std::shared_ptr<asio::steady_timer> timer;
   };
 
-  /// 在宿主线程发起能力调用 (**必须已在宿主线程调用**; pluginCall /
-  /// pluginCallAsync 共用)
+  /// 在宿主线程发起能力调用 (**必须已在宿主线程调用**; 两个 pluginCallAsync 共用)
   void invokeCapabilityOnHostThread(
       const std::string &id, const std::string &method,
       const std::string &argsJson,
       std::function<void(int32_t, const std::string &)> done);
+
+  /// 受理一次能力调用 (**必须已在宿主线程调用**)
+  ///
+  /// 做三件事: 能力全名补齐 (`method` 缺 `plugin.` 前缀时补 `plugin.<id>.`)、
+  /// 目标实例查找、能力声明与归属校验。
+  /// 受理失败返回负错误码并给出可读原因 (不发起能力、不推结果事件)。
+  int32_t acceptCapabilityCall(const std::string &id,
+                               const std::string &method, std::string &cap,
+                               InstancePtr &outInst, std::string &problem);
+
+  /// 发起一次已受理的能力调用 (**必须已在宿主线程调用**)
+  void startCapabilityCall(MusicxxHostInstance *inst, const std::string &cap,
+                           const std::string &argsJson,
+                           std::function<void(int32_t, const std::string &)>
+                               done);
+
+  /// 一次 Dart → 插件能力调用的记账 (受理成功到终局之间)
+  ///
+  /// 作用只有一个: **保证每一次受理都有终局** —— 插件被卸载、宿主停机时,
+  /// 还没回来的调用要按 `plugin_unloaded` / `host_stopped` 收尾, 调用方不能一直等。
+  struct PendingCapabilityCall {
+    std::string id;      ///< 目标插件 id (卸载时按它匹配)
+    std::string method;
+    std::chrono::steady_clock::time_point started{};
+  };
+
+  /// 受理成功后记账 (**宿主线程**)
+  void rememberPendingCall(int64_t requestId, const std::string &id,
+                           const std::string &method,
+                           std::chrono::steady_clock::time_point started);
+
+  /// 取出并删掉一条记账; 返回 false = 这条已经有终局了 (卸载/停机已经收尾过)
+  bool takePendingCall(int64_t requestId);
+
+  /// 推一条能力调用结果事件 `musicxx.plugin.call.result`
+  ///
+  /// [reason] 非空时表示"不是插件给的结果" (插件卸载 / 宿主停机), `error` 用它的说法。
+  void pushCapabilityCallResult(int64_t requestId, const std::string &id,
+                                const std::string &method, int32_t rc,
+                                const std::string &text,
+                                std::chrono::steady_clock::time_point started,
+                                const std::string &reason = std::string{});
+
+  /// 某个插件身上还没回来的调用按 `plugin_unloaded` 收尾 (**宿主线程**)
+  void finishPendingCallsOf(const std::string &pluginId);
+
+  /// 全部还没回来的调用按 `host_stopped` 收尾 (**宿主线程**)
+  void finishAllPendingCalls();
+
+  /// 未完成的 Dart → 插件能力调用 (requestId → 记账); 只在宿主线程上改
+  std::map<int64_t, PendingCapabilityCall> pendingCalls_;
+
+  /// 能力调用 requestId 分配器 (受理阶段在任意线程取号, 所以要原子)
+  std::atomic<int64_t> nextCallId_{1};
 
   /// 钩子派发模式
   ///

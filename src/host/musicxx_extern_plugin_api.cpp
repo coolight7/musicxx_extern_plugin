@@ -578,29 +578,29 @@ musicxx_extern_plugin_plugin_get_config_path(
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_plugin_call(
+musicxx_extern_plugin_plugin_call_async(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id,
     const MusicxxExternPluginStringView *method,
-    const MusicxxExternPluginStringView *args_json, uint32_t timeout_ms,
-    MusicxxExternPluginString *out_json, MusicxxExternPluginString *log) {
+    const MusicxxExternPluginStringView *args_json, int64_t *out_request_id,
+    MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     setErr(log, "plugin_call: invalid argument");
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   return pluginxx::guardCall([log](std::string_view msg) { setErr(log, msg); },
                              MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL,
                              [&]() -> int32_t {
-                               std::string out;
                                std::string err;
-                               const auto rc = handle->manager->pluginCall(
+                               int64_t requestId = 0;
+                               const auto rc = handle->manager->pluginCallAsync(
                                    viewToStd(id), viewToStd(method),
-                                   viewToStd(args_json), timeout_ms, out, err);
+                                   viewToStd(args_json), requestId, err);
                                if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
                                  setErr(log, err);
                                  return rc;
                                }
-                               setOut(out_json, out);
+                               *out_request_id = requestId;
                                return MUSICXX_EXTERN_PLUGIN_OK;
                              });
 }

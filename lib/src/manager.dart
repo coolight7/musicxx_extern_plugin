@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 
@@ -32,6 +33,22 @@ class MusicxxPluginManager {
 
   /// 最近一次扫描结果
   List<MusicxxPluginInfo> _scanned = const <MusicxxPluginInfo>[];
+
+  /// 等待结果的异步能力调用（`requestId` → 完成器）
+  ///
+  /// 受理成功 ⇒ 一定有终局：正常结果、执行失败、插件卸载、宿主停机四条路都会把它清掉；
+  /// 调用方自己的超时也会清（晚到的结果按"已经有终局了"丢弃并记日志）。
+  final Map<int, Completer<Object?>> _pendingCalls =
+      <int, Completer<Object?>>{};
+
+  /// 宿主库有没有 `plugin_call_async` 符号（探测一次就够；false = 库太旧）
+  bool? _asyncCallAvailable;
+
+  /// 宿主库是否支持异步能力调用（false = 库太旧，能力调用会直接失败）
+  bool get supportsAsyncCall => _asyncCallAvailable ?? true;
+
+  /// 现在有多少次能力调用还在等结果（调试页/自省用）
+  int get pendingCallCount => _pendingCalls.length;
 
   /// 是否处于安全模式（本次运行不加载外部插件）
   bool get safeMode => _runtime.config?.safeMode ?? false;
@@ -280,35 +297,95 @@ class MusicxxPluginManager {
     }
   }
 
-  /// 调用插件能力（Dart → 插件）：native/JS 统一用 `plugin.<插件id>.<能力名>`
+  /// 调用插件能力（Dart → 插件）：**异步，不占调用线程**
   ///
-  /// - 能力必须在插件 `start` 事务里声明（`pluginxx.capabilities` 表）；
-  /// - 归属校验由宿主完成（不能调用他人命名空间）；
-  /// - 超时抛 [MusicxxPluginApiException]（code = -5）。
-  Object? call(
+  /// - native/JS 插件统一用 `plugin.<插件id>.<能力名>`（短名由宿主补齐；
+  ///   能力必须在插件 `start` 事务里声明，归属校验由宿主完成）；
+  /// - 受理成功 ⇒ 一定有终局：结果、执行失败、插件卸载（`plugin_unloaded`）、
+  ///   宿主停机（`host_stopped`）都会给这个 `Future` 一个交代，不会悬挂；
+  /// - [timeout] 只是"我不等了"：到点抛出超时错误，晚到的结果**丢弃**并记一条日志
+  ///   （不是取消，目标插件照它自己的节奏跑完）；`null` = 不设（一直等到宿主给出终局）；
+  /// - 宿主库没有 `plugin_call_async` 符号 → 立即失败（"宿主库太旧"），**不退回同步**；
+  /// - 结果形态与插件给的 JSON 一致（对象按 Map 解码，其余按值）。
+  Future<Object?> call(
     String id,
     String method, [
     Map<String, Object?> args = const <String, Object?>{},
-    Duration timeout = const Duration(seconds: 5),
-  ]) {
+    Duration? timeout = const Duration(seconds: 30),
+  ]) async {
     _requireRunning('plugin_call');
+    if (false == _asyncCallAvailable) {
+      throw MusicxxPluginApiException(
+        -2,
+        '宿主库太旧，没有 plugin_call_async（请重新构建宿主库：tools/build_native.ps1）',
+        operation: 'plugin_call',
+      );
+    }
+    int requestId = 0;
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_call(
-        _runtime.host,
-        arena.view(id),
-        arena.view(method),
-        arena.view(_optionsJson(args)),
-        timeout.inMilliseconds,
-        out,
-        log,
-      );
+      final Pointer<Int64> outRequestId = arena.mallocInt64();
+      final int rc;
+      try {
+        rc = _runtime.bindings.musicxx_extern_plugin_plugin_call_async(
+          _runtime.host,
+          arena.view(id),
+          arena.view(method),
+          arena.view(_optionsJson(args)),
+          outRequestId,
+          log,
+        );
+      } catch (error) {
+        // 旧宿主库没有这个符号：探测一次就够，之后一律按"库太旧"处理
+        _asyncCallAvailable = false;
+        throw MusicxxPluginApiException(
+          -2,
+          '宿主库太旧，没有 plugin_call_async（请重新构建宿主库：tools/build_native.ps1）',
+          operation: 'plugin_call',
+        );
+      }
+      _asyncCallAvailable = true;
       _runtime.checkOrThrow(rc, log, 'plugin_call');
-      return tryDecodeJson(takeOutString(out, _runtime.bindings));
+      requestId = outRequestId.value;
     } finally {
       arena.dispose();
+    }
+    if (requestId <= 0) {
+      throw MusicxxPluginApiException(
+        -2,
+        '宿主没有给出 requestId（无法配对结果）',
+        operation: 'plugin_call',
+      );
+    }
+
+    final Completer<Object?> completer = Completer<Object?>();
+    _pendingCalls[requestId] = completer;
+    Timer? timer;
+    if (null != timeout) {
+      timer = Timer(timeout, () {
+        final Completer<Object?>? pending = _pendingCalls.remove(requestId);
+        if (null == pending || pending.isCompleted) {
+          return;
+        }
+        // 到点只是"我不等了"：目标插件照它自己的节奏跑完，结果丢弃（不是取消）
+        _runtime.log(
+          3,
+          '能力调用超时，结果丢弃: $id.$method #$requestId',
+        );
+        pending.completeError(
+          MusicxxPluginApiException(
+            -5,
+            '调用插件能力超时: $id.$method',
+            operation: 'plugin_call',
+          ),
+        );
+      });
+    }
+    try {
+      return await completer.future;
+    } finally {
+      timer?.cancel();
     }
   }
 
@@ -391,9 +468,52 @@ class MusicxxPluginManager {
   // ==================== 内部 ====================
 
   void handleDisposed() {
+    // 宿主已经不在：还没回来的能力调用不可能再有结果，按"宿主已停止"收尾
+    // （不留悬挂的 Future；正常路径下宿主停机时会先推一条 host_stopped 结果事件）
+    final List<Completer<Object?>> pending = List<Completer<Object?>>.of(
+      _pendingCalls.values,
+    );
+    _pendingCalls.clear();
+    for (final Completer<Object?> completer in pending) {
+      if (!completer.isCompleted) {
+        completer.completeError(
+          MusicxxPluginApiException(
+            -2,
+            '宿主已停止，能力调用未完成',
+            operation: 'plugin_call',
+          ),
+        );
+      }
+    }
+    _asyncCallAvailable = null;
     _cache = const <MusicxxPluginInfo>[];
     _byId.clear();
     _scanned = const <MusicxxPluginInfo>[];
+  }
+
+  /// `musicxx.plugin.call.result`：按 `requestId` 给等待中的调用回填结果
+  ///
+  /// 找不到等待方有两种情况，都按"丢弃"处理：调用方已经超时（它自己不等了），
+  /// 或者宿主重启后 `requestId` 空间从头开始（残留的结果不能串到新的调用上）。
+  void handleCallResultEvent(MusicxxPluginEvent event) {
+    final int? requestId = event.intOf('requestId');
+    if (null == requestId) {
+      return;
+    }
+    final Completer<Object?>? completer = _pendingCalls.remove(requestId);
+    if (null == completer || completer.isCompleted) {
+      _runtime.log(3, '收到没有等待方的能力结果 #$requestId（已超时或宿主重启），丢弃');
+      return;
+    }
+    final bool ok = event.boolOf('ok') ?? false;
+    if (ok) {
+      completer.complete(event.payload['result']);
+      return;
+    }
+    final String reason = event.stringOf('error') ?? '插件能力执行失败';
+    completer.completeError(
+      MusicxxPluginApiException(-99, reason, operation: 'plugin_call'),
+    );
   }
 
   /// 生命周期事件：只重新查询一次快照（避免事件顺序与快照不一致导致状态错乱）
