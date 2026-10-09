@@ -204,6 +204,12 @@ constexpr const char *kPrelude = R"JS(
   var kCapabilityPendingMarker = "~pending~";
   /// 异步能力处理器还没结算的等待号 (JSON 结果由宿主等待槽接收)
   var pendingCapabilityWaits = new Map();
+/// 插件自己声明的功能点的实现表 (点 id → 处理函数)
+///
+/// 功能点走**一条固定的通用通道钩子** (`musicxx.feature.point.call`):
+/// 同一条通道上所有实现的处理器都会收到同一次调用, 所以这里用一个分发器按 `point` 过滤
+/// (而不是每个点各注册一个处理器 —— JS 插件在同一钩子上只能注册一个处理器)。
+var featurePointImpls = new Map();
 
   function logError(message) {
     try { ext.log(4, String(message)); } catch (e) { /* 日志失败不影响脚本 */ }
@@ -787,6 +793,47 @@ constexpr const char *kPrelude = R"JS(
     playSonglist: function (args) { return musicxx.call("musicxx.library.playSonglist", args); }
   };
 
+  /// 通用通道钩子 `musicxx.feature.point.call` 的分发器
+  ///
+  /// 约定 (见包内 `docs/plugin-hooks.md`):
+  /// - 按 `point` 过滤: 不是自己实现的点直接返回空 (空 = 不回答, 链条继续问别人);
+  /// - 不回答自己发起的调用 (`caller` 等于自己的插件 id);
+  /// - 回答必须包一层 `patch` (宿主的 firstNonNull 只在收到 `patch` / `action` 时停止遍历);
+  /// - `value` 键就是"我答了"的判据 (值可以是 null);
+  /// - 处理器抛异常时给 `{error: ...}` (等于"不提供", 不打断链条)。
+  function featurePointDispatch(input) {
+    // 钩子处理器拿到的是**已解析的载荷对象**（`ext.invokeHook` 做的解析）；
+    // 这里同时接受 JSON 文本（直接调这个分发器时方便）。
+    if (typeof input === "string") {
+      try { input = JSON.parse(input || "{}"); } catch (e) { input = null; }
+    }
+    if (!input || typeof input !== "object" || typeof input.point !== "string") {
+      return "";
+    }
+    var fn = featurePointImpls.get(input.point);
+    if (!fn) { return ""; }
+    if (input.caller && input.caller === musicxx.pluginId) { return ""; }
+    var args = (input.args && typeof input.args === "object") ? input.args : {};
+    var value;
+    try {
+      // 第二个参数给上下文（点 id 与调用方）: 与钩子处理器拿到 ctx 的写法一致
+      value = fn(args, { point: input.point, caller: input.caller || "" });
+    } catch (e) {
+      var message = (e && e.message) ? e.message : String(e);
+      musicxx.host.log(3, "feature.provide: 处理器抛异常 (" + input.point + "): " + message);
+      return { error: message };
+    }
+    if (value && typeof value.then === "function") {
+      // 功能点是同步裁决通道: 异步处理器拿不到结果, 直接按"不回答"处理并说明原因
+      musicxx.host.log(3, "feature.provide: 处理器返回了 Promise (" + input.point +
+                       "); 功能点走同步裁决通道, 请提前算好或改成能力调用 (musicxx.capability.call)");
+      return "";
+    }
+    // 返回**对象**: 钩子处理器返回非 null 值会被 `JSON.stringify` 成裁决 JSON,
+    // 只有对象才带得上 `patch`（宿主的 firstNonNull 靠 patch 判"这一轮有人回答"）
+    return { patch: { value: value === undefined ? null : value } };
+  }
+
   /// 应用能力导出（与 MCP 工具同一份实现）：
   /// - list() 拿能力的声明（id/说明/参数）；
   /// - call(id, args) 调一个能力；频谱/副歌这类要解码分析的长任务给更长的超时，
@@ -801,12 +848,94 @@ constexpr const char *kPrelude = R"JS(
     },
     /// 功能埋点清单: 应用留出了哪些功能、现在谁在实现它 (谁生效、谁备选、谁把它关掉了)。
     /// points() 看全部; points({id: "..."}) 看一个; points({provided: true}) 只看有实现的。
+    /// 每个点的 `callDoc` 写着"参数与结果形状"（调它之前先看这一行）。
     points: function (options) {
       options = options || {};
       var args = {};
       if (options.id) { args.id = String(options.id); }
       if (options.provided !== undefined) { args.provided = !!options.provided; }
       return musicxx.call("musicxx.feature.point.list", args);
+    },
+    /// 调一个**功能点**并拿到结果（应用留出的埋点, 或插件自己声明的功能点）。
+    ///
+    /// - `id` 既可以是应用留出的（`musicxx.media.spectrum.extract` /
+    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.provide`），
+    ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
+    /// - `args` 是这个功能点自己的参数，形状看 `points()` 里的 `callDoc`；
+    /// - **调用零副作用**：不写应用的值仓、不改应用状态（调一次封面取色不会换掉背景色）；
+    /// - 默认超时 60 秒（频谱要解码整曲，慢就自己加大）；同一功能点 + 同一调用方的
+    ///   上一次没结束时拿到 `busy`。
+    callPoint: function (id, args, timeoutMs) {
+      assertName(id, "feature.callPoint: 功能点 id");
+      var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 60000;
+      return musicxx.call("musicxx.feature.point.call",
+                          { id: String(id), args: (args || {}) }, budget);
+    },
+    /// 声明一个**自己的**功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
+    ///
+    /// - `define({id, title, depict, args, result})` 或 `define(id, {title, ...})`；
+    /// - 同一 id 重复声明 = 覆盖（最后一次生效）；
+    /// - 声明跟着插件生命周期走：禁用 / 卸载会自动撤销，重新启用时脚本会再声明一遍；
+    /// - 声明之后用 `provide(id, fn)` 给出实现，别的插件与应用就能调它。
+    define: function (specOrId, spec) {
+      var full;
+      if (specOrId && typeof specOrId === "object") {
+        full = Object.assign({}, specOrId);
+      } else {
+        full = Object.assign({}, spec || {});
+        full.id = specOrId;
+      }
+      if (!full.id) { throw new Error("feature.define: 缺少功能点 id"); }
+      assertName(full.id, "feature.define: 功能点 id");
+      return musicxx.call("musicxx.feature.point.define", {
+        id: String(full.id),
+        title: full.title === undefined ? "" : String(full.title),
+        depict: full.depict === undefined ? "" : String(full.depict),
+        args: full.args === undefined ? "" : String(full.args),
+        result: full.result === undefined ? "" : String(full.result)
+      });
+    },
+    /// 收回自己声明的功能点（一般不用调：停用 / 卸载会自动撤销）
+    undefine: function (id) {
+      assertName(id, "feature.undefine: 功能点 id");
+      return musicxx.call("musicxx.feature.point.undefine", { id: String(id) });
+    },
+    /// 登记功能点的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
+    ///
+    /// - `fn(args)` **同步返回**结果（对象原样给，其它类型包成 `{value: …}`）；
+    /// - 不是自己的点、或调用方就是自己时，糖不会回答（分发器按 `point` 与 `caller` 过滤）；
+    /// - 这条通道是同步裁决钩子：`fn` 返回 Promise 拿不到结果（会记一条日志），
+    ///   长任务请提前算好，或者做成**能力调用**（`musicxx.capability.call`）。
+    provide: function (idOrIds, fn, options) {
+      if (typeof fn !== "function") {
+        throw new Error("feature.provide: 缺少处理函数");
+      }
+      options = options || {};
+      var ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+      if (ids.length === 0) { throw new Error("feature.provide: 缺少功能点 id"); }
+      ids.forEach(function (id) {
+        assertName(id, "feature.provide: 功能点 id");
+        featurePointImpls.set(String(id), fn);
+      });
+      if (!hookTable.has("musicxx.feature.point.call")) {
+        musicxx.hooks.register("musicxx.feature.point.call", {
+          priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
+          ownerTag: ids.map(String).join(",")
+        }, function (ctx) { return featurePointDispatch(ctx); });
+      }
+      return musicxx;
+    },
+    /// 摘除实现（给了 `fn` 时只有"就是它"才摘）
+    unprovide: function (id, fn) {
+      var key = String(id);
+      if (arguments.length > 1 && featurePointImpls.get(key) !== fn) {
+        return musicxx;
+      }
+      featurePointImpls.delete(key);
+      if (featurePointImpls.size === 0 && hookTable.has("musicxx.feature.point.call")) {
+        musicxx.hooks.unregister("musicxx.feature.point.call");
+      }
+      return musicxx;
     }
   };
 

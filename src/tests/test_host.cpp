@@ -281,6 +281,22 @@ std::string waitCapabilityResult(MusicxxExternPluginHost *host,
   return {};
 }
 
+/// 同步派发一次钩子，返回**完整回执**（`{handled, handlers, called, result?}`）
+///
+/// 测试里同步等是允许的：等的是宿主线程上的处理器链，不会互锁。
+/// 裁决对象（合并后的字段）用 `jsonRawField(ack, "result")` 取 —— 没有处理器给出
+/// `patch` / `action` 时回执里没有 `result` 这一段。
+std::string hookEmitSync(MusicxxExternPluginHost *host, const char *hookId,
+                         const std::string &inputJson) {
+  MusicxxExternPluginString out{};
+  MusicxxExternPluginString emitLog{};
+  const auto rc = musicxx_extern_plugin_hook_emit(
+      host, viewCP(hookId), viewP(inputJson), MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 0,
+      &out, &emitLog);
+  freeStr(emitLog);
+  return take(out);
+}
+
 /// 调一次插件能力并等到结果事件 (受理失败时不推事件, 直接返回受理码)
 CapabilityCallOutcome callCapability(MusicxxExternPluginHost *host,
                                      const std::string &id,
@@ -1646,7 +1662,8 @@ int main(int argc, char **argv) {
             "JS 能力调用成功 (probe)");
       check(jsonStringField(probe, "pluginId") == "example_js",
             "JS 能力读到插件 id");
-      check(jsonIntField(probe, "hookCount") == "4", "JS 注册了 4 个钩子");
+      check(jsonIntField(probe, "hookCount") == "5",
+            "JS 注册了 5 个钩子 (含功能点通用通道)");
       check(jsonIntField(probe, "songChangedCount") == "1",
             "JS 观察钩子计数为 1 (钩子真的执行了)");
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
@@ -1658,8 +1675,8 @@ int main(int argc, char **argv) {
       // 设置界面是插件自己的页面, 不是 UI 项)
       check(jsonIntField(probe, "uiEntries") == "2",
             "JS 注册了 2 个 UI 项 (脚本侧登记)");
-      check(jsonIntField(probe, "selfStatsHooks") == "4",
-            "JS 能读自己的统计 (stats.getSelf 的钩子计数)");
+      check(jsonIntField(probe, "selfStatsHooks") == "5",
+            "JS 能读自己的统计 (stats.getSelf 的钩子计数, 含功能点通道)");
       // 客户端界面能力段: 宿主配置里给的 ui 段原样出现在 host.info() 里
       check(jsonStringField(probe, "hostUiKind") == "gui",
             "JS 从 host.info().ui 读到客户端能力段 (渲染类型)");
@@ -1864,6 +1881,133 @@ int main(int argc, char **argv) {
                                                 &log) ==
                 MUSICXX_EXTERN_PLUGIN_OK,
             "卸载临时装载的动态库插件");
+    }
+
+    // ============ 通用通道: 插件声明的功能点 ============
+    //
+    // 插件点共用**一条固定钩子** `musicxx.feature.point.call`（宿主只认固定的钩子表，
+    // 插件不得制造未知钩子）:
+    // - 处理器按 `point` 过滤，回答要包一层 `patch`（firstNonNull 只在收到 patch 时才停）；
+    // - `ownerTag` = 点 id（只用于自省"这个处理器声称实现哪个点"）；
+    // - 不回答自己发起的调用（`caller` 等于自己的插件 id）。
+    {
+      // 1) JS 示例声明并实现了 `plugin.example_js.beat`
+      const CapabilityCallOutcome featureProbe = callCapability(
+          host, "example_js", "featureProbe", "{}", 8000);
+      check(featureProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && featureProbe.ok,
+            "功能点示例能力可调用 (featureProbe)");
+      std::printf("  [info] featureProbe=%s\n", featureProbe.payload.c_str());
+      check(jsonStringField(featureProbe.payload, "declared") ==
+                "plugin.example_js.beat",
+            "插件声明了功能点 (plugin.<插件id>.beat)");
+
+      // 2) 处理器登记成功 + ownerTag = 点 id（还能在自省里看到）
+      {
+        MusicxxExternPluginString out{};
+        const auto rc = musicxx_extern_plugin_hook_handlers(
+            host, viewCP("musicxx.feature.point.call"), &out, &log);
+        const std::string json = take(out);
+        check(rc == MUSICXX_EXTERN_PLUGIN_OK,
+              "通用通道钩子存在 (插件注册处理器不是 ERR_NOT_FOUND)");
+        check(jsonIntField(json, "count") != "0",
+              "通用通道上有处理器 (示例插件登记了实现)");
+        check(json.find("\"ownerTag\":\"plugin.example_js.beat\"") !=
+                  std::string::npos,
+              "处理器的 ownerTag 是它实现的功能点 id");
+      }
+
+      // 3) 派发一次: 处理器的回答按 `patch` 合并到顶层 (`value` 就是结果)
+      {
+        const std::string ack = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.example_js.beat","args":{"bpm":60,"beats":3},"caller":""})");
+        check(jsonIntField(ack, "called") == "1", "通用通道派发到示例插件");
+        check(ack.find("\"bpm\":60") != std::string::npos,
+              "处理器的结果经 patch 合并到裁决顶层");
+        check(ack.find("\"beats\":[0,1000,2000]") != std::string::npos,
+              "处理器按自己的语义算结果 (60 BPM → 每拍 1000 ms)");
+      }
+
+      // 4) 不是自己的点: 处理器不回答（链条继续问别人）
+      {
+        const std::string ack = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.nobody.other","args":{},"caller":""})");
+        check(ack.find("\"bpm\"") == std::string::npos,
+              "不是自己实现的功能点不回答");
+      }
+
+      // 5) 不回答自己发起的调用（`caller` 等于自己的插件 id）
+      {
+        const std::string ack = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.example_js.beat","args":{},"caller":"example_js"})");
+        check(ack.find("\"confident\"") == std::string::npos,
+              "不回答自己发起的调用 (caller === 自己)");
+      }
+
+      // 6) 摘除实现后不再回答（`unprovide`）
+      {
+        const CapabilityCallOutcome unprovide =
+            callCapability(host, "example_js", "featureUnprovide", "{}", 8000);
+        check(unprovide.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && unprovide.ok,
+              "示例插件能摘除自己的实现");
+        const std::string ack = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.example_js.beat","args":{},"caller":""})");
+        check(ack.find("\"confident\"") == std::string::npos,
+              "摘除实现后不再回答 (unprovide)");
+      }
+
+      // 7) native 侧糖: 同一个约定在动态库插件上一样成立
+      //    (处理函数返回的是**值**, 糖负责过滤 point / caller 并包 patch)
+      {
+        MusicxxExternPluginString nativeLog{};
+        const auto nativeRc = musicxx_extern_plugin_plugin_load_sync(
+            host, viewCP("example_native"), viewCP("{}"), 8000, &nativeLog);
+        freeStr(nativeLog);
+        check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "装载动态库插件 (native 糖用例)");
+
+        const CapabilityCallOutcome nativeProbe = callCapability(
+            host, "example_native", "plugin.example_native.probe", "{}", 8000);
+        check(nativeProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && nativeProbe.ok,
+              "动态库插件的探针可读");
+        check(jsonStringField(nativeProbe.payload, "featurePointId") ==
+                  "plugin.example_native.sample",
+              "动态库插件读了 host.info().pluginId 并拼出自己的点 id");
+        check(jsonIntField(nativeProbe.payload, "featurePointRc") == "0",
+              "native 糖登记功能点实现成功 (ownerTag = 点 id)");
+
+        const std::string nativeAck = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.example_native.sample","args":{"a":2,"b":3},"caller":""})");
+        check(jsonIntField(nativeAck, "called") == "1",
+              "通用通道派发到动态库插件");
+        if (nativeAck.find("\"sum\":5") == std::string::npos) {
+          std::printf("  [info] native ack=%s\n", nativeAck.c_str());
+        }
+        check(nativeAck.find("\"sum\":5") != std::string::npos,
+              "native 糖把返回值包成 patch.value (处理函数只返回值)");
+
+        // 不是自己的点: 同一个插件不回答（说明糖做了 point 过滤）
+        const std::string foreignPoint = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.nobody.other","args":{"a":2,"b":3},"caller":""})");
+        check(foreignPoint.find("\"sum\"") == std::string::npos,
+              "native 糖按 point 过滤 (不是自己的点不回答)");
+
+        // caller 是自己: 不回答（避免把自己算的结果再问回去）
+        const std::string selfCall = hookEmitSync(
+            host, "musicxx.feature.point.call",
+            R"({"point":"plugin.example_native.sample","args":{"a":2,"b":3},"caller":"example_native"})");
+        check(selfCall.find("\"sum\"") == std::string::npos,
+              "native 糖不回答自己发起的调用 (caller === 自己)");
+
+        check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
+                                                  &log) ==
+                  MUSICXX_EXTERN_PLUGIN_OK,
+              "卸载动态库插件 (native 糖用例结束)");
+      }
     }
 
     // ============ JS 执行上限已移除 ============

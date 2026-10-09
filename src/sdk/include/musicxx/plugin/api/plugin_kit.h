@@ -32,6 +32,101 @@
 namespace musicxx {
 namespace plugin {
 
+namespace detail {
+
+/* ==================== 功能点糖的内部实现 (给 PluginBase 用) ==================== */
+
+/// 把处理函数的返回值转成功能点的"回答值"
+///
+/// 返回 `false` = **这次不回答**（返回了空串），交给同一条通道上的下一个实现。
+/// - `utilxx_base::Json` 原样用（`null` 也算回答："算过了，结果是空"）；
+/// - 字符串先按 JSON 解析（`{"bpm":128}` → 对象），解析不了就当 JSON 字符串（`hello` → `"hello"`）；
+/// - 数字 / 布尔直接当值。
+template<typename T>
+bool featurePointValueOf(const T& raw, utilxx_base::Json& out) {
+    using RawT = std::decay_t<T>;
+    if constexpr (std::is_same_v<RawT, utilxx_base::Json>) {
+        out = raw;
+        return true;
+    } else if constexpr (std::is_same_v<RawT, bool> || std::is_arithmetic_v<RawT>) {
+        out = raw;
+        return true;
+    } else if constexpr (std::is_convertible_v<RawT, std::string_view>) {
+        const std::string_view text{raw};
+        if (text.empty()) {
+            return false; ///< 空串 = 这次不回答
+        }
+        try {
+            out = utilxx_base::Json::parse(text);
+        } catch (const std::exception&) {
+            out = utilxx_base::Json{std::string{text}}; ///< 不是 JSON: 当字符串值
+        }
+        return true;
+    } else {
+        static_assert(std::is_convertible_v<RawT, std::string_view> ||
+                          std::is_same_v<RawT, utilxx_base::Json>,
+                      "featurePointProvide: 处理函数必须返回 Json, 或字符串/数字/布尔");
+        return false;
+    }
+}
+
+/// 功能点处理器：按 `point` 过滤、跳过自己发起的调用、把回答包成 `{"patch": {"value": …}}`
+///
+/// `fn` 的形参按可调用性选一种：`fn(point, argsJson, caller)` / `fn(point, argsJson)` /
+/// `fn(argsJson)`（都是 `std::string_view`）。
+///
+/// 已经自己写好 `patch` / `action` 的回答（对象里带这两个键）原样通过 —— 手写裁决与糖混用
+/// 时不会被再包一层。
+template<typename Fn>
+int32_t answerFeaturePoint(const std::string& selfId, const std::string& point,
+                          Fn& fn, std::string_view input, std::string& out) {
+    utilxx_base::Json payload;
+    try {
+        payload = utilxx_base::Json::parse(input);
+    } catch (const std::exception&) {
+        return 0; ///< 载荷不是 JSON: 不回答 (交给下一个实现)
+    }
+    if (!payload.is_object()) {
+        return 0;
+    }
+    if (payload.value<std::string>("point", std::string{}) != point) {
+        return 0; ///< 不是自己实现的点
+    }
+    const std::string caller = payload.value<std::string>("caller", std::string{});
+    if (!caller.empty() && caller == selfId) {
+        return 0; ///< 自己发起的调用不回答 (免得把自己算出的结果再问回去)
+    }
+    std::string argsJson{"{}"};
+    if (payload.contains("args")) {
+        argsJson = payload["args"].dump();
+    }
+
+    utilxx_base::Json value;
+    bool answered = false;
+    if constexpr (std::is_invocable_v<Fn&, std::string_view, std::string_view,
+                                      std::string_view>) {
+        answered = featurePointValueOf(fn(point, argsJson, caller), value);
+    } else if constexpr (std::is_invocable_v<Fn&, std::string_view, std::string_view>) {
+        answered = featurePointValueOf(fn(point, argsJson), value);
+    } else {
+        answered = featurePointValueOf(fn(argsJson), value);
+    }
+    if (!answered) {
+        return 0; ///< 这次不回答
+    }
+    // 已经写好裁决 (patch / action) 的原样通过, 否则包一层
+    if (value.is_object() && (value.contains("patch") || value.contains("action"))) {
+        out = value.dump();
+        return 0;
+    }
+    utilxx_base::Json answer = utilxx_base::Json::object();
+    answer["patch"]["value"] = value;
+    out = answer.dump();
+    return 0;
+}
+
+} // namespace detail
+
 
 /// musicxx 领域接口表聚合 = 内核通用十表 + musicxx 领域表
 ///
@@ -149,7 +244,6 @@ public:
     }
 
     /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
-    ///
     /// - 结果经 `notify->done` **恰好一次** (宿主 IO 线程) 回调; status == 0 时载荷是结果 JSON;
     /// - `notify` 由 SDK 复制保存 (与 [requestAction] 同一做法), 插件可以传栈上的 notify;
     /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
@@ -205,6 +299,172 @@ public:
             return -1;
         }
         return 0;
+    }
+
+    /// ---------- 功能点 (插件自己声明 / 实现 / 调用) ----------
+    ///
+    /// 一个功能点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
+    /// 通道钩子 `musicxx.feature.point.call` 的处理器）、**调用**（动作
+    /// `musicxx.feature.point.call`）。三者都走宿主，不需要应用侧为这个点写任何代码。
+    ///
+    /// 与能力（capability）的分工见包内 `docs/plugin-guide.md`：
+    /// - 能力 = "应用直接调本插件"，参数与结果由插件自己定；
+    /// - 功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。
+    ///
+    /// 通道写法（宿主约定，糖已经照做）：
+    /// 1. 回答**必须包一层 `patch`**（宿主只在收到 `patch` 时才认为"有人回答了"）；
+    /// 2. 处理器要**按 `point` 过滤**（同一条通道上所有实现都收到同一次调用）；
+    /// 3. **不回答自己发起的调用**（`caller` 等于自己的插件 id 时返回空）。
+
+    /// 功能点声明信息（对应动作 `musicxx.feature.point.define` 的可读字段）
+    struct MusicxxPluginPointSpec {
+        const char* title  = ""; ///< 展示名（缺省用 id）
+        const char* depict = ""; ///< 一句话说明
+        const char* args   = ""; ///< 参数说明（文本：有哪些参数、什么类型）
+        const char* result = ""; ///< 结果说明（文本：给出什么形状的结果）
+    };
+
+    /// 声明一个**自己的**功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
+    ///
+    /// - 走异步动作（`notify->done` 拿到 `{ok, id}` 或 `{ok:false, error}`）；
+    /// - 同一 id 重复声明 = 覆盖；声明跟着插件生命周期走（禁用 / 卸载自动撤销）；
+    /// - 声明之后用 [featurePointProvide] 给出实现，别的插件与应用就能调它。
+    int32_t featurePointDefine(const char* id, const MusicxxPluginPointSpec& spec,
+                               const PluginxxOperatorNotify* notify,
+                               uint32_t timeoutMs = 5000) {
+        utilxx_base::Json payload = utilxx_base::Json::object();
+        payload["id"]     = id ? id : "";
+        payload["title"]  = spec.title ? spec.title : "";
+        payload["depict"] = spec.depict ? spec.depict : "";
+        payload["args"]   = spec.args ? spec.args : "";
+        payload["result"] = spec.result ? spec.result : "";
+        const std::string text = payload.dump();
+        return requestAction("musicxx.feature.point.define", text.c_str(), notify, timeoutMs);
+    }
+
+    /// 收回自己声明的功能点（一般不用调：禁用 / 卸载会自动撤销）
+    int32_t featurePointUndefine(const char* id, const PluginxxOperatorNotify* notify,
+                                 uint32_t timeoutMs = 5000) {
+        utilxx_base::Json payload = utilxx_base::Json::object();
+        payload["id"] = id ? id : "";
+        const std::string text = payload.dump();
+        return requestAction("musicxx.feature.point.undefine", text.c_str(), notify, timeoutMs);
+    }
+
+    /// 本插件的 id（读一次 `host.info()` 的 `pluginId` 并缓存；拿不到时空串）
+    ///
+    /// 用途：功能点糖要判断"这次的 `caller` 是不是自己"（自己发起的调用不回答）。
+    std::string pluginId() {
+        if (!pluginIdLoaded_) {
+            pluginIdLoaded_ = true;
+            try {
+                const utilxx_base::Json info = utilxx_base::Json::parse(hostInfoJson());
+                if (info.is_object()) {
+                    pluginId_ = info.value<std::string>("pluginId", std::string{});
+                }
+            } catch (const std::exception&) {
+                pluginId_.clear();
+            }
+        }
+        return pluginId_;
+    }
+
+    /// 登记一个功能点的实现（**一个点一个处理器**，`owner_tag` = 点 id）
+    ///
+    /// `fn` 有三种写法（按可调用性自动选一种）：
+    /// ```cpp
+    /// featurePointProvide("plugin.my_plugin.beat",
+    ///     [](std::string_view point, std::string_view argsJson) -> std::string {
+    ///         return R"({"bpm":128,"beats":[0,469,938]})";   // 返回的是**值**，糖包 patch
+    ///     });
+    /// ```
+    /// - 形参：`fn(point, argsJson, caller)` / `fn(point, argsJson)` / `fn(argsJson)`；
+    /// - 返回：`utilxx_base::Json` / 任何字符串类型 / 数字 / 布尔。字符串会先按 JSON 解析，
+    ///   解析不了就当 JSON 字符串（`hello` → `"hello"`）；
+    /// - **返回空串 = 这次不回答**（交给同一条通道上的下一个实现）；要回答"结果是空"就返回
+    ///   `"null"` 或 `"{}"`；
+    /// - 糖自动做三件事：按 `point` 过滤、`caller` 等于自己时返回空、
+    ///   把返回值包成 `{"patch":{"value": …}}`；
+    /// - **必须同步返回**：裁决型钩子没有异步形态（内核按 `hook_sync` 同步调用），长任务要么
+    ///   提前算好，要么做成能力（`co_await capabilityCall`）或事件。
+    template<typename Fn>
+    int32_t featurePointProvide(const char* pointId, Fn&& fn, int32_t priority = 0) {
+        const std::string point = pointId ? pointId : "";
+        if (point.empty()) {
+            log.warn("featurePointProvide: 缺少功能点 id");
+            return -1;
+        }
+        const std::string selfId = pluginId();
+        if (selfId.empty()) {
+            log.warn("featurePointProvide: 读不到自己的插件 id (host.info 缺 pluginId)");
+            return -1;
+        }
+        return registerSyncWithTag(
+            MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL,
+            point.c_str(),
+            MUSICXX_PLUGIN_HOOK_MODE_DECISION,
+            priority,
+            [selfId, point, fn = std::forward<Fn>(fn)](std::string_view input,
+                                                      std::string& out) mutable -> int32_t {
+                return detail::answerFeaturePoint(selfId, point, fn, input, out);
+            }
+        );
+    }
+
+    /// 摘除一个功能点的实现（注销 `owner_tag` = 点 id 的那个处理器）
+    int32_t featurePointUnprovide(const char* pointId) {
+        if (!iface.hooks || !iface.hooks->unregister_hook) {
+            return -1;
+        }
+        if (!pointId || !*pointId) {
+            return -1;
+        }
+        PluginxxStringView hookView = pluginxxView(MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL);
+        PluginxxStringView tagView  = pluginxxView(pointId);
+        return iface.hooks->unregister_hook(host, &hookView, &tagView);
+    }
+
+    /// 调一个功能点（**异步形态**；结果经 `notify->done` 回来）
+    ///
+    /// - `id` 既可以是应用留出的埋点（`musicxx.media.spectrum.extract` /
+    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.provide`），
+    ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
+    /// - `argsJson` 是这个功能点自己的参数（看清单里的 `callDoc`）；
+    /// - **默认超时 60 秒**：频谱提取要解码整曲，慢就自己加大；
+    /// - **调用零副作用**：不写应用的值仓、不改应用状态；
+    /// - **没有同步版**：宿主线程上的就地等待等于死锁（处理器可能正等着你返回），
+    ///   所以要结果就在 `notify->done` 里处理，或者用协程形态自己封一层。
+    int32_t featurePointCall(const char* id, std::string_view argsJson = "{}",
+                             uint32_t timeoutMs = 60000,
+                             const PluginxxOperatorNotify* notify = nullptr,
+                             int64_t* outRequestId = nullptr) {
+        if (!notify || !notify->done) {
+            log.warn("featurePointCall: 异步形态必须给完成通知 (notify->done)");
+            return -1;
+        }
+        utilxx_base::Json payload = utilxx_base::Json::object();
+        payload["id"] = id ? id : "";
+        try {
+            payload["args"] = argsJson.empty() ? utilxx_base::Json::object()
+                                               : utilxx_base::Json::parse(argsJson);
+        } catch (const std::exception& e) {
+            log.warn(std::string{"featurePointCall: args 不是合法 JSON 对象 ("} + e.what() + ")");
+            return -1;
+        }
+        const std::string text = payload.dump();
+        return requestAction("musicxx.feature.point.call", text.c_str(), notify, timeoutMs,
+                             outRequestId);
+    }
+
+    /// 当前有哪些功能点、谁在实现（行文本；等价动作 `musicxx.feature.point.list`）
+    ///
+    /// 异步动作：结果经 `notify->done` 回来（`payload` 是清单文本）。
+    int32_t featurePointList(const PluginxxOperatorNotify* notify,
+                             uint32_t timeoutMs = 5000) {
+        if (!notify || !notify->done) {
+            return -1;
+        }
+        return requestAction("musicxx.feature.point.list", "{}", notify, timeoutMs);
     }
 
     /// 发起宿主动作 (异步; 结果经 `notify->done` 恰好一次回调)
@@ -579,6 +839,17 @@ protected:
     /// 统一的同步处理器注册路径
     template<typename Fn>
     int32_t registerSync(const char* hookId, int32_t mode, int32_t priority, Fn&& fn) {
+        return registerSyncWithTag(hookId, "", mode, priority, std::forward<Fn>(fn));
+    }
+
+    /// 统一的同步处理器注册路径（带 `owner_tag`）
+    ///
+    /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个钩子上登记多个
+    /// 处理器（靠它区分），宿主自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
+    /// （见 [featurePointProvide]）。
+    template<typename Fn>
+    int32_t registerSyncWithTag(const char* hookId, const char* ownerTag, int32_t mode,
+                                int32_t priority, Fn&& fn) {
         using FnT       = std::decay_t<Fn>;
         auto  holder    = std::make_unique<HookHolder<FnT>>(host, std::forward<Fn>(fn));
         void* holderPtr = holder.get();
@@ -588,7 +859,7 @@ protected:
         spec.version     = 1;
         spec.struct_size = sizeof(MusicxxPluginHookSpec);
         spec.hook_id     = pluginxxView(hookId);
-        spec.owner_tag   = pluginxxView("");
+        spec.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
         spec.mode        = mode;
         spec.priority    = priority;
         spec.flags       = 0;
@@ -705,6 +976,10 @@ private:
     };
 
     std::vector<std::unique_ptr<HookHolderBase>> eventHolders_;
+
+    /// 本插件 id (从 `host.info().pluginId` 读一次后缓存; 功能点糖用它过滤自己发起的调用)
+    std::string pluginId_{};
+    bool        pluginIdLoaded_ = false;
 };
 
 } // namespace musicxx::plugin

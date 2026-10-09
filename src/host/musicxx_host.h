@@ -361,7 +361,13 @@ public:
   int32_t unregisterHook(MusicxxHostInstance *inst, std::string_view hookId,
                          std::string_view ownerTag);
   int32_t hookInfoJson(std::string_view hookId, std::string &outJson);
-  int32_t hostInfoJson(std::string &outJson);
+  /// 宿主信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
+  ///
+  /// [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是我自己发起的"
+  /// 就得知道自己的 id（功能点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
+  /// 这个独立入口，那份缓存不带 `pluginId`。
+  int32_t hostInfoJson(std::string &outJson,
+                       std::string_view instanceName = std::string_view{});
   int32_t getState(std::string_view key, std::string &outJson);
   int32_t subscribeState(MusicxxHostInstance *inst, const std::string &keysJson,
                          int32_t &outCount);
