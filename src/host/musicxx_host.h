@@ -291,6 +291,19 @@ public:
   int32_t hookCount(const std::string &hookId, int32_t &outCount);
   int32_t hookStatsJson(std::string &outJson);
 
+  /// 某钩子当前的处理器列表 (自省用)
+  ///
+  /// 按调用顺序给出 (priority 升序, 同优先级按注册顺序), 每一项只含
+  /// `plugin` / `instance` / `kind` / `priority` / `ownerTag` —— 不暴露处理器地址、
+  /// 载荷与内部状态。outJson 形如 `{"hook":"...","count":2,"handlers":[...]}`。
+  int32_t hookHandlersJson(std::string_view hookId, std::string &outJson);
+
+  /// 某钩子当前的处理器列表 (JSON 数组字符串)
+  ///
+  /// 自省 C ABI 与 `musicxx.hook.changed` 事件共用同一份写法: 两处给出的顺序必须一致,
+  /// 否则 Dart 侧看到的"排第几"与真实调用顺序对不上。
+  std::string hookHandlersArrayJson(std::string_view hookId) const;
+
   /// 某实例当前注册的钩子 id（去重；生命周期事件带上它，Dart 侧据此对齐
   /// "该钩子有没有处理器"——钩子计数只靠 `musicxx.hook.changed` 维护，丢一条就会停在旧值）
   std::vector<std::string> hooksOfInstance(const std::string &instanceName) const;
