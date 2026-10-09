@@ -51,6 +51,16 @@ using naming::isTopicOwnedBy;
 
 } // namespace
 
+namespace {
+
+/// 把内部拼好的 JSON 数组文本转成 Json（定义见文件下方）
+///
+/// 这段文本由 `hookHandlersArrayJson` 自己构造，正常不会解析失败；真失败时退回空数组
+/// （本项目的 Json::parse 没有"不抛异常"的重载，所以用 try/catch）。
+Json jsonArrayOf(const std::string &text);
+
+} // namespace
+
 /* ==================== 钩子注册 / 注销 ==================== */
 
 int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
@@ -123,6 +133,9 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
   payload["mode"] = spec.mode;
   payload["count"] = static_cast<int32_t>(handlers.size());
   payload["action"] = "register";
+  // 一并带上处理器列表 (一个钩子通常 0~3 个, 注册/注销是低频操作):
+  // Dart 侧不用再回查宿主就能知道"谁注册了、排第几"
+  payload["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
   pushEvent("musicxx.hook.changed", h.pluginId, payload.dump());
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -154,6 +167,8 @@ int32_t MusicxxHostManager::unregisterHook(MusicxxHostInstance *inst,
   payload["hook"] = std::string{hookId};
   payload["count"] = remaining;
   payload["action"] = "unregister";
+  // 同 register: 把摘除后的处理器列表一起给出 (空了就是空数组)
+  payload["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
   pushEvent("musicxx.hook.changed", payload["id"].get<std::string>(),
             payload.dump());
   return MUSICXX_EXTERN_PLUGIN_OK;
@@ -226,6 +241,76 @@ int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
   }
   Json j;
   j["hooks"] = hooks;
+  outJson = j.dump();
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+namespace {
+
+/// 把内部拼好的 JSON 数组文本转成 Json
+///
+/// 这段文本由 `hookHandlersArrayJson` 自己构造，正常不会解析失败；真失败时退回空数组，
+/// 不影响事件与自省接口的其它字段（这里用 try/catch 是因为本项目的 Json::parse 没有
+/// "不抛异常" 的重载）。
+Json jsonArrayOf(const std::string &text) {
+  try {
+    return Json::parse(text);
+  } catch (...) {
+    return Json::array();
+  }
+}
+
+} // namespace
+
+std::string
+MusicxxHostManager::hookHandlersArrayJson(std::string_view hookId) const {
+  auto it = hooks_.find(std::string{hookId});
+  if (it == hooks_.end() || it->second.empty()) {
+    return "[]";
+  }
+  // 顺序必须与真实调用顺序一致 (priority 升序, 同优先级按注册顺序),
+  // 否则 Dart 侧自省里看到的"排第几"对不上
+  std::vector<const HookHandler *> ordered;
+  ordered.reserve(it->second.size());
+  for (const HookHandler &h : it->second) {
+    ordered.push_back(&h);
+  }
+  std::stable_sort(ordered.begin(), ordered.end(),
+                   [](const HookHandler *a, const HookHandler *b) {
+                     if (a->spec.priority != b->spec.priority) {
+                       return a->spec.priority < b->spec.priority;
+                     }
+                     return a->seq < b->seq;
+                   });
+  Json arr = Json::array();
+  for (const HookHandler *h : ordered) {
+    // JS 实例名是 "js:<id>", 其余按动态库插件 (与内核里的实例名一致)
+    const bool js = h->plugin.rfind("js:", 0) == 0;
+    arr.push_back({
+        {"plugin", h->pluginId},
+        {"instance", h->plugin},
+        {"kind", js ? "js" : "native"},
+        {"priority", h->spec.priority},
+        {"ownerTag", h->ownerTag},
+    });
+  }
+  return arr.dump();
+}
+
+int32_t MusicxxHostManager::hookHandlersJson(std::string_view hookId,
+                                             std::string &outJson) {
+  if (hookId.empty()) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  if (!findHookMeta(hookId)) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  }
+  auto it = hooks_.find(std::string{hookId});
+  Json j;
+  j["hook"] = std::string{hookId};
+  j["count"] =
+      (it == hooks_.end()) ? 0 : static_cast<int32_t>(it->second.size());
+  j["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

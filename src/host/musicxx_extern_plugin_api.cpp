@@ -672,6 +672,26 @@ musicxx_extern_plugin_hook_stats(MusicxxExternPluginHost *h,
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_hook_handlers(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *hook_id,
+    MusicxxExternPluginString *out_json, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !hook_id || !out_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  std::string json;
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->hookHandlersJson(viewToStd(hook_id), json);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, "hook_handlers failed");
+    return rc;
+  }
+  setOut(out_json, json);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
 /* ==================== 动作回应 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
