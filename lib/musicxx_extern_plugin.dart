@@ -30,6 +30,7 @@ export 'src/hook_ids.g.dart';
 export 'src/hooks.dart'
     show
         MusicxxPluginDartHandler,
+        MusicxxPluginHandlerInfo,
         MusicxxPluginHookContext,
         MusicxxPluginHooks,
         MusicxxPluginThrottle;
