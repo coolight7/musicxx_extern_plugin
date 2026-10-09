@@ -42,6 +42,61 @@ class MusicxxPluginHookContext {
 ///   → 原生/JS 处理器链（`hook_emit`，宿主线程执行）
 ///   → 按 policy 合并
 /// ```
+/// 一个外部插件的钩子处理器（自省用：谁注册了哪个钩子、排第几）
+///
+/// 数据来自宿主的 `musicxx.hook.changed` 事件（载荷里的 `handlers` 列表）与
+/// `musicxx_extern_plugin_hook_handlers` 查询，字段与宿主给出的完全一致：
+/// 处理器按**调用顺序**排列（priority 升序，同优先级按注册顺序）。
+class MusicxxPluginHandlerInfo {
+  const MusicxxPluginHandlerInfo({
+    required this.plugin,
+    required this.instance,
+    required this.kind,
+    required this.priority,
+    this.ownerTag = "",
+  });
+
+  /// 插件 id
+  final String plugin;
+
+  /// 实例名（JS 是 `js:<id>`，动态库是插件名）
+  final String instance;
+
+  /// 形态：`js` / `native`
+  final String kind;
+
+  /// 优先级（小者先执行）
+  final int priority;
+
+  /// 注册时的 owner 标记（同一插件对同一钩子注册多项时用来区分）
+  final String ownerTag;
+
+  /// 从宿主给出的 JSON 项解析；字段缺失按空值处理（不抛异常）
+  static MusicxxPluginHandlerInfo fromJson(Map<String, Object?> json) {
+    return MusicxxPluginHandlerInfo(
+      plugin: json["plugin"] is String ? json["plugin"]! as String : "",
+      instance: json["instance"] is String ? json["instance"]! as String : "",
+      kind: json["kind"] is String ? json["kind"]! as String : "",
+      priority: json["priority"] is num
+          ? (json["priority"]! as num).toInt()
+          : 0,
+      ownerTag: json["ownerTag"] is String ? json["ownerTag"]! as String : "",
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    "plugin": plugin,
+    "instance": instance,
+    "kind": kind,
+    "priority": priority,
+    "ownerTag": ownerTag,
+  };
+
+  @override
+  String toString() =>
+      "${plugin.isEmpty ? instance : plugin}($kind, priority=$priority)";
+}
+
 class MusicxxPluginHooks {
   MusicxxPluginHooks.internal(this._runtime);
 
@@ -53,6 +108,13 @@ class MusicxxPluginHooks {
 
   /// 原生/JS 处理器数量快照（由 `musicxx.hook.changed` 事件维护；O(1) 判定）
   final Map<String, int> _nativeCounts = <String, int>{};
+
+  /// 原生/JS 处理器列表快照（钩子 id → 处理器，按调用顺序）
+  ///
+  /// 由 `musicxx.hook.changed` 事件维护（宿主注册/注销时会带上列表）；旧宿主库的事件没有
+  /// `handlers` 字段，这时这里留空、只有 [_nativeCounts] 可用（自省退化成"有几个处理器"）。
+  final Map<String, List<MusicxxPluginHandlerInfo>> _nativeHandlers =
+      <String, List<MusicxxPluginHandlerInfo>>{};
 
   /// 异步裁决的等待方（callId → 完成器）：结果由 `musicxx.hook.decision.result` 事件回填
   final Map<int, Completer<Map<String, Object?>?>> _pendingDecisions =
@@ -75,6 +137,18 @@ class MusicxxPluginHooks {
 
   /// 原生/JS 处理器数量（缓存值；宿主启动后由事件与首次查询填充）
   int nativeHandlerCount(MusicxxPluginHookId id) => _nativeCounts[id.id] ?? 0;
+
+  /// 原生/JS 处理器列表（按调用顺序：priority 升序、同优先级按注册顺序）
+  ///
+  /// 空列表有两种可能：这个钩子没有处理器，或者宿主/事件没给列表（旧宿主库）——
+  /// 后者要用 [nativeHandlerCount] 判断更可靠。列表是只读快照，改它不影响派发。
+  List<MusicxxPluginHandlerInfo> handlersOf(MusicxxPluginHookId id) =>
+      List<MusicxxPluginHandlerInfo>.unmodifiable(
+        _nativeHandlers[id.id] ?? const <MusicxxPluginHandlerInfo>[],
+      );
+
+  /// 有没有拿到过处理器列表（false 时自省只能报数量，见 [handlersOf]）
+  bool get hasHandlerList => _nativeHandlers.isNotEmpty;
 
   /// 是否有任何钩子存在处理器（全局快速开关：false 时调用零成本）
   bool get active =>
@@ -290,6 +364,7 @@ class MusicxxPluginHooks {
 
   void handleDisposed() {
     _nativeCounts.clear();
+    _nativeHandlers.clear();
     _throttles.clear();
     // 宿主已停：还没结算的异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
     for (final Completer<Map<String, Object?>?> completer
@@ -301,7 +376,7 @@ class MusicxxPluginHooks {
     _pendingDecisions.clear();
   }
 
-  /// `musicxx.hook.changed`：维护"该钩子是否有原生处理器"的位图
+  /// `musicxx.hook.changed`：维护"该钩子是否有原生处理器"的位图与处理器列表
   void handleHookChangedEvent(MusicxxPluginEvent event) {
     final String? hook = event.stringOf('hook');
     if (hook == null || hook.isEmpty) {
@@ -309,6 +384,24 @@ class MusicxxPluginHooks {
     }
     final int count = event.intOf('count') ?? 0;
     _nativeCounts[hook] = count < 0 ? 0 : count;
+    // 宿主注册/注销时一并给出处理器列表（谁注册的、排第几）；旧宿主库没有这个字段，
+    // 那时这里不动，自省退化成"只知道有几个处理器"
+    final Object? raw = event.payload['handlers'];
+    if (raw is List) {
+      final List<MusicxxPluginHandlerInfo> list = <MusicxxPluginHandlerInfo>[];
+      for (final Object? item in raw) {
+        if (item is Map) {
+          list.add(
+            MusicxxPluginHandlerInfo.fromJson(item.cast<String, Object?>()),
+          );
+        }
+      }
+      if (list.isEmpty) {
+        _nativeHandlers.remove(hook);
+      } else {
+        _nativeHandlers[hook] = list;
+      }
+    }
   }
 
   /// 插件生命周期事件：加载/启用/卸载会批量改变处理器数量 → 用宿主的权威值对齐一遍
