@@ -107,6 +107,11 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t lastActionPayloadLen = 0;
   int64_t lastActionRequestId = 0;
 
+  /// 功能点自检 (插件自定义功能点: 声明 / 实现 / 摘除)
+  std::string featurePointSampleId;     ///< 示例功能点 id
+  int32_t featurePointSampleRc = -100;  ///< 登记实现: 期望 0
+  std::string featurePointUnprovidedId; ///< 用来验证摘除的点 id
+
   /// 动作请求完成回调 (宿主线程调用)
   static void PLUGINXX_CALL onProbeActionDone(
       void *ud, int32_t status, const PluginxxStringView *payload) noexcept {
@@ -286,6 +291,10 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiNotifyRc\":" << uiNotifyRc
               << ",\"uiBackgroundRc\":" << uiBackgroundRc
               << ",\"stateLen\":" << stateJson("musicxx.state.song").size()
+              << ",\"featurePointId\":\"" << featurePointSampleId << "\""
+              << ",\"featurePointRc\":" << featurePointSampleRc
+              << ",\"featurePointUnprovidedId\":\""
+              << featurePointUnprovidedId << "\""
               << "}";
           return oss.str();
         });
@@ -317,7 +326,56 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           co_return std::string{R"({"ok":true,"async":true})"};
         });
 
-    // 8) 能力: 声明式页面 `ext://example_native/card`
+    // 10) 功能点: 声明 + 实现 (native 侧糖)
+    //
+    // 功能点 = "这个功能谁都能实现, 应用与别的插件按 id 来调": 声明走动作
+    // `musicxx.feature.point.define`, 实现走**一条固定通道** `musicxx.feature.point.call`
+    // 的处理器 (ownerTag = 点 id)。糖负责三件事: 按 `point` 过滤、`caller` 等于自己时
+    // 不回答、把返回值包成 `{"patch":{"value": …}}`。
+    //
+    // 注意: 功能点走的是**同步裁决**通道 (内核按 hook_sync 同步调用), 所以处理器必须
+    // 同步返回; 长任务用能力 (capability) 或事件。
+    featurePointSampleId = "plugin." + pluginId() + ".sample";
+    featurePointSampleRc = featurePointProvide(
+        featurePointSampleId.c_str(),
+        [](std::string_view, std::string_view argsJson) -> std::string {
+          int64_t a = 0;
+          int64_t b = 0;
+          // 示例只做最小解析: 真实插件用 `utilxx_base::Json::parse(argsJson)` 读参数
+          if (const size_t at = argsJson.find("\"a\":"); at != std::string_view::npos) {
+            size_t pos = at + 4;
+            while (pos < argsJson.size() && argsJson[pos] >= '0' && argsJson[pos] <= '9') {
+              a = a * 10 + (argsJson[pos] - '0');
+              ++pos;
+            }
+          }
+          if (const size_t bt = argsJson.find("\"b\":"); bt != std::string_view::npos) {
+            size_t pos = bt + 4;
+            while (pos < argsJson.size() && argsJson[pos] >= '0' && argsJson[pos] <= '9') {
+              b = b * 10 + (argsJson[pos] - '0');
+              ++pos;
+            }
+          }
+          return "{\"sum\":" + std::to_string(a + b) + "}";
+        });
+    // 声明走异步动作 (结果经完成通知回来); 这里只演示调用, 返回值由事件里的应答反映
+    {
+      PluginxxOperatorNotify notify{&probeActionDone, nullptr};
+      featurePointDefine(
+          featurePointSampleId.c_str(),
+          MusicxxPluginPointSpec{
+              "示例功能点", "把两个数相加 (演示插件功能点的声明与实现)",
+              "a、b (数字), 缺省 0", "{sum}"},
+          &notify, 5000);
+    }
+    // 第二个实现: 摘除之后不再回答 (验证 unprovide)
+    featurePointUnprovidedId = "plugin." + pluginId() + ".unprovided";
+    featurePointProvide(featurePointUnprovidedId.c_str(),
+                        [](std::string_view, std::string_view) -> std::string {
+                          return R"({"never":true})";
+                        });
+
+    // 11) 能力: 声明式页面 `ext://example_native/card`
     //    主页入口指向这个页面: 宿主打开页面时调用**同名能力**, 插件返回视图描述
     //    (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
     //    页面内容用 musicxx 扩展 kit 装配: kit 只写中立的块描述 (不判断渲染目标),

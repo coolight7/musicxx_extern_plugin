@@ -409,7 +409,8 @@ musicxx.capability.register("probe", function (args) {
     const greetingPeek = musicxx.vars.peek("demo.greeting");
     return {
         pluginId: musicxx.pluginId,
-        hookCount: 4,
+        /// 4 个业务钩子 + 1 条功能点通用通道（`feature.provide` 登记的实现）
+        hookCount: 5,
         songChangedCount: songChangedCount,
         lastSongName: lastSongName,
         errorCount: errorCount,
@@ -480,6 +481,9 @@ musicxx.capability.register("reloadConfig", function () {
     refreshConfig();
     return { accepted: 1 };
 });
+
+/// 主动调用应用功能点的最近一次结果（`featureProbe` 回读用）
+let featureCallState = { pending: 0, ok: 0, keys: 0, error: "" };
 
 /// 插件页面: 主页入口指向 `ext://example_js/card`
 ///
@@ -557,6 +561,70 @@ function cardView(args) {
 
 musicxx.capability.register("card", function (args) {
     return { view: cardView(args) };
+});
+
+/* ==================== 功能点: 声明 + 实现 + 调用（插件互通） ====================
+ *
+ * 这一段演示"插件自己定义功能、别的插件与应用都能调它":
+
+ * 1) `feature.define(...)` 声明一个功能点（id 必须落在自己的命名空间里）；
+ * 2) `feature.provide(id, fn)` 登记实现 —— 实现走**一条固定通道**
+ *    (`musicxx.feature.point.call`)，同一条通道上的所有实现都收到同一次调用，
+ *    所以 `fn` 只需按 args 算自己的结果，过滤与包装由糖负责；
+ * 3) 任何一方（应用、别的插件）用 `musicxx.feature.callPoint(id, args)` 调它。
+ *
+ * 注意：这条通道是**同步裁决**（处理器必须同步返回）。长任务请提前算好，
+ * 或者做成能力（`musicxx.capability.register` + `musicxx.capability.call`）。
+ */
+musicxx.feature.define({
+    id: "plugin." + musicxx.pluginId + ".beat",
+    title: "节拍检测（示例）",
+    depict: "按 BPM 与拍号算出若干拍的时刻（示例：不读音频，只做算式）",
+    args: "bpm（每分钟拍数，缺省 120）、beats（要几拍，缺省 4）",
+    result: "{bpm, beats: [ms, ...], confident}",
+});
+
+musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args) {
+    const bpm = (args && Number.isFinite(args.bpm) && args.bpm > 0) ? args.bpm : 120;
+    const count = (args && Number.isFinite(args.beats) && args.beats > 0)
+        ? Math.min(Math.trunc(args.beats), 64)
+        : 4;
+    const stepMs = Math.round(60000 / bpm);
+    const beats = [];
+    for (let i = 0; i < count; i++) {
+        beats.push(i * stepMs);
+    }
+    return { bpm: bpm, beats: beats, confident: 0.9 };
+});
+
+/// 能力: 让 Dart 侧/测试回读功能点这一段的状态（谁声明了、provide 了哪些点）
+musicxx.capability.register("featureProbe", function () {
+    // 主动调应用留出的一个功能点: 封面取色（`path`/`url`/`data` 三选一；
+    // 这里不给来源 = 当前歌曲的封面）。调用零副作用: 不改应用状态。
+    // 没有实现/当前没有封面时拿到的是 `no_impl`/`bad_args`，属于正常结果。
+    musicxx.feature.callPoint("musicxx.media.palette.provide", {}).then(function (result) {
+        featureCallState = { pending: 0, ok: 1, keys: Object.keys(result || {}).length, error: "" };
+        musicxx.host.log(2, "调用应用功能点成功: " + featureCallState.keys + " 个字段");
+    }, function (err) {
+        featureCallState = { pending: 0, ok: 0, keys: 0, error: err.message };
+        musicxx.host.log(3, "调用应用功能点失败: " + err.message);
+    });
+    return {
+        declared: "plugin." + musicxx.pluginId + ".beat",
+        ownerTag: "plugin." + musicxx.pluginId + ".beat",
+        callPending: featureCallState.pending,
+        callOk: featureCallState.ok,
+        callKeys: featureCallState.keys,
+        callError: featureCallState.error,
+    };
+});
+
+/// 能力: 让 Dart 侧/测试摘除上面那个功能点的实现（`feature.unprovide`）
+///
+/// 用来验证"摘除之后不再回答"：真实插件一般不需要主动摘除（停用/卸载自动撤）。
+musicxx.capability.register("featureUnprovide", function () {
+    musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");
+    return { accepted: 1 };
 });
 
 console.log("example_js 已加载 (pid=" + musicxx.pluginId + ")");

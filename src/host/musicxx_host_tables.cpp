@@ -761,7 +761,8 @@ int32_t MusicxxHostManager::pluginConfigPathFor(MusicxxHostInstance *inst,
                      : MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-int32_t MusicxxHostManager::hostInfoJson(std::string &outJson) {
+int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
+                                         std::string_view instanceName) {
   Json j;
   j["appVersion"] = appVersion_;
   j["platform"] = platform_;
@@ -771,6 +772,11 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson) {
   j["builtinPluginDir"] = builtinPluginDir_;
   j["apiVersion"] = MUSICXX_PLUGIN_API_VERSION;
   j["hostVersion"] = "0.1.0";
+  // 调用方插件自己的 id: 插件要判断"这次调用是不是我自己发起的"就得知道自己的 id
+  // (功能点糖用它过滤自己发起的调用)。应用侧读同一份信息时不带这个字段。
+  if (!instanceName.empty()) {
+    j["pluginId"] = pluginIdOf(instanceName);
+  }
   // 客户端界面能力段 (由界面描述层库生成, 宿主原样转发; 没配置时不出现这个字段)
   if (!uiCapabilitiesJson_.empty()) {
     j["ui"] = parseJsonSafe(uiCapabilitiesJson_);
@@ -874,10 +880,13 @@ int32_t PLUGINXX_CALL xx_host_get_info(const PluginxxHost *host,
           return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
         }
         auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string name = inst ? inst->name : std::string{};
         std::string json;
         const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr,
-            [mgr, &json]() -> int32_t { return mgr->hostInfoJson(json); });
+            call, mgr, [mgr, name, &json]() -> int32_t {
+              return mgr->hostInfoJson(json, name);
+            });
         if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
           return rc;
         }
