@@ -112,7 +112,7 @@ my_plugin/
 
 | 能力 | 入口 | 要点 |
 |---|---|---|
-| 钩子 | `musicxx.hooks.register/unregister` | 观察型 / 裁决型；**只有"已接入"的钩子会触发**（见 §5.5） |
+| 钩子 | `musicxx.hooks.register/unregister` | 观察型 / 裁决型；**只有"已接入"的钩子会触发**（见 §5.5）；`musicxx.hooks.handlers(id)` 读"这个钩子现在有谁在提供、排第几" |
 | 动作（调应用） | `musicxx.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
 | 状态镜像 | JS `musicxx.state.get(key)` / C++ `stateJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
 | 变量 | `musicxx.vars.get/set/bind/watch/peek` | 有属主、可读可写可订阅的小值；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
@@ -122,7 +122,8 @@ my_plugin/
 | 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`） |
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
-| 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用 |
+| 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原） |
+| 功能埋点自省 | 动作 `musicxx.feature.point.list`、`musicxx.hook.handlers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁置空。命令行 `featurePoint.list`、MCP `GetFeatureProviders` 读同一份数据 |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
 | 网络 | `musicxx.net.fetch/download` | 走应用网络栈（继承代理/超时）；响应体流式读取，上限 16 MiB（默认 2 MiB）；**非 2xx 也算请求完成** |
 | 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具 |
@@ -140,8 +141,10 @@ my_plugin/
    宿主**不会打断脚本**，只能重启应用。启动阶段的钩子（`app.start`）不要做重活。
 4. **裁决型钩子返回裁决对象**；需要 `await` 才能决定时，先同步判断"这次要不要裁决"，只在需要的那次返回 Promise
    （宿主一直等到它结算）。返回 `null` / `undefined` = 不裁决。裁决只是建议，调用点会校验身份字段（如 `sid`），过期裁决会被丢弃。
-5. **钩子还没接入就不会触发**：约定 68 个钩子，应用侧当前真正调用的只有 11 个
+5. **钩子还没接入就不会触发**：约定 70 个钩子，应用侧当前真正调用的只有 13 个
    （`docs/plugin-hooks.md` 的「应用是否已接入」列）；别把功能押在未接入的钩子上。
+   两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标**废弃**：
+   注册了也不会收到事件，替代做法写在它们的说明里。
 6. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
    加粗要显式写 `bold: true` 或 `type: "title"`；行内的开关 / 勾选框放在**定宽 `SizedBox`** 里，"几选一"用一排 `Button`；
    行尾的长文本要自己约束宽度（否则窄窗口会撑破整行）；按钮文案要短（字不换行）；
@@ -251,7 +254,11 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   在该子模块里跑 `dart run tools/gen_ui.dart` 生成 C++ / Dart / JS 绑定、文档与样例；两端手写模型与解析器要同步改。
   扩展 kit 定义在 `schema/musicxx-ui-kit.def.json`（`tools/gen_ui_kit.ps1` 生成、`tools/sync_ui_kit.ps1` 复制进插件目录）。
 - **宿主库导出面**只允许 `musicxx_extern_plugin_*`（MSVC 导出宏 / GNU version script / Apple 隐藏可见性）；
-  改导出、C ABI 或线程收尾后重新构建并跑原生测试。
+  改导出、C ABI 或线程收尾后重新构建并跑原生测试。**改 C 头文件后要重新生成 Dart 绑定**：
+  `fvm dart run ffigen --config ffigen.yaml`（Windows 上 LLVM 路径在配置里）。
+  新增查询型 ABI 时，Dart 侧要按"**探测式查找**"接：旧宿主库里没有这个符号，直接查会抛，
+  应在 `try/catch` 里探测一次并缓存结果，缺失时降级（`musicxx_extern_plugin_hook_handlers`
+  就是这么接的：旧库只报处理器数量）。
 - **Android**：宿主库必须随 APK 分发（`jniLibs`，系统只允许从 APK 原生库目录加载，放数据目录会报
   `is not accessible for the namespace "classloader-namespace"`）；交叉编译固定 Ninja + `c++_static`；
   改宿主生命周期 / 析构 / 加解锁后要在**设备上**跑一次原生测试（bionic 的 FORTIFY 会把"加锁已销毁的互斥量"变成 SIGABRT）。
