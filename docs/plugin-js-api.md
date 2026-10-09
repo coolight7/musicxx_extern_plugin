@@ -116,6 +116,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 musicxx.hooks.register(id, { mode, priority, ownerTag }, fn);
 musicxx.hooks.unregister(id);
 musicxx.hooks.has(id);
+musicxx.hooks.handlers(id);   // Promise：谁注册了这个钩子（见下）
 ```
 
 - `id` 必须是**全名**（官方 `musicxx.*`）；宿主的约定表里没有的钩子会被拒绝；
@@ -135,6 +136,20 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 
 顶层同步注册会在脚本执行结束后由引擎统一登记；**运行期**调用 `register` / `unregister` 同样生效
 （宿主把它投递到宿主线程执行，不在脚本线程等待）。
+
+**想知道"这个钩子现在有谁在提供"**用 `musicxx.hooks.handlers(id)`（异步，读的是宿主的权威数据）：
+
+```js
+musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
+    // info = {hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}
+    // handlers 按**调用顺序**（priority 升序，同优先级按注册顺序）给出
+    if (info.count === 0) { musicxx.hooks.register("musicxx.media.spectrum.extract", fn); }
+});
+```
+
+`listAvailable` 为 `false` 表示宿主库太旧（只有数量，看 `count`）。应用侧的自省（命令行
+`featurePoint.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
+与"用户看到的"一致。
 
 ### 4.2 裁决型钩子的返回值
 
@@ -265,9 +280,11 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 | 分类 | 方法 |
 |---|---|
+| `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)` |
 | `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)` |
 | `musicxx.lyrics` | `getCurrent()` |
+| `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
@@ -315,6 +332,10 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.host.openUrl` | `{url}`（协议不限，交给系统处理） | `{ok:true}` |
 | `musicxx.host.clipboard` | `{text}` | `{ok:true}` |
 | `musicxx.host.getPath` | 无 | `{pluginId, pluginDir, dataDir, logDir, platform}` |
+| `musicxx.feature.list` | 无 | `{ok:true, features:[...]}`：应用导出的能力清单（id / 说明 / 参数 / 输出形态）。JS 封装 `musicxx.feature.list()` |
+| `musicxx.feature.call` | `{id, args}` | `{ok:true, text?\|json?, output}`：调一个导出能力（`GetAudioSpectrum` / `AnalyseAudioChorus` 这类要解码的长任务给更长超时）。JS 封装 `musicxx.feature.call(id, args?, timeoutMs?)`，默认 30 秒 |
+| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id,title,type,depict,available,rows:[{type,layer,owner,name,priority,enabled,effective,note}]}]}`：功能埋点清单（应用留出了哪些扩展点、现在谁在提供、谁把它关掉了）。JS 封装 `musicxx.feature.points({id, provided}?)` |
+| `musicxx.hook.handlers` | `{hook}` | `{ok:true, hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}`：某个钩子当前的处理器列表（按调用顺序）。JS 封装 `musicxx.hooks.handlers(id)` |
 
 > 名字里有、但**当前版本没有实现**的动作（调用会得到 `action_not_registered`）：
 > `musicxx.player.setPitch` / `setMediaType`、`musicxx.library.querySonglist` / `addSong` /
