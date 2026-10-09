@@ -288,7 +288,9 @@ MUSICXX_PLUGIN_EXPORT(
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由宿主负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
-| 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器必须**同步返回**可 JSON 序列化的结果 |
+| 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占住宿主线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
+| 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连内核（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（内核会拒绝在 IO 线程阻塞等待） |
+| 功能点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能点、给出实现、或调应用留出的功能点（频谱 / 副歌 / 封面取色） |
 | 日志 | `log.trace/debug/info/warn/error` | 进插件日志流 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
 | 后台任务 / 取消 | `iface.scheduler`（`offload` / `sleep` / `post_to_io` / `op_cancel`）、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |
 
@@ -433,6 +435,59 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 - **处理器要快**：同步派发的钩子会被调用线程等待，而且宿主不设等待超时（处理器返回前调用线程不会继续），
   因此慢处理器会拖住业务与其它插件；观察型处理器只做通知、不受影响。
 - 想确认自己的处理器有没有被调用：管理页「插件详情 → 统计」，或自己在处理器里 `log.info(...)`。
+
+---
+
+## 6.5 功能点（声明 / 实现 / 调用）
+
+功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。与能力的区别：能力是"应用直接调本插件"、
+参数与结果由插件自己定；功能点是"应用或第三方按 id 来调，谁实现都行"（可以有多个实现、按优先级问）。
+插件点共用**一条固定钩子** `musicxx.feature.point.call`（宿主只认固定的钩子表，**不要为每个点造新钩子**）。
+
+```cpp
+// 1) 声明自己的功能点（id 必须落在自己的命名空间里；结果经 notify 回来）
+PluginxxOperatorNotify defineDone{&myDefineDone, this};
+featurePointDefine(
+    "plugin.my_plugin.beat",
+    MusicxxPluginPointSpec{
+        "节拍检测", "按 BPM 与拍号算出若干拍的时刻",
+        "bpm（每分钟拍数，缺省 120）、beats（要几拍，缺省 4）",
+        "{bpm, beats: [ms, ...], confident}"},
+    &defineDone, 5000);
+
+// 2) 给出实现：返回的是**值**（糖负责按 point/caller 过滤，并包成 {"patch":{"value": …}}）
+featurePointProvide("plugin.my_plugin.beat",
+    [](std::string_view argsJson) -> std::string {
+        return R"({"bpm":128,"beats":[0,469,938],"confident":0.9})";
+    });
+// 也可以拿到点 id 与调用方（形参按可调用性自动选）：
+// featurePointProvide("plugin.my_plugin.beat",
+//     [](std::string_view point, std::string_view argsJson, std::string_view caller) { … });
+
+// 3) 调一个功能点（应用留出的，或别的插件声明的）—— **只有异步形态**
+PluginxxOperatorNotify callDone{&myCallDone, this};
+featurePointCall("musicxx.media.palette.provide",
+                 R"({"path":"D:/covers/a.jpg"})", 60000, &callDone);
+
+featurePointUnprovide("plugin.my_plugin.beat");   // 摘除实现（一般不用：停用/卸载自动撤）
+featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在实现
+```
+
+- **处理函数必须同步返回**：功能点走同步裁决通道（内核按 `hook_sync` 就地调用），
+  返回 `pluginxx::Task<T>` / 等异步结果都拿不到。长任务要么提前算好，要么做成**能力**
+  （`co_await capabilityCall`）或事件。
+- 返回 `utilxx_base::Json` / 字符串 / 数字 / 布尔；字符串先按 JSON 解析，解析不了就当 JSON 字符串
+  （`hello` → `"hello"`）。**返回空串 = 这次不回答**；要回答"结果是空"就返回 `"null"`。
+- 糖自动做三件事：按 `point` 过滤、`caller` 等于自己时不回答（免得把自己算出的结果再问回去）、
+  把返回值包成 `{"patch":{"value": …}}`。已自带 `patch` / `action` 的返回值原样通过。
+- `featurePointCall` 的默认超时 60 秒（频谱要解码整曲）；**没有同步版** ——
+  宿主线程上就地等待等于死锁（处理器可能正等着你返回），要结果就在 `notify->done` 里处理。
+- 现在可调的应用功能点有三个（`featurePointList` 的 `callDoc` 写着参数与结果形状）：整曲频谱
+  `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
+  `musicxx.media.palette.provide`。**调用零副作用**：不写应用的值仓、不改应用状态。
+- 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时 `start` 事务里再声明一遍。
+- 手写处理器（不用糖）时按 [plugin-hooks.md](plugin-hooks.md) 的 `musicxx.feature.point.call`：
+  **回答必须用 `patch` 包一层**，否则后面的处理器会覆盖你的结果。
 
 ---
 
@@ -631,4 +686,4 @@ Android 见 §11。
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
 | 资源限制 | 宿主不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
-| 钩子接入 | 约定里有 70 个钩子，应用侧当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 13 个；其余钩子注册成功但不会触发。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
+| 钩子接入 | 约定里有 71 个钩子，应用侧当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 13 个；其余钩子注册成功但不会触发。第 71 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道（不是"应用派发的钩子"）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
