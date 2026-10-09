@@ -248,9 +248,9 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 热更新宿主配置 JSON (插件目录/开关/超时阈值/统计采集等)
-  /// - 支持字段: pluginDirs[], enableNative, enableJs, safeMode, hookBudgetMs,
-  /// hookHardBudgetMs, observeEvents, statsEnabled, statsPeriodMs
+  /// 热更新宿主配置 JSON (插件目录/开关/统计采集等)
+  /// - 支持字段: pluginDirs[], enableNative, enableJs, safeMode, observeEvents,
+  /// statsEnabled, statsPeriodMs
   int musicxx_extern_plugin_set_config(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> json,
@@ -416,6 +416,8 @@ class MusicxxExternPluginBindings {
   /// (动态库插件才有 target/targetEntry/targetsDir/targets; JS 插件才有 scripts);
   /// - 返回 OK 表示"判定完成", 目录不存在/清单非法时 `valid=false` + `error`
   /// (同样返回 OK —— 调用方看 `valid`);
+  /// - 清单 `api_version` 低于 `MUSICXX_PLUGINXX_MIN_API_VERSION` 时 `supported=false`
+  /// (+ reason); 声明更高版本不算不支持;
   /// - 不看运行期开关 (JS 运行时是否可用、安全模式、禁用动态库), 那些由 `plugin_scan` 叠加。
   int musicxx_extern_plugin_plugin_inspect(
     ffi.Pointer<MusicxxExternPluginHost> h,
@@ -743,8 +745,9 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 调用插件能力 (Dart → 插件; 同步带超时)
+  /// 调用插件能力 (Dart → 插件; 同步)
   /// - native/JS 插件统一用 `plugin.<pluginId>.<能力名>`
+  /// - `timeout_ms` = 0 时不设超时 (一直等到插件给出结果); 非 0 时到点返回 ERR_TIMEOUT
   int musicxx_extern_plugin_plugin_call(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> id,
@@ -798,8 +801,10 @@ class MusicxxExternPluginBindings {
   /// MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回
   /// - 裁决型钩子在 ASYNC 模式下为"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
   /// 处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
-  /// 以及 result/timedOut/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
-  /// - out_json 形如 {"handled":true,"result":{...},"timedOut":false,"handlers":2}
+  /// 以及 result/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
+  /// - out_json 形如 {"handled":true,"result":{...},"called":1,"handlers":2}
+  /// - `timeout_ms` 保留在签名里 (约定固定) 但不再使用: 宿主不设等待超时, 处理器链慢就是
+  /// 调用线程一起等
   int musicxx_extern_plugin_hook_emit(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> hook_id,
@@ -880,7 +885,47 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 钩子耗时/超时/失败统计 (调试页)
+  /// 该钩子当前的处理器列表 (自省用; 按**调用顺序**给出: priority 升序, 同优先级按注册顺序)
+  ///
+  /// out_json 形如:
+  /// {"hook":"musicxx.media.spectrum.extract","count":2,"handlers":[
+  /// {"plugin":"example_js","instance":"js:example_js","kind":"js","priority":0,"ownerTag":""},
+  /// {"plugin":"example_native","instance":"example_native","kind":"native","priority":10,"ownerTag":""}]}
+  ///
+  /// 只给出 plugin / instance / kind / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
+  /// `instance` 与内核里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
+  int musicxx_extern_plugin_hook_handlers(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginString> out_json,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_hook_handlers(h, hook_id, out_json, log);
+  }
+
+  late final _musicxx_extern_plugin_hook_handlersPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<MusicxxExternPluginString>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_hook_handlers');
+  late final _musicxx_extern_plugin_hook_handlers =
+      _musicxx_extern_plugin_hook_handlersPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
+  /// 钩子耗时/失败统计 (调试页; 只观测不限制)
   int musicxx_extern_plugin_hook_stats(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginString> out_json,
@@ -950,7 +995,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 推送单个状态键 (值必须为合法 JSON; 单键上限 512 KiB, 超出直接拒绝写入)
+  /// 推送单个状态键 (值必须为合法 JSON; 大小不限制)
   int musicxx_extern_plugin_state_update(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> key,

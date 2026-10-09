@@ -111,8 +111,9 @@ class MusicxxPluginHooks {
 
   /// 原生/JS 处理器列表快照（钩子 id → 处理器，按调用顺序）
   ///
-  /// 由 `musicxx.hook.changed` 事件维护（宿主注册/注销时会带上列表）；旧宿主库的事件没有
-  /// `handlers` 字段，这时这里留空、只有 [_nativeCounts] 可用（自省退化成"有几个处理器"）。
+  /// 由 `musicxx.hook.changed` 事件维护（宿主注册/注销时会带上列表），插件生命周期事件到达时
+  /// 用 [refreshNativeHandlerCount] 向宿主对齐一遍；旧宿主库没有列表（事件不带 `handlers`
+  /// 字段、也没有查询接口），这时这里留空、只有 [_nativeCounts] 可用（自省退化成"有几个处理器"）。
   final Map<String, List<MusicxxPluginHandlerInfo>> _nativeHandlers =
       <String, List<MusicxxPluginHandlerInfo>>{};
 
@@ -149,6 +150,31 @@ class MusicxxPluginHooks {
 
   /// 有没有拿到过处理器列表（false 时自省只能报数量，见 [handlersOf]）
   bool get hasHandlerList => _nativeHandlers.isNotEmpty;
+
+  /// 宿主库有没有"查处理器列表"的接口（`musicxx_extern_plugin_hook_handlers`）
+  ///
+  /// 旧宿主库没有这个符号：第一次探测失败后就固定为 false，自省与插件动作降级成
+  /// "只报处理器数量"（与"未返回 callId 按无裁决处理"是同一套思路）。
+  bool get supportsHandlerList => true == _handlersAbiAvailable;
+  bool? _handlersAbiAvailable;
+
+  /// 回查宿主的处理器列表并刷新缓存（宿主重启、丢了一条 `musicxx.hook.changed` 后手动对齐）
+  ///
+  /// 返回 `null` 表示这次没拿到列表（宿主库太旧、宿主没在跑、或钩子 id 宿主不认识）；
+  /// 此时缓存保持原样，调用方用 [nativeHandlerCount] 判断有没有处理器更可靠。
+  List<MusicxxPluginHandlerInfo>? refreshNativeHandlers(MusicxxPluginHookId id) {
+    if (!_runtime.isRunning) {
+      _nativeCounts[id.id] = 0;
+      _nativeHandlers.remove(id.id);
+      return const <MusicxxPluginHandlerInfo>[];
+    }
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      return _queryHandlers(id, arena);
+    } finally {
+      arena.dispose();
+    }
+  }
 
   /// 是否有任何钩子存在处理器（全局快速开关：false 时调用零成本）
   bool get active =>
@@ -312,10 +338,14 @@ class MusicxxPluginHooks {
     pending.complete(_verdictOf(event.payload));
   }
 
-  /// 刷新某钩子的原生处理器数量（事件丢包/宿主重启后手动重新查询）
+  /// 刷新某钩子的原生处理器数量与列表（事件丢包/宿主重启后手动重新查询）
+  ///
+  /// 计数一直走 `hook_count`（热路径判定用它）；宿主库支持列表查询时顺带把列表对齐一遍
+  /// —— 列表只服务自省，不影响派发。
   int refreshNativeHandlerCount(MusicxxPluginHookId id) {
     if (!_runtime.isRunning) {
       _nativeCounts[id.id] = 0;
+      _nativeHandlers.remove(id.id);
       return 0;
     }
     final MusicxxPluginArena arena = MusicxxPluginArena();
@@ -333,6 +363,11 @@ class MusicxxPluginHooks {
       }
       final int value = count.value;
       _nativeCounts[id.id] = value;
+      if (value <= 0) {
+        _nativeHandlers.remove(id.id);
+      } else {
+        _queryHandlers(id, arena);
+      }
       return value;
     } finally {
       arena.dispose();
@@ -361,6 +396,71 @@ class MusicxxPluginHooks {
   }
 
   // ==================== 内部 ====================
+
+  /// 查询某个钩子的处理器列表并刷新缓存；宿主库没有这个接口时返回 `null`
+  ///
+  /// `arena` 由调用方给出并负责释放（入参视图与出参槽都在它上面）。
+  List<MusicxxPluginHandlerInfo>? _queryHandlers(
+    MusicxxPluginHookId id,
+    MusicxxPluginArena arena,
+  ) {
+    if (false == _handlersAbiAvailable) {
+      return null;
+    }
+    final Pointer<MusicxxExternPluginString> out = arena.outString();
+    final Pointer<MusicxxExternPluginString> log = arena.outString();
+    int rc;
+    try {
+      rc = _runtime.bindings.musicxx_extern_plugin_hook_handlers(
+        _runtime.host,
+        arena.view(id.id),
+        out,
+        log,
+      );
+    } catch (_) {
+      // 旧宿主库没有这个符号：探测一次就够，之后一律按"只有计数"处理
+      _handlersAbiAvailable = false;
+      return null;
+    }
+    _handlersAbiAvailable = true;
+    final Map<String, Object?> data = decodeJsonObject(
+      takeOutString(out, _runtime.bindings),
+    );
+    if (rc != 0) {
+      // 钩子 id 宿主不认识等：保持缓存原样（不把"查不到"当成"没有处理器"）
+      return null;
+    }
+    return _applyHandlerList(id, data);
+  }
+
+  /// 把宿主给出的 `{hook, count, handlers}` 写进缓存，返回解析出的列表
+  List<MusicxxPluginHandlerInfo> _applyHandlerList(
+    MusicxxPluginHookId id,
+    Map<String, Object?> data,
+  ) {
+    final Object? rawCount = data['count'];
+    final int count = rawCount is num
+        ? rawCount.toInt()
+        : (data['handlers'] is List ? (data['handlers']! as List).length : 0);
+    _nativeCounts[id.id] = count < 0 ? 0 : count;
+    final Object? raw = data['handlers'];
+    final List<MusicxxPluginHandlerInfo> list = <MusicxxPluginHandlerInfo>[];
+    if (raw is List) {
+      for (final Object? item in raw) {
+        if (item is Map) {
+          list.add(
+            MusicxxPluginHandlerInfo.fromJson(item.cast<String, Object?>()),
+          );
+        }
+      }
+    }
+    if (list.isEmpty) {
+      _nativeHandlers.remove(id.id);
+    } else {
+      _nativeHandlers[id.id] = list;
+    }
+    return List<MusicxxPluginHandlerInfo>.unmodifiable(list);
+  }
 
   void handleDisposed() {
     _nativeCounts.clear();

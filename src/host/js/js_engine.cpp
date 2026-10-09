@@ -289,7 +289,14 @@ constexpr const char *kPrelude = R"JS(
       ext.hookOp("unregister", key, "", 0, entry ? entry.ownerTag : "");
       return musicxx;
     },
-    has: function (id) { return hookTable.has(String(id)); }
+    has: function (id) { return hookTable.has(String(id)); },
+    /// 读某个钩子当前的处理器列表 (自省: 谁注册了、什么形态、排第几)。
+    /// 用来先看清"这个钩子现在有谁在提供"再决定要不要注册自己的处理器。
+    /// 返回 Promise: {hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}
+    handlers: function (id) {
+      assertName(id, "hooks.handlers: 钩子 id");
+      return musicxx.call("musicxx.hook.handlers", { hook: String(id) });
+    }
   };
 
   musicxx.state = {
@@ -791,6 +798,15 @@ constexpr const char *kPrelude = R"JS(
       var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 30000;
       return musicxx.call("musicxx.feature.call",
                           { id: String(id), args: (args || {}) }, budget);
+    },
+    /// 功能埋点清单: 应用留出了哪些功能、现在谁在实现它 (谁生效、谁备选、谁把它关掉了)。
+    /// points() 看全部; points({id: "..."}) 看一个; points({provided: true}) 只看有实现的。
+    points: function (options) {
+      options = options || {};
+      var args = {};
+      if (options.id) { args.id = String(options.id); }
+      if (options.provided !== undefined) { args.provided = !!options.provided; }
+      return musicxx.call("musicxx.feature.point.list", args);
     }
   };
 
