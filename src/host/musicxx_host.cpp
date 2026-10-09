@@ -439,6 +439,11 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
   asio::co_spawn(
       ctx_->io,
       [self, slot, budget]() -> asio::awaitable<void> {
+        // 停机收尾**先做**: 还没回来的能力调用按 `host_stopped` 推一条结果事件。
+        // 之后的 shutdownAsync 会去终止插件与它们还没结束的 op, 那些 op 的失败通知
+        // 因为已经没有等待方了 (记账已清) 而被丢弃 —— 不会重复推事件,
+        // 调用方也拿到的是"宿主停止"这个可读原因, 而不是内核收尾时的泛化说法。
+        self->finishAllPendingCalls();
         const bool ok = co_await self->shutdownAsync(budget);
         slot->set(ok);
       },
@@ -1493,7 +1498,10 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
       static_cast<int64_t>((std::max)(timeoutMs, 1000u))};
   asio::co_spawn(
       ctx_->io,
-      [self, slot, instanceName, budget]() -> asio::awaitable<void> {
+      [self, slot, instanceName, budget, id]() -> asio::awaitable<void> {
+        // 卸载前先把目标插件身上还没回来的能力调用按 `plugin_unloaded` 收尾
+        // (调用方不能一直等; 事件在下面卸载完成前后发出去都行, 这里先发更及时)
+        self->finishPendingCallsOf(id);
         slot->set(co_await self->unloadAsync(instanceName, budget));
       },
       asio::detached);
@@ -1568,32 +1576,16 @@ int32_t MusicxxHostManager::pluginConfigPath(const std::string &id,
 
 namespace {
 
-/// 能力调用上下文: 宿主线程发布完成, 调用线程等待
+/// 能力调用的**受理**上下文: 宿主线程判定"能不能受理", 调用线程只看这一步
+///
+/// 只覆盖受理判定 (查实例表与能力表), **不含插件能力本身的执行时间** ——
+/// 后者不等待, 结果经 `musicxx.plugin.call.result` 事件回来。
 struct PluginCallState {
   WaitSlot<int32_t> slot;
-  std::string payload;
   std::string error;
+  /// 调用方已经不等受理结果了 (超过受理窗口): 宿主线程看到它就不要真的发起能力
+  std::atomic<bool> cancelled{false};
 };
-
-/// 能力完成回调 (宿主线程调用; 负责回收 holder 并唤醒调用线程)
-void PLUGINXX_CALL pluginCallDone(void *ud, int32_t status,
-                                  const PluginxxStringView *payload) noexcept {
-  std::unique_ptr<std::shared_ptr<PluginCallState>> holder{
-      static_cast<std::shared_ptr<PluginCallState> *>(ud)};
-  if (!holder || !*holder) {
-    return;
-  }
-  auto state = *holder; ///< 复制 shared_ptr: 完成回调期间保活调用状态
-  if (payload && payload->data) {
-    state->payload.assign(payload->data, static_cast<size_t>(payload->size));
-  }
-  if (status == PLUGINXX_OPERATOR_OK) {
-    state->slot.set(MUSICXX_EXTERN_PLUGIN_OK);
-  } else {
-    state->error = state->payload.empty() ? "插件能力执行失败" : state->payload;
-    state->slot.set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
-  }
-}
 
 } // namespace
 
@@ -1626,41 +1618,40 @@ void PLUGINXX_CALL capabilityCallTrampoline(
 
 } // namespace
 
-void MusicxxHostManager::invokeCapabilityOnHostThread(
-    const std::string &id, const std::string &method,
-    const std::string &argsJson,
-    std::function<void(int32_t, const std::string &)> done) {
-  auto fail = [&done](int32_t rc, const std::string &message) {
-    if (done) {
-      done(rc, message);
-    }
-  };
+int32_t MusicxxHostManager::acceptCapabilityCall(const std::string &id,
+                                                 const std::string &method,
+                                                 std::string &cap,
+                                                 InstancePtr &outInst,
+                                                 std::string &problem) {
   if (id.empty() || method.empty()) {
-    fail(MUSICXX_EXTERN_PLUGIN_ERR_ARG, "plugin_call: id 与 method 都不能为空");
-    return;
+    problem = "plugin_call: id 与 method 都不能为空";
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐
-  const std::string cap = method.rfind("plugin.", 0) == 0
-                              ? method
-                              : ("plugin." + id + "." + method);
-
+  cap = method.rfind("plugin.", 0) == 0 ? method
+                                        : ("plugin." + id + "." + method);
   auto inst = resolveInstance(id);
   if (!inst) {
-    fail(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND, "插件未加载: " + id);
-    return;
+    problem = "插件未加载: " + id;
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   const auto *entry = capabilities()->get(cap);
   if (!entry || !entry->start) {
-    fail(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
-         "插件未声明该能力 (需要在 start 事务里注册): " + cap);
-    return;
+    problem = "插件未声明该能力 (需要在 start 事务里注册): " + cap;
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   if (entry->provider != inst->name) {
-    fail(MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION,
-         "能力归属校验失败 (声明的插件: " + entry->provider + ")");
-    return;
+    problem = "能力归属校验失败 (声明的插件: " + entry->provider + ")";
+    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
+  outInst = std::move(inst);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
 
+void MusicxxHostManager::startCapabilityCall(
+    MusicxxHostInstance *inst, const std::string &cap,
+    const std::string &argsJson,
+    std::function<void(int32_t, const std::string &)> done) {
   auto *bridge = new CapabilityCallBridge{std::move(done)};
   auto capView = std::string_view{cap};
   auto argsView = std::string_view{argsJson};
@@ -1668,7 +1659,7 @@ void MusicxxHostManager::invokeCapabilityOnHostThread(
   // caller 传目标实例自身: 内核要求"调用方实例"提供执行 lease (Dart 侧没有
   // 插件实例, 用被调用者自己的 lease 覆盖本次调用, 卸载等待因此覆盖它)
   auto *handle = invokeCapabilityAsync(
-      inst.get(), capView,
+      inst, capView,
       capView, ///< method: 与能力全名一致 (插件按需再细分)
       argsView, &capabilityCallTrampoline, bridge, &callErr);
   if (!handle) {
@@ -1687,11 +1678,29 @@ void MusicxxHostManager::invokeCapabilityOnHostThread(
   }
 }
 
-int32_t MusicxxHostManager::pluginCall(const std::string &id,
-                                       const std::string &method,
-                                       const std::string &argsJson,
-                                       uint32_t timeoutMs, std::string &outJson,
-                                       std::string &err) {
+void MusicxxHostManager::invokeCapabilityOnHostThread(
+    const std::string &id, const std::string &method,
+    const std::string &argsJson,
+    std::function<void(int32_t, const std::string &)> done) {
+  std::string cap;
+  InstancePtr inst;
+  std::string problem;
+  const int32_t rc = acceptCapabilityCall(id, method, cap, inst, problem);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (done) {
+      done(rc, problem.empty() ? std::string{"plugin_call failed"} : problem);
+    }
+    return;
+  }
+  startCapabilityCall(inst.get(), cap, argsJson, std::move(done));
+}
+
+int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
+                                            const std::string &method,
+                                            const std::string &argsJson,
+                                            int64_t &outRequestId,
+                                            std::string &err) {
+  outRequestId = 0;
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_call: host not started";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
@@ -1700,42 +1709,136 @@ int32_t MusicxxHostManager::pluginCall(const std::string &id,
     err = "plugin_call: id 与 method 都不能为空";
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  const std::string cap = method.rfind("plugin.", 0) == 0
-                              ? method
-                              : ("plugin." + id + "." + method);
 
   auto self = shared_from_this();
   auto state = std::make_shared<PluginCallState>();
+  const int64_t requestId =
+      nextCallId_.fetch_add(1, std::memory_order_relaxed);
+  const auto started = std::chrono::steady_clock::now();
 
-  // 第一步在宿主线程执行: 实例查找、能力归属校验、发起异步调用
-  // (完成回调也在该线程)
-  asio::post(ctx_->io, [self, state, id, method, argsJson] {
-    self->invokeCapabilityOnHostThread(
-        id, method, argsJson, [state](int32_t rc, const std::string &text) {
-          if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
-            state->payload = text;
-          } else {
-            state->error =
-                text.empty() ? std::string{"plugin_call failed"} : text;
+  // 受理判定要在宿主线程上做 (实例表与能力表都归它); 判定本身只是几次查表,
+  // **不等插件能力执行** —— 发起之后立刻返回, 结果经事件回给调用方。
+  asio::post(ctx_->io, [self, state, id, method, argsJson, requestId,
+                        started]() {
+    if (state->cancelled.load(std::memory_order_acquire)) {
+      return; ///< 调用方已超时: 不要真的发起能力 (结果没人要)
+    }
+    std::string cap;
+    InstancePtr inst;
+    std::string problem;
+    const int32_t rc = self->acceptCapabilityCall(id, method, cap, inst, problem);
+    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+      state->error = problem;
+      state->slot.set(rc);
+      return;
+    }
+    if (state->cancelled.load(std::memory_order_acquire)) {
+      return;
+    }
+    self->rememberPendingCall(requestId, id, method, started);
+    state->slot.set(MUSICXX_EXTERN_PLUGIN_OK);
+    self->startCapabilityCall(
+        inst.get(), cap, argsJson,
+        [self, requestId, id, method, started](int32_t callRc,
+                                               const std::string &text) {
+          // 已经收过终局 (插件卸载 / 宿主停机) 的不再补一条
+          if (false == self->takePendingCall(requestId)) {
+            return;
           }
-          state->slot.set(rc);
+          self->pushCapabilityCallResult(requestId, id, method, callRc, text,
+                                         started);
         });
   });
 
-  /// timeoutMs = 0 = 不设超时 (一直等到插件给出结果)。
   int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
-  if (timeoutMs == 0) {
-    state->slot.wait(rc);
-  } else if (!state->slot.wait(timeoutMs, rc)) {
-    err = "plugin_call: 未在时限内完成 (" + cap + ")";
+  if (!state->slot.wait(capabilityAcceptWaitMs, rc)) {
+    state->cancelled.store(true, std::memory_order_release);
+    err = "plugin_call: 宿主正忙, 未在 " + std::to_string(capabilityAcceptWaitMs) +
+          " ms 内受理 (" + id + "." + method + ")";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    err = state->error.empty() ? "plugin_call failed" : state->error;
+    err = state->error.empty() ? std::string{"plugin_call failed"} : state->error;
     return rc;
   }
-  outJson = std::move(state->payload);
+  outRequestId = requestId;
   return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+void MusicxxHostManager::rememberPendingCall(
+    int64_t requestId, const std::string &id, const std::string &method,
+    std::chrono::steady_clock::time_point started) {
+  PendingCapabilityCall record;
+  record.id = id;
+  record.method = method;
+  record.started = started;
+  pendingCalls_[requestId] = std::move(record);
+}
+
+bool MusicxxHostManager::takePendingCall(int64_t requestId) {
+  return pendingCalls_.erase(requestId) > 0;
+}
+
+void MusicxxHostManager::pushCapabilityCallResult(
+    int64_t requestId, const std::string &id, const std::string &method,
+    int32_t rc, const std::string &text,
+    std::chrono::steady_clock::time_point started,
+    const std::string &reason) {
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - started)
+                      .count();
+  Json payload;
+  payload["requestId"] = requestId;
+  payload["id"] = id;
+  payload["method"] = method;
+  payload["ok"] = (rc == MUSICXX_EXTERN_PLUGIN_OK);
+  payload["ms"] = ms;
+  if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+    payload["result"] = parseJsonSafe(text);
+  } else if (!reason.empty()) {
+    // 不是插件给的结果 (插件卸载 / 宿主停机): 说法用 reason, 插件自己的说明放 detail
+    payload["error"] = reason;
+    if (!text.empty()) {
+      payload["detail"] = text;
+    }
+  } else {
+    payload["error"] = text.empty() ? std::string{"插件能力执行失败"} : text;
+  }
+  pushEvent("musicxx.plugin.call.result", "", payload.dump());
+}
+
+void MusicxxHostManager::finishPendingCallsOf(const std::string &pluginId) {
+  // id 与实例名都接受 (`js:<id>` 与本名视为同一个插件)
+  const std::string plain = pluginIdOf(pluginId);
+  std::vector<std::pair<int64_t, PendingCapabilityCall>> hits;
+  for (auto it = pendingCalls_.begin(); it != pendingCalls_.end();) {
+    if (pluginIdOf(it->second.id) == plain) {
+      hits.emplace_back(it->first, it->second);
+      it = pendingCalls_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (const auto &hit : hits) {
+    pushCapabilityCallResult(hit.first, hit.second.id, hit.second.method,
+                             MUSICXX_EXTERN_PLUGIN_ERR_STATE, std::string{},
+                             hit.second.started,
+                             "plugin_unloaded: 插件已卸载: " + pluginId);
+  }
+}
+
+void MusicxxHostManager::finishAllPendingCalls() {
+  std::vector<std::pair<int64_t, PendingCapabilityCall>> hits;
+  for (auto &entry : pendingCalls_) {
+    hits.emplace_back(entry.first, entry.second);
+  }
+  pendingCalls_.clear();
+  for (const auto &hit : hits) {
+    pushCapabilityCallResult(hit.first, hit.second.id, hit.second.method,
+                             MUSICXX_EXTERN_PLUGIN_ERR_STATE, std::string{},
+                             hit.second.started,
+                             "host_stopped: 宿主已停止");
+  }
 }
 
 void MusicxxHostManager::pluginCallAsync(

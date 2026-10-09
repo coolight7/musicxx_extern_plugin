@@ -334,18 +334,29 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 调用插件能力 (Dart → 插件; 同步)
-/// - native/JS 插件统一用 `plugin.<pluginId>.<能力名>`
-/// - `timeout_ms` = 0 时不设超时 (一直等到插件给出结果); 非 0 时到点返回 ERR_TIMEOUT
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_plugin_call(
-    MusicxxExternPluginHost*              h,
-    const MusicxxExternPluginStringView* id,
-    const MusicxxExternPluginStringView* method,
-    const MusicxxExternPluginStringView* args_json,
-    uint32_t                              timeout_ms,
-    MusicxxExternPluginString*           out_json,
-    MusicxxExternPluginString*           log
-);
+/// 调用插件能力 (Dart → 插件; **异步, 不占调用线程**)
+///
+/// - 只受理不等待结果: 成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出 `out_request_id`;
+///   结果经事件 `musicxx.plugin.call.result` 回给 Dart
+///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
+/// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 宿主没在跑) 直接返回负错误码,
+///   **不推结果事件**;
+/// - 语义与旧同步版一致: 能力名补 `plugin.<id>.` 前缀、归属校验、同样的错误码;
+/// - **没有 timeout 参数**: 超时是调用方的事 (它自己不等了, 结果丢弃);
+/// - **受理成功 ⇒ 一定有终局**: 正常结果、执行失败、插件卸载 (`plugin_unloaded`)、
+///   宿主停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
+/// - **不提供同步版**: 旧符号 `musicxx_extern_plugin_plugin_call` 已删除。
+///   换符号名是为了让"宿主库太旧"能被探测到 —— 同名改签名时混用新旧库会用新参数
+///   去打旧函数 (内存越界), 换名 + 探测式查找能把这件事变成一条可读错误。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_plugin_call_async(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* id,
+        const MusicxxExternPluginStringView* method,
+        const MusicxxExternPluginStringView* args_json,
+        int64_t*                             out_request_id,
+        MusicxxExternPluginString*           log
+    );
 
 /* ==================== 钩子 ==================== */
 

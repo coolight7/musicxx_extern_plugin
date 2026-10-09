@@ -71,6 +71,14 @@ class MusicxxPluginArena {
     return out;
   }
 
+  /// 分配一个 int64 出参槽（用于 `plugin_call_async` 的 `request_id`）
+  Pointer<Int64> mallocInt64() {
+    final Pointer<Int64> out = malloc<Int64>();
+    _blocks.add(out.cast<Uint8>());
+    out.value = 0;
+    return out;
+  }
+
   void dispose() {
     if (_disposed) {
       return;

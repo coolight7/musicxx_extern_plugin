@@ -539,6 +539,19 @@ private:
   void finishCapabilityWait(int64_t waitId);
   void clearCapabilityWaitsOf(const std::string &instance);
 
+  /// "JS 插件 → JS 插件"的异步能力调用 (key = pendingId)
+  ///
+  /// 同一条 JS 线程上就地调用目标插件的处理器: 处理器同步返回时结果当场拿到;
+  /// 返回 Promise 时记在这里 (`{调用方实例, 目标实例}`), 等 JS 侧结算后经
+  /// `ext.capabilityWaitResolve` 交回来, 再由 [deliverCapabilityResult] 按调用方实例
+  /// 回执（`ext.onCapabilityResult(pendingId, json)`）—— 一次性条目, 取走即删。
+  std::map<int64_t, std::pair<std::string, std::string>> jsCallWaits_;
+  std::atomic<int64_t> nextJsCallWaitId_{1};
+
+  /// 把能力结果回执给调用方插件 (必须在 JS 线程上调用)
+  void deliverCapabilityResult(const std::string &callerInstance,
+                               int64_t pendingId, const std::string &json);
+
   std::thread worker_;
 
   // 说明: 内置槽位表 (`js:<pluginId>` 的合成描述)

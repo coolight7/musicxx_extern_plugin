@@ -73,12 +73,12 @@ void main() {
 
     // 等脚本顶层的配置读取（异步动作往返）走完：探针里的配置缓存被填上才算读完
     await _pumpUntil(
-      () => _probe(runtime)['configSkipAds'] != null,
+      () async => (await _probe(runtime))['configSkipAds'] != null,
       runtime: runtime,
     );
     // 行的标题就是查找键（列表块已移除，行由布局块组合，见 `_rowOf`）
     expect(
-      _rowOf(_callView(runtime, 'settings'), '跳过广告曲目')?['right'],
+      _rowOf(await _callView(runtime, 'settings'), '跳过广告曲目')?['right'],
       '已开启',
     );
 
@@ -86,17 +86,17 @@ void main() {
       path.join(pluginRoot.path, 'example_js', 'config.json'),
     );
     // 首次装载还没写过配置：默认值来自脚本（getConfig 的第二个参数）
-    expect(_probe(runtime)['configSkipAds'], true);
+    expect((await _probe(runtime))['configSkipAds'], true);
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
 
     // 改设置：与用户在设置页点按钮等价
-    final Map<String, Object?> toggled = _callView(runtime, 'toggleSkipAds');
+    final Map<String, Object?> toggled = await _callView(runtime, 'toggleSkipAds');
     expect(_rowOf(toggled, '跳过广告曲目')?['right'], '已关闭');
     await _pumpUntil(() => config.existsSync(), runtime: runtime);
     expect(_readConfig(config)['skipAds'], false);
 
     // 再改另一项（同一个 config.json 的另一个键）：写新键不能丢掉已有的键
-    _callView(runtime, 'cycleHeartbeat');
+    await _callView(runtime, 'cycleHeartbeat');
     await _pumpUntil(
       () => _readConfig(config)['heartbeatMs'] == 60000,
       runtime: runtime,
@@ -108,16 +108,20 @@ void main() {
     runtime.plugins.unload('example_js');
     runtime.plugins.load('example_js');
     await _pumpUntil(
-      () => _probe(runtime)['configSkipAds'] == false,
+      () async => (await _probe(runtime))['configSkipAds'] == false,
       runtime: runtime,
     );
-    expect(_probe(runtime)['configSkipAds'], false, reason: '设置必须持久化');
     expect(
-      _rowOf(_callView(runtime, 'settings'), '跳过广告曲目')?['right'],
+      (await _probe(runtime))['configSkipAds'],
+      false,
+      reason: '设置必须持久化',
+    );
+    expect(
+      _rowOf(await _callView(runtime, 'settings'), '跳过广告曲目')?['right'],
       '已关闭',
     );
     expect(
-      _rowOf(_callView(runtime, 'settings'), '心跳间隔(毫秒)')?['right'],
+      _rowOf(await _callView(runtime, 'settings'), '心跳间隔(毫秒)')?['right'],
       '60000',
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
@@ -217,7 +221,7 @@ void main() {
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
     expect(
       _rowOf(
-        _callView(runtime, 'settings', plugin: pluginId),
+        await _callView(runtime, 'settings', plugin: pluginId),
         '背景动画速率',
       )?['right'],
       '1x',
@@ -227,7 +231,7 @@ void main() {
     //
     // 两个条件都要等：UI 项更新走宿主线程，写配置走 Dart 侧动作请求，
     // 只看其中一个会让"另一半还没被处理"时就开始断言。
-    _callView(runtime, 'cycleBackgroundRate', plugin: pluginId);
+    await _callView(runtime, 'cycleBackgroundRate', plugin: pluginId);
     await _pumpUntil(
       () =>
           _backgroundSpeed(runtime, pluginId) == 2 &&
@@ -245,9 +249,9 @@ void main() {
     runtime.plugins.unload(pluginId);
     runtime.plugins.load(pluginId);
     await _pumpUntil(
-      () =>
+      () async =>
           _rowOf(
-            _callView(runtime, 'settings', plugin: pluginId),
+            await _callView(runtime, 'settings', plugin: pluginId),
             '背景动画速率',
           )?['right'] ==
           '2x',
@@ -317,29 +321,29 @@ void main() {
       });
     }
 
-    String? backgroundText() =>
+    Future<String?> backgroundText() async =>
         _rowOf(
-              _callView(runtime, 'card', plugin: pluginId),
+              await _callView(runtime, 'card', plugin: pluginId),
               '播放页背景',
             )?['right']
             as String?;
 
-    String? renderText() =>
+    Future<String?> renderText() async =>
         _rowOf(
-          _callView(runtime, 'card', plugin: pluginId),
+          await _callView(runtime, 'card', plugin: pluginId),
           '渲染状态',
         )?['right'] as String?;
 
     // 宿主还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
-    expect(backgroundText(), '无状态');
+    expect(await backgroundText(), '无状态');
 
     // 用户选中的是内置样式（条目仍在，itemId 为空）
     pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
-    expect(backgroundText(), '内置背景');
-    expect(renderText(), '未生效');
+    expect(await backgroundText(), '内置背景');
+    expect(await renderText(), '未生效');
 
     // 一键使用：动作还在往返，页面当场先显示"已请求"
-    final Object? requested = runtime.plugins.call(
+    final Object? requested = await runtime.plugins.call(
       pluginId,
       'plugin.$pluginId.useBackground',
       <String, Object?>{'id': itemId, 'view': 'card'},
@@ -356,8 +360,8 @@ void main() {
 
     // 镜像反映这次请求：选中本插件、但播放页没打开（没有挂载点 → 没有渲染）
     pushSlot(itemId: itemId, selectedId: itemId, visible: false);
-    expect(backgroundText(), '生效中');
-    expect(renderText(), '未在渲染');
+    expect(await backgroundText(), '生效中');
+    expect(await renderText(), '未在渲染');
 
     // 播放页在前台：带上渲染尺寸与是否动态
     pushSlot(
@@ -367,13 +371,16 @@ void main() {
       width: 1280,
       height: 720,
     );
-    expect(renderText(), '动画中, 1280x720');
+    expect(await renderText(), '动画中, 1280x720');
 
     // 切回内置：条目还在（itemId 为空），状态文字要更新，不能一直停在"已请求"
     pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
-    await _pumpUntil(() => backgroundText() == '内置背景', runtime: runtime);
-    expect(backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须更新（否则页面上看着像没生效）');
-    expect(renderText(), '未生效');
+    await _pumpUntil(
+      () async => await backgroundText() == '内置背景',
+      runtime: runtime,
+    );
+    expect(await backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须更新（否则页面上看着像没生效）');
+    expect(await renderText(), '未生效');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
@@ -442,8 +449,10 @@ void main() {
 
     // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒超时
     // （应用侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
+    // 注：应用侧调插件现在是异步受理（结果经事件回填），所以这里量的是"受理 + 处理器
+    // 当场返回"这一段：处理器如果再等一次动作，它会一直卡到宿主给的时限。
     final Stopwatch watch = Stopwatch()..start();
-    Map<String, Object?> view = _callView(
+    Map<String, Object?> view = await _callView(
       runtime,
       'spectrumProbe',
       plugin: pluginId,
@@ -467,14 +476,14 @@ void main() {
       'bands': List<double>.filled(16, 0.1),
       'frameHz': 10,
     });
-    view = _callView(runtime, 'spectrumProbe', plugin: pluginId);
+    view = await _callView(runtime, 'spectrumProbe', plugin: pluginId);
     expect(_rowOf(view, '状态镜像')?['right'], '有数据（响度 42%）');
 
     // 动作结果由页面回读：每次取页面都会再发起一次读取，所以这里反复取页面，
     // 直到某一次读到的就是异步读回的结果（处理器同步返回，每次取都是立即的）
     Map<String, Object?> page = <String, Object?>{};
-    await _pumpUntil(() {
-      page = _callView(runtime, 'spectrumProbe', plugin: pluginId);
+    await _pumpUntil(() async {
+      page = await _callView(runtime, 'spectrumProbe', plugin: pluginId);
       return _textStartingWith(page, '动作结果: ').contains('bandCount = 8');
     }, runtime: runtime);
     final String detail = _textStartingWith(page, '动作结果: ');
@@ -508,8 +517,8 @@ void main() {
 
     /// 取页面视图：能力可以返回 `{view:{...}}`，也可以直接返回视图对象
     /// （与 `ExternPluginViewBody._applyView` 同一套判定）
-    Map<String, Object?> viewOf(String method) {
-      final Object? raw = runtime.plugins.call(
+    Future<Map<String, Object?>> viewOf(String method) async {
+      final Object? raw = await runtime.plugins.call(
         pluginId,
         'plugin.$pluginId.$method',
         const <String, Object?>{},
@@ -580,12 +589,12 @@ void main() {
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
     // 页面：默认模式 + "应用侧生效字体"（同步读变量缓存）
-    Map<String, Object?> view = viewOf('card');
+    Map<String, Object?> view = await viewOf('card');
     expect(_rowOf(view, '选择的模式')?['right'], contains('拟声默认'));
 
     // 点『微软雅黑』：能力必须**立刻**返回
     final Stopwatch watch = Stopwatch()..start();
-    final Object? selectRaw = runtime.plugins.call(
+    final Object? selectRaw = await runtime.plugins.call(
       pluginId,
       'plugin.$pluginId.selectYahei',
       const <String, Object?>{},
@@ -606,7 +615,15 @@ void main() {
       _rowOf(selectView! as Map<String, Object?>, '选择的模式')?['right'],
       contains('微软雅黑'),
     );
-    expect(fontCalls, isEmpty, reason: '动作还在后台排队（能力已经返回了）');
+    // 说明：应用侧调插件现在是**异步受理**（结果经事件回填），等结果期间事件循环照跑，
+    // 所以"调用返回时后台动作还没被处理"不再是可靠判据 —— 事件泵可能已经把动作跑了。
+    // 这里能判的是"调用没有被动作拖住"：旧写法（处理器里 await 动作）会与调用方互锁，
+    // 一直卡到动作超时，根本走不到下面这行。
+    expect(
+      watch.elapsedMilliseconds,
+      lessThan(1000),
+      reason: '调用没有被后台动作拖住（旧写法会互锁到动作超时）',
+    );
 
     // 后台动作随后到达（慢动作 400ms）并落盘
     final File config = File(
@@ -622,23 +639,25 @@ void main() {
     // 应用侧推一次官方变量（真实应用在字体变化时推）：页面用同步 peek 读到它
     runtime.vars.update('musicxx.ui.fontFamily', 'Microsoft YaHei');
     await _pumpUntil(
-      () => _rowOf(viewOf('card'), '应用侧生效字体')?['right'] == 'Microsoft YaHei',
+      () async =>
+          _rowOf(await viewOf('card'), '应用侧生效字体')?['right'] ==
+          'Microsoft YaHei',
       runtime: runtime,
     );
     expect(
-      _rowOf(viewOf('card'), '应用侧生效字体')?['right'],
+      _rowOf(await viewOf('card'), '应用侧生效字体')?['right'],
       'Microsoft YaHei',
       reason: '页面用 peek 同步读变量缓存（不做 FFI 往返，也不阻塞能力调用）',
     );
 
     // 动作成功后再取页面：不再显示"切换中"
-    view = viewOf('card');
+    view = await viewOf('card');
     expect(_rowOf(view, '选择的模式')?['right'], contains('微软雅黑'));
     expect(_rowOf(view, '选择的模式')?['right'], isNot(contains('切换中')));
 
     // 『字体文件示例』：同样的写法走 loadFont 分支
     final Stopwatch fileWatch = Stopwatch()..start();
-    final Object? fileRaw = runtime.plugins.call(
+    final Object? fileRaw = await runtime.plugins.call(
       pluginId,
       'plugin.$pluginId.selectFile',
       const <String, Object?>{},
@@ -659,7 +678,7 @@ void main() {
     expect(_readConfig(config)['fontMode'], 'file');
 
     // 『拟声默认』：恢复默认字体
-    runtime.plugins.call(
+    await runtime.plugins.call(
       pluginId,
       'plugin.$pluginId.selectDefault',
       const <String, Object?>{},
@@ -675,12 +694,12 @@ void main() {
 }
 
 /// 调用插件能力并取回视图描述（`{view: {...}}`）
-Map<String, Object?> _callView(
+Future<Map<String, Object?>> _callView(
   MusicxxPluginRuntime runtime,
   String method, {
   String plugin = 'example_js',
-}) {
-  final Object? raw = runtime.plugins.call(
+}) async {
+  final Object? raw = await runtime.plugins.call(
     plugin,
     'plugin.$plugin.$method',
     const <String, Object?>{},
@@ -780,8 +799,8 @@ String _textStartingWith(Map<String, Object?> view, String prefix) {
 }
 
 /// 插件探针（能力 `probe`，仅 example_js 有）
-Map<String, Object?> _probe(MusicxxPluginRuntime runtime) {
-  final Object? raw = runtime.plugins.call(
+Future<Map<String, Object?>> _probe(MusicxxPluginRuntime runtime) async {
+  final Object? raw = await runtime.plugins.call(
     'example_js',
     'plugin.example_js.probe',
     const <String, Object?>{},
@@ -976,12 +995,12 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
 
 /// 等待条件成立（最多 5 秒；每 20 ms 泵一次事件并让出事件循环）
 Future<void> _pumpUntil(
-  bool Function() condition, {
+  FutureOr<bool> Function() condition, {
   required MusicxxPluginRuntime runtime,
   Duration timeout = const Duration(seconds: 5),
 }) async {
   final DateTime deadline = DateTime.now().add(timeout);
-  while (!condition()) {
+  while (!await condition()) {
     if (DateTime.now().isAfter(deadline)) {
       return;
     }
