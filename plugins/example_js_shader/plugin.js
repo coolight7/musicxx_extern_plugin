@@ -599,7 +599,7 @@ function settingsView(args, override) {
             kit.settingRow({
                 title: "封面变化通知",
                 depict: "注册 handle 后收到 `musicxx.media.cover.changed`（只在封面真的换了时派发；载荷里没有图片字节）",
-                value: coverHookBound ? ("已绑定 · " + lastCoverNotice) : "已移除",
+                value: coverHookBound ? "已绑定" : "已移除",
             }, env),
             kit.button({
                 label: "把当前封面绑成纹理",
@@ -611,7 +611,7 @@ function settingsView(args, override) {
                 action: { kind: "dispatch", name: "unbindCoverTexture", args: { view: "settings" } },
             }, env),
             kit.button({
-                label: coverHookBound ? "移除封面变化处理器（回退绑定）" : "重新绑定封面变化处理器",
+                label: coverHookBound ? "移除封面变化处理器" : "绑定封面变化处理器",
                 action: { kind: "dispatch", name: "toggleCoverHook", args: { view: "settings" } },
             }, env),
             kit.button({
