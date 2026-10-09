@@ -4,7 +4,7 @@ entry: plugin.js
 # 脚本按顺序在同一个 JS 上下文里执行: 先加载两个界面 kit, 再加载插件脚本
 scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
 
-version: 1.0.0
+version: 20261010.1.0
 api_version: 1
 author: "coolight"
 description: "字体切换示例插件: 微软雅黑 / 字体文件示例 / 拟声默认"

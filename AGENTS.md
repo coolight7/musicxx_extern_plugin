@@ -55,7 +55,7 @@ name: my_plugin                  # 插件 id（唯一；同名 = 升级覆盖）
 kind: js
 entry: plugin.js                 # 可省略（清单只要求 name）
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：同一 JS 上下文里按顺序执行
-version: 1.0.0
+version: 20261010.1.0            # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期，例中为 2026-10-10）
 api_version: 1                   # 不低于宿主支持的最低版本（当前 1）即可；声明更高也不拒绝
 platforms: [windows, linux, macos, android, ios]
 permissions: [musicxx.ui, musicxx.storage]   # 声明式：只做展示，运行时不校验
@@ -210,7 +210,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 同上，从示例
 
 ```bash
 musicxx-cli plugin list                       # 框架状态 + 插件清单（含失败原因）
-musicxx-cli plugin install "D:/out/my_plugin.zip" --enable   # 路径必须绝对路径
+musicxx-cli plugin install "D:/out/my_plugin-20261010_1_0.zip" --enable   # 路径必须绝对路径
 musicxx-cli plugin logs my_plugin --limit 50  # 最近的插件日志（新的在前）
 musicxx-cli plugin reload my_plugin           # 只重载这一个（不给 id = 重扫 + 重载全部）
 musicxx-cli plugin enable my_plugin             # disable / uninstall / restart / clear-logs 同理
@@ -239,6 +239,11 @@ dart run tools/self_check.dart             # 纯 Dart 自检（定位 FFI 卡住
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 产物 .zip（顶层就是插件目录内容）
 pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # 构建示例插件并把它们全部打包
 ```
+
+- **包名带版本号**：默认是 `<插件 id>-<清单 version 里的 . 换成 _>.zip`（例 `my_plugin-20261010_1_0.zip`），
+  与插件目录同级；不想要这个命名就用 `-Out <输出.zip>` 指定完整路径。
+- **版本号约定**：`日期.小版本号1.小版本号2`（例 `20261010.1.0`，第一段是发版那天的日期）——
+  每次发版改清单 `version`，包名就跟着变，同一个目录里能留下历次版本，谁新谁旧一眼能看出来。
 
 ## 7. 改这个包时（框架 / SDK 自身）
 

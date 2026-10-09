@@ -57,6 +57,8 @@ plugins/
 
 - **插件 id** 取清单的 `name`（目录名与它保持一致，便于对照构建产物）；
   同名视为同一插件（再次安装即升级覆盖）。
+- **版本号**用「日期.小版本号1.小版本号2」（例 `20261010.1.0`，第一段是这次发版的日期）：
+  打包脚本会把它带进安装包名 —— `<插件 id>-<版本号里的 . 换成 _>.zip`。
 - **动态库插件**：源码放本目录，并在自己的 `CMakeLists.txt` 里建目标（照抄 `example_native/CMakeLists.txt`）；
   然后在 `src/host/CMakeLists.txt` 的插件列表里登记 —— 演示示例加进
   `MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE`、对照示例加进 `MUSICXX_EXTERN_PLUGIN_TEST_NATIVE`，

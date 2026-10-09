@@ -12,8 +12,8 @@
 ///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要更新（不能停在"已请求"）。
 /// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
 ///   异步回读 —— 处理器里等动作会与同步进宿主的调用方互锁，只能等到 5 秒超时（这条用例守它）。
-/// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（乐观更新 +
-///   回读），处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
+/// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（回读）
+///   ，处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
 ///
 /// 前置：先跑 `pwsh tools/build_examples.ps1`（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
@@ -32,7 +32,9 @@ void main() {
 
   test('example_js：设置读写落盘，重新装载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js')) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped(
+        '未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+      );
       return;
     }
 
@@ -90,7 +92,10 @@ void main() {
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
 
     // 改设置：与用户在设置页点按钮等价
-    final Map<String, Object?> toggled = await _callView(runtime, 'toggleSkipAds');
+    final Map<String, Object?> toggled = await _callView(
+      runtime,
+      'toggleSkipAds',
+    );
     expect(_rowOf(toggled, '跳过广告曲目')?['right'], '已关闭');
     await _pumpUntil(() => config.existsSync(), runtime: runtime);
     expect(_readConfig(config)['skipAds'], false);
@@ -111,11 +116,7 @@ void main() {
       () async => (await _probe(runtime))['configSkipAds'] == false,
       runtime: runtime,
     );
-    expect(
-      (await _probe(runtime))['configSkipAds'],
-      false,
-      reason: '设置必须持久化',
-    );
+    expect((await _probe(runtime))['configSkipAds'], false, reason: '设置必须持久化');
     expect(
       _rowOf(await _callView(runtime, 'settings'), '跳过广告曲目')?['right'],
       '已关闭',
@@ -128,7 +129,9 @@ void main() {
 
   test('example_js_shader：背景动画速率落盘，重新装载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
-      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped(
+        '未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+      );
       return;
     }
 
@@ -188,11 +191,7 @@ void main() {
     );
     final Map<String, Set<String>> ringSources = _argSources(ring);
     expect(ringSources.containsKey('uLine'), true, reason: 'uLine 也要声明');
-    expect(
-      ringSources['uLine'],
-      isEmpty,
-      reason: '线条色是 const 节点（不读任何来源）',
-    );
+    expect(ringSources['uLine'], isEmpty, reason: '线条色是 const 节点（不读任何来源）');
     expect(ringSources['uLevel'], contains('musicxx.spectrum.level'));
     for (int i = 0; i < 16; ++i) {
       expect(
@@ -204,7 +203,8 @@ void main() {
     expect(
       ringSources.length,
       22,
-      reason: '4 个绘制色 + 线条色 + 响度 + 16 组频带（64 个频带）；'
+      reason:
+          '4 个绘制色 + 线条色 + 响度 + 16 组频带（64 个频带）；'
           '一帧 256 个频点那种写法有 64 个成员，逐像素按组挑一次会很卡，别改回去',
     );
     // 频谱必须包一层过渡（10 帧/秒的数据直接取会有台阶感）
@@ -262,7 +262,9 @@ void main() {
 
   test('example_js_shader：背景状态文字跟着状态镜像更新', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
-      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped(
+        '未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+      );
       return;
     }
 
@@ -330,9 +332,10 @@ void main() {
 
     Future<String?> renderText() async =>
         _rowOf(
-          await _callView(runtime, 'card', plugin: pluginId),
-          '渲染状态',
-        )?['right'] as String?;
+              await _callView(runtime, 'card', plugin: pluginId),
+              '渲染状态',
+            )?['right']
+            as String?;
 
     // 宿主还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
     expect(await backgroundText(), '无状态');
@@ -379,13 +382,19 @@ void main() {
       () async => await backgroundText() == '内置背景',
       runtime: runtime,
     );
-    expect(await backgroundText(), '内置背景', reason: '切回内置样式后状态文字必须更新（否则页面上看着像没生效）');
+    expect(
+      await backgroundText(),
+      '内置背景',
+      reason: '切回内置样式后状态文字必须更新（否则页面上看着像没生效）',
+    );
     expect(await renderText(), '未生效');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
-      markTestSkipped('未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped(
+        '未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+      );
       return;
     }
 
@@ -441,11 +450,7 @@ void main() {
 
     // 插件装载时就发起过一次动作读取（脚本顶层的 refreshSpectrumAction）
     await _pumpUntil(() => spectrumCalls >= 1, runtime: runtime);
-    expect(
-      spectrumCalls,
-      greaterThanOrEqualTo(1),
-      reason: '插件装载后应异步读一次频谱动作',
-    );
+    expect(spectrumCalls, greaterThanOrEqualTo(1), reason: '插件装载后应异步读一次频谱动作');
 
     // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒超时
     // （应用侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
@@ -495,7 +500,9 @@ void main() {
 
   test('example_js_font：字体切换立刻返回（动作后台执行，不再互锁到超时）', () async {
     if (env == null || !env.hasPlugin('example_js_font')) {
-      markTestSkipped('未找到原生宿主库或字体示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped(
+        '未找到原生宿主库或字体示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+      );
       return;
     }
 
@@ -610,7 +617,7 @@ void main() {
     expect(selectRaw, isA<Map<String, Object?>>());
     final Object? selectView = (selectRaw! as Map<String, Object?>)['view'];
     expect(selectView, isA<Map<String, Object?>>());
-    // 当场给反馈：按乐观更新显示新模式（这时动作还没被处理）
+    // 当场给反馈：显示新模式（这时动作还没被处理）
     expect(
       _rowOf(selectView! as Map<String, Object?>, '选择的模式')?['right'],
       contains('微软雅黑'),
@@ -685,8 +692,7 @@ void main() {
     );
     await _pumpUntil(
       () =>
-          fontCalls.length == 3 &&
-          _readConfig(config)['fontMode'] == 'default',
+          fontCalls.length == 3 && _readConfig(config)['fontMode'] == 'default',
       runtime: runtime,
     );
     expect(fontCalls.last, 'default');

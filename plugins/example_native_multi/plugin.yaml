@@ -13,7 +13,7 @@ name: example_native_multi
 # 每个分支里的库文件名；按 Linux 写法填，Windows/macOS 由宿主修正扩展名
 entry: example_native_multi.so
 kind: native
-version: 1.0.0
+version: 20261010.1.0
 description: "musicxx 外部插件示例: 多目标打包（一个包内含多个系统/架构分支）"
 author: "coolight"
 api_version: 1

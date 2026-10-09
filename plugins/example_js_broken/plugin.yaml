@@ -7,7 +7,7 @@ name: example_js_broken
 kind: js
 entry: plugin.js
 
-version: 1.0.0
+version: 20261010.1.0
 api_version: 1
 author: "coolight"
 description: "对照示例: 脚本语法错误, 演示装载失败与回滚 (脚本本身坏了, 装载一定失败)"

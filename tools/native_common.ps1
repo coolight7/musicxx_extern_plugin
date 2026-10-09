@@ -1,11 +1,12 @@
 # musicxx_extern_plugin 构建脚本公共库
 #
-# 这个文件不是给用户直接执行的: 它被下面三个脚本点源引入(dot-source) —— 放的是三者必须保持
+# 这个文件不是给用户直接执行的: 它被下面几个脚本点源引入(dot-source) —— 放的是它们必须保持
 # 一致的判定与实现, 免得"配置环境的脚本"和"构建的脚本"各写一份, 时间一长就走样:
 #
 #   tools/setup_native_env.ps1   配置开发编译环境 (工具预检 / 子模块 / Boost / NDK → 环境描述文件)
 #   tools/build_native.ps1       构建插件框架 (宿主库 + 插件 SDK)
 #   tools/build_examples.ps1     构建示例插件 (可选打包成安装包 .zip)
+#   tools/pack_plugin.ps1        把一个插件目录打成安装包 (包名里的版本号取自清单 version)
 #
 # 环境描述文件: <包>/.native/env/environment.json
 #   配置环境时解析出来的东西(生成器 / 各工具路径 / Boost 头文件根 / NDK)写在这里, 构建时直接复用,
@@ -47,6 +48,29 @@ function Write-MxWarn([string]$Text) {
 
 function Write-MxOk([string]$Text) {
     Write-Host "  $Text" -ForegroundColor Green
+}
+
+# ==================== 插件安装包命名 ====================
+
+# 插件版本号的约定是「日期.小版本号1.小版本号2」: 第一段是这次发版那天的日期, 例 20261010.1.0。
+# 安装包文件名要带上版本号, 所以打包脚本自己读一次清单 —— 这里只做轻量正则, 清单的权威解析在宿主
+# (src/host/host_manifest.cpp)。
+function Read-MxPluginVersion([string]$PluginDir) {
+    $manifestPath = Join-Path $PluginDir 'plugin.yaml'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { return '' }
+    $text = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8
+    $match = [regex]::Match($text, '(?m)^\s*version\s*:\s*(.+?)\s*$')
+    if (-not $match.Success) { return '' }
+    return $match.Groups[1].Value.Trim().Trim('"').Trim("'")
+}
+
+# 安装包文件名: <插件 id>-<版本号, 其中的 . 换成 _>.zip
+# 例: example_js_shader (version: 20261010.1.0) → example_js_shader-20261010_1_0.zip
+# 清单没写 version 时退回 <插件 id>.zip (只是打包脚本的命名, 不影响宿主怎么读清单)。
+function Get-MxPluginPackageFileName([string]$PluginId, [string]$Version) {
+    $tag = $Version.Trim().Trim('"').Trim("'") -replace '\.', '_'
+    if ($tag -eq '') { return "$PluginId.zip" }
+    return "$PluginId-$tag.zip"
 }
 
 # 构建环境变量 (与 build_native.sh / 旧版 build_native.ps1 里同样的几项)

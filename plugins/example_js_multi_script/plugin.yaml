@@ -7,7 +7,7 @@ name: example_js_multi_script
 kind: js
 scripts: [kit.js, plugin.js]
 
-version: 1.0.0
+version: 20261010.1.0
 api_version: 1
 author: "coolight"
 description: "示例: 多脚本装载 —— scripts 列表按顺序执行, 前一个脚本定义的全局量在后一个里可见"

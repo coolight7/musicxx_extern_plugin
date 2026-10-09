@@ -79,7 +79,7 @@ tools/               setup_native_env.ps1（Windows：配置开发编译环境 �
                      native_common.ps1（上面几个 ps1 的公共库，不单独执行）、
                      gen_contract.dart（约定生成/校验）、gen_ui_kit.ps1（生成扩展 kit：C++ 头 + JS）、
                      sync_ui_kit.ps1（把 kit 复制进 JS 插件目录）、check_submodules.ps1（子模块检查）、
-                     pack_plugin.ps1（把插件目录打成安装包 .zip，并列出包内分支）、
+                     pack_plugin.ps1（把插件目录打成安装包 `<插件id>-<清单版本号>.zip`，并列出包内分支）、
                      self_check.dart（纯 Dart 自检，定位 FFI 卡住的位置）、
                      cmake/BoostConfig.cmake.in、cmake/host_autobuild.cmake（平台工程里自动触发宿主库构建）
 .native/             本地构建产物（构建目录 / 安装前缀 / 便携输出 / Boost 下载与解包缓存 /
@@ -453,13 +453,13 @@ bundle 里的 `format_version` 必须与目标应用的 Flutter 版本一致（�
 操作交给 AI 客户端：
 
 ```bash
-pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 打包（顶层是插件目录内容）
-musicxx-cli plugin install "D:/work/my_plugin.zip" --enable                # 安装并启用
-musicxx-cli plugin list                                                    # 每个插件的状态与失败原因
-musicxx-cli plugin logs my_plugin --limit 50                               # 最近日志（新的在前）
-musicxx-cli plugin reload my_plugin                                        # 改完代码重新加载
-musicxx-cli render select plugin.my_plugin.bg                              # 让播放页用上插件的背景样式
-musicxx-cli plugin uninstall my_plugin                                     # 卸载（--keep-data 保留私有数据）
+pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin        # 打包（顶层是插件目录内容）
+musicxx-cli plugin install "D:/work/my_plugin-20261010_1_0.zip" --enable        # 安装并启用（包名 = 插件id-清单版本号）
+musicxx-cli plugin list                                                         # 每个插件的状态与失败原因
+musicxx-cli plugin logs my_plugin --limit 50                                    # 最近日志（新的在前）
+musicxx-cli plugin reload my_plugin                                             # 改完代码重新加载
+musicxx-cli render select plugin.my_plugin.bg                                   # 让播放页用上插件的背景样式
+musicxx-cli plugin uninstall my_plugin                                          # 卸载（--keep-data 保留私有数据）
 ```
 
 完整命令表、MCP 工具名与参数、退出码约定见
