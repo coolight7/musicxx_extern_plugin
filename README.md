@@ -582,8 +582,9 @@ final List<MusicxxPluginUIItem> next =
 - **领域接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张已实现；
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由应用侧分派；
-- **钩子**：约定 68 个（34 观察 / 34 裁决，其中 49 个异步派发）；
-  应用侧当前**已接入 11 个**（`docs/plugin-hooks.md` 的「应用是否已接入」列标「已接入」），其余注册成功但不会触发；
+- **钩子**：约定 70 个（34 观察 / 36 裁决，其中 51 个异步派发）；
+  应用侧当前**已接入 13 个**（`docs/plugin-hooks.md` 的「应用是否已接入」列标「已接入」），其余注册成功但不会触发；
+  两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标废弃（应用不派发，替代做法见其说明）；
 - **JS 运行时**：QuickJS 编入宿主库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由宿主线程执行；
   裁决处理器可以返回 Promise（宿主一直等到它结算，结算后裁决生效）；
@@ -638,7 +639,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests
 ```
 
 ```powershell
-dart run tools/gen_contract.dart --check                 # 约定生成物一致（68 个钩子；改动 hooks.def.json 后必须重新生成）
+dart run tools/gen_contract.dart --check                 # 约定生成物一致（70 个钩子；改动 hooks.def.json 后必须重新生成）
 flutter analyze                                          # 期望 0 issue
 flutter test                                             # 包内整套流程：宿主/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
 | 钩子总表（id / 模式 / 派发 / 应用是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
