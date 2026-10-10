@@ -1,7 +1,7 @@
 /// 多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：Dart 侧只保留数据模型与环境取值
 ///
-/// 说明：**分支选择规则只在原生宿主**（`src/host/host_target.{h,cpp}`），Dart 侧不再复制
-/// 一份实现。规则本身由原生用例 `test_host.cpp::testPluginTargetLayout` 覆盖；对真实宿主
+/// 说明：**分支选择规则只在原生插件框架**（`src/host/host_target.{h,cpp}`），Dart 侧不再复制
+/// 一份实现。规则本身由原生用例 `test_host.cpp::testPluginTargetLayout` 覆盖；对真实插件框架
 /// 的调用（`plugin_inspect` 与 `plugin_scan` 结论一致）见 `test/host_test.dart`。
 ///
 /// 运行：`flutter test test/plugin_target_test.dart`
@@ -14,7 +14,7 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 
 void main() {
   group('MusicxxPluginEnv（环境取值）', () {
-    test('系统名/架构名与宿主的规范名对得上', () {
+    test('系统名/架构名与插件框架的规范名对得上', () {
       final String os = MusicxxPluginEnv.currentOs();
       final String arch = MusicxxPluginEnv.currentArch();
       expect(<String>[
@@ -36,7 +36,7 @@ void main() {
     });
 
     test('32 位 ARM 报 armv7（Android armeabi-v7a / Linux armhf）', () {
-      // 与宿主 `currentTargetArch()` 同一套取值：清单 `arch`、分支标签都用这些名字
+      // 与插件框架 `currentTargetArch()` 同一套取值：清单 `arch`、分支标签都用这些名字
       expect(MusicxxPluginEnv.currentArch(Abi.androidArm), 'armv7');
       expect(MusicxxPluginEnv.currentArch(Abi.linuxArm), 'armv7');
       // 64 位 ARM 不能被 32 位的判断吃掉
@@ -47,7 +47,7 @@ void main() {
       expect(MusicxxPluginEnv.currentArch(Abi.linuxRiscv64), 'riscv64');
     });
 
-    test('平台默认库名与宿主同一规则', () {
+    test('平台默认库名与插件框架同一规则', () {
       switch (MusicxxPluginEnv.currentOs()) {
         case 'windows':
           expect(MusicxxPluginEnv.defaultLibraryName('demo'), 'demo.dll');
@@ -59,12 +59,12 @@ void main() {
       }
     });
 
-    test('分支目录缺省名与宿主、清单 targets_dir 缺省一致', () {
+    test('分支目录缺省名与插件框架、清单 targets_dir 缺省一致', () {
       expect(MusicxxPluginEnv.defaultTargetsDirName, 'lib');
     });
   });
 
-  group('宿主判定结果的解析（plugin_scan / plugin_inspect 的字段）', () {
+  group('插件框架判定结果的解析（plugin_scan / plugin_inspect 的字段）', () {
     test('MusicxxPluginInspect_c：分支、选中项与展示文本', () {
       final MusicxxPluginInspect_c inspect = MusicxxPluginInspect_c.fromJson(
         <String, Object?>{

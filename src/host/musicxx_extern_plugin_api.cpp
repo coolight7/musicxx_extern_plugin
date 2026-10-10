@@ -1,10 +1,10 @@
-/// musicxx 外部插件宿主 C ABI 实现 (Dart ⇄ 原生, v1)
+/// musicxx 外部插件框架 C ABI 实现 (Dart ⇄ 原生, v1)
 ///
 /// 约定 (见 src/include/musicxx_extern_plugin_api.h):
 /// - 所有导出函数用 `pluginxx::guardCall` 捕获异常, 绝不把异常带过 C ABI;
-/// - 出参字符串一律经宿主堆分配 (musicxx_extern_plugin_string_free 释放);
-/// - 涉及宿主线程状态的操作投递到宿主线程执行 (ioCallSync);
-///   装载/卸载是异步事务, 在调用线程做有界等待 (不占宿主线程)。
+/// - 出参字符串一律经框架堆分配 (musicxx_extern_plugin_string_free 释放);
+/// - 涉及框架线程状态的操作投递到框架线程执行 (ioCallSync);
+///   装载/卸载是异步事务, 在调用线程做有界等待 (不占框架线程)。
 
 #include "musicxx_extern_plugin_api.h"
 #include "host_inspect.h"
@@ -28,7 +28,7 @@ namespace {
 
 constexpr const char *kHostVersion = "0.1.0";
 
-/// 宿主句柄 (C ABI 层持有上下文与管理器; 由 host_create/host_destroy
+/// 框架句柄 (C ABI 层持有上下文与管理器; 由 host_create/host_destroy
 /// 管理生命周期)
 struct HostHandle {
   HostContext ctx;
@@ -50,7 +50,7 @@ std::string viewToStd(const MusicxxExternPluginStringView *v) {
 
 namespace {
 
-/// 出参写入: 用宿主分配器 (malloc) 分配, 由调用方 string_free 释放
+/// 出参写入: 用框架分配器 (malloc) 分配, 由调用方 string_free 释放
 void setOut(MusicxxExternPluginString *out, std::string_view text) {
   if (!out) {
     return;
@@ -77,7 +77,7 @@ void setErr(MusicxxExternPluginString *log, std::string_view text) {
   setOut(log, text);
 }
 
-/// 在宿主线程执行并同步取回结果 (调用方非宿主线程时投递等待)
+/// 在框架线程执行并同步取回结果 (调用方非框架线程时投递等待)
 template <typename Fn>
 auto onHostThread(MusicxxHostManager *mgr, Fn &&fn) -> decltype(fn()) {
   return pluginxx::ioCallSync<decltype(fn())>(
@@ -137,18 +137,18 @@ musicxx_extern_plugin_version(MusicxxExternPluginString *out) {
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 宿主生命周期 ==================== */
+/* ==================== 框架生命周期 ==================== */
 
-/// 进程级"宿主已存在"标记 (宿主是进程单例)
+/// 进程级"框架实例已存在"标记 (框架运行时是进程单例)
 ///
-/// 已存在的宿主意味着**一条宿主线程 + 一套插件实例 + 一条事件队列**;
+/// 已存在的插件框架意味着**一条框架线程 + 一套插件实例 + 一条事件队列**;
 /// 若允许再次创建, 同一进程会出现两套插件加载 (重复生命周期,
 /// 插件目录/配置文件并发写), 因此第二次创建 直接拒绝并给出可读原因 (Dart
 /// 侧表现为 init 抛出带诊断的异常)。
 ///
-/// 复位时机: 宿主被销毁 (`host_destroy`)
+/// 复位时机: 框架实例被销毁 (`host_destroy`)
 /// 或创建失败时。因此"先销毁再创建"是正常路径 (测试里的 init → dispose → init
-/// 不受影响), 只有"同时存在两个宿主"才会被拒绝。
+/// 不受影响), 只有"同时存在两个插件框架"才会被拒绝。
 std::atomic<bool> &hostAliveFlag() {
   static std::atomic<bool> flag{false};
   return flag;
@@ -166,7 +166,7 @@ musicxx_extern_plugin_host_create(const MusicxxExternPluginHostConfig *cfg,
       [&]() -> MusicxxExternPluginHost * {
         bool expected = false;
         if (!hostAliveFlag().compare_exchange_strong(expected, true)) {
-          setErr(log, "host_create: 本进程已有宿主实例 (宿主是进程单例) —— "
+          setErr(log, "host_create: 本进程已有插件框架实例 (框架运行时是进程单例) —— "
                       "其它 isolate / 线程请复用它的句柄");
           return nullptr;
         }
@@ -237,7 +237,7 @@ musicxx_extern_plugin_host_destroy(MusicxxExternPluginHost *h) {
                             }
                             delete handle; ///< HostContext 析构会停线程与线程池
                           });
-  /// 宿主已销毁: 允许再次创建 (进程单例标记复位)
+  /// 框架实例已销毁: 允许再次创建 (进程单例标记复位)
   hostAliveFlag().store(false, std::memory_order_release);
 }
 
@@ -323,8 +323,8 @@ musicxx_extern_plugin_event_publish(
   }
   const std::string topicText = viewToStd(topic);
   const std::string payload = viewToStd(payload_json);
-  // 发布到**插件事件总线** (插件订阅者); 主题命名空间校验在宿主内完成。
-  // 注意与 musicxx.host.* / musicxx.plugin.* 事件区分: 那些是宿主 → Dart
+  // 发布到**插件事件总线** (插件订阅者); 主题命名空间校验在框架内完成。
+  // 注意与 musicxx.host.* / musicxx.plugin.* 事件区分: 那些是插件框架 → Dart
   // 的事件队列。
   const auto rc = handle->manager->publishPluginEvent(
       topicText, payload.empty() ? "{}" : payload);
@@ -373,7 +373,7 @@ musicxx_extern_plugin_plugin_inspect(MusicxxExternPluginHost *h,
   if (!handle || !handle->manager || !dir || !out_json) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  // 只读的目录判定: 不经过宿主线程 (纯文件系统 + 清单解析), 宿主未 start 也能用
+  // 只读的目录判定: 不经过框架线程 (纯文件系统 + 清单解析), 插件框架未 start 也能用
   return pluginxx::guardCall(
       [log](std::string_view msg) { setErr(log, msg); },
       MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL,
@@ -512,7 +512,7 @@ musicxx_extern_plugin_plugin_reload(MusicxxExternPluginHost *h,
   const std::string pluginId = viewToStd(id);
   /// 插件参数保存在实例上 (`plugin_set_args`), 卸载后实例就没了: 先把它取出来,
   /// 重新装载时作为 options 传下去 (否则"设置参数 + 重载"会丢参数)。
-  /// 读实例表必须在宿主线程上做 (内核的实例表只在宿主线程改动) —— 用一次
+  /// 读实例表必须在框架线程上做 (内核的实例表只在框架线程改动) —— 用一次
   /// onHostThread 投递取值, 不做同步等待以外的操作。
   std::string optionsJson{"{}"};
   onHostThread(handle->manager.get(), [&]() -> int32_t {
@@ -869,7 +869,7 @@ musicxx_extern_plugin_var_get(MusicxxExternPluginHost *h,
   }
   const std::string keyText = viewToStd(key);
   // 属主可能是插件 (declared 立即回, handler 要等属主), 因此用有界等待槽:
-  // C ABI 线程等结果, 宿主线程不等任何人
+  // C ABI 线程等结果, 框架线程不等任何人
   auto slot = std::make_shared<musicxx::extern_plugin::WaitSlot<std::string>>();
   std::string err;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {

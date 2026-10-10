@@ -1,9 +1,9 @@
-/// 插件清单（`plugin.yaml`）读取：本宿主关心的字段只有一处实现
+/// 插件清单（`plugin.yaml`）读取：本框架关心的字段只有一处实现
 ///
 /// 分工：
 /// - **内核**（`pluginxx::parsePluginManifest`）负责 `name` / `entry` / `depends` /
 ///   `optional_depends` 的权威解析（扫描、装载、依赖检查都用它）；
-/// - 本模块负责宿主自己的扩展字段（kind / version / scripts / permissions /
+/// - 本模块负责插件框架自己的扩展字段（kind / version / scripts / permissions /
 ///   platforms / arch / api_version / targets_dir 等），供扫描、装载与安装预检共用。
 ///
 /// 之所以单独成文件：这三条路径（`scanDir`、`plugin_inspect`、原生装载）必须看到**同一份**
@@ -31,10 +31,10 @@ struct MusicxxManifestFields {
   std::string author;
   std::string homepage;
 
-  /// 兼容的插件 API 版本（宿主拒绝高于自己版本的插件）
+  /// 兼容的插件 API 版本（插件框架拒绝高于自己版本的插件）
   int32_t apiVersion = 1;
 
-  /// JS 插件按顺序执行的脚本（相对插件目录；空 = 用 entry / plugin.js）
+  /// JS插件按顺序执行的脚本（相对插件目录；空 = 用 entry / plugin.js）
   std::vector<std::string> scripts;
   std::vector<std::string> permissions;
   std::vector<std::string> platforms;
@@ -53,8 +53,8 @@ MusicxxManifestFields readManifestFields(const std::filesystem::path &pluginDir)
 
 /// 读清单的依赖声明（`depends` / `optional_depends`；支持标量与列表两种写法）
 ///
-/// JS 插件单独用：内核的按名依赖检查用实例名查表，而 JS 实例名是 `js:<id>`，
-/// 因此 JS 插件由宿主按**插件 id** 自行校验一遍（语义与动态库插件一致）。
+/// JS插件单独用：内核的按名依赖检查用实例名查表，而 JS 实例名是 `js:<id>`，
+/// 因此 JS插件由插件框架按**插件 id** 自行校验一遍（语义与动态库插件一致）。
 void readManifestDepends(const std::filesystem::path &pluginDir,
                          std::vector<std::string> &depends,
                          std::vector<std::string> &optionalDepends);

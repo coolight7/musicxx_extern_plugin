@@ -26,7 +26,7 @@ std::string kindOf(const MusicxxManifestFields &fields,
   return entry.empty() ? "js" : "native";
 }
 
-/// JS 插件要执行的脚本清单（清单 `scripts` 优先；否则用 entry 里的 .js；再否则 plugin.js）
+/// JS插件要执行的脚本清单（清单 `scripts` 优先；否则用 entry 里的 .js；再否则 plugin.js）
 std::vector<std::string> scriptsOf(const MusicxxManifestFields &fields,
                                    const std::string &entry) {
   if (!fields.scripts.empty()) {
@@ -41,7 +41,7 @@ std::vector<std::string> scriptsOf(const MusicxxManifestFields &fields,
 /// 名字归一化函数的类型（系统与架构各一张别名表，见 host_target.h）
 using NameNormalizer = std::string (*)(std::string_view);
 
-/// 目标系统 / 架构名：调用方传空时用宿主当前环境
+/// 目标系统 / 架构名：调用方传空时用插件框架当前环境
 ///
 /// 别名（`win32` / `osx` / `amd64` …）归一成规范名，认不出来的取值保持原文
 /// （按原样比较，不做猜测）。
@@ -122,7 +122,7 @@ std::string inspectToJson(const MusicxxPluginInspect &info) {
   j["permissions"] = toJsonArray(info.permissions);
   j["platforms"] = toJsonArray(info.platforms);
   j["arch"] = toJsonArray(info.arch);
-  // JS 插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）
+  // JS插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）
   if (info.kind == "js") {
     j["scripts"] = toJsonArray(info.scripts);
   }
@@ -160,8 +160,8 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   MusicxxPluginInspect info;
   info.dir = pluginDir.string();
   info.dirName = pluginDir.filename().string();
-  // 目标环境：`os` / `arch` 传空 = 用宿主当前环境（C ABI `plugin_inspect` 的约定，
-  // 应用侧安装预检就不传）。**这一步不能省**：清单声明了 `platforms` 的插件一旦
+  // 目标环境：`os` / `arch` 传空 = 用插件框架当前环境（C ABI `plugin_inspect` 的约定，
+  // 主程序安装预检就不传）。**这一步不能省**：清单声明了 `platforms` 的插件一旦
   // 拿空串去比对，会被判成"当前平台不在清单声明内"，表现为"这类插件永远装不上"。
   const std::string targetOs = resolveTargetOs(os);
   const std::string targetArch = resolveTargetArch(arch);
@@ -173,7 +173,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     return info;
   }
 
-  // 内核解析 name/entry/depends（权威路径），本宿主补自己的扩展字段
+  // 内核解析 name/entry/depends（权威路径），本框架补自己的扩展字段
   std::string name;
   std::string entry;
   std::vector<std::string> depends;
@@ -225,7 +225,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   }
   if (info.supported && info.apiVersion < MUSICXX_PLUGINXX_MIN_API_VERSION) {
     info.supported = false;
-    info.reason = "插件声明的 API 版本低于当前宿主支持的最低版本 (最低 " +
+    info.reason = "插件声明的 API 版本低于当前插件框架支持的最低版本 (最低 " +
                   std::to_string(MUSICXX_PLUGINXX_MIN_API_VERSION) + ", 插件声明 " +
                   std::to_string(info.apiVersion) + ")";
   }
@@ -246,7 +246,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     }
     if (!missing.empty()) {
       info.supported = false;
-      info.reason = "JS 插件缺少脚本文件: " + missing;
+      info.reason = "JS插件缺少脚本文件: " + missing;
     }
   }
   return info;

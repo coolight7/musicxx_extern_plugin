@@ -1,8 +1,8 @@
-/// musicxx 外部插件原生宿主: 领域接口表 (musicxx.hooks / musicxx.host)
+/// musicxx 外部插件原生插件框架: 领域接口表 (musicxx.hooks / musicxx.host)
 /// 与钩子派发
 ///
-/// 线程约定: 表入口在 Dart 线程被调用, 内部投递到宿主线程并等待;
-/// 已在宿主线程时就地执行 (内核 `ioCallSyncKeep` 语义)。
+/// 线程约定: 表入口在 Dart 线程被调用, 内部投递到框架线程并等待;
+/// 已在框架线程时就地执行 (内核 `ioCallSyncKeep` 语义)。
 
 #include "host_json.h"
 #include "host_naming.h"
@@ -29,7 +29,7 @@ namespace {
 /// 已知钩子表 (与钩子总表一致)
 ///
 /// 定义只有一处: `tools/hooks.def.json` → `tools/gen_contract.dart` 生成
-/// `musicxx/plugin/api/hook_ids.g.h`（宿主与插件作者共用同一份）。
+/// `musicxx/plugin/api/hook_ids.g.h`（插件框架与插件作者共用同一份）。
 /// policy: MUSICXX_PLUGIN_HOOK_POLICY_*；mode: MUSICXX_PLUGIN_HOOK_MODE_*。
 using HookMeta = musicxx::plugin::MusicxxPluginHookMeta;
 
@@ -85,7 +85,7 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
             inst->name);
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 未知钩子拒绝注册 (硬规则一): 插件不得制造宿主不认识的钩子点
+  // 未知钩子拒绝注册 (硬规则一): 插件不得制造插件框架不认识的钩子点
   const auto *meta = findHookMeta(hookId);
   if (!meta) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册未知钩子 `{}` 被拒绝", inst->name,
@@ -134,7 +134,7 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
   payload["count"] = static_cast<int32_t>(handlers.size());
   payload["action"] = "register";
   // 一并带上处理器列表 (一个钩子通常 0~3 个, 注册/注销是低频操作):
-  // Dart 侧不用再回查宿主就能知道"谁注册了、排第几"
+  // Dart 侧不用再回查插件框架就能知道"谁注册了、排第几"
   payload["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
   pushEvent("musicxx.hook.changed", h.pluginId, payload.dump());
   return MUSICXX_EXTERN_PLUGIN_OK;
@@ -359,7 +359,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
 
   /// 派发前**快照**处理器列表 (派发期间注册表变化不影响本轮遍历)
   ///
-  /// 插件处理器在宿主线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
+  /// 插件处理器在框架线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
   /// `pluginxx.hooks` 的 register / unregister 会改动 hooks_ 里的同一条 vector:
   /// 注册会重新分配, 注销最后一个会让整条 vector 失效 —— 直接遍历活表会出现
   /// 迭代器/引用失效 (漏派发或读到已释放内存)。快照只决定"本轮派发谁被调用",
@@ -586,7 +586,7 @@ int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 宿主动作请求 (插件 → Dart) ==================== */
+/* ==================== 主程序动作请求 (插件 → Dart) ==================== */
 
 int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
                                           std::string_view action,
@@ -773,11 +773,11 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
   j["apiVersion"] = MUSICXX_PLUGIN_API_VERSION;
   j["hostVersion"] = "0.1.0";
   // 调用方插件自己的 id: 插件要判断"这次调用是不是我自己发起的"就得知道自己的 id
-  // (功能点糖用它过滤自己发起的调用)。应用侧读同一份信息时不带这个字段。
+  // (功能点糖用它过滤自己发起的调用)。主程序读同一份信息时不带这个字段。
   if (!instanceName.empty()) {
     j["pluginId"] = pluginIdOf(instanceName);
   }
-  // 客户端界面能力段 (由界面描述层库生成, 宿主原样转发; 没配置时不出现这个字段)
+  // 客户端界面能力段 (由界面描述层库生成, 插件框架原样转发; 没配置时不出现这个字段)
   if (!uiCapabilitiesJson_.empty()) {
     j["ui"] = parseJsonSafe(uiCapabilitiesJson_);
   }
@@ -1158,7 +1158,7 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   if (name == "__vtable") {
     return &g_hostVtable;
   }
-  // events 表用本宿主自己的入口 (需要在发布路径上做命名空间归属校验, 见
+  // events 表用本框架自己的入口 (需要在发布路径上做命名空间归属校验, 见
   // xx_publish_event)
   if (name == PLUGINXX_IFACE_EVENTS) {
     return &g_ifaceEvents;

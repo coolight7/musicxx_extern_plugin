@@ -1,14 +1,14 @@
-# musicxx_extern_plugin 插件框架构建脚本 (宿主库 + 插件 SDK)
+# musicxx_extern_plugin 插件框架构建脚本 (插件框架库 + 插件 SDK)
 #
-# 只构建"应用要用、插件作者要链接"的那份东西: 宿主库 musicxx_extern_plugin.<dll|so|dylib>
+# 只构建"主程序要用、插件作者要链接"的那份东西: 插件框架库 musicxx_extern_plugin.<dll|so|dylib>
 # 与插件 SDK (include/ + lib/cmake/)。示例插件不在这里构建 —— 它们由
 # tools/build_examples.ps1 负责, 这样应用构建不必为示例插件花时间。
 #
-# 具体的依赖库编译与宿主工程构建全部交给 src/CMakeLists.txt (superbuild + ExternalProject_Add):
+# 具体的依赖库编译与插件框架工程构建全部交给 src/CMakeLists.txt (superbuild + ExternalProject_Add):
 #
 #   src/CMakeLists.txt       顶层 superbuild: 推导 XX_IS_* 宏 → 生成 BoostConfig.cmake →
-#                            ExternalProject_Add 逐个构建 third_party 依赖 → 构建宿主工程
-#   src/host/CMakeLists.txt  嵌套宿主工程: find_package 取依赖 → 宿主库 / 插件 SDK / 原生测试
+#                            ExternalProject_Add 逐个构建 third_party 依赖 → 构建插件框架工程
+#   src/host/CMakeLists.txt  嵌套插件框架工程: find_package 取依赖 → 插件框架库 / 插件 SDK / 原生测试
 #
 # 本脚本负责的只有 cmake 不方便做的事:
 #   - 先确保开发编译环境就绪 (与 tools/setup_native_env.ps1 同一份实现: 复用
@@ -17,7 +17,7 @@
 #   - 构建完成后把产物复制到稳定的输出目录, 可选跑原生测试
 #
 # 用法:
-#   pwsh -NoProfile -File tools/build_native.ps1                    # Release 宿主库 + SDK
+#   pwsh -NoProfile -File tools/build_native.ps1                    # Release 插件框架库 + SDK
 #   pwsh -NoProfile -File tools/build_native.ps1 -Config Debug      # Debug (独立构建目录, 依赖也重编)
 #   pwsh -NoProfile -File tools/build_native.ps1 -WithExamples      # 连示例插件一起构建
 #   pwsh -NoProfile -File tools/build_native.ps1 -WithTests         # 连原生测试一起构建(含对照示例)
@@ -32,17 +32,17 @@
 #   pwsh -NoProfile -File tools/build_native.ps1 -Clean             # 先清空构建目录
 #   pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8            # 指定并行度
 #   pwsh -NoProfile -File tools/build_native.ps1 -NoEnvSetup        # 跳过环境解析(只用已有缓存)
-#   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a   # 用 NDK 交叉编译 Android 宿主库
+#   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a   # 用 NDK 交叉编译 Android 插件框架库
 #
 # Android 说明:
 #   - 产出与桌面端同一套布局: <包>/.native/output/android-<abi>-<配置>/bin/libmusicxx_extern_plugin.so
 #     (Android 的 ABI 名直接用作目录里的架构段: arm64-v8a / armeabi-v7a / x86_64 / x86)
-#   - 宿主库不是靠本脚本进 APK 的: 包的 android/build.gradle 会把它按 ABI 收集到 jniLibs,
+#   - 插件框架库不是靠本脚本进 APK 的: 包的 android/build.gradle 会把它按 ABI 收集到 jniLibs,
 #     随 Flutter 的 Android 构建打进去 (见 android/README.md)
 #   - NDK 位置优先取 -AndroidNdk, 其次 $env:ANDROID_NDK_HOME / $env:ANDROID_NDK_ROOT,
 #     最后在 $env:ANDROID_HOME|$env:ANDROID_SDK_ROOT\ndk 下挑版本号最大的一个
-#   - 统一用 Ninja 生成器与 c++_static (C++ 运行库静态链进宿主库, APK 不需要额外带 libc++_shared.so)
-#   - -RunTests 在 Android 上不执行: 测试可执行文件是给设备编的, 宿主上跑不起来 (需要 adb 手工跑)
+#   - 统一用 Ninja 生成器与 c++_static (C++ 运行库静态链进插件框架库, APK 不需要额外带 libc++_shared.so)
+#   - -RunTests 在 Android 上不执行: 测试可执行文件是给设备编的, 开发机上跑不起来 (需要 adb 手工跑)
 #
 # 说明: [CmdletBinding()] 让写错的参数名直接报错, 而不是被当成多余参数悄悄忽略。
 [CmdletBinding()]
@@ -98,7 +98,7 @@ if ($OutputDir) {
     $paths.PluginsDir = [System.IO.Path]::GetFullPath((Join-Path $paths.OutputDir 'plugins'))
 }
 
-# 构建哪些部分: 框架默认只出宿主库与 SDK; -RunTests 需要测试可执行文件与对照示例插件
+# 构建哪些部分: 框架默认只出插件框架库与 SDK; -RunTests 需要测试可执行文件与对照示例插件
 $buildExamples = [bool]($WithExamples -or $RunTests)
 $buildTests = [bool]($WithTests -or $RunTests)
 if ($DepsOnly -and $RunTests) { throw '-RunTests 不能与 -DepsOnly 同时使用' }
@@ -123,7 +123,7 @@ else {
     $extra = ''
     if ($buildExamples) { $extra += ' + 示例插件' }
     if ($buildTests) { $extra += ' + 原生测试' }
-    Write-MxInfo ("配置:       {0}   目标: {1}   内容: 宿主库 + 插件 SDK{2}" -f $paths.Config,
+    Write-MxInfo ("配置:       {0}   目标: {1}   内容: 插件框架库 + 插件 SDK{2}" -f $paths.Config,
         $(if ($Android) { "android-$($paths.Abi)" } else { "$($paths.Os)-$($paths.Arch)" }), $extra)
 }
 
@@ -193,7 +193,7 @@ if (($Auto -or $SkipIfFresh) -and -not $Force -and -not $Clean -and -not $Config
 # ==================== 构建 ====================
 #
 # 下面整段是构建主体: 自动模式下它被包在 try/catch 里 —— 插件框架构建失败不该让应用构建失败
-# (宿主库缺失时应用照常启动, 只是没有外部插件), 但要在构建日志里给出明确的警告与下一步。
+# (插件框架库缺失时主程序照常启动, 只是没有外部插件), 但要在构建日志里给出明确的警告与下一步。
 $buildBody = {
     if ($Clean) {
         Write-MxStep '清理构建目录'
@@ -205,9 +205,9 @@ $buildBody = {
         }
     }
 
-    # ==================== configure (superbuild: 依赖 + 宿主) ====================
+    # ==================== configure (superbuild: 依赖 + 插件框架) ====================
 
-    Write-MxStep 'configure (superbuild: 依赖 + 宿主)'
+    Write-MxStep 'configure (superbuild: 依赖 + 插件框架)'
     $marker = Join-Path $paths.BuildDir '.build_signature'
     if (Test-Path $paths.BuildDir) {
         $old = if (Test-Path $marker) { (Get-Content -Raw $marker).Trim() } else { '' }
@@ -236,7 +236,7 @@ $buildBody = {
     )
     if ($Android) {
         # 交叉编译参数交给 NDK 工具链 (superbuild 的 src/CMakeLists.txt 会自动补 XX_IS_ANDROID_D=1,
-        # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与宿主工程的嵌套构建)
+        # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与插件框架工程的嵌套构建)
         $configureArgs += @(
             "-DCMAKE_TOOLCHAIN_FILE=$androidToolchain"
             "-DANDROID_ABI=$($paths.Abi)"
@@ -266,17 +266,17 @@ $buildBody = {
     & cmake --install $paths.BuildDir --config $Config | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'cmake install 失败' }
 
-    # 宿主工程是嵌套 ExternalProject 构建: 生成器有时会判定上层的"构建/安装步骤已是最新"而跳过它,
+    # 插件框架工程是嵌套 ExternalProject 构建: 生成器有时会判定上层的"构建/安装步骤已是最新"而跳过它,
     # 于是源码改动不会真正触发重编译 (表现为"构建成功但产物时间戳/体积不变")。这里显式再跑一次
     # 嵌套工程的增量构建与安装 (已经是新的就几秒钟结束), 保证脚本的"构建成功"与产物一致。
     if (-not $DepsOnly) {
         $hostBuildDir = Join-Path (Join-Path $paths.BuildDir 'e') 'host'
         if (Test-Path (Join-Path $hostBuildDir 'CMakeCache.txt')) {
-            Write-MxStep 'build 宿主工程 (嵌套工程增量构建)'
+            Write-MxStep 'build 插件框架工程 (嵌套工程增量构建)'
             & cmake --build $hostBuildDir --config $Config --parallel $parallel | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw 'cmake build (宿主工程) 失败' }
+            if ($LASTEXITCODE -ne 0) { throw 'cmake build (插件框架工程) 失败' }
             & cmake --install $hostBuildDir --config $Config | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw 'cmake install (宿主工程) 失败' }
+            if ($LASTEXITCODE -ne 0) { throw 'cmake install (插件框架工程) 失败' }
         }
     }
 
@@ -297,7 +297,7 @@ $buildBody = {
     }
     if ($artifacts.Count -eq 0) { Write-MxInfo '(bin/plugins 下没有产物)' }
 
-    # 复制到稳定输出目录 (应用侧与打包脚本都按这个目录找库)
+    # 复制到稳定输出目录 (主程序侧与打包脚本都按这个目录找库)
     if (-not $DepsOnly) {
         Write-MxInfo "复制产物到输出目录: $($paths.OutputDir)"
         Copy-MxBuildArtifacts -InstallDir $paths.InstallDir -OutputDir $paths.OutputDir
@@ -308,7 +308,7 @@ $buildBody = {
     if ($RunTests) {
         Write-MxStep '原生测试'
         if ($Android) {
-            # 测试可执行文件是给设备编的 (目标 ABI 与宿主 Windows 机不同), 宿主上跑不起来。
+            # 测试可执行文件是给设备编的 (目标 ABI 与开发机 Windows 不同), 开发机上跑不起来。
             # 需要在设备上跑时: adb push bin/ + plugins/ 到设备目录, 用 LD_LIBRARY_PATH 指向 bin/ 再执行。
             Write-MxInfo "[跳过] Android 目标是交叉编译产物, 不能在当前主机运行; 产物在: $(Join-Path $paths.InstallDir 'bin')"
         }
@@ -316,7 +316,7 @@ $buildBody = {
             $testExe = Join-Path $paths.InstallDir "bin/$($paths.TestName)"
             if (-not (Test-Path $testExe)) { throw "未找到测试可执行文件: $testExe" }
 
-            # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
+            # 插件框架把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
             $pluginRoot = Join-Path $paths.InstallDir 'plugins'
             Write-MxInfo "插件目录: $pluginRoot"
             Write-MxInfo "运行: $testExe $pluginRoot"
@@ -329,7 +329,7 @@ $buildBody = {
     # ==================== 构建标记 ====================
     #
     # 全部做完 (含测试) 之后才写标记: 失败时没有标记, 下一次构建就不会被误判成"已是最新"。
-    # -DepsOnly 没有产出宿主库, 不能写标记。
+    # -DepsOnly 没有产出插件框架库, 不能写标记。
     if (-not $DepsOnly) {
         Set-MxBuildStamp -BuildDir $paths.BuildDir -Kinds $stampKinds
         Write-MxInfo "构建标记: $($stampKinds -join ', ') → $($paths.BuildDir)"
@@ -342,8 +342,8 @@ if ($Auto) {
     }
     catch {
         Write-Host ''
-        Write-MxWarn "插件框架自动构建失败, 本次应用构建不打包外部插件宿主库: $($_.Exception.Message)"
-        Write-MxInfo '应用照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
+        Write-MxWarn "插件框架自动构建失败, 本次主程序构建不打包外部插件框架库: $($_.Exception.Message)"
+        Write-MxInfo '主程序照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
         Write-MxInfo "  pwsh -NoProfile -File tools/build_native.ps1 -Config $Config"
         exit 0
     }
@@ -360,11 +360,11 @@ if ($ConfigureOnly) {
 
 Write-Host ''
 if ($DepsOnly) {
-    Write-Host "DepsOnly: 依赖库构建完成 (未构建宿主库); 安装前缀: $($paths.InstallDir)"
+    Write-Host "DepsOnly: 依赖库构建完成 (未构建插件框架库); 安装前缀: $($paths.InstallDir)"
 }
 else {
     if ($Android) {
-        Write-Host 'README: 宿主库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效'
+        Write-Host 'README: 插件框架库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效'
     }
     Write-Host "插件框架构建完成: $($paths.HostLibrary)"
     if ($buildExamples) {

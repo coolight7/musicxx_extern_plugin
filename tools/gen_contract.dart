@@ -10,14 +10,14 @@
 /// | 产物 | 用途 |
 /// |---|---|
 /// | `lib/src/hook_ids.g.dart` | Dart 侧 `MusicxxPluginHookId` 枚举 + 元信息 + id 查找 |
-/// | `src/sdk/include/musicxx/plugin/api/hook_ids.g.h` | C++ 侧钩子 id 常量 + 已知钩子表（宿主与插件共用） |
+/// | `src/sdk/include/musicxx/plugin/api/hook_ids.g.h` | C++ 侧钩子 id 常量 + 已知钩子表（插件框架与插件共用） |
 /// | `docs/plugin-hooks.md` | 插件作者文档（钩子总表） |
 ///
-/// 为什么是这三处：Dart 侧调用与派发要用枚举、原生宿主要用表拒绝未知钩子、
+/// 为什么是这三处：Dart 侧调用与派发要用枚举、原生插件框架要用表拒绝未知钩子、
 /// 插件作者要有一份可查的清单。定义只有一处，避免常量不一致。
 ///
 /// 说明：C++ 头放在 **SDK 目录** 而不是 `src/host/include/`，
-/// 这样宿主（`find_package` 后拿到的 SDK 头）与插件作者（`musicxx_extern_plugin_sdk`）
+/// 这样插件框架（`find_package` 后拿到的 SDK 头）与插件作者（`musicxx_extern_plugin_sdk`）
 /// 都能直接包含同一份生成物，不需要维护两份。
 library;
 
@@ -29,7 +29,7 @@ const String _dartOut = 'lib/src/hook_ids.g.dart';
 const String _cppOut = 'src/sdk/include/musicxx/plugin/api/hook_ids.g.h';
 const String _docOut = 'docs/plugin-hooks.md';
 
-/// 合并策略名 → C++/Dart 两侧共用的整数编码（与宿主 `dispatchHook` 的判据一致）
+/// 合并策略名 → C++/Dart 两侧共用的整数编码（与插件框架 `dispatchHook` 的判据一致）
 const Map<String, int> _policyCodes = <String, int>{
   'firstNonNull': 0,
   'anyCancel': 1,
@@ -157,8 +157,8 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('  /// 裁决合并策略（观察型无意义）')
     ..writeln('  final MusicxxPluginDecisionPolicy policy;')
     ..writeln()
-    ..writeln('  /// 应用侧是否已经接入这个钩子：true = 当前版本会派发；')
-    ..writeln('  /// false = 约定已固定，但应用侧还没有接入（注册不会报错，当前版本也不会触发）')
+    ..writeln('  /// 主程序是否已经接入这个钩子：true = 当前版本会派发；')
+    ..writeln('  /// false = 约定已固定，但主程序还没有接入（注册不会报错，当前版本也不会触发）')
     ..writeln('  final bool wired;')
     ..writeln()
     ..writeln('  /// 派发方式（是否占用调用线程；见 `tools/hooks.def.json`）')
@@ -174,7 +174,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
       '  bool get isAsyncDispatch => dispatch == MusicxxPluginHookDispatch.async;',
     )
     ..writeln()
-    ..writeln('  /// 按 id 反查（未知 id 返回 null；插件注册未知钩子会被宿主拒绝）')
+    ..writeln('  /// 按 id 反查（未知 id 返回 null；插件注册未知钩子会被插件框架拒绝）')
     ..writeln(
       '  static MusicxxPluginHookId? tryFromId(String id) => _byId[id];',
     )
@@ -197,7 +197,7 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
       '/// 自动生成（tools/gen_contract.dart ← tools/hooks.def.json）—— 请勿手改。',
     )
     ..writeln('///')
-    ..writeln('/// C++ 侧钩子约定：id 常量 + 已知钩子表（宿主据此拒绝未知钩子、按声明的')
+    ..writeln('/// C++ 侧钩子约定：id 常量 + 已知钩子表（插件框架据此拒绝未知钩子、按声明的')
     ..writeln('/// 模式/策略派发；插件按常量注册，避免手写字符串打错）。')
     ..writeln('#ifndef MUSICXX_PLUGIN_HOOK_IDS_G_H')
     ..writeln('#define MUSICXX_PLUGIN_HOOK_IDS_G_H')
@@ -240,7 +240,7 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
     ..writeln('    int32_t     policy;   ///< MUSICXX_PLUGIN_HOOK_POLICY_*')
     ..writeln('};')
     ..writeln()
-    ..writeln('/// 已知钩子表 (宿主拒绝表外钩子: 插件不得制造宿主不认识的钩子点)')
+    ..writeln('/// 已知钩子表 (插件框架拒绝表外钩子: 插件不得制造插件框架不认识的钩子点)')
     ..writeln(
       'inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {',
     );
@@ -272,17 +272,21 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('# 钩子总表（插件作者文档）')
     ..writeln()
     ..writeln(
+      '> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。',
+    )
+    ..writeln('>')
+    ..writeln(
       '> 本文件由 `tools/gen_contract.dart` 从 `tools/hooks.def.json` 生成，请勿手改。',
     )
     ..writeln('>')
     ..writeln('> 注册钩子时必须写全名（官方 `musicxx.*`）；插件自定义事件/能力/UI 项用')
-    ..writeln('> `plugin.<pluginId>.*`。宿主会拒绝未知钩子与未知前缀。')
+    ..writeln('> `plugin.<pluginId>.*`。插件框架会拒绝未知钩子与未知前缀。')
     ..writeln()
     ..writeln('## 怎么读这张表')
     ..writeln()
     ..writeln(
-      '- **应用是否已接入**：`已接入` = 应用侧已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
-      '`未接入` = 钩子约定已经定下来、应用侧**还没有接**（注册不会报错，但当前版本不会触发）。'
+      '- **主程序是否已接入**：`已接入` = 主程序已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
+      '`未接入` = 钩子约定已经定下来、主程序**还没有接**（注册不会报错，但当前版本不会触发）。'
       '想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），'
       '或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。',
     )
@@ -299,12 +303,12 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。',
     )
     ..writeln(
-      '- **耗时**：宿主不设置等待超时（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），'
-      '处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在宿主线程上，'
+      '- **耗时**：插件框架不设置等待超时（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），'
+      '处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在插件框架线程上，'
       '慢就是别人一起等。',
     )
     ..writeln()
-    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 应用是否已接入 |')
+    ..writeln('| 钩子 id | 模式 | 派发 | 合并策略 | 主程序是否已接入 |')
     ..writeln('|---|---|---|---|---|');
   for (final Map<String, Object?> hook in hooks) {
     final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
@@ -318,14 +322,14 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('## 已接入钩子的载荷与裁决')
     ..writeln()
     ..writeln(
-      '下面是应用侧**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
-      '尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷字段在应用侧接入时补齐'
+      '下面是主程序**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
+      '尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷字段在主程序接入时补齐'
       '（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。',
     )
     ..writeln()
     ..writeln('> 载荷统一是 JSON 对象；不裁决时返回 `null`（JS）或把出参留空（C++）。')
     ..writeln(
-      '> 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 宿主动作自行获取。',
+      '> 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 主程序动作自行获取。',
     );
   for (final Map<String, Object?> hook in hooks) {
     final String doc = (hook['doc'] as String?) ?? '';
@@ -355,12 +359,12 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     )
     ..writeln()
     ..writeln(
-      '两种方式对插件处理器是**透明的**：处理器照常返回裁决对象即可；区别只在宿主侧'
+      '两种方式对插件处理器是**透明的**：处理器照常返回裁决对象即可；区别只在插件框架侧'
       '（同步派发阻塞调用线程，异步派发不阻塞、结果经 `musicxx.hook.decision.result` 回传）。',
     )
     ..writeln(
       '异步派发的调用点在拿到结果前可能已经切歌/切列表，**插件要自己在载荷里带上身份字段'
-      '（`sid` 等）并在调用点校验**，宿主只负责丢弃过期结果。',
+      '（`sid` 等）并在调用点校验**，插件框架只负责丢弃过期结果。',
     )
     ..writeln()
     ..writeln('## 裁决对象通用外壳')
@@ -372,16 +376,16 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln('```')
     ..writeln()
     ..writeln('- 返回 `null` / 空对象表示“不裁决”，交给下一个处理器；')
-    ..writeln('- `action` 的宿主语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
-    ..writeln('- 处理器必须尽快返回：它跑在宿主线程上，慢就是业务与其它插件一起等（宿主不设置等待超时、也不会强行中断）。')
+    ..writeln('- `action` 的主程序语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
+    ..writeln('- 处理器必须尽快返回：它跑在插件框架线程上，慢就是业务与其它插件一起等（插件框架不设置等待超时、也不会强行中断）。')
     ..writeln()
     ..writeln('## 处理器失败')
     ..writeln()
     ..writeln(
-      '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**（宿主不会因为失败次数暂停派发、也不会卸载插件）；',
+      '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**（插件框架不会因为失败次数暂停派发、也不会卸载插件）；',
     )
     ..writeln('- 处理器耗时只记统计（管理页「外部插件 → 调试」分页可看单处理器平均/最大耗时）；')
-    ..writeln('- 派发期间注册/注销钩子不会破坏本轮遍历：宿主在派发前对处理器列表做快照。');
+    ..writeln('- 派发期间注册/注销钩子不会破坏本轮遍历：插件框架在派发前对处理器列表做快照。');
   return sb.toString();
 }
 
@@ -423,7 +427,7 @@ List<Map<String, Object?>> _loadHooks() {
       throw StateError('未知派发方式: $id -> $dispatch');
     }
     if (hook['wired'] is! bool) {
-      throw StateError('wired 必须是布尔值（应用侧是否已经接入）: $id');
+      throw StateError('wired 必须是布尔值（主程序是否已经接入）: $id');
     }
     if (mode == 'observe' && dispatch != 'async') {
       throw StateError('观察型钩子必须是异步派发（入队即返回）: $id -> $dispatch');

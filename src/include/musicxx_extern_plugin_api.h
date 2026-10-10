@@ -1,6 +1,6 @@
-/// musicxx 外部插件宿主 C ABI (Dart ⇄ 原生, v1)
+/// musicxx 外部插件框架 C ABI (Dart ⇄ 原生, v1)
 ///
-/// 定位: 本头是 **Dart 侧唯一入口**(ffigen 由此生成绑定), 也是原生宿主的导出约定。
+/// 定位: 本头是 **Dart 侧唯一入口**(ffigen 由此生成绑定), 也是插件框架原生库的导出约定。
 /// 跨边界约定:
 /// - 对齐/类型: 8 字节对齐, 只用定长类型, 禁止裸 int/long/size_t;
 /// - 调用约定: 全部导出函数与回调带 `MUSICXX_EXTERN_PLUGIN_CALL`;
@@ -12,7 +12,7 @@
 /// 错误码: 0 成功 / -1 参数非法 / -2 状态错误 / -3 JSON 非法 / -4 未找到 /
 ///         -5 超时 / -6 权限拒绝 / -7 队列满 / -8 内存不足 / -99 内部异常。
 ///
-/// 线程: 除特别注明外任意线程可调用; 标注 `[IO]` 的内部投递到宿主线程并等待
+/// 线程: 除特别注明外任意线程可调用; 标注 `[IO]` 的内部投递到框架线程并等待
 /// (有等待上界); 唤醒回调必须快速返回。
 #ifndef MUSICXX_EXTERN_PLUGIN_API_H
 #define MUSICXX_EXTERN_PLUGIN_API_H
@@ -59,7 +59,7 @@
 #define MUSICXX_EXTERN_PLUGIN_ERR_NO_MEMORY     -8
 #define MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL      -99
 
-/* ==================== 宿主配置标志 ==================== */
+/* ==================== 插件框架配置标志 ==================== */
 
 #define MUSICXX_EXTERN_PLUGIN_FLAG_SAFE_MODE            0x0001 ///< 不加载任何外部插件
 #define MUSICXX_EXTERN_PLUGIN_FLAG_NO_NATIVE            0x0002 ///< 跳过原生(DSO)插件
@@ -85,19 +85,19 @@ typedef struct MusicxxExternPluginStringView {
     uint64_t    size;
 } MusicxxExternPluginStringView;
 
-/// 宿主堆分配字符串 (显式所有权: 由宿主分配, 调用方用 string_free 释放)
+/// 插件框架堆分配字符串 (显式所有权: 由插件框架分配, 调用方用 string_free 释放)
 typedef struct MusicxxExternPluginString {
     char*    data; ///< 以 \0 结尾; 空串或未设置时为 NULL
     uint64_t size; ///< 字节数 (不含结尾 \0)
 } MusicxxExternPluginString;
 
-/// 宿主句柄 (不透明; 进程内单例)
+/// 插件框架运行时句柄 (不透明; 进程内单例)
 typedef struct MusicxxExternPluginHost MusicxxExternPluginHost;
 
 /// 事件唤醒回调 (原生事件入队时调用; 必须快速返回)
 typedef int32_t(MUSICXX_EXTERN_PLUGIN_CALL* MusicxxExternPluginWakeFn)(void* user_data);
 
-/* ==================== 宿主配置 ==================== */
+/* ==================== 插件框架配置 ==================== */
 
 typedef struct MusicxxExternPluginHostConfig {
     uint32_t struct_size; ///< == sizeof(MusicxxExternPluginHostConfig)
@@ -112,7 +112,7 @@ typedef struct MusicxxExternPluginHostConfig {
 
     /// 客户端界面能力段 (JSON 文本; 可为空)
     ///
-    /// 内容由界面描述层库生成 (支持的组件 / 控件 / 图标 / 上限等), 宿主只做转发:
+    /// 内容由界面描述层库生成 (支持的组件 / 控件 / 图标 / 上限等), 插件框架只做转发:
     /// `host.info().ui` 与 JS 侧 `musicxx.host.info().ui` 返回同一份,
     /// 插件据此决定该给什么界面内容 (取页面时也会带一份, 见各客户端的取数参数)。
     MusicxxExternPluginStringView ui_capabilities;
@@ -138,7 +138,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
     MusicxxExternPluginString*           out
 );
 
-/// 释放宿主堆字符串 (幂等; NULL 安全)
+/// 释放框架堆字符串 (幂等; NULL 安全)
 MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_string_free(MusicxxExternPluginString* s);
 
@@ -146,15 +146,15 @@ MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_api_version(void);
 
-/// 宿主库版本字符串 (形如 "1.0.0"); 写入 out (宿主堆, 需 string_free)
+/// 插件框架库版本字符串 (形如 "1.0.0"); 写入 out (框架堆, 需 string_free)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_version(MusicxxExternPluginString* out);
 
-/* ==================== 宿主生命周期 ==================== */
+/* ==================== 插件框架生命周期 ==================== */
 
-/// 创建宿主 (纯构造, 不起线程/不加载插件); 失败返回 NULL 并写 log
+/// 创建插件框架实例 (纯构造, 不起线程/不加载插件); 失败返回 NULL 并写 log
 ///
-/// **进程单例**: 同一进程只允许存在一个宿主 (它持有宿主线程 / 插件实例 / 事件队列)。
+/// **进程单例**: 同一进程只允许存在一个插件框架实例 (它持有框架线程 / 插件实例 / 事件队列)。
 /// 已存在时返回 NULL 并写明确原因 —— 其它 isolate / 线程请复用已有句柄调用管理类 API。
 /// `host_destroy` 之后可以再次创建 (init → dispose → init 是正常路径)。
 MUSICXX_EXTERN_PLUGIN_EXPORT MusicxxExternPluginHost* MUSICXX_EXTERN_PLUGIN_CALL
@@ -163,7 +163,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT MusicxxExternPluginHost* MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 启动宿主: 起宿主线程/工作线程池、注册内置提供者、按配置装载插件
+/// 启动插件框架: 起框架线程/工作线程池、注册内置提供者、按配置装载插件
 /// - 就绪后入队 `musicxx.host.ready` 事件
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_host_start(
     MusicxxExternPluginHost*    h,
@@ -177,7 +177,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
     MusicxxExternPluginString* log
 );
 
-/// 销毁宿主 (未停止会自动停止; NULL 安全)
+/// 销毁插件框架实例 (未停止会自动停止; NULL 安全)
 MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_destroy(MusicxxExternPluginHost* h);
 
@@ -189,7 +189,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 热更新宿主配置 JSON (插件目录/开关/统计采集等)
+/// 热更新插件框架配置 JSON (插件目录/开关/统计采集等)
 /// - 支持字段: pluginDirs[], enableNative, enableJs, safeMode, observeEvents,
 ///   statsEnabled, statsPeriodMs
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
@@ -218,7 +218,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString* log
     );
 
-/// 宿主 → 插件事件总线发布 (topic 必须 musicxx.* 或 plugin.<id>.*)
+/// 插件框架 → 插件事件总线发布 (topic 必须 musicxx.* 或 plugin.<id>.*)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_event_publish(
         MusicxxExternPluginHost*              h,
@@ -239,13 +239,13 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /// 检查一个插件目录 (**只读**, 不装载、不改动任何状态) → JSON 对象
 ///
-/// 用途: 应用侧「从压缩包安装」的预检 —— 把解包出来的临时目录交给宿主判定
+/// 用途: 主程序「从压缩包安装」的预检 —— 把解包出来的临时目录交给插件框架判定
 /// (清单可解析 / 当前系统与架构该用哪个分支 / 库文件或脚本在不在), 装之前就有结论。
 /// 判定与扫描、装载**完全同源** (同一份 `inspectPluginDir`), 不会出现
 /// "预检通过、装载却用另一个分支"的分歧。
 ///
 /// - `dir`: 插件目录 (绝对路径; 压缩包解包后的临时目录同样可以);
-/// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用宿主自己的);
+/// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用插件框架自己的);
 /// - 出参 JSON: `{valid, error, path, dirName, id, kind, version, description, author,
 ///   homepage, entry, apiVersion, depends, optionalDepends, permissions, platforms,
 ///   arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason}`
@@ -339,14 +339,14 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// - 只受理不等待结果: 成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出 `out_request_id`;
 ///   结果经事件 `musicxx.plugin.call.result` 回给 Dart
 ///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
-/// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 宿主没在跑) 直接返回负错误码,
+/// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 插件框架没在跑) 直接返回负错误码,
 ///   **不推结果事件**;
 /// - 语义与旧同步版一致: 能力名补 `plugin.<id>.` 前缀、归属校验、同样的错误码;
 /// - **没有 timeout 参数**: 超时是调用方的事 (它自己不等了, 结果丢弃);
 /// - **受理成功 ⇒ 一定有终局**: 正常结果、执行失败、插件卸载 (`plugin_unloaded`)、
-///   宿主停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
+///   框架停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
 /// - **不提供同步版**: 旧符号 `musicxx_extern_plugin_plugin_call` 已删除。
-///   换符号名是为了让"宿主库太旧"能被探测到 —— 同名改签名时混用新旧库会用新参数
+///   换符号名是为了让"插件框架库太旧"能被探测到 —— 同名改签名时混用新旧库会用新参数
 ///   去打旧函数 (内存越界), 换名 + 探测式查找能把这件事变成一条可读错误。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_plugin_call_async(
@@ -367,7 +367,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 ///   处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
 ///   以及 result/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
 /// - out_json 形如 {"handled":true,"result":{...},"called":1,"handlers":2}
-/// - `timeout_ms` 保留在签名里 (约定固定) 但不再使用: 宿主不设等待超时, 处理器链慢就是
+/// - `timeout_ms` 保留在签名里 (约定固定) 但不再使用: 插件框架不设等待超时, 处理器链慢就是
 ///   调用线程一起等
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_hook_emit(
@@ -450,8 +450,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// 变量 = 有属主、可读、可写、可订阅变动的小值 (配置/小状态)。
 ///
 /// 与状态镜像的区别: 状态镜像只能应用推、插件同步只读; 变量可以双向读写, 且能订阅
-/// "值变了"。**宿主里没有真值**: 真值只在属主那里 (应用侧 Store/配置, 或插件自己的
-/// 状态), 宿主只保留一份服务 `peek` 同步读的缓存。
+/// "值变了"。**插件框架里没有真值**: 真值只在属主那里 (主程序 Store/配置, 或插件自己的
+/// 状态), 插件框架只保留一份服务 `peek` 同步读的缓存。
 ///
 /// 命名空间: 官方 `musicxx.<域>.<名>` (由应用声明), 插件 `plugin.<插件id>.<分组>...`。
 ///
@@ -459,17 +459,17 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// - `musicxx.var.read`  {requestId, key}         → 用 var_read_result 回答
 /// - `musicxx.var.write` {requestId, key, value, by} → 用 var_write_result 回执
 
-/// 宿主能力位 (Dart 侧据此判断加载到的宿主库是不是这次构建的产物)
+/// 插件框架能力位 (Dart 侧据此判断加载到的插件框架库是不是这次构建的产物)
 ///
 /// 缺位时**不要**继续调用对应的一批 API: 老库上没有这些符号, 报错会是一句难懂的
-/// `undefined symbol`。包层在 init 时读一次并给出"请重新构建宿主库"的说明。
+/// `undefined symbol`。包层在 init 时读一次并给出"请重新构建插件框架库"的说明。
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_HOOKS  0x1
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_STATE  0x2
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS 0x4
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_UI     0x8
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_VARS   0x10
 
-/// 宿主能力位图 (无需宿主实例; 任意线程可调用)
+/// 插件框架能力位图 (无需框架实例; 任意线程可调用)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_feature_bits(void);
 
@@ -479,7 +479,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 ///   "throttleMs":0,"notifyThrottleMs":0}, ...]
 ///
 /// 逐项失败只写进 `log` (不影响其它项; 也不影响启动 —— 与"启动绝不失败"一致)。
-/// 应用需要在宿主启动后、装载插件之前声明一次, 插件才能读到这些键。
+/// 主程序需要在插件框架启动后、装载插件之前声明一次, 插件才能读到这些键。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_var_declare(
         MusicxxExternPluginHost*              h,
@@ -487,7 +487,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 变量表 · 应用推值 (官方键的应用侧变动; 值没变不会通知)
+/// 变量表 · 主程序推值 (官方键的主程序变动; 值没变不会通知)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_var_update(
         MusicxxExternPluginHost*              h,
@@ -515,7 +515,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 变量表 · 应用回答读取请求 (插件 `get` 官方键时宿主转过来的那条)
+/// 变量表 · 主程序回答读取请求 (插件 `get` 官方键时插件框架转过来的那条)
 /// - 一条读请求只回答一次; 不答则调用方按 `read_timeout` 结算
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_var_read_result(
@@ -527,7 +527,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 变量表 · 应用读插件键 (有界等待宿主与属主; 结果经 out_json 给出)
+/// 变量表 · 主程序读插件键 (有界等待插件框架与属主; 结果经 out_json 给出)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_var_get(
         MusicxxExternPluginHost*              h,

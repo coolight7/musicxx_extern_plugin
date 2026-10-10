@@ -1,11 +1,11 @@
 # musicxx_extern_plugin 示例插件构建（与打包）脚本
 #
-# 示例插件是"给插件作者照抄的样板 + 给宿主保护机制做对照的坏样本"，插件框架本身不需要它们：
+# 示例插件是"给插件作者照抄的样板 + 给插件框架保护机制做对照的坏样本"，插件框架本身不需要它们：
 # 因此把它们从框架构建脚本里分出来，单独一个脚本负责构建、并按需要打成可安装的 .zip。
 #
 # 做的事:
-#   1. 先构建插件框架(宿主库 + 插件 SDK): 复用 .native/env/environment.json 缓存，已是最新就有几秒钟的
-#      增量构建开销 —— 示例插件的库文件要链接宿主库与内核，必须有它;
+#   1. 先构建插件框架(插件框架库 + 插件 SDK): 复用 .native/env/environment.json 缓存，已是最新就有几秒钟的
+#      增量构建开销 —— 示例插件的库文件要链接插件框架库与内核，必须有它;
 #   2. 构建示例插件(plugins/ 下的动态库插件 + JS 插件); 默认连原生测试与对照示例一起构建;
 #   3. 把构建产物里的每个插件目录打包成安装包 .zip (顶层就是插件目录内容，可直接「从压缩包安装」)。
 #      包名带上插件版本号: <插件 id>-<清单 version 里的 . 换成 _>.zip，例 example_js_shader-20261010_1_0.zip
@@ -23,7 +23,7 @@
 #   pwsh -NoProfile -File tools/build_examples.ps1 -Config Debug -Jobs 8
 #   pwsh -NoProfile -File tools/build_examples.ps1 -Android -Abi arm64-v8a           # Android 交叉编译
 #
-# 装到应用里试:
+# 装到主程序里试:
 #   musicxx-cli plugin install "<包>/.native/output/<平台>-<配置>/packages/<插件id>-<版本号>.zip" --enable
 #
 # 说明: [CmdletBinding()] 让写错的参数名直接报错, 而不是被当成多余参数悄悄忽略。
@@ -54,7 +54,7 @@ Initialize-MxBuildEnvironment
 $paths = Get-MxBuildPaths -Root $Root -Config $Config -Android:$Android -Abi $Abi
 $packDir = if ($PackOut) { [System.IO.Path]::GetFullPath($PackOut) } else { Join-Path $paths.OutputDir 'packages' }
 
-# 用当前这个 PowerShell 宿主再开子进程跑别的脚本: 隔离作用域(子脚本里的 exit 不会带走本脚本),
+# 用当前这个 PowerShell 进程再开子进程跑别的脚本: 隔离作用域(子脚本里的 exit 不会带走本脚本),
 # 也让"构建失败"以退出码的形式回到这里。
 $pwshExe = Join-Path $PSHOME $(if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'pwsh.exe' } else { 'pwsh' })
 if (-not (Test-Path $pwshExe)) {
@@ -98,7 +98,7 @@ if (-not (Test-Path $paths.PluginsDir)) {
 
 # ==================== 2. 列出构建产物里的插件 ====================
 
-# 插件目录的判据与宿主一致: 目录里要有 plugin.yaml
+# 插件目录的判据与插件框架一致: 目录里要有 plugin.yaml
 $plugins = @()
 foreach ($dir in (Get-ChildItem $paths.PluginsDir -Directory | Sort-Object -Property Name)) {
     if (-not (Test-Path (Join-Path $dir.FullName 'plugin.yaml'))) { continue }
@@ -167,6 +167,6 @@ foreach ($zip in $zips) {
     Write-MxInfo ("{0,-40} {1,9:N2} MiB  sha256={2}" -f $zip.Name, ($zip.Bytes / 1MB), $zip.Sha.Substring(0, 16))
 }
 Write-Host ''
-Write-Host '装到应用里试 (应用需已开启『拟声++』):'
+Write-Host '装到主程序里试 (主程序需已开启『拟声++』):'
 Write-Host "  musicxx-cli plugin install `"$($zips[0].Path)`" --enable"
 Write-Host '  也可以直接把插件目录放进 <应用支持目录>/musicxx/extern_plugin/plugins/ 再在管理页重新扫描'

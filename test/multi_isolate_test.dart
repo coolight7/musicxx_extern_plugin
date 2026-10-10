@@ -1,11 +1,11 @@
 /// 多 isolate 并发调用用例
 ///
 /// 约定：
-/// - 宿主是**进程单例**：只在一个 isolate（应用的 UI isolate）里 `init`，其它 isolate
-///   通过**同一个宿主句柄**调用管理/派发/状态类 API；本用例把句柄地址经 SendPort 传给 worker；
+/// - 插件框架是**进程单例**：只在一个 isolate（主程序的 UI isolate）里 `init`，其它 isolate
+///   通过**同一个插件框架句柄**调用管理/派发/状态类 API；本用例把句柄地址经 SendPort 传给 worker；
 /// - 在第二个 isolate 里再次 `init` 必须被拒绝（`host_create` 的进程单例校验），
 ///   否则同一进程会出现两套插件实例与两条事件队列；
-/// - Dart 处理器与宿主动作只允许在 UI isolate 注册：worker 只调用管理/派发/状态类 API。
+/// - Dart 处理器与主程序动作只允许在 UI isolate 注册：worker 只调用管理/派发/状态类 API。
 ///
 /// 覆盖：两个 worker 并发 `hook_count` / `hook_emit(ASYNC)` / `state_update`，主 isolate
 /// 同时跑同步派发；断言不崩溃、事件 `seq` 严格递增、`callId` 不重复、裁决结果不串台、
@@ -38,7 +38,7 @@ void main() {
 
   test('多 isolate 并发调用：不崩溃、seq 单调、callId 不重复、裁决不串台', () async {
     if (env == null) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped('未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -68,7 +68,7 @@ void main() {
       greaterThan(0),
     );
 
-    // 1) 第二个 isolate 再次 init：必须被拒绝（宿主进程单例）
+    // 1) 第二个 isolate 再次 init：必须被拒绝（插件框架进程单例）
     final ReceivePort guardPort = ReceivePort();
     await Isolate.spawn(_initGuardWorker, <Object?>[
       guardPort.sendPort,
@@ -80,14 +80,14 @@ void main() {
     );
     guardPort.close();
     _step('第二个 isolate 的 init 结果: $guardResult');
-    expect(guardResult, isNot('ok'), reason: '同一进程不允许存在第二个宿主');
+    expect(guardResult, isNot('ok'), reason: '同一进程不允许存在第二个插件框架');
     expect(
       guardResult.toString(),
       contains('进程单例'),
       reason: '拒绝原因必须可读: $guardResult',
     );
 
-    // 2) 两个 worker 并发调用同一宿主
+    // 2) 两个 worker 并发调用同一插件框架
     final ReceivePort portA = ReceivePort();
     final ReceivePort portB = ReceivePort();
     final Isolate isolateA = await Isolate.spawn(_apiWorker, <Object?>[
@@ -162,7 +162,7 @@ void main() {
     expect(
       callIds.toSet().length,
       callIds.length,
-      reason: 'callId 必须唯一（宿主分配器是进程级原子计数）',
+      reason: 'callId 必须唯一（插件框架分配器是进程级原子计数）',
     );
     _step(
       'worker 报告: ${workerReports.map((Map<String, Object?> r) => '${r['name']}:'
@@ -223,7 +223,7 @@ void main() {
       '事件 ${seen.length} 条 (seq 单调)、裁决结果事件 ${decidedIds.length} 条、状态镜像 ${stateLen}B',
     );
 
-    // 8) 并发风暴之后宿主仍然可用（插件没被卸载、处理器位图没丢）
+    // 8) 并发风暴之后插件框架仍然可用（插件没被卸载、处理器位图没丢）
     expect(
       runtime.hooks.refreshNativeHandlerCount(
         MusicxxPluginHookId.playerBeforePlaySong,
@@ -240,7 +240,7 @@ void _step(String message) {
   print('[isolate] $message');
 }
 
-/// worker isolate：只用宿主句柄调用 API（不 init、不注册 Dart 处理器）
+/// worker isolate：只用插件框架句柄调用 API（不 init、不注册 Dart 处理器）
 Future<void> _apiWorker(List<Object?> args) async {
   final SendPort port = args[0]! as SendPort;
   final int hostAddress = args[1]! as int;
@@ -337,7 +337,7 @@ Future<void> _apiWorker(List<Object?> args) async {
   Isolate.exit(port, report);
 }
 
-/// worker isolate：尝试在第二个 isolate 里 init（应被宿主以"进程单例"拒绝）
+/// worker isolate：尝试在第二个 isolate 里 init（应被插件框架以"进程单例"拒绝）
 Future<void> _initGuardWorker(List<Object?> args) async {
   final SendPort port = args[0]! as SendPort;
   final String libraryPath = args[1]! as String;
@@ -368,7 +368,7 @@ String _statePayload(String name, int index) {
   return head + 'x' * (padLength > 0 ? padLength : 0) + tail;
 }
 
-/// 读取并释放宿主堆字符串（测试自带实现：包内不导出 takeOutString）
+/// 读取并释放插件框架堆字符串（测试自带实现：包内不导出 takeOutString）
 String _takeString(
   Pointer<MusicxxExternPluginString> out,
   MusicxxExternPluginBindings bindings,

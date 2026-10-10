@@ -1,10 +1,10 @@
-/// musicxx 外部插件宿主原生测试 (不依赖 Dart)
+/// musicxx 外部插件框架原生测试 (不依赖 Dart)
 ///
 /// 覆盖:
 /// - test_host_lifecycle: create/start/stop/destroy 幂等;
 /// - test_plugin_load: 扫描 + 装载示例插件 + 钩子注册生效;
 /// - test_hooks: decision 钩子裁决 (skip) / 观察钩子 / 未命中时零处理器;
-/// - test_namespace: 未知钩子注册被拒 (由宿主实现保证, 这里校验已注册集合);
+/// - test_namespace: 未知钩子注册被拒 (由插件框架实现保证, 这里校验已注册集合);
 /// - 卸载后钩子注册全部摘除 (无残留)。
 ///
 /// 运行: musicxx_extern_plugin_test <example_native 插件目录>
@@ -283,7 +283,7 @@ std::string waitCapabilityResult(MusicxxExternPluginHost *host,
 
 /// 同步派发一次钩子，返回**完整回执**（`{handled, handlers, called, result?}`）
 ///
-/// 测试里同步等是允许的：等的是宿主线程上的处理器链，不会互锁。
+/// 测试里同步等是允许的：等的是插件框架线程上的处理器链，不会互锁。
 /// 裁决对象（合并后的字段）用 `jsonRawField(ack, "result")` 取 —— 没有处理器给出
 /// `patch` / `action` 时回执里没有 `result` 这一段。
 std::string hookEmitSync(MusicxxExternPluginHost *host, const char *hookId,
@@ -457,7 +457,7 @@ void checkText(bool ok, const std::string &what) {
   }
 }
 
-/// 当前编译目标的规范系统名（与宿主上报的平台标识同规则）
+/// 当前编译目标的规范系统名（与插件框架上报的平台标识同规则）
 std::string testPlatform() {
 #if defined(__ANDROID__)
   return "android";
@@ -472,7 +472,7 @@ std::string testPlatform() {
 #endif
 }
 
-/// 当前编译目标的规范架构名（与宿主 `currentTargetArch()` / `hostArch()` 同规则）
+/// 当前编译目标的规范架构名（与插件框架 `currentTargetArch()` / `hostArch()` 同规则）
 std::string testArch() {
 #if defined(_M_ARM64) || defined(__aarch64__)
   return "arm64";
@@ -521,7 +521,7 @@ std::string testArchAlias() {
   return arch;
 }
 
-/// 按平台修正扩展名后的库文件名（清单按 Linux 写 `<名>.so`，宿主按平台修正扩展名）
+/// 按平台修正扩展名后的库文件名（清单按 Linux 写 `<名>.so`，插件框架按平台修正扩展名）
 std::string testLibFileName(const std::string &base) {
 #if defined(_WIN32)
   return base + ".dll";
@@ -579,7 +579,7 @@ std::string jsonEscape(const std::string &text) {
   return out;
 }
 
-/// 切换宿主的用户插件目录（扫描入口）并返回扫描结果里某个插件的片段
+/// 切换插件框架的用户插件目录（扫描入口）并返回扫描结果里某个插件的片段
 std::string scanPluginItem(MusicxxExternPluginHost *host,
                            const std::string &pluginRoot,
                            const std::string &id) {
@@ -830,7 +830,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
       {"lib/" + exactTag + "/" + libName, "lib/linux-arm64/" + libName});
   const std::filesystem::path pkg = root / "tgt_inspect";
 
-  // 1) 用宿主当前环境判定（os/arch 传空）
+  // 1) 用插件框架当前环境判定（os/arch 传空）
   const std::string info = inspect(pkg.string(), "", "");
   checkText(!info.empty(), "plugin_inspect 有出参");
   checkText(info.find("\"valid\":true") != std::string::npos,
@@ -876,9 +876,9 @@ void testPluginInspect(MusicxxExternPluginHost *host,
   }
   removePath(root);
 
-  // 5) 清单声明了 platforms / arch：按目标环境比较（传空 = 宿主当前环境）
+  // 5) 清单声明了 platforms / arch：按目标环境比较（传空 = 插件框架当前环境）
   //
-  // 回归：应用侧安装预检（`host.plugins.inspect(dir)`）**不传** os/arch，早期实现
+  // 回归：主程序安装预检（`host.plugins.inspect(dir)`）**不传** os/arch，早期实现
   // 拿空串去比对清单里的 platforms，于是声明了 platforms 的插件一律被判成
   // "当前平台不在清单声明内" —— 这类插件永远装不上（示例插件几乎都声明了 platforms）。
   {
@@ -892,9 +892,9 @@ void testPluginInspect(MusicxxExternPluginHost *host,
 
     const std::string hostEnv = inspect(pkgDir, "", "");
     checkText(hostEnv.find("\"supported\":true") != std::string::npos,
-              "清单声明了 platforms / arch 时，按宿主当前环境（传空）判定为可用");
+              "清单声明了 platforms / arch 时，按插件框架当前环境（传空）判定为可用");
     checkText(jsonStringField(hostEnv, "reason").empty(),
-              "按宿主当前环境判定时没有不可用原因");
+              "按插件框架当前环境判定时没有不可用原因");
 
     const std::string scanItem =
         scanPluginItem(host, declaredRoot.string(), "tgt_declared");
@@ -916,7 +916,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
   //
   // 本用例在 x64 机上跑：目标环境由参数注入（`plugin_inspect` 的 os/arch 参数就是为这种
   // 验证准备的）。编译目标本身的架构判定（32 位 ARM 上报 armv7）由 `debug_info` 的
-  // `arch` 断言覆盖（见 main 里的"宿主上报的架构"）。
+  // `arch` 断言覆盖（见 main 里的"插件框架上报的架构"）。
   {
     const std::string armLib = testLibFileName("tgt_armv7");
     const std::filesystem::path armRoot = makeTempPluginRoot(
@@ -962,9 +962,9 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     checkText(jsInfo.find("\"targetsDir\"") == std::string::npos &&
                   jsInfo.find("\"targetEntry\"") == std::string::npos,
               "JS 插件不出现动态库分支字段");
-    // 示例插件都声明了 platforms：按宿主当前环境判定必须是可用（安装预检的调用形状）
+    // 示例插件都声明了 platforms：按插件框架当前环境判定必须是可用（安装预检的调用形状）
     checkText(jsInfo.find("\"supported\":true") != std::string::npos,
-              "声明了 platforms 的 JS 示例插件按宿主当前环境判定为可用");
+              "声明了 platforms 的 JS 示例插件按插件框架当前环境判定为可用");
   }
 
   // 8) 目录不存在：valid=false + 可读原因（调用本身仍然成功）
@@ -1005,7 +1005,7 @@ int main(int argc, char **argv) {
   MusicxxExternPluginHostConfig cfg{};
   cfg.struct_size = sizeof(MusicxxExternPluginHostConfig);
   const std::string appV = "0.0.0-test";
-  /// 平台标识与编译目标一致（宿主按它选多目标分支，见 testPluginTargetLayout）
+  /// 平台标识与编译目标一致（插件框架按它选多目标分支，见 testPluginTargetLayout）
   const std::string plat = testPlatform();
   const std::string lang = "zh-cn";
   /// 客户端界面能力段 (正常情况下由界面描述层库按客户端实现生成)
@@ -1163,7 +1163,7 @@ int main(int argc, char **argv) {
     const std::string callId = jsonIntField(ack, "callId");
     check(!callId.empty(), "异步派发返回 callId");
 
-    // 结果经 `musicxx.hook.decision.result` 事件回传 (等一会儿让宿主线程跑完)
+    // 结果经 `musicxx.hook.decision.result` 事件回传 (等一会儿让插件框架线程跑完)
     std::string eventsJson;
     bool seen = false;
     for (int i = 0; i < 50 && !seen; ++i) {
@@ -1229,7 +1229,7 @@ int main(int argc, char **argv) {
   // ==================== 能力调用: 异步受理 + 结果事件 ====================
   //
   // 语义 (见 `musicxx_extern_plugin_api.h`):
-  // - 受理成功 ⇒ 一定有终局: 结果 / 错误 / 插件卸载 (`plugin_unloaded`) / 宿主停机
+  // - 受理成功 ⇒ 一定有终局: 结果 / 错误 / 插件卸载 (`plugin_unloaded`) / 插件框架停机
   //   (`host_stopped`) 四条路都会推一条 `musicxx.plugin.call.result`;
   // - 受理失败 (没加载 / 没声明该能力 / 归属不对 / 未及时受理) 只在返回值上体现, 不推事件;
   // - requestId 是唯一的配对依据。
@@ -1305,14 +1305,14 @@ int main(int argc, char **argv) {
     // 声明谁都匹配不上)
     const std::string reportedArch = jsonStringField(infoJson, "arch");
     checkText(reportedArch != "unknown",
-              "宿主上报的架构不是 unknown (32 位 ARM 应报 armv7)");
+              "插件框架上报的架构不是 unknown (32 位 ARM 应报 armv7)");
     checkText(reportedArch == testArch(),
-              "宿主上报的架构与用例期望一致 (" + reportedArch + ")");
+              "插件框架上报的架构与用例期望一致 (" + reportedArch + ")");
   }
 
   // 插件能力调用 (Dart → 插件) + 线程模型 / 命名空间自检
   {
-    // 先让宿主发布一个测试主题 (插件已订阅), 再读探针 —— 两者都投递到宿主线程,
+    // 先让插件框架发布一个测试主题 (插件已订阅), 再读探针 —— 两者都投递到插件框架线程,
     // 因此顺序确定 (先进先出), 探针一定看到已处理的事件
     MusicxxExternPluginString pubLog{};
     const auto pubRc = musicxx_extern_plugin_event_publish(
@@ -1341,7 +1341,7 @@ int main(int argc, char **argv) {
     // ==================== 声明式 UI 扩展 (动态库插件)
     // ====================
     //
-    // 插件只做声明 (类型 + JSON 内容), 宿主负责渲染;
+    // 插件只做声明 (类型 + JSON 内容), 主程序负责渲染;
     // 这里校验注册/更新/拒绝/快照/事件。
     {
       check(jsonIntField(probe, "uiHomeRc") == "0",
@@ -1387,11 +1387,11 @@ int main(int argc, char **argv) {
       check(snapshot.find("nodata") == std::string::npos, "非法声明不在快照里");
     }
 
-    // 单宿主线程模型: start 事务与能力处理器必须在同一条线程上执行
+    // 单框架线程模型: start 事务与能力处理器必须在同一条线程上执行
     const std::string startThread = jsonStringField(probe, "startThread");
     const std::string callThread = jsonStringField(probe, "callThread");
     check(!startThread.empty() && startThread == callThread,
-          "插件代码全部在宿主线程执行");
+          "插件代码全部在插件框架线程执行");
 
     // 钩子 / 事件命名空间校验 (动作名不再校验: 插件的动作请求一律受理)
     check(jsonIntField(probe, "unknownHookRc") == "-4",
@@ -1407,14 +1407,14 @@ int main(int argc, char **argv) {
           "本插件命名空间事件可发布");
     check(jsonIntField(probe, "foreignPublishRc") != "0",
           "他人命名空间事件发布被拒绝");
-    check(jsonIntField(probe, "pingEvents") == "1", "插件收到宿主发布的事件");
+    check(jsonIntField(probe, "pingEvents") == "1", "插件收到插件框架发布的事件");
     check(jsonIntField(probe, "stateEvents") != "0",
           "状态镜像变化通知到订阅插件");
     // 状态镜像可被插件同步读到 (上一段推送过 musicxx.state.song)
     check(jsonIntField(probe, "stateLen") != "0", "插件可同步读状态镜像");
   }
 
-  // 动作请求超时保护: 插件请求 → Dart 不回复 → 宿主到点终结并推
+  // 动作请求超时保护: 插件请求 → Dart 不回复 → 插件框架到点终结并推
   // cancel 事件
   {
     const CapabilityCallOutcome neverRespond = callCapability(
@@ -1463,7 +1463,7 @@ int main(int argc, char **argv) {
     check(noCapability.gotResult == false, "未声明能力也不推结果事件");
   }
 
-  // 装载失败安全降级: 不崩溃、明确失败、宿主继续可用
+  // 装载失败安全降级: 不崩溃、明确失败、插件框架继续可用
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
@@ -1482,12 +1482,12 @@ int main(int argc, char **argv) {
     take(again);
     check(rc2 != MUSICXX_EXTERN_PLUGIN_OK, "失败后不会静默重试成功");
 
-    // 宿主仍可正常工作
+    // 插件框架仍可正常工作
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
                   MUSICXX_EXTERN_PLUGIN_OK &&
               take(listed).find("example_native") != std::string::npos,
-          "装载失败后宿主仍可用");
+          "装载失败后插件框架仍可用");
   }
 
   // 禁用 → 钩子摘除, 启用 → 重新注册
@@ -1537,7 +1537,7 @@ int main(int argc, char **argv) {
     }
     check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为终局用例装载动态库插件");
 
-    // 让插件发起一个"永远不回复"的宿主动作请求, 把这通能力调用卡住
+    // 让插件发起一个"永远不回复"的主程序动作请求, 把这通能力调用卡住
     MusicxxExternPluginString callLog{};
     int64_t requestId = 0;
     const auto rc = musicxx_extern_plugin_plugin_call_async(
@@ -1547,7 +1547,7 @@ int main(int argc, char **argv) {
     check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步完成的能力已受理 (协程挂起中)");
     check(requestId > 0, "异步能力拿到 requestId");
 
-    // 协程还在睡: 宿主线程是空闲的, 所以卸载能立刻开始并先给这通调用一个终局
+    // 协程还在睡: 插件框架线程是空闲的, 所以卸载能立刻开始并先给这通调用一个终局
     std::this_thread::sleep_for(std::chrono::milliseconds{100});
     MusicxxExternPluginString unloadLog{};
     const auto unloadRc = musicxx_extern_plugin_plugin_unload(
@@ -1669,22 +1669,22 @@ int main(int argc, char **argv) {
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
             "JS 同步读状态镜像 (musicxx.state.song)");
       check(jsonStringField(probe, "hostPlatform") == "windows",
-            "JS 读到宿主信息 (平台)");
-      // JS 侧的声明式 UI 项 (顶层注册 → 宿主线程回放)
+            "JS 读到插件框架信息 (平台)");
+      // JS 侧的声明式 UI 项 (顶层注册 → 插件框架线程回放)
       // 2 项 = 主页入口 + 歌曲菜单 (播放页背景样式已拆到 example_js_shader;
       // 设置界面是插件自己的页面, 不是 UI 项)
       check(jsonIntField(probe, "uiEntries") == "2",
             "JS 注册了 2 个 UI 项 (脚本侧登记)");
       check(jsonIntField(probe, "selfStatsHooks") == "5",
             "JS 能读自己的统计 (stats.getSelf 的钩子计数, 含功能点通道)");
-      // 客户端界面能力段: 宿主配置里给的 ui 段原样出现在 host.info() 里
+      // 客户端界面能力段: 插件框架配置里给的 ui 段原样出现在 host.info() 里
       check(jsonStringField(probe, "hostUiKind") == "gui",
             "JS 从 host.info().ui 读到客户端能力段 (渲染类型)");
       check(jsonIntField(probe, "hostUiBlocks") == "3",
             "JS 从 host.info().ui 读到客户端支持的组件数");
     }
 
-    // JS 插件的 UI 项进入宿主快照 (与动态库插件同一注册表)
+    // JS 插件的 UI 项进入插件框架快照 (与动态库插件同一注册表)
     {
       MusicxxExternPluginString snap{};
       const auto rc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
@@ -1821,7 +1821,7 @@ int main(int argc, char **argv) {
     // ============ 跨插件能力调用 (capability.call) ============
     //
     // JS 插件调用其它插件的能力: JS 目标同线程直接调用;
-    // 原生目标投递到宿主线程执行, 脚本侧不等待 (返回
+    // 原生目标投递到插件框架线程执行, 脚本侧不等待 (返回
     // Promise)。这里用"最后一次结果"记录, 由 probe 能力回读。
     {
       // 原生示例插件在前面的用例里被卸载了, 这里临时再装一次作为被调用方
@@ -1839,7 +1839,7 @@ int main(int argc, char **argv) {
             "触发跨插件调用 (JS → 原生)");
       check(jsonIntField(callJson, "accepted") == "1", "跨插件调用被受理");
 
-      // 等回执回到 JS 线程 (宿主线程执行 + 投递回 JS 线程)
+      // 等回执回到 JS 线程 (插件框架线程执行 + 投递回 JS 线程)
       std::this_thread::sleep_for(std::chrono::milliseconds{800});
       const CapabilityCallOutcome probe3Call =
           callCapability(host, "example_js", "probe", "{}", 8000);
@@ -1885,7 +1885,7 @@ int main(int argc, char **argv) {
 
     // ============ 通用通道: 插件声明的功能点 ============
     //
-    // 插件点共用**一条固定钩子** `musicxx.feature.point.call`（宿主只认固定的钩子表，
+    // 插件点共用**一条固定钩子** `musicxx.feature.point.call`（插件框架只认固定的钩子表，
     // 插件不得制造未知钩子）:
     // - 处理器按 `point` 过滤，回答要包一层 `patch`（firstNonNull 只在收到 patch 时才停）；
     // - `ownerTag` = 点 id（只用于自省"这个处理器声称实现哪个点"）；
@@ -2012,7 +2012,7 @@ int main(int argc, char **argv) {
 
     // ============ JS 执行上限已移除 ============
     //
-    // 早期版本有一个可选的 `jsExecGuardMs`（超时中断超长脚本）。现在宿主不限制脚本执行
+    // 早期版本有一个可选的 `jsExecGuardMs`（超时中断超长脚本）。现在插件框架不限制脚本执行
     // 时长、也不提供中断开关：死循环脚本会一直占住共享 JS 线程（对照示例 example_js_spin
     // 因此不再装载 —— 它会真的把线程占死，连卸载都做不了）。
     {
@@ -2098,7 +2098,7 @@ int main(int argc, char **argv) {
   // ====================
   //
   // 语义 (无等待超时):
-  // - 处理器返回 Promise 时, 宿主一直等到它结算, 裁决照常生效;
+  // - 处理器返回 Promise 时, 插件框架一直等到它结算, 裁决照常生效;
   // - 没有"等太久就按无裁决继续"这回事, 也没有迟到丢弃。
   {
     MusicxxExternPluginString loadLog{};
@@ -2133,7 +2133,7 @@ int main(int argc, char **argv) {
             "Promise 结算的 patch 生效 (toMs)");
     }
 
-    // 2) Promise 1.5 s 后才结算 → 宿主一直等, 裁决照样生效 (没有等待超时)
+    // 2) Promise 1.5 s 后才结算 → 插件框架一直等, 裁决照样生效 (没有等待超时)
     {
       MusicxxExternPluginString out{};
       const auto t0 = std::chrono::steady_clock::now();
@@ -2150,8 +2150,8 @@ int main(int argc, char **argv) {
                   static_cast<long long>(elapsedMs));
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "长 Promise 的派发返回成功");
       check(result.find("\"cancel\"") != std::string::npos,
-            "宿主等到 Promise 结算, 裁决生效 (cancel)");
-      check(elapsedMs >= 1200, "宿主等满了 Promise 的等待时间");
+            "插件框架等到 Promise 结算, 裁决生效 (cancel)");
+      check(elapsedMs >= 1200, "插件框架等满了 Promise 的等待时间");
     }
 
     // 3) 结算之后可以继续派发 (处理器没有被跳过)
@@ -2213,7 +2213,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  // 脚本错误安全降级: 非法脚本的插件不应装载成功, 宿主继续可用
+  // 脚本错误安全降级: 非法脚本的插件不应装载成功, 插件框架继续可用
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
@@ -2226,7 +2226,7 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
               MUSICXX_EXTERN_PLUGIN_OK,
-          "脚本错误后宿主仍可用");
+          "脚本错误后插件框架仍可用");
     freeStr(listed);
   }
 
@@ -2247,7 +2247,7 @@ int main(int argc, char **argv) {
   //
   // 对照示例 example_native_bad_entry 的库文件导出了 get_info/create/destroy, 但**没有**
   // start/stop。 约定要求 start/stop 成对存在 (create 只构造, start
-  // 才是注册事务), 宿主必须在 "查找入口符号"阶段就拒绝装载: 明确失败
+  // 才是注册事务), 插件框架必须在 "查找入口符号"阶段就拒绝装载: 明确失败
   // (不是超时)、有可读原因、不留注册残留。
   {
     MusicxxExternPluginString loadLog{};
@@ -2280,7 +2280,7 @@ int main(int argc, char **argv) {
   //
   // 示例插件 example_native_multi 的库文件放在 `lib/<构建目标标签>/` 里（SDK 助手按
   // TARGET_TAG auto 摆放）。这里验证：扫描/装载都按当前系统与架构选中分支，并且
-  // 装载的确实是那一份构建（插件自报的构建标签与宿主选中的分支一致）。
+  // 装载的确实是那一份构建（插件自报的构建标签与插件框架选中的分支一致）。
   {
     const std::string multiItem = scanItemOf(scanJson, "example_native_multi");
     check(!multiItem.empty(), "扫描发现 example_native_multi (多目标包)");
@@ -2309,7 +2309,7 @@ int main(int argc, char **argv) {
     check(whichCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && whichCall.ok,
           "多目标包的能力可调用");
     check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
-          "装载的正是宿主选中的分支 (插件自报构建标签与分支标签一致)");
+          "装载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
 
     MusicxxExternPluginString unloadLog{};
     musicxx_extern_plugin_plugin_unload(host, viewCP("example_native_multi"),
@@ -2371,7 +2371,7 @@ int main(int argc, char **argv) {
             "同插件的正常处理器无失败记录");
     }
 
-    // 聚合统计 (宿主/插件维度) 仍然可读: 记录观测数据, 不做任何惩罚
+    // 聚合统计 (插件框架/插件维度) 仍然可读: 记录观测数据, 不做任何惩罚
     {
       MusicxxExternPluginString stats{};
       const auto statsRc =
@@ -2596,7 +2596,7 @@ int main(int argc, char **argv) {
   //
   // 自省要回答"这个钩子现在有谁在提供、谁先执行": 列表按**调用顺序**给出
   // (priority 升序, 同优先级按注册顺序), 只暴露 plugin / instance / kind / priority /
-  // ownerTag —— 不暴露处理器地址、载荷与内部状态。应用侧把它写进功能埋点自省,
+  // ownerTag —— 不暴露处理器地址、载荷与内部状态。主程序把它写进功能埋点自省,
   // 插件侧用动作 `musicxx.hook.handlers` 读同一份数据。
   {
     // 先归一状态: 这两个插件在前面的用例里可能还装着
@@ -2776,12 +2776,12 @@ int main(int argc, char **argv) {
     }
   }
 
-  // 宿主停机 ⇒ 还没回来的能力调用按 `host_stopped` 收尾 (同样不能悬挂)
+  // 插件框架停机 ⇒ 还没回来的能力调用按 `host_stopped` 收尾 (同样不能悬挂)
   //
-  // 这一段必须放在最后: 它之后宿主就停了。
+  // 这一段必须放在最后: 它之后插件框架就停了。
   // 用的能力是 `asyncProbe`(协程异步完成): 等待时长给得比停机预算长 ——
   // 停机等不到它, 于是这条调用在停机时仍然是"未完成", 正好验证收尾那一步。
-  // (能力的等待由协程自己的计时器驱动, 不占住宿主线程; 停机收尾之后它随宿主一起收场)
+  // (能力的等待由协程自己的计时器驱动, 不占住插件框架线程; 停机收尾之后它随插件框架一起收场)
   {
     MusicxxExternPluginString reloadLog{};
     const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
@@ -2809,7 +2809,7 @@ int main(int argc, char **argv) {
     if (!sawStopped) {
       std::printf("  [info] stop payload=%s\n", stopPayload.c_str());
     }
-    check(sawStopped, "宿主停机给未完成的调用终局 (host_stopped)");
+    check(sawStopped, "插件框架停机给未完成的调用终局 (host_stopped)");
   }
 
   check(musicxx_extern_plugin_host_stop(host, 1000, &log) ==

@@ -2,11 +2,11 @@
 # musicxx_extern_plugin 原生构建脚本 (Linux / macOS)
 #
 # 与 Windows 的 tools/build_native.ps1 一一对应: 只负责"环境准备 + 调 cmake",
-# 依赖库编译与宿主工程构建全部交给 src/CMakeLists.txt (superbuild + ExternalProject_Add):
+# 依赖库编译与插件框架工程构建全部交给 src/CMakeLists.txt (superbuild + ExternalProject_Add):
 #
 #   src/CMakeLists.txt       顶层 superbuild: 推导 XX_IS_* 宏 → 生成 BoostConfig.cmake →
-#                            ExternalProject_Add 逐个构建 third_party 依赖 → 构建宿主工程
-#   src/host/CMakeLists.txt  嵌套宿主工程: find_package 取依赖 → 宿主库 / 插件 SDK / 示例插件 / 原生测试
+#                            ExternalProject_Add 逐个构建 third_party 依赖 → 构建插件框架工程
+#   src/host/CMakeLists.txt  嵌套插件框架工程: find_package 取依赖 → 插件框架库 / 插件 SDK / 示例插件 / 原生测试
 #
 # 本脚本负责的只有 cmake 不方便做的事:
 #   - 环境预检 (cmake / git / 编译器版本 / pkg-config), 子模块是否已初始化
@@ -15,7 +15,7 @@
 #   - 构建完成后把产物复制到稳定的输出目录, 可选跑原生测试
 #
 # 用法 (选项名不区分大小写, --deps-only 与 -DepsOnly 等价):
-#   tools/build_native.sh                            # 插件框架: Release 宿主库 + 插件 SDK
+#   tools/build_native.sh                            # 插件框架: Release 插件框架库 + 插件 SDK
 #   tools/build_native.sh --with-examples            # 连示例插件一起构建 (Windows 侧见 tools/build_examples.ps1)
 #   tools/build_native.sh --with-tests               # 连原生测试一起构建 (含对照示例)
 #   tools/build_native.sh --config Debug             # Debug (独立构建目录, 依赖也重编)
@@ -29,7 +29,7 @@
 #   tools/build_native.sh --boost-archive <压缩包>   # 用本地 Boost 发布包解包
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
 #   tools/build_native.sh --build-dir/--output-dir/--generator <值>   # 覆盖目录与生成器
-#   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 宿主库
+#   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 插件框架库
 #
 # 关于自动模式 (--auto): Windows 侧的 tools/build_native.ps1 与它同等地位, 都是给
 # "flutter build" 触发的入口 —— 环境/Boost 复用已有缓存, 已是最新就立即返回, 构建失败只警告
@@ -38,7 +38,7 @@
 # Android 说明 (与 .ps1 的 -Android 一一对应):
 #   - 产出: <包>/.native/output/android-<abi>-<配置>/{bin,plugins} (ABI 名直接用作架构段)
 #   - NDK 位置: --ndk > $ANDROID_NDK_HOME / $ANDROID_NDK_ROOT > $ANDROID_SDK_ROOT|$ANDROID_HOME/ndk 下版本最大者
-#   - 统一 Ninja 生成器与 c++_static (C++ 运行库静态链进宿主库, APK 不需要带 libc++_shared.so)
+#   - 统一 Ninja 生成器与 c++_static (C++ 运行库静态链进插件框架库, APK 不需要带 libc++_shared.so)
 #   - --run-tests 在 Android 上跳过 (测试可执行文件是给设备编的)
 #
 # 产物布局 (与 .ps1 一致):
@@ -188,7 +188,7 @@ if [ "$run_tests" = 1 ]; then
     with_tests=1
 fi
 
-# Android: 目标平台与宿主平台无关, 平台/架构段按 ABI 推导 (与 .ps1 的 -Android 一致)
+# Android: 目标平台与开发机平台无关, 平台/架构段按 ABI 推导 (与 .ps1 的 -Android 一致)
 android_toolchain=""
 if [ "$android" = 1 ]; then
     os=android
@@ -280,7 +280,7 @@ build_dir="$(cd "$(dirname "$build_dir")" && pwd)/$(basename "$build_dir")"
 mkdir -p "$(dirname "$output_dir")"
 output_dir="$(cd "$(dirname "$output_dir")" && pwd)/$(basename "$output_dir")"
 install_dir="${build_dir}/musicxx-extern-plugin-install"
-# 宿主库与测试可执行文件的文件名 (供自动模式判断产物是否在位; 与安装前缀/输出目录里的名字一致)
+# 插件框架库与测试可执行文件的文件名 (供自动模式判断产物是否在位; 与安装前缀/输出目录里的名字一致)
 lib_name='libmusicxx_extern_plugin.so'
 test_name='musicxx_extern_plugin_test'
 if [ "$os" = macos ]; then
@@ -288,7 +288,7 @@ if [ "$os" = macos ]; then
 fi
 
 if [ "$android" = 1 ]; then
-    # 交叉编译固定用 Ninja: 与 NDK 工具链配合最稳, 也不依赖宿主平台的 IDE 生成器
+    # 交叉编译固定用 Ninja: 与 NDK 工具链配合最稳, 也不依赖开发机平台的 IDE 生成器
     command -v ninja >/dev/null 2>&1 ||
         die "Android 交叉编译需要 ninja (未在 PATH 上找到); 请安装 ninja"
     generator=Ninja
@@ -327,7 +327,7 @@ done
 info "cmake: $(cmake --version | head -1)"
 
 if [ "$android" = 1 ]; then
-    # 交叉编译用 NDK 自带的 clang, 宿主编译器与 pkg-config 都不参与
+    # 交叉编译用 NDK 自带的 clang, 开发机编译器与 pkg-config 都不参与
     [ -f "$android_toolchain" ] || die "找不到 NDK 工具链文件: ${android_toolchain}"
     info "ninja: $(command -v ninja)"
 else
@@ -501,7 +501,7 @@ if [ "$with_tests" = 1 ]; then stamp_kinds="${stamp_kinds} tests"; fi
 
 # ==================== 自动模式 (--auto) ====================
 #
-# 给"应用构建时自动触发宿主库构建"用 (见 tools/cmake/host_autobuild.cmake):
+# 给"主程序构建时自动触发插件框架库构建"用 (见 tools/cmake/host_autobuild.cmake):
 #   1) 产物已是最新 → 打印一行就返回 (秒级), 应用构建几乎不付代价;
 #   2) 否则起一个子进程跑完整流程 (不带 --auto), 失败只警告并返回 0 ——
 #      外部插件是可选功能, 不该让应用构建失败。
@@ -560,8 +560,8 @@ if [ "$auto" = 1 ]; then
     set -e
     if [ "$auto_rc" -ne 0 ]; then
         printf '\n' >&2
-        warn "插件框架自动构建失败 (退出码 ${auto_rc}), 本次应用构建不打包外部插件宿主库。"
-        warn '应用照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
+        warn "插件框架自动构建失败 (退出码 ${auto_rc}), 本次主程序构建不打包外部插件框架库。"
+        warn '主程序照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
         warn "  tools/build_native.sh --config ${config}"
         exit 0
     fi
@@ -580,7 +580,7 @@ fi
 
 # ==================== configure ====================
 
-step 'configure (superbuild: 依赖 + 宿主)'
+step 'configure (superbuild: 依赖 + 插件框架)'
 # 构建目录签名在 Boost 之后就已经算好 (自动模式要用它判断"是否已是最新"); 这里只写入标记文件。
 # 配置/生成器/架构/Boost 位置变化时重置目录, 避免 CMakeCache 里残留上一次的参数
 # (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
@@ -618,7 +618,7 @@ configure_args+=(
 )
 if [ "$android" = 1 ]; then
     # 交叉编译参数交给 NDK 工具链 (superbuild 的 src/CMakeLists.txt 自动补 XX_IS_ANDROID_D=1,
-    # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与宿主工程的嵌套构建)
+    # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与插件框架工程的嵌套构建)
     configure_args+=(
         "-DCMAKE_TOOLCHAIN_FILE=${android_toolchain}"
         "-DANDROID_ABI=${android_abi}"
@@ -665,18 +665,18 @@ if ! cmake --install "$build_dir" --config "$config"; then
     die 'cmake install 失败'
 fi
 
-# 宿主工程是嵌套 ExternalProject 构建: 生成器有时会判定上层的"构建/安装步骤已是最新"而跳过它,
+# 插件框架工程是嵌套 ExternalProject 构建: 生成器有时会判定上层的"构建/安装步骤已是最新"而跳过它,
 # 于是源码改动不会真正触发重编译 (表现为"构建成功但产物时间戳/体积不变")。这里显式再跑一次
 # 嵌套工程的增量构建与安装 (已经是新的就几秒钟结束), 保证脚本的"构建成功"与产物一致。
 if [ "$deps_only" = 0 ]; then
     host_build_dir="${build_dir}/e/host"
     if [ -f "${host_build_dir}/CMakeCache.txt" ]; then
-        step 'build 宿主工程 (嵌套工程增量构建)'
+        step 'build 插件框架工程 (嵌套工程增量构建)'
         if ! cmake --build "$host_build_dir" --config "$config" --parallel "$parallel"; then
-            die 'cmake build (宿主工程) 失败'
+            die 'cmake build (插件框架工程) 失败'
         fi
         if ! cmake --install "$host_build_dir" --config "$config"; then
-            die 'cmake install (宿主工程) 失败'
+            die 'cmake install (插件框架工程) 失败'
         fi
     fi
 fi
@@ -719,18 +719,18 @@ fi
 if [ "$run_tests" = 1 ]; then
     step '原生测试'
     if [ "$android" = 1 ]; then
-        # 测试可执行文件是给设备编的 (目标 ABI 与宿主不同), 宿主上跑不起来。
+        # 测试可执行文件是给设备编的 (目标 ABI 与开发机不同), 开发机上跑不起来。
         # 需要在设备上跑时: adb push bin/ + plugins/ 到设备目录, 用 LD_LIBRARY_PATH 指向 bin/ 再执行。
         printf '  [跳过] Android 目标是交叉编译产物, 不能在当前主机运行; 产物在: %s\n' "${install_dir}/bin"
     else
         test_exe="${install_dir}/bin/musicxx_extern_plugin_test"
         [ -x "$test_exe" ] || die "未找到测试可执行文件: ${test_exe}"
 
-        # 宿主把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
+        # 插件框架把"父目录下的每个子目录"当作一个插件, 因此测试参数传插件目录的父目录
         plugin_root="${install_dir}/plugins"
         printf '  插件目录: %s\n' "$plugin_root"
         printf '  运行: %s %s\n' "$test_exe" "$plugin_root"
-        # 测试可执行文件与宿主库同目录 (安装布局 bin/), 运行时按平台补库搜索路径
+        # 测试可执行文件与插件框架库同目录 (安装布局 bin/), 运行时按平台补库搜索路径
         if [ "$os" = macos ]; then
             export DYLD_LIBRARY_PATH="${install_dir}/bin${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
         else
@@ -758,7 +758,7 @@ fi
 
 printf '\n构建完成\n'
 if [ "$android" = 1 ]; then
-    printf 'README: 宿主库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效\n'
+    printf 'README: 插件框架库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效\n'
 fi
 printf '插件框架构建完成: %s\n' "${output_dir}/bin/${lib_name}"
 if [ "$with_examples" = 1 ]; then

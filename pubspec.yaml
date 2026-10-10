@@ -1,5 +1,5 @@
 name: musicxx_extern_plugin
-description: "musicxx 外部插件宿主 Dart 侧：加载/管理 C++ 与 JS 插件，派发钩子，转发接口。"
+description: "musicxx 外部插件框架 Dart 侧：加载/管理 C++ 与 JS 插件，派发钩子，转发接口。"
 version: 1.0.0
 homepage: https://github.com/coolight7/mymusic
 publish_to: none
@@ -8,12 +8,12 @@ environment:
   sdk: ^3.8.0
 
 dependencies:
-  # 跨边界内存与函数指针（唯一运行时依赖；耗时工作都在原生宿主里）
+  # 跨边界内存与函数指针（唯一运行时依赖；耗时工作都在原生插件框架里）
   ffi: ^2.1.4
   # 插件界面描述层（模型 / 解析 / 适配 / 文本降级 / kit；随包内子模块一起构建）
   pluginxx_ui:
     path: src/third_party/cxx_pluginxx_ui/dart
-  # 多目标打包的分支目录与路径拼接（lib/src/plugin_target.dart，应用侧安装预检也用它）
+  # 多目标打包的分支目录与路径拼接（lib/src/plugin_target.dart，主程序安装预检也用它）
   path: ^1.9.0
 
 dev_dependencies:
@@ -25,7 +25,7 @@ dev_dependencies:
 
 # 说明：
 # 本包声明的 Flutter 平台（Windows / Linux / Android）**不参与 Flutter 编译**：
-# 原生宿主库由包内 tools/build_native.ps1（Windows）/ tools/build_native.sh（Linux/macOS 与
+# 原生插件框架库由包内 tools/build_native.ps1（Windows）/ tools/build_native.sh（Linux/macOS 与
 # Android 交叉编译）独立构建（superbuild 结构）；`windows/CMakeLists.txt`、
 # `linux/CMakeLists.txt` 只负责把已构建好的库交给 Flutter 随应用分发（PLUGIN_BUNDLED_LIBRARIES），
 # Android 由 `android/build.gradle` 把库收集进 jniLibs（打进 APK 的 lib/<abi>/，见 android/README.md），

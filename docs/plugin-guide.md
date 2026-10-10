@@ -1,25 +1,27 @@
 # 插件开发指南（从选形态到发布）
 
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
 > 这篇是插件的**总入口**：环境准备 → 第一个插件 → 能力地图 → 注意事项 → 调试 → 发布前检查。
 > 每节都指向对应的详细文档，遇到具体写法就去看那一篇。
 
 | 你要做的事 | 读这篇 |
 |---|---|
-| 写 JS 脚本插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
-| 写 C++ 动态库插件（含多目标打包） | [plugin-native-api.md](plugin-native-api.md) |
+| 写 JS插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
+| 写 动态库插件（含多目标打包） | [plugin-native-api.md](plugin-native-api.md) |
 | 查钩子 id / 模式 / 载荷 / 裁决 | [plugin-hooks.md](plugin-hooks.md)（生成物） |
 | 读 / 改 / 订阅变量 | [plugin-vars.md](plugin-vars.md) |
 | 加界面（主页入口、歌曲菜单、插件页面） | [plugin-ui.md](plugin-ui.md) |
 | 写着色器（播放页背景 / 页面内联块） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **用命令行 / AI agent 装插件、刷新、看日志**（不点管理页） | [plugin-agent-cli.md](plugin-agent-cli.md) |
-| 构建宿主库、把宿主库随应用分发 | 本包 `README.md` |
+| 构建插件框架库、把插件框架库随主程序分发 | 本包 `README.md` |
 
 三句话理解这套框架：
 
-1. **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面描述），着色器交给宿主渲染；
-2. **两种形态**：JS 脚本（零编译、跨平台、能力处理器要同步返回）与 C++ 动态库
+1. **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面描述），着色器交给主程序渲染；
+2. **两种形态**：JS插件（零编译、跨平台、能力处理器要同步返回）与 动态库插件
    （同进程、能自己起线程、iOS/OHOS 不可用）；两者共用同一套钩子、变量、动作与界面约定；
-3. **宿主是可选功能**：宿主库缺失、插件写坏、用户关掉『拟声++』时，应用照常启动，只是没有外部插件。
+3. **插件框架是可选功能**：插件框架库缺失、插件写坏、用户关掉『拟声++』时，主程序照常启动，只是没有外部插件。
 
 ---
 
@@ -27,8 +29,8 @@
 
 | 形态 | 目录内容 | 适合 | 代价 |
 |---|---|---|---|
-| **JS 插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走宿主网络 | 不能调系统 API，没有 `require`/`fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
-| **C++ 动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS / OHOS 不能加载未签名动态库 |
+| **JS插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走主程序网络 | 不能调系统 API，没有 `require`/`fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
+| **动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS / OHOS 不能加载未签名动态库 |
 | **C++ 多目标包** | `plugin.yaml` + `lib/<系统>-<架构>/库文件` | 一个包同时发布 Windows / Linux / macOS / Android | 打包步骤多一些（分支选择规则见 [plugin-native-api.md](plugin-native-api.md) §1.3） |
 
 建议：**先用 JS 把想法跑通**（改完在管理页「重载」即可，不用编译），确实需要原生能力再换 C++；
@@ -45,11 +47,11 @@
 
 ```text
 ① git submodule update --init --recursive      # 本仓库依赖全是子模块，不用预编译库
-② pwsh -NoProfile -File tools/build_native.ps1 # Windows：构建插件框架（宿主库 + 插件 SDK）
+② pwsh -NoProfile -File tools/build_native.ps1 # Windows：构建插件框架（插件框架库 + 插件 SDK）
    pwsh -NoProfile -File tools/build_examples.ps1  # 想要示例插件/原生测试时再跑
    Linux/macOS 用 tools/build_native.sh（加 --with-examples 连示例插件一起构建）
 ③ 产物：<构建目录>/musicxx-extern-plugin-install/
-   ├── bin/     宿主库（+ 跑过示例插件脚本后还有原生测试）
+   ├── bin/     插件框架库（+ 跑过示例插件脚本后还有原生测试）
    └── plugins/ 示例插件（每个子目录一个插件，可直接拷进应用插件目录试用）
 ```
 
@@ -91,7 +93,7 @@ musicxx.ui.registerEntry({
     data: { title: "我的插件", action: { kind: "route", route: "ext://my_plugin/card" } },
 });
 
-// 页面内容：宿主调用同名能力取视图描述
+// 页面内容：主程序调用同名能力取视图描述
 musicxx.capability.register("card", function () {
     return { view: { title: "我的插件", blocks: [
         { kind: "Text", text: "你好，插件！" },
@@ -118,7 +120,7 @@ musicxx.capability.register("card", function () {
 | 直接放目录（开发期最常用） | 把插件目录放进 `<应用支持目录>/musicxx/extern_plugin/plugins/<插件 id>/`，管理页有「打开插件目录」；「重新扫描」后在插件页启用 |
 | 压缩包安装 | 打包成 `.zip`（**顶层就是插件目录内容**），管理页「从压缩包安装」 |
 | 命令行 / AI agent | `musicxx-cli plugin install "<zip绝对路径>" --enable`（非交互、不弹确认框；之后用 `plugin list` / `plugin logs` / `plugin reload` 控制）。见 [plugin-agent-cli.md](plugin-agent-cli.md) |
-| 随包插件 | 放进应用的随包插件目录，宿主启动时与用户目录一起扫描 |
+| 随包插件 | 放进主程序的随包插件目录，插件框架启动时与用户目录一起扫描 |
 
 改完代码：JS 插件点「重载」（脚本会重新执行一遍）；动态库插件重新构建后再「重载」。
 用命令行时对应 `musicxx-cli plugin reload <插件id>`（插件目录见 `plugin list` 的 `path` 字段）。
@@ -133,7 +135,7 @@ musicxx.capability.register("card", function () {
 | **状态镜像** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.state.get` / `stateJson` | [plugin-js-api.md](plugin-js-api.md) §5 |
 | **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | `musicxx.vars.*` / `varsGet` / `varsSet` | [plugin-vars.md](plugin-vars.md) |
 | **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-js-api.md](plugin-js-api.md) §7 |
-| **事件** | 插件之间 / 插件与宿主之间广播小消息 | `musicxx.events.*` | [plugin-js-api.md](plugin-js-api.md) §8 |
+| **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.events.*` | [plugin-js-api.md](plugin-js-api.md) §8 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` | [plugin-js-api.md](plugin-js-api.md) §10 |
 | **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-js-api.md](plugin-js-api.md) §4.4 / [plugin-native-api.md](plugin-native-api.md) §6.5 |
 | **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 | `musicxx.ui.registerEntry` | [plugin-ui.md](plugin-ui.md) §1 |
@@ -151,43 +153,43 @@ musicxx.capability.register("card", function () {
 
 ### 5.1 进程与线程
 
-- **动态库插件与宿主同进程**：没有沙箱，插件崩溃 = 应用崩溃；权限只是声明（安装弹窗与详情页展示），
+- **动态库插件与主程序同进程**：没有沙箱，插件崩溃 = 主程序崩溃；权限只是声明（安装弹窗与详情页展示），
   不拦截任何调用。
 - **不要有可变全局状态**：同一份库文件可能被创建多个实例（不同 id / 参数），全局量会互相干扰。
 - **JS 插件共用一条 JS 线程**：多个 JS 插件排队执行，处理器要尽快返回；死循环会一直占住这条线程
-  （宿主不打断脚本、也没有中断开关），只能重启应用。
-- **原生处理器的调用线程就是宿主线程**：网络、大文件、编解码、`sleep` 都不要直接在处理器里做，
+  （插件框架不打断脚本、也没有中断开关），只能重启主程序。
+- **原生处理器的调用线程就是框架线程**：网络、大文件、编解码、`sleep` 都不要直接在处理器里做，
   耗时工作放 `offload` + 回调（见 [plugin-native-api.md](plugin-native-api.md) §3）。
 
-### 5.2 不要"等宿主"（最容易踩的坑）
+### 5.2 不要"等主程序动作"（最容易踩的坑）
 
-打开插件页面、点按钮、调用能力，处理器都在宿主一侧执行；而**宿主动作要由应用线程执行**。所以：
+打开插件页面、点按钮、调用能力，处理器都在框架一侧执行；而**主程序动作要由主程序线程执行**。所以：
 
-- 能力处理器里 `await` 一个宿主动作，就会与动作执行互相等下去：表现为**整个应用卡住几秒**，
+- 能力处理器里 `await` 一个主程序动作，就会与动作执行互相等下去：表现为**整个主程序卡住几秒**，
   最后以「调用插件能力失败」结束；
 - 正确做法：当场要的数据同步读状态镜像（`musicxx.state.get`）；动作结果异步读回来，
   记进自己的状态，由页面下一次调用时回读（示例：`plugins/example_js` 的 `crossCall`、
   `plugins/example_js_shader` 的频谱读取）；
 - **长任务不要写在处理器里**：能力调用是异步的（调用方不会因为插件慢而卡住界面），
-  但处理器仍然占着 JS 线程 / 宿主线程。native 用 `co_await pluginxx::offload(*this, work)`
+  但处理器仍然占着 JS 线程 / 框架线程。native 用 `co_await pluginxx::offload(*this, work)`
   把重活交给工作线程池（或返回 `pluginxx::Task<T>` 的服务端协程），
   JS 返回 Promise 但别在 Promise 里做同步大计算；功能点的处理函数必须**同步返回**（通道是同步裁决），
   长任务请提前算好或做成能力；
-- 排查"应用卡住"：看应用日志目录下的 `host_call.log`（进宿主调用的同步轨迹，
+- 排查"应用卡住"：看主程序日志目录下的 `host_call.log`（进插件框架调用的同步轨迹，
   **最后一行就是没有返回的那次调用**）。
 
 ### 5.3 钩子
 
-- **只有"已接入"的钩子会触发**：当前版本 13 个（`plugin-hooks.md` 的「应用是否已接入」列），
+- **只有"已接入"的钩子会触发**：当前版本 13 个（`plugin-hooks.md` 的「主程序是否已接入」列），
   其余注册成功但不会触发 —— 别把功能押在未接入的钩子上；
   两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标**废弃**：
   注册它们不会收到任何事件，替代做法（状态镜像或导出能力）写在说明里；
 - **同一个钩子只注册一次**：用不同 `ownerTag` 注册同一个钩子，JS 侧只留一个处理器、
-  宿主侧却留下多条注册，表现为处理器被重复调用；
+  框架侧却留下多条注册，表现为处理器被重复调用；
 - **裁决是"建议"**：调用点会校验裁决的身份字段（如 `sid`），过期的裁决会被丢掉；
   异步派发的钩子尤其要注意（等待期间可能已经切歌 / 切列表）；
 - **处理器失败只记统计**：抛异常 / 返回失败不会暂停派发、也不会卸载插件；
-- **异步裁决的 Promise 一定要结算**：宿主一直等到它结算（没有超时），不结算就是调用点一直等；
+- **异步裁决的 Promise 一定要结算**：插件框架一直等到它结算（没有超时），不结算就是调用点一直等；
 - **外置插件永远排在应用自带的实现之前**：功能埋点（应用留出的扩展点）的询问顺序是
   「外置插件钩子 → 内置插件登记的实现 → 应用自身兜底」，同一个钩子上多个处理器按 `priority`
   升序执行（同优先级按注册顺序）。所以你注册上的实现会盖过内置功能，不需要额外声明；
@@ -200,7 +202,7 @@ musicxx.capability.register("card", function () {
 
 ### 5.4 界面
 
-- **页面是"取一次"的快照**：宿主打开页面时调用一次能力拿到视图；改完配置要让能力再返回一次
+- **页面是"取一次"的快照**：主程序打开页面时调用一次能力拿到视图；改完配置要让能力再返回一次
   `{view: …}`（或重新打开页面），界面才会更新；
 - **入口/按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示
   「插件『<插件id>』没有提供『xxx』」；
@@ -210,7 +212,7 @@ musicxx.capability.register("card", function () {
   都在里面；用 `fallback` 或 kit 的变体处理不支持的情况（不要假设所有客户端都支持 `Image`、
   `Icon` 或 `musicxx.Shader`）；
 - **图标要插件自己带**：写一条**相对插件目录**的 svg 路径（`icon: "resource/svg/logo.svg"`，
-  `resource/svg/` 只是推荐位置，可省 `.svg` 后缀）；能力段里**没有** `icons` 清单，写宿主图标名
+  `resource/svg/` 只是推荐位置，可省 `.svg` 后缀）；能力段里**没有** `icons` 清单，写主程序图标名
   等于没写图标（见 [plugin-ui.md](plugin-ui.md) §1.5）；
 - **块只画自己的职责**：文本就是一段文本、按钮就是一个按钮，没有隐含边距；要留白就自己写
   `margin` / `padding`（见 [plugin-ui.md](plugin-ui.md) §2.5 与 `docs/musicxx-ui-kit.md`）；
@@ -224,7 +226,7 @@ musicxx.capability.register("card", function () {
 - **不要用运行时下标取 uniform**（GLSL ES 1.00 不允许）：小表用几条比较挑，大表用循环下标；
 - **渲染目标是左上角原点的像素坐标**（`gl_FragCoord.y` 向下增大），上下不对称的效果要自己翻 y；
 - **本地验证**：`impellerc --runtime-stage-gles --gles-language-version=100 …` 打出来的就是后端要编的那份源码；
-- **动画速率由插件自己声明**（`speed`），宿主不做二次缩放；想给用户开关就做成自己设置页里的设置项，
+- **动画速率由插件自己声明**（`speed`），主程序不做二次缩放；想给用户开关就做成自己设置页里的设置项，
   改完用 `musicxx.ui.updateEntry` 重新登记同一项即可生效；
 - **渲染失败会自动回退**：预检不过 / 结构体不符 / 运行期异常 / 插件停用，都会退回内置背景；
   运行期失败最多重试 3 次（每次隔 2 秒），连续失败才停用该样式。
@@ -234,24 +236,24 @@ musicxx.capability.register("card", function () {
 - 配置放插件目录里的 `config.json`，由插件自己读写（框架不渲染配置表单、也不列设置入口）；
 - `musicxx.storage.get` / `getConfig` 的**应答就是值本身**（键不存在时是空应答，用你给的第 2 个参数当默认值）；
 - 读配置是异步的：**读回来的旧值后到会覆盖用户刚改的值**，自己加"已经改过就不再覆盖"的保护；
-- 路径类数据一律用宿主给的插件数据目录，不要写死位置。
+- 路径类数据一律用插件框架给的插件数据目录，不要写死位置。
 
 ### 5.7 网络
 
 - `musicxx.net.fetch` / `download` 走应用统一网络栈（继承应用的超时与代理）；
 - **非 2xx 也按请求完成返回**（看 `status` 自己判断）；响应体读到上限会断开并标 `truncated`；
   只有传输失败 / 超时才 `ok:false`；
-- 下载只落在插件自己的数据目录里；宿主不限定可访问域名（这条通道是便利，不是限制）。
+- 下载只落在插件自己的数据目录里；主程序不限定可访问域名（这条通道是便利，不是限制）。
 
 ### 5.8 平台
 
 | 平台 | JS 插件 | 动态库插件 |
 |---|---|---|
-| Windows / Linux / macOS | 可用 | 可用（随应用分发宿主库） |
-| Android | 可用 | **受限**：用户安装的 `.so` 可能装载失败（系统只允许从 APK 的原生库目录加载），宿主按"安全降级"处理：标记不可用 + 给原因 + 不重试 |
+| Windows / Linux / macOS | 可用 | 可用（随主程序分发插件框架库） |
+| Android | 可用 | **受限**：用户安装的 `.so` 可能装载失败（系统只允许从 APK 的原生库目录加载），插件框架按"安全降级"处理：标记不可用 + 给原因 + 不重试 |
 | iOS / OHOS | 可用 | 不支持（只跑 JS 插件） |
 
-- 清单 `entry` **按 Linux 写法填 `<名字>.so`**：Windows / macOS 的扩展名由宿主按平台修正，一份清单三平台通用；
+- 清单 `entry` **按 Linux 写法填 `<名字>.so`**：Windows / macOS 的扩展名由插件框架按平台修正，一份清单三平台通用；
 - 多目标包的分支目录用 `lib/<系统>-<架构>/`，运行时按「系统+架构 → 只系统 → 只架构 → 通用 → 插件根目录」
   选分支（不认识的分支目录会被忽略）；
 - 清单 `platforms` / `arch` 是**整包**的额外限制（不写 = 不限）：取值与分支标签共用同一张别名表
@@ -259,7 +261,7 @@ musicxx.capability.register("card", function () {
   写错平台的表现是**装不上 / 扫描结果里 `supported=false`**：管理页与安装提示会写明
   「当前平台不在清单声明内 (当前 windows，清单声明: linux)」，照提示改清单即可；
 - 每个架构各构建一次，库文件不能互换；
-- **32 位 ARM（`armeabi-v7a` / armhf）**：宿主的架构标识报 `armv7`，分支目录按 `lib/android-armeabi-v7a/`
+- **32 位 ARM（`armeabi-v7a` / armhf）**：插件框架的架构标识报 `armv7`，分支目录按 `lib/android-armeabi-v7a/`
   写即可（`musicxx_plugin_add_target(... TARGET_TAG auto)` 在 Android 上直接用 ABI 名）；清单 `arch` 写
   `armv7` / `arm` / `armeabi-v7a` 都认。
 
@@ -278,7 +280,7 @@ musicxx.capability.register("card", function () {
   比反复发动作便宜得多；
 - **声明式界面的动画是局部的**：只有放进 `musicxx.AnimatedBuilder` 的子树会逐帧重建，
   其它部分保持快照；动画等级低时连时间都不推进；
-- **变量声明节流**：超过约 5 Hz 的值声明 `throttleMs`，否则宿主会记警告日志；
+- **变量声明节流**：超过约 5 Hz 的值声明 `throttleMs`，否则插件框架会记警告日志；
 - **着色器 uniform 成员越多越慢**：实测 16 个频带成员约 5 ms 量级，64 个成员（256 个频点）会到
   90 ms 以上 —— 需要更细的频带就用 `bands64`，不要逐像素在 64 个成员里挑；
 - 定时器精度是 ≤ 50 ms 轮询，不要用它做高精度计时；日志不要当数据通道用（高频写日志会拖慢应用）。
@@ -293,12 +295,12 @@ musicxx.capability.register("card", function () {
 | 命令行 / MCP | 同一批操作不用点界面：`musicxx-cli plugin list / install / enable / disable / reload / uninstall / restart / logs`，MCP 工具同名对应（见 [plugin-agent-cli.md](plugin-agent-cli.md)） |
 | 管理页「调试」分页 | 钩子统计（调用次数 / 平均 / 最大 / 超时 / 失败）、每个插件的阶段耗时与计数、JS 实例统计与内存采样、最近事件、变量快照、界面描述层版本 |
 | 管理页「设置」分页 | 框架开关（总开关、动态库 / JS 开关、安全模式、事件日志开关） |
-| 插件日志 | `console.*` / `musicxx.host.log(...)` 与宿主日志；设 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可让宿主日志打到 stderr |
+| 插件日志 | `console.*` / `musicxx.host.log(...)` 与框架日志；设 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可让框架日志打到 stderr |
 | `host_call.log` | 应用日志目录下的同步调用轨迹：应用卡住时最后一行就是没返回的那次调用 |
 | 原生测试 | `pwsh -NoProfile -File tools/build_examples.ps1 -RunTests`（用安装前缀的 `plugins/` 当插件目录；Linux/macOS 用 `tools/build_native.sh --with-examples --run-tests`） |
-| 包内 Dart 测试 | `flutter test`（对真实宿主库做整套流程验证；先跑一次 `tools/build_examples.ps1` 产出原生库与示例插件） |
+| 包内 Dart 测试 | `flutter test`（对真实插件框架库做整套流程验证；先跑一次 `tools/build_examples.ps1` 产出原生库与示例插件） |
 
-**对照示例**（故意写坏的插件，演示宿主怎么保护自己）：`plugins/example_native_fail/`（处理器总是失败）、
+**对照示例**（故意写坏的插件，演示插件框架怎么保护自己）：`plugins/example_native_fail/`（处理器总是失败）、
 `plugins/example_native_bad_entry/`（缺入口符号 → 拒绝装载）、`plugins/example_js_async/`（异步裁决）、
 `plugins/example_js_broken/`（脚本语法错误 → 装载失败并回滚）。不要把它们装到日常使用的环境里。
 
@@ -323,7 +325,7 @@ musicxx.capability.register("card", function () {
 - [ ] 同一个钩子只注册一次；不需要时注销（或随插件停用自动摘除）；
 - [ ] 没有长时间阻塞的处理器 / 脚本循环；耗时工作拆成回调、定时器或 `offload`；
 - [ ] 没有可变全局状态（原生插件会被创建多个实例）；
-- [ ] 能力处理器同步返回或返回一定会结算的 Promise；**没有在里面等宿主动作**；
+- [ ] 能力处理器同步返回或返回一定会结算的 Promise；**没有在里面等主程序动作**；
 - [ ] 界面用 `host.info().ui` 的能力段做降级；入口动作指向的能力真的注册了；视图里块类型名拼写正确
       （拼错会被静默忽略）；
 - [ ] 设置页自己画在插件页面里，配置读写走 `config.json`（读到旧值不要覆盖用户刚改的值）；
@@ -342,5 +344,5 @@ musicxx.capability.register("card", function () {
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— bundle 打包、uniform 约定、参数表达式、排查
 - [plugin-agent-cli.md](plugin-agent-cli.md) —— 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化）
 - [musicxx-ui-kit.md](musicxx-ui-kit.md) —— musicxx 扩展 kit 的组件与参数（生成物）
-- 本包 `README.md` —— 构建宿主库、随应用打包、包内 Dart 接入、能力现状
+- 本包 `README.md` —— 构建插件框架库、随主程序打包、包内 Dart 接入、能力现状
 - `plugins/` —— 官方示例与对照示例（每个子目录一个插件）

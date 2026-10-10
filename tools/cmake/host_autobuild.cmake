@@ -1,18 +1,18 @@
-# musicxx_extern_plugin 宿主库自动构建 (被 windows/CMakeLists.txt 与 linux/CMakeLists.txt include)
+# musicxx_extern_plugin 插件框架库自动构建 (被 windows/CMakeLists.txt 与 linux/CMakeLists.txt include)
 #
 # 作用: 让 `flutter build <平台>` / `flutter run -d <平台>` 不必先手工跑构建脚本 —— 平台工程在
 # configure 期调用包内构建脚本的自动模式 (`-Auto` / `--auto`), 由脚本自己判断
 # "产物已是最新就秒退、环境没配置过就现场配置", 因此重复构建几乎没有额外开销。
 #
-# 为什么放在 configure 期: 平台工程要把"已经存在的宿主库路径"交给 Flutter 的
-# PLUGIN_BUNDLED_LIBRARIES, 而应用侧的 install(FILES ...) 在构建末尾要求文件已经在位;
+# 为什么放在 configure 期: 平台工程要把"已经存在的插件框架库路径"交给 Flutter 的
+# PLUGIN_BUNDLED_LIBRARIES, 而主程序侧的 install(FILES ...) 在构建末尾要求文件已经在位;
 # 放到 build 期的自定义目标会来不及 (装的时候文件还不存在)。
 #
 # 关掉自动构建 (任一即可):
 #   -DMUSICXX_EXTERN_PLUGIN_AUTO_BUILD=OFF      平台工程声明的 CMake 变量
 #   $env:MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0     环境变量 (CI 常用)
-# 目标配置: 默认 Release; 需要 Debug 宿主库时设 $env:MUSICXX_EXTERN_PLUGIN_CONFIG=Debug。
-# 已经显式指定宿主库 (-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY 或环境变量
+# 目标配置: 默认 Release; 需要 Debug 插件框架库时设 $env:MUSICXX_EXTERN_PLUGIN_CONFIG=Debug。
+# 已经显式指定插件框架库 (-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY 或环境变量
 # MUSICXX_EXTERN_PLUGIN_LIBRARY) 时不自动构建: 那种情况下用哪份库已经由使用者决定。
 #
 # 构建失败不中断应用构建 (外部插件是可选功能): 脚本自己在自动模式下就是"失败只警告"，
@@ -35,7 +35,7 @@ function(musicxx_extern_plugin_autobuild_host)
 
   # 已经有人指定了用哪份库: 不再自动构建
   if(MX_EXPLICIT_LIBRARY OR "$ENV{MUSICXX_EXTERN_PLUGIN_LIBRARY}")
-    message(STATUS "[musicxx_extern_plugin] 宿主库已显式指定, 跳过自动构建")
+    message(STATUS "[musicxx_extern_plugin] 插件框架库已显式指定, 跳过自动构建")
     return()
   endif()
 
@@ -71,7 +71,7 @@ function(musicxx_extern_plugin_autobuild_host)
     find_program(MUSICXX_EXTERN_PLUGIN_PWSH NAMES pwsh.exe pwsh powershell.exe)
     if(NOT MUSICXX_EXTERN_PLUGIN_PWSH)
       message(WARNING
-        "[musicxx_extern_plugin] 没有找到 PowerShell, 跳过宿主库自动构建; "
+        "[musicxx_extern_plugin] 没有找到 PowerShell, 跳过插件框架库自动构建; "
         "需要 ${_mx_display} 时请手工跑 tools/build_native.ps1")
       return()
     endif()
@@ -81,7 +81,7 @@ function(musicxx_extern_plugin_autobuild_host)
     find_program(MUSICXX_EXTERN_PLUGIN_BASH NAMES bash)
     if(NOT MUSICXX_EXTERN_PLUGIN_BASH)
       message(WARNING
-        "[musicxx_extern_plugin] 没有找到 bash, 跳过宿主库自动构建; "
+        "[musicxx_extern_plugin] 没有找到 bash, 跳过插件框架库自动构建; "
         "需要 ${_mx_display} 时请手工跑 tools/build_native.sh")
       return()
     endif()
@@ -89,17 +89,17 @@ function(musicxx_extern_plugin_autobuild_host)
         --auto --config "${_mx_config}")
   endif()
 
-  message(STATUS "[musicxx_extern_plugin] 确保宿主库就绪 (${_mx_config}): 调用包内构建脚本的自动模式")
+  message(STATUS "[musicxx_extern_plugin] 确保插件框架库就绪 (${_mx_config}): 调用包内构建脚本的自动模式")
   # 子进程输出直接透传 (构建过程很长, 要能在 Flutter 的日志里实时看到)
   execute_process(COMMAND ${_mx_command} RESULT_VARIABLE _mx_result)
   if(EXISTS "${_mx_library}")
-    message(STATUS "[musicxx_extern_plugin] 宿主库就绪: ${_mx_library}")
+    message(STATUS "[musicxx_extern_plugin] 插件框架库就绪: ${_mx_library}")
   elseif(_mx_result EQUAL 0)
     # 脚本退 0 但库仍不在: 已是最新判定命中了别处的库, 或自动构建被跳过
     message(STATUS "[musicxx_extern_plugin] 未产出 ${_mx_library} (脚本判定无需构建或环境尚未配置)")
   else()
     message(WARNING
-      "[musicxx_extern_plugin] 宿主库自动构建失败 (退出码 ${_mx_result}), 本次构建不会打包 ${_mx_display};\n"
+      "[musicxx_extern_plugin] 插件框架库自动构建失败 (退出码 ${_mx_result}), 本次构建不会打包 ${_mx_display};\n"
       "  应用照常构建与运行, 外部插件功能不可用。手工排查:\n"
       "  包内 tools/build_native.ps1 -Config ${_mx_config}   (Windows)\n"
       "  包内 tools/build_native.sh --config ${_mx_config}   (Linux / macOS)")

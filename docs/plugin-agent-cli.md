@@ -7,6 +7,9 @@
 > 第一次写插件先看 [plugin-guide.md](plugin-guide.md)；写法看 [plugin-js-api.md](plugin-js-api.md) /
 > [plugin-native-api.md](plugin-native-api.md)；播放页背景看 [plugin-shader-bundle.md](plugin-shader-bundle.md)。
 
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
+
 ## 1. 什么时候用它
 
 | 场景 | 为什么合适 |
@@ -24,7 +27,7 @@
 | 有 `musicxx-cli` | 正常构建/安装应用时会与主程序**编译到同一目录**（Windows `musicxx-cli.exe`；Linux / macOS `musicxx-cli`，macOS 在 `Musicxx.app/Contents/MacOS/`）。找不到时看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里也写着当前路径 |
 | 与主程序同一台机器 | 本机回环直接可用（不需要额外配置）；跨机器使用要开「共享与控制 → 允许远程控制本机」 |
 | 主程序在运行 | 没在运行时命令以退出码 2 结束；加 `--start` 可以先拉起再执行，`musicxx-cli start` 拉起并等它就绪 |
-| 『拟声++』已开启 | **安装 / 重载 / 重启**要求插件框架正在运行（见 `plugin list` 的 `hostStarted`）；`list` / `enable` / `disable` / `uninstall` / `logs` 没有宿主也能调用 —— 但**未开启『拟声++』时应用不会加载插件记录**，它们看到的是"没有插件" |
+| 『拟声++』已开启 | **安装 / 重载 / 重启**要求插件框架正在运行（见 `plugin list` 的 `hostStarted`）；`list` / `enable` / `disable` / `uninstall` / `logs` 没有插件框架也能调用 —— 但**未开启『拟声++』时主程序不会加载插件记录**，它们看到的是"没有插件" |
 
 自检：`musicxx-cli doctor`（接入点文件、连接结果、命令数、主程序路径），
 `musicxx-cli ping`（只看存活与就绪）。
@@ -35,7 +38,7 @@
 musicxx-cli plugin list                                      # 装了哪些插件、框架在不在跑
 musicxx-cli plugin install "D:/out/my_plugin-20261010_1_0.zip" --enable    # 安装并启用（路径必须绝对路径）
 musicxx-cli plugin logs my_plugin --limit 50                 # 最近的插件日志（新的在前）
-musicxx-cli plugin reload my_plugin                          # 改完文件重新加载（JS 脚本会重新执行）
+musicxx-cli plugin reload my_plugin                          # 改完文件重新加载（JS脚本会重新执行）
 musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-data 保留插件私有数据）
 ```
 
@@ -59,7 +62,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 
 几个别名：`plugin remove` = `uninstall`，`plugin log` = `logs`，`plugin clearlogs` = `clear-logs`。
 
-「需要框架在跑 = 否」的命令在宿主没起来时也能用；但**未开启『拟声++』时应用不会加载插件记录**
+「需要框架在跑 = 否」的命令在插件框架没起来时也能用；但**未开启『拟声++』时主程序不会加载插件记录**
 （`plugin list` 显示 0 个，按 id 启停/卸载会报「插件未安装」），先开启『拟声++』再操作。
 
 每条子命令背后是一条**服务端命令**，可以用 `musicxx-cli call <命令 id>` 直调（`musicxx-cli list`
@@ -101,7 +104,7 @@ musicxx-cli plugin install "D:/work/my_plugin-20261010_1_0.zip" --enable
   都在结果里（`--json` 时是 `data` 的字段），调用方自己展示；
 - 已存在同名插件时是**覆盖安装**：先备份旧目录，写入失败会回滚；结果里 `isUpgrade: true`；
 - 装失败的常见原因（原因文本直接给在输出里）：
-  - 「插件框架未启动，无法安装插件」——『拟声++』没开、处于安全模式或宿主库不可用；
+  - 「插件框架未启动，无法安装插件」——『拟声++』没开、处于安全模式或插件框架库不可用；
   - 「安装包路径必须是绝对路径…」；
   - 压缩包不合格（没有 `plugin.yaml`、条目过多/过大、含非法路径或符号链接）；
   - 清单 `platforms` / `arch` 与当前系统不符（文案形如「当前平台不在清单声明内
@@ -111,7 +114,7 @@ musicxx-cli plugin install "D:/work/my_plugin-20261010_1_0.zip" --enable
 
 | 改了什么 | 怎么做 |
 |---|---|
-| JS 脚本 / 页面 / 随插件分发的文件 | 直接改插件目录里的文件，然后 `plugin reload <插件id>`（脚本会重新执行） |
+| JS插件 / 页面 / 随插件分发的文件 | 直接改插件目录里的文件，然后 `plugin reload <插件id>`（脚本会重新执行） |
 | 动态库插件 | 重新构建 → 把新的库文件（与清单）覆盖进插件目录 → `plugin reload <插件id>` |
 | 已打好的 .zip | 再 `plugin install` 一次（覆盖安装），或解开覆盖目录后重载 |
 | 只有启动时才读取的框架设置 | `plugin restart`（插件与安装记录都保留） |
@@ -140,13 +143,13 @@ musicxx-cli logs error --keyword 插件 --offset 20      # 只看 error.log，�
 
 | 字段 | 含义 |
 |---|---|
-| `hostStarted` | 插件框架（宿主）是否在运行 |
+| `hostStarted` | 插件框架是否在运行 |
 | `supportPlus` / `enabled` / `safeMode` / `autoSafeMode` / `lastError` | 『拟声++』开关、框架开关、安全模式、最近一次失败 |
 | `pluginDir` | 插件目录（`path` 的父目录） |
 | `pluginCount` / `loadedCount` | 已登记插件数 / 已加载数 |
 | `plugins[]` | 每个插件：`id`、`version`、`kind`、`enabled`、`loaded`、`supported`、`reason`（不可用原因）、`target`（动态库插件选中的分支）、`path`（插件目录）、`permissions`（声明的权限）、`error`（最近一次失败原因） |
 
-- 日志是**内存里的环形缓冲**（最多 500 条，新的在前，不落盘、重启应用就没了）：宿主事件、
+- 日志是**内存里的环形缓冲**（最多 500 条，新的在前，不落盘、重启主程序就没了）：框架事件、
   插件日志（`console.*` / `musicxx.host.log`）与错误都在里面，和管理页「调试」页签看的是同一份；
   结果里 `total` 是**过滤后**的条数、`hasMore` 说明还有没有更早的（翻页用 `--offset`）；
 - **装载失败不会让安装失败**：安装结果只说明"文件装好了"；是否真的跑起来要看该插件的
@@ -233,7 +236,7 @@ musicxx-cli featurePoint.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}
   `4` 命令执行失败（原因在 stderr）/ `5` 协议不匹配（CLI 与主程序版本差太多）；
 - 命令名是**自描述**的：`musicxx-cli list --json` 里有全部命令与参数，不要硬编码参数表；
 - **这几条命令不在插件的动作表里**：插件里 `musicxx.call("externPlugin.install", …)` 只会得到
-  "动作未注册"。装插件 = 执行任意代码，这条通道只留给本机命令行与 MCP（应用侧有意如此，
+  "动作未注册"。装插件 = 执行任意代码，这条通道只留给本机命令行与 MCP（主程序有意如此，
   不是遗漏）。
 
 ## 7. MCP（给只会 stdio 的 AI 客户端）
@@ -316,7 +319,7 @@ musicxx-cli plugin uninstall my_plugin
   确认框（声明只在结果里列出）。只装可信来源；agent 应当把声明的权限先展示给用户再装。
 - **卸载默认不可逆**：`plugin uninstall` 会删掉插件目录，默认连私有数据（`config.json` 与存储）
   一起删；要留就加 `--keep-data`。
-- **需要框架在跑的三条**：`install` / `reload` / `restart`；其余命令在宿主没起来时也能用
+- **需要框架在跑的三条**：`install` / `reload` / `restart`；其余命令在插件框架没起来时也能用
   （启用/禁用只记录状态，下次启动生效），但未开启『拟声++』时应用不加载插件记录 —— 先开启再操作。
 - **命令行是桌面端能力**：Android / iOS 用管理页。Android 上动态库插件可能装载失败的平台限制
   与这里无关，见 [plugin-native-api.md](plugin-native-api.md) §11。
@@ -331,13 +334,13 @@ musicxx-cli plugin uninstall my_plugin
 | 现象 | 原因 / 处理 |
 |---|---|
 | 退出码 2（"拟声未在运行"） | 加 `--start`，或先 `musicxx-cli start`；用 `musicxx-cli doctor` 看接入点文件与连接 |
-| 安装失败「插件框架未启动，无法安装插件」 | 未开启『拟声++』、处于安全模式，或宿主库不可用 —— 看 `plugin list` 的 `hostStarted` / `supportPlus` / `safeMode` / `lastError` |
+| 安装失败「插件框架未启动，无法安装插件」 | 未开启『拟声++』、处于安全模式，或插件框架库不可用 —— 看 `plugin list` 的 `hostStarted` / `supportPlus` / `safeMode` / `lastError` |
 | 安装失败提到"必须绝对路径" | 把路径写成绝对路径（例如 `D:/out/my_plugin.zip`）；相对路径会被直接拒绝 |
 | 安装失败提到「当前平台不在清单声明内」/「库文件缺失」 | 清单 `platforms` / `arch` / `entry` 写错，或多目标包少了当前平台/架构的分支（[plugin-native-api.md](plugin-native-api.md) §1.3） |
 | 装了但没在跑 | 新插件装完默认不启用：`plugin enable <id>`，或重新安装时加 `--enable` |
 | `loaded: false` 且 `error` 有内容 | 装载失败（脚本顶层报错、缺入口符号、依赖缺失…），`plugin logs <id>` 看明细 |
 | 改了文件没变化 | 没重载、重载失败，或插件处于禁用；`plugin reload <id>` 后看结果里的 `failed` |
-| 应用整体卡住 | 插件占住了宿主线程或 JS 线程：看应用日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |
+| 主程序整体卡住 | 插件占住了框架线程或 JS 线程：看主程序日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |
 | 找不到 `musicxx-cli` | 看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里写着 CLI 文件路径与可复制的命令 |
 
 ---

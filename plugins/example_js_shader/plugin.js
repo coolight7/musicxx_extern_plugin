@@ -10,14 +10,14 @@
 ///   不画基线圆, 圆心放一张圆形封面) 与『插件纹理铺底』(与晶格同一个 bundle, 但底层纹理
 ///   来自**插件自己绑定的图片**: `musicxx.media.cover` 的 `bind` 参数 / `musicxx.media.bindImage`).
 ///   画面都由预编译好的 shader bundle 画 (插件不写界面代码), 用户在
-///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (宿主不读 bundle、不分析封面)。
-/// - 两种封面相关的纹理通路都演示了: 前两种样式用**宿主准备的封面纹理** (`cover` 声明:
-///   宿主把当前歌曲封面解码、缩放、可选预模糊后上传成 GPU 纹理)，第三种用**插件绑定的图片**
+///   『设置 → 播放页面背景』里选中后才生效; 未选中时零成本 (插件框架不读 bundle、不分析封面)。
+/// - 两种封面相关的纹理通路都演示了: 前两种样式用**插件框架准备的封面纹理** (`cover` 声明:
+///   插件框架把当前歌曲封面解码、缩放、可选预模糊后上传成 GPU 纹理)，第三种用**插件绑定的图片**
 ///   (`image` 声明 + 动作绑定)。
 /// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
 /// - 频谱的两条读法 (『读取当前频谱』按钮): 状态镜像 (`musicxx.state.spectrum`, 同步、实时)
 ///   与动作 (`musicxx.media.spectrum`, 异步)。动作**不能在能力处理器里等** —— 能力是同步
-///   进宿主调用的, 处理器里 await 动作会与调用方互锁; 这里异步读、结果记下来回读。
+///   进插件框架调用的, 处理器里 await 动作会与调用方互锁; 这里异步读、结果记下来回读。
 ///
 /// 页面 (框架不管理插件设置入口, 入口由插件自己给):
 /// - `ext://example_js_shader/card` (主页入口): 当前生效项与渲染状态, 一键切换背景;
@@ -47,12 +47,12 @@ const BG_DEPICT = "跟随封面配色的晶格化动态背景";
 const RING_TITLE = "光圈";
 const RING_DEPICT = "64 个频点从正上方顺时针排成一圈, 尖角跟着音乐向内/向外突出, 相邻尖角用直线连成蛛网";
 
-/// 第三个背景样式: 『插件纹理铺底』(演示"插件把图片交给宿主当纹理")
+/// 第三个背景样式: 『插件纹理铺底』(演示"插件把图片交给插件框架当纹理")
 ///
-/// 与晶格背景同一个 bundle, 区别在底层纹理的来源: 那张图不是宿主准备的封面纹理
+/// 与晶格背景同一个 bundle, 区别在底层纹理的来源: 那张图不是插件框架准备的封面纹理
 /// (渲染项 `cover`), 而是**插件自己绑定的图片**(`musicxx.media.cover` 的 `bind` 参数,
 /// 或 `musicxx.media.bindImage`), 渲染项用 `image: {key, texture}` 引用它。
-/// 插件还没绑定时宿主绑 1×1 透明占位纹理, 画面只剩晶格图案。
+/// 插件还没绑定时插件框架绑 1×1 透明占位纹理, 画面只剩晶格图案。
 const BOUND_TITLE = "插件纹理铺底";
 const BOUND_DEPICT = "底层是插件自己绑定的图片(先在设置页把当前封面绑成纹理)";
 const BOUND_ITEM_NAME = "boundBg";
@@ -61,7 +61,7 @@ const BOUND_ITEM_ID = "plugin.example_js_shader." + BOUND_ITEM_NAME;
 /// 插件图像表里的键 (渲染项 `image.key` 与动作 `musicxx.media.bindImage` 的 `key` 用它)
 const BOUND_IMAGE_KEY = "coverArt";
 
-/// 本插件背景样式的 UI 项短名与完整 id (完整 id 由宿主拼成 plugin.<插件id>.<短名>)
+/// 本插件背景样式的 UI 项短名与完整 id (完整 id 由插件框架拼成 plugin.<插件id>.<短名>)
 const BG_ITEM_NAME = "bg";
 const BG_ITEM_ID = "plugin.example_js_shader." + BG_ITEM_NAME;
 const RING_ITEM_NAME = "ring";
@@ -78,7 +78,7 @@ const BUILTIN_AUTO_ID = "builtin:Auto";
 
 /// 基准速度与可选倍率
 ///
-/// 声明给宿主的 `speed` = 基准速度 x 倍率, 宿主每帧直接用它推进时间 (不做二次缩放),
+/// 声明给插件框架的 `speed` = 基准速度 x 倍率, 插件框架每帧直接用它推进时间 (不做二次缩放),
 /// `speed` 最后会写进 uniform 的 `uParams.w`。基准速度定为 1
 /// (2026-09 起把原先声明的 4 重新定义为 1x, 即整体降速到原来的 0.25x)。
 const BG_BASE_SPEED = 1;
@@ -101,7 +101,7 @@ function bgRateText(rate) {
     return String(normalizeBgRate(rate)) + "x";
 }
 
-/// 倍率 → 声明给宿主的时间推进速度
+/// 倍率 → 声明给插件框架的时间推进速度
 function bgSpeedOf(rate) {
     return BG_BASE_SPEED * normalizeBgRate(rate);
 }
@@ -110,7 +110,7 @@ function bgSpeedOf(rate) {
 ///
 /// 频谱数据是 10 帧/秒，直接取会有台阶感（每 100 ms 跳一次）：`smooth` 让值在
 /// 跳变时快速跟上、回落时平滑过渡（`attackMs` 小、`releaseMs` 大 = 电平表手感）。
-/// 宿主还会按播放位置在两帧频谱之间插值，两者叠加后画面才是连续的。
+/// 插件框架还会按播放位置在两帧频谱之间插值，两者叠加后画面才是连续的。
 function smoothSpectrum(name) {
     return {
         kind: "smooth",
@@ -127,7 +127,7 @@ function smoothSpectrum(name) {
 ///
 /// `args` 只有一种写法: **成员名 → 值表达式**（`{kind: "...", ...}`，可以像 widget 一样
 /// 嵌套）。这里只用了一类节点 `source`（具名来源）：封面颜色经主题映射后的 4 个绘制色
-/// （内置播放页背景实际用的就是这 4 色, 已套过昼夜转换；不声明 `args` 时宿主默认给的就是它们）。
+/// （内置播放页背景实际用的就是这 4 色, 已套过昼夜转换；不声明 `args` 时插件框架默认给的就是它们）。
 ///
 /// 晶格背景的着色器不读频谱: 格子大小固定, 画面只有随机点的缓慢漂移, 不跟音乐律动。
 /// 频谱参数怎么写看下面的『光圈』（`ringArgs`）与页面里的内联块。
@@ -142,7 +142,7 @@ function latticeBackgroundData(rate) {
             uColor3: { kind: "source", name: "musicxx.icon.themeMapping.2" },
             uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
         },
-        // 封面铺底: 宿主把当前歌曲封面中心裁剪成方形、缩到 384、**预模糊**后绑定到
+        // 封面铺底: 插件框架把当前歌曲封面中心裁剪成方形、缩到 384、**预模糊**后绑定到
         // `uCoverBack`, 并把 (纹理宽, 纹理高, 原图宽高比, 是否有封面) 写进 `uCoverBackInfo`。
         // 着色器拿它当底层 (mix 上晶格图案); 没有封面时这一位是 0, 画面与不带封面时一致。
         // 声明 `cover` 才会有这份成本: 没声明就不解码、不上传、不占显存。
@@ -163,7 +163,7 @@ function latticeBackgroundData(rate) {
 /// 下标取 uniform, 只能逐组比较) —— 实测 1280x720 单帧渲染要多花 90 ms 以上,
 /// 播放页会明显卡。64 个频带 = 16 个成员, 每个像素只在 16 组里挑一次。
 /// 每个频带包一层 `smooth`: 频谱是 10 帧/秒的数据, 直接取尖角会有台阶感
-/// (帧间插值由宿主做, `smooth` 再补上"快起慢落"的手感)。
+/// (帧间插值由插件框架做, `smooth` 再补上"快起慢落"的手感)。
 /// 颜色从外面传进来: 背景声明用映射后的 4 个绘制色, 页面里的内联块用主题色 + 封面提取色。
 function ringArgs(color1, color2, color3, color4) {
     const args = {
@@ -185,7 +185,7 @@ function ringArgs(color1, color2, color3, color4) {
 /// 『光圈』的完整声明 (频谱圆环, 与上面同一套字段语义)
 ///
 /// 与晶格背景的区别只在 bundle 与参数: 参数见 `ringArgs` (64 个频带, 圆上 64 个点),
-/// 没有频谱数据时宿主写 0, 圆上的尖角长度为 0, 只剩圆心光源。
+/// 没有频谱数据时插件框架写 0, 圆上的尖角长度为 0, 只剩圆心光源。
 /// 它还声明了**清晰封面**（`square: true` = 中心裁剪成正方形）画在圆心:
 /// 同一份封面在晶格背景里是"预模糊铺底"（`blur: 28`），这里却是圆盘上的原图 ——
 /// 两张纹理各自独立准备（`texture` / `info` 名字不同），互不影响。
@@ -211,7 +211,7 @@ function ringBackgroundData(rate) {
 
 /// 『插件纹理铺底』的完整声明: 底层用**插件自己绑定的图片**
 ///
-/// 与晶格背景同一个 bundle(shader/bg.shaderbundle), 只是把那张"铺底纹理"从宿主准备的
+/// 与晶格背景同一个 bundle(shader/bg.shaderbundle), 只是把那张"铺底纹理"从插件框架准备的
 /// 封面(`cover`)换成插件绑定的图片(`image`): `key` 指向图像表里的条目, `texture` 是
 /// 着色器里的 sampler 名; 不写 `info` 时缺省用 `<texture>Info`(正好是 bundle 里已有的成员)。
 function boundBackgroundData(rate) {
@@ -237,7 +237,7 @@ let appliedBgRate = normalizeBgRate(DEFAULT_BG_RATE);
 
 /// 应用背景动画速率: 运行期改自己的背景声明 (两种样式一起改)
 ///
-/// 宿主收到后会刷新候选; 正在使用的背景立即用新速度 (不用重新选中, `speed` 每帧现算)。
+/// 插件框架收到后会刷新候选; 正在使用的背景立即用新速度 (不用重新选中, `speed` 每帧现算)。
 /// 改 `maxFps` / `resolutionScale` 这类要换帧调度的字段则不在这里生效, 需要用户重新选中。
 function applyBackgroundRate(rate) {
     const value = normalizeBgRate(rate);
@@ -283,7 +283,7 @@ let boundImageState = "未绑定";
 
 /// 把当前歌曲封面绑成纹理(异步发起, 不等待)
 ///
-/// `cover` 动作的 `bind` 参数: 宿主复用这一次解码出来的像素上传成 GPU 纹理, 不重复解码。
+/// `cover` 动作的 `bind` 参数: 插件框架复用这一次解码出来的像素上传成 GPU 纹理, 不重复解码。
 /// 绑定后『插件纹理铺底』的 `image` 声明就能采样到它(表格版本变化, 背景下一帧用上新图)。
 function bindCoverImage() {
     boundImageState = "绑定中…";
@@ -317,7 +317,7 @@ let lastCoverNotice = "(未收到)";
 /// 封面变化处理器当前有没有注册(演示"回退移除绑定")
 let coverHookBound = true;
 
-/// 封面变化处理器: 宿主在换歌 / 同一首歌换了封面图时派发一次
+/// 封面变化处理器: 插件框架在换歌 / 同一首歌换了封面图时派发一次
 ///
 /// 载荷 = `{srcKey, name, artist, hasCover, kind}`(`kind` = local/cache/content/asset/network),
 /// **没有直链也没有图片字节** —— 要图片自己调 `musicxx.media.cover`, 要在着色器里采样就声明
@@ -333,7 +333,7 @@ musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, onCov
 
 /// 绑定 / 解除封面变化处理器
 ///
-/// 解除(`unregister`)后宿主不再派发, 重新注册即可恢复; 插件停用 / 卸载时宿主也会自动摘掉。
+/// 解除(`unregister`)后插件框架不再派发, 重新注册即可恢复; 插件停用 / 卸载时插件框架也会自动摘掉。
 function setCoverHookBound(bound) {
     if (bound === coverHookBound) {
         return;
@@ -415,7 +415,7 @@ function backgroundStyleText() {
 
 /// 本插件的渲染状态 (尺寸 / 是否在动)
 ///
-/// `itemId` 是本插件时才有渲染可言: `visible:false` 表示宿主停止渲染(播放页被遮挡、
+/// `itemId` 是本插件时才有渲染可言: `visible:false` 表示主程序停止渲染(播放页被遮挡、
 /// 切到后台, 或者播放页当前根本不在页面上), 插件可以据此停掉自己的耗时工作;
 /// `animate:false` 表示这个样式只画一帧。
 function renderStateText() {
@@ -503,9 +503,9 @@ function viewEnv(args) {
     return null;
 }
 
-/// 插件自绘设置页: 宿主打开 ext://example_js_shader/settings 时调用同名能力取页面描述
+/// 插件自绘设置页: 主程序打开 ext://example_js_shader/settings 时调用同名能力取页面描述
 ///
-/// `override` 用来让按钮点完当场显示新值 (动作返回 {view:...} 时宿主直接刷新当前页)。
+/// `override` 用来让按钮点完当场显示新值 (动作返回 {view:...} 时主程序直接刷新当前页)。
 function settingsView(args, override) {
     const env = viewEnv(args);
     const rate = (override && typeof override.bgRate === "number")
@@ -522,16 +522,16 @@ function settingsView(args, override) {
                 text: "• 本插件注册了三种背景样式:『" + BG_TITLE + "』、『" + RING_TITLE + "』与『" + BOUND_TITLE + "』。它们占同一个槽位 player.background, 设置里同时只能选中一个。",
             }, env),
             kit.hint({
-                text: "• 『" + BOUND_TITLE + "』演示**插件绑定的图片**（`image` 声明）：先在下面把当前封面绑成纹理（`musicxx.media.cover` 的 `bind` 参数复用这次解码的像素，不重复解码；也可以用 `musicxx.media.bindImage` 交自己的图片），渲染项用 `image: {key, texture}` 引用它 —— 与 `cover` 的区别是这张图来自插件、不是宿主准备的当前歌曲封面。绑定是临时资源：插件停用 / 卸载、宿主停止、关闭『拟声++』时自动摘掉，插件也可以主动 `musicxx.media.unbindImage`。",
+                text: "• 『" + BOUND_TITLE + "』演示**插件绑定的图片**（`image` 声明）：先在下面把当前封面绑成纹理（`musicxx.media.cover` 的 `bind` 参数复用这次解码的像素，不重复解码；也可以用 `musicxx.media.bindImage` 交自己的图片），渲染项用 `image: {key, texture}` 引用它 —— 与 `cover` 的区别是这张图来自插件、不是插件框架准备的当前歌曲封面。绑定是临时资源：插件停用 / 卸载、插件框架停止、关闭『拟声++』时自动摘掉，插件也可以主动 `musicxx.media.unbindImage`。",
             }, env),
             kit.hint({
-                text: "• 两种样式都声明了 `cover`（封面纹理）：宿主把当前歌曲封面解码、缩放、按 `blur` 预模糊后上传成 GPU 纹理，每帧绑定到 `texture` 指定的 `sampler2D`，并把 (纹理宽, 纹理高, 原图宽高比, 是否有封面) 写进 `info` 成员。『" + BG_TITLE + "』拿它做模糊铺底（`size: 384, blur: 28`），『" + RING_TITLE + "』拿它做圆心上的圆形封面（`size: 512, square: true`）。没有封面时信息位是 0，画面与不带封面时一致；要读封面字节（而不是采样）用 `musicxx.media.cover` 动作，那一条不参与绘制。",
+                text: "• 两种样式都声明了 `cover`（封面纹理）：插件框架把当前歌曲封面解码、缩放、按 `blur` 预模糊后上传成 GPU 纹理，每帧绑定到 `texture` 指定的 `sampler2D`，并把 (纹理宽, 纹理高, 原图宽高比, 是否有封面) 写进 `info` 成员。『" + BG_TITLE + "』拿它做模糊铺底（`size: 384, blur: 28`），『" + RING_TITLE + "』拿它做圆心上的圆形封面（`size: 512, square: true`）。没有封面时信息位是 0，画面与不带封面时一致；要读封面字节（而不是采样）用 `musicxx.media.cover` 动作，那一条不参与绘制。",
             }, env),
             kit.hint({
-                text: "• 『" + RING_TITLE + "』的声明用了频谱来源：`spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时宿主写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，控制点少时用）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
+                text: "• 『" + RING_TITLE + "』的声明用了频谱来源：`spectrum.level`（响度）与 `spectrum.bands64.0..15`（64 个频带，每项 4 个写在 xyzw）每帧现读当前音频频谱（内置『音乐动效』提取），没有数据时插件框架写 0，画面与不带频谱时一致。还有更粗的 `spectrum.bands.0..3`（16 个频带，控制点少时用）与更细的 `spectrum.bins.0..63`（一帧 256 个频点：64 个成员、每个像素还要按组号挑一次，很慢，别拿它逐像素画）。",
             }, env),
             kit.hint({
-                text: "• `args` 只有一种写法：成员名 → 值表达式（`{\"kind\": \"...\"}`，可以嵌套）。来源用 `source`、常量用 `const`、过渡用 `smooth`、动画用 `tween` / `lfo`、组合用 `mul` / `mix` / `clamp` 等；宿主每帧求值一次，插件不用在着色器里写时间与滤波逻辑。",
+                text: "• `args` 只有一种写法：成员名 → 值表达式（`{\"kind\": \"...\"}`，可以嵌套）。来源用 `source`、常量用 `const`、过渡用 `smooth`、动画用 `tween` / `lfo`、组合用 `mul` / `mix` / `clamp` 等；插件框架每帧求值一次，插件不用在着色器里写时间与滤波逻辑。",
             }, env),
             kit.divider({}, env),
             kit.card({
@@ -667,11 +667,11 @@ musicxx.capability.register("cycleBackgroundRate", function (args) {
 
 /// 一键切换播放页背景 (也可以切到内置样式: id 用 "builtin:<内置样式名>")
 ///
-/// `musicxx.render.select` 是宿主官方动作: 只允许选中**可用**项, 选中后立即生效,
+/// `musicxx.render.select` 是主程序官方动作: 只允许选中**可用**项, 选中后立即生效,
 /// 用户在设置里随时能改回来。能力处理器必须同步返回, 所以这里只说明"已请求",
 /// 实际结果看页面刷新后的状态 (或 musicxx.render.current)。
 function requestBackground(id) {
-    // 先记一条日志: 排查"按钮有没有点到插件"时就看宿主日志里有没有这一行
+    // 先记一条日志: 排查"按钮有没有点到插件"时就看主程序日志里有没有这一行
     musicxx.host.log(2, "收到切换播放页背景请求: " + id);
     lastBackgroundRequest = id;
     musicxx.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
@@ -719,7 +719,7 @@ musicxx.capability.register("toggleCoverHook", function (args) {
 
 /// 主页入口: 打开插件说明页 (页面内容来自同名能力 `card`)
 /// 图标是**插件自己带的 svg**: 相对插件目录的路径 `resource/svg/shader.svg`
-/// (资源目录只是推荐位置, 宿主不接受自己的图标名)
+/// (资源目录只是推荐位置, 插件框架不接受自己的图标名)
 musicxx.ui.registerEntry({
     name: "card",
     type: "home.entry",
@@ -752,7 +752,7 @@ function cardView(args) {
                     }, env),
                     kit.listRow({
                         title: "渲染状态",
-                        subtitle: "页面被遮挡或切到后台时宿主会停止渲染",
+                        subtitle: "页面被遮挡或切到后台时主程序会停止渲染",
                         trailing: renderStateText(),
                     }, env),
                     kit.listRow({
@@ -824,7 +824,7 @@ function spectrumActionText(s, err) {
 /// 最近一次异步读取到的动作结果 (还没读回 / 失败都在这里说明)
 ///
 /// 为什么不在这里 `await` 动作:
-/// 应用侧打开页面、点按钮都是**同步进宿主**调用这个能力的 (应用线程全程等宿主返回),
+/// 主程序打开页面、点按钮都是**同步进插件框架**调用这个能力的 (主程序线程全程等插件框架返回),
 /// 而动作要由应用线程执行 —— 处理器里等动作就会与调用方互相等下去, 最后只能等到超时,
 /// 表现是"整个应用卡住几秒 + 调用插件能力失败, 未在时限内完成"。
 /// 所以这一页当场用状态镜像 (同步、实时) 画出来, 动作结果异步读取、读完记下来回读
@@ -894,12 +894,12 @@ function spectrumProbeView(args) {
                 text: "• 没有数据时 status 是 loading（正在提取）/ off（未启用音乐动效）/ unavailable（来源不是本地或缓存、时长超限），这时值恒为 0，请按 status 判断，不要按数值判断。",
             }, env),
             kit.hint({
-                text: "• 这一页也演示了『能力处理器里不能等动作』这条规则：能力是同步进宿主调用的（应用线程在等它返回），处理器里 await 动作会与调用方互锁、只能等到超时；要实时数据读状态镜像，要动作结果就异步读、把结果记下来回读（本页与 example_js 的 crossCall 都是这么做的）。",
+                text: "• 这一页也演示了『能力处理器里不能等动作』这条规则：能力是同步进插件框架调用的（主程序线程在等它返回），处理器里 await 动作会与调用方互锁、只能等到超时；要实时数据读状态镜像，要动作结果就异步读、把结果记下来回读（本页与 example_js 的 crossCall 都是这么做的）。",
             }, env),
             // 动画示例：值表达式 + 动画块（musicxx.AnimatedBuilder / SizeTransition / FadeTransition）
             //
             // 一次声明就够：通道表里定义"这一页用到的几个值"，子树里的字段用 {"kind":"source","name":...}
-            // 读它们；宿主每帧求值并只重建读到值的块。没有动画块包裹的字段按"每次重画算一次"。
+            // 读它们；插件框架每帧求值并只重建读到值的块。没有动画块包裹的字段按"每次重画算一次"。
             kit.card({
                 title: "动画示例",
                 children: [

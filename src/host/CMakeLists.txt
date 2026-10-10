@@ -1,8 +1,8 @@
-# musicxx_extern_plugin 宿主工程 (嵌套构建)
+# musicxx_extern_plugin 插件框架工程 (嵌套构建)
 #
 # 由顶层 src/CMakeLists.txt 的 ExternalProject_Add(musicxx_extern_plugin_host_repo) 调用,
 # 依赖全部经 find_package 从顶层准备好的安装前缀取 (依赖库由顶层 ExternalProject 先构建安装)。
-# 产物: 宿主库 musicxx_extern_plugin / 插件 SDK(头文件接口) / 示例插件 / 原生测试。
+# 产物: 插件框架库 musicxx_extern_plugin / 插件 SDK(头文件接口) / 示例插件 / 原生测试。
 cmake_minimum_required(VERSION 3.20)
 # find_package 使用 <PackageName>_ROOT 变量
 cmake_policy(SET CMP0074 NEW)
@@ -20,8 +20,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS   "构建原生测试" ON)
-# JS 插件运行时 (QuickJS): 关闭后宿主只支持动态库插件 (内核与 Dart C ABI 不受影响)
-option(MUSICXX_EXTERN_PLUGIN_ENABLE_JS     "构建 JS 插件运行时 (QuickJS)" ON)
+# JS插件运行时 (QuickJS): 关闭后插件框架只支持动态库插件 (内核与 Dart C ABI 不受影响)
+option(MUSICXX_EXTERN_PLUGIN_ENABLE_JS     "构建 JS插件运行时 (QuickJS)" ON)
 
 # ===== 依赖前缀 =====
 # 顶层 superbuild 通过 -DMUSICXX_EXTERN_PLUGIN_DEP_PREFIX / -DXX_INSTALL_DIR 传入;
@@ -37,7 +37,7 @@ if (NOT MUSICXX_EXTERN_PLUGIN_DEP_PREFIX)
   endif ()
 endif ()
 list(APPEND CMAKE_PREFIX_PATH "${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}")
-message(STATUS "[musicxx_ext] 宿主工程依赖前缀: ${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}")
+message(STATUS "[musicxx_ext] 插件框架工程依赖前缀: ${MUSICXX_EXTERN_PLUGIN_DEP_PREFIX}")
 
 # 依赖全部来自上面的前缀: 找不到时直接提示"先跑构建脚本", 不要让人去猜
 set(_musicxx_ext_missing "")
@@ -45,7 +45,7 @@ find_package(cxx_pluginxx CONFIG QUIET)
 if (NOT cxx_pluginxx_FOUND)
   list(APPEND _musicxx_ext_missing "cxx_pluginxx")
 endif ()
-# 插件界面描述层 (模型/解析/适配/文本降级/kit; 宿主与插件 SDK 都用它)
+# 插件界面描述层 (模型/解析/适配/文本降级/kit; 插件框架与插件 SDK 都用它)
 find_package(cxx_pluginxx_ui CONFIG QUIET)
 if (NOT cxx_pluginxx_ui_FOUND)
   list(APPEND _musicxx_ext_missing "cxx_pluginxx_ui")
@@ -75,9 +75,9 @@ unset(_musicxx_ext_missing)
 get_filename_component(MUSICXX_EXTERN_PLUGIN_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.."      ABSOLUTE)
 get_filename_component(MUSICXX_EXTERN_PLUGIN_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.."   ABSOLUTE)
 
-# ==================== 宿主库 ====================
+# ==================== 插件框架库 ====================
 
-# JS 插件运行时: QuickJS 以 add_subdirectory 直接编入宿主库,
+# JS插件运行时: QuickJS 以 add_subdirectory 直接编入插件框架库,
 # 不链接它的命令行/标准库模块 (qjs-libc 不参与链接), 也不开 JIT。
 set(MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/third_party/quickjs")
 set(MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE OFF)
@@ -93,11 +93,11 @@ if (MUSICXX_EXTERN_PLUGIN_ENABLE_JS)
     # (qjs 静态库仍会作为本库的依赖被构建)
     add_subdirectory("${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/quickjs" EXCLUDE_FROM_ALL)
     set(MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE ON)
-    message(STATUS "[musicxx_ext] JS 插件运行时: QuickJS (${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR})")
+    message(STATUS "[musicxx_ext] JS插件运行时: QuickJS (${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR})")
   else ()
     message(WARNING
       "[musicxx_ext] 找不到 QuickJS 子模块 (${MUSICXX_EXTERN_PLUGIN_QUICKJS_DIR}); "
-      "本次构建不含 JS 插件运行时 (请执行 git submodule update --init --recursive)")
+      "本次构建不含 JS插件运行时 (请执行 git submodule update --init --recursive)")
   endif ()
 endif ()
 
@@ -202,12 +202,12 @@ unset(_sdkInc)
 # 清单 `name`, 因此构建产物里的插件集合与源码目录一一对应。
 #   - 动态库插件在该目录自己的 CMakeLists.txt 里建目标 (用 SDK 构建助手, 或像
 #     example_native_bad_entry 那样手工建库), 这里只做 add_subdirectory 与安装;
-#   - JS 插件是纯脚本, 只做安装复制 (shader bundle 之类的资源直接放在插件目录里)。
+#   - JS插件是纯脚本, 只做安装复制 (shader bundle 之类的资源直接放在插件目录里)。
 #
 # 示例分两类:
 #   - 演示示例: 插件作者可以直接照抄 (钩子 / 能力 / 事件 / UI / 变量 / 多脚本 / 背景渲染);
 #   - 对照示例: 故意做出问题行为 (脚本语法错误、死循环、处理器总是失败、缺入口符号),
-#     用来演示与验证宿主的保护机制 (装载失败回滚 / 执行上限 / 暂停派发 / 入口符号约定),
+#     用来演示与验证插件框架的保护机制 (装载失败回滚 / 执行上限 / 暂停派发 / 入口符号约定),
 #     也让作者看清"写坏了会怎样"。它们只跟原生测试一起构建。
 set(MUSICXX_EXTERN_PLUGIN_DEMO_NATIVE example_native example_native_multi)
 set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
@@ -259,7 +259,7 @@ endif ()
 # ==================== 安装 ====================
 #
 # 统一装进依赖前缀 (即顶层 superbuild 的安装目录), 便于一次性取用:
-#   bin/                        宿主库 (及导入库) 与原生测试
+#   bin/                        插件框架库 (及导入库) 与原生测试
 #   include/                    Dart C ABI 头 + 插件 SDK 头
 #   plugins/example_native/     示例插件 (库文件 + plugin.yaml, 可直接作为插件目录)
 install(TARGETS musicxx_extern_plugin
@@ -299,7 +299,7 @@ unset(_sdkDep)
 #     (源码与 CMakeLists 是构建输入, 不装);
 #   - 多目标打包的插件 (musicxx_plugin_add_target 传了 TARGET_TAG): 库文件已经按
 #     `lib/<系统>-<架构>/` 摆好, 清单与资源也在包目录里, 因此直接装整个包目录;
-#   - JS 插件: 整个目录 (脚本 + 清单 + 资源) 直接复制。
+#   - JS插件: 整个目录 (脚本 + 清单 + 资源) 直接复制。
 foreach (_plugin ${MUSICXX_EXTERN_PLUGIN_NATIVE_PLUGINS})
   if (TARGET ${_plugin})
     get_property(_package_dir GLOBAL PROPERTY

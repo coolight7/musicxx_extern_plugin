@@ -1,7 +1,7 @@
-/// 整套流程测试：示例插件（JS）的**配置读写**在真实原生宿主上的验证
+/// 整套流程测试：示例插件（JS）的**配置读写**在真实原生插件框架上的验证
 ///
 /// 覆盖：
-/// - 宿主动作 `musicxx.storage.get/set` 的约定：`get` 的应答就是**值本身**
+/// - 主程序动作 `musicxx.storage.get/set` 的约定：`get` 的应答就是**值本身**
 ///   （键不存在时为空应答）—— JS 便捷封装 `musicxx.storage.getConfig(key, 默认值)`
 ///   直接把应答当值使用，包一层对象会让插件读不到自己写的内容；
 /// - 设置页能力读到的值与 config.json 一致；
@@ -11,7 +11,7 @@
 /// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着状态镜像走：
 ///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要更新（不能停在"已请求"）。
 /// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
-///   异步回读 —— 处理器里等动作会与同步进宿主的调用方互锁，只能等到 5 秒超时（这条用例守它）。
+///   异步回读 —— 处理器里等动作会与同步进插件框架的调用方互锁，只能等到 5 秒超时（这条用例守它）。
 /// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（回读）
 ///   ，处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
 ///
@@ -33,7 +33,7 @@ void main() {
   test('example_js：设置读写落盘，重新装载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js')) {
       markTestSkipped(
-        '未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
       );
       return;
     }
@@ -130,7 +130,7 @@ void main() {
   test('example_js_shader：背景动画速率落盘，重新装载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
-        '未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
       );
       return;
     }
@@ -229,7 +229,7 @@ void main() {
 
     // 切一档速率（等价于用户在设置页点按钮）：UI 项重新声明 + 写回 config.json
     //
-    // 两个条件都要等：UI 项更新走宿主线程，写配置走 Dart 侧动作请求，
+    // 两个条件都要等：UI 项更新走插件框架线程，写配置走 Dart 侧动作请求，
     // 只看其中一个会让"另一半还没被处理"时就开始断言。
     await _callView(runtime, 'cycleBackgroundRate', plugin: pluginId);
     await _pumpUntil(
@@ -263,7 +263,7 @@ void main() {
   test('example_js_shader：背景状态文字跟着状态镜像更新', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
-        '未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
       );
       return;
     }
@@ -297,7 +297,7 @@ void main() {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
-    /// 推一条播放页背景槽位的状态（应用侧就是 `musicxx.state.renderSlots`）
+    /// 推一条播放页背景槽位的状态（主程序侧就是 `musicxx.state.renderSlots`）
     ///
     /// 规则：`itemId` = 现在由哪个插件项在画（空 = 没有插件项在画），
     /// `selectedId` = 用户选中的是谁（可能是 `builtin:*`）。
@@ -337,7 +337,7 @@ void main() {
             )?['right']
             as String?;
 
-    // 宿主还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
+    // 主程序还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
     expect(await backgroundText(), '无状态');
 
     // 用户选中的是内置样式（条目仍在，itemId 为空）
@@ -393,7 +393,7 @@ void main() {
   test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
-        '未找到原生宿主库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
       );
       return;
     }
@@ -453,9 +453,9 @@ void main() {
     expect(spectrumCalls, greaterThanOrEqualTo(1), reason: '插件装载后应异步读一次频谱动作');
 
     // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒超时
-    // （应用侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
-    // 注：应用侧调插件现在是异步受理（结果经事件回填），所以这里量的是"受理 + 处理器
-    // 当场返回"这一段：处理器如果再等一次动作，它会一直卡到宿主给的时限。
+    // （主程序侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
+    // 注：主程序调插件现在是异步受理（结果经事件回填），所以这里量的是"受理 + 处理器
+    // 当场返回"这一段：处理器如果再等一次动作，它会一直卡到插件框架给的时限。
     final Stopwatch watch = Stopwatch()..start();
     Map<String, Object?> view = await _callView(
       runtime,
@@ -501,7 +501,7 @@ void main() {
   test('example_js_font：字体切换立刻返回（动作后台执行，不再互锁到超时）', () async {
     if (env == null || !env.hasPlugin('example_js_font')) {
       markTestSkipped(
-        '未找到原生宿主库或字体示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或字体示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
       );
       return;
     }
@@ -537,7 +537,7 @@ void main() {
       return view! as Map<String, Object?>;
     }
 
-    // 字体动作：故意做慢（400ms 同步阻塞，模拟应用侧"换字体重建整棵界面"）
+    // 字体动作：故意做慢（400ms 同步阻塞，模拟主程序"换字体重建整棵界面"）
     //
     // 这一步是关键：能力处理器里 `await` 这个动作时，动作要回到调用线程处理，而调用线程
     // 正阻塞在这次能力调用里 —— 两边互等到动作超时（5 秒）。正确写法是"发出去就返回"。
@@ -581,7 +581,7 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    // 官方变量：插件顶层会 watch 它（应用侧就是 MusicxxVariableCatalog 的 musicxx.ui.fontFamily）
+    // 官方变量：插件顶层会 watch 它（主程序侧就是 MusicxxVariableCatalog 的 musicxx.ui.fontFamily）
     runtime.vars.declare(<MusicxxPluginVarDeclare>[
       const MusicxxPluginVarDeclare(
         key: 'musicxx.ui.fontFamily',
@@ -595,7 +595,7 @@ void main() {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
-    // 页面：默认模式 + "应用侧生效字体"（同步读变量缓存）
+    // 页面：默认模式 + "主程序生效字体"（同步读变量缓存）
     Map<String, Object?> view = await viewOf('card');
     expect(_rowOf(view, '选择的模式')?['right'], contains('拟声默认'));
 
@@ -612,7 +612,7 @@ void main() {
       lessThan(1000),
       reason:
           '按钮能力必须立刻返回：处理器里 await 字体动作会与调用方互锁，'
-          '一直卡到动作超时（应用侧表现是整机卡几秒 + 报 action_timeout，但字体其实切成功了）',
+          '一直卡到动作超时（主程序侧表现是整机卡几秒 + 报 action_timeout，但字体其实切成功了）',
     );
     expect(selectRaw, isA<Map<String, Object?>>());
     final Object? selectView = (selectRaw! as Map<String, Object?>)['view'];
@@ -622,7 +622,7 @@ void main() {
       _rowOf(selectView! as Map<String, Object?>, '选择的模式')?['right'],
       contains('微软雅黑'),
     );
-    // 说明：应用侧调插件现在是**异步受理**（结果经事件回填），等结果期间事件循环照跑，
+    // 说明：主程序调插件现在是**异步受理**（结果经事件回填），等结果期间事件循环照跑，
     // 所以"调用返回时后台动作还没被处理"不再是可靠判据 —— 事件泵可能已经把动作跑了。
     // 这里能判的是"调用没有被动作拖住"：旧写法（处理器里 await 动作）会与调用方互锁，
     // 一直卡到动作超时，根本走不到下面这行。
@@ -643,16 +643,16 @@ void main() {
     expect(fontCalls, <String>['Microsoft YaHei']);
     expect(_readConfig(config)['fontMode'], 'yahei');
 
-    // 应用侧推一次官方变量（真实应用在字体变化时推）：页面用同步 peek 读到它
+    // 主程序推一次官方变量（真实主程序在字体变化时推）：页面用同步 peek 读到它
     runtime.vars.update('musicxx.ui.fontFamily', 'Microsoft YaHei');
     await _pumpUntil(
       () async =>
-          _rowOf(await viewOf('card'), '应用侧生效字体')?['right'] ==
+          _rowOf(await viewOf('card'), '主程序生效字体')?['right'] ==
           'Microsoft YaHei',
       runtime: runtime,
     );
     expect(
-      _rowOf(await viewOf('card'), '应用侧生效字体')?['right'],
+      _rowOf(await viewOf('card'), '主程序生效字体')?['right'],
       'Microsoft YaHei',
       reason: '页面用 peek 同步读变量缓存（不做 FFI 往返，也不阻塞能力调用）',
     );
@@ -911,9 +911,9 @@ Directory _copyPlugin(_Environment env, Directory work, String pluginId) {
   return pluginRoot;
 }
 
-/// 注册宿主动作（与音乐应用侧的语义一致：`storage.get` 返回**值本身**）
+/// 注册主程序动作（与音乐主程序侧的语义一致：`storage.get` 返回**值本身**）
 ///
-/// 这里只实现本测试需要的那几个动作，行为与应用侧接入层一致：
+/// 这里只实现本测试需要的那几个动作，行为与主程序接入层一致：
 /// - `namespace: "config"` 读写插件目录的 `config.json`；
 /// - 其它命名空间读写内存里的私有 KV（真实应用是 `data/kv.json`）；
 /// - `musicxx.ui.notify` 直接成功（不看界面）。

@@ -11,7 +11,7 @@
 #
 # 换一个平台/架构（或在有 NDK 的机器上交叉编译 Android）各构建一次，把各次的
 # `lib/<标签>/` 目录合并进同一个 package 目录，就得到一个通用插件包（压缩成 zip
-# 后即可在应用里「从压缩包安装」）；宿主运行时会按当前系统/CPU 架构选分支。
+# 后即可在主程序里「从压缩包安装」）；插件框架运行时会按当前系统/CPU 架构选分支。
 cmake_minimum_required(VERSION 3.20)
 project(example_native_multi LANGUAGES CXX)
 

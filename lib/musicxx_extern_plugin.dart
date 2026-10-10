@@ -1,6 +1,6 @@
 /// musicxx 外部插件框架：Dart 侧公共 API
 ///
-/// 应用侧只需要接触这一层：
+/// 主程序只需要接触这一层：
 /// ```dart
 /// final runtime = MusicxxPluginRuntime.instance;
 /// runtime.init(config: MusicxxPluginRuntimeConfig(appVersion: '0.87.0',
@@ -12,7 +12,7 @@
 /// runtime.dispose();
 /// ```
 ///
-/// 线程与 isolate 约束：动态库插件代码一律在原生宿主线程执行；
+/// 线程与 isolate 约束：动态库插件代码一律在原生插件框架线程执行；
 /// Dart 处理器与事件泵必须在 **UI isolate**；阻塞式 API（同步装载/能力调用）在
 /// UI isolate 调用时是"有界等待"（不发起长任务）。
 library;

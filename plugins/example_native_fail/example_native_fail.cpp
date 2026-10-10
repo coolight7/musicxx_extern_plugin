@@ -1,8 +1,8 @@
-/// 对照示例: "处理器总是失败"的动态库插件, 演示宿主暂停派发失败处理器的行为
+/// 对照示例: "处理器总是失败"的动态库插件, 演示插件框架暂停派发失败处理器的行为
 ///
 /// 行为:
 /// - 注册 `musicxx.song.changed` (观察型): 每次返回非 0 (处理器失败) ——
-/// 宿主连续计数,
+/// 插件框架连续计数,
 ///   达到 3 次即临时暂停该处理器的派发 (只暂停, 不卸载插件);
 /// - 注册 `musicxx.player.completed` (观察型): 始终成功 ——
 /// 用于证明"暂停只影响出问题的
@@ -22,7 +22,7 @@ namespace {
 
 /// 插件实例上下文 (每个实例一份; 不得使用可变全局状态 —— 多实例规则)
 struct FailCtx : public musicxx::plugin::PluginBase {
-  int32_t failingCalls = 0; ///< 失败处理器的调用次数 (宿主暂停后不再增长)
+  int32_t failingCalls = 0; ///< 失败处理器的调用次数 (插件框架暂停后不再增长)
   int32_t goodCalls = 0; ///< 正常处理器的调用次数 (不受另一个处理器被暂停的影响)
 
   int32_t onStart() {
@@ -30,7 +30,7 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
             [this](std::string_view, std::string &) -> int32_t {
               ++failingCalls;
-              return -1; ///< 非 0: 宿主计入 failures; 连续 3 次后暂停派发 60 秒
+              return -1; ///< 非 0: 插件框架计入 failures; 连续 3 次后暂停派发 60 秒
             });
 
     // 2) 始终成功的处理器: 用于验证暂停派发的范围只到"单个处理器"
@@ -40,7 +40,7 @@ struct FailCtx : public musicxx::plugin::PluginBase {
               return 0;
             });
 
-    // 3) 探针能力: 回报调用次数 (宿主/测试据此判断处理器是否被执行)
+    // 3) 探针能力: 回报调用次数 (插件框架/测试据此判断处理器是否被执行)
     capability(*this, "plugin.example_native_fail.probe",
                [this](std::string_view, std::string_view) -> std::string {
                  return std::string{"{\"failingCalls\":"} +

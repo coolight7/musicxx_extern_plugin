@@ -1,26 +1,26 @@
-/// musicxx 外部插件原生宿主: 变量表 (第五条通道)
+/// musicxx 外部插件原生插件框架: 变量表 (第五条通道)
 ///
 /// 变量 = **有属主、可读、可写、可订阅变动**的小值 (配置/小状态)。它与既有四条通道
 /// 分工不同: 钩子做拦截、状态镜像是"应用推 + 插件同步只读"、事件只通知没有当前值、
 /// 动作是命令; 变量则把"谁提供 / 能不能写 / 值是什么"合在一个明确的模型里。
 ///
 /// 设计要点:
-/// - **宿主里没有真值**: 真值只在属主那里 (应用侧的 Store/配置, 或插件自己的状态)。
+/// - **插件框架里没有真值**: 真值只在属主那里 (主程序的 Store/配置, 或插件自己的状态)。
 ///   这里的 `VarEntry::valueJson` 只是服务 `peek` 这条同步捷径的**缓存**, 来源有三处 ——
 ///   属主推送、每次异步读的结果 (read-through)、注册时的初值;
-/// - **读默认异步**(`get`): 宿主把请求转给属主, 属主回答后回给调用方; 宿主的线程全程
+/// - **读默认异步**(`get`): 插件框架把请求转给属主, 属主回答后回给调用方; 插件框架的线程全程
 ///   不等 (等的是发起方)。同一个键的进行中读请求合并成一次属主往返, 答案分发给全部等待者;
 /// - **写一律交给属主写入**: 官方键交给应用 (走设置同一条路径), 插件 `declared` 模式由
-///   宿主代存 (= 属主已同意), `handler` 模式转给属主插件 (§M3 实现);
-/// - **注册表归宿主线程独占** (无锁不变式): 注册/注销/读写/通知/摘除都在宿主线程;
+///   框架代存 (= 属主已同意), `handler` 模式转给属主插件 (§M3 实现);
+/// - **注册表归框架线程独占** (无锁不变式): 注册/注销/读写/通知/摘除都在框架线程;
 ///   Dart 线程的入口经 C ABI 侧投递后执行;
-/// - **零成本**: 宿主没启动时不声明、不订阅; 应用侧值变化只在"该键有人关心 (订阅或
-///   watch) 且宿主在跑"时才推 (关心数由这里回传给 Dart);
-/// - **高频值建议节流**: 属主按 `throttleMs` 合并推送, 宿主按 `notifyThrottleMs` 合并
-///   通知 (载荷带 `coalesced`), 且没人关心就不推; 这些窗口只是声明, 宿主不强制度量。
+/// - **零成本**: 插件框架没启动时不声明、不订阅; 主程序值变化只在"该键有人关心 (订阅或
+///   watch) 且插件框架在跑"时才推 (关心数由这里回传给 Dart);
+/// - **高频值建议节流**: 属主按 `throttleMs` 合并推送, 插件框架按 `notifyThrottleMs` 合并
+///   通知 (载荷带 `coalesced`), 且没人关心就不推; 这些窗口只是声明, 插件框架不强制度量。
 ///
 /// 容量与大小都不再限制 (变量数 / 变量总数 / 键长 / 值大小 / 订阅数); 唯一的容量类
-/// 限制是"每个插件未回执的读写请求数" (避免慢属主把宿主事件队列灌满)。
+/// 限制是"每个插件未回执的读写请求数" (避免慢属主把框架事件队列灌满)。
 #include "host_json.h"
 #include "host_naming.h"
 #include "musicxx_host.h"
@@ -265,7 +265,7 @@ int32_t MusicxxHostManager::registerVar(MusicxxHostInstance *inst,
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   /// 节流/保活窗口只是"属主侧的规则声明", 不再做取值范围校验 (负值按 0 处理):
-  /// 它不参与宿主的行为判定, 拒绝注册只会给作者添麻烦。
+  /// 它不参与插件框架的行为判定, 拒绝注册只会给作者添麻烦。
 
   const std::string pluginId = pluginIdOf(inst->name);
   std::string key;
@@ -453,7 +453,7 @@ int32_t MusicxxHostManager::beginVarRead(
   const bool needOwner = entry.owner.empty() ||
                          entry.mode == MUSICXX_PLUGIN_VAR_MODE_HANDLER;
   if (!needOwner) {
-    // `declared` 模式的插件变量: 值就在注册表里, 宿主即属主 → 立即回答
+    // `declared` 模式的插件变量: 值就在注册表里, 插件框架即属主 → 立即回答
     // (用 post 延后一次, 让发起方先把等待者登记好)
     const std::string value = entry.valueJson;
     if (notify && notify->done) {
@@ -497,7 +497,7 @@ int32_t MusicxxHostManager::beginVarRead(
     pendingReadByKey_.erase(pendingIt);
   }
 
-  // 未回执读请求的数量上限 (避免慢属主把宿主事件队列灌满)
+  // 未回执读请求的数量上限 (避免慢属主把框架事件队列灌满)
   if (!byPluginId.empty()) {
     int32_t pending = 0;
     for (const auto &[id, req] : pendingVarRequests_) {
@@ -543,7 +543,7 @@ int32_t MusicxxHostManager::beginVarRead(
   }
 
   if (entry.owner.empty()) {
-    // 官方键: 转给应用 (应用侧直接问实现, 本地权威)
+    // 官方键: 转给应用 (主程序直接问实现, 本地权威)
     Json payload;
     payload["requestId"] = requestId;
     payload["key"] = key;
@@ -592,7 +592,7 @@ int32_t MusicxxHostManager::getVarForApp(
 }
 
 int32_t MusicxxHostManager::peekVar(std::string_view key, std::string &outJson) {
-  // 只读镜像 (任何线程可用): JS 线程绝不等宿主线程, 见 varMirror_ 的说明
+  // 只读镜像 (任何线程可用): JS 线程绝不等框架线程, 见 varMirror_ 的说明
   std::string snapshot;
   {
     std::lock_guard<std::mutex> lock{varMirrorMutex_};
@@ -680,7 +680,7 @@ int32_t MusicxxHostManager::beginVarWrite(
   const bool isOwnerWrite = (byInstance == ownerInstance);
 
   if (!forward || isOwnerWrite) {
-    // 属主自己写自己的变量 = 提交 (declared 模式的宿主就是写入者);
+    // 属主自己写自己的变量 = 提交 (declared 模式的插件框架就是写入者);
     // 这样也不会出现"属主写自己的变量还要转给自己"的死循环
     std::string prev;
     const bool changed = applyVarValue(entry, valueText, byPluginId, prev);
@@ -714,7 +714,7 @@ int32_t MusicxxHostManager::beginVarWrite(
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
 
-  // 未回执写请求的数量上限 (避免慢属主把宿主事件队列灌满)
+  // 未回执写请求的数量上限 (避免慢属主把框架事件队列灌满)
   if (!byPluginId.empty()) {
     int32_t pending = 0;
     for (const auto &[id, req] : pendingVarRequests_) {
@@ -822,7 +822,7 @@ int32_t MusicxxHostManager::setVarForApp(
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   // `beginVarWrite` 在"交给属主写入"时会写一个 `{pending:true,...}` 信封 —— 那对
-  // 应用侧没有用 (应用要的是最终结果), 因此这里只把**已结算**的结果交出去:
+  // 主程序没有用 (应用要的是最终结果), 因此这里只把**已结算**的结果交出去:
   // 结果是"待写入"时清空 outJson, 让调用方去等等待槽 (C ABI 就是这么区分的)。
   std::string local;
   const int32_t rc =
@@ -1005,7 +1005,7 @@ void MusicxxHostManager::expireVarRequest(int64_t requestId) {
   completeVarRequest(requestId, false, std::string{}, reason);
 }
 
-/* ==================== 应用侧入口 ==================== */
+/* ==================== 主程序入口 ==================== */
 
 int32_t MusicxxHostManager::declareVars(const std::string &itemsJson,
                                         std::string &log) {
@@ -1144,7 +1144,7 @@ int32_t MusicxxHostManager::applyAppVarValue(const std::string &key,
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   if (!it->second.owner.empty()) {
-    err = "这是插件变量, 应用侧推值请用 var_set: " + key;
+    err = "这是插件变量, 主程序推值请用 var_set: " + key;
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
   std::string valueText;
@@ -1391,7 +1391,7 @@ void MusicxxHostManager::refreshVarCare(const VarEntry &entry) {
   payload["ts"] = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::system_clock::now().time_since_epoch())
                       .count();
-  // 应用侧据此维护"哪些键有人看": 没人看的键值变化只更新本地缓存, 不推宿主
+  // 主程序据此维护"哪些键有人看": 没人看的键值变化只更新本地缓存, 不推插件框架
   pushEvent("musicxx.var.subscriptions", "", payload.dump());
   // 关心数也进同步读镜像 (JS 侧 `subscribers()` 要读)
   publishVarMirror(entry);
@@ -1878,7 +1878,7 @@ int32_t PLUGINXX_CALL xx_vars_get(const PluginxxHost *host,
         auto inst = call.instance();
         const std::string text = viewText(key);
         // `notify` 由调用方 (插件/JS 桥) 构造: 这里按值复制它的 "done + host_ud"
-        // (宿主线程不等待, 结果稍后回调)
+        // (框架线程不等待, 结果稍后回调)
         PluginxxOperatorNotify notifyCopy{};
         const bool hasNotify = (notify != nullptr && notify->done != nullptr);
         if (hasNotify) {
@@ -1912,7 +1912,7 @@ int32_t PLUGINXX_CALL xx_vars_peek(const PluginxxHost *host,
         if (!call.ok()) {
           return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
         }
-        // 只读同步镜像: 可以直接在调用线程回答 (JS 线程绝不等宿主线程)
+        // 只读同步镜像: 可以直接在调用线程回答 (JS 线程绝不等框架线程)
         std::string json;
         const int32_t rc =
             call.manager()->peekVar(viewText(key), json);
@@ -1970,7 +1970,7 @@ int32_t PLUGINXX_CALL xx_vars_list(const PluginxxHost *host,
         if (!call.ok()) {
           return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
         }
-        // 与 peek 同一套: 读同步镜像, 不投递到宿主线程
+        // 与 peek 同一套: 读同步镜像, 不投递到框架线程
         std::string json;
         const int32_t rc = call.manager()->listVars(viewText(prefix), json);
         if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
@@ -2111,7 +2111,7 @@ int32_t PLUGINXX_CALL xx_vars_info(const PluginxxHost *host,
         if (!call.ok()) {
           return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
         }
-        // 与 peek 同一套: 读同步镜像, 不投递到宿主线程
+        // 与 peek 同一套: 读同步镜像, 不投递到框架线程
         std::string json;
         const int32_t rc = call.manager()->varInfo(viewText(key), json);
         if (rc != MUSICXX_EXTERN_PLUGIN_OK) {

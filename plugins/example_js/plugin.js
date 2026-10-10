@@ -8,7 +8,7 @@
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
 /// - `example_js.card` 能力: 主页入口打开的插件页面 (`ext://example_js/card`)。
 /// - 插件自绘设置页 (`ext://example_js/settings`, 从 card 页的按钮进入; 框架不管理设置入口)
-///   + 宿主网络代理通道 (musicxx.net.fetch) 演示。
+///   + 主程序网络代理通道 (musicxx.net.fetch) 演示。
 ///
 /// 界面写法: 页面内容用**随插件分发的界面 kit** 装配 (`pluginxx.ui.kit`, 见 plugin.yaml 的
 /// `scripts`: 先加载两个 kit 文件再加载本脚本), kit 只装配块描述, 渲染由客户端完成。
@@ -30,7 +30,7 @@ let lastSongName = "";
 let errorCount = 0;
 let timerTicks = 0;
 
-/// 读当前歌曲名 (来自宿主状态镜像的只读快照, 同步读取)
+/// 读当前歌曲名 (来自主程序状态镜像的只读快照, 同步读取)
 function currentSongName() {
     const song = musicxx.state.get("musicxx.state.song");
     if (song && typeof song.name === "string") {
@@ -59,7 +59,7 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, function (ct
     songChangedCount += 1;
     lastSongName = (ctx && ctx.song && ctx.song.name) ? String(ctx.song.name) : "";
     musicxx.host.log(2, "切歌: " + lastSongName);
-    // 计数落到插件私有存储 (经宿主动作, 异步; 失败只记日志)
+    // 计数落到插件私有存储 (经主程序动作, 异步; 失败只记日志)
     musicxx.storage.set(BUDGET_KEY, songChangedCount).then(function () {
         return null;
     }, function (err) {
@@ -67,7 +67,7 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, function (ct
     });
 });
 
-/// 裁决型钩子: 播放错误 (首个错误建议换源, 之后交给宿主原有策略)
+/// 裁决型钩子: 播放错误 (首个错误建议换源, 之后交给主程序原有策略)
 musicxx.hooks.register("musicxx.player.error", { mode: "decision", priority: 0 }, function (ctx) {
     errorCount += 1;
     if (errorCount === 1) {
@@ -76,13 +76,13 @@ musicxx.hooks.register("musicxx.player.error", { mode: "decision", priority: 0 }
     return null;
 });
 
-/// 裁决型钩子: 处理器返回 Promise 也能生效 —— 宿主一直等到 Promise 结算
+/// 裁决型钩子: 处理器返回 Promise 也能生效 —— 插件框架一直等到 Promise 结算
 /// (没有等待超时, 也不会"超时按不裁决继续"), 结算之后裁决才生效。
 /// 注意两件事:
-/// - `musicxx.player.speed` 当前版本**还没有接入** (约定已固定, 应用侧没有调用):
+/// - `musicxx.player.speed` 当前版本**还没有接入** (约定已固定, 主程序没有调用):
 ///   注册它不会报错, 但这段处理现在不会被执行, 写法可以照抄到已接入的钩子上;
 /// - 这个钩子在约定里是**同步派发**的: 真接入时返回 Promise 会让调用方等这 20 ms。
-///   同步派发的钩子里`await` 宿主动作/变量会互相等死 —— 应用线程正阻塞在这次钩子
+///   同步派发的钩子里`await` 主程序动作/变量会互相等死 —— 主程序线程正阻塞在这次钩子
 ///   调用上, 动作没人处理, 表现是应用一直卡住。
 /// 这里演示"限速"这一常见需求: 先把 0.25~3 之外的速度夹回来。
 /// 说明: 真实插件通常在这里 `await` 一次异步来源 (存储/网络/其它插件能力);
@@ -99,7 +99,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, function (c
     });
 });
 
-/// 定时器: 按"心跳间隔"配置写日志 (演示定时器用法; 卸载/禁用时宿主自动清理)
+/// 定时器: 按"心跳间隔"配置写日志 (演示定时器用法; 卸载/禁用时插件框架自动清理)
 ///
 /// 间隔是插件的设置项 (默认 30 秒, 设置页里能改, 也可以直接编辑 config.json):
 /// 顶层先按默认值注册, 读到配置里的值后再换成实际间隔。
@@ -140,7 +140,7 @@ function applyHeartbeat(ms) {
 applyHeartbeat(DEFAULT_HEARTBEAT_MS);
 
 /// 声明式 UI 扩展: 主页入口项 + 歌曲菜单项
-/// 说明: UI 项只做声明 (标题/图标/动作), 渲染由宿主负责; 运行期也能再注册/更新/注销。
+/// 说明: UI 项只做声明 (标题/图标/动作), 渲染由主程序负责; 运行期也能再注册/更新/注销。
 /// 图标是**插件自己带的 svg**: 写一条相对插件目录的路径, 文件在 `resource/svg/example.svg`
 /// (相对路径 + `resource/svg/` 只是推荐位置, 见 docs/plugin-ui.md §1.5)。
 musicxx.ui.registerEntry({
@@ -179,10 +179,10 @@ function notifyGreeting(greeting) {
     });
 }
 
-/// 能力: 跨插件调用 (JS → 原生/内置插件; 结果为 Promise, 宿主线程执行)
+/// 能力: 跨插件调用 (JS → 原生/内置插件; 结果为 Promise, 插件框架线程执行)
 ///
 /// - 目标是 JS 插件时同线程直接调用 (结果立即就绪);
-/// - 目标是动态库插件时投递到宿主线程执行, 脚本不阻塞 (宿主线程可能正等 JS 处理器)。
+/// - 目标是动态库插件时投递到插件框架线程执行, 脚本不阻塞 (插件框架线程可能正等 JS 处理器)。
 /// 能力处理器必须**同步返回**, 所以跨插件调用的结果用"最后一次结果"记下来,
 /// 由 probe 能力回读 (测试用; 真实插件应把异步结果写进自己的状态或 UI 项)。
 let crossCallState = { pending: 0, ok: 0, keys: 0, error: "" };
@@ -245,12 +245,12 @@ function viewEnv(args) {
     return null;
 }
 
-/// 插件自绘设置页: 宿主打开 ext://example_js/settings 时调用同名能力取页面描述。
+/// 插件自绘设置页: 主程序打开 ext://example_js/settings 时调用同名能力取页面描述。
 ///
 /// 设置界面属于插件自己的页面 (框架不管理设置入口, 也不渲染设置控件): 入口就是
 /// card 页里的『打开本插件设置页』按钮, 页面只用 kit 的组合 (settingRow / button / ...)
 /// 画出插件自己的配置界面; 值改动由按钮触发能力写回 config.json (返回 {view:...}
-/// 让宿主直接用新页面刷新)。
+/// 让主程序直接用新页面刷新)。
 function settingsView(args, override) {
     const env = viewEnv(args);
     const cache = musicxx.storage.configCache;
@@ -267,7 +267,7 @@ function settingsView(args, override) {
         title: "JS 示例插件设置",
         subtitle: "页面由插件绘制; 值保存在插件目录的 config.json",
         blocks: [
-            kit.hint({ text: "这些设置由脚本用 musicxx.storage.getConfig/setConfig 读写, 没有宿主提供的表单。" }, env),
+            kit.hint({ text: "这些设置由脚本用 musicxx.storage.getConfig/setConfig 读写, 没有主程序提供的表单。" }, env),
             kit.divider({}, env),
             kit.listRow({
                 title: "跳过广告曲目",
@@ -360,7 +360,7 @@ musicxx.capability.register("cycleHeartbeat", function (args) {
 /// 变量通道 (musicxx.vars)
 ///
 /// 变量 = 有属主、可读、可写、可订阅变动的小值。这里演示两件事:
-/// 1. 注册自己的变量 (declared 模式: 值由宿主代存, set 即提交);
+/// 1. 注册自己的变量 (declared 模式: 值由插件框架代存, set 即提交);
 /// 2. 绑定官方变量 (用户改设置时同步自己的行为) 与异步读一次 (权威值)。
 musicxx.vars.register({
     key: "demo.greeting",
@@ -390,7 +390,7 @@ musicxx.vars.get("musicxx.ui.animatedLevel").then(function (value) {
     return null;
 });
 
-/// 异步能力 (返回 Promise): 宿主会一直等到它结算, 再把结果交给调用方
+/// 异步能力 (返回 Promise): 插件框架会一直等到它结算, 再把结果交给调用方
 ///
 /// 与钩子处理器同一套做法 (没有等待超时): 慢就是调用方多等一会儿。
 musicxx.capability.register("slowProbe", function (args) {
@@ -440,10 +440,10 @@ musicxx.capability.register("probe", function (args) {
     };
 });
 
-/// 能力: 演示宿主网络代理通道 (musicxx.net.fetch)
+/// 能力: 演示主程序网络代理通道 (musicxx.net.fetch)
 ///
 /// 说明: 这条通道是**可选便利能力**, `musicxx.net` 权限只表示
-/// "允许用宿主代理通道"; 宿主不限定可访问的域名 (任意 http/https 地址都可以请求)。
+/// "允许用主程序代理通道"; 主程序不限定可访问的域名 (任意 http/https 地址都可以请求)。
 /// 非 2xx 也会正常返回 (status 交给脚本判断); 只有传输失败/超时才是 ok=false + error。
 let fetchState = { pending: 0, ok: 0, status: 0, bytes: 0, error: "" };
 musicxx.capability.register("fetchEcho", function (args) {
@@ -487,7 +487,7 @@ let featureCallState = { pending: 0, ok: 0, keys: 0, error: "" };
 
 /// 插件页面: 主页入口指向 `ext://example_js/card`
 ///
-/// 宿主打开这个页面时调用**同名能力** (`card`), 由脚本返回视图描述 ——
+/// 主程序打开这个页面时调用**同名能力** (`card`), 由脚本返回视图描述 ——
 /// 页面内容由插件给 (这里用 kit 装配), 排版与控件仍由客户端渲染。
 /// 页面里的按钮可以调用本插件能力 (返回 `{view:...}` 时直接刷新当前页)、
 /// 执行官方动作, 或跳到另一个插件页面 (这里跳本插件的设置页)。
@@ -516,7 +516,7 @@ function cardView(args) {
             }, env),
             kit.listRow({
                 title: "播放错误次数",
-                subtitle: "第 1 次错误建议换源, 之后交给宿主原有策略",
+                subtitle: "第 1 次错误建议换源, 之后交给主程序原有策略",
                 trailing: String(errorCount),
             }, env),
             kit.listRow({
@@ -535,7 +535,7 @@ function cardView(args) {
                 trailing: cross,
             }, env),
             kit.listRow({
-                title: "宿主网络通道",
+                title: "主程序网络通道",
                 subtitle: "musicxx.net.fetch 最近一次结果",
                 trailing: net,
             }, env),
@@ -550,7 +550,7 @@ function cardView(args) {
                 label: "调用 example_native 的能力",
                 action: { kind: "dispatch", name: "crossCall", args: { target: "example_native", method: "probe" } },
             }, env),
-            kit.button({ label: "测试宿主网络通道", action: "fetchEcho" }, env),
+            kit.button({ label: "测试主程序网络通道", action: "fetchEcho" }, env),
             kit.button({
                 label: "打开本插件设置页",
                 action: { kind: "route", route: "ext://example_js/settings" },

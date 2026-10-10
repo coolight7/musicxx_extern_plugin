@@ -4,7 +4,7 @@
 # 一致的判定与实现, 免得"配置环境的脚本"和"构建的脚本"各写一份, 时间一长就走样:
 #
 #   tools/setup_native_env.ps1   配置开发编译环境 (工具预检 / 子模块 / Boost / NDK → 环境描述文件)
-#   tools/build_native.ps1       构建插件框架 (宿主库 + 插件 SDK)
+#   tools/build_native.ps1       构建插件框架 (插件框架库 + 插件 SDK)
 #   tools/build_examples.ps1     构建示例插件 (可选打包成安装包 .zip)
 #   tools/pack_plugin.ps1        把一个插件目录打成安装包 (包名里的版本号取自清单 version)
 #
@@ -53,7 +53,7 @@ function Write-MxOk([string]$Text) {
 # ==================== 插件安装包命名 ====================
 
 # 插件版本号的约定是「日期.小版本号1.小版本号2」: 第一段是这次发版那天的日期, 例 20261010.1.0。
-# 安装包文件名要带上版本号, 所以打包脚本自己读一次清单 —— 这里只做轻量正则, 清单的权威解析在宿主
+# 安装包文件名要带上版本号, 所以打包脚本自己读一次清单 —— 这里只做轻量正则, 清单的权威解析在插件框架
 # (src/host/host_manifest.cpp)。
 function Read-MxPluginVersion([string]$PluginDir) {
     $manifestPath = Join-Path $PluginDir 'plugin.yaml'
@@ -66,7 +66,7 @@ function Read-MxPluginVersion([string]$PluginDir) {
 
 # 安装包文件名: <插件 id>-<版本号, 其中的 . 换成 _>.zip
 # 例: example_js_shader (version: 20261010.1.0) → example_js_shader-20261010_1_0.zip
-# 清单没写 version 时退回 <插件 id>.zip (只是打包脚本的命名, 不影响宿主怎么读清单)。
+# 清单没写 version 时退回 <插件 id>.zip (只是打包脚本的命名, 不影响插件框架怎么读清单)。
 function Get-MxPluginPackageFileName([string]$PluginId, [string]$Version) {
     $tag = $Version.Trim().Trim('"').Trim("'") -replace '\.', '_'
     if ($tag -eq '') { return "$PluginId.zip" }
@@ -140,7 +140,7 @@ function Get-MxPlatformInfo {
 
     $androidAbi = ''
     if ($Android) {
-        # Android: 目标平台与宿主平台无关, 平台/架构段一律按 ABI 推导 (与桌面端的目录命名保持一致)
+        # Android: 目标平台与开发机平台无关, 平台/架构段一律按 ABI 推导 (与桌面端的目录命名保持一致)
         $os = 'android'
         $androidAbi = $Abi
         $arch = switch ($Abi) {
@@ -228,7 +228,7 @@ function Ensure-MxNinja {
 }
 
 # 生成器解析: 显式参数 → Windows 上挑已安装的 VS → ninja → Unix Makefiles
-# (Android 交叉编译固定 Ninja: 与 NDK 工具链配合最稳, 也不依赖宿主平台的 IDE 生成器)
+# (Android 交叉编译固定 Ninja: 与 NDK 工具链配合最稳, 也不依赖开发机平台的 IDE 生成器)
 function Resolve-MxGenerator {
     param(
         [string]$Generator,
@@ -255,7 +255,7 @@ function Resolve-MxGenerator {
 
 # 构建目录 / 安装前缀 / 便携输出目录 / 产物文件名
 #   <包>/.native/build/<平台>-<配置>                     构建目录 (一个配置一个, 依赖也装在里面)
-#   <包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install   安装前缀 (依赖 + 宿主 + SDK)
+#   <包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install   安装前缀 (依赖 + 插件框架 + SDK)
 #   <包>/.native/output/<平台>-<架构>-<配置>/{bin,plugins}            稳定输出目录 (供打包/手工取用)
 # Android 的"平台-架构"段是 android-<abi>: build/android-arm64-v8a-release
 function Get-MxBuildPaths {
@@ -837,8 +837,8 @@ function Get-MxNewestWriteTime {
     return $newest
 }
 
-# 影响宿主库与示例插件的源码集合。
-# third_party 全部算在内 (依赖升级/本地改动都会让宿主库过期); 只有本机内置的 Boost 头文件不算 ——
+# 影响插件框架库与示例插件的源码集合。
+# third_party 全部算在内 (依赖升级/本地改动都会让插件框架库过期); 只有本机内置的 Boost 头文件不算 ——
 # 它有几万个文件, 而且不参与编译, 只被 include。
 # 构建脚本本身不算源码: 改脚本不改变已编好的库, 算进去会让"已是最新"永远不成立 (脚本一动就要重建);
 # 脚本里的参数变化由构建目录签名负责 (配置/生成器/Boost 位置变化会重置构建目录)。

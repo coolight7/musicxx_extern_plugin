@@ -1,6 +1,6 @@
 # 插件渲染：shader bundle 打包与 uniform 约定
 
-插件可以把**打包期编译好的 shader bundle** 注册成一种宿主渲染样式（当前有两个渲染槽位：
+插件可以把**打包期编译好的 shader bundle** 注册成一种主程序渲染样式（当前有两个渲染槽位：
 「播放页背景」`player.background` 与「播放页歌曲图」`player.icon`，后者见 §5.3），由用户在
 「设置 → 主题」里选中后生效（命令行 / agent 用
 `musicxx-cli render list|select` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
@@ -11,7 +11,7 @@
 [plugin-native-api.md](plugin-native-api.md)，整体流程与注意事项见 [plugin-guide.md](plugin-guide.md)。
 
 > 现成可编译的例子：`plugins/example_js_shader/shader/` 与 `plugins/example_native/shader/`
-> —— 「晶格化」背景（随机点最近邻切块，配色用宿主的 4 个绘制色）。`example_js_shader` 里还有
+> —— 「晶格化」背景（随机点最近邻切块，配色用主程序的 4 个绘制色）。`example_js_shader` 里还有
 > 第二个 bundle：**「光圈」背景**（`shaders/ring.frag`：从正上方开始顺时针排 64 个点、一个点一个
 > 频带，尖角向内外凸出、相邻点之间用直线连成一张"蛛网"，不画基线圆），照抄同一份打包脚本即可编译。
 > 基线版本 3.47.5 的 Flutter SDK
@@ -27,6 +27,9 @@
 > 它同时演示了歌曲图槽位（§5.3）与封面取色钩子 —— 见 `plugins/playing_bg_image/plugin.js`。
 
 ---
+
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
 
 ## 1. 四个步骤
 
@@ -72,7 +75,7 @@
 }
 ```
 
-这两个键就是**入口名**。宿主默认按 `MusicxxRenderVertex` / `MusicxxRenderFragment` 查找，
+这两个键就是**入口名**。主程序默认按 `MusicxxRenderVertex` / `MusicxxRenderFragment` 查找，
 也可以在 UI 项里改（一般不需要）：
 
 ```jsonc
@@ -116,7 +119,7 @@ $spec = ((Get-Content shader/bundle.json -Raw) -replace "`r?`n", ' ').Trim()
 - 一次编译出 5 个后端（metal_ios / metal_desktop / opengl_es / opengl_desktop / vulkan），
   一个文件全平台通用，不需要按平台分别编；
 - 任一后端编译失败，打包就失败（不会产出半成品）；
-- bundle 里有 `file_identifier = "IPSB"`；宿主加载前会自己读字节校验 `format_version`。
+- bundle 里有 `file_identifier = "IPSB"`；主程序加载前会自己读字节校验 `format_version`。
 
 ---
 
@@ -131,7 +134,7 @@ $spec = ((Get-Content shader/bundle.json -Raw) -replace "`r?`n", ' ').Trim()
 
 ## 5. uniform 约定
 
-宿主每帧填充一个固定名字的结构体 `MusicxxRenderInfo`：
+主程序每帧填充一个固定名字的结构体 `MusicxxRenderInfo`：
 
 ```glsl
 uniform MusicxxRenderInfo {
@@ -143,18 +146,18 @@ uniform MusicxxRenderInfo {
   vec4 uColor3;
   vec4 uColor4;
   vec4 uTint;     // 例：{"name":"uTint","source":"musicxx.theme.primary"}
-  vec4 uCoverInfo; // 只在声明了 cover 时由宿主自动写：见 §5.1
+  vec4 uCoverInfo; // 只在声明了 cover 时由主程序自动写：见 §5.1
 } render_info;
 ```
 
 规则：
 
-- **结构体名与成员名必须完全一致**（宿主按名字寻址写入）；成员偏移必须 16 字节对齐；
+- **结构体名与成员名必须完全一致**（主程序按名字寻址写入）；成员偏移必须 16 字节对齐；
 - 结构体大小必须是 **16 的倍数且 ≥ 16**，否则该样式判为不可用并给出原因；
-- `uParams` / `uEnv` 由宿主自动写（不用在 `args` 里声明）；声明了 `cover` 时，封面信息成员
-  （缺省名 `uCoverInfo`，见 §5.1）同样由宿主自动写，也不要在 `args` 里声明；
-- **可以少声明成员**（宿主跳过不写，着色器读到 0），但不能声明错误的名字
-  （成员在结构体里不存在时宿主会跳过；声明了名字却没有对应成员不会报错，只是没有值）；
+- `uParams` / `uEnv` 由主程序自动写（不用在 `args` 里声明）；声明了 `cover` 时，封面信息成员
+  （缺省名 `uCoverInfo`，见 §5.1）同样由主程序自动写，也不要在 `args` 里声明；
+- **可以少声明成员**（主程序跳过不写，着色器读到 0），但不能声明错误的名字
+  （成员在结构体里不存在时主程序会跳过；声明了名字却没有对应成员不会报错，只是没有值）；
 - 颜色是 `0..1` 的浮点（sRGB 分量）；`uEnv.y = 0` 表示当前没有有效的封面配色分析结果
   （用 `musicxx.icon.*` 来源的参数这时会用插件给的固定值）；
 - `uEnv.z = 1` 表示**现在有音频频谱数据**（`musicxx.spectrum.*` 来源这时才是真实的声压与频带）；
@@ -176,7 +179,7 @@ float t = render_info.uParams.z * render_info.uParams.w;   // 速率变了立即
 
 播放页背景经常要用当前歌曲封面（模糊铺底、圆心盘、扭曲、像素化…）。**不要把封面字节读进插件再想办法画**
 —— 动作 `musicxx.media.cover` 那套是给"读数据"用的（插件脚本拿到的是 base64 字节，进不了 GPU）。
-渲染项里声明 `cover`，剩下的事由宿主做：解码 → 缩放（可选中心裁剪成正方形）→ 可选**预模糊**
+渲染项里声明 `cover`，剩下的事由主程序做：解码 → 缩放（可选中心裁剪成正方形）→ 可选**预模糊**
 （引擎的图像滤镜，GPU 一次）→ 上传成 GPU 纹理 → 每帧绑定到你指定的 `sampler2D`。
 
 ```jsonc
@@ -196,7 +199,7 @@ uniform MusicxxRenderInfo {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / max(render_info.uParams.xy, vec2(1.0));
-  // 没有封面时 uCoverInfo.w 是 0：这时不要用采样结果（宿主绑的是 1×1 透明占位纹理）
+  // 没有封面时 uCoverInfo.w 是 0：这时不要用采样结果（主程序绑的是 1×1 透明占位纹理）
   float coverOn = render_info.uCoverInfo.w > 0.5 ? 1.0 : 0.0;
   vec3 coverColor = texture(uCover, uv).rgb;
   ...
@@ -220,7 +223,7 @@ void main() {
 - 纹理是**等比缩放**的（`square: false` 时宽高比就是原图），拿 `uCoverInfo.xy` 可以算自己的 uv
   —— 例如"铺满画面、超出裁掉"（cover 裁切）的写法见
   `plugins/example_js_shader/shader/shaders/bg.frag`；
-- `uCoverInfo.w = 0` 表示这一帧**没有封面**（还没加载好 / 这首歌没有封面）：宿主仍然会绑定纹理，
+- `uCoverInfo.w = 0` 表示这一帧**没有封面**（还没加载好 / 这首歌没有封面）：主程序仍然会绑定纹理，
   但内容是 1×1 透明占位 —— **不要靠采样到的颜色判断有没有封面**，看这一位；
 - `uCoverInfo.z` 是原图宽高比（`square: true` 时纹理是方的，这一位仍是原图比例）。
 
@@ -253,16 +256,16 @@ void main() {
   （provider + 解码尺寸）键控、**不在每次准备前清空**（每清一次就会让切歌时反复解码、
   网络封面还要重新下载，表现为"切歌卡几秒"）；纹理准备还有 120ms 防抖（切歌时封面源
   常连着变几次）；
-- 封面变化（换歌、同一首歌换封面）时宿主重新准备一次（几毫秒），**不是每帧上传**；模糊也是一次性
+- 封面变化（换歌、同一首歌换封面）时主程序重新准备一次（几毫秒），**不是每帧上传**；模糊也是一次性
   预生成，不是每帧做 —— 想在着色器里自己模糊当然也行（多采样几次，代价自己算）；
 - 同一张封面可以被多个渲染项各自声明（背景与页面里的 `Shader` 块各拿一份纹理，各自释放，互不影响）；
 - 封面可能带透明（PNG）：采样到的 `a` 就是原图的 alpha，透明处 `rgb` 是 0，需要不透明底就自己 `mix`；
-- **着色器里声明了 `sampler2D`，就一定要在渲染项里有同名的 `cover` 声明**：宿主只绑定
-  `cover.texture` 里写出的名字；只声明了 `cover` 而着色器里没有对应 uniform 时宿主会记一条日志并
+- **着色器里声明了 `sampler2D`，就一定要在渲染项里有同名的 `cover` 声明**：主程序只绑定
+  `cover.texture` 里写出的名字；只声明了 `cover` 而着色器里没有对应 uniform 时主程序会记一条日志并
   跳过（安全），反过来（着色器有 sampler、渲染项没声明）就是**采样一张从未绑定的纹理**，
-  在部分后端上行为未定义（软件后端实测会崩）。声明了 `cover` 而当前没有封面时宿主绑的是
+  在部分后端上行为未定义（软件后端实测会崩）。声明了 `cover` 而当前没有封面时主程序绑的是
   1×1 透明占位纹理，采样是安全的 —— 用 `uCoverInfo.w` 判断要不要用它；
-- 声明了名字但着色器里没有对应的 `uniform sampler2D` 时，宿主记一条日志并跳过这一张，
+- 声明了名字但着色器里没有对应的 `uniform sampler2D` 时，主程序记一条日志并跳过这一张，
   不影响这一帧的其它内容（不会让整个样式失效）；
 - 页面里的 `Shader` 块（§9）目前还没有 `cover` 字段（描述层字段表里没有它），要用封面纹理
   先做成背景样式；`musicxx.state.renderSlots` / `musicxx.media.palette` 之类的状态读法与以前一样。
@@ -272,10 +275,10 @@ void main() {
 ## 5.2 插件绑定的图片（`image`）：把插件自己的图交给着色器
 
 `cover` 只能画"当前歌曲封面"。要让着色器画**插件自己准备的图**（自己下载的素材、脚本合成的图片、
-处理过的封面），就先把图片交给宿主绑定，再在渲染项里引用它：
+处理过的封面），就先把图片交给主程序绑定，再在渲染项里引用它：
 
 ```js
-// 1) 把图片交给宿主（宿主解码 + 上传成 GPU 纹理，登记进这个插件的图像表）
+// 1) 把图片交给主程序（主程序解码 + 上传成 GPU 纹理，登记进这个插件的图像表）
 await musicxx.call("musicxx.media.bindImage", {
     key: "mini",            // 本地名字，渲染项里用它引用
     data: base64,           // 图片字节（png / jpeg / rgba）
@@ -285,7 +288,7 @@ await musicxx.call("musicxx.media.bindImage", {
 // 或者"读封面顺便绑"：复用同一次解码的像素，不重复解码
 await musicxx.call("musicxx.media.cover", { size: 96, format: "rgba", bind: "mini" });
 
-// 不再需要时释放（不释放也会随插件停用/卸载、宿主停止自动摘掉）
+// 不再需要时释放（不释放也会随插件停用/卸载、插件框架停止自动摘掉）
 await musicxx.call("musicxx.media.unbindImage", { key: "mini" });
 ```
 
@@ -306,7 +309,7 @@ uniform MusicxxRenderInfo {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / max(render_info.uParams.xy, vec2(1.0));
-  // 插件还没绑定 / 已解绑时这一位是 0（宿主绑的是 1×1 透明占位纹理）
+  // 插件还没绑定 / 已解绑时这一位是 0（主程序绑的是 1×1 透明占位纹理）
   float hasImage = render_info.uMiniInfo.w > 0.5 ? 1.0 : 0.0;
   vec3 color = texture(uMini, uv).rgb;
   ...
@@ -321,9 +324,9 @@ void main() {
 
 约定与代价：
 
-- **图片由插件提供，宿主只做解码与上传**（不检查内容）：单张最长边 1024（超出拒绝）、
+- **图片由插件提供，主程序只做解码与上传**（不检查内容）：单张最长边 1024（超出拒绝）、
   每个插件最多同时绑定 8 张、base64 字符串上限 6 MiB；
-- **绑定是临时资源**：插件卸载 / 停用、宿主停止、关闭『拟声++』时整张表被摘掉（只丢引用，
+- **绑定是临时资源**：插件卸载 / 停用、插件框架停止、关闭『拟声++』时整张表被摘掉（只丢引用，
   交给垃圾回收）；渲染视图每帧只做一次整数比较，没绑定就是零成本；
 - **没声明 `image` 的渲染项**：不查表、不绑定、不占显存；声明了但还没绑定时绑 1×1 透明占位纹理；
 - 插件用同一个 key 重新绑定（换成新图）时，正在画的背景会在下一帧用上新图；
@@ -367,7 +370,7 @@ void main() {
 | `view` | — | `view` 形态：视图 id 字符串（调插件同名能力取页面）或内联视图对象 |
 | `keepSpace` | `true` | 只有 `none` 形态用：是否保留占位尺寸（false = 完全不占位，播放页其余元素会跟着上移） |
 | `fill` | `false` | `shader` 形态：false = 在可用宽度里居中画一个方形（边长 = 内置歌曲图的高度），true = 铺满可用区域 |
-| `cover` / `image` / `args` / `speed` / `maxFps` / `resolutionScale` / `animate` | 同背景 | 渲染输入与播放页背景**共用同一份解析与渲染宿主**，写法和含义完全一样 |
+| `cover` / `image` / `args` / `speed` / `maxFps` / `resolutionScale` / `animate` | 同背景 | 渲染输入与播放页背景**共用同一份解析与渲染实现**，写法和含义完全一样 |
 
 约定与代价：
 
@@ -392,7 +395,7 @@ void main() {
 
 ## 6. 着色器写法
 
-顶点（宿主绑定 3 个顶点的全屏三角形，覆盖整个裁剪空间，不做任何变换）：
+顶点（主程序绑定 3 个顶点的全屏三角形，覆盖整个裁剪空间，不做任何变换）：
 
 ```glsl
 #version 460 core
@@ -426,9 +429,9 @@ void main() {
 
 要点：
 
-- 结构体必须在**片元着色器**里声明（宿主按片元入口查它的 uniform 槽）；
+- 结构体必须在**片元着色器**里声明（主程序按片元入口查它的 uniform 槽）；
 - `gl_FragCoord.xy` 是像素坐标，除以 `uParams.xy` 得到 `0..1` 的 uv；
-- **渲染目标是左上角为原点的像素坐标：`gl_FragCoord.y` 越大越靠下**（与画布一致，宿主不会再翻）。
+- **渲染目标是左上角为原点的像素坐标：`gl_FragCoord.y` 越大越靠下**（与画布一致，主程序不会再翻）。
   要按"画面上方"判断（上下不对称的效果）就自己翻一下 y：
   `vec2 p = (gl_FragCoord.xy - 0.5 * res) / (0.5 * min(res.x, res.y)); p.y = -p.y;`
   —— 光圈示例就是这么做的（正上方 = 最低频，写反了频率轴会上下颠倒）；
@@ -462,7 +465,7 @@ void main() {
 
 着色器的每个 `vec4` 成员都在 `args` 里声明，**只有一种写法**：`args` 是一个对象，
 键是 uniform 成员名（字母或下划线开头，最长 32 字符），值是一条**值表达式**：
-`{"kind": "<节点类型>", ...参数}`。表达式可以像 widget 一样互相嵌套，宿主**每帧**从根节点
+`{"kind": "<节点类型>", ...参数}`。表达式可以像 widget 一样互相嵌套，主程序**每帧**从根节点
 求值一次，结果直接写进 uniform —— 插件不用在着色器里重复写时间/滤波逻辑。
 
 **名字空间与解析顺序**（与页面/`AnimatedBuilder` 里用的是同一套值系统）：
@@ -565,7 +568,7 @@ void main() {
 | `musicxx.spectrum.bands64.0` .. `musicxx.spectrum.bands64.15` | 当前音频的 **64 个频带**（低频在前，0~1；每项 4 个连续频带写在 xyzw）——画面上要摆很多点时用这一档 |
 | `musicxx.spectrum.bins.0` .. `musicxx.spectrum.bins.63` | 当前音频的**全部 256 个频点**（低频在前，0~1；每项 4 个连续频点写在 xyzw） |
 | `musicxx.env.night` / `musicxx.env.hasPalette` / `musicxx.env.hasSpectrum` / `musicxx.env.hasCover` | 环境量：是否夜间 / 有没有封面配色 / 有没有频谱数据 / 有没有封面图（0 或 1，写在 4 个分量）；配 `mix` 就能写出"按环境切换"的值 |
-| **其它任意名字（可含 `.`）** | 变量目录里的键：应用登记的官方变量、插件登记的自定义变量（如 `plugin.<插件id>.<名>`）；值是数字 / 布尔 / 文本，宿主按字段期望的类型转换 |
+| **其它任意名字（可含 `.`）** | 变量目录里的键：应用登记的官方变量、插件登记的自定义变量（如 `plugin.<插件id>.<名>`）；值是数字 / 布尔 / 文本，主程序按字段期望的类型转换 |
 | **局部通道名（`AnimatedBuilder.values` 的键）** | 优先于上面两类；只在那一层作用域里可见（页面里的用法见 `plugin-ui.md`） |
 
 **频谱来源（`musicxx.spectrum.*`）** 读的是**插件提供的实现**提取的数据（内置『音乐动效』插件是
@@ -580,7 +583,7 @@ void main() {
   实测 1280x720 单帧渲染因此多花 90 ms 以上（同一台机器上晶格背景只要 4 ms 左右），
   播放页会明显卡。需要很多点又要便宜就用 `bands64.*`（16 个成员，实测 64 个点约 30 ms 量级），
   或者用循环下标一次算一整组（例如"最低 16 个频点取平均"）；
-- **数据本身的过渡由宿主自动做**：按播放位置在两帧频谱之间插值（就是内置动效"自动插入过渡值"
+- **数据本身的过渡由主程序自动做**：按播放位置在两帧频谱之间插值（就是内置动效"自动插入过渡值"
   的做法），所以 10 帧/秒的数据在几十帧/秒的渲染里也是连续的；只有逐帧数据（结果里的
   `source` 是 `live`）时没有下一帧可用，这时用 `smooth` 节点做过渡；
 - 没有数据时**写全 0（静音），不看 `fallback`**：要区分"静音 / 没启用 / 正在加载"就看
@@ -609,11 +612,11 @@ void main() {
   `durationMs` / `periodMs` 会钳制在 16 ms ~ 3600000 ms；
 - 写错的项**被忽略并记一条日志**（未知 `kind`、缺必填参数、成员名非法、超过上限…），
   不影响同一份声明里的其它成员，也不会让整个样式不可用；
-- 播放页背景**完全不写 `args`** 时，宿主默认给 `uColor1..4 ← musicxx.icon.themeMapping.0..3`
+- 播放页背景**完全不写 `args`** 时，主程序默认给 `uColor1..4 ← musicxx.icon.themeMapping.0..3`
   （观感与内置背景一致）；页面里的 `Shader` 块不做这个回退（不写就没有颜色）；
 - 旧的 `data.colors` 字段与旧的扁平 `args` 写法（数组 + `source` / `value` / `valueNight` /
   `convert` 字段）**都已移除**：还写着的插件不会解析 `args`（当作"没有参数"），
-  宿主日志里会给一条迁移提示。
+  主程序日志里会给一条迁移提示。
 
 ---
 
@@ -627,15 +630,15 @@ void main() {
 | `args` | 空 | ≤ 80 个成员 | 着色器参数：成员名 → 值表达式（见 §7）；背景槽位不声明时默认给内置 4 色 |
 | `cover` | 不声明 | 对象 / `true` / 名字 / 数组 | 封面纹理（`texture` / `info` / `size` / `blur` / `square` / `smooth`，见 §5.1）；不声明 = 零成本 |
 | `image` | 不声明 | 对象 / 数组 | 插件绑定的图片纹理（`key` / `texture` / `info` / `smooth`，见 §5.2）；不声明 = 零成本 |
-| `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`（着色器要自己乘，见 §5）。**由插件自己决定**，宿主不做二次缩放 |
+| `speed` | 4 | 0..20 | 时间推进速度，写进 `uParams.w`（着色器要自己乘，见 §5）。**由插件自己决定**，主程序不做二次缩放 |
 | `maxFps` | 16 | 1..30 | 帧率上限 |
-| `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由宿主放大（省 GPU） |
+| `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由主程序放大（省 GPU） |
 | `animate` | true | — | false = 只渲染一帧（时间恒为 0） |
 | `scrim` | 0 | 0..0.8 | 背景上叠一层暗化（页面里的 `Shader` 块没有这个字段） |
 | `foregroundStyle` | `mask` | `mask` / `neumorphism` | 播放页前景（歌曲名/图标）用浅色遮罩还是常规样式；未知值按 `mask` |
 | `foregroundColors` | 不声明 | 对象（3 个颜色） | 自定义播放页前景的三色（见 §8.1）；不声明 = 用主题默认色 |
 
-渲染目标最长边由宿主限制在 **1280 px**
+渲染目标最长边由主程序限制在 **1280 px**
 （超出的部分按比例缩小，再交给 Flutter 放大）；bundle 体积、路径长度与 UI 项数量都不设上限。
 
 字段写错只会退化成默认表现（数值会被 clamp），不会让整项不可用；不可用的原因只来自
@@ -643,7 +646,7 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 
 ### 8.1 播放页前景三色（`foregroundColors`）
 
-宿主播放页的**文本、歌词、进度条与块状背景只用三种颜色**。插件选了某个背景样式之后，
+主程序播放页的**文本、歌词、进度条与块状背景只用三种颜色**。插件选了某个背景样式之后，
 可以用一个结构体一次指定这三色，让自己的背景配上合适的文字颜色：
 
 ```jsonc
@@ -666,11 +669,11 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 | `cross` 减淡色 | 歌手名、提示文字、总时长、未高亮的歌词行 |
 | `block` block 背景色 | 歌曲列表的选中底色、按钮底、信息块与面板、进度条槽底 |
 
-- **只写其中一部分也可以**：没写的色用宿主当前的默认色补齐（白昼、夜间各一套），
+- **只写其中一部分也可以**：没写的色用主程序当前的默认色补齐（白昼、夜间各一套），
   所以"我的背景是深色，只要换文字颜色"时只写 `main`（`cross` 需要的话再给）；
 - **颜色一个都解析不出来**（字段缺失、不是对象、颜色串写错）= 这次不指定，整页用它自己的配色；
 - **指定了三色就一定会用遮罩前景**：这三色就是遮罩前景的配色，所以 `foregroundStyle` 会被忽略
-  （写 `neumorphism` 也一样）。想要宿主常规（轻拟物）样式就别写 `foregroundColors`；
+  （写 `neumorphism` 也一样）。想要主程序常规（轻拟物）样式就别写 `foregroundColors`；
 - **运行期可以改**：用 `musicxx.ui.updateEntry` 重新登记同一项（换 `foregroundColors`）立即生效，
   用户不用重新选一次背景；切回内置背景 / 停用插件 / 关闭「拟声++」都会恢复默认配色。
 
@@ -733,14 +736,14 @@ const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.back
   | `itemId` | 现在由哪个**插件项**在画（为空 = 没有插件项在画） |
   | `plugin` | 生效项所属插件 |
   | `selectedId` | 用户选中的是谁（可能是内置样式 `builtin:*`） |
-  | `visible` | 宿主当前是否在渲染（播放页被遮挡 / 切后台 / 播放页不在页面上 → false） |
+  | `visible` | 主程序当前是否在渲染（播放页被遮挡 / 切后台 / 播放页不在页面上 → false） |
   | `night` | 是否夜间表现 |
   | `animate` / `maxFps` / `width` / `height` | 该样式的渲染参数与当前像素尺寸（不可见时为 0） |
 
 - 槽位条目**一直存在**：用户切回内置样式时 `itemId` 为空而 `selectedId` 是 `builtin:*`，
-  插件据此就能说清「内置背景」而不是猜「没有条目意味着什么」；只有宿主停止（关闭『拟声++』）
+  插件据此就能说清「内置背景」而不是猜「没有条目意味着什么」；只有插件框架停止（关闭『拟声++』）
   才清空；
-- 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 宿主 4 色），需要封面像素用
+- 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 主程序 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..512，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 
 **当前音频频谱**（由插件提供的实现提取：内置『音乐动效』或注册了提取钩子的插件）有两条读法，
@@ -771,7 +774,7 @@ const live = musicxx.state.get("musicxx.state.spectrum");
 
 ## 11. 动画速率由插件自己提供
 
-宿主用的时间推进速度就是插件声明的 `speed`（写进 `uParams.w`），不做二次缩放。要允许用户调速率，
+主程序用的时间推进速度就是插件声明的 `speed`（写进 `uParams.w`），不做二次缩放。要允许用户调速率，
 就把它做成**插件自己设置页里的一个设置项**（值存插件目录的 `config.json`）：
 
 ```js
@@ -783,7 +786,7 @@ function bgData(rate) {
         title: "流光背景",
         shader: { bundle: "shader/bg.shaderbundle" },
         args: { /* 成员名 → 值表达式，见 §7 */ },
-        speed: BG_BASE_SPEED * rate,   // 声明给宿主的速度
+        speed: BG_BASE_SPEED * rate,   // 声明给主程序的速度
         maxFps: 16,
     };
 }
@@ -797,7 +800,7 @@ function applyRate(rate) {
 }
 ```
 
-- 运行期改 `speed` 会推 `musicxx.ui.changed`，宿主刷新候选后**正在使用的背景立即用新速度**
+- 运行期改 `speed` 会推 `musicxx.ui.changed`，主程序刷新候选后**正在使用的背景立即用新速度**
   （不用重新选中：`speed` 每帧现算，着色器里乘上 `uParams.w` 就见效）；
 - `maxFps` / `resolutionScale` / `animate` 这类要改帧调度或分辨率创建的字段，运行期改完需要
   **重新选中该项**才完全生效；
@@ -821,12 +824,12 @@ function applyRate(rate) {
 | 「着色器没有声明 uniform 结构体 MusicxxRenderInfo」 | 结构体名写错，或只在顶点着色器里声明 |
 | 「MusicxxRenderInfo.uColor1 偏移非法」 | 结构体布局不符（成员顺序 / 类型不对，或插了非 16 字节对齐的成员） |
 | 页面里那块 `Shader` 一直是空白 | 父块没有给出确定尺寸（用 `SizedBox` / `Expanded` 给它高度）；或 bundle 不可用（日志里有原因） |
-| 选中后回到内置背景 | 加载或渲染报错被停用（连续失败 3 次才停用，其间保留最后一帧）；看宿主日志与「外部插件 → 调试」里的背景段落 |
+| 选中后回到内置背景 | 加载或渲染报错被停用（连续失败 3 次才停用，其间保留最后一帧）；看主程序日志与「外部插件 → 调试」里的背景段落 |
 | 动画不动 | `animate: false`、`speed: 0`，或着色器没有把 `uParams.z` 乘上 `uParams.w`；播放页被遮挡 / 切后台时本来就不渲染（`visible: false`） |
 | `musicxx.spectrum.*` 一直是 0（画面不跟着音乐动） | `uEnv.z` 为 0 = 现在没有频谱数据：没有任何插件提供频谱提取实现（没装『音乐动效』，也没有注册 `musicxx.media.spectrum.extract` 的插件）、还在提取、歌曲不是本地/缓存来源（网络流要先有本地缓存）、或时长超过 15 分钟。要用 `uEnv.z` 判断，别把 0 当成"音乐静音" |
-| 封面没画出来（`cover` 声明了） | 按顺序看：① `uCoverInfo.w` 是不是 0（当前歌曲没有封面 / 封面还没加载好 / 封面源解析失败，宿主日志里有"插件封面纹理准备失败"）；② 着色器里有没有 `uniform sampler2D <cover.texture>;`（名字不一致时宿主会记"没有声明这个纹理 uniform，已跳过绑定"）；③ 采样坐标要对：渲染目标与纹理都是 y 向下，把 `p.y` 翻过的着色器要翻回去；④ 采样到的是 1×1 透明占位纹理时颜色全黑，别用它判断"有没有封面" |
-| 用了封面纹理后崩溃 / 画面异常 | 着色器里的 `sampler2D` 名字与渲染项 `cover.texture` 不一致，或**渲染项压根没声明 `cover`**：那种 sampler 从未被绑定，采样未绑定的纹理在部分后端上行为未定义（软件后端实测会崩）。名字必须两边一致；当前没有封面时宿主会绑 1×1 透明占位纹理，所以"声明了但没封面"是安全的 |
+| 封面没画出来（`cover` 声明了） | 按顺序看：① `uCoverInfo.w` 是不是 0（当前歌曲没有封面 / 封面还没加载好 / 封面源解析失败，主程序日志里有"插件封面纹理准备失败"）；② 着色器里有没有 `uniform sampler2D <cover.texture>;`（名字不一致时主程序会记"没有声明这个纹理 uniform，已跳过绑定"）；③ 采样坐标要对：渲染目标与纹理都是 y 向下，把 `p.y` 翻过的着色器要翻回去；④ 采样到的是 1×1 透明占位纹理时颜色全黑，别用它判断"有没有封面" |
+| 用了封面纹理后崩溃 / 画面异常 | 着色器里的 `sampler2D` 名字与渲染项 `cover.texture` 不一致，或**渲染项压根没声明 `cover`**：那种 sampler 从未被绑定，采样未绑定的纹理在部分后端上行为未定义（软件后端实测会崩）。名字必须两边一致；当前没有封面时主程序会绑 1×1 透明占位纹理，所以"声明了但没封面"是安全的 |
 | `image` 纹理没画出来 | ① 插件有没有先 `musicxx.media.bindImage`（或 `cover` 的 `bind`）——返回里看 `ok` 与 `bindError`；② 渲染项 `image.key` 与绑定的 `key` 是否一致；③ `image.texture` 与着色器里的 `sampler2D` 名是否一致；④ `uXxxInfo.w` 是不是 0（还没绑定 / 已解绑） |
 | 绑定图片失败 | 键不合法（1..64 位字母数字与 `_ - .`）、base64 超过 6 MiB、单张超过 1024 像素、同一插件已绑满 8 张、`format: "rgba"` 缺 `width` / `height` 或字节数与尺寸不匹配 —— 原因都在动作返回的 `bindError` / `error` 里 |
 | 封面上下颠倒 | 纹理坐标要把"向上为正"的坐标翻回去（`vec2(x, -y) * 0.5 + 0.5`），见 §5.1 |
-| 画面比预期快/慢 | `uParams.z` 是真实秒数、`uParams.w` 是插件声明的速度：宿主的基准速度就是插件给的值（示例把 1 当 1×） |
+| 画面比预期快/慢 | `uParams.z` 是真实秒数、`uParams.w` 是插件声明的速度：主程序的基准速度就是插件给的值（示例把 1 当 1×） |

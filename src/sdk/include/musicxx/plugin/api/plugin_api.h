@@ -1,10 +1,10 @@
-/// musicxx 插件 SDK: 领域 C 约定 (与宿主领域相关, 与内核通用部分分离)
+/// musicxx 插件 SDK: 领域 C 约定 (与主程序业务相关, 与内核通用部分分离)
 ///
 /// 命名: 官方标识统一 `musicxx.*` 前缀; 插件自定义统一 `plugin.<pluginId>.*`。
 /// 本头只声明**跨边界稳定约定** (类型/宏/IID), 纯 C 可包含 (便于 C 插件与外部工具)。
 ///
 /// 目录:
-/// - 入口符号名: `musicxx_plugin_*` (由宿主在 entrySymbols() 中交出同一批名字)
+/// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
 /// - 领域接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
 ///   `musicxx.player` / `musicxx.library` / `musicxx.lyrics` / `musicxx.storage` /
 ///   `musicxx.net` / `musicxx.stats`
@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-/* ==================== 入口符号名 (宿主自定义) ==================== */
+/* ==================== 入口符号名 (框架自定义) ==================== */
 
 #define MUSICXX_PLUGIN_SYMBOL_GET_INFO "musicxx_plugin_get_info"
 #define MUSICXX_PLUGIN_SYMBOL_CREATE   "musicxx_plugin_create"
@@ -49,7 +49,7 @@ extern "C" {
 
 /// 观察型 (通知, 无裁决): 处理器返回值忽略
 #define MUSICXX_PLUGIN_HOOK_MODE_OBSERVE  0
-/// 裁决型: 处理器可返回裁决对象 (JSON), 宿主按钩子的合并策略处理
+/// 裁决型: 处理器可返回裁决对象 (JSON), 插件框架按钩子的合并策略处理
 #define MUSICXX_PLUGIN_HOOK_MODE_DECISION 1
 
 /// 裁决动作 (与 Dart 侧 `MusicxxPluginHookAction` 一一对应)
@@ -79,7 +79,7 @@ typedef void*(PLUGINXX_CALL* MusicxxPluginHookStartFn)(
     PluginxxString*                   error_out
 );
 
-/// 取消异步处理器 (宿主关闭/卸载时调用)
+/// 取消异步处理器 (插件框架关闭/卸载时调用)
 typedef void(PLUGINXX_CALL* MusicxxPluginHookCancelFn)(void* user_data, void* op);
 
 typedef struct MusicxxPluginHookSpec {
@@ -112,7 +112,7 @@ typedef struct MusicxxPluginHooksIface {
 
     /// 注册处理器 (同一个 (实例, hook_id, owner_tag) 覆盖式注册)
     /// - 返回 0 成功; -1 参数非法; -2 状态错误 (未启动/已关闭/已禁用);
-    ///   -4 未知钩子 (宿主未知的 hook_id 一律拒绝)
+    ///   -4 未知钩子 (插件框架未知的 hook_id 一律拒绝)
     int32_t(PLUGINXX_CALL* register_hook)(
         const PluginxxHost*               host,
         const MusicxxPluginHookSpec*      spec
@@ -142,7 +142,7 @@ typedef struct MusicxxPluginHostIface {
     int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_HOST_VERSION
     uint32_t struct_size;
 
-    /// 宿主信息 (应用版本/平台/语言/插件目录; JSON 对象)
+    /// 框架信息 (主程序版本/平台/语言/插件目录; JSON 对象)
     int32_t(PLUGINXX_CALL* get_info)(const PluginxxHost* host, PluginxxString* out_json);
 
     /// 同步读状态镜像 (键不存在返回 -4; 值经 out_json 输出)
@@ -152,20 +152,20 @@ typedef struct MusicxxPluginHostIface {
         PluginxxString*                   out_json
     );
 
-    /// 声明关心的状态键 (宿主可在这些键变化时向插件推送事件)
+    /// 声明关心的状态键 (插件框架可在这些键变化时向插件推送事件)
     int32_t(PLUGINXX_CALL* subscribe_state)(
         const PluginxxHost*               host,
         const PluginxxStringView*         keys_json,
         int32_t*                          out_count
     );
 
-    /// 本插件配置路径 (宿主按插件 id 推导; 供插件读写自己的配置)
+    /// 本插件配置路径 (插件框架按插件 id 推导; 供插件读写自己的配置)
     int32_t(PLUGINXX_CALL* get_plugin_config_path)(
         const PluginxxHost*               host,
         PluginxxString*                   out_path
     );
 
-    /// 发起宿主动作 (插件 → Dart, 异步 request/response)
+    /// 发起主程序动作 (插件 → Dart, 异步 request/response)
     /// - action 全名: 官方 `musicxx.<域>.<动作>` / 插件自定义 `plugin.<pluginId>.<动作>`
     /// - 完成时 notify->done(状态码, 结果 JSON) 恰好一次
     /// - 受理成功返回 0 并写出 request_id (可用于 cancel_action); 未受理返回负错误码
@@ -199,8 +199,8 @@ typedef struct MusicxxPluginHostIface {
 ///         args? (成员名 → 值表达式), cover? (封面纹理), image? (插件绑定的图片),
 ///         speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}
 /// 说明: 着色器参数只有 `args` 一种写法 (旧的 `colors` 与扁平写法都已移除);
-/// 不声明 `args` 时宿主默认给内置背景的 4 个绘制色 (`icon.themeMapping.0..3`);
-/// 声明 `cover` / `image` 时宿主准备纹理并每帧绑定 (见 docs/plugin-shader-bundle.md §5)。
+/// 不声明 `args` 时主程序默认给内置背景的 4 个绘制色 (`icon.themeMapping.0..3`);
+/// 声明 `cover` / `image` 时主程序准备纹理并每帧绑定 (见 docs/plugin-shader-bundle.md §5)。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND "musicxx.ui.playing.background"
 /// 播放页歌曲图 (渲染槽位 `player.icon`): 接管播放页中间那张歌曲图 / 视频的显示
 /// data = {title, depict?, enabled?, mode?: "none"|"shader"|"view", keepSpace?,
@@ -213,7 +213,7 @@ typedef struct MusicxxPluginHostIface {
 
 /// 说明: 入口项与菜单项的 `icon` 写**插件自己带的 svg 路径** (一条相对插件目录的路径,
 /// 可省 `.svg` 后缀, 用 `/` 分隔; 例如 `resource/svg/logo.svg`) —— `resource/svg/` 只是
-/// 推荐位置, 插件可以按自己的目录结构放。宿主不接受自己的 svg 名字: 路径不合法或找不到文件
+/// 推荐位置, 插件可以按自己的目录结构放。主程序不接受自己的 svg 名字: 路径不合法或找不到文件
 /// 就按"没有图标"处理 (入口/菜单退回默认图标, 页面里的 `Icon` 块退回 `glyph`)。
 /// 详见 docs/plugin-ui.md §1.5。
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
@@ -226,14 +226,14 @@ typedef struct MusicxxPluginHostIface {
 /// 调用本插件自己的能力: {"kind":"dispatch","name":"<短名>","args":{...}}
 /// (字符串短写 "动作名" 等价于这一种)
 #define MUSICXX_PLUGIN_UI_ACTION_DISPATCH   "dispatch"
-/// 调用宿主官方动作: {"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}
+/// 调用主程序官方动作: {"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}
 #define MUSICXX_PLUGIN_UI_ACTION_COMMAND    "command"
 /// 无动作 (纯展示项)
 #define MUSICXX_PLUGIN_UI_ACTION_NONE       "none"
 
 /// UI 项注册规格
 ///
-/// `item_id` 可以是本插件的**短名**（宿主自动补 `plugin.<pluginId>.` 前缀），
+/// `item_id` 可以是本插件的**短名**（插件框架自动补 `plugin.<pluginId>.` 前缀），
 /// 也可以是完整全名 `plugin.<pluginId>.<名>`（必须属于本插件命名空间，否则拒绝注册）。
 /// `data_json` 是类型相关的声明式内容（JSON 对象）。
 typedef struct MusicxxPluginUIEntrySpec {
@@ -294,14 +294,14 @@ typedef struct MusicxxPluginUIIface {
 /// - **变量 = 有属主、可读、可写、可订阅变动的小值** (配置/小状态)。
 ///
 /// 三条读法 (按需要选一条, 不是三种都能替代):
-/// - `get`  异步、权威: 宿主向属主取一次真实值, 结果回给调用方; 顺手刷新 `peek` 缓存;
+/// - `get`  异步、权威: 插件框架向属主取一次真实值, 结果回给调用方; 顺手刷新 `peek` 缓存;
 /// - `peek` 同步、读缓存: 不保证最新 (返回里带 revision/ageMs/stale), 热路径/钩子处理器里用;
-/// - 绑定变动: 订阅 (subscribe) 后由宿主推送 `musicxx.var.changed` 事件。
+/// - 绑定变动: 订阅 (subscribe) 后由插件框架推送 `musicxx.var.changed` 事件。
 ///
 /// 命名空间:
 /// - 官方 `musicxx.<域>.<名>` —— 由**应用**声明并提供, 插件只能读/写已声明的;
 /// - 插件 `plugin.<插件id>.<分组>...` —— 分组可以多级 (`plugin.hello.tip.start`),
-///   注册时可以写短名 (`tip.start`), 宿主自动补 `plugin.<本插件id>.` 前缀。
+///   注册时可以写短名 (`tip.start`), 插件框架自动补 `plugin.<本插件id>.` 前缀。
 ///
 /// 值: 一律 JSON (bool/number/string/array/object), 大小不限。
 /// 权限: 与钩子/动作一样只做声明与展示, 不做运行时校验 (见清单 permissions)。
@@ -318,15 +318,15 @@ typedef struct MusicxxPluginUIIface {
 #define MUSICXX_PLUGIN_VAR_WRITE_OWNER 1 ///< 只有属主自己可写
 
 /* 变量模式 */
-/// 值由宿主代存 (默认): 插件 `set` 自己的变量即提交, 不需要维护副本
+/// 值由框架代存 (默认): 插件 `set` 自己的变量即提交, 不需要维护副本
 #define MUSICXX_PLUGIN_VAR_MODE_DECLARED 0
-/// 读写都转给属主 (宿主只留同步读缓存): 属主处理 `musicxx.var.read` /
+/// 读写都转给属主 (框架只留同步读缓存): 属主处理 `musicxx.var.read` /
 /// `musicxx.var.write` 两个事件, 用 `set` 自己完成回答/提交
 #define MUSICXX_PLUGIN_VAR_MODE_HANDLER  1
 
 /* 本接口表返回码 (含义与 C ABI 的错误码一致) */
 #define MUSICXX_PLUGIN_VAR_ERR_ARG         -1 ///< 参数非法 (键名不合法 / caps 为空等)
-#define MUSICXX_PLUGIN_VAR_ERR_STATE       -2 ///< 状态错误 (宿主未启动)
+#define MUSICXX_PLUGIN_VAR_ERR_STATE       -2 ///< 状态错误 (插件框架未启动)
 #define MUSICXX_PLUGIN_VAR_ERR_JSON        -3 ///< 值不是合法 JSON
 #define MUSICXX_PLUGIN_VAR_ERR_NOT_FOUND   -4 ///< 键不存在 (含官方键还没被应用声明)
 #define MUSICXX_PLUGIN_VAR_ERR_TIMEOUT     -5 ///< 属主没在超时前回答 (读写请求)
@@ -338,10 +338,10 @@ typedef struct MusicxxPluginUIIface {
 /// 说明: C ABI 的 -8 已用于"内存不足", 因此这里取 -9 避免同一数值两种含义
 #define MUSICXX_PLUGIN_VAR_ERR_UNSUPPORTED -9
 
-/* 变量变更事件 (宿主 → 插件; 订阅后经事件总线送达) */
+/* 变量变更事件 (插件框架 → 插件; 订阅后经事件总线送达) */
 /// 载荷: {key, value, prev, by, revision, ts, removed?, coalesced?}
 /// - `by` = 写入方插件 id (空串 = 应用); 变量随插件停用/卸载消失时带 `removed:true`;
-/// - 被宿主按 `notifyThrottleMs` 合并过的通知带 `coalesced` (合并掉几次)
+/// - 被插件框架按 `notifyThrottleMs` 合并过的通知带 `coalesced` (合并掉几次)
 #define MUSICXX_PLUGIN_EVENT_VAR_CHANGED "musicxx.var.changed"
 /// 写请求的最终结果 (发给发起 `set` 的插件)
 /// 载荷: {requestId, key, accepted, value?, changed?, error?}
@@ -365,12 +365,12 @@ typedef struct MusicxxPluginVarSpec {
 
     /// 属主侧的推送节流设置 (毫秒; 0 = 不节流)
     ///
-    /// 只是声明 (宿主不强制度量): 属主在推送前按同一窗口合并变化。
-    /// 高频值 (超过约 5 Hz) 建议声明, 否则宿主会记一条警告日志。
+    /// 只是声明 (插件框架不强制度量): 属主在推送前按同一窗口合并变化。
+    /// 高频值 (超过约 5 Hz) 建议声明, 否则插件框架会记一条警告日志。
     int32_t throttle_ms;
-    /// 宿主侧通知合并窗口 (毫秒; 0 = 不合并)
+    /// 框架侧通知合并窗口 (毫秒; 0 = 不合并)
     int32_t notify_throttle_ms;
-    /// handler 模式: 有人 watch 之后, 宿主每隔多久来取一次真实值
+    /// handler 模式: 有人 watch 之后, 插件框架每隔多久来取一次真实值
     /// (0 = 只在 watch 时取一次)
     int32_t refresh_after_ms;
 
@@ -399,9 +399,9 @@ typedef struct MusicxxPluginVarsIface {
         const PluginxxStringView* key
     );
 
-    /// 读 (异步、权威): 宿主向属主取一次真实值, 完成后调用 notify->done 恰好一次
+    /// 读 (异步、权威): 插件框架向属主取一次真实值, 完成后调用 notify->done 恰好一次
     /// - 结果同时写入 `peek` 缓存 (read-through);
-    /// - 同键进行中读请求由宿主合并 (等待者不限);
+    /// - 同键进行中读请求由插件框架合并 (等待者不限);
     /// - 返回 0 并写出 request_id; -4 键不存在; -9 无 get 能力; -2 未回执读请求过多
     int32_t(PLUGINXX_CALL* get)(
         const PluginxxHost*           host,
@@ -482,7 +482,7 @@ typedef struct MusicxxPluginVarsIface {
     /// 有两种等价写法（选一种即可）:
     /// - **这条**: `respond(request_id, ok, value, error)` —— 读请求用它给答案,
     ///   写请求用它回执（`ok = 0` 表示拒绝, 原因写在 `error`）；
-    /// - **提交**: 对自己的变量调 `set`（宿主的实现把"属主提交"当作该键上
+    /// - **提交**: 对自己的变量调 `set`（插件框架的实现把"属主提交"当作该键上
     ///   未结算请求的回执与回答, 因此原生插件只用 `set` 就能完成一次完整读写）。
     ///
     /// 只有请求的属主能回答：别人的请求返回 `-6`; 请求已结算/不存在返回 `-4`。

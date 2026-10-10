@@ -7,7 +7,7 @@
 #
 # # 方式一：用已安装的 SDK 前缀（推荐）
 # find_package(musicxx_extern_plugin CONFIG REQUIRED)
-# # 方式二：在宿主工程内部（musicxx_extern_plugin_sdk 目标已存在）
+# # 方式二：在插件框架工程内部（musicxx_extern_plugin_sdk 目标已存在）
 # include("${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/cmake/musicxx_plugin.cmake")
 #
 # musicxx_plugin_add_target(my_plugin SOURCES my_plugin.cpp MANIFEST plugin.yaml)
@@ -20,14 +20,14 @@
 # 3. 把 `plugin.yaml` 复制到产物目录旁边，使该目录可以直接作为"插件目录"使用。
 #
 # 说明：这里只做构建便利，不改变插件约定（入口符号名见 `docs/plugin-native-api.md`，
-# 清单字段与构建流程也在那一篇）。入口符号前缀默认 `musicxx_plugin`，与宿主 `entrySymbols()` 一致。
+# 清单字段与构建流程也在那一篇）。入口符号前缀默认 `musicxx_plugin`，与框架 `entrySymbols()` 一致。
 
 if (COMMAND musicxx_plugin_add_target)
-  return() # 已引入（宿主工程里可能被多次 include）
+  return() # 已引入（插件框架工程里可能被多次 include）
 endif ()
 
 set(MUSICXX_PLUGIN_ENTRY_PREFIX "musicxx_plugin"
-    CACHE STRING "插件入口符号前缀（与宿主 entrySymbols() 一致，不要改）")
+    CACHE STRING "插件入口符号前缀（与框架 entrySymbols() 一致，不要改）")
 
 # 多目标打包：分支目录名（默认 lib，与清单 targets_dir 的缺省值一致）
 set(MUSICXX_PLUGIN_LIB_DIR_NAME "lib"
@@ -35,7 +35,7 @@ set(MUSICXX_PLUGIN_LIB_DIR_NAME "lib"
 
 # 当前构建目标的标签（如 windows-x64 / linux-arm64 / android-arm64-v8a）
 #
-# 与宿主的标签解析（alias 表，见 src/host/host_target.h）对得上：
+# 与插件框架的标签解析（alias 表，见 src/host/host_target.h）对得上：
 # - 系统名用规范名（windows / linux / macos / android / ios）；
 # - Android 直接用 ABI 名（arm64-v8a / armeabi-v7a / x86_64 / x86），与 APK 的
 #   `lib/<abi>/` 写法一致；其余平台用规范架构名（x64 / x86 / arm64 / armv7 …）。
@@ -100,7 +100,7 @@ endfunction()
 #   - 传 TARGET_TAG（`auto` = 按当前构建目标推导，如 windows-x64 / android-arm64-v8a）时，
 #     库文件放进 `<PACKAGE_DIR>/lib/<标签>/`，清单与 ASSETS 放进 `<PACKAGE_DIR>/`；
 #     同一个 PACKAGE_DIR 可以被多次构建（不同系统/架构）共用，产出一个含多个分支的
-#     插件包（每个分支一个子目录），运行时宿主按当前系统/架构选分支加载；
+#     插件包（每个分支一个子目录），运行时插件框架按当前系统/架构选分支加载；
 #   - PACKAGE_DIR 缺省为 `<当前构建目录>/package`；不传 TARGET_TAG 时行为与以前一致
 #     （库与清单放在同一层，直接作为插件目录）。
 function(musicxx_plugin_add_target target)
@@ -159,7 +159,7 @@ function(musicxx_plugin_add_target target)
   #
   # MSVC 不需要额外处理：`__declspec(dllexport)` 已经限定了导出面。
   # 这里给 GNU/Clang 加 version script、给 Apple 加导出符号表，避免把内核/工具库的
-  # 符号（或 C++ 运行时符号）暴露出去，也避免与宿主/其它插件互相干扰。
+  # 符号（或 C++ 运行时符号）暴露出去，也避免与框架/其它插件互相干扰。
   if (UNIX AND NOT APPLE)
     set(_map "${CMAKE_CURRENT_BINARY_DIR}/${target}.map")
     file(WRITE "${_map}"
@@ -202,7 +202,7 @@ function(musicxx_plugin_add_target target)
     endif ()
     set(_out "${_packageDir}/${MUSICXX_PLUGIN_LIB_DIR_NAME}/${_tag}")
     set(_manifestDir "${_packageDir}")
-    # 让宿主/父工程知道"这个插件的产物是一个多目标包"（安装整包而不是单个库）
+    # 让框架/父工程知道"这个插件的产物是一个多目标包"（安装整包而不是单个库）
     set_property(GLOBAL PROPERTY "musicxx_plugin_package_${target}"
                  "${_packageDir}")
     # 插件可以据此知道"本份构建属于哪个分支"（日志/自检用）

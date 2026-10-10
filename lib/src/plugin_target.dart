@@ -1,11 +1,11 @@
 /// 外部插件多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：Dart 侧只保留**数据模型与环境取值**
 ///
-/// 分支选择规则**只在原生宿主**一处实现（`src/host/host_target.{h,cpp}`）：
+/// 分支选择规则**只在原生插件框架**一处实现（`src/host/host_target.{h,cpp}`）：
 /// 扫描（`plugin_scan`）、装载（`loadNativeDirAsync`）与安装预检（`plugin_inspect`）都走
 /// 同一份判定。Dart 侧不再复制别名表与目录遍历，因此不会出现"两边规则漂移"。
 ///
 /// 这里保留两类东西：
-/// 1. [MusicxxPluginTarget_c]：宿主报出来的分支（`plugin_scan` / `plugin_inspect` 的
+/// 1. [MusicxxPluginTarget_c]：插件框架报出来的分支（`plugin_scan` / `plugin_inspect` 的
 ///    `targets[]`）；
 /// 2. [MusicxxPluginEnv]：应用与包自己要用的环境取值（当前系统 / CPU 架构 / 平台默认
 ///    库文件名 / 分支目录缺省名）。
@@ -14,7 +14,7 @@ library;
 import 'dart:ffi' show Abi;
 import 'dart:io';
 
-/// 包内的一个目标分支（宿主 `targets[]` 的一项）
+/// 包内的一个目标分支（插件框架 `targets[]` 的一项）
 class MusicxxPluginTarget_c {
   const MusicxxPluginTarget_c({
     required this.tag,
@@ -61,7 +61,7 @@ class MusicxxPluginTarget_c {
         selected: json['selected'] as bool? ?? false,
       );
 
-  /// 从宿主 JSON 的 `targets[]` 解析（非列表时返回空列表）
+  /// 从插件框架 JSON 的 `targets[]` 解析（非列表时返回空列表）
   static List<MusicxxPluginTarget_c> parseList(Object? value) {
     if (value is! List) {
       return const <MusicxxPluginTarget_c>[];
@@ -92,12 +92,12 @@ class MusicxxPluginTarget_c {
       'MusicxxPluginTarget_c($tag, lib=$lib, match=$matchLevel)';
 }
 
-/// 应用侧要用的环境取值（**不含任何分支选择规则**）
+/// 主程序要用的环境取值（**不含任何分支选择规则**）
 abstract final class MusicxxPluginEnv {
-  /// 分支根目录名缺省值（与宿主、清单 `targets_dir` 缺省一致）
+  /// 分支根目录名缺省值（与插件框架、清单 `targets_dir` 缺省一致）
   static const String defaultTargetsDirName = 'lib';
 
-  /// 当前进程的规范系统名（与宿主上报的 `platform` 取值一致）
+  /// 当前进程的规范系统名（与插件框架上报的 `platform` 取值一致）
   static String currentOs() {
     if (Platform.isWindows) {
       return 'windows';
@@ -120,9 +120,9 @@ abstract final class MusicxxPluginEnv {
     return Platform.operatingSystem;
   }
 
-  /// 当前进程的规范架构名（与宿主 `currentTargetArch()` 一致：x64 / x86 / arm64 / armv7 …）
+  /// 当前进程的规范架构名（与插件框架 `currentTargetArch()` 一致：x64 / x86 / arm64 / armv7 …）
   ///
-  /// 32 位 ARM（Android `armeabi-v7a` / Linux armhf）报 `armv7`；取值要与宿主认得的
+  /// 32 位 ARM（Android `armeabi-v7a` / Linux armhf）报 `armv7`；取值要与插件框架认得的
   /// 规范名一致，否则清单 `arch` 与分支标签比较时会对不上。
   ///
   /// [abi] 只用于测试注入（不传时取 `Abi.current()`）。
@@ -143,7 +143,7 @@ abstract final class MusicxxPluginEnv {
     return 'x64';
   }
 
-  /// 平台默认库文件名（与宿主 `defaultPluginLibraryName` 同一规则）：
+  /// 平台默认库文件名（与插件框架 `defaultPluginLibraryName` 同一规则）：
   /// windows → `<名>.dll`，macos/ios → `lib<名>.dylib`，其余 → `lib<名>.so`
   static String defaultLibraryName(String pluginName) {
     switch (currentOs()) {

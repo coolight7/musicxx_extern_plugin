@@ -10,7 +10,7 @@ import 'bindings_generated.dart';
 /// 约定：
 /// - 入参用**只读借用视图** [MusicxxExternPluginStringView]，指向调用方内存，
 ///   调用返回前不得释放；
-/// - 出参用**宿主堆字符串** [MusicxxExternPluginString]，必须调用
+/// - 出参用**插件框架堆字符串** [MusicxxExternPluginString]，必须调用
 ///   `musicxx_extern_plugin_string_free` 释放（本文件负责这件事）。
 
 /// 一次 FFI 调用用到的原生内存（调用结束后一次性释放）
@@ -52,7 +52,7 @@ class MusicxxPluginArena {
     return out;
   }
 
-  /// 分配一个宿主堆字符串出参槽（值由调用方/宿主填充，用 [takeOutString] 读取并释放）
+  /// 分配一个插件框架堆字符串出参槽（值由调用方/插件框架填充，用 [takeOutString] 读取并释放）
   Pointer<MusicxxExternPluginString> outString() {
     final Pointer<MusicxxExternPluginString> out =
         malloc<MusicxxExternPluginString>();
@@ -91,7 +91,7 @@ class MusicxxPluginArena {
   }
 }
 
-/// 读取并释放宿主堆字符串（幂等：释放后槽位清零）
+/// 读取并释放插件框架堆字符串（幂等：释放后槽位清零）
 String takeOutString(
   Pointer<MusicxxExternPluginString> out,
   MusicxxExternPluginBindings b,
@@ -106,7 +106,7 @@ String takeOutString(
   return text;
 }
 
-/// 释放宿主堆字符串但**不读取内容**（观察型派发的回执没有读者）
+/// 释放插件框架堆字符串但**不读取内容**（观察型派发的回执没有读者）
 void discardOutString(
   Pointer<MusicxxExternPluginString> out,
   MusicxxExternPluginBindings b,

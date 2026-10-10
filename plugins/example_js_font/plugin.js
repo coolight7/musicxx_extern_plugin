@@ -5,11 +5,11 @@
 /// - `字体文件示例`：动态加载插件目录自带的 `resource/font/example-font.ttf`；
 /// - `拟声默认`：恢复应用默认字体（`default`）。
 ///
-/// ## 这一页是"页面按钮 + 宿主动作"的**正确写法**样板（三条务必照抄）
+/// ## 这一页是"页面按钮 + 主程序动作"的**正确写法**样板（三条务必照抄）
 ///
-/// 1. **能力处理器必须立刻返回**：页面按钮的 `dispatch` 动作由应用**同步**进宿主调用
+/// 1. **能力处理器必须立刻返回**：页面按钮的 `dispatch` 动作由主程序**同步**进插件框架调用
 ///    （`plugin_call`，应用 UI 线程全程阻塞等这个返回值）。处理器里做长事情 = 整机卡住。
-/// 2. **处理器里不要 `await` 宿主动作**：动作要回到应用线程才有人处理，而应用线程正阻塞在
+/// 2. **处理器里不要 `await` 主程序动作**：动作要回到主程序线程才有人处理，而主程序线程正阻塞在
 ///    第 1 条这次调用里 —— 两边互等到动作超时（5 秒）。表现为：点击后**整个程序卡几秒**，
 ///    然后插件收到 `action_timeout` 报"切换失败"，可字体其实已经切过去了。
 ///    正确做法是**先把动作发出去**（`musicxx.ui.setFontFamily(...)` 不 await，只跟 `.then`），
@@ -45,7 +45,7 @@ let lastError = "";
 
 /// 订阅官方变量 `musicxx.ui.fontFamily`，让 `peek` 缓存一直是最新的
 ///
-/// 规则：只有"有人关心（订阅或 watch）"的键，应用才会推值给宿主；
+/// 规则：只有"有人关心（订阅或 watch）"的键，主程序才会推值给插件框架；
 /// watch 是保活（不要回调），页面用 `peek` 同步读缓存 —— 不做 FFI 往返，也不会阻塞。
 /// 顶层调用会被引擎推迟到"注册回放"阶段执行（与钩子/能力/UI 项同一套做法）。
 musicxx.vars.watch(FONT_VAR_KEY);
@@ -54,7 +54,7 @@ function normalizeMode(mode) {
     return (mode === "yahei" || mode === "file") ? mode : "default";
 }
 
-/// 应用侧当前生效字体（同步读变量缓存；缓存还没到就给"未知"）
+/// 主程序当前生效字体（同步读变量缓存；缓存还没到就给"未知"）
 function appliedFontText() {
     const cached = musicxx.vars.peek(FONT_VAR_KEY);
     const value = (cached && typeof cached.value === "string") ? cached.value : "";
@@ -175,7 +175,7 @@ function cardView(args) {
     const blocks = [
         kit.hint({
             text: "本插件演示通过外置插件动作切换全局 XXText* 与输入框字体。"
-                + "切换是异步的：点完先按新模式显示，应用侧生效后再由页面回读确认。",
+                + "切换是异步的：点完先按新模式显示，主程序生效后再由页面回读确认。",
         }, env),
         kit.divider({}, env),
         kit.listRow({
@@ -184,7 +184,7 @@ function cardView(args) {
             trailing: (MODE_LABELS[currentMode] || "未知") + (pending ? "（切换中…）" : ""),
         }, env),
         kit.listRow({
-            title: "应用侧生效字体",
+            title: "主程序生效字体",
             subtitle: "读官方变量 musicxx.ui.fontFamily 的同步缓存",
             trailing: appliedFontText(),
         }, env),

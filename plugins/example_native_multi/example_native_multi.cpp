@@ -11,11 +11,11 @@
 ///   lib/android-arm64-v8a/example_native_multi.so
 /// ```
 ///
-/// 宿主扫描与装载时按当前系统/CPU 架构选一个分支（优先级与别名见
+/// 插件框架扫描与装载时按当前系统/CPU 架构选一个分支（优先级与别名见
 /// `src/host/host_target.h`），选择结果会出现在管理页的插件信息里。
 ///
 /// 插件自己也能知道"这次加载的是哪一份构建"：SDK 构建助手在传 `TARGET_TAG` 时会
-/// 注入编译宏 `MUSICXX_PLUGIN_BUILD_TAG`（下面的能力把它报出来，便于确认宿主
+/// 注入编译宏 `MUSICXX_PLUGIN_BUILD_TAG`（下面的能力把它报出来，便于确认插件框架
 /// 选中的分支与预期一致）。
 ///
 /// 规定: start 事务里只做注册, 不阻塞、不发起网络/大文件操作。
@@ -50,7 +50,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
               return 0;
             });
 
-    // 能力：报出本份构建的分支标签 + 宿主上报的平台 + 钩子计数
+    // 能力：报出本份构建的分支标签 + 插件框架上报的平台 + 钩子计数
     capability(*this, "plugin.example_native_multi.which",
                [this](std::string_view, std::string_view) -> std::string {
                  std::string platform;

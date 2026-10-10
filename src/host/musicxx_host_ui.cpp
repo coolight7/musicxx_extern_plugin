@@ -1,24 +1,24 @@
-/// musicxx 外部插件原生宿主: 声明式 UI 扩展
+/// musicxx 外部插件原生插件框架: 声明式 UI 扩展
 ///
 /// 插件不写 Flutter 代码, 只做**声明**: 注册一个 UI 项 (入口项 / 菜单项 /
 /// 设置页 / 附加信息块) 并给出类型相关的 JSON 内容, 由 Dart 侧渲染 (声明式描述
-/// + 宿主渲染)。
+/// + 主程序渲染)。
 ///
 /// 设计要点:
-/// - **注册表归宿主线程独占** (无锁不变式): 注册/更新/摘除/快照都在宿主线程;
+/// - **注册表归框架线程独占** (无锁不变式): 注册/更新/摘除/快照都在框架线程;
 ///   Dart 线程的 `ui_snapshot` 经 C ABI 侧的 `onHostThread` 投递后读取;
 /// - **命名空间校验**: 项 id 必须是本插件命名空间 (`plugin.<pluginId>.<名>`),
-/// 短名由宿主补前缀;
+/// 短名由插件框架补前缀;
 ///   动作里的 `route` 允许指向**任意插件**的 `ext://<插件id>/<视图id>` 页面
 ///   (页面由被跳转插件自己绘制), `action` 只允许官方 `musicxx.*` 动作;
 /// - **结构校验在注册时做**: data 必须是 JSON 对象且按类型含必需字段 (title
 /// 等),
 ///   早报错好过让 Dart 侧渲染时才发现;
-/// - **生命周期**: 项随插件实例 stop/卸载自动摘除 (宿主在
+/// - **生命周期**: 项随插件实例 stop/卸载自动摘除 (插件框架在
 /// `clearPluginRegistrations` 里统一清理),
 ///   每次变化推送 `musicxx.ui.changed` 事件 (payload 带该插件的全部项, Dart
 ///   整批替换);
-/// - **只存声明**: 宿主不解释 data 的业务含义 (除了动作描述的结构),
+/// - **只存声明**: 插件框架不解释 data 的业务含义 (除了动作描述的结构),
 /// 渲染细节留给 Dart 侧。
 #include "host_json.h"
 #include "host_naming.h"
@@ -74,7 +74,7 @@ bool requiresTitle(std::string_view type) {
 /// - `{"kind":"dispatch","name":"<本插件能力短名>","args":{...}}` —— 交回本插件处理;
 /// - `{"kind":"route","route":"ext://<插件id>/<视图id>"}` —— 允许指向任意插件
 ///   (含自己): 页面由被跳转插件自己绘制, 发起方只是把它打开;
-/// - `{"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}` —— 宿主动作;
+/// - `{"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}` —— 主程序动作;
 /// - `{"kind":"none"}`
 bool validateAction(const Json &action, std::string_view pluginId,
                     std::string &err) {
@@ -165,7 +165,7 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
     }
   }
   if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND) {
-    // 播放页背景: 必须有 shader.bundle (插件目录内的相对路径), 宿主加载时再校验
+    // 播放页背景: 必须有 shader.bundle (插件目录内的相对路径), 插件框架加载时再校验
     if (!data.contains("shader") || !data["shader"].is_object()) {
       err = "播放页背景缺少 shader 对象";
       return false;
@@ -231,7 +231,7 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
   return true;
 }
 
-/// 动作描述里引用的能力名: 允许短名或本插件全名 (宿主不在这里校验能力是否存在,
+/// 动作描述里引用的能力名: 允许短名或本插件全名 (插件框架不在这里校验能力是否存在,
 /// 由 Dart 侧调用时按能力表判定)
 std::string normalizeItemId(std::string_view raw, std::string_view pluginId,
                             bool &ok) {
@@ -431,7 +431,7 @@ int32_t MusicxxHostManager::notifyUi(MusicxxHostInstance *inst,
     return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
   }
   // 通知是 fire-and-forget: 走动作请求通道, Dart 侧执行 `musicxx.ui.notify`,
-  // 结果不回传 (回复会落在"未登记的请求"上, 由宿主按调试日志忽略)
+  // 结果不回传 (回复会落在"未登记的请求"上, 由插件框架按调试日志忽略)
   const std::string pluginId = pluginIdOf(inst->name);
   int64_t effectiveTimeout = 0;
   return pushActionRequestEvent(pluginId, allocateRequestId(),
