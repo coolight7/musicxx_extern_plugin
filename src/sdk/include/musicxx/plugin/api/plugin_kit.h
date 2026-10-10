@@ -10,7 +10,7 @@
 /// - 界面描述层 `pluginxx::ui`（组件模型 / 解析 / 适配 / 文本降级 / 基础 kit）
 ///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们装配。
 ///
-/// 线程与约定: `create` 只构造上下文; `start` 是注册事务, 在宿主线程
+/// 线程与约定: `create` 只构造上下文; `start` 是注册事务, 在框架线程
 /// 执行且**禁止阻塞** (慢操作走 `pluginxx` 的 offload / 后台任务); `stop` 撤销自管资源;
 /// `destroy` 只释放本地对象。插件内不得有可变全局状态 (多实例规则)。
 #pragma once
@@ -131,14 +131,14 @@ int32_t answerFeaturePoint(const std::string& selfId, const std::string& point,
 /// musicxx 领域接口表聚合 = 内核通用十表 + musicxx 领域表
 ///
 /// 作为 `pluginxx::PluginBaseT<IfacesT>` 的模板实参使用 (上下文基类会调用 [query]
-/// 拉取全部接口表; 宿主未实现的表为 nullptr)。
+/// 拉取全部接口表; 框架未实现的表为 nullptr)。
 struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     const MusicxxPluginHooksIface* hooks = nullptr; ///< "musicxx.hooks"
     const MusicxxPluginHostIface*  host  = nullptr; ///< "musicxx.host"
     const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
     const MusicxxPluginVarsIface*  vars  = nullptr; ///< "musicxx.vars"
 
-    /// 从宿主查询全部接口表 (host 为空时返回全 NULL 聚合)
+    /// 从框架查询全部接口表 (host 为空时返回全 NULL 聚合)
     static MusicxxPluginIfaces query(const PluginxxHost* host) {
         MusicxxPluginIfaces ifaces;
         static_cast<pluginxx::PluginIfaceCore&>(ifaces) = pluginxx::PluginIfaceCore::query(host);
@@ -196,7 +196,7 @@ public:
         return iface.hooks->unregister_hook(host, &hookView, &tagView);
     }
 
-    /// 同步读状态镜像 (键不存在/宿主未实现返回空串)
+    /// 同步读状态镜像 (键不存在/框架未实现返回空串)
     std::string stateJson(const char* key) const {
         if (!iface.host || !iface.host->get_state) {
             return {};
@@ -211,7 +211,7 @@ public:
         return result;
     }
 
-    /// 宿主信息 JSON (应用版本/平台/语言/插件目录)
+    /// 框架信息 JSON (主程序版本/平台/语言/插件目录)
     std::string hostInfoJson() const {
         return readHostString(&MusicxxPluginHostIface::get_info);
     }
@@ -231,10 +231,10 @@ public:
     /// }
     /// ```
     /// - **直连内核**: 不经过应用 (Dart), 调用方就是本插件实例 (目标处理器里的 `callerHost`
-    ///   是本插件); 期间协程由本实例的驱动桥分步推进, 不会占住宿主 IO 线程;
+    ///   是本插件); 期间协程由本实例的驱动桥分步推进, 不会占框架 IO 线程;
     /// - **不要找同步版**: 内核的 `invoke_capability_blocking` 在 IO 线程会被直接拒绝
     ///   (`use co_await invoke_cap instead`), 本 SDK 不暴露它;
-    /// - 长任务请在协程里 `co_await pluginxx::offload(*this, work)` 把重活交给宿主工作线程池。
+    /// - 长任务请在协程里 `co_await pluginxx::offload(*this, work)` 把重活交给框架工作线程池。
     auto capabilityCall(
         std::string_view capability,
         std::string_view method,
@@ -244,7 +244,7 @@ public:
     }
 
     /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
-    /// - 结果经 `notify->done` **恰好一次** (宿主 IO 线程) 回调; status == 0 时载荷是结果 JSON;
+    /// - 结果经 `notify->done` **恰好一次** (框架 IO 线程) 回调; status == 0 时载荷是结果 JSON;
     /// - `notify` 由 SDK 复制保存 (与 [requestAction] 同一做法), 插件可以传栈上的 notify;
     /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
     int32_t capabilityCall(
@@ -305,14 +305,14 @@ public:
     ///
     /// 一个功能点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
     /// 通道钩子 `musicxx.feature.point.call` 的处理器）、**调用**（动作
-    /// `musicxx.feature.point.call`）。三者都走宿主，不需要应用侧为这个点写任何代码。
+    /// `musicxx.feature.point.call`）。三者都走插件框架，不需要主程序为这个点写任何代码。
     ///
     /// 与能力（capability）的分工见包内 `docs/plugin-guide.md`：
     /// - 能力 = "应用直接调本插件"，参数与结果由插件自己定；
     /// - 功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。
     ///
-    /// 通道写法（宿主约定，糖已经照做）：
-    /// 1. 回答**必须包一层 `patch`**（宿主只在收到 `patch` 时才认为"有人回答了"）；
+    /// 通道写法（框架约定，糖已经照做）：
+    /// 1. 回答**必须包一层 `patch`**（插件框架只在收到 `patch` 时才认为"有人回答了"）；
     /// 2. 处理器要**按 `point` 过滤**（同一条通道上所有实现都收到同一次调用）；
     /// 3. **不回答自己发起的调用**（`caller` 等于自己的插件 id 时返回空）。
 
@@ -432,7 +432,7 @@ public:
     /// - `argsJson` 是这个功能点自己的参数（看清单里的 `callDoc`）；
     /// - **默认超时 60 秒**：频谱提取要解码整曲，慢就自己加大；
     /// - **调用零副作用**：不写应用的值仓、不改应用状态；
-    /// - **没有同步版**：宿主线程上的就地等待等于死锁（处理器可能正等着你返回），
+    /// - **没有同步版**：框架线程上的就地等待等于死锁（处理器可能正等着你返回），
     ///   所以要结果就在 `notify->done` 里处理，或者用协程形态自己封一层。
     int32_t featurePointCall(const char* id, std::string_view argsJson = "{}",
                              uint32_t timeoutMs = 60000,
@@ -467,9 +467,9 @@ public:
         return requestAction("musicxx.feature.point.list", "{}", notify, timeoutMs);
     }
 
-    /// 发起宿主动作 (异步; 结果经 `notify->done` 恰好一次回调)
+    /// 发起主程序动作 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
-    /// 宿主会持有完成通知指针直到本次动作终结 (完成 / 超时 / 取消), 因此 SDK 把通知
+    /// 主程序/框架会持有完成通知指针直到本次动作终结 (完成 / 超时 / 取消), 因此 SDK 把通知
     /// **复制**到实例内部保存并转接回调 —— 插件可以放心传入栈上的 notify。
     int32_t requestAction(
         const char*                   action,
@@ -506,16 +506,16 @@ public:
         );
     }
 
-    /// 订阅宿主事件总线的主题 (**宿主线程**执行处理器; 处理器不得阻塞)
+    /// 订阅事件总线的主题 (**框架线程**执行处理器; 处理器不得阻塞)
     /// - 主题必须符合命名空间规则: 官方 `musicxx.*` 或插件自定义
-    ///   `plugin.<本插件id>.*`; 其它前缀会被宿主拒绝 (返回 -1);
+    ///   `plugin.<本插件id>.*`; 其它前缀会被插件框架拒绝 (返回 -1);
     /// - 处理器形如 `void(std::string_view event_json)`;
-    /// - 订阅句柄由宿主按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
+    /// - 订阅句柄由插件框架按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
     /// - 处理器持有者与钩子处理器同一存放位置, 生命周期 = 插件实例。
     template<typename Fn>
     int32_t subscribeTopic(const char* topic, Fn&& fn) {
         if (!iface.events || !iface.events->subscribe) {
-            log.warn("pluginxx.events 表不可用: 事件订阅未生效 (宿主版本过旧?)");
+            log.warn("pluginxx.events 表不可用: 事件订阅未生效 (插件框架版本过旧?)");
             return -1;
         }
         using FnT       = std::decay_t<Fn>;
@@ -528,13 +528,13 @@ public:
         return sub ? 0 : -1;
     }
 
-    /* ---------- 声明式 UI 扩展 (名字用短名, 宿主自动补前缀) ---------- */
+    /* ---------- 声明式 UI 扩展 (名字用短名, 插件框架自动补前缀) ---------- */
 
     /// 注册一个 UI 项: `itemName` 用短名 (如 "card"), `type` 取 MUSICXX_PLUGIN_UI_TYPE_*,
     /// `dataJson` 是类型相关的声明式内容 (JSON 对象)
     int32_t uiRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
         if (!iface.ui || !iface.ui->register_entry) {
-            log.warn("musicxx.ui 表不可用: UI 项未注册 (宿主版本过旧?)");
+            log.warn("musicxx.ui 表不可用: UI 项未注册 (插件框架版本过旧?)");
             return -1;
         }
         MusicxxPluginUIEntrySpec spec{};
@@ -600,8 +600,8 @@ public:
     /// ---------- 变量 (musicxx.vars) ----------
     ///
     /// 三条读法按需要选一条：
-    /// - `varsGet` 异步、权威（宿主向属主取一次真实值，结果经 [PluginxxOperatorNotify]
-    ///   回来 —— **不要在回调里等结果**，宿主线程上的就地等待等于死锁）；
+    /// - `varsGet` 异步、权威（插件框架向属主取一次真实值，结果经 [PluginxxOperatorNotify]
+    ///   回来 —— **不要在回调里等结果**，框架线程上的就地等待等于死锁）；
     /// - `varsPeek` 同步读缓存（可能旧，返回里带 revision/ageMs/stale）；
     /// - 订阅变动：调 `varsSubscribe` 登记关心，再订阅事件主题
     ///   `musicxx.var.changed`（载荷里带 key）。
@@ -613,7 +613,7 @@ public:
     /// 注册：`mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER` 时属主自己收
     /// `musicxx.var.read` / `musicxx.var.write` 两个事件，用 `varsRespond` 回答。
 
-    /// 注册/覆盖一个变量（key 可写短名，宿主自动补 `plugin.<本插件id>.` 前缀）
+    /// 注册/覆盖一个变量（key 可写短名，插件框架自动补 `plugin.<本插件id>.` 前缀）
     int32_t varsRegister(const MusicxxPluginVarSpec& spec) {
         if (!iface.vars || !iface.vars->register_var) {
             return -1;
@@ -630,7 +630,7 @@ public:
         return iface.vars->unregister_var(host, &keyView);
     }
 
-    /// 异步读（结果经 notify 回来；同键进行中请求由宿主合并）
+    /// 异步读（结果经 notify 回来；同键进行中请求由插件框架合并）
     int32_t varsGet(const char* key, const PluginxxOperatorNotify* notify,
                     int64_t* outRequestId = nullptr) {
         if (!iface.vars || !iface.vars->get) {
@@ -705,7 +705,7 @@ public:
         return result;
     }
 
-    /// 用宿主堆把字符串写进跨边界出参 (插件必须用宿主的分配器, 不得用 CRT malloc)
+    /// 用框架堆把字符串写进跨边界出参 (插件必须用框架分配器, 不得用 CRT malloc)
     static void hostStringSet(const PluginxxHost* host, PluginxxString* out, std::string_view text) {
         if (!out) {
             return;
@@ -725,7 +725,7 @@ public:
         out->size      = static_cast<uint64_t>(text.size());
     }
 
-    /// 释放宿主堆字符串 (经宿主 vtable; 插件不得用 CRT free)
+    /// 释放框架堆字符串 (经框架 vtable; 插件不得用 CRT free)
     void hostStringFree(PluginxxString& s) const {
         if (s.data && host && host->vtable && host->vtable->free) {
             host->vtable->free(s.data);
@@ -845,7 +845,7 @@ protected:
     /// 统一的同步处理器注册路径（带 `owner_tag`）
     ///
     /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个钩子上登记多个
-    /// 处理器（靠它区分），宿主自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
+    /// 处理器（靠它区分），自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
     /// （见 [featurePointProvide]）。
     template<typename Fn>
     int32_t registerSyncWithTag(const char* hookId, const char* ownerTag, int32_t mode,
@@ -869,7 +869,7 @@ protected:
         spec.user_data   = holderPtr;
 
         if (!iface.hooks || !iface.hooks->register_hook) {
-            log.warn("musicxx.hooks 表不可用: 钩子未注册 (宿主版本过旧?)");
+            log.warn("musicxx.hooks 表不可用: 钩子未注册 (插件框架版本过旧?)");
             return -1;
         }
         return iface.hooks->register_hook(host, &spec);
@@ -895,14 +895,14 @@ private:
     /// 同步处理器持有者 (生命周期与实例相同; start 事务里累积)
     std::vector<std::unique_ptr<HookHolderBase>> holders_;
 
-    /// 动作请求完成通知持有者 (宿主会长期持有该指针; 见 requestAction 说明)
+    /// 动作请求完成通知持有者 (主程序/框架会长期持有该指针; 见 requestAction 说明)
     struct ActionNotifyHolder {
         PluginxxOperatorNotify user{};      ///< 插件传入的完成通知 (原样保留)
-        PluginxxOperatorNotify forward{};   ///< 转交给宿主的通知 (地址在堆上, 稳定)
+        PluginxxOperatorNotify forward{};   ///< 转交给主程序的通知 (地址在堆上, 稳定)
         bool                   doneCalled = false;
     };
 
-    /// 完成通知转接 (宿主线程调用): 标记完成并转发给插件自己的回调
+    /// 完成通知转接 (框架线程调用): 标记完成并转发给插件自己的回调
     static void PLUGINXX_CALL actionNotifyTrampoline(
         void*                     ud,
         int32_t                   status,
@@ -912,7 +912,7 @@ private:
         if (!holder || holder->doneCalled) {
             return;
         }
-        holder->doneCalled = true; ///< 宿主保证恰好一次; 这里再兜一层
+        holder->doneCalled = true; ///< 框架保证恰好一次; 这里再兜一层
         if (holder->user.done) {
             try {
                 holder->user.done(holder->user.host_ud, status, payload);
@@ -957,7 +957,7 @@ private:
         explicit EventHolder(FnT f) :
             fn(std::move(f)) {}
 
-        /// C ABI 事件处理器 trampoline (宿主线程调用; 异常必须就地吞掉)
+        /// C ABI 事件处理器 trampoline (框架线程调用; 异常必须就地吞掉)
         static void PLUGINXX_CALL invoke(const PluginxxStringView* event_json, void* ud) noexcept {
             auto* self = static_cast<EventHolder*>(ud);
             if (!self) {
@@ -1051,7 +1051,7 @@ inline void* runLifecycleEntry(
 ///                       [](MyCtx& ctx) -> int32_t { ...注册...; return 0; },
 ///                       [](MyCtx& ctx) -> int32_t { return 0; });
 /// ```
-/// 运行时宿主经 `entrySymbols()` 交出同一批符号名 (见 `pluginxx/api/entry.h`)。
+/// 运行时框架经 `entrySymbols()` 交出同一批符号名 (见 `pluginxx/api/entry.h`)。
 #define MUSICXX_PLUGIN_EXPORT(CtxType, Name, Ver, Desc, StartFn, StopFn)                     \
     PLUGINXX_EXPORT_PLUGIN(                                                                  \
         musicxx_plugin_,                                                                     \

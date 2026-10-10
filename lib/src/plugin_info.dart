@@ -1,4 +1,4 @@
-/// 插件信息与日志模型（与原生宿主 JSON 出参对应）
+/// 插件信息与日志模型（与原生插件框架 JSON 出参对应）
 library;
 
 import 'events.dart';
@@ -48,7 +48,7 @@ class MusicxxPluginInfo {
   /// 插件 id（清单 `name`；同名视为同一插件）
   final String id;
 
-  /// 宿主实例名（JS 插件为 `js:<id>`）
+  /// 框架实例名（JS插件为 `js:<id>`）
   final String instance;
 
   /// native / js / builtin
@@ -103,17 +103,17 @@ class MusicxxPluginInfo {
   final List<String> platforms;
   final List<String> arch;
 
-  /// 清单 `api_version`（必须 ≤ 宿主插件 API 版本）
+  /// 清单 `api_version`（必须 ≤ 插件框架 API 版本）
   final int apiVersion;
 
   /// 必选依赖 / 可选依赖
   final List<String> depends;
   final List<String> optionalDepends;
 
-  /// 插件配置路径（已加载时由宿主推导）
+  /// 插件配置路径（已加载时由插件框架推导）
   final String configPath;
 
-  /// 启用状态（宿主侧）
+  /// 启用状态（插件框架侧）
   final bool enabled;
 
   /// 计数器（hookCalls/actionRequests/...）

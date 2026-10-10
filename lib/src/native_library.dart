@@ -44,7 +44,7 @@ class MusicxxPluginApiVersionException implements Exception {
       'musicxx_extern_plugin C ABI 版本不匹配: 原生库=$nativeVersion, Dart 侧期望=$expectedVersion';
 }
 
-/// 已加载的原生宿主库（`DynamicLibrary` + 生成的绑定）
+/// 已加载的原生插件框架库（`DynamicLibrary` + 生成的绑定）
 class MusicxxPluginNativeLibrary {
   MusicxxPluginNativeLibrary._(this.library, this.bindings, this.path);
 
@@ -65,7 +65,7 @@ class MusicxxPluginNativeLibrary {
     return 'libmusicxx_extern_plugin.so';
   }
 
-  /// 宿主库是否随应用包分发（Android 在 APK 的 `lib/<abi>/` 里，iOS 在 `.app` 内）
+  /// 插件框架库是否随主程序包分发（Android 在 APK 的 `lib/<abi>/` 里，iOS 在 `.app` 内）
   ///
   /// 这类平台拿不到"能被系统接受的绝对路径"：Android 7 起动态链接器只允许应用从 APK 的原生库
   /// 目录（以及系统目录）加载动态库，应用数据目录里的 `.so` 会被
@@ -84,7 +84,7 @@ class MusicxxPluginNativeLibrary {
   /// 1. 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`（显式路径，便于打包/调试）；
   /// 2. `<包目录>/.native/output/*/bin/<库名>`（本包构建脚本的稳定输出目录）；
   /// 3. `<包目录>/.native/build/*/musicxx-extern-plugin-install/bin/<库名>`（安装前缀）；
-  /// 4. 可执行文件旁边与其 `lib/` 子目录（随应用分发的宿主库，见 `windows|linux/CMakeLists.txt`；
+  /// 4. 可执行文件旁边与其 `lib/` 子目录（随主程序分发的插件框架库，见 `windows|linux/CMakeLists.txt`；
   ///    Linux 桌面应用的打包结果是 `<bundle>/musicxx` + `<bundle>/lib/*.so`，因此要一并覆盖）；
   /// 5. 纯库名（交给系统搜索路径，如随应用包分发时）。
   ///
@@ -213,16 +213,16 @@ class MusicxxPluginNativeLibrary {
       }
     }
     throw MusicxxPluginLibraryException(
-      '无法加载 musicxx_extern_plugin 原生宿主库$hintForPlatform():',
+      '无法加载 musicxx_extern_plugin 原生插件框架库$hintForPlatform():',
       attempted: attempted,
       causes: causes,
     );
   }
 
-  /// 宿主能力位图（`musicxx_extern_plugin_feature_bits`）
+  /// 插件框架能力位图（`musicxx_extern_plugin_feature_bits`）
   ///
-  /// 老宿主库上没有这个符号（Dart 侧 `lookup` 会抛），因此这里捕获异常后返回 `null`，
-  /// 让调用方给出"重新构建宿主库"的明确提示，而不是在某个 FFI 调用处抛
+  /// 老插件框架库上没有这个符号（Dart 侧 `lookup` 会抛），因此这里捕获异常后返回 `null`，
+  /// 让调用方给出"重新构建插件框架库"的明确提示，而不是在某个 FFI 调用处抛
   /// 一句难懂的 `undefined symbol`。
   int? get featureBits {
     try {
@@ -235,16 +235,16 @@ class MusicxxPluginNativeLibrary {
   /// 加载失败时的下一步提示（按平台给出可执行的命令/原因说明）
   static String hintForPlatform() {
     if (Platform.isAndroid) {
-      // Android 不允许从应用数据目录加载动态库，宿主库必须随 APK 分发到 lib/<abi>/
-      return '（Android 需要宿主库随 APK 分发：重新打包安装即可 —— android/build.gradle 会自动交叉编译'
+      // Android 不允许从应用数据目录加载动态库，插件框架库必须随 APK 分发到 lib/<abi>/
+      return '（Android 需要插件框架库随 APK 分发：重新打包安装即可 —— android/build.gradle 会自动交叉编译'
           '缺失的 ABI；也可以先手工构建 '
           'pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>，'
           '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
     if (Platform.isIOS) {
-      return '（iOS 需要把宿主库静态链进应用；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+      return '（iOS 需要把插件框架库静态链进主程序；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
-    return '（flutter build 会自动构建宿主库（tools/build_native.ps1 -Auto）；'
+    return '（flutter build 会自动构建插件框架库（tools/build_native.ps1 -Auto）；'
         '也可以手工跑 tools/build_native.ps1，或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
   }
 

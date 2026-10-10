@@ -1,23 +1,23 @@
 // musicxx_extern_plugin 的 Android 平台工程（Flutter FFI 插件）
 //
-// 与 windows/CMakeLists.txt、linux/CMakeLists.txt 同一套路：宿主库不是普通的"插件源码编译"，
+// 与 windows/CMakeLists.txt、linux/CMakeLists.txt 同一套路：插件框架库不是普通的"插件源码编译"，
 // 而是一条独立的依赖链。本文件做三件事：
-//   1. 本次构建要用到的 ABI 缺少宿主库时，自动交叉编译（调包内构建脚本的自动模式，已是最新则秒退；
+//   1. 本次构建要用到的 ABI 缺少插件框架库时，自动交叉编译（调包内构建脚本的自动模式，已是最新则秒退；
 //      关掉: -PmusicxxExternPluginAutoBuild=false 或环境变量 MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0）；
-//   2. 按约定目录找到"已经构建好的"各 ABI 宿主库；
+//   2. 按约定目录找到"已经构建好的"各 ABI 插件框架库；
 //   3. 把它们收集进 jniLibs，随 Flutter 的 Android 构建打进 APK 的 `lib/<abi>/`。
 //
 // 为什么要打进 APK：Android 7(API 24) 起，动态链接器只允许应用从 APK 的原生库目录
 // （以及系统目录）加载动态库，应用数据目录里的 .so 会以
 // `is not accessible for the namespace "classloader-namespace"` 失败 —— 用户装的动态库插件
-// 因此可能在设备上装载失败（宿主按"安全降级"处理，不影响其它插件与应用）。
+// 因此可能在设备上装载失败（插件框架按"安全降级"处理，不影响其它插件与主程序）。
 //
-// 手工构建宿主库（每个 ABI 一次；产物在 <包>/.native/output/android-<abi>-<配置>/bin/）：
+// 手工构建插件框架库（每个 ABI 一次；产物在 <包>/.native/output/android-<abi>-<配置>/bin/）：
 //   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a
 //   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a -Config Debug
 //
-// 找不到宿主库时只打警告、不中断构建：外部插件是可选功能，缺失时应用照常启动，
-// 由 Dart 侧给出"宿主库缺失"的提示（ExternPluginStore.lastError 与管理页状态区）。
+// 找不到插件框架库时只打警告、不中断构建：外部插件是可选功能，缺失时主程序照常启动，
+// 由 Dart 侧给出"插件框架库缺失"的提示（ExternPluginStore.lastError 与管理页状态区）。
 //
 // 显式指定库目录（CI/自定义目录）：
 //   -PmusicxxExternPluginLibDir=<目录>   或环境变量 MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR
@@ -50,7 +50,7 @@ abstract class MusicxxExternPluginBuildHostTask extends DefaultTask {
     @TaskAction
     void buildHost() {
         commands.each { List<String> command ->
-            logger.lifecycle("[musicxx_extern_plugin] 自动交叉编译宿主库：${command.join(' ')}")
+            logger.lifecycle("[musicxx_extern_plugin] 自动交叉编译插件框架库：${command.join(' ')}")
             try {
                 def result = execOperations.exec {
                     commandLine command
@@ -60,13 +60,13 @@ abstract class MusicxxExternPluginBuildHostTask extends DefaultTask {
                     errorOutput = System.err
                 }
                 if (result.exitValue != 0) {
-                    logger.warn("[musicxx_extern_plugin] 宿主库自动构建失败（退出码 ${result.exitValue}），" +
+                    logger.warn("[musicxx_extern_plugin] 插件框架库自动构建失败（退出码 ${result.exitValue}），" +
                             "本次构建的 APK 里不会有它：外部插件在设备上不可用。\n" +
                             "  命令: ${command.join(' ')}\n" +
                             "  手工排查: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>")
                 }
             } catch (Exception error) {
-                logger.warn("[musicxx_extern_plugin] 宿主库自动构建没能执行: ${error.message}")
+                logger.warn("[musicxx_extern_plugin] 插件框架库自动构建没能执行: ${error.message}")
             }
         }
     }
@@ -77,11 +77,11 @@ version = '1.0'
 
 apply plugin: 'com.android.library'
 
-// ==================== 宿主库定位 ====================
+// ==================== 插件框架库定位 ====================
 
 // 包根目录（本文件在 <包>/android/ 下）
 def packageRoot = file("${projectDir}/..")
-// 仓库根目录（宿主应用的 resource/libs/ 里可能预置了库，与 libmediaxx.so 同一约定）
+// 仓库根目录（主程序的 resource/libs/ 里可能预置了库，与 libmediaxx.so 同一约定）
 def repoRoot = file("${packageRoot}/../..")
 def libFileName = 'libmusicxx_extern_plugin.so'
 // 原生构建的配置只有 Debug / Release 两种（构建脚本的 -Config）
@@ -141,7 +141,7 @@ def discoverAbis = {
 
 // Flutter 传给 Gradle 的目标平台（`-Ptarget-platform=android-arm64,android-x64`）→ ABI
 // 只收集本次构建真正要用的 ABI：`flutter run`/`--target-platform` 指定单 ABI 时，
-// 不必把其它 ABI 的宿主库也塞进这个 APK（每份约 3 MB）。没有这个属性（直接用 Gradle 构建）
+// 不必把其它 ABI 的插件框架库也塞进这个 APK（每份约 3 MB）。没有这个属性（直接用 Gradle 构建）
 // 时不做限制，收集全部已构建的 ABI。
 def platformToAbi = [
         'android-arm'  : 'armeabi-v7a',
@@ -166,13 +166,13 @@ def builtAbis = discoverAbis()
 def targetAbis = (requestedAbis == null) ? builtAbis : requestedAbis.toList()
 // 本次要打进包的 ABI（目标里已经构建好的）与"目标里还没构建的"（只提示，不中断构建）。
 // 注意: 这两个列表在**执行期**还要重新算一次 —— 下面的自动构建任务可能就在本次构建里把库补上,
-// 用 configure 期的快照会把刚构建好的库漏在包外（表现成"第一次构建的 APK 里没有宿主库"）。
+// 用 configure 期的快照会把刚构建好的库漏在包外（表现成"第一次构建的 APK 里没有插件框架库"）。
 def packageAbis = targetAbis.findAll { builtAbis.contains(it) }
 def missingAbis = targetAbis.findAll { !builtAbis.contains(it) }
 
-// ==================== 宿主库自动构建（按需交叉编译） ====================
+// ==================== 插件框架库自动构建（按需交叉编译） ====================
 //
-// 让 `flutter build apk` / `flutter run` 不必先手工交叉编译宿主库: 本次构建需要的 ABI 缺少库时,
+// 让 `flutter build apk` / `flutter run` 不必先手工交叉编译插件框架库: 本次构建需要的 ABI 缺少库时,
 // 调用包内构建脚本的自动模式（脚本自己判断"已是最新就秒退"，因此重复构建几乎没有开销）。
 //
 // 关掉自动构建（任一即可）:
@@ -230,7 +230,7 @@ def resolveScriptCommand = { String config, String abi ->
             '--auto', '--config', config, '--android', '--abi', abi]
 }
 
-// 这次缺哪些 ABI 的宿主库（执行期也会再扫一次，见下面的收集任务）
+// 这次缺哪些 ABI 的插件框架库（执行期也会再扫一次，见下面的收集任务）
 def missingAbisNow = { targetAbis.findAll { !discoverAbis().contains(it) }.sort() }
 
 // 找到某个 ABI 的库：先按本次的配置找，再退到另一种配置（与 linux/CMakeLists.txt 一致：
@@ -262,7 +262,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // 本模块没有源码，只有预编译的宿主库（jniLibs 由下面的收集任务写入）
+    // 本模块没有源码，只有预编译的插件框架库（jniLibs 由下面的收集任务写入）
     buildFeatures {
         buildConfig = false
     }
@@ -288,12 +288,12 @@ android.buildTypes.all { buildType ->
     def autoBuildTask = tasks.register("buildMusicxxExternPluginHost${typeName.capitalize()}",
             MusicxxExternPluginBuildHostTask) {
         group = 'flutter'
-        description = "按需交叉编译 Android 宿主库（${typeName} 缺少的 ABI）"
+        description = "按需交叉编译 Android 插件框架库（${typeName} 缺少的 ABI）"
         outputs.upToDateWhen { false }
         List<String> missing = missingAbisNow()
         if (!autoBuildEnabled()) {
             if (!missing.isEmpty()) {
-                logger.lifecycle("[musicxx_extern_plugin] 宿主库自动构建已关闭" +
+                logger.lifecycle("[musicxx_extern_plugin] 插件框架库自动构建已关闭" +
                         "（musicxxExternPluginAutoBuild=false），缺少的 ABI 不会自动补: ${missing.join('、')}")
             }
             return
@@ -303,7 +303,7 @@ android.buildTypes.all { buildType ->
         missing.each { String abi ->
             List<String> command = resolveScriptCommand(config, abi)
             if (command == null) {
-                logger.warn("[musicxx_extern_plugin] 没找到 PowerShell, 跳过 ${abi} 的宿主库自动构建;" +
+                logger.warn("[musicxx_extern_plugin] 没找到 PowerShell, 跳过 ${abi} 的插件框架库自动构建;" +
                         " 手工构建: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi ${abi}")
             } else {
                 plans.add(command)
@@ -314,7 +314,7 @@ android.buildTypes.all { buildType ->
 
     def syncTask = tasks.register(taskName) {
         group = 'flutter'
-        description = "收集 Android 宿主库到 jniLibs（${typeName} ← 原生配置 ${nativeConfig}）"
+        description = "收集 Android 插件框架库到 jniLibs（${typeName} ← 原生配置 ${nativeConfig}）"
         outputs.dir(staging)
         outputs.upToDateWhen { false }
         doLast {
@@ -338,14 +338,14 @@ android.buildTypes.all { buildType ->
                 copied.add("${abi} ← ${source}")
             }
             if (copied.isEmpty()) {
-                logger.warn("[musicxx_extern_plugin] 未找到 Android 宿主库（${libFileName}，原生配置 ${nativeConfig}），" +
+                logger.warn("[musicxx_extern_plugin] 未找到 Android 插件框架库（${libFileName}，原生配置 ${nativeConfig}），" +
                         "本次构建的 APK 里不会有它：外部插件功能在设备上不可用。\n" +
                         "  构建: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>" +
                         "（可选 -Config Debug）\n" +
                         "  需要的 ABI: ${targetAbis.join('、')}\n" +
                         "  候选: ${candidatesOf(targetAbis.isEmpty() ? 'arm64-v8a' : targetAbis[0], nativeConfig).join(' | ')}")
             } else {
-                logger.lifecycle("[musicxx_extern_plugin] 宿主库随 APK 分发（${typeName}）：")
+                logger.lifecycle("[musicxx_extern_plugin] 插件框架库随 APK 分发（${typeName}）：")
                 copied.each { logger.lifecycle("  ${it}") }
                 def stillMissing = targetAbis.findAll { !packageAbisNow.contains(it) }
                 if (!stillMissing.isEmpty()) {

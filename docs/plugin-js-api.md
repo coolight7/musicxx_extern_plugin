@@ -1,7 +1,7 @@
 # musicxx JS 插件作者指南（v1）
 
-JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）即可，宿主用内置的 QuickJS
-运行时执行脚本，脚本通过全局对象 `musicxx` 使用宿主能力。
+JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）即可，插件框架用内置的 QuickJS
+运行时执行脚本，脚本通过全局对象 `musicxx` 使用框架与主程序能力。
 
 | 主题 | 文档 |
 |---|---|
@@ -10,11 +10,14 @@ JS 插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
-| C++ 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
+| 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
 | 单特性示例（多脚本装载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
 
 ---
+
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
 
 ## 1. 一个 JS 插件长什么样
 
@@ -33,7 +36,7 @@ kind: js                         # js = 零编译脚本插件（缺省时按 ent
 entry: plugin.js                 # 可省略（清单只要求 name）：缺省用 plugin.js
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：按顺序执行的脚本（缺省取 entry / plugin.js）
 version: 20261010.1.0            # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期）
-api_version: 1                   # 插件 API 版本：只要不低于宿主支持的最低版本（当前 1）就照常加载；比宿主更高也不会被拒
+api_version: 1                   # 插件 API 版本：只要不低于插件框架支持的最低版本（当前 1）就照常加载；比插件框架更高也不会被拒
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos, android, ios]   # 不写 = 不限（别名 win32 / osx 也认）
@@ -50,7 +53,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 直接能用）：随插件分发的 kit 文件就放在这里。任一脚本顶层报错都算装载失败，错误信息里带
 出错脚本的文件名；文件缺失在扫描阶段就会提示「JS 插件缺少脚本文件: &lt;名字&gt;」。
 **用了 kit 就必须把 kit 文件写进 `scripts`**：漏写时脚本里访问 `pluginxx` 会以
-`pluginxx is not defined`（错误里带脚本名）失败——宿主不提供 kit。
+`pluginxx is not defined`（错误里带脚本名）失败——插件框架不提供 kit。
 
 安装：管理页「从压缩包安装」（`.zip`，顶层是插件目录内容），或把目录放进
 `<应用支持目录>/musicxx/extern_plugin/plugins/<id>/` 后「重新扫描」。JS 插件在
@@ -65,7 +68,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 | 阶段 | 发生了什么 |
 |---|---|
-| 装载（`kind: js`） | 宿主为该插件登记一个合成实例 `js:<插件id>`，建立独立的 `JSRuntime`/`JSContext` |
+| 装载（`kind: js`） | 插件框架为该插件登记一个合成实例 `js:<插件id>`，建立独立的 `JSRuntime`/`JSContext` |
 | 脚本顶层执行 | 顶层**必须同步完成注册**（钩子 / 能力 / 订阅）；顶层抛异常 = 装载失败并回滚 |
 | 启用中 | 钩子处理器与定时器工作；同步读状态镜像、异步发动作请求 |
 | 停用（disable） | 脚本的注册全部摘除、定时器清空、`JSRuntime` 释放；**再次启用会重新执行一遍脚本** |
@@ -74,18 +77,18 @@ permissions:                     # 声明式权限：只做展示，运行时不
 硬约束（踩过坑的都在这里）：
 
 1. **顶层不能有 `await`**；异步逻辑放到钩子、定时器或 Promise 回调里。
-2. 所有 JS 代码跑在宿主的**一条共享 JS 线程**上（多个 JS 插件共用一个线程、各自独立运行时）：
+2. 所有 JS 代码跑在插件框架的**一条共享 JS 线程**上（多个 JS插件共用一个线程、各自独立运行时）：
    回调要尽快返回，不要在里面做长时间同步计算。
 3. 裁决型钩子的**推荐写法是同步返回**裁决对象；需要 `await` 才能决定时可以先同步判断
-   "这次要不要裁决"，只在需要的那次返回 Promise（见 §4.3）。返回 Promise 时宿主会一直等到它结算。
-4. `require`、`fs`、`fetch`、原生模块都**不存在**；宿主能力全部经 `musicxx.*`。
+   "这次要不要裁决"，只在需要的那次返回 Promise（见 §4.3）。返回 Promise 时插件框架会一直等到它结算。
+4. `require`、`fs`、`fetch`、原生模块都**不存在**；框架与主程序能力全部经 `musicxx.*`。
 5. 插件之间不做隔离（同一条 JS 线程）；不要依赖全局副作用，状态放插件自己的存储里。
 6. 钩子处理器抛异常只记日志与统计（**不会暂停派发、也不会卸载插件**）
    （超时不算失败；统计里看得到 `paused`）。
 7. 脚本顶层与处理器里**都可以**读写 `musicxx`；但处理器里不要递归触发同一个钩子。
 8. 脚本每次启用都会重新执行：**注册语句要写成幂等的**（重复执行不会累积副作用），
-   定时器在 `stop` 时由宿主清理，不要假设它还在。
-9. **应用整体卡住**（脚本死循环、长时间同步计算）时，宿主不会打断脚本：应用连续两次启动没走完
+   定时器在 `stop` 时由插件框架清理，不要假设它还在。
+9. **主程序整体卡住**（脚本死循环、长时间同步计算）时，插件框架不会打断脚本：主程序连续两次启动没走完
    会**自动进入安全模式（本次不运行不加载任何外部插件）**，用户也可以在管理页手动开关。
    启动阶段不要做重活，循环要保证能结束（详见 [plugin-guide.md](plugin-guide.md) §5.1 / §5.9）。
 
@@ -97,14 +100,14 @@ permissions:                     # 声明式权限：只做展示，运行时不
 |---|---|
 | `musicxx.hooks` | 注册 / 注销钩子处理器 |
 | `musicxx.state.get` | 同步读状态镜像 |
-| `musicxx.host` | 宿主信息、日志、配置路径 |
+| `musicxx.host` | 框架信息、日志、配置路径 |
 | `musicxx.call` | 通用动作请求（返回 Promise） |
 | `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `render` / `media` / `ui` / `stats` | 分类便捷封装（都等价于 `musicxx.call`） |
 | `musicxx.events` | 事件总线（发布 / 订阅） |
 | `musicxx.capability` | 注册自己的能力 / 调用别的插件的能力 |
 | `musicxx.timer` / `musicxx.util` | 定时器与工具 |
 | `musicxx.version` / `musicxx.pluginId` | 运行时版本（`"0.1.0"`）/ 本插件 id |
-| `console` | `log` / `info` / `warn` / `error` 转发到宿主日志 |
+| `console` | `log` / `info` / `warn` / `error` 转发到框架日志 |
 
 ---
 
@@ -119,7 +122,7 @@ musicxx.hooks.has(id);
 musicxx.hooks.handlers(id);   // Promise：谁注册了这个钩子（见下）
 ```
 
-- `id` 必须是**全名**（官方 `musicxx.*`）；宿主的约定表里没有的钩子会被拒绝；
+- `id` 必须是**全名**（官方 `musicxx.*`）；插件框架的约定表里没有的钩子会被拒绝；
 - `mode`：`"observe"` = 只观察（返回值忽略）；其它值（含不写）= `"decision"` 裁决型；
 - `priority`：小者先执行；同优先级按注册顺序；
 - `ownerTag`：同一插件在同一个钩子上区分多个处理器的标记（**不要用不同 ownerTag 注册同一个钩子**，
@@ -135,9 +138,9 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 ```
 
 顶层同步注册会在脚本执行结束后由引擎统一登记；**运行期**调用 `register` / `unregister` 同样生效
-（宿主把它投递到宿主线程执行，不在脚本线程等待）。
+（插件框架把它投递到框架线程执行，不在脚本线程等待）。
 
-**想知道"这个钩子现在有谁在提供"**用 `musicxx.hooks.handlers(id)`（异步，读的是宿主的权威数据）：
+**想知道"这个钩子现在有谁在提供"**用 `musicxx.hooks.handlers(id)`（异步，读的是插件框架的权威数据）：
 
 ```js
 musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
@@ -147,7 +150,7 @@ musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
 });
 ```
 
-`listAvailable` 为 `false` 表示宿主库太旧（只有数量，看 `count`）。应用侧的自省（命令行
+`listAvailable` 为 `false` 表示插件框架库太旧（只有数量，看 `count`）。主程序的自省（命令行
 `featurePoint.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
 与"用户看到的"一致。
 
@@ -173,7 +176,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 });
 ```
 
-- 宿主一直等到 Promise 结算：结算后裁决生效（没有等待超时，也不会按「无裁决」继续）；
+- 插件框架一直等到 Promise 结算：结算后裁决生效（没有等待超时，也不会按「无裁决」继续）；
 - 所以异步路径要保证 Promise **一定会结算**（失败就 reject），否则调用点会一直等；
 - 结算次数可在统计里看到（`asyncHookSettled`，见 `musicxx.stats.getSelf()`）。
 
@@ -210,7 +213,7 @@ musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除�
 - 现在可调的应用功能点有三个（`musicxx.feature.points()` 看 `callDoc`）：整曲频谱
   `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
   `musicxx.media.palette.provide`。
-- `provide` 的 `fn(args, ctx)` **必须同步返回**：功能点走**同步裁决**通道（宿主就地等结果），
+- `provide` 的 `fn(args, ctx)` **必须同步返回**：功能点走**同步裁决**通道（插件框架就地等结果），
   返回 Promise 拿不到结果（会记一条日志）。长任务请提前算好，或做成**能力**（`musicxx.capability.call`）。
 - 糖自动做三件事：按 `point` 过滤（同一条通道上所有实现都收到同一次调用）、`ctx.caller` 等于自己时
   不回答（避免把自己算出的结果再问回去）、把返回值包成 `{"patch": {"value": …}}`。
@@ -259,7 +262,7 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 
 ---
 
-## 6. 宿主信息与日志
+## 6. 框架信息与日志
 
 ```js
 musicxx.host.info();
@@ -273,7 +276,7 @@ musicxx.host.log(2, "文字"); // 0 trace / 1 debug / 2 info / 3 warn / 4 error
 console.log / info / warn / error   // 同上（映射到 info / warn / error）
 ```
 
-`host.info().ui` 是**客户端如实上报的界面能力**，由界面描述层库生成（宿主只做转发）：
+`host.info().ui` 是**主程序如实上报的界面能力**，由界面描述层库生成（插件框架只做转发）：
 
 ```js
 const ui = musicxx.host.info().ui;
@@ -285,18 +288,18 @@ ui.cell        // 只有终端有：每个字符格相当于多少 u（图形界
 ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 ```
 
-- **图标不在能力段里**：musicxx 不接受宿主自己的图标名（`ui.icons` 不发布），插件要图标就
+- **图标不在能力段里**：musicxx 不接受主程序自己的图标名（`ui.icons` 不发布），插件要图标就
   自带 svg —— 写一条**相对插件目录**的路径（`resource/svg/` 只是推荐位置，见
   [plugin-ui.md](plugin-ui.md) §1.5）。
 
 - **判断"能不能用某个组件"要按 `blocks`/`controls` 判断**，不要按 `kind` 写两套内容；
   `kind` 只用于粗判断（比如终端不给图片、不推着色器）。
-- 取插件页面（`ext://<插件id>/<视图id>` 对应的能力）时，应用侧也会把同一份能力段放进能力参数
+- 取插件页面（`ext://<插件id>/<视图id>` 对应的能力）时，主程序也会把同一份能力段放进能力参数
   （`{"view":"...","ui":{…}}`）：需要在**生成页面内容的那一刻**就知道目标的插件用这个参数。
 - 这个字段只在客户端给了能力段时出现；没有时按 `undefined` 处理（当作"什么都能试，老客户端
   会忽略不认识的组件"）。
 
-日志会进「管理页 → 插件详情 → 日志」；宿主也会把它作为 `musicxx.plugin.log` 事件推给应用侧。
+日志会进「管理页 → 插件详情 → 日志」；插件框架也会把它作为 `musicxx.plugin.log` 事件推给主程序。
 
 ---
 
@@ -306,12 +309,12 @@ ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超时毫秒?);
 ```
 
-- 默认超时 **5000 ms**（宿主按你给的值生效，不再钳制区间；传 0 = 一直等）；
+- 默认超时 **5000 ms**（插件框架按你给的值生效，不再钳制区间；传 0 = 一直等）；
 - Promise 拒绝时 `err.message` 里带原因，例如 `action_not_registered: xxx`、
   `请求失败：...`、`status=...`；
 - **动作不做权限校验**：清单里的 `permissions` 只做展示，不会拒绝任何调用；
 - 动作未注册（当前版本没实现）会立刻失败，不会挂到超时。
-- **动作名不校验**：宿主受理任意名字的动作，由应用侧按「注册了没有」决定理不理它（没注册立刻失败）；
+- **动作名不校验**：插件框架受理任意名字的动作，由主程序按「注册了没有」决定理不理它（没注册立刻失败）；
   官方动作是 `musicxx.<域>.<动作>`，插件自己的动作建议写成 `plugin.<包名>.*` 以免与别的插件撞名；
 
 ### 7.1 分类便捷封装
@@ -349,7 +352,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.ui.toast` | `{text}` | `{ok:true}` |
 | `musicxx.ui.dialog` | `{title?, content, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` |
-| `musicxx.ui.setFontFamily` | `{fontFamily?}`（字符串，传 `default` / `""` / `null` 恢复默认） | `{ok:true, fontFamily, isCustom}` 更换全局 `XXText*` 与输入框字体；**换字体要重建整棵界面，动作本身可能耗时几百毫秒到几秒**：页面按钮的能力处理器里必须"发出去就返回"（`.then` 收尾），`await` 它会与同步进宿主的调用方互锁到超时（见 [plugin-ui.md](plugin-ui.md) §4.1） |
+| `musicxx.ui.setFontFamily` | `{fontFamily?}`（字符串，传 `default` / `""` / `null` 恢复默认） | `{ok:true, fontFamily, isCustom}` 更换全局 `XXText*` 与输入框字体；**换字体要重建整棵界面，动作本身可能耗时几百毫秒到几秒**：页面按钮的能力处理器里必须"发出去就返回"（`.then` 收尾），`await` 它会与同步进插件框架的调用方互锁到超时（见 [plugin-ui.md](plugin-ui.md) §4.1） |
 | `musicxx.ui.getFontFamily` | 无 | `{ok:true, fontFamily, defaultFontFamily, customFontFamily, isCustom}` |
 | `musicxx.ui.loadFont` | `{family, path?, data?, apply?=true}` | `{ok:true, family, applied}` 加载注册字体并可选立即设为全局字体（同上的"不要 await"约定） |
 | `musicxx.storage.get` | `{key, namespace?}` | **值本身**（键不存在 → 空应答，JS 封装回退到默认值） |
@@ -395,17 +398,17 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 - `get(key, 默认值)` / `getConfig(key, 默认值)` 返回**值本身**；键不存在时返回你给的默认值
   （不给默认值就是 `null`）；
 - `set` / `remove` 成功 = 已经写盘；`config.json` 是整份重写的，所以**不要**用它存高频变化的数据；
-- `list()` 返回 `{keys: [...]}`；键名数组是宿主内部的存储键（私有 KV 的键带命名空间前缀）；
+- `list()` 返回 `{keys: [...]}`；键名数组是插件框架内部的存储键（私有 KV 的键带命名空间前缀）；
 - 默认值由**你自己**在 `getConfig` 的第二个参数里给：框架不保存默认值，也没有「恢复默认」的入口
   （用户直接编辑 `config.json` 即可）。
 
-### 7.3 网络（宿主代理通道）
+### 7.3 网络（主程序代理通道）
 
 ```js
 const resp = await musicxx.net.fetch({
     url: "https://api.example.com/items?page=1",
     method: "GET",                    // GET / POST / PUT / PATCH / DELETE / HEAD（缺省 GET）
-    headers: { "X-Token": "..." },    // 只允许合法头名；宿主不注入任何身份信息
+    headers: { "X-Token": "..." },    // 只允许合法头名；插件框架不注入任何身份信息
     body: { a: 1 },                   // 对象自动 JSON 编码；字符串原样发送
     timeoutMs: 15000,                 // 1000 ~ 60000（缺省 15000）
     responseType: "json",             // text（缺省）/ json / bytes
@@ -419,8 +422,8 @@ const resp = await musicxx.net.fetch({
   只有传输失败 / 超时才 `ok: false`（此时 `error` 是 `请求失败：...`）；
 - 响应体是**流式读取**的：读满 `maxBytes` 就断开并置 `truncated: true`
   （`receivedBytes` = 实际从网络读到的字节数，`contentLength` = 响应头声明的总长度，-1 = 未知）；
-- 宿主**不限定可访问的域名**（任意 http/https 都可以）；`musicxx.net` 权限只表示
-  「允许使用宿主这条通道」，不代表插件不能自己联网（动态库插件可以直接用系统 API）；
+- 主程序**不限定可访问的域名**（任意 http/https 都可以）；`musicxx.net` 权限只表示
+  「允许使用主程序这条通道」，不代表插件不能自己联网（动态库插件可以直接用系统 API）；
 - `musicxx.net.fetch` 的动作超时会按 `timeoutMs + 5 s` 放宽，所以 HTTP 超时不会被动作超时先打断。
 
 下载到插件自己的数据目录（`<data>/downloads/`）：
@@ -448,7 +451,7 @@ await musicxx.ui.openRoute("ext://my_plugin/card");          // 插件页面（�
 await musicxx.ui.openRoute("musicxx:settings");              // 官方页面（白名单键）
 ```
 
-- 弹窗标题会自动带插件来源前缀（`『<插件id>』…`），避免插件伪装成宿主自己的提示；
+- 弹窗标题会自动带插件来源前缀（`『<插件id>』…`），避免插件伪装成主程序自己的提示；
 - `openRoute` 允许两类目标：**任意插件**的 `ext://<插件id>/<视图id>` 页面（含本插件；跨插件页面
   由对方插件自己绘制，发起方拿不到对方的数据），以及官方页面白名单：
 
@@ -512,14 +515,14 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 | 写法 | 时延与新鲜度 | 适合 |
 |---|---|---|
 | `await musicxx.vars.get(key)` | 一次往返；值一定来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
-| `musicxx.vars.peek(key)` | 宿主线程查表（只花几纳秒）；可能旧，返回里如实带 `ageMs`/`stale` | 钩子处理器、按帧/按事件的热路径（先用 `watch` 保活） |
+| `musicxx.vars.peek(key)` | 框架线程查表（只花几纳秒）；可能旧，返回里如实带 `ageMs`/`stale` | 钩子处理器、按帧/按事件的热路径（先用 `watch` 保活） |
 | `musicxx.vars.bind(key, fn)` | 变化时回调 | 要跟着变化做事 |
 | `musicxx.vars.watch(key)` | 不回调，只保证 `peek` 新鲜 | 只要同步读、不要回调 |
 
 ```js
 // 权威读（异步）
 var level = await musicxx.vars.get("musicxx.ui.animatedLevel");
-// 一次读多个键（宿主的同键进行中请求会合并）
+// 一次读多个键（插件框架的同键进行中请求会合并）
 var values = await musicxx.vars.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
 
 // 热路径：先保活缓存，再同步读
@@ -546,15 +549,15 @@ if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
 ```
 
 写入一律**交给属主**：官方键由应用写入（走用户在设置里改的同一条路径）；
-你自己注册的 `declared` 变量由宿主代存（立即结算）；`handler` 变量转回你自己的 `onWrite`。
+你自己注册的 `declared` 变量由插件框架代存（立即结算）；`handler` 变量转回你自己的 `onWrite`。
 
 ### 9.3 注册自己的变量（给别的插件与应用用）
 
-键名写**短名**（`tip.start`），宿主补成 `plugin.<你的插件id>.tip.start`；
+键名写**短名**（`tip.start`），插件框架补成 `plugin.<你的插件id>.tip.start`；
 分组可以多级。变量数量、键长度、值大小与订阅数都不设上限（早期版本的限制已移除）。
 
 ```js
-// declared（默认）：值由宿主代存，set 即提交 —— 零代码
+// declared（默认）：值由框架代存，set 即提交 —— 零代码
 musicxx.vars.register({
   key: "tip.start",
   caps: ["get", "set", "notify"],   // 可省，缺省 ["get"]；三者可以只实现一部分
@@ -579,11 +582,11 @@ musicxx.vars.register({
   caps: ["get", "set", "notify"],
   mode: "handler",
   type: "bool",
-  refreshAfterMs: 5000,                     // 有人 watch 时，宿主最多 5 秒来取一次真实值
-  onRead:  function () { return tipStart; },             // 宿主来取真实值时求值（回答 get）
+  refreshAfterMs: 5000,                     // 有人 watch 时，插件框架最多 5 秒来取一次真实值
+  onRead:  function () { return tipStart; },             // 插件框架来取真实值时求值（回答 get）
   onWrite: function (value) {                            // 别人写这个变量时由这里处理
     tipStart = (value === true);
-    return tipStart;                                     // 返回值 = 提交给宿主的最终值
+    return tipStart;                                     // 返回值 = 提交给框架的最终值
   }
 });
 
@@ -610,9 +613,9 @@ musicxx.vars.unregister("tip.start");
 ### 9.5 高频与零成本
 
 - **不禁止高频，建议节流**：声明 `throttleMs`（推送侧合并）与 `notifyThrottleMs`
-  （宿主侧把通知合并成一条，载荷带 `coalesced`）。超过约 5 Hz 的键请务必声明；
+  （框架侧把通知合并成一条，载荷带 `coalesced`）。超过约 5 Hz 的键请务必声明；
   每秒多次 + 只想被轮询读的数据更建议放状态镜像（§5）。
-- **没人看就不推**：宿主会告诉应用"哪些键有人订阅或 watch"，没人看的键值变化不产生
+- **没人看就不推**：插件框架会告诉主程序"哪些键有人订阅或 watch"，没人看的键值变化不产生
   任何 FFI/事件/回调。因此"插件没在跑"或"没人订阅"时，高频变量的成本是零。
 - 变量的读写超时：读默认 2 秒、写（应用）5 秒 /（handler 属主）3 秒；
   超时按 `读取超时` / `not accepted` 结算，**缓存保持不变**。
@@ -628,14 +631,14 @@ musicxx.capability.register("my_name", (args) => ({ ok: true }));   // 短名即
 const info = await musicxx.capability.call("example_native", "probe", {});
 ```
 
-- 能力全名是 `plugin.<插件 id>.<短名>`；应用侧（Dart）用
-  `MusicxxPluginManager.call(id, "probe", args)`（返回 `Future`，默认 30 秒超时），宿主用同名能力名调用；
-- 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（宿主会等到它结算再给调用方结果）；
+- 能力全名是 `plugin.<插件 id>.<短名>`；主程序（Dart）用
+  `MusicxxPluginManager.call(id, "probe", args)`（返回 `Future`，默认 30 秒超时），插件框架用同名能力名调用；
+- 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（插件框架会等到它结算再给调用方结果）；
 - **调用只有异步形态**（Dart 侧只受理不等待，结果经事件回填）：插件慢或卡住不会再让应用界面没反应，
-  处理器里发起的动作也能被处理完（应用侧那条路不会互锁）。
-- **处理器里不要等动作**：应用侧打开页面 / 点按钮会等能力结果，而动作要由应用线程执行 ——
-  处理器里 `await` 一个动作会与动作执行互相等下去（表现是"整个应用卡住几秒 + 调用插件能力失败"）。
-  异步处理器本身没问题（例如等 JS 定时器、等跨插件调用），只是不要等**宿主**的动作：
+  处理器里发起的动作也能被处理完（主程序那条路不会互锁）。
+- **处理器里不要等动作**：主程序打开页面 / 点按钮会等能力结果，而主程序动作要由主程序线程执行 ——
+  处理器里 `await` 一个动作会与动作执行互相等下去（表现是"整个主程序卡住几秒 + 调用插件能力失败"）。
+  异步处理器本身没问题（例如等 JS 定时器、等跨插件调用），只是不要等**主程序**动作：
   - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）读状态镜像（`musicxx.state.get`）；
   - 要动作结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
     —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
@@ -646,17 +649,17 @@ const info = await musicxx.capability.call("example_native", "probe", {});
   | 目标 | 行为 |
   |---|---|
   | JS 插件 | 在共享 JS 线程上**直接调用**；处理器同步返回时结果立即就绪，返回 Promise 时等它结算（同一条线程，不跳线程） |
-  | 动态库插件 | 投递到宿主线程执行，脚本**不阻塞**；结果经 `ext.onCapabilityResult` 回到 JS 线程（超时缺省 3 s；传 0 = 一直等） |
+  | 动态库插件 | 投递到框架线程执行，脚本**不阻塞**；结果经 `ext.onCapabilityResult` 回到 JS 线程（超时缺省 3 s；传 0 = 一直等） |
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
   （`plugin_capability_not_found: xxx` / `capability_call_failed` / `跨插件调用超时: ...`）；
-- 插件页面也走能力：宿主打开 `ext://<插件id>/<视图id>` 时调用同名能力（见 §12）。
+- 插件页面也走能力：主程序打开 `ext://<插件id>/<视图id>` 时调用同名能力（见 §12）。
 
 ---
 
 ## 11. 渲染槽位与封面数据
 
-插件可以把**预编译的 shader bundle** 注册成宿主的一种渲染样式（当前有两个槽位：「播放页背景」
+插件可以把**预编译的 shader bundle** 注册成主程序的一种渲染样式（当前有两个槽位：「播放页背景」
 `player.background` 与「播放页歌曲图」`player.icon`，后者见
 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3），由用户在设置里选中后生效；
 也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
@@ -680,7 +683,7 @@ musicxx.ui.registerEntry({
         title: "流光背景",
         depict: "跟随封面配色的动态背景",
         shader: { bundle: "shader/bg.shaderbundle" },   // 插件目录内的相对路径
-        // 封面纹理：宿主把当前歌曲封面解码、缩放、按 blur 预模糊后上传成 GPU 纹理，
+        // 封面纹理：主程序把当前歌曲封面解码、缩放、按 blur 预模糊后上传成 GPU 纹理，
         // 每帧绑定到 texture 指定的 sampler2D；信息写在 info 成员
         // （(纹理宽, 纹理高, 原图宽高比, 是否有封面)，没有封面时最后一位是 0）
         cover: { texture: "uCover", info: "uCoverInfo", size: 512, blur: 24 },
@@ -695,11 +698,11 @@ musicxx.ui.registerEntry({
                 of: { kind: "source", name: "musicxx.spectrum.level" },
             },
         },
-        speed: 1,          // 时间推进速度（宿主直接用这个值，不做二次缩放）
+        speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
         maxFps: 16,
         // 自定义播放页前景的三色（普通色 / 减淡色 / block 背景色）：
         // 选中本样式后，播放页的文本、歌词、进度条与块状背景都用这三色；
-        // 只写一部分也行，没写的用宿主默认色（见 plugin-shader-bundle.md §8.1）
+        // 只写一部分也行，没写的用主程序默认色（见 plugin-shader-bundle.md §8.1）
         foregroundColors: { main: "#ffe8f0ff", cross: "#80e8f0ff", block: "#1f5a7bb8" },
     },
 });
@@ -715,7 +718,7 @@ musicxx.ui.updateEntry({
 ```
 
 ```js
-// 有哪些可选样式（含宿主内置项：id 形如 builtin:Auto）
+// 有哪些可选样式（含主程序内置项：id 形如 builtin:Auto）
 const r = await musicxx.render.list({ slot: "player.background" });
 // r = { ok:true, slots:[{ slot, title, selectedId, items:[
 //        { id, title, depict?, source:"builtin"|"plugin", plugin?, available, reason?, selected } ] }] }
@@ -732,7 +735,7 @@ if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 我在画 */ }
 ```
 
 ```js
-// 封面色（分析结果 + 宿主内置背景实际用的 4 色）
+// 封面色（分析结果 + 主程序内置背景实际用的 4 色）
 const palette = await musicxx.media.palette();     // 需要强制刷新时传 { force: true }
 // { ok, hasCover, analyzed, night, srcKey, version,
 //   raw: { main, light, lightMuted, dark, darkMuted, dominant:[...] },   // 颜色为 "#rrggbbaa"
@@ -751,13 +754,13 @@ const bound = await musicxx.media.cover({ size: 128, format: "rgba", bind: "mini
 await musicxx.media.bindImage({ key: "art", data: base64Png, format: "png" });
 await musicxx.media.unbindImage({ key: "art" });
 
-// 写封面取色：算好自己的颜色后交给宿主（与内置分析是同一批字段，
+// 写封面取色：算好自己的颜色后交给主程序（与内置分析是同一批字段，
 // 内置背景、插件背景与 musicxx.icon.* 来源都会用上）
 await musicxx.media.setPalette({ main: "#ff8844", dark: "#20222a" });
 
 // 注册"封面取色实现"（替代内置分析）：应用在需要封面色时先问插件
 //
-// **处理器里不要 await 宿主动作**（`musicxx.media.cover` 之类）：应用是在需要颜色的
+// **处理器里不要 await 主程序动作**（`musicxx.media.cover` 之类）：主程序是在需要颜色的
 // 时候同步等这次裁决的（切换背景样式、切歌、渲染准备都在 await 这条链上），在处理器里
 // 等动作会把两边互相拖住，表现是"切歌 / 换背景样式卡几秒"（实测踩过）。
 // 正确写法：命中的缓存**同步**返回，没命中就返回 null（应用走它自己的快速取色），
@@ -828,7 +831,7 @@ musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
   没人给 / 一个颜色都没解析出来就走内置分析；`musicxx.media.palette` 的返回里 `source` 会告诉
   你这套颜色是 `"plugin"` 还是 `"builtin"`；异步派发，等待期间切歌时本次结果会被丢弃
   （`srcKey` 可自行校验）。**处理器必须尽快返回**：应用最多等 800ms（超时按"没给"处理，
-  走内置快速取色），并且**绝不要在处理器里 `await` 宿主动作**（切换背景样式、切歌、渲染准备
+  走内置快速取色），并且**绝不要在处理器里 `await` 主程序动作**（切换背景样式、切歌、渲染准备
   都在等这次裁决，等动作会互相拖到超时 —— 表现是"卡几秒"）；用上面的写法：
   同步返回缓存、未命中返回 null 并异步预热、算好用 `musicxx.media.setPalette` 写回。钩子载荷与
   写法的完整说明见 [plugin-hooks.md](plugin-hooks.md)；
@@ -836,7 +839,7 @@ musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
   先问你。返回合法的 `spectrum`（`spectrums` 必需）就用你的数据，没返回 / 数据不合法就用已登记的
   实现（内置『音乐动效』），两边都没有则这个功能整体不可用（进度条波形、播放页动效、
   `musicxx.state.spectrum` 都会是"没有数据"）。**应用最多等 30 s**：数据提前算好
-  （换歌时用观察型钩子预热），处理器里同步返回缓存或 null，别在里面 `await` 宿主动作
+  （换歌时用观察型钩子预热），处理器里同步返回缓存或 null，别在里面 `await` 主程序动作
   （那会再加一次往返）；
 - **副歌分析钩子**（`musicxx.media.chorus.analyse`）是**裁决型**：应用要分析一首歌的副歌时先问你，
   载荷里带上已经拿到的整曲频谱（`hasWave` 为真）。返回 `{chorus: {sections: [...]}}` 就用你的区段
@@ -849,7 +852,7 @@ musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
   `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` /
   `network`）里**没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里
   采样就声明渲染项的 `cover` / `image`；**可以回退移除**：`musicxx.hooks.unregister(...)` 之后
-  宿主不再派发，重新 `register` 即恢复，插件停用 / 卸载时宿主也会自动摘掉处理器：
+  插件框架不再派发，重新 `register` 即恢复，插件停用 / 卸载时插件框架也会自动摘掉处理器：
 
 ```js
 musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (ctx) => {
@@ -861,7 +864,7 @@ musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (ctx)
 musicxx.hooks.unregister("musicxx.media.cover.changed");
 ```
 
-- 宿主**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
+- 主程序**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
   「跟着封面/主题配色」这类需求什么都不用做（取不到来源时用参数里的固定值）；
   频谱来源（`musicxx.spectrum.*`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）
   是例外：没有数据时写 0（静音），要看 `uEnv.z` 判断"现在有没有数据"；
@@ -871,14 +874,14 @@ musicxx.hooks.unregister("musicxx.media.cover.changed");
   `musicxx.media.spectrum`；
 - 想让画面跟着封面配色动，用 `args` 里的来源就够了（`musicxx.icon.*`，每帧现读、零成本）；
   要用**封面图本身**（铺底、圆盘、像素化…）就在渲染项里声明 `cover`：
-  宿主解码 + 缩放 + 可选预模糊后上传成 GPU 纹理，每帧绑定给着色器，插件不搬字节
+  主程序解码 + 缩放 + 可选预模糊后上传成 GPU 纹理，每帧绑定给着色器，插件不搬字节
   （见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1）；
 - `musicxx.media.cover` 这条动作是**读数据**用的（自己分析像素：哈希、取色、外部识别…）：
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态镜像见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
   （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（可能是 `builtin:*`），
-  `visible:false` = 宿主当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
+  `visible:false` = 主程序当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
 
 ---
 
@@ -904,14 +907,14 @@ musicxx.ui.registerEntry({ name: "clear", type: "song.action", order: 900,
     title: "用我的插件处理这首歌",
     action: { kind: "capability", name: "handleSong" } });
 
-// 插件页面：宿主调用同名能力，脚本返回视图描述
+// 插件页面：主程序调用同名能力，脚本返回视图描述
 musicxx.capability.register("card", function (args) {
     return {
         view: {
             title: "我的插件",
             subtitle: "页面内容来自能力 card",
             blocks: [
-                { kind: "Text", text: "插件只返回块描述，渲染由宿主完成。", style: "cross" },
+                { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。", style: "cross" },
                 { kind: "Divider" },
                 { kind: "Button", title: "播放/暂停", style: "primary",
                   action: { kind: "action", name: "musicxx.player.toggle" } },
@@ -923,10 +926,10 @@ musicxx.capability.register("card", function (args) {
 });
 ```
 
-- 能力返回 `{ view: {...} }`（推荐）或直接返回视图对象；返回视图时宿主会用新视图**刷新当前页面**
+- 能力返回 `{ view: {...} }`（推荐）或直接返回视图对象；返回视图时主程序会用新视图**刷新当前页面**
   （按钮改配置 + 立即刷新就是这么做的）；
 - `musicxx.ui.updateEntry("card", 完整 data)` 是**整体替换**，只想改一个字段也要传完整 data；
-- `musicxx.ui.entries()` 返回本插件已注册项的脚本侧镜像（不含宿主快照里的 `id` 前缀处理，调试用）。
+- `musicxx.ui.entries()` 返回本插件已注册项的脚本侧镜像（不含框架快照里的 `id` 前缀处理，调试用）。
 
 ---
 
@@ -945,8 +948,8 @@ musicxx.util.json;                    // JSON 对象（stringify / parse）
 musicxx.util.now();                   // Date.now()
 ```
 
-- 定时器由宿主按实例管理，插件停用 / 卸载时自动清理；
-- 精度：宿主按 ≤ 50 ms 的粒度轮询到期定时器，所以 `setTimeout(fn, 0)` 到实际执行之间可能有几十毫秒
+- 定时器由插件框架按实例管理，插件停用 / 卸载时自动清理；
+- 精度：插件框架按 ≤ 50 ms 的粒度轮询到期定时器，所以 `setTimeout(fn, 0)` 到实际执行之间可能有几十毫秒
   延迟 —— 不要用它做高精度计时。
 
 ---
@@ -966,7 +969,7 @@ musicxx.util.now();                   // Date.now()
 | `musicxx.capability.register("card"/"settings")` | 功能页与设置页（自绘） |
 | `musicxx.storage.getConfig/setConfig` | 读写 `config.json`（默认值由脚本给） |
 | `musicxx.capability.call` | 跨插件调用（JS ↔ 原生） |
-| `musicxx.net.fetch` | 走宿主网络栈的请求 |
+| `musicxx.net.fetch` | 走主程序网络栈的请求 |
 | `musicxx.stats.reportMetric` | 自报指标（只展示） |
 
 只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）；
@@ -991,7 +994,7 @@ musicxx.util.now();                   // Date.now()
 → `plugin list` / `plugin logs` → 改完 `plugin reload <插件id>`。完整用法与 MCP 工具见
 [plugin-agent-cli.md](plugin-agent-cli.md)。
 
-**日志**：`console.*` 与 `musicxx.host.log(...)` 都进插件日志；宿主自己的日志设环境变量
+**日志**：`console.*` 与 `musicxx.host.log(...)` 都进插件日志；插件框架自己的日志设环境变量
 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查装载失败时很有用）。
 
 **统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到钩子调用次数 / 耗时 / 失败（只观测不限制：没有超时与暂停派发）、
@@ -999,7 +1002,7 @@ musicxx.util.now();                   // Date.now()
 `timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `asyncHookSettled`。
 插件里也能自己读：`musicxx.stats.getSelf()`。
 
-**应用卡住时**：应用日志目录下有一份 `host_call.log`（进宿主调用的同步轨迹，卡住后
+**应用卡住时**：主程序日志目录下有一份 `host_call.log`（进插件框架调用的同步轨迹，卡住后
 **最后一行就是没有返回的那次调用**）；配合「插件详情 → 日志」一起看，就能区分是脚本死循环还是动作等待。
 
 **常见坑**
@@ -1012,11 +1015,11 @@ musicxx.util.now();                   // Date.now()
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（见 §7.1 的表尾） |
-| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（应用侧还没有接） |
-| 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，宿主侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
+| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（主程序还没有接） |
+| 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
 | 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会装载失败）；先看日志 |
-| 应用整体卡住 | 脚本里有死循环或长时间同步计算（共享 JS 线程）。宿主不打断脚本、也没有中断开关，只能重启应用 —— 写脚本时自己保证循环能结束 |
+| 主程序整体卡住 | 脚本里有死循环或长时间同步计算（共享 JS 线程）。插件框架不打断脚本、也没有中断开关，只能重启主程序 —— 写脚本时自己保证循环能结束 |
 
 ---
 
@@ -1024,9 +1027,8 @@ musicxx.util.now();                   // Date.now()
 
 | 边界 | 说明 |
 |---|---|
-| 异步裁决 | **已支持**：裁决处理器可以返回 Promise（宿主一直等到结算，结算后裁决生效）；同步返回仍是最省时的写法 |
-| 异步能力 | **已支持**：能力处理器可以返回 Promise（宿主会等到结算再给调用方结果）；长时间后台任务仍建议用动作请求 / 事件 / 定时器 |
-| 资源限制 | 宿主不限制 JS 内存、执行时长与 JS 插件数量；死循环会占住共享 JS 线程（没有中断开关） |
-| 定时器精度 | 宿主线程按 ≤ 50 ms 粒度轮询，不适合高精度计时 |
-| 与动态库插件的差别 | JS 插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`；不能注册原生线程；能力处理器可以是异步的（返回 Promise，宿主等它结算） |
-
+| 异步裁决 | **已支持**：裁决处理器可以返回 Promise（插件框架一直等到结算，结算后裁决生效）；同步返回仍是最省时的写法 |
+| 异步能力 | **已支持**：能力处理器可以返回 Promise（插件框架会等到结算再给调用方结果）；长时间后台任务仍建议用动作请求 / 事件 / 定时器 |
+| 资源限制 | 插件框架不限制 JS 内存、执行时长与 JS插件数量；死循环会占住共享 JS 线程（没有中断开关） |
+| 定时器精度 | 框架线程按 ≤ 50 ms 粒度轮询，不适合高精度计时 |
+| 与动态库插件的差别 | JS插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`；不能注册原生线程；能力处理器可以是异步的（返回 Promise，插件框架等它结算） |

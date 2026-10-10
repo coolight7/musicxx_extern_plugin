@@ -1,7 +1,9 @@
-# Android 平台接入（宿主库随 APK 分发）
+# Android 平台接入（插件框架库随 APK 分发）
+
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
 
 本目录是 `musicxx_extern_plugin` 的 Android 平台工程（Flutter FFI 插件）。
-它的职责有两个：**按需交叉编译宿主库**，以及**把宿主库放进 APK**，让应用能被 Dart 侧加载。
+它的职责有两个：**按需交叉编译插件框架库**，以及**把插件框架库放进 APK**，让主程序能被 Dart 侧加载。
 
 ## 为什么必须打进 APK
 
@@ -14,15 +16,15 @@ dlopen failed: library "/data/user/0/<包名>/files/xxx.so" is not accessible fo
 
 所以：
 
-- **宿主库**（`libmusicxx_extern_plugin.so`）必须随 APK 分发，本模块负责收集；
+- **插件框架库**（`libmusicxx_extern_plugin.so`）必须随 APK 分发，本模块负责收集；
 - **用户安装的动态库插件**（放在 `<应用支持目录>/musicxx/extern_plugin/plugins/<插件id>/`）在部分
-  设备/系统版本上会因同一条限制装载失败 —— 宿主按"安全降级"处理：该插件标记为不可用、给出原因、
-  不重试也不影响其它插件。JS 插件不受影响。
+  设备/系统版本上会因同一条限制装载失败 —— 插件框架按"安全降级"处理：该插件标记为不可用、给出原因、
+  不重试也不影响其它插件。JS插件不受影响。
 
-## 构建宿主库
+## 构建插件框架库
 
 **默认会自动构建**：`flutter build apk` / `flutter run` 时，`android/build.gradle` 发现本次要用的 ABI
-缺少宿主库就调包内构建脚本的自动模式（已是最新则秒退，每个 ABI 各构建一次）。关掉自动构建
+缺少插件框架库就调包内构建脚本的自动模式（已是最新则秒退，每个 ABI 各构建一次）。关掉自动构建
 （`-PmusicxxExternPluginAutoBuild=false` 或环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`）后，按下手工构建：
 
 ```bash
@@ -51,7 +53,7 @@ Release 用于发布的 APK、Debug 用于调试构建；自动构建默认只�
 `android/build.gradle` 会：
 
 1. 本次要用的 ABI（Flutter 的 `target-platform`）里缺库时，先调包内构建脚本的自动模式补上；
-2. 扫描上面两个目录（以及仓库预置目录 `resource/libs/android/<abi>/`），按 ABI 找到宿主库；
+2. 扫描上面两个目录（以及仓库预置目录 `resource/libs/android/<abi>/`），按 ABI 找到插件框架库；
 3. 把它们复制到 `<模块构建目录>/musicxxExternPluginJniLibs/<build type>/<abi>/`，并把这个目录注册成
    对应 build type 的 `jniLibs` 源目录；
 4. 上述两个任务都挂在该 build type 的 `preBuild` 之前，因此 AGP 合并、打包时库已经在位
@@ -69,7 +71,7 @@ flutter build apk --release -PmusicxxExternPluginLibDir=/path/to/libs
 
 只收集**本次构建真正要用的 ABI**：Flutter 传下来的 `-Ptarget-platform`（如
 `android-arm64`）会映射成 ABI，只把这些 ABI 的库放进 APK；没有该属性（直接用 Gradle 构建）时
-收集全部已构建的 ABI。每个 ABI 的宿主库约 3 MB，单 ABI 调试时可以用这条来缩小包体。
+收集全部已构建的 ABI。每个 ABI 的插件框架库约 3 MB，单 ABI 调试时可以用这条来缩小包体。
 
 ## 验证
 
@@ -86,7 +88,7 @@ Android 上不参与（Android 没有可执行文件旁的库目录）。
 
 ## 已知限制
 
-- `-RunTests` 在 Android 上跳过：测试可执行文件是给设备编的，宿主上跑不起来。需要在设备上跑时，
+- `-RunTests` 在 Android 上跳过：测试可执行文件是给设备编的，主程序所在系统/本机上跑不起来。需要在设备上跑时，
   把 `<安装前缀>/bin/` 与 `<安装前缀>/plugins/` 推到设备（例如 `/data/local/tmp/`），
   用 `LD_LIBRARY_PATH=<bin> ./musicxx_extern_plugin_test <plugins>` 执行。
 - `armeabi-v7a`（32 位 ARM）未实测：依赖链里的 simdjson 等库需要自行确认 32 位 ARM 可编译。

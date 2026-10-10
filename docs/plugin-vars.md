@@ -1,12 +1,14 @@
 # musicxx 官方变量目录（`musicxx.*`）
 
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
 > 本文件是**官方变量**的清单与取值规则说明。变量属于「第五条通道」：有属主、可读、可写、
 > 可订阅变动的小值（配置 / 小状态）。通道本身的能力见 `docs/plugin-js-api.md`
 > （JS 插件）与 `docs/plugin-native-api.md`（动态库插件）的「变量」章节。
 >
-> **真值在应用侧**：宿主里没有第二份真值，只保留一份服务同步读（`peek`）的缓存。
+> **真值在主程序**：插件框架里没有第二份真值，只保留一份服务同步读（`peek`）的缓存。
 > 没有列在这里的官方键**不存在**：读/写会返回「未找到」——应用没有声明它。
-> 加一条官方变量 = 在应用侧登记实现 + 更新本文件。
+> 加一条官方变量 = 在主程序登记实现 + 更新本文件。
 
 ## 说明
 
@@ -61,8 +63,8 @@ var cached = musicxx.vars.peek("musicxx.ui.songIconWave");   // {value, revision
 
 ## 维护约定
 
-1. 新增官方键：先在应用侧登记（`lib/manager/MusicxxVariableCatalog.dart`），本文件补一行；
-2. 应用侧回归用例（`test/modules/extern_variables_test.dart`）会断言目录的键数量与命名规范
+1. 新增官方键：先在主程序登记（`lib/manager/MusicxxVariableCatalog.dart`），本文件补一行；
+2. 主程序回归用例（`test/modules/extern_variables_test.dart`）会断言目录的键数量与命名规范
    与登记表一致——**键数量/形状对不上就会失败**；
 3. 键名用 `musicxx.<域>.<名>`，枚举取值用稳定 id（不用本地化文案）；
 4. 只有真的存在通知源时才声明 `notify`（只有读源就只声明 `get`，像

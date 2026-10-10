@@ -1,26 +1,26 @@
-/// musicxx 外部插件原生宿主: JS 插件运行时 (QuickJS)
+/// musicxx 外部插件原生插件框架: JS插件运行时 (QuickJS)
 ///
 /// 设计要点:
-/// - **零编译**: 一个 JS 插件 = 一个目录 (`plugin.yaml` + `plugin.js`),
-/// 宿主把它注册成
+/// - **零编译**: 一个 JS插件 = 一个目录 (`plugin.yaml` + `plugin.js`),
+/// 插件框架把它注册成
 ///   内置插件 (合并编译) 的一个**合成实例** (`name = "js:<pluginId>"`),
 ///   生命周期 (create/start/stop/destroy) 全部由本引擎实现,
 ///   因此仍然走内核的完整事务语义;
-/// - **共享 1 条 JS 线程**: 全部 JS 插件实例的脚本都在该线程顺序执行;
+/// - **共享 1 条 JS 线程**: 全部 JS插件实例的脚本都在该线程顺序执行;
 ///   每个实例持有独立 `JSRuntime`/`JSContext` (全局隔离), 只是时间片共享;
-/// - **不阻塞宿主线程**: 脚本顶层与处理器里调用宿主能力时, 只做"投递不等待"
+/// - **不阻塞框架线程**: 脚本顶层与处理器里调用插件框架能力时, 只做"投递不等待"
 ///   (动作请求走 [InternalActionRelay], 状态读取直接读互斥保护的镜像);
 /// - **顶层注册 + 回放**: 脚本顶层调用 `musicxx.hooks.register`
 /// 等注册接口时先在 JS 侧
-///   先记下来; 脚本执行结束、引擎回到宿主线程后再回放注册 —— 避免"宿主线程等 JS、JS
-///   等宿主线程" 的互锁 (无死锁不变式);
+///   先记下来; 脚本执行结束、引擎回到框架线程后再回放注册 —— 避免"框架线程等 JS、JS
+///   等框架线程" 的互锁 (无死锁不变式);
 /// - **规则与动态库插件一致**:
 /// 命名空间校验、未知钩子拒绝、禁用/卸载摘除注册都沿用同一套约定
 ///   (动作只做命名空间校验: 权限声明由 Dart 侧展示, 不做运行时校验)。
 ///
 /// 线程约定:
 /// - `JSRuntime`/`JSContext`/`JSValue` 只在共享 JS 线程上访问;
-/// - 内核生命周期入口 (builtin*) 与钩子处理器由宿主线程调用;
+/// - 内核生命周期入口 (builtin*) 与钩子处理器由框架线程调用;
 /// - `requestAction` / `respondAction` / `cancelActionsOf` 允许任意线程。
 #pragma once
 
@@ -46,7 +46,7 @@
 namespace musicxx {
 namespace extern_plugin {
 
-/// JS 插件运行时 (共享 1 条 JS 线程; 进程内单例, 与宿主同生命周期)
+/// JS插件运行时 (共享 1 条 JS 线程; 进程内单例, 与插件框架同生命周期)
 class JsEngine final : public InternalActionRelay,
                        public std::enable_shared_from_this<JsEngine> {
 public:
@@ -68,14 +68,14 @@ public:
 
   /* ---------- 内置插件槽位 (js:<pluginId>) ---------- */
 
-  /// 登记/更新一个 JS 插件的内置槽位 (装载前调用; 宿主线程)
+  /// 登记/更新一个 JS插件的内置槽位 (装载前调用; 框架线程)
   ///
   /// `scriptPaths` 按清单 `scripts` 的顺序: 同一个 JS 上下文里依次执行。
   bool registerBuiltin(const std::string &pluginId,
                        const std::vector<std::string> &scriptPaths,
                        const std::string &version, std::string &err);
 
-  /// 注销槽位 (卸载完成/装载失败回滚时调用; 宿主线程)
+  /// 注销槽位 (卸载完成/装载失败回滚时调用; 框架线程)
   void unregisterBuiltin(const std::string &pluginId);
 
   bool hasBuiltin(const std::string &pluginId) const;
@@ -98,9 +98,9 @@ public:
   /// UI 项操作 (op = register | update | unregister; 只在 JS 线程调用)
   ///
   /// 脚本顶层登记阶段 (`liveRegistrations == false`) 只把操作记在实例上, 等
-  /// [applyRegistrations] 在宿主线程回放 (这样注册错误能即刻上报, 也不会出现
-  /// "宿主线程等 JS、JS 等宿主线程" 的互锁);
-  /// 运行期则**投递不等待**地交给宿主线程。
+  /// [applyRegistrations] 在框架线程回放 (这样注册错误能即刻上报, 也不会出现
+  /// "框架线程等 JS、JS 等框架线程" 的互锁);
+  /// 运行期则**投递不等待**地交给框架线程。
   void bridgeUiOp(const std::string &instanceName, const std::string &op,
                   const std::string &name, const std::string &type,
                   const std::string &dataJson, int32_t order);
@@ -108,21 +108,21 @@ public:
   /// 钩子操作 (op = register | unregister; 只在 JS 线程调用)
   ///
   /// 与 [bridgeUiOp] 同一套规则: 顶层登记阶段只记下来 (由
-  /// [applyRegistrations] 回放), 运行期投递到宿主线程执行 —— 否则
-  /// `musicxx.hooks.register/unregister` 只改了 JS 侧的表, 宿主注册没变
+  /// [applyRegistrations] 回放), 运行期投递到框架线程执行 —— 否则
+  /// `musicxx.hooks.register/unregister` 只改了 JS 侧的表, 插件框架注册没变
   /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的钩子永远不触发")。
   void bridgeHookOp(const std::string &instanceName, const std::string &op,
                     const std::string &hookId, const std::string &mode,
                     int32_t priority, const std::string &ownerTag);
 
-  /// 运行期动态订阅 (投递到宿主线程建立订阅; 顶层声明由回放处理)
+  /// 运行期动态订阅 (投递到框架线程建立订阅; 顶层声明由回放处理)
   void bridgeSubscribeHost(const std::string &instanceName,
                            const std::string &topic);
 
   /// 变量操作 (op = register | unregister | subscribe | unsubscribe | watch | unwatch)
   ///
   /// 与 [bridgeUiOp] / [bridgeHookOp] 同一套规则: 脚本顶层调用只先记下来
-  /// (由 [applyRegistrations] 在宿主线程回放), 运行期投递到宿主线程执行 ——
+  /// (由 [applyRegistrations] 在框架线程回放), 运行期投递到框架线程执行 ——
   /// 否则"顶层注册的变量"永远不存在, 而"运行期注销"只改了 JS 侧的表。
   void bridgeVarsOp(const std::string &instanceName, const std::string &op,
                     const std::string &key, const std::string &json);
@@ -130,7 +130,7 @@ public:
   /// JS 侧发起异步读 (`musicxx.vars.get`; 任意线程)
   ///
   /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onVarGetDone(id, json)` 回到 JS 线程;
-  /// 负数 = 没能发起 (实例不在了/宿主没跑)。
+  /// 负数 = 没能发起 (实例不在了/插件框架没跑)。
   int64_t beginVarGet(const std::string &instanceName, const std::string &key);
 
   /// JS 侧发起写 (`musicxx.vars.set`; 任意线程)
@@ -141,9 +141,9 @@ public:
   int64_t beginVarSet(const std::string &instanceName, const std::string &key,
                       const std::string &valueJson);
 
-  /// 同步调用宿主 `musicxx.vars` 表的只读入口 (peek / info / list)
+  /// 同步调用插件框架 `musicxx.vars` 表的只读入口 (peek / info / list)
   ///
-  /// 这些调用只查宿主注册表 (耗时是几纳秒), 因此可以直接在 JS 线程上同步做 ——
+  /// 这些调用只查插件框架注册表 (耗时是几纳秒), 因此可以直接在 JS 线程上同步做 ——
   /// 与需要等属主的 `get` 不同。
   std::string bridgeVarsRead(const std::string &op, const std::string &key);
 
@@ -156,7 +156,7 @@ public:
 
   /// 裁决型钩子的异步结算 (只在 JS 线程调用)
   ///
-  /// 裁决处理器返回 Promise 时, 宿主线程仍在 [hookSync] 里一直等到它结算;
+  /// 裁决处理器返回 Promise 时, 框架线程仍在 [hookSync] 里一直等到它结算;
   /// Promise 结算后 JS
   /// 侧调用本接口把结果交给对应的等待槽。**已经超时的调用不再接收结果** (只计入
   /// "迟到丢弃"统计并打一条日志), 因此不会出现"用了过期裁决"的情况。
@@ -167,7 +167,7 @@ public:
   ///
   /// 能力处理器返回 Promise 时 (`musicxx.capability.register` 的处理器写成
   /// `async`), JS 侧登记等待并在结算后把结果交给对应的等待槽 —— 与裁决型钩子的
-  /// Promise 同一套做法, 宿主线程在此期间一直等 (没有等待超时)。
+  /// Promise 同一套做法, 框架线程在此期间一直等 (没有等待超时)。
   void bridgeCapabilityWaitResolve(const std::string &waitId,
                                    const std::string &json);
 
@@ -179,12 +179,12 @@ public:
 
   /// 跨插件能力调用 (只在 JS 线程调用)
   ///
-  /// - 目标是 JS 插件: **同一 JS 线程上直接调用**, 结果同步返回 (返回
+  /// - 目标是 JS插件: **同一 JS 线程上直接调用**, 结果同步返回 (返回
   /// [kCallCapabilityDone]);
-  /// - 目标是原生/内置插件: 投递到宿主线程执行 (原生处理器只能在宿主线程跑),
+  /// - 目标是原生/内置插件: 投递到框架线程执行 (原生处理器只能在框架线程跑),
   /// 结果稍后经
   ///   `ext.onCapabilityResult(id, json)` 回到 JS 线程 —— JS
-  ///   侧**不等待宿主线程** (无锁/无死锁不变式: 宿主线程可能正等待 JS 处理器)。
+  ///   侧**不等待框架线程** (无锁/无死锁不变式: 框架线程可能正等待 JS 处理器)。
   ///
   /// 返回: `kCallCapabilityDone` = outJson 有结果; `kCallCapabilityPending` =
   /// 已受理, *outPendingId 是回执 id; 负数 = 立即失败 (err 说明原因)。
@@ -197,13 +197,13 @@ public:
                          int64_t *outPendingId, std::string &outJson,
                          std::string &err);
 
-  /// 可选执行上限已移除: 宿主不限制脚本执行时长 (死循环会占住共享 JS 线程,
+  /// 可选执行上限已移除: 插件框架不限制脚本执行时长 (死循环会占住共享 JS 线程,
   /// 由插件作者自己避免)。
 
-  /// 刷新宿主信息缓存 (宿主线程: 语言/配置变化时调用)
+  /// 刷新框架信息缓存 (框架线程: 语言/配置变化时调用)
   void setHostInfoCache(const std::string &json);
 
-  /* ---------- 内部数据结构 (宿主内部使用, 不是对外约定) ---------- */
+  /* ---------- 内部数据结构 (框架内部使用, 不是对外约定) ---------- */
 
   /// 一个已注册的钩子处理器 (生命周期 = 实例)
   struct HookHandler {
@@ -232,7 +232,7 @@ public:
     std::string topic;
   };
 
-  /// 一次"JS 侧发起的变量读/写"的宿主侧登记
+  /// 一次"JS 侧发起的变量读/写"的框架侧登记
   ///
   /// `host_ud` 指向它的裸指针会被 `musicxx.vars` 表复制走, 属主回答/写入时经
   /// [varGetDoneTrampoline] / [varSetDoneTrampoline] 回调; 因此它必须活到那一刻 ——
@@ -262,7 +262,7 @@ public:
     int64_t deadlineMs = 0;
   };
 
-  /// 一个 JS 插件实例 (JSRuntime/JSContext 只在 JS 线程访问)
+  /// 一个 JS插件实例 (JSRuntime/JSContext 只在 JS 线程访问)
   struct Instance {
     JsEngine *engine = nullptr;
     std::string id;
@@ -275,7 +275,7 @@ public:
     void *rt = nullptr;  ///< JSRuntime*
     void *ctx = nullptr; ///< JSContext*
 
-    /// 宿主侧实例指针 (create 时从 host 视图解析; 与实例同生命周期)
+    /// 框架侧实例指针 (create 时从 host 视图解析; 与实例同生命周期)
     MusicxxHostInstance *hostInst = nullptr;
 
     std::vector<std::shared_ptr<HookHandler>> hooks;
@@ -283,10 +283,10 @@ public:
     std::vector<std::shared_ptr<SubscriptionHolder>> subscriptions;    bool registrationsApplied = false;
     bool scriptLoaded = false;
 
-    /// 运行期注册是否已生效 (脚本顶层登记阶段为 false; JS 线程读, 宿主线程写)
+    /// 运行期注册是否已生效 (脚本顶层登记阶段为 false; JS 线程读, 框架线程写)
     std::atomic<bool> liveRegistrations{false};
 
-    /// 脚本顶层登记的 UI 项操作 (JS 线程写, 宿主线程在回放时取走)
+    /// 脚本顶层登记的 UI 项操作 (JS 线程写, 框架线程在回放时取走)
     struct PendingUiOp {
       std::string op; ///< register | update | unregister
       std::string name;
@@ -296,7 +296,7 @@ public:
     };
     std::vector<PendingUiOp> pendingUiOps;
 
-    /// 脚本顶层登记的变量操作 (JS 线程写, 宿主线程在回放时取走)
+    /// 脚本顶层登记的变量操作 (JS 线程写, 框架线程在回放时取走)
     struct PendingVarOp {
       std::string op; ///< register | unregister | subscribe | unsubscribe | watch | unwatch
       std::string key;
@@ -313,7 +313,7 @@ public:
     std::atomic<int64_t> asyncHookSettled{0};
   };
 
-  /* ---------- 内核内置插件入口 (C ABI 形态; 内核在宿主线程调用) ---------- */
+  /* ---------- 内核内置插件入口 (C ABI 形态; 内核在框架线程调用) ---------- */
 
   static const PluginxxInfo *PLUGINXX_CALL builtinGetInfo();
   static int32_t PLUGINXX_CALL builtinCreate(const PluginxxHost *host,
@@ -330,7 +330,7 @@ public:
   static const PluginxxBuiltinInfo *builtinPlugins(uint64_t *count);
   static const PluginxxBuiltinManifest *builtinManifests(uint64_t *count);
 
-  /* ---------- 钩子处理器 (宿主线程调用; 见 HookHandler) ---------- */
+  /* ---------- 钩子处理器 (框架线程调用; 见 HookHandler) ---------- */
 
   static int32_t PLUGINXX_CALL hookSync(void *userData,
                                         const PluginxxStringView *hookId,
@@ -344,17 +344,17 @@ public:
                                        const PluginxxOperatorNotify *notify,
                                        PluginxxString *errorOut);
 
-  /// 能力处理器 (内核在宿主线程调用; 内部投递到 JS 线程并等待结果)
+  /// 能力处理器 (内核在框架线程调用; 内部投递到 JS 线程并等待结果)
   static void *PLUGINXX_CALL capabilityStart(
       void *ctx, const PluginxxHost *callerHost,
       const PluginxxStringView *method, const PluginxxStringView *argsJson,
       const PluginxxOperatorNotify *notify, PluginxxString *errorOut);
 
-  /// 事件订阅回调 (宿主线程调用; 只投递到 JS 线程, 不等待)
+  /// 事件订阅回调 (框架线程调用; 只投递到 JS 线程, 不等待)
   static void PLUGINXX_CALL eventTrampoline(const PluginxxStringView *eventJson,
                                             void *userData);
 
-  /// 变量等待的完成回调 (宿主线程调用; 只投递到 JS 线程, 不等待)
+  /// 变量等待的完成回调 (框架线程调用; 只投递到 JS 线程, 不等待)
   ///
   /// `ud` 指向 [VarWait] (由 [varWaits_] 持有一份 shared_ptr)。回调里先把需要的
   /// 字段拷出来再用, 因为结算之后登记就会被释放。
@@ -386,25 +386,25 @@ private:
   /// 采样 JS 堆用量 (JS 线程调用; 结果写入实例字段供统计读取)
   void sampleHeap(const std::shared_ptr<Instance> &inst);
 
-  /// 在宿主线程上建立一个事件订阅 (幂等; 同一 (实例, 主题) 只建一次)
+  /// 在框架线程上建立一个事件订阅 (幂等; 同一 (实例, 主题) 只建一次)
   void ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
                                 const std::string &topic);
 
-  /// 在宿主线程上执行一次运行期钩子操作 (register / unregister)
+  /// 在框架线程上执行一次运行期钩子操作 (register / unregister)
   void applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
                          const std::string &op, const std::string &hookId,
                          const std::string &mode, int32_t priority,
                          const std::string &ownerTag);
 
-  /// 取回脚本登记的 UI 项操作 (宿主线程; 回放后清空实例上的缓存)
+  /// 取回脚本登记的 UI 项操作 (框架线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingUiOp>
   takePendingUiOps(const std::shared_ptr<Instance> &inst);
 
-  /// 取回脚本登记的变量操作 (宿主线程; 回放后清空实例上的缓存)
+  /// 取回脚本登记的变量操作 (框架线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingVarOp>
   takePendingVarOps(const std::shared_ptr<Instance> &inst);
 
-  /// 在宿主线程上执行一次变量操作 (register/unregister/subscribe/unwatch/watch)
+  /// 在框架线程上执行一次变量操作 (register/unregister/subscribe/unwatch/watch)
   int32_t applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
                            const std::string &op, const std::string &key,
                            const std::string &json);
@@ -413,7 +413,7 @@ private:
   void postVarWaitResult(const std::string &instanceName, int64_t waitId,
                          const std::string &callback, const std::string &json);
 
-  /// 释放一个变量等待登记 (JS 线程或宿主线程)
+  /// 释放一个变量等待登记 (JS 线程或框架线程)
   void finishVarWait(int64_t waitId);
 
   /// 实例停用时清掉它的变量等待登记 (残余的进 [varWaitGraveyard_])
@@ -426,7 +426,7 @@ private:
   void fireDueTimers();
   void expireActions();
 
-  /* ---------- 实例生命周期 (宿主线程调用; 内部经 JS 线程执行脚本) ----------
+  /* ---------- 实例生命周期 (框架线程调用; 内部经 JS 线程执行脚本) ----------
    */
 
   static std::shared_ptr<Instance> instanceFromHost(const PluginxxHost *host,
@@ -442,9 +442,9 @@ private:
   bool runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
                            std::string &err);
 
-  /// 回放脚本顶层登记的注册 (宿主线程; 钩子/能力/事件订阅)
+  /// 回放脚本顶层登记的注册 (框架线程; 钩子/能力/事件订阅)
   void applyRegistrations(const std::shared_ptr<Instance> &inst);
-  /// 摘除本实例的全部注册 (宿主线程)
+  /// 摘除本实例的全部注册 (框架线程)
   void detachRegistrations(const std::shared_ptr<Instance> &inst);
 
   /* ---------- JS 调用桥 (只在 JS 线程调用) ---------- */
@@ -460,7 +460,7 @@ private:
 
   MusicxxHostManager *mgr_ = nullptr;
 
-  /// 宿主信息缓存 (start/语言变化时刷新; 供 JS 侧同步读,
+  /// 框架信息缓存 (start/语言变化时刷新; 供 JS 侧同步读,
   /// 避免跨线程读管理器字段)
   mutable std::mutex hostInfoMutex_;
   std::string hostInfoJson_;
@@ -510,7 +510,7 @@ private:
 
   /// 裁决型钩子的等待槽 (key = 等待 id)
   ///
-  /// 宿主线程在 [hookSync] 里登记, JS 线程在 Promise
+  /// 框架线程在 [hookSync] 里登记, JS 线程在 Promise
   /// 结算时取走。超时的条目保留为 "墓碑" (`slot == nullptr`),
   /// 只为了让迟到的结算能计入统计并打一条日志 —— 结果一律丢弃。
   struct HookWait {
@@ -521,7 +521,7 @@ private:
   std::map<int64_t, HookWait> hookWaits_;
   std::atomic<int64_t> nextHookWaitId_{1};
 
-  /// 登记等待槽 (宿主线程); 返回等待 id
+  /// 登记等待槽 (框架线程); 返回等待 id
   int64_t beginHookWait(const std::string &instance,
                         const std::shared_ptr<WaitSlot<std::string>> &slot);
   /// 正常完成: 移除等待槽 (JS 侧若再结算, 找不到条目即丢弃)
@@ -539,7 +539,7 @@ private:
   void finishCapabilityWait(int64_t waitId);
   void clearCapabilityWaitsOf(const std::string &instance);
 
-  /// "JS 插件 → JS 插件"的异步能力调用 (key = pendingId)
+  /// "JS插件 → JS插件"的异步能力调用 (key = pendingId)
   ///
   /// 同一条 JS 线程上就地调用目标插件的处理器: 处理器同步返回时结果当场拿到;
   /// 返回 Promise 时记在这里 (`{调用方实例, 目标实例}`), 等 JS 侧结算后经
@@ -555,7 +555,7 @@ private:
   std::thread worker_;
 
   // 说明: 内置槽位表 (`js:<pluginId>` 的合成描述)
-  // 与"当前引擎"指针是**进程级静态** (宿主为进程单例), 定义在 js_engine.cpp
+  // 与"当前引擎"指针是**进程级静态** (插件框架为进程单例), 定义在 js_engine.cpp
   // 的匿名命名空间里。
 };
 

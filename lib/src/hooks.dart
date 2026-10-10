@@ -39,13 +39,13 @@ class MusicxxPluginHookContext {
 /// ```
 /// 快速路径（无任何处理器 → 直接返回，0 次 FFI、0 次 JSON 构造）
 ///   → Dart 处理器链（按 priority 升序，本线程就地执行）
-///   → 原生/JS 处理器链（`hook_emit`，宿主线程执行）
+///   → 原生/JS 处理器链（`hook_emit`，插件框架线程执行）
 ///   → 按 policy 合并
 /// ```
 /// 一个外部插件的钩子处理器（自省用：谁注册了哪个钩子、排第几）
 ///
-/// 数据来自宿主的 `musicxx.hook.changed` 事件（载荷里的 `handlers` 列表）与
-/// `musicxx_extern_plugin_hook_handlers` 查询，字段与宿主给出的完全一致：
+/// 数据来自插件框架的 `musicxx.hook.changed` 事件（载荷里的 `handlers` 列表）与
+/// `musicxx_extern_plugin_hook_handlers` 查询，字段与插件框架给出的完全一致：
 /// 处理器按**调用顺序**排列（priority 升序，同优先级按注册顺序）。
 class MusicxxPluginHandlerInfo {
   const MusicxxPluginHandlerInfo({
@@ -71,7 +71,7 @@ class MusicxxPluginHandlerInfo {
   /// 注册时的 owner 标记（同一插件对同一钩子注册多项时用来区分）
   final String ownerTag;
 
-  /// 从宿主给出的 JSON 项解析；字段缺失按空值处理（不抛异常）
+  /// 从插件框架给出的 JSON 项解析；字段缺失按空值处理（不抛异常）
   static MusicxxPluginHandlerInfo fromJson(Map<String, Object?> json) {
     return MusicxxPluginHandlerInfo(
       plugin: json["plugin"] is String ? json["plugin"]! as String : "",
@@ -111,8 +111,8 @@ class MusicxxPluginHooks {
 
   /// 原生/JS 处理器列表快照（钩子 id → 处理器，按调用顺序）
   ///
-  /// 由 `musicxx.hook.changed` 事件维护（宿主注册/注销时会带上列表），插件生命周期事件到达时
-  /// 用 [refreshNativeHandlerCount] 向宿主对齐一遍；旧宿主库没有列表（事件不带 `handlers`
+  /// 由 `musicxx.hook.changed` 事件维护（插件框架注册/注销时会带上列表），插件生命周期事件到达时
+  /// 用 [refreshNativeHandlerCount] 向插件框架对齐一遍；旧插件框架库没有列表（事件不带 `handlers`
   /// 字段、也没有查询接口），这时这里留空、只有 [_nativeCounts] 可用（自省退化成"有几个处理器"）。
   final Map<String, List<MusicxxPluginHandlerInfo>> _nativeHandlers =
       <String, List<MusicxxPluginHandlerInfo>>{};
@@ -136,12 +136,12 @@ class MusicxxPluginHooks {
   bool hasDartHandler(MusicxxPluginHookId id) =>
       (_dartHandlers[id]?.isNotEmpty) ?? false;
 
-  /// 原生/JS 处理器数量（缓存值；宿主启动后由事件与首次查询填充）
+  /// 原生/JS 处理器数量（缓存值；插件框架启动后由事件与首次查询填充）
   int nativeHandlerCount(MusicxxPluginHookId id) => _nativeCounts[id.id] ?? 0;
 
   /// 原生/JS 处理器列表（按调用顺序：priority 升序、同优先级按注册顺序）
   ///
-  /// 空列表有两种可能：这个钩子没有处理器，或者宿主/事件没给列表（旧宿主库）——
+  /// 空列表有两种可能：这个钩子没有处理器，或者插件框架/事件没给列表（旧插件框架库）——
   /// 后者要用 [nativeHandlerCount] 判断更可靠。列表是只读快照，改它不影响派发。
   List<MusicxxPluginHandlerInfo> handlersOf(MusicxxPluginHookId id) =>
       List<MusicxxPluginHandlerInfo>.unmodifiable(
@@ -151,16 +151,16 @@ class MusicxxPluginHooks {
   /// 有没有拿到过处理器列表（false 时自省只能报数量，见 [handlersOf]）
   bool get hasHandlerList => _nativeHandlers.isNotEmpty;
 
-  /// 宿主库有没有"查处理器列表"的接口（`musicxx_extern_plugin_hook_handlers`）
+  /// 插件框架库有没有"查处理器列表"的接口（`musicxx_extern_plugin_hook_handlers`）
   ///
-  /// 旧宿主库没有这个符号：第一次探测失败后就固定为 false，自省与插件动作降级成
+  /// 旧插件框架库没有这个符号：第一次探测失败后就固定为 false，自省与插件动作降级成
   /// "只报处理器数量"（与"未返回 callId 按无裁决处理"是同一套思路）。
   bool get supportsHandlerList => true == _handlersAbiAvailable;
   bool? _handlersAbiAvailable;
 
-  /// 回查宿主的处理器列表并刷新缓存（宿主重启、丢了一条 `musicxx.hook.changed` 后手动对齐）
+  /// 回查插件框架的处理器列表并刷新缓存（插件框架重启、丢了一条 `musicxx.hook.changed` 后手动对齐）
   ///
-  /// 返回 `null` 表示这次没拿到列表（宿主库太旧、宿主没在跑、或钩子 id 宿主不认识）；
+  /// 返回 `null` 表示这次没拿到列表（插件框架库太旧、插件框架没在跑、或钩子 id 插件框架不认识）；
   /// 此时缓存保持原样，调用方用 [nativeHandlerCount] 判断有没有处理器更可靠。
   List<MusicxxPluginHandlerInfo>? refreshNativeHandlers(MusicxxPluginHookId id) {
     if (!_runtime.isRunning) {
@@ -224,7 +224,7 @@ class MusicxxPluginHooks {
   ///
   /// 返回 `null` 表示"无裁决"（调用点走原逻辑）。
   ///
-  /// 宿主不设等待超时：处理器链返回之前，本调用会一直占用调用线程（热路径上调用
+  /// 插件框架不设等待超时：处理器链返回之前，本调用会一直占用调用线程（热路径上调用
   /// 就要自己判断能不能接受这一点）。
   Map<String, Object?>? decide(
     MusicxxPluginHookId id, [
@@ -280,7 +280,7 @@ class MusicxxPluginHooks {
 
   /// 裁决型（异步）：调用点本身是 `Future` 时使用
   ///
-  /// 与 [decide] 的区别只有"谁在等"：Dart 处理器照常就地执行；原生/JS 处理器链由宿主在
+  /// 与 [decide] 的区别只有"谁在等"：Dart 处理器照常就地执行；原生/JS 处理器链由插件框架在
   /// 自己的线程上跑（**不占用调用线程**），结果经 `musicxx.hook.decision.result` 事件回来
   /// 后再按 [MusicxxPluginHookId.policy] 合并。
   ///
@@ -338,9 +338,9 @@ class MusicxxPluginHooks {
     pending.complete(_verdictOf(event.payload));
   }
 
-  /// 刷新某钩子的原生处理器数量与列表（事件丢包/宿主重启后手动重新查询）
+  /// 刷新某钩子的原生处理器数量与列表（事件丢包/插件框架重启后手动重新查询）
   ///
-  /// 计数一直走 `hook_count`（热路径判定用它）；宿主库支持列表查询时顺带把列表对齐一遍
+  /// 计数一直走 `hook_count`（热路径判定用它）；插件框架库支持列表查询时顺带把列表对齐一遍
   /// —— 列表只服务自省，不影响派发。
   int refreshNativeHandlerCount(MusicxxPluginHookId id) {
     if (!_runtime.isRunning) {
@@ -397,7 +397,7 @@ class MusicxxPluginHooks {
 
   // ==================== 内部 ====================
 
-  /// 查询某个钩子的处理器列表并刷新缓存；宿主库没有这个接口时返回 `null`
+  /// 查询某个钩子的处理器列表并刷新缓存；插件框架库没有这个接口时返回 `null`
   ///
   /// `arena` 由调用方给出并负责释放（入参视图与出参槽都在它上面）。
   List<MusicxxPluginHandlerInfo>? _queryHandlers(
@@ -418,7 +418,7 @@ class MusicxxPluginHooks {
         log,
       );
     } catch (_) {
-      // 旧宿主库没有这个符号：探测一次就够，之后一律按"只有计数"处理
+      // 旧插件框架库没有这个符号：探测一次就够，之后一律按"只有计数"处理
       _handlersAbiAvailable = false;
       return null;
     }
@@ -427,13 +427,13 @@ class MusicxxPluginHooks {
       takeOutString(out, _runtime.bindings),
     );
     if (rc != 0) {
-      // 钩子 id 宿主不认识等：保持缓存原样（不把"查不到"当成"没有处理器"）
+      // 钩子 id 插件框架不认识等：保持缓存原样（不把"查不到"当成"没有处理器"）
       return null;
     }
     return _applyHandlerList(id, data);
   }
 
-  /// 把宿主给出的 `{hook, count, handlers}` 写进缓存，返回解析出的列表
+  /// 把插件框架给出的 `{hook, count, handlers}` 写进缓存，返回解析出的列表
   List<MusicxxPluginHandlerInfo> _applyHandlerList(
     MusicxxPluginHookId id,
     Map<String, Object?> data,
@@ -466,7 +466,7 @@ class MusicxxPluginHooks {
     _nativeCounts.clear();
     _nativeHandlers.clear();
     _throttles.clear();
-    // 宿主已停：还没结算的异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
+    // 插件框架已停：还没结算的异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
     for (final Completer<Map<String, Object?>?> completer
         in _pendingDecisions.values) {
       if (!completer.isCompleted) {
@@ -484,7 +484,7 @@ class MusicxxPluginHooks {
     }
     final int count = event.intOf('count') ?? 0;
     _nativeCounts[hook] = count < 0 ? 0 : count;
-    // 宿主注册/注销时一并给出处理器列表（谁注册的、排第几）；旧宿主库没有这个字段，
+    // 插件框架注册/注销时一并给出处理器列表（谁注册的、排第几）；旧插件框架库没有这个字段，
     // 那时这里不动，自省退化成"只知道有几个处理器"
     final Object? raw = event.payload['handlers'];
     if (raw is List) {
@@ -504,12 +504,12 @@ class MusicxxPluginHooks {
     }
   }
 
-  /// 插件生命周期事件：加载/启用/卸载会批量改变处理器数量 → 用宿主的权威值对齐一遍
+  /// 插件生命周期事件：加载/启用/卸载会批量改变处理器数量 → 用插件框架的权威值对齐一遍
   ///
   /// 计数平时靠 `musicxx.hook.changed` 维护（每次注册/注销一条）；它一旦丢一条就会停在
-  /// 旧值——"有处理器却被当成没有"会让该钩子静默失效，所以每次插件生命周期变化都用宿主
-  /// 里的真实数量覆盖一次：载荷带 `hooks` 时只查这些钩子（新宿主），否则把应用已接入的
-  /// 钩子全部查一遍（旧宿主库，行为与以前一致）。
+  /// 旧值——"有处理器却被当成没有"会让该钩子静默失效，所以每次插件生命周期变化都用插件框架
+  /// 里的真实数量覆盖一次：载荷带 `hooks` 时只查这些钩子（新插件框架），否则把主程序已接入的
+  /// 钩子全部查一遍（旧插件框架库，行为与以前一致）。
   void handlePluginLifecycleEvent(MusicxxPluginEvent event) {
     if (!_runtime.isRunning) {
       return;
@@ -599,7 +599,7 @@ class MusicxxPluginHooks {
 
   /// 观察型派发（不做回执解析）
   ///
-  /// 宿主收到的是"入队即返回"（`sync = 0`）：这里不等结果，回执内容也没有读者，
+  /// 插件框架收到的是"入队即返回"（`sync = 0`）：这里不等结果，回执内容也没有读者，
   /// 所以只把出参内存释放掉，不做 JSON 解析（观察型在热路径上，能省一次解析）。
   void _emitAsync(MusicxxPluginHookId id, Map<String, Object?> payload) {
     final MusicxxPluginArena arena = MusicxxPluginArena();
@@ -654,7 +654,7 @@ class MusicxxPluginHooks {
     return completer.future;
   }
 
-  /// 从宿主回执里取出裁决对象（`{"handled":..,"result":{...}}`）
+  /// 从插件框架回执里取出裁决对象（`{"handled":..,"result":{...}}`）
   static Map<String, Object?>? _verdictOf(Map<String, Object?> ack) {
     final verdict = ack['result'];
     if (verdict is Map<String, Object?>) {
@@ -666,7 +666,7 @@ class MusicxxPluginHooks {
     return null;
   }
 
-  /// 调用原生/JS 处理器链并返回宿主回执（一次 FFI 调用）
+  /// 调用原生/JS 处理器链并返回插件框架回执（一次 FFI 调用）
   Map<String, Object?>? _emitAck(
     MusicxxPluginHookId id,
     Map<String, Object?> payload, {

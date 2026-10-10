@@ -1,16 +1,16 @@
-/// 宿主事件模型（原生 → Dart）
+/// 插件框架事件模型（原生 → Dart）
 ///
 /// 事件结构：`{"seq":N,"ts":ms,"type":"...","plugin":"...","payload":{...}}`
 /// - `seq` 单调递增（可据此发现丢事件）；
 /// - 未知 `type` 必须**忽略而不报错**（向前兼容）。
 library;
 
-/// 事件类型常量（与原生宿主 `pushEvent` 的字符串一一对应）
+/// 事件类型常量（与原生插件框架 `pushEvent` 的字符串一一对应）
 abstract final class MusicxxPluginEventType {
-  /// 宿主启动完成（线程/线程池就绪，插件目录已知）
+  /// 插件框架启动完成（线程/线程池就绪，插件目录已知）
   static const String hostReady = 'musicxx.host.ready';
 
-  /// 宿主内部错误/事件队列溢出
+  /// 插件框架内部错误/事件队列溢出
   static const String hostError = 'musicxx.host.error';
 
   /// 扫描到插件
@@ -50,10 +50,10 @@ abstract final class MusicxxPluginEventType {
   ///
   /// 载荷 `{requestId, id, method, ok, result|error, ms}`。
   /// **受理成功 ⇒ 一定有终局**：结果、执行失败、插件卸载（`plugin_unloaded`）、
-  /// 宿主停机（`host_stopped`）四条路都会推一条；受理失败只在返回码上体现，不推事件。
+  /// 插件框架停机（`host_stopped`）四条路都会推一条；受理失败只在返回码上体现，不推事件。
   static const String pluginCallResult = 'musicxx.plugin.call.result';
 
-  /// 插件请求宿主动作（Dart 侧执行后必须 action_respond）
+  /// 插件请求主程序动作（Dart 侧执行后必须 action_respond）
   static const String actionRequest = 'musicxx.action.request';
 
   /// 动作请求被取消/超时（Dart 侧应中断在做的工作）
@@ -62,13 +62,13 @@ abstract final class MusicxxPluginEventType {
   /// 插件贡献的 UI 项变化
   static const String uiChanged = 'musicxx.ui.changed';
 
-  /// 变量：宿主把插件发出的"取真实值"请求转给应用（应用用 `var_read_result` 回答）
+  /// 变量：插件框架把插件发出的"取真实值"请求转给主程序（主程序用 `var_read_result` 回答）
   static const String varRead = 'musicxx.var.read';
 
-  /// 变量：宿主把插件发出的写请求转给应用（应用用 `var_write_result` 回执）
+  /// 变量：插件框架把插件发出的写请求转给主程序（主程序用 `var_write_result` 回执）
   static const String varWrite = 'musicxx.var.write';
 
-  /// 变量：某个键的值变了（应用订阅过的插件键才会收到）
+  /// 变量：某个键的值变了（主程序订阅过的插件键才会收到）
   static const String varChanged = 'musicxx.var.changed';
 
   /// 变量：写请求的最终结果（写给插件自己收；Dart 侧只记录）
@@ -76,7 +76,7 @@ abstract final class MusicxxPluginEventType {
 
   /// 变量：某个键的关心者（订阅或 watch）数量变化
   ///
-  /// 应用据此维护"哪些键有人看"：没人看的键值变化只更新本地缓存，不推宿主。
+  /// 主程序据此维护"哪些键有人看"：没人看的键值变化只更新本地缓存，不推插件框架。
   static const String varSubscriptions = 'musicxx.var.subscriptions';
 
   /// 插件请求状态刷新
@@ -92,7 +92,7 @@ abstract final class MusicxxPluginEventType {
   static const String eventPublished = 'musicxx.event.published';
 }
 
-/// 一条宿主事件
+/// 一条插件框架事件
 class MusicxxPluginEvent {
   const MusicxxPluginEvent({
     required this.seq,
@@ -111,7 +111,7 @@ class MusicxxPluginEvent {
   /// 事件类型（见 [MusicxxPluginEventType]）
   final String type;
 
-  /// 相关插件 id（宿主级事件为空串）
+  /// 相关插件 id（插件框架级事件为空串）
   final String plugin;
 
   /// 载荷（结构由事件类型决定）

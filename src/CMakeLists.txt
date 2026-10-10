@@ -6,7 +6,7 @@
 #      再用 ExternalProject_Add 把 third_party 的依赖库逐个 configure+build+install
 #      到统一安装目录;
 #   2) src/host/CMakeLists.txt (嵌套工程): 用 find_package 从安装目录取依赖,
-#      编译宿主库 / 插件 SDK / 示例插件 / 原生测试。
+#      编译插件框架库 / 插件 SDK / 示例插件 / 原生测试。
 # 依赖只来自 src/third_party 下的 git 子模块源码与 Boost 头文件, 不需要任何预编译库。
 #
 # 命令行 (一般由 tools/build_native.ps1 调用):
@@ -98,7 +98,7 @@ message("[musicxx_ext] platform: linux=${XX_IS_LINUX_D} win=${XX_IS_WIN_D} macos
 message("[musicxx_ext] generator=${CMAKE_GENERATOR} configs=${CMAKE_CONFIGURATION_TYPES} build_type=${CMAKE_BUILD_TYPE}")
 
 # ===== MSVC 运行时库 (统一动态链接标准库) =====
-# 宿主库与插件、依赖库必须一致, 否则跨 DLL 传递 CRT 对象会崩
+# 插件框架库与插件、依赖库必须一致, 否则跨 DLL 传递 CRT 对象会崩
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 # 优先使用静态库
 if (XX_IS_MSVC_D)
@@ -131,15 +131,15 @@ endif ()
 
 # ===== 目录布局 =====
 # third_party: 依赖子模块源码 (commit 由仓库 gitlink 记录)
-# 安装目录  : 依赖与宿主产物统一装到这里 (位于构建目录内, 因此 Release/Debug 天然隔离)
+# 安装目录  : 依赖与插件框架产物统一装到这里 (位于构建目录内, 因此 Release/Debug 天然隔离)
 set(MUSICXX_EXTERN_PLUGIN_THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/")
 set(MUSICXX_EXTERN_PLUGIN_INSTALL_DIR
     "${CMAKE_BINARY_DIR}/musicxx-extern-plugin-install"
-    CACHE PATH "依赖与宿主产物的安装目录 (find_package 的来源)")
+    CACHE PATH "依赖与插件框架产物的安装目录 (find_package 的来源)")
 set(XX_INSTALL_DIR "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}")
 
-option(MUSICXX_EXTERN_PLUGIN_BUILD_HOST  "构建宿主库/示例插件/原生测试 (关闭则只构建依赖)" ON)
-option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件 (宿主工程 plugins/ 下的 demo 与对照示例)" ON)
+option(MUSICXX_EXTERN_PLUGIN_BUILD_HOST  "构建插件框架库/示例插件/原生测试 (关闭则只构建依赖)" ON)
+option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件 (插件框架工程 plugins/ 下的 demo 与对照示例)" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 
 # ===== Boost (仅头文件) =====
@@ -208,10 +208,10 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../tools/cmake/BoostConfig.cmake.in"
                "${_musicxx_ext_boost_cfg_dir}/BoostConfig.cmake" @ONLY)
 unset(_musicxx_ext_boost_cfg_dir)
 
-# 依赖与宿主工程都从安装目录取依赖
+# 依赖与插件框架工程都从安装目录取依赖
 list(PREPEND CMAKE_PREFIX_PATH "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}")
 
-# 交叉编译: 隔离搜索, 避免引用宿主机的库
+# 交叉编译: 隔离搜索, 避免引用开发机的库
 if (CMAKE_CROSSCOMPILING)
   set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY "ONLY")
   set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE "ONLY")
@@ -222,7 +222,7 @@ endif ()
 
 # ===== 嵌套构建公共参数 (对应 agentxx 的 _AGENTXX_COMMON_CMAKE_*_ARGS) =====
 # 嵌套构建是独立的 cmake configure, 不继承本工程的变量, 因此编译器/启动器/链接参数/
-# 运行时库/平台宏/安装目录必须显式传下去, 否则依赖库与宿主库的 ABI 与运行库会不一致。
+# 运行时库/平台宏/安装目录必须显式传下去, 否则依赖库与插件框架库的 ABI 与运行库会不一致。
 #
 # 注意: 值里带分号的 (列表型: CMAKE_PREFIX_PATH / CMAKE_FIND_ROOT_PATH) 只能放
 # CMAKE_CACHE_ARGS (会写进嵌套构建的 initial cache 文件, 分号不会丢);
@@ -291,7 +291,7 @@ set(_COMMON_CMAKE_ARGS
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DCMAKE_EXPORT_COMPILE_COMMANDS=${CMAKE_EXPORT_COMPILE_COMMANDS}
 
-    # MSVC 运行时库 (宿主库与依赖库必须一致)
+    # MSVC 运行时库 (插件框架库与依赖库必须一致)
     "-DCMAKE_MSVC_RUNTIME_LIBRARY=${CMAKE_MSVC_RUNTIME_LIBRARY}"
 
     # 策略 (嵌套工程里同样生效)
@@ -313,7 +313,7 @@ set(_COMMON_CMAKE_ARGS
     -DXX_IS_GCC_D=${XX_IS_GCC_D}
     -DXX_IS_CLANG_D=${XX_IS_CLANG_D}
 
-    # 宿主工程开关
+    # 插件框架工程开关
     -DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=${MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE}
     -DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=${MUSICXX_EXTERN_PLUGIN_BUILD_TESTS}
 )
@@ -505,7 +505,7 @@ ExternalProject_Add(
   TEST_COMMAND ""
 )
 
-# ===== 宿主工程 (嵌套构建, 内部用 find_package 取上面的依赖) =====
+# ===== 插件框架工程 (嵌套构建, 内部用 find_package 取上面的依赖) =====
 if (MUSICXX_EXTERN_PLUGIN_BUILD_HOST)
   ExternalProject_Add(
     musicxx_extern_plugin_host_repo

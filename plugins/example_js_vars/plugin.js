@@ -1,9 +1,9 @@
 // 变量通道示例（`musicxx.vars`）
 //
 // 覆盖：
-// - 顶层登记自己的变量（declared 模式：值由宿主代存，set 即提交）；
+// - 顶层登记自己的变量（declared 模式：值由插件框架代存，set 即提交）；
 // - 绑定官方变量（订阅还不存在的键也是允许的，键出现时会补一条初始通知）；
-// - 异步读官方变量（await get，由宿主向应用取一次真实值）；
+// - 异步读官方变量（await get，由插件框架向主程序取一次真实值）；
 // - 异步写官方变量（set 由应用写入，结果等 writeResult 事件）。
 //
 // 能力处理器**不能返回 Promise**（跨边界不支持异步返回值），因此把异步结果记在
@@ -32,7 +32,7 @@ musicxx.vars.register({
   value: 0
 });
 
-// handler 模式: 值就是插件自己的状态 (唯一真值), 宿主只留一份同步读缓存 ——
+// handler 模式: 值就是插件自己的状态 (唯一真值), 插件框架只留一份同步读缓存 ——
 // 读写在属主手里, 因此别人写这个变量时会转到 onWrite, 读会转到 onRead。
 var handlerTip = false;
 musicxx.vars.register({
@@ -79,7 +79,7 @@ musicxx.capability.register("probe", function () {
   };
 });
 
-/// 属主自己改了值: 提交一次别人才看得到 (也可以等 refreshAfterMs 让宿主来取)
+/// 属主自己改了值: 提交一次别人才看得到 (也可以等 refreshAfterMs 让插件框架来取)
 musicxx.capability.register("setHandlerInternal", function (args) {
   handlerTip = args && args.value === true;
   musicxx.vars.set("handler.tip", handlerTip);
@@ -90,7 +90,7 @@ musicxx.capability.register("triggerRead", function (args) {
   var key = (args && args.key) ? String(args.key) : "musicxx.test.bound";
   readError = "";
   ++pendingReads;
-  // 异步、权威读：宿主向属主取一次真实值，结果回到这里
+  // 异步、权威读：插件框架向属主取一次真实值，结果回到这里
   musicxx.vars.get(key).then(function (value) {
     readValue = value;
     --pendingReads;

@@ -43,7 +43,7 @@ if (NOT TARGET musicxx_extern_plugin_sdk)
   add_library(musicxx_extern_plugin_sdk INTERFACE IMPORTED)
   # 说明：这里**不用** INTERFACE_COMPILE_FEATURES（`cxx_std_26` 在本机 CMake + MSVC 的特性表里还没有，
   # 会报 "The compiler feature cxx_std_26 is not known to CXX compiler MSVC"）；
-  # 语言标准由 `musicxx_plugin_add_target` 通过 CXX_STANDARD 属性设置（与宿主工程内部一致）。
+  # 语言标准由 `musicxx_plugin_add_target` 通过 CXX_STANDARD 属性设置（与插件框架工程内部一致）。
   set_target_properties(musicxx_extern_plugin_sdk PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS}"
     INTERFACE_COMPILE_DEFINITIONS "BOOST_ASIO_STANDALONE=1;ASIO_STANDALONE=1;UTILXX_USE_BOOST_ASIO=1")

@@ -41,14 +41,14 @@
 ///    算（[backgroundEstimate]），要求逐条放宽（见 [FG_PICK_RULES]）：先争取高对比 + 明显的
 ///    颜色，不够再依次让一点对比度（不低于大字号标准），最后才让颜色 —— 颜色能保住就保住，
 ///    只有怎么调都给不出颜色时才退回黑 / 白。另外配出减淡色（同色 30% 透明）与块状背景色
-///    （与普通色相反的一侧、低饱和、15% 透明）。三色用 UI 项的 `foregroundColors` 交给宿主 ——
+///    （与普通色相反的一侧、低饱和、15% 透明）。三色用 UI 项的 `foregroundColors` 交给插件框架 ——
 ///    播放页的文字、歌词、进度条与块状背景都用它；换歌 / 换模式 / 主题切换（白昼 ↔ 夜间）后
 ///    重新推，关掉开关就交回主题默认色。
 ///
 /// 设置（7 项，存在插件目录的 config.json）：模糊程度、放大倍数、图片占比、唱片转速、
 /// 热浪扭曲波纹、隐藏歌曲图、自动调整前景色。
 ///
-/// 排查入口：宿主日志（`musicxx.host.log`）、设置页（`ext://playing_bg_image/settings`）、
+/// 排查入口：主程序日志（`musicxx.host.log`）、设置页（`ext://playing_bg_image/settings`）、
 /// 说明页（`ext://playing_bg_image/card`）、状态镜像里的 `player.background` / `player.icon`
 /// 两个槽位。
 ///
@@ -122,7 +122,7 @@ const ICON_SLOT = "player.icon";
 const BUILTIN_BG_ID = "builtin:Auto";
 const BUILTIN_ICON_ID = "builtin:default";
 
-/// 封面纹理参数：宿主解码 → 缩放 → 可选预模糊（着色器只做放大、漂移、扭曲）
+/// 封面纹理参数：主程序解码 → 缩放 → 可选预模糊（着色器只做放大、漂移、扭曲）
 ///
 /// `cover.blur` 是**纹理上的** sigma：纹理铺满屏幕后再放大，屏幕上看到的模糊 ≈
 /// `blur × 纹理→屏幕的放大倍数` —— 512 的纹理在 1280 宽的窗口里大约放大 5 倍，
@@ -339,7 +339,7 @@ function configuredAutoForeground() {
 
 /// 把设置应用到三个背景样式
 ///
-/// `musicxx.ui.updateEntry` 是**整体替换**（每次都取完整的 data），宿主收到后会刷新候选；
+/// `musicxx.ui.updateEntry` 是**整体替换**（每次都取完整的 data），插件框架收到后会刷新候选；
 /// 正在使用的样式立即换用新参数（封面纹理按新参数重新解码一次，『模糊』改模糊程度时
 /// 就能当场看到变化；『黑胶』改转速只换 `speed`，正在画的封面下一帧就按新转速转）。
 /// 自动前景色也一起推（[foregroundColorsSpec]）；它没变时由 [applyForegroundIfChanged] 拦住，
@@ -353,14 +353,14 @@ function applySettings() {
 
 /// 异步读配置（默认值由脚本给；所有键都读完 / 失败后再换用实际值）
 ///
-/// 放在定时器里读：顶层同步注册阶段不能投递动作（宿主这时还在回放注册）。
+/// 放在定时器里读：顶层同步注册阶段不能投递动作（插件框架这时还在回放注册）。
 function refreshConfig() {
     const keys = Object.keys(CONFIG_DEFAULTS);
     let pending = keys.length;
     function done() {
         --pending;
         if (0 === pending) {
-            // 先用状态镜像里的昼夜（宿主启动时推过一次），异步查到的值会再校正一次；
+            // 先用状态镜像里的昼夜（主程序启动时推过一次），异步查到的值会再校正一次；
             // 顺带问一次"当前昼夜 + 封面主色"，"恢复上次的歌"时启动完就能上色
             if (null === isNightNow) {
                 isNightNow = isNightFromMirror();
@@ -401,7 +401,7 @@ function saveConfig(key, value) {
 // 播放页的文本、歌词、进度条与块状背景只用三种颜色（普通色 / 减淡色 / block 背景色）。
 // 本插件的三种背景都是封面自己的颜色铺出来的，主题默认的那三色（浅色主题深灰、深色主题白）
 // 不一定压得住画面，所以这里按封面取色的**主色**再结合亮暗主题推一套，用 UI 项的
-// `foregroundColors` 交给宿主（宿主只在本插件的背景样式被选中时用它）。
+// `foregroundColors` 交给插件框架（插件框架只在本插件的背景样式被选中时用它）。
 //
 // 三色怎么定：
 //   1. 色相与彩色程度取自封面的**主色**（[accentColorOf]：出现最多的色点，它是灰的就看第二个），
@@ -415,7 +415,7 @@ function saveConfig(key, value) {
 //
 // 昼夜从哪来：状态镜像里的 `musicxx.state.app.isNight` 只在启动时推过一次，运行期切主题
 // 它不会更新，所以它**只用来当初始值**；之后的判断一律以 `musicxx.media.palette()` 返回的
-// `night`（宿主当场算的）与取色钩子载荷里的 `night` 为准。两个来源混用会让配色每隔一段
+// `night`（主程序当场算的）与取色钩子载荷里的 `night` 为准。两个来源混用会让配色每隔一段
 // 时间来回跳（镜像里还是上一个主题的值）。
 
 /// 当前昼夜（true = 夜间）；null = 还不知道（这时不声明前景三色，播放页用主题默认色）
@@ -434,11 +434,11 @@ let foregroundBaseKey = "";
 /// 封面平均色（取色时顺便算出来，只用来估背景亮度）；null = 还没有
 let coverAverage = null;
 
-/// 最近一次推给宿主的前景三色（三个模式一起序列化）：没变就不再重登记
-/// （重登记会让宿主重新同步候选，能省则省）
+/// 最近一次推给插件框架的前景三色（三个模式一起序列化）：没变就不再重登记
+/// （重登记会让插件框架重新同步候选，能省则省）
 let lastForegroundSpec = "";
 
-/// 已经排了一次"稍后重推前景三色"（钩子处理器里不直接调宿主动作）
+/// 已经排了一次"稍后重推前景三色"（钩子处理器里不直接调主程序动作）
 let foregroundApplyScheduled = false;
 
 /// 最近一次查"昼夜 + 主色"的时间
@@ -534,7 +534,7 @@ function hslToRgb(hsl) {
     };
 }
 
-/// 色点 + 透明度 → `#aarrggbb`（宿主接受 `#rrggbb` 与 `#aarrggbb` 两种写法）
+/// 色点 + 透明度 → `#aarrggbb`（插件框架接受 `#rrggbb` 与 `#aarrggbb` 两种写法）
 function hexWithAlpha(rgb, alpha) {
     const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
     const text = a.toString(16);
@@ -698,7 +698,7 @@ function pickForegroundMain(hsl, mode) {
 
 /// 算一个模式的前景：普通色 / 减淡色 / 块状背景色，外加挑色时的中间结果
 ///
-/// [hsl] 是色相来源（封面的主色）的 HSL；`colors` 就是交给宿主的那三色，
+/// [hsl] 是色相来源（封面的主色）的 HSL；`colors` 就是交给插件框架的那三色，
 /// `dark` / `ratio` 是状态行要报的"深色字还是浅色字 / 对比度多少"。
 function computeForegroundOf(hsl, mode) {
     const picked = pickForegroundMain(hsl, mode);
@@ -737,7 +737,7 @@ function foregroundCacheKeyOf(night) {
 
 /// 当前的三组前景（blur / card / vinyl）；返回 null 表示"这次不指定"
 ///
-/// null 的三种情况：开关关着、昼夜还不知道、或者还没有取色结果 —— 这时宿主用它自己的
+/// null 的三种情况：开关关着、昼夜还不知道、或者还没有取色结果 —— 这时插件框架用它自己的
 /// 默认前景色。
 function foregroundSpecs() {
     if (false == configuredAutoForeground() || null === isNightNow) {
@@ -866,7 +866,7 @@ function applyForegroundIfChanged() {
 
 /// 把"重推前景三色"排到本轮之后再执行
 ///
-/// 取色钩子是宿主等着回答的调用点（处理器里直接调 `musicxx.ui.updateEntry` 会打断调用方），
+/// 取色钩子是主程序等着回答的调用点（处理器里直接调 `musicxx.ui.updateEntry` 会打断调用方），
 /// 所以统一延后到下一次定时器回调里做。
 function applyForegroundLater() {
     if (foregroundApplyScheduled) {
@@ -879,9 +879,9 @@ function applyForegroundLater() {
     }, 0);
 }
 
-/// 从状态镜像里读昼夜（宿主启动时推过一次；读不到返回 null）
+/// 从状态镜像里读昼夜（主程序启动时推过一次；读不到返回 null）
 ///
-/// 只在还没有值时用它当初始值：运行期切了主题镜像不会更新（宿主只在启动时推这个键），
+/// 只在还没有值时用它当初始值：运行期切了主题镜像不会更新（主程序只在启动时推这个键），
 /// 拿它当"当前值"会和当场查询的结果打架，配色就会隔一会儿跳一次。
 function isNightFromMirror() {
     const app = musicxx.state.get("musicxx.state.app");
@@ -905,10 +905,10 @@ function applyNightState(night) {
     return true;
 }
 
-/// 查一次"当前昼夜 + 封面主色"（宿主当场算的值；不强制刷新时只是读现成的分析结果）
+/// 查一次"当前昼夜 + 封面主色"（主程序当场算的值；不强制刷新时只是读现成的分析结果）
 ///
 /// 主色优先用本插件自己的取色结果（[setForegroundBase] 已经写过）；还没有、或者已经换成
-/// 另一首歌时用宿主现有分析里的主色，这样"插件刚启用、宿主已经分析过封面"时也能立刻上色。
+/// 另一首歌时用主程序现有分析里的主色，这样"插件刚启用、主程序已经分析过封面"时也能立刻上色。
 function refreshForegroundState() {
     foregroundCheckedAt = Date.now();
     return musicxx.media.palette().then(function (result) {
@@ -918,11 +918,11 @@ function refreshForegroundState() {
         applyNightState(result.night);
         const raw = (result.raw && typeof result.raw === "object") ? result.raw : {};
         const key = (typeof result.srcKey === "string") ? result.srcKey : "";
-        // 宿主分析里的"主色候选"（`dominant[0]` 是它选出的主色）：当色相来源用
+        // 主程序分析里的"主色候选"（`dominant[0]` 是它选出的主色）：当色相来源用
         const dominantList = (raw.dominant instanceof Array) ? raw.dominant : [];
         const accent = (dominantList.length > 0) ? dominantList[0] : "";
         if (result.hasCover === true) {
-            // 还没有底色，或者这条底色是上一首的（宿主已经在放另一首了）：用宿主现成的分析结果
+            // 还没有底色，或者这条底色是上一首的（主程序已经在放另一首了）：用主程序现成的分析结果
             if ("" === foregroundBase || (key && key !== foregroundBaseKey)) {
                 setForegroundBase(raw.main, key, null, accent);
             }
@@ -937,7 +937,7 @@ function refreshForegroundState() {
 
 /// 到点就查一次（每秒的跟随检查里顺带做）
 ///
-/// 没有值时先用状态镜像里的昼夜兜一下（宿主启动时推的那份就是当时的真实值），
+/// 没有值时先用状态镜像里的昼夜兜一下（主程序启动时推的那份就是当时的真实值），
 /// 之后一律以当场查询为准 —— 见 [isNightFromMirror] 的说明。
 ///
 /// [force] 写成 `true != force` 判断（不是 `false == force`）：定时器回调不带参数，
@@ -1024,11 +1024,11 @@ function blurBackgroundData() {
             uRipple: { kind: "const", value: configuredRipple() ? 1 : 0 },
         },
         // 自动调整前景色：按封面主色 + 亮暗主题推的播放页三色，按这个模式估背景后挑明暗
-        // （开关关着 / 还不知道昼夜 / 没有取色结果时不声明，宿主用主题默认色）
+        // （开关关着 / 还不知道昼夜 / 没有取色结果时不声明，插件框架用主题默认色）
         foregroundColors: foregroundColorsSpec(MODE_BLUR) || undefined,
         speed: 1,
         maxFps: 24,
-        // 模糊画面不需要满分辨率：降采样后由宿主放大，省一半以上的像素
+        // 模糊画面不需要满分辨率：降采样后由插件框架放大，省一半以上的像素
         resolutionScale: 0.6,
         animate: true,
     };
@@ -1051,7 +1051,7 @@ function cardBackgroundData() {
             blur: 0,
         },
         args: {
-            // 渐变底：封面主色（亮端）→ 封面暗色（暗端）；convert = 套宿主的昼夜转换
+            // 渐变底：封面主色（亮端）→ 封面暗色（暗端）；convert = 套主程序的昼夜转换
             uBase: {
                 kind: "source",
                 name: "musicxx.icon.main",
@@ -1179,7 +1179,7 @@ musicxx.ui.registerEntry({
         subtitle: "playing_bg_image：三种播放页背景模式 + 封面取色 + 自动前景色",
         // 图标名放在 data 里（`registerEntry` 只在没有 data 时才把顶层字段并进去）；
         // 图标是插件自己带的 svg：相对插件目录的路径（resource/svg/ 只是推荐位置，
-        // 宿主不接受自己的图标名，见 docs/plugin-ui.md §1.5）
+        // 插件框架不接受自己的图标名，见 docs/plugin-ui.md §1.5）
         icon: "resource/svg/vinyl.svg",
         action: { kind: "route", route: "ext://" + PLUGIN_ID + "/" + HOME_VIEW_ID },
     },
@@ -1335,7 +1335,7 @@ function topColorsOfRgba(bytes) {
 const PALETTE_COVER_SIZE = 64;
 const PALETTE_TOP_COLORS = 4;
 
-/// 取到的一组色点 → 宿主封面取色的 5 个字段（按亮度从亮到暗映射）
+/// 取到的一组色点 → 插件框架封面取色的 5 个字段（按亮度从亮到暗映射）
 ///
 /// 数量不足时按已有的复用（只求"这套颜色来自封面"）。这里同时做一点调整：
 /// 最亮的提亮一点、最暗的压暗一点，让内置背景与插件背景都有明暗层次可用 ——
@@ -1385,7 +1385,7 @@ function accentColorOf(picked) {
 
 /// 取当前封面的主要配色（读 `musicxx.media.cover` 的 RGBA 字节）
 ///
-/// 返回 `{colors, average, dominant}`：`colors` 是写给宿主的那 5 个字段，`average` 是整幅
+/// 返回 `{colors, average, dominant}`：`colors` 是写给插件框架的那 5 个字段，`average` 是整幅
 /// 平均色（自动前景色估背景用），`dominant` 是前景色的色相来源（见 [accentColorOf]）。
 function paletteFromCurrentCover() {
     return musicxx.media.cover({ size: PALETTE_COVER_SIZE, format: "rgba" })
@@ -1484,7 +1484,7 @@ function warmPalette(key) {
 /// **处理器绝不返回 Promise**：见 [warmPalette] 的说明。
 musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
     // 载荷里的 night 是当场算的：主题切了状态镜像不会更新，这里顺手校正一次
-    // （处理器里不直接调宿主动作，排到本次之后重推前景三色）
+    // （处理器里不直接调主程序动作，排到本次之后重推前景三色）
     if (payload) {
         applyNightState(payload.night);
     }
@@ -1636,7 +1636,7 @@ musicxx.timer.setInterval(followTick, 1000);
 
 /* ==================== 页面（说明页 + 设置页） ==================== */
 
-/// 客户端能力段（宿主取页面时会放进参数）
+/// 客户端能力段（插件框架取页面时会放进参数）
 function viewEnv(args) {
     if (args && typeof args.ui === "object" && args.ui !== null) {
         return args.ui;
@@ -2034,7 +2034,7 @@ function cardView(args) {
         blocks: [
             kit.hint({
                 text: "• 『" + MODE_TITLES[MODE_BLUR] + "』：" + MODE_DEPICTS[MODE_BLUR] +
-                    "。封面由宿主预模糊（sigma = 设置里的模糊程度），着色器只做放大、漂移、" +
+                    "。封面由主程序预模糊（sigma = 设置里的模糊程度），着色器只做放大、漂移、" +
                     "扭曲与压暗；没有封面时回退成暗底 + 光斑。",
             }, env),
             kit.hint({
@@ -2065,7 +2065,7 @@ function cardView(args) {
                     "放宽 —— 先争取高对比 + 明显的颜色，不够就依次让一点对比度（不低于大字号" +
                     "标准），最后才让颜色，只有怎么调都给不出颜色时才退回黑 / 白。再配出减淡色" +
                     "（同色 30% 透明）与块状背景色（与普通色相反的一侧、低饱和、15% 透明），" +
-                    "交给宿主用在播放页的文字、歌词、进度条与块状背景上。换歌、换模式与主题切换" +
+                    "交给插件框架用在播放页的文字、歌词、进度条与块状背景上。换歌、换模式与主题切换" +
                     "后重新推，关掉就用主题默认前景色；设置页的状态行会显示当前是深色字还是" +
                     "浅色字、对比度多少。",
             }, env),
@@ -2093,7 +2093,7 @@ function cardView(args) {
     };
 }
 
-/// 动作从哪个页面发起就返回哪个页面（宿主用返回值直接刷新当前页）
+/// 动作从哪个页面发起就返回哪个页面（插件框架用返回值直接刷新当前页）
 function pageView(args) {
     return (args && args.view === HOME_VIEW_ID) ? cardView(args) : settingsView(args);
 }

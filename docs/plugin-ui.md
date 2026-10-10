@@ -2,9 +2,9 @@
 
 插件**不写 Flutter 代码**。界面有两个层次，都只做声明、由 musicxx 渲染：
 
-| 层次 | 插件做什么 | 宿主渲染在哪 |
+| 层次 | 插件做什么 | 主程序渲染在哪 |
 |---|---|---|
-| **UI 项** | 注册入口 / 菜单项（类型 + JSON 内容） | 宿主自己的界面：音乐主页入口列表、歌曲菜单、设置里的「播放页面背景」列表 |
+| **UI 项** | 注册入口 / 菜单项（类型 + JSON 内容） | 主程序自己的界面：音乐主页入口列表、歌曲菜单、设置里的「播放页面背景」列表 |
 | **插件页面** | 注册一个能力，返回视图描述（`{view:{title, blocks}}`） | `ext://<插件id>/<视图id>` 路由页面 |
 
 两边的写法只有 API 名字不同（C++ 用 `uiRegister`/`capability`，JS 用 `musicxx.ui.registerEntry`/`musicxx.capability.register`），
@@ -14,20 +14,23 @@
 
 ---
 
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
+
 ## 1. UI 项
 
 ### 1.1 四种类型
 
 | 类型（全名） | `data` 字段 | 渲染位置 | 当前版本的实际表现 |
 |---|---|---|---|
-| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在宿主内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） |
+| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在主程序内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） |
 | `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
 | `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效 |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容） |
 
-`icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写宿主
-（musicxx）自己的图标名 —— 宿主的 svg 名字不会命中任何文件，等于"没有图标"，各渲染点会按
+`icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写主程序
+（musicxx）自己的图标名 —— 主程序的 svg 名字不会命中任何文件，等于"没有图标"，各渲染点会按
 各自的规则退回默认图标。
 
 ### 1.2 注册
@@ -53,13 +56,13 @@ musicxx.ui.registerEntry({
 });
 ```
 
-规则（宿主在注册时校验，写错就直接失败，不会等到渲染时才发现）：
+规则（插件框架在注册时校验，写错就直接失败，不会等到渲染时才发现）：
 
-- `name` 用**短名**，宿主补成 `plugin.<插件id>.<短名>`；写全名时也必须属于本插件命名空间（冒充别人返回 `-6`）；
+- `name` 用**短名**，插件框架补成 `plugin.<插件id>.<短名>`；写全名时也必须属于本插件命名空间（冒充别人返回 `-6`）；
 - 同一个项名再次注册 = **覆盖**（保留原来的排序位置）；
 - UI 项数量与单条 `data` 大小都不设上限（早期版本的 64 个 / 64 KiB 已移除）；
 - 类型必须是上表四种之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
-- 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，应用侧整批替换）。
+- 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，主程序整批替换）。
 
 更新与注销：
 
@@ -82,24 +85,24 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 | `"openSettings"` | — | **字符串短写**，等于 `dispatch`：调用本插件的能力 |
 | `{"kind":"dispatch"}` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
 | `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面（**允许指向任意插件**：页面由被跳转插件自己绘制，发起方拿不到对方的数据） |
-| `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行宿主动作（与插件自己调 `musicxx.call` 同一份实现） |
+| `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行主程序动作（与插件自己调 `musicxx.call` 同一份实现） |
 | `{"kind":"none"}` / 不写 | — | 纯展示项，点了没有动作 |
 
 - 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与视图 id；`dispatch` 必须有非空 `name`；
   `command` 的 `name` 必须是官方 `musicxx.*`；
-- **动作指向的能力必须真的注册过**：没注册时宿主提示
+- **动作指向的能力必须真的注册过**：没注册时主程序提示
   「插件『<插件id>』没有提供『<能力名>』」，`example_native` / `example_js` 的 `card` 页是可照抄的例子；
 - `dispatch` 动作成功时的表现：返回视图描述就直接打开页面（入口与页面合成一次调用），
   否则提示「『<入口标题>』执行完成」；
-- 动作参数里宿主会补上当前上下文：歌曲菜单项补 `sid`/`name`/`artist`，歌单菜单项补
-  `pid`/`name`/`songNum`（插件自己写的 `args` 保留，冲突时以宿主补的为准）。
+- 动作参数里主程序会补上当前上下文：歌曲菜单项补 `sid`/`name`/`artist`，歌单菜单项补
+  `pid`/`name`/`songNum`（插件自己写的 `args` 保留，冲突时以主程序补的为准）。
 
 ### 1.4 当前版本的渲染缺口（写插件前先确认）
 
 这一版把之前缺的渲染点补齐了：`home.entry` 的 `subtitle` / `icon` 都会画出来、`playlist.action`
 在歌单页的列表菜单里有位置。仍要注意的是：
 
-- 入口与菜单项的图标只能来自插件自己（相对插件目录的路径，见 §1.5），写宿主图标名等于没写；
+- 入口与菜单项的图标只能来自插件自己（相对插件目录的路径，见 §1.5），写主程序图标名等于没写；
 - 主页入口的文字是单行省略（标题、副标题各一行），别写长句；
 - 想确认自己注册了哪些项：`musicxx.ui.entries()`（JS）/ `uiEntries()`（C++）。
 
@@ -122,8 +125,8 @@ my_plugin/
 - 只认 svg：写成别的后缀（`logo.png`）按"没有图标"处理；
 - 写法不合法（空路径、绝对路径、`..`、`\`）同样按"没有图标"处理，不会去插件目录外面找
   文件，也不会报错；
-- **不能引用宿主（musicxx）自己的图标名**：`host.info().ui` 里没有 `icons` 清单（musicxx 不发布），
-  写宿主的 svg 名字只会在插件目录里找一个同名文件，找不到就按"没有图标"处理 ——
+- **不能引用主程序（musicxx）自己的图标名**：`host.info().ui` 里没有 `icons` 清单（musicxx 不发布），
+  写主程序的 svg 名字只会在插件目录里找一个同名文件，找不到就按"没有图标"处理 ——
   主页入口 / 菜单项退回默认图标，页面里的 `Icon` 块退回 `glyph` 文本；**按钮例外**：
   `Button.icon` 没有回落，文件缺失就是按钮里一个空位（框架只拼路径，不替插件判文件在不在）；
 - 路径由**框架**拼接：插件在 JSON 里只写相对路径，客户端拿到内容、构造界面时才拼上自己的插件
@@ -140,11 +143,11 @@ my_plugin/
 ### 2.1 打开过程
 
 1. 用户点入口 / 插件自己调 `musicxx.ui.openRoute("ext://my_plugin/settings")`；
-2. 宿主打开路由页面，调用**与被跳转插件同名的能力**：视图 id = 能力短名
+2. 主程序打开路由页面，调用**与被跳转插件同名的能力**：视图 id = 能力短名
    （`ext://my_plugin/settings` → 能力 `plugin.my_plugin.settings`），参数是
    `{"view": "<视图id>", "ui": {客户端界面能力段}}`；
 3. 能力返回视图描述：`{"view": {...}}`（推荐）或直接返回视图对象；
-4. 宿主渲染；能力返回的每个块都不需要插件再调用任何接口。
+4. 主程序渲染；能力返回的每个块都不需要插件再调用任何接口。
 
 **能力必须注册**（在 `start` 事务 / 脚本顶层注册），并且**同步返回**：
 
@@ -165,7 +168,7 @@ capability(*this, "plugin.my_plugin.settings",
 
 ```jsonc
 {
-  "title": "页面标题",          // 与 blocks 不能同时为空（都空 = 宿主提示插件没返回可用视图）
+  "title": "页面标题",          // 与 blocks 不能同时为空（都空 = 主程序提示插件没返回可用视图）
   "subtitle": "可选副标题",
   "blocks": [ /* 块列表，按声明顺序从上到下 */ ]
 }
@@ -271,7 +274,7 @@ capability(*this, "plugin.my_plugin.settings",
   `linear`/`inQuad`/`outQuad`/`inOutQuad`/`inCubic`/`outCubic`/`inOutCubic`/`inSine`/`outSine`/
   `inOutSine`/`outBack`/`outElastic`）；
 - 每个 `AnimatedBuilder` 最多 **32 条通道**（超过的被忽略并记日志）；每帧只重建"读到值的块"；
-- 帧调度走宿主的视口动画（**限帧 + 页面被遮挡 / 进后台时自动停**）；**动画等级低时只出构建那一帧**
+- 帧调度走主程序的视口动画（**限帧 + 页面被遮挡 / 进后台时自动停**）；**动画等级低时只出构建那一帧**
   （等于静态，与主题的"低等级少动效"一致）；
 - 过渡块只画自己（尺寸 / 透明度 / 位移 / 缩放 / 旋转），**子块完全不用改**；
 - 状态（`smooth` 的上一帧值）跟着通道表走：同一份声明不被打断，声明变了重新开始；
@@ -291,7 +294,7 @@ JS 插件在清单里按顺序加载 kit（`scripts: [pluginxx_ui_kit.js, musicx
 ```js
 const kit = pluginxx.ui.kit;
 
-// env 是客户端能力段（取页面时宿主会放进参数：args.ui）；不传 = 中立描述，由客户端适配
+// env 是客户端能力段（取页面时主程序会放进参数：args.ui）；不传 = 中立描述，由客户端适配
 kit.listRow({ title: "切歌次数", trailing: "3" }, env);
 kit.settingRow({ title: "背景动画速率", depict: "改完立即生效", value: "1x" }, env);
 kit.switchRow({ id: "skipAds", title: "跳过广告曲目", value: true, action: "setSkipAds" }, env);
@@ -312,7 +315,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 `coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
 - kit 只做**装配**，不含逻辑、不写死客户端的规则；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
-- **kit 随插件目录分发**（宿主不提供）：`tools/sync_ui_kit.ps1` 会把两个 kit 文件复制进 JS 插件目录，
+- **kit 随插件目录分发**（插件框架不提供）：`tools/sync_ui_kit.ps1` 会把两个 kit 文件复制进 JS 插件目录，
   C++ 插件用 SDK 头文件里的版本（改 kit 后跑 `tools/gen_ui_kit.ps1` 重新生成）。
 
 ### 2.5 布局约定
@@ -348,7 +351,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 - 跳转：按钮 / 可点块上用 `{"kind":"route","route":"ext://<插件id>/<视图id>"}`；
   也可以跳到别的插件的页面（页面由对方绘制），或跳到少量官方页面
   （`musicxx:settings`、`musicxx:player`、`musicxx:search` 等，见 [plugin-js-api.md](plugin-js-api.md) §「打开官方页面」）；
-- 刷新当前页：能力返回新的 `{"view": {...}}`，宿主直接用新视图重画当前页面（不用重新打开）；
+- 刷新当前页：能力返回新的 `{"view": {...}}`，主程序直接用新视图重画当前页面（不用重新打开）；
 - 每个插件视图是**独立页面**（框架按路由 + 视图 id 区分），从 A 页跳到 B 页后返回能回到 A 页。
 
 ---
@@ -370,7 +373,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 - **默认值写在插件里**（`getConfig` 的第二个参数），读不到就用默认值 —— 框架不再保存默认值，也没有
   清除「用户改过的值」之外的恢复手段；
-- 值改动后要让界面反映出来：改完再调一次能力返回 `{view: ...}`，宿主就会用新视图刷新（示例见
+- 值改动后要让界面反映出来：改完再调一次能力返回 `{view: ...}`，主程序就会用新视图刷新（示例见
   `plugins/example_js_shader/plugin.js` 的 `cycleBackgroundRate`）；
 - 私有 KV（JS：`musicxx.storage.get/set/remove/list`，不带 `namespace`）与 `config.json` 是两份数据：
   KV 适合缓存、运行计数这类插件自己的数据，`config.json` 适合「用户看得懂、可能手改」的设置项。
@@ -407,7 +410,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
    await musicxx.vars.set("musicxx.ui.fontFamily", "SimSun");
    ```
 4. **生命周期自动恢复**：
-   当设置字体的插件被停用或卸载、或插件宿主停止时，宿主会自动恢复为默认字体，避免残留不可用的字体配置。
+   当设置字体的插件被停用或卸载、或插件框架停止时，主程序会自动恢复为默认字体，避免残留不可用的字体配置。
 
 ### 4.1 在页面按钮里切换字体：**处理器里不要 `await` 这些动作**
 
@@ -415,7 +418,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 `plugin_call`，**应用线程全程阻塞等这次能力调用返回**；处理器里 `await`
 `musicxx.ui.setFontFamily` / `loadFont` 就会与调用方互锁：
 
-- 应用侧表现：点一下**整个程序卡几秒**，然后插件收到 `action_timeout` 报"切换失败"，
+- 主程序表现：点一下**整个程序卡几秒**，然后插件收到 `action_timeout` 报"切换失败"，
   可字体其实已经切过去了（动作是在超时之后才轮到应用线程处理的）；
 - 正确写法（可照抄 `plugins/example_js_font/plugin.js`）：
   1. **立刻返回**：先按新模式画页面，处理器直接返回视图；
@@ -424,12 +427,12 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
      用 `musicxx.ui.notify` 这类动作是安全的）；
   4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
      插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
-- 想知道"应用侧现在到底是什么字体"：`musicxx.vars.watch("musicxx.ui.fontFamily")` 保活后
+- 想知道"主程序现在到底是什么字体"：`musicxx.vars.watch("musicxx.ui.fontFamily")` 保活后
   用 `musicxx.vars.peek("musicxx.ui.fontFamily")` **同步**读缓存（值形如 `{value, revision, ageMs, stale}`），
   不要为了显示状态再 `await` 一次 `vars.get`。
 
 > 这条规则对**所有**"改应用状态"的动作都成立（播放页背景、播放控制、存储写入…）：能力处理器必须
-> 快速返回，长活儿发给动作后在 `.then` 里收尾。处理器返回 Promise 时宿主会一直等它结算
+> 快速返回，长活儿发给动作后在 `.then` 里收尾。处理器返回 Promise 时插件框架会一直等它结算
 > （`plugin_call` 的等待上界是 5 秒，超时就是上面那种"卡几秒 + 失败"）。
 
 ---

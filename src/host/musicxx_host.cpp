@@ -1,4 +1,4 @@
-/// musicxx 外部插件原生宿主: 管理器核心
+/// musicxx 外部插件原生插件框架: 管理器核心
 /// (配置/启停/事件/领域钩子/生命周期接缝/插件管理)
 
 #include "musicxx_host.h"
@@ -57,7 +57,7 @@ std::string currentThreadIdText() {
 
 /// 钩子 id 列表 → JSON 数组（插件生命周期事件里的 `hooks` 字段）
 ///
-/// Dart 侧收到生命周期事件后会按这份列表逐个回查宿主里的处理器数量：钩子注册表
+/// Dart 侧收到生命周期事件后会按这份列表逐个回查插件框架里的处理器数量：钩子注册表
 /// 靠 `musicxx.hook.changed`
 /// 事件维护，事件丢一条就会停在旧值（表现为"插件注册过
 /// 的钩子不再被派发"），这份随事件带上来的列表是它的对齐依据。
@@ -71,12 +71,12 @@ Json hookIdsJson(const std::vector<std::string> &ids) {
 
 /* ==================== 开发者日志 sink ==================== */
 
-/// 宿主侧日志输出口 (stderr)
+/// 框架侧日志输出口 (stderr)
 ///
-/// 背景: 宿主库静态链入 cxx_utilxx_base, 它自带日志分发器**但默认没有任何
+/// 背景: 插件框架库静态链入 cxx_utilxx_base, 它自带日志分发器**但默认没有任何
 /// sink**, 因此原生侧出问题时"完全没有日志可看"(Dart 未接入时尤其明显)。
 /// 这里提供最小可用的诊断出口: 环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1`
-/// 时把宿主与插件的日志写到 stderr; 正式落盘/转发由 Dart 侧配置。
+/// 时把插件框架与插件的日志写到 stderr; 正式落盘/转发由 Dart 侧配置。
 class StderrLogSink final : public utilxx_base::ThreadedLogSink {
 public:
   /// 必须在最派生类析构里停线程 (基类析构时虚表已切换, 见 ThreadedLogSink 说明)
@@ -133,15 +133,15 @@ void ensureStderrLogSink() {
       "[musicxx_ext] stderr 日志已开启 (MUSICXX_EXTERN_PLUGIN_LOG_STDERR)\n");
 }
 
-/* ==================== 插件事件总线 (插件 ↔ 宿主) ==================== */
+/* ==================== 插件事件总线 (插件 ↔ 插件框架) ==================== */
 
 /// 进程内主题事件总线 (pluginxx `events` 表的后端)
 ///
 /// - 与 Dart 事件队列 (pushEvent/pollEvents) 是**两条独立通道**:
 /// 本总线服务插件之间
-///   与"宿主 → 插件"的事件; Dart 侧事件仍走有界队列;
-/// - 订阅/撤销在宿主线程登记, 回调在**发布者线程**执行
-/// (内核发布入口已投递到宿主线程),
+///   与"插件框架 → 插件"的事件; Dart 侧事件仍走有界队列;
+/// - 订阅/撤销在框架线程登记, 回调在**发布者线程**执行
+/// (内核发布入口已投递到框架线程),
 ///   因此回调里不得阻塞 (与钩子处理器同一条约定);
 /// - 回调在锁外执行: 处理器内部再次订阅/撤销/发布不会自锁。
 class TopicEventBus final : public pluginxx::EventSource {
@@ -214,12 +214,12 @@ private:
   size_t nextId_ = 0;
 };
 
-/// 当前宿主的规范架构名（编译目标）
+/// 当前插件框架的规范架构名（编译目标）
 ///
 /// 判定与多目标分支选择共用一份实现（`currentTargetArch()`，见
 /// host_target.cpp）： 上报给插件的架构、清单 `arch`
 /// 声明、分支目录标签比较的必须是同一个名字， 两处各写一份 `#if`
-/// 迟早会对不上（32 位 ARM 上就是"宿主报 unknown、分支标签是
+/// 迟早会对不上（32 位 ARM 上就是"插件框架报 unknown、分支标签是
 /// android-armeabi-v7a，谁都匹配不上"）。
 std::string hostArch() { return currentTargetArch(); }
 
@@ -310,7 +310,7 @@ void MusicxxHostManager::setUiCapabilities(
   bool parseOk = false;
   Json caps = parseJsonSafe(capabilitiesJson, &parseOk);
   if (!parseOk || !caps.is_object()) {
-    // 能力段是"给插件看的说明", 结构不对就不发布 (宿主不解释它的内容)
+    // 能力段是"给插件看的说明", 结构不对就不发布 (插件框架不解释它的内容)
     XX_LOGW("[musicxx_ext] 客户端界面能力段不是 JSON 对象, 已忽略");
     return;
   }
@@ -328,7 +328,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
 
-  // 工作线程池 (插件 offload 用) + 宿主线程 (唯一动态库插件执行线程)
+  // 工作线程池 (插件 offload 用) + 框架线程 (唯一动态库插件执行线程)
   if (!ctx_->workers) {
     ctx_->workers = std::make_unique<asio::thread_pool>(2);
   }
@@ -345,17 +345,17 @@ int32_t MusicxxHostManager::start(std::string &err) {
   startTime_ = std::chrono::steady_clock::now();
 
   // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create), 内核
-  // PluginManagerBase 记录的是构造线程; 若不在宿主线程上重绑, 各 vtable
-  // 入口会误判 "当前不在 IO 线程" → 投递回宿主线程并同步等待,
-  // 而宿主线程正卡在该调用栈里 (插件 start/create/处理器都在这条线程上跑) →
+  // PluginManagerBase 记录的是构造线程; 若不在框架线程上重绑, 各 vtable
+  // 入口会误判 "当前不在 IO 线程" → 投递回框架线程并同步等待,
+  // 而框架线程正卡在该调用栈里 (插件 start/create/处理器都在这条线程上跑) →
   // 单线程执行器自锁。
   if (!bindIoThread()) {
     running_.store(false, std::memory_order_release);
-    err = "host_start: 宿主 IO 线程未在超时前就绪";
+    err = "host_start: 插件框架 IO 线程未在超时前就绪";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
 
-  // 宿主内运行时: JS 线程 (全部 JS 插件实例共享这 1 条线程)
+  // 插件框架内运行时: JS 线程 (全部 JS插件实例共享这 1 条线程)
   // 启动失败不影响动态库插件: 记事件 + 禁用 JS 能力
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) == 0 &&
       JsEngine::available()) {
@@ -369,9 +369,9 @@ int32_t MusicxxHostManager::start(std::string &err) {
       refreshJsHostInfo();
     }
   } else if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0) {
-    XX_LOGI("[musicxx_ext] 框架配置禁用了 JS 插件 (NO_JS)");
+    XX_LOGI("[musicxx_ext] 框架配置禁用了 JS插件 (NO_JS)");
   } else {
-    XX_LOGW("[musicxx_ext] 本次构建不含 JS 运行时, JS 插件不会加载");
+    XX_LOGW("[musicxx_ext] 本次构建不含 JS 运行时, JS插件不会加载");
   }
 
   {
@@ -405,14 +405,14 @@ bool MusicxxHostManager::bindIoThread() {
     return true; ///< 本次运行已绑定 (start 幂等)
   }
   // 注意: 这里**不能**用 `isIoThread()` 当快速路径 —— 内核记录的是"调用
-  // setIoExecutor 的线程", 而管理器是在宿主线程之外的线程构造的 (host_create),
+  // setIoExecutor 的线程", 而管理器是在框架线程之外的线程构造的 (host_create),
   // 因此调用线程上 isIoThread() 恰好为 true (误判)。必须无条件投递一次绑定。
   auto self = shared_from_this();
   auto slot = std::make_shared<WaitSlot<bool>>();
   const asio::any_io_executor ex = ctx_->io.get_executor();
   asio::post(ex, [self, slot, ex] {
-    self->setIoExecutor(ex); ///< 记录"当前线程"= 宿主 IO 线程
-    XX_LOGI("[musicxx_ext] 宿主 IO 线程已绑定 (thread={}, "
+    self->setIoExecutor(ex); ///< 记录"当前线程"= 插件框架 IO 线程
+    XX_LOGI("[musicxx_ext] 插件框架 IO 线程已绑定 (thread={}, "
             "动态库插件代码只在该线程执行)",
             currentThreadIdText());
     slot->set(true);
@@ -424,7 +424,7 @@ bool MusicxxHostManager::bindIoThread() {
   ioThreadBound_.store(true, std::memory_order_release);
   if (isIoThread()) {
     // 绑定成功后调用线程仍被判为 IO 线程: 说明执行器被绑到了调用线程本身
-    // (宿主线程没跑起来 / 记录被覆盖) —— 这时 vtable 入口会在错误的线程就地执行
+    // (框架线程没跑起来 / 记录被覆盖) —— 这时 vtable 入口会在错误的线程就地执行
     XX_LOGW("[musicxx_ext] IO 线程绑定异常: 调用线程被判定为 IO 线程");
   }
   return true;
@@ -445,7 +445,7 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
         // 停机收尾**先做**: 还没回来的能力调用按 `host_stopped`
         // 推一条结果事件。 之后的 shutdownAsync 会去终止插件与它们还没结束的
         // op, 那些 op 的失败通知 因为已经没有等待方了 (记账已清) 而被丢弃 ——
-        // 不会重复推事件, 调用方也拿到的是"宿主停止"这个可读原因,
+        // 不会重复推事件, 调用方也拿到的是"框架停止"这个可读原因,
         // 而不是内核收尾时的泛化说法。
         self->finishAllPendingCalls();
         const bool ok = co_await self->shutdownAsync(budget);
@@ -627,7 +627,7 @@ int32_t MusicxxHostManager::prepareJsPlugin(
   auto engine = jsEngine();
   if (!engine) {
     err = (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0
-              ? "框架配置禁用了 JS 插件"
+              ? "框架配置禁用了 JS插件"
               : "JS 运行时不可用 (未编译或启动失败)";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
@@ -642,7 +642,7 @@ int32_t MusicxxHostManager::prepareJsPlugin(
   for (const std::string &hint : scriptHints) {
     const fs::path candidate = dir / hint;
     if (!fs::is_regular_file(candidate)) {
-      err = "JS 插件缺少脚本文件: " + candidate.string();
+      err = "JS插件缺少脚本文件: " + candidate.string();
       return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
     }
     scripts.push_back(candidate);
@@ -658,7 +658,7 @@ int32_t MusicxxHostManager::prepareJsPlugin(
     }
     std::error_code ec;
     if (!fs::is_regular_file(script, ec)) {
-      err = "JS 插件缺少脚本文件: " + script.string();
+      err = "JS插件缺少脚本文件: " + script.string();
       return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
     }
     scripts.push_back(script);
@@ -846,7 +846,7 @@ pluginxx::PluginEntrySymbols MusicxxHostManager::entrySymbols() const {
 }
 
 std::string MusicxxHostManager::pluginIdOf(std::string_view instanceName) {
-  // JS 插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身
+  // JS插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身
   if (instanceName.size() > 3 && instanceName.substr(0, 3) == "js:") {
     return std::string{instanceName.substr(3)};
   }
@@ -858,7 +858,7 @@ MusicxxHostManager::resolveInstance(const std::string &idOrInstance) const {
   if (idOrInstance.empty()) {
     return nullptr;
   }
-  // 先按实例名找 (动态库插件: 实例名 = 插件 id; JS 插件: "js:<id>")
+  // 先按实例名找 (动态库插件: 实例名 = 插件 id; JS插件: "js:<id>")
   if (auto inst = find(idOrInstance)) {
     return inst;
   }
@@ -1081,7 +1081,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   if (supported && kind == "js" &&
       (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0) {
     supported = false;
-    reason = "框架配置禁用了 JS 插件";
+    reason = "框架配置禁用了 JS插件";
   }
   if (supported && kind == "js" && !jsEngine()) {
     supported = false;
@@ -1130,7 +1130,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
     }
     item["targets"] = std::move(branches);
   }
-  // JS 插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）——管理页据此展示
+  // JS插件的脚本清单（按顺序执行；空 = 用 entry / plugin.js）——管理页据此展示
   if (kind == "js") {
     item["scripts"] = info.scripts;
   }
@@ -1144,7 +1144,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   item["supported"] = supported;
   item["reason"] = reason;
   item["source"] = kindHint;
-  /// 已加载判定按**插件 id 或实例名**解析: JS 插件实例名是 `js:<id>`,
+  /// 已加载判定按**插件 id 或实例名**解析: JS插件实例名是 `js:<id>`,
   /// 直接用 id 查 loaded_ 会一直判定成未加载
   item["loaded"] = resolveInstance(name) != nullptr;
 
@@ -1298,11 +1298,11 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
       ctx_->io,
       [self, path, options, slot, failMsg, pluginId,
        created]() -> asio::awaitable<void> {
-        // JS 插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 装载;
+        // JS插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 装载;
         // 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
         const fs::path pluginPath{path};
         // 清单字段只有一处实现: 内核解析 name/entry/depends,
-        // 宿主读自己的扩展字段
+        // 框架读自己的扩展字段
         std::string manifestName;
         std::string manifestEntry;
         std::vector<std::string> manifestDepends;
@@ -1322,8 +1322,8 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         const std::string manifestVersion = manifestFields.version;
         const std::vector<std::string> manifestScripts = manifestFields.scripts;
         if (manifestKind == "js") {
-          // 依赖检查 (JS 插件专用): 内核的按名依赖检查用实例名查表, 而 JS
-          // 实例名是 `js:<id>`, 所以 JS 插件走不了那条路; 这里按**插件 id**
+          // 依赖检查 (JS插件专用): 内核的按名依赖检查用实例名查表, 而 JS
+          // 实例名是 `js:<id>`, 所以 JS插件走不了那条路; 这里按**插件 id**
           // 自己校验一遍, 语义与动态库插件一致 (必选依赖未加载 → 拒绝加载;
           // 可选依赖 → 只记日志)。 记录到实例上的依赖用**实例名** (JS 依赖写成
           // `js:<id>`), 这样内核的 "启用依赖 / 级联卸载依赖者"
@@ -1337,7 +1337,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             const auto depInst = self->resolveInstance(dep);
             if (!depInst) {
               *failMsg =
-                  "JS 插件加载失败: 必选依赖 `" + dep + "` 未加载 (请先加载它)";
+                  "JS插件加载失败: 必选依赖 `" + dep + "` 未加载 (请先加载它)";
               Json payload;
               payload["id"] = pluginId;
               payload["phase"] = "load";
@@ -1353,7 +1353,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           for (const auto &dep : jsOptionalDepends) {
             const auto depInst = self->resolveInstance(dep);
             if (!depInst) {
-              XX_LOGW("[musicxx_ext] JS 插件 `{}` 的可选依赖 `{}` 未加载",
+              XX_LOGW("[musicxx_ext] JS插件 `{}` 的可选依赖 `{}` 未加载",
                       pluginId, dep);
               continue;
             }
@@ -1383,7 +1383,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             if (auto engine = self->jsEngine()) {
               engine->unregisterBuiltin(pluginId);
             }
-            *failMsg = "JS 插件装载失败 (脚本错误或 start 事务失败; "
+            *failMsg = "JS插件装载失败 (脚本错误或 start 事务失败; "
                        "详见日志与调试信息)";
             Json payload;
             payload["id"] = pluginId;
@@ -1492,7 +1492,7 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
     err = "plugin_unload: host not started";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 幂等: 未加载视为"已经是未加载状态"; 插件 id 与实例名都接受 (JS 插件实例名为
+  // 幂等: 未加载视为"已经是未加载状态"; 插件 id 与实例名都接受 (JS插件实例名为
   // js:<id>)
   auto inst = resolveInstance(id);
   if (!inst) {
@@ -1584,14 +1584,14 @@ int32_t MusicxxHostManager::pluginConfigPath(const std::string &id,
 
 namespace {
 
-/// 能力调用的**受理**上下文: 宿主线程判定"能不能受理", 调用线程只看这一步
+/// 能力调用的**受理**上下文: 框架线程判定"能不能受理", 调用线程只看这一步
 ///
 /// 只覆盖受理判定 (查实例表与能力表), **不含插件能力本身的执行时间** ——
 /// 后者不等待, 结果经 `musicxx.plugin.call.result` 事件回来。
 struct PluginCallState {
   WaitSlot<int32_t> slot;
   std::string error;
-  /// 调用方已经不等受理结果了 (超过受理窗口): 宿主线程看到它就不要真的发起能力
+  /// 调用方已经不等受理结果了 (超过受理窗口): 框架线程看到它就不要真的发起能力
   std::atomic<bool> cancelled{false};
 };
 
@@ -1604,7 +1604,7 @@ struct CapabilityCallBridge {
   std::function<void(int32_t, const std::string &)> done;
 };
 
-/// 内核能力完成回调 (恒在宿主线程发布)
+/// 内核能力完成回调 (恒在框架线程发布)
 void PLUGINXX_CALL capabilityCallTrampoline(
     void *ud, int32_t status, const PluginxxStringView *payload) noexcept {
   std::unique_ptr<CapabilityCallBridge> holder{
@@ -1635,7 +1635,7 @@ int32_t MusicxxHostManager::acceptCapabilityCall(const std::string &id,
     problem = "plugin_call: id 与 method 都不能为空";
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由宿主补齐
+  // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由插件框架补齐
   cap = method.rfind("plugin.", 0) == 0 ? method
                                         : ("plugin." + id + "." + method);
   auto inst = resolveInstance(id);
@@ -1723,7 +1723,7 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
   const int64_t requestId = nextCallId_.fetch_add(1, std::memory_order_relaxed);
   const auto started = std::chrono::steady_clock::now();
 
-  // 受理判定要在宿主线程上做 (实例表与能力表都归它); 判定本身只是几次查表,
+  // 受理判定要在框架线程上做 (实例表与能力表都归它); 判定本身只是几次查表,
   // **不等插件能力执行** —— 发起之后立刻返回, 结果经事件回给调用方。
   asio::post(ctx_->io,
              [self, state, id, method, argsJson, requestId, started]() {
@@ -1749,7 +1749,7 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
                    inst.get(), cap, argsJson,
                    [self, requestId, id, method,
                     started](int32_t callRc, const std::string &text) {
-                     // 已经收过终局 (插件卸载 / 宿主停机) 的不再补一条
+                     // 已经收过终局 (插件卸载 / 框架停机) 的不再补一条
                      if (false == self->takePendingCall(requestId)) {
                        return;
                      }
@@ -1761,7 +1761,7 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
   int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   if (!state->slot.wait(capabilityAcceptWaitMs, rc)) {
     state->cancelled.store(true, std::memory_order_release);
-    err = "plugin_call: 宿主正忙, 未在 " +
+    err = "plugin_call: 插件框架正忙, 未在 " +
           std::to_string(capabilityAcceptWaitMs) + " ms 内受理 (" + id + "." +
           method + ")";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
@@ -1805,7 +1805,7 @@ void MusicxxHostManager::pushCapabilityCallResult(
   if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
     payload["result"] = parseJsonSafe(text);
   } else if (!reason.empty()) {
-    // 不是插件给的结果 (插件卸载 / 宿主停机): 说法用 reason, 插件自己的说明放
+    // 不是插件给的结果 (插件卸载 / 框架停机): 说法用 reason, 插件自己的说明放
     // detail
     payload["error"] = reason;
     if (!text.empty()) {
@@ -1846,7 +1846,7 @@ void MusicxxHostManager::finishAllPendingCalls() {
   for (const auto &hit : hits) {
     pushCapabilityCallResult(hit.first, hit.second.id, hit.second.method,
                              MUSICXX_EXTERN_PLUGIN_ERR_STATE, std::string{},
-                             hit.second.started, "host_stopped: 宿主已停止");
+                             hit.second.started, "host_stopped: 插件框架已停止");
   }
 }
 
@@ -1894,16 +1894,16 @@ int32_t MusicxxHostManager::publishPluginEvent(const std::string &topic,
   if (!running_.load(std::memory_order_acquire)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 宿主自身没有插件命名空间: 只允许发布官方主题 (插件自定义主题由插件自己发布)
+  // 插件框架自身没有插件命名空间: 只允许发布官方主题 (插件自定义主题由插件自己发布)
   if (topic.rfind("musicxx.", 0) != 0) {
-    XX_LOGW("[musicxx_ext] 宿主发布事件被拒绝: 主题 `{}` 必须以 musicxx. 开头",
+    XX_LOGW("[musicxx_ext] 插件框架发布事件被拒绝: 主题 `{}` 必须以 musicxx. 开头",
             topic);
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
   auto self = shared_from_this();
-  // 事件总线的订阅/发布约定在宿主线程: 投递后立即返回 (调用方通常是 Dart 线程)
+  // 事件总线的订阅/发布约定在框架线程: 投递后立即返回 (调用方通常是 Dart 线程)
   asio::post(ctx_->io, [self, topic, payload] {
     self->publishOnHostThread(topic, payload);
   });
@@ -1918,7 +1918,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
   /// 事件计数与速率 (只观测不限制): 只有插件自定义主题才归属到插件,
-  /// 官方 `musicxx.*` 主题 (宿主/Dart 发布) 不计入任何插件的速率
+  /// 官方 `musicxx.*` 主题 (插件框架/Dart 发布) 不计入任何插件的速率
   accountEventForTopic(fullTopic);
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
@@ -1982,7 +1982,7 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
     state_[key] = text;
   }
   // 通知"声明关心该键"的插件 (musicxx.host.subscribe_state):
-  // 事件处理必须回到宿主线程, 因此这里投递后立即返回 (调用方通常是 Dart 线程)
+  // 事件处理必须回到框架线程, 因此这里投递后立即返回 (调用方通常是 Dart 线程)
   {
     auto self = shared_from_this();
     asio::post(ctx_->io, [self, key, text] {
@@ -2044,7 +2044,7 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
     j["queue"] = {{"size", static_cast<int64_t>(events_.size())},
                   {"dropped", eventDropped_}};
   }
-  // JS 运行时诊断 (是否可用/线程状态/每个 JS 插件的注册与错误计数)
+  // JS 运行时诊断 (是否可用/线程状态/每个 JS插件的注册与错误计数)
   {
     auto engine = jsEngine();
     j["js"] = engine ? parseJsonSafe(engine->statsJson())
@@ -2093,7 +2093,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
     host["hooks"] = hooks;
   }
   /// 共享 JS 线程的排队情况 (队列深度/排队等待时长/定时器数;
-  /// 宿主不打断脚本, 只用这些数字在管理页提示"某个脚本正在占住 JS 线程")
+  /// 插件框架不打断脚本, 只用这些数字在管理页提示"某个脚本正在占住 JS 线程")
   if (jsEngine_) {
     host["js"] = parseJsonSafe(jsEngine_->statsJson());
   }
@@ -2135,7 +2135,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"eventsAvgPerSec", uptimeMs > 0 ? events * 1000 / uptimeMs : 0},
         {"errors", inst->errors.load()},
     };
-    /// JS 插件: 用 JS 运行时的堆用量采样值 (native
+    /// JS插件: 用 JS 运行时的堆用量采样值 (native
     /// 插件无法精确统计, 只能由插件经 musicxx.stats 自报)
     int64_t jsHeap = -1;
     if (jsEngine_ && inst->kind == "js") {
@@ -2149,7 +2149,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"jsHeapBytes", jsHeap < 0 ? 0 : jsHeap},
         {"jsHeapSampled", jsHeap >= 0},
     };
-    /// JS 插件附带运行时段的明细 (钩子/能力/订阅/定时器/脚本执行次数/堆用量/
+    /// JS插件附带运行时段的明细 (钩子/能力/订阅/定时器/脚本执行次数/堆用量/
     /// 异步裁决结算次数), 供管理页与排障直接读取
     if (jsEngine_ && inst->kind == "js") {
       p["js"] = parseJsonSafe(jsEngine_->instanceStatsJson(inst->name));
@@ -2216,7 +2216,7 @@ int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
   if (cfg.contains("flags") && cfg["flags"].is_number_integer()) {
     flags_ = cfg["flags"].get<int32_t>();
   }
-  // JS 侧同步读宿主信息: 配置变化后刷新缓存 (避免跨线程读管理器字段)
+  // JS 侧同步读框架信息: 配置变化后刷新缓存 (避免跨线程读管理器字段)
   refreshJsHostInfo();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

@@ -1,4 +1,4 @@
-/// musicxx 外部插件原生宿主 (musicxx_extern_plugin host)
+/// musicxx 外部插件原生插件框架 (musicxx_extern_plugin host)
 ///
 /// 结构:
 /// - [MusicxxHostInstance]: 继承内核 `pluginxx::PluginInstanceBase`, 提供
@@ -7,11 +7,11 @@
 /// (装载/启停/禁用启用/卸载/级联依赖)
 ///   与 `DomainHooks` (通用表取数), 并实现 musicxx 领域表 (`musicxx.hooks` /
 ///   `musicxx.host`);
-/// - [HostContext]: 宿主线程 (asio::io_context + 1 条线程)
+/// - [HostContext]: 框架线程 (asio::io_context + 1 条线程)
 /// 与工作线程池的所有者。
 ///
-/// 线程模型: 全部动态库插件代码在**唯一**宿主线程上顺序执行; Dart
-/// 线程只在 同步 FFI 调用期间被借用, 并有等待上界; 插件不得阻塞宿主线程
+/// 线程模型: 全部动态库插件代码在**唯一**框架线程上顺序执行; Dart
+/// 线程只在 同步 FFI 调用期间被借用, 并有等待上界; 插件不得阻塞框架线程
 /// (慢操作走 offload)。
 #pragma once
 
@@ -58,7 +58,7 @@ const void *varsIfaceForQuery();
 
 /* ==================== 有界等待槽 ==================== */
 
-/// 宿主线程完成工作后唤醒等待方 (调用方线程等待有上界)
+/// 框架线程完成工作后唤醒等待方 (调用方线程等待有上界)
 template <typename T> struct WaitSlot {
   std::mutex mutex;
   std::condition_variable cv;
@@ -96,13 +96,13 @@ template <typename T> struct WaitSlot {
   }
 };
 
-/* ==================== 宿主内运行时接驳口 ==================== */
+/* ==================== 插件框架内运行时接驳口 ==================== */
 
-/// 宿主内运行时 (JS 引擎) 的"任意线程动作请求"接驳口
+/// 插件框架内运行时 (JS 引擎) 的"任意线程动作请求"接驳口
 ///
 /// 背景 (这样才不会出现互相等待): JS 代码只在共享 JS 线程上执行,
-/// 而宿主 线程派发裁决型钩子时会**等待 JS 处理器**。因此 JS
-/// 侧发起的动作请求绝不能"投递到 宿主线程再等待" —— 那会和"宿主线程正等
+/// 而插件框架 线程派发裁决型钩子时会**等待 JS 处理器**。因此 JS
+/// 侧发起的动作请求绝不能"投递到 框架线程再等待" —— 那会和"框架线程正等
 /// JS"互锁。JS 引擎自己登记还没回复的请求 (任意线程 可读写的表), 只把事件推给 Dart;
 /// Dart 的回复经 [MusicxxHostManager::actionRespond] 转交到这里。
 class InternalActionRelay {
@@ -114,13 +114,13 @@ public:
   virtual bool respondAction(int64_t requestId, int32_t status,
                              const std::string &resultJson) = 0;
 
-  /// 取消某实例的全部未完成请求 (**任意线程**; 实例卸载/禁用/宿主关闭时统一取消)
+  /// 取消某实例的全部未完成请求 (**任意线程**; 实例卸载/禁用/插件框架关闭时统一取消)
   virtual void cancelActionsOf(const std::string &instanceName) = 0;
 };
 
 /* ==================== 插件实例 ==================== */
 
-/// 宿主侧插件实例 (元信息/生命周期入口由内核框架补齐)
+/// 框架侧插件实例 (元信息/生命周期入口由内核框架补齐)
 ///
 /// 前置声明: 实例持有管理器弱引用 (内核 vtable 入口据此解析实例 → 管理器)
 class MusicxxHostManager;
@@ -130,7 +130,7 @@ public:
   explicit MusicxxHostInstance(std::string instanceName)
       : pluginxx::PluginInstanceBase(std::move(instanceName)) {}
 
-  /// 本宿主插件的 destroy 入口符号名 (与 `MUSICXX_PLUGIN_SYMBOL_DESTROY` 一致)
+  /// 本框架插件的 destroy 入口符号名 (与 `MUSICXX_PLUGIN_SYMBOL_DESTROY` 一致)
   const char *pluginDestroySymbol() const noexcept override {
     return MUSICXX_PLUGIN_SYMBOL_DESTROY;
   }
@@ -146,14 +146,14 @@ public:
   /// 选中的库文件（相对插件目录的路径；供管理页展示）
   std::string targetEntry;
 
-  /// 清单声明的接口段 (内核生命周期框架会写入; 本宿主 v1 不做接口协商)
+  /// 清单声明的接口段 (内核生命周期框架会写入; 本框架 v1 不做接口协商)
   pluginxx::PluginManifestInterfaces interfaces;
 
   /// 管理器弱引用 (内核 vtable 入口据此解析"实例 → 管理器"; 由 createInstance
   /// 设置)
   std::weak_ptr<MusicxxHostManager> manager;
 
-  /// 配置文件路径 (config.json; 宿主推导)
+  /// 配置文件路径 (config.json; 框架推导)
   std::string configPath;
 
   /// 资源与阶段耗时统计 (只观测不限制)
@@ -172,7 +172,7 @@ public:
   std::atomic<int64_t> errors{0};
   std::atomic<int64_t> selfReportedBytes{0};
 
-  /* ---------- 事件发布速率 (宿主线程维护; 统计只观测不限制) ---------- */
+  /* ---------- 事件发布速率 (框架线程维护; 统计只观测不限制) ---------- */
 
   /// 装载完成的 steady 毫秒 (平均速率用)
   int64_t loadedAtMs = 0;
@@ -186,10 +186,10 @@ public:
 
 class MusicxxHostManager;
 
-/* ==================== 宿主上下文 (线程与线程池的所有者) ====================
+/* ==================== 插件框架上下文 (线程与线程池的所有者) ====================
  */
 
-/// 宿主上下文: 保证 io_context 先于管理器存在 (管理器构造函数需要它的 executor)
+/// 插件框架上下文: 保证 io_context 先于管理器存在 (管理器构造函数需要它的 executor)
 struct HostContext {
   asio::io_context io;
   asio::executor_work_guard<asio::io_context::executor_type> guard;
@@ -201,7 +201,7 @@ struct HostContext {
   ~HostContext();
 };
 
-/* ==================== 宿主管理器 ==================== */
+/* ==================== 插件框架管理器 ==================== */
 
 class MusicxxHostManager final
     : public pluginxx::PluginHostLifecycle<MusicxxHostInstance>,
@@ -218,7 +218,7 @@ public:
 
   ~MusicxxHostManager() override;
 
-  /// 启动宿主线程 + 装载插件 (幂等)
+  /// 启动框架线程 + 装载插件 (幂等)
   int32_t start(std::string &err);
 
   /// 同步停止 (幂等): 卸载全部插件 → 停线程池 → 停 io 线程
@@ -260,39 +260,39 @@ public:
   /// - **只受理不等待结果**: 受理成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出
   ///   `outRequestId`; 结果经事件 `musicxx.plugin.call.result` 回给调用方
   ///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
-  /// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 宿主没在跑) 直接返回负错误码,
+  /// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 插件框架没在跑) 直接返回负错误码,
   ///   **不推结果事件**;
   /// - **没有 timeout 参数**: 超时是调用方的事 (它自己不等了, 结果丢弃);
   /// - **受理成功 ⇒ 一定有终局**: 正常结果、执行失败、插件卸载 (`plugin_unloaded`)、
-  ///   宿主停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
-  /// - 受理判定要在宿主线程上做 (实例表与能力表都归它), 因此这里等一个**很短的受理窗口**:
-  ///   宿主线程正忙于别的插件代码时不无限期占用调用线程, 超过窗口按"未及时受理"失败。
+  ///   框架停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
+  /// - 受理判定要在框架线程上做 (实例表与能力表都归它), 因此这里等一个**很短的受理窗口**:
+  ///   框架线程正忙于别的插件代码时不无限期占用调用线程, 超过窗口按"未及时受理"失败。
   int32_t pluginCallAsync(const std::string &id, const std::string &method,
                           const std::string &argsJson, int64_t &outRequestId,
                           std::string &err);
 
-  /// 调用插件能力 (**不等待版本**; 任意线程调用, 完成回调在宿主线程)
+  /// 调用插件能力 (**不等待版本**; 任意线程调用, 完成回调在框架线程)
   ///
-  /// 给"不能让宿主线程停下来等结果"的场景使用 (例如 JS 线程发起的跨插件调用:
-  /// 若在那里同步等待宿主线程, 而宿主线程可能正等待 JS 处理器 → 互锁)。
+  /// 给"不能让框架线程停下来等结果"的场景使用 (例如 JS 线程发起的跨插件调用:
+  /// 若在那里同步等待框架线程, 而框架线程可能正等待 JS 处理器 → 互锁)。
   /// - 语义与 [pluginCallAsync] 一致 (能力名前缀补齐、归属校验、错误码);
-  /// - `done(rc, text)` 在**宿主线程**恰好一次; rc == 0 时 text 是结果 JSON,
+  /// - `done(rc, text)` 在**框架线程**恰好一次; rc == 0 时 text 是结果 JSON,
   /// 否则是错误说明。
   void pluginCallAsync(const std::string &id, const std::string &method,
                        const std::string &argsJson,
                        std::function<void(int32_t, const std::string &)> done);
 
-  /// 受理窗口 (毫秒): 等宿主线程判定"这次能不能受理"的上界
+  /// 受理窗口 (毫秒): 等框架线程判定"这次能不能受理"的上界
   ///
   /// 只是**受理判定** (查实例表与能力表), 不含插件能力本身执行的时间 —— 后者不等待。
-  /// 宿主线程正忙于别的插件代码时, 超过这个窗口就按"未及时受理"失败, 不占用调用线程。
+  /// 框架线程正忙于别的插件代码时, 超过这个窗口就按"未及时受理"失败, 不占用调用线程。
   static constexpr uint32_t capabilityAcceptWaitMs = 2000;
 
   /* ---------- 钩子 ---------- */
 
   /// 派发钩子
   ///
-  /// `timeoutMs` 保留在签名里（C ABI 冻结）但**不再使用**: 宿主不设等待超时,
+  /// `timeoutMs` 保留在签名里（C ABI 冻结）但**不再使用**: 插件框架不设等待超时,
   /// 同步派发会一直等到处理器链结束。
   int32_t hookEmit(const std::string &hookId, const std::string &inputJson,
                    bool sync, uint32_t timeoutMs, std::string &outJson,
@@ -322,7 +322,7 @@ public:
   int32_t actionRespond(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 
-  /// 取消未完成动作 (插件卸载/宿主关闭时统一取消)
+  /// 取消未完成动作 (插件卸载/插件框架关闭时统一取消)
   void cancelAction(int64_t requestId);
 
   /* ---------- 状态镜像 (Dart → 原生) ---------- */
@@ -341,27 +341,27 @@ public:
   void applyLanguage(const std::string &lang);
   void logMessage(int32_t level, const std::string &message);
 
-  /// 宿主 → 插件事件总线发布 (主题按命名空间校验; 投递到宿主线程执行)
+  /// 插件框架 → 插件事件总线发布 (主题按命名空间校验; 投递到框架线程执行)
   ///
-  /// Dart 侧 (C ABI) 入口: 宿主自身只能发布官方 `musicxx.*` 主题。
+  /// Dart 侧 (C ABI) 入口: 插件框架自身只能发布官方 `musicxx.*` 主题。
   int32_t publishPluginEvent(const std::string &topic,
                              const std::string &payloadJson);
 
-  /// 在宿主线程上发布事件 (插件 events 表入口调用; 调用方保证已在宿主线程)
+  /// 在框架线程上发布事件 (插件 events 表入口调用; 调用方保证已在框架线程)
   int32_t publishOnHostThread(const std::string &topic,
                               const std::string &payloadJson);
 
-  /// 事件计数与速率 (宿主线程; 只观测不限制): 按主题命名空间归属到插件实例
+  /// 事件计数与速率 (框架线程; 只观测不限制): 按主题命名空间归属到插件实例
   void accountEventForTopic(const std::string &topic);
 
-  /* ---------- 领域表实现 (供 tables 调用; 均在宿主线程执行) ---------- */
+  /* ---------- 领域表实现 (供 tables 调用; 均在框架线程执行) ---------- */
 
   int32_t registerHook(MusicxxHostInstance *inst,
                        const MusicxxPluginHookSpec &spec);
   int32_t unregisterHook(MusicxxHostInstance *inst, std::string_view hookId,
                          std::string_view ownerTag);
   int32_t hookInfoJson(std::string_view hookId, std::string &outJson);
-  /// 宿主信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
+  /// 框架信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
   ///
   /// [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是我自己发起的"
   /// 就得知道自己的 id（功能点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
@@ -377,20 +377,20 @@ public:
                         const PluginxxOperatorNotify *notify,
                         int64_t *outRequestId);
 
-  /// 宿主线程执行器 (投递到宿主线程执行用; 动态库插件代码都在这条线程上跑)
+  /// 框架线程执行器 (投递到框架线程执行用; 动态库插件代码都在这条线程上跑)
   ///
-  /// 供宿主内运行时 (JS 引擎) 把"运行期注册/订阅"等操作投递到宿主线程执行 ——
-  /// 宿主线程独占注册表, 因此这些操作不能直接在其他线程改状态。
+  /// 供插件框架内运行时 (JS 引擎) 把"运行期注册/订阅"等操作投递到框架线程执行 ——
+  /// 框架线程独占注册表, 因此这些操作不能直接在其他线程改状态。
   asio::any_io_executor hostExecutor() const;
 
   /// 当前插件 id (由实例名推导; JS 实例名为 "js:<id>")
   static std::string pluginIdOf(std::string_view instanceName);
 
-  /* ---------- UI 声明式扩展 (均在宿主线程执行) ---------- */
+  /* ---------- UI 声明式扩展 (均在框架线程执行) ---------- */
 
   /// 注册/覆盖一个 UI 项
   ///
-  /// - `spec.item_id` 可以是短名 (宿主补 `plugin.<pluginId>.` 前缀)
+  /// - `spec.item_id` 可以是短名 (插件框架补 `plugin.<pluginId>.` 前缀)
   /// 或本插件的全名;
   /// - 类型必须是官方 `MUSICXX_PLUGIN_UI_TYPE_*` 之一, data 结构按类型校验;
   /// - 项数不设上限。
@@ -412,9 +412,9 @@ public:
 
   /// UI 项数量不设上限 (早期版本每个插件最多 64 项, 已移除)
 
-  /* ---------- 变量表 (均在宿主线程执行) ---------- */
+  /* ---------- 变量表 (均在框架线程执行) ---------- */
 
-  /// 变量表只保留"未回执请求"这一个容量限制 (避免慢属主把宿主事件队列灌满);
+  /// 变量表只保留"未回执请求"这一个容量限制 (避免慢属主把框架事件队列灌满);
   /// 变量数、变量总数、键长、值大小、订阅数都不再限制。
   static constexpr int32_t kMaxVarPendingPerPlugin = 32;
 
@@ -425,10 +425,10 @@ public:
   /// 注销一个变量 (只能注销自己的; 不存在返回 `ERR_NOT_FOUND`)
   int32_t unregisterVar(MusicxxHostInstance *inst, std::string_view key);
 
-  /// 异步读: 宿主向属主取一次真实值, 完成后调用 `notify->done` 恰好一次
+  /// 异步读: 插件框架向属主取一次真实值, 完成后调用 `notify->done` 恰好一次
   ///
   /// - 官方键由应用回答 (`musicxx.var.read` → `var_read_result`);
-  /// - `declared` 模式的插件变量由宿主立即作答 (值就在注册表里);
+  /// - `declared` 模式的插件变量由插件框架立即作答 (值就在注册表里);
   /// - 同一键上未完成的读请求合并 (新的读只挂到等待者列表上)。
   int32_t getVar(MusicxxHostInstance *inst, std::string_view key,
                  const PluginxxOperatorNotify *notify, int64_t *outRequestId);
@@ -464,12 +464,12 @@ public:
                      const std::string &valueJson, const std::string &error,
                      std::string &outJson);
 
-  /* ---------- 变量表 · 应用侧入口 (C ABI 调用; 均在宿主线程执行) ---------- */
+  /* ---------- 变量表 · 主程序入口 (C ABI 调用; 均在框架线程执行) ---------- */
 
   /// 应用声明一批变量 (items_json = 声明数组; 逐项失败只记日志)
   int32_t declareVars(const std::string &itemsJson, std::string &log);
 
-  /// 应用推值 (官方键的应用侧变动; 只有真变化才通知)
+  /// 应用推值 (官方键的主程序变动; 只有真变化才通知)
   int32_t updateVar(const std::string &key, const std::string &valueJson,
                     std::string &err);
   int32_t updateVarsBatch(const std::string &itemsJson, std::string &err);
@@ -497,22 +497,22 @@ public:
   int32_t subscribeVarsForApp(const std::string &keysJson, bool subscribe,
                               std::string &err);
 
-  /// 变量表快照 (管理页"变量"区块 / 宿主调试信息)
+  /// 变量表快照 (管理页"变量"区块 / 插件框架调试信息)
   std::string varsDebugJson() const;
 
   /// 摘除某实例的全部变量与订阅 (生命周期钩子; 推送 `removed` 通知)
   void detachVars(const std::string &instanceName);
 
-  /// 按**插件 id 或实例名**解析实例 (JS 插件实例名是 `js:<id>`, 与插件 id 不同)
+  /// 按**插件 id 或实例名**解析实例 (JS插件实例名是 `js:<id>`, 与插件 id 不同)
   ///
   /// 插件管理入口 (启停/卸载/能力调用/配置路径) 都接受 Dart 侧传来的插件 id,
   /// 因此统一经这里解析; 动态库插件的实例名恰好等于插件 id。
   std::shared_ptr<MusicxxHostInstance>
   resolveInstance(const std::string &idOrInstance) const;
 
-  /* ---------- 宿主内运行时 (JS 引擎) ---------- */
+  /* ---------- 插件框架内运行时 (JS 引擎) ---------- */
 
-  /// 注册宿主内运行时的动作请求接驳口 (JS 引擎创建时调用)
+  /// 注册插件框架内运行时的动作请求接驳口 (JS 引擎创建时调用)
   void setInternalActionRelay(std::shared_ptr<InternalActionRelay> relay);
 
   /// 分配一个请求 id (**任意线程**; 动态库插件与 JS 引擎共用同一计数器,
@@ -522,7 +522,7 @@ public:
   /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做请求登记)
   ///
   /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态 (见 [InternalActionRelay]),
-  /// 宿主这里只做事件推送 (动作名不做校验, 由 Dart 侧按注册表决定理不理它)。
+  /// 插件框架这里只做事件推送 (动作名不做校验, 由 Dart 侧按注册表决定理不理它)。
   /// - 返回 0 = 已推送; -1 = 参数非法
   /// - `outEffectiveTimeoutMs` 输出实际生效的超时 (0 = 不设超时, 由调用方/插件自担)
   int32_t pushActionRequestEvent(const std::string &pluginId, int64_t requestId,
@@ -531,18 +531,18 @@ public:
                                  uint32_t timeoutMs,
                                  int64_t *outEffectiveTimeoutMs);
 
-  /// 插件发布事件 (**任意线程**; 主题归属校验后再投递到宿主线程)
+  /// 插件发布事件 (**任意线程**; 主题归属校验后再投递到框架线程)
   int32_t publishPluginEventFrom(const std::string &pluginId,
                                  const std::string &topic,
                                  const std::string &payloadJson);
 
-  /// 取消某实例的全部未完成请求 (**任意线程**): 宿主侧登记 + JS 引擎侧登记
+  /// 取消某实例的全部未完成请求 (**任意线程**): 框架侧登记 + JS 引擎侧登记
   void cancelActionsOfInstance(const std::string &instanceName);
 
   /// JS 引擎实例 (未启用 JS 运行时或未启动时为空)
   std::shared_ptr<JsEngine> jsEngine() const;
 
-  /// 注册 JS 插件的内置槽位并把插件目录登记到 discovered_ (装载前调用)
+  /// 注册 JS插件的内置槽位并把插件目录登记到 discovered_ (装载前调用)
   ///
   /// - `pluginDir` 为插件目录; 脚本取清单 `scripts`（按顺序执行），没写时取
   /// `entryHint` (以 .js 结尾时) 或 `plugin.js`;
@@ -593,16 +593,16 @@ protected:
 private:
   MusicxxHostManager(asio::any_io_executor ex);
 
-  /// 应用宿主配置 (create() 里调用; 解析路径/开关)
+  /// 应用框架配置 (create() 里调用; 解析路径/开关)
   void applyConfig(const MusicxxExternPluginHostConfig &cfg);
 
   /// 记录客户端界面能力段 (JSON 文本; 只校验是不是 JSON 对象, 不解释内容)
   void setUiCapabilities(const std::string &capabilitiesJson);
 
-  /// 在宿主线程上绑定 IO 线程标识 (start() 里调用; 失败返回 false)
+  /// 在框架线程上绑定 IO 线程标识 (start() 里调用; 失败返回 false)
   bool bindIoThread();
 
-  /// 刷新 JS 引擎的宿主信息缓存 (语言/配置变化时; 供 JS 侧同步读)
+  /// 刷新 JS 引擎的框架信息缓存 (语言/配置变化时; 供 JS 侧同步读)
   void refreshJsHostInfo();
 
   /// 钩子处理器登记项
@@ -632,13 +632,13 @@ private:
     std::shared_ptr<asio::steady_timer> timer;
   };
 
-  /// 在宿主线程发起能力调用 (**必须已在宿主线程调用**; 两个 pluginCallAsync 共用)
+  /// 在框架线程发起能力调用 (**必须已在框架线程调用**; 两个 pluginCallAsync 共用)
   void invokeCapabilityOnHostThread(
       const std::string &id, const std::string &method,
       const std::string &argsJson,
       std::function<void(int32_t, const std::string &)> done);
 
-  /// 受理一次能力调用 (**必须已在宿主线程调用**)
+  /// 受理一次能力调用 (**必须已在框架线程调用**)
   ///
   /// 做三件事: 能力全名补齐 (`method` 缺 `plugin.` 前缀时补 `plugin.<id>.`)、
   /// 目标实例查找、能力声明与归属校验。
@@ -647,7 +647,7 @@ private:
                                const std::string &method, std::string &cap,
                                InstancePtr &outInst, std::string &problem);
 
-  /// 发起一次已受理的能力调用 (**必须已在宿主线程调用**)
+  /// 发起一次已受理的能力调用 (**必须已在框架线程调用**)
   void startCapabilityCall(MusicxxHostInstance *inst, const std::string &cap,
                            const std::string &argsJson,
                            std::function<void(int32_t, const std::string &)>
@@ -655,7 +655,7 @@ private:
 
   /// 一次 Dart → 插件能力调用的记账 (受理成功到终局之间)
   ///
-  /// 作用只有一个: **保证每一次受理都有终局** —— 插件被卸载、宿主停机时,
+  /// 作用只有一个: **保证每一次受理都有终局** —— 插件被卸载、框架停机时,
   /// 还没回来的调用要按 `plugin_unloaded` / `host_stopped` 收尾, 调用方不能一直等。
   struct PendingCapabilityCall {
     std::string id;      ///< 目标插件 id (卸载时按它匹配)
@@ -663,7 +663,7 @@ private:
     std::chrono::steady_clock::time_point started{};
   };
 
-  /// 受理成功后记账 (**宿主线程**)
+  /// 受理成功后记账 (**框架线程**)
   void rememberPendingCall(int64_t requestId, const std::string &id,
                            const std::string &method,
                            std::chrono::steady_clock::time_point started);
@@ -673,20 +673,20 @@ private:
 
   /// 推一条能力调用结果事件 `musicxx.plugin.call.result`
   ///
-  /// [reason] 非空时表示"不是插件给的结果" (插件卸载 / 宿主停机), `error` 用它的说法。
+  /// [reason] 非空时表示"不是插件给的结果" (插件卸载 / 框架停机), `error` 用它的说法。
   void pushCapabilityCallResult(int64_t requestId, const std::string &id,
                                 const std::string &method, int32_t rc,
                                 const std::string &text,
                                 std::chrono::steady_clock::time_point started,
                                 const std::string &reason = std::string{});
 
-  /// 某个插件身上还没回来的调用按 `plugin_unloaded` 收尾 (**宿主线程**)
+  /// 某个插件身上还没回来的调用按 `plugin_unloaded` 收尾 (**框架线程**)
   void finishPendingCallsOf(const std::string &pluginId);
 
-  /// 全部还没回来的调用按 `host_stopped` 收尾 (**宿主线程**)
+  /// 全部还没回来的调用按 `host_stopped` 收尾 (**框架线程**)
   void finishAllPendingCalls();
 
-  /// 未完成的 Dart → 插件能力调用 (requestId → 记账); 只在宿主线程上改
+  /// 未完成的 Dart → 插件能力调用 (requestId → 记账); 只在框架线程上改
   std::map<int64_t, PendingCapabilityCall> pendingCalls_;
 
   /// 能力调用 requestId 分配器 (受理阶段在任意线程取号, 所以要原子)
@@ -694,7 +694,7 @@ private:
 
   /// 钩子派发模式
   ///
-  /// - `Sync`：裁决型同步派发（Dart 线程等待结果；宿主不设等待超时）
+  /// - `Sync`：裁决型同步派发（Dart 线程等待结果；插件框架不设等待超时）
   /// - `Notify`：观察型派发（入队即返回，不等待、不回报结果）
   /// - `AsyncDecide`：裁决型异步派发（不占用 Dart 线程，完成后推
   ///   `musicxx.hook.decision.result` 事件）
@@ -704,7 +704,7 @@ private:
     AsyncDecide,
   };
 
-  /// 宿主线程上执行的派发（按 [mode] 决定是否等待结果、是否回报事件）
+  /// 框架线程上执行的派发（按 [mode] 决定是否等待结果、是否回报事件）
   std::string dispatchHook(const std::string &hookId,
                            const std::string &inputJson,
                            HookDispatchMode mode);
@@ -714,7 +714,7 @@ private:
   std::string deriveConfigPath(const std::string &pluginId,
                                const std::string &pluginDir) const;
 
-  /// 装载原生插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给内核
+  /// 装载动态库插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给内核
   /// `loadNativeAsync`（清单读 name/depends/资源声明，依赖检查与目录装载一致）。
   ///
   /// - `failReason` 在失败时给出用户可读原因（分支不匹配 / 库文件缺失 / 依赖未加载）；
@@ -729,10 +729,10 @@ private:
   std::atomic<bool> running_{false};
   std::atomic<bool> started_{false};
 
-  /// 宿主 IO 线程标识是否已在 start() 里绑定 (见 bindIoThread 的说明)
+  /// 插件框架 IO 线程标识是否已在 start() 里绑定 (见 bindIoThread 的说明)
   std::atomic<bool> ioThreadBound_{false};
 
-  // 事件队列 (多生产者: 宿主线程/工作线程池/Dart 线程)
+  // 事件队列 (多生产者: 框架线程/工作线程池/Dart 线程)
   mutable std::mutex eventMutex_;
   std::deque<std::string> events_; ///< 已序列化的事件 JSON
   int64_t eventSeq_ = 0;
@@ -741,11 +741,11 @@ private:
   MusicxxExternPluginWakeFn wakeFn_ = nullptr;
   void *wakeUser_ = nullptr;
 
-  // 状态镜像 (Dart 线程写, 宿主线程读)
+  // 状态镜像 (Dart 线程写, 框架线程读)
   mutable std::mutex stateMutex_;
   std::map<std::string, std::string, std::less<>> state_;
 
-  // 钩子注册表 (仅宿主线程)
+  // 钩子注册表 (仅框架线程)
   std::map<std::string, std::vector<HookHandler>, std::less<>> hooks_;
   uint64_t hookSeq_ = 0;
 
@@ -760,21 +760,21 @@ private:
     uint64_t seq = 0; ///< 注册顺序 (同 order 时稳定排序)
   };
 
-  /// UI 项注册表 (仅宿主线程)
+  /// UI 项注册表 (仅框架线程)
   std::map<std::string, UiEntry, std::less<>> uiEntries_;
   uint64_t uiSeq_ = 0;
 
-  /// 摘除某实例的全部 UI 项 (宿主线程; 有变化时推送 musicxx.ui.changed)
+  /// 摘除某实例的全部 UI 项 (框架线程; 有变化时推送 musicxx.ui.changed)
   void detachUiEntries(const std::string &instanceName);
 
   /// 序列化 UI 项 (pluginId 为空 = 全部; 按 type/order/seq 排序)
   std::string uiItemsJson(const std::string &pluginId) const;
 
-  /* ---------- 变量表 (仅宿主线程) ---------- */
+  /* ---------- 变量表 (仅框架线程) ---------- */
 
   /// 一个变量 (注册项 + **同步读缓存**)
   ///
-  /// 这里**没有真值**: 真值只在属主那里 (应用侧的 Store/配置, 或插件自己的状态)。
+  /// 这里**没有真值**: 真值只在属主那里 (主程序的 Store/配置, 或插件自己的状态)。
   /// `valueJson` 只是"最后一次已知值", 服务 `peek` 这条同步捷径, 来源三处:
   /// 属主推送、每次异步读的结果 (read-through)、注册时的初值。
   struct VarEntry {
@@ -828,7 +828,7 @@ private:
     }
   };
 
-  /// 变量表 (仅宿主线程)
+  /// 变量表 (仅框架线程)
   std::map<std::string, VarEntry, std::less<>> vars_;
   uint64_t varSeq_ = 0;
 
@@ -843,7 +843,7 @@ private:
     int32_t caps = 0;       ///< 申请时的能力位 (结算时回执用)
     /// 插件侧等待者 (同键进行中读合并后, 答案分发给全部等待者)
     std::vector<PluginxxOperatorNotify> pluginWaiters;
-    /// 应用侧等待者 (C ABI 的有界等待槽)
+    /// 主程序等待者 (C ABI 的有界等待槽)
     std::vector<std::shared_ptr<WaitSlot<std::string>>> appWaiters;
     std::shared_ptr<asio::steady_timer> timer;
   };
@@ -868,13 +868,13 @@ private:
   /// 全部键的关心者合计 (变化时回传 `musicxx.var.subscriptions`)
   int64_t varCareTotal_ = 0;
 
-  /// 结算一条变量请求 (宿主线程): 读 → 写缓存并分发答案; 写 → 写入值并广播
+  /// 结算一条变量请求 (框架线程): 读 → 写缓存并分发答案; 写 → 写入值并广播
   void completeVarRequest(int64_t requestId, bool ok, const std::string &valueJson,
                           const std::string &error);
-  /// 结算超时的变量请求 (宿主线程): 读按 read_timeout, 写按 not_served / owner_timeout
+  /// 结算超时的变量请求 (框架线程): 读按 read_timeout, 写按 not_served / owner_timeout
   void expireVarRequest(int64_t requestId);
 
-  /// 读请求的公共实现 (插件侧与应用侧共用)
+  /// 读请求的公共实现 (插件侧与主程序共用)
   int32_t beginVarRead(const std::string &key, const std::string &byPluginId,
                        const PluginxxOperatorNotify *notify,
                        std::shared_ptr<WaitSlot<std::string>> appSlot,
@@ -890,16 +890,16 @@ private:
   /// 请求 id 是否属于变量表 (供 C ABI 的 write_result / read_result 路由)
   bool hasPendingVarRequest(int64_t requestId) const;
 
-  /// 写入值 + 广播 (宿主线程; changed 才广播; 返回是否真的变了)
+  /// 写入值 + 广播 (框架线程; changed 才广播; 返回是否真的变了)
   bool applyVarValue(VarEntry &entry, const std::string &valueJson,
                      const std::string &byPluginId, std::string &prevJson);
-  /// 广播一条变量变更 (宿主线程; 按 notifyThrottleMs 合并)
+  /// 广播一条变量变更 (框架线程; 按 notifyThrottleMs 合并)
   void pushVarChanged(const std::string &key, const std::string &valueJson,
                       const std::string &prevJson, const std::string &byPluginId,
                       bool removed, int32_t coalesced);
   /// 应用是否订阅了这个键 (决定要不要把插件键的变化推给 Dart)
   bool appCaresAboutVar(const std::string &key) const;
-  /// 把一个值写进某个键的缓存并向关心者广播 (官方键的应用侧推值走这条)
+  /// 把一个值写进某个键的缓存并向关心者广播 (官方键的主程序推值走这条)
   int32_t applyAppVarValue(const std::string &key, const std::string &valueJson,
                            std::string &err);
 
@@ -908,9 +908,9 @@ private:
 
   /* ---------- 同步读镜像 (任何线程可读; 给 JS 侧的 peek/info/list 用) ----------
    *
-   * 为什么需要: 插件侧绝不能在 JS 线程上等宿主线程 (宿主线程可能正等着 JS
-   * 处理器 —— 那是死锁)。因此 `peek`/`info`/`list` 不能投递到宿主线程去查注册表,
-   * 而是读这份由宿主线程维护、用互斥量保护的**快照** (与状态镜像同一套做法)。
+   * 为什么需要: 插件侧绝不能在 JS 线程上等框架线程 (框架线程可能正等着 JS
+   * 处理器 —— 那是死锁)。因此 `peek`/`info`/`list` 不能投递到框架线程去查注册表,
+   * 而是读这份由框架线程维护、用互斥量保护的**快照** (与状态镜像同一套做法)。
    * 快照里的值仍然是"缓存值", 不是真值。
    */
 
@@ -919,9 +919,9 @@ private:
   /// key → 变量快照 JSON (含 valueMs; ageMs/stale 在读取时算)
   std::map<std::string, std::string, std::less<>> varMirror_;
 
-  /// 把变量的当前快照写进镜像 (宿主线程; 每次注册/写入值/订阅变化后调用)
+  /// 把变量的当前快照写进镜像 (框架线程; 每次注册/写入值/订阅变化后调用)
   void publishVarMirror(const VarEntry &entry);
-  /// 从镜像里摘掉一个键 (宿主线程)
+  /// 从镜像里摘掉一个键 (框架线程)
   void eraseVarMirror(const std::string &key);
   /// 变量快照的 JSON (镜像内容; 不含 ageMs/stale 这两个与时刻有关的字段)
   std::string varMirrorJsonText(const VarEntry &entry) const;
@@ -929,7 +929,7 @@ private:
   /// 变量表快照的文本 (调试信息用; 与 [varToJsonText] 同一份规则)
   std::string varsSnapshotText() const;
 
-  /// 取消某实例的变量等待者 (实例停用/卸载时; 宿主线程)
+  /// 取消某实例的变量等待者 (实例停用/卸载时; 框架线程)
   void cancelVarsOf(const std::string &instanceName);
 
   /// 记一次订阅/退订 (实例 ↔ 键; 同步维护 VarEntry 上的订阅集合与关心计数)
@@ -955,7 +955,7 @@ private:
   /// 某插件注册了多少个变量 (统计与调试信息用)
   size_t countVarsOfPlugin(const std::string &pluginId) const;
 
-  // 动作请求 (宿主线程)
+  // 动作请求 (框架线程)
   std::map<int64_t, PendingAction> pendingActions_;
   /// 请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
   std::atomic<int64_t> nextRequestId_{1};
@@ -964,7 +964,7 @@ private:
   /// 事件；**任意线程**可用）
   std::atomic<int64_t> nextHookCallId_{1};
 
-  /// 宿主内运行时的请求接驳口 (JS 引擎; 见 InternalActionRelay)
+  /// 插件框架内运行时的请求接驳口 (JS 引擎; 见 InternalActionRelay)
   std::shared_ptr<InternalActionRelay> internalRelay_;
 
   /// JS 运行时 (启用 JS 时在 start() 里创建, stop() 里释放)
@@ -978,13 +978,13 @@ private:
   std::string builtinPluginDir_;
   std::string dataDir_;
   std::string logDir_;
-  /// 客户端界面能力段 (JSON 文本; 由 Dart 侧给出, 宿主原样转发到 host.info().ui)
+  /// 客户端界面能力段 (JSON 文本; 由 Dart 侧给出, 插件框架原样转发到 host.info().ui)
   std::string uiCapabilitiesJson_;
   int32_t logLevel_ = 2;
   int32_t flags_ = 0;
   bool statsEnabled_ = true;
 
-  // 已知插件 (宿主线程 + Dart 线程都读; 由 registryMutex_ 保护)
+  // 已知插件 (框架线程 + Dart 线程都读; 由 registryMutex_ 保护)
   std::map<std::string, InstancePtr, std::less<>> loaded_;
 
   // 已发现的插件 (id → 目录)
@@ -993,7 +993,7 @@ private:
   /// 保护 loaded_ / discovered_ / stateSubscriptions_ 的跨线程读写
   mutable std::mutex registryMutex_;
 
-  // 已声明的状态订阅 (插件 id → 键列表; 宿主线程)
+  // 已声明的状态订阅 (插件 id → 键列表; 框架线程)
   std::map<std::string, std::vector<std::string>, std::less<>>
       stateSubscriptions_;
 

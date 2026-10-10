@@ -8,7 +8,7 @@ import 'runtime.dart';
 /// 状态镜像推送（Dart → 原生，供插件**同步**读取）
 ///
 /// 语义：
-/// - 值是 JSON；单键上限 512 KiB，超限由宿主**直接拒绝写入**（[update] 返回 false 并记日志）；
+/// - 值是 JSON；单键上限 512 KiB，超限由插件框架**直接拒绝写入**（[update] 返回 false 并记日志）；
 /// - 建议使用 [standardKeys] 里的标准键，插件按同一批键读取；
 /// - 高频键（播放进度）请用 [updateThrottled] 或自行 1 Hz 节流；
 /// - 变化会异步通知声明关心的插件（`musicxx.state.changed`）。
@@ -28,7 +28,7 @@ class MusicxxPluginState {
 
   /// 渲染槽位状态（哪个插件样式正在画、是否可见、尺寸等）
   ///
-  /// 不属于 [standardKeys]：宿主在生效/可见性/昼夜/尺寸变化时按需推送。
+  /// 不属于 [standardKeys]：主程序在生效/可见性/昼夜/尺寸变化时按需推送。
   static const String keyRenderSlots = 'musicxx.state.renderSlots';
 
   /// 当前音频频谱（内置『音乐动效』插件提取的数据）
@@ -99,7 +99,7 @@ class MusicxxPluginState {
 
   /// 批量推送（同帧多键合并成一次 FFI 调用）
   ///
-  /// 返回是否成功（某个键超限时只会被宿主拒绝写入，不影响其它键）。
+  /// 返回是否成功（某个键超限时只会被插件框架拒绝写入，不影响其它键）。
   bool updateBatch(Map<String, Object?> items) {
     if (!_runtime.isRunning || items.isEmpty) {
       return false;
@@ -143,7 +143,7 @@ class MusicxxPluginState {
     }
   }
 
-  /// 清空本地"已推送"缓存（例如宿主重启后强制全量重推）
+  /// 清空本地"已推送"缓存（例如插件框架重启后强制全量重推）
   void invalidateCache() {
     _lastPushed.clear();
     _lastPushedMs.clear();

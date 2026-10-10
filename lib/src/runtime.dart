@@ -14,7 +14,7 @@ import 'native_strings.dart';
 import 'state_mirror.dart';
 import 'vars.dart';
 
-/// 宿主配置（对应 C ABI `MusicxxExternPluginHostConfig`）
+/// 插件框架配置（对应 C ABI `MusicxxExternPluginHostConfig`）
 class MusicxxPluginRuntimeConfig {
   const MusicxxPluginRuntimeConfig({
     required this.appVersion,
@@ -33,7 +33,7 @@ class MusicxxPluginRuntimeConfig {
     this.eventQueueCapacity = 0,
   });
 
-  /// 应用版本（插件可读；用于 `min_app_version` 过滤的展示）
+  /// 主程序版本（插件可读；用于 `min_app_version` 过滤的展示）
   final String appVersion;
 
   /// 平台标识（windows/linux/macos/android/ios/ohos）
@@ -56,7 +56,7 @@ class MusicxxPluginRuntimeConfig {
 
   /// 客户端界面能力段（JSON 文本；界面描述层库生成）
   ///
-  /// 宿主原样转发：插件在 `musicxx.host.info().ui`（原生插件走 `host.info` 动作）
+  /// 插件框架原样转发：插件在 `musicxx.host.info().ui`（原生插件走 `host.info` 动作）
   /// 里读到它，据此决定该给什么界面内容。空串 = 不发布这个字段。
   final String uiCapabilities;
 
@@ -75,7 +75,7 @@ class MusicxxPluginRuntimeConfig {
   /// 是否向 Dart 回传观测事件（observe 钩子/事件镜像；默认关，零开销）
   final bool observeEvents;
 
-  /// 事件队列容量（0 = 宿主默认 16384）
+  /// 事件队列容量（0 = 插件框架默认 16384）
   final int eventQueueCapacity;
 
   /// 组装 C ABI 的 flags 位
@@ -102,7 +102,7 @@ const int _flagNoNative = 0x0002;
 const int _flagNoJs = 0x0004;
 const int _flagDebugObserveEvents = 0x0008;
 
-/// 一次原生调用失败（承载宿主返回的错误码与可读原因）
+/// 一次原生调用失败（承载插件框架返回的错误码与可读原因）
 class MusicxxPluginApiException implements Exception {
   MusicxxPluginApiException(this.code, this.message, {this.operation = ''});
 
@@ -117,17 +117,17 @@ class MusicxxPluginApiException implements Exception {
       '失败 (code=$code): $message';
 }
 
-/// 外部插件宿主运行时
+/// 外部插件框架运行时
 ///
 /// 生命周期：[init] → 用 [plugins]/[hooks]/[state]/[actions] →
 /// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把钩子/动作接到业务上。
 ///
 /// **一次生命周期一个实例**：一个运行时 [dispose] 之后不能再 [init]（事件流、
-/// 钩子处理器链、事件序号都已经收尾）。需要"停掉宿主再启动"时必须用 [create]
+/// 钩子处理器链、事件序号都已经收尾）。需要"停掉插件框架再启动"时必须用 [create]
 /// 新建一个实例 —— 原生侧 `host_destroy` 之后允许再次 `host_create`，
-/// 所以新建实例是安全的；应用侧 `ExternPluginStore` 每次启动宿主都新建一个。
+/// 所以新建实例是安全的；主程序 `ExternPluginStore` 每次启动插件框架都新建一个。
 ///
-/// 线程模型：宿主内所有插件代码运行在**原生宿主线程**上，Dart 线程只在
+/// 线程模型：插件框架内所有插件代码运行在**原生插件框架线程**上，Dart 线程只在
 /// 同步 FFI 调用（钩子派发、能力调用、状态推送）期间参与，且有等待上界。
 class MusicxxPluginRuntime {
   MusicxxPluginRuntime._();
@@ -137,9 +137,9 @@ class MusicxxPluginRuntime {
   /// 注意：它同样遵守"一次生命周期一个实例"，[dispose] 之后不能再次 [init]。
   static final MusicxxPluginRuntime instance = MusicxxPluginRuntime._();
 
-  /// 新建一个运行时实例（每次启动宿主用一个）
+  /// 新建一个运行时实例（每次启动插件框架用一个）
   ///
-  /// 用途：宿主需要停掉再启动时（配置变化、『拟声++』开关切换、用户点"重启插件框架"）
+  /// 用途：插件框架需要停掉再启动时（配置变化、『拟声++』开关切换、用户点"重启插件框架"）
   /// 用新实例重新 [init]，避免复用一个已经 dispose 的运行时。
   static MusicxxPluginRuntime create() => MusicxxPluginRuntime._();
 
@@ -156,13 +156,13 @@ class MusicxxPluginRuntime {
   late final MusicxxPluginState state = MusicxxPluginState.internal(this);
   late final MusicxxPluginActions actions = MusicxxPluginActions.internal(this);
 
-  /// 变量通道（`musicxx.vars`；官方键的真值在应用侧，见 [MusicxxPluginVars]）
+  /// 变量通道（`musicxx.vars`；官方键的真值在主程序，见 [MusicxxPluginVars]）
   late final MusicxxPluginVars vars = MusicxxPluginVars.internal(this);
 
   /// 原生 → Dart 唤醒回调
   ///
   /// 说明：`NativeCallable.listener` 只支持 void 返回，而 C ABI 的回调签名是
-  /// `int32_t (*)(void*)`。宿主**忽略**该返回值（只用来触发一次轮询安排），
+  /// `int32_t (*)(void*)`。插件框架**忽略**该返回值（只用来触发一次轮询安排），
   /// 因此这里返回 void 是安全的；不要依赖它向原生回传信息。
   NativeCallable<Void Function(Pointer<Void>)>? _wakeCallable;
   Timer? _pollFallback;
@@ -172,7 +172,7 @@ class MusicxxPluginRuntime {
   int _droppedEvents = 0;
   int? _lastSeq;
 
-  /// 事件流（宿主事件按序推送；未知类型同样转发，见 [MusicxxPluginEventType]）
+  /// 事件流（插件框架事件按序推送；未知类型同样转发，见 [MusicxxPluginEventType]）
   Stream<MusicxxPluginEvent> get events => _events.stream;
 
   /// 是否已启动（`host_start` 成功）
@@ -185,23 +185,23 @@ class MusicxxPluginRuntime {
   List<MusicxxPluginEvent> get recentEvents =>
       List<MusicxxPluginEvent>.unmodifiable(_eventLog);
 
-  /// 宿主丢事件计数（队列溢出时由宿主补发 `musicxx.host.error` 并累加）
+  /// 插件框架丢事件计数（队列溢出时由插件框架补发 `musicxx.host.error` 并累加）
   int get droppedEvents => _droppedEvents;
 
   /// 原生库诊断信息（路径/库版本）
   String get libraryPath => _library?.path ?? '(未加载)';
 
-  /// 宿主能力位图（老宿主库上没有 `feature_bits` 这个符号时为空）
+  /// 插件框架能力位图（老插件框架库上没有 `feature_bits` 这个符号时为空）
   int? get featureBits => _library?.featureBits;
 
-  /// 宿主库缺少的能力（Dart 侧已有这些 API、加载到的老库里还没有）
+  /// 插件框架库缺少的能力（Dart 侧已有这些 API、加载到的老库里还没有）
   ///
-  /// 非空表示**加载到的宿主库是旧构建的产物**：对应的 FFI 调用会以
+  /// 非空表示**加载到的插件框架库是旧构建的产物**：对应的 FFI 调用会以
   /// `undefined symbol` 失败。用 [featureHint] 给出可执行的下一步。
   List<String> get missingFeatures {
     final int? bits = featureBits;
     if (bits == null) {
-      return const <String>['feature_bits(宿主库过旧)'];
+      return const <String>['feature_bits(插件框架库过旧)'];
     }
     final List<String> missing = <String>[];
     const List<(String, int)> known = <(String, int)>[
@@ -219,18 +219,18 @@ class MusicxxPluginRuntime {
     return missing;
   }
 
-  /// 宿主库过旧时的下一步提示（空串 = 能力齐全）
+  /// 插件框架库过旧时的下一步提示（空串 = 能力齐全）
   String get featureHint {
     final List<String> missing = missingFeatures;
     if (missing.isEmpty) {
       return '';
     }
-    return '宿主库缺少能力: ${missing.join(', ')}；'
-        '请重新构建宿主库（flutter build 会自动重建，也可以手工跑 '
+    return '插件框架库缺少能力: ${missing.join(', ')}；'
+        '请重新构建插件框架库（flutter build 会自动重建，也可以手工跑 '
         'pwsh tools/build_native.ps1，Linux/macOS 用 tools/build_native.sh）';
   }
 
-  /// 初始化宿主（幂等：重复调用直接返回）
+  /// 初始化插件框架（幂等：重复调用直接返回）
   ///
   /// 步骤：加载原生库 → 校验 C ABI 版本 → `host_create` → 注册唤醒回调 →
   /// `host_start` → 启动事件泵与 200 ms 定时轮询。
@@ -300,7 +300,7 @@ class MusicxxPluginRuntime {
 
     // 唤醒回调：原生事件入队时立即通知 Dart（失败则退回定时轮询）
     //
-    // 注意 ABI 细节：C ABI 的唤醒回调返回 int32_t（宿主忽略其值，只用来触发安排），
+    // 注意 ABI 细节：C ABI 的唤醒回调返回 int32_t（插件框架忽略其值，只用来触发安排），
     // 而 `NativeCallable.listener` 只支持 void 返回，因此这里做一次函数指针类型转换。
     try {
       _wakeCallable = NativeCallable<Void Function(Pointer<Void>)>.listener(
@@ -334,7 +334,7 @@ class MusicxxPluginRuntime {
     pumpEvents();
   }
 
-  /// 停止宿主并释放原生资源（幂等）
+  /// 停止插件框架并释放原生资源（幂等）
   ///
   /// 收尾后本实例**不能再次 [init]**（见类注释）：要重新启动请 `create()` 一个新实例。
   void dispose() {
@@ -367,7 +367,7 @@ class MusicxxPluginRuntime {
     actions.handleDisposed();
   }
 
-  // ==================== 内部：绑定/宿主访问 ====================
+  // ==================== 内部：绑定/插件框架访问 ====================
 
   MusicxxExternPluginBindings get bindings {
     final MusicxxPluginNativeLibrary? library = _library;
@@ -414,7 +414,7 @@ class MusicxxPluginRuntime {
     final String message = takeOutString(log, bindings);
     throw MusicxxPluginApiException(
       rc,
-      message.isEmpty ? '宿主未给出原因' : message,
+      message.isEmpty ? '插件框架未给出原因' : message,
       operation: operation,
     );
   }
@@ -437,7 +437,7 @@ class MusicxxPluginRuntime {
     });
   }
 
-  /// 现在有没有"等宿主答复"的东西（异步裁决的结果、异步动作回复）
+  /// 现在有没有"等插件框架答复"的东西（异步裁决的结果、异步动作回复）
   ///
   /// 只有等结果时才需要兜底轮询：结果就是经事件回传的，没人等的时候事件会由唤醒
   /// 回调即时送达（或等下一次真正的调用再取）。
@@ -507,7 +507,7 @@ class MusicxxPluginRuntime {
   }
 
   void _dispatchEvent(MusicxxPluginEvent event) {
-    // 序号连续性：宿主队列溢出会补发 host.error，这里记录可观察的丢事件数
+    // 序号连续性：插件框架队列溢出会补发 host.error，这里记录可观察的丢事件数
     if (_lastSeq != null && event.seq > _lastSeq! + 1) {
       _droppedEvents += event.seq - _lastSeq! - 1;
     }
@@ -518,7 +518,7 @@ class MusicxxPluginRuntime {
       _eventLog.removeRange(0, _eventLog.length - 512);
     }
 
-    // 内部订阅者（宿主维护的位图/动作分发）先处理，异常隔离后继续广播
+    // 内部订阅者（插件框架维护的位图/动作分发）先处理，异常隔离后继续广播
     try {
       switch (event.type) {
         case MusicxxPluginEventType.hookChanged:
@@ -544,7 +544,7 @@ class MusicxxPluginRuntime {
           }
       }
     } catch (_) {
-      // 内部处理失败不能影响事件广播与宿主泵
+      // 内部处理失败不能影响事件广播与插件框架泵
     }
 
     if (!_events.isClosed) {
@@ -596,7 +596,7 @@ class MusicxxPluginRuntime {
     });
   }
 
-  /// 解析平台标识（与宿主 `platform` 字段取值一致）
+  /// 解析平台标识（与插件框架 `platform` 字段取值一致）
   static String get currentPlatform {
     if (Platform.isWindows) {
       return 'windows';

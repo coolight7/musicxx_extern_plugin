@@ -1,4 +1,4 @@
-/// musicxx 外部插件原生宿主: JS 插件运行时实现 (QuickJS)
+/// musicxx 外部插件原生插件框架: JS插件运行时实现 (QuickJS)
 ///
 /// 见 js_engine.h 的设计说明。本文件包含四部分:
 /// 1. 进程级内置槽位表 (`js:<pluginId>` 的合成内置插件描述);
@@ -41,11 +41,11 @@ using utilxx_base::Json;
 
 namespace {
 
-/// 能力处理器返回 Promise 时的回给宿主的标记 (与 prelude 的
+/// 能力处理器返回 Promise 时的回给插件框架的标记 (与 prelude 的
 /// `kCapabilityPendingMarker` 一致)
 constexpr const char *kCapabilityPendingMarker = "~pending~";
 
-/// 处理器返回 Promise 时, JS 侧回给宿主的标记 (必须与 prelude 的
+/// 处理器返回 Promise 时, JS 侧回给插件框架的标记 (必须与 prelude 的
 /// `kHookPendingMarker` 一致)
 constexpr const char *kHookPendingMarker = "~pending~";
 
@@ -58,7 +58,7 @@ const char *varErrorText(int32_t rc) {
     case MUSICXX_EXTERN_PLUGIN_ERR_ARG:
       return "参数非法 (键名/值超限)";
     case MUSICXX_EXTERN_PLUGIN_ERR_STATE:
-      return "宿主未启动或未回执的请求过多";
+      return "插件框架未启动或未回执的请求过多";
     case MUSICXX_EXTERN_PLUGIN_ERR_JSON:
       return "值不是合法 JSON";
     case MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND:
@@ -102,7 +102,7 @@ std::string viewToStr(const PluginxxStringView *view) {
 
 /* ==================== 进程级内置槽位表 ==================== */
 
-/// 一个 JS 插件的内置槽位 (名称/脚本路径/版本)
+/// 一个 JS插件的内置槽位 (名称/脚本路径/版本)
 ///
 /// `scripts` 按清单 `scripts` 的顺序排列: 同一个 JS 上下文里依次执行 (前面的脚本
 /// 先跑完才跑后面的), 装载失败会带上出错脚本的文件名。缺省是 `[plugin.js]`。
@@ -116,13 +116,13 @@ struct Slot {
 /// 槽位表: 槽位数量不设上限 (按需增长)
 ///
 /// 交给内核的两份描述数组 (`infos` / `manifests`) 在每次调用时按当前槽位重建,
-/// 内核拿到指针后立即取用 (注册与装载都在宿主线程串行, 不会跨调用持有旧指针)。
+/// 内核拿到指针后立即取用 (注册与装载都在框架线程串行, 不会跨调用持有旧指针)。
 struct SlotTable {
   std::vector<Slot> slots; ///< 槽位 (含已注销的, 下标稳定便于复用)
   std::vector<PluginxxBuiltinInfo> infos;
   std::vector<PluginxxBuiltinManifest> manifests;
   std::mutex mutex;
-  /// 当前 JS 引擎 (宿主为进程单例; 内置入口是静态函数, 只能经它找到引擎)
+  /// 当前 JS 引擎 (插件框架为进程单例; 内置入口是静态函数, 只能经它找到引擎)
   std::atomic<JsEngine *> engine{nullptr};
 };
 
@@ -177,11 +177,11 @@ std::string slotVersion(std::string_view name) {
 
 /* ==================== JS 预置代码 (prelude) ==================== */
 
-/// 注入到每个 JS 插件上下文里的 `musicxx` API
+/// 注入到每个 JS插件上下文里的 `musicxx` API
 ///
 /// 设计: 原生只暴露少量"桥接原语" (`__ext.*`), 其余 API 面 (Promise
 /// 封装、便捷方法、 工具函数) 都用 JS 实现 —— 减少 C 代码量, 也便于后续扩展 API
-/// 而不动宿主二进制。
+/// 而不动插件框架二进制。
 constexpr const char *kPrelude = R"JS(
 (function () {
   "use strict";
@@ -195,20 +195,20 @@ constexpr const char *kPrelude = R"JS(
   var actionWaiters = new Map();
   var capabilityWaiters = new Map();
   var timerTable = new Map();
-  /// 裁决型钩子处理器的 Promise 等待登记 (key = 宿主给的等待 id)
+  /// 裁决型钩子处理器的 Promise 等待登记 (key = 插件框架给的等待 id)
   var pendingHookWaits = new Map();
-  /// 处理器返回 Promise 时回给宿主的标记 (与 C++ 侧 `kHookPendingMarker` 一致)。
+  /// 处理器返回 Promise 时回给插件框架的标记 (与 C++ 侧 `kHookPendingMarker` 一致)。
   var kHookPendingMarker = "~pending~";
-  /// 能力处理器返回 Promise 时回给宿主的标记 (与 C++ 侧
+  /// 能力处理器返回 Promise 时回给插件框架的标记 (与 C++ 侧
   /// `kCapabilityPendingMarker` 一致)
   var kCapabilityPendingMarker = "~pending~";
-  /// 异步能力处理器还没结算的等待号 (JSON 结果由宿主等待槽接收)
+  /// 异步能力处理器还没结算的等待号 (JSON 结果由插件框架等待槽接收)
   var pendingCapabilityWaits = new Map();
 /// 插件自己声明的功能点的实现表 (点 id → 处理函数)
 ///
 /// 功能点走**一条固定的通用通道钩子** (`musicxx.feature.point.call`):
 /// 同一条通道上所有实现的处理器都会收到同一次调用, 所以这里用一个分发器按 `point` 过滤
-/// (而不是每个点各注册一个处理器 —— JS 插件在同一钩子上只能注册一个处理器)。
+/// (而不是每个点各注册一个处理器 —— JS插件在同一钩子上只能注册一个处理器)。
 var featurePointImpls = new Map();
 
   function logError(message) {
@@ -222,7 +222,7 @@ var featurePointImpls = new Map();
   function safeJson(value) {
     try { return JSON.stringify(value); } catch (e) { return "{}"; }
   }
-  /// UI 项名称: 允许短名或本插件全名 (宿主按短名登记, 全名去掉前缀)
+  /// UI 项名称: 允许短名或本插件全名 (插件框架按短名登记, 全名去掉前缀)
   function shortName(value) {
     var text = String(value);
     var prefix = "plugin." + musicxx.pluginId + ".";
@@ -284,7 +284,7 @@ var featurePointImpls = new Map();
         fn: fn
       };
       hookTable.set(id, entry);
-      /// 运行期注册要通知宿主 (顶层登记阶段由引擎统一回放, 这里只是先记下来)
+      /// 运行期注册要通知插件框架 (顶层登记阶段由引擎统一回放, 这里只是先记下来)
       ext.hookOp("register", String(id), entry.mode, entry.priority, entry.ownerTag);
       return musicxx;
     },
@@ -327,12 +327,12 @@ var featurePointImpls = new Map();
   /* ---- 变量 (第五条通道: 有属主、可读、可写、可订阅变动的小值) ----
    *
    * 三条读法按需要选一条:
-   *   await get(key)  异步、权威 (宿主向属主取一次真实值);
+   *   await get(key)  异步、权威 (插件框架向属主取一次真实值);
    *   peek(key)       同步、读缓存 (可能旧, 返回里带 revision/ageMs/stale);
-   *   bind(key, fn)   订阅变动 (由宿主推送)。
+   *   bind(key, fn)   订阅变动 (由框架推送)。
    *
    * 键: 官方 `musicxx.<域>.<名>` 直接写全名; 自己的变量写短名 (如 `tip.start`),
-   * 宿主自动补 `plugin.<本插件id>.` 前缀。
+   * 插件框架自动补 `plugin.<本插件id>.` 前缀。
    */
   // 变量：注册
   var varsTable = new Map();       // 本插件注册的变量 (短名 → 声明)
@@ -354,7 +354,7 @@ var featurePointImpls = new Map();
     if (text.indexOf("musicxx.") === 0 || text.indexOf("plugin.") === 0) { return text; }
     return "plugin." + musicxx.pluginId + "." + text;
   }
-  /// 变更通知与写结果都走事件总线: 各订阅一次就够 (宿主按 key 过滤交给 JS 侧)
+  /// 变更通知与写结果都走事件总线: 各订阅一次就够 (插件框架按 key 过滤交给 JS 侧)
   ///
   /// 注意: 必须同时记进 `subTable` —— 脚本顶层调用 `ext.subscribeHost` 会被引擎
   /// 推迟到"注册回放"阶段执行, 而回放的内容正是 `collectRegistrations` 从
@@ -517,7 +517,7 @@ var featurePointImpls = new Map();
       var text = ext.varsRead("info", varFullKey(key));
       return !!text;
     },
-    /// 异步、权威读: 宿主向属主取一次真实值 (顺手刷新 peek 缓存)
+    /// 异步、权威读: 插件框架向属主取一次真实值 (顺手刷新 peek 缓存)
     get: function (key, options) {
       var full = varFullKey(key);
       var budget = (options && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0)
@@ -532,7 +532,7 @@ var featurePointImpls = new Map();
       return new Promise(function (resolve, reject) {
         var id = String(control.id);
         var waiter = { resolve: resolve, reject: reject, timer: 0 };
-        // 表用**字符串键**: 宿主回调传进来的 id 是字符串 (数字键会让查找落空)
+        // 表用**字符串键**: 插件框架回调传进来的 id 是字符串 (数字键会让查找落空)
         waiter.timer = musicxx.timer.setTimeout(function () {
           if (varGetWaiters.delete(id)) {
             reject(new Error("读取超时: " + full));
@@ -541,7 +541,7 @@ var featurePointImpls = new Map();
         varGetWaiters.set(id, waiter);
       });
     },
-    /// 一次读多个键 (同键进行中请求由宿主合并); 单项失败不影响其它项
+    /// 一次读多个键 (同键进行中请求由插件框架合并); 单项失败不影响其它项
     getMany: function (keys, options) {
       var list = Array.isArray(keys) ? keys : [keys];
       var result = {};
@@ -660,7 +660,7 @@ var featurePointImpls = new Map();
     }
   };
 
-  /// 异步读的回执 (宿主在 JS 线程上调用)
+  /// 异步读的回执 (插件框架在 JS 线程上调用)
   ext.onVarGetDone = function (id, json) {
     var key = String(id);
     var waiter = varGetWaiters.get(key);
@@ -676,7 +676,7 @@ var featurePointImpls = new Map();
     }
   };
 
-  /// 写请求的即时回执 (宿主在 JS 线程上调用)
+  /// 写请求的即时回执 (插件框架在 JS 线程上调用)
   /// - 已经在属主那里结算完: 直接给出结果;
   /// - 交给属主写入: 结果等 `musicxx.var.writeResult` 事件 (键 = requestId)
   ext.onVarSetDone = function (id, json) {
@@ -693,7 +693,7 @@ var featurePointImpls = new Map();
     }
     var result = info.result || {};
     if (result.pending === true) {
-      // 等属主写入: 换到 writeResult 的等待表里 (键 = 宿主给的 requestId)
+      // 等属主写入: 换到 writeResult 的等待表里 (键 = 插件框架给的 requestId)
       varSetWaiters.delete(key);
       varSetWaiters.set(String(result.requestId), waiter);
       return;
@@ -703,7 +703,7 @@ var featurePointImpls = new Map();
     waiter.resolve(result);
   };
 
-  /// 变量变更 (宿主经事件总线送达; 载荷带 key/value/prev/by/revision/ts)
+  /// 变量变更 (插件框架经事件总线送达; 载荷带 key/value/prev/by/revision/ts)
   function handleVarChanged(json) {
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
@@ -720,7 +720,7 @@ var featurePointImpls = new Map();
     }
   }
 
-  /// 写结果 (宿主经事件总线送达; 键 = requestId)
+  /// 写结果 (插件框架经事件总线送达; 键 = requestId)
   function handleVarWriteResult(json) {
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
@@ -750,13 +750,13 @@ var featurePointImpls = new Map();
         reject(new Error("动作请求未被受理: " + name + " (code=" + id + ")"));
         return;
       }
-      // 表格用**字符串键**: 宿主回调 `onActionDone` 传进来的 id 是字符串
+      // 表格用**字符串键**: 插件框架回调 `onActionDone` 传进来的 id 是字符串
       // (数字键会让查找落空 → 动作 Promise 永远不结算, 脚本读不到任何动作结果)
       actionWaiters.set(String(id), { resolve: resolve, reject: reject });
     });
   };
   ext.onActionDone = function (id, status, json) {
-    // 宿主按字符串传参: 键与状态都要先归一, 不能直接和数字比较
+    // 插件框架按字符串传参: 键与状态都要先归一, 不能直接和数字比较
     var key = String(id);
     var waiter = actionWaiters.get(key);
     if (!waiter) { return; }
@@ -798,7 +798,7 @@ var featurePointImpls = new Map();
   /// 约定 (见包内 `docs/plugin-hooks.md`):
   /// - 按 `point` 过滤: 不是自己实现的点直接返回空 (空 = 不回答, 链条继续问别人);
   /// - 不回答自己发起的调用 (`caller` 等于自己的插件 id);
-  /// - 回答必须包一层 `patch` (宿主的 firstNonNull 只在收到 `patch` / `action` 时停止遍历);
+  /// - 回答必须包一层 `patch` (插件框架的 firstNonNull 只在收到 `patch` / `action` 时停止遍历);
   /// - `value` 键就是"我答了"的判据 (值可以是 null);
   /// - 处理器抛异常时给 `{error: ...}` (等于"不提供", 不打断链条)。
   function featurePointDispatch(input) {
@@ -830,7 +830,7 @@ var featurePointImpls = new Map();
       return "";
     }
     // 返回**对象**: 钩子处理器返回非 null 值会被 `JSON.stringify` 成裁决 JSON,
-    // 只有对象才带得上 `patch`（宿主的 firstNonNull 靠 patch 判"这一轮有人回答"）
+    // 只有对象才带得上 `patch`（插件框架的 firstNonNull 靠 patch 判"这一轮有人回答"）
     return { patch: { value: value === undefined ? null : value } };
   }
 
@@ -973,7 +973,7 @@ var featurePointImpls = new Map();
     }
   };
 
-  // 网络：宿主代理通道（可选便利能力；需要 musicxx.net 权限）
+  // 网络：插件框架代理通道（可选便利能力；需要 musicxx.net 权限）
   // - 非 2xx 也会正常返回（status 交给插件判断）；传输失败/域名未授权时 ok=false
   musicxx.net = {
     fetch: function (options) {
@@ -1054,8 +1054,8 @@ var featurePointImpls = new Map();
     }
   };
 
-  // 渲染槽位 (插件渲染的背景等): 查询可用样式 / 切换样式 (允许切到宿主内置样式)
-  // - 未带 slot 时用宿主默认槽位 (当前是 player.background 播放页背景);
+  // 渲染槽位 (插件渲染的背景等): 查询可用样式 / 切换样式 (允许切到主程序内置样式)
+  // - 未带 slot 时用插件框架默认槽位 (当前是 player.background 播放页背景);
   // - select 只在"该项可用"时成功; 失败返回 { ok:false, error }.
   musicxx.render = {
     list: function (args) {
@@ -1071,9 +1071,9 @@ var featurePointImpls = new Map();
     }
   };
 
-  // 封面数据 (只作为颜色/数据来源, 不参与画面绘制; 宿主不推任何直链)
+  // 封面数据 (只作为颜色/数据来源, 不参与画面绘制; 插件框架不推任何直链)
   musicxx.media = {
-    // 封面颜色分析结果 + 宿主内置背景实际使用的 4 色
+    // 封面颜色分析结果 + 主程序内置背景实际使用的 4 色
     palette: function (args) {
       var req = (args && typeof args === "object") ? args : {};
       return musicxx.call("musicxx.media.palette", req);
@@ -1147,7 +1147,7 @@ var featurePointImpls = new Map();
     // 变量通道的内部回调: 变更通知与写结果 (与用户订阅同一主题时两边都会收到)
     if (topic === "musicxx.var.changed") { handleVarChanged(json); }
     if (topic === "musicxx.var.writeResult") { handleVarWriteResult(json); }
-    // handler 属主: 宿主转过来的读写请求
+    // handler 属主: 插件框架转过来的读写请求
     if (topic === "musicxx.var.read") { handleVarRead(json); }
     if (topic === "musicxx.var.write") { handleVarWrite(json); }
     var fn = subTable.get(topic);
@@ -1179,7 +1179,7 @@ var featurePointImpls = new Map();
       var info = null;
       try { info = JSON.parse(text || "{}"); } catch (e) { info = null; }
       if (!info || typeof info.status !== "string") {
-        return Promise.reject(new Error("跨插件调用失败: 宿主返回了非法结果"));
+        return Promise.reject(new Error("跨插件调用失败: 插件框架返回了非法结果"));
       }
       if (info.status === "ok") {
         return Promise.resolve(info.result === undefined ? null : info.result);
@@ -1251,7 +1251,7 @@ var featurePointImpls = new Map();
       if (typeof fn !== "function") { throw new Error("timer: 缺少处理函数"); }
       var id = ext.timerSet(Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0, repeat);
       if (typeof id === "number" && id >= 0) {
-        // 定时器表用**字符串键**: 宿主回调 `onTimerFire` 传进来的 id 是字符串
+        // 定时器表用**字符串键**: 插件框架回调 `onTimerFire` 传进来的 id 是字符串
         // (数字键会让查找落空 → 回调永远不执行)
         timerTable.set(String(id), { fn: fn, repeat: repeat });
       }
@@ -1290,7 +1290,7 @@ var featurePointImpls = new Map();
     now: function () { return Date.now(); }
   };
 
-  /* ---- 宿主回调入口 (native 在 JS 线程上调用) ---- */
+  /* ---- 插件框架回调入口 (native 在 JS 线程上调用) ---- */
 
   ext.collectRegistrations = function () {
     var hooks = [];
@@ -1306,10 +1306,10 @@ var featurePointImpls = new Map();
 
   /// 调用钩子处理器
   ///
-  /// - `waitId` 只有裁决型钩子才有 (宿主一直等到结果); 观察型钩子为空字符串/undefined;
+  /// - `waitId` 只有裁决型钩子才有 (插件框架一直等到结果); 观察型钩子为空字符串/undefined;
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
-  /// - 宿主不设等待超时: Promise 结算多晚都会被接住。
+  /// - 插件框架不设等待超时: Promise 结算多晚都会被接住。
   ext.invokeHook = function (hookId, inputJson, waitId) {
     var entry = hookTable.get(hookId);
     if (!entry) { return ""; }
@@ -1616,10 +1616,10 @@ JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_UNDEFINED;
 }
 
-/// 钩子操作 (register | unregister): 运行期注册/注销要落到宿主注册表
+/// 钩子操作 (register | unregister): 运行期注册/注销要落到插件框架注册表
 ///
 /// 顶层登记阶段 (liveRegistrations == false) 由 collectRegistrations 统一回放, 这里
-/// 不做任何事; 运行期由 C++ 侧投递到宿主线程执行 (投递不等待)。
+/// 不做任何事; 运行期由 C++ 侧投递到框架线程执行 (投递不等待)。
 JSValue jsHookOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 2) {
@@ -1709,7 +1709,7 @@ JSValue jsVarsGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     const int64_t id = inst->engine->beginVarGet(inst->name, text);
     if (id < 0) {
       out["status"] = "error";
-      out["error"] = "宿主未启动或插件实例已停止";
+      out["error"] = "插件框架未启动或插件实例已停止";
       out["code"] = -2;
     } else {
       out["status"] = "pending";
@@ -1745,7 +1745,7 @@ JSValue jsVarsSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     const int64_t id = inst->engine->beginVarSet(inst->name, keyText, valueText);
     if (id < 0) {
       out["status"] = "error";
-      out["error"] = "宿主未启动或插件实例已停止";
+      out["error"] = "插件框架未启动或插件实例已停止";
       out["code"] = -2;
     } else {
       out["status"] = "pending";
@@ -1781,8 +1781,8 @@ JSValue jsVarsRespond(JSContext *ctx, JSValueConst, int argc,
 
 /// 同步读缓存 (op = peek | info | list)
 ///
-/// 读的是宿主维护的**同步镜像** (互斥量保护), 因此不需要投递到宿主线程 ——
-/// JS 线程绝不等宿主线程 (宿主线程可能正等着 JS 处理器)。
+/// 读的是插件框架维护的**同步镜像** (互斥量保护), 因此不需要投递到框架线程 ——
+/// JS 线程绝不等框架线程 (框架线程可能正等着 JS 处理器)。
 JSValue jsVarsRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 2) {
@@ -2107,7 +2107,7 @@ bool JsEngine::registerBuiltin(const std::string &pluginId,
   slot->scripts = scriptPaths;
   slot->version = version.empty() ? std::string{"1.0.0"} : version;
   slot->used = true;
-  XX_LOGI("[musicxx_ext] JS 插件槽位已登记: {} (脚本 {})", name,
+  XX_LOGI("[musicxx_ext] JS插件槽位已登记: {} (脚本 {})", name,
           joinPaths(scriptPaths));
   return true;
 }
@@ -2122,7 +2122,7 @@ void JsEngine::unregisterBuiltin(const std::string &pluginId) {
       slot.name.clear();
       slot.scripts.clear();
       slot.version.clear();
-      XX_LOGI("[musicxx_ext] JS 插件槽位已注销: {}", name);
+      XX_LOGI("[musicxx_ext] JS插件槽位已注销: {}", name);
       return;
     }
   }
@@ -2163,7 +2163,7 @@ int32_t JsEngine::startThread(std::string &err) {
     err = std::string{"JS 线程创建失败: "} + e.what();
     return MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL;
   }
-  XX_LOGI("[musicxx_ext] JS 线程已启动 (全部 JS 插件实例共享这 1 条线程)");
+  XX_LOGI("[musicxx_ext] JS 线程已启动 (全部 JS插件实例共享这 1 条线程)");
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
@@ -2362,7 +2362,7 @@ void JsEngine::expireActions() {
     }
   }
   for (auto &item : expired) {
-    XX_LOGW("[musicxx_ext] JS 插件 `{}` 的动作请求超时: {} (id={})",
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 的动作请求超时: {} (id={})",
             item.pluginId, item.action, item.requestId);
     const auto inst = lookupInstance(item.instance);
     if (inst) {
@@ -2388,7 +2388,7 @@ int32_t JsEngine::bridgeStateGet(const std::string &key,
   if (!mgr_) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  /// 状态镜像由宿主的互斥保护, 任何线程可读 (只读快照)
+  /// 状态镜像由插件框架的互斥保护, 任何线程可读 (只读快照)
   return mgr_->getState(key, out);
 }
 
@@ -2499,7 +2499,7 @@ void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
   } catch (const std::exception &) {
     return;
   }
-  /// ① "JS 插件 → JS 插件"的异步能力: 按调用方实例把结果回执过去
+  /// ① "JS插件 → JS插件"的异步能力: 按调用方实例把结果回执过去
   ///    （本函数就在 JS 线程上, 可以直接回调 JS）
   {
     std::string caller;
@@ -2518,7 +2518,7 @@ void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
       return;
     }
   }
-  /// ② 被调用的 JS 能力处理器 (等待槽形态): 交给等着的宿主线程
+  /// ② 被调用的 JS 能力处理器 (等待槽形态): 交给等着的框架线程
   std::shared_ptr<WaitSlot<std::string>> slot;
   {
     std::lock_guard lock{mutex_};
@@ -2586,8 +2586,8 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
     return;
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
-    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在宿主线程回放
-    /// (与钩子/能力/订阅同一套做法, 避免"宿主线程等 JS、JS 等宿主线程")
+    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
+    /// (与钩子/能力/订阅同一套做法, 避免"框架线程等 JS、JS 等框架线程")
     Instance::PendingUiOp entry;
     entry.op = op;
     entry.name = name;
@@ -2630,7 +2630,7 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
       payload["code"] = rc;
       payload["message"] = "UI 项操作被拒绝 (检查类型/命名空间/data 结构)";
       mgr_->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
-      XX_LOGW("[musicxx_ext] JS 插件 `{}` 运行期 UI 操作 `{}` 失败 (code={})",
+      XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期 UI 操作 `{}` 失败 (code={})",
               pluginId, op, rc);
     }
   });
@@ -2683,12 +2683,12 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   auto *sub = events->subscribe(host, &topicView, &JsEngine::eventTrampoline,
                                 holder.get());
   if (!sub) {
-    XX_LOGW("[musicxx_ext] JS 插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
             topic);
     return;
   }
   inst->subscriptions.push_back(holder);
-  XX_LOGI("[musicxx_ext] JS 插件 `{}` 运行期订阅 `{}` 已生效", inst->id, topic);
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 已生效", inst->id, topic);
 }
 
 std::vector<JsEngine::Instance::PendingUiOp>
@@ -2713,7 +2713,7 @@ JsEngine::takePendingVarOps(const std::shared_ptr<Instance> &inst) {
 
 /* ==================== 变量 (musicxx.vars) ==================== */
 
-/// 在宿主线程上执行一次变量声明/订阅操作 (**必须已在宿主线程调用**)
+/// 在框架线程上执行一次变量声明/订阅操作 (**必须已在框架线程调用**)
 int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
                                    const std::string &op, const std::string &key,
                                    const std::string &json) {
@@ -2826,8 +2826,8 @@ void JsEngine::bridgeVarsOp(const std::string &instanceName,
     return;
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
-    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在宿主线程回放
-    /// (与钩子/能力/UI 项同一套做法, 避免"宿主线程等 JS、JS 等宿主线程")
+    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
+    /// (与钩子/能力/UI 项同一套做法, 避免"框架线程等 JS、JS 等框架线程")
     Instance::PendingVarOp entry;
     entry.op = op;
     entry.key = key;
@@ -2855,11 +2855,11 @@ void JsEngine::bridgeVarsOp(const std::string &instanceName,
                payload["key"] = key;
                payload["code"] = rc;
                payload["message"] =
-                   "变量操作被拒绝 (检查 key/caps/命名空间, 或宿主是否支持该模式)";
+                   "变量操作被拒绝 (检查 key/caps/命名空间, 或插件框架是否支持该模式)";
                self->mgr_->pushEvent("musicxx.plugin.error", pluginId,
                                      payload.dump());
                XX_LOGW(
-                   "[musicxx_ext] JS 插件 `{}` 运行期变量操作 `{}` `{}` 失败 "
+                   "[musicxx_ext] JS插件 `{}` 运行期变量操作 `{}` `{}` 失败 "
                    "(code={})",
                    pluginId, op, key, rc);
              });
@@ -2916,7 +2916,7 @@ void JsEngine::bridgeVarsRespond(const std::string &instanceName,
     payload["requestId"] = requestId;
     payload["message"] = "变量回答被拒绝 (请求已结算或不属于本插件)";
     self->mgr_->pushEvent("musicxx.plugin.error", current->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS 插件 `{}` 回答变量请求 {} 失败 (code={})",
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 回答变量请求 {} 失败 (code={})",
             current->id, requestId, rc);
   });
 }
@@ -3084,10 +3084,10 @@ void JsEngine::bridgeHookOp(const std::string &instanceName,
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
     /// 脚本顶层登记阶段: 由 applyRegistrations 统一回放 (与 UI 项/订阅同一套做法,
-    /// 避免"宿主线程等 JS、JS 等宿主线程"的互锁)
+    /// 避免"框架线程等 JS、JS 等框架线程"的互锁)
     return;
   }
-  /// 运行期: 投递到宿主线程执行 (**不等待**): 宿主线程可能正等 JS 处理器,
+  /// 运行期: 投递到框架线程执行 (**不等待**): 框架线程可能正等 JS 处理器,
   /// 在这里同步等待就会互锁。失败只记日志与事件, 不回传给脚本。
   auto self = shared_from_this();
   asio::post(mgr_->hostExecutor(),
@@ -3112,7 +3112,7 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
   if (!unregister && op != "register") {
     return;
   }
-  /// 同一个 (钩子, owner_tag) 只保留一份: 先摘掉宿主注册 (释放注册表对该
+  /// 同一个 (钩子, owner_tag) 只保留一份: 先摘掉插件框架注册 (释放注册表对该
   /// `HookHandler` 的引用), 再释放 JS 侧持有的对象, 避免出现"注册表指向已释放对象"
   /// 的窗口; 覆盖式注册随后重新登记
   for (auto it = inst->hooks.begin(); it != inst->hooks.end();) {
@@ -3161,12 +3161,12 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
     payload["code"] = "hook_register_failed";
     payload["message"] = "运行期钩子注册被拒绝 (未知钩子或命名空间非法)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS 插件 `{}` 运行期注册钩子 `{}` 被拒绝 (code={})",
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 被拒绝 (code={})",
             inst->id, hookId, rc);
     return;
   }
   inst->hooks.push_back(handler);
-  XX_LOGI("[musicxx_ext] JS 插件 `{}` 运行期注册钩子 `{}` 已生效 (mode={}, "
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 已生效 (mode={}, "
           "priority={})",
           inst->id, hookId, mode, priority);
 }
@@ -3253,7 +3253,7 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
   auto target = lookupInstance("js:" + targetId);
   if (target) {
     if (!target->scriptLoaded) {
-      err = "目标 JS 插件未启用: " + targetId;
+      err = "目标 JS插件未启用: " + targetId;
       return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
     }
     std::string shortName = name;
@@ -3300,11 +3300,11 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
         data.contains("result") ? data["result"].dump() : std::string{"null"};
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
-  /// 原生/内置目标: 投递到宿主线程执行, **JS 侧不等待** (宿主线程可能正等 JS
+  /// 原生/内置目标: 投递到框架线程执行, **JS 侧不等待** (框架线程可能正等 JS
   /// 处理器, 若在这里同步等待就会互锁); 结果经 `ext.onCapabilityResult` 回到 JS
   /// 线程。
   if (!mgr_) {
-    err = "宿主不可用";
+    err = "插件框架不可用";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
   const int64_t pendingId = nextCapabilityCallId_.fetch_add(1);
@@ -3372,7 +3372,7 @@ JsEngine::instanceFromHost(const PluginxxHost *host, std::string &err) {
     err = "插件实例已关闭";
     return nullptr;
   }
-  /// 本引擎只在本宿主内使用, 实例必然是 [MusicxxHostInstance]
+  /// 本引擎只在本框架内使用, 实例必然是 [MusicxxHostInstance]
   auto *hostInst = static_cast<MusicxxHostInstance *>(base.get());
   if (hostInst->name.rfind("js:", 0) != 0) {
     err = "实例名不是 JS 合成实例: " + hostInst->name;
@@ -3381,7 +3381,7 @@ JsEngine::instanceFromHost(const PluginxxHost *host, std::string &err) {
   const std::string pluginId = MusicxxHostManager::pluginIdOf(hostInst->name);
   const std::vector<std::string> scripts = slotScripts(hostInst->name);
   if (scripts.empty()) {
-    err = "JS 插件槽位不存在 (未登记或已注销): " + hostInst->name;
+    err = "JS插件槽位不存在 (未登记或已注销): " + hostInst->name;
     return nullptr;
   }
 
@@ -3508,7 +3508,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
       slot->set("JSRuntime 创建失败");
       return;
     }
-    /// 栈深度上限 (宿主自我保护, 避免脚本深递归打爆线程栈;
+    /// 栈深度上限 (插件框架自我保护, 避免脚本深递归打爆线程栈;
     /// 不是对插件的资源限制)
     JS_SetMaxStackSize(rt, 1024 * 1024);
     JSContext *ctx = JS_NewContext(rt);
@@ -3713,7 +3713,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
         payload["code"] = "hook_register_failed";
         payload["message"] = "钩子注册被拒绝 (未知钩子或命名空间非法)";
         mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-        XX_LOGW("[musicxx_ext] JS 插件 `{}` 注册钩子 `{}` 被拒绝 (code={})",
+        XX_LOGW("[musicxx_ext] JS插件 `{}` 注册钩子 `{}` 被拒绝 (code={})",
                 inst->id, handler->hookId, rc);
         continue;
       }
@@ -3737,7 +3737,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
           inst->hostInst, handler->fullName, &JsEngine::capabilityStart,
           nullptr, handler.get());
       if (rc != 0) {
-        XX_LOGW("[musicxx_ext] JS 插件 `{}` 注册能力 `{}` 失败 (code={})",
+        XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 失败 (code={})",
                 inst->id, handler->fullName, rc);
         continue;
       }
@@ -3762,7 +3762,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
               ? host->vtable->query_interface(host, &iid)
               : nullptr);
       if (!events || !events->subscribe) {
-        XX_LOGW("[musicxx_ext] 事件表不可用: JS 插件 `{}` 的订阅未生效",
+        XX_LOGW("[musicxx_ext] 事件表不可用: JS插件 `{}` 的订阅未生效",
                 inst->id);
         continue;
       }
@@ -3771,7 +3771,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       auto *sub = events->subscribe(host, &topicView,
                                     &JsEngine::eventTrampoline, holder.get());
       if (!sub) {
-        XX_LOGW("[musicxx_ext] JS 插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
+        XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
                 holder->topic);
         continue;
       }
@@ -3810,7 +3810,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       payload["code"] = rc;
       payload["message"] = "UI 项注册被拒绝 (检查类型/命名空间/data 结构)";
       mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-      XX_LOGW("[musicxx_ext] JS 插件 `{}` 注册 UI 项 `{}` 被拒绝 (code={})",
+      XX_LOGW("[musicxx_ext] JS插件 `{}` 注册 UI 项 `{}` 被拒绝 (code={})",
               inst->id, op.name, rc);
     }
   }
@@ -3830,16 +3830,16 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     payload["key"] = op.key;
     payload["code"] = rc;
     payload["message"] =
-        "变量注册被拒绝 (检查 key/caps/命名空间, 或宿主是否支持该模式)";
+        "变量注册被拒绝 (检查 key/caps/命名空间, 或插件框架是否支持该模式)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS 插件 `{}` 注册变量 `{}` 被拒绝 (code={})",
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 注册变量 `{}` 被拒绝 (code={})",
             inst->id, op.key, rc);
   }
 
   inst->registrationsApplied = true;
   /// 运行期的 UI/订阅/变量操作改为"投递不等待" (顶层登记阶段已结束)
   inst->liveRegistrations.store(true, std::memory_order_release);
-  XX_LOGI("[musicxx_ext] JS 插件 `{}` 注册回放完成 (钩子 {} / 能力 {} / 订阅 "
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 注册回放完成 (钩子 {} / 能力 {} / 订阅 "
           "{} / UI {} / 变量 {})",
           inst->id, inst->hooks.size(), inst->capabilities.size(),
           inst->subscriptions.size(), uiApplied, varsApplied);
@@ -3913,7 +3913,7 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
   });
 
   /// 不设等待上界: 处理器返回 Promise 时一直等到它结算
-  /// (宿主不因为处理器慢而按"无裁决"继续)
+  /// (插件框架不因为处理器慢而按"无裁决"继续)
   std::string result;
   slot->wait(result);
   if (result.empty() || result == "null") {
@@ -3947,7 +3947,7 @@ void *PLUGINXX_CALL JsEngine::hookStart(void *userData,
     std::string ignored;
     engine->callBridgeString(inst, "invokeHook", {hookId, input}, ignored);
   });
-  /// 宿主派发观察型处理器时传 nullptr (结果不参与合并); 若将来传了通知器,
+  /// 插件框架派发观察型处理器时传 nullptr (结果不参与合并); 若将来传了通知器,
   /// 这里按"已同步完成且无载荷"终结它 (观察型处理器不产生裁决)
   if (notify && notify->done) {
     notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
@@ -4043,7 +4043,7 @@ JsEngine::eventTrampoline(const PluginxxStringView *eventJson, void *userData) {
       eventJson ? viewToStr(eventJson) : std::string{"{}"};
   const std::string topic = holder->topic;
   const std::string name = holder->instance;
-  /// 事件回调在宿主线程 (发布者线程) 执行: 只投递, 不等 JS
+  /// 事件回调在框架线程 (发布者线程) 执行: 只投递, 不等 JS
   holder->engine->postTask([holder, name, topic, payload] {
     JsEngine *engine = holder->engine;
     const auto inst = engine->lookupInstance(name);
@@ -4078,7 +4078,7 @@ int32_t PLUGINXX_CALL JsEngine::builtinCreate(const PluginxxHost *host,
   std::string err;
   auto inst = instanceFromHost(host, err);
   if (!inst) {
-    XX_LOGE("[musicxx_ext] JS 插件实例创建失败: {}", err);
+    XX_LOGE("[musicxx_ext] JS插件实例创建失败: {}", err);
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
   *outCtx = inst.get();
@@ -4284,7 +4284,7 @@ std::string JsEngine::statsJson() const {
   result["running"] = running_.load(std::memory_order_acquire);
   result["threads"] = 1;
   /// 共享 JS 线程的排队情况: 队列越深 / 等待越长,
-  /// 说明某个脚本正长时间占住线程 (宿主不打断它, 只在管理页展示)
+  /// 说明某个脚本正长时间占住线程 (插件框架不打断它, 只在管理页展示)
   {
     std::lock_guard lock{mutex_};
     result["queueDepth"] = static_cast<int64_t>(tasks_.size());

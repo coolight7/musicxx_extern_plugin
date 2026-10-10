@@ -5,9 +5,9 @@
 #   pwsh -NoProfile -File tools/sync_ui_kit.ps1 -Plugin example_js    # 只同步一个插件目录
 #
 # 说明：
-# - 宿主**不提供** kit（否则改 kit 会影响已经装好的插件），所以 kit 是随插件目录一起分发的
+# - 插件框架**不提供** kit（否则改 kit 会影响已经装好的插件），所以 kit 是随插件目录一起分发的
 #   普通脚本文件，由清单 `scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]` 按顺序装载；
-# - 只给「清单 `scripts` 里真的声明了 kit 文件」的 JS 插件复制：宿主只执行清单里列出的脚本，
+# - 只给「清单 `scripts` 里真的声明了 kit 文件」的 JS 插件复制：插件框架只执行清单里列出的脚本，
 #   没声明的插件（例如只演示多脚本装载的 `example_js_multi_script`）不需要这两个文件，
 #   复制过去只会变成多余文件；
 # - 只有 JS 插件需要 kit（动态库插件用 C++ 头文件里的 kit，见 src/sdk/include/…/musicxx_ui_kit.g.h）；

@@ -1,6 +1,6 @@
 /// 插件界面描述层（`pluginxx_ui` 的转发出口）
 ///
-/// 应用侧与插件侧只用这一个导入路径，不必直接依赖 `package:pluginxx_ui`：
+/// 主程序与插件侧只用这一个导入路径，不必直接依赖 `package:pluginxx_ui`：
 /// ```dart
 /// import 'package:musicxx_extern_plugin/pluginxx_ui.dart';
 ///

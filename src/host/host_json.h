@@ -1,4 +1,4 @@
-/// 宿主内部 JSON 小工具 (utilxx_base::Json 的安全解析包装)
+/// 框架内部 JSON 小工具 (utilxx_base::Json 的安全解析包装)
 ///
 /// 为什么需要: `utilxx_base::Json::parse` 对非法输入抛异常 (没有 nlohmann 的
 /// `parse(..., allow_exceptions=false)` 重载); C ABI 边界不希望异常穿越, 因此统一

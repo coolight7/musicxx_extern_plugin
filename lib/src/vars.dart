@@ -5,7 +5,7 @@ import 'bindings_generated.dart';
 import 'native_strings.dart';
 import 'runtime.dart';
 
-/// 应用侧声明一条变量（对应 `musicxx_extern_plugin_var_declare` 的一项）
+/// 主程序声明一条变量（对应 `musicxx_extern_plugin_var_declare` 的一项）
 class MusicxxPluginVarDeclare {
   const MusicxxPluginVarDeclare({
     required this.key,
@@ -50,10 +50,10 @@ class MusicxxPluginVarDeclare {
 
   /// 属主侧的推送节流设置（毫秒；0 = 不节流）
   ///
-  /// 只影响应用侧"要不要合并后再推"：高频值必须声明（见设计文档 §3.11）。
+  /// 只影响主程序"要不要合并后再推"：高频值必须声明（见设计文档 §3.11）。
   final int throttleMs;
 
-  /// 宿主侧通知合并窗口（毫秒；0 = 不合并）
+  /// 插件框架侧通知合并窗口（毫秒；0 = 不合并）
   final int notifyThrottleMs;
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -73,10 +73,10 @@ class MusicxxPluginVarDeclare {
 /// 变量通道（`runtime.vars`）：有属主、可读、可写、可订阅变动的小值
 ///
 /// 语义要点：
-/// - **应用侧是官方键的真值所在**：值由应用推（[update]），写入由应用执行
+/// - **主程序是官方键的真值所在**：值由主程序推（[update]），写入由主程序执行
 ///   （[readResult] / [writeResult]）；
-/// - `get` / `peek` / `list` 是只读查询：插件键可以读，官方键只能由应用自己持有；
-/// - 没有真值存在宿主里：宿主只保留一份服务 `peek` 的同步读缓存。
+/// - `get` / `peek` / `list` 是只读查询：插件键可以读，官方键只能由主程序自己持有；
+/// - 没有真值存在插件框架里：插件框架只保留一份服务 `peek` 的同步读缓存。
 class MusicxxPluginVars {
   MusicxxPluginVars.internal(this._runtime);
 
@@ -87,12 +87,12 @@ class MusicxxPluginVars {
   static const int capSet = 0x2;
   static const int capNotify = 0x4;
 
-  /// 宿主能力位：变量通道（`musicxx_extern_plugin_feature_bits`）
+  /// 插件框架能力位：变量通道（`musicxx_extern_plugin_feature_bits`）
   static const int featureVars = 0x10;
 
   final Map<String, String> _lastPushed = <String, String>{};
 
-  /// 声明一批变量（宿主启动后调用一次；必须在装载插件之前）
+  /// 声明一批变量（插件框架启动后调用一次；必须在装载插件之前）
   ///
   /// 逐项失败只会记一条日志（返回值仍是 0），不影响其它项与启动流程。
   bool declare(List<MusicxxPluginVarDeclare> items) {
@@ -200,7 +200,7 @@ class MusicxxPluginVars {
     }
   }
 
-  /// 回执插件对官方键的写请求（**回执即写入**：accepted 且带值时宿主机写入值并广播）
+  /// 回执插件对官方键的写请求（**回执即写入**：accepted 且带值时插件框架写入值并广播）
   bool writeResult(
     int requestId, {
     required bool accepted,
@@ -270,7 +270,7 @@ class MusicxxPluginVars {
     }
   }
 
-  /// 读插件键（应用侧用；官方键不从这里读）。有界等待宿主与属主。
+  /// 读插件键（主程序用；官方键不从这里读）。有界等待插件框架与属主。
   ///
   /// 失败返回 `null`（原因写日志）。
   Object? get(String key) {
@@ -303,7 +303,7 @@ class MusicxxPluginVars {
     }
   }
 
-  /// 一次读多个键（宿主把同一批合成一次往返；单项失败为 null）
+  /// 一次读多个键（插件框架把同一批合成一次往返；单项失败为 null）
   Map<String, Object?> getMany(List<String> keys) {
     final Map<String, Object?> result = <String, Object?>{};
     for (final String key in keys) {
@@ -312,9 +312,9 @@ class MusicxxPluginVars {
     return result;
   }
 
-  /// 写插件键（应用也是"其他一方"，受插件声明的 `write` 限制）
+  /// 写插件键（主程序也是"其他一方"，受插件声明的 `write` 限制）
   ///
-  /// 返回宿主给的结算对象：`{accepted, value, changed, revision}` 或
+  /// 返回插件框架给的结算对象：`{accepted, value, changed, revision}` 或
   /// `{accepted:false, error}`；`declared` 立即结算，`handler` 等属主。
   Map<String, Object?>? set(String key, Object? value) {
     if (!_runtime.isRunning) {
@@ -414,7 +414,7 @@ class MusicxxPluginVars {
     }
   }
 
-  /// 清空本地"已推送"缓存（宿主重启后强制全量重推）
+  /// 清空本地"已推送"缓存（插件框架重启后强制全量重推）
   void invalidateCache() {
     _lastPushed.clear();
   }

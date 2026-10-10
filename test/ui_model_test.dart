@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 
 void main() {
-  test('解析宿主快照：字段读取、排序与动作类型', () {
+  test('解析插件框架快照：字段读取、排序与动作类型', () {
     final List<MusicxxPluginUIItem> items = MusicxxPluginUIItem.parseList(<Object?>[
       <String, Object?>{
         'id': 'plugin.demo.songInfo',
@@ -36,7 +36,7 @@ void main() {
     ]);
 
     expect(items.length, 2);
-    // 排序: home.entry 在 song.action 之前 (类型字典序与宿主快照一致)
+    // 排序: home.entry 在 song.action 之前 (类型字典序与插件框架快照一致)
     expect(items.first.type, MusicxxPluginUIType.homeEntry);
 
     final MusicxxPluginUIItem card = items.first;

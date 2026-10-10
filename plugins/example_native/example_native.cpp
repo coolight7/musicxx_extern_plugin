@@ -1,4 +1,4 @@
-/// 示例动态库插件: 演示钩子注册、状态镜像读取、宿主动作请求、能力注册与日志
+/// 示例动态库插件: 演示钩子注册、状态镜像读取、主程序动作请求、能力注册与日志
 ///
 /// 行为:
 /// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回
@@ -6,7 +6,7 @@
 /// 2. 注册 `musicxx.song.changed` (observe): 读状态镜像里的歌曲名并写日志;
 /// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
 /// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
-///    命名空间校验返回码、处理器调用次数), 供宿主原生测试读取。
+///    命名空间校验返回码、处理器调用次数), 供插件框架原生测试读取。
 /// 5. 注册能力 `plugin.example_native.card`: 返回声明式页面
 ///    (主页入口、歌曲菜单项与 `ext://example_native/card` 都指向它)。
 ///    入口声明的页面必须有**同名能力**, 否则点开只会提示"插件没有提供该能力"。
@@ -23,7 +23,7 @@
 
 namespace {
 
-/// 当前线程标识文本 (用于验证"插件代码只在宿主线程执行")
+/// 当前线程标识文本 (用于验证"插件代码只在插件框架线程执行")
 std::string threadIdText() {
   std::ostringstream oss;
   oss << std::this_thread::get_id();
@@ -77,7 +77,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   /// 连续播放错误计数 (仅示例)
   int32_t consecutiveErrors = 0;
 
-  /// start 事务所在线程 (与钩子/能力处理器比对: 必须相同 = 单宿主线程模型)
+  /// start 事务所在线程 (与钩子/能力处理器比对: 必须相同 = 单框架线程模型)
   std::string startThread;
 
   /// 自检结果 (命名空间校验返回码)
@@ -96,11 +96,11 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
 
   /// 事件订阅自检
-  int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (宿主拒绝)
+  int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (插件框架拒绝)
   int32_t stateEvents = 0;         ///< musicxx.state.changed 收到次数
   int32_t pingEvents = 0;          ///< musicxx.test.ping 收到次数
   int32_t ownPublishRc = 0; ///< 发布本插件命名空间事件: 期望 0
-  int32_t foreignPublishRc = 0; ///< 发布他人命名空间事件: 期望非 0 (宿主拒绝)
+  int32_t foreignPublishRc = 0; ///< 发布他人命名空间事件: 期望非 0 (插件框架拒绝)
 
   /// 动作请求自检
   int32_t lastActionStatus = -100; ///< 最近一次动作请求终态 (-100 = 从未发起)
@@ -112,7 +112,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t featurePointSampleRc = -100;  ///< 登记实现: 期望 0
   std::string featurePointUnprovidedId; ///< 用来验证摘除的点 id
 
-  /// 动作请求完成回调 (宿主线程调用)
+  /// 动作请求完成回调 (插件框架线程调用)
   static void PLUGINXX_CALL onProbeActionDone(
       void *ud, int32_t status, const PluginxxStringView *payload) noexcept {
     auto *self = static_cast<ExampleCtx *>(ud);
@@ -150,7 +150,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               return 0;
             });
 
-    // 3) 播放错误: 连续 2 次错误后建议换源 (不改写宿主既有错误策略)
+    // 3) 播放错误: 连续 2 次错误后建议换源 (不改写主程序既有错误策略)
     hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
          [this](std::string_view input, std::string &out) -> int32_t {
            (void)input;
@@ -161,7 +161,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
            return 0;
          });
 
-    // 4) 命名空间自检: 未知前缀的钩子必须被宿主拒绝
+    // 4) 命名空间自检: 未知前缀的钩子必须被插件框架拒绝
     unknownHookRc =
         hook("foo.bar.baz", 0,
              [](std::string_view, std::string &) -> int32_t { return 0; });
@@ -176,9 +176,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           requestAction("plugin.other_plugin.x", "{}", &notify, 1000);
     }
 
-    // 5) 事件订阅 (宿主事件总线): 状态镜像变化 + 宿主发布的测试主题
+    // 5) 事件订阅 (插件框架事件总线): 状态镜像变化 + 插件框架发布的测试主题
     badTopicSubscribeRc = subscribeTopic("foo.bar", [](std::string_view) {
-      // 非法主题: 宿主应在订阅时就拒绝 (返回 -1), 该处理器不会被调用
+      // 非法主题: 插件框架应在订阅时就拒绝 (返回 -1), 该处理器不会被调用
     });
     subscribeTopic("musicxx.state.changed", [this](std::string_view data) {
       ++stateEvents;
@@ -195,9 +195,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                                        "{\"from\":\"example_native\"}");
 
     // 6) 声明式 UI 扩展: 注册主页入口与歌曲菜单项 + 通知
-    //    注意: UI 项只声明"长什么样、点了做什么", 渲染由宿主 (Dart 侧) 负责。
+    //    注意: UI 项只声明"长什么样、点了做什么", 渲染由主程序 (Dart 侧) 负责。
     //    图标是**插件自己带的 svg**（写相对插件目录的路径；文件在 resource/svg/native.svg，
-    //    resource/svg/ 只是推荐位置，随 ASSETS 分发），宿主不接受自己的图标名。
+    //    resource/svg/ 只是推荐位置，随 ASSETS 分发），插件框架不接受自己的图标名。
     uiHomeRc = uiRegister(
         "card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
         R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
@@ -228,12 +228,12 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    这里的节点: `source`（具名来源: 主题色 theme.* / 封面提取色 icon.* /
     //    封面经主题映射后的 4 色 icon.themeMapping.0..3 / 当前音频频谱 spectrum.*）、
     //    `smooth`（过渡: 频谱是 10 帧/秒，直接取会有台阶感，快起慢落才顺）。
-    //    频谱来源没有数据时宿主写 0 (要区分状态用着色器里的 uEnv.z)。
+    //    频谱来源没有数据时插件框架写 0 (要区分状态用着色器里的 uEnv.z)。
     //    这里用内置背景实际画的那 4 色 (观感与内置一致), 再叠上频谱律动。
-    //    另外声明了 `cover`（封面纹理）: 宿主把当前歌曲封面中心裁剪成方形、缩到 384、
+    //    另外声明了 `cover`（封面纹理）: 插件框架把当前歌曲封面中心裁剪成方形、缩到 384、
     //    **预模糊**后绑定到着色器里的 `uCoverBack`, 并把 (纹理宽, 纹理高, 原图宽高比,
     //    是否有封面) 写进 `uCoverBackInfo` —— 着色器拿它当底层 (模糊封面铺满画面)。
-    //    没有封面时这一位是 0; 没声明 cover 的样式宿主不解码、不上传、不占显存。
+    //    没有封面时这一位是 0; 没声明 cover 的样式插件框架不解码、不上传、不占显存。
     //    JS 侧的等价声明见 plugins/example_js_shader/plugin.js。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
@@ -255,19 +255,19 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
             "foregroundStyle":"mask"})",
         20);
 
-    // 8) 能力: 供宿主/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
+    // 8) 能力: 供插件框架/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
     capability(
         *this, "plugin.example_native.probe",
         [this](std::string_view, std::string_view args) -> std::string {
           // args 里带 requestAction 时顺带发起一次动作请求
-          // (用于验证宿主超时保护)
+          // (用于验证插件框架超时保护)
           if (args.find("requestAction") != std::string_view::npos) {
             PluginxxOperatorNotify notify{&ExampleCtx::onProbeActionDone, this};
             lastActionStatus = -2; ///< 发起中
             requestAction("musicxx.test.neverRespond", "{}", &notify, 1000,
                           &lastActionRequestId);
             log.info("example_native: 已发起动作请求 musicxx.test.neverRespond "
-                     "(等待宿主超时)");
+                     "(等待插件框架超时)");
           }
           std::ostringstream oss;
           oss << "{\"startThread\":\"" << startThread << "\""
@@ -301,8 +301,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
     // 9) 能力: **异步完成** (协程形态)
     //
-    // 约定: 被调方不许占住宿主线程 / JS 线程 —— 长任务要异步完成。
-    // 这里 `co_await pluginxx::sleep(...)` 等一段时间再给结果: 等待期间宿主线程是空闲的
+    // 约定: 被调方不许占住插件框架线程 / JS 线程 —— 长任务要异步完成。
+    // 这里 `co_await pluginxx::sleep(...)` 等一段时间再给结果: 等待期间插件框架线程是空闲的
     // (能处理别的插件、卸载与停机), 调用方也能看到"已受理但结果还没到"这一状态。
     // `args.waitMs` 控制等多久 (缺省 200 毫秒)。
     capability(
@@ -376,7 +376,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                         });
 
     // 11) 能力: 声明式页面 `ext://example_native/card`
-    //    主页入口指向这个页面: 宿主打开页面时调用**同名能力**, 插件返回视图描述
+    //    主页入口指向这个页面: 主程序打开页面时调用**同名能力**, 插件返回视图描述
     //    (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
     //    页面内容用 musicxx 扩展 kit 装配: kit 只写中立的块描述 (不判断渲染目标),
     //    客户端拿到后按自己的能力做降级适配。页面里的按钮可以调用本插件能力
@@ -406,7 +406,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           blocks.push_back(
               pluginxx::ui::dumpItem(kit::listRow(Json::object({
                   {"title", "当前调用线程"},
-                  {"subtitle", "与 start 事务线程相同 = 单宿主线程"},
+                  {"subtitle", "与 start 事务线程相同 = 单框架线程"},
                   {"trailing", threadIdText()},
               }))));
           blocks.push_back(
@@ -433,7 +433,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
               {"title", "状态镜像 musicxx.state.song"},
-              {"subtitle", "宿主推送的最近一份歌曲快照 (字节)"},
+              {"subtitle", "主程序推送的最近一份歌曲快照 (字节)"},
               {"trailing", std::to_string(stateJson("musicxx.state.song").size())},
           }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
@@ -461,7 +461,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     return 0;
   }
 
-  /// 发布本插件命名空间的事件 (经内核 events 表; 主题归属由宿主校验)
+  /// 发布本插件命名空间的事件 (经内核 events 表; 主题归属由插件框架校验)
   int32_t publishOwnEvent(const char *topic, const char *payload) {
     if (!iface.events || !iface.events->publish) {
       return -1;
@@ -472,7 +472,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   }
 
   int32_t onStop() {
-    // 撤销自管资源 (示例没有线程/定时器; 钩子/能力注册由宿主在 detach
+    // 撤销自管资源 (示例没有线程/定时器; 钩子/能力注册由插件框架在 detach
     // 时统一摘除)
     consecutiveErrors = 0;
     return 0;

@@ -1,6 +1,6 @@
 # musicxx 动态库插件作者指南（C++ / v1）
 
-本文写给**要写一个 C++ 动态库插件**的人：目录与清单、代码示例、开发流程、能用的宿主能力、
+本文写给**要写一个动态库插件**的人：目录与清单、代码示例、开发流程、能用的框架与主程序能力、
 构建与部署、排障。相关文档：
 
 | 主题 | 文档 |
@@ -13,11 +13,14 @@
 | JS 插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 示例代码 | `plugins/example_native/`（C++）、`plugins/example_js/`（等价 JS） |
 
-> 动态库与宿主**同进程、同地址空间**：插件崩溃 = 应用崩溃。开发期请先在
-> `musicxx_extern_plugin_test` 与示例插件上验证，再放进正式环境；宿主的安全模式
+> 动态库与主程序**同进程、同地址空间**：插件崩溃 = 主程序崩溃。开发期请先在
+> `musicxx_extern_plugin_test` 与示例插件上验证，再放进正式环境；插件框架的安全模式
 > （连续两次启动未完成 → 本次不加载任何外部插件）是最后一道保护，不是沙箱。
 
 ---
+
+> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+
 
 ## 1. 插件长什么样
 
@@ -33,7 +36,7 @@ my_plugin/                   # 目录名只是提示，插件 id 取清单的 na
 ```
 
 一个包也可以同时支持**多个系统 / CPU 架构**（仿 APK 的 `lib/<abi>/`），库文件按分支摆放、
-清单只有一份 —— 运行时由宿主按当前系统与架构选分支，见 §1.3：
+清单只有一份 —— 运行时由插件框架按当前系统与架构选分支，见 §1.3：
 
 ```text
 my_plugin/
@@ -55,13 +58,13 @@ name: my_plugin                    # 插件 id（唯一；同名视为同一插�
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
 version: 20261010.1.0              # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期）；打包脚本用它拼安装包名
-api_version: 1                     # 插件 API 版本：不低于宿主支持的最低版本即可（当前最低 1）；声明更高也不拒绝
+api_version: 1                     # 插件 API 版本：不低于插件框架支持的最低版本即可（当前最低 1）；声明更高也不拒绝
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（别名 win32 / osx 也认；多目标包通常不写，见 §1.3）
 arch: [x64, arm64]                 # 允许的架构；不写 = 不限（别名 amd64 / aarch64 也认）
 targets_dir: lib                   # 多目标包的分支目录名（缺省 lib；空串 = 关闭分支扫描）
-depends: [other_plugin]            # 必选依赖（宿主会先加载它们）
+depends: [other_plugin]            # 必选依赖（插件框架会先加载它们）
 optional_depends: [maybe_plugin]   # 可选依赖（有就排前面，没有也照常加载）
 
 permissions:                       # 声明式权限：只做展示，运行时不校验（见 §8）
@@ -72,28 +75,28 @@ permissions:                       # 声明式权限：只做展示，运行时�
 
 `entry` 的写法（跨平台要点）：
 
-- **统一按 Linux 写 `<名字>.so`**：宿主在 Windows/macOS 上会把扩展名修正为 `.dll`/`.dylib`
+- **统一按 Linux 写 `<名字>.so`**：插件框架在 Windows/macOS 上会把扩展名修正为 `.dll`/`.dylib`
   （插件目录因此可以三平台通用，只要库文件基名一致；SDK 的构建助手已把产物前缀置空）；
-- `entry` 指向的文件不存在时，宿主还会按平台默认库名再找一次
+- `entry` 指向的文件不存在时，插件框架还会按平台默认库名再找一次
   （Linux `lib<name>.so`、Windows `<name>.dll`）；
 - 写 `entry: my_plugin.dll` 会让 Linux/macOS 装载失败（扫描阶段就会提示「动态库插件库文件缺失」）。
 
-清单里**没有**运行时行为相关的开关：配置由插件自己读写 `config.json`，宿主不解析插件配置。
+清单里**没有**运行时行为相关的开关：配置由插件自己读写 `config.json`，插件框架不解析插件配置。
 
-宿主**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
-要表达版本要求请用 `api_version`：只要不低于宿主支持的最低版本（`MUSICXX_PLUGINXX_MIN_API_VERSION`，当前 1）就照常加载，声明更高也不会被拒。
+插件框架**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
+要表达版本要求请用 `api_version`：只要不低于插件框架支持的最低版本（`MUSICXX_PLUGINXX_MIN_API_VERSION`，当前 1）就照常加载，声明更高也不会被拒。
 
 ### 1.2 安装位置
 
 - 用户插件：`<应用支持目录>/musicxx/extern_plugin/plugins/<id>/`（管理页有「打开插件目录」）；
-- 随包插件：安装包放进应用的随包插件目录（宿主启动时把两个目录都扫描出来）；
+- 随包插件：安装包放进主程序的随包插件目录（插件框架启动时把两个目录都扫描出来）；
 - 安装方式：管理页「从压缩包安装」（`.zip`，顶层就是插件目录的内容），或直接把目录放进插件目录后
   「重新扫描」。
 
 ### 1.3 多目标打包（一个包放多个系统 / 架构分支）
 
 仿 APK 的原生库目录：**一个包 = 一份清单 + 若干分支目录**，每个分支目录里放一份该目标的库文件；
-宿主在扫描与装载时按当前系统与 CPU 架构选一个分支，管理页的插件信息里会写出"已选分支 / 包内分支"。
+插件框架在扫描与装载时按当前系统与 CPU 架构选一个分支，管理页的插件信息里会写出"已选分支 / 包内分支"。
 
 ```text
 my_plugin/
@@ -128,13 +131,13 @@ my_plugin/
 
 规则要点：
 
-- **宿主的架构标识**：`x64` / `x86` / `arm64` / `armv7` / `riscv64` / `loongarch64`。
+- **插件框架的架构标识**：`x64` / `x86` / `arm64` / `armv7` / `riscv64` / `loongarch64`。
   **32 位 ARM 报 `armv7`**（Android `armeabi-v7a`、Linux armhf），所以 `lib/android-armeabi-v7a/`
   这类分支目录与清单 `arch: [armv7]`（或别名 `arm` / `arm32` / `armeabi-v7a`）能对上；
-  宿主上报给插件的 `host.info().arch` 也是这个名字；
+  插件框架上报给插件的 `host.info().arch` 也是这个名字；
 - **不匹配当前系统/架构的分支不会被加载**：扫描结果里 `supported=false`，原因是"包内没有匹配当前
-  系统/架构的分支"（附带包内分支清单），应用侧安装时也会提前拒绝并说明；
-- **判定只有宿主一处实现**：扫描（`plugin_scan`）、装载与安装预检（C ABI `plugin_inspect`）跑的是
+  系统/架构的分支"（附带包内分支清单），主程序安装时也会提前拒绝并说明；
+- **判定只有插件框架一处实现**：扫描（`plugin_scan`）、装载与安装预检（C ABI `plugin_inspect`）跑的是
   同一份 `inspectPluginDir`，所以"预检说能不能用、装载就用哪个分支"不会出现分歧；
   Dart 侧只有数据模型与环境取值，不复制别名表与目录遍历；
 - 清单 `platforms` / `arch` 仍然有效，含义是"**整包**允许的平台/架构"（例如插件内含脚本或数据资源
@@ -142,7 +145,7 @@ my_plugin/
   取值与分支标签**共用同一张别名表**（`win32` / `osx` / `gnu` / `amd64` / `aarch64` 都认），
   比较的是"当前环境与清单声明"，不写 = 不限；
 - **不认识的分支目录会被忽略**（例如 `lib/utils/`、`lib/shader/`），可以放心把辅助文件放在同一层；
-- `targets_dir` 显式写成空串 = 关闭分支扫描（插件自己管目录布局，宿主只看清单 `entry`）；
+- `targets_dir` 显式写成空串 = 关闭分支扫描（插件自己管目录布局，插件框架只看清单 `entry`）；
 - 分支目录里放的是"目标平台编出来的库"这一事实由你保证：标签与真实库不匹配时，装载阶段
   `dlopen`/`LoadLibrary` 会失败（错误信息里带库路径）。
 
@@ -162,7 +165,7 @@ musicxx_plugin_add_target(my_plugin
 `pwsh tools/pack_plugin.ps1 -PluginDir <包目录>`（压缩包顶层就是插件目录内容，可直接用
 应用里的「从压缩包安装」），它会打印包内的分支清单，便于确认每个分支都有库文件。
 助手同时会注入编译宏 `MUSICXX_PLUGIN_BUILD_TAG="<标签>"`，插件可以把它写进日志或自检信息，
-便于确认宿主加载的是哪一份构建（示例见 `plugins/example_native_multi/`）。
+便于确认插件框架加载的是哪一份构建（示例见 `plugins/example_native_multi/`）。
 
 不传 `TARGET_TAG` 时行为与以前一致：库文件与清单放在同一层，该目录直接作为插件目录。
 
@@ -235,9 +238,9 @@ MUSICXX_PLUGIN_EXPORT(
 
 要点：
 
-- `MUSICXX_PLUGIN_EXPORT` 生成宿主要找的 5 个入口符号
+- `MUSICXX_PLUGIN_EXPORT` 生成插件框架要找的 5 个入口符号
   （`musicxx_plugin_{get_info,create,start,stop,destroy}`）。**不要手写入口**：少了 `start`/`stop`
-  会被宿主按约定拒绝装载（管理页会给出「缺失/无效入口符号」）；
+  会被插件框架按约定拒绝装载（管理页会给出「缺失/无效入口符号」）；
 - 两个事务函数的签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
   （内核要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用内核原始签名
   `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`；
@@ -252,56 +255,56 @@ MUSICXX_PLUGIN_EXPORT(
 
 | 阶段 | 谁调用 | 你要做什么 |
 |---|---|---|
-| `create` | 宿主线程 | 只构造实例上下文（不注册、不做 IO） |
-| `start` | 宿主线程 | **注册事务**：钩子 / 能力 / UI 项 / 订阅；失败返回非 0（宿主回滚，不留残留） |
-| 启用中 | 宿主线程 | 处理器与能力被调用；可以做动作请求、事件发布、写自己的状态 |
-| `stop` | 宿主线程 | 撤销自管资源（线程、定时器、后台任务、临时文件）；注册由宿主统一摘除 |
-| `destroy` | 宿主线程 | 只释放本地对象（不要在这里做 IO / 通知） |
+| `create` | 框架线程 | 只构造实例上下文（不注册、不做 IO） |
+| `start` | 框架线程 | **注册事务**：钩子 / 能力 / UI 项 / 订阅；失败返回非 0（框架回滚，不留残留） |
+| 启用中 | 框架线程 | 处理器与能力被调用；可以做动作请求、事件发布、写自己的状态 |
+| `stop` | 框架线程 | 撤销自管资源（线程、定时器、后台任务、临时文件）；注册由框架统一摘除 |
+| `destroy` | 框架线程 | 只释放本地对象（不要在这里做 IO / 通知） |
 
-- 全部动态库插件代码都在**同一条宿主线程**（插件管理器线程）上顺序执行：注册表、统计、状态镜像
+- 全部动态库插件代码都在**同一条框架线程**（插件管理器线程）上顺序执行：注册表、统计、状态镜像
   都不需要锁，**处理器之间按 (priority, 注册顺序) 稳定执行**；
 - **处理器里禁止阻塞**：网络请求、大文件、编解码、`sleep` 都不要直接做 —— 一个插件卡住会拖慢
-  同一线程上的所有插件（宿主不会强杀你，只会记录耗时并提示）。耗时工作的正确做法：
-  1. 用内核的调度原语把阻塞工作交给宿主的线程池，完成后回到宿主线程
+  同一线程上的所有插件（插件框架不会强杀你，只会记录耗时并提示）。耗时工作的正确做法：
+  1. 用内核的调度原语把阻塞工作交给框架的线程池，完成后回到框架线程
      （`pluginxx::offload(ctx, work)` 与协程 `Task<T>`；`pluginxx::sleep(ctx, ms)` 是异步等待，
      不占用线程）；
   2. 把工作拆成「提交 + 回调」两段：`start` 只注册，真正的初始化放进异步任务，完成后再补注册 / 写状态；
-- 插件**可以**自己起线程或定时器，但要在 `stop` 里回收，并且**调用宿主接口一律经接口表**
-  （`iface.*` / `PluginBase` 的便捷方法），不要直接触碰宿主内部结构；
+- 插件**可以**自己起线程或定时器，但要在 `stop` 里回收，并且**调用框架接口一律经接口表**
+  （`iface.*` / `PluginBase` 的便捷方法），不要直接触碰框架内部结构；
 - 状态镜像的读取是**同步**的（`stateJson(...)`），动作请求是**异步**的（结果经回调）。
 
 ---
 
-## 4. 能用的宿主能力
+## 4. 能用的框架与主程序能力
 
 | 能力 | API | 说明 |
 |---|---|---|
 | 裁决钩子 | `hook(id, priority, fn)` | `fn = int32_t(std::string_view input, std::string& out)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决 |
 | 观察钩子 | `observe(id, fn)` | 返回值忽略；处理器要尽快返回 |
-| 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被宿主摘除 |
+| 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
 | 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
-| 宿主信息 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}` |
-| 宿主环境 | `config()`、`language()`、`argsJson()` | `config()` 是宿主环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是装载时宿主给的参数（默认 `{}`） |
+| 框架信息 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}` |
+| 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是装载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
-| 宿主动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
+| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
 | 自省（异步） | `requestAction("musicxx.hook.handlers", "{\"hook\":\"<钩子 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这个钩子现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这个钩子再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
-| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由宿主负责（见 [plugin-ui.md](plugin-ui.md)） |
+| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
-| 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占住宿主线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
+| 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
 | 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连内核（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（内核会拒绝在 IO 线程阻塞等待） |
 | 功能点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能点、给出实现、或调应用留出的功能点（频谱 / 副歌 / 封面取色） |
 | 日志 | `log.trace/debug/info/warn/error` | 进插件日志流 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
 | 后台任务 / 取消 | `iface.scheduler`（`offload` / `sleep` / `post_to_io` / `op_cancel`）、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |
 
-跨边界内存规则：出参字符串必须用宿主的分配器（`PluginBase::hostStringSet` / `hostStringFree`，
-或用内核的 `pluginxx::PluginString` RAII）。**绝不要用 CRT 的 `malloc/free` 把指针交给宿主长期持有。**
+跨边界内存规则：出参字符串必须用插件框架的分配器（`PluginBase::hostStringSet` / `hostStringFree`，
+或用内核的 `pluginxx::PluginString` RAII）。**绝不要用 CRT 的 `malloc/free` 把指针交给插件框架长期持有。**
 
 ---
 
-## 5. 状态镜像（插件读宿主状态的最快方式）
+## 5. 状态镜像（插件读主程序状态的最快方式）
 
-宿主把常用状态做成 JSON 快照，插件**同步**读（不需要动作往返，也不占用宿主线程）：
+插件框架把常用状态做成 JSON 快照，插件**同步**读（不需要主程序动作往返，也不占用框架线程）：
 
 | 键 | 内容 | 当前版本 |
 |---|---|---|
@@ -330,10 +333,10 @@ C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` 
 
 接口表 `musicxx.vars`（`MusicxxPluginVarsIface`，SDK 里是 `iface.vars`）。
 它和状态镜像的区别是：**能双向读写，而且能订阅"值变了"**。
-真值在属主那里（应用侧的配置，或你自己插件里的状态），宿主只保留一份服务同步读的缓存。
+真值在属主那里（主程序的配置，或你自己插件里的状态），插件框架只保留一份服务同步读的缓存。
 
 ```cpp
-// 声明式（declared）：值由宿主代存，set 即提交 —— 零代码
+// 声明式（declared）：值由框架代存，set 即提交 —— 零代码
 MusicxxPluginVarSpec spec{};
 spec.version = 1;
 spec.struct_size = sizeof(spec);
@@ -373,7 +376,7 @@ iface.vars->subscribe(host, &pluginxxView(R"(["musicxx.ui.animatedLevel"])"), &c
 
 **handler 模式**（值本来就在你手里）：声明 `mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER`，
 订阅 `musicxx.var.read` / `musicxx.var.write` 两个事件，处理完用 `respond` 回答
-（也可以对自己的键 `set` 一次 = 提交，宿主把提交当作回执与回答）：
+（也可以对自己的键 `set` 一次 = 提交，框架把提交当作回执与回答）：
 
 ```cpp
 // 收到 musicxx.var.read {requestId, key} 时：
@@ -398,7 +401,7 @@ SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / 
 
 ## 6. 三个已接入裁决钩子的写法
 
-只有**应用侧已接入**的钩子会被真正派发（`plugin-hooks.md` 的「应用是否已接入」列标「已接入」）。
+只有**主程序已接入**的钩子会被真正派发（`plugin-hooks.md` 的「主程序是否已接入」列标「已接入」）。
 下面三个裁决型钩子是当前版本可用的：
 
 ```cpp
@@ -432,7 +435,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 
 - 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
-- **处理器要快**：同步派发的钩子会被调用线程等待，而且宿主不设等待超时（处理器返回前调用线程不会继续），
+- **处理器要快**：同步派发的钩子会被调用线程等待，而且插件框架不设等待超时（处理器返回前调用线程不会继续），
   因此慢处理器会拖住业务与其它插件；观察型处理器只做通知、不受影响。
 - 想确认自己的处理器有没有被调用：管理页「插件详情 → 统计」，或自己在处理器里 `log.info(...)`。
 
@@ -442,7 +445,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 
 功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。与能力的区别：能力是"应用直接调本插件"、
 参数与结果由插件自己定；功能点是"应用或第三方按 id 来调，谁实现都行"（可以有多个实现、按优先级问）。
-插件点共用**一条固定钩子** `musicxx.feature.point.call`（宿主只认固定的钩子表，**不要为每个点造新钩子**）。
+插件点共用**一条固定钩子** `musicxx.feature.point.call`（插件框架只认固定的钩子表，**不要为每个点造新钩子**）。
 
 ```cpp
 // 1) 声明自己的功能点（id 必须落在自己的命名空间里；结果经 notify 回来）
@@ -481,7 +484,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 - 糖自动做三件事：按 `point` 过滤、`caller` 等于自己时不回答（免得把自己算出的结果再问回去）、
   把返回值包成 `{"patch":{"value": …}}`。已自带 `patch` / `action` 的返回值原样通过。
 - `featurePointCall` 的默认超时 60 秒（频谱要解码整曲）；**没有同步版** ——
-  宿主线程上就地等待等于死锁（处理器可能正等着你返回），要结果就在 `notify->done` 里处理。
+  框架线程上就地等待等于死锁（处理器可能正等着你返回），要结果就在 `notify->done` 里处理。
 - 现在可调的应用功能点有三个（`featurePointList` 的 `callDoc` 写着参数与结果形状）：整曲频谱
   `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
   `musicxx.media.palette.provide`。**调用零副作用**：不写应用的值仓、不改应用状态。
@@ -503,7 +506,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 | `-5` | 超时 | 动作请求 / 能力调用超时 |
 | `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 变量键；**动作名与钩子 id 不受此限**：动作任意名都受理、钩子必须是约定里已有的） |
 | `-7` | 队列满 | 保留的错误码（当前没有容量类限制，不会再产生） |
-| `-99` | 内部异常 | 宿主内部错误（看日志） |
+| `-99` | 内部异常 | 插件框架内部错误（看日志） |
 
 命名空间：官方标识一律 `musicxx.*`（钩子 / 事件主题 / 动作 / UI 类型 / 权限）；
 插件自定义一律 `plugin.<自己的插件 id>.*`（事件主题、能力名、UI 项 id）。冒充他人命名空间会被拒绝。
@@ -512,7 +515,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 
 ## 8. 权限（声明，不拦截）
 
-清单 `permissions` 里写出来，宿主在**安装确认弹窗**与**插件详情页**展示，让用户知情：
+清单 `permissions` 里写出来，主程序在**安装确认弹窗**与**插件详情页**展示，让用户知情：
 
 | 权限 | 含义 |
 |---|---|
@@ -520,13 +523,13 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 | `musicxx.ui` | 注册 UI 项 / 页面 / 通知 |
 | `musicxx.player.control` | 播放控制动作 |
 | `musicxx.library.read` / `musicxx.library.write` | 读 / 写歌单、歌曲、歌词、历史 |
-| `musicxx.net` | 使用宿主网络代理通道（`musicxx.net.fetch` / `download`） |
+| `musicxx.net` | 使用主程序网络代理通道（`musicxx.net.fetch` / `download`） |
 | `musicxx.fs.read:<路径>` / `musicxx.fs.write:<路径>` | 直接文件访问（路径限定） |
 | `musicxx.system` | 打开链接 / 剪贴板 / 取目录等外围能力 |
 | `musicxx.agent` | 预留 |
 
 **运行时不做权限校验**：动作不会因为没声明而被拒绝，直接放进插件目录的插件同样不检查权限；
-权限是「防误用 + 用户知情」，不是沙箱（动态库插件与宿主同进程）。
+权限是「防误用 + 用户知情」，不是沙箱（动态库插件与主程序同进程）。
 
 ---
 
@@ -538,7 +541,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 cmake_minimum_required(VERSION 3.20)
 project(my_plugin LANGUAGES CXX)
 
-# SDK 前缀 = 宿主构建产物的安装前缀（先跑一次 tools/build_native.ps1 / build_native.sh）
+# SDK 前缀 = 插件框架构建产物的安装前缀（先跑一次 tools/build_native.ps1 / build_native.sh）
 set(musicxx_extern_plugin_DIR "<安装前缀>/lib/cmake/musicxx_extern_plugin")
 find_package(musicxx_extern_plugin CONFIG REQUIRED)
 
@@ -588,7 +591,7 @@ cmake --build build
 工具链要求：C++26（MSVC ≥ VS 2022 17.14、GCC ≥ 14、Clang 与 NDK ≥ 18）。
 插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
 
-宿主库不在 Flutter 构建里"顺带编译"（依赖链太重），但**应用构建会自动触发它**：平台工程在配置阶段调用
+插件框架库不在 Flutter 构建里"顺带编译"（依赖链太重），但**主程序构建会自动触发它**：平台工程在配置阶段调用
 包内构建脚本的自动模式（已是最新则秒级返回；关掉见 `README.md`「打包（随应用分发）」）。
 需要手工构建时：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`（示例插件用
 `tools/build_examples.ps1`），Linux/macOS 用 `./tools/build_native.sh`（`--with-examples` 连示例插件），
@@ -618,14 +621,14 @@ Android 见 §11。
 
 - **先用示例插件做基线**：`plugins/example_native` 演示了钩子、能力、动作、事件、UI、日志，
   行为与 `plugins/example_js` 等价，两边可以对照着读；
-- **宿主日志默认没有输出目标**：设环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 让宿主打印到 stderr，
+- **框架日志默认没有输出目标**：设环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 让框架打印到 stderr，
   再启动应用就能看到装载过程与你的 `log.info(...)`；
 - 管理页（设置 → 插件 → 外部插件）分「插件 / 设置 / 调试」三个分页：
   插件分页做启用 / 禁用 / 重载 / 卸载 / 详情，设置分页管框架开关与安全模式，
   调试分页给钩子与插件统计、最近事件；
 - 调试分页与「插件详情 → 运行统计」能看到：钩子调用次数 / 平均 / 最大 / 超时 / 失败 / 已暂停处理器、
   插件各阶段耗时、钩子数量（JS 插件还有能力 / 订阅 / 定时器数量）、计数器与最近事件；
-- 原生侧的回归手段是包内测试（宿主按「父目录下每个子目录 = 一个插件」扫描）：
+- 原生侧的回归手段是包内测试（插件框架按「父目录下每个子目录 = 一个插件」扫描）：
 
   ```powershell
   pwsh -NoProfile -File tools/build_examples.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
@@ -633,7 +636,7 @@ Android 见 §11。
 
   也可以把「对照示例」一组插件（`plugins/example_js_broken/`、
   `plugins/example_native_fail/`、`plugins/example_native_bad_entry/`）当成「故意失败」的对照，
-  看宿主怎么保护自己。
+  看插件框架怎么保护自己。
 
 ---
 
@@ -641,7 +644,7 @@ Android 见 §11。
 
 - 用户安装的动态库插件在 **Android** 上可能装载失败：Android 7 起动态链接器只允许应用从 APK 的
   原生库目录加载动态库（应用数据目录里的 `.so` 报
-  `is not accessible for the namespace "classloader-namespace"`）。宿主按「安全降级」处理：
+  `is not accessible for the namespace "classloader-namespace"`）。插件框架按「安全降级」处理：
   标记该插件不可用、给出原因、不重试，其它插件照常工作；JS 插件不受影响。管理页会提前说明这条限制；
 - 随包分发要放**当前平台**的库文件（Windows 包放 `.dll`，Linux 包放 `.so`，或者按 `platforms` 分目录打包）；
 - 每个 ABI / 架构各构建一次（x64 与 arm64 的库不能互换）；
@@ -661,19 +664,19 @@ Android 见 §11。
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名宿主会按平台修正） |
+| 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名插件框架会按平台修正） |
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
-| 「API 版本过低」 | 插件声明的 `api_version` 低于宿主支持的最低版本（当前 1）；声明更高不会因此失败 |
-| 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或宿主禁用了动态库插件 / 处于安全模式 |
+| 「API 版本过低」 | 插件声明的 `api_version` 低于插件框架支持的最低版本（当前 1）；声明更高不会因此失败 |
+| 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或插件框架禁用了动态库插件 / 处于安全模式 |
 | 注册钩子返回 `-4` | 钩子 id 不在约定表里（拼错或用了未定义的钩子）；用 `hook_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
-| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标「未接入」（应用侧还没有接）；或插件被禁用 / 处理器没注册成功 |
+| 钩子一直不触发 | 该钩子在 `plugin-hooks.md` 里标「未接入」（主程序还没有接）；或插件被禁用 / 处理器没注册成功 |
 | 点入口提示「插件『<插件id>』没有提供『xxx』」 | 该动作指向的能力没有注册（页面视图 id 必须与能力短名一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
-| 应用整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。宿主线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
-| 插件装载后应用启动异常 | 宿主连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
+| 主程序整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。框架线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
+| 插件装载后主程序启动异常 | 连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
 | 想知道现在装了什么、某个插件为什么没跑起来 | 命令行 / MCP 一条命令看完：`musicxx-cli plugin list`（每个插件的 `loaded` / `error`）与 `plugin logs <插件id>`，见 [plugin-agent-cli.md](plugin-agent-cli.md) |
-| 应用卡住、不知道卡在哪一次调用 | 看应用日志目录下的 `host_call.log`：进宿主调用是同步的，卡住后最后一行就是没返回的那次调用 |
+| 主程序卡住、不知道卡在哪一次调用 | 看主程序日志目录下的 `host_call.log`：进插件框架调用是同步的，卡住后最后一行就是没返回的那次调用 |
 
 ---
 
@@ -681,9 +684,9 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由应用侧分派 |
-| 进程隔离 | 插件与宿主同进程（无沙箱）：插件崩溃 = 应用崩溃，权限只是声明 |
+| 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
+| 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
-| 资源限制 | 宿主不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
+| 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
-| 钩子接入 | 约定里有 71 个钩子，应用侧当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 13 个；其余钩子注册成功但不会触发。第 71 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道（不是"应用派发的钩子"）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
+| 钩子接入 | 约定里有 71 个钩子，主程序当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 13 个；其余钩子注册成功但不会触发。第 71 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道（不是"主程序派发的钩子"）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |

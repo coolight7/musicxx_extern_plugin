@@ -18,16 +18,16 @@ typedef _OutCall =
       Pointer<MusicxxExternPluginString> log,
     );
 
-/// 插件管理（Dart → 原生宿主的插件生命周期与查询）
+/// 插件管理（Dart → 原生插件框架的插件生命周期与查询）
 ///
-/// 全部方法都是**同步 FFI 调用**（有等待上界）：装载/卸载在宿主线程异步完成，
+/// 全部方法都是**同步 FFI 调用**（有等待上界）：装载/卸载在插件框架线程异步完成，
 /// 这里只做有界等待；耗时的准备工作（例如解压安装包）由调用方放到单独的 isolate 里完成。
 class MusicxxPluginManager {
   MusicxxPluginManager.internal(this._runtime);
 
   final MusicxxPluginRuntime _runtime;
 
-  /// 已加载插件缓存（事件到达时重新查询；以宿主快照为准）
+  /// 已加载插件缓存（事件到达时重新查询；以插件框架快照为准）
   List<MusicxxPluginInfo> _cache = const <MusicxxPluginInfo>[];
   final Map<String, MusicxxPluginInfo> _byId = <String, MusicxxPluginInfo>{};
 
@@ -36,15 +36,15 @@ class MusicxxPluginManager {
 
   /// 等待结果的异步能力调用（`requestId` → 完成器）
   ///
-  /// 受理成功 ⇒ 一定有终局：正常结果、执行失败、插件卸载、宿主停机四条路都会把它清掉；
+  /// 受理成功 ⇒ 一定有终局：正常结果、执行失败、插件卸载、插件框架停机四条路都会把它清掉；
   /// 调用方自己的超时也会清（晚到的结果按"已经有终局了"丢弃并记日志）。
   final Map<int, Completer<Object?>> _pendingCalls =
       <int, Completer<Object?>>{};
 
-  /// 宿主库有没有 `plugin_call_async` 符号（探测一次就够；false = 库太旧）
+  /// 插件框架库有没有 `plugin_call_async` 符号（探测一次就够；false = 库太旧）
   bool? _asyncCallAvailable;
 
-  /// 宿主库是否支持异步能力调用（false = 库太旧，能力调用会直接失败）
+  /// 插件框架库是否支持异步能力调用（false = 库太旧，能力调用会直接失败）
   bool get supportsAsyncCall => _asyncCallAvailable ?? true;
 
   /// 现在有多少次能力调用还在等结果（调试页/自省用）
@@ -83,11 +83,11 @@ class MusicxxPluginManager {
   /// 检查一个插件目录（**只读**，不装载、不改动任何状态）
   ///
   /// 与 [scan] 同源：原生侧是同一份 `inspectPluginDir`，因此"预检通过、装载却用另一个
-  /// 分支"这类分歧不会出现。用途是应用侧「从压缩包安装」的预检：把解包出来的临时目录
-  /// 交给宿主判定，装之前就知道"当前系统/架构能不能用、会用哪个分支、库文件在不在"。
+  /// 分支"这类分歧不会出现。用途是主程序「从压缩包安装」的预检：把解包出来的临时目录
+  /// 交给插件框架判定，装之前就知道"当前系统/架构能不能用、会用哪个分支、库文件在不在"。
   ///
   /// - [dir] 插件目录（绝对路径；压缩包解包后的临时目录同样可以）；
-  /// - [os] / [arch] 要判定的目标环境（留空 = 宿主自己的平台与架构）；
+  /// - [os] / [arch] 要判定的目标环境（留空 = 插件框架自己的平台与架构）；
   /// - 目录不存在 / 清单非法时返回的对象里 `valid == false`（不抛异常，看 [error]）；
   /// - 不看运行期开关（JS 运行时是否可用、安全模式、禁用动态库）——那些由 [scan] 叠加。
   MusicxxPluginInspect_c inspect(
@@ -225,7 +225,7 @@ class MusicxxPluginManager {
     list();
   }
 
-  /// 卸载插件（释放实例与动态库；宿主侧卸载是幂等的）
+  /// 卸载插件（释放实例与动态库；插件框架侧卸载是幂等的）
   void unload(String id) {
     _requireRunning('plugin_unload');
     _withArena((
@@ -299,13 +299,13 @@ class MusicxxPluginManager {
 
   /// 调用插件能力（Dart → 插件）：**异步，不占调用线程**
   ///
-  /// - native/JS 插件统一用 `plugin.<插件id>.<能力名>`（短名由宿主补齐；
-  ///   能力必须在插件 `start` 事务里声明，归属校验由宿主完成）；
+  /// - native/JS 插件统一用 `plugin.<插件id>.<能力名>`（短名由插件框架补齐；
+  ///   能力必须在插件 `start` 事务里声明，归属校验由插件框架完成）；
   /// - 受理成功 ⇒ 一定有终局：结果、执行失败、插件卸载（`plugin_unloaded`）、
-  ///   宿主停机（`host_stopped`）都会给这个 `Future` 一个交代，不会悬挂；
+  ///   插件框架停机（`host_stopped`）都会给这个 `Future` 一个交代，不会悬挂；
   /// - [timeout] 只是"我不等了"：到点抛出超时错误，晚到的结果**丢弃**并记一条日志
-  ///   （不是取消，目标插件照它自己的节奏跑完）；`null` = 不设（一直等到宿主给出终局）；
-  /// - 宿主库没有 `plugin_call_async` 符号 → 立即失败（"宿主库太旧"），**不退回同步**；
+  ///   （不是取消，目标插件照它自己的节奏跑完）；`null` = 不设（一直等到插件框架给出终局）；
+  /// - 插件框架库没有 `plugin_call_async` 符号 → 立即失败（"插件框架库太旧"），**不退回同步**；
   /// - 结果形态与插件给的 JSON 一致（对象按 Map 解码，其余按值）。
   Future<Object?> call(
     String id,
@@ -317,7 +317,7 @@ class MusicxxPluginManager {
     if (false == _asyncCallAvailable) {
       throw MusicxxPluginApiException(
         -2,
-        '宿主库太旧，没有 plugin_call_async（请重新构建宿主库：tools/build_native.ps1）',
+        '插件框架库太旧，没有 plugin_call_async（请重新构建插件框架库：tools/build_native.ps1）',
         operation: 'plugin_call',
       );
     }
@@ -337,11 +337,11 @@ class MusicxxPluginManager {
           log,
         );
       } catch (error) {
-        // 旧宿主库没有这个符号：探测一次就够，之后一律按"库太旧"处理
+        // 旧插件框架库没有这个符号：探测一次就够，之后一律按"库太旧"处理
         _asyncCallAvailable = false;
         throw MusicxxPluginApiException(
           -2,
-          '宿主库太旧，没有 plugin_call_async（请重新构建宿主库：tools/build_native.ps1）',
+          '插件框架库太旧，没有 plugin_call_async（请重新构建插件框架库：tools/build_native.ps1）',
           operation: 'plugin_call',
         );
       }
@@ -354,7 +354,7 @@ class MusicxxPluginManager {
     if (requestId <= 0) {
       throw MusicxxPluginApiException(
         -2,
-        '宿主没有给出 requestId（无法配对结果）',
+        '插件框架没有给出 requestId（无法配对结果）',
         operation: 'plugin_call',
       );
     }
@@ -415,7 +415,7 @@ class MusicxxPluginManager {
   /// 插件贡献的 UI 项全量快照（声明式 UI 扩展）
   ///
   /// 变更会额外推送 `musicxx.ui.changed` 事件（载荷带该插件的全部项），
-  /// 应用侧按插件整批替换即可（见 [MusicxxPluginUIItems.replacePlugin]）。
+  /// 主程序按插件整批替换即可（见 [MusicxxPluginUIItems.replacePlugin]）。
   List<MusicxxPluginUIItem> uiSnapshot() {
     _requireRunning('ui_snapshot');
     final MusicxxPluginArena arena = MusicxxPluginArena();
@@ -468,8 +468,8 @@ class MusicxxPluginManager {
   // ==================== 内部 ====================
 
   void handleDisposed() {
-    // 宿主已经不在：还没回来的能力调用不可能再有结果，按"宿主已停止"收尾
-    // （不留悬挂的 Future；正常路径下宿主停机时会先推一条 host_stopped 结果事件）
+    // 插件框架已经不在：还没回来的能力调用不可能再有结果，按"插件框架已停止"收尾
+    // （不留悬挂的 Future；正常路径下插件框架停机时会先推一条 host_stopped 结果事件）
     final List<Completer<Object?>> pending = List<Completer<Object?>>.of(
       _pendingCalls.values,
     );
@@ -479,7 +479,7 @@ class MusicxxPluginManager {
         completer.completeError(
           MusicxxPluginApiException(
             -2,
-            '宿主已停止，能力调用未完成',
+            '插件框架已停止，能力调用未完成',
             operation: 'plugin_call',
           ),
         );
@@ -494,7 +494,7 @@ class MusicxxPluginManager {
   /// `musicxx.plugin.call.result`：按 `requestId` 给等待中的调用回填结果
   ///
   /// 找不到等待方有两种情况，都按"丢弃"处理：调用方已经超时（它自己不等了），
-  /// 或者宿主重启后 `requestId` 空间从头开始（残留的结果不能串到新的调用上）。
+  /// 或者插件框架重启后 `requestId` 空间从头开始（残留的结果不能串到新的调用上）。
   void handleCallResultEvent(MusicxxPluginEvent event) {
     final int? requestId = event.intOf('requestId');
     if (null == requestId) {
@@ -502,7 +502,7 @@ class MusicxxPluginManager {
     }
     final Completer<Object?>? completer = _pendingCalls.remove(requestId);
     if (null == completer || completer.isCompleted) {
-      _runtime.log(3, '收到没有等待方的能力结果 #$requestId（已超时或宿主重启），丢弃');
+      _runtime.log(3, '收到没有等待方的能力结果 #$requestId（已超时或插件框架重启），丢弃');
       return;
     }
     final bool ok = event.boolOf('ok') ?? false;
@@ -535,7 +535,7 @@ class MusicxxPluginManager {
 
   void _requireRunning(String operation) {
     if (!_runtime.isRunning) {
-      throw MusicxxPluginApiException(-2, '宿主未启动', operation: operation);
+      throw MusicxxPluginApiException(-2, '插件框架未启动', operation: operation);
     }
   }
 

@@ -1,11 +1,11 @@
 /// 声明式 UI 扩展模型
 ///
 /// 插件**不写 Flutter 代码**：它只注册"UI 项"，用官方类型 + JSON 内容描述
-/// "长什么样、点了做什么"；渲染由 musicxx 应用侧负责
+/// "长什么样、点了做什么"；渲染由 musicxx 主程序负责
 /// （见 `lib/pages/plugins/externPlugin/` 与 `lib/plugin/externPlugin/ExternPluginView.dart`）。
 ///
 /// 生命周期与来源：
-/// - 注册表在原生宿主里（`musicxx.ui` 表），宿主按插件实例维护，卸载/禁用自动摘除；
+/// - 注册表在原生插件框架里（`musicxx.ui` 表），插件框架按插件实例维护，卸载/禁用自动摘除；
 /// - Dart 侧用 [MusicxxPluginManager.uiSnapshot] 拉全量快照，用
 ///   [MusicxxPluginEventType.uiChanged] 事件整批替换某个插件的项（事件载荷带 `items`）。
 library;
@@ -16,7 +16,7 @@ import 'package:pluginxx_ui/pluginxx_ui.dart';
 ///
 /// 入口项与菜单项的 `icon` 写**插件自己带的 svg 路径**：一条相对插件目录的路径
 /// （`"resource/svg/logo.svg"` 或省掉后缀的 `"resource/svg/logo"`；用 `/` 分隔，允许子目录）。
-/// **`resource/svg/` 只是推荐位置**，插件可以按自己的目录结构放图标。宿主不接受自己的图标名，
+/// **`resource/svg/` 只是推荐位置**，插件可以按自己的目录结构放图标。插件框架不接受自己的图标名，
 /// 路径不合法或文件缺失时按"没有图标"处理（入口/菜单退回默认图标，页面里的 `Icon` 块退回
 /// `glyph`）—— 详见包内 `docs/plugin-ui.md` §1.5。
 abstract final class MusicxxPluginUIType {
@@ -34,8 +34,8 @@ abstract final class MusicxxPluginUIType {
   ///          args?（成员名 → 值表达式）, cover?（封面纹理，见 docs/plugin-shader-bundle.md §5.1）,
   ///          speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}`
   ///
-  /// 着色器参数只有 `args` 一种写法（旧的 `colors` 已移除）；不写 `args` 时宿主默认给内置背景的
-  /// 4 个绘制色（`icon.themeMapping.0..3`）。`cover` 由宿主解码 + 缩放（可选预模糊）后上传成
+  /// 着色器参数只有 `args` 一种写法（旧的 `colors` 已移除）；不写 `args` 时插件框架默认给内置背景的
+  /// 4 个绘制色（`icon.themeMapping.0..3`）。`cover` 由主程序解码 + 缩放（可选预模糊）后上传成
   /// GPU 纹理、每帧绑定给着色器，插件不搬字节。详见 `docs/plugin-shader-bundle.md`。
   static const String playingBackground = 'musicxx.ui.playing.background';
 
@@ -72,7 +72,7 @@ abstract final class MusicxxPluginUIActionKind {
   /// 调用插件自己的能力：`{kind:"dispatch", name:"<短名>", args:{...}}`（或字符串短写）
   static const String dispatch = 'dispatch';
 
-  /// 调用宿主官方动作：`{kind:"command", name:"musicxx.<域>.<动作>", args:{...}}`
+  /// 调用主程序官方动作：`{kind:"command", name:"musicxx.<域>.<动作>", args:{...}}`
   static const String command = 'command';
 
   /// 无动作（纯展示项）
@@ -89,7 +89,7 @@ class MusicxxPluginUIItem {
     this.data = const <String, Object?>{},
   });
 
-  /// 全名 `plugin.<插件id>.<短名>`（宿主保证在插件命名空间内）
+  /// 全名 `plugin.<插件id>.<短名>`（插件框架保证在插件命名空间内）
   final String id;
 
   /// 所属插件 id
@@ -187,7 +187,7 @@ class MusicxxPluginUIItem {
     );
   }
 
-  /// 解析宿主快照 / 事件载荷里的 UI 项数组（未知字段忽略，非法项跳过）
+  /// 解析插件框架快照 / 事件载荷里的 UI 项数组（未知字段忽略，非法项跳过）
   static List<MusicxxPluginUIItem> parseList(Object? json) {
     if (json is! List) {
       return const <MusicxxPluginUIItem>[];
@@ -209,7 +209,7 @@ class MusicxxPluginUIItem {
     return result;
   }
 
-  /// 排序：类型 → 权重 → 注册顺序（与宿主快照一致）
+  /// 排序：类型 → 权重 → 注册顺序（与插件框架快照一致）
   static int _compare(MusicxxPluginUIItem a, MusicxxPluginUIItem b) {
     final int byType = a.type.compareTo(b.type);
     if (0 != byType) {
@@ -232,7 +232,7 @@ class MusicxxPluginUIItem {
   String toString() => 'MusicxxPluginUIItem($type $id)';
 }
 
-/// UI 项集合的工具（应用侧 Store 用它维护"当前全部项"）
+/// UI 项集合的工具（主程序 Store 用它维护"当前全部项"）
 abstract final class MusicxxPluginUIItems {
   /// 按插件 id 整批替换（`musicxx.ui.changed` 事件的语义：载荷带该插件的全部项）
   static List<MusicxxPluginUIItem> replacePlugin(
@@ -249,7 +249,7 @@ abstract final class MusicxxPluginUIItems {
     return result;
   }
 
-  /// 取某个类型的项（顺序与宿主快照一致）
+  /// 取某个类型的项（顺序与插件框架快照一致）
   static List<MusicxxPluginUIItem> byType(
     List<MusicxxPluginUIItem> items,
     String type,

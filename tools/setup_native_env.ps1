@@ -1,6 +1,6 @@
 # musicxx_extern_plugin 开发编译环境配置脚本
 #
-# 做一次就够: 把"编译插件、编译插件框架(宿主库)"需要的东西全部准备好并记到缓存里, 之后
+# 做一次就够: 把"编译插件、编译插件框架(插件框架库)"需要的东西全部准备好并记到缓存里, 之后
 # tools/build_native.ps1 与 tools/build_examples.ps1 直接复用这份缓存, 不再重复探测工具链、
 # 不再重复解析 Boost (重复执行本脚本只是读一遍缓存并打印结果, 秒级返回)。
 #
@@ -22,7 +22,7 @@
 #   pwsh -NoProfile -File tools/setup_native_env.ps1 -NoDownloadBoost               # 禁止自动下载
 #
 # 环境就绪之后:
-#   pwsh -NoProfile -File tools/build_native.ps1     构建插件框架 (宿主库 + 插件 SDK)
+#   pwsh -NoProfile -File tools/build_native.ps1     构建插件框架 (插件框架库 + 插件 SDK)
 #   pwsh -NoProfile -File tools/build_examples.ps1   构建(并打包)示例插件
 #   flutter build windows / flutter build apk ...    应用构建会自动触发插件框架构建(已是最新则跳过)
 #
@@ -109,7 +109,7 @@ else {
 if (-not $Quiet) {
     Write-Host ''
     Write-Host '下一步:'
-    Write-Host '  pwsh -NoProfile -File tools/build_native.ps1     构建插件框架(宿主库 + 插件 SDK)'
+    Write-Host '  pwsh -NoProfile -File tools/build_native.ps1     构建插件框架(插件框架库 + 插件 SDK)'
     Write-Host '  pwsh -NoProfile -File tools/build_examples.ps1   构建(并打包)示例插件'
     Write-Host '  也可以直接 flutter build windows / flutter build apk: 应用构建会自动触发插件框架的构建'
 }

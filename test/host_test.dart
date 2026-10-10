@@ -1,7 +1,7 @@
-/// 整套流程测试：Dart 侧运行时对**真实原生宿主库**的验证
+/// 整套流程测试：Dart 侧运行时对**真实原生插件框架库**的验证
 ///
 /// 覆盖：
-/// - 库加载与 C ABI 版本校验、宿主 init/dispose 幂等；
+/// - 库加载与 C ABI 版本校验、插件框架 init/dispose 幂等；
 /// - 事件泵（host.ready / plugin.loaded 等按序到达）；
 /// - 插件扫描/装载/能力调用/卸载；
 /// - 钩子派发：Dart 处理器链 + 原生处理器链 + 合并，以及"无处理器"快速路径；
@@ -20,9 +20,9 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 void main() {
   final _Environment? env = _Environment.detect();
 
-  test('原生宿主：init/事件泵/扫描/装载/钩子/能力/卸载', () async {
+  test('原生插件框架：init/事件泵/扫描/装载/钩子/能力/卸载', () async {
     if (env == null) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped('未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
 
@@ -110,7 +110,7 @@ void main() {
     expect(
       (which! as Map<String, Object?>)['tag'],
       multi.target,
-      reason: '装载的应是宿主选中的那个分支',
+      reason: '装载的应是插件框架选中的那个分支',
     );
     runtime.plugins.unload('example_native_multi');
 
@@ -132,7 +132,7 @@ void main() {
     expect(inspected.targetEntry, multi.targetEntry);
     expect(inspected.targets.length, multi.targets.length);
 
-    // 应用侧安装预检的调用形状：**不传** os/arch（= 用宿主当前环境）
+    // 主程序安装预检的调用形状：**不传** os/arch（= 用插件框架当前环境）
     //
     // 回归：声明了 `platforms` 的插件曾被一律判成"当前平台不在清单声明内"，
     // 于是「从压缩包安装」永远失败 —— 示例插件几乎都声明了 platforms。
@@ -152,7 +152,7 @@ void main() {
     expect(
       declaredByHost.supported,
       isTrue,
-      reason: '不传 os/arch 时按宿主当前环境判定：${declaredByHost.reason}',
+      reason: '不传 os/arch 时按插件框架当前环境判定：${declaredByHost.reason}',
     );
 
     // 指定目标环境：示例包只有本机那一份构建，换个系统就应当选不到分支
@@ -219,7 +219,7 @@ void main() {
     expect(
       probe['startThread'],
       equals(probe['callThread']),
-      reason: '插件代码必须只在宿主线程执行',
+      reason: '插件代码必须只在插件框架线程执行',
     );
     expect(probe['unknownHookRc'], -4, reason: '未知前缀钩子必须被拒绝');
     expect(
@@ -376,7 +376,7 @@ void main() {
     _step('11.5 UI 项快照完成: ${uiItems.length} 项');
     // 声明式页面：UI 项只声明"打开哪个页面"，页面本身由插件的**同名能力**绘制。
     // 这里断言"声明了 route 入口的插件确实提供了同名能力" —— 只声明入口不实现能力时，
-    // 宿主打开页面只会得到"插件未声明该能力"。
+    // 插件框架打开页面只会得到"插件未声明该能力"。
     final String? nativeViewId = card.viewId;
     expect(nativeViewId, isNotNull);
     final Object? nativeCardRaw = await runtime.plugins.call(
@@ -392,7 +392,7 @@ void main() {
     expect((nativeView['blocks']! as List<Object?>).length, greaterThan(1));
 
     _step('11.6 原生示例的页面能力完成');
-    // 卸载后 UI 项被摘除 (宿主随实例摘除, Dart 侧不再渲染)
+    // 卸载后 UI 项被摘除 (插件框架随实例摘除, Dart 侧不再渲染)
     runtime.plugins.unload('example_native');
     expect(
       runtime.plugins.uiSnapshot().any(
@@ -406,7 +406,7 @@ void main() {
 
     // ===== 卸载 = 释放动态库：插件目录要能删 =====
     //
-    // 管理页的「彻底卸载」= 卸载实例 → 删除插件目录；宿主没关掉动态库句柄时目录一直
+    // 管理页的「彻底卸载」= 卸载实例 → 删除插件目录；插件框架没关掉动态库句柄时目录一直
     // 被占着，删除只会拿到"拒绝访问"。这里用一份可自由删除的插件副本走同一条路。
     {
       final Directory copyRoot = Directory.systemTemp.createTempSync('mx-unload-');
@@ -461,7 +461,7 @@ void main() {
     );
 
     _step('13 JS 插件装载完成');
-    // JS 插件的 UI 项 (顶层注册 → 宿主线程回放) 同样进快照
+    // JS插件的 UI 项 (顶层注册 → 插件框架线程回放) 同样进快照
     final List<MusicxxPluginUIItem> uiItemsJs = runtime.plugins.uiSnapshot();
     expect(
       uiItemsJs.any(
@@ -494,7 +494,7 @@ void main() {
     );
 
     _step('14 JS decide 完成');
-    // 异步派发同样适用于 JS 处理器（宿主在自己的线程上等脚本，Dart 线程不阻塞）
+    // 异步派发同样适用于 JS 处理器（插件框架在自己的线程上等脚本，Dart 线程不阻塞）
     final Map<String, Object?>? jsAsyncVerdict = await runtime.hooks
         .decideAsync(
           MusicxxPluginHookId.playerBeforePlaySong,
@@ -507,13 +507,13 @@ void main() {
     expect(jsAsyncVerdict!['action'], 'skip');
 
     _step('14.5 JS 异步裁决完成');
-    // JS 裁决处理器返回 Promise (异步裁决): 宿主一直等到脚本结算, 结算后裁决生效
+    // JS 裁决处理器返回 Promise (异步裁决): 插件框架一直等到脚本结算, 结算后裁决生效
     final Map<String, Object?>? jsPromiseVerdict = runtime.hooks.decide(
       MusicxxPluginHookId.playerSpeed,
       <String, Object?>{'sid': 's-js-speed', 'from': 1.0, 'to': 8.0},
     );
     expect(jsPromiseVerdict, isNotNull, reason: 'example_js 的异步裁决应生效');
-    // 宿主把处理器返回的 patch 合并进结果对象（顶层键，与其它裁决钩子一致）
+    // 插件框架把处理器返回的 patch 合并进结果对象（顶层键，与其它裁决钩子一致）
     expect((jsPromiseVerdict!['to'] as num?)?.toDouble(), 3.0);
     // 同一个处理器在"不需要裁决"的分支上同步返回 null → 没有裁决
     expect(
@@ -540,7 +540,7 @@ void main() {
     );
 
     _step('15 JS 观察钩子执行完成');
-    // 能力探针: JS 侧同步读状态镜像 + 宿主信息
+    // 能力探针: JS 侧同步读状态镜像 + 插件框架信息
     final jsProbeRaw = await runtime.plugins.call(
       'example_js',
       'plugin.example_js.probe',
@@ -551,7 +551,7 @@ void main() {
     expect(jsProbe['pluginId'], 'example_js');
     expect(jsProbe['hostPlatform'], MusicxxPluginRuntime.currentPlatform);
 
-    // 异步能力处理器 (返回 Promise): 宿主等到它结算再给调用方结果
+    // 异步能力处理器 (返回 Promise): 插件框架等到它结算再给调用方结果
     final Object? slowRaw = await runtime.plugins.call(
       'example_js',
       'plugin.example_js.slowProbe',
@@ -568,7 +568,7 @@ void main() {
     _step('16 JS 能力调用完成');
     // JS 示例的主页入口与播放页附加信息块都指向 ext://example_js/card:
     // 页面由同名能力 `card` 绘制, 这里断言这条路径真的通 (只声明入口不实现能力时,
-    // 宿主打开页面只会得到"插件未声明该能力")
+    // 插件框架打开页面只会得到"插件未声明该能力")
     final List<MusicxxPluginUIItem> jsHomeEntries = MusicxxPluginUIItems.byType(
       uiItemsJs,
       MusicxxPluginUIType.homeEntry,
@@ -607,7 +607,7 @@ void main() {
     );
 
     _step('17 JS enable/disable 完成');
-    // 卸载: JS 实例与注册全部摘除, 槽位保留在宿主内置表里
+    // 卸载: JS 实例与注册全部摘除, 槽位保留在插件框架内置表里
     runtime.plugins.unload('example_js');
     expect(runtime.plugins.findLoaded('example_js'), isNull);
     expect(
@@ -654,8 +654,8 @@ void main() {
 
     // 新槽位示例 playing_bg_image（示例封面背景）: 同时注册『播放页背景样式』与『播放页歌曲图
     // 接管项』（`musicxx.ui.playing.icon` 是这一轮新增的 UI 项类型）。它顶层还注册了
-    // `musicxx.media.palette.provide` 取色钩子 —— 这两条都能挡住"忘了重建宿主库"
-    // （旧宿主库会以未知 UI 项类型 / 未知钩子拒绝注册）。
+    // `musicxx.media.palette.provide` 取色钩子 —— 这两条都能挡住"忘了重建插件框架库"
+    // （旧插件框架库会以未知 UI 项类型 / 未知钩子拒绝注册）。
     if (Directory('${env.pluginRoot}/playing_bg_image').existsSync()) {
       final MusicxxPluginInfo? imagePlugin = found2
           .where((MusicxxPluginInfo info) => info.id == 'playing_bg_image')
@@ -668,7 +668,7 @@ void main() {
           MusicxxPluginHookId.mediaPaletteProvide,
         ),
         1,
-        reason: '取色钩子的处理器要在宿主侧登记成功（宿主库没重建时这里会是 0）',
+        reason: '取色钩子的处理器要在插件框架侧登记成功（插件框架库没重建时这里会是 0）',
       );
       final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
       // 三种模式 = 同一个槽位里的三个候选样式（注册顺序决定设置列表里的先后）
@@ -719,7 +719,7 @@ void main() {
       ).firstWhere((MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image');
       expect(icon.data['mode'], 'none');
       expect(icon.data['keepSpace'], true);
-      // 取色钩子的处理器必须**同步**返回（不能在里面 await 宿主动作）：应用是在需要颜色的
+      // 取色钩子的处理器必须**同步**返回（不能在里面 await 主程序动作）：主程序是在需要颜色的
       // 时候等这次裁决的（切换背景样式、切歌、渲染准备都在 await 这条链上），处理器里等动作
       // 会把两边互相拖住 —— 实测表现是"启用插件后切歌 / 换背景样式卡几秒"。
       final Stopwatch paletteWatch = Stopwatch()..start();
@@ -738,14 +738,14 @@ void main() {
       expect(
         paletteWatch.elapsedMilliseconds,
         lessThan(300),
-        reason: '取色钩子的处理器要同步返回：在里面等宿主动作会让应用一直等到超时',
+        reason: '取色钩子的处理器要同步返回：在里面等主程序动作会让主程序一直等到超时',
       );
       expect(
         paletteVerdict,
         isNull,
         reason: '没命中取色缓存时返回 null（应用走内置快速取色，算好后用 setPalette 写回）',
       );
-      // 设置页能力：页面由插件给出（宿主只做结构校验，渲染在应用侧）
+      // 设置页能力：页面由插件给出（插件框架只做结构校验，渲染在主程序侧）
       final Object? imageViewRaw = await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.settings',
@@ -837,7 +837,7 @@ void main() {
 
   test('能力调用：异步受理、超时丢弃、停机收尾（不悬挂）', () async {
     if (env == null || !env.hasPlugin('example_js')) {
-      markTestSkipped('未找到原生宿主库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped('未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
@@ -854,7 +854,7 @@ void main() {
     runtime.plugins.scan();
     runtime.plugins.load('example_js');
 
-    // 宿主库支持异步能力调用（旧库没有 plugin_call_async 这个符号）
+    // 插件框架库支持异步能力调用（旧库没有 plugin_call_async 这个符号）
     expect(runtime.plugins.supportsAsyncCall, isTrue);
 
     // 1) 正常路径：异步完成的处理器（返回 Promise）也能等到结果
@@ -887,7 +887,7 @@ void main() {
       throwsA(isA<MusicxxPluginApiException>()),
     );
 
-    // 4) 宿主停机：还没回来的调用不能被悬挂（由 handleDisposed 收尾）
+    // 4) 插件框架停机：还没回来的调用不能被悬挂（由 handleDisposed 收尾）
     final Future<Object?> pending = runtime.plugins.call(
       'example_js',
       'plugin.example_js.slowProbe',
@@ -901,7 +901,7 @@ void main() {
         isA<MusicxxPluginApiException>().having(
           (MusicxxPluginApiException e) => e.message,
           'message',
-          contains('宿主已停止'),
+          contains('插件框架已停止'),
         ),
       ),
     );
@@ -909,13 +909,13 @@ void main() {
 
   test('变量通道：声明/读/写/订阅（对真实原生库）', () async {
     if (env == null || !env.hasPlugin('example_js_vars')) {
-      markTestSkipped('未找到原生宿主库或变量通道示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped('未找到原生插件框架库或变量通道示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
     }
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
 
-    // 应用侧"官方键的真值"（真值在应用这里，宿主只留一份服务 peek 的缓存）
+    // 主程序"官方键的真值"（真值在主程序这里，插件框架只留一份服务 peek 的缓存）
     Object? officialValue = 'v0';
 
     final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen((
@@ -923,14 +923,14 @@ void main() {
     ) {
       switch (e.type) {
         case MusicxxPluginEventType.varRead:
-          // 插件发起异步读 → 应用回答（本地的直接问实现，权威且立刻可得）
+          // 插件发起异步读 → 主程序回答（本地的直接问实现，权威且立刻可得）
           runtime.vars.readResult(
             e.intOf('requestId') ?? -1,
             ok: true,
             value: officialValue,
           );
         case MusicxxPluginEventType.varWrite:
-          // 插件发起写 → 应用写入（回执即写入）后回执
+          // 插件发起写 → 主程序写入（回执即写入）后回执
           officialValue = e.payload['value'];
           runtime.vars.writeResult(
             e.intOf('requestId') ?? -1,
@@ -951,7 +951,7 @@ void main() {
       libraryPath: env.libraryPath,
     );
 
-    // 旧宿主库诊断：本次构建必须带变量位
+    // 旧插件框架库诊断：本次构建必须带变量位
     expect(runtime.featureBits, isNotNull);
     expect(runtime.missingFeatures, isEmpty, reason: runtime.featureHint);
 
@@ -999,14 +999,14 @@ void main() {
     expect(tip['owner'], 'example_js_vars');
     expect(tip['caps'], <Object?>['get', 'set', 'notify']);
     expect(tip['type'], 'bool');
-    // 声明了初值 → 同步读缓存里就有值（declared 模式由宿主代存）
+    // 声明了初值 → 同步读缓存里就有值（declared 模式由插件框架代存）
     await refreshProbe();
     final Map<String, Object?> peeked =
         (probe()['tipPeek'] as Map<Object?, Object?>?)?.cast<String, Object?>() ??
         <String, Object?>{};
     expect(peeked['value'], false);
 
-    // 4) 应用推值 → 订阅了该键的插件收到通知（bind 回调）
+    // 4) 主程序推值 → 订阅了该键的插件收到通知（bind 回调）
     officialValue = 'v1';
     expect(runtime.vars.update('musicxx.test.bound', 'v1'), isTrue);
     // 同一个值再推一次: 包层就不发了（去重）
@@ -1020,9 +1020,9 @@ void main() {
             ?.cast<String, Object?>() ??
         <String, Object?>{};
     expect(lastChange['value'], 'v1');
-    expect(lastChange['by'], ''); // 写入方是应用（不是插件）
+    expect(lastChange['by'], ''); // 写入方是主程序（不是插件）
 
-    // 5) 插件异步读官方键（宿主向应用取一次真实值）
+    // 5) 插件异步读官方键（插件框架向主程序取一次真实值）
     await runtime.plugins.call('example_js_vars', 'triggerRead', <String, Object?>{
       'key': 'musicxx.test.bound',
     });
@@ -1030,9 +1030,9 @@ void main() {
       await refreshProbe();
       return probe()['readValue'] != null;
     });
-    expect(probe()['readValue'], 'v1', reason: '异步读应当拿到应用侧的真值');
+    expect(probe()['readValue'], 'v1', reason: '异步读应当拿到主程序的真值');
 
-    // 6) 插件异步写官方键（应用写入后才算数）
+    // 6) 插件异步写官方键（主程序写入后才算数）
     await runtime.plugins.call('example_js_vars', 'triggerWrite', <String, Object?>{
       'key': 'musicxx.test.bound',
       'value': 'v2',
@@ -1047,14 +1047,14 @@ void main() {
         <String, Object?>{};
     expect(writeResult['accepted'], isTrue);
     expect(writeResult['value'], 'v2');
-    expect(officialValue, 'v2', reason: '写入由应用执行');
+    expect(officialValue, 'v2', reason: '写入由主程序执行');
     // 写成功后值真的变了 → 订阅者再收到一条通知
     await _pumpUntil(() async {
       await refreshProbe();
       return _intOf(probe()['changes']) >= 2;
     });
 
-    // 7) 应用读/写插件键（declared 模式立即结算）
+    // 7) 主程序读/写插件键（declared 模式立即结算）
     expect(runtime.vars.get('plugin.example_js_vars.tip.start'), false);
     final Map<String, Object?> setResult =
         runtime.vars.set('plugin.example_js_vars.tip.start', true) ??
@@ -1063,9 +1063,9 @@ void main() {
     expect(setResult['changed'], isTrue);
     expect(runtime.vars.get('plugin.example_js_vars.tip.start'), true);
 
-    // 7.5) handler 模式：读写在属主手里（宿主只留同步读缓存）
-    //      - 读: 宿主把请求转给属主, 由 onRead 回答
-    //      - 写: 宿主把请求转给 onWrite, 属主写入后回执
+    // 7.5) handler 模式：读写在属主手里（插件框架只留同步读缓存）
+    //      - 读: 插件框架把请求转给属主, 由 onRead 回答
+    //      - 写: 插件框架把请求转给 onWrite, 属主写入后回执
     expect(
       runtime.vars.get('plugin.example_js_vars.handler.tip'),
       false,
@@ -1079,7 +1079,7 @@ void main() {
     await refreshProbe();
     expect(_intOf(probe()['handlerTip']), 0); // 插件侧状态是 bool, 这里只校验可取到
     expect(runtime.vars.get('plugin.example_js_vars.handler.tip'), true);
-    // 属主自己改值时提交一次（不是应用写的）
+    // 属主自己改值时提交一次（不是主程序写的）
     await runtime.plugins.call('example_js_vars', 'setHandlerInternal', <String, Object?>{
       'value': false,
     });

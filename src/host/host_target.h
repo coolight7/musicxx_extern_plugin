@@ -1,6 +1,6 @@
 /// 外部插件多目标打包支持 (仿 APK 的原生库目录结构)
 ///
-/// 一个插件包 (目录或压缩包) 里可以同时放多个 **系统 / CPU 架构分支**, 宿主在扫描与
+/// 一个插件包 (目录或压缩包) 里可以同时放多个 **系统 / CPU 架构分支**, 插件框架在扫描与
 /// 装载时按当前环境选一个分支用:
 ///
 /// ```text
@@ -106,7 +106,7 @@ std::string normalizeTargetOs(std::string_view name);
 /// 未识别返回空串
 std::string normalizeTargetArch(std::string_view name);
 
-/// 当前宿主的规范系统名 / 架构名 (与宿主上报给插件的取值一致)
+/// 当前插件框架的规范系统名 / 架构名 (与框架上报给插件的取值一致)
 std::string currentTargetOs();
 std::string currentTargetArch();
 
@@ -116,7 +116,7 @@ std::string defaultPluginLibraryName(std::string_view pluginName);
 
 /// 解析插件目录里的分支, 并选出当前系统/架构要加载的库文件
 ///
-/// - `os` / `arch` 为外部传入的规范名 (宿主: 平台标识与 hostArch; 便于测试注入);
+/// - `os` / `arch` 为外部传入的规范名 (插件框架: 平台标识与 hostArch; 便于测试注入);
 /// - `scanRootFallback` = true 时, 没有匹配分支会回退到插件根目录的库文件 (旧布局);
 /// - 结果里的 `note` 在"没有可用库文件"时给出用户可读原因。
 MusicxxPluginTargets

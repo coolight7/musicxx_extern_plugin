@@ -7,7 +7,7 @@ import 'events.dart';
 import 'native_strings.dart';
 import 'runtime.dart';
 
-/// 宿主动作处理器：接收插件参数，返回结果（JSON 可序列化）
+/// 主程序动作处理器：接收插件参数，返回结果（JSON 可序列化）
 typedef MusicxxPluginActionHandler =
     Object? Function(MusicxxPluginActionInvocation invocation);
 
@@ -33,7 +33,7 @@ class MusicxxPluginActionInvocation {
   /// 参数
   final Map<String, Object?> args;
 
-  /// 延长本次请求的超时（长任务用；宿主下限 1 s）—— 需由宿主确认，v1 仅记录
+  /// 延长本次请求的超时（长任务用；主程序下限 1 s）—— 需由主程序确认，v1 仅记录
   final void Function(Duration extra) extendDeadline;
 
   @override
@@ -41,7 +41,7 @@ class MusicxxPluginActionInvocation {
       'MusicxxPluginActionInvocation($plugin → $action #$requestId)';
 }
 
-/// 宿主动作注册表
+/// 主程序动作注册表
 ///
 /// 插件经 `musicxx.host.request_action` 发起动作；Dart 侧在 [register] 注册实现。
 /// **未注册的动作会立即收到"未找到"**，避免插件 op 一直挂到超时。
@@ -98,10 +98,10 @@ class MusicxxPluginActions {
     }
   }
 
-  /// 直接执行一个已注册的宿主动作（**应用侧 UI 触发**；不经插件 op 通道）
+  /// 直接执行一个已注册的主程序动作（**主程序 UI 触发**；不经插件 op 通道）
   ///
   /// 用途：插件用声明式 UI 声明 `{"kind":"action","name":"musicxx.player.toggle"}`，
-  /// 用户点击后由应用直接调用该动作实现（与插件发起动作走同一份实现与权限规则）。
+  /// 用户点击后由主程序直接调用该动作实现（与插件发起动作走同一份实现与权限规则）。
   /// - `pluginId`：调用上下文（权限判定与插件私有存储定位用；可为空）；
   /// - 返回动作结果；动作未注册返回 `null`（调用方可据此提示）。
   Future<Object?> invoke(
@@ -186,7 +186,7 @@ class MusicxxPluginActions {
     }
   }
 
-  /// `musicxx.action.cancel`（插件取消 / 宿主超时）：通知已注册的处理器
+  /// `musicxx.action.cancel`（插件取消 / 主程序超时）：通知已注册的处理器
   void handleActionCancel(MusicxxPluginEvent event) {
     // v1 只记一条日志；需要中断的处理器的实现可以订阅事件流自行收尾（取消令牌尚未接入）
     _runtime.log(
@@ -195,7 +195,7 @@ class MusicxxPluginActions {
     );
   }
 
-  /// 宿主收尾：没回复完的异步动作不再有人接，计数归零
+  /// 主程序收尾：没回复完的异步动作不再有人接，计数归零
   void handleDisposed() {
     _pendingResponses = 0;
   }
@@ -206,7 +206,7 @@ class MusicxxPluginActions {
       jsonEncode(<String, Object?>{'error': message});
 }
 
-/// 动作名常量（应用侧在 Store 里注册对应实现；这里只列名字）
+/// 动作名常量（主程序在 Store 里注册对应实现；这里只列名字）
 abstract final class MusicxxPluginActionNames {
   static const String playerPlay = 'musicxx.player.play';
   static const String playerPause = 'musicxx.player.pause';
@@ -317,7 +317,7 @@ abstract final class MusicxxPluginActionNames {
   /// 声明一个**自己的**功能点（id 必须形如 `plugin.<自己的插件 id>.<名字>`）
   ///
   /// 插件声明的功能点共用**一条**通用通道钩子（`musicxx.feature.point.call`），而不是每个点
-  /// 各占一个钩子 id（宿主只认固定的钩子表）。声明只描述"我提供什么功能"：
+  /// 各占一个钩子 id（插件框架只认固定的钩子表）。声明只描述"我提供什么功能"：
   /// 参数 `id`（必填）、`title`（展示名）、`depict`（一句话说明）、`args`（参数说明）、
   /// `result`（结果说明）。同一 id 重复声明 = 覆盖（最后一次生效）。
   /// 声明跟着插件生命周期走（禁用 / 卸载自动撤销），不持久化；重新启用时脚本会再声明一遍。
@@ -326,13 +326,13 @@ abstract final class MusicxxPluginActionNames {
 
   /// 收回自己声明的功能点（参数 `id`）
   ///
-  /// 一般不用调：插件被禁用 / 卸载时宿主会撤销它的全部声明。
+  /// 一般不用调：插件被禁用 / 卸载时插件框架会撤销它的全部声明。
   static const String featurePointUndefine = 'musicxx.feature.point.undefine';
 
   /// 读某个钩子当前的处理器列表（自省：谁注册了、什么形态、排第几）
   ///
   /// 参数：`hook`（钩子 id，如 `musicxx.media.spectrum.extract`）。
-  /// 返回 `{hook, count, handlers, listAvailable}`；`listAvailable=false` 表示宿主库太旧，
+  /// 返回 `{hook, count, handlers, listAvailable}`；`listAvailable=false` 表示插件框架库太旧，
   /// 只能报处理器数量（此时看 `count`）。
   static const String hookHandlers = 'musicxx.hook.handlers';
 

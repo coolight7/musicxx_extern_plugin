@@ -1,7 +1,7 @@
 # 把插件目录打成安装包（.zip），并列出包内的系统/架构分支
 #
-# 用途：应用侧「从压缩包安装」要求压缩包**顶层就是插件目录的内容**（plugin.yaml 在根）。
-# 多目标包（`lib/<系统>-<架构>/`）可以一次打进同一个 zip：宿主运行时按当前系统与 CPU
+# 用途：主程序「从压缩包安装」要求压缩包**顶层就是插件目录的内容**（plugin.yaml 在根）。
+# 多目标包（`lib/<系统>-<架构>/`）可以一次打进同一个 zip：插件框架运行时按当前系统与 CPU
 # 架构选分支（选择规则见 docs/plugin-native-api.md §1.3）。
 #
 # 用法：
@@ -35,7 +35,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
   throw "插件目录里没有 plugin.yaml（压缩包顶层必须是插件目录的内容）: $pluginDirFull"
 }
 
-# ---- 读清单里的关键字段（只做提示与校验，权威解析在宿主）----
+# ---- 读清单里的关键字段（只做提示与校验，权威解析在插件框架）----
 $manifestText = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8
 function Read-ManifestScalar([string]$key, [string]$default) {
   $m = [regex]::Match($manifestText, "(?m)^\s*" + [regex]::Escape($key) + "\s*:\s*(.+?)\s*$")

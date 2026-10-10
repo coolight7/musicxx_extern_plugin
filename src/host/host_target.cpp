@@ -118,7 +118,7 @@ bool isLibraryFileName(std::string_view name) {
     }
     return true;
   };
-  // 注意: `libfoo.so.1` 这类带版本号的库不算 (内核与宿主都按 `*.so` 找)
+  // 注意: `libfoo.so.1` 这类带版本号的库不算 (内核与框架都按 `*.so` 找)
   return lowerEndsWith(".dll") || lowerEndsWith(".so") || lowerEndsWith(".dylib");
 }
 
@@ -214,7 +214,7 @@ std::string currentTargetOs() {
 }
 
 std::string currentTargetArch() {
-  // 与宿主上报给插件的架构标识一致 (`hostArch()`, 见 musicxx_host.cpp)。
+  // 与框架上报给插件的架构标识一致 (`hostArch()`, 见 musicxx_host.cpp)。
   // 取值必须是 `normalizeTargetArch` 认得的规范名 —— 上报的架构、清单 `arch` 声明与
   // 分支目录标签比较的是同一个名字, 认不出来就会变成"谁都不匹配" (旧实现只认 64/32 位
   // x86 与 64 位 ARM, 32 位 ARM 上返回 unknown)。
