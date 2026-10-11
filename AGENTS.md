@@ -184,8 +184,9 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 同上，从示例
 ```
 
 - **主程序构建会自动触发**：`flutter build windows|linux|apk` 会在配置阶段调用 `build_native.ps1` 的自动模式
-  （已是最新则秒级返回；关掉用环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`），因此改完插件框架 C++ 直接
-  `flutter run` 就会重新构建，不需要先手工跑脚本。
+  （已是最新则秒级返回；Android 侧每次构建都会按本次要打包的 ABI 调一次：缺库则构建、源码改过则增量重编、
+  已是最新则秒退，日志里是"插件框架库就绪…"；关掉用环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`），
+  因此改完插件框架 C++ 直接 `flutter run` 就会重新构建，不需要先手工跑脚本。
 - **分三条线**：`setup_native_env.ps1` = 配环境（写 `.native/env/environment.json` 缓存，重复执行只读缓存）；
   `build_native.ps1` = 插件框架（插件框架库 + SDK，示例插件默认不建）；`build_examples.ps1` = 示例插件（构建 + 打包）。
 
@@ -282,8 +283,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 - **三个构建脚本的分工**（Windows 侧）：`tools/setup_native_env.ps1` 配环境并写缓存
   `.native/env/environment.json`；`tools/build_native.ps1` 构建插件框架库 + SDK（`-Auto` 供主程序构建自动调用、
   已是最新则秒退）；`tools/build_examples.ps1` 构建示例插件并可打包。公共实现在 `tools/native_common.ps1`。
-  平台工程（`windows/CMakeLists.txt`、`linux/CMakeLists.txt`、`android/build.gradle`）通过
-  `tools/cmake/host_autobuild.cmake` 在主程序构建时触发 `build_native` 的自动模式；改这套触发方式要同时看这三处。
+  平台工程在主程序构建时触发 `build_native` 的自动模式：`windows/CMakeLists.txt`、`linux/CMakeLists.txt`
+  通过 `tools/cmake/host_autobuild.cmake`（configure 期触发一次）；`android/build.gradle` 自己实现同一套
+  逻辑（每个目标 ABI 在 preBuild 前触发一次：缺库则构建、源码改过则增量重编、已是最新则秒退）。
+  改这套触发方式要同时看这三处。
 
 ## 8. 排障速查
 
