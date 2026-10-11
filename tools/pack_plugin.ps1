@@ -10,7 +10,7 @@
 #   pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir <插件目录> -Check    # 只检查，不打包
 #
 # 包名：不给 -Out 时是 <插件 id>-<清单 version 里的 . 换成 _>.zip，与插件目录同级
-# （例：example_js_shader 的 version 是 20261010.1.0 → example_js_shader-20261010_1_0.zip）。
+# （例：example_js_shader 的 version 是 2026.1010.1 → example_js_shader-2026_1010_1.zip）。
 #
 # 例（打包构建产物里的多目标示例插件）：
 #   pwsh -NoProfile -File tools/pack_plugin.ps1 `

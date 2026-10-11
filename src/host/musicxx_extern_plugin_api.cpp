@@ -26,7 +26,9 @@ using musicxx::extern_plugin::MusicxxHostManager;
 
 namespace {
 
-constexpr const char *kHostVersion = "0.1.0";
+/// 插件框架库自报的版本 (与 C 头里的 MUSICXX_EXTERN_PLUGIN_VERSION、Dart 侧
+/// MusicxxPluginVersion.version 同一个值)
+constexpr const char *kHostVersion = MUSICXX_EXTERN_PLUGIN_VERSION;
 
 /// 框架句柄 (C ABI 层持有上下文与管理器; 由 host_create/host_destroy
 /// 管理生命周期)

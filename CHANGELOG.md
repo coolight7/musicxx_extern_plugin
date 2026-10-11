@@ -3,9 +3,25 @@
 这个文件只记**会影响插件作者与接入方**的改动：协议、ABI、行为约定、破坏性变更。
 细节说明在各篇作者文档里（`docs/`），这里给"从哪一版开始不一样了"。
 
-版本按插件框架库 `hostVersion`（当前 `0.1.0`）与改动日期记。
+版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
+`src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
 ## 未发布
+
+### 新增：插件框架版本号声明
+
+- 插件框架从 `2026.1011.1` 起**声明自己的版本号**，格式 `<年>.<月日>.<小版本号>`：
+  Dart 侧 `MusicxxPluginVersion`（`lib/src/version.dart`，含版本 / 提交 / 日期 / 仓库地址），
+  C 侧 `MUSICXX_EXTERN_PLUGIN_VERSION`（`src/include/musicxx_extern_plugin_api.h`），
+  `pubspec.yaml` 的 `version` 同步。
+- 读版本号的接口值随之变成这个格式：`musicxx_extern_plugin_version()`、
+  `host.info().hostVersion`、JS 的 `musicxx.version`（以前是 `0.1.0`）。
+  **只是版本字符串的取值变化**，字段名、ABI、判断逻辑都没变。
+- 插件清单的 `version` 改用同一套格式（例 `2026.1010.1`，以前是 `20261010.1.0`）：
+  打包出来的安装包名随之变成 `<插件 id>-2026_1010_1.zip`。
+  **旧清单不用改**：`version` 是自由字符串，插件框架与安装流程都不校验它的格式。
+- musicxx 版本与插件框架版本 / 提交 / 日期的对照表、改版本号的流程：
+  `docs/version-history.md`。
 
 ### 破坏性：能力调用只有异步形态
 

@@ -50,6 +50,13 @@ void main() {
     _step('1 init 完成');
     expect(runtime.isRunning, isTrue);
     expect(runtime.libraryPath, env.libraryPath);
+    // 库自报的版本要与 Dart 侧声明一致：不一致说明加载到的插件框架库不是这次构建的产物
+    // （改了 C 头宏没重建库时，主程序页面上的版本与插件读到的版本会不是一个值）
+    expect(
+      runtime.libraryVersion,
+      MusicxxPluginVersion.version,
+      reason: '原生库自报的版本与 lib/src/version.dart 不一致，重新构建插件框架库',
+    );
 
     // 事件泵：host.ready 一定在队列里（init 里已 pump 过一次）
     await _pumpUntil(

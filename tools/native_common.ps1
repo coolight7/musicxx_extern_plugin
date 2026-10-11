@@ -52,7 +52,8 @@ function Write-MxOk([string]$Text) {
 
 # ==================== 插件安装包命名 ====================
 
-# 插件版本号的约定是「日期.小版本号1.小版本号2」: 第一段是这次发版那天的日期, 例 20261010.1.0。
+# 插件版本号的约定是 `<年>.<月日>.<小版本号>`: 例 2026.1010.1 = 2026-10-10 的第 1 版
+# (月日是 4 位 MMDD, 1—9 月补 0)。插件框架自己的版本号用同一套格式, 见 docs/version-history.md。
 # 安装包文件名要带上版本号, 所以打包脚本自己读一次清单 —— 这里只做轻量正则, 清单的权威解析在插件框架
 # (src/host/host_manifest.cpp)。
 function Read-MxPluginVersion([string]$PluginDir) {
@@ -65,7 +66,7 @@ function Read-MxPluginVersion([string]$PluginDir) {
 }
 
 # 安装包文件名: <插件 id>-<版本号, 其中的 . 换成 _>.zip
-# 例: example_js_shader (version: 20261010.1.0) → example_js_shader-20261010_1_0.zip
+# 例: example_js_shader (version: 2026.1010.1) → example_js_shader-2026_1010_1.zip
 # 清单没写 version 时退回 <插件 id>.zip (只是打包脚本的命名, 不影响插件框架怎么读清单)。
 function Get-MxPluginPackageFileName([string]$PluginId, [string]$Version) {
     $tag = $Version.Trim().Trim('"').Trim("'") -replace '\.', '_'

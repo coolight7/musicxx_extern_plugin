@@ -377,7 +377,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
   {
     Json payload;
     payload["apiVersion"] = MUSICXX_EXTERN_PLUGIN_API_VERSION;
-    payload["version"] = "0.1.0";
+    payload["version"] = MUSICXX_EXTERN_PLUGIN_VERSION;
     payload["platform"] = platform_;
     payload["arch"] = hostArch();
     payload["appVersion"] = appVersion_;
@@ -2025,7 +2025,7 @@ int32_t MusicxxHostManager::stateUpdateBatch(const std::string &itemsJson,
 int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
   Json j;
   j["apiVersion"] = MUSICXX_EXTERN_PLUGIN_API_VERSION;
-  j["version"] = "0.1.0";
+  j["version"] = MUSICXX_EXTERN_PLUGIN_VERSION;
   j["pluginAbiVersion"] = MUSICXX_PLUGIN_API_VERSION;
   j["platform"] = platform_;
   j["arch"] = hostArch();
