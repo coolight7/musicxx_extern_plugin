@@ -68,14 +68,14 @@ public:
 
   /* ---------- 内置插件槽位 (js:<pluginId>) ---------- */
 
-  /// 登记/更新一个 JS插件的内置槽位 (装载前调用; 框架线程)
+  /// 登记/更新一个 JS插件的内置槽位 (加载前调用; 框架线程)
   ///
   /// `scriptPaths` 按清单 `scripts` 的顺序: 同一个 JS 上下文里依次执行。
   bool registerBuiltin(const std::string &pluginId,
                        const std::vector<std::string> &scriptPaths,
                        const std::string &version, std::string &err);
 
-  /// 注销槽位 (卸载完成/装载失败回滚时调用; 框架线程)
+  /// 注销槽位 (卸载完成/加载失败回滚时调用; 框架线程)
   void unregisterBuiltin(const std::string &pluginId);
 
   bool hasBuiltin(const std::string &pluginId) const;
@@ -501,7 +501,7 @@ private:
   std::atomic<int64_t> queueWaitLastMs_{0};
   std::atomic<int64_t> queueWaitMaxMs_{0};
 
-  /// 已装载的实例 (key = js:<id>; 任意线程读写)
+  /// 已加载的实例 (key = js:<id>; 任意线程读写)
   std::map<std::string, std::shared_ptr<Instance>, std::less<>> instances_;
 
   /// 未完成动作请求 (任意线程读写)

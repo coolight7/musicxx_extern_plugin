@@ -92,7 +92,7 @@ class MusicxxPluginVars {
 
   final Map<String, String> _lastPushed = <String, String>{};
 
-  /// 声明一批变量（插件框架启动后调用一次；必须在装载插件之前）
+  /// 声明一批变量（插件框架启动后调用一次；必须在加载插件之前）
   ///
   /// 逐项失败只会记一条日志（返回值仍是 0），不影响其它项与启动流程。
   bool declare(List<MusicxxPluginVarDeclare> items) {

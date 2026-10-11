@@ -4,7 +4,7 @@
 /// - 所有导出函数用 `pluginxx::guardCall` 捕获异常, 绝不把异常带过 C ABI;
 /// - 出参字符串一律经框架堆分配 (musicxx_extern_plugin_string_free 释放);
 /// - 涉及框架线程状态的操作投递到框架线程执行 (ioCallSync);
-///   装载/卸载是异步事务, 在调用线程做有界等待 (不占框架线程)。
+///   加载/卸载是异步事务, 在调用线程做有界等待 (不占框架线程)。
 
 #include "musicxx_extern_plugin_api.h"
 #include "host_inspect.h"
@@ -511,7 +511,7 @@ musicxx_extern_plugin_plugin_reload(MusicxxExternPluginHost *h,
   }
   const std::string pluginId = viewToStd(id);
   /// 插件参数保存在实例上 (`plugin_set_args`), 卸载后实例就没了: 先把它取出来,
-  /// 重新装载时作为 options 传下去 (否则"设置参数 + 重载"会丢参数)。
+  /// 重新加载时作为 options 传下去 (否则"设置参数 + 重载"会丢参数)。
   /// 读实例表必须在框架线程上做 (内核的实例表只在框架线程改动) —— 用一次
   /// onHostThread 投递取值, 不做同步等待以外的操作。
   std::string optionsJson{"{}"};

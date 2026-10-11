@@ -280,12 +280,12 @@ capability(*this, "plugin.my_plugin.settings",
 - 状态（`smooth` 的上一帧值）跟着通道表走：同一份声明不被打断，声明变了重新开始；
 - **没有 `AnimatedBuilder` 包裹的字段仍然是"每次重画算一次"**（插件可以用"能力返回新视图"刷新页面，
   但那是跳变，不是动画）。
-- **kit 里有现成装配**：`kit.animScope({values, maxFps, children})` / `kit.fadeTransition({value, curve, children})` /
+- **kit 里有现成的拼装写法**：`kit.animScope({values, maxFps, children})` / `kit.fadeTransition({value, curve, children})` /
   `kit.sizeTransition({value, axis, curve, children})` / `kit.slideTransition({value, from, to, curve, children})` /
   `kit.scaleTransition({value, from, to, curve, children})` / `kit.rotationTransition({value, from, to, curve, children})`
   （参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
-### 2.4 用 kit 装配（推荐写法）
+### 2.4 用 kit 拼装（推荐写法）
 
 写页面内容不必手拼这些块：**随插件分发的界面 kit** 把常用组合封装好了。
 JS 插件在清单里按顺序加载 kit（`scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]`），
@@ -314,7 +314,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 `tree` / `sparkline` / `progressRow` / `settingRow` / `switchRow` / `inputRow` / `shaderBlock` /
 `coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
-- kit 只做**装配**，不含逻辑、不写死客户端的规则；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
+- kit 只做**拼装**，不含逻辑、不写死客户端的规则；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
 - **kit 随插件目录分发**（插件框架不提供）：`tools/sync_ui_kit.ps1` 会把两个 kit 文件复制进 JS 插件目录，
   C++ 插件用 SDK 头文件里的版本（改 kit 后跑 `tools/gen_ui_kit.ps1` 重新生成）。
 
@@ -441,8 +441,8 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 | 示例 | 演示了什么 |
 |---|---|
-| `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 装配 |
+| `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 拼装 |
 | `plugins/example_js_font/plugin.js` | 全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认）+ 文字与输入框字体预览；**按钮动作"立刻返回 + 后台执行"的样板**（见 §4.1） |
 | `plugins/example_js_shader/plugin.js` | 播放页背景样式（两种：晶格 / 光圈）+ 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
-| `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 装配内容 |
-| `plugins/example_js_multi_script/` | 清单 `scripts` 多脚本装载：先跑随插件分发的 kit，再跑插件脚本 |
+| `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 拼装内容 |
+| `plugins/example_js_multi_script/` | 清单 `scripts` 多脚本加载：先跑随插件分发的 kit，再跑插件脚本 |

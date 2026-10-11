@@ -1,5 +1,5 @@
 /// musicxx 外部插件原生插件框架: 管理器核心
-/// (配置/启停/事件/领域钩子/生命周期接缝/插件管理)
+/// (配置/启停/事件/专用钩子/内核生命周期接口/插件管理)
 
 #include "musicxx_host.h"
 #include "host_inspect.h"
@@ -76,7 +76,7 @@ Json hookIdsJson(const std::vector<std::string> &ids) {
 /// 背景: 插件框架库静态链入 cxx_utilxx_base, 它自带日志分发器**但默认没有任何
 /// sink**, 因此原生侧出问题时"完全没有日志可看"(Dart 未接入时尤其明显)。
 /// 这里提供最小可用的诊断出口: 环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1`
-/// 时把插件框架与插件的日志写到 stderr; 正式落盘/转发由 Dart 侧配置。
+/// 时把插件框架与插件的日志写到 stderr; 正式写入磁盘/转发由 Dart 侧配置。
 class StderrLogSink final : public utilxx_base::ThreadedLogSink {
 public:
   /// 必须在最派生类析构里停线程 (基类析构时虚表已切换, 见 ThreadedLogSink 说明)
@@ -822,7 +822,7 @@ MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance &inst) const {
   return j.dump();
 }
 
-/* ==================== 生命周期接缝 ==================== */
+/* ==================== 内核生命周期接口实现 ==================== */
 
 std::shared_ptr<pluginxx::PluginHostLifecycle<MusicxxHostInstance>>
 MusicxxHostManager::selfRef() {
@@ -899,7 +899,7 @@ void MusicxxHostManager::onInstanceLoaded(MusicxxHostInstance &inst) {
   payload["version"] = inst.version;
   payload["path"] = inst.path;
   payload["configPath"] = inst.configPath;
-  /// 该实例注册的钩子 id 列表 (装载已在 start 之后: 列表是完整的)
+  /// 该实例注册的钩子 id 列表 (加载已在 start 之后: 列表是完整的)
   payload["hooks"] = hookIdsJson(hooksOfInstance(inst.name));
   payload["ok"] = true;
   pushEvent("musicxx.plugin.loaded", pluginIdOf(inst.name), payload.dump());
@@ -1036,7 +1036,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   }
 
   // 目录静态判定：清单字段 + 多目标分支选择 + 库文件判定（见 host_inspect.h）。
-  // 与安装预检（`plugin_inspect`）、原生装载共用同一份实现，扫描结果不会与它们分歧。
+  // 与安装预检（`plugin_inspect`）、原生加载共用同一份实现，扫描结果不会与它们分歧。
   const MusicxxPluginInspect info =
       inspectPluginDir(dirPath, platform_, hostArch());
   if (!info.valid) {
@@ -1184,18 +1184,18 @@ MusicxxHostManager::loadNativeDirAsync(
     failReason = targets.note.empty()
                      ? ("动态库插件库文件缺失 (entry=" + entry + ")")
                      : targets.note;
-    XX_LOGE("[musicxx_ext] 插件 `{}` 装载失败: {}", name, failReason);
+    XX_LOGE("[musicxx_ext] 插件 `{}` 加载失败: {}", name, failReason);
     co_return nullptr;
   }
   XX_LOGI("[musicxx_ext] 插件 `{}` 使用目标分支: {} (库文件 {})", name,
           targets.selectedTag.empty() ? "插件根目录" : targets.selectedTag,
           targets.selectedLib);
 
-  // 依赖检查：与内核的目录装载路径同一语义（必选依赖未加载 → 拒绝装载；
+  // 依赖检查：与内核的目录加载路径同一语义（必选依赖未加载 → 拒绝加载；
   // 可选依赖未加载 → 只记日志）。依赖记录写回实例，级联卸载靠它。
   for (const auto &dep : depends) {
     if (!this->find(dep)) {
-      failReason = "插件装载失败: 必选依赖 `" + dep + "` 未加载 (请先加载它)";
+      failReason = "插件加载失败: 必选依赖 `" + dep + "` 未加载 (请先加载它)";
       XX_LOGE("[musicxx_ext] {}", failReason);
       co_return nullptr;
     }
@@ -1210,7 +1210,7 @@ MusicxxHostManager::loadNativeDirAsync(
                                              false, resources, interfaces);
   if (!inst) {
     failReason =
-        "插件装载失败 (缺失/无效入口符号, 或 start 事务失败; 详见日志)";
+        "插件加载失败 (缺失/无效入口符号, 或 start 事务失败; 详见日志)";
     co_return nullptr;
   }
   inst->depends = std::move(depends);
@@ -1298,7 +1298,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
       ctx_->io,
       [self, path, options, slot, failMsg, pluginId,
        created]() -> asio::awaitable<void> {
-        // JS插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 装载;
+        // JS插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 加载;
         // 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
         const fs::path pluginPath{path};
         // 清单字段只有一处实现: 内核解析 name/entry/depends,
@@ -1374,7 +1374,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             slot->set(prepareRc);
             co_return;
           }
-          // depends 只是记录 (内核 builtin 装载路径不再做检查):
+          // depends 只是记录 (内核 builtin 加载路径不再做检查):
           // 依赖已在上面校验过
           auto jsInst = co_await self->loadBuiltinAsync(
               "js:" + pluginId, path, jsDependsResolved,
@@ -1383,7 +1383,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             if (auto engine = self->jsEngine()) {
               engine->unregisterBuiltin(pluginId);
             }
-            *failMsg = "JS插件装载失败 (脚本错误或 start 事务失败; "
+            *failMsg = "JS插件加载失败 (脚本错误或 start 事务失败; "
                        "详见日志与调试信息)";
             Json payload;
             payload["id"] = pluginId;
@@ -1417,7 +1417,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         if (!inst) {
           *failMsg =
               loadFailReason.empty()
-                  ? std::string{"插件装载失败 (缺失/无效入口符号, 必选依赖"
+                  ? std::string{"插件加载失败 (缺失/无效入口符号, 必选依赖"
                                 "未加载, 或 start 事务失败; 详见日志)"}
                   : loadFailReason;
           Json payload;
@@ -1447,7 +1447,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
   }
   int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   if (!slot->wait(timeoutMs == 0 ? 10000 : timeoutMs, rc)) {
-    err = "plugin_load: 装载未在时限内完成 (结果稍后经事件回报)";
+    err = "plugin_load: 加载未在时限内完成 (结果稍后经事件回报)";
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
@@ -2130,7 +2130,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"actionRequests", inst->actionRequests.load()},
         {"events", events},
         /// 事件速率: eventsPerSec = 最近一个完整窗口;
-        /// eventsAvgPerSec = 装载以来平均
+        /// eventsAvgPerSec = 加载以来平均
         {"eventsPerSec", inst->eventsPerSec},
         {"eventsAvgPerSec", uptimeMs > 0 ? events * 1000 / uptimeMs : 0},
         {"errors", inst->errors.load()},

@@ -23,7 +23,7 @@
 /// - `ext://example_js_shader/card` (主页入口): 当前生效项与渲染状态, 一键切换背景;
 /// - `ext://example_js_shader/settings`: 改速率 (值存在插件目录的 config.json);
 /// - 频谱页 (`spectrumProbe` 能力): 镜像与动作结果 (见上面第三条)。
-/// 页面都由脚本返回声明式内容 (用随插件分发的界面 kit 装配, 见 plugin.yaml 的 `scripts`),
+/// 页面都由脚本返回声明式内容 (用随插件分发的界面 kit 拼装, 见 plugin.yaml 的 `scripts`),
 /// 排版与控件由客户端渲染。
 ///
 /// 这两件事原先和钩子/网络/页面示例一起放在 `example_js` 里, 2026-09 拆成独立插件,
@@ -847,7 +847,7 @@ function refreshSpectrumAction() {
     });
 }
 
-/// 动作结果那一行的说明 (第一次打开时通常已经有值: 插件装载时就发起过一次读取)
+/// 动作结果那一行的说明 (第一次打开时通常已经有值: 插件加载时就发起过一次读取)
 function spectrumActionResultText() {
     if (spectrumActionState.error !== "") {
         return "读取失败: " + spectrumActionState.error;
@@ -962,7 +962,7 @@ function spectrumProbeView(args) {
                         ],
                     },
                     kit.hint({
-                        text: "• 值表达式也能写在普通字段上（尺寸 / 进度 / 文本 / visible）：例如 `Progress.value` 写成 `{\"kind\":\"source\",\"name\":\"plugin.<插件id>.<键>\"}` 就能跟着插件推的变量动。上面的块手写了 JSON；kit 里有现成装配（kit.animScope / kit.fadeTransition / kit.sizeTransition / kit.slideTransition / kit.scaleTransition / kit.rotationTransition）。节点表与来源见 docs/plugin-shader-bundle.md §7。",
+                        text: "• 值表达式也能写在普通字段上（尺寸 / 进度 / 文本 / visible）：例如 `Progress.value` 写成 `{\"kind\":\"source\",\"name\":\"plugin.<插件id>.<键>\"}` 就能跟着插件推的变量动。上面的块手写了 JSON；kit 里有现成的拼装写法（kit.animScope / kit.fadeTransition / kit.sizeTransition / kit.slideTransition / kit.scaleTransition / kit.rotationTransition）。节点表与来源见 docs/plugin-shader-bundle.md §7。",
                     }, env),
                 ],
             }, env),
@@ -992,7 +992,7 @@ musicxx.capability.register("spectrumProbe", function (args) {
     return { view: view };
 });
 
-// 插件装载时先读一次: 第一次打开这一页时动作结果通常已经就位
+// 插件加载时先读一次: 第一次打开这一页时动作结果通常已经就位
 refreshSpectrumAction();
 
 console.log("example_js_shader 已加载 (pid=" + musicxx.pluginId + ")");

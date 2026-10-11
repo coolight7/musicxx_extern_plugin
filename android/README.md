@@ -19,7 +19,7 @@ dlopen failed: library "/data/user/0/<包名>/files/xxx.so" is not accessible fo
 
 - **插件框架库**（`libmusicxx_extern_plugin.so`）必须随 APK 分发，本模块负责收集；
 - **用户安装的动态库插件**（放在 `<应用支持目录>/musicxx/extern_plugin/plugins/<插件id>/`）在部分
-  设备/系统版本上会因同一条限制装载失败 —— 插件框架按"安全降级"处理：该插件标记为不可用、给出原因、
+  设备/系统版本上会因同一条限制加载失败 —— 插件框架按"安全降级"处理：该插件标记为不可用、给出原因、
   不重试也不影响其它插件。JS插件不受影响。
 
 ## 构建插件框架库
@@ -97,4 +97,4 @@ Android 上不参与（Android 没有可执行文件旁的库目录）。
   把 `<安装前缀>/bin/` 与 `<安装前缀>/plugins/` 推到设备（例如 `/data/local/tmp/`），
   用 `LD_LIBRARY_PATH=<bin> ./musicxx_extern_plugin_test <plugins>` 执行。
 - `armeabi-v7a`（32 位 ARM）未实测：依赖链里的 simdjson 等库需要自行确认 32 位 ARM 可编译。
-- 用户安装的动态库插件受系统的动态库加载限制，可能装载失败（见上）。
+- 用户安装的动态库插件受系统的动态库加载限制，可能加载失败（见上）。

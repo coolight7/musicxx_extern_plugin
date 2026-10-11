@@ -1,11 +1,11 @@
-/// musicxx 插件 SDK: 领域 C 约定 (与主程序业务相关, 与内核通用部分分离)
+/// musicxx 插件 SDK: musicxx 专用约定 (与主程序业务相关, 与内核通用部分分开)
 ///
 /// 命名: 官方标识统一 `musicxx.*` 前缀; 插件自定义统一 `plugin.<pluginId>.*`。
 /// 本头只声明**跨边界稳定约定** (类型/宏/IID), 纯 C 可包含 (便于 C 插件与外部工具)。
 ///
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
-/// - 领域接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
+/// - 专用接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
 ///   `musicxx.player` / `musicxx.library` / `musicxx.lyrics` / `musicxx.storage` /
 ///   `musicxx.net` / `musicxx.stats`
 ///   (v1 已实现 hooks / host / ui / vars 四张; 其余 IID 先冻结, 表版本 1 留待后续实现)

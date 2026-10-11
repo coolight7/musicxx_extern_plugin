@@ -1,8 +1,8 @@
-# 示例（JS 插件）：清单 `scripts` 多脚本装载
+# 示例（JS 插件）：清单 `scripts` 多脚本加载
 #
 # 演示「一个插件目录里放多个脚本」：插件框架在同一个 JS 上下文里按 `scripts` 的顺序执行，
-# 前一个脚本定义的全局量在后一个里可见（随插件分发的 kit 就是走这条路装载）。
-# 任一脚本报错都算装载失败，扫描阶段缺文件也会提示。
+# 前一个脚本定义的全局量在后一个里可见（随插件分发的 kit 就是走这条路加载）。
+# 任一脚本报错都算加载失败，扫描阶段缺文件也会提示。
 name: example_js_multi_script
 kind: js
 scripts: [kit.js, plugin.js]
@@ -10,5 +10,5 @@ scripts: [kit.js, plugin.js]
 version: 20261010.1.0
 api_version: 1
 author: "coolight"
-description: "示例: 多脚本装载 —— scripts 列表按顺序执行, 前一个脚本定义的全局量在后一个里可见"
+description: "示例: 多脚本加载 —— scripts 列表按顺序执行, 前一个脚本定义的全局量在后一个里可见"
 platforms: [windows, linux, macos, android, ios]

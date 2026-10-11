@@ -4,10 +4,10 @@
 /// - `plugin_scan`（插件框架扫描）：叠加运行期开关后作为扫描结果；
 /// - `plugin_inspect`（安装预检）：应用把解包出来的临时目录交给插件框架判定，
 ///   "这个包在当前系统/架构下能不能用、会用哪个分支"装之前就有答案；
-/// - 原生装载：按同一份判定选分支（`loadNativeDirAsync` 复用 `resolvePluginTargets`）。
+/// - 原生加载：按同一份判定选分支（`loadNativeDirAsync` 复用 `resolvePluginTargets`）。
 ///
 /// 三者共用同一套规则（`host_target.h` 的分支选择 + `host_manifest.h` 的清单字段），
-/// 因此不会出现"扫描/预检说一套、装载做另一套"。
+/// 因此不会出现"扫描/预检说一套、加载做另一套"。
 #pragma once
 
 #include "host_target.h"
@@ -20,7 +20,7 @@
 namespace musicxx {
 namespace extern_plugin {
 
-/// 插件目录的静态判定结果（不装载、不看运行期开关）
+/// 插件目录的静态判定结果（不加载、不看运行期开关）
 struct MusicxxPluginInspect {
   /// 清单是否可解析（能读到内核要求的 `name`）
   bool valid = false;

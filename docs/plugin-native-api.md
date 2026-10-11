@@ -79,7 +79,7 @@ permissions:                       # 声明式权限：只做展示，运行时�
   （插件目录因此可以三平台通用，只要库文件基名一致；SDK 的构建助手已把产物前缀置空）；
 - `entry` 指向的文件不存在时，插件框架还会按平台默认库名再找一次
   （Linux `lib<name>.so`、Windows `<name>.dll`）；
-- 写 `entry: my_plugin.dll` 会让 Linux/macOS 装载失败（扫描阶段就会提示「动态库插件库文件缺失」）。
+- 写 `entry: my_plugin.dll` 会让 Linux/macOS 加载失败（扫描阶段就会提示「动态库插件库文件缺失」）。
 
 清单里**没有**运行时行为相关的开关：配置由插件自己读写 `config.json`，插件框架不解析插件配置。
 
@@ -96,7 +96,7 @@ permissions:                       # 声明式权限：只做展示，运行时�
 ### 1.3 多目标打包（一个包放多个系统 / 架构分支）
 
 仿 APK 的原生库目录：**一个包 = 一份清单 + 若干分支目录**，每个分支目录里放一份该目标的库文件；
-插件框架在扫描与装载时按当前系统与 CPU 架构选一个分支，管理页的插件信息里会写出"已选分支 / 包内分支"。
+插件框架在扫描与加载时按当前系统与 CPU 架构选一个分支，管理页的插件信息里会写出"已选分支 / 包内分支"。
 
 ```text
 my_plugin/
@@ -137,8 +137,8 @@ my_plugin/
   插件框架上报给插件的 `host.info().arch` 也是这个名字；
 - **不匹配当前系统/架构的分支不会被加载**：扫描结果里 `supported=false`，原因是"包内没有匹配当前
   系统/架构的分支"（附带包内分支清单），主程序安装时也会提前拒绝并说明；
-- **判定只有插件框架一处实现**：扫描（`plugin_scan`）、装载与安装预检（C ABI `plugin_inspect`）跑的是
-  同一份 `inspectPluginDir`，所以"预检说能不能用、装载就用哪个分支"不会出现分歧；
+- **判定只有插件框架一处实现**：扫描（`plugin_scan`）、加载与安装预检（C ABI `plugin_inspect`）跑的是
+  同一份 `inspectPluginDir`，所以"预检说能不能用、加载就用哪个分支"不会出现分歧；
   Dart 侧只有数据模型与环境取值，不复制别名表与目录遍历；
 - 清单 `platforms` / `arch` 仍然有效，含义是"**整包**允许的平台/架构"（例如插件内含脚本或数据资源
   只对某些系统有意义时的额外限制）；多目标包通常不用写它们，支持范围已经由分支表达。
@@ -146,7 +146,7 @@ my_plugin/
   比较的是"当前环境与清单声明"，不写 = 不限；
 - **不认识的分支目录会被忽略**（例如 `lib/utils/`、`lib/shader/`），可以放心把辅助文件放在同一层；
 - `targets_dir` 显式写成空串 = 关闭分支扫描（插件自己管目录布局，插件框架只看清单 `entry`）；
-- 分支目录里放的是"目标平台编出来的库"这一事实由你保证：标签与真实库不匹配时，装载阶段
+- 分支目录里放的是"目标平台编出来的库"这一事实由你保证：标签与真实库不匹配时，加载阶段
   `dlopen`/`LoadLibrary` 会失败（错误信息里带库路径）。
 
 **构建一个多目标包**：SDK 的构建助手按当前构建目标把库放进分支目录 ——
@@ -240,7 +240,7 @@ MUSICXX_PLUGIN_EXPORT(
 
 - `MUSICXX_PLUGIN_EXPORT` 生成插件框架要找的 5 个入口符号
   （`musicxx_plugin_{get_info,create,start,stop,destroy}`）。**不要手写入口**：少了 `start`/`stop`
-  会被插件框架按约定拒绝装载（管理页会给出「缺失/无效入口符号」）；
+  会被插件框架按约定拒绝加载（管理页会给出「缺失/无效入口符号」）；
 - 两个事务函数的签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
   （内核要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用内核原始签名
   `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`；
@@ -284,7 +284,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
 | 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
 | 框架信息 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}` |
-| 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是装载时框架给的参数（默认 `{}`） |
+| 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
 | 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
 | 自省（异步） | `requestAction("musicxx.hook.handlers", "{\"hook\":\"<钩子 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这个钩子现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这个钩子再决定要不要登记"就用它们，别猜 |
@@ -608,7 +608,7 @@ Android 见 §11。
    - 用户插件目录：把 build/ 整个拷成 <插件目录>/my_plugin/（管理页「打开插件目录」），
      或打包成 zip 用管理页「从压缩包安装」；
    - 随包插件：放进应用的随包插件目录（开发期一般用上面那条）
-④ 管理页「外部插件」→「重新扫描」→ 启用（装载即执行 start 事务）
+④ 管理页「外部插件」→「重新扫描」→ 启用（加载即执行 start 事务）
 ⑤ 触发你挂的钩子 / 打开你的页面，看效果
 ⑥ 改了代码：重新构建 → 管理页「重载」（或禁用再启用）→ 再试
 ```
@@ -622,7 +622,7 @@ Android 见 §11。
 - **先用示例插件做基线**：`plugins/example_native` 演示了钩子、能力、动作、事件、UI、日志，
   行为与 `plugins/example_js` 等价，两边可以对照着读；
 - **框架日志默认没有输出目标**：设环境变量 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 让框架打印到 stderr，
-  再启动应用就能看到装载过程与你的 `log.info(...)`；
+  再启动应用就能看到加载过程与你的 `log.info(...)`；
 - 管理页（设置 → 插件 → 外部插件）分「插件 / 设置 / 调试」三个分页：
   插件分页做启用 / 禁用 / 重载 / 卸载 / 详情，设置分页管框架开关与安全模式，
   调试分页给钩子与插件统计、最近事件；
@@ -642,7 +642,7 @@ Android 见 §11。
 
 ## 11. 部署与分发
 
-- 用户安装的动态库插件在 **Android** 上可能装载失败：Android 7 起动态链接器只允许应用从 APK 的
+- 用户安装的动态库插件在 **Android** 上可能加载失败：Android 7 起动态链接器只允许应用从 APK 的
   原生库目录加载动态库（应用数据目录里的 `.so` 报
   `is not accessible for the namespace "classloader-namespace"`）。插件框架按「安全降级」处理：
   标记该插件不可用、给出原因、不重试，其它插件照常工作；JS 插件不受影响。管理页会提前说明这条限制；
@@ -674,7 +674,7 @@ Android 见 §11。
 | 点入口提示「插件『<插件id>』没有提供『xxx』」 | 该动作指向的能力没有注册（页面视图 id 必须与能力短名一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
 | 主程序整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。框架线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
-| 插件装载后主程序启动异常 | 连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
+| 插件加载后主程序启动异常 | 连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
 | 想知道现在装了什么、某个插件为什么没跑起来 | 命令行 / MCP 一条命令看完：`musicxx-cli plugin list`（每个插件的 `loaded` / `error`）与 `plugin logs <插件id>`，见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 主程序卡住、不知道卡在哪一次调用 | 看主程序日志目录下的 `host_call.log`：进插件框架调用是同步的，卡住后最后一行就是没返回的那次调用 |
 
@@ -684,7 +684,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 领域接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
+| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |

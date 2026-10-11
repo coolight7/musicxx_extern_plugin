@@ -4,8 +4,8 @@
 /// - [MusicxxHostInstance]: 继承内核 `pluginxx::PluginInstanceBase`, 提供
 /// `musicxx_plugin_destroy`;
 /// - [MusicxxHostManager]: 继承内核 `PluginHostLifecycle`
-/// (装载/启停/禁用启用/卸载/级联依赖)
-///   与 `DomainHooks` (通用表取数), 并实现 musicxx 领域表 (`musicxx.hooks` /
+/// (加载/启停/禁用启用/卸载/级联依赖)
+///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`musicxx.hooks` /
 ///   `musicxx.host`);
 /// - [HostContext]: 框架线程 (asio::io_context + 1 条线程)
 /// 与工作线程池的所有者。
@@ -174,7 +174,7 @@ public:
 
   /* ---------- 事件发布速率 (框架线程维护; 统计只观测不限制) ---------- */
 
-  /// 装载完成的 steady 毫秒 (平均速率用)
+  /// 加载完成的 steady 毫秒 (平均速率用)
   int64_t loadedAtMs = 0;
   /// 当前速率窗口起点 (steady 毫秒)
   int64_t eventsWindowStartMs = 0;
@@ -218,7 +218,7 @@ public:
 
   ~MusicxxHostManager() override;
 
-  /// 启动框架线程 + 装载插件 (幂等)
+  /// 启动框架线程 + 加载插件 (幂等)
   int32_t start(std::string &err);
 
   /// 同步停止 (幂等): 卸载全部插件 → 停线程池 → 停 io 线程
@@ -354,7 +354,7 @@ public:
   /// 事件计数与速率 (框架线程; 只观测不限制): 按主题命名空间归属到插件实例
   void accountEventForTopic(const std::string &topic);
 
-  /* ---------- 领域表实现 (供 tables 调用; 均在框架线程执行) ---------- */
+  /* ---------- 专用表实现 (供 tables 调用; 均在框架线程执行) ---------- */
 
   int32_t registerHook(MusicxxHostInstance *inst,
                        const MusicxxPluginHookSpec &spec);
@@ -542,7 +542,7 @@ public:
   /// JS 引擎实例 (未启用 JS 运行时或未启动时为空)
   std::shared_ptr<JsEngine> jsEngine() const;
 
-  /// 注册 JS插件的内置槽位并把插件目录登记到 discovered_ (装载前调用)
+  /// 注册 JS插件的内置槽位并把插件目录登记到 discovered_ (加载前调用)
   ///
   /// - `pluginDir` 为插件目录; 脚本取清单 `scripts`（按顺序执行），没写时取
   /// `entryHint` (以 .js 结尾时) 或 `plugin.js`;
@@ -560,7 +560,7 @@ public:
   std::string qualifyEventTopic(std::string_view topic) override;
 
 protected:
-  /* ---------- 内核生命周期接缝 ---------- */
+  /* ---------- 内核生命周期接口实现 ---------- */
 
   std::shared_ptr<pluginxx::PluginHostLifecycle<MusicxxHostInstance>>
   selfRef() override;
@@ -714,11 +714,11 @@ private:
   std::string deriveConfigPath(const std::string &pluginId,
                                const std::string &pluginDir) const;
 
-  /// 装载动态库插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给内核
-  /// `loadNativeAsync`（清单读 name/depends/资源声明，依赖检查与目录装载一致）。
+  /// 加载动态库插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给内核
+  /// `loadNativeAsync`（清单读 name/depends/资源声明，依赖检查与目录加载一致）。
   ///
   /// - `failReason` 在失败时给出用户可读原因（分支不匹配 / 库文件缺失 / 依赖未加载）；
-  /// - 目录形态之外的路径（直接给库文件）不经过这里，由内核按文件装载。
+  /// - 目录形态之外的路径（直接给库文件）不经过这里，由内核按文件加载。
   asio::awaitable<InstancePtr>
   loadNativeDirAsync(const std::string &dirPath,
                      const pluginxx::PluginLoadOptions *options,

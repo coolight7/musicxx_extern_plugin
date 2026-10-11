@@ -2,12 +2,12 @@
 ///
 /// 分工：
 /// - **内核**（`pluginxx::parsePluginManifest`）负责 `name` / `entry` / `depends` /
-///   `optional_depends` 的权威解析（扫描、装载、依赖检查都用它）；
+///   `optional_depends` 的权威解析（扫描、加载、依赖检查都用它）；
 /// - 本模块负责插件框架自己的扩展字段（kind / version / scripts / permissions /
-///   platforms / arch / api_version / targets_dir 等），供扫描、装载与安装预检共用。
+///   platforms / arch / api_version / targets_dir 等），供扫描、加载与安装预检共用。
 ///
-/// 之所以单独成文件：这三条路径（`scanDir`、`plugin_inspect`、原生装载）必须看到**同一份**
-/// 字段值，否则会出现"扫描说支持、装载却按另一个分支"这类分歧。
+/// 之所以单独成文件：这三条路径（`scanDir`、`plugin_inspect`、原生加载）必须看到**同一份**
+/// 字段值，否则会出现"扫描说支持、加载却按另一个分支"这类分歧。
 #pragma once
 
 #include <cstdint>

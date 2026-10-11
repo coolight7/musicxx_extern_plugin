@@ -16,7 +16,7 @@ abstract final class MusicxxPluginEventType {
   /// 扫描到插件
   static const String pluginDiscovered = 'musicxx.plugin.discovered';
 
-  /// 插件装载成功
+  /// 插件加载成功
   static const String pluginLoaded = 'musicxx.plugin.loaded';
 
   /// 插件卸载完成

@@ -5,7 +5,7 @@
 ///   （键不存在时为空应答）—— JS 便捷封装 `musicxx.storage.getConfig(key, 默认值)`
 ///   直接把应答当值使用，包一层对象会让插件读不到自己写的内容；
 /// - 设置页能力读到的值与 config.json 一致；
-/// - 改设置 → 写回 config.json → 重新装载（等价于重启）后仍然生效；
+/// - 改设置 → 写回 config.json → 重新加载（等价于重启）后仍然生效；
 /// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里
 ///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
 /// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着状态镜像走：
@@ -30,7 +30,7 @@ import 'package:path/path.dart' as path;
 void main() {
   final _Environment? env = _Environment.detect();
 
-  test('example_js：设置读写落盘，重新装载后仍然生效', () async {
+  test('example_js：设置写入文件，重新加载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js')) {
       markTestSkipped(
         '未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
@@ -87,7 +87,7 @@ void main() {
     final File config = File(
       path.join(pluginRoot.path, 'example_js', 'config.json'),
     );
-    // 首次装载还没写过配置：默认值来自脚本（getConfig 的第二个参数）
+    // 首次加载还没写过配置：默认值来自脚本（getConfig 的第二个参数）
     expect((await _probe(runtime))['configSkipAds'], true);
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
 
@@ -109,7 +109,7 @@ void main() {
     expect(_readConfig(config)['heartbeatMs'], 60000, reason: '30 秒 → 60 秒');
     expect(_readConfig(config)['skipAds'], false, reason: '写新键不能丢掉已有的键');
 
-    // 重新装载（等价于"重启应用后再加载插件"）：设置必须还在
+    // 重新加载（等价于"重启应用后再加载插件"）：设置必须还在
     runtime.plugins.unload('example_js');
     runtime.plugins.load('example_js');
     await _pumpUntil(
@@ -127,7 +127,7 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('example_js_shader：背景动画速率落盘，重新装载后仍然生效', () async {
+  test('example_js_shader：背景动画速率写入磁盘，重新加载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
         '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
@@ -245,7 +245,7 @@ void main() {
     );
     expect(_readConfig(config)['bgRate'], 2);
 
-    // 重新装载：速率必须还在，设置页显示的也是新值
+    // 重新加载：速率必须还在，设置页显示的也是新值
     runtime.plugins.unload(pluginId);
     runtime.plugins.load(pluginId);
     await _pumpUntil(
@@ -448,9 +448,9 @@ void main() {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
-    // 插件装载时就发起过一次动作读取（脚本顶层的 refreshSpectrumAction）
+    // 插件加载时就发起过一次动作读取（脚本顶层的 refreshSpectrumAction）
     await _pumpUntil(() => spectrumCalls >= 1, runtime: runtime);
-    expect(spectrumCalls, greaterThanOrEqualTo(1), reason: '插件装载后应异步读一次频谱动作');
+    expect(spectrumCalls, greaterThanOrEqualTo(1), reason: '插件加载后应异步读一次频谱动作');
 
     // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒超时
     // （主程序侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
@@ -632,7 +632,7 @@ void main() {
       reason: '调用没有被后台动作拖住（旧写法会互锁到动作超时）',
     );
 
-    // 后台动作随后到达（慢动作 400ms）并落盘
+    // 后台动作随后到达（慢动作 400ms）并写入磁盘
     final File config = File(
       path.join(pluginRoot.path, pluginId, 'config.json'),
     );

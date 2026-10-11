@@ -1,4 +1,4 @@
-/// musicxx 外部插件原生插件框架: 领域接口表 (musicxx.hooks / musicxx.host)
+/// musicxx 外部插件原生插件框架: 专用接口表 (musicxx.hooks / musicxx.host)
 /// 与钩子派发
 ///
 /// 线程约定: 表入口在 Dart 线程被调用, 内部投递到框架线程并等待;
@@ -785,7 +785,7 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 领域接口表 (C ABI 函数 + vtable) ==================== */
+/* ==================== 专用接口表 (C ABI 函数 + vtable) ==================== */
 
 namespace {
 
@@ -1165,7 +1165,7 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   }
   // 其余通用表
   // (log/json/config/plugins/scheduler/coroutine_runtime/tasks/cancel/
-  // capabilities) 由内核提供; 领域表在下面分发
+  // capabilities) 由内核提供; musicxx 专用表在下面分发
   if (const void *generic =
           pluginxx::queryGenericPluginIface<MusicxxHostInstance,
                                             MusicxxHostManager>(name)) {

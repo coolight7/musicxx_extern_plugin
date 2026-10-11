@@ -12,7 +12,7 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
-| 单特性示例（多脚本装载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
+| 单特性示例（多脚本加载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
 
 ---
 
@@ -50,7 +50,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 ```
 
 `scripts` 里的文件在**同一个 JS 上下文**里按顺序执行（前一个脚本定义的全局量，后面的脚本
-直接能用）：随插件分发的 kit 文件就放在这里。任一脚本顶层报错都算装载失败，错误信息里带
+直接能用）：随插件分发的 kit 文件就放在这里。任一脚本顶层报错都算加载失败，错误信息里带
 出错脚本的文件名；文件缺失在扫描阶段就会提示「JS 插件缺少脚本文件: &lt;名字&gt;」。
 **用了 kit 就必须把 kit 文件写进 `scripts`**：漏写时脚本里访问 `pluginxx` 会以
 `pluginxx is not defined`（错误里带脚本名）失败——插件框架不提供 kit。
@@ -68,8 +68,8 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 | 阶段 | 发生了什么 |
 |---|---|
-| 装载（`kind: js`） | 插件框架为该插件登记一个合成实例 `js:<插件id>`，建立独立的 `JSRuntime`/`JSContext` |
-| 脚本顶层执行 | 顶层**必须同步完成注册**（钩子 / 能力 / 订阅）；顶层抛异常 = 装载失败并回滚 |
+| 加载（`kind: js`） | 插件框架为该插件登记一个合成实例 `js:<插件id>`，建立独立的 `JSRuntime`/`JSContext` |
+| 脚本顶层执行 | 顶层**必须同步完成注册**（钩子 / 能力 / 订阅）；顶层抛异常 = 加载失败并回滚 |
 | 启用中 | 钩子处理器与定时器工作；同步读状态镜像、异步发动作请求 |
 | 停用（disable） | 脚本的注册全部摘除、定时器清空、`JSRuntime` 释放；**再次启用会重新执行一遍脚本** |
 | 卸载（unload） | 实例销毁；插件目录与私有数据保留（除非用户在管理页选择彻底卸载） |
@@ -218,7 +218,7 @@ musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除�
 - 糖自动做三件事：按 `point` 过滤（同一条通道上所有实现都收到同一次调用）、`ctx.caller` 等于自己时
   不回答（避免把自己算出的结果再问回去）、把返回值包成 `{"patch": {"value": …}}`。
   要返回"算过了、结果是空"就给 `null`（`undefined` 与空串 = 这次不回答）。
-- 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本再声明一遍（声明不落盘）。
+- 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本再声明一遍（声明不写入磁盘）。
 - 手写钩子处理器（不用糖）时，约定见 [plugin-hooks.md](plugin-hooks.md) 的
   `musicxx.feature.point.call`：**回答必须用 `patch` 包一层**，否则后面的处理器会覆盖你的结果。
 
@@ -985,7 +985,7 @@ musicxx.util.now();                   // Date.now()
 ```text
 ① 写 plugin.yaml + plugin.js
 ② 把整个目录放进用户插件目录（管理页「打开插件目录」），或打包 zip 用「从压缩包安装」
-③ 管理页 →「重新扫描」→ 启用（装载时执行脚本顶层）
+③ 管理页 →「重新扫描」→ 启用（加载时执行脚本顶层）
 ④ 触发钩子 / 打开页面看效果；日志看「插件详情 → 日志」
 ⑤ 改了 plugin.js：管理页「重载」（或禁用再启用）→ 脚本会重新执行
 ```
@@ -995,7 +995,7 @@ musicxx.util.now();                   // Date.now()
 [plugin-agent-cli.md](plugin-agent-cli.md)。
 
 **日志**：`console.*` 与 `musicxx.host.log(...)` 都进插件日志；插件框架自己的日志设环境变量
-`MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查装载失败时很有用）。
+`MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查加载失败时很有用）。
 
 **统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到钩子调用次数 / 耗时 / 失败（只观测不限制：没有超时与暂停派发）、
 插件声明的注册项与计数，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
@@ -1018,7 +1018,7 @@ musicxx.util.now();                   // Date.now()
 | 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（主程序还没有接） |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
-| 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会装载失败）；先看日志 |
+| 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会加载失败）；先看日志 |
 | 主程序整体卡住 | 脚本里有死循环或长时间同步计算（共享 JS 线程）。插件框架不打断脚本、也没有中断开关，只能重启主程序 —— 写脚本时自己保证循环能结束 |
 
 ---

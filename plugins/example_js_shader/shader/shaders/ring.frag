@@ -29,7 +29,7 @@
 // 实测 1280x720 单帧渲染要多花 90 ms 以上（同一个 harness 里晶格背景只花 4 ms）——
 // 播放页会明显卡。64 个频带只要 16 个成员、每个像素挑 16 组里的一组，代价小得多。
 //
-// uniform 约定（宿主固定填充，成员名字不能改）：
+// uniform 约定（主程序固定填充，成员名字不能改）：
 //   uParams = (目标宽, 目标高, 真实秒数, 速度)
 //   uEnv.x = 是否夜间；uEnv.y = 是否有封面配色；uEnv.z = 现在是否有频谱数据
 //   uColor1..uColor4 = 4 个绘制色（插件在 args 里声明来源）
@@ -73,7 +73,7 @@ uniform MusicxxRenderInfo {
 }
 render_info;
 
-// 当前歌曲封面（声明 `cover` 后由宿主每帧绑定；`uCoverInfo.w` 是 0 时表示没有封面）
+// 当前歌曲封面（声明 `cover` 后由主程序每帧绑定；`uCoverInfo.w` 是 0 时表示没有封面）
 uniform sampler2D uCover;
 
 layout(location = 0) out vec4 frag_color;

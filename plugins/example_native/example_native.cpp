@@ -30,7 +30,7 @@ std::string threadIdText() {
   return oss.str();
 }
 
-/// 页面里的行：用 musicxx 扩展 kit 装配（`listRow` = 卡片行：标题 + 说明 + 右侧状态）
+/// 页面里的行：用 musicxx 扩展 kit 拼装（`listRow` = 卡片行：标题 + 说明 + 右侧状态）
 ///
 /// kit 返回的是描述层模型（`pluginxx::ui::Item`），序列化成 JSON 块交给客户端；
 /// 排版细节（留白、深浅档位）由 kit 的写法决定，不需要插件作者算尺寸。
@@ -378,7 +378,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 11) 能力: 声明式页面 `ext://example_native/card`
     //    主页入口指向这个页面: 主程序打开页面时调用**同名能力**, 插件返回视图描述
     //    (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
-    //    页面内容用 musicxx 扩展 kit 装配: kit 只写中立的块描述 (不判断渲染目标),
+    //    页面内容用 musicxx 扩展 kit 拼装: kit 只写中立的块描述 (不判断渲染目标),
     //    客户端拿到后按自己的能力做降级适配。页面里的按钮可以调用本插件能力
     //    (返回 {view:...} 时直接刷新当前页), 也可以执行官方动作 (这里演示发提示)。
     capability(
