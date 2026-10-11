@@ -4,7 +4,7 @@ entry: plugin.js
 # 脚本按顺序在同一个 JS 上下文里执行: 先加载两个界面 kit (随插件目录分发), 再加载插件脚本
 scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
 
-version: 20261010.1.0
+version: 2026.1010.1
 api_version: 1
 author: "coolight"
 description: "JS 插件示例 (零编译): 跳过广告曲 / 观察切歌 / 错误换源建议 / 能力探针 / 设置页"

@@ -46,6 +46,15 @@
 
 #define MUSICXX_EXTERN_PLUGIN_API_VERSION 1
 
+/// 插件框架版本号：`<年>.<月日>.<小版本号>`（例 `2026.1011.1` = 2026 年 10 月 11 日的第 1 版）
+///
+/// 这是**插件框架自己的版本**（发布节奏用），与 [MUSICXX_EXTERN_PLUGIN_API_VERSION]
+/// （跨边界 C ABI 版本，只在破坏性改动时才 +1）是两件事。
+/// Dart 侧同名声明是 `MusicxxPluginVersion.version`（`lib/src/version.dart`），
+/// 两处必须一致（包内 `test/version_test.dart` 校验）；插件清单的 `version` 用同一套格式。
+/// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
+#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1011.1"
+
 /* ==================== 错误码 ==================== */
 
 #define MUSICXX_EXTERN_PLUGIN_OK                 0
@@ -146,7 +155,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_api_version(void);
 
-/// 插件框架库版本字符串 (形如 "1.0.0"); 写入 out (框架堆, 需 string_free)
+/// 插件框架库版本字符串 (形如 "2026.1011.1"; 与 MUSICXX_EXTERN_PLUGIN_VERSION 一致);
+/// 写入 out (框架堆, 需 string_free)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_version(MusicxxExternPluginString* out);
 

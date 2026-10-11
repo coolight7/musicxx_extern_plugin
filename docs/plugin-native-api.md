@@ -57,7 +57,7 @@ my_plugin/
 name: my_plugin                    # 插件 id（唯一；同名视为同一插件的升级覆盖）
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
-version: 20261010.1.0              # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期）；打包脚本用它拼安装包名
+version: 2026.1010.1              # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）；打包脚本用它拼安装包名
 api_version: 1                     # 插件 API 版本：不低于插件框架支持的最低版本即可（当前最低 1）；声明更高也不拒绝
 author: "你的名字"
 description: "插件说明"
@@ -229,7 +229,7 @@ int32_t myStop(MyCtx& ctx) { return ctx.onStop(); }
 MUSICXX_PLUGIN_EXPORT(
     MyCtx,
     "my_plugin",
-    "1.0.0",
+    "2026.1010.1",              // 插件版本号：`<年>.<月日>.<小版本号>`（见 §1.1）
     "我的第一个插件",
     myStart,
     myStop
@@ -283,7 +283,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 观察钩子 | `observe(id, fn)` | 返回值忽略；处理器要尽快返回 |
 | 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
 | 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
-| 框架信息 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}` |
+| 框架版本 | `hostInfoJson()` 的 `hostVersion` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}`（`hostVersion` 是插件框架自己的版本，如 `2026.1011.1`；`apiVersion` 是插件 API 版本，见 `docs/version-history.md`） |
 | 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
 | 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |

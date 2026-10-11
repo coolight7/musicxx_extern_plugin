@@ -386,6 +386,29 @@ class MusicxxPluginRuntime {
 
   MusicxxPluginRuntimeConfig? get config => _config;
 
+  /// 原生库自报的插件框架版本（`musicxx_extern_plugin_version`，无宿主也能读）
+  ///
+  /// 与 Dart 侧声明 `MusicxxPluginVersion.version` 应当一致：不一致说明加载到的插件框架库
+  /// 不是这次构建的产物（或 Dart 包比库新）—— 主程序管理页把两个值都显示出来，一眼能看出。
+  /// 库没加载、或库上没有这个符号时返回空串。
+  String get libraryVersion {
+    final MusicxxPluginNativeLibrary? library = _library;
+    if (null == library) {
+      return '';
+    }
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginString> out = arena.outString();
+      final int rc = library.bindings.musicxx_extern_plugin_version(out);
+      return rc == 0 ? takeOutString(out, library.bindings) : '';
+    } catch (_) {
+      // 老库上没有这个符号（理论上不会）：按"读不到版本"处理，不影响启动
+      return '';
+    } finally {
+      arena.dispose();
+    }
+  }
+
   /// 运行一次原生调用：构造 arena → 读错误串 → 释放 → 失败时抛异常
   T _call<T>(
     String operation,

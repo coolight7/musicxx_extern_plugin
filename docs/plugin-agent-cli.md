@@ -36,7 +36,7 @@
 
 ```bash
 musicxx-cli plugin list                                      # 装了哪些插件、框架在不在跑
-musicxx-cli plugin install "D:/out/my_plugin-20261010_1_0.zip" --enable    # 安装并启用（路径必须绝对路径）
+musicxx-cli plugin install "D:/out/my_plugin-2026_1010_1.zip" --enable    # 安装并启用（路径必须绝对路径）
 musicxx-cli plugin logs my_plugin --limit 50                 # 最近的插件日志（新的在前）
 musicxx-cli plugin reload my_plugin                          # 改完文件重新加载（JS脚本会重新执行）
 musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-data 保留插件私有数据）
@@ -96,7 +96,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin
 
 # 2) 安装并立刻启用；不给 --enable 时：新插件保持"未启用"，覆盖安装沿用原状态
-musicxx-cli plugin install "D:/work/my_plugin-20261010_1_0.zip" --enable
+musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable
 ```
 
 - **路径必须是绝对路径**：agent/命令行的工作目录与应用不同，相对路径会被直接拒绝；
@@ -293,11 +293,11 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 # 0) 确认连得上（第一次用可以顺手拉起应用）
 musicxx-cli doctor
 
-# 1) 打包（JS 与动态库插件同一套；顶层就是插件目录内容；包名带清单 version，例 my_plugin-20261010_1_0.zip）
+# 1) 打包（JS 与动态库插件同一套；顶层就是插件目录内容；包名带清单 version，例 my_plugin-2026_1010_1.zip）
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin
 
 # 2) 安装并启用
-musicxx-cli plugin install "D:/work/my_plugin-20261010_1_0.zip" --enable
+musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable
 
 # 3) 确认真的跑起来了，有问题就看日志
 musicxx-cli plugin list

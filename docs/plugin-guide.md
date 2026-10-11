@@ -75,7 +75,7 @@ my_plugin/
 ```yaml
 name: my_plugin
 kind: js
-version: 20261010.1.0
+version: 2026.1010.1
 api_version: 1
 description: "我的第一个插件"
 ```

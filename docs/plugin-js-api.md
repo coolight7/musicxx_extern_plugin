@@ -35,7 +35,7 @@ name: my_plugin                  # 插件 id（唯一；同名视为同一插件
 kind: js                         # js = 零编译脚本插件（缺省时按 entry 推导）
 entry: plugin.js                 # 可省略（清单只要求 name）：缺省用 plugin.js
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：按顺序执行的脚本（缺省取 entry / plugin.js）
-version: 20261010.1.0            # 版本号 = 日期.小版本号1.小版本号2（第一段是发版的日期）
+version: 2026.1010.1            # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）
 api_version: 1                   # 插件 API 版本：只要不低于插件框架支持的最低版本（当前 1）就照常加载；比插件框架更高也不会被拒
 author: "你的名字"
 description: "插件说明"
@@ -106,7 +106,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | `musicxx.events` | 事件总线（发布 / 订阅） |
 | `musicxx.capability` | 注册自己的能力 / 调用别的插件的能力 |
 | `musicxx.timer` / `musicxx.util` | 定时器与工具 |
-| `musicxx.version` / `musicxx.pluginId` | 运行时版本（`"0.1.0"`）/ 本插件 id |
+| `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id |
 | `console` | `log` / `info` / `warn` / `error` 转发到框架日志 |
 
 ---

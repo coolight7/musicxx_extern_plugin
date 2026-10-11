@@ -18,6 +18,7 @@
 | 用**命令行 / MCP** 装插件、刷新、看日志（AI agent 与自动化） | [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md) |
 | 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
 | 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
+| 查**版本对照**（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）、改版本号的流程 | [docs/version-history.md](docs/version-history.md) |
 | 构建插件框架库、把插件框架库随主程序分发 | 本文件「构建」「打包（随应用分发）」 |
 | 在 Dart 侧接入插件框架（主程序开发者） | 本文件「Dart 侧（包内）」+ `lib/musicxx_extern_plugin.dart` 文件头 |
 
@@ -74,6 +75,7 @@ docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 拼装内容/插件自己的设置页写法）
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
+docs/version-history.md 版本对照（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）与改版本号的流程
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
 docs/plugin-agent-cli.md 用命令行 / MCP 装插件、刷新、看日志（开发期快捷控制，给 AI agent 与自动化）
 tools/               setup_native_env.ps1（Windows：配置开发编译环境 —— 预检 / 子模块 / Boost / NDK → 缓存）、
@@ -459,7 +461,7 @@ bundle 里的 `format_version` 必须与目标主程序的 Flutter 版本一致�
 
 ```bash
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin        # 打包（顶层是插件目录内容）
-musicxx-cli plugin install "D:/work/my_plugin-20261010_1_0.zip" --enable        # 安装并启用（包名 = 插件id-清单版本号）
+musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable        # 安装并启用（包名 = 插件id-清单版本号）
 musicxx-cli plugin list                                                         # 每个插件的状态与失败原因
 musicxx-cli plugin logs my_plugin --limit 50                                    # 最近日志（新的在前）
 musicxx-cli plugin reload my_plugin                                             # 改完代码重新加载
@@ -504,7 +506,7 @@ dart run tools/gen_contract.dart               # 由 tools/hooks.def.json 生成
 dart run tools/gen_contract.dart --check       # CI：生成物与定义不一致时退出码 1
 dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
 flutter analyze
-flutter test                                   # 整套流程验证（框架/JS/配置读写；需要先构建原生库）
+flutter test                                   # 整套流程验证（框架/JS/配置读写；需要先构建原生库；含版本号校验 version_test.dart）
 dart run tools/self_check.dart                 # 纯 Dart 自检（不依赖 Flutter，便于定位 FFI 卡住的位置）
 ```
 
@@ -577,6 +579,10 @@ final List<MusicxxPluginUIItem> next =
   → `.native/build/*/musicxx-extern-plugin-install/bin/` → 可执行文件旁（含其 `lib/`）→ 纯库名（系统搜索路径）；
   Android/iOS 只按库名加载（库随应用包分发），绝对路径候选不参与；
 - 找不到库时抛 `MusicxxPluginLibraryException`（含逐个候选与原因），版本不匹配抛 `MusicxxPluginApiVersionException`；
+- **版本号**：`MusicxxPluginVersion`（`lib/src/version.dart`，版本 / 提交 / 日期 / 仓库地址）与 C 头宏
+  `MUSICXX_EXTERN_PLUGIN_VERSION` 必须是同一个值（`test/version_test.dart` 校验），`runtime.libraryVersion`
+  给出加载到的原生库自报的版本 —— 两者不一致说明库不是这次构建的产物；对照表与改版本号的流程见
+  `docs/version-history.md`；
 - 包内 `test/`、`docs/plugin-hooks.md`、`lib/src/*.g.dart`、`src/sdk/include/musicxx/plugin/api/hook_ids.g.h`
   都是生成物或可重跑的用例，不要手工改生成物。
 

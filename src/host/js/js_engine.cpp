@@ -1580,9 +1580,11 @@ JSValue jsTimerClear(JSContext *ctx, JSValueConst, int argc,
   return JS_UNDEFINED;
 }
 
+/// `musicxx.version`：插件框架版本（与 C 头里的 MUSICXX_EXTERN_PLUGIN_VERSION、
+/// `host.info().hostVersion` 同一个值）
 JSValue jsEngineVersion(JSContext *ctx, JSValueConst, int /*argc*/,
                         JSValueConst * /*argv*/) {
-  return JS_NewString(ctx, "0.1.0");
+  return JS_NewString(ctx, MUSICXX_EXTERN_PLUGIN_VERSION);
 }
 
 /// UI 项操作 (register | update | unregister)

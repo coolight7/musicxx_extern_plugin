@@ -771,7 +771,7 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
   j["userPluginDir"] = userPluginDir_;
   j["builtinPluginDir"] = builtinPluginDir_;
   j["apiVersion"] = MUSICXX_PLUGIN_API_VERSION;
-  j["hostVersion"] = "0.1.0";
+  j["hostVersion"] = MUSICXX_EXTERN_PLUGIN_VERSION;
   // 调用方插件自己的 id: 插件要判断"这次调用是不是我自己发起的"就得知道自己的 id
   // (功能点糖用它过滤自己发起的调用)。主程序读同一份信息时不带这个字段。
   if (!instanceName.empty()) {
