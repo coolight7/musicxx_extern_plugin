@@ -4,7 +4,7 @@
 # （60 秒），同一插件的其它处理器照常被调用，插件本身也不会被卸载。
 # 因为它的行为就是「一直失败」，只用于演示与原生测试。
 name: example_native_fail
-# entry 按 Linux 书写（Windows/macOS 下由内核修正扩展名）
+# entry 按 Linux 书写（Windows/macOS 下由插件框架修正扩展名）
 entry: example_native_fail.so
 kind: native
 version: 2026.1010.1

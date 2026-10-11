@@ -1,4 +1,4 @@
-/// musicxx 插件 SDK: musicxx 专用约定 (与主程序业务相关, 与内核通用部分分开)
+/// musicxx 插件 SDK: musicxx 专用约定 (与主程序业务相关, 与插件框架通用部分分开)
 ///
 /// 命名: 官方标识统一 `musicxx.*` 前缀; 插件自定义统一 `plugin.<pluginId>.*`。
 /// 本头只声明**跨边界稳定约定** (类型/宏/IID), 纯 C 可包含 (便于 C 插件与外部工具)。
@@ -8,7 +8,9 @@
 /// - 专用接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
 ///   `musicxx.player` / `musicxx.library` / `musicxx.lyrics` / `musicxx.storage` /
 ///   `musicxx.net` / `musicxx.stats`
-///   (v1 已实现 hooks / host / ui / vars 四张; 其余 IID 先冻结, 表版本 1 留待后续实现)
+///   (v1 已实现 hooks / host / ui / vars 四张; 其余 IID 先冻结, 表版本 1 留待后续实现;
+///   每张表都要带齐"四件" —— IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE`,
+///   规则见下面"专用接口表: 每张表四项 + 判定规则")
 /// - 钩子模式 / 标志 / 裁决动作常量
 #ifndef MUSICXX_PLUGIN_API_H
 #define MUSICXX_PLUGIN_API_H
@@ -101,13 +103,33 @@ typedef struct MusicxxPluginHookSpec {
     void* user_data;
 } MusicxxPluginHookSpec;
 
+/* ==================== 专用接口表: 每张表四项 + 判定规则 ==================== */
+
+/// 下面每张表都带四项, 与 pluginxx 通用表同一套规矩 (判定实现见 `pluginxx/api/iface_meta.h`):
+/// - **IID** (`MUSICXX_PLUGIN_IFACE_<名>`): 查询用的键; 换约定 = 换 IID;
+/// - **`version` 字段** (`X_VERSION`): 本头描述的完整布局与含义级别; 追加成员或含义变化时 +1;
+/// - **`X_MIN_VERSION`**: 本头能与之协同工作的最低表版本 (不再兼容旧布局/旧含义时才 +1);
+/// - **`X_BASELINE_SIZE`**: 表头之后所有主程序都应具备的字节数; 重置时 = 整表大小,
+///   以后追加成员时保持不变 (改成第一个追加成员的偏移)。
+///
+/// 判定: 表可用 = IID 命中 且 `version >= X_MIN_VERSION` 且 `struct_size >= X_BASELINE_SIZE`
+/// (SDK 的 `pluginxx::queryInterface` 按它做, 插件不用自己判)。
+/// **表可用不等于全部成员可用**: 基线以内的成员由上面两条门槛保证, 追加在表尾的成员
+/// 必须再判 `pluginxx::ifaceHas<&表::成员>(t)` (只判空指针会读到紧邻的另一块内存)。
+///
+/// 改动规则: 成员**只能追加在表尾**; 追加时 `X_VERSION` +1、`X_BASELINE_SIZE` 不变;
+/// **禁止**重排成员、改成员签名、删成员 (结构体大小不变, 门槛挡不住, 会静默调到隔壁函数)。
+
 /* ==================== 接口表: musicxx.hooks ==================== */
 
-#define MUSICXX_PLUGIN_IFACE_HOOKS         "musicxx.hooks"
-#define MUSICXX_PLUGIN_IFACE_HOOKS_VERSION 1
+#define MUSICXX_PLUGIN_IFACE_HOOKS             "musicxx.hooks"
+#define MUSICXX_PLUGIN_IFACE_HOOKS_VERSION     1
+#define MUSICXX_PLUGIN_IFACE_HOOKS_MIN_VERSION 1
+/* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
+#define MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE sizeof(MusicxxPluginHooksIface)
 
 typedef struct MusicxxPluginHooksIface {
-    int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_HOOKS_VERSION
+    int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_HOOKS_VERSION
     uint32_t struct_size;
 
     /// 注册处理器 (同一个 (实例, hook_id, owner_tag) 覆盖式注册)
@@ -135,11 +157,14 @@ typedef struct MusicxxPluginHooksIface {
 
 /* ==================== 接口表: musicxx.host ==================== */
 
-#define MUSICXX_PLUGIN_IFACE_HOST         "musicxx.host"
-#define MUSICXX_PLUGIN_IFACE_HOST_VERSION 1
+#define MUSICXX_PLUGIN_IFACE_HOST             "musicxx.host"
+#define MUSICXX_PLUGIN_IFACE_HOST_VERSION     1
+#define MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION 1
+/* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
+#define MUSICXX_PLUGIN_IFACE_HOST_BASELINE_SIZE sizeof(MusicxxPluginHostIface)
 
 typedef struct MusicxxPluginHostIface {
-    int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_HOST_VERSION
+    int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_HOST_VERSION
     uint32_t struct_size;
 
     /// 框架信息 (主程序版本/平台/语言/插件目录; JSON 对象)
@@ -184,8 +209,11 @@ typedef struct MusicxxPluginHostIface {
 
 /* ==================== 接口表: musicxx.ui (声明式 UI 扩展) ==================== */
 
-#define MUSICXX_PLUGIN_IFACE_UI         "musicxx.ui"
-#define MUSICXX_PLUGIN_IFACE_UI_VERSION 1
+#define MUSICXX_PLUGIN_IFACE_UI             "musicxx.ui"
+#define MUSICXX_PLUGIN_IFACE_UI_VERSION     1
+#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 1
+/* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
+#define MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE sizeof(MusicxxPluginUIIface)
 
 /* UI 项类型 (官方; 插件注册的项必须取其中之一, 否则注册被拒绝) */
 /// 功能主页入口项: data = {title, subtitle?, icon?, action?}
@@ -249,7 +277,7 @@ typedef struct MusicxxPluginUIEntrySpec {
 } MusicxxPluginUIEntrySpec;
 
 typedef struct MusicxxPluginUIIface {
-    int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_UI_VERSION
+    int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_UI_VERSION
     uint32_t struct_size;
 
     /// 注册/覆盖一个 UI 项
@@ -305,8 +333,11 @@ typedef struct MusicxxPluginUIIface {
 ///
 /// 值: 一律 JSON (bool/number/string/array/object), 大小不限。
 /// 权限: 与钩子/动作一样只做声明与展示, 不做运行时校验 (见清单 permissions)。
-#define MUSICXX_PLUGIN_IFACE_VARS         "musicxx.vars"
-#define MUSICXX_PLUGIN_IFACE_VARS_VERSION 1
+#define MUSICXX_PLUGIN_IFACE_VARS             "musicxx.vars"
+#define MUSICXX_PLUGIN_IFACE_VARS_VERSION     1
+#define MUSICXX_PLUGIN_IFACE_VARS_MIN_VERSION 1
+/* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
+#define MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE sizeof(MusicxxPluginVarsIface)
 
 /* 能力位 (声明里三者可只实现一部分; 能力位不含某项时对应操作返回 -9) */
 #define MUSICXX_PLUGIN_VAR_CAP_GET    0x1 ///< 可读
@@ -381,7 +412,7 @@ typedef struct MusicxxPluginVarSpec {
 } MusicxxPluginVarSpec;
 
 typedef struct MusicxxPluginVarsIface {
-    int32_t  version;     ///< == MUSICXX_PLUGIN_IFACE_VARS_VERSION
+    int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_VARS_VERSION
     uint32_t struct_size;
 
     /// 注册/覆盖一个变量 (同一个 key 覆盖式注册)

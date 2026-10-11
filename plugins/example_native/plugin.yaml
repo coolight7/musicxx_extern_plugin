@@ -1,5 +1,5 @@
 # 示例动态库插件清单 (musicxx 外部插件)
-# 内核字段: name(插件 id) / entry(库文件名) / depends / optional_depends
+# 插件框架字段: name(插件 id) / entry(库文件名) / depends / optional_depends
 # musicxx 扩展字段: kind / version / description / permissions / platforms / arch / api_version
 name: example_native
 # entry 按 Linux 拼写（Windows/macOS 上插件框架会把扩展名改成 .dll/.dylib）

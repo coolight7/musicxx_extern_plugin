@@ -173,7 +173,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     return info;
   }
 
-  // 内核解析 name/entry/depends（权威路径），本框架补自己的扩展字段
+  // 插件框架解析 name/entry/depends（权威路径），本框架补自己的扩展字段
   std::string name;
   std::string entry;
   std::vector<std::string> depends;

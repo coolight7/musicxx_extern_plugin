@@ -4,7 +4,7 @@
 # 缺任何一个时插件框架在"查找入口符号"阶段就拒绝加载并给出可读原因 —— 不是超时、不会调用
 # create，也不会留下任何注册残留。本插件故意加载失败，只用于演示与原生测试。
 name: example_native_bad_entry
-# entry 按 Linux 书写（Windows/macOS 下由内核修正扩展名）
+# entry 按 Linux 书写（Windows/macOS 下由插件框架修正扩展名）
 entry: example_native_bad_entry.so
 kind: native
 version: 2026.1010.1

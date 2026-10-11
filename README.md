@@ -42,7 +42,7 @@ src/include/         Dart ⇄ 原生 C ABI v1（musicxx_extern_plugin_api.h，ff
 src/host/            插件框架工程（嵌套构建，CMakeLists.txt 里用 find_package 取依赖）
   js/                JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
-                     plugin_api.h 是 musicxx 专用约定、plugin_kit.h 是总头文件（含内核 kit）、
+                     plugin_api.h 是 musicxx 专用约定、plugin_kit.h 是总头文件（含插件框架 kit）、
                      hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
 src/tests/           原生测试（test_host.cpp，不依赖 Dart；被测插件就是 `plugins/` 下的那些 example_*）
@@ -100,7 +100,7 @@ tools/               setup_native_env.ps1（Windows：配置开发编译环境 �
 
    | 子模块 | 作用 |
    |---|---|
-   | `cxx_pluginxx` | 插件框架内核（加载/清单/生命周期/通用接口表/SDK） |
+   | `cxx_pluginxx` | 插件框架（加载/清单/生命周期/通用接口表/SDK） |
    | `cxx_utilxx_base` | 日志/JSON/字符串/取消令牌/系统探测 |
    | `fmt`、`yaml-cpp`、`simdjson` | 格式化、`plugin.yaml` 解析、JSON 后端 |
    | `libiconv-native`、`uchardet` | 字符编码转换与探测（`cxx_utilxx_base` 的 `string_util` **无条件**使用 `<iconv.h>` 与 uchardet，不能靠开关关掉） |
@@ -230,7 +230,7 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
   `tools/build_examples.ps1`（Linux/macOS 用 `--with-examples`），装包/跑测试时再构建。
   `plugins/` 里新增插件后同样跑一次它，产物会复制到 `.native/output/<平台>-<架构>-<配置>/plugins/`
   （原生测试用的就是这个目录）。
-- **工具链要求**（内核是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
+- **工具链要求**（插件框架是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
   Linux 上还需要 `pkg-config`（`cxx_utilxx_base` / `cxx_pluginxx` 配置阶段有 `find_package(PkgConfig REQUIRED)`）；
   shell 脚本会在预检里检查编译器大版本与 `pkg-config`，不满足时给出警告。
 - **安装前缀**（`<构建目录>/musicxx-extern-plugin-install`）是唯一的依赖来源，里面同时有
@@ -390,9 +390,9 @@ musicxx_plugin_add_target(my_plugin
 
 `musicxx_plugin_add_target`（`src/sdk/cmake/musicxx_plugin.cmake`）负责：
 
-- 建 SHARED 库并链接 SDK 与内核/工具库（`cxx_pluginxx_static`/`cxx_utilxx_base_static`/`fmt::fmt` 存在就链接，插件作者不用记名字）；
+- 建 SHARED 库并链接 SDK 与插件框架/工具库（`cxx_pluginxx_static`/`cxx_utilxx_base_static`/`fmt::fmt` 存在就链接，插件作者不用记名字）；
 - C++26 + MSVC `/utf-8` + 符号默认隐藏；
-- **只导出入口符号**：非 MSVC 平台加 version script（GNU/Clang）或导出符号表（Apple），因此插件不会把内核/C++ 运行时符号暴露出去；
+- **只导出入口符号**：非 MSVC 平台加 version script（GNU/Clang）或导出符号表（Apple），因此插件不会把插件框架/C++ 运行时符号暴露出去；
 - 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用；
 - `ASSETS` 声明的目录/文件按原名复制到产物目录（shader bundle、图标等随插件分发）。
 
@@ -590,7 +590,8 @@ final List<MusicxxPluginUIItem> next =
 
 插件框架已经实现的能力（主程序接入情况见 musicxx 仓库）：
 
-- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张已实现；
+- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张已实现
+  （每张表的版本 / 最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **钩子**：约定 71 个（观察 / 裁决，其中 52 个异步派发）；

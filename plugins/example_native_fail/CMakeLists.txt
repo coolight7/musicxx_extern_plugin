@@ -1,6 +1,6 @@
 # 对照示例动态库插件 (musicxx_extern_plugin/plugins/example_native_fail)
 #
-# 与 example_native 用同一个构建助手：建库、链接 SDK 与内核/工具库、只导出
+# 与 example_native 用同一个构建助手：建库、链接 SDK 与插件框架/工具库、只导出
 # `musicxx_plugin_*` 入口符号、把 `plugin.yaml` 复制到产物目录旁边。
 cmake_minimum_required(VERSION 3.20)
 project(example_native_fail LANGUAGES CXX)

@@ -72,7 +72,7 @@ Future<void> main(List<String> args) async {
   step('6 state.update 完成');
 
   step('7 plugin_call…');
-  final probe = runtime.plugins.call(
+  final Object? probe = await runtime.plugins.call(
     'example_native',
     'plugin.example_native.probe',
     const <String, Object?>{},

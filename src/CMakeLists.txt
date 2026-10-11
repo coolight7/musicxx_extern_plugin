@@ -31,7 +31,7 @@ project(musicxx_extern_plugin_superbuild LANGUAGES C CXX)
 # 多配置生成器统一用 `cmake --build --config <配置>` 指定要构建的配置。
 
 # ===== 编译标准 =====
-# 内核要求 C++26 (MSVC 用 /std:c++latest); 嵌套构建沿用同一标准
+# 插件框架要求 C++26 (MSVC 用 /std:c++latest); 嵌套构建沿用同一标准
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -143,7 +143,7 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件 (插件框架工�
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 
 # ===== Boost (仅头文件) =====
-# 内核与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):
+# 插件框架与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):
 # 源码写 <asio/...> 时靠 <头文件根>/boost/ 命中 Boost.Asio; 不链接任何 Boost 编译库。
 #
 # 头文件来源 (优先级):
@@ -466,7 +466,7 @@ ExternalProject_Add(
   TEST_COMMAND ""
 )
 
-# cxx_pluginxx (插件框架内核)
+# cxx_pluginxx (插件框架)
 ExternalProject_Add(
   cxx_pluginxx_repo
   DEPENDS

@@ -5,7 +5,7 @@
 /// 插件框架把它注册成
 ///   内置插件 (合并编译) 的一个**合成实例** (`name = "js:<pluginId>"`),
 ///   生命周期 (create/start/stop/destroy) 全部由本引擎实现,
-///   因此仍然走内核的完整事务语义;
+///   因此仍然走插件框架的完整事务语义;
 /// - **共享 1 条 JS 线程**: 全部 JS插件实例的脚本都在该线程顺序执行;
 ///   每个实例持有独立 `JSRuntime`/`JSContext` (全局隔离), 只是时间片共享;
 /// - **不阻塞框架线程**: 脚本顶层与处理器里调用插件框架能力时, 只做"投递不等待"
@@ -20,7 +20,7 @@
 ///
 /// 线程约定:
 /// - `JSRuntime`/`JSContext`/`JSValue` 只在共享 JS 线程上访问;
-/// - 内核生命周期入口 (builtin*) 与钩子处理器由框架线程调用;
+/// - 插件框架生命周期入口 (builtin*) 与钩子处理器由框架线程调用;
 /// - `requestAction` / `respondAction` / `cancelActionsOf` 允许任意线程。
 #pragma once
 
@@ -80,7 +80,7 @@ public:
 
   bool hasBuiltin(const std::string &pluginId) const;
 
-  /// 把内置插件提供者交给内核 (进程级; 幂等)
+  /// 把内置插件提供者交给插件框架 (进程级; 幂等)
   static void installBuiltinProvider();
 
   /* ---------- JS 桥接 (primitive 用; 线程安全) ---------- */
@@ -313,7 +313,7 @@ public:
     std::atomic<int64_t> asyncHookSettled{0};
   };
 
-  /* ---------- 内核内置插件入口 (C ABI 形态; 内核在框架线程调用) ---------- */
+  /* ---------- 插件框架内置插件入口 (C ABI 形态; 插件框架在框架线程调用) ---------- */
 
   static const PluginxxInfo *PLUGINXX_CALL builtinGetInfo();
   static int32_t PLUGINXX_CALL builtinCreate(const PluginxxHost *host,
@@ -326,7 +326,7 @@ public:
                                          PluginxxString *errorOut);
   static void PLUGINXX_CALL builtinDestroy(void *ctx);
 
-  /// 内置插件描述数组 (内核要求地址稳定; 固定容量槽位表, 见 js_engine.cpp)
+  /// 内置插件描述数组 (插件框架要求地址稳定; 固定容量槽位表, 见 js_engine.cpp)
   static const PluginxxBuiltinInfo *builtinPlugins(uint64_t *count);
   static const PluginxxBuiltinManifest *builtinManifests(uint64_t *count);
 
@@ -344,7 +344,7 @@ public:
                                        const PluginxxOperatorNotify *notify,
                                        PluginxxString *errorOut);
 
-  /// 能力处理器 (内核在框架线程调用; 内部投递到 JS 线程并等待结果)
+  /// 能力处理器 (插件框架在框架线程调用; 内部投递到 JS 线程并等待结果)
   static void *PLUGINXX_CALL capabilityStart(
       void *ctx, const PluginxxHost *callerHost,
       const PluginxxStringView *method, const PluginxxStringView *argsJson,

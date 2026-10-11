@@ -118,7 +118,7 @@ bool isLibraryFileName(std::string_view name) {
     }
     return true;
   };
-  // 注意: `libfoo.so.1` 这类带版本号的库不算 (内核与框架都按 `*.so` 找)
+  // 注意: `libfoo.so.1` 这类带版本号的库不算 (插件框架与框架都按 `*.so` 找)
   return lowerEndsWith(".dll") || lowerEndsWith(".so") || lowerEndsWith(".dylib");
 }
 
@@ -129,7 +129,7 @@ std::string findLibraryInDir(const fs::path &dir, const std::string &entry,
   if (!fs::is_directory(dir, ec)) {
     return {};
   }
-  // 1) 清单 entry: 交给内核的解析规则 (平台修正扩展名 + 配置子目录回退),
+  // 1) 清单 entry: 交给插件框架的解析规则 (平台修正扩展名 + 配置子目录回退),
   //    再退一步按清单原文找一次 (entry 里带子目录时用得上)
   if (!entry.empty()) {
     const std::string resolved = pluginxx::resolvePluginEntryPath(dir, entry);
@@ -284,7 +284,7 @@ MusicxxTargetTag parseTargetTag(std::string_view tag) {
 }
 
 std::string defaultPluginLibraryName(std::string_view pluginName) {
-  // 与内核 defaultPluginLibraryPath 同一规则: 只差目录前缀
+  // 与插件框架 defaultPluginLibraryPath 同一规则: 只差目录前缀
 #if XX_IS_WIN_D
   return std::string{pluginName} + ".dll";
 #elif XX_IS_MACOS_D || XX_IS_IOS_D

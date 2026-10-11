@@ -136,7 +136,7 @@ my_plugin/
 ## 5. 硬约束（动手前读一遍，坑都在这里）
 
 1. **处理器里绝不等主程序动作。** 打开插件页面、点按钮、部分钩子（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
-   你在处理器里 `await musicxx.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（内核侧连超时都没有）。
+   你在处理器里 `await musicxx.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
    正确做法：要"现在这一帧"的数据读状态镜像；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
 2. **JS 顶层必须同步完成注册**，位置放 `await` 会让加载失败并回滚。
@@ -167,6 +167,10 @@ my_plugin/
     不要在启动阶段调用未接入的能力或做重活。
 12. **权限只是声明**：写进 `permissions` 只影响安装确认弹窗与详情页展示，框架不做运行时校验（放目录里的插件同样不检查）。
 13. **验证用真机/真实环境**：插件框架不限制内存 / 网络 / 数量，只做自我保护（事件队列上限、动作超时）；有问题先看日志。
+14. **接口表只读不造**：`iface.*` 的表由主程序提供，能不能用由 SDK 按「`version >= 最低版本` 且
+    `struct_size >= 基线字节数`」判好（拿到 `nullptr` = 这个能力没有）。以后往**表尾追加**的成员要先用
+    `pluginxx::ifaceHas<&表::成员>(t)` 判一下再取值 —— 老主程序给的表比插件期望的短，只判空指针会读到紧邻的另一块内存。
+    见 `docs/plugin-native-api.md` §4.1。
 
 ## 6. 开发循环与命令
 
@@ -257,6 +261,11 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 - **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/hook_ids.g.dart`、
   `src/sdk/include/musicxx/plugin/api/hook_ids.g.h`、`docs/plugin-hooks.md`、`docs/musicxx-ui-kit.md`、
   `js/musicxx_ui_kit.js`，以及界面描述层子模块生成的头文件 / Dart / JS。它们都能由工具重跑。
+- **接口表的"四件"只在一处**：每张表的 IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE` 与表体写在同一处
+  —— musicxx 专用表在 `src/sdk/include/musicxx/plugin/api/plugin_api.h`，通用表在子模块
+  `cxx_pluginxx` 的 `pluginxx/api/tables.h`；SDK 侧再补一处的 `pluginxx::IfaceMeta` 特化（`plugin_kit.h`
+  里逐表一条，漏了会退回"整表必须齐全"的默认判定）。往表尾追加成员时 `X_VERSION` +1、基线不动，
+  调用点改用 `pluginxx::ifaceHas`；重排成员 / 改签名 / 删成员一律换新 IID（大小不变，门槛挡不住）。
 - **分支选择只在一处**：多目标包选哪个分支由插件框架实现（`src/host/host_inspect.cpp` + `host_target.*` + `host_manifest.*`），
   Dart 侧只保留模型与环境取值（`lib/src/plugin_target.dart` / `plugin_inspect.dart`），安装预检也走插件框架的 `plugin_inspect`；
   **不要在 Dart 侧复制这套判定**。

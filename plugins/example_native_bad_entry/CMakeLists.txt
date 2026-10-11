@@ -2,7 +2,7 @@
 #
 # 这个示例刻意**不用** `musicxx_plugin_add_target`：它要的导出面是「有 get_info / create /
 # destroy，没有 start / stop」，而构建助手给 Apple 的导出符号表会把 start/stop 一起列上。
-# 这里手工建库，只依赖 SDK 的包含目录（头文件里的 C ABI），不链接内核库。
+# 这里手工建库，只依赖 SDK 的包含目录（头文件里的 C ABI），不链接插件框架库。
 cmake_minimum_required(VERSION 3.20)
 project(example_native_bad_entry LANGUAGES CXX)
 
@@ -15,7 +15,7 @@ set_target_properties(example_native_bad_entry PROPERTIES
   VISIBILITY_INLINES_HIDDEN ON
 )
 
-# 只用 SDK 的包含目录与平台宏（内核 kit 是 header-only，本示例不调用它）
+# 只用 SDK 的包含目录与平台宏（插件框架 kit 是 header-only，本示例不调用它）
 if (TARGET musicxx_extern_plugin_sdk)
   target_link_libraries(example_native_bad_entry PRIVATE musicxx_extern_plugin_sdk)
 else ()

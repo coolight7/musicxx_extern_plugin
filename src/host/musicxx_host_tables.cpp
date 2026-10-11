@@ -2,7 +2,7 @@
 /// 与钩子派发
 ///
 /// 线程约定: 表入口在 Dart 线程被调用, 内部投递到框架线程并等待;
-/// 已在框架线程时就地执行 (内核 `ioCallSyncKeep` 语义)。
+/// 已在框架线程时就地执行 (插件框架 `ioCallSyncKeep` 语义)。
 
 #include "host_json.h"
 #include "host_naming.h"
@@ -284,7 +284,7 @@ MusicxxHostManager::hookHandlersArrayJson(std::string_view hookId) const {
                    });
   Json arr = Json::array();
   for (const HookHandler *h : ordered) {
-    // JS 实例名是 "js:<id>", 其余按动态库插件 (与内核里的实例名一致)
+    // JS 实例名是 "js:<id>", 其余按动态库插件 (与插件框架里的实例名一致)
     const bool js = h->plugin.rfind("js:", 0) == 0;
     arr.push_back({
         {"plugin", h->pluginId},
@@ -1062,7 +1062,7 @@ void PLUGINXX_CALL xx_free_fn(void *ptr) { pluginxx::hostMemoryFree(ptr); }
 /* ==================== 事件表 (自定义入口: 增加发布归属校验)
  * ==================== */
 
-/// 订阅事件 (任意线程; 内核入口语义 + 主题合法性校验)
+/// 订阅事件 (任意线程; 插件框架入口语义 + 主题合法性校验)
 PluginxxSubscription *PLUGINXX_CALL xx_subscribe_event(
     const PluginxxHost *host, const PluginxxStringView *topic,
     void(PLUGINXX_CALL *handler)(const PluginxxStringView *event_json,
@@ -1165,7 +1165,7 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   }
   // 其余通用表
   // (log/json/config/plugins/scheduler/coroutine_runtime/tasks/cancel/
-  // capabilities) 由内核提供; musicxx 专用表在下面分发
+  // capabilities) 由插件框架提供; musicxx 专用表在下面分发
   if (const void *generic =
           pluginxx::queryGenericPluginIface<MusicxxHostInstance,
                                             MusicxxHostManager>(name)) {

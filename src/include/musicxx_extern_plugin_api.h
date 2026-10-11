@@ -407,7 +407,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 ///   {"plugin":"example_native","instance":"example_native","kind":"native","priority":10,"ownerTag":""}]}
 ///
 /// 只给出 plugin / instance / kind / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
-/// `instance` 与内核里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
+/// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_hook_handlers(
         MusicxxExternPluginHost*              h,

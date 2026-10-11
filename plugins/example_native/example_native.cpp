@@ -333,7 +333,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 的处理器 (ownerTag = 点 id)。糖负责三件事: 按 `point` 过滤、`caller` 等于自己时
     // 不回答、把返回值包成 `{"patch":{"value": …}}`。
     //
-    // 注意: 功能点走的是**同步裁决**通道 (内核按 hook_sync 同步调用), 所以处理器必须
+    // 注意: 功能点走的是**同步裁决**通道 (插件框架按 hook_sync 同步调用), 所以处理器必须
     // 同步返回; 长任务用能力 (capability) 或事件。
     featurePointSampleId = "plugin." + pluginId() + ".sample";
     featurePointSampleRc = featurePointProvide(
@@ -461,7 +461,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     return 0;
   }
 
-  /// 发布本插件命名空间的事件 (经内核 events 表; 主题归属由插件框架校验)
+  /// 发布本插件命名空间的事件 (经插件框架 events 表; 主题归属由插件框架校验)
   int32_t publishOwnEvent(const char *topic, const char *payload) {
     if (!iface.events || !iface.events->publish) {
       return -1;
@@ -482,7 +482,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 /// start 事务: 只做注册 (禁止阻塞)
 ///
 /// 入口约定 (musicxx 插件 SDK): 返回 0 = 事务成功, 非 0 = 失败; SDK
-/// 负责按内核约定 调用完成通知 (见 `musicxx/plugin/api/plugin_kit.h` 的
+/// 负责按插件框架约定 调用完成通知 (见 `musicxx/plugin/api/plugin_kit.h` 的
 /// `runLifecycleEntry`)。
 int32_t exampleStart(ExampleCtx &ctx) { return ctx.onStart(); }
 

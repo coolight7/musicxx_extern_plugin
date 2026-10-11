@@ -115,8 +115,8 @@ struct Slot {
 
 /// 槽位表: 槽位数量不设上限 (按需增长)
 ///
-/// 交给内核的两份描述数组 (`infos` / `manifests`) 在每次调用时按当前槽位重建,
-/// 内核拿到指针后立即取用 (注册与加载都在框架线程串行, 不会跨调用持有旧指针)。
+/// 交给插件框架的两份描述数组 (`infos` / `manifests`) 在每次调用时按当前槽位重建,
+/// 插件框架拿到指针后立即取用 (注册与加载都在框架线程串行, 不会跨调用持有旧指针)。
 struct SlotTable {
   std::vector<Slot> slots; ///< 槽位 (含已注销的, 下标稳定便于复用)
   std::vector<PluginxxBuiltinInfo> infos;
@@ -3867,7 +3867,7 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
     mgr_->unregisterCapability(inst->hostInst, handler->fullName);
   }
   inst->capabilities.clear();
-  /// 事件订阅由内核随实例 stop/卸载自动撤销 (订阅登记在实例上)
+  /// 事件订阅由插件框架随实例 stop/卸载自动撤销 (订阅登记在实例上)
   inst->subscriptions.clear();
   inst->registrationsApplied = false;
 }
@@ -4022,7 +4022,7 @@ void *JsEngine::capabilityStart(void *ctx, const PluginxxHost * /*callerHost*/,
       out = pluginxx::hostMemoryCreateString(std::string_view{payload});
     }
     const PluginxxStringView view{out.data, out.size};
-    /// 同步完成: 内核支持"插件同步 done" (完成通知仍由内核在 IO 线程发布)
+    /// 同步完成: 插件框架支持"插件同步 done" (完成通知仍由插件框架在 IO 线程发布)
     notify->done(notify->host_ud,
                  ok ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,
                  ok ? &view : nullptr);
@@ -4100,7 +4100,7 @@ void *PLUGINXX_CALL JsEngine::builtinStart(void *ctx,
   if (rc != 0 && errorOut) {
     pluginxx::hostMemorySetString(errorOut, err);
   }
-  /// 内核约定: start 事务必须恰好调用一次完成通知 (返回 nullptr = 无异步 op)
+  /// 插件框架约定: start 事务必须恰好调用一次完成通知 (返回 nullptr = 无异步 op)
   if (notify && notify->done) {
     notify->done(notify->host_ud,
                  rc == 0 ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,

@@ -3,7 +3,7 @@
 /// 只导出插件框架会查找的部分入口: `get_info` / `create` / `destroy`;
 /// **故意不导出** `musicxx_plugin_start` 与 `musicxx_plugin_stop`。
 ///
-/// 约定要求 start/stop 成对存在 (create 只构造, start 才是注册事务), 因此插件框架内核应在
+/// 约定要求 start/stop 成对存在 (create 只构造, start 才是注册事务), 因此插件框架应在
 /// "查找入口符号"阶段直接拒绝加载并给出可读原因 —— 不是超时、不会调用 create,
 /// 也不会留下任何注册残留。本插件故意加载失败。
 ///

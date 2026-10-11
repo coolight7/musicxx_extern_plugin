@@ -22,7 +22,7 @@ namespace extern_plugin {
 
 /// 插件目录的静态判定结果（不加载、不看运行期开关）
 struct MusicxxPluginInspect {
-  /// 清单是否可解析（能读到内核要求的 `name`）
+  /// 清单是否可解析（能读到插件框架要求的 `name`）
   bool valid = false;
 
   /// 不可解析时的原因（用户可见）

@@ -363,7 +363,7 @@ CapabilityCallOutcome callCapability(MusicxxExternPluginHost *host,
 ///
 /// 用途: 断言某个插件的 `valid`/`supported` 字段 ——
 /// 入口文件按平台解析后的结果是否正确 (清单按 Linux 写 entry, Windows/macOS
-/// 由内核修正扩展名)。
+/// 由插件框架修正扩展名)。
 std::string scanItemOf(const std::string &scanJson, const std::string &id) {
   const std::string key = "\"id\":\"" + id + "\"";
   const auto pos = scanJson.find(key);
@@ -1050,7 +1050,7 @@ int main(int argc, char **argv) {
         "JS 运行时可用 (未报未启用)");
 
   // 动态库插件的入口解析: 清单按 Linux 写 entry (`example_native.so`),
-  // Windows/macOS 上由内核
+  // Windows/macOS 上由插件框架
   // 修正扩展名。扫描阶段的校验必须与加载阶段用同一套解析,
   // 否则会出现"扫描判缺库文件、 加载却能命中"的不一致
   // (本用例就是那次缺陷的回归防护)。
@@ -2651,7 +2651,7 @@ int main(int argc, char **argv) {
       check(json.find("\"plugin\":\"example_native\"") != std::string::npos,
             "原生处理器给出插件 id");
       check(json.find("\"instance\":\"js:example_js\"") != std::string::npos,
-            "JS 处理器用内核的实例名");
+            "JS 处理器用插件框架的实例名");
       check(json.find("\"ownerTag\":") != std::string::npos,
             "列表带 ownerTag 字段");
 
@@ -2725,7 +2725,7 @@ int main(int argc, char **argv) {
   //
   // 卸载要把实例与动态库一起放掉: 之后插件目录必须能整个删掉 (管理页的"彻底卸载")
   // 或把库文件换成新构建的那一份 (改完代码 reload/更新插件都靠这一步)。Windows 上
-  // 内核没关掉动态库句柄时文件一直被映射着, 删除/替换只会拿到"拒绝访问"。
+  // 插件框架没关掉动态库句柄时文件一直被映射着, 删除/替换只会拿到"拒绝访问"。
   {
     std::error_code ec;
     const std::filesystem::path source =
