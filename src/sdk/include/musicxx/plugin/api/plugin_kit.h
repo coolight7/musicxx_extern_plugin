@@ -1,14 +1,14 @@
-/// musicxx 插件 SDK: 伞头 (插件作者只需包含本头)
+/// musicxx 插件 SDK: 总头文件 (插件作者只需包含本头)
 ///
 /// 组成:
 /// - 内核通用部分: `pluginxx/kit/kit.h` (通用表聚合 / 日志 / 任务 / 协程 / 能力注册) —
 ///   直接使用内核 `Pluginxx*` 名字, **不引入别名层**;
-/// - musicxx 领域约定: `musicxx/plugin/api/plugin_api.h`;
-/// - musicxx 领域聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
+/// - musicxx 专用约定: `musicxx/plugin/api/plugin_api.h`;
+/// - musicxx 专用接口聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
 /// - 便捷注册: `PluginBase::hook` / `observe` / `unregisterHook` / `requestAction` /
 ///   `stateJson` / `hostInfoJson`。
 /// - 界面描述层 `pluginxx::ui`（组件模型 / 解析 / 适配 / 文本降级 / 基础 kit）
-///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们装配。
+///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们拼装。
 ///
 /// 线程与约定: `create` 只构造上下文; `start` 是注册事务, 在框架线程
 /// 执行且**禁止阻塞** (慢操作走 `pluginxx` 的 offload / 后台任务); `stop` 撤销自管资源;
@@ -128,7 +128,7 @@ int32_t answerFeaturePoint(const std::string& selfId, const std::string& point,
 } // namespace detail
 
 
-/// musicxx 领域接口表聚合 = 内核通用十表 + musicxx 领域表
+/// musicxx 专用接口表聚合 = 内核通用十表 + musicxx 专用表
 ///
 /// 作为 `pluginxx::PluginBaseT<IfacesT>` 的模板实参使用 (上下文基类会调用 [query]
 /// 拉取全部接口表; 框架未实现的表为 nullptr)。
@@ -162,7 +162,7 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     }
 };
 
-/// 插件实例上下文基类 (musicxx 领域)
+/// 插件实例上下文基类 (musicxx 专用)
 class PluginBase : public pluginxx::PluginBaseT<MusicxxPluginIfaces> {
 public:
 
@@ -1000,7 +1000,7 @@ namespace detail {
 ///   由插件自己调用 `notify->done` (进阶写法, 与 cxx_pluginxx 的 kit 一致)。
 ///
 /// 为什么必须有完成通知: 内核把"返回 NULL 且从未 done"判为协议违约
-/// (`protocol violation: null operation without done/error`), 会拒绝本次事务并回滚装载。
+/// (`protocol violation: null operation without done/error`), 会拒绝本次事务并回滚加载。
 template<typename Ctx, typename Fn>
 inline void* runLifecycleEntry(
     Ctx&                          ctx,

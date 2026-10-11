@@ -1,7 +1,7 @@
 /// 外部插件多目标打包支持 (仿 APK 的原生库目录结构)
 ///
 /// 一个插件包 (目录或压缩包) 里可以同时放多个 **系统 / CPU 架构分支**, 插件框架在扫描与
-/// 装载时按当前环境选一个分支用:
+/// 加载时按当前环境选一个分支用:
 ///
 /// ```text
 /// my_plugin/
@@ -55,7 +55,7 @@ struct MusicxxPluginTarget {
   /// 分支内的库文件 (相对插件目录的路径; 找不到时为空串)
   std::string lib;
 
-  /// 库文件绝对路径 (装载用; 找不到时为空串)
+  /// 库文件绝对路径 (加载用; 找不到时为空串)
   std::string libPath;
 
   /// 声明的系统 / 架构 (空 = 不限) 与是否通用分支
@@ -70,7 +70,7 @@ struct MusicxxPluginTarget {
   bool selected = false;
 };
 
-/// 一次目标解析的结果 (扫描与装载共用同一份判定)
+/// 一次目标解析的结果 (扫描与加载共用同一份判定)
 struct MusicxxPluginTargets {
   /// 分支根目录名 (清单 `targets_dir`; 缺省 lib; 空串 = 清单显式关闭分支扫描)
   std::string dirName = "lib";
@@ -84,7 +84,7 @@ struct MusicxxPluginTargets {
   /// 选中的库文件 (相对插件目录; 空串 = 没找到可加载的库文件)
   std::string selectedLib;
 
-  /// 选中的库文件绝对路径 (装载用; 空串 = 没找到可加载的库文件)
+  /// 选中的库文件绝对路径 (加载用; 空串 = 没找到可加载的库文件)
   std::string selectedLibPath;
 
   /// 选择的说明 / 不匹配原因 (用户可见; 正常选中时可能为空)

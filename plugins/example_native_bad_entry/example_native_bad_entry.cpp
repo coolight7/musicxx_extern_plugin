@@ -4,8 +4,8 @@
 /// **故意不导出** `musicxx_plugin_start` 与 `musicxx_plugin_stop`。
 ///
 /// 约定要求 start/stop 成对存在 (create 只构造, start 才是注册事务), 因此插件框架内核应在
-/// "查找入口符号"阶段直接拒绝装载并给出可读原因 —— 不是超时、不会调用 create,
-/// 也不会留下任何注册残留。本插件故意装载失败。
+/// "查找入口符号"阶段直接拒绝加载并给出可读原因 —— 不是超时、不会调用 create,
+/// 也不会留下任何注册残留。本插件故意加载失败。
 ///
 /// 这里不用 SDK 的导出宏: 宏会一并生成 start/stop, 而本示例的目的正是"缺这两个符号"。
 
@@ -44,7 +44,7 @@ musicxx_plugin_create(const PluginxxHost* /*host*/, void** plugin_ctx) {
     if (!plugin_ctx) {
         return -1;
     }
-    // 插件框架在找到 start/stop 之前就应当拒绝装载, 因此正常情况下这里不会被调用
+    // 插件框架在找到 start/stop 之前就应当拒绝加载, 因此正常情况下这里不会被调用
     *plugin_ctx = nullptr;
     return 0;
 }

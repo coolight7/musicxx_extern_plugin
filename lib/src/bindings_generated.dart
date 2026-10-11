@@ -146,7 +146,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 启动插件框架: 起框架线程/工作线程池、注册内置提供者、按配置装载插件
+  /// 启动插件框架: 起框架线程/工作线程池、注册内置提供者、按配置加载插件
   /// - 就绪后入队 `musicxx.host.ready` 事件
   int musicxx_extern_plugin_host_start(
     ffi.Pointer<MusicxxExternPluginHost> h,
@@ -401,12 +401,12 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 检查一个插件目录 (**只读**, 不装载、不改动任何状态) → JSON 对象
+  /// 检查一个插件目录 (**只读**, 不加载、不改动任何状态) → JSON 对象
   ///
   /// 用途: 主程序「从压缩包安装」的预检 —— 把解包出来的临时目录交给插件框架判定
   /// (清单可解析 / 当前系统与架构该用哪个分支 / 库文件或脚本在不在), 装之前就有结论。
-  /// 判定与扫描、装载**完全同源** (同一份 `inspectPluginDir`), 不会出现
-  /// "预检通过、装载却用另一个分支"的分歧。
+  /// 判定与扫描、加载**完全同源** (同一份 `inspectPluginDir`), 不会出现
+  /// "预检通过、加载却用另一个分支"的分歧。
   ///
   /// - `dir`: 插件目录 (绝对路径; 压缩包解包后的临时目录同样可以);
   /// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用插件框架自己的);
@@ -492,7 +492,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 异步装载 (结果经 `musicxx.plugin.loaded` / `musicxx.plugin.error` 事件回报)
+  /// 异步加载 (结果经 `musicxx.plugin.loaded` / `musicxx.plugin.error` 事件回报)
   /// - `id_or_path` 可为插件 id 或插件目录/库文件路径
   /// - `options_json`: {"args":{...},"enabled":true,"tempDir":"...","kind":"native|js|builtin"}
   int musicxx_extern_plugin_plugin_load(
@@ -526,7 +526,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 同步装载 (仅管理页/测试的隔离 isolate 使用; 带超时)
+  /// 同步加载 (仅管理页/测试的隔离 isolate 使用; 带超时)
   int musicxx_extern_plugin_plugin_load_sync(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> id_or_path,
@@ -1081,7 +1081,7 @@ class MusicxxExternPluginBindings {
   /// "throttleMs":0,"notifyThrottleMs":0}, ...]
   ///
   /// 逐项失败只写进 `log` (不影响其它项; 也不影响启动 —— 与"启动绝不失败"一致)。
-  /// 主程序需要在插件框架启动后、装载插件之前声明一次, 插件才能读到这些键。
+  /// 主程序需要在插件框架启动后、加载插件之前声明一次, 插件才能读到这些键。
   int musicxx_extern_plugin_var_declare(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> items_json,
@@ -1447,7 +1447,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// Dart → 原生日志 (统一落盘/转发; level: 0 trace .. 4 error)
+  /// Dart → 原生日志 (统一写入磁盘/转发; level: 0 trace .. 4 error)
   int musicxx_extern_plugin_log(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int level,

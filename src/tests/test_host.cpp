@@ -2,7 +2,7 @@
 ///
 /// 覆盖:
 /// - test_host_lifecycle: create/start/stop/destroy 幂等;
-/// - test_plugin_load: 扫描 + 装载示例插件 + 钩子注册生效;
+/// - test_plugin_load: 扫描 + 加载示例插件 + 钩子注册生效;
 /// - test_hooks: decision 钩子裁决 (skip) / 观察钩子 / 未命中时零处理器;
 /// - test_namespace: 未知钩子注册被拒 (由插件框架实现保证, 这里校验已注册集合);
 /// - 卸载后钩子注册全部摘除 (无残留)。
@@ -604,11 +604,11 @@ std::string targetOf(const std::string &item) {
   return jsonStringField(item, "target");
 }
 
-/// 多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：分支选择与装载
+/// 多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：分支选择与加载
 ///
 /// 用例覆盖：选择优先级（系统+架构 → 系统 → 架构 → 通用 → 根目录）、
 /// 不匹配分支的报错、未知标签目录被忽略、`targets_dir` 改名、
-/// "分支里唯一的动态库文件"自动识别、真实装载走分支。
+/// "分支里唯一的动态库文件"自动识别、真实加载走分支。
 void testPluginTargetLayout(MusicxxExternPluginHost *host,
                             const std::string &pluginsRoot) {
   const std::string os = testPlatform();
@@ -733,8 +733,8 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
     removePath(emptyRoot);
   }
 
-  // 6) 真实装载：把示例动态库插件复制到分支目录里，验证装载走的也是分支
-  //    （装载后立即卸载，避免与后面的常规装载重名）
+  // 6) 真实加载：把示例动态库插件复制到分支目录里，验证加载走的也是分支
+  //    （加载后立即卸载，避免与后面的常规加载重名）
   {
     const std::filesystem::path nativeDir =
         std::filesystem::path(pluginsRoot) / "example_native";
@@ -743,7 +743,7 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
     const std::filesystem::path nativeManifest = nativeDir / "plugin.yaml";
     if (!std::filesystem::exists(nativeLib) ||
         !std::filesystem::exists(nativeManifest)) {
-      checkText(false, "示例动态库插件缺失 (跳过真实装载用例)");
+      checkText(false, "示例动态库插件缺失 (跳过真实加载用例)");
       return;
     }
     // 清单原样复制（entry 仍是按 Linux 写的 example_native.so），库文件放进分支目录
@@ -766,12 +766,12 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
     const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 10000, &loadLog);
     if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
-      std::printf("  [info] 分支装载失败 log=%s\n", take(loadLog).c_str());
+      std::printf("  [info] 分支加载失败 log=%s\n", take(loadLog).c_str());
       freeStr(loadLog);
     } else {
       freeStr(loadLog);
     }
-    checkText(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "分支里的库文件能真正装载");
+    checkText(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "分支里的库文件能真正加载");
     {
       MusicxxExternPluginString listOut{};
       MusicxxExternPluginString listLog{};
@@ -797,7 +797,7 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
   }
 }
 
-/// 插件目录静态判定（`plugin_inspect`）：安装预检入口，与扫描/装载同源
+/// 插件目录静态判定（`plugin_inspect`）：安装预检入口，与扫描/加载同源
 ///
 /// 用例覆盖：清单字段、按当前或**指定**目标环境选分支、没有匹配分支的原因、
 /// 清单 `platforms` / `arch` 的声明（含别名与 32 位 ARM）、JS 插件的脚本清单、
@@ -1063,13 +1063,13 @@ int main(int argc, char **argv) {
           "动态库插件未被判为库文件缺失");
   }
 
-  // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：分支选择与装载
+  // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：分支选择与加载
   testPluginTargetLayout(host, pluginDir);
 
   // 插件目录静态判定（plugin_inspect）：安装预检用的入口，与扫描同源
   testPluginInspect(host, pluginDir);
 
-  // 装载 (同步)
+  // 加载 (同步)
   MusicxxExternPluginString empty{};
   const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
       host, viewCP("example_native"), viewCP(R"({"enabled":true})"), 10000,
@@ -1223,7 +1223,7 @@ int main(int argc, char **argv) {
           "plugin_list 成功");
     const std::string listJson = take(listed);
     check(listJson.find("example_native") != std::string::npos,
-          "plugin_list 含已装载插件");
+          "plugin_list 含已加载插件");
   }
 
   // ==================== 能力调用: 异步受理 + 结果事件 ====================
@@ -1463,14 +1463,14 @@ int main(int argc, char **argv) {
     check(noCapability.gotResult == false, "未声明能力也不推结果事件");
   }
 
-  // 装载失败安全降级: 不崩溃、明确失败、插件框架继续可用
+  // 加载失败安全降级: 不崩溃、明确失败、插件框架继续可用
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("definitely_missing_plugin"), viewCP("{}"), 3000,
         &loadLog);
     const std::string loadErr = take(loadLog);
-    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "装载不存在的插件返回失败");
+    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "加载不存在的插件返回失败");
     check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
           "失败是明确失败而非挂住超时");
     check(!loadErr.empty(), "失败原因有可读文本");
@@ -1487,7 +1487,7 @@ int main(int argc, char **argv) {
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
                   MUSICXX_EXTERN_PLUGIN_OK &&
               take(listed).find("example_native") != std::string::npos,
-          "装载失败后插件框架仍可用");
+          "加载失败后插件框架仍可用");
   }
 
   // 禁用 → 钩子摘除, 启用 → 重新注册
@@ -1530,12 +1530,12 @@ int main(int argc, char **argv) {
     const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 10000, &reloadLog);
     if (reloadRc != MUSICXX_EXTERN_PLUGIN_OK) {
-      std::printf("  [info] 终局用例装载 rc=%d log=%s\n", reloadRc,
+      std::printf("  [info] 终局用例加载 rc=%d log=%s\n", reloadRc,
                   take(reloadLog).c_str());
     } else {
       freeStr(reloadLog);
     }
-    check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为终局用例装载动态库插件");
+    check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为终局用例加载动态库插件");
 
     // 让插件发起一个"永远不回复"的主程序动作请求, 把这通能力调用卡住
     MusicxxExternPluginString callLog{};
@@ -1582,7 +1582,7 @@ int main(int argc, char **argv) {
     } else {
       freeStr(loadLog);
     }
-    check(jsLoadRc == MUSICXX_EXTERN_PLUGIN_OK, "JS 插件装载成功 (example_js)");
+    check(jsLoadRc == MUSICXX_EXTERN_PLUGIN_OK, "JS 插件加载成功 (example_js)");
 
     int32_t jsHookCount = 0;
     check(musicxx_extern_plugin_hook_count(
@@ -1733,7 +1733,7 @@ int main(int argc, char **argv) {
         freeStr(loadLog);
       }
       check(shaderLoadRc == MUSICXX_EXTERN_PLUGIN_OK,
-            "背景示例插件装载成功 (example_js_shader)");
+            "背景示例插件加载成功 (example_js_shader)");
 
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
@@ -1784,7 +1784,7 @@ int main(int argc, char **argv) {
             "卸载后背景示例的 UI 项无残留");
     }
 
-    // ============ 清单 scripts: 多脚本按顺序装载 (JS 插件) ============
+    // ============ 清单 scripts: 多脚本按顺序加载 (JS 插件) ============
     //
     // `scripts: [kit.js, plugin.js]` 里的脚本在**同一个 JS 上下文**里依次执行:
     // 前一个脚本定义的全局量在后一个里可见 (kit 随插件目录分发的用法)。
@@ -1798,7 +1798,7 @@ int main(int argc, char **argv) {
       } else {
         freeStr(loadLog);
       }
-      check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多脚本插件装载成功");
+      check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多脚本插件加载成功");
 
       const CapabilityCallOutcome multiProbe = callCapability(
           host, "example_js_multi_script", "probe", "{}", 8000);
@@ -1829,7 +1829,7 @@ int main(int argc, char **argv) {
       const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP("example_native"), viewCP("{}"), 8000, &reloadLog);
       check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK,
-            "临时装载动态库插件 (跨插件调用被调用方)");
+            "临时加载动态库插件 (跨插件调用被调用方)");
 
       const CapabilityCallOutcome crossCall = callCapability(
           host, "example_js", "crossCall",
@@ -1880,7 +1880,7 @@ int main(int argc, char **argv) {
       check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
                                                 &log) ==
                 MUSICXX_EXTERN_PLUGIN_OK,
-            "卸载临时装载的动态库插件");
+            "卸载临时加载的动态库插件");
     }
 
     // ============ 通用通道: 插件声明的功能点 ============
@@ -1966,7 +1966,7 @@ int main(int argc, char **argv) {
         const auto nativeRc = musicxx_extern_plugin_plugin_load_sync(
             host, viewCP("example_native"), viewCP("{}"), 8000, &nativeLog);
         freeStr(nativeLog);
-        check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "装载动态库插件 (native 糖用例)");
+        check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "加载动态库插件 (native 糖用例)");
 
         const CapabilityCallOutcome nativeProbe = callCapability(
             host, "example_native", "plugin.example_native.probe", "{}", 8000);
@@ -2014,7 +2014,7 @@ int main(int argc, char **argv) {
     //
     // 早期版本有一个可选的 `jsExecGuardMs`（超时中断超长脚本）。现在插件框架不限制脚本执行
     // 时长、也不提供中断开关：死循环脚本会一直占住共享 JS 线程（对照示例 example_js_spin
-    // 因此不再装载 —— 它会真的把线程占死，连卸载都做不了）。
+    // 因此不再加载 —— 它会真的把线程占死，连卸载都做不了）。
     {
       check(musicxx_extern_plugin_set_config(host,
                                             viewP(R"({"jsExecGuardMs":400})"),
@@ -2106,7 +2106,7 @@ int main(int argc, char **argv) {
         host, viewCP("example_js_async"), viewCP(R"({"enabled":true})"), 8000,
         &loadLog);
     check(jsAsyncRc == MUSICXX_EXTERN_PLUGIN_OK,
-          "异步裁决对照示例装载成功 (example_js_async)");
+          "异步裁决对照示例加载成功 (example_js_async)");
     if (jsAsyncRc != MUSICXX_EXTERN_PLUGIN_OK) {
       std::printf("  [info] example_js_async rc=%d log=%s\n", jsAsyncRc,
                   take(loadLog).c_str());
@@ -2213,13 +2213,13 @@ int main(int argc, char **argv) {
     }
   }
 
-  // 脚本错误安全降级: 非法脚本的插件不应装载成功, 插件框架继续可用
+  // 脚本错误安全降级: 非法脚本的插件不应加载成功, 插件框架继续可用
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_js_broken"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
-    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "脚本错误的 JS 插件装载失败");
+    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "脚本错误的 JS 插件加载失败");
     check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
           "脚本错误是明确失败而非超时");
     std::printf("  [info] example_js_broken rc=%d log=%s\n", rc, errText.c_str());
@@ -2247,28 +2247,28 @@ int main(int argc, char **argv) {
   //
   // 对照示例 example_native_bad_entry 的库文件导出了 get_info/create/destroy, 但**没有**
   // start/stop。 约定要求 start/stop 成对存在 (create 只构造, start
-  // 才是注册事务), 插件框架必须在 "查找入口符号"阶段就拒绝装载: 明确失败
+  // 才是注册事务), 插件框架必须在 "查找入口符号"阶段就拒绝加载: 明确失败
   // (不是超时)、有可读原因、不留注册残留。
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native_bad_entry"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
-    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "缺 start/stop 入口的库被拒绝装载");
+    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "缺 start/stop 入口的库被拒绝加载");
     check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
           "拒绝是明确失败而非挂住超时");
     check(errText.find("入口符号") != std::string::npos,
           "失败原因指向缺失的入口符号");
     std::printf("  [info] bad-entry rc=%d log=%s\n", rc, errText.c_str());
 
-    // 未装载 + 未注册任何钩子 (此时其它插件都已卸载)
+    // 未加载 + 未注册任何钩子 (此时其它插件都已卸载)
     MusicxxExternPluginString listed{};
     const std::string listJson = [&] {
       musicxx_extern_plugin_plugin_list(host, &listed, &log);
       return take(listed);
     }();
     check(listJson.find("example_native_bad_entry") == std::string::npos,
-          "缺入口的库不出现在已装载列表");
+          "缺入口的库不出现在已加载列表");
     int32_t badEntryHooks = -1;
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                      &badEntryHooks, &log);
@@ -2279,8 +2279,8 @@ int main(int argc, char **argv) {
   // ====================
   //
   // 示例插件 example_native_multi 的库文件放在 `lib/<构建目标标签>/` 里（SDK 助手按
-  // TARGET_TAG auto 摆放）。这里验证：扫描/装载都按当前系统与架构选中分支，并且
-  // 装载的确实是那一份构建（插件自报的构建标签与插件框架选中的分支一致）。
+  // TARGET_TAG auto 摆放）。这里验证：扫描/加载都按当前系统与架构选中分支，并且
+  // 加载的确实是那一份构建（插件自报的构建标签与插件框架选中的分支一致）。
   {
     const std::string multiItem = scanItemOf(scanJson, "example_native_multi");
     check(!multiItem.empty(), "扫描发现 example_native_multi (多目标包)");
@@ -2300,7 +2300,7 @@ int main(int argc, char **argv) {
     } else {
       freeStr(loadLog);
     }
-    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多目标包按分支装载成功");
+    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多目标包按分支加载成功");
 
     const CapabilityCallOutcome whichCall = callCapability(
         host, "example_native_multi", "plugin.example_native_multi.which", "{}",
@@ -2309,7 +2309,7 @@ int main(int argc, char **argv) {
     check(whichCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && whichCall.ok,
           "多目标包的能力可调用");
     check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
-          "装载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
+          "加载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
 
     MusicxxExternPluginString unloadLog{};
     musicxx_extern_plugin_plugin_unload(host, viewCP("example_native_multi"),
@@ -2335,7 +2335,7 @@ int main(int argc, char **argv) {
     } else {
       freeStr(loadLog);
     }
-    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "失败对照示例装载成功 (example_native_fail)");
+    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "失败对照示例加载成功 (example_native_fail)");
 
     int32_t fixtureHooks = -1;
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
@@ -2396,7 +2396,7 @@ int main(int argc, char **argv) {
       check(jsonIntField(result, "called") == "1", "另一个处理器不受影响");
     }
 
-    // 插件本身仍在装载状态
+    // 插件本身仍在加载状态
     {
       const CapabilityCallOutcome failProbe = callCapability(
           host, "example_native_fail", "plugin.example_native_fail.probe", "{}",
@@ -2612,7 +2612,7 @@ int main(int argc, char **argv) {
     } else {
       freeStr(nativeLoadLog);
     }
-    check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例装载动态库插件");
+    check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例加载动态库插件");
 
     MusicxxExternPluginString jsLoadLog{};
     const auto jsRc = musicxx_extern_plugin_plugin_load_sync(
@@ -2624,7 +2624,7 @@ int main(int argc, char **argv) {
     } else {
       freeStr(jsLoadLog);
     }
-    check(jsRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例装载 JS 插件");
+    check(jsRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例加载 JS 插件");
 
     // 未知钩子 id 明确报"没找到", 不是"没有处理器"
     {
@@ -2753,9 +2753,9 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString probeLog{};
       const auto probeRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP(probePath.c_str()), viewCP("{}"), 8000, &probeLog);
-      check(probeRc == MUSICXX_EXTERN_PLUGIN_OK, "副本插件装载成功");
+      check(probeRc == MUSICXX_EXTERN_PLUGIN_OK, "副本插件加载成功");
       if (probeRc != MUSICXX_EXTERN_PLUGIN_OK) {
-        std::printf("  [info] 副本装载失败原因: %s\n", take(probeLog).c_str());
+        std::printf("  [info] 副本加载失败原因: %s\n", take(probeLog).c_str());
       } else {
         freeStr(probeLog);
       }
@@ -2787,7 +2787,7 @@ int main(int argc, char **argv) {
     const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 10000, &reloadLog);
     freeStr(reloadLog);
-    check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为停机用例装载动态库插件");
+    check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为停机用例加载动态库插件");
 
     MusicxxExternPluginString callLog{};
     int64_t requestId = 0;

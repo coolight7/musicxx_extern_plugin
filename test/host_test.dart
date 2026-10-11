@@ -3,7 +3,7 @@
 /// 覆盖：
 /// - 库加载与 C ABI 版本校验、插件框架 init/dispose 幂等；
 /// - 事件泵（host.ready / plugin.loaded 等按序到达）；
-/// - 插件扫描/装载/能力调用/卸载；
+/// - 插件扫描/加载/能力调用/卸载；
 /// - 钩子派发：Dart 处理器链 + 原生处理器链 + 合并，以及"无处理器"快速路径；
 /// - 状态镜像推送（插件侧同步可读）。
 ///
@@ -20,7 +20,7 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 void main() {
   final _Environment? env = _Environment.detect();
 
-  test('原生插件框架：init/事件泵/扫描/装载/钩子/能力/卸载', () async {
+  test('原生插件框架：init/事件泵/扫描/加载/钩子/能力/卸载', () async {
     if (env == null) {
       markTestSkipped('未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
       return;
@@ -79,7 +79,7 @@ void main() {
     expect(example.kind, MusicxxPluginKind.native);
 
     // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）: 示例插件 example_native_multi
-    // 的库文件放在分支目录里，扫描应报告选中的分支，装载的也应是那一份构建。
+    // 的库文件放在分支目录里，扫描应报告选中的分支，加载的也应是那一份构建。
     final MusicxxPluginInfo? multi = found
         .where((MusicxxPluginInfo info) => info.id == 'example_native_multi')
         .firstOrNull;
@@ -110,7 +110,7 @@ void main() {
     expect(
       (which! as Map<String, Object?>)['tag'],
       multi.target,
-      reason: '装载的应是插件框架选中的那个分支',
+      reason: '加载的应是插件框架选中的那个分支',
     );
     runtime.plugins.unload('example_native_multi');
 
@@ -174,7 +174,7 @@ void main() {
     expect(missing.error, isNotEmpty);
 
     _step('3 scan 完成: ${found.length} 项');
-    // 装载：同步等待 + 事件回报
+    // 加载：同步等待 + 事件回报
     runtime.plugins.load('example_native');
     expect(runtime.plugins.findLoaded('example_native'), isNotNull);
     await _pumpUntil(
@@ -340,7 +340,7 @@ void main() {
     _step('11 unload 完成');
 
     // ===== 声明式 UI 扩展 =====
-    // 重新装载原生示例插件, 读取 UI 项快照 (入口项 / 菜单项 / 顺序 / 动作描述)
+    // 重新加载原生示例插件, 读取 UI 项快照 (入口项 / 菜单项 / 顺序 / 动作描述)
     runtime.plugins.load('example_native');
     final List<MusicxxPluginUIItem> uiItems = runtime.plugins.uiSnapshot();
     final List<MusicxxPluginUIItem> homeEntries = MusicxxPluginUIItems.byType(
@@ -440,7 +440,7 @@ void main() {
     );
     expect(exampleJs!.kind, MusicxxPluginKind.js);
     expect(exampleJs.supported, isTrue, reason: exampleJs.reason);
-    // 扫描结果带脚本清单（管理页展示；示例插件按清单的 scripts 顺序装载 kit 与脚本）
+    // 扫描结果带脚本清单（管理页展示；示例插件按清单的 scripts 顺序加载 kit 与脚本）
     expect(
       exampleJs.scripts,
       <String>['pluginxx_ui_kit.js', 'musicxx_ui_kit.js', 'plugin.js'],
@@ -460,7 +460,7 @@ void main() {
       1,
     );
 
-    _step('13 JS 插件装载完成');
+    _step('13 JS 插件加载完成');
     // JS插件的 UI 项 (顶层注册 → 插件框架线程回放) 同样进快照
     final List<MusicxxPluginUIItem> uiItemsJs = runtime.plugins.uiSnapshot();
     expect(
@@ -955,7 +955,7 @@ void main() {
     expect(runtime.featureBits, isNotNull);
     expect(runtime.missingFeatures, isEmpty, reason: runtime.featureHint);
 
-    // 1) 声明官方键（必须赶在装载插件之前：脚本顶层就要能读到）
+    // 1) 声明官方键（必须赶在加载插件之前：脚本顶层就要能读到）
     expect(
       runtime.vars.declare(<MusicxxPluginVarDeclare>[
         const MusicxxPluginVarDeclare(
@@ -972,7 +972,7 @@ void main() {
       isTrue,
     );
 
-    // 2) 装载变量通道示例（顶层登记自己的变量 + 订阅官方键）
+    // 2) 加载变量通道示例（顶层登记自己的变量 + 订阅官方键）
     runtime.plugins.load('example_js_vars');
 
     Map<String, Object?> probeCache = <String, Object?>{};

@@ -616,7 +616,7 @@ function Get-MxEnvironmentCached {
 # 解析/复用开发编译环境:
 #   已缓存且仍然可用 → 直接返回 (Reused=$true), 不重新探测工具链、不重新解析 Boost;
 #   否则做一遍完整解析 (预检 / 子模块 / Boost / NDK) 并写回环境描述文件。
-# -Check 只解析不落盘 (缺 Boost 时不下载, 只报告"需要下载")。
+# -Check 只解析不写入磁盘 (缺 Boost 时不下载, 只报告"需要下载")。
 function Invoke-MxEnsureEnvironment {
     param(
         [Parameter(Mandatory)][string]$Root,

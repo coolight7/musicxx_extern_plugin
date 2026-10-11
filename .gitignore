@@ -2,8 +2,8 @@
 #
 # .native/ 下的内容全部可由 tools/build_native.ps1 重建:
 #   build/<平台>-<配置>/                            构建目录 (superbuild 的 CMake 工程; 一个配置一个目录)
-#     musicxx-extern-plugin-install/                依赖与宿主产物的安装前缀
-#       bin/                                       宿主库与原生测试
+#     musicxx-extern-plugin-install/                依赖与插件框架产物的安装前缀
+#       bin/                                       插件框架库与原生测试
 #       include/                                   Dart C ABI 头 + 依赖头 + 插件 SDK
 #       lib/  share/                               依赖静态库与各依赖的 find_package 配置 (+ 生成的 BoostConfig)
 #       plugins/example_native/                     示例插件 (库文件 + plugin.yaml)

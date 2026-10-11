@@ -59,7 +59,7 @@ class MusicxxPluginInfo {
   final String author;
   final String homepage;
 
-  /// 插件目录（扫描项）/ 装载路径（已加载项）
+  /// 插件目录（扫描项）/ 加载路径（已加载项）
   final String path;
 
   /// 目录名（仅提示用；id 以清单为准）

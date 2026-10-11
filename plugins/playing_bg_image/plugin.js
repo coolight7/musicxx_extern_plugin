@@ -2165,6 +2165,6 @@ musicxx.capability.register("clearPaletteCache", function (args) {
     return { view: pageView(args) };
 });
 
-musicxx.host.log(2, "playing_bg_image（" + PLUGIN_TITLE + "）已装载：背景样式『" +
+musicxx.host.log(2, "playing_bg_image（" + PLUGIN_TITLE + "）已加载：背景样式『" +
     MODE_TITLES[MODE_BLUR] + "』/『" + MODE_TITLES[MODE_CARD] + "』/『" +
     MODE_TITLES[MODE_VINYL] + "』+ 歌曲图接管项 + 封面取色钩子 + 自动调整前景色");

@@ -7,7 +7,7 @@
 #     lib/linux-x64/example_native_multi.so
 #     lib/android-arm64-v8a/example_native_multi.so
 #     ...
-# 插件框架在扫描与装载时按当前系统/CPU 架构选一个分支（选择规则见
+# 插件框架在扫描与加载时按当前系统/CPU 架构选一个分支（选择规则见
 # `src/host/host_target.h` 顶部说明），所以清单里**不需要**再写 platforms/arch。
 name: example_native_multi
 # 每个分支里的库文件名；按 Linux 写法填，Windows/macOS 由插件框架修正扩展名

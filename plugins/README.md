@@ -20,15 +20,15 @@
 | 演示示例 | `example_js_shader` | JS插件：播放页背景样式 + 动画速率设置 + 页面内联着色器块 |
 | 演示示例 | `example_js_async` | JS插件：裁决型钩子返回 Promise（异步裁决：插件框架一直等到结算，结算后裁决生效） |
 | 演示示例 | `example_js_vars` | JS插件：变量通道（登记插件变量、绑定与读写官方变量） |
-| 演示示例 | `example_js_multi_script` | JS插件：清单 `scripts` 多脚本按顺序装载（kit 随插件目录分发） |
+| 演示示例 | `example_js_multi_script` | JS插件：清单 `scripts` 多脚本按顺序加载（kit 随插件目录分发） |
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
-| 对照示例 | `example_js_broken` | JS插件：脚本语法错误 → 演示装载失败与回滚（**永远装载失败**） |
+| 对照示例 | `example_js_broken` | JS插件：脚本语法错误 → 演示加载失败与回滚（**永远加载失败**） |
 | 对照示例 | `example_native_fail` | 动态库插件：处理器总是失败 → 演示"失败只记统计"（不暂停、不卸载） |
-| 对照示例 | `example_native_bad_entry` | 动态库插件：缺 `start`/`stop` 入口符号 → 演示装载阶段按约定拒绝（**永远装载失败**） |
+| 对照示例 | `example_native_bad_entry` | 动态库插件：缺 `start`/`stop` 入口符号 → 演示加载阶段按约定拒绝（**永远加载失败**） |
 
 > **对照示例是故意做出问题行为的插件**：它们既服务原生测试（`src/tests/test_host.cpp`），
 > 也是「写坏了会怎样」的现成例子。不要把它们装到日常使用的环境里 —— 其中两个插件的脚本/库
-> 本身就是坏的，装载一定失败。
+> 本身就是坏的，加载一定失败。
 
 ## 各插件的目录形态
 
@@ -75,13 +75,13 @@ plugins/
   库文件按 `lib/<系统>-<架构>/` 摆放（仿 APK 的 `lib/<abi>/`）。构建助手在传
   `TARGET_TAG auto` 时按当前构建目标推标签、把库放进 `<包目录>/lib/<标签>/`，
   并把清单与 `ASSETS` 放进 `<包目录>/`；每个平台/架构各构建一次、把 `lib/<标签>/` 合并进同一个
-  包目录，就得到一个通用包。插件框架扫描与装载时会按当前系统与 CPU 架构选分支，插件详情页
+  包目录，就得到一个通用包。插件框架扫描与加载时会按当前系统与 CPU 架构选分支，插件详情页
   会显示"已选分支 / 包内分支"。规则与手工打包方式见 `docs/plugin-native-api.md` §1.3。
 - **界面 kit 要随插件一起分发**（插件框架不提供 kit）：JS插件用
   `pwsh tools/sync_ui_kit.ps1` 把基础 kit（库的 `js/pluginxx_ui_kit.js`）与 musicxx 扩展 kit
   （本包 `js/musicxx_ui_kit.js`，由 `pwsh tools/gen_ui_kit.ps1` 生成）复制进插件目录，
   并在清单里写 `scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]` —— 插件框架会在同一个
-  JS 上下文里按这个顺序执行；清单 `scripts` 里没写 kit 的插件（例如只演示多脚本装载的
+  JS 上下文里按这个顺序执行；清单 `scripts` 里没写 kit 的插件（例如只演示多脚本加载的
   `example_js_multi_script`）不会被同步，C++ 插件不用复制，直接用 SDK 头文件里的 `musicxx::ui::kit`。
 - 新增插件后跑一次 `pwsh tools/build_examples.ps1`，产物会复制到
   `.native/output/<平台>-<架构>-<配置>/plugins/`（原生测试用的就是这个目录）。
@@ -106,10 +106,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测
 |---|---|
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | `docs/plugin-guide.md` |
 | 钩子总表（id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
-| C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（伞头）与 `plugin_api.h`（领域约定） |
+| C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（总头文件）与 `plugin_api.h`（musicxx 专用约定） |
 | 动态库插件作者指南（清单 / 构建 / 部署 / 排障） | `docs/plugin-native-api.md` |
 | JS 插件作者指南（`musicxx` API / 硬约束 / 排障） | `docs/plugin-js-api.md` |
-| 界面（UI 项类型与字段 / 插件页面组件 / 用 kit 装配内容 / 设置页写法） | `docs/plugin-ui.md` |
+| 界面（UI 项类型与字段 / 插件页面组件 / 用 kit 拼装内容 / 设置页写法） | `docs/plugin-ui.md` |
 | musicxx 扩展 kit 的组件与参数（生成物） | `docs/musicxx-ui-kit.md` |
 | 界面描述层的组件全集、字段与适配规则（库的生成文档） | `src/third_party/cxx_pluginxx_ui/docs/ui-schema.md` |
 | 播放页背景（shader bundle 打包与 uniform 约定） | `docs/plugin-shader-bundle.md` |

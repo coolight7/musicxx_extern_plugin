@@ -86,7 +86,7 @@ function applyFontMode(mode) {
     return action.then(function () {
         appliedMode = target;
         lastError = "";
-        // 配置落盘：失败只记日志（内存里的模式已经切好了，不影响本次运行）
+        // 配置写入磁盘：失败只记日志（内存里的模式已经切好了，不影响本次运行）
         musicxx.storage.setConfig(FONT_MODE_KEY, target).then(function () {
             return null;
         }, function (err) {
@@ -134,9 +134,9 @@ function selectMode(mode, args) {
     return { view: cardView(args) };
 }
 
-/// 启动时恢复上次选择的模式（后台执行，不影响装载）
+/// 启动时恢复上次选择的模式（后台执行，不影响加载）
 ///
-/// 装载阶段的脚本顶层只登记，不 await；这里用 `.then` 把配置读回来再切。
+/// 加载阶段的脚本顶层只登记，不 await；这里用 `.then` 把配置读回来再切。
 musicxx.storage.getConfig(FONT_MODE_KEY, "default").then(function (saved) {
     const target = normalizeMode(saved);
     if (target === "default") {

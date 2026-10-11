@@ -561,7 +561,7 @@ class MusicxxPluginRuntime {
     String operation,
   ) => _check(rc, log, operation);
 
-  /// 写 Dart → 原生日志（统一落盘/转发策略由原生侧配置）
+  /// 写 Dart → 原生日志（统一写入磁盘/转发策略由原生侧配置）
   void log(int level, String message) {
     if (_host == nullptr) {
       return;
@@ -580,7 +580,7 @@ class MusicxxPluginRuntime {
     });
   }
 
-  /// 调试信息（版本/平台/目录/装载计数；支持页复制用）
+  /// 调试信息（版本/平台/目录/加载计数；支持页复制用）
   Map<String, Object?> debugInfo() {
     if (_host == nullptr) {
       return const <String, Object?>{};

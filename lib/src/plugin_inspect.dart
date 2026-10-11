@@ -2,15 +2,15 @@
 ///
 /// 用途：主程序「从压缩包安装」的预检 —— 把解包出来的临时目录交给插件框架判定，
 /// "这个包在当前系统/架构下能不能用、会用哪个分支、库文件或脚本在不在"装之前就有答案。
-/// 判定与扫描、装载在原生侧同源（`inspectPluginDir`），因此不会出现
-/// "预检通过、装载却用另一个分支"。
+/// 判定与扫描、加载在原生侧同源（`inspectPluginDir`），因此不会出现
+/// "预检通过、加载却用另一个分支"。
 ///
 /// 注意：这里**只有数据**，没有分支选择规则（规则在插件框架 `src/host/host_target.h`）。
 library;
 
 import 'plugin_target.dart';
 
-/// 插件目录的静态判定（只读；不装载、不看运行期开关）
+/// 插件目录的静态判定（只读；不加载、不看运行期开关）
 class MusicxxPluginInspect_c {
   const MusicxxPluginInspect_c({
     required this.valid,

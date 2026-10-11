@@ -41,7 +41,7 @@ src/include/         Dart ⇄ 原生 C ABI v1（musicxx_extern_plugin_api.h，ff
 src/host/            插件框架工程（嵌套构建，CMakeLists.txt 里用 find_package 取依赖）
   js/                JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
-                     plugin_api.h 是领域约定、plugin_kit.h 是伞头（含内核 kit）、
+                     plugin_api.h 是 musicxx 专用约定、plugin_kit.h 是总头文件（含内核 kit）、
                      hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
 src/tests/           原生测试（test_host.cpp，不依赖 Dart；被测插件就是 `plugins/` 下的那些 example_*）
@@ -52,27 +52,27 @@ lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/�
 schema/              musicxx 扩展 kit 的定义（musicxx-ui-kit.def.json；改完跑 tools/gen_ui_kit.ps1）
 js/                  生成的扩展 kit（musicxx_ui_kit.js；工具会把它复制进 JS 插件目录）
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_test.dart 对真实原生库做
-                     整套流程验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新装载后的
+                     整套流程验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新加载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
 plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
   example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
   example_native_multi/ 示例插件（C++，多目标打包：包内多个系统/架构分支，运行时按系统与架构选分支）
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
-  example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝装载）
+  example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝加载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
   example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带三种背景样式：晶格 / 光圈 / 插件纹理铺底）
   playing_bg_image/ 示例插件（JS，零编译；插件显示名『示例封面背景』：三种播放页背景模式 —— 模糊 / 沉浸 / 黑胶 —— + 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：一个插件把背景、前景色、图标槽位与取色钩子串起来）
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
-  example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序装载）
+  example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序加载）
   example_js_font/  示例插件（JS：全局字体切换 —— 系统字体 / 插件自带字体文件 / 恢复默认，演示"按钮动作立刻返回 + 后台执行"）
-  example_js_broken/ 对照示例（JS：脚本语法错误 → 装载失败并回滚）
+  example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
 docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
-docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 装配内容/插件自己的设置页写法）
+docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 拼装内容/插件自己的设置页写法）
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
 docs/plugin-shader-bundle.md 插件渲染：shader bundle 打包、格式版本与 uniform 约定
 docs/plugin-agent-cli.md 用命令行 / MCP 装插件、刷新、看日志（开发期快捷控制，给 AI agent 与自动化）
@@ -98,7 +98,7 @@ tools/               setup_native_env.ps1（Windows：配置开发编译环境 �
 
    | 子模块 | 作用 |
    |---|---|
-   | `cxx_pluginxx` | 插件框架内核（装载/清单/生命周期/通用接口表/SDK） |
+   | `cxx_pluginxx` | 插件框架内核（加载/清单/生命周期/通用接口表/SDK） |
    | `cxx_utilxx_base` | 日志/JSON/字符串/取消令牌/系统探测 |
    | `fmt`、`yaml-cpp`、`simdjson` | 格式化、`plugin.yaml` 解析、JSON 后端 |
    | `libiconv-native`、`uchardet` | 字符编码转换与探测（`cxx_utilxx_base` 的 `string_util` **无条件**使用 `<iconv.h>` 与 uchardet，不能靠开关关掉） |
@@ -344,7 +344,7 @@ Android 与桌面端的差别（改这块之前先读 `android/README.md`）：
   动态库，应用数据目录里的 `.so` 会失败（`is not accessible for the namespace "classloader-namespace"`）。
   所以 Dart 侧在 Android 上**只按库名加载**（`DynamicLibrary.open('libmusicxx_extern_plugin.so')`，
   由系统解析到 `lib/<abi>/`），桌面端那套绝对路径候选不参与；
-- **用户安装的动态库插件**因此可能装载失败：插件框架按"安全降级"处理（标记不可用 + 事件 + 不重试），
+- **用户安装的动态库插件**因此可能加载失败：插件框架按"安全降级"处理（标记不可用 + 事件 + 不重试），
   主程序与其它插件照常工作；JS插件不受影响。管理页会提前说明这条限制，失败原因也会换成面向用户的说法；
 - 交叉编译统一 Ninja 生成器 + `c++_static`（C++ 运行库静态链进插件框架库，APK 不需要额外的 `libc++_shared.so`）；
   `-RunTests`/`--run-tests` 在 Android 上跳过（测试可执行文件是给设备编的）。
@@ -414,7 +414,7 @@ musicxx_plugin_add_target(my_plugin
 `pwsh tools/pack_plugin.ps1 -PluginDir <包目录>` 打成安装包（它会打印包内分支与每个分支的库文件，
 便于确认齐全）；插件框架运行时按当前系统与 CPU 架构选分支（选择顺序、标签别名与规则见
 [docs/plugin-native-api.md](docs/plugin-native-api.md) §1.3，示例插件 `plugins/example_native_multi/`）。
-**分支选择规则只有插件框架一处实现**：扫描、装载与主程序安装预检（C ABI `plugin_inspect`）跑的是同一份
+**分支选择规则只有插件框架一处实现**：扫描、加载与主程序安装预检（C ABI `plugin_inspect`）跑的是同一份
 判定，Dart 侧只解析结果。不传 `TARGET_TAG` 时行为与以前一致（库与清单同一层，直接作为插件目录）。
 
 ### JS插件
@@ -528,7 +528,7 @@ runtime.init(
 );
 runtime.events.listen((MusicxxPluginEvent event) => ...);   // 事件流（未知类型也会转发）
 runtime.plugins.scan();                                     // 扫描（用户目录 + 随包目录）
-runtime.plugins.load('example_native');                      // 装载（同步等待，带超时）
+runtime.plugins.load('example_native');                      // 加载（同步等待，带超时）
 runtime.plugins.enable('example_native');                    // 禁用 / 启用 / 卸载 / 重载 / 能力调用
 runtime.plugins.stats();                                     // 统计快照
 runtime.dispose();
@@ -584,7 +584,7 @@ final List<MusicxxPluginUIItem> next =
 
 插件框架已经实现的能力（主程序接入情况见 musicxx 仓库）：
 
-- **领域接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张已实现；
+- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张已实现；
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **钩子**：约定 71 个（观察 / 裁决，其中 52 个异步派发）；
@@ -615,9 +615,9 @@ final List<MusicxxPluginUIItem> next =
 | 对照示例 | 演示 / 验证点 |
 |---|---|
 | `plugins/example_native_fail/` | 钩子处理器总是失败 → 插件框架只记统计（`hook_stats` 里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
-| `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 装载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
+| `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 加载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
 | `plugins/example_js_async/` | 裁决处理器返回 Promise → 插件框架一直等到结算，裁决生效（`asyncHookSettled`） |
-| `plugins/example_js_broken/` | 脚本语法错误 → 装载失败并回滚，插件框架继续可用 |
+| `plugins/example_js_broken/` | 脚本语法错误 → 加载失败并回滚，插件框架继续可用 |
 
 插件侧可用的能力：
 

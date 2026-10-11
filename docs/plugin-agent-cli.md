@@ -149,10 +149,10 @@ musicxx-cli logs error --keyword 插件 --offset 20      # 只看 error.log，�
 | `pluginCount` / `loadedCount` | 已登记插件数 / 已加载数 |
 | `plugins[]` | 每个插件：`id`、`version`、`kind`、`enabled`、`loaded`、`supported`、`reason`（不可用原因）、`target`（动态库插件选中的分支）、`path`（插件目录）、`permissions`（声明的权限）、`error`（最近一次失败原因） |
 
-- 日志是**内存里的环形缓冲**（最多 500 条，新的在前，不落盘、重启主程序就没了）：框架事件、
+- 日志是**内存里的环形缓冲**（最多 500 条，新的在前，不写入磁盘、重启主程序就没了）：框架事件、
   插件日志（`console.*` / `musicxx.host.log`）与错误都在里面，和管理页「调试」页签看的是同一份；
   结果里 `total` 是**过滤后**的条数、`hasMore` 说明还有没有更早的（翻页用 `--offset`）；
-- **装载失败不会让安装失败**：安装结果只说明"文件装好了"；是否真的跑起来要看该插件的
+- **加载失败不会让安装失败**：安装结果只说明"文件装好了"；是否真的跑起来要看该插件的
   `loaded` 与 `error`，再去 `plugin logs <id>` 看明细；
 - 应用自己的日志（`error.log` / `info.log`）用 `musicxx-cli logs` 看：从文件尾往前读（不整个读进
   内存），结果里带 `fileSize`、`parseErrors`（跳过的坏行数）与 `flushedHint`（最后几行可能还在写入
@@ -162,7 +162,7 @@ musicxx-cli logs error --keyword 插件 --offset 20      # 只看 error.log，�
 
 ```bash
 musicxx-cli plugin disable my_plugin            # 不加载了，文件与记录都还在
-musicxx-cli plugin enable my_plugin             # 再启用（框架在跑时立刻装载）
+musicxx-cli plugin enable my_plugin             # 再启用（框架在跑时立刻加载）
 musicxx-cli plugin uninstall my_plugin          # 删插件目录 + 清记录（私有数据一起删）
 musicxx-cli plugin uninstall my_plugin --keep-data   # 保留 config.json 与存储，方便重装后继续用
 ```
@@ -226,7 +226,7 @@ musicxx-cli featurePoint.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 调一次封面取色**不会**换掉用户看到的
   背景色（要改观感请用动作 `musicxx.media.palette.set`）；
 - 默认超时 60 秒，频谱要解码整曲、慢的话用 `--timeout` 加长；`--refresh` 跳过值仓重新算一遍；
-- 结果不进值仓、不落盘：要长期留着就自己重定向到文件。
+- 结果不进值仓、不写入磁盘：要长期留着就自己重定向到文件。
 
 ## 6. 给 agent 与脚本的约定
 
@@ -321,10 +321,10 @@ musicxx-cli plugin uninstall my_plugin
   一起删；要留就加 `--keep-data`。
 - **需要框架在跑的三条**：`install` / `reload` / `restart`；其余命令在插件框架没起来时也能用
   （启用/禁用只记录状态，下次启动生效），但未开启『拟声++』时应用不加载插件记录 —— 先开启再操作。
-- **命令行是桌面端能力**：Android / iOS 用管理页。Android 上动态库插件可能装载失败的平台限制
+- **命令行是桌面端能力**：Android / iOS 用管理页。Android 上动态库插件可能加载失败的平台限制
   与这里无关，见 [plugin-native-api.md](plugin-native-api.md) §11。
-- **日志有上限**：最近 500 条、只在内存里（`musicxx-cli logs` 读的是应用自己落盘的 `error.log` /
-  `info.log`，那份由应用自己按大小裁剪）；要长期保留就自己落盘。
+- **日志有上限**：最近 500 条、只在内存里（`musicxx-cli logs` 读的是应用自己写入磁盘的 `error.log` /
+  `info.log`，那份由应用自己按大小裁剪）；要长期保留就自己写入磁盘。
 - **一次只让一个 agent 装/卸同一个插件**：两台同时在装会出现"文件是这次、记录是那次"的竞争。
 - **以运行状态为准**：安装/启用命令成功 ≠ 插件跑起来了，最终看 `plugin list` 的 `loaded` 与
   该插件的 `error`，以及 `plugin logs`。
@@ -338,7 +338,7 @@ musicxx-cli plugin uninstall my_plugin
 | 安装失败提到"必须绝对路径" | 把路径写成绝对路径（例如 `D:/out/my_plugin.zip`）；相对路径会被直接拒绝 |
 | 安装失败提到「当前平台不在清单声明内」/「库文件缺失」 | 清单 `platforms` / `arch` / `entry` 写错，或多目标包少了当前平台/架构的分支（[plugin-native-api.md](plugin-native-api.md) §1.3） |
 | 装了但没在跑 | 新插件装完默认不启用：`plugin enable <id>`，或重新安装时加 `--enable` |
-| `loaded: false` 且 `error` 有内容 | 装载失败（脚本顶层报错、缺入口符号、依赖缺失…），`plugin logs <id>` 看明细 |
+| `loaded: false` 且 `error` 有内容 | 加载失败（脚本顶层报错、缺入口符号、依赖缺失…），`plugin logs <id>` 看明细 |
 | 改了文件没变化 | 没重载、重载失败，或插件处于禁用；`plugin reload <id>` 后看结果里的 `failed` |
 | 主程序整体卡住 | 插件占住了框架线程或 JS 线程：看主程序日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |
 | 找不到 `musicxx-cli` | 看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里写着 CLI 文件路径与可复制的命令 |

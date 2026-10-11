@@ -20,7 +20,7 @@ typedef _OutCall =
 
 /// 插件管理（Dart → 原生插件框架的插件生命周期与查询）
 ///
-/// 全部方法都是**同步 FFI 调用**（有等待上界）：装载/卸载在插件框架线程异步完成，
+/// 全部方法都是**同步 FFI 调用**（有等待上界）：加载/卸载在插件框架线程异步完成，
 /// 这里只做有界等待；耗时的准备工作（例如解压安装包）由调用方放到单独的 isolate 里完成。
 class MusicxxPluginManager {
   MusicxxPluginManager.internal(this._runtime);
@@ -80,9 +80,9 @@ class MusicxxPluginManager {
     return result;
   }
 
-  /// 检查一个插件目录（**只读**，不装载、不改动任何状态）
+  /// 检查一个插件目录（**只读**，不加载、不改动任何状态）
   ///
-  /// 与 [scan] 同源：原生侧是同一份 `inspectPluginDir`，因此"预检通过、装载却用另一个
+  /// 与 [scan] 同源：原生侧是同一份 `inspectPluginDir`，因此"预检通过、加载却用另一个
   /// 分支"这类分歧不会出现。用途是主程序「从压缩包安装」的预检：把解包出来的临时目录
   /// 交给插件框架判定，装之前就知道"当前系统/架构能不能用、会用哪个分支、库文件在不在"。
   ///
@@ -145,7 +145,7 @@ class MusicxxPluginManager {
   /// 按 id 查已加载插件（缓存）
   MusicxxPluginInfo? findLoaded(String id) => _byId[id];
 
-  /// 装载插件（同步等待，带超时）
+  /// 加载插件（同步等待，带超时）
   ///
   /// - [idOrPath] 传插件 id（扫描结果的 `id`）或插件目录/库文件路径；
   /// - [args] 作为插件参数下发（插件经 `pluginxx.config` 的 `get_plugin_args` 读取）；
@@ -173,7 +173,7 @@ class MusicxxPluginManager {
     list();
   }
 
-  /// 异步装载（结果只经事件回报；适合批量启动时避免逐个等待）
+  /// 异步加载（结果只经事件回报；适合批量启动时避免逐个等待）
   void loadAsync(String idOrPath, {Map<String, Object?>? args}) {
     _requireRunning('plugin_load');
     final String options = _optionsJson(args);
@@ -242,7 +242,7 @@ class MusicxxPluginManager {
     list();
   }
 
-  /// 卸载后按当前配置重新装载
+  /// 卸载后按当前配置重新加载
   void reload(String id) {
     _requireRunning('plugin_reload');
     _withArena((

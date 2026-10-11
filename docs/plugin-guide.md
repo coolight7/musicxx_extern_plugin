@@ -250,7 +250,7 @@ musicxx.capability.register("card", function () {
 | 平台 | JS 插件 | 动态库插件 |
 |---|---|---|
 | Windows / Linux / macOS | 可用 | 可用（随主程序分发插件框架库） |
-| Android | 可用 | **受限**：用户安装的 `.so` 可能装载失败（系统只允许从 APK 的原生库目录加载），插件框架按"安全降级"处理：标记不可用 + 给原因 + 不重试 |
+| Android | 可用 | **受限**：用户安装的 `.so` 可能加载失败（系统只允许从 APK 的原生库目录加载），插件框架按"安全降级"处理：标记不可用 + 给原因 + 不重试 |
 | iOS / OHOS | 可用 | 不支持（只跑 JS 插件） |
 
 - 清单 `entry` **按 Linux 写法填 `<名字>.so`**：Windows / macOS 的扩展名由插件框架按平台修正，一份清单三平台通用；
@@ -267,8 +267,8 @@ musicxx.capability.register("card", function () {
 
 ### 5.9 失败与安全模式
 
-- **装载失败会回滚**：脚本顶层报错、缺 `start`/`stop` 入口符号、清单声明的脚本文件缺失，
-  都在装载阶段明确失败，不会留下半注册状态；
+- **加载失败会回滚**：脚本顶层报错、缺 `start`/`stop` 入口符号、清单声明的脚本文件缺失，
+  都在加载阶段明确失败，不会留下半注册状态；
 - **运行期失败不会卸载插件**：处理器/脚本报错只记日志与统计，插件继续工作；
 - **安全模式**：应用启动结束前会写一个标记，正常走完才清除；连续两次启动没有走完（插件把应用拖住），
   应用会**自动进入安全模式 —— 本次运行不加载任何外部插件**。用户也可以在管理页手动开启 / 关闭；
@@ -301,8 +301,8 @@ musicxx.capability.register("card", function () {
 | 包内 Dart 测试 | `flutter test`（对真实插件框架库做整套流程验证；先跑一次 `tools/build_examples.ps1` 产出原生库与示例插件） |
 
 **对照示例**（故意写坏的插件，演示插件框架怎么保护自己）：`plugins/example_native_fail/`（处理器总是失败）、
-`plugins/example_native_bad_entry/`（缺入口符号 → 拒绝装载）、`plugins/example_js_async/`（异步裁决）、
-`plugins/example_js_broken/`（脚本语法错误 → 装载失败并回滚）。不要把它们装到日常使用的环境里。
+`plugins/example_native_bad_entry/`（缺入口符号 → 拒绝加载）、`plugins/example_js_async/`（异步裁决）、
+`plugins/example_js_broken/`（脚本语法错误 → 加载失败并回滚）。不要把它们装到日常使用的环境里。
 
 ---
 
@@ -312,7 +312,7 @@ musicxx.capability.register("card", function () {
 
 - [ ] `plugin.yaml` 的 `name` = 插件 id = 目录名；`version` 已递增（同名视为同一插件的升级覆盖）；
 - [ ] `api_version` 填当前框架支持的最低版本即可（声明更高不会被拒）；
-- [ ] `platforms` / `arch` 只列真的支持的目标；`depends` / `optional_depends` 写对（缺失会拒绝装载 / 只影响顺序）；
+- [ ] `platforms` / `arch` 只列真的支持的目标；`depends` / `optional_depends` 写对（缺失会拒绝加载 / 只影响顺序）；
 - [ ] `permissions` 声明齐全（只做展示：安装弹窗与详情页会列给用户看）；
 - [ ] 动态库插件：`entry` 按 Linux 写法填 `<名字>.so`；导出面只有 5 个入口符号
       （`dumpbin /exports` / `nm -D --defined-only` 自查）；
@@ -340,7 +340,7 @@ musicxx.capability.register("card", function () {
 - [plugin-native-api.md](plugin-native-api.md) —— 动态库插件：清单、SDK、线程、构建、部署、排障
 - [plugin-hooks.md](plugin-hooks.md) —— 钩子总表与已接入钩子的载荷 / 裁决语义（生成物）
 - [plugin-vars.md](plugin-vars.md) —— 官方变量目录与读写规则
-- [plugin-ui.md](plugin-ui.md) —— UI 项、插件页面组件、用 kit 装配、页面间跳转
+- [plugin-ui.md](plugin-ui.md) —— UI 项、插件页面组件、用 kit 拼装、页面间跳转
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— bundle 打包、uniform 约定、参数表达式、排查
 - [plugin-agent-cli.md](plugin-agent-cli.md) —— 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化）
 - [musicxx-ui-kit.md](musicxx-ui-kit.md) —— musicxx 扩展 kit 的组件与参数（生成物）

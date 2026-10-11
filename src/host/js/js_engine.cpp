@@ -105,7 +105,7 @@ std::string viewToStr(const PluginxxStringView *view) {
 /// 一个 JS插件的内置槽位 (名称/脚本路径/版本)
 ///
 /// `scripts` 按清单 `scripts` 的顺序排列: 同一个 JS 上下文里依次执行 (前面的脚本
-/// 先跑完才跑后面的), 装载失败会带上出错脚本的文件名。缺省是 `[plugin.js]`。
+/// 先跑完才跑后面的), 加载失败会带上出错脚本的文件名。缺省是 `[plugin.js]`。
 struct Slot {
   std::string name; ///< js:<pluginId>
   std::vector<std::string> scripts;
@@ -116,7 +116,7 @@ struct Slot {
 /// 槽位表: 槽位数量不设上限 (按需增长)
 ///
 /// 交给内核的两份描述数组 (`infos` / `manifests`) 在每次调用时按当前槽位重建,
-/// 内核拿到指针后立即取用 (注册与装载都在框架线程串行, 不会跨调用持有旧指针)。
+/// 内核拿到指针后立即取用 (注册与加载都在框架线程串行, 不会跨调用持有旧指针)。
 struct SlotTable {
   std::vector<Slot> slots; ///< 槽位 (含已注销的, 下标稳定便于复用)
   std::vector<PluginxxBuiltinInfo> infos;
@@ -3489,7 +3489,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
   return false;
 #else
   // 清单里的多个脚本在**同一个 JS 上下文**里按顺序执行：前面（通常是随插件分发的
-  // kit 文件）先跑完，插件脚本才跑。任一脚本报错都算装载失败，错误里带上脚本名。
+  // kit 文件）先跑完，插件脚本才跑。任一脚本报错都算加载失败，错误里带上脚本名。
   std::vector<std::pair<std::string, std::string>> scripts;
   scripts.reserve(inst->scriptPaths.size());
   for (const std::string &path : inst->scriptPaths) {
