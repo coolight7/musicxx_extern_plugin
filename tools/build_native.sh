@@ -331,7 +331,7 @@ if [ "$android" = 1 ]; then
     [ -f "$android_toolchain" ] || die "找不到 NDK 工具链文件: ${android_toolchain}"
     info "ninja: $(command -v ninja)"
 else
-    # 内核要求 C++26: GCC >= 14 / Clang >= 18
+    # 插件框架要求 C++26: GCC >= 14 / Clang >= 18
     cxx_compiler="$(command -v c++ || true)"
     if [ -z "$cxx_compiler" ]; then
         warn '未找到 c++ 编译器 (请安装 g++ >= 14 或 clang++ >= 18)'
@@ -341,11 +341,11 @@ else
         compiler_major="$(printf '%s' "$cxx_version_line" | grep -oE '[0-9]+' | head -1)"
         if printf '%s' "$cxx_version_line" | grep -qi 'gcc\|g++\|gnu'; then
             if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 14 ]; then
-                warn "GCC ${compiler_major} < 14: 内核要求 C++26 (CMAKE_CXX_STANDARD 26), 编译会失败"
+                warn "GCC ${compiler_major} < 14: 插件框架要求 C++26 (CMAKE_CXX_STANDARD 26), 编译会失败"
             fi
         elif printf '%s' "$cxx_version_line" | grep -qi 'clang'; then
             if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 18 ]; then
-                warn "Clang ${compiler_major} < 18: 内核要求 C++26, 编译可能失败"
+                warn "Clang ${compiler_major} < 18: 插件框架要求 C++26, 编译可能失败"
             fi
         fi
     fi

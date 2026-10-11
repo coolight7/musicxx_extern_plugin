@@ -1,8 +1,8 @@
 /// musicxx 插件 SDK: 总头文件 (插件作者只需包含本头)
 ///
 /// 组成:
-/// - 内核通用部分: `pluginxx/kit/kit.h` (通用表聚合 / 日志 / 任务 / 协程 / 能力注册) —
-///   直接使用内核 `Pluginxx*` 名字, **不引入别名层**;
+/// - 插件框架通用部分: `pluginxx/kit/kit.h` (通用表聚合 / 日志 / 任务 / 协程 / 能力注册) —
+///   直接使用插件框架 `Pluginxx*` 名字, **不引入别名层**;
 /// - musicxx 专用约定: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 专用接口聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
 /// - 便捷注册: `PluginBase::hook` / `observe` / `unregisterHook` / `requestAction` /
@@ -17,6 +17,7 @@
 
 #include "musicxx/plugin/api/musicxx_ui_kit.g.h"
 #include "musicxx/plugin/api/plugin_api.h"
+#include "pluginxx/api/iface_meta.h"
 #include "pluginxx/kit/kit.h"
 #include "pluginxx/ui.h"
 
@@ -28,6 +29,56 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+/* ==================== musicxx 专用表的元信息 (表判定的依据) ==================== */
+
+/// 每张 musicxx 专用表一项, 取值来自 `plugin_api.h` 里的
+/// `MUSICXX_PLUGIN_IFACE_*_MIN_VERSION` / `..._BASELINE_SIZE` (每张表"四项"里的两项)。
+///
+/// 为什么必须补: [pluginxx::queryInterface] 用 `pluginxx::IfaceMeta<Iface>` 判表可用。
+/// 缺了这几项特化时会走 `IfaceMeta` 的默认实现 (最低版本 1、基线 = 整表大小), 于是
+/// **以后往表尾追加成员后, 按新布局编译的插件会整张判老主程序给的表不可用** ——
+/// 其实基线段成员老主程序都有。补上特化后判据是
+/// `version >= MIN_VERSION` 且 `struct_size >= BASELINE_SIZE`,
+/// 追加段成员再用 `pluginxx::ifaceHas<&表::成员>(t)` 单独判定。
+///
+/// 位置要求: 必须在任何 `queryInterface<MusicxxPlugin*Iface>` 调用之前可见, 所以放在本头
+/// 最前面 (不能挪到文件末尾)。
+namespace pluginxx {
+
+template<>
+struct IfaceMeta<MusicxxPluginHooksIface> {
+    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_HOOKS_MIN_VERSION;
+    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE;
+};
+static_assert(MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE >= 8u);
+static_assert(MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE <= sizeof(MusicxxPluginHooksIface));
+
+template<>
+struct IfaceMeta<MusicxxPluginHostIface> {
+    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION;
+    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_HOST_BASELINE_SIZE;
+};
+static_assert(MUSICXX_PLUGIN_IFACE_HOST_BASELINE_SIZE >= 8u);
+static_assert(MUSICXX_PLUGIN_IFACE_HOST_BASELINE_SIZE <= sizeof(MusicxxPluginHostIface));
+
+template<>
+struct IfaceMeta<MusicxxPluginUIIface> {
+    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION;
+    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE;
+};
+static_assert(MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE >= 8u);
+static_assert(MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE <= sizeof(MusicxxPluginUIIface));
+
+template<>
+struct IfaceMeta<MusicxxPluginVarsIface> {
+    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_VARS_MIN_VERSION;
+    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE;
+};
+static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE >= 8u);
+static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE <= sizeof(MusicxxPluginVarsIface));
+
+} // namespace pluginxx
 
 namespace musicxx {
 namespace plugin {
@@ -128,7 +179,7 @@ int32_t answerFeaturePoint(const std::string& selfId, const std::string& point,
 } // namespace detail
 
 
-/// musicxx 专用接口表聚合 = 内核通用十表 + musicxx 专用表
+/// musicxx 专用接口表聚合 = 插件框架通用十表 + musicxx 专用表
 ///
 /// 作为 `pluginxx::PluginBaseT<IfacesT>` 的模板实参使用 (上下文基类会调用 [query]
 /// 拉取全部接口表; 框架未实现的表为 nullptr)。
@@ -223,16 +274,16 @@ public:
 
     /// 调另一个插件的能力 (**协程形态, 推荐**)
     ///
-    /// 返回内核的 awaiter, 用法:
+    /// 返回插件框架的 awaiter, 用法:
     /// ```cpp
     /// pluginxx::Task<void> demo() {
     ///     auto result = co_await capabilityCall("plugin.other.probe", "probe", R"({"n":3})");
-    ///     // result 按内核约定给出结果 / 失败 (见内核 kit 的 invoke_cap 说明)
+    ///     // result 按插件框架约定给出结果 / 失败 (见插件框架 kit 的 invoke_cap 说明)
     /// }
     /// ```
-    /// - **直连内核**: 不经过应用 (Dart), 调用方就是本插件实例 (目标处理器里的 `callerHost`
+    /// - **直连插件框架**: 不经过应用 (Dart), 调用方就是本插件实例 (目标处理器里的 `callerHost`
     ///   是本插件); 期间协程由本实例的驱动桥分步推进, 不会占框架 IO 线程;
-    /// - **不要找同步版**: 内核的 `invoke_capability_blocking` 在 IO 线程会被直接拒绝
+    /// - **不要找同步版**: 插件框架的 `invoke_capability_blocking` 在 IO 线程会被直接拒绝
     ///   (`use co_await invoke_cap instead`), 本 SDK 不暴露它;
     /// - 长任务请在协程里 `co_await pluginxx::offload(*this, work)` 把重活交给框架工作线程池。
     auto capabilityCall(
@@ -385,7 +436,7 @@ public:
     ///   `"null"` 或 `"{}"`；
     /// - 糖自动做三件事：按 `point` 过滤、`caller` 等于自己时返回空、
     ///   把返回值包成 `{"patch":{"value": …}}`；
-    /// - **必须同步返回**：裁决型钩子没有异步形态（内核按 `hook_sync` 同步调用），长任务要么
+    /// - **必须同步返回**：裁决型钩子没有异步形态（插件框架按 `hook_sync` 同步调用），长任务要么
     ///   提前算好，要么做成能力（`co_await capabilityCall`）或事件。
     template<typename Fn>
     int32_t featurePointProvide(const char* pointId, Fn&& fn, int32_t priority = 0) {
@@ -991,15 +1042,15 @@ namespace musicxx {
 namespace plugin {
 namespace detail {
 
-/// 生命周期事务适配 (导出宏内部使用): 把插件作者的简单事务函数包装成内核入口
+/// 生命周期事务适配 (导出宏内部使用): 把插件作者的简单事务函数包装成插件框架入口
 ///
 /// 支持两种写法:
-/// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按内核约定
+/// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按插件框架约定
 ///   为本次事务调用一次完成通知 (`notify->done`), 插件无需关心通知协议;
-/// - **内核原始形式** `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`:
+/// - **插件框架原始形式** `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`:
 ///   由插件自己调用 `notify->done` (进阶写法, 与 cxx_pluginxx 的 kit 一致)。
 ///
-/// 为什么必须有完成通知: 内核把"返回 NULL 且从未 done"判为协议违约
+/// 为什么必须有完成通知: 插件框架把"返回 NULL 且从未 done"判为协议违约
 /// (`protocol violation: null operation without done/error`), 会拒绝本次事务并回滚加载。
 template<typename Ctx, typename Fn>
 inline void* runLifecycleEntry(
@@ -1011,7 +1062,7 @@ inline void* runLifecycleEntry(
 ) noexcept {
     using FnT = std::decay_t<Fn>;
     if constexpr (std::is_invocable_v<FnT&, Ctx&, const PluginxxOperatorNotify*, PluginxxString*>) {
-        // 内核原始签名: 完成通知由插件自己负责
+        // 插件框架原始签名: 完成通知由插件自己负责
         return fn(ctx, notify, error_out);
     } else {
         int32_t     rc = -1;

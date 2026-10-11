@@ -14,7 +14,7 @@
 # ```
 #
 # 它负责三件事（插件作者不用自己拼）：
-# 1. 建 SHARED 库并链接 SDK（`musicxx_extern_plugin_sdk`）与内核/工具库（只链接存在的目标）；
+# 1. 建 SHARED 库并链接 SDK（`musicxx_extern_plugin_sdk`）与插件框架/工具库（只链接存在的目标）；
 # 2. **只导出入口符号**：MSVC 靠 `__declspec(dllexport)`（SDK 的导出宏负责），
 #    GNU/Clang 用"默认隐藏 + version script"，Apple 用 `-exported_symbols_list`；
 # 3. 把 `plugin.yaml` 复制到产物目录旁边，使该目录可以直接作为"插件目录"使用。
@@ -112,9 +112,9 @@ function(musicxx_plugin_add_target target)
 
   add_library(${target} SHARED ${ARG_SOURCES})
 
-  # ---- 依赖：SDK（包含目录 + 平台宏）与内核/工具库 ----
+  # ---- 依赖：SDK（包含目录 + 平台宏）与插件框架/工具库 ----
   #
-  # 内核 kit 是 header-only，但示例与多数插件会用 `utilxx_base::Json` 解析载荷，
+  # 插件框架 kit 是 header-only，但示例与多数插件会用 `utilxx_base::Json` 解析载荷，
   # 因此把这些库作为"存在就链接"的可选依赖，插件作者不需要知道具体名字。
   if (TARGET musicxx_extern_plugin_sdk)
     target_link_libraries(${target} PRIVATE musicxx_extern_plugin_sdk)
@@ -140,7 +140,7 @@ function(musicxx_plugin_add_target target)
   unset(_optional)
   unset(_extra)
 
-  # ---- 编译设置（内核要求 C++26；源码为 UTF-8）----
+  # ---- 编译设置（插件框架要求 C++26；源码为 UTF-8）----
   set_target_properties(${target} PROPERTIES
     CXX_STANDARD 26
     CXX_STANDARD_REQUIRED OFF
@@ -158,7 +158,7 @@ function(musicxx_plugin_add_target target)
   # ---- 只导出入口符号（非 MSVC）----
   #
   # MSVC 不需要额外处理：`__declspec(dllexport)` 已经限定了导出面。
-  # 这里给 GNU/Clang 加 version script、给 Apple 加导出符号表，避免把内核/工具库的
+  # 这里给 GNU/Clang 加 version script、给 Apple 加导出符号表，避免把插件框架/工具库的
   # 符号（或 C++ 运行时符号）暴露出去，也避免与框架/其它插件互相干扰。
   if (UNIX AND NOT APPLE)
     set(_map "${CMAKE_CURRENT_BINARY_DIR}/${target}.map")

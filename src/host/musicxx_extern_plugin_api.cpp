@@ -514,7 +514,7 @@ musicxx_extern_plugin_plugin_reload(MusicxxExternPluginHost *h,
   const std::string pluginId = viewToStd(id);
   /// 插件参数保存在实例上 (`plugin_set_args`), 卸载后实例就没了: 先把它取出来,
   /// 重新加载时作为 options 传下去 (否则"设置参数 + 重载"会丢参数)。
-  /// 读实例表必须在框架线程上做 (内核的实例表只在框架线程改动) —— 用一次
+  /// 读实例表必须在框架线程上做 (插件框架的实例表只在框架线程改动) —— 用一次
   /// onHostThread 投递取值, 不做同步等待以外的操作。
   std::string optionsJson{"{}"};
   onHostThread(handle->manager.get(), [&]() -> int32_t {

@@ -20,7 +20,7 @@
 # - 顺带解析同前缀里的依赖包（cxx_pluginxx / cxx_utilxx_base / fmt / Boost），
 #   这样插件作者只要一个 `find_package` 就能拿到 `cxx_pluginxx_static` 等目标。
 #
-# 注意：SDK 头文件依赖内核（`pluginxx/*`）与 `utilxx_base`/Boost 头文件，这些头文件都随
+# 注意：SDK 头文件依赖插件框架（`pluginxx/*`）与 `utilxx_base`/Boost 头文件，这些头文件都随
 # 同一个前缀安装（`<前缀>/include`）；Boost 头文件位置是配置时记录的绝对路径。
 
 # 同前缀里的依赖包：先把前缀自身加进搜索路径（调用方只设了 musicxx_extern_plugin_DIR 时也能命中）

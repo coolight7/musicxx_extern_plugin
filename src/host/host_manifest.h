@@ -1,7 +1,7 @@
 /// 插件清单（`plugin.yaml`）读取：本框架关心的字段只有一处实现
 ///
 /// 分工：
-/// - **内核**（`pluginxx::parsePluginManifest`）负责 `name` / `entry` / `depends` /
+/// - **插件框架**（`pluginxx::parsePluginManifest`）负责 `name` / `entry` / `depends` /
 ///   `optional_depends` 的权威解析（扫描、加载、依赖检查都用它）；
 /// - 本模块负责插件框架自己的扩展字段（kind / version / scripts / permissions /
 ///   platforms / arch / api_version / targets_dir 等），供扫描、加载与安装预检共用。
@@ -53,7 +53,7 @@ MusicxxManifestFields readManifestFields(const std::filesystem::path &pluginDir)
 
 /// 读清单的依赖声明（`depends` / `optional_depends`；支持标量与列表两种写法）
 ///
-/// JS插件单独用：内核的按名依赖检查用实例名查表，而 JS 实例名是 `js:<id>`，
+/// JS插件单独用：插件框架的按名依赖检查用实例名查表，而 JS 实例名是 `js:<id>`，
 /// 因此 JS插件由插件框架按**插件 id** 自行校验一遍（语义与动态库插件一致）。
 void readManifestDepends(const std::filesystem::path &pluginDir,
                          std::vector<std::string> &depends,

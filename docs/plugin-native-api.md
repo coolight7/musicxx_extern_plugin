@@ -242,7 +242,7 @@ MUSICXX_PLUGIN_EXPORT(
   （`musicxx_plugin_{get_info,create,start,stop,destroy}`）。**不要手写入口**：少了 `start`/`stop`
   会被插件框架按约定拒绝加载（管理页会给出「缺失/无效入口符号」）；
 - 两个事务函数的签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
-  （内核要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用内核原始签名
+  （插件框架要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用插件框架原始签名
   `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`；
 - `hook` / `observe` / `capability` / `stateJson` 这些便捷方法都在
   `musicxx::plugin::PluginBase`（头文件 `musicxx/plugin/api/plugin_kit.h`）上；
@@ -265,7 +265,7 @@ MUSICXX_PLUGIN_EXPORT(
   都不需要锁，**处理器之间按 (priority, 注册顺序) 稳定执行**；
 - **处理器里禁止阻塞**：网络请求、大文件、编解码、`sleep` 都不要直接做 —— 一个插件卡住会拖慢
   同一线程上的所有插件（插件框架不会强杀你，只会记录耗时并提示）。耗时工作的正确做法：
-  1. 用内核的调度原语把阻塞工作交给框架的线程池，完成后回到框架线程
+  1. 用插件框架的调度原语把阻塞工作交给框架的线程池，完成后回到框架线程
      （`pluginxx::offload(ctx, work)` 与协程 `Task<T>`；`pluginxx::sleep(ctx, ms)` 是异步等待，
      不占用线程）；
   2. 把工作拆成「提交 + 回调」两段：`start` 只注册，真正的初始化放进异步任务，完成后再补注册 / 写状态；
@@ -292,13 +292,30 @@ MUSICXX_PLUGIN_EXPORT(
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
-| 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连内核（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（内核会拒绝在 IO 线程阻塞等待） |
+| 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连插件框架（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（插件框架会拒绝在 IO 线程阻塞等待） |
 | 功能点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能点、给出实现、或调应用留出的功能点（频谱 / 副歌 / 封面取色） |
 | 日志 | `log.trace/debug/info/warn/error` | 进插件日志流 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
 | 后台任务 / 取消 | `iface.scheduler`（`offload` / `sleep` / `post_to_io` / `op_cancel`）、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |
 
 跨边界内存规则：出参字符串必须用插件框架的分配器（`PluginBase::hostStringSet` / `hostStringFree`，
-或用内核的 `pluginxx::PluginString` RAII）。**绝不要用 CRT 的 `malloc/free` 把指针交给插件框架长期持有。**
+或用插件框架的 `pluginxx::PluginString` RAII）。**绝不要用 CRT 的 `malloc/free` 把指针交给插件框架长期持有。**
+
+### 4.1 接口表怎么判（版本 / 基线 / 追加成员）
+
+`iface.*` 的每一张表都是自述「版本 + 字节长度」的结构体，判定只有两条：
+`version >= 该表的最低版本`（`MUSICXX_PLUGIN_IFACE_*_MIN_VERSION`）且
+`struct_size >= 该表的基线字节数`（`..._BASELINE_SIZE`）。SDK 的 `pluginxx::queryInterface<表>(host, IID)`
+已经按它做完：拿到非空指针 = 表可用，**基线段成员全部可用**；不满足门槛时整张表返回 NULL
+（`iface.hooks` / `iface.host` / `iface.ui` / `iface.vars` 为 `nullptr`），按"这个能力没有"降级即可。
+
+- **表能查到 ≠ 表里每个成员都能用**：以后往表尾追加的成员要单独判
+  `pluginxx::ifaceHas<&MusicxxPluginUIIface::新成员>(iface.ui) && iface.ui->新成员`。
+  只判空指针会读到紧邻的另一块内存（老主程序给的表比插件期望的短）。
+- 每张表的 `MUSICXX_PLUGIN_IFACE_*_VERSION` / `..._MIN_VERSION` / `..._BASELINE_SIZE` 与表体一起声明在
+  `plugin_api.h`，SDK 在 `plugin_kit.h` 里逐表给出 `pluginxx::IfaceMeta` 特化（上面两条门槛读的就是它）。
+  插件不要自己造表、也不要改主程序给的表。
+- 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表都是 v1，
+  基线 = 整表大小，也就是"表可用即全部成员可用"。
 
 ---
 
@@ -476,7 +493,7 @@ featurePointUnprovide("plugin.my_plugin.beat");   // 摘除实现（一般不用
 featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在实现
 ```
 
-- **处理函数必须同步返回**：功能点走同步裁决通道（内核按 `hook_sync` 就地调用），
+- **处理函数必须同步返回**：功能点走同步裁决通道（插件框架按 `hook_sync` 就地调用），
   返回 `pluginxx::Task<T>` / 等异步结果都拿不到。长任务要么提前算好，要么做成**能力**
   （`co_await capabilityCall`）或事件。
 - 返回 `utilxx_base::Json` / 字符串 / 数字 / 布尔；字符串先按 JSON 解析，解析不了就当 JSON 字符串
@@ -585,7 +602,7 @@ cmake --build build
 | `LIBRARIES` | 额外链接的库（可选） |
 | `OUTPUT_DIR` | 产物目录（默认当前构建目录；多配置生成器也不分子目录） |
 
-助手同时会：建 SHARED 库并链接 SDK（以及存在就链接的内核/工具库）；设 C++26 与 MSVC `/utf-8`；
+助手同时会：建 SHARED 库并链接 SDK（以及存在就链接的插件框架/工具库）；设 C++26 与 MSVC `/utf-8`；
 符号默认隐藏并**只导出 `musicxx_plugin_*` 入口**（GNU/Clang 用 version script，Apple 用导出符号表）。
 
 工具链要求：C++26（MSVC ≥ VS 2022 17.14、GCC ≥ 14、Clang 与 NDK ≥ 18）。
@@ -684,7 +701,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` 三张表；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
+| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |

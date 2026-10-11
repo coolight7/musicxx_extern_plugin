@@ -20,7 +20,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS   "构建原生测试" ON)
-# JS插件运行时 (QuickJS): 关闭后插件框架只支持动态库插件 (内核与 Dart C ABI 不受影响)
+# JS插件运行时 (QuickJS): 关闭后插件框架只支持动态库插件 (插件框架与 Dart C ABI 不受影响)
 option(MUSICXX_EXTERN_PLUGIN_ENABLE_JS     "构建 JS插件运行时 (QuickJS)" ON)
 
 # ===== 依赖前缀 =====
@@ -169,7 +169,7 @@ endif ()
 
 # ==================== 插件 SDK (header-only 接口) ====================
 #
-# 示例插件与外部插件作者只需头文件 (内核 kit 是 header-only); 这里把所需 include
+# 示例插件与外部插件作者只需头文件 (插件框架 kit 是 header-only); 这里把所需 include
 # 目录与平台宏集中到一个 INTERFACE 目标, 避免每个插件各自猜路径。
 add_library(musicxx_extern_plugin_sdk INTERFACE)
 target_include_directories(musicxx_extern_plugin_sdk INTERFACE

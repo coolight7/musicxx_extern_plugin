@@ -1,5 +1,5 @@
 /// musicxx 外部插件原生插件框架: 管理器核心
-/// (配置/启停/事件/专用钩子/内核生命周期接口/插件管理)
+/// (配置/启停/事件/专用钩子/插件框架生命周期接口/插件管理)
 
 #include "musicxx_host.h"
 #include "host_inspect.h"
@@ -141,7 +141,7 @@ void ensureStderrLogSink() {
 /// 本总线服务插件之间
 ///   与"插件框架 → 插件"的事件; Dart 侧事件仍走有界队列;
 /// - 订阅/撤销在框架线程登记, 回调在**发布者线程**执行
-/// (内核发布入口已投递到框架线程),
+/// (插件框架发布入口已投递到框架线程),
 ///   因此回调里不得阻塞 (与钩子处理器同一条约定);
 /// - 回调在锁外执行: 处理器内部再次订阅/撤销/发布不会自锁。
 class TopicEventBus final : public pluginxx::EventSource {
@@ -149,7 +149,7 @@ public:
   size_t subscribe(std::string_view topic,
                    std::function<void(std::string_view)> handler) override {
     if (topic.empty() || !handler) {
-      return 0; ///< 0 = 订阅失败 (内核会记录并拒绝该主题)
+      return 0; ///< 0 = 订阅失败 (插件框架会记录并拒绝该主题)
     }
     std::lock_guard<std::mutex> lock{mutex_};
     const size_t id = ++nextId_;
@@ -344,7 +344,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
   running_.store(true, std::memory_order_release);
   startTime_ = std::chrono::steady_clock::now();
 
-  // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create), 内核
+  // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create), 插件框架
   // PluginManagerBase 记录的是构造线程; 若不在框架线程上重绑, 各 vtable
   // 入口会误判 "当前不在 IO 线程" → 投递回框架线程并同步等待,
   // 而框架线程正卡在该调用栈里 (插件 start/create/处理器都在这条线程上跑) →
@@ -404,7 +404,7 @@ bool MusicxxHostManager::bindIoThread() {
   if (ioThreadBound_.load(std::memory_order_acquire)) {
     return true; ///< 本次运行已绑定 (start 幂等)
   }
-  // 注意: 这里**不能**用 `isIoThread()` 当快速路径 —— 内核记录的是"调用
+  // 注意: 这里**不能**用 `isIoThread()` 当快速路径 —— 插件框架记录的是"调用
   // setIoExecutor 的线程", 而管理器是在框架线程之外的线程构造的 (host_create),
   // 因此调用线程上 isIoThread() 恰好为 true (误判)。必须无条件投递一次绑定。
   auto self = shared_from_this();
@@ -446,7 +446,7 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
         // 推一条结果事件。 之后的 shutdownAsync 会去终止插件与它们还没结束的
         // op, 那些 op 的失败通知 因为已经没有等待方了 (记账已清) 而被丢弃 ——
         // 不会重复推事件, 调用方也拿到的是"框架停止"这个可读原因,
-        // 而不是内核收尾时的泛化说法。
+        // 而不是插件框架收尾时的泛化说法。
         self->finishAllPendingCalls();
         const bool ok = co_await self->shutdownAsync(budget);
         slot->set(ok);
@@ -822,7 +822,7 @@ MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance &inst) const {
   return j.dump();
 }
 
-/* ==================== 内核生命周期接口实现 ==================== */
+/* ==================== 插件框架生命周期接口实现 ==================== */
 
 std::shared_ptr<pluginxx::PluginHostLifecycle<MusicxxHostInstance>>
 MusicxxHostManager::selfRef() {
@@ -926,7 +926,7 @@ void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
     hooks = hooksOfInstance(inst.name);
     clearPluginRegistrations(inst.name);
   } else {
-    /// 启用: start 事务已经跑完 (内核在 start 成功之后才回调这里), 列表是新的
+    /// 启用: start 事务已经跑完 (插件框架在 start 成功之后才回调这里), 列表是新的
     hooks = hooksOfInstance(inst.name);
   }
   Json payload;
@@ -1171,7 +1171,7 @@ MusicxxHostManager::loadNativeDirAsync(
   if (!pluginxx::parsePluginManifest(dir, name, entry, depends, optionalDepends,
                                      &resources, &interfaces) ||
       name.empty()) {
-    // 清单读不出来时交回内核路径：报错与回退行为与以前一致
+    // 清单读不出来时交回插件框架路径：报错与回退行为与以前一致
     co_return co_await this->loadPluginAsync(dirPath, options, false);
   }
 
@@ -1191,7 +1191,7 @@ MusicxxHostManager::loadNativeDirAsync(
           targets.selectedTag.empty() ? "插件根目录" : targets.selectedTag,
           targets.selectedLib);
 
-  // 依赖检查：与内核的目录加载路径同一语义（必选依赖未加载 → 拒绝加载；
+  // 依赖检查：与插件框架的目录加载路径同一语义（必选依赖未加载 → 拒绝加载；
   // 可选依赖未加载 → 只记日志）。依赖记录写回实例，级联卸载靠它。
   for (const auto &dep : depends) {
     if (!this->find(dep)) {
@@ -1301,7 +1301,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         // JS插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 加载;
         // 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
         const fs::path pluginPath{path};
-        // 清单字段只有一处实现: 内核解析 name/entry/depends,
+        // 清单字段只有一处实现: 插件框架解析 name/entry/depends,
         // 框架读自己的扩展字段
         std::string manifestName;
         std::string manifestEntry;
@@ -1313,7 +1313,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         const MusicxxManifestFields manifestFields =
             readManifestFields(pluginPath);
         // 清单没写 kind 时按 entry 推导（都拿不到就不当成 JS
-        // 插件，走内核路径报错）
+        // 插件，走插件框架路径报错）
         const std::string manifestKind =
             !manifestFields.kind.empty()
                 ? manifestFields.kind
@@ -1322,11 +1322,11 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         const std::string manifestVersion = manifestFields.version;
         const std::vector<std::string> manifestScripts = manifestFields.scripts;
         if (manifestKind == "js") {
-          // 依赖检查 (JS插件专用): 内核的按名依赖检查用实例名查表, 而 JS
+          // 依赖检查 (JS插件专用): 插件框架的按名依赖检查用实例名查表, 而 JS
           // 实例名是 `js:<id>`, 所以 JS插件走不了那条路; 这里按**插件 id**
           // 自己校验一遍, 语义与动态库插件一致 (必选依赖未加载 → 拒绝加载;
           // 可选依赖 → 只记日志)。 记录到实例上的依赖用**实例名** (JS 依赖写成
-          // `js:<id>`), 这样内核的 "启用依赖 / 级联卸载依赖者"
+          // `js:<id>`), 这样插件框架的 "启用依赖 / 级联卸载依赖者"
           // 也能在同一套命名空间里对上。
           const std::vector<std::string> &jsDepends = manifestDepends;
           const std::vector<std::string> &jsOptionalDepends =
@@ -1374,7 +1374,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             slot->set(prepareRc);
             co_return;
           }
-          // depends 只是记录 (内核 builtin 加载路径不再做检查):
+          // depends 只是记录 (插件框架 builtin 加载路径不再做检查):
           // 依赖已在上面校验过
           auto jsInst = co_await self->loadBuiltinAsync(
               "js:" + pluginId, path, jsDependsResolved,
@@ -1599,12 +1599,12 @@ struct PluginCallState {
 
 namespace {
 
-/// 能力调用完成回调的持有者: 把内核回调转发给调用方给的闭包
+/// 能力调用完成回调的持有者: 把插件框架回调转发给调用方给的闭包
 struct CapabilityCallBridge {
   std::function<void(int32_t, const std::string &)> done;
 };
 
-/// 内核能力完成回调 (恒在框架线程发布)
+/// 插件框架能力完成回调 (恒在框架线程发布)
 void PLUGINXX_CALL capabilityCallTrampoline(
     void *ud, int32_t status, const PluginxxStringView *payload) noexcept {
   std::unique_ptr<CapabilityCallBridge> holder{
@@ -1664,7 +1664,7 @@ void MusicxxHostManager::startCapabilityCall(
   auto capView = std::string_view{cap};
   auto argsView = std::string_view{argsJson};
   PluginxxString callErr{};
-  // caller 传目标实例自身: 内核要求"调用方实例"提供执行 lease (Dart 侧没有
+  // caller 传目标实例自身: 插件框架要求"调用方实例"提供执行 lease (Dart 侧没有
   // 插件实例, 用被调用者自己的 lease 覆盖本次调用, 卸载等待因此覆盖它)
   auto *handle = invokeCapabilityAsync(
       inst, capView,

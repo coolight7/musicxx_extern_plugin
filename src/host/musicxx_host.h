@@ -1,9 +1,9 @@
 /// musicxx 外部插件原生插件框架 (musicxx_extern_plugin host)
 ///
 /// 结构:
-/// - [MusicxxHostInstance]: 继承内核 `pluginxx::PluginInstanceBase`, 提供
+/// - [MusicxxHostInstance]: 继承插件框架 `pluginxx::PluginInstanceBase`, 提供
 /// `musicxx_plugin_destroy`;
-/// - [MusicxxHostManager]: 继承内核 `PluginHostLifecycle`
+/// - [MusicxxHostManager]: 继承插件框架 `PluginHostLifecycle`
 /// (加载/启停/禁用启用/卸载/级联依赖)
 ///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`musicxx.hooks` /
 ///   `musicxx.host`);
@@ -120,9 +120,9 @@ public:
 
 /* ==================== 插件实例 ==================== */
 
-/// 框架侧插件实例 (元信息/生命周期入口由内核框架补齐)
+/// 框架侧插件实例 (元信息/生命周期入口由插件框架框架补齐)
 ///
-/// 前置声明: 实例持有管理器弱引用 (内核 vtable 入口据此解析实例 → 管理器)
+/// 前置声明: 实例持有管理器弱引用 (插件框架 vtable 入口据此解析实例 → 管理器)
 class MusicxxHostManager;
 
 class MusicxxHostInstance : public pluginxx::PluginInstanceBase {
@@ -146,10 +146,10 @@ public:
   /// 选中的库文件（相对插件目录的路径；供管理页展示）
   std::string targetEntry;
 
-  /// 清单声明的接口段 (内核生命周期框架会写入; 本框架 v1 不做接口协商)
+  /// 清单声明的接口段 (插件框架生命周期框架会写入; 本框架 v1 不做接口协商)
   pluginxx::PluginManifestInterfaces interfaces;
 
-  /// 管理器弱引用 (内核 vtable 入口据此解析"实例 → 管理器"; 由 createInstance
+  /// 管理器弱引用 (插件框架 vtable 入口据此解析"实例 → 管理器"; 由 createInstance
   /// 设置)
   std::weak_ptr<MusicxxHostManager> manager;
 
@@ -560,7 +560,7 @@ public:
   std::string qualifyEventTopic(std::string_view topic) override;
 
 protected:
-  /* ---------- 内核生命周期接口实现 ---------- */
+  /* ---------- 插件框架生命周期接口实现 ---------- */
 
   std::shared_ptr<pluginxx::PluginHostLifecycle<MusicxxHostInstance>>
   selfRef() override;
@@ -714,11 +714,11 @@ private:
   std::string deriveConfigPath(const std::string &pluginId,
                                const std::string &pluginDir) const;
 
-  /// 加载动态库插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给内核
+  /// 加载动态库插件目录：先按多目标布局选出当前系统/架构的分支库文件，再交给插件框架
   /// `loadNativeAsync`（清单读 name/depends/资源声明，依赖检查与目录加载一致）。
   ///
   /// - `failReason` 在失败时给出用户可读原因（分支不匹配 / 库文件缺失 / 依赖未加载）；
-  /// - 目录形态之外的路径（直接给库文件）不经过这里，由内核按文件加载。
+  /// - 目录形态之外的路径（直接给库文件）不经过这里，由插件框架按文件加载。
   asio::awaitable<InstancePtr>
   loadNativeDirAsync(const std::string &dirPath,
                      const pluginxx::PluginLoadOptions *options,

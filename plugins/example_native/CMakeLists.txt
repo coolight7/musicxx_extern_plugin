@@ -4,7 +4,7 @@
 #   1) 引入 SDK 构建助手（插件框架工程内部直接 include；外部作者用 find_package 后再拿）；
 #   2) 调 musicxx_plugin_add_target 建库并声明清单。
 #
-# 助手负责：链接 SDK 与内核/工具库、只导出 `musicxx_plugin_*` 入口符号（GNU/Clang 用
+# 助手负责：链接 SDK 与插件框架/工具库、只导出 `musicxx_plugin_*` 入口符号（GNU/Clang 用
 # version script、Apple 用导出符号表）、把 `plugin.yaml` 复制到产物目录旁边
 # （因此构建目录可以直接当作"插件目录"）。详见 `src/sdk/cmake/musicxx_plugin.cmake`。
 cmake_minimum_required(VERSION 3.20)

@@ -100,7 +100,8 @@ class MusicxxExternPluginBindings {
   late final _musicxx_extern_plugin_api_version =
       _musicxx_extern_plugin_api_versionPtr.asFunction<int Function()>();
 
-  /// 插件框架库版本字符串 (形如 "1.0.0"); 写入 out (框架堆, 需 string_free)
+  /// 插件框架库版本字符串 (形如 "2026.1011.1"; 与 MUSICXX_EXTERN_PLUGIN_VERSION 一致);
+  /// 写入 out (框架堆, 需 string_free)
   int musicxx_extern_plugin_version(
     ffi.Pointer<MusicxxExternPluginString> out,
   ) {
@@ -900,7 +901,7 @@ class MusicxxExternPluginBindings {
   /// {"plugin":"example_native","instance":"example_native","kind":"native","priority":10,"ownerTag":""}]}
   ///
   /// 只给出 plugin / instance / kind / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
-  /// `instance` 与内核里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
+  /// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
   int musicxx_extern_plugin_hook_handlers(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> hook_id,
