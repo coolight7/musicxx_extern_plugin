@@ -29,8 +29,15 @@
 
 ## 对照表
 
-「日期」是该插件框架**提交**的日期；「插件框架提交」是 musicxx 仓库里子模块指针记下的那个提交
-（GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<提交号>`）。
+「日期」是该插件框架**提交**的日期。提交列给的是这一版对应代码状态的提交：
+
+- **0.87.4 起（有版本号声明）**：该**版本号首次出现的提交** —— 应用里 `MusicxxPluginVersion.commit`
+  显示的就是它，管理页的「查看该版本的 GitHub 提交」按钮跳的也是它。补记提交号的那一次提交属于
+  同一个版本号（两次提交的差别只有 `commit` 字段）。
+- **更早的版本**：那时插件框架还没有自己的版本号，给的是 musicxx 仓库里**子模块指针**记下的提交
+  （即那一版发出去时代码状态指向的地方），版本号按同一规则用提交日期回填。
+
+GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<提交号>`。
 
 | musicxx 版本 | 插件框架版本 | 插件框架提交 | 日期 | 说明 |
 |---|---|---|---|---|
@@ -40,20 +47,29 @@
 | 0.87.1 | 2026.0930.1 | 540ef23 | 2026-09-30 | 版本号按提交日期回填：多目标包安装、变量系统、能力导出 |
 | 0.87.0 | 2026.0926.1 | 3b61b6a | 2026-09-26 | 版本号按提交日期回填：插件框架首次随主程序发布（Dart 接入层、JS 运行时、管理页、安全模式） |
 
-取值的规则：**取该 musicxx 版本期间主程序仓库更新的最后一个插件框架提交**（即那一版发出去时
-子模块指针指向的提交）。musicxx 的一个版本期间可能更新过好几次插件框架，表里只记最后一次；
-中间的提交按日期查本包 `git log`。
+musicxx 的一个版本期间可能更新过好几次插件框架，表里只记最后一个（0.87.4 起为版本号声明提交 `f0a4a51`，紧接的补记提交 `35577a5` 属于同一个版本号），中间的提交按日期查本包 `git log`。
 
 ## 维护这张表
 
 ### 1. 发布 musicxx 新版本时加一行
 
+先在主程序仓库（mymusic）里看这个 musicxx 版本最后一次更新插件框架指针的提交：
+
 ```bash
-# 在主程序仓库（mymusic）里看这个版本最后一次更新插件框架指针的提交
 git log --oneline -1 <该 musicxx 版本的提交> -- package_extend/musicxx_extern_plugin
-# 取出插件框架提交与它的日期
-git rev-parse <那个提交>:package_extend/musicxx_extern_plugin
+```
+
+**0.87.4 起（插件框架有版本号声明）**：插件框架版本填该提交里的 `MusicxxPluginVersion.version`，
+提交填**声明这个版本号的那次提交**（见上一节的规则），日期填它自己的日期：
+
+```bash
 git -C package_extend/musicxx_extern_plugin show -s --date=short --pretty='%h %ad %s' <插件框架提交>
+```
+
+**更早的版本（当初回填的规则）**：提交取子模块指针记下的那个提交：
+
+```bash
+git rev-parse <那个提交>:package_extend/musicxx_extern_plugin
 ```
 
 把「插件框架版本 / 提交 / 日期」填进表里，`说明` 写这次插件框架改了什么（一两句即可，
