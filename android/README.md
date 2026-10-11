@@ -3,7 +3,8 @@
 > **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
 
 本目录是 `musicxx_extern_plugin` 的 Android 平台工程（Flutter FFI 插件）。
-它的职责有两个：**按需交叉编译插件框架库**，以及**把插件框架库放进 APK**，让主程序能被 Dart 侧加载。
+它的职责有两个：**每次构建都确保插件框架库是最新的**（缺库就构建、源码改过就增量重编、已是最新就秒退），
+以及**把插件框架库放进 APK**，让主程序能被 Dart 侧加载。
 
 ## 为什么必须打进 APK
 
@@ -23,8 +24,11 @@ dlopen failed: library "/data/user/0/<包名>/files/xxx.so" is not accessible fo
 
 ## 构建插件框架库
 
-**默认会自动构建**：`flutter build apk` / `flutter run` 时，`android/build.gradle` 发现本次要用的 ABI
-缺少插件框架库就调包内构建脚本的自动模式（已是最新则秒退，每个 ABI 各构建一次）。关掉自动构建
+**默认会自动构建并保持最新**：`flutter build apk` / `flutter run` 时，`android/build.gradle` 对本次要用的
+每个 ABI 都调一次包内构建脚本的自动模式 —— 由脚本自己判断：已经是最新就秒级返回（日志里是
+`插件框架库就绪（<abi> ← <配置>，已是最新）`），源码改过就只重编改过的那部分（日志里是 `…，本次已重建`）。
+所以改完插件框架 C++ 不必先手工跑脚本，下一次 flutter 构建就会带上新库；本机还没有库时（首次构建）
+会把开发编译环境与依赖库一并编好。关掉自动构建
 （`-PmusicxxExternPluginAutoBuild=false` 或环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`）后，按下手工构建：
 
 ```bash
@@ -52,7 +56,8 @@ Release 用于发布的 APK、Debug 用于调试构建；自动构建默认只�
 
 `android/build.gradle` 会：
 
-1. 本次要用的 ABI（Flutter 的 `target-platform`）里缺库时，先调包内构建脚本的自动模式补上；
+1. 本次要用的 ABI（Flutter 的 `target-platform`）逐个调一次包内构建脚本的自动模式：缺库就构建、
+   源码改过就增量重编、已是最新就秒退（调的是该 ABI 打包时实际会用到的那份原生配置）；
 2. 扫描上面两个目录（以及仓库预置目录 `resource/libs/android/<abi>/`），按 ABI 找到插件框架库；
 3. 把它们复制到 `<模块构建目录>/musicxxExternPluginJniLibs/<build type>/<abi>/`，并把这个目录注册成
    对应 build type 的 `jniLibs` 源目录；

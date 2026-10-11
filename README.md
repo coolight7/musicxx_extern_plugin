@@ -293,7 +293,8 @@ windows/CMakeLists.txt   ① 缺库/过期时调包内构建脚本的自动模�
 linux/CMakeLists.txt        （已是最新则秒级返回；关掉见下面的开关）
                          ② 找到已构建的插件框架库 → 写 musicxx_extern_plugin_bundled_libraries
                          → Flutter 放进 PLUGIN_BUNDLED_LIBRARIES → Windows 装到可执行文件旁、Linux 装到 <bundle>/lib/
-android/build.gradle     ① 本次要用的 ABI 缺库时自动交叉编译（每个 ABI 一次）
+android/build.gradle     ① 每次构建都调包内构建脚本确保插件框架库最新（缺库则构建、源码改过则增量重编、
+                            已是最新则秒退；每个目标 ABI 各一次）
                          ② 按 ABI 收集 .so 到 jniLibs（每个 build type 一个目录）
                          → AGP 打进 APK 的 lib/<abi>/libmusicxx_extern_plugin.so
 ```
@@ -329,8 +330,8 @@ $env:MUSICXX_EXTERN_PLUGIN_AUTO_BUILD = '0'           # 全平台关掉自动构
 ### Android（已接入）
 
 ```bash
-# 1) 插件框架库由 android/build.gradle 按需自动交叉编译（本次要用的 ABI 缺库时才跑一次）
-#    想手工先构建也可以：每个 ABI 一次，Windows 侧同样支持
+# 1) 插件框架库由 android/build.gradle 自动保持最新（缺库则构建、C++ 改过则增量重编、已最新则秒退）
+#    想先把环境与重型依赖库编好（或排查构建问题）也可以手工跑：每个 ABI 一次，Windows 侧同样支持
 pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a      # Windows
 ANDROID_NDK_HOME=<ndk> tools/build_native.sh --android --abi arm64-v8a    # Linux/macOS
 # 2) 正常打包：库由 android/build.gradle 收集进 jniLibs

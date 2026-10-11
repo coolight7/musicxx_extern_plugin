@@ -2,8 +2,10 @@
 //
 // 与 windows/CMakeLists.txt、linux/CMakeLists.txt 同一套路：插件框架库不是普通的"插件源码编译"，
 // 而是一条独立的依赖链。本文件做三件事：
-//   1. 本次构建要用到的 ABI 缺少插件框架库时，自动交叉编译（调包内构建脚本的自动模式，已是最新则秒退；
-//      关掉: -PmusicxxExternPluginAutoBuild=false 或环境变量 MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0）；
+//   1. 本次构建要打包的每个 ABI 都调一次包内构建脚本的自动模式（与桌面端 tools/cmake/host_autobuild.cmake
+//      同一套路）：脚本自己判断"已是最新就秒退"还是"只重编改过的源文件" —— 改过 C++ 之后不必手工跑
+//      tools/build_native.ps1，下一次 `flutter build apk` / `flutter run` 就会带上新库
+//      （关掉: -PmusicxxExternPluginAutoBuild=false 或环境变量 MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0）；
 //   2. 按约定目录找到"已经构建好的"各 ABI 插件框架库；
 //   3. 把它们收集进 jniLibs，随 Flutter 的 Android 构建打进 APK 的 `lib/<abi>/`。
 //
@@ -12,7 +14,8 @@
 // `is not accessible for the namespace "classloader-namespace"` 失败 —— 用户装的动态库插件
 // 因此可能在设备上装载失败（插件框架按"安全降级"处理，不影响其它插件与主程序）。
 //
-// 手工构建插件框架库（每个 ABI 一次；产物在 <包>/.native/output/android-<abi>-<配置>/bin/）：
+// 手工构建插件框架库（可选：想把开发编译环境与重型依赖库先编好、或排查构建问题时用；每个 ABI 一次，
+// 产物在 <包>/.native/output/android-<abi>-<配置>/bin/）：
 //   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a
 //   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a -Config Debug
 //
@@ -28,29 +31,33 @@ import org.gradle.process.ExecOperations
 
 import javax.inject.Inject
 
-// ==================== 自动构建任务类型 ====================
+// ==================== 插件框架构建任务类型 ====================
 //
 // 起子进程要用注入的 ExecOperations：Gradle 9 已经移除 Project.exec，providers.exec 又不允许
 // 直接透传子进程输出（"Standard streams cannot be configured for exec output provider"），
 // 而交叉编译要跑几分钟，输出必须实时打到构建日志里。
 abstract class MusicxxExternPluginBuildHostTask extends DefaultTask {
 
-    // 要依次执行的命令（每条 = 一个 ABI 的构建脚本调用）；任务本身不做增量判断，
-    // 由调用方（下面的 build type 循环）决定"这次缺哪些 ABI"。
-    private List<List<String>> commands = []
+    // 要依次执行的构建计划（每条 = 一个 ABI 的构建脚本调用与该 ABI 的产物路径）。
+    // 任务本身不判断"要不要重建"：包内构建脚本的自动模式自己判断（已是最新则秒退，源文件改过则增量重编）。
+    private List<Map> plans = []
 
     @Internal
-    List<List<String>> getCommands() { return commands }
+    List<Map> getPlans() { return plans }
 
-    void setCommands(List<List<String>> value) { commands = value }
+    void setPlans(List<Map> value) { plans = value }
 
     @Inject
     abstract ExecOperations getExecOperations()
 
     @TaskAction
     void buildHost() {
-        commands.each { List<String> command ->
-            logger.lifecycle("[musicxx_extern_plugin] 自动交叉编译插件框架库：${command.join(' ')}")
+        plans.each { Map plan ->
+            List<String> command = plan.command as List<String>
+            File library = new File(plan.library as String)
+            long before = library.isFile() ? library.lastModified() : 0L
+            logger.lifecycle("[musicxx_extern_plugin] 确保插件框架库最新（${plan.abi} ← 原生配置 ${plan.config}）：" +
+                    "${command.join(' ')}")
             try {
                 def result = execOperations.exec {
                     commandLine command
@@ -60,13 +67,24 @@ abstract class MusicxxExternPluginBuildHostTask extends DefaultTask {
                     errorOutput = System.err
                 }
                 if (result.exitValue != 0) {
-                    logger.warn("[musicxx_extern_plugin] 插件框架库自动构建失败（退出码 ${result.exitValue}），" +
-                            "本次构建的 APK 里不会有它：外部插件在设备上不可用。\n" +
+                    logger.quiet("[musicxx_extern_plugin] ${plan.abi} 的插件框架库构建失败（退出码 ${result.exitValue}），" +
+                            "本次构建的 APK 里还是旧的那份（缺失时就是没有）：外部插件的表现可能和源码对不上。\n" +
                             "  命令: ${command.join(' ')}\n" +
-                            "  手工排查: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>")
+                            "  手工排查: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi ${plan.abi}" +
+                            " -Config ${plan.config}")
+                } else if (!library.isFile()) {
+                    logger.quiet("[musicxx_extern_plugin] ${plan.abi} 的插件框架库构建结束但产物不在: ${library}\n" +
+                            "  手工构建: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi ${plan.abi}" +
+                            " -Config ${plan.config}")
+                } else if (library.lastModified() != before) {
+                    logger.quiet("[musicxx_extern_plugin] 插件框架库就绪（${plan.abi} ← ${plan.config}，" +
+                            "本次已重建）: ${library}")
+                } else {
+                    logger.quiet("[musicxx_extern_plugin] 插件框架库就绪（${plan.abi} ← ${plan.config}，" +
+                            "已是最新）: ${library}")
                 }
             } catch (Exception error) {
-                logger.warn("[musicxx_extern_plugin] 插件框架库自动构建没能执行: ${error.message}")
+                logger.quiet("[musicxx_extern_plugin] 插件框架库自动构建没能执行: ${error.message}")
             }
         }
     }
@@ -95,6 +113,11 @@ if (project.hasProperty('musicxxExternPluginLibDir')) {
     explicitLibDir = file(System.getenv('MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR'))
 }
 
+// 构建脚本对某个 ABI / 原生配置的产物路径（脚本写在这里，Dart 侧与打包都读这个目录）
+def outputLibraryOf = { String abi, String config ->
+    new File("${packageRoot}/.native/output/android-${abi}-${config.toLowerCase()}/bin/${libFileName}")
+}
+
 // 该 ABI 在某个原生配置下的候选路径（顺序与 Dart 侧 native_library.dart 一致：
 // 便携输出目录 → 构建目录里的安装前缀 → 仓库预置目录）
 def candidatesOf = { String abi, String config ->
@@ -102,7 +125,7 @@ def candidatesOf = { String abi, String config ->
     if (explicitLibDir != null) {
         list.add(new File(explicitLibDir, "${abi}/${libFileName}"))
     }
-    list.add(new File("${packageRoot}/.native/output/android-${abi}-${config.toLowerCase()}/bin/${libFileName}"))
+    list.add(outputLibraryOf(abi, config))
     list.add(new File("${packageRoot}/.native/build/android-${abi}-${config.toLowerCase()}/musicxx-extern-plugin-install/bin/${libFileName}"))
     list.add(new File("${repoRoot}/resource/libs/android/${abi}/${libFileName}"))
     return list
@@ -162,18 +185,48 @@ if (project.hasProperty('target-platform')) {
     }
 }
 
-def builtAbis = discoverAbis()
-def targetAbis = (requestedAbis == null) ? builtAbis : requestedAbis.toList()
-// 本次要打进包的 ABI（目标里已经构建好的）与"目标里还没构建的"（只提示，不中断构建）。
-// 注意: 这两个列表在**执行期**还要重新算一次 —— 下面的自动构建任务可能就在本次构建里把库补上,
-// 用 configure 期的快照会把刚构建好的库漏在包外（表现成"第一次构建的 APK 里没有插件框架库"）。
-def packageAbis = targetAbis.findAll { builtAbis.contains(it) }
-def missingAbis = targetAbis.findAll { !builtAbis.contains(it) }
+// 找到某个 ABI 的库与它在哪个原生配置下：先按本次的配置找，再退到另一种配置（与 linux/CMakeLists.txt
+// 一致：Profile 不是原生构建的配置，按 Release 处理；只有一种配置的产物时就用它）
+def resolveLibrary = { String abi, String config ->
+    List<String> order = [config] + androidConfigs.findAll { it != config }
+    for (String c : order) {
+        for (File candidate : candidatesOf(abi, c)) {
+            if (candidate.isFile()) {
+                return [config: c, file: candidate]
+            }
+        }
+    }
+    return null
+}
 
-// ==================== 插件框架库自动构建（按需交叉编译） ====================
+// 只要库文件（收集任务用）
+def findLibrary = { String abi, String config ->
+    def found = resolveLibrary(abi, config)
+    return found == null ? null : (File) found.file
+}
+
+// 已经构建好的 ABI：按"库文件真的在"判断，而不是"目录存在"（目录还在、库被删掉时要能重新补上）
+def builtAbisNow = {
+    List<String> candidates = discoverAbis()
+    Set<String> abis = new LinkedHashSet<>()
+    androidConfigs.each { String config ->
+        candidates.each { String abi ->
+            if (findLibrary(abi, config) != null) {
+                abis.add(abi)
+            }
+        }
+    }
+    return abis.toList().sort()
+}
+
+def builtAbis = builtAbisNow()
+def targetAbis = (requestedAbis == null) ? builtAbis : requestedAbis.toList()
+
+// ==================== 插件框架库自动构建（每次构建按需增量刷新） ====================
 //
-// 让 `flutter build apk` / `flutter run` 不必先手工交叉编译插件框架库: 本次构建需要的 ABI 缺少库时,
-// 调用包内构建脚本的自动模式（脚本自己判断"已是最新就秒退"，因此重复构建几乎没有开销）。
+// 让 `flutter build apk` / `flutter run` 既不必先手工交叉编译插件框架库，也不必先手工重编改过的 C++：
+// 本次构建要打包的每个 ABI 都调一次包内构建脚本的自动模式，脚本自己判断"已是最新就秒退"
+// （秒级返回、不重新编译）还是"走一遍增量构建"（只重编改过的源文件）。
 //
 // 关掉自动构建（任一即可）:
 //   -PmusicxxExternPluginAutoBuild=false     或环境变量 MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0
@@ -204,47 +257,70 @@ def autoBuildConfig = {
     return (configured != null && configured.equalsIgnoreCase('Debug')) ? 'Debug' : 'Release'
 }
 
-// 构建脚本的调用方式（Windows 用 pwsh/powershell，其它系统用 bash）；找不到解释器时返回 null
-def resolveScriptCommand = { String config, String abi ->
-    boolean windowsHost = System.getProperty('os.name').toLowerCase().contains('windows')
-    File toolsDir = new File(packageRoot, 'tools')
-    if (windowsHost) {
+// 构建脚本的解释器（Windows 用 pwsh/powershell，其它系统用 bash）。探测要起一个进程，
+// 因此只探一次并把结果留在 scriptShell 里，后面每个 ABI 直接复用。
+def scriptShell = [resolved: false, name: null]
+def resolveScriptShell = {
+    if (scriptShell.resolved) {
+        return scriptShell.name
+    }
+    scriptShell.resolved = true
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
         for (String shell in ['pwsh', 'powershell']) {
             try {
                 def probe = new ProcessBuilder(shell, '-NoProfile', '-Command', 'exit 0').redirectErrorStream(true).start()
                 probe.inputStream.text
                 if (probe.waitFor() == 0) {
-                    return [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-                            new File(toolsDir, 'build_native.ps1').absolutePath,
-                            '-Auto', '-Config', config, '-Android', '-Abi', abi,
-                            // Gradle 按系统代码页解码子进程输出，这里跟着用系统代码页写
-                            '-ConsoleEncoding', 'system']
+                    scriptShell.name = shell
+                    break
                 }
             } catch (IOException ignored) {
                 // 这个解释器不存在：试下一个
             }
         }
-        return null
+    } else {
+        scriptShell.name = 'bash'   // Linux / macOS 上按约定有 bash
     }
-    return ['bash', new File(toolsDir, 'build_native.sh').absolutePath,
-            '--auto', '--config', config, '--android', '--abi', abi]
+    return scriptShell.name
 }
 
-// 这次缺哪些 ABI 的插件框架库（执行期也会再扫一次，见下面的收集任务）
-def missingAbisNow = { targetAbis.findAll { !discoverAbis().contains(it) }.sort() }
-
-// 找到某个 ABI 的库：先按本次的配置找，再退到另一种配置（与 linux/CMakeLists.txt 一致：
-// Profile 不是原生构建的配置，按 Release 处理；只有一种配置的产物时就用它）
-def findLibrary = { String abi, String config ->
-    List<String> order = [config] + androidConfigs.findAll { it != config }
-    for (String c : order) {
-        for (File candidate : candidatesOf(abi, c)) {
-            if (candidate.isFile()) {
-                return candidate
-            }
-        }
+// 构建脚本的调用方式；找不到解释器时返回 null
+def resolveScriptCommand = { String config, String abi ->
+    String shell = resolveScriptShell()
+    File toolsDir = new File(packageRoot, 'tools')
+    if (shell == null) {
+        return null
     }
-    return null
+    if (shell == 'bash') {
+        return ['bash', new File(toolsDir, 'build_native.sh').absolutePath,
+                '--auto', '--config', config, '--android', '--abi', abi]
+    }
+    return [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            new File(toolsDir, 'build_native.ps1').absolutePath,
+            '-Auto', '-Config', config, '-Android', '-Abi', abi,
+            // Gradle 按系统代码页解码子进程输出，这里跟着用系统代码页写
+            '-ConsoleEncoding', 'system']
+}
+
+// 本次要保证"最新"的构建计划（每个目标 ABI 一条）:
+//   - 已经有库的 ABI: 用打包时会用到的那份原生配置刷新（库可能只是旧了, 要不要重编由脚本判断）;
+//   - 还没有库的 ABI: 用配置的原生配置做首次构建（与"缺库就补"的行为一致）。
+// 计划在配置期算好（目标 ABI 由 Flutter 传下来的 target-platform 决定）；真正的"要不要重编"由脚本在执行期判断。
+def buildPlansOf = { String nativeConfig ->
+    List<Map> plans = []
+    targetAbis.each { String abi ->
+        def found = resolveLibrary(abi, nativeConfig)
+        String config = (found == null) ? autoBuildConfig() : (String) found.config
+        List<String> command = resolveScriptCommand(config, abi)
+        if (command == null) {
+            logger.warn("[musicxx_extern_plugin] 没找到 PowerShell / bash, 跳过 ${abi} 的插件框架库自动构建;" +
+                    " 手工构建: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi ${abi}")
+            return
+        }
+        plans.add([abi: abi, config: config, command: command,
+                   library: outputLibraryOf(abi, config).absolutePath])
+    }
+    return plans
 }
 
 def stagingRoot = new File(project.layout.buildDirectory.get().asFile, 'musicxxExternPluginJniLibs')
@@ -284,42 +360,33 @@ android.buildTypes.all { buildType ->
     // 该 build type 只收集自己这一份（Debug/Release 各自独立，避免把 Debug 库打进 Release 包）
     android.sourceSets.maybeCreate(typeName).jniLibs.srcDir(staging)
 
-    // 缺库时先自动交叉编译（已是最新则秒退），再收集；关掉见上面的 autoBuildEnabled
+    // 每次构建都先调一次包内构建脚本（它自己判断"已是最新就秒退"还是"增量重编"），再收集；
+    // 关掉见上面的 autoBuildEnabled
     def autoBuildTask = tasks.register("buildMusicxxExternPluginHost${typeName.capitalize()}",
             MusicxxExternPluginBuildHostTask) {
         group = 'flutter'
-        description = "按需交叉编译 Android 插件框架库（${typeName} 缺少的 ABI）"
+        description = "确保 Android 插件框架库最新（${typeName}：调包内构建脚本，已是最新则秒退）"
         outputs.upToDateWhen { false }
-        List<String> missing = missingAbisNow()
         if (!autoBuildEnabled()) {
-            if (!missing.isEmpty()) {
-                logger.lifecycle("[musicxx_extern_plugin] 插件框架库自动构建已关闭" +
-                        "（musicxxExternPluginAutoBuild=false），缺少的 ABI 不会自动补: ${missing.join('、')}")
-            }
+            boolean missing = targetAbis.any { String abi -> findLibrary(abi, nativeConfig) == null }
+            logger.lifecycle("[musicxx_extern_plugin] 插件框架库自动构建已关闭" +
+                    "（musicxxExternPluginAutoBuild=false）：本次只收集已经存在的库" +
+                    (missing ? "，缺少的 ABI 不会自动补" : ""))
             return
         }
-        String config = autoBuildConfig()
-        List<List<String>> plans = []
-        missing.each { String abi ->
-            List<String> command = resolveScriptCommand(config, abi)
-            if (command == null) {
-                logger.warn("[musicxx_extern_plugin] 没找到 PowerShell, 跳过 ${abi} 的插件框架库自动构建;" +
-                        " 手工构建: pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi ${abi}")
-            } else {
-                plans.add(command)
-            }
-        }
-        commands = plans
+        plans = buildPlansOf(nativeConfig)
     }
 
     def syncTask = tasks.register(taskName) {
         group = 'flutter'
         description = "收集 Android 插件框架库到 jniLibs（${typeName} ← 原生配置 ${nativeConfig}）"
+        // 先确保库是最新的，再收集（本次刚重建出来的库才会被收进这个 APK）
+        dependsOn(autoBuildTask)
         outputs.dir(staging)
         outputs.upToDateWhen { false }
         doLast {
-            // 执行期重新判断哪些 ABI 有库: 自动构建任务可能刚把它们补齐
-            def abisNow = discoverAbis()
+            // 执行期重新判断哪些 ABI 有库: 构建脚本可能刚把它们补齐
+            def abisNow = builtAbisNow()
             List<String> packageAbisNow = targetAbis.findAll { abisNow.contains(it) }
             // 先清掉上一次的结果：删掉不再构建的 ABI，避免旧库被误打进包
             project.delete(staging)
