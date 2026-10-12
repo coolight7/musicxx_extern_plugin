@@ -84,7 +84,7 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 |---|---|---|
 | `"openSettings"` | — | **字符串短写**，等于 `dispatch`：调用本插件的能力 |
 | `{"kind":"dispatch"}` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
-| `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面（**允许指向任意插件**：页面由被跳转插件自己绘制，发起方拿不到对方的数据） |
+| `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面，**允许指向任意插件**（含自己）：跨插件时页面由对方插件自己绘制、发起方拿不到对方的数据。与动作 `musicxx.ui.openRoute` 同一套规则 |
 | `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行主程序动作（与插件自己调 `musicxx.call` 同一份实现） |
 | `{"kind":"none"}` / 不写 | — | 纯展示项，点了没有动作 |
 
@@ -348,9 +348,10 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 ### 2.6 页面之间的跳转与刷新
 
-- 跳转：按钮 / 可点块上用 `{"kind":"route","route":"ext://<插件id>/<视图id>"}`；
-  也可以跳到别的插件的页面（页面由对方绘制），或跳到少量官方页面
-  （`musicxx:settings`、`musicxx:player`、`musicxx:search` 等，见 [plugin-js-api.md](plugin-js-api.md) §「打开官方页面」）；
+- 跳转：按钮 / 可点块上用 `{"kind":"route","route":"ext://<插件id>/<视图id>"}`（**允许指向任意插件**，
+  含自己；页面由目标插件绘制，发起方拿不到对方的数据）。要跳**官方页面**
+  （`musicxx:settings`、`musicxx:player`、`musicxx:search` 等）只能用动作 `musicxx.ui.openRoute`
+  （白名单见 [plugin-api.md](plugin-api.md) §3.2.4）；UI 项与页面里的动作走的是**同一套判定**；
 - 刷新当前页：能力返回新的 `{"view": {...}}`，主程序直接用新视图重画当前页面（不用重新打开）；
 - 每个插件视图是**独立页面**（框架按路由 + 视图 id 区分），从 A 页跳到 B 页后返回能回到 A 页。
 

@@ -109,7 +109,7 @@ bool validateAction(const Json &action, std::string_view pluginId,
     constexpr const char *kPrefix = "ext://";
     constexpr size_t kPrefixLen = 6; ///< sizeof("ext://") - 1
     const std::string hint =
-        "ext://<插件id>/<视图id> (本插件应为 ext://" + std::string{pluginId} +
+        "ext://<插件id>/<视图id> (任意插件; 本插件为 ext://" + std::string{pluginId} +
         "/<视图id>)";
     if (route.rfind(kPrefix, 0) != 0) {
       err = "route 必须以 ext:// 开头 (" + hint + ")";

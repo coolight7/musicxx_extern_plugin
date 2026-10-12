@@ -142,19 +142,46 @@ class MusicxxPluginUIItem {
     }
   }
 
-  /// 声明式插件页面的视图 id（`route` 动作；地址不属于本插件时返回 `null`）
-  String? get viewId {
+  /// `route` 动作的目标（任意插件的 `ext://<插件id>/<视图id>`；不是 route 或地址不合法时返回 `null`）
+  ///
+  /// `route` **允许指向任意插件**的页面（含自己）：页面由目标插件自己绘制（内容来自它的能力），
+  /// 发起方拿不到对方的数据。例如 `ext://other_plugin/card` → 插件 `other_plugin`、视图 `card`；
+  /// 视图 id 是第一个斜杠之后的全部内容（里面可以再带斜杠），两端空白会被去掉。
+  ///
+  /// 主程序侧有一份规则相同的实现（`ExternPluginUIRoutes.parsePluginViewRoute`，供
+  /// `musicxx.ui.openRoute` 动作与页面里的动作使用）；**改这里的判定要同步改那一份**。
+  ({String plugin, String view})? _routeOf() {
     final UiAction? value = action;
     if (null == value || value.kind != ActionKind.route) {
       return null;
     }
-    final String prefix = 'ext://$plugin/';
-    if (value.route.startsWith(prefix)) {
-      final String view = value.route.substring(prefix.length);
-      return view.isEmpty ? null : view;
+    const String prefix = 'ext://';
+    final String route = value.route.trim();
+    if (false == route.startsWith(prefix)) {
+      return null;
     }
-    return null;
+    final String rest = route.substring(prefix.length);
+    final int split = rest.indexOf('/');
+    if (split <= 0 || split >= rest.length - 1) {
+      return null;
+    }
+    final String target = rest.substring(0, split).trim();
+    final String view = rest.substring(split + 1).trim();
+    if (target.isEmpty || view.isEmpty) {
+      return null;
+    }
+    return (plugin: target, view: view);
   }
+
+  /// 声明式插件页面的**目标插件 id**（`route` 动作；地址不合法时返回 `null`）
+  ///
+  /// 与 [viewId] 配对使用；目标可以是**任意插件**（见 [_routeOf]）。
+  String? get routePlugin => _routeOf()?.plugin;
+
+  /// 声明式插件页面的**视图 id**（`route` 动作；地址不合法时返回 `null`）
+  ///
+  /// 视图 id 与目标插件的**能力短名**一致（主程序打开页面时调用同名能力取视图描述）。
+  String? get viewId => _routeOf()?.view;
 
   /// 动作参数（`dispatch` / `command` 动作）
   Map<String, Object?> get actionArgs {

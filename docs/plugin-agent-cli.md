@@ -4,8 +4,12 @@
 > 调用）就是一次操作。命令由正在运行的主程序提供，`musicxx-cli` 只是它的客户端 —— 所以这里
 > 做的事和管理页做的是同一批实现、同一份状态（装完在管理页也看得到）。
 >
-> 第一次写插件先看 [plugin-guide.md](plugin-guide.md)；写法看 [plugin-js-api.md](plugin-js-api.md) /
+> 第一次写插件先看 [plugin-guide.md](plugin-guide.md)；接口本身（做什么 / 参数 / 返回 / 用法）看
+> [plugin-api.md](plugin-api.md)，语言写法看 [plugin-js-api.md](plugin-js-api.md) /
 > [plugin-native-api.md](plugin-native-api.md)；播放页背景看 [plugin-shader-bundle.md](plugin-shader-bundle.md)。
+>
+> **musicxx 对外暴露的全部接口**（MCP 工具全表、命令行命令全表、本机 HTTP 与 WebSocket 路由、
+> 权限边界）在 [musicxx-interfaces.md](musicxx-interfaces.md) —— 这篇讲的是"怎么用这些接口管插件"。
 
 > **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
 
@@ -345,6 +349,8 @@ musicxx-cli plugin uninstall my_plugin
 
 ---
 
-相关文档：[plugin-guide.md](plugin-guide.md)（总入口）、[plugin-hooks.md](plugin-hooks.md)（钩子总表）、
-[plugin-js-api.md](plugin-js-api.md) / [plugin-native-api.md](plugin-native-api.md)（写法）、
+相关文档：[plugin-guide.md](plugin-guide.md)（总入口）、[plugin-api.md](plugin-api.md)（共用接口手册）、
+[musicxx-interfaces.md](musicxx-interfaces.md)（musicxx 对外接口全表：MCP 工具 / 命令 / 本机 HTTP）、
+[plugin-hooks.md](plugin-hooks.md)（钩子总表）、
+[plugin-js-api.md](plugin-js-api.md) / [plugin-native-api.md](plugin-native-api.md)（语言写法）、
 [plugin-ui.md](plugin-ui.md)（界面）、[plugin-shader-bundle.md](plugin-shader-bundle.md)（背景渲染）。

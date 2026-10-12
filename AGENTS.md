@@ -112,6 +112,9 @@ my_plugin/
 
 ## 4. 能做什么（能力地图）
 
+> 每个接口的**功能、参数、返回、用法、坑**在 `docs/plugin-api.md`（JS 与动态库插件共用的一份）；
+> 下面是速查。
+
 | 能力 | 入口 | 要点 |
 |---|---|---|
 | 钩子 | `musicxx.hooks.register/unregister` | 观察型 / 裁决型；**只有"已接入"的钩子会触发**（见 §5.5）；`musicxx.hooks.handlers(id)` 读"这个钩子现在有谁在提供、排第几" |
@@ -144,8 +147,10 @@ my_plugin/
    插件框架**不会打断脚本**，只能重启主程序。启动阶段的钩子（`app.start`）不要做重活。
 4. **裁决型钩子返回裁决对象**；需要 `await` 才能决定时，先同步判断"这次要不要裁决"，只在需要的那次返回 Promise
    （插件框架一直等到它结算）。返回 `null` / `undefined` = 不裁决。裁决只是建议，调用点会校验身份字段（如 `sid`），过期裁决会被丢弃。
-5. **钩子还没接入就不会触发**：约定 71 个钩子，主程序当前真正调用的只有 13 个
-   （`docs/plugin-hooks.md` 的「主程序是否已接入」列）；别把功能押在未接入的钩子上。
+5. **钩子还没接入就不会触发**：约定 71 个钩子，主程序当前**应用派发**的只有 13 个
+   （`docs/plugin-hooks.md` 的「主程序是否已接入」列；标「已接入」的共 14 行，其中
+   `musicxx.feature.point.call` 是插件功能点的通用通道、由调用方触发）；别把功能押在未接入的钩子上
+   （它们打算做什么见 `docs/plugin-api.md` §8.6）。
    两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标**废弃**：
    注册了也不会收到事件，替代做法写在它们的说明里。
 6. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
@@ -252,7 +257,9 @@ musicxx-cli doctor                            # 接入点 / 连接 / 版本 / �
 
 给脚本和 agent 加 `--json`：stdout 只有 JSON、提示都走 stderr；`musicxx-cli help plugin` 看用法。
 MCP 客户端用 `musicxx-cli mcp`（stdio ↔ 本机 `/mcp` 的桥），工具名与命令一一对应。
-完整命令表与排查见 `docs/plugin-agent-cli.md`。
+完整命令表与排查见 `docs/plugin-agent-cli.md`；**musicxx 对外暴露的全部接口**
+（MCP 工具全表、命令行命令全表、本机 HTTP 与 WebSocket 路由、权限边界）见
+`docs/musicxx-interfaces.md`。
 
 ### 6.4 测试与检查（在包内跑）
 
@@ -361,20 +368,22 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 选中了插件样式但画面没变 / 黑屏 | 用户要先在设置里选中；检查日志里的渲染失败；没有封面时 `uCoverInfo.w` 是 0 |
 | 着色器报渲染失败 | 检查整型内置函数、运行时下标取 uniform、采样步长（`res / (texSize * 缩放)`）与 sampler 名字是否和渲染项一致 |
 | 主程序进了安全模式 | 说明上次启动没走完（插件崩溃 / 死循环）；在管理页恢复，并修掉触发问题 |
-| 跨插件调用失败 | `plugin_capability_not_found` / `capability_call_failed` / 超时（JS→原生默认 3 s，可传超时或 0 = 一直等） |
+| 跨插件调用失败 | `plugin_capability_not_found` / `capability_call_failed` / 超时（JS→原生默认 3 s；`<= 0` 仍按 3 s 处理） |
 
 ## 9. 文档索引
 
 | 要看什么 | 文件 |
 |---|---|
 | 第一次写插件（选形态 / 环境 / 第一个插件 / 注意事项 / 调试 / 发布检查） | `docs/plugin-guide.md` |
-| JS 插件作者指南（`musicxx` API、生命周期、硬约束、排障） | `docs/plugin-js-api.md` |
-| 动态库插件作者指南（清单 / SDK / 线程 / 构建 / 部署） | `docs/plugin-native-api.md` |
+| **两种形态共用的接口手册**（状态镜像 / 动作全表 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| JS 插件作者指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
+| 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
 | 钩子总表（id / 模式 / 派发 / 是否已接入 + 载荷与裁决） | `docs/plugin-hooks.md`（生成物） |
 | 官方变量目录（键 / 能力位 / 取值 / 风险） | `docs/plugin-vars.md` |
 | 界面（UI 项 / 插件页面 / 自己的设置页 / 布局约定） | `docs/plugin-ui.md` |
 | shader bundle（打包 / uniform / 参数表达式 / 渲染槽位） | `docs/plugin-shader-bundle.md` |
 | 命令行与 MCP（装 / 刷新 / 看日志） | `docs/plugin-agent-cli.md` |
+| musicxx 对外暴露的全部接口（MCP 工具全表 / 命令行命令全表 / 本机 HTTP 与 WebSocket 路由 / 权限边界） | `docs/musicxx-interfaces.md` |
 | 界面 kit 的组件与参数 | `docs/musicxx-ui-kit.md`（生成物） |
 | 版本对照（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）与改版本号的流程 | `docs/version-history.md` |
 | 本包怎么构建、插件框架库怎么随主程序分发、Dart 侧怎么接 | `README.md` |

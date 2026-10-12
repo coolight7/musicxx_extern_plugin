@@ -5,6 +5,7 @@
 
 | 主题 | 文档 |
 |---|---|
+| **两种形态共用的接口**（状态镜像 / 动作 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
 | 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
@@ -12,6 +13,11 @@
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | JS 插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 示例代码 | `plugins/example_native/`（C++）、`plugins/example_js/`（等价 JS） |
+
+> **本文只写 C++ 特有的东西**：清单与多目标打包、SDK、框架线程、接口表判定、构建部署、排障。
+> **每个接口"做什么、参数是什么、返回什么、什么时候用、有什么坑"在 [plugin-api.md](plugin-api.md)** ——
+> 那份文档 JS 与动态库插件共用（两边的接口是同一批：同一套钩子表、同一份动作注册表、同一份状态镜像）。
+> 同一个功能在 C++ 里怎么写，§4.2 有一份对照示例。
 
 > 动态库与主程序**同进程、同地址空间**：插件崩溃 = 主程序崩溃。开发期请先在
 > `musicxx_extern_plugin_test` 与示例插件上验证，再放进正式环境；插件框架的安全模式
@@ -283,10 +289,10 @@ MUSICXX_PLUGIN_EXPORT(
 | 观察钩子 | `observe(id, fn)` | 返回值忽略；处理器要尽快返回 |
 | 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
 | 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
-| 框架版本 | `hostInfoJson()` 的 `hostVersion` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion}`（`hostVersion` 是插件框架自己的版本，如 `2026.1011.1`；`apiVersion` 是插件 API 版本，见 `docs/version-history.md`） |
+| 框架版本 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, pluginId, ui?}`：`hostVersion` 是插件框架自己的版本（如 `2026.1011.1`），`pluginId` 是本插件 id（只有插件读时才带），`ui` 是客户端界面能力段（可选）；字段说明见 [plugin-api.md](plugin-api.md) §2.5 |
 | 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
-| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；支持动作清单见 [plugin-js-api.md](plugin-js-api.md)（含播放控制、存储、网络、`musicxx.ui.setFontFamily`/`loadFont` 全局字体更换等）；默认超时 5 s，实际生效范围 1 s ~ 60 s |
+| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；动作名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；**缺省 5000 ms，传 0 = 不设超时** |
 | 自省（异步） | `requestAction("musicxx.hook.handlers", "{\"hook\":\"<钩子 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这个钩子现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这个钩子再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
@@ -317,36 +323,142 @@ MUSICXX_PLUGIN_EXPORT(
 - 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表都是 v1，
   基线 = 整表大小，也就是"表可用即全部成员可用"。
 
+### 4.2 常用接口的 C++ 写法
+
+接口的语义（做什么、参数、返回、坑）在 [plugin-api.md](plugin-api.md)，这里是把它们写出来长什么样。
+**异步的东西都是"发起 + 完成通知"两段式**，先准备一个通知：
+
+```cpp
+/// 一次异步调用的完成回调（**恰好一次**；框架线程调用，不要在里面做重活）
+static void onDone(void* ud, int32_t status, const PluginxxStringView* json) {
+    // status == 0：json 是结果 JSON；否则 json（可能为空）里通常有 {"ok":false,"error":"..."}
+}
+```
+
+**状态镜像 / 框架信息**（同步读，见 [plugin-api.md](plugin-api.md) §2）：
+
+```cpp
+const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 空串
+const std::string envJson  = stateJson(MUSICXX_STATE_ENV);
+const std::string infoJson = hostInfoJson();                  // 版本 / 平台 / 目录 / 本插件 id
+const std::string cfgPath  = configPath();                    // 本插件 config.json 的路径
+```
+
+**动作**（播放 / 歌单 / 提示 / 页面 / 存储 / 网络 / 渲染 / 封面与频谱；清单与参数见
+[plugin-api.md](plugin-api.md) §3）：
+
+```cpp
+PluginxxOperatorNotify notify{&onDone, this};
+requestAction("musicxx.player.toggle", "{}", &notify, 5000);
+requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
+requestAction("musicxx.library.querySonglists", "{}", &notify, 5000);
+requestAction("musicxx.ui.notify", R"({"text":"已刷新"})", &notify, 5000);
+requestAction("musicxx.ui.openRoute", R"({"route":"ext://my_plugin/card"})", &notify, 5000);
+requestAction("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})", &notify, 5000);
+requestAction("musicxx.net.fetch", R"({"url":"https://example.com/a.json"})", &notify, 30000);
+requestAction("musicxx.render.list", "{}", &notify, 5000);
+requestAction("musicxx.media.spectrum", R"({"bandCount":16})", &notify, 5000);
+```
+
+- 需要更长时间（等用户点弹窗、解码整曲）就把 `timeoutMs` 给大，或传 `0` = 不设超时；
+- 动作**不做权限校验**，名字也不校验：写错名字会在完成通知里拿到 `action_not_registered`。
+
+**事件**（主题与载荷见 [plugin-api.md](plugin-api.md) §4）：
+
+```cpp
+subscribeTopic("musicxx.state.changed", [](std::string_view json) {
+    // {"key":"musicxx.state.song","value":{...}}
+});
+subscribeTopic("musicxx.var.changed", [](std::string_view json) { /* ... */ });
+
+// 发布：只能发官方主题或自己命名空间 plugin.<自己 id>.*
+PluginxxStringView topic = pluginxxView("plugin.my_plugin.hello");
+PluginxxStringView data  = pluginxxView(R"({"at":1})");
+iface.events->publish(host, &topic, &data);
+```
+
+**变量**（语义与错误码见 [plugin-api.md](plugin-api.md) §5）：
+
+```cpp
+std::string cached = varsPeek("musicxx.ui.songIconWave");           // 同步读缓存（可能旧）
+PluginxxOperatorNotify n{&onDone, this};
+varsGet("musicxx.ui.animatedLevel", &n);                            // 异步权威读
+varsSubscribe(R"(["musicxx.ui.animatedLevel"])");                   // 订阅（事件 musicxx.var.changed）
+std::string out = varsSet("musicxx.ui.particleAnimate", "false");   // 写：给了结果就结算，否则 {"pending":true,…}
+```
+
+**能力 / 功能点 / UI / 日志**：
+
+```cpp
+capability(*this, "plugin.my_plugin.probe",
+    [](std::string_view method, std::string_view args) -> std::string { return R"({"ok":true})"; });
+
+pluginxx::Task<void> askOther() {                       // 调别的插件：协程形态
+    auto r = co_await capabilityCall("plugin.other_plugin.probe", "probe", "{}");
+    co_return;
+}
+
+uiRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, entryJson, 120);
+uiNotify(R"({"text":"已刷新"})");
+
+featurePointProvide("plugin.my_plugin.beat", [](std::string_view argsJson) -> std::string {
+    return R"({"bpm":128,"beats":[0,469,938]})";
+});
+PluginxxOperatorNotify fc{&onDone, this};
+featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})", 60000, &fc);
+
+log.info("切歌了: " + songJson);
+```
+
+**自省**（"这个钩子现在有谁在提供" / "应用留出了哪些扩展点"）：
+
+```cpp
+PluginxxOperatorNotify n2{&onInspectDone, this};
+requestAction("musicxx.hook.handlers", R"({"hook":"musicxx.media.spectrum.extract"})", &n2, 5000);
+requestAction("musicxx.feature.point.list", "{}", &n2, 5000);
+```
+
+- 想"先看清有没有人接这个钩子再决定要不要注册"就用它们，别猜；
+- 动态库插件**没有**"读自己的运行统计"的便捷接口（`musicxx.stats` 表未实现，见 §13）：
+  看统计用管理页「插件详情 → 运行统计」，上报统计用动作 `musicxx.stats.reportMemory` /
+  `reportMetric`。
+
 ---
 
 ## 5. 状态镜像（插件读主程序状态的最快方式）
 
-插件框架把常用状态做成 JSON 快照，插件**同步**读（不需要主程序动作往返，也不占用框架线程）：
+插件框架把应用的关键状态做成 JSON 快照，插件**同步**读（不往返、不占线程）：
 
-| 键 | 内容 | 当前版本 |
-|---|---|---|
-| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送（启动时推一次） |
-| `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 已推送（启动 / 切歌 / 播放状态变化时刷新） |
-| `musicxx.state.song` | 当前歌曲的只读视图（与 `song.changed` 的 `song` 同结构） | 已推送 |
-| `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 已推送 |
-| `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 已推送 |
-| `musicxx.state.lyric` / `musicxx.state.library` | 预留 | **当前版本没有推送**（`stateJson` 返回空串） |
-| `musicxx.state.renderSlots` | 渲染槽位的运行状态（谁在画、是否可见、尺寸、昼夜） | 按需推送，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10 |
+```cpp
+const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 空串
+```
 
+- **键、每个键的字段、刷新时机与坑**：[plugin-api.md](plugin-api.md) §2（状态镜像那一节）。
+  可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`；
+  `musicxx.state.lyric` / `musicxx.state.library` 是预留的，当前版本没有推送（返回空串）；
+- C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` / `_LIBRARY` / `_ENV` /
+  `_RENDER_SLOTS`；
 - 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
-- 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），插件可以订阅它做增量处理；
-- **`musicxx.state.app.isNight` 是启动时的快照**：运行期切了主题它不会跟着变，定时读它再刷新画面会让
-  配色来回跳；要当前值就当场问一次（动作 `musicxx.media.palette` / `musicxx.render.current` 的 `night`）；
-- **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
-  `musicxx.player.position` 钩子也尚未接入。不要把它当每秒更新的进度用；
-- 镜像里**不放临时直链与 token**：需要地址请走 `musicxx.net.*` 动作或自己请求。
+- 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），可以订阅它做增量处理：
 
-C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` / `_LIBRARY` / `_ENV` /
-`_RENDER_SLOTS`。
+  ```cpp
+  subscribeTopic("musicxx.state.changed", [](std::string_view json) {
+      // {"key":"musicxx.state.song","value":{...}}
+  });
+  ```
+
+- **播放进度不在镜像里**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
+  `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
+- 加载时想立刻确认框架给的环境：`config()`（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）
+  与 `argsJson()`（默认 `{}`）；
+- 接口表里还有一个 `subscribe_state`（声明关心的状态键），当前版本插件侧用事件订阅就够了。
 
 ---
 
 ## 5.5 变量（有属主、可读、可写、可订阅变动的小值）
+
+> 概念、与镜像/动作/事件的分工、三条读法的取舍、handler 模式、官方变量目录、错误码与超时：
+> [plugin-api.md](plugin-api.md) §5 与 [plugin-vars.md](plugin-vars.md)。本节是 C++ 侧的写法。
 
 接口表 `musicxx.vars`（`MusicxxPluginVarsIface`，SDK 里是 `iface.vars`）。
 它和状态镜像的区别是：**能双向读写，而且能订阅"值变了"**。
@@ -404,11 +516,12 @@ iface.vars->respond(host, requestId, 1, &pluginxxView(最终值), nullptr, &out)
 ```
 
 SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / `varsWatch` /
-`varsUnwatch` / `varsSet` / `varsList` / `varsInfo` / `varsSubscribe` / `varsUnsubscribe` / `varsRespond`。
+`varsUnwatch` / `varsSet` / `varsList` / `varsInfo` / `varsSubscribe` / `varsUnsubscribe` / `varsRespond`
+（没有 `own` 与 `subscribers` 的单独方法：用 `varsInfo` 读 `subscribers` 字段）。
 
-容量（已移除限制）：变量数、键长、值大小、订阅数都不再限制；
-未回执的读/写请求各 ≤ 32 条；读的超时 2 秒、写 3 秒（应用写入 5 秒）。
-错误码：`-1` 参数 / `-2` 状态 / `-3` 值不是合法 JSON / `-4` 键不存在 / `-6` 命名空间或写权限 /
+容量与超时（变量的数量、键长、值大小、订阅数都不设上限；读默认 2 秒、写 3 秒、应用键 5 秒；
+未回执的读/写请求各 ≤ 32 条）见 [plugin-api.md](plugin-api.md) §5.5 与 §11.2。
+返回码：`-1` 参数 / `-2` 状态 / `-3` 值不是合法 JSON / `-4` 键不存在 / `-6` 命名空间或写权限 /
 `-7` 超限 / `-9` 该变量没有声明对应能力（写只读变量、读只写变量）。
 
 官方变量（`musicxx.*`）的目录见 [plugin-vars.md](plugin-vars.md)：它们由应用声明并提供，
@@ -419,6 +532,7 @@ SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / 
 ## 6. 三个已接入裁决钩子的写法
 
 只有**主程序已接入**的钩子会被真正派发（`plugin-hooks.md` 的「主程序是否已接入」列标「已接入」）。
+钩子的注册、优先级、裁决外壳、异步裁决、处理器里不该做的事见 [plugin-api.md](plugin-api.md) §8。
 下面三个裁决型钩子是当前版本可用的：
 
 ```cpp
@@ -462,6 +576,8 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
 
 功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。与能力的区别：能力是"应用直接调本插件"、
 参数与结果由插件自己定；功能点是"应用或第三方按 id 来调，谁实现都行"（可以有多个实现、按优先级问）。
+**概念、通道的三条约定（`patch` 包装 / 按 `point` 过滤 / 不回答自己发起的调用）、三个可调的应用功能点、
+`busy` 与零副作用规则**见 [plugin-api.md](plugin-api.md) §7；本节是 C++ 的写法。
 插件点共用**一条固定钩子** `musicxx.feature.point.call`（插件框架只认固定的钩子表，**不要为每个点造新钩子**）。
 
 ```cpp
@@ -512,6 +628,9 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 ---
 
 ## 7. 错误码与命名空间
+
+命名空间规则、容量限制、超时一览这两边一样，见 [plugin-api.md](plugin-api.md) §11；
+下面是插件框架返回给**动态库插件**的码：
 
 | 码 | 含义 | 常见原因 |
 |---|---|---|
@@ -700,6 +819,10 @@ Android 见 §11。
 | 插件加载后主程序启动异常 | 连续两次启动未完成会进入安全模式（本次不加载任何外部插件）；先修好插件再启动 |
 | 想知道现在装了什么、某个插件为什么没跑起来 | 命令行 / MCP 一条命令看完：`musicxx-cli plugin list`（每个插件的 `loaded` / `error`）与 `plugin logs <插件id>`，见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 主程序卡住、不知道卡在哪一次调用 | 看主程序日志目录下的 `host_call.log`：进插件框架调用是同步的，卡住后最后一行就是没返回的那次调用 |
+| 设置项改完重启又变回默认 | 把 `musicxx.storage.get` 的应答当成了对象外壳：**应答就是值本身**（见 [plugin-api.md](plugin-api.md) §3.2.5） |
+| 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取、错误裁决）里发起了动作并等它：调用线程与主程序线程互等。改成"提前算好 / 异步读回"（[plugin-api.md](plugin-api.md) §8.4） |
+| 封面取色 / 频谱"凭空消失" | 有处理器返回了 `{"disable": true}`（显式置空裁决）：用动作 `musicxx.feature.point.list` 看是谁关的（[plugin-api.md](plugin-api.md) §8.5） |
+| 不知道某个动作的参数与返回 | 查 [plugin-api.md](plugin-api.md) §3（那一份是两种形态共用的动作清单）；没有列出的名字当前版本没实现 |
 
 ---
 
@@ -707,9 +830,11 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
+| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
+| 接口面与 JS 插件的关系 | **同一批接口**：同一套钩子表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
-| 钩子接入 | 约定里有 71 个钩子，主程序当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 13 个；其余钩子注册成功但不会触发。第 71 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道（不是"主程序派发的钩子"）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
+| 钩子接入 | 约定里有 71 个钩子，主程序当前**应用派发**的是 13 个（`plugin-hooks.md` 里标「已接入」的共 14 行，第 14 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道，由调用方触发）；其余钩子注册成功但不会触发（它们打算做什么见 [plugin-api.md](plugin-api.md) §8.6）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
