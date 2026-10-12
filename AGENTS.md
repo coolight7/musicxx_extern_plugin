@@ -32,7 +32,7 @@
 | | JS插件（推荐先试） | 动态库插件 |
 |---|---|---|
 | 编译 | 不需要（一个目录两个文件） | 需要工具链（MSVC ≥ 19.4x / GCC ≥ 14 / NDK ≥ 18，C++26） |
-| 平台 | 全部平台（含 iOS / OHOS） | Windows / Linux / macOS / Android，且 iOS / OHOS 不可用 |
+| 平台 | 全部平台（含 iOS / OHOS） | Windows / Linux / macOS / Android；iOS 上只有"应用包内、与主程序同一签名身份"的库能加载（用户装的库通常被系统拒绝，见 §5） |
 | 执行线程 | 插件框架的一条共享 JS 线程（多插件共用一个线程） | 插件框架线程（自己能起线程） |
 | 处理器返回 | 可同步返回，也可返回 Promise（插件框架等到结算） | 同步返回 |
 | 适合 | 几乎所有功能：钩子、动作、界面、背景、变量 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
@@ -171,6 +171,10 @@ my_plugin/
     `struct_size >= 基线字节数`」判好（拿到 `nullptr` = 这个能力没有）。以后往**表尾追加**的成员要先用
     `pluginxx::ifaceHas<&表::成员>(t)` 判一下再取值 —— 老主程序给的表比插件期望的短，只判空指针会读到紧邻的另一块内存。
     见 `docs/plugin-native-api.md` §4.1。
+15. **动态库能不能加载由系统决定**：桌面端与 Android 从应用包 / APK 里加载插件框架库，用户装在应用数据目录里的
+    动态库插件可能被系统拒绝（Android 7+ 的动态链接器命名空间、iOS 的签名校验：库必须在应用包内、且与主程序
+    同一签名身份）。插件框架按"安全降级"处理（标记不可用 + 事件 + 不重试），主程序与其它插件照常工作；
+    JS插件不受影响。**模拟器比真机宽松**：模拟器里能加载的动态库插件，真机上不一定能加载。
 
 ## 6. 开发循环与命令
 
@@ -194,6 +198,15 @@ Linux / macOS 用 shell 版（同一套流程，示例插件同样是单独一�
 ./tools/build_examples.sh                  # 示例插件（构建 + 打包成 .zip；已是最新则只重新打包）
 ./tools/build_examples.sh --run-tests       # 构建 + 打包 + 跑原生测试
 ./tools/pack_plugin.sh --plugin-dir <插件目录>   # 只打某一个插件目录（与 ps1 版同一套包名约定）
+```
+
+iOS 只有 macOS 上能构建（Windows 的 `.ps1` 没有 iOS 工具链）：
+
+```bash
+./tools/build_native.sh --ios-simulator          # 模拟器产物（架构 = 开发机架构）
+./tools/build_native.sh --ios                    # 设备产物（arm64）
+./tools/build_native.sh --ios-simulator --run-tests   # 模拟器产物能直接在开发机上跑（自动补 DYLD_ROOT_PATH）
+./tools/build_native.sh --ios --run-tests        # 设备目标跳过测试（产物是给设备编的）
 ```
 
 - **主程序构建会自动触发**：`flutter build windows|linux|apk` 会在配置阶段调用 `build_native.ps1` 的自动模式
@@ -255,6 +268,7 @@ dart run tools/self_check.dart             # 纯 Dart 自检（定位 FFI 卡住
 
 ```bash
 ./tools/build_examples.sh          # Linux / macOS：先构建示例插件与原生测试（没有它 flutter test 会跳过大部分用例）
+./tools/build_native.sh --ios-simulator --run-tests   # iOS（模拟器目标）：构建 + 跑原生测试（自动补 DYLD_ROOT_PATH）
 ```
 
 ### 6.5 打包一个插件

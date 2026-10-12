@@ -31,6 +31,9 @@
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
 #   tools/build_native.sh --build-dir/--output-dir/--generator <值>   # 覆盖目录与生成器
 #   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 插件框架库
+#   tools/build_native.sh --ios                      # 交叉编译 iOS 设备 (arm64) 插件框架库
+#   tools/build_native.sh --ios-simulator            # 交叉编译 iOS 模拟器 (开发机架构) 插件框架库
+#   tools/build_native.sh --ios-target 14.0          # iOS 最低版本 (默认 14.0, 与主程序一致)
 #
 # 关于自动模式 (--auto): Windows 侧的 tools/build_native.ps1 与它同等地位, 都是给
 # "flutter build" 触发的入口 —— 环境/Boost 复用已有缓存, 已是最新就立即返回, 构建失败只警告
@@ -42,10 +45,22 @@
 #   - 统一 Ninja 生成器与 c++_static (C++ 运行库静态链进插件框架库, APK 不需要带 libc++_shared.so)
 #   - --run-tests 在 Android 上跳过 (测试可执行文件是给设备编的)
 #
+# iOS 说明 (只在 macOS 上可用; Windows 侧的 .ps1 不支持 —— 它没有 iOS 工具链):
+#   - 由 dart 侧/cmake 的 CMAKE_SYSTEM_NAME=iOS 交叉编译, sysroot 用 --ios (iphoneos) 或
+#     --ios-simulator (iphonesimulator), 架构: 设备固定 arm64, 模拟器用开发机架构
+#   - 产出: <包>/.native/output/ios-arm64-<配置>/{bin,plugins} 与
+#           <包>/.native/output/ios-simulator-<架构>-<配置>/{bin,plugins}
+#   - 插件框架库随 iOS 应用包分发: 主程序 ios/ 的 Runner 构建阶段 (musicxx-extern-plugin →
+#     ios/tool/embed_extern_plugin_dylib.sh) 调本脚本的自动模式, 把它复制进
+#     Runner.app/Frameworks/ 并补签名 (iOS 只允许加载应用包内、与主程序同签名身份的动态库)
+#   - --run-tests 在 iOS 设备目标上跳过 (测试可执行文件是给设备编的); 模拟器目标可以直接在
+#     开发机上跑 (同一个 CPU 架构), 因此照常执行
+#
 # 产物布局 (与 .ps1 一致):
 #   <包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/{bin,include,lib,plugins}
 #   <包>/.native/output/<平台>-<架构>-<配置>/{bin,plugins}     稳定输出目录
 #   Android 的平台-架构段用 android-<abi>: build/android-arm64-v8a-release、output/android-arm64-v8a-release
+#   iOS 的平台段是 ios (设备) / ios-simulator (模拟器): build/ios-release、output/ios-simulator-arm64-release
 set -euo pipefail
 
 step() { printf '\n==> %s\n' "$1"; }
@@ -104,6 +119,11 @@ android_abi="arm64-v8a"
 android_ndk=""
 android_platform="android-24"
 android_stl="c++_static"
+ios=0
+ios_simulator=0
+# iOS 最低版本: 与主程序 ios/Runner.xcodeproj 的 IPHONEOS_DEPLOYMENT_TARGET (14.0) 保持一致,
+# 插件框架库的最高版本不能超过主程序
+ios_target="14.0"
 
 # 自动模式要再起一个子进程跑"不带 --auto 的普通流程" (失败只警告), 这里先把 --auto 摘掉
 forward_args=()
@@ -126,7 +146,7 @@ while [ $# -gt 0 ]; do
     fi
     # 需要取值的选项: 没写 = 形式时取下一个参数
     case "$name_lower" in
-    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl)
+    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl | iostarget)
         if [ -z "$value" ]; then
             [ $# -gt 0 ] || die "选项 $name 缺少取值"
             value="$1"
@@ -147,6 +167,12 @@ while [ $# -gt 0 ]; do
     ndk) android_ndk="$value" ;;
     androidplatform) android_platform="$value" ;;
     androidstl) android_stl="$value" ;;
+    ios) ios=1 ;;
+    iossimulator)
+        ios=1
+        ios_simulator=1
+        ;;
+    iostarget) ios_target="$value" ;;
     clean) clean=1 ;;
     depsonly) deps_only=1 ;;
     configureonly) configure_only=1 ;;
@@ -204,6 +230,26 @@ if [ "$android" = 1 ]; then
     esac
 fi
 
+# iOS: 目标平台同样与开发机无关, 平台/架构段按 --ios / --ios-simulator 推导。
+# 设备固定 arm64; 模拟器用开发机架构 (Intel 上是 x64) —— 架构写成别的, 模拟器就加载不了。
+# 这两条只会由 macOS 上的主程序构建阶段 (ios/tool/embed_extern_plugin_dylib.sh) 或开发者手工调用。
+ios_sdk=""
+if [ "$ios" = 1 ]; then
+    [ "$android" = 1 ] && die '--android 与 --ios/--ios-simulator 不能同时使用'
+    [ "$os" = macos ] || die "iOS 目标只能在 macOS 上构建 (当前系统: $(uname -s)); 需要 Xcode 与 iPhoneOS/iPhoneSimulator SDK"
+    case "$ios_target" in
+    '' | *[!0-9.]* | .* | *.) die "--ios-target 需要是版本号 (例: 14.0), 收到: ${ios_target}" ;;
+    esac
+    if [ "$ios_simulator" = 1 ]; then
+        os=ios-simulator
+        ios_sdk=iphonesimulator
+    else
+        os=ios
+        ios_sdk=iphoneos
+        arch=arm64
+    fi
+fi
+
 root="$(cd "$root" && pwd)"
 src_dir="${root}/src"
 third_party="${src_dir}/third_party"
@@ -256,6 +302,37 @@ resolve_android_ndk() {
     return 1
 }
 
+# 模拟器运行时根目录 (iOS 模拟器产物要在模拟器环境里跑: 需要把 DYLD_ROOT_PATH 指向它)
+# 优先取与当前 iPhoneSimulator SDK 版本一致的那个运行时, 没有就用版本号最大的。
+# 只用 stdout 输出路径; 找不到时返回 1 (调用方决定跳过还是提示)。
+resolve_ios_simulator_root() {
+    command -v python3 >/dev/null 2>&1 || return 1
+    local sdk_version
+    sdk_version="$(xcrun --sdk "${ios_sdk:-iphonesimulator}" --show-sdk-version 2>/dev/null || true)"
+    xcrun simctl list runtimes -j 2>/dev/null | python3 -c '
+import json, sys
+
+try:
+    runtimes = json.load(sys.stdin).get("runtimes", [])
+except Exception:
+    raise SystemExit(1)
+
+wanted = sys.argv[1] if len(sys.argv) > 1 else ""
+items = [r for r in runtimes if r.get("isAvailable") and r.get("runtimeRoot")]
+if not items:
+    raise SystemExit(1)
+
+
+def version_key(item):
+    parts = [int(p) for p in str(item.get("version", "0")).split(".") if p.isdigit()]
+    return parts or [0]
+
+
+match = [r for r in items if wanted and str(r.get("version", "")) == wanted]
+print((match or max(items, key=version_key))[0]["runtimeRoot"])
+' "$sdk_version" 2>/dev/null || return 1
+}
+
 if [ "$android" = 1 ]; then
     if ! android_ndk_root_path="$(resolve_android_ndk)"; then
         if [ "$auto" = 1 ]; then
@@ -270,7 +347,7 @@ if [ "$android" = 1 ]; then
 fi
 
 config_lower="$(printf '%s' "$config" | tr '[:upper:]' '[:lower:]')"
-# Android 一个 ABI 一个构建目录; 桌面端沿用 <平台>-<配置>
+# Android 一个 ABI 一个构建目录; 桌面端与 iOS 沿用 <平台>-<配置> (iOS 的 os 是 ios / ios-simulator)
 if [ "$android" = 1 ]; then
     [ -n "$build_dir" ] || build_dir="${native_root}/build/android-${android_abi}-${config_lower}"
     [ -n "$output_dir" ] || output_dir="${native_root}/output/android-${android_abi}-${config_lower}"
@@ -287,7 +364,7 @@ install_dir="${build_dir}/musicxx-extern-plugin-install"
 # 插件框架库与测试可执行文件的文件名 (供自动模式判断产物是否在位; 与安装前缀/输出目录里的名字一致)
 lib_name='libmusicxx_extern_plugin.so'
 test_name='musicxx_extern_plugin_test'
-if [ "$os" = macos ]; then
+if [ "$os" = macos ] || [ "$os" = ios ] || [ "$os" = ios-simulator ]; then
     lib_name='libmusicxx_extern_plugin.dylib'
 fi
 
@@ -321,6 +398,9 @@ if [ "$android" = 1 ]; then
     info "目标:       android-${android_abi} (${android_platform}, ${android_stl})"
     info "工具链:     ${android_toolchain}"
 fi
+if [ "$ios" = 1 ]; then
+    info "目标:       ${os} (sdk=${ios_sdk}, 架构=${arch}, 最低版本=${ios_target})"
+fi
 
 # ==================== 环境预检 ====================
 
@@ -334,6 +414,16 @@ if [ "$android" = 1 ]; then
     # 交叉编译用 NDK 自带的 clang, 开发机编译器与 pkg-config 都不参与
     [ -f "$android_toolchain" ] || die "找不到 NDK 工具链文件: ${android_toolchain}"
     info "ninja: $(command -v ninja)"
+elif [ "$ios" = 1 ]; then
+    # iOS 交叉编译用 SDK 里的 clang (CMake 的 CMAKE_SYSTEM_NAME=iOS 会自动选), 开发机编译器不参与
+    command -v xcrun >/dev/null 2>&1 ||
+        die 'iOS 构建需要 xcrun; 请安装 Xcode 并执行 sudo xcode-select --switch /Applications/Xcode.app'
+    ios_sdk_path="$(xcrun --sdk "$ios_sdk" --show-sdk-path 2>/dev/null || true)"
+    if [ -z "$ios_sdk_path" ] || [ ! -d "$ios_sdk_path" ]; then
+        die "找不到 ${ios_sdk} SDK (xcrun --sdk ${ios_sdk} --show-sdk-path); 请安装 Xcode 或用 xcode-select 指向它"
+    fi
+    info "iOS SDK:    ${ios_sdk_path}"
+    info "xcodebuild: $(xcodebuild -version 2>/dev/null | head -1 || printf '未知')"
 else
     # 插件框架要求 C++26: GCC >= 14 / Clang >= 18
     cxx_compiler="$(command -v c++ || true)"
@@ -498,7 +588,12 @@ android_abi_tag=""
 if [ "$android" = 1 ]; then
     android_abi_tag="$android_abi"
 fi
-signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl}"
+# iOS: SDK 与最低版本变化时也要重建 (模拟器/设备、最低版本不同 → 依赖库 ABI 与可用 API 不同)
+ios_tag=""
+if [ "$ios" = 1 ]; then
+    ios_tag="${ios_sdk}/ios${ios_target}"
+fi
+signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl};ios=${ios_tag}"
 stamp_kinds='framework'
 if [ "$with_examples" = 1 ]; then stamp_kinds="${stamp_kinds} examples"; fi
 if [ "$with_tests" = 1 ]; then stamp_kinds="${stamp_kinds} tests"; fi
@@ -614,8 +709,9 @@ configure_args=(
     # 依赖安装前缀在构建目录内, 因此不会混入其它配置的产物
     "-DCMAKE_CONFIGURATION_TYPES=${config}"
 )
-# Android: 目标处理器由 NDK 工具链按 ANDROID_ABI 推导, 显式传值会造成两边不一致
-if [ "$android" != 1 ]; then
+# Android / iOS: 目标处理器由工具链推导 (ANDROID_ABI / CMAKE_OSX_ARCHITECTURES),
+# 显式传开发机架构会造成两边不一致 (iOS 设备目标是 arm64, 开发机可能是 x64)
+if [ "$android" != 1 ] && [ "$ios" != 1 ]; then
     configure_args+=("-DCMAKE_SYSTEM_PROCESSOR=${machine_arch}")
 fi
 configure_args+=(
@@ -633,6 +729,18 @@ if [ "$android" = 1 ]; then
         "-DANDROID_ABI=${android_abi}"
         "-DANDROID_PLATFORM=${android_platform}"
         "-DANDROID_STL=${android_stl}"
+    )
+fi
+if [ "$ios" = 1 ]; then
+    # 走 CMake 内置的 iOS 支持 (CMAKE_SYSTEM_NAME=iOS): 编译器/sysroot 由 CMake 按 CMAKE_OSX_* 选,
+    # src/CMakeLists.txt 会把这几项原样转发给各依赖与插件框架工程的嵌套构建 (否则嵌套构建会退回
+    # 默认 sysroot=iphoneos、架构=开发机架构, 模拟器目标就编出加载不了的依赖库)
+    configure_args+=(
+        '-DCMAKE_SYSTEM_NAME=iOS'
+        "-DCMAKE_SYSTEM_PROCESSOR=${arch}" # CMAKE_OSX_ARCHITECTURES 不会填它: 多目标打包的 TARGET_TAG auto 要用
+        "-DCMAKE_OSX_SYSROOT=${ios_sdk}"   # iphoneos / iphonesimulator
+        "-DCMAKE_OSX_ARCHITECTURES=${arch}"
+        "-DCMAKE_OSX_DEPLOYMENT_TARGET=${ios_target}"
     )
 fi
 if [ "$deps_only" = 1 ]; then
@@ -731,6 +839,10 @@ if [ "$run_tests" = 1 ]; then
         # 测试可执行文件是给设备编的 (目标 ABI 与开发机不同), 开发机上跑不起来。
         # 需要在设备上跑时: adb push bin/ + plugins/ 到设备目录, 用 LD_LIBRARY_PATH 指向 bin/ 再执行。
         printf '  [跳过] Android 目标是交叉编译产物, 不能在当前主机运行; 产物在: %s\n' "${install_dir}/bin"
+    elif [ "$ios" = 1 ] && [ "$ios_simulator" = 0 ]; then
+        # iOS 设备目标是 iOS 平台的交叉编译产物, 开发机上跑不起来 (模拟器目标可以, 见下面的分支)。
+        # 需要在设备上跑时: 用 Xcode/ios-deploy 把 bin/ 与 plugins/ 装进一个测试应用再执行。
+        printf '  [跳过] iOS 设备目标是交叉编译产物, 不能在当前主机运行; 产物在: %s\n' "${install_dir}/bin"
     else
         test_exe="${install_dir}/bin/musicxx_extern_plugin_test"
         [ -x "$test_exe" ] || die "未找到测试可执行文件: ${test_exe}"
@@ -740,17 +852,39 @@ if [ "$run_tests" = 1 ]; then
         printf '  插件目录: %s\n' "$plugin_root"
         printf '  运行: %s %s\n' "$test_exe" "$plugin_root"
         # 测试可执行文件与插件框架库同目录 (安装布局 bin/), 运行时按平台补库搜索路径
-        if [ "$os" = macos ]; then
+        case "$os" in
+        macos | ios | ios-simulator)
+            # iOS 模拟器产物也是 Mach-O + dyld, 与 macOS 同一套环境变量
             export DYLD_LIBRARY_PATH="${install_dir}/bin${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
-        else
+            ;;
+        *)
             export LD_LIBRARY_PATH="${install_dir}/bin${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-        fi
+            ;;
+        esac
 
         set +e
-        "$test_exe" "$plugin_root"
-        test_rc=$?
+        skip_reason=''
+        if [ "$os" = ios-simulator ]; then
+            # 模拟器产物必须在模拟器环境里跑: dyld 要求 DYLD_ROOT_PATH 指向模拟器运行时根目录
+            # (开发机是同一个 CPU 架构, 所以能直接执行, 不需要启动模拟器)
+            simulator_root="$(resolve_ios_simulator_root || true)"
+            if [ -n "$simulator_root" ] && [ -d "$simulator_root" ]; then
+                export DYLD_ROOT_PATH="$simulator_root"
+                printf '  模拟器运行时: %s\n' "$simulator_root"
+            else
+                skip_reason='没找到模拟器运行时根目录 (xcrun simctl list runtimes 里没有可用运行时)'
+            fi
+        fi
+        if [ -n "$skip_reason" ]; then
+            printf '  [跳过] %s\n' "$skip_reason"
+            printf '         手工在模拟器里跑: xcrun simctl spawn booted %s %s\n' "$test_exe" "$plugin_root"
+            test_rc=0
+        else
+            "$test_exe" "$plugin_root"
+            test_rc=$?
+            printf '  退出码: %s\n' "$test_rc"
+        fi
         set -e
-        printf '  退出码: %s\n' "$test_rc"
         [ "$test_rc" -eq 0 ] || die "原生测试失败 (exit=${test_rc}); 日志见上方输出"
     fi
 fi
@@ -768,6 +902,10 @@ fi
 printf '\n构建完成\n'
 if [ "$android" = 1 ]; then
     printf 'README: 插件框架库由 android/build.gradle 按 ABI 收集进 APK (jniLibs), 重新打包安装后生效\n'
+fi
+if [ "$ios" = 1 ]; then
+    printf 'iOS: 插件框架库由主程序 ios/ 的 Runner 构建阶段复制进 Runner.app/Frameworks (%s)\n' \
+        'ios/tool/embed_extern_plugin_dylib.sh; 手工检查用 MUSICXX_EXTERN_PLUGIN_APP_DIR'
 fi
 printf '插件框架构建完成: %s\n' "${output_dir}/bin/${lib_name}"
 if [ "$with_examples" = 1 ]; then

@@ -463,6 +463,9 @@ std::string testPlatform() {
   return "android";
 #elif defined(_WIN32)
   return "windows";
+#elif defined(__APPLE__) && defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
+  // iOS / iOS 模拟器：clang 会定义这个宏（macOS 目标不会）
+  return "ios";
 #elif defined(__APPLE__)
   return "macos";
 #elif defined(__linux__)
@@ -502,6 +505,9 @@ std::string testOsAlias() {
   }
   if (os == "macos") {
     return "osx";
+  }
+  if (os == "ios") {
+    return "iphoneos";
   }
   return os;
 }

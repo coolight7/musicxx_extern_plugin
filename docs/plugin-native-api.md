@@ -613,6 +613,7 @@ cmake --build build
 需要手工构建时：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`（示例插件用
 `tools/build_examples.ps1`），Linux/macOS 用 `./tools/build_native.sh`（`--with-examples` 连示例插件一起构建；
 示例插件构建 + 打包成安装包用 `./tools/build_examples.sh`），
+iOS（只在 macOS 上）用 `./tools/build_native.sh --ios-simulator` / `--ios`（见 `README.md`「打包（随应用分发）」的 iOS 一节），
 Android 见 §11。
 
 ---
@@ -708,7 +709,7 @@ Android 见 §11。
 |---|---|
 | 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派 |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
-| 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS / OHOS 只允许 JS 插件 |
+| 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
 | 钩子接入 | 约定里有 71 个钩子，主程序当前已经接入的是 `plugin-hooks.md` 里标「已接入」的那 13 个；其余钩子注册成功但不会触发。第 71 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道（不是"主程序派发的钩子"）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |

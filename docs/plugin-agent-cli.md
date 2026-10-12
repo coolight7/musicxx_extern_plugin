@@ -321,8 +321,8 @@ musicxx-cli plugin uninstall my_plugin
   一起删；要留就加 `--keep-data`。
 - **需要框架在跑的三条**：`install` / `reload` / `restart`；其余命令在插件框架没起来时也能用
   （启用/禁用只记录状态，下次启动生效），但未开启『拟声++』时应用不加载插件记录 —— 先开启再操作。
-- **命令行是桌面端能力**：Android / iOS 用管理页。Android 上动态库插件可能加载失败的平台限制
-  与这里无关，见 [plugin-native-api.md](plugin-native-api.md) §11。
+- **命令行是桌面端能力**：Android / iOS 用管理页。Android 的动态链接器命名空间限制与 iOS 的签名校验
+  （都只允许从应用包内加载动态库）与这里无关，见 [plugin-native-api.md](plugin-native-api.md) §11 / §13。
 - **日志有上限**：最近 500 条、只在内存里（`musicxx-cli logs` 读的是应用自己写入磁盘的 `error.log` /
   `info.log`，那份由应用自己按大小裁剪）；要长期保留就自己写入磁盘。
 - **一次只让一个 agent 装/卸同一个插件**：两台同时在装会出现"文件是这次、记录是那次"的竞争。

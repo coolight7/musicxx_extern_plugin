@@ -20,7 +20,7 @@
 
 1. **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面描述），着色器交给主程序渲染；
 2. **两种形态**：JS插件（零编译、跨平台、能力处理器要同步返回）与 动态库插件
-   （同进程、能自己起线程、iOS/OHOS 不可用）；两者共用同一套钩子、变量、动作与界面约定；
+   （同进程、能自己起线程；桌面端与 Android 从应用包 / APK 里加载，iOS 只允许应用包内、与主程序同一签名身份的库）；两者共用同一套钩子、变量、动作与界面约定；
 3. **插件框架是可选功能**：插件框架库缺失、插件写坏、用户关掉『拟声++』时，主程序照常启动，只是没有外部插件。
 
 ---
@@ -30,7 +30,7 @@
 | 形态 | 目录内容 | 适合 | 代价 |
 |---|---|---|---|
 | **JS插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走主程序网络 | 不能调系统 API，没有 `require`/`fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
-| **动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS / OHOS 不能加载未签名动态库 |
+| **动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS 只允许应用包内、与主程序同一签名身份的库（用户装的库通常被系统拒绝） |
 | **C++ 多目标包** | `plugin.yaml` + `lib/<系统>-<架构>/库文件` | 一个包同时发布 Windows / Linux / macOS / Android | 打包步骤多一些（分支选择规则见 [plugin-native-api.md](plugin-native-api.md) §1.3） |
 
 建议：**先用 JS 把想法跑通**（改完在管理页「重载」即可，不用编译），确实需要原生能力再换 C++；
@@ -252,7 +252,8 @@ musicxx.capability.register("card", function () {
 |---|---|---|
 | Windows / Linux / macOS | 可用 | 可用（随主程序分发插件框架库） |
 | Android | 可用 | **受限**：用户安装的 `.so` 可能加载失败（系统只允许从 APK 的原生库目录加载），插件框架按"安全降级"处理：标记不可用 + 给原因 + 不重试 |
-| iOS / OHOS | 可用 | 不支持（只跑 JS 插件） |
+| iOS | 可用 | **受限**：只允许加载应用包内、与主程序同一签名身份的库（插件框架库本身随 `.app` 分发即可用）；用户安装的库在真机上会被系统拒绝（`code signature invalid` / `Library Validation`），插件框架同样按安全降级处理。**模拟器比真机宽松**（模拟器里能加载的插件，真机上不一定能加载） |
+| OHOS | 可用 | 不支持（只跑 JS 插件） |
 
 - 清单 `entry` **按 Linux 写法填 `<名字>.so`**：Windows / macOS 的扩展名由插件框架按平台修正，一份清单三平台通用；
 - 多目标包的分支目录用 `lib/<系统>-<架构>/`，运行时按「系统+架构 → 只系统 → 只架构 → 通用 → 插件根目录」
@@ -298,8 +299,9 @@ musicxx.capability.register("card", function () {
 | 管理页「设置」分页 | 框架开关（总开关、动态库 / JS 开关、安全模式、事件日志开关） |
 | 插件日志 | `console.*` / `musicxx.host.log(...)` 与框架日志；设 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可让框架日志打到 stderr |
 | `host_call.log` | 应用日志目录下的同步调用轨迹：应用卡住时最后一行就是没返回的那次调用 |
-| 原生测试 | `pwsh -NoProfile -File tools/build_examples.ps1 -RunTests`（用安装前缀的 `plugins/` 当插件目录；Linux/macOS 用 `./tools/build_examples.sh --run-tests`） |
+| 原生测试 | `pwsh -NoProfile -File tools/build_examples.ps1 -RunTests`（用安装前缀的 `plugins/` 当插件目录；Linux/macOS 用 `./tools/build_examples.sh --run-tests`；iOS 模拟器目标用 `./tools/build_native.sh --ios-simulator --run-tests`，设备目标跳过） |
 | 包内 Dart 测试 | `flutter test`（对真实插件框架库做整套流程验证；先跑一次 `tools/build_examples.ps1`（Windows）或 `./tools/build_examples.sh`（Linux/macOS）产出原生库与示例插件） |
+| iOS 上的库有没有进包 | `flutter build ios`（模拟器加 `--simulator`）后看 `Runner.app/Frameworks/libmusicxx_extern_plugin.dylib`（由主程序 `ios/tool/embed_extern_plugin_dylib.sh` 复制并补签名；手工检查用 `MUSICXX_EXTERN_PLUGIN_APP_DIR=<Runner.app>` 跑同一个脚本） |
 
 **对照示例**（故意写坏的插件，演示插件框架怎么保护自己）：`plugins/example_native_fail/`（处理器总是失败）、
 `plugins/example_native_bad_entry/`（缺入口符号 → 拒绝加载）、`plugins/example_js_async/`（异步裁决）、
