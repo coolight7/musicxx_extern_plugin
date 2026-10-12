@@ -15,7 +15,7 @@
 /// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（回读）
 ///   ，处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
 ///
-/// 前置：先跑 `pwsh tools/build_examples.ps1`（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
+/// 前置：先跑 `tools/build_examples.ps1`（Windows）或 `tools/build_examples.sh`（Linux/macOS）（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败。
 library;
 
@@ -33,7 +33,7 @@ void main() {
   test('example_js：设置写入文件，重新加载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js')) {
       markTestSkipped(
-        '未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
       return;
     }
@@ -130,7 +130,7 @@ void main() {
   test('example_js_shader：背景动画速率写入磁盘，重新加载后仍然生效', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
-        '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
       return;
     }
@@ -263,7 +263,7 @@ void main() {
   test('example_js_shader：背景状态文字跟着状态镜像更新', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
-        '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
       return;
     }
@@ -393,7 +393,7 @@ void main() {
   test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
-        '未找到原生插件框架库或背景示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
       return;
     }
@@ -501,7 +501,7 @@ void main() {
   test('example_js_font：字体切换立刻返回（动作后台执行，不再互锁到超时）', () async {
     if (env == null || !env.hasPlugin('example_js_font')) {
       markTestSkipped(
-        '未找到原生插件框架库或字体示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）',
+        '未找到原生插件框架库或字体示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
       return;
     }

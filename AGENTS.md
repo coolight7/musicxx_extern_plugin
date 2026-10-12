@@ -187,15 +187,28 @@ pwsh -NoProfile -File tools/build_native.ps1 -RunTests      # 构建后跑原生
 pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 同上，从示例插件那条线走
 ```
 
+Linux / macOS 用 shell 版（同一套流程，示例插件同样是单独一条脚本）：
+
+```bash
+./tools/build_native.sh                    # 插件框架：Release 插件框架库 + 插件 SDK
+./tools/build_examples.sh                  # 示例插件（构建 + 打包成 .zip；已是最新则只重新打包）
+./tools/build_examples.sh --run-tests       # 构建 + 打包 + 跑原生测试
+./tools/pack_plugin.sh --plugin-dir <插件目录>   # 只打某一个插件目录（与 ps1 版同一套包名约定）
+```
+
 - **主程序构建会自动触发**：`flutter build windows|linux|apk` 会在配置阶段调用 `build_native.ps1` 的自动模式
   （已是最新则秒级返回；Android 侧每次构建都会按本次要打包的 ABI 调一次：缺库则构建、源码改过则增量重编、
   已是最新则秒退，日志里是"插件框架库就绪…"；关掉用环境变量 `MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0`），
   因此改完插件框架 C++ 直接 `flutter run` 就会重新构建，不需要先手工跑脚本。
 - **分三条线**：`setup_native_env.ps1` = 配环境（写 `.native/env/environment.json` 缓存，重复执行只读缓存）；
   `build_native.ps1` = 插件框架（插件框架库 + SDK，示例插件默认不建）；`build_examples.ps1` = 示例插件（构建 + 打包）。
+  Linux/macOS 侧：`build_native.sh`（框架，选项同名）、`build_examples.sh`（示例插件 = `build_native.sh --with-examples`
+  + `pack_plugin.sh` 打包）、`pack_plugin.sh`（单目录打包）；`build_native.sh --skip-if-fresh` 给示例插件那条线用
+  （已是最新则跳过，但要构建时失败照常报错）。
 
 ```bash
 ./tools/build_native.sh --run-tests                # Linux / macOS（同一套流程）
+./tools/build_examples.sh --run-tests               # 示例插件那条线（构建 + 打包 + 测试）
 ./tools/build_native.sh --android --abi arm64-v8a  # Android 交叉编译（-Android -Abi 同义）
 ```
 
@@ -240,11 +253,20 @@ flutter test                               # 真实原生库上的整套流程�
 dart run tools/self_check.dart             # 纯 Dart 自检（定位 FFI 卡住的位置）
 ```
 
+```bash
+./tools/build_examples.sh          # Linux / macOS：先构建示例插件与原生测试（没有它 flutter test 会跳过大部分用例）
+```
+
 ### 6.5 打包一个插件
 
 ```powershell
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin   # 产物 .zip（顶层就是插件目录内容）
 pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # 构建示例插件并把它们全部打包
+```
+
+```bash
+./tools/pack_plugin.sh --plugin-dir /work/my_plugin                        # Linux / macOS 上的同一件事
+./tools/build_examples.sh --pack-out /tmp/out                              # 构建示例插件并把它们全部打包
 ```
 
 - **包名带版本号**：默认是 `<插件 id>-<清单 version 里的 . 换成 _>.zip`（例 `my_plugin-2026_1010_1.zip`），
@@ -284,7 +306,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 - **示例插件**：`plugins/` 下每个子目录一个插件，**目录名 = 插件 id = 清单 `name`**；
   演示示例一律 `example_` 开头；故意做坏的对照示例（`*_fail` / `*_bad_entry` / `*_broken`）用来演示插件框架的保护机制，
   随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 构建；新增动态库插件要在 `src/host/CMakeLists.txt` 的插件列表登记。
-  构建与打包走 `tools/build_examples.ps1`（插件框架本身默认不构建它们，见下一条）。
+  构建与打包走 `tools/build_examples.ps1`（Linux/macOS：`./tools/build_examples.sh`；插件框架本身默认不构建它们，见下一条）。
 - **文档纪律**：任何"插件作者会遇到的行为、限制、排查方法"都必须写进本包（主程序不开源，写在主程序侧等于没写）；
   改 API / UI 项 / 钩子 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
 - **版本号只在一处声明**：插件框架版本在 `lib/src/version.dart`（Dart 侧）与
@@ -298,10 +320,16 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 - **三个构建脚本的分工**（Windows 侧）：`tools/setup_native_env.ps1` 配环境并写缓存
   `.native/env/environment.json`；`tools/build_native.ps1` 构建插件框架库 + SDK（`-Auto` 供主程序构建自动调用、
   已是最新则秒退）；`tools/build_examples.ps1` 构建示例插件并可打包。公共实现在 `tools/native_common.ps1`。
+  Linux/macOS 侧对应 `tools/build_native.sh`（框架）、`tools/build_examples.sh`（示例插件 = `--with-examples`
+  + `pack_plugin.sh` 打包）、`tools/pack_plugin.sh`（单目录打包）；`build_native.sh` 的 `--skip-if-fresh`
+  与 ps1 的 `-SkipIfFresh` 同义（示例插件脚本用它判断"要不要真构建"）。
   平台工程在主程序构建时触发 `build_native` 的自动模式：`windows/CMakeLists.txt`、`linux/CMakeLists.txt`
   通过 `tools/cmake/host_autobuild.cmake`（configure 期触发一次）；`android/build.gradle` 自己实现同一套
-  逻辑（每个目标 ABI 在 preBuild 前触发一次：缺库则构建、源码改过则增量重编、已是最新则秒退）。
-  改这套触发方式要同时看这三处。
+  逻辑（每个目标 ABI 在 preBuild 前触发一次：缺库则构建、源码改过则增量重编、已是最新则秒退）；
+  **macOS 由主程序 `macos/` 工程做**（Runner 的 `musicxx-extern-plugin` 构建阶段 →
+  `macos/tool/copy_extern_plugin_dylib.sh`：自动构建 + 复制到 `musicxx.app/Contents/Frameworks` +
+  用当前签名身份补签名；CocoaPods 的 pod 拿不到应用包输出目录，所以这一步不在本包里）。
+  改这套触发方式要同时看这四处。
 
 ## 8. 排障速查
 
@@ -315,6 +343,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 主程序卡住几秒 / 一直卡 | 处理器里在等主程序动作或做了长时间同步计算；应用日志目录下 `host_call.log` 的**最后一行**就是没返回的那次调用 |
 | 改完没生效 | JS 需要 `plugin reload`；插件框架库被正在运行的主程序占用时复制的是旧文件；影响帧调度的字段要重新选中该项 |
 | 改了插件框架 C++ 但主程序里行为没变 | 主程序构建会自动重建插件框架库（`flutter build` 日志里有"插件框架库就绪"一行）；没生效时先看它是不是跳过了（"已是最新"判定看的是 `src/`、`plugins/` 的改动时间与构建标记），必要时 `tools/build_native.ps1 -Force` |
+| macOS 上「外部插件框架不可用」 | 先看 `musicxx.app/Contents/Frameworks/libmusicxx_extern_plugin.dylib` 在不在（`flutter build macos` 的日志里有 `musicxx-extern-plugin` 那一段）；不在就手工跑 `MUSICXX_EXTERN_PLUGIN_APP_DIR=<musicxx.app> bash macos/tool/copy_extern_plugin_dylib.sh` 看提示。库在却被拒绝加载时，看 `macos/Runner/{DebugProfile,Release}.entitlements` 里的 `com.apple.security.cs.disable-library-validation` 还在不在（Hardened Runtime 只放行同团队签名的库） |
 | 选中了插件样式但画面没变 / 黑屏 | 用户要先在设置里选中；检查日志里的渲染失败；没有封面时 `uCoverInfo.w` 是 0 |
 | 着色器报渲染失败 | 检查整型内置函数、运行时下标取 uniform、采样步长（`res / (texSize * 缩放)`）与 sampler 名字是否和渲染项一致 |
 | 主程序进了安全模式 | 说明上次启动没走完（插件崩溃 / 死循环）；在管理页恢复，并修掉触发问题 |

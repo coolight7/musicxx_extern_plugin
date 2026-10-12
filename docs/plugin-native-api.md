@@ -611,7 +611,8 @@ cmake --build build
 插件框架库不在 Flutter 构建里"顺带编译"（依赖链太重），但**主程序构建会自动触发它**：平台工程在配置阶段调用
 包内构建脚本的自动模式（已是最新则秒级返回；关掉见 `README.md`「打包（随应用分发）」）。
 需要手工构建时：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`（示例插件用
-`tools/build_examples.ps1`），Linux/macOS 用 `./tools/build_native.sh`（`--with-examples` 连示例插件），
+`tools/build_examples.ps1`），Linux/macOS 用 `./tools/build_native.sh`（`--with-examples` 连示例插件一起构建；
+示例插件构建 + 打包成安装包用 `./tools/build_examples.sh`），
 Android 见 §11。
 
 ---
@@ -649,6 +650,10 @@ Android 见 §11。
 
   ```powershell
   pwsh -NoProfile -File tools/build_examples.ps1 -RunTests   # 用 <安装前缀>/plugins 当插件目录
+  ```
+
+  ```bash
+  ./tools/build_examples.sh --run-tests                      # Linux / macOS 上的同一件事
   ```
 
   也可以把「对照示例」一组插件（`plugins/example_js_broken/`、
