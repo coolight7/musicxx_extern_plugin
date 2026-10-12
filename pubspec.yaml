@@ -31,8 +31,10 @@ dev_dependencies:
 # Android 交叉编译）独立构建（superbuild 结构）；`windows/CMakeLists.txt`、
 # `linux/CMakeLists.txt` 只负责把已构建好的库交给 Flutter 随应用分发（PLUGIN_BUNDLED_LIBRARIES），
 # Android 由 `android/build.gradle` 把库收集进 jniLibs（打进 APK 的 lib/<abi>/，见 android/README.md），
-# Dart 侧再按显式路径/可执行文件目录/库名加载它（显式路径优先，便于打包与调试）。
-# macOS / iOS / OHOS 的打包尚未接入。
+# macOS 由**主程序** macos/ 的 Runner 构建阶段（musicxx-extern-plugin → tools/copy_extern_plugin_dylib.sh）
+# 复制进 musicxx.app 的 Contents/Frameworks（macOS 的 Flutter 插件走 CocoaPods，包内没有可用的挂载点，
+# 所以这一步不在本包里），Dart 侧再按显式路径/可执行文件目录/应用包/库名加载它（显式路径优先）。
+# iOS / OHOS 的打包尚未接入（只跑 JS插件）。
 flutter:
   plugin:
     platforms:

@@ -526,7 +526,10 @@ std::string testLibFileName(const std::string &base) {
 #if defined(_WIN32)
   return base + ".dll";
 #elif defined(__APPLE__)
-  return "lib" + base + ".dylib";
+  // 插件库**没有 `lib` 前缀**（SDK 的 musicxx_plugin_add_target 设了 PREFIX ""）：macOS 上是
+  // `example_native.dylib`，与 Windows 的 `example_native.dll`、Linux 的 `example_native.so` 对齐；
+  // 只有插件框架库本身叫 libmusicxx_extern_plugin.dylib。
+  return base + ".dylib";
 #else
   return base + ".so";
 #endif
@@ -867,11 +870,16 @@ void testPluginInspect(MusicxxExternPluginHost *host,
             "plugin_inspect 按指定目标环境选分支");
 
   // 4) 目标环境没有匹配分支：标明不可用并给出原因
+  //
+  // 查询的环境必须**肯定不在**这个临时包里（包里只有当前环境分支与 linux-arm64）：
+  // 写死 "macos/arm64" 在 macOS 上跑测试时会命中"当前环境分支"（用例本身依赖宿主平台）。
+  const std::string missingOs = (os == "macos") ? "windows" : "macos";
+  const std::string missingArch = (missingOs == "windows") ? "x64" : "arm64";
   {
-    const std::string mac = inspect(pkg.string(), "macos", "arm64");
-    checkText(mac.find("\"supported\":false") != std::string::npos,
+    const std::string missing = inspect(pkg.string(), missingOs, missingArch);
+    checkText(missing.find("\"supported\":false") != std::string::npos,
               "plugin_inspect 对没有匹配分支的环境判为不可用");
-    checkText(mac.find("没有匹配当前系统/架构的分支") != std::string::npos,
+    checkText(missing.find("没有匹配当前系统/架构的分支") != std::string::npos,
               "plugin_inspect 给出没有匹配分支的原因");
   }
   removePath(root);
@@ -1668,7 +1676,7 @@ int main(int argc, char **argv) {
             "JS 观察钩子计数为 1 (钩子真的执行了)");
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
             "JS 同步读状态镜像 (musicxx.state.song)");
-      check(jsonStringField(probe, "hostPlatform") == "windows",
+      check(jsonStringField(probe, "hostPlatform") == testPlatform(),
             "JS 读到插件框架信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 插件框架线程回放)
       // 2 项 = 主页入口 + 歌曲菜单 (播放页背景样式已拆到 example_js_shader;

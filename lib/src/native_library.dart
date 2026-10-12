@@ -86,15 +86,19 @@ class MusicxxPluginNativeLibrary {
   /// 3. `<包目录>/.native/build/*/musicxx-extern-plugin-install/bin/<库名>`（安装前缀）；
   /// 4. 可执行文件旁边与其 `lib/` 子目录（随主程序分发的插件框架库，见 `windows|linux/CMakeLists.txt`；
   ///    Linux 桌面应用的打包结果是 `<bundle>/musicxx` + `<bundle>/lib/*.so`，因此要一并覆盖）；
-  /// 5. 纯库名（交给系统搜索路径，如随应用包分发时）。
+  /// 5. macOS 应用包的 `Contents/Frameworks/<库名>`（dylib 随 `.app` 分发时在这里，由主程序
+  ///    `macos/Runner` 的 `musicxx-extern-plugin` 构建阶段复制进去）；
+  /// 6. 纯库名（交给系统搜索路径，如随应用包分发时）。
   ///
   /// 说明：开发机的 `.native/` 产物排在"可执行文件旁边"之前，因为它每次构建都会刷新，
   /// 而随应用分发的那一份要等下一次 Flutter 构建才会更新（避免"改了原生代码却还是老行为"）。
   ///
-  /// [packagedWithApp] 只用于测试注入（不传时按当前平台判断）。
+  /// [packagedWithApp] 与 [executableDir] 只用于测试注入：前者不传时按当前平台判断，
+  /// 后者不传时用 `Platform.resolvedExecutable` 所在目录。
   static List<String> defaultCandidates({
     String? packageRoot,
     bool? packagedWithApp,
+    String? executableDir,
   }) {
     final String? env = Platform.environment['MUSICXX_EXTERN_PLUGIN_LIBRARY'];
     final List<String> candidates = <String>[
@@ -116,9 +120,15 @@ class MusicxxPluginNativeLibrary {
       ),
     );
     try {
-      final String exeDir = File(Platform.resolvedExecutable).parent.path;
+      final String exeDir =
+          executableDir ?? File(Platform.resolvedExecutable).parent.path;
       candidates.add('$exeDir/$libraryFileName');
       candidates.add('$exeDir/lib/$libraryFileName');
+      if (Platform.isMacOS) {
+        // macOS 应用包：dylib 随 .app 分发时在 Contents/Frameworks
+        // （主程序 macos/Runner 的 musicxx-extern-plugin 构建阶段复制到这里）
+        candidates.add('$exeDir/../Frameworks/$libraryFileName');
+      }
     } catch (_) {
       // 某些平台上 `resolvedExecutable` 可能不可用：忽略这些候选即可
     }
@@ -243,6 +253,11 @@ class MusicxxPluginNativeLibrary {
     }
     if (Platform.isIOS) {
       return '（iOS 需要把插件框架库静态链进主程序；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+    }
+    if (Platform.isMacOS || Platform.isLinux) {
+      return '（flutter build 会自动构建插件框架库并放进应用包（构建脚本的自动模式 tools/build_native.sh --auto；'
+          'macOS 由主程序的 macos/Runner 构建阶段复制到 Contents/Frameworks）；'
+          '也可以手工跑 tools/build_native.sh，或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
     return '（flutter build 会自动构建插件框架库（tools/build_native.ps1 -Auto）；'
         '也可以手工跑 tools/build_native.ps1，或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';

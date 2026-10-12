@@ -81,8 +81,10 @@ docs/plugin-agent-cli.md 用命令行 / MCP 装插件、刷新、看日志（开
 tools/               setup_native_env.ps1（Windows：配置开发编译环境 —— 预检 / 子模块 / Boost / NDK → 缓存）、
                      build_native.ps1（Windows：构建插件框架 = 插件框架库 + 插件 SDK）、
                      build_examples.ps1（Windows：构建并打包示例插件）、
-                     build_native.sh（Linux/macOS：环境配置、框架构建与示例插件合在一个脚本里，选项同名）、
                      native_common.ps1（上面几个 ps1 的公共库，不单独执行）、
+                     build_native.sh（Linux/macOS：环境配置、框架构建与示例插件合在一个脚本里，选项同名）、
+                     build_examples.sh（Linux/macOS：构建并打包示例插件）、
+                     pack_plugin.sh（Linux/macOS：把插件目录打成安装包，与 pack_plugin.ps1 同一套约定）、
                      gen_contract.dart（约定生成/校验）、gen_ui_kit.ps1（生成扩展 kit：C++ 头 + JS）、
                      sync_ui_kit.ps1（把 kit 复制进 JS 插件目录）、check_submodules.ps1（子模块检查）、
                      pack_plugin.ps1（把插件目录打成安装包 `<插件id>-<清单版本号>.zip`，并列出包内分支）、
@@ -141,6 +143,7 @@ tools/build_native.ps1            构建插件框架（插件框架库 + 插件 
                                  → cxx_utilxx_base → cxx_pluginxx
             ExternalProject_Add: musicxx_extern_plugin_host_repo (src/host, 内部 find_package 取依赖)
 tools/build_examples.ps1          构建示例插件（plugins/ 下的动态库插件 + JS插件）, 可选打成安装包
+tools/build_examples.sh           Linux / macOS 上的同一件事（调 build_native.sh --with-examples，再调 pack_plugin.sh 打包）
 ```
 
 ```powershell
@@ -157,6 +160,19 @@ pwsh -NoProfile -File tools/build_native.ps1
 pwsh -NoProfile -File tools/build_examples.ps1                # 构建示例插件并打包成 .zip
 pwsh -NoProfile -File tools/build_examples.ps1 -RunTests      # 顺带跑原生测试
 ```
+
+Linux / macOS 的同一套流程（示例插件单独一条脚本，构建 + 打包 + 可选跑测试）：
+
+```bash
+./tools/build_native.sh                                        # 只构建插件框架（插件框架库 + SDK）
+./tools/build_examples.sh                                      # 构建示例插件并打包成 .zip
+./tools/build_examples.sh --run-tests                          # 顺带跑原生测试
+./tools/build_examples.sh --force                              # 不跳过，强制重建一次
+./tools/pack_plugin.sh --plugin-dir <插件目录>                 # 只打某一个插件目录（产物与 ps1 版同名）
+```
+
+> 打包出来的安装包在 `.native/output/<平台>-<架构>-<配置>/packages/`，可以直接
+> `musicxx-cli plugin install "<包路径>" --enable` 装进主程序试。
 
 **主程序构建会自动触发插件框架构建**：`flutter build windows` / `flutter build linux` / `flutter build apk`
 都会在配置阶段调用上面第 1 步（自动模式），因此不必先手工构建 —— 已经是最新时只花一次脚本启动的时间，
@@ -189,7 +205,7 @@ Linux / macOS 用同一套能力的 shell 版本（选项名不区分大小写�
 ```bash
 ./tools/build_native.sh                       # 插件框架（插件框架库 + SDK）
 ./tools/build_native.sh --config Debug        # Debug (独立构建目录 .native/build/linux-debug)
-./tools/build_native.sh --with-examples       # 连示例插件一起构建
+./tools/build_native.sh --with-examples       # 连示例插件一起构建（打包用 ./tools/build_examples.sh）
 ./tools/build_native.sh --with-tests          # 连原生测试一起构建
 ./tools/build_native.sh --deps-only           # 只构建依赖库
 ./tools/build_native.sh --configure-only      # 只做预检/Boost/configure
@@ -197,6 +213,7 @@ Linux / macOS 用同一套能力的 shell 版本（选项名不区分大小写�
 ./tools/build_native.sh --run-tests           # 构建后跑原生测试 (失败时脚本返回非 0)
 ./tools/build_native.sh --jobs 8              # 指定并行度
 ./tools/build_native.sh --auto                # 自动模式：已是最新则秒退、失败只警告（主程序构建用它）
+./tools/build_native.sh --skip-if-fresh       # 已是最新则跳过，但要构建时失败照常报错（示例插件脚本用它）
 ```
 
 Android 用 NDK 交叉编译（两个脚本同一套参数；每个 ABI 各构建一次，产物直接给 `android/build.gradle`
@@ -227,9 +244,10 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
   （`-DepsOnly` / `-ConfigureOnly` 不写），自动模式比较"标记 vs 源码最后一次改动时间"，
   因此 `flutter build` 不必每次重新走一遍 CMake；判定不成立（源码改过、产物被删、配置变了）时才重编。
 - **示例插件默认不构建**（`-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=OFF`）：主程序只需要插件框架库，示例插件交给
-  `tools/build_examples.ps1`（Linux/macOS 用 `--with-examples`），装包/跑测试时再构建。
+  `tools/build_examples.ps1`（Linux/macOS 用 `tools/build_examples.sh`，底层是 `build_native.sh --with-examples` + 打包），
+  装包/跑测试时再构建。
   `plugins/` 里新增插件后同样跑一次它，产物会复制到 `.native/output/<平台>-<架构>-<配置>/plugins/`
-  （原生测试用的就是这个目录）。
+  （原生测试用的就是这个目录），安装包在 `.native/output/<平台>-<架构>-<配置>/packages/`。
 - **工具链要求**（插件框架是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
   Linux 上还需要 `pkg-config`（`cxx_utilxx_base` / `cxx_pluginxx` 配置阶段有 `find_package(PkgConfig REQUIRED)`）；
   shell 脚本会在预检里检查编译器大版本与 `pkg-config`，不满足时给出警告。
@@ -251,7 +269,7 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
   带进来的 `STB_GNU_UNIQUE` 符号，实测 Boost.Asio 的 error category 会漏出来）；Apple 由 hidden
   visibility 覆盖。
 
-产物（Release；示例插件与原生测试要跑过 `tools/build_examples.ps1` 才有）：
+产物（Release；示例插件与原生测试要跑过 `tools/build_examples.ps1` / `tools/build_examples.sh` 才有）：
 
 ```
 # Windows
@@ -299,9 +317,15 @@ android/build.gradle     ① 每次构建都调包内构建脚本确保插件框
                             已是最新则秒退；每个目标 ABI 各一次）
                          ② 按 ABI 收集 .so 到 jniLibs（每个 build type 一个目录）
                          → AGP 打进 APK 的 lib/<abi>/libmusicxx_extern_plugin.so
+主程序 macos/            Runner 目标的 "musicxx-extern-plugin" 构建阶段（macos/tool/copy_extern_plugin_dylib.sh）
+                         ① 缺库/过期时同样调包内构建脚本的自动模式
+                         ② 把 libmusicxx_extern_plugin.dylib 复制到 musicxx.app 的 Contents/Frameworks
+                         （macOS 的 Flutter 插件走 CocoaPods，pod 里的脚本拿不到应用包输出目录，
+                           所以这一步只能由主程序的 Runner 工程做）
 ```
 
-也就是说：`flutter build windows` / `flutter build linux` / `flutter build apk` **不需要先手工构建插件框架库**。
+也就是说：`flutter build windows` / `flutter build linux` / `flutter build macos` / `flutter build apk`
+**不需要先手工构建插件框架库**。
 自动构建可以关掉（CI 里通常关掉它，改成显式构建 + `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<库路径>` 保证"必须打包"）：
 
 ```powershell
@@ -310,8 +334,9 @@ $env:MUSICXX_EXTERN_PLUGIN_AUTO_BUILD = '0'           # 全平台关掉自动构
 # Android 也可以: -PmusicxxExternPluginAutoBuild=false
 ```
 
-- 自动构建的时机是**平台工程的 configure 阶段**：查找结果要交给 `PLUGIN_BUNDLED_LIBRARIES`，而主程序侧的
-  `install(FILES ...)` 在构建末尾要求文件已经在位（放到 build 期的自定义目标会来不及）；
+- 自动构建的时机是**平台工程的配置/构建阶段**（Windows/Linux 是 CMake configure 期：查找结果要交给
+  `PLUGIN_BUNDLED_LIBRARIES`，而主程序侧的 `install(FILES ...)` 在构建末尾要求文件已经在位；
+  macOS 是 Runner 的构建阶段）：
 - 自动构建的目标配置默认是 **Release**（Flutter 构建在 configure 阶段分辨不出 Debug/Release）；
   需要 Debug 插件框架库时用 `$env:MUSICXX_EXTERN_PLUGIN_CONFIG='Debug'`（Android 用
   `-PmusicxxExternPluginConfig=Debug`），或者手工 `tools/build_native.ps1 -Config Debug` 构建一次
@@ -321,13 +346,17 @@ $env:MUSICXX_EXTERN_PLUGIN_AUTO_BUILD = '0'           # 全平台关掉自动构
   `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY` / `-PmusicxxExternPluginLibDir` → 环境变量
   `MUSICXX_EXTERN_PLUGIN_LIBRARY`（Android 侧是 `MUSICXX_EXTERN_PLUGIN_ANDROID_LIB_DIR`）
   → `<包>/.native/output/<平台>-<架构>-<配置>/bin/` → `<包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/bin/`
-  → 仓库预置目录（`resource/libs/windows/lib/`、`resource/libs/linux/lib/`、`resource/libs/android/<abi>/`）；
+  → 仓库预置目录（`resource/libs/windows/lib/`、`resource/libs/linux/lib/`、`resource/libs/macos/lib/`、
+  `resource/libs/android/<abi>/`）；
 - Debug 与 Release 两份产物都在时，按**当前 Flutter 构建配置**选择（`Profile` 取 Release）；
 - **找不到插件框架库只打警告、不中断构建**（外部插件是可选功能，缺失时主程序照常启动，Dart 侧给出提示）。
-  发布流水线若要求"必须打包"，请显式传 `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<路径>`，并在 CI 里自行判定失败；
+  发布流水线若要求"必须打包"，请显式传 `-DMUSICXX_EXTERN_PLUGIN_HOST_LIBRARY=<路径>`（macOS 传
+  `MUSICXX_EXTERN_PLUGIN_LIBRARY=<路径>`），并在 CI 里自行判定失败；
 - 例（Windows）：`flutter build windows --release` → `build/windows/x64/runner/Release/musicxx_extern_plugin.dll` 与 `musicxx.exe` 同目录；
 - 例（Linux）：`flutter build linux --release` → `build/linux/x64/release/bundle/lib/libmusicxx_extern_plugin.so`
-  （桌面应用的库都放 `bundle/lib/`，Dart 侧会去"可执行文件旁的 `lib/`"目录找它）。
+  （桌面应用的库都放 `bundle/lib/`，Dart 侧会去"可执行文件旁的 `lib/`"目录找它）；
+- 例（macOS）：`flutter build macos --release` → `build/macos/Build/Products/Release/musicxx.app/Contents/Frameworks/libmusicxx_extern_plugin.dylib`
+  （Dart 侧会去应用包的 `Contents/Frameworks` 找它，见下面 macOS 一节）。
 
 ### Android（已接入）
 
@@ -351,11 +380,42 @@ Android 与桌面端的差别（改这块之前先读 `android/README.md`）：
 - 交叉编译统一 Ninja 生成器 + `c++_static`（C++ 运行库静态链进插件框架库，APK 不需要额外的 `libc++_shared.so`）；
   `-RunTests`/`--run-tests` 在 Android 上跳过（测试可执行文件是给设备编的）。
 
-其余平台（macOS/iOS/OHOS）的打包属于后续工作：macOS 可照 Windows/Linux 的写法
-（`<平台>_bundled_libraries`，另需注意 Hardened Runtime 下的 `disable-library-validation`）；
-iOS/OHOS 只跑 JS插件，需要静态库 + podspec。
+其余平台（iOS/OHOS）的打包属于后续工作：iOS/OHOS 只跑 JS插件，需要静态库 + podspec。
 平台能力（哪些平台允许动态库插件、入口是否可见）在主程序统一判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
 （iOS/OHOS 只跑 JS插件，不允许加载未签名动态库）。
+
+### macOS（已接入）
+
+```bash
+# 1) 插件框架库由主程序 Runner 的构建阶段保持最新（缺库则构建、C++ 改过则增量重编、已最新则秒退）
+#    想先把库单独编好（或排查构建问题）也可以手工跑：macOS 与 Linux 共用 tools/build_native.sh
+./tools/build_native.sh        # → .native/output/macos-<架构>-release/bin/libmusicxx_extern_plugin.dylib
+# 2) 正常打包：库由主程序的 macos/ 工程复制进应用包
+flutter build macos --release  # → musicxx.app/Contents/Frameworks/libmusicxx_extern_plugin.dylib
+```
+
+macOS 与其它桌面的差别（改这块之前先看这两处）：
+
+- **复制进应用包的动作由主程序的 Runner 工程做**：`macos/Runner.xcodeproj` 里名为 `musicxx-extern-plugin`
+  的构建阶段调用 `macos/tool/copy_extern_plugin_dylib.sh`（与 `musicxx-cli` 阶段同一套路）。macOS 的 Flutter
+  插件走 CocoaPods，pod 里的脚本阶段拿不到应用包的输出目录，所以 Windows/Linux 那种"包内 CMakeLists 交给
+  `PLUGIN_BUNDLED_LIBRARIES`"在 macOS 上没有对应物；目标位置是 `musicxx.app/Contents/Frameworks/`
+  （与 `libmediaxx.dylib`、`libmpv.2.dylib` 这些预置库同一个目录），Dart 侧会去那里找；
+- **开关与查找顺序与其它平台一致**：`MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0` 关掉自动构建、
+  `MUSICXX_EXTERN_PLUGIN_CONFIG=Debug` 换配置、`MUSICXX_EXTERN_PLUGIN_LIBRARY=<dylib 路径>` 显式指定；
+  复制过去之后，脚本还会用当前签名身份给 dylib 补一次签名（拿不到身份时保持原样，不影响加载）；
+- **Hardened Runtime 下必须关掉库签名校验**：主程序是 Hardened Runtime 签名（工程里的
+  `ENABLE_HARDENED_RUNTIME = YES`），系统默认只允许加载**同团队签名**的动态库，而插件框架库与插件作者
+  自己编的库都不是这个团队 —— 不加 `com.apple.security.cs.disable-library-validation` 时 `dlopen` 会得到
+  `code signature ... not valid for use in process: mapping process and mapped file (non-platform) have
+  different Team IDs`（用户看到的就是"外部插件框架不可用"）。这一项已经在
+  `macos/Runner/DebugProfile.entitlements` 与 `macos/Runner/Release.entitlements` 里，不要再删；
+- **库与开发机架构一致**：包内构建脚本按开发机 `uname -m` 产出 `macos-arm64-*` / `macos-x64-*`，脚本按同一规则找库，
+  因此不做多架构合并（工程本身也限制只构建当前架构）；要在别的架构上出包，需在该架构机器上构建一次原生库；
+- 手工检查（不经过 Xcode）：
+  `MUSICXX_EXTERN_PLUGIN_APP_DIR=build/macos/Build/Products/Release/musicxx.app bash macos/tool/copy_extern_plugin_dylib.sh`；
+- 用自定义构建流程（不走 Xcode 的 `flutter build macos`）时，也可以用
+  `MUSICXX_EXTERN_PLUGIN_LIBRARY=<dylib 绝对路径>` 让 Dart 侧直接加载，不依赖应用包里的那一份。
 
 ## 写一个插件
 
@@ -413,7 +473,8 @@ musicxx_plugin_add_target(my_plugin
 ```
 
 每个平台/架构各构建一次、把 `lib/<标签>/` 合并进同一个包目录，用
-`pwsh tools/pack_plugin.ps1 -PluginDir <包目录>` 打成安装包（它会打印包内分支与每个分支的库文件，
+`pwsh tools/pack_plugin.ps1 -PluginDir <包目录>`（Linux/macOS 用 `./tools/pack_plugin.sh --plugin-dir <包目录>`）
+打成安装包（它会打印包内分支与每个分支的库文件，
 便于确认齐全）；插件框架运行时按当前系统与 CPU 架构选分支（选择顺序、标签别名与规则见
 [docs/plugin-native-api.md](docs/plugin-native-api.md) §1.3，示例插件 `plugins/example_native_multi/`）。
 **分支选择规则只有插件框架一处实现**：扫描、加载与主程序安装预检（C ABI `plugin_inspect`）跑的是同一份
@@ -461,6 +522,7 @@ bundle 里的 `format_version` 必须与目标主程序的 Flutter 版本一致�
 
 ```bash
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin        # 打包（顶层是插件目录内容）
+./tools/pack_plugin.sh --plugin-dir /work/my_plugin                             # Linux / macOS 上的同一件事
 musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable        # 安装并启用（包名 = 插件id-清单版本号）
 musicxx-cli plugin list                                                         # 每个插件的状态与失败原因
 musicxx-cli plugin logs my_plugin --limit 50                                    # 最近日志（新的在前）
@@ -489,6 +551,10 @@ musicxx-cli plugin uninstall my_plugin                                          
 
 ```powershell
 pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 自动用 <安装前缀>/plugins 作为插件目录
+```
+
+```bash
+./tools/build_examples.sh --run-tests                       # Linux / macOS 上的同一件事
 ```
 
 手工运行：
@@ -576,7 +642,8 @@ final List<MusicxxPluginUIItem> next =
 ```
 
 - 原生库定位顺序：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY` → `.native/output/*/bin/`（Release 优先、其次按修改时间）
-  → `.native/build/*/musicxx-extern-plugin-install/bin/` → 可执行文件旁（含其 `lib/`）→ 纯库名（系统搜索路径）；
+  → `.native/build/*/musicxx-extern-plugin-install/bin/` → 可执行文件旁（含其 `lib/`）→ macOS 应用包的
+  `Contents/Frameworks/` → 纯库名（系统搜索路径）；
   Android/iOS 只按库名加载（库随应用包分发），绝对路径候选不参与；
 - 找不到库时抛 `MusicxxPluginLibraryException`（含逐个候选与原因），版本不匹配抛 `MusicxxPluginApiVersionException`；
 - **版本号**：`MusicxxPluginVersion`（`lib/src/version.dart`，版本 / 提交 / 日期 / 仓库地址）与 C 头宏
@@ -613,8 +680,10 @@ final List<MusicxxPluginUIItem> next =
 - **观测**：钩子统计（调用 / 耗时 / 超时 / 失败 / 被暂停的处理器）、插件各阶段耗时、注册项计数、
   JS 实例统计与内存采样、内存环形事件日志；
 - **平台打包**：Windows 与 Linux 已接入（插件框架库随主程序分发，见「打包（随主程序分发）」）、
-  Android 已接入（NDK 交叉编译 + `jniLibs`，见 `android/README.md`）；
-  macOS/iOS/OHOS 的平台工程属于后续工作（iOS/OHOS 只跑 JS插件）。
+  Android 已接入（NDK 交叉编译 + `jniLibs`，见 `android/README.md`）、
+  macOS 已接入（主程序 Runner 的 `musicxx-extern-plugin` 构建阶段复制到 `Contents/Frameworks`，
+  另需 `disable-library-validation`，见「打包（随主程序分发）」的 macOS 一节）；
+  iOS/OHOS 的平台工程属于后续工作（只跑 JS插件）。
 
 对照示例（故意做出问题行为的示例插件：既服务原生测试，也让插件作者看清「写坏了会怎样」。
 它们随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 一起构建，并安装到 `<安装前缀>/plugins/`）：
@@ -649,7 +718,8 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests
 
 ```bash
 # Linux / macOS
-./tools/build_native.sh --run-tests
+./tools/build_examples.sh --run-tests         # 构建示例插件 + 打包 + 跑原生测试（测试结束打印 checks=... failed=...）
+./tools/build_native.sh --run-tests           # 只构建 + 跑原生测试（不打包）
 ```
 
 ```powershell

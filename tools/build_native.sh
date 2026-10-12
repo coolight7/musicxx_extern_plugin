@@ -16,7 +16,7 @@
 #
 # 用法 (选项名不区分大小写, --deps-only 与 -DepsOnly 等价):
 #   tools/build_native.sh                            # 插件框架: Release 插件框架库 + 插件 SDK
-#   tools/build_native.sh --with-examples            # 连示例插件一起构建 (Windows 侧见 tools/build_examples.ps1)
+#   tools/build_native.sh --with-examples            # 连示例插件一起构建 (只构建; 构建 + 打包用 tools/build_examples.sh)
 #   tools/build_native.sh --with-tests               # 连原生测试一起构建 (含对照示例)
 #   tools/build_native.sh --config Debug             # Debug (独立构建目录, 依赖也重编)
 #   tools/build_native.sh --deps-only                # 只构建依赖库
@@ -25,6 +25,7 @@
 #   tools/build_native.sh --run-tests                # 构建后跑原生测试 (失败返回非 0; 隐含示例与测试)
 #   tools/build_native.sh --jobs 8                   # 指定并行度
 #   tools/build_native.sh --auto                     # 自动模式(应用构建调用): 已是最新则秒退, 失败不阻断
+#   tools/build_native.sh --skip-if-fresh            # 已是最新就跳过(失败仍然报错; 示例插件脚本用)
 #   tools/build_native.sh --boost-root <目录>        # 指定 Boost 头文件根 (含 boost/)
 #   tools/build_native.sh --boost-archive <压缩包>   # 用本地 Boost 发布包解包
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
@@ -90,6 +91,7 @@ run_tests=0
 with_examples=0
 with_tests=0
 auto=0
+skip_if_fresh=0
 jobs=0
 build_dir=""
 output_dir=""
@@ -154,6 +156,8 @@ while [ $# -gt 0 ]; do
     withtests) with_tests=1 ;;
     notests) with_tests=0 ;;
     auto) auto=1 ;;
+    # 归一化后是 skipiffresh（去掉 `-` 后 "skip" + "if" + "fresh" 连在一起）
+    skipiffresh) skip_if_fresh=1 ;;
     nodownloadboost) no_download_boost=1 ;;
     android) android=1 ;;
     help | h)
@@ -499,73 +503,78 @@ stamp_kinds='framework'
 if [ "$with_examples" = 1 ]; then stamp_kinds="${stamp_kinds} examples"; fi
 if [ "$with_tests" = 1 ]; then stamp_kinds="${stamp_kinds} tests"; fi
 
-# ==================== 自动模式 (--auto) ====================
+# ==================== 已是最新 (--auto / --skip-if-fresh) ====================
 #
-# 给"主程序构建时自动触发插件框架库构建"用 (见 tools/cmake/host_autobuild.cmake):
-#   1) 产物已是最新 → 打印一行就返回 (秒级), 应用构建几乎不付代价;
-#   2) 否则起一个子进程跑完整流程 (不带 --auto), 失败只警告并返回 0 ——
-#      外部插件是可选功能, 不该让应用构建失败。
-if [ "$auto" = 1 ]; then
+# 两个开关都按构建标记判断"要不要真构建"，区别只在构建失败时怎么处理：
+#   --auto            给"主程序构建时自动触发插件框架库构建"用（Windows/Linux 的 CMake 配置阶段、
+#                     主程序 macos/ 的 Runner 构建阶段、Android 的 Gradle）：已是最新则秒退，
+#                     否则起子进程跑完整流程，失败只警告并返回 0 —— 外部插件是可选功能，
+#                     不该让应用构建失败；
+#   --skip-if-fresh   给"示例插件构建脚本"这类调用方用（tools/build_examples.sh）：已是最新同样秒退，
+#                     但真要构建时继续走下面的普通流程，失败照常报错。
+#
+# 判据（与 Windows 侧 tools/native_common.ps1 的 Test-MxBuildFresh 同一套）：
+#   本次要覆盖的构建标记都在 → 要求存在的产物都在 → 构建目录已 configure 且签名一致 →
+#   最早的标记比最新源码新。
+build_is_fresh() {
     # 1) 本次要覆盖的构建标记都在, 并找出最早的那个 (每个标记都要比源码新)
-    stamp_ok=1
-    oldest_stamp=""
+    local stamp_kind stamp_file oldest_stamp=""
     for stamp_kind in $stamp_kinds; do
         stamp_file="${build_dir}/.build_stamp_${stamp_kind}"
-        if [ ! -f "$stamp_file" ]; then
-            stamp_ok=0
-            break
-        fi
+        [ -f "$stamp_file" ] || return 1
         if [ -z "$oldest_stamp" ] || [ "$stamp_file" -ot "$oldest_stamp" ]; then
             oldest_stamp="$stamp_file"
         fi
     done
 
     # 2) 产物在位
-    product_ok=1
-    if [ ! -f "${output_dir}/bin/${lib_name}" ]; then product_ok=0; fi
-    if [ "$with_examples" = 1 ] && [ -z "$(ls -A "${output_dir}/plugins" 2>/dev/null)" ]; then product_ok=0; fi
-    if [ "$with_tests" = 1 ] && [ ! -f "${output_dir}/bin/${test_name}" ]; then product_ok=0; fi
+    [ -f "${output_dir}/bin/${lib_name}" ] || return 1
+    if [ "$with_examples" = 1 ] && [ -z "$(ls -A "${output_dir}/plugins" 2>/dev/null)" ]; then
+        return 1
+    fi
+    if [ "$with_tests" = 1 ] && [ ! -f "${output_dir}/bin/${test_name}" ]; then
+        return 1
+    fi
 
     # 3) 构建目录已 configure 且签名一致
-    config_ok=1
-    if [ ! -f "${build_dir}/CMakeCache.txt" ] || [ ! -f "${build_dir}/.build_signature" ]; then
-        config_ok=0
-    elif [ "$(tr -d '\r\n' <"${build_dir}/.build_signature")" != "$signature" ]; then
-        config_ok=0
-    fi
+    [ -f "${build_dir}/CMakeCache.txt" ] || return 1
+    [ -f "${build_dir}/.build_signature" ] || return 1
+    [ "$(tr -d '\r\n' <"${build_dir}/.build_signature")" = "$signature" ] || return 1
 
     # 4) 源码没有比标记更新的 (third_party 里的 Boost 头文件不算: 它不参与编译, 只被 include)
-    source_ok=1
-    if [ "$stamp_ok" = 1 ]; then
-        for source_path in "${src_dir}/CMakeLists.txt" "${src_dir}/host" "${src_dir}/include" \
-            "${src_dir}/sdk" "${src_dir}/third_party" "${root}/plugins" "${root}/tools/cmake"; do
-            [ -e "$source_path" ] || continue
-            if [ -n "$(find "$source_path" -type d -name boost -prune -o -type f -newer "$oldest_stamp" -print -quit 2>/dev/null)" ]; then
-                source_ok=0
-                break
-            fi
-        done
-    fi
+    local source_path
+    for source_path in "${src_dir}/CMakeLists.txt" "${src_dir}/host" "${src_dir}/include" \
+        "${src_dir}/sdk" "${src_dir}/third_party" "${root}/plugins" "${root}/tools/cmake"; do
+        [ -e "$source_path" ] || continue
+        if [ -n "$(find "$source_path" -type d -name boost -prune -o -type f -newer "$oldest_stamp" -print -quit 2>/dev/null)" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
 
-    if [ "$stamp_ok" = 1 ] && [ "$product_ok" = 1 ] && [ "$config_ok" = 1 ] && [ "$source_ok" = 1 ] &&
-        [ "$clean" = 0 ] && [ "$configure_only" = 0 ] && [ "$deps_only" = 0 ] && [ "$run_tests" = 0 ]; then
+if [ "$auto" = 1 ] || [ "$skip_if_fresh" = 1 ]; then
+    if [ "$clean" = 0 ] && [ "$configure_only" = 0 ] && [ "$deps_only" = 0 ] && [ "$run_tests" = 0 ] &&
+        build_is_fresh; then
         printf '  已是最新, 跳过构建: %s\n' "${output_dir}/bin/${lib_name}"
         exit 0
     fi
 
-    printf '\n==> 自动构建: 起子进程执行完整流程 (失败只警告)\n'
-    set +e
-    bash "${script_dir}/build_native.sh" ${forward_args[@]+"${forward_args[@]}"}
-    auto_rc=$?
-    set -e
-    if [ "$auto_rc" -ne 0 ]; then
-        printf '\n' >&2
-        warn "插件框架自动构建失败 (退出码 ${auto_rc}), 本次主程序构建不打包外部插件框架库。"
-        warn '主程序照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
-        warn "  tools/build_native.sh --config ${config}"
+    if [ "$auto" = 1 ]; then
+        printf '\n==> 自动构建: 起子进程执行完整流程 (失败只警告)\n'
+        set +e
+        bash "${script_dir}/build_native.sh" ${forward_args[@]+"${forward_args[@]}"}
+        auto_rc=$?
+        set -e
+        if [ "$auto_rc" -ne 0 ]; then
+            printf '\n' >&2
+            warn "插件框架自动构建失败 (退出码 ${auto_rc}), 本次主程序构建不打包外部插件框架库。"
+            warn '主程序照常构建与运行 (外部插件功能不可用); 手工重跑看完整日志:'
+            warn "  tools/build_native.sh --config ${config}"
+            exit 0
+        fi
         exit 0
     fi
-    exit 0
 fi
 
 if [ "$clean" = 1 ]; then
@@ -762,5 +771,7 @@ if [ "$android" = 1 ]; then
 fi
 printf '插件框架构建完成: %s\n' "${output_dir}/bin/${lib_name}"
 if [ "$with_examples" = 1 ]; then
-    printf '示例插件在: %s (打包 .zip 需要 PowerShell: tools/pack_plugin.ps1)\n' "${output_dir}/plugins"
+    printf '示例插件在: %s (打包成安装包: tools/pack_plugin.sh --plugin-dir <插件目录>)\n' "${output_dir}/plugins"
+else
+    printf '示例插件未构建; 要"构建 + 打包成安装包"用: tools/build_examples.sh\n'
 fi

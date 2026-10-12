@@ -11,7 +11,7 @@
 /// 同时跑同步派发；断言不崩溃、事件 `seq` 严格递增、`callId` 不重复、裁决结果不串台、
 /// 多 isolate 写入的状态镜像可见。
 ///
-/// 前置：先跑 `pwsh tools/build_examples.ps1`（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
+/// 前置：先跑 `tools/build_examples.ps1`（Windows）或 `tools/build_examples.sh`（Linux/macOS）（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 找不到原生库或示例插件时跳过而不是失败（CI 里可以先构建再跑）。
 library;
 
@@ -38,7 +38,7 @@ void main() {
 
   test('多 isolate 并发调用：不崩溃、seq 单调、callId 不重复、裁决不串台', () async {
     if (env == null) {
-      markTestSkipped('未找到原生插件框架库或示例插件，跳过（先运行 tools/build_examples.ps1 产出原生库与示例插件）');
+      markTestSkipped('未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）');
       return;
     }
 
