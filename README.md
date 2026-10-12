@@ -25,7 +25,7 @@
 简而言之理解：
 
 - **两种插件形态**：
-  - 动态库插件（同进程、能自己起线程、iOS/OHOS 不可用）；一般使用 C/C++ 等语言开发，高性能/高权限/高自由，但开发难度高，且需要对不同系统平台适配编译动态库
+  - 动态库插件（同进程、能自己起线程；桌面端与 Android 可以加载，iOS 只允许加载应用包内、与主程序同签名身份的库，用户装的库通常会被系统拒绝）；一般使用 C/C++ 等语言开发，高性能/高权限/高自由，但开发难度高，且需要对不同系统平台适配编译动态库
   - JS插件（无需编译、跨平台、处理器可以同步返回也可以返回 Promise）
   - 两者共用同一套钩子、UI、主程序动作约定；
 - **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面）/ shader 由主程序渲染；
@@ -322,6 +322,10 @@ android/build.gradle     ① 每次构建都调包内构建脚本确保插件框
                          ② 把 libmusicxx_extern_plugin.dylib 复制到 musicxx.app 的 Contents/Frameworks
                          （macOS 的 Flutter 插件走 CocoaPods，pod 里的脚本拿不到应用包输出目录，
                            所以这一步只能由主程序的 Runner 工程做）
+主程序 ios/              Runner 目标的 "musicxx-extern-plugin" 构建阶段（ios/tool/embed_extern_plugin_dylib.sh）
+                         ① 缺库/过期时调包内构建脚本的自动模式（模拟器 --ios-simulator、设备 --ios）
+                         ② 把 libmusicxx_extern_plugin.dylib 复制到 Runner.app/Frameworks，
+                            并用当前签名身份补签一次（iOS 只允许加载应用包内、与主程序同签名身份的库）
 ```
 
 也就是说：`flutter build windows` / `flutter build linux` / `flutter build macos` / `flutter build apk`
@@ -380,9 +384,42 @@ Android 与桌面端的差别（改这块之前先读 `android/README.md`）：
 - 交叉编译统一 Ninja 生成器 + `c++_static`（C++ 运行库静态链进插件框架库，APK 不需要额外的 `libc++_shared.so`）；
   `-RunTests`/`--run-tests` 在 Android 上跳过（测试可执行文件是给设备编的）。
 
-其余平台（iOS/OHOS）的打包属于后续工作：iOS/OHOS 只跑 JS插件，需要静态库 + podspec。
-平台能力（哪些平台允许动态库插件、入口是否可见）在主程序统一判定：`lib/plugin/externPlugin/ExternPluginPlatform.dart`
-（iOS/OHOS 只跑 JS插件，不允许加载未签名动态库）。
+其余平台：OHOS 的打包属于后续工作（只跑 JS插件，需要静态库 + podspec）。
+
+### iOS（已接入）
+
+```bash
+# 1) 插件框架库由主程序 Runner 的构建阶段保持最新（缺库则构建、C++ 改过则增量重编、已最新则秒退）；
+#    自动模式会按当前 SDK 选目标：iphonesimulator → --ios-simulator，iphoneos → --ios
+#    想先把库单独编好（或排查构建问题）也可以手工跑（只能在 macOS 上构建）：
+./tools/build_native.sh --ios-simulator        # → .native/output/ios-simulator-<架构>-release/bin/libmusicxx_extern_plugin.dylib
+./tools/build_native.sh --ios                  # 设备（arm64）→ .native/output/ios-arm64-release/bin/...
+./tools/build_native.sh --ios --run-tests      # 设备目标跳过测试（产物是给设备编的）
+./tools/build_native.sh --ios-simulator --run-tests   # 模拟器目标能直接在开发机上跑（自动补 DYLD_ROOT_PATH）
+# 2) 之后正常构建主程序即可（Runner 的 musicxx-extern-plugin 构建阶段会把库复制进包）
+flutter build ios --simulator        # → build/ios/iphonesimulator/Runner.app/Frameworks/libmusicxx_extern_plugin.dylib
+flutter build ios                    # 设备构建 → Runner.app/Frameworks/...，并用当前签名身份补签
+```
+
+iOS 与桌面端/Android 的差别（改这块之前先读这一节，以及主程序 `ios/tool/embed_extern_plugin_dylib.sh`）：
+
+- **插件框架库必须随 `.app` 分发**：iOS 只允许加载应用包内、且与主程序同一签名身份的动态库；
+  Runner 的构建阶段把它复制到 `Runner.app/Frameworks/` 后用 `EXPANDED_CODE_SIGN_IDENTITY` 补签一次。
+  关掉签名的构建（`--no-codesign`、模拟器构建）本来就允许加载未签名的库，脚本会跳过签名；
+- **用户安装的动态库插件在设备上会被系统拒绝**（库在应用数据目录里、没有与主程序一致的签名），
+  插件框架按"安全降级"处理（标记不可用 + 事件 + 不重试），JS插件不受影响；
+  管理页会提前说明这条限制，dyld 的 `code signature invalid` / `Library Validation` / `Team ID` 报错
+  会换成面向用户的说法（主程序 `ExternPluginPlatform_c.isSystemBlockedNativeReason`）；
+  模拟器上没这条限制（库校验宽松），因此模拟器里能加载的插件在真机上不一定能加载；
+- **设备与模拟器分别是两份产物**（平台段 `ios` / `ios-simulator`，架构：设备固定 arm64、模拟器用开发机架构），
+  各自 build/output 目录独立；Dart 侧在 iOS 上只挑 `ios-*` 的产物目录（否则会命中同目录下的 macOS 产物）；
+- 交叉编译用 CMake 内置的 iOS 支持（`CMAKE_SYSTEM_NAME=iOS` + `CMAKE_OSX_SYSROOT/ARCHITECTURES/DEPLOYMENT_TARGET`），
+  最低版本由 `--ios-target` 控制（默认 14.0，与主程序 `IPHONEOS_DEPLOYMENT_TARGET` 一致）；
+  Apple 低版本目标的浮点 `std::to_chars` 不可用（iOS 16.3 起才有），插件框架的 JSON 实现里有等价回退
+  （见 `src/third_party/cxx_utilxx_base/src/json.cpp` 文件头）；
+- **`--run-tests` 在模拟器目标上会真的跑**：模拟器产物是同一 CPU 架构的 Mach-O，构建脚本会自动把
+  `DYLD_ROOT_PATH` 指向匹配的模拟器运行时根目录（找不到运行时则跳过并提示
+  `xcrun simctl spawn booted <测试可执行文件> <插件目录>`）；设备目标跳过（同 Android）。
 
 ### macOS（已接入）
 
@@ -641,10 +678,10 @@ final List<MusicxxPluginUIItem> next =
     MusicxxPluginUIItems.replacePlugin(items, 'example_native', newItems);
 ```
 
-- 原生库定位顺序：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY` → `.native/output/*/bin/`（Release 优先、其次按修改时间）
-  → `.native/build/*/musicxx-extern-plugin-install/bin/` → 可执行文件旁（含其 `lib/`）→ macOS 应用包的
-  `Contents/Frameworks/` → 纯库名（系统搜索路径）；
-  Android/iOS 只按库名加载（库随应用包分发），绝对路径候选不参与；
+- 原生库定位顺序：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY` → `.native/output/*/bin/`（按当前平台过滤目录名前缀；
+  Release 优先、其次按修改时间）→ `.native/build/*/musicxx-extern-plugin-install/bin/` → 可执行文件旁（含其 `lib/`）
+  → macOS 应用包的 `Contents/Frameworks/` 与 iOS 应用包的 `Frameworks/` → 纯库名（系统搜索路径）；
+  Android 只按库名加载（库在 APK 的 `lib/<abi>/` 里，绝对路径候选不参与）；
 - 找不到库时抛 `MusicxxPluginLibraryException`（含逐个候选与原因），版本不匹配抛 `MusicxxPluginApiVersionException`；
 - **版本号**：`MusicxxPluginVersion`（`lib/src/version.dart`，版本 / 提交 / 日期 / 仓库地址）与 C 头宏
   `MUSICXX_EXTERN_PLUGIN_VERSION` 必须是同一个值（`test/version_test.dart` 校验），`runtime.libraryVersion`
@@ -682,8 +719,10 @@ final List<MusicxxPluginUIItem> next =
 - **平台打包**：Windows 与 Linux 已接入（插件框架库随主程序分发，见「打包（随主程序分发）」）、
   Android 已接入（NDK 交叉编译 + `jniLibs`，见 `android/README.md`）、
   macOS 已接入（主程序 Runner 的 `musicxx-extern-plugin` 构建阶段复制到 `Contents/Frameworks`，
-  另需 `disable-library-validation`，见「打包（随主程序分发）」的 macOS 一节）；
-  iOS/OHOS 的平台工程属于后续工作（只跑 JS插件）。
+  另需 `disable-library-validation`，见「打包（随主程序分发）」的 macOS 一节）、
+  iOS 已接入（同一个构建阶段由 `ios/tool/embed_extern_plugin_dylib.sh` 复制到 `Runner.app/Frameworks`
+  并补签名，见同节的 iOS 一节）；
+  OHOS 的平台工程属于后续工作（只跑 JS插件）。
 
 对照示例（故意做出问题行为的示例插件：既服务原生测试，也让插件作者看清「写坏了会怎样」。
 它们随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 一起构建，并安装到 `<安装前缀>/plugins/`）：

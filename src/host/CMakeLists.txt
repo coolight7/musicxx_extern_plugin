@@ -252,6 +252,11 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
     target_compile_definitions(musicxx_extern_plugin_test PRIVATE _WIN32_WINNT=0x0A00)
   endif ()
 
+  # iOS 默认把可执行文件当 .app 包 (MACOSX_BUNDLE): 测试是可执行文件, 打成包就没办法直接跑
+  if (APPLE AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set_target_properties(musicxx_extern_plugin_test PROPERTIES MACOSX_BUNDLE FALSE)
+  endif ()
+
   # 测试要用的对照示例插件 (example_native_fail / example_native_bad_entry) 与
   # JS 对照示例都在上面的示例插件一节里随本选项一起构建, 并安装到 plugins/<id>/。
 endif ()

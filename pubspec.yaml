@@ -34,7 +34,10 @@ dev_dependencies:
 # macOS 由**主程序** macos/ 的 Runner 构建阶段（musicxx-extern-plugin → tools/copy_extern_plugin_dylib.sh）
 # 复制进 musicxx.app 的 Contents/Frameworks（macOS 的 Flutter 插件走 CocoaPods，包内没有可用的挂载点，
 # 所以这一步不在本包里），Dart 侧再按显式路径/可执行文件目录/应用包/库名加载它（显式路径优先）。
-# iOS / OHOS 的打包尚未接入（只跑 JS插件）。
+# iOS 同样由**主程序** ios/ 的 Runner 构建阶段完成（ios/tool/embed_extern_plugin_dylib.sh → 复制到
+# Runner.app/Frameworks 并用当前签名身份补签；iOS 只允许加载应用包内、与主程序同一签名身份的库），
+# 原生库由 `tools/build_native.sh --ios | --ios-simulator` 交叉编译（只能在 macOS 上构建，见 README.md）。
+# OHOS 的打包尚未接入（只跑 JS插件）。
 flutter:
   plugin:
     platforms:

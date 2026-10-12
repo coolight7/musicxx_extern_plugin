@@ -65,20 +65,28 @@ class MusicxxPluginNativeLibrary {
     return 'libmusicxx_extern_plugin.so';
   }
 
-  /// 插件框架库是否随主程序包分发（Android 在 APK 的 `lib/<abi>/` 里，iOS 在 `.app` 内）
+  /// 插件框架库是否只能按"库名"加载（`packagedWithApp`：Android）
   ///
-  /// 这类平台拿不到"能被系统接受的绝对路径"：Android 7 起动态链接器只允许应用从 APK 的原生库
-  /// 目录（以及系统目录）加载动态库，应用数据目录里的 `.so` 会被
-  /// `is not accessible for the namespace "classloader-namespace"` 拒绝；iOS 只允许包内静态链接。
-  /// 因此这些平台按"库名"加载，交给系统解析。
-  static bool get packagedWithApp => Platform.isAndroid || Platform.isIOS;
+  /// Android 7 起动态链接器只允许应用从 APK 的原生库目录（以及系统目录）加载动态库，应用数据
+  /// 目录里的 `.so` 会被 `is not accessible for the namespace "classloader-namespace"` 拒绝；
+  /// 这类平台拿不到"能被系统接受的绝对路径"，因此只给库名，交给系统的应用命名空间解析。
+  ///
+  /// iOS 不在这里：它允许按应用包内的绝对路径加载（`<Runner.app>/Frameworks/...`，由主程序
+  /// `ios/tool/embed_extern_plugin_dylib.sh` 复制进包），只是不允许加载包外的库，见
+  /// [defaultCandidates]。
+  static bool get packagedWithApp => Platform.isAndroid;
 
   /// 默认候选路径（按优先级）：
   ///
-  /// **库随应用包分发的平台（Android/iOS）**：环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`
-  /// （显式路径，便于调试）→ 库名（由系统在应用的原生库目录/应用包里解析）。桌面端那套
-  /// `.native/` 与"可执行文件旁"的候选在这里没有意义（Android 的 `Platform.resolvedExecutable`
-  /// 是 `/system/bin/app_process*`），只会给出误导性的失败原因，因此不参与。
+  /// **Android（库随应用包分发到 `lib/<abi>/`）**：环境变量
+  /// `MUSICXX_EXTERN_PLUGIN_LIBRARY`（显式路径，便于调试）→ 库名（由系统在应用的原生库目录
+  /// 解析）。桌面端那套 `.native/` 与"可执行文件旁"的候选在这里没有意义（Android 的
+  /// `Platform.resolvedExecutable` 是 `/system/bin/app_process*`），只会给出误导性的失败原因。
+  ///
+  /// **iOS（库随 `.app` 分发到 `Frameworks/`）**：环境变量 → `<包目录>/.native/output/ios-*`
+  /// （开发期产物；模拟器能看到开发机的文件系统，设备上看不到这些路径会自然跳过）→
+  /// `<可执行文件目录>/../Frameworks/<库名>`（应用包内，正式分发时的位置）→ 库名。
+  /// iOS 只允许加载应用包内、与主程序同签名身份的动态库，所以包内那条是正式路径。
   ///
   /// **桌面端**：
   /// 1. 环境变量 `MUSICXX_EXTERN_PLUGIN_LIBRARY`（显式路径，便于打包/调试）；
@@ -93,13 +101,17 @@ class MusicxxPluginNativeLibrary {
   /// 说明：开发机的 `.native/` 产物排在"可执行文件旁边"之前，因为它每次构建都会刷新，
   /// 而随应用分发的那一份要等下一次 Flutter 构建才会更新（避免"改了原生代码却还是老行为"）。
   ///
-  /// [packagedWithApp] 与 [executableDir] 只用于测试注入：前者不传时按当前平台判断，
-  /// 后者不传时用 `Platform.resolvedExecutable` 所在目录。
+  /// [packagedWithApp]、[executableDir] 与 [operatingSystem] 只用于测试注入：第一个不传时按
+  /// 当前平台判断，第二个不传时用 `Platform.resolvedExecutable` 所在目录，第三个不传时用
+  /// `Platform.operatingSystem`。
   static List<String> defaultCandidates({
     String? packageRoot,
     bool? packagedWithApp,
     String? executableDir,
+    String? operatingSystem,
   }) {
+    final String os = (operatingSystem ?? Platform.operatingSystem).toLowerCase();
+    final bool isIOS = os == 'ios';
     final String? env = Platform.environment['MUSICXX_EXTERN_PLUGIN_LIBRARY'];
     final List<String> candidates = <String>[
       if (env != null && env.isNotEmpty) env,
@@ -109,14 +121,26 @@ class MusicxxPluginNativeLibrary {
       return candidates;
     }
     final String root = packageRoot ?? Directory.current.path;
+    // 同一台开发机上会同时存在多个平台的产物目录（例如 macOS 上编了 macOS 与 iOS 两份）:
+    // 目录名前缀按当前平台过滤，否则"最新修改时间优先"会把别的平台的库挑出来
+    // （在 macOS 上加载 iOS 产物会直接 dlopen 失败）。
+    final String? outputPrefix =
+        (os == 'windows' || os == 'linux' || os == 'macos' || isIOS) ? os : null;
     candidates.addAll(
-      _globLibraryFiles('$root/.native/output', libraryFileName, 'bin'),
+      _globLibraryFiles(
+        '$root/.native/output',
+        libraryFileName,
+        'bin',
+        // iOS 的产物目录按 ios / ios-simulator 分（设备 / 模拟器），前缀取 ios 就都能看到
+        dirPrefix: outputPrefix,
+      ),
     );
     candidates.addAll(
       _globLibraryFiles(
         '$root/.native/build',
         libraryFileName,
         'musicxx-extern-plugin-install/bin',
+        dirPrefix: outputPrefix,
       ),
     );
     try {
@@ -124,8 +148,12 @@ class MusicxxPluginNativeLibrary {
           executableDir ?? File(Platform.resolvedExecutable).parent.path;
       candidates.add('$exeDir/$libraryFileName');
       candidates.add('$exeDir/lib/$libraryFileName');
-      if (Platform.isMacOS) {
-        // macOS 应用包：dylib 随 .app 分发时在 Contents/Frameworks
+      if (isIOS) {
+        // iOS 应用包：可执行文件就在 <Runner.app>/ 下，Frameworks 与它同级
+        // （主程序 ios/tool/embed_extern_plugin_dylib.sh 复制到这里）
+        candidates.add('$exeDir/Frameworks/$libraryFileName');
+      } else if (os == 'macos') {
+        // macOS 应用包：可执行文件在 Contents/MacOS 下，库在 Contents/Frameworks
         // （主程序 macos/Runner 的 musicxx-extern-plugin 构建阶段复制到这里）
         candidates.add('$exeDir/../Frameworks/$libraryFileName');
       }
@@ -141,11 +169,14 @@ class MusicxxPluginNativeLibrary {
   /// 排序（决定优先级）：Release 优先于 Debug，其次按文件修改时间从新到旧。
   /// 原因：同一台开发机上常有多个构建目录（release/debug），若按目录名字母序挑选会
   /// 拿到**过期**或不匹配配置的库（表现为"代码明明改过却还是老行为"，很难排查）。
+  ///
+  /// [dirPrefix] 只看名字以此开头的子目录（iOS 上用来把 macOS/其它平台的产物排除掉）。
   static List<String> _globLibraryFiles(
     String base,
     String fileName,
-    String suffix,
-  ) {
+    String suffix, {
+    String? dirPrefix,
+  }) {
     final Directory dir = Directory(base);
     if (!dir.existsSync()) {
       return const <String>[];
@@ -155,6 +186,13 @@ class MusicxxPluginNativeLibrary {
     try {
       for (final FileSystemEntity entity in dir.listSync()) {
         if (entity is! Directory) {
+          continue;
+        }
+        final String name = entity.uri.pathSegments
+            .where((String segment) => segment.isNotEmpty)
+            .last
+            .toLowerCase();
+        if (dirPrefix != null && !name.startsWith(dirPrefix)) {
           continue;
         }
         final String candidate = '${entity.path}/$suffix/$fileName';
@@ -252,7 +290,11 @@ class MusicxxPluginNativeLibrary {
           '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
     if (Platform.isIOS) {
-      return '（iOS 需要把插件框架库静态链进主程序；也可以用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+      // iOS 只允许加载应用包内、与主程序同签名身份的动态库，插件框架库必须随 .app 分发
+      return '（iOS 需要插件框架库随应用包分发：flutter build ios 会自动构建并把它复制进'
+          ' Runner.app/Frameworks（主程序 ios/tool/embed_extern_plugin_dylib.sh）；'
+          '也可以先手工跑 tools/build_native.sh --ios（模拟器加 --ios-simulator），'
+          '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
     }
     if (Platform.isMacOS || Platform.isLinux) {
       return '（flutter build 会自动构建插件框架库并放进应用包（构建脚本的自动模式 tools/build_native.sh --auto；'

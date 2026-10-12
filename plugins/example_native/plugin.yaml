@@ -2,14 +2,14 @@
 # 插件框架字段: name(插件 id) / entry(库文件名) / depends / optional_depends
 # musicxx 扩展字段: kind / version / description / permissions / platforms / arch / api_version
 name: example_native
-# entry 按 Linux 拼写（Windows/macOS 上插件框架会把扩展名改成 .dll/.dylib）
+# entry 按 Linux 拼写（Windows / macOS / iOS 上插件框架会把扩展名改成 .dll / .dylib）
 entry: example_native.so
 kind: native
 version: 2026.1010.1
 description: "musicxx 外部插件示例: 跳过广告曲目 / 观察切歌 / 错误换源建议"
 author: "coolight"
 api_version: 1
-platforms: [windows, linux, macos]
+platforms: [windows, linux, macos, android, ios]
 permissions:
   - musicxx.library.read
   - musicxx.ui
