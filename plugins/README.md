@@ -105,10 +105,11 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测
 | 主题 | 文档 |
 |---|---|
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | `docs/plugin-guide.md` |
+| **两种形态共用的接口手册**（状态镜像 / 动作全表 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | 钩子总表（id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（总头文件）与 `plugin_api.h`（musicxx 专用约定） |
-| 动态库插件作者指南（清单 / 构建 / 部署 / 排障） | `docs/plugin-native-api.md` |
-| JS 插件作者指南（`musicxx` API / 硬约束 / 排障） | `docs/plugin-js-api.md` |
+| 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
+| JS 插件作者指南（目录与清单 / 生命周期 / `musicxx` 全局对象 / 排障） | `docs/plugin-js-api.md` |
 | 界面（UI 项类型与字段 / 插件页面组件 / 用 kit 拼装内容 / 设置页写法） | `docs/plugin-ui.md` |
 | musicxx 扩展 kit 的组件与参数（生成物） | `docs/musicxx-ui-kit.md` |
 | 界面描述层的组件全集、字段与适配规则（库的生成文档） | `src/third_party/cxx_pluginxx_ui/docs/ui-schema.md` |

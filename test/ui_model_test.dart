@@ -45,6 +45,7 @@ void main() {
     expect(card.subtitle, '说明');
     expect(card.icon, 'resource/svg/entry.svg');
     expect(card.actionKind, MusicxxPluginUIActionKind.route);
+    expect(card.routePlugin, 'demo');
     expect(card.viewId, 'detail');
 
     final MusicxxPluginUIItem songItem = items.last;
@@ -81,6 +82,60 @@ void main() {
     expect(itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action, isNull);
     expect(itemOf(<String, Object?>{'kind': 'action', 'name': 'musicxx.ui.notify'}).action, isNull);
     expect(itemOf(<String, Object?>{'kind': 'unknown'}).action, isNull);
+  });
+
+  test('route 动作允许指向任意插件：拆出目标插件与视图 id，非法地址为空', () {
+    MusicxxPluginUIItem itemOf(String route) =>
+        MusicxxPluginUIItem.fromJson(<String, Object?>{
+          'id': 'plugin.demo.entry',
+          'plugin': 'demo',
+          'type': MusicxxPluginUIType.homeEntry,
+          'data': <String, Object?>{
+            'title': '入口',
+            'action': <String, Object?>{'kind': 'route', 'route': route},
+          },
+        });
+
+    // 本插件的页面
+    final MusicxxPluginUIItem own = itemOf('ext://demo/card');
+    expect(own.routePlugin, 'demo');
+    expect(own.viewId, 'card');
+
+    // 别的插件的页面（页面由对方插件自己绘制，发起方拿不到对方的数据）
+    final MusicxxPluginUIItem other = itemOf('ext://other_plugin/settings');
+    expect(other.routePlugin, 'other_plugin');
+    expect(other.viewId, 'settings');
+
+    // 视图 id 里带斜杠（框架只要求 ext:// 之后有 id 与视图，其余原样当视图 id）
+    final MusicxxPluginUIItem nested = itemOf('ext://other_plugin/a/b');
+    expect(nested.routePlugin, 'other_plugin');
+    expect(nested.viewId, 'a/b');
+
+    // 非法地址：缺插件 id / 缺视图 id / 不是 ext:// → 都不是可用的 route 目标
+    for (final String bad in <String>[
+      'ext://card',
+      'ext://demo/',
+      'ext:///card',
+      'musicxx:settings',
+      '',
+    ]) {
+      final MusicxxPluginUIItem item = itemOf(bad);
+      expect(item.routePlugin, isNull, reason: 'routePlugin: $bad');
+      expect(item.viewId, isNull, reason: 'viewId: $bad');
+    }
+
+    // 非 route 动作没有页面目标
+    final MusicxxPluginUIItem command = MusicxxPluginUIItem.fromJson(<String, Object?>{
+      'id': 'plugin.demo.cmd',
+      'plugin': 'demo',
+      'type': MusicxxPluginUIType.songAction,
+      'data': <String, Object?>{
+        'title': '菜单项',
+        'action': <String, Object?>{'kind': 'command', 'name': 'musicxx.ui.notify'},
+      },
+    });
+    expect(command.routePlugin, isNull);
+    expect(command.viewId, isNull);
   });
 
   test('容错：未知字段/非法项被忽略，缺省动作视为无动作', () {

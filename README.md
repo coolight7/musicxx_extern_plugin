@@ -11,11 +11,13 @@
 |---|---|
 | 给 **AI Agent / 自动化脚本** 的浓缩指南（插件框架是什么 / 框架怎么跑 / 插件怎么写 / 命令 / 排障） | [AGENTS.md](AGENTS.md) |
 | **第一次写插件**（选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查） | [docs/plugin-guide.md](docs/plugin-guide.md) |
-| 写一个 **动态库插件**（钩子 / 能力 / 动作 / 日志） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
+| **查某个接口做什么、参数是什么、怎么用**（状态镜像 / 动作 / 事件 / 变量 / 能力 / 功能点 / 钩子写法，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
+| 写一个 **动态库插件**（清单 / SDK / 线程 / 构建 / 常用接口的 C++ 写法） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
 | 写一个 **JS插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
 | 给插件加**界面**（主页入口、歌曲菜单、插件页面、插件自己画的设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
 | 用**命令行 / MCP** 装插件、刷新、看日志（AI agent 与自动化） | [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md) |
+| **musicxx 对外暴露的全部接口**（MCP 工具全表 / 命令行命令全表 / 本机 HTTP 与 WebSocket 路由 / 权限边界） | [docs/musicxx-interfaces.md](docs/musicxx-interfaces.md) |
 | 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
 | 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
 | 查**版本对照**（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）、改版本号的流程 | [docs/version-history.md](docs/version-history.md) |
@@ -69,9 +71,10 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_font/  示例插件（JS：全局字体切换 —— 系统字体 / 插件自带字体文件 / 恢复默认，演示"按钮动作立刻返回 + 后台执行"）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
+docs/plugin-api.md 两种形态共用的接口手册（状态镜像 / 动作全表 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 通用排障）
 docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
-docs/plugin-native-api.md 动态库插件作者指南（清单/SDK 用法/线程约定/构建/部署/排障）
+docs/plugin-native-api.md 动态库插件作者指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 拼装内容/插件自己的设置页写法）
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
@@ -528,7 +531,8 @@ my_plugin/
 ```
 
 不需要 CMake、不需要编译；放进插件目录后「重新扫描」即可。完整 API、硬约束与排障见
-[docs/plugin-js-api.md](docs/plugin-js-api.md)。
+[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（动作 / 状态镜像 / 变量 / 事件 / 能力 / 功能点）
+见 [docs/plugin-api.md](docs/plugin-api.md)。
 
 ### 着色器（播放页背景 / 页面内联块）
 
@@ -699,7 +703,8 @@ final List<MusicxxPluginUIItem> next =
   `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **钩子**：约定 71 个（观察 / 裁决，其中 52 个异步派发）；
-  主程序当前**已接入 13 个**（`docs/plugin-hooks.md` 的「主程序是否已接入」列标「已接入」），其余注册成功但不会触发；
+  主程序当前**应用派发 13 个**（`docs/plugin-hooks.md` 的「主程序是否已接入」列标「已接入」的共 14 行，
+其中 `musicxx.feature.point.call` 是插件自定义功能点的通用通道、由调用方触发），其余注册成功但不会触发；
   两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标废弃（主程序不派发，替代做法见其说明）；
   第 71 条 `musicxx.feature.point.call` 是**插件自定义功能点**的通用通道（不是"主程序会派发的钩子"）：
   插件声明自己的功能点后，用它实现、也用它被调用（见 `docs/plugin-guide.md` 的「功能点」一节）；
@@ -740,7 +745,7 @@ final List<MusicxxPluginUIItem> next =
 |---|---|---|
 | 钩子 | `musicxx.hooks.register` / `PluginBase::hook` / `observe` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算，结算后裁决生效）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 库 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
-| 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键与推送情况见 `docs/plugin-js-api.md` §5 |
+| 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络（可选便利通道） | `musicxx.net.fetch/download` | 经主程序网络栈；插件框架不限定可访问域名 |
 | 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单（当前版本无渲染点）/ 播放页背景；字段见 `docs/plugin-ui.md` |

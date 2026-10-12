@@ -7,6 +7,7 @@
 
 | 你要做的事 | 读这篇 |
 |---|---|
+| **查某个接口做什么、参数是什么、怎么用**（状态镜像 / 动作 / 事件 / 变量 / 能力 / 功能点 / 钩子写法） | [plugin-api.md](plugin-api.md)（两种形态共用） |
 | 写 JS插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 写 动态库插件（含多目标打包） | [plugin-native-api.md](plugin-native-api.md) |
 | 查钩子 id / 模式 / 载荷 / 裁决 | [plugin-hooks.md](plugin-hooks.md)（生成物） |
@@ -15,6 +16,10 @@
 | 写着色器（播放页背景 / 页面内联块） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **用命令行 / AI agent 装插件、刷新、看日志**（不点管理页） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 构建插件框架库、把插件框架库随主程序分发 | 本包 `README.md` |
+
+> 选形态之后**先读 [plugin-api.md](plugin-api.md)**：两种插件能用的接口是同一批（同一套钩子表、
+> 同一份动作注册表、同一份状态镜像与变量协议），只是写法不同（JS 是 Promise，C++ 是完成通知 / 协程）。
+> 那份文档写清每个接口的功能、参数、返回、用法与坑，两篇形态文档只写各自的语言差异。
 
 三句话理解这套框架：
 
@@ -99,7 +104,7 @@ musicxx.capability.register("card", function () {
     return { view: { title: "我的插件", blocks: [
         { kind: "Text", text: "你好，插件！" },
         { kind: "Button", title: "播放/暂停", style: "primary",
-          action: { kind: "action", name: "musicxx.player.toggle" } },
+          action: { kind: "command", name: "musicxx.player.toggle" } },
     ] } };
 });
 ```
@@ -132,21 +137,21 @@ musicxx.capability.register("card", function () {
 
 | 能力 | 什么时候用 | 入口 | 详细 |
 |---|---|---|---|
-| **钩子** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放） | `musicxx.hooks.register` / `PluginBase::hook` | [plugin-hooks.md](plugin-hooks.md) |
-| **状态镜像** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.state.get` / `stateJson` | [plugin-js-api.md](plugin-js-api.md) §5 |
-| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | `musicxx.vars.*` / `varsGet` / `varsSet` | [plugin-vars.md](plugin-vars.md) |
-| **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-js-api.md](plugin-js-api.md) §7 |
-| **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.events.*` | [plugin-js-api.md](plugin-js-api.md) §8 |
-| **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` | [plugin-js-api.md](plugin-js-api.md) §10 |
-| **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-js-api.md](plugin-js-api.md) §4.4 / [plugin-native-api.md](plugin-native-api.md) §6.5 |
-| **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 | `musicxx.ui.registerEntry` | [plugin-ui.md](plugin-ui.md) §1 |
+| **钩子** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放） | `musicxx.hooks.register` / `PluginBase::hook` | [plugin-hooks.md](plugin-hooks.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
+| **状态镜像** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.state.get` / `stateJson` | [plugin-api.md](plugin-api.md) §2 |
+| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | `musicxx.vars.*` / `varsGet` / `varsSet` | [plugin-api.md](plugin-api.md) §5 + [plugin-vars.md](plugin-vars.md) |
+| **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-api.md](plugin-api.md) §3（全部动作的参数与返回） |
+| **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.events.*` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
+| **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
+| **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |
+| **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 | `musicxx.ui.registerEntry` / `uiRegister` | [plugin-ui.md](plugin-ui.md) §1 |
 | **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `{ view: … }` + 路由 `ext://<插件id>/<视图id>` | [plugin-ui.md](plugin-ui.md) §2 |
 | **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` / `playing.icon` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
-| **封面取色 / 封面变化** | 读 / 写封面取色（`palette` / `setPalette`），用钩子注册取色实现替代内置分析；也可以订阅封面变化（`musicxx.media.cover.changed`，可随时移除） | 动作 + 钩子 `musicxx.media.palette.provide` / `musicxx.media.cover.changed` | [plugin-js-api.md](plugin-js-api.md) §11 |
-| **频谱提取 / 副歌分析实现** | 用自己的实现替代应用内置的整曲频谱提取与副歌（高潮）识别：进度条波形、播放页动效、`musicxx.media.spectrum` 与状态镜像都用这一份数据；两边都没有实现时这个功能整体不可用 | 钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | [plugin-js-api.md](plugin-js-api.md) §11 |
-| **存储** | 插件私有 KV 与用户可见配置（`config.json`） | `musicxx.storage.*` | 本文 §5.6 |
-| **网络** | 走应用统一网络栈取数据、下载文件（可作为便利通道） | `musicxx.net.fetch/download` | [plugin-js-api.md](plugin-js-api.md) §7.3 |
-| **定时器 / 统计** | 后台任务；读自己的运行统计、自报指标 | `musicxx.timer.*` / `musicxx.stats.*` | [plugin-js-api.md](plugin-js-api.md) §13 |
+| **封面取色 / 封面变化** | 读 / 写封面取色（`palette` / `setPalette`），用钩子注册取色实现替代内置分析；也可以订阅封面变化（`musicxx.media.cover.changed`，可随时移除） | 动作 + 钩子 `musicxx.media.palette.provide` / `musicxx.media.cover.changed` | [plugin-api.md](plugin-api.md) §3.2.8 + [plugin-hooks.md](plugin-hooks.md) |
+| **频谱提取 / 副歌分析实现** | 用自己的实现替代应用内置的整曲频谱提取与副歌（高潮）识别：进度条波形、播放页动效、`musicxx.media.spectrum` 与状态镜像都用这一份数据；两边都没有实现时这个功能整体不可用 | 钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | [plugin-api.md](plugin-api.md) §7 + [plugin-hooks.md](plugin-hooks.md) |
+| **存储** | 插件私有 KV 与用户可见配置（`config.json`） | `musicxx.storage.*` | [plugin-api.md](plugin-api.md) §3.2.5（本文 §5.6 是注意事项） |
+| **网络** | 走应用统一网络栈取数据、下载文件（可作为便利通道） | `musicxx.net.fetch/download` | [plugin-api.md](plugin-api.md) §3.2.6 |
+| **定时器 / 统计** | 后台任务；读自己的运行统计、自报指标 | `musicxx.timer.*` / `musicxx.stats.*` | [plugin-js-api.md](plugin-js-api.md) §13 / [plugin-api.md](plugin-api.md) §3.2.14 |
 
 ---
 
@@ -181,7 +186,8 @@ musicxx.capability.register("card", function () {
 
 ### 5.3 钩子
 
-- **只有"已接入"的钩子会触发**：当前版本 13 个（`plugin-hooks.md` 的「主程序是否已接入」列），
+- **只有"已接入"的钩子会触发**：当前版本应用派发 13 个（`plugin-hooks.md` 的「主程序是否已接入」列
+  标「已接入」的共 14 行，第 14 条 `musicxx.feature.point.call` 是插件功能点的通用通道、由调用方触发），
   其余注册成功但不会触发 —— 别把功能押在未接入的钩子上；
   两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标**废弃**：
   注册它们不会收到任何事件，替代做法（状态镜像或导出能力）写在说明里；
@@ -339,13 +345,18 @@ musicxx.capability.register("card", function () {
 
 ## 8. 相关文档
 
-- [plugin-js-api.md](plugin-js-api.md) —— JS 插件 API 面、硬约束、常见坑（§15）、v1 边界（§16）
-- [plugin-native-api.md](plugin-native-api.md) —— 动态库插件：清单、SDK、线程、构建、部署、排障
+- [plugin-api.md](plugin-api.md) —— **两种形态共用的接口手册**：状态镜像、动作（全部动作的参数与返回）、
+  事件、变量、能力、功能点、钩子写法、界面入口、日志与自省、命名空间 / 超时 / 容量、通用排障
+- [plugin-js-api.md](plugin-js-api.md) —— JS 插件专有：目录与清单、生命周期与硬约束、`musicxx` 全局对象、
+  定时器与工具、常见坑（§15）、v1 边界（§16）
+- [plugin-native-api.md](plugin-native-api.md) —— 动态库插件专有：清单与多目标打包、SDK、框架线程、
+  接口表判定、常用接口的 C++ 写法（§4.2）、构建、部署、排障
 - [plugin-hooks.md](plugin-hooks.md) —— 钩子总表与已接入钩子的载荷 / 裁决语义（生成物）
 - [plugin-vars.md](plugin-vars.md) —— 官方变量目录与读写规则
 - [plugin-ui.md](plugin-ui.md) —— UI 项、插件页面组件、用 kit 拼装、页面间跳转
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— bundle 打包、uniform 约定、参数表达式、排查
 - [plugin-agent-cli.md](plugin-agent-cli.md) —— 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化）
+- [musicxx-interfaces.md](musicxx-interfaces.md) —— musicxx 对外暴露的**全部接口**：MCP 工具全表、命令行命令全表、本机 HTTP 与 WebSocket 路由、权限边界
 - [musicxx-ui-kit.md](musicxx-ui-kit.md) —— musicxx 扩展 kit 的组件与参数（生成物）
 - 本包 `README.md` —— 构建插件框架库、随主程序打包、包内 Dart 接入、能力现状
 - `plugins/` —— 官方示例与对照示例（每个子目录一个插件）

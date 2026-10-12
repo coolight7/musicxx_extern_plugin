@@ -5,6 +5,7 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 
 | 主题 | 文档 |
 |---|---|
+| **两种形态共用的接口**（状态镜像 / 动作 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
 | 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
@@ -12,7 +13,11 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
-| 单特性示例（多脚本加载 / 变量通道 / 异步裁决） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/` |
+| 单特性示例（多脚本加载 / 变量通道 / 异步裁决 / 全局字体） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/`、`plugins/example_js_font/` |
+
+> **本文只写 JS 特有的东西**：目录与清单、生命周期与硬约束、`musicxx` 全局对象的写法、JS 线程、
+> 定时器与工具、调试与坑。**接口本身"做什么、参数是什么、返回什么"在 [plugin-api.md](plugin-api.md)** ——
+> 那份文档 JS 与动态库插件共用，两边的接口是同一批。
 
 ---
 
@@ -96,18 +101,23 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 ## 3. `musicxx` 全局对象
 
-| 命名空间 | 用途 |
-|---|---|
-| `musicxx.hooks` | 注册 / 注销钩子处理器 |
-| `musicxx.state.get` | 同步读状态镜像 |
-| `musicxx.host` | 框架信息、日志、配置路径 |
-| `musicxx.call` | 通用动作请求（返回 Promise） |
-| `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `render` / `media` / `ui` / `stats` | 分类便捷封装（都等价于 `musicxx.call`） |
-| `musicxx.events` | 事件总线（发布 / 订阅） |
-| `musicxx.capability` | 注册自己的能力 / 调用别的插件的能力 |
-| `musicxx.timer` / `musicxx.util` | 定时器与工具 |
-| `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id |
-| `console` | `log` / `info` / `warn` / `error` 转发到框架日志 |
+| 命名空间 | 用途 | 详细 |
+|---|---|---|
+| `musicxx.hooks` | 注册 / 注销钩子处理器、读谁在提供这个钩子 | §4；[plugin-api.md](plugin-api.md) §8 |
+| `musicxx.state.get` | 同步读状态镜像 | §5 |
+| `musicxx.host` | 框架信息、日志、配置路径 | §6 |
+| `musicxx.call` | 通用动作请求（返回 Promise） | §7 |
+| `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
+| `musicxx.events` | 事件总线（发布 / 订阅） | §8；[plugin-api.md](plugin-api.md) §4 |
+| `musicxx.vars` | 变量：读 / 写 / 订阅 / 注册自己的变量 | §9；[plugin-api.md](plugin-api.md) §5 |
+| `musicxx.capability` | 注册自己的能力 / 调用别的插件的能力 | §10；[plugin-api.md](plugin-api.md) §6 |
+| `musicxx.feature` | 功能点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
+| `musicxx.timer` / `musicxx.util` | 定时器与工具 | §13 |
+| `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id | — |
+| `console` | `log` / `info` / `warn` / `error` 转发到框架日志 | §6 |
+
+脚本里还有一个全局的 `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval`
+（与 `musicxx.timer` 同一实现）。除此之外**没有** `require` / `fs` / `fetch` / `process` 这些 Node 时代的对象。
 
 ---
 
@@ -182,7 +192,9 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 
 ### 4.4 功能点（声明 + 实现 + 调用）
 
-功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。三类用法：
+> 概念、与能力的区别、通道的三条约定（`patch` 包装 / 按 `point` 过滤 / 不回答自己发起的调用）、
+> 应用留出的三个可调点、调用零副作用与 `busy` 规则，都在 [plugin-api.md](plugin-api.md) §7。
+> 这里只给 JS 的写法与 JS 特有的注意点。
 
 ```js
 // 1) 声明自己的功能点（id 必须落在自己的命名空间里）
@@ -207,12 +219,9 @@ const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", 
 musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除实现
 ```
 
-- `callPoint(id, args?, timeoutMs?)`：默认 60 秒（频谱要解码整曲）。**调用零副作用**：
-  不写应用的值仓、不改应用状态；要改观感请用对应的设置动作（如 `musicxx.media.palette.set`）。
-  同一功能点 + 同一调用方的上一次没结束时拿到 `busy`。
-- 现在可调的应用功能点有三个（`musicxx.feature.points()` 看 `callDoc`）：整曲频谱
-  `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
-  `musicxx.media.palette.provide`。
+JS 侧需要记住的几条：
+
+- `callPoint(id, args?, timeoutMs?)`：默认 60 秒（频谱要解码整曲）。
 - `provide` 的 `fn(args, ctx)` **必须同步返回**：功能点走**同步裁决**通道（插件框架就地等结果），
   返回 Promise 拿不到结果（会记一条日志）。长任务请提前算好，或做成**能力**（`musicxx.capability.call`）。
 - 糖自动做三件事：按 `point` 过滤（同一条通道上所有实现都收到同一次调用）、`ctx.caller` 等于自己时
@@ -222,37 +231,32 @@ musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除�
 - 手写钩子处理器（不用糖）时，约定见 [plugin-hooks.md](plugin-hooks.md) 的
   `musicxx.feature.point.call`：**回答必须用 `patch` 包一层**，否则后面的处理器会覆盖你的结果。
 
+---
+
+## 5. 状态镜像（同步读应用现状）
+
+> 键清单、每个键的字段、刷新时机、常见坑，都在 [plugin-api.md](plugin-api.md) §2。
+> 这里只说 JS 侧的用法。
+
 ```js
 const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
+const playing = (musicxx.state.get("musicxx.state.env") || {}).isPlaying === true;
 ```
 
-| 键 | 内容 | 当前版本 |
-|---|---|---|
-| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 已推送（启动时推一次） |
-| `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 已推送（启动 / 切歌 / 播放状态变化时刷新） |
-| `musicxx.state.song` | 当前歌曲的只读视图（`sid/name/artist/album/durationMs/year/genre/srcKey/audio[]/video[]`） | 已推送 |
-| `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 已推送 |
-| `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 已推送 |
-| `musicxx.state.lyric` / `musicxx.state.library` | 预留 | **当前版本没有推送**（`get` 返回 `null`） |
-| `musicxx.state.renderSlots` | 渲染槽位运行状态（谁在画、是否可见、尺寸、昼夜） | 按需推送（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
-| `musicxx.state.spectrum` | 当前音频频谱：`{status, available, loading, reason, source, srcKey, frameHz, frameIndex, frames, bandCount, level, bands[16]}` | 播放中约 10 Hz 推送（数据本身 10 帧/秒），停止/切歌/拿到或读不到数据时各推一次 |
+要点（键与字段的完整清单见 [plugin-api.md](plugin-api.md) §2）：
 
-- 判断「是否在播放」用 `musicxx.state.musicxx.env.isPlaying`（布尔）：`musicxx.state.player.state` 的取值
-  在暂停/播放/停止事件里是小写 `play`/`pause`/`stop`，其它变化是枚举名 `Play`/`Pause`/`Stop`/`Completed`；
-- **`musicxx.state.app.isNight` 是启动时的快照**：运行期切了主题（白昼 ↔ 夜间）它不会跟着变，
-  拿它当"当前值"定时刷新会让画面配色来回跳。要当前值就当场问一次：动作
-  `musicxx.media.palette` 或 `musicxx.render.current` 的 `night`（都读当时的主题态）；
-  `musicxx.state.renderSlots` 里槽位条目的 `night` 只在槽位状态变化时才刷新，同样不能当"当前值"；
-- **播放进度当前版本没有推送**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
+- `state.get` 是**同步**读（读插件框架里的快照），没有网络与 IO，可以放在钩子处理器、定时器、
+  页面能力处理器里；
+- 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`
+  （`musicxx.state.lyric` / `musicxx.state.library` 是预留的，当前版本没有推送，读到的永远是 `null`）；
+- 键名固定（官方 `musicxx.state.*`），写错就是 `null`，不会报错；
+- **播放进度不在镜像里**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
   `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
-- `musicxx.state.spectrum` 是**当前音频频谱**（由插件提供的实现提取：内置『音乐动效』插件，
-  或注册了提取钩子 `musicxx.media.spectrum.extract` 的插件；值都是 0~1）：
-  `status` = `ready` / `loading` / `none` / `off` / `unavailable`，`available` 为假时
-  `level` 与 `bands` 都是 0（要看原因读 `reason`）。它只在播放中推进，暂停时不刷新；
-  想要当前帧的更多细节（dB、256 个频点）用动作 `musicxx.media.spectrum`，想跟着每帧渲染
-  用着色器的 `musicxx.spectrum.*` 参数来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
-- 镜像里**不放临时直链与 token**；需要地址请自己请求（见 §7 网络）；
-- 每个键更新都会推事件 `musicxx.state.changed`（载荷 `{key, value}`）：
+- 要在自绘界面里"跟着音乐动"，用 `musicxx.state.spectrum`（约 10 Hz）或着色器的
+  `musicxx.spectrum.*` 来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
+  识别格式：`status` = `ready` / `loading` / `none` / `off` / `unavailable`，
+  `available` 为假时 `level` 与 `bands` 都是 0（原因读 `reason`）；
+- 变化通知：订阅 `musicxx.state.changed`（载荷 `{key, value}`）：
 
   ```js
   musicxx.events.subscribe("musicxx.state.changed", (payload) => {
@@ -266,10 +270,13 @@ const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
 
 ```js
 musicxx.host.info();
-// { appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, ui }
+// { appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir,
+//   apiVersion, hostVersion, pluginId, ui? }
 //  platform: windows / linux / macos / android / ios / ohos
 //  dataDir:  插件数据根目录（私有 KV 在 <dataDir>/<插件id>/data/kv.json）
+//  pluginId: 本插件 id（只有插件读时才带这个字段）
 //  ui:       客户端界面能力段（见下）
+//  字段逐个的说明见 plugin-api.md §2.5
 
 musicxx.host.configPath();   // 本插件 config.json 的绝对路径
 musicxx.host.log(2, "文字"); // 0 trace / 1 debug / 2 info / 3 warn / 4 error
@@ -309,134 +316,89 @@ ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超时毫秒?);
 ```
 
-- 默认超时 **5000 ms**（插件框架按你给的值生效，不再钳制区间；传 0 = 一直等）；
+- 默认超时 **5000 ms**；`timeoutMs` 传 0 或负数时仍按缺省值处理（**不是"一直等"**）。
+  要等更久（解码整曲、等用户点弹窗）就把超时给大一点；
 - Promise 拒绝时 `err.message` 里带原因，例如 `action_not_registered: xxx`、
   `请求失败：...`、`status=...`；
 - **动作不做权限校验**：清单里的 `permissions` 只做展示，不会拒绝任何调用；
 - 动作未注册（当前版本没实现）会立刻失败，不会挂到超时。
 - **动作名不校验**：插件框架受理任意名字的动作，由主程序按「注册了没有」决定理不理它（没注册立刻失败）；
   官方动作是 `musicxx.<域>.<动作>`，插件自己的动作建议写成 `plugin.<包名>.*` 以免与别的插件撞名；
+- **"动作执行了但条件不满足"与"调用失败"是两件事**：前者 Promise 成功、结果里 `{ok:false, error:"…"}`
+  （例如找不到歌单）；后者 Promise 拒绝（动作没注册、处理器抛异常）；
+- **每个动作做什么、参数与返回是什么**看 [plugin-api.md](plugin-api.md) §3（两边的接口是同一批）。
 
 ### 7.1 分类便捷封装
 
 | 分类 | 方法 |
 |---|---|
 | `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
-| `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)` |
+| `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质用全名 `musicxx.call("musicxx.player.setQuality", {quality})`，没有单独封装） |
 | `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)` |
 | `musicxx.lyrics` | `getCurrent()` |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
+| `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
-| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` |
+| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()` |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
-**当前版本真正注册的动作**（写全名调用时的清单）：
+**动作清单**（每个动作做什么、参数与返回、失败情形与示例）在 [plugin-api.md](plugin-api.md) §3.2；
+本文不再重复。使用时记住三件事：
 
-| 动作 | 参数 | 结果 |
-|---|---|---|
-| `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` | 无 | `{ok:true}` |
-| `musicxx.player.seek` | `{positionMs}`（或 `position`） | `{ok:true}` |
-| `musicxx.player.setVolume` | `{volume}`（0~1；> 1 视为百分比） | `{ok:true}` |
-| `musicxx.player.setSpeed` | `{speed}` | `{ok:true}` |
-| `musicxx.player.setQuality` | `{quality}`（音质枚举名） | `{ok:true}` |
-| `musicxx.player.setLoopMode` | `{mode}`（循环模式枚举名） | `{ok:true}` |
-| `musicxx.library.querySonglists` | 无 | `{mine:[...], local:[...], currentPid, currentName}`（每项 `{pid,name,count,songNum,type}`） |
-| `musicxx.library.querySongs` | `{pid?, limit?=200, offset?=0}` | `{pid, total, songs:[{sid,name,artist,album,durationMs}]}` |
-| `musicxx.library.playSong` | `{sid}`（须在当前歌单里） | `{ok:true}` |
-| `musicxx.library.playSonglist` | `{pid, index?}` | `{ok:true}` |
-| `musicxx.lyrics.getCurrent` | `{limit?=200}` | `{sid, lrcid, name, artist, lineCount, index, lines:[{timeMs,text}]}` |
-| `musicxx.ui.notify` | `{text, kind?}`（`kind:"error"` 走错误提示） | `{ok:true}` |
-| `musicxx.ui.toast` | `{text}` | `{ok:true}` |
-| `musicxx.ui.dialog` | `{title?, content, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` |
-| `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` |
-| `musicxx.ui.setFontFamily` | `{fontFamily?}`（字符串，传 `default` / `""` / `null` 恢复默认） | `{ok:true, fontFamily, isCustom}` 更换全局 `XXText*` 与输入框字体；**换字体要重建整棵界面，动作本身可能耗时几百毫秒到几秒**：页面按钮的能力处理器里必须"发出去就返回"（`.then` 收尾），`await` 它会与同步进插件框架的调用方互锁到超时（见 [plugin-ui.md](plugin-ui.md) §4.1） |
-| `musicxx.ui.getFontFamily` | 无 | `{ok:true, fontFamily, defaultFontFamily, customFontFamily, isCustom}` |
-| `musicxx.ui.loadFont` | `{family, path?, data?, apply?=true}` | `{ok:true, family, applied}` 加载注册字体并可选立即设为全局字体（同上的"不要 await"约定） |
-| `musicxx.storage.get` | `{key, namespace?}` | **值本身**（键不存在 → 空应答，JS 封装回退到默认值） |
-| `musicxx.storage.set` | `{key, value, namespace?}` | `{ok:true}` 或 `{ok:false,error}` |
-| `musicxx.storage.delete` | `{key, namespace?}` | 同上 |
-| `musicxx.storage.list` | `{namespace?}` | `{keys:[...]}` |
-| `musicxx.net.fetch` | 见 §7.2 | 见 §7.2 |
-| `musicxx.net.download` | 见 §7.2 | `{ok, status, path, bytes}` |
-| `musicxx.render.list` / `current` / `select` | 见 §11 | 见 §11 |
-| `musicxx.media.palette` | `{force?}` | 见 §11 |
-| `musicxx.media.palette.set` | `{main?, light?, lightMuted?, dark?, darkMuted?}`（`#rrggbb` / `#aarrggbb`） | `{ok:true}`；写的是与内置分析同一批封面取色字段 |
-| `musicxx.media.cover` | `{size?, format?, includePath?, bind?}` | 见 §11 |
-| `musicxx.media.bindImage` | `{key, data(base64), format, width?, height?}` | `{ok, key, width, height}` 或 `{ok:false, error}` |
-| `musicxx.media.unbindImage` | `{key}` | `{ok:true, released:bool}` |
-| `musicxx.media.spectrum` | `{bandCount?=16, unit?="normalized", includeBins?}` | 当前音频频谱（由插件提供的实现提取，内置『音乐动效』是默认那一份）：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs, positionMs, frameHz, frameIndex, frames, binCount, bandCount, unit, level, bands[], frameData?}`；没有数据也回 `ok:true` |
-| `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` |
-| `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` |
-| `musicxx.host.openUrl` | `{url}`（协议不限，交给系统处理） | `{ok:true}` |
-| `musicxx.host.clipboard` | `{text}` | `{ok:true}` |
-| `musicxx.host.getPath` | 无 | `{pluginId, pluginDir, dataDir, logDir, platform}` |
-| `musicxx.feature.list` | 无 | `{ok:true, features:[...]}`：应用导出的能力清单（id / 说明 / 参数 / 输出形态）。JS 封装 `musicxx.feature.list()` |
-| `musicxx.feature.call` | `{id, args}` | `{ok:true, text?\|json?, output}`：调一个导出能力（`GetAudioSpectrum` / `AnalyseAudioChorus` 这类要解码的长任务给更长超时）。JS 封装 `musicxx.feature.call(id, args?, timeoutMs?)`，默认 30 秒 |
-| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id,title,type,depict,available,callable,callDoc,callStat,rows:[{type,layer,owner,name,priority,enabled,effective,note}]}]}`：功能埋点清单（应用留出了哪些扩展点、现在谁在提供、谁把它关掉了；`callable` / `callDoc` 说明"能不能被主动调用、参数与结果形状"）。JS 封装 `musicxx.feature.points({id, provided}?)` |
-| `musicxx.feature.point.call` | `{id, args?}` | `{ok, value, by, identity, ms}` 或 `{ok:false, error, message}`：**主动调一个功能点**（应用留出的埋点或插件声明的点）。`args` 形状看 `callDoc`。**调用零副作用**：不写应用的值仓、不改应用状态。JS 封装 `musicxx.feature.callPoint(id, args?, timeoutMs?)`，默认 60 秒 |
-| `musicxx.feature.point.define` | `{id, title?, depict?, args?, result?}` | `{ok:true, id}` 或 `{ok:false, error}`：声明自己的功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）。JS 封装 `musicxx.feature.define(specOrId, spec?)` |
-| `musicxx.feature.point.undefine` | `{id}` | `{ok, removed}`：收回自己声明的功能点。JS 封装 `musicxx.feature.unprovide`（摘实现）与 `musicxx.feature` 无独立封装（一般不用调：停用/卸载自动撤） |
-| `musicxx.hook.handlers` | `{hook}` | `{ok:true, hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}`：某个钩子当前的处理器列表（按调用顺序）。JS 封装 `musicxx.hooks.handlers(id)` |
-
-> 名字里有、但**当前版本没有实现**的动作（调用会得到 `action_not_registered`）：
-> `musicxx.player.setPitch` / `setMediaType`、`musicxx.library.querySonglist` / `addSong` /
-> `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` / `set` /
-> `sync` / `search`、`musicxx.ui.setEntryBadge`。写插件前先按这张表确认。
+- **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
+- **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
+  `musicxx.player.setPitch` / `setMediaType`、`musicxx.library.querySonglist` / `addSong` /
+  `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` / `set` /
+  `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` —— 写插件前先按
+  [plugin-api.md](plugin-api.md) §3.3 确认一遍；
+- **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度用
+  `musicxx.player.setSpeed`，想拦一次用户改速用钩子 `musicxx.player.speed`（还没接入））。
 
 ### 7.2 存储（插件私有数据）
 
+> 两块地方（私有 KV / 用户可见的 `config.json`）、参数、返回、限制与坑，见
+> [plugin-api.md](plugin-api.md) §3.2.5。JS 侧的便捷封装就是下面这几个：
+
 | 用途 | API | 存放位置 |
 |---|---|---|
-| 私有 KV | `musicxx.storage.get/set/remove/list` | `<插件数据目录>/<插件id>/data/kv.json` |
+| 私有 KV | `musicxx.storage.get/set/remove/list` | `<dataDir>/<插件id>/data/kv.json` |
 | 用户可见的设置 | `musicxx.storage.getConfig/setConfig`（= 带 `namespace:"config"`） | 插件目录里的 `config.json` |
 
-取值语义（很容易踩的坑）：
-
-- `get(key, 默认值)` / `getConfig(key, 默认值)` 返回**值本身**；键不存在时返回你给的默认值
-  （不给默认值就是 `null`）；
-- `set` / `remove` 成功 = 已经写盘；`config.json` 是整份重写的，所以**不要**用它存高频变化的数据；
-- `list()` 返回 `{keys: [...]}`；键名数组是插件框架内部的存储键（私有 KV 的键带命名空间前缀）；
-- 默认值由**你自己**在 `getConfig` 的第二个参数里给：框架不保存默认值，也没有「恢复默认」的入口
+- `get(key, 默认值)` / `getConfig(key, 默认值)` 返回**值本身**：键不存在时返回你给的默认值
+  （不给默认值就是 `null`）。**不要**再按对象去读应答，否则设置项读不出来；
+- `list()` 返回 `{keys: [...]}`，键名是插件框架内部的存储键（私有 KV 的键带命名空间前缀）；
+- 默认值由**你自己**在第二个参数里给：框架不保存默认值，也没有「恢复默认」的入口
   （用户直接编辑 `config.json` 即可）。
 
 ### 7.3 网络（主程序代理通道）
 
+> 参数、限制、返回结构、下载落盘位置与失败语义见 [plugin-api.md](plugin-api.md) §3.2.6。
+
 ```js
 const resp = await musicxx.net.fetch({
     url: "https://api.example.com/items?page=1",
-    method: "GET",                    // GET / POST / PUT / PATCH / DELETE / HEAD（缺省 GET）
-    headers: { "X-Token": "..." },    // 只允许合法头名；插件框架不注入任何身份信息
-    body: { a: 1 },                   // 对象自动 JSON 编码；字符串原样发送
-    timeoutMs: 15000,                 // 1000 ~ 60000（缺省 15000）
     responseType: "json",             // text（缺省）/ json / bytes
-    maxBytes: 2097152,                // 读进内存的响应体上限（缺省 2 MiB，上限 16 MiB）
+    timeoutMs: 15000,                 // 1000 ~ 60000（缺省 15000）
 });
 // resp = { ok, status, url, headers, contentType,
 //          body | bodyBase64, bodyBytes, receivedBytes, contentLength, truncated }
 ```
 
-- **非 2xx 也按「请求完成」返回**（`ok: true` + `status`），状态码交给你判断；
-  只有传输失败 / 超时才 `ok: false`（此时 `error` 是 `请求失败：...`）；
-- 响应体是**流式读取**的：读满 `maxBytes` 就断开并置 `truncated: true`
-  （`receivedBytes` = 实际从网络读到的字节数，`contentLength` = 响应头声明的总长度，-1 = 未知）；
-- 主程序**不限定可访问的域名**（任意 http/https 都可以）；`musicxx.net` 权限只表示
-  「允许使用主程序这条通道」，不代表插件不能自己联网（动态库插件可以直接用系统 API）；
-- `musicxx.net.fetch` 的动作超时会按 `timeoutMs + 5 s` 放宽，所以 HTTP 超时不会被动作超时先打断。
-
-下载到插件自己的数据目录（`<data>/downloads/`）：
+- **非 2xx 也按"请求完成"返回**（`ok:true` + `status`），只有传输失败 / 超时才 `ok:false`；
+- `responseType:"json"` 目前也给文本（自己 `JSON.parse`）；要原始字节用 `"bytes"`（给 `bodyBase64`）；
+- JS 封装会把动作超时放宽到 `timeoutMs + 5000`，所以 HTTP 超时不会被动作超时先打断。
 
 ```js
 const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a.mp3" });
-// file = { ok, status, path, bytes }
+// file = { ok, status, path, bytes }，落在 <dataDir>/<插件id>/data/downloads/ 里
 ```
 
-- 只支持 `GET` / `HEAD`；`fileName` 只能是**纯文件名**（含路径分隔符或 `..` 会被拒绝），
-  不写时按 URL 推导；存放位置固定在插件自己的数据目录内。
-
 ### 7.4 界面反馈与页面跳转
+
+> 参数、白名单（12 个官方页面别名）、拒绝规则见 [plugin-api.md](plugin-api.md) §3.2.4。
 
 ```js
 await musicxx.ui.notify({ text: "已完成" });                 // 站内提示（kind:"error" 走错误样式）
@@ -452,17 +414,7 @@ await musicxx.ui.openRoute("musicxx:settings");              // 官方页面（�
 ```
 
 - 弹窗标题会自动带插件来源前缀（`『<插件id>』…`），避免插件伪装成主程序自己的提示；
-- `openRoute` 允许两类目标：**任意插件**的 `ext://<插件id>/<视图id>` 页面（含本插件；跨插件页面
-  由对方插件自己绘制，发起方拿不到对方的数据），以及官方页面白名单：
-
-  | 别名键 | 页面 |
-  |---|---|
-  | `musicxx:settings` / `musicxx:about` / `musicxx:logs` | 设置 / 关于 / 日志 |
-  | `musicxx:plugins` / `musicxx:externPlugins` | 插件管理 / 外部插件管理 |
-  | `musicxx:player` / `musicxx:home` / `musicxx:userHome` | 播放页 / 音乐主页 / 用户页 |
-  | `musicxx:search` / `musicxx:localSongs` / `musicxx:history` / `musicxx:lyrics` | 搜索 / 本地歌曲 / 播放记录 / 歌词 |
-
-  地址不完整（缺插件 id 或视图 id）或不在白名单里会被拒绝，错误信息里会列出全部可用别名。
+- `openRoute` 的地址不完整（缺插件 id 或视图 id）或不在白名单里会被拒绝，错误信息里会列出全部可用别名。
 
 ---
 
@@ -482,147 +434,80 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 - 插件之间做协作时，用「对方的 `plugin.<对方id>.*` 主题」或能力调用（§10）都行：
   事件是单向通知，能力调用有返回值。
 
-常用的可订阅主题：
-
-| 主题 | 什么时候来 |
-|---|---|
-| `musicxx.state.changed` | 状态镜像某个键变化（`{key, value}`） |
-| `musicxx.ui.changed` | 某个插件（可能是自己）的 UI 项变化（`{action, id, items}`） |
-| `musicxx.hook.changed` | 钩子处理器注册表变化（`{id, hook, mode, count, action}`） |
-| `musicxx.plugin.log` | 插件日志（`{id, level, message}`） |
-| `musicxx.plugin.error` / `musicxx.plugin.warn` | 插件失败 / 告警（含处理器被暂停的提示） |
-| `musicxx.hook.decision.result` | 异步裁决结果（`{callId, hook, ...}`，调试用） |
-| `musicxx.var.changed` | 变量变化（`{key, value, prev, by, revision, ts, removed?, coalesced?}`；`by` 空串表示应用改的） |
-| `musicxx.var.writeResult` | 自己发起的写入最终结果（`musicxx.vars.set` 内部就是等它，一般不用手动订阅） |
+常用的可订阅主题（完整清单与载荷字段见 [plugin-api.md](plugin-api.md) §4）：
+`musicxx.state.changed`（状态镜像键变化）、`musicxx.var.changed` / `musicxx.var.writeResult`（变量通道）、
+`musicxx.ui.changed`（UI 项变化）、`musicxx.hook.changed`（钩子注册表变化）、
+`musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn`（日志与告警）、
+`musicxx.hook.decision.result`（异步裁决结果，调试用）。
 
 ---
 
 ## 9. 变量（有属主、可读、可写、可订阅变动的小值）
 
-> 定位：**一份有当前值的小状态/配置**——要读、要改、改了要让别人知道。
-> 与邻居的分工（选哪条通道看这里，不要硬凑）：
->
-> | 需要 | 用什么 |
-> |---|---|
-> | 每秒多次读的实时数据（播放进度、歌词行） | 状态镜像（§5，同步读、一次推送多个读者） |
-> | 一次性命令（播放、搜索、发通知、开页面） | 动作（§7） |
-> | 广播一件"发生了某事"（没有当前值） | 事件（§8） |
-> | **要有当前值、要能改、改了要让别人知道** | **变量（本节）** |
-> | 钩子/热路径里**同步**判断 | 变量 + `watch`（保活缓存）+ `peek` |
-
-### 9.1 三条读法（按需要选一条，不是三种都能互相替代）
-
-| 写法 | 时延与新鲜度 | 适合 |
-|---|---|---|
-| `await musicxx.vars.get(key)` | 一次往返；值一定来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
-| `musicxx.vars.peek(key)` | 框架线程查表（只花几纳秒）；可能旧，返回里如实带 `ageMs`/`stale` | 钩子处理器、按帧/按事件的热路径（先用 `watch` 保活） |
-| `musicxx.vars.bind(key, fn)` | 变化时回调 | 要跟着变化做事 |
-| `musicxx.vars.watch(key)` | 不回调，只保证 `peek` 新鲜 | 只要同步读、不要回调 |
+> 概念、与邻居的分工（镜像 / 动作 / 事件 / 变量怎么选）、三条读法的取舍、注册与 handler 模式、
+> 错误码与超时，都在 [plugin-api.md](plugin-api.md) §5；官方变量目录见
+> [plugin-vars.md](plugin-vars.md)。本节只给 JS 的 API 与写法。
 
 ```js
-// 权威读（异步）
+// 读：权威读（异步）/ 一次读多个 / 同步读缓存 / 变化回调 / 只保活缓存
 var level = await musicxx.vars.get("musicxx.ui.animatedLevel");
-// 一次读多个键（插件框架的同键进行中请求会合并）
 var values = await musicxx.vars.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
-
-// 热路径：先保活缓存，再同步读
 musicxx.vars.watch("musicxx.ui.songIconWave");
-musicxx.hooks.observe("musicxx.player.state", function () {
-  var cached = musicxx.vars.peek("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
-  if (cached && cached.value === true) { /* ... */ }
-});
-
-// 订阅变化：回调 (value, info)，info = {key, prev, by, revision, removed, coalesced}
+var cached = musicxx.vars.peek("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
 var off = musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
-  musicxx.host.log(2, "动画等级变成 " + value + "（由 " + (info.by || "应用") + " 改的）");
+    musicxx.host.log(2, "动画等级变成 " + value + "（由 " + (info.by || "应用") + " 改的）");
 });
-```
+off();                                   // bind 返回解绑函数；unbind(key, fn) 也可以
 
-读的失败也走 Promise 拒绝（`变量不存在` / `该变量不可读` / 读取超时）；
-同步的 `peek` 则返回 `null`（没有缓存过就是没有，不抛异常）。
-
-### 9.2 写
-
-```js
+// 写：结果 {key, accepted, value, changed, error?}
 var result = await musicxx.vars.set("musicxx.theme.mode", "night");
 if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
+
+// 注册自己的变量（短名，框架补 plugin.<自己 id>. 前缀）
+musicxx.vars.register({ key: "tip.start", caps: ["get", "set", "notify"], type: "bool", value: false,
+                        title: "开场提示", depict: "为真时播放页显示一句开场提示" });
+musicxx.vars.unregister("tip.start");
+
+// 自省：has(key) / info(key) / list(prefix?) / own() / subscribers(key)
+musicxx.vars.subscribers("tip.start");   // 判断"还要不要继续高频推"
 ```
 
-写入一律**交给属主**：官方键由应用写入（走用户在设置里改的同一条路径）；
-你自己注册的 `declared` 变量由插件框架代存（立即结算）；`handler` 变量转回你自己的 `onWrite`。
-
-### 9.3 注册自己的变量（给别的插件与应用用）
-
-键名写**短名**（`tip.start`），插件框架补成 `plugin.<你的插件id>.tip.start`；
-分组可以多级。变量数量、键长度、值大小与订阅数都不设上限（早期版本的限制已移除）。
+handler 模式（值本来就在脚本里，不想再维护一份副本）：
 
 ```js
-// declared（默认）：值由框架代存，set 即提交 —— 零代码
-musicxx.vars.register({
-  key: "tip.start",
-  caps: ["get", "set", "notify"],   // 可省，缺省 ["get"]；三者可以只实现一部分
-  type: "bool",                      // 可选：bool|number|string|json（展示 + 粗校验）
-  value: false,                      // 可选：缓存初值（不是真值来源）
-  title: "开场提示",
-  depict: "为真时播放页显示一句开场提示",
-  write: "any"                       // 可选：any（默认，谁都能写）| owner（只有自己）
-});
-
-// 读/写自己的变量
-musicxx.vars.set("tip.start", true).then(function (r) { /* r.accepted === true */ });
-```
-
-**handler 模式**：值本来就在你自己手里（不想再维护一份副本，或写入要立刻做别的事）：
-
-```js
-var tipStart = false;                       // 插件自己的状态（唯一真值）
+var tipStart = false;                    // 唯一真值在脚本里
 
 musicxx.vars.register({
   key: "tip.start",
   caps: ["get", "set", "notify"],
   mode: "handler",
   type: "bool",
-  refreshAfterMs: 5000,                     // 有人 watch 时，插件框架最多 5 秒来取一次真实值
-  onRead:  function () { return tipStart; },             // 插件框架来取真实值时求值（回答 get）
-  onWrite: function (value) {                            // 别人写这个变量时由这里处理
+  refreshAfterMs: 5000,                  // 有人 watch 时框架最多 5 秒来取一次真实值
+  onRead:  function () { return tipStart; },              // 回答 get（可以返回 Promise）
+  onWrite: function (value) {                             // 别人写这个变量时由这里处理
     tipStart = (value === true);
-    return tipStart;                                     // 返回值 = 提交给框架的最终值
+    return tipStart;                                      // 返回值 = 提交给框架的最终值
   }
 });
 
-// 插件内部改了自己的状态：主动提交一次，别人才看得到
-function setTipStart(next) { tipStart = next; musicxx.vars.set("tip.start", next); }
+function setTipStart(next) { tipStart = next; musicxx.vars.set("tip.start", next); }  // 自己改了要主动提交
 ```
 
-`onRead` / `onWrite` 的返回值也可以是 Promise；`onWrite` 抛异常（或 Promise 拒绝）时
-框架会自动回一条「拒绝」并把异常文案带给写入方。
+JS 侧要记住的几条：
 
-### 9.4 自省与发现
-
-```js
-musicxx.vars.has("musicxx.theme.available");     // 变量登记过没有（读注册表，不读值）
-musicxx.vars.info("plugin.other.flag");          // {key, caps, mode, owner, type, title, value, revision, ageMs, stale, subscribers}
-musicxx.vars.list("plugin.other.");              // 列出（值字段是缓存值）
-musicxx.vars.own();                              // 自己注册的变量
-musicxx.vars.subscribers("tip.start");           // 有多少人在看（订阅 + watch）：判断"还要不要继续高频推"
-musicxx.vars.unregister("tip.start");
-```
-
-官方变量目录见 `docs/plugin-vars.md`（键 / 能力位 / 取值 / 风险）。
-
-### 9.5 高频与零成本
-
-- **不禁止高频，建议节流**：声明 `throttleMs`（推送侧合并）与 `notifyThrottleMs`
-  （框架侧把通知合并成一条，载荷带 `coalesced`）。超过约 5 Hz 的键请务必声明；
-  每秒多次 + 只想被轮询读的数据更建议放状态镜像（§5）。
-- **没人看就不推**：插件框架会告诉主程序"哪些键有人订阅或 watch"，没人看的键值变化不产生
-  任何 FFI/事件/回调。因此"插件没在跑"或"没人订阅"时，高频变量的成本是零。
-- 变量的读写超时：读默认 2 秒、写（应用）5 秒 /（handler 属主）3 秒；
-  超时按 `读取超时` / `not accepted` 结算，**缓存保持不变**。
-
----
+- **`peek` 是同步的**（返回 `null` = 没缓存过），`get` / `set` 返回 Promise：
+  `get` 失败走 Promise 拒绝（`变量不存在` / `该变量不可读` / `读取超时`）；`set` 被拒时
+  `result.accepted === false`（不会抛异常）；
+- `watch` 只是"订阅但不回调"，用来让 `peek` 有新鲜值（需要该变量声明了 `notify` 能力位）；
+- `register` 的 `onRead` / `onWrite` **可以返回 Promise**（框架等它结算）；`onWrite` 抛异常会被转成一次
+  "拒绝"，异常文案带给写入方；
+- 声明跟着插件生命周期走：禁用 / 卸载会撤销自己的全部变量；每次启用脚本都会重新声明一遍；
+- 键名可以写多级分组（`tip.start.detail`）；写全名 `plugin.<自己的插件id>.*` 也认；
 
 ## 10. 能力（注册 + 跨插件调用）
+
+> 能力的定位（与"功能点"的分工）、注册与调用的约定、超时与失败原因见
+> [plugin-api.md](plugin-api.md) §6；这里只给 JS 的写法与 JS 线程相关的注意点。
 
 ```js
 musicxx.capability.register("probe", (args) => ({ ok: true, args }));
@@ -631,8 +516,7 @@ musicxx.capability.register("my_name", (args) => ({ ok: true }));   // 短名即
 const info = await musicxx.capability.call("example_native", "probe", {});
 ```
 
-- 能力全名是 `plugin.<插件 id>.<短名>`；主程序（Dart）用
-  `MusicxxPluginManager.call(id, "probe", args)`（返回 `Future`，默认 30 秒超时），插件框架用同名能力名调用；
+- 能力全名是 `plugin.<插件 id>.<短名>`（JS 写短名，框架补前缀）；
 - 处理器可以**同步返回**可 JSON 序列化的结果，也可以返回 Promise（插件框架会等到它结算再给调用方结果）；
 - **调用只有异步形态**（Dart 侧只受理不等待，结果经事件回填）：插件慢或卡住不会再让应用界面没反应，
   处理器里发起的动作也能被处理完（主程序那条路不会互锁）。
@@ -648,8 +532,8 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 
   | 目标 | 行为 |
   |---|---|
-  | JS 插件 | 在共享 JS 线程上**直接调用**；处理器同步返回时结果立即就绪，返回 Promise 时等它结算（同一条线程，不跳线程） |
-  | 动态库插件 | 投递到框架线程执行，脚本**不阻塞**；结果经 `ext.onCapabilityResult` 回到 JS 线程（超时缺省 3 s；传 0 = 一直等） |
+  | JS 插件 | 在共享 JS 线程上**直接调用**：处理器同步返回时结果立刻就有，返回 Promise 时等它结算（同一条线程，不跳线程） |
+  | 动态库插件 / 内置目标 | 投递到框架线程执行，脚本**不阻塞**；结果回到 JS 线程（超时缺省 3 s；`≤ 0` 时插件框架仍按 3 秒处理，不是"一直等"） |
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
   （`plugin_capability_not_found: xxx` / `capability_call_failed` / `跨插件调用超时: ...`）；
@@ -664,6 +548,9 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3），由用户在设置里选中后生效；
 也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
 [plugin-shader-bundle.md](plugin-shader-bundle.md)，本节只说 JS 侧怎么用。
+
+> 渲染槽位的动作（`musicxx.render.*`）与封面 / 频谱动作（`musicxx.media.*`）的**参数、返回与状态含义**
+> 在 [plugin-api.md](plugin-api.md) §3.2.7 与 §3.2.8（两种形态共用）；本节是 JS 的声明写法与注意点。
 
 ```js
 // 接管播放页中间的歌曲图（类型简称 playing.icon）：不显示内容、只保留占位
@@ -827,32 +714,23 @@ musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
 });
 ```
 
-- **取色钩子**（`musicxx.media.palette.provide`）是**裁决型**：有插件给出可解析的颜色就用它，
-  没人给 / 一个颜色都没解析出来就走内置分析；`musicxx.media.palette` 的返回里 `source` 会告诉
-  你这套颜色是 `"plugin"` 还是 `"builtin"`；异步派发，等待期间切歌时本次结果会被丢弃
-  （`srcKey` 可自行校验）。**处理器必须尽快返回**：应用最多等 800ms（超时按"没给"处理，
-  走内置快速取色），并且**绝不要在处理器里 `await` 主程序动作**（切换背景样式、切歌、渲染准备
-  都在等这次裁决，等动作会互相拖到超时 —— 表现是"卡几秒"）；用上面的写法：
-  同步返回缓存、未命中返回 null 并异步预热、算好用 `musicxx.media.setPalette` 写回。钩子载荷与
-  写法的完整说明见 [plugin-hooks.md](plugin-hooks.md)；
-- **频谱提取钩子**（`musicxx.media.spectrum.extract`）是**裁决型**：应用要提取一首歌的整曲频谱时
-  先问你。返回合法的 `spectrum`（`spectrums` 必需）就用你的数据，没返回 / 数据不合法就用已登记的
-  实现（内置『音乐动效』），两边都没有则这个功能整体不可用（进度条波形、播放页动效、
-  `musicxx.state.spectrum` 都会是"没有数据"）。**应用最多等 30 s**：数据提前算好
-  （换歌时用观察型钩子预热），处理器里同步返回缓存或 null，别在里面 `await` 主程序动作
-  （那会再加一次往返）；
-- **副歌分析钩子**（`musicxx.media.chorus.analyse`）是**裁决型**：应用要分析一首歌的副歌时先问你，
-  载荷里带上已经拿到的整曲频谱（`hasWave` 为真）。返回 `{chorus: {sections: [...]}}` 就用你的区段
-  （空数组 = 分析过了、没有副歌），返回 null 就用已登记的实现。**应用最多等 20 s**，写法同上。
-  两个钩子的载荷字段、数据格式、超时与失效规则见 [plugin-hooks.md](plugin-hooks.md)；
+- 三个"取值型"钩子的完整语义（载荷、数据格式、超时、置空裁决、失效规则）见
+  [plugin-hooks.md](plugin-hooks.md)，调用方的写法与代价见 [plugin-api.md](plugin-api.md) §7：
+  - **封面取色**（`musicxx.media.palette.provide`）：命中缓存就**同步**返回，未命中返回 `null`
+    并异步预热，算好用 `musicxx.media.setPalette` 写回。**绝不要在处理器里 `await` 主程序动作**
+    （切换背景样式、切歌、渲染准备都在等这次裁决，等动作会互相拖到超时 —— 表现是"卡几秒"）；
+    应用最多等 800 ms（超时按"没给"处理）；
+  - **整曲频谱**（`musicxx.media.spectrum.extract`）：应用最多等 30 s，数据量大（4 分钟歌曲的频点
+    base64 后约 800 KB），**只在自己本来就要分析音频时才注册**；处理器里同步返回缓存或 `null`；
+  - **副歌分析**（`musicxx.media.chorus.analyse`）：应用最多等 20 s，载荷里带上已拿到的整曲频谱
+    （`hasWave` 为真），返回 `{chorus: {sections: [...]}}`（空数组 = 分析过了、这首歌没有副歌）。
 - `musicxx.media.palette.set` 是**主动写**：只覆盖你给的键，其余保持不变；换歌后内置分析会照旧
   重跑（想持续提供就用上面的钩子）；
-- **封面变化**（`musicxx.media.cover.changed`）是**观察型**：注册 handle 后，换歌、同一首歌换了
-  封面图、封面被清空时各收到一次（同一个封面源被重复设置不会重复派发）。载荷
+- **封面变化**（`musicxx.media.cover.changed`）是**观察型**：注册后，换歌、同一首歌换了封面图、
+  封面被清空时各收到一次（同一个封面源被重复设置不会重复派发）。载荷
   `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` /
   `network`）里**没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里
-  采样就声明渲染项的 `cover` / `image`；**可以回退移除**：`musicxx.hooks.unregister(...)` 之后
-  插件框架不再派发，重新 `register` 即恢复，插件停用 / 卸载时插件框架也会自动摘掉处理器：
+  采样就声明渲染项的 `cover` / `image`；**可以回退移除**，插件停用 / 卸载时插件框架也会自动摘掉：
 
 ```js
 musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (ctx) => {
@@ -917,7 +795,7 @@ musicxx.capability.register("card", function (args) {
                 { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。", style: "cross" },
                 { kind: "Divider" },
                 { kind: "Button", title: "播放/暂停", style: "primary",
-                  action: { kind: "action", name: "musicxx.player.toggle" } },
+                  action: { kind: "command", name: "musicxx.player.toggle" } },
                 { kind: "Button", title: "打开本插件设置页",
                   action: { kind: "route", route: "ext://my_plugin/settings" } },
             ],
@@ -929,7 +807,11 @@ musicxx.capability.register("card", function (args) {
 - 能力返回 `{ view: {...} }`（推荐）或直接返回视图对象；返回视图时主程序会用新视图**刷新当前页面**
   （按钮改配置 + 立即刷新就是这么做的）；
 - `musicxx.ui.updateEntry("card", 完整 data)` 是**整体替换**，只想改一个字段也要传完整 data；
-- `musicxx.ui.entries()` 返回本插件已注册项的脚本侧镜像（不含框架快照里的 `id` 前缀处理，调试用）。
+- `musicxx.ui.entries()` 返回本插件已注册项的脚本侧镜像（不含框架快照里的 `id` 前缀处理，调试用）；
+- UI 项的类型与字段、页面块类型、动作四种写法（`route` / `dispatch` / `command` / `none`）、
+  按 `host.info().ui` 降级、图标要自带 svg —— 见 [plugin-ui.md](plugin-ui.md) 与
+  [plugin-api.md](plugin-api.md) §9.1；本插件页面的路由是 `ext://<自己的插件id>/<视图id>`，
+  视图 id 必须与能力短名一致。
 
 ---
 
@@ -974,7 +856,11 @@ musicxx.util.now();                   // Date.now()
 
 只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）；
 只关心某一个特性时读对应的单特性示例：`plugins/example_js_vars/`（变量通道）、
-`plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、`plugins/example_js_async/`（裁决处理器返回 Promise）。
+`plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、`plugins/example_js_async/`（裁决处理器返回 Promise）、
+`plugins/example_js_font/`（动态加载字体并设为全局字体）。
+
+动态库侧的对照读：`plugins/example_native/example_native.cpp` 与 `plugins/example_js/plugin.js` **行为等价**
+（钩子 / 状态镜像 / 动作 / 事件 / 能力 / 功能点 / UI / 通知各一遍），同一个功能想看两边写法时对照着读最省事。
 
 ---
 
@@ -1005,6 +891,9 @@ musicxx.util.now();                   // Date.now()
 **应用卡住时**：主程序日志目录下有一份 `host_call.log`（进插件框架调用的同步轨迹，卡住后
 **最后一行就是没有返回的那次调用**）；配合「插件详情 → 日志」一起看，就能区分是脚本死循环还是动作等待。
 
+**排障**：接口本身的坑（动作没实现、镜像键写错、设置项读错、处理器里等动作……）整理在
+[plugin-api.md](plugin-api.md) §12，那里是两种形态共用的一份；下面是 JS 特有的。
+
 **常见坑**
 
 | 现象 | 原因 / 处理 |
@@ -1014,7 +903,7 @@ musicxx.util.now();                   // Date.now()
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再调一次能力返回 `{view:...}`，或重新打开页面 |
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
-| 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（见 §7.1 的表尾） |
+| 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（清单见 [plugin-api.md](plugin-api.md) §3.3） |
 | 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（主程序还没有接） |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
@@ -1029,6 +918,8 @@ musicxx.util.now();                   // Date.now()
 |---|---|
 | 异步裁决 | **已支持**：裁决处理器可以返回 Promise（插件框架一直等到结算，结算后裁决生效）；同步返回仍是最省时的写法 |
 | 异步能力 | **已支持**：能力处理器可以返回 Promise（插件框架会等到结算再给调用方结果）；长时间后台任务仍建议用动作请求 / 事件 / 定时器 |
+| 动作超时 | 缺省 5000 ms，`timeoutMs <= 0` 时**仍按 5000 ms**（JS 封装没有"不设超时"这一档；要长时间等就显式给大一点的值） |
+| 跨插件能力超时 | 缺省 3 s；`<= 0` 时插件框架仍按 3 s 处理（不是"一直等"） |
 | 资源限制 | 插件框架不限制 JS 内存、执行时长与 JS插件数量；死循环会占住共享 JS 线程（没有中断开关） |
 | 定时器精度 | 框架线程按 ≤ 50 ms 粒度轮询，不适合高精度计时 |
 | 与动态库插件的差别 | JS插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`；不能注册原生线程；能力处理器可以是异步的（返回 Promise，插件框架等它结算） |
