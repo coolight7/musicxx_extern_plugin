@@ -83,6 +83,11 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | `plugin logs` | `externPlugin.logs` |
 | `plugin clear-logs` | `externPlugin.clearLogs` |
 
+> 另有一条 `musicxx-cli open "<musicxx://…>"`：按**链接形态**请求主程序（与手机点开链接、
+> 启动参数 `--uri` 是同一条解析路径）。它不转发命令，用来验证链接写法（例如
+> `musicxx-cli open "musicxx://play/?url=…"`）。注意**链接里调不了上面这些插件管理命令**
+> （`externPlugin.*` 在链接里被拒绝，装插件等于执行任意代码），要装 / 卸插件请用本表的命令。
+
 插件之外的两条排障命令（同样可以用 `call` 直调）：
 
 | CLI | 服务端命令 id | 作用 |

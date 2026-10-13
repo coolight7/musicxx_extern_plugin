@@ -245,6 +245,7 @@ requestAction("musicxx.player.toggle", "{}", &notify, 5000, &requestId);
 | `musicxx.player.stop` | 无 | `{ok:true}` | 停止 |
 | `musicxx.player.next` | 无 | `{ok:true}` | 下一曲（走应用的切歌流程） |
 | `musicxx.player.prev` | 无 | `{ok:true}` | 上一曲 |
+| `musicxx.player.playSrc` | `{src}`（单个音源）或 `{sources}`（数组）；`{type}`：`auto`/`local`/`link`（缺省 `auto`）；`{filterExt}`：只接受扫描配置里允许的媒体后缀；`{name}` 显示名 | `{ok:true, count, single, name, sid, artist, sources, skipped?}` | 按来源播放：本地路径 / `content://` / 文件链接 / 拟声音源字符串。**和 applink（`musicxx://play/`）、启动参数、命令行、MCP 是同一个入口、同一套参数名**；一个来源追加到当前播放列表并播，多个来源一次列成临时歌单。没有可播的来源 → `{ok:false,error:"没有可播放的音源"}` |
 | `musicxx.player.seek` | `{positionMs}` 或 `{position}`（毫秒），或 `{percent}`（0~1） | `{ok:true}` | 都缺 → `{ok:false,error:"缺少参数 positionMs"}` |
 | `musicxx.player.setVolume` | `{volume}`（0~1；> 1 视为百分比，自动除以 100，最后钳到 0~1） | `{ok:true}` | 缺参数 → `{ok:false,...}` |
 | `musicxx.player.setSpeed` | `{speed}`（倍速） | `{ok:true}` | |
