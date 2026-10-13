@@ -1,41 +1,126 @@
-# musicxx 的对外接口：MCP / 命令行 / 本机 HTTP
+# musicxx 的对外接口：链接 / 启动参数 / MCP / 命令行 / 本机 HTTP
 
 > 这篇是 **musicxx（主程序）对外暴露的全部接口**的总表：谁在什么场景用哪条通道、怎么连上、
 > 请求与响应是什么形状、权限边界在哪、出问题从哪里看。
+>
+> 先说结论：**七条通道共用同一份实现（命令注册表）和同一套参数名**，一次调用只有一种形状
+> `{"cmd": "<入口 id>", "args": {…}}`。链接（applink）与进程启动参数只是"把这次调用说出来"
+> 的两种额外写法，见 §1。
 >
 > 插件自己的接口（动作 / 变量 / 功能点 / 钩子 / 能力 / 界面）在 [plugin-api.md](plugin-api.md)；
 > 用命令行装插件、改完刷新、看插件日志在 [plugin-agent-cli.md](plugin-agent-cli.md)。
 
 **术语**：**主程序**指 musicxx（Flutter/Dart 业务层）；**插件框架**指外置插件的 C++ 层。
 
-## 1. 五条通道，先选对
+## 1. 七条通道，一份实现
+
+**一次外部调用在所有通道里都是同一个形状**：
+
+```json
+{"cmd": "<入口 id>", "args": {…}}
+```
+
+结果也只有一个形状：`{ok, cmd?, data? | error?}`。入口 id 就是命令 id，实现在命令注册表里
+**只有一份**（主程序 `lib/manager/cli/` 与 `lib/manager/entry/`）；每条通道只是"怎么把这次调用
+说出来"不同 —— 详见 §1.1 与 §1.2、§1.3。
 
 | 通道 | 谁在用 | 入口 | 说明 |
 |---|---|---|---|
 | **MCP 工具** | AI 客户端（Claude Code / Desktop / Cursor / 自研 agent） | `http://127.0.0.1:<端口>/mcp`（Streamable HTTP），或 `musicxx-cli mcp`（stdio 桥） | §5 |
 | **本机命令行** | 人、脚本、agent | `musicxx-cli`（独立可执行文件）→ 主程序 `/cli` | §4 |
+| **本机链接（applink / deep link）** | 手机点链接、桌面点 `musicxx://…`、其他应用跳过来 | `musicxx://…` 交给系统 → 应用自己解析 | §1.2 |
+| **进程启动参数** | 文件关联、"用拟声打开"、命令行传参、第二个实例转发 | `musicxx <参数…>` | §1.3 |
 | **插件内部** | 装在应用里的动态库插件 / JS插件 | 动作 / 变量 / 功能点 / 钩子 / 能力 | [plugin-api.md](plugin-api.md) |
 | **局域网设备之间** | 另一台装了 musicxx / 流明的设备（控制页、一起听、资源代理） | `/control`、`/connectEvent`、`/getSrc`、`/parseSrc`、`/listenTogether`、`/ws/*` | §6 |
 | **设备发现** | 同网段的设备互相发现 | mDNS 服务 `_boolxx-service._udp` + HTTP `/active` | §6.1 |
 
-**同一件事在不同通道上的名字**（三条通道调的是**同一份实现**：命令注册表
-`lib/manager/cli/`，MCP 与命令行都只是它的两个外壳）：
+**同一件事在不同通道上的名字**（全部落到同一份实现：命令注册表）：
 
-| 要做的事 | MCP | 命令行 | 插件动作 |
-|---|---|---|---|
-| 读当前媒体信息 | `GetMediaInfo` | `musicxx-cli status`（命令 `status`） | —（读状态镜像 `musicxx.state.player`） |
-| 暂停 | `MediaPlayOrPause`（`operator:"pause"`） | `musicxx-cli pause`（命令 `musicxx.player.pause`） | `musicxx.player.pause` |
-| 副歌区段 | `AnalyseAudioChorus`（能力工具） | `musicxx-cli feature call AnalyseAudioChorus` | `musicxx.feature.call` |
-| 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` |
-| 装插件 | `InstallExternPlugin` | `musicxx-cli plugin install` | **没有这个动作**（见 §7） |
+| 要做的事 | MCP | 命令行 | 插件动作 | 链接（applink） | 启动参数 |
+|---|---|---|---|---|---|
+| 读当前媒体信息 | `GetMediaInfo` | `musicxx-cli status`（命令 `status`） | —（读状态镜像 `musicxx.state.player`） | `musicxx://call/?cmd=status` | `--cmd status` |
+| 暂停 | `MediaPlayOrPause`（`operator:"pause"`） | `musicxx-cli pause`（命令 `musicxx.player.pause`） | `musicxx.player.pause` | `musicxx://musicxx.player.pause` | `--cmd musicxx.player.pause` |
+| 播放一个文件 / 链接 | `PlayMedia`（命令 `musicxx.player.playSrc`） | `musicxx-cli call musicxx.player.playSrc --args '{"src":"…"}'` | `musicxx.player.playSrc` | `musicxx://play/?url=…` | 直接给文件路径，或 `--uri …` |
+| 跳搜索页 | `OpenSearch`（命令 `musicxx.ui.openSearch`） | `musicxx-cli call musicxx.ui.openSearch --args '{"keyword":"…"}'` | —（插件用 `musicxx.ui.openRoute`） | `musicxx://search/?keyword=…` | `--cmd musicxx.ui.openSearch --args '{"keyword":"…"}'` |
+| 副歌区段 | `AnalyseAudioChorus`（能力工具） | `musicxx-cli feature call AnalyseAudioChorus` | `musicxx.feature.call` | — | — |
+| 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=featurePoint.list` | `--cmd featurePoint.list` |
+| 装插件 | `InstallExternPlugin` | `musicxx-cli plugin install` | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
+
+> **写链接或启动参数之前，先问一次清单**：`musicxx-cli list --json`（或 GET `/cli/list`）里有
+> `commands`（入口 id、参数声明）与 `entries`（哪些入口能用链接调进来、链接形态与取值候选）。
+> 不要照着文档硬编码 —— 清单会随能力注册表增长。
+
+### 1.1 applink（协议 `musicxx://`）
+
+系统把整条链接交给应用，应用解析成一次"统一调用"（参数名与命令声明的完全一致；下面这些
+参数都要 **UrlEncode**，习惯写法是带尾部斜杠的 `musicxx://play/?…`，不写也能识别）：
+
+| 链接 | 归一成 | 说明 |
+|---|---|---|
+| `musicxx://play/?media=<拟声音源字符串>` | `musicxx.player.playSrc {src}` | 推荐写法：音源格式的字符串（歌曲-详情-音源里可长按复制） |
+| `musicxx://play/?filename=<文件名\|路径>` | `musicxx.player.playSrc {src, type:"local"}` | 按本地文件/缓存里的文件名找（不同设备路径不同时省事） |
+| `musicxx://play/?url=<链接>` | `musicxx.player.playSrc {src, type:"link"}` | `https://…`、`file:///…` 或直接路径 |
+| `musicxx://play/?search=<关键词>` | `history.playByInfo {info, tip:true}` | 在播放记录里模糊找一首并播放，没找到会弹提示 |
+| `musicxx://search/?type=<类型>&keyword=<词>` | `musicxx.ui.openSearch {type, keyword}` | `type` 取值见 §4.3；两个参数都可省 |
+| `bilibili://search/?keyword=<词>` | `musicxx.ui.openSearch {keyword, type:"bili"}` | 等同上一条的 `type=bili` |
+| `musicxx://call/?cmd=<入口 id>&args=<JSON>` | 直接调用该入口 | 通用形态，`args` 省略时其余查询参数按参数名取值（值都是字符串） |
+| `musicxx://call/?cmd=musicxx.player.setVolume&volume=0.5` | `musicxx.player.setVolume {volume:"0.5"}` | 查询参数名 = 命令参数名 |
+| `musicxx://<入口 id>` | 直接调用该入口 | 例如 `musicxx://musicxx.player.toggle`（入口 id 大小写不敏感） |
+
+- `musicxx://play/` 同时给多个参数时，按上表**从上到下**取第一个有值的（与旧版行为一致）；
+  一个候选都没有 → 该链接解析失败（日志里有一行可读原因）；
+- 不认识的链接（host 既不是 `play` / `search` / `call`，也不是入口 id）只记一行日志，不做事；
+- **链接不能调管理类入口**：`externPlugin.*`（装 / 卸 / 启用 / 重载 / 重启插件）在链接里一律拒绝
+  （见 §7）。这类操作请用本机命令行或 MCP，或用户自己在终端里用 `--cmd` 传；
+- **Android 的 intent filter 只声明协议**（`scheme=musicxx`，host 不限），所以新增入口形态不用改
+  manifest；桌面端由应用在注册表里注册 `musicxx` 协议（Windows 是 `HKCU\Software\Classes\musicxx`，
+  打开方式为 `"<程序>" "%1"`），点链接即以这条链接为启动参数拉起应用。
+- 在桌面端不用真的点链接也能验证：`musicxx-cli open "musicxx://play/?url=…"`，
+  或 POST `/cli` 的 `{"uri": "…"}`（同一份解析）。
+
+### 1.2 进程启动参数
+
+启动参数（文件关联、"用拟声打开"、终端里直接传、第二个实例转发）也会变成统一调用：
+
+| 写法 | 归一成 |
+|---|---|
+| `--call '<JSON>'` | JSON 里的 `cmd` + `args` |
+| `--cmd <入口 id> [--args '<JSON>']` | 该入口 + 参数 |
+| `--uri <musicxx://…>` | 按 §1.1 解析 |
+| 裸参数：文件路径 / `content://` / 链接 / `musicxx://` 链接 | 链接按 §1.1 解析；其余文件一次交给 `musicxx.player.playSrc {sources:[…], filterExt:true}`（本地文件按扫描配置过滤后缀，一个文件追加到当前列表并播，多个列成临时歌单） |
+
+- 可以混着写：`musicxx musicxx://play/?url=a.mp3 b.mp3` 会先播 `a.mp3`，再把 `b.mp3` 加进来；
+- 命令行里若带上了程序自身路径（文件关联常见），会被丢掉（判据与单实例检查同一套）；
+- 认不出来的选项（`--x`）与写错的 JSON 只记日志，不打断后面的参数；
+- 参数里的 `--call` 与 `/cli`、MCP 的请求体是**同一个 JSON**，可以直接搬。
+
+### 1.3 参数名与别名
+
+**命令声明的参数名就是唯一的名字**，各通道都用它：
+
+| 概念 | 参数名 | 备注 |
+|---|---|---|
+| 音源 | `src`（单个）/ `sources`（数组）/ `type`（`auto`/`local`/`link`）/ `name` | 链接上的 `media` / `filename` / `url` 是 `src` 的历史写法（见 §1.1） |
+| 进度 | `positionMs`（毫秒）/ `percent`（0~1） | `musicxx.player.seek` 也接受 `position`（历史写法） |
+| 音量 / 速度 / 音质 / 循环 | `volume`（0~1）/ `speed` / `quality` / `mode` | —— |
+| 歌单 / 歌曲 | `pid` / `type`（local/net）/ `index` / `songName` / `sid` | —— |
+| 播记录匹配 | `info` / `tip`（没找到是否弹界面提示） | —— |
+| 搜索页 | `type` / `keyword` | —— |
+| 日志 | `file` / `offset` / `level` / `keyword` / `exclude` / `limit` | 应用日志与插件日志同一套 |
+
+- 参数字段与 MCP 的 inputSchema 是同一份（`MusicxxFeatureParam_c`：`string` / `number` /
+  `integer` / `boolean` / `enum` / `array`）；
+- **数字与布尔接受文本写法**（`"0.5"`、`"600"`、`"true"`），因为链接与 HTTP 查询串里都是字符串；
+- 没有声明参数的入口按"宽松解析"处理（数字与字符串可互转），参数不对时的答复里带可读原因。
 
 ## 2. 先决条件与连接
 
 | 条件 | 说明 |
 |---|---|
-| 主程序在运行 | 五条通道都由主程序的 HTTP 服务提供。没在运行时命令行退出码 2（加 `--start` 可以先拉起） |
+| 主程序在运行 | MCP / 命令行 / 局域网这几条都由主程序的 HTTP 服务提供（applink 与启动参数本身就能把应用拉起来）。没在运行时命令行退出码 2（加 `--start` 可以先拉起） |
 | HTTP 服务已绑定 | 主程序启动时就绑定（`InternetAddress.anyIPv4`，端口按设置，默认随机）：启动日志里有一行 `[HttpServer] 已启动: http://127.0.0.1:<端口>/` |
-| `/cli` 只在桌面端 | Android / iOS 没有 `/cli`（按平台判断）；`/mcp` 与局域网那几条在服务起来后都能用 |
+| `/cli` 只在桌面端 | Android / iOS 没有 `/cli`（按平台判断）；`/mcp` 与局域网那几条在服务起来后都能用。**手机上外部只能靠链接**（§1.1） |
+| 应用已走完启动 | 命令行 / MCP / HTTP 与"应用跑起来之后"进来的链接、启动参数都要等应用就绪：入口调用会先等（默认最多 15 秒），等不到返回 `app_not_ready`（命令行是 503 / 退出码 2）。**唯一不等的是启动流程自己**（首次链接、这次启动带的参数）：它们发生在"就绪"置位之前，与旧行为一致立即执行 |
 | 命令行文件 | `musicxx-cli` 与主程序**编译到同一目录**（Windows `musicxx-cli.exe`；Linux 是 bundle 根目录；macOS 在 `Musicxx.app/Contents/MacOS/musicxx-cli`）。找不到时看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里写着当前路径与可复制的命令 |
 
 ### 2.1 接入点文件（端口从哪来）
@@ -75,21 +160,30 @@
 ## 3. `/cli` 的协议形状
 
 ```
-GET  /cli   |  /cli/list    自描述：命令、参数、来源、就绪状态
+GET  /cli   |  /cli/list    自描述：命令、参数、来源、统一入口表、就绪状态
 GET  /cli/ping              存活 + 是否就绪 + 端点信息
-POST /cli                   {"cmd": "<命令 id>", "args": {…}} → 执行一条命令
+POST /cli                   {"cmd": "<入口 id>", "args": {…}}         ← 与命令行、MCP、插件动作同形
+                          | {"uri": "musicxx://play/?url=…"}          ← 与链接（applink）同一条解析
+                          | {"argv": ["--call", "…", "a.mp3"]}        ← 与进程启动参数同一条解析
 ```
+
+**三种请求体归一成同一次调用**（`{"cmd", "args"}`），解析与执行都在主程序
+`lib/manager/entry/`：`uri` 与 `argv` 只是"把别的通道的形态搬到 HTTP 上"，方便脚本与排障
+（不用真的点一次链接）。一次请求只执行一条调用：`argv` 解析出多条时给 400，请分几次请求。
 
 响应体只有一种形状：`{ok, cmd?, data? | error?}`。
 
 | HTTP 状态码 | 什么时候出现 |
 |---|---|
 | 200 | 请求合理。**命令本身的失败也是 200 + `ok:false`**，调用方只看 `ok` |
-| 400 | 请求体不是 JSON 对象 / 缺 `cmd` / `args` 不是对象 |
+| 400 | 请求体不是 JSON 对象 / 缺 `cmd` / `args` 不是对象 / `uri` 认不出来 / `argv` 解析出多条 |
 | 403 | 非本机且没有远程控制权限 |
 | 404 | 路径不认识 |
 | 405 | 方法不对（只接受 GET / POST） |
 | 503 | 应用还在启动收尾（`app_not_ready`；默认先等 15 秒才这么答） |
+
+`GET /cli/list` 的 `data` 里，除了 `commands`（入口 id、参数、来源）与 `entries`（哪些入口能用
+链接调进来、链接形态与取值候选），还有 `entryArgv`（启动参数形态的说明，逐行）。
 
 - 路径对大小写与末尾斜杠容错（`/CLI/` 也认）；
 - 不经命令行直连（排查时最省事）—— 先把 `17001` 换成接入点文件里的 `port`：
@@ -106,20 +200,20 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 74 条 = 动作 50 + 应用命令 19 + 能力导出 2 + 变量 3）
+## 4. 命令面（当前 77 条 = 动作 51 + 内置与应用命令 21 + 能力导出 2 + 变量 3）
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 19 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台、外部插件管理、日志、功能点 |
-| `action` | 50 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
+| `builtin` | 21 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台、外部插件管理、日志、功能点、**统一入口的播放音源与跳搜索页** |
+| `action` | 51 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
 命令表**自描述**：`musicxx-cli list --json`（或 GET `/cli/list`）里 `commands[]` 每项是
-`{id, title, kind, description?, params: []}`。写脚本时先问一次，不要硬编码参数表
-（条数会随能力注册表增长）。
+`{id, title, kind, description?, params: []}`，另有 `entries[]`（链接形态）。写脚本时先问一次，
+不要硬编码参数表（条数会随能力注册表增长）。
 
 ### 4.2 参数怎么解析
 
@@ -128,24 +222,28 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 | 字段 | 含义 |
 |---|---|
-| `name` / `type` | 参数名；类型 `string` / `number` / `integer` / `boolean` / `enum` |
+| `name` / `type` | 参数名；类型 `string` / `number` / `integer` / `boolean` / `enum` / `array` |
 | `required` | 必填（没有默认值的参数通常是必填） |
 | `defaultValue` | 缺省值（不传就用它） |
 | `minimum` / `maximum` | 数值范围 |
 | `options` | `enum` 的候选值 |
+| `itemType` | `array` 的元素类型（目前只有 `string`） |
 
-没有声明 `params` 的命令（动作那一批）把入参**原样交给动作**，动作自己做宽松解析
-（数字与字符串可互转、布尔认 `true` / `false` 文本）。参数不对时答复形如
+数字与布尔类型**也接受文本写法**（`"600"`、`"0.5"`、`"true"`）：链接与 HTTP 查询串里拿到的
+都是字符串，各通道就不用各写一遍转换。没有声明 `params` 的命令（动作那一批）把入参**原样交给
+动作**，动作自己做宽松解析（数字与字符串可互转）。参数不对时答复形如
 `{"ok":false,"error":"参数 xxx 非法: …"}`。
 
-### 4.3 内置与应用命令（19 条）
+### 4.3 内置与应用命令（21 条）
 
 | 命令 | 参数 | `data` |
 |---|---|---|
 | `status` | 无 | 当前媒体的结构化快照（标题 / 歌手 / 专辑 / 总时长 / 进度 / 状态 / 循环 / 速度 / 应用内音量 / 文件名 / 格式 / 采样率 / 码率）；没有播放过时带 `hasMedia:false` |
+| `musicxx.player.playSrc` | `src?`(string，单个音源)、`sources?`(array，多个音源)、`type?`(`auto`/`local`/`link`，缺省 `auto`)、`filterExt?`(bool，只接受扫描配置里的媒体后缀)、`name?`(显示名) | `{count, single, name, sid, artist, sources, skipped?}`：按来源播放（本地路径 / `content://` / 文件链接 / 拟声音源字符串）。一个来源追加到当前播放列表并播，多个来源列成临时歌单。**这是 applink `musicxx://play/` 与启动参数裸文件背后的入口**，三条通道参数名一致 |
 | `lrc.current` | `word?`(bool) | `{hasLyric, word, lineCount, text?}`：当前歌词的 `.lrc` 文本，`word:true` 尽量给逐字（增强型） |
 | `playlist.play` | `pid`(int,必填)、`type?`(local/net)、`index?`(int)、`songName?`(string) | `{pid, sid, name, artist}`：播歌单里的一首（按 `index` 或名字包含匹配找，都不给播第一首） |
-| `history.playByInfo` | `info`(string,必填) | `{found, sid?, name?, artist?}`：在播放记录里按标题 / 歌手匹配最相关的一首并播放 |
+| `history.playByInfo` | `info`(string,必填)、`tip?`(bool) | `{found, sid?, name?, artist?}`：在播放记录里按标题 / 歌手匹配最相关的一首并播放；`tip:true`（applink `musicxx://play/?search=` 用它）时没找到会弹界面提示 |
+| `musicxx.ui.openSearch` | `type?`(枚举，见下方类型表)、`keyword?`(string) | `{route, type, keyword}`：打开搜索页并带上类型与关键词。**applink `musicxx://search/`、`bilibili://search/` 背后的入口** |
 | `clocking.set` | `duration?`(秒 1~86400)、`enableStopAfterFinish?`、`enableSleepMode?`、`exitWhenStop?` | `{started, durationSeconds, durationText, …}`；什么都不给时沿用用户上次的设置（没有则 60 分钟） |
 | `clocking.cancel` | 无 | `{ok:true}`（没设置过也算成功） |
 | `window.foreground` / `window.background` | 无 | `{ok:true}` |
@@ -160,6 +258,10 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `app.logs` | `file?`(error/info/both)、`offset?`、`level?`(名字或数值)、`keyword?`、`exclude?`、`limit?`(1~500) | `{logs:[{timeText, level, file, source, text}…], total, hasMore, fileSize, parseErrors, flushedHint}`，**新的在前** |
 | `featurePoint.list` | `id?`、`provided?`(bool) | `{ok:true, points:[{id, title, type, available, callable, rows, callDoc?, callStat?}…]}` |
 | `featurePoint.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `busy` / `failed`） |
+
+`musicxx.ui.openSearch` 的 `type` 取值（大小写不敏感，缺省保持当前搜索类型）：`localsong`（本地歌曲）、
+`historysong`（播放记录）、`bili`（Bili）、`musiccloud`（音乐云盘）、`alidrive`（阿里云盘）、
+`baidupan`（百度网盘）、`115drive`（115云盘）、`subsonic`、`jellyfin`、`emby`、`playlist`（歌单）。
 
 插件清单的字段（`externPlugin.*` 的结果里都有，安装结果里它在 `status` 下）：
 `hostStarted`、`platformSupported`、`supportPlus`、`enabled`、`safeMode`、`autoSafeMode`、
@@ -183,14 +285,14 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 `AnalyseImageMainColors`（图片主色调）。它们的参数由能力自己声明，
 `feature.list` / MCP 的工具清单里就是同一份。
 
-### 4.5 主程序动作（50 条，命令 id = 动作名）
+### 4.5 主程序动作（51 条，命令 id = 动作名）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"：
 
 | 域 | 动作 |
 |---|---|
-| 播放（11） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `seek` / `setVolume` / `setSpeed` / `setQuality` / `setLoopMode` |
+| 播放（12） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setQuality` / `setLoopMode` |
 | 歌单与歌曲（4） | `musicxx.library.querySonglists` / `querySongs` / `playSong` / `playSonglist` |
 | 歌词（1） | `musicxx.lyrics.getCurrent` |
 | 提示与页面（4） | `musicxx.ui.notify` / `toast` / `dialog` / `openRoute` |
@@ -235,6 +337,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `plugin …`（装 / 启停 / 重载 / 卸载 / 日志 / 清日志 / 重启） | `externPlugin.*` |
 | `logs [error\|info]` | `app.logs` |
 | `call <命令 id> [--args JSON]` | 任意命令（含全部动作名） |
+| `open <musicxx://…>` | 不转发命令：按链接形态请求主程序（与手机点链接、启动参数 `--uri` 同一条解析） |
 | `list` / `doctor` / `ping` / `watch` / `mcp` / `start` / `help` / `version` | 不转发命令：自描述、自检、事件流、stdio 桥、拉起应用 |
 
 CLI 自己的选项与退出码：
@@ -302,11 +405,12 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（当前 31 个）
+### 5.2 工具全表（当前 33 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
 "参数"列里带 `?` 的是可选；工具的参数说明（英文）由服务端随工具一起下发，客户端不需要另外查。
+**参数名与命令声明的完全一致**：同一个入口在 MCP 上看到的就是命令行上写的那个名字。
 
 **读当前媒体与歌词**
 
@@ -326,6 +430,8 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `GetSonglistContent` | `pid`(必填)、`type`(local/net，必填) | `musicxx.library.querySongs` | 同 `GetPlaylistSongs` |
 | `PlayTheSonglist` | `pid`(必填)、`type`(必填)、`songName?` | `playlist.play` | `Success load songlist, current play song name: …` |
 | `MediaPlayByInfo` | `info`(必填) | `history.playByInfo` | `Success` / `No related songs found` |
+| `PlayMedia` | `src?`／`sources?`（二选一）、`type?`(`auto`/`local`/`link`)、`filterExt?`(bool)、`name?` | `musicxx.player.playSrc` | `Playing: <名字> (<n> media)`；没有可播的来源时工具报错 |
+| `OpenSearch` | `type?`(枚举)、`keyword?` | `musicxx.ui.openSearch` | `Search page opened [<类型>] keyword=<词>` |
 
 **播放控制**
 
@@ -391,6 +497,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | `number` | `JsonNumber`（同上） |
 | `boolean` | `JsonBoolean` |
 | `enum` | `JsonEnum`（候选 + 默认值） |
+| `array` | `JsonArray`（元素按 `itemType`，目前只有字符串） |
 
 ## 6. 本机 HTTP / WebSocket 服务
 
@@ -492,6 +599,10 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 - **装插件等于执行任意代码**：`/mcp` 与 `/cli` 都能装插件、启用插件（动态库插件与主程序
   同进程运行）。命令行只对本机开放，**MCP 本身不带鉴权** —— 端口能被连上就能调，
   请把「共享与控制」的对外服务范围收紧，不要把它暴露到不可信网络；
+- **链接与启动参数也算本机入口**：`musicxx://call/?cmd=…` 能调任意入口，而一条链接任何网页 /
+  应用都能触发。所以链接里**拒绝** `externPlugin.*`（装 / 卸 / 启用 / 重载 / 重启插件）这类
+  管理入口（`MusicxxEntries_c.uriBlockedCmdPrefixes`），它们只留给本机命令行、MCP 和用户自己
+  敲的启动参数（`--cmd`）。新增"能装东西 / 能执行代码"的入口时要一起判断这条规则；
 - **插件装不了插件**：安装 / 重载 / 重启插件框架只有命令行与 MCP 有（插件的动作表里没有
   这几条），这是有意的：否则 JS插件能把自己提升到原生权限；
 - **`/cli` 与 `/control` 是两套东西**：`/cli` 是"第二进程 → 主进程拿结果"（本机、结构化、
@@ -516,7 +627,9 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | 403 | 非本机请求：开「共享与控制 → 允许远程控制本机」，或在本机执行 |
 | 退出码 5（协议不匹配） | 命令行与主程序不是同一次构建的产物，换成一起编译出来的那份 |
 | MCP 客户端连不上 | 先 `musicxx-cli doctor`，再 `cd cli && dart run tool/mcp_probe.dart`（不经过客户端直接跑一遍 initialize / tools/list / tools/call，会说明卡在哪一步），最后 `musicxx-cli mcp --verbose` |
-| 命令名/参数不确定 | `musicxx-cli list --json`（或 GET `/cli/list`）拿自描述清单，不要猜 |
+| 命令名/参数不确定 | `musicxx-cli list --json`（或 GET `/cli/list`）拿自描述清单（含 `entries` 链接形态），不要猜 |
+| 点链接 / 启动参数没反应 | 应用日志里搜 `[入口]`：解析失败与不认识的链接都会写一行可读原因。桌面端先用 `musicxx-cli open "<链接>"` 复现（与点链接同一条解析），启动参数用 `musicxx-cli call <入口 id> --args '<JSON>'` 复现 |
+| 链接里调插件管理被拒 | 这是有意的：链接不能装 / 卸 / 启用插件（§7），请用 `musicxx-cli plugin …` 或 MCP |
 | 动作答复"动作未注册" | 它在 §4.6 那张"名字存在但没实现"的表里；换用别的通道（能力导出 / 功能点）或看 [plugin-api.md](plugin-api.md) §3.3 |
 | 工具/能力是不是最新 | 工具条数会随能力注册表增长：以 `tools/list`（或 `feature.list`）的实际结果为准 |
 | 插件相关的排障 | [plugin-agent-cli.md](plugin-agent-cli.md) §10（`plugin list` / `plugin logs` / 主程序卡住的判断） |
@@ -531,5 +644,9 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 **维护者注**（改接口时一起改的地方）：命令与工具的实现都在主程序
 `lib/manager/cli/`（`MusicxxCliCommandsSetup.dart`、`MusicxxAppCommands.dart`、
 `MusicxxMcpTools.dart`、`MusicxxCliRoute.dart`、`MusicxxCliEndpoint.dart`），
+**统一入口**（链接形态、启动参数、自省）在 `lib/manager/entry/`
+（`MusicxxEntries.dart` 注册表 + 链接/启动参数解析、`MusicxxEntryCommands.dart` 入口命令），
+链接的接收端是 `lib/store/GlobalStore.dart`（`handleAppLink` / `initSongIntent`）与
+`lib/main.dart`（启动参数、单实例转发），
 本机服务路由在 `lib/manager/NetServerExt.dart` 与 `lib/share/manager/NetServer.dart`，
 命令行客户端在 `cli/`（协议与事件名表要跟主程序对齐）。这一节的内容都是从这些文件读出来的。

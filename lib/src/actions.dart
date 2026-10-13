@@ -214,6 +214,10 @@ abstract final class MusicxxPluginActionNames {
   static const String playerStop = 'musicxx.player.stop';
   static const String playerNext = 'musicxx.player.next';
   static const String playerPrev = 'musicxx.player.prev';
+  /// 按来源播放（本地路径 / `content://` / 文件链接 / 拟声音源字符串）。
+  /// 和 applink（`musicxx://play/`）、启动参数、命令行、MCP 是同一个入口，
+  /// 参数名也一致：`src` / `sources` / `type` / `name`。
+  static const String playerPlaySrc = 'musicxx.player.playSrc';
   static const String playerSeek = 'musicxx.player.seek';
   static const String playerSetVolume = 'musicxx.player.setVolume';
   static const String playerSetSpeed = 'musicxx.player.setSpeed';
