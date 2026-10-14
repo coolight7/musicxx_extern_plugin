@@ -341,17 +341,17 @@ if (ANDROID_PLATFORM)
   )
 endif ()
 
-# ===== Apple 的 iOS (含模拟器) =====
-# sysroot / 架构 / 最低版本必须原样传给嵌套构建: 拿不到 CMAKE_OSX_* 时 CMake 会退回默认值
-# (sysroot=iphoneos, 架构=开发机架构), 模拟器目标就会编出架构不符的依赖库 (加载时报错)。
-# 架构可能是多值 (分号分隔), 因此走 CMAKE_CACHE_ARGS (值写进 initial cache, 分号不会丢)。
-if (APPLE AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
-  list(APPEND _COMMON_CMAKE_ARGS
-      "-DCMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}"
-      "-DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}"
-      "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
-  list(APPEND _COMMON_CMAKE_CACHE_ARGS
-      "-DCMAKE_OSX_ARCHITECTURES:STRING=${CMAKE_OSX_ARCHITECTURES}")
+# ===== Apple 的 iOS (含模拟器) / macOS =====
+# sysroot / 架构 / 最低版本必须原样传给嵌套构建: 拿不到 CMAKE_OSX_* 时 CMake 会退回默认值 ——
+# iOS 退回 sysroot=iphoneos、架构=开发机架构, 模拟器目标就会编出架构不符的依赖库 (加载时报错);
+# macOS 退回"构建机当前的系统版本", 依赖库与插件框架库就只能在同样新的系统上加载。
+# 架构可能是多值 (分号分隔), 因此走 CMAKE_CACHE_ARGS (值写进 initial cache, 分号不会丢);
+# 空值不传 (见 _musicxx_ext_add_arg), 免得覆盖嵌套构建自己的默认值。
+if (APPLE)
+  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DCMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
+  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}")
+  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+  _musicxx_ext_add_arg(_COMMON_CMAKE_CACHE_ARGS "-DCMAKE_OSX_ARCHITECTURES:STRING=${CMAKE_OSX_ARCHITECTURES}")
 endif ()
 
 message("[musicxx_ext] _COMMON_CMAKE_ARGS: ${_COMMON_CMAKE_ARGS}")

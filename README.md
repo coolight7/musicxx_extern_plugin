@@ -417,8 +417,8 @@ iOS 与桌面端/Android 的差别（改这块之前先读这一节，以及主�
 - **设备与模拟器分别是两份产物**（平台段 `ios` / `ios-simulator`，架构：设备固定 arm64、模拟器用开发机架构），
   各自 build/output 目录独立；Dart 侧在 iOS 上只挑 `ios-*` 的产物目录（否则会命中同目录下的 macOS 产物）；
 - 交叉编译用 CMake 内置的 iOS 支持（`CMAKE_SYSTEM_NAME=iOS` + `CMAKE_OSX_SYSROOT/ARCHITECTURES/DEPLOYMENT_TARGET`），
-  最低版本由 `--ios-target` 控制（默认 14.0，与主程序 `IPHONEOS_DEPLOYMENT_TARGET` 一致）；
-  Apple 低版本目标的浮点 `std::to_chars` 不可用（iOS 16.3 起才有），插件框架的 JSON 实现里有等价回退
+  最低版本默认 15.0（`--ios-target` 可改，与主程序 `IPHONEOS_DEPLOYMENT_TARGET` 一致）；
+  Apple 低版本目标的浮点 `std::to_chars` 不可用（iOS 16.3 / macOS 13.3 起才有），插件框架的 JSON 实现里有等价回退
   （见 `src/third_party/cxx_utilxx_base/src/json.cpp` 文件头）；
 - **`--run-tests` 在模拟器目标上会真的跑**：模拟器产物是同一 CPU 架构的 Mach-O，构建脚本会自动把
   `DYLD_ROOT_PATH` 指向匹配的模拟器运行时根目录（找不到运行时则跳过并提示
@@ -452,6 +452,10 @@ macOS 与其它桌面的差别（改这块之前先看这两处）：
   `macos/Runner/DebugProfile.entitlements` 与 `macos/Runner/Release.entitlements` 里，不要再删；
 - **库与开发机架构一致**：包内构建脚本按开发机 `uname -m` 产出 `macos-arm64-*` / `macos-x64-*`，脚本按同一规则找库，
   因此不做多架构合并（工程本身也限制只构建当前架构）；要在别的架构上出包，需在该架构机器上构建一次原生库；
+- **最低版本跟主程序一致（12.0）**：构建脚本显式把 `CMAKE_OSX_DEPLOYMENT_TARGET` 交给 CMake 与嵌套构建，
+  主程序构建阶段会用 `--macos-target` 传自己的 `MACOSX_DEPLOYMENT_TARGET`。不传的话 CMake 用"构建机当前的
+  系统版本"，产物会按"只在同样新的系统上运行"编译（旧系统上用到新系统才有的符号时，`dlopen` 报
+  `Symbol not found ... (built for macOS X which is newer than running OS)`，表现为外部插件功能不可用）；
 - 手工检查（不经过 Xcode）：
   `MUSICXX_EXTERN_PLUGIN_APP_DIR=build/macos/Build/Products/Release/musicxx.app bash macos/tool/copy_extern_plugin_dylib.sh`；
 - 用自定义构建流程（不走 Xcode 的 `flutter build macos`）时，也可以用

@@ -210,6 +210,7 @@ iOS 只有 macOS 上能构建（Windows 的 `.ps1` 没有 iOS 工具链）：
 ```bash
 ./tools/build_native.sh --ios-simulator          # 模拟器产物（架构 = 开发机架构）
 ./tools/build_native.sh --ios                    # 设备产物（arm64）
+./tools/build_native.sh --ios-target 15.0        # 最低版本（默认 15.0，与主程序 IPHONEOS_DEPLOYMENT_TARGET 一致）
 ./tools/build_native.sh --ios-simulator --run-tests   # 模拟器产物能直接在开发机上跑（自动补 DYLD_ROOT_PATH）
 ./tools/build_native.sh --ios --run-tests        # 设备目标跳过测试（产物是给设备编的）
 ```
@@ -228,6 +229,7 @@ iOS 只有 macOS 上能构建（Windows 的 `.ps1` 没有 iOS 工具链）：
 ./tools/build_native.sh --run-tests                # Linux / macOS（同一套流程）
 ./tools/build_examples.sh --run-tests               # 示例插件那条线（构建 + 打包 + 测试）
 ./tools/build_native.sh --android --abi arm64-v8a  # Android 交叉编译（-Android -Abi 同义）
+./tools/build_native.sh --macos-target 12.0         # macOS 最低版本（默认 12.0，与主程序 MACOSX_DEPLOYMENT_TARGET 一致）
 ```
 
 - 安装前缀 = `<构建目录>/musicxx-extern-plugin-install`（SDK 的 `include/`、`lib/cmake/`、`bin/` 都在这里），
