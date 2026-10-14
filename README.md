@@ -253,7 +253,10 @@ ANDROID_NDK_HOME=<ndk> ./tools/build_native.sh --android --abi arm64-v8a      # 
   （原生测试用的就是这个目录），安装包在 `.native/output/<平台>-<架构>-<配置>/packages/`。
 - **工具链要求**（插件框架是 C++26）：MSVC ≥ 19.4x（VS 17.14+/VS 18）、GCC ≥ 14、Clang/NDK ≥ 18；
   Linux 上还需要 `pkg-config`（`cxx_utilxx_base` / `cxx_pluginxx` 配置阶段有 `find_package(PkgConfig REQUIRED)`）；
-  shell 脚本会在预检里检查编译器大版本与 `pkg-config`，不满足时给出警告。
+  shell 脚本在预检里会试编一个 C++26 文件来挑编译器，挑到就显式传给 cmake：环境变量 `CC`/`CXX`
+  指向的编译器不合格时（`flutter build` 会给它的 CMake 子进程设 `CC=clang` / `CXX=clang++`，
+  而系统自带的那份 clang 往往太旧）会自动改用别的候选并打印警告，一个合格的都找不到时才放弃；
+  `pkg-config` 缺失同样只警告。
 - **安装前缀**（`<构建目录>/musicxx-extern-plugin-install`）是唯一的依赖来源，里面同时有
   `lib/cmake/*` 供 `find_package` 使用、`bin/` 插件框架产物、`plugins/` 示例插件；插件框架工程找不到依赖时
   会直接提示"先跑构建脚本"。
