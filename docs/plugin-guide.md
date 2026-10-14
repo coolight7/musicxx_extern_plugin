@@ -62,7 +62,8 @@
 ```
 
 - 工具链要求（插件框架是 C++26）：MSVC ≥ 19.4x（VS 17.14+）、GCC ≥ 14、Clang/NDK ≥ 18；
-  Linux 还需要 `pkg-config`；
+  Linux 还需要 `pkg-config`；环境变量 `CC`/`CXX` 指向的编译器不满足要求时（Flutter 的 Linux 构建
+  会设 `CC=clang`、`CXX=clang++`），构建脚本会改用 PATH 里合格的编译器并打印警告；
 - 构建脚本会自己准备 Boost 头文件（只用头文件，不链接 Boost 编译库）；
 - 详细开关（`-Config Debug`、`-DepsOnly`、`-RunTests`、`-Jobs`、Android 交叉编译）见本包 `README.md`。
 

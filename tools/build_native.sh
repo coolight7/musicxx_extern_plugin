@@ -80,8 +80,13 @@ usage() {
 
 # ==================== 平台 / 架构 ====================
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "${script_dir}/.." && pwd)"
+# 一律解析成物理路径 (cd -P + pwd -P): 应用构建会经
+# linux/flutter/ephemeral/.plugin_symlinks/<包> 调用本脚本, 手工调用走的是 package_extend/<包>。
+# 两者的逻辑路径不同, 而构建签名里含 Boost 头文件路径 (由 root 推导) —— 不解析成物理路径时
+# 两种调用方式会算出不同签名, 于是每次 flutter build 都判定"不是最新", 删掉构建目录整个重编。
+# (Windows 侧用 junction, 路径本来就只有一种写法, 所以那边没这个问题。)
+script_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+root="$(cd -P "${script_dir}/.." && pwd -P)"
 
 case "$(uname -s)" in
 Linux) os=linux ;;
@@ -250,7 +255,7 @@ if [ "$ios" = 1 ]; then
     fi
 fi
 
-root="$(cd "$root" && pwd)"
+root="$(cd -P "$root" && pwd -P)"
 src_dir="${root}/src"
 third_party="${src_dir}/third_party"
 native_root="${root}/.native"
@@ -402,6 +407,44 @@ if [ "$ios" = 1 ]; then
     info "目标:       ${os} (sdk=${ios_sdk}, 架构=${arch}, 最低版本=${ios_target})"
 fi
 
+# 插件框架要求 C++26 (src/CMakeLists.txt 的 CMAKE_CXX_STANDARD 26): 需要 GCC >= 14 或 Clang >= 18。
+# 候选编译器按下面的顺序试用, 挑到第一个能编过的就显式传给 cmake。
+#
+# 为什么不能只看 PATH 里 c++ 的版本: 环境变量 CC/CXX 的优先级更高, 而 Flutter 的 Linux 构建会给
+# 它的 CMake 子进程设 CC=clang / CXX=clang++ (见 flutter_tools 的 linux/build_linux.dart, 只为让
+# 应用自己用 clang)。插件框架的自动构建正是那个 CMake 的子进程, 于是会跟着选到系统 clang ——
+# 那份通常太旧 (Ubuntu 20.04 自带 clang 10), 编不过要求 C++26 的依赖库与插件框架本体。
+# 命令行 -D 优先于环境变量, 所以这里选中之后显式传进去 (见下面的 configure_args), 让 superbuild、
+# 各依赖与插件框架本体统一用同一个编译器。
+selected_cxx_compiler=""
+selected_c_compiler=""
+
+# 判定方式: 用项目实际使用的标准编一个空文件 —— CMAKE_CXX_EXTENSIONS 默认开, 所以要支持 gnu++26。
+compiler_supports_cxx26() {
+    printf 'int main() { return 0; }\n' |
+        "$1" -std=gnu++26 -x c++ -c -o /dev/null - >/dev/null 2>&1
+}
+
+# 配套的 C 编译器: 与 C++ 编译器同一套工具链 (g++ -> gcc, clang++ -> clang)。
+# 两者混用会让静态库与运行库不一致, 所以不从环境变量里取 CC。
+resolve_c_compiler_for() {
+    local cxx_path="$1"
+    local candidate
+    case "$("$cxx_path" --version 2>/dev/null | head -1)" in
+    *[Cc]lang*) candidate="$(dirname "$cxx_path")/clang" ;;
+    *) candidate="$(dirname "$cxx_path")/gcc" ;;
+    esac
+    if [ ! -x "$candidate" ]; then
+        warn "找不到与 ${cxx_path} 配套的 C 编译器 (试过 ${candidate}); 由 cmake 自行选择"
+        return 0
+    fi
+    if ! printf 'int main(void) { return 0; }\n' | "$candidate" -x c -c -o /dev/null - >/dev/null 2>&1; then
+        warn "配套的 C 编译器不可用: ${candidate}; 由 cmake 自行选择"
+        return 0
+    fi
+    printf '%s' "$candidate"
+}
+
 # ==================== 环境预检 ====================
 
 step '环境预检'
@@ -425,23 +468,45 @@ elif [ "$ios" = 1 ]; then
     info "iOS SDK:    ${ios_sdk_path}"
     info "xcodebuild: $(xcodebuild -version 2>/dev/null | head -1 || printf '未知')"
 else
-    # 插件框架要求 C++26: GCC >= 14 / Clang >= 18
-    cxx_compiler="$(command -v c++ || true)"
-    if [ -z "$cxx_compiler" ]; then
-        warn '未找到 c++ 编译器 (请安装 g++ >= 14 或 clang++ >= 18)'
-    else
-        cxx_version_line="$("$cxx_compiler" --version | head -1)"
-        info "编译器: ${cxx_version_line}"
-        compiler_major="$(printf '%s' "$cxx_version_line" | grep -oE '[0-9]+' | head -1)"
-        if printf '%s' "$cxx_version_line" | grep -qi 'gcc\|g++\|gnu'; then
-            if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 14 ]; then
-                warn "GCC ${compiler_major} < 14: 插件框架要求 C++26 (CMAKE_CXX_STANDARD 26), 编译会失败"
-            fi
-        elif printf '%s' "$cxx_version_line" | grep -qi 'clang'; then
-            if [ -n "$compiler_major" ] && [ "$compiler_major" -lt 18 ]; then
-                warn "Clang ${compiler_major} < 18: 插件框架要求 C++26, 编译可能失败"
+    # 候选顺序: 使用者设的 CXX (会被标准检查过滤) -> PATH 里的通用名 -> 带版本号的名字
+    cxx_candidates=()
+    [ -n "${CXX:-}" ] && cxx_candidates+=("$CXX")
+    cxx_candidates+=(c++ g++ clang++)
+    for version in 20 19 18 17 16 15 14; do cxx_candidates+=("g++-${version}"); done
+    for version in 21 20 19 18; do cxx_candidates+=("clang++-${version}"); done
+
+    tried_compilers=""
+    for candidate in "${cxx_candidates[@]}"; do
+        candidate_path="$(command -v "$candidate" 2>/dev/null || true)"
+        [ -n "$candidate_path" ] || continue
+        # 去重: c++ / g++ / clang++ 可能都指向同一个编译器
+        case " ${tried_compilers} " in
+        *" ${candidate_path} "*) continue ;;
+        esac
+        tried_compilers="${tried_compilers} ${candidate_path}"
+        if compiler_supports_cxx26 "$candidate_path"; then
+            selected_cxx_compiler="$candidate_path"
+            break
+        fi
+    done
+
+    if [ -n "$selected_cxx_compiler" ]; then
+        info "C++ 编译器: $("$selected_cxx_compiler" --version | head -1)"
+        if [ -n "${CXX:-}" ]; then
+            cxx_env_path="$(command -v "$CXX" 2>/dev/null || true)"
+            if [ -n "$cxx_env_path" ] && [ "$cxx_env_path" != "$selected_cxx_compiler" ]; then
+                warn "环境变量 CXX=${CXX} 不支持 C++26, 本次改用 ${selected_cxx_compiler}"
             fi
         fi
+        selected_c_compiler="$(resolve_c_compiler_for "$selected_cxx_compiler")"
+        info "           传给 cmake: -DCMAKE_CXX_COMPILER=${selected_cxx_compiler}${selected_c_compiler:+ -DCMAKE_C_COMPILER=${selected_c_compiler}}"
+    else
+        warn '没有找到支持 C++26 的 C++ 编译器 (需要 GCC >= 14 或 Clang >= 18)'
+        warn '  依赖库与插件框架本体按 C++26 编译, 用旧编译器会在构建中途失败。'
+        warn '  Ubuntu/Debian 可以装一个: sudo apt install g++-14 (或更新的版本)'
+        warn '  也可以自己指定: CXX=/path/to/g++-14 tools/build_native.sh'
+        warn "  试过的编译器:${tried_compilers:- 无}"
+        warn '  下面仍会让 cmake 自行选择编译器'
     fi
 
     # cxx_utilxx_base / cxx_pluginxx 的配置阶段有 find_package(PkgConfig REQUIRED)
@@ -721,6 +786,15 @@ configure_args+=(
     "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=${with_examples}"
     "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=${with_tests}"
 )
+# 上面选中的编译器: 命令行 -D 优先于环境变量 CC/CXX, 这样 Flutter 给子进程设的
+# CC=clang / CXX=clang++ 不会把插件框架的构建带偏, 各嵌套工程也会用同一个编译器。
+# Android / iOS 有自己的工具链 (NDK / SDK clang), 不参与这里的选择。
+if [ "$android" = 0 ] && [ "$ios" = 0 ] && [ -n "${selected_cxx_compiler:-}" ]; then
+    configure_args+=("-DCMAKE_CXX_COMPILER=${selected_cxx_compiler}")
+    if [ -n "${selected_c_compiler:-}" ]; then
+        configure_args+=("-DCMAKE_C_COMPILER=${selected_c_compiler}")
+    fi
+fi
 if [ "$android" = 1 ]; then
     # 交叉编译参数交给 NDK 工具链 (superbuild 的 src/CMakeLists.txt 自动补 XX_IS_ANDROID_D=1,
     # 并把 ANDROID_ABI/ANDROID_PLATFORM/ANDROID_STL 原样传给各依赖与插件框架工程的嵌套构建)
