@@ -12,6 +12,7 @@
 #   - 环境预检 (cmake / git / 编译器版本 / pkg-config), 子模块是否已初始化
 #   - Boost 头文件的解析/复用/下载解包 (只用头文件, 不链接 Boost 编译库)
 #   - 按 --config 传 XX_IS_RELEASE_D / CMAKE_BUILD_TYPE / CMAKE_CONFIGURATION_TYPES
+#   - 按平台传最低版本 (macOS 用 --macos-target, iOS 用 --ios-target), 让产物与主程序的最低版本一致
 #   - 构建完成后把产物复制到稳定的输出目录, 可选跑原生测试
 #
 # 用法 (选项名不区分大小写, --deps-only 与 -DepsOnly 等价):
@@ -33,7 +34,8 @@
 #   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 插件框架库
 #   tools/build_native.sh --ios                      # 交叉编译 iOS 设备 (arm64) 插件框架库
 #   tools/build_native.sh --ios-simulator            # 交叉编译 iOS 模拟器 (开发机架构) 插件框架库
-#   tools/build_native.sh --ios-target 14.0          # iOS 最低版本 (默认 14.0, 与主程序一致)
+#   tools/build_native.sh --ios-target 15.0          # iOS 最低版本 (默认 15.0, 与主程序一致)
+#   tools/build_native.sh --macos-target 12.0        # macOS 最低版本 (默认 12.0, 与主程序一致)
 #
 # 关于自动模式 (--auto): Windows 侧的 tools/build_native.ps1 与它同等地位, 都是给
 # "flutter build" 触发的入口 —— 环境/Boost 复用已有缓存, 已是最新就立即返回, 构建失败只警告
@@ -48,6 +50,7 @@
 # iOS 说明 (只在 macOS 上可用; Windows 侧的 .ps1 不支持 —— 它没有 iOS 工具链):
 #   - 由 dart 侧/cmake 的 CMAKE_SYSTEM_NAME=iOS 交叉编译, sysroot 用 --ios (iphoneos) 或
 #     --ios-simulator (iphonesimulator), 架构: 设备固定 arm64, 模拟器用开发机架构
+#   - 最低版本用 --ios-target 给 (默认 15.0), 主程序构建时由构建阶段传自己的 IPHONEOS_DEPLOYMENT_TARGET
 #   - 产出: <包>/.native/output/ios-arm64-<配置>/{bin,plugins} 与
 #           <包>/.native/output/ios-simulator-<架构>-<配置>/{bin,plugins}
 #   - 插件框架库随 iOS 应用包分发: 主程序 ios/ 的 Runner 构建阶段 (musicxx-extern-plugin →
@@ -55,6 +58,11 @@
 #     Runner.app/Frameworks/ 并补签名 (iOS 只允许加载应用包内、与主程序同签名身份的动态库)
 #   - --run-tests 在 iOS 设备目标上跳过 (测试可执行文件是给设备编的); 模拟器目标可以直接在
 #     开发机上跑 (同一个 CPU 架构), 因此照常执行
+#
+# macOS 说明:
+#   - 最低版本用 --macos-target 给 (默认 12.0), 主程序构建时由构建阶段传自己的
+#     MACOSX_DEPLOYMENT_TARGET; 不传的话 CMake 会用"构建机当前的系统版本",
+#     编出来的库会按"只在同样新的系统上运行"编译
 #
 # 产物布局 (与 .ps1 一致):
 #   <包>/.native/build/<平台>-<配置>/musicxx-extern-plugin-install/{bin,include,lib,plugins}
@@ -126,9 +134,14 @@ android_platform="android-24"
 android_stl="c++_static"
 ios=0
 ios_simulator=0
-# iOS 最低版本: 与主程序 ios/Runner.xcodeproj 的 IPHONEOS_DEPLOYMENT_TARGET (14.0) 保持一致,
-# 插件框架库的最高版本不能超过主程序
-ios_target="14.0"
+# iOS 最低版本: 与主程序 ios/Runner.xcodeproj 的 IPHONEOS_DEPLOYMENT_TARGET (15.0) 保持一致,
+# 插件框架库的最低版本不能低于主程序 (低了接口随时可能被裁掉), 也不能高于主程序 (高了会在
+# 主程序支持的旧系统上按新系统编译, 用到新符号就失败)。主程序构建时会用 --ios-target 传自己的值。
+ios_target="15.0"
+# macOS 最低版本: 与主程序 macos/Runner.xcodeproj 的 MACOSX_DEPLOYMENT_TARGET (12.0) 保持一致。
+# 不传时 CMake 会用"构建机当前的系统版本", 编出来的库按"只在同样新的系统上运行"编译。
+# 主程序构建时会用 --macos-target 传自己的值。
+macos_target="12.0"
 
 # 自动模式要再起一个子进程跑"不带 --auto 的普通流程" (失败只警告), 这里先把 --auto 摘掉
 forward_args=()
@@ -151,7 +164,7 @@ while [ $# -gt 0 ]; do
     fi
     # 需要取值的选项: 没写 = 形式时取下一个参数
     case "$name_lower" in
-    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl | iostarget)
+    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl | iostarget | macostarget)
         if [ -z "$value" ]; then
             [ $# -gt 0 ] || die "选项 $name 缺少取值"
             value="$1"
@@ -178,6 +191,7 @@ while [ $# -gt 0 ]; do
         ios_simulator=1
         ;;
     iostarget) ios_target="$value" ;;
+    macostarget) macos_target="$value" ;;
     clean) clean=1 ;;
     depsonly) deps_only=1 ;;
     configureonly) configure_only=1 ;;
@@ -243,7 +257,7 @@ if [ "$ios" = 1 ]; then
     [ "$android" = 1 ] && die '--android 与 --ios/--ios-simulator 不能同时使用'
     [ "$os" = macos ] || die "iOS 目标只能在 macOS 上构建 (当前系统: $(uname -s)); 需要 Xcode 与 iPhoneOS/iPhoneSimulator SDK"
     case "$ios_target" in
-    '' | *[!0-9.]* | .* | *.) die "--ios-target 需要是版本号 (例: 14.0), 收到: ${ios_target}" ;;
+    '' | *[!0-9.]* | .* | *.) die "--ios-target 需要是版本号 (例: 15.0), 收到: ${ios_target}" ;;
     esac
     if [ "$ios_simulator" = 1 ]; then
         os=ios-simulator
@@ -253,6 +267,13 @@ if [ "$ios" = 1 ]; then
         ios_sdk=iphoneos
         arch=arm64
     fi
+fi
+
+# macOS 最低版本只用于本机的 macOS 构建 (iOS 目标走 --ios-target, Linux 上这条不生效)
+if [ "$os" = macos ]; then
+    case "$macos_target" in
+    '' | *[!0-9.]* | .* | *.) die "--macos-target 需要是版本号 (例: 12.0), 收到: ${macos_target}" ;;
+    esac
 fi
 
 root="$(cd -P "$root" && pwd -P)"
@@ -405,6 +426,8 @@ if [ "$android" = 1 ]; then
 fi
 if [ "$ios" = 1 ]; then
     info "目标:       ${os} (sdk=${ios_sdk}, 架构=${arch}, 最低版本=${ios_target})"
+elif [ "$os" = macos ]; then
+    info "目标:       macos (架构=${arch}, 最低版本=${macos_target})"
 fi
 
 # 插件框架要求 C++26 (src/CMakeLists.txt 的 CMAKE_CXX_STANDARD 26): 需要 GCC >= 14 或 Clang >= 18。
@@ -658,7 +681,12 @@ ios_tag=""
 if [ "$ios" = 1 ]; then
     ios_tag="${ios_sdk}/ios${ios_target}"
 fi
-signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl};ios=${ios_tag}"
+# macOS: 最低版本变化时同样要重建 (依赖库与插件框架库的 LC_BUILD_VERSION 会跟着变)
+macos_tag=""
+if [ "$os" = macos ]; then
+    macos_tag="macos${macos_target}"
+fi
+signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl};ios=${ios_tag};macos=${macos_tag}"
 stamp_kinds='framework'
 if [ "$with_examples" = 1 ]; then stamp_kinds="${stamp_kinds} examples"; fi
 if [ "$with_tests" = 1 ]; then stamp_kinds="${stamp_kinds} tests"; fi
@@ -816,6 +844,10 @@ if [ "$ios" = 1 ]; then
         "-DCMAKE_OSX_ARCHITECTURES=${arch}"
         "-DCMAKE_OSX_DEPLOYMENT_TARGET=${ios_target}"
     )
+elif [ "$os" = macos ]; then
+    # 本机 macOS 构建: 最低版本必须显式给, 否则 CMake 用构建机当前的系统版本
+    # (产物按"只在同样新的系统上运行"编译), src/CMakeLists.txt 会把它转发给嵌套构建
+    configure_args+=("-DCMAKE_OSX_DEPLOYMENT_TARGET=${macos_target}")
 fi
 if [ "$deps_only" = 1 ]; then
     configure_args+=('-DMUSICXX_EXTERN_PLUGIN_BUILD_HOST=OFF')

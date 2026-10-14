@@ -8,6 +8,17 @@
 
 ## 未发布
 
+### 构建：最低版本跟随主程序（macOS 12 / iOS 15）
+
+- macOS 侧以前不传 `CMAKE_OSX_DEPLOYMENT_TARGET`，CMake 就按"构建机当前的系统版本"编译（实测产物是
+  `minos 26.0`），现在由 `--macos-target` 显式给出（默认 12.0）；`src/CMakeLists.txt` 把
+  `CMAKE_OSX_SYSROOT` / `CMAKE_OSX_ARCHITECTURES` / `CMAKE_OSX_DEPLOYMENT_TARGET` 转发给所有嵌套构建
+  （以前只对 iOS 转发），空值不再传下去。
+- iOS 侧默认最低版本从 14.0 改为 15.0，与主程序 `IPHONEOS_DEPLOYMENT_TARGET` 一致；主程序的两条构建
+  阶段（`macos/tool/copy_extern_plugin_dylib.sh`、`ios/tool/embed_extern_plugin_dylib.sh`）会把 Xcode
+  的部署目标传给这里的自动构建，两边不再各写一份默认值。
+- 最低版本进了构建签名：取值变化会重置构建目录重新编译，不会拿旧目标的产物顶替。
+
 ### 新增：musicxx 对外接口总表 `docs/musicxx-interfaces.md`
 
 - 新增 **`docs/musicxx-interfaces.md`**：musicxx（主程序）**对外暴露的全部接口**集中在一处，
