@@ -440,7 +440,7 @@ macOS 与其它桌面的差别（改这块之前先看这两处）：
   的构建阶段调用 `macos/tool/copy_extern_plugin_dylib.sh`（与 `musicxx-cli` 阶段同一套路）。macOS 的 Flutter
   插件走 CocoaPods，pod 里的脚本阶段拿不到应用包的输出目录，所以 Windows/Linux 那种"包内 CMakeLists 交给
   `PLUGIN_BUNDLED_LIBRARIES`"在 macOS 上没有对应物；目标位置是 `musicxx.app/Contents/Frameworks/`
-  （与 `libmediaxx.dylib`、`libmpv.2.dylib` 这些预置库同一个目录），Dart 侧会去那里找；
+  （与预置库 `libmediaxx.dylib` 同一个目录），Dart 侧会去那里找；
 - **开关与查找顺序与其它平台一致**：`MUSICXX_EXTERN_PLUGIN_AUTO_BUILD=0` 关掉自动构建、
   `MUSICXX_EXTERN_PLUGIN_CONFIG=Debug` 换配置、`MUSICXX_EXTERN_PLUGIN_LIBRARY=<dylib 路径>` 显式指定；
   复制过去之后，脚本还会用当前签名身份给 dylib 补一次签名（拿不到身份时保持原样，不影响加载）；
