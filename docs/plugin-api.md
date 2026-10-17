@@ -536,9 +536,20 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 我在�
 **`musicxx.media.spectrum`** —— 当前音频频谱（由插件提供的提取实现算出来的那一份）
 
 - 参数：`{bandCount?=16, unit?="normalized", includeBins?}`：
-  - `bandCount` 1~64 且必须能整除 256（否则报参数错）；
+  - `bandCount` 1~64（不必整除 256）；
   - `unit` = `normalized`（0~1，缺省）/ `db` / `raw`；
   - `includeBins` = 附带当前帧的 256 个原始频点。
+- **频点按频率分段，不是等宽的**：0 ~ 3840 Hz 每 30 Hz 一段（128 段），3.84 ~ 12 kHz 每段是前一段的
+  1.01491 倍（约每倍频程 47 段），12 ~ 20 kHz 每段是前一段的 1.01007 倍（约每倍频程 69 段），低频在前。`bands` 是把这些频点再按频率分成 `bandCount` 段后的值
+  （低频一列一段、高频按等倍频程加宽，每段取它覆盖的频点里**最大的那一段**），所以靠高频的一个频带
+  覆盖的频率更宽（16 个频带时第 0 个是 0 ~ 30 Hz，第 11 个是 2.6 ~ 3.8 kHz，最后一个是 13.3 ~ 20 kHz）。
+- **数值是"画图用"的**：`bands` 与 `frameData` 与内置『音乐动效』画出来的高度是同一套数值 ——
+  每一帧按它自己的最高频点归一（最高点画到满刻度的九成，比它低 50 dB 的位置落到 0），再把挤在
+  画布中下部的高低差拉开（比中线高的往上、低的往下，顶部与底部不动），最后按 gamma 1.2 拉一档；
+  极轻的帧（最高点不到满刻度的四分之一）不做归一，静音保持全 0。
+  好处是插件画柱状/光环时长年在低位的数值也能占满画面，代价是**不再等于绝对 dBFS**
+  （`unit:"db"` 给的是"调整后数值落在 -80~0 dB 刻度上的 dB"）；要绝对电平做分析请用
+  MCP 工具 `GetAudioSpectrum`（那是整曲提取的原始电平）。
 - 返回：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs,
   positionMs, frameHz, frameIndex, framePosition, frames, binCount, bandCount, unit, level,
   bands[], frameData?}`。

@@ -683,6 +683,8 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
 //   frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
 //   level, bands:[...], frameData?:[256 个频点] }   // frameData 需要 includeBins: true
 // 没有数据（没有任何插件提供提取实现 / 正在提取 / 来源不支持）也回 ok:true，用 status 判断
+// 频点与频带是"画图用"的数值（按帧归一 + 拉开高低差 + gamma，与内置动效画出来的高度一致，
+// 不是绝对 dBFS；要绝对电平用 MCP 的 GetAudioSpectrum）
 
 // 提供"整曲频谱提取"实现（替代内置提取）：应用要提取某首歌的频谱时先问插件
 //
