@@ -9,12 +9,12 @@
 | # | 来源 | 音源字符串写什么 | 插件返回什么 |
 |---|---|---|---|
 | 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（钩子载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
+| 2 | `plugin.<插件 id>.plugin_bili`（`type = "link"`） | BV 号，例 `...plugin_bili://BV1GJ411x7h7` | 同一份 B 站直链 + 请求头 |
 
 后续提交会加：
 
 | # | 来源 | 音源字符串写什么 | 插件返回什么 |
 |---|---|---|---|
-| 2 | `plugin.<插件 id>.plugin_bili` | BV 号，例 `...plugin_bili://BV1GJ411x7h7` | 同一份 B 站直链 + 请求头 |
 | 3 | `plugin.<插件 id>.plugin_proxy_local` | 本地文件路径 | 插件框架本地 HTTP 文件服务的地址（流式读文件） |
 
 ## 文件与开关
@@ -34,6 +34,7 @@ example_override_media_source/
 | 键 | 默认 | 关掉之后 |
 |---|---|---|
 | `overrideBili` | `true` | 不接管内置 Bili 解析，主程序原有逻辑照旧 |
+| `pluginBiliEnabled` | `true` | 自定义音源 `plugin_bili` 不接管（用这个来源的歌曲会解析失败） |
 
 设置页：主页入口「音源解析示例」→ `ext://example_override_media_source/settings`。
 页面上还能看到被问到的次数、成功次数与最近一次错误。
@@ -80,6 +81,42 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"bi
 
 播放时看插件日志（管理页 → 插件 → 日志，或 `musicxx-cli plugin logs example_override_media_source`）；
 关掉开关后再播同一首歌，插件处理器返回 null，主程序内置解析照旧。
+
+## 功能 2：自定义音源类型 `plugin_bili`
+
+插件可以在**不改主程序来源枚举**的前提下声明自己的音源类型：地址写成
+`plugin.<插件 id>.<类型名>://<插件自己的标识>`，按普通链接（`XXSrcType_e.UrlLink`）保存。
+播放到这种地址时主程序不会自己猜（核心层拒绝解析 `plugin.` 开头的地址），而是问同一条钩子：
+
+- `type = "link"`；
+- `src` = 完整地址 `plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7`；
+- `pluginType` = 类型 id `plugin.example_override_media_source.plugin_bili`；
+- `crudeSrc` = 歌曲里保存的原地址（这里与 `src` 相同）。
+
+`<插件自己的标识>` 怎么解释完全由插件决定，本示例把它当 BV 号（`opaqueOf()` 取 `://` 之后的部分）。
+
+声明（`declareSourceTypes()`，脚本加载时跑一次）：
+
+```js
+musicxx.call("musicxx.source.define", {
+    id: "plugin.example_override_media_source.plugin_bili",
+    title: "B 站（插件解析）",
+    depict: "地址里写 BV 号，插件自己查 B 站接口换播放地址与请求头",
+    srcDoc: "BV1GJ411x7h7",     // 给用户与自省看的地址写法示例
+});
+```
+
+- 声明的用处是**自省与更清楚的报错**：能不能播看的是有没有注册 `musicxx.player.source.resolve`
+  的处理器，不是有没有声明；
+- 声明跟着插件生命周期走（停用 / 卸载 / 关『拟声++』自动撤销），不写磁盘，每次启用都会重新声明；
+- 查清单：`musicxx-cli call musicxx.source.list`、MCP `ListMediaSources`、插件动作 `musicxx.source.list`；
+- 只写标识（`BV1GJ411x7h7`）也存得下（主程序会补前缀），但自己拼全更清楚。
+
+手动验证：
+
+```bash
+musicxx-cli call musicxx.player.playSrc --args '{"src":"plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7","type":"link"}'
+```
 
 ## 开发与调试
 

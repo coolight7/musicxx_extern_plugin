@@ -114,6 +114,16 @@ function extractBvid(text) {
     return match ? ("BV" + match[1]) : "";
 }
 
+/// 插件音源地址 → 自己的标识（`plugin.x.y://<标识>` 里 `://` 之后的部分）
+///
+/// 地址的写法是"类型 id + `://` + 插件自己定的标识"；标识怎么解释完全由插件决定，
+/// 这里两种类型都把它当"BV 号"。
+function opaqueOf(addr) {
+    const text = String(addr || "");
+    const index = text.indexOf("://");
+    return index >= 0 ? text.slice(index + 3) : text;
+}
+
 /// 取文件名（地址里可能是 / 或 \）
 function basename(path) {
     const text = String(path || "");
@@ -371,8 +381,47 @@ musicxx.hooks.register("musicxx.player.source.resolve", {
         });
     }
 
+    // 2) 本插件声明的音源：地址里写的是 BV 号（插件自己定的标识格式）
+    if (pluginType === TYPE_PLUGIN_BILI && settingOf("pluginBiliEnabled")) {
+        const bvid = extractBvid(opaqueOf(src));
+        if (!bvid) {
+            noteError("自定义音源里没有 BV 号: " + src);
+            return null;    // 不接管：主程序会把它当解析不了的地址报错
+        }
+        stats.pluginBiliCalls += 1;
+        return resolveBili(bvid, quality).then(function (result) {
+            if (!result) {
+                return null;
+            }
+            stats.biliOk += 1;
+            return biliAnswer(result);
+        });
+    }
+
     return null;
 });
+
+/* ==================== 音源类型声明 ==================== */
+
+/// 声明本插件自己的音源类型（只用于自省与更清楚的报错；能不能播看的是上面那个处理器）
+///
+/// 声明跟着插件生命周期走：停用 / 卸载 / 关『拟声++』时主程序自动撤销，不写入磁盘；
+/// 每次启用脚本都会重新声明一遍。命令行 `musicxx-cli call musicxx.source.list`、
+/// MCP `ListMediaSources` 与插件动作 `musicxx.source.list` 读的就是这份清单。
+function declareSourceTypes() {
+    musicxx.call("musicxx.source.define", {
+        id: TYPE_PLUGIN_BILI,
+        title: "B 站（插件解析）",
+        depict: "地址里写 BV 号，插件自己查 B 站接口换播放地址与请求头",
+        srcDoc: "BV1GJ411x7h7",
+    }).then(function (result) {
+        if (!result || result.ok !== true) {
+            noteError("声明音源类型失败: " + ((result && result.error) || "unknown"));
+        }
+    }, function (err) {
+        noteError("声明音源类型失败: " + err.message);
+    });
+}
 
 /* ==================== 界面：主页入口 + 设置页 ==================== */
 
@@ -392,10 +441,13 @@ function settingsView(args, override) {
     const overrideBili = (override && typeof override.overrideBili === "boolean")
         ? override.overrideBili
         : settingOf("overrideBili");
+    const pluginBili = (override && typeof override.pluginBiliEnabled === "boolean")
+        ? override.pluginBiliEnabled
+        : settingOf("pluginBiliEnabled");
     const lastError = stats.lastError === "" ? "没有错误" : stats.lastError;
     return {
         title: "音源解析示例",
-        subtitle: "插件参与音源解析的三条路（当前先演示第 1 条）",
+        subtitle: "插件参与音源解析的两条路（本地代理见后续版本）",
         blocks: [
             kit.hint({
                 text: "插件注册 musicxx.player.source.resolve：主程序要把音源换成播放地址时会先问插件。" +
@@ -414,6 +466,20 @@ function settingsView(args, override) {
                 subtitle: "被问到的次数 / 给出地址的次数",
                 trailing: String(stats.biliCalls) + " / " + String(stats.biliOk),
             }, env),
+            kit.divider({}, env),
+            kit.switchRow({
+                id: "pluginBiliEnabled",
+                title: "自定义音源 plugin_bili",
+                depict: "地址写 plugin.<插件 id>.plugin_bili://<BV 号>，播放时同样换成直链（关掉后该来源解析失败）",
+                value: pluginBili,
+                action: "setSwitch",
+            }, env),
+            kit.listRow({
+                title: "自定义音源",
+                subtitle: "被问到的次数",
+                trailing: String(stats.pluginBiliCalls),
+            }, env),
+            kit.divider({}, env),
             kit.listRow({
                 title: "最近错误",
                 subtitle: "只保留最后一条，排查用",
@@ -423,6 +489,10 @@ function settingsView(args, override) {
                 label: "播放示例视频（BV1GJ411x7h7）",
                 variant: "primary",
                 action: "playDemo",
+            }, env),
+            kit.button({
+                label: "播放自定义音源（plugin_bili）",
+                action: "playCustomSrc",
             }, env),
             kit.button({label: "刷新本页", action: "settings"}, env),
         ],
@@ -456,21 +526,33 @@ musicxx.capability.register("setSwitch", function (args) {
     return {view: settingsView(args, override)};
 });
 
-/// 设置页按钮：用统一入口播放一首 B 站歌曲（BV 号就是歌曲的音源）
+/// 用统一入口播放一首歌
 ///
-/// 能力处理器必须同步返回，所以动作发出去就结束，结果只写日志；页面立刻刷新成"已请求"。
-musicxx.capability.register("playDemo", function (args) {
+/// 能力处理器必须同步返回，所以动作发出去就结束，结果只写日志（页面不靠它刷新）。
+/// `type` 与歌曲实体的来源类型一致：内置 Bili 是 `bili`，插件自己写的地址是 `link`。
+function playViaEntry(name, src, type) {
     musicxx.call("musicxx.player.playSrc", {
-        src: "BV1GJ411x7h7",
-        type: "bili",
-        name: "Never Gonna Give You Up",
+        src: src,
+        type: type,
+        name: name,
     }).then(function (result) {
         if (!result || result.ok !== true) {
-            noteError("播放示例失败: " + ((result && result.error) ? result.error : "unknown"));
+            noteError("播放失败: " + ((result && result.error) ? result.error : "unknown"));
         }
     }, function (err) {
-        noteError("播放示例失败: " + err.message);
+        noteError("播放失败: " + err.message);
     });
+}
+
+/// 设置页按钮：用统一入口播放一首 B 站歌曲（BV 号就是歌曲的音源）
+musicxx.capability.register("playDemo", function (args) {
+    playViaEntry("Never Gonna Give You Up", "BV1GJ411x7h7", "bili");
+    return {view: settingsView(args, null)};
+});
+
+/// 设置页按钮：播放一首用本插件音源类型写地址的歌
+musicxx.capability.register("playCustomSrc", function (args) {
+    playViaEntry("Never Gonna Give You Up", TYPE_PLUGIN_BILI + "://BV1GJ411x7h7", "link");
     return {view: settingsView(args, null)};
 });
 
@@ -498,6 +580,7 @@ musicxx.capability.register("probe", function () {
     };
 });
 
+declareSourceTypes();
 refreshConfig();
 
 console.log("example_override_media_source 已加载（pid=" + PLUGIN_ID + "）");
