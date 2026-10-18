@@ -27,6 +27,7 @@
 #define MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG "musicxx.player.beforePlaySong"
 #define MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_BEFORE_PARSE "musicxx.player.source.beforeParse"
 #define MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_RESOLVED "musicxx.player.source.resolved"
+#define MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_RESOLVE "musicxx.player.source.resolve"
 #define MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_OPEN "musicxx.player.beforeOpen"
 #define MUSICXX_PLUGIN_HOOK_PLAYER_STATE "musicxx.player.state"
 #define MUSICXX_PLUGIN_HOOK_PLAYER_POSITION "musicxx.player.position"
@@ -113,6 +114,7 @@ inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
     {"musicxx.player.beforePlaySong", 1, 1},
     {"musicxx.player.source.beforeParse", 1, 0},
     {"musicxx.player.source.resolved", 0, 3},
+    {"musicxx.player.source.resolve", 1, 0},
     {"musicxx.player.beforeOpen", 1, 0},
     {"musicxx.player.state", 0, 3},
     {"musicxx.player.position", 0, 3},

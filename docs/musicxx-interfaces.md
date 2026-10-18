@@ -44,6 +44,7 @@
 | 跳搜索页 | `OpenSearch`（命令 `musicxx.ui.openSearch`） | `musicxx-cli call musicxx.ui.openSearch --args '{"keyword":"…"}'` | —（插件用 `musicxx.ui.openRoute`） | `musicxx://search/?keyword=…` | `--cmd musicxx.ui.openSearch --args '{"keyword":"…"}'` |
 | 副歌区段 | `AnalyseAudioChorus`（能力工具） | `musicxx-cli feature call AnalyseAudioChorus` | `musicxx.feature.call` | — | — |
 | 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=featurePoint.list` | `--cmd featurePoint.list` |
+| 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
 | 装插件 | `InstallExternPlugin` | `musicxx-cli plugin install` | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
 
 > **写链接或启动参数之前，先问一次清单**：`musicxx-cli list --json`（或 GET `/cli/list`）里有
@@ -200,7 +201,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 77 条 = 动作 51 + 内置与应用命令 21 + 能力导出 2 + 变量 3）
+## 4. 命令面（当前 81 条 = 动作 54 + 内置与应用命令 22 + 能力导出 2 + 变量 3）
 
 ### 4.1 命令从哪来
 
@@ -234,7 +235,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 动作**，动作自己做宽松解析（数字与字符串可互转）。参数不对时答复形如
 `{"ok":false,"error":"参数 xxx 非法: …"}`。
 
-### 4.3 内置与应用命令（21 条）
+### 4.3 内置与应用命令（22 条）
 
 | 命令 | 参数 | `data` |
 |---|---|---|
@@ -258,6 +259,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `app.logs` | `file?`(error/info/both)、`offset?`、`level?`(名字或数值)、`keyword?`、`exclude?`、`limit?`(1~500) | `{logs:[{timeText, level, file, source, text}…], total, hasMore, fileSize, parseErrors, flushedHint}`，**新的在前** |
 | `featurePoint.list` | `id?`、`provided?`(bool) | `{ok:true, points:[{id, title, type, available, callable, rows, callDoc?, callStat?}…]}` |
 | `featurePoint.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `busy` / `failed`） |
+| `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], resolveChain:[…]}`：插件声明的音源类型 + 音源解析链现状（与 `featurePoint.list` 看 `musicxx.player.source.resolve` 是同一份） |
 
 `musicxx.ui.openSearch` 的 `type` 取值（大小写不敏感，缺省保持当前搜索类型）：`localsong`（本地歌曲）、
 `historysong`（播放记录）、`bili`（Bili）、`musiccloud`（音乐云盘）、`alidrive`（阿里云盘）、
@@ -285,7 +287,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 `AnalyseImageMainColors`（图片主色调）。它们的参数由能力自己声明，
 `feature.list` / MCP 的工具清单里就是同一份。
 
-### 4.5 主程序动作（51 条，命令 id = 动作名）
+### 4.5 主程序动作（54 条，命令 id = 动作名）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"：
@@ -303,6 +305,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 封面与频谱（6） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` |
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
 | 功能点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
+| 音源（3） | `musicxx.source.define` / `undefine` / `list` |
 | 钩子自省（1） | `musicxx.hook.handlers` |
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
 | 统计上报（2） | `musicxx.stats.reportMemory` / `reportMetric` |
@@ -405,7 +408,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（当前 33 个）
+### 5.2 工具全表（当前 34 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -472,6 +475,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `GetAudioSpectrum` | 见能力声明（`path?`、`start?`、`duration?`、`bandCount?` 等） | `feature.call`（id = `GetAudioSpectrum`） | 文本表（每行一个时间步） |
 | `AnalyseAudioChorus` | 见能力声明 | `feature.call`（id = `AnalyseAudioChorus`） | 文本结论（副歌区段） |
 | `AnalyseImageMainColors` | 见能力声明（`path?` / `url?`） | `feature.call`（id = `AnalyseImageMainColors`） | 主色 + 4 组色值的文本 |
+| `ListMediaSources` | 无 | `source.list` | 插件声明的音源类型（id / 展示名 / 地址写法）+ 音源解析链现状（生效 / 备选 / 关闭） |
 
 后三个工具的名字**就是能力 id**，工具说明与参数也来自能力自己的声明 —— 新增能力会自动变成
 新工具，工具清单会跟着长。

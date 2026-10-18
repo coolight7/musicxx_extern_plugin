@@ -128,7 +128,8 @@ my_plugin/
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
 | 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原） |
-| 功能埋点自省 | 动作 `musicxx.feature.point.list`、`musicxx.hook.handlers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁置空、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `featurePoint.list`、MCP `GetFeatureProviders` 读同一份数据 |
+| 功能埋点自省 | 动作 `musicxx.feature.point.list`、`musicxx.hook.handlers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 音源解析 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁置空、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `featurePoint.list`、MCP `GetFeatureProviders` 读同一份数据 |
+| 自己的音源（播放地址） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源地址写成 `plugin.<插件 id>.<类型名>://<自己的标识>`：主程序内置实现**不解析**这种地址，播放时问这条钩子要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
 | 功能点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新钩子） |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
 | 网络 | `musicxx.net.fetch/download` | 走主程序网络栈（继承代理/超时）；响应体流式读取，上限 16 MiB（默认 2 MiB）；**非 2xx 也算请求完成** |
@@ -147,10 +148,10 @@ my_plugin/
    插件框架**不会打断脚本**，只能重启主程序。启动阶段的钩子（`app.start`）不要做重活。
 4. **裁决型钩子返回裁决对象**；需要 `await` 才能决定时，先同步判断"这次要不要裁决"，只在需要的那次返回 Promise
    （插件框架一直等到它结算）。返回 `null` / `undefined` = 不裁决。裁决只是建议，调用点会校验身份字段（如 `sid`），过期裁决会被丢弃。
-5. **钩子还没接入就不会触发**：约定 71 个钩子，主程序当前**应用派发**的只有 13 个
-   （`docs/plugin-hooks.md` 的「主程序是否已接入」列；标「已接入」的共 14 行，其中
+5. **钩子还没接入就不会触发**：约定 72 个钩子，主程序当前**应用派发**的只有 14 个
+   （`docs/plugin-hooks.md` 的「主程序是否已接入」列；标「已接入」的共 15 行，其中
    `musicxx.feature.point.call` 是插件功能点的通用通道、由调用方触发）；别把功能押在未接入的钩子上
-   （它们打算做什么见 `docs/plugin-api.md` §8.6）。
+   （它们打算做什么见 `docs/plugin-api.md` §8.7）。
    两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标**废弃**：
    注册了也不会收到事件，替代做法写在它们的说明里。
 6. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
