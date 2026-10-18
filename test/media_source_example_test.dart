@@ -227,6 +227,179 @@ void main() {
     expect((probe['config'] as Map)['overrideBili'], false);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('功能 3：本地文件走插件 HTTP 服务（GET / Range / HEAD）', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    // 造一个 200 KB 的文件（内容可校验）
+    final File media = File(path.join(harness.work.path, 'sample.bin'));
+    final List<int> content = List<int>.generate(200 * 1024, (int i) => i % 251);
+    media.writeAsBytesSync(content);
+
+    final Map<String, Object?>? verdict = await harness.resolveSrc(
+      type: 'link',
+      src: '$proxyType://${media.path}',
+      pluginType: proxyType,
+      quality: 'hq',
+    );
+    expect(verdict, isNotNull, reason: '本地代理音源应当由插件接管');
+    final Map<String, Object?> src = _srcOf(verdict!);
+    expect(src['kind'], 'url');
+    final String url = src['path']! as String;
+    expect(url, startsWith('http://127.0.0.1:'));
+    expect(src['size'], content.length);
+
+    // 整段 GET
+    final HttpClient client = HttpClient();
+    addTearDown(client.close);
+    final _HttpResult full = await _httpGet(client, url);
+    expect(full.status, 200);
+    expect(full.contentLength, content.length);
+    expect(full.acceptRanges, 'bytes');
+    expect(full.body.length, content.length);
+    expect(full.body.sublist(0, 16), content.sublist(0, 16));
+
+    // 单段 Range：拖动进度时播放器就是这么请求的
+    final _HttpResult partial = await _httpGet(
+      client,
+      url,
+      headers: <String, String>{'Range': 'bytes=100-199'},
+    );
+    expect(partial.status, 206);
+    expect(partial.contentRange, 'bytes 100-199/${content.length}');
+    expect(partial.body, content.sublist(100, 200));
+
+    // 后缀 Range
+    final _HttpResult suffix = await _httpGet(
+      client,
+      url,
+      headers: <String, String>{'Range': 'bytes=-64'},
+    );
+    expect(suffix.status, 206);
+    expect(suffix.body, content.sublist(content.length - 64));
+
+    // 越界 Range → 416
+    final _HttpResult beyond = await _httpGet(
+      client,
+      url,
+      headers: <String, String>{'Range': 'bytes=${content.length + 10}-'},
+    );
+    expect(beyond.status, 416);
+
+    // HEAD：只要长度
+    final _HttpResult head = await _httpGet(client, url, method: 'HEAD');
+    expect(head.status, 200);
+    expect(head.contentLength, content.length);
+    expect(head.body, isEmpty);
+
+    // 错误的 token → 404（服务端只按 token 查表，不解析路径）
+    final _HttpResult missing = await _httpGet(
+      client,
+      url.replaceFirst(RegExp(r'/f/[0-9a-f]+'), '/f/deadbeef'),
+    );
+    expect(missing.status, 404);
+
+    // 计数与状态
+    final Map<String, Object?> probe = await harness.probe();
+    expect((probe['stats'] as Map)['proxyCalls'], 1);
+    final Map<String, Object?> server =
+        (probe['server'] as Map).cast<String, Object?>();
+    expect(server['running'], isTrue);
+    expect(server['files'], greaterThanOrEqualTo(1));
+    expect(server['requests'], greaterThanOrEqualTo(2));
+    expect(server['bytesServed'], greaterThanOrEqualTo(content.length));
+
+    // 同一个文件再解析一次：命中登记（URL 不变），不会多一条映射
+    final Map<String, Object?>? again = await harness.resolveSrc(
+      type: 'link',
+      src: '$proxyType://${media.path}',
+      pluginType: proxyType,
+      quality: 'hq',
+    );
+    expect(_srcOf(again!)['path'], url);
+
+    // 卸载插件 → 服务跟着关掉，端口不再接受连接
+    harness.runtime.plugins.unload(pluginId);
+    await expectLater(
+      _httpGet(client, url),
+      throwsA(isA<SocketException>()),
+      reason: '插件卸载后本地服务应当已关闭',
+    );
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('功能 3：serveBytes 登记一段内容', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    const String text = '#EXTM3U\n#EXT-X-VERSION:3\nseg0.ts\n';
+    final Object? raw = await harness.runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.serveText',
+      <String, Object?>{'text': text},
+    );
+    expect(raw, isA<Map<String, Object?>>());
+    final Map<String, Object?> served = raw! as Map<String, Object?>;
+    expect(served['ok'], isTrue, reason: 'serveBytes 应当成功: $served');
+
+    final HttpClient client = HttpClient();
+    addTearDown(client.close);
+    final _HttpResult result = await _httpGet(client, served['url']! as String);
+    expect(result.status, 200);
+    expect(result.contentType, contains('text/plain'));
+    expect(convert.utf8.decode(result.body), text);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('开关：关掉 proxyLocalEnabled 后本地代理不接管', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    await harness.runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.setSwitch',
+      <String, Object?>{'id': 'proxyLocalEnabled', 'value': false},
+    );
+
+    final Map<String, Object?>? verdict = await harness.resolveSrc(
+      type: 'link',
+      src: '$proxyType://D:/no/such/file.mp3',
+      pluginType: proxyType,
+      quality: 'hq',
+    );
+    expect(verdict, isNull, reason: '开关关闭时不接管（该来源会解析失败）');
+    final Map<String, Object?> probe = await harness.probe();
+    expect((probe['stats'] as Map)['proxyCalls'], 0);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('设置页与 probe：初始值、页面内容', () async {
     if (env == null || !env.hasPlugin(pluginId)) {
       markTestSkipped(
@@ -268,8 +441,13 @@ void main() {
         reason: '设置页要有演示按钮: $texts');
     expect(texts.any((String text) => text.contains('播放自定义音源')), isTrue,
         reason: '设置页要有自定义音源的演示按钮: $texts');
+    expect(texts.any((String text) => text.contains('本地文件走 HTTP')), isTrue,
+        reason: '设置页要有功能 3 的开关: $texts');
+    expect(texts.any((String text) => text.contains('本地 HTTP 服务')), isTrue,
+        reason: '设置页要有本地服务状态: $texts');
     expect(_switchValue(view, 'overrideBili'), isTrue, reason: '默认开启');
     expect(_switchValue(view, 'pluginBiliEnabled'), isTrue, reason: '默认开启');
+    expect(_switchValue(view, 'proxyLocalEnabled'), isTrue, reason: '默认开启');
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
@@ -509,6 +687,44 @@ Map<String, Object?> _srcOf(Map<String, Object?> verdict) {
   final Object? src = verdict['src'];
   expect(src, isA<Map<String, Object?>>(), reason: '裁决里应有 src: $verdict');
   return src! as Map<String, Object?>;
+}
+
+/// 一次 HTTP 请求的结果（只取测试关心的几个头）
+class _HttpResult {
+  _HttpResult(this.status, this.headers, this.body);
+
+  final int status;
+  final HttpHeaders headers;
+  final List<int> body;
+
+  int get contentLength =>
+      int.tryParse(headers.value(HttpHeaders.contentLengthHeader) ?? '') ?? -1;
+
+  String? get contentType => headers.contentType?.toString();
+
+  String? get acceptRanges => headers.value('accept-ranges');
+
+  String? get contentRange => headers.value('content-range');
+}
+
+/// 发一次 HTTP 请求（`method: 'HEAD'` 时不读正文）
+Future<_HttpResult> _httpGet(
+  HttpClient client,
+  String url, {
+  Map<String, String>? headers,
+  String method = 'GET',
+}) async {
+  final HttpClientRequest request =
+      await client.openUrl(method, Uri.parse(url));
+  headers?.forEach(request.headers.set);
+  final HttpClientResponse response = await request.close();
+  final List<int> body = method == 'HEAD'
+      ? <int>[]
+      : await response.fold<List<int>>(
+          <int>[],
+          (List<int> acc, List<int> chunk) => acc..addAll(chunk),
+        );
+  return _HttpResult(response.statusCode, response.headers, body);
 }
 
 /// 取设置页里某个开关的 `value`（按控件 id 找）
