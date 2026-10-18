@@ -217,6 +217,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js_vars
   example_js_multi_script
   example_js_font
+  example_override_media_source
   playing_bg_image
 )
 set(MUSICXX_EXTERN_PLUGIN_TEST_NATIVE example_native_fail example_native_bad_entry)

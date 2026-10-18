@@ -1,0 +1,14 @@
+name: example_override_media_source
+kind: js
+entry: plugin.js
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
+version: 2026.1019.1
+api_version: 1
+author: "musicxx"
+description: "演示插件参与音源解析：覆盖内置 Bili 解析、声明自己的音源类型、用本地 HTTP 服务代理音源"
+platforms: [windows, linux, macos, android, ios]
+permissions:
+  - musicxx.player.control
+  - musicxx.net
+  - musicxx.storage
+  - musicxx.ui

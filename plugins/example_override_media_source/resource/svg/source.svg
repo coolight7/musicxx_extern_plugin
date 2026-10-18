@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="#7c8b9a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 左侧：一个"来源"文件夹；右侧：换成播放地址的箭头 -->
+  <path d="M3.5 18V6.5a1.5 1.5 0 0 1 1.5-1.5h4.2l1.6 2h3.7"/>
+  <path d="M3.5 18h7"/>
+  <path d="M15 9.5h4.5a1.5 1.5 0 0 1 1.5 1.5v7"/>
+  <path d="M8.5 13.5h6"/>
+  <path d="m12.5 11.5 2 2-2 2"/>
+</svg>
