@@ -661,10 +661,10 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
 
 int32_t MusicxxHostManager::actionRespond(int64_t requestId, int32_t status,
                                           const std::string &resultJson) {
-  auto it = pendingActions_.find(requestId);
-  if (it == pendingActions_.end()) {
-    // 不属于动态库插件登记表: 可能是 JS 引擎登记的动作请求 (见
-    // InternalActionRelay)
+  /// 先问 JS 引擎的接驳口: 它用自己的表登记未回复的请求, 自带互斥, **任何线程**
+  /// 都能就地回答。顺序不能反过来 —— 这条回复往往是由"正在 IO 线程上等 JS"的
+  /// 钩子派发 (见 JsEngine::hookSync) 触发的, 先投 IO 线程就会两边互等。
+  {
     std::shared_ptr<InternalActionRelay> relay;
     {
       std::lock_guard<std::mutex> lock{registryMutex_};
@@ -673,24 +673,32 @@ int32_t MusicxxHostManager::actionRespond(int64_t requestId, int32_t status,
     if (relay && relay->respondAction(requestId, status, resultJson)) {
       return MUSICXX_EXTERN_PLUGIN_OK;
     }
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
-  if (it->second.timer) {
-    it->second.timer->cancel(); ///< 已回复: 撤销超时保护
-  }
-  if (it->second.notify && it->second.notify->done) {
-    PluginxxString payload{};
-    if (status == 0 && !resultJson.empty()) {
-      payload = pluginxx::hostMemoryCreateString(std::string_view{resultJson});
-    }
-    const PluginxxStringView view{payload.data, payload.size};
-    it->second.notify->done(it->second.notify->host_ud, status, &view);
-    if (payload.data) {
-      pluginxx::hostMemoryFree(payload.data);
-    }
-  }
-  pendingActions_.erase(it);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  /// 动态库插件的请求: 登记表归 IO 线程 (调用方已在 IO 线程时就地执行)
+  return pluginxx::ioCallSync<int32_t>(
+      this, [this, requestId, status, resultJson]() -> int32_t {
+        auto it = pendingActions_.find(requestId);
+        if (it == pendingActions_.end()) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+        }
+        if (it->second.timer) {
+          it->second.timer->cancel(); ///< 已回复: 撤销超时保护
+        }
+        if (it->second.notify && it->second.notify->done) {
+          PluginxxString payload{};
+          if (status == 0 && !resultJson.empty()) {
+            payload = pluginxx::hostMemoryCreateString(
+                std::string_view{resultJson});
+          }
+          const PluginxxStringView view{payload.data, payload.size};
+          it->second.notify->done(it->second.notify->host_ud, status, &view);
+          if (payload.data) {
+            pluginxx::hostMemoryFree(payload.data);
+          }
+        }
+        pendingActions_.erase(it);
+        return MUSICXX_EXTERN_PLUGIN_OK;
+      });
 }
 
 void MusicxxHostManager::cancelAction(int64_t requestId) {

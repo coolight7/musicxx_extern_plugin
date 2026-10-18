@@ -319,6 +319,11 @@ public:
 
   /* ---------- 动作请求 (插件 → Dart) ---------- */
 
+  /// 回答一条插件发起的动作请求 (**任意线程**)
+  ///
+  /// 先交给 JS 引擎接驳口就地回答 (它自己的表带互斥); 不属于它的才转给 IO 线程
+  /// 查动态库插件的登记表。顺序固定: 这条回复可能就是由"IO 线程正在等 JS"的
+  /// 钩子派发触发的, 先转 IO 线程就会互等。
   int32_t actionRespond(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 

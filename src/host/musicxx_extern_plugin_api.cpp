@@ -706,9 +706,11 @@ musicxx_extern_plugin_action_respond(
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   const std::string result = viewToStd(result_json);
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->actionRespond(request_id, status, result);
-  });
+  /// 不能转投 IO 线程再回答: 触发这条回复的处理器自身常常**正占着 IO 线程**等 JS
+  /// (裁决型钩子的同步等待, 见 JsEngine::hookSync), 转投就会互相等到超时。
+  /// actionRespond 自己负责线程归属: JS 引擎的请求就地回答, 动态库插件的登记表
+  /// 才投到 IO 线程。
+  const auto rc = handle->manager->actionRespond(request_id, status, result);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
     setErr(log, "action_respond: 未知 requestId");
   }
