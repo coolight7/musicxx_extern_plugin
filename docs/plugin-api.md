@@ -681,6 +681,32 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
 脚本执行次数 / 错误数 / JS 堆大小 / 异步裁决结算数）；动态库插件目前只能看管理页
 「插件详情 → 运行统计」。
 
+#### 3.2.15 音源（`musicxx.source.*`）
+
+插件自己的音源：地址写成 `plugin.<你的插件 id>.<类型名>://<你自己的标识>`，主程序的内置实现
+**不解析**这种地址，播放时问钩子 `musicxx.player.source.resolve`（见 §8.6）。三个动作做声明与自省：
+
+| 动作 | 参数 | 返回 |
+|---|---|---|
+| `musicxx.source.define` | `{id, title?, depict?, srcDoc?}` | `{ok:true, id}` 或 `{ok:false, error}` |
+| `musicxx.source.undefine` | `{id}` | `{ok, removed}` |
+| `musicxx.source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}], resolveChain:[…]}` |
+
+- `id` 必须形如 `plugin.<你的插件 id>.<类型名>`（与地址的 scheme 一致）；**声明只用于自省与更清楚的
+  报错**：音源能不能播，看的是你有没有注册 `musicxx.player.source.resolve` 的处理器，不是有没有声明。
+- 声明跟着插件生命周期走（停用 / 卸载 / 关『拟声++』自动撤销），不写入磁盘；重新启用时脚本会再声明一遍。
+- `musicxx.source.list` 的 `resolveChain` 与 `musicxx.feature.point.list` 里看
+  `musicxx.player.source.resolve` 是同一份数据（命令行 `source.list`、MCP `ListMediaSources` 也读它）。
+
+```js
+await musicxx.call("musicxx.source.define", {
+    id: "plugin.my_plugin.flac", title: "我的高解析音源", srcDoc: "track/<歌曲 id>"
+});
+await musicxx.call("musicxx.player.playSrc", {
+    src: "plugin.my_plugin.flac://track/1", type: "link"
+});
+```
+
 ### 3.3 名字存在、但当前版本没有实现的动作
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
@@ -693,7 +719,7 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
 
 要"改应用状态"的能力缺口，用对应的**钩子**或**变量**补：例如想改播放速度用动作
 `musicxx.player.setSpeed`（已实现）；想拦一次设置变更用钩子 `musicxx.player.speed`（**还没接入**，
-见 §8.6）。
+见 §8.7）。
 
 ---
 
@@ -1061,9 +1087,9 @@ unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
   JS 侧由插件框架在后台拒绝并记日志（`register` 本身不会报错），所以写错 id 的表现是
   **处理器永远不被调用**。JS 的 `musicxx.hooks.has(id)` 只看脚本自己注册没注册，不代表插件框架受理了。
   插件自定义事件主题 / 能力名 / UI 项 id 才用 `plugin.<自己的插件 id>.*`。
-- **只有"已接入"的钩子会触发**：当前 13 个应用派发的钩子（`plugin-hooks.md` 的「主程序是否已接入」列
-  标「已接入」的共 14 行 —— 多出来的第 14 条是插件功能点的通用通道 `musicxx.feature.point.call`，
-  由调用方触发、不是应用主动派发）；其余钩子注册成功但不会触发 —— 别把功能押在未接入的钩子上（它们打算做什么见 §8.6）。
+- **只有"已接入"的钩子会触发**：当前 14 个应用派发的钩子（`plugin-hooks.md` 的「主程序是否已接入」列
+  标「已接入」的共 15 行 —— 多出来的第 15 条是插件功能点的通用通道 `musicxx.feature.point.call`，
+  由调用方触发、不是应用主动派发）；其余钩子注册成功但不会触发 —— 别把功能押在未接入的钩子上（它们打算做什么见 §8.7）。
 
 ### 8.2 裁决对象
 
@@ -1111,7 +1137,47 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 - 返回 `null` / 空 = "这次不提供"（链条继续问下一个实现）。
 - **不要拿 `disable` 当"我没算完"的挡箭牌**：那样用户会看到功能凭空消失。
 
-### 8.6 未接入钩子的名字说明
+### 8.6 音源解析与自定义音源（`musicxx.player.source.resolve`）
+
+应用在**把一个音源变成播放器能打开的地址与请求头**时派发这条钩子（`decision` + `firstNonNull` +
+异步）。顺序是 **外置插件 → 内置插件（云盘 / 媒体库）→ 应用自身（本地文件 / 链接 / Bili）**：
+你注册了处理器就排在最前，既给自己的音源写地址，也能给内置来源换地址。
+
+```js
+musicxx.hooks.register("musicxx.player.source.resolve", { mode: "decision" }, (ctx) => {
+    if (ctx.pluginType !== "plugin.my_plugin.flac") return null;   // 不是我的音源：不回答
+    const track = ctx.src.slice("plugin.my_plugin.flac://".length);
+    return { patch: { src: {
+        path: `https://cdn.example/${track}.flac`,
+        headers: { Referer: "https://example/" },
+        kind: "url"
+    } } };
+});
+```
+
+载荷字段：`srcKey`（音源身份 md5）、`type`（本轮音源类型）与 `crudeType`（歌曲里保存的原始类型）、
+`src`（本轮要解析的地址）与 `crudeSrc`（原始地址）、`fileName` / `durationMs` / `quality`
+（文件名、时长、用户音质偏好）、`isMediaSrc`（`false` = 这次要的是封面）、`pluginType`
+（`src` 是插件音源地址时给出它的类型 id，否则 `null`）、`caller`（谁在问，空 = 应用自己）。
+
+回答：`{"src": {"path": "<地址>", "headers": {...}, "kind": "url"}}`（`src` 也可以直接给地址字符串）：
+
+- `path` 可以是网络地址、本地文件路径、`content://`、`asset://`；
+- `kind` 取 `url` / `file` / `content` / `asset`，**缺省按地址自己判断**。写错会让本地文件被当成
+  网络流去套 HTTP 缓存代理（地址还会被当成 URI 改写），能写就写；
+- `headers` 是这个地址要用到的请求头（可以省）；`expireAtMs` / `size` / `durationMs` / `quality` 可选；
+- **用 `patch` 包一层**（多个实现时裸字段会被后面的处理器盖掉，只有一个实现时两种写法等价）；
+- 返回空 / 结果不合法 = 这次不提供，应用接着问内置实现；返回 `{"disable": true}` = 这次不再问
+  别的实现，该音源会解析失败（只在明确知道它不该播时用）。
+
+注意：
+
+- **载荷里带来源字符串**（插件自己的音源就是你自己写下的地址，内置来源是已经解析出来的临时直链或
+  本地路径）—— 这是"能换地址"的前提，注册这条钩子的插件看得到这些内容。
+- 应用最多等你 **5 秒**（超时按"没给"处理）；地址是临时直链时自己缓存好，处理器里越快越好。
+- 观看型的 `musicxx.player.source.resolved` 只报"种类"，**不给地址**：要看播放是否成功用它。
+
+### 8.7 未接入钩子的名字说明
 
 下面这些钩子**约定已经定下来、主程序还没接**（注册不会触发，将来接入时的载荷以
 `plugin-hooks.md` 为准）。列在这里是让你知道"这个名字打算做什么"，别猜：
@@ -1122,7 +1188,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 | `musicxx.app.exit` | 退出前让插件拦一下（`decision`） |
 | `musicxx.app.deepLink` | 外部链接进来时让插件拦一下 / 处理 |
 | `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |
-| `musicxx.player.beforeOpen` | 把解析好的地址交给播放器之前拦一下（换地址） |
+| `musicxx.player.beforeOpen` | 不接入（已被 `musicxx.player.source.resolve` 取代：换地址 / 提供播放地址统一走那条） |
 | `musicxx.player.position` | 播放进度（按秒级节流推送） |
 | `musicxx.player.seek` | 用户拖动进度时拦一下（改目标位置） |
 | `musicxx.player.volume` / `musicxx.player.speed` / `musicxx.player.pitch` | 用户改音量 / 速度 / 音调时拦一下（改新值） |

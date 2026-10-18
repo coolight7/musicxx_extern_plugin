@@ -333,6 +333,28 @@ abstract final class MusicxxPluginActionNames {
   /// 一般不用调：插件被禁用 / 卸载时插件框架会撤销它的全部声明。
   static const String featurePointUndefine = 'musicxx.feature.point.undefine';
 
+  /// 声明一个**自己的音源类型**（id 必须形如 `plugin.<自己的插件 id>.<类型名>`）
+  ///
+  /// 音源地址写成 `plugin.<自己的插件 id>.<类型名>://<自己的标识>`：主程序内置实现不解析这种
+  /// 地址，播放时问钩子 `musicxx.player.source.resolve` 的处理器（注册处理器就是"提供解析"）。
+  /// 参数 `id`（必填，与地址的 scheme 一致）、`title`（展示名）、`depict`（一句话说明）、
+  /// `srcDoc`（地址里写什么）。声明只用于自省与更清楚的报错：**解析能不能成看有没有注册解析
+  /// 处理器**。同一 id 重复声明 = 覆盖（最后一次生效）；声明跟着插件生命周期走
+  /// （禁用 / 卸载自动撤销），不持久化。
+  static const String sourceDefine = 'musicxx.source.define';
+
+  /// 收回自己声明的音源类型（参数 `id`）
+  ///
+  /// 一般不用调：插件被禁用 / 卸载时插件框架会撤销它的全部声明。
+  static const String sourceUndefine = 'musicxx.source.undefine';
+
+  /// 列出插件音源类型与音源解析链（自省）
+  ///
+  /// 返回 `{sources, resolveChain}`：`sources` = 各插件声明的音源类型，
+  /// `resolveChain` = 音源解析链现在有谁在提供（与 `musicxx.feature.point.list`
+  /// 看 `musicxx.player.source.resolve` 是同一份数据）。
+  static const String sourceList = 'musicxx.source.list';
+
   /// 读某个钩子当前的处理器列表（自省：谁注册了、什么形态、排第几）
   ///
   /// 参数：`hook`（钩子 id，如 `musicxx.media.spectrum.extract`）。
