@@ -528,6 +528,14 @@ const info = await musicxx.capability.call("example_native", "probe", {});
     —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
   同一条规则也适用于**同步派发**的钩子（`musicxx.player.beforePlaySong` 等调用点就地等待的钩子）：
   处理器里等动作会一直卡住调用线程。
+- **异步派发的裁决钩子可以等动作**（`musicxx.player.source.resolve` / `musicxx.player.error` 这类
+  主程序用 `decideAsync` 派发的钩子）：插件框架在框架线程上派发并就地等处理器结果，但
+  **Dart 侧的回答不经过框架线程**（先问 JS 引擎自己的请求登记表），所以处理器里
+  `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果
+  —— `plugins/example_override_media_source` 就是靠这一条把 BV 号换成播放地址。
+  但仍然**只等主程序动作**：`musicxx.vars.*`、跨插件调用、`musicxx.hooks.*` 这些要框架线程处理的
+  接口在处理器里等会一直等到超时（框架线程正卡在等这个处理器返回）。异步钩子里要这类数据请读
+  状态镜像，或者提前存在脚本里。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
 
   | 目标 | 行为 |
