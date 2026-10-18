@@ -62,6 +62,7 @@ const stats = {
     biliOk: 0,
     pluginBiliCalls: 0,
     proxyCalls: 0,
+    lastServedUrl: "",
     lastError: "",
 };
 
@@ -117,11 +118,35 @@ function extractBvid(text) {
 /// 插件音源地址 → 自己的标识（`plugin.x.y://<标识>` 里 `://` 之后的部分）
 ///
 /// 地址的写法是"类型 id + `://` + 插件自己定的标识"；标识怎么解释完全由插件决定，
-/// 这里两种类型都把它当"BV 号"。
+/// 前两种类型把它当"BV 号"，第三种类型把它当"本地文件路径"。
 function opaqueOf(addr) {
     const text = String(addr || "");
     const index = text.indexOf("://");
     return index >= 0 ? text.slice(index + 3) : text;
+}
+
+/// 地址里的本地路径 → 可直接交给文件服务的路径
+///
+/// - `file:///D:/a.mp3` → `D:/a.mp3`（去 `file://`、解百分号编码）
+/// - `/D:/a.mp3` → `D:/a.mp3`（Windows 的路径被写成 URI 时前面会多一个斜杠）
+/// - 反斜杠保留（C++ 侧两种分隔符都认）
+function normalizeLocalPath(raw) {
+    let text = String(raw || "").trim();
+    if (!text) {
+        return "";
+    }
+    if (/^file:\/\//i.test(text)) {
+        text = text.slice(7);
+        try {
+            text = decodeURIComponent(text);
+        } catch (e) {
+            // 百分号写得不规范就不解，按原样交给文件服务
+        }
+    }
+    if (/^\/[A-Za-z]:/.test(text)) {
+        text = text.slice(1);
+    }
+    return text;
 }
 
 /// 取文件名（地址里可能是 / 或 \）
@@ -349,6 +374,47 @@ function biliAnswer(result) {
     };
 }
 
+/* ==================== 本地文件 → HTTP 地址 ==================== */
+
+/// 把本地文件登记到插件框架的本地 HTTP 服务，回答一个 `http://127.0.0.1:...` 地址
+///
+/// 为什么要绕一道 HTTP：插件框架的 JS 运行时没有 socket，但**播放器只认 http(s) 与本地文件**。
+/// 有了这一层，插件就能把"播放器不支持的东西"变成普通 HTTP：
+/// - 本地文件（本示例）；
+/// - 插件用 `musicxx.net.fetch / download` 取到的远端数据（先落盘再 `serveFile`，小内容用 `serveBytes`）；
+/// - FTP / 自定义协议（插件取流后转发）；
+/// - HLS 播放列表与分片、转码后的小段（`serveBytes`）。
+///
+/// 旧版插件框架没有这个 API：退化为直接返回本地路径（`kind: "file"`），播放器自己读文件。
+function answerProxyLocal(rawPath) {
+    const path = normalizeLocalPath(rawPath);
+    if (!path) {
+        noteError("自定义音源里没有文件路径");
+        return null;
+    }
+    stats.proxyCalls += 1;
+    if (!musicxx.net || typeof musicxx.net.serveFile !== "function") {
+        noteError("插件框架没有本地 HTTP 服务，改为直接读本地文件");
+        return {patch: {src: {path: path, kind: "file"}}};
+    }
+    const served = musicxx.net.serveFile(path, {fileName: basename(path)});
+    if (!served || served.ok !== true) {
+        noteError("登记本地文件失败: " +
+            ((served && (served.message || served.error)) ? (served.message || served.error) : "unknown"));
+        return null;
+    }
+    stats.lastServedUrl = served.url || "";
+    return {
+        patch: {
+            src: {
+                path: served.url,
+                kind: "url",
+                size: served.size || 0,
+            },
+        },
+    };
+}
+
 /* ==================== 音源解析钩子 ==================== */
 
 /// 主程序要把一个音源变成"播放器能打开的地址 + 请求头"时问一次。
@@ -398,6 +464,11 @@ musicxx.hooks.register("musicxx.player.source.resolve", {
         });
     }
 
+    // 3) 本地文件 → 插件框架的本地 HTTP 文件服务
+    if (pluginType === TYPE_PROXY_LOCAL && settingOf("proxyLocalEnabled")) {
+        return answerProxyLocal(opaqueOf(src));
+    }
+
     return null;
 });
 
@@ -414,6 +485,18 @@ function declareSourceTypes() {
         title: "B 站（插件解析）",
         depict: "地址里写 BV 号，插件自己查 B 站接口换播放地址与请求头",
         srcDoc: "BV1GJ411x7h7",
+    }).then(function (result) {
+        if (!result || result.ok !== true) {
+            noteError("声明音源类型失败: " + ((result && result.error) || "unknown"));
+        }
+    }, function (err) {
+        noteError("声明音源类型失败: " + err.message);
+    });
+    musicxx.call("musicxx.source.define", {
+        id: TYPE_PROXY_LOCAL,
+        title: "本地文件（HTTP 代理）",
+        depict: "地址里写本地文件路径，插件通过本地 HTTP 文件服务给播放器一个 http 地址",
+        srcDoc: "D:/music/a.mp3 或 file:///D:/music/a.mp3",
     }).then(function (result) {
         if (!result || result.ok !== true) {
             noteError("声明音源类型失败: " + ((result && result.error) || "unknown"));
@@ -444,10 +527,20 @@ function settingsView(args, override) {
     const pluginBili = (override && typeof override.pluginBiliEnabled === "boolean")
         ? override.pluginBiliEnabled
         : settingOf("pluginBiliEnabled");
+    const proxyLocal = (override && typeof override.proxyLocalEnabled === "boolean")
+        ? override.proxyLocalEnabled
+        : settingOf("proxyLocalEnabled");
     const lastError = stats.lastError === "" ? "没有错误" : stats.lastError;
+    const server = (musicxx.net && typeof musicxx.net.serverInfo === "function")
+        ? musicxx.net.serverInfo()
+        : { ok: false, running: false };
+    const serverText = server.running
+        ? ("端口 " + String(server.port) + " · 登记 " + String(server.files) +
+           " 个 · 请求 " + String(server.requests) + " 次")
+        : "未启动（还没有人用过本地代理）";
     return {
         title: "音源解析示例",
-        subtitle: "插件参与音源解析的两条路（本地代理见后续版本）",
+        subtitle: "插件参与音源解析的三条路",
         blocks: [
             kit.hint({
                 text: "插件注册 musicxx.player.source.resolve：主程序要把音源换成播放地址时会先问插件。" +
@@ -478,6 +571,24 @@ function settingsView(args, override) {
                 title: "自定义音源",
                 subtitle: "被问到的次数",
                 trailing: String(stats.pluginBiliCalls),
+            }, env),
+            kit.divider({}, env),
+            kit.switchRow({
+                id: "proxyLocalEnabled",
+                title: "本地文件走 HTTP（plugin_proxy_local）",
+                depict: "地址写 plugin.<插件 id>.plugin_proxy_local://<本地路径>，播放时由插件框架的本地 HTTP 服务把文件流给播放器（支持 Range）",
+                value: proxyLocal,
+                action: "setSwitch",
+            }, env),
+            kit.listRow({
+                title: "本地 HTTP 服务",
+                subtitle: "只监听 127.0.0.1，地址里只有随机 token",
+                trailing: serverText,
+            }, env),
+            kit.listRow({
+                title: "本地代理",
+                subtitle: "被问到的次数",
+                trailing: String(stats.proxyCalls),
             }, env),
             kit.divider({}, env),
             kit.listRow({
@@ -556,8 +667,28 @@ musicxx.capability.register("playCustomSrc", function (args) {
     return {view: settingsView(args, null)};
 });
 
+/// 自检能力：把一段文本登记到本地 HTTP 服务
+///
+/// 用处有两个：演示 `musicxx.net.serveBytes`（HLS 播放列表、转码后的小段就是这样给的）；
+/// 以及在命令行里用 `curl` 验证服务真的在跑（返回的 `url` 直接 GET）。
+musicxx.capability.register("serveText", function (args) {
+    const text = (args && typeof args.text === "string")
+        ? args.text
+        : "musicxx plugin http server\n";
+    if (!musicxx.net || typeof musicxx.net.serveBytes !== "function") {
+        return { ok: false, error: "runtime_unsupported" };
+    }
+    return musicxx.net.serveBytes(text, {
+        contentType: "text/plain; charset=utf-8",
+        fileName: "hello.txt",
+    });
+});
+
 /// 自检能力：测试与命令行用它回读设置、计数与最近错误
 musicxx.capability.register("probe", function () {
+    const server = (musicxx.net && typeof musicxx.net.serverInfo === "function")
+        ? musicxx.net.serverInfo()
+        : { ok: false, running: false };
     return {
         pluginId: PLUGIN_ID,
         configLoaded: configLoaded,
@@ -571,7 +702,9 @@ musicxx.capability.register("probe", function () {
             biliOk: stats.biliOk,
             pluginBiliCalls: stats.pluginBiliCalls,
             proxyCalls: stats.proxyCalls,
+            lastServedUrl: stats.lastServedUrl,
         },
+        server: server,
         lastError: stats.lastError,
         sourceTypes: {
             bili: TYPE_PLUGIN_BILI,

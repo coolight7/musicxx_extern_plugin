@@ -10,12 +10,7 @@
 |---|---|---|---|
 | 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（钩子载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
 | 2 | `plugin.<插件 id>.plugin_bili`（`type = "link"`） | BV 号，例 `...plugin_bili://BV1GJ411x7h7` | 同一份 B 站直链 + 请求头 |
-
-后续提交会加：
-
-| # | 来源 | 音源字符串写什么 | 插件返回什么 |
-|---|---|---|---|
-| 3 | `plugin.<插件 id>.plugin_proxy_local` | 本地文件路径 | 插件框架本地 HTTP 文件服务的地址（流式读文件） |
+| 3 | `plugin.<插件 id>.plugin_proxy_local`（`type = "link"`） | 本地文件路径，例 `...plugin_proxy_local://D:/music/a.mp3` | `http://127.0.0.1:<端口>/f/<token>`（插件框架的本地 HTTP 文件服务） |
 
 ## 文件与开关
 
@@ -35,6 +30,7 @@ example_override_media_source/
 |---|---|---|
 | `overrideBili` | `true` | 不接管内置 Bili 解析，主程序原有逻辑照旧 |
 | `pluginBiliEnabled` | `true` | 自定义音源 `plugin_bili` 不接管（用这个来源的歌曲会解析失败） |
+| `proxyLocalEnabled` | `true` | 本地文件音源 `plugin_proxy_local` 不接管（该来源解析失败） |
 
 设置页：主页入口「音源解析示例」→ `ext://example_override_media_source/settings`。
 页面上还能看到被问到的次数、成功次数与最近一次错误。
@@ -118,6 +114,78 @@ musicxx.call("musicxx.source.define", {
 musicxx-cli call musicxx.player.playSrc --args '{"src":"plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7","type":"link"}'
 ```
 
+## 功能 3：本地文件走插件 HTTP 服务 `plugin_proxy_local`
+
+### 为什么需要框架提供
+
+JS 运行时里**没有任何 socket / 文件 API**，而播放器只认 `http(s)` 与本地文件。
+要把"播放器打不开的东西"交给它，必须有东西在本地监听一个端口 —— 那是插件框架内置的能力：
+
+```js
+musicxx.net.serveFile(path, { fileName, contentType })   // → { ok, url, size, mtimeMs, reused }
+musicxx.net.serveBytes(text, { encoding, contentType, fileName })
+musicxx.net.serverInfo()   // { ok, running, url, port, files, requests, bytesServed }
+musicxx.net.stopServer()
+```
+
+本示例的 `answerProxyLocal()` 只做三步：去掉 `file://` 前缀并归一路径 → `serveFile` → 回答地址：
+
+```js
+return { patch: { src: { path: served.url, kind: "url", size: served.size } } };
+```
+
+地址写法（两种都认）：
+
+```text
+plugin.example_override_media_source.plugin_proxy_local://D:/music/a.mp3
+plugin.example_override_media_source.plugin_proxy_local://file:///D:/music/a.mp3
+```
+
+### 服务长什么样
+
+- 只监听 `127.0.0.1`，端口由系统分配（不固定、不开放局域网）；
+- URL 里是 128 bit 随机 token：服务端**按 token 查表**，不解析路径，拿到 URL 也读不到别的文件；
+- 支持 `GET` / `HEAD` 与**单段 `Range`**（`206` + `Content-Range`，越界 `416`）—— 播放器拖动进度靠它，
+  否则会退化成整段重下；文件按 64 KiB 边读边写，不进内存；
+- 同一个文件重复登记返回同一个 URL；登记上限 1024 条（淘汰最旧）、并发连接上限 32；
+- 跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机时自动关掉，端口立即释放。
+
+旧版插件框架没有这四个接口：示例会退化为直接返回本地路径（`kind: "file"`），写一条警告，
+Play 仍然能放（播放器自己读文件），只是不再经过 HTTP。
+
+### 手动验证
+
+```bash
+# 把 <本地文件> 换成一个真实存在的音频/视频文件
+musicxx-cli call musicxx.player.playSrc --args '{"src":"D:/music/a.mp3","type":"plugin.example_override_media_source.plugin_proxy_local"}'
+```
+
+设置页会显示服务状态（端口 / 登记数 / 请求数）；也可以用 `curl` 直接验：
+
+```bash
+curl -I  "http://127.0.0.1:<端口>/f/<token>/a.mp3"              # 200 + Content-Length + Accept-Ranges
+curl -H "Range: bytes=0-1023" "http://127.0.0.1:<端口>/f/<token>/a.mp3"   # 206 + Content-Range
+curl "http://127.0.0.1:<端口>/f/deadbeef/a.mp3"                  # 404（只按 token 查表）
+```
+
+地址从哪里来：设置页的「本地代理」计数旁边就是最近一次登记的地址，或者用能力 `serveText`
+（`musicxx.capability.call` 调 `serveText({text})`）随地验一下 `serveBytes`。
+
+### 这套机制还能做什么（重点）
+
+示例只代理本地文件，是为了不联网、结果可复现；同一套机制可以：
+
+| 场景 | 怎么做 |
+|---|---|
+| **代理外部网络** | `musicxx.net.fetch/download` 取数据 → 小内容 `serveBytes`，大文件 `download` 落盘再 `serveFile` |
+| **播放器不支持的协议**（FTP / SFTP / 私有协议） | 插件自己取流（或先落盘）→ 转成 HTTP 给播放器 |
+| **格式 / 容器转换** | 插件转码后的产物 `serveFile`；HLS 的 `m3u8` 用 `serveBytes`、分片用 `serveFile` |
+| **统一鉴权 / 请求头** | Cookie、签名、防盗链留在插件里，播放器只看到干净的本地 URL |
+| **边下边播** | 边取边写临时文件，写一段就 `serveFile`（注意：重登同一路径会命中旧登记，改变后要重新登记） |
+
+限制也要知道：`serveBytes` 是内存内容（≤ 8 MiB）；服务跟着插件实例（插件卸载即失效）；
+播放器可能并发开多条连接（框架已给 4 条连接线程、上限 32）。
+
 ## 开发与调试
 
 ```bash
@@ -137,5 +205,6 @@ musicxx-cli plugin logs example_override_media_source --limit 50
 |---|---|
 | 插件总入口（选形态 / 第一个插件 / 注意事项） | 包内 `docs/plugin-guide.md` |
 | 钩子总表与 `musicxx.player.source.resolve` 的载荷 / 裁决 | 包内 `docs/plugin-hooks.md` |
-| 音源解析链、插件音源地址写法、自省命令 | 包内 `docs/plugin-api.md` §3.2.6 / §8.6 |
+| 音源解析链、插件音源地址写法、自省命令 | 包内 `docs/plugin-api.md` §3.2.6 / §3.2.15 |
+| 本地 HTTP 文件服务（`musicxx.net.serveFile` 等） | 包内 `docs/plugin-api.md` §3.2.6、`docs/plugin-js-api.md` §7.3.1 |
 | JS 插件写法（顶层注册、处理器不能等动作） | 包内 `docs/plugin-js-api.md` |
