@@ -129,20 +129,24 @@ my_plugin/
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
 | 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原） |
 | 功能埋点自省 | 动作 `musicxx.feature.point.list`、`musicxx.hook.handlers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 音源解析 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁置空、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `featurePoint.list`、MCP `GetFeatureProviders` 读同一份数据 |
-| 自己的音源（播放地址） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源地址写成 `plugin.<插件 id>.<类型名>://<自己的标识>`：主程序内置实现**不解析**这种地址，播放时问这条钩子要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
+| 自己的音源（播放地址） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源地址写成 `plugin.<插件 id>.<类型名>://<自己的标识>`：主程序内置实现**不解析**这种地址，播放时问这条钩子要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用上面的本地 HTTP 文件服务转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 自定义音源 / 本地文件代理）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
 | 功能点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新钩子） |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
 | 网络 | `musicxx.net.fetch/download` | 走主程序网络栈（继承代理/超时）；响应体流式读取，上限 16 MiB（默认 2 MiB）；**非 2xx 也算请求完成** |
+| 本地 HTTP 文件服务（仅 JS） | `musicxx.net.serveFile/serveBytes/serverInfo/stopServer` | 把本地文件或一段内容变成 `http://127.0.0.1:<随机端口>/f/<token>` 地址（**同步接口**，只需 `musicxx.net` 权限）。只监听回环、URL 里只有随机 token（服务端不解析路径）；支持 `GET`/`HEAD` + 单段 `Range`（206/416）；跟着插件实例关掉。**把播放器打不开的东西变成 HTTP** 就是靠它（本地文件、远程数据、FTP / 私有协议、HLS 分片、转码产物）|
 | 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具 |
 | 界面提示 | `musicxx.ui.notify/toast/dialog/openRoute`、`musicxx.ui.setFontFamily` | 通知、弹窗、跳官方页面或插件页面、换全局字体 |
 | 统计 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测，不影响调度 |
 
 ## 5. 硬约束（动手前读一遍，坑都在这里）
 
-1. **处理器里绝不等主程序动作。** 打开插件页面、点按钮、部分钩子（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
+1. **处理器里绝不等主程序动作**（**异步派发**的裁决钩子是例外，见下）。打开插件页面、点按钮、部分钩子（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
    你在处理器里 `await musicxx.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
    正确做法：要"现在这一帧"的数据读状态镜像；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
+   **例外**：异步派发的裁决钩子（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
+   里 `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
+   但仍然**只能等主程序动作**：`musicxx.vars.*` / 跨插件调用 / `musicxx.hooks.*` 要框架线程处理，在处理器里等会一直等到超时。
 2. **JS 顶层必须同步完成注册**，位置放 `await` 会让加载失败并回滚。
 3. **回调要尽快返回**：所有 JS插件共用一条 JS 线程；长时间同步计算或死循环会卡住其它插件，
    插件框架**不会打断脚本**，只能重启主程序。启动阶段的钩子（`app.start`）不要做重活。

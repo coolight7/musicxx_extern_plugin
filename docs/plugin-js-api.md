@@ -13,7 +13,7 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
-| 单特性示例（多脚本加载 / 变量通道 / 异步裁决 / 全局字体） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/`、`plugins/example_js_font/` |
+| 单特性示例（多脚本加载 / 变量通道 / 异步裁决 / 全局字体 / 音源解析） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/`、`plugins/example_js_font/`、`plugins/example_override_media_source/` |
 
 > **本文只写 JS 特有的东西**：目录与清单、生命周期与硬约束、`musicxx` 全局对象的写法、JS 线程、
 > 定时器与工具、调试与坑。**接口本身"做什么、参数是什么、返回什么"在 [plugin-api.md](plugin-api.md)** ——
@@ -339,7 +339,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
-| `musicxx.net` | `fetch(options)` `download(options)` |
+| `musicxx.net` | `fetch(options)` `download(options)` `serveFile(path, options?)` `serveBytes(data, options?)` `serverInfo()` `stopServer()` |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
 | `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()` |
@@ -395,6 +395,32 @@ const resp = await musicxx.net.fetch({
 const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a.mp3" });
 // file = { ok, status, path, bytes }，落在 <dataDir>/<插件id>/data/downloads/ 里
 ```
+
+### 7.3.1 本地 HTTP 文件服务（把播放器打不开的东西变成 http 地址）
+
+> 参数、返回、只监听回环的安全边界、Range / 生命周期 / 容量与旧版本降级，
+> 见 [plugin-api.md](plugin-api.md) §3.2.6「本地 HTTP 文件服务」。这里只给 JS 的用法。
+
+```js
+// 登记本地文件（同步）：同一个文件重复登记拿回同一个 URL
+const served = musicxx.net.serveFile("D:/music/a.mp3", { fileName: "a.mp3" });
+// { ok, url: "http://127.0.0.1:52341/f/<token>/a.mp3", size, mtimeMs, reused }
+
+// 登记一段内容（同步）：HLS 播放列表、转码后的小段这类小文件
+const list = musicxx.net.serveBytes("#EXTM3U\nseg0.ts\n", {
+    contentType: "application/vnd.apple.mpegurl", fileName: "list.m3u8",
+});
+
+musicxx.net.serverInfo();   // { ok, running, url, port, files, requests, bytesServed }
+musicxx.net.stopServer();   // 提前关掉（插件停用 / 卸载时插件框架会自动关）
+```
+
+- **同步调用**：只往登记表里加一条映射，不发网络请求；服务在第一次登记时惰性启动。
+- 旧插件框架没有这四个接口：先看 `typeof musicxx.net.serveFile === "function"`，没有就自己降级
+  （例如直接返回本地路径 `kind:"file"`）。
+- 这套机制就是"代理"：用 `musicxx.net.fetch / download` 取到的数据也可以先落盘再 `serveFile`、
+  小内容直接 `serveBytes`，播放器只看到干净的 `http://127.0.0.1:...`。
+  完整例子见 `plugins/example_override_media_source`（`plugin_proxy_local` 音源）。
 
 ### 7.4 界面反馈与页面跳转
 

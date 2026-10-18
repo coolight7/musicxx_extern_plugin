@@ -8,6 +8,25 @@
 
 ## 未发布
 
+### 新增：本地 HTTP 文件服务（仅 JS：`musicxx.net.serveFile/serveBytes/serverInfo/stopServer`）
+
+- JS 运行时没有 socket，而播放器只认 `http(s)` 与本地文件 —— 现在插件可以把**本地文件**
+  （`serveFile`）或**一段内容**（`serveBytes`，≤ 8 MiB）登记成 `http://127.0.0.1:<随机端口>/f/<token>` 地址：
+  同步返回，支持 `GET` / `HEAD` + 单段 `Range`（206 / 416），文件按 64 KiB 边读边写。
+- 安全边界：**只监听回环**；URL 里只有 128 bit 随机 token，服务端按 token 查表、不解析路径
+  （拿到 URL 也读不到别的文件）；登记条数 ≤ 1024（淘汰最旧）、并发连接 ≤ 32。
+- 生命周期跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机自动关掉（端口释放），`stopServer()` 可以提前关。
+- 这是**代理**的一般机制：`musicxx.net.fetch/download` 取到的数据、FTP / 私有协议、HLS 分片、转码产物
+  都可以先转成 HTTP 再给播放器，播放器只看到干净的本地 URL。写法见 `docs/plugin-api.md` §3.2.6
+  与 `docs/plugin-js-api.md` §7.3.1；完整例子：`plugins/example_override_media_source`。
+
+### 新增：示例插件 `example_override_media_source`
+
+- 演示"插件参与音源解析"的三条路（各自有开关）：覆盖内置 Bili 解析（BV 号 → 直链 + 请求头）、
+  自定义音源类型 `plugin_bili`（地址里也写 BV 号）、本地文件经插件 HTTP 服务播放（`plugin_proxy_local`）。
+- 带自绘设置页（三个开关 + 计数 + 服务状态）、集成测试与 README；
+  它同时也是"异步裁决钩子里可以等主程序动作"的样板（见下一条修正）。
+
 ### 修正：裁决型钩子里发起的动作请求不再等到超时
 
 - 以前 Dart 侧回复插件发起的动作请求一律转给插件框架线程执行；而**异步派发的裁决型钩子**
