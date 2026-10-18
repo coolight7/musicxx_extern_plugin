@@ -120,6 +120,74 @@ void main() {
     expect(stats['biliOk'], 0);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('功能 2：自定义音源 plugin_bili 用 BV 号换直链', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    // 加载时声明了自己的音源类型（自省用；能不能播看处理器）
+    expect(harness.definedSources, contains(biliType));
+
+    // 插件音源地址按 `link` 保存，`pluginType` 给出类型 id（主程序就是这么填的）
+    final Map<String, Object?>? verdict = await harness.resolveSrc(
+      type: 'link',
+      src: '$biliType://$singlePageBvid',
+      pluginType: biliType,
+      quality: 'hq',
+    );
+    expect(verdict, isNotNull, reason: '自定义音源应当由插件接管');
+    final Map<String, Object?> src = _srcOf(verdict!);
+    expect(src['path'], fakeBestAudioUrl);
+    expect(src['kind'], 'url');
+    expect((src['headers'] as Map)['Referer'], 'https://www.bilibili.com');
+
+    final Map<String, Object?> probe = await harness.probe();
+    final Map<String, Object?> stats =
+        (probe['stats'] as Map).cast<String, Object?>();
+    expect(stats['pluginBiliCalls'], 1);
+    expect(stats['biliCalls'], 0, reason: '内置 Bili 开关这条路没被问到');
+    expect((probe['sourceTypes'] as Map)['bili'], biliType);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('开关：关掉 pluginBiliEnabled 后自定义音源不接管', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    await harness.runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.setSwitch',
+      <String, Object?>{'id': 'pluginBiliEnabled', 'value': false},
+    );
+
+    final Map<String, Object?>? verdict = await harness.resolveSrc(
+      type: 'link',
+      src: '$biliType://$singlePageBvid',
+      pluginType: biliType,
+      quality: 'hq',
+    );
+    expect(verdict, isNull, reason: '开关关闭时不接管（该来源会解析失败）');
+    expect(harness.fetchCalls, 0);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('开关：关掉 overrideBili 后不再接管', () async {
     if (env == null || !env.hasPlugin(pluginId)) {
       markTestSkipped(
@@ -194,9 +262,14 @@ void main() {
     _collectText(view, texts);
     expect(texts.any((String text) => text.contains('覆盖内置 Bili 解析')), isTrue,
         reason: '设置页要有功能 1 的开关: $texts');
+    expect(texts.any((String text) => text.contains('自定义音源 plugin_bili')), isTrue,
+        reason: '设置页要有功能 2 的开关: $texts');
     expect(texts.any((String text) => text.contains('播放示例视频')), isTrue,
         reason: '设置页要有演示按钮: $texts');
+    expect(texts.any((String text) => text.contains('播放自定义音源')), isTrue,
+        reason: '设置页要有自定义音源的演示按钮: $texts');
     expect(_switchValue(view, 'overrideBili'), isTrue, reason: '默认开启');
+    expect(_switchValue(view, 'pluginBiliEnabled'), isTrue, reason: '默认开启');
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
@@ -211,6 +284,9 @@ class _Harness {
 
   /// `musicxx.net.fetch` 被调用的次数（验证缓存/开关时用）
   int fetchCalls = 0;
+
+  /// 插件声明的音源类型 id（`musicxx.source.define` 的参数）
+  final List<String> definedSources = <String>[];
 
   /// 假的 config.json 内容（`musicxx.storage.get/set` 用）
   final Map<String, Object?> configFile = <String, Object?>{};
@@ -274,19 +350,35 @@ class _Harness {
     required String src,
     required String quality,
   }) {
+    return resolveSrc(
+      type: 'bili',
+      crudeSrc: crudeSrc,
+      src: src,
+      quality: quality,
+    );
+  }
+
+  /// 派发一次音源解析（任意来源类型），并泵事件直到裁决返回
+  Future<Map<String, Object?>?> resolveSrc({
+    required String type,
+    required String src,
+    required String quality,
+    String? crudeSrc,
+    String? pluginType,
+  }) {
     final Future<Map<String, Object?>?> future = runtime.hooks.decideAsync(
       MusicxxPluginHookId.playerSourceResolve,
       <String, Object?>{
         'srcKey': 'test-src-key',
-        'type': 'bili',
+        'type': type,
         'src': src,
-        'crudeType': 'bili',
-        'crudeSrc': crudeSrc,
+        'crudeType': type,
+        'crudeSrc': crudeSrc ?? src,
         'fileName': null,
         'durationMs': 213000,
         'quality': quality,
         'isMediaSrc': true,
-        'pluginType': null,
+        'pluginType': pluginType,
         'caller': null,
       },
     );
@@ -398,10 +490,16 @@ class _Harness {
       };
     });
 
-    // 声明音源类型（功能 2/3 用；这里只保证动作被受理）
+    // 声明音源类型（功能 2 用；这里记录参数，断言清单是否正确）
     runtime.actions.register(
       MusicxxPluginActionNames.sourceDefine,
-      (invocation) => <String, Object?>{'ok': true},
+      (invocation) {
+        final Object? id = invocation.args['id'];
+        if (id is String && !definedSources.contains(id)) {
+          definedSources.add(id);
+        }
+        return <String, Object?>{'ok': true, 'id': id};
+      },
     );
   }
 }
