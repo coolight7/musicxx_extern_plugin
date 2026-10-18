@@ -466,6 +466,45 @@ requestAction("musicxx.net.fetch",
 // 动态库侧也可以完全不用这条通道，自己用系统的网络库
 ```
 
+##### 本地 HTTP 文件服务（`musicxx.net.serveFile` 等，仅 JS 可用）
+
+JS 运行时里没有 socket。要把"播放器打不开的东西"（本地文件以外的数据、插件自己取到的远端数据、
+HLS 播放列表与分片、转码产物）交给播放器，用这四个接口 —— 它们是**插件框架内置的能力**
+（不是主程序动作，也不需要 `musicxx.net` 权限之外的任何声明），只监听 `127.0.0.1`，端口由系统分配。
+
+| 接口（JS） | 参数 | 返回 |
+|---|---|---|
+| `musicxx.net.serveFile(path, options?)` | `path`（绝对路径，UTF-8）、`options.contentType?`、`options.fileName?` | `{ok, url, size, mtimeMs, reused}` / `{ok:false, error, message}` |
+| `musicxx.net.serveBytes(data, options?)` | `data`（文本；`options.encoding:"base64"` 时先解码）、`options.contentType?`、`options.fileName?` | `{ok, url, size, reused}` / `{ok:false, error, message}` |
+| `musicxx.net.serverInfo()` | 无 | `{ok, running, url, port, files, requests, bytesServed}` |
+| `musicxx.net.stopServer()` | 无 | 同 `serverInfo()`（已停止） |
+
+```js
+const served = musicxx.net.serveFile("D:/music/a.mp3", { fileName: "a.mp3" });
+if (served.ok) {
+    // 交给播放器：http://127.0.0.1:52341/f/<token>/a.mp3
+    return { patch: { src: { path: served.url, kind: "url", size: served.size } } };
+}
+```
+
+必须知道的几条：
+
+- **同步接口**：登记只是往表里加一条映射，不发网络请求；服务在第一次登记时惰性启动。
+- **只监听回环**：局域网设备访问不到；URL 里只有 128 bit 随机 token，服务端**按 token 查表、不解析路径**，
+  拿到 URL 也读不到表以外的文件。
+- **支持 `GET` / `HEAD` 与单段 `Range`**（`206` + `Content-Range`；越界 `416`），文件按 64 KiB 边读边写；
+  播放器拖动进度就靠它，否则会退化成整段重下。多段 `Range` 当成"没有 Range"整段返回。
+- **同一个文件 / 同一段内容重复登记返回同一个 URL**（按路径 + 大小 + 修改时间 / 内容哈希去重）。
+- **生命周期跟着插件实例**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时自动关掉，端口释放；
+  想提前关用 `stopServer()`。
+- 容量：单段内存内容 ≤ 8 MiB（大文件用 `serveFile`）、登记条数 ≤ 1024（满了淘汰最旧的）、
+  同时处理的连接 ≤ 32（超出的直接关）。
+- **旧插件框架没有这四个接口**：调用前先看 `typeof musicxx.net.serveFile === "function"`，
+  没有就自己降级（例如直接返回本地路径 `kind:"file"`）。
+- 这是**代理**的一般机制：`musicxx.net.fetch` / `download` 取到的数据 → `serveBytes` / `serveFile` →
+  播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以这么做。
+  完整示例见 `plugins/example_override_media_source`。
+
 #### 3.2.7 渲染槽位（`musicxx.render.*`）
 
 用来查询"有哪些可选样式"、读"现在选中/生效的是谁"、并且**允许插件切样式**（包括切回内置样式）。
@@ -1335,6 +1374,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | 变量读 / 写未回执 | 各 ≤ 32 条；读超时 2 s、写 3 s（应用键 5 s） |
 | `musicxx.net.fetch` / `download` | 超时 1~60 s、`maxBytes` 1 KiB~16 MiB |
 | `musicxx.media.cover` | `size` 16~512、`rgba` 有体积上限、结果缓存 16 条 |
+| `musicxx.net.serveFile` / `serveBytes` | 内存内容 ≤ 8 MiB；登记条数 ≤ 1024（淘汰最旧）；连接 ≤ 32；只监听 127.0.0.1 |
 | `musicxx.media.bindImage` | 键 1~64 位 `[A-Za-z0-9_.-]`、每插件张数有上限、最长边有上限 |
 | `musicxx.ui.loadFont` | 字体文件 ≤ 100 MiB |
 | 性能 / 内存 / 网络 | 插件框架不做限制（插件的内存、耗时、数量都不设上限；自己别把应用拖死） |
@@ -1371,6 +1411,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 插件被禁用或卸载时，插件框架**统一摘除**：
 
 - 全部钩子处理器；全部已声明能力；全部事件订阅；全部 UI 项声明；全部功能点声明与实现；
+- **本地 HTTP 文件服务**（JS：端口立刻释放，旧 URL 立即失效）；
 - 定时器（JS）；未完成的动作请求（JS 的 Promise 被拒绝，原因"插件已停止"）；
 - 自管的线程 / 定时器 / 临时文件由你在 `stop` 事务里自己回收（动态库插件）。
 

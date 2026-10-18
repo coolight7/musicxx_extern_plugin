@@ -111,6 +111,7 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   host_target.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
+  js/js_http_server.cpp
 )
 
 add_library(musicxx_extern_plugin SHARED ${MUSICXX_EXTERN_PLUGIN_HOST_SOURCES})
