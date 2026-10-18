@@ -1,0 +1,552 @@
+/// `example_override_media_source` 的集成测试（真实原生库 + 真实 JS 运行时）
+///
+/// 覆盖：
+/// - 功能 1：`musicxx.player.source.resolve` 的 Bili 分支（BV 号 → 直链 + 请求头）；
+/// - 多 P 视频不接管（载荷里没有分 P 序号，硬接管会把第 2 P 播成第 1 P）；
+/// - 开关关闭后不接管；
+/// - 设置页能力与 `probe` 自检。
+///
+/// B 站接口用假的 `musicxx.net.fetch` 处理器回答（不联网，结果可复现）。
+/// 前置：先跑 `tools/build_examples.ps1`（Windows）或 `tools/build_examples.sh`（Linux/macOS），
+/// 产出原生库与 `.native/output/<平台>/plugins/` 里的示例插件；找不到时跳过。
+library;
+
+import 'dart:async';
+import 'dart:convert' as convert;
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
+import 'package:path/path.dart' as path;
+
+const String pluginId = 'example_override_media_source';
+const String biliType = 'plugin.$pluginId.plugin_bili';
+const String proxyType = 'plugin.$pluginId.plugin_proxy_local';
+
+/// 示例用的单 P 视频（真实存在的 BV 号；测试里接口是假的）
+const String singlePageBvid = 'BV1GJ411x7h7';
+
+/// 假接口返回"多 P"的 BV 号（与上面不同，避免命中插件缓存）
+const String multiPageBvid = 'BV1xx411c7mD';
+
+/// 假接口给出的音频直链（插件会拼上自己选中的那一路的 id）
+const String fakeAudioUrl =
+    'https://cdn.example.test/audio.m4s?deadline=9999999999';
+
+/// 匿名请求 B 站只能拿到三路音频里最高 192k 的那一路（30280）
+const String fakeBestAudioUrl = '$fakeAudioUrl&id=30280';
+
+void main() {
+  final _Environment? env = _Environment.detect();
+
+  test('功能 1：Bili 分支用 BV 号换直链与请求头', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+
+    // 配置读完（三个 getConfig 动作往返）
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    final Map<String, Object?>? verdict = await harness.resolveBili(
+      crudeSrc: singlePageBvid,
+      src: 'https://cdn.example.test/already-resolved.m4s',
+      quality: 'upper',
+    );
+    expect(verdict, isNotNull, reason: '单 P 视频应当由插件接管');
+    final Map<String, Object?> src = _srcOf(verdict!);
+    expect(src['path'], fakeBestAudioUrl,
+        reason: '返回的应是插件自己解析出来的直链（按音质偏好选中 30280）');
+    expect(src['kind'], 'url');
+    final Map<Object?, Object?> headers =
+        (src['headers'] as Map).cast<Object?, Object?>();
+    expect(headers['Referer'], 'https://www.bilibili.com');
+    expect(headers['Origin'], 'https://www.bilibili.com');
+    expect('${headers['User-Agent']}', contains('Mozilla/5.0'));
+    expect(src['durationMs'], 213000, reason: '分 P 时长来自 view 接口（秒 → 毫秒）');
+    expect(src['size'], greaterThan(0), reason: '按带宽与时长估算的文件大小');
+
+    // 同一个 BV 再问一次：命中插件内存缓存，不再打接口
+    final int fetchesBefore = harness.fetchCalls;
+    final Map<String, Object?>? again = await harness.resolveBili(
+      crudeSrc: singlePageBvid,
+      src: 'https://cdn.example.test/already-resolved.m4s',
+      quality: 'upper',
+    );
+    expect(_srcOf(again!)['path'], fakeBestAudioUrl);
+    expect(harness.fetchCalls, fetchesBefore, reason: '同一个 BV + 音质不应重复请求接口');
+
+    // probe 的计数（Bili 被问 2 次、成功 2 次）
+    final Map<String, Object?> probe = await harness.probe();
+    final Map<String, Object?> stats =
+        (probe['stats'] as Map).cast<String, Object?>();
+    expect(stats['biliCalls'], 2);
+    expect(stats['biliOk'], 2);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('功能 1：多 P 视频不接管（交回主程序）', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    final Map<String, Object?>? verdict = await harness.resolveBili(
+      crudeSrc: multiPageBvid,
+      src: 'https://cdn.example.test/multi.m4s',
+      quality: 'upper',
+    );
+    expect(verdict, isNull, reason: '多 P 视频必须返回 null，让主程序已经算好的那一份继续生效');
+
+    final Map<String, Object?> probe = await harness.probe();
+    final Map<String, Object?> stats =
+        (probe['stats'] as Map).cast<String, Object?>();
+    expect(stats['biliCalls'], 1);
+    expect(stats['biliOk'], 0);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('开关：关掉 overrideBili 后不再接管', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    // 与用户在设置页拨开关等价：能力返回刷新后的页面
+    final Object? raw = await harness.runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.setSwitch',
+      <String, Object?>{'id': 'overrideBili', 'value': false},
+    );
+    expect(raw, isA<Map<String, Object?>>());
+    expect(
+      (raw! as Map<String, Object?>)['view'],
+      isA<Map<String, Object?>>(),
+      reason: '改开关要当场返回新页面',
+    );
+
+    final Map<String, Object?>? verdict = await harness.resolveBili(
+      crudeSrc: singlePageBvid,
+      src: 'https://cdn.example.test/already-resolved.m4s',
+      quality: 'upper',
+    );
+    expect(verdict, isNull, reason: '开关关闭时不接管（主程序原有解析照旧）');
+    expect(harness.fetchCalls, 0, reason: '开关关闭时不应再请求 B 站接口');
+
+    final Map<String, Object?> probe = await harness.probe();
+    expect((probe['config'] as Map)['overrideBili'], false);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('设置页与 probe：初始值、页面内容', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    // 主页入口必须指向设置页（只声明入口不实现能力时，页面打开会失败）
+    final List<MusicxxPluginUIItem> entries = MusicxxPluginUIItems.byType(
+      harness.runtime.plugins.uiSnapshot(),
+      MusicxxPluginUIType.homeEntry,
+    ).where((MusicxxPluginUIItem item) => item.plugin == pluginId).toList();
+    expect(entries, hasLength(1));
+    expect(entries.first.viewId, 'settings');
+
+    final Object? raw = await harness.runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.settings',
+      const <String, Object?>{},
+    );
+    expect(raw, isA<Map<String, Object?>>());
+    final Map<String, Object?> view =
+        (raw! as Map<String, Object?>)['view']! as Map<String, Object?>;
+    expect(view['title'], isNotEmpty);
+    final List<String> texts = <String>[];
+    _collectText(view, texts);
+    expect(texts.any((String text) => text.contains('覆盖内置 Bili 解析')), isTrue,
+        reason: '设置页要有功能 1 的开关: $texts');
+    expect(texts.any((String text) => text.contains('播放示例视频')), isTrue,
+        reason: '设置页要有演示按钮: $texts');
+    expect(_switchValue(view, 'overrideBili'), isTrue, reason: '默认开启');
+  }, timeout: const Timeout(Duration(seconds: 60)));
+}
+
+/// 一个测试用的小环境：运行时 + 假动作 + 插件加载
+class _Harness {
+  _Harness(this.env);
+
+  final _Environment env;
+  final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
+  late final Directory work;
+  late final Directory pluginRoot;
+
+  /// `musicxx.net.fetch` 被调用的次数（验证缓存/开关时用）
+  int fetchCalls = 0;
+
+  /// 假的 config.json 内容（`musicxx.storage.get/set` 用）
+  final Map<String, Object?> configFile = <String, Object?>{};
+
+  void start() {
+    work = Directory.systemTemp.createTempSync('musicxx_media_source_test');
+    pluginRoot = Directory(path.join(work.path, 'plugins'))
+      ..createSync(recursive: true);
+    _copyDirectory(
+      Directory(path.join(env.pluginRoot, pluginId)),
+      Directory(path.join(pluginRoot.path, pluginId)),
+    );
+    _registerHostActions();
+
+    runtime.init(
+      config: MusicxxPluginRuntimeConfig(
+        appVersion: '0.0.0-test',
+        platform: MusicxxPluginRuntime.currentPlatform,
+        language: 'zh-cn',
+        userPluginDir: pluginRoot.path,
+        observeEvents: true,
+      ),
+      libraryPath: env.libraryPath,
+    );
+    runtime.plugins.scan();
+    runtime.plugins.load(pluginId);
+    expect(runtime.plugins.findLoaded(pluginId), isNotNull, reason: '插件应能加载');
+    expect(
+      runtime.hooks.refreshNativeHandlerCount(
+        MusicxxPluginHookId.playerSourceResolve,
+      ),
+      1,
+      reason: '音源解析钩子应登记成功',
+    );
+  }
+
+  void dispose() {
+    runtime.dispose();
+    try {
+      if (work.existsSync()) {
+        work.deleteSync(recursive: true);
+      }
+    } catch (_) {
+      // Windows 上插件框架可能还持有文件句柄：留着临时目录也不影响测试结论
+    }
+  }
+
+  Future<Map<String, Object?>> probe() async {
+    final Object? raw = await runtime.plugins.call(
+      pluginId,
+      'plugin.$pluginId.probe',
+      const <String, Object?>{},
+    );
+    expect(raw, isA<Map<String, Object?>>(), reason: 'probe 应返回对象');
+    return raw! as Map<String, Object?>;
+  }
+
+  /// 派发一次音源解析，并泵事件直到裁决返回
+  Future<Map<String, Object?>?> resolveBili({
+    required String crudeSrc,
+    required String src,
+    required String quality,
+  }) {
+    final Future<Map<String, Object?>?> future = runtime.hooks.decideAsync(
+      MusicxxPluginHookId.playerSourceResolve,
+      <String, Object?>{
+        'srcKey': 'test-src-key',
+        'type': 'bili',
+        'src': src,
+        'crudeType': 'bili',
+        'crudeSrc': crudeSrc,
+        'fileName': null,
+        'durationMs': 213000,
+        'quality': quality,
+        'isMediaSrc': true,
+        'pluginType': null,
+        'caller': null,
+      },
+    );
+    return _pumpFuture(runtime, future);
+  }
+
+  Future<void> pumpUntil(FutureOr<bool> Function() condition) =>
+      _pumpUntil(runtime, condition);
+
+  void _registerHostActions() {
+    runtime.actions.register(MusicxxPluginActionNames.storageGet, (invocation) {
+      final String key = '${invocation.args['key']}';
+      if (invocation.args['namespace'] == 'config') {
+        // 约定：返回**值本身**；键不存在返回 null（插件用自己给的默认值）
+        return configFile[key];
+      }
+      return null;
+    });
+    runtime.actions.register(MusicxxPluginActionNames.storageSet, (invocation) {
+      final String key = '${invocation.args['key']}';
+      if (invocation.args['namespace'] == 'config') {
+        configFile[key] = invocation.args['value'] ?? '';
+        return <String, Object?>{'ok': true};
+      }
+      return <String, Object?>{'ok': true};
+    });
+    runtime.actions.register(MusicxxPluginActionNames.storageDelete, (
+      invocation,
+    ) {
+      configFile.remove('${invocation.args['key']}');
+      return <String, Object?>{'ok': true};
+    });
+    runtime.actions.register(MusicxxPluginActionNames.storageList, (invocation) {
+      return <String, Object?>{'keys': configFile.keys.toList()..sort()};
+    });
+
+    // B 站接口：按 URL 返回固定结果（不联网）
+    runtime.actions.register(MusicxxPluginActionNames.netFetch, (invocation) {
+      ++fetchCalls;
+      final String url = '${invocation.args['url']}';
+      final String body;
+      if (url.contains('/x/web-interface/view')) {
+        final bool multi = url.contains(multiPageBvid);
+        final List<Map<String, Object?>> pages = <Map<String, Object?>>[
+          <String, Object?>{
+            'cid': 137649199,
+            'page': 1,
+            'part': '第 1 P',
+            'duration': 213,
+          },
+          if (multi)
+            <String, Object?>{
+              'cid': 137649200,
+              'page': 2,
+              'part': '第 2 P',
+              'duration': 95,
+            },
+        ];
+        body = convert.jsonEncode(<String, Object?>{
+          'code': 0,
+          'message': '0',
+          'data': <String, Object?>{
+            'bvid': multi ? multiPageBvid : singlePageBvid,
+            'cid': 137649199,
+            'pages': pages,
+          },
+        });
+      } else if (url.contains('/x/player/playurl')) {
+        body = convert.jsonEncode(<String, Object?>{
+          'code': 0,
+          'message': '0',
+          'data': <String, Object?>{
+            'timelength': 213000,
+            'dash': <String, Object?>{
+              'audio': <Map<String, Object?>>[
+                <String, Object?>{
+                  'id': 30216,
+                  'bandwidth': 43962,
+                  'baseUrl': '$fakeAudioUrl&id=30216',
+                },
+                <String, Object?>{
+                  'id': 30232,
+                  'bandwidth': 102931,
+                  'baseUrl': '$fakeAudioUrl&id=30232',
+                },
+                <String, Object?>{
+                  'id': 30280,
+                  'bandwidth': 203786,
+                  'baseUrl': '$fakeAudioUrl&id=30280',
+                },
+              ],
+            },
+          },
+        });
+      } else {
+        body = convert.jsonEncode(<String, Object?>{'code': -404, 'message': 'unexpected url'});
+      }
+      return <String, Object?>{
+        'ok': true,
+        'status': 200,
+        'url': url,
+        'headers': <String, String>{'content-type': 'application/json'},
+        'contentType': 'application/json',
+        'body': body,
+        'bodyBytes': convert.utf8.encode(body).length,
+        'receivedBytes': convert.utf8.encode(body).length,
+        'contentLength': convert.utf8.encode(body).length,
+        'truncated': false,
+      };
+    });
+
+    // 声明音源类型（功能 2/3 用；这里只保证动作被受理）
+    runtime.actions.register(
+      MusicxxPluginActionNames.sourceDefine,
+      (invocation) => <String, Object?>{'ok': true},
+    );
+  }
+}
+
+/// 取裁决里的 `src` 对象（插件框架会把 `patch` 合并到顶层，见 docs/plugin-hooks.md）
+Map<String, Object?> _srcOf(Map<String, Object?> verdict) {
+  final Object? src = verdict['src'];
+  expect(src, isA<Map<String, Object?>>(), reason: '裁决里应有 src: $verdict');
+  return src! as Map<String, Object?>;
+}
+
+/// 取设置页里某个开关的 `value`（按控件 id 找）
+Object? _switchValue(Map<String, Object?> view, String id) {
+  Object? found;
+  bool visit(Object? node) {
+    if (node is Map) {
+      if (node['kind'] == 'Control' && node['id'] == id) {
+        found = node['value'];
+        return true;
+      }
+      for (final Object? value in node.values) {
+        if (visit(value)) {
+          return true;
+        }
+      }
+    } else if (node is List) {
+      for (final Object? item in node) {
+        if (visit(item)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  visit(view);
+  return found;
+}
+
+/// 递归收集视图里的文本（断言文案用）
+void _collectText(Object? node, List<String> out) {
+  if (node is String) {
+    out.add(node);
+    return;
+  }
+  if (node is Map) {
+    for (final Object? value in node.values) {
+      _collectText(value, out);
+    }
+    return;
+  }
+  if (node is List) {
+    for (final Object? item in node) {
+      _collectText(item, out);
+    }
+  }
+}
+
+/// 等一个 Future 完成，同时持续泵事件（异步裁决结果经事件回来）
+Future<T> _pumpFuture<T>(MusicxxPluginRuntime runtime, Future<T> future) async {
+  T? value;
+  Object? error;
+  bool done = false;
+  future.then((T result) {
+    value = result;
+    done = true;
+  }, onError: (Object e) {
+    error = e;
+    done = true;
+  });
+  final DateTime deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (!done) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('等待裁决超时（事件泵 10 s 内没有结果）');
+    }
+    runtime.pumpEvents();
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  if (error != null) {
+    throw error!;
+  }
+  return value as T;
+}
+
+/// 等待条件成立（最多 5 秒；每 20 ms 泵一次事件）
+Future<void> _pumpUntil(
+  MusicxxPluginRuntime runtime,
+  FutureOr<bool> Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final DateTime deadline = DateTime.now().add(timeout);
+  while (!await condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      return;
+    }
+    runtime.pumpEvents();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+}
+
+void _copyDirectory(Directory from, Directory to) {
+  to.createSync(recursive: true);
+  for (final FileSystemEntity entity in from.listSync(recursive: true)) {
+    final String relative = path.relative(entity.path, from: from.path);
+    final String target = path.join(to.path, relative);
+    if (entity is Directory) {
+      Directory(target).createSync(recursive: true);
+    } else if (entity is File) {
+      File(target)
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync(entity.readAsBytesSync());
+    }
+  }
+}
+
+/// 原生库 + 示例插件目录探测（找不到就跳过需要它们的用例）
+class _Environment {
+  const _Environment(this.libraryPath, this.pluginRoot);
+
+  final String libraryPath;
+  final String pluginRoot;
+
+  bool hasPlugin(String id) =>
+      Directory(path.join(pluginRoot, id)).existsSync();
+
+  static _Environment? detect() {
+    String? library;
+    for (final String candidate
+        in MusicxxPluginNativeLibrary.defaultCandidates()) {
+      if (File(candidate).existsSync()) {
+        library = candidate;
+        break;
+      }
+    }
+    if (library == null) {
+      return null;
+    }
+    final Directory binDir = File(library).parent;
+    for (final String root in <String>[
+      '${binDir.parent.path}/plugins',
+      '${binDir.path}/plugins',
+    ]) {
+      if (Directory(root).existsSync()) {
+        return _Environment(library, root);
+      }
+    }
+    return null;
+  }
+}
