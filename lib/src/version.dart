@@ -21,7 +21,7 @@ abstract final class MusicxxPluginVersion {
   ///
   /// 提交号写不进它自己所在的提交，所以声明该版本号的那次提交里这里是空的，
   /// 紧接着的那次提交把它补上。
-  static const String commit = '';
+  static const String commit = '36e4b85';
 
   /// 本版本号的日期（`YYYY-MM-DD`，与 [version] 里的年月日一致）
   static const String date = '2026-10-19';
