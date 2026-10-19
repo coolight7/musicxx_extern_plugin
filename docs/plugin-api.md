@@ -1185,7 +1185,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 ```js
 musicxx.hooks.register("musicxx.player.source.resolve", { mode: "decision" }, (ctx) => {
     if (ctx.pluginType !== "plugin.my_plugin.flac") return null;   // 不是我的音源：不回答
-    const track = ctx.src.slice("plugin.my_plugin.flac://".length);
+    const track = ctx.src;    // 新写法：src 就是自己的标识（老写法要自己切掉 "plugin.my_plugin.flac://"）
     return { patch: { src: {
         path: `https://cdn.example/${track}.flac`,
         headers: { Referer: "https://example/" },
@@ -1194,10 +1194,30 @@ musicxx.hooks.register("musicxx.player.source.resolve", { mode: "decision" }, (c
 });
 ```
 
+#### 自定义音源的两种写法
+
+插件声明的音源类型（`plugin.<插件 id>.<类型名>`）有两种写法，**新写法优先**：
+
+| 写法 | 歌曲里存的类型 | 歌曲里存的 `src` | 载荷里的 `pluginType` / `customType` |
+|---|---|---|---|
+| 新写法（推荐） | `plugin.my_plugin.flac` | `track-123`（你自己的标识 / 资源 id / 路径） | 两者都是 `plugin.my_plugin.flac` |
+| 老写法（兼容） | `link` | `plugin.my_plugin.flac://track-123` | `pluginType` = 类型 id，`customType` = 空 |
+
+新写法里 `src` 就是资源 id / 路径本身（不再塞假链接），类型串存在音源信息里
+（序列化后形如 `{"type":"plugin.my_plugin.flac", …}track-123`）。
+应用侧的入口（`musicxx.player.playSrc`、applink）写 `type` 时直接给类型 id 即可：
+
+```bash
+musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugin.my_plugin.flac"}'
+```
+
+两种写法在解析时归一，处理器拿到的东西一样；`ctx.customType` 非空 = 新写法。
+
 载荷字段：`srcKey`（音源身份 md5）、`type`（本轮音源类型）与 `crudeType`（歌曲里保存的原始类型）、
 `src`（本轮要解析的地址）与 `crudeSrc`（原始地址）、`fileName` / `durationMs` / `quality`
 （文件名、时长、用户音质偏好）、`isMediaSrc`（`false` = 这次要的是封面）、`pluginType`
-（`src` 是插件音源地址时给出它的类型 id，否则 `null`）、`caller`（谁在问，空 = 应用自己）。
+（本轮音源的自定义类型 id，老写法从地址里取、新写法从音源信息里取，否则 `null`）、
+`customType`（新写法的类型串；老写法为 `null`）、`caller`（谁在问，空 = 应用自己）。
 
 回答：`{"src": {"path": "<地址>", "headers": {...}, "kind": "url"}}`（`src` 也可以直接给地址字符串）：
 

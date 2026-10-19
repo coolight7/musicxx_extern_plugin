@@ -9,8 +9,8 @@
 | # | 来源 | 音源字符串写什么 | 插件返回什么 |
 |---|---|---|---|
 | 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（钩子载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
-| 2 | `plugin.<插件 id>.plugin_bili`（`type = "link"`） | BV 号，例 `...plugin_bili://BV1GJ411x7h7` | 同一份 B 站直链 + 请求头 |
-| 3 | `plugin.<插件 id>.plugin_proxy_local`（`type = "link"`） | 本地文件路径，例 `...plugin_proxy_local://D:/music/a.mp3` | `http://127.0.0.1:<端口>/f/<token>`（插件框架的本地 HTTP 文件服务） |
+| 2 | `plugin.<插件 id>.plugin_bili`（自定义类型） | BV 号，例 `type = "plugin.…plugin_bili"` + `src = "BV1GJ411x7h7"` | 同一份 B 站直链 + 请求头 |
+| 3 | `plugin.<插件 id>.plugin_proxy_local`（自定义类型） | 本地文件路径，例 `type = "plugin.…plugin_proxy_local"` + `src = "D:/music/a.mp3"` | `http://127.0.0.1:<端口>/f/<token>`（插件框架的本地 HTTP 文件服务） |
 
 ## 文件与开关
 
@@ -80,16 +80,20 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"bi
 
 ## 功能 2：自定义音源类型 `plugin_bili`
 
-插件可以在**不改主程序来源枚举**的前提下声明自己的音源类型：地址写成
-`plugin.<插件 id>.<类型名>://<插件自己的标识>`，按普通链接（`XXSrcType_e.UrlLink`）保存。
-播放到这种地址时主程序不会自己猜（核心层拒绝解析 `plugin.` 开头的地址），而是问同一条钩子：
+插件可以在**不改主程序来源枚举**的前提下声明自己的音源类型（`plugin.<插件 id>.<类型名>`）。
+有两种写法，**新写法优先**：
 
-- `type = "link"`；
-- `src` = 完整地址 `plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7`；
-- `pluginType` = 类型 id `plugin.example_override_media_source.plugin_bili`；
-- `crudeSrc` = 歌曲里保存的原地址（这里与 `src` 相同）。
+| 写法 | `type` | `src` | 钩子载荷 |
+|---|---|---|---|
+| 新写法（推荐） | `plugin.example_override_media_source.plugin_bili` | `BV1GJ411x7h7`（自己的标识） | `pluginType` = 类型 id，`customType` = 类型 id，`src` = 标识 |
+| 老写法（兼容） | `link` | `plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7` | `pluginType` = 类型 id，`customType` = 空，`src` = 完整地址 |
 
-`<插件自己的标识>` 怎么解释完全由插件决定，本示例把它当 BV 号（`opaqueOf()` 取 `://` 之后的部分）。
+新写法里 `src` 就是资源 id / 路径本身（不再塞假链接），类型串存在歌曲的音源信息里
+（序列化后是 `{"type":"plugin.…plugin_bili", …}BV1GJ411x7h7`）。
+主程序内置实现不接管这类来源（核心层看到自定义类型就返回"不解析"），而是问同一条钩子。
+
+`<插件自己的标识>` 怎么解释完全由插件决定，本示例把它当 BV 号
+（`opaqueOf()`：老写法取 `://` 之后的部分，新写法就是 `src` 本身）。
 
 声明（`declareSourceTypes()`，脚本加载时跑一次）：
 
@@ -106,11 +110,14 @@ musicxx.call("musicxx.source.define", {
   的处理器，不是有没有声明；
 - 声明跟着插件生命周期走（停用 / 卸载 / 关『拟声++』自动撤销），不写磁盘，每次启用都会重新声明；
 - 查清单：`musicxx-cli call musicxx.source.list`、MCP `ListMediaSources`、插件动作 `musicxx.source.list`；
-- 只写标识（`BV1GJ411x7h7`）也存得下（主程序会补前缀），但自己拼全更清楚。
+- 只写标识（`BV1GJ411x7h7`）也存得下（主程序会补类型），但自己拼全更清楚。
 
 手动验证：
 
 ```bash
+# 新写法
+musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"plugin.example_override_media_source.plugin_bili"}'
+# 老写法（一样能播）
 musicxx-cli call musicxx.player.playSrc --args '{"src":"plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7","type":"link"}'
 ```
 
