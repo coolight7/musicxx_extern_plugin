@@ -158,6 +158,41 @@ void main() {
     expect((probe['sourceTypes'] as Map)['bili'], biliType);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('功能 2（新写法）：类型在音源信息里，src 就是资源 id', () async {
+    if (env == null || !env.hasPlugin(pluginId)) {
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
+      return;
+    }
+    final _Harness harness = _Harness(env);
+    addTearDown(harness.dispose);
+    harness.start();
+    await harness.pumpUntil(
+      () async => (await harness.probe())['configLoaded'] == 3,
+    );
+
+    // 新写法：主程序把类型串记在音源信息里（customType），src 里是插件自己的标识
+    //（内置类型没有值时 type 是空串）
+    final Map<String, Object?>? verdict = await harness.resolveSrc(
+      type: '',
+      src: singlePageBvid,
+      pluginType: biliType,
+      customType: biliType,
+      quality: 'hq',
+    );
+    expect(verdict, isNotNull, reason: '自定义音源应当由插件接管');
+    final Map<String, Object?> src = _srcOf(verdict!);
+    expect(src['path'], fakeBestAudioUrl);
+    expect(src['kind'], 'url');
+    expect((src['headers'] as Map)['Referer'], 'https://www.bilibili.com');
+
+    final Map<String, Object?> probe = await harness.probe();
+    final Map<String, Object?> stats =
+        (probe['stats'] as Map).cast<String, Object?>();
+    expect(stats['pluginBiliCalls'], 1);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('开关：关掉 pluginBiliEnabled 后自定义音源不接管', () async {
     if (env == null || !env.hasPlugin(pluginId)) {
       markTestSkipped(
@@ -543,6 +578,7 @@ class _Harness {
     required String quality,
     String? crudeSrc,
     String? pluginType,
+    String? customType,
   }) {
     final Future<Map<String, Object?>?> future = runtime.hooks.decideAsync(
       MusicxxPluginHookId.playerSourceResolve,
@@ -557,6 +593,7 @@ class _Harness {
         'quality': quality,
         'isMediaSrc': true,
         'pluginType': pluginType,
+        'customType': customType,
         'caller': null,
       },
     );

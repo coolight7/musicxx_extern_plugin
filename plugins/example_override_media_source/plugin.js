@@ -661,9 +661,12 @@ musicxx.capability.register("playDemo", function (args) {
     return {view: settingsView(args, null)};
 });
 
-/// 设置页按钮：播放一首用本插件音源类型写地址的歌
+/// 设置页按钮：播放一首用本插件音源类型写的歌
+///
+/// 新写法：类型写在 `type` 里，`src` 就是插件自己的标识（BV 号）；
+/// 老写法（`plugin.<类型>://<标识>` 当链接保存）也认。
 musicxx.capability.register("playCustomSrc", function (args) {
-    playViaEntry("Never Gonna Give You Up", TYPE_PLUGIN_BILI + "://BV1GJ411x7h7", "link");
+    playViaEntry("Never Gonna Give You Up", "BV1GJ411x7h7", TYPE_PLUGIN_BILI);
     return {view: settingsView(args, null)};
 });
 
