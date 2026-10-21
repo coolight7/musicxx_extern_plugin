@@ -786,6 +786,10 @@ musicxx.hooks.unregister("musicxx.media.cover.changed");
   自己的界面（柱状图、波形历史）时，用 `musicxx.state.get("musicxx.state.spectrum")`
   在自己的定时器里同步读（播放中约 10 Hz 更新），或按自己的节奏调用
   `musicxx.media.spectrum`；
+- 频谱数值**已经是渲染用的**（每帧按自己的最高频点归一、再把高低差拉开），直接画即可，
+  不要自己再取指数放大；确实要改对比度时按
+  [plugin-shader-bundle.md](plugin-shader-bundle.md) §7 的公式做（放大 `pow(v/m, k)`、
+  缩小 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1）；
 - 想让画面跟着封面配色动，用 `args` 里的来源就够了（`musicxx.icon.*`，每帧现读、零成本）；
   要用**封面图本身**（铺底、圆盘、像素化…）就在渲染项里声明 `cover`：
   主程序解码 + 缩放 + 可选预模糊后上传成 GPU 纹理，每帧绑定给着色器，插件不搬字节
