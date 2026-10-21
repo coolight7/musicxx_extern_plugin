@@ -15,8 +15,8 @@
 //   亮背景把线条、光晕、中心光源都朝墨色（封面色调的暗版）混合，暗背景保持原来的加亮发光；
 // * 振幅取自内置『音乐动效』提取的当前音频频谱的 64 个**频带**
 //   （`spectrum.bands64.0..15`，每项 4 个连续频带写在 xyzw）。歌曲里几乎每个频带都有
-//   能量，直接照着画会连成平平的一圈，所以这里先抬增益、削掉低于 `kFloor` 的底噪，
-//   再取指数（`kCurve` > 1）把剩下的差异放大 —— 有的点高、有的点低，画面才有对比。
+//   能量。数值是主程序算好的"画图用"高度（每一帧按自己的最高频点归一、再把挤在
+//   中下部的高低差拉开），差异已经放大过，这里直接照着画，不再自己取指数。
 //   没有频谱数据时（uEnv.z = 0）尖角长度为 0，只剩圆心光源 —— 这时画面不动是正常的，
 //   判断"没有数据"看 uEnv.z，不要看数值是不是 0。
 // * **中心封面**：声明了封面（UI 项里的 `cover`）时，圆心放一张圆形封面（`uCover`），
@@ -91,12 +91,9 @@ const float kRingRadius = 0.62;
 // 向内 0.30 稍小一点，把圆心让给光源）
 const float kSpikeOut = 0.32;
 const float kSpikeIn = 0.30;
-// 振幅映射：先抬一点增益（kGain），削掉低于 kFloor 的底噪，再取指数 kCurve（> 1）
-// 把剩下的差异放大 —— 歌曲里大多数频带都有能量，不做这一步整圈会连成平平的一圈。
-// 想更"有棱角"就加大 kCurve（例如 3.5），想保留更多细节就减小它、或把 kFloor 调低。
-const float kGain = 1.2;
-const float kFloor = 0.15;
-const float kCurve = 2.6;
+// 振幅直接用主程序给的频带值：数值已经按帧归一、拉开过高低差（主程序的
+// AudioWaveBaseConfig_c.applyDisplayAdjust），这里再抬增益或取指数只会把大多数频带
+// 压到 0，画面变成几根孤零零的尖角。
 // 线条粗细（像素）：蛛网边线按它画，光斑按它的比例画
 // （换算见 main 里的 aa：aa 就是"一个像素"有多宽）
 const float kLineWidth = 2.4;
@@ -150,12 +147,9 @@ float bandRaw(int index) {
 
 // 频带振幅（0~1）：没有频谱数据时是 0（按静音处理，不用固定值）
 //
-// 对比度来自两处：削掉 kFloor 以下的底噪（那部分直接按 0 画，尖角收回基线），
-// 剩下的再取 kCurve 次幂 —— 指数把"有点能量"和"很响"拉开，画面才有高低起伏。
+// 对比度由主程序给的数值负责（已按帧归一、拉开高低差），这里不再额外放大。
 float bandAmp(int index) {
-  float raw = bandRaw(index) * render_info.uEnv.z;
-  float v = (raw * kGain - kFloor) / (1.0 - kFloor);
-  return pow(clamp(v, 0.0, 1.0), kCurve);
+  return clamp(bandRaw(index) * render_info.uEnv.z, 0.0, 1.0);
 }
 
 // 点到线段的距离（两个端点都是画布坐标；蛛网的每条边都是直的线段）

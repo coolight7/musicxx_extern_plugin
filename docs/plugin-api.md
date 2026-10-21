@@ -589,6 +589,11 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 我在�
   好处是插件画柱状/光环时长年在低位的数值也能占满画面，代价是**不再等于绝对 dBFS**
   （`unit:"db"` 给的是"调整后数值落在 -80~0 dB 刻度上的 dB"）；要绝对电平做分析请用
   MCP 工具 `GetAudioSpectrum`（那是整曲提取的原始电平）。
+- **数据本身已经适合直接渲染**：不用再自己抬增益、减底噪或取指数（那会把大多数频带压到 0）。
+  确实要改对比度时，改完要拉回 0~1：`v` = 一个频带值、`m` = 这一帧的最大频带值，
+  **放大差异**用 `pow(v / m, k)`（`k` > 1，先取指数再除回数值范围），**缩小差异**用
+  `m * log(1 + a * v / m) / log(1 + a)`（`a` > 0，先取对数再乘回数值范围）；
+  着色器写法与例子见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7。
 - 返回：`{ok, status, available, loading, reason, source, srcKey, name, artist, durationMs,
   positionMs, frameHz, frameIndex, framePosition, frames, binCount, bandCount, unit, level,
   bands[], frameData?}`。
