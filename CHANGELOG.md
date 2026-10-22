@@ -8,6 +8,18 @@
 
 ## 未发布
 
+### 新增：`musicxx.app.background` / `musicxx.app.foreground` 已接入
+
+- 两个观察型钩子现在会真的派发：应用**进后台** / **回前台**各一次，载荷分别是 `{state}` 与
+  `{state, backgroundMs}`（`state` = 触发这次通知的生命周期状态名）。窗口只是失焦、下拉通知栏这类
+  一闪而过的中间态不算后台；桌面端隐藏 / 最小化窗口、移动端切到后台算后台。
+- 同时补上配套的读写渠道：导出变量 `musicxx.app.lifecycle`（`get` + `notify`，值
+  `foreground` / `background`）、动作 `musicxx.app.foreground` / `musicxx.app.background`
+  （与命令行 `window.foreground` / `window.background` 同一份实现），状态镜像
+  `musicxx.state.app` 多出 `foreground`（布尔）与 `lifecycleState`（原始状态名）两个字段。
+- 写法见 `docs/plugin-hooks.md`（两个钩子的载荷）、`docs/plugin-vars.md`（变量）与
+  `docs/musicxx-interfaces.md`（命令行 `app.lifecycle` / MCP `GetAppLifecycle`）。
+
 ### 新增：本地 HTTP 文件服务（仅 JS：`musicxx.net.serveFile/serveBytes/serverInfo/stopServer`）
 
 - JS 运行时没有 socket，而播放器只认 `http(s)` 与本地文件 —— 现在插件可以把**本地文件**
