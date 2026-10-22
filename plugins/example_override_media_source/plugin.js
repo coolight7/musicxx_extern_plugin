@@ -5,9 +5,9 @@
 ///
 /// 1. `type = "bili"`（内置 Bili 来源）且开关打开：用载荷 `crudeSrc` 里的 BV 号查 B 站接口，
 ///    回答"音频直链 + B 站请求头"，也就是**覆盖主程序内置的 Bili 解析**；
-/// 2. `pluginType = plugin.<插件 id>.plugin_bili`（本插件声明的音源）：地址里写 BV 号，
+/// 2. `pluginType = plugin.<插件 id>.plugin_bili`（本插件声明的音源）：`src` 里写 BV 号，
 ///    用同一份逻辑解析；
-/// 3. `pluginType = plugin.<插件 id>.plugin_proxy_local`（本插件声明的音源）：地址里写本地
+/// 3. `pluginType = plugin.<插件 id>.plugin_proxy_local`（本插件声明的音源）：`src` 里写本地
 ///    文件路径，由插件框架的本地 HTTP 文件服务给播放器一个 `http://127.0.0.1:...` 地址。
 ///
 /// 三条路各自有开关（插件目录里的 `config.json`，设置页里是三个开关），关掉即回退：
@@ -21,7 +21,7 @@ const kit = pluginxx.ui.kit;
 
 const PLUGIN_ID = musicxx.pluginId;
 
-/// 本插件声明的音源类型 id（就是地址的 scheme，必须落在自己的命名空间里）
+/// 本插件声明的音源类型 id（必须落在自己的命名空间里）
 const TYPE_PLUGIN_BILI = "plugin." + PLUGIN_ID + ".plugin_bili";
 const TYPE_PROXY_LOCAL = "plugin." + PLUGIN_ID + ".plugin_proxy_local";
 
@@ -113,16 +113,6 @@ function extractBvid(text) {
     }
     const match = /[Bb][Vv]([0-9A-Za-z]{10})/.exec(text);
     return match ? ("BV" + match[1]) : "";
-}
-
-/// 插件音源地址 → 自己的标识（`plugin.x.y://<标识>` 里 `://` 之后的部分）
-///
-/// 地址的写法是"类型 id + `://` + 插件自己定的标识"；标识怎么解释完全由插件决定，
-/// 前两种类型把它当"BV 号"，第三种类型把它当"本地文件路径"。
-function opaqueOf(addr) {
-    const text = String(addr || "");
-    const index = text.indexOf("://");
-    return index >= 0 ? text.slice(index + 3) : text;
 }
 
 /// 地址里的本地路径 → 可直接交给文件服务的路径
@@ -447,12 +437,12 @@ musicxx.hooks.register("musicxx.player.source.resolve", {
         });
     }
 
-    // 2) 本插件声明的音源：地址里写的是 BV 号（插件自己定的标识格式）
+    // 2) 本插件声明的音源：src 里写的是 BV 号（插件自己定的资源 id 格式）
     if (pluginType === TYPE_PLUGIN_BILI && settingOf("pluginBiliEnabled")) {
-        const bvid = extractBvid(opaqueOf(src));
+        const bvid = extractBvid(src);
         if (!bvid) {
-            noteError("自定义音源里没有 BV 号: " + src);
-            return null;    // 不接管：主程序会把它当解析不了的地址报错
+            noteError("插件音源里没有 BV 号: " + src);
+            return null;    // 不接管：主程序会把它当解析不了的资源报错
         }
         stats.pluginBiliCalls += 1;
         return resolveBili(bvid, quality).then(function (result) {
@@ -466,7 +456,7 @@ musicxx.hooks.register("musicxx.player.source.resolve", {
 
     // 3) 本地文件 → 插件框架的本地 HTTP 文件服务
     if (pluginType === TYPE_PROXY_LOCAL && settingOf("proxyLocalEnabled")) {
-        return answerProxyLocal(opaqueOf(src));
+        return answerProxyLocal(src);
     }
 
     return null;
@@ -640,7 +630,7 @@ musicxx.capability.register("setSwitch", function (args) {
 /// 用统一入口播放一首歌
 ///
 /// 能力处理器必须同步返回，所以动作发出去就结束，结果只写日志（页面不靠它刷新）。
-/// `type` 与歌曲实体的来源类型一致：内置 Bili 是 `bili`，插件自己写的地址是 `link`。
+/// `type` 与歌曲实体的来源类型一致：内置 Bili 是 `bili`，插件自己的音源写类型 id。
 function playViaEntry(name, src, type) {
     musicxx.call("musicxx.player.playSrc", {
         src: src,
@@ -663,8 +653,7 @@ musicxx.capability.register("playDemo", function (args) {
 
 /// 设置页按钮：播放一首用本插件音源类型写的歌
 ///
-/// 新写法：类型写在 `type` 里，`src` 就是插件自己的标识（BV 号）；
-/// 老写法（`plugin.<类型>://<标识>` 当链接保存）也认。
+/// 类型写在 `type` 里，`src` 就是插件自己的资源 id（这里是 BV 号）。
 musicxx.capability.register("playCustomSrc", function (args) {
     playViaEntry("Never Gonna Give You Up", "BV1GJ411x7h7", TYPE_PLUGIN_BILI);
     return {view: settingsView(args, null)};

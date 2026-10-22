@@ -150,7 +150,7 @@ musicxx.capability.register("card", function () {
 | **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` / `playing.icon` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **封面取色 / 封面变化** | 读 / 写封面取色（`palette` / `setPalette`），用钩子注册取色实现替代内置分析；也可以订阅封面变化（`musicxx.media.cover.changed`，可随时移除） | 动作 + 钩子 `musicxx.media.palette.provide` / `musicxx.media.cover.changed` | [plugin-api.md](plugin-api.md) §3.2.8 + [plugin-hooks.md](plugin-hooks.md) |
 | **频谱提取 / 副歌分析实现** | 用自己的实现替代应用内置的整曲频谱提取与副歌（高潮）识别：进度条波形、播放页动效、`musicxx.media.spectrum` 与状态镜像都用这一份数据；两边都没有实现时这个功能整体不可用 | 钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | [plugin-api.md](plugin-api.md) §7 + [plugin-hooks.md](plugin-hooks.md) |
-| **自己的音源** | 插件带来的音乐来源：地址写成 `plugin.<插件 id>.<类型名>://<自己的标识>`，播放时由你自己给出真正的播放地址与请求头；也能顺手给内置来源换地址（代理 / 换 CDN） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/list` | [plugin-api.md](plugin-api.md) §8.6 |
+| **自己的音源** | 插件带来的音乐来源：在歌曲里存成"类型 + 资源 id"（类型 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的标识 / 路径），播放时由你自己给出真正的播放地址与请求头；也能顺手给内置来源换地址（代理 / 换 CDN） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/list` | [plugin-api.md](plugin-api.md) §8.6 |
 | **存储** | 插件私有 KV 与用户可见配置（`config.json`） | `musicxx.storage.*` | [plugin-api.md](plugin-api.md) §3.2.5（本文 §5.6 是注意事项） |
 | **网络** | 走应用统一网络栈取数据、下载文件（可作为便利通道） | `musicxx.net.fetch/download` | [plugin-api.md](plugin-api.md) §3.2.6 |
 | **定时器 / 统计** | 后台任务；读自己的运行统计、自报指标 | `musicxx.timer.*` / `musicxx.stats.*` | [plugin-js-api.md](plugin-js-api.md) §13 / [plugin-api.md](plugin-api.md) §3.2.14 |

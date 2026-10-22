@@ -120,7 +120,7 @@ void main() {
     expect(stats['biliOk'], 0);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('功能 2：自定义音源 plugin_bili 用 BV 号换直链', () async {
+  test('功能 2：插件音源 plugin_bili 用 BV 号换直链', () async {
     if (env == null || !env.hasPlugin(pluginId)) {
       markTestSkipped(
         '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
@@ -137,14 +137,15 @@ void main() {
     // 加载时声明了自己的音源类型（自省用；能不能播看处理器）
     expect(harness.definedSources, contains(biliType));
 
-    // 插件音源地址按 `link` 保存，`pluginType` 给出类型 id（主程序就是这么填的）
+    // 插件音源：类型串在音源信息里（`pluginType`），`src` 就是插件自己的资源 id
+    //（内置类型没有值时 type 是空串）
     final Map<String, Object?>? verdict = await harness.resolveSrc(
-      type: 'link',
-      src: '$biliType://$singlePageBvid',
+      type: '',
+      src: singlePageBvid,
       pluginType: biliType,
       quality: 'hq',
     );
-    expect(verdict, isNotNull, reason: '自定义音源应当由插件接管');
+    expect(verdict, isNotNull, reason: '插件音源应当由插件接管');
     final Map<String, Object?> src = _srcOf(verdict!);
     expect(src['path'], fakeBestAudioUrl);
     expect(src['kind'], 'url');
@@ -158,42 +159,7 @@ void main() {
     expect((probe['sourceTypes'] as Map)['bili'], biliType);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('功能 2（新写法）：类型在音源信息里，src 就是资源 id', () async {
-    if (env == null || !env.hasPlugin(pluginId)) {
-      markTestSkipped(
-        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
-      );
-      return;
-    }
-    final _Harness harness = _Harness(env);
-    addTearDown(harness.dispose);
-    harness.start();
-    await harness.pumpUntil(
-      () async => (await harness.probe())['configLoaded'] == 3,
-    );
-
-    // 新写法：主程序把类型串记在音源信息里（customType），src 里是插件自己的标识
-    //（内置类型没有值时 type 是空串）
-    final Map<String, Object?>? verdict = await harness.resolveSrc(
-      type: '',
-      src: singlePageBvid,
-      pluginType: biliType,
-      customType: biliType,
-      quality: 'hq',
-    );
-    expect(verdict, isNotNull, reason: '自定义音源应当由插件接管');
-    final Map<String, Object?> src = _srcOf(verdict!);
-    expect(src['path'], fakeBestAudioUrl);
-    expect(src['kind'], 'url');
-    expect((src['headers'] as Map)['Referer'], 'https://www.bilibili.com');
-
-    final Map<String, Object?> probe = await harness.probe();
-    final Map<String, Object?> stats =
-        (probe['stats'] as Map).cast<String, Object?>();
-    expect(stats['pluginBiliCalls'], 1);
-  }, timeout: const Timeout(Duration(seconds: 60)));
-
-  test('开关：关掉 pluginBiliEnabled 后自定义音源不接管', () async {
+  test('开关：关掉 pluginBiliEnabled 后插件音源不接管', () async {
     if (env == null || !env.hasPlugin(pluginId)) {
       markTestSkipped(
         '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
@@ -214,8 +180,8 @@ void main() {
     );
 
     final Map<String, Object?>? verdict = await harness.resolveSrc(
-      type: 'link',
-      src: '$biliType://$singlePageBvid',
+      type: '',
+      src: singlePageBvid,
       pluginType: biliType,
       quality: 'hq',
     );
@@ -282,8 +248,8 @@ void main() {
     media.writeAsBytesSync(content);
 
     final Map<String, Object?>? verdict = await harness.resolveSrc(
-      type: 'link',
-      src: '$proxyType://${media.path}',
+      type: '',
+      src: media.path,
       pluginType: proxyType,
       quality: 'hq',
     );
@@ -356,8 +322,8 @@ void main() {
 
     // 同一个文件再解析一次：命中登记（URL 不变），不会多一条映射
     final Map<String, Object?>? again = await harness.resolveSrc(
-      type: 'link',
-      src: '$proxyType://${media.path}',
+      type: '',
+      src: media.path,
       pluginType: proxyType,
       quality: 'hq',
     );
@@ -425,8 +391,8 @@ void main() {
     );
 
     final Map<String, Object?>? verdict = await harness.resolveSrc(
-      type: 'link',
-      src: '$proxyType://D:/no/such/file.mp3',
+      type: '',
+      src: 'D:/no/such/file.mp3',
       pluginType: proxyType,
       quality: 'hq',
     );
@@ -578,7 +544,6 @@ class _Harness {
     required String quality,
     String? crudeSrc,
     String? pluginType,
-    String? customType,
   }) {
     final Future<Map<String, Object?>?> future = runtime.hooks.decideAsync(
       MusicxxPluginHookId.playerSourceResolve,
@@ -593,7 +558,6 @@ class _Harness {
         'quality': quality,
         'isMediaSrc': true,
         'pluginType': pluginType,
-        'customType': customType,
         'caller': null,
       },
     );
