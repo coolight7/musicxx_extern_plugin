@@ -98,7 +98,7 @@ const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_E
 
 | 键 | 内容 | 什么时候刷新 |
 |---|---|---|
-| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun}` | 启动时一次；主题/语言变化时重推 |
+| `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun, foreground, lifecycleState}` | 启动时一次；主题/语言/前后台变化时重推 |
 | `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 启动、切歌、播放状态变化 |
 | `musicxx.state.song` | 当前歌曲只读视图（字段见下） | 切歌 |
 | `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 歌单 / 播放位置变化 |
@@ -111,6 +111,10 @@ const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_E
 
 - `musicxx.state.app.version` 是整型版本号（与 `versionStr` 是同一件事的两种写法）；
   `installId` 是安装级随机 id（可当匿名标识用）；`branch` 是渠道名；`isNight` 见下方"坑"。
+- `musicxx.state.app.foreground` 是"现在是否前台"（布尔），`lifecycleState` 是原始生命周期状态名
+  （`resumed` / `inactive` / `hidden` / `paused` / `detached`）。进后台 / 回前台的**事件**用钩子
+  `musicxx.app.background` / `musicxx.app.foreground`（后者带 `backgroundMs`）；要订阅变化用变量
+  `musicxx.app.lifecycle`。
 - `musicxx.state.player.quality` 是音质枚举名（`Undefined` / `Lower` / `Standard` / `HQ` / `SQ` / `Hifi` / `Upper`），
   `mediaType` 是媒体类型枚举名；`cacheLength` 是已缓存时长（毫秒）。
 - `musicxx.state.playlist.loopMode` 是循环模式枚举名（`Order` / `Only` / `RealRand` / `SimulateRand` / `SimulateRandReflush`），
@@ -752,6 +756,25 @@ await musicxx.call("musicxx.player.playSrc", {
 });
 ```
 
+#### 3.2.16 应用前后台（`musicxx.app.*`）
+
+| 动作 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `musicxx.app.foreground` | 无 | `{ok:true, requested:"foreground", foreground}` | 把主窗口显示到前台（移动端把应用拉到前台）。与命令行 `window.foreground` 是同一份实现 |
+| `musicxx.app.background` | 无 | `{ok:true, requested:"background", foreground}` | 把主窗口隐藏到后台（移动端退到后台），播放不受影响。与命令行 `window.background` 是同一份实现 |
+
+```js
+await musicxx.call("musicxx.app.background");        // 隐藏窗口（用户看不见，但仍在播放）
+const state = await musicxx.vars.get("musicxx.app.lifecycle");   // "foreground" / "background"
+const off = musicxx.vars.bind("musicxx.app.lifecycle", (v) => musicxx.host.log(2, "现在：" + v));
+```
+
+- 切完**不要**假定状态已经变了：真正的状态由应用的生命周期事件决定，变了之后会派发钩子并刷新
+  状态镜像 `musicxx.state.app`（`foreground` / `lifecycleState`），处理器里读到的才是新值。
+- 要"进后台 / 回前台"做事，用钩子（§8）而不是在这里轮询动作；要当前值用变量
+  `musicxx.app.lifecycle`（可订阅）或状态镜像。
+- 用户可能正在看着窗口：隐藏前先想清楚（这类动作是"替用户按一下按钮"，不是给插件自己让路的）。
+
 ### 3.3 名字存在、但当前版本没有实现的动作
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
@@ -1132,8 +1155,8 @@ unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
   JS 侧由插件框架在后台拒绝并记日志（`register` 本身不会报错），所以写错 id 的表现是
   **处理器永远不被调用**。JS 的 `musicxx.hooks.has(id)` 只看脚本自己注册没注册，不代表插件框架受理了。
   插件自定义事件主题 / 能力名 / UI 项 id 才用 `plugin.<自己的插件 id>.*`。
-- **只有"已接入"的钩子会触发**：当前 14 个应用派发的钩子（`plugin-hooks.md` 的「主程序是否已接入」列
-  标「已接入」的共 15 行 —— 多出来的第 15 条是插件功能点的通用通道 `musicxx.feature.point.call`，
+- **只有"已接入"的钩子会触发**：当前 16 个应用派发的钩子（`plugin-hooks.md` 的「主程序是否已接入」列
+  标「已接入」的共 17 行 —— 多出来的第 17 条是插件功能点的通用通道 `musicxx.feature.point.call`，
   由调用方触发、不是应用主动派发）；其余钩子注册成功但不会触发 —— 别把功能押在未接入的钩子上（它们打算做什么见 §8.7）。
 
 ### 8.2 裁决对象
@@ -1246,7 +1269,6 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 
 | 钩子 | 打算做什么 |
 |---|---|
-| `musicxx.app.background` / `musicxx.app.foreground` | 应用进后台 / 回前台的通知 |
 | `musicxx.app.exit` | 退出前让插件拦一下（`decision`） |
 | `musicxx.app.deepLink` | 外部链接进来时让插件拦一下 / 处理 |
 | `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |

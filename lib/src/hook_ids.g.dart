@@ -56,8 +56,10 @@ enum MusicxxPluginHookId {
   appStart('musicxx.app.start', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
   /// 载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后派发一次（比 `app.start` 晚），观察型。
   appReady('musicxx.app.ready', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
-  appBackground('musicxx.app.background', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),
-  appForeground('musicxx.app.foreground', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。派发前状态镜像已刷新（`musicxx.state.app.foreground` 为 false），处理器里同步读到的就是新状态；同一状态重复上报不会重复派发。观察型、异步：不等待处理器，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值用变量 `musicxx.app.lifecycle`（可订阅）或状态镜像。
+  appBackground('musicxx.app.background', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时派发一次；**只在前台与后台真的切换时**派发，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。观察型、异步：不等待处理器；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。
+  appForeground('musicxx.app.foreground', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
   appExit('musicxx.app.exit', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
   appDeepLink('musicxx.app.deepLink', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
   appUpgrade('musicxx.app.upgrade', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),

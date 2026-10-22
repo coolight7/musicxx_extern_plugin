@@ -22,6 +22,12 @@
 `set` 的 Promise/事件回执里带的是应用最终接受的值：被拒绝时 `accepted=false` +
 `error` 说明原因。
 
+## 应用状态（`musicxx.app.*`）
+
+| 键 | caps | 值 | 风险 | 说明 |
+|---|---|---|---|---|
+| `musicxx.app.lifecycle` | get+notify | `foreground` / `background` | low | 应用现在在前台还是后台。`notify` 只在真的跨过这条线时发一次（窗口只是失焦、下拉通知栏这类中间态不算后台）；进后台 / 回前台的**事件**用钩子 `musicxx.app.background` / `musicxx.app.foreground`（后者带 `backgroundMs`），切换用动作 `musicxx.app.background` / `musicxx.app.foreground`（与命令行 `window.*` 同一份实现） |
+
 ## 界面动画（`musicxx.ui.*`）
 
 | 键 | caps | 值 | 风险 | 说明 |

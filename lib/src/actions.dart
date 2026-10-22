@@ -208,6 +208,18 @@ class MusicxxPluginActions {
 
 /// 动作名常量（主程序在 Store 里注册对应实现；这里只列名字）
 abstract final class MusicxxPluginActionNames {
+  /// 切到前台（把主窗口显示出来）
+  ///
+  /// 与命令行 `window.foreground` 是同一份实现（`GlobalStore.appForeground`）。
+  /// 切完会派发通知型钩子 `musicxx.app.foreground`，并刷新状态镜像 `musicxx.state.app`。
+  static const String appForeground = 'musicxx.app.foreground';
+
+  /// 切到后台（隐藏主窗口，播放不受影响）
+  ///
+  /// 与命令行 `window.background` 是同一份实现（`GlobalStore.appBackground`）。
+  /// 切完会派发通知型钩子 `musicxx.app.background`，并刷新状态镜像 `musicxx.state.app`。
+  static const String appBackground = 'musicxx.app.background';
+
   static const String playerPlay = 'musicxx.player.play';
   static const String playerPause = 'musicxx.player.pause';
   static const String playerToggle = 'musicxx.player.toggle';
