@@ -93,7 +93,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | CLI | 服务端命令 id | 作用 |
 |---|---|---|
 | `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `app.logs` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
-| `musicxx-cli call featurePoint.list [--args '{"provided":true}']` | `featurePoint.list` | 功能点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`） |
+| `musicxx-cli call featurePoint.list [--args '{"provided":true}']` | `featurePoint.list` | 功能点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`）；`broadcasts` 是主程序自己注册的广播订阅（只收通知，不参与实现，插件不能注册） |
 | `musicxx-cli featurePoint.call <功能点id> --args JSON [--refresh]` | `featurePoint.call` | **调一个功能点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
 
 ## 5. 常用做法
