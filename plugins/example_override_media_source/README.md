@@ -9,8 +9,8 @@
 | # | 来源 | 音源字符串写什么 | 插件返回什么 |
 |---|---|---|---|
 | 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（钩子载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
-| 2 | `plugin.<插件 id>.plugin_bili`（自定义类型） | BV 号，例 `type = "plugin.…plugin_bili"` + `src = "BV1GJ411x7h7"` | 同一份 B 站直链 + 请求头 |
-| 3 | `plugin.<插件 id>.plugin_proxy_local`（自定义类型） | 本地文件路径，例 `type = "plugin.…plugin_proxy_local"` + `src = "D:/music/a.mp3"` | `http://127.0.0.1:<端口>/f/<token>`（插件框架的本地 HTTP 文件服务） |
+| 2 | `plugin.<插件 id>.plugin_bili`（插件音源类型） | BV 号，例 `type = "plugin.…plugin_bili"` + `src = "BV1GJ411x7h7"` | 同一份 B 站直链 + 请求头 |
+| 3 | `plugin.<插件 id>.plugin_proxy_local`（插件音源类型） | 本地文件路径，例 `type = "plugin.…plugin_proxy_local"` + `src = "D:/music/a.mp3"` | `http://127.0.0.1:<端口>/f/<token>`（插件框架的本地 HTTP 文件服务） |
 
 ## 文件与开关
 
@@ -78,22 +78,21 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"bi
 播放时看插件日志（管理页 → 插件 → 日志，或 `musicxx-cli plugin logs example_override_media_source`）；
 关掉开关后再播同一首歌，插件处理器返回 null，主程序内置解析照旧。
 
-## 功能 2：自定义音源类型 `plugin_bili`
+## 功能 2：插件音源类型 `plugin_bili`
 
 插件可以在**不改主程序来源枚举**的前提下声明自己的音源类型（`plugin.<插件 id>.<类型名>`）。
-有两种写法，**新写法优先**：
+歌曲里存成"类型 + 资源 id"：
 
-| 写法 | `type` | `src` | 钩子载荷 |
-|---|---|---|---|
-| 新写法（推荐） | `plugin.example_override_media_source.plugin_bili` | `BV1GJ411x7h7`（自己的标识） | `pluginType` = 类型 id，`customType` = 类型 id，`src` = 标识 |
-| 老写法（兼容） | `link` | `plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7` | `pluginType` = 类型 id，`customType` = 空，`src` = 完整地址 |
+| 部件 | 内容 | 例 |
+|---|---|---|
+| `type`（播放时给的来源类型） | 插件音源类型 id | `plugin.example_override_media_source.plugin_bili` |
+| `src`（歌曲里存的资源） | 插件自己的资源 id / 路径 | `BV1GJ411x7h7` |
+| 钩子载荷 | `pluginType` = 类型 id，`src` = 资源 id | `pluginType` = `plugin.…plugin_bili` |
 
-新写法里 `src` 就是资源 id / 路径本身（不再塞假链接），类型串存在歌曲的音源信息里
-（序列化后是 `{"type":"plugin.…plugin_bili", …}BV1GJ411x7h7`）。
-主程序内置实现不接管这类来源（核心层看到自定义类型就返回"不解析"），而是问同一条钩子。
+类型串存在歌曲的音源信息里（序列化后是 `{"type":"plugin.…plugin_bili", …}BV1GJ411x7h7`）。
+主程序内置实现不接管这类来源（核心层看到插件音源类型就返回"不解析"），而是问同一条钩子。
 
-`<插件自己的标识>` 怎么解释完全由插件决定，本示例把它当 BV 号
-（`opaqueOf()`：老写法取 `://` 之后的部分，新写法就是 `src` 本身）。
+`src` 怎么解释完全由插件决定，本示例把它当 BV 号。
 
 声明（`declareSourceTypes()`，脚本加载时跑一次）：
 
@@ -109,16 +108,12 @@ musicxx.call("musicxx.source.define", {
 - 声明的用处是**自省与更清楚的报错**：能不能播看的是有没有注册 `musicxx.player.source.resolve`
   的处理器，不是有没有声明；
 - 声明跟着插件生命周期走（停用 / 卸载 / 关『拟声++』自动撤销），不写磁盘，每次启用都会重新声明；
-- 查清单：`musicxx-cli call musicxx.source.list`、MCP `ListMediaSources`、插件动作 `musicxx.source.list`；
-- 只写标识（`BV1GJ411x7h7`）也存得下（主程序会补类型），但自己拼全更清楚。
+- 查看/自省：`musicxx-cli call musicxx.source.list`、MCP `ListMediaSources`、插件动作 `musicxx.source.list`；
 
 手动验证：
 
 ```bash
-# 新写法
 musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"plugin.example_override_media_source.plugin_bili"}'
-# 老写法（一样能播）
-musicxx-cli call musicxx.player.playSrc --args '{"src":"plugin.example_override_media_source.plugin_bili://BV1GJ411x7h7","type":"link"}'
 ```
 
 ## 功能 3：本地文件走插件 HTTP 服务 `plugin_proxy_local`
@@ -141,11 +136,11 @@ musicxx.net.stopServer()
 return { patch: { src: { path: served.url, kind: "url", size: served.size } } };
 ```
 
-地址写法（两种都认）：
+`src` 里可以写（两种都认）：
 
 ```text
-plugin.example_override_media_source.plugin_proxy_local://D:/music/a.mp3
-plugin.example_override_media_source.plugin_proxy_local://file:///D:/music/a.mp3
+D:/music/a.mp3
+file:///D:/music/a.mp3
 ```
 
 ### 服务长什么样
@@ -212,6 +207,6 @@ musicxx-cli plugin logs example_override_media_source --limit 50
 |---|---|
 | 插件总入口（选形态 / 第一个插件 / 注意事项） | 包内 `docs/plugin-guide.md` |
 | 钩子总表与 `musicxx.player.source.resolve` 的载荷 / 裁决 | 包内 `docs/plugin-hooks.md` |
-| 音源解析链、插件音源地址写法、自省命令 | 包内 `docs/plugin-api.md` §3.2.6 / §3.2.15 |
+| 音源解析链、插件音源写法、自省命令 | 包内 `docs/plugin-api.md` §3.2.6 / §3.2.15 |
 | 本地 HTTP 文件服务（`musicxx.net.serveFile` 等） | 包内 `docs/plugin-api.md` §3.2.6、`docs/plugin-js-api.md` §7.3.1 |
 | JS 插件写法（顶层注册、处理器不能等动作） | 包内 `docs/plugin-js-api.md` |

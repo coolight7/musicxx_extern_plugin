@@ -23,7 +23,7 @@
 ### 新增：示例插件 `example_override_media_source`
 
 - 演示"插件参与音源解析"的三条路（各自有开关）：覆盖内置 Bili 解析（BV 号 → 直链 + 请求头）、
-  自定义音源类型 `plugin_bili`（地址里也写 BV 号）、本地文件经插件 HTTP 服务播放（`plugin_proxy_local`）。
+  插件音源类型 `plugin_bili`（类型 + 资源 id，`src` 里写 BV 号）、本地文件经插件 HTTP 服务播放（`plugin_proxy_local`）。
 - 带自绘设置页（三个开关 + 计数 + 服务状态）、集成测试与 README；
   它同时也是"异步裁决钩子里可以等主程序动作"的样板（见下一条修正）。
 

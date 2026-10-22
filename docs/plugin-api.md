@@ -727,8 +727,9 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
 
 #### 3.2.15 音源（`musicxx.source.*`）
 
-插件自己的音源：地址写成 `plugin.<你的插件 id>.<类型名>://<你自己的标识>`，主程序的内置实现
-**不解析**这种地址，播放时问钩子 `musicxx.player.source.resolve`（见 §8.6）。三个动作做声明与自省：
+插件自己的音源：在歌曲里存成"类型 + 资源 id" —— 类型 id 写成
+`plugin.<你的插件 id>.<类型名>`，`src` 就是你自己定义的资源 id / 路径。主程序的内置实现
+**不解析**这种类型，播放时问钩子 `musicxx.player.source.resolve`（见 §8.6）。三个动作做声明与自省：
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
@@ -736,7 +737,7 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
 | `musicxx.source.undefine` | `{id}` | `{ok, removed}` |
 | `musicxx.source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}], resolveChain:[…]}` |
 
-- `id` 必须形如 `plugin.<你的插件 id>.<类型名>`（与地址的 scheme 一致）；**声明只用于自省与更清楚的
+- `id` 必须形如 `plugin.<你的插件 id>.<类型名>`；**声明只用于自省与更清楚的
   报错**：音源能不能播，看的是你有没有注册 `musicxx.player.source.resolve` 的处理器，不是有没有声明。
 - 声明跟着插件生命周期走（停用 / 卸载 / 关『拟声++』自动撤销），不写入磁盘；重新启用时脚本会再声明一遍。
 - `musicxx.source.list` 的 `resolveChain` 与 `musicxx.feature.point.list` 里看
@@ -747,7 +748,7 @@ await musicxx.call("musicxx.source.define", {
     id: "plugin.my_plugin.flac", title: "我的高解析音源", srcDoc: "track/<歌曲 id>"
 });
 await musicxx.call("musicxx.player.playSrc", {
-    src: "plugin.my_plugin.flac://track/1", type: "link"
+    src: "track/1", type: "plugin.my_plugin.flac"
 });
 ```
 
@@ -1181,7 +1182,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 - 返回 `null` / 空 = "这次不提供"（链条继续问下一个实现）。
 - **不要拿 `disable` 当"我没算完"的挡箭牌**：那样用户会看到功能凭空消失。
 
-### 8.6 音源解析与自定义音源（`musicxx.player.source.resolve`）
+### 8.6 音源解析与插件音源（`musicxx.player.source.resolve`）
 
 应用在**把一个音源变成播放器能打开的地址与请求头**时派发这条钩子（`decision` + `firstNonNull` +
 异步）。顺序是 **外置插件 → 内置插件（云盘 / 媒体库）→ 应用自身（本地文件 / 链接 / Bili）**：
@@ -1190,7 +1191,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 ```js
 musicxx.hooks.register("musicxx.player.source.resolve", { mode: "decision" }, (ctx) => {
     if (ctx.pluginType !== "plugin.my_plugin.flac") return null;   // 不是我的音源：不回答
-    const track = ctx.src;    // 新写法：src 就是自己的标识（老写法要自己切掉 "plugin.my_plugin.flac://"）
+    const track = ctx.src;    // src 就是你自己写下的资源 id
     return { patch: { src: {
         path: `https://cdn.example/${track}.flac`,
         headers: { Referer: "https://example/" },
@@ -1199,30 +1200,27 @@ musicxx.hooks.register("musicxx.player.source.resolve", { mode: "decision" }, (c
 });
 ```
 
-#### 自定义音源的两种写法
+#### 插件音源怎么写进歌曲
 
-插件声明的音源类型（`plugin.<插件 id>.<类型名>`）有两种写法，**新写法优先**：
+插件音源（类型 id `plugin.<插件 id>.<类型名>`）在歌曲里存成**类型 + 资源 id**：
 
-| 写法 | 歌曲里存的类型 | 歌曲里存的 `src` | 载荷里的 `pluginType` / `customType` |
-|---|---|---|---|
-| 新写法（推荐） | `plugin.my_plugin.flac` | `track-123`（你自己的标识 / 资源 id / 路径） | 两者都是 `plugin.my_plugin.flac` |
-| 老写法（兼容） | `link` | `plugin.my_plugin.flac://track-123` | `pluginType` = 类型 id，`customType` = 空 |
+| 部件 | 内容 | 例 |
+|---|---|---|
+| 类型 | 你声明并注册解析的类型 id | `plugin.my_plugin.flac` |
+| `src` | 你自己定义的资源 id / 路径（怎么解释由你决定） | `track-123` |
 
-新写法里 `src` 就是资源 id / 路径本身（不再塞假链接），类型串存在音源信息里
-（序列化后形如 `{"type":"plugin.my_plugin.flac", …}track-123`）。
+类型串存在音源信息里（序列化后形如 `{"type":"plugin.my_plugin.flac", …}track-123`），
 应用侧的入口（`musicxx.player.playSrc`、applink）写 `type` 时直接给类型 id 即可：
 
 ```bash
 musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugin.my_plugin.flac"}'
 ```
 
-两种写法在解析时归一，处理器拿到的东西一样；`ctx.customType` 非空 = 新写法。
-
-载荷字段：`srcKey`（音源身份 md5）、`type`（本轮音源类型）与 `crudeType`（歌曲里保存的原始类型）、
-`src`（本轮要解析的地址）与 `crudeSrc`（原始地址）、`fileName` / `durationMs` / `quality`
-（文件名、时长、用户音质偏好）、`isMediaSrc`（`false` = 这次要的是封面）、`pluginType`
-（本轮音源的自定义类型 id，老写法从地址里取、新写法从音源信息里取，否则 `null`）、
-`customType`（新写法的类型串；老写法为 `null`）、`caller`（谁在问，空 = 应用自己）。
+载荷字段：`srcKey`（音源身份 md5）、`type`（本轮音源类型；插件音源是空串）与 `crudeType`
+（歌曲里保存的原始类型）、`src`（本轮要解析的地址 / 资源 id）与 `crudeSrc`（原始地址）、
+`fileName` / `durationMs` / `quality`（文件名、时长、用户音质偏好）、`isMediaSrc`
+（`false` = 这次要的是封面）、`pluginType`（本轮音源的插件音源类型 id，不是插件音源时为 `null`）、
+`caller`（谁在问，空 = 应用自己）。
 
 回答：`{"src": {"path": "<地址>", "headers": {...}, "kind": "url"}}`（`src` 也可以直接给地址字符串）：
 
@@ -1236,7 +1234,7 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 
 注意：
 
-- **载荷里带来源字符串**（插件自己的音源就是你自己写下的地址，内置来源是已经解析出来的临时直链或
+- **载荷里带来源字符串**（插件自己的音源就是你自己写下的资源 id，内置来源是已经解析出来的临时直链或
   本地路径）—— 这是"能换地址"的前提，注册这条钩子的插件看得到这些内容。
 - 应用最多等你 **5 秒**（超时按"没给"处理）；地址是临时直链时自己缓存好，处理器里越快越好。
 - 观看型的 `musicxx.player.source.resolved` 只报"种类"，**不给地址**：要看播放是否成功用它。
