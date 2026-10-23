@@ -14,17 +14,17 @@ library;
 /// 插件框架版本（Dart 侧声明；C 侧同名宏 `MUSICXX_EXTERN_PLUGIN_VERSION`）
 abstract final class MusicxxPluginVersion {
   /// 版本号（`<年>.<月日>.<小版本号>`）
-  static const String version = '2026.1019.1';
+  static const String version = '2026.1023.1';
 
   /// 本版本号首次出现的提交（本包仓库的短提交号；空串 = 还没补记，见
   /// `docs/version-history.md` 的补记流程）
   ///
   /// 提交号写不进它自己所在的提交，所以声明该版本号的那次提交里这里是空的，
   /// 紧接着的那次提交把它补上。
-  static const String commit = '36e4b85';
+  static const String commit = '';
 
   /// 本版本号的日期（`YYYY-MM-DD`，与 [version] 里的年月日一致）
-  static const String date = '2026-10-19';
+  static const String date = '2026-10-23';
 
   /// 本包仓库地址（主程序页面上的跳转用它）
   static const String repositoryUrl =

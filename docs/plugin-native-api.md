@@ -574,6 +574,40 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_SPEED, 0,
      });
 ```
 
+### 6.1 阶段：前链 / 实现链 / 后链
+
+钩子 id 表示**一次调用**，参与方式由注册时的阶段表达（不再有 `.before` / `.after` 后缀的 id）。
+`musicxx.player.seek` / `volume` / `speed` / `pitch` / `error` / `beforePlaySong` /
+`source.beforeParse` 声明了 `impl` + `after`，`musicxx.feature.point.call` 声明了三个阶段。
+
+```cpp
+// 后链（改最终裁决）：拿到的是实现链合并出来的结果（这一步之前的结果）
+hook(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, musicxx::plugin::HookPhase::After, 0,
+     [](std::string_view input, std::string& out) -> int32_t {
+         // 载荷里除原有字段外还有 `value` = 当前的合并结果
+         out = R"({"value":{"action":"continue","patch":{"to":60000}}})";
+         return 0;
+     });
+
+// 等价写法
+hookAfter(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
+hookBefore(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
+```
+
+规则（完整说明见 [plugin-api.md](plugin-api.md) §8.1）：
+
+- 前链（`before`）**正序**、只能改输入（`{"patch": {...}}`）或停下（`{"action":"stop"}`）；
+- 后链（`after`）**逆序**、只能改输出（`{"value": ...}`）或丢弃（`{"action":"drop"}`）。
+  逆序是刻意的：外置插件最后改输出，应用自己的兜底实现不能盖掉插件的改写；
+- 阶段处理器**必须是同步处理器**（`hook_sync`）：要拿到这一步的结果才能跑下一步；
+- 只能注册钩子**声明过的**阶段。SDK 在注册前会读 `hook_info` 的 `phases`，没声明就返回 `-1`
+  并记一条可读日志（低层直接调 `register_hook` 时插件框架同样拒绝，返回 `-1`）；
+- 一个 `ownerTag` 可以分别登记三个阶段（覆盖键含阶段）；`unregisterHook` 会把该 `ownerTag`
+  在所有阶段的登记一起摘掉；
+- 低层写法：`MusicxxPluginHookSpec` 末尾追加了 `phase` 成员，写它时把 `version` 设成
+  `MUSICXX_PLUGIN_HOOK_SPEC_VERSION`（2）并让 `struct_size = sizeof(..)`；
+  老写法（`version = 1`、不带 `phase`）照旧可用，等价于 `impl`。
+
 - 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
 - **处理器要快**：异步派发只表示“不占住主程序的调用线程”，插件框架侧仍然是同一个线程

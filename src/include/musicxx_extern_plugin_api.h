@@ -53,7 +53,7 @@
 /// Dart 侧同名声明是 `MusicxxPluginVersion.version`（`lib/src/version.dart`），
 /// 两处必须一致（包内 `test/version_test.dart` 校验）；插件清单的 `version` 用同一套格式。
 /// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
-#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1019.1"
+#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1023.1"
 
 /* ==================== 错误码 ==================== */
 

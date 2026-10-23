@@ -1129,13 +1129,49 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 钩子 id、模式（`observe` / `decision`）、派发方式（`sync` / `async`）、合并策略，以及**哪些钩子已经被应用接入**，
 都在生成物 [plugin-hooks.md](plugin-hooks.md) 里；本节说"怎么写、为什么这么写"。
 
-### 8.1 注册与注销
+### 8.1 三个阶段：前链 / 实现链 / 后链
+
+**钩子 id 表示一次调用；参与方式由注册时的 `phase` 表达。** 不要再找 `.before` / `.after` 后缀的 id ——
+那些成对的 id 已经合并成一条钩子上的两个阶段。
+
+| 阶段 | 什么时候跑 | 能做什么 | 不能做什么 | 回答格式 | 结束整条链 |
+|---|---|---|---|---|---|
+| `before` | 进入调用之前，串行、**正序** | 改输入（累加）、停下（这次不执行实现） | 给数据（那是实现链的事） | `{"patch": {...}}` | `{"action":"stop"}` |
+| `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与以前一样（§8.2） | 按钩子的合并策略 |
+| `after` | 拿到结果之后，串行、**逆序** | 改输出（累加）、丢弃（这次没有结果） | 造出本来没有的结果 | `{"value": <新结果>}` | `{"action":"drop"}` |
+
+```text
+线头（离调用方最近）                              线尾（离实现最近）
+extern  ---------->  builtin  ---------->  core
+   ^                                          |
+   +---------------  后链（逆序） <------------+
+```
+
+- **前链正序**：每一步拿到上一步改过的输入（不是所有人看同一份原始载荷）；
+- **后链逆序**：每一步拿到上一步改过的输出。所以**外置插件最后改输出**，应用自己的兜底实现
+  不能盖掉插件的改写（与实现链里“外置优先”同向）。这一点反直觉，但必须这么做；
+- 同一个插件对同一个钩子可以分别注册三个阶段（同一个 `ownerTag` 互不覆盖）；
+  `unregister` 按 `(钩子, ownerTag)` 摘，一个 `ownerTag` 在所有阶段的登记一起摘掉；
+- **前链 / 后链必须是同步处理器**（要拿到这一步的结果才能跑下一步）：用异步处理器注册会被拒绝；
+- 只能注册钩子**声明过的**阶段（生成物 `plugin-hooks.md` 的「阶段」列）；没声明就注册会被
+  拒绝（C++ 返回 `-1` 并记日志，JS 在后台拒绝并记日志），因为“注册成功但永远不触发”
+  比报错更难查；
+- 三种“没有结果”含义不同，别混：实现链的 `{"disable": true}`（不再问别人）、前链的 `stop`
+  （这次不执行实现）、后链的 `drop`（实现跑完了但结果丢掉）。
+
+包装点（网络请求 / 下载 / 歌单读取这类“实现固定是应用自己”的钩子）没有 `impl` 阶段，
+插件只在前后插手；取值点（频谱 / 副歌 / 取色 / 音源解析）通常只有 `impl`。
+
+### 8.1.1 注册与注销
 
 ```js
-musicxx.hooks.register(id, { mode, priority, ownerTag }, fn);   // 顶层同步注册或运行期注册都行
-musicxx.hooks.unregister(id);
-musicxx.hooks.has(id);            // 我自己注册了没有
-musicxx.hooks.handlers(id);        // Promise：谁在提供这个钩子（§3.2.12）
+musicxx.hooks.register(id, { mode, priority, ownerTag, phase }, fn);  // 顶层同步注册或运行期注册都行
+musicxx.hooks.unregister(id);           // 摘掉这个钩子上自己的全部阶段
+musicxx.hooks.unregister(id, "after");  // 只摘那个阶段
+musicxx.hooks.has(id);                  // 自己注册了没有（缺省看 impl 阶段）
+musicxx.hooks.has(id, "after");         // 某个阶段注册了没有
+musicxx.hooks.handlers(id);              // Promise：谁在提供这个钩子（§3.2.12）
+musicxx.hooks.handlers(id, "after");     // 只看一个阶段（缺省 = 全部阶段）
 ```
 
 ```cpp
@@ -1147,6 +1183,15 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,      // 裁决型，priorit
 
 observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,                  // 观察型
         [](std::string_view input, std::string&) -> int32_t { /* 返回值忽略 */ return 0; });
+
+// 阶段: 同一条钩子上的前链 / 后链（必须是同步处理器）
+hook(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, HookPhase::After, 0,
+     [](std::string_view input, std::string& out) -> int32_t {
+         out = R"({"value":{"action":"continue","patch":{"to":60000}}})";
+         return 0;
+     });
+hookBefore(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);   // 等价写法
+hookAfter (MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
 
 unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
 ```
@@ -1168,17 +1213,36 @@ unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
 
 ### 8.2 裁决对象
 
+实现链（以及普通裁决钩子）的回答与以前一样：
+
 ```jsonc
 { "action": "continue" | "skip" | "cancel" | "replace",
   "patch": { /* 钩子专属字段 */ },
   "error": "可选说明" }
 ```
 
-- 返回 `null` / 空对象 = "不裁决"，交给下一个处理器；`action` 的语义由各调用点决定
+- 返回 `null` / 空对象 = “不裁决”，交给下一个处理器；`action` 的语义由各调用点决定
   （例如 `beforePlaySong` 的 `skip` = 跳过本曲）。
-- **裁决是"建议"**：调用点会校验裁决的身份字段（如 `sid`），过期的裁决会被丢掉 ——
+- **裁决是“建议”**：调用点会校验裁决的身份字段（如 `sid`），过期的裁决会被丢掉 ——
   异步派发的钩子尤其要注意（等待期间可能已经切歌 / 切列表）。
 - **处理器失败只记统计**：抛异常 / 返回失败不会暂停派发、也不会卸载插件。
+
+前链 / 后链用自己的两种回答（见 §8.1）：
+
+```jsonc
+// before：只认 patch（一步接一步合并进本轮载荷），action=stop 结束整条链
+{ "patch": { "to": 60000 }, "reason": "可选说明" }
+{ "action": "stop" }
+
+// after：只认 value（替换当前结果），action=drop 结束整条链
+{ "value": { "action": "continue", "patch": { "to": 60000 } } }
+{ "action": "drop" }
+```
+
+- **`patch` / `value` 是一层包装**：其余字段只是顺带说明（`reason` 之类），不参与合并；
+- `before` 的 `patch` 里能写什么由那个钩子的载荷字段决定（嵌套对象递归合并）；
+- `after` 的 `value` 键存在就算答了（值可以是 `null`，表示“算过了、结果是空”）；
+- 没意见就返回空，不要为了“不改”返回一份原样的载荷。
 
 ### 8.3 异步裁决
 
@@ -1283,24 +1347,21 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 | `musicxx.app.exit` | 退出前让插件拦一下（`decision`） |
 | `musicxx.app.deepLink` | 外部链接进来时让插件拦一下 / 处理 |
 | `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |
-| `musicxx.player.beforeOpen` | 不接入（已被 `musicxx.player.source.resolve` 取代：换地址 / 提供播放地址统一走那条） |
 | `musicxx.player.qualityChanged` | 音质切换的通知 |
 | `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写 |
 | `musicxx.song.info.analyse` | 让插件提供歌名 / 歌手识别（替代应用不联网的识别） |
 | `musicxx.song.meta.writeback` | 歌曲信息回写时的通知 |
 | `musicxx.song.beforeAdd` | 加歌前拦一下 |
 | `musicxx.song.removed` | 歌曲被移除的通知 |
-| `musicxx.playlist.loaded` / `musicxx.songlist.filter` / `musicxx.playlist.filter` | 歌单加载完成的通知、歌单/歌曲列表的过滤（可增删条目） |
+| `musicxx.playlist.load` / `musicxx.songlist.filter` | 歌单读取的前后插手（`after` 就是原来的“过滤”，能读到最终列表）、歌曲列表的过滤（可增删条目） |
 | `musicxx.history.record` | 写播放记录时的通知 |
 | `musicxx.local.scan.file` / `musicxx.local.scan.finished` | 本地扫描时逐文件裁决（跳过）/ 扫描完成通知 |
-| `musicxx.lyric.load.before` / `musicxx.lyric.loaded` / `musicxx.lyric.transform` / `musicxx.lyric.current` | 歌词加载前拦一下（给歌词）、加载完成通知、歌词内容变换、当前行变化通知 |
-| `musicxx.lyric.searchStr` / `musicxx.lyric.provider` | 让插件改写歌词搜索串 / 提供歌词源 |
-| `musicxx.icon.request` / `musicxx.icon.generated` | 让插件提供封面 / 生成封面的通知 |
+| `musicxx.lyric.current` | 当前歌词行变化通知（歌词加载本身将来按 `musicxx.lyric.load` + `before` / `impl` / `after` 接入，不再五条 id） |
+| `musicxx.icon.fetch` | 让插件提供封面图（`impl` 给图，前链改尺寸 / 来源，后链改最终那张图） |
 | `musicxx.media.info.request` | 让插件提供媒体信息（时长、码率等） |
-| `musicxx.media.wave.ready` / `musicxx.media.chorus.analysed` | **已废弃**：应用永远不会派发（替代做法写在 `plugin-hooks.md` 的对应用说明里） |
-| `musicxx.net.request.before` / `musicxx.net.response.after` | 应用发外网请求前后拦 / 通知 |
+| `musicxx.net.request` | 应用发外网请求的前后插手（前链改请求 / 取消，后链读改响应） |
 | `musicxx.net.server.route` / `musicxx.net.mcp.tools` / `musicxx.net.lan.event` | 本机服务的路由交给插件、MCP 工具清单追加、局域网事件通知 |
-| `musicxx.download.before` / `musicxx.download.completed` | 下载前裁决 / 下载完成通知 |
+| `musicxx.download` | 下载的前后插手（前链改文件名 / 目录或取消，后链拿成品路径） |
 | `musicxx.cache.beforeTrim` / `musicxx.cache.pathRequest` | 缓存裁剪前裁决 / 缓存路径由插件指定 |
 | `musicxx.ui.home.entries` / `musicxx.ui.song.actions` / `musicxx.ui.playlist.actions` / `musicxx.ui.route.resolve` | 首页入口、歌曲菜单、歌单菜单的**钩子形式**（现在用 UI 项声明，见 §9.1）；路由解析 |
 | `musicxx.ui.page.enter` / `musicxx.ui.page.leave` / `musicxx.ui.theme.changed` / `musicxx.ui.user.action` | 页面进入 / 离开、主题变化、用户操作的通知 |

@@ -56,18 +56,17 @@ extern  ---------->  builtin  ---------->  core
 | `musicxx.app.exit` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.app.deepLink` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.app.upgrade` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.player.beforePlaySong` | decision | impl | async | anyCancel | 已接入 |
-| `musicxx.player.source.beforeParse` | decision | impl | async | firstNonNull | 已接入 |
+| `musicxx.player.beforePlaySong` | decision | impl+after | async | anyCancel | 已接入 |
+| `musicxx.player.source.beforeParse` | decision | impl+after | async | firstNonNull | 已接入 |
 | `musicxx.player.source.resolved` | observe | impl | async | lastWrite | 已接入 |
 | `musicxx.player.source.resolve` | decision | impl | async | firstNonNull | 已接入 |
-| `musicxx.player.beforeOpen` | decision | impl | async | firstNonNull | 未接入 |
 | `musicxx.player.state` | observe | impl | async | lastWrite | 已接入 |
 | `musicxx.player.position` | observe | impl | async | lastWrite | 已接入 |
-| `musicxx.player.seek` | decision | impl | async | anyCancel | 已接入 |
-| `musicxx.player.volume` | decision | impl | async | anyCancel | 已接入 |
-| `musicxx.player.speed` | decision | impl | async | anyCancel | 已接入 |
-| `musicxx.player.pitch` | decision | impl | async | anyCancel | 已接入 |
-| `musicxx.player.error` | decision | impl | async | anyCancel | 已接入 |
+| `musicxx.player.seek` | decision | impl+after | async | anyCancel | 已接入 |
+| `musicxx.player.volume` | decision | impl+after | async | anyCancel | 已接入 |
+| `musicxx.player.speed` | decision | impl+after | async | anyCancel | 已接入 |
+| `musicxx.player.pitch` | decision | impl+after | async | anyCancel | 已接入 |
+| `musicxx.player.error` | decision | impl+after | async | anyCancel | 已接入 |
 | `musicxx.player.completed` | observe | impl | async | lastWrite | 已接入 |
 | `musicxx.player.qualityChanged` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.media.notification` | decision | impl | sync | lastWrite | 未接入 |
@@ -76,34 +75,23 @@ extern  ---------->  builtin  ---------->  core
 | `musicxx.song.meta.writeback` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.song.beforeAdd` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.song.removed` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.playlist.loaded` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.playlist.filter` | decision | impl | async | allMerge | 未接入 |
+| `musicxx.playlist.load` | decision | before+after | async | allMerge | 未接入 |
 | `musicxx.songlist.filter` | decision | impl | async | allMerge | 未接入 |
 | `musicxx.history.record` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.local.scan.file` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.local.scan.finished` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.lyric.load.before` | decision | impl | async | firstNonNull | 未接入 |
-| `musicxx.lyric.loaded` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.lyric.transform` | decision | impl | async | allMerge | 未接入 |
 | `musicxx.lyric.current` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.lyric.searchStr` | decision | impl | sync | firstNonNull | 未接入 |
-| `musicxx.lyric.provider` | decision | impl | async | firstNonNull | 未接入 |
-| `musicxx.icon.request` | decision | impl | async | firstNonNull | 未接入 |
-| `musicxx.icon.generated` | observe | impl | async | lastWrite | 未接入 |
+| `musicxx.icon.fetch` | decision | before+impl+after | async | firstNonNull | 未接入 |
 | `musicxx.media.info.request` | decision | impl | async | firstNonNull | 未接入 |
-| `musicxx.media.wave.ready` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.media.chorus.analysed` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.media.spectrum.extract` | decision | impl | async | firstNonNull | 已接入 |
 | `musicxx.media.chorus.analyse` | decision | impl | async | firstNonNull | 已接入 |
 | `musicxx.media.palette.provide` | decision | impl | async | firstNonNull | 已接入 |
 | `musicxx.media.cover.changed` | observe | impl | async | lastWrite | 已接入 |
-| `musicxx.net.request.before` | decision | impl | async | anyCancel | 未接入 |
-| `musicxx.net.response.after` | observe | impl | async | lastWrite | 未接入 |
+| `musicxx.net.request` | decision | before+after | async | anyCancel | 未接入 |
 | `musicxx.net.server.route` | decision | impl | async | firstNonNull | 未接入 |
 | `musicxx.net.mcp.tools` | decision | impl | sync | allMerge | 未接入 |
 | `musicxx.net.lan.event` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.download.before` | decision | impl | async | anyCancel | 未接入 |
-| `musicxx.download.completed` | observe | impl | async | lastWrite | 未接入 |
+| `musicxx.download` | decision | before+after | async | anyCancel | 未接入 |
 | `musicxx.cache.beforeTrim` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.cache.pathRequest` | decision | impl | sync | firstNonNull | 未接入 |
 | `musicxx.ui.home.entries` | decision | impl | sync | allMerge | 未接入 |
@@ -120,7 +108,7 @@ extern  ---------->  builtin  ---------->  core
 | `musicxx.script.action.executed` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.clocking.tick` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.listenTogether.event` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.feature.point.call` | decision | impl | async | firstNonNull | 已接入 |
+| `musicxx.feature.point.call` | decision | before+impl+after | async | firstNonNull | 已接入 |
 
 ## 已接入钩子的载荷与裁决
 
@@ -151,12 +139,12 @@ extern  ---------->  builtin  ---------->  core
 
 ### `musicxx.player.beforePlaySong`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`anyCancel`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`anyCancel`
 - 载荷 `{sid, song, mode, quality}`：`song` 是只读视图（`sid/name/artist/album/durationMs/year/genre/srcKey/audio[]/video[]`，不含音频直链），`mode` = 播放模式、`quality` = 当前音质。裁决只实现 `{"action":"skip"}` = 跳过本曲（走应用既有的切下一曲流程）；`patch`（换音源/改音质）当前版本未实现，会被记一条日志后忽略。异步派发：切歌不会被插件拖慢；等待期间若又来了新的切歌请求，本次裁决被丢弃（插件可以自己用 `sid` 判断）。
 
 ### `musicxx.player.source.beforeParse`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`firstNonNull`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`firstNonNull`
 - 载荷 `{sid, srcKey, src, index, tryLocalOrCache}`：`src` 是音源视图（`type/empty/srcKey/quality/durationMs/hashMd5/size`），`index` = 本轮解析的音源下标。裁决：`{"action":"skip"}` = 本轮不解析该音源（调用方接着试下一个）；`patch.src = {"type":"Local|UrlLink|Bili|...","src":"<新地址>","info":{...}}` = 只替换本轮使用的音源（不改动歌曲实体的音源列表），字段不合法会被忽略。异步派发（不卡住解析），等待期间切歌则本次裁决作废。
 
 ### `musicxx.player.source.resolved`
@@ -168,11 +156,6 @@ extern  ---------->  builtin  ---------->  core
 
 - 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`firstNonNull`
 - 载荷 `{srcKey, type, src, crudeType, crudeSrc, fileName, durationMs, quality, isMediaSrc, pluginType, caller}`：主程序要把一个音源解析成**播放器内核能打开的地址与请求头**时派发一次（外置 → 内置插件 → 应用自身，第一个给出合法结果的生效）。`src` = 本轮要解析的音源（插件自己的音源就是它写下的资源 id / 路径；内置来源是已经解析出来的临时直链或本地路径 —— 注册这条钩子的插件看得到这些内容，这是它能换地址的前提）；`crudeSrc` = 歌曲实体里保存的原始地址；`type` / `crudeType` = 对应的来源类型（`link` / `bili` / `aliDrive` / `local` 等；插件音源是空串）；`pluginType` = 本轮音源的插件音源类型 id（`plugin.<插件 id>.<类型名>`；不是插件音源则为空串）；`quality` = 用户当前音质偏好（枚举名小写）；`isMediaSrc` = false 表示这次要的是封面（媒体库来源）；`caller` = 谁在问（空串 = 主程序自己或命令行）。处理器返回 `{"src": {"path": "<地址>", "headers": {"Referer": "..."}, "kind": "url", "expireAtMs": 0, "size": 0, "durationMs": 0, "quality": "hq"}}`（`src` 也可以直接给一个地址字符串）：这就是播放器要打开的地址与请求头。`path` 支持网络地址、本地文件路径、`content://`、`asset://`；`kind` 取 `url` / `file` / `content` / `asset`，缺省按地址自己判断（判断错会让本地文件被当成网络流去做缓存）；`headers` 可省；`expireAtMs` 给临时地址的过期时间戳（毫秒，只用于排障）。**回答请用 `patch` 包一层**（写成 `patch.src`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历。给自己的音源给出地址与请求头、给内置来源换地址（加代理、换 CDN、统一请求头）都是这条路。不返回 / 结果不合法 = 这次不提供，主程序接着问内置实现。返回 `{"disable": true}` 是显式置空：这次不再问别的实现，该音源会解析失败（只在明确知道它不该播时用）。异步派发：主程序最多等 5 s（超时按没给处理，改走内置实现），处理器请尽快返回。主程序只在"该钩子有处理器"时才派发。
-
-### `musicxx.player.beforeOpen`
-
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`firstNonNull`
-- 未接入（已被 `musicxx.player.source.resolve` 取代）：换地址 / 提供播放地址的能力统一走 `musicxx.player.source.resolve` —— 那条钩子既解析插件自己的音源，也能覆盖内置解析，而且排在打开播放器之前的同一个位置。注册这条不会收到任何调用。
 
 ### `musicxx.player.state`
 
@@ -186,27 +169,27 @@ extern  ---------->  builtin  ---------->  core
 
 ### `musicxx.player.seek`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`anyCancel`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`anyCancel`
 - 载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）之前**派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 动作 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。裁决：`{"action":"continue","patch":{"to":60000}}` = 换成别的目标位置；`{"action":"cancel"}`（或 `skip`）= 这次不跳（保持原位）。超出范围的目标会被应用夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。
 
 ### `musicxx.player.volume`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`anyCancel`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`anyCancel`
 - 载荷 `{from, to}`：应用**要把音量改成 `to` 之前**派发一次（`from` = 当前音量，`to` = 这次要用的音量，都是 0~1，可能略大于 1 表示增益）。音量滑块、快捷键、静音 / 取消静音、局域网控制、命令行 / 动作、启动时恢复设置都会走这里。裁决 `{"patch":{"to":0.5}}` = 换成别的音量；`{"action":"cancel"}` = 这次不改（保持原音量）。最终值会被夹到应用的合法范围（0~1）。**异步派发、最多等 0.5 s**：超时或不回答 = 按原值执行。处理器里不要再调 `musicxx.player.setVolume`（会再派发一次）。
 
 ### `musicxx.player.speed`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`anyCancel`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`anyCancel`
 - 载荷 `{from, to}`：应用**要把播放速度改成 `to` 之前**派发一次（`from` = 当前速度，`to` = 这次要用的速度，单位是倍速）。速度菜单、长按加速 / 减速、命令行 / 动作、定时停止的变速、启动时恢复设置都会走这里。裁决 `{"patch":{"to":1.5}}` = 换成别的速度；`{"action":"cancel"}` = 这次不改。最终值会被夹到应用的合法范围（0.25~8）。**异步派发、最多等 0.5 s**。长按加 / 减速这类连续变化会连派多次，处理器要保持快，处理器里也不要再调 `musicxx.player.setSpeed`。
 
 ### `musicxx.player.pitch`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`anyCancel`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`anyCancel`
 - 载荷 `{from, to}`：应用**要把音调改成 `to` 之前**派发一次（`from` = 当前音调，`to` = 这次要用的音调；1 是原调，范围 0.25~2）。播放页的音调菜单、快捷键、音效切换时的复位、启动时恢复设置都会走这里。裁决 `{"patch":{"to":1.1}}` = 换成别的音调；`{"action":"cancel"}` = 这次不改。最终值会被夹到应用的合法范围（0.25~2）。**异步派发、最多等 0.5 s**。要主动改音调用动作 `musicxx.player.setPitch`；处理器里不要再调它（会再派发一次）。
 
 ### `musicxx.player.error`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`anyCancel`
+- 模式：`decision`；阶段：`impl+after`；派发：`async`；合并策略：`anyCancel`
 - 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按主程序的换源/下一曲策略走）。异步派发（不占用调用线程，主程序不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。主程序只在"该钩子有处理器"时才派发。
 
 ### `musicxx.player.completed`
@@ -219,15 +202,15 @@ extern  ---------->  builtin  ---------->  core
 - 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
 - 载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前插件框架会先刷新状态镜像，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。
 
-### `musicxx.media.wave.ready`
+### `musicxx.playlist.load`
 
-- 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
-- 已废弃（应用不派发）：应用从来没有派发过这个钩子，注册它不会收到任何事件，将来也不会收到。原先它想当【频谱数据算好了】的通知，现在改由两条现成的路承担：要高频读当前频谱用状态镜像 `musicxx.state.spectrum`（按需推送、每帧都能读到最新值）；要主动拿整曲结果用动作 `musicxx.host.request` 调能力 `GetAudioSpectrum`（或 JS 便捷封装 `musicxx.feature.call("GetAudioSpectrum")`）。
+- 模式：`decision`；阶段：`before+after`；派发：`async`；合并策略：`allMerge`
+- 包装点（实现固定是应用自己：读取由主程序做）：主程序读完一个歌单时派发。`before` 前链（串行、正序）改这次读取的参数（例如要读哪一份）；`after` 后链（串行、**逆序**）能读到最终列表并过滤它 —— 这就是原来的 `musicxx.playlist.filter`，只是现在和“加载完成”是同一个调用的两端，不必再记两条钩子。原来的 `musicxx.playlist.loaded` / `musicxx.playlist.filter` 是它的两个端点。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
 
-### `musicxx.media.chorus.analysed`
+### `musicxx.icon.fetch`
 
-- 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
-- 已废弃（应用不派发）：应用从来没有派发过这个钩子，注册它不会收到任何事件，将来也不会收到。原先它想当【副歌分析完成】的通知，现在改由两条现成的路承担：要主动拿结果用动作 `musicxx.host.request` 调能力 `AnalyseAudioChorus`（或 JS 便捷封装 `musicxx.feature.call("AnalyseAudioChorus")`，副歌区段的结果很小，适合按需查）；要读当前歌曲状态用状态镜像 `musicxx.state.song`。
+- 模式：`decision`；阶段：`before+impl+after`；派发：`async`；合并策略：`firstNonNull`
+- 取值点（插件可以替代实现）：主程序要为一张封面 / 图标取图时派发。`before` 前链（串行、正序）改这次请求的尺寸 / 来源；`impl` 实现链给图（第一个给出合法结果的生效）；`after` 后链（串行、**逆序**）改最终那张图。原来的 `musicxx.icon.request` / `musicxx.icon.generated` 是它的两个端点。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
 
 ### `musicxx.media.spectrum.extract`
 
@@ -249,9 +232,19 @@ extern  ---------->  builtin  ---------->  core
 - 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
 - 载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.hooks.unregister("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉处理器）。
 
+### `musicxx.net.request`
+
+- 模式：`decision`；阶段：`before+after`；派发：`async`；合并策略：`anyCancel`
+- 包装点（实现固定是应用自己：请求由主程序发）：主程序发一次外网请求时派发。`before` 前链（串行、正序）改请求或取消 —— 回答 `{"patch": {…}}` 合并进这次请求，`{"action":"cancel"}` = 这次不发；`after` 后链（串行、**逆序**）读或改响应 —— 回答 `{"value": {…}}` 替换响应，`{"action":"drop"}` = 按“没有响应”处理。原来的 `musicxx.net.request.before` / `musicxx.net.response.after` 是它的两个阶段。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
+
+### `musicxx.download`
+
+- 模式：`decision`；阶段：`before+after`；派发：`async`；合并策略：`anyCancel`
+- 包装点（实现固定是应用自己：下载由主程序做）：主程序下载一首歌时派发。`before` 前链（串行、正序）改目标文件名 / 目录，或者取消这次下载；`after` 后链（串行、**逆序**）拿到下载好的成品路径，可以改写它或者丢弃这次结果。原来的 `musicxx.download.before` / `musicxx.download.completed` 是它的两个阶段。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
+
 ### `musicxx.feature.point.call`
 
-- 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`firstNonNull`
+- 模式：`decision`；阶段：`before+impl+after`；派发：`async`；合并策略：`firstNonNull`
 - 载荷 `{point, args, caller}`：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一个钩子 id（插件框架只认固定的钩子表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{"patch": {"value": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“我答了”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{"disable": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。
 
 ## 派发方式

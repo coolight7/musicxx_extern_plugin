@@ -8,6 +8,50 @@
 
 ## 未发布
 
+### 破坏性：钩子改成「一个调用 = 前链 + 实现链 + 后链」，16 条 id 被删除或合并
+
+**钩子 id 现在只表示一次调用**，参与方式（`before` / `impl` / `after`）由注册时的 `phase` 表达：
+同一条钩子上可以分别注册前链（改输入 / `stop`）、实现链（给结果）与后链（改输出 / `drop`）。
+**后链是逆序执行的**（优先级降序、同优先级注册顺序也反）：外置插件最后改输出，应用自己的兜底
+实现不能盖掉插件的改写。
+
+- **删除（注册会报“未知钩子”）**：`musicxx.lyric.load.before`、`musicxx.lyric.provider`、
+  `musicxx.lyric.transform`、`musicxx.lyric.searchStr`、`musicxx.lyric.loaded`、
+  `musicxx.player.beforeOpen`、`musicxx.media.wave.ready`、`musicxx.media.chorus.analysed`。
+  这些条目从来没有被主程序派发过（注册成功、永远不触发），删掉只会让失败更早更清楚。
+- **合并（成对的两端现在是同一条钩子的两个阶段）**：
+  - `musicxx.net.request.before` + `musicxx.net.response.after` → `musicxx.net.request`（`before` + `after`）
+  - `musicxx.download.before` + `musicxx.download.completed` → `musicxx.download`（`before` + `after`）
+  - `musicxx.icon.request` + `musicxx.icon.generated` → `musicxx.icon.fetch`（`before` + `impl` + `after`）
+  - `musicxx.playlist.loaded` + `musicxx.playlist.filter` → `musicxx.playlist.load`（`before` + `after`）
+
+  这四条新 id 主程序**还没有接入**（注册不会报错、当前版本也不会触发）；它们没有 `impl` 阶段的
+  那三条属于“包装点”：实现固定是应用自己，插件只在前后插手。
+- **新增阶段声明（会真的派发）**：`musicxx.feature.point.call`（`before` + `impl` + `after`）、
+  `musicxx.player.seek` / `volume` / `speed` / `pitch` / `error` / `beforePlaySong` /
+  `source.beforeParse`（`impl` + `after`）。后链能改最终裁决：回答 `{"value": {...}}`，
+  `{"action":"drop"}` 表示这次没有裁决。
+- **注册规则**（C ABI）：`MusicxxPluginHookSpec` 末尾追加 `phase` 成员，写它时把 `version` 设成
+  `MUSICXX_PLUGIN_HOOK_SPEC_VERSION`（2）；**老插件写 `version = 1` 照旧可用**（等价于 `impl`）。
+  覆盖式注册的键变成 `(实例, 钩子, ownerTag, 阶段)`；`unregister_hook` 仍按
+  `(实例, 钩子, ownerTag)` 摘，即该 ownerTag 在所有阶段的登记一起摘掉。`musicxx.hooks` 表版本
+  1 → 2（`MIN_VERSION` 与基线大小不变）。
+- **只接受钩子声明过的阶段**，且阶段处理器必须是同步处理器（`hook_sync`）：否则注册被拒绝
+  （`-1`，日志写清原因）。声明了却不派发的阶段等于“注册成功但永远不触发”，所以只声明真的会派发的。
+- **新增 C ABI**：`musicxx_extern_plugin_hook_emit_phase` / `..._hook_count_phase` /
+  `..._hook_handlers_phase`，以及能力位 `MUSICXX_EXTERN_PLUGIN_FEATURE_HOOK_PHASES`。旧符号语义
+  不变：`hook_emit` = `impl` 阶段，`hook_count` / `hook_handlers` = **全部阶段**的总数 / 全部列表
+  （每项多一个 `phase` 字段）。
+- **自省**：`hook_info` 增加 `phases` 与 `phaseCount`；`musicxx.hook.changed` 增加 `phaseCount`，
+  处理器列表每项带 `phase`；`hook_stats` 每行带 `phase`。
+- **JS**：`musicxx.hooks.register(id, { phase }, fn)`、`unregister(id[, phase])`、
+  `has(id[, phase])`、`handlers(id[, phase])`。
+- **native SDK**：`musicxx::plugin::HookPhase`、`hook(id, phase, priority, fn)`、
+  `hookBefore` / `hookAfter`；注册前会先读 `hook_info` 的 `phases`，没声明就返回 `-1`。
+- 钩子总数 **72 → 60**。写法见 `docs/plugin-hooks.md` 开头的「阶段」段与
+  `docs/plugin-api.md` §8.1。
+
+
 ### 新增：`musicxx.player.position` / `seek` / `volume` / `speed` / `pitch` 已接入
 
 - `musicxx.player.position`（观察型，**1 秒一条**）：载荷 `{sid, positionMs, durationMs}`。
