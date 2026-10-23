@@ -115,6 +115,9 @@ class MusicxxPluginHooks {
   final MusicxxPluginRuntime _runtime;
 
   /// Dart 处理器：钩子 → 处理器列表（按 priority 升序，稳定）
+  ///
+  /// 一条登记带阶段（缺省 `impl`）。同一个钩子上可以分别登记前链 / 实现链 / 后链，
+  /// 派发时只跑对应阶段的那批。
   final Map<MusicxxPluginHookId, List<_DartHandlerEntry>> _dartHandlers =
       <MusicxxPluginHookId, List<_DartHandlerEntry>>{};
 
@@ -132,13 +135,14 @@ class MusicxxPluginHooks {
   final Map<String, List<MusicxxPluginHandlerInfo>> _nativeHandlers =
       <String, List<MusicxxPluginHandlerInfo>>{};
 
-  /// 阶段位图是否可用（插件框架库有没有分阶段接口）
+  /// 阶段接口是否可用（插件框架库有没有 `hook_emit_phase` 等符号）
   ///
-  /// 旧插件框架库没有 `hook_emit_phase` / `hook_count_phase` / `hook_handlers_phase`：
-  /// 那时非 `impl` 阶段的处理器一律当作不存在（**不退回"把阶段处理器当 impl 派发"**，
-  /// 那会让一个 before 处理器收到 impl 载荷，比不派发更糟）。
-  bool get supportsHookPhases => true == _phasesAbiAvailable;
-  bool? _phasesAbiAvailable;
+  /// 旧插件框架库没有这些符号：那时非 `impl` 阶段的处理器一律当作不存在
+  /// （**不退回"把阶段处理器当 impl 派发"**，那会让一个 before 处理器收到 impl 载荷，
+  /// 比不派发更糟）。标记只在**第一次调用真的失败**时置上，所以插件框架没在跑时
+  /// （例如单测只用到 Dart 处理器）不受影响。
+  bool get supportsHookPhases => false == _phasesAbiUnavailable;
+  bool _phasesAbiUnavailable = false;
 
   /// 计数/列表缓存的键（`钩子 id|阶段`）
   static String _phaseKey(MusicxxPluginHookId id, MusicxxPluginHookPhase phase) =>
@@ -162,12 +166,25 @@ class MusicxxPluginHooks {
     MusicxxPluginHookId id, {
     MusicxxPluginHookPhase phase = MusicxxPluginHookPhase.impl,
   }) =>
-      (phase == MusicxxPluginHookPhase.impl && hasDartHandler(id)) ||
+      hasDartHandler(id, phase: phase) ||
       nativeHandlerCount(id, phase: phase) > 0;
 
-  /// 是否有 Dart 处理器
-  bool hasDartHandler(MusicxxPluginHookId id) =>
-      (_dartHandlers[id]?.isNotEmpty) ?? false;
+  /// 某个阶段是否有 Dart 处理器
+  bool hasDartHandler(
+    MusicxxPluginHookId id, {
+    MusicxxPluginHookPhase phase = MusicxxPluginHookPhase.impl,
+  }) {
+    final List<_DartHandlerEntry>? list = _dartHandlers[id];
+    if (null == list) {
+      return false;
+    }
+    for (final _DartHandlerEntry entry in list) {
+      if (entry.phase == phase) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /// 原生/JS 处理器数量（缓存值；插件框架启动后由事件与首次查询填充）
   ///
@@ -254,22 +271,30 @@ class MusicxxPluginHooks {
     MusicxxPluginHookId id,
     MusicxxPluginDartHandler handler, {
     int priority = 0,
+    MusicxxPluginHookPhase phase = MusicxxPluginHookPhase.impl,
   }) {
     final List<_DartHandlerEntry> list = _dartHandlers.putIfAbsent(
       id,
       () => <_DartHandlerEntry>[],
     );
-    list.add(_DartHandlerEntry(handler, priority, list.length));
+    list.add(_DartHandlerEntry(handler, priority, list.length, phase));
     _sort(list);
   }
 
-  /// 注销 Dart 处理器（同钩子同 handler 移除）
-  void off(MusicxxPluginHookId id, MusicxxPluginDartHandler handler) {
+  /// 注销 Dart 处理器（同钩子同 handler 移除；带 `phase` 时只摘那个阶段）
+  void off(
+    MusicxxPluginHookId id,
+    MusicxxPluginDartHandler handler, {
+    MusicxxPluginHookPhase? phase,
+  }) {
     final List<_DartHandlerEntry>? list = _dartHandlers[id];
     if (list == null) {
       return;
     }
-    list.removeWhere((_DartHandlerEntry entry) => entry.handler == handler);
+    list.removeWhere(
+      (_DartHandlerEntry entry) =>
+          entry.handler == handler && (null == phase || entry.phase == phase),
+    );
     if (list.isEmpty) {
       _dartHandlers.remove(id);
     }
@@ -320,10 +345,11 @@ class MusicxxPluginHooks {
     }
     final Map<String, Object?> payloadMap = _asPayload(payload);
     Map<String, Object?>? merged;
-    final Map<String, Object?>? dartResult =
-        phase == MusicxxPluginHookPhase.impl
-            ? _runDartHandlers(id, payloadMap)
-            : null;
+    final Map<String, Object?>? dartResult = _runDartHandlers(
+      id,
+      payloadMap,
+      phase: phase,
+    );
     if (dartResult != null) {
       merged = dartResult;
       if (id.policy == MusicxxPluginDecisionPolicy.firstNonNull) {
@@ -395,10 +421,11 @@ class MusicxxPluginHooks {
     }
     final Map<String, Object?> payloadMap = _asPayload(payload);
     Map<String, Object?>? merged;
-    final Map<String, Object?>? dartResult =
-        phase == MusicxxPluginHookPhase.impl
-            ? _runDartHandlers(id, payloadMap)
-            : null;
+    final Map<String, Object?>? dartResult = _runDartHandlers(
+      id,
+      payloadMap,
+      phase: phase,
+    );
     if (dartResult != null) {
       merged = dartResult;
       if (id.policy == MusicxxPluginDecisionPolicy.firstNonNull) {
@@ -564,7 +591,7 @@ class MusicxxPluginHooks {
     Pointer<MusicxxExternPluginString> out,
     Pointer<MusicxxExternPluginString> log,
   ) {
-    if (false == _phasesAbiAvailable) {
+    if (true == _phasesAbiUnavailable) {
       return -4;
     }
     try {
@@ -576,7 +603,7 @@ class MusicxxPluginHooks {
         log,
       );
     } catch (_) {
-      _phasesAbiAvailable = false;
+      _phasesAbiUnavailable = true;
       return -4;
     }
   }
@@ -589,7 +616,7 @@ class MusicxxPluginHooks {
     Pointer<Int32> count,
     Pointer<MusicxxExternPluginString> log,
   ) {
-    if (false == _phasesAbiAvailable) {
+    if (true == _phasesAbiUnavailable) {
       return -4;
     }
     try {
@@ -601,7 +628,7 @@ class MusicxxPluginHooks {
         log,
       );
     } catch (_) {
-      _phasesAbiAvailable = false;
+      _phasesAbiUnavailable = true;
       return -4;
     }
   }
@@ -673,7 +700,7 @@ class MusicxxPluginHooks {
   void handleDisposed() {
     _nativeCounts.clear();
     _nativeHandlers.clear();
-    _phasesAbiAvailable = null;
+    _phasesAbiUnavailable = false;
     _throttles.clear();
     // 插件框架已停：还没结算的异步裁决一律按"无裁决"收尾，避免调用点永久悬挂
     for (final Completer<Map<String, Object?>?> completer
@@ -796,8 +823,9 @@ class MusicxxPluginHooks {
   /// 执行 Dart 处理器链并合并（异常隔离：单个处理器失败不影响其它处理器）
   Map<String, Object?>? _runDartHandlers(
     MusicxxPluginHookId id,
-    Map<String, Object?> payload,
-  ) {
+    Map<String, Object?> payload, {
+    MusicxxPluginHookPhase phase = MusicxxPluginHookPhase.impl,
+  }) {
     final List<_DartHandlerEntry>? list = _dartHandlers[id];
     if (list == null || list.isEmpty) {
       return null;
@@ -809,6 +837,9 @@ class MusicxxPluginHooks {
     );
     Map<String, Object?>? merged;
     for (final _DartHandlerEntry entry in List<_DartHandlerEntry>.of(list)) {
+      if (entry.phase != phase) {
+        continue; // 只跑本阶段的处理器（同一条钩子上三个阶段互不干扰）
+      }
       Map<String, Object?>? result;
       try {
         result = entry.handler(context);
@@ -956,7 +987,7 @@ class MusicxxPluginHooks {
     Pointer<MusicxxExternPluginString> out,
     Pointer<MusicxxExternPluginString> log,
   ) {
-    if (false == _phasesAbiAvailable) {
+    if (true == _phasesAbiUnavailable) {
       return -4;
     }
     try {
@@ -971,7 +1002,7 @@ class MusicxxPluginHooks {
         log,
       );
     } catch (_) {
-      _phasesAbiAvailable = false;
+      _phasesAbiUnavailable = true;
       return -4;
     }
   }
@@ -1081,9 +1112,17 @@ class MusicxxPluginThrottle {
 }
 
 class _DartHandlerEntry {
-  const _DartHandlerEntry(this.handler, this.priority, this.order);
+  const _DartHandlerEntry(
+    this.handler,
+    this.priority,
+    this.order,
+    this.phase,
+  );
 
   final MusicxxPluginDartHandler handler;
   final int priority;
   final int order;
+
+  /// 参与方式（缺省 `impl`）
+  final MusicxxPluginHookPhase phase;
 }
