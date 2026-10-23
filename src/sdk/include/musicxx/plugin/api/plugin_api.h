@@ -84,9 +84,23 @@ typedef void*(PLUGINXX_CALL* MusicxxPluginHookStartFn)(
 /// 取消异步处理器 (插件框架关闭/卸载时调用)
 typedef void(PLUGINXX_CALL* MusicxxPluginHookCancelFn)(void* user_data, void* op);
 
+/// 钩子注册规格的版本号（`MusicxxPluginHookSpec.version`）
+///
+/// - `1`：老结构（没有 `phase` 成员），一律按实现链（`impl`）注册；
+/// - `2`：带 `phase`（参与方式，见 `MUSICXX_PLUGIN_HOOK_PHASE_*`）。
+///
+/// 插件框架两种都接受：老插件不用改。写 `2` 就必须让 `struct_size` 覆盖到 `phase`，
+/// 否则拒绝注册（`-1`）。
+#define MUSICXX_PLUGIN_HOOK_SPEC_VERSION 2
+
+/// 老结构（`version = 1`，没有 `phase`）的字节数
+///
+/// 插件框架的 `struct_size` 校验以它为准：`0` 或 `>=` 它都接受，之后的部分忽略。
+#define MUSICXX_PLUGIN_HOOK_SPEC_V1_SIZE (offsetof(MusicxxPluginHookSpec, phase))
+
 typedef struct MusicxxPluginHookSpec {
-    int32_t          version;     ///< == 1
-    uint32_t         struct_size; ///< == sizeof(MusicxxPluginHookSpec)
+    int32_t          version;     ///< == 1 (老结构) 或 2 (带 phase)
+    uint32_t         struct_size; ///< == sizeof(MusicxxPluginHookSpec) (老插件是旧结构大小)
 
     PluginxxStringView hook_id;   ///< 全名, 如 "musicxx.player.beforePlaySong"
     /// 同一实例内区分多个处理器 (可为空串)
@@ -101,6 +115,16 @@ typedef struct MusicxxPluginHookSpec {
     MusicxxPluginHookCancelFn hook_cancel;///< 异步处理器的取消回调 (可空)
 
     void* user_data;
+
+    /// 追加成员: 参与方式 (`MUSICXX_PLUGIN_HOOK_PHASE_*`; `0` = `impl`, 与老插件等价)
+    ///
+    /// - `impl`（0）：实现链，给结果 / 裁决；
+    /// - `before`（1）：前链，只在钩子声明了 `before` 时可以注册；只能改输入或 `stop`；
+    /// - `after`（2）：后链，只在钩子声明了 `after` 时可以注册；只能改输出或 `drop`。
+    ///
+    /// 前链 / 后链必须是**同步**处理器（要拿到这一步的结果才能跑下一步）；
+    /// 用 `hook_start` 注册阶段会被拒绝。
+    int32_t phase;
 } MusicxxPluginHookSpec;
 
 /* ==================== 专用接口表: 每张表四项 + 判定规则 ==================== */
@@ -123,7 +147,9 @@ typedef struct MusicxxPluginHookSpec {
 /* ==================== 接口表: musicxx.hooks ==================== */
 
 #define MUSICXX_PLUGIN_IFACE_HOOKS             "musicxx.hooks"
-#define MUSICXX_PLUGIN_IFACE_HOOKS_VERSION     1
+/// 表版本 2: `MusicxxPluginHookSpec` 追加了 `phase` 成员（参与方式）；`hook_info` 增加
+/// `phases` / `phaseCount`。老插件（`spec.version = 1`）照旧可用，所以 `MIN_VERSION` 不变。
+#define MUSICXX_PLUGIN_IFACE_HOOKS_VERSION     2
 #define MUSICXX_PLUGIN_IFACE_HOOKS_MIN_VERSION 1
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
 #define MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE sizeof(MusicxxPluginHooksIface)
@@ -132,8 +158,11 @@ typedef struct MusicxxPluginHooksIface {
     int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_HOOKS_VERSION
     uint32_t struct_size;
 
-    /// 注册处理器 (同一个 (实例, hook_id, owner_tag) 覆盖式注册)
-    /// - 返回 0 成功; -1 参数非法; -2 状态错误 (未启动/已关闭/已禁用);
+    /// 注册处理器 (同一个 (实例, hook_id, owner_tag, phase) 覆盖式注册)
+    ///
+    /// 同一个 `owner_tag` 可以分别注册 `before` / `impl` / `after`（互不覆盖）。
+    /// - 返回 0 成功; -1 参数非法 (含: `phase` 越界、该钩子没有声明这个阶段、
+    ///   阶段却给了异步处理器); -2 状态错误 (未启动/已关闭/已禁用);
     ///   -4 未知钩子 (插件框架未知的 hook_id 一律拒绝)
     int32_t(PLUGINXX_CALL* register_hook)(
         const PluginxxHost*               host,
@@ -141,13 +170,21 @@ typedef struct MusicxxPluginHooksIface {
     );
 
     /// 注销处理器 (hook_id + owner_tag 定位; owner_tag 为空串表示该 hook 的默认处理器)
+    ///
+    /// 一个 `owner_tag` 在**所有阶段**的登记一起摘掉（注销函数不区分阶段）。
     int32_t(PLUGINXX_CALL* unregister_hook)(
         const PluginxxHost*               host,
         const PluginxxStringView*         hook_id,
         const PluginxxStringView*         owner_tag
     );
 
-    /// 钩子信息 (mode/policy 等; JSON 对象); 未知钩子返回 -4
+    /// 钩子信息 (mode/policy/phases 等; JSON 对象); 未知钩子返回 -4
+    ///
+    /// out_json 形如:
+    /// {"id":"musicxx.player.seek","mode":1,"policy":1,
+    ///  "phases":["impl","after"],"handlers":3,
+    ///  "phaseCount":{"impl":1,"before":0,"after":2}}
+    /// `handlers` 是全部阶段的总数; 判定某个阶段有没有处理器用 `phaseCount`。
     int32_t(PLUGINXX_CALL* hook_info)(
         const PluginxxHost*               host,
         const PluginxxStringView*         hook_id,

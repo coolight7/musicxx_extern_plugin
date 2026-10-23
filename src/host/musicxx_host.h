@@ -297,21 +297,40 @@ public:
   int32_t hookEmit(const std::string &hookId, const std::string &inputJson,
                    bool sync, uint32_t timeoutMs, std::string &outJson,
                    std::string &err);
+
+  /// 按阶段派发钩子（`impl` / `before` / `after`；非法阶段按参数错误拒绝）
+  ///
+  /// - `impl`：与 [hookEmit] 完全一样；
+  /// - `before`：串行、**正序**，载荷逐步累积（回执 `result.patch` 是累计结果）；
+  /// - `after`：串行、**逆序**，值逐步替换（回执 `result.value` 是最终值）。
+  int32_t hookEmitPhase(const std::string &hookId, int32_t phase,
+                        const std::string &inputJson, bool sync,
+                        uint32_t timeoutMs, std::string &outJson,
+                        std::string &err);
+
   int32_t hookCount(const std::string &hookId, int32_t &outCount);
+
+  /// 某钩子在某个阶段上的处理器数量（阶段没有处理器时为 0）
+  int32_t hookCountPhase(const std::string &hookId, int32_t phase,
+                         int32_t &outCount);
   int32_t hookStatsJson(std::string &outJson);
 
   /// 某钩子当前的处理器列表 (自省用)
   ///
   /// 按调用顺序给出 (priority 升序, 同优先级按注册顺序), 每一项只含
-  /// `plugin` / `instance` / `kind` / `priority` / `ownerTag` —— 不暴露处理器地址、
+  /// `plugin` / `instance` / `kind` / `phase` / `priority` / `ownerTag` —— 不暴露处理器地址、
   /// 载荷与内部状态。outJson 形如 `{"hook":"...","count":2,"handlers":[...]}`。
+  /// `phase < 0` = 全部阶段（与旧行为一致）。
   int32_t hookHandlersJson(std::string_view hookId, std::string &outJson);
+  int32_t hookHandlersJsonPhase(std::string_view hookId, int32_t phase,
+                                std::string &outJson);
 
   /// 某钩子当前的处理器列表 (JSON 数组字符串)
   ///
   /// 自省 C ABI 与 `musicxx.hook.changed` 事件共用同一份写法: 两处给出的顺序必须一致,
-  /// 否则 Dart 侧看到的"排第几"与真实调用顺序对不上。
-  std::string hookHandlersArrayJson(std::string_view hookId) const;
+  /// 否则 Dart 侧看到的"排第几"与真实调用顺序对不上。`phase < 0` = 全部阶段。
+  std::string hookHandlersArrayJson(std::string_view hookId,
+                                    int32_t phase = -1) const;
 
   /// 某实例当前注册的钩子 id（去重；生命周期事件带上它，Dart 侧据此对齐
   /// "该钩子有没有处理器"——钩子计数只靠 `musicxx.hook.changed` 维护，丢一条就会停在旧值）
@@ -619,6 +638,9 @@ private:
     MusicxxPluginHookSpec spec{};
     uint64_t seq = 0;
 
+    /// 参与方式 (`MUSICXX_PLUGIN_HOOK_PHASE_*`; 与 `spec.phase` 同值, 方便查询与自省)
+    int32_t phase = 0;
+
     /// 只观测不限制的统计 (耗时/失败次数都只写进管理页, 不参与任何判定)
     int64_t calls = 0;
     int64_t failures = 0;
@@ -710,9 +732,22 @@ private:
   };
 
   /// 框架线程上执行的派发（按 [mode] 决定是否等待结果、是否回报事件）
-  std::string dispatchHook(const std::string &hookId,
+  ///
+  /// [phase] 决定派发哪一组处理器：`impl` = 实现链（按 policy 合并、可提前结束）、
+  /// `before` = 前链（正序、载荷累积）、`after` = 后链（逆序、值替换）。
+  std::string dispatchHook(const std::string &hookId, int32_t phase,
                            const std::string &inputJson,
                            HookDispatchMode mode);
+
+  /// `musicxx.hook.changed` 的载荷（注册/注销共用一份写法；返回 JSON 文本）
+  ///
+  /// 含 `count`（全部阶段总数）与 `phaseCount`（逐阶段数量）、`handlers`（全阶段列表）。
+  std::string hookChangedPayloadJson(const std::string &hookId,
+                                     const char *action,
+                                     const std::string &pluginId);
+
+  /// 某钩子在某个阶段上的处理器数量（只在框架线程读写注册表）
+  int32_t countOnPhase(const std::string &hookId, int32_t phase) const;
   void clearPluginRegistrations(const std::string &instanceName);
   std::string pluginInstanceJson(const MusicxxHostInstance &inst) const;
   std::string scanDir(const std::string &dir, const std::string &kindHint);

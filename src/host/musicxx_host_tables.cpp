@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 
 namespace musicxx {
 namespace extern_plugin {
@@ -53,6 +54,30 @@ using naming::isTopicOwnedBy;
 
 namespace {
 
+/// 阶段编号是否合法 (`impl` / `before` / `after`)
+bool isValidPhase(int32_t phase) {
+  return phase >= MUSICXX_PLUGIN_HOOK_PHASE_IMPL &&
+         phase <= MUSICXX_PLUGIN_HOOK_PHASE_AFTER;
+}
+
+/// 阶段编号 → 对外字符串 (`impl` / `before` / `after`; 非法编号给空串)
+const char *phaseNameOf(int32_t phase) {
+  switch (phase) {
+  case MUSICXX_PLUGIN_HOOK_PHASE_IMPL:
+    return "impl";
+  case MUSICXX_PLUGIN_HOOK_PHASE_BEFORE:
+    return "before";
+  case MUSICXX_PLUGIN_HOOK_PHASE_AFTER:
+    return "after";
+  default:
+    return "";
+  }
+}
+
+} // namespace
+
+namespace {
+
 /// 把内部拼好的 JSON 数组文本转成 Json（定义见文件下方）
 ///
 /// 这段文本由 `hookHandlersArrayJson` 自己构造，正常不会解析失败；真失败时退回空数组
@@ -68,8 +93,32 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
   if (!inst) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
+  /// 规格版本: 接受 1 (老结构, 没有 phase) 与 2 (带 phase)
+  if (spec.version != 1 && spec.version != MUSICXX_PLUGIN_HOOK_SPEC_VERSION) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册钩子被拒绝: 规格版本 {} 不认识",
+            inst->name, spec.version);
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  /// struct_size: 0 或 >= 老结构大小都接受 (老插件); 大于旧值的部分忽略
   if (spec.struct_size != 0 &&
-      spec.struct_size < sizeof(MusicxxPluginHookSpec)) {
+      spec.struct_size < MUSICXX_PLUGIN_HOOK_SPEC_V1_SIZE) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  /// phase 只在结构体覆盖到它时可信 (老插件没这个成员 → 按 impl)
+  const bool hasPhaseField =
+      spec.struct_size >=
+      (offsetof(MusicxxPluginHookSpec, phase) + sizeof(int32_t));
+  if (spec.version >= 2 && !hasPhaseField) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 声明规格版本 2, 但 struct_size 没覆盖 "
+            "phase (注册被拒绝)",
+            inst->name);
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const int32_t phase =
+      hasPhaseField ? spec.phase : MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+  if (!isValidPhase(phase)) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册钩子被拒绝: 阶段 {} 不合法",
+            inst->name, phase);
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   if (!spec.hook_id.data || spec.hook_id.size == 0) {
@@ -78,6 +127,13 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
   const std::string hookId{spec.hook_id.data,
                            static_cast<size_t>(spec.hook_id.size)};
   if (!spec.hook_sync && !spec.hook_start) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  /// 前链 / 后链必须是同步处理器: 要拿到这一步的结果才能跑下一步
+  if (phase != MUSICXX_PLUGIN_HOOK_PHASE_IMPL && !spec.hook_sync) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册钩子 `{}` 的 {} 阶段被拒绝: "
+            "阶段处理器必须是同步处理器 (hook_start 无法逐步串行)",
+            inst->name, hookId, phaseNameOf(phase));
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
@@ -92,6 +148,13 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
             hookId);
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
+  // 只接受钩子声明过的阶段: 注册了不派发的阶段等于给插件一个永远不触发的坑
+  if ((meta->phases & musicxxPluginHookPhaseMask(phase)) == 0) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册钩子 `{}` 的 {} 阶段被拒绝: "
+            "这个钩子没有声明该阶段",
+            inst->name, hookId, phaseNameOf(phase));
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
   if (meta->mode == MUSICXX_PLUGIN_HOOK_MODE_DECISION &&
       spec.mode == MUSICXX_PLUGIN_HOOK_MODE_OBSERVE) {
     // 决定型钩子允许以观察型处理器注册: 只观察, 不参与裁决 (handler.spec.mode
@@ -105,11 +168,13 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
           : std::string{};
 
   auto &handlers = hooks_[hookId];
-  // 同一个 (实例, hook_id, owner_tag) 覆盖式注册 (语义要点 1)
+  // 同一个 (实例, hook_id, owner_tag, 阶段) 覆盖式注册。
+  // 同一个 ownerTag 可以分别登记 before / impl / after —— 三者互不覆盖。
   handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
                                 [&](const HookHandler &h) {
                                   return h.plugin == inst->name &&
-                                         h.ownerTag == ownerTag;
+                                         h.ownerTag == ownerTag &&
+                                         h.phase == phase;
                                 }),
                  handlers.end());
 
@@ -119,24 +184,18 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
   h.ownerTag = ownerTag;
   h.hookId = hookId;
   h.spec = spec;
+  h.phase = phase;
   h.seq = ++hookSeq_;
   handlers.push_back(h);
 
-  XX_LOGI("[musicxx_ext] 插件 `{}` 注册钩子 `{}` (mode={}, priority={}, "
-          "当前处理器数={})",
-          inst->name, hookId, spec.mode, spec.priority, handlers.size());
+  XX_LOGI("[musicxx_ext] 插件 `{}` 注册钩子 `{}` (phase={}, mode={}, "
+          "priority={}, 当前处理器数={})",
+          inst->name, hookId, phaseNameOf(phase), spec.mode, spec.priority,
+          handlers.size());
 
-  // 通知 Dart 侧刷新"该钩子是否有处理器"的位图
-  Json payload;
-  payload["id"] = h.pluginId;
-  payload["hook"] = hookId;
-  payload["mode"] = spec.mode;
-  payload["count"] = static_cast<int32_t>(handlers.size());
-  payload["action"] = "register";
-  // 一并带上处理器列表 (一个钩子通常 0~3 个, 注册/注销是低频操作):
-  // Dart 侧不用再回查插件框架就能知道"谁注册了、排第几"
-  payload["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
-  pushEvent("musicxx.hook.changed", h.pluginId, payload.dump());
+  // 通知 Dart 侧刷新"该钩子是否有处理器"的位图与各阶段的处理器列表
+  pushEvent("musicxx.hook.changed", h.pluginId,
+            hookChangedPayloadJson(hookId, "register", h.pluginId));
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
@@ -152,26 +211,59 @@ int32_t MusicxxHostManager::unregisterHook(MusicxxHostInstance *inst,
   }
   const std::string pluginName = inst ? inst->name : std::string{};
   const std::string tag{ownerTag};
+  // 一个 (实例, ownerTag) 在所有阶段的登记一起摘掉 (注销函数不区分阶段)
   it->second.erase(std::remove_if(it->second.begin(), it->second.end(),
                                   [&](const HookHandler &h) {
                                     return h.plugin == pluginName &&
                                            h.ownerTag == tag;
                                   }),
                    it->second.end());
-  const int32_t remaining = static_cast<int32_t>(it->second.size());
   if (it->second.empty()) {
     hooks_.erase(it);
   }
-  Json payload;
-  payload["id"] = inst ? pluginIdOf(inst->name) : std::string{};
-  payload["hook"] = std::string{hookId};
-  payload["count"] = remaining;
-  payload["action"] = "unregister";
-  // 同 register: 把摘除后的处理器列表一起给出 (空了就是空数组)
-  payload["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
-  pushEvent("musicxx.hook.changed", payload["id"].get<std::string>(),
-            payload.dump());
+  const std::string hookText{hookId};
+  const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
+  pushEvent("musicxx.hook.changed", pluginId,
+            hookChangedPayloadJson(hookText, "unregister", pluginId));
   return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+std::string MusicxxHostManager::hookChangedPayloadJson(
+    const std::string &hookId, const char *action,
+    const std::string &pluginId) {
+  auto it = hooks_.find(hookId);
+  const int32_t total =
+      (it == hooks_.end()) ? 0 : static_cast<int32_t>(it->second.size());
+  Json counts = Json::object();
+  for (int32_t phase = MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+       phase <= MUSICXX_PLUGIN_HOOK_PHASE_AFTER; ++phase) {
+    counts[phaseNameOf(phase)] = countOnPhase(hookId, phase);
+  }
+  Json payload;
+  payload["id"] = pluginId;
+  payload["hook"] = hookId;
+  payload["count"] = total;
+  payload["phaseCount"] = counts;
+  payload["action"] = action;
+  // 一并带上处理器列表 (一个钩子通常 0~3 个, 注册/注销是低频操作):
+  // Dart 侧不用再回查插件框架就能知道谁注册了、排第几、在哪个阶段
+  payload["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
+  return payload.dump();
+}
+
+int32_t MusicxxHostManager::countOnPhase(const std::string &hookId,
+                                         int32_t phase) const {
+  auto it = hooks_.find(hookId);
+  if (it == hooks_.end()) {
+    return 0;
+  }
+  int32_t count = 0;
+  for (const HookHandler &h : it->second) {
+    if (h.phase == phase) {
+      ++count;
+    }
+  }
+  return count;
 }
 
 int32_t MusicxxHostManager::hookInfoJson(std::string_view hookId,
@@ -180,13 +272,29 @@ int32_t MusicxxHostManager::hookInfoJson(std::string_view hookId,
   if (!meta) {
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
+  const std::string hookText{hookId};
   Json j;
-  j["id"] = std::string{hookId};
+  j["id"] = hookText;
   j["mode"] = meta->mode;
   j["policy"] = meta->policy;
-  auto it = hooks_.find(std::string{hookId});
+  // 这个钩子声明了哪几个阶段 (注册时只能选这里有的阶段)
+  Json phases = Json::array();
+  for (int32_t phase = MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+       phase <= MUSICXX_PLUGIN_HOOK_PHASE_AFTER; ++phase) {
+    if ((meta->phases & musicxxPluginHookPhaseMask(phase)) != 0) {
+      phases.push_back(phaseNameOf(phase));
+    }
+  }
+  j["phases"] = phases;
+  auto it = hooks_.find(hookText);
   j["handlers"] =
       (it == hooks_.end()) ? 0 : static_cast<int32_t>(it->second.size());
+  Json counts = Json::object();
+  for (int32_t phase = MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+       phase <= MUSICXX_PLUGIN_HOOK_PHASE_AFTER; ++phase) {
+    counts[phaseNameOf(phase)] = countOnPhase(hookText, phase);
+  }
+  j["phaseCount"] = counts;
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -195,6 +303,16 @@ int32_t MusicxxHostManager::hookCount(const std::string &hookId,
                                       int32_t &outCount) {
   auto it = hooks_.find(hookId);
   outCount = (it == hooks_.end()) ? 0 : static_cast<int32_t>(it->second.size());
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+int32_t MusicxxHostManager::hookCountPhase(const std::string &hookId,
+                                           int32_t phase, int32_t &outCount) {
+  if (!isValidPhase(phase)) {
+    outCount = 0;
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  outCount = countOnPhase(hookId, phase);
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
@@ -230,6 +348,7 @@ int32_t MusicxxHostManager::hookStatsJson(std::string &outJson) {
           {"plugin", h.pluginId},
           {"ownerTag", h.ownerTag},
           {"mode", h.spec.mode},
+          {"phase", phaseNameOf(h.phase)},
           {"priority", h.spec.priority},
           {"calls", h.calls},
           {"failures", h.failures},
@@ -262,18 +381,24 @@ Json jsonArrayOf(const std::string &text) {
 
 } // namespace
 
-std::string
-MusicxxHostManager::hookHandlersArrayJson(std::string_view hookId) const {
+std::string MusicxxHostManager::hookHandlersArrayJson(std::string_view hookId,
+                                                      int32_t phase) const {
   auto it = hooks_.find(std::string{hookId});
   if (it == hooks_.end() || it->second.empty()) {
     return "[]";
   }
-  // 顺序必须与真实调用顺序一致 (priority 升序, 同优先级按注册顺序),
-  // 否则 Dart 侧自省里看到的"排第几"对不上
+  // 顺序必须与真实调用顺序一致 (前链正序: priority 升序, 同优先级按注册顺序),
+  // 否则 Dart 侧自省里看到的"排第几"对不上。
+  // `phase < 0` = 全部阶段 (按同一个正序排, 后链的逆序由调用方自己读 phase 判断)。
   std::vector<const HookHandler *> ordered;
   ordered.reserve(it->second.size());
   for (const HookHandler &h : it->second) {
-    ordered.push_back(&h);
+    if (phase < 0 || h.phase == phase) {
+      ordered.push_back(&h);
+    }
+  }
+  if (ordered.empty()) {
+    return "[]";
   }
   std::stable_sort(ordered.begin(), ordered.end(),
                    [](const HookHandler *a, const HookHandler *b) {
@@ -290,6 +415,7 @@ MusicxxHostManager::hookHandlersArrayJson(std::string_view hookId) const {
         {"plugin", h->pluginId},
         {"instance", h->plugin},
         {"kind", js ? "js" : "native"},
+        {"phase", phaseNameOf(h->phase)},
         {"priority", h->spec.priority},
         {"ownerTag", h->ownerTag},
     });
@@ -299,18 +425,33 @@ MusicxxHostManager::hookHandlersArrayJson(std::string_view hookId) const {
 
 int32_t MusicxxHostManager::hookHandlersJson(std::string_view hookId,
                                              std::string &outJson) {
+  return hookHandlersJsonPhase(hookId, -1, outJson);
+}
+
+int32_t MusicxxHostManager::hookHandlersJsonPhase(std::string_view hookId,
+                                                  int32_t phase,
+                                                  std::string &outJson) {
   if (hookId.empty()) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  if (phase < -1 || !isValidPhase(phase == -1 ? 0 : phase)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   if (!findHookMeta(hookId)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
-  auto it = hooks_.find(std::string{hookId});
+  const std::string hookText{hookId};
+  auto it = hooks_.find(hookText);
   Json j;
-  j["hook"] = std::string{hookId};
-  j["count"] =
-      (it == hooks_.end()) ? 0 : static_cast<int32_t>(it->second.size());
-  j["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookId));
+  j["hook"] = hookText;
+  if (phase < 0) {
+    j["count"] = (it == hooks_.end()) ? 0
+                                      : static_cast<int32_t>(it->second.size());
+  } else {
+    j["phase"] = phaseNameOf(phase);
+    j["count"] = countOnPhase(hookText, phase);
+  }
+  j["handlers"] = jsonArrayOf(hookHandlersArrayJson(hookText, phase));
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -336,6 +477,24 @@ void mergePatch(Json &target, const Json &source) {
   }
 }
 
+/// 深合并 `patch` 子对象（前链：载荷逐步累积，嵌套对象递归合并）
+void deepMergeInto(Json &target, const Json &source) {
+  if (!source.is_object()) {
+    return;
+  }
+  if (!target.is_object()) {
+    target = Json::object();
+  }
+  for (auto it = source.begin(); it != source.end(); ++it) {
+    if (it.value().is_object() && target.contains(it.key()) &&
+        target[it.key()].is_object()) {
+      deepMergeInto(target[it.key()], it.value());
+      continue;
+    }
+    target[it.key()] = it.value();
+  }
+}
+
 std::string actionOf(const Json &j) {
   if (j.is_object() && j.contains("action") && j["action"].is_string()) {
     return j["action"].get<std::string>();
@@ -346,6 +505,7 @@ std::string actionOf(const Json &j) {
 } // namespace
 
 std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
+                                             int32_t phase,
                                              const std::string &inputJson,
                                              HookDispatchMode mode) {
   const auto *meta = findHookMeta(hookId);
@@ -357,14 +517,23 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     return R"({"handled":false,"handlers":0})";
   }
 
-  /// 派发前**快照**处理器列表 (派发期间注册表变化不影响本轮遍历)
+  /// 派发前**快照**本阶段的处理器列表 (派发期间注册表变化不影响本轮遍历)
   ///
   /// 插件处理器在框架线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
   /// `pluginxx.hooks` 的 register / unregister 会改动 hooks_ 里的同一条 vector:
   /// 注册会重新分配, 注销最后一个会让整条 vector 失效 —— 直接遍历活表会出现
   /// 迭代器/引用失效 (漏派发或读到已释放内存)。快照只决定"本轮派发谁被调用",
-  /// 注册表的变化从下一轮起生效; 统计写回按 (实例, ownerTag) 重新查活表。
-  std::vector<HookHandler> handlers = it->second;
+  /// 注册表的变化从下一轮起生效; 统计写回按 (实例, ownerTag, 阶段) 重新查活表。
+  std::vector<HookHandler> handlers;
+  handlers.reserve(it->second.size());
+  for (const HookHandler &h : it->second) {
+    if (h.phase == phase) {
+      handlers.push_back(h);
+    }
+  }
+  if (handlers.empty()) {
+    return R"({"handled":false,"handlers":0})";
+  }
   std::stable_sort(handlers.begin(), handlers.end(),
                    [](const HookHandler &a, const HookHandler &b) {
                      if (a.spec.priority != b.spec.priority) {
@@ -372,8 +541,197 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
                      }
                      return a.seq < b.seq;
                    });
+  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_AFTER) {
+    /// 后链**逆序** (线尾 → 线头): priority 降序, 同优先级注册顺序也反。
+    /// 这样外置插件最后改输出, 应用自己的兜底实现不能盖掉插件的改写
+    /// (与实现链里"外置优先"同向)。
+    std::reverse(handlers.begin(), handlers.end());
+  }
+
+  /// 调一个处理器并记账 (统计写回活表; 异常与失败都只记日志, 不影响其它处理器)
+  ///
+  /// [payloadText] 是这一步处理器看到的载荷, [outText] 是它回答的 JSON 文本
+  /// (空 = 没有意见)。异步处理器 (只有实现链允许) 由调用方单独处理。
+  auto invokeSync = [&](const HookHandler &h, const std::string &payloadText,
+                        std::string &outText) {
+    outText.clear();
+    PluginxxString out{};
+    PluginxxString err{};
+    PluginxxStringView hookView{h.hookId.data(), h.hookId.size()};
+    PluginxxStringView inputView{payloadText.data(), payloadText.size()};
+    const auto t0 = std::chrono::steady_clock::now();
+    int32_t rc = -1;
+    try {
+      rc = h.spec.hook_sync(h.spec.user_data, &hookView, &inputView, &out, &err);
+    } catch (const std::exception &e) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 处理器异常 (`{}`, phase={}): {}",
+              h.pluginId, hookId, phaseNameOf(h.phase), e.what());
+      rc = -1;
+    } catch (...) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 处理器未知异常 (`{}`, phase={})",
+              h.pluginId, hookId, phaseNameOf(h.phase));
+      rc = -1;
+    }
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now() - t0)
+                        .count();
+    /// 说明: `us` 的类型是 chrono 的 rep (libc++/Android 上是 long long, 而 int64_t 是
+    /// long), 直接交给 std::max 会因模板推导出两种类型而编译失败, 统一转成 int64_t 再统计
+    const int64_t usValue = static_cast<int64_t>(us);
+    /// 统计写回**活表**: 回调里插件可能已经把自己的处理器注销掉 (快照里还有),
+    /// 这时丢弃本次统计, 避免统计与注册表不一致
+    HookHandler *live = nullptr;
+    if (auto liveIt = hooks_.find(hookId); liveIt != hooks_.end()) {
+      for (auto &candidate : liveIt->second) {
+        if (candidate.plugin == h.plugin && candidate.ownerTag == h.ownerTag &&
+            candidate.phase == h.phase) {
+          live = &candidate;
+          break;
+        }
+      }
+    }
+    if (auto instIt = loaded_.find(h.plugin);
+        instIt != loaded_.end() && instIt->second) {
+      instIt->second->hookCalls.fetch_add(1);
+    }
+    if (live) {
+      ++live->calls;
+      live->totalUs = live->totalUs + usValue;
+      live->maxUs = (std::max)(live->maxUs, usValue);
+      if (rc != 0) {
+        /// 处理器失败只记统计 (不因为失败次数暂停派发): 日志在上面, 这里只累计次数
+        ++live->failures;
+      }
+    }
+    if (out.data) {
+      const std::string_view text{out.data, static_cast<size_t>(out.size)};
+      if (!text.empty() && text != "null") {
+        outText.assign(text.data(), text.size());
+      }
+      pluginxx::hostMemoryFree(out.data);
+    }
+    if (err.data) {
+      pluginxx::hostMemoryFree(err.data);
+    }
+  };
+
+  /// 观察型钩子的执行镜像 (仅调试开关打开时回传; 默认关闭 → 零开销)
+  auto emitObserveMirror = [&](int32_t called) {
+    if (mode == HookDispatchMode::Notify &&
+        (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
+      Json mirror;
+      mirror["hook"] = hookId;
+      mirror["phase"] = phaseNameOf(phase);
+      mirror["input"] = parseJsonSafe(inputJson);
+      mirror["called"] = called;
+      mirror["handlers"] = static_cast<int32_t>(handlers.size());
+      pushEvent("musicxx.hook.observe", "", mirror.dump());
+    }
+  };
 
   int32_t called = 0;
+
+  /* ---------- 前链: 串行、正序, 载荷逐步累积 ---------- */
+  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE) {
+    Json current = parseJsonSafe(inputJson);
+    if (!current.is_object()) {
+      current = Json::object();
+    }
+    Json accumulated = Json::object();
+    bool stopped = false;
+    for (const HookHandler &h : handlers) {
+      if (!h.spec.hook_sync) {
+        // 前链 / 后链只接受同步处理器 (注册时已拒绝), 这里只防御
+        continue;
+      }
+      std::string outText;
+      invokeSync(h, current.dump(), outText);
+      ++called;
+      if (outText.empty()) {
+        continue;
+      }
+      Json answer = parseJsonSafe(outText);
+      if (!answer.is_object()) {
+        continue;
+      }
+      if (answer.contains("patch")) {
+        // 只认 patch 里的键: 逐步合并进本轮载荷, 同时记进累计 patch 交回调用方
+        deepMergeInto(current, answer["patch"]);
+        deepMergeInto(accumulated, answer["patch"]);
+      }
+      const std::string action = actionOf(answer);
+      if (action == "stop" || action == MUSICXX_PLUGIN_HOOK_ACTION_CANCEL ||
+          action == MUSICXX_PLUGIN_HOOK_ACTION_SKIP) {
+        stopped = true;
+        break;
+      }
+    }
+    Json result;
+    result["handled"] = called > 0 && mode != HookDispatchMode::Notify;
+    result["handlers"] = static_cast<int32_t>(handlers.size());
+    result["called"] = called;
+    if (stopped || !accumulated.empty()) {
+      Json res = Json::object();
+      if (!accumulated.empty()) {
+        res["patch"] = accumulated;
+      }
+      if (stopped) {
+        res["action"] = "stop";
+      }
+      result["result"] = res;
+    }
+    emitObserveMirror(called);
+    return result.dump();
+  }
+
+  /* ---------- 后链: 串行、逆序, 值逐步替换 ---------- */
+  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_AFTER) {
+    Json payload = parseJsonSafe(inputJson);
+    if (!payload.is_object()) {
+      payload = Json::object();
+    }
+    Json value = payload.contains("value") ? payload["value"] : Json(nullptr);
+    bool dropped = false;
+    for (const HookHandler &h : handlers) {
+      if (!h.spec.hook_sync) {
+        continue;
+      }
+      Json step = payload;
+      step["value"] = value;
+      std::string outText;
+      invokeSync(h, step.dump(), outText);
+      ++called;
+      if (outText.empty()) {
+        continue;
+      }
+      Json answer = parseJsonSafe(outText);
+      if (!answer.is_object()) {
+        continue;
+      }
+      // `value` 键存在就算答了 (值可以是 null: "算过了、结果是空")
+      if (answer.contains("value")) {
+        value = answer["value"];
+      }
+      if (actionOf(answer) == "drop") {
+        dropped = true;
+        break;
+      }
+    }
+    Json result;
+    result["handled"] = called > 0 && mode != HookDispatchMode::Notify;
+    result["handlers"] = static_cast<int32_t>(handlers.size());
+    result["called"] = called;
+    Json res = Json::object();
+    res["value"] = value;
+    if (dropped) {
+      res["action"] = "drop";
+    }
+    result["result"] = res;
+    emitObserveMirror(called);
+    return result.dump();
+  }
+
+  /* ---------- 实现链: 按 policy 合并, firstNonNull / anyCancel 可提前结束 ---------- */
   Json merged = Json::object();
   bool hasPatch = false;
   std::string action;
@@ -400,83 +758,29 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
       continue;
     }
 
-    const std::string &inText = inputJson;
-    PluginxxString out{};
-    PluginxxString err{};
-    PluginxxStringView hookView{h.hookId.data(), h.hookId.size()};
-    PluginxxStringView inputView{inText.data(), inText.size()};
-    const auto t0 = std::chrono::steady_clock::now();
-    int32_t rc = -1;
-    try {
-      rc =
-          h.spec.hook_sync(h.spec.user_data, &hookView, &inputView, &out, &err);
-    } catch (const std::exception &e) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 处理器异常 (`{}`): {}", h.pluginId,
-              hookId, e.what());
-      rc = -1;
-    } catch (...) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 处理器未知异常 (`{}`)", h.pluginId,
-              hookId);
-      rc = -1;
-    }
-    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::steady_clock::now() - t0)
-                        .count();
-    /// 说明: `us` 的类型是 chrono 的 rep (libc++/Android 上是 long long, 而 int64_t 是 long),
-    /// 直接把它交给 std::max 会因模板推导出两种类型而编译失败, 统一转成 int64_t 再统计
-    const int64_t usValue = static_cast<int64_t>(us);
+    std::string outText;
+    invokeSync(h, inputJson, outText);
     ++called;
-    /// 统计写回**活表**: 上面的回调里插件可能已经把自己的处理器注销掉 (快照里还有),
-    /// 这时丢弃本次统计, 避免统计与注册表不一致
-    HookHandler *live = nullptr;
-    if (auto liveIt = hooks_.find(hookId); liveIt != hooks_.end()) {
-      for (auto &candidate : liveIt->second) {
-        if (candidate.plugin == h.plugin && candidate.ownerTag == h.ownerTag) {
-          live = &candidate;
-          break;
-        }
+    if (outText.empty()) {
+      continue;
+    }
+    Json result = parseJsonSafe(outText);
+    if (!result.is_object()) {
+      continue;
+    }
+    if (result.contains("patch")) {
+      mergePatch(merged, result);
+      hasPatch = true;
+    }
+    const std::string a = actionOf(result);
+    if (!a.empty() &&
+        (action.empty() || action == MUSICXX_PLUGIN_HOOK_ACTION_CONTINUE)) {
+      action = a;
+    }
+    for (auto pit = result.begin(); pit != result.end(); ++pit) {
+      if (pit.key() != std::string{"patch"}) {
+        merged[pit.key()] = pit.value();
       }
-    }
-    if (auto instIt = loaded_.find(h.plugin);
-        instIt != loaded_.end() && instIt->second) {
-      instIt->second->hookCalls.fetch_add(1);
-    }
-
-    if (live) {
-      ++live->calls;
-      live->totalUs = live->totalUs + usValue;
-      live->maxUs = (std::max)(live->maxUs, usValue);
-      if (rc != 0) {
-        /// 处理器失败只记统计 (不再连续失败暂停派发): 日志在上面, 这里只累计次数
-        ++live->failures;
-      }
-    }
-
-    if (out.data) {
-      const std::string_view text{out.data, static_cast<size_t>(out.size)};
-      if (!text.empty() && text != "null") {
-        Json result = parseJsonSafe(text);
-        if (result.is_object()) {
-          if (result.contains("patch")) {
-            mergePatch(merged, result);
-            hasPatch = true;
-          }
-          const std::string a = actionOf(result);
-          if (!a.empty() && (action.empty() ||
-                             action == MUSICXX_PLUGIN_HOOK_ACTION_CONTINUE)) {
-            action = a;
-          }
-          for (auto pit = result.begin(); pit != result.end(); ++pit) {
-            if (pit.key() != std::string{"patch"}) {
-              merged[pit.key()] = pit.value();
-            }
-          }
-        }
-      }
-      pluginxx::hostMemoryFree(out.data);
-    }
-    if (err.data) {
-      pluginxx::hostMemoryFree(err.data);
     }
 
     // 合并策略: firstNonNull / anyCancel 命中即停止询问后续处理器
@@ -502,27 +806,31 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     result["result"] = merged;
   }
 
-  /// 观测回传: 观察型钩子的执行镜像, 仅在调试开关打开时回传
-  /// (默认关闭 → 零开销、零事件量)。它只用于调试/统计,
-  /// 调用点与插件都不得依赖它。
-  if (mode == HookDispatchMode::Notify &&
-      (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
-    Json mirror;
-    mirror["hook"] = hookId;
-    mirror["input"] = parseJsonSafe(inputJson);
-    mirror["called"] = called;
-    mirror["handlers"] = static_cast<int32_t>(handlers.size());
-    pushEvent("musicxx.hook.observe", "", mirror.dump());
-  }
+  /// 观测回传: 观察型钩子的执行镜像 (仅调试开关打开时回传)
+  emitObserveMirror(called);
   return result.dump();
 }
 
 int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
                                      const std::string &inputJson, bool sync,
-                                     uint32_t /*timeoutMs*/,
+                                     uint32_t timeoutMs,
                                      std::string &outJson, std::string &err) {
+  return hookEmitPhase(hookId, MUSICXX_PLUGIN_HOOK_PHASE_IMPL, inputJson, sync,
+                       timeoutMs, outJson, err);
+}
+
+int32_t MusicxxHostManager::hookEmitPhase(const std::string &hookId,
+                                          int32_t phase,
+                                          const std::string &inputJson,
+                                          bool sync, uint32_t /*timeoutMs*/,
+                                          std::string &outJson,
+                                          std::string &err) {
   if (hookId.empty()) {
     err = "hook_emit: empty hook id";
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  if (!isValidPhase(phase)) {
+    err = "hook_emit: invalid phase";
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   if (!running_.load(std::memory_order_acquire)) {
@@ -534,17 +842,13 @@ int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
     outJson = R"({"handled":false,"error":"unknown_hook"})";
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
-  {
-    auto it = hooks_.find(hookId);
-    if (it == hooks_.end() || it->second.empty()) {
-      outJson = R"({"handled":false,"handlers":0})";
-      return MUSICXX_EXTERN_PLUGIN_OK;
-    }
+  if (countOnPhase(hookId, phase) == 0) {
+    outJson = R"({"handled":false,"handlers":0})";
+    return MUSICXX_EXTERN_PLUGIN_OK;
   }
 
   /// 裁决型钩子的异步派发：不占用 Dart 线程，完成后经
-  /// `musicxx.hook.decision.result` 事件把结果回传（payload 带 callId
-  /// 供配对）。
+  /// `musicxx.hook.decision.result` 事件把结果回传（payload 带 callId 供配对）。
   const bool asyncDecide =
       !sync && meta->mode == MUSICXX_PLUGIN_HOOK_MODE_DECISION;
   const HookDispatchMode mode =
@@ -556,12 +860,13 @@ int32_t MusicxxHostManager::hookEmit(const std::string &hookId,
 
   auto slot = std::make_shared<WaitSlot<std::string>>();
   auto self = shared_from_this();
-  asio::post(ctx_->io, [self, slot, hookId, inputJson, mode, callId]() {
-    std::string result = self->dispatchHook(hookId, inputJson, mode);
+  asio::post(ctx_->io, [self, slot, hookId, phase, inputJson, mode, callId]() {
+    std::string result = self->dispatchHook(hookId, phase, inputJson, mode);
     if (mode == HookDispatchMode::AsyncDecide) {
       Json payload = parseJsonSafe(result);
       payload["callId"] = callId;
       payload["hook"] = hookId;
+      payload["phase"] = phaseNameOf(phase);
       self->pushEvent("musicxx.hook.decision.result", "", payload.dump());
       return;
     }

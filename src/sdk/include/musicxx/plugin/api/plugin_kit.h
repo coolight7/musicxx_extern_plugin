@@ -83,6 +83,34 @@ static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE <= sizeof(MusicxxPluginVar
 namespace musicxx {
 namespace plugin {
 
+/// 钩子参与方式（与 `MUSICXX_PLUGIN_HOOK_PHASE_*` 一致）
+///
+/// 钩子 id 表示**一次调用**，参与方式由阶段表达：
+/// - `Impl`  ：实现链，给结果 / 裁决（不写阶段就是它）；
+/// - `Before`：前链，串行、**正序**，只能改输入或 `stop`；
+/// - `After` ：后链，串行、**逆序**，只能改输出或 `drop`。
+///
+/// 后链逆序是刻意的：外置插件**最后**改输出，应用自己的兜底实现不能盖掉插件的改写
+/// （与实现链里"外置优先"同向）。前链 / 后链必须是同步处理器。
+enum class HookPhase : int32_t {
+    Impl   = MUSICXX_PLUGIN_HOOK_PHASE_IMPL,
+    Before = MUSICXX_PLUGIN_HOOK_PHASE_BEFORE,
+    After  = MUSICXX_PLUGIN_HOOK_PHASE_AFTER,
+};
+
+/// 阶段编号 → 对外字符串（日志用）
+inline const char* hookPhaseName(HookPhase phase) {
+    switch (phase) {
+        case HookPhase::Before:
+            return "before";
+        case HookPhase::After:
+            return "after";
+        case HookPhase::Impl:
+        default:
+            return "impl";
+    }
+}
+
 namespace detail {
 
 /* ==================== 功能点糖的内部实现 (给 PluginBase 用) ==================== */
@@ -229,6 +257,35 @@ public:
             priority,
             std::forward<Fn>(fn)
         );
+    }
+
+    /// 注册某个阶段的钩子处理器（前链 / 实现链 / 后链）
+    ///
+    /// 阶段必须是该钩子在钩子表里声明过的（`hook_info` 的 `phases`）；没声明就返回 -1
+    /// 并记一条可读日志。老插件框架库的 `hook_info` 没有 `phases` 字段时同样拒绝
+    /// （不退回"按 impl 注册"，那会让阶段处理器收到错阶段的载荷）。
+    template<typename Fn>
+    int32_t hook(const char* hookId, HookPhase phase, int32_t priority, Fn&& fn) {
+        return registerSyncWithTag(
+            hookId,
+            "",
+            MUSICXX_PLUGIN_HOOK_MODE_DECISION,
+            priority,
+            static_cast<int32_t>(phase),
+            std::forward<Fn>(fn)
+        );
+    }
+
+    /// 注册前链处理器（改输入 / `stop`），等价于 `hook(id, HookPhase::Before, ...)`
+    template<typename Fn>
+    int32_t hookBefore(const char* hookId, int32_t priority, Fn&& fn) {
+        return hook(hookId, HookPhase::Before, priority, std::forward<Fn>(fn));
+    }
+
+    /// 注册后链处理器（改输出 / `drop`），等价于 `hook(id, HookPhase::After, ...)`
+    template<typename Fn>
+    int32_t hookAfter(const char* hookId, int32_t priority, Fn&& fn) {
+        return hook(hookId, HookPhase::After, priority, std::forward<Fn>(fn));
     }
 
     /// 注册观察型钩子 (返回值忽略; 处理器应尽快返回)
@@ -455,6 +512,7 @@ public:
             point.c_str(),
             MUSICXX_PLUGIN_HOOK_MODE_DECISION,
             priority,
+            MUSICXX_PLUGIN_HOOK_PHASE_IMPL,
             [selfId, point, fn = std::forward<Fn>(fn)](std::string_view input,
                                                       std::string& out) mutable -> int32_t {
                 return detail::answerFeaturePoint(selfId, point, fn, input, out);
@@ -890,7 +948,8 @@ protected:
     /// 统一的同步处理器注册路径
     template<typename Fn>
     int32_t registerSync(const char* hookId, int32_t mode, int32_t priority, Fn&& fn) {
-        return registerSyncWithTag(hookId, "", mode, priority, std::forward<Fn>(fn));
+        return registerSyncWithTag(hookId, "", mode, priority,
+                                   MUSICXX_PLUGIN_HOOK_PHASE_IMPL, std::forward<Fn>(fn));
     }
 
     /// 统一的同步处理器注册路径（带 `owner_tag`）
@@ -900,14 +959,25 @@ protected:
     /// （见 [featurePointProvide]）。
     template<typename Fn>
     int32_t registerSyncWithTag(const char* hookId, const char* ownerTag, int32_t mode,
-                                int32_t priority, Fn&& fn) {
+                                int32_t priority, int32_t phase, Fn&& fn) {
+        // 阶段必须是钩子声明过的（老插件框架库没有 phases 字段 → 同样拒绝）
+        if (phase != MUSICXX_PLUGIN_HOOK_PHASE_IMPL &&
+            !hookDeclaresPhase(hookId, phase)) {
+            std::string message = "钩子 `";
+            message += hookId ? hookId : "";
+            message += "` 没有声明 ";
+            message += (phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE ? "before" : "after");
+            message += " 阶段（或插件框架库太旧）: 注册被拒绝";
+            log.warn(message);
+            return -1;
+        }
         using FnT       = std::decay_t<Fn>;
         auto  holder    = std::make_unique<HookHolder<FnT>>(host, std::forward<Fn>(fn));
         void* holderPtr = holder.get();
         holders_.push_back(std::move(holder));
 
         MusicxxPluginHookSpec spec{};
-        spec.version     = 1;
+        spec.version     = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
         spec.struct_size = sizeof(MusicxxPluginHookSpec);
         spec.hook_id     = pluginxxView(hookId);
         spec.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
@@ -918,6 +988,7 @@ protected:
         spec.hook_start  = nullptr;
         spec.hook_cancel = nullptr;
         spec.user_data   = holderPtr;
+        spec.phase       = phase;
 
         if (!iface.hooks || !iface.hooks->register_hook) {
             log.warn("musicxx.hooks 表不可用: 钩子未注册 (插件框架版本过旧?)");
@@ -927,6 +998,30 @@ protected:
     }
 
 private:
+
+    /// 钩子有没有声明某个阶段（读 `hook_info` 的 `phases`）
+    ///
+    /// 返回 false 有两种情况：这个钩子没声明该阶段，或者插件框架库太旧（`hook_info`
+    /// 里没有 `phases` 字段）。两种都按"不能注册"处理 —— 注册了也不会被派发。
+    bool hookDeclaresPhase(const char* hookId, int32_t phase) const {
+        if (!hookId || !iface.hooks || !iface.hooks->hook_info) {
+            return false;
+        }
+        PluginxxString     out{};
+        PluginxxStringView hookView = pluginxxView(hookId);
+        if (iface.hooks->hook_info(host, &hookView, &out) != 0 || !out.data) {
+            return false;
+        }
+        std::string text{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        const size_t at = text.find("\"phases\"");
+        if (at == std::string::npos) {
+            return false;
+        }
+        const char* name = phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE ? "\"before\""
+                                                                    : "\"after\"";
+        return text.find(name, at) != std::string::npos;
+    }
 
     /// 读取 host 表里的字符串型查询 (统一处理出参所有权)
     template<typename FnT>

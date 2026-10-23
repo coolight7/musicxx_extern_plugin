@@ -1106,6 +1106,92 @@ int main(int argc, char **argv) {
             count == 0,
         "未注册钩子的处理器数为 0");
 
+  // 分阶段查询: 旧符号是全部阶段的总数, 新符号只看一个阶段
+  {
+    int32_t implCount = -1;
+    int32_t beforeCount = -1;
+    int32_t afterCount = -1;
+    check(musicxx_extern_plugin_hook_count_phase(
+              host, viewCP("musicxx.player.beforePlaySong"),
+              MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_IMPL, &implCount, &log) ==
+                  MUSICXX_EXTERN_PLUGIN_OK &&
+              implCount == 1,
+          "beforePlaySong 的 impl 阶段处理器数为 1");
+    check(musicxx_extern_plugin_hook_count_phase(
+              host, viewCP("musicxx.player.beforePlaySong"),
+              MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_BEFORE, &beforeCount, &log) ==
+                  MUSICXX_EXTERN_PLUGIN_OK &&
+              beforeCount == 0,
+          "beforePlaySong 的 before 阶段处理器数为 0");
+    check(musicxx_extern_plugin_hook_count_phase(
+              host, viewCP("musicxx.player.beforePlaySong"),
+              MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER, &afterCount, &log) ==
+                  MUSICXX_EXTERN_PLUGIN_OK &&
+              afterCount == 0,
+          "beforePlaySong 的 after 阶段处理器数为 0");
+    check(musicxx_extern_plugin_hook_count_phase(
+              host, viewCP("musicxx.player.beforePlaySong"), 9, &afterCount,
+              &log) == MUSICXX_EXTERN_PLUGIN_ERR_ARG,
+          "非法阶段编号被拒绝");
+  }
+
+  // hook_info 带 phases / phaseCount; 处理器列表每项带 phase
+  {
+    MusicxxExternPluginString out{};
+    MusicxxExternPluginString hookInfoLog{};
+    check(musicxx_extern_plugin_hook_handlers(
+              host, viewCP("musicxx.player.beforePlaySong"), &out,
+              &hookInfoLog) == MUSICXX_EXTERN_PLUGIN_OK,
+          "hook_handlers 可调用");
+    const std::string handlers = take(out);
+    check(handlers.find("\"phase\":\"impl\"") != std::string::npos,
+          "处理器列表带 phase 字段");
+
+    MusicxxExternPluginString phaseOut{};
+    MusicxxExternPluginString phaseLog{};
+    check(musicxx_extern_plugin_hook_handlers_phase(
+              host, viewCP("musicxx.player.beforePlaySong"),
+              MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER, &phaseOut,
+              &phaseLog) == MUSICXX_EXTERN_PLUGIN_OK,
+          "hook_handlers_phase 可调用");
+    const std::string afterHandlers = take(phaseOut);
+    check(afterHandlers.find("\"count\":0") != std::string::npos,
+          "after 阶段当前没有处理器");
+  }
+
+  // 分阶段派发: impl 与旧符号一致; 没有处理器的阶段不派发
+  {
+    MusicxxExternPluginString out{};
+    const std::string payload =
+        R"({"sid":"s0","song":{"name":"广告插播 - 阶段测试"}})";
+    const auto rc = musicxx_extern_plugin_hook_emit_phase(
+        host, viewCP("musicxx.player.beforePlaySong"),
+        MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_IMPL, viewP(payload),
+        MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &out, &log);
+    const std::string result = take(out);
+    check(rc == MUSICXX_EXTERN_PLUGIN_OK, "hook_emit_phase(impl) 返回成功");
+    check(result.find("\"skip\"") != std::string::npos,
+          "impl 阶段与旧符号行为一致 (skip)");
+
+    MusicxxExternPluginString beforeOut{};
+    const auto rcBefore = musicxx_extern_plugin_hook_emit_phase(
+        host, viewCP("musicxx.player.beforePlaySong"),
+        MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_BEFORE, viewP(payload),
+        MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &beforeOut, &log);
+    const std::string beforeResult = take(beforeOut);
+    check(rcBefore == MUSICXX_EXTERN_PLUGIN_OK &&
+              beforeResult.find("\"handled\":false") != std::string::npos,
+          "没有 before 处理器时不派发");
+
+    MusicxxExternPluginString badOut{};
+    check(musicxx_extern_plugin_hook_emit_phase(
+              host, viewCP("musicxx.player.beforePlaySong"), 7,
+              viewP(payload), MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &badOut,
+              &log) == MUSICXX_EXTERN_PLUGIN_ERR_ARG,
+          "非法阶段派发被拒绝");
+    freeStr(badOut);
+  }
+
   // 事件泵: 应能取到 host.ready / plugin.loaded / hook.changed
   {
     const PolledEvents pumped = pollEvents(host, 200);

@@ -694,8 +694,78 @@ musicxx_extern_plugin_hook_handlers(
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 动作回应 ==================== */
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_hook_emit_phase(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *hook_id,
+    int32_t phase, const MusicxxExternPluginStringView *input_json,
+    int32_t flags, uint32_t timeout_ms,
+    MusicxxExternPluginString *out_json, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !hook_id || !out_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  if (phase < MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_IMPL ||
+      phase > MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER) {
+    setErr(log, "hook_emit_phase: invalid phase");
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  const bool sync = (flags & MUSICXX_EXTERN_PLUGIN_HOOK_SYNC) != 0;
+  std::string result;
+  std::string err;
+  const auto rc = handle->manager->hookEmitPhase(
+      viewToStd(hook_id), phase, viewToStd(input_json), sync, timeout_ms, result,
+      err);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, err);
+    return rc;
+  }
+  setOut(out_json, result);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
 
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_hook_count_phase(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *hook_id,
+    int32_t phase, int32_t *out_count, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !hook_id || !out_count) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  int32_t count = 0;
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->hookCountPhase(viewToStd(hook_id), phase, count);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, "hook_count_phase failed");
+    return rc;
+  }
+  *out_count = count;
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_hook_handlers_phase(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *hook_id,
+    int32_t phase, MusicxxExternPluginString *out_json,
+    MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !hook_id || !out_json) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  std::string json;
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->hookHandlersJsonPhase(viewToStd(hook_id), phase,
+                                                 json);
+  });
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    setErr(log, "hook_handlers_phase failed");
+    return rc;
+  }
+  setOut(out_json, json);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+/* ==================== 动作回应 ==================== */
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_action_respond(
     MusicxxExternPluginHost *h, int64_t request_id, int32_t status,
@@ -760,7 +830,8 @@ int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_feature_bits(void) {
          MUSICXX_EXTERN_PLUGIN_FEATURE_STATE |
          MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS |
          MUSICXX_EXTERN_PLUGIN_FEATURE_UI |
-         MUSICXX_EXTERN_PLUGIN_FEATURE_VARS;
+         MUSICXX_EXTERN_PLUGIN_FEATURE_VARS |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_HOOK_PHASES;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
