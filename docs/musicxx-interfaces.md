@@ -45,6 +45,8 @@
 | 副歌区段 | `AnalyseAudioChorus`（能力工具） | `musicxx-cli feature call AnalyseAudioChorus` | `musicxx.feature.call` | — | — |
 | 读前后台状态 | `GetAppLifecycle` | `musicxx-cli call app.lifecycle` | 变量 `musicxx.app.lifecycle`（读值 + 订阅） | `musicxx://call/?cmd=app.lifecycle` | `--cmd app.lifecycle` |
 | 切到前台 / 后台 | `SwitchForegroundBackground`（`operator`） | `musicxx-cli call window.background`（命令 `window.foreground` / `window.background`） | `musicxx.app.background` / `musicxx.app.foreground` | `musicxx://musicxx.app.background` | `--cmd musicxx.app.background` |
+| 改音量 / 速度 / 音调 / 进度 | `SetAppVolume` / `SetSpeed` / `SetPitch` / `SetCurrentPlaybackPosition` | `musicxx-cli volume` / `speed` / `pitch` / `seek` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `seek` | `musicxx://call/?cmd=musicxx.player.setVolume&args=…` | `--cmd musicxx.player.setPitch --args '{"pitch":1.1}'` |
+| 拦一次改播放值 / 收播放进度 | — | — | 钩子 `musicxx.player.seek` / `volume` / `speed` / `pitch` / `position` | — | — |
 | 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=featurePoint.list` | `--cmd featurePoint.list` |
 | 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
 | 装插件 | `InstallExternPlugin` | `musicxx-cli plugin install` | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
@@ -203,14 +205,14 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 82 条 = 动作命令 54 + 内置与应用命令 23 + 能力导出 2 + 变量 3；动作共 56 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
+## 4. 命令面（当前 83 条 = 动作命令 55 + 内置与应用命令 23 + 能力导出 2 + 变量 3；动作共 57 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
 | `builtin` | 23 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**统一入口的播放音源与跳搜索页** |
-| `action` | 54 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
+| `action` | 55 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
@@ -290,7 +292,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 `AnalyseImageMainColors`（图片主色调）。它们的参数由能力自己声明，
 `feature.list` / MCP 的工具清单里就是同一份。
 
-### 4.5 主程序动作（56 条，命令 id = 动作名）
+### 4.5 主程序动作（57 条，命令 id = 动作名）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"：
@@ -298,7 +300,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 域 | 动作 |
 |---|---|
 | 应用前后台（2） | `musicxx.app.foreground` / `background`（与 `window.foreground` / `window.background` 同一份实现） |
-| 播放（12） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setQuality` / `setLoopMode` |
+| 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
 | 歌单与歌曲（4） | `musicxx.library.querySonglists` / `querySongs` / `playSong` / `playSonglist` |
 | 歌词（1） | `musicxx.lyrics.getCurrent` |
 | 提示与页面（4） | `musicxx.ui.notify` / `toast` / `dialog` / `openRoute` |
@@ -321,7 +323,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 ### 4.6 名字存在、但没有实现的动作
 
 下面这些名字在插件 SDK 里能写，主程序当前**没有注册**，调它只会得到"动作未注册"：
-`musicxx.player.setPitch` / `setMediaType`、`musicxx.library.querySonglist` / `addSong` /
+`musicxx.player.setMediaType`、`musicxx.library.querySonglist` / `addSong` /
 `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` /
 `set` / `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
 
@@ -333,7 +335,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 |---|---|
 | `status` / `play` / `pause` / `toggle` / `stop` / `next` / `prev` | `status` / `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` |
 | `seek <毫秒\|mm:ss\|hh:mm:ss\|N%>` | `musicxx.player.seek` |
-| `volume <0~1\|0~100>` / `speed <0.25~8>` / `loop <模式>` / `quality <名称>` | `musicxx.player.setVolume` / `setSpeed` / `setLoopMode` / `setQuality` |
+| `volume <0~1\|0~100>` / `speed <0.25~8>` / `pitch <0.25~2>` / `loop <模式>` / `quality <名称>` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `setLoopMode` / `setQuality` |
 | `lrc [--word]` | `lrc.current` |
 | `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` | `musicxx.library.querySongs` / `querySonglists` / `playSong` / `playlist.play` |
 | `toast <文本>` | `musicxx.ui.toast` |
@@ -412,7 +414,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（当前 35 个）
+### 5.2 工具全表（当前 36 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -448,6 +450,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `MediaSwitch` | `operator`(必填，next/previous) | `musicxx.player.next` / `prev` | `[next\|previous] Success` |
 | `SetCurrentPlaybackPosition` | `position?`(毫秒) **或** `percent?`(0~1) | `musicxx.player.seek` | `Success`；两个都不给报参数不合法 |
 | `SetSpeed` | `speed`(必填，0.25~8) | `musicxx.player.setSpeed` | `Success` |
+| `SetPitch` | `pitch`(必填，0.25~2；1 = 原调) | `musicxx.player.setPitch` | `Success` |
 | `SetAppVolume` | `volume`(必填，0~1) | `musicxx.player.setVolume` | `Success` |
 | `SetPlayLoopMode` | `mode`(必填：Order / RealRand / Only / SimulateRand / SimulateRandReflush) | `musicxx.player.setLoopMode` | `Success` |
 | `SetTimedPlaybackStop` | `duration?`(秒 1~86400)、`enableStopAfterFinish?`、`enableSleepMode?`、`exitWhenStop?` | `clocking.set` | `Success to set timer (mm:ss)` / `Failed` |

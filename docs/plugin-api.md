@@ -99,7 +99,7 @@ const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_E
 | 键 | 内容 | 什么时候刷新 |
 |---|---|---|
 | `musicxx.state.app` | `{version, versionStr, platform, lang, branch, installId, isNight, firstRun, foreground, lifecycleState}` | 启动时一次；主题/语言/前后台变化时重推 |
-| `musicxx.state.player` | `{state, position, duration, volume, speed, quality, srcKey, mediaType, cacheLength}` | 启动、切歌、播放状态变化 |
+| `musicxx.state.player` | `{state, position, duration, volume, speed, pitch, quality, srcKey, mediaType, cacheLength}` | 启动、切歌、播放状态变化 |
 | `musicxx.state.song` | 当前歌曲只读视图（字段见下） | 切歌 |
 | `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 歌单 / 播放位置变化 |
 | `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 播放状态、路由、本机服务、登录态变化 |
@@ -116,7 +116,9 @@ const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_E
   `musicxx.app.background` / `musicxx.app.foreground`（后者带 `backgroundMs`）；要订阅变化用变量
   `musicxx.app.lifecycle`。
 - `musicxx.state.player.quality` 是音质枚举名（`Undefined` / `Lower` / `Standard` / `HQ` / `SQ` / `Hifi` / `Upper`），
-  `mediaType` 是媒体类型枚举名；`cacheLength` 是已缓存时长（毫秒）。
+  `mediaType` 是媒体类型枚举名；`cacheLength` 是已缓存时长（毫秒）；`pitch` 是当前音调（1 = 原调）。
+  这几个值都是“变化时才刷新”的快照：要“变的时候拦一下”用钩子 `musicxx.player.volume` /
+  `musicxx.player.speed` / `musicxx.player.pitch`，要当场读当前进度用变量 `musicxx.player.position`。
 - `musicxx.state.playlist.loopMode` 是循环模式枚举名（`Order` / `Only` / `RealRand` / `SimulateRand` / `SimulateRandReflush`），
   `autoPlayMode` 是 `auto` 或 `off`；`index` 是当前曲目在歌单里的下标。
 - `musicxx.state.env.page` 是当前路由名（字符串，可用于"现在在哪个页面"的判断）。
@@ -161,9 +163,9 @@ subscribeTopic("musicxx.state.changed", [](std::string_view json) {
 - **`musicxx.state.app.isNight` 是启动时的快照**：运行期切了主题它不会跟着变。要"当前值"就当场问一次：
   动作 `musicxx.media.palette` 或 `musicxx.render.current` 的 `night`；
   `musicxx.state.renderSlots` 里条目的 `night` 也只在槽位状态变化时刷新，同样不能当当前值用。
-- **播放进度不是逐帧更新的**：`musicxx.state.player.position` 只在启动、切歌、播放状态变化时刷新，
-  `musicxx.player.position` 钩子也还没接入。要按秒推进度就自己读一次 `position` 再加上本地时间差，
-  不要以为读它就能拿到实时进度。
+- **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌、播放状态变化时刷新（**不是实时值**）。
+  要按秒推进度：用钩子 `musicxx.player.position`（每秒一条，带 `sid` / `positionMs` / `durationMs`），
+  或读变量 `musicxx.player.position`（当场读当前值）。不要以为读镜像就能拿到实时进度。
 - **要"是否在播放"读 `musicxx.state.env.isPlaying`**（布尔），不要靠 `player.state` 的字符串判断
   （它是"播放/暂停/停止事件"与枚举名的混合值，见 §3.2.1 的说明）。
 - **键名是固定的官方键**，写错就是读不到（`get` 返回 `null` / `stateJson` 返回空串），不会报错。
@@ -253,6 +255,7 @@ requestAction("musicxx.player.toggle", "{}", &notify, 5000, &requestId);
 | `musicxx.player.seek` | `{positionMs}` 或 `{position}`（毫秒），或 `{percent}`（0~1） | `{ok:true}` | 都缺 → `{ok:false,error:"缺少参数 positionMs"}` |
 | `musicxx.player.setVolume` | `{volume}`（0~1；> 1 视为百分比，自动除以 100，最后钳到 0~1） | `{ok:true}` | 缺参数 → `{ok:false,...}` |
 | `musicxx.player.setSpeed` | `{speed}`（倍速） | `{ok:true}` | |
+| `musicxx.player.setPitch` | `{pitch}`（音调；1 = 原调，应用夹到 0.25~2） | `{ok:true}` | 缺参数 → `{ok:false,...}`；不改变播放速度 |
 | `musicxx.player.setQuality` | `{quality}`：`Undefined`/`Lower`/`Standard`/`HQ`/`SQ`/`Hifi`/`Upper`（忽略大小写） | `{ok:true}` | 未知取值 → `{ok:false,error:"未知音质：x"}`；等价于用户在设置里改"音质" |
 | `musicxx.player.setLoopMode` | `{mode}`：`Order`/`Only`/`RealRand`/`SimulateRand`/`SimulateRandReflush` | `{ok:true}` | 未知取值 → `{ok:false,error:"未知播放模式：x"}` |
 
@@ -261,6 +264,7 @@ await musicxx.player.setVolume(0.6);       // 便捷封装：setVolume(60) 会�
 await musicxx.player.seek(64000);          // 数字 = 毫秒
 await musicxx.call("musicxx.player.seek", { percent: 0.5 });
 await musicxx.player.setSpeed(1.25);
+await musicxx.player.setPitch(1.1);        // 音调偏高：速度不变
 const mode = (musicxx.state.get("musicxx.state.playlist") || {}).loopMode;   // 读当前值
 ```
 
@@ -270,7 +274,10 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 ```
 
 - 这些动作都是"替用户按一下按钮"：会走应用既有的流程（例如 `stop` 会做它平时的收尾），不要绕过它们直接改状态。
-- 没有 `setPitch` / `setMediaType`（见 §3.3）。
+- **这四个值都有“要变之前拦一下”的钩子**：`musicxx.player.seek` / `musicxx.player.volume` /
+  `musicxx.player.speed` / `musicxx.player.pitch`（见 §8 与 [plugin-hooks.md](plugin-hooks.md)）：
+  插件用动作改值时也会先问钩子，所以钩子不能反过来再调这些动作（会再派发一次）。
+- 没有 `setMediaType`（见 §3.3）。
 
 #### 3.2.2 歌单与歌曲（`musicxx.library.*`）
 
@@ -779,15 +786,15 @@ const off = musicxx.vars.bind("musicxx.app.lifecycle", (v) => musicxx.host.log(2
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
-`musicxx.player.setPitch` · `musicxx.player.setMediaType` · `musicxx.library.querySonglist` ·
+`musicxx.player.setMediaType` · `musicxx.library.querySonglist` ·
 `musicxx.library.addSong` · `musicxx.library.removeSong` · `musicxx.library.createSonglist` ·
 `musicxx.library.setSongInfo` · `musicxx.library.search` · `musicxx.lyrics.getBySrc` ·
 `musicxx.lyrics.set` · `musicxx.lyrics.sync` · `musicxx.lyrics.search` · `musicxx.ui.setEntryBadge` ·
 `musicxx.host.shareText`
 
-要"改应用状态"的能力缺口，用对应的**钩子**或**变量**补：例如想改播放速度用动作
-`musicxx.player.setSpeed`（已实现）；想拦一次设置变更用钩子 `musicxx.player.speed`（**还没接入**，
-见 §8.7）。
+要“改应用状态”的能力缺口，用对应的**钩子**或**变量**补：例如想改播放速度 / 音调用动作
+`musicxx.player.setSpeed` / `musicxx.player.setPitch`（已实现）；想拦一次设置变更用钩子
+`musicxx.player.speed` / `musicxx.player.pitch`（已接入，见 [plugin-hooks.md](plugin-hooks.md)）。
 
 ---
 
@@ -1155,8 +1162,8 @@ unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
   JS 侧由插件框架在后台拒绝并记日志（`register` 本身不会报错），所以写错 id 的表现是
   **处理器永远不被调用**。JS 的 `musicxx.hooks.has(id)` 只看脚本自己注册没注册，不代表插件框架受理了。
   插件自定义事件主题 / 能力名 / UI 项 id 才用 `plugin.<自己的插件 id>.*`。
-- **只有"已接入"的钩子会触发**：当前 16 个应用派发的钩子（`plugin-hooks.md` 的「主程序是否已接入」列
-  标「已接入」的共 17 行 —— 多出来的第 17 条是插件功能点的通用通道 `musicxx.feature.point.call`，
+- **只有"已接入"的钩子会触发**：当前 21 个应用派发的钩子（`plugin-hooks.md` 的「主程序是否已接入」列
+  标「已接入」的共 22 行 —— 多出来的第 22 条是插件功能点的通用通道 `musicxx.feature.point.call`，
   由调用方触发、不是应用主动派发）；其余钩子注册成功但不会触发 —— 别把功能押在未接入的钩子上（它们打算做什么见 §8.7）。
 
 ### 8.2 裁决对象
@@ -1176,16 +1183,20 @@ unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
 ### 8.3 异步裁决
 
 ```js
+// musicxx.player.speed 的载荷是 {from, to}：把不合法的新值换成合法值
 musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
     if (ctx.to >= 0.25 && ctx.to <= 3) return null;     // 同步路径：最省时
     return new Promise((resolve) => {                    // 异步路径
-        setTimeout(() => resolve({ action: "continue", patch: { to: 3 } }), 20);
+        setTimeout(() => resolve({ patch: { to: 3 } }), 20);
     });
 });
 ```
 
-- 插件框架**一直等到 Promise / 异步处理器结算**（没有等待超时）；结算后裁决生效。
-- 所以异步路径要保证**一定会结算**（失败就 reject）；不结算就是调用点一直等。
+- 插件框架**一直等到 Promise / 异步处理器结算**（框架侧没有等待超时）；结算后裁决生效。
+- 但**调用点可能自己设了上限**：`musicxx.player.seek` / `volume` / `speed` / `pitch` 在界面操作路径上，
+  应用最多等 **0.5 秒**（超时按“没意见”走原值），`musicxx.player.source.resolve` 最多等 5 秒，
+  `musicxx.player.error` 等它结算。**每个钩子具体等多久看 [plugin-hooks.md](plugin-hooks.md) 的说明**。
+- 所以异步路径要保证**一定会结算**（失败就 reject）；不结算就是调用点一直等到它的上限。
 - 结算次数在统计里看得到（`asyncHookSettled`）。
 
 ### 8.4 处理器里不要做这些
@@ -1273,9 +1284,6 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 | `musicxx.app.deepLink` | 外部链接进来时让插件拦一下 / 处理 |
 | `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |
 | `musicxx.player.beforeOpen` | 不接入（已被 `musicxx.player.source.resolve` 取代：换地址 / 提供播放地址统一走那条） |
-| `musicxx.player.position` | 播放进度（按秒级节流推送） |
-| `musicxx.player.seek` | 用户拖动进度时拦一下（改目标位置） |
-| `musicxx.player.volume` / `musicxx.player.speed` / `musicxx.player.pitch` | 用户改音量 / 速度 / 音调时拦一下（改新值） |
 | `musicxx.player.qualityChanged` | 音质切换的通知 |
 | `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写 |
 | `musicxx.song.info.analyse` | 让插件提供歌名 / 歌手识别（替代应用不联网的识别） |

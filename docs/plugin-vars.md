@@ -28,6 +28,12 @@
 |---|---|---|---|---|
 | `musicxx.app.lifecycle` | get+notify | `foreground` / `background` | low | 应用现在在前台还是后台。`notify` 只在真的跨过这条线时发一次（窗口只是失焦、下拉通知栏这类中间态不算后台）；进后台 / 回前台的**事件**用钩子 `musicxx.app.background` / `musicxx.app.foreground`（后者带 `backgroundMs`），切换用动作 `musicxx.app.background` / `musicxx.app.foreground`（与命令行 `window.*` 同一份实现） |
 
+## 播放状态（`musicxx.player.*`）
+
+| 键 | caps | 值 | 风险 | 说明 |
+|---|---|---|---|---|
+| `musicxx.player.position` | get | 整数（毫秒） | low | 当场读当前播放位置。**要“每秒收到进度”用钩子 `musicxx.player.position`**（带 `sid` / `durationMs`，1 秒一条）；状态镜像 `musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，不能当实时值用；改位置用动作 `musicxx.player.seek` |
+
 ## 界面动画（`musicxx.ui.*`）
 
 | 键 | caps | 值 | 风险 | 说明 |
