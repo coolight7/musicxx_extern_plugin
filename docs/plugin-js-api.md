@@ -126,19 +126,44 @@ permissions:                     # 声明式权限：只做展示，运行时不
 ### 4.1 注册与注销
 
 ```js
-musicxx.hooks.register(id, { mode, priority, ownerTag }, fn);
-musicxx.hooks.unregister(id);
-musicxx.hooks.has(id);
-musicxx.hooks.handlers(id);   // Promise：谁注册了这个钩子（见下）
+musicxx.hooks.register(id, { phase, mode, priority, ownerTag }, fn);
+musicxx.hooks.unregister(id);           // 摘掉这个钩子上自己的全部阶段
+musicxx.hooks.unregister(id, "after");  // 只摘那个阶段
+musicxx.hooks.has(id);                  // 自己注册了没有（缺省看 impl 阶段）
+musicxx.hooks.has(id, "after");         // 某个阶段注册了没有
+musicxx.hooks.handlers(id);             // Promise：谁注册了这个钩子（见下）
+musicxx.hooks.handlers(id, "after");    // 只看一个阶段（缺省 = 全部阶段）
 ```
 
 - `id` 必须是**全名**（官方 `musicxx.*`）；插件框架的约定表里没有的钩子会被拒绝；
+- `phase`：参与方式 —— `"before"`（前链：改输入 / `stop`）、`"impl"`（实现链，**不写就是它**）、
+  `"after"`（后链：改输出 / `drop`）。只能注册钩子声明过的阶段（[plugin-hooks.md](plugin-hooks.md)
+  的「阶段」列），否则插件框架会拒绝并在日志里说明；**前链 / 后链必须是同步返回**（返回 Promise
+  拿不到结果），要逐步串行；
+- **后链是逆序执行的**（优先级降序、同优先级注册顺序也反）：外置插件最后改输出，
+  应用自己的兜底实现不能盖掉你的改写。顺序说明见 [plugin-api.md](plugin-api.md) §8.1；
 - `mode`：`"observe"` = 只观察（返回值忽略）；其它值（含不写）= `"decision"` 裁决型；
 - `priority`：小者先执行；同优先级按注册顺序；
-- `ownerTag`：同一插件在同一个钩子上区分多个处理器的标记（**不要用不同 ownerTag 注册同一个钩子**，
-  见 §15 常见坑）；
+- `ownerTag`：同一插件在同一个钩子上区分多个处理器的标记。**同一个阶段**不要用不同 ownerTag
+  注册两次（见 §15 常见坑）；不同阶段可以用同一个 ownerTag，互不覆盖；
 - `fn(ctx)`：`ctx` 是钩子载荷（JSON 对象，字段见 [plugin-hooks.md](plugin-hooks.md)）；
   返回 `null` / `undefined` = 不裁决。
+
+同一条钩子上的三个阶段写法：
+
+```js
+// 前链：改输入（这一步累加的 patch 会交给下一步与实现链）；action=stop 表示这次不执行实现
+musicxx.hooks.register("musicxx.player.seek", { phase: "before" }, (ctx) => {
+    if (ctx.to > 600000) return { patch: { to: 600000 } };
+    return null;
+});
+
+// 后链：改输出（拿到的是上一步的输出，不是原始载荷）；action=drop 表示这次没有结果
+musicxx.hooks.register("musicxx.player.seek", { phase: "after" }, (ctx) => {
+    // ctx.to / ctx.from / ctx.durationMs 仍然在，ctx.value 是当前的合并结果
+    return { value: { action: "continue", patch: { to: 60000 } } };
+});
+```
 
 ```js
 // 观察型：切歌时打一条日志
@@ -154,13 +179,15 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 
 ```js
 musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
-    // info = {hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}
-    // handlers 按**调用顺序**（priority 升序，同优先级按注册顺序）给出
+    // info = {hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}],
+    //         listAvailable}
+    // handlers 按**前链调用顺序**（priority 升序，同优先级按注册顺序）给出，phase 标明它在哪个阶段
     if (info.count === 0) { musicxx.hooks.register("musicxx.media.spectrum.extract", fn); }
 });
 ```
 
-`listAvailable` 为 `false` 表示插件框架库太旧（只有数量，看 `count`）。主程序的自省（命令行
+`listAvailable` 为 `false` 表示插件框架库太旧（只有数量，看 `count`）。`count` 是**全部阶段**的
+总数；只看某个阶段传第二个参数（`musicxx.hooks.handlers(id, "after")`）。主程序的自省（命令行
 `featurePoint.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
 与"用户看到的"一致。
 

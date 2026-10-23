@@ -617,6 +617,12 @@ List<Map<String, Object?>> _loadHooks() {
     if (!id.startsWith('musicxx.')) {
       throw StateError('钩子 id 必须以 musicxx. 开头: $id');
     }
+    // 钩子 id 表示**一次调用**：参与方式由注册时的 phase 表达，不再用后缀造新 id
+    if (id.endsWith('.before') || id.endsWith('.after')) {
+      throw StateError(
+        '钩子 id 不得以 .before / .after 结尾（参与方式用 phases 表达）：$id',
+      );
+    }
     if (!ids.add(id)) {
       throw StateError('钩子 id 重复: $id');
     }

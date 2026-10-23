@@ -2411,6 +2411,103 @@ int main(int argc, char **argv) {
     check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
           "加载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
 
+    // 阶段 (前链 / 后链): 该示例插件在 `musicxx.playlist.load` (包装点, 声明了
+    // before + after) 上分别登记了一个处理器。
+    {
+      int32_t beforeCount = -1;
+      int32_t afterCount = -1;
+      check(musicxx_extern_plugin_hook_count_phase(
+                host, viewCP("musicxx.playlist.load"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_BEFORE, &beforeCount, &log) ==
+                    MUSICXX_EXTERN_PLUGIN_OK &&
+                beforeCount == 1,
+            "包装点声明了 before 阶段且已有处理器");
+      check(musicxx_extern_plugin_hook_count_phase(
+                host, viewCP("musicxx.playlist.load"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER, &afterCount, &log) ==
+                    MUSICXX_EXTERN_PLUGIN_OK &&
+                afterCount == 1,
+            "包装点声明了 after 阶段且已有处理器");
+
+      // 旧符号是全阶段的总数（包装点两个阶段都已登记）
+      int32_t totalCount = 0;
+      check(musicxx_extern_plugin_hook_count(
+                host, viewCP("musicxx.playlist.load"), &totalCount, &log) ==
+                MUSICXX_EXTERN_PLUGIN_OK &&
+            totalCount == 2,
+          "旧符号报告全部阶段的处理器总数");
+      // 没有 impl 阶段: 包装点的实现固定是应用自己
+      int32_t implCount = -1;
+      check(musicxx_extern_plugin_hook_count_phase(
+                host, viewCP("musicxx.playlist.load"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_IMPL, &implCount, &log) ==
+                MUSICXX_EXTERN_PLUGIN_OK &&
+            implCount == 0,
+          "包装点没有 impl 阶段");
+
+      // 前链: 串行、正序, 累积的 patch 交回调用方
+      MusicxxExternPluginString beforeOut{};
+      const auto rcBefore = musicxx_extern_plugin_hook_emit_phase(
+          host, viewCP("musicxx.playlist.load"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_BEFORE, viewP(R"({"pid":"p1"})"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 0, &beforeOut, &log);
+      const std::string beforeResult = take(beforeOut);
+      check(rcBefore == MUSICXX_EXTERN_PLUGIN_OK, "前链派发成功");
+      check(beforeResult.find("\"patch\":{\"limit\":50}") !=
+                std::string::npos,
+            "前链改过的输入交回调用方");
+
+      // 前链 stop: 回执带 action=stop
+      MusicxxExternPluginString stopOut{};
+      const auto rcStop = musicxx_extern_plugin_hook_emit_phase(
+          host, viewCP("musicxx.playlist.load"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_BEFORE,
+          viewP(R"({"pid":"p1","stop":true})"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 0, &stopOut, &log);
+      const std::string stopResult = take(stopOut);
+      check(rcStop == MUSICXX_EXTERN_PLUGIN_OK &&
+                stopResult.find("\"action\":\"stop\"") != std::string::npos,
+            "前链 stop 结束整条链");
+
+      // 后链: 值被替换
+      MusicxxExternPluginString afterOut{};
+      const auto rcAfter = musicxx_extern_plugin_hook_emit_phase(
+          host, viewCP("musicxx.playlist.load"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER,
+          viewP(R"({"pid":"p1","value":{"items":1}})"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 0, &afterOut, &log);
+      const std::string afterResult = take(afterOut);
+      check(rcAfter == MUSICXX_EXTERN_PLUGIN_OK &&
+                afterResult.find("\"items\":3") != std::string::npos,
+            "后链改掉了输出");
+      check(afterResult.find("example_native_multi") != std::string::npos,
+            "后链拿到的是上一步的输出 (不是原始载荷)");
+
+      // 后链 drop: 回执带 action=drop
+      MusicxxExternPluginString dropOut{};
+      const auto rcDrop = musicxx_extern_plugin_hook_emit_phase(
+          host, viewCP("musicxx.playlist.load"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER,
+          viewP(R"({"pid":"p1","drop":true,"value":{"items":1}})"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 0, &dropOut, &log);
+      const std::string dropResult = take(dropOut);
+      check(rcDrop == MUSICXX_EXTERN_PLUGIN_OK &&
+                dropResult.find("\"action\":\"drop\"") != std::string::npos,
+            "后链 drop 结束整条链");
+
+      // 处理器列表能看出每个处理器在哪个阶段 (自省)
+      MusicxxExternPluginString handlersOut{};
+      MusicxxExternPluginString handlersLog{};
+      check(musicxx_extern_plugin_hook_handlers_phase(
+                host, viewCP("musicxx.playlist.load"),
+                MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER, &handlersOut,
+                &handlersLog) == MUSICXX_EXTERN_PLUGIN_OK,
+          "分阶段处理器列表可读");
+      const std::string handlers = take(handlersOut);
+      check(handlers.find("\"phase\":\"after\"") != std::string::npos,
+            "分阶段处理器列表带 phase");
+    }
+
     MusicxxExternPluginString unloadLog{};
     musicxx_extern_plugin_plugin_unload(host, viewCP("example_native_multi"),
                                         &unloadLog);

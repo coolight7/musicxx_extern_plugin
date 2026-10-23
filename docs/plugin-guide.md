@@ -138,7 +138,7 @@ musicxx.capability.register("card", function () {
 
 | 能力 | 什么时候用 | 入口 | 详细 |
 |---|---|---|---|
-| **钩子** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放） | `musicxx.hooks.register` / `PluginBase::hook` | [plugin-hooks.md](plugin-hooks.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
+| **钩子** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.hooks.register` / `PluginBase::hook`（带 `phase`） | [plugin-hooks.md](plugin-hooks.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
 | **状态镜像** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.state.get` / `stateJson` | [plugin-api.md](plugin-api.md) §2 |
 | **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | `musicxx.vars.*` / `varsGet` / `varsSet` | [plugin-api.md](plugin-api.md) §5 + [plugin-vars.md](plugin-vars.md) |
 | **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-api.md](plugin-api.md) §3（全部动作的参数与返回） |
@@ -188,13 +188,16 @@ musicxx.capability.register("card", function () {
 
 ### 5.3 钩子
 
-- **只有"已接入"的钩子会触发**：当前版本应用派发 14 个（`plugin-hooks.md` 的「主程序是否已接入」列
-  标「已接入」的共 15 行，第 15 条 `musicxx.feature.point.call` 是插件功能点的通用通道、由调用方触发），
+- **钩子 id 表示一次调用，参与方式由阶段表达**：一个调用 = **前链（`before`，正序，改输入 / 停下）
+  + 实现链（`impl`，给结果）+ 后链（`after`，逆序，改输出 / 丢弃）**。不再有 `.before` / `.after`
+  后缀的钩子 id，那类成对的旧 id 已经合并成一条钩子上的两个阶段。后链逆序是刻意的：外置插件
+  最后改输出，应用自己的兜底实现不能盖掉你的改写。写法见 [plugin-api.md](plugin-api.md) §8.1；
+- **只能注册钩子声明过的阶段**，而且前链 / 后链必须是同步处理器（要逐步串行）。没声明的阶段
+  注册会被拒绝（C++ 返回 -1，JS 在后台拒绝并记日志），因为"注册成功但永远不触发"比报错更难查；
+- **只有"已接入"的钩子会触发**：`plugin-hooks.md` 的「主程序是否已接入」列标「已接入」的才会派发，
   其余注册成功但不会触发 —— 别把功能押在未接入的钩子上；
-  两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标**废弃**：
-  注册它们不会收到任何事件，替代做法（状态镜像或导出能力）写在说明里；
-- **同一个钩子只注册一次**：用不同 `ownerTag` 注册同一个钩子，JS 侧只留一个处理器、
-  框架侧却留下多条注册，表现为处理器被重复调用；
+- **同一个阶段只注册一次**：用不同 `ownerTag` 在**同一个阶段**注册同一个钩子，JS 侧只留一个处理器、
+  框架侧却留下多条注册，表现为处理器被重复调用（不同阶段用同一个 `ownerTag` 没问题，互不覆盖）；
 - **裁决是"建议"**：调用点会校验裁决的身份字段（如 `sid`），过期的裁决会被丢掉；
   异步派发的钩子尤其要注意（等待期间可能已经切歌 / 切列表）；
 - **处理器失败只记统计**：抛异常 / 返回失败不会暂停派发、也不会卸载插件；
