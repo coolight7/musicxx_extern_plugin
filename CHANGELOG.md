@@ -8,6 +8,23 @@
 
 ## 未发布
 
+### 新增：`musicxx.player.position` / `seek` / `volume` / `speed` / `pitch` 已接入
+
+- `musicxx.player.position`（观察型，**1 秒一条**）：载荷 `{sid, positionMs, durationMs}`。
+  只报进度、不报状态（“是否在播放”读 `musicxx.state.env.isPlaying`）；状态镜像里的
+  `position` 仍只在启动、切歌与播放状态变化时刷新，要实时值读变量 `musicxx.player.position`。
+- `musicxx.player.seek`（裁决型）：应用**要把播放位置改到 `to` 之前**派发，载荷
+  `{sid, from, to, durationMs}`；`patch.to`（毫秒）改目标位置，`cancel` / `skip` = 这次不跳。
+- `musicxx.player.volume` / `speed` / `pitch`（裁决型）：应用**要把音量 / 速度 / 音调改成 `to`
+  之前**派发，载荷 `{from, to}`；`patch.to` 改新值，`cancel` / `skip` = 这次不改。
+- 这四个裁决型都是**异步派发**，应用最多等 **0.5 秒**（超时按“没意见”走原值）；
+  界面上的所有入口（滑块、快捷键、长按加减速、局域网控制、命令行 / 动作、脚本、恢复设置）
+  都走同一处，所以“用动作改值”也会先问钩子 —— **处理器里不要反过来再调这些动作**。
+- 配套：动作 `musicxx.player.setPitch`（之前只在 SDK 里留了名字），状态镜像
+  `musicxx.state.player` 多出 `pitch`，变量目录多出 `musicxx.player.position`（只读），
+  命令行多出糖命令 `musicxx-cli pitch <0.25~2>`、MCP 多出 `SetPitch`。写法见
+  `docs/plugin-hooks.md`、`docs/plugin-vars.md` 与 `docs/musicxx-interfaces.md`。
+
 ### 新增：`musicxx.app.background` / `musicxx.app.foreground` 已接入
 
 - 两个观察型钩子现在会真的派发：应用**进后台** / **回前台**各一次，载荷分别是 `{state}` 与

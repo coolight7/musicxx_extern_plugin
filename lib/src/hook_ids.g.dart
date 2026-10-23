@@ -75,11 +75,16 @@ enum MusicxxPluginHookId {
   playerBeforeOpen('musicxx.player.beforeOpen', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.firstNonNull, false, MusicxxPluginHookDispatch.async),
   /// 载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个钩子）。
   playerState('musicxx.player.state', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
-  playerPosition('musicxx.player.position', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, false, MusicxxPluginHookDispatch.async),
-  playerSeek('musicxx.player.seek', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
-  playerVolume('musicxx.player.volume', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
-  playerSpeed('musicxx.player.speed', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
-  playerPitch('musicxx.player.pitch', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, false, MusicxxPluginHookDispatch.sync),
+  /// 载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读状态镜像 `musicxx.state.env.isPlaying`，要“状态变了”用钩子 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。
+  playerPosition('musicxx.player.position', MusicxxPluginHookMode.observe, MusicxxPluginDecisionPolicy.lastWrite, true, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）之前**派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 动作 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。裁决：`{"action":"continue","patch":{"to":60000}}` = 换成别的目标位置；`{"action":"cancel"}`（或 `skip`）= 这次不跳（保持原位）。超出范围的目标会被应用夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。
+  playerSeek('musicxx.player.seek', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{from, to}`：应用**要把音量改成 `to` 之前**派发一次（`from` = 当前音量，`to` = 这次要用的音量，都是 0~1，可能略大于 1 表示增益）。音量滑块、快捷键、静音 / 取消静音、局域网控制、命令行 / 动作、启动时恢复设置都会走这里。裁决 `{"patch":{"to":0.5}}` = 换成别的音量；`{"action":"cancel"}` = 这次不改（保持原音量）。最终值会被夹到应用的合法范围（0~1）。**异步派发、最多等 0.5 s**：超时或不回答 = 按原值执行。处理器里不要再调 `musicxx.player.setVolume`（会再派发一次）。
+  playerVolume('musicxx.player.volume', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{from, to}`：应用**要把播放速度改成 `to` 之前**派发一次（`from` = 当前速度，`to` = 这次要用的速度，单位是倍速）。速度菜单、长按加速 / 减速、命令行 / 动作、定时停止的变速、启动时恢复设置都会走这里。裁决 `{"patch":{"to":1.5}}` = 换成别的速度；`{"action":"cancel"}` = 这次不改。最终值会被夹到应用的合法范围（0.25~8）。**异步派发、最多等 0.5 s**。长按加 / 减速这类连续变化会连派多次，处理器要保持快，处理器里也不要再调 `musicxx.player.setSpeed`。
+  playerSpeed('musicxx.player.speed', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.async),
+  /// 载荷 `{from, to}`：应用**要把音调改成 `to` 之前**派发一次（`from` = 当前音调，`to` = 这次要用的音调；1 是原调，范围 0.25~2）。播放页的音调菜单、快捷键、音效切换时的复位、启动时恢复设置都会走这里。裁决 `{"patch":{"to":1.1}}` = 换成别的音调；`{"action":"cancel"}` = 这次不改。最终值会被夹到应用的合法范围（0.25~2）。**异步派发、最多等 0.5 s**。要主动改音调用动作 `musicxx.player.setPitch`；处理器里不要再调它（会再派发一次）。
+  playerPitch('musicxx.player.pitch', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.async),
   /// 载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{"action":"stop"}` = 停止播放；`{"action":"skip"}`（或 `cancel`）= 跳到下一曲；`{"action":"continue","patch":{"tryNextSrc":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按主程序的换源/下一曲策略走）。异步派发（不占用调用线程，主程序不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。主程序只在"该钩子有处理器"时才派发。
   playerError('musicxx.player.error', MusicxxPluginHookMode.decision, MusicxxPluginDecisionPolicy.anyCancel, true, MusicxxPluginHookDispatch.async),
   /// 载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。

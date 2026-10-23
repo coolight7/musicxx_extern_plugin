@@ -171,17 +171,19 @@ musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
 ```
 
 `action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲）。当前版本已接入的
-裁决钩子只有三个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」：
+裁决钩子有七个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」：
 `player.beforePlaySong`（只支持 `skip`）、`player.source.beforeParse`（`skip` / `patch.src`）、
-`player.error`（`stop` / `skip` / `patch.tryNextSrc`）。
+`player.error`（`stop` / `skip` / `patch.tryNextSrc`），以及“改播放值”的四个：
+`player.seek` / `player.volume` / `player.speed` / `player.pitch`（`patch.to` 换新值，
+`cancel` 这次不改）。
 
 ### 4.3 异步裁决（返回 Promise）
 
 ```js
 musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
-    if (ctx.to >= 0.25 && ctx.to <= 3) return null;      // 同步路径：最省时
+    if (ctx.to >= 0.25 && ctx.to <= 3) return null;      // 当场不表态：最省时
     return new Promise((resolve) => {                     // 异步路径
-        setTimeout(() => resolve({ action: "continue", patch: { to: 3 } }), 20);
+        setTimeout(() => resolve({ patch: { to: 3 } }), 20);
     });
 });
 ```
@@ -250,8 +252,9 @@ const playing = (musicxx.state.get("musicxx.state.env") || {}).isPlaying === tru
 - 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`
   （`musicxx.state.lyric` / `musicxx.state.library` 是预留的，当前版本没有推送，读到的永远是 `null`）；
 - 键名固定（官方 `musicxx.state.*`），写错就是 `null`，不会报错；
-- **播放进度不在镜像里**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
-  `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
+- **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
+  （**不是实时值**）。要按秒推进度用钩子 `musicxx.player.position`（每秒一条），
+  要当场读当前值用变量 `musicxx.player.position` —— 不要把它当每秒更新的镜像用；
 - 要在自绘界面里"跟着音乐动"，用 `musicxx.state.spectrum`（约 10 Hz）或着色器的
   `musicxx.spectrum.*` 来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
   识别格式：`status` = `ready` / `loading` / `none` / `off` / `unavailable`，
@@ -333,7 +336,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | 分类 | 方法 |
 |---|---|
 | `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
-| `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质用全名 `musicxx.call("musicxx.player.setQuality", {quality})`，没有单独封装） |
+| `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
 | `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)` |
 | `musicxx.lyrics` | `getCurrent()` |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
@@ -350,12 +353,13 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 - **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
-  `musicxx.player.setPitch` / `setMediaType`、`musicxx.library.querySonglist` / `addSong` /
+  `musicxx.player.setMediaType`、`musicxx.library.querySonglist` / `addSong` /
   `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` / `set` /
   `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` —— 写插件前先按
   [plugin-api.md](plugin-api.md) §3.3 确认一遍；
-- **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度用
-  `musicxx.player.setSpeed`，想拦一次用户改速用钩子 `musicxx.player.speed`（还没接入））。
+- **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度 / 音调用
+  `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用钩子 `musicxx.player.speed` /
+  `musicxx.player.pitch`）。
 
 ### 7.2 存储（插件私有数据）
 

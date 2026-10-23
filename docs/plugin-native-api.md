@@ -447,8 +447,9 @@ const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 
   });
   ```
 
-- **播放进度不在镜像里**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，
-  `musicxx.player.position` 钩子也尚未接入 —— 不要把它当每秒更新的进度用；
+- **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
+  （**不是实时值**）。要按秒推进度用钩子 `musicxx.player.position`（每秒一条，
+  带 `sid` / `positionMs` / `durationMs`），要当场读当前值用变量 `musicxx.player.position`；
 - 加载时想立刻确认框架给的环境：`config()`（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）
   与 `argsJson()`（默认 `{}`）；
 - 接口表里还有一个 `subscribe_state`（声明关心的状态键），当前版本插件侧用事件订阅就够了。
@@ -529,11 +530,11 @@ SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / 
 
 ---
 
-## 6. 三个已接入裁决钩子的写法
+## 6. 已接入裁决钩子的写法
 
 只有**主程序已接入**的钩子会被真正派发（`plugin-hooks.md` 的「主程序是否已接入」列标「已接入」）。
 钩子的注册、优先级、裁决外壳、异步裁决、处理器里不该做的事见 [plugin-api.md](plugin-api.md) §8。
-下面三个裁决型钩子是当前版本可用的：
+当前可用的裁决型钩子有七个（前三个是播放链路，后四个是“改播放值”）：
 
 ```cpp
 // ① 跳过本曲：只支持 skip（返回其它 action 会被记日志后忽略）
@@ -562,12 +563,22 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
          out = R"({"action":"continue","patch":{"tryNextSrc":false}})";
          return 0;
      });
+
+// ④ 改播放值（音量 / 速度 / 音调 / 跳进度）：载荷都有 `from` / `to`
+//    `{"patch":{"to":…}}` = 换新值；`{"action":"cancel"}` = 这次不改
+//    下面只演示回答形状：真实插件要按自己的规则判断（用 utilxx_base::Json 读 `to`）
+hook(MUSICXX_PLUGIN_HOOK_PLAYER_SPEED, 0,
+     [](std::string_view input, std::string& out) -> int32_t {
+         out = R"({"patch":{"to":2.0}})";   // 例：不管用户改成多少，都压到 2 倍速
+         return 0;
+     });
 ```
 
 - 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
-- **处理器要快**：同步派发的钩子会被调用线程等待，而且插件框架不设等待超时（处理器返回前调用线程不会继续），
-  因此慢处理器会拖住业务与其它插件；观察型处理器只做通知、不受影响。
+- **处理器要快**：异步派发只表示“不占住主程序的调用线程”，插件框架侧仍然是同一个线程
+  依次跑处理器。观察型处理器只做通知；裁决型等它结算（`seek` / `volume` / `speed` / `pitch`
+  最多等 0.5 s，超时按“没意见”）。
 - 想确认自己的处理器有没有被调用：管理页「插件详情 → 统计」，或自己在处理器里 `log.info(...)`。
 
 ---
