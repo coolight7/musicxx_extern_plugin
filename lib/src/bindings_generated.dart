@@ -862,6 +862,8 @@ class MusicxxExternPluginBindings {
           >();
 
   /// 该钩子当前的原生/JS 处理器数量 (Dart 快速路径判定; 事件增量更新)
+  ///
+  /// 这是**全部阶段**的总数（老符号语义不变）；要按阶段判定用 `_hook_count_phase`。
   int musicxx_extern_plugin_hook_count(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> hook_id,
@@ -893,15 +895,120 @@ class MusicxxExternPluginBindings {
             )
           >();
 
+  /// 按阶段派发钩子
+  ///
+  /// - `phase` = `impl`：与 `musicxx_extern_plugin_hook_emit` 完全一样（旧的同步/异步约定不变）；
+  /// - `phase` = `before`：串行、**正序**（priority 升序、同优先级按注册顺序），载荷逐步累积；
+  /// out_json 回执的 `result.patch` 是累计后的 patch，`result.action` 为 `stop` 时表示整条链被停下；
+  /// - `phase` = `after`：串行、**逆序**（priority 降序、同优先级注册顺序也反），值逐步替换；
+  /// out_json 回执的 `result.value` 是最终值，`result.action` 为 `drop` 时表示结果被丢弃；
+  /// - 该阶段没有处理器时返回 `{"handled":false,"handlers":0}`（与旧符号一致）；
+  /// - `flags` / `timeout_ms` 含义与 `hook_emit` 相同。
+  int musicxx_extern_plugin_hook_emit_phase(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    int phase,
+    ffi.Pointer<MusicxxExternPluginStringView> input_json,
+    int flags,
+    int timeout_ms,
+    ffi.Pointer<MusicxxExternPluginString> out_json,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_hook_emit_phase(
+      h,
+      hook_id,
+      phase,
+      input_json,
+      flags,
+      timeout_ms,
+      out_json,
+      log,
+    );
+  }
+
+  late final _musicxx_extern_plugin_hook_emit_phasePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Int32,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Int32,
+            ffi.Uint32,
+            ffi.Pointer<MusicxxExternPluginString>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_hook_emit_phase');
+  late final _musicxx_extern_plugin_hook_emit_phase =
+      _musicxx_extern_plugin_hook_emit_phasePtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              int,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              int,
+              int,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
+  /// 某钩子在某个阶段上的处理器数量（阶段没有处理器时为 0）
+  int musicxx_extern_plugin_hook_count_phase(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    int phase,
+    ffi.Pointer<ffi.Int32> out_count,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_hook_count_phase(
+      h,
+      hook_id,
+      phase,
+      out_count,
+      log,
+    );
+  }
+
+  late final _musicxx_extern_plugin_hook_count_phasePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Int32,
+            ffi.Pointer<ffi.Int32>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_hook_count_phase');
+  late final _musicxx_extern_plugin_hook_count_phase =
+      _musicxx_extern_plugin_hook_count_phasePtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              int,
+              ffi.Pointer<ffi.Int32>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
   /// 该钩子当前的处理器列表 (自省用; 按**调用顺序**给出: priority 升序, 同优先级按注册顺序)
   ///
   /// out_json 形如:
   /// {"hook":"musicxx.media.spectrum.extract","count":2,"handlers":[
-  /// {"plugin":"example_js","instance":"js:example_js","kind":"js","priority":0,"ownerTag":""},
-  /// {"plugin":"example_native","instance":"example_native","kind":"native","priority":10,"ownerTag":""}]}
+  /// {"plugin":"example_js","instance":"js:example_js","kind":"js","phase":"impl",
+  /// "priority":0,"ownerTag":""},
+  /// {"plugin":"example_native","instance":"example_native","kind":"native",
+  /// "phase":"after","priority":10,"ownerTag":""}]}
   ///
-  /// 只给出 plugin / instance / kind / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
+  /// 只给出 plugin / instance / kind / phase / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
   /// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
+  /// 这是**全部阶段**的列表；只看一个阶段用 `_hook_handlers_phase`。
   int musicxx_extern_plugin_hook_handlers(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> hook_id,
@@ -928,6 +1035,47 @@ class MusicxxExternPluginBindings {
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
               ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
+  /// 某钩子在某个阶段上的处理器列表（形状与 `hook_handlers` 相同，只有该阶段）
+  int musicxx_extern_plugin_hook_handlers_phase(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    int phase,
+    ffi.Pointer<MusicxxExternPluginString> out_json,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_hook_handlers_phase(
+      h,
+      hook_id,
+      phase,
+      out_json,
+      log,
+    );
+  }
+
+  late final _musicxx_extern_plugin_hook_handlers_phasePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Int32,
+            ffi.Pointer<MusicxxExternPluginString>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_hook_handlers_phase');
+  late final _musicxx_extern_plugin_hook_handlers_phase =
+      _musicxx_extern_plugin_hook_handlers_phasePtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              int,
               ffi.Pointer<MusicxxExternPluginString>,
               ffi.Pointer<MusicxxExternPluginString>,
             )

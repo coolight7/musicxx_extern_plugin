@@ -115,7 +115,8 @@ public:
   /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的钩子永远不触发")。
   void bridgeHookOp(const std::string &instanceName, const std::string &op,
                     const std::string &hookId, const std::string &mode,
-                    int32_t priority, const std::string &ownerTag);
+                    int32_t priority, const std::string &ownerTag,
+                    const std::string &phase);
 
   /// 运行期动态订阅 (投递到框架线程建立订阅; 顶层声明由回放处理)
   void bridgeSubscribeHost(const std::string &instanceName,
@@ -241,6 +242,9 @@ public:
     std::string ownerTag;
     bool decision =
         true; ///< true = 裁决型 (hook_sync), false = 观察型 (hook_start)
+    /// 参与方式 (`MUSICXX_PLUGIN_HOOK_PHASE_*`): 同一条钩子上可以分别登记前链 /
+    /// 实现链 / 后链
+    int32_t phase = 0;
   };
 
   /// 一个已声明的能力 (生命周期 = 实例)
@@ -428,7 +432,7 @@ private:
   void applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
                          const std::string &op, const std::string &hookId,
                          const std::string &mode, int32_t priority,
-                         const std::string &ownerTag);
+                         const std::string &ownerTag, const std::string &phase);
 
   /// 取回脚本登记的 UI 项操作 (框架线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingUiOp>

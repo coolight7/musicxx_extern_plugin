@@ -391,6 +391,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     );
 
 /// 该钩子当前的原生/JS 处理器数量 (Dart 快速路径判定; 事件增量更新)
+///
+/// 这是**全部阶段**的总数（老符号语义不变）；要按阶段判定用 `_hook_count_phase`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_hook_count(
         MusicxxExternPluginHost*              h,
@@ -399,19 +401,70 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
+/* ---------- 分阶段派发 / 查询（新符号；旧符号 = impl 阶段 / 全部阶段） ---------- */
+
+/// 阶段编号（与 SDK 的 `MUSICXX_PLUGIN_HOOK_PHASE_*` 一致）
+#define MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_IMPL   0
+#define MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_BEFORE 1
+#define MUSICXX_EXTERN_PLUGIN_HOOK_PHASE_AFTER  2
+
+/// 按阶段派发钩子
+///
+/// - `phase` = `impl`：与 `musicxx_extern_plugin_hook_emit` 完全一样（旧的同步/异步约定不变）；
+/// - `phase` = `before`：串行、**正序**（priority 升序、同优先级按注册顺序），载荷逐步累积；
+///   out_json 回执的 `result.patch` 是累计后的 patch，`result.action` 为 `stop` 时表示整条链被停下；
+/// - `phase` = `after`：串行、**逆序**（priority 降序、同优先级注册顺序也反），值逐步替换；
+///   out_json 回执的 `result.value` 是最终值，`result.action` 为 `drop` 时表示结果被丢弃；
+/// - 该阶段没有处理器时返回 `{"handled":false,"handlers":0}`（与旧符号一致）；
+/// - `flags` / `timeout_ms` 含义与 `hook_emit` 相同。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_hook_emit_phase(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* hook_id,
+        int32_t                               phase,
+        const MusicxxExternPluginStringView* input_json,
+        int32_t                               flags,
+        uint32_t                              timeout_ms,
+        MusicxxExternPluginString*           out_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 某钩子在某个阶段上的处理器数量（阶段没有处理器时为 0）
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_hook_count_phase(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* hook_id,
+        int32_t                               phase,
+        int32_t*                              out_count,
+        MusicxxExternPluginString*           log
+    );
+
 /// 该钩子当前的处理器列表 (自省用; 按**调用顺序**给出: priority 升序, 同优先级按注册顺序)
 ///
 /// out_json 形如:
 /// {"hook":"musicxx.media.spectrum.extract","count":2,"handlers":[
-///   {"plugin":"example_js","instance":"js:example_js","kind":"js","priority":0,"ownerTag":""},
-///   {"plugin":"example_native","instance":"example_native","kind":"native","priority":10,"ownerTag":""}]}
+///   {"plugin":"example_js","instance":"js:example_js","kind":"js","phase":"impl",
+///    "priority":0,"ownerTag":""},
+///   {"plugin":"example_native","instance":"example_native","kind":"native",
+///    "phase":"after","priority":10,"ownerTag":""}]}
 ///
-/// 只给出 plugin / instance / kind / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
+/// 只给出 plugin / instance / kind / phase / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
 /// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
+/// 这是**全部阶段**的列表；只看一个阶段用 `_hook_handlers_phase`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_hook_handlers(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* hook_id,
+        MusicxxExternPluginString*           out_json,
+        MusicxxExternPluginString*           log
+    );
+
+/// 某钩子在某个阶段上的处理器列表（形状与 `hook_handlers` 相同，只有该阶段）
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_hook_handlers_phase(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* hook_id,
+        int32_t                               phase,
         MusicxxExternPluginString*           out_json,
         MusicxxExternPluginString*           log
     );
@@ -478,6 +531,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS 0x4
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_UI     0x8
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_VARS   0x10
+/// 分阶段派发（`_hook_emit_phase` / `_hook_count_phase` / `_hook_handlers_phase`）
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_HOOK_PHASES 0x20
 
 /// 插件框架能力位图 (无需框架实例; 任意线程可调用)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

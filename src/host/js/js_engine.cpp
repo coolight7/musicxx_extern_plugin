@@ -308,37 +308,80 @@ var featurePointImpls = new Map();
   musicxx.version = ext.engineVersion();
   musicxx.pluginId = ext.pluginId();
 
+  /// 钩子阶段 (参与方式): 钩子 id 表示**一次调用**, 由阶段表达怎么参与
+  ///
+  /// - `before`: 前链, 串行、正序, 只能改输入 (`{patch: {...}}`) 或停下 (`{action: "stop"}`);
+  /// - `impl`  : 实现链, 给结果 / 裁决 (不写阶段就是它);
+  /// - `after` : 后链, 串行、**逆序**, 只能改输出 (`{value: ...}`) 或丢弃 (`{action: "drop"}`)。
+  var HOOK_PHASES = { impl: "impl", before: "before", after: "after" };
+  function normalizePhase(value) {
+    if (value === undefined || value === null || value === "") { return "impl"; }
+    var text = String(value);
+    if (!HOOK_PHASES[text]) {
+      throw new Error("hooks: 未知阶段 " + text + " (只能是 before / impl / after)");
+    }
+    return text;
+  }
+  function hookKey(id, phase) { return String(id) + "|" + phase; }
+
   musicxx.hooks = {
+    /// 注册处理器: register(id, {phase, mode, priority, ownerTag}, fn)
+    ///
+    /// 同一条钩子上可以分别注册三个阶段 (同一个 ownerTag 互不覆盖)。
     register: function (id, options, fn) {
       assertName(id, "hooks.register: 钩子 id");
       if (typeof options === "function") { fn = options; options = null; }
       options = options || {};
       if (typeof fn !== "function") { throw new Error("hooks.register: 缺少处理函数"); }
       var entry = {
+        id: String(id),
+        phase: normalizePhase(options.phase),
         mode: options.mode === "observe" ? "observe" : "decision",
         priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
         ownerTag: typeof options.ownerTag === "string" ? options.ownerTag : "",
         fn: fn
       };
-      hookTable.set(id, entry);
+      hookTable.set(hookKey(entry.id, entry.phase), entry);
       /// 运行期注册要通知插件框架 (顶层登记阶段由引擎统一回放, 这里只是先记下来)
-      ext.hookOp("register", String(id), entry.mode, entry.priority, entry.ownerTag);
+      ext.hookOp("register", entry.id, entry.mode, entry.priority, entry.ownerTag,
+                 entry.phase);
       return musicxx;
     },
-    unregister: function (id) {
+    /// 注销处理器: unregister(id) 摘掉这个钩子上自己的全部阶段; unregister(id, phase)
+    /// 只摘那个阶段。插件框架按 (钩子, ownerTag) 摘, 所以同一个 ownerTag 在其它阶段的
+    /// 登记也会一起被摘掉。
+    unregister: function (id, phase) {
       var key = String(id);
-      var entry = hookTable.get(key);
-      hookTable.delete(key);
-      ext.hookOp("unregister", key, "", 0, entry ? entry.ownerTag : "");
+      var wantPhase = (phase === undefined || phase === null) ? "" : normalizePhase(phase);
+      var keys = [];
+      hookTable.forEach(function (entry, k) {
+        if (entry.id !== key) { return; }
+        if (wantPhase && entry.phase !== wantPhase) { return; }
+        keys.push(k);
+      });
+      var tags = [];
+      keys.forEach(function (k) {
+        var entry = hookTable.get(k);
+        hookTable.delete(k);
+        if (entry && tags.indexOf(entry.ownerTag) < 0) { tags.push(entry.ownerTag); }
+      });
+      tags.forEach(function (tag) {
+        ext.hookOp("unregister", key, "", 0, tag, wantPhase);
+      });
       return musicxx;
     },
-    has: function (id) { return hookTable.has(String(id)); },
-    /// 读某个钩子当前的处理器列表 (自省: 谁注册了、什么形态、排第几)。
-    /// 用来先看清"这个钩子现在有谁在提供"再决定要不要注册自己的处理器。
-    /// 返回 Promise: {hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}
-    handlers: function (id) {
+    /// 自己有没有在这个钩子上注册 (phase 缺省 = impl)
+    has: function (id, phase) {
+      return hookTable.has(hookKey(String(id), normalizePhase(phase)));
+    },
+    /// 读某个钩子当前的处理器列表 (自省: 谁注册了、什么形态、在哪个阶段、排第几)。
+    /// 返回 Promise: {hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
+    /// `phase` 可省 (省了 = 全部阶段)。
+    handlers: function (id, phase) {
       assertName(id, "hooks.handlers: 钩子 id");
-      return musicxx.call("musicxx.hook.handlers", { hook: String(id) });
+      var args = { hook: String(id) };
+      if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
+      return musicxx.call("musicxx.hook.handlers", args);
     }
   };
 
@@ -954,7 +997,7 @@ var featurePointImpls = new Map();
         assertName(id, "feature.provide: 功能点 id");
         featurePointImpls.set(String(id), fn);
       });
-      if (!hookTable.has("musicxx.feature.point.call")) {
+      if (!hookTable.has(hookKey("musicxx.feature.point.call", "impl"))) {
         musicxx.hooks.register("musicxx.feature.point.call", {
           priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
           ownerTag: ids.map(String).join(",")
@@ -969,7 +1012,7 @@ var featurePointImpls = new Map();
         return musicxx;
       }
       featurePointImpls.delete(key);
-      if (featurePointImpls.size === 0 && hookTable.has("musicxx.feature.point.call")) {
+      if (featurePointImpls.size === 0 && hookTable.has(hookKey("musicxx.feature.point.call", "impl"))) {
         musicxx.hooks.unregister("musicxx.feature.point.call");
       }
       return musicxx;
@@ -1381,8 +1424,14 @@ var featurePointImpls = new Map();
 
   ext.collectRegistrations = function () {
     var hooks = [];
-    hookTable.forEach(function (entry, id) {
-      hooks.push({ hook: id, mode: entry.mode, priority: entry.priority, ownerTag: entry.ownerTag });
+    hookTable.forEach(function (entry) {
+      hooks.push({
+        hook: entry.id,
+        phase: entry.phase,
+        mode: entry.mode,
+        priority: entry.priority,
+        ownerTag: entry.ownerTag
+      });
     });
     var capabilities = [];
     capTable.forEach(function (value, name) { capabilities.push(name); });
@@ -1397,8 +1446,8 @@ var featurePointImpls = new Map();
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
   /// - 插件框架不设等待超时: Promise 结算多晚都会被接住。
-  ext.invokeHook = function (hookId, inputJson, waitId) {
-    var entry = hookTable.get(hookId);
+  ext.invokeHook = function (hookId, phase, inputJson, waitId) {
+    var entry = hookTable.get(hookKey(hookId, phase || "impl"));
     if (!entry) { return ""; }
     var ctx = {};
     if (inputJson) { try { ctx = JSON.parse(inputJson); } catch (e) { ctx = {}; } }
@@ -1785,6 +1834,32 @@ JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_UNDEFINED;
 }
 
+namespace {
+
+/// 阶段名 → 阶段编号 (`before` / `after`; 其它一律按实现链)
+int32_t hookPhaseOfName(const std::string &name) {
+  if (name == "before") {
+    return MUSICXX_PLUGIN_HOOK_PHASE_BEFORE;
+  }
+  if (name == "after") {
+    return MUSICXX_PLUGIN_HOOK_PHASE_AFTER;
+  }
+  return MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+}
+
+/// 阶段编号 → JS 侧使用的阶段名
+const char *hookPhaseNameOf(int32_t phase) {
+  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE) {
+    return "before";
+  }
+  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_AFTER) {
+    return "after";
+  }
+  return "impl";
+}
+
+} // namespace
+
 /// 钩子操作 (register | unregister): 运行期注册/注销要落到插件框架注册表
 ///
 /// 顶层登记阶段 (liveRegistrations == false) 由 collectRegistrations 统一回放, 这里
@@ -1802,9 +1877,11 @@ JSValue jsHookOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     JS_ToInt32(ctx, &priority, argv[3]);
   }
   const char *ownerTag = (argc >= 5) ? JS_ToCString(ctx, argv[4]) : nullptr;
+  const char *phase = (argc >= 6) ? JS_ToCString(ctx, argv[5]) : nullptr;
   inst->engine->bridgeHookOp(inst->name, op ? op : "", hookId ? hookId : "",
                              mode ? mode : "decision", priority,
-                             ownerTag ? ownerTag : "");
+                             ownerTag ? ownerTag : "",
+                             phase ? phase : "impl");
   if (op) {
     JS_FreeCString(ctx, op);
   }
@@ -1816,6 +1893,9 @@ JSValue jsHookOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   }
   if (ownerTag) {
     JS_FreeCString(ctx, ownerTag);
+  }
+  if (phase) {
+    JS_FreeCString(ctx, phase);
   }
   return JS_UNDEFINED;
 }
@@ -2096,7 +2176,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"varsSet", jsVarsSet, 2},
       {"varsRead", jsVarsRead, 2},
       {"varsRespond", jsVarsRespond, 4},
-      {"hookOp", jsHookOp, 5},
+      {"hookOp", jsHookOp, 6},
       {"hookWaitResolve", jsHookWaitResolve, 2},
       {"capabilityWaitResolve", jsCapabilityWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
@@ -3250,7 +3330,8 @@ void JsEngine::clearVarWaitsOf(const std::string &instanceName) {
 void JsEngine::bridgeHookOp(const std::string &instanceName,
                             const std::string &op, const std::string &hookId,
                             const std::string &mode, int32_t priority,
-                            const std::string &ownerTag) {
+                            const std::string &ownerTag,
+                            const std::string &phase) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !mgr_ || !mgr_->running()) {
     return;
@@ -3264,11 +3345,11 @@ void JsEngine::bridgeHookOp(const std::string &instanceName,
   /// 在这里同步等待就会互锁。失败只记日志与事件, 不回传给脚本。
   auto self = shared_from_this();
   asio::post(mgr_->hostExecutor(),
-             [self, instanceName, op, hookId, mode, priority, ownerTag] {
+             [self, instanceName, op, hookId, mode, priority, ownerTag, phase] {
                auto current = self->lookupInstance(instanceName);
                if (current) {
                  self->applyHookOpOnHost(current, op, hookId, mode, priority,
-                                         ownerTag);
+                                         ownerTag, phase);
                }
              });
 }
@@ -3277,7 +3358,8 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
                                  const std::string &op,
                                  const std::string &hookId,
                                  const std::string &mode, int32_t priority,
-                                 const std::string &ownerTag) {
+                                 const std::string &ownerTag,
+                                 const std::string &phase) {
   if (!inst || !inst->hostInst || !mgr_ || hookId.empty()) {
     return;
   }
@@ -3285,12 +3367,14 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
   if (!unregister && op != "register") {
     return;
   }
+  const int32_t phaseCode = hookPhaseOfName(phase);
   /// 同一个 (钩子, owner_tag) 只保留一份: 先摘掉插件框架注册 (释放注册表对该
   /// `HookHandler` 的引用), 再释放 JS 侧持有的对象, 避免出现"注册表指向已释放对象"
   /// 的窗口; 覆盖式注册随后重新登记
   for (auto it = inst->hooks.begin(); it != inst->hooks.end();) {
     const auto &handler = *it;
-    if (handler && handler->hookId == hookId && handler->ownerTag == ownerTag) {
+    if (handler && handler->hookId == hookId && handler->ownerTag == ownerTag &&
+        handler->phase == phaseCode) {
       mgr_->unregisterHook(inst->hostInst, handler->hookId, handler->ownerTag);
       it = inst->hooks.erase(it);
       continue;
@@ -3308,10 +3392,12 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
   handler->hookId = hookId;
   handler->ownerTag = ownerTag;
   handler->decision = mode != "observe";
+  handler->phase = phaseCode;
 
   MusicxxPluginHookSpec spec{};
-  spec.version = 1;
+  spec.version = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
   spec.struct_size = sizeof(MusicxxPluginHookSpec);
+  spec.phase = phaseCode;
   spec.hook_id =
       PluginxxStringView{handler->hookId.data(), handler->hookId.size()};
   spec.owner_tag = PluginxxStringView{handler->ownerTag.data(),
@@ -3332,16 +3418,17 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
     payload["phase"] = "hook";
     payload["hook"] = hookId;
     payload["code"] = "hook_register_failed";
-    payload["message"] = "运行期钩子注册被拒绝 (未知钩子或命名空间非法)";
+    payload["message"] =
+        "运行期钩子注册被拒绝 (未知钩子 / 没声明该阶段 / 阶段必须用同步处理器)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
     XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 被拒绝 (code={})",
             inst->id, hookId, rc);
     return;
   }
   inst->hooks.push_back(handler);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 已生效 (mode={}, "
-          "priority={})",
-          inst->id, hookId, mode, priority);
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 已生效 (phase={}, "
+          "mode={}, priority={})",
+          inst->id, hookId, phase, mode, priority);
 }
 
 std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
@@ -3985,10 +4072,16 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
               ? item["mode"].get<std::string>()
               : std::string{"decision"};
       handler->decision = mode != "observe";
+      /// 阶段: 钩子 id 表示一次调用, 参与方式由阶段表达 (老脚本不写 = impl)
+      handler->phase = hookPhaseOfName(
+          (item.contains("phase") && item["phase"].is_string())
+              ? item["phase"].get<std::string>()
+              : std::string{"impl"});
 
       MusicxxPluginHookSpec spec{};
-      spec.version = 1;
+      spec.version = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
       spec.struct_size = sizeof(MusicxxPluginHookSpec);
+      spec.phase = handler->phase;
       spec.hook_id =
           PluginxxStringView{handler->hookId.data(), handler->hookId.size()};
       spec.owner_tag = PluginxxStringView{handler->ownerTag.data(),
@@ -4205,17 +4298,19 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
   const std::string pluginId = handler->pluginId;
   const std::string hookId = handler->hookId;
   const std::string name = handler->instance;
+  const std::string phaseName = hookPhaseNameOf(handler->phase);
   const std::string input =
       inputJson ? viewToStr(inputJson) : std::string{"{}"};
   auto slot = std::make_shared<WaitSlot<std::string>>();
   /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.hookWaitResolve` 交回结果
   const int64_t waitId = engine->beginHookWait(name, slot);
-  engine->postTask([engine, name, hookId, input, slot, waitId] {
+  engine->postTask([engine, name, hookId, phaseName, input, slot, waitId] {
     const auto inst = engine->lookupInstance(name);
     std::string result;
     if (!inst || !engine->callBridgeString(
                      inst, "invokeHook",
-                     {hookId, input, std::to_string(waitId)}, result)) {
+                     {hookId, phaseName, input, std::to_string(waitId)},
+                     result)) {
       engine->finishHookWait(waitId);
       slot->set(std::string{});
       return;
@@ -4254,14 +4349,16 @@ void *PLUGINXX_CALL JsEngine::hookStart(void *userData,
       inputJson ? viewToStr(inputJson) : std::string{"{}"};
   const std::string hookId = handler->hookId;
   const std::string name = handler->instance;
+  const std::string phaseName = hookPhaseNameOf(handler->phase);
   /// 观察型: 投递到 JS 线程后立即返回, 不等待 (observe 语义)
-  engine->postTask([engine, name, hookId, input] {
+  engine->postTask([engine, name, hookId, phaseName, input] {
     const auto inst = engine->lookupInstance(name);
     if (!inst) {
       return;
     }
     std::string ignored;
-    engine->callBridgeString(inst, "invokeHook", {hookId, input}, ignored);
+    engine->callBridgeString(inst, "invokeHook", {hookId, phaseName, input},
+                             ignored);
   });
   /// 插件框架派发观察型处理器时传 nullptr (结果不参与合并); 若将来传了通知器,
   /// 这里按"已同步完成且无载荷"终结它 (观察型处理器不产生裁决)
