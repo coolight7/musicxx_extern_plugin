@@ -675,18 +675,25 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id, title, type, depict, available, callable, callDoc, callStat, rows:[{type, layer, owner, name, priority, enabled, effective, note}]}]}` |
+| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id, title, type, depict, available, callable, callDoc, callStat, rows:[{type, layer, owner, name, priority, enabled, effective, note}], stages:[{owner, name, layer, priority, enabled, before, after, runs, stops, drops, errors}], lastStoppedBy?, lastDroppedBy?, lastRewrittenBy?}]}` |
 | `musicxx.feature.point.call` | `{id, args?, refresh?}` | `{ok, id, value, by, identity, fromCache, ms}` 或 `{ok:false, error, message}` |
 | `musicxx.feature.point.define` | `{id, title?, depict?, args?, result?}` | `{ok:true, id}` 或 `{ok:false, error}` |
 | `musicxx.feature.point.undefine` | `{id}` | `{ok, removed}` |
 
 - `rows` 里的每一行是"这个功能点的一个实现"：`layer` = `extern`（外置插件钩子）/ `builtin`（内置插件）/
   `core`（应用兜底），`effective` = 现在真正生效的那一个；`note` 会写清"谁把它关掉了"（`disable` 裁决）。
+- `stages` 是**同一个功能点的前链与后链**（与 `rows` 是两回事）：`before` / `after` 为真表示这条
+  登记管哪一段，`runs` / `stops` / `drops` / `errors` 是计数；顺序按前链（层 → 优先级 → 登记顺序），
+  **后链逆序执行**（所以这个列表的最后一行是最先改输出的）。`lastStoppedBy` / `lastDroppedBy` /
+  `lastRewrittenBy` 是最近一次调用里"谁停下 / 谁丢弃 / 谁最后改了输出"，只用于排障。
+  概念见 [plugin-api.md](plugin-api.md) §8.1。
 - `callable` / `callDoc` 说明"这个点能不能被主动调用、参数与结果是什么形状"：
   **调之前先看 `callDoc`**。
 - `musicxx.feature.point.call` 的 `error` 取值：
   `not_callable`（这个点不能主动调）/ `bad_args`（参数不符合 `callDoc`）/ `no_impl`（没有任何实现）/
-  `disabled`（被置空裁决关掉了）/ `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。
+  `disabled`（被置空裁决关掉了）/ `stopped`（前链把这次调用停下了）/ `dropped`（后链把结果丢弃了）/
+  `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。这三种"没有结果"是不同的事：
+  `disabled` 是某个实现说"别问别人"、`stopped` 是前链不让执行、`dropped` 是实现跑完了但结果被丢掉。
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态。想让用户看到效果要用对应的设置动作
   （例如 `musicxx.media.palette.set`）。
 - `refresh:true` 跳过值仓重新算一遍（一般不用：值仓里就是最近一次的结果）。
@@ -700,10 +707,13 @@ const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", 
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.hook.handlers` | `{hook}` | `{ok:true, hook, count, handlers:[{plugin, instance, kind, priority, ownerTag}], listAvailable}` |
+| `musicxx.hook.handlers` | `{hook, phase?}` | `{ok:true, hook, phase, count, handlers:[{plugin, instance, kind, priority, phase, ownerTag}], listAvailable, phasesAvailable}` |
 
 - `handlers` 按**调用顺序**排列（`priority` 升序，同优先级按注册顺序）；
-- `listAvailable:false` = 插件框架库太旧，只能报数量（看 `count`）；
+- `phase` 是可选参数：`before` / `impl` / `after`，不给就是全部阶段（按 `before → impl → after` 拼接）；
+  每一条 handler 都带自己的 `phase`；
+- `listAvailable:false` = 插件框架库太旧，只能报数量（看 `count`）；`phasesAvailable:false` = 库没有
+  分阶段接口，`before` / `after` 阶段现在不会有处理器；
 - 同一个数据也能在管理页「外部插件 → 调试」和 `featurePoint.list` 里看到。
 
 ```js
@@ -1111,6 +1121,11 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 - **`value` 键的存在 = "我答了"**（值可以是 `null`，表示"算过了、结果是空"）；返回空串 / `undefined` = 不回答。
 - **处理器必须同步返回**：功能点走同步裁决通道，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
   长任务请提前算好，或做成**能力**（§6）。
+- **前链 / 后链**：同一个点在通道上还有 `before` / `after` 两个阶段（同一条 id，用 `phase` 区分）——
+  前链改这次调用的 `args`（或 `{"action":"stop"}` 这次不执行），后链改最终 `value`（或
+  `{"action":"drop"}` 这次没有结果）；只有 `impl` 阶段算"有人实现"。`provide` 的糖只登记实现链，
+  要插手前后链直接用钩子 API（`hooks.register("musicxx.feature.point.call", {phase:"after"}, fn)`）。
+  概念与顺序见 §8.1。
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本 / `start` 里再声明一遍。
 - 同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`（不排队）。
 
@@ -1158,6 +1173,9 @@ extern  ---------->  builtin  ---------->  core
   比报错更难查；
 - 三种“没有结果”含义不同，别混：实现链的 `{"disable": true}`（不再问别人）、前链的 `stop`
   （这次不执行实现）、后链的 `drop`（实现跑完了但结果丢掉）。
+- **载荷里不自动带 `phase`**：同一个函数要服务多个阶段就各注册一份自己的闭包，不要指望从载荷里
+  分辨阶段。唯一例外是插件功能点的通用通道 `musicxx.feature.point.call` —— 它的载荷带 `phase`，
+  因为一个插件点可能用同一段代码处理三个阶段（见 §7）。
 
 包装点（网络请求 / 下载 / 歌单读取这类“实现固定是应用自己”的钩子）没有 `impl` 阶段，
 插件只在前后插手；取值点（频谱 / 副歌 / 取色 / 音源解析）通常只有 `impl`。
