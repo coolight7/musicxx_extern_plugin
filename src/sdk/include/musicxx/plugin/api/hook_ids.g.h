@@ -15,6 +15,23 @@
 #define MUSICXX_PLUGIN_HOOK_POLICY_ALL_MERGE      2
 #define MUSICXX_PLUGIN_HOOK_POLICY_LAST_WRITE     3
 
+/* ==================== 阶段 (与 Dart 侧 MusicxxPluginHookPhase 一致) ==================== */
+
+/* 阶段编号：注册时用它表达参与方式 */
+#define MUSICXX_PLUGIN_HOOK_PHASE_IMPL   0
+#define MUSICXX_PLUGIN_HOOK_PHASE_BEFORE 1
+#define MUSICXX_PLUGIN_HOOK_PHASE_AFTER  2
+
+/* 阶段位掩码：钩子元信息的 phases 字段用它 (1 << 阶段编号) */
+#define MUSICXX_PLUGIN_HOOK_PHASE_MASK_IMPL   (1u << 0)
+#define MUSICXX_PLUGIN_HOOK_PHASE_MASK_BEFORE (1u << 1)
+#define MUSICXX_PLUGIN_HOOK_PHASE_MASK_AFTER  (1u << 2)
+
+/* 阶段编号 → 位掩码 (非法编号返回 0) */
+static inline uint32_t musicxxPluginHookPhaseMask(int32_t phase) {
+    return (phase >= 0 && phase <= 2) ? (1u << phase) : 0u;
+}
+
 /* ==================== 钩子 id 常量 ==================== */
 
 #define MUSICXX_PLUGIN_HOOK_APP_START "musicxx.app.start"
@@ -95,87 +112,88 @@
 namespace musicxx {
 namespace plugin {
 
-/// 已知钩子条目: id / 模式 / 合并策略
+/// 已知钩子条目: id / 模式 / 合并策略 / 支持的阶段
 struct MusicxxPluginHookMeta {
     const char* id;
     int32_t     mode;     ///< 0 观察型 / 1 裁决型 (MUSICXX_PLUGIN_HOOK_MODE_*)
     int32_t     policy;   ///< MUSICXX_PLUGIN_HOOK_POLICY_*
+    uint32_t    phases;   ///< MUSICXX_PLUGIN_HOOK_PHASE_MASK_* (支持哪几个阶段)
 };
 
 /// 已知钩子表 (插件框架拒绝表外钩子: 插件不得制造插件框架不认识的钩子点)
 inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
-    {"musicxx.app.start", 0, 3},
-    {"musicxx.app.ready", 0, 3},
-    {"musicxx.app.background", 0, 3},
-    {"musicxx.app.foreground", 0, 3},
-    {"musicxx.app.exit", 1, 1},
-    {"musicxx.app.deepLink", 1, 1},
-    {"musicxx.app.upgrade", 0, 3},
-    {"musicxx.player.beforePlaySong", 1, 1},
-    {"musicxx.player.source.beforeParse", 1, 0},
-    {"musicxx.player.source.resolved", 0, 3},
-    {"musicxx.player.source.resolve", 1, 0},
-    {"musicxx.player.beforeOpen", 1, 0},
-    {"musicxx.player.state", 0, 3},
-    {"musicxx.player.position", 0, 3},
-    {"musicxx.player.seek", 1, 1},
-    {"musicxx.player.volume", 1, 1},
-    {"musicxx.player.speed", 1, 1},
-    {"musicxx.player.pitch", 1, 1},
-    {"musicxx.player.error", 1, 1},
-    {"musicxx.player.completed", 0, 3},
-    {"musicxx.player.qualityChanged", 0, 3},
-    {"musicxx.media.notification", 1, 3},
-    {"musicxx.song.changed", 0, 3},
-    {"musicxx.song.info.analyse", 1, 0},
-    {"musicxx.song.meta.writeback", 0, 3},
-    {"musicxx.song.beforeAdd", 1, 1},
-    {"musicxx.song.removed", 0, 3},
-    {"musicxx.playlist.loaded", 0, 3},
-    {"musicxx.playlist.filter", 1, 2},
-    {"musicxx.songlist.filter", 1, 2},
-    {"musicxx.history.record", 0, 3},
-    {"musicxx.local.scan.file", 1, 1},
-    {"musicxx.local.scan.finished", 0, 3},
-    {"musicxx.lyric.load.before", 1, 0},
-    {"musicxx.lyric.loaded", 0, 3},
-    {"musicxx.lyric.transform", 1, 2},
-    {"musicxx.lyric.current", 0, 3},
-    {"musicxx.lyric.searchStr", 1, 0},
-    {"musicxx.lyric.provider", 1, 0},
-    {"musicxx.icon.request", 1, 0},
-    {"musicxx.icon.generated", 0, 3},
-    {"musicxx.media.info.request", 1, 0},
-    {"musicxx.media.wave.ready", 0, 3},
-    {"musicxx.media.chorus.analysed", 0, 3},
-    {"musicxx.media.spectrum.extract", 1, 0},
-    {"musicxx.media.chorus.analyse", 1, 0},
-    {"musicxx.media.palette.provide", 1, 0},
-    {"musicxx.media.cover.changed", 0, 3},
-    {"musicxx.net.request.before", 1, 1},
-    {"musicxx.net.response.after", 0, 3},
-    {"musicxx.net.server.route", 1, 0},
-    {"musicxx.net.mcp.tools", 1, 2},
-    {"musicxx.net.lan.event", 0, 3},
-    {"musicxx.download.before", 1, 1},
-    {"musicxx.download.completed", 0, 3},
-    {"musicxx.cache.beforeTrim", 1, 1},
-    {"musicxx.cache.pathRequest", 1, 0},
-    {"musicxx.ui.home.entries", 1, 2},
-    {"musicxx.ui.song.actions", 1, 2},
-    {"musicxx.ui.playlist.actions", 1, 2},
-    {"musicxx.ui.route.resolve", 1, 0},
-    {"musicxx.ui.page.enter", 0, 3},
-    {"musicxx.ui.page.leave", 0, 3},
-    {"musicxx.ui.theme.changed", 0, 3},
-    {"musicxx.ui.notify", 1, 1},
-    {"musicxx.ui.user.action", 0, 3},
-    {"musicxx.script.bound", 0, 3},
-    {"musicxx.script.disposed", 0, 3},
-    {"musicxx.script.action.executed", 0, 3},
-    {"musicxx.clocking.tick", 0, 3},
-    {"musicxx.listenTogether.event", 0, 3},
-    {"musicxx.feature.point.call", 1, 0},
+    {"musicxx.app.start", 0, 3, 1u},
+    {"musicxx.app.ready", 0, 3, 1u},
+    {"musicxx.app.background", 0, 3, 1u},
+    {"musicxx.app.foreground", 0, 3, 1u},
+    {"musicxx.app.exit", 1, 1, 1u},
+    {"musicxx.app.deepLink", 1, 1, 1u},
+    {"musicxx.app.upgrade", 0, 3, 1u},
+    {"musicxx.player.beforePlaySong", 1, 1, 1u},
+    {"musicxx.player.source.beforeParse", 1, 0, 1u},
+    {"musicxx.player.source.resolved", 0, 3, 1u},
+    {"musicxx.player.source.resolve", 1, 0, 1u},
+    {"musicxx.player.beforeOpen", 1, 0, 1u},
+    {"musicxx.player.state", 0, 3, 1u},
+    {"musicxx.player.position", 0, 3, 1u},
+    {"musicxx.player.seek", 1, 1, 1u},
+    {"musicxx.player.volume", 1, 1, 1u},
+    {"musicxx.player.speed", 1, 1, 1u},
+    {"musicxx.player.pitch", 1, 1, 1u},
+    {"musicxx.player.error", 1, 1, 1u},
+    {"musicxx.player.completed", 0, 3, 1u},
+    {"musicxx.player.qualityChanged", 0, 3, 1u},
+    {"musicxx.media.notification", 1, 3, 1u},
+    {"musicxx.song.changed", 0, 3, 1u},
+    {"musicxx.song.info.analyse", 1, 0, 1u},
+    {"musicxx.song.meta.writeback", 0, 3, 1u},
+    {"musicxx.song.beforeAdd", 1, 1, 1u},
+    {"musicxx.song.removed", 0, 3, 1u},
+    {"musicxx.playlist.loaded", 0, 3, 1u},
+    {"musicxx.playlist.filter", 1, 2, 1u},
+    {"musicxx.songlist.filter", 1, 2, 1u},
+    {"musicxx.history.record", 0, 3, 1u},
+    {"musicxx.local.scan.file", 1, 1, 1u},
+    {"musicxx.local.scan.finished", 0, 3, 1u},
+    {"musicxx.lyric.load.before", 1, 0, 1u},
+    {"musicxx.lyric.loaded", 0, 3, 1u},
+    {"musicxx.lyric.transform", 1, 2, 1u},
+    {"musicxx.lyric.current", 0, 3, 1u},
+    {"musicxx.lyric.searchStr", 1, 0, 1u},
+    {"musicxx.lyric.provider", 1, 0, 1u},
+    {"musicxx.icon.request", 1, 0, 1u},
+    {"musicxx.icon.generated", 0, 3, 1u},
+    {"musicxx.media.info.request", 1, 0, 1u},
+    {"musicxx.media.wave.ready", 0, 3, 1u},
+    {"musicxx.media.chorus.analysed", 0, 3, 1u},
+    {"musicxx.media.spectrum.extract", 1, 0, 1u},
+    {"musicxx.media.chorus.analyse", 1, 0, 1u},
+    {"musicxx.media.palette.provide", 1, 0, 1u},
+    {"musicxx.media.cover.changed", 0, 3, 1u},
+    {"musicxx.net.request.before", 1, 1, 1u},
+    {"musicxx.net.response.after", 0, 3, 1u},
+    {"musicxx.net.server.route", 1, 0, 1u},
+    {"musicxx.net.mcp.tools", 1, 2, 1u},
+    {"musicxx.net.lan.event", 0, 3, 1u},
+    {"musicxx.download.before", 1, 1, 1u},
+    {"musicxx.download.completed", 0, 3, 1u},
+    {"musicxx.cache.beforeTrim", 1, 1, 1u},
+    {"musicxx.cache.pathRequest", 1, 0, 1u},
+    {"musicxx.ui.home.entries", 1, 2, 1u},
+    {"musicxx.ui.song.actions", 1, 2, 1u},
+    {"musicxx.ui.playlist.actions", 1, 2, 1u},
+    {"musicxx.ui.route.resolve", 1, 0, 1u},
+    {"musicxx.ui.page.enter", 0, 3, 1u},
+    {"musicxx.ui.page.leave", 0, 3, 1u},
+    {"musicxx.ui.theme.changed", 0, 3, 1u},
+    {"musicxx.ui.notify", 1, 1, 1u},
+    {"musicxx.ui.user.action", 0, 3, 1u},
+    {"musicxx.script.bound", 0, 3, 1u},
+    {"musicxx.script.disposed", 0, 3, 1u},
+    {"musicxx.script.action.executed", 0, 3, 1u},
+    {"musicxx.clocking.tick", 0, 3, 1u},
+    {"musicxx.listenTogether.event", 0, 3, 1u},
+    {"musicxx.feature.point.call", 1, 0, 1u},
 };
 
 /// 已知钩子条目数
