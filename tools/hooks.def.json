@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "钩子的单一定义来源（动作名与权限清单不在这里，见 docs/plugin-js-api.md 与 docs/plugin-native-api.md）。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头与插件作者文档；改动后必须重新生成并提交生成物。doc 字段会写进 Dart 枚举注释与作者文档：主程序已经接入的钩子（wired: true）在这里写清载荷字段与裁决语义，其余保持空。",
+  "comment": "钩子的单一定义来源（动作名与权限清单不在这里，见 docs/plugin-js-api.md 与 docs/plugin-native-api.md）。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头与插件作者文档；改动后必须重新生成并提交生成物。doc 字段会写进 Dart 枚举注释与作者文档：主程序已经接入的钩子（wired: true）在这里写清载荷字段与裁决语义，其余保持空。\n\n阶段（phases）：钩子 id 表示**一次调用**，参与方式（before / impl / after）由注册时的 phase 表达 —— 不再用 .before / .after 后缀造新 id。不写 phases = [\"impl\"]。前链（before）串行、**正序**（线头外置 → 内置 → 应用自身），只能改输入或停下；实现链（impl）第一个合法结果生效；后链（after）串行、**逆序**（应用自身 → 内置 → 外置），只能改输出或丢弃。后链逆序是刻意的：外置插件最后改输出，应用自己的兜底实现不能盖掉插件的改写。只声明真的会派发的阶段（注册了不派发等于给插件一个\"注册成功但永远不触发\"的坑）；包装点（网络请求 / 下载 / 歌单读取）可以没有 impl（实现固定是应用自己）。",
   "hooks": [
     { "id": "musicxx.app.start", "dart": "appStart", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "wired": true, "doc": "载荷 `{version, platform, branch, installId, lang}`。主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事，观察型没有裁决。" },
     { "id": "musicxx.app.ready", "dart": "appReady", "mode": "observe", "policy": "lastWrite", "dispatch": "async", "wired": true, "doc": "载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后派发一次（比 `app.start` 晚），观察型。" },
