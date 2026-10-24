@@ -66,6 +66,12 @@ static inline uint32_t musicxxPluginHookPhaseMask(int32_t phase) {
 #define MUSICXX_PLUGIN_HOOK_LOCAL_SCAN_FILE "musicxx.local.scan.file"
 #define MUSICXX_PLUGIN_HOOK_LOCAL_SCAN_FINISHED "musicxx.local.scan.finished"
 #define MUSICXX_PLUGIN_HOOK_LYRIC_CURRENT "musicxx.lyric.current"
+#define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD "musicxx.lyric.load"
+#define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_MUSICXX_SERVER "musicxx.lyric.load.musicxx_server"
+#define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_CACHE "musicxx.lyric.load.cache"
+#define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_BUILTIN "musicxx.lyric.load.builtin"
+#define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_BUILTOUT "musicxx.lyric.load.builtout"
+#define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_MATCH "musicxx.lyric.load.match"
 #define MUSICXX_PLUGIN_HOOK_ICON_FETCH "musicxx.icon.fetch"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_INFO_REQUEST "musicxx.media.info.request"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_SPECTRUM_EXTRACT "musicxx.media.spectrum.extract"
@@ -142,6 +148,12 @@ inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
     {"musicxx.local.scan.file", 1, 1, 1u},
     {"musicxx.local.scan.finished", 0, 3, 1u},
     {"musicxx.lyric.current", 0, 3, 1u},
+    {"musicxx.lyric.load", 1, 0, 7u},
+    {"musicxx.lyric.load.musicxx_server", 1, 0, 7u},
+    {"musicxx.lyric.load.cache", 1, 0, 7u},
+    {"musicxx.lyric.load.builtin", 1, 0, 7u},
+    {"musicxx.lyric.load.builtout", 1, 0, 7u},
+    {"musicxx.lyric.load.match", 1, 0, 7u},
     {"musicxx.icon.fetch", 1, 0, 7u},
     {"musicxx.media.info.request", 1, 0, 1u},
     {"musicxx.media.spectrum.extract", 1, 0, 1u},
