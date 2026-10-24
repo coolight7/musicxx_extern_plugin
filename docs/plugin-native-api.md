@@ -543,6 +543,16 @@ std::string out;
 netCall(net_op::httpServe, R"({"id":"api","port":0})", out);
 // out = {"ok":true,"id":"api","host":"127.0.0.1","port":52341,"url":"http://127.0.0.1:52341"}
 
+// 静态内容：命中后由框架直接回 200 / 206 / 416，不进 `http.request`
+// （也是“把播放器打不开的东西变成 http 地址”的短路径）
+netCall(net_op::httpRoute,
+        R"({"serverId":"api","file":"D:/music/a.mp3","fileName":"a.mp3"})",
+        out);
+// out = {"ok":true,"serverId":"api","path":"/f/<token>/a.mp3",
+//        "url":"http://127.0.0.1:52341/f/<token>/a.mp3","size":123456,"reused":false,…}
+// 起来时一次挂好几条：httpServe 的 "static": [{file|bytes, path?, contentType?, fileName?}]
+// 只摘一条用 httpUnroute（{"serverId","path"}）
+
 // 订阅本插件的网络事件（主题 plugin.<插件id>.net）
 // 处理器在插件框架线程执行，不能阻塞；netCall 在这里调是安全的。
 netSubscribe([](std::string_view eventJson) {
@@ -582,7 +592,7 @@ netCallAsync(net_op::httpDownload,
 要点：
 
 - **表可能为空**（旧插件框架库）：先判 `netAvailable()`；没有就降级（继续用动作
-  `musicxx.net.fetch` + 本地 HTTP 文件服务 `musicxx.net.serveFile` 那一套）。
+  `musicxx.net.fetch`，或者直接给播放器本地路径）。
 - **服务端默认只监听 `127.0.0.1`**，端口写 `0` 由系统分配；要同网段可访问显式写
   `host: "0.0.0.0"`。
 - **客户端支持 `http://` / `https://` / `ws://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成

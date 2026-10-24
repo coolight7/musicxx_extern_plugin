@@ -369,7 +369,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
-| `musicxx.net` | `fetch(options)` `download(options)` `serveFile(path, options?)` `serveBytes(data, options?)` `serverInfo()` `stopServer()` |
+| `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent(fn)` `http.*` `socket.*` `ws.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
 | `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()` |
@@ -427,30 +427,47 @@ const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a
 // file = { ok, status, path, bytes }，落在 <dataDir>/<插件id>/data/downloads/ 里
 ```
 
-### 7.3.1 本地 HTTP 文件服务（把播放器打不开的东西变成 http 地址）
+### 7.3.1 静态内容（把播放器打不开的东西变成 http 地址）
 
 > 参数、返回、只监听回环的安全边界、Range / 生命周期 / 容量与旧版本降级，
-> 见 [plugin-api.md](plugin-api.md) §3.2.6「本地 HTTP 文件服务」。这里只给 JS 的用法。
+> 见 [plugin-api.md](plugin-api.md) §3.2.6「静态内容（`static` / `http.route`）」。这里只给 JS 的用法。
 
 ```js
-// 登记本地文件（同步）：同一个文件重复登记拿回同一个 URL
-const served = musicxx.net.serveFile("D:/music/a.mp3", { fileName: "a.mp3" });
-// { ok, url: "http://127.0.0.1:52341/f/<token>/a.mp3", size, mtimeMs, reused }
+// 起一个只发静态内容的服务（纯文件服务都该给 staticOnly，没命中的请求直接 404）
+const server = musicxx.net.http.serve({ id: "files", port: 0, staticOnly: true });
 
-// 登记一段内容（同步）：HLS 播放列表、转码后的小段这类小文件
-const list = musicxx.net.serveBytes("#EXTM3U\nseg0.ts\n", {
-    contentType: "application/vnd.apple.mpegurl", fileName: "list.m3u8",
+// 挂本地文件：同一个文件重复登记拿回同一个 URL
+const served = musicxx.net.http.route({
+    serverId: server.id, file: "D:/music/a.mp3", fileName: "a.mp3",
+});
+// { ok, serverId, path: "/f/<token>/a.mp3", url: "http://127.0.0.1:52341/f/<token>/a.mp3",
+//   size, mtimeMs, contentType, fileName, reused }
+
+// 挂一段内容：HLS 播放列表、转码后的小段这类小文件
+const list = musicxx.net.http.route({
+    serverId: server.id,
+    bytes: "#EXTM3U\nseg0.ts\n",
+    contentType: "application/vnd.apple.mpegurl",
+    fileName: "list.m3u8",
 });
 
-musicxx.net.serverInfo();   // { ok, running, url, port, files, requests, bytesServed }
-musicxx.net.stopServer();   // 提前关掉（插件停用 / 卸载时插件框架会自动关）
+// 一次挂几条也可以在起服务时给
+const hls = musicxx.net.http.serve({
+    id: "hls", port: 0, staticOnly: true,
+    static: [{ bytes: "#EXTM3U\nseg0.ts\n", fileName: "index.m3u8" }],
+});
+hls.routes[0].url;                                          // 挂好的地址
+musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });  // 摘掉一条
+musicxx.net.http.stop(hls.id);                               // 关掉整个服务
+musicxx.net.http.info();                                     // 每个服务带 routes
 ```
 
-- **同步调用**：只往登记表里加一条映射，不发网络请求；服务在第一次登记时惰性启动。
-- 旧插件框架没有这四个接口：先看 `typeof musicxx.net.serveFile === "function"`，没有就自己降级
-  （例如直接返回本地路径 `kind:"file"`）。
-- 这套机制就是"代理"：用 `musicxx.net.fetch / download` 取到的数据也可以先落盘再 `serveFile`、
-  小内容直接 `serveBytes`，播放器只看到干净的 `http://127.0.0.1:...`。
+- **命中静态路由的请求不进 `http.onRequest`**（由框架直接回 200 / 206 / 416），所以不用写处理器；
+  没命中且开了 `staticOnly` 就回 404。
+- 老版本的插件框架没有 `http.route`：先看 `typeof musicxx.net.http.route === "function"`，
+  没有就自己降级（例如直接返回本地路径 `kind:"file"`）。
+- 这套机制就是"代理"：用 `musicxx.net.fetch / download` 取到的数据也可以先落盘再 `route`（给
+  `file`）、小内容直接给 `bytes`，播放器只看到干净的 `http://127.0.0.1:...`。
   完整例子见 `plugins/example_override_media_source`（`plugin_proxy_local` 音源）。
 
 #### 内置网络能力（`musicxx.net.http / socket / ws`）
@@ -469,6 +486,8 @@ musicxx.net.http.onRequest((req) => {
 const httpServer = musicxx.net.http.serve({ port: 0, path: "/api" }); // {ok,id,host,port,url}
 const resp = await musicxx.net.http.request({ url: httpServer.url + "/ping?x=1" });
 musicxx.net.http.stop(httpServer.id);
+
+// 静态内容与上面是同一个服务：http.serve({static:[…]}) / http.route / http.unroute（见 §7.3.1）
 
 /* TCP（客户端与服务端共用一个连接事件表） */
 let serverConnId = "";
@@ -511,7 +530,7 @@ musicxx.net.ws.send("w1", "ping");
   （缺省 30 s）后回 504 并关连接。
 - **二进制**统一用 `dataBase64`；文本帧 / 合法 UTF-8 的 TCP 字节额外给 `text`。
 - 没有这套能力的旧插件框架：先判 `typeof musicxx.net.http === "object"`，没有就降级
-  （例如继续用 `musicxx.net.fetch` + `serveBytes`）。
+  （例如继续用 `musicxx.net.fetch`，或者直接返回本地路径）。
 
 完整示例：`plugins/example_js_net`（载入后自动跑 HTTP / TCP / WebSocket 自检，日志里能直接看到结果；
 也可以调它的 `selftest` / `status` / `info` 能力）。

@@ -8,7 +8,8 @@
 /// 2. `pluginType = plugin.<插件 id>.plugin_bili`（本插件声明的音源）：`src` 里写 BV 号，
 ///    用同一份逻辑解析；
 /// 3. `pluginType = plugin.<插件 id>.plugin_proxy_local`（本插件声明的音源）：`src` 里写本地
-///    文件路径，由插件框架的本地 HTTP 文件服务给播放器一个 `http://127.0.0.1:...` 地址。
+///    文件路径，由插件框架的 HTTP 服务（`musicxx.net.http.serve` + `http.route`）给播放器
+///    一个 `http://127.0.0.1:...` 地址。
 ///
 /// 三条路各自有开关（插件目录里的 `config.json`，设置页里是三个开关），关掉即回退：
 /// 1、2 关掉后不接管（主程序自己的解析照旧），3 关掉后该来源解析失败。
@@ -366,16 +367,51 @@ function biliAnswer(result) {
 
 /* ==================== 本地文件 → HTTP 地址 ==================== */
 
-/// 把本地文件登记到插件框架的本地 HTTP 服务，回答一个 `http://127.0.0.1:...` 地址
+/// 代理用的 HTTP 服务 id（一个插件一个固定服务，静态路由都挂在它上面）
+const PROXY_SERVER_ID = PLUGIN_ID + ".proxy";
+
+/// 错误对象里的一句话（`message` 优先，再退 `error`）
+function failureText(result) {
+    if (!result) {
+        return "unknown";
+    }
+    const text = result.message || result.error;
+    return (typeof text === "string" && text !== "") ? text : "unknown";
+}
+
+/// 取代理服务；没有就起一个（`http.info` 里能看到自己起过哪些服务）
+function ensureProxyServer() {
+    if (!musicxx.net || !musicxx.net.http) {
+        return {ok: false, error: "runtime_unsupported", message: "插件框架没有网络能力"};
+    }
+    const info = musicxx.net.http.info();
+    const servers = (info && info.servers) || [];
+    for (let i = 0; i < servers.length; i++) {
+        const item = servers[i];
+        if (item && item.id === PROXY_SERVER_ID) {
+            return {ok: true, id: PROXY_SERVER_ID, url: item.url || ""};
+        }
+    }
+    return musicxx.net.http.serve({
+        id: PROXY_SERVER_ID,
+        host: "127.0.0.1",
+        port: 0,
+        // 这个服务只用来发文件: 没命中路由就 404, 不用等插件回答
+        staticOnly: true,
+    });
+}
+
+/// 给一个本地文件挂一条静态路由，回答一个 `http://127.0.0.1:...` 地址
 ///
 /// 为什么要绕一道 HTTP：插件框架的 JS 运行时没有 socket，但**播放器只认 http(s) 与本地文件**。
 /// 有了这一层，插件就能把"播放器不支持的东西"变成普通 HTTP：
 /// - 本地文件（本示例）；
-/// - 插件用 `musicxx.net.fetch / download` 取到的远端数据（先落盘再 `serveFile`，小内容用 `serveBytes`）；
+/// - 插件用 `musicxx.net.fetch / download` 取到的远端数据（先落盘再登记，小内容直接给 `bytes`）；
 /// - FTP / 自定义协议（插件取流后转发）；
-/// - HLS 播放列表与分片、转码后的小段（`serveBytes`）。
+/// - HLS 播放列表与分片、转码后的小段（用 `bytes` 给）。
 ///
-/// 旧版插件框架没有这个 API：退化为直接返回本地路径（`kind: "file"`），播放器自己读文件。
+/// 命中静态路由的请求由插件框架直接回答（200 / 206 / 416），不会走到 `http.onRequest`。
+/// 旧版插件框架没有网络能力：退化为直接返回本地路径（`kind: "file"`），播放器自己读文件。
 function answerProxyLocal(rawPath) {
     const path = normalizeLocalPath(rawPath);
     if (!path) {
@@ -383,14 +419,18 @@ function answerProxyLocal(rawPath) {
         return null;
     }
     stats.proxyCalls += 1;
-    if (!musicxx.net || typeof musicxx.net.serveFile !== "function") {
-        noteError("插件框架没有本地 HTTP 服务，改为直接读本地文件");
+    const server = ensureProxyServer();
+    if (!server || server.ok !== true) {
+        noteError("起本地 HTTP 服务失败: " + failureText(server));
         return {patch: {src: {path: path, kind: "file"}}};
     }
-    const served = musicxx.net.serveFile(path, {fileName: basename(path)});
+    const served = musicxx.net.http.route({
+        serverId: server.id,
+        file: path,
+        fileName: basename(path),
+    });
     if (!served || served.ok !== true) {
-        noteError("登记本地文件失败: " +
-            ((served && (served.message || served.error)) ? (served.message || served.error) : "unknown"));
+        noteError("登记本地文件失败: " + failureText(served));
         return null;
     }
     stats.lastServedUrl = served.url || "";
@@ -454,7 +494,7 @@ musicxx.hooks.register("musicxx.player.source.resolve", {
         });
     }
 
-    // 3) 本地文件 → 插件框架的本地 HTTP 文件服务
+    // 3) 本地文件 → 插件 HTTP 服务的静态路由
     if (pluginType === TYPE_PROXY_LOCAL && settingOf("proxyLocalEnabled")) {
         return answerProxyLocal(src);
     }
@@ -485,7 +525,7 @@ function declareSourceTypes() {
     musicxx.call("musicxx.source.define", {
         id: TYPE_PROXY_LOCAL,
         title: "本地文件（HTTP 代理）",
-        depict: "地址里写本地文件路径，插件通过本地 HTTP 文件服务给播放器一个 http 地址",
+        depict: "地址里写本地文件路径，插件把它挂到自己的 HTTP 服务上，播放器拿到一个 http 地址",
         srcDoc: "D:/music/a.mp3 或 file:///D:/music/a.mp3",
     }).then(function (result) {
         if (!result || result.ok !== true) {
@@ -505,6 +545,21 @@ function viewEnv(args) {
     return null;
 }
 
+/// 设置页上的本地服务一行（端口 / 挂了几条静态路由）
+function proxyServerText() {
+    const info = musicxx.net && musicxx.net.http ? musicxx.net.http.info() : null;
+    const servers = (info && info.servers) || [];
+    for (let i = 0; i < servers.length; i++) {
+        const item = servers[i];
+        if (!item || item.id !== PROXY_SERVER_ID) {
+            continue;
+        }
+        const routes = item.routes || [];
+        return "端口 " + String(item.port) + " · 登记 " + String(routes.length) + " 条";
+    }
+    return "未启动（还没有人用过本地代理）";
+}
+
 /// 设置页（也是主页入口打开的页面）
 ///
 /// `override` 用于在"刚点了开关、异步写入还没回来"时先按新值画一次；
@@ -521,13 +576,7 @@ function settingsView(args, override) {
         ? override.proxyLocalEnabled
         : settingOf("proxyLocalEnabled");
     const lastError = stats.lastError === "" ? "没有错误" : stats.lastError;
-    const server = (musicxx.net && typeof musicxx.net.serverInfo === "function")
-        ? musicxx.net.serverInfo()
-        : { ok: false, running: false };
-    const serverText = server.running
-        ? ("端口 " + String(server.port) + " · 登记 " + String(server.files) +
-           " 个 · 请求 " + String(server.requests) + " 次")
-        : "未启动（还没有人用过本地代理）";
+    const serverText = proxyServerText();
     return {
         title: "音源解析示例",
         subtitle: "插件参与音源解析的三条路",
@@ -566,13 +615,13 @@ function settingsView(args, override) {
             kit.switchRow({
                 id: "proxyLocalEnabled",
                 title: "本地文件走 HTTP（plugin_proxy_local）",
-                depict: "地址写 plugin.<插件 id>.plugin_proxy_local://<本地路径>，播放时由插件框架的本地 HTTP 服务把文件流给播放器（支持 Range）",
+                depict: "地址写 plugin.<插件 id>.plugin_proxy_local://<本地路径>，播放时由插件框架的 HTTP 服务把文件流给播放器（支持 Range）",
                 value: proxyLocal,
                 action: "setSwitch",
             }, env),
             kit.listRow({
                 title: "本地 HTTP 服务",
-                subtitle: "只监听 127.0.0.1，地址里只有随机 token",
+                subtitle: "只监听 127.0.0.1，路由路径里只有随机 token",
                 trailing: serverText,
             }, env),
             kit.listRow({
@@ -659,18 +708,21 @@ musicxx.capability.register("playCustomSrc", function (args) {
     return {view: settingsView(args, null)};
 });
 
-/// 自检能力：把一段文本登记到本地 HTTP 服务
+/// 自检能力：把一段文本挂到本地 HTTP 服务
 ///
-/// 用处有两个：演示 `musicxx.net.serveBytes`（HLS 播放列表、转码后的小段就是这样给的）；
+/// 用处有两个：演示 `http.route` 的 `bytes` 形态（HLS 播放列表、转码后的小段就是这样给的）；
 /// 以及在命令行里用 `curl` 验证服务真的在跑（返回的 `url` 直接 GET）。
 musicxx.capability.register("serveText", function (args) {
     const text = (args && typeof args.text === "string")
         ? args.text
         : "musicxx plugin http server\n";
-    if (!musicxx.net || typeof musicxx.net.serveBytes !== "function") {
-        return { ok: false, error: "runtime_unsupported" };
+    const server = ensureProxyServer();
+    if (!server || server.ok !== true) {
+        return { ok: false, error: "serve_failed", message: failureText(server) };
     }
-    return musicxx.net.serveBytes(text, {
+    return musicxx.net.http.route({
+        serverId: server.id,
+        bytes: text,
         contentType: "text/plain; charset=utf-8",
         fileName: "hello.txt",
     });
@@ -678,9 +730,21 @@ musicxx.capability.register("serveText", function (args) {
 
 /// 自检能力：测试与命令行用它回读设置、计数与最近错误
 musicxx.capability.register("probe", function () {
-    const server = (musicxx.net && typeof musicxx.net.serverInfo === "function")
-        ? musicxx.net.serverInfo()
-        : { ok: false, running: false };
+    const info = musicxx.net && musicxx.net.http ? musicxx.net.http.info() : null;
+    const servers = (info && info.servers) || [];
+    let proxyServer = {running: false};
+    for (let i = 0; i < servers.length; i++) {
+        const item = servers[i];
+        if (item && item.id === PROXY_SERVER_ID) {
+            proxyServer = {
+                running: true,
+                id: item.id,
+                port: item.port,
+                url: item.url || "",
+                routes: item.routes || [],
+            };
+        }
+    }
     return {
         pluginId: PLUGIN_ID,
         configLoaded: configLoaded,
@@ -696,7 +760,7 @@ musicxx.capability.register("probe", function () {
             proxyCalls: stats.proxyCalls,
             lastServedUrl: stats.lastServedUrl,
         },
-        server: server,
+        server: proxyServer,
         lastError: stats.lastError,
         sourceTypes: {
             bili: TYPE_PLUGIN_BILI,

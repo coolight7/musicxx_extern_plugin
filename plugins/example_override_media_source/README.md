@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（钩子载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
 | 2 | `plugin.<插件 id>.plugin_bili`（插件音源类型） | BV 号，例 `type = "plugin.…plugin_bili"` + `src = "BV1GJ411x7h7"` | 同一份 B 站直链 + 请求头 |
-| 3 | `plugin.<插件 id>.plugin_proxy_local`（插件音源类型） | 本地文件路径，例 `type = "plugin.…plugin_proxy_local"` + `src = "D:/music/a.mp3"` | `http://127.0.0.1:<端口>/f/<token>`（插件框架的本地 HTTP 文件服务） |
+| 3 | `plugin.<插件 id>.plugin_proxy_local`（插件音源类型） | 本地文件路径，例 `type = "plugin.…plugin_proxy_local"` + `src = "D:/music/a.mp3"` | `http://127.0.0.1:<端口>/f/<token>`（插件 HTTP 服务的静态路由） |
 
 ## 文件与开关
 
@@ -124,16 +124,27 @@ JS 运行时里**没有任何 socket / 文件 API**，而播放器只认 `http(s
 要把"播放器打不开的东西"交给它，必须有东西在本地监听一个端口 —— 那是插件框架内置的能力：
 
 ```js
-musicxx.net.serveFile(path, { fileName, contentType })   // → { ok, url, size, mtimeMs, reused }
-musicxx.net.serveBytes(text, { encoding, contentType, fileName })
-musicxx.net.serverInfo()   // { ok, running, url, port, files, requests, bytesServed }
-musicxx.net.stopServer()
+// 起一个只发静态内容的服务（staticOnly：没命中的请求直接 404，不去等插件回答）
+const server = musicxx.net.http.serve({ id: "files", port: 0, staticOnly: true });
+
+// 挂一条：本地文件 / 一段内容（≤ 8 MiB）
+const routed = musicxx.net.http.route({
+    serverId: server.id, file: path, fileName: name,
+});
+// { ok, serverId, path, url, size, mtimeMs, contentType, fileName, reused }
+
+// 也可以在起服务时一次挂好，或摘掉某一条
+musicxx.net.http.serve({ id: "hls", port: 0, staticOnly: true,
+    static: [{ bytes: "#EXTM3U\nseg0.ts\n", fileName: "index.m3u8" }] });
+musicxx.net.http.unroute({ serverId: server.id, path: routed.path });
+musicxx.net.http.info();   // 服务快照（每个服务带 routes）
 ```
 
-本示例的 `answerProxyLocal()` 只做三步：去掉 `file://` 前缀并归一路径 → `serveFile` → 回答地址：
+本示例的 `answerProxyLocal()` 只做三步：去掉 `file://` 前缀并归一路径 → 取（或起）代理服务 →
+`http.route` → 回答地址：
 
 ```js
-return { patch: { src: { path: served.url, kind: "url", size: served.size } } };
+return { patch: { src: { path: routed.url, kind: "url", size: routed.size } } };
 ```
 
 `src` 里可以写（两种都认）：
@@ -146,13 +157,15 @@ file:///D:/music/a.mp3
 ### 服务长什么样
 
 - 只监听 `127.0.0.1`，端口由系统分配（不固定、不开放局域网）；
-- URL 里是 128 bit 随机 token：服务端**按 token 查表**，不解析路径，拿到 URL 也读不到别的文件；
-- 支持 `GET` / `HEAD` 与**单段 `Range`**（`206` + `Content-Range`，越界 `416`）—— 播放器拖动进度靠它，
-  否则会退化成整段重下；文件按 64 KiB 边读边写，不进内存；
-- 同一个文件重复登记返回同一个 URL；登记上限 1024 条（淘汰最旧）、并发连接上限 32；
-- 跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机时自动关掉，端口立即释放。
+- 自动生成的路径里是 128 bit 随机 token：服务端**按路径查表**，不解析路径，拿到 URL 也读不到
+  路由以外的文件；
+- **命中静态路由的请求不进插件**：框架直接回 `200` / `206` / `416`（支持 `GET` / `HEAD` 与
+  **单段 `Range`**，越界 `416`）—— 播放器拖动进度靠它，否则会退化成整段重下；
+  文件按 64 KiB 边读边写，不进内存；
+- 同一个文件重复登记返回同一个 URL；每个服务路由上限 1024 条、服务上限 8、连接上限 64；
+- 跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机时一起关掉，端口立即释放。
 
-旧版插件框架没有这四个接口：示例会退化为直接返回本地路径（`kind: "file"`），写一条警告，
+旧版插件框架没有 `http.route`：示例会退化为直接返回本地路径（`kind: "file"`），写一条警告，
 Play 仍然能放（播放器自己读文件），只是不再经过 HTTP。
 
 ### 手动验证
@@ -162,16 +175,16 @@ Play 仍然能放（播放器自己读文件），只是不再经过 HTTP。
 musicxx-cli call musicxx.player.playSrc --args '{"src":"D:/music/a.mp3","type":"plugin.example_override_media_source.plugin_proxy_local"}'
 ```
 
-设置页会显示服务状态（端口 / 登记数 / 请求数）；也可以用 `curl` 直接验：
+设置页会显示服务状态（端口 / 登记了几条路由）；也可以用 `curl` 直接验：
 
 ```bash
 curl -I  "http://127.0.0.1:<端口>/f/<token>/a.mp3"              # 200 + Content-Length + Accept-Ranges
 curl -H "Range: bytes=0-1023" "http://127.0.0.1:<端口>/f/<token>/a.mp3"   # 206 + Content-Range
-curl "http://127.0.0.1:<端口>/f/deadbeef/a.mp3"                  # 404（只按 token 查表）
+curl "http://127.0.0.1:<端口>/f/deadbeef/a.mp3"                  # 404（只按路径查表）
 ```
 
 地址从哪里来：设置页的「本地代理」计数旁边就是最近一次登记的地址，或者用能力 `serveText`
-（`musicxx.capability.call` 调 `serveText({text})`）随地验一下 `serveBytes`。
+（`musicxx.capability.call` 调 `serveText({text})`）随地验一下 `http.route` 的 `bytes` 形态。
 
 ### 这套机制还能做什么（重点）
 
@@ -179,14 +192,14 @@ curl "http://127.0.0.1:<端口>/f/deadbeef/a.mp3"                  # 404（只�
 
 | 场景 | 怎么做 |
 |---|---|
-| **代理外部网络** | `musicxx.net.fetch/download` 取数据 → 小内容 `serveBytes`，大文件 `download` 落盘再 `serveFile` |
+| **代理外部网络** | `musicxx.net.fetch/download` 取数据 → 小内容给 `http.route` 的 `bytes`，大文件 `download` 落盘再给 `file` |
 | **播放器不支持的协议**（FTP / SFTP / 私有协议） | 插件自己取流（或先落盘）→ 转成 HTTP 给播放器 |
-| **格式 / 容器转换** | 插件转码后的产物 `serveFile`；HLS 的 `m3u8` 用 `serveBytes`、分片用 `serveFile` |
+| **格式 / 容器转换** | 插件转码后的产物给 `file`；HLS 的 `m3u8` 用 `bytes`、分片用 `file` |
 | **统一鉴权 / 请求头** | Cookie、签名、防盗链留在插件里，播放器只看到干净的本地 URL |
-| **边下边播** | 边取边写临时文件，写一段就 `serveFile`（注意：重登同一路径会命中旧登记，改变后要重新登记） |
+| **边下边播** | 边取边写临时文件，写一段就 `route`（注意：同一路径 + 同一大小 + 同一修改时间会命中旧登记，文件变了要重新登记） |
 
-限制也要知道：`serveBytes` 是内存内容（≤ 8 MiB）；服务跟着插件实例（插件卸载即失效）；
-播放器可能并发开多条连接（框架已给 4 条连接线程、上限 32）。
+限制也要知道：`bytes` 是内存内容（单条 ≤ 8 MiB）；服务跟着插件实例（插件卸载即失效）；
+播放器可能并发开多条连接（框架上限 64）。
 
 ## 开发与调试
 
@@ -208,5 +221,5 @@ musicxx-cli plugin logs example_override_media_source --limit 50
 | 插件总入口（选形态 / 第一个插件 / 注意事项） | 包内 `docs/plugin-guide.md` |
 | 钩子总表与 `musicxx.player.source.resolve` 的载荷 / 裁决 | 包内 `docs/plugin-hooks.md` |
 | 音源解析链、插件音源写法、自省命令 | 包内 `docs/plugin-api.md` §3.2.6 / §3.2.15 |
-| 本地 HTTP 文件服务（`musicxx.net.serveFile` 等） | 包内 `docs/plugin-api.md` §3.2.6、`docs/plugin-js-api.md` §7.3.1 |
+| 静态内容路由（`http.serve({static})` / `http.route`） | 包内 `docs/plugin-api.md` §3.2.6、`docs/plugin-js-api.md` §7.3.1 |
 | JS 插件写法（顶层注册、处理器不能等动作） | 包内 `docs/plugin-js-api.md` |

@@ -1968,6 +1968,12 @@ int main(int argc, char **argv) {
       check(report.find("\"fetch\":{") != std::string::npos &&
                 report.find("\"downloadBytes\":") != std::string::npos,
             "fetch / download 由插件框架自己实现并能正常返回");
+      check(report.find("\"static\":{") != std::string::npos &&
+                report.find("\"rangeStatus\":206") != std::string::npos &&
+                report.find("\"beyondStatus\":416") != std::string::npos &&
+                report.find("\"goneStatus\":404") != std::string::npos &&
+                report.find("\"prefixedStatus\":200") != std::string::npos,
+            "静态路由 / 范围请求 / 摘掉路由后的 404 / 带路径前缀 都对");
 
       // 自省: 自检结束会主动关掉服务与连接
       const CapabilityCallOutcome netInfo =

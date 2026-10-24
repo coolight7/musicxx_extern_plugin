@@ -26,8 +26,6 @@
 
 #include "musicxx_host.h"
 
-#include "js_http_server.h"
-
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/abi.h"
 
@@ -177,27 +175,6 @@ public:
   /// 本实例统计 JSON (任意线程; 只读原子字段)
   std::string instanceStatsJson(const std::string &instanceName) const;
 
-  /* ---------- 本地 HTTP 文件服务 (任意线程) ---------- */
-
-  /// 登记一个本地文件, 返回 JSON (`{ok,url,size,mtimeMs,reused}` / `{ok:false,error,message}`)
-  std::string bridgeHttpServeFile(const std::string &instanceName,
-                                  const std::string &path,
-                                  const std::string &contentType,
-                                  const std::string &fileName);
-
-  /// 登记一段内容 (encoding = "base64" 时先解码), 返回 JSON
-  std::string bridgeHttpServeBytes(const std::string &instanceName,
-                                   const std::string &content,
-                                   const std::string &encoding,
-                                   const std::string &contentType,
-                                   const std::string &fileName);
-
-  /// 服务状态 JSON (`{ok:true,running,url,port,files,requests,bytesServed}`)
-  std::string bridgeHttpServerInfo(const std::string &instanceName);
-
-  /// 关闭服务 (端口释放; 幂等)
-  void bridgeHttpStop(const std::string &instanceName);
-
   /* ---------- 网络能力 (musicxx.net 表; 任意线程) ---------- */
 
   /// 同步网络操作 (op + 参数 JSON → 结果 JSON)
@@ -219,10 +196,6 @@ public:
   /// (原生插件的网络事件仍走事件总线: 原生处理器本来就不能阻塞框架线程。)
   void deliverNetEvent(const std::string &pluginId,
                        const std::string &payloadJson);
-
-  /// 取实例的服务 (可选惰性创建); 实例不在了返回空
-  std::shared_ptr<PluginHttpFileServer> httpServerOf(
-      const std::string &instanceName, bool createIfMissing);
 
   /// 某实例的 JS 堆用量 (任意线程; 负数 = 未采样)
   int64_t jsHeapBytesOf(const std::string &instanceName) const;
@@ -364,13 +337,6 @@ public:
 
     /// 裁决型钩子的 Promise 结算次数 (异步裁决)
     std::atomic<int64_t> asyncHookSettled{0};
-
-    /// 本地 HTTP 文件服务 (第一次 `musicxx.net.serveFile/serveBytes` 时创建)
-    ///
-    /// 互斥保护: 服务由 JS 线程取用, 关闭发生在框架线程 (摘注册) 与 JS 线程
-    /// (`musicxx.net.stopServer`), 两边都要能安全地拿到同一个指针。
-    std::mutex httpMutex;
-    std::shared_ptr<PluginHttpFileServer> httpServer;
   };
 
   /* ---------- 插件框架内置插件入口 (C ABI 形态; 插件框架在框架线程调用) ---------- */

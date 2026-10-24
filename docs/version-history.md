@@ -41,11 +41,12 @@ GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<�
 
 | musicxx 版本 | 插件框架版本 | 插件框架提交 | 日期 | 说明 |
 |---|---|---|---|---|
+| 未发布 | 2026.1025.1 | （待补记） | 2026-10-25 | 静态内容并到 HTTP 服务：`http.serve` 的 `static` / `staticOnly` 与新增 op `http.route` / `http.unroute`（命中后由框架直接回 200/206/416，不进 `http.request`）；删掉单独的 JS 本地文件服务（`musicxx.net.serveFile/serveBytes/serverInfo/stopServer`，从未发布） |
 | 未发布 | 2026.1024.3 | （待补记） | 2026-10-24 | 插件网络能力支持客户端 TLS（静态链接 OpenSSL：`https` / `wss`，含证书链与主机名校验、`tlsVerify`/`caFile`/`caPem`/`serverName`；服务端仍只有明文）；新增 op `http.fetch` / `http.download`，JS 的 `musicxx.net.fetch` / `download` 改用它实现 |
 | 未发布 | 2026.1024.2 | （待补记） | 2026-10-24 | 新增插件网络能力 `musicxx.net`（HTTP / TCP / WebSocket 的客户端与服务端，JS 与动态库插件共用）；新增示例 `example_js_net` |
 | 未发布 | 2026.1024.1 | （待补记） | 2026-10-24 | 新增歌词加载钩子 `musicxx.lyric.load` 与五个细分阶段（`musicxx_server` / `cache` / `builtin` / `builtout` / `match`），主程序把原来的歌词加载改成功能埋点；钩子总数 66 |
 | 未发布 | 2026.1023.1 | （待补记） | 2026-10-23 | 钩子阶段机制：一个调用 = 前链 + 实现链 + 后链（后链逆序）；删除 8 条从未派发的 id、合并 4 对成一条钩子的两个阶段；钩子总数 60 |
-| 未发布 | 2026.1019.1 | 36e4b85 | 2026-10-19 | 裁决型钩子里发起的动作请求不再等到超时（回答不再绕框架线程）；新增本地 HTTP 文件服务（仅 JS）；新增示例插件 `example_override_media_source`（Bili 播放地址覆盖 / 插件音源类型 / 本地文件 HTTP 代理） |
+| 未发布 | 2026.1019.1 | 36e4b85 | 2026-10-19 | 裁决型钩子里发起的动作请求不再等到超时（回答不再绕框架线程）；新增 HTTP 服务的静态内容路由（当时是单独的 JS 本地文件服务，一个版本后并到 `http.serve`）；新增示例插件 `example_override_media_source`（Bili 播放地址覆盖 / 插件音源类型 / 本地文件 HTTP 代理） |
 | 0.87.4 | 2026.1011.1 | f0a4a51 | 2026-10-11 | 开始声明版本号；主程序管理页显示版本 / 提交 / 日期并可跳 GitHub；示例插件清单改用同一套格式；接口表判定改为「最低版本 + 基线字节数」（依赖库 `cxx_*` 更新，见 CHANGELOG） |
 | 0.87.3 | 2026.1007.1 | ac4cb52 | 2026-10-07 | 版本号按提交日期回填（当时未声明）：示例封面背景、播放页前景色、注册频谱/副歌实现 |
 | 0.87.2 | 2026.1004.1 | 6077ffd | 2026-10-04 | 版本号按提交日期回填：界面描述层、插件页面动画与值表达式、musicxx-cli 说明 |
