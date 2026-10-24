@@ -30,6 +30,9 @@
 #   tools/build_native.sh --boost-root <目录>        # 指定 Boost 头文件根 (含 boost/)
 #   tools/build_native.sh --boost-archive <压缩包>   # 用本地 Boost 发布包解包
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
+#   tools/build_native.sh --openssl-root <目录>      # 指定 OpenSSL 安装树 (含 include/openssl 与 libssl.a)
+#   tools/build_native.sh --no-download-openssl      # 禁止自动下载/编译 OpenSSL (拿不到就不带 TLS)
+#   tools/build_native.sh --no-tls                   # 不要 TLS (https / wss 报 tls_unavailable)
 #   tools/build_native.sh --build-dir/--output-dir/--generator <值>   # 覆盖目录与生成器
 #   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 插件框架库
 #   tools/build_native.sh --ios                      # 交叉编译 iOS 设备 (arm64) 插件框架库
@@ -127,6 +130,10 @@ boost_root=""
 boost_archive=""
 generator=""
 no_download_boost=0
+# OpenSSL (客户端 TLS): 安装树位置 / 不自动编译 / 整个关掉
+openssl_root=""
+no_download_openssl=0
+no_tls=0
 android=0
 android_abi="arm64-v8a"
 android_ndk=""
@@ -164,7 +171,7 @@ while [ $# -gt 0 ]; do
     fi
     # 需要取值的选项: 没写 = 形式时取下一个参数
     case "$name_lower" in
-    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl | iostarget | macostarget)
+    config | jobs | builddir | outputdir | boostroot | boostarchive | generator | root | abi | ndk | androidplatform | androidstl | iostarget | macostarget | opensslroot)
         if [ -z "$value" ]; then
             [ $# -gt 0 ] || die "选项 $name 缺少取值"
             value="$1"
@@ -192,6 +199,7 @@ while [ $# -gt 0 ]; do
         ;;
     iostarget) ios_target="$value" ;;
     macostarget) macos_target="$value" ;;
+    opensslroot) openssl_root="$value" ;;
     clean) clean=1 ;;
     depsonly) deps_only=1 ;;
     configureonly) configure_only=1 ;;
@@ -204,6 +212,8 @@ while [ $# -gt 0 ]; do
     # 归一化后是 skipiffresh（去掉 `-` 后 "skip" + "if" + "fresh" 连在一起）
     skipiffresh) skip_if_fresh=1 ;;
     nodownloadboost) no_download_boost=1 ;;
+    nodownloadopenssl) no_download_openssl=1 ;;
+    notls) no_tls=1 ;;
     android) android=1 ;;
     help | h)
         usage
@@ -658,6 +668,165 @@ resolve_boost_header_root() {
 
 step 'Boost (仅头文件)'
 boost_header_root="$(resolve_boost_header_root)"
+
+# ==================== OpenSSL (客户端 TLS: https / wss) ====================
+# 插件网络能力的**客户端**要能连 https / wss (服务端仍然只有 http / ws)。
+# 做法与 agentxx 一致: 源码编译成静态库 (no-shared) 后静态链接进插件框架库,
+# 应用包里不需要带 libssl / libcrypto。
+#
+# 安装树位置: <包>/.native/openssl/<平台>-<架构|abi>, 目录里要有
+#   include/openssl/ssl.h 与 lib/libssl.a (或 lib64/libssl.a)。
+# Windows 侧由 tools/deps_openssl.ps1 用 slproweb 预编译包填同一个位置。
+# 版本与 tools/deps_openssl.ps1 保持一致。
+openssl_version="${MUSICXX_EXTERN_PLUGIN_OPENSSL_VERSION:-4.0.3}"
+openssl_source_url='https://www.openssl.org/source/openssl-@VERSION@.tar.gz'
+openssl_source_url_github='https://github.com/openssl/openssl/releases/download/openssl-@VERSION@/openssl-@VERSION@.tar.gz'
+
+# 安装树可用吗 (头文件 + 静态库)
+test_openssl_root() {
+    [ -n "${1:-}" ] || return 1
+    [ -f "$1/include/openssl/ssl.h" ] || return 1
+    [ -f "$1/lib/libssl.a" ] || [ -f "$1/lib64/libssl.a" ]
+}
+
+# 本次目标的缓存目录
+openssl_cache_dir() {
+    if [ "$android" = 1 ]; then
+        printf '%s' "${native_root}/openssl/android-${android_abi}"
+    elif [ "$ios" = 1 ]; then
+        if [ "$ios_simulator" = 1 ]; then
+            printf '%s' "${native_root}/openssl/ios-simulator-${machine_arch}"
+        else
+            printf '%s' "${native_root}/openssl/ios-arm64"
+        fi
+    else
+        case "$(uname -s)" in
+            Darwin) printf '%s' "${native_root}/openssl/macos-${machine_arch}" ;;
+            *) printf '%s' "${native_root}/openssl/linux-${machine_arch}" ;;
+        esac
+    fi
+}
+
+# 把 OpenSSL 源码解包到 .native/downloads 并编译安装到 $1 (只在缓存缺失时跑)
+build_openssl_from_source() {
+    local install_dir="$1"
+    local download_root="${native_root}/downloads"
+    local source_dir="${download_root}/openssl-${openssl_version}"
+    mkdir -p "$download_root"
+
+    if [ ! -f "${source_dir}/Configure" ]; then
+        local archive="${download_root}/openssl-${openssl_version}.tar.gz"
+        if [ ! -f "$archive" ]; then
+            local url
+            url="$(printf '%s' "$openssl_source_url" | sed "s/@VERSION@/${openssl_version}/")"
+            printf '  OpenSSL: 下载 %s\n' "$url" >&2
+            if ! curl -L --fail --retry 3 --retry-delay 2 -o "$archive" "$url"; then
+                url="$(printf '%s' "$openssl_source_url_github" | sed "s/@VERSION@/${openssl_version}/")"
+                printf '  OpenSSL: 改用 %s\n' "$url" >&2
+                curl -L --fail --retry 3 --retry-delay 2 -o "$archive" "$url" ||
+                    die "下载 OpenSSL 源码失败 (可手动解包到 ${source_dir})"
+            fi
+        fi
+        rm -rf "$source_dir"
+        mkdir -p "$source_dir"
+        printf '  OpenSSL: 解包 %s\n' "$archive" >&2
+        tar -xf "$archive" -C "$source_dir" --strip-components=1 || die "解包 OpenSSL 失败: $archive"
+    fi
+
+    # Configure 目标: 桌面交给它自己识别; Android / iOS 用交叉目标
+    local configure_target=()
+    if [ "$android" = 1 ]; then
+        case "$android_abi" in
+            arm64-v8a) configure_target=(android-arm64) ;;
+            armeabi-v7a) configure_target=(android-armeabi-v7a) ;;
+            x86_64) configure_target=(android-x86_64) ;;
+            x86) configure_target=(android-x86) ;;
+            *) die "不支持的 Android ABI: $android_abi" ;;
+        esac
+        export ANDROID_NDK_ROOT="$android_ndk_root_path"
+        export PATH="${android_ndk_root_path}/toolchains/llvm/prebuilt/$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64/bin:${PATH}"
+    elif [ "$ios" = 1 ]; then
+        if [ "$ios_simulator" = 1 ]; then
+            if [ "$machine_arch" = "arm64" ]; then
+                configure_target=(iossimulator-arm64-xcrun)
+            else
+                configure_target=(iossimulator-x64-xcrun)
+            fi
+        else
+            configure_target=(ios64-xcrun)
+        fi
+    fi
+
+    printf '  OpenSSL: 开始从源码编译 (%s → %s)\n' "${configure_target[*]:-本机默认目标}" "$install_dir" >&2
+    local make_jobs="$jobs"
+    if [ "${make_jobs:-0}" -le 0 ] 2>/dev/null; then
+        make_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '4')"
+    fi
+    (cd "$source_dir" && make distclean >/dev/null 2>&1 || true)
+    (
+        cd "$source_dir" || exit 1
+        if [ "${#configure_target[@]}" -gt 0 ]; then
+            ./Configure "${configure_target[0]}" no-shared no-tests no-apps no-docs \
+                --prefix="$install_dir" --openssldir="$install_dir" || exit 1
+        else
+            ./Configure no-shared no-tests no-apps no-docs \
+                --prefix="$install_dir" --openssldir="$install_dir" || exit 1
+        fi
+        make -j"$make_jobs" || exit 1
+        make install_sw || exit 1
+    ) || die "OpenSSL 编译失败 (源码: ${source_dir})"
+
+    test_openssl_root "$install_dir" ||
+        die "OpenSSL 安装产物缺失 (期望 ${install_dir}/lib/libssl.a)"
+}
+
+# OpenSSL 安装树解析顺序: --openssl-root → 环境变量 → .native/openssl 缓存 → 源码编译
+# 返回安装树路径; 关掉 TLS 或拿不到时返回空串 (调用方把 CMake 的 TLS 关掉)
+resolve_openssl_root() {
+    if [ "$no_tls" = 1 ]; then
+        return 0
+    fi
+    if [ -n "$openssl_root" ]; then
+        test_openssl_root "$openssl_root" || die "--openssl-root 下没有 include/openssl/ssl.h 与静态库: $openssl_root"
+        printf '  OpenSSL: 使用 --openssl-root 指定的安装树 %s\n' "$openssl_root" >&2
+        (cd "$openssl_root" && pwd)
+        return 0
+    fi
+    if [ -n "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT:-}" ]; then
+        if test_openssl_root "$MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT"; then
+            printf '  OpenSSL: 使用环境变量指定的安装树 %s\n' "$MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT" >&2
+            (cd "$MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT" && pwd)
+            return 0
+        fi
+        warn "环境变量 MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 指向的目录不可用: $MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT"
+    fi
+    local cached
+    cached="$(openssl_cache_dir)"
+    if test_openssl_root "$cached"; then
+        printf '  OpenSSL: 使用已编译的 %s\n' "$cached" >&2
+        printf '%s' "$cached"
+        return 0
+    fi
+    if [ "$no_download_openssl" = 1 ]; then
+        warn "未提供 OpenSSL (--no-download-openssl): 本次构建不带 TLS (https / wss 不可用)"
+        return 0
+    fi
+    build_openssl_from_source "$cached"
+    printf '%s' "$cached"
+}
+
+step 'OpenSSL (客户端 TLS)'
+if [ "$no_tls" = 1 ]; then
+    info '    -NoTls: 本次构建不带 TLS (https / wss 报 tls_unavailable)'
+    openssl_install_root=""
+else
+    openssl_install_root="$(resolve_openssl_root)"
+    if [ -n "$openssl_install_root" ]; then
+        info "    安装树: ${openssl_install_root}"
+    else
+        warn 'OpenSSL 缺失: 本次构建不带 TLS (https / wss 报 tls_unavailable)'
+    fi
+fi
 boost_parts_a="$(printf '%s' "$boost_version" | cut -d. -f1)"
 boost_parts_b="$(printf '%s' "$boost_version" | cut -d. -f2)"
 boost_parts_c="$(printf '%s' "$boost_version" | cut -d. -f3)"
@@ -686,7 +855,7 @@ macos_tag=""
 if [ "$os" = macos ]; then
     macos_tag="macos${macos_target}"
 fi
-signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl};ios=${ios_tag};macos=${macos_tag}"
+signature="config=${config};generator=${generator};arch=${arch};boost=${boost_header_root};xxRelease=${xx_is_release};target=${os};abi=${android_abi_tag};ndk=${android_toolchain};androidPlatform=${android_platform};stl=${android_stl};ios=${ios_tag};macos=${macos_tag};openssl=${openssl_install_root}"
 stamp_kinds='framework'
 if [ "$with_examples" = 1 ]; then stamp_kinds="${stamp_kinds} examples"; fi
 if [ "$with_tests" = 1 ]; then stamp_kinds="${stamp_kinds} tests"; fi
@@ -810,10 +979,14 @@ fi
 configure_args+=(
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=${boost_header_root}"
+    "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=$(if [ -n "$openssl_install_root" ]; then printf '1'; else printf '0'; fi)"
     # 示例插件与原生测试: 默认关 (示例插件单独构建; Windows 侧见 tools/build_examples.ps1)
     "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=${with_examples}"
     "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=${with_tests}"
 )
+if [ -n "$openssl_install_root" ]; then
+    configure_args+=("-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=${openssl_install_root}")
+fi
 # 上面选中的编译器: 命令行 -D 优先于环境变量 CC/CXX, 这样 Flutter 给子进程设的
 # CC=clang / CXX=clang++ 不会把插件框架的构建带偏, 各嵌套工程也会用同一个编译器。
 # Android / iOS 有自己的工具链 (NDK / SDK clang), 不参与这里的选择。

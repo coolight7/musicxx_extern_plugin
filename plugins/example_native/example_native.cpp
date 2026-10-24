@@ -87,6 +87,10 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
   /// 声明式 UI 扩展自检
   int32_t uiHomeRc = -100; ///< 注册主页入口项: 期望 0
+
+  /// 插件网络能力 (`musicxx.net`) 自检: 表是否可用 / 自省调用返回码
+  bool netTableAvailable = false;
+  int32_t netInfoRc = -100; ///< net.info: 期望 0 (表可用时)
   int32_t uiSongRc = -100; ///< 注册歌曲菜单项: 期望 0
   int32_t uiForeignRc = -100; ///< 注册他人命名空间的项: 期望 -6 (权限拒绝)
   int32_t uiBadTypeRc = -100; ///< 注册未知类型: 期望 -4 (未知类型)
@@ -193,6 +197,18 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                                    "{\"from\":\"example_native\"}");
     foreignPublishRc = publishOwnEvent("plugin.other_plugin.hello",
                                        "{\"from\":\"example_native\"}");
+
+    // 5.1) 插件框架内置网络能力 (`musicxx.net`: HTTP / TCP / WebSocket)
+    //      老插件框架库没有这张表: 必须先判 netAvailable() 再调用。
+    //      这里只做可用性与自省调用 (start 事务只做注册, 不起服务、不联网);
+    //      真正起服务/收发事件的做法见 plugins/example_js_net (op 与事件完全一致)。
+    netTableAvailable = netAvailable();
+    if (netTableAvailable) {
+      std::string netInfo;
+      netInfoRc = netCall(musicxx::plugin::net_op::info, "{}", netInfo);
+      // 网络事件走事件表 (主题 plugin.<本插件id>.net); 处理器在框架线程, 不能阻塞。
+      netSubscribe([](std::string_view) {});
+    }
 
     // 6) 声明式 UI 扩展: 注册主页入口与歌曲菜单项 + 通知
     //    注意: UI 项只声明"长什么样、点了做什么", 渲染由主程序 (Dart 侧) 负责。

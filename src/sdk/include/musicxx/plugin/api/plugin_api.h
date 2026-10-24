@@ -6,9 +6,9 @@
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
 /// - 专用接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
-///   `musicxx.player` / `musicxx.library` / `musicxx.lyrics` / `musicxx.storage` /
-///   `musicxx.net` / `musicxx.stats`
-///   (v1 已实现 hooks / host / ui / vars 四张; 其余 IID 先冻结, 表版本 1 留待后续实现;
+///   `musicxx.net` / `musicxx.player` / `musicxx.library` / `musicxx.lyrics` /
+///   `musicxx.storage` / `musicxx.stats`
+///   (v1 已实现 hooks / host / ui / vars / net 五张; 其余 IID 先冻结, 表版本 1 留待后续实现;
 ///   每张表都要带齐"四件" —— IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE`,
 ///   规则见下面"专用接口表: 每张表四项 + 判定规则")
 /// - 钩子模式 / 标志 / 裁决动作常量
@@ -564,13 +564,102 @@ typedef struct MusicxxPluginVarsIface {
     );
 } MusicxxPluginVarsIface;
 
+/* ==================== 接口表: musicxx.net (网络) ==================== */
+
+/// 插件框架内置的网络能力: HTTP 客户端 / HTTP 服务端 / TCP 客户端 / TCP 服务 /
+/// WebSocket 客户端 / WebSocket 服务。
+///
+/// 三条硬约定:
+/// - **只支持 `http://` 与 `ws://`**: 这个构建没有链接 TLS 库, `https://` / `wss://`
+///   返回 `unsupported_scheme` (要 https 用主程序的 `musicxx.net.fetch` 动作);
+/// - **服务端默认只监听回环** (`host` 缺省 `127.0.0.1`); 写 `0.0.0.0` 表示同网段可访问,
+///   由插件自己承担暴露风险;
+/// - **事件走事件总线**: 主题 `plugin.<插件id>.net`, 载荷带 `kind` 字段; 插件用
+///   `pluginxx.events` 表订阅 (JS 是 `musicxx.net.on(...)`)。
+///
+/// 操作 (`call` / `call_async` 的 `op` 参数):
+///
+/// | op | 形态 | 主要参数 | 事件 / 说明 |
+/// |---|---|---|---|
+/// | `http.request` | 同步受理 + 事件 / 异步 | url, method?, headers?, body?, bodyBase64?, json?, timeoutMs?, maxBytes?, followRedirects?, maxRedirects? | 结果 `http.response` |
+/// | `http.cancel` | 同步 | requestId | 取消进行中的请求 |
+/// | `http.serve` | 同步 | id?, host?, port?, path?, maxBodyBytes?, requestTimeoutMs?, maxConnections? | `http.listening` |
+/// | `http.respond` | 同步 | requestId, status?, headers?, body?, bodyBase64?, contentType? | 回答一条 `http.request` |
+/// | `http.stop` | 同步 | id? | 不写 id = 关全部 |
+/// | `socket.connect` | 同步受理 + 事件 | id?, host, port, timeoutMs? | `socket.connected` / `socket.data` / `socket.closed` |
+/// | `socket.listen` | 同步 | id?, host?, port?, maxConnections? | `socket.listening` / `socket.accepted` |
+/// | `socket.send` | 同步 | id, data? / dataBase64? | 客户端与服务端连接同一套 |
+/// | `socket.close` | 同步 | id | 关连接 |
+/// | `socket.serverStop` | 同步 | id? | 关 TCP 服务 |
+/// | `ws.connect` | 同步受理 + 事件 | id?, url? (或 host/port/path), headers?, subprotocols?, timeoutMs?, maxMessageBytes? | `ws.open` / `ws.message` / `ws.close` |
+/// | `ws.listen` | 同步 | id?, host?, port?, path?, maxConnections? | `ws.listening` |
+/// | `ws.send` | 同步 | id, text? / data? / dataBase64? | 文本或二进制消息 |
+/// | `ws.ping` | 同步 | id, text? | ping 帧 |
+/// | `ws.close` | 同步 | id, code?, reason? | 关闭握手 |
+/// | `ws.serverStop` | 同步 | id? | 关 WebSocket 服务 |
+/// | `net.info` | 同步 | 无 | 服务 / 连接 / 计数器快照 |
+///
+/// 结果 JSON 一律 `{ok:true,...}` 或 `{ok:false,error,message}`;
+/// 传输失败只体现在结果里 (`call` 返回 0 = "操作执行完毕")。
+///
+/// 事件载荷公共字段: `kind` / `id` / `serverId` (服务端连接才有)。
+/// - `http.request`: `requestId, method, path, query, target, version, headers,
+///   remote, body, bodyBase64, bodyBytes` (正文是合法 UTF-8 时给 `body`/`text`);
+/// - `http.response`: `requestId, ok, status, headers, body, bodyBase64,
+///   bodyBytes, truncated, redirects, elapsedMs`;
+/// - `socket.data`: `dataBase64` 总有, 合法 UTF-8 时再给 `text` / `data`;
+/// - `ws.message`: `binary, text? (文本帧), dataBase64, bytes`;
+/// - `ws.close` / `socket.closed`: `by (remote/local/error/plugin), code?,
+///   reason?, error?`。
+#define MUSICXX_PLUGIN_IFACE_NET             "musicxx.net"
+#define MUSICXX_PLUGIN_IFACE_NET_VERSION     1
+#define MUSICXX_PLUGIN_IFACE_NET_MIN_VERSION 1
+/* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
+#define MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE sizeof(MusicxxPluginNetIface)
+
+typedef struct MusicxxPluginNetIface {
+    int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_NET_VERSION
+    uint32_t struct_size;
+
+    /// 同步操作: op + 参数 JSON → 结果 JSON (out_json 由插件框架分配, 调用方释放)
+    ///
+    /// 返回 0 表示操作执行完毕 (业务结论在结果 JSON 的 `ok` 里);
+    /// -1 参数非法 / -2 未启动 / -3 参数不是合法 JSON / -4 未知 op。
+    /// `http.request` 走这里只**受理** (结果经 `http.response` 事件或 `call_async` 的
+    /// 完成通知给出)。
+    int32_t(PLUGINXX_CALL* call)(
+        const PluginxxHost*       host,
+        const PluginxxStringView* op,
+        const PluginxxStringView* args_json,
+        PluginxxString*           out_json
+    );
+
+    /// 异步操作 (目前 `op = "http.request"`): 受理成功写出 request_id,
+    /// 结果**恰好一次**经 `notify->done` 给出 (插件框架线程);
+    /// 受理失败返回负错误码、写 out_json 说明, **不回调**。
+    int32_t(PLUGINXX_CALL* call_async)(
+        const PluginxxHost*           host,
+        const PluginxxStringView*     op,
+        const PluginxxStringView*     args_json,
+        const PluginxxOperatorNotify* notify,
+        PluginxxString*               out_json,
+        int64_t*                      out_request_id
+    );
+
+    /// 取消一个进行中的异步请求 (不存在/已完成返回 -4)
+    int32_t(PLUGINXX_CALL* cancel)(
+        const PluginxxHost* host,
+        int64_t             request_id,
+        PluginxxString*     out_json
+    );
+} MusicxxPluginNetIface;
+
 /* ==================== 预留接口表 (v1 只冻结 IID 与版本; 表体后续实现) ==================== */
 
 #define MUSICXX_PLUGIN_IFACE_PLAYER  "musicxx.player"
 #define MUSICXX_PLUGIN_IFACE_LIBRARY "musicxx.library"
 #define MUSICXX_PLUGIN_IFACE_LYRICS  "musicxx.lyrics"
 #define MUSICXX_PLUGIN_IFACE_STORAGE "musicxx.storage"
-#define MUSICXX_PLUGIN_IFACE_NET     "musicxx.net"
 #define MUSICXX_PLUGIN_IFACE_STATS   "musicxx.stats"
 #define MUSICXX_PLUGIN_IFACE_AGENT   "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
 

@@ -8,6 +8,41 @@
 
 ## 未发布
 
+### 新增：插件网络能力 `musicxx.net`（HTTP / TCP / WebSocket，JS 与动态库插件共用）
+
+- 接口表 `musicxx.net`（`MusicxxPluginNetIface`，v1；SDK 里是 `iface.net`）：三个入口
+  `call` / `call_async` / `cancel`，操作写成 `op + 参数 JSON → 结果 JSON`。老插件框架库上没有
+  这张表（`queryInterface` 返回 `nullptr`），能力位是 `MUSICXX_EXTERN_PLUGIN_FEATURE_NET = 0x40`。
+- 六种角色：HTTP 客户端 / HTTP 服务端 / TCP 客户端 / TCP 服务 / WebSocket 客户端 / WebSocket 服务。
+  WebSocket 的握手、掩码、分片、`ping`/`pong` 与关闭握手由插件框架处理。
+- **客户端支持 `https://` 与 `wss://`**：OpenSSL 以静态库链进插件框架（不随包带 `libssl` /
+  `libcrypto`），证书链与主机名校验默认开；`tlsVerify` / `caFile` / `caPem` / `serverName`
+  可以调。**服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。构建时关掉 TLS
+  （`--no-tls` / `-NoTls`）的版本里 `https` / `wss` 得到 `tls_unsupported`；
+  `net.info` 的 `tls` / `schemes` / `tlsProvider` 能看出当前构建的能力。
+- **服务端默认只监听 `127.0.0.1`**，端口 `0` 由系统分配；显式 `host: "0.0.0.0"` 才会暴露给同网段。
+- 事件主题 `plugin.<插件id>.net`，`kind` 区分 `http.request` / `http.response` /
+  `socket.listening|accepted|connected|data|closed|serverClosed` /
+  `ws.listening|open|message|pong|close|serverClosed`。
+  **JS 侧由插件框架直接投递到 JS 线程**（不经事件总线）：这样“在返回 Promise 的能力/钩子里
+  `await` 网络事件”不会与“框架线程等 Promise”互相等待；动态库插件仍用事件表订阅（框架线程派发）。
+- JS：新增 `musicxx.net.http.*` / `musicxx.net.socket.*` / `musicxx.net.ws.*` 与
+  `musicxx.net.on / onHttpRequest / onSocketEvent / onWsEvent / info`；
+  **`musicxx.net.fetch` / `download` 改为用这套实现**（参数与返回形状不变，不再走主程序动作，
+  因此也不再继承主程序的代理设置）；`serveFile / serveBytes / serverInfo / stopServer` 不变。
+- 新增两个 op：`http.fetch`（= 老的 `musicxx.net.fetch`）与 `http.download`（正文流式写入
+  `<data_dir>/<插件id>/data/downloads/`）。老的 `musicxx.net.fetch` / `download` **动作**仍然注册在
+  主程序里（给直接调动作的插件用），新插件用 op / JS 封装。
+- SDK：`netAvailable()` / `netCall` / `netCallAsync` / `netCancel` / `netSubscribe`，
+  op 名常量在 `musicxx::plugin::net_op`（含 `httpFetch` / `httpDownload`）。
+- 上限：每个插件同类服务 ≤ 8、连接 ≤ 64、HTTP 客户端并发 ≤ 16、单个 HTTP 服务等回答的请求 ≤ 64、
+  HTTP 正文 ≤ 8 MiB、WebSocket 单条消息 ≤ 8 MiB、单条连接发送队列 ≤ 4 MiB。
+- 新增示例 `plugins/example_js_net`（载入 1.5 s 后自动跑一遍 HTTP / TCP / WebSocket 的
+  客户端 + 服务端自检，结果写日志；也可调 `selftest` / `status` / `info` 能力）。
+- 预留表少了一张：`musicxx.net` 从“IID 已冻结、表体未实现”移到已实现；
+  `musicxx.player` / `library` / `lyrics` / `storage` / `stats` 仍未实现。
+- 版本号 2026.1024.1 → 2026.1024.2。
+
 ### 新增：歌词加载钩子 `musicxx.lyric.load` 与五个细分阶段
 
 - `musicxx.lyric.load`（裁决型，`firstNonNull`，`before` + `impl` + `after`，**已接入**）：主程序要为

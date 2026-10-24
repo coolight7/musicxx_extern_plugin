@@ -1,0 +1,15 @@
+# 示例 JS插件清单 (musicxx 外部插件)
+#
+# 演示插件框架**内置的网络能力**: HTTP 客户端 / HTTP 服务端 / TCP 客户端 / TCP 服务 /
+# WebSocket 客户端 / WebSocket 服务。全部只监听回环 (127.0.0.1)，端口由系统分配。
+# 载入后会自动跑一遍自检（本机起服务 → 本机客户端连上去 → 回包比对），日志里能直接看到结果。
+name: example_js_net
+kind: js
+entry: plugin.js
+version: 2026.1024.1
+api_version: 1
+author: "musicxx"
+description: "演示插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端与服务端"
+platforms: [windows, linux, macos, android, ios]
+permissions:
+  - musicxx.net

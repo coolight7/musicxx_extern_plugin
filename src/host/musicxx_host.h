@@ -48,6 +48,9 @@ namespace extern_plugin {
 /// JS 运行时 (定义在 js/js_engine.h)
 class JsEngine;
 
+/// 插件网络能力 (定义在 host_net.h)
+class PluginNetHub;
+
 /// `musicxx.ui` 表的 C ABI 实现 (定义在 musicxx_host_ui.cpp; 供 query_interface
 /// 分发)
 const void *uiIfaceForQuery();
@@ -55,6 +58,10 @@ const void *uiIfaceForQuery();
 /// `musicxx.vars` 表的 C ABI 实现 (定义在 musicxx_host_vars.cpp; 供
 /// query_interface 分发)
 const void *varsIfaceForQuery();
+
+/// `musicxx.net` 表的 C ABI 实现 (定义在 musicxx_host_net.cpp; 供
+/// query_interface 分发)
+const void *netIfaceForQuery();
 
 /* ==================== 有界等待槽 ==================== */
 
@@ -527,6 +534,23 @@ public:
   /// 摘除某实例的全部变量与订阅 (生命周期钩子; 推送 `removed` 通知)
   void detachVars(const std::string &instanceName);
 
+  /// 插件网络能力 (`musicxx.net` 表; 插件框架启动时创建)
+  std::shared_ptr<PluginNetHub> netHub() const { return netHub_; }
+
+  /// `musicxx.net` 表入口: 同步操作
+  int32_t netCall(const std::string &pluginId, const std::string &op,
+                  const std::string &argsJson, std::string &outJson);
+
+  /// `musicxx.net` 表入口: 异步操作 (`http.request`)
+  int32_t netCallAsync(const std::string &pluginId, const std::string &op,
+                       const std::string &argsJson,
+                       std::function<void(int32_t, const std::string &)> done,
+                       std::string &outJson, int64_t *outRequestId);
+
+  /// `musicxx.net` 表入口: 取消进行中的异步请求
+  int32_t netCancel(const std::string &pluginId, int64_t requestId,
+                    std::string &outJson);
+
   /// 按**插件 id 或实例名**解析实例 (JS插件实例名是 `js:<id>`, 与插件 id 不同)
   ///
   /// 插件管理入口 (启停/卸载/能力调用/配置路径) 都接受 Dart 侧传来的插件 id,
@@ -765,6 +789,9 @@ private:
                      std::string &failReason);
 
   HostContext *ctx_ = nullptr;
+
+  /// 插件网络能力 (HTTP / TCP / WebSocket; 自己的网络线程)
+  std::shared_ptr<PluginNetHub> netHub_;
 
   std::atomic<bool> running_{false};
   std::atomic<bool> started_{false};

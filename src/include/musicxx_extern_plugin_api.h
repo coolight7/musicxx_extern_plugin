@@ -53,7 +53,7 @@
 /// Dart 侧同名声明是 `MusicxxPluginVersion.version`（`lib/src/version.dart`），
 /// 两处必须一致（包内 `test/version_test.dart` 校验）；插件清单的 `version` 用同一套格式。
 /// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
-#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1024.1"
+#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1024.3"
 
 /* ==================== 错误码 ==================== */
 
@@ -533,6 +533,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_VARS   0x10
 /// 分阶段派发（`_hook_emit_phase` / `_hook_count_phase` / `_hook_handlers_phase`）
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_HOOK_PHASES 0x20
+/// 插件网络能力 (`musicxx.net` 表: HTTP / TCP / WebSocket)
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_NET 0x40
 
 /// 插件框架能力位图 (无需框架实例; 任意线程可调用)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

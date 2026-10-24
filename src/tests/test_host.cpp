@@ -14,6 +14,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1008,6 +1009,9 @@ int main(int argc, char **argv) {
   check(musicxx_extern_plugin_api_version() ==
             MUSICXX_EXTERN_PLUGIN_API_VERSION,
         "api_version 匹配");
+  check((musicxx_extern_plugin_feature_bits() &
+         MUSICXX_EXTERN_PLUGIN_FEATURE_NET) != 0,
+        "feature_bits 包含插件网络能力 (musicxx.net)");
 
   MusicxxExternPluginString log{};
   MusicxxExternPluginString version{};
@@ -1030,6 +1034,13 @@ int main(int argc, char **argv) {
   cfg.platform = view(plat);
   cfg.language = view(lang);
   cfg.user_plugin_dir = view(pluginDir);
+  // 插件私有数据目录 (http.download 落盘到 <data_dir>/<插件id>/data/downloads)
+  std::filesystem::path dataRootPath =
+      std::filesystem::temp_directory_path() / "musicxx-extern-plugin-test-data";
+  std::error_code dataRootEc;
+  std::filesystem::create_directories(dataRootPath, dataRootEc);
+  const std::string dataRoot = dataRootPath.string();
+  cfg.data_dir = view(dataRoot);
   cfg.ui_capabilities = view(uiCaps);
   cfg.log_level = 2;
   cfg.flags = MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS;
@@ -1916,6 +1927,83 @@ int main(int argc, char **argv) {
                                                 viewCP("example_js_multi_script"),
                                                 &log) == MUSICXX_EXTERN_PLUGIN_OK,
             "多脚本插件卸载成功");
+    }
+
+    // ============ 插件框架内置网络能力 (example_js_net) ============
+    //
+    // 六条角色一次跑完: HTTP / TCP / WebSocket 各自"起服务 → 本机客户端连上去 →
+    // 比对回包"。全部经由 `musicxx.net` 表 (JS 侧是 `musicxx.net.http/socket/ws`)，
+    // 服务只监听回环，端口由系统分配。
+    {
+      MusicxxExternPluginString loadLog{};
+      const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP("example_js_net"), viewCP("{}"), 8000, &loadLog);
+      if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+        std::printf("  [info] example_js_net load rc=%d log=%s\n", loadRc,
+                    take(loadLog).c_str());
+      } else {
+        freeStr(loadLog);
+      }
+      check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "网络示例插件加载成功");
+
+      // 插件载入 1.5 s 后会自动跑一遍; 这里主动调一次（同一时间只跑一份，
+      // 不会互相抢固定的服务 id）。
+      const CapabilityCallOutcome netTest =
+          callCapability(host, "example_js_net", "selftest", "{}", 20000);
+      const std::string report = netTest.payload;
+      std::printf("  [info] example_js_net selftest=%s\n", report.c_str());
+      check(netTest.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && netTest.ok,
+            "网络示例的自检能力可调用");
+      check(jsonRawField(report, "ok") == "true",
+            "网络示例自检通过 (HTTP / TCP / WebSocket 客户端 + 服务端)");
+      check(report.find("\"http\":{") != std::string::npos &&
+                report.find("\"socket\":{") != std::string::npos &&
+                report.find("\"ws\":{") != std::string::npos,
+            "自检报告包含 HTTP / TCP / WebSocket 三段结果");
+      check(report.find("echo:ping") != std::string::npos,
+            "TCP 与 WebSocket 都拿到了服务端回写");
+      check(report.find("\"chunked\":{") != std::string::npos &&
+                report.find("hello world") != std::string::npos,
+            "HTTP 客户端能解码分块（chunked）响应");
+      check(report.find("\"fetch\":{") != std::string::npos &&
+                report.find("\"downloadBytes\":") != std::string::npos,
+            "fetch / download 由插件框架自己实现并能正常返回");
+
+      // 自省: 自检结束会主动关掉服务与连接
+      const CapabilityCallOutcome netInfo =
+          callCapability(host, "example_js_net", "info", "{}", 8000);
+      check(netInfo.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && netInfo.ok,
+            "网络自省能力可调用");
+      check(netInfo.payload.find("\"connections\":[]") != std::string::npos,
+            "自检结束后没有残留连接");
+      // 客户端 TLS 能力: https / wss 能不能用 (构建时关掉 TLS 就是 tls=false)
+      check(netInfo.payload.find("\"tls\":") != std::string::npos,
+            "网络自省报告了客户端 TLS 能力");
+      const bool tlsBuilt = netInfo.payload.find("\"tls\":true") != std::string::npos;
+      if (tlsBuilt) {
+        check(netInfo.payload.find("\"wss\"") != std::string::npos,
+              "带 TLS 的构建声明支持 https / wss");
+
+        // 真实 https 需要一个可用的公网/自建地址, 默认不跑 (与真实音频用例同一套做法):
+        //   set MUSICXX_TEST_HTTPS_URL=https://example.com/
+        const char *httpsUrl = std::getenv("MUSICXX_TEST_HTTPS_URL");
+        if (httpsUrl && *httpsUrl) {
+          const std::string args =
+              std::string("{\"httpsUrl\":\"") + httpsUrl + "\"}";
+          const CapabilityCallOutcome httpsTest =
+              callCapability(host, "example_js_net", "selftest", args, 30000);
+          std::printf("  [info] https selftest=%s\n", httpsTest.payload.c_str());
+          check(httpsTest.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && httpsTest.ok &&
+                    httpsTest.payload.find("\"https\":{") != std::string::npos &&
+                    httpsTest.payload.find("\"status\":200") != std::string::npos,
+                "https 客户端能完成 TLS 握手并拿到 200 (证书链与主机名校验通过)");
+        }
+      }
+
+      check(musicxx_extern_plugin_plugin_unload(
+                host, viewCP("example_js_net"), &log) ==
+                MUSICXX_EXTERN_PLUGIN_OK,
+            "网络示例插件卸载成功");
     }
 
     // ============ 跨插件能力调用 (capability.call) ============

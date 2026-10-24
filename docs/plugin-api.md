@@ -423,26 +423,33 @@ requestAction("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})"
 
 #### 3.2.6 网络（`musicxx.net.*`）
 
-这是**便利通道**（走应用统一网络栈，继承相同的超时与代理设置），不是"插件唯一能联网的方式"：
-动态库插件可以自己用系统 API 联网；JS插件没有原生网络能力，用这条最方便。
-`musicxx.net` 权限只表示"允许用这条通道"，主程序**不限制可访问的域名**。
+**这些能力全部由插件框架自己实现**（原生代码，跑在插件框架自己的网络线程上），不经过主程序：
+`musicxx.net` 权限只表示"允许使用这条通道"，框架**不限制可访问的域名**。动态库插件也可以不用它、
+自己用系统 API 联网；JS 插件没有原生网络能力，用这套最方便。
 
-| 动作 | 参数 | 返回 |
-|---|---|---|
-| `musicxx.net.fetch` | `{url, method?, headers?, body?, timeoutMs?, responseType?, maxBytes?}` | 见下 |
-| `musicxx.net.download` | `{url, fileName?, headers?, timeoutMs?}`（只支持 `GET` / `HEAD`） | `{ok, status, path, bytes}` |
+OpenSSL 以**静态库**链进插件框架，所以客户端能直接连 https / wss，应用包里不需要带
+`libssl` / `libcrypto`。**服务端不做 TLS**（插件自己起服务只监听 http / ws）。
+构建时关掉 TLS（`--no-tls` / `-NoTls`）的版本里，`https` / `wss` 会得到 `tls_unsupported`。
+
+| 接口（JS） | 内部 op | 参数 | 返回 |
+|---|---|---|---|
+| `musicxx.net.fetch` / `http.fetch` | `http.fetch` | `{url, method?, headers?, body?, timeoutMs?, responseType?, maxBytes?, tlsVerify?, caFile?, caPem?, serverName?}` | 见下 |
+| `musicxx.net.download` / `http.download` | `http.download` | `{url, fileName?, headers?, timeoutMs?, tlsVerify?, caFile?, caPem?, serverName?}`（只支持 `GET`） | `{ok, status, path, bytes}` |
 
 `fetch` 参数与限制：
 
 | 参数 | 取值 | 缺省 |
 |---|---|---|
-| `url` | 只接受 `http` / `https`，必须有主机名 | 必填 |
+| `url` | `http` / `https`，必须有主机名 | 必填 |
 | `method` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`（大小写不敏感） | `GET` |
 | `headers` | 对象；键必须是合法 HTTP 头名（可见 ASCII、不含 `:`），值会转成字符串 | 空 |
 | `body` | 对象/数组 → 自动 JSON 编码；字符串原样发送 | 空 |
-| `timeoutMs` | 1000 ~ 60000 | 15000 |
-| `responseType` | `text` / `json` / `bytes`（`json` 当前也按文本给，自己 `JSON.parse`；`bytes` 给 `bodyBase64`） | `text` |
+| `timeoutMs` | 1000 ~ 120000 | 15000 |
+| `responseType` | `text` / `json` / `bytes`（`json` 也按文本给，自己 `JSON.parse`；`bytes` 给 `bodyBase64`） | `text` |
 | `maxBytes` | 1024 ~ 16777216（16 MiB）；读满就断开并标 `truncated` | 2 MiB |
+| `tlsVerify` | 是否校验证书链与主机名；**只在自签名/调试时关** | `true` |
+| `caFile` / `caPem` | 额外信任的 CA（文件路径 / PEM 内容）；是**追加**信任，不替换系统根证书 | 空 |
+| `serverName` | 覆盖 SNI 与主机名校验用的名字（IP 访问、把域名解析到本机调试时用） | 空（用 url 里的主机名） |
 
 `fetch` 返回：
 
@@ -457,12 +464,15 @@ requestAction("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})"
 ```
 
 - **非 2xx 也按"请求完成"返回**（`ok:true` + `status`），状态码交给插件判断；
-  只有传输失败 / 超时才 `ok:false`。
+  只有传输失败 / TLS 失败 / 超时才 `ok:false`。
 - 响应体是**流式读取**的：读满 `maxBytes` 就断开连接并置 `truncated:true`，不会把整份响应吃进内存。
-- JS 封装的 `musicxx.net.fetch` 会把动作超时放宽到 `timeoutMs + 5000`，所以 HTTP 超时不会先被动作超时打断。
+- **信任库**：系统根证书（Windows 读系统证书库，Linux/macOS/Android 读常见 bundle 与证书目录）
+  始终参与校验；`caFile` / `caPem` 是在此基础上追加。自签名的自建服务要么把它自己的 CA
+  通过 `caPem` 给进来，要么 `tlsVerify:false`（生产环境不要这么干）。
 
 `download` 落盘位置固定在插件自己的数据目录里：`<dataDir>/<插件id>/data/downloads/<文件名>`；
-`fileName` 只能是**纯文件名**（带路径分隔符或 `..` 会被拒绝），不写就按 URL 推导。
+`fileName` 只能是**纯文件名**（带路径分隔符或 `..` 的会被改写/拒绝），不写就按 URL 推导。
+正文**边读边写**，不进内存，所以大文件也不会把进程吃满。
 
 ```js
 const resp = await musicxx.net.fetch({ url: "https://example.com/a.json", responseType: "json" });
@@ -472,10 +482,14 @@ const file = await musicxx.net.download({ url: "https://example.com/a.mp3" });
 ```
 
 ```cpp
-requestAction("musicxx.net.fetch",
-    R"({"url":"https://example.com/a.json","timeoutMs":20000})", &notify, 30000);
-// 动态库侧也可以完全不用这条通道，自己用系统的网络库
+// 动态库插件: 直接走网络表 (与 JS 是同一个实现; netFetch 是方便糖, 也可以用 httpRequest)
+netCall(net_op::httpFetch, R"({"url":"https://example.com/a.json","timeoutMs":20000})");
+// 也可以完全不用这套, 自己用系统的网络库
 ```
+
+老的动作 `musicxx.net.fetch` / `musicxx.net.download` 仍然注册在主程序里（给历史上直接调动作的
+插件用，走主程序网络栈、会继承代理设置），但 **JS 封装 `musicxx.net.fetch` / `download` 已经改用
+插件框架自己实现**，两边参数与返回形状一致。新插件请用本节这套。
 
 ##### 本地 HTTP 文件服务（`musicxx.net.serveFile` 等，仅 JS 可用）
 
@@ -515,6 +529,122 @@ if (served.ok) {
 - 这是**代理**的一般机制：`musicxx.net.fetch` / `download` 取到的数据 → `serveBytes` / `serveFile` →
   播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以这么做。
   完整示例见 `plugins/example_override_media_source`。
+
+##### 内置网络能力（`musicxx.net.http / socket / ws`，JS 与动态库插件共用）
+
+`musicxx.net.fetch` / `download` 就是 `http.fetch` / `http.download` 的别名（同一个实现、
+结果形状也一样）；`http.request` 是它的原始形态，多给你 `statusText` / `redirects` / `bodyBase64`
+这些细节。下面这套是同一套 socket 实现里的另外三组：HTTP 客户端与服务端、TCP、WebSocket。
+
+| | `http.fetch` / `http.download` / `http.request` | `socket.*` / `ws.*` |
+|---|---|---|
+| 协议 | http / https | 原始 TCP / WebSocket（ws / **wss**） |
+| 能起服务 | 能（http.serve，只 http） | 能（socket.listen / ws.listen，只明文） |
+| 典型用途 | 拉取远端数据、下载文件、插件自己的小 API | 插件自己的音源服务、局域网小服务、长连接 |
+
+**三条硬约定**：
+
+- **客户端支持 `https://` 与 `wss://`**（OpenSSL 静态链接，证书链与主机名校验默认开）；
+  **服务端只监听明文**：`http.serve` / `ws.listen` 没有 TLS 参数，也不需要。
+  构建里关掉 TLS 时 `https` / `wss` 返回 `tls_unsupported`，可以用 `musicxx.net.info()` 的
+  `tls` 字段先看一眼（`false` = 这个构建没有 TLS）。
+- **服务端默认只监听回环 `127.0.0.1`**，端口由系统分配（`port: 0`）。要同网段可访问必须显式写
+  `host: "0.0.0.0"` —— 框架不会替你拦，但你要清楚这意味着什么。
+- **事件是异步的**：JS 侧由插件框架**直接投递到 JS 线程**（所以可以在返回 Promise 的能力里
+  `await` 网络事件）；动态库插件用事件表订阅 `plugin.<插件id>.net`（在**插件框架线程**派发，
+  处理器里不能阻塞）。
+
+能力上限（超过按可读错误返回，不排队）：每个插件同类服务 ≤ 8、连接 ≤ 64、同时进行的 HTTP 客户端
+请求 ≤ 16、单个 HTTP 服务等回答的请求 ≤ 64、HTTP 正文 ≤ 8 MiB、WebSocket 单条消息 ≤ 8 MiB、
+单条连接发送队列 ≤ 4 MiB。
+
+**HTTP 客户端**（`http.request`）参数：
+
+| 参数 | 说明 |
+|---|---|
+| `url` | 必填，`http://host[:port]/path?query` 或 `https://…` |
+| `method` | `GET`（缺省）/ `POST` / `PUT` / `PATCH` / `DELETE` / `HEAD` |
+| `headers` | 对象；`Content-Length` / `Connection` / `Transfer-Encoding` 由框架生成，写了也被忽略 |
+| `body` | 字符串正文 |
+| `bodyBase64` | 二进制正文（与 `body` 二选一） |
+| `json` | 任意 JSON：自动序列化并补 `Content-Type: application/json` |
+| `timeoutMs` | 1000 ~ 120000，缺省 15000（整次请求，含解析、连接与 TLS 握手） |
+| `maxBytes` | 正文上限 1024 ~ 16 MiB，缺省 8 MiB；读满就断开并标 `truncated:true` |
+| `followRedirects` | 缺省 `true`（301/302/303/307/308） |
+| `maxRedirects` | 0 ~ 5，缺省 3 |
+| `tlsVerify` | https 时是否校验证书链与主机名，缺省 `true` |
+| `caFile` / `caPem` / `serverName` | 追加信任的 CA / 覆盖 SNI 与主机名校验名（见上一节） |
+
+响应（`http.response` 事件 / 动态库插件 `call_async` 的完成载荷 / JS Promise 的结果）：
+
+```jsonc
+{ "ok": true, "requestId": 12, "url": "…", "status": 200, "statusText": "OK",
+  "headers": {"content-type": "application/json"}, "contentType": "application/json",
+  "contentLength": 34, "receivedBytes": 34, "body": "…文本（合法 UTF-8 才有）…",
+  "bodyBase64": "…", "bodyBytes": 34, "truncated": false, "redirects": 0, "elapsedMs": 12 }
+```
+
+失败（连接 / TLS / 解析 / 超时 / 取消）是 `{ok:false, requestId, error, message}`：
+`bad_url` / `unsupported_scheme` / `resolve_failed` / `connect_failed` / `write_failed` /
+`read_failed` / `bad_response` / `incomplete` / `timeout` / `cancelled`，以及 TLS 相关的
+`tls_unsupported`（这个构建没有 TLS）/ `tls_config`（`caFile` / `caPem` 读不出来）/
+`tls_cert_invalid`（证书链或主机名不对）/ `tls_handshake_failed`（协议协商失败）。
+下载到本地时还可能是 `no_data_dir`（插件数据目录未就绪）/ `write_failed`（文件建不出来或写失败）。
+
+**HTTP 服务端**：`http.serve`（`id?`, `host?`, `port?`, `path?` 前缀, `maxBodyBytes?`,
+`requestTimeoutMs?`, `maxConnections?`）→ `{ok, id, host, port, url}`。每个请求发一条
+`http.request`，**必须**用 `http.respond` 回答（`status` / `headers` / `contentType` /
+`body`|`bodyBase64`），否则 `requestTimeoutMs`（缺省 30 s）后自动回 504 并关连接。
+支持 `Connection: keep-alive`；分块请求体不支持（回 411，请用 `Content-Length`）。
+
+**TCP**：`socket.connect` / `socket.listen` 之后用同一套 `socket.send` / `socket.close`
+（服务端连接用事件里的 `id`，并带 `serverId` 区分来源）。字节以 `dataBase64` 给出，
+合法 UTF-8 时再给 `text` / `data`。连接事件：`socket.connected` / `socket.accepted` /
+`socket.data` / `socket.closed`（`by` = `remote` / `local` / `error` / `plugin`）。
+
+**WebSocket**：`ws.connect`（`url` 或 `host`/`port`/`path`）/ `ws.listen` / `ws.send` /
+`ws.ping` / `ws.close`。`wss://` 会先做 TLS 握手（同样支持 `tlsVerify` / `caFile` / `caPem` /
+`serverName`）。握手、掩码、分片、`ping`/`pong` 与关闭握手都由框架处理；
+文本帧给 `text`，二进制帧给 `dataBase64`；`ws.close` 带 `code` / `reason` / `by`。
+
+**事件一览**（都在主题 `plugin.<插件id>.net`，载荷带 `kind`）：
+
+| kind | 关键字段 |
+|---|---|
+| `http.listening` / `http.serverClosed` | `id, host, port, url` |
+| `http.request` | `serverId, requestId, method, path, query, target, version, headers, remote, body, bodyBase64, bodyBytes` |
+| `http.response` | 见上面的响应结构 |
+| `socket.listening` / `socket.serverClosed` | `id, host, port` |
+| `socket.accepted` | `serverId, id, remote, local` |
+| `socket.connected` | `id, remote, local` |
+| `socket.data` | `id, serverId?, dataBase64, text?, bytes` |
+| `socket.closed` | `id, serverId?, by, error?` |
+| `ws.listening` / `ws.serverClosed` | `id, host, port, url` |
+| `ws.open` | `id, serverId?, url?, path?, remote, headers, subprotocol?` |
+| `ws.message` | `id, serverId?, binary, text?, dataBase64, bytes` |
+| `ws.pong` | `id, serverId?, bytes` |
+| `ws.close` | `id, serverId?, by, code?, reason?, error?` |
+
+```js
+// JS：起 HTTP 服务，回答请求
+musicxx.net.http.onRequest((req) => {
+    musicxx.net.http.respond(req.requestId, { status: 200, body: "ok" });
+});
+const server = musicxx.net.http.serve({ port: 0 });       // {ok, id, host, port, url}
+const resp = await musicxx.net.http.request(server.url + "/ping");
+```
+
+```cpp
+// 动态库插件：同一套 op（结果 JSON 自己解析）
+std::string out;
+netCall(musicxx::plugin::net_op::httpServe, R"({"port":0})", out);
+netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
+```
+
+**跟着插件实例走**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时，该插件的服务、连接与未完成的
+请求一起关掉（端口释放）。完整示例：`plugins/example_js_net`（六种角色一次跑完，载入后自动自检）。
+旧插件框架没有这套能力：JS 先看 `typeof musicxx.net.http === "object"`，动态库插件看
+`pluginxx::queryInterface<MusicxxPluginNetIface>(...)` 是否为 `nullptr`。
 
 #### 3.2.7 渲染槽位（`musicxx.render.*`）
 

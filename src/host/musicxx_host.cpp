@@ -6,6 +6,7 @@
 #include "host_json.h"
 #include "host_manifest.h"
 #include "host_naming.h"
+#include "host_net.h"
 #include "host_target.h"
 #include "js/js_engine.h"
 
@@ -255,6 +256,23 @@ MusicxxHostManager::MusicxxHostManager(asio::any_io_executor ex)
     : Base(std::move(ex)) {
   // 事件后端在构造期就绪 (DomainHooks 的任何入口都可能被调用)
   eventBus_ = std::make_shared<TopicEventBus>();
+  // 插件网络能力: 自己的网络线程; 事件发到插件框架事件总线, 异步完成回调投递回框架线程
+  netHub_ = PluginNetHub::create(
+      [this](const std::string &pluginId, const std::string &payload) {
+        // JS插件: 直接投递到 JS 线程 (框架线程可能正在等一个返回 Promise 的能力,
+        // 绕框架线程会把"等网络事件"变成互锁)
+        if (auto engine = jsEngine()) {
+          engine->deliverNetEvent(pluginId, payload);
+        }
+        // 原生插件: 走事件总线 (主题 `plugin.<id>.net` 属于该插件自己的命名空间)
+        publishPluginEventFrom(pluginId, "plugin." + pluginId + ".net", payload);
+      },
+      [this](std::function<void()> fn) {
+        if (!ctx_) {
+          return;
+        }
+        asio::post(ctx_->io, [fn = std::move(fn)]() mutable { fn(); });
+      });
 }
 
 std::shared_ptr<MusicxxHostManager>
@@ -289,6 +307,10 @@ void MusicxxHostManager::applyConfig(const MusicxxExternPluginHostConfig &cfg) {
   setIfPresent(userPluginDir_, cfg.user_plugin_dir);
   setIfPresent(builtinPluginDir_, cfg.builtin_plugin_dir);
   setIfPresent(dataDir_, cfg.data_dir);
+  // 网络能力的下载落盘位置跟着数据目录走 (要在 start() 之前给)
+  if (netHub_) {
+    netHub_->setDataDir(dataDir_);
+  }
   setIfPresent(logDir_, cfg.log_dir);
   setUiCapabilities(viewToString(cfg.ui_capabilities));
 
@@ -343,6 +365,11 @@ int32_t MusicxxHostManager::start(std::string &err) {
   }
   running_.store(true, std::memory_order_release);
   startTime_ = std::chrono::steady_clock::now();
+
+  // 网络能力: 独立线程 (与插件框架线程分开, 避免网络 I/O 占住插件执行)
+  if (netHub_) {
+    netHub_->start();
+  }
 
   // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create), 插件框架
   // PluginManagerBase 记录的是构造线程; 若不在框架线程上重绑, 各 vtable
@@ -459,6 +486,10 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
   }
 
   running_.store(false, std::memory_order_release);
+  // 网络能力: 先关掉全部服务与连接 (端口释放), 再释放网络线程
+  if (netHub_) {
+    netHub_->stop();
+  }
   // JS 运行时: 插件已全部卸载 (上面的 shutdownAsync), 这里释放共享 JS 线程
   if (jsEngine_) {
     jsEngine_->stop();
@@ -853,6 +884,41 @@ std::string MusicxxHostManager::pluginIdOf(std::string_view instanceName) {
   return std::string{instanceName};
 }
 
+/* ==================== 网络能力 (musicxx.net 表) ==================== */
+
+int32_t MusicxxHostManager::netCall(const std::string &pluginId,
+                                    const std::string &op,
+                                    const std::string &argsJson,
+                                    std::string &outJson) {
+  if (!netHub_) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  return netHub_->call(pluginId, op, argsJson, outJson);
+}
+
+int32_t MusicxxHostManager::netCallAsync(
+    const std::string &pluginId, const std::string &op,
+    const std::string &argsJson,
+    std::function<void(int32_t, const std::string &)> done, std::string &outJson,
+    int64_t *outRequestId) {
+  if (!netHub_) {
+    outJson =
+        R"({"ok":false,"error":"not_running","message":"插件网络能力没有运行"})";
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  return netHub_->callAsync(pluginId, op, argsJson, std::move(done), outJson,
+                            outRequestId);
+}
+
+int32_t MusicxxHostManager::netCancel(const std::string &pluginId,
+                                      int64_t requestId,
+                                      std::string &outJson) {
+  if (!netHub_) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  return netHub_->cancel(pluginId, requestId, outJson);
+}
+
 std::shared_ptr<MusicxxHostInstance>
 MusicxxHostManager::resolveInstance(const std::string &idOrInstance) const {
   if (idOrInstance.empty()) {
@@ -940,6 +1006,16 @@ void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
 
 void MusicxxHostManager::clearPluginRegistrations(
     const std::string &instanceName) {
+  // 网络能力跟着插件实例: 服务 / 连接 / 未完成的请求一起收尾
+  // (未完成的 HTTP 请求要在这里按"已取消"结算 —— 它们可能在插件 stop 之后才回来)
+  if (netHub_) {
+    auto pending = netHub_->shutdownPlugin(pluginIdOf(instanceName));
+    for (auto &done : pending) {
+      if (done) {
+        done(PLUGINXX_OPERATOR_CANCELLED, {});
+      }
+    }
+  }
   for (auto it = hooks_.begin(); it != hooks_.end();) {
     auto &handlers = it->second;
     handlers.erase(std::remove_if(handlers.begin(), handlers.end(),

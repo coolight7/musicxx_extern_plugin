@@ -453,6 +453,69 @@ musicxx.net.stopServer();   // 提前关掉（插件停用 / 卸载时插件框�
   小内容直接 `serveBytes`，播放器只看到干净的 `http://127.0.0.1:...`。
   完整例子见 `plugins/example_override_media_source`（`plugin_proxy_local` 音源）。
 
+#### 内置网络能力（`musicxx.net.http / socket / ws`）
+
+插件框架自己实现的 socket 能力（不走主程序，支持 HTTP / TCP / WebSocket 的客户端**与服务端**）。
+参数、事件字段、上限与错误码见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
+
+```js
+/* HTTP */
+musicxx.net.http.onRequest((req) => {
+    musicxx.net.http.respond(req.requestId, {
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ path: req.path, query: req.query }),
+    });
+});
+const httpServer = musicxx.net.http.serve({ port: 0, path: "/api" }); // {ok,id,host,port,url}
+const resp = await musicxx.net.http.request({ url: httpServer.url + "/ping?x=1" });
+musicxx.net.http.stop(httpServer.id);
+
+/* TCP（客户端与服务端共用一个连接事件表） */
+let serverConnId = "";
+musicxx.net.socket.on("accepted", (e) => { serverConnId = e.id; });
+musicxx.net.socket.on("data", (e) => {
+    if (e.serverId) { musicxx.net.socket.send(e.id, "echo:" + e.text); }  // 服务端连接
+    else { console.log("客户端收到", e.text); }
+});
+const tcpServer = musicxx.net.socket.listen({ port: 0 });
+musicxx.net.socket.connect({ id: "c1", host: "127.0.0.1", port: tcpServer.port });
+musicxx.net.socket.send("c1", "ping");
+
+/* WebSocket */
+musicxx.net.ws.on("message", (e) => {
+    if (e.serverId) { musicxx.net.ws.send(e.id, "echo:" + e.text); }
+});
+const wsServer = musicxx.net.ws.listen({ port: 0, path: "/chat" });
+musicxx.net.ws.connect("ws://127.0.0.1:" + wsServer.port + "/chat", { id: "w1" });
+musicxx.net.ws.send("w1", "ping");
+```
+
+订阅方式（三种等价粒度，均可叠加）：
+
+| 写法 | 收到的 kind |
+|---|---|
+| `musicxx.net.on(fn)` | 全部（自己按 `kind` 过滤） |
+| `musicxx.net.onHttpRequest(fn)` / `onSocketEvent(fn)` / `onWsEvent(fn)` | 按协议前缀 |
+| `musicxx.net.http.on("request", fn)` / `socket.on("data", fn)` / `ws.on("message", fn)` | 按具体 kind（不写 `.` 时自动补协议前缀） |
+
+要知道的几点：
+
+- **`await musicxx.net.http.request(...)` 可以在返回 Promise 的能力/钩子里用**：网络事件由插件框架
+  直接投递到 JS 线程，不走事件总线（绕事件总线会与"框架线程等 Promise"互相等）。
+- **客户端支持 `https://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成（证书链与主机名
+  校验默认开）；`wss` 同样能传 `tlsVerify` / `caFile` / `caPem` / `serverName`。
+  **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。想知道当前构建有没有 TLS，
+  看 `musicxx.net.info().tls`。
+- **服务端默认只监听 `127.0.0.1`**；`host: "0.0.0.0"` 才会暴露给同网段。
+- **HTTP 请求必须回答**：收到 `http.request` 后不调 `http.respond`，框架会在 `requestTimeoutMs`
+  （缺省 30 s）后回 504 并关连接。
+- **二进制**统一用 `dataBase64`；文本帧 / 合法 UTF-8 的 TCP 字节额外给 `text`。
+- 没有这套能力的旧插件框架：先判 `typeof musicxx.net.http === "object"`，没有就降级
+  （例如继续用 `musicxx.net.fetch` + `serveBytes`）。
+
+完整示例：`plugins/example_js_net`（载入后自动跑 HTTP / TCP / WebSocket 自检，日志里能直接看到结果；
+也可以调它的 `selftest` / `status` / `info` 能力）。
+
 ### 7.4 界面反馈与页面跳转
 
 > 参数、白名单（12 个官方页面别名）、拒绝规则见 [plugin-api.md](plugin-api.md) §3.2.4。

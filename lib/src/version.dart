@@ -14,7 +14,7 @@ library;
 /// 插件框架版本（Dart 侧声明；C 侧同名宏 `MUSICXX_EXTERN_PLUGIN_VERSION`）
 abstract final class MusicxxPluginVersion {
   /// 版本号（`<年>.<月日>.<小版本号>`）
-  static const String version = '2026.1024.1';
+  static const String version = '2026.1024.3';
 
   /// 本版本号首次出现的提交（本包仓库的短提交号；空串 = 还没补记，见
   /// `docs/version-history.md` 的补记流程）

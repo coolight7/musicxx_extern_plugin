@@ -8,6 +8,8 @@
 #   tools/build_examples.ps1     构建示例插件 (可选打包成安装包 .zip)
 #   tools/pack_plugin.ps1        把一个插件目录打成安装包 (包名里的版本号取自清单 version)
 #
+# 依赖库的"从哪来"另放在 tools/deps_openssl.ps1 (OpenSSL / 客户端 TLS; 由构建脚本点源引入)。
+#
 # 环境描述文件: <包>/.native/env/environment.json
 #   配置环境时解析出来的东西(生成器 / 各工具路径 / Boost 头文件根 / NDK)写在这里, 构建时直接复用,
 #   于是"重复构建不再重新探测工具链、不再重复解析 Boost" —— 这就是缓存复用的落点。
@@ -312,12 +314,15 @@ function Get-MxBuildSignature {
         [string]$BoostHeaderRoot,
         [string]$AndroidToolchain = '',
         [string]$AndroidPlatform = '',
-        [string]$AndroidStl = ''
+        [string]$AndroidStl = '',
+        [string]$OpenSslRoot = '',
+        [string]$TlsState = ''
     )
     $xxIsRelease = if ($Paths.Config -eq 'Debug') { '0' } else { '1' }
     return ("config=$($Paths.Config);generator=$Generator;platform=$($Paths.GeneratorPlatform);" +
         "boost=$BoostHeaderRoot;xxRelease=$xxIsRelease;target=$($Paths.Os);abi=$($Paths.Abi);" +
-        "ndk=$AndroidToolchain;androidPlatform=$AndroidPlatform;stl=$AndroidStl")
+        "ndk=$AndroidToolchain;androidPlatform=$AndroidPlatform;stl=$AndroidStl;" +
+        "openssl=$OpenSslRoot;tls=$TlsState")
 }
 
 # ==================== Boost (仅头文件) ====================
@@ -898,7 +903,9 @@ function Test-MxBuildFresh {
 # ==================== 产物复制 ====================
 
 # 把安装前缀里的 bin/ 与 plugins/ 复制到稳定输出目录。
-# 失败只提示不阻断: 安装目录里的产物本身已经可用 (例如文件被正在运行的进程占用)。
+# 被占用的文件不阻断构建: 先试普通覆盖; 被正在运行的应用/插件加载着 (Windows 会锁住映像)
+# 时改成"改名为 *.old 再复制" —— 旧文件留在旁边可以人工删, 新产物无论如何都会到位
+# (静默跳过会让人以为"构建成功"但产物还是旧的, 排查时很费时间)。
 function Copy-MxBuildArtifacts {
     param(
         [Parameter(Mandatory)][string]$InstallDir,
@@ -916,5 +923,33 @@ function Copy-MxBuildArtifacts {
         if (Test-Path $nested) { Remove-Item $nested -Recurse -Force }   # 清掉历史误拷贝
         New-Item -ItemType Directory -Force -Path $to | Out-Null
         Copy-Item (Join-Path $from '*') $to -Recurse -Force -ErrorAction SilentlyContinue
+
+        # 逐个核对: 复制失败 (目标被占用) 的文件改用"改名 + 复制"
+        foreach ($file in (Get-ChildItem -LiteralPath $from -Recurse -File)) {
+            $relative = $file.FullName.Substring($from.Length).TrimStart('\', '/')
+            $target = Join-Path $to $relative
+            if ((Test-Path $target) -and
+                ((Get-Item -LiteralPath $target).LastWriteTime -eq $file.LastWriteTime)) {
+                continue
+            }
+            $targetDir = Split-Path -Parent $target
+            if ($targetDir) { New-Item -ItemType Directory -Force -Path $targetDir | Out-Null }
+            try {
+                Copy-Item $file.FullName $target -Force -ErrorAction Stop
+            }
+            catch {
+                # 目标被正在运行的进程锁着: 改名让它脱锁, 再复制新文件
+                $backup = "$target.old"
+                Remove-Item $backup -Force -ErrorAction SilentlyContinue
+                try {
+                    Move-Item $target $backup -Force -ErrorAction Stop
+                    Copy-Item $file.FullName $target -Force -ErrorAction Stop
+                    Write-MxWarn "旧产物被占用, 已改名为 $(Split-Path -Leaf $backup) 后替换: $target"
+                }
+                catch {
+                    Write-MxWarn "产物复制失败 (可能被运行中的应用占用), 请关闭应用后重跑: $target"
+                }
+            }
+        }
     }
 }

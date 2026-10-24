@@ -69,6 +69,7 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序加载）
   example_js_font/  示例插件（JS：全局字体切换 —— 系统字体 / 插件自带字体文件 / 恢复默认，演示"按钮动作立刻返回 + 后台执行"）
+  example_js_net/   示例插件（JS：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的客户端与服务端，载入后自动跑一遍本机自检）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
 docs/plugin-api.md 两种形态共用的接口手册（状态镜像 / 动作全表 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 通用排障）
@@ -127,13 +128,27 @@ tools/               setup_native_env.ps1（Windows：配置开发编译环境 �
      生成（只暴露头文件根 `Boost_INCLUDE_DIRS` 与 `Boost::headers`），不依赖 b2 生成的整套配置；
    - 可用 `-BoostRoot <含 boost/ 的目录>`/`--boost-root <目录>` 或 `-BoostArchive <发布包>`/`--boost-archive <包>` 覆盖（离线/自备包）。
 
+3. **OpenSSL（客户端 TLS：`https` / `wss`）**
+   - 插件网络的客户端要能连 https / wss，所以 OpenSSL 以**静态库**链进插件框架库
+     （应用包里不需要多带 `libssl` / `libcrypto`）；服务端不做 TLS。
+   - Windows 没有 perl / nasm，因此用 slproweb 的预编译包：`tools/deps_openssl.ps1` 从官方哈希清单
+     取最新的 4.x Win64 **完整包**（约 260 MB，Light 包没有静态库），用 `msiexec /a`（或 7-Zip）
+     **解包**到 `.native/openssl/windows-x64`，不执行安装程序、不需要管理员权限。
+   - Linux / macOS / Android / iOS 由 `tools/build_native.sh` 从 openssl.org 的源码包
+     （取不到时用 GitHub release）编译到 `.native/openssl/<平台>-<架构>`（`no-shared`，约 3~8 分钟）。
+   - 覆盖 / 关闭：`-OpenSslRoot <安装树>` / `--openssl-root <安装树>`、环境变量
+     `MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT`；离线或不需要 https 时用 `-NoTls` / `--no-tls`
+     （此时 `https` / `wss` 返回 `tls_unsupported`，`net.info().tls` 为 `false`）。
+   - 安装树里要有 `include/openssl/ssl.h` 与静态库（Windows：`lib/VC/x64/MD{,d}/libssl_static.lib`；
+     其它平台：`lib/libssl.a`）。
+
 ## 构建
 
 三条线分开：**配环境**（一次就够，结果存缓存）、**构建插件框架**（应用与插件作者都要的东西）、
 **构建示例插件**（只想跑示例/测试时才需要）。结构仿照 agentxx（`agent/CMakeLists.txt` + `agent/script/windows_*_build.bat`）：
 
 ```text
-tools/setup_native_env.ps1        配置开发编译环境: 工具预检 + 子模块 + Boost 头文件 + Android NDK
+tools/setup_native_env.ps1        配置开发编译环境: 工具预检 + 子模块 + Boost 头文件 + OpenSSL + Android NDK
   └─ 结果写进 .native/env/environment.json（缓存; 已就绪时重复执行只是读一遍缓存）
 tools/build_native.ps1            构建插件框架（插件框架库 + 插件 SDK）; 先复用上面那份缓存, 没配过就现场配
   └─ cmake -S src -B .native/build/<平台>-<配置> -G <生成器> -A <平台> \
@@ -589,7 +604,9 @@ musicxx-cli plugin uninstall my_plugin                                          
 背景、前景色、图标槽位与钩子在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、`playing.icon` 三种形态里的 `none`、
 `musicxx.media.palette.provide`、`foregroundColors`（运行期改前景三色）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面）；
 另外 `plugins/example_js_vars/`（变量通道）、
-`plugins/example_js_multi_script/`（清单 `scripts` 多脚本），以及下面「对照示例」一组 —— 它们演示插件框架在
+`plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、
+`plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），
+以及下面「对照示例」一组 —— 它们演示插件框架在
 插件写坏时的保护行为，写插件前先看一眼可以少踩坑。
 钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；界面字段见 `docs/plugin-ui.md`。
 
@@ -705,9 +722,9 @@ final List<MusicxxPluginUIItem> next =
 
 插件框架已经实现的能力（主程序接入情况见 musicxx 仓库）：
 
-- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张已实现
+- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张已实现
   （每张表的版本 / 最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；
-  `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结、表体未实现
+  `musicxx.player` / `library` / `lyrics` / `storage` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **钩子**：约定 71 个（观察 / 裁决，其中 52 个异步派发）；
   主程序当前**应用派发 13 个**（`docs/plugin-hooks.md` 的「主程序是否已接入」列标「已接入」的共 14 行，
@@ -725,7 +742,11 @@ final List<MusicxxPluginUIItem> next =
   （播放页歌曲图，可接管的形态有 `shader` / 界面视图 / 只占位三种）。插件交付 shader bundle（或界面视图），
   主程序运行期加载并渲染；**用户选中才生效**，没被选中时零成本。插件页面里还可以内联 `Shader` 块；
 - **配置与网络**：插件配置放在插件目录的 `config.json`（插件自己读写，框架不渲染配置表单）；
-  `musicxx.net.fetch`/`download` 经主程序统一网络栈（插件框架不限定域名）；
+  网络能力全部由**插件框架自己**提供（`musicxx.net` 表 / JS 的 `musicxx.net.*`）：
+  `fetch` / `download` 与 HTTP 客户端是同一套实现，另有 WebSocket 客户端、TCP，
+  HTTP / WebSocket 的**服务端**，跑在插件框架自己的网络线程上；
+  **客户端支持 `https` / `wss`**（OpenSSL 静态链接，证书链与主机名校验默认开），
+  **服务端只监听明文**且默认只绑 `127.0.0.1`（见 `docs/plugin-api.md` §3.2.6）；
 - **观测**：钩子统计（调用 / 耗时 / 超时 / 失败 / 被暂停的处理器）、插件各阶段耗时、注册项计数、
   JS 实例统计与内存采样、内存环形事件日志；
 - **平台打包**：Windows 与 Linux 已接入（插件框架库随主程序分发，见「打包（随主程序分发）」）、
@@ -755,6 +776,7 @@ final List<MusicxxPluginUIItem> next =
 | 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络（可选便利通道） | `musicxx.net.fetch/download` | 经主程序网络栈；插件框架不限定可访问域名 |
+| 内置网络能力 | `musicxx.net.http/socket/ws`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket 的客户端与服务端；只 `http://` / `ws://`，服务端默认只监听回环；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |
 | 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单（当前版本无渲染点）/ 播放页背景；字段见 `docs/plugin-ui.md` |
 | 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→动态库投递框架线程、脚本不阻塞；JS 处理器可以同步返回，也可以返回 Promise（插件框架等到结算）；C++ 处理器同步返回 |
 | 插件页面 | `ext://<插件id>/<视图id>` | 主程序调用插件同名能力取视图描述（Text / Divider / Button / Block / 布局块 / Shader 块） |
