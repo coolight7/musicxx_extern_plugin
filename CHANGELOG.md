@@ -8,6 +8,25 @@
 
 ## 未发布
 
+### 新增：歌词加载钩子 `musicxx.lyric.load` 与五个细分阶段
+
+- `musicxx.lyric.load`（裁决型，`firstNonNull`，`before` + `impl` + `after`，**已接入**）：主程序要为
+  一首歌加载歌词时派发一次。插件可以直接给出歌词内容（接管整条加载：应用自己的读取不再执行），
+  也可以只在前链改写参数、在后链改结果。载荷是这一轮加载的全部输入（歌曲视图、音源视图、
+  允许项 `enable`、匹配用的 `keyword` / `artist`、强制 `lrcid` / `position`、`caller`），
+  回答是 `{"patch": {"lyric": {"content": "<LRC 文本>", "sourceType": "builtin", "offsetMs": 0}}}`；
+  `{"patch": {"lyric": {"disabled": true}}}` = 这首歌禁用歌词。
+- 五个细分点 **只在应用自己的实现里**按顺序询问，插件接管了 `musicxx.lyric.load` 之后它们不会再被触发：
+  `musicxx.lyric.load.musicxx_server`（拟声云歌词：歌曲绑定的歌词来源）→
+  `musicxx.lyric.load.cache`（歌词缓存：应用自己保存过的歌词内容）→
+  `musicxx.lyric.load.builtin`（内置歌词：播放器元数据 + 媒体文件标签）→
+  `musicxx.lyric.load.builtout`（外置歌词：同名 `.lrc` / 云盘与媒体库的歌词接口）→
+  `musicxx.lyric.load.match`（自动匹配）。
+- 五个细分点都是裁决型 + `firstNonNull` + `before` + `impl` + `after`：可以替换某一个阶段的实现，
+  也可以只在该阶段前后插手（例如前链改 `keyword`、后链修歌词文本）。载荷与回答形状与主钩子**完全一致**，
+  只是 `enable` 决定这一阶段是否会被询问。
+- 钩子总数 **60 → 66**。写法见 `docs/plugin-hooks.md`。
+
 ### 破坏性：钩子改成「一个调用 = 前链 + 实现链 + 后链」，16 条 id 被删除或合并
 
 **钩子 id 现在只表示一次调用**，参与方式（`before` / `impl` / `after`）由注册时的 `phase` 表达：
@@ -19,6 +38,7 @@
   `musicxx.lyric.transform`、`musicxx.lyric.searchStr`、`musicxx.lyric.loaded`、
   `musicxx.player.beforeOpen`、`musicxx.media.wave.ready`、`musicxx.media.chorus.analysed`。
   这些条目从来没有被主程序派发过（注册成功、永远不触发），删掉只会让失败更早更清楚。
+  歌词这几条换成了上面新增的 `musicxx.lyric.load` 一条调用 + 五个细分点（`before` / `loaded` 现在是它的阶段）。
 - **合并（成对的两端现在是同一条钩子的两个阶段）**：
   - `musicxx.net.request.before` + `musicxx.net.response.after` → `musicxx.net.request`（`before` + `after`）
   - `musicxx.download.before` + `musicxx.download.completed` → `musicxx.download`（`before` + `after`）

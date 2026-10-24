@@ -1374,7 +1374,7 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 | `musicxx.playlist.load` / `musicxx.songlist.filter` | 歌单读取的前后插手（`after` 就是原来的“过滤”，能读到最终列表）、歌曲列表的过滤（可增删条目） |
 | `musicxx.history.record` | 写播放记录时的通知 |
 | `musicxx.local.scan.file` / `musicxx.local.scan.finished` | 本地扫描时逐文件裁决（跳过）/ 扫描完成通知 |
-| `musicxx.lyric.current` | 当前歌词行变化通知（歌词加载本身将来按 `musicxx.lyric.load` + `before` / `impl` / `after` 接入，不再五条 id） |
+| `musicxx.lyric.current` | 当前歌词行变化通知（歌词加载已按 `musicxx.lyric.load` 接入，见 `plugin-hooks.md`） |
 | `musicxx.icon.fetch` | 让插件提供封面图（`impl` 给图，前链改尺寸 / 来源，后链改最终那张图） |
 | `musicxx.media.info.request` | 让插件提供媒体信息（时长、码率等） |
 | `musicxx.net.request` | 应用发外网请求的前后插手（前链改请求 / 取消，后链读改响应） |

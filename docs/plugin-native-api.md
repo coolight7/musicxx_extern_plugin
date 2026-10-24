@@ -882,4 +882,4 @@ Android 见 §11。
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
-| 钩子接入 | 约定里有 72 个钩子，主程序当前**应用派发**的是 14 个（`plugin-hooks.md` 里标「已接入」的共 15 行，第 15 条 `musicxx.feature.point.call` 是插件自定义功能点的通用实现通道，由调用方触发）；其余钩子注册成功但不会触发（它们打算做什么见 [plugin-api.md](plugin-api.md) §8.6）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
+| 钩子接入 | 约定里有 66 个钩子，主程序当前**已接入**（`plugin-hooks.md` 里标「已接入」的共 28 条，会真的派发）；其余钩子注册成功但不会触发（它们打算做什么见 [plugin-api.md](plugin-api.md) §8.6）。两个预留观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已废弃 |
