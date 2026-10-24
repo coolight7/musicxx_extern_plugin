@@ -197,6 +197,61 @@ unset(_musicxx_ext_boost_patch)
 
 message("[musicxx_ext] Boost 头文件: ${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE} (版本 ${MUSICXX_EXTERN_PLUGIN_BOOST_VERSION})")
 
+# ===== OpenSSL (客户端 TLS: https / wss) =====
+# 插件网络能力的**客户端**要能连 https / wss; 服务端仍然只有 http / ws (插件自己监听时不排 TLS).
+# 静态链接 (做法与 agentxx 一致): 插件框架库里自带 OpenSSL, 应用包里不需要多带 libssl/libcrypto.
+#
+# 安装树来源 (优先级):
+#   1) -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=<安装树>   (tools/build_native.ps1 / build_native.sh 传入)
+#   2) .native/openssl/<平台>-<架构>                    (构建脚本下载/编译出来的缓存)
+# 目录里要有 include/openssl/ssl.h 与静态库 (Windows: lib/VC/x64/MD{,d}/libssl_static.lib;
+# 其它平台: lib/libssl.a 或 lib64/libssl.a).
+option(MUSICXX_EXTERN_PLUGIN_ENABLE_TLS "插件网络能力的客户端 TLS (https / wss)" ON)
+
+set(MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND OFF)
+if (MUSICXX_EXTERN_PLUGIN_ENABLE_TLS)
+  if (NOT MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
+    set(_musicxx_ext_openssl_candidates
+      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/linux-x64"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/macos-arm64"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/macos-x64"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/windows-x64"
+    )
+    if (ANDROID)
+      list(PREPEND _musicxx_ext_openssl_candidates
+        "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/android-${ANDROID_ABI}")
+    elseif (IOS)
+      list(PREPEND _musicxx_ext_openssl_candidates
+        "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/ios-${CMAKE_OSX_ARCHITECTURES}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/ios-simulator-${CMAKE_OSX_ARCHITECTURES}")
+    endif ()
+    foreach (_cand ${_musicxx_ext_openssl_candidates})
+      if (EXISTS "${_cand}/include/openssl/ssl.h")
+        set(MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT "${_cand}")
+        break()
+      endif ()
+    endforeach ()
+    unset(_musicxx_ext_openssl_candidates)
+  endif ()
+
+  if (NOT MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
+    message(FATAL_ERROR
+      "[musicxx_ext] 开启了 TLS 但找不到 OpenSSL 安装树\n"
+      "  请先执行: pwsh -NoProfile -File tools/setup_native_env.ps1 (Windows)\n"
+      "            tools/build_native.sh --deps-only (Linux/macOS/Android/iOS)\n"
+      "  或显式指定: -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=<OpenSSL 安装目录>\n"
+      "  确实不需要 https / wss 时: -DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=OFF")
+  elseif (NOT EXISTS "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}/include/openssl/ssl.h")
+    message(FATAL_ERROR
+      "[musicxx_ext] ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT} 下没有 include/openssl/ssl.h")
+  endif ()
+  file(TO_CMAKE_PATH "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}" MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
+  set(MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND ON)
+  message("[musicxx_ext] OpenSSL (客户端 TLS): ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+else ()
+  message("[musicxx_ext] TLS 已关闭 (MUSICXX_EXTERN_PLUGIN_ENABLE_TLS=OFF): https / wss 不可用")
+endif ()
+
 # 生成 BoostConfig.cmake: b2 生成的那套配置用不上 (我们只要头文件根), 而且预生成的配置会把
 # 绝对路径烘焙进导出目标 (曾因此把别的 Boost 安装目录带进下游编译)。
 set(BOOST_INCLUDE_DIR "${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}")
@@ -218,6 +273,11 @@ if (CMAKE_CROSSCOMPILING)
   set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE "ONLY")
   list(PREPEND CMAKE_FIND_ROOT_PATH "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}")
   list(APPEND CMAKE_FIND_ROOT_PATH "${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}")
+endif ()
+# OpenSSL 在交叉编译时也要能被嵌套工程找得到 (FIND_ROOT_PATH_MODE_LIBRARY=ONLY 时
+# 它不会被 OPENSSL_ROOT_DIR 直接命中)
+if (MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND)
+  list(APPEND CMAKE_FIND_ROOT_PATH "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
 endif ()
 
 # ===== 嵌套构建公共参数 (对应 agentxx 的 _AGENTXX_COMMON_CMAKE_*_ARGS) =====
@@ -242,7 +302,21 @@ set(_COMMON_CMAKE_CACHE_ARGS
     "-DBoost_ROOT:PATH=${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}"
     "-DBoost_INCLUDE_DIR:PATH=${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}"
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE:PATH=${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}"
+    "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS:BOOL=${MUSICXX_EXTERN_PLUGIN_ENABLE_TLS}"
 )
+# OpenSSL 只给插件框架工程用 (依赖库不需要它): 用 cache 变量传, find_package 会直接拿这个目录
+if (MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND)
+  list(APPEND _COMMON_CMAKE_CACHE_ARGS
+    "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT:PATH=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}"
+    "-DOPENSSL_ROOT_DIR:PATH=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}"
+    "-DOPENSSL_USE_STATIC_LIBS:BOOL=ON"
+  )
+  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DOPENSSL_ROOT_DIR=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+  list(APPEND _COMMON_CMAKE_ARGS -DOPENSSL_USE_STATIC_LIBS=ON)
+endif ()
+list(APPEND _COMMON_CMAKE_ARGS
+    "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=${MUSICXX_EXTERN_PLUGIN_ENABLE_TLS}")
 # 配置类型不往嵌套构建传:
 # - 嵌套 cmake 的编译器探测固定用 Debug 配置生成测试工程, 若把可用配置收窄成 Release,
 #   探测会因为找不到 Debug 而失败 ("Check for working C compiler ... broken");

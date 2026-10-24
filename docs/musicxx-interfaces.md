@@ -306,7 +306,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 提示与页面（4） | `musicxx.ui.notify` / `toast` / `dialog` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
 | 插件私有存储（4） | `musicxx.storage.get` / `set` / `delete` / `list` |
-| 网络（2） | `musicxx.net.fetch` / `net.download` |
+| 网络（2，保留） | `musicxx.net.fetch` / `net.download`（老插件直接调动作时用；JS 封装与新建插件走插件框架自带的 `musicxx.net` 表） |
 | 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
 | 封面与频谱（6） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` |
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
@@ -315,6 +315,11 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 钩子自省（1） | `musicxx.hook.handlers` |
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
 | 统计上报（2） | `musicxx.stats.reportMemory` / `reportMetric` |
+
+> 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket 的客户端与服务端，
+> 客户端支持 https / wss，不经过主程序），见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
+> JS 的 `musicxx.net.fetch` / `download` 已经用它实现（参数与返回形状与动作一致），
+> 动作只留给直接调动作的老插件。
 
 > 从命令行 / MCP 调这几个动作时**没有插件身份**：`musicxx.storage.*` 与
 > `musicxx.net.download` 会落到"没有插件 id"的空目录下（应用源码注释里写明了这一点）。

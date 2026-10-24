@@ -198,6 +198,28 @@ public:
   /// 关闭服务 (端口释放; 幂等)
   void bridgeHttpStop(const std::string &instanceName);
 
+  /* ---------- 网络能力 (musicxx.net 表; 任意线程) ---------- */
+
+  /// 同步网络操作 (op + 参数 JSON → 结果 JSON)
+  ///
+  /// 结果和错误都以 JSON 给出 (`{ok:false,error,message}`) —— JS 侧只负责解析。
+  std::string bridgeNetCall(const std::string &instanceName,
+                            const std::string &op,
+                            const std::string &argsJson);
+
+  /// 取消一个进行中的异步请求 (HTTP 客户端)
+  std::string bridgeNetCancel(const std::string &instanceName,
+                              int64_t requestId);
+
+  /// 把一条插件网络事件直接投递到 JS 线程 (**任意线程**; 投递后立即返回)
+  ///
+  /// 为什么不走事件总线: 插件框架派发"返回 Promise 的能力"时会**等**着它结算,
+  /// 而事件总线在框架线程上派发 —— 两边一起等就是死锁。网络事件直接投递到
+  /// JS 线程, 所以"在返回 Promise 的能力里 await 网络事件"是安全的。
+  /// (原生插件的网络事件仍走事件总线: 原生处理器本来就不能阻塞框架线程。)
+  void deliverNetEvent(const std::string &pluginId,
+                       const std::string &payloadJson);
+
   /// 取实例的服务 (可选惰性创建); 实例不在了返回空
   std::shared_ptr<PluginHttpFileServer> httpServerOf(
       const std::string &instanceName, bool createIfMissing);

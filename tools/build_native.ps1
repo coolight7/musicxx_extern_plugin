@@ -33,6 +33,8 @@
 #   pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8            # 指定并行度
 #   pwsh -NoProfile -File tools/build_native.ps1 -NoEnvSetup        # 跳过环境解析(只用已有缓存)
 #   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a   # 用 NDK 交叉编译 Android 插件框架库
+#   pwsh -NoProfile -File tools/build_native.ps1 -OpenSslRoot <目录>       # 指定 OpenSSL 安装树 (客户端 TLS)
+#   pwsh -NoProfile -File tools/build_native.ps1 -NoTls                    # 不要 TLS (https / wss 报 tls_unavailable)
 #
 # Android 说明:
 #   - 产出与桌面端同一套布局: <包>/.native/output/android-<abi>-<配置>/bin/libmusicxx_extern_plugin.so
@@ -69,6 +71,11 @@ param(
     [string]$BoostArchive,
     [string]$Generator,
     [switch]$NoDownloadBoost,
+    # OpenSSL (客户端 TLS: https / wss)。不给时会用 .native/openssl 缓存或自动下载;
+    # -NoTls 只休建一个不带 TLS 的插件框架库 (https / wss 报 tls_unavailable)
+    [string]$OpenSslRoot,
+    [switch]$NoDownloadOpenSsl,
+    [switch]$NoTls,
     # Android 交叉编译: 目标平台/ABI/NDK 与最低系统版本
     [switch]$Android,
     [ValidateSet('arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86')][string]$Abi = 'arm64-v8a',
@@ -80,6 +87,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'native_common.ps1')
+. (Join-Path $PSScriptRoot 'deps_openssl.ps1')
 
 $Root = (Resolve-Path $Root).Path
 Initialize-MxBuildEnvironment -ConsoleEncoding $ConsoleEncoding
@@ -154,12 +162,34 @@ $generator = $environment.Generator
 $isMultiConfig = [bool]$environment.IsMultiConfig
 $boostHeaderRoot = $environment.Boost.Root
 $androidToolchain = $environment.Android.Toolchain
+
+# OpenSSL (客户端 TLS)。自动模式（应用构建调用）不因为拿不到 OpenSSL 去下载几百 MB,
+# 只用一个已有的安装树; 拿不到就不带 TLS 继续构建 (https / wss 报 tls_unavailable)。
+$tlsEnabled = $false
+$openSslInstallRoot = ''
+if (-not $NoTls) {
+    $openssl = Resolve-MxOpenSslRoot -Root $Root -OpenSslRoot $OpenSslRoot `
+        -NoDownloadOpenSsl:$NoDownloadOpenSsl -AllowMissing:$Auto
+    $openSslInstallRoot = [string]$openssl.Root
+    $tlsEnabled = [bool]$openSslInstallRoot
+}
+$tlsState = if ($tlsEnabled) { 'on' } else { 'off' }
 $generatorArgs = @('-G', $generator)
 if ($isMultiConfig) { $generatorArgs += @('-A', $paths.GeneratorPlatform) }
 
 if (-not $Auto) {
     Write-MxInfo "生成器:     $generator$(if ($isMultiConfig) { " ($($paths.GeneratorPlatform))" })"
     Write-MxInfo "Boost:      $boostHeaderRoot (版本 $($environment.Boost.Version), 来源 $($environment.Boost.Source))"
+    if ($tlsEnabled) {
+        Write-MxInfo "OpenSSL:    $openSslInstallRoot (版本 $($openssl.Version), 来源 $($openssl.Source))"
+    }
+    elseif ($NoTls) {
+        Write-MxInfo 'OpenSSL:    -NoTls: 本次构建不带 TLS (https / wss 报 tls_unavailable)'
+    }
+    else {
+        Write-MxWarn 'OpenSSL:    没找到 (本次构建不带 TLS; https / wss 报 tls_unavailable)'
+        Write-MxWarn '            补上依赖: pwsh -NoProfile -File tools/setup_native_env.ps1'
+    }
     if ($Android) {
         Write-MxInfo "目标:       android-$($paths.Abi) ($AndroidPlatform, $AndroidStl)"
         Write-MxInfo "工具链:     $androidToolchain"
@@ -170,7 +200,8 @@ if (-not $Auto) {
 # (例如旧的 CMAKE_CONFIGURATION_TYPES) 让新配置报出难以定位的错。
 $signature = Get-MxBuildSignature -Paths $paths -Generator $generator -BoostHeaderRoot $boostHeaderRoot `
     -AndroidToolchain $androidToolchain -AndroidPlatform $(if ($Android) { $AndroidPlatform } else { '' }) `
-    -AndroidStl $(if ($Android) { $AndroidStl } else { '' })
+    -AndroidStl $(if ($Android) { $AndroidStl } else { '' }) `
+    -OpenSslRoot $openSslInstallRoot -TlsState $tlsState
 
 # ==================== 已是最新: 直接返回 ====================
 
@@ -230,8 +261,9 @@ $buildBody = {
         if (-not $Android) { "-DCMAKE_SYSTEM_PROCESSOR=$($paths.SystemProcessor)" }
         '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
         "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=$boostHeaderRoot"
-        # 示例插件与原生测试: 默认关 (示例插件交给 tools/build_examples.ps1)
-        "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=$(if ($buildExamples) { '1' } else { '0' })"
+        "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=$(if ($tlsEnabled) { '1' } else { '0' })"
+        if ($tlsEnabled) { "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=$openSslInstallRoot" }
+        # 示例插件与原生测试: 默认关 (示例插件交给 tools/build_examples.ps1)        "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=$(if ($buildExamples) { '1' } else { '0' })"
         "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=$(if ($buildTests) { '1' } else { '0' })"
     )
     if ($Android) {

@@ -34,7 +34,7 @@
 
 | 形态 | 目录内容 | 适合 | 代价 |
 |---|---|---|---|
-| **JS插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走主程序网络 | 不能调系统 API，没有 `require`/`fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
+| **JS插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走主程序网络或插件框架自带的 HTTP / TCP / WebSocket | 不能调系统 API，没有 `require` / `fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
 | **动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS 只允许应用包内、与主程序同一签名身份的库（用户装的库通常被系统拒绝） |
 | **C++ 多目标包** | `plugin.yaml` + `lib/<系统>-<架构>/库文件` | 一个包同时发布 Windows / Linux / macOS / Android | 打包步骤多一些（分支选择规则见 [plugin-native-api.md](plugin-native-api.md) §1.3） |
 
@@ -152,7 +152,7 @@ musicxx.capability.register("card", function () {
 | **频谱提取 / 副歌分析实现** | 用自己的实现替代应用内置的整曲频谱提取与副歌（高潮）识别：进度条波形、播放页动效、`musicxx.media.spectrum` 与状态镜像都用这一份数据；两边都没有实现时这个功能整体不可用 | 钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | [plugin-api.md](plugin-api.md) §7 + [plugin-hooks.md](plugin-hooks.md) |
 | **自己的音源** | 插件带来的音乐来源：在歌曲里存成"类型 + 资源 id"（类型 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的标识 / 路径），播放时由你自己给出真正的播放地址与请求头；也能顺手给内置来源换地址（代理 / 换 CDN） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/list` | [plugin-api.md](plugin-api.md) §8.6 |
 | **存储** | 插件私有 KV 与用户可见配置（`config.json`） | `musicxx.storage.*` | [plugin-api.md](plugin-api.md) §3.2.5（本文 §5.6 是注意事项） |
-| **网络** | 走应用统一网络栈取数据、下载文件（可作为便利通道） | `musicxx.net.fetch/download` | [plugin-api.md](plugin-api.md) §3.2.6 |
+| **网络** | 取数据、下载文件、自己起 HTTP/TCP/WebSocket 服务 | `musicxx.net.*` | [plugin-api.md](plugin-api.md) §3.2.6 |
 | **定时器 / 统计** | 后台任务；读自己的运行统计、自报指标 | `musicxx.timer.*` / `musicxx.stats.*` | [plugin-js-api.md](plugin-js-api.md) §13 / [plugin-api.md](plugin-api.md) §3.2.14 |
 
 ---
@@ -253,10 +253,16 @@ musicxx.capability.register("card", function () {
 
 ### 5.7 网络
 
-- `musicxx.net.fetch` / `download` 走应用统一网络栈（继承应用的超时与代理）；
+- **网络能力全部由插件框架自己实现**（不再经过主程序动作）：`musicxx.net.fetch` / `download`
+  就是 `http.fetch` / `http.download`，客户端支持 `http://` 与 `https://`（OpenSSL 静态链接，
+  证书链与主机名校验默认开，`tlsVerify` / `caFile` / `caPem` / `serverName` 可调）；
 - **非 2xx 也按请求完成返回**（看 `status` 自己判断）；响应体读到上限会断开并标 `truncated`；
-  只有传输失败 / 超时才 `ok:false`；
-- 下载只落在插件自己的数据目录里；主程序不限定可访问域名（这条通道是便利，不是限制）。
+  只有传输失败 / TLS 失败 / 超时才 `ok:false`；
+- 下载只落在插件自己的数据目录里，正文边读边写（不进内存）；框架不限定可访问域名。
+- **要自己起服务 / 用 TCP / 用 WebSocket**：用同一套的 `musicxx.net.http/socket/ws`
+  （JS 与动态库插件共用，见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」）。记住三条：
+  客户端支持 `https` / `wss` 但**服务端只监听明文**、服务端默认只监听 `127.0.0.1`、
+  服务与连接跟着插件实例关掉。示例：`plugins/example_js_net`。
 
 ### 5.8 平台
 

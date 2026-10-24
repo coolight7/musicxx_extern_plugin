@@ -137,8 +137,9 @@ my_plugin/
 | 自己的音源（播放地址） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源在歌曲里存成"类型 + 资源 id"：类型 id 是 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的资源 id / 路径。主程序内置实现**不解析**这种类型，播放时问这条钩子要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用上面的本地 HTTP 文件服务转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 插件音源 / 本地文件代理）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
 | 功能点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新钩子） |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
-| 网络 | `musicxx.net.fetch/download` | 走主程序网络栈（继承代理/超时）；响应体流式读取，上限 16 MiB（默认 2 MiB）；**非 2xx 也算请求完成** |
+| 网络 | `musicxx.net.fetch/download`（= `http.fetch/download`） | 走**插件框架自己**的网络实现（不经过主程序）：支持 `http` / `https`（OpenSSL 静态链接，证书链与主机名校验默认开，可用 `tlsVerify`/`caFile`/`caPem`/`serverName`）；响应体流式读取，上限 16 MiB（默认 2 MiB）；下载边读边写入插件数据目录；**非 2xx 也算请求完成** |
 | 本地 HTTP 文件服务（仅 JS） | `musicxx.net.serveFile/serveBytes/serverInfo/stopServer` | 把本地文件或一段内容变成 `http://127.0.0.1:<随机端口>/f/<token>` 地址（**同步接口**，只需 `musicxx.net` 权限）。只监听回环、URL 里只有随机 token（服务端不解析路径）；支持 `GET`/`HEAD` + 单段 `Range`（206/416）；跟着插件实例关掉。**把播放器打不开的东西变成 HTTP** 就是靠它（本地文件、远程数据、FTP / 私有协议、HLS 分片、转码产物）|
+| 内置网络能力（JS 与动态库插件共用） | JS `musicxx.net.http/socket/ws`、C++ `musicxx.net` 表（`netCall` / `netCallAsync` / `netSubscribe`） | HTTP 与 WebSocket 的**客户端 + 服务端**、TCP 客户端与服务；跑在插件框架自己的网络线程上。**客户端支持 `http` / `https` / `ws` / `wss`**（TLS 静态链接 OpenSSL），**服务端只有明文**；服务端默认只监听 `127.0.0.1`（`host:"0.0.0.0"` 才暴露给同网段）；事件主题 `plugin.<插件id>.net`，**JS 侧直接投递到 JS 线程**（所以可以在返回 Promise 的能力里 `await`）。完整参数与上限见 `docs/plugin-api.md` §3.2.6，示例 `plugins/example_js_net` |
 | 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具 |
 | 界面提示 | `musicxx.ui.notify/toast/dialog/openRoute`、`musicxx.ui.setFontFamily` | 通知、弹窗、跳官方页面或插件页面、换全局字体 |
 | 统计 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测，不影响调度 |
@@ -343,6 +344,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   演示示例一律 `example_` 开头；故意做坏的对照示例（`*_fail` / `*_bad_entry` / `*_broken`）用来演示插件框架的保护机制，
   随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 构建；新增动态库插件要在 `src/host/CMakeLists.txt` 的插件列表登记。
   构建与打包走 `tools/build_examples.ps1`（Linux/macOS：`./tools/build_examples.sh`；插件框架本身默认不构建它们，见下一条）。
+- **插件网络能力**的实现在 `src/host/host_net.{h,cpp}`（独立网络线程；服务表 / 连接表 / HTTP 待回答表都在网络线程），
+  表入口是 `src/host/musicxx_host_net.cpp`。JS 的网络事件**直接投递到 JS 线程**（`JsEngine::deliverNetEvent`），
+  不能改回只走事件总线：插件框架派发"返回 Promise 的能力/钩子"时会等着它结算，两边一起等就是死锁。
+  原生插件的网络事件仍走事件总线（主题 `plugin.<插件id>.net`）。
 - **文档纪律**：任何"插件作者会遇到的行为、限制、排查方法"都必须写进本包（主程序不开源，写在主程序侧等于没写）；
   改 API / UI 项 / 钩子 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
 - **版本号只在一处声明**：插件框架版本在 `lib/src/version.dart`（Dart 侧）与

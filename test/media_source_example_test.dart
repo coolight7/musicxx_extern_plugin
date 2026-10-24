@@ -6,7 +6,8 @@
 /// - 开关关闭后不接管；
 /// - 设置页能力与 `probe` 自检。
 ///
-/// B 站接口用假的 `musicxx.net.fetch` 处理器回答（不联网，结果可复现）。
+/// B 站接口用一个本地 HTTP 服务回答：插件真的走插件框架的网络能力，但不联网、结果可复现
+/// （测试会把复制出去的插件的接口域名改成本地服务地址）。
 /// 前置：先跑 `tools/build_examples.ps1`（Windows）或 `tools/build_examples.sh`（Linux/macOS），
 /// 产出原生库与 `.native/output/<平台>/plugins/` 里的示例插件；找不到时跳过。
 library;
@@ -49,7 +50,7 @@ void main() {
 
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
 
     // 配置读完（三个 getConfig 动作往返）
     await harness.pumpUntil(
@@ -101,7 +102,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -129,7 +130,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -168,7 +169,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -198,7 +199,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -237,7 +238,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -347,7 +348,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -379,7 +380,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -410,7 +411,7 @@ void main() {
     }
     final _Harness harness = _Harness(env);
     addTearDown(harness.dispose);
-    harness.start();
+    await harness.start();
     await harness.pumpUntil(
       () async => (await harness.probe())['configLoaded'] == 3,
     );
@@ -461,6 +462,9 @@ class _Harness {
   late final Directory work;
   late final Directory pluginRoot;
 
+  /// 假 B 站接口的应答构造（在 _registerHostActions 里赋值）
+  late String Function(String url) fakeBiliBody;
+
   /// `musicxx.net.fetch` 被调用的次数（验证缓存/开关时用）
   int fetchCalls = 0;
 
@@ -470,14 +474,13 @@ class _Harness {
   /// 假的 config.json 内容（`musicxx.storage.get/set` 用）
   final Map<String, Object?> configFile = <String, Object?>{};
 
-  void start() {
+  Future<void> start() async {
     work = Directory.systemTemp.createTempSync('musicxx_media_source_test');
     pluginRoot = Directory(path.join(work.path, 'plugins'))
       ..createSync(recursive: true);
-    _copyDirectory(
-      Directory(path.join(env.pluginRoot, pluginId)),
-      Directory(path.join(pluginRoot.path, pluginId)),
-    );
+    // 先起本地假接口，再把插件复制到临时目录（复制时把接口域名改成它）
+    await _startFakeBiliApi();
+    _copyPluginWithFakeApi();
     _registerHostActions();
 
     runtime.init(
@@ -502,8 +505,63 @@ class _Harness {
     );
   }
 
+  /// 本地假 B 站接口的地址（复制插件时写进去）
+  String get apiBase => 'http://127.0.0.1:${_server!.port}';
+
+  HttpServer? _server;
+
+  /// 起一个只监听回环的 HTTP 服务回答 `/x/web-interface/view` 与 `/x/player/playurl`
+  Future<void> _startFakeBiliApi() async {
+    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _server!.listen((HttpRequest request) async {
+      ++fetchCalls;
+      final String body = fakeBiliBody(request.uri.toString());
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(body);
+      await request.response.close();
+    });
+  }
+
+  /// 复制插件目录；`plugin.js` 里的 B 站接口域名换成本地服务
+  void _copyPluginWithFakeApi() {
+    final Directory from = Directory(path.join(env.pluginRoot, pluginId));
+    final Directory to = Directory(path.join(pluginRoot.path, pluginId));
+    for (final FileSystemEntity entity in from.listSync(recursive: true)) {
+      final String relative = path.relative(entity.path, from: from.path);
+      final String target = path.join(to.path, relative);
+      if (entity is Directory) {
+        Directory(target).createSync(recursive: true);
+        continue;
+      }
+      if (entity is! File) {
+        continue;
+      }
+      Directory(path.dirname(target)).createSync(recursive: true);
+      if (path.basename(entity.path) == 'plugin.js') {
+        final String source = entity.readAsStringSync();
+        final String patched = source.replaceAll(
+          'https://api.bilibili.com',
+          apiBase,
+        );
+        expect(
+          patched,
+          isNot(equals(source)),
+          reason: '示例插件里应能找到 B 站接口域名（否则测试无法指向本地服务）',
+        );
+        File(target).writeAsStringSync(patched);
+      } else {
+        entity.copySync(target);
+      }
+    }
+  }
+
   void dispose() {
     runtime.dispose();
+    try {
+      _server?.close(force: true);
+    } catch (_) {
+      // 服务可能已经被关掉：不影响测试结论
+    }
     try {
       if (work.existsSync()) {
         work.deleteSync(recursive: true);
@@ -594,10 +652,8 @@ class _Harness {
       return <String, Object?>{'keys': configFile.keys.toList()..sort()};
     });
 
-    // B 站接口：按 URL 返回固定结果（不联网）
-    runtime.actions.register(MusicxxPluginActionNames.netFetch, (invocation) {
-      ++fetchCalls;
-      final String url = '${invocation.args['url']}';
+    // B 站接口的固定应答（由本地假服务按地址回答，见 _startFakeBiliApi）
+    fakeBiliBody = (String url) {
       final String body;
       if (url.contains('/x/web-interface/view')) {
         final bool multi = url.contains(multiPageBvid);
@@ -655,19 +711,8 @@ class _Harness {
       } else {
         body = convert.jsonEncode(<String, Object?>{'code': -404, 'message': 'unexpected url'});
       }
-      return <String, Object?>{
-        'ok': true,
-        'status': 200,
-        'url': url,
-        'headers': <String, String>{'content-type': 'application/json'},
-        'contentType': 'application/json',
-        'body': body,
-        'bodyBytes': convert.utf8.encode(body).length,
-        'receivedBytes': convert.utf8.encode(body).length,
-        'contentLength': convert.utf8.encode(body).length,
-        'truncated': false,
-      };
-    });
+      return body;
+    };
 
     // 声明音源类型（功能 2 用；这里记录参数，断言清单是否正确）
     runtime.actions.register(
@@ -813,21 +858,6 @@ Future<void> _pumpUntil(
     }
     runtime.pumpEvents();
     await Future<void>.delayed(const Duration(milliseconds: 20));
-  }
-}
-
-void _copyDirectory(Directory from, Directory to) {
-  to.createSync(recursive: true);
-  for (final FileSystemEntity entity in from.listSync(recursive: true)) {
-    final String relative = path.relative(entity.path, from: from.path);
-    final String target = path.join(to.path, relative);
-    if (entity is Directory) {
-      Directory(target).createSync(recursive: true);
-    } else if (entity is File) {
-      File(target)
-        ..parent.createSync(recursive: true)
-        ..writeAsBytesSync(entity.readAsBytesSync());
-    }
   }
 }
 

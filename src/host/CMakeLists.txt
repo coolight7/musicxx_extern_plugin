@@ -20,6 +20,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS   "构建原生测试" ON)
+# 插件网络能力的客户端 TLS (https / wss); 关掉时只支持 http / ws, 库也不链接 OpenSSL
+option(MUSICXX_EXTERN_PLUGIN_ENABLE_TLS     "构建带 TLS 的网络能力 (https / wss 客户端)" ON)
 # JS插件运行时 (QuickJS): 关闭后插件框架只支持动态库插件 (插件框架与 Dart C ABI 不受影响)
 option(MUSICXX_EXTERN_PLUGIN_ENABLE_JS     "构建 JS插件运行时 (QuickJS)" ON)
 
@@ -71,6 +73,29 @@ if (_musicxx_ext_missing)
 endif ()
 unset(_musicxx_ext_missing)
 
+# ==================== OpenSSL (客户端 TLS) ====================
+# https / wss 由 OpenSSL 完成; 静态链接进插件框架库 (应用包里不需要多带 libssl/libcrypto)。
+# 安装树由顶层 superbuild 通过 -DOPENSSL_ROOT_DIR / -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 传入。
+set(MUSICXX_EXTERN_PLUGIN_HAS_TLS OFF)
+if (MUSICXX_EXTERN_PLUGIN_ENABLE_TLS)
+  find_package(OpenSSL QUIET)
+  if (OpenSSL_FOUND)
+    set(MUSICXX_EXTERN_PLUGIN_HAS_TLS ON)
+    message(STATUS "[musicxx_ext] OpenSSL: ${OPENSSL_VERSION} (静态: ${OPENSSL_USE_STATIC_LIBS})")
+  else ()
+    message(FATAL_ERROR
+      "[musicxx_ext] 开启了 TLS 但找不到 OpenSSL\n"
+      "  安装目录: ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+  endif ()
+else ()
+  message(STATUS "[musicxx_ext] TLS 关闭: 只支持 http / ws")
+endif ()
+if (MUSICXX_EXTERN_PLUGIN_HAS_TLS)
+  set(MUSICXX_EXTERN_PLUGIN_HAS_TLS 1)
+else ()
+  set(MUSICXX_EXTERN_PLUGIN_HAS_TLS 0)
+endif ()
+
 # 上层源码目录 (C ABI 头 / 插件 SDK / 示例插件 / 原生测试)
 get_filename_component(MUSICXX_EXTERN_PLUGIN_SRC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/.."      ABSOLUTE)
 get_filename_component(MUSICXX_EXTERN_PLUGIN_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.."   ABSOLUTE)
@@ -106,8 +131,11 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host_tables.cpp
   musicxx_host_ui.cpp
   musicxx_host_vars.cpp
+  musicxx_host_net.cpp
   host_inspect.cpp
   host_manifest.cpp
+  host_net.cpp
+  host_net_tls.cpp
   host_target.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
@@ -138,6 +166,18 @@ endif ()
 target_link_libraries(musicxx_extern_plugin
   PRIVATE cxx_pluginxx_static cxx_pluginxx_ui_static fmt::fmt yaml-cpp::yaml-cpp
 )
+
+# 客户端 TLS: 静态链接 OpenSSL。Windows 静态库还依赖系统库 (socket / 证书库 /
+# 加密原语), MSVC 下不会由 FindOpenSSL 自带, 这里显式列上。
+if (MUSICXX_EXTERN_PLUGIN_HAS_TLS)
+  target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_HAS_TLS=1)
+  target_link_libraries(musicxx_extern_plugin PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+  if (WIN32)
+    target_link_libraries(musicxx_extern_plugin PRIVATE ws2_32 crypt32 advapi32 user32 bcrypt)
+  endif ()
+else ()
+  target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_HAS_TLS=0)
+endif ()
 
 # 导出面: 只导出 musicxx_extern_plugin_* (Windows 靠 __declspec(dllexport) 显式声明;
 # 其它平台默认隐藏符号, 只留标注过导出宏的入口)
@@ -218,6 +258,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js_vars
   example_js_multi_script
   example_js_font
+  example_js_net
   example_override_media_source
   playing_bg_image
 )

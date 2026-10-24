@@ -78,6 +78,14 @@ struct IfaceMeta<MusicxxPluginVarsIface> {
 static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE >= 8u);
 static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE <= sizeof(MusicxxPluginVarsIface));
 
+template<>
+struct IfaceMeta<MusicxxPluginNetIface> {
+    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_NET_MIN_VERSION;
+    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE;
+};
+static_assert(MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE >= 8u);
+static_assert(MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE <= sizeof(MusicxxPluginNetIface));
+
 } // namespace pluginxx
 
 namespace musicxx {
@@ -110,6 +118,34 @@ inline const char* hookPhaseName(HookPhase phase) {
             return "impl";
     }
 }
+
+/// 网络操作名 (`musicxx.net` 表的 `op` 参数; 完整参数见 `docs/plugin-api.md`)
+///
+/// 约定: `*_call` 系列都是同步操作 (结果 JSON 里带 `ok`); `http.request` 可以
+/// 同步受理 + 听事件, 也可以走 `netCallAsync` 拿完成回调。
+/// `http.fetch` / `http.download` 是同一个 HTTP 实现的两个常用形态 (与 JS 的
+/// `musicxx.net.fetch` / `musicxx.net.download` 一一对应), 同样走 `netCallAsync`。
+namespace net_op {
+inline constexpr const char* httpRequest     = "http.request";
+inline constexpr const char* httpFetch       = "http.fetch";
+inline constexpr const char* httpDownload    = "http.download";
+inline constexpr const char* httpCancel      = "http.cancel";
+inline constexpr const char* httpServe       = "http.serve";
+inline constexpr const char* httpRespond     = "http.respond";
+inline constexpr const char* httpStop        = "http.stop";
+inline constexpr const char* socketConnect   = "socket.connect";
+inline constexpr const char* socketListen    = "socket.listen";
+inline constexpr const char* socketSend      = "socket.send";
+inline constexpr const char* socketClose     = "socket.close";
+inline constexpr const char* socketServerStop = "socket.serverStop";
+inline constexpr const char* wsConnect       = "ws.connect";
+inline constexpr const char* wsListen        = "ws.listen";
+inline constexpr const char* wsSend          = "ws.send";
+inline constexpr const char* wsPing          = "ws.ping";
+inline constexpr const char* wsClose         = "ws.close";
+inline constexpr const char* wsServerStop    = "ws.serverStop";
+inline constexpr const char* info            = "net.info";
+} // namespace net_op
 
 namespace detail {
 
@@ -216,6 +252,7 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     const MusicxxPluginHostIface*  host  = nullptr; ///< "musicxx.host"
     const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
     const MusicxxPluginVarsIface*  vars  = nullptr; ///< "musicxx.vars"
+    const MusicxxPluginNetIface*   net   = nullptr; ///< "musicxx.net"
 
     /// 从框架查询全部接口表 (host 为空时返回全 NULL 聚合)
     static MusicxxPluginIfaces query(const PluginxxHost* host) {
@@ -237,6 +274,10 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
             host,
             MUSICXX_PLUGIN_IFACE_VARS
         );
+        ifaces.net = pluginxx::queryInterface<MusicxxPluginNetIface>(
+            host,
+            MUSICXX_PLUGIN_IFACE_NET
+        );
         return ifaces;
     }
 };
@@ -245,7 +286,112 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
 class PluginBase : public pluginxx::PluginBaseT<MusicxxPluginIfaces> {
 public:
 
-    /// 注册裁决型钩子 (同步处理器)
+    /* ---------- 网络能力 (musicxx.net; HTTP / TCP / WebSocket) ---------- */
+
+    /// 网络表是否可用 (老插件框架库没有这张表)
+    bool netAvailable() const {
+        return iface.net && iface.net->call;
+    }
+
+    /// 同步网络操作 (`op` 用 `net_op::*`; 结果写进 `outJson`)
+    ///
+    /// 返回 0 = 操作执行完毕 (业务结论看结果 JSON 的 `ok`); 表不可用时返回 -1。
+    int32_t netCall(const char* op, const char* argsJson, std::string& outJson) {
+        if (!netAvailable()) {
+            log.warn("musicxx.net 表不可用: 网络能力未生效 (插件框架版本过旧?)");
+            return -1;
+        }
+        PluginxxStringView opView   = pluginxxView(op ? op : "");
+        PluginxxStringView argsView = pluginxxView(argsJson ? argsJson : "{}");
+        PluginxxString     out{};
+        const int32_t      rc = iface.net->call(host, &opView, &argsView, &out);
+        if (out.data) {
+            outJson.assign(out.data, static_cast<size_t>(out.size));
+            hostStringFree(out);
+        } else {
+            outJson.clear();
+        }
+        return rc;
+    }
+
+    /// 同步网络操作 (参数用 JSON 对象传, 方便拼内容)
+    int32_t netCall(const char* op, const utilxx_base::Json& args, std::string& outJson) {
+        const std::string text = args.dump();
+        return netCall(op, text.c_str(), outJson);
+    }
+
+    /// 异步网络操作 (目前 `net_op::httpRequest`): 结果经 `notify->done` 恰好一次 (框架线程)
+    ///
+    /// `notify` 由 SDK 复制保存, 插件可以传栈上的值。
+    int32_t netCallAsync(
+        const char*                   op,
+        const char*                   argsJson,
+        const PluginxxOperatorNotify* notify,
+        std::string*                  outJson         = nullptr,
+        int64_t*                      outRequestId    = nullptr
+    ) {
+        if (!netAvailable() || !iface.net->call_async) {
+            log.warn("musicxx.net 表不可用: 异步网络能力未生效 (插件框架版本过旧?)");
+            return -1;
+        }
+        if (!notify || !notify->done) {
+            return -1;
+        }
+        auto holder     = std::make_unique<ActionNotifyHolder>();
+        holder->user    = *notify;
+        holder->forward = PluginxxOperatorNotify{
+            &PluginBase::actionNotifyTrampoline,
+            holder.get(),
+        };
+        auto* holderPtr = holder.get();
+        actionNotifies_.push_back(std::move(holder));
+        pruneActionNotifies();
+
+        PluginxxStringView opView   = pluginxxView(op ? op : "");
+        PluginxxStringView argsView = pluginxxView(argsJson ? argsJson : "{}");
+        PluginxxString     out{};
+        const int32_t      rc = iface.net->call_async(
+            host, &opView, &argsView, &holderPtr->forward, &out, outRequestId);
+        if (out.data) {
+            if (outJson) {
+                outJson->assign(out.data, static_cast<size_t>(out.size));
+            }
+            hostStringFree(out);
+        }
+        if (rc != 0 && !holderPtr->doneCalled) {
+            /// 受理失败: 回收这张通知持有者 (不会有完成回调了)
+            holderPtr->doneCalled = true;
+        }
+        return rc;
+    }
+
+    /// 取消一个进行中的异步请求
+    int32_t netCancel(int64_t requestId, std::string* outJson = nullptr) {
+        if (!netAvailable() || !iface.net->cancel) {
+            return -1;
+        }
+        PluginxxString out{};
+        const int32_t  rc = iface.net->cancel(host, requestId, &out);
+        if (outJson && out.data) {
+            outJson->assign(out.data, static_cast<size_t>(out.size));
+        }
+        if (out.data) {
+            hostStringFree(out);
+        }
+        return rc;
+    }
+
+    /// 订阅本插件的网络事件 (主题 `plugin.<本插件id>.net`)
+    ///
+    /// 事件载荷带 `kind` (`http.request` / `http.response` / `socket.data` /
+    /// `ws.message` / `ws.close` 等), 处理器形如 `void(std::string_view event_json)`。
+    template<typename Fn>
+    int32_t netSubscribe(Fn&& fn) {
+        const std::string topic = "plugin." + pluginId() + ".net";
+        return subscribeTopic(topic.c_str(), std::forward<Fn>(fn));
+    }
+
+    /// 注册一个裁决型钩子 (同步处理器)
     ///
     /// `fn` 形如 `int32_t(std::string_view input_json, std::string& out_json)`;
     /// 返回 0 且 out_json 非空表示给出裁决, out_json 为空表示不裁决 (交给下一个处理器)。

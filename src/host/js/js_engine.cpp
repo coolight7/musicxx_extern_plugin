@@ -1053,24 +1053,142 @@ var featurePointImpls = new Map();
     }
   };
 
-  // 网络：插件框架代理通道（可选便利能力；需要 musicxx.net 权限）
-  // - 非 2xx 也会正常返回（status 交给插件判断）；传输失败/域名未授权时 ok=false
+  /* ---- 网络能力 (插件框架内置: HTTP / TCP / WebSocket) ----
+   *
+   * 所有联网能力都由**插件框架自己**提供, 不再经过主程序的动作:
+   * - `musicxx.net.fetch` / `download` 与 `http.request` 同一套实现 (支持 https);
+   * - http / socket / ws 是插件框架自己的 socket 实现 (http / https / ws / wss),
+   *   好处是能与本地服务、TCP、WebSocket 一起用;
+   * - 服务端 (http.serve / ws.listen) 只监听 http / ws —— 插件自己拷服务时不做 TLS;
+   *   默认只监听 127.0.0.1, 要监听局域网得显式给 `host: "0.0.0.0"`。
+   *
+   * 事件统一发到主题 `plugin.<本插件id>.net`, 这里按 kind 再分给订阅者。
+   * 事件先到 `musicxx.net.on(...)`, 再按前缀分给 `http.on` / `socket.on` / `ws.on`。
+   */
+  var netSubs = [];                // {prefix, fn}
+  var netHttpWaiters = new Map();  // String(requestId) → {resolve, reject}
+
+  function netError(event) {
+    var err = new Error((event && (event.message || event.error)) || "网络操作失败");
+    if (event && event.error) { err.code = String(event.error); }
+    return err;
+  }
+
+  /// 同步网络操作 (op + 参数对象 → 结果对象); 失败也给对象 (`ok:false`)
+  function netCall(op, args) {
+    if (typeof ext.netCall !== "function") {
+      return { ok: false, error: "runtime_unsupported",
+               message: "这个插件框架版本没有网络能力" };
+    }
+    try {
+      return JSON.parse(ext.netCall(String(op), safeJson(args || {})));
+    } catch (e) {
+      return { ok: false, error: "bad_result", message: String(e) };
+    }
+  }
+
+  function netSubscribe(prefix, fn) {
+    if (typeof fn !== "function") { throw new Error("net: 缺少处理函数"); }
+    netSubs.push({ prefix: String(prefix || ""), fn: fn });
+    return musicxx.net;
+  }
+
+  /// 发起一个异步网络操作: 先同步受理, 结果等 `http.response` 事件
+  function netRequestAsync(op, options) {
+    var req = (typeof options === "string") ? { url: options } : (options || {});
+    return new Promise(function (resolve, reject) {
+      var accepted = netCall(op, req);
+      if (!accepted || !accepted.ok) { reject(netError(accepted)); return; }
+      netHttpWaiters.set(String(accepted.requestId),
+                         { resolve: resolve, reject: reject });
+    });
+  }
+
+  /// `musicxx.net.fetch` / `http.fetch` 的结果整理
+  ///
+  /// 形状与以前主程序实现的 fetch 一致:
+  /// `{ok, status, url, headers, contentType, bodyBytes, receivedBytes, contentLength,
+  ///   truncated, body}`; `responseType: "bytes"` 时给 `bodyBase64`。
+  /// 非 2xx 也算请求完成 (状态码交给插件判断); 传输/TLS 失败才 reject。
+  function netFetchResult(event, responseType) {
+    var out = {
+      ok: true,
+      status: event.status || 0,
+      url: event.url || "",
+      headers: event.headers || {},
+      contentType: event.contentType || "",
+      bodyBytes: event.bodyBytes || 0,
+      receivedBytes: event.receivedBytes || 0,
+      contentLength: (typeof event.contentLength === "number") ? event.contentLength : -1,
+      truncated: !!event.truncated
+    };
+    if (responseType === "bytes") { out.bodyBase64 = event.bodyBase64 || ""; }
+    else { out.body = (typeof event.body === "string") ? event.body : ""; }
+    return out;
+  }
+
+  function netFetchAsync(options) {
+    var req = (typeof options === "string") ? { url: options } : (options || {});
+    if (!req.url) { return Promise.reject(new Error("net.fetch: 缺少 url")); }
+    var responseType = (req.responseType === "bytes") ? "bytes" : "text";
+    return netRequestAsync("http.fetch", req).then(function (event) {
+      return netFetchResult(event, responseType);
+    });
+  }
+
+  function netDownloadAsync(options) {
+    var req = (typeof options === "string") ? { url: options } : (options || {});
+    if (!req.url) { return Promise.reject(new Error("net.download: 缺少 url")); }
+    return netRequestAsync("http.download", req).then(function (event) {
+      return {
+        ok: true,
+        status: event.status || 0,
+        path: event.path || "",
+        bytes: event.bytes || 0
+      };
+    });
+  }
+
+  /// 事件名 → 完整 kind (`socket.on("data", fn)` → `socket.data`)
+  function netKind(group, event) {
+    var suffix = String(event);
+    return suffix.indexOf(".") >= 0 ? suffix : (group + "." + suffix);
+  }
+
+  function handleNetEvent(jsonText) {
+    var event;
+    try { event = JSON.parse(jsonText); } catch (e) { return; }
+    if (!event || !event.kind) { return; }
+    // HTTP 客户端的 Promise (框架一定会结算: 超时/取消也会来一条)
+    if (event.kind === "http.response" && event.requestId !== undefined) {
+      var key = String(event.requestId);
+      var waiter = netHttpWaiters.get(key);
+      if (waiter) {
+        netHttpWaiters.delete(key);
+        if (event.ok) { waiter.resolve(event); } else { waiter.reject(netError(event)); }
+      }
+    }
+    for (var i = 0; i < netSubs.length; i++) {
+      var sub = netSubs[i];
+      if (sub.prefix && event.kind.indexOf(sub.prefix) !== 0) { continue; }
+      try { sub.fn(event); }
+      catch (e) {
+        logError("网络事件处理异常 (" + event.kind + "): " +
+                 (e && e.message ? e.message : String(e)));
+      }
+    }
+  }
+
+  /// 插件框架把网络事件直接投递到 JS 线程 (不经事件总线, 所以不会与
+  /// "返回 Promise 的能力/钩子"互相等)
+  ext.onNetEvent = function (json) { handleNetEvent(json); };
+
+  // 网络：插件框架内置实现 (需 musicxx.net 权限)
+  // - 支持 http / https (以及 socket / ws / wss); 服务端仍然只有 http / ws
+  // - 非 2xx 也会正常返回（status 交给插件判断）；传输/TLS 失败时 reject
   musicxx.net = {
-    fetch: function (options) {
-      var req = (typeof options === "string") ? { url: options } : (options || {});
-      if (!req.url) { return Promise.reject(new Error("net.fetch: 缺少 url")); }
-      // 动作 op 的超时要比 HTTP 超时更长，否则请求还没回来 op 就先超时了
-      var budget = (typeof req.timeoutMs === "number" && req.timeoutMs > 0)
-        ? Math.trunc(req.timeoutMs) + 5000 : 20000;
-      return musicxx.call("musicxx.net.fetch", req, budget);
-    },
-    download: function (options) {
-      var req = (typeof options === "string") ? { url: options } : (options || {});
-      if (!req.url) { return Promise.reject(new Error("net.download: 缺少 url")); }
-      var budget = (typeof req.timeoutMs === "number" && req.timeoutMs > 0)
-        ? Math.trunc(req.timeoutMs) + 5000 : 20000;
-      return musicxx.call("musicxx.net.download", req, budget);
-    },
+    fetch: function (options) { return netFetchAsync(options); },
+    download: function (options) { return netDownloadAsync(options); },
     // 本地 HTTP 文件服务（由插件框架内置；JS 自己没有 socket）
     // - 只监听 127.0.0.1，端口由系统分配；URL 里只有随机 token，拿出 URL 也读不到别的文件
     // - 服务跟着插件实例：停用/卸载/关『拟声++』自动关，`stopServer()` 可以提前关
@@ -1120,6 +1238,108 @@ var featurePointImpls = new Map();
       } catch (e) {
         return { ok: false, error: "bad_result", message: String(e) };
       }
+    },
+
+    /* ---- 通用网络能力 (插件框架内置; 事件在 `plugin.<插件id>.net` 上) ---- */
+
+    /// 订阅全部网络事件: fn({kind, ...})
+    on: function (fn) { return netSubscribe("", fn); },
+    /// 只收 HTTP 请求事件 (等价 `http.onRequest`)
+    onHttpRequest: function (fn) { return netSubscribe("http.request", fn); },
+    onSocketEvent: function (fn) { return netSubscribe("socket.", fn); },
+    onWsEvent: function (fn) { return netSubscribe("ws.", fn); },
+    /// 服务 / 连接 / 上限快照
+    info: function () { return netCall("net.info", {}); },
+
+    http: {
+      /// HTTP 客户端请求 (Promise): {url, method?, headers?, body?, bodyBase64?,
+      /// json?, timeoutMs?, maxBytes?, followRedirects?, maxRedirects?, tlsVerify?, caFile?, caPem?, serverName?}
+      /// 支持 http:// 与 https:// (https 走插件框架静态链接的 OpenSSL)
+      request: function (options) {
+        return netRequestAsync("http.request", options);
+      },
+      /// 简化取正文 (Promise): 结果形状同 musicxx.net.fetch
+      fetch: function (options) {
+        return netFetchAsync(options);
+      },
+      /// 下载到插件自己的数据目录 (Promise): 结果形状同 musicxx.net.download
+      download: function (options) {
+        return netDownloadAsync(options);
+      },
+      cancel: function (requestId) {
+        return netCall("http.cancel", { requestId: requestId });
+      },
+      /// 起一个 HTTP 服务: {id?, host?, port?, path?, ...} → {ok, id, host, port, url}
+      serve: function (options) { return netCall("http.serve", options || {}); },
+      /// 回答一条 http.request 事件: respond(requestId, {status, headers, body})
+      respond: function (requestId, response) {
+        var res = (response && typeof response === "object") ? response : {};
+        res.requestId = requestId;
+        return netCall("http.respond", res);
+      },
+      stop: function (id) { return netCall("http.stop", { id: String(id || "") }); },
+      info: function () { return netCall("http.info", {}); },
+      /// on("request"|"listening"|"serverClosed"|"response", fn)
+      on: function (event, fn) { return netSubscribe(netKind("http", event), fn); },
+      onRequest: function (fn) { return netSubscribe("http.request", fn); }
+    },
+
+    socket: {
+      /// TCP 客户端: {id?, host, port, timeoutMs?} → {ok, id}
+      connect: function (options) {
+        var req = (typeof options === "string") ? { host: options } : (options || {});
+        return netCall("socket.connect", req);
+      },
+      /// TCP 服务: {id?, host?, port?, maxConnections?} → {ok, id, host, port}
+      listen: function (options) { return netCall("socket.listen", options || {}); },
+      /// send(id, "文本") 或 send({id, dataBase64})
+      send: function (id, data, options) {
+        var req = (options && typeof options === "object") ? options : {};
+        if (data && typeof data === "object") { req = data; }
+        else { req.data = String(data === undefined ? "" : data); }
+        if (typeof id === "string") { req.id = id; }
+        return netCall("socket.send", req);
+      },
+      close: function (id) { return netCall("socket.close", { id: String(id || "") }); },
+      stop: function (id) { return netCall("socket.serverStop", { id: String(id || "") }); },
+      info: function () { return netCall("socket.info", {}); },
+      /// on("connected"|"data"|"closed"|"accepted"|"listening"|"serverClosed", fn)
+      on: function (event, fn) { return netSubscribe(netKind("socket", event), fn); },
+      onEvent: function (fn) { return netSubscribe("socket.", fn); }
+    },
+
+    ws: {
+      /// WebSocket 客户端: ws.connect("ws://host:port/path", {id?, headers?})
+      /// 或 ws.connect({url}) / ws.connect({host, port, path})
+      connect: function (url, options) {
+        var req = (url && typeof url === "object") ? url : (options || {});
+        if (!(url && typeof url === "object")) { req.url = String(url || ""); }
+        return netCall("ws.connect", req);
+      },
+      /// WebSocket 服务: {id?, host?, port?, path?, maxConnections?}
+      listen: function (options) { return netCall("ws.listen", options || {}); },
+      /// send(id, "文本") 或 send({id, dataBase64})
+      send: function (id, data, options) {
+        var req = (options && typeof options === "object") ? options : {};
+        if (data && typeof data === "object") { req = data; }
+        else { req.text = String(data === undefined ? "" : data); }
+        if (typeof id === "string") { req.id = id; }
+        return netCall("ws.send", req);
+      },
+      ping: function (id, text) {
+        return netCall("ws.ping", { id: String(id || ""), text: String(text || "") });
+      },
+      close: function (id, code, reason) {
+        var req = { id: String(id || "") };
+        if (typeof code === "number") { req.code = code; }
+        if (typeof reason === "string") { req.reason = reason; }
+        return netCall("ws.close", req);
+      },
+      stop: function (id) { return netCall("ws.serverStop", { id: String(id || "") }); },
+      info: function () { return netCall("ws.info", {}); },
+      /// on("open"|"message"|"close"|"pong"|"listening"|"serverClosed", fn)
+      on: function (event, fn) { return netSubscribe(netKind("ws", event), fn); },
+      onEvent: function (fn) { return netSubscribe("ws.", fn); }
     }
   };
 
@@ -1515,6 +1735,11 @@ var featurePointImpls = new Map();
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
     capabilityWaiters.clear();
+    netSubs.length = 0;
+    netHttpWaiters.forEach(function (waiter) {
+      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+    });
+    netHttpWaiters.clear();
   };
 
   /* ---- console ---- */
@@ -1696,6 +1921,43 @@ JSValue jsHttpServerInfo(JSContext *ctx, JSValueConst, int /*argc*/,
                         R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
   }
   const std::string json = inst->engine->bridgeHttpServerInfo(inst->name);
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 网络能力: 同步操作 (op + 参数 JSON → 结果 JSON)
+JSValue jsNetCall(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine) {
+    return JS_NewString(
+        ctx,
+        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
+  }
+  const char *op = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
+  const char *args = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+  const std::string json = inst->engine->bridgeNetCall(
+      inst->name, op ? op : "", args ? args : "{}");
+  if (op) {
+    JS_FreeCString(ctx, op);
+  }
+  if (args) {
+    JS_FreeCString(ctx, args);
+  }
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 网络能力: 取消进行中的 HTTP 请求
+JSValue jsNetCancel(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine) {
+    return JS_NewString(
+        ctx,
+        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
+  }
+  int64_t requestId = 0;
+  if (argc >= 1) {
+    JS_ToInt64(ctx, &requestId, argv[0]);
+  }
+  const std::string json = inst->engine->bridgeNetCancel(inst->name, requestId);
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
@@ -2187,6 +2449,8 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"httpServeBytes", jsHttpServeBytes, 4},
       {"httpServerInfo", jsHttpServerInfo, 0},
       {"httpStop", jsHttpStop, 0},
+      {"netCall", jsNetCall, 2},
+      {"netCancel", jsNetCancel, 1},
       {"capabilityCall", jsCapabilityCall, 4},
       {"engineVersion", jsEngineVersion, 0},
       {"pluginId", jsPluginId, 0},
@@ -3598,6 +3862,61 @@ void JsEngine::bridgeHttpStop(const std::string &instanceName) {
   if (server) {
     server->stop();
   }
+}
+
+std::string JsEngine::bridgeNetCall(const std::string &instanceName,
+                                    const std::string &op,
+                                    const std::string &argsJson) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst || !mgr_) {
+    return R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})";
+  }
+  std::string out;
+  const int32_t rc = mgr_->netCall(inst->id, op, argsJson, out);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    Json err = Json::object();
+    err["ok"] = false;
+    err["error"] = "call_failed";
+    err["code"] = rc;
+    err["message"] = "插件框架没有执行这个网络操作";
+    return err.dump();
+  }
+  return out.empty() ? std::string{"{\"ok\":true}"} : out;
+}
+
+std::string JsEngine::bridgeNetCancel(const std::string &instanceName,
+                                      int64_t requestId) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst || !mgr_) {
+    return R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})";
+  }
+  std::string out;
+  const int32_t rc = mgr_->netCancel(inst->id, requestId, out);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    Json err = Json::object();
+    err["ok"] = false;
+    err["error"] = "cancel_failed";
+    err["code"] = rc;
+    return err.dump();
+  }
+  return out.empty() ? std::string{"{\"ok\":true}"} : out;
+}
+
+void JsEngine::deliverNetEvent(const std::string &pluginId,
+                               const std::string &payloadJson) {
+  auto inst = lookupInstance("js:" + pluginId);
+  if (!inst || !inst->scriptLoaded) {
+    return;
+  }
+  const std::string name = inst->name;
+  postTask([this, name, payloadJson] {
+    const auto target = lookupInstance(name);
+    if (!target) {
+      return;
+    }
+    std::string ignored;
+    callBridgeString(target, "onNetEvent", {payloadJson}, ignored);
+  });
 }
 
 void JsEngine::sampleHeap(const std::shared_ptr<Instance> &inst) {

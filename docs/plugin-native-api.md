@@ -320,7 +320,7 @@ MUSICXX_PLUGIN_EXPORT(
 - 每张表的 `MUSICXX_PLUGIN_IFACE_*_VERSION` / `..._MIN_VERSION` / `..._BASELINE_SIZE` 与表体一起声明在
   `plugin_api.h`，SDK 在 `plugin_kit.h` 里逐表给出 `pluginxx::IfaceMeta` 特化（上面两条门槛读的就是它）。
   插件不要自己造表、也不要改主程序给的表。
-- 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表都是 v1，
+- 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张表都是 v1，
   基线 = 整表大小，也就是"表可用即全部成员可用"。
 
 ### 4.2 常用接口的 C++ 写法
@@ -529,6 +529,73 @@ SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / 
 没声明的键读/写一律返回「未找到」。
 
 ---
+
+## 5.6 网络（`musicxx.net`：HTTP / TCP / WebSocket）
+
+接口表 `musicxx.net`（`MusicxxPluginNetIface`，SDK 里是 `iface.net`），只有三个入口：
+同步 `call`、异步 `call_async`（目前只有 `http.request`）、取消 `cancel`。所有操作都是
+`op + 参数 JSON → 结果 JSON`，op 全表、参数、事件字段与上限见
+[plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
+
+```cpp
+// 起一个 HTTP 服务（默认只监听 127.0.0.1；port = 0 由系统分配）
+std::string out;
+netCall(net_op::httpServe, R"({"id":"api","port":0})", out);
+// out = {"ok":true,"id":"api","host":"127.0.0.1","port":52341,"url":"http://127.0.0.1:52341"}
+
+// 订阅本插件的网络事件（主题 plugin.<插件id>.net）
+// 处理器在插件框架线程执行，不能阻塞；netCall 在这里调是安全的。
+netSubscribe([](std::string_view eventJson) {
+    const utilxx_base::Json event = utilxx_base::Json::parse(eventJson);
+    if (event.value("kind", std::string{}) != "http.request") {
+        return;
+    }
+    utilxx_base::Json response = utilxx_base::Json::object();
+    response["requestId"] = event.value("requestId", int64_t{0});
+    response["status"] = 200;
+    response["body"] = "ok";
+    std::string ignored;
+    netCall(net_op::httpRespond, response, ignored);
+});
+
+// 异步 HTTP 客户端（完成通知在插件框架线程恰好一次）
+static void PLUGINXX_CALL onHttpDone(void* /*ud*/, int32_t status,
+                                     const PluginxxStringView* payload) {
+    // status == PLUGINXX_OPERATOR_OK 时 payload 是响应 JSON，否则是错误 JSON
+}
+PluginxxOperatorNotify notify{&onHttpDone, nullptr};
+int64_t requestId = 0;
+std::string accepted;
+netCallAsync(net_op::httpRequest, R"({"url":"http://127.0.0.1:52341/health"})",
+             &notify, &accepted, &requestId);
+
+// 两个常用形态(与 JS 的 musicxx.net.fetch / download 一致):
+// httpFetch 拿正文(带 status / headers / body), httpDownload 直接落到
+// <data_dir>/<插件id>/data/downloads/ 下并返回 path / bytes
+netCallAsync(net_op::httpFetch, R"({"url":"https://example.com/a.json"})",
+             &notify, &accepted, &requestId);
+netCallAsync(net_op::httpDownload,
+             R"({"url":"https://example.com/a.mp3","fileName":"a.mp3"})",
+             &notify, &accepted, &requestId);
+```
+
+要点：
+
+- **表可能为空**（旧插件框架库）：先判 `netAvailable()`；没有就降级（继续用动作
+  `musicxx.net.fetch` + 本地 HTTP 文件服务 `musicxx.net.serveFile` 那一套）。
+- **服务端默认只监听 `127.0.0.1`**，端口写 `0` 由系统分配；要同网段可访问显式写
+  `host: "0.0.0.0"`。
+- **客户端支持 `http://` / `https://` / `ws://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成
+  （证书链与主机名校验默认开；参数 `tlsVerify` / `caFile` / `caPem` / `serverName`）。
+  **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。构建里关掉 TLS 时 `https` / `wss`
+  得到 `tls_unsupported`；`netCall(net_op::info, ...)` 的 `tls` 字段能提前看出当前构建有没有 TLS。
+- **不要在钩子 / 能力处理器里同步等 HTTP 响应**：`netCall` 会等网络线程（有界 5 s），
+  响应回来要经过事件回调。客户端请求用 `netCallAsync`（完成通知）或听
+  `http.response` 事件。
+- **事件处理器在插件框架线程**（与钩子处理器同一条线程），不能阻塞；
+  `netCall`（起服务 / 发送 / 关闭）在这里调用不会互锁。
+- 服务、连接与未完成的请求都跟着插件实例：停用 / 卸载 / 框架停机自动关（端口释放）。
+- 完整写法参考 `plugins/example_js_net`（JS 版，op 与事件与动态库插件完全一致）。
 
 ## 6. 已接入裁决钩子的写法
 
@@ -875,7 +942,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` 四张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `net` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套钩子表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |

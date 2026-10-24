@@ -34,6 +34,10 @@ param(
     [string]$BoostRoot,
     [string]$BoostArchive,
     [switch]$NoDownloadBoost,
+    # OpenSSL (客户端 TLS: https / wss): 打印/缓存解析结果
+    [string]$OpenSslRoot,
+    [switch]$NoDownloadOpenSsl,
+    [switch]$NoTls,
     [switch]$Check,
     [switch]$Force,
     [switch]$Quiet,
@@ -48,6 +52,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'native_common.ps1')
+. (Join-Path $PSScriptRoot 'deps_openssl.ps1')
 
 $Root = (Resolve-Path $Root).Path
 Initialize-MxBuildEnvironment
@@ -84,6 +89,25 @@ else {
     Write-MxWarn "Boost:      $boostSourceText"
 }
 Write-MxInfo "子模块:     $($environment.Submodules.Total) 个已初始化"
+
+# OpenSSL (客户端 TLS): 提前解析/下载好, 构建时就不用再等
+$openssl = [ordered]@{ Root = ''; Version = ''; Source = '' }
+if ($NoTls) {
+    Write-MxInfo 'OpenSSL:    -NoTls: 构建出来的插件框架不带 TLS (https / wss 不可用)'
+}
+else {
+    $openssl = Resolve-MxOpenSslRoot -Root $Root -OpenSslRoot $OpenSslRoot `
+        -NoDownloadOpenSsl:$NoDownloadOpenSsl -Check:$Check
+    if ($openssl.Root) {
+        Write-MxInfo "OpenSSL:    $($openssl.Root) (版本 $($openssl.Version), 来源 $($openssl.Source))"
+    }
+    elseif ($openssl.Source) {
+        Write-MxWarn "OpenSSL:    $($openssl.Source) (正式执行本脚本时会自动下载, 完整包约 260 MB)"
+    }
+    else {
+        Write-MxWarn 'OpenSSL:    缺失 (构建出来的插件框架不带 TLS; https / wss 报 tls_unavailable)'
+    }
+}
 if ($Android -or $environment.Android.Toolchain) {
     Write-MxInfo "Android NDK: $($environment.Android.Ndk)"
     Write-MxInfo "  工具链:    $($environment.Android.Toolchain)"
