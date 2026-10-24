@@ -317,9 +317,7 @@ void main() {
     final Map<String, Object?> server =
         (probe['server'] as Map).cast<String, Object?>();
     expect(server['running'], isTrue);
-    expect(server['files'], greaterThanOrEqualTo(1));
-    expect(server['requests'], greaterThanOrEqualTo(2));
-    expect(server['bytesServed'], greaterThanOrEqualTo(content.length));
+    expect((server['routes'] as List).length, greaterThanOrEqualTo(1));
 
     // 同一个文件再解析一次：命中登记（URL 不变），不会多一条映射
     final Map<String, Object?>? again = await harness.resolveSrc(
@@ -339,7 +337,7 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 90)));
 
-  test('功能 3：serveBytes 登记一段内容', () async {
+  test('功能 3：http.route 挂一段内存内容', () async {
     if (env == null || !env.hasPlugin(pluginId)) {
       markTestSkipped(
         '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
@@ -361,7 +359,7 @@ void main() {
     );
     expect(raw, isA<Map<String, Object?>>());
     final Map<String, Object?> served = raw! as Map<String, Object?>;
-    expect(served['ok'], isTrue, reason: 'serveBytes 应当成功: $served');
+    expect(served['ok'], isTrue, reason: 'http.route 应当成功: $served');
 
     final HttpClient client = HttpClient();
     addTearDown(client.close);

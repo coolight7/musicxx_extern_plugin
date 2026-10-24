@@ -29,7 +29,8 @@
 - JS：新增 `musicxx.net.http.*` / `musicxx.net.socket.*` / `musicxx.net.ws.*` 与
   `musicxx.net.on / onHttpRequest / onSocketEvent / onWsEvent / info`；
   **`musicxx.net.fetch` / `download` 改为用这套实现**（参数与返回形状不变，不再走主程序动作，
-  因此也不再继承主程序的代理设置）；`serveFile / serveBytes / serverInfo / stopServer` 不变。
+  因此也不再继承主程序的代理设置）；静态内容（把自己手里的文件 / 内存内容交给播放器）
+  并到同一个 HTTP 服务上：`http.serve` 的 `static` / `http.route`，见下文「HTTP 服务的静态内容路由」。
 - 新增两个 op：`http.fetch`（= 老的 `musicxx.net.fetch`）与 `http.download`（正文流式写入
   `<data_dir>/<插件id>/data/downloads/`）。老的 `musicxx.net.fetch` / `download` **动作**仍然注册在
   主程序里（给直接调动作的插件用），新插件用 op / JS 封装。
@@ -136,22 +137,28 @@
 - 写法见 `docs/plugin-hooks.md`（两个钩子的载荷）、`docs/plugin-vars.md`（变量）与
   `docs/musicxx-interfaces.md`（命令行 `app.lifecycle` / MCP `GetAppLifecycle`）。
 
-### 新增：本地 HTTP 文件服务（仅 JS：`musicxx.net.serveFile/serveBytes/serverInfo/stopServer`）
+### 新增：HTTP 服务的静态内容路由（`http.serve({static})` / `http.route`）
 
-- JS 运行时没有 socket，而播放器只认 `http(s)` 与本地文件 —— 现在插件可以把**本地文件**
-  （`serveFile`）或**一段内容**（`serveBytes`，≤ 8 MiB）登记成 `http://127.0.0.1:<随机端口>/f/<token>` 地址：
-  同步返回，支持 `GET` / `HEAD` + 单段 `Range`（206 / 416），文件按 64 KiB 边读边写。
-- 安全边界：**只监听回环**；URL 里只有 128 bit 随机 token，服务端按 token 查表、不解析路径
-  （拿到 URL 也读不到别的文件）；登记条数 ≤ 1024（淘汰最旧）、并发连接 ≤ 32。
-- 生命周期跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机自动关掉（端口释放），`stopServer()` 可以提前关。
-- 这是**代理**的一般机制：`musicxx.net.fetch/download` 取到的数据、FTP / 私有协议、HLS 分片、转码产物
-  都可以先转成 HTTP 再给播放器，播放器只看到干净的本地 URL。写法见 `docs/plugin-api.md` §3.2.6
-  与 `docs/plugin-js-api.md` §7.3.1；完整例子：`plugins/example_override_media_source`。
+- JS 运行时没有 socket，而播放器只认 `http(s)` 与本地文件 —— 现在把**本地文件**或**一段内容**
+  （≤ 8 MiB）挂到自己的 HTTP 服务上，就能变成 `http://127.0.0.1:<端口>/f/<token>/<文件名>`：
+  `http.serve({id, staticOnly, static: [{file|bytes, path?, contentType?, fileName?}]})` 一次挂好，
+  或者起服务后 `http.route({serverId, file|bytes, …})` 逐条加、`http.unroute({serverId, path})` 摘掉。
+- **命中静态路由的请求不进插件**：由框架直接回 200 / 206 / 416（支持 `GET` / `HEAD` 与单段
+  `Range`，文件按 64 KiB 边读边写），不用写处理器，也不用等回答。
+- `staticOnly: true` = 没命中就直接 404（纯文件服务都该开）；不开时未命中的请求照旧发
+  `http.request`，同一个服务既能挂文件也能自己回答接口。
+- 安全边界：**只监听回环**；自动生成的路径里只有 128 bit 随机 token，服务端按路径查表、
+  不解析路径（拿到 URL 也读不到路由以外的文件）；每个服务路由 ≤ 1024、服务 ≤ 8、连接 ≤ 64。
+- 生命周期跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机时服务与路由一起失效（端口释放）。
+- 这是**代理**的一般机制：`musicxx.net.fetch/download` 取到的数据、FTP / 私有协议、HLS 分片、
+  转码产物都可以先转成 HTTP 再给播放器，播放器只看到干净的本地 URL。写法见 `docs/plugin-api.md`
+  §3.2.6 与 `docs/plugin-js-api.md` §7.3.1；完整例子：`plugins/example_override_media_source`、
+  `plugins/example_js_net`（`selftest` 里的 `static` 一段）。
 
 ### 新增：示例插件 `example_override_media_source`
 
 - 演示"插件参与音源解析"的三条路（各自有开关）：覆盖内置 Bili 解析（BV 号 → 直链 + 请求头）、
-  插件音源类型 `plugin_bili`（类型 + 资源 id，`src` 里写 BV 号）、本地文件经插件 HTTP 服务播放（`plugin_proxy_local`）。
+  插件音源类型 `plugin_bili`（类型 + 资源 id，`src` 里写 BV 号）、本地文件经插件 HTTP 服务的静态路由播放（`plugin_proxy_local`）。
 - 带自绘设置页（三个开关 + 计数 + 服务状态）、集成测试与 README；
   它同时也是"异步裁决钩子里可以等主程序动作"的样板（见下一条修正）。
 

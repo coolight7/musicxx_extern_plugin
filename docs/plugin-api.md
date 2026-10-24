@@ -491,44 +491,83 @@ netCall(net_op::httpFetch, R"({"url":"https://example.com/a.json","timeoutMs":20
 插件用，走主程序网络栈、会继承代理设置），但 **JS 封装 `musicxx.net.fetch` / `download` 已经改用
 插件框架自己实现**，两边参数与返回形状一致。新插件请用本节这套。
 
-##### 本地 HTTP 文件服务（`musicxx.net.serveFile` 等，仅 JS 可用）
+##### 静态内容（`http.serve` 的 `static` / `http.route`）：把文件与内存内容变成 http 地址
 
-JS 运行时里没有 socket。要把"播放器打不开的东西"（本地文件以外的数据、插件自己取到的远端数据、
-HLS 播放列表与分片、转码产物）交给播放器，用这四个接口 —— 它们是**插件框架内置的能力**
-（不是主程序动作，也不需要 `musicxx.net` 权限之外的任何声明），只监听 `127.0.0.1`，端口由系统分配。
+JS 运行时里没有 socket；要把"播放器打不开的东西"（本地文件、插件自己取到的远端数据、
+HLS 播放列表与分片、转码产物）交给播放器，就在自己的 HTTP 服务上挂几条**静态路由**：
+命中后由插件框架直接回响应，**不发 `http.request` 事件** —— 不用写处理器，也不用等回答。
 
-| 接口（JS） | 参数 | 返回 |
+| 接口 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.net.serveFile(path, options?)` | `path`（绝对路径，UTF-8）、`options.contentType?`、`options.fileName?` | `{ok, url, size, mtimeMs, reused}` / `{ok:false, error, message}` |
-| `musicxx.net.serveBytes(data, options?)` | `data`（文本；`options.encoding:"base64"` 时先解码）、`options.contentType?`、`options.fileName?` | `{ok, url, size, reused}` / `{ok:false, error, message}` |
-| `musicxx.net.serverInfo()` | 无 | `{ok, running, url, port, files, requests, bytesServed}` |
-| `musicxx.net.stopServer()` | 无 | 同 `serverInfo()`（已停止） |
+| `musicxx.net.http.serve(options)` | `{id?, host?, port?, path?, staticOnly?, static?: [route…], requestTimeoutMs?, maxBodyBytes?, maxConnections?}` | `{ok, id, host, port, url, routes?}` |
+| `musicxx.net.http.route(options)` | `{serverId, file \| bytes \| bytesBase64, path?, contentType?, fileName?}` | `{ok, serverId, path, url, size, mtimeMs, contentType, fileName, reused, routes, routeCount}` / `{ok:false, error, message}` |
+| `musicxx.net.http.unroute(options)` | `{serverId, path}` | `{ok, serverId, path, removed, routes}` |
+| `musicxx.net.http.info()` | —— | 服务快照；每个服务带 `routes`（`path` / `url` / `size` / `contentType` / `fileName` / `file` / `mtimeMs`） |
+
+一条静态路由（`static` 数组的每一项与 `http.route` 的参数是同一个形状）：
+
+| 字段 | 说明 |
+|---|---|
+| `file` | 本地文件绝对路径（UTF-8）；与 `bytes` / `bytesBase64` 三选一 |
+| `bytes` / `bytesBase64` | 内存内容（`bytes` 是文本、`bytesBase64` 是二进制），单条 ≤ 8 MiB |
+| `path` | 请求路径：必须 `/` 开头、不含 `..`、在服务的 `path` 前缀之下（服务带前缀时路由路径也要带，例 `path: "/api"` → 路由 `/api/f/…`）；不写就自动生成 `<前缀>/f/<32 位十六进制>/<文件名>`（猜不到） |
+| `contentType` | 响应的 Content-Type；不写按文件名推，再不行 `application/octet-stream` |
+| `fileName` | 只用于 URL 尾段与 Content-Type 推导（会去掉路径分隔符与其他怪字符） |
 
 ```js
-const served = musicxx.net.serveFile("D:/music/a.mp3", { fileName: "a.mp3" });
-if (served.ok) {
-    // 交给播放器：http://127.0.0.1:52341/f/<token>/a.mp3
-    return { patch: { src: { path: served.url, kind: "url", size: served.size } } };
+// 起一个只发静态内容的服务（第一次用到时起一次，之后复用）
+let server = null;
+function fileServer() {
+    if (server) { return server; }
+    const info = musicxx.net.http.info();
+    server = (info.servers || []).find(function (item) { return item.id === "files"; }) ||
+        musicxx.net.http.serve({ id: "files", port: 0, staticOnly: true });
+    return server;
 }
+
+function serveLocalFile(path, name) {
+    const routed = musicxx.net.http.route({
+        serverId: fileServer().id,
+        file: path,
+        fileName: name,
+    });
+    if (!routed.ok) { return null; }   // routed.error / routed.message 说明原因
+    // http://127.0.0.1:52341/f/<token>/a.mp3
+    return { patch: { src: { path: routed.url, kind: "url", size: routed.size } } };
+}
+
+// 也可以在起服务时一次挂好；摘掉用 unroute
+const hls = musicxx.net.http.serve({
+    id: "hls",
+    port: 0,
+    staticOnly: true,
+    static: [{ bytes: "#EXTM3U\n#EXT-X-VERSION:3\nseg0.ts\n", fileName: "index.m3u8",
+               contentType: "application/vnd.apple.mpegurl" }],
+});
+musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 ```
 
 必须知道的几条：
 
-- **同步接口**：登记只是往表里加一条映射，不发网络请求；服务在第一次登记时惰性启动。
-- **只监听回环**：局域网设备访问不到；URL 里只有 128 bit 随机 token，服务端**按 token 查表、不解析路径**，
-  拿到 URL 也读不到表以外的文件。
-- **支持 `GET` / `HEAD` 与单段 `Range`**（`206` + `Content-Range`；越界 `416`），文件按 64 KiB 边读边写；
-  播放器拖动进度就靠它，否则会退化成整段重下。多段 `Range` 当成"没有 Range"整段返回。
-- **同一个文件 / 同一段内容重复登记返回同一个 URL**（按路径 + 大小 + 修改时间 / 内容哈希去重）。
-- **生命周期跟着插件实例**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时自动关掉，端口释放；
-  想提前关用 `stopServer()`。
-- 容量：单段内存内容 ≤ 8 MiB（大文件用 `serveFile`）、登记条数 ≤ 1024（满了淘汰最旧的）、
-  同时处理的连接 ≤ 32（超出的直接关）。
-- **旧插件框架没有这四个接口**：调用前先看 `typeof musicxx.net.serveFile === "function"`，
-  没有就自己降级（例如直接返回本地路径 `kind:"file"`）。
-- 这是**代理**的一般机制：`musicxx.net.fetch` / `download` 取到的数据 → `serveBytes` / `serveFile` →
-  播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以这么做。
-  完整示例见 `plugins/example_override_media_source`。
+- **只监听回环**：默认 `host: "127.0.0.1"`，局域网访问不到。自动生成的路径里只有随机 token，
+  服务端**按路径查表、不解析路径**，拿到 URL 也读不到表以外的文件。
+- **支持 `GET` / `HEAD` 与单段 `Range`**（`206` + `Content-Range`；越界 `416`），文件按 64 KiB
+  边读边写；播放器拖动进度就靠它，否则会退化成整段重下。多段 `Range` 当成"没有 Range"整段返回。
+- **`staticOnly: true`**：没命中任何静态路由的请求直接回 404，不再发给插件（纯文件服务都该打开，
+  否则每个 404 都要等到 `requestTimeoutMs` 才回 504）。不写这项时未命中的请求照旧发
+  `http.request`，于是"同一个服务既能挂文件、也能自己回答接口"。
+- **同一个文件 / 同一段内容重复登记返回同一个 URL**（按路径 + 大小 + 修改时间，或内容比较）。
+- **生命周期跟着插件实例**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时服务一起关掉（端口释放），
+  路由也跟着没了；提前关服务用 `http.stop(id)`，只摘一条用 `http.unroute`。
+- 容量：单条内存内容 ≤ 8 MiB（大文件用 `file`）、每个服务路由 ≤ 1024、服务数 ≤ 8、
+  连接 ≤ 64（见 `musicxx.net.info()` 的 `limits`）。
+- **老版本的插件框架没有静态路由**（只有 `musicxx.net.http.serve`）：调用前先看
+  `typeof musicxx.net.http.route === "function"`，没有就自己降级（例如直接返回本地路径
+  `kind:"file"`）。
+- 这是**代理**的一般机制：`musicxx.net.fetch` / `download` 取到的数据 → `route`（小的给 `bytes`、
+  大的落盘给 `file`）→ 播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以
+  这么做。完整示例见 `plugins/example_override_media_source`（本地文件代理）与
+  `plugins/example_js_net`（`serve({static})` / `route` / `unroute` 自检）。
 
 ##### 内置网络能力（`musicxx.net.http / socket / ws`，JS 与动态库插件共用）
 
@@ -591,8 +630,9 @@ if (served.ok) {
 `tls_cert_invalid`（证书链或主机名不对）/ `tls_handshake_failed`（协议协商失败）。
 下载到本地时还可能是 `no_data_dir`（插件数据目录未就绪）/ `write_failed`（文件建不出来或写失败）。
 
-**HTTP 服务端**：`http.serve`（`id?`, `host?`, `port?`, `path?` 前缀, `maxBodyBytes?`,
-`requestTimeoutMs?`, `maxConnections?`）→ `{ok, id, host, port, url}`。每个请求发一条
+**HTTP 服务端**：`http.serve`（`id?`, `host?`, `port?`, `path?` 前缀, `staticOnly?`,
+`static?` 静态内容清单（见上一节）, `maxBodyBytes?`, `requestTimeoutMs?`, `maxConnections?`）
+→ `{ok, id, host, port, url, routes?}`。每个请求发一条
 `http.request`，**必须**用 `http.respond` 回答（`status` / `headers` / `contentType` /
 `body`|`bodyBase64`），否则 `requestTimeoutMs`（缺省 30 s）后自动回 504 并关连接。
 支持 `Connection: keep-alive`；分块请求体不支持（回 411，请用 `Content-Length`）。
@@ -1636,7 +1676,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | 变量读 / 写未回执 | 各 ≤ 32 条；读超时 2 s、写 3 s（应用键 5 s） |
 | `musicxx.net.fetch` / `download` | 超时 1~60 s、`maxBytes` 1 KiB~16 MiB |
 | `musicxx.media.cover` | `size` 16~512、`rgba` 有体积上限、结果缓存 16 条 |
-| `musicxx.net.serveFile` / `serveBytes` | 内存内容 ≤ 8 MiB；登记条数 ≤ 1024（淘汰最旧）；连接 ≤ 32；只监听 127.0.0.1 |
+| 静态路由（`http.serve({static})` / `http.route`） | 单条内存内容 ≤ 8 MiB；每个服务 ≤ 1024 条；服务 ≤ 8；连接 ≤ 64；只监听 127.0.0.1 |
 | `musicxx.media.bindImage` | 键 1~64 位 `[A-Za-z0-9_.-]`、每插件张数有上限、最长边有上限 |
 | `musicxx.ui.loadFont` | 字体文件 ≤ 100 MiB |
 | 性能 / 内存 / 网络 | 插件框架不做限制（插件的内存、耗时、数量都不设上限；自己别把应用拖死） |
@@ -1673,7 +1713,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 插件被禁用或卸载时，插件框架**统一摘除**：
 
 - 全部钩子处理器；全部已声明能力；全部事件订阅；全部 UI 项声明；全部功能点声明与实现；
-- **本地 HTTP 文件服务**（JS：端口立刻释放，旧 URL 立即失效）；
+- **自己起的网络服务与静态路由**（端口立刻释放，旧 URL 立即失效）；
 - 定时器（JS）；未完成的动作请求（JS 的 Promise 被拒绝，原因"插件已停止"）；
 - 自管的线程 / 定时器 / 临时文件由你在 `stop` 事务里自己回收（动态库插件）。
 

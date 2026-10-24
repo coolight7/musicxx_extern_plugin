@@ -23,7 +23,7 @@
 | 演示示例 | `example_js_multi_script` | JS插件：清单 `scripts` 多脚本按顺序加载（kit 随插件目录分发） |
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
 | 演示示例 | `example_js_net` | JS插件：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的**客户端 + 服务端**（客户端支持 https / wss；载入后自动跑一遍本机自检，含 `fetch` / `download`） |
-| 演示示例 | `example_override_media_source` | JS插件：参与音源解析（覆盖内置 Bili 解析 / 声明自己的音源类型 / 本地 HTTP 文件服务代理） |
+| 演示示例 | `example_override_media_source` | JS插件：参与音源解析（覆盖内置 Bili 解析 / 声明自己的音源类型 / 本地文件经静态路由代理） |
 | 对照示例 | `example_js_broken` | JS插件：脚本语法错误 → 演示加载失败与回滚（**永远加载失败**） |
 | 对照示例 | `example_native_fail` | 动态库插件：处理器总是失败 → 演示"失败只记统计"（不暂停、不卸载） |
 | 对照示例 | `example_native_bad_entry` | 动态库插件：缺 `start`/`stop` 入口符号 → 演示加载阶段按约定拒绝（**永远加载失败**） |

@@ -92,43 +92,6 @@ std::string readTextFile(const fs::path &path) {
   return oss.str();
 }
 
-/// base64 → 字节 (`musicxx.net.serveBytes` 的 `encoding: "base64"`)
-///
-/// 标准与 URL 安全两套字母都接受, 空白与换行忽略, `=` 之后直接结束。
-bool decodeBase64(const std::string &text, std::string &out) {
-  auto valueOf = [](char c) -> int {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+' || c == '-') return 62;
-    if (c == '/' || c == '_') return 63;
-    return -1;
-  };
-  out.clear();
-  out.reserve(text.size() * 3 / 4 + 3);
-  int buffer = 0;
-  int bits = 0;
-  for (const char c : text) {
-    if (c == '=') {
-      break;
-    }
-    if (c == '\n' || c == '\r' || c == ' ' || c == '\t') {
-      continue;
-    }
-    const int value = valueOf(c);
-    if (value < 0) {
-      return false;
-    }
-    buffer = (buffer << 6) | value;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      out.push_back(static_cast<char>((buffer >> bits) & 0xFF));
-    }
-  }
-  return true;
-}
-
 /// 跨边界字符串视图 → C++ 字符串
 std::string viewToStr(const PluginxxStringView *view) {
   if (!view || !view->data || view->size == 0) {
@@ -1189,56 +1152,6 @@ var featurePointImpls = new Map();
   musicxx.net = {
     fetch: function (options) { return netFetchAsync(options); },
     download: function (options) { return netDownloadAsync(options); },
-    // 本地 HTTP 文件服务（由插件框架内置；JS 自己没有 socket）
-    // - 只监听 127.0.0.1，端口由系统分配；URL 里只有随机 token，拿出 URL 也读不到别的文件
-    // - 服务跟着插件实例：停用/卸载/关『拟声++』自动关，`stopServer()` 可以提前关
-    // - 三个登记/查询接口都是**同步**的（只加一条映射，不做网络请求）
-    serveFile: function (path, options) {
-      var req = (typeof options === "string") ? { contentType: options } : (options || {});
-      if (typeof ext.httpServeFile !== "function") {
-        return { ok: false, error: "runtime_unsupported",
-                 message: "这个插件框架版本没有本地文件服务" };
-      }
-      try {
-        return JSON.parse(ext.httpServeFile(String(path), req.contentType || "",
-                                          req.fileName || ""));
-      } catch (e) {
-        return { ok: false, error: "bad_result", message: String(e) };
-      }
-    },
-    serveBytes: function (data, options) {
-      var req = (typeof options === "string") ? { contentType: options } : (options || {});
-      if (typeof ext.httpServeBytes !== "function") {
-        return { ok: false, error: "runtime_unsupported",
-                 message: "这个插件框架版本没有本地文件服务" };
-      }
-      try {
-        return JSON.parse(ext.httpServeBytes(String(data || ""), req.encoding || "",
-                                            req.contentType || "", req.fileName || ""));
-      } catch (e) {
-        return { ok: false, error: "bad_result", message: String(e) };
-      }
-    },
-    serverInfo: function () {
-      if (typeof ext.httpServerInfo !== "function") {
-        return { ok: false, running: false, error: "runtime_unsupported" };
-      }
-      try {
-        return JSON.parse(ext.httpServerInfo());
-      } catch (e) {
-        return { ok: false, running: false, error: "bad_result", message: String(e) };
-      }
-    },
-    stopServer: function () {
-      if (typeof ext.httpStop !== "function") {
-        return { ok: false, error: "runtime_unsupported" };
-      }
-      try {
-        return JSON.parse(ext.httpStop());
-      } catch (e) {
-        return { ok: false, error: "bad_result", message: String(e) };
-      }
-    },
 
     /* ---- 通用网络能力 (插件框架内置; 事件在 `plugin.<插件id>.net` 上) ---- */
 
@@ -1269,8 +1182,16 @@ var featurePointImpls = new Map();
       cancel: function (requestId) {
         return netCall("http.cancel", { requestId: requestId });
       },
-      /// 起一个 HTTP 服务: {id?, host?, port?, path?, ...} → {ok, id, host, port, url}
+      /// 起一个 HTTP 服务: {id?, host?, port?, path?, staticOnly?, requestTimeoutMs?,
+      /// maxBodyBytes?, maxConnections?, static?} → {ok, id, host, port, url, routes?}
+      /// `static` 是静态内容清单 (命中后由框架直接回 200/206/416, 不发 request 事件):
+      /// [{file, path?, contentType?, fileName?} | {bytes, bytesBase64?, ...}]
+      /// `staticOnly: true` = 没命中静态路由的请求直接 404, 不发给插件
       serve: function (options) { return netCall("http.serve", options || {}); },
+      /// 给已存在的服务加一条静态路由 (参数同上一条 static) → {ok, path, url, size, reused}
+      route: function (options) { return netCall("http.route", options || {}); },
+      /// 摘掉一条静态路由: {serverId, path} → {ok, removed}
+      unroute: function (options) { return netCall("http.unroute", options || {}); },
       /// 回答一条 http.request 事件: respond(requestId, {status, headers, body})
       respond: function (requestId, response) {
         var res = (response && typeof response === "object") ? response : {};
@@ -1857,73 +1778,6 @@ JSValue jsConfigPath(JSContext *ctx, JSValueConst, int /*argc*/,
   return JS_NewString(ctx, inst ? inst->configPath.c_str() : "");
 }
 
-/// 本地 HTTP 文件服务: 登记本地文件
-JSValue jsHttpServeFile(JSContext *ctx, JSValueConst, int argc,
-                        JSValueConst *argv) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine) {
-    return JS_NewString(ctx,
-                        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
-  }
-  const char *path = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
-  const char *type = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
-  const char *name = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
-  const std::string json = inst->engine->bridgeHttpServeFile(
-      inst->name, path ? path : "", type ? type : "", name ? name : "");
-  if (path) {
-    JS_FreeCString(ctx, path);
-  }
-  if (type) {
-    JS_FreeCString(ctx, type);
-  }
-  if (name) {
-    JS_FreeCString(ctx, name);
-  }
-  return JS_NewStringLen(ctx, json.data(), json.size());
-}
-
-/// 本地 HTTP 文件服务: 登记一段内容 (encoding = "base64" 时先解码)
-JSValue jsHttpServeBytes(JSContext *ctx, JSValueConst, int argc,
-                         JSValueConst *argv) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine) {
-    return JS_NewString(ctx,
-                        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
-  }
-  const char *content = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
-  const char *encoding = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
-  const char *type = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
-  const char *name = (argc >= 4) ? JS_ToCString(ctx, argv[3]) : nullptr;
-  const std::string json = inst->engine->bridgeHttpServeBytes(
-      inst->name, content ? content : "", encoding ? encoding : "",
-      type ? type : "", name ? name : "");
-  if (content) {
-    JS_FreeCString(ctx, content);
-  }
-  if (encoding) {
-    JS_FreeCString(ctx, encoding);
-  }
-  if (type) {
-    JS_FreeCString(ctx, type);
-  }
-  if (name) {
-    JS_FreeCString(ctx, name);
-  }
-  return JS_NewStringLen(ctx, json.data(), json.size());
-}
-
-/// 本地 HTTP 文件服务: 状态
-JSValue jsHttpServerInfo(JSContext *ctx, JSValueConst, int /*argc*/,
-                         JSValueConst * /*argv*/) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine) {
-    return JS_NewString(ctx,
-                        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
-  }
-  const std::string json = inst->engine->bridgeHttpServerInfo(inst->name);
-  return JS_NewStringLen(ctx, json.data(), json.size());
-}
-
 /// 网络能力: 同步操作 (op + 参数 JSON → 结果 JSON)
 JSValue jsNetCall(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
@@ -1958,19 +1812,6 @@ JSValue jsNetCancel(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) 
     JS_ToInt64(ctx, &requestId, argv[0]);
   }
   const std::string json = inst->engine->bridgeNetCancel(inst->name, requestId);
-  return JS_NewStringLen(ctx, json.data(), json.size());
-}
-
-/// 本地 HTTP 文件服务: 关闭 (端口释放)
-JSValue jsHttpStop(JSContext *ctx, JSValueConst, int /*argc*/,
-                   JSValueConst * /*argv*/) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine) {
-    return JS_NewString(ctx,
-                        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
-  }
-  inst->engine->bridgeHttpStop(inst->name);
-  const std::string json = inst->engine->bridgeHttpServerInfo(inst->name);
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
@@ -2445,10 +2286,6 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"timerClear", jsTimerClear, 1},
       {"uiOp", jsUiOp, 5},
       {"stats", jsStats, 0},
-      {"httpServeFile", jsHttpServeFile, 3},
-      {"httpServeBytes", jsHttpServeBytes, 4},
-      {"httpServerInfo", jsHttpServerInfo, 0},
-      {"httpStop", jsHttpStop, 0},
       {"netCall", jsNetCall, 2},
       {"netCancel", jsNetCancel, 1},
       {"capabilityCall", jsCapabilityCall, 4},
@@ -3736,134 +3573,6 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
   return item.dump();
 }
 
-/* ==================== 本地 HTTP 文件服务 ==================== */
-
-std::shared_ptr<PluginHttpFileServer> JsEngine::httpServerOf(
-    const std::string &instanceName, bool createIfMissing) {
-  auto inst = lookupInstance(instanceName);
-  if (!inst) {
-    return nullptr;
-  }
-  std::lock_guard lock{inst->httpMutex};
-  if (!inst->httpServer && createIfMissing) {
-    /// 一个实例一个服务: 停用/卸载时随实例一起关 (见 detachRegistrations)
-    inst->httpServer = PluginHttpFileServer::create(inst->id);
-  }
-  return inst->httpServer;
-}
-
-std::string JsEngine::bridgeHttpServeFile(const std::string &instanceName,
-                                         const std::string &path,
-                                         const std::string &contentType,
-                                         const std::string &fileName) {
-  Json out;
-  const auto server = httpServerOf(instanceName, true);
-  if (!server) {
-    out["ok"] = false;
-    out["error"] = "no_instance";
-    out["message"] = "插件实例已停止";
-    return out.dump();
-  }
-  PluginHttpFileServer::ServedEntry entry;
-  std::string err;
-  if (!server->serveFile(path, contentType, fileName, entry, err)) {
-    out["ok"] = false;
-    out["error"] = "serve_file_failed";
-    out["message"] = err.empty() ? std::string{"登记失败"} : err;
-    return out.dump();
-  }
-  out["ok"] = true;
-  out["url"] = entry.url;
-  out["size"] = entry.size;
-  out["mtimeMs"] = entry.mtimeMs;
-  out["reused"] = entry.reused;
-  return out.dump();
-}
-
-std::string JsEngine::bridgeHttpServeBytes(const std::string &instanceName,
-                                           const std::string &content,
-                                           const std::string &encoding,
-                                           const std::string &contentType,
-                                           const std::string &fileName) {
-  Json out;
-  std::string bytes = content;
-  if (encoding == "base64") {
-    /// 先按未编码长度卡上限: 解码前就把 8 MiB 以上的大块挡掉
-    if (static_cast<int64_t>(content.size()) >
-        PluginHttpFileServer::maxInlineBytes * 4 / 3 + 16) {
-      out["ok"] = false;
-      out["error"] = "too_large";
-      out["message"] = "内容超过上限 (8 MiB), 大文件请用 serveFile";
-      return out.dump();
-    }
-    if (!decodeBase64(content, bytes)) {
-      out["ok"] = false;
-      out["error"] = "bad_base64";
-      out["message"] = "base64 内容解不开";
-      return out.dump();
-    }
-  }
-  const auto server = httpServerOf(instanceName, true);
-  if (!server) {
-    out["ok"] = false;
-    out["error"] = "no_instance";
-    out["message"] = "插件实例已停止";
-    return out.dump();
-  }
-  PluginHttpFileServer::ServedEntry entry;
-  std::string err;
-  if (!server->serveBytes(std::move(bytes), contentType, fileName, entry,
-                          err)) {
-    out["ok"] = false;
-    out["error"] = "serve_bytes_failed";
-    out["message"] = err.empty() ? std::string{"登记失败"} : err;
-    return out.dump();
-  }
-  out["ok"] = true;
-  out["url"] = entry.url;
-  out["size"] = entry.size;
-  out["reused"] = entry.reused;
-  return out.dump();
-}
-
-std::string JsEngine::bridgeHttpServerInfo(const std::string &instanceName) {
-  const auto server = httpServerOf(instanceName, false);
-  Json out = Json::object();
-  out["ok"] = true;
-  if (!server) {
-    out["running"] = false;
-    out["url"] = "";
-    out["port"] = 0;
-    out["files"] = 0;
-    out["requests"] = 0;
-    out["bytesServed"] = 0;
-    return out.dump();
-  }
-  const Json info = parseJsonSafe(server->infoJson());
-  if (info.is_object()) {
-    for (auto it = info.begin(); it != info.end(); ++it) {
-      out[it.key()] = it.value();
-    }
-  }
-  return out.dump();
-}
-
-void JsEngine::bridgeHttpStop(const std::string &instanceName) {
-  std::shared_ptr<PluginHttpFileServer> server;
-  {
-    auto inst = lookupInstance(instanceName);
-    if (!inst) {
-      return;
-    }
-    std::lock_guard lock{inst->httpMutex};
-    server = std::move(inst->httpServer);
-    inst->httpServer.reset();
-  }
-  if (server) {
-    server->stop();
-  }
-}
-
 std::string JsEngine::bridgeNetCall(const std::string &instanceName,
                                     const std::string &op,
                                     const std::string &argsJson) {
@@ -4562,18 +4271,8 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   if (!inst) {
     return;
   }
-  /// 本地 HTTP 文件服务跟着实例关掉 (端口释放; 不关就会留一个还在给已卸载插件打工的监听)
-  {
-    std::shared_ptr<PluginHttpFileServer> server;
-    {
-      std::lock_guard lock{inst->httpMutex};
-      server = std::move(inst->httpServer);
-      inst->httpServer.reset();
-    }
-    if (server) {
-      server->stop();
-    }
-  }
+  /// 插件自己的 HTTP / TCP / WS 服务与连接由 `PluginNetHub` 按插件 id 一起收掉
+  /// (`detachPlugin`; 静态路由也挂在那份服务上, 不关就会留下还在给已卸载插件打工的监听)
   if (!inst->hostInst || !mgr_) {
     return;
   }

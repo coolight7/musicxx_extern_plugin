@@ -38,8 +38,10 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
-#include <cstring>#include <deque>
+#include <cstring>
+#include <deque>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -71,6 +73,14 @@ constexpr int64_t kMaxHttpBody = 8 * 1024 * 1024;
 constexpr int64_t kMaxWsMessage = 8 * 1024 * 1024;
 /// 单条连接的发送队列上限 (背压)
 constexpr size_t kMaxOutQueue = 4 * 1024 * 1024;
+/// 静态内容 (文件 / 内存) 一次发多少字节
+constexpr size_t kStaticChunk = 64 * 1024;
+/// 单个 HTTP 服务最多登记几条静态路由
+constexpr size_t kMaxStaticRoutes = 1024;
+/// 单条内存内容路由的上限 (大内容清用文件)
+constexpr int64_t kMaxStaticBytes = 8 * 1024 * 1024;
+/// 静态路由 URL 尾段里的文件名长度上限 (只用于展示)
+constexpr size_t kMaxStaticFileName = 120;
 /// 每个插件最多几个同类服务
 constexpr int32_t kMaxServersPerKind = 8;
 /// 每个插件最多几条连接 (客户端 + 服务端)
@@ -511,6 +521,155 @@ std::string originOf(const ParsedUrl &url) {
   return url.scheme + "://" + hostHeaderOf(url);
 }
 
+/// 扩展名 → Content-Type (只覆盖音频/视频/文本这几类常见格式)
+std::string contentTypeOfName(const std::string &name) {
+  const size_t dot = name.find_last_of('.');
+  if (dot == std::string::npos) {
+    return {};
+  }
+  const std::string ext = lowerAscii(name.substr(dot + 1));
+  if (ext == "mp3") return "audio/mpeg";
+  if (ext == "m4a" || ext == "mp4") return "audio/mp4";
+  if (ext == "flac") return "audio/flac";
+  if (ext == "wav") return "audio/wav";
+  if (ext == "ogg" || ext == "opus") return "audio/ogg";
+  if (ext == "aac") return "audio/aac";
+  if (ext == "webm") return "video/webm";
+  if (ext == "mkv") return "video/x-matroska";
+  if (ext == "ts") return "video/mp2t";
+  if (ext == "m3u8") return "application/vnd.apple.mpegurl";
+  if (ext == "lrc") return "text/plain; charset=utf-8";
+  if (ext == "txt" || ext == "json") return "text/plain; charset=utf-8";
+  if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+  if (ext == "png") return "image/png";
+  return {};
+}
+
+/// URL 尾段只保留 unreserved 字符, 其余百分号编码 (中文文件名也能用)
+std::string urlEncodePathSegment(const std::string &text) {
+  static const char *kDigits = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(text.size());
+  for (const unsigned char c : text) {
+    const bool unreserved = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                            (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+                            c == '.' || c == '~';
+    if (unreserved) {
+      out.push_back(static_cast<char>(c));
+      continue;
+    }
+    out.push_back('%');
+    out.push_back(kDigits[(c >> 4) & 0x0F]);
+    out.push_back(kDigits[c & 0x0F]);
+  }
+  return out;
+}
+
+std::string fileNameOfPath(const std::string &path) {
+  const size_t slash = path.find_last_of("/\\");
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+/// 静态路由的文件名只用于 URL 展示: 去掉路径分隔与控制字符, 限长
+std::string sanitizeStaticFileName(const std::string &name) {
+  std::string out;
+  out.reserve((std::min)(name.size(), kMaxStaticFileName));
+  for (const unsigned char c : name) {
+    if (out.size() >= kMaxStaticFileName) {
+      break;
+    }
+    if (c < 0x20 || c == 0x7F || c == '/' || c == '\\') {
+      continue;
+    }
+    out.push_back(static_cast<char>(c));
+  }
+  return out;
+}
+
+/// 32 位十六进制随机串 (静态路由 URL 里的 token)
+std::string randomTokenHex() {
+  const auto bytes = randomBytes(16);
+  return hexEncode(bytes.data(), bytes.size());
+}
+
+/// 单段 Range (`bytes=start-end` / `bytes=start-` / `bytes=-suffix`)
+struct ByteRange {
+  bool present = false;    ///< 请求里有没有 Range
+  bool satisfiable = true; ///< 不合法时回 416
+  int64_t start = 0;
+  int64_t end = 0; ///< 闭区间
+};
+
+int64_t parseNonNegativeInt(const std::string &text) {
+  if (text.empty() || text.size() > 18) {
+    return -1;
+  }
+  int64_t value = 0;
+  for (const char c : text) {
+    if (c < '0' || c > '9') {
+      return -1;
+    }
+    value = value * 10 + (c - '0');
+  }
+  return value;
+}
+
+ByteRange parseRangeHeader(const std::string &header, int64_t size) {
+  ByteRange range;
+  if (header.empty()) {
+    return range;
+  }
+  range.present = true;
+  if (header.size() < 6 || lowerAscii(header.substr(0, 6)) != "bytes=") {
+    range.satisfiable = false;
+    return range;
+  }
+  const std::string text{trimAscii(std::string_view{header}.substr(6))};
+  // 多段不支持: 当成"没有 Range", 整段返回 (比 416 更宽容, 播放器只用单段)
+  if (text.find(',') != std::string::npos) {
+    range.present = false;
+    return range;
+  }
+  const size_t dash = text.find('-');
+  if (dash == std::string::npos) {
+    range.satisfiable = false;
+    return range;
+  }
+  const std::string first{trimAscii(std::string_view{text}.substr(0, dash))};
+  const std::string second{trimAscii(std::string_view{text}.substr(dash + 1))};
+  if (first.empty()) {
+    // 后缀形式: 最后 N 个字节
+    const int64_t suffix = parseNonNegativeInt(second);
+    if (suffix <= 0 || size <= 0) {
+      range.satisfiable = false;
+      return range;
+    }
+    range.start = (std::max)(int64_t{0}, size - suffix);
+    range.end = size - 1;
+    return range;
+  }
+  const int64_t start = parseNonNegativeInt(first);
+  if (start < 0) {
+    range.satisfiable = false;
+    return range;
+  }
+  int64_t end = size - 1;
+  if (!second.empty()) {
+    end = parseNonNegativeInt(second);
+    if (end < 0) {
+      range.satisfiable = false;
+      return range;
+    }
+  }
+  if (start >= size || start > end) {
+    range.satisfiable = false;
+    return range;
+  }
+  range.start = start;
+  range.end = (std::min)(end, size - 1);
+  return range;
+}
+
 /// 从参数里取客户端 TLS 选项 (http.request / http.fetch / http.download / ws.connect 共用)
 ///
 /// `tlsVerify` 默认开; `caFile` / `caPem` 是**追加**信任的 CA (不影响系统根证书);
@@ -916,6 +1075,8 @@ struct Stream : std::enable_shared_from_this<Stream> {
   virtual void onClosed(std::string_view reason, std::string_view error) = 0;
   /// 连接类别 (tcp / ws / http), 用于 info 与自省
   virtual const char *kind() const = 0;
+  /// 发送队列排空后的回调 (默认什么也不做; 静态内容用它继续读下一段)
+  virtual void onWritten() {}
 
 private:
   void startWrite();
@@ -957,19 +1118,37 @@ struct PluginNetHub::Impl : std::enable_shared_from_this<PluginNetHub::Impl> {
 
   /// 一个服务 (HTTP / TCP / WS)
   struct Server {
+    /// 一条静态路由: 命中后由框架直接回答, **不发 `http.request` 事件**
+    ///
+    /// 原先另有一个"插件本地 HTTP 文件服务"（JS 的 `musicxx.net.serve*`）。它已经并到这里:
+    /// 同一个 HTTP 服务里既能自己回答请求, 也能挂几个文件 / 内存内容。
+    struct StaticRoute {
+      std::string path;        ///< 请求路径 (以 / 开头; 自动生成的带 token 段)
+      std::string file;        ///< 本地文件绝对路径 (与 bytes 二选一)
+      std::string bytes;       ///< 内存内容 (≤ kMaxStaticBytes)
+      std::string contentType; ///< 响应用的 Content-Type
+      std::string fileName;    ///< 只用于 URL 尾段与日志
+      int64_t size = 0;
+      int64_t mtimeMs = 0; ///< 文件登记时的修改时间 (内存内容为 0)
+    };
+
     std::string plugin;
     std::string kind; ///< http | tcp | ws
     std::string id;
     std::string host;
     uint16_t port = 0;
     std::string pathPrefix; ///< http / ws 的路径前缀 (空 = 不限制)
+    /// 只当静态文件服务用: 没命中静态路由的请求直接回 404, 不发 `http.request`
+    bool staticOnly = false;
     std::shared_ptr<asio::ip::tcp::acceptor> acceptor;
     int64_t maxBody = kMaxHttpBody;
     int32_t requestTimeoutMs = 30000;
     int32_t maxConnections = 32;
-    size_t pending = 0;            ///< 正在等插件回答的 HTTP 请求数
-    std::set<std::string> conns;   ///< 该服务下的连接 id
-    std::string url;               ///< http://host:port (只对 http / ws 有意义)
+    size_t pending = 0;          ///< 正在等插件回答的 HTTP 请求数
+    std::set<std::string> conns; ///< 该服务下的连接 id
+    std::string url;             ///< http://host:port (只对 http / ws 有意义)
+    /// 静态路由 (HTTP 服务专用; 按登记顺序匹配)
+    std::vector<std::shared_ptr<StaticRoute>> routes;
   };
 
   std::map<std::string, std::shared_ptr<Server>> servers; ///< plugin|kind|id
@@ -1068,6 +1247,25 @@ struct PluginNetHub::Impl : std::enable_shared_from_this<PluginNetHub::Impl> {
   void closeAllOf(const std::string &plugin, bool allPlugins,
                   std::vector<DoneFn> *cancelled = nullptr);
 
+  /* ---------- HTTP 静态内容 (文件 / 内存) ---------- */
+
+  /// 按参数造一条静态路由 (path / token / 文件名 / 大小都在这里定好); 失败写 err
+  bool buildStaticRoute(const Server &server, const Json &args,
+                        const std::shared_ptr<Server::StaticRoute> &route,
+                        std::string &err);
+
+  /// 登记一条静态路由 (同一份文件 / 同一段内容重复登记复用已有条目)
+  bool addStaticRoute(const std::shared_ptr<Server> &server, const Json &args,
+                      Json &out);
+
+  /// 找一条静态路由 (路径精确匹配)
+  std::shared_ptr<Server::StaticRoute>
+  findStaticRoute(const Server &server, const std::string &path) const;
+
+  /// 删掉一条静态路由 (按路径)
+  bool removeStaticRoute(const std::shared_ptr<Server> &server,
+                         const std::string &path);
+
   /// 起 / 停网络线程 (幂等)
   void startThread();
   void stopThread();
@@ -1107,6 +1305,12 @@ struct PluginNetHub::Impl : std::enable_shared_from_this<PluginNetHub::Impl> {
   void closeConn(const std::string &plugin, const std::string &id, Json &out);
   void sendConn(const std::string &plugin, const Json &args, Json &out);
   std::string infoJsonOnThread(const std::string &plugin, bool allPlugins);
+
+  /// 一个服务的静态路由清单 (`http.serve` / `http.route` / info 共用同一份)
+  Json staticRoutesJson(const Server &server) const;
+
+  /// 服务的对地址去掉路径前缀 (`server.url` 里已经带了前缀, 路由的 path 里也带了)
+  std::string staticBaseUrl(const Server &server) const;
 
   /// 当前是否在监听这个地址 (服务端存在且监听中)
   std::shared_ptr<Server> findServer(const std::string &plugin,
@@ -1251,6 +1455,10 @@ void Stream::afterWrite(AsioErrorCode ec) {
   if (!outQueue.empty()) {
     outBytes -= outQueue.front().size();
     outQueue.pop_front();
+  }
+  onWritten();
+  if (closing) {
+    return;
   }
   startWrite();
 }
@@ -1407,6 +1615,208 @@ void PluginNetHub::Impl::acceptNext(const std::shared_ptr<Server> &server) {
   });
 }
 
+/* ==================== HTTP 静态内容 (文件 / 内存) ==================== */
+
+namespace {
+
+/// 文件修改时间 → 毫秒时间戳 (只用于去重与展示)
+int64_t mtimeMsOf(std::filesystem::file_time_type time) {
+  using namespace std::chrono;
+  const auto systemTime = time_point_cast<milliseconds>(
+      time - std::filesystem::file_time_type::clock::now() +
+      system_clock::now());
+  return static_cast<int64_t>(systemTime.time_since_epoch().count());
+}
+
+/// UTF-8 路径 → `std::filesystem::path` (Windows 上按 UTF-8 → 原生宽字符)
+std::filesystem::path pathFromUtf8(const std::string &text) {
+  std::u8string u8(reinterpret_cast<const char8_t *>(text.data()), text.size());
+  return std::filesystem::path(u8);
+}
+
+} // namespace
+
+bool PluginNetHub::Impl::buildStaticRoute(
+    const Server &server, const Json &args,
+    const std::shared_ptr<Server::StaticRoute> &route, std::string &err) {
+  const std::string path{trimAscii(args.value("path", std::string{}))};
+  const std::string file{trimAscii(args.value("file", std::string{}))};
+  const std::string fileNameArg{
+      trimAscii(args.value("fileName", std::string{}))};
+  const std::string contentTypeArg{
+      trimAscii(args.value("contentType", std::string{}))};
+
+  std::string bytes;
+  const bool hasBytes = args.contains("bytes") || args.contains("bytesBase64");
+  const std::string base64 = args.value("bytesBase64", std::string{});
+  if (!base64.empty()) {
+    const auto decoded = utilxx_base::base64Decode(base64);
+    if (!decoded.has_value()) {
+      err = "bytesBase64 解不开";
+      return false;
+    }
+    bytes = *decoded;
+  } else if (args.contains("bytes")) {
+    const Json &value = args["bytes"];
+    if (!value.is_string()) {
+      err = "bytes 必须是字符串";
+      return false;
+    }
+    bytes = value.get<std::string>();
+  }
+  if (file.empty() && !hasBytes) {
+    err = "静态内容要给 file, 或 bytes / bytesBase64";
+    return false;
+  }
+  if (!file.empty() && hasBytes) {
+    err = "file 与 bytes 只能二选一";
+    return false;
+  }
+
+  if (!file.empty()) {
+    std::error_code sizeEc;
+    const auto fsPath = pathFromUtf8(file);
+    if (!std::filesystem::is_regular_file(fsPath, sizeEc)) {
+      err = "文件不存在或不是普通文件: " + file;
+      return false;
+    }
+    const auto size = std::filesystem::file_size(fsPath, sizeEc);
+    if (sizeEc) {
+      err = "读不到文件大小: " + file;
+      return false;
+    }
+    std::error_code timeEc;
+    route->file = file;
+    route->size = static_cast<int64_t>(size);
+    route->mtimeMs = mtimeMsOf(std::filesystem::last_write_time(fsPath, timeEc));
+    route->fileName = fileNameArg.empty() ? fileNameOfPath(file) : fileNameArg;
+  } else {
+    if (static_cast<int64_t>(bytes.size()) > kMaxStaticBytes) {
+      err = "内容过大 (上限 8 MiB), 大内容请先落盘再用 file";
+      return false;
+    }
+    route->bytes = std::move(bytes);
+    route->size = static_cast<int64_t>(route->bytes.size());
+    route->fileName = fileNameArg.empty() ? "content.bin" : fileNameArg;
+  }
+
+  if (path.empty()) {
+    // 没给路径就自己生成一个带随机 token 的: 猜不到的 URL, 也不做路径解析
+    // (服务的路径前缀要带上: 请求路径里是带着前缀来的, 匹配也是按完整路径比)
+    route->path = server.pathPrefix + "/f/" + randomTokenHex() + "/" +
+                  urlEncodePathSegment(sanitizeStaticFileName(route->fileName));
+  } else {
+    if (path.front() != '/') {
+      err = "path 必须以 / 开头";
+      return false;
+    }
+    if (path.size() > 512) {
+      err = "path 过长";
+      return false;
+    }
+    if (path.find("..") != std::string::npos) {
+      err = "path 里不能有 ..";
+      return false;
+    }
+    if (!server.pathPrefix.empty() && !startsWith(path, server.pathPrefix)) {
+      err = "path 不在服务的路径前缀 " + server.pathPrefix + " 下";
+      return false;
+    }
+    route->path = path;
+  }
+
+  route->contentType = contentTypeArg.empty()
+                           ? contentTypeOfName(route->fileName)
+                           : contentTypeArg;
+  if (route->contentType.empty()) {
+    route->contentType = "application/octet-stream";
+  }
+  return true;
+}
+
+bool PluginNetHub::Impl::addStaticRoute(const std::shared_ptr<Server> &server,
+                                        const Json &args, Json &out) {
+  if (!server) {
+    out = errorJson("not_found", "服务不存在");
+    return false;
+  }
+  if (server->routes.size() >= kMaxStaticRoutes) {
+    out = errorJson("too_many", "静态路由已达上限 (" +
+                                   std::to_string(kMaxStaticRoutes) + " 条)");
+    return false;
+  }
+  auto route = std::make_shared<Server::StaticRoute>();
+  std::string err;
+  if (!buildStaticRoute(*server, args, route, err)) {
+    out = errorJson("bad_args", err);
+    return false;
+  }
+  const std::string wantedPath{trimAscii(args.value("path", std::string{}))};
+  bool reused = false;
+  for (const auto &existing : server->routes) {
+    if (!existing) {
+      continue;
+    }
+    const bool sameSource =
+        route->file.empty()
+            ? (existing->file.empty() && existing->bytes == route->bytes)
+            : (existing->file == route->file && existing->size == route->size &&
+               existing->mtimeMs == route->mtimeMs);
+    if (!sameSource) {
+      continue;
+    }
+    // 明确给了一个不同的 path = 想要另一个入口, 不复用
+    if (!wantedPath.empty() && existing->path != route->path) {
+      continue;
+    }
+    route = existing;
+    reused = true;
+    break;
+  }
+  if (!reused) {
+    server->routes.push_back(route);
+  }
+
+  out = Json::object();
+  out["ok"] = true;
+  out["serverId"] = server->id;
+  out["path"] = route->path;
+  out["url"] = staticBaseUrl(*server) + route->path;
+  out["size"] = route->size;
+  out["mtimeMs"] = route->mtimeMs;
+  out["contentType"] = route->contentType;
+  out["fileName"] = route->fileName;
+  out["reused"] = reused;
+  out["routes"] = staticRoutesJson(*server);
+  out["routeCount"] = static_cast<int64_t>(server->routes.size());
+  return true;
+}
+
+std::shared_ptr<PluginNetHub::Impl::Server::StaticRoute>
+PluginNetHub::Impl::findStaticRoute(const Server &server,
+                                    const std::string &path) const {
+  for (const auto &route : server.routes) {
+    if (route && route->path == path) {
+      return route;
+    }
+  }
+  return nullptr;
+}
+
+bool PluginNetHub::Impl::removeStaticRoute(const std::shared_ptr<Server> &server,
+                                           const std::string &path) {
+  if (!server) {
+    return false;
+  }
+  for (auto it = server->routes.begin(); it != server->routes.end(); ++it) {
+    if (*it && (*it)->path == path) {
+      server->routes.erase(it);
+      return true;
+    }
+  }
+  return false;
+}
+
 /* ==================== HTTP 服务端 (等插件回答) ==================== */
 
 int64_t PluginNetHub::Impl::registerPendingHttp(
@@ -1540,7 +1950,159 @@ struct HttpServerStream : Stream {
   bool keepAlive = false;
   std::unique_ptr<asio::steady_timer> timeout;
 
+  // 静态内容 (文件 / 内存) 的发送状态
+  std::shared_ptr<PluginNetHub::Impl::Server::StaticRoute> staticRoute;
+  std::unique_ptr<std::ifstream> staticFile;
+  int64_t staticBodyStart = 0;
+  int64_t staticBodySize = 0;
+  int64_t staticSent = 0;
+  bool staticActive = false;
+
   const char *kind() const override { return "http"; }
+
+  void onWritten() override {
+    if (staticActive) {
+      pumpStatic();
+    }
+  }
+
+  void closeStaticFile() {
+    if (staticFile) {
+      staticFile->close();
+      staticFile.reset();
+    }
+  }
+
+  /// 命中静态路由: 直接读文件 / 内存内容回一条 200 / 206 / 416
+  ///
+  /// 字节按 `kStaticChunk` 一块地发, 队列快满时先停下等 `onWritten` —— 大文件不会被
+  /// 整个读进内存, 也不会把发送队列撞到上限。
+  void startStatic(
+      const std::shared_ptr<PluginNetHub::Impl::Server::StaticRoute> &route,
+      const std::string &rangeHeader, bool isHead) {
+    staticRoute = route;
+    const int64_t size = route->size;
+    const ByteRange range = parseRangeHeader(rangeHeader, size);
+    if (range.present && !range.satisfiable) {
+      std::string head =
+          "HTTP/1.1 416 Range Not Satisfiable\r\nAccept-Ranges: bytes\r\n";
+      head += "Content-Range: bytes */" + std::to_string(size) +
+              "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+      std::string err;
+      send(std::move(head), err);
+      if (!err.empty()) {
+        closeStream("error", err);
+        return;
+      }
+      flushThenClose();
+      return;
+    }
+
+    const bool partial = range.present && size > 0;
+    staticBodyStart = partial ? range.start : 0;
+    staticBodySize =
+        size <= 0 ? 0 : (partial ? range.end - range.start + 1 : size);
+    staticSent = 0;
+    if (!route->file.empty()) {
+      staticFile = std::make_unique<std::ifstream>(pathFromUtf8(route->file),
+                                                   std::ios::binary);
+      if (!staticFile->is_open()) {
+        staticFile.reset();
+        writeSimple(404, "文件打不开");
+        flushThenClose();
+        return;
+      }
+      if (staticBodyStart > 0) {
+        staticFile->seekg(staticBodyStart);
+      }
+    }
+
+    std::string head = partial ? "HTTP/1.1 206 Partial Content\r\n"
+                              : "HTTP/1.1 200 OK\r\n";
+    head += "Content-Type: " + route->contentType + "\r\n";
+    head += "Content-Length: " + std::to_string(staticBodySize) + "\r\n";
+    head += "Accept-Ranges: bytes\r\n";
+    if (partial) {
+      head += "Content-Range: bytes " + std::to_string(staticBodyStart) +
+              "-" +
+              std::to_string(staticBodyStart + staticBodySize - 1) + "/" +
+              std::to_string(size) + "\r\n";
+    }
+    head += "Cache-Control: no-store\r\n";
+    head += std::string{"Connection: "} + (keepAlive ? "keep-alive" : "close") +
+            "\r\n\r\n";
+    std::string err;
+    send(std::move(head), err);
+    if (!err.empty()) {
+      closeStaticFile();
+      closeStream("error", err);
+      return;
+    }
+    if (isHead || staticBodySize == 0) {
+      finishStatic();
+      return;
+    }
+    staticActive = true;
+    pumpStatic();
+  }
+
+  /// 继续发静态内容 (队列快满就返回, 等下一次 `onWritten`)
+  void pumpStatic() {
+    if (!staticActive || closing) {
+      return;
+    }
+    while (staticSent < staticBodySize) {
+      if (outBytes >= kMaxOutQueue / 2) {
+        return;
+      }
+      const size_t want = static_cast<size_t>((std::min)(
+          static_cast<int64_t>(kStaticChunk), staticBodySize - staticSent));
+      std::string chunk;
+      if (staticFile) {
+        chunk.resize(want);
+        staticFile->read(chunk.data(), static_cast<std::streamsize>(want));
+        const std::streamsize got = staticFile->gcount();
+        if (got <= 0) {
+          staticActive = false;
+          closeStaticFile();
+          closeStream("error", "读文件失败 (文件被截断?)");
+          return;
+        }
+        chunk.resize(static_cast<size_t>(got));
+      } else if (staticRoute) {
+        chunk.assign(staticRoute->bytes,
+                     static_cast<size_t>(staticBodyStart + staticSent), want);
+      }
+      if (chunk.empty()) {
+        break;
+      }
+      const size_t produced = chunk.size();
+      std::string err;
+      send(std::move(chunk), err);
+      if (!err.empty()) {
+        staticActive = false;
+        closeStaticFile();
+        closeStream("error", err);
+        return;
+      }
+      staticSent += static_cast<int64_t>(produced);
+    }
+    if (staticSent >= staticBodySize) {
+      finishStatic();
+    }
+  }
+
+  void finishStatic() {
+    staticActive = false;
+    closeStaticFile();
+    staticRoute.reset();
+    if (!keepAlive || closing) {
+      flushThenClose();
+      return;
+    }
+    // keep-alive: 继续处理下一条请求 (剩余字节可能已经在缓冲里)
+    process();
+  }
 
   void onBytes(const char *data, size_t size) override {
     if (waitingResponse) {
@@ -1560,6 +2122,8 @@ struct HttpServerStream : Stream {
       pendingRequestId = 0;
     }
     waitingResponse = false;
+    staticActive = false;
+    closeStaticFile();
     if (timeout) {
       AsioErrorCode ignored;
       timeout->cancel();
@@ -1592,7 +2156,8 @@ struct HttpServerStream : Stream {
   }
 
   void process() {
-    if (waitingResponse || closing) {
+    /// 静态内容正在发送时不再解析下一条请求 (不做流水线; 剩下的字节发完再处理)
+    if (waitingResponse || staticActive || closing) {
       return;
     }
     const size_t headEnd = in.find("\r\n\r\n");
@@ -1661,6 +2226,25 @@ struct HttpServerStream : Stream {
         out["contentType"] = "text/plain; charset=utf-8";
         return out;
       }());
+      return;
+    }
+
+    // 静态路由 (文件 / 内存内容) 不进插件, 直接由这里回 200 / 206 / 416
+    bool staticHit = false;
+    if (server && (head.method == "GET" || head.method == "HEAD")) {
+      if (auto route = hub->findStaticRoute(*server, path)) {
+        startStatic(route, head.header("range"), head.method == "HEAD");
+        staticHit = true;
+      }
+    }
+    if (!staticHit && server && server->staticOnly) {
+      // 服务就是拿来发静态内容的: 没命中就 404, 不去等插件回答
+      keepAlive = false;
+      writeSimple(404, "没有这条静态路由");
+      flushThenClose();
+      return;
+    }
+    if (staticHit) {
       return;
     }
 
@@ -3242,6 +3826,40 @@ void PluginNetHub::Impl::sendConn(const std::string &plugin, const Json &args,
   out["id"] = id;
 }
 
+std::string PluginNetHub::Impl::staticBaseUrl(const Server &server) const {
+  if (server.url.empty()) {
+    return server.url;
+  }
+  const std::string &prefix = server.pathPrefix;
+  if (!prefix.empty() && server.url.size() >= prefix.size() &&
+      server.url.compare(server.url.size() - prefix.size(), prefix.size(),
+                         prefix) == 0) {
+    return server.url.substr(0, server.url.size() - prefix.size());
+  }
+  return server.url;
+}
+
+Json PluginNetHub::Impl::staticRoutesJson(const Server &server) const {
+  Json rows = Json::array();
+  for (const auto &route : server.routes) {
+    if (!route) {
+      continue;
+    }
+    Json row = Json::object();
+    row["path"] = route->path;
+    row["url"] = staticBaseUrl(server) + route->path;
+    row["size"] = route->size;
+    row["contentType"] = route->contentType;
+    row["fileName"] = route->fileName;
+    if (!route->file.empty()) {
+      row["file"] = route->file;
+    }
+    row["mtimeMs"] = route->mtimeMs;
+    rows.push_back(std::move(row));
+  }
+  return rows;
+}
+
 std::string PluginNetHub::Impl::infoJsonOnThread(const std::string &plugin,
                                                  bool allPlugins) {
   Json out = Json::object();
@@ -3285,6 +3903,12 @@ std::string PluginNetHub::Impl::infoJsonOnThread(const std::string &plugin,
     }
     row["connections"] = static_cast<int64_t>(server->conns.size());
     row["pending"] = static_cast<int64_t>(server->pending);
+    if (server->staticOnly) {
+      row["staticOnly"] = true;
+    }
+    if (!server->routes.empty()) {
+      row["routes"] = staticRoutesJson(*server);
+    }
     serversJson.push_back(std::move(row));
   }
   out["servers"] = std::move(serversJson);
@@ -3385,6 +4009,7 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
     }
     server->port = static_cast<uint16_t>(port);
     server->pathPrefix = args.value("path", std::string{});
+    server->staticOnly = args.value("staticOnly", false);
     server->maxBody = args.value("maxBodyBytes", int64_t{kMaxHttpBody});
     server->requestTimeoutMs = static_cast<int32_t>(
         args.value("requestTimeoutMs", int64_t{30000}));
@@ -3393,6 +4018,30 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
     if (server->maxConnections <= 0) {
       server->maxConnections = 32;
     }
+    // 静态内容: 监听之前先全部校验一遍, 有一条不合法就整条 serve 失败
+    std::vector<std::shared_ptr<Server::StaticRoute>> routes;
+    if (args.contains("static")) {
+      if (!args["static"].is_array()) {
+        out = errorJson("bad_args", "static 必须是数组");
+        return MUSICXX_EXTERN_PLUGIN_OK;
+      }
+      for (const auto &item : args["static"]) {
+        if (routes.size() >= kMaxStaticRoutes) {
+          out = errorJson("too_many", "static 条数超过上限 (" +
+                                         std::to_string(kMaxStaticRoutes) +
+                                         " 条)");
+          return MUSICXX_EXTERN_PLUGIN_OK;
+        }
+        auto route = std::make_shared<Server::StaticRoute>();
+        std::string routeErr;
+        if (!buildStaticRoute(*server, item, route, routeErr)) {
+          out = errorJson("bad_args", "static 里有一条不合法: " + routeErr);
+          return MUSICXX_EXTERN_PLUGIN_OK;
+        }
+        routes.push_back(std::move(route));
+      }
+    }
+    server->routes = routes;
     std::string err;
     if (!listenServer(server, err)) {
       out = errorJson("listen_failed", err);
@@ -3404,6 +4053,9 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
     out["host"] = server->host;
     out["port"] = static_cast<int64_t>(server->port);
     out["url"] = server->url;
+    if (!server->routes.empty()) {
+      out["routes"] = staticRoutesJson(*server);
+    }
     Json event;
     event["kind"] = "http.listening";
     event["id"] = server->id;
@@ -3411,6 +4063,35 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
     event["port"] = static_cast<int64_t>(server->port);
     event["url"] = server->url;
     emit(plugin, std::move(event));
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  if (op == "http.route" || op == "http.unroute") {
+    const std::string serverId =
+        args.value("serverId", args.value("id", std::string{}));
+    if (serverId.empty()) {
+      out = errorJson("bad_args", "要给 serverId");
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    auto server = findServer(plugin, "http", serverId);
+    if (!server) {
+      out = errorJson("not_found", "HTTP 服务不存在: " + serverId);
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    if (op == "http.unroute") {
+      const std::string path{trimAscii(args.value("path", std::string{}))};
+      if (path.empty()) {
+        out = errorJson("bad_args", "要给 path");
+        return MUSICXX_EXTERN_PLUGIN_OK;
+      }
+      out = Json::object();
+      out["ok"] = true;
+      out["serverId"] = server->id;
+      out["path"] = path;
+      out["removed"] = removeStaticRoute(server, path);
+      out["routes"] = staticRoutesJson(*server);
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    addStaticRoute(server, args, out);
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
   if (op == "http.respond") {

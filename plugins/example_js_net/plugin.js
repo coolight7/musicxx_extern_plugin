@@ -1,13 +1,14 @@
 /*
  * example_js_net —— 插件框架内置网络能力示例
  *
- * 演示六件事（全部在本机回环上完成，不访问外网）:
+ * 演示七件事（全部在本机回环上完成，不访问外网）:
  *   1. HTTP 服务端：`musicxx.net.http.serve` 起服务，`http.onRequest` 收请求，`http.respond` 回答；
- *   2. HTTP 客户端：`musicxx.net.http.request` 请求刚起的服务，检查状态码与回包正文；
- *   3. TCP 服务：`musicxx.net.socket.listen` 起服务，`socket.on("accepted"/"data")` 收发；
- *   4. TCP 客户端：`musicxx.net.socket.connect` 连上去，`socket.send` 发字节，等服务端回写；
- *   5. WebSocket 服务：`musicxx.net.ws.listen` 起服务，`ws.on("message")` 收到文本后原样回写；
- *   6. WebSocket 客户端：`musicxx.net.ws.connect` 连上去，`ws.send` 发文本，等回包。
+ *   2. 静态路由：`http.serve({static})` / `http.route` 挂内容，命中后由框架直接回答；
+ *   3. HTTP 客户端：`musicxx.net.http.request` 请求刚起的服务，检查状态码与回包正文；
+ *   4. TCP 服务：`musicxx.net.socket.listen` 起服务，`socket.on("accepted"/"data")` 收发；
+ *   5. TCP 客户端：`musicxx.net.socket.connect` 连上去，`socket.send` 发字节，等服务端回写；
+ *   6. WebSocket 服务：`musicxx.net.ws.listen` 起服务，`ws.on("message")` 收到文本后原样回写；
+ *   7. WebSocket 客户端：`musicxx.net.ws.connect` 连上去，`ws.send` 发文本，等回包。
  *
  * 插件载入 1.5 秒后自动跑一遍自检，结果写进日志；也可以通过能力手动触发：
  *   - `selftest`：跑一遍（返回报告 JSON，`ok` 是结论）；
@@ -151,7 +152,7 @@
     fireEvent("ws.message", event);
   });
 
-  /* ==================== 三段自检 ==================== */
+  /* ==================== 自检 ==================== */
 
   async function testHttp() {
     musicxx.net.http.stop(HTTP_ID); // 上一次可能没关干净
@@ -227,6 +228,129 @@
       };
     } finally {
       musicxx.net.http.stop(HTTP_ID + "-fetch");
+    }
+  }
+
+  /// 静态路由：把内存内容 / 本地文件挂到 HTTP 服务上
+  ///
+  /// 命中后由插件框架直接回答（200 / 206 / 416），**不进 `http.onRequest`** —— 这条就是
+  /// "把播放器打不开的东西变成 http 地址"的短路径。`staticOnly: true` 让没命中的请求直接 404，
+  /// 不用等插件回答。
+  async function testStatic() {
+    var id = HTTP_ID + "-static";
+    musicxx.net.http.stop(id);
+    var payload = "#EXTM3U\n#EXT-X-VERSION:3\n";
+    var served = musicxx.net.http.serve({
+      id: id,
+      port: 0,
+      staticOnly: true,
+      static: [{
+        bytes: payload,
+        contentType: "text/plain; charset=utf-8",
+        fileName: "hello.txt"
+      }]
+    });
+    if (!served.ok) {
+      throw new Error("http.serve(static) 失败: " + describe(served));
+    }
+    var url = served.routes[0].url;
+    try {
+      var full = await musicxx.net.fetch({ url: url, timeoutMs: 5000 });
+      if (full.status !== 200 || full.body !== payload) {
+        throw new Error("静态内容整段取回不对: " + full.status + " / " +
+                        String(full.bodyBytes));
+      }
+      var ranged = await musicxx.net.http.request({
+        url: url,
+        headers: { Range: "bytes=0-6" },
+        timeoutMs: 5000
+      });
+      if (ranged.status !== 206 || ranged.body !== "#EXTM3U") {
+        throw new Error("范围请求不对: " + ranged.status + " / " + ranged.body);
+      }
+      var beyond = await musicxx.net.http.request({
+        url: url,
+        headers: { Range: "bytes=99999-" },
+        timeoutMs: 5000
+      });
+      if (beyond.status !== 416) {
+        throw new Error("越界范围应当回 416, 实际 " + beyond.status);
+      }
+
+      // 再挂一条（显式路径）再摘掉：摘掉后同一个地址就是 404
+      var added = musicxx.net.http.route({
+        serverId: id,
+        path: "/extra.bin",
+        bytes: "abcd",
+        fileName: "extra.bin"
+      });
+      if (!added.ok) {
+        throw new Error("http.route 失败: " + describe(added));
+      }
+      var extra = await musicxx.net.fetch({ url: added.url, timeoutMs: 5000 });
+      if (extra.status !== 200 || extra.body !== "abcd") {
+        throw new Error("追加的静态路由取回不对: " + extra.status);
+      }
+      var removed = musicxx.net.http.unroute({
+        serverId: id,
+        path: added.path
+      });
+      if (!removed.ok || removed.removed !== true) {
+        throw new Error("http.unroute 失败: " + describe(removed));
+      }
+      var gone = await musicxx.net.fetch({ url: added.url, timeoutMs: 5000 });
+      if (gone.status !== 404) {
+        throw new Error("摘掉路由后应当回 404, 实际 " + gone.status);
+      }
+
+      // 带路径前缀的服务：路由的 path 要带上前缀，拼出来的 URL 不能重复前缀
+      var prefixedId = id + "-prefixed";
+      musicxx.net.http.stop(prefixedId);
+      var prefixedServer = musicxx.net.http.serve({
+        id: prefixedId,
+        port: 0,
+        path: "/api",
+        staticOnly: true
+      });
+      if (!prefixedServer.ok) {
+        throw new Error("带前缀的 http.serve 失败: " + describe(prefixedServer));
+      }
+      var prefixed = { status: 0, url: "" };
+      try {
+        var autoRoute = musicxx.net.http.route({
+          serverId: prefixedId,
+          bytes: "prefixed",
+          fileName: "p.txt"
+        });
+        if (!autoRoute.ok || autoRoute.path.indexOf("/api/f/") !== 0) {
+          throw new Error("自动生成的路径应当带前缀: " + describe(autoRoute));
+        }
+        prefixed.url = autoRoute.url;
+        var fetchedPrefixed = await musicxx.net.fetch({
+          url: autoRoute.url,
+          timeoutMs: 5000
+        });
+        prefixed.status = fetchedPrefixed.status;
+        if (fetchedPrefixed.status !== 200 || fetchedPrefixed.body !== "prefixed") {
+          throw new Error("带前缀的静态路由取回不对: " + fetchedPrefixed.status +
+                          " / " + autoRoute.url);
+        }
+      } finally {
+        musicxx.net.http.stop(prefixedId);
+      }
+      return {
+        url: url,
+        status: full.status,
+        contentType: full.contentType,
+        bodyBytes: full.bodyBytes,
+        rangeStatus: ranged.status,
+        beyondStatus: beyond.status,
+        removed: removed.removed,
+        goneStatus: gone.status,
+        prefixedStatus: prefixed.status
+      };
+    } finally {
+      musicxx.net.http.stop(id);
     }
   }
 
@@ -353,6 +477,7 @@
     var report = { ok: true };
     try {
       report.http = await testHttp();
+      report.static = await testStatic();
       report.fetch = await testFetchDownload();
       report.socket = await testSocket();
       report.chunked = await testChunked();
