@@ -258,6 +258,21 @@ abstract final class MusicxxPluginActionNames {
   static const String uiNotify = 'musicxx.ui.notify';
   static const String uiToast = 'musicxx.ui.toast';
   static const String uiDialog = 'musicxx.ui.dialog';
+
+  /// 打开一层浮层（sheet），等用户关掉后返回结果
+  ///
+  /// 参数：`preset`（`custom` 缺省 / `picker`）、`id`、`title`、`depict`、`blocks`（`custom` 的内容）、
+  /// `options`（`picker` 的候选项）、`value`（`picker` 的当前值）、`textConfirm` / `textCancel`、
+  /// `size`（尺寸预设）、`dismissible`（缺省 true）。
+  ///
+  /// 返回：`{ok, reason, value?}`（`reason` 是 `confirmed` / `cancelled` / `closed`）；
+  /// `preset: "picker"` 时是 `{ok, selected}` 或 `{ok, cancelled: true}`。
+  static const String uiOverlayShow = 'musicxx.ui.overlay.show';
+
+  /// 收起这个插件当前那一层浮层（参数 `id` 可选：只关名字对得上的那一层）
+  ///
+  /// 返回 `{ok, closed}`；没有开着的浮层时 `closed` 为 false。
+  static const String uiOverlayClose = 'musicxx.ui.overlay.close';
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';

@@ -194,7 +194,9 @@ capability(*this, "plugin.my_plugin.settings",
 | `Padding` | `padding`、`children` | 内边距 |
 | `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
 | `Badge` / `Progress` | 见库文档 | 状态小标签 / 进度条 |
-| `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`）、`id`、`label`、`value`、`options`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值） |
+| `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`/`password`）、`id`、`label`、`help`、`value`、`options`、`multiline`、`disabled`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值）。`text`/`number`/`password` 用应用自己的输入框：**回车或失焦才派发**（不是逐字派发），`password` 默认遮住（右侧有眼睛按钮），纯文本降级固定打码；`select` 候选项只有一行标题（要“标题 + 多行描述”就用浮层的 `picker`） |
+| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条** |
+| `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
@@ -285,6 +287,61 @@ capability(*this, "plugin.my_plugin.settings",
   `kit.scaleTransition({value, from, to, curve, children})` / `kit.rotationTransition({value, from, to, curve, children})`
   （参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
+### 2.3.3 列表块（`ListViewBase` / `ListView`）
+
+列表项是**数据**（不是块）：没有 `kind`，不能放子块。两个块用同一套列表项：
+
+```jsonc
+{ "id": "weekly", "title": "每周新歌", "subtitle": "每周一更新", "trailing": "12 首",
+  "image": "cover", "icon": "resource/svg/star.svg", "tone": "hint", "selected": false,
+  "action": "openPlaylist" }
+```
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 稳定标识：列表相关动作的参数里会带 `itemId`（编辑保存、批量删除靠它认出是哪一项） |
+| `title` | 主标题（必填） |
+| `subtitle` / `trailing` | 副标题（说明字号）/ 右侧状态文字 |
+| `image` | 前置图片：`cover`（当前歌曲封面）或相对插件目录的路径 |
+| `icon` | 前置图标（插件自带的 svg，相对插件目录）；与 `image` 同时给时 `image` 优先 |
+| `tone` | 主标题语义色 |
+| `selected` | 是否高亮（**只由插件给的数据决定**，客户端不做点击自动高亮） |
+| `action` | 点这一项派发的动作（不给就用块上的 `itemAction`） |
+
+所有列表动作的参数里都会带上：`listId`（块 id）、`index`、`itemId`、`item`（整项快照）。
+
+`ListView` 的字段与工具条一一对应：
+
+| 字段 | 什么时候出现 / 派发时带什么 |
+|---|---|
+| `editAction` | 写编辑 / 保存 / 批量删除任一个就出现编辑按钮；进入编辑前派发，返回 `false` 或 `{ok:false}` 就不进 |
+| `saveAction` | 编辑态的保存按钮；参数带拖拽后的新顺序：`{items:[{index,id,title}…], itemIds:[…]}`；返回 `{ok:false}` 留在编辑态 |
+| `removeCheckedAction` + `removeTipTitle` | 编辑态删除选中项；组件自带确认弹窗（标题用 `removeTipTitle`，条目用列表项标题），参数 `{indexes, itemIds, items}` |
+| `addAction` | 加号按钮；派发后用插件返回的新视图刷新 |
+| `removeAction` | 非编辑态的删除按钮（删什么由插件决定，组件不弹确认） |
+| `positionAction` | 定位按钮；返回 `{index:n}` 就滚到第 n 项（没有 `index` 只派发） |
+| `refreshAction` / `loadMoreAction` | 下拉刷新 / 加载更多（`await` 完就当完成） |
+| `menu` | 顶部“更多”菜单**完全由插件定义**（`[{title, icon?, action?}]`），组件内置项不显示 |
+| `itemMenu` | 每项的菜单（长按 / 右键），同样由插件定义，点某一项时参数带 `index` / `itemId` / `item` |
+| `toolbar` | 工具条中间的自定义内容（任意块，建议只放一行高的块） |
+| `enableCheck` / `enableDrop` | 多选 / 编辑态拖拽排序（缺省都开） |
+| `showCount` | 工具条显示条目数（缺省关） |
+| `header` / `footer` / `emptyText` | 列表头 / 尾（任意块）/ 空列表提示 |
+
+```jsonc
+{ "kind": "ListView",
+  "id": "subs",
+  "layout": "list",
+  "items": [ /* … */ ],
+  "toolbar": [ { "kind": "Text", "text": "共 12 项", "type": "caption" } ],
+  "editAction": "beginEdit",
+  "saveAction": "saveOrder",
+  "menu": [ { "title": "全部刷新", "action": "refreshAll" } ],
+  "itemMenu": [ { "title": "重命名", "action": "rename" } ] }
+```
+
+> 条目很多（> 200）时给 `height`：不给高度就跟页面一起滚（一次建出所有项）。
+
 ### 2.4 用 kit 拼装（推荐写法）
 
 写页面内容不必手拼这些块：**随插件分发的界面 kit** 把常用组合封装好了。
@@ -331,8 +388,9 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 - 能用相对布局就别写固定尺寸：`Expanded` / `Spacer` / `main: "spaceBetween"` / `percent` 优先；
 - 任意块都可以带 `action`（`Button` 用自己的按钮点击语义）：带上之后**整块可点**，
   用来组合「可点的行」；可点的行建议放在 `Block`（有底色的卡片）里，用户才知道那是一行；
-- **没有列表块**：列表行由 `Block` + `Row` + `Expanded` + `Column` + `Text` 组合，kit 的 `listRow`
-  就是这个组合（示例见 `plugins/example_js/plugin.js`）。
+- **列表用 `ListViewBase` / `ListView`**（见 §2.3.3）：不要再用 `Block` + `Row` + `Column` 手拼列表行；
+  只有“一两行固定内容”时才用 `listRow` / `settingRow` 这类行模板。
+
 - **右侧的"状态/值"文本要自己约束宽度**：kit 的 `listRow` / `settingRow` 把右侧文本放在行尾、
   **不给宽度约束**（那一格适合短状态词，例如"生效中 / 3 首 / 内置背景"）。要在那一格写长文本
   （一整句话、带歌曲名或样式名）就别用这两个模板，自己组合 `Row` + 两个 `Expanded`
@@ -354,6 +412,45 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   （白名单见 [plugin-api.md](plugin-api.md) §3.2.4）；UI 项与页面里的动作走的是**同一套判定**；
 - 刷新当前页：能力返回新的 `{"view": {...}}`，主程序直接用新视图重画当前页面（不用重新打开）；
 - 每个插件视图是**独立页面**（框架按路由 + 视图 id 区分），从 A 页跳到 B 页后返回能回到 A 页。
+
+---
+
+### 2.7 浮层与确认弹窗：用动作打开
+
+**弹层属于“有过程、有结果”的事，所以走动作**（不往页面里加“浮层块”）。两种写法：
+
+```js
+// 1) 页面里的一行直接打开浮层（零代码）：那一行带 command 动作，参数就是动作参数
+//    {"kind":"command","name":"musicxx.ui.overlay.show","args":{...}}
+//    kit 的 overlayRow 已经包好这一层
+
+// 2) 插件拿到结果后再改页面：那一行用 dispatch，处理函数里自己调
+musicxx.capability.register("pickQuality", async function () {
+  const r = await musicxx.ui.pick({
+    title: "音质",
+    value: current,
+    options: [{ value: "high", title: "高品质", describe: "文件较大，音质最好" }],
+  });
+  if (r && !r.cancelled) current = r.selected;
+  return { view: buildView() };      // 返回新视图，页面立刻更新
+});
+```
+
+| 想要 | 用什么 |
+|---|---|
+| 确认一件事（是 / 否） | `musicxx.ui.dialog`，返回 `{ok, confirmed}`（也可以给 `blocks` 富内容） |
+| 展示一块内容 / 收集一点输入 | `musicxx.ui.overlay({title, blocks, textConfirm})` |
+| 让用户从若干项里选一个（每项能写多行说明） | `musicxx.ui.pick({title, options, value})` |
+| 自己收起来 | `musicxx.ui.overlayClose()` |
+
+要点：
+
+- **等用户操作的动作要把超时设长**：JS 的 `dialog` / `overlay` / `pick` 缺省已给 10 分钟；
+- 每个插件同时只有**一层**浮层（再开会关掉旧的）；插件卸载 / 插件页面退出会自动关；
+- 浮层里的按钮动作**不会自动关闭浮层**：插件返回 `{"view": …}` 就能在浮层里换内容（做翻页 / 刷新），
+  要关自己调 `overlayClose`；`textConfirm` 那个按钮一定关闭；
+- `pick` 只做单选；多选就在自己的 `blocks` 里放 `Control(checkbox)` 或列表块；
+- 浮层 / 确认弹窗的外观（圆角、遮罩、尺寸预设、动画等级）跟应用主题走，插件不控样式。
 
 ---
 

@@ -1264,6 +1264,11 @@ var featurePointImpls = new Map();
     }
   };
 
+  // 等用户操作的动作用的预算（毫秒）：缺省 10 分钟，调用方可以自己给
+  function waitUserBudget(timeoutMs) {
+    return (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 600000;
+  }
+
   musicxx.ui = {
     notify: function (args) {
       return musicxx.call("musicxx.ui.notify", typeof args === "string" ? { text: args } : args);
@@ -1272,8 +1277,29 @@ var featurePointImpls = new Map();
       return musicxx.call("musicxx.ui.toast", typeof args === "string" ? { text: args } : args);
     },
     // 确认弹窗 (敏感操作前先问用户; 返回 { ok, confirmed })
-    dialog: function (args) {
-      return musicxx.call("musicxx.ui.dialog", typeof args === "string" ? { content: args } : args);
+    // * 要等用户点，所以缺省预算给 10 分钟（musicxx.call 的缺省 5 秒不够）
+    dialog: function (args, timeoutMs) {
+      return musicxx.call("musicxx.ui.dialog", typeof args === "string" ? { content: args } : args,
+                          waitUserBudget(timeoutMs));
+    },
+    // 浮层 (代码打开一层 sheet, 等用户关掉它; 返回 { ok, reason, value? })
+    // - args: { preset, id, title, depict, blocks, options, value, textConfirm, textCancel, size, dismissible }
+    // - 参数全部同动作 musicxx.ui.overlay.show，页面里的块也可以用 command 动作指向它
+    overlay: function (args, timeoutMs) {
+      return musicxx.call("musicxx.ui.overlay.show", args || {}, waitUserBudget(timeoutMs));
+    },
+    // 选择浮层 (overlay 的 preset=picker: 标题 + 多行描述; 返回 { ok, selected } / { ok, cancelled })
+    pick: function (args, timeoutMs) {
+      var req = {};
+      var src = args || {};
+      for (var key in src) { req[key] = src[key]; }
+      req.preset = "picker";
+      return musicxx.call("musicxx.ui.overlay.show", req, waitUserBudget(timeoutMs));
+    },
+    // 主动收起这个插件当前那一层浮层 (返回 { ok, closed })
+    overlayClose: function (args) {
+      var id = (typeof args === "string") ? args : ((args && args.id) ? String(args.id) : "");
+      return musicxx.call("musicxx.ui.overlay.close", { id: id });
     },
     // 打开页面: 任意插件的声明式页面 (ext://<插件id>/<视图id>, 含本插件), 或官方白名单页面
     // (见作者文档; 跨插件页面由对方插件自己绘制)

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "kitVersion": 1,
+  "kitVersion": 2,
   "doc": "musicxx 扩展 kit：应用自己的留白规则 + 设置行/封面行/着色器块等本客户端常用组合（只拼装，不含逻辑）",
   "components": [
     {
@@ -294,6 +294,129 @@
                     "value": "$value",
                     "multiline": "$multiline",
                     "action": "$action"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "passwordRow",
+      "doc": "密码输入行：标题 + 说明 + 遮住的输入框（带眼睛按钮，输入完成即派发动作）",
+      "params": [
+        { "name": "id", "type": "string", "required": true },
+        { "name": "title", "type": "text", "required": true },
+        { "name": "depict", "type": "text" },
+        { "name": "value", "type": "json" },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "children": [
+              {
+                "kind": "Column",
+                "gap": 6,
+                "children": [
+                  { "kind": "Text", "text": "$title" },
+                  { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" },
+                  {
+                    "kind": "Control",
+                    "control": "password",
+                    "id": "$id",
+                    "value": "$value",
+                    "action": "$action"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "selectRow",
+      "doc": "下拉选择行：标题 + 说明 + 下拉框（选中即派发动作；候选项只有一行标题时用它）",
+      "params": [
+        { "name": "id", "type": "string", "required": true },
+        { "name": "title", "type": "text", "required": true },
+        { "name": "depict", "type": "text" },
+        { "name": "value", "type": "json" },
+        { "name": "options", "type": "options", "required": true },
+        { "name": "action", "type": "action" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "plain",
+            "padding": { "horizontal": 10, "vertical": 6 },
+            "children": [
+              {
+                "kind": "Column",
+                "gap": 6,
+                "children": [
+                  { "kind": "Text", "text": "$title" },
+                  { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" },
+                  {
+                    "kind": "Control",
+                    "control": "select",
+                    "id": "$id",
+                    "value": "$value",
+                    "options": "$options",
+                    "action": "$action"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "overlayRow",
+      "doc": "点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show）",
+      "params": [
+        { "name": "label", "type": "text", "required": true },
+        { "name": "value", "type": "text" },
+        { "name": "title", "type": "text" },
+        { "name": "depict", "type": "text" },
+        { "name": "blocks", "type": "items", "required": true },
+        { "name": "textConfirm", "type": "text" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Block",
+            "variant": "inset",
+            "padding": { "horizontal": 12, "vertical": 8 },
+            "action": {
+              "kind": "command",
+              "name": "musicxx.ui.overlay.show",
+              "args": {
+                "title": "$title",
+                "depict": "$depict",
+                "blocks": "$blocks",
+                "textConfirm": "$textConfirm"
+              }
+            },
+            "children": [
+              {
+                "kind": "Row",
+                "gap": 12,
+                "cross": "center",
+                "children": [
+                  {
+                    "kind": "Expanded",
+                    "children": [
+                      { "kind": "Text", "text": "$label" },
+                      { "$require": "value", "kind": "Text", "text": "$value", "type": "caption", "tone": "hint" }
+                    ]
                   }
                 ]
               }
