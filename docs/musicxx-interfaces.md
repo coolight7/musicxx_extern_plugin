@@ -303,7 +303,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
 | 歌单与歌曲（4） | `musicxx.library.querySonglists` / `querySongs` / `playSong` / `playSonglist` |
 | 歌词（1） | `musicxx.lyrics.getCurrent` |
-| 提示与页面（4） | `musicxx.ui.notify` / `toast` / `dialog` / `openRoute` |
+| 提示、弹层与页面（6） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
 | 插件私有存储（4） | `musicxx.storage.get` / `set` / `delete` / `list` |
 | 网络（2，保留） | `musicxx.net.fetch` / `net.download`（老插件直接调动作时用；JS 封装与新建插件走插件框架自带的 `musicxx.net` 表） |

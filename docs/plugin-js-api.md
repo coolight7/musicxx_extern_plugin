@@ -372,7 +372,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent(fn)` `http.*` `socket.*` `ws.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
-| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()` |
+| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)` `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()` |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
 **动作清单**（每个动作做什么、参数与返回、失败情形与示例）在 [plugin-api.md](plugin-api.md) §3.2；
@@ -550,6 +550,23 @@ if (answer && answer.confirmed) { /* 用户点了确认 */ }
 
 await musicxx.ui.openRoute("ext://my_plugin/card");          // 插件页面（允许任意插件）
 await musicxx.ui.openRoute("musicxx:settings");              // 官方页面（白名单键）
+
+// 浮层：代码打开一层 sheet，等用户关掉（返回 { ok, reason, value? }）
+const detail = await musicxx.ui.overlay({
+  title: "运行详情",
+  blocks: [kit.kv({ pairs: [{ k: "模型", v: "gpt-5" }] })],
+  textConfirm: "知道了",
+});
+if (detail.reason === "confirmed") { /* ... */ }
+
+// 选择浮层：每项可以带多行描述（只做单选）
+const picked = await musicxx.ui.pick({
+  title: "音质",
+  options: [{ value: "high", title: "高品质", describe: "文件较大" }],
+});
+if (picked && !picked.cancelled) { /* picked.selected */ }
+
+await musicxx.ui.overlayClose();                              // 自己收起当前那层
 ```
 
 - 弹窗标题会自动带插件来源前缀（`『<插件id>』…`），避免插件伪装成主程序自己的提示；

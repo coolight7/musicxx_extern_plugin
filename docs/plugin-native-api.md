@@ -354,6 +354,10 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 requestAction("musicxx.library.querySonglists", "{}", &notify, 5000);
 requestAction("musicxx.ui.notify", R"({"text":"已刷新"})", &notify, 5000);
 requestAction("musicxx.ui.openRoute", R"({"route":"ext://my_plugin/card"})", &notify, 5000);
+// 浮层：等用户操作，超时传 0（不设上限）；结果里 reason 是 confirmed / cancelled / closed
+requestAction("musicxx.ui.overlay.show",
+              R"({"title":"运行详情","blocks":[],"textConfirm":"知道了"})", &notify, 0);
+requestAction("musicxx.ui.overlay.close", R"({})", &notify, 0);
 requestAction("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})", &notify, 5000);
 requestAction("musicxx.net.fetch", R"({"url":"https://example.com/a.json"})", &notify, 30000);
 requestAction("musicxx.render.list", "{}", &notify, 5000);

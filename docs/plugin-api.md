@@ -343,7 +343,9 @@ const line = lrc.lines[Math.min(lrc.index, lrc.lines.length - 1)];
 |---|---|---|---|
 | `musicxx.ui.notify` | `{text}`（也接受 `message`）；`{kind:"error"}` 走错误样式 | `{ok:true}` | 站内提示，会记一条插件日志 |
 | `musicxx.ui.toast` | `{text}` | `{ok:true}` | 轻提示（更轻，不记日志） |
-| `musicxx.ui.dialog` | `{title?, content, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作；给了标题会自动加 `『<插件id>』` 前缀（不给标题时用「插件请求确认」），插件不能伪装成应用自己的提示 |
+| `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
+| `musicxx.ui.overlay.show` | `{preset?, id?, title?, depict?, blocks?, options?, value?, textConfirm?, textCancel?, size?, dismissible?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。参数与返回见 §3.2.4.1 |
+| `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 收起这个插件当前那一层浮层（给了 `id` 就只关名字对得上的那一层；没开着的浮层时 `closed:false`） |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` | 打开插件页面或官方页面，规则见下 |
 
 `musicxx.ui.openRoute` 允许两类目标（别的地址会被拒绝，错误信息里会列出全部可用别名）：
@@ -376,8 +378,75 @@ uiNotify(R"({"text":"已刷新"})");
 requestAction("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 0);   // 0 = 一直等用户点
 ```
 
-> 弹窗是**用户操作**：等它的时候把超时设长一点（动态库侧传 0 表示不设超时），
+> 弹窗与浮层都是**用户操作**：等它们的时候把超时设长一点（动态库侧传 0 表示不设超时；
+> JS 侧的 `musicxx.ui.dialog` / `overlay` / `pick` 缺省已经给了 10 分钟），
 > 否则用户还没点就已经超时了。
+
+#### 3.2.4.1 浮层（`musicxx.ui.overlay.show`）
+
+浮层是"代码打开、等结果"的动作：插件打开一层 sheet，用户在浮层里操作，关掉后动作返回
+**怎么关的**。页面里想让某一行打开浮层，就让那一行带一个 `command` 动作指向它（同一个函数、同一份参数）。
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `preset` | string | `custom`（缺省，内容 = `blocks`）/ `picker`（选择列表，见下） |
+| `id` | string | 可选：给这层浮层一个名字，`overlay.close` 可以点名关它 |
+| `title` / `depict` | string | 标题 / 副标题 |
+| `blocks` | array | `preset: custom` 的内容（页面块数组，可以放按钮 / 控件 / 列表） |
+| `options` | array | `preset: picker` 的候选项：`[{value, title, describe?, selected?}]`（`describe` 可多行） |
+| `value` | any | `preset: picker` 的当前值（对应候选项打上选中标记） |
+| `textConfirm` / `textCancel` | string | 底部按钮文案（不给就没有那个按钮） |
+| `size` | string | 尺寸预设：`autoHeightAutoWidth`（缺省）/ `autoHeightFullWidth` / `full` / `fullHeightAutoWidth` / `columnAutoHeightRowFullHeightAutoWidth` |
+| `dismissible` | bool | 缺省 `true`：点遮罩 / 返回键就能关；写 `false` 时必须点按钮（或插件自己 `overlay.close`） |
+
+返回：
+
+| 情况 | 返回 |
+|---|---|
+| 点了 `textConfirm` 的按钮 | `{ok:true, reason:"confirmed", value?}` |
+| 点了 `textCancel` 的按钮 | `{ok:true, reason:"cancelled"}` |
+| 点关闭 / 点遮罩 / 返回键 / 被程序关掉（新浮层顶掉、插件卸载、插件页面退出） | `{ok:true, reason:"closed"}` |
+| `preset: picker` 选中一项 | `{ok:true, selected:<该项的 value>}` |
+| `preset: picker` 取消 / 关掉 | `{ok:true, cancelled:true}` |
+| 参数不全（`custom` 没给 `blocks`、`picker` 没给 `options`） | `{ok:false, error}` |
+
+规则：
+
+- **每个插件同时最多一层**：再打开会先关掉旧的（旧的回 `reason:"closed"`，不会一直等）；
+- 浮层里的按钮动作**不会自动关闭浮层**：插件可以返回 `{"view": …}` 让浮层换一份内容（做"浮层里翻页 / 刷新"），
+  要关就自己调 `musicxx.ui.overlay.close`；`textConfirm` 那个按钮一定关闭；
+- `preset: picker` 只做**单选**：点一项就关闭并返回该项的值（需要多选就在自己的 `blocks` 里放 `Control(checkbox)`）；
+- `show` 的返回**一定有一个终局**（插件卸载、插件页面退出也会结算），不会悬挂。
+
+```js
+// 打开一层浮层等结果
+const r = await musicxx.ui.overlay({
+  title: "运行详情",
+  blocks: [kit.kv({ pairs: [{ k: "模型", v: "gpt-5" }] })],
+  textConfirm: "知道了",
+});
+if (r.reason === "confirmed") { /* ... */ }
+
+// 选择列表：标题 + 多行描述
+const picked = await musicxx.ui.pick({
+  title: "音质",
+  value: current,
+  options: [
+    { value: "high", title: "高品质", describe: "文件较大，音质最好" },
+    { value: "low", title: "流畅", describe: "省流量" },
+  ],
+});
+if (picked && !picked.cancelled) current = picked.selected;
+
+// 自己收起（例如浮层里的动作已经做完）
+await musicxx.ui.overlayClose();
+```
+
+```cpp
+// C++：requestAction 传 0 = 一直等用户操作
+requestAction("musicxx.ui.overlay.show", R"({"title":"运行详情","blocks":[],"textConfirm":"知道了"})", &callback, 0);
+requestAction("musicxx.ui.overlay.close", R"({})", &callback, 0);
+```
 
 #### 3.2.5 插件私有存储与配置（`musicxx.storage.*`）
 

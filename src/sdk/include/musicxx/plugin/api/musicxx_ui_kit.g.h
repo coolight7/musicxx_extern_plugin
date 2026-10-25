@@ -23,7 +23,7 @@ namespace ui {
 namespace kit {
 
 /// kit 版本
-inline constexpr int kKitVersion = 1;
+inline constexpr int kKitVersion = 2;
 
 /// 组件模板（键 = 组件名，值是 {variants, params} 的 JSON 文本）
 inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
@@ -58,6 +58,10 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
          R"KIT({"variants":[{"template":{"kind":"Table","header":"$header","columns":"$columns","rows":"$rows"}}],"params":{"columns":null,"rows":null,"header":true}})KIT"},
         {"tree",
          R"KIT({"variants":[{"template":{"kind":"Tree","connector":"$connector","nodes":"$nodes"}}],"params":{"nodes":null,"connector":true}})KIT"},
+        {"listItem",
+         R"KIT({"variants":[{"template":{"id":"$id","title":"$title","subtitle":"$subtitle","trailing":"$trailing","image":"$image","icon":"$icon","tone":"$tone","selected":"$selected","action":"$action"}}],"params":{"id":null,"title":null,"subtitle":null,"trailing":null,"image":null,"icon":null,"tone":"normal","selected":false,"action":null}})KIT"},
+        {"menuItem",
+         R"KIT({"variants":[{"template":{"title":"$title","icon":"$icon","action":"$action"}}],"params":{"title":null,"icon":null,"action":null}})KIT"},
         {"sparkline",
          R"KIT({"variants":[{"template":{"kind":"Sparkline","data":"$data","height":"$height","glyphStyle":"$glyphStyle","showLast":"$showLast","tone":"$tone"}}],"params":{"data":null,"height":1,"glyphStyle":"block","showLast":true,"tone":"accent"}})KIT"},
         {"progressRow",
@@ -68,6 +72,12 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
          R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"}]}]},{"kind":"Control","control":"switch","id":"$id","value":"$value","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"action":null}})KIT"},
         {"inputRow",
          R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"},{"kind":"Control","control":"text","id":"$id","value":"$value","multiline":"$multiline","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"multiline":false,"action":null}})KIT"},
+        {"passwordRow",
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"},{"kind":"Control","control":"password","id":"$id","value":"$value","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"action":null}})KIT"},
+        {"selectRow",
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"},{"kind":"Control","control":"select","id":"$id","value":"$value","options":"$options","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"options":null,"action":null}})KIT"},
+        {"overlayRow",
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"inset","padding":{"horizontal":12,"vertical":8},"action":{"kind":"command","name":"musicxx.ui.overlay.show","args":{"title":"$title","depict":"$depict","blocks":"$blocks","textConfirm":"$textConfirm"}},"children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Text","text":"$label"},{"$require":"value","kind":"Text","text":"$value","type":"caption","tone":"hint"}]}]}]}}],"params":{"label":null,"value":null,"title":null,"depict":null,"blocks":null,"textConfirm":null}})KIT"},
         {"shaderBlock",
          R"KIT({"variants":[{"requires":["musicxx.Shader"],"template":{"kind":"musicxx.Shader","bundle":"$bundle","args":"$args","speed":"$speed","maxFps":"$maxFps","animate":"$animate","resolutionScale":"$resolutionScale"}},{"template":{"kind":"Text","text":"（这个客户端不支持插件着色器）","type":"caption","tone":"hint"}}],"params":{"bundle":null,"args":null,"speed":1,"maxFps":null,"animate":true,"resolutionScale":1}})KIT"},
         {"coverRow",
@@ -240,6 +250,24 @@ inline pluginxx::ui::Item tree(
     return pluginxx::ui::detail::expandKit("tree", params, env, &kitTemplate);
 }
 
+/// 列表项（数据对象，给 ListViewBase / ListView 的 items 用）
+/// 参数：id(string)、title(text, 必填)、subtitle(text)、trailing(text)、image(string)、icon(string)、tone(tone, 默认 normal)、selected(bool, 默认 false)、action(action)
+inline utilxx_base::Json listItem(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKitJson("listItem", params, env, &kitTemplate);
+}
+
+/// 菜单项（数据对象，给 ListView 的 menu / itemMenu 用）
+/// 参数：title(text, 必填)、icon(string)、action(action)
+inline utilxx_base::Json menuItem(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKitJson("menuItem", params, env, &kitTemplate);
+}
+
 /// 迷你趋势图
 /// 参数：data(numbers, 必填)、height(int, 默认 1)、glyphStyle(enum:sparkStyle, 默认 block)、showLast(bool, 默认 true)、tone(tone, 默认 accent)
 inline pluginxx::ui::Item sparkline(
@@ -283,6 +311,33 @@ inline pluginxx::ui::Item inputRow(
     const pluginxx::ui::Capabilities* env = nullptr
 ) {
     return pluginxx::ui::detail::expandKit("inputRow", params, env, &kitTemplate);
+}
+
+/// 密码输入行：标题 + 说明 + 遮住的输入框（带眼睛按钮，输入完成即派发动作）
+/// 参数：id(string, 必填)、title(text, 必填)、depict(text)、value(json)、action(action)
+inline pluginxx::ui::Item passwordRow(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("passwordRow", params, env, &kitTemplate);
+}
+
+/// 下拉选择行：标题 + 说明 + 下拉框（选中即派发动作；候选项只有一行标题时用它）
+/// 参数：id(string, 必填)、title(text, 必填)、depict(text)、value(json)、options(options, 必填)、action(action)
+inline pluginxx::ui::Item selectRow(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("selectRow", params, env, &kitTemplate);
+}
+
+/// 点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show）
+/// 参数：label(text, 必填)、value(text)、title(text)、depict(text)、blocks(items, 必填)、textConfirm(text)
+inline pluginxx::ui::Item overlayRow(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("overlayRow", params, env, &kitTemplate);
 }
 
 /// 插件着色器块（musicxx 专属组件；终端之类不认识它的客户端会跳过）

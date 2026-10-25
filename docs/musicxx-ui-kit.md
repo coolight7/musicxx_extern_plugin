@@ -1,4 +1,4 @@
-# 扩展 kit（musicxx）（v1）
+# 扩展 kit（musicxx）（v2）
 
 > 本文件由 `tools/gen_ui.dart` 生成。定义来源：`schema/ui.def.json` / `schema/kit.def.json`；扩展 kit 定义：`schema/musicxx-ui-kit.def.json`。
 
@@ -22,11 +22,16 @@
 | `kv` | `pairs`* `sep` | 键值块（键列按最长键自适应） |
 | `table` | `columns`* `rows` `header`=true | 表格（未指定的列宽由客户端自动分配） |
 | `tree` | `nodes`* `connector`=true | 层级列表 |
+| `listItem` | `id` `title`* `subtitle` `trailing` `image` `icon` `tone`=normal `selected`=false `action` | 列表项（数据对象，给 ListViewBase / ListView 的 items 用） |
+| `menuItem` | `title`* `icon` `action` | 菜单项（数据对象，给 ListView 的 menu / itemMenu 用） |
 | `sparkline` | `data`* `height`=1 `glyphStyle`=block `showLast`=true `tone`=accent | 迷你趋势图 |
 | `progressRow` | `label` `value`* `total`=100 `unit`=% | 一行进度（覆盖基础 kit：musicxx 默认按百分比显示数值） |
 | `settingRow` | `title`* `depict` `value` `action` | 设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号） |
 | `switchRow` | `id`* `title`* `depict` `value` `action` | 开关行：标题 + 说明 + 右侧开关（不带底色，值变化即派发动作、参数带 id 与当前值） |
 | `inputRow` | `id`* `title`* `depict` `value` `multiline`=false `action` | 输入行：标题 + 说明 + 输入框（不带底色，输入完成即派发动作） |
+| `passwordRow` | `id`* `title`* `depict` `value` `action` | 密码输入行：标题 + 说明 + 遮住的输入框（带眼睛按钮，输入完成即派发动作） |
+| `selectRow` | `id`* `title`* `depict` `value` `options`* `action` | 下拉选择行：标题 + 说明 + 下拉框（选中即派发动作；候选项只有一行标题时用它） |
+| `overlayRow` | `label`* `value` `title` `depict` `blocks`* `textConfirm` | 点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show） |
 | `shaderBlock` | `bundle`* `args` `speed`=1 `maxFps` `animate`=true `resolutionScale`=1 | 插件着色器块（musicxx 专属组件；终端之类不认识它的客户端会跳过） |
 | `coverRow` | `cover`* `title`* `subtitle` `trailing` `size`=40 `action` | 带封面的行：封面 + 标题 + 副标题 + 可选右侧状态（不带底色；取不到图片时显示标题） |
 | `animScope` | `values`* `maxFps` `children`* | 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder） |
