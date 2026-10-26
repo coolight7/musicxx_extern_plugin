@@ -89,7 +89,10 @@ class MusicxxPluginManager {
   /// - [dir] 插件目录（绝对路径；压缩包解包后的临时目录同样可以）；
   /// - [os] / [arch] 要判定的目标环境（留空 = 插件框架自己的平台与架构）；
   /// - 目录不存在 / 清单非法时返回的对象里 `valid == false`（不抛异常，看 [error]）；
-  /// - 不看运行期开关（JS 运行时是否可用、安全模式、禁用动态库）——那些由 [scan] 叠加。
+  /// - 不看运行期开关（JS 运行时是否可用、安全模式、禁用动态库）——那些由 [scan] 叠加；
+  /// - 形态（`kind`）的事实也在这里：`kindKnown` / `kindRequiresPluginAbi` /
+  ///   `kindProviderId` / `kindValidateCapability`。装之前要不要拦 `api_version`、
+  ///   要不要再请运行器校验一遍，都按这几项来判断（不要在调用方写形态名分支）。
   MusicxxPluginInspect_c inspect(
     String dir, {
     String os = '',

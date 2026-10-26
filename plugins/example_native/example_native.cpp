@@ -286,7 +286,23 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                      "(等待插件框架超时)");
           }
           std::ostringstream oss;
-          oss << "{\"startThread\":\"" << startThread << "\""
+          // 插件框架按**本插件的形态**报接口代次：动态库插件看到的是 C 接口代次（3），
+          // JS 插件看到的是 JS 接口代次（2）——两套编号独立（见 host_kind.h）
+          const std::string hostInfo = hostInfoJson();
+          std::string hostApiVersion = "0";
+          {
+            const std::string key = "\"apiVersion\":";
+            const std::size_t pos = hostInfo.find(key);
+            if (pos != std::string::npos) {
+              const std::size_t begin = pos + key.size();
+              const std::size_t end = hostInfo.find_first_of(",}", begin);
+              if (end != std::string::npos) {
+                hostApiVersion = hostInfo.substr(begin, end - begin);
+              }
+            }
+          }
+          oss << "{\"hostApiVersion\":" << hostApiVersion
+              << ",\"startThread\":\"" << startThread << "\""
               << ",\"callThread\":\"" << threadIdText() << "\""
               << ",\"unknownHookRc\":" << unknownHookRc
               << ",\"dupHookRc\":" << dupHookRc

@@ -64,7 +64,7 @@ name: my_plugin                    # 插件 id（唯一；同名视为同一插�
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
 version: 2026.1010.1              # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）；打包脚本用它拼安装包名
-api_version: 1                     # 插件 API 版本：不低于插件框架支持的最低版本即可（当前最低 1）；声明更高也不拒绝
+api_version: 3                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 3）；JS 插件写 1（JS 接口当前 2、兼容下限 1，见 §4.3）
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（别名 win32 / osx 也认；多目标包通常不写，见 §1.3）
@@ -90,7 +90,9 @@ permissions:                       # 声明式权限：只做展示，运行时�
 清单里**没有**运行时行为相关的开关：配置由插件自己读写 `config.json`，插件框架不解析插件配置。
 
 插件框架**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
-要表达版本要求请用 `api_version`：只要不低于插件框架支持的最低版本（`MUSICXX_PLUGINXX_MIN_API_VERSION`，当前 1）就照常加载，声明更高也不会被拒。
+要表达版本要求请用 `api_version`：它表示"插件按哪一代接口写的"，判定是 `api_version >= 插件所属形态的
+兼容下限`（动态库插件 3、JS 插件 1，见 §4.3）。**每代接口只增不改**时下限不动，只有破坏性变更才抬
+下限；清单写更高不会被拒（插件自己想表达"我用了新接口"时可以写高）。
 
 ### 1.2 安装位置
 
@@ -320,8 +322,11 @@ MUSICXX_PLUGIN_EXPORT(
 - 每张表的 `MUSICXX_PLUGIN_IFACE_*_VERSION` / `..._MIN_VERSION` / `..._BASELINE_SIZE` 与表体一起声明在
   `plugin_api.h`，SDK 在 `plugin_kit.h` 里逐表给出 `pluginxx::IfaceMeta` 特化（上面两条门槛读的就是它）。
   插件不要自己造表、也不要改主程序给的表。
-- 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张表都是 v1，
-  基线 = 整表大小，也就是"表可用即全部成员可用"。
+- 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` /
+  `musicxx.kind` 六张表都是 v1，基线 = 整表大小，也就是"表可用即全部成员可用"。
+- **插件形态（kind）不是写死的**：插件框架自带 `native`（动态库，按 C ABI 编译）与 `js`
+  （内置 JS 运行器，不按 C ABI 编译），其它形态（以后的 Python 等）由插件用
+  `musicxx.kind` 登记，见 §4.3。
 
 ### 4.2 常用接口的 C++ 写法
 
@@ -426,6 +431,76 @@ requestAction("musicxx.feature.point.list", "{}", &n2, 5000);
 - 动态库插件**没有**"读自己的运行统计"的便捷接口（`musicxx.stats` 表未实现，见 §13）：
   看统计用管理页「插件详情 → 运行统计」，上报统计用动作 `musicxx.stats.reportMemory` /
   `reportMetric`。
+
+### 4.3 插件形态（运行器）：让插件支持一种新的插件
+
+插件框架本身只实现**动态库插件**（`kind: native`），内置的 JS 运行器是第二种形态（`kind: js`）。
+这两种都不是写死的：扫描、判定与加载都先按 `kind` 查一张注册表，所以"把 JS 运行器搬到插件里"、
+"以后接 Python"都不需要改插件框架 —— 由一个插件登记"我支持 kind=X"，交出加载 / 卸载能力即可。
+
+```cpp
+iface.kind->register_kind(host, &pluginxxView(R"({
+  "kind": "python",
+  "requiresPluginAbi": false,
+  "interfaceVersion": 3,
+  "minInterfaceVersion": 1,
+  "loadCapability": "plugin.my_runtime.kind_load",
+  "unloadCapability": "plugin.my_runtime.kind_unload",
+  "validateCapability": "plugin.my_runtime.kind_validate",
+  "describe": "Python 运行器"
+})"));
+// SDK 便捷写法：kindRegister(specJson) / kindUnregister("python") / kindList()
+```
+
+登记之后：
+
+- **判定**：`kind: python` 的插件目录在扫描与安装预检里不再是"认不出的包"；提供者没加载时，
+  原因写"由插件 X 提供，但它没有加载"。
+- **"这个包能不能跑"由运行器回答**（`validateCapability`，可选）：加载前先调它一次，载荷
+  `{"action":"validate","kind","id","path","version"}`；回答 `{"ok":true}` = 可以跑，
+  `{"ok":false,"error":"..."}` = 拒绝（那句 `error` 会原样给用户）。运行器比插件框架更清楚
+  这种插件长什么样（要哪些文件、清单哪些字段必填、依赖装没装），所以这类检查不该写在
+  插件框架里。没写 `validateCapability` = 不做这一步。
+- **安装预检也是问运行器**：`plugin_inspect` 是同步 C ABI，回答不了"要问插件"的问题，所以它
+  只把形态事实报出来，由主程序在解包之后的预检里拿着去问：
+
+  ```json
+  {"kind":"python","kindKnown":true,"kindRequiresPluginAbi":false,
+   "kindInterfaceVersion":3,"kindMinInterfaceVersion":1,
+   "kindProvider":"py_runtime","kindProviderId":"py_runtime",
+   "kindValidateCapability":"plugin.py_runtime.kind_validate"}
+  ```
+
+  主程序据此展示"这个形态的接口代次"，再把上面那句 `validate` 请求发出去，被拒就不装。
+  **`api_version` 的判定不在主程序做**（结论在 `supported` / `reason` 里）；宿主也可以直接读
+  `kindList()`（`status_info` 里的 `host.kinds`）拿到同一份信息。
+- **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：清单里的
+  `api_version` 表示"插件按哪一代接口写的"，判定就是 `api_version >= 该形态的 minInterfaceVersion`；
+  插件读到的 `host.info().apiVersion` / `config().apiVersion` 是该形态的**当前代次**。
+
+  | 形态 | 当前代次 | 兼容下限 | 含义 |
+  |---|---|---|---|
+  | `native`（内置） | 3 | 3 | C 接口代次；通用表变了就是破坏性变更，下限跟着抬 |
+  | `js`（内置） | **2** | **1** | JS 接口代次；至今只增不改（变量通道 / 网络 / 功能点调用 / 静态路由 / 界面层 v2 …），所以下限仍 1 |
+  | 运行器登记的形态 | 自己写 | 自己写 | `requiresPluginAbi: true` 的用框架的 C 接口那一对；解释执行的自报，不写 = 不判 |
+
+  - **只增不改 → 只抬当前代次**：JS 插件写 `api_version: 1`（示例就是这样）仍能加载，插件可以读
+    `config().apiVersion` 判断能不能用新接口；
+  - **破坏性变更才抬下限**：将来 JS 接口改名 / 删接口 / 改语义，就把 `jsMinInterfaceVersion`
+    抬到当时的当前代次（与 C 接口的 `PLUGINXX_MIN_API_VERSION` 同一套规则），老插件会被判
+    "跑不了"，理由里带着它能用的最低代次；
+  - **两套编号独立**：JS 的 2 与 C 接口的 3 不能互相比较（插件只看得到自己那一份）。
+- **加载 / 卸载**：插件框架把插件目录交给登记的能力（请求
+  `{"action":"load","kind","id","path","instance","version"}`），回答 `{"ok":true}` 表示接手；
+  卸载同一条能力（`"action":"unload"`），也可以另给 `unloadCapability`。字段与超时见
+  `plugin_api.h` 的 `MUSICXX_PLUGIN_IFACE_KIND`。
+- **归属**：托管插件的钩子 / UI / 能力都是**运行器插件自己的注册**（插件框架不为它们创建实例）；
+  停用 / 卸载托管插件只是转告运行器。管理页与 `plugin_list` 会把它们列成独立插件
+  （带 `hosted: true` 与 `provider`）。
+- 登记的形态**跟着插件生命周期撤销**（停用 / 卸载 / 关闭『拟声++』），不写磁盘；内置的
+  `native` / `js` 不能被普通登记覆盖；要把**内置 JS 运行器搬进插件**，就在登记的 spec 里写
+  `"overrideBuiltin": true`：此时 `js` 的加载 / 卸载都交给这个插件，撤销登记后自动回到内置
+  JS 运行器（`native` 不允许接管 —— 动态库加载与生命周期是插件框架自己的职责）。
 
 ---
 
@@ -853,6 +928,19 @@ cmake --build build
 工具链要求：C++26（MSVC ≥ VS 2022 17.14、GCC ≥ 14、Clang 与 NDK ≥ 18）。
 插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
 
+**插件 API 契约版本（`PLUGINXX_API_VERSION`）必须与插件框架库一致**：它决定接口表按哪套写法调
+（例如订阅事件要不要带作用域引用），两侧不一致时是 ABI 不兼容。当前值是 **3**，由 SDK 的
+INTERFACE 目标自动带上（`musicxx_plugin_add_target` 也用它），清单 `api_version` 写同一个数。
+自己手写 CMake 时要补：
+
+```cmake
+target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=3 PLUGINXX_MIN_API_VERSION=3)
+```
+
+**按旧头文件编译过的插件必须重新编译**：`pluginxx.events` / `capabilities` /
+`config` / `cancel` 四张通用表升到了 v3，调用约定变了，旧的二进制在加载阶段会被拒
+（「API 版本过低」）。
+
 插件框架库不在 Flutter 构建里"顺带编译"（依赖链太重），但**主程序构建会自动触发它**：平台工程在配置阶段调用
 包内构建脚本的自动模式（已是最新则秒级返回；关掉见 `README.md`「打包（随应用分发）」）。
 需要手工构建时：Windows 用 `pwsh -NoProfile -File tools/build_native.ps1`（示例插件用
@@ -934,7 +1022,7 @@ Android 见 §11。
 |---|---|
 | 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名插件框架会按平台修正） |
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
-| 「API 版本过低」 | 插件声明的 `api_version` 低于插件框架支持的最低版本（当前 1）；声明更高不会因此失败 |
+| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 3、JS 插件 1）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（3 / 2），声明更高不会被拒。JS 接口目前只增不改，所以写 1 的 JS 插件照常加载 |
 | 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或插件框架禁用了动态库插件 / 处于安全模式 |
 | 注册钩子返回 `-4` | 钩子 id 不在约定表里（拼错或用了未定义的钩子）；用 `hook_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
@@ -956,7 +1044,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张表（判定与追加规则见 §4.1）；`musicxx.player` / `library` / `lyrics` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` / `musicxx.kind` 六张表（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `library` / `lyrics` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套钩子表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |

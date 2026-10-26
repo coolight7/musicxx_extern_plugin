@@ -37,6 +37,19 @@ inline bool isTopicOwnedBy(std::string_view topic, std::string_view pluginId) {
   return isOwnPlugin(topic, pluginId);
 }
 
+/// 从实例名取出插件 id (`js:<id>` → `<id>`; 其余原样返回)
+///
+/// 托管插件（运行器插件提供的形态）也记在实例名上，所以“实例名 → 插件 id”与
+/// “主题 → 插件 id”分开写。
+inline std::string pluginIdOfInstance(std::string_view instanceName) {
+  constexpr std::string_view kPrefix{"js:"};
+  if (instanceName.size() > kPrefix.size() &&
+      instanceName.substr(0, kPrefix.size()) == kPrefix) {
+    return std::string{instanceName.substr(kPrefix.size())};
+  }
+  return std::string{instanceName};
+}
+
 /// 从主题里取出插件 id (`plugin.<id>.<名>` → `<id>`;
 /// 官方主题或非法形状返回空串)
 ///

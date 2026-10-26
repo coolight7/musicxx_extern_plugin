@@ -8,6 +8,85 @@
 
 ## 未发布
 
+### 新增：插件形态（kind）可以由插件提供，`api_version` 只约束“按 C 接口编译”的形态
+
+插件框架原本把 `native` / `js` 两种形态写死在扫描与加载里。这一版把它们收进一张**形态注册表**，
+并新增接口表 `musicxx.kind`：插件可以登记"我支持 kind=X"，交出加载 / 卸载能力，于是
+**把 JS 运行器搬到插件里、以后再接 Python 运行器，都不用改插件框架**。
+
+- 内置两项：`native`（动态库插件，按 C ABI 编译）与 `js`（内置 JS 运行器，不按 C ABI 编译）。
+  `kindList()` 能列出全部形态及其提供者。
+- **内置形态可以被插件接管**：登记时写 `"overrideBuiltin": true` 就能把 `js` 交给插件跑
+  （把 JS 运行器搬进插件这条路），撤销登记后自动回到内置实现。`native` 不允许接管。
+- 插件登记的形态跟着插件生命周期撤销，不写磁盘；`native` / `js` 不能被覆盖；`loadCapability` /
+  `unloadCapability` 必须写在本插件自己的命名空间（`plugin.<插件id>.`）下。
+- 扫描 / 安装预检 / 加载统一按注册表判定：没登记的 `kind` 判为"当前跑不了"，原因写
+  "先安装并启用提供这个形态的插件"；登记了但提供者没加载，原因写"由插件 X 提供，但它没有加载"。
+- **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：清单 `api_version`
+  表示"插件按哪一代接口写的"，判定是 `>= 该形态的兼容下限`；插件读到的 `host.info().apiVersion` /
+  `config().apiVersion` 是该形态的**当前代次**（动态库插件 3、JS 插件 2，两套编号独立）。
+  - 内置 `native`：3 / 3（C 接口代次，通用表变了就是破坏性变更）；
+  - 内置 `js`：**2 / 1** —— 变量通道、网络、功能点调用、静态路由、界面描述层 v2 这些都是**新增**，
+    所以只抬当前代次，下限仍 1：写 `api_version: 1` 的 JS 插件照常加载；
+  - 运行器登记的形态：`requiresPluginAbi: true` 的用框架的 C 接口那一对；解释执行的自己写
+    （不写 = 不判）。
+  - 将来 JS 接口发生**破坏性变更**（改名 / 删接口 / 改语义）时，把 JS 的兼容下限抬到当时
+    的当前代次，老插件就会被判"跑不了"；与 C 接口的 `PLUGINXX_MIN_API_VERSION` 同一套规则。
+- **`api_version` 的判定只在插件框架一处**：按所属形态的兼容下限判，结论写进扫描/预检的
+  `supported` / `reason`；安装预检（Dart）不再自己拿 C 接口下限重判一遍（只在老版本插件框架库
+  不报形态事实时回退到旧规则）。
+- **"这个包能不能跑"交给运行器判定**（新增可选 `validateCapability`）：加载前先调它一次，
+  回答 `{"ok":false,"error":"..."}` 就拒绝加载（理由原样给用户）。安装预检也问它 ——
+  `plugin_inspect` 是同步 C ABI，所以它只把形态事实（`kindKnown` / `kindRequiresPluginAbi` /
+  `kindInterfaceVersion` / `kindMinInterfaceVersion` / `kindProvider` / `kindProviderId` /
+  `kindValidateCapability`）报出来，由主程序在解包预检里
+  发那句 `{"action":"validate",...}` 请求。
+- 托管插件：加载 / 卸载 / 启停都转告运行器（能力请求与回答见 `plugin_api.h` 的
+  `MUSICXX_PLUGIN_IFACE_KIND`），`plugin_list` 与扫描结果把它们列成独立插件（`hosted: true`、
+  `provider` / `providerId`）。**它们的钩子 / UI / 能力记在运行器插件名下**（插件框架不为托管插件
+  创建实例），这是当前版本的边界。
+- **示例 JS 插件的 `api_version` 回到 1**：上一版为了配合插件 ABI 代次把全部示例清单抬到 3，但
+  JS 接口有自己的代次（当前 2、兼容下限 1）。示例 JS 清单因此恢复 `1`（清单里带一行注释说明），
+  动态库示例保持 `3`。
+- 写法见 `docs/plugin-native-api.md` §4.3；SDK 便捷函数 `kindRegister` / `kindUnregister` / `kindList`。
+
+
+### 破坏性：依赖库 `cxx_*` 升级到「作用域引用」一代，插件 API 契约代次 1 → 3
+
+依赖库（`cxx_pluginxx` / `cxx_utilxx_base` / `cxx_pluginxx_ui`）去掉了一批只在某个主程序里
+有意义的成员，把「接口表」收紧成与业务无关的通用表。**按旧头文件编出来的插件不能再加载**
+（调用约定变了，硬跑会读到错位的参数），因此插件 ABI 契约代次从 1 升到 3。
+
+- **通用接口表的版本**：`pluginxx.events` / `pluginxx.capabilities` / `pluginxx.config` /
+  `pluginxx.cancel` 升到 **v3**；`scheduler` / `coroutine_runtime` / `plugins` / `json` / `log` /
+  `tasks` 仍是 v1。v3 的含义：一次加载、可挂到多个作用域（作用域由主程序定义），且
+  **主程序业务语义不进入通用表**。
+- **事件订阅要带作用域引用**：`events->subscribe(host, scope, topic, handler, ud)`。
+  `scope = nullptr` 表示订阅主程序总线（插件在音乐类主程序里就传它，SDK 的 `subscribeTopic`
+  已经这么做）；传了带 id 的作用域时，musicxx 没有该作用域，订阅返回空。
+- **调能力要带作用域引用**：`capabilities->invoke_capability_async(host, scope, cap, method, args, cb, ud, err)`；
+  SDK 的 `capabilityCall` 传 `nullptr`（音乐类主程序没有作用域）。
+- **`pluginxx.config` 少了两个成员**：`get_tool_prompt` 与 `get_session_work_dir` 交回主程序业务表
+  （musicxx 从来没用它们）；插件要看运行环境用 `config()`，插件自己的目录用 `configPath()`。
+  SDK 的 `workDir()` 随之删除。
+- **`pluginxx.cancel` 只剩一个成员**：`is_cancelled(session_id)` 删除，换成通用的
+  `op_cancel(handle)`（异步操作统一在它上面取消，与 `scheduler` / `capabilities` / `tasks` 同语义）；
+  SDK 的 `sessionCancelled()` 随之删除。
+- **`PLUGINXX_API_VERSION` 不再由依赖库固定**：`cxx_pluginxx` 的默认值是 1（它被多个主程序共用），
+  主程序构建时用 CMake 变量 `PLUGINXX_API_VERSION` / `PLUGINXX_MIN_API_VERSION` 覆盖。本包在
+  `src/CMakeLists.txt` 里固定为 3 并下发到插件框架库与插件 SDK；**插件作者用
+  `musicxx_plugin_add_target` 构建时这个定义自动带上**，自己拼 CMake 的必须补
+  `PLUGINXX_API_VERSION=3`（`plugin_api.h` 的 `MUSICXX_PLUGIN_API_VERSION` 就是它）。
+- **清单的 `api_version`：动态库插件写 3**：低于 3 的在扫描/加载阶段被拒（原因写「插件声明的 API 版本
+  低于当前插件框架支持的最低版本」）。**已有的动态库插件必须按新头文件重新编译**，否则加载阶段会
+  报 API 版本过低或入口无效。**JS 插件不受影响**（它不调 C 接口表，这项判定不管它），示例 JS 插件
+  保持 `api_version: 1` —— 清单里写的是“插件调哪一代通用接口表”，而不调就不需要抬高。
+- **旧插件框架库**：`musicxx_extern_plugin` 库与主程序必须同一次构建（管理页会提示库不是这次构建的产物）。
+- **清单资源声明更通用了**：`skill` / `memory` / `mcp` 改成 `resources:` 列表（`type` 由主程序定义），
+  旧写法仍能解析成同名 `type`；musicxx 不解释资源声明，行为不变。
+- 版本号 2026.1025.1 → 2026.1026.1。
+
+
 ### 新增：插件网络能力 `musicxx.net`（HTTP / TCP / WebSocket，JS 与动态库插件共用）
 
 - 接口表 `musicxx.net`（`MusicxxPluginNetIface`，v1；SDK 里是 `iface.net`）：三个入口

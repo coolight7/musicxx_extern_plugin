@@ -1075,7 +1075,8 @@ int32_t MusicxxHostManager::pluginConfigPathFor(MusicxxHostInstance *inst,
 }
 
 int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
-                                         std::string_view instanceName) {
+                                         std::string_view instanceName,
+                                         std::string_view kind) {
   Json j;
   j["appVersion"] = appVersion_;
   j["platform"] = platform_;
@@ -1083,7 +1084,18 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
   j["dataDir"] = dataDir_;
   j["userPluginDir"] = userPluginDir_;
   j["builtinPluginDir"] = builtinPluginDir_;
-  j["apiVersion"] = MUSICXX_PLUGIN_API_VERSION;
+  // 接口代次按**调用方自己的形态**报：动态库插件看到 C 接口代次（3），JS 插件看到 JS 接口代次
+  // （2）—— 两套编号独立，插件据此判断自己能用哪些接口（见 host_kind.h）。
+  // JS 引擎给所有 JS 插件共用一份缓存，它显式传 kind="js"。
+  std::string_view callerKind = kind;
+  if (callerKind.empty() && !instanceName.empty()) {
+    if (auto inst = find(instanceName)) {
+      callerKind = inst->kind;
+    }
+  }
+  j["apiVersion"] = callerKind.empty()
+                         ? MUSICXX_PLUGIN_API_VERSION
+                         : kindRegistry_.interfaceVersion(callerKind);
   j["hostVersion"] = MUSICXX_EXTERN_PLUGIN_VERSION;
   // 调用方插件自己的 id: 插件要判断"这次调用是不是我自己发起的"就得知道自己的 id
   // (功能点糖用它过滤自己发起的调用)。主程序读同一份信息时不带这个字段。
@@ -1377,7 +1389,8 @@ void PLUGINXX_CALL xx_free_fn(void *ptr) { pluginxx::hostMemoryFree(ptr); }
 
 /// 订阅事件 (任意线程; 插件框架入口语义 + 主题合法性校验)
 PluginxxSubscription *PLUGINXX_CALL xx_subscribe_event(
-    const PluginxxHost *host, const PluginxxStringView *topic,
+    const PluginxxHost *host, const PluginxxScopeRef *scope,
+    const PluginxxStringView *topic,
     void(PLUGINXX_CALL *handler)(const PluginxxStringView *event_json,
                                  void *ud),
     void *ud) {
@@ -1398,9 +1411,17 @@ PluginxxSubscription *PLUGINXX_CALL xx_subscribe_event(
               topicText);
       return nullptr;
     }
+    // 作用域引用里的 id 是借用视图: 投递前复制成自有结构 (与通用表入口同一做法)
+    PluginxxScopeRef scopeCopy{};
+    const bool hasScope = pluginxx_scope_ref_ok(scope) != 0;
+    if (hasScope) {
+      scopeCopy = *scope;
+    }
     return pluginxx::ioCallSyncKeep<PluginxxSubscription *>(
-        call, mgr, [mgr, inst, topicText, handler, ud]() {
-          return mgr->subscribe(inst, topicText, handler, ud);
+        call, mgr,
+        [mgr, inst, hasScope, scopeCopy, topicText, handler, ud]() {
+          return mgr->subscribe(inst, hasScope ? &scopeCopy : nullptr,
+                                topicText, handler, ud);
         });
   });
 }
@@ -1444,6 +1465,96 @@ int32_t PLUGINXX_CALL xx_publish_event(const PluginxxHost *host,
         });
   });
 }
+
+/* ==================== 接口表: musicxx.kind (插件形态 / 运行器) ==================== */
+
+/// 登记一种插件形态（本插件成为它的运行器）
+int32_t PLUGINXX_CALL xx_kind_register(const PluginxxHost *host,
+                                       const PluginxxStringView *spec_json) {
+  return pluginxx::guardVtableCall(
+      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+        if (!spec_json || !spec_json->data) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok()) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string specText{
+            spec_json->data, static_cast<size_t>(spec_json->size)};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, specText]() -> int32_t {
+              std::string err;
+              const int32_t rc =
+                  mgr->registerPluginKind(inst->name, specText, err);
+              if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+                XX_LOGW("[musicxx_ext] 插件 `{}` 登记插件形态失败: {}",
+                        inst->name, err);
+              }
+              return rc;
+            });
+      });
+}
+
+/// 撤销本插件登记的形态
+int32_t PLUGINXX_CALL xx_kind_unregister(const PluginxxHost *host,
+                                         const PluginxxStringView *kind) {
+  return pluginxx::guardVtableCall(
+      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+        if (!kind || !kind->data) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok()) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string kindText{kind->data,
+                                   static_cast<size_t>(kind->size)};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, kindText]() -> int32_t {
+              std::string err;
+              return mgr->unregisterPluginKind(inst->name, kindText, err);
+            });
+      });
+}
+
+/// 列出全部形态（内置 + 插件登记）
+int32_t PLUGINXX_CALL xx_kind_list(const PluginxxHost *host,
+                                   PluginxxString *out_json) {
+  return pluginxx::guardVtableCall(
+      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+        if (!out_json) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host, /*allowClosing=*/true);
+        if (!call.ok()) {
+          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        const std::string json = pluginxx::ioCallSyncKeep<std::string>(
+            call, mgr, [mgr]() { return mgr->kindsJson(); });
+        pluginxx::hostMemorySetString(out_json, json);
+        return MUSICXX_EXTERN_PLUGIN_OK;
+      });
+}
+
+const MusicxxPluginKindIface g_ifaceKind = {
+    /* version */ MUSICXX_PLUGIN_IFACE_KIND_VERSION,
+    /* struct_size */ sizeof(MusicxxPluginKindIface),
+    /* register_kind */ xx_kind_register,
+    /* unregister_kind */ xx_kind_unregister,
+    /* list_kinds */ xx_kind_list,
+};
 
 const PluginxxEventsIface g_ifaceEvents = {
     /* version */ PLUGINXX_IFACE_EVENTS_VERSION,
@@ -1492,6 +1603,9 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   }
   if (name == MUSICXX_PLUGIN_IFACE_UI) {
     return uiIfaceForQuery();
+  }
+  if (name == MUSICXX_PLUGIN_IFACE_KIND) {
+    return &g_ifaceKind;
   }
   if (name == MUSICXX_PLUGIN_IFACE_VARS) {
     return varsIfaceForQuery();

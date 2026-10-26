@@ -16,6 +16,8 @@
 #include <string_view>
 #include <vector>
 
+#include "pluginxx/api/abi.h"
+
 namespace musicxx {
 namespace extern_plugin {
 
@@ -32,7 +34,11 @@ struct MusicxxManifestFields {
   std::string homepage;
 
   /// 兼容的插件 API 版本（插件框架拒绝高于自己版本的插件）
-  int32_t apiVersion = 1;
+  /// - 清单没写时按当前最低版本处理（老清单因此不会因为缺字段被拒）；
+  /// - 写得更低会在扫描阶段被拒（低于 PLUGINXX_MIN_API_VERSION）；
+  ///   但**只有按 C ABI 编译的形态才判**（形态注册表的 `requiresPluginAbi`：
+  ///   内置 `native` 是，`js` 与运行器登记的脚本类形态不是）
+  int32_t apiVersion = PLUGINXX_MIN_API_VERSION;
 
   /// JS插件按顺序执行的脚本（相对插件目录；空 = 用 entry / plugin.js）
   std::vector<std::string> scripts;

@@ -849,6 +849,15 @@ void testPluginInspect(MusicxxExternPluginHost *host,
             "plugin_inspect 给出插件 id");
   checkText(jsonStringField(info, "kind") == "native",
             "plugin_inspect 给出形态");
+  checkText(info.find("\"kindKnown\":true") != std::string::npos &&
+                info.find("\"kindRequiresPluginAbi\":true") != std::string::npos,
+            "plugin_inspect 报出形态事实：已登记且按 C ABI 编译");
+  checkText(jsonIntField(info, "kindInterfaceVersion") == "3" &&
+                jsonIntField(info, "kindMinInterfaceVersion") == "3",
+            "动态库形态的接口代次对是 C 接口那一对 (3/3)");
+  checkText(jsonStringField(info, "kindProviderId").empty() &&
+                jsonStringField(info, "kindValidateCapability").empty(),
+            "内置形态没有运行器提供者与校验能力");
   checkText(jsonStringField(info, "version") == "0.2.0",
             "plugin_inspect 给出清单字段");
   checkText(info.find("\"supported\":true") != std::string::npos,
@@ -974,15 +983,59 @@ void testPluginInspect(MusicxxExternPluginHost *host,
               "plugin_inspect 识别 JS 插件");
     checkText(jsInfo.find("\"scripts\":[\"") != std::string::npos,
               "plugin_inspect 给出 JS 插件的脚本清单");
+    // 主程序靠这一项决定要不要卡 api_version（不自己按形态名写分支）
+    checkText(jsInfo.find("\"kindRequiresPluginAbi\":false") !=
+                  std::string::npos,
+              "JS 形态报出不按 C ABI 编译");
+    // JS 有自己的接口代次对：当前 2（只增不改），兼容下限仍 1
+    checkText(jsonIntField(jsInfo, "kindInterfaceVersion") == "2" &&
+                  jsonIntField(jsInfo, "kindMinInterfaceVersion") == "1",
+              "JS 形态的接口代次对是 2/1 (增补只抬当前代次)");
     checkText(jsInfo.find("\"targetsDir\"") == std::string::npos &&
                   jsInfo.find("\"targetEntry\"") == std::string::npos,
               "JS 插件不出现动态库分支字段");
     // 示例插件都声明了 platforms：按插件框架当前环境判定必须是可用（安装预检的调用形状）
     checkText(jsInfo.find("\"supported\":true") != std::string::npos,
               "声明了 platforms 的 JS 示例插件按插件框架当前环境判定为可用");
+    // 清单写 api_version 1 也照常可用：这项判定只约束按 C ABI 编译的形态
+    // （示例 JS 插件清单因此保持 1，不跟着插件 ABI 代次抬高）
+    checkText(jsonIntField(jsInfo, "apiVersion") == "1",
+              "JS 示例插件清单里的 api_version 为 1 (与插件 ABI 代次无关)");
   }
 
-  // 8) 目录不存在：valid=false + 可读原因（调用本身仍然成功）
+  // 8) 形态自己的接口下限也要生效：JS 接口下限是 1，清单写 0 就跑不了
+  //     （与动态库插件判 3 是同一套规则，只是下限来自形态注册表）
+  {
+    const std::filesystem::path jsLowRoot = makeTempPluginRoot(
+        "tgt_js_low",
+        "name: tgt_js_low\nkind: js\napi_version: 0\nscripts: [plugin.js]\n",
+        {"plugin.js"});
+    const std::string lowInfo =
+        inspect((jsLowRoot / "tgt_js_low").string(), "", "");
+    checkText(lowInfo.find("\"supported\":false") != std::string::npos,
+              "JS 插件声明 api_version 0 (低于形态下限) 判为不可用");
+    checkText(lowInfo.find("最低 1") != std::string::npos,
+              "不可用原因给出这个形态的最低接口代次");
+    removePath(jsLowRoot);
+  }
+
+  // 9) 没人声明的形态：判为不可用，并说清要先装提供它的运行器插件
+  {
+    const std::filesystem::path kindRoot = makeTempPluginRoot(
+        "tgt_kind", "name: tgt_kind\nkind: python\nentry: main.py\n",
+        {"main.py"});
+    const std::string kindInfo =
+        inspect((kindRoot / "tgt_kind").string(), "", "");
+    checkText(kindInfo.find("\"kindKnown\":false") != std::string::npos,
+              "未登记的形态被标成 kindKnown=false");
+    checkText(kindInfo.find("\"supported\":false") != std::string::npos,
+              "未登记的形态判为不可用");
+    checkText(kindInfo.find("没有运行器声明支持插件形态") != std::string::npos,
+              "未登记的形态说明要先安装提供它的插件");
+    removePath(kindRoot);
+  }
+
+  // 10) 目录不存在：valid=false + 可读原因（调用本身仍然成功）
   {
     const std::filesystem::path missing =
         std::filesystem::path(pluginsRoot) / "definitely_missing_plugin";
@@ -1448,6 +1501,11 @@ int main(int argc, char **argv) {
                 static_cast<long long>(probeCall.requestId),
                 static_cast<long long>(probeCall.resultMs));
     std::printf("  [info] probe=%s\n", probe.c_str());
+
+    // 插件框架按本插件的形态报接口代次：动态库插件看到 C 接口代次（3），
+    // 与 JS 插件的 JS 接口代次（2）是两套编号
+    check(jsonIntField(probe, "hostApiVersion") == "3",
+          "动态库插件看到的接口代次是 C 接口代次 3");
 
     // ==================== 声明式 UI 扩展 (动态库插件)
     // ====================

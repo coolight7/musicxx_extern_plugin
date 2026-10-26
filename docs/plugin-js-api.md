@@ -41,7 +41,7 @@ kind: js                         # js = 零编译脚本插件（缺省时按 ent
 entry: plugin.js                 # 可省略（清单只要求 name）：缺省用 plugin.js
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：按顺序执行的脚本（缺省取 entry / plugin.js）
 version: 2026.1010.1            # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）
-api_version: 1                   # 插件 API 版本：只要不低于插件框架支持的最低版本（当前 1）就照常加载；比插件框架更高也不会被拒
+api_version: 1                   # JS 接口代次：当前 2、兼容下限 1（只增不改），写 1 仍照常加载
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos, android, ios]   # 不写 = 不限（别名 win32 / osx 也认）

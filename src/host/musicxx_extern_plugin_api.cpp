@@ -385,9 +385,14 @@ musicxx_extern_plugin_plugin_inspect(MusicxxExternPluginHost *h,
           setErr(log, "plugin_inspect: dir 不能为空");
           return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
         }
+        // 形态注册表取一份快照：本函数在**调用线程**上跑，而注册 / 撤销在框架线程，
+        // 直接读注册表本体是数据竞争（见 MusicxxHostManager::kindRegistrySnapshot）
+        const musicxx::extern_plugin::MusicxxPluginKindRegistry kinds =
+            handle->manager->kindRegistrySnapshot();
         const musicxx::extern_plugin::MusicxxPluginInspect info =
             musicxx::extern_plugin::inspectPluginDir(
-                std::filesystem::path{dirText}, viewToStd(os), viewToStd(arch));
+                std::filesystem::path{dirText}, viewToStd(os), viewToStd(arch),
+                &kinds);
         setOut(out_json, musicxx::extern_plugin::inspectToJson(info));
         return MUSICXX_EXTERN_PLUGIN_OK;
       });

@@ -53,7 +53,7 @@
 /// Dart 侧同名声明是 `MusicxxPluginVersion.version`（`lib/src/version.dart`），
 /// 两处必须一致（包内 `test/version_test.dart` 校验）；插件清单的 `version` 用同一套格式。
 /// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
-#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1025.1"
+#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1026.1"
 
 /* ==================== 错误码 ==================== */
 
@@ -258,8 +258,13 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用插件框架自己的);
 /// - 出参 JSON: `{valid, error, path, dirName, id, kind, version, description, author,
 ///   homepage, entry, apiVersion, depends, optionalDepends, permissions, platforms,
-///   arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason}`
+///   arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason,
+///   kindKnown, kindRequiresPluginAbi, kindProvider, kindProviderId, kindValidateCapability}`
 ///   (动态库插件才有 target/targetEntry/targetsDir/targets; JS 插件才有 scripts);
+/// - `kind*` 几项是**形态事实**（由形态注册表回答）：未登记的形态 `kindKnown=false`；
+///   `kindRequiresPluginAbi` 决定要不要看 `api_version`（解释执行的形态不看）；
+///   `kindValidateCapability` 非空时，调用方应在安装前再调一次该能力请运行器判定
+///   （本函数是同步的，问不了插件；参约定见 `docs/plugin-native-api.md` §4.3）；
 /// - 返回 OK 表示"判定完成", 目录不存在/清单非法时 `valid=false` + `error`
 ///   (同样返回 OK —— 调用方看 `valid`);
 /// - 清单 `api_version` 低于 `MUSICXX_PLUGINXX_MIN_API_VERSION` 时 `supported=false`

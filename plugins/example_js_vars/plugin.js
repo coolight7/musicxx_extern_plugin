@@ -75,6 +75,8 @@ musicxx.capability.register("probe", function () {
     readError: readError,
     writeResult: writeResult,
     writeError: writeError,
+    // 插件框架按本插件的形态报接口代次：JS 插件看到的是 JS 接口代次（当前 2）
+    apiVersion: musicxx.host.info().apiVersion,
     pendingReads: pendingReads
   };
 });
