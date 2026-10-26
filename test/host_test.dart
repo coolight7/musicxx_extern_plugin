@@ -991,6 +991,11 @@ void main() {
     }
     Map<String, Object?> probe() => probeCache;
 
+    // 3) 插件看到的接口代次按它自己的形态报：JS 插件看到 JS 接口代次（当前 2），
+    // 不是动态库插件用的 C 接口代次（两套编号独立，见 `host_kind.h`）
+    await refreshProbe();
+    expect(probe()['apiVersion'], 2);
+
     // 3) 插件变量进了变量表，声明字段如实
     final List<Map<String, Object?>> own = runtime.vars.list(
       prefix: 'plugin.example_js_vars',

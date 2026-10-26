@@ -8,7 +8,7 @@ kind: native
 version: 2026.1010.1
 description: "musicxx 外部插件示例: 跳过广告曲目 / 观察切歌 / 错误换源建议"
 author: "coolight"
-api_version: 1
+api_version: 3
 platforms: [windows, linux, macos, android, ios]
 permissions:
   - musicxx.library.read

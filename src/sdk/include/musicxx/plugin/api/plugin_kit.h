@@ -86,6 +86,14 @@ struct IfaceMeta<MusicxxPluginNetIface> {
 static_assert(MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE >= 8u);
 static_assert(MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE <= sizeof(MusicxxPluginNetIface));
 
+template<>
+struct IfaceMeta<MusicxxPluginKindIface> {
+    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_KIND_MIN_VERSION;
+    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE;
+};
+static_assert(MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE >= 8u);
+static_assert(MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE <= sizeof(MusicxxPluginKindIface));
+
 } // namespace pluginxx
 
 namespace musicxx {
@@ -256,6 +264,7 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
     const MusicxxPluginVarsIface*  vars  = nullptr; ///< "musicxx.vars"
     const MusicxxPluginNetIface*   net   = nullptr; ///< "musicxx.net"
+    const MusicxxPluginKindIface*  kind  = nullptr; ///< "musicxx.kind"（插件形态 / 运行器）
 
     /// 从框架查询全部接口表 (host 为空时返回全 NULL 聚合)
     static MusicxxPluginIfaces query(const PluginxxHost* host) {
@@ -280,6 +289,10 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
         ifaces.net = pluginxx::queryInterface<MusicxxPluginNetIface>(
             host,
             MUSICXX_PLUGIN_IFACE_NET
+        );
+        ifaces.kind = pluginxx::queryInterface<MusicxxPluginKindIface>(
+            host,
+            MUSICXX_PLUGIN_IFACE_KIND
         );
         return ifaces;
     }
@@ -530,8 +543,10 @@ public:
         PluginxxStringView methView = pluginxxView(method);
         PluginxxStringView argsView = pluginxxView(argsJson.empty() ? "{}" : argsJson);
         PluginxxString     errorOut{};
+        // 作用域引用: 音乐类主程序没有作用域概念, 传空表示"发起方不在任何作用域上下文"
         auto* op = iface.capabilities->invoke_capability_async(
             host,
+            nullptr,
             &capView,
             &methView,
             &argsView,
@@ -782,8 +797,54 @@ public:
         eventHolders_.push_back(std::move(holder));
 
         PluginxxStringView topicView = pluginxxView(topic ? topic : "");
-        auto*              sub = iface.events->subscribe(host, &topicView, &EventHolder<FnT>::invoke, holderPtr);
+        // 作用域引用: 音乐类主程序只有一条主程序总线, 传空表示订阅它
+        auto* sub = iface.events->subscribe(host, nullptr, &topicView,
+                                           &EventHolder<FnT>::invoke, holderPtr);
         return sub ? 0 : -1;
+    }
+
+    /* ---------- 插件形态（kind）：把自己做成某种语言 / 格式的运行器 ---------- */
+
+    /// 登记一种插件形态（本插件成为它的运行器）
+    ///
+    /// `specJson`：
+    /// `{"kind":"python","requiresPluginAbi":false,`
+    /// `"loadCapability":"plugin.<本插件id>.kind_load",`
+    /// `"unloadCapability":"plugin.<本插件id>.kind_unload","describe":"..."}`
+    /// - 登记成功后，`kind: python` 的插件包在扫描/判定/加载时都会问到本插件；
+    /// - 加载 / 卸载由 `loadCapability` / `unloadCapability` 承担（载荷与回答见
+    ///   `plugin_api.h` 的 `MUSICXX_PLUGIN_IFACE_KIND` 说明）；
+    /// - 跟着插件生命周期撤销，不写磁盘；内置形态 `native` / `js` 不能被覆盖。
+    int32_t kindRegister(const char* specJson) {
+        if (!iface.kind || !iface.kind->register_kind) {
+            log.warn("musicxx.kind 表不可用: 插件形态未登记 (插件框架版本过旧?)");
+            return -1;
+        }
+        PluginxxStringView spec = pluginxxView(specJson ? specJson : "");
+        return iface.kind->register_kind(host, &spec);
+    }
+
+    /// 撤销本插件登记的形态
+    int32_t kindUnregister(const char* kind) {
+        if (!iface.kind || !iface.kind->unregister_kind) {
+            return -1;
+        }
+        PluginxxStringView kindView = pluginxxView(kind ? kind : "");
+        return iface.kind->unregister_kind(host, &kindView);
+    }
+
+    /// 列出全部形态（内置 + 插件登记）；返回 JSON 数组，失败返回空串
+    std::string kindList() {
+        if (!iface.kind || !iface.kind->list_kinds) {
+            return {};
+        }
+        PluginxxString out{};
+        if (iface.kind->list_kinds(host, &out) != 0 || !out.data) {
+            return {};
+        }
+        std::string json{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return json;
     }
 
     /* ---------- 声明式 UI 扩展 (名字用短名, 插件框架自动补前缀) ---------- */

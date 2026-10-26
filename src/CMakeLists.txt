@@ -142,6 +142,17 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_HOST  "构建插件框架库/示例插件/原
 option(MUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE "构建示例插件 (插件框架工程 plugins/ 下的 demo 与对照示例)" ON)
 option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 
+# ===== 插件 API 契约版本 =====
+# cxx_pluginxx 里的默认值是 1 (该库被多个主程序共用, 默认值不跟随某一个主程序), 主程序
+# 构建依赖时**必须**显式覆盖, 才能保证插件框架库、插件框架工程与插件看到同一个值:
+#   - PLUGINXX_API_VERSION      : 当前契约代次 (插件按它决定用哪套写法);
+#   - PLUGINXX_MIN_API_VERSION  : 框架接受的最低插件 API 版本 (低于它的插件在加载阶段被拒)。
+# 3 = 通用表 events / capabilities / config / cancel 为 v3 (接口带作用域引用, 主程序业务
+# 语义不进入通用表)。改这两个值等于改插件 ABI: 要同步 MUSICXX_PLUGIN_API_VERSION、
+# 示例插件清单的 api_version、Dart 侧 ExternPluginStore.hostMinApiVersion 与文档。
+set(MUSICXX_PLUGINXX_API_VERSION     "3" CACHE STRING "插件 API 契约代次 (下发给 cxx_pluginxx 的 PLUGINXX_API_VERSION)")
+set(MUSICXX_PLUGINXX_MIN_API_VERSION "3" CACHE STRING "框架接受的最低插件 API 版本 (PLUGINXX_MIN_API_VERSION)")
+
 # ===== Boost (仅头文件) =====
 # 插件框架与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):
 # 源码写 <asio/...> 时靠 <头文件根>/boost/ 命中 Boost.Asio; 不链接任何 Boost 编译库。
@@ -567,6 +578,10 @@ ExternalProject_Add(
   INSTALL_ALWAYS TRUE
   CMAKE_ARGS
     ${_COMMON_CMAKE_ARGS}
+    # 插件 API 契约版本: cxx_pluginxx 的默认值是 1 (该库被多个主程序共用), 主程序必须覆盖
+    # (见文件上方「插件 API 契约版本」)。
+    "-DPLUGINXX_API_VERSION:STRING=${MUSICXX_PLUGINXX_API_VERSION}"
+    "-DPLUGINXX_MIN_API_VERSION:STRING=${MUSICXX_PLUGINXX_MIN_API_VERSION}"
   CMAKE_CACHE_ARGS
     ${_COMMON_CMAKE_CACHE_ARGS}
   TEST_COMMAND ""
@@ -608,6 +623,9 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_HOST)
     INSTALL_ALWAYS TRUE
     CMAKE_ARGS
       ${_COMMON_CMAKE_ARGS}
+      # 插件框架工程自己的那两个缓存变量 (下发到插件框架库 / 插件 SDK / 示例插件)
+      "-DMUSICXX_PLUGINXX_API_VERSION:STRING=${MUSICXX_PLUGINXX_API_VERSION}"
+      "-DMUSICXX_PLUGINXX_MIN_API_VERSION:STRING=${MUSICXX_PLUGINXX_MIN_API_VERSION}"
     CMAKE_CACHE_ARGS
       ${_COMMON_CMAKE_CACHE_ARGS}
     TEST_COMMAND ""

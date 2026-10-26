@@ -2,6 +2,7 @@
 /// (配置/启停/事件/专用钩子/插件框架生命周期接口/插件管理)
 
 #include "musicxx_host.h"
+
 #include "host_inspect.h"
 #include "host_json.h"
 #include "host_manifest.h"
@@ -15,8 +16,10 @@
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
 
+#include <asio/as_tuple.hpp>
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
+#include <asio/steady_timer.hpp>
 #include <asio/thread_pool.hpp>
 
 #include <algorithm>
@@ -781,22 +784,10 @@ std::string MusicxxHostManager::configJson() {
   return j.dump();
 }
 
-std::string MusicxxHostManager::toolPromptJson(std::string_view /*toolName*/) {
-  return {};
-}
-
-std::string MusicxxHostManager::sessionWorkDir(std::string_view /*sessionId*/) {
-  return dataDir_;
-}
-
 std::string MusicxxHostManager::language() { return language_; }
 
 void MusicxxHostManager::setLanguage(std::string_view lang) {
   language_ = std::string{lang};
-}
-
-bool MusicxxHostManager::isSessionCancelled(std::string_view /*sessionId*/) {
-  return false;
 }
 
 std::string MusicxxHostManager::pluginsJson() {
@@ -811,6 +802,37 @@ std::string MusicxxHostManager::pluginsJson() {
     }
     first = false;
     json += pluginInstanceJson(*inst);
+  }
+  // 运行器插件托管的插件（没有插件框架实例，算一项独立插件给管理页 / 命令行）
+  std::vector<HostedKindPlugin> hosted;
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    hosted.reserve(hostedKindPlugins_.size());
+    for (const auto &[id, record] : hostedKindPlugins_) {
+      (void)id;
+      hosted.push_back(record);
+    }
+  }
+  for (const HostedKindPlugin &record : hosted) {
+    if (!first) {
+      json.push_back(',');
+    }
+    first = false;
+    Json j;
+    j["id"] = record.id;
+    j["instance"] = record.kind + ":" + record.id;
+    j["kind"] = record.kind;
+    j["version"] = record.version;
+    j["path"] = record.path;
+    j["provider"] = record.provider;
+    j["providerId"] = pluginIdOf(record.provider);
+    j["hosted"] = true;
+    j["source"] = "loaded";
+    j["loaded"] = true;
+    j["valid"] = true;
+    j["supported"] = true;
+    j["enabled"] = record.enabled;
+    json += j.dump();
   }
   json.push_back(']');
   return json;
@@ -877,11 +899,8 @@ pluginxx::PluginEntrySymbols MusicxxHostManager::entrySymbols() const {
 }
 
 std::string MusicxxHostManager::pluginIdOf(std::string_view instanceName) {
-  // JS插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身
-  if (instanceName.size() > 3 && instanceName.substr(0, 3) == "js:") {
-    return std::string{instanceName.substr(3)};
-  }
-  return std::string{instanceName};
+  // JS插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身（规则在 host_naming.h）
+  return naming::pluginIdOfInstance(instanceName);
 }
 
 /* ==================== 网络能力 (musicxx.net 表) ==================== */
@@ -1006,6 +1025,11 @@ void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
 
 void MusicxxHostManager::clearPluginRegistrations(
     const std::string &instanceName) {
+  // 形态登记跟着插件实例: 停用 / 卸载 / 框架停机时撤销它登记的 kind
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    kindRegistry_.unregisterAllOf(instanceName);
+  }
   // 网络能力跟着插件实例: 服务 / 连接 / 未完成的请求一起收尾
   // (未完成的 HTTP 请求要在这里按"已取消"结算 —— 它们可能在插件 stop 之后才回来)
   if (netHub_) {
@@ -1114,7 +1138,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   // 目录静态判定：清单字段 + 多目标分支选择 + 库文件判定（见 host_inspect.h）。
   // 与安装预检（`plugin_inspect`）、原生加载共用同一份实现，扫描结果不会与它们分歧。
   const MusicxxPluginInspect info =
-      inspectPluginDir(dirPath, platform_, hostArch());
+      inspectPluginDir(dirPath, platform_, hostArch(), &kindRegistry_);
   if (!info.valid) {
     Json bad;
     bad["id"] = info.dirName;
@@ -1129,6 +1153,8 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   const std::string &name = info.id;
   const std::string &entry = info.entry;
   const std::string &kind = info.kind;
+  /// 形态声明（内置 native / js + 运行器插件登记的形态）
+  const MusicxxPluginKindSpec *kindSpec = kindRegistry_.find(kind);
   const std::string &version = info.version;
   const std::string &description = info.description;
   const std::string &author = info.author;
@@ -1154,12 +1180,16 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   // 给出； 这里只叠加**运行期开关**（与"这个包本身对不对"无关）
   bool supported = info.supported;
   std::string reason = info.reason;
-  if (supported && kind == "js" &&
+  // JS 运行期的两个开关只在 JS 由插件框架自己跑的时候有意义；
+  // 被运行器插件接管后（overrideBuiltin）由那个插件负责
+  const bool jsOwnedByFramework =
+      kindSpec == nullptr || (kindSpec->frameworkOwned() && kind == "js");
+  if (supported && jsOwnedByFramework && kind == "js" &&
       (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0) {
     supported = false;
     reason = "框架配置禁用了 JS插件";
   }
-  if (supported && kind == "js" && !jsEngine()) {
+  if (supported && jsOwnedByFramework && kind == "js" && !jsEngine()) {
     supported = false;
     reason = "本次运行未启用 JS 运行时 (未编译 QuickJS 或启动失败)";
   }
@@ -1167,6 +1197,13 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
       (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_NATIVE) != 0) {
     supported = false;
     reason = "框架配置禁用了动态库插件";
+  }
+  // 运行器插件托管的形态：能不能跑取决于提供者是不是加载着
+  if (supported && kindSpec && !kindSpec->frameworkOwned() &&
+      find(kindSpec->provider) == nullptr) {
+    supported = false;
+    reason = "插件形态 `" + kind + "` 由插件 `" + kindSpec->provider +
+             "` 提供, 但它没有加载";
   }
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_SAFE_MODE) != 0) {
     supported = false;
@@ -1215,14 +1252,26 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   item["permissions"] = permissions;
   item["platforms"] = platforms;
   item["arch"] = arch;
+  const bool hostedLoaded = [&]() {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    return hostedKindPlugins_.count(name) > 0;
+  }();
+  item["kindRequiresPluginAbi"] =
+      kindSpec ? kindSpec->requiresPluginAbi : true;
+  // 接口代次对：当前代次（上报给插件）/ 下限（清单 api_version 的判定线）
+  item["kindInterfaceVersion"] = info.kindInterfaceVersion;
+  item["kindMinInterfaceVersion"] = info.kindMinInterfaceVersion;
+  item["kindProvider"] =
+      (kindSpec && !kindSpec->frameworkOwned()) ? kindSpec->provider : std::string{};
+  item["hosted"] = hostedLoaded;
   item["apiVersion"] = apiVersion;
   item["valid"] = true;
   item["supported"] = supported;
   item["reason"] = reason;
   item["source"] = kindHint;
   /// 已加载判定按**插件 id 或实例名**解析: JS插件实例名是 `js:<id>`,
-  /// 直接用 id 查 loaded_ 会一直判定成未加载
-  item["loaded"] = resolveInstance(name) != nullptr;
+  /// 直接用 id 查 loaded_ 会一直判定成未加载; 托管插件不在 loaded_ 里
+  item["loaded"] = resolveInstance(name) != nullptr || hostedLoaded;
 
   discovered_[name] = dir;
   return item.dump();
@@ -1397,6 +1446,68 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
                                          : std::string{"native"});
         const std::string manifestVersion = manifestFields.version;
         const std::vector<std::string> manifestScripts = manifestFields.scripts;
+
+        // 形态（kind）查注册表：内置 native / js 由插件框架自己加载，其余交给登记它的
+        // 运行器插件（以后接 Python 这类运行器就不用再改这里）。
+        // 清单既没写 kind 又没写 entry 时按 native 走（报“入口缺失”比报“形态未知”有用）。
+        const std::string kindForRegistry =
+            manifestKind.empty() ? std::string{"native"} : manifestKind;
+        const MusicxxPluginKindSpec *kindSpec =
+            self->kindRegistry_.find(kindForRegistry);
+        if (!kindSpec) {
+          *failMsg = "没有运行器声明支持插件形态 `" + manifestKind +
+                     "` (先安装并启用提供这个形态的插件)";
+          Json payload;
+          payload["id"] = pluginId;
+          payload["phase"] = "load";
+          payload["code"] = "kind_unknown";
+          payload["kind"] = manifestKind;
+          payload["message"] = *failMsg;
+          self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
+          XX_LOGE("[musicxx_ext] {}", *failMsg);
+          slot->set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+          co_return;
+        }
+        // 托管形态：运行器负责跑，插件框架只转发加载 / 卸载，并留一条记录
+        if (!kindSpec->frameworkOwned()) {
+          for (const auto &dep : manifestDepends) {
+            bool depLoaded = self->resolveInstance(dep) != nullptr;
+            if (!depLoaded) {
+              std::lock_guard<std::mutex> lock{self->registryMutex_};
+              depLoaded = self->hostedKindPlugins_.count(dep) > 0;
+            }
+            if (!depLoaded) {
+              *failMsg = "插件加载失败: 必选依赖 `" + dep +
+                         "` 未加载 (请先加载它)";
+              Json payload;
+              payload["id"] = pluginId;
+              payload["phase"] = "load";
+              payload["code"] = "dependency_missing";
+              payload["message"] = *failMsg;
+              self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
+              slot->set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+              co_return;
+            }
+          }
+          std::string hostedFail;
+          const bool hostedOk = co_await self->loadHostedKindAsync(
+              *kindSpec, pluginId, path, manifestFields, *options,
+              hostedFail);
+          if (!hostedOk) {
+            *failMsg = hostedFail;
+            Json payload;
+            payload["id"] = pluginId;
+            payload["phase"] = "load";
+            payload["code"] = "kind_load_failed";
+            payload["kind"] = manifestKind;
+            payload["message"] = hostedFail;
+            self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
+            slot->set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
+            co_return;
+          }
+          slot->set(MUSICXX_EXTERN_PLUGIN_OK);
+          co_return;
+        }
         if (manifestKind == "js") {
           // 依赖检查 (JS插件专用): 插件框架的按名依赖检查用实例名查表, 而 JS
           // 实例名是 `js:<id>`, 所以 JS插件走不了那条路; 这里按**插件 id**
@@ -1538,6 +1649,46 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
     err = "plugin_enable: host not started";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
+  // 运行器插件托管的插件: 启用 = 让运行器重新把它跑起来
+  HostedKindPlugin hosted;
+  bool isHosted = false;
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    const auto it = hostedKindPlugins_.find(id);
+    if (it != hostedKindPlugins_.end()) {
+      hosted = it->second;
+      isHosted = true;
+    }
+  }
+  if (isHosted) {
+    if (hosted.enabled) {
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    auto slot = std::make_shared<WaitSlot<bool>>();
+    auto self = shared_from_this();
+    asio::co_spawn(
+        ctx_->io,
+        [self, slot, hosted]() -> asio::awaitable<void> {
+          std::string failReason;
+          slot->set(co_await self->startHostedKindAsync(hosted, failReason));
+        },
+        asio::detached);
+    bool ok = false;
+    if (!slot->wait(30000, ok) || !ok) {
+      err = "plugin_enable: 运行器插件 `" + hosted.provider + "` 没能重新加载 `" +
+            id + "`";
+      return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    }
+    {
+      std::lock_guard<std::mutex> lock{registryMutex_};
+      const auto it = hostedKindPlugins_.find(id);
+      if (it != hostedKindPlugins_.end()) {
+        it->second.enabled = true;
+      }
+    }
+    pushEvent("musicxx.plugin.enabled", id, R"({"hosted":true})");
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
   auto inst = resolveInstance(id);
   if (!inst) {
     err = "plugin_enable: plugin not loaded: " + id;
@@ -1552,6 +1703,38 @@ int32_t MusicxxHostManager::disablePlugin(const std::string &id,
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_disable: host not started";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  // 运行器插件托管的插件: 停用 = 让运行器把它停掉 (记录保留, 启用时可以再开)
+  HostedKindPlugin hosted;
+  bool isHosted = false;
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    const auto it = hostedKindPlugins_.find(id);
+    if (it != hostedKindPlugins_.end()) {
+      hosted = it->second;
+      isHosted = true;
+    }
+  }
+  if (isHosted) {
+    auto slot = std::make_shared<WaitSlot<bool>>();
+    auto self = shared_from_this();
+    asio::co_spawn(
+        ctx_->io,
+        [self, slot, hosted]() -> asio::awaitable<void> {
+          slot->set(co_await self->stopHostedKindAsync(hosted));
+        },
+        asio::detached);
+    bool stopped = false;
+    slot->wait(20000, stopped);
+    {
+      std::lock_guard<std::mutex> lock{registryMutex_};
+      const auto it = hostedKindPlugins_.find(id);
+      if (it != hostedKindPlugins_.end()) {
+        it->second.enabled = false;
+      }
+    }
+    pushEvent("musicxx.plugin.disabled", id, R"({"hosted":true})");
+    return MUSICXX_EXTERN_PLUGIN_OK;
   }
   auto inst = resolveInstance(id);
   if (!inst) {
@@ -1570,6 +1753,31 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
   }
   // 幂等: 未加载视为"已经是未加载状态"; 插件 id 与实例名都接受 (JS插件实例名为
   // js:<id>)
+  // 运行器插件托管的插件: 让运行器卸掉它, 然后删掉记录
+  {
+    bool isHosted = false;
+    {
+      std::lock_guard<std::mutex> lock{registryMutex_};
+      isHosted = hostedKindPlugins_.count(id) > 0;
+    }
+    if (isHosted) {
+      auto slot = std::make_shared<WaitSlot<bool>>();
+      auto self = shared_from_this();
+      asio::co_spawn(
+          ctx_->io,
+          [self, slot, id]() -> asio::awaitable<void> {
+            co_await self->unloadHostedKindAsync(id);
+            slot->set(true);
+          },
+          asio::detached);
+      bool ok = false;
+      if (!slot->wait(timeoutMs == 0 ? 30000 : timeoutMs + 500, ok) || !ok) {
+        err = "plugin_unload: 卸载未完成 (运行器插件没有在超时内回答)";
+        return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+      }
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+  }
   auto inst = resolveInstance(id);
   if (!inst) {
     XX_LOGI("[musicxx_ext] plugin_unload: `{}` 未加载, 视为已卸载", id);
@@ -1654,6 +1862,344 @@ int32_t MusicxxHostManager::pluginConfigPath(const std::string &id,
     return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+/* ==================== 插件形态 (kind) ==================== */
+
+int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
+                                               const std::string &specJson,
+                                               std::string &err) {
+  auto inst = find(instanceName);
+  if (!inst) {
+    err = "插件形态登记: 插件未加载";
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  bool parseOk = false;
+  Json spec = parseJsonSafe(specJson, &parseOk);
+  if (!parseOk || !spec.is_object()) {
+    err = "插件形态登记: spec_json 必须是 JSON 对象";
+    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+  }
+  MusicxxPluginKindSpec entry;
+  entry.kind = spec.value("kind", std::string{});
+  entry.provider = instanceName;
+  entry.builtin = false;
+  if (spec.contains("requiresPluginAbi") &&
+      spec["requiresPluginAbi"].is_boolean()) {
+    entry.requiresPluginAbi = spec["requiresPluginAbi"].get<bool>();
+  }
+  entry.loadCapability = spec.value("loadCapability", std::string{});
+  entry.unloadCapability = spec.value("unloadCapability", std::string{});
+  entry.validateCapability = spec.value("validateCapability", std::string{});
+  // 解释执行的形态自己声明接口代次对（不声明 = 不判；会调 C 接口表的形态由注册表
+  // 强制用框架的 C 接口那一对，写什么都不采信）
+  if (spec.contains("interfaceVersion") &&
+      spec["interfaceVersion"].is_number_integer()) {
+    entry.interfaceVersion = spec["interfaceVersion"].get<int32_t>();
+  }
+  if (spec.contains("minInterfaceVersion") &&
+      spec["minInterfaceVersion"].is_number_integer()) {
+    entry.minInterfaceVersion = spec["minInterfaceVersion"].get<int32_t>();
+  }
+  entry.describe = spec.value("describe", std::string{});
+  // "接管内置形态"（例如把 JS 运行器搬进插件）要显式声明
+  if (entry.kind.empty()) {
+    err = "插件形态登记: 缺少 kind";
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  // 能力必须落在本插件自己的命名空间: 否则谁都能把自己登记的形态指向别人的能力
+  const std::string expected = "plugin." + pluginIdOf(instanceName) + ".";
+  if (entry.loadCapability.rfind(expected, 0) != 0) {
+    err = "插件形态登记: loadCapability 必须写在 `" + expected + "` 下";
+    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+  }
+  if (!entry.unloadCapability.empty() &&
+      entry.unloadCapability.rfind(expected, 0) != 0) {
+    err = "插件形态登记: unloadCapability 必须写在 `" + expected + "` 下";
+    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+  }
+  if (!entry.validateCapability.empty() &&
+      entry.validateCapability.rfind(expected, 0) != 0) {
+    err = "插件形态登记: validateCapability 必须写在 `" + expected + "` 下";
+    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+  }
+  std::string problem;
+  bool overrideBuiltin = false;
+  if (spec.contains("overrideBuiltin") && spec["overrideBuiltin"].is_boolean()) {
+    overrideBuiltin = spec["overrideBuiltin"].get<bool>();
+  }
+  bool registered = false;
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    registered = kindRegistry_.registerKind(entry, overrideBuiltin, problem);
+  }
+  if (!registered) {
+    err = "插件形态登记: " + problem;
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  XX_LOGI("[musicxx_ext] 插件 `{}` 登记插件形态 `{}` (requiresPluginAbi={}, 接口代次 {}/{})",
+          pluginIdOf(instanceName), entry.kind, entry.requiresPluginAbi,
+          entry.minInterfaceVersion, entry.interfaceVersion);
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+int32_t MusicxxHostManager::unregisterPluginKind(
+    const std::string &instanceName, const std::string &kind,
+    std::string &err) {
+  if (!find(instanceName)) {
+    err = "插件形态撤销: 插件未加载";
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  std::string problem;
+  bool removed = false;
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    removed = kindRegistry_.unregisterKind(kind, instanceName, problem);
+  }
+  if (!removed) {
+    err = "插件形态撤销: " + problem;
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+MusicxxPluginKindRegistry MusicxxHostManager::kindRegistrySnapshot() const {
+  std::lock_guard<std::mutex> lock{registryMutex_};
+  return kindRegistry_;
+}
+
+std::string MusicxxHostManager::kindsJson() const {
+  Json list = Json::array();
+  for (const MusicxxPluginKindSpec &spec : kindRegistry_.all()) {
+    Json item;
+    item["kind"] = spec.kind;
+    item["builtin"] = spec.builtin;
+    item["requiresPluginAbi"] = spec.requiresPluginAbi;
+    /// 接口代次对：上限是上报给插件的当前代次，下限是清单 api_version 的判定线
+    /// （只有破坏性变更才抬下限）
+    item["interfaceVersion"] = spec.interfaceVersion;
+    item["minInterfaceVersion"] = spec.minInterfaceVersion;
+    item["provider"] = spec.provider;
+    item["providerId"] =
+        spec.provider.empty() ? std::string{} : pluginIdOf(spec.provider);
+    item["loadCapability"] = spec.loadCapability;
+    item["unloadCapability"] = spec.unloadCapability;
+    item["validateCapability"] = spec.validateCapability;
+    item["describe"] = spec.describe;
+    /// 内置形态被插件接管（例如把 JS 运行器搬进插件）
+    item["overridden"] = spec.builtin && !spec.frameworkOwned();
+    /// 现在能不能真的跑: 插件框架自己实现的看运行期开关 (native / js),
+    /// 插件托管的看提供者是否加载
+    item["available"] =
+        spec.frameworkOwned()
+            ? (spec.kind == "js"
+                   ? jsEngine() != nullptr
+                   : ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_NATIVE) == 0))
+            : (find(spec.provider) != nullptr);
+    list.push_back(std::move(item));
+  }
+  return list.dump();
+}
+
+namespace {
+
+/// 一次"问运行器插件"的等待状态
+///
+/// 运行器的回答经能力完成回调回来（框架线程），这里用定时器把等待方唤醒：
+/// 回调只写状态 + 取消定时器，所以同一个线程上也不会互相等待。
+struct KindProviderCall {
+  bool done = false;
+  bool ok = false;
+  std::string text;
+  std::unique_ptr<asio::steady_timer> wake;
+};
+
+} // namespace
+
+asio::awaitable<std::pair<bool, std::string>>
+MusicxxHostManager::invokeKindProviderAsync(const std::string &provider,
+                                            const std::string &capability,
+                                            const std::string &argsJson,
+                                            uint32_t timeoutMs) {
+  auto inst = find(provider);
+  if (!inst) {
+    co_return std::make_pair(false, "运行器插件 `" + provider + "` 未加载");
+  }
+  auto state = std::make_shared<KindProviderCall>();
+  state->wake = std::make_unique<asio::steady_timer>(ctx_->io);
+  startCapabilityCall(
+      inst.get(), capability, argsJson,
+      [state](int32_t rc, const std::string &text) {
+        state->done = true;
+        state->ok = rc == 0;
+        state->text = text;
+        // 唤醒等待方: 还没在等的时候取消也无害 (cancel 失败只说明没有等待项)
+        try {
+          state->wake->cancel();
+        } catch (...) {
+        }
+      });
+  if (!state->done) {
+    state->wake->expires_after(std::chrono::milliseconds{timeoutMs});
+    co_await state->wake->async_wait(asio::as_tuple(asio::use_awaitable));
+  }
+  if (!state->done) {
+    co_return std::make_pair(
+        false, "运行器插件 `" + provider + "` 没有在超时内回答 (" + capability + ")");
+  }
+  if (!state->ok) {
+    co_return std::make_pair(false, state->text.empty()
+                                        ? std::string{"运行器插件调用失败"}
+                                        : state->text);
+  }
+  // 运行器的回答: {"ok":true} / {"ok":false,"error":"..."}
+  bool parseOk = false;
+  Json answer = parseJsonSafe(state->text, &parseOk);
+  if (parseOk && answer.is_object() && answer.contains("ok") &&
+      answer["ok"].is_boolean() && !answer["ok"].get<bool>()) {
+    co_return std::make_pair(
+        false, answer.value("error", std::string{"运行器拒绝了这次操作"}));
+  }
+  co_return std::make_pair(true, state->text);
+}
+
+asio::awaitable<bool> MusicxxHostManager::startHostedKindAsync(
+    const HostedKindPlugin &record, std::string &failReason) {
+  const MusicxxPluginKindSpec *spec = kindRegistry_.find(record.kind);
+  if (!spec || spec->frameworkOwned()) {
+    failReason = "插件形态 `" + record.kind + "` 的运行器已撤销";
+    co_return false;
+  }
+  if (spec->provider != record.provider) {
+    failReason = "插件形态 `" + record.kind + "` 现在由插件 `" +
+                 spec->provider + "` 提供, 与加载时不同";
+    co_return false;
+  }
+  Json payload;
+  payload["action"] = "load";
+  payload["kind"] = record.kind;
+  payload["id"] = record.id;
+  payload["path"] = record.path;
+  payload["instance"] = record.kind + ":" + record.id;
+  payload["version"] = record.version;
+  const auto [ok, message] = co_await invokeKindProviderAsync(
+      record.provider, spec->loadCapability, payload.dump(), 30000);
+  if (!ok) {
+    failReason = message.empty()
+                     ? ("运行器插件 `" + record.provider + "` 加载 `" + record.id +
+                        "` 失败")
+                     : message;
+  }
+  co_return ok;
+}
+
+asio::awaitable<bool> MusicxxHostManager::stopHostedKindAsync(
+    const HostedKindPlugin &record) {
+  const MusicxxPluginKindSpec *spec = kindRegistry_.find(record.kind);
+  if (!spec || spec->frameworkOwned() || spec->unloadCapability.empty()) {
+    co_return true; ///< 没声明卸载能力: 运行器自己收尾, 框架这里没有可做的
+  }
+  Json payload;
+  payload["action"] = "unload";
+  payload["kind"] = record.kind;
+  payload["id"] = record.id;
+  payload["path"] = record.path;
+  payload["instance"] = record.kind + ":" + record.id;
+  const auto [ok, message] = co_await invokeKindProviderAsync(
+      record.provider, spec->unloadCapability, payload.dump(), 15000);
+  if (!ok) {
+    XX_LOGW("[musicxx_ext] 运行器插件 `{}` 卸载 `{}` 未成功: {}",
+            record.provider, record.id, message);
+  }
+  co_return ok;
+}
+
+asio::awaitable<bool> MusicxxHostManager::loadHostedKindAsync(
+    const MusicxxPluginKindSpec &spec, const std::string &pluginId,
+    const std::string &path, const MusicxxManifestFields &fields,
+    const pluginxx::PluginLoadOptions &options, std::string &failReason) {
+  if (spec.provider.empty()) {
+    failReason = "插件形态 `" + spec.kind + "` 没有登记运行器";
+    co_return false;
+  }
+  if (!find(spec.provider)) {
+    failReason = "插件形态 `" + spec.kind + "` 由插件 `" + spec.provider +
+                 "` 提供, 但它没有加载 (先启用那个运行器插件)";
+    co_return false;
+  }
+  HostedKindPlugin record;
+  record.id = pluginId;
+  record.kind = spec.kind;
+  record.provider = spec.provider;
+  record.path = path;
+  record.version = fields.version;
+  record.enabled = true;
+  // 加载前先让形态提供者看一遍目录（它比框架更清楚“这种插件长什么样”）：
+  // 没声明校验能力就跳过，声明了就必须得到 {"ok":true} 才继续。
+  if (!spec.validateCapability.empty()) {
+    Json payload;
+    payload["action"] = "validate";
+    payload["kind"] = spec.kind;
+    payload["id"] = pluginId;
+    payload["path"] = path;
+    payload["version"] = fields.version;
+    const auto [accepted, why] = co_await invokeKindProviderAsync(
+        spec.provider, spec.validateCapability, payload.dump(), 15000);
+    if (!accepted) {
+      failReason = why.empty() ? ("运行器插件 `" + spec.provider +
+                                  "` 拒绝加载 `" + pluginId + "`")
+                               : why;
+      co_return false;
+    }
+  }
+  std::string startFail;
+  if (!co_await startHostedKindAsync(record, startFail)) {
+    failReason = startFail;
+    co_return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    hostedKindPlugins_[pluginId] = record;
+    discovered_[pluginId] = path;
+  }
+  Json payload;
+  payload["id"] = pluginId;
+  payload["instance"] = spec.kind + ":" + pluginId;
+  payload["kind"] = spec.kind;
+  payload["provider"] = spec.provider;
+  payload["providerId"] = pluginIdOf(spec.provider);
+  payload["version"] = fields.version;
+  payload["path"] = path;
+  payload["hosted"] = true;
+  payload["ok"] = true;
+  pushEvent("musicxx.plugin.loaded", pluginId, payload.dump());
+  co_return true;
+}
+
+asio::awaitable<void> MusicxxHostManager::unloadHostedKindAsync(
+    const std::string &pluginId) {
+  HostedKindPlugin record;
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    const auto it = hostedKindPlugins_.find(pluginId);
+    if (it == hostedKindPlugins_.end()) {
+      co_return;
+    }
+    record = it->second;
+  }
+  co_await stopHostedKindAsync(record);
+  {
+    std::lock_guard<std::mutex> lock{registryMutex_};
+    hostedKindPlugins_.erase(pluginId);
+  }
+  Json payload;
+  payload["id"] = pluginId;
+  payload["instance"] = record.kind + ":" + pluginId;
+  payload["kind"] = record.kind;
+  payload["provider"] = record.provider;
+  payload["hosted"] = true;
+  pushEvent("musicxx.plugin.unloaded", pluginId, payload.dump());
+  co_return;
 }
 
 /* ==================== 插件能力调用 (Dart → 插件) ==================== */
@@ -1743,7 +2289,9 @@ void MusicxxHostManager::startCapabilityCall(
   // caller 传目标实例自身: 插件框架要求"调用方实例"提供执行 lease (Dart 侧没有
   // 插件实例, 用被调用者自己的 lease 覆盖本次调用, 卸载等待因此覆盖它)
   auto *handle = invokeCapabilityAsync(
-      inst, capView,
+      inst,
+      nullptr, ///< 作用域引用: musicxx 没有作用域, 发起方不在任何作用域上下文
+      capView,
       capView, ///< method: 与能力全名一致 (插件按需再细分)
       argsView, &capabilityCallTrampoline, bridge, &callErr);
   if (!handle) {
@@ -1943,7 +2491,17 @@ void MusicxxHostManager::pluginCallAsync(
   });
 }
 
-std::shared_ptr<pluginxx::EventSource> MusicxxHostManager::eventSource() {
+std::shared_ptr<pluginxx::EventSource>
+MusicxxHostManager::eventSource(const PluginxxScopeRef *scope) {
+  // musicxx 没有按作用域划分的事件总线: 只有一条进程级总线。
+  // - 引用为空 (或结构体不可读): 订阅主程序总线, 这是插件的常规路径;
+  // - 引用带 id: 本程序没有该作用域, 返回空表示不提供作用域总线。
+  if (pluginxx_scope_ref_ok(scope) != 0 && scope->id.data != nullptr &&
+      scope->id.size > 0) {
+    XX_LOGW("[musicxx_ext] 拒绝按作用域 `{}` 订阅事件: 本程序只有主程序总线",
+            std::string_view{scope->id.data, static_cast<size_t>(scope->id.size)});
+    return nullptr;
+  }
   return eventBus_;
 }
 
@@ -2173,6 +2731,9 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
   if (jsEngine_) {
     host["js"] = parseJsonSafe(jsEngine_->statsJson());
   }
+  /// 插件形态（内置 native / js + 运行器插件登记的）：管理页与命令行据此显示
+  /// "谁能跑哪种插件"，以及为什么某个 kind 现在跑不了
+  host["kinds"] = parseJsonSafe(kindsJson());
   j["host"] = host;
 
   Json plugins = Json::array();

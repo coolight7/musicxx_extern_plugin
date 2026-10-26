@@ -3060,8 +3060,8 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   holder->topic = topic;
   const PluginxxStringView topicView{holder->topic.data(),
                                      holder->topic.size()};
-  auto *sub = events->subscribe(host, &topicView, &JsEngine::eventTrampoline,
-                                holder.get());
+  auto *sub = events->subscribe(host, nullptr, &topicView,
+                                &JsEngine::eventTrampoline, holder.get());
   if (!sub) {
     XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
             topic);
@@ -3864,7 +3864,8 @@ int32_t JsEngine::startInstance(const std::shared_ptr<Instance> &inst,
   }
   std::string info;
   if (mgr_) {
-    mgr_->hostInfoJson(info);
+    // JS 插件共用这份缓存：接口代次按 JS 形态报（不是动态库插件用的 C 接口代次）
+    mgr_->hostInfoJson(info, std::string_view{}, "js");
   }
   setHostInfoCache(info.empty() ? std::string{"{}"} : info);
 
@@ -4216,7 +4217,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       }
       const PluginxxStringView topicView{holder->topic.data(),
                                          holder->topic.size()};
-      auto *sub = events->subscribe(host, &topicView,
+      auto *sub = events->subscribe(host, nullptr, &topicView,
                                     &JsEngine::eventTrampoline, holder.get());
       if (!sub) {
         XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,

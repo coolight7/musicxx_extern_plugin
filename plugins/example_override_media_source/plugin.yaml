@@ -3,6 +3,7 @@ kind: js
 entry: plugin.js
 scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]
 version: 2026.1019.1
+# 这一项只对按 C 接口编译的形态做下限判定（动态库插件）；JS 由内置运行器解释执行，保持 1
 api_version: 1
 author: "musicxx"
 description: "演示插件参与音源解析：覆盖内置 Bili 解析、声明自己的音源类型、用本地 HTTP 服务代理音源"

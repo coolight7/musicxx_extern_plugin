@@ -16,6 +16,6 @@ kind: native
 version: 2026.1010.1
 description: "musicxx 外部插件示例: 多目标打包（一个包内含多个系统/架构分支）"
 author: "coolight"
-api_version: 1
+api_version: 3
 permissions:
   - musicxx.library.read

@@ -2,7 +2,7 @@ name: musicxx_extern_plugin
 description: "musicxx 外部插件框架 Dart 侧：加载/管理 C++ 与 JS 插件，派发钩子，转发接口。"
 # 版本号 = 插件框架版本，格式 `<年>.<月日>.<小版本号>`（见 lib/src/version.dart）。
 # 与 src/include/musicxx_extern_plugin_api.h 的 MUSICXX_EXTERN_PLUGIN_VERSION 保持一致。
-version: 2026.1025.1
+version: 2026.1026.1
 homepage: https://github.com/coolight7/mymusic
 publish_to: none
 

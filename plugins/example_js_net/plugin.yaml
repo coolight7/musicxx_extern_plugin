@@ -7,6 +7,7 @@ name: example_js_net
 kind: js
 entry: plugin.js
 version: 2026.1024.1
+# 这一项只对按 C 接口编译的形态做下限判定（动态库插件）；JS 由内置运行器解释执行，保持 1
 api_version: 1
 author: "musicxx"
 description: "演示插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端与服务端"

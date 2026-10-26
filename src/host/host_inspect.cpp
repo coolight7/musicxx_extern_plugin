@@ -3,6 +3,7 @@
 #include "host_inspect.h"
 
 #include "host_manifest.h"
+#include "host_naming.h"
 
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/host/manifest.h"
@@ -151,12 +152,22 @@ std::string inspectToJson(const MusicxxPluginInspect &info) {
   // 静态可用性（不含运行期开关：JS 运行时是否可用、安全模式、禁用动态库由调用方叠加）
   j["supported"] = info.supported;
   j["reason"] = info.reason;
+  // 形态（kind）的事实：由谁提供、要不要按 C ABI 判 api_version、提供者要不校验
+  j["kindKnown"] = info.kindKnown;
+  j["kindRequiresPluginAbi"] = info.kindRequiresPluginAbi;
+  // 这个形态的接口代次对：当前代次（上报给插件）/ 兼容下限（判 api_version 用）
+  j["kindInterfaceVersion"] = info.kindInterfaceVersion;
+  j["kindMinInterfaceVersion"] = info.kindMinInterfaceVersion;
+  j["kindProvider"] = info.kindProvider;
+  j["kindProviderId"] = info.kindProviderId;
+  j["kindValidateCapability"] = info.kindValidateCapability;
   return j.dump();
 }
 
 MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
                                       const std::string &os,
-                                      const std::string &arch) {
+                                      const std::string &arch,
+                                      const MusicxxPluginKindRegistry *kinds) {
   MusicxxPluginInspect info;
   info.dir = pluginDir.string();
   info.dirName = pluginDir.filename().string();
@@ -200,18 +211,60 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   info.permissions = fields.permissions;
   info.platforms = fields.platforms;
   info.arch = fields.arch;
+
+  // 形态（kind）查注册表：内置 native / js 由插件框架自带，其余由运行器插件登记。
+  // - 清单既没写 kind 又没写 entry 时 kind 为空：按原有的 native 路径报
+  //   “入口缺失”，不要报成“没有运行器支持空形态”；
+  // - 未登记 → 现在跑不了（原因直接告诉用户要先装运行器）；
+  // - 只有要求 C ABI 的形态才检查 api_version（解释执行的插件不调 C 接口表）；
+  // - 多目标分支只对要求 C ABI 的形态（动态库）有意义。
+  const std::string kindForRegistry =
+      info.kind.empty() ? std::string{"native"} : info.kind;
+  const MusicxxPluginKindSpec *kindSpec =
+      kinds ? kinds->find(kindForRegistry) : nullptr;
+  const bool kindKnown = (kinds == nullptr) || (kindSpec != nullptr);
+  const bool requiresCAbi =
+      kindSpec ? kindSpec->requiresPluginAbi : true;
+  // 清单 `api_version` 的判定线由**这个形态**自己给：native 是 C 接口下限（3），
+  // js 是 JS 接口下限（1），运行器登记的形态写多少就多少（0 = 不判）。
+  const int32_t minInterfaceVersion =
+      kindSpec ? kindSpec->minInterfaceVersion
+               : MUSICXX_PLUGINXX_MIN_API_VERSION;
+  // 形态事实一起报给调用方：主程序据此展示“这个形态的接口代次”与
+  // “要不要请提供者校验”，不在自己的代码里写死形态名。
+  info.kindKnown = kindKnown;
+  info.kindRequiresPluginAbi = requiresCAbi;
+  info.kindMinInterfaceVersion = minInterfaceVersion;
+  info.kindInterfaceVersion =
+      (kindSpec && kindSpec->interfaceVersion > 0) ? kindSpec->interfaceVersion
+                                                  : MUSICXX_PLUGIN_API_VERSION;
+  if (kindSpec && !kindSpec->frameworkOwned()) {
+    info.kindProvider = kindSpec->provider;
+    info.kindProviderId = naming::pluginIdOfInstance(kindSpec->provider);
+  }
+  info.kindValidateCapability =
+      kindSpec ? kindSpec->validateCapability : std::string{};
+
+  // JS 形态的脚本清单（空 = 用 entry / plugin.js）——管理页据此展示；
+  // 其它解释执行的形态（例如以后的 Python）脚本怎么找由运行器自己定义。
   if (info.kind == "js") {
     info.scripts = scriptsOf(fields, entry);
   }
 
   // 多目标打包（仿 APK 的 lib/<系统>-<架构>/）：解析包内分支，选出目标环境要用的库文件
-  if (info.kind == "native") {
+  if (requiresCAbi) {
     info.targets = resolvePluginTargets(pluginDir, fields.targetsDir, entry, name,
                                         targetOs, targetArch, true);
   }
 
+  if (!kindKnown) {
+    info.supported = false;
+    info.reason = "没有运行器声明支持插件形态 `" + info.kind +
+                  "` (先安装并启用提供这个形态的插件)";
+  }
+
   // 静态可用性（不含运行期开关：JS 运行时是否可用、安全模式、禁用动态库由调用方叠加）
-  if (!info.platforms.empty() &&
+  if (info.supported && !info.platforms.empty() &&
       !declaresTarget(info.platforms, targetOs, normalizeTargetOs)) {
     info.supported = false;
     info.reason = "当前平台不在清单声明内 (当前 " + targetOs +
@@ -223,10 +276,11 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     info.reason = "当前架构不在清单声明内 (当前 " + targetArch +
                   "，清单声明: " + joinText(info.arch) + ")";
   }
-  if (info.supported && info.apiVersion < MUSICXX_PLUGINXX_MIN_API_VERSION) {
+  if (info.supported && kindKnown && minInterfaceVersion > 0 &&
+      info.apiVersion < minInterfaceVersion) {
     info.supported = false;
-    info.reason = "插件声明的 API 版本低于当前插件框架支持的最低版本 (最低 " +
-                  std::to_string(MUSICXX_PLUGINXX_MIN_API_VERSION) + ", 插件声明 " +
+    info.reason = "插件声明的 API 版本低于这个形态支持的最低版本 (最低 " +
+                  std::to_string(minInterfaceVersion) + ", 插件声明 " +
                   std::to_string(info.apiVersion) + ")";
   }
   if (info.supported && info.kind == "native" &&

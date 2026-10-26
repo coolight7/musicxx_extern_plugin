@@ -17,11 +17,14 @@
 
 #include "musicxx_extern_plugin_api.h"
 
+#include "host_kind.h"
+#include "host_manifest.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/entry.h"
 #include "pluginxx/host/lifecycle.h"
 #include "pluginxx/host/tables_impl.h"
 
+#include <asio/awaitable.hpp>
 #include <asio/executor_work_guard.hpp>
 #include <asio/io_context.hpp>
 #include <asio/post.hpp>
@@ -40,6 +43,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace musicxx {
@@ -262,6 +266,34 @@ public:
   int32_t pluginConfigPath(const std::string &id, std::string &out,
                            std::string &err);
 
+  /* ---------- 插件形态 (kind) ---------- */
+
+  /// 形态注册表（内置 `native` / `js` + 运行器插件登记的形态）
+  ///
+  /// **只在框架线程用**：注册 / 撤销发生在那里，其它线程要读请取
+  /// [kindRegistrySnapshot] 的快照。
+  const MusicxxPluginKindRegistry &kindRegistry() const { return kindRegistry_; }
+
+  /// 形态注册表的当前快照（任意线程）
+  ///
+  /// 安装预检（`plugin_inspect`）在调用线程上跑，而注册 / 撤销在框架线程上发生；
+  /// 直接读注册表本体是数据竞争（vector 可能在扩容），所以给它一份拷贝。
+  MusicxxPluginKindRegistry kindRegistrySnapshot() const;
+
+  /// 登记一种形态（插件经 `musicxx.kind` 表调用；**框架线程**）
+  ///
+  /// - 形态名不能覆盖内置形态（`native` / `js`）；同名已由别的插件登记也会被拒；
+  /// - 登记的 `loadCapability` / `unloadCapability` / `validateCapability` 必须落在本插件的
+  ///   命名空间（`plugin.<插件id>.`）下，否则拒绝；
+  /// - 跟着插件生命周期撤销（`clearPluginRegistrations`）。
+  int32_t registerPluginKind(const std::string &instanceName,
+                             const std::string &specJson, std::string &err);
+  int32_t unregisterPluginKind(const std::string &instanceName,
+                               const std::string &kind, std::string &err);
+
+  /// 全部形态的 JSON（自省 / 管理页 / 命令行共用）
+  std::string kindsJson() const;
+
   /// 调用插件能力 (**Dart → 插件**; 异步, 不占调用线程)
   ///
   /// - **只受理不等待结果**: 受理成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出
@@ -394,11 +426,16 @@ public:
   int32_t hookInfoJson(std::string_view hookId, std::string &outJson);
   /// 框架信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
   ///
-  /// [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是我自己发起的"
-  /// 就得知道自己的 id（功能点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
-  /// 这个独立入口，那份缓存不带 `pluginId`。
-  int32_t hostInfoJson(std::string &outJson,
-                       std::string_view instanceName = std::string_view{});
+  /// - [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是我自己发起的"
+  ///   就得知道自己的 id（功能点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
+  ///   这个独立入口，那份缓存不带 `pluginId`。
+  /// - `apiVersion` 报的是**调用方自己形态的接口代次**（动态库插件看 C 接口代次，JS 看 JS 接口
+  ///   代次，两套编号独立，见 `host_kind.h`）：[kind] 非空时用它，否则按 [instanceName] 查实例。
+  ///   JS 引擎给所有 JS 插件共用一份缓存，所以它显式传 `"js"`。
+  int32_t hostInfoJson(
+      std::string &outJson,
+      std::string_view instanceName = std::string_view{},
+      std::string_view kind = std::string_view{});
   int32_t getState(std::string_view key, std::string &outJson);
   int32_t subscribeState(MusicxxHostInstance *inst, const std::string &keysJson,
                          int32_t &outCount);
@@ -604,7 +641,11 @@ public:
   /* ---------- DomainHooks (事件主题规则对外可见: 插件 events 表入口要用)
    * ---------- */
 
-  std::shared_ptr<pluginxx::EventSource> eventSource() override;
+  /// 事件后端 (musicxx 只有一条主程序总线, 没有按作用域划分的总线)
+  /// - `scope` 为空: 主程序总线
+  /// - `scope` 带 id: 本程序没有该作用域, 返回空 (插件拿到空订阅句柄)
+  std::shared_ptr<pluginxx::EventSource>
+  eventSource(const PluginxxScopeRef *scope) override;
   std::string qualifyEventTopic(std::string_view topic) override;
 
 protected:
@@ -630,11 +671,8 @@ protected:
 
   bool postToWorkerThread(std::function<void()> fn) override;
   std::string configJson() override;
-  std::string toolPromptJson(std::string_view toolName) override;
-  std::string sessionWorkDir(std::string_view sessionId) override;
   std::string language() override;
   void setLanguage(std::string_view lang) override;
-  bool isSessionCancelled(std::string_view sessionId) override;
   std::string pluginsJson() override;
   std::string pluginJson(std::string_view name) override;
 
@@ -703,6 +741,42 @@ private:
                            const std::string &argsJson,
                            std::function<void(int32_t, const std::string &)>
                                done);
+
+  /// 由运行器插件托管一个插件：调它声明的加载 / 卸载能力并等结果（协程）
+  ///
+  /// - 返回 `{ok, message}`：`ok` = 运行器回答 `{"ok":true}`（或能力返回 0）；
+  /// - `timeoutMs` 到点按失败返回（运行器没回答不会把加载卡死）；
+  /// - 只做"转发 + 记账"，**不创建插件框架实例**：托管插件的钩子 / UI 都归运行器插件。
+  asio::awaitable<std::pair<bool, std::string>> invokeKindProviderAsync(
+      const std::string &provider, const std::string &capability,
+      const std::string &argsJson, uint32_t timeoutMs);
+
+  /// 由运行器插件托管的插件（形态不是内置形态：运行器负责跑，插件框架只记录与转发）
+  struct HostedKindPlugin {
+    std::string id;
+    std::string kind;
+    std::string provider; ///< 运行器插件的实例名（= 插件 id）
+    std::string path;     ///< 插件目录（重新加载用）
+    std::string version;
+    bool enabled = true;
+  };
+
+  /// 交给运行器加载一个非内置形态的插件（协程；**框架线程**）
+  ///
+  /// 先调它声明的校验能力（`validateCapability`，没声明就跳过），通过后再交给加载能力；
+  /// 成功时在 `hostedKindPlugins_` 里留一条记录，并推 `musicxx.plugin.loaded`。
+  asio::awaitable<bool> loadHostedKindAsync(
+      const MusicxxPluginKindSpec &spec, const std::string &pluginId,
+      const std::string &path, const MusicxxManifestFields &fields,
+      const pluginxx::PluginLoadOptions &options, std::string &failReason);
+
+  /// 让运行器启动 / 停止一个已托管的插件（协程；**框架线程**）
+  asio::awaitable<bool> startHostedKindAsync(const HostedKindPlugin &record,
+                                             std::string &failReason);
+  asio::awaitable<bool> stopHostedKindAsync(const HostedKindPlugin &record);
+
+  /// 让运行器卸载一个托管插件，并删掉记录（**框架线程**；协程）
+  asio::awaitable<void> unloadHostedKindAsync(const std::string &pluginId);
 
   /// 一次 Dart → 插件能力调用的记账 (受理成功到终局之间)
   ///
@@ -1037,6 +1111,9 @@ private:
   /// JS 运行时 (启用 JS 时在 start() 里创建, stop() 里释放)
   std::shared_ptr<JsEngine> jsEngine_;
 
+  /// 插件形态注册表（内置 native / js；运行器插件可登记别的形态）
+  MusicxxPluginKindRegistry kindRegistry_;
+
   // 配置
   std::string appVersion_ = "0.0.0";
   std::string platform_ = "unknown";
@@ -1056,6 +1133,9 @@ private:
 
   // 已发现的插件 (id → 目录)
   std::map<std::string, std::string, std::less<>> discovered_;
+
+  /// 由运行器插件托管的插件 (id → 记录; 由 registryMutex_ 保护)
+  std::map<std::string, HostedKindPlugin, std::less<>> hostedKindPlugins_;
 
   /// 保护 loaded_ / discovered_ / stateSubscriptions_ 的跨线程读写
   mutable std::mutex registryMutex_;

@@ -22,8 +22,11 @@
   `pubspec.yaml` 的 `version` 也跟着走；三处必须一致（`flutter test test/version_test.dart` 校验）。
 - **插件清单用同一套格式**：`plugin.yaml` 的 `version` 例 `2026.1010.1`，打包脚本把它带进安装包名
   （见 `plugins/README.md`）。
-- **与版本号无关的两个版本**：插件清单的 `api_version` 与 C ABI 的
-  `MUSICXX_EXTERN_PLUGIN_API_VERSION`（当前 1）只在破坏性改动时才 +1。
+- **与版本号无关的三个版本**：
+  - 插件清单的 `api_version` 与插件 SDK 的 `MUSICXX_PLUGIN_API_VERSION` 是**插件 ABI 契约代次**
+    （当前 3），只有破坏性改动时才 +1；低于 `MUSICXX_PLUGINXX_MIN_API_VERSION` 的插件在加载阶段被拒；
+  - C ABI 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION`（当前 1）是主程序 ↔ 插件框架库那层 `musicxx_extern_plugin_*`
+    函数与结构体的版本，同样只在破坏性改动时 +1。
 - 插件读到的版本号：JS 是 `musicxx.version`，动态库插件是 `host.info().hostVersion`
   （与 `musicxx_extern_plugin_version()` 同一个值）。
 
@@ -41,6 +44,7 @@ GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<�
 
 | musicxx 版本 | 插件框架版本 | 插件框架提交 | 日期 | 说明 |
 |---|---|---|---|---|
+| 未发布 | 2026.1026.1 | （待补记） | 2026-10-26 | 依赖库 `cxx_*` 升级到「作用域引用 + 业务语义不进通用表」的一代：通用表 `pluginxx.events` / `capabilities` / `config` / `cancel` 升到 v3（订阅与调能力要带一个可为空的作用域引用，`config` 去掉工具提示词/会话工作目录，`cancel` 只剩 `op_cancel`），插件 ABI 契约代次 1 → 3，旧插件要按新头文件重编；`PLUGINXX_API_VERSION` 由构建侧覆盖（`src/CMakeLists.txt` 默认 3），插件构建由 SDK 自动带上；插件形态（kind）改为注册表（新表 `musicxx.kind`：插件可登记自己的运行器，并可选声明 `validateCapability` 由它判定“这个包能不能装 / 能不能加载”），接口代次按形态分开（`host_kind.h`）：内置 `native` 3/3（C 接口代次）、内置 `js` 2/1（JS 接口只增不改，下限仍 1），插件读到的 `host.info().apiVersion` / `config().apiVersion` 按自己的形态报 |
 | 未发布 | 2026.1025.1 | （待补记） | 2026-10-25 | 静态内容并到 HTTP 服务：`http.serve` 的 `static` / `staticOnly` 与新增 op `http.route` / `http.unroute`（命中后由框架直接回 200/206/416，不进 `http.request`）；删掉单独的 JS 本地文件服务（`musicxx.net.serveFile/serveBytes/serverInfo/stopServer`，从未发布） |
 | 未发布 | 2026.1024.3 | （待补记） | 2026-10-24 | 插件网络能力支持客户端 TLS（静态链接 OpenSSL：`https` / `wss`，含证书链与主机名校验、`tlsVerify`/`caFile`/`caPem`/`serverName`；服务端仍只有明文）；新增 op `http.fetch` / `http.download`，JS 的 `musicxx.net.fetch` / `download` 改用它实现 |
 | 未发布 | 2026.1024.2 | （待补记） | 2026-10-24 | 新增插件网络能力 `musicxx.net`（HTTP / TCP / WebSocket 的客户端与服务端，JS 与动态库插件共用）；新增示例 `example_js_net` |

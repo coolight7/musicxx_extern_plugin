@@ -133,6 +133,12 @@ function(musicxx_plugin_add_target target)
     target_include_directories(${target} PRIVATE ${MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS})
     target_compile_definitions(${target} PRIVATE
       BOOST_ASIO_STANDALONE=1 ASIO_STANDALONE=1 UTILXX_USE_BOOST_ASIO=1)
+    # 插件 API 契约版本: 与插件框架库必须一致 (这份配置里有记录时就用它)
+    if (DEFINED MUSICXX_EXTERN_PLUGIN_PLUGINXX_API_VERSION)
+      target_compile_definitions(${target} PRIVATE
+        PLUGINXX_API_VERSION=${MUSICXX_EXTERN_PLUGIN_PLUGINXX_API_VERSION}
+        PLUGINXX_MIN_API_VERSION=${MUSICXX_EXTERN_PLUGIN_PLUGINXX_MIN_API_VERSION})
+    endif ()
   else ()
     message(FATAL_ERROR
       "musicxx_plugin_add_target(${target}): 找不到插件 SDK（先 find_package(musicxx_extern_plugin CONFIG) 或传入 MUSICXX_EXTERN_PLUGIN_SDK_INCLUDE_DIRS）")

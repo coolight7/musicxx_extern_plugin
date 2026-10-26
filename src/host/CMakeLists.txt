@@ -73,6 +73,18 @@ if (_musicxx_ext_missing)
 endif ()
 unset(_musicxx_ext_missing)
 
+# ==================== 插件 API 契约版本 ====================
+# cxx_pluginxx 的 PLUGINXX_API_VERSION 默认值是 1 (该库被多个主程序共用, 默认值不跟随
+# 某一个主程序), 主程序构建时必须覆盖。顶层 superbuild 会把同一个值同时传给
+# cxx_pluginxx 与这里; 单独构建本工程时用这两个缓存变量覆盖, 但依赖库必须按同一个值构建
+# (否则插件框架库与插件看到的契约代次不一致)。
+#
+# 这里下发到自己的目标 (插件框架库 / 插件 SDK / 示例插件 / 原生测试), 保证插件框架库与
+# 它加载的插件看到同一个值: 插件按 PLUGINXX_API_VERSION 决定用哪套写法
+# (例如 events 订阅是否带作用域引用), 两侧不一致时是 ABI 不兼容。
+set(MUSICXX_PLUGINXX_API_VERSION "3" CACHE STRING "插件 API 契约代次 (下发给 cxx_pluginxx 的 PLUGINXX_API_VERSION)")
+set(MUSICXX_PLUGINXX_MIN_API_VERSION "3" CACHE STRING "框架接受的最低插件 API 版本 (PLUGINXX_MIN_API_VERSION)")
+
 # ==================== OpenSSL (客户端 TLS) ====================
 # https / wss 由 OpenSSL 完成; 静态链接进插件框架库 (应用包里不需要多带 libssl/libcrypto)。
 # 安装树由顶层 superbuild 通过 -DOPENSSL_ROOT_DIR / -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 传入。
@@ -152,6 +164,12 @@ target_include_directories(musicxx_extern_plugin
 
 target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_BUILD=1)
 
+# 插件 API 契约版本: PUBLIC 下发到所有链接本库的目标 (原生测试), 与插件 SDK / 插件一致
+target_compile_definitions(musicxx_extern_plugin PUBLIC
+  PLUGINXX_API_VERSION=${MUSICXX_PLUGINXX_API_VERSION}
+  PLUGINXX_MIN_API_VERSION=${MUSICXX_PLUGINXX_MIN_API_VERSION}
+)
+
 if (MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE)
   target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_HAS_JS=1)
   target_link_libraries(musicxx_extern_plugin PRIVATE qjs)
@@ -230,6 +248,9 @@ target_compile_definitions(musicxx_extern_plugin_sdk INTERFACE
   BOOST_ASIO_STANDALONE=1
   ASIO_STANDALONE=1
   UTILXX_USE_BOOST_ASIO=1
+  # 插件与插件框架库必须看到同一个契约版本 (cxx_pluginxx 只在 MSVC 分支下发该定义)
+  PLUGINXX_API_VERSION=${MUSICXX_PLUGINXX_API_VERSION}
+  PLUGINXX_MIN_API_VERSION=${MUSICXX_PLUGINXX_MIN_API_VERSION}
 )
 if (MSVC)
   target_compile_options(musicxx_extern_plugin_sdk INTERFACE /utf-8)

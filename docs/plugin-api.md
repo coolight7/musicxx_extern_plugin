@@ -13,7 +13,7 @@
 | 想知道 | 读这篇 |
 |---|---|
 | 目录结构、清单字段、生命周期、JS 线程约束、`musicxx` 全局对象 | [plugin-js-api.md](plugin-js-api.md) |
-| 清单与多目标打包、SDK、CMake、框架线程、构建部署、接口表判定 | [plugin-native-api.md](plugin-native-api.md) |
+| 清单与多目标打包、SDK、CMake、框架线程、构建部署、接口表判定、插件形态（运行器） | [plugin-native-api.md](plugin-native-api.md) |
 | 钩子 id / 模式 / 派发 / 合并策略 / 已接入钩子的载荷与裁决 | [plugin-hooks.md](plugin-hooks.md)（生成物） |
 | 官方变量（`musicxx.*`）的键目录 | [plugin-vars.md](plugin-vars.md) |
 | 界面（UI 项字段、插件页面块类型、设置页） | [plugin-ui.md](plugin-ui.md) |
@@ -190,7 +190,7 @@ const std::string infoJson = hostInfoJson();   // 同一份 JSON
 | `language` | 应用当前语言（如 `zh-cn`） |
 | `dataDir` | **插件数据根目录**（插件私有 KV 在 `<dataDir>/<插件id>/data/kv.json`） |
 | `userPluginDir` / `builtinPluginDir` | 用户插件目录 / 随包插件目录 |
-| `apiVersion` | 插件 API 版本（当前 1）；插件可以据此降级 |
+| `apiVersion` | 插件 API 版本（当前 3）；插件可以据此降级 |
 | `hostVersion` | **插件框架自己的版本**（如 `2026.1011.1`，见 [version-history.md](version-history.md)） |
 | `pluginId` | 本插件 id（**只有插件读时才带这个字段**；主程序读同一份信息时没有它） |
 | `ui` | 客户端界面能力段（只有客户端配置过时才出现，见 [plugin-ui.md](plugin-ui.md)） |
