@@ -66,8 +66,10 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
          R"KIT({"variants":[{"template":{"kind":"Sparkline","data":"$data","height":"$height","glyphStyle":"$glyphStyle","showLast":"$showLast","tone":"$tone"}}],"params":{"data":null,"height":1,"glyphStyle":"block","showLast":true,"tone":"accent"}})KIT"},
         {"progressRow",
          R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"cross":"center","children":[{"$require":"label","kind":"Text","text":"$label"},{"kind":"Expanded","children":[{"kind":"Progress","value":"$value","total":"$total","unit":"$unit"}]}]}}],"params":{"label":null,"value":null,"total":100,"unit":"%"}})KIT"},
-        {"scroll",
-         R"KIT({"variants":[{"template":{"kind":"Scroll","height":"$height","padding":"$padding","children":"$children"}}],"params":{"children":null,"height":null,"padding":null}})KIT"},
+        {"dirListView",
+         R"KIT({"variants":[{"requires":["musicxx.DirListView"],"template":{"kind":"musicxx.DirListView","path":"$path","items":"$items","multi":"$multi","showPath":"$showPath","pathAction":"$pathAction","itemAction":"$itemAction","selectAction":"$selectAction","height":"$height","emptyText":"$emptyText"}},{"template":{"kind":"ListViewBase","id":"dirList","items":"$items","itemAction":"$itemAction","emptyText":"$emptyText"}}],"params":{"path":null,"items":null,"multi":false,"showPath":true,"pathAction":null,"itemAction":null,"selectAction":null,"height":null,"emptyText":null}})KIT"},
+        {"adaptLayout",
+         R"KIT({"variants":[{"requires":["musicxx.AdaptLayout"],"template":{"kind":"musicxx.AdaptLayout","columnBody":"$columnBody","rowBody":"$rowBody","columnSecondBody":"$columnSecondBody","rowSecondBody":"$rowSecondBody","rowBodyRatio":"$rowBodyRatio","columnBodyRatio":"$columnBodyRatio","enableAnimations":"$enableAnimations"}},{"template":{"kind":"Column","children":"$rowBody"}}],"params":{"columnBody":null,"rowBody":null,"columnSecondBody":null,"rowSecondBody":null,"rowBodyRatio":0.5,"columnBodyRatio":0.5,"enableAnimations":false}})KIT"},
         {"settingRow",
          R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"}]}]},{"$require":"value","kind":"Text","text":"$value","type":"caption","tone":"hint"}]}]}}],"params":{"title":null,"depict":null,"value":null,"action":null}})KIT"},
         {"switchRow",
@@ -288,13 +290,22 @@ inline pluginxx::ui::Item progressRow(
     return pluginxx::ui::detail::expandKit("progressRow", params, env, &kitTemplate);
 }
 
-/// 可滚动区域（浮层/页面里让长列表自己滚，头部与底部留在外面不动；给 height 就固定高度，不给就填满外层剩下的高度）
-/// 参数：children(items, 必填)、height(size)、padding(edges)
-inline pluginxx::ui::Item scroll(
+/// 目录列表：一层目录的条目 + 顶部路径行（可点“上一级”）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表）
+/// 参数：path(text)、items(listItems, 必填)、multi(bool, 默认 false)、showPath(bool, 默认 true)、pathAction(action)、itemAction(action)、selectAction(action)、height(size)、emptyText(text)
+inline pluginxx::ui::Item dirListView(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
 ) {
-    return pluginxx::ui::detail::expandKit("scroll", params, env, &kitTemplate);
+    return pluginxx::ui::detail::expandKit("dirListView", params, env, &kitTemplate);
+}
+
+/// 按窗口宽高比切换两套内容：竖屏（宽高比 < 1）用 columnBody、横屏用 rowBody；给了第二套就按比例分两栅；不认识它的客户端用 rowBody
+/// 参数：columnBody(items, 必填)、rowBody(items, 必填)、columnSecondBody(items)、rowSecondBody(items)、rowBodyRatio(float, 默认 0.5)、columnBodyRatio(float, 默认 0.5)、enableAnimations(bool, 默认 false)
+inline pluginxx::ui::Item adaptLayout(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("adaptLayout", params, env, &kitTemplate);
 }
 
 /// 设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号）

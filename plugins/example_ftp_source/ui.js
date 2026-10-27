@@ -9,9 +9,9 @@
  * 写法上的几条约定（照 docs/plugin-ui.md）：
  * - 用随插件分发的 kit（`pluginxx.ui.kit`）拼常用行，别手拼同样的结构；
  * - 状态不放在界面里：视图由 `plugin.js` 的当前状态生成，控件的动作只报"哪个控件、什么值"；
- * - 勾选框放在右边（与 kit 的 `switchRow` 同一个位置、同样固定宽度）；
- * - 浏览页是"上边常驻 + 中间滚动列表 + 底部常驻按钮"：外层一个 `Column`，列表那一块
- *   包在 `Expanded` 里放进 `Scroll`（浮层按全高打开，见 plugin.js 的 `addSong`）。
+ * - 浏览页用目录列表块（`musicxx.DirListView`）：条目、右侧勾选框、顶部路径行都由它画，
+ *   当前目录与选中态由插件自己保存（动作里带 `path` / `isDir` / `selected`）；
+ * - 外层用 `musicxx.AdaptLayout`：竖屏一欄（列表在上、按钮在下），横屏两欄（右侧放选中与按钮）。
  */
 
 var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
@@ -30,9 +30,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
   }
 
   ns.viewEnv = envOf;
-
-  /// 勾选框的宽度：与主程序开关自身宽度相当（`XXSwitchBool` 缺省 190）
-  var CHECKBOX_WIDTH = 190;
 
   /* ==================== 通用行 ==================== */
 
@@ -102,78 +99,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       variant: "plain",
       padding: { horizontal: 10, vertical: 6 },
       children: [{ kind: "Column", gap: 8, children: children }]
-    };
-  }
-
-  /// 一个文件 / 目录行
-  ///
-  /// - 目录：整行可点（进入），右侧一个右箭头图标；
-  /// - 文件：名称与大小在左，勾选框在右（整行也能点，等于勾上 / 取消）。
-  function entryRow(entry, selected, index, env) {
-    var k = kit();
-    if (entry.isDir) {
-      return {
-        kind: "Block",
-        variant: "plain",
-        padding: { horizontal: 10, vertical: 6 },
-        action: { kind: "dispatch", name: "browse", args: { op: "enter", path: entry.path } },
-        children: [{
-          kind: "Row",
-          gap: 12,
-          cross: "center",
-          children: [{
-            kind: "Expanded",
-            children: [{
-              kind: "Column",
-              gap: 2,
-              children: [
-                { kind: "Text", text: entry.name },
-                { kind: "Text", text: "文件夹", type: "caption", tone: "hint" }
-              ]
-            }]
-          },
-          // 右箭头（插件目录里的 resource/svg/chevron_right.svg；取不到就退回文字 ">"）
-          k.icon({ name: "chevron_right", glyph: ">", size: 30 }, env) ]
-        }]
-      };
-    }
-    var subtitle = ns.formatSize(entry.size);
-    var detail = [];
-    if (subtitle) {
-      detail.push({ kind: "Text", text: subtitle, type: "caption", tone: "hint" });
-    }
-    return {
-      kind: "Block",
-      variant: "plain",
-      padding: { horizontal: 10, vertical: 6 },
-      action: { kind: "dispatch", name: "browse", args: { op: "toggle", path: entry.path } },
-      children: [{
-        kind: "Row",
-        gap: 12,
-        cross: "center",
-        children: [{
-          kind: "Expanded",
-          children: [{
-            kind: "Column",
-            gap: 2,
-            children: [{ kind: "Text", text: entry.name }].concat(detail)
-          }]
-        }, {
-          kind: "SizedBox",
-          width: CHECKBOX_WIDTH,
-          children: [{
-            kind: "Control",
-            control: "checkbox",
-            id: "sel-" + index,
-            value: !!selected,
-            action: {
-              kind: "dispatch",
-              name: "browse",
-              args: { op: "select", path: entry.path }
-            }
-          }]
-        }]
-      }]
     };
   }
 
@@ -404,13 +329,12 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       };
     }
 
-    // 上边常驻：服务器与当前目录、操作按钮、筛选（滚列表时它们不动）
-    // 注：头部越长，能用的窗口就越矮；这里只留必要的一行说明（账号页有完整信息）。
-    var header = [
+    // 头部（两种布局共用）：账号、操作按钮、筛选
+    // 注：头部越长，能用的窗口就越矮；当前目录由列表块自己的路径行显示，这里不重复。
+    var head = [
       k.hint({
-        text: view.account.host + ":" + view.account.port +
-          (view.account.user ? "（" + view.account.user + "）" : "（匿名）") +
-          " · 当前目录：" + view.path
+        text: "ftp://" + view.account.host + ":" + view.account.port +
+          (view.account.user ? "（" + view.account.user + "）" : "（匿名）")
       }, env),
       k.actionsRow({
         buttons: [
@@ -446,63 +370,89 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       }, env),
       k.divider({}, env)
     ];
-
-    // 中间：目录内容自己滚（条目多时只滚这一块）
-    var rows = [];
     if (view.error) {
-      rows.push(k.text({ text: view.error, tone: "error" }, env));
-    }
-    if (!view.entries.length) {
-      rows.push(k.hint({
-        text: view.error ? "没有读到目录内容。" : "这个目录里没有符合条件的条目。"
-      }, env));
-    } else {
-      for (var i = 0; i < view.entries.length; i++) {
-        var entry = view.entries[i];
-        rows.push(entryRow(entry, view.selected[entry.path], i, env));
-      }
-      if (view.total > view.entries.length) {
-        rows.push(k.button({
-          label: "再显示 " + Math.min(50, view.total - view.entries.length) + " 项（共 " +
-            view.total + " 项）",
-          variant: "ghost",
-          action: { kind: "dispatch", name: "browse", args: { op: "more" } }
-        }, env));
-      }
+      head.push(k.text({ text: view.error, tone: "error" }, env));
     }
 
-    // 下边常驻：添加 / 播放与当前状态
-    var footer = [k.divider({}, env)];
+    // 中间：目录条目交给目录列表块（条目多时只滚这一块；不给 height = 用父给的可用高度）
+    // 每一项都带自己的动作：目录是“进入”，文件是“勾上 / 取消”。
+    var items = [];
+    for (var i = 0; i < view.entries.length; i++) {
+      var entry = view.entries[i];
+      var item = {
+        id: entry.path,
+        title: entry.name,
+        path: entry.path,
+        isDir: !!entry.isDir,
+        selected: !!view.selected[entry.path],
+        action: {
+          kind: "dispatch",
+          name: "browse",
+          args: { op: entry.isDir ? "enter" : "toggle", path: entry.path }
+        }
+      };
+      var size = ns.formatSize(entry.size);
+      if (entry.isDir) {
+        item.subtitle = "文件夹";
+      } else if (size) {
+        item.subtitle = size;
+      }
+      items.push(item);
+    }
+
+    var list = k.dirListView({
+      path: view.path,
+      items: items,
+      // 勾选框（multi 打开才出现）：勾选态就是条目的 selected，变化派发 selectAction
+      multi: true,
+      pathAction: { kind: "dispatch", name: "browse", args: { op: "up" } },
+      selectAction: { kind: "dispatch", name: "browse", args: { op: "select" } },
+      emptyText: view.error ? "没有读到目录内容。" : "这个目录里没有符合条件的条目。"
+    }, env);
+
+    // 按钮与状态：竖屏放在列表下面，横屏放到右侧那一欄
+    var actions = [];
+    if (view.total > view.entries.length) {
+      actions.push(k.button({
+        label: "再显示 " + Math.min(50, view.total - view.entries.length) + " 项（共 " +
+          view.total + " 项）",
+        variant: "ghost",
+        action: { kind: "dispatch", name: "browse", args: { op: "more" } }
+      }, env));
+    }
     if (view.pid) {
-      footer.push(k.button({
+      actions.push(k.button({
         label: "添加 " + view.selectedCount + " 首到『" + (view.playlistName || view.pid) + "』",
         variant: "primary",
         disabled: view.selectedCount <= 0 || !!view.busy,
         action: { kind: "dispatch", name: "browseAdd", args: {} }
       }, env));
     }
-    footer.push(k.button({
+    actions.push(k.button({
       label: "播放选中的第一首",
       disabled: view.selectedCount <= 0 || !!view.busy,
       action: { kind: "dispatch", name: "browsePlay", args: {} }
     }, env));
     if (view.busy) {
-      footer.push(k.hint({ text: "正在处理，请稍等…" }, env));
+      actions.push(k.hint({ text: "正在处理，请稍等…" }, env));
     }
     if (view.selectedCount > 0) {
-      footer.push(k.hint({ text: "已选 " + view.selectedCount + " 首（同一路径重复添加会被去重）。" }, env));
+      actions.push(k.hint({ text: "已选 " + view.selectedCount + " 首（同一路径重复添加会被去重）。" }, env));
     }
+
+    // 竖屏：一欄（头部 + 列表 + 按钮）；横屏：两欄（左边头部 + 列表，右边按钮与选中状态）
+    var columnBody = head.concat([{ kind: "Expanded", children: [list] }, k.divider({}, env)], actions);
+    var rowBody = head.concat([{ kind: "Expanded", children: [list] }]);
 
     return {
       title: view.pid ? ("添加歌曲到『" + (view.playlistName || view.pid) + "』") : "添加 FTP 歌曲",
-      // 单个顶层 Column：头部与底部常驻，中间的 Scroll 自己滚（主程序看到 Expanded 就不整页滚）
-      blocks: [{
-        kind: "Column",
-        children: header.concat([{
-          kind: "Expanded",
-          children: [{ kind: "Scroll", children: rows }]
-        }]).concat(footer)
-      }]
+      // 顶层直接写 AdaptLayout：主程序会把它放进 Expanded（有界高度），列表才能自己滚
+      blocks: [k.adaptLayout({
+        columnBody: columnBody,
+        rowBody: rowBody,
+        rowSecondBody: actions,
+        rowBodyRatio: 0.62
+      }, env)]
     };
   };
 })(FtpSource);

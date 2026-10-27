@@ -26,7 +26,8 @@
 | `menuItem` | `title`* `icon` `action` | 菜单项（数据对象，给 ListView 的 menu / itemMenu 用） |
 | `sparkline` | `data`* `height`=1 `glyphStyle`=block `showLast`=true `tone`=accent | 迷你趋势图 |
 | `progressRow` | `label` `value`* `total`=100 `unit`=% | 一行进度（覆盖基础 kit：musicxx 默认按百分比显示数值） |
-| `scroll` | `children`* `height` `padding` | 可滚动区域（浮层/页面里让长列表自己滚，头部与底部留在外面不动；给 height 就固定高度，不给就填满外层剩下的高度） |
+| `dirListView` | `path` `items`* `multi`=false `showPath`=true `pathAction` `itemAction` `selectAction` `height` `emptyText` | 目录列表：一层目录的条目 + 顶部路径行（可点“上一级”）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表） |
+| `adaptLayout` | `columnBody`* `rowBody`* `columnSecondBody` `rowSecondBody` `rowBodyRatio`=0.5 `columnBodyRatio`=0.5 `enableAnimations`=false | 按窗口宽高比切换两套内容：竖屏（宽高比 < 1）用 columnBody、横屏用 rowBody；给了第二套就按比例分两栅；不认识它的客户端用 rowBody |
 | `settingRow` | `title`* `depict` `value` `action` | 设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号） |
 | `switchRow` | `id`* `title`* `depict` `value` `action` | 开关行：标题 + 说明 + 右侧开关（不带底色，值变化即派发动作、参数带 id 与当前值） |
 | `inputRow` | `id`* `title`* `depict` `value` `multiline`=false `action` | 输入行：标题 + 说明 + 输入框（不带底色，输入完成即派发动作） |

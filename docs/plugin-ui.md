@@ -190,15 +190,16 @@ capability(*this, "plugin.my_plugin.settings",
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
-| `Scroll` | `height`、`padding`、`children` | 自己滚的容器：给 `height` 就固定高度，不给就**填满父给的可用高度**（父必须是有界区域，典型写法是 `Expanded`）。要“上边常驻 + 中间列表自己滚 + 底部常驻”就按 §2.5 写 |
 | `SizedBox` | `width`、`height`、`aspect`、`children` | 固定尺寸或占位 |
 | `Padding` | `padding`、`children` | 内边距 |
 | `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
 | `Badge` / `Progress` | 见库文档 | 状态小标签 / 进度条 |
 | `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`/`password`）、`id`、`label`、`help`、`value`、`options`、`multiline`、`disabled`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值）。`text`/`number`/`password` 用应用自己的输入框：**回车或失焦才派发**（不是逐字派发），`password` 默认遮住（右侧有眼睛按钮），纯文本降级固定打码；`select` 候选项只有一行标题（要“标题 + 多行描述”就用浮层的 `picker`） |
-| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条** |
+| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, path?, isDir?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
+| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（对应应用内置的 `DirList`）—— 一层目录的条目 + 顶部路径行（给了 `pathAction` 就是可点的“上一级”）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，变化派发 `selectAction`）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；不认识的客户端退成普通列表文本 |
+| `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
 规则（解析层规则，与库文档一致）：
@@ -290,26 +291,32 @@ capability(*this, "plugin.my_plugin.settings",
 
 ### 2.3.3 列表块（`ListViewBase` / `ListView`）
 
-列表项是**数据**（不是块）：没有 `kind`，不能放子块。两个块用同一套列表项：
+列表项一般是**数据**（没有 `kind`）；写了 `custom` 时它的内容是块。两个块用同一套列表项：
 
 ```jsonc
 { "id": "weekly", "title": "每周新歌", "subtitle": "每周一更新", "trailing": "12 首",
   "image": "cover", "icon": "resource/svg/star.svg", "tone": "hint", "selected": false,
   "action": "openPlaylist" }
+// 自定义整项内容：写了 custom 就不再画 title / subtitle / trailing / 前置图标
+{ "id": "row-1", "action": "openRow",
+  "custom": [ { "kind": "Row", "children": [ /* 任意块 */ ] } ] }
 ```
 
 | 字段 | 说明 |
 |---|---|
 | `id` | 稳定标识：列表相关动作的参数里会带 `itemId`（编辑保存、批量删除靠它认出是哪一项） |
-| `title` | 主标题（必填） |
+| `title` | 主标题（必填；写了 `custom` 时可以不写） |
+| `custom` | 整项内容（任意块数组）：写了就**只画它**（行尾自动插入的编辑 / 多选 / 拖拽按钮不受影响） |
 | `subtitle` / `trailing` | 副标题（说明字号）/ 右侧状态文字 |
 | `image` | 前置图片：`cover`（当前歌曲封面）或相对插件目录的路径 |
 | `icon` | 前置图标（插件自带的 svg，相对插件目录）；与 `image` 同时给时 `image` 优先 |
 | `tone` | 主标题语义色 |
 | `selected` | 是否高亮（**只由插件给的数据决定**，客户端不做点击自动高亮） |
+| `path` / `isDir` | 这一项对应的路径 / 身份与“是不是目录项”（目录列表用它，动作参数里原样回带） |
 | `action` | 点这一项派发的动作（不给就用块上的 `itemAction`） |
 
-所有列表动作的参数里都会带上：`listId`（块 id）、`index`、`itemId`、`item`（整项快照）。
+所有列表动作的参数里都会带上：`listId`（块 id）、`index`、`itemId`、`item`（整项快照，含 `path` / `isDir`）。
+目录列表块（`musicxx.DirListView`）把这些直接放在参数顶层（`path` / `isDir`），勾选框那个动作另带 `selected`。
 
 `ListView` 的字段与工具条一一对应：
 
@@ -354,7 +361,8 @@ const kit = pluginxx.ui.kit;
 
 // env 是客户端能力段（取页面时主程序会放进参数：args.ui）；不传 = 中立描述，由客户端适配
 kit.listRow({ title: "切歌次数", trailing: "3" }, env);
-kit.scroll({ children: rows }, env);          // 自己滚的那一块（见 §2.5.1）
+kit.dirListView({ path: "/Music", items: entries, itemAction: "browse", multi: true }, env);
+kit.adaptLayout({ columnBody: portrait, rowBody: landscape }, env);
 kit.settingRow({ title: "背景动画速率", depict: "改完立即生效", value: "1x" }, env);
 kit.switchRow({ id: "skipAds", title: "跳过广告曲目", value: true, action: "setSkipAds" }, env);
 kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env);
@@ -369,9 +377,9 @@ blocks.push_back(pluginxx::ui::dumpItem(row));   // 序列化成 JSON 块
 ```
 
 kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hint` / `text` / `badge` / `icon` /
-`gap` / `divider` / `button` / `actionsRow` / `card` / `scroll` / `listRow` / `section` / `kv` / `table` /
-`tree` / `sparkline` / `progressRow` / `settingRow` / `switchRow` / `inputRow` / `shaderBlock` /
-`coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
+`gap` / `divider` / `button` / `actionsRow` / `card` / `dirListView` / `adaptLayout` / `listRow` /
+`section` / `kv` / `table` / `tree` / `sparkline` / `progressRow` / `settingRow` / `switchRow` /
+`inputRow` / `shaderBlock` / `coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
 - kit 只做**拼装**，不含逻辑、不写死客户端的规则；需要按格对齐时用 `kit.cols(n, env)` / `kit.rows(n, env)`；
 - **kit 随插件目录分发**（插件框架不提供）：`tools/sync_ui_kit.ps1` 会把两个 kit 文件复制进 JS 插件目录，
@@ -406,38 +414,43 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   **固定宽度的 `SizedBox`**（例如 190 个 `u`，与开关自身宽度相当）；"几选一"优先用一排 `Button` 块
   （每个块各自声明 `{id, value}` 参数、当前项用 `variant: "primary"` 高亮），不要用 `Control(buttons)`。
 
-#### 2.5.1 常驻头部 + 自己滚的中间 + 常驻底部
+#### 2.5.1 常驻头部 + 自己滚的中间 + 常驻底部（列表项 `custom`）
 
 默认情况下**整个页面一起滚**（内容再多也不会溢出）。要让上边的目录/按钮/筛选、下边的确认按钮
-留在原地，只让中间那一段滚，就写成**一个顶层 `Column`，把中间那块包到 `Expanded` 里**，中间的内容
-再放进 `Scroll`。
+留在原地，只让中间那一段滚，就写成**一个顶层 `Column`，把中间那块包到 `Expanded` 里**，
+中间放一个**列表块** —— 滚动区域只由列表块提供（描述层没有通用的滚动容器）。
 
-为什么不能直接用 `ListViewBase` / `ListView`：它们是**数据项列表**（`items` 是
-`{id, title, subtitle, trailing, image, icon, tone, selected, action}` 这种数据，不是块），
-里面放不进 `Control` 或自定义行；`header` / `footer` 虽然是块，但它们在列表内部、跟着列表一起滚。
-所以“头尾常驻 + 中间自己滚”只能用 `Scroll`（`Column` 能装任意块但不会滚）：
+- 中间是**目录 / 文件**：用 `musicxx.DirListView`（自带路径行与勾选框）；
+- 中间是**任意内容**（筛选条、若干设置组、自定义行）：用 `ListViewBase`，每一项写 `custom` ——
+  `custom` 是这个列表项的**整项内容**（任意块），行尾自动插入的编辑 / 多选 / 拖拽按钮不受影响。
+  一段内容就是一项，几段内容就几项（行与行之间由 `ListViewBase` 自己排版）。
 
 ```jsonc
 { "kind": "Column", "children": [
     { "kind": "Text", "text": "常驻在顶部的内容" },
     { "kind": "Expanded", "children": [
-        { "kind": "Scroll", "children": [ /* 条目很多的行，自己滚 */ ] } ] },
+        { "kind": "ListViewBase", "items": [
+            { "custom": [ /* 这一段很长，列表自己滚 */ ] },
+            { "custom": [ /* 另一段 */ ] } ] } ] },
     { "kind": "Button", "label": "常驻在底部的按钮", "action": "apply" } ] }
 ```
 
 规则（主程序按这个形状判断，浮层与插件页面都一样）：
 
-- 触发条件只有两种：**顶层直接写 `Expanded`**，或者**顶层只有一个 `Column` 且它里面写了 `Expanded`**；
-  其它写法保持原来的"整页一起滚"，不会因为忘了写 `Expanded` 而溢出；
+- 触发“填满高度”的条件有三种：**顶层直接写 `Expanded`**、**顶层直接写 `musicxx.AdaptLayout`**，
+  或者**顶层只有一个 `Column` 且它里面有 `Expanded` / `musicxx.AdaptLayout`**；其它写法保持
+  “整页一起滚”，不会因为忘了写 `Expanded` 而溢出；
 - 这种描述要求客户端给**有界高度**：插件页面与浮层内容区都给了（浮层建议用
   `size: "fullHeightAutoWidth"` 打开，见 §2.7）；对话框那种自由高度里客户端会退回普通排布；
-- `Scroll` 不给 `height` 就是"填满父给的可用高度"；写了 `height` 就固定那个高度（不依赖父容器）；
-- 不给高度的 `Scroll` 如果落在**没有可用高度**的地方（例如整页滚动里），客户端不套滚动视图、
-  直接把内容铺开 —— 不会报错，但也不滚；
+- 列表块的 `height` 不给 = 跟随父给的可用高度（放在 `Expanded` 里时自己滚）；写了 `height` 就
+  固定那个高度（不依赖父容器）；
+- 列表块落在**没有可用高度**的地方（例如整页滚动里）时按内容高度铺开 —— 不报错，滚的只有页面；
+- `musicxx.AdaptLayout` 靠“按窗口宽高比选一套 + 分两栅”工作，需要客户端给出可用尺寸：顶层直接
+  写它时主程序会把它放进 `Expanded`；把它塞进 `Block` / 行内时只画当前该显示的那一套（不报错，
+  也不会切换布局）；
 - **固定部分会吃掉窗口高度**：头部与底部不会缩放，窗口很矮（桌面拉到几百像素高）时它们自己就可能
-  超出内容区（客户端不会自动改回整页滚）。所以头部只放必要的几行；需要兼顾极矮窗口的页面，
-  把头部也放进 `Scroll`、只留底部常驻；
-- **kit 模板**：`kit.scroll({children: [...]})` 就是这一块（可选 `height` / `padding`）。
+  超出内容区（客户端不会自动改回整页滚）。所以头部只放必要的几行；
+- **kit 模板**：`kit.dirListView({path, items, itemAction})`、`kit.adaptLayout({columnBody, rowBody})`。
 
 ### 2.6 页面之间的跳转与刷新
 

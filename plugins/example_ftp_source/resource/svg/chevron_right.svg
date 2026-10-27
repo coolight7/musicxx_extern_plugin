@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-     stroke="#7c8b9a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <!-- 右箭头：表示"进入这个文件夹"（颜色由客户端按 tone 单色重画） -->
-  <path d="m9 5 7 7-7 7"/>
-</svg>
