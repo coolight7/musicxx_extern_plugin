@@ -9,7 +9,9 @@
  * 写法上的几条约定（照 docs/plugin-ui.md）：
  * - 用随插件分发的 kit（`pluginxx.ui.kit`）拼常用行，别手拼同样的结构；
  * - 状态不放在界面里：视图由 `plugin.js` 的当前状态生成，控件的动作只报"哪个控件、什么值"；
- * - 行内的勾选框放在固定宽度的 `SizedBox` 里（宽度无界时勾选框的布局随客户端而异）。
+ * - 勾选框放在右边（与 kit 的 `switchRow` 同一个位置、同样固定宽度）；
+ * - 浏览页是"上边常驻 + 中间滚动列表 + 底部常驻按钮"：外层一个 `Column`，列表那一块
+ *   包在 `Expanded` 里放进 `Scroll`（浮层按全高打开，见 plugin.js 的 `addSong`）。
  */
 
 var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
@@ -105,9 +107,9 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
 
   /// 一个文件 / 目录行
   ///
-  /// - 目录：整行可点（进入），右侧写"文件夹"；
-  /// - 文件：左侧固定宽度的勾选框 + 名称与大小，整行也能点（等于勾上 / 取消）。
-  function entryRow(entry, selected, index) {
+  /// - 目录：整行可点（进入），右侧一个右箭头图标；
+  /// - 文件：名称与大小在左，勾选框在右（整行也能点，等于勾上 / 取消）。
+  function entryRow(entry, selected, index, env) {
     var k = kit();
     if (entry.isDir) {
       return {
@@ -129,7 +131,9 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
                 { kind: "Text", text: "文件夹", type: "caption", tone: "hint" }
               ]
             }]
-          }, { kind: "Text", text: "进入", type: "caption", tone: "hint" }]
+          },
+          // 右箭头（插件目录里的 resource/svg/chevron_right.svg；取不到就退回文字 ">"）
+          k.icon({ name: "chevron_right", glyph: ">", size: 30 }, env) ]
         }]
       };
     }
@@ -148,6 +152,13 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         gap: 12,
         cross: "center",
         children: [{
+          kind: "Expanded",
+          children: [{
+            kind: "Column",
+            gap: 2,
+            children: [{ kind: "Text", text: entry.name }].concat(detail)
+          }]
+        }, {
           kind: "SizedBox",
           width: CHECKBOX_WIDTH,
           children: [{
@@ -160,13 +171,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
               name: "browse",
               args: { op: "select", path: entry.path }
             }
-          }]
-        }, {
-          kind: "Expanded",
-          children: [{
-            kind: "Column",
-            gap: 2,
-            children: [{ kind: "Text", text: entry.name }].concat(detail)
           }]
         }]
       }]
@@ -385,75 +389,80 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
   ns.browseView = function (view) {
     var env = view.env || null;
     var k = kit();
-    var blocks = [];
 
     if (!view.configured) {
-      blocks.push(k.hint({ text: "还没有配置 FTP 账号：先填服务器地址、用户名与密码。" }, env));
-      blocks.push(k.button({
-        label: "去配置账号",
-        variant: "primary",
-        action: { kind: "dispatch", name: "accounts", args: { op: "edit", from: "browse" } }
-      }, env));
-      return { title: "添加 FTP 歌曲", blocks: blocks };
+      return {
+        title: "添加 FTP 歌曲",
+        blocks: [
+          k.hint({ text: "还没有配置 FTP 账号：先填服务器地址、用户名与密码。" }, env),
+          k.button({
+            label: "去配置账号",
+            variant: "primary",
+            action: { kind: "dispatch", name: "accounts", args: { op: "edit", from: "browse" } }
+          }, env)
+        ]
+      };
     }
 
-    blocks.push(k.hint({
-      text: "服务器 " + view.account.host + ":" + view.account.port +
-        (view.account.user ? "（" + view.account.user + "）" : "（匿名）")
-    }, env));
-    blocks.push(k.text({ text: "当前目录：" + view.path }, env));
+    // 上边常驻：服务器、当前目录、操作按钮、筛选（滚列表时它们不动）
+    var header = [
+      k.hint({
+        text: "服务器 " + view.account.host + ":" + view.account.port +
+          (view.account.user ? "（" + view.account.user + "）" : "（匿名）")
+      }, env),
+      k.text({ text: "当前目录：" + view.path }, env),
+      k.actionsRow({
+        buttons: [
+          k.button({
+            label: "上一级",
+            disabled: view.path === "/",
+            action: { kind: "dispatch", name: "browse", args: { op: "up" } }
+          }, env),
+          k.button({
+            label: "刷新",
+            action: { kind: "dispatch", name: "browse", args: { op: "refresh" } }
+          }, env),
+          k.button({
+            label: "账号",
+            variant: "ghost",
+            action: { kind: "dispatch", name: "accounts", args: { op: "edit", from: "browse" } }
+          }, env)
+        ]
+      }, env),
+      controlRow({
+        id: "keyword",
+        control: "text",
+        title: "按名称筛选",
+        depict: "在当前目录里筛选；回车或离开输入框后生效",
+        value: view.keyword,
+        action: { kind: "dispatch", name: "browse", args: { op: "keyword" } }
+      }, env),
+      k.switchRow({
+        id: "audioOnly",
+        title: "只看音频文件",
+        depict: "隐藏 .txt / .jpg 这类文件；文件夹始终显示",
+        value: view.audioOnly,
+        action: { kind: "dispatch", name: "browse", args: { op: "audioOnly" } }
+      }, env),
+      k.divider({}, env)
+    ];
 
-    blocks.push(k.actionsRow({
-      buttons: [
-        k.button({
-          label: "上一级",
-          disabled: view.path === "/",
-          action: { kind: "dispatch", name: "browse", args: { op: "up" } }
-        }, env),
-        k.button({
-          label: "刷新",
-          action: { kind: "dispatch", name: "browse", args: { op: "refresh" } }
-        }, env),
-        k.button({
-          label: "账号",
-          variant: "ghost",
-          action: { kind: "dispatch", name: "accounts", args: { op: "edit", from: "browse" } }
-        }, env)
-      ]
-    }, env));
-
-    blocks.push(controlRow({
-      id: "keyword",
-      control: "text",
-      title: "按名称筛选",
-      depict: "在当前目录里筛选；回车或离开输入框后生效",
-      value: view.keyword,
-      action: { kind: "dispatch", name: "browse", args: { op: "keyword" } }
-    }, env));
-    blocks.push(k.switchRow({
-      id: "audioOnly",
-      title: "只看音频文件",
-      depict: "隐藏 .txt / .jpg 这类文件；文件夹始终显示",
-      value: view.audioOnly,
-      action: { kind: "dispatch", name: "browse", args: { op: "audioOnly" } }
-    }, env));
-    blocks.push(k.divider({}, env));
-
+    // 中间：目录内容自己滚（条目多时只滚这一块）
+    var rows = [];
     if (view.error) {
-      blocks.push(k.text({ text: view.error, tone: "error" }, env));
+      rows.push(k.text({ text: view.error, tone: "error" }, env));
     }
-
     if (!view.entries.length) {
-      blocks.push(k.hint({
+      rows.push(k.hint({
         text: view.error ? "没有读到目录内容。" : "这个目录里没有符合条件的条目。"
       }, env));
     } else {
       for (var i = 0; i < view.entries.length; i++) {
         var entry = view.entries[i];
-        blocks.push(entryRow(entry, view.selected[entry.path], i));
+        rows.push(entryRow(entry, view.selected[entry.path], i, env));
       }
       if (view.total > view.entries.length) {
-        blocks.push(k.button({
+        rows.push(k.button({
           label: "再显示 " + Math.min(50, view.total - view.entries.length) + " 项（共 " +
             view.total + " 项）",
           variant: "ghost",
@@ -462,30 +471,38 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       }
     }
 
-    blocks.push(k.divider({}, env));
+    // 下边常驻：添加 / 播放与当前状态
+    var footer = [k.divider({}, env)];
     if (view.pid) {
-      blocks.push(k.button({
+      footer.push(k.button({
         label: "添加 " + view.selectedCount + " 首到『" + (view.playlistName || view.pid) + "』",
         variant: "primary",
         disabled: view.selectedCount <= 0 || !!view.busy,
         action: { kind: "dispatch", name: "browseAdd", args: {} }
       }, env));
     }
-    blocks.push(k.button({
+    footer.push(k.button({
       label: "播放选中的第一首",
       disabled: view.selectedCount <= 0 || !!view.busy,
       action: { kind: "dispatch", name: "browsePlay", args: {} }
     }, env));
     if (view.busy) {
-      blocks.push(k.hint({ text: "正在处理，请稍等…" }, env));
+      footer.push(k.hint({ text: "正在处理，请稍等…" }, env));
     }
     if (view.selectedCount > 0) {
-      blocks.push(k.hint({ text: "已选 " + view.selectedCount + " 首（同一路径重复添加会被去重）。" }, env));
+      footer.push(k.hint({ text: "已选 " + view.selectedCount + " 首（同一路径重复添加会被去重）。" }, env));
     }
 
     return {
       title: view.pid ? ("添加歌曲到『" + (view.playlistName || view.pid) + "』") : "添加 FTP 歌曲",
-      blocks: blocks
+      // 单个顶层 Column：头部与底部常驻，中间的 Scroll 自己滚（主程序看到 Expanded 就不整页滚）
+      blocks: [{
+        kind: "Column",
+        children: header.concat([{
+          kind: "Expanded",
+          children: [{ kind: "Scroll", children: rows }]
+        }]).concat(footer)
+      }]
     };
   };
 })(FtpSource);

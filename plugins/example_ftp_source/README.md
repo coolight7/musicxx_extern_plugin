@@ -89,8 +89,13 @@ src  = <账号指纹>/<FTP 绝对路径去掉开头 />
 ```
 
 点它时主程序把当前歌单的 `pid` / `name` / `songNum` 合进动作参数，然后执行
-`musicxx.ui.openOverlaySheet`：打开这个插件视图的底部浮层，**等用户关掉浮层才返回**（所以歌单页能
-在 `await` 之后刷新列表）。
+`musicxx.ui.openOverlaySheet`：打开这个插件视图的底部浮层（`size: "fullHeightAutoWidth"`，全高），
+**等用户关掉浮层才返回**（所以歌单页能在 `await` 之后刷新列表）。
+
+浮层的形状是"上边常驻 + 中间自己滚 + 底部常驻"：外层一个 `Column`，目录、上一级/刷新/账号、
+筛选与"只看音频"留在顶部，条目列表包在 `Expanded` → `Scroll` 里自己滚，
+加入歌单 / 播放按钮留在底部（写法见包内 `docs/plugin-ui.md` §2.5.1）。
+文件夹行右侧是箭头图标（`resource/svg/chevron_right.svg`），文件行的勾选框在右侧。
 
 浮层里的交互都走 `browse` 能力（每次返回新视图）：
 

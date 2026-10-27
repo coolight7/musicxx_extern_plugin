@@ -2,7 +2,7 @@
 // 定义来源：schema/ui.def.json / schema/kit.def.json；扩展 kit 定义：schema/musicxx-ui-kit.def.json
 #pragma once
 
-// kit：共享便捷组件。只装配、不含逻辑，也不引用客户端专属块。
+// kit：共享便捷组件。只加载、不含逻辑，也不引用客户端专属块。
 // 参数用 utilxx_base::Json 传（对象），键即组件参数名：
 //   musicxx::ui::kit::listRow({{"title", "切歌次数"}, {"trailing", "3"}})
 // 传 env（客户端能力摘要）时按目标选择更合适的变体；不传 env 时产出中立描述，
@@ -66,6 +66,8 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
          R"KIT({"variants":[{"template":{"kind":"Sparkline","data":"$data","height":"$height","glyphStyle":"$glyphStyle","showLast":"$showLast","tone":"$tone"}}],"params":{"data":null,"height":1,"glyphStyle":"block","showLast":true,"tone":"accent"}})KIT"},
         {"progressRow",
          R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"cross":"center","children":[{"$require":"label","kind":"Text","text":"$label"},{"kind":"Expanded","children":[{"kind":"Progress","value":"$value","total":"$total","unit":"$unit"}]}]}}],"params":{"label":null,"value":null,"total":100,"unit":"%"}})KIT"},
+        {"scroll",
+         R"KIT({"variants":[{"template":{"kind":"Scroll","height":"$height","padding":"$padding","children":"$children"}}],"params":{"children":null,"height":null,"padding":null}})KIT"},
         {"settingRow",
          R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"}]}]},{"$require":"value","kind":"Text","text":"$value","type":"caption","tone":"hint"}]}]}}],"params":{"title":null,"depict":null,"value":null,"action":null}})KIT"},
         {"switchRow",
@@ -284,6 +286,15 @@ inline pluginxx::ui::Item progressRow(
     const pluginxx::ui::Capabilities* env = nullptr
 ) {
     return pluginxx::ui::detail::expandKit("progressRow", params, env, &kitTemplate);
+}
+
+/// 可滚动区域（浮层/页面里让长列表自己滚，头部与底部留在外面不动；给 height 就固定高度，不给就填满外层剩下的高度）
+/// 参数：children(items, 必填)、height(size)、padding(edges)
+inline pluginxx::ui::Item scroll(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("scroll", params, env, &kitTemplate);
 }
 
 /// 设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号）

@@ -8,7 +8,29 @@
 
 ## 未发布
 
-### 新增：「添加歌曲」入口类型 `musicxx.ui.addsong.entry`
+### 新增：界面描述层 `Scroll` 块（上边常驻 + 中间自己滚 + 底部常驻）
+
+`Scroll` 是一个**自己滚的容器**：给 `height` 就固定高度，不给就填满父给的可用高度。
+配合 `Expanded` 就能写出"头部与底部常驻、只有中间那一段滚"的页面（以前只能整页一起滚）：
+
+```jsonc
+{ "kind": "Column", "children": [
+    /* 顶部常驻：目录、操作按钮、筛选 */
+    { "kind": "Expanded", "children": [
+        { "kind": "Scroll", "children": [ /* 条目很多，自己滚 */ ] } ] },
+    /* 底部常驻：确认按钮 */ ] }
+```
+
+- 触发"填满高度"的写法只有两种：顶层直接写 `Expanded`，或顶层只有一个 `Column` 且它里面写了
+  `Expanded`；其它写法保持原来的整页滚动；
+- 这种描述要求客户端给有界高度：插件页面与浮层内容区都给了（浮层建议 `size: "fullHeightAutoWidth"`），
+  对话框那种自由高度里客户端退回普通排布；
+- 不给高度的 `Scroll` 落在没有可用高度的地方时，客户端不套滚动视图、直接把内容铺开（不报错，也不滚）；
+- kit 模板 `kit.scroll({children})`（可选 `height` / `padding`）；`MUSICXX_PLUGIN_UI_CAP_BLOCKS`
+  能力段里要声明 `Scroll`，老客户端不认识时按 `flatten` 展开子节点（滚动没有了，内容不丢）。
+- 说明见 `docs/plugin-ui.md` §2.5.1，字段见库文档 `docs/ui-schema.md`。
+
+
 
 歌曲列表页 [+] → 「添加歌曲」弹窗里现在有插件的位置：注册一个 `addsong.entry` 项即可出现在
 **内置来源之后**、工具项之前。点击时动作参数会带上当前歌单的 `pid` / `name` / `songNum`。

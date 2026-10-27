@@ -190,6 +190,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
+| `Scroll` | `height`、`padding`、`children` | 自己滚的容器：给 `height` 就固定高度，不给就**填满父给的可用高度**（父必须是有界区域，典型写法是 `Expanded`）。要“上边常驻 + 中间列表自己滚 + 底部常驻”就按 §2.5 写 |
 | `SizedBox` | `width`、`height`、`aspect`、`children` | 固定尺寸或占位 |
 | `Padding` | `padding`、`children` | 内边距 |
 | `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
@@ -353,6 +354,7 @@ const kit = pluginxx.ui.kit;
 
 // env 是客户端能力段（取页面时主程序会放进参数：args.ui）；不传 = 中立描述，由客户端适配
 kit.listRow({ title: "切歌次数", trailing: "3" }, env);
+kit.scroll({ children: rows }, env);          // 自己滚的那一块（见 §2.5.1）
 kit.settingRow({ title: "背景动画速率", depict: "改完立即生效", value: "1x" }, env);
 kit.switchRow({ id: "skipAds", title: "跳过广告曲目", value: true, action: "setSkipAds" }, env);
 kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env);
@@ -367,7 +369,7 @@ blocks.push_back(pluginxx::ui::dumpItem(row));   // 序列化成 JSON 块
 ```
 
 kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hint` / `text` / `badge` / `icon` /
-`gap` / `divider` / `button` / `actionsRow` / `card` / `listRow` / `section` / `kv` / `table` /
+`gap` / `divider` / `button` / `actionsRow` / `card` / `scroll` / `listRow` / `section` / `kv` / `table` /
 `tree` / `sparkline` / `progressRow` / `settingRow` / `switchRow` / `inputRow` / `shaderBlock` /
 `coverRow`（参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
@@ -403,6 +405,31 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   的位置时行为随客户端实现而异（历史上出现过 `RenderFlex ... unbounded` 的断言）。稳妥写法是给它一个
   **固定宽度的 `SizedBox`**（例如 190 个 `u`，与开关自身宽度相当）；"几选一"优先用一排 `Button` 块
   （每个块各自声明 `{id, value}` 参数、当前项用 `variant: "primary"` 高亮），不要用 `Control(buttons)`。
+
+#### 2.5.1 常驻头部 + 自己滚的中间 + 常驻底部
+
+默认情况下**整个页面一起滚**（内容再多也不会溢出）。要让上边的目录/按钮/筛选、下边的确认按钮
+留在原地，只让中间那一段滚，就写成**一个顶层 `Column`，把中间那块包到 `Expanded` 里**，中间的内容
+再放进 `Scroll`：
+
+```jsonc
+{ "kind": "Column", "children": [
+    { "kind": "Text", "text": "常驻在顶部的内容" },
+    { "kind": "Expanded", "children": [
+        { "kind": "Scroll", "children": [ /* 条目很多的行，自己滚 */ ] } ] },
+    { "kind": "Button", "label": "常驻在底部的按钮", "action": "apply" } ] }
+```
+
+规则（主程序按这个形状判断，浮层与插件页面都一样）：
+
+- 触发条件只有两种：**顶层直接写 `Expanded`**，或者**顶层只有一个 `Column` 且它里面写了 `Expanded`**；
+  其它写法保持原来的"整页一起滚"，不会因为忘了写 `Expanded` 而溢出；
+- 这种描述要求客户端给**有界高度**：插件页面与浮层内容区都给了（浮层建议用
+  `size: "fullHeightAutoWidth"` 打开，见 §2.7）；对话框那种自由高度里客户端会退回普通排布；
+- `Scroll` 不给 `height` 就是"填满父给的可用高度"；写了 `height` 就固定那个高度（不依赖父容器）；
+- 不给高度的 `Scroll` 如果落在**没有可用高度**的地方（例如整页滚动里），客户端不套滚动视图、
+  直接把内容铺开 —— 不会报错，但也不滚；
+- **kit 模板**：`kit.scroll({children: [...]})` 就是这一块（可选 `height` / `padding`）。
 
 ### 2.6 页面之间的跳转与刷新
 

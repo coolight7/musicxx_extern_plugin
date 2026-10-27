@@ -892,7 +892,9 @@ musicxx.ui.registerEntry({
             name: "musicxx.ui.openOverlaySheet",
             args: {
                 route: "ext://" + PLUGIN_ID + "/browse",
-                title: "添加FTP歌曲"
+                title: "添加FTP歌曲",
+                // 全高：目录、按钮、筛选常驻在顶部，中间的列表自己滚（见 ui.js 的 browseView）
+                size: "fullHeightAutoWidth"
             }
         }
     }
