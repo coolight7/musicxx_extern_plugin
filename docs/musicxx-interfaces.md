@@ -301,9 +301,9 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 |---|---|
 | 应用前后台（2） | `musicxx.app.foreground` / `background`（与 `window.foreground` / `window.background` 同一份实现） |
 | 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
-| 歌单与歌曲（4） | `musicxx.library.querySonglists` / `querySongs` / `playSong` / `playSonglist` |
+| 歌单与歌曲（5） | `musicxx.library.querySonglists` / `querySongs` / `playSong` / `playSonglist`；`musicxx.playlist.addSong`（往一张歌单里加歌） |
 | 歌词（1） | `musicxx.lyrics.getCurrent` |
-| 提示、弹层与页面（6） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openRoute` |
+| 提示、弹层与页面（7） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openOverlaySheet` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
 | 插件私有存储（4） | `musicxx.storage.get` / `set` / `delete` / `list` |
 | 网络（2，保留） | `musicxx.net.fetch` / `net.download`（老插件直接调动作时用；JS 封装与新建插件走插件框架自带的 `musicxx.net` 表） |

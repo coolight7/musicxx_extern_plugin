@@ -364,7 +364,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 |---|---|
 | `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
-| `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)` |
+| `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)`（改歌单内容用 `musicxx.call("musicxx.playlist.addSong", …)`，没有单独封装） |
 | `musicxx.lyrics` | `getCurrent()` |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
@@ -372,7 +372,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent(fn)` `http.*` `socket.*` `ws.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
-| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)` `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()` |
+| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)` `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`，没有单独封装） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
 **动作清单**（每个动作做什么、参数与返回、失败情形与示例）在 [plugin-api.md](plugin-api.md) §3.2；
@@ -380,7 +380,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 - **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
-  `musicxx.player.setMediaType`、`musicxx.library.querySonglist` / `addSong` /
+  `musicxx.player.setMediaType`、`musicxx.library.querySonglist` /
   `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` / `set` /
   `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` —— 写插件前先按
   [plugin-api.md](plugin-api.md) §3.3 确认一遍；
@@ -499,6 +499,11 @@ musicxx.net.socket.on("data", (e) => {
 const tcpServer = musicxx.net.socket.listen({ port: 0 });
 musicxx.net.socket.connect({ id: "c1", host: "127.0.0.1", port: tcpServer.port });
 musicxx.net.socket.send("c1", "ping");
+
+// 转发大流量时的背压：发送队列长了就暂停上游读，缓过来再恢复
+musicxx.net.socket.send({ id: "c1", dataBase64: "AAECAw==" });   // → {ok, queuedBytes}
+musicxx.net.socket.pause("c1", true);                            // 暂停（不再有 data 事件）
+musicxx.net.socket.pause("c1", false);                           // 恢复
 
 /* WebSocket */
 musicxx.net.ws.on("message", (e) => {
@@ -999,6 +1004,22 @@ musicxx.util.urlDecode("a%20b");      // "a b"
 musicxx.util.json;                    // JSON 对象（stringify / parse）
 musicxx.util.now();                   // Date.now()
 ```
+
+文本编码与 base64（同步返回，原生 iconv / base64）：
+
+```js
+musicxx.util.textEncode({ text: "中文", encoding: "gbk" });   // {ok, base64, bytes}
+musicxx.util.textDecode({ base64: chunks, encoding: "gbk" });  // {ok, text, bytes}（base64 可给数组）
+musicxx.util.base64Encode({ text: "abc" });                     // {ok, base64:"YWJj"}
+musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc"}
+```
+
+- 给 FTP / 局域网共享这类非 UTF-8 协议用：QuickJS 没有 `TextDecoder`，转换在原生层做；
+  编码名交给 iconv（`utf-8` / `gbk` / `gb18030` / `big5` …）；
+- `base64` 传**字符串数组**时会先拼字节再转编码（socket 的 data 事件是分片的，
+  直接拼 base64 文本会因 padding 出错）；
+- 失败是 `{ok:false, error:"bad_encoding" | "bad_base64"}`，不抛异常；
+- 老版本插件框架没有这四个函数：先看 `typeof musicxx.util.textDecode === "function"`。
 
 - 定时器由插件框架按实例管理，插件停用 / 卸载时自动清理；
 - 精度：插件框架按 ≤ 50 ms 的粒度轮询到期定时器，所以 `setTimeout(fn, 0)` 到实际执行之间可能有几十毫秒

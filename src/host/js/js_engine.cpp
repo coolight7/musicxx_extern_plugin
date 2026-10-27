@@ -15,6 +15,7 @@
 #include "pluginxx/runtime/instance_base.h"
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
+#include "utilxx_base/string_util.h"
 
 #include <asio/post.hpp>
 
@@ -233,6 +234,7 @@ var featurePointImpls = new Map();
     "home.entry": "musicxx.ui.home.entry",
     "song.action": "musicxx.ui.song.action",
     "playlist.action": "musicxx.ui.playlist.action",
+    "addsong.entry": "musicxx.ui.addsong.entry",
     "playing.background": "musicxx.ui.playing.background",
     "playing.icon": "musicxx.ui.playing.icon"
   };
@@ -1222,6 +1224,14 @@ var featurePointImpls = new Map();
         return netCall("socket.send", req);
       },
       close: function (id) { return netCall("socket.close", { id: String(id || "") }); },
+      /// 暂停 / 恢复读: {id, paused} → {ok, id, paused}
+      /// `paused: true` 之后这条连接不再给 data 事件（用于背压: 下游写不动时先暂停上游）
+      pause: function (id, paused) {
+        return netCall("socket.pause", {
+          id: String(id || ""),
+          paused: !(paused === false || paused === 0)
+        });
+      },
       stop: function (id) { return netCall("socket.serverStop", { id: String(id || "") }); },
       info: function () { return netCall("socket.info", {}); },
       /// on("connected"|"data"|"closed"|"accepted"|"listening"|"serverClosed", fn)
@@ -1572,6 +1582,20 @@ var featurePointImpls = new Map();
   };
 
   function pad2(value) { return value < 10 ? "0" + value : String(value); }
+
+  /// 编码转换与 base64（原生层: utilxx_base 的 iconv + base64）
+  ///
+  /// FTP / 局域网共享这类协议的名字常常不是 UTF-8，QuickJS 没有 TextDecoder，
+  /// 所以转换放到原生层做。都是**同步**返回（目录列表要当场解出文件名）。
+  function textCodecResult(text) {
+    var res = null;
+    try { res = JSON.parse(text || "{}"); } catch (e) { res = null; }
+    if (!res || typeof res !== "object") {
+      return { ok: false, error: "bad_result" };
+    }
+    return res;
+  }
+
   musicxx.util = {
     json: JSON,
     urlEncode: function (text) { return encodeURIComponent(String(text)); },
@@ -1584,7 +1608,45 @@ var featurePointImpls = new Map();
       return hours > 0 ? (hours + ":" + pad2(minutes) + ":" + pad2(seconds))
                        : (minutes + ":" + pad2(seconds));
     },
-    now: function () { return Date.now(); }
+    now: function () { return Date.now(); },
+
+    /// 文本 → 指定编码的 base64: {text, encoding?} → {ok, base64, bytes}
+    /// encoding 缺省 utf-8；`gbk` / `gb18030` / `big5` … 交给原生 iconv
+    textEncode: function (options) {
+      var o = (options && typeof options === "object") ? options : {};
+      var text = (o.text === undefined || o.text === null) ? "" : String(o.text);
+      var encoding = (typeof o.encoding === "string" && o.encoding) ? o.encoding : "utf-8";
+      return textCodecResult(ext.textEncode(text, encoding));
+    },
+
+    /// base64 字节（可以是字符串或字符串数组）→ UTF-8 文本: {base64, encoding?} → {ok, text}
+    /// 分片给数组时由原生层先拼字节再转编码（直接拼 base64 文本会因 padding 出错）
+    textDecode: function (options) {
+      var o = (options && typeof options === "object") ? options : {};
+      var chunks = o.base64;
+      if (!Array.isArray(chunks)) {
+        chunks = [(chunks === undefined || chunks === null) ? "" : String(chunks)];
+      }
+      var encoding = (typeof o.encoding === "string" && o.encoding) ? o.encoding : "utf-8";
+      return textCodecResult(ext.textDecode(JSON.stringify(chunks), encoding));
+    },
+
+    /// UTF-8 文本 → base64: {text} → {ok, base64}
+    base64Encode: function (options) {
+      var o = (options && typeof options === "object") ? options : {};
+      var text = (o.text === undefined || o.text === null) ? "" : String(o.text);
+      return textCodecResult(ext.textEncode(text, "utf-8"));
+    },
+
+    /// base64 → UTF-8 文本: {base64} → {ok, text}
+    base64Decode: function (options) {
+      var o = (options && typeof options === "object") ? options : {};
+      var chunks = o.base64;
+      if (!Array.isArray(chunks)) {
+        chunks = [(chunks === undefined || chunks === null) ? "" : String(chunks)];
+      }
+      return textCodecResult(ext.textDecode(JSON.stringify(chunks), "utf-8"));
+    }
   };
 
   /* ---- 插件框架回调入口 (native 在 JS 线程上调用) ---- */
@@ -2284,6 +2346,115 @@ JSValue jsPluginId(JSContext *ctx, JSValueConst, int /*argc*/,
   return JS_NewString(ctx, inst ? inst->id.c_str() : "");
 }
 
+/// 文本 → 指定编码的字节（base64）
+///
+/// 参数: (text, encoding) → `{"ok":true,"base64":"…"}` / `{"ok":false,"error":…}`。
+/// 编码名交给 `utilxx_base::convertCharset`（`utf-8` / `gbk` / `gb18030` …）。
+JSValue jsTextEncode(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  const char *text = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
+  const char *encoding = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+  const std::string source = text ? text : "";
+  const std::string target = (encoding && *encoding) ? encoding : "utf-8";
+  if (text) {
+    JS_FreeCString(ctx, text);
+  }
+  if (encoding) {
+    JS_FreeCString(ctx, encoding);
+  }
+
+  Json out = Json::object();
+  std::string bytes = source;
+  bool ok = true;
+  if (!utilxx_base::isIgnoreCaseEqual(target, "utf-8")) {
+    const auto converted =
+        utilxx_base::convertCharset(source, "utf-8", target);
+    ok = std::get<0>(converted);
+    if (ok && std::get<1>(converted).has_value()) {
+      bytes = *std::get<1>(converted);
+    } else if (!ok) {
+      ok = false;
+    }
+  }
+  if (!ok) {
+    out["ok"] = false;
+    out["error"] = "bad_encoding";
+  } else {
+    out["ok"] = true;
+    out["base64"] = utilxx_base::base64Encode(bytes);
+    out["bytes"] = static_cast<int64_t>(bytes.size());
+  }
+  const std::string json = out.dump();
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 指定编码的字节（base64 分片数组）→ UTF-8 文本
+///
+/// 参数: (chunksJson, encoding) → `{"ok":true,"text":"…"}`。
+/// `chunksJson` 是 base64 字符串的 JSON 数组：分片各自解码后拼字节再转编码
+/// （直接把 base64 文本拼起来会因为 padding 出错，所以由原生层拼字节）。
+JSValue jsTextDecode(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  const char *chunks = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
+  const char *encoding = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+  const std::string chunksJson = chunks ? chunks : "[]";
+  const std::string source = (encoding && *encoding) ? encoding : "utf-8";
+  if (chunks) {
+    JS_FreeCString(ctx, chunks);
+  }
+  if (encoding) {
+    JS_FreeCString(ctx, encoding);
+  }
+
+  Json out = Json::object();
+  const Json parsed = parseJsonSafe(chunksJson);
+  std::string bytes;
+  bool badBase64 = false;
+  if (parsed.is_array()) {
+    for (const auto &item : parsed) {
+      if (!item.is_string()) {
+        continue;
+      }
+      const auto decoded = utilxx_base::base64Decode(item.get<std::string>());
+      if (!decoded.has_value()) {
+        badBase64 = true;
+        break;
+      }
+      bytes.append(*decoded);
+    }
+  } else if (parsed.is_string()) {
+    const auto decoded = utilxx_base::base64Decode(parsed.get<std::string>());
+    if (decoded.has_value()) {
+      bytes = *decoded;
+    } else {
+      badBase64 = true;
+    }
+  }
+  if (badBase64) {
+    out["ok"] = false;
+    out["error"] = "bad_base64";
+  } else if (bytes.empty()) {
+    out["ok"] = true;
+    out["text"] = "";
+    out["bytes"] = int64_t{0};
+  } else if (utilxx_base::isIgnoreCaseEqual(source, "utf-8")) {
+    out["ok"] = true;
+    out["text"] = bytes;
+    out["bytes"] = static_cast<int64_t>(bytes.size());
+  } else {
+    const auto converted = utilxx_base::convertCharset(bytes, source, "utf-8");
+    if (!std::get<0>(converted)) {
+      out["ok"] = false;
+      out["error"] = "bad_encoding";
+    } else {
+      out["ok"] = true;
+      out["text"] = std::get<1>(converted).has_value() ? *std::get<1>(converted)
+                                                       : bytes;
+      out["bytes"] = static_cast<int64_t>(bytes.size());
+    }
+  }
+  const std::string json = out.dump();
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
 /// 装好 `__ext` 桥接对象 (返回值的所有权交给调用方 / JS_SetPropertyStr)
 JSValue buildBridgeObject(JSContext *ctx) {
   struct Entry {
@@ -2315,6 +2486,8 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"netCall", jsNetCall, 2},
       {"netCancel", jsNetCancel, 1},
       {"capabilityCall", jsCapabilityCall, 4},
+      {"textEncode", jsTextEncode, 2},
+      {"textDecode", jsTextDecode, 2},
       {"engineVersion", jsEngineVersion, 0},
       {"pluginId", jsPluginId, 0},
   };

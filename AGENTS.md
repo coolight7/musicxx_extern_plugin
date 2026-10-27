@@ -128,8 +128,8 @@ my_plugin/
 | 变量 | `musicxx.vars.get/set/bind/watch/peek` | 有属主、可读可写可订阅的小值；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
 | 事件 | `musicxx.events.subscribe/publish/unsubscribe` | 插件之间、插件与页面之间的小消息（官方主题如 `musicxx.state.changed`） |
 | 能力 | `musicxx.capability.register/call` | 自己的功能也能被别人调用；跨插件调用 JS→JS 直调、JS→原生投递（默认 3 s 超时） |
-| UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景 / 播放页歌曲图 |
-| 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`） |
+| UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / **「添加歌曲」弹窗的来源项**（`addsong.entry`）/ 播放页背景 / 播放页歌曲图 |
+| 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用动作 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
 | 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原）。**数值已经按帧归一并拉开过高低差，直接拿去渲染即可**，不要再自己抬增益、减底噪或取指数；确实要改对比度时按 `docs/plugin-shader-bundle.md` §7 的公式做（放大差异 `pow(v/m, k)`、缩小差异 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1） |
@@ -140,7 +140,7 @@ my_plugin/
 | 网络 | `musicxx.net.fetch/download`（= `http.fetch/download`） | 走**插件框架自己**的网络实现（不经过主程序）：支持 `http` / `https`（OpenSSL 静态链接，证书链与主机名校验默认开，可用 `tlsVerify`/`caFile`/`caPem`/`serverName`）；响应体流式读取，上限 16 MiB（默认 2 MiB）；下载边读边写入插件数据目录；**非 2xx 也算请求完成** |
 | 静态内容（把播放器打不开的东西变成 http 地址） | `musicxx.net.http.serve({staticOnly, static})` / `http.route` / `http.unroute` / `http.info` | 把本地文件或一段内容（≤ 8 MiB）挂成 `http://127.0.0.1:<端口>/f/<token>/<文件名>` 地址。**命中后由框架直接回答（200/206/416），不进 `http.request`**；支持 `GET` / `HEAD` + 单段 `Range`；`staticOnly` 让未命中的请求直接 404。只监听回环、路径里只有随机 token（服务端不解析路径）；服务与路由跟着插件实例关掉。**把播放器打不开的东西变成 HTTP** 就是靠它（本地文件、远程数据、FTP / 私有协议、HLS 分片、转码产物）|
 | 内置网络能力（JS 与动态库插件共用） | JS `musicxx.net.http/socket/ws`、C++ `musicxx.net` 表（`netCall` / `netCallAsync` / `netSubscribe`） | HTTP 与 WebSocket 的**客户端 + 服务端**、TCP 客户端与服务；跑在插件框架自己的网络线程上。**客户端支持 `http` / `https` / `ws` / `wss`**（TLS 静态链接 OpenSSL），**服务端只有明文**；服务端默认只监听 `127.0.0.1`（`host:"0.0.0.0"` 才暴露给同网段）；事件主题 `plugin.<插件id>.net`，**JS 侧直接投递到 JS 线程**（所以可以在返回 Promise 的能力里 `await`）。完整参数与上限见 `docs/plugin-api.md` §3.2.6，示例 `plugins/example_js_net` |
-| 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具 |
+| 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具（`textEncode` / `textDecode` 做 GBK 这类编码转换，同步返回） |
 | 界面提示 | `musicxx.ui.notify/toast/dialog/openRoute`、`musicxx.ui.setFontFamily` | 通知、弹窗、跳官方页面或插件页面、换全局字体 |
 | 统计 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测，不影响调度 |
 

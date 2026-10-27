@@ -264,6 +264,12 @@ typedef struct MusicxxPluginHostIface {
 #define MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION     "musicxx.ui.song.action"
 /// 歌单菜单项: data = {title, icon?, action?}
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
+/// 「添加歌曲」弹窗里的来源项 (歌曲列表页 [+] → 添加歌曲): data = {title, subtitle?, icon?, action?}
+///
+/// 点它时主程序会把当前歌单的上下文 (pid / name / songNum) 合进动作参数, 与歌单菜单项一致。
+/// 常见写法是把动作指向 `musicxx.ui.openOverlaySheet`, 由主程序打开一层浮层并等用户关掉
+/// (浮层内容是插件视图, 参数见 docs/plugin-api.md §3.2.4)。
+#define MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY "musicxx.ui.addsong.entry"
 /// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
 /// data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
 ///         args? (成员名 → 值表达式), cover? (封面纹理), image? (插件绑定的图片),
