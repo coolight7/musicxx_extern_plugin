@@ -468,7 +468,9 @@ musicxx.net.http.info();                                     // 每个服务带 
   没有就自己降级（例如直接返回本地路径 `kind:"file"`）。
 - 这套机制就是"代理"：用 `musicxx.net.fetch / download` 取到的数据也可以先落盘再 `route`（给
   `file`）、小内容直接给 `bytes`，播放器只看到干净的 `http://127.0.0.1:...`。
-  完整例子见 `plugins/example_override_media_source`（`plugin_proxy_local` 音源）。
+  完整例子见 `plugins/example_override_media_source`（`plugin_proxy_local` 音源）；要一个
+  "整个插件就是一个音源"（账号、目录浏览、加歌、播放全链路）的例子看
+  `plugins/example_ftp_source`（FTP：本机 HTTP 转流 + `socket.pause` 背压）。
 
 #### 内置网络能力（`musicxx.net.http / socket / ws`）
 

@@ -24,6 +24,7 @@
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
 | 演示示例 | `example_js_net` | JS插件：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的**客户端 + 服务端**（客户端支持 https / wss；载入后自动跑一遍本机自检，含 `fetch` / `download`） |
 | 演示示例 | `example_override_media_source` | JS插件：参与音源解析（覆盖内置 Bili 解析 / 声明自己的音源类型 / 本地文件经静态路由代理） |
+| 演示示例 | `example_ftp_source` | JS插件：**完整的一个自己的音源** —— FTP 账号页 / 歌单「添加歌曲」里的挑歌浮层 / `musicxx.playlist.addSong` 加歌 / 本机 HTTP 转流服务（socket 能力做 TCP 客户端 + 回环监听） |
 | 对照示例 | `example_js_broken` | JS插件：脚本语法错误 → 演示加载失败与回滚（**永远加载失败**） |
 | 对照示例 | `example_native_fail` | 动态库插件：处理器总是失败 → 演示"失败只记统计"（不暂停、不卸载） |
 | 对照示例 | `example_native_bad_entry` | 动态库插件：缺 `start`/`stop` 入口符号 → 演示加载阶段按约定拒绝（**永远加载失败**） |
@@ -58,6 +59,12 @@ plugins/
 ├── example_js_multi_script/     JS插件 + 自己的 kit.js（清单 scripts 里两个脚本）
 ├── example_js_net/              JS插件：网络能力示例（HTTP / TCP / WebSocket 客户端 + 服务端）
 ├── example_override_media_source/  JS插件：音源解析示例（钩子分流 / 自定义音源地址 / 本地 HTTP 服务）
+├── example_ftp_source/          JS插件：FTP 音源示例（账号页 / 挑歌浮层 / 加歌 / 本机 HTTP 转流）
+│   ├── plugin.js               注册、能力、解析钩子、账号与浏览状态
+│   ├── ftp.js                  FTP 客户端（控制连接 / 被动模式 / MLSD / REST / RETR）
+│   ├── proxy.js                本机 HTTP 转流服务（socket 监听 + Range + 背压）
+│   ├── ui.js                   账号页与浏览页的视图拼装
+│   └── resource/svg/ftp.svg    主页入口 / 添加歌曲项的图标
 └── example_js_broken/           JS插件（脚本里有语法错误）
 ```
 

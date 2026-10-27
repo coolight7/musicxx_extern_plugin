@@ -1,0 +1,24 @@
+# 示例 JS 插件清单：FTP 音源
+#
+# 演示一条完整链路：声明自己的音源类型 → 用户配置账号（单账号）→ 从歌单里挑歌 →
+# `musicxx.playlist.addSong` 写进歌单 → 播放时用本机 HTTP 转流服务（插件框架的 socket 能力）
+# 把 FTP 变成播放器能打开的地址。
+#
+# 依赖的插件框架能力：`musicxx.net`（TCP 客户端 + 回环监听）、`musicxx.util.textEncode/textDecode`
+# （GBK 文件名）。老插件框架上主页入口还在，但播放会给出可读原因（见 README）。
+name: example_ftp_source
+kind: js
+entry: plugin.js
+# 脚本按顺序在同一个 JS 上下文里执行：kit → FTP 客户端 → 转流服务 → 界面 → 注册与能力
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, ftp.js, proxy.js, ui.js, plugin.js]
+version: 2026.1024.1
+# 这一项只对按 C 接口编译的形态做下限判定（动态库插件）；JS 由内置运行器解释执行，保持 1
+api_version: 1
+author: "musicxx"
+description: "示例插件：FTP 音源（单账号 / 目录浏览 / 加进歌单 / 本机 HTTP 转流）"
+platforms: [windows, linux, macos, android, ios]
+permissions:
+  - musicxx.net
+  - musicxx.storage
+  - musicxx.ui
+  - musicxx.player.control

@@ -1216,11 +1216,24 @@ var featurePointImpls = new Map();
       /// TCP 服务: {id?, host?, port?, maxConnections?} → {ok, id, host, port}
       listen: function (options) { return netCall("socket.listen", options || {}); },
       /// send(id, "文本") 或 send({id, dataBase64})
+      /// `send({id, dataBase64})` / `send({id, data})` / `send(id, "文本")` / `send(id, {dataBase64})`
+      /// 注: `{id, dataBase64}` 这种"一个对象"的写法很常用（二进制转发全靠它），
+      /// 解析时先认"第一个参数就是参数对象"，再认 (id, data) 两个参数的形式。
       send: function (id, data, options) {
-        var req = (options && typeof options === "object") ? options : {};
-        if (data && typeof data === "object") { req = data; }
-        else { req.data = String(data === undefined ? "" : data); }
-        if (typeof id === "string") { req.id = id; }
+        var req;
+        if (id && typeof id === "object") {
+          req = {};
+          for (var key in id) { req[key] = id[key]; }
+          req.id = String(id.id === undefined ? "" : id.id);
+        } else {
+          req = (options && typeof options === "object") ? options : {};
+          req.id = String(id === undefined ? "" : id);
+          if (data && typeof data === "object") {
+            for (var field in data) { req[field] = data[field]; }
+          } else {
+            req.data = String(data === undefined ? "" : data);
+          }
+        }
         return netCall("socket.send", req);
       },
       close: function (id) { return netCall("socket.close", { id: String(id || "") }); },
@@ -1249,12 +1262,22 @@ var featurePointImpls = new Map();
       },
       /// WebSocket 服务: {id?, host?, port?, path?, maxConnections?}
       listen: function (options) { return netCall("ws.listen", options || {}); },
-      /// send(id, "文本") 或 send({id, dataBase64})
+      /// `send(id, "文本")` / `send({id, text})` / `send({id, dataBase64})`
       send: function (id, data, options) {
-        var req = (options && typeof options === "object") ? options : {};
-        if (data && typeof data === "object") { req = data; }
-        else { req.text = String(data === undefined ? "" : data); }
-        if (typeof id === "string") { req.id = id; }
+        var req;
+        if (id && typeof id === "object") {
+          req = {};
+          for (var key in id) { req[key] = id[key]; }
+          req.id = String(id.id === undefined ? "" : id.id);
+        } else {
+          req = (options && typeof options === "object") ? options : {};
+          req.id = String(id === undefined ? "" : id);
+          if (data && typeof data === "object") {
+            for (var field in data) { req[field] = data[field]; }
+          } else {
+            req.text = String(data === undefined ? "" : data);
+          }
+        }
         return netCall("ws.send", req);
       },
       ping: function (id, text) {
