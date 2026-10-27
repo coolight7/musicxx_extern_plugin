@@ -130,6 +130,7 @@ my_plugin/
 | 能力 | `musicxx.capability.register/call` | 自己的功能也能被别人调用；跨插件调用 JS→JS 直调、JS→原生投递（默认 3 s 超时） |
 | UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / **「添加歌曲」弹窗的来源项**（`addsong.entry`）/ 播放页背景 / 播放页歌曲图 |
 | 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用动作 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
+| 往歌单里加歌 | 动作 `musicxx.playlist.addSong` | `{pid, dedup?, songs:[{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}]}` → `{ok, pid, name, total, added, skipped}`。`type` 必须是**你自己的**音源类型（`plugin.<你的 id>.`），歌名/歌手留给主程序按 `fileName` 识别也行；去重、前插、写播放记录标签、当前队列刷新都由主程序做。配合 `addsong.entry` 就是“从我的来源挑歌加到歌单”（完整例子 `plugins/example_ftp_source`） |
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
 | 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原）。**数值已经按帧归一并拉开过高低差，直接拿去渲染即可**，不要再自己抬增益、减底噪或取指数；确实要改对比度时按 `docs/plugin-shader-bundle.md` §7 的公式做（放大差异 `pow(v/m, k)`、缩小差异 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1） |
