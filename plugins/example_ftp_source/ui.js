@@ -404,13 +404,14 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       };
     }
 
-    // 上边常驻：服务器、当前目录、操作按钮、筛选（滚列表时它们不动）
+    // 上边常驻：服务器与当前目录、操作按钮、筛选（滚列表时它们不动）
+    // 注：头部越长，能用的窗口就越矮；这里只留必要的一行说明（账号页有完整信息）。
     var header = [
       k.hint({
-        text: "服务器 " + view.account.host + ":" + view.account.port +
-          (view.account.user ? "（" + view.account.user + "）" : "（匿名）")
+        text: view.account.host + ":" + view.account.port +
+          (view.account.user ? "（" + view.account.user + "）" : "（匿名）") +
+          " · 当前目录：" + view.path
       }, env),
-      k.text({ text: "当前目录：" + view.path }, env),
       k.actionsRow({
         buttons: [
           k.button({
@@ -433,7 +434,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         id: "keyword",
         control: "text",
         title: "按名称筛选",
-        depict: "在当前目录里筛选；回车或离开输入框后生效",
         value: view.keyword,
         action: { kind: "dispatch", name: "browse", args: { op: "keyword" } }
       }, env),
