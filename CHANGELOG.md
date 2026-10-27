@@ -8,32 +8,29 @@
 
 ## 未发布
 
-### 新增：界面描述层 `Scroll` 块（上边常驻 + 中间自己滚 + 底部常驻）
+### 界面描述层：列表项 `custom`、`musicxx.DirListView`、`musicxx.AdaptLayout`
 
-`Scroll` 是一个**自己滚的容器**：给 `height` 就固定高度，不给就填满父给的可用高度。
-配合 `Expanded` 就能写出"头部与底部常驻、只有中间那一段滚"的页面（以前只能整页一起滚）。
-注意它不是 `ListView` 的替代品：`ListViewBase` / `ListView` 的 `items` 是**数据项**（放不进
-`Control` 或自定义行），`header` / `footer` 虽然是块但跟列表一起滚，所以那种“头尾常驻”的
-页面只能靠 `Scroll`：
+这一版让列表项能装任意块，并为 musicxx 加了两个专属组件：
 
-```jsonc
-{ "kind": "Column", "children": [
-    /* 顶部常驻：目录、操作按钮、筛选 */
-    { "kind": "Expanded", "children": [
-        { "kind": "Scroll", "children": [ /* 条目很多，自己滚 */ ] } ] },
-    /* 底部常驻：确认按钮 */ ] }
-```
-
-- 触发"填满高度"的写法只有两种：顶层直接写 `Expanded`，或顶层只有一个 `Column` 且它里面写了
-  `Expanded`；其它写法保持原来的整页滚动；
-- 这种描述要求客户端给有界高度：插件页面与浮层内容区都给了（浮层建议 `size: "fullHeightAutoWidth"`），
-  对话框那种自由高度里客户端退回普通排布；
-- 不给高度的 `Scroll` 落在没有可用高度的地方时，客户端不套滚动视图、直接把内容铺开（不报错，也不滚）；
-- kit 模板 `kit.scroll({children})`（可选 `height` / `padding`）；`MUSICXX_PLUGIN_UI_CAP_BLOCKS`
-  能力段里要声明 `Scroll`，老客户端不认识时按 `flatten` 展开子节点（滚动没有了，内容不丢）。
-- 说明见 `docs/plugin-ui.md` §2.5.1，字段见库文档 `docs/ui-schema.md`。
+- **列表项 `custom`**：`ListViewBase` / `ListView` / `musicxx.DirListView` 的每一项除了
+  `title` / `subtitle` / `trailing` / `image` / `icon` / `tone` / `selected` / `action`，还能写
+  `custom: [ 任意块 ]` —— 写了就**整项内容**由它画（行尾自动插入的编辑 / 多选 / 拖拽按钮不受影响）。
+  列表项另支持 `path`（这一项的路径 / 身份）与 `isDir`（目录项），动作参数里原样回带。
+  → 以前“要自定义行只能用 `Block` + `Row` 叠出来”的写法，现在可以放进真正的列表（能滚、能定位）。
+- **`musicxx.DirListView`（musicxx 专属）**：一层目录的条目 + 顶部路径行（可点“上一级”）+
+  可选的多选勾选框，对应应用内置的目录列表。当前目录与勾选态由插件保存，客户端只派发动作
+  （`itemAction` / `selectAction` / `pathAction`）；不认识的客户端退成普通列表文本。
+- **`musicxx.AdaptLayout`（musicxx 专属）**：按窗口宽高比切换两套内容（竖屏 `columnBody` /
+  横屏 `rowBody`），给了第二套就按比例分两栏，对应应用内置的 `XXAdaptiveLayout`；
+  不认识的客户端用 `rowBody`。
+- **滚动区域只能由列表块给**：`ListViewBase`（`height` 不给、放在 `Expanded` 里就自己滚，条目内容用
+  `custom`）或 `musicxx.DirListView` —— 描述层没有通用的滚动容器块。
+- kit：新增 `kit.dirListView(...)` / `kit.adaptLayout(...)`（各自带“客户端不支持时”的降级写法）。
+- 说明见 `docs/plugin-ui.md` §2.3 / §2.5.1，字段见库文档 `docs/ui-schema.md`。
 
 
+
+### 新增：添加歌曲入口 `addsong.entry`
 
 歌曲列表页 [+] → 「添加歌曲」弹窗里现在有插件的位置：注册一个 `addsong.entry` 项即可出现在
 **内置来源之后**、工具项之前。点击时动作参数会带上当前歌单的 `pid` / `name` / `songNum`。

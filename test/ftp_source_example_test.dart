@@ -211,8 +211,8 @@ void main() {
     expect(_entryNamesOf(refreshed), containsAll(<String>['a.mp3', 'b.flac']));
   }, timeout: const Timeout(Duration(seconds: 90)));
 
-  // 浮层的形状：上边常驻（目录 / 操作 / 筛选）+ 中间自己滚的列表 + 底部常驻按钮
-  test('浏览视图：外层一个 Column，中间列表包在 Expanded(Scroll) 里，勾选框在右', () async {
+  // 浮层的形状：AdaptLayout（竖屏 / 横屏两套）+ 目录列表块（路径行与勾选框由它提供）
+  test('浏览视图：AdaptLayout 两套布局，中间是目录列表块', () async {
     if (unsupported()) {
       return;
     }
@@ -225,38 +225,67 @@ void main() {
     final Map<String, Object?> body = _viewOf(view);
 
     final List<Object?> blocks = (body['blocks']! as List).cast<Object?>();
-    expect(blocks.length, 1, reason: '整个内容是一个外层 Column');
-    final Map<Object?, Object?> column = (blocks.single! as Map).cast<Object?, Object?>();
-    expect(column['kind'], 'Column');
-    final List<Object?> children = (column['children']! as List).cast<Object?>();
-    final int flexIndex = children.indexWhere(
+    expect(blocks.length, 1, reason: '整个内容是一个自适应布局');
+    final Map<Object?, Object?> layout =
+        (blocks.single! as Map).cast<Object?, Object?>();
+    expect(layout['kind'], 'musicxx.AdaptLayout');
+
+    final List<Object?> column = (layout['columnBody']! as List).cast<Object?>();
+    final List<Object?> row = (layout['rowBody']! as List).cast<Object?>();
+    final List<Object?> rowSecond =
+        (layout['rowSecondBody']! as List).cast<Object?>();
+
+    /// 这一段里的 Expanded(目录列表)
+    Map<Object?, Object?> listIn(List<Object?> nodes) {
+      for (final Object? node in nodes) {
+        final Map<Object?, Object?> map =
+            (node! as Map).cast<Object?, Object?>();
+        if (map['kind'] == 'Expanded') {
+          final List<Object?> inner = (map['children']! as List).cast<Object?>();
+          return (inner.single! as Map).cast<Object?, Object?>();
+        }
+      }
+      fail('这一段里没有 Expanded(目录列表)');
+    }
+
+    final int flexIndex = column.indexWhere(
       (Object? node) => node is Map && node['kind'] == 'Expanded',
     );
-    expect(flexIndex, greaterThan(0), reason: '中间那块要包在 Expanded 里');
+    expect(flexIndex, greaterThan(1), reason: '头部（账号 + 操作 + 筛选）在列表前面');
+    expect(flexIndex, lessThan(column.length - 1), reason: '添加 / 播放按钮在列表后面');
+
+    // 竖屏：中间是目录列表块（不给高度 = 用父给的可用高度，条目多时只滚这一块）
+    final Map<Object?, Object?> list = listIn(column);
+    expect(list['kind'], 'musicxx.DirListView');
+    expect(list['path'], '/Music', reason: '顶部路径行显示当前目录');
+    expect(list['showPath'], isTrue);
+    expect(list['multi'], isTrue, reason: '勾选框由列表块提供');
+    expect(list.containsKey('height'), isFalse, reason: '不给高度就用父给的可用高度');
+
+    final List<Object?> items = (list['items']! as List).cast<Object?>();
+    expect(items, isNotEmpty);
+    final Map<Object?, Object?> dirItem =
+        (items.first! as Map).cast<Object?, Object?>();
+    expect(dirItem['isDir'], isTrue, reason: '文件夹项标了 isDir');
+    expect(dirItem['path'], '/Music/sub');
+    final Map<Object?, Object?> dirAction =
+        (dirItem['action']! as Map).cast<Object?, Object?>();
+    expect(dirAction['name'], 'browse');
+    expect((dirAction['args']! as Map)['op'], 'enter', reason: '点文件夹就是进入');
+
+    final Map<Object?, Object?> fileItem = (items.firstWhere((Object? node) {
+      final Map<Object?, Object?> map =
+          (node! as Map).cast<Object?, Object?>();
+      return map['isDir'] != true;
+    })! as Map).cast<Object?, Object?>();
+    final Map<Object?, Object?> fileAction =
+        (fileItem['action']! as Map).cast<Object?, Object?>();
     expect(
-      flexIndex,
-      lessThan(children.length - 1),
-      reason: 'Expanded 后面还要有常驻的底部按钮',
+      (fileAction['args']! as Map)['op'],
+      'toggle',
+      reason: '点文件就是勾上 / 取消',
     );
 
-    // 中间：不带高度的 Scroll（填满外层剩下的高度，由主程序决定具体高度）
-    final List<Object?> flexChildren =
-        ((children[flexIndex]! as Map)['children']! as List).cast<Object?>();
-    final Map<Object?, Object?> scroll = (flexChildren.single! as Map).cast<Object?, Object?>();
-    expect(scroll['kind'], 'Scroll');
-    expect(scroll.containsKey('height'), isFalse, reason: '不给高度就填满可用高度');
-    expect((scroll['children']! as List), isNotEmpty);
-
-    // 头部：当前目录与筛选控件都在滚动区之前
-    final List<String> headerTexts = <String>[];
-    for (final Object? node in children.sublist(0, flexIndex)) {
-      headerTexts.addAll(_textsOf(<String, Object?>{'v': node}));
-    }
-    expect(
-      headerTexts.any((String text) => text.contains('当前目录：/Music')),
-      isTrue,
-      reason: '目录要常驻: $headerTexts',
-    );
     bool hasControl(List<Object?> nodes, String id) {
       for (final Object? node in nodes) {
         final Map<Object?, Object?> map =
@@ -272,84 +301,32 @@ void main() {
       return false;
     }
 
-    expect(hasControl(children.sublist(0, flexIndex), 'keyword'), isTrue,
-        reason: '筛选框常驻在顶部');
-    expect(hasControl(children.sublist(0, flexIndex), 'audioOnly'), isTrue);
+    // 头部：筛选框与"只看音频"在列表之前（滚列表时它们不动）
+    expect(hasControl(column.sublist(0, flexIndex), 'keyword'), isTrue);
+    expect(hasControl(column.sublist(0, flexIndex), 'audioOnly'), isTrue);
 
-    // 底部：添加 / 播放按钮在滚动区之后
+    // 竖屏底部：添加 / 播放按钮在列表之后
     final List<String> footerTexts = <String>[];
-    for (final Object? node in children.sublist(flexIndex + 1)) {
+    for (final Object? node in column.sublist(flexIndex + 1)) {
       footerTexts.addAll(_textsOf(<String, Object?>{'v': node}));
     }
     expect(
       footerTexts.any((String text) => text.startsWith('添加 0 首到')),
       isTrue,
-      reason: '底部常驻的添加按钮: $footerTexts',
+      reason: '竖屏的按钮在列表下面: $footerTexts',
     );
     expect(
       footerTexts.any((String text) => text.contains('播放选中的第一首')),
       isTrue,
     );
 
-    // 行：文件夹右侧是箭头图标（没有"进入"文字），文件行的勾选框在右侧
-    Map<Object?, Object?> entryBlockOf(String op, String path) {
-      Map<Object?, Object?>? found;
-      void visit(Object? node) {
-        if (found != null) {
-          return;
-        }
-        if (node is Map) {
-          final Object? action = node['action'];
-          if (node['kind'] == 'Block' && action is Map) {
-            final Object? args = action['args'];
-            if (action['name'] == 'browse' &&
-                args is Map &&
-                args['op'] == op &&
-                args['path'] == path) {
-              found = node.cast<Object?, Object?>();
-              return;
-            }
-          }
-          for (final Object? value in node.values) {
-            visit(value);
-          }
-          return;
-        }
-        if (node is List) {
-          for (final Object? item in node) {
-            visit(item);
-          }
-        }
-      }
-
-      visit(blocks);
-      expect(found, isNotNull, reason: '找不到 $op $path 这一行');
-      return found!;
-    }
-
-    final Map<Object?, Object?> dirRow = entryBlockOf('enter', '/Music/sub');
-    final List<Object?> dirRowChildren =
-        ((dirRow['children']! as List).single! as Map)['children']! as List;
-    final Map<Object?, Object?> dirTrailing =
-        (dirRowChildren.last! as Map).cast<Object?, Object?>();
-    expect(dirTrailing['kind'], 'Icon', reason: '文件夹右侧是箭头图标');
-    expect(dirTrailing['name'], 'chevron_right');
-    expect(dirTrailing['glyph'], '>', reason: '客户端不支持图标时退回文字');
-    expect(_textsOf(<String, Object?>{'v': blocks}), isNot(contains('进入')),
-        reason: '"进入"文字换成图标了');
-
-    final Map<Object?, Object?> fileRow = entryBlockOf('toggle', '/Music/a.mp3');
-    final List<Object?> fileRowChildren =
-        ((fileRow['children']! as List).single! as Map)['children']! as List;
-    final Map<Object?, Object?> first =
-        (fileRowChildren.first! as Map).cast<Object?, Object?>();
-    final Map<Object?, Object?> last =
-        (fileRowChildren.last! as Map).cast<Object?, Object?>();
-    expect(first['kind'], 'Expanded', reason: '名称在左');
-    expect(last['kind'], 'SizedBox', reason: '勾选框在右，放在固定宽度里');
+    // 横屏：左边还是列表，右边那一栏放按钮与选中状态
+    expect(listIn(row)['kind'], 'musicxx.DirListView');
+    final List<String> sideTexts = _textsOf(<String, Object?>{'v': rowSecond});
     expect(
-      (((last['children']! as List).single! as Map)['control']),
-      'checkbox',
+      sideTexts.any((String text) => text.startsWith('添加 0 首到')),
+      isTrue,
+      reason: '横屏的按钮在右侧那一栏: $sideTexts',
     );
   }, timeout: const Timeout(Duration(seconds: 90)));
 
@@ -984,7 +961,7 @@ List<String> _textsOf(Map<String, Object?> view) {
   return out;
 }
 
-/// 浏览页里列出的条目名（只取"行首那个 Text"：文件行与目录行的第一段文字就是名字）
+/// 浏览页里列出的条目名（目录列表块的 `items[].title`）
 List<String> _entryNamesOf(Map<String, Object?> view) {
   final Object? raw = view['view'];
   final Map<String, Object?> body =
@@ -994,27 +971,18 @@ List<String> _entryNamesOf(Map<String, Object?> view) {
   if (blocks is! List) {
     return names;
   }
-  // 浏览页的条目现在是"外层 Column → Expanded → Scroll → 行"（上边常驻、中间滚动），
-  // 所以要递归找，不能只看顶层块
+  // 浏览页的条目在目录列表块里（外面还隔着自适应布局的两套 body），所以要递归找；
+  // 两套 body 用的是同一批条目，只取找到的第一份。
+  Map<Object?, Object?>? listNode;
   void visit(Object? node) {
+    if (listNode != null) {
+      return;
+    }
     if (node is Map) {
-      if (node['kind'] == 'Block' && node['action'] is Map) {
-        final Map<Object?, Object?> action =
-            (node['action']! as Map).cast<Object?, Object?>();
-        final Object? args = action['args'];
-        final String? key = (args is Map) ? '${args['op']}' : null;
-        if (action['name'] == 'browse' && (key == 'enter' || key == 'toggle')) {
-          final Object? children = node['children'];
-          if (children is List) {
-            // 行结构：Row → [Expanded(Column(Text(名字), …)), SizedBox(勾选框)?]
-            for (final Object? child in children) {
-              final String name = _firstTextOf(child) ?? '';
-              if (name.isNotEmpty) {
-                names.add(name);
-              }
-            }
-          }
-        }
+      if (node['kind'] == 'musicxx.DirListView' ||
+          node['kind'] == 'ListViewBase') {
+        listNode = node.cast<Object?, Object?>();
+        return;
       }
       for (final Object? value in node.values) {
         visit(value);
@@ -1029,32 +997,15 @@ List<String> _entryNamesOf(Map<String, Object?> view) {
   }
 
   visit(blocks);
+  final Object? items = listNode?['items'];
+  if (items is List) {
+    for (final Object? item in items) {
+      if (item is Map && item['title'] is String) {
+        names.add(item['title']! as String);
+      }
+    }
+  }
   return names;
-}
-
-/// 深度找第一段 `Text.text`
-String? _firstTextOf(Object? node) {
-  if (node is Map) {
-    if (node['kind'] == 'Text' && node['text'] is String) {
-      return node['text']! as String;
-    }
-    for (final Object? value in node.values) {
-      final String? found = _firstTextOf(value);
-      if (found != null) {
-        return found;
-      }
-    }
-    return null;
-  }
-  if (node is List) {
-    for (final Object? item in node) {
-      final String? found = _firstTextOf(item);
-      if (found != null) {
-        return found;
-      }
-    }
-  }
-  return null;
 }
 
 /* ==================== 假 FTP 服务器 ==================== */
