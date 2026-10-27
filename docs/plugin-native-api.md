@@ -674,6 +674,9 @@ netCallAsync(net_op::httpDownload,
   `musicxx.net.fetch`，或者直接给播放器本地路径）。
 - **服务端默认只监听 `127.0.0.1`**，端口写 `0` 由系统分配；要同网段可访问显式写
   `host: "0.0.0.0"`。
+- **转发大流量要做背压**：`socket.send` 结果里的 `queuedBytes` 是发送队列里没写出去的字节数
+  （上限 4 MiB，超了回 `queue_full`）；队列长了就 `socket.pause`（`{"id","paused":true}`）
+  暂停上游读（不再产生 `data` 事件），缓过来再 `paused:false`。
 - **客户端支持 `http://` / `https://` / `ws://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成
   （证书链与主机名校验默认开；参数 `tlsVerify` / `caFile` / `caPem` / `serverName`）。
   **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。构建里关掉 TLS 时 `https` / `wss`

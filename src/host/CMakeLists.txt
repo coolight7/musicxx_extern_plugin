@@ -280,6 +280,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js_font
   example_js_net
   example_override_media_source
+  example_ftp_source
   playing_bg_image
 )
 set(MUSICXX_EXTERN_PLUGIN_TEST_NATIVE example_native_fail example_native_bad_entry)

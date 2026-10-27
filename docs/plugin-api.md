@@ -727,7 +727,8 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 - 这是**代理**的一般机制：`musicxx.net.fetch` / `download` 取到的数据 → `route`（小的给 `bytes`、
   大的落盘给 `file`）→ 播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以
   这么做。完整示例见 `plugins/example_override_media_source`（本地文件代理）与
-  `plugins/example_js_net`（`serve({static})` / `route` / `unroute` 自检）。
+  `plugins/example_js_net`（`serve({static})` / `route` / `unroute` 自检）；FTP 这种要自己连服务器、
+  边读边转的完整做法见 `plugins/example_ftp_source`（TCP 客户端 + 回环监听 + `socket.pause` 背压）。
 
 ##### 内置网络能力（`musicxx.net.http / socket / ws`，JS 与动态库插件共用）
 

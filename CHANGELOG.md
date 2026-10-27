@@ -38,6 +38,13 @@
 （不再有 `data` 事件），缓过来再 `socket.pause(id, false)`。`socket.send` 的结果多了
 `queuedBytes`。
 
+### 修正：`socket.send` / `ws.send` 的「一个对象」写法
+
+`socket.send({id, dataBase64})` 这种写法之前会被当成 `send(id, data)` 解析，参数整个丢掉
+（回 `bad_args` / `缺少连接 id`），只有 `send(id, data)` 两个参数的形式能用。现在两种写法都认：
+`{id, dataBase64}` / `{id, data}` / `{id, text}` 都能发，转发二进制不用再拆成两个参数。
+`ws.send` 同样是两种写法。
+
 ### 新增：`musicxx.util.textEncode` / `textDecode` / `base64Encode` / `base64Decode`
 
 JS 侧现在能做“文本 ↔ 指定编码的字节”转换（原生 iconv）：`{text, encoding}` → `{base64}`，
