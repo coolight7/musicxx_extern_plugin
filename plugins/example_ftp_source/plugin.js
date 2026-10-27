@@ -335,6 +335,8 @@ function browseViewData(env) {
         configured: FtpSource.accountReady(accountState.account),
         account: accountState.account || { host: "", port: FtpSource.defaultAccount.port, user: "" },
         path: browseState.path,
+        // 已在服务器根目录：没有上一级，目录列表块就不出那个按钮（返回键回到“退出浮层”）
+        atRoot: browseState.path === "/",
         keyword: browseState.keyword,
         audioOnly: browseState.audioOnly,
         entries: rows.slice(0, limit),

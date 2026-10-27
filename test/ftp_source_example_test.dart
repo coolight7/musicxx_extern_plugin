@@ -209,6 +209,22 @@ void main() {
       const <String, Object?>{'op': 'keyword', 'value': ''},
     );
     expect(_entryNamesOf(refreshed), containsAll(<String>['a.mp3', 'b.flac']));
+
+    // 不在根目录：路径栏里给「上一级」
+    expect(
+      _dirListOf(refreshed)!.containsKey('pathAction'),
+      isTrue,
+      reason: '还有上一级时按钮要在',
+    );
+    // 回到服务器根目录：没有上一级，块就不出那个按钮（浮层的返回键＝退出）
+    final Map<String, Object?> atRoot = await harness.browse(
+      const <String, Object?>{'op': 'enter', 'path': '/'},
+    );
+    expect(
+      _dirListOf(atRoot)!.containsKey('pathAction'),
+      isFalse,
+      reason: '根目录无处可上，不给 pathAction',
+    );
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   // 浮层的形状：AdaptLayout（竖屏 / 横屏两套）+ 目录列表块（路径行与勾选框由它提供）
@@ -261,6 +277,11 @@ void main() {
     expect(list['showPath'], isTrue);
     expect(list['multi'], isTrue, reason: '勾选框由列表块提供');
     expect(list.containsKey('height'), isFalse, reason: '不给高度就用父给的可用高度');
+    expect(
+      list.containsKey('pathAction'),
+      isTrue,
+      reason: '不在根目录 → 路径栏里有「上一级」',
+    );
 
     final List<Object?> items = (list['items']! as List).cast<Object?>();
     expect(items, isNotEmpty);
@@ -959,6 +980,42 @@ List<String> _textsOf(Map<String, Object?> view) {
 
   visit(view);
   return out;
+}
+
+/// 浏览页里的目录列表块（`musicxx.DirListView`；
+/// 外面还隔着自适应布局的两套 body，所以递归找，两套用同一份数据，只取第一份）
+Map<Object?, Object?>? _dirListOf(Map<String, Object?> view) {
+  final Object? raw = view['view'];
+  final Map<String, Object?> body =
+      (raw is Map) ? raw.cast<String, Object?>() : view;
+  final Object? blocks = body['blocks'];
+  if (blocks is! List) {
+    return null;
+  }
+  Map<Object?, Object?>? found;
+  void visit(Object? node) {
+    if (found != null) {
+      return;
+    }
+    if (node is Map) {
+      if (node['kind'] == 'musicxx.DirListView') {
+        found = node.cast<Object?, Object?>();
+        return;
+      }
+      for (final Object? value in node.values) {
+        visit(value);
+      }
+      return;
+    }
+    if (node is List) {
+      for (final Object? item in node) {
+        visit(item);
+      }
+    }
+  }
+
+  visit(blocks);
+  return found;
 }
 
 /// 浏览页里列出的条目名（目录列表块的 `items[].title`）
