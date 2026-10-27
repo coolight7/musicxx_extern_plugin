@@ -129,6 +129,25 @@
       ]
     },
     {
+      "name": "scroll",
+      "doc": "可滚动区域（浮层/页面里让长列表自己滚，头部与底部留在外面不动；给 height 就固定高度，不给就填满外层剩下的高度）",
+      "params": [
+        { "name": "children", "type": "items", "required": true },
+        { "name": "height", "type": "size" },
+        { "name": "padding", "type": "edges" }
+      ],
+      "variants": [
+        {
+          "template": {
+            "kind": "Scroll",
+            "height": "$height",
+            "padding": "$padding",
+            "children": "$children"
+          }
+        }
+      ]
+    },
+    {
       "name": "listRow",
       "doc": "卡片里的一行（不带底色：卡片里直接按列表排列；右侧状态用说明字号）",
       "params": [

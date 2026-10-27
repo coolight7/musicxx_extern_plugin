@@ -2,7 +2,7 @@
 
 > 本文件由 `tools/gen_ui.dart` 生成。定义来源：`schema/ui.def.json` / `schema/kit.def.json`；扩展 kit 定义：`schema/musicxx-ui-kit.def.json`。
 
-纪律：① 只写数值单位 u（8 / 12 / 20 这类）；② 不引用客户端专属块；③ 不含逻辑（只装配）。
+纪律：① 只写数值单位 u（8 / 12 / 20 这类）；② 不引用客户端专属块；③ 不含逻辑（只加载）。
 需要项目特有的间距规则时，由扩展 kit 覆盖同名组件实现。
 
 | 组件 | 参数 | 说明 |
@@ -26,6 +26,7 @@
 | `menuItem` | `title`* `icon` `action` | 菜单项（数据对象，给 ListView 的 menu / itemMenu 用） |
 | `sparkline` | `data`* `height`=1 `glyphStyle`=block `showLast`=true `tone`=accent | 迷你趋势图 |
 | `progressRow` | `label` `value`* `total`=100 `unit`=% | 一行进度（覆盖基础 kit：musicxx 默认按百分比显示数值） |
+| `scroll` | `children`* `height` `padding` | 可滚动区域（浮层/页面里让长列表自己滚，头部与底部留在外面不动；给 height 就固定高度，不给就填满外层剩下的高度） |
 | `settingRow` | `title`* `depict` `value` `action` | 设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号） |
 | `switchRow` | `id`* `title`* `depict` `value` `action` | 开关行：标题 + 说明 + 右侧开关（不带底色，值变化即派发动作、参数带 id 与当前值） |
 | `inputRow` | `id`* `title`* `depict` `value` `multiline`=false `action` | 输入行：标题 + 说明 + 输入框（不带底色，输入完成即派发动作） |

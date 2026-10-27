@@ -211,6 +211,148 @@ void main() {
     expect(_entryNamesOf(refreshed), containsAll(<String>['a.mp3', 'b.flac']));
   }, timeout: const Timeout(Duration(seconds: 90)));
 
+  // 浮层的形状：上边常驻（目录 / 操作 / 筛选）+ 中间自己滚的列表 + 底部常驻按钮
+  test('浏览视图：外层一个 Column，中间列表包在 Expanded(Scroll) 里，勾选框在右', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+    await harness.configureAccount();
+    final Map<String, Object?> view = await harness.browse(<String, Object?>{
+      'pid': 7,
+      'name': '测试歌单',
+    });
+    final Map<String, Object?> body = _viewOf(view);
+
+    final List<Object?> blocks = (body['blocks']! as List).cast<Object?>();
+    expect(blocks.length, 1, reason: '整个内容是一个外层 Column');
+    final Map<Object?, Object?> column = (blocks.single! as Map).cast<Object?, Object?>();
+    expect(column['kind'], 'Column');
+    final List<Object?> children = (column['children']! as List).cast<Object?>();
+    final int flexIndex = children.indexWhere(
+      (Object? node) => node is Map && node['kind'] == 'Expanded',
+    );
+    expect(flexIndex, greaterThan(0), reason: '中间那块要包在 Expanded 里');
+    expect(
+      flexIndex,
+      lessThan(children.length - 1),
+      reason: 'Expanded 后面还要有常驻的底部按钮',
+    );
+
+    // 中间：不带高度的 Scroll（填满外层剩下的高度，由主程序决定具体高度）
+    final List<Object?> flexChildren =
+        ((children[flexIndex]! as Map)['children']! as List).cast<Object?>();
+    final Map<Object?, Object?> scroll = (flexChildren.single! as Map).cast<Object?, Object?>();
+    expect(scroll['kind'], 'Scroll');
+    expect(scroll.containsKey('height'), isFalse, reason: '不给高度就填满可用高度');
+    expect((scroll['children']! as List), isNotEmpty);
+
+    // 头部：当前目录与筛选控件都在滚动区之前
+    final List<String> headerTexts = <String>[];
+    for (final Object? node in children.sublist(0, flexIndex)) {
+      headerTexts.addAll(_textsOf(<String, Object?>{'v': node}));
+    }
+    expect(
+      headerTexts.any((String text) => text.contains('当前目录：/Music')),
+      isTrue,
+      reason: '目录要常驻: $headerTexts',
+    );
+    bool hasControl(List<Object?> nodes, String id) {
+      for (final Object? node in nodes) {
+        final Map<Object?, Object?> map =
+            (node! as Map).cast<Object?, Object?>();
+        if (map['kind'] == 'Control' && map['id'] == id) {
+          return true;
+        }
+        final Object? inner = map['children'];
+        if (inner is List && hasControl(inner.cast<Object?>(), id)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    expect(hasControl(children.sublist(0, flexIndex), 'keyword'), isTrue,
+        reason: '筛选框常驻在顶部');
+    expect(hasControl(children.sublist(0, flexIndex), 'audioOnly'), isTrue);
+
+    // 底部：添加 / 播放按钮在滚动区之后
+    final List<String> footerTexts = <String>[];
+    for (final Object? node in children.sublist(flexIndex + 1)) {
+      footerTexts.addAll(_textsOf(<String, Object?>{'v': node}));
+    }
+    expect(
+      footerTexts.any((String text) => text.startsWith('添加 0 首到')),
+      isTrue,
+      reason: '底部常驻的添加按钮: $footerTexts',
+    );
+    expect(
+      footerTexts.any((String text) => text.contains('播放选中的第一首')),
+      isTrue,
+    );
+
+    // 行：文件夹右侧是箭头图标（没有"进入"文字），文件行的勾选框在右侧
+    Map<Object?, Object?> entryBlockOf(String op, String path) {
+      Map<Object?, Object?>? found;
+      void visit(Object? node) {
+        if (found != null) {
+          return;
+        }
+        if (node is Map) {
+          final Object? action = node['action'];
+          if (node['kind'] == 'Block' && action is Map) {
+            final Object? args = action['args'];
+            if (action['name'] == 'browse' &&
+                args is Map &&
+                args['op'] == op &&
+                args['path'] == path) {
+              found = node.cast<Object?, Object?>();
+              return;
+            }
+          }
+          for (final Object? value in node.values) {
+            visit(value);
+          }
+          return;
+        }
+        if (node is List) {
+          for (final Object? item in node) {
+            visit(item);
+          }
+        }
+      }
+
+      visit(blocks);
+      expect(found, isNotNull, reason: '找不到 $op $path 这一行');
+      return found!;
+    }
+
+    final Map<Object?, Object?> dirRow = entryBlockOf('enter', '/Music/sub');
+    final List<Object?> dirRowChildren =
+        ((dirRow['children']! as List).single! as Map)['children']! as List;
+    final Map<Object?, Object?> dirTrailing =
+        (dirRowChildren.last! as Map).cast<Object?, Object?>();
+    expect(dirTrailing['kind'], 'Icon', reason: '文件夹右侧是箭头图标');
+    expect(dirTrailing['name'], 'chevron_right');
+    expect(dirTrailing['glyph'], '>', reason: '客户端不支持图标时退回文字');
+    expect(_textsOf(<String, Object?>{'v': blocks}), isNot(contains('进入')),
+        reason: '"进入"文字换成图标了');
+
+    final Map<Object?, Object?> fileRow = entryBlockOf('toggle', '/Music/a.mp3');
+    final List<Object?> fileRowChildren =
+        ((fileRow['children']! as List).single! as Map)['children']! as List;
+    final Map<Object?, Object?> first =
+        (fileRowChildren.first! as Map).cast<Object?, Object?>();
+    final Map<Object?, Object?> last =
+        (fileRowChildren.last! as Map).cast<Object?, Object?>();
+    expect(first['kind'], 'Expanded', reason: '名称在左');
+    expect(last['kind'], 'SizedBox', reason: '勾选框在右，放在固定宽度里');
+    expect(
+      (((last['children']! as List).single! as Map)['control']),
+      'checkbox',
+    );
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
   test('加歌：songs 载荷的类型、路径、文件名与大小', () async {
     if (unsupported()) {
       return;
@@ -852,34 +994,41 @@ List<String> _entryNamesOf(Map<String, Object?> view) {
   if (blocks is! List) {
     return names;
   }
-  for (final Object? block in blocks) {
-    if (block is! Map) {
-      continue;
+  // 浏览页的条目现在是"外层 Column → Expanded → Scroll → 行"（上边常驻、中间滚动），
+  // 所以要递归找，不能只看顶层块
+  void visit(Object? node) {
+    if (node is Map) {
+      if (node['kind'] == 'Block' && node['action'] is Map) {
+        final Map<Object?, Object?> action =
+            (node['action']! as Map).cast<Object?, Object?>();
+        final Object? args = action['args'];
+        final String? key = (args is Map) ? '${args['op']}' : null;
+        if (action['name'] == 'browse' && (key == 'enter' || key == 'toggle')) {
+          final Object? children = node['children'];
+          if (children is List) {
+            // 行结构：Row → [Expanded(Column(Text(名字), …)), SizedBox(勾选框)?]
+            for (final Object? child in children) {
+              final String name = _firstTextOf(child) ?? '';
+              if (name.isNotEmpty) {
+                names.add(name);
+              }
+            }
+          }
+        }
+      }
+      for (final Object? value in node.values) {
+        visit(value);
+      }
+      return;
     }
-    if (block['kind'] != 'Block' || block['action'] is! Map) {
-      continue;
-    }
-    final Map<Object?, Object?> action = (block['action']! as Map).cast<Object?, Object?>();
-    if (action['name'] != 'browse') {
-      continue;
-    }
-    final Object? args = action['args'];
-    final String? key = (args is Map) ? '${args['op']}' : null;
-    if (key != 'enter' && key != 'toggle') {
-      continue;
-    }
-    final Object? children = block['children'];
-    if (children is! List) {
-      continue;
-    }
-    // 行结构：Row → [SizedBox(勾选框)?, Expanded(Column(Text(名字), …))]（目录行没有勾选框）
-    for (final Object? child in children) {
-      final String name = _firstTextOf(child) ?? '';
-      if (name.isNotEmpty) {
-        names.add(name);
+    if (node is List) {
+      for (final Object? item in node) {
+        visit(item);
       }
     }
   }
+
+  visit(blocks);
   return names;
 }
 
