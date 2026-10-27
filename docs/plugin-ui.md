@@ -198,7 +198,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, path?, isDir?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
-| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（对应应用内置的 `DirList`）—— 一层目录的条目 + 顶部路径行（给了 `pathAction` 就是可点的“上一级”）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，变化派发 `selectAction`）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；不认识的客户端退成普通列表文本 |
+| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` 生效，`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
 | `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
@@ -318,6 +318,9 @@ capability(*this, "plugin.my_plugin.settings",
 所有列表动作的参数里都会带上：`listId`（块 id）、`index`、`itemId`、`item`（整项快照，含 `path` / `isDir`）。
 目录列表块（`musicxx.DirListView`）把这些直接放在参数顶层（`path` / `isDir`），勾选框那个动作另带 `selected`。
 
+> 目录列表的**行样式由应用定**（与内置目录列表一致：前置图标 + 标题 + 第二行 + 行尾文字 / 勾选框），
+> 所以 `tone` / `image` / `custom` 在它里面不生效，`subtitle` 没写时第二行显示 `path`。
+
 `ListView` 的字段与工具条一一对应：
 
 | 字段 | 什么时候出现 / 派发时带什么 |
@@ -420,7 +423,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 留在原地，只让中间那一段滚，就写成**一个顶层 `Column`，把中间那块包到 `Expanded` 里**，
 中间放一个**列表块** —— 滚动区域只由列表块提供（描述层没有通用的滚动容器）。
 
-- 中间是**目录 / 文件**：用 `musicxx.DirListView`（自带路径行与勾选框）；
+- 中间是**目录 / 文件**：用 `musicxx.DirListView`（自带路径栏、条目数与「上一级」按钮；行的样子由应用定）；
 - 中间是**任意内容**（筛选条、若干设置组、自定义行）：用 `ListViewBase`，每一项写 `custom` ——
   `custom` 是这个列表项的**整项内容**（任意块），行尾自动插入的编辑 / 多选 / 拖拽按钮不受影响。
   一段内容就是一项，几段内容就几项（行与行之间由 `ListViewBase` 自己排版）。

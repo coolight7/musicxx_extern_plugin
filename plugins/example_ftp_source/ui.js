@@ -405,7 +405,8 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       items: items,
       // 勾选框（multi 打开才出现）：勾选态就是条目的 selected，变化派发 selectAction
       multi: true,
-      pathAction: { kind: "dispatch", name: "browse", args: { op: "up" } },
+      // 不在根目录才给「上一级」：根目录时它无处可去，浮层的返回键应当是“退出”
+      pathAction: view.atRoot ? undefined : { kind: "dispatch", name: "browse", args: { op: "up" } },
       selectAction: { kind: "dispatch", name: "browse", args: { op: "select" } },
       emptyText: view.error ? "没有读到目录内容。" : "这个目录里没有符合条件的条目。"
     }, env);

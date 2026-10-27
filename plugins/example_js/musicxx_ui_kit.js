@@ -211,7 +211,7 @@
   // 参数：label(text)、value(float, 必填)、total(float, 默认 100)、unit(string, 默认 %)
   kit.progressRow = function (params, env) { return expand("progressRow", params || {}, env); };
 
-  // 目录列表：一层目录的条目 + 顶部路径行（可点“上一级”）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表）
+  // 目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定）
   // 参数：path(text)、items(listItems, 必填)、multi(bool, 默认 false)、showPath(bool, 默认 true)、pathAction(action)、itemAction(action)、selectAction(action)、height(size)、emptyText(text)
   kit.dirListView = function (params, env) { return expand("dirListView", params || {}, env); };
 

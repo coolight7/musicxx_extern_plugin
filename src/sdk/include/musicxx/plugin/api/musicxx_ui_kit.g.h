@@ -290,7 +290,7 @@ inline pluginxx::ui::Item progressRow(
     return pluginxx::ui::detail::expandKit("progressRow", params, env, &kitTemplate);
 }
 
-/// 目录列表：一层目录的条目 + 顶部路径行（可点“上一级”）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表）
+/// 目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定）
 /// 参数：path(text)、items(listItems, 必填)、multi(bool, 默认 false)、showPath(bool, 默认 true)、pathAction(action)、itemAction(action)、selectAction(action)、height(size)、emptyText(text)
 inline pluginxx::ui::Item dirListView(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
