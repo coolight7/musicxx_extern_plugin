@@ -410,7 +410,12 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 默认情况下**整个页面一起滚**（内容再多也不会溢出）。要让上边的目录/按钮/筛选、下边的确认按钮
 留在原地，只让中间那一段滚，就写成**一个顶层 `Column`，把中间那块包到 `Expanded` 里**，中间的内容
-再放进 `Scroll`：
+再放进 `Scroll`。
+
+为什么不能直接用 `ListViewBase` / `ListView`：它们是**数据项列表**（`items` 是
+`{id, title, subtitle, trailing, image, icon, tone, selected, action}` 这种数据，不是块），
+里面放不进 `Control` 或自定义行；`header` / `footer` 虽然是块，但它们在列表内部、跟着列表一起滚。
+所以“头尾常驻 + 中间自己滚”只能用 `Scroll`（`Column` 能装任意块但不会滚）：
 
 ```jsonc
 { "kind": "Column", "children": [

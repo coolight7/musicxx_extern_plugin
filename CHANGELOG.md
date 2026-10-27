@@ -11,7 +11,10 @@
 ### 新增：界面描述层 `Scroll` 块（上边常驻 + 中间自己滚 + 底部常驻）
 
 `Scroll` 是一个**自己滚的容器**：给 `height` 就固定高度，不给就填满父给的可用高度。
-配合 `Expanded` 就能写出"头部与底部常驻、只有中间那一段滚"的页面（以前只能整页一起滚）：
+配合 `Expanded` 就能写出"头部与底部常驻、只有中间那一段滚"的页面（以前只能整页一起滚）。
+注意它不是 `ListView` 的替代品：`ListViewBase` / `ListView` 的 `items` 是**数据项**（放不进
+`Control` 或自定义行），`header` / `footer` 虽然是块但跟列表一起滚，所以那种“头尾常驻”的
+页面只能靠 `Scroll`：
 
 ```jsonc
 { "kind": "Column", "children": [
