@@ -1062,9 +1062,14 @@ struct Stream : std::enable_shared_from_this<Stream> {
   bool writing = false;
   bool closing = false;
   bool closeWhenFlushed = false;
+  /// 暂停读 (不再产生 data 事件)。用于插件自己做背压: 接收端写不动时先暂停上游。
+  bool paused = false;
+  /// 是否已经有一个读在飞 (暂停/恢复靠它判断要不要重新排读)
+  bool reading = false;
 
   void start();
   void startRead();
+  void setPaused(bool value);
   void send(std::string data, std::string &err);
   void flushThenClose();
   void closeStream(std::string_view reason, std::string_view error);
@@ -1390,12 +1395,14 @@ void Stream::start() {
 }
 
 void Stream::startRead() {
-  if (closing) {
+  if (closing || paused || reading) {
     return;
   }
+  reading = true;
   auto self = shared_from_this();
   io->async_read_some(
       asio::buffer(readBuf), [self](AsioErrorCode ec, size_t size) {
+        self->reading = false;
         if (self->closing) {
           return;
         }
@@ -1411,6 +1418,14 @@ void Stream::startRead() {
           self->startRead();
         }
       });
+}
+
+/// 暂停 / 恢复读 (网络线程调用; 暂停只影响 data 事件, 已收的字节照旧发出)
+void Stream::setPaused(bool value) {
+  paused = value;
+  if (!paused) {
+    startRead();
+  }
 }
 
 void Stream::send(std::string data, std::string &err) {
@@ -3824,6 +3839,8 @@ void PluginNetHub::Impl::sendConn(const std::string &plugin, const Json &args,
   out = Json::object();
   out["ok"] = true;
   out["id"] = id;
+  // 发送队列里还没写出去的字节数: 插件用它判断要不要先暂停上游 (背压)
+  out["queuedBytes"] = static_cast<int64_t>(stream->outBytes);
 }
 
 std::string PluginNetHub::Impl::staticBaseUrl(const Server &server) const {
@@ -4212,6 +4229,21 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
   /* ---------- 连接收发 (TCP 服务端连接同一套) ---------- */
   if (op == "socket.send") {
     sendConn(plugin, args, out);
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  if (op == "socket.pause") {
+    const std::string id = args.value("id", std::string{});
+    const auto stream = findConn(plugin, id);
+    if (!stream) {
+      out = errorJson("not_found", "没有这条连接");
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    const bool paused = args.value("paused", true);
+    stream->setPaused(paused);
+    out = Json::object();
+    out["ok"] = true;
+    out["id"] = id;
+    out["paused"] = paused;
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
   if (op == "socket.close") {

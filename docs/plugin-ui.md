@@ -19,13 +19,13 @@
 
 ## 1. UI 项
 
-### 1.1 四种类型
+### 1.1 六种类型
 
 | 类型（全名） | `data` 字段 | 渲染位置 | 当前版本的实际表现 |
 |---|---|---|---|
-| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在主程序内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） |
-| `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
+| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在主程序内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） || `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
 | `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
+| `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 歌曲列表页 [+] → 「添加歌曲」弹窗（在**内置来源之后**、“从其他歌单导入”这类工具项之前） | 显示 `title` / `subtitle`；动作参数同样带 `pid` / `name` / `songNum`。常见写法：`command` 动作指向 `musicxx.ui.openOverlaySheet`，把插件自己的挑歌视图打开成底部浮层（见 [plugin-api.md](plugin-api.md) §3.2.4.2） |
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效 |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容） |
 
@@ -61,7 +61,7 @@ musicxx.ui.registerEntry({
 - `name` 用**短名**，插件框架补成 `plugin.<插件id>.<短名>`；写全名时也必须属于本插件命名空间（冒充别人返回 `-6`）；
 - 同一个项名再次注册 = **覆盖**（保留原来的排序位置）；
 - UI 项数量与单条 `data` 大小都不设上限（早期版本的 64 个 / 64 KiB 已移除）；
-- 类型必须是上表四种之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
+- 类型必须是上表六种之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
 - 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，主程序整批替换）。
 
 更新与注销：

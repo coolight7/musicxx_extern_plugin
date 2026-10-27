@@ -29,6 +29,14 @@ abstract final class MusicxxPluginUIType {
   /// 歌单菜单项：`data = {title, icon?, action?}`
   static const String playlistAction = 'musicxx.ui.playlist.action';
 
+  /// 「添加歌曲」弹窗里的来源项：`data = {title, subtitle?, icon?, action?}`
+  ///
+  /// 位置：歌曲列表页 [+] → 「添加歌曲」弹窗，排在内置来源之后、“从其他歌单导入”这类工具项之前。
+  /// 点击时主程序把当前歌单的上下文（`pid` / `name` / `songNum`）合进动作参数。
+  /// 典型写法是把动作指向 `musicxx.ui.openOverlaySheet`（打开一层插件视图浮层），
+  /// 或者指向自己的能力，返回一个视图描述（主程序会把它当成插件页面打开）。
+  static const String addSongEntry = 'musicxx.ui.addsong.entry';
+
   /// 播放页背景样式（渲染槽位 `player.background`）：
   /// `data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
   ///          args?（成员名 → 值表达式）, cover?（封面纹理，见 docs/plugin-shader-bundle.md §5.1）,

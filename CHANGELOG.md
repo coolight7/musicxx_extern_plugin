@@ -8,6 +8,42 @@
 
 ## 未发布
 
+### 新增：「添加歌曲」入口类型 `musicxx.ui.addsong.entry`
+
+歌曲列表页 [+] → 「添加歌曲」弹窗里现在有插件的位置：注册一个 `addsong.entry` 项即可出现在
+**内置来源之后**、工具项之前。点击时动作参数会带上当前歌单的 `pid` / `name` / `songNum`。
+
+- 常量：`MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY`（C）/ `MusicxxPluginUIType.addSongEntry`（Dart SDK）/ JS 短名 `addsong.entry`；
+- 与入口项同一个校验规则：`title` 必填、动作三种写法（`route` / `dispatch` / `command`）；
+- 旧插件框架不认识这个类型 → `uiRegister` 返回 `-4`（插件记日志继续跑即可）。
+
+### 新增：插件视图浮层 `musicxx.ui.openOverlaySheet`
+
+`musicxx.ui.overlay.show` 的内容是静态 `blocks`；这一个打开的是**插件自己的视图**，浮层里的动作
+返回 `{"view": …}` 就能翻页 / 刷新。参数 `{route, title?, arguments?, size?, dismissible?}`，
+返回 `{ok, reason, title?}`，**动作在浮层关掉之后才完成**（调用方正好在关闭后刷新列表）。
+典型用法就是「添加歌曲」入口：挑完歌 → `musicxx.playlist.addSong` → 关掉浮层。
+
+### 新增：`musicxx.playlist.addSong`（往一张歌单里加歌）
+
+参数 `{pid, dedup?, songs:[{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}]}`，
+返回 `{ok, pid, name, total, added, skipped}`。`type` 必须是调用方自己的音源类型
+（`plugin.<插件id>.` 前缀）。加歌方式与内置“添加歌曲”一致（去重、往前插、写播放记录标签、
+当前队列会刷新）。从未实现的 `musicxx.library.addSong` 常量已删除（用它改了名）。
+
+### 新增：`socket.pause`（背压）与 `socket.send` 返回 `queuedBytes`
+
+插件转发大流量（把 FTP / 自定义协议的字节转给播放器）时必须有背压：发送队列上限 4 MiB，
+超了 `socket.send` 回 `queue_full`。现在可以在队列变长时 `socket.pause(id, true)` 暂停上游读
+（不再有 `data` 事件），缓过来再 `socket.pause(id, false)`。`socket.send` 的结果多了
+`queuedBytes`。
+
+### 新增：`musicxx.util.textEncode` / `textDecode` / `base64Encode` / `base64Decode`
+
+JS 侧现在能做“文本 ↔ 指定编码的字节”转换（原生 iconv）：`{text, encoding}` → `{base64}`，
+`{base64: 分片数组, encoding}` → `{text}`。给 FTP（GBK 文件名）、局域网共享这类协议用；
+QuickJS 没有 `TextDecoder`，所以放在原生层。都是同步返回。
+
 ### 新增：插件形态（kind）可以由插件提供，`api_version` 只约束“按 C 接口编译”的形态
 
 插件框架原本把 `native` / `js` 两种形态写死在扫描与加载里。这一版把它们收进一张**形态注册表**，

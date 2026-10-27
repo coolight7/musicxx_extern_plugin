@@ -279,7 +279,18 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
   插件用动作改值时也会先问钩子，所以钩子不能反过来再调这些动作（会再派发一次）。
 - 没有 `setMediaType`（见 §3.3）。
 
-#### 3.2.2 歌单与歌曲（`musicxx.library.*`）
+#### 3.2.2 歌单与歌曲（`musicxx.library.*` / `musicxx.playlist.*`）
+
+三个词在这份文档里含义固定，不再混用：
+
+| 词 | 含义 | 出现在哪里 |
+|---|---|---|
+| `playlist` | **单张歌单**（`pid` / `name` / `songs` / `songNum`） | `musicxx.playlist.addSong` 的参数 |
+| `playlists` | **多张歌单的集合** | `musicxx.library.querySonglists` 的 `mine` / `local` / `favorite` |
+| `songlist` | **播放队列**（当前正在播的那一串歌） | `musicxx.library.playSonglist`、状态镜像 `musicxx.state.playlist` |
+
+读歌单 / 读歌曲 / 播歌是 `musicxx.library.*`（历史名字，不改）；
+**改歌单内容**是 `musicxx.playlist.*`（这一组以后新增的也用它）。
 
 **`musicxx.library.querySonglists`** —— 列出歌单
 
@@ -322,6 +333,50 @@ requestAction("musicxx.library.querySonglists", "{}", &notify, 5000);
 **这首歌的完整音源列表在状态镜像 / 钩子载荷里**（`musicxx.state.song.audio[]`），
 `querySongs` 只给列表用的简报字段（省流量）。
 
+**`musicxx.playlist.addSong`** —— 把歌加进**一张歌单**（插件音源用）
+
+- 参数：
+
+```jsonc
+{
+  "pid": 123,                 // 必填：目标歌单（本地歌单 / 自己的在线歌单 / “我喜欢”都行）
+  "dedup": true,              // 可选，缺省 true：同一首歌已经在歌单里就跳过
+  "songs": [                  // 1 ~ 200 首；只有一首时也可以写 "song": {...}
+    {
+      "type": "plugin.example_ftp_source.audio",  // 必填：必须是调用方自己的音源类型
+      "src": "3f9c1d7b/Music/a.flac",              // 必填：插件自己的资源 id
+      "name": "歌名",            // 可选：空则按 fileName 交给主程序识别
+      "artist": "歌手",          // 可选
+      "fileName": "a.flac",      // 可选：主程序用它取文件名 / 识别歌名与歌手
+      "size": 12345678,          // 可选：字节
+      "durationMs": 0,           // 可选：毫秒
+      "cover": {"type": "url", "src": "https://…"}    // 可选：本地路径或 http(s) 地址
+    }
+  ]
+}
+```
+
+- 返回：`{ok:true, pid, name, total, added, skipped}`（`total` = 加完之后的曲目数，
+  `added` = 真的加进去的，`skipped` = 被去重跳过的）；失败是 `{ok:false, error}`：
+  未找到歌单 / 歌单无法加载 / 不属于自己的歌单 / 音源类型不属于本插件 / 保存失败（已回滚）。
+- 规则：
+  - `type` 必须以 `plugin.<自己的插件id>.` 开头（防止插件伪造别人的音源）；
+    主程序本机调用（CLI / MCP）时只要求 `plugin.` 前缀；
+  - 加歌方式与内置“添加歌曲”一致：**往前插**（当前播放的歌不会因此换掉），写播放记录标签；
+  - 加进的就是当前播放队列时，队列会重新刷新（列表 / 页面跟着变）。
+
+```js
+// 加完再看结果：处理器里不要 await（会与主程序互相等）
+musicxx.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).then((r) => {
+  musicxx.host.log(2, r && r.ok ? ("已添加 " + r.added + " 首") : ("添加失败: " + ((r && r.error) || "")));
+});
+```
+
+> 插件想让用户“选目录 / 选文件 → 加进歌单”，可以在「添加歌曲」弹窗里注册一个
+> `musicxx.ui.addsong.entry` 项（见 §9.1 与 [plugin-ui.md](plugin-ui.md)），
+> 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.openOverlaySheet`），
+> 选完后调这个动作。
+
 #### 3.2.3 歌词（`musicxx.lyrics.*`）
 
 **`musicxx.lyrics.getCurrent`** —— 当前歌曲的歌词行
@@ -346,6 +401,7 @@ const line = lrc.lines[Math.min(lrc.index, lrc.lines.length - 1)];
 | `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
 | `musicxx.ui.overlay.show` | `{preset?, id?, title?, depict?, blocks?, options?, value?, textConfirm?, textCancel?, size?, dismissible?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。参数与返回见 §3.2.4.1 |
 | `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 收起这个插件当前那一层浮层（给了 `id` 就只关名字对得上的那一层；没开着的浮层时 `closed:false`） |
+| `musicxx.ui.openOverlaySheet` | `{route, title?, arguments?}` | `{ok, reason, title?}` | 把**插件视图**打开成一层浮层，等用户关掉它。与 `overlay.show` 的区别：内容是插件视图，浮层里的动作能返回 `{"view": …}` 刷新内容（翻目录 / 改选择）。参数见 §3.2.4.2；入口项里的常见写法也是它 |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` | 打开插件页面或官方页面，规则见下 |
 
 `musicxx.ui.openRoute` 允许两类目标（别的地址会被拒绝，错误信息里会列出全部可用别名）：
@@ -446,6 +502,41 @@ await musicxx.ui.overlayClose();
 // C++：requestAction 传 0 = 一直等用户操作
 requestAction("musicxx.ui.overlay.show", R"({"title":"运行详情","blocks":[],"textConfirm":"知道了"})", &callback, 0);
 requestAction("musicxx.ui.overlay.close", R"({})", &callback, 0);
+```
+
+#### 3.2.4.2 插件视图浮层（`musicxx.ui.openOverlaySheet`）
+
+`overlay.show` 的内容是调用方给的静态 `blocks`；这一条的内容是**插件自己的视图**，
+所以能在浮层里翻页（浮层里的按钮动作返回 `{"view": …}` 就换成新内容）。
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `route` | string | 必填，`ext://<插件id>/<视图id>`（地址规则与 `openRoute` 一致） |
+| `title` | string | 可选，浮层标题；不给就用视图里的 `title`，都没有就是“插件页面” |
+| `arguments` | object | 可选，原样作为插件能力的参数（主程序会再补上 `view` 与 `ui`） |
+| `size` / `dismissible` / `textCancel` / `textConfirm` | — | 与 `overlay.show` 同名参数含义一致 |
+
+- 返回：`{ok, reason, title?}`（`reason` 是 `confirmed` / `cancelled` / `closed`）；
+  取不到插件视图时是 `{ok:false, error}`（不会开一个空浮层）；
+- **动作在浮层关掉之后才完成**，所以调用方正好能在关闭后刷新自己的列表；
+- 插件在能力处理器里调它时**不要 await**（会与主程序动作互相等）；用入口项（`command` 动作）
+  或页面里的按钮（`command`）调都不受这个限制 —— 那是主程序在执行。
+
+```js
+// 页面或入口项里的写法：点了就开一层，由主程序等你关（零代码）
+musicxx.ui.registerEntry({
+  name: "addSong",
+  type: "addsong.entry",
+  data: {
+    title: "添加FTP歌曲",
+    subtitle: "从 FTP 服务器选择",
+    action: {
+      kind: "command",
+      name: "musicxx.ui.openOverlaySheet",
+      args: { route: "ext://example_ftp_source/browse", title: "添加FTP歌曲" },
+    },
+  },
+});
 ```
 
 #### 3.2.5 插件私有存储与配置（`musicxx.storage.*`）
@@ -710,6 +801,38 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 （服务端连接用事件里的 `id`，并带 `serverId` 区分来源）。字节以 `dataBase64` 给出，
 合法 UTF-8 时再给 `text` / `data`。连接事件：`socket.connected` / `socket.accepted` /
 `socket.data` / `socket.closed`（`by` = `remote` / `local` / `error` / `plugin`）。
+
+**转发大流量时要做背压**：读是连续的，而发送队列上限 4 MiB（超了 `socket.send` 回 `queue_full`）。
+所以：
+
+- `socket.send` 的结果里带 `queuedBytes`（还没写出去的字节数）；
+- `socket.pause`（`{id, paused}`）暂停 / 恢复**读**：`paused: true` 之后这条连接不再给 `data` 事件，
+  已收的字节照旧发出；下游缓过来再 `paused: false`。
+
+```js
+// 典型写法（把上游字节转给下游）：下游队列长了就暂停上游读
+musicxx.net.socket.send(clientId, { dataBase64: ev.dataBase64 }).then((r) => {
+  if (!r || !r.ok) return;
+  if (r.queuedBytes > 1024 * 1024) musicxx.net.socket.pause(upstreamId, true);
+});
+// 下游 drain（或定时查一次 queuedBytes 降下来）后再
+musicxx.net.socket.pause(upstreamId, false);
+```
+
+**文本编码与 base64**（FTP / 局域网共享这类协议的名字经常不是 UTF-8，而 QuickJS 没有
+`TextDecoder`）：
+
+| 函数（JS） | 参数 | 返回 |
+|---|---|---|
+| `musicxx.util.textEncode` | `{text, encoding?}`（缺省 utf-8） | `{ok, base64, bytes}` |
+| `musicxx.util.textDecode` | `{base64, encoding?}`（`base64` 可以是字符串或**字符串数组**） | `{ok, text, bytes}` |
+| `musicxx.util.base64Encode` | `{text}` | `{ok, base64}` |
+| `musicxx.util.base64Decode` | `{base64}` | `{ok, text}` |
+
+- 编码名交给原生 iconv：`utf-8` / `gbk` / `gb18030` / `big5` …；转换失败是
+  `{ok:false, error:"bad_encoding"}`，不解码成功就是入力不合法（`bad_base64`）；
+- 分片给数组时由原生层**先拼字节再转编码**（直接拼 base64 文本会因 padding 出错）；
+- 都是**同步**返回（目录列表要当场解出文件名）；动态库插件不需要这一层（直接链 `utilxx_base`）。
 
 **WebSocket**：`ws.connect`（`url` 或 `host`/`port`/`path`）/ `ws.listen` / `ws.send` /
 `ws.ping` / `ws.close`。`wss://` 会先做 TLS 握手（同样支持 `tlsVerify` / `caFile` / `caPem` /
@@ -1036,7 +1159,7 @@ const off = musicxx.vars.bind("musicxx.app.lifecycle", (v) => musicxx.host.log(2
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
 `musicxx.player.setMediaType` · `musicxx.library.querySonglist` ·
-`musicxx.library.addSong` · `musicxx.library.removeSong` · `musicxx.library.createSonglist` ·
+`musicxx.library.removeSong` · `musicxx.library.createSonglist` ·
 `musicxx.library.setSongInfo` · `musicxx.library.search` · `musicxx.lyrics.getBySrc` ·
 `musicxx.lyrics.set` · `musicxx.lyrics.sync` · `musicxx.lyrics.search` · `musicxx.ui.setEntryBadge` ·
 `musicxx.host.shareText`
@@ -1667,6 +1790,7 @@ uiNotify(R"({"text":"已刷新"})");
 ```
 
 - UI 类型（短名 / 全名）：`home.entry`（主页入口）、`song.action`（歌曲菜单）、`playlist.action`（歌单菜单）、
+  `addsong.entry`（「添加歌曲」弹窗里的来源项）、
   `playing.background`（播放页背景）、`playing.icon`（播放页歌曲图）。
 - **页面是"取一次"的快照**：改完配置要让能力再返回一次 `{view: …}`（或重新打开页面）。
 - **入口 / 按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示

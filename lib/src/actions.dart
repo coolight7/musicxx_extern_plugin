@@ -243,8 +243,19 @@ abstract final class MusicxxPluginActionNames {
   static const String libraryQuerySonglist = 'musicxx.library.querySonglist';
   static const String libraryPlaySong = 'musicxx.library.playSong';
   static const String libraryPlaySonglist = 'musicxx.library.playSonglist';
-  static const String libraryAddSong = 'musicxx.library.addSong';
   static const String libraryRemoveSong = 'musicxx.library.removeSong';
+
+  /// 把歌曲加进**一张歌单**（`playlist` = 单张歌单，不是播放队列）
+  ///
+  /// 参数：`pid`（必填）、`dedup`（缺省 true）、`songs`（1 ~ 200 首，或单首写成 `song`）。
+  /// 每首歌：`type`（插件自己的音源类型 `plugin.<插件id>.<类型名>`）、`src`、`name?` /
+  /// `artist?`（空则按 `fileName` 交给主程序识别）、`fileName?`、`size?`、`durationMs?`、
+  /// `cover?`（本地路径或 `http(s)` 地址）。
+  ///
+  /// 返回：`{ok, pid, name, total, added, skipped}`；失败是 `{ok:false, error}`。
+  /// 与 `musicxx.library.*` 的区别：那一组是“读歌单 / 读歌曲 / 播歌”，这一条是“改歌单内容”，
+  /// 所以用 `playlist`（单张歌单）。播放队列在文档里一律叫 `songlist`。
+  static const String playlistAddSong = 'musicxx.playlist.addSong';
   static const String libraryCreateSonglist = 'musicxx.library.createSonglist';
   static const String librarySetSongInfo = 'musicxx.library.setSongInfo';
   static const String librarySearch = 'musicxx.library.search';
@@ -273,6 +284,21 @@ abstract final class MusicxxPluginActionNames {
   ///
   /// 返回 `{ok, closed}`；没有开着的浮层时 `closed` 为 false。
   static const String uiOverlayClose = 'musicxx.ui.overlay.close';
+
+  /// 打开一层“插件视图”浮层（底部弹层），等用户关掉后返回
+  ///
+  /// 与 `musicxx.ui.overlay.show` 的区别：`show` 的内容是调用方给的 `blocks`（静态描述），
+  /// 这一条的内容是**插件自己的视图**，所以能在浮层里翻目录 / 改选择（浮层里的动作返回
+  /// `{"view": …}` 就刷新内容）。
+  ///
+  /// 参数：`route`（必填，`ext://<插件id>/<视图id>`）、`title?`、`arguments?`（原样交给插件能力；
+  /// 不给时把除 `route` / `title` / `size` / `dismissible` / `textConfirm` / `textCancel`
+  /// 之外的键当参数）。
+  /// 返回：`{ok, reason, title?}`（`reason` 是 `confirmed` / `cancelled` / `closed`）。
+  ///
+  /// 动作**在浮层关掉之后才完成**：调用方正好能在关闭后刷新自己的列表。
+  /// 插件在能力处理器里调它时**不要 await**（会与主程序动作互相等）。
+  static const String uiOpenOverlaySheet = 'musicxx.ui.openOverlaySheet';
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
