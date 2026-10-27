@@ -131,6 +131,26 @@ void main() {
     expect(harness.ftp.loginCount, greaterThan(0));
   }, timeout: const Timeout(Duration(seconds: 90)));
 
+  test('账号：没配置时点「取消」也回到表单（空状态不报错）', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+
+    final Map<String, Object?> form = await harness.accounts(
+      const <String, Object?>{'op': 'view'},
+    );
+    expect(_controlValue(form, 'host'), '', reason: '没配置时直接给表单');
+
+    // 取消：草稿清掉之后仍然要有可显示的内容（摘要页没有账号会没有可列的项）
+    final Map<String, Object?> cancelled = await harness.accounts(
+      const <String, Object?>{'op': 'cancel'},
+    );
+    expect(_controlValue(cancelled, 'host'), isNotNull,
+        reason: '取消后应回到表单，而不是一张空摘要');
+    expect(_controlValue(cancelled, 'port'), 21);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('浏览：列目录、目录优先、只看音频、筛选、进入子目录', () async {
     if (unsupported()) {
       return;

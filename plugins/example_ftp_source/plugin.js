@@ -356,6 +356,10 @@ function browseAnswer(env) {
 /* ==================== 账号页的视图数据 ==================== */
 
 function accountsAnswer(env) {
+    // 没配置过、也没草稿：只能给表单（摘要页没有可显示的内容）
+    if (!accountState.account && !draft) {
+        draft = draftFromStored();
+    }
     return {
         view: FtpSource.accountsView({
             env: env,
@@ -590,7 +594,7 @@ musicxx.capability.register("browse", function (args) {
         return { view: FtpSource.accountsView({
             env: env,
             stored: null,
-            draft: null,
+            draft: draftFromStored(),
             message: "当前插件框架没有 TCP socket 能力：这个示例需要较新的插件框架版本。",
             messageTone: "error"
         }) };

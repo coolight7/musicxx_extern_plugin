@@ -298,6 +298,10 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
   function accountSummary(view, env) {
     var k = kit();
     var account = view.stored;
+    if (!account) {
+      // 没配置就没有可列的项（正常不会走到这里：没账号时上面给的是表单）
+      return [];
+    }
     var tested = "";
     if (view.lastTestAt > 0) {
       var at = new Date(view.lastTestAt);
