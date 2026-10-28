@@ -330,7 +330,25 @@ function browseViewData(env) {
         // 已在服务器根目录：没有上一级，目录列表块就不出那个按钮（返回键回到“退出浮层”）
         atRoot: browseState.path === "/",
         keyword: browseState.keyword,
-        entries: rows.slice(0, limit),
+        entries: rows.slice(0, limit).map(function (entry) {
+            const row = {
+                path: entry.path,
+                name: entry.name,
+                isDir: !!entry.isDir,
+                size: entry.size
+            };
+            if (!entry.isDir) {
+                // 目录列表看到 song 就把这一行画成歌曲样式（封面 / 歌手 / 音源标签）；
+                // 真正加进歌单时 browseAdd 会自己再算一遍（那边还带文件名识别）
+                row.song = {
+                    type: TYPE_ID,
+                    src: FtpSource.resourceIdOf(accountState.account, entry.path),
+                    fileName: entry.name,
+                    size: entry.size || 0
+                };
+            }
+            return row;
+        }),
         total: rows.length,
         limit: limit,
         selected: browseState.selected,

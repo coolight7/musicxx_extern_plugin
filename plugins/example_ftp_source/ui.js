@@ -363,6 +363,10 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       } else if (size) {
         item.subtitle = size;
       }
+      // 文件带上 song：目录列表把它画成歌曲样式（行还是自己点“进入 / 勾选”）
+      if (entry.song) {
+        item.song = entry.song;
+      }
       items.push(item);
     }
 
