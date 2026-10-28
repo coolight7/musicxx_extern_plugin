@@ -150,6 +150,79 @@ void main() {
     expect(_controlValue(cancelled, 'port'), 21);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('网盘：声明可浏览 + drive.list 分页 + drive.search + drive.resolveSongs', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+
+    // 0) 还没配置账号：能力回 ok:false（主程序提示，而不是一直转圈）
+    final Map<String, Object?> noAccount = await harness.call(
+        'drive.list', <String, Object?>{'path': '/', 'offset': '', 'limit': 10});
+    expect(noAccount['ok'], false);
+    expect('${noAccount['error']}', contains('账号'));
+
+    await harness.configureAccount();
+
+    // 1) 声明：主程序据此把「添加歌曲」菜单里自动加一行
+    final Map<String, Object?> declared = harness.browseDeclarations.single;
+    expect(declared['id'], ftpType);
+    expect(declared['root'], '/');
+    expect(declared['search'], true);
+    final Map<String, Object?> caps =
+        (declared['capabilities']! as Map).cast<String, Object?>();
+    expect(caps['list'], 'drive.list');
+    expect(caps['search'], 'drive.search');
+    expect(caps['resolveSongs'], 'drive.resolveSongs');
+
+    // 2) drive.list：目录优先，按 offset / limit 切片
+    final Map<String, Object?> first = await harness.call('drive.list',
+        <String, Object?>{'path': '/Music', 'offset': '', 'limit': 2});
+    expect(first['ok'], true);
+    final List<Map<String, Object?>> page1 =
+        _driveEntriesOf(first['entries']);
+    expect(page1.length, 2);
+    expect(page1.first['name'], 'sub');
+    expect(page1.first['isDir'], true);
+    expect(first['next'], '2');
+    final Map<String, Object?> file = page1.last;
+    expect(file['isDir'], false);
+    final Map<String, Object?> song =
+        (file['song']! as Map).cast<String, Object?>();
+    expect(song['type'], ftpType, reason: '歌曲要带自己声明的音源类型');
+    expect('${song['src']}', contains('/Music/'),
+        reason: 'src 是插件自己的资源 id（账号指纹 + 路径）');
+    expect(song['fileName'], file['name']);
+
+    final Map<String, Object?> second = await harness.call('drive.list',
+        <String, Object?>{'path': '/Music', 'offset': '2', 'limit': 2});
+    expect(_driveEntriesOf(second['entries']).length, 2);
+    expect(second['next'], '', reason: '最后一页的 next 是空串');
+
+    // 3) drive.search：只在当前目录里按名字找
+    final Map<String, Object?> found = await harness.call(
+        'drive.search',
+        <String, Object?>{'path': '/Music', 'keyword': 'FLAC'});
+    expect(_driveEntriesOf(found['entries']).map((item) => item['name']).toList(),
+        <String>['b.flac']);
+
+    // 4) drive.resolveSongs：递归读完（含子目录），每首歌都带类型与资源 id
+    final Map<String, Object?> resolved = await harness
+        .call('drive.resolveSongs', <String, Object?>{'paths': <String>['/Music']});
+    expect(resolved['ok'], true);
+    final List<Map<String, Object?>> songs =
+        _driveEntriesOf(resolved['songs']);
+    expect(songs.length, 4,
+        reason: '3 个文件 + 子目录里的 c.ogg（示例不按后缀过滤）');
+    for (final Map<String, Object?> item in songs) {
+      expect(item['type'], ftpType);
+      expect('${item['src']}'.isNotEmpty, true);
+    }
+    expect(
+        songs.map((Map<String, Object?> item) => item['fileName']).toList(),
+        contains('c.ogg'));
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('浏览：列目录、目录优先、筛选、进入子目录', () async {
     if (unsupported()) {
       return;
@@ -651,6 +724,10 @@ class _Harness {
   final Map<String, Object?> kv = <String, Object?>{};
 
   final List<String> definedSources = <String>[];
+
+  /// 插件发出的 `musicxx.source.browse` 声明
+  final List<Map<String, Object?>> browseDeclarations =
+      <Map<String, Object?>>[];
   final List<Map<String, Object?>> addedSongs = <Map<String, Object?>>[];
   int addSongPid = 0;
   int overlayCloseCalls = 0;
@@ -784,6 +861,12 @@ class _Harness {
         definedSources.add(id);
       }
       return <String, Object?>{'ok': true, 'id': id};
+    });
+    runtime.actions.register(MusicxxPluginActionNames.sourceBrowse, (
+      invocation,
+    ) {
+      browseDeclarations.add(invocation.args.cast<String, Object?>());
+      return <String, Object?>{'ok': true, 'type': invocation.args['id']};
     });
     runtime.actions.register(MusicxxPluginActionNames.sourceUndefine, (_) {
       return <String, Object?>{'ok': true};
@@ -1038,6 +1121,18 @@ Map<Object?, Object?>? _dirListOf(Map<String, Object?> view) {
 
   visit(blocks);
   return found;
+}
+
+/// 网盘能力返回的条目列表（`drive.list` / `drive.search` 的 `entries`、`drive.resolveSongs` 的
+/// `songs`）：转成 `List<Map<String, Object?>>`，形状不对当空表
+List<Map<String, Object?>> _driveEntriesOf(Object? raw) {
+  if (raw is! List) {
+    return <Map<String, Object?>>[];
+  }
+  return <Map<String, Object?>>[
+    for (final Object? item in raw)
+      if (item is Map) item.cast<String, Object?>(),
+  ];
 }
 
 /// 浏览页里列出的条目名（目录列表块的 `items[].title`）

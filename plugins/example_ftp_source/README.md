@@ -76,6 +76,32 @@ src  = <账号指纹>/<FTP 绝对路径去掉开头 />
 
 ## 4. 歌单「添加歌曲」
 
+这里演示**两种写法**，推荐第一种（插件不用画界面）：
+
+### 4.1 应用画界面（推荐）：`musicxx.source.browse` + `drive.list`
+
+插件声明一个可浏览来源，主程序就在「添加歌曲」菜单里自动多一行，点开是**与内置网盘完全一样**的
+弹窗（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 加歌单），数据由下面几个能力提供：
+
+```js
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID, title: "FTP 文件", root: "/",
+    icon: "resource/svg/ftp.svg", search: true,
+    capabilities: { list: "drive.list", search: "drive.search",
+                    resolveSongs: "drive.resolveSongs" }
+});
+
+musicxx.capability.register("drive.list", function (args) {
+    // args: {path, offset, limit, sort, reverse}；next 空串 = 没有下一页
+    return FtpSource.list(account, args.path).then(function (r) { /* → {ok, entries, next} */ });
+});
+```
+
+条目里的文件要带 `song: {type, src, fileName, size}`（`src` 是账号指纹 + 路径，与 §3 一致），
+主程序就按内置歌曲行画、选中后直接加进歌单。协议完整字段见包内 `docs/plugin-api.md` §3.3。
+
+### 4.2 插件自己画浮层（老写法，留着做对照）
+
 插件注册的 UI 项：
 
 ```jsonc
