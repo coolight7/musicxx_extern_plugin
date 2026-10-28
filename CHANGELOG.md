@@ -43,6 +43,12 @@ WebDAV / Subsonic / Jellyfin / Emby / 本地目录）一致的目录列表与挑
   返回 null，所以播过一次、封面已按音源身份缓存也不显示；现在先看 `customType`，再查同一份
   图片缓存（键 = `md5(类型串 + 资源 id)`）。
 
+### 新增：音源类型的列表标签短名 `tag`
+
+`musicxx.source.define` 多了 `tag`：歌单、下载列表的歌曲行显示成 `[FTP]` 这种方括号标签，
+**名字由插件给**（不写就用 `title`，再没有就用类型 id 的最后一段，超长截断到 12 个字符）。
+主程序只负责包方括号；插件没装 / 已停用时也会退回类型名，不会出现空标签。
+
 ### 界面描述层：列表项 `custom`、`musicxx.DirListView`、`musicxx.AdaptLayout`
 
 这一版让列表项能装任意块，并为 musicxx 加了两个专属组件：

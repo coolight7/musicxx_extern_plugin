@@ -741,8 +741,13 @@ void main() {
     await harness.configureAccount();
     final String fingerprint = '${(await harness.probe())['fingerprint']}';
 
-    // 加载时就声明了自己的音源类型
+    // 加载时就声明了自己的音源类型（短名由插件给，主程序显示成 [FTP]）
     expect(harness.definedSources, contains(ftpType));
+    expect(
+      harness.definedSourceArgs.single['tag'],
+      'FTP',
+      reason: '列表标签里的名字由插件给',
+    );
 
     final Map<String, Object?> before = await harness.probe();
     expect(before['netOk'], isTrue);
@@ -786,6 +791,9 @@ class _Harness {
   final Map<String, Object?> kv = <String, Object?>{};
 
   final List<String> definedSources = <String>[];
+
+  /// 插件发出的 `musicxx.source.define` 参数（含列表标签短名 `tag`）
+  final List<Map<String, Object?>> definedSourceArgs = <Map<String, Object?>>[];
 
   /// 插件发出的 `musicxx.source.browse` 声明
   final List<Map<String, Object?>> browseDeclarations =
@@ -918,6 +926,7 @@ class _Harness {
     runtime.actions.register(MusicxxPluginActionNames.sourceDefine, (
       invocation,
     ) {
+      definedSourceArgs.add(invocation.args.cast<String, Object?>());
       final Object? id = invocation.args['id'];
       if (id is String && !definedSources.contains(id)) {
         definedSources.add(id);

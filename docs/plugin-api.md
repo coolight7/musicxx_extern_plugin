@@ -1117,19 +1117,24 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.source.define` | `{id, title?, depict?, srcDoc?}` | `{ok:true, id}` 或 `{ok:false, error}` |
+| `musicxx.source.define` | `{id, title?, tag?, depict?, srcDoc?}` | `{ok:true, id}` 或 `{ok:false, error}` |
 | `musicxx.source.undefine` | `{id}` | `{ok, removed}` |
-| `musicxx.source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}], resolveChain:[…]}` |
+| `musicxx.source.list` | 无 | `{ok:true, sources:[{id, title, tag, depict, srcDoc, plugin, declaredBy}], resolveChain:[…]}` |
 
 - `id` 必须形如 `plugin.<你的插件 id>.<类型名>`；**声明只用于自省与更清楚的
   报错**：音源能不能播，看的是你有没有注册 `musicxx.player.source.resolve` 的处理器，不是有没有声明。
+- `tag` 是**列表标签里的短名**（建议不超过 12 个字/字符）：歌单、下载列表的歌曲行显示成 `[FTP]`
+  这种方括号标签。不写就用 `title`，再没有就用类型 id 的最后一段；**没声明**（插件没装 / 停用）
+  时也会显示类型名，只是名字没那么好看。
 - 声明跟着插件生命周期走（停用 / 卸载 / 关『拟声++』自动撤销），不写入磁盘；重新启用时脚本会再声明一遍。
 - `musicxx.source.list` 的 `resolveChain` 与 `musicxx.feature.point.list` 里看
   `musicxx.player.source.resolve` 是同一份数据（命令行 `source.list`、MCP `ListMediaSources` 也读它）。
 
 ```js
 await musicxx.call("musicxx.source.define", {
-    id: "plugin.my_plugin.flac", title: "我的高解析音源", srcDoc: "track/<歌曲 id>"
+    id: "plugin.my_plugin.flac", title: "我的高解析音源",
+    tag: "FLAC",                 // 歌单里的标签：显示成 [FLAC]
+    srcDoc: "track/<歌曲 id>"
 });
 await musicxx.call("musicxx.player.playSrc", {
     src: "track/1", type: "plugin.my_plugin.flac"

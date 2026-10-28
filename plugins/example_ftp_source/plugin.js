@@ -855,6 +855,8 @@ function noteAccountProblem(reason) {
 musicxx.call("musicxx.source.define", {
     id: TYPE_ID,
     title: "FTP 文件",
+    // 列表标签里的短名：歌单里显示成 `[FTP]`（不写就用 title）
+    tag: "FTP",
     depict: "地址里写「账号指纹/路径」，播放时由插件把文件转成本机 http 地址",
     srcDoc: "3f9c1d7b/Music/Album/a.flac"
 }).then(function (result) {
