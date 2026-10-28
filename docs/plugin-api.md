@@ -1258,14 +1258,24 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 |---|---|---|
 | `musicxx.ui.pickSongs` | `type`（必填）、`title?`、`path?`、`pid?`、`multiple?`、`allowSelectDir?`、`search?`、`pageSize?` | `{ok, added, skipped, cancelled}` |
 | `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false） | `{ok, paths, cancelled}` |
+| `musicxx.ui.browseDrive` | `type`（必填）、`path?`（起始目录） | `{ok, reason:"opened", type}`（**不等用户关页面**） |
 
 ```js
 // 挑歌并加进当前歌单（插件自己的按钮里用）
 musicxx.call("musicxx.ui.pickSongs", { type: TYPE_ID });   // 不要 await：动作要等用户关掉弹窗
+
+// 在自己插件的主页入口里打开整页浏览（与内置网盘页一模一样）
+musicxx.ui.registerEntry({
+    name: "drive", type: "home.entry",
+    data: { title: "FTP 文件", icon: "resource/svg/ftp.svg",
+            action: { kind: "command", name: "musicxx.ui.browseDrive",
+                      args: { type: TYPE_ID } } }
+});
 ```
 
-- 这两个动作**要等用户关掉弹窗才完成**：在能力处理器里调它时**不要 await**（会与应用动作
-  互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。
+- `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时**不要 await**
+  （会与应用动作互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。`browseDrive` 相反：
+  它打开页面后立即返回 `{ok, reason:"opened", type}`，不等用户关页面。
 - 插件调它们只能打开**自己声明**的来源（`type` 必须是自己的）；应用自己调（如菜单里那一行）
   没有这个限制。
 - 推荐用法：「添加歌曲」里那一行由应用自动生成，插件不用注册 `addsong.entry`（自己画浮层的
