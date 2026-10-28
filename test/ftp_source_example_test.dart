@@ -223,6 +223,68 @@ void main() {
         contains('c.ogg'));
   }, timeout: const Timeout(Duration(seconds: 60)));
 
+  test('网盘：写能力（新建 / 重命名 / 删除 / 条目信息）', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+    await harness.configureAccount();
+
+    // 声明里带 write 与四个写能力：主程序据此才出「新建 / 重命名 / 删除 / 条目信息」
+    final Map<String, Object?> declared = harness.browseDeclarations.single;
+    expect(declared['write'], true);
+    final Map<String, Object?> caps =
+        (declared['capabilities']! as Map).cast<String, Object?>();
+    for (final String name in <String>['mkdir', 'rename', 'remove', 'info']) {
+      expect(caps.containsKey(name), true, reason: '声明里要给出 $name');
+    }
+
+    // 1) 新建目录（FTP MKD）
+    final Map<String, Object?> made = await harness.call('drive.mkdir',
+        <String, Object?>{'parent': '/Music', 'name': 'newDir'});
+    expect(made['ok'], true);
+    expect(made['path'], '/Music/newDir');
+    expect(harness.ftp.dirs.contains('/Music/newDir'), true);
+
+    // 名字空 / 带斜线：本地就拦掉，不发命令
+    final Map<String, Object?> badName = await harness.call('drive.mkdir',
+        <String, Object?>{'parent': '/Music', 'name': 'a/b'});
+    expect(badName['ok'], false);
+
+    // 2) 重命名（FTP RNFR + RNTO）
+    final Map<String, Object?> renamed = await harness.call('drive.rename',
+        <String, Object?>{'path': '/Music/a.mp3', 'newName': 'a2.mp3'});
+    expect(renamed['ok'], true);
+    expect(renamed['path'], '/Music/a2.mp3');
+    expect(harness.ftp.files.containsKey('/Music/a2.mp3'), true);
+    expect(harness.ftp.files.containsKey('/Music/a.mp3'), false);
+
+    // 3) 删除：文件走 DELE，目录走 RMD（示例先试 DELE，失败再 RMD）
+    final Map<String, Object?> removed = await harness.call('drive.remove',
+        <String, Object?>{
+          'paths': <String>['/Music/a2.mp3', '/Music/newDir'],
+        });
+    expect(removed['ok'], true);
+    expect(removed['removed'], 2);
+    expect(harness.ftp.files.containsKey('/Music/a2.mp3'), false);
+    expect(harness.ftp.dirs.contains('/Music/newDir'), false);
+
+    // 删不存在的东西：报错（主程序据此提示，不会把列表里的行去掉）
+    final Map<String, Object?> missing = await harness.call('drive.remove',
+        <String, Object?>{'paths': <String>['/Music/nothing.mp3']});
+    expect(missing['ok'], false);
+    expect('${missing['error']}'.isNotEmpty, true);
+
+    // 4) 条目信息：名字 + 大小
+    final Map<String, Object?> info = await harness.call('drive.info',
+        <String, Object?>{'path': '/Music/b.flac'});
+    expect(info['ok'], true);
+    expect(info['title'], 'b.flac');
+    final String pairs = '${info['pairs']}';
+    expect(pairs, contains('大小'));
+    expect(pairs, contains('文件'));
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
   test('浏览：列目录、目录优先、筛选、进入子目录', () async {
     if (unsupported()) {
       return;
@@ -1265,6 +1327,37 @@ class _FakeFtpServer {
 
   Uint8List? fileAt(String absolute) => files[absolute];
 
+  /// 删掉一项（目录连同里面的东西一起删，测试够用）
+  void removeEntry(String absolute) {
+    dirs.remove(absolute);
+    dirs.removeWhere((String dir) => dir.startsWith('$absolute/'));
+    files.removeWhere((String file, _) => file.startsWith('$absolute/'));
+  }
+
+  /// 改名 / 移动（`RNFR` + `RNTO`）
+  void renameEntry(String from, String to) {
+    final Uint8List? file = files.remove(from);
+    if (null != file) {
+      files[to] = file;
+      return;
+    }
+    if (dirs.remove(from)) {
+      dirs.add(to);
+      for (final String dir in dirs.where((String dir) => dir.startsWith('$from/')).toList()) {
+        dirs.remove(dir);
+        dirs.add('$to${dir.substring(from.length)}');
+      }
+      final Map<String, Uint8List> moved = <String, Uint8List>{
+        for (final MapEntry<String, Uint8List> entry in files.entries)
+          if (entry.key.startsWith('$from/')) entry.key: entry.value,
+      };
+      for (final MapEntry<String, Uint8List> entry in moved.entries) {
+        files.remove(entry.key);
+        files['$to${entry.key.substring(from.length)}'] = entry.value;
+      }
+    }
+  }
+
   Future<void> close() async {
     for (final Socket socket in _clients) {
       try {
@@ -1302,6 +1395,9 @@ class _FtpSession {
   Completer<Socket>? _dataReady;
   bool _closed = false;
   int _restOffset = 0;
+
+  /// `RNFR` 记下的来源路径（下一条 `RNTO` 用它改名）
+  String? _renameFrom;
 
   void _write(String text) {
     if (_closed) {
@@ -1398,6 +1494,52 @@ class _FtpSession {
         break;
       case 'RETR':
         unawaited(_sendFile(arg));
+        break;
+      case 'MKD':
+        final String target = _normalize(arg);
+        if (_server.dirs.contains(target) || _server.files.containsKey(target)) {
+          _write('550 Already exists.\r\n');
+          break;
+        }
+        _server.dirs.add(target);
+        _write('257 "$target" created.\r\n');
+        break;
+      case 'RMD':
+        final String target = _normalize(arg);
+        if (!_server.dirs.contains(target)) {
+          _write('550 No such directory.\r\n');
+          break;
+        }
+        _server.removeEntry(target);
+        _write('250 Directory removed.\r\n');
+        break;
+      case 'DELE':
+        final String target = _normalize(arg);
+        if (null == _server.files.remove(target)) {
+          _write('550 No such file.\r\n');
+          break;
+        }
+        _write('250 File deleted.\r\n');
+        break;
+      case 'RNFR':
+        final String target = _normalize(arg);
+        if (!_server.files.containsKey(target) &&
+            !_server.dirs.contains(target)) {
+          _write('550 No such file or directory.\r\n');
+          break;
+        }
+        _renameFrom = target;
+        _write('350 Ready for RNTO.\r\n');
+        break;
+      case 'RNTO':
+        final String? from = _renameFrom;
+        _renameFrom = null;
+        if (null == from) {
+          _write('503 RNFR required first.\r\n');
+          break;
+        }
+        _server.renameEntry(from, _normalize(arg));
+        _write('250 Rename successful.\r\n');
         break;
       case 'QUIT':
         _write('221 Goodbye.\r\n');

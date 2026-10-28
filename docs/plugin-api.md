@@ -1249,6 +1249,12 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
   目录**的路径；只给 `fileName` 时应用按文件名拆歌名与歌手（与本地扫描同一套规则）。
 - **失败**：返回 `{ok:false, error:"人能看懂的一句话", retryable?}`。`drive.list` 失败时
   列表显示“加载失败，点此重试”；`drive.resolveSongs` 失败时应用退回逐层 `drive.list`。
+- **写操作**：只有声明了 `write: true` 才出「新建文件夹 / 重命名 / 删除」；`drive.info` 单独
+  声明（给了才出「条目信息」）。删除是**应用先弹确认**再调 `drive.remove`。
+- **下载与封面**：能不能下载、能不能放都走 `musicxx.player.source.resolve`（下载同样是"先解析
+  成地址再取字节"），所以不实现解析的插件既放不了也下不了。条目没给 `cover` 时，歌单里那一行
+  要等这首歌**播过一次**（应用按音源身份把封面存进图片缓存，键是
+  `md5(类型 + 资源 id)`）之后才显示封面。
 - **限制**：整目录递归最多 5 层；`drive.resolveSongs` 一次最多 5000 首（超出请自己截断并
   设 `truncated: true`）；同一个插件的同名能力应用会串行调用（最多排 2 条）。
 

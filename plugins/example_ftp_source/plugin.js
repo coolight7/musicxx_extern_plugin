@@ -883,10 +883,15 @@ musicxx.call("musicxx.source.browse", {
     root: "/",
     icon: "resource/svg/ftp.svg",
     search: true,
+    write: true,
     capabilities: {
         list: "drive.list",
         search: "drive.search",
-        resolveSongs: "drive.resolveSongs"
+        resolveSongs: "drive.resolveSongs",
+        mkdir: "drive.mkdir",
+        rename: "drive.rename",
+        remove: "drive.remove",
+        info: "drive.info"
     }
 }).then(function (result) {
     if (!result || result.ok !== true) {
@@ -1030,6 +1035,108 @@ musicxx.capability.register("drive.resolveSongs", function (args) {
             songs: songs,
             truncated: songs.length >= MAX_DRIVE_SONGS
         };
+    });
+});
+
+/// `drive.mkdir`：新建文件夹（FTP `MKD`）
+///
+/// 参数 `{parent, name}`，成功回新路径（主程序拿它刷新列表）。
+musicxx.capability.register("drive.mkdir", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const parent = FtpSource.normalizePath(args && args.parent ? args.parent : "/");
+    const name = String((args && args.name) || "").trim();
+    if (!name || name.indexOf("/") >= 0) {
+        return { ok: false, error: "名字不能为空，也不能带 /" };
+    }
+    return FtpSource.mkdir(account, FtpSource.joinPath(parent, name)).then(function (path) {
+        return { ok: true, path: path };
+    }, function (err) {
+        return { ok: false, error: (err && err.message) ? err.message : String(err) };
+    });
+});
+
+/// `drive.rename`：重命名 / 移动（FTP `RNFR` + `RNTO`）
+///
+/// 参数 `{path, newName}`；新名字相对同一层目录。成功回新路径。
+musicxx.capability.register("drive.rename", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const source = FtpSource.normalizePath(args && args.path ? args.path : "");
+    const newName = String((args && args.newName) || "").trim();
+    if (!source || source === "/") {
+        return { ok: false, error: "路径不对：" + source };
+    }
+    if (!newName || newName.indexOf("/") >= 0) {
+        return { ok: false, error: "名字不能为空，也不能带 /" };
+    }
+    const target = FtpSource.joinPath(FtpSource.parentOf(source), newName);
+    return FtpSource.rename(account, source, target).then(function (path) {
+        return { ok: true, path: path };
+    }, function (err) {
+        return { ok: false, error: (err && err.message) ? err.message : String(err) };
+    });
+});
+
+/// `drive.remove`：删除（文件走 `DELE`，目录走 `RMD`）
+///
+/// 参数 `{paths:[…]}`；一条失败就停下并报错（已删掉的那几个主程序会以为还在，
+/// 用户刷新列表就对了）。
+musicxx.capability.register("drive.remove", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const paths = (args && Array.isArray(args.paths)) ? args.paths : [];
+    if (!paths.length) {
+        return { ok: false, error: "没有要删除的路径" };
+    }
+    let chain = Promise.resolve(0);
+    for (let i = 0; i < paths.length; i += 1) {
+        const target = FtpSource.normalizePath(paths[i]);
+        chain = chain.then(function (done) {
+            return FtpSource.remove(account, target).then(function () {
+                return done + 1;
+            });
+        });
+    }
+    return chain.then(function (removed) {
+        return { ok: true, removed: removed };
+    }, function (err) {
+        return { ok: false, error: (err && err.message) ? err.message : String(err) };
+    });
+});
+
+/// `drive.info`：条目信息（大小 / 类型 / 修改时间）
+///
+/// 回答 `{ok, title, pairs:[{k,v}]}`：主程序把它们拼成一段文本显示。
+musicxx.capability.register("drive.info", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const target = FtpSource.normalizePath(args && args.path ? args.path : "");
+    return FtpSource.stat(account, target).then(function (entry) {
+        if (!entry) {
+            return { ok: false, error: "服务器上没有这一项：" + target };
+        }
+        const pairs = [
+            { k: "路径", v: entry.path },
+            { k: "类型", v: entry.isDir ? "文件夹" : "文件" }
+        ];
+        if (!entry.isDir) {
+            pairs.push({ k: "大小", v: FtpSource.formatSize(entry.size || 0) });
+        }
+        if (entry.modified) {
+            pairs.push({ k: "修改时间", v: String(entry.modified) });
+        }
+        return { ok: true, title: entry.name, pairs: pairs };
+    }, function (err) {
+        return { ok: false, error: (err && err.message) ? err.message : String(err) };
     });
 });
 

@@ -33,6 +33,16 @@ WebDAV / Subsonic / Jellyfin / Emby / 本地目录）一致的目录列表与挑
 协议细节（条目字段、分页语义、排序名、上限与错误形状）见 `docs/plugin-api.md` §3.3；
 示例见 `plugins/example_ftp_source`（同时演示“应用画界面”与“自己画浮层”两种写法）。
 
+### 修正：插件音源的下载与封面
+
+- **下载**：判断"能不能下载"改成认自定义类型（`SongEntity_c.canDownloadAudioSrc`），插件音源
+  不再被当成不可下载；下载链路先走 `musicxx.player.source.resolve` 拿地址与请求头，解析结果
+  是本地路径（`kind: file`）时按文件复制。**列表项菜单里的「下载」只下这一项**（以前误用了
+  列表菜单那套"先进编辑模式再选"，会提示“已添加下载 0 首”）。
+- **封面**：插件音源的歌曲 `info.type` 是空的，以前 `tryGetAudioImageSrc` 按 type 判断会直接
+  返回 null，所以播过一次、封面已按音源身份缓存也不显示；现在先看 `customType`，再查同一份
+  图片缓存（键 = `md5(类型串 + 资源 id)`）。
+
 ### 界面描述层：列表项 `custom`、`musicxx.DirListView`、`musicxx.AdaptLayout`
 
 这一版让列表项能装任意块，并为 musicxx 加了两个专属组件：
