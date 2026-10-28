@@ -300,6 +300,29 @@ abstract final class MusicxxPluginActionNames {
   /// 插件在能力处理器里调它时**不要 await**（会与主程序动作互相等）。
   static const String uiOpenOverlaySheet = 'musicxx.ui.openOverlaySheet';
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
+
+  /// 让主程序打开「选择歌曲」弹窗（挑自己这个音源里的歌，选完直接加进歌单）
+  ///
+  /// 前提是先声明 `musicxx.source.browse` 并实现 `drive.list` 能力。参数：`type`（必填，
+  /// 自己声明的音源类型 id）、`title?`、`path?`（起始目录，缺省用声明里的 `root`）、
+  /// `pid?`（目标歌单，不给就是当前播放列表）、`multiple?`（默认 true）、
+  /// `allowSelectDir?`（默认 true）、`search?`、`pageSize?`。
+  /// 返回：`{ok, added, skipped, cancelled}`。
+  ///
+  /// 动作**在弹窗关掉之后才完成**：插件在能力处理器里调它时**不要 await**
+  /// （会与主程序动作互相等，与 `musicxx.ui.openOverlaySheet` 同理）。
+  static const String uiPickSongs = 'musicxx.ui.pickSongs';
+
+  /// 让主程序打开「选择文件夹」弹窗（上传目标、保存位置这类场景）
+  ///
+  /// 参数与 [uiPickSongs] 基本相同，`multiple` 缺省 false。返回 `{ok, paths, cancelled}`。
+  static const String uiPickDir = 'musicxx.ui.pickDir';
+
+  /// 打开某个浏览来源的**整页列表**（与内置网盘页同一套界面）
+  ///
+  /// 参数：`type`（必填）、`path?`（起始目录）、`pid?`（目标歌单，缺省当前播放列表）。
+  /// 返回 `{ok, reason, added}`；`reason` 是 `closed` / `confirmed`。
+  static const String uiBrowseDrive = 'musicxx.ui.browseDrive';
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
   static const String uiGetFontFamily = 'musicxx.ui.getFontFamily';
@@ -407,6 +430,21 @@ abstract final class MusicxxPluginActionNames {
   /// `resolveChain` = 音源解析链现在有谁在提供（与 `musicxx.feature.point.list`
   /// 看 `musicxx.player.source.resolve` 是同一份数据）。
   static const String sourceList = 'musicxx.source.list';
+
+  /// 声明**这个音源类型可以浏览并挑歌**（目录列表、搜索、写操作都走这里）
+  ///
+  /// 与 `musicxx.source.define` 分开：`define` 是"这个类型能解析播放"，`browse` 是"这个类型
+  /// 能浏览并挑歌"。一个类型可以只有前者（例如只做播放代理），也可以两者都有。
+  ///
+  /// 参数：`id`（必填，必须是自己命名空间下的音源类型 id）、`title`（菜单标题）、
+  /// `root`（根目录，缺省 `/`）、`icon?`（插件目录里的 svg 路径）、`write?`（是否允许写）、
+  /// `search?`（是否支持搜索）、`capabilities?`（覆盖默认能力名，键是 `list` /
+  /// `resolveSongs` / `search` / `mkdir` / `rename` / `remove` / `info` / `open`）。
+  /// 声明跟着插件生命周期走（禁用 / 卸载自动撤销），不持久化。
+  ///
+  /// 声明后插件自动出现在「添加歌曲」菜单里（一行，点开就是内置风格的挑歌弹窗），
+  /// 数据由 `drive.list` 能力提供。
+  static const String sourceBrowse = 'musicxx.source.browse';
 
   /// 读某个钩子当前的处理器列表（自省：谁注册了、什么形态、排第几）
   ///

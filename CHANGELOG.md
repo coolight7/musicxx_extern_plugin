@@ -8,6 +8,27 @@
 
 ## 未发布
 
+### 新增：插件网盘 `musicxx.source.browse` + `drive.*` 能力（应用提供内置网盘那一套界面）
+
+插件只要**声明一个可浏览来源**并实现 `drive.list`，就能得到与内置网盘（百度 / 阿里 / 115 /
+WebDAV / Subsonic / Jellyfin / Emby / 本地目录）一致的目录列表与挑歌体验：路径栏、排序、索引栏、
+搜索、勾选、整目录递归（最多 5 层）、加歌单 / 加播放队列、下载、重命名、新建目录、删除、
+条目信息，以及“点歌曲 = 用当前目录建临时歌单播放”。
+
+- 声明动作：`musicxx.source.browse`（参数 `id` / `title` / `root` / `icon` / `write` / `search` /
+  `pageSize` / `capabilities`）；声明跟着插件生命周期撤销，不写磁盘。
+- 能力：`drive.list`（必填，`{path, offset, limit, sort, reverse}` → `{ok, entries, next}`）、
+  `drive.resolveSongs`（勾文件夹时一步读歌，没给就退回逐层 `drive.list`）、`drive.search`、
+  `drive.mkdir` / `drive.rename` / `drive.remove`（要声明 `write`）、`drive.info`、`drive.open`
+  （点歌曲时交给插件）。`capabilities` 里出现某个键 = 这个能力实现了，名字也可以覆盖。
+- 宿主 UI 动作：`musicxx.ui.pickSongs`（挑歌并加进歌单）、`musicxx.ui.pickDir`（选目录）。
+  两个动作都**要等用户关掉弹窗才完成**：在能力处理器里调它们时不要 await。
+- 「添加歌曲」菜单里那一行由应用自动生成，插件不用再注册 `addsong.entry`（自己画浮层的写法
+  仍可用，两种可以共存）。
+
+协议细节（条目字段、分页语义、排序名、上限与错误形状）见 `docs/plugin-api.md` §3.3；
+示例见 `plugins/example_ftp_source`（同时演示“应用画界面”与“自己画浮层”两种写法）。
+
 ### 界面描述层：列表项 `custom`、`musicxx.DirListView`、`musicxx.AdaptLayout`
 
 这一版让列表项能装任意块，并为 musicxx 加了两个专属组件：

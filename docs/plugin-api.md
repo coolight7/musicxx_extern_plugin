@@ -239,7 +239,7 @@ requestAction("musicxx.player.toggle", "{}", &notify, 5000, &requestId);
 ### 3.2 全部已实现的动作
 
 下面每一节都是"当前版本注册过、调用能得到结果"的动作。**没有列在这里的 `musicxx.*` 名字都还没实现**
-（调用会得到 `action_not_registered`，见 §3.3）。
+（调用会得到 `action_not_registered`，见 §3.4）。
 
 #### 3.2.1 播放控制（`musicxx.player.*`）
 
@@ -277,7 +277,7 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 - **这四个值都有“要变之前拦一下”的钩子**：`musicxx.player.seek` / `musicxx.player.volume` /
   `musicxx.player.speed` / `musicxx.player.pitch`（见 §8 与 [plugin-hooks.md](plugin-hooks.md)）：
   插件用动作改值时也会先问钩子，所以钩子不能反过来再调这些动作（会再派发一次）。
-- 没有 `setMediaType`（见 §3.3）。
+- 没有 `setMediaType`（见 §3.4）。
 
 #### 3.2.2 歌单与歌曲（`musicxx.library.*` / `musicxx.playlist.*`）
 
@@ -1092,7 +1092,7 @@ if (info.count === 0) { /* 现在没人提供，我要不要注册 */ }
 | `musicxx.host.clipboard` | `{text}` | `{ok:true}` | 写系统剪贴板 |
 | `musicxx.host.getPath` | 无 | `{pluginId, pluginDir, dataDir, logDir, platform}` | 插件目录 / 数据目录 / 日志目录，排查时很有用 |
 
-`musicxx.host.shareText` 目前**没有实现**（见 §3.3）。
+`musicxx.host.shareText` 目前**没有实现**（见 §3.4）。
 
 #### 3.2.14 统计上报（`musicxx.stats.*`）
 
@@ -1155,7 +1155,123 @@ const off = musicxx.vars.bind("musicxx.app.lifecycle", (v) => musicxx.host.log(2
   `musicxx.app.lifecycle`（可订阅）或状态镜像。
 - 用户可能正在看着窗口：隐藏前先想清楚（这类动作是"替用户按一下按钮"，不是给插件自己让路的）。
 
-### 3.3 名字存在、但当前版本没有实现的动作
+### 3.3 插件网盘：让应用提供目录列表与挑歌界面
+
+内置网盘（百度 / 阿里 / 115 / WebDAV / Subsonic / Jellyfin / Emby / 本地目录）共用一套目录列表：
+路径栏、排序、搜索、勾选、整目录递归（最多 5 层）、加歌单 / 加播放队列、下载、重命名、
+新建目录、删除、条目信息。**插件不需要自己画这些**：声明一个可浏览来源 + 实现 `drive.list`，
+「添加歌曲」菜单里就会多一行，点开就是同一个弹窗。
+
+三步就能用：
+
+```js
+// 1) 声明：我的这个音源类型可以浏览（跟着插件生命周期撤销，不写磁盘）
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID,                    // 必填：自己命名空间下的音源类型 id
+    title: "FTP 文件",              // 菜单 / 页面标题
+    root: "/",                      // 根目录（插件自己的标识）
+    icon: "resource/svg/ftp.svg",   // 菜单里那一行的图标（相对插件目录）
+    search: true,                   // 有搜索按钮
+    capabilities: {                  // 出现某个键 = 这个能力实现了（名字可以改成自己的）
+        list: "drive.list",
+        search: "drive.search",
+        resolveSongs: "drive.resolveSongs"
+    }
+});
+
+// 2) 列一页（必需）
+musicxx.capability.register("drive.list", async function (args) {
+    // args: {requestId, path, offset, limit, sort, reverse}
+    const page = await myList(args.path);              // 自己的列目录
+    return {
+        ok: true,
+        entries: page.items.map((it) => ({
+            name: it.name,
+            path: it.path,          // 插件自己的标识，应用只原样回传
+            isDir: it.isDir,
+            size: it.size || 0,
+            // 文件要带 song（类型 + 资源 id），应用才按歌曲行画、才能加进歌单
+            song: it.isDir ? undefined : {
+                type: TYPE_ID,
+                src: it.resId,
+                fileName: it.name,
+                size: it.size || 0
+            }
+        })),
+        next: page.hasMore ? "2" : ""    // 下一页偏移；空串 = 没有下一页
+    };
+});
+
+// 3) （可选，强烈建议）整目录一次读歌：勾了文件夹就能一次拿到里面的歌
+musicxx.capability.register("drive.resolveSongs", async function (args) {
+    // args: {requestId, paths, recursive, maxDepth}
+    return { ok: true, songs: await mySongsUnder(args.paths) };
+});
+```
+
+声明的参数：
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `id` | 是 | 音源类型 id，必须形如 `plugin.<自己的插件 id>.<类型名>` |
+| `title` | — | 菜单 / 页面标题（缺省用 `id`），上限 120 字符 |
+| `root` | — | 根目录，缺省 `/`；应用只把它当字符串传回来 |
+| `icon` | — | 菜单里那一行的 svg（**相对插件目录**，写法与 UI 项一致） |
+| `write` | — | 允许新建目录 / 重命名 / 删除（缺省 false，那三个入口不出现） |
+| `search` | — | 有搜索（缺省 false；也可以靠 `capabilities.search` 表达） |
+| `pageSize` | — | 建议一页多少条（1~1000，缺省 100） |
+| `capabilities` | — | 覆盖能力名；出现某个键 = 这个能力实现了 |
+
+应用会问的能力（都是普通能力调用，参数里带 `requestId`，请原样放回返回里）：
+
+| 能力 | 什么时候问 | 入参 | 返回 |
+|---|---|---|---|
+| `drive.list` | 加载一个目录（必填） | `{path, offset, limit, sort, reverse}` | `{ok:true, entries:[…], next}` |
+| `drive.resolveSongs` | 勾了文件夹要一次读完里面的歌 | `{paths, recursive, maxDepth}` | `{ok:true, songs:[…], truncated?}` |
+| `drive.search` | 搜索框 | `{keyword, path, limit, offset}` | `{ok:true, entries:[…], next}` |
+| `drive.mkdir` | 「创建文件夹」 | `{parent, name}` | `{ok:true, path}` |
+| `drive.rename` | 「重命名」 | `{path, newName}` | `{ok:true, path}` |
+| `drive.remove` | 「删除」（应用先弹确认） | `{paths:[…]}` | `{ok:true, removed}` |
+| `drive.info` | 「歌曲信息」 | `{path}` | `{ok:true, title, pairs:[{k,v}]}` |
+| `drive.open` | 点歌曲那一行（不给就用应用的默认行为） | `{path, isDir}` | `{ok:true, played:true}` |
+
+约定与上限（应用那一侧已经做，插件不用重复）：
+
+- **分页**：`offset` 缺省是空串（第一页），`next` 给空串 / 省略表示没有下一页；含义由插件
+  决定（页号、游标、字节偏移都行），应用只回传。单页条目超过 `limit` 会被截断。
+- **排序**：`sort` 是 `name` / `size` / `createdTime` / `changedTime` / `artist` / `album` /
+  `duration` / `songCount` / `none`，`reverse` 是布尔。插件排不了就忽略；应用拿到后仍会本地
+  再排一次（与内置网盘一致）。
+- **条目**：`path` 必填（空的那一条会被丢掉），`name` / `artist` / `fileName` ≤ 1 KiB、
+  `cover` ≤ 2 KiB；同一页里重复的 `path` / `song.src` 只留第一条。目录项不要给 `song`。
+- **歌曲**：`song` 里 `type` 省略时用这个来源自己的类型；`src` 必填（插件自己的资源 id，
+  播放时由 `musicxx.player.source.resolve` 换地址）；`cover` 可以是 `http` 链接或**相对插件
+  目录**的路径；只给 `fileName` 时应用按文件名拆歌名与歌手（与本地扫描同一套规则）。
+- **失败**：返回 `{ok:false, error:"人能看懂的一句话", retryable?}`。`drive.list` 失败时
+  列表显示“加载失败，点此重试”；`drive.resolveSongs` 失败时应用退回逐层 `drive.list`。
+- **限制**：整目录递归最多 5 层；`drive.resolveSongs` 一次最多 5000 首（超出请自己截断并
+  设 `truncated: true`）；同一个插件的同名能力应用会串行调用（最多排 2 条）。
+
+宿主 UI 动作（插件自己的界面里想让应用开挑歌弹窗时用）：
+
+| 动作 | 参数 | 返回 |
+|---|---|---|
+| `musicxx.ui.pickSongs` | `type`（必填）、`title?`、`path?`、`pid?`、`multiple?`、`allowSelectDir?`、`search?`、`pageSize?` | `{ok, added, skipped, cancelled}` |
+| `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false） | `{ok, paths, cancelled}` |
+
+```js
+// 挑歌并加进当前歌单（插件自己的按钮里用）
+musicxx.call("musicxx.ui.pickSongs", { type: TYPE_ID });   // 不要 await：动作要等用户关掉弹窗
+```
+
+- 这两个动作**要等用户关掉弹窗才完成**：在能力处理器里调它时**不要 await**（会与应用动作
+  互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。
+- 插件调它们只能打开**自己声明**的来源（`type` 必须是自己的）；应用自己调（如菜单里那一行）
+  没有这个限制。
+- 推荐用法：「添加歌曲」里那一行由应用自动生成，插件不用注册 `addsong.entry`（自己画浮层的
+  写法仍然可用，见 `plugins/example_ftp_source`）。
+
+### 3.4 名字存在、但当前版本没有实现的动作
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
@@ -1919,7 +2035,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| 动作一直 `action_not_registered` | 动作当前版本没实现（§3.3）；或名字拼错 |
+| 动作一直 `action_not_registered` | 动作当前版本没实现（§3.4）；或名字拼错 |
 | 钩子不触发 | 该钩子在 `plugin-hooks.md` 里标"未接入"；或插件被禁用；或注册失败（看返回码 / 返回值） |
 | 处理器被调用多次 | 用不同 `ownerTag` 注册了同一个钩子（§8.1） |
 | 定时器 / 初始化执行两遍 | 每次启用都会重新执行注册（写成幂等） |

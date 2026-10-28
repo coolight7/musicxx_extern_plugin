@@ -5,9 +5,11 @@
  *
  * 1. **配置账号**：主页入口「FTP 音乐」→ `accounts` 能力 → 账号写进插件私有 KV
  *    （`musicxx.storage`，密码只在本机，界面不回显）。
- * 2. **挑歌加进歌单**：歌单页「添加歌曲」→「添加FTP歌曲」（UI 项 `addsong.entry`，动作是指向
- *    `musicxx.ui.openOverlaySheet` 的命令）→ 底部浮层里的 `browse` 能力列目录；
- *    选中若干首后 `browseAdd` 调主程序动作 `musicxx.playlist.addSong`。
+ * 2. **挑歌加进歌单**（两种写法，推荐第一种）：
+ *    - 主程序画界面：`musicxx.source.browse` 声明 + `drive.list` 等能力 —— 「添加歌曲」菜单里
+ *      自动多一行，点开就是与内置网盘一样的弹窗（路径栏 / 搜索 / 勾选 / 整目录递归 / 加歌单）；
+ *    - 自己画：UI 项 `addsong.entry` 指向 `musicxx.ui.openOverlaySheet` → 浮层里的 `browse`
+ *      能力列目录，`browseAdd` 调 `musicxx.playlist.addSong`（老写法，留着做对照）。
  * 3. **播放**：歌曲的音源类型是 `plugin.example_ftp_source.audio`，`src` 是
  *    `<账号指纹>/<FTP 路径>`（见 ftp.js 的 `resourceIdOf`）。播放时主程序问
  *    `musicxx.player.source.resolve`，这里把路径换成 `http://127.0.0.1:<port>/s/<token>`
@@ -861,6 +863,174 @@ musicxx.call("musicxx.source.define", {
     }
 }, function (err) {
     noteError("声明音源类型失败：" + err.message);
+});
+
+/* ==================== 网盘：浏览与挑歌（主程序画界面） ==================== */
+
+/// 一次 `drive.resolveSongs` 最多读多少首（超出截断，界面会提示）
+const MAX_DRIVE_SONGS = 2000;
+
+/// 声明"这个音源类型可以浏览"
+///
+/// 声明之后主程序把它当成一个网盘来源：「添加歌曲」菜单里自动多一行（内置网盘风格：路径栏 /
+/// 排序 / 搜索 / 勾选 / 整目录递归，最多 5 层），数据由下面几个能力提供。
+/// `capabilities` 里出现某个键 = 这个能力实现了（名字也可以改成别的）：
+/// `list` 必填，`search` / `resolveSongs` 可选（没给就没搜索按钮、退回逐层列目录）。
+/// 声明跟着插件生命周期撤销，不写磁盘。
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID,
+    title: "FTP 文件",
+    root: "/",
+    icon: "resource/svg/ftp.svg",
+    search: true,
+    capabilities: {
+        list: "drive.list",
+        search: "drive.search",
+        resolveSongs: "drive.resolveSongs"
+    }
+}).then(function (result) {
+    if (!result || result.ok !== true) {
+        noteError("声明可浏览来源失败：" + ((result && result.error) || "unknown"));
+    }
+}, function (err) {
+    noteError("声明可浏览来源失败：" + err.message);
+});
+
+/// 一个 FTP 目录项 → `drive.list` 的条目
+///
+/// 文件要带 `song`（类型 + 资源 id），主程序才按"歌曲行"画、才能加进歌单；
+/// `name` 当 `fileName` 用，歌名与歌手由主程序按文件名识别（与本地扫描同一套规则）。
+function driveEntryOf(account, entry) {
+    const item = {
+        name: entry.name,
+        path: entry.path,
+        isDir: !!entry.isDir,
+        size: entry.size || 0
+    };
+    if (!item.isDir) {
+        item.song = {
+            type: TYPE_ID,
+            src: FtpSource.resourceIdOf(account, entry.path),
+            fileName: entry.name,
+            size: item.size
+        };
+    }
+    return item;
+}
+
+/// `drive.list`：一页目录
+///
+/// `offset` 为空串 = 第一页，`next` 为空串 = 没有下一页；主程序拿到后还会本地排一次，
+/// 所以这里只按偏移切片（FTP 的 LIST 没有分页，一次就能读完）。
+musicxx.capability.register("drive.list", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const path = FtpSource.normalizePath(args && args.path ? args.path : "/");
+    const offset = Math.max(0, intOf(args && args.offset, 0));
+    const limit = Math.max(1, intOf(args && args.limit, PAGE_SIZE));
+    return FtpSource.list(account, path).then(function (result) {
+        const entries = [];
+        for (let i = 0; i < result.entries.length; i += 1) {
+            entries.push(driveEntryOf(account, result.entries[i]));
+        }
+        const page = entries.slice(offset, offset + limit);
+        const next = (offset + limit < entries.length) ? String(offset + limit) : "";
+        stats.browseCalls += 1;
+        stats.browseOk += 1;
+        return { ok: true, entries: page, next: next, total: entries.length };
+    }, function (err) {
+        const reason = (err && err.message) ? err.message : String(err);
+        noteError("drive.list 失败：" + reason);
+        return { ok: false, error: reason };
+    });
+});
+
+/// `drive.search`：在当前目录里按名字找（FTP 没有搜索接口，这里只搜一层）
+musicxx.capability.register("drive.search", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const keyword = String((args && args.keyword) || "").trim().toLowerCase();
+    if (!keyword) {
+        return { ok: true, entries: [], next: "" };
+    }
+    const path = FtpSource.normalizePath(args && args.path ? args.path : "/");
+    return FtpSource.list(account, path).then(function (result) {
+        const entries = [];
+        for (let i = 0; i < result.entries.length; i += 1) {
+            const entry = result.entries[i];
+            if (String(entry.name).toLowerCase().indexOf(keyword) >= 0) {
+                entries.push(driveEntryOf(account, entry));
+            }
+        }
+        return { ok: true, entries: entries, next: "" };
+    }, function (err) {
+        return { ok: false, error: (err && err.message) ? err.message : String(err) };
+    });
+});
+
+/// `drive.resolveSongs`：把一个文件夹里的歌一次读完（勾整目录时比逐层列目录快）
+///
+/// 失败时返回 `ok: false`；主程序会退回逐层 `drive.list`，所以这里不用自己重试。
+/// 每个文件都当音频（FTP 上放的一般就是音乐），超过 [MAX_DRIVE_SONGS] 截断。
+musicxx.capability.register("drive.resolveSongs", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const paths = (args && Array.isArray(args.paths)) ? args.paths : [];
+    const maxDepth = Math.min(Math.max(1, intOf(args && args.maxDepth, 5)), 5);
+    const songs = [];
+    const seen = {};
+    function walk(path, depth) {
+        if (depth > maxDepth || songs.length >= MAX_DRIVE_SONGS) {
+            return Promise.resolve(null);
+        }
+        return FtpSource.list(account, path).then(function (result) {
+            let chain = Promise.resolve(null);
+            for (let i = 0; i < result.entries.length; i += 1) {
+                const entry = result.entries[i];
+                if (entry.isDir) {
+                    chain = chain.then(function () {
+                        return walk(entry.path, depth + 1);
+                    });
+                } else {
+                    const src = FtpSource.resourceIdOf(account, entry.path);
+                    if (!src || seen[src]) {
+                        continue;
+                    }
+                    seen[src] = true;
+                    songs.push({
+                        type: TYPE_ID,
+                        src: src,
+                        fileName: entry.name,
+                        size: entry.size || 0
+                    });
+                }
+            }
+            return chain;
+        }, function () {
+            // 某个子目录读不了就跳过，别让整个文件夹失败
+            return null;
+        });
+    }
+    let chain = Promise.resolve(null);
+    for (let i = 0; i < paths.length; i += 1) {
+        const target = paths[i];
+        chain = chain.then(function () {
+            return walk(FtpSource.normalizePath(target), 1);
+        });
+    }
+    return chain.then(function () {
+        return {
+            ok: true,
+            songs: songs,
+            truncated: songs.length >= MAX_DRIVE_SONGS
+        };
+    });
 });
 
 /* ==================== UI 项 ==================== */
