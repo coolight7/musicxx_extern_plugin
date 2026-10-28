@@ -130,7 +130,7 @@
     },
     {
       "name": "dirListView",
-      "doc": "目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定）",
+      "doc": "目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框，可以下拉刷新与滚到底加载更多；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定）",
       "params": [
         { "name": "path", "type": "text" },
         { "name": "items", "type": "listItems", "required": true },
@@ -139,6 +139,8 @@
         { "name": "pathAction", "type": "action" },
         { "name": "itemAction", "type": "action" },
         { "name": "selectAction", "type": "action" },
+        { "name": "refreshAction", "type": "action" },
+        { "name": "loadMoreAction", "type": "action" },
         { "name": "height", "type": "size" },
         { "name": "emptyText", "type": "text" }
       ],
@@ -154,6 +156,8 @@
             "pathAction": "$pathAction",
             "itemAction": "$itemAction",
             "selectAction": "$selectAction",
+            "refreshAction": "$refreshAction",
+            "loadMoreAction": "$loadMoreAction",
             "height": "$height",
             "emptyText": "$emptyText"
           }

@@ -452,7 +452,7 @@ requestAction("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 
 | `options` | array | `preset: picker` 的候选项：`[{value, title, describe?, selected?}]`（`describe` 可多行） |
 | `value` | any | `preset: picker` 的当前值（对应候选项打上选中标记） |
 | `textConfirm` / `textCancel` | string | 底部按钮文案（不给就没有那个按钮） |
-| `size` | string | 尺寸预设：`autoHeightAutoWidth`（缺省）/ `autoHeightFullWidth` / `full` / `fullHeightAutoWidth` / `columnAutoHeightRowFullHeightAutoWidth` |
+| `size` | string | 尺寸预设：`autoHeightAutoWidth`（缺省）/ `autoHeightFullWidth` / `full`（可用宽高的 90%）/ `fullHeightAutoWidth` / `columnAutoHeightRowFullHeightAutoWidth` |
 | `dismissible` | bool | 缺省 `true`：点遮罩 / 返回键就能关；写 `false` 时必须点按钮（或插件自己 `overlay.close`） |
 
 返回：

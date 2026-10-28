@@ -67,7 +67,7 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
         {"progressRow",
          R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"cross":"center","children":[{"$require":"label","kind":"Text","text":"$label"},{"kind":"Expanded","children":[{"kind":"Progress","value":"$value","total":"$total","unit":"$unit"}]}]}}],"params":{"label":null,"value":null,"total":100,"unit":"%"}})KIT"},
         {"dirListView",
-         R"KIT({"variants":[{"requires":["musicxx.DirListView"],"template":{"kind":"musicxx.DirListView","path":"$path","items":"$items","multi":"$multi","showPath":"$showPath","pathAction":"$pathAction","itemAction":"$itemAction","selectAction":"$selectAction","height":"$height","emptyText":"$emptyText"}},{"template":{"kind":"ListViewBase","id":"dirList","items":"$items","itemAction":"$itemAction","emptyText":"$emptyText"}}],"params":{"path":null,"items":null,"multi":false,"showPath":true,"pathAction":null,"itemAction":null,"selectAction":null,"height":null,"emptyText":null}})KIT"},
+         R"KIT({"variants":[{"requires":["musicxx.DirListView"],"template":{"kind":"musicxx.DirListView","path":"$path","items":"$items","multi":"$multi","showPath":"$showPath","pathAction":"$pathAction","itemAction":"$itemAction","selectAction":"$selectAction","refreshAction":"$refreshAction","loadMoreAction":"$loadMoreAction","height":"$height","emptyText":"$emptyText"}},{"template":{"kind":"ListViewBase","id":"dirList","items":"$items","itemAction":"$itemAction","emptyText":"$emptyText"}}],"params":{"path":null,"items":null,"multi":false,"showPath":true,"pathAction":null,"itemAction":null,"selectAction":null,"refreshAction":null,"loadMoreAction":null,"height":null,"emptyText":null}})KIT"},
         {"adaptLayout",
          R"KIT({"variants":[{"requires":["musicxx.AdaptLayout"],"template":{"kind":"musicxx.AdaptLayout","columnBody":"$columnBody","rowBody":"$rowBody","columnSecondBody":"$columnSecondBody","rowSecondBody":"$rowSecondBody","rowBodyRatio":"$rowBodyRatio","columnBodyRatio":"$columnBodyRatio","enableAnimations":"$enableAnimations"}},{"template":{"kind":"Column","children":"$rowBody"}}],"params":{"columnBody":null,"rowBody":null,"columnSecondBody":null,"rowSecondBody":null,"rowBodyRatio":0.5,"columnBodyRatio":0.5,"enableAnimations":false}})KIT"},
         {"settingRow",
@@ -290,8 +290,8 @@ inline pluginxx::ui::Item progressRow(
     return pluginxx::ui::detail::expandKit("progressRow", params, env, &kitTemplate);
 }
 
-/// 目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定）
-/// 参数：path(text)、items(listItems, 必填)、multi(bool, 默认 false)、showPath(bool, 默认 true)、pathAction(action)、itemAction(action)、selectAction(action)、height(size)、emptyText(text)
+/// 目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框，可以下拉刷新与滚到底加载更多；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定）
+/// 参数：path(text)、items(listItems, 必填)、multi(bool, 默认 false)、showPath(bool, 默认 true)、pathAction(action)、itemAction(action)、selectAction(action)、refreshAction(action)、loadMoreAction(action)、height(size)、emptyText(text)
 inline pluginxx::ui::Item dirListView(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
