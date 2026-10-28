@@ -1048,6 +1048,22 @@ musicxx.ui.registerEntry({
     }
 });
 
+/// 主页入口：整个来源的**整页浏览**（与内置网盘页一样）
+///
+/// 动作是 `command` → `musicxx.ui.browseDrive`（主程序执行：打开这个来源的整页目录列表，
+/// 立即返回，不等用户关页面）。插件自己不用画界面，列表、菜单、搜索都由主程序给。
+musicxx.ui.registerEntry({
+    name: "browseDrive",
+    type: "home.entry",
+    order: 131,
+    data: {
+        title: "FTP 文件",
+        subtitle: "整页浏览与下载",
+        icon: "resource/svg/ftp.svg",
+        action: { kind: "command", name: "musicxx.ui.browseDrive", args: { type: TYPE_ID } }
+    }
+});
+
 /// 歌单「添加歌曲」里的入口：打开插件自己的挑歌浮层
 ///
 /// 动作是 `command` → `musicxx.ui.openOverlaySheet`（主程序执行：打开这个插件视图的底部浮层，

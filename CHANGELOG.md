@@ -21,8 +21,12 @@ WebDAV / Subsonic / Jellyfin / Emby / 本地目录）一致的目录列表与挑
   `drive.resolveSongs`（勾文件夹时一步读歌，没给就退回逐层 `drive.list`）、`drive.search`、
   `drive.mkdir` / `drive.rename` / `drive.remove`（要声明 `write`）、`drive.info`、`drive.open`
   （点歌曲时交给插件）。`capabilities` 里出现某个键 = 这个能力实现了，名字也可以覆盖。
-- 宿主 UI 动作：`musicxx.ui.pickSongs`（挑歌并加进歌单）、`musicxx.ui.pickDir`（选目录）。
-  两个动作都**要等用户关掉弹窗才完成**：在能力处理器里调它们时不要 await。
+- 宿主 UI 动作：`musicxx.ui.pickSongs`（挑歌并加进歌单）、`musicxx.ui.pickDir`（选目录）、
+  `musicxx.ui.browseDrive`（打开整页浏览，与内置网盘页一样，带下载 / 重命名 / 删除 / 条目信息）。
+  `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时不要 await；
+  `browseDrive` 立即返回 `{ok, reason:"opened", type}`，不等用户关页面。
+  整页是宿主动作而不是新的 UI 类型：主页入口 / 歌单菜单项 / 自己页面的按钮里写
+  `{kind:"command", name:"musicxx.ui.browseDrive", args:{type:"<自己的音源类型>"}}` 就能打开。
 - 「添加歌曲」菜单里那一行由应用自动生成，插件不用再注册 `addsong.entry`（自己画浮层的写法
   仍可用，两种可以共存）。
 

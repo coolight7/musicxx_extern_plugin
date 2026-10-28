@@ -100,6 +100,20 @@ musicxx.capability.register("drive.list", function (args) {
 条目里的文件要带 `song: {type, src, fileName, size}`（`src` 是账号指纹 + 路径，与 §3 一致），
 主程序就按内置歌曲行画、选中后直接加进歌单。协议完整字段见包内 `docs/plugin-api.md` §3.3。
 
+想要**整页浏览**（与内置网盘页一样，带下载 / 重命名 / 删除 / 条目信息）时不用自己注册页面，
+放一个主页入口指过来就行（示例插件的「FTP 文件」入口就是这么写的）：
+
+```jsonc
+{ "name": "browseDrive", "type": "home.entry", "order": 131,
+  "data": { "title": "FTP 文件", "subtitle": "整页浏览与下载",
+            "icon": "resource/svg/ftp.svg",
+            "action": { "kind": "command", "name": "musicxx.ui.browseDrive",
+                        "args": { "type": "plugin.example_ftp_source.audio" } } } }
+```
+
+`musicxx.ui.browseDrive` 只允许打开**自己声明的**来源，`path` 可选（起始目录），**立即返回**
+`{ok, reason:"opened", type}`，不等用户关页面。
+
 ### 4.2 插件自己画浮层（老写法，留着做对照）
 
 插件注册的 UI 项：
