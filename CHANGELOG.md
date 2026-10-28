@@ -25,6 +25,11 @@
   给了 `refreshAction` / `loadMoreAction` 就能下拉刷新 / 滚到底加载更多（不用在页面里放按钮；
   返回 `false` 或 `{ok:false}` 算没成功，上拉会提示“加载失败”；还有更多时才给 `loadMoreAction`）。
   行样式由应用定，所以 `tone` / `image` / `custom` 在它里面不生效；不认识的客户端退成普通列表文本。
+- **列表项 `song`（这一项是一首歌）**：条目带 `song: {type, src, name?, artist?, fileName?,
+  size?, durationMs?, cover?}`（与 `musicxx.playlist.addSong` 的 `songs[]` 同一套字段）时，
+  目录列表就把这一行画成内置的**歌曲行**（封面 + 歌手 + 音源标签），不必自己拼 `Row` 画。
+  `src` 必填（空 = 不是歌曲）；`type` 不写就用本插件声明的唯一音源类型。只是画得一样：点行仍派发
+  `itemAction`，加进歌单仍要调 `musicxx.playlist.addSong`。
 - **`musicxx.AdaptLayout`（musicxx 专属）**：按窗口宽高比切换两套内容（竖屏 `columnBody` /
   横屏 `rowBody`），给了第二套就按比例分两栏，对应应用内置的 `XXAdaptiveLayout`；
   不认识的客户端用 `rowBody`。
