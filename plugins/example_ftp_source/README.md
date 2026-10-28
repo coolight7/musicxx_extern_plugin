@@ -114,6 +114,18 @@ musicxx.capability.register("drive.list", function (args) {
 `musicxx.ui.browseDrive` 只允许打开**自己声明的**来源，`path` 可选（起始目录），**立即返回**
 `{ok, reason:"opened", type}`，不等用户关页面。
 
+声明里写了 `write: true` 并实现下面四个能力，整页列表里就会多出「新建文件夹 / 重命名 / 删除 /
+条目信息」（本示例都实现了，直接拿 FTP 的 `MKD` / `RNFR`+`RNTO` / `DELE`、`RMD` 来完成）：
+
+| 能力 | 入参 | 返回 | 本示例怎么做 |
+|---|---|---|---|
+| `drive.mkdir` | `{parent, name}` | `{ok:true, path}` | `MKD <parent>/<name>` |
+| `drive.rename` | `{path, newName}` | `{ok:true, path}` | `RNFR <path>` + `RNTO <同层>/<newName>` |
+| `drive.remove` | `{paths:[…]}` | `{ok:true, removed}` | 先 `DELE`，服务器不认再 `RMD`（目录） |
+| `drive.info` | `{path}` | `{ok:true, title, pairs}` | 列父目录把这一条挑出来 |
+
+删除是**应用先弹确认**再问插件的；一条失败就整次当失败（已删掉的行下次刷新就对了）。
+
 ### 4.2 插件自己画浮层（老写法，留着做对照）
 
 插件注册的 UI 项：
@@ -210,7 +222,7 @@ musicxx.capability.register("drive.list", function (args) {
 
 - **只有明文 FTP**：不做 FTPS / SFTP（插件框架的 socket 能力不做 TLS 客户端以外的协议）；
 - **只有一个账号**：示例不演示多账号切换；
-- **只读**：不上传、不删除、不重命名、不建目录；
+- **只读**：不上传（新建 / 重命名 / 删除见下面）；
 - **没有封面 / 歌词 / 远端标签**：歌名与歌手来自文件名；
 - **拖动依赖服务器的 `REST`**；**缓存与拖动依赖 `SIZE`**（服务器不支持时仍能播，但每次都从头读）；
 - **字节会经过一次 JS 线程**：插件框架没有"两端直连"的桥接能力，示例用

@@ -767,6 +767,88 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     });
   };
 
+  /* ==================== 写操作 ==================== */
+
+  /// 取父目录（`/a/b` → `/a`；根目录的父还是根目录）
+  ns.parentOf = function (path) {
+    var target = ns.normalizePath(path);
+    if (target === "/") {
+      return "/";
+    }
+    var at = target.lastIndexOf("/");
+    return at <= 0 ? "/" : target.substring(0, at);
+  };
+
+  /// 新建目录（FTP `MKD`），返回新路径
+  ns.mkdir = function (account, path) {
+    var target = ns.normalizePath(path);
+    if (target === "/") {
+      return Promise.reject(new Error("根目录不用新建"));
+    }
+    return ns.withControl(account, function (control) {
+      return control.command("MKD " + target, [257, 250]);
+    }).then(function () {
+      return target;
+    });
+  };
+
+  /// 删除：先按文件删（`DELE`），服务器不认再按目录删（`RMD`）
+  ///
+  /// 不先问服务器"这是文件还是目录"：那要多一次列目录，而且很多服务器两边的应答码
+  /// 还不统一；直接试两条命令最省事。
+  ns.remove = function (account, path) {
+    var target = ns.normalizePath(path);
+    if (target === "/") {
+      return Promise.reject(new Error("不能删除根目录"));
+    }
+    return ns.withControl(account, function (control) {
+      return control.command("DELE " + target, [250, 200]).then(null, function (fileError) {
+        return control.command("RMD " + target, [250]).then(null, function () {
+          throw fileError;
+        });
+      });
+    }).then(function () {
+      return target;
+    });
+  };
+
+  /// 重命名 / 移动（`RNFR` + `RNTO`），返回新路径
+  ns.rename = function (account, from, to) {
+    var source = ns.normalizePath(from);
+    var target = ns.normalizePath(to);
+    if (source === "/") {
+      return Promise.reject(new Error("不能重命名根目录"));
+    }
+    if (source === target) {
+      return Promise.resolve(target);
+    }
+    return ns.withControl(account, function (control) {
+      return control.command("RNFR " + source, [350]).then(function () {
+        return control.command("RNTO " + target, [250]);
+      });
+    }).then(function () {
+      return target;
+    });
+  };
+
+  /// 读一条路径的信息（列它的父目录再挑出来）；找不到返回 null
+  ns.stat = function (account, path) {
+    var target = ns.normalizePath(path);
+    if (target === "/") {
+      return Promise.resolve({ name: "/", path: "/", isDir: true, size: 0 });
+    }
+    var parent = ns.parentOf(target);
+    var name = target.substring(parent === "/" ? 1 : parent.length + 1);
+    return ns.list(account, parent).then(function (result) {
+      for (var i = 0; i < result.entries.length; i++) {
+        if (result.entries[i].name === name) {
+          return result.entries[i];
+        }
+      }
+      return null;
+    });
+  };
+
   /* ==================== 下载数据连接 ==================== */
 
   /// 开一条 RETR 数据连接，返回 {control, dataId, start, path, abort()}
