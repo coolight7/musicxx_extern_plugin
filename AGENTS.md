@@ -175,7 +175,8 @@ my_plugin/
    **图标只能是插件自己带的 svg**（相对插件目录的路径），写主程序图标名等于没有图标。
    页面默认整页一起滚；要"上边常驻 + 中间列表自己滚 + 底部常驻"，就写成顶层一个 `Column`，
    中间那块包 `Expanded` 里放列表块（`ListViewBase` 的列表项写 `custom` 装任意块，或
-   `musicxx.DirListView` 装目录条目；`docs/plugin-ui.md` §2.5.1，浮层配 `size: "fullHeightAutoWidth"`）。
+   `musicxx.DirListView` 装目录条目（它的 `refreshAction` / `loadMoreAction` 就是列表内下拉刷新 / 滚到底加载更多，
+  不用另放按钮；`docs/plugin-ui.md` §2.5.1，浮层配 `size: "full"`（可用宽高的 90%）或 `"fullHeightAutoWidth"`）。
 8. **着色器**：只用浮点版内置函数（整型 `clamp/min/max/abs` 在 GLES 后端编不过）；
    不要用运行时下标取 uniform（小表用几条比较挑，大表用循环下标整组读，逐像素挑 64 个成员实测多花 90 ms 以上）；
    渲染目标是左上角原点（`gl_FragCoord.y` 向下增大），写反了画面上下颠倒；

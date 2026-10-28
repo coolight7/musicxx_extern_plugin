@@ -11,7 +11,9 @@
  * - 状态不放在界面里：视图由 `plugin.js` 的当前状态生成，控件的动作只报"哪个控件、什么值"；
  * - 浏览页用目录列表块（`musicxx.DirListView`）：条目、右侧勾选框、顶部路径行都由它画，
  *   当前目录与选中态由插件自己保存（动作里带 `path` / `isDir` / `selected`）；
- * - 外层用 `musicxx.AdaptLayout`：竖屏一欄（列表在上、按钮在下），横屏两欄（右侧放选中与按钮）。
+ * - 外层用 `musicxx.AdaptLayout`：竖屏一条竖列（筛选择在上、列表占满中间、按钮在下），
+ *   横屏两栅（左栏放筛选与按钮，右边整块留给列表）。
+ * - 列表的刷新与翻页用 `refreshAction` / `loadMoreAction`（下拉 / 滚到底触发），不在页面上放按钮。
  */
 
 var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
@@ -184,13 +186,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         max: 120,
         action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
       }, env),
-      k.switchRow({
-        id: "audioOnly",
-        title: "只看音频文件",
-        depict: "浏览时隐藏非音频后缀的文件",
-        value: draft.audioOnly,
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
-      }, env),
       k.divider({}, env),
       k.actionsRow({
         buttons: [
@@ -251,7 +246,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
           { k: "密码", v: account.password ? "已保存（不回显）" : "无" },
           { k: "根路径", v: account.rootPath },
           { k: "文件名编码", v: account.encoding === "gbk" ? "GBK" : "UTF-8" },
-          { k: "只看音频", v: account.audioOnly ? "是" : "否" },
           { k: "最近测试", v: tested }
         ]
       }, env),
@@ -309,8 +303,8 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
 
   /// 浏览页；`view` 由 plugin.js 组装
   ///
-  /// 字段：`{configured, account, path, keyword, audioOnly, entries, shown, total, limit,
-  ///        selectedCount, pid, playlistName, error, busy}`
+  /// 字段：`{configured, account, path, atRoot, keyword, entries, total, limit,
+  ///        selected, selectedCount, pid, playlistName, error, busy}`
   ns.browseView = function (view) {
     var env = view.env || null;
     var k = kit();
@@ -329,53 +323,25 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       };
     }
 
-    // 头部（两种布局共用）：账号、操作按钮、筛选
-    // 注：头部越长，能用的窗口就越矮；当前目录由列表块自己的路径行显示，这里不重复。
-    var head = [
-      k.hint({
-        text: "ftp://" + view.account.host + ":" + view.account.port +
-          (view.account.user ? "（" + view.account.user + "）" : "（匿名）")
-      }, env),
-      k.actionsRow({
-        buttons: [
-          k.button({
-            label: "上一级",
-            disabled: view.path === "/",
-            action: { kind: "dispatch", name: "browse", args: { op: "up" } }
-          }, env),
-          k.button({
-            label: "刷新",
-            action: { kind: "dispatch", name: "browse", args: { op: "refresh" } }
-          }, env),
-          k.button({
-            label: "账号",
-            variant: "ghost",
-            action: { kind: "dispatch", name: "accounts", args: { op: "edit", from: "browse" } }
-          }, env)
-        ]
-      }, env),
+    // 筛选（竖屏在列表上面、横屏在左栏）：只按名字筛，文件类型不过滤
+    // 当前目录与「上一级」都由列表块自己的路径栏给，这里不重复
+    var filter = [
       controlRow({
         id: "keyword",
         control: "text",
         title: "按名称筛选",
         value: view.keyword,
         action: { kind: "dispatch", name: "browse", args: { op: "keyword" } }
-      }, env),
-      k.switchRow({
-        id: "audioOnly",
-        title: "只看音频文件",
-        depict: "隐藏 .txt / .jpg 这类文件；文件夹始终显示",
-        value: view.audioOnly,
-        action: { kind: "dispatch", name: "browse", args: { op: "audioOnly" } }
-      }, env),
-      k.divider({}, env)
+      }, env)
     ];
     if (view.error) {
-      head.push(k.text({ text: view.error, tone: "error" }, env));
+      filter.push(k.text({ text: view.error, tone: "error" }, env));
+    }
+    if (view.busy) {
+      filter.push(k.hint({ text: "正在处理，请稍等…" }, env));
     }
 
-    // 中间：目录条目交给目录列表块（条目多时只滚这一块；不给 height = 用父给的可用高度）
-    // 每一项都带自己的动作：目录是“进入”，文件是“勾上 / 取消”。
+    // 条目：目录是“进入”，文件是“勾上 / 取消”
     var items = [];
     for (var i = 0; i < view.entries.length; i++) {
       var entry = view.entries[i];
@@ -400,6 +366,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       items.push(item);
     }
 
+    // 列表：下拉刷新与滚到底加载更多都由列表自己触发，页面上不放“刷新 / 再显示 N 项”这类按钮
     var list = k.dirListView({
       path: view.path,
       items: items,
@@ -408,42 +375,34 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       // 不在根目录才给「上一级」：根目录时它无处可去，浮层的返回键应当是“退出”
       pathAction: view.atRoot ? undefined : { kind: "dispatch", name: "browse", args: { op: "up" } },
       selectAction: { kind: "dispatch", name: "browse", args: { op: "select" } },
+      // 下拉刷新：重新列一遍当前目录（刷新头由列表给）
+      refreshAction: { kind: "dispatch", name: "browse", args: { op: "refresh" } },
+      // 还有没显示出来的条目才给“加载更多”（滚到底自动触发）；全部显示完就不给，底部提示随之消失
+      loadMoreAction: view.total > view.entries.length
+        ? { kind: "dispatch", name: "browse", args: { op: "more" } }
+        : undefined,
       emptyText: view.error ? "没有读到目录内容。" : "这个目录里没有符合条件的条目。"
     }, env);
 
-    // 按钮与状态：竖屏放在列表下面，横屏放到右侧那一欄
-    var actions = [];
-    if (view.total > view.entries.length) {
-      actions.push(k.button({
-        label: "再显示 " + Math.min(50, view.total - view.entries.length) + " 项（共 " +
-          view.total + " 项）",
-        variant: "ghost",
-        action: { kind: "dispatch", name: "browse", args: { op: "more" } }
-      }, env));
-    }
+    // 添加按钮：竖屏在列表下面，横屏在左栏
+    var addButton = null;
     if (view.pid) {
-      actions.push(k.button({
+      addButton = k.button({
         label: "添加 " + view.selectedCount + " 首到『" + (view.playlistName || view.pid) + "』",
         variant: "primary",
         disabled: view.selectedCount <= 0 || !!view.busy,
         action: { kind: "dispatch", name: "browseAdd", args: {} }
-      }, env));
-    }
-    actions.push(k.button({
-      label: "播放选中的第一首",
-      disabled: view.selectedCount <= 0 || !!view.busy,
-      action: { kind: "dispatch", name: "browsePlay", args: {} }
-    }, env));
-    if (view.busy) {
-      actions.push(k.hint({ text: "正在处理，请稍等…" }, env));
-    }
-    if (view.selectedCount > 0) {
-      actions.push(k.hint({ text: "已选 " + view.selectedCount + " 首（同一路径重复添加会被去重）。" }, env));
+      }, env);
     }
 
-    // 竖屏：一欄（头部 + 列表 + 按钮）；横屏：两欄（左边头部 + 列表，右边按钮与选中状态）
-    var columnBody = head.concat([{ kind: "Expanded", children: [list] }, k.divider({}, env)], actions);
-    var rowBody = head.concat([{ kind: "Expanded", children: [list] }]);
+    // 竖屏：筛选在上、列表占满中间、添加按钮在最下面
+    var columnBody = filter.concat([{ kind: "Expanded", children: [list] }]);
+    // 横屏：左栏放筛选与按钮，右边整块留给列表
+    var rowBody = filter.slice();
+    if (addButton) {
+      columnBody.push(addButton);
+      rowBody.push(addButton);
+    }
 
     return {
       title: view.pid ? ("添加歌曲到『" + (view.playlistName || view.pid) + "』") : "添加 FTP 歌曲",
@@ -451,8 +410,8 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       blocks: [k.adaptLayout({
         columnBody: columnBody,
         rowBody: rowBody,
-        rowSecondBody: actions,
-        rowBodyRatio: 0.62
+        rowSecondBody: [{ kind: "Expanded", children: [list] }],
+        rowBodyRatio: 0.34
       }, env)]
     };
   };

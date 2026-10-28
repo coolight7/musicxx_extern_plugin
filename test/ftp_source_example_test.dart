@@ -2,7 +2,7 @@
 ///
 /// 覆盖：
 /// - 账号：表单字段 → 保存到插件 KV → 摘要视图不回显密码；
-/// - 浏览：列目录（MLSD）、目录优先排序、"只看音频"过滤、按名称筛选、进入子目录；
+/// - 浏览：列目录（MLSD）、目录优先排序、按名称筛选、进入子目录、下拉刷新与滚到底加载更多；
 /// - 加歌：`browseAdd` 发给 `musicxx.playlist.addSong` 的 `songs` 载荷（type / src / fileName / size）；
 /// - 播放：`musicxx.player.source.resolve` 返回本机 http 地址 + `kind: url`，同一文件复用同一个地址；
 /// - 转流：GET / HEAD / 单区间 Range（206 / 416）/ 服务器不支持 REST、SIZE 时的退化行为；
@@ -73,7 +73,6 @@ void main() {
     expect(_controlValue(form, 'encoding'), isNull,
         reason: '编码是一排按钮（Button 块），不是 Control');
     expect(_controlValue(form, 'timeoutSec'), 10);
-    expect(_controlValue(form, 'audioOnly'), isTrue);
 
     // 逐个字段填（控件的 action 只报 id 与 value，插件记在内存草稿里）
     await harness.setField('host', '127.0.0.1');
@@ -151,7 +150,7 @@ void main() {
     expect(_controlValue(cancelled, 'port'), 21);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('浏览：列目录、目录优先、只看音频、筛选、进入子目录', () async {
+  test('浏览：列目录、目录优先、筛选、进入子目录', () async {
     if (unsupported()) {
       return;
     }
@@ -170,8 +169,8 @@ void main() {
     expect(names, contains('sub'), reason: '文件夹要列出来: $names');
     expect(names, contains('a.mp3'));
     expect(names, contains('b.flac'));
-    expect(names, isNot(contains('readme.txt')),
-        reason: '账号缺省的"只看音频"应当隐藏 .txt');
+    expect(names, contains('readme.txt'),
+        reason: '不再按文件类型过滤，文本文件也列出来');
     expect(names.first, 'sub', reason: '文件夹排在前面');
 
     final Map<String, Object?> probe = await harness.probe();
@@ -190,12 +189,6 @@ void main() {
       const <String, Object?>{'op': 'up'},
     );
     expect(_entryNamesOf(up), contains('a.mp3'));
-
-    // 关掉"只看音频"：文本文件也出现
-    final Map<String, Object?> all = await harness.browse(
-      const <String, Object?>{'op': 'audioOnly', 'value': false},
-    );
-    expect(_entryNamesOf(all), contains('readme.txt'));
 
     // 按名称筛选（控件失焦后才派发，参数里带 id 与 value）
     final Map<String, Object?> filtered = await harness.browse(
@@ -227,8 +220,8 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 90)));
 
-  // 浮层的形状：AdaptLayout（竖屏 / 横屏两套）+ 目录列表块（路径行与勾选框由它提供）
-  test('浏览视图：AdaptLayout 两套布局，中间是目录列表块', () async {
+  // 浮层的形状：AdaptLayout（竖屏 / 横屏两套）+ 目录列表块（路径栏与勾选框由它给）
+  test('浏览视图：AdaptLayout 两套布局，列表自己滚', () async {
     if (unsupported()) {
       return;
     }
@@ -267,8 +260,8 @@ void main() {
     final int flexIndex = column.indexWhere(
       (Object? node) => node is Map && node['kind'] == 'Expanded',
     );
-    expect(flexIndex, greaterThan(1), reason: '头部（账号 + 操作 + 筛选）在列表前面');
-    expect(flexIndex, lessThan(column.length - 1), reason: '添加 / 播放按钮在列表后面');
+    expect(flexIndex, greaterThanOrEqualTo(1), reason: '筛选在列表前面');
+    expect(flexIndex, lessThan(column.length - 1), reason: '添加按钮在列表后面');
 
     // 竖屏：中间是目录列表块（不给高度 = 用父给的可用高度，条目多时只滚这一块）
     final Map<Object?, Object?> list = listIn(column);
@@ -281,6 +274,12 @@ void main() {
       list.containsKey('pathAction'),
       isTrue,
       reason: '不在根目录 → 路径栏里有「上一级」',
+    );
+    expect(list['refreshAction'], isNotNull, reason: '下拉刷新由列表触发（页面上不放刷新按钮）');
+    expect(
+      list.containsKey('loadMoreAction'),
+      isFalse,
+      reason: '条目已经全显示了，不给加载更多',
     );
 
     final List<Object?> items = (list['items']! as List).cast<Object?>();
@@ -322,11 +321,11 @@ void main() {
       return false;
     }
 
-    // 头部：筛选框与"只看音频"在列表之前（滚列表时它们不动）
+    // 竖屏顶部只有筛选（账号 / 上一级 / 刷新 / 只看音频 那些都删了）
     expect(hasControl(column.sublist(0, flexIndex), 'keyword'), isTrue);
-    expect(hasControl(column.sublist(0, flexIndex), 'audioOnly'), isTrue);
+    expect(hasControl(column, 'audioOnly'), isFalse, reason: '只看音频开关已删除');
 
-    // 竖屏底部：添加 / 播放按钮在列表之后
+    // 竖屏底部：只留添加按钮
     final List<String> footerTexts = <String>[];
     for (final Object? node in column.sublist(flexIndex + 1)) {
       footerTexts.addAll(_textsOf(<String, Object?>{'v': node}));
@@ -336,18 +335,41 @@ void main() {
       isTrue,
       reason: '竖屏的按钮在列表下面: $footerTexts',
     );
+
+    // 横屏：左栏放筛选与添加按钮，右边整块留给列表
+    expect(hasControl(row, 'keyword'), isTrue, reason: '横屏的筛选在左栏');
     expect(
-      footerTexts.any((String text) => text.contains('播放选中的第一首')),
+      _textsOf(<String, Object?>{'v': row}).any(
+        (String text) => text.startsWith('添加 0 首到'),
+      ),
       isTrue,
+      reason: '横屏的添加按钮在左栏',
+    );
+    expect(
+      listIn(rowSecond)['kind'],
+      'musicxx.DirListView',
+      reason: '右边整块是列表',
     );
 
-    // 横屏：左边还是列表，右边那一栏放按钮与选中状态
-    expect(listIn(row)['kind'], 'musicxx.DirListView');
-    final List<String> sideTexts = _textsOf(<String, Object?>{'v': rowSecond});
+    // 顶部那一排按钮与底部提示都删了
+    final List<String> allTexts = _textsOf(<String, Object?>{'v': body});
+    for (final String gone in <String>[
+      '上一级',
+      '刷新',
+      '账号',
+      '播放选中的第一首',
+      '只看音频文件',
+    ]) {
+      expect(
+        allTexts.where((String text) => text == gone),
+        isEmpty,
+        reason: '「$gone」已经删掉：$allTexts',
+      );
+    }
     expect(
-      sideTexts.any((String text) => text.startsWith('添加 0 首到')),
-      isTrue,
-      reason: '横屏的按钮在右侧那一栏: $sideTexts',
+      allTexts.any((String text) => text.contains('已选')),
+      isFalse,
+      reason: '已选提示删掉了（数量已经在添加按钮上）',
     );
   }, timeout: const Timeout(Duration(seconds: 90)));
 
@@ -368,8 +390,8 @@ void main() {
     final Map<String, Object?> view = await harness.browse(
       const <String, Object?>{'op': 'toggle', 'path': '/Music/sub/c.ogg'},
     );
-    expect(_textsOf(view).any((String text) => text.contains('已选 2 首')), isTrue,
-        reason: '页面要显示已选数量');
+    expect(_textsOf(view).any((String text) => text.contains('添加 2 首到')), isTrue,
+        reason: '添加按钮上带着已选数量');
 
     final Map<String, Object?> added = await harness.browseAdd();
     expect(_textsOf(added).any((String text) => text.contains('正在处理')), isTrue);

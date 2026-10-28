@@ -77,7 +77,6 @@ const browseState = {
     songNum: 0,
     path: "/",
     keyword: "",
-    audioOnly: true,
     selected: {},
     sizes: {},
     limit: PAGE_SIZE,
@@ -204,8 +203,7 @@ function draftFromStored() {
         password: "",
         rootPath: account ? account.rootPath : "/",
         encoding: account ? account.encoding : "utf-8",
-        timeoutSec: account ? Math.round(account.timeoutMs / 1000) : 10,
-        audioOnly: account ? account.audioOnly !== false : true
+        timeoutSec: account ? Math.round(account.timeoutMs / 1000) : 10
     };
 }
 
@@ -221,8 +219,7 @@ function accountFromDraft() {
         password: value.password ? value.password : (previous ? previous.password : ""),
         encoding: value.encoding,
         rootPath: value.rootPath,
-        timeoutMs: intOf(value.timeoutSec, 10) * 1000,
-        audioOnly: value.audioOnly
+        timeoutMs: intOf(value.timeoutSec, 10) * 1000
     });
     if (!account.host) {
         return { error: "请先填服务器地址" };
@@ -249,7 +246,6 @@ function resetBrowse(args) {
     browseState.busy = false;
     const fromArgs = (args && typeof args.path === "string") ? args.path : "";
     browseState.path = FtpSource.normalizePath(fromArgs || (account ? account.rootPath : "/"));
-    browseState.audioOnly = account ? account.audioOnly !== false : true;
     browseState.entries = [];
 }
 
@@ -278,16 +274,12 @@ function listNow() {
     });
 }
 
-/// 当前目录里"该显示"的条目（按关键字与"只看音频"过滤）
+/// 当前目录里"该显示"的条目（只按关键字筛，目录与文件都列）
 function visibleEntries() {
     const keyword = browseState.keyword.toLowerCase();
-    const audioOnly = browseState.audioOnly;
     const rows = [];
     for (let i = 0; i < browseState.entries.length; i++) {
         const entry = browseState.entries[i];
-        if (!entry.isDir && audioOnly && !FtpSource.isAudioName(entry.name)) {
-            continue;
-        }
         if (keyword && entry.name.toLowerCase().indexOf(keyword) < 0) {
             continue;
         }
@@ -338,7 +330,6 @@ function browseViewData(env) {
         // 已在服务器根目录：没有上一级，目录列表块就不出那个按钮（返回键回到“退出浮层”）
         atRoot: browseState.path === "/",
         keyword: browseState.keyword,
-        audioOnly: browseState.audioOnly,
         entries: rows.slice(0, limit),
         total: rows.length,
         limit: limit,
@@ -392,7 +383,6 @@ function returnFromAccounts(env) {
     browseState.limit = PAGE_SIZE;
     const account = accountState.account;
     browseState.path = account ? account.rootPath : "/";
-    browseState.audioOnly = account ? account.audioOnly !== false : true;
     return listNow().then(function () {
         return browseAnswer(env);
     });
@@ -471,9 +461,6 @@ function applyAccountField(args) {
             break;
         case "timeoutSec":
             draft.timeoutSec = intOf(value, draft.timeoutSec);
-            break;
-        case "audioOnly":
-            draft.audioOnly = !!value;
             break;
         default:
             break;
@@ -626,10 +613,6 @@ musicxx.capability.register("browse", function (args) {
                 browseState.keyword = (args && typeof args.value === "string") ? args.value : "";
                 browseState.limit = PAGE_SIZE;
                 return null;
-            case "audioOnly":
-                browseState.audioOnly = !!(args && args.value);
-                browseState.limit = PAGE_SIZE;
-                return null;
             case "select":
                 toggleSelected(args && args.path, args ? args.value : undefined);
                 return null;
@@ -723,6 +706,7 @@ musicxx.capability.register("browseAdd", function (args) {
 });
 
 musicxx.capability.register("browsePlay", function (args) {
+    // 界面上不放这个按钮（挑歌时用不到），留着给脚本 / 自动化调：直接播第一个勾选的
     const env = FtpSource.viewEnv(args);
     const account = accountState.account;
     const paths = selectedPaths();
@@ -763,8 +747,7 @@ musicxx.capability.register("probe", function () {
             port: account.port,
             user: account.user,
             rootPath: account.rootPath,
-            encoding: account.encoding,
-            audioOnly: account.audioOnly
+            encoding: account.encoding
         } : null,
         proxy: {
             running: proxy.running,
@@ -895,8 +878,9 @@ musicxx.ui.registerEntry({
             args: {
                 route: "ext://" + PLUGIN_ID + "/browse",
                 title: "添加FTP歌曲",
-                // 全高：目录、按钮、筛选常驻在顶部，中间的列表自己滚（见 ui.js 的 browseView）
-                size: "fullHeightAutoWidth"
+                // 可用宽高的 90%：两种布局里都是“左侧 / 顶部固定、列表占满剩下的地方”
+                // （见 ui.js 的 browseView）
+                size: "full"
             }
         }
     }

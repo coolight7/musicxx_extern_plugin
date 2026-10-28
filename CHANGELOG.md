@@ -21,8 +21,10 @@
   给了 `pathAction` 才出现）+ 可选的多选勾选框，**行与顶部栏直接用应用内置的目录列表画**
   （文件夹/文件图标、标题 + 第二行、左上角条目数、勾选框样式都跟应用一致）。当前目录与勾选态由插件
   保存，客户端只派发动作（`itemAction` / `selectAction` / `pathAction`）；返回键是“退出页面 /
-  浮层”，要逐层往上退就给 `pathAction`（根目录别再给）。行样式由应用定，所以 `tone` / `image` /
-  `custom` 在它里面不生效；不认识的客户端退成普通列表文本。
+  浮层”，要逐层往上退就给 `pathAction`（根目录别再给）。**刷新与翻页也走列表自己的手势**：
+  给了 `refreshAction` / `loadMoreAction` 就能下拉刷新 / 滚到底加载更多（不用在页面里放按钮；
+  返回 `false` 或 `{ok:false}` 算没成功，上拉会提示“加载失败”；还有更多时才给 `loadMoreAction`）。
+  行样式由应用定，所以 `tone` / `image` / `custom` 在它里面不生效；不认识的客户端退成普通列表文本。
 - **`musicxx.AdaptLayout`（musicxx 专属）**：按窗口宽高比切换两套内容（竖屏 `columnBody` /
   横屏 `rowBody`），给了第二套就按比例分两栏，对应应用内置的 `XXAdaptiveLayout`；
   不认识的客户端用 `rowBody`。

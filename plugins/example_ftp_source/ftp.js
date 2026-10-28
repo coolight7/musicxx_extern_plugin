@@ -161,19 +161,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     return base.substring(base.lastIndexOf("/") + 1);
   };
 
-  /// 看起来像音频文件（“只看音频”过滤用）
-  var audioExt = {};
-  ("mp3 flac wav aac m4a ogg opus wma ape aiff aif alac dsd dff m4b mp4 oga wv tta")
-    .split(" ").forEach(function (ext) { audioExt[ext] = true; });
-  ns.isAudioName = function (name) {
-    var text = String(name || "");
-    var index = text.lastIndexOf(".");
-    if (index < 0) {
-      return false;
-    }
-    return !!audioExt[text.substring(index + 1).toLowerCase()];
-  };
-
   ns.formatSize = function (bytes) {
     var value = Number(bytes) || 0;
     if (value <= 0) {
@@ -869,8 +856,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     encoding: "utf-8",
     rootPath: "/",
     timeoutMs: 10000,
-    passive: true,
-    audioOnly: true
+    passive: true
   };
 
   /// 把存储里读到的 / 界面提交的数据补成完整账号（端口与超时转数字、路径规范化）
@@ -890,8 +876,6 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       ? Math.round(timeout) : ns.defaultAccount.timeoutMs;
     account.passive = (src.passive === undefined || src.passive === null)
       ? ns.defaultAccount.passive : !!src.passive;
-    account.audioOnly = (src.audioOnly === undefined || src.audioOnly === null)
-      ? ns.defaultAccount.audioOnly : !!src.audioOnly;
     return account;
   };
 

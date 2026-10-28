@@ -198,7 +198,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, path?, isDir?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
-| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` 生效，`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
+| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` 生效，`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
 | `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
@@ -321,6 +321,17 @@ capability(*this, "plugin.my_plugin.settings",
 > 目录列表的**行样式由应用定**（与内置目录列表一致：前置图标 + 标题 + 第二行 + 行尾文字 / 勾选框），
 > 所以 `tone` / `image` / `custom` 在它里面不生效，`subtitle` 没写时第二行显示 `path`。
 
+目录列表的**刷新与翻页走列表自己的手势**（不用在页面里放按钮）：
+
+| 字段 | 什么时候出现 / 派发时带什么 |
+|---|---|
+| `refreshAction` | 写了就能在列表内下拉刷新：动作跑完刷新头收起（返回 `false` 或 `{ok:false}` 按“没成功”处理）。参数只有 `listId` / `value`（= 当前目录） |
+| `loadMoreAction` | 写了就能滚到底（或上拉）加载更多：动作返回 `false` 或 `{ok:false}` 时底部提示变成“加载失败”，其余算成功。参数同上 |
+
+两个动作都是**先派发、后由插件返回新视图**：插件在动作里把新一页放进自己的数据再 `return {view: …}`，
+客户端下一帧就用新条目重画（列表位置、勾选态都保留）。`loadMoreAction` 建议只在确实还有更多时给
+（例如 `total > entries.length` 时），否则底部会一直提示“加载更多”。
+
 `ListView` 的字段与工具条一一对应：
 
 | 字段 | 什么时候出现 / 派发时带什么 |
@@ -424,6 +435,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 中间放一个**列表块** —— 滚动区域只由列表块提供（描述层没有通用的滚动容器）。
 
 - 中间是**目录 / 文件**：用 `musicxx.DirListView`（自带路径栏、条目数与「上一级」按钮；行的样子由应用定）；
+  刷新与翻页也交给它（`refreshAction` / `loadMoreAction`，下拉 / 上拉触发，不占地方）；
 - 中间是**任意内容**（筛选条、若干设置组、自定义行）：用 `ListViewBase`，每一项写 `custom` ——
   `custom` 是这个列表项的**整项内容**（任意块），行尾自动插入的编辑 / 多选 / 拖拽按钮不受影响。
   一段内容就是一项，几段内容就几项（行与行之间由 `ListViewBase` 自己排版）。
@@ -444,7 +456,8 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   或者**顶层只有一个 `Column` 且它里面有 `Expanded` / `musicxx.AdaptLayout`**；其它写法保持
   “整页一起滚”，不会因为忘了写 `Expanded` 而溢出；
 - 这种描述要求客户端给**有界高度**：插件页面与浮层内容区都给了（浮层建议用
-  `size: "fullHeightAutoWidth"` 打开，见 §2.7）；对话框那种自由高度里客户端会退回普通排布；
+  `size: "full"` 打开，宽高都是可用尺寸的 90%，见 §2.7；高度铺满、宽度随内容就用 `fullHeightAutoWidth`）；
+  对话框那种自由高度里客户端会退回普通排布；
 - 列表块的 `height` 不给 = 跟随父给的可用高度（放在 `Expanded` 里时自己滚）；写了 `height` 就
   固定那个高度（不依赖父容器）；
 - 列表块落在**没有可用高度**的地方（例如整页滚动里）时按内容高度铺开 —— 不报错，滚的只有页面；
@@ -453,7 +466,8 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   也不会切换布局）；
 - **固定部分会吃掉窗口高度**：头部与底部不会缩放，窗口很矮（桌面拉到几百像素高）时它们自己就可能
   超出内容区（客户端不会自动改回整页滚）。所以头部只放必要的几行；
-- **kit 模板**：`kit.dirListView({path, items, itemAction})`、`kit.adaptLayout({columnBody, rowBody})`。
+- **kit 模板**：`kit.dirListView({path, items, itemAction, refreshAction, loadMoreAction})`、
+  `kit.adaptLayout({columnBody, rowBody})`。
 
 ### 2.6 页面之间的跳转与刷新
 
