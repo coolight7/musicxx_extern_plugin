@@ -9,11 +9,12 @@
 /// - 上下文按 (是否校验 + 额外 CA) 缓存, 单条连接不需要重复付 SSL_CTX_new 的开销;
 /// - 协议版本与安全等级的取值与 agentxx 一致: 通用 client 方法 + `SSL_CTX_set_security_level(1)`,
 ///   对 TLS 1.0 ~ 1.3 自动协商 (只支持旧版本的服务也能连)。
+///
+/// 这个文件**无条件**编译 OpenSSL 实现: TLS 是插件框架的必备能力, 不存在"某个构建里没有
+/// https / wss"的版本。缺依赖时在 CMake 配置阶段就报错, 而不是编一个功能残缺的库。
 #include "host_net_tls.h"
 
 #include "utilxx_base/log.h"
-
-#if MUSICXX_EXTERN_PLUGIN_HAS_TLS
 
 #include <openssl/err.h>
 #include <openssl/pem.h>
@@ -207,8 +208,6 @@ tlsContextFor(const TlsClientOptions &options, std::string &error) {
 
 bool NetStream::tlsSupported() { return true; }
 
-std::string tlsRuntimeVersion() { return ::OpenSSL_version(OPENSSL_VERSION); }
-
 bool NetStream::prepareTls(const TlsClientOptions &options) {
   tlsErrorCode_.clear();
   tlsErrorMessage_.clear();
@@ -259,13 +258,11 @@ void NetStream::describeHandshakeFailure(const AsioErrorCode &ec) {
 
 void NetStream::close() {
   AsioErrorCode ignored;
-#if MUSICXX_EXTERN_PLUGIN_HAS_TLS
   if (tls_) {
     tls_->lowest_layer().shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
     tls_->lowest_layer().close(ignored);
     return;
   }
-#endif
   plain_.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
   plain_.close(ignored);
 }
@@ -284,40 +281,3 @@ bool NetStream::isPeerClosed(const AsioErrorCode &ec) {
 
 } // namespace extern_plugin
 } // namespace musicxx
-
-#else // !MUSICXX_EXTERN_PLUGIN_HAS_TLS
-
-namespace musicxx {
-namespace extern_plugin {
-
-bool NetStream::tlsSupported() { return false; }
-
-std::string tlsRuntimeVersion() { return {}; }
-
-bool NetStream::prepareTls(const TlsClientOptions &options) {
-  (void)options;
-  tlsErrorCode_ = "tls_unsupported";
-  tlsErrorMessage_ = "这个插件框架构建没有链接 TLS 库 (https / wss 不可用)";
-  return false;
-}
-
-void NetStream::describeHandshakeFailure(const AsioErrorCode &ec) {
-  tlsErrorCode_ = "tls_unsupported";
-  tlsErrorMessage_ = ec.message();
-}
-
-void NetStream::close() {
-  AsioErrorCode ignored;
-  plain_.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
-  plain_.close(ignored);
-}
-
-bool NetStream::isPeerClosed(const AsioErrorCode &ec) {
-  return ec == asio::error::eof || ec == asio::error::connection_reset ||
-         ec == asio::error::operation_aborted;
-}
-
-} // namespace extern_plugin
-} // namespace musicxx
-
-#endif // MUSICXX_EXTERN_PLUGIN_HAS_TLS

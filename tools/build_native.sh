@@ -30,9 +30,8 @@
 #   tools/build_native.sh --boost-root <目录>        # 指定 Boost 头文件根 (含 boost/)
 #   tools/build_native.sh --boost-archive <压缩包>   # 用本地 Boost 发布包解包
 #   tools/build_native.sh --no-download-boost        # 禁止自动下载 Boost 头文件
-#   tools/build_native.sh --openssl-root <目录>      # 指定 OpenSSL 安装树 (含 include/openssl 与 libssl.a)
-#   tools/build_native.sh --no-download-openssl      # 禁止自动下载/编译 OpenSSL (拿不到就不带 TLS)
-#   tools/build_native.sh --no-tls                   # 不要 TLS (https / wss 报 tls_unavailable)
+#   tools/build_native.sh --openssl-root <目录>      # 指定 OpenSSL 安装树 (客户端 TLS; 必备能力)
+#   tools/build_native.sh --no-download-openssl      # 禁止自动编译 OpenSSL (只用手上已有的安装树)
 #   tools/build_native.sh --build-dir/--output-dir/--generator <值>   # 覆盖目录与生成器
 #   tools/build_native.sh --android --abi arm64-v8a  # 用 NDK 交叉编译 Android 插件框架库
 #   tools/build_native.sh --ios                      # 交叉编译 iOS 设备 (arm64) 插件框架库
@@ -130,10 +129,9 @@ boost_root=""
 boost_archive=""
 generator=""
 no_download_boost=0
-# OpenSSL (客户端 TLS): 安装树位置 / 不自动编译 / 整个关掉
+# OpenSSL (客户端 TLS): 安装树位置 / 不自动编译。TLS 是必备能力, 没有关掉的开关
 openssl_root=""
 no_download_openssl=0
-no_tls=0
 android=0
 android_abi="arm64-v8a"
 android_ndk=""
@@ -213,7 +211,6 @@ while [ $# -gt 0 ]; do
     skipiffresh) skip_if_fresh=1 ;;
     nodownloadboost) no_download_boost=1 ;;
     nodownloadopenssl) no_download_openssl=1 ;;
-    notls) no_tls=1 ;;
     android) android=1 ;;
     help | h)
         usage
@@ -676,13 +673,16 @@ boost_header_root="$(resolve_boost_header_root)"
 #
 # 安装树位置: <包>/.native/openssl/<平台>-<架构|abi>, 目录里要有
 #   include/openssl/ssl.h 与 lib/libssl.a (或 lib64/libssl.a)。
-# Windows 侧由 tools/deps_openssl.ps1 用 slproweb 预编译包填同一个位置。
+# Windows 侧由 tools/deps_openssl.ps1 填同一个位置: Windows 目标用 slproweb 预编译包,
+# Android 目标用本机 NDK 从源码编 (不需要类 Unix 环境)。
 # 版本与 tools/deps_openssl.ps1 保持一致。
-openssl_version="${MUSICXX_EXTERN_PLUGIN_OPENSSL_VERSION:-4.0.3}"
+openssl_version="${MUSICXX_EXTERN_PLUGIN_OPENSSL_VERSION:-4.0.1}"
 openssl_source_url='https://www.openssl.org/source/openssl-@VERSION@.tar.gz'
 openssl_source_url_github='https://github.com/openssl/openssl/releases/download/openssl-@VERSION@/openssl-@VERSION@.tar.gz'
 
 # 安装树可用吗 (头文件 + 静态库)
+# 只认 libssl.a: 这是源码编译 (no-shared) 的产物。Windows 那棵用 .lib 的树不能被借给
+# Linux / macOS / Android / iOS —— 头文件找得到、库却链接不了, 嵌套工程 find_package(OpenSSL) 会失败。
 test_openssl_root() {
     [ -n "${1:-}" ] || return 1
     [ -f "$1/include/openssl/ssl.h" ] || return 1
@@ -690,6 +690,8 @@ test_openssl_root() {
 }
 
 # 本次目标的缓存目录
+# 目录标签与 src/CMakeLists.txt 的候选目录、tools/deps_openssl.ps1 的 -TargetTag 同一套写法。
+# iOS 模拟器与设备是两套二进制, 目录名也必须分开。
 openssl_cache_dir() {
     if [ "$android" = 1 ]; then
         printf '%s' "${native_root}/openssl/android-${android_abi}"
@@ -780,18 +782,36 @@ build_openssl_from_source() {
         die "OpenSSL 安装产物缺失 (期望 ${install_dir}/lib/libssl.a)"
 }
 
-# OpenSSL 安装树解析顺序: --openssl-root → 环境变量 → .native/openssl 缓存 → 源码编译
-# 返回安装树路径; 关掉 TLS 或拿不到时返回空串 (调用方把 CMake 的 TLS 关掉)
+# OpenSSL 安装树解析顺序: --openssl-root → 环境变量 → resource/libs/<目标标签>/openssl
+#                          → .native/openssl 缓存 → 源码编译
+# 返回安装树路径; TLS 是必备能力, 所以拿不到就报错 (不返回空串)
 resolve_openssl_root() {
-    if [ "$no_tls" = 1 ]; then
-        return 0
-    fi
     if [ -n "$openssl_root" ]; then
         test_openssl_root "$openssl_root" || die "--openssl-root 下没有 include/openssl/ssl.h 与静态库: $openssl_root"
         printf '  OpenSSL: 使用 --openssl-root 指定的安装树 %s\n' "$openssl_root" >&2
         (cd "$openssl_root" && pwd)
         return 0
     fi
+    # 随包分发、手工放进来的安装树 (与 CMake 侧的候选目录一致)。两种层级都认:
+    #   resource/libs/android/arm64-v8a/           (直接摆 include/ 与 lib/)
+    #   resource/libs/android/arm64-v8a/openssl
+    #   resource/libs/android-arm64-v8a[/openssl]  (平台与变体写一起)
+    local target_tag platform_dir variant_dir
+    target_tag="$(basename "$(openssl_cache_dir)")"
+    platform_dir="${target_tag%%-*}"
+    variant_dir="${target_tag#*-}"
+    local packaged
+    for packaged in \
+        "${root}/resource/libs/${platform_dir}/${variant_dir}" \
+        "${root}/resource/libs/${platform_dir}/${variant_dir}/openssl" \
+        "${root}/resource/libs/${target_tag}" \
+        "${root}/resource/libs/${target_tag}/openssl"; do
+        if test_openssl_root "$packaged"; then
+            printf '  OpenSSL: 使用随包分发的安装树 %s\n' "$packaged" >&2
+            (cd "$packaged" && pwd)
+            return 0
+        fi
+    done
     if [ -n "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT:-}" ]; then
         if test_openssl_root "$MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT"; then
             printf '  OpenSSL: 使用环境变量指定的安装树 %s\n' "$MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT" >&2
@@ -808,25 +828,22 @@ resolve_openssl_root() {
         return 0
     fi
     if [ "$no_download_openssl" = 1 ]; then
-        warn "未提供 OpenSSL (--no-download-openssl): 本次构建不带 TLS (https / wss 不可用)"
-        return 0
+        die "未提供 OpenSSL (--no-download-openssl): 客户端 TLS 是必备能力, 不能缺
+  请用 --openssl-root <目录> 指定已经编好的安装树, 或去掉 --no-download-openssl 让脚本自己编"
     fi
     build_openssl_from_source "$cached"
     printf '%s' "$cached"
 }
 
 step 'OpenSSL (客户端 TLS)'
-if [ "$no_tls" = 1 ]; then
-    info '    -NoTls: 本次构建不带 TLS (https / wss 报 tls_unavailable)'
-    openssl_install_root=""
-else
-    openssl_install_root="$(resolve_openssl_root)"
-    if [ -n "$openssl_install_root" ]; then
-        info "    安装树: ${openssl_install_root}"
-    else
-        warn 'OpenSSL 缺失: 本次构建不带 TLS (https / wss 报 tls_unavailable)'
-    fi
+# TLS 是必备能力: 拿不到就失败 (缺依赖时编出来的库会缺 https / wss, 那是不允许的)
+openssl_install_root="$(resolve_openssl_root)"
+if [ -z "$openssl_install_root" ]; then
+    die '找不到 OpenSSL 安装树 (客户端 TLS 是必备能力)
+  请先编译 OpenSSL 静态库 (no-shared), 目录里要有 include/openssl/ssl.h 与 lib/libssl.a,
+  然后用 --openssl-root <目录> 指定, 或放到 .native/openssl/<目标标签>/'
 fi
+info "    安装树: ${openssl_install_root}"
 boost_parts_a="$(printf '%s' "$boost_version" | cut -d. -f1)"
 boost_parts_b="$(printf '%s' "$boost_version" | cut -d. -f2)"
 boost_parts_c="$(printf '%s' "$boost_version" | cut -d. -f3)"
@@ -979,7 +996,7 @@ fi
 configure_args+=(
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=${boost_header_root}"
-    "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=$(if [ -n "$openssl_install_root" ]; then printf '1'; else printf '0'; fi)"
+    "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=${openssl_install_root}"
     # 示例插件与原生测试: 默认关 (示例插件单独构建; Windows 侧见 tools/build_examples.ps1)
     "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=${with_examples}"
     "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=${with_tests}"

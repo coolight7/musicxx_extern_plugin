@@ -1039,8 +1039,10 @@ struct SyncSlot {
 
 } // namespace
 
-/// 前置声明: 连接类型都从这里派生
-struct PluginNetHub::Impl;
+/// `PluginNetHub::Impl` 已在 host_net.h 里声明过 (嵌套类型), 这里不需要也不该再前置声明:
+/// `struct PluginNetHub::Impl;` 这种带限定名的写法在 clang 上是错误
+/// ("forward declaration of struct cannot have a nested name specifier"),
+/// MSVC / GCC 能容忍它, 所以 Android / iOS 构建才会把它报出来。
 
 /// 一条 TCP 连接 (客户端或服务端接受的那一端)
 struct Stream : std::enable_shared_from_this<Stream> {
@@ -3801,7 +3803,7 @@ void PluginNetHub::Impl::sendConn(const std::string &plugin, const Json &args,
     out = errorJson("not_found", "没有这条连接");
     return;
   }
-  if (stream->kind() != "tcp") {
+  if (std::string_view{stream->kind()} != "tcp") {
     out = errorJson("wrong_kind", "这条连接不是 socket 连接 (WS 连接用 ws.send)");
     return;
   }
@@ -3882,22 +3884,15 @@ std::string PluginNetHub::Impl::infoJsonOnThread(const std::string &plugin,
   Json out = Json::object();
   out["ok"] = true;
   out["running"] = running.load(std::memory_order_acquire);
-  // 客户端 TLS: 这个构建能不能连 https / wss; 服务端仍然只有 http / ws
-  out["tls"] = NetStream::tlsSupported();
-  const std::string tlsVersion = tlsRuntimeVersion();
-  if (!tlsVersion.empty()) {
-    out["tlsProvider"] = tlsVersion;
-  }
-  out["schemes"] = [&] {
+  // 客户端 TLS: https / wss 恒可用 (TLS 是必备能力, 服务端仍然只有 http / ws)
+  out["tls"] = true;
+  out["tlsProvider"] = ::OpenSSL_version(OPENSSL_VERSION);
+  out["schemes"] = [] {
     Json schemes = Json::array();
     schemes.push_back("http");
-    if (NetStream::tlsSupported()) {
-      schemes.push_back("https");
-    }
+    schemes.push_back("https");
     schemes.push_back("ws");
-    if (NetStream::tlsSupported()) {
-      schemes.push_back("wss");
-    }
+    schemes.push_back("wss");
     return schemes;
   }();
   Json serversJson = Json::array();
@@ -4285,11 +4280,6 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
     }
     if (target.scheme != "ws" && target.scheme != "wss") {
       out = errorJson("unsupported_scheme", "WebSocket 地址只支持 ws:// 或 wss://");
-      return MUSICXX_EXTERN_PLUGIN_OK;
-    }
-    if (target.scheme == "wss" && !NetStream::tlsSupported()) {
-      out = errorJson("tls_unsupported",
-                      "这个插件框架构建没有链接 TLS 库 (wss 不可用)");
       return MUSICXX_EXTERN_PLUGIN_OK;
     }
     std::string id = args.value("id", std::string{});

@@ -34,10 +34,9 @@ param(
     [string]$BoostRoot,
     [string]$BoostArchive,
     [switch]$NoDownloadBoost,
-    # OpenSSL (客户端 TLS: https / wss): 打印/缓存解析结果
+    # OpenSSL (客户端 TLS: https / wss) —— 必备能力, 不提供关掉的开关
     [string]$OpenSslRoot,
     [switch]$NoDownloadOpenSsl,
-    [switch]$NoTls,
     [switch]$Check,
     [switch]$Force,
     [switch]$Quiet,
@@ -90,28 +89,30 @@ else {
 }
 Write-MxInfo "子模块:     $($environment.Submodules.Total) 个已初始化"
 
-# OpenSSL (客户端 TLS): 提前解析/下载好, 构建时就不用再等
-$openssl = [ordered]@{ Root = ''; Version = ''; Source = '' }
-if ($NoTls) {
-    Write-MxInfo 'OpenSSL:    -NoTls: 构建出来的插件框架不带 TLS (https / wss 不可用)'
+# OpenSSL (客户端 TLS): 提前解析/下载好, 构建时就不用再等。
+#
+# **TLS 是必备能力**: 这里拿不到就直接报错。Windows 目标用 slproweb 预编译包;
+# 交叉目标里 Android 能用本机 NDK 从源码编 (构建脚本里做), 而 Linux / macOS / iOS
+# 的工具链不在本机, 需要先自己编好再放到 resource/libs/<目标标签>/,
+# 或用 -OpenSslRoot / 环境变量 MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 指定。
+$opensslTargetTag = Get-MxOpenSslTargetTag -Arch $environment.Arch
+$openssl = Resolve-MxOpenSslRoot -Root $Root -OpenSslRoot $OpenSslRoot -TargetTag $opensslTargetTag `
+    -NoDownloadOpenSsl:$NoDownloadOpenSsl -Check:$Check
+if ($openssl.Root) {
+    Write-MxInfo "OpenSSL:    $($openssl.Root) (版本 $($openssl.Version), 来源 $($openssl.Source))"
+}
+elseif ($openssl.Source) {
+    Write-MxWarn "OpenSSL:    $opensslTargetTag : $($openssl.Source) (正式执行本脚本时会自动下载, 完整包约 260 MB)"
 }
 else {
-    $openssl = Resolve-MxOpenSslRoot -Root $Root -OpenSslRoot $OpenSslRoot `
-        -NoDownloadOpenSsl:$NoDownloadOpenSsl -Check:$Check
-    if ($openssl.Root) {
-        Write-MxInfo "OpenSSL:    $($openssl.Root) (版本 $($openssl.Version), 来源 $($openssl.Source))"
-    }
-    elseif ($openssl.Source) {
-        Write-MxWarn "OpenSSL:    $($openssl.Source) (正式执行本脚本时会自动下载, 完整包约 260 MB)"
-    }
-    else {
-        Write-MxWarn 'OpenSSL:    缺失 (构建出来的插件框架不带 TLS; https / wss 报 tls_unavailable)'
-    }
+    Write-MxWarn "OpenSSL:    缺失 (目标 $opensslTargetTag); TLS 是必备能力, 构建需要它"
 }
 if ($Android -or $environment.Android.Toolchain) {
     Write-MxInfo "Android NDK: $($environment.Android.Ndk)"
     Write-MxInfo "  工具链:    $($environment.Android.Toolchain)"
     Write-MxInfo "  目标:      $($environment.Android.Platform), $($environment.Android.Stl)"
+    Write-MxInfo "  OpenSSL:   Android 目标由构建脚本用本机 NDK 从源码编到 .native/openssl/android-<abi>"
+    Write-MxInfo "             也可以自己编一份放到 resource/libs/android/<abi>/ (脚本会优先用它)"
 }
 
 if ($Check) {

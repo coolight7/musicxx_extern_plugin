@@ -212,56 +212,129 @@ message("[musicxx_ext] Boost 头文件: ${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE} (
 # 插件网络能力的**客户端**要能连 https / wss; 服务端仍然只有 http / ws (插件自己监听时不排 TLS).
 # 静态链接 (做法与 agentxx 一致): 插件框架库里自带 OpenSSL, 应用包里不需要多带 libssl/libcrypto.
 #
+# **TLS 是插件框架的必备能力, 不是可选项**: 这里找不到就 FATAL_ERROR, 不会编一个功能残缺的库。
+# 各平台功能应当统一, 只有"系统本身提供不了"的情况才允许差异 (TLS 不属于这类)。
+#
 # 安装树来源 (优先级):
 #   1) -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=<安装树>   (tools/build_native.ps1 / build_native.sh 传入)
-#   2) .native/openssl/<平台>-<架构>                    (构建脚本下载/编译出来的缓存)
-# 目录里要有 include/openssl/ssl.h 与静态库 (Windows: lib/VC/x64/MD{,d}/libssl_static.lib;
+#   2) resource/libs/<平台>/openssl                    (手工放进来、随包分发的安装树)
+#   3) .native/openssl/<目标平台>-<架构|abi>           (构建脚本下载/编译出来的缓存)
+# 目录里要有 include/openssl/ssl.h 与静态库 (Windows: lib/VC/<arch>/MD{,d}/libssl_static.lib;
 # 其它平台: lib/libssl.a 或 lib64/libssl.a).
-option(MUSICXX_EXTERN_PLUGIN_ENABLE_TLS "插件网络能力的客户端 TLS (https / wss)" ON)
+#
+# 候选目录**按目标平台给**, 不混用不同平台的安装树: Windows 的 .lib 拿到 Android 上时
+# 头文件找得到、可链接的静态库却不存在, 嵌套工程 find_package(OpenSSL) 会直接失败.
 
-set(MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND OFF)
-if (MUSICXX_EXTERN_PLUGIN_ENABLE_TLS)
-  if (NOT MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
-    set(_musicxx_ext_openssl_candidates
-      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/linux-x64"
-      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/macos-arm64"
-      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/macos-x64"
-      "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/windows-x64"
-    )
-    if (ANDROID)
-      list(PREPEND _musicxx_ext_openssl_candidates
-        "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/android-${ANDROID_ABI}")
-    elseif (IOS)
-      list(PREPEND _musicxx_ext_openssl_candidates
-        "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/ios-${CMAKE_OSX_ARCHITECTURES}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/ios-simulator-${CMAKE_OSX_ARCHITECTURES}")
-    endif ()
-    foreach (_cand ${_musicxx_ext_openssl_candidates})
-      if (EXISTS "${_cand}/include/openssl/ssl.h")
-        set(MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT "${_cand}")
-        break()
-      endif ()
-    endforeach ()
-    unset(_musicxx_ext_openssl_candidates)
-  endif ()
-
-  if (NOT MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
-    message(FATAL_ERROR
-      "[musicxx_ext] 开启了 TLS 但找不到 OpenSSL 安装树\n"
-      "  请先执行: pwsh -NoProfile -File tools/setup_native_env.ps1 (Windows)\n"
-      "            tools/build_native.sh --deps-only (Linux/macOS/Android/iOS)\n"
-      "  或显式指定: -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=<OpenSSL 安装目录>\n"
-      "  确实不需要 https / wss 时: -DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=OFF")
-  elseif (NOT EXISTS "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}/include/openssl/ssl.h")
-    message(FATAL_ERROR
-      "[musicxx_ext] ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT} 下没有 include/openssl/ssl.h")
-  endif ()
-  file(TO_CMAKE_PATH "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}" MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
-  set(MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND ON)
-  message("[musicxx_ext] OpenSSL (客户端 TLS): ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+# 目标平台的静态库位置 (文件名与布局跟 tools/deps_openssl.ps1 的判定一致)
+if (WIN32)
+  set(_musicxx_ext_openssl_lib_globs
+    "lib/VC/*/MD/libssl_static.lib" "lib/VC/*/MDd/libssl_static.lib"
+    "lib/libssl.lib" "libssl.lib")
 else ()
-  message("[musicxx_ext] TLS 已关闭 (MUSICXX_EXTERN_PLUGIN_ENABLE_TLS=OFF): https / wss 不可用")
+  set(_musicxx_ext_openssl_lib_globs "lib/libssl.a" "lib64/libssl.a")
 endif ()
+
+# 一棵安装树可用吗: 头文件 + 当前目标平台的静态库
+function(_musicxx_ext_openssl_root_usable out path)
+  set(${out} OFF PARENT_SCOPE)
+  if (NOT path OR NOT EXISTS "${path}/include/openssl/ssl.h")
+    return()
+  endif ()
+  foreach (_lib_glob ${_musicxx_ext_openssl_lib_globs})
+    file(GLOB _musicxx_ext_lib_hits "${path}/${_lib_glob}")
+    if (_musicxx_ext_lib_hits)
+      set(${out} ON PARENT_SCOPE)
+      return()
+    endif ()
+  endforeach ()
+endfunction()
+
+if (NOT MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
+  # 平台标签 (与 tools/deps_openssl.ps1 / build_native.sh 的缓存目录同名)
+  if (ANDROID)
+    set(_musicxx_ext_openssl_target android-${ANDROID_ABI})
+    # 模拟器与设备是两套二进制, 不能互相顶替
+  elseif (IOS)
+    if (CMAKE_OSX_SYSROOT MATCHES "simulator")
+      set(_musicxx_ext_openssl_target ios-simulator-${CMAKE_OSX_ARCHITECTURES})
+    else ()
+      set(_musicxx_ext_openssl_target ios-arm64)
+    endif ()
+  elseif (APPLE)
+    set(_musicxx_ext_openssl_target macos-${CMAKE_SYSTEM_PROCESSOR})
+  elseif (WIN32)
+    set(_musicxx_ext_openssl_target windows-${CMAKE_SYSTEM_PROCESSOR})
+  else ()
+    set(_musicxx_ext_openssl_target linux-${CMAKE_SYSTEM_PROCESSOR})
+  endif ()
+
+  # 候选目录 (优先级): 随包目录 → 构建脚本的本地缓存
+  #
+  # 随包目录是"自己编好 OpenSSL 后放进来"的位置 (不随仓库分发, .gitignore 已忽略):
+  #   resource/libs/android/<abi>/       内含 include/ 与 lib/   例: resource/libs/android/arm64-v8a
+  #   resource/libs/windows/<arch>/      例: resource/libs/windows/x64
+  #   resource/libs/linux/<arch>/ / resource/libs/macos/<arch>/
+  # 也接受把安装树放到上一层的 openssl/ 子目录 (resource/libs/android/<abi>/openssl/),
+  # 以及平台与架构写成一个目录名的形式 (android-arm64-v8a)。
+  # 缓存目录是构建脚本自己下载/编译出来的位置: .native/openssl/<目标标签>。
+  if (ANDROID)
+    set(_musicxx_ext_pkg_dirs "android/${ANDROID_ABI}" "android-${ANDROID_ABI}")
+  elseif (IOS)
+    if (CMAKE_OSX_SYSROOT MATCHES "simulator")
+      set(_musicxx_ext_pkg_dirs "ios/simulator-${CMAKE_OSX_ARCHITECTURES}"
+                              "ios-simulator-${CMAKE_OSX_ARCHITECTURES}")
+    else ()
+      set(_musicxx_ext_pkg_dirs "ios/arm64" "ios-arm64")
+    endif ()
+  elseif (APPLE)
+    set(_musicxx_ext_pkg_dirs "macos/${CMAKE_SYSTEM_PROCESSOR}" "macos-${CMAKE_SYSTEM_PROCESSOR}")
+  elseif (WIN32)
+    set(_musicxx_ext_pkg_dirs "windows/${CMAKE_SYSTEM_PROCESSOR}" "windows-${CMAKE_SYSTEM_PROCESSOR}")
+  else ()
+    set(_musicxx_ext_pkg_dirs "linux/${CMAKE_SYSTEM_PROCESSOR}" "linux-${CMAKE_SYSTEM_PROCESSOR}")
+  endif ()
+
+  set(_musicxx_ext_openssl_candidates "")
+  foreach (_pkg_dir ${_musicxx_ext_pkg_dirs})
+    # 直接把安装树摆到 <平台>/<变体>/ (里面有 lib/ 与 include/), 或放到它的 openssl/ 子目录
+    list(APPEND _musicxx_ext_openssl_candidates
+      "${CMAKE_CURRENT_SOURCE_DIR}/../resource/libs/${_pkg_dir}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/../resource/libs/${_pkg_dir}/openssl")
+  endforeach ()
+  list(APPEND _musicxx_ext_openssl_candidates
+    "${CMAKE_CURRENT_SOURCE_DIR}/../.native/openssl/${_musicxx_ext_openssl_target}")
+  unset(_musicxx_ext_pkg_dirs)
+  unset(_pkg_dir)
+
+  foreach (_cand ${_musicxx_ext_openssl_candidates})
+    _musicxx_ext_openssl_root_usable(_musicxx_ext_cand_ok "${_cand}")
+    if (_musicxx_ext_cand_ok)
+      set(MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT "${_cand}")
+      break()
+    endif ()
+  endforeach ()
+  unset(_musicxx_ext_cand_ok)
+  unset(_musicxx_ext_openssl_candidates)
+  unset(_musicxx_ext_openssl_target)
+endif ()
+
+if (NOT MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
+  message(FATAL_ERROR
+    "[musicxx_ext] 找不到 OpenSSL 安装树 (客户端 TLS 是必备能力)"
+    " (目标 ${CMAKE_SYSTEM_NAME}, ${CMAKE_SYSTEM_PROCESSOR})\n"
+    "  需要的目录内容: include/openssl/ssl.h + 本目标平台的静态库\n"
+    "  Windows:  pwsh -NoProfile -File tools/setup_native_env.ps1 (自动下载 slproweb 预编译包)\n"
+    "  Android:  自己编好 OpenSSL 静态库后放到"
+    " resource/libs/android/<abi>/openssl/ (内含 include/ 与 lib/libssl.a)\n"
+    "  其它平台: tools/build_native.sh 会自动从源码编到 .native/openssl/\n"
+    "  或显式指定: -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=<OpenSSL 安装目录>")
+elseif (NOT EXISTS "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}/include/openssl/ssl.h")
+  message(FATAL_ERROR
+    "[musicxx_ext] ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT} 下没有 include/openssl/ssl.h")
+endif ()
+file(TO_CMAKE_PATH "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}" MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
+message("[musicxx_ext] OpenSSL (客户端 TLS): ${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+unset(_musicxx_ext_openssl_lib_globs)
 
 # 生成 BoostConfig.cmake: b2 生成的那套配置用不上 (我们只要头文件根), 而且预生成的配置会把
 # 绝对路径烘焙进导出目标 (曾因此把别的 Boost 安装目录带进下游编译)。
@@ -287,7 +360,7 @@ if (CMAKE_CROSSCOMPILING)
 endif ()
 # OpenSSL 在交叉编译时也要能被嵌套工程找得到 (FIND_ROOT_PATH_MODE_LIBRARY=ONLY 时
 # 它不会被 OPENSSL_ROOT_DIR 直接命中)
-if (MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND)
+if (MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT)
   list(APPEND CMAKE_FIND_ROOT_PATH "${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
 endif ()
 
@@ -313,21 +386,16 @@ set(_COMMON_CMAKE_CACHE_ARGS
     "-DBoost_ROOT:PATH=${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}"
     "-DBoost_INCLUDE_DIR:PATH=${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}"
     "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE:PATH=${MUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE}"
-    "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS:BOOL=${MUSICXX_EXTERN_PLUGIN_ENABLE_TLS}"
 )
 # OpenSSL 只给插件框架工程用 (依赖库不需要它): 用 cache 变量传, find_package 会直接拿这个目录
-if (MUSICXX_EXTERN_PLUGIN_OPENSSL_FOUND)
-  list(APPEND _COMMON_CMAKE_CACHE_ARGS
-    "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT:PATH=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}"
-    "-DOPENSSL_ROOT_DIR:PATH=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}"
-    "-DOPENSSL_USE_STATIC_LIBS:BOOL=ON"
-  )
-  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
-  _musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DOPENSSL_ROOT_DIR=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
-  list(APPEND _COMMON_CMAKE_ARGS -DOPENSSL_USE_STATIC_LIBS=ON)
-endif ()
-list(APPEND _COMMON_CMAKE_ARGS
-    "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=${MUSICXX_EXTERN_PLUGIN_ENABLE_TLS}")
+list(APPEND _COMMON_CMAKE_CACHE_ARGS
+  "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT:PATH=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}"
+  "-DOPENSSL_ROOT_DIR:PATH=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}"
+  "-DOPENSSL_USE_STATIC_LIBS:BOOL=ON"
+)
+_musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+_musicxx_ext_add_arg(_COMMON_CMAKE_ARGS "-DOPENSSL_ROOT_DIR=${MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT}")
+list(APPEND _COMMON_CMAKE_ARGS -DOPENSSL_USE_STATIC_LIBS=ON)
 # 配置类型不往嵌套构建传:
 # - 嵌套 cmake 的编译器探测固定用 Debug 配置生成测试工程, 若把可用配置收窄成 Release,
 #   探测会因为找不到 Debug 而失败 ("Check for working C compiler ... broken");

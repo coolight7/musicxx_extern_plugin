@@ -8,6 +8,31 @@
 
 ## 未发布
 
+### 变更：Android 构建修复，且客户端 TLS 成为所有平台的必备能力
+
+以前在 Windows 上交叉编译 Android 时，脚本会把 `.native/openssl/windows-<arch>` 那棵树
+（slproweb 预编译包，只有 `.lib`）当成所有平台的库传下去，于是嵌套工程 `find_package(OpenSSL)`
+报 `开启了 TLS 但找不到 OpenSSL`，整个 Android 构建直接失败。同一个时期还可以编出"不带 TLS"的库
+（`-NoTls` / `--no-tls`），于是同一份代码在不同构建里能力不一样。现在统一：
+
+- 脚本与 CMake 都**按目标平台**找安装树（`android-<abi>` / `ios-arm64` / `macos-<arch>` /
+  `linux-<arch>` / `windows-<arch>`），静态库的判定也分平台（Windows 看 `.lib`，其它看 `libssl.a`）；
+- **删掉关掉 TLS 的开关与所有 `MUSICXX_EXTERN_PLUGIN_HAS_TLS` 条件分支**：`host_net_tls.cpp`
+  无条件编 OpenSSL 实现，`src/host/CMakeLists.txt` 用 `find_package(OpenSSL REQUIRED)`。
+  缺依赖时在 CMake 配置阶段直接失败，而不是编出功能残缺的库；
+- `tls_unsupported` 错误码已不可能出现（`wss` 不再需要先判断能力）；`musicxx.net.info()` 的
+  `tls` 恒为 `true`、`schemes` 恒为 `http` / `https` / `ws` / `wss`，`tlsProvider` 恒有值；
+- 安装树查找顺序：`-OpenSslRoot` / `MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT` →
+  `resource/libs/<平台>/<架构>/`（自编后放进来）→ `.native/openssl/<目标标签>/`。
+- **Android 的 OpenSSL 现在由脚本自动编**，不需要 WSL，也不需要手工摆目录：
+  `tools/deps_openssl.ps1` 用本机 NDK + perl + make 直接编出 `libssl.a` / `libcrypto.a`
+  并装到 `.native/openssl/android-<abi>`（第一次编会下载源码包与 `make`，之后复用）。
+  perl 用 Git for Windows 自带的那份，它缺的 `IPC::Cmd` / `Pod::Usage` 由包内
+  `tools/openssl_perl_shim/` 两个小模块补上（没有它，精简 perl 会在编译中途报错,
+  且生成的头文件是 0 字节）。仍然可以自己编一份放到 `resource/libs/android/<abi>/`，
+  脚本会优先用它。
+
+
 ### 新增：插件网盘 `musicxx.source.browse` + `drive.*` 能力（应用提供内置网盘那一套界面）
 
 插件只要**声明一个可浏览来源**并实现 `drive.list`，就能得到与内置网盘（百度 / 阿里 / 115 /

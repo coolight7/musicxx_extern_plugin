@@ -530,8 +530,8 @@ musicxx.net.ws.send("w1", "ping");
   直接投递到 JS 线程，不走事件总线（绕事件总线会与"框架线程等 Promise"互相等）。
 - **客户端支持 `https://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成（证书链与主机名
   校验默认开）；`wss` 同样能传 `tlsVerify` / `caFile` / `caPem` / `serverName`。
-  **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。想知道当前构建有没有 TLS，
-  看 `musicxx.net.info().tls`。
+  **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。所有平台的插件框架都带 TLS
+  （`musicxx.net.info().tls` 恒为 `true`）。
 - **服务端默认只监听 `127.0.0.1`**；`host: "0.0.0.0"` 才会暴露给同网段。
 - **HTTP 请求必须回答**：收到 `http.request` 后不调 `http.respond`，框架会在 `requestTimeoutMs`
   （缺省 30 s）后回 504 并关连接。

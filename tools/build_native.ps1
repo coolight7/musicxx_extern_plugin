@@ -33,12 +33,16 @@
 #   pwsh -NoProfile -File tools/build_native.ps1 -Jobs 8            # 指定并行度
 #   pwsh -NoProfile -File tools/build_native.ps1 -NoEnvSetup        # 跳过环境解析(只用已有缓存)
 #   pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi arm64-v8a   # 用 NDK 交叉编译 Android 插件框架库
-#   pwsh -NoProfile -File tools/build_native.ps1 -OpenSslRoot <目录>       # 指定 OpenSSL 安装树 (客户端 TLS)
-#   pwsh -NoProfile -File tools/build_native.ps1 -NoTls                    # 不要 TLS (https / wss 报 tls_unavailable)
+#   pwsh -NoProfile -File tools/build_native.ps1 -OpenSslRoot <目录>       # 指定 OpenSSL 安装树 (客户端 TLS; 必备能力)
 #
 # Android 说明:
 #   - 产出与桌面端同一套布局: <包>/.native/output/android-<abi>-<配置>/bin/libmusicxx_extern_plugin.so
 #     (Android 的 ABI 名直接用作目录里的架构段: arm64-v8a / armeabi-v7a / x86_64 / x86)
+#   - 客户端 TLS (https / wss) 是必备能力: 需要 libssl.a。Android 的 OpenSSL 由本脚本
+#     用本机 NDK 从源码编 (tools/deps_openssl.ps1 里的 Build-MxOpenSslForAndroid),
+#     产物在 .native/openssl/android-<abi>; 不需要 WSL。也可以自己编一份放到
+#     resource/libs/android/<abi>/ (内含 include/ 与 lib/), 脚本会优先用它。
+#     缺 NDK / perl / make 时直接报错, 不会编出一个没有 https / wss 的库。
 #   - 插件框架库不是靠本脚本进 APK 的: 包的 android/build.gradle 会把它按 ABI 收集到 jniLibs,
 #     随 Flutter 的 Android 构建打进去 (见 android/README.md)
 #   - NDK 位置优先取 -AndroidNdk, 其次 $env:ANDROID_NDK_HOME / $env:ANDROID_NDK_ROOT,
@@ -71,11 +75,10 @@ param(
     [string]$BoostArchive,
     [string]$Generator,
     [switch]$NoDownloadBoost,
-    # OpenSSL (客户端 TLS: https / wss)。不给时会用 .native/openssl 缓存或自动下载;
-    # -NoTls 只休建一个不带 TLS 的插件框架库 (https / wss 报 tls_unavailable)
+    # OpenSSL (客户端 TLS: https / wss) —— 必备能力, 不提供关掉的开关。
+    # 找不到时 Resolve-MxOpenSslRoot 直接报错, 不会编一个功能残缺的库。
     [string]$OpenSslRoot,
     [switch]$NoDownloadOpenSsl,
-    [switch]$NoTls,
     # Android 交叉编译: 目标平台/ABI/NDK 与最低系统版本
     [switch]$Android,
     [ValidateSet('arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86')][string]$Abi = 'arm64-v8a',
@@ -163,33 +166,31 @@ $isMultiConfig = [bool]$environment.IsMultiConfig
 $boostHeaderRoot = $environment.Boost.Root
 $androidToolchain = $environment.Android.Toolchain
 
-# OpenSSL (客户端 TLS)。自动模式（应用构建调用）不因为拿不到 OpenSSL 去下载几百 MB,
-# 只用一个已有的安装树; 拿不到就不带 TLS 继续构建 (https / wss 报 tls_unavailable)。
-$tlsEnabled = $false
+# OpenSSL (客户端 TLS: https / wss) —— 必备能力, 找不到就报错 (不存在"不带 TLS"的构建)。
+#
+# 安装树按**目标平台**找 (android-<abi> / windows-<arch>): 交叉编译时不能拿开发机那棵树
+# 充数 —— Windows 的 .lib 在 Android 上既找得到头文件、又找不到可链接的静态库,
+# 嵌套工程 find_package(OpenSSL) 会直接失败 (以前就是这样把 android 构建弄断的)。
+# Android 的 OpenSSL 由 Resolve-MxOpenSslRoot 用本机 NDK 从源码编 (Windows 上也能编,
+# 不需要 WSL); 缺 NDK / perl / make 时直接报错, 不会静默编一个没有 TLS 的库。
+$openSslTargetTag = Get-MxOpenSslTargetTag -Android:$Android -Abi $paths.Abi -Arch $paths.Arch
+$openssl = $null
 $openSslInstallRoot = ''
-if (-not $NoTls) {
-    $openssl = Resolve-MxOpenSslRoot -Root $Root -OpenSslRoot $OpenSslRoot `
-        -NoDownloadOpenSsl:$NoDownloadOpenSsl -AllowMissing:$Auto
-    $openSslInstallRoot = [string]$openssl.Root
-    $tlsEnabled = [bool]$openSslInstallRoot
-}
-$tlsState = if ($tlsEnabled) { 'on' } else { 'off' }
+# -Auto 是应用构建（Gradle / CMake 的 preBuild）调进来的: 那里不能现场编 OpenSSL
+# （下载源码 + 编 4 个 ABI 要半小时），所以 Auto 只用手上已有的安装树，缺了就报错。
+$openssl = Resolve-MxOpenSslRoot -Root $Root -OpenSslRoot $OpenSslRoot -TargetTag $openSslTargetTag `
+    -NoDownloadOpenSsl:($NoDownloadOpenSsl -or [bool]$Auto) `
+    -AndroidNdk $(if ($Android) { [string]$environment.Android.Ndk } else { '' }) `
+    -AndroidApi ($AndroidPlatform -replace '^android-', '') -Jobs $Jobs
+$openSslInstallRoot = [string]$openssl.Root
+$tlsState = 'on'
 $generatorArgs = @('-G', $generator)
 if ($isMultiConfig) { $generatorArgs += @('-A', $paths.GeneratorPlatform) }
 
 if (-not $Auto) {
     Write-MxInfo "生成器:     $generator$(if ($isMultiConfig) { " ($($paths.GeneratorPlatform))" })"
     Write-MxInfo "Boost:      $boostHeaderRoot (版本 $($environment.Boost.Version), 来源 $($environment.Boost.Source))"
-    if ($tlsEnabled) {
-        Write-MxInfo "OpenSSL:    $openSslInstallRoot (版本 $($openssl.Version), 来源 $($openssl.Source))"
-    }
-    elseif ($NoTls) {
-        Write-MxInfo 'OpenSSL:    -NoTls: 本次构建不带 TLS (https / wss 报 tls_unavailable)'
-    }
-    else {
-        Write-MxWarn 'OpenSSL:    没找到 (本次构建不带 TLS; https / wss 报 tls_unavailable)'
-        Write-MxWarn '            补上依赖: pwsh -NoProfile -File tools/setup_native_env.ps1'
-    }
+    Write-MxInfo "OpenSSL:    $openSslInstallRoot (版本 $($openssl.Version), 来源 $($openssl.Source))"
     if ($Android) {
         Write-MxInfo "目标:       android-$($paths.Abi) ($AndroidPlatform, $AndroidStl)"
         Write-MxInfo "工具链:     $androidToolchain"
@@ -261,8 +262,7 @@ $buildBody = {
         if (-not $Android) { "-DCMAKE_SYSTEM_PROCESSOR=$($paths.SystemProcessor)" }
         '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
         "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=$boostHeaderRoot"
-        "-DMUSICXX_EXTERN_PLUGIN_ENABLE_TLS=$(if ($tlsEnabled) { '1' } else { '0' })"
-        if ($tlsEnabled) { "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=$openSslInstallRoot" }
+        "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=$openSslInstallRoot"
         # 示例插件与原生测试: 默认关 (示例插件交给 tools/build_examples.ps1)        "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=$(if ($buildExamples) { '1' } else { '0' })"
         "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=$(if ($buildTests) { '1' } else { '0' })"
     )
