@@ -10,6 +10,11 @@
 #     e/<依赖短名>/                                  各依赖的嵌套构建目录 (短路径, 避免 MAX_PATH 超限)
 #   output/<平台>-<架构>-<配置>/                    构建脚本复制出的稳定产物 (bin/、plugins/)
 #   downloads/                                     Boost 发布包缓存 (缺失内置头文件时按固定版本下载)
+#                                                  以及 OpenSSL 源码包 (编 Android 的 OpenSSL 时用)
+#   openssl/<目标标签>/                             OpenSSL 安装树 (Windows 解包 slproweb 包;
+#                                                  android-<abi> 用本机 NDK 从源码编)
+#   tools/make/                                    本机没有 make 时自动下载的 GNU make
+#   log/                                           依赖编译日志 (例如 openssl-<abi>.log)
 #   boost/                                         Boost 发布包解包出的头文件根
 .native/
 build/
@@ -32,6 +37,7 @@ build/
 # 无需本目录即可构建；本机已有该目录时脚本优先复用（-BoostRoot / -BoostArchive 可覆盖）。
 src/third_party/boost/
 resource/font/
+resource/libs/
 plugins/example_js_font/resource/font/
 *.ttf
 *.otf

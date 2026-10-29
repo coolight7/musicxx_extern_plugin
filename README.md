@@ -131,14 +131,41 @@ tools/               setup_native_env.ps1（Windows：配置开发编译环境 �
 3. **OpenSSL（客户端 TLS：`https` / `wss`）**
    - 插件网络的客户端要能连 https / wss，所以 OpenSSL 以**静态库**链进插件框架库
      （应用包里不需要多带 `libssl` / `libcrypto`）；服务端不做 TLS。
-   - Windows 没有 perl / nasm，因此用 slproweb 的预编译包：`tools/deps_openssl.ps1` 从官方哈希清单
+   - **Windows 目标**：用 slproweb 的预编译包 —— `tools/deps_openssl.ps1` 从官方哈希清单
      取最新的 4.x Win64 **完整包**（约 260 MB，Light 包没有静态库），用 `msiexec /a`（或 7-Zip）
      **解包**到 `.native/openssl/windows-x64`，不执行安装程序、不需要管理员权限。
-   - Linux / macOS / Android / iOS 由 `tools/build_native.sh` 从 openssl.org 的源码包
-     （取不到时用 GitHub release）编译到 `.native/openssl/<平台>-<架构>`（`no-shared`，约 3~8 分钟）。
-   - 覆盖 / 关闭：`-OpenSslRoot <安装树>` / `--openssl-root <安装树>`、环境变量
-     `MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT`；离线或不需要 https 时用 `-NoTls` / `--no-tls`
-     （此时 `https` / `wss` 返回 `tls_unsupported`，`net.info().tls` 为 `false`）。
+   - **Android 目标**：脚本用**本机 NDK 从源码编**（不需要 WSL，也不需要手工摆目录）；
+     产物落到 `.native/openssl/android-<abi>`。第一次编会把源码包与 `make` 下载下来，
+     之后复用；4 个 ABI 全编约 20~30 分钟。
+   - **Linux / macOS**：由 `tools/build_native.sh` 从源码编到 `.native/openssl/<平台>-<架构>`
+     （`no-shared`，约 3~8 分钟）。
+   - **TLS 是插件框架的必备能力**，不提供关掉的开关：拿不到 OpenSSL 时构建**直接失败**，
+     不会编出一个没有 `https` / `wss` 的库（各平台功能必须一致）。
+   - 安装树**按目标平台分开，不能互相顶替**：Windows 的 `.lib` 在 Android / Linux 上链接不了，
+     所以 Android 目标只认 `libssl.a`。
+   - Android 自动编译需要的三样（Windows 上通常都已经有了，缺 `make` 时脚本会自己下）：
+     * **NDK**：`-AndroidNdk` / `$env:ANDROID_NDK_HOME` / SDK 下版本号最大的一个（与构建脚本同一套解析）；
+     * **perl**：装了 Git for Windows 就有（`<Git>/usr/bin/perl.exe`）；脚本自带两个小模块
+       （`tools/openssl_perl_shim/`），把精简版 perl 缺的 `IPC::Cmd` / `Pod::Usage` 补上；
+     * **make**：没有就去 ezwinports 下一个放到 `.native/tools/make`。
+   - 想自己编（或换机器、换版本时）也可以照下面这套手动跑，产物放到
+     **`package_extend/musicxx_extern_plugin/resource/libs/android/<abi>/`**（`resource/libs/`
+     不进版本库）：
+
+```bash
+# 在 Linux / macOS / WSL 里为每个要打包的 ABI 编一份（静态库，必需 no-shared）
+export ANDROID_NDK_ROOT=/path/to/android-ndk
+cd openssl-4.0.1
+./Configure android-arm64 -fpic no-shared no-apps no-docs no-tests no-ocsp \
+    --prefix=<包目录>/resource/libs/android/arm64-v8a --openssldir=<同上> -D__ANDROID_API__=24
+make -j8 && make install_sw
+```
+
+     其它 ABI 的 `Configure` 目标：`armeabi-v7a` → `android-arm`、`x86_64` → `android-x86_64`、
+     `x86` → `android-x86`。手动编的话把整棵安装树（含 `include/` 与 `lib/libssl.a`、
+     `lib/libcrypto.a`）放到上面那个目录（也可以放到它的 `openssl/` 子目录）。
+   - 构建脚本与 CMake 的查找顺序：`-OpenSslRoot` / 环境变量 → `resource/libs/<平台>/<架构>/` →
+     `.native/openssl/<目标标签>/`（Android 缺的时候在现场编，Linux / macOS 从源码编）。
    - 安装树里要有 `include/openssl/ssl.h` 与静态库（Windows：`lib/VC/x64/MD{,d}/libssl_static.lib`；
      其它平台：`lib/libssl.a`）。
 

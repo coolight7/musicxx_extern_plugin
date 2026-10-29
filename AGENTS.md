@@ -261,6 +261,21 @@ iOS 只有 macOS 上能构建（Windows 的 `.ps1` 没有 iOS 工具链）：
 ./tools/build_native.sh --macos-target 12.0         # macOS 最低版本（默认 12.0，与主程序 MACOSX_DEPLOYMENT_TARGET 一致）
 ```
 
+**TLS（`https` / `wss`）是所有平台的必备能力**：没有"不带 TLS"的构建，缺 OpenSSL 就直接失败。
+安装树按目标平台分开找（Windows 的 `.lib` 不能给 Android 用），查找顺序：
+`-OpenSslRoot` / `MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT` → `resource/libs/<平台>/<架构>/`
+→ `.native/openssl/<目标标签>/`。
+
+两种目标都由脚本自己准备，**不需要 WSL，也不用手工摆目录**：
+
+- **Windows**：`tools/deps_openssl.ps1` 取 slproweb 预编译包解包到 `.native/openssl/windows-<arch>`；
+- **Android**：同一个脚本用**本机 NDK 从源码编**到 `.native/openssl/android-<abi>`
+  （`Configure` 用 Git for Windows 自带的 perl，`make` 缺时自动下到 `.native/tools/make`；
+  perl 精简装缺的 `IPC::Cmd` / `Pod::Usage` 由包内 `tools/openssl_perl_shim/` 补上）。
+
+也可以自己编一份放到 `resource/libs/android/<abi>/`（里面有 `include/` 与 `lib/libssl.a`），
+脚本会优先用它。`resource/libs/` 不在 Git 里，换机器要重新编或重新放。
+
 - 安装前缀 = `<构建目录>/musicxx-extern-plugin-install`（SDK 的 `include/`、`lib/cmake/`、`bin/` 都在这里），
   另有一份稳定复制在 `.native/output/<平台>-<架构>-<配置>/`。
 - 插件工程用 `find_package(musicxx_extern_plugin CONFIG REQUIRED)` + `musicxx_plugin_add_target(...)`，

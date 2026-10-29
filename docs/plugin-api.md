@@ -589,7 +589,12 @@ requestAction("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})"
 
 OpenSSL 以**静态库**链进插件框架，所以客户端能直接连 https / wss，应用包里不需要带
 `libssl` / `libcrypto`。**服务端不做 TLS**（插件自己起服务只监听 http / ws）。
-构建时关掉 TLS（`--no-tls` / `-NoTls`）的版本里，`https` / `wss` 会得到 `tls_unsupported`。
+
+**所有平台的插件框架都带 TLS**：`https` / `wss` 恒可用，不存在"某个构建里没有"的情况
+（缺 OpenSSL 时构建阶段就失败，不会发布一个功能残缺的版本）。`musicxx.net.info()` 的
+`tls` 恒为 `true`、`schemes` 包含 `http` / `https` / `ws` / `wss`，`tlsProvider` 是运行期
+OpenSSL 版本。所以 `https` 失败只剩真正的原因：`tls_config`（`caFile` / `caPem` 读不出来）、
+`tls_cert_invalid`（证书链或主机名不对）、`tls_handshake_failed`（协议协商失败）。
 
 | 接口（JS） | 内部 op | 参数 | 返回 |
 |---|---|---|---|
@@ -746,8 +751,8 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 
 - **客户端支持 `https://` 与 `wss://`**（OpenSSL 静态链接，证书链与主机名校验默认开）；
   **服务端只监听明文**：`http.serve` / `ws.listen` 没有 TLS 参数，也不需要。
-  构建里关掉 TLS 时 `https` / `wss` 返回 `tls_unsupported`，可以用 `musicxx.net.info()` 的
-  `tls` 字段先看一眼（`false` = 这个构建没有 TLS）。
+  所有平台的插件框架都带 TLS（`musicxx.net.info()` 的 `tls` 恒为 `true`），
+  不会出现某个构建里没有 `https` / `wss` 的情况。
 - **服务端默认只监听回环 `127.0.0.1`**，端口由系统分配（`port: 0`）。要同网段可访问必须显式写
   `host: "0.0.0.0"` —— 框架不会替你拦，但你要清楚这意味着什么。
 - **事件是异步的**：JS 侧由插件框架**直接投递到 JS 线程**（所以可以在返回 Promise 的能力里
@@ -787,8 +792,8 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 失败（连接 / TLS / 解析 / 超时 / 取消）是 `{ok:false, requestId, error, message}`：
 `bad_url` / `unsupported_scheme` / `resolve_failed` / `connect_failed` / `write_failed` /
 `read_failed` / `bad_response` / `incomplete` / `timeout` / `cancelled`，以及 TLS 相关的
-`tls_unsupported`（这个构建没有 TLS）/ `tls_config`（`caFile` / `caPem` 读不出来）/
-`tls_cert_invalid`（证书链或主机名不对）/ `tls_handshake_failed`（协议协商失败）。
+`tls_config`（`caFile` / `caPem` 读不出来）/ `tls_cert_invalid`（证书链或主机名不对）/
+`tls_handshake_failed`（协议协商失败）。
 下载到本地时还可能是 `no_data_dir`（插件数据目录未就绪）/ `write_failed`（文件建不出来或写失败）。
 
 **HTTP 服务端**：`http.serve`（`id?`, `host?`, `port?`, `path?` 前缀, `staticOnly?`,

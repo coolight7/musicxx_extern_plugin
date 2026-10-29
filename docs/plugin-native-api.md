@@ -679,8 +679,8 @@ netCallAsync(net_op::httpDownload,
   暂停上游读（不再产生 `data` 事件），缓过来再 `paused:false`。
 - **客户端支持 `http://` / `https://` / `ws://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成
   （证书链与主机名校验默认开；参数 `tlsVerify` / `caFile` / `caPem` / `serverName`）。
-  **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。构建里关掉 TLS 时 `https` / `wss`
-  得到 `tls_unsupported`；`netCall(net_op::info, ...)` 的 `tls` 字段能提前看出当前构建有没有 TLS。
+  **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。所有平台的插件框架都带 TLS：
+  `netCall(net_op::info, ...)` 的 `tls` 恒为 `true`，不会出现没有 `https` / `wss` 的构建。
 - **不要在钩子 / 能力处理器里同步等 HTTP 响应**：`netCall` 会等网络线程（有界 5 s），
   响应回来要经过事件回调。客户端请求用 `netCallAsync`（完成通知）或听
   `http.response` 事件。
