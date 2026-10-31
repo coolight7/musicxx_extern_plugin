@@ -1346,7 +1346,7 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.ui.pickSongs` | `type`（必填）、`view?`（起始分类）、`title?`、`path?`、`pid?`、`multiple?`、`allowSelectDir?`、`search?`、`pageSize?` | `{ok, added, skipped, cancelled, view}` |
+| `musicxx.ui.pickSongs` | `type`（必填）、`view?`（浏览哪个分类，缺省第一个）、`title?`、`path?`、`pid?`、`multiple?`、`allowSelectDir?`、`search?`、`pageSize?` | `{ok, added, skipped, cancelled, view}` |
 | `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false） | `{ok, paths, items:[{view, path}], cancelled, view}` |
 | `musicxx.ui.browseDrive` | `type`（必填）、`view?`（起始分类）、`path?`（起始目录） | `{ok, reason:"opened", type, view}`（**不等用户关页面**） |
 
@@ -1363,9 +1363,9 @@ musicxx.ui.registerEntry({
 });
 ```
 
-- 多分类时弹窗与整页浏览的顶部都有一排 tab；**弹窗里切分类不会丢掉已经勾选的条目**，
-  确认后按每条记录自己的分类提交。返回值里的 `view` 是用户最后停留的分类
-  （跨分类选时用 `items` 区分，目录的 `path` 只在它自己的分类里有意义）。
+- 弹窗**一次只浏览一个分类**：打开哪个分类由 `view` 决定（不给就是这个音源类型的第一个分类），
+  弹窗里没有切换。返回值里的 `view` 是这次浏览的分类；`pickDir` 的 `items` 每条另带
+  `{view, path}`（目录的 `path` 只在它自己的分类里有意义）。
 - `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时**不要 await**
   （会与应用动作互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。`browseDrive` 相反：
   它打开页面后立即返回 `{ok, reason:"opened", type, view}`，不等用户关页面。
