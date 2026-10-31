@@ -207,10 +207,10 @@ capability(*this, "plugin.my_plugin.settings",
 | `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
 | `Badge` / `Progress` | 见库文档 | 状态小标签 / 进度条 |
 | `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`/`password`）、`id`、`label`、`help`、`value`、`options`、`multiline`、`disabled`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值）。`text`/`number`/`password` 用应用自己的输入框：**回车或失焦才派发**（不是逐字派发），`password` 默认遮住（右侧有眼睛按钮），纯文本降级固定打码；`select` 候选项只有一行标题（要“标题 + 多行描述”就用浮层的 `picker`） |
-| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, path?, isDir?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
+| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, path?, isDir?, data?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
-| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` / `song` 生效（条目带 `song` 就按内置的**歌曲行**画：封面 + 歌手），`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
+| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` / `data` 生效（条目带 `data.song` 就按内置的**歌曲行**画：封面 + 歌手），`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
 | `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
@@ -325,7 +325,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `tone` | 主标题语义色 |
 | `selected` | 是否高亮（**只由插件给的数据决定**，客户端不做点击自动高亮） |
 | `path` / `isDir` | 这一项对应的路径 / 身份与“是不是目录项”（目录列表用它，动作参数里原样回带） |
-| `song` | 这一项是一首歌：`{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}`（字段与 `musicxx.playlist.addSong` 的 `songs[]` 同一套）。只有目录列表用它 —— 带上以后这一行画成歌曲样式（封面 + 歌手 + 音源标签）。`src` 必填（空 = 不是歌曲）；`type` 不写时用本插件声明的唯一音源类型（声明了多个就得写）；`cover` 是插件目录相对路径或 http 链接 |
+| `data` | 这一项的附加数据（任意 JSON 对象）：描述层只当原文携带、**不解释内容**，由应用按自己的约定读。musicxx 认其中的 `data.song` = 这一项是一首歌：`{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}`（字段与 `musicxx.playlist.addSong` 的 `songs[]` 同一套），只有目录列表用它 —— 带上以后这一行画成歌曲样式（封面 + 歌手 + 音源标签）。`src` 必填（空 = 不是歌曲）；`type` 不写时用本插件声明的唯一音源类型（声明了多个就得写）；`cover` 是插件目录相对路径或 http 链接 |
 | `action` | 点这一项派发的动作（不给就用块上的 `itemAction`） |
 
 所有列表动作的参数里都会带上：`listId`（块 id）、`index`、`itemId`、`item`（整项快照，含 `path` / `isDir`）。
@@ -333,7 +333,7 @@ capability(*this, "plugin.my_plugin.settings",
 
 > 目录列表的**行样式由应用定**（与内置目录列表一致：前置图标 + 标题 + 第二行 + 行尾文字 / 勾选框），
 > 所以 `tone` / `image` / `custom` 在它里面不生效，`subtitle` 没写时第二行显示 `path`。
-> 写了 `song` 的条目按内置列表的**歌曲行**画：前置是封面（`cover`，没有就用默认歌曲图标）、
+> 写了 `data.song` 的条目按内置列表的**歌曲行**画：前置是封面（`cover`，没有就用默认歌曲图标）、
 > 第二行是歌手（没写 `subtitle` 时），`subtitle` 写了就用 `subtitle`（例如文件大小）。
 > 只是“画成歌曲”而已：点这一行仍照常派发 `itemAction`，加进歌单仍要调 `musicxx.playlist.addSong`。
 

@@ -361,6 +361,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 - **界面组件只在一处**：组件 / 字段 / 上限定义在子模块 `src/third_party/cxx_pluginxx_ui/schema/ui.def.json`，
   在该子模块里跑 `dart run tools/gen_ui.dart` 生成 C++ / Dart / JS 绑定、文档与样例；两端手写模型与解析器要同步改。
   扩展 kit 定义在 `schema/musicxx-ui-kit.def.json`（`tools/gen_ui_kit.ps1` 生成、`tools/sync_ui_kit.ps1` 复制进插件目录）。
+  **`cxx_*` 子模块只放通用内容**（`cxx_utilxx_base` / `cxx_pluginxx` / `cxx_pluginxx_ui` 都被多个项目共用）：
+  不为 musicxx 的某个概念加结构体、字段或解析分支；musicxx 自己的数据用通用载体带（列表项 `data`、
+  动作 `args`），解释器留在主程序（例如 `lib/plugin/externPlugin/ui/ExternPluginUiItemSong.dart` 读 `data.song`）。
+  判据与反例见 `src/third_party/cxx_pluginxx_ui/README.md`「只放通用内容」与它 `docs/integration.md` §6.1。
 - **插件框架库导出面**只允许 `musicxx_extern_plugin_*`（MSVC 导出宏 / GNU version script / Apple 隐藏可见性）；
   改导出、C ABI 或线程收尾后重新构建并跑原生测试。**改 C 头文件后要重新生成 Dart 绑定**：
   `fvm dart run ffigen --config ffigen.yaml`（Windows 上 LLVM 路径在配置里）。
