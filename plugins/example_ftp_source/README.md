@@ -10,9 +10,9 @@
 | 声明自己的音源类型 | `musicxx.source.define`（`plugin.example_ftp_source.audio`） |
 | 账号 / 配置存哪 | `musicxx.storage`（插件私有 KV，键 `account`） |
 | 主页入口 + 配置页 | UI 项 `home.entry` + 能力 `accounts` 返回声明式视图 |
-| 歌单「添加歌曲」里的入口 | UI 项 `addsong.entry` + 动作 `musicxx.ui.openOverlaySheet` |
-| 挑歌浮层 | 能力 `browse`（列目录）+ 视图 `browse` |
-| 加进歌单 | 动作 `musicxx.playlist.addSong` |
+| 歌单「添加歌曲」里的入口 | `musicxx.source.browse` 声明（每个分类一行，界面由主程序画） |
+| 挑歌弹窗的数据 | 能力 `drive.list` 等（主程序内置网盘那套界面） |
+| 加进歌单 | 主程序负责（插件只给条目） |
 | 播放 | 钩子 `musicxx.player.source.resolve` + 本机 HTTP 转流服务 |
 | 自检 | 能力 `probe` |
 
@@ -78,9 +78,7 @@ src  = <账号指纹>/<FTP 绝对路径去掉开头 />
 
 ## 4. 歌单「添加歌曲」
 
-这里演示**两种写法**，推荐第一种（插件不用画界面）：
-
-### 4.1 应用画界面（推荐）：`musicxx.source.browse` + `drive.list`
+### 4.1 `musicxx.source.browse` + `drive.list`（插件不用画界面）
 
 插件声明一个可浏览来源，主程序就在「添加歌曲」菜单里自动多一行，点开是**与内置网盘完全一样**的
 弹窗（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 加歌单），数据由下面几个能力提供：
@@ -139,61 +137,6 @@ musicxx.capability.register("drive.list", function (args) {
 | `drive.info` | `{type, view, path}` | `{ok:true, title, pairs}` | 列父目录把这一条挑出来 |
 
 删除是**应用先弹确认**再问插件的；一条失败就整次当失败（已删掉的行下次刷新就对了）。
-
-### 4.2 插件自己画浮层（老写法，留着做对照）
-
-插件注册的 UI 项：
-
-```jsonc
-{ "name": "addSong", "type": "addsong.entry", "order": 930,
-  "data": { "title": "添加FTP歌曲", "subtitle": "从 FTP 服务器选择",
-            "icon": "resource/svg/ftp.svg",
-            "action": { "kind": "command", "name": "musicxx.ui.openOverlaySheet",
-                        "args": { "route": "ext://example_ftp_source/browse",
-                                  "title": "添加FTP歌曲" } } } }
-```
-
-点它时主程序把当前歌单的 `pid` / `name` / `songNum` 合进动作参数，然后执行
-`musicxx.ui.openOverlaySheet`：打开这个插件视图的底部浮层（`size: "full"`，
-可用宽高的 90%），**等用户关掉浮层才返回**（所以歌单页能在 `await` 之后刷新列表）。
-
-浮层的形状用 `musicxx.AdaptLayout` 分两套：竖屏一条竖列（**筛选择在最上面，列表占满中间并自己滚，
-「添加 N 首」按钮在最下面**）；横屏两栅（**左栅放筛选与添加按钮，右边整块留给列表**，
-`rowBodyRatio: 0.34`）。列表用目录列表块 `musicxx.DirListView`：文件夹与文件的图标、顶部路径栏
-（栏里的「上一级」，在账号配的根目录下不给）与行尾的勾选框都由它画（行样式跟应用内置的目录列表
-一致），插件只保存当前目录与选中态（写法见包内 `docs/plugin-ui.md` §2.5.1）。
-文件条目带 `song`（`type` = 本插件的音源类型、`src` = 账号指纹 + 路径、`fileName` / `size`），
-所以行里显示的是**内置的歌曲行**（默认歌曲图标 + 文件大小），以后插件能拿到封面时只需填上 `cover`。
-
-**页面上不放刷新 / 翻页 / 账号这类按钮**：刷新与翻页走列表自己的手势（下拉刷新、滚到底加载下一批），
-路径栏里的「上一级」只有离开根目录才出现；账号从主页入口「FTP 音乐」进。
-
-浮层里的交互都走 `browse` 能力（每次返回新视图）：
-
-| 动作 | 参数 |
-|---|---|
-| 进入目录 / 上一级 | `{op:"enter", path}` / `{op:"up"}` |
-| 下拉刷新 / 滚到底加载下一批 | `{op:"refresh"}` / `{op:"more"}` |
-| 按名称筛选 | `{op:"keyword", value}` |
-| 勾选 / 取消（控件派发，带 `id` 与 `value`） | `{op:"select", path}` |
-| 整行点击切换 | `{op:"toggle", path}` |
-| 加入歌单 | 能力 `browseAdd` |
-| 直接播第一首（界面不放按钮，留给脚本 / 自动化） | 能力 `browsePlay` |
-
-加歌用的是主程序动作 `musicxx.playlist.addSong`（`playlist` = 一张歌单）：
-
-```jsonc
-{"pid": 123, "songs": [
-  {"type": "plugin.example_ftp_source.audio",
-   "src": "3f9c1d7b/Music/a.flac",
-   "fileName": "a.flac",
-   "size": 12345678}
-]}
-```
-
-- `name` / `artist` 故意不写：主程序会按 `fileName` 识别；
-- `dedup` 缺省开（同一路径重复添加会被跳过，返回里的 `skipped` 是跳过的数量）；
-- 成功后插件提示"已添加 N 首到『歌单名』"并关掉浮层，歌单页自己刷新。
 
 ## 5. 播放链路
 
@@ -267,7 +210,7 @@ musicxx.capability.register("drive.list", function (args) {
 | 现象 | 原因 / 处理 |
 |---|---|
 | 主页没有「FTP 音乐」 | 插件没启用；或插件包版本比插件框架新（看管理页的加载失败原因） |
-| 「添加歌曲」里没有「添加FTP歌曲」 | 插件框架太旧（不认识 `musicxx.ui.addsong.entry`），日志里有一条注册失败 |
+| 「添加歌曲」里没有「FTP 文件」 | 插件没装载（管理页看状态）/ 没开启『拟声++』；日志里会有声明失败的原因 |
 | 账号页提示"没有 TCP socket 能力" | 插件框架太旧，没有 `musicxx.net.socket`；升级插件框架 |
 | 中文文件名乱码 | 账号里的「文件名编码」改成 GBK；日志里若提示没有 `textEncode`，说明框架太旧 |
 | 能列目录、播放报"没有可用的解析实现" | 账号指纹对不上（换过主机 / 端口 / 用户名），从歌单里重新添加一次 |
