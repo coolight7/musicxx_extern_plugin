@@ -8,6 +8,17 @@
 
 ## 未发布
 
+### 修复：网络错误提示在中文 Windows 上是乱码
+
+`musicxx.net` 各类失败（`resolve_failed` / `connect_failed` / `read_failed` / `write_failed` /
+TLS 握手失败等）的 `message` 里，系统给出的那半句以前是**本机 ANSI 编码**（中文 Windows 上是 GBK）
+的原始字节，按 UTF-8 交给插件后就是乱码，例如连不上时看到的是
+`连接失败: ����Ŀ�������������ܾ����޷����ӡ�`。
+
+现在这一层统一转成 UTF-8（`src/host/host_text.cpp` 的 `osTextToUtf8`，已经是 UTF-8 的文本原样返回），
+同一句变成 `连接失败: 由于目标计算机积极拒绝，无法连接。`。插件不用改：`message` 一直是
+"给人看的文本"，只是现在编码正确了。
+
 ### 新增：一个音源类型可以有多个浏览分类（`musicxx.source.browse` 的 `view`）
 
 以前一个音源类型只能有一个浏览界面。现在 `musicxx.source.browse` **可以重复调用**：`id`（类型）相同、

@@ -133,6 +133,7 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   host_manifest.cpp
   host_net.cpp
   host_net_tls.cpp
+  host_text.cpp
   host_target.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
@@ -289,6 +290,12 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
   add_executable(musicxx_extern_plugin_test "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/test_host.cpp")
   target_include_directories(musicxx_extern_plugin_test PRIVATE "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/include")
   target_link_libraries(musicxx_extern_plugin_test PRIVATE musicxx_extern_plugin)
+  # 内部小工具 (host_text.cpp) 的单元校验: 它不是导出符号 (Windows 上没导出就链不上),
+  # 所以直接编进测试目标, 来源还是同一份源文件
+  target_sources(musicxx_extern_plugin_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/host_text.cpp")
+  target_include_directories(musicxx_extern_plugin_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
   if (MSVC)
     target_compile_options(musicxx_extern_plugin_test PRIVATE /utf-8)
   endif ()

@@ -14,6 +14,7 @@
 
 #include "host_json.h"
 #include "host_net_tls.h"
+#include "host_text.h"
 
 #include "pluginxx/api/abi.h"
 
@@ -225,6 +226,11 @@ std::string toSafeText(std::string_view text) {
     }
   }
   return out;
+}
+
+/// 错误码 → 可读原因（系统给的文本是 ANSI 编码，按 UTF-8 转一次，见 host_text.h）
+std::string errorTextOf(const AsioErrorCode &ec) {
+  return osTextToUtf8(ec.message());
 }
 
 std::string hexEncode(const unsigned char *data, size_t size) {
@@ -1410,7 +1416,7 @@ void Stream::startRead() {
         }
         if (ec) {
           const bool eof = NetStream::isPeerClosed(ec);
-          self->closeStream(eof ? "remote_closed" : "error", ec.message());
+          self->closeStream(eof ? "remote_closed" : "error", errorTextOf(ec));
           return;
         }
         if (size > 0) {
@@ -1466,7 +1472,7 @@ void Stream::afterWrite(AsioErrorCode ec) {
     return;
   }
   if (ec) {
-    closeStream("error", ec.message());
+    closeStream("error", errorTextOf(ec));
     return;
   }
   if (!outQueue.empty()) {
@@ -1609,7 +1615,7 @@ bool PluginNetHub::Impl::listenServer(std::shared_ptr<Server> server,
     acceptNext(server);
     return true;
   } catch (const std::exception &e) {
-    err = e.what();
+    err = osTextToUtf8(e.what());
     return false;
   }
 }
@@ -2547,7 +2553,7 @@ struct HttpClient : std::enable_shared_from_this<HttpClient> {
                             [self](AsioErrorCode ec,
                                    asio::ip::tcp::resolver::results_type results) {
                               if (ec) {
-                                self->fail("resolve_failed", ec.message());
+                                self->fail("resolve_failed", errorTextOf(ec));
                                 return;
                               }
                               self->onResolved(std::move(results));
@@ -2561,7 +2567,7 @@ struct HttpClient : std::enable_shared_from_this<HttpClient> {
         stream->lowest_layer(), results,
         [self](AsioErrorCode ec, const asio::ip::tcp::endpoint &) {
           if (ec) {
-            self->fail("connect_failed", ec.message());
+            self->fail("connect_failed", errorTextOf(ec));
             return;
           }
           if (!self->tls.enable) {
@@ -2626,7 +2632,7 @@ struct HttpClient : std::enable_shared_from_this<HttpClient> {
     asio::async_write(*stream, asio::buffer(requestData),
                       [self](AsioErrorCode ec, size_t) {
                         if (ec) {
-                          self->fail("write_failed", ec.message());
+                          self->fail("write_failed", errorTextOf(ec));
                           return;
                         }
                         self->readSome();
@@ -2648,7 +2654,7 @@ struct HttpClient : std::enable_shared_from_this<HttpClient> {
             if (NetStream::isPeerClosed(ec)) {
               self->onEof();
             } else {
-              self->fail("read_failed", ec.message());
+              self->fail("read_failed", errorTextOf(ec));
             }
             return;
           }
@@ -2981,7 +2987,7 @@ bool PluginNetHub::Impl::startHttpRequest(const std::string &plugin,
     std::filesystem::create_directories(client->downloadDir, dirEc);
     if (dirEc) {
       out = errorJson("write_failed", "下载目录建不出来: " + client->downloadDir +
-                                          " (" + dirEc.message() + ")");
+                                          " (" + errorTextOf(dirEc) + ")");
       return false;
     }
   }
@@ -3061,7 +3067,7 @@ void TcpStream::connectTo(std::string host, uint16_t port, int32_t timeoutMs) {
       host, std::to_string(port),
       [self](AsioErrorCode ec, asio::ip::tcp::resolver::results_type results) {
         if (ec) {
-          self->closeStream("connect_failed", "解析失败: " + ec.message());
+          self->closeStream("connect_failed", "解析失败: " + errorTextOf(ec));
           return;
         }
         asio::async_connect(
@@ -3069,7 +3075,7 @@ void TcpStream::connectTo(std::string host, uint16_t port, int32_t timeoutMs) {
             [self](AsioErrorCode connectEc, const asio::ip::tcp::endpoint &) {
               if (connectEc) {
                 self->closeStream("connect_failed",
-                                  "连接失败: " + connectEc.message());
+                                  "连接失败: " + errorTextOf(connectEc));
                 return;
               }
               self->onConnected();
@@ -3209,7 +3215,7 @@ struct WsStream : Stream {
                        asio::ip::tcp::resolver::results_type results) {
           if (ec) {
             self->closeBy = "error";
-            self->closeStream("connect_failed", "解析失败: " + ec.message());
+            self->closeStream("connect_failed", "解析失败: " + errorTextOf(ec));
             return;
           }
           asio::async_connect(
@@ -3219,7 +3225,7 @@ struct WsStream : Stream {
                 if (connectEc) {
                   self->closeBy = "error";
                   self->closeStream("connect_failed",
-                                    "连接失败: " + connectEc.message());
+                                    "连接失败: " + errorTextOf(connectEc));
                   return;
                 }
                 AsioErrorCode ignored;

@@ -14,6 +14,8 @@
 /// https / wss"的版本。缺依赖时在 CMake 配置阶段就报错, 而不是编一个功能残缺的库。
 #include "host_net_tls.h"
 
+#include "host_text.h"
+
 #include "utilxx_base/log.h"
 
 #include <openssl/err.h>
@@ -253,7 +255,7 @@ void NetStream::describeHandshakeFailure(const AsioErrorCode &ec) {
     return;
   }
   tlsErrorCode_ = "tls_handshake_failed";
-  tlsErrorMessage_ = ec.message();
+  tlsErrorMessage_ = osTextToUtf8(ec.message());
 }
 
 void NetStream::close() {
