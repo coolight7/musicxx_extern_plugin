@@ -264,7 +264,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `app.logs` | `file?`(error/info/both)、`offset?`、`level?`(名字或数值)、`keyword?`、`exclude?`、`limit?`(1~500) | `{logs:[{timeText, level, file, source, text}…], total, hasMore, fileSize, parseErrors, flushedHint}`，**新的在前** |
 | `featurePoint.list` | `id?`、`provided?`(bool) | `{ok:true, points:[{id, title, type, available, callable, rows, stages, broadcasts, callDoc?, callStat?}…]}`；`rows` 是实现行（各层谁能提供），`stages` 是**前链与后链上的登记**（与 `rows` 分开），`broadcasts` 是**主程序自己注册的广播订阅**（只收“被使用了 / 处理器变了”的通知，不参与实现，插件不能注册） |
 | `featurePoint.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `stopped` / `dropped` / `busy` / `failed`；`disabled` / `stopped` / `dropped` 是三种不同的“没有结果”） |
-| `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], resolveChain:[…]}`：插件声明的音源类型 + 音源解析链现状（与 `featurePoint.list` 看 `musicxx.player.source.resolve` 是同一份） |
+| `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], browse:[{type, plugin, title, tag, entries:[{view, title, order, root, icon, pageSize, sort, indexBar, write, search, addFolderSongs, download, capabilities}…]}…], resolveChain:[…]}`：插件声明的音源类型 + 按类型分组的可浏览分类（`musicxx.source.browse`，一个类型可以有多条 `entries`）+ 音源解析链现状（与 `featurePoint.list` 看 `musicxx.player.source.resolve` 是同一份） |
 
 `musicxx.ui.openSearch` 的 `type` 取值（大小写不敏感，缺省保持当前搜索类型）：`localsong`（本地歌曲）、
 `historysong`（播放记录）、`bili`（Bili）、`musiccloud`（音乐云盘）、`alidrive`（阿里云盘）、
@@ -312,6 +312,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
 | 功能点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
 | 音源（3） | `musicxx.source.define` / `undefine` / `list` |
+| 插件网盘 UI（3） | `musicxx.ui.pickSongs` / `pickDir` / `browseDrive`（挑歌 / 选目录 / 整页浏览，**一个类型可以有多个分类 `view`**，见 [plugin-api.md](plugin-api.md) §3.3） |
 | 钩子自省（1） | `musicxx.hook.handlers` |
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
 | 统计上报（2） | `musicxx.stats.reportMemory` / `reportMetric` |
@@ -488,7 +489,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `GetAudioSpectrum` | 见能力声明（`path?`、`start?`、`duration?`、`bandCount?` 等） | `feature.call`（id = `GetAudioSpectrum`） | 文本表（每行一个时间步） |
 | `AnalyseAudioChorus` | 见能力声明 | `feature.call`（id = `AnalyseAudioChorus`） | 文本结论（副歌区段） |
 | `AnalyseImageMainColors` | 见能力声明（`path?` / `url?`） | `feature.call`（id = `AnalyseImageMainColors`） | 主色 + 4 组色值的文本 |
-| `ListMediaSources` | 无 | `source.list` | 插件声明的音源类型（id / 展示名 / 地址写法）+ 音源解析链现状（生效 / 备选 / 关闭） |
+| `ListMediaSources` | 无 | `source.list` | 插件声明的音源类型（id / 展示名 / 地址写法）+ 可浏览分类（按类型分组，每个分类一行）+ 音源解析链现状（生效 / 备选 / 关闭） |
 
 后三个工具的名字**就是能力 id**，工具说明与参数也来自能力自己的声明 —— 新增能力会自动变成
 新工具，工具清单会跟着长。

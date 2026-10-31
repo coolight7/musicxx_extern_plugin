@@ -1172,7 +1172,56 @@ const off = musicxx.vars.bind("musicxx.app.lifecycle", (v) => musicxx.host.log(2
 新建目录、删除、条目信息。**插件不需要自己画这些**：声明一个可浏览来源 + 实现 `drive.list`，
 「添加歌曲」菜单里就会多一行，点开就是同一个弹窗。
 
-三步就能用：
+**一个音源类型可以有多个分类**（界面上是可切换的一排 tab，对齐内置 Emby 的
+「歌曲 / 歌手 / 专辑 / 歌单」）：`musicxx.source.browse` **可以重复调用**，`id` 相同、`view`（分类 id）
+不同，每次给一套自己的标题 / 图标 / 根目录 / 页大小 / 排序方式 / 索引栅 / 读写能力。
+分类**不进音源身份**：歌曲里存的仍是类型 id，缓存目录、播放记录、`[标签]` 不会因为分类而分叉。
+
+```js
+// 同一个类型声明几个分类就有几个 tab（跟着插件生命周期撤销，不写磁盘）
+const TYPE_ID = "plugin.my_ftp.audio";
+
+// 「歌曲」：一屏歌曲，支持搜索
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID, view: "songs", title: "歌曲", order: 10,
+    root: "/", search: true,
+    capabilities: { list: "drive.list", search: "drive.search", resolveSongs: "drive.resolveSongs" }
+});
+// 「歌手」：字母索引栅，只允许按名称 / 歌曲数排序，不能下载
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID, view: "artists", title: "歌手", order: 20,
+    root: "/artists", indexBar: true, sort: ["name", "songCount"], download: false
+});
+// 「专辑」：同一个处理器按 view 分支就够了；也可以给每个分类换自己的能力名
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID, view: "albums", title: "专辑", order: 30,
+    root: "/albums", indexBar: true, sort: ["name", "createdTime"],
+    capabilities: { list: "drive.list.albums" }
+});
+
+// 列一页（必需）：载荷里的 view 告诉你这是哪个分类在要数据
+musicxx.capability.register("drive.list", async function (args) {
+    // args: {requestId, type, view, path, offset, limit, sort, reverse}
+    const page = await listOf(args.view, args.path, args.offset, args.limit);
+    return { ok: true, entries: page.items, next: page.hasMore ? "2" : "" };
+});
+
+// 撤销：只撤一个分类，或者撤这个类型的全部分类
+musicxx.call("musicxx.source.undefine", { id: TYPE_ID, view: "albums" });   // 只撤「专辑」
+musicxx.call("musicxx.source.undefine", { id: TYPE_ID });                  // 全撤（类型声明也撤）
+```
+
+用途分工是固定的：
+
+| 动作 | 管什么 | 可以调几次 |
+|---|---|---|
+| `musicxx.source.define` | **类型**：身份、列表 `[标签]`、播放时的解析说明 | 一个类型一次（重复 = 覆盖） |
+| `musicxx.source.browse` | **分类**：界面上的一个浏览入口 | 一个分类一次，同类型可多次 |
+
+只 `define` 不 `browse` 的类型只能播放、不能浏览挑歌；只 `browse` 不 `define` 也能浏览，
+但列表里没有 `[标签]`、也没有类型说明。
+
+最简单的用法（单分类，等价于 `view: "default"`）：
 
 ```js
 // 1) 声明：我的这个音源类型可以浏览（跟着插件生命周期撤销，不写磁盘）
@@ -1224,39 +1273,57 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 | 参数 | 必填 | 说明 |
 |---|---|---|
 | `id` | 是 | 音源类型 id，必须形如 `plugin.<自己的插件 id>.<类型名>` |
-| `title` | — | 菜单 / 页面标题（缺省用 `id`），上限 120 字符 |
-| `root` | — | 根目录，缺省 `/`；应用只把它当字符串传回来 |
-| `icon` | — | 菜单里那一行的 svg（**相对插件目录**，写法与 UI 项一致） |
+| `view` | — | **分类 id**：只允许 `a-z 0-9 _ -`，≤ 32 字符，缺省 `default`；同一类型内唯一 |
+| `title` | — | 分类名（界面上的 tab 文字，缺省用 `view`），上限 120 字符 |
+| `icon` | — | 分类图标（**相对插件目录**的 svg，写法与 UI 项一致）；用在「添加歌曲」那一行 |
+| `order` | — | 同一类型内的顺序（升序，缺省 0；同值按声明顺序） |
+| `root` | — | 这个分类的根标识，缺省 `/`，上限 1024；应用只当字符串传回来 |
+| `pageSize` | — | 建议一页多少条（1~1000，缺省 100） |
+| `sort` | — | 这个分类允许的排序方式，缺省 `["name","size","createdTime","changedTime"]`；`[]` = 不要排序按钮 |
+| `indexBar` | — | 是否给字母索引栅（歌手 / 专辑这类列表用），缺省 false |
 | `write` | — | 允许新建目录 / 重命名 / 删除（缺省 false，那三个入口不出现） |
 | `search` | — | 有搜索（缺省 false；也可以靠 `capabilities.search` 表达） |
-| `pageSize` | — | 建议一页多少条（1~1000，缺省 100） |
-| `capabilities` | — | 覆盖能力名；出现某个键 = 这个能力实现了 |
+| `addFolderSongs` | — | 勾文件夹「整目录加歌」那个菜单项（缺省 true） |
+| `download` | — | 条目菜单里的「下载」（缺省 true） |
+| `capabilities` | — | 覆盖能力名；出现某个键 = **这个分类**实现了这个能力 |
 
-应用会问的能力（都是普通能力调用，参数里带 `requestId`，请原样放回返回里）：
+- 应答：`{ok:true, type, view, title, root}`；不合法是 `{ok:false, error:"一句能看懂的原因"}`。
+- 同一个 `(id, view)` 再声明一次 = 覆盖（tab 位置不变），不同 `view` = 追加；
+  **一个类型最多 32 个分类**。
+- `sort` 只能是 `name` / `size` / `createdTime` / `changedTime` / `artist` / `album` /
+  `duration` / `songCount`；写别的会被拒（不会静默忽略）。
+- 允许两个分类共用同一个 `root` 与同一套能力名（技术上没问题，只是两个 tab 看起来一样）。
+
+应用会问的能力（都是普通能力调用，参数里带 `requestId`，请原样放回返回里；
+**`type` 与 `view` 恒有值**，`view` 永远不是空串）：
 
 | 能力 | 什么时候问 | 入参 | 返回 |
 |---|---|---|---|
-| `drive.list` | 加载一个目录（必填） | `{path, offset, limit, sort, reverse}` | `{ok:true, entries:[…], next}` |
-| `drive.resolveSongs` | 勾了文件夹要一次读完里面的歌 | `{paths, recursive, maxDepth}` | `{ok:true, songs:[…], truncated?}` |
-| `drive.search` | 搜索框 | `{keyword, path, limit, offset}` | `{ok:true, entries:[…], next}` |
-| `drive.mkdir` | 「创建文件夹」 | `{parent, name}` | `{ok:true, path}` |
-| `drive.rename` | 「重命名」 | `{path, newName}` | `{ok:true, path}` |
-| `drive.remove` | 「删除」（应用先弹确认） | `{paths:[…]}` | `{ok:true, removed}` |
-| `drive.info` | 「歌曲信息」 | `{path}` | `{ok:true, title, pairs:[{k,v}]}` |
-| `drive.open` | 点歌曲那一行（不给就用应用的默认行为） | `{path, isDir}` | `{ok:true, played:true}` |
+| `drive.list` | 加载一个目录（每个分类必需） | `{type, view, path, offset, limit, sort, reverse}` | `{ok:true, entries:[…], next}` |
+| `drive.resolveSongs` | 勾了文件夹要一次读完里面的歌 | `{type, view, paths, recursive, maxDepth}` | `{ok:true, songs:[…], truncated?}` |
+| `drive.search` | 搜索框 | `{type, view, keyword, path, limit, offset}` | `{ok:true, entries:[…], next}` |
+| `drive.mkdir` | 「创建文件夹」 | `{type, view, parent, name}` | `{ok:true, path}` |
+| `drive.rename` | 「重命名」 | `{type, view, path, newName}` | `{ok:true, path}` |
+| `drive.remove` | 「删除」（应用先弹确认） | `{type, view, paths:[…]}` | `{ok:true, removed}` |
+| `drive.info` | 「歌曲信息」 | `{type, view, path}` | `{ok:true, title, pairs:[{k,v}]}` |
+| `drive.open` | 点歌曲那一行（不给就用应用的默认行为） | `{type, view, path, isDir}` | `{ok:true, played:true}` |
+
+`path` 的含义由分类决定（根就是这个分类的 `root`），应用**只原样回传、不解析**，
+所以「歌手」分类的 `/` 与「歌曲」分类的 `/` 互不相干。
 
 约定与上限（应用那一侧已经做，插件不用重复）：
 
 - **分页**：`offset` 缺省是空串（第一页），`next` 给空串 / 省略表示没有下一页；含义由插件
   决定（页号、游标、字节偏移都行），应用只回传。单页条目超过 `limit` 会被截断。
-- **排序**：`sort` 是 `name` / `size` / `createdTime` / `changedTime` / `artist` / `album` /
-  `duration` / `songCount` / `none`，`reverse` 是布尔。插件排不了就忽略；应用拿到后仍会本地
-  再排一次（与内置网盘一致）。
+- **排序**：`sort` 的取值见上面的声明列表，`reverse` 是布尔。插件排不了就忽略；应用拿到后仍会
+  本地再排一次（与内置网盘一致）。每个分类**各自记住**用户选的排序方式（重启后仍是各自
+  的选择），所以「歌手」按名称、「歌曲」按添加时间互不影响。
 - **条目**：`path` 必填（空的那一条会被丢掉），`name` / `artist` / `fileName` ≤ 1 KiB、
   `cover` ≤ 2 KiB；同一页里重复的 `path` / `song.src` 只留第一条。目录项不要给 `song`。
 - **歌曲**：`song` 里 `type` 省略时用这个来源自己的类型；`src` 必填（插件自己的资源 id，
   播放时由 `musicxx.player.source.resolve` 换地址）；`cover` 可以是 `http` 链接或**相对插件
   目录**的路径；只给 `fileName` 时应用按文件名拆歌名与歌手（与本地扫描同一套规则）。
+  **同一首歌从两个分类加进歌单，音源身份是同一个**（缓存、播放记录、封面都不分叉）。
 - **失败**：返回 `{ok:false, error:"人能看懂的一句话", retryable?}`。`drive.list` 失败时
   列表显示“加载失败，点此重试”；`drive.resolveSongs` 失败时应用退回逐层 `drive.list`。
 - **写操作**：只有声明了 `write: true` 才出「新建文件夹 / 重命名 / 删除」；`drive.info` 单独
@@ -1266,36 +1333,43 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
   要等这首歌**播过一次**（应用按音源身份把封面存进图片缓存，键是
   `md5(类型 + 资源 id)`）之后才显示封面。
 - **限制**：整目录递归最多 5 层；`drive.resolveSongs` 一次最多 5000 首（超出请自己截断并
-  设 `truncated: true`）；同一个插件的同名能力应用会串行调用（最多排 2 条）。
+  设 `truncated: true`）；同一个插件的同名能力应用会串行调用（最多排 2 条），多个分类共用
+  同一个排队队列，不要在处理器里长时间阻塞。
 
 宿主 UI 动作（插件自己的界面里想让应用开挑歌弹窗时用）：
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.ui.pickSongs` | `type`（必填）、`title?`、`path?`、`pid?`、`multiple?`、`allowSelectDir?`、`search?`、`pageSize?` | `{ok, added, skipped, cancelled}` |
-| `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false） | `{ok, paths, cancelled}` |
-| `musicxx.ui.browseDrive` | `type`（必填）、`path?`（起始目录） | `{ok, reason:"opened", type}`（**不等用户关页面**） |
+| `musicxx.ui.pickSongs` | `type`（必填）、`view?`（起始分类）、`title?`、`path?`、`pid?`、`multiple?`、`allowSelectDir?`、`search?`、`pageSize?` | `{ok, added, skipped, cancelled, view}` |
+| `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false） | `{ok, paths, items:[{view, path}], cancelled, view}` |
+| `musicxx.ui.browseDrive` | `type`（必填）、`view?`（起始分类）、`path?`（起始目录） | `{ok, reason:"opened", type, view}`（**不等用户关页面**） |
 
 ```js
 // 挑歌并加进当前歌单（插件自己的按钮里用）
-musicxx.call("musicxx.ui.pickSongs", { type: TYPE_ID });   // 不要 await：动作要等用户关掉弹窗
+musicxx.call("musicxx.ui.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
 
 // 在自己插件的主页入口里打开整页浏览（与内置网盘页一模一样）
 musicxx.ui.registerEntry({
     name: "drive", type: "home.entry",
-    data: { title: "FTP 文件", icon: "resource/svg/ftp.svg",
+    data: { title: "我的 FTP", icon: "resource/svg/ftp.svg",
             action: { kind: "command", name: "musicxx.ui.browseDrive",
-                      args: { type: TYPE_ID } } }
+                      args: { type: TYPE_ID, view: "songs" } } }
 });
 ```
 
+- 多分类时弹窗与整页浏览的顶部都有一排 tab；**弹窗里切分类不会丢掉已经勾选的条目**，
+  确认后按每条记录自己的分类提交。返回值里的 `view` 是用户最后停留的分类
+  （跨分类选时用 `items` 区分，目录的 `path` 只在它自己的分类里有意义）。
 - `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时**不要 await**
   （会与应用动作互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。`browseDrive` 相反：
-  它打开页面后立即返回 `{ok, reason:"opened", type}`，不等用户关页面。
+  它打开页面后立即返回 `{ok, reason:"opened", type, view}`，不等用户关页面。
 - 插件调它们只能打开**自己声明**的来源（`type` 必须是自己的）；应用自己调（如菜单里那一行）
   没有这个限制。
-- 推荐用法：「添加歌曲」里那一行由应用自动生成，插件不用注册 `addsong.entry`（自己画浮层的
-  写法仍然可用，见 `plugins/example_ftp_source`）。
+- 推荐用法：「添加歌曲」里那一行由应用自动生成（**一个音源类型一行**，副标题列出分类），
+  插件不用注册 `addsong.entry`（自己画浮层的写法仍然可用，见 `plugins/example_ftp_source`）。
+- 自省：`musicxx.source.list` 的 `browse` 段按类型分组，每组带 `entries`（每个分类一行：
+  `view` / `title` / `order` / `root` / `pageSize` / `sort` / `indexBar` / `write` / `search` /
+  `addFolderSongs` / `download` / `capabilities`）。
 
 ### 3.4 名字存在、但当前版本没有实现的动作
 

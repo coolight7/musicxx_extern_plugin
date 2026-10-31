@@ -164,8 +164,12 @@ void main() {
 
     await harness.configureAccount();
 
-    // 1) 声明：主程序据此把「添加歌曲」菜单里自动加一行
-    final Map<String, Object?> declared = harness.browseDeclarations.single;
+    // 1) 声明：同一个类型两个分类（「文件夹」完整能力 + 「按名称」换能力名）
+    final List<Map<String, Object?>> declarations = harness.browseDeclarations;
+    expect(declarations.length, 2, reason: '示例声明了两个分类');
+    final Map<String, Object?> declared = declarations.firstWhere(
+      (Map<String, Object?> item) => item['view'] == 'dir',
+    );
     expect(declared['id'], ftpType);
     expect(declared['root'], '/');
     expect(declared['search'], true);
@@ -174,6 +178,17 @@ void main() {
     expect(caps['list'], 'drive.list');
     expect(caps['search'], 'drive.search');
     expect(caps['resolveSongs'], 'drive.resolveSongs');
+    // 另一个分类：换了自己的能力名，不让下载
+    final Map<String, Object?> byName = declarations.firstWhere(
+      (Map<String, Object?> item) => item['view'] == 'byName',
+    );
+    expect(byName['order'], 20);
+    expect(byName['download'], false);
+    expect(
+      (byName['capabilities']! as Map)['list'],
+      'drive.list.byName',
+      reason: '每个分类可以换自己的能力名',
+    );
 
     // 2) drive.list：目录优先，按 offset / limit 切片
     final Map<String, Object?> first = await harness.call('drive.list',
@@ -198,6 +213,20 @@ void main() {
         <String, Object?>{'path': '/Music', 'offset': '2', 'limit': 2});
     expect(_driveEntriesOf(second['entries']).length, 2);
     expect(second['next'], '', reason: '最后一页的 next 是空串');
+
+    // 2.5) 另一个分类：`drive.list.byName` 把子目录里的歌摊平成一屏（不带文件夹行）
+    final Map<String, Object?> flat = await harness.call('drive.list.byName',
+        <String, Object?>{'view': 'byName', 'path': '/Music', 'offset': '', 'limit': 10});
+    expect(flat['ok'], true);
+    final List<Map<String, Object?>> flatEntries =
+        _driveEntriesOf(flat['entries']);
+    expect(flatEntries.isNotEmpty, true);
+    expect(
+      flatEntries.every((Map<String, Object?> item) => item['isDir'] == false),
+      true,
+      reason: '「按名称」只给歌曲行，不给文件夹',
+    );
+    expect(flat['next'], '');
 
     // 3) drive.search：只在当前目录里按名字找
     final Map<String, Object?> found = await harness.call(
@@ -231,7 +260,9 @@ void main() {
     await harness.configureAccount();
 
     // 声明里带 write 与四个写能力：主程序据此才出「新建 / 重命名 / 删除 / 条目信息」
-    final Map<String, Object?> declared = harness.browseDeclarations.single;
+    final Map<String, Object?> declared = harness.browseDeclarations.firstWhere(
+      (Map<String, Object?> item) => item['view'] == 'dir',
+    );
     expect(declared['write'], true);
     final Map<String, Object?> caps =
         (declared['capabilities']! as Map).cast<String, Object?>();

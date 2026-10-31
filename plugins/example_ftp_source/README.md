@@ -86,21 +86,31 @@ src  = <账号指纹>/<FTP 绝对路径去掉开头 />
 弹窗（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 加歌单），数据由下面几个能力提供：
 
 ```js
+// 一个类型可以声明多个分类（view）：界面上是可切换的一排 tab。
+// 本示例： 「文件夹」（完整能力）+ 「按名称」（自己换一个能力名，数据形状也不同）
 musicxx.call("musicxx.source.browse", {
-    id: TYPE_ID, title: "FTP 文件", root: "/",
-    icon: "resource/svg/ftp.svg", search: true,
+    id: TYPE_ID, view: "dir", title: "文件夹", order: 10, root: "/",
+    icon: "resource/svg/ftp.svg", search: true, write: true,
     capabilities: { list: "drive.list", search: "drive.search",
                     resolveSongs: "drive.resolveSongs" }
 });
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID, view: "byName", title: "按名称", order: 20, root: "/",
+    sort: ["name", "size"], download: false,
+    capabilities: { list: "drive.list.byName" }   // 每个分类的能力名可以不同
+});
 
 musicxx.capability.register("drive.list", function (args) {
-    // args: {path, offset, limit, sort, reverse}；next 空串 = 没有下一页
+    // args: {type, view, path, offset, limit, sort, reverse}；next 空串 = 没有下一页
     return FtpSource.list(account, args.path).then(function (r) { /* → {ok, entries, next} */ });
 });
 ```
 
 条目里的文件要带 `song: {type, src, fileName, size}`（`src` 是账号指纹 + 路径，与 §3 一致），
 主程序就按内置歌曲行画、选中后直接加进歌单。协议完整字段见包内 `docs/plugin-api.md` §3.3。
+
+**分类不进音源身份**：两边的 `song.src` 一样，播的、缓存目录、播放记录都是同一份；歌曲里存的
+类型也仍是 `TYPE_ID`（不是 `TYPE_ID + view`）。每个分类自己记住用户选的排序方式。
 
 想要**整页浏览**（与内置网盘页一样，带下载 / 重命名 / 删除 / 条目信息）时不用自己注册页面，
 放一个主页入口指过来就行（示例插件的「FTP 文件」入口就是这么写的）：
@@ -110,21 +120,22 @@ musicxx.capability.register("drive.list", function (args) {
   "data": { "title": "FTP 文件", "subtitle": "整页浏览与下载",
             "icon": "resource/svg/ftp.svg",
             "action": { "kind": "command", "name": "musicxx.ui.browseDrive",
-                        "args": { "type": "plugin.example_ftp_source.audio" } } } }
+                        "args": { "type": "plugin.example_ftp_source.audio",
+                                  "view": "dir" } } } }
 ```
 
-`musicxx.ui.browseDrive` 只允许打开**自己声明的**来源，`path` 可选（起始目录），**立即返回**
-`{ok, reason:"opened", type}`，不等用户关页面。
+`musicxx.ui.browseDrive` 只允许打开**自己声明的**来源，`view` / `path` 可选（起始分类 / 起始目录），
+**立即返回** `{ok, reason:"opened", type, view}`，不等用户关页面。
 
 声明里写了 `write: true` 并实现下面四个能力，整页列表里就会多出「新建文件夹 / 重命名 / 删除 /
 条目信息」（本示例都实现了，直接拿 FTP 的 `MKD` / `RNFR`+`RNTO` / `DELE`、`RMD` 来完成）：
 
 | 能力 | 入参 | 返回 | 本示例怎么做 |
 |---|---|---|---|
-| `drive.mkdir` | `{parent, name}` | `{ok:true, path}` | `MKD <parent>/<name>` |
-| `drive.rename` | `{path, newName}` | `{ok:true, path}` | `RNFR <path>` + `RNTO <同层>/<newName>` |
-| `drive.remove` | `{paths:[…]}` | `{ok:true, removed}` | 先 `DELE`，服务器不认再 `RMD`（目录） |
-| `drive.info` | `{path}` | `{ok:true, title, pairs}` | 列父目录把这一条挑出来 |
+| `drive.mkdir` | `{type, view, parent, name}` | `{ok:true, path}` | `MKD <parent>/<name>` |
+| `drive.rename` | `{type, view, path, newName}` | `{ok:true, path}` | `RNFR <path>` + `RNTO <同层>/<newName>` |
+| `drive.remove` | `{type, view, paths:[…]}` | `{ok:true, removed}` | 先 `DELE`，服务器不认再 `RMD`（目录） |
+| `drive.info` | `{type, view, path}` | `{ok:true, title, pairs}` | 列父目录把这一条挑出来 |
 
 删除是**应用先弹确认**再问插件的；一条失败就整次当失败（已删掉的行下次刷新就对了）。
 

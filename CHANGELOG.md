@@ -8,6 +8,36 @@
 
 ## 未发布
 
+### 新增：一个音源类型可以有多个浏览分类（`musicxx.source.browse` 的 `view`）
+
+以前一个音源类型只能有一个浏览界面。现在 `musicxx.source.browse` **可以重复调用**：`id`（类型）相同、
+`view`（分类）不同，每次给一套自己的 `title` / `icon` / `order` / `root` / `pageSize` / `sort` /
+`indexBar` / `write` / `search` / `addFolderSongs` / `download` / `capabilities`。界面上就是
+可切换的一排 tab（对齐内置 Emby 的「歌曲 / 歌手 / 专辑 / 歌单」）。
+
+- **分类不进音源身份**：歌曲里存的仍是类型 id，缓存目录、播放记录、`[标签]`、封面缓存都不分叉；
+  同一首歌从两个分类加进歌单，音源身份是同一个。
+- 所有 `drive.*` 能力的入参多两个字段：**`type` 与 `view`**（`view` 恒非空，没声明时是 `default`）。
+  可以一套处理器按 `view` 分支，也可以给每个分类换自己的能力名。
+- `musicxx.source.undefine` 多一个 `view`：给了只撤这一个分类（类型声明不变），不给则连类型一起撤。
+  应答多一个 `browseRemoved`。
+- `musicxx.ui.pickSongs` / `pickDir` / `browseDrive` 多一个 `view`（起始分类）；`pickSongs` / `pickDir`
+  的返回值多一个 `view`（用户最后停留的分类），`pickDir` 另给 `items: [{view, path}]`。
+  弹窗里切分类**不会丢掉已经勾选的条目**。
+- `musicxx.source.list` 的 `browse` 改成**按类型分组**（每组带 `entries`，一个分类一行）。
+- 每个分类**各自记住**用户选的排序方式与列表布局（重启后仍是各自的选择）。
+- 上限：一个类型最多 **32 个分类**；`view` 只允许 `a-z 0-9 _ -` 且 ≤ 32 字符。
+
+**不兼容旧写法**（还没发布过，没做兼容）：
+
+| 旧写法 | 现在 |
+|---|---|
+| `ExternPluginDriveSources_c.byType(type)` | `primaryOf(type)` / `byTypeView(type, view)` / `ofType(type)` |
+| `musicxx.source.browse` 的 `title` = 菜单标题 | `title` = **分类名**；类型标题用 `musicxx.source.define` 的 `title` |
+| `drive.*` 入参没有类型 / 分类 | 恒带 `type` / `view` |
+| 排序与布局是全局两条记录 | 每个分类一份（存在一条 JSON 记录里） |
+| 歌单来源 `contextData: {plugin, type, title}` | 多一个 `view`（老记录没有 `view` 时退回首分类） |
+
 ### 变更：Android 构建修复，且客户端 TLS 成为所有平台的必备能力
 
 以前在 Windows 上交叉编译 Android 时，脚本会把 `.native/openssl/windows-<arch>` 那棵树
