@@ -796,6 +796,9 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 `tls_handshake_failed`（协议协商失败）。
 下载到本地时还可能是 `no_data_dir`（插件数据目录未就绪）/ `write_failed`（文件建不出来或写失败）。
 
+`message` 里的原因文本**统一是 UTF-8**（含系统给出的部分，例如「目标计算机积极拒绝」）。
+以前的版本在中文 Windows 上把系统错误文本按本机 ANSI 编码直接塞进来，中文会显示成乱码。
+
 **HTTP 服务端**：`http.serve`（`id?`, `host?`, `port?`, `path?` 前缀, `staticOnly?`,
 `static?` 静态内容清单（见上一节）, `maxBodyBytes?`, `requestTimeoutMs?`, `maxConnections?`）
 → `{ok, id, host, port, url, routes?}`。每个请求发一条

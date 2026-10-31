@@ -11,6 +11,8 @@
 
 #include "musicxx_extern_plugin_api.h"
 
+#include "host_text.h"
+
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -20,8 +22,20 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
+
+#if defined(_WIN32)
+// GetACP: 下面的编码用例只在中文 ANSI 代码页下跑
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -1065,6 +1079,36 @@ int main(int argc, char **argv) {
   check((musicxx_extern_plugin_feature_bits() &
          MUSICXX_EXTERN_PLUGIN_FEATURE_NET) != 0,
         "feature_bits 包含插件网络能力 (musicxx.net)");
+
+  // 系统错误文本的编码: 系统给的是本机 ANSI 编码 (中文 Windows 上是 GBK), 框架按 UTF-8
+  // 交给插件。这里只校验 osTextToUtf8 的两条性质: UTF-8 / ASCII 原样返回;
+  // 系统文本转一次之后保持稳定 (说明转出来的确实是 UTF-8, 不会转第二次又变一次)
+  {
+    using musicxx::extern_plugin::osTextToUtf8;
+    const std::string utf8Text = "外部插件: 连接失败";
+    checkText(osTextToUtf8(utf8Text) == utf8Text, "UTF-8 文本原样返回");
+    checkText(osTextToUtf8("connection refused") == "connection refused",
+              "ASCII 文本原样返回");
+    const std::string systemText =
+        std::error_code(10061, std::system_category()).message();
+    const std::string converted = osTextToUtf8(systemText);
+    checkText(osTextToUtf8(converted) == converted,
+              "系统错误文本转成 UTF-8 后保持稳定");
+    std::printf("  [info] 系统错误文本: %s\n", converted.c_str());
+#if defined(_WIN32)
+    // 中文 Windows 上 Boost.System 给的「连接被拒绝」是 `FormatMessageA` 的结果，
+    // 也就是 ANSI（936 / GBK）字节。直接拿那串字节验证转换；代码页不是 936 的
+    // 机器上系统文本本来就不同，跳过这一条。
+    if (936 == ::GetACP()) {
+      const std::string ansiText =
+          "\xD3\xC9\xD3\xDA\xC4\xBF\xB1\xEA\xBC\xC6\xCB\xE3\xBB\xFA\xBB\xFD"
+          "\xBC\xAB\xBE\xDC\xBE\xF8\xA3\xAC\xCE\xDE\xB7\xA8\xC1\xAC\xBD\xD3"
+          "\xA1\xA3";
+      checkText(osTextToUtf8(ansiText) == "由于目标计算机积极拒绝，无法连接。",
+                "ANSI(GBK) 系统文本转成 UTF-8");
+    }
+#endif
+  }
 
   MusicxxExternPluginString log{};
   MusicxxExternPluginString version{};
