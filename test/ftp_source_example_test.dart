@@ -167,6 +167,15 @@ void main() {
     // 1) 声明：同一个类型两个分类（「文件夹」完整能力 + 「按名称」换能力名）
     final List<Map<String, Object?>> declarations = harness.browseDeclarations;
     expect(declarations.length, 2, reason: '示例声明了两个分类');
+    // 分类 id 的写法由主程序校验（只允许小写字母 / 数字 / _ / -）：示例要照着写，
+    // 否则插件装上去只会在日志里留一行"声明可浏览来源失败"，界面里少一个分类
+    for (final Map<String, Object?> item in declarations) {
+      expect(
+        RegExp(r'^[a-z0-9_-]{1,32}$').hasMatch('${item['view']}'),
+        true,
+        reason: 'view 只能小写字母 / 数字 / _ / -：${item['view']}',
+      );
+    }
     final Map<String, Object?> declared = declarations.firstWhere(
       (Map<String, Object?> item) => item['view'] == 'dir',
     );
@@ -180,7 +189,7 @@ void main() {
     expect(caps['resolveSongs'], 'drive.resolveSongs');
     // 另一个分类：换了自己的能力名，不让下载
     final Map<String, Object?> byName = declarations.firstWhere(
-      (Map<String, Object?> item) => item['view'] == 'byName',
+      (Map<String, Object?> item) => item['view'] == 'byname',
     );
     expect(byName['order'], 20);
     expect(byName['download'], false);
@@ -216,7 +225,7 @@ void main() {
 
     // 2.5) 另一个分类：`drive.list.byName` 把子目录里的歌摊平成一屏（不带文件夹行）
     final Map<String, Object?> flat = await harness.call('drive.list.byName',
-        <String, Object?>{'view': 'byName', 'path': '/Music', 'offset': '', 'limit': 10});
+        <String, Object?>{'view': 'byname', 'path': '/Music', 'offset': '', 'limit': 10});
     expect(flat['ok'], true);
     final List<Map<String, Object?>> flatEntries =
         _driveEntriesOf(flat['entries']);
