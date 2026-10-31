@@ -24,7 +24,7 @@
 #   pwsh -NoProfile -File tools/build_examples.ps1 -Android -Abi arm64-v8a           # Android 交叉编译
 #
 # 装到主程序里试:
-#   musicxx-cli plugin install "<包>/.native/output/<平台>-<配置>/packages/<插件id>-<版本号>.zip" --enable
+#   musicxx-cli call externPlugin.install --args '{"path":"<包>/.native/output/<平台>-<配置>/packages/<插件id>-<版本号>.zip","enable":true}'
 #
 # 说明: [CmdletBinding()] 让写错的参数名直接报错, 而不是被当成多余参数悄悄忽略。
 [CmdletBinding()]
@@ -168,5 +168,5 @@ foreach ($zip in $zips) {
 }
 Write-Host ''
 Write-Host '装到主程序里试 (主程序需已开启『拟声++』):'
-Write-Host "  musicxx-cli plugin install `"$($zips[0].Path)`" --enable"
+Write-Host "  musicxx-cli call externPlugin.install --args '{`"path`":`"$($zips[0].Path -replace '\\','/')`",`"enable`":true}'"
 Write-Host '  也可以直接把插件目录放进 <应用支持目录>/musicxx/extern_plugin/plugins/ 再在管理页重新扫描'

@@ -30,7 +30,7 @@
 #   <包>/.native/output/<平台>-<架构>-<配置>/packages/  安装包 .zip（本脚本的输出）
 #
 # 装到主程序里试:
-#   musicxx-cli plugin install "<包>/.native/output/<平台>-<架构>-<配置>/packages/<插件id>-<版本号>.zip" --enable
+#   musicxx-cli call externPlugin.install --args '{"path":"<包>/.native/output/<平台>-<架构>-<配置>/packages/<插件id>-<版本号>.zip","enable":true}'
 set -euo pipefail
 
 step() { printf '\n==> %s\n' "$1"; }
@@ -311,6 +311,6 @@ while [ "$index" -lt "${#packed_zips[@]}" ]; do
     index=$((index + 1))
 done
 printf '\n装到主程序里试 (主程序需已开启『拟声++』):\n'
-printf '  musicxx-cli plugin install "%s" --enable\n' "${packed_zips[0]}"
+printf '  musicxx-cli call externPlugin.install --args '\''{"path":"%s","enable":true}'\''\n' "${packed_zips[0]}"
 printf '  也可以直接把插件目录放进 <应用支持目录>/musicxx/extern_plugin/plugins/ 再在管理页重新扫描\n'
 printf '  （示例插件目录本身在 %s）\n' "$plugins_dir"
