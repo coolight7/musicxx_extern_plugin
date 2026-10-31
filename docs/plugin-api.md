@@ -525,19 +525,22 @@ requestAction("musicxx.ui.overlay.close", R"({})", &callback, 0);
 ```js
 // 页面或入口项里的写法：点了就开一层，由主程序等你关（零代码）
 musicxx.ui.registerEntry({
-  name: "addSong",
+  name: "pickSongs",
   type: "addsong.entry",
   data: {
-    title: "添加FTP歌曲",
-    subtitle: "从 FTP 服务器选择",
+    title: "从我的服务器挑歌",
+    subtitle: "自己画的挑歌界面",
     action: {
       kind: "command",
       name: "musicxx.ui.openOverlaySheet",
-      args: { route: "ext://example_ftp_source/browse", title: "添加FTP歌曲" },
+      args: { route: "ext://my_plugin/picker", title: "挑歌" },
     },
   },
 });
 ```
+
+> 能用 `musicxx.source.browse` 让主程序画界面时（§3.3），不要走这一条：自己画要自己处理
+> 列目录 / 勾选 / 加歌 / 刷新，主程序那套还多了搜索、排序、整目录递归与分类切换。
 
 #### 3.2.5 插件私有存储与配置（`musicxx.storage.*`）
 

@@ -3,7 +3,6 @@
 /// 覆盖：
 /// - 账号：表单字段 → 保存到插件 KV → 摘要视图不回显密码；
 /// - 浏览：列目录（MLSD）、目录优先排序、按名称筛选、进入子目录、下拉刷新与滚到底加载更多；
-/// - 加歌：`browseAdd` 发给 `musicxx.playlist.addSong` 的 `songs` 载荷（type / src / fileName / size）；
 /// - 播放：`musicxx.player.source.resolve` 返回本机 http 地址 + `kind: url`，同一文件复用同一个地址；
 /// - 转流：GET / HEAD / 单区间 Range（206 / 416）/ 服务器不支持 REST、SIZE 时的退化行为；
 /// - 换账号后旧地址失效、插件卸载后端口释放。
@@ -325,275 +324,6 @@ void main() {
     expect(pairs, contains('文件'));
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('浏览：列目录、目录优先、筛选、进入子目录', () async {
-    if (unsupported()) {
-      return;
-    }
-    final _Harness harness = (await start())!;
-    await harness.configureAccount();
-
-    // 打开浮层时主程序会把当前歌单的 pid / name 合进参数
-    final Map<String, Object?> view = await harness.browse(<String, Object?>{
-      'pid': 7,
-      'name': '测试歌单',
-      'songNum': 3,
-    });
-
-    expect(_viewOf(view)['title'], contains('测试歌单'));
-    final List<String> names = _entryNamesOf(view);
-    expect(names, contains('sub'), reason: '文件夹要列出来: $names');
-    expect(names, contains('a.mp3'));
-    expect(names, contains('b.flac'));
-    expect(names, contains('readme.txt'),
-        reason: '不再按文件类型过滤，文本文件也列出来');
-    expect(names.first, 'sub', reason: '文件夹排在前面');
-
-    final Map<String, Object?> probe = await harness.probe();
-    expect((probe['browse']! as Map)['pid'], 7);
-    expect((probe['browse']! as Map)['path'], '/Music');
-
-    // 进入子目录
-    final Map<String, Object?> sub = await harness.browse(
-      const <String, Object?>{'op': 'enter', 'path': '/Music/sub'},
-    );
-    expect(_entryNamesOf(sub), containsAll(<String>['c.ogg']));
-    expect(((await harness.probe())['browse']! as Map)['path'], '/Music/sub');
-
-    // 上一级
-    final Map<String, Object?> up = await harness.browse(
-      const <String, Object?>{'op': 'up'},
-    );
-    expect(_entryNamesOf(up), contains('a.mp3'));
-
-    // 按名称筛选（控件失焦后才派发，参数里带 id 与 value）
-    final Map<String, Object?> filtered = await harness.browse(
-      const <String, Object?>{'op': 'keyword', 'id': 'keyword', 'value': 'FLAC'},
-    );
-    final List<String> filteredNames = _entryNamesOf(filtered);
-    expect(filteredNames, <String>['b.flac'], reason: '筛选不区分大小写: $filteredNames');
-
-    // 刷新（清掉筛选）
-    final Map<String, Object?> refreshed = await harness.browse(
-      const <String, Object?>{'op': 'keyword', 'value': ''},
-    );
-    expect(_entryNamesOf(refreshed), containsAll(<String>['a.mp3', 'b.flac']));
-
-    // 不在根目录：路径栏里给「上一级」
-    expect(
-      _dirListOf(refreshed)!.containsKey('pathAction'),
-      isTrue,
-      reason: '还有上一级时按钮要在',
-    );
-    // 回到服务器根目录：没有上一级，块就不出那个按钮（浮层的返回键＝退出）
-    final Map<String, Object?> atRoot = await harness.browse(
-      const <String, Object?>{'op': 'enter', 'path': '/'},
-    );
-    expect(
-      _dirListOf(atRoot)!.containsKey('pathAction'),
-      isFalse,
-      reason: '根目录无处可上，不给 pathAction',
-    );
-  }, timeout: const Timeout(Duration(seconds: 90)));
-
-  // 浮层的形状：AdaptLayout（竖屏 / 横屏两套）+ 目录列表块（路径栏与勾选框由它给）
-  test('浏览视图：AdaptLayout 两套布局，列表自己滚', () async {
-    if (unsupported()) {
-      return;
-    }
-    final _Harness harness = (await start())!;
-    await harness.configureAccount();
-    final Map<String, Object?> view = await harness.browse(<String, Object?>{
-      'pid': 7,
-      'name': '测试歌单',
-    });
-    final Map<String, Object?> body = _viewOf(view);
-
-    final List<Object?> blocks = (body['blocks']! as List).cast<Object?>();
-    expect(blocks.length, 1, reason: '整个内容是一个自适应布局');
-    final Map<Object?, Object?> layout =
-        (blocks.single! as Map).cast<Object?, Object?>();
-    expect(layout['kind'], 'musicxx.AdaptLayout');
-
-    final List<Object?> column = (layout['columnBody']! as List).cast<Object?>();
-    final List<Object?> row = (layout['rowBody']! as List).cast<Object?>();
-    final List<Object?> rowSecond =
-        (layout['rowSecondBody']! as List).cast<Object?>();
-
-    /// 这一段里的 Expanded(目录列表)
-    Map<Object?, Object?> listIn(List<Object?> nodes) {
-      for (final Object? node in nodes) {
-        final Map<Object?, Object?> map =
-            (node! as Map).cast<Object?, Object?>();
-        if (map['kind'] == 'Expanded') {
-          final List<Object?> inner = (map['children']! as List).cast<Object?>();
-          return (inner.single! as Map).cast<Object?, Object?>();
-        }
-      }
-      fail('这一段里没有 Expanded(目录列表)');
-    }
-
-    final int flexIndex = column.indexWhere(
-      (Object? node) => node is Map && node['kind'] == 'Expanded',
-    );
-    expect(flexIndex, greaterThanOrEqualTo(1), reason: '筛选在列表前面');
-    expect(flexIndex, lessThan(column.length - 1), reason: '添加按钮在列表后面');
-
-    // 竖屏：中间是目录列表块（不给高度 = 用父给的可用高度，条目多时只滚这一块）
-    final Map<Object?, Object?> list = listIn(column);
-    expect(list['kind'], 'musicxx.DirListView');
-    expect(list['path'], '/Music', reason: '顶部路径行显示当前目录');
-    expect(list['showPath'], isTrue);
-    expect(list['multi'], isTrue, reason: '勾选框由列表块提供');
-    expect(list.containsKey('height'), isFalse, reason: '不给高度就用父给的可用高度');
-    expect(
-      list.containsKey('pathAction'),
-      isTrue,
-      reason: '不在根目录 → 路径栏里有「上一级」',
-    );
-    expect(list['refreshAction'], isNotNull, reason: '下拉刷新由列表触发（页面上不放刷新按钮）');
-    expect(
-      list.containsKey('loadMoreAction'),
-      isFalse,
-      reason: '条目已经全显示了，不给加载更多',
-    );
-
-    final List<Object?> items = (list['items']! as List).cast<Object?>();
-    expect(items, isNotEmpty);
-    final Map<Object?, Object?> dirItem =
-        (items.first! as Map).cast<Object?, Object?>();
-    expect(dirItem['isDir'], isTrue, reason: '文件夹项标了 isDir');
-    expect(dirItem['path'], '/Music/sub');
-    final Map<Object?, Object?> dirAction =
-        (dirItem['action']! as Map).cast<Object?, Object?>();
-    expect(dirAction['name'], 'browse');
-    expect((dirAction['args']! as Map)['op'], 'enter', reason: '点文件夹就是进入');
-
-    final Map<Object?, Object?> fileItem = (items.firstWhere((Object? node) {
-      final Map<Object?, Object?> map =
-          (node! as Map).cast<Object?, Object?>();
-      return map['isDir'] != true;
-    })! as Map).cast<Object?, Object?>();
-    final Map<Object?, Object?> fileAction =
-        (fileItem['action']! as Map).cast<Object?, Object?>();
-    expect(
-      (fileAction['args']! as Map)['op'],
-      'toggle',
-      reason: '点文件就是勾上 / 取消',
-    );
-
-    bool hasControl(List<Object?> nodes, String id) {
-      for (final Object? node in nodes) {
-        final Map<Object?, Object?> map =
-            (node! as Map).cast<Object?, Object?>();
-        if (map['kind'] == 'Control' && map['id'] == id) {
-          return true;
-        }
-        final Object? inner = map['children'];
-        if (inner is List && hasControl(inner.cast<Object?>(), id)) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    // 竖屏顶部只有筛选（账号 / 上一级 / 刷新 / 只看音频 那些都删了）
-    expect(hasControl(column.sublist(0, flexIndex), 'keyword'), isTrue);
-    expect(hasControl(column, 'audioOnly'), isFalse, reason: '只看音频开关已删除');
-
-    // 竖屏底部：只留添加按钮
-    final List<String> footerTexts = <String>[];
-    for (final Object? node in column.sublist(flexIndex + 1)) {
-      footerTexts.addAll(_textsOf(<String, Object?>{'v': node}));
-    }
-    expect(
-      footerTexts.any((String text) => text.startsWith('添加 0 首到')),
-      isTrue,
-      reason: '竖屏的按钮在列表下面: $footerTexts',
-    );
-
-    // 横屏：左栏放筛选与添加按钮，右边整块留给列表
-    expect(hasControl(row, 'keyword'), isTrue, reason: '横屏的筛选在左栏');
-    expect(
-      _textsOf(<String, Object?>{'v': row}).any(
-        (String text) => text.startsWith('添加 0 首到'),
-      ),
-      isTrue,
-      reason: '横屏的添加按钮在左栏',
-    );
-    expect(
-      listIn(rowSecond)['kind'],
-      'musicxx.DirListView',
-      reason: '右边整块是列表',
-    );
-
-    // 顶部那一排按钮与底部提示都删了
-    final List<String> allTexts = _textsOf(<String, Object?>{'v': body});
-    for (final String gone in <String>[
-      '上一级',
-      '刷新',
-      '账号',
-      '播放选中的第一首',
-      '只看音频文件',
-    ]) {
-      expect(
-        allTexts.where((String text) => text == gone),
-        isEmpty,
-        reason: '「$gone」已经删掉：$allTexts',
-      );
-    }
-    expect(
-      allTexts.any((String text) => text.contains('已选')),
-      isFalse,
-      reason: '已选提示删掉了（数量已经在添加按钮上）',
-    );
-  }, timeout: const Timeout(Duration(seconds: 90)));
-
-  test('加歌：songs 载荷的类型、路径、文件名与大小', () async {
-    if (unsupported()) {
-      return;
-    }
-    final _Harness harness = (await start())!;
-    await harness.configureAccount();
-    await harness.browse(<String, Object?>{'pid': 12, 'name': '我的歌单'});
-
-    // 勾选两个文件（控件与整行点击都走 select / toggle）
-    await harness.browse(
-      const <String, Object?>{'op': 'select', 'path': '/Music/a.mp3', 'value': true},
-    );
-    // 子目录里那个文件要先列一次，插件才知道它有多大（大小只用于显示与缓存提示，可以不填）
-    await harness.browse(const <String, Object?>{'op': 'enter', 'path': '/Music/sub'});
-    final Map<String, Object?> view = await harness.browse(
-      const <String, Object?>{'op': 'toggle', 'path': '/Music/sub/c.ogg'},
-    );
-    expect(_textsOf(view).any((String text) => text.contains('添加 2 首到')), isTrue,
-        reason: '添加按钮上带着已选数量');
-
-    final Map<String, Object?> added = await harness.browseAdd();
-    expect(_textsOf(added).any((String text) => text.contains('正在处理')), isTrue);
-
-    // 插件不 await 主程序动作：结果在事件泵里回来
-    await harness.pumpUntil(() => harness.addedSongs.isNotEmpty);
-    final List<Map<String, Object?>> songs = harness.addedSongs;
-    expect(songs, hasLength(2));
-    final String fingerprint = '${(await harness.probe())['fingerprint']}';
-    for (final Map<String, Object?> song in songs) {
-      expect(song['type'], ftpType);
-      expect('${song['src']}', startsWith('$fingerprint/'));
-      expect(song['name'], isNull, reason: '歌名与歌手留给主程序按文件名识别');
-      expect('${song['fileName']}', isNotEmpty);
-    }
-    expect(songs[0]['src'], '$fingerprint/Music/a.mp3');
-    expect(songs[0]['fileName'], 'a.mp3');
-    expect(songs[0]['size'], fileA.length);
-    expect(songs[1]['src'], '$fingerprint/Music/sub/c.ogg');
-    expect(songs[1]['size'], fileC.length);
-    expect(harness.addSongPid, 12);
-
-    // 成功后提示 + 关掉浮层
-    await harness.pumpUntil(() => harness.overlayCloseCalls > 0);
-    expect(harness.lastToast, contains('已添加 2 首'));
-  }, timeout: const Timeout(Duration(seconds: 90)));
-
   test('播放：解析出本机地址，GET / HEAD / Range 都能读到原字节', () async {
     if (unsupported()) {
       return;
@@ -601,9 +331,6 @@ void main() {
     final _Harness harness = (await start())!;
     await harness.configureAccount();
     final String fingerprint = '${(await harness.probe())['fingerprint']}';
-
-    // 目录里先读一次，让插件知道文件大小（真实流程也是这样：先浏览再加歌）
-    await harness.browse(<String, Object?>{'pid': 1, 'name': 'x'});
 
     final Map<String, Object?>? verdict = await harness.resolve(
       '$fingerprint/Music/a.mp3',
@@ -695,7 +422,6 @@ void main() {
     final _Harness harness = (await start())!;
     await harness.configureAccount();
     final String fingerprint = '${(await harness.probe())['fingerprint']}';
-    await harness.browse(<String, Object?>{'pid': 1, 'name': 'x'});
 
     harness.ftp.supportRest = false;
     final Map<String, Object?>? verdict = await harness.resolve(
@@ -723,7 +449,6 @@ void main() {
     final _Harness harness = (await start())!;
     await harness.configureAccount();
     final String fingerprint = '${(await harness.probe())['fingerprint']}';
-    await harness.browse(<String, Object?>{'pid': 1, 'name': 'x'});
 
     harness.ftp.supportSize = false;
     final Map<String, Object?>? verdict = await harness.resolve(
@@ -1012,10 +737,6 @@ class _Harness {
   Future<Map<String, Object?>> accounts(Map<String, Object?> args) =>
       call('accounts', args);
 
-  Future<Map<String, Object?>> browse(Map<String, Object?> args) =>
-      call('browse', <String, Object?>{'view': 'browse', ...args});
-
-  Future<Map<String, Object?>> browseAdd() => call('browseAdd', const <String, Object?>{});
 
   Future<Map<String, Object?>> probe() => call('probe', const <String, Object?>{});
 
@@ -1136,15 +857,6 @@ class _HttpResult {
 
 /* ==================== 视图取值小工具 ==================== */
 
-/// 取能力返回里的视图（插件返回 `{view: {...}}`）
-Map<String, Object?> _viewOf(Map<String, Object?> result) {
-  final Object? raw = result['view'];
-  if (raw is Map) {
-    return raw.cast<String, Object?>();
-  }
-  return result;
-}
-
 /// 取某个控件（`kind: Control`）的 `value`
 Object? _controlValue(Map<String, Object?> view, String id) {
   Object? found;
@@ -1198,42 +910,6 @@ List<String> _textsOf(Map<String, Object?> view) {
   return out;
 }
 
-/// 浏览页里的目录列表块（`musicxx.DirListView`；
-/// 外面还隔着自适应布局的两套 body，所以递归找，两套用同一份数据，只取第一份）
-Map<Object?, Object?>? _dirListOf(Map<String, Object?> view) {
-  final Object? raw = view['view'];
-  final Map<String, Object?> body =
-      (raw is Map) ? raw.cast<String, Object?>() : view;
-  final Object? blocks = body['blocks'];
-  if (blocks is! List) {
-    return null;
-  }
-  Map<Object?, Object?>? found;
-  void visit(Object? node) {
-    if (found != null) {
-      return;
-    }
-    if (node is Map) {
-      if (node['kind'] == 'musicxx.DirListView') {
-        found = node.cast<Object?, Object?>();
-        return;
-      }
-      for (final Object? value in node.values) {
-        visit(value);
-      }
-      return;
-    }
-    if (node is List) {
-      for (final Object? item in node) {
-        visit(item);
-      }
-    }
-  }
-
-  visit(blocks);
-  return found;
-}
-
 /// 网盘能力返回的条目列表（`drive.list` / `drive.search` 的 `entries`、`drive.resolveSongs` 的
 /// `songs`）：转成 `List<Map<String, Object?>>`，形状不对当空表
 List<Map<String, Object?>> _driveEntriesOf(Object? raw) {
@@ -1246,52 +922,6 @@ List<Map<String, Object?>> _driveEntriesOf(Object? raw) {
   ];
 }
 
-/// 浏览页里列出的条目名（目录列表块的 `items[].title`）
-List<String> _entryNamesOf(Map<String, Object?> view) {
-  final Object? raw = view['view'];
-  final Map<String, Object?> body =
-      (raw is Map) ? raw.cast<String, Object?>() : view;
-  final List<String> names = <String>[];
-  final Object? blocks = body['blocks'];
-  if (blocks is! List) {
-    return names;
-  }
-  // 浏览页的条目在目录列表块里（外面还隔着自适应布局的两套 body），所以要递归找；
-  // 两套 body 用的是同一批条目，只取找到的第一份。
-  Map<Object?, Object?>? listNode;
-  void visit(Object? node) {
-    if (listNode != null) {
-      return;
-    }
-    if (node is Map) {
-      if (node['kind'] == 'musicxx.DirListView' ||
-          node['kind'] == 'ListViewBase') {
-        listNode = node.cast<Object?, Object?>();
-        return;
-      }
-      for (final Object? value in node.values) {
-        visit(value);
-      }
-      return;
-    }
-    if (node is List) {
-      for (final Object? item in node) {
-        visit(item);
-      }
-    }
-  }
-
-  visit(blocks);
-  final Object? items = listNode?['items'];
-  if (items is List) {
-    for (final Object? item in items) {
-      if (item is Map && item['title'] is String) {
-        names.add(item['title']! as String);
-      }
-    }
-  }
-  return names;
-}
 
 /* ==================== 假 FTP 服务器 ==================== */
 

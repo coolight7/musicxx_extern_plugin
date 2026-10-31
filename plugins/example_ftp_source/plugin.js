@@ -5,11 +5,9 @@
  *
  * 1. **配置账号**：主页入口「FTP 音乐」→ `accounts` 能力 → 账号写进插件私有 KV
  *    （`musicxx.storage`，密码只在本机，界面不回显）。
- * 2. **挑歌加进歌单**（两种写法，推荐第一种）：
- *    - 主程序画界面：`musicxx.source.browse` 声明 + `drive.list` 等能力 —— 「添加歌曲」菜单里
- *      自动多一行，点开就是与内置网盘一样的弹窗（路径栏 / 搜索 / 勾选 / 整目录递归 / 加歌单）；
- *    - 自己画：UI 项 `addsong.entry` 指向 `musicxx.ui.openOverlaySheet` → 浮层里的 `browse`
- *      能力列目录，`browseAdd` 调 `musicxx.playlist.addSong`（老写法，留着做对照）。
+ * 2. **挑歌加进歌单**：`musicxx.source.browse` 声明 + `drive.list` 等能力 —— 「添加歌曲」菜单里
+ *    每个分类一行（本示例是「文件夹」「按名称」），点开就是与内置网盘一样的弹窗
+ *    （路径栏 / 搜索 / 勾选 / 整目录递归 / 加歌单）。插件自己不画界面。
  * 3. **播放**：歌曲的音源类型是 `plugin.example_ftp_source.audio`，`src` 是
  *    `<账号指纹>/<FTP 路径>`（见 ftp.js 的 `resourceIdOf`）。播放时主程序问
  *    `musicxx.player.source.resolve`，这里把路径换成 `http://127.0.0.1:<port>/s/<token>`
@@ -20,8 +18,8 @@
  * 几条约束（写插件时都要记住）：
  * - 脚本顶层必须**同步**完成注册：账号读取是异步动作，只能在顶层发起、在回调里填状态；
  * - 能力处理器返回 Promise 也能生效（插件框架等它结算），所以列目录可以 `await` 自己的 FTP 客户端；
- * - 但**不能 `await` 主程序动作再依赖它**：`browseAdd` 里发起 `playlist.addSong` 后立刻返回视图，
- *   结果在回调里提示并关浮层；
+ * - 但**不能 `await` 主程序动作再依赖它**：发起 `playlist.addSong` 后立刻返回，
+ *   结果在回调里提示（拉歌的界面由主程序画，插件不等它）；
  * - 钩子 `musicxx.player.source.resolve` 是异步派发的，主程序最多等 5 秒，所以这里只做内存操作
  *   （查账号 + 登记 token + 第一次启动监听），不登录、不查文件大小。
  */
@@ -38,9 +36,6 @@ const STORAGE_KEY = "account";
 /// 浏览页一次显示多少项；"再显示 N 项"按这个步长加
 const PAGE_SIZE = 50;
 
-/// 一次最多选多少首（主程序 `musicxx.playlist.addSong` 的上限也是 200）
-const MAX_SELECTED = 200;
-
 /// 插件框架有没有 socket 能力（老版本没有：整个例子会明确报错，而不是静默不工作）
 const NET_OK = !!(musicxx.net && musicxx.net.socket &&
     typeof musicxx.net.socket.listen === "function" &&
@@ -52,8 +47,6 @@ const stats = {
     resolveOk: 0,
     browseCalls: 0,
     browseOk: 0,
-    addCalls: 0,
-    playCalls: 0,
     lastError: ""
 };
 
@@ -63,7 +56,6 @@ const accountState = {
     extras: { lastTestAt: 0, lastOk: false, lastMessage: "" },
     loaded: false,
     loading: null,
-    returnTo: "",
     message: "",
     messageTone: "",
     busy: false
@@ -71,21 +63,6 @@ const accountState = {
 
 /// 账号表单草稿（只在编辑时存在；密码放内存里，不进动作参数、不进日志）
 let draft = null;
-
-/// 浏览页的当前状态（内存里；浮层关掉就丢，重新打开从根路径开始）
-const browseState = {
-    pid: 0,
-    playlistName: "",
-    songNum: 0,
-    path: "/",
-    keyword: "",
-    selected: {},
-    sizes: {},
-    limit: PAGE_SIZE,
-    entries: [],
-    error: "",
-    busy: false
-};
 
 /* ==================== 小工具 ==================== */
 
@@ -232,140 +209,6 @@ function accountFromDraft() {
     return { account: account };
 }
 
-/* ==================== 列目录 ==================== */
-
-/// 把浏览状态回到"刚打开"的样子（`args` 来自浮层入口：带 `pid` / `name` / `songNum`）
-function resetBrowse(args) {
-    const account = accountState.account;
-    browseState.pid = intOf(args && args.pid, 0);
-    browseState.playlistName = (args && typeof args.name === "string") ? args.name : "";
-    browseState.songNum = intOf(args && args.songNum, 0);
-    browseState.keyword = "";
-    browseState.selected = {};
-    browseState.sizes = {};
-    browseState.limit = PAGE_SIZE;
-    browseState.error = "";
-    browseState.busy = false;
-    const fromArgs = (args && typeof args.path === "string") ? args.path : "";
-    browseState.path = FtpSource.normalizePath(fromArgs || (account ? account.rootPath : "/"));
-    browseState.entries = [];
-}
-
-/// 读当前目录；失败只把原因写进视图（不 reject，页面还能继续用）
-function listNow() {
-    const account = accountState.account;
-    browseState.error = "";
-    if (!FtpSource.accountReady(account)) {
-        browseState.entries = [];
-        return Promise.resolve();
-    }
-    return FtpSource.list(account, browseState.path).then(function (result) {
-        browseState.path = result.path;
-        browseState.entries = result.entries;
-        for (let i = 0; i < result.entries.length; i++) {
-            const entry = result.entries[i];
-            if (!entry.isDir) {
-                browseState.sizes[entry.path] = entry.size;
-            }
-        }
-        stats.browseOk += 1;
-    }, function (err) {
-        browseState.entries = [];
-        browseState.error = (err && err.message) ? err.message : String(err);
-        noteError("列目录失败：" + browseState.error);
-    });
-}
-
-/// 当前目录里"该显示"的条目（只按关键字筛，目录与文件都列）
-function visibleEntries() {
-    const keyword = browseState.keyword.toLowerCase();
-    const rows = [];
-    for (let i = 0; i < browseState.entries.length; i++) {
-        const entry = browseState.entries[i];
-        if (keyword && entry.name.toLowerCase().indexOf(keyword) < 0) {
-            continue;
-        }
-        rows.push(entry);
-    }
-    return rows;
-}
-
-/// 选中的路径（保持勾选顺序）
-function selectedPaths() {
-    const rows = [];
-    for (const path in browseState.selected) {
-        if (Object.prototype.hasOwnProperty.call(browseState.selected, path) &&
-            browseState.selected[path]) {
-            rows.push(path);
-        }
-    }
-    return rows;
-}
-
-/// 勾选 / 取消一个文件（`value` 没给就取反）
-function toggleSelected(path, value) {
-    const target = FtpSource.normalizePath(path || "");
-    if (!target || target === "/") {
-        return;
-    }
-    const next = (value === undefined || value === null) ? !browseState.selected[target] : !!value;
-    if (next) {
-        if (selectedPaths().length >= MAX_SELECTED && !browseState.selected[target]) {
-            toast("一次最多选 " + MAX_SELECTED + " 首");
-            return;
-        }
-        browseState.selected[target] = true;
-        return;
-    }
-    delete browseState.selected[target];
-}
-
-/// 视图数据（交给 ui.js 拼）
-function browseViewData(env) {
-    const rows = visibleEntries();
-    const limit = Math.max(PAGE_SIZE, browseState.limit);
-    return {
-        env: env,
-        configured: FtpSource.accountReady(accountState.account),
-        account: accountState.account || { host: "", port: FtpSource.defaultAccount.port, user: "" },
-        path: browseState.path,
-        // 已在服务器根目录：没有上一级，目录列表块就不出那个按钮（返回键回到“退出浮层”）
-        atRoot: browseState.path === "/",
-        keyword: browseState.keyword,
-        entries: rows.slice(0, limit).map(function (entry) {
-            const row = {
-                path: entry.path,
-                name: entry.name,
-                isDir: !!entry.isDir,
-                size: entry.size
-            };
-            if (!entry.isDir) {
-                // 目录列表看到 song 就把这一行画成歌曲样式（封面 / 歌手 / 音源标签）；
-                // 真正加进歌单时 browseAdd 会自己再算一遍（那边还带文件名识别）
-                row.song = {
-                    type: TYPE_ID,
-                    src: FtpSource.resourceIdOf(accountState.account, entry.path),
-                    fileName: entry.name,
-                    size: entry.size || 0
-                };
-            }
-            return row;
-        }),
-        total: rows.length,
-        limit: limit,
-        selected: browseState.selected,
-        selectedCount: selectedPaths().length,
-        pid: browseState.pid,
-        playlistName: browseState.playlistName,
-        error: browseState.error,
-        busy: browseState.busy
-    };
-}
-
-function browseAnswer(env) {
-    return { view: FtpSource.browseView(browseViewData(env)) };
-}
-
 /* ==================== 账号页的视图数据 ==================== */
 
 function accountsAnswer(env) {
@@ -381,31 +224,11 @@ function accountsAnswer(env) {
             message: accountState.message,
             messageTone: accountState.messageTone,
             busy: accountState.busy,
-            returnTo: accountState.returnTo,
             lastTestAt: accountState.extras.lastTestAt || 0,
             lastOk: !!accountState.extras.lastOk,
             lastMessage: accountState.extras.lastMessage || ""
         })
     };
-}
-
-/// 保存后回哪儿：从浏览页进来就回浏览页（顺便按新账号重读目录）
-function returnFromAccounts(env) {
-    if (accountState.returnTo !== "browse") {
-        accountState.returnTo = "";
-        return Promise.resolve(accountsAnswer(env));
-    }
-    accountState.returnTo = "";
-    browseState.selected = {};
-    browseState.keyword = "";
-    browseState.entries = [];
-    browseState.error = "";
-    browseState.limit = PAGE_SIZE;
-    const account = accountState.account;
-    browseState.path = account ? account.rootPath : "/";
-    return listNow().then(function () {
-        return browseAnswer(env);
-    });
 }
 
 /// 测一次连接：连上并读根路径（结果写进账号的最近测试字段）
@@ -528,7 +351,6 @@ musicxx.capability.register("accounts", function (args) {
                     break;
                 }
                 draft = draftFromStored();
-                accountState.returnTo = (args && args.from === "browse") ? "browse" : "";
                 accountState.message = "密码不显示：留空表示不修改已保存的那个。";
                 accountState.messageTone = "";
                 break;
@@ -536,22 +358,16 @@ musicxx.capability.register("accounts", function (args) {
                 applyAccountField(args);
                 break;
             case "save":
-                return saveDraft().then(function (saved) {
-                    return saved ? returnFromAccounts(env) : accountsAnswer(env);
+                return saveDraft().then(function () {
+                    return accountsAnswer(env);
                 });
             case "saveTest": {
-                const cameFromBrowse = accountState.returnTo === "browse";
                 return saveDraft().then(function (saved) {
                     if (!saved) {
                         return accountsAnswer(env);
                     }
                     return testAccount().then(function () {
-                        if (!cameFromBrowse) {
-                            return accountsAnswer(env);
-                        }
-                        // 从浏览页来的：回到浏览页，测试结果用提示说出来
-                        toast(accountState.message);
-                        return returnFromAccounts(env);
+                        return accountsAnswer(env);
                     });
                 });
             }
@@ -580,7 +396,6 @@ musicxx.capability.register("accounts", function (args) {
                 draft = null;
                 accountState.message = "";
                 accountState.messageTone = "";
-                accountState.returnTo = "";
                 break;
             case "view":
             default:
@@ -591,162 +406,6 @@ musicxx.capability.register("accounts", function (args) {
         }
         return accountsAnswer(env);
     });
-});
-
-/* ==================== 能力：浏览 ==================== */
-
-musicxx.capability.register("browse", function (args) {
-    const env = FtpSource.viewEnv(args);
-    const op = (args && typeof args.op === "string" && args.op) ? args.op : "open";
-
-    if (!NET_OK) {
-        return { view: FtpSource.accountsView({
-            env: env,
-            stored: null,
-            draft: draftFromStored(),
-            message: "当前插件框架没有 TCP socket 能力：这个示例需要较新的插件框架版本。",
-            messageTone: "error"
-        }) };
-    }
-
-    return ensureAccount().then(function () {
-        switch (op) {
-            case "open":
-                resetBrowse(args);
-                return listNow();
-            case "resume":
-                return listNow();
-            case "enter":
-                browseState.path = FtpSource.normalizePath((args && args.path) || "/");
-                browseState.limit = PAGE_SIZE;
-                return listNow();
-            case "up":
-                browseState.path = FtpSource.parentPath(browseState.path);
-                browseState.limit = PAGE_SIZE;
-                return listNow();
-            case "refresh":
-                return listNow();
-            case "more":
-                browseState.limit = browseState.limit + PAGE_SIZE;
-                return null;
-            case "keyword":
-                browseState.keyword = (args && typeof args.value === "string") ? args.value : "";
-                browseState.limit = PAGE_SIZE;
-                return null;
-            case "select":
-                toggleSelected(args && args.path, args ? args.value : undefined);
-                return null;
-            case "toggle":
-                toggleSelected(args && args.path, undefined);
-                return null;
-            default:
-                return null;
-        }
-    }).then(function () {
-        stats.browseCalls += 1;
-        return browseAnswer(env);
-    }, function (err) {
-        noteError("浏览页出错：" + err.message);
-        browseState.error = err.message;
-        return browseAnswer(env);
-    });
-});
-
-/* ==================== 能力：加入歌单 / 播放选中 ==================== */
-
-/// 选中的文件 → `musicxx.playlist.addSong` 的 songs 载荷
-function songsOfSelected(account) {
-    const paths = selectedPaths();
-    const songs = [];
-    for (let i = 0; i < paths.length; i++) {
-        const path = paths[i];
-        const name = FtpSource.basename(path);
-        if (!name) {
-            continue;
-        }
-        songs.push({
-            type: TYPE_ID,
-            src: FtpSource.resourceIdOf(account, path),
-            fileName: name,
-            // 歌名与歌手留给主程序按文件名识别（与本地扫描、B 站列表同一套规则）
-            size: browseState.sizes[path] || 0
-        });
-    }
-    return songs;
-}
-
-musicxx.capability.register("browseAdd", function (args) {
-    const env = FtpSource.viewEnv(args);
-    const account = accountState.account;
-    if (!FtpSource.accountReady(account)) {
-        return browseAnswer(env);
-    }
-    const songs = songsOfSelected(account);
-    if (!songs.length) {
-        return browseAnswer(env);
-    }
-    if (!(browseState.pid > 0)) {
-        toast("没有目标歌单：请从歌单页的「添加歌曲」进来");
-        return browseAnswer(env);
-    }
-    browseState.busy = true;
-    stats.addCalls += 1;
-    // 不 await：能力处理器要尽快回视图，结果在回调里提示并关浮层
-    musicxx.call("musicxx.playlist.addSong", {
-        pid: browseState.pid,
-        songs: songs
-    }).then(function (result) {
-        browseState.busy = false;
-        if (!result || result.ok !== true) {
-            const reason = (result && result.error) ? result.error : "unknown";
-            noteError("加入歌单失败：" + reason);
-            toast("加入歌单失败：" + reason);
-            return;
-        }
-        browseState.selected = {};
-        let text = "已添加 " + result.added + " 首到『" +
-            (result.name || String(browseState.pid)) + "』";
-        if (result.skipped > 0) {
-            text += "，" + result.skipped + " 首已存在";
-        }
-        toast(text);
-        musicxx.host.log(2, PLUGIN_ID + ": " + text);
-        // 关掉这一层浮层（歌单页那边 await 的入口调用因此返回，列表随之刷新）
-        musicxx.ui.overlayClose().then(function () {
-            return null;
-        }, function (err) {
-            noteError("关闭浮层失败：" + err.message);
-        });
-    }, function (err) {
-        browseState.busy = false;
-        noteError("加入歌单失败：" + err.message);
-        toast("加入歌单失败：" + err.message);
-    });
-    return browseAnswer(env);
-});
-
-musicxx.capability.register("browsePlay", function (args) {
-    // 界面上不放这个按钮（挑歌时用不到），留着给脚本 / 自动化调：直接播第一个勾选的
-    const env = FtpSource.viewEnv(args);
-    const account = accountState.account;
-    const paths = selectedPaths();
-    if (!FtpSource.accountReady(account) || !paths.length) {
-        return browseAnswer(env);
-    }
-    const path = paths[0];
-    stats.playCalls += 1;
-    musicxx.call("musicxx.player.playSrc", {
-        src: FtpSource.resourceIdOf(account, path),
-        type: TYPE_ID,
-        name: FtpSource.basename(path)
-    }).then(function (result) {
-        if (!result || result.ok !== true) {
-            noteError("播放失败：" + ((result && result.error) ? result.error : "unknown"));
-        }
-    }, function (err) {
-        noteError("播放失败：" + err.message);
-    });
-    return browseAnswer(env);
 });
 
 /* ==================== 能力：自检 ==================== */
@@ -777,19 +436,11 @@ musicxx.capability.register("probe", function () {
             active: proxy.active,
             lastError: proxy.lastError
         },
-        browse: {
-            path: browseState.path,
-            entries: browseState.entries.length,
-            selected: selectedPaths().length,
-            pid: browseState.pid
-        },
         counts: {
             resolve: stats.resolveCalls,
             resolveOk: stats.resolveOk,
             browse: stats.browseCalls,
-            browseOk: stats.browseOk,
-            addSong: stats.addCalls,
-            play: stats.playCalls
+            browseOk: stats.browseOk
         },
         lastError: stats.lastError
     };
@@ -1262,32 +913,6 @@ musicxx.ui.registerEntry({
         subtitle: "整页浏览与下载",
         icon: "resource/svg/ftp.svg",
         action: { kind: "command", name: "musicxx.ui.browseDrive", args: { type: TYPE_ID } }
-    }
-});
-
-/// 歌单「添加歌曲」里的入口：打开插件自己的挑歌浮层
-///
-/// 动作是 `command` → `musicxx.ui.openOverlaySheet`（主程序执行：打开这个插件视图的底部浮层，
-/// 等用户关掉它再返回）。主程序会在点击时把当前歌单的 `pid` / `name` / `songNum` 合进参数。
-musicxx.ui.registerEntry({
-    name: "addSong",
-    type: "addsong.entry",
-    order: 930,
-    data: {
-        title: "添加FTP歌曲",
-        subtitle: "从 FTP 服务器选择",
-        icon: "resource/svg/ftp.svg",
-        action: {
-            kind: "command",
-            name: "musicxx.ui.openOverlaySheet",
-            args: {
-                route: "ext://" + PLUGIN_ID + "/browse",
-                title: "添加FTP歌曲",
-                // 可用宽高的 90%：两种布局里都是“左侧 / 顶部固定、列表占满剩下的地方”
-                // （见 ui.js 的 browseView）
-                size: "full"
-            }
-        }
     }
 });
 
