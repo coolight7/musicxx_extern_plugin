@@ -35,10 +35,15 @@
 
 **整页由主程序给，不需要新类型**：声明了可浏览来源（`musicxx.source.browse`，见
 [plugin-api.md](plugin-api.md) §3.3）之后，入口的动作写
-`{kind:"command", name:"musicxx.ui.browseDrive", args:{type}}`，点开就是与内置网盘**完全一样**的
+`{kind:"command", name:"musicxx.ui.browseDrive", args:{type, view?}}`，点开就是与内置网盘**完全一样**的
 整页目录列表（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 下载 / 重命名 / 删除 / 条目信息）。
-主页入口、歌单菜单项、插件自己页面里的按钮都能用它；动作立即返回 `{ok, reason:"opened", type}`，
-不等用户关页面。
+主页入口、歌单菜单项、插件自己页面里的按钮都能用它；动作立即返回
+`{ok, reason:"opened", type, view}`，不等用户关页面。
+
+一个音源类型可以声明多个分类（`musicxx.source.browse` 的 `view`）：多分类时**页面顶部那排 tab
+由主程序画**，`args.view` 只是「从哪个分类开始」。插件不需要为分类做任何界面工作，
+也不需要“分类入口”——一个类型一个入口，里面的分类用户自己切（同理，「添加歌曲」菜单里
+也是一个类型一行，副标题列出分类）。
 
 ### 1.2 注册
 

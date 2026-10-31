@@ -872,16 +872,23 @@ musicxx.call("musicxx.source.define", {
 /// 一次 `drive.resolveSongs` 最多读多少首（超出截断，界面会提示）
 const MAX_DRIVE_SONGS = 2000;
 
-/// 声明"这个音源类型可以浏览"
+/// 「按名称」分类向下读几层（示例只演示形状，不对整棵树递归）
+const BY_NAME_MAX_DEPTH = 2;
+
+/// 声明「这个音源类型可以浏览」——**可以调多次**：每次一个分类（`view`）
 ///
 /// 声明之后主程序把它当成一个网盘来源：「添加歌曲」菜单里自动多一行（内置网盘风格：路径栏 /
-/// 排序 / 搜索 / 勾选 / 整目录递归，最多 5 层），数据由下面几个能力提供。
-/// `capabilities` 里出现某个键 = 这个能力实现了（名字也可以改成别的）：
-/// `list` 必填，`search` / `resolveSongs` 可选（没给就没搜索按钮、退回逐层列目录）。
+/// 排序 / 搜索 / 勾选 / 整目录递归，最多 5 层），弹窗与整页顶部有分类切换。
+/// 这里声明两个分类，用两种写法：
+/// - 「文件夹」：一套完整能力（与内置网盘一样能建目录 / 重命名 / 删除 / 看信息）；
+/// - 「按名称」：**换自己的能力名**（`drive.list.byName`），把所有子目录里的歌摊平成一屏。
+/// 分类不进音源身份：两边的歌 `src` 一样，播放 / 缓存 / 播放记录都是同一份。
 /// 声明跟着插件生命周期撤销，不写磁盘。
 musicxx.call("musicxx.source.browse", {
     id: TYPE_ID,
-    title: "FTP 文件",
+    view: "dir",                       // 分类 id：a-z 0-9 _ -，缺省 default
+    title: "文件夹",                    // 分类名（界面上的 tab）
+    order: 10,                         // 同一类型内的顺序
     root: "/",
     icon: "resource/svg/ftp.svg",
     search: true,
@@ -894,6 +901,26 @@ musicxx.call("musicxx.source.browse", {
         rename: "drive.rename",
         remove: "drive.remove",
         info: "drive.info"
+    }
+}).then(function (result) {
+    if (!result || result.ok !== true) {
+        noteError("声明可浏览来源失败：" + ((result && result.error) || "unknown"));
+    }
+}, function (err) {
+    noteError("声明可浏览来源失败：" + err.message);
+});
+
+musicxx.call("musicxx.source.browse", {
+    id: TYPE_ID,
+    view: "byName",
+    title: "按名称",
+    order: 20,
+    root: "/",
+    sort: ["name", "size"],           // 这个分类只允许按名称 / 大小排序
+    download: false,                   // 不想在这里出「下载」
+    capabilities: {
+        list: "drive.list.byName",    // 自己的能力名，处理器在下面
+        search: "drive.search"
     }
 }).then(function (result) {
     if (!result || result.ok !== true) {
@@ -925,10 +952,11 @@ function driveEntryOf(account, entry) {
     return item;
 }
 
-/// `drive.list`：一页目录
+/// `drive.list`：一页目录（「文件夹」分类）
 ///
 /// `offset` 为空串 = 第一页，`next` 为空串 = 没有下一页；主程序拿到后还会本地排一次，
 /// 所以这里只按偏移切片（FTP 的 LIST 没有分页，一次就能读完）。
+/// 参数里的 `view` 是哪个分类在要数据，这里只服务「文件夹」，所以不看它。
 musicxx.capability.register("drive.list", function (args) {
     const account = accountState.account;
     if (!FtpSource.accountReady(account)) {
@@ -951,6 +979,69 @@ musicxx.capability.register("drive.list", function (args) {
         const reason = (err && err.message) ? err.message : String(err);
         noteError("drive.list 失败：" + reason);
         return { ok: false, error: reason };
+    });
+});
+
+/// `drive.list.byName`：「按名称」分类的取数据（同一个类型、另一个分类）
+///
+/// 与 `drive.list` 演示两件事：
+/// - **每个分类可以有自己的能力名**（声明里 `capabilities.list` 写的就是它）；
+/// - 数据形状可以不同：这里不管目录层级（只读两层），把所有歌摊平成一屏歌曲，
+///   排序交给主程序（声明里的 `sort` 写了只允许按名称 / 大小）。
+musicxx.capability.register("drive.list.byName", function (args) {
+    const account = accountState.account;
+    if (!FtpSource.accountReady(account)) {
+        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
+    }
+    const root = FtpSource.normalizePath(args && args.path ? args.path : "/");
+    const offset = Math.max(0, intOf(args && args.offset, 0));
+    const limit = Math.max(1, intOf(args && args.limit, PAGE_SIZE));
+    const files = [];
+    const seen = {};
+
+    function collect(path, depth) {
+        if (depth > BY_NAME_MAX_DEPTH) {
+            return Promise.resolve(null);
+        }
+        return FtpSource.list(account, path).then(function (result) {
+            let chain = Promise.resolve(null);
+            for (let i = 0; i < result.entries.length; i += 1) {
+                const entry = result.entries[i];
+                if (entry.isDir) {
+                    chain = chain.then(function () {
+                        return collect(entry.path, depth + 1);
+                    });
+                    continue;
+                }
+                const src = FtpSource.resourceIdOf(account, entry.path);
+                if (!src || seen[src]) {
+                    continue;
+                }
+                seen[src] = true;
+                files.push(entry);
+            }
+            return chain;
+        }, function () {
+            // 某个子目录读不了就跳过，别让整个分类打不开
+            return null;
+        });
+    }
+
+    return collect(root, 1).then(function () {
+        files.sort(function (a, b) {
+            const left = String(a.name).toLowerCase();
+            const right = String(b.name).toLowerCase();
+            return left < right ? -1 : (left > right ? 1 : 0);
+        });
+        const page = files.slice(offset, offset + limit);
+        const entries = [];
+        for (let i = 0; i < page.length; i += 1) {
+            entries.push(driveEntryOf(account, page[i]));
+        }
+        const next = (offset + limit < files.length) ? String(offset + limit) : "";
+        stats.browseCalls += 1;
+        stats.browseOk += 1;
+        return { ok: true, entries: entries, next: next, total: files.length };
     });
 });
 
