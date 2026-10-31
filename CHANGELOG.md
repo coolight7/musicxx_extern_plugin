@@ -32,9 +32,9 @@ TLS 握手失败等）的 `message` 里，系统给出的那半句以前是**本
   可以一套处理器按 `view` 分支，也可以给每个分类换自己的能力名。
 - `musicxx.source.undefine` 多一个 `view`：给了只撤这一个分类（类型声明不变），不给则连类型一起撤。
   应答多一个 `browseRemoved`。
-- `musicxx.ui.pickSongs` / `pickDir` / `browseDrive` 多一个 `view`（起始分类）；`pickSongs` / `pickDir`
-  的返回值多一个 `view`（用户最后停留的分类），`pickDir` 另给 `items: [{view, path}]`。
-  弹窗里切分类**不会丢掉已经勾选的条目**。
+- `musicxx.ui.pickSongs` / `pickDir` / `browseDrive` 多一个 `view`（浏览哪个分类，缺省第一个）；
+  `pickSongs` / `pickDir` 的返回值多一个 `view`（这次浏览的分类），`pickDir` 另给
+  `items: [{view, path}]`。挑歌 / 选目录弹窗一次只浏览一个分类，弹窗里不切换。
 - `musicxx.source.list` 的 `browse` 改成**按类型分组**（每组带 `entries`，一个分类一行）。
 - 每个分类**各自记住**用户选的排序方式与列表布局（重启后仍是各自的选择）。
 - 上限：一个类型最多 **32 个分类**；`view` 只允许 `a-z 0-9 _ -` 且 ≤ 32 字符。
