@@ -88,6 +88,7 @@ src  = <账号指纹>/<FTP 绝对路径去掉开头 />
 ```js
 // 一个类型可以声明多个分类（view）：界面上是可切换的一排 tab。
 // 本示例： 「文件夹」（完整能力）+ 「按名称」（自己换一个能力名，数据形状也不同）
+// view 只能小写字母 / 数字 / _ / -；能力名（capabilities 的值）随便取。
 musicxx.call("musicxx.source.browse", {
     id: TYPE_ID, view: "dir", title: "文件夹", order: 10, root: "/",
     icon: "resource/svg/ftp.svg", search: true, write: true,
@@ -95,7 +96,7 @@ musicxx.call("musicxx.source.browse", {
                     resolveSongs: "drive.resolveSongs" }
 });
 musicxx.call("musicxx.source.browse", {
-    id: TYPE_ID, view: "byName", title: "按名称", order: 20, root: "/",
+    id: TYPE_ID, view: "byname", title: "按名称", order: 20, root: "/",
     sort: ["name", "size"], download: false,
     capabilities: { list: "drive.list.byName" }   // 每个分类的能力名可以不同
 });

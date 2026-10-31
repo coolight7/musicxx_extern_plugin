@@ -882,6 +882,7 @@ const BY_NAME_MAX_DEPTH = 2;
 /// 这里声明两个分类，用两种写法：
 /// - 「文件夹」：一套完整能力（与内置网盘一样能建目录 / 重命名 / 删除 / 看信息）；
 /// - 「按名称」：**换自己的能力名**（`drive.list.byName`），把所有子目录里的歌摊平成一屏。
+/// `view` 只能小写（与音源类型 id 同一套字符规则），能力名不受这个限制。
 /// 分类不进音源身份：两边的歌 `src` 一样，播放 / 缓存 / 播放记录都是同一份。
 /// 声明跟着插件生命周期撤销，不写磁盘。
 musicxx.call("musicxx.source.browse", {
@@ -912,7 +913,7 @@ musicxx.call("musicxx.source.browse", {
 
 musicxx.call("musicxx.source.browse", {
     id: TYPE_ID,
-    view: "byName",
+    view: "byname",                    // 分类 id 只能小写字母 / 数字 / _ / -
     title: "按名称",
     order: 20,
     root: "/",
