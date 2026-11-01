@@ -308,6 +308,10 @@ MCP 客户端用 `musicxx-cli mcp`（stdio ↔ 本机 `/mcp` 的桥），工具�
 （MCP 工具全表、命令行命令全表、本机 HTTP 与 WebSocket 路由、权限边界）见
 `docs/musicxx-interfaces.md`。
 
+**用户那边没有命令行**：让他在 设置 → 界面 →「调用快捷链接」里粘一条 `musicxx://…` 链接就行
+（与点开 applink 同一份解析；装 / 卸插件会再弹一次确认）。远程协助、iOS / Android 上都是这一条；
+链接编码与注意事项见 `docs/plugin-agent-cli.md` §5.8，接口本体见 `docs/musicxx-interfaces.md` §1.1.1。
+
 ### 6.4 测试与检查（在包内跑）
 
 ```powershell
