@@ -155,6 +155,12 @@ inline constexpr const char* wsSend          = "ws.send";
 inline constexpr const char* wsPing          = "ws.ping";
 inline constexpr const char* wsClose         = "ws.close";
 inline constexpr const char* wsServerStop    = "ws.serverStop";
+inline constexpr const char* udpOpen         = "udp.open";
+inline constexpr const char* udpSend         = "udp.send";
+inline constexpr const char* udpJoin         = "udp.join";
+inline constexpr const char* udpLeave        = "udp.leave";
+inline constexpr const char* udpClose        = "udp.close";
+inline constexpr const char* udpInfo         = "udp.info";
 inline constexpr const char* info            = "net.info";
 } // namespace net_op
 

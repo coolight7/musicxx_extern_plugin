@@ -153,7 +153,7 @@ musicxx.capability.register("card", function () {
 | **播放内核信息** | 想知道"这个应用能播什么、过滤器能不能用"：mpv / ffmpeg 版本、能直接写进 `af` / `vf` 的名字、解码器（含硬件）、应用认得的音视频后缀。**按它判断，不要按上游 ffmpeg 文档假设**（应用内嵌的是裁剪过的 ffmpeg） | 动作 `musicxx.media.kernel`（`musicxx.media.kernel()`） | [plugin-api.md](plugin-api.md) §3.2.8 |
 | **自己的音源** | 插件带来的音乐来源：在歌曲里存成"类型 + 资源 id"（类型 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的标识 / 路径），播放时由你自己给出真正的播放地址与请求头；也能顺手给内置来源换地址（代理 / 换 CDN） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/list` | [plugin-api.md](plugin-api.md) §8.6 |
 | **存储** | 插件私有 KV 与用户可见配置（`config.json`） | `musicxx.storage.*` | [plugin-api.md](plugin-api.md) §3.2.5（本文 §5.6 是注意事项） |
-| **网络** | 取数据、下载文件、自己起 HTTP/TCP/WebSocket 服务 | `musicxx.net.*` | [plugin-api.md](plugin-api.md) §3.2.6 |
+| **网络** | 取数据、下载文件、自己起 HTTP/TCP/WebSocket 服务、UDP 广播 / 组播 | `musicxx.net.*` | [plugin-api.md](plugin-api.md) §3.2.6 |
 | **定时器 / 统计** | 后台任务；读自己的运行统计、自报指标 | `musicxx.timer.*` / `musicxx.stats.*` | [plugin-js-api.md](plugin-js-api.md) §13 / [plugin-api.md](plugin-api.md) §3.2.14 |
 
 ---
@@ -257,13 +257,15 @@ musicxx.capability.register("card", function () {
 - **网络能力全部由插件框架自己实现**（不再经过主程序动作）：`musicxx.net.fetch` / `download`
   就是 `http.fetch` / `http.download`，客户端支持 `http://` 与 `https://`（OpenSSL 静态链接，
   证书链与主机名校验默认开，`tlsVerify` / `caFile` / `caPem` / `serverName` 可调）；
-- **非 2xx 也按请求完成返回**（看 `status` 自己判断）；响应体读到上限会断开并标 `truncated`；
+- **非 2xx 也按请求完成返回**（看 `status` 自己判断）；`maxBytes` 缺省不限制，自己给了上限时
+  读满会断开并标 `truncated`；超时（`timeoutMs`，缺省 15000，`<=0` = 不设）与大小都不再夹区间；
   只有传输失败 / TLS 失败 / 超时才 `ok:false`；
 - 下载只落在插件自己的数据目录里，正文边读边写（不进内存）；框架不限定可访问域名。
-- **要自己起服务 / 用 TCP / 用 WebSocket**：用同一套的 `musicxx.net.http/socket/ws`
-  （JS 与动态库插件共用，见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」）。记住三条：
+- **要自己起服务 / 用 TCP / WebSocket / UDP**：用同一套的 `musicxx.net.http/socket/ws/udp`
+  （JS 与动态库插件共用，见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」）。记住四条：
   客户端支持 `https` / `wss` 但**服务端只监听明文**、服务端默认只监听 `127.0.0.1`、
-  服务与连接跟着插件实例关掉。示例：`plugins/example_js_net`。
+  **UDP 可广播与组播**（建好就带 `SO_BROADCAST`，组播用 `multicast` / `udp.join`）、
+  服务与通道跟着插件实例关掉。示例：`plugins/example_js_net`。
 
 ### 5.8 平台
 

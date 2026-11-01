@@ -369,7 +369,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
-| `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent(fn)` `http.*` `socket.*` `ws.*`（见 §7.3.1） |
+| `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
 | `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)` `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`，没有单独封装） |
@@ -412,7 +412,8 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 const resp = await musicxx.net.fetch({
     url: "https://api.example.com/items?page=1",
     responseType: "json",             // text（缺省）/ json / bytes
-    timeoutMs: 15000,                 // 1000 ~ 60000（缺省 15000）
+    timeoutMs: 15000,                 // 缺省 15000；<= 0 = 不设超时（不限范围）
+    maxBytes: 0,                      // 缺省 0 = 不限制（自己给上限时读满就断开并标 truncated）
 });
 // resp = { ok, status, url, headers, contentType,
 //          body | bodyBase64, bodyBytes, receivedBytes, contentLength, truncated }
@@ -420,7 +421,9 @@ const resp = await musicxx.net.fetch({
 
 - **非 2xx 也按"请求完成"返回**（`ok:true` + `status`），只有传输失败 / 超时才 `ok:false`；
 - `responseType:"json"` 目前也给文本（自己 `JSON.parse`）；要原始字节用 `"bytes"`（给 `bodyBase64`）；
-- JS 封装会把动作超时放宽到 `timeoutMs + 5000`，所以 HTTP 超时不会被动作超时先打断。
+- 方法与大小都不设白名单：`method` 只挡会让请求行出错的字符；
+- 这条路走**插件框架自己**的网络实现，不受主程序动作超时影响；如果改用动作通道
+  （`musicxx.call("musicxx.net.fetch", …)`），记得自己给够 `timeoutMs` —— 动作缺省只有 5 秒。
 
 ```js
 const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a.mp3" });
@@ -472,9 +475,9 @@ musicxx.net.http.info();                                     // 每个服务带 
   "整个插件就是一个音源"（账号、目录浏览、加歌、播放全链路）的例子看
   `plugins/example_ftp_source`（FTP：本机 HTTP 转流 + `socket.pause` 背压）。
 
-#### 内置网络能力（`musicxx.net.http / socket / ws`）
+#### 内置网络能力（`musicxx.net.http / socket / ws / udp`）
 
-插件框架自己实现的 socket 能力（不走主程序，支持 HTTP / TCP / WebSocket 的客户端**与服务端**）。
+插件框架自己实现的 socket 能力（不走主程序，支持 HTTP / TCP / WebSocket / UDP 的客户端**与服务端**）。
 参数、事件字段、上限与错误码见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
 
 ```js
@@ -514,6 +517,16 @@ musicxx.net.ws.on("message", (e) => {
 const wsServer = musicxx.net.ws.listen({ port: 0, path: "/chat" });
 musicxx.net.ws.connect("ws://127.0.0.1:" + wsServer.port + "/chat", { id: "w1" });
 musicxx.net.ws.send("w1", "ping");
+
+/* UDP（广播 / 组播 / 单播） */
+musicxx.net.udp.on("message", (e) => {
+    console.log("UDP 来自", e.host, e.port, e.text || e.dataBase64);
+});
+const udp = musicxx.net.udp.open({ port: 45678 });                  // 0.0.0.0:45678，可收广播
+musicxx.net.udp.send({ id: udp.id, host: "255.255.255.255", port: 45678, data: "hello" });
+const mc = musicxx.net.udp.open({ port: 37020, multicast: ["239.255.42.99"] }); // 组播
+musicxx.net.udp.join(udp.id, "239.255.42.99");                     // 运行期再加一组
+musicxx.net.udp.close(udp.id);
 ```
 
 订阅方式（三种等价粒度，均可叠加）：
@@ -521,8 +534,8 @@ musicxx.net.ws.send("w1", "ping");
 | 写法 | 收到的 kind |
 |---|---|
 | `musicxx.net.on(fn)` | 全部（自己按 `kind` 过滤） |
-| `musicxx.net.onHttpRequest(fn)` / `onSocketEvent(fn)` / `onWsEvent(fn)` | 按协议前缀 |
-| `musicxx.net.http.on("request", fn)` / `socket.on("data", fn)` / `ws.on("message", fn)` | 按具体 kind（不写 `.` 时自动补协议前缀） |
+| `musicxx.net.onHttpRequest(fn)` / `onSocketEvent(fn)` / `onWsEvent(fn)` / `onUdpEvent(fn)` | 按协议前缀 |
+| `musicxx.net.http.on("request", fn)` / `socket.on("data", fn)` / `ws.on("message", fn)` / `udp.on("message", fn)` | 按具体 kind（不写 `.` 时自动补协议前缀） |
 
 要知道的几点：
 
@@ -533,6 +546,8 @@ musicxx.net.ws.send("w1", "ping");
   **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。所有平台的插件框架都带 TLS
   （`musicxx.net.info().tls` 恒为 `true`）。
 - **服务端默认只监听 `127.0.0.1`**；`host: "0.0.0.0"` 才会暴露给同网段。
+- **UDP 建好就带 `SO_BROADCAST`**（可直接发 `255.255.255.255` / 子网广播地址），组播用 `multicast`
+  或 `udp.join` / `udp.leave`；`reuseAddress` 缺省开（组播 / 多实例监听同一端口要用）。
 - **HTTP 请求必须回答**：收到 `http.request` 后不调 `http.respond`，框架会在 `requestTimeoutMs`
   （缺省 30 s）后回 504 并关连接。
 - **二进制**统一用 `dataBase64`；文本帧 / 合法 UTF-8 的 TCP 字节额外给 `text`。
@@ -799,7 +814,7 @@ const palette = await musicxx.media.palette();     // 需要强制刷新时传 {
 //   raw: { main, light, lightMuted, dark, darkMuted, dominant:[...] },   // 颜色为 "#rrggbbaa"
 //   background: ["#rrggbbaa", ...] }                                     // 4 个绘制色
 
-// 封面字节（自己要分析像素时用）：size 16..512，format = jpeg(默认) / png / rgba
+// 封面字节（自己要分析像素时用）：size 16..1024，format = jpeg(默认) / png / rgba
 const cover = await musicxx.media.cover({ size: 96, format: "png", includePath: true });
 // { ok, srcKey, kind:"local"|"cache"|"content"|"asset"|"network", path?, width, height,
 //   format, bytes, sha256, data(base64), fromCache }

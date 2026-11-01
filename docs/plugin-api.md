@@ -341,7 +341,7 @@ requestAction("musicxx.library.querySonglists", "{}", &notify, 5000);
 {
   "pid": 123,                 // 必填：目标歌单（本地歌单 / 自己的在线歌单 / “我喜欢”都行）
   "dedup": true,              // 可选，缺省 true：同一首歌已经在歌单里就跳过
-  "songs": [                  // 1 ~ 200 首；只有一首时也可以写 "song": {...}
+  "songs": [                  // 首数不限（早期版本的 200 首上限已移除）；只有一首时也可以写 "song": {...}
     {
       "type": "plugin.example_ftp_source.audio",  // 必填：必须是调用方自己的音源类型
       "src": "3f9c1d7b/Music/a.flac",              // 必填：插件自己的资源 id
@@ -400,7 +400,7 @@ const line = lrc.lines[Math.min(lrc.index, lrc.lines.length - 1)];
 | `musicxx.ui.toast` | `{text}` | `{ok:true}` | 轻提示（更轻，不记日志） |
 | `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
 | `musicxx.ui.overlay.show` | `{preset?, id?, title?, depict?, blocks?, options?, value?, textConfirm?, textCancel?, size?, dismissible?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。参数与返回见 §3.2.4.1 |
-| `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 收起这个插件当前那一层浮层（给了 `id` 就只关名字对得上的那一层；没开着的浮层时 `closed:false`） |
+| `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 关这个插件**最上面那一层**浮层（给了 `id` 就关最上面那个名字对得上的层；没有开着的浮层时 `closed:false`） |
 | `musicxx.ui.openOverlaySheet` | `{route, title?, arguments?}` | `{ok, reason, title?}` | 把**插件视图**打开成一层浮层，等用户关掉它。与 `overlay.show` 的区别：内容是插件视图，浮层里的动作能返回 `{"view": …}` 刷新内容（翻目录 / 改选择）。参数见 §3.2.4.2；入口项里的常见写法也是它 |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` | 打开插件页面或官方页面，规则见下 |
 
@@ -461,14 +461,15 @@ requestAction("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 
 |---|---|
 | 点了 `textConfirm` 的按钮 | `{ok:true, reason:"confirmed", value?}` |
 | 点了 `textCancel` 的按钮 | `{ok:true, reason:"cancelled"}` |
-| 点关闭 / 点遮罩 / 返回键 / 被程序关掉（新浮层顶掉、插件卸载、插件页面退出） | `{ok:true, reason:"closed"}` |
+| 点关闭 / 点遮罩 / 返回键 / 被程序关掉（插件卸载、插件页面退出） | `{ok:true, reason:"closed"}` |
 | `preset: picker` 选中一项 | `{ok:true, selected:<该项的 value>}` |
 | `preset: picker` 取消 / 关掉 | `{ok:true, cancelled:true}` |
 | 参数不全（`custom` 没给 `blocks`、`picker` 没给 `options`） | `{ok:false, error}` |
 
 规则：
 
-- **每个插件同时最多一层**：再打开会先关掉旧的（旧的回 `reason:"closed"`，不会一直等）；
+- **一个插件可以同时开多层**：后开的盖在上面（不限制层数）；`musicxx.ui.overlay.close` 不点名时关
+  **最上面那一层**，给了 `id` 就关最上面那个名字对得上的层（被盖住的层也能关，不会误关别的层）；
 - 浮层里的按钮动作**不会自动关闭浮层**：插件可以返回 `{"view": …}` 让浮层换一份内容（做"浮层里翻页 / 刷新"），
   要关就自己调 `musicxx.ui.overlay.close`；`textConfirm` 那个按钮一定关闭；
 - `preset: picker` 只做**单选**：点一项就关闭并返回该项的值（需要多选就在自己的 `blocks` 里放 `Control(checkbox)`）；
@@ -602,19 +603,19 @@ OpenSSL 版本。所以 `https` 失败只剩真正的原因：`tls_config`（`ca
 | 接口（JS） | 内部 op | 参数 | 返回 |
 |---|---|---|---|
 | `musicxx.net.fetch` / `http.fetch` | `http.fetch` | `{url, method?, headers?, body?, timeoutMs?, responseType?, maxBytes?, tlsVerify?, caFile?, caPem?, serverName?}` | 见下 |
-| `musicxx.net.download` / `http.download` | `http.download` | `{url, fileName?, headers?, timeoutMs?, tlsVerify?, caFile?, caPem?, serverName?}`（只支持 `GET`） | `{ok, status, path, bytes}` |
+| `musicxx.net.download` / `http.download` | `http.download` | `{url, fileName?, headers?, method?, timeoutMs?, tlsVerify?, caFile?, caPem?, serverName?}` | `{ok, status, path, bytes}` |
 
 `fetch` 参数与限制：
 
 | 参数 | 取值 | 缺省 |
 |---|---|---|
 | `url` | `http` / `https`，必须有主机名 | 必填 |
-| `method` | `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`（大小写不敏感） | `GET` |
+| `method` | 任意合法 HTTP 方法名（大小写不敏感；不再只限常见的六个） | `GET` |
 | `headers` | 对象；键必须是合法 HTTP 头名（可见 ASCII、不含 `:`），值会转成字符串 | 空 |
 | `body` | 对象/数组 → 自动 JSON 编码；字符串原样发送 | 空 |
-| `timeoutMs` | 1000 ~ 120000 | 15000 |
+| `timeoutMs` | **不限范围**：缺省 15000；`<= 0` = 不设超时 | 15000 |
 | `responseType` | `text` / `json` / `bytes`（`json` 也按文本给，自己 `JSON.parse`；`bytes` 给 `bodyBase64`） | `text` |
-| `maxBytes` | 1024 ~ 16777216（16 MiB）；读满就断开并标 `truncated` | 2 MiB |
+| `maxBytes` | **不限范围，缺省不限制**；自己给一个上限时读满就断开并标 `truncated` | 不限制 |
 | `tlsVerify` | 是否校验证书链与主机名；**只在自签名/调试时关** | `true` |
 | `caFile` / `caPem` | 额外信任的 CA（文件路径 / PEM 内容）；是**追加**信任，不替换系统根证书 | 空 |
 | `serverName` | 覆盖 SNI 与主机名校验用的名字（IP 访问、把域名解析到本机调试时用） | 空（用 url 里的主机名） |
@@ -633,7 +634,8 @@ OpenSSL 版本。所以 `https` 失败只剩真正的原因：`tls_config`（`ca
 
 - **非 2xx 也按"请求完成"返回**（`ok:true` + `status`），状态码交给插件判断；
   只有传输失败 / TLS 失败 / 超时才 `ok:false`。
-- 响应体是**流式读取**的：读满 `maxBytes` 就断开连接并置 `truncated:true`，不会把整份响应吃进内存。
+- 响应体是**流式读取**的：给了 `maxBytes` 且读满就断开连接并置 `truncated:true`；
+  不给 `maxBytes` = 整份读到内存（大文件用 `download`，它边读边写盘）。
 - **信任库**：系统根证书（Windows 读系统证书库，Linux/macOS/Android 读常见 bundle 与证书目录）
   始终参与校验；`caFile` / `caPem` 是在此基础上追加。自签名的自建服务要么把它自己的 CA
   通过 `caPem` 给进来，要么 `tlsVerify:false`（生产环境不要这么干）。
@@ -764,20 +766,21 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 
 能力上限（超过按可读错误返回，不排队）：每个插件同类服务 ≤ 8、连接 ≤ 64、同时进行的 HTTP 客户端
 请求 ≤ 16、单个 HTTP 服务等回答的请求 ≤ 64、HTTP 正文 ≤ 8 MiB、WebSocket 单条消息 ≤ 8 MiB、
-单条连接发送队列 ≤ 4 MiB。
+单条连接发送队列 ≤ 4 MiB、UDP 通道 ≤ 32。HTTP **客户端**的 `timeoutMs` / `maxBytes` 不设上限
+（见下一张表）。
 
 **HTTP 客户端**（`http.request`）参数：
 
 | 参数 | 说明 |
 |---|---|
 | `url` | 必填，`http://host[:port]/path?query` 或 `https://…` |
-| `method` | `GET`（缺省）/ `POST` / `PUT` / `PATCH` / `DELETE` / `HEAD` |
+| `method` | 任意合法方法名（缺省 `GET`；不再限白名单，只要求是合法的请求方法符号） |
 | `headers` | 对象；`Content-Length` / `Connection` / `Transfer-Encoding` 由框架生成，写了也被忽略 |
 | `body` | 字符串正文 |
 | `bodyBase64` | 二进制正文（与 `body` 二选一） |
 | `json` | 任意 JSON：自动序列化并补 `Content-Type: application/json` |
-| `timeoutMs` | 1000 ~ 120000，缺省 15000（整次请求，含解析、连接与 TLS 握手） |
-| `maxBytes` | 正文上限 1024 ~ 16 MiB，缺省 8 MiB；读满就断开并标 `truncated:true` |
+| `timeoutMs` | **不限范围**，缺省 15000（整次请求，含解析、连接与 TLS 握手）；`<= 0` = 不设超时 |
+| `maxBytes` | **不限范围，缺省不限制**（正文全读进内存）；自己给了上限时读满就断开并标 `truncated:true`；大文件用 `http.download` |
 | `followRedirects` | 缺省 `true`（301/302/303/307/308） |
 | `maxRedirects` | 0 ~ 5，缺省 3 |
 | `tlsVerify` | https 时是否校验证书链与主机名，缺省 `true` |
@@ -851,6 +854,47 @@ musicxx.net.socket.pause(upstreamId, false);
 `serverName`）。握手、掩码、分片、`ping`/`pong` 与关闭握手都由框架处理；
 文本帧给 `text`，二进制帧给 `dataBase64`；`ws.close` 带 `code` / `reason` / `by`。
 
+**UDP（广播 / 组播 / 单播）**：JS 与动态库插件共用同一套通道。
+
+| 接口（JS） | 内部 op | 参数 | 返回 |
+|---|---|---|---|
+| `musicxx.net.udp.open(options)` | `udp.open` | `{id?, host?, port?, multicast?: "239.1.2.3" \| ["239.1.2.3"], reuseAddress?=true}` | `{ok, id, host, port, multicast}` |
+| `musicxx.net.udp.send(options)` | `udp.send` | `{id, host\|"address"\|"to", port?, data?\|text?\|dataBase64?}` | `{ok, id, host, port, bytes}` |
+| `musicxx.net.udp.join(id, group)` / `.leave` | `udp.join` / `udp.leave` | `{id, group}` | `{ok, id, group, multicast}` |
+| `musicxx.net.udp.close(id)` | `udp.close` | `{id}` | `{ok, id}` |
+| `musicxx.net.udp.info()` | `udp.info` | — | `{ok, channels:[{plugin, id, host, port, multicast, receivedPackets, receivedBytes, sentPackets, sentBytes}]}` |
+| `musicxx.net.udp.on("message"\|"open"\|"closed", fn)` / `.onMessage(fn)` | — | — | 同 `musicxx.net` |
+
+- `host` 缺省 `0.0.0.0`（收广播 / 组播就用它，单播也能收到），`port: 0` = 系统分配（结果里回填实际端口）。
+- **广播**：通道建好就打开了 `SO_BROADCAST`，直接 `send({host:"255.255.255.255"})` 或子网广播地址
+  （`192.168.1.255`）就行，不需要额外声明。
+- **组播**：建通道时在 `multicast` 里声明，或运行期 `udp.join` / `udp.leave`；
+  组播地址必须是合法的组播 IP，否则报 `bad_group`。收组播一般绑定 `0.0.0.0:端口`。
+- `reuseAddress` 缺省开（组播 / 多进程监听同一端口要用）；不要时写 `false`。
+- **单包容积**：UDP 本身的上限约 64 KiB，超过由系统报错（框架不拆分、不分片）。
+- 收包事件：`{kind:"udp.message", id, host, port, bytes, dataBase64, text?, data?}`
+  （`text` / `data` 只在合法 UTF-8 时给）。
+- 通道跟着插件实例：停用 / 卸载 / 关『拟声++』/ 插件框架停机时一起关掉（端口释放）。
+
+```js
+// 局域网发现：开一个通道收广播，再广播一次自己
+musicxx.net.udp.on("message", (ev) => {
+    console.log("来自", ev.host, ev.port, ev.text);
+});
+const ch = musicxx.net.udp.open({ port: 45678 });   // 0.0.0.0:45678，可收广播
+musicxx.net.udp.send({ id: ch.id, host: "255.255.255.255", port: 45678, data: "musicxx:hello" });
+
+// 组播：加入一个组，收别的设备发的包
+const mc = musicxx.net.udp.open({ port: 37020, multicast: ["239.255.42.99"] });
+```
+
+```cpp
+// 动态库插件：同一套 op（收发都不需要额外集成）
+std::string out;
+netCall(musicxx::plugin::net_op::udpOpen, R"({"port":45678})", out);
+netCall(musicxx::plugin::net_op::udpSend, R"({"id":"udp1","host":"255.255.255.255","port":45678,"data":"hi"})", out);
+```
+
 **事件一览**（都在主题 `plugin.<插件id>.net`，载荷带 `kind`）：
 
 | kind | 关键字段 |
@@ -868,6 +912,9 @@ musicxx.net.socket.pause(upstreamId, false);
 | `ws.message` | `id, serverId?, binary, text?, dataBase64, bytes` |
 | `ws.pong` | `id, serverId?, bytes` |
 | `ws.close` | `id, serverId?, by, code?, reason?, error?` |
+| `udp.open` | `id, host, port` |
+| `udp.message` | `id, host, port, bytes, dataBase64, text?` |
+| `udp.closed` | `id, reason`（`local_close` / `plugin_unloaded`） |
 
 ```js
 // JS：起 HTTP 服务，回答请求
@@ -885,10 +932,10 @@ netCall(musicxx::plugin::net_op::httpServe, R"({"port":0})", out);
 netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 ```
 
-**跟着插件实例走**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时，该插件的服务、连接与未完成的
-请求一起关掉（端口释放）。完整示例：`plugins/example_js_net`（六种角色一次跑完，载入后自动自检）。
-旧插件框架没有这套能力：JS 先看 `typeof musicxx.net.http === "object"`，动态库插件看
-`pluginxx::queryInterface<MusicxxPluginNetIface>(...)` 是否为 `nullptr`。
+**跟着插件实例走**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时，该插件的服务、连接、UDP 通道与
+未完成的请求一起关掉（端口释放）。完整示例：`plugins/example_js_net`（HTTP / TCP / WebSocket / UDP
+一次跑完，载入后自动自检）。旧插件框架没有这套能力：JS 先看 `typeof musicxx.net.http === "object"`，
+动态库插件看 `pluginxx::queryInterface<MusicxxPluginNetIface>(...)` 是否为 `nullptr`。
 
 #### 3.2.7 渲染槽位（`musicxx.render.*`）
 
@@ -942,8 +989,8 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 我在�
 **`musicxx.media.cover`** —— 当前封面的字节（自己要分析像素时用）
 
 - 参数：`{size?=96, format?="jpeg", includePath?, bind?}`：
-  - `size` 16~512（最长边等比缩放，超出会被钳到范围内）；
-  - `format` = `jpeg`（缺省，质量 88）/ `png` / `rgba`（未压缩，有体积上限）；
+  - `size` 16~1024（最长边等比缩放，超出会被钳到范围内）；
+  - `format` = `jpeg`（缺省，质量 88）/ `png` / `rgba`（未压缩，字节数必然 ≤ `size × size × 4`，最大一档 4 MiB）；
   - `includePath` = 是否返回本地路径（只有本地 / 缓存来源有路径）；
   - `bind` = 把这次解码的像素**同时绑成纹理**，用这个键登记进插件图像表（渲染项用 `image` 引用它，
     复用同一次解码，不重复解码）。
@@ -1049,8 +1096,11 @@ const hw = info.kernel.decoders.filter((d) => d.hardware).map((d) => d.driver);
 | `musicxx.ui.getFontFamily` | 无 | `{ok:true, fontFamily, defaultFontFamily, customFontFamily, isCustom, ownerPluginId}` |
 | `musicxx.ui.loadFont` | `{family, path?\|data?, apply?=true}` | `{ok:true, family, applied, fontFamily}` |
 
-- `loadFont` 的 `path` 是**相对插件目录**的字体文件路径（不能逃出插件目录），`data` 是 base64 字体字节，
-  两者给一个；`apply` 为真时加载完立刻设为全局字体。字体文件上限 100 MiB。
+- `loadFont` 的 `path` 是**任意可读的文件路径**：绝对路径（`C:\…` / `/…`）、`file://` 链接、
+  `~/…`（当前用户目录）都直接使用，相对路径按**插件目录**解析（随包分发字体就写相对路径）。
+  框架不限制插件能读哪个文件（动态库插件与主程序同进程，本来就能读写整台机器的文件）。
+  `path` 与 `data`（base64 字体字节）给一个即可；`apply` 为真时加载完立刻设为全局字体。
+  字体文件不限大小（早期版本的 100 MiB 上限已移除）。
 - **换字体会重建整棵界面，动作本身可能耗时几百毫秒到几秒**：
   在声明式页面的按钮处理器里调用时必须"发出去就返回"（`.then` 收尾），
   `await` 它会与同步进插件框架的调用方互相等到超时（见 [plugin-ui.md](plugin-ui.md) §4.1）。
@@ -1058,6 +1108,7 @@ const hw = info.kernel.decoders.filter((d) => d.hardware).map((d) => d.driver);
 ```js
 await musicxx.ui.setFontFamily({ fontFamily: "我的字体" });
 await musicxx.ui.loadFont({ family: "我的字体", path: "resource/font/my.ttf" });
+await musicxx.ui.loadFont({ family: "我的字体", path: "C:/Windows/Fonts/msyh.ttc" }); // 任意路径都行
 await musicxx.ui.setFontFamily({ fontFamily: "default" });     // 恢复
 ```
 
@@ -1317,12 +1368,12 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 | 参数 | 必填 | 说明 |
 |---|---|---|
 | `id` | 是 | 音源类型 id，必须形如 `plugin.<自己的插件 id>.<类型名>` |
-| `view` | — | **分类 id**：只允许 `a-z 0-9 _ -`，≤ 32 字符，缺省 `default`；同一类型内唯一 |
-| `title` | — | 分类名（界面上的 tab 文字，缺省用 `view`），上限 120 字符 |
+| `view` | — | **分类 id**：只允许 `a-z 0-9 _ -`，缺省 `default`；同一类型内唯一 |
+| `title` | — | 分类名（界面上的 tab 文字，缺省用 `view`） |
 | `icon` | — | 分类图标（**相对插件目录**的 svg，写法与 UI 项一致）；用在「添加歌曲」那一行 |
 | `order` | — | 同一类型内的顺序（升序，缺省 0；同值按声明顺序） |
-| `root` | — | 这个分类的根标识，缺省 `/`，上限 1024；应用只当字符串传回来 |
-| `pageSize` | — | 建议一页多少条（1~1000，缺省 100） |
+| `root` | — | 这个分类的根标识，缺省 `/`；应用只当字符串传回来 |
+| `pageSize` | — | 建议一页多少条（只要大于 0，不再有上限；缺省 100） |
 | `sort` | — | 这个分类允许的排序方式，缺省 `["name","size","createdTime","changedTime"]`；`[]` = 不要排序按钮 |
 | `indexBar` | — | 是否给字母索引栅（歌手 / 专辑这类列表用），缺省 false |
 | `write` | — | 允许新建目录 / 重命名 / 删除（缺省 false，那三个入口不出现） |
@@ -1333,7 +1384,7 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 
 - 应答：`{ok:true, type, view, title, root}`；不合法是 `{ok:false, error:"一句能看懂的原因"}`。
 - 同一个 `(id, view)` 再声明一次 = 覆盖（tab 位置不变），不同 `view` = 追加；
-  **一个类型最多 32 个分类**。
+  **分类数量不限、`view` / `title` / `root` / `icon` 也不限长度**（`view` 仍只能用 `a-z 0-9 _ -`）。
 - `sort` 只能是 `name` / `size` / `createdTime` / `changedTime` / `artist` / `album` /
   `duration` / `songCount`；写别的会被拒（不会静默忽略）。
 - 允许两个分类共用同一个 `root` 与同一套能力名（技术上没问题，只是两个 tab 看起来一样）。
@@ -1364,8 +1415,9 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 - **排序**：`sort` 的取值见上面的声明列表，`reverse` 是布尔。插件排不了就忽略；应用拿到后仍会
   本地再排一次（与内置网盘一致）。每个分类**各自记住**用户选的排序方式（重启后仍是各自
   的选择），所以「歌手」按名称、「歌曲」按添加时间互不影响。
-- **条目**：`path` 必填（空的那一条会被丢掉），`name` / `artist` / `fileName` ≤ 1 KiB、
-  `cover` ≤ 2 KiB；同一页里重复的 `path` / `song.src` 只留第一条。目录项不要给 `song`。
+- **条目**：`path` 必填（空的那一条会被丢掉）；`name` / `artist` / `fileName` / `cover` 都**不限长度**
+  （早期版本的 1 KiB / 2 KiB 截断已移除）；同一页里重复的 `path` / `song.src` 只留第一条。
+  目录项不要给 `song`。
 - **歌曲**：`song` 里 `type` 省略时用这个来源自己的类型；`src` 必填（插件自己的资源 id，
   播放时由 `musicxx.player.source.resolve` 换地址）；`cover` 可以是 `http` 链接或**相对插件
   目录**的路径；只给 `fileName` 时应用按文件名拆歌名与歌手（与本地扫描同一套规则）。
@@ -1378,9 +1430,8 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
   成地址再取字节"），所以不实现解析的插件既放不了也下不了。条目没给 `cover` 时，歌单里那一行
   要等这首歌**播过一次**（应用按音源身份把封面存进图片缓存，键是
   `md5(类型 + 资源 id)`）之后才显示封面。
-- **限制**：整目录递归最多 5 层；`drive.resolveSongs` 一次最多 5000 首（超出请自己截断并
-  设 `truncated: true`）；同一个插件的同名能力应用会串行调用（最多排 2 条），多个分类共用
-  同一个排队队列，不要在处理器里长时间阻塞。
+- **限制**：整目录递归最多 5 层；`drive.resolveSongs` 返回多少首就收多少（不再有上限）；同一个插件的
+  同名能力应用会串行调用（最多排 2 条），多个分类共用同一个排队队列，不要在处理器里长时间阻塞。
 
 宿主 UI 动作（插件自己的界面里想让应用开挑歌弹窗时用）：
 
@@ -2130,11 +2181,18 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | `musicxx.storage.list` | 每次最多 500 个键 |
 | 变量数量 / 键长 / 值大小 / 订阅数 | 不限制 |
 | 变量读 / 写未回执 | 各 ≤ 32 条；读超时 2 s、写 3 s（应用键 5 s） |
-| `musicxx.net.fetch` / `download` | 超时 1~60 s、`maxBytes` 1 KiB~16 MiB |
-| `musicxx.media.cover` | `size` 16~512、`rgba` 有体积上限、结果缓存 16 条 |
+| `musicxx.net.fetch` / `download` | **超时与大小不限制**（`timeoutMs` 缺省 15000、`<=0` = 不设；`maxBytes` 缺省不限制）；方法名不限白名单，只要合法 |
+| `musicxx.media.cover` | `size` 16~1024（`format:"rgba"` 的字节数 ≤ `size×size×4`，最大一档 4 MiB）、结果缓存 16 条 |
 | 静态路由（`http.serve({static})` / `http.route`） | 单条内存内容 ≤ 8 MiB；每个服务 ≤ 1024 条；服务 ≤ 8；连接 ≤ 64；只监听 127.0.0.1 |
-| `musicxx.media.bindImage` | 键 1~64 位 `[A-Za-z0-9_.-]`、每插件张数有上限、最长边有上限 |
-| `musicxx.ui.loadFont` | 字体文件 ≤ 100 MiB |
+| UDP 通道（`musicxx.net.udp.*`） | 每插件 ≤ 32 条；单包受系统 UDP 上限（约 64 KiB）约束 |
+| `musicxx.media.bindImage` | 键 1~64 位 `[A-Za-z0-9_.-]`；**张数与尺寸都不限制**（`format: "rgba"` 仍要高宽与字节数匹配） |
+| `musicxx.ui.loadFont` | 字体文件**不限大小**；`path` 不限范围（绝对路径 / `file://` / `~` / 相对插件目录） |
+| `musicxx.playlist.addSong` | 一次首数与字段长度都**不限制** |
+| 插件网盘声明（`musicxx.source.browse`） | 分类数量、标题 / 根目录 / 图标 / 能力名的长度、页大小（>0 即可）、`resolveSongs` 首数、条目文本长度都**不限制** |
+| 插件浮层（`musicxx.ui.overlay.*`） | **层数不限制**（一个插件可以同时开多层，`overlay.close` 关最上面那层） |
+| 安装包解包 | 大小 / 条目数 / 解包体积都**不限制**；仍拒绝绝对路径 / `..` 逃逸 / 符号链接 / 非普通文件 / 大小写重名 |
+| 界面动画（`musicxx.AnimatedBuilder`） | 通道数量与 `maxFps` 都**不限制**（`maxFps` 缺省 30；`<=0` 用缺省） |
+| 渲染帧率（`maxFps`） | 不限上限（缺省 16，`<=0` 用缺省）；`resolutionScale` 仍夹 0.25~1、渲染目标最长边 1280 |
 | 性能 / 内存 / 网络 | 插件框架不做限制（插件的内存、耗时、数量都不设上限；自己别把应用拖死） |
 
 ### 11.3 超时一览

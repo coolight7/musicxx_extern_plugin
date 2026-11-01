@@ -28,7 +28,9 @@
 #include <asio/error.hpp>
 #include <asio/io_context.hpp>
 #include <asio/ip/address.hpp>
+#include <asio/ip/multicast.hpp>
 #include <asio/ip/tcp.hpp>
+#include <asio/ip/udp.hpp>
 #include <asio/post.hpp>
 #include <asio/read.hpp>
 #include <asio/steady_timer.hpp>
@@ -43,6 +45,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -86,6 +89,10 @@ constexpr size_t kMaxStaticFileName = 120;
 constexpr int32_t kMaxServersPerKind = 8;
 /// 每个插件最多几条连接 (客户端 + 服务端)
 constexpr size_t kMaxConnectionsPerPlugin = 64;
+/// 每个插件最多几个 UDP 通道 (每个通道一个 socket, 防止把进程 fd 用完)
+constexpr size_t kMaxUdpChannelsPerPlugin = 32;
+/// UDP 单包接收缓冲 (UDP 最大载荷 65507, 多留一点)
+constexpr size_t kUdpReadBuffer = 65536;
 /// 每个插件同时进行的 HTTP 客户端请求
 constexpr size_t kMaxHttpClientsPerPlugin = 16;
 /// 每个 HTTP 服务同时等待插件回答的请求
@@ -863,7 +870,8 @@ public:
   void init(Mode mode, int64_t length, int64_t maxBytes) {
     mode_ = mode;
     remaining_ = length;
-    maxBytes_ = maxBytes > 0 ? maxBytes : kMaxHttpBody;
+    // `maxBytes <= 0` = 不限制（插件自己决定要不要给上限）
+    maxBytes_ = maxBytes > 0 ? maxBytes : (std::numeric_limits<int64_t>::max)();
     done_ = mode == Mode::None || (mode == Mode::Length && length <= 0);
     truncated_ = false;
     body_.clear();
@@ -1106,6 +1114,7 @@ struct HttpClient;
 struct HttpServerStream;
 struct TcpStream;
 struct WsStream;
+struct UdpChannel;
 
 /// HTTP 客户端的三处用法: 同一个实现, 结果 JSON 的字段不同
 ///   Request  = `http.request` (原始响应: 正文 + headers)
@@ -1166,6 +1175,9 @@ struct PluginNetHub::Impl : std::enable_shared_from_this<PluginNetHub::Impl> {
 
   std::map<std::string, std::shared_ptr<Server>> servers; ///< plugin|kind|id
   std::map<std::string, std::shared_ptr<Stream>> conns;   ///< plugin|id
+
+  /// UDP 通道 (广播 / 组播 / 单播都走它; 一个通道 = 一个 socket)
+  std::map<std::string, std::shared_ptr<UdpChannel>> udpChannels; ///< plugin|id
 
   /// 等待插件回答的 HTTP 请求
   struct PendingHttp {
@@ -1318,6 +1330,31 @@ struct PluginNetHub::Impl : std::enable_shared_from_this<PluginNetHub::Impl> {
   void closeConn(const std::string &plugin, const std::string &id, Json &out);
   void sendConn(const std::string &plugin, const Json &args, Json &out);
   std::string infoJsonOnThread(const std::string &plugin, bool allPlugins);
+
+  /* ---------- UDP 通道 (网络线程) ---------- */
+
+  /// `udp.open`: 建通道并开始收包（失败写 out 并返回 false）
+  bool openUdp(const std::string &plugin, const Json &args, Json &out);
+
+  /// `udp.send`: 发一个包给目标地址（可以发给广播地址 / 组播组）
+  void sendUdp(const std::string &plugin, const Json &args, Json &out);
+
+  /// `udp.join` / `udp.leave`: 加入 / 退出组播组
+  bool groupUdp(const std::string &plugin, const Json &args, bool join,
+                Json &out);
+
+  /// `udp.close`: 关一个通道
+  void closeUdp(const std::string &plugin, const std::string &id, Json &out);
+
+  /// 关掉某个插件的全部 UDP 通道（卸载 / 停机；网络线程）
+  void closeUdpOf(const std::string &plugin, bool allPlugins);
+
+  /// 关掉一个通道并发 `udp.closed` 事件
+  void shutdownUdp(const std::shared_ptr<UdpChannel> &channel,
+                   const char *reason);
+
+  /// `udp` 自省数据（`net.info` 用）
+  Json udpInfoJson(const std::string &plugin, bool allPlugins) const;
 
   /// 一个服务的静态路由清单 (`http.serve` / `http.route` / info 共用同一份)
   Json staticRoutesJson(const Server &server) const;
@@ -1930,7 +1967,9 @@ void PluginNetHub::Impl::closeAllOf(const std::string &plugin, bool allPlugins,
   for (const auto &stream : closing) {
     stream->closeStream("plugin_unloaded", {});
   }
-  // 3) 未回答的 HTTP 请求与未完成的客户端请求
+  // 3) UDP 通道: 关 socket (发 udp.closed 事件)
+  closeUdpOf(plugin, allPlugins);
+  // 4) 未回答的 HTTP 请求与未完成的客户端请求
   for (auto it = pendingHttp.begin(); it != pendingHttp.end();) {
     if (allPlugins || it->second.plugin == plugin) {
       it = pendingHttp.erase(it);
@@ -2540,14 +2579,17 @@ struct HttpClient : std::enable_shared_from_this<HttpClient> {
     if (!timer) {
       timer = std::make_unique<asio::steady_timer>(hub->io);
     }
-    timer->expires_after(std::chrono::milliseconds{(std::max)(int64_t{1000}, timeoutMs)});
+    // `timeoutMs <= 0` = 不设超时（不排这条 timer）
     auto self = shared_from_this();
-    timer->async_wait([self](AsioErrorCode ec) {
-      if (ec) {
-        return;
-      }
-      self->fail("timeout", "请求超时");
-    });
+    if (timeoutMs > 0) {
+      timer->expires_after(std::chrono::milliseconds{timeoutMs});
+      timer->async_wait([self](AsioErrorCode ec) {
+        if (ec) {
+          return;
+        }
+        self->fail("timeout", "请求超时");
+      });
+    }
     resolver = std::make_unique<asio::ip::tcp::resolver>(hub->io);
     resolver->async_resolve(target.host, std::to_string(target.port),
                             [self](AsioErrorCode ec,
@@ -2712,9 +2754,8 @@ struct HttpClient : std::enable_shared_from_this<HttpClient> {
       const std::string lengthText = head.header("content-length");
       const bool noBody = method == "HEAD" || head.status == 204 ||
                           head.status == 304;
-      // 下载: 正文直接流式写文件, 内存里不留 (只受下载上限约束)
-      const int64_t bodyLimit =
-          mode == HttpMode::Download ? (int64_t{8} * 1024 * 1024 * 1024) : maxBytes;
+      // 下载: 正文直接流式写文件, 内存里不留 (只受调用方给的 maxBytes 约束)
+      const int64_t bodyLimit = maxBytes;
       if (noBody) {
         decoder.init(HttpBodyDecoder::Mode::None, 0, bodyLimit);
       } else if (transfer.find("chunked") != std::string::npos) {
@@ -2952,9 +2993,10 @@ bool PluginNetHub::Impl::startHttpRequest(const std::string &plugin,
     }
   }
   const int64_t timeoutMs = args.value("timeoutMs", int64_t{kDefaultHttpTimeoutMs});
-  client->timeoutMs = (std::max)(int64_t{1000}, (std::min)(timeoutMs, int64_t{120000}));
-  const int64_t maxBytes = args.value("maxBytes", int64_t{kMaxHttpBody});
-  client->maxBytes = (std::max)(int64_t{1024}, (std::min)(maxBytes, int64_t{16 * 1024 * 1024}));
+  // 超时不再夹区间: `<= 0` = 不设超时
+  client->timeoutMs = timeoutMs <= 0 ? int64_t{0} : timeoutMs;
+  // 正文上限不再夹区间: `<= 0` = 不限制（插件自己控制内存）
+  client->maxBytes = args.value("maxBytes", int64_t{0});
   client->followRedirects = args.value("followRedirects", true);
   client->maxRedirects = static_cast<int32_t>(
       (std::max)(int64_t{0}, (std::min)(args.value("maxRedirects", int64_t{3}),
@@ -3739,6 +3781,463 @@ void PluginNetHub::Impl::onAccepted(const std::shared_ptr<Server> &server,
   stream->start();
 }
 
+/* ==================== UDP 通道 ==================== */
+
+/// 一个 UDP 通道: 绑定一个本地端口收发数据报
+///
+/// 广播与组播都走它:
+/// - 建通道时就打开 `SO_BROADCAST`, 所以 `udp.send` 可以直接发给 `255.255.255.255`
+///   或子网广播地址（例如 `192.168.1.255`）;
+/// - 组播地址在 `udp.open` 的 `multicast` 里声明, 也可以用 `udp.join` / `udp.leave` 动态增删;
+/// - 收到的包以 `udp.message` 事件交给插件（`dataBase64` 恒有, 合法文本包额外带 `text` / `data`）;
+/// - 通道跟着插件实例: 停用 / 卸载 / 关『拟声++』/ 插件框架停机时一起关掉。
+struct UdpChannel : std::enable_shared_from_this<UdpChannel> {
+  std::shared_ptr<PluginNetHub::Impl> hub;
+  std::string plugin;
+  std::string id;
+  std::string host; ///< 绑定地址
+  uint16_t port = 0; ///< 绑定端口（0 = 系统分配, 绑定后回填实际端口）
+  std::shared_ptr<asio::ip::udp::socket> socket;
+  std::vector<char> readBuf;
+  asio::ip::udp::endpoint sender; ///< 最近一个包的来源（一次只有一条读在飞）
+  std::set<std::string> groups;   ///< 已加入的组播组地址
+  bool reading = false;
+  bool closing = false;
+  int64_t recvPackets = 0;
+  int64_t recvBytes = 0;
+  int64_t sentPackets = 0;
+  int64_t sentBytes = 0;
+
+  void startRead();
+  void onRead(AsioErrorCode ec, size_t size);
+};
+
+void UdpChannel::startRead() {
+  if (closing || reading || !socket || !socket->is_open()) {
+    return;
+  }
+  if (readBuf.size() != kUdpReadBuffer) {
+    readBuf.resize(kUdpReadBuffer);
+  }
+  reading = true;
+  auto self = shared_from_this();
+  socket->async_receive_from(
+      asio::buffer(readBuf), sender,
+      [self](AsioErrorCode ec, size_t size) {
+        self->reading = false;
+        self->onRead(ec, size);
+      });
+}
+
+void UdpChannel::onRead(AsioErrorCode ec, size_t size) {
+  if (closing) {
+    return;
+  }
+  if (ec) {
+    // 收包出错不关通道: 继续收（最常见的是 Windows 上对方端口不可达的 ICMP 回执）
+    if (ec == asio::error::operation_aborted) {
+      return;
+    }
+    XX_LOGW("[musicxx_ext] 插件 `{}` 的 UDP 通道 `{}` 收包失败: {}", plugin,
+            id, errorTextOf(ec));
+    startRead();
+    return;
+  }
+  ++recvPackets;
+  recvBytes += static_cast<int64_t>(size);
+  if (hub) {
+    Json event;
+    event["kind"] = "udp.message";
+    event["id"] = id;
+    event["host"] = sender.address().to_string();
+    event["port"] = static_cast<int64_t>(sender.port());
+    event["bytes"] = static_cast<int64_t>(size);
+    const std::string_view view{readBuf.data(), size};
+    event["dataBase64"] = utilxx_base::base64Encode(view);
+    if (isValidUtf8(view)) {
+      event["text"] = std::string{view};
+      event["data"] = std::string{view};
+    }
+    hub->emit(plugin, std::move(event));
+  }
+  startRead();
+}
+
+/* ==================== UDP: 操作实现 ==================== */
+
+namespace {
+
+/// 关掉一个还没登记进表、也没发过 `udp.open` 的通道（建通道中途失败时用）
+void closeUnannouncedUdp(const std::shared_ptr<UdpChannel> &channel) {
+  if (!channel) {
+    return;
+  }
+  channel->closing = true;
+  if (channel->socket) {
+    AsioErrorCode ignored;
+    channel->socket->close(ignored);
+  }
+}
+
+} // namespace
+
+void PluginNetHub::Impl::shutdownUdp(
+    const std::shared_ptr<UdpChannel> &channel, const char *reason) {
+  if (!channel || channel->closing) {
+    return;
+  }
+  channel->closing = true;
+  if (channel->socket) {
+    AsioErrorCode ignored;
+    channel->socket->close(ignored);
+  }
+  Json event;
+  event["kind"] = "udp.closed";
+  event["id"] = channel->id;
+  event["reason"] = std::string{reason ? reason : "local_close"};
+  emit(channel->plugin, std::move(event));
+}
+
+void PluginNetHub::Impl::closeUdpOf(const std::string &plugin,
+                                    bool allPlugins) {  std::vector<std::shared_ptr<UdpChannel>> closing;
+  for (auto it = udpChannels.begin(); it != udpChannels.end();) {
+    if (!it->second || (allPlugins ? true : it->second->plugin == plugin)) {
+      closing.push_back(it->second);
+      it = udpChannels.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (const auto &channel : closing) {
+    shutdownUdp(channel, "plugin_unloaded");
+  }
+}
+
+bool PluginNetHub::Impl::openUdp(const std::string &plugin, const Json &args,
+                                  Json &out) {
+  const std::string wantedId{trimAscii(args.value("id", std::string{}))};
+  if (!wantedId.empty() && !isValidId(wantedId)) {
+    out = errorJson("bad_args",
+                    "id 只能包含字母数字与 . _ -（长度 1~64）: " + wantedId);
+    return false;
+  }
+  size_t count = 0;
+  for (const auto &item : udpChannels) {
+    if (item.second && item.second->plugin == plugin) {
+      ++count;
+    }
+  }
+  if (count >= kMaxUdpChannelsPerPlugin) {
+    out = errorJson("too_many", "UDP 通道已达上限 (" +
+                                      std::to_string(kMaxUdpChannelsPerPlugin) +
+                                      " 条)");
+    return false;
+  }
+  std::string id = wantedId;
+  if (id.empty()) {
+    do {
+      id = "udp" + std::to_string(nextConnSeq.fetch_add(1));
+    } while (udpChannels.find(connKeyOf(plugin, id)) != udpChannels.end());
+  } else if (udpChannels.find(connKeyOf(plugin, id)) != udpChannels.end()) {
+    out = errorJson("exists", "已有同 id 的 UDP 通道: " + id);
+    return false;
+  }
+
+  std::string host{trimAscii(args.value("host", std::string{"0.0.0.0"}))};
+  if (host.empty()) {
+    host = "0.0.0.0";
+  }
+  if (host == "localhost") {
+    host = "127.0.0.1";
+  }
+  AsioErrorCode ec;
+  const auto address = asio::ip::make_address(host, ec);
+  if (ec) {
+    out = errorJson("bad_host", "绑定地址不是合法的 IP: " + host);
+    return false;
+  }
+  const int64_t rawPort = args.value("port", int64_t{0});
+  if (rawPort < 0 || rawPort > 65535) {
+    out = errorJson("bad_port", "端口超出范围");
+    return false;
+  }
+
+  auto channel = std::make_shared<UdpChannel>();
+  channel->hub = shared_from_this();
+  channel->plugin = plugin;
+  channel->id = id;
+  channel->host = address.to_string();
+  channel->port = static_cast<uint16_t>(rawPort);
+  channel->socket = std::make_shared<asio::ip::udp::socket>(io);
+  auto &sock = *channel->socket;
+  sock.open(address.is_v6() ? asio::ip::udp::v6() : asio::ip::udp::v4(), ec);
+  if (ec) {
+    out = errorJson("open_failed", "创建 UDP socket 失败: " + errorTextOf(ec));
+    return false;
+  }
+  // 广播: 建通道时就开, 这样插件不必先"声明要广播"才能发给 255.255.255.255
+  {
+    AsioErrorCode optEc;
+    sock.set_option(asio::socket_base::broadcast(true), optEc);
+  }
+  // 组播 / 多实例监听同一端口需要地址重用（缺省开; 插件可以写 reuseAddress: false 关掉）
+  if (args.value("reuseAddress", true)) {
+    AsioErrorCode optEc;
+    sock.set_option(asio::socket_base::reuse_address(true), optEc);
+  }
+  sock.bind(asio::ip::udp::endpoint(address, channel->port), ec);
+  if (ec) {
+    AsioErrorCode ignored;
+    sock.close(ignored);
+    out = errorJson("bind_failed", "绑定 " + host + ":" +
+                                       std::to_string(channel->port) +
+                                       " 失败: " + errorTextOf(ec));
+    return false;
+  }
+  {
+    AsioErrorCode localEc;
+    const auto local = sock.local_endpoint(localEc);
+    if (!localEc) {
+      channel->port = local.port();
+    }
+  }
+
+  // 建通道时一次声明的组播组: 字符串或数组都认（`multicast` / `groups` 两种写法）
+  std::vector<std::string> groups;
+  const Json &rawGroups =
+      args.contains("multicast") ? args["multicast"] : args["groups"];
+  if (rawGroups.is_string()) {
+    groups.push_back(rawGroups.get<std::string>());
+  } else if (rawGroups.is_array()) {
+    for (const auto &item : rawGroups) {
+      if (item.is_string()) {
+        groups.push_back(item.get<std::string>());
+      }
+    }
+  }
+  for (const auto &group : groups) {
+    AsioErrorCode joinEc;
+    const auto groupAddress = asio::ip::make_address(trimAscii(group), joinEc);
+    if (joinEc || !groupAddress.is_multicast()) {
+      closeUnannouncedUdp(channel);
+      out = errorJson("bad_group", "不是合法的组播地址: " + group);
+      return false;
+    }
+    sock.set_option(asio::ip::multicast::join_group(groupAddress), joinEc);
+    if (joinEc) {
+      closeUnannouncedUdp(channel);
+      out = errorJson("join_failed",
+                      "加入组播组 " + group + " 失败: " + errorTextOf(joinEc));
+      return false;
+    }
+    channel->groups.insert(groupAddress.to_string());
+  }
+
+  udpChannels[connKeyOf(plugin, id)] = channel;
+  channel->startRead();
+
+  Json event;
+  event["kind"] = "udp.open";
+  event["id"] = id;
+  event["host"] = channel->host;
+  event["port"] = static_cast<int64_t>(channel->port);
+  emit(plugin, event);
+
+  out = Json::object();
+  out["ok"] = true;
+  out["id"] = id;
+  out["host"] = channel->host;
+  out["port"] = static_cast<int64_t>(channel->port);
+  out["multicast"] = [&channel] {
+    Json list = Json::array();
+    for (const auto &group : channel->groups) {
+      list.push_back(group);
+    }
+    return list;
+  }();
+  return true;
+}
+
+bool PluginNetHub::Impl::groupUdp(const std::string &plugin, const Json &args,
+                                   bool join, Json &out) {
+  const std::string id{trimAscii(args.value("id", std::string{}))};
+  const auto it = udpChannels.find(connKeyOf(plugin, id));
+  if (it == udpChannels.end() || !it->second) {
+    out = errorJson("not_found", "没有这个 UDP 通道: " + id);
+    return false;
+  }
+  const auto channel = it->second;
+  const std::string raw{trimAscii(args.value("group", args.value("address",
+                                                    std::string{})))};
+  AsioErrorCode ec;
+  const auto groupAddress = asio::ip::make_address(raw, ec);
+  if (ec || !groupAddress.is_multicast()) {
+    out = errorJson("bad_group", "不是合法的组播地址: " + raw);
+    return false;
+  }
+  if (join) {
+    channel->socket->set_option(asio::ip::multicast::join_group(groupAddress),
+                               ec);
+    if (!ec) {
+      channel->groups.insert(groupAddress.to_string());
+    }
+  } else {
+    channel->socket->set_option(asio::ip::multicast::leave_group(groupAddress),
+                               ec);
+    if (!ec) {
+      channel->groups.erase(groupAddress.to_string());
+    }
+  }
+  out = Json::object();
+  if (ec) {
+    out["ok"] = false;
+    out["error"] = join ? "join_failed" : "leave_failed";
+    out["message"] = errorTextOf(ec);
+    return false;
+  }
+  out["ok"] = true;
+  out["id"] = channel->id;
+  out["group"] = groupAddress.to_string();
+  out["multicast"] = [&channel] {
+    Json list = Json::array();
+    for (const auto &item : channel->groups) {
+      list.push_back(item);
+    }
+    return list;
+  }();
+  return true;
+}
+
+void PluginNetHub::Impl::sendUdp(const std::string &plugin, const Json &args,
+                                 Json &out) {
+  const std::string id{trimAscii(args.value("id", std::string{}))};
+  const auto it = udpChannels.find(connKeyOf(plugin, id));
+  if (it == udpChannels.end() || !it->second) {
+    out = errorJson("not_found", "没有这个 UDP 通道: " + id);
+    return;
+  }
+  const auto channel = it->second;
+  if (channel->closing) {
+    out = errorJson("closed", "这条 UDP 通道已关闭");
+    return;
+  }
+
+  // 目标：host / address / to 三种写法都认；缺省端口 = 通道自己的端口
+  // （发给自己的广播 / 组播常用这个缺省）
+  std::string host{trimAscii(args.value(
+      "host", args.value("address", args.value("to", std::string{}))))};
+  if (host.empty()) {
+    out = errorJson("bad_args", "缺少目标 host（广播写 255.255.255.255 或子网广播地址）");
+    return;
+  }
+  if (host == "localhost") {
+    host = "127.0.0.1";
+  }
+  const int64_t rawPort = args.value("port", int64_t{channel->port});
+  if (rawPort <= 0 || rawPort > 65535) {
+    out = errorJson("bad_port", "目标端口超出范围");
+    return;
+  }
+
+  std::string payload;
+  const std::string base64 = args.value("dataBase64", std::string{});
+  if (!base64.empty()) {
+    const auto decoded = utilxx_base::base64Decode(base64);
+    if (!decoded.has_value()) {
+      out = errorJson("bad_base64", "dataBase64 解不开");
+      return;
+    }
+    payload = *decoded;
+  } else {
+    payload = args.value("data", std::string{});
+    if (payload.empty()) {
+      payload = args.value("text", std::string{});
+    }
+  }
+  if (payload.empty()) {
+    out = errorJson("bad_args", "没有要发送的内容 (data / text / dataBase64)");
+    return;
+  }
+
+  asio::ip::udp::endpoint target;
+  AsioErrorCode ec;
+  const auto address = asio::ip::make_address(host, ec);
+  if (!ec) {
+    target = asio::ip::udp::endpoint(address, static_cast<uint16_t>(rawPort));
+  } else {
+    // 主机名：同步解析（只在网络线程上、而且这一次调用本来就在等结果）
+    asio::ip::udp::resolver resolver(io);
+    AsioErrorCode resolveEc;
+    const auto results = resolver.resolve(host, std::to_string(rawPort),
+                                         resolveEc);
+    if (resolveEc || results.empty()) {
+      out = errorJson("resolve_failed",
+                      "解析目标地址失败: " + host +
+                          (resolveEc ? (" (" + errorTextOf(resolveEc) + ")") : ""));
+      return;
+    }
+    target = results.begin()->endpoint();
+  }
+
+  AsioErrorCode sendEc;
+  const size_t sent = channel->socket->send_to(asio::buffer(payload), target,
+                                              0, sendEc);
+  if (sendEc) {
+    out = errorJson("send_failed", "发送失败: " + errorTextOf(sendEc));
+    return;
+  }
+  ++channel->sentPackets;
+  channel->sentBytes += static_cast<int64_t>(sent);
+  out = Json::object();
+  out["ok"] = true;
+  out["id"] = channel->id;
+  out["host"] = target.address().to_string();
+  out["port"] = static_cast<int64_t>(target.port());
+  out["bytes"] = static_cast<int64_t>(sent);
+}
+
+void PluginNetHub::Impl::closeUdp(const std::string &plugin,
+                                  const std::string &id, Json &out) {
+  const auto it = udpChannels.find(connKeyOf(plugin, id));
+  if (it == udpChannels.end() || !it->second) {
+    out = errorJson("not_found", "没有这个 UDP 通道: " + id);
+    return;
+  }
+  const auto channel = it->second;
+  udpChannels.erase(it);
+  shutdownUdp(channel, "local_close");
+  out = Json::object();
+  out["ok"] = true;
+  out["id"] = id;
+}
+
+Json PluginNetHub::Impl::udpInfoJson(const std::string &plugin,
+                                     bool allPlugins) const {
+  Json rows = Json::array();
+  for (const auto &item : udpChannels) {
+    const auto &channel = item.second;
+    if (!channel || (!allPlugins && channel->plugin != plugin)) {
+      continue;
+    }
+    Json row = Json::object();
+    row["plugin"] = channel->plugin;
+    row["id"] = channel->id;
+    row["host"] = channel->host;
+    row["port"] = static_cast<int64_t>(channel->port);
+    Json groups = Json::array();
+    for (const auto &group : channel->groups) {
+      groups.push_back(group);
+    }
+    row["multicast"] = std::move(groups);
+    row["receivedPackets"] = channel->recvPackets;
+    row["receivedBytes"] = channel->recvBytes;
+    row["sentPackets"] = channel->sentPackets;
+    row["sentBytes"] = channel->sentBytes;
+    rows.push_back(std::move(row));
+  }
+  return rows;
+}
+
 /* ==================== 操作分发 ==================== */
 
 void PluginNetHub::Impl::stopServers(const std::string &plugin,
@@ -3957,6 +4456,7 @@ std::string PluginNetHub::Impl::infoJsonOnThread(const std::string &plugin,
     }
   }
   out["httpClients"] = static_cast<int64_t>(httpClients);
+  out["udp"] = udpInfoJson(plugin, allPlugins);
   Json limits = Json::object();
   limits["maxServersPerKind"] = kMaxServersPerKind;
   limits["maxConnectionsPerPlugin"] =
@@ -3968,6 +4468,8 @@ std::string PluginNetHub::Impl::infoJsonOnThread(const std::string &plugin,
   limits["maxHttpBodyBytes"] = kMaxHttpBody;
   limits["maxWsMessageBytes"] = kMaxWsMessage;
   limits["maxOutQueueBytes"] = static_cast<int64_t>(kMaxOutQueue);
+  limits["maxUdpChannelsPerPlugin"] =
+      static_cast<int64_t>(kMaxUdpChannelsPerPlugin);
   out["limits"] = std::move(limits);
   return out.dump();
 }
@@ -4467,6 +4969,31 @@ int32_t PluginNetHub::Impl::handleCall(const std::string &plugin,
   }
   if (op == "ws.info") {
     out = parseJsonSafe(infoJsonOnThread(plugin, false));
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+
+  /* ---------- UDP 通道 (广播 / 组播 / 单播) ---------- */
+  if (op == "udp.open") {
+    openUdp(plugin, args, out);
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  if (op == "udp.send") {
+    sendUdp(plugin, args, out);
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  if (op == "udp.close") {
+    closeUdp(plugin,
+             std::string{trimAscii(args.value("id", std::string{}))}, out);
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  if (op == "udp.join" || op == "udp.leave") {
+    groupUdp(plugin, args, op == "udp.join", out);
+    return MUSICXX_EXTERN_PLUGIN_OK;
+  }
+  if (op == "udp.info") {
+    out = Json::object();
+    out["ok"] = true;
+    out["channels"] = udpInfoJson(plugin, false);
     return MUSICXX_EXTERN_PLUGIN_OK;
   }
 
