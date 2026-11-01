@@ -22,6 +22,7 @@
 | 反复调效果（尤其是插件页面与播放页背景） | 改完文件一条 `plugin reload` 就重新执行脚本；背景还能直接切到插件样式看效果 |
 | 排障 | `plugin list` 看框架与每个插件的状态，`plugin logs` 看最近的事件与错误 |
 | 收尾清理 | 跑完试验 `plugin uninstall` 卸掉，或 `--keep-data` 只删代码、留下配置数据 |
+| 用户那边开不了命令行（远程协助、iOS / Android） | 让用户把链接粘进 设置 → 界面 →「调用快捷链接」，用链接替他执行操作（§5.8） |
 
 ## 2. 先决条件
 
@@ -240,6 +241,39 @@ musicxx-cli featurePoint.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}
   背景色（要改观感请用动作 `musicxx.media.palette.set`）；
 - 默认超时 60 秒，频谱要解码整曲、慢的话用 `--timeout` 加长；`--refresh` 跳过值仓重新算一遍；
 - 结果不进值仓、不写入磁盘：要长期留着就自己重定向到文件。
+
+### 5.8 用户那边开不了命令行：让他粘贴链接（远程协助）
+
+命令行只对本机开放，MCP 要连端口，iOS / Android 上的普通用户更是两样都没有。这时候让用户自己
+执行一条链接就行：**设置 → 界面 →「调用快捷链接」→ 粘贴链接 → 确定**。它和系统点开 applink 走
+同一份解析与执行（`MusicxxEntries_c.handleUri`，通道记成 `manual`），所以
+[musicxx-interfaces.md](musicxx-interfaces.md) §1.1 的链接写法全都认。
+
+```text
+# 你要发出去的是一条链接，不是命令：
+# 装插件（插件包要先到用户机器上，path 是那台机器上的绝对路径，args 必须 UrlEncode）
+musicxx://call/?cmd=externPlugin.install&args=%7B%22path%22%3A%22C%3A%2FUsers%2Fme%2Fmy_plugin.zip%22%2C%22enable%22%3Atrue%7D
+# 启用 / 停用
+musicxx://call/?cmd=externPlugin.setEnabled&args=%7B%22id%22%3A%22my_plugin%22%2C%22enabled%22%3Atrue%7D
+# 改完 JS 脚本重新加载
+musicxx://call/?cmd=externPlugin.reload&args=%7B%22id%22%3A%22my_plugin%22%7D
+# 跳搜索页 / 播放
+musicxx://search/?keyword=%E6%99%B4%E5%A4%A9
+musicxx://play/?search=%E6%99%B4%E5%A4%A9
+```
+
+- **`args` 用 `Uri.encodeComponent` 生成**：手写容易漏引号与空格，漏了在用户那侧会直接报
+  “参数 args 不是合法 JSON”；
+- **管理类链接（`externPlugin.*`）在用户那边会再弹一次确认**（列出命令与 `path` / `pid`），点「允许」
+  才执行，关掉算拒绝 —— 所以要把“装的是什么、为什么要装”讲清楚，别只说“点一下就好”；
+- **只有界面提示，没有返回值**：成功是「已执行：<入口 id>」，失败是原因。要结构化结果还是得用
+  命令行 / MCP；失败时应用会往日志里写一行「调用快捷链接失败」（`app.logs` 读得到，带链接与服务端给的原因），
+  用户复述不清楚时看那一行；
+- **链接里引用的文件必须在用户机器上**：跨机器时先让用户下载插件包（或你托管一个直链，
+  让他下载后按绝对路径安装）；
+- 用户拒绝或关掉确认框时什么都不会发生，不会留下装了一半的状态；
+- 这条通道是给“用户自己动手”的那一侧用的：粘贴就是执行，所以告诉用户只粘你发的链接，
+  而你也不要把别人的链接转发给他。
 
 ## 6. 给 agent 与脚本的约定
 
