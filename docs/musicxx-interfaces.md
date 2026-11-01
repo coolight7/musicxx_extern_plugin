@@ -225,14 +225,14 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 83 条 = 动作命令 55 + 内置与应用命令 23 + 能力导出 2 + 变量 3；动作共 57 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
+## 4. 命令面（当前 85 条 = 动作命令 56 + 内置与应用命令 24 + 能力导出 2 + 变量 3；动作共 58 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 23 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**统一入口的播放音源与跳搜索页** |
-| `action` | 55 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
+| `builtin` | 24 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源与跳搜索页** |
+| `action` | 56 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
@@ -259,7 +259,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 动作**，动作自己做宽松解析（数字与字符串可互转）。参数不对时答复形如
 `{"ok":false,"error":"参数 xxx 非法: …"}`。
 
-### 4.3 内置与应用命令（23 条）
+### 4.3 内置与应用命令（24 条）
 
 | 命令 | 参数 | `data` |
 |---|---|---|
@@ -285,6 +285,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `featurePoint.list` | `id?`、`provided?`(bool) | `{ok:true, points:[{id, title, type, available, callable, rows, stages, broadcasts, callDoc?, callStat?}…]}`；`rows` 是实现行（各层谁能提供），`stages` 是**前链与后链上的登记**（与 `rows` 分开），`broadcasts` 是**主程序自己注册的广播订阅**（只收“被使用了 / 处理器变了”的通知，不参与实现，插件不能注册） |
 | `featurePoint.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `stopped` / `dropped` / `busy` / `failed`；`disabled` / `stopped` / `dropped` 是三种不同的“没有结果”） |
 | `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], browse:[{type, plugin, title, tag, entries:[{view, title, order, root, icon, pageSize, sort, indexBar, write, search, addFolderSongs, download, capabilities}…]}…], resolveChain:[…]}`：插件声明的音源类型 + 按类型分组的可浏览分类（`musicxx.source.browse`，一个类型可以有多条 `entries`）+ 音源解析链现状（与 `featurePoint.list` 看 `musicxx.player.source.resolve` 是同一份） |
+| `kernel.info` | `refresh?`(bool) | 播放内核能播什么、能用哪些过滤器（与 MCP 工具 `GetMediaKernelInfo`、插件动作 `musicxx.media.kernel` 同一份数据）：`mpvVersion` / `ffmpegVersion`（这份 ffmpeg 是裁剪构建，报 `unknown`）/ `kernelReady` / `audioFilters` + `videoFilters`（能直接写进 `af` / `vf` 的名字，每项 `{name, libavName?, depict?, flags, builtin}`；`builtin` 是 mpv 自带的那几个，重名时 `name` 给带 `lavfi-` 前缀的可用名字）/ `decoders`（`{codec, driver, depict?, hardware}`）/ `audioExtensions` + `videoExtensions`（应用扫描时认得的后缀）/ `counts` / `tookMs` |
 
 `musicxx.ui.openSearch` 的 `type` 取值（大小写不敏感，缺省保持当前搜索类型）：`localsong`（本地歌曲）、
 `historysong`（播放记录）、`bili`（Bili）、`musiccloud`（音乐云盘）、`alidrive`（阿里云盘）、
@@ -308,12 +309,12 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `var.get` | `key`(必填) | `{key, value, type, options, caps, title, depict, risk}` |
 | `var.set` | `key`(必填)、`value`(必填，任意 JSON 值) | `{key, value}`；属主不接受时是命令失败（原因可读） |
 
-变量清单与语义见 [plugin-vars.md](plugin-vars.md)。当前三个导出能力：
+变量清单与语义见 [plugin-vars.md](plugin-vars.md)。当前四个导出能力：
 `GetAudioSpectrum`（整曲频谱，文本表）、`AnalyseAudioChorus`（副歌区段）、
-`AnalyseImageMainColors`（图片主色调）。它们的参数由能力自己声明，
-`feature.list` / MCP 的工具清单里就是同一份。
+`AnalyseImageMainColors`（图片主色调）、`GetMediaKernelInfo`（播放内核：版本 / 过滤器 / 解码器 / 后缀）。
+它们的参数由能力自己声明，`feature.list` / MCP 的工具清单里就是同一份。
 
-### 4.5 主程序动作（57 条，命令 id = 动作名）
+### 4.5 主程序动作（58 条，命令 id = 动作名）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"：
@@ -329,7 +330,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 插件私有存储（4） | `musicxx.storage.get` / `set` / `delete` / `list` |
 | 网络（2，保留） | `musicxx.net.fetch` / `net.download`（老插件直接调动作时用；JS 封装与新建插件走插件框架自带的 `musicxx.net` 表） |
 | 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
-| 封面与频谱（6） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` |
+| 封面与频谱（7） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
 | 功能点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
 | 音源（3） | `musicxx.source.define` / `undefine` / `list` |
@@ -361,6 +362,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | CLI | 命令 id |
 |---|---|
 | `status` / `play` / `pause` / `toggle` / `stop` / `next` / `prev` | `status` / `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` |
+| `kernel [--refresh]` | `kernel.info`（播放内核信息：版本 / 能用的过滤器 / 解码器 / 后缀） |
 | `seek <毫秒\|mm:ss\|hh:mm:ss\|N%>` | `musicxx.player.seek` |
 | `volume <0~1\|0~100>` / `speed <0.25~8>` / `pitch <0.25~2>` / `loop <模式>` / `quality <名称>` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `setLoopMode` / `setQuality` |
 | `lrc [--word]` | `lrc.current` |
@@ -441,7 +443,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（当前 36 个）
+### 5.2 工具全表（当前 37 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -512,6 +514,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `GetAudioSpectrum` | 见能力声明（`path?`、`start?`、`duration?`、`bandCount?` 等） | `feature.call`（id = `GetAudioSpectrum`） | 文本表（每行一个时间步） |
 | `AnalyseAudioChorus` | 见能力声明 | `feature.call`（id = `AnalyseAudioChorus`） | 文本结论（副歌区段） |
 | `AnalyseImageMainColors` | 见能力声明（`path?` / `url?`） | `feature.call`（id = `AnalyseImageMainColors`） | 主色 + 4 组色值的文本 |
+| `GetMediaKernelInfo` | `part?`(all / versions / filters / decoders / formats)、`refresh?` | `feature.call`（id = `GetMediaKernelInfo`）/ `kernel.info` | 分段文本：mpv/ffmpeg 版本、能写进 `af` / `vf` 的过滤器（含说明）、解码器（按编解码器分组，标出硬件）、应用认得的音视频后缀；`part` 用来只拿其中一段（全量文本里过滤器与解码器加起来几百行） |
 | `ListMediaSources` | 无 | `source.list` | 插件声明的音源类型（id / 展示名 / 地址写法）+ 可浏览分类（按类型分组，每个分类一行）+ 音源解析链现状（生效 / 备选 / 关闭） |
 
 后三个工具的名字**就是能力 id**，工具说明与参数也来自能力自己的声明 —— 新增能力会自动变成

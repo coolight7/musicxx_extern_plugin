@@ -202,6 +202,7 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 | `musicxx-cli toast <文本>` | 在应用界面上弹一条提示（对照插件的 `musicxx.ui.toast`） |
 | `musicxx-cli var list` / `var get <键>` | 看官方变量当前值（与插件的变量通道对照） |
 | `musicxx-cli feature call GetAudioSpectrum --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
+| `musicxx-cli kernel` | 看应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**、解码器与认得的音视频后缀（与插件动作 `musicxx.media.kernel` 同一份数据；这份 ffmpeg 是裁剪构建，写音效前先确认名字在不在） |
 
 ### 5.7 取一次应用的功能结果（`featurePoint.call`）
 

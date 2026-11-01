@@ -1437,6 +1437,14 @@ var featurePointImpls = new Map();
     spectrum: function (args) {
       var req = (args && typeof args === "object") ? args : {};
       return musicxx.call("musicxx.media.spectrum", req);
+    },
+    // 播放内核信息 (mpv / ffmpeg 版本、能写进 af/vf 的过滤器、解码器、认得的音视频后缀):
+    //   args.part     all(缺省) | versions | filters | decoders | formats (只影响 text)
+    //   args.refresh  重新采集而不是用缓存
+    // 返回 {ok, kernel, text}; 判断某个过滤器名能不能写进 af 用 kernel.audioFilters
+    kernel: function (args) {
+      var req = (args && typeof args === "object") ? args : {};
+      return musicxx.call("musicxx.media.kernel", req);
     }
   };
 
