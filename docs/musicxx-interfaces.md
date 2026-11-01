@@ -49,10 +49,12 @@
 | 拦一次改播放值 / 收播放进度 | — | — | 钩子 `musicxx.player.seek` / `volume` / `speed` / `pitch` / `position` | — | — |
 | 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=featurePoint.list` | `--cmd featurePoint.list` |
 | 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
+| 插件框架版本 / 提交 / 仓库地址 | `GetExternPlugins`（结果里的 `framework` 段） | `musicxx-cli version` / `list` / `plugin list` | 插件读 `host.info().hostVersion`（同一个版本号） | — | — |
 | 装插件 | `InstallExternPlugin` | `musicxx-cli plugin install` | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
 
 > **写链接或启动参数之前，先问一次清单**：`musicxx-cli list --json`（或 GET `/cli/list`）里有
-> `commands`（入口 id、参数声明）与 `entries`（哪些入口能用链接调进来、链接形态与取值候选）。
+> `commands`（入口 id、参数声明）与 `entries`（哪些入口能用链接调进来、链接形态与取值候选），
+> 还有 `framework`（本机插件框架的版本 / 提交 / 仓库地址）。
 > 不要照着文档硬编码 —— 清单会随能力注册表增长。
 
 ### 1.1 applink（协议 `musicxx://`）
@@ -188,7 +190,25 @@ POST /cli                   {"cmd": "<入口 id>", "args": {…}}         ← �
 | 503 | 应用还在启动收尾（`app_not_ready`；默认先等 15 秒才这么答） |
 
 `GET /cli/list` 的 `data` 里，除了 `commands`（入口 id、参数、来源）与 `entries`（哪些入口能用
-链接调进来、链接形态与取值候选），还有 `entryArgv`（启动参数形态的说明，逐行）。
+链接调进来、链接形态与取值候选），还有 `entryArgv`（启动参数形态的说明，逐行）与 `framework`
+（外置插件框架的版本，见下）。
+
+`/cli/list` 与 `/cli/ping` 的 `data` 都有 `framework` 段 —— 外置插件框架（`musicxx_extern_plugin`）
+自己的版本，就是本机 `musicxx-cli version` / `doctor` / `list` / `plugin list` 打印的那个：
+
+| 字段 | 含义 |
+|---|---|
+| `version` | 版本号（`<年>.<月日>.<小版本号>`，例 `2026.1031.1`） |
+| `commit` | 这个版本号首次出现的提交（短号；空串 = 还没补记） |
+| `date` | 该版本的日期（`YYYY-MM-DD`） |
+| `describe` | 一行说明：`2026.1031.1（2026-10-31 · commit 8314706）` |
+| `repositoryUrl` | 插件框架的 GitHub 仓库地址（写插件时对着它看钩子与文档） |
+| `commitUrl` | 该版本提交的地址（没补记提交号时与 `repositoryUrl` 相同） |
+
+- 这是**随应用一起编译进来的那份声明**（插件包 `lib/src/version.dart`）；
+  插件框架库自己自报的版本要插件跑起来才读得到，在 `externPlugin.list` 的
+  `framework.libraryVersion`（两者不一致 = 库不是这次构建的产物）；
+- 旧版主程序不给这一段：命令行只是少打一行，不影响其它命令。
 
 - 路径对大小写与末尾斜杠容错（`/CLI/` 也认）；
 - 不经命令行直连（排查时最省事）—— 先把 `17001` 换成接入点文件里的 `port`：
@@ -272,8 +292,9 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 插件清单的字段（`externPlugin.*` 的结果里都有，安装结果里它在 `status` 下）：
 `hostStarted`、`platformSupported`、`supportPlus`、`enabled`、`safeMode`、`autoSafeMode`、
-`lastError`、`pluginDir`、`pluginCount`、`loadedCount`、`framework`（版本 / 提交 / 日期 /
-`libraryVersion` / `libraryMatches`）、`capabilityCall`（`async` 或 `hostTooOld`）、
+`lastError`、`pluginDir`、`pluginCount`、`loadedCount`、`framework`（`version` / `commit` / `date` /
+`describe` / `repositoryUrl` / `commitUrl` / `libraryVersion` / `libraryMatches`）、
+`capabilityCall`（`async` 或 `hostTooOld`）、
 `pendingCapabilityCalls`、`plugins[]`（`id` / `version` / `kind` / `enabled` / `loaded` /
 `supported` / `reason` / `target` / `path` / `permissions` / `error`）。
 
@@ -478,7 +499,9 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `ClearExternPluginLogs` | 无 | `externPlugin.clearLogs` |
 
 这些工具的文本里都**另外附一份现在的插件清单**（装了什么、启用 / 加载状态、失败原因），
-一次调用就能确认结果，不用再问一次。
+一次调用就能确认结果，不用再问一次。`GetExternPlugins` 还带两行外置插件框架自己的信息：
+`framework: <版本>, <日期>, commit <提交>` 与 `framework repository: <GitHub 仓库地址>`
+（与 `musicxx-cli version` / `list` / `plugin list`、`/cli/ping`、`/cli/list` 是同一份）。
 
 **功能点与能力**
 

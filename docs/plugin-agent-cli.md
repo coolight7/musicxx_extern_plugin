@@ -33,8 +33,11 @@
 | 主程序在运行 | 没在运行时命令以退出码 2 结束；加 `--start` 可以先拉起再执行，`musicxx-cli start` 拉起并等它就绪 |
 | 『拟声++』已开启 | **安装 / 重载 / 重启**要求插件框架正在运行（见 `plugin list` 的 `hostStarted`）；`list` / `enable` / `disable` / `uninstall` / `logs` 没有插件框架也能调用 —— 但**未开启『拟声++』时主程序不会加载插件记录**，它们看到的是"没有插件" |
 
-自检：`musicxx-cli doctor`（接入点文件、连接结果、命令数、主程序路径），
+自检：`musicxx-cli doctor`（接入点文件、连接结果、命令数、插件框架版本、主程序路径），
 `musicxx-cli ping`（只看存活与就绪）。
+`musicxx-cli version` / `list` / `ping` / `doctor` 都会打印本机插件框架的版本与仓库地址
+（`外置插件框架 2026.1031.1（2026-10-31 · commit 8314706）  仓库 https://github.com/coolight7/musicxx_extern_plugin`）——
+报问题或确认插件该对着哪一版接口写时，把这个版本号一起给出。
 
 ## 3. 30 秒上手
 
@@ -55,7 +58,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 
 | 命令 | 作用 | 需要框架在跑 |
 |---|---|---|
-| `plugin list` | 框架状态 + 插件清单（启用/加载、声明的权限、目录、失败原因） | 否 |
+| `plugin list` | 框架状态 + 插件清单（启用/加载、声明的权限、目录、失败原因）+ 插件框架自己的版本（版本号 / 提交 / GitHub 仓库地址） | 否 |
 | `plugin install <zip路径> [--enable]` | 按压缩包安装（同名 = 覆盖安装，失败回滚） | **是** |
 | `plugin enable <插件id>` / `plugin disable <插件id>` | 启用 / 禁用 | 否（不在跑时只记录状态，下次启动生效） |
 | `plugin reload [插件id]` | 给 id 只重载这一个；不给 id = 重扫插件目录 + 重载全部启用中的 | **是** |
