@@ -8,6 +8,59 @@
 
 ## 未发布
 
+### 新增：UDP / 广播 / 组播（`musicxx.net.udp.*`，JS 与动态库插件共用）
+
+插件框架的网络能力新增一组 UDP 通道，JS 插件与动态库插件用法完全一致：
+
+| 接口（JS） | op | 说明 |
+|---|---|---|
+| `musicxx.net.udp.open({id?, host?, port?, multicast?, reuseAddress?})` | `udp.open` | 绑定本地端口开始收包；`port: 0` = 系统分配；`host` 缺省 `0.0.0.0` |
+| `musicxx.net.udp.send({id, host, port?, data?\|text?\|dataBase64?})` | `udp.send` | 发一个包；`port` 缺省 = 通道自己的端口 |
+| `musicxx.net.udp.join(id, group)` / `.leave(id, group)` | `udp.join` / `udp.leave` | 加入 / 退出组播组 |
+| `musicxx.net.udp.close(id)` / `.info()` | `udp.close` / `udp.info` | 关通道 / 看全部通道与收发计数 |
+| `musicxx.net.udp.on("message"\|"open"\|"closed", fn)` / `.onMessage(fn)` | — | 收包事件 |
+
+- **通道建好就打开了 `SO_BROADCAST`**，所以可以直接发给 `255.255.255.255` 或子网广播地址（例如
+  `192.168.1.255`），不需要额外声明；**组播**在建通道时用 `multicast` 声明，或运行期 `udp.join`。
+- **`reuseAddress` 缺省开**（组播 / 多进程监听同一端口要用；不想要就写 `false`）。
+- 收包事件 `{kind:"udp.message", id, host, port, bytes, dataBase64, text?, data?}`；
+  通道跟着插件实例（停用 / 卸载 / 关『拟声++』/ 插件框架停机一起关，端口立即释放）。
+- 局限：单包受系统 UDP 上限（约 64 KiB）约束，框架不拆分；每插件最多 32 个通道（防止 fd 耗尽）。
+- 例子：`plugins/example_js_net` 的自检新增 UDP 一段（文本/二进制包 + 广播发送 + 组播加退）。
+
+### 变更：一批限制取消（外置插件与主程序同进程，这些限制没有实际意义）
+
+| 项目 | 以前 | 现在 |
+|---|---|---|
+| `musicxx.ui.loadFont` | 字体文件 ≤ 100 MiB | **不限大小**（`path` 上一版已放开到任意路径） |
+| `musicxx.net.fetch` / `download`（两边实现） | 超时 1 ~ 60 s / 1 ~ 120 s；`maxBytes` 1 KiB ~ 16 MiB；方法限常见六个 | **超时与大小不限制**（`timeoutMs <= 0` = 不设；`maxBytes` 缺省不限制）；方法名不限白名单 |
+| `musicxx.media.bindImage` | 每插件 8 张、最长边 1024、base64 ≤ 6 MiB | **张数与尺寸都不限制**（`rgba` 仍要求宽高与字节数匹配） |
+| `musicxx.media.cover` | `size` 16 ~ 512 | `size` 16 ~ **1024**（`format:\"rgba\"` 的字节上限跟着它算：最大一档 4 MiB） |
+| `musicxx.playlist.addSong` | 一次 ≤ 200 首、单字段 ≤ 4 KiB | **都不限制** |
+| `musicxx.source.browse`（插件网盘） | 每类型 ≤ 32 个分类；title ≤ 120、root ≤ 1024、icon ≤ 2048、能力名 ≤ 160；pageSize ≤ 1000 | **都不限制**（`view` 仍只允许 `a-z 0-9 _ -`，pageSize 只要求 > 0） |
+| 网盘条目 / 歌曲文本 | 名字 / 封面 / 资源 id ≤ 1 ~ 2 KiB，`drive.resolveSongs` ≤ 5000 首 | **都不限制** |
+| 界面动画（`musicxx.AnimatedBuilder`） | 通道 ≤ 32、`maxFps` ≤ 30 | **都不限制**（`maxFps` 缺省 30，想要 60 / 120 自己写） |
+| 渲染项 `maxFps` | 1 ~ 30 | **不设上限**（缺省 16） |
+| 插件浮层 | 一个插件同时只能一层 | **层数不限制**；`overlay.close` 不点名时关最上面那一层 |
+| 插件包安装 | 压缩包 ≤ 64 MiB、≤ 2000 条、解包 ≤ 256 MiB | **都不限制**；仍然拒绝绝对路径 / `..` 逃逸 / 符号链接 / 非普通文件 / 大小写重名 |
+
+保留的仍然是"别把主进程拖死"那一类：HTTP 服务端正文 / WS 消息 8 MiB、连接 64、同类服务 8、
+静态路由 1024、变量未回执 32、动作缺省超时 5 s、UDP 通道每插件 32、安装包路径校验。
+
+### 变更：`musicxx.ui.loadFont` 的 `path` 可以指向任何文件（不再限制在插件目录内）
+
+以前 `path` 必须是插件目录内的相对路径（写绝对路径或 `..` 会被告知"路径非法或逃逸插件目录"）。
+现在它接受：
+
+- 绝对路径（`C:/Windows/Fonts/msyh.ttc`、`/usr/share/fonts/xxx.ttf`）；
+- `file://` 链接；
+- `~/…`（当前用户目录）；
+- 相对路径 —— 仍按**插件目录**解析，随包分发字体照旧写 `resource/fonts/my.ttf` 即可。
+
+理由是这条限制没有实际意义：外部插件（尤其是动态库插件）与主程序同进程，本来就能读写这台机器上的
+任何文件；同一个框架里 `http.serve({static: [{file: …}]})` 也一直允许任意文件路径。字体的 100 MiB
+体积上限不变。
+
 ### 修复：网络错误提示在中文 Windows 上是乱码
 
 `musicxx.net` 各类失败（`resolve_failed` / `connect_failed` / `read_failed` / `write_failed` /

@@ -2062,6 +2062,13 @@ int main(int argc, char **argv) {
                 report.find("\"socket\":{") != std::string::npos &&
                 report.find("\"ws\":{") != std::string::npos,
             "自检报告包含 HTTP / TCP / WebSocket 三段结果");
+      check(report.find("\"udp\":{") != std::string::npos &&
+                report.find("udp:ping") != std::string::npos,
+            "UDP 通道能收到发给它的包 (文本与二进制)");
+      check(report.find("\"binaryBytes\":4") != std::string::npos,
+            "UDP 二进制包按字节数收妥");
+      check(report.find("\"broadcast\":true") != std::string::npos,
+            "UDP 能发给广播地址 255.255.255.255");
       check(report.find("echo:ping") != std::string::npos,
             "TCP 与 WebSocket 都拿到了服务端回写");
       check(report.find("\"chunked\":{") != std::string::npos &&
@@ -2084,6 +2091,8 @@ int main(int argc, char **argv) {
             "网络自省能力可调用");
       check(netInfo.payload.find("\"connections\":[]") != std::string::npos,
             "自检结束后没有残留连接");
+      check(netInfo.payload.find("\"udp\":[]") != std::string::npos,
+            "自检结束后没有残留 UDP 通道");
       // 客户端 TLS 能力: https / wss 能不能用 (构建时关掉 TLS 就是 tls=false)
       check(netInfo.payload.find("\"tls\":") != std::string::npos,
             "网络自省报告了客户端 TLS 能力");

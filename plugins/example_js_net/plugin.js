@@ -1,14 +1,16 @@
 /*
  * example_js_net —— 插件框架内置网络能力示例
  *
- * 演示七件事（全部在本机回环上完成，不访问外网）:
+ * 演示八件事（全部在本机回环上完成，不访问外网）:
  *   1. HTTP 服务端：`musicxx.net.http.serve` 起服务，`http.onRequest` 收请求，`http.respond` 回答；
  *   2. 静态路由：`http.serve({static})` / `http.route` 挂内容，命中后由框架直接回答；
  *   3. HTTP 客户端：`musicxx.net.http.request` 请求刚起的服务，检查状态码与回包正文；
  *   4. TCP 服务：`musicxx.net.socket.listen` 起服务，`socket.on("accepted"/"data")` 收发；
  *   5. TCP 客户端：`musicxx.net.socket.connect` 连上去，`socket.send` 发字节，等服务端回写；
  *   6. WebSocket 服务：`musicxx.net.ws.listen` 起服务，`ws.on("message")` 收到文本后原样回写；
- *   7. WebSocket 客户端：`musicxx.net.ws.connect` 连上去，`ws.send` 发文本，等回包。
+ *   7. WebSocket 客户端：`musicxx.net.ws.connect` 连上去，`ws.send` 发文本，等回包；
+ *   8. UDP：`musicxx.net.udp.open/send` 两个通道之间发包（文本 + 二进制）、
+ *      向广播地址发送、加/退一个组播组。
  *
  * 插件载入 1.5 秒后自动跑一遍自检，结果写进日志；也可以通过能力手动触发：
  *   - `selftest`：跑一遍（返回报告 JSON，`ok` 是结论）；
@@ -31,6 +33,8 @@
   var TCP_CLIENT_ID = "demo-tcp-client";
   var WS_ID = "demo-ws";
   var WS_CLIENT_ID = "demo-ws-client";
+  var UDP_RX_ID = "demo-udp-rx";
+  var UDP_TX_ID = "demo-udp-tx";
 
   var net = {
     http: null,
@@ -115,8 +119,7 @@
     fireEvent("socket.accepted", event);
   });
 
-  musicxx.net.socket.on("data", function (event) {
-    if (event.serverId === "demo-chunked") {
+  musicxx.net.socket.on("data", function (event) {    if (event.serverId === "demo-chunked") {
       // 手写一份分块响应（测试 HTTP 客户端的 chunked 解码）
       if (!chunkedAnswered[event.id]) {
         chunkedAnswered[event.id] = true;
@@ -150,6 +153,11 @@
       return;
     }
     fireEvent("ws.message", event);
+  });
+
+  // UDP: 收到包（`dataBase64` 恒有，文本包额外带 `text` / `data`）
+  musicxx.net.udp.onMessage(function (event) {
+    fireEvent("udp.message", event);
   });
 
   /* ==================== 自检 ==================== */
@@ -447,6 +455,77 @@
     };
   }
 
+  /// UDP 自检：两个通道之间发包 + 广播发送 + 组播加/退
+  ///
+  /// 广播只校验"能发出去"（`255.255.255.255` 能否回环到本机由系统与网卡决定）；
+  /// 组播加/退也不依赖环境是否允许（失败只记结果，不当作自检失败）。
+  async function testUdp() {
+    var rx = musicxx.net.udp.open({ id: UDP_RX_ID, host: "127.0.0.1", port: 0 });
+    if (!rx.ok) {
+      throw new Error("udp.open(rx) 失败: " + describe(rx));
+    }
+    try {
+      var tx = musicxx.net.udp.open({ id: UDP_TX_ID, host: "0.0.0.0", port: 0 });
+      if (!tx.ok) {
+        throw new Error("udp.open(tx) 失败: " + describe(tx));
+      }
+
+      var textWait = nextEvent("udp.message");
+      var sent = musicxx.net.udp.send({
+        id: UDP_TX_ID,
+        host: "127.0.0.1",
+        port: rx.port,
+        data: "udp:ping"
+      });
+      if (!sent.ok) {
+        throw new Error("udp.send 失败: " + describe(sent));
+      }
+      var received = await textWait;
+      if (received.text !== "udp:ping") {
+        throw new Error("UDP 收到的内容不对: " + (received.text || ""));
+      }
+
+      // 二进制包：`dataBase64` 恒有，内容不能被改写
+      var binaryWait = nextEvent("udp.message");
+      musicxx.net.udp.send({
+        id: UDP_TX_ID,
+        host: "127.0.0.1",
+        port: rx.port,
+        dataBase64: "AAECAw=="
+      });
+      var binary = await binaryWait;
+      if (binary.dataBase64 !== "AAECAw==") {
+        throw new Error("UDP 二进制包回读不对: " + (binary.dataBase64 || ""));
+      }
+
+      // 广播（只验证发送接口，不假设本机会收到自己的广播）
+      var broadcast = musicxx.net.udp.send({
+        id: UDP_TX_ID,
+        host: "255.255.255.255",
+        port: rx.port,
+        data: "udp:broadcast"
+      });
+
+      // 组播加/退（不假设运行环境一定支持组播）
+      var group = musicxx.net.udp.join(UDP_RX_ID, "239.255.42.99");
+      if (group.ok) {
+        musicxx.net.udp.leave(UDP_RX_ID, "239.255.42.99");
+      }
+
+      return {
+        port: rx.port,
+        text: received.text,
+        fromHost: received.host,
+        binaryBytes: binary.bytes,
+        broadcast: !!broadcast.ok,
+        multicast: !!group.ok
+      };
+    } finally {
+      musicxx.net.udp.close(UDP_TX_ID);
+      musicxx.net.udp.close(UDP_RX_ID);
+    }
+  }
+
   function cleanup() {
     musicxx.net.ws.close(WS_CLIENT_ID, 1000, "自检结束");
     musicxx.net.ws.stop(WS_ID);
@@ -454,6 +533,8 @@
     musicxx.net.socket.stop(TCP_ID);
     musicxx.net.socket.stop("demo-chunked");
     musicxx.net.http.stop(HTTP_ID);
+    musicxx.net.udp.close(UDP_RX_ID);
+    musicxx.net.udp.close(UDP_TX_ID);
   }
 
   /// https 客户端: 公网地址由外部给 (离线环境不跑)
@@ -481,7 +562,8 @@
       report.fetch = await testFetchDownload();
       report.socket = await testSocket();
       report.chunked = await testChunked();
-      report.ws = await testWebSocket();
+        report.ws = await testWebSocket();
+      report.udp = await testUdp();
       var httpsUrl = (options && typeof options.httpsUrl === "string") ? options.httpsUrl : "";
       if (httpsUrl) {
         report.https = await testHttps(httpsUrl);

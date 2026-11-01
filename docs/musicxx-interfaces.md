@@ -339,7 +339,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
 | 统计上报（2） | `musicxx.stats.reportMemory` / `reportMetric` |
 
-> 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket 的客户端与服务端，
+> 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
 > 客户端支持 https / wss，不经过主程序），见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
 > JS 的 `musicxx.net.fetch` / `download` 已经用它实现（参数与返回形状与动作一致），
 > 动作只留给直接调动作的老插件。

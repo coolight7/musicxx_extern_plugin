@@ -259,7 +259,7 @@ capability(*this, "plugin.my_plugin.settings",
 
 ```jsonc
 { "kind": "musicxx.AnimatedBuilder",
-  "maxFps": 30,                                  // 缺省 30，上限 30
+  "maxFps": 30,                                  // 缺省 30；不限上限（想要 60 / 120 就写上去）
   "values": {
     "card.h": { "kind": "mul", "of": [
         { "kind": "smooth", "attackMs": 20, "releaseMs": 260,
@@ -527,7 +527,8 @@ musicxx.capability.register("pickQuality", async function () {
 要点：
 
 - **等用户操作的动作要把超时设长**：JS 的 `dialog` / `overlay` / `pick` 缺省已给 10 分钟；
-- 每个插件同时只有**一层**浮层（再开会关掉旧的）；插件卸载 / 插件页面退出会自动关；
+- **层数不限制**：一个插件可以同时开多层（后开的盖在上面），`overlayClose()` 不点名就关最上面那一层，
+  点名（`id`）则关最上面那个名字对得上的层；插件卸载 / 插件页面退出会自动关掉它的全部浮层；
 - 浮层里的按钮动作**不会自动关闭浮层**：插件返回 `{"view": …}` 就能在浮层里换内容（做翻页 / 刷新），
   要关自己调 `overlayClose`；`textConfirm` 那个按钮一定关闭；
 - `pick` 只做单选；多选就在自己的 `blocks` 里放 `Control(checkbox)` 或列表块；
@@ -571,13 +572,14 @@ musicxx.capability.register("pickQuality", async function () {
    // 恢复默认字体
    await musicxx.ui.setFontFamily("default"); // 或 "" 或 null
    ```
-2. **加载并注册插件自带的字体文件**：
-   插件可以将 `.ttf` / `.otf` 字体文件随插件目录分发（例如 `resource/fonts/my_font.ttf`），在运行时动态加载并生效：
+2. **加载并注册字体文件**：
+   字体文件可以随插件目录分发（例如 `resource/fonts/my_font.ttf`），也可以直接指定机器上任何可读的
+   字体文件（绝对路径 / `file://` / `~/…`），在运行时动态加载并生效：
    ```js
    // 加载并立即设为全局字体
    await musicxx.ui.loadFont({
      family: "MyPluginFont",
-     path: "resource/fonts/my_font.ttf", // 相对插件目录的相对路径
+     path: "resource/fonts/my_font.ttf", // 相对插件目录；绝对路径也行
      apply: true,                         // 可选，默认 true
    });
    ```

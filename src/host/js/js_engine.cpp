@@ -1163,6 +1163,8 @@ var featurePointImpls = new Map();
     onHttpRequest: function (fn) { return netSubscribe("http.request", fn); },
     onSocketEvent: function (fn) { return netSubscribe("socket.", fn); },
     onWsEvent: function (fn) { return netSubscribe("ws.", fn); },
+    /// 只收 UDP 事件 (`udp.message` / `udp.open` / `udp.closed`)
+    onUdpEvent: function (fn) { return netSubscribe("udp.", fn); },
     /// 服务 / 连接 / 上限快照
     info: function () { return netCall("net.info", {}); },
 
@@ -1294,6 +1296,49 @@ var featurePointImpls = new Map();
       /// on("open"|"message"|"close"|"pong"|"listening"|"serverClosed", fn)
       on: function (event, fn) { return netSubscribe(netKind("ws", event), fn); },
       onEvent: function (fn) { return netSubscribe("ws.", fn); }
+    },
+
+    /// UDP 通道：绑定端口收发数据报（广播 / 组播 / 单播都走它）
+    /// - 收到包 → 事件 `udp.message`：{kind, id, host, port, bytes, dataBase64, text?, data?}
+    /// - 通道关闭 → `udp.closed`：{kind, id, reason}
+    udp: {
+      /// 建通道: {id?, host?, port?, multicast?: "239.1.2.3" | ["239.1.2.3"], reuseAddress?}
+      /// host 缺省 `0.0.0.0`（收广播 / 组播就用它），port 缺省 0 = 系统分配
+      /// → {ok, id, host, port, multicast}
+      open: function (options) { return netCall("udp.open", options || {}); },
+      /// 发一个包: {id, host|"address"|"to", port?, data?|text?|dataBase64?}
+      /// port 缺省 = 通道自己的端口；广播写 host: "255.255.255.255"
+      /// 也支持 `send(id, "文本")` / `send({id, dataBase64})`
+      send: function (id, data, options) {
+        var req;
+        if (id && typeof id === "object") {
+          req = {};
+          for (var key in id) { req[key] = id[key]; }
+          req.id = String(id.id === undefined ? "" : id.id);
+        } else {
+          req = (options && typeof options === "object") ? options : {};
+          req.id = String(id === undefined ? "" : id);
+          if (data && typeof data === "object") {
+            for (var field in data) { req[field] = data[field]; }
+          } else {
+            req.data = String(data === undefined ? "" : data);
+          }
+        }
+        return netCall("udp.send", req);
+      },
+      /// 加入 / 退出组播组: {id, group} → {ok, id, group, multicast}
+      join: function (id, group) {
+        return netCall("udp.join", { id: String(id || ""), group: String(group || "") });
+      },
+      leave: function (id, group) {
+        return netCall("udp.leave", { id: String(id || ""), group: String(group || "") });
+      },
+      close: function (id) { return netCall("udp.close", { id: String(id || "") }); },
+      /// 当前通道清单（收发包数 / 字节数）
+      info: function () { return netCall("udp.info", {}); },
+      /// on("message"|"open"|"closed", fn)
+      on: function (event, fn) { return netSubscribe(netKind("udp", event), fn); },
+      onMessage: function (fn) { return netSubscribe("udp.message", fn); }
     }
   };
 
