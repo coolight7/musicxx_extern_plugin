@@ -1003,6 +1003,44 @@ if (live && live.available) { drawBars(live.bands); }
 与 `musicxx.media.chorus.analyse`，载荷、数据格式、超时与失效规则见 [plugin-hooks.md](plugin-hooks.md)，
 写法示例见 [plugin-js-api.md](plugin-js-api.md) §11（C++ 同构）。
 
+**`musicxx.media.kernel`** —— 播放内核信息：能播什么、能用哪些过滤器
+
+- 参数：`{part?="all", refresh?}`：`part` = `all` / `versions` / `filters` / `decoders` / `formats`
+  （只裁剪 `text`，`kernel` 永远是完整数据）；`refresh` = 重新采集而不是用缓存
+  （内核运行期不会变，一般不用）。
+- 返回：`{ok, kernel, text}`，`kernel` 的字段：
+
+| 字段 | 内容 |
+|---|---|
+| `mpvVersion` | 内嵌的 libmpv 版本（如 `mpv v0.41.0-dev-g975d4d7b2`） |
+| `ffmpegVersion` | ffmpeg 版本。**这份 ffmpeg 是裁剪构建、不带版本号，值就是 `unknown`**（照实返回） |
+| `kernelReady` | 播放器是否已经给出属性；为假时 `mpvVersion` / 两个过滤器表靠 mpv 的那一半 / `decoders` 是空的 |
+| `audioFilters` | 能**直接写进 mpv `af`** 的名字，每项 `{name, libavName?, depict?, flags, builtin}`（`depict` 是 ffmpeg 的说明，**裁剪构建里很多过滤器没有说明**，没有就不带这个键） |
+| `videoFilters` | 能**直接写进 mpv `vf`** 的名字，字段同上 |
+| `decoders` | mpv 能用的解码器，每项 `{codec, driver, depict?, hardware}`（同一个编解码器可能有多个驱动） |
+| `audioExtensions` / `videoExtensions` | 应用扫描时认得的后缀（小写、排序） |
+| `counts` | 各数组长度，另有 `audioFiltersBuiltin` / `videoFiltersBuiltin` / `hardwareDecoders` |
+| `tookMs` | 这次采集的耗时 |
+
+- **`audioFilters[].name` 就是能写进 `af` 的名字**：这份列表是"链接进来的 ffmpeg 过滤器"与
+  "mpv 自己编译进来的过滤器"的并集。`builtin: true` 的是 mpv 自带的那几个（`format` / `scaletempo` /
+  `rubberband` …，它们没有 ffmpeg 的说明）；两边重名时（例如 `format`）mpv 把 ffmpeg 那个叫
+  `lavfi-format`，`name` 给的就是这个能用的名字，`libavName` 才是 ffmpeg 里的原名。
+- **不要按上游 ffmpeg 文档假设**：应用内嵌的 ffmpeg 只链接了二十来个音频过滤器与不到十个视频过滤器，
+  文档里有的 `dynaudnorm` / `superequalizer` / `extrastereo` / `haas` / `treble` / `deesser` 等**没有**。
+  写音效、拼 `af` / `vf` 之前先读这一份。
+- `decoders` 的 `hardware` 按驱动名后缀判断（`h264_qsv` / `av1_cuvid` / `hevc_videotoolbox` 是硬件，
+  `aac_fixed` 这种精度变体不是），用来判断"要不要指望硬件解码"。
+- 与 MCP 工具 `GetMediaKernelInfo`、命令行 `kernel.info` 是同一份数据（那边给结构化 JSON 与文本）。
+- 缓存：第一次读之后会缓存；内核在运行期不会变，只有你在播放器还没就绪时读到过才需要 `refresh`。
+
+```js
+const info = await musicxx.media.kernel({ part: "filters" });
+const af = new Set(info.kernel.audioFilters.map((f) => f.name));
+if (af.has("equalizer")) { /* 可以拼 "equalizer=f=80:width_type=q:width=1:g=5" */ }
+const hw = info.kernel.decoders.filter((d) => d.hardware).map((d) => d.driver);
+```
+
 #### 3.2.9 全局字体（`musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont`）
 
 | 动作 | 参数 | 返回 |

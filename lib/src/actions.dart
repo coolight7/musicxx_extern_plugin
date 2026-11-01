@@ -365,6 +365,21 @@ abstract final class MusicxxPluginActionNames {
   /// 没有数据不是错误：结果里用 `status` / `available` / `loading` / `reason` 表达。
   static const String mediaSpectrum = 'musicxx.media.spectrum';
 
+  /// 播放内核信息：版本、能直接写进 `af` / `vf` 的过滤器、解码器、应用认得的音视频后缀
+  ///
+  /// 参数：`part`（`all` 缺省 / `versions` / `filters` / `decoders` / `formats`，只影响 `text`）、
+  /// `refresh`（布尔，可省：重新采集而不是用缓存）。
+  ///
+  /// 返回 `{ok, kernel, text}`：`kernel` 是完整数据（`mpvVersion` / `ffmpegVersion` /
+  /// `audioFilters` / `videoFilters` / `decoders` / `audioExtensions` / `videoExtensions` /
+  /// `counts`）；`audioFilters[].name` 就是能写进 mpv `af` 的名字（`builtin` 为 true 的是
+  /// mpv 自带的那几个），`decoders[]` 给编解码器与驱动（`hardware` 标出硬件解码）。
+  ///
+  /// 与 MCP 工具 `GetMediaKernelInfo`、命令行 `kernel.info` 是同一份数据。
+  /// **不要按上游 ffmpeg 文档假设**：应用内嵌的是裁剪过的 ffmpeg，能用的过滤器与解码器
+  /// 以这里返回的为准。
+  static const String mediaKernel = 'musicxx.media.kernel';
+
   /// 应用能力导出（见 manager/featureExport/）：
   /// - `list` 列出全部能力的声明（id/标题/说明/参数/输出形态）；
   /// - `call` 调一个能力（`{id, args}`），与 MCP 工具共用同一份实现。
