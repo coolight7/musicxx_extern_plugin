@@ -18,8 +18,9 @@
   `action` 写法里 play / pause / next / prev / seek / volume / speed / loopMode 走命令面，
   其余动作（主题 / 退出 / 系统音量 / 临时变速 / 整份歌单 / 排序 / 歌词 / 前后台切换）仍走 `/control`。
   返回多一个 `via` 字段（`cli` / `control`）说明这次走的哪条通道。`/control` 线协议本身没有变。
-- `/share/<id>` 改成**只按 id 给单个文件**：去掉子路径与目录索引，注册目录直接拒绝；
-  注册表在内存里，程序重启即消失，所以这一层不做鉴权（route id 就是权限）。
+- `/share/<id>` 支持**挂载目录**：文件按 id 取，目录挂在 `/share/<id>/<相对路径>` 下；
+  相对路径逐段解码，`..`、带分隔符的段、绝对路径一律拒绝，归一化后必须仍在挂载目录内
+  （符号链接指出去也拒绝）。注册表在内存里，程序重启即消失，所以这一层不做鉴权（route id 就是权限）。
 
 ### 新增：共享与控制（局域网）与文件接口（主程序侧，插件不使用也不受影响）
 
@@ -32,7 +33,7 @@
 | `lan.clients` | `ListLanDevices` | 已发现设备列表（地址 / 账号 / 权限 / 能不能控制） |
 | `lan.cli` | `RunCommandOnDevice` | 把一条命令转发给指定设备（默认走对端 `/cli`） |
 | `file.download` | `DownloadFile` | 按 http/https 链接下载文件到本机（sha256 可校验） |
-| `file.share.register` | `ShareLocalFile` | 把本机一个文件注册成 HTTP 静态文件服务（`/share/<id>`，只按 id 取单个文件，程序重启即失效） |
+| `file.share.register` | `ShareLocalFile` | 把本机文件或目录注册成 HTTP 静态文件服务（`/share/<id>`，程序重启即失效） |
 | `file.share.list` | `ListSharedFiles` | 现在注册了哪些共享 |
 | `file.share.unregister` | `UnshareLocalFile` | 注销共享 |
 

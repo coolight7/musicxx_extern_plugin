@@ -332,7 +332,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `lan.clients` | `availableOnly?`(bool，缺省 true)、`refresh?`(bool)、`limitServerVersion?`(int) | 同上形状：已发现设备列表。每一项：`clientId` / `displayName` / `name` / `viewName` / `platform` / `appType` / `appTypeName` / `sameApp` / `addr` / `httpPort` / `uid` / `sameUser` / `version` / `serverType`+`serverTypeName` / `acceptRemoteCtrl`+`acceptRemoteCtrlName` / `canControl`（本机现在能不能控制它）/ `available` / `mdnsLost` / `lastNotify` / `lastNotifyAgoMs` / `controlUrl`。`refresh:true` 先发一轮 `/active` 心跳 |
 | `lan.cli` | `clientId?` / `addr?`（二选一）、`cmd?` + `args?`、`action?` / `id?` + `data?`(object) | `{ok, clientId, addr, httpPort, action?, via, cmd?, cmdId?, cmdName?, remoteOk, data, error?, tip?}`：把一条指令发给指定设备。**默认转发到对方的 `POST /cli`**（命令面），`cmd` + `args` 可以直接给对方的任意命令 id（`musicxx.player.pause`、`playlist.play`、`externPlugin.install`、`file.share.register` …），拿回结构化结果；`action` + `data` 是常用动作的简写，play / pause / next / prev / seek / volume / speed / loopMode 会换成对应命令走 `/cli`，其余（systemVolume / tempSpeed / recoverTempSpeed / theme / appToggle / exit / song / playlist / netPlaylist / addPlaylist / sort / lyric）命令面还没有对应命令，仍走老的 `/control` 数字 id（也可直接给 `id`）。`via` 说明这次走的哪条；`data` 是对方返回的数据。对方不允许远程调用（403 / 4001 / 4003）、不认识命令（404 / 4004）、还在启动（503）或没答复（离线）时命令失败并带回原因 |
 | `file.download` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`(bool，缺省 false)、`sha256?`、`timeoutMs?`(缺省 120000) | `{ok, url, realUrl?, path, bytes, sha256, status, contentType, tookMs}`：按 http/https 链接下载到本机。先写 `<目标>.part`，成功且校验通过才改名；目标已存在且未给 `overwrite` 时失败。不给 `path`/`dir` 时落到 `<系统缓存根>/musicxx/temp/download/<从链接推导的文件名>` |
-| `file.share.register` | `path`(必填，本机绝对路径，单个文件)、`id?`、`title?`、`download?`(bool)、`ttlSeconds?`(int，缺省 0 = 不过期) | `{id, route, path, title, download, size, modified, createdAt, expiresAt, ttlSeconds, hitCount, bytesServed, lastHitAt, localUrl, lanUrls}`：把一个本机文件注册成 HTTP 静态文件服务，拿到 `/share/<id>` 与可直接用的链接。route id 随机 32 位十六进制（可自定义，只能 `A-Za-z0-9_-`），**id 就是权限** |
+| `file.share.register` | `path`(必填，本机绝对路径，文件或目录)、`id?`、`title?`、`download?`(bool)、`ttlSeconds?`(int，缺省 0 = 不过期) | `{id, route, path, title, isDir, download, size, modified, createdAt, expiresAt, ttlSeconds, hitCount, bytesServed, lastHitAt, localUrl, lanUrls}`：把一个本机文件或目录注册成 HTTP 静态文件服务，拿到 `/share/<id>` 与可直接用的链接。route id 随机 32 位十六进制（可自定义，只能 `A-Za-z0-9_-`），**id 就是权限** |
 | `file.share.list` | `id?` | `{ok, count, shares:[...]}`：当前注册的共享 |
 | `file.share.unregister` | `id?` / `all?`(bool) | `{ok, removed}`：注销一个或全部共享，链接立刻失效 |
 
@@ -568,7 +568,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 设备发现与指令转发需要两台设备都开着「共享与控制」，且对方「允许远程控制本机」的权限包含本机账号
 （仅自己账号 = 双方登录同一个账号）；`lan.cli` 默认转发到对方的 `/cli`（命令面），只有命令面还没有对应命令的那几条动作才走 `/control` 数字指令，没有新增线协议。
-本机文件对外下载走 `/share/<id>`（见 §6），只按 id 给单个文件（没有子路径与目录），route id 就是权限，链接不要随便发出去；注册只在本次运行有效，程序重启即消失。
+本机文件对外下载走 `/share/<id>`（见 §6），目录挂在 `/share/<id>/` 下（相对路径不许穿出去），route id 就是权限，链接不要随便发出去；注册只在本次运行有效，程序重启即消失。
 
 **功能点与能力**
 
@@ -617,7 +617,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | `/cli`、`/cli/list`、`/cli/ping` | GET / POST | 本机命令行（§3），所有平台都有 | 本机放行；非本机要远控权限 |
 | `/mcp` | POST / GET / DELETE / OPTIONS | MCP（§5） | 不带鉴权 |
 | `/active` | POST | 设备信息 / 存活应答（§6.1） | 放行（受局域网服务开关影响返回内容） |
-| `/share/<id>` | GET / HEAD | 本机单个文件的对外下载（§6.6）：`file.share.register` 注册过的文件 | route id 就是权限；非本机还要求「共享与控制」开着 |
+| `/share/<id>[/相对路径]` | GET / HEAD | 本机文件的对外下载（§6.6）：`file.share.register` 注册过的文件或目录 | route id 就是权限；目录只许访问挂载点下面 |
 | `/control` | POST | 局域网控制指令（数字命令 id，§6.2） | 要签名 |
 | `/connectEvent` | WebSocket | 事件流（§4.8 / §6.4） | 本机放行；非本机要签名 |
 | `/getSrc` | GET | 资源代理：把本机能拿到的音源交给请求方（§6.3） | 本机放行；非本机要服务模式允许对外 |
@@ -706,14 +706,16 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 ### 6.6 `/share/<id>`（本机文件对外下载）
 
-`file.share.register` 把本机一个文件登记成一条共享，
+`file.share.register` 把一个本机文件（或目录）登记成一条共享，
 `http://<地址>:<端口>/share/<id>`（局域网地址在结果的 `lanUrls` 里）。
 
 | 项 | 说明 |
 |---|---|
 | 方法 | `GET` / `HEAD`（其它回 405） |
 | Range | 支持（响应 206 + `Content-Range`；越界 416 + `bytes */<长度>`），可用于播放器与断点续传 |
-| 内容 | `/share/<id>` 给文件（末尾多一个 `/` 也一样）；带子路径、目录、未知与已失效的 id 一律 404 |
+| 文件项 | `/share/<id>` 给文件（末尾多一个 `/` 也一样）；`?download=1` 或注册时 `download: true` 带 `Content-Disposition: attachment` |
+| 目录项 | 目录挂在 `/share/<id>/<相对路径>` 下；`/share/<id>/` 给索引（HTML，`?format=json` 给结构化列表） |
+| 越界 | 相对路径逐段解码后，`..`、带分隔符的段、绝对路径一律拒绝；归一化后必须仍在挂载目录内（符号链接指出去也拒绝）→ 403；未知 id / 已失效 404 |
 | 访问控制 | route id 随机 32 位十六进制（可自定义），**猜不到 = 分享链接即权限**；非本机请求还要求「共享与控制」开着；没有其他写/删能力 |
 | 失效 | 注册时 `ttlSeconds` 到期，或 `file.share.unregister`；**应用退出即全部失效**（不落库） |
 
