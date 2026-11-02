@@ -265,14 +265,14 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 92 条 = 动作命令 56 + 内置与应用命令 31 + 能力导出 2 + 变量 3；动作共 58 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
+## 4. 命令面（当前 103 条 = 动作命令 65 + 内置与应用命令 33 + 能力导出 2 + 变量 3；动作共 67 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 31 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源与跳搜索页**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
-| `action` | 56 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
+| `builtin` | 33 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源与跳搜索页**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
+| `action` | 65 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
@@ -299,7 +299,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 动作**，动作自己做宽松解析（数字与字符串可互转）。参数不对时答复形如
 `{"ok":false,"error":"参数 xxx 非法: …"}`。
 
-### 4.3 内置与应用命令（31 条）
+### 4.3 内置与应用命令（33 条）
 
 | 命令 | 参数 | `data` |
 |---|---|---|
@@ -309,10 +309,12 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `playlist.play` | `pid`(int,必填)、`type?`(local/net)、`index?`(int)、`songName?`(string) | `{pid, sid, name, artist}`：播歌单里的一首（按 `index` 或名字包含匹配找，都不给播第一首） |
 | `history.playByInfo` | `info`(string,必填)、`tip?`(bool) | `{found, sid?, name?, artist?}`：在播放记录里按标题 / 歌手匹配最相关的一首并播放；`tip:true`（applink `musicxx://play/?search=` 用它）时没找到会弹界面提示 |
 | `musicxx.ui.openSearch` | `type?`(枚举，见下方类型表)、`keyword?`(string) | `{route, type, keyword}`：打开搜索页并带上类型与关键词。**applink `musicxx://search/`、`bilibili://search/` 背后的入口** |
+| `musicxx.entry.argv` | `argv`(array，必填：与命令行里写的一样、不含程序自身路径) | `{count, cmds:[…]}`：把一串启动参数按 §1.1 的规则解析成一次或多次命令调用并执行（Windows 上把第二实例的命令行交给已有实例用的就是它）；解析失败、或其中一条失败都整串拒绝；不能嵌套它自己 |
 | `clocking.set` | `duration?`(秒 1~86400)、`enableStopAfterFinish?`、`enableSleepMode?`、`exitWhenStop?` | `{started, durationSeconds, durationText, …}`；什么都不给时沿用用户上次的设置（没有则 60 分钟） |
 | `clocking.cancel` | 无 | `{ok:true}`（没设置过也算成功） |
 | `window.foreground` / `window.background` | 无 | `{ok:true}` |
 | `app.lifecycle` | 无 | `{foreground, lifecycle, state, backgroundMs, lastBackgroundMs}`：`foreground` = 是否前台；`lifecycle` = `foreground` / `background`；`state` = 原始生命周期状态名（`resumed` / `inactive` / `hidden` / `paused` / `detached`）；`backgroundMs` = 已经在后台多久（前台为 0）；`lastBackgroundMs` = 上一次在后台待了多久。与变量 `musicxx.app.lifecycle` 读的是同一份状态（变量只给 `foreground` / `background`） |
+| `app.commands` | `action?`(string：`install` / `uninstall` / `status`，缺省 `status`) | `{…, text}`：把 `musicxx` / `musicxx-cli` 登记成系统里能直接输入的命令（Windows 写用户 PATH 与 App Paths；macOS / Linux 在 PATH 里的可写目录建入口），或者查 / 删这份登记；`locations` 是实际生效的位置，`problems` 是失败原因 |
 | `externPlugin.list` | 无 | 插件框架现状 + 插件清单（字段见本节末尾那张表） |
 | `externPlugin.install` | `path?`(string，本机绝对路径)、`url?`(string，下载链接)、`enable?`(bool)、`sha256?`(string) | `{ok, id, version, kind, author?, description?, permissions, enabled, path, sha256, isUpgrade, target, targetEntry, targets, fileCount, totalBytes, source, download?, status}`：`path` 与 `url` 二选一（都不给或都给都是命令失败）；`url` 分支先下到 `<系统缓存根>/musicxx/temp/plugin` 再装，**装完（无论成败）删临时包**；`sha256` 给了就比对，不一致不装 |
 | `externPlugin.uninstall` | `id`(必填)、`keepData?`(bool) | 卸载结果 + 插件清单 |
