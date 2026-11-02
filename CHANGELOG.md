@@ -8,15 +8,18 @@
 
 ## 未发布
 
-### 变更：`/cli` 所有平台可用，`lan.control` 改为转发到 `/cli`
+### 变更：`/cli` 所有平台可用，`lan.control` 更名为 `lan.cli` 并转发到 `/cli`
 
 - `/cli`（含 `/cli/list`、`/cli/ping`）不再只在桌面端开放：Android / iOS 上也有**同一份命令表**，
   供别的设备与 agent 调用（非本机仍然要过「共享与控制 → 允许远程控制本机」）。
-- `lan.control` / `ControlLanDevice` 默认把指令转发到对方的 `POST /cli`：`cmd` + `args` 可以调对端任意命令
+- 命令 `lan.control` 更名为 `lan.cli`（MCP 工具 `ControlLanDevice` 同步改名为 `RunCommandOnDevice`），
+  默认把指令转发到对方的 `POST /cli`：`cmd` + `args` 可以调对端任意命令
   （`musicxx.player.pause`、`playlist.play`、`externPlugin.install`、`file.share.register` …），结果结构化；
   `action` 写法里 play / pause / next / prev / seek / volume / speed / loopMode 走命令面，
   其余动作（主题 / 退出 / 系统音量 / 临时变速 / 整份歌单 / 排序 / 歌词 / 前后台切换）仍走 `/control`。
   返回多一个 `via` 字段（`cli` / `control`）说明这次走的哪条通道。`/control` 线协议本身没有变。
+- `/share/<id>` 改成**只按 id 给单个文件**：去掉子路径与目录索引，注册目录直接拒绝；
+  注册表在内存里，程序重启即消失，所以这一层不做鉴权（route id 就是权限）。
 
 ### 新增：共享与控制（局域网）与文件接口（主程序侧，插件不使用也不受影响）
 
@@ -27,9 +30,9 @@
 |---|---|---|
 | `lan.scan` | `ScanLanDevices` | 刷新扫描附近设备 |
 | `lan.clients` | `ListLanDevices` | 已发现设备列表（地址 / 账号 / 权限 / 能不能控制） |
-| `lan.control` | `ControlLanDevice` | 把一条 `/control` 指令转发给指定设备 |
+| `lan.cli` | `RunCommandOnDevice` | 把一条命令转发给指定设备（默认走对端 `/cli`） |
 | `file.download` | `DownloadFile` | 按 http/https 链接下载文件到本机（sha256 可校验） |
-| `file.share.register` | `ShareLocalFile` | 把本机文件/目录注册成 HTTP 静态文件服务（`/share/<id>`） |
+| `file.share.register` | `ShareLocalFile` | 把本机一个文件注册成 HTTP 静态文件服务（`/share/<id>`，只按 id 取单个文件，程序重启即失效） |
 | `file.share.list` | `ListSharedFiles` | 现在注册了哪些共享 |
 | `file.share.unregister` | `UnshareLocalFile` | 注销共享 |
 
