@@ -50,7 +50,10 @@
 | 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=featurePoint.list` | `--cmd featurePoint.list` |
 | 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
 | 插件框架版本 / 提交 / 仓库地址 | `GetExternPlugins`（结果里的 `framework` 段） | `musicxx-cli version` / `list` / `plugin list` | 插件读 `host.info().hostVersion`（同一个版本号） | — | — |
-| 装插件 | `InstallExternPlugin` | `musicxx-cli plugin install` | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
+| 装插件 | `InstallExternPlugin`（`path` 或 `url`） | `musicxx-cli plugin install`（路径或 `--url`） | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
+| 局域网设备：扫描 / 列表 / 下发指令 | `ScanLanDevices` / `ListLanDevices` / `ControlLanDevice` | `musicxx-cli call lan.scan` / `lan.clients` / `lan.control` | —（插件不参与设备控制） | `musicxx://call/?cmd=lan.clients` | `--cmd lan.scan` |
+| 按链接下载文件 | `DownloadFile` | `musicxx-cli call file.download --args '{"url":…}'` | — | `musicxx://call/?cmd=file.download&url=…`（会先问用户） | `--cmd file.download --args '{"url":…}'` |
+| 本机文件对外下载 | `ShareLocalFile` / `ListSharedFiles` / `UnshareLocalFile` | `musicxx-cli call file.share.register` / `.list` / `.unregister` | — | `musicxx://call/?cmd=file.share.register&path=…`（会先问用户） | `--cmd file.share.list` |
 
 > **写链接或启动参数之前，先问一次清单**：`musicxx-cli list --json`（或 GET `/cli/list`）里有
 > `commands`（入口 id、参数声明）与 `entries`（哪些入口能用链接调进来、链接形态与取值候选），
@@ -107,7 +110,7 @@
 | 用途 | 怎么做 |
 |---|---|
 | 远程协助 | 让用户粘一条链接就完成一次操作：跳页面、搜索、播放、切主题、装插件。不用教对方开命令行 / 开 MCP / 装 CLI，也不用发可执行文件 |
-| 装 / 更新插件 | 插件包先放到对方机器上，再给 `musicxx://call/?cmd=externPlugin.install&args=<UrlEncode 后的 {"path":"C:/…/x.zip","enable":true}>`；启用 / 停用 / 卸载 / 重载同理（`externPlugin.setEnabled` / `uninstall` / `reload`） |
+| 装 / 更新插件 | 插件包先放到对方机器上，再给 `musicxx://call/?cmd=externPlugin.install&args=<UrlEncode 后的 {"path":"C:/…/x.zip","enable":true}>`（**要对方点「允许」**，见下）；插件包在公网上时直接用 `url`：`{"url":"https://…/x.zip","sha256":"…","enable":true}`；启用 / 停用 / 卸载 / 重载同理（`externPlugin.setEnabled` / `uninstall` / `reload`） |
 | 排查“链接不生效” | 参数改完粘一次就能看到解析结果与报错，不用注册协议、不用退到桌面点链接 |
 | 自测 / 演示 | 插件作者、写文档的人验证自己给出的链接示例是不是还能用 |
 
@@ -115,7 +118,10 @@
 
 - **粘贴即执行**：这条通道唯一的确认就是用户自己按下的「确定」，所以只粘信任来源的链接；
   插件管理类会再问一次，但那句话同样可能被人教着点「允许」；
-- 链接里引用的文件必须**在那台机器上存在**（`externPlugin.install` 的 `path` 是绝对路径）；
+- 链接里引用的文件必须**在那台机器上存在**（`externPlugin.install` 的 `path` 是绝对路径），
+  或者用 `url` 让应用自己下载（`file.download` 同一条路径，装完删临时包）；
+- **`file.*` 与 `externPlugin.*` 一样要先问用户**：前者能往任意路径写文件、也能把本机文件开放给外部下载；
+  后者装插件等于执行代码。
 - 只有界面提示，没有返回值给调用方 —— agent 要结构化结果时用命令行（§4）或 MCP（§5），
   这条适合“用户自己动手”的那一侧。
 
@@ -259,13 +265,13 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 85 条 = 动作命令 56 + 内置与应用命令 24 + 能力导出 2 + 变量 3；动作共 58 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
+## 4. 命令面（当前 92 条 = 动作命令 56 + 内置与应用命令 31 + 能力导出 2 + 变量 3；动作共 58 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 24 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源与跳搜索页** |
+| `builtin` | 31 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源与跳搜索页**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
 | `action` | 56 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
@@ -293,7 +299,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 动作**，动作自己做宽松解析（数字与字符串可互转）。参数不对时答复形如
 `{"ok":false,"error":"参数 xxx 非法: …"}`。
 
-### 4.3 内置与应用命令（24 条）
+### 4.3 内置与应用命令（31 条）
 
 | 命令 | 参数 | `data` |
 |---|---|---|
@@ -308,7 +314,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `window.foreground` / `window.background` | 无 | `{ok:true}` |
 | `app.lifecycle` | 无 | `{foreground, lifecycle, state, backgroundMs, lastBackgroundMs}`：`foreground` = 是否前台；`lifecycle` = `foreground` / `background`；`state` = 原始生命周期状态名（`resumed` / `inactive` / `hidden` / `paused` / `detached`）；`backgroundMs` = 已经在后台多久（前台为 0）；`lastBackgroundMs` = 上一次在后台待了多久。与变量 `musicxx.app.lifecycle` 读的是同一份状态（变量只给 `foreground` / `background`） |
 | `externPlugin.list` | 无 | 插件框架现状 + 插件清单（字段见本节末尾那张表） |
-| `externPlugin.install` | `path`(string,必填)、`enable?`(bool) | `{ok, id, version, kind, author?, description?, permissions, enabled, path, sha256, isUpgrade, target, targetEntry, targets, fileCount, totalBytes}` + `status` |
+| `externPlugin.install` | `path?`(string，本机绝对路径)、`url?`(string，下载链接)、`enable?`(bool)、`sha256?`(string) | `{ok, id, version, kind, author?, description?, permissions, enabled, path, sha256, isUpgrade, target, targetEntry, targets, fileCount, totalBytes, source, download?, status}`：`path` 与 `url` 二选一（都不给或都给都是命令失败）；`url` 分支先下到 `<系统缓存根>/musicxx/temp/plugin` 再装，**装完（无论成败）删临时包**；`sha256` 给了就比对，不一致不装 |
 | `externPlugin.uninstall` | `id`(必填)、`keepData?`(bool) | 卸载结果 + 插件清单 |
 | `externPlugin.setEnabled` | `id`(必填)、`enabled`(必填) | `{id, enabled, loaded, …}` + 插件清单 |
 | `externPlugin.reload` | `id?`（不给 = 重扫目录并重载全部启用中的） | `{reloaded:[id…], failed:{id:原因}, …}` + 插件清单 |
@@ -320,6 +326,13 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `featurePoint.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `stopped` / `dropped` / `busy` / `failed`；`disabled` / `stopped` / `dropped` 是三种不同的“没有结果”） |
 | `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], browse:[{type, plugin, title, tag, entries:[{view, title, order, root, icon, pageSize, sort, indexBar, write, search, addFolderSongs, download, capabilities}…]}…], resolveChain:[…]}`：插件声明的音源类型 + 按类型分组的可浏览分类（`musicxx.source.browse`，一个类型可以有多条 `entries`）+ 音源解析链现状（与 `featurePoint.list` 看 `musicxx.player.source.resolve` 是同一份） |
 | `kernel.info` | `refresh?`(bool) | 播放内核能播什么、能用哪些过滤器（与 MCP 工具 `GetMediaKernelInfo`、插件动作 `musicxx.media.kernel` 同一份数据）：`mpvVersion` / `ffmpegVersion`（这份 ffmpeg 是裁剪构建，报 `unknown`）/ `kernelReady` / `audioFilters` + `videoFilters`（能直接写进 `af` / `vf` 的名字，每项 `{name, libavName?, depict?, flags, builtin}`；`builtin` 是 mpv 自带的那几个，重名时 `name` 给带 `lavfi-` 前缀的可用名字）/ `decoders`（`{codec, driver, depict?, hardware}`）/ `audioExtensions` + `videoExtensions`（应用扫描时认得的后缀）/ `counts` / `tookMs` |
+| `lan.scan` | `reset?`(bool，缺省 true)、`wait?`(int ms，0~15000，缺省 3000) | `{ok, serverVersion, port, enabled, self, count, clients}`：刷新一次「共享与控制」的设备发现（重新声明本机服务 + 重新浏览 mDNS + 给已发现设备发心跳），最多等 `wait` 毫秒让发现结果进来。需要「共享与控制」开着、本机 HTTP 服务已绑定 |
+| `lan.clients` | `availableOnly?`(bool，缺省 true)、`refresh?`(bool)、`limitServerVersion?`(int) | 同上形状：已发现设备列表。每一项：`clientId` / `displayName` / `name` / `viewName` / `platform` / `appType` / `appTypeName` / `sameApp` / `addr` / `httpPort` / `uid` / `sameUser` / `version` / `serverType`+`serverTypeName` / `acceptRemoteCtrl`+`acceptRemoteCtrlName` / `canControl`（本机现在能不能控制它）/ `available` / `mdnsLost` / `lastNotify` / `lastNotifyAgoMs` / `controlUrl`。`refresh:true` 先发一轮 `/active` 心跳 |
+| `lan.control` | `clientId?` / `addr?`（二选一）、`action?` / `id?`（二选一）、`data?`(object) | `{ok, clientId, addr, httpPort, cmdId, cmdName, data, remoteCode, remoteOk, accepted, tip}`：把一条 `/control` 指令发给指定设备。`action`：play / pause / next / prev / seek / volume / systemVolume / speed / tempSpeed / recoverTempSpeed / loopMode / theme / appToggle / exit / song / playlist / netPlaylist / addPlaylist / sort / lyric（也能直接给数字 `id`）。`data` 按线协议字段给，常用参数有便利写法：seek 的 `percent` 或 `positionMs`+`durationMs`、volume 的 `percent`/`volume`、loopMode 的模式名或数字、theme 的 `useNight`。对方没答复（离线 / 不可达）、明确拒绝（4001 / 4003）或不认识指令（4004）时命令失败 |
+| `file.download` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`(bool，缺省 false)、`sha256?`、`timeoutMs?`(缺省 120000) | `{ok, url, realUrl?, path, bytes, sha256, status, contentType, tookMs}`：按 http/https 链接下载到本机。先写 `<目标>.part`，成功且校验通过才改名；目标已存在且未给 `overwrite` 时失败。不给 `path`/`dir` 时落到 `<系统缓存根>/musicxx/temp/download/<从链接推导的文件名>` |
+| `file.share.register` | `path`(必填，绝对路径)、`id?`、`title?`、`isDir?`(bool)、`download?`(bool)、`ttlSeconds?`(int，缺省 0 = 不过期) | `{id, route, path, title, isDir, download, size, modified, createdAt, expiresAt, ttlSeconds, hitCount, bytesServed, lastHitAt, localUrl, lanUrls}`：把一个本机文件（或目录）注册成 HTTP 静态文件服务，拿到 `/share/<id>` 与可直接用的链接。route id 随机 32 位十六进制（可自定义，只能 `A-Za-z0-9_-`），**id 就是权限** |
+| `file.share.list` | `id?` | `{ok, count, shares:[...]}`：当前注册的共享 |
+| `file.share.unregister` | `id?` / `all?`(bool) | `{ok, removed}`：注销一个或全部共享，链接立刻失效 |
 
 `musicxx.ui.openSearch` 的 `type` 取值（大小写不敏感，缺省保持当前搜索类型）：`localsong`（本地歌曲）、
 `historysong`（播放记录）、`bili`（Bili）、`musiccloud`（音乐云盘）、`alidrive`（阿里云盘）、
@@ -477,7 +490,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（当前 37 个）
+### 5.2 工具全表（当前 44 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -525,7 +538,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 | 工具 | 参数 | 等价命令 |
 |---|---|---|
-| `InstallExternPlugin` | `path`(必填，绝对路径)、`enable?` | `externPlugin.install` |
+| `InstallExternPlugin` | `path?`（绝对路径）**或** `url?`（下载链接）、`enable?`、`sha256?` | `externPlugin.install` |
 | `ReloadExternPlugins` | `id?` | `externPlugin.reload` |
 | `RestartExternPluginHost` | 无 | `externPlugin.restart` |
 | `GetExternPlugins` | 无 | `externPlugin.list` |
@@ -538,6 +551,22 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 一次调用就能确认结果，不用再问一次。`GetExternPlugins` 还带两行外置插件框架自己的信息：
 `framework: <版本>, <日期>, commit <提交>` 与 `framework repository: <GitHub 仓库地址>`
 （与 `musicxx-cli version` / `list` / `plugin list`、`/cli/ping`、`/cli/list` 是同一份）。
+
+**局域网（共享与控制）与文件**
+
+| 工具 | 参数 | 等价命令 | 文本形态 |
+|---|---|---|---|
+| `ListLanDevices` | `availableOnly?`、`refresh?`、`limitServerVersion?` | `lan.clients` | 本机信息一行 + 每台设备四行（设备 / 应用与地址 / 账号与同账号 / 分享与权限与可控制性 / 最后通信） |
+| `ScanLanDevices` | `reset?`、`wait?`(ms) | `lan.scan` | 同上（扫描后重新给一份列表） |
+| `ControlLanDevice` | `clientId?` / `addr?`、`action?` / `id?`、`data?`(object) | `lan.control` | 「发了哪条指令给哪台设备」+ 对方答复码与数据 |
+| `DownloadFile` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`、`sha256?`、`timeoutMs?` | `file.download` | 落盘路径、字节数、内容类型、sha256、重定向后的地址 |
+| `ShareLocalFile` | `path`(必填)、`id?`、`title?`、`isDir?`、`download?`、`ttlSeconds?` | `file.share.register` | 共享的标题 / 类型 / 路由 / 本机与局域网链接 / 过期时间 |
+| `ListSharedFiles` | `id?` | `file.share.list` | 每条共享一行（标题 / 类型 / id / 路径 / 访问次数）+ 链接 |
+| `UnshareLocalFile` | `id?` / `all?` | `file.share.unregister` | `Removed N shared file(s).` |
+
+设备发现与指令转发需要两台设备都开着「共享与控制」，且对方「允许远程控制本机」的权限包含本机账号
+（仅自己账号 = 双方登录同一个账号）；`lan.control` 只转发已有的 `/control` 数字指令，不新增线协议。
+本机文件对外下载走 `/share/<id>`（见 §6），route id 就是权限，链接不要随便发出去。
 
 **功能点与能力**
 
@@ -586,6 +615,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | `/cli`、`/cli/list`、`/cli/ping` | GET / POST | 本机命令行（§3） | 本机放行；非本机要远控权限 |
 | `/mcp` | POST / GET / DELETE / OPTIONS | MCP（§5） | 不带鉴权 |
 | `/active` | POST | 设备信息 / 存活应答（§6.1） | 放行（受局域网服务开关影响返回内容） |
+| `/share/<id>[/相对路径]` | GET / HEAD | 本机文件的对外下载（§6.6）：`file.share.register` 注册过的文件或目录 | route id 就是权限；非本机还要求「共享与控制」开着 |
 | `/control` | POST | 局域网控制指令（数字命令 id，§6.2） | 要签名 |
 | `/connectEvent` | WebSocket | 事件流（§4.8 / §6.4） | 本机放行；非本机要签名 |
 | `/getSrc` | GET | 资源代理：把本机能拿到的音源交给请求方（§6.3） | 本机放行；非本机要服务模式允许对外 |
@@ -672,17 +702,38 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | 10003 | 远程调整播放列表排序（`SetPlaylistSort`、`playlistInfo` 事件） |
 | 10004 | 副歌区段（`chorus` 事件）、长按临时变速（`SetTempSpeed` / `RecoverTempSpeed`） |
 
+### 6.6 `/share/<id>`（本机文件对外下载）
+
+`file.share.register` 把一个本机文件（或目录）登记成一条共享，拿到
+`http://<地址>:<端口>/share/<id>`（局域网地址在结果的 `lanUrls` 里）。
+
+| 项 | 说明 |
+|---|---|
+| 方法 | `GET` / `HEAD`（其它回 405） |
+| Range | 支持（响应 206 + `Content-Range`；越界 416 + `bytes */<长度>`），可用于播放器与断点续传 |
+| 文件项 | `/share/<id>` 直接给文件；`?download=1` 或注册时 `download: true` 带 `Content-Disposition: attachment` |
+| 目录项 | `/share/<id>/` 给索引（HTML）；`?format=json` 给 `{ok,id,title,path,relative,count,entries:[{name,isDir,size,modified,url}]}`；子文件走 `/share/<id>/<相对路径>` |
+| 访问控制 | route id 随机 32 位十六进制（可自定义），**猜不到 = 分享链接即权限**；非本机请求还要求「共享与控制」开着；没有其他写/删能力 |
+| 失效 | 注册时 `ttlSeconds` 到期，或 `file.share.unregister`；**应用退出即全部失效**（不落库） |
+| 越界 | 相对路径归一化后必须在共享目录内（符号链接指向外面也拒绝），否则 403；未知 id / 已失效 404 |
+
+常用于：把刚 `file.download` 下来的插件包交给另一台设备装、把本机录制的音频交给局域网，
+或让另一个 agent 从这台机器取文件。
+
 ## 7. 边界与安全
 
 - **装插件等于执行任意代码**：`/mcp` 与 `/cli` 都能装插件、启用插件（动态库插件与主程序
   同进程运行）。命令行只对本机开放，**MCP 本身不带鉴权** —— 端口能被连上就能调，
   请把「共享与控制」的对外服务范围收紧，不要把它暴露到不可信网络；
 - **链接与启动参数也算本机入口**：`musicxx://call/?cmd=…` 能调任意入口，而一条链接任何网页 /
-  应用都能触发。所以链接里请求 `externPlugin.*`（装 / 卸 / 启用 / 重载 / 重启插件）这类管理入口时
+  应用都能触发。所以链接里请求 `externPlugin.*`（装 / 卸 / 启用 / 重载 / 重启插件）与 `file.*`
+  （往本机写文件、把本机文件开放给外部下载）这类管理入口时
   **先弹窗问用户**（`MusicxxEntries_c.uriSensitiveCmdPrefixes` + `askLinkSensitiveDo`）：列出命令与
   关键参数，点「允许」才执行，关掉窗口算拒绝；本机通道（命令行 / MCP / `/cli` / 用户自己敲的
   `--cmd`）不问。应用内「设置 → 界面 → 调用快捷链接」粘贴的链接（`manual` 通道，§1.1.1）与 applink
-  同一条规则。新增“能装东西 / 能执行代码”的入口时要一起加进这张表；
+  同一条规则。新增“能装东西 / 能执行代码 / 能读写本机文件”的入口时要一起加进这张表；
+- **`/share/<id>` 是“拿到链接就能下载”**：id 猜不到且可设过期时间，但没有账号校验。
+  不要把它当成需要鉴权的文件接口；需要限制访问时缩短 `ttlSeconds` 并及时 `file.share.unregister`；
 - **插件装不了插件**：安装 / 重载 / 重启插件框架只有命令行与 MCP 有（插件的动作表里没有
   这几条），这是有意的：否则 JS插件能把自己提升到原生权限；
 - **`/cli` 与 `/control` 是两套东西**：`/cli` 是"第二进程 → 主进程拿结果"（本机、结构化、

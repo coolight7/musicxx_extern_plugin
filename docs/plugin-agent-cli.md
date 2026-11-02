@@ -45,6 +45,7 @@
 ```bash
 musicxx-cli plugin list                                      # 装了哪些插件、框架在不在跑
 musicxx-cli plugin install "D:/out/my_plugin-2026_1010_1.zip" --enable    # 安装并启用（路径必须绝对路径）
+musicxx-cli plugin install --url https://example.com/my_plugin.zip --enable  # 没有本机包时按链接装
 musicxx-cli plugin logs my_plugin --limit 50                 # 最近的插件日志（新的在前）
 musicxx-cli plugin reload my_plugin                          # 改完文件重新加载（JS脚本会重新执行）
 musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-data 保留插件私有数据）
@@ -61,6 +62,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 |---|---|---|
 | `plugin list` | 框架状态 + 插件清单（启用/加载、声明的权限、目录、失败原因）+ 插件框架自己的版本（版本号 / 提交 / GitHub 仓库地址） | 否 |
 | `plugin install <zip路径> [--enable]` | 按压缩包安装（同名 = 覆盖安装，失败回滚） | **是** |
+| `plugin install --url <链接> [--sha256 <校验>] [--enable]` | 按链接安装：先下到临时目录再装，装完（无论成败）删临时包；`--sha256` 给了就比对 | **是** |
 | `plugin enable <插件id>` / `plugin disable <插件id>` | 启用 / 禁用 | 否（不在跑时只记录状态，下次启动生效） |
 | `plugin reload [插件id]` | 给 id 只重载这一个；不给 id = 重扫插件目录 + 重载全部启用中的 | **是** |
 | `plugin restart` | 重启插件框架（插件文件与安装记录都保留） | **是**（重启后仍未运行会失败，原因在错误里） |
@@ -313,7 +315,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | MCP 工具 | 参数 | 等价命令 |
 |---|---|---|
 | `GetExternPlugins` | 无 | `plugin list` |
-| `InstallExternPlugin` | `path`（绝对路径）、`enable?` | `plugin install` |
+| `InstallExternPlugin` | `path?`（绝对路径）**或** `url?`（链接）、`enable?`、`sha256?` | `plugin install` |
 | `SetExternPluginEnabled` | `id`、`enabled` | `plugin enable` / `disable` |
 | `ReloadExternPlugins` | `id?` | `plugin reload` |
 | `RestartExternPluginHost` | 无 | `plugin restart` |
