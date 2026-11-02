@@ -126,7 +126,7 @@ musicxx.capability.register("card", function () {
 |---|---|
 | 直接放目录（开发期最常用） | 把插件目录放进 `<应用支持目录>/musicxx/extern_plugin/plugins/<插件 id>/`，管理页有「打开插件目录」；「重新扫描」后在插件页启用 |
 | 压缩包安装 | 打包成 `.zip`（**顶层就是插件目录内容**），管理页「从压缩包安装」 |
-| 命令行 / AI agent | `musicxx-cli plugin install "<zip绝对路径>" --enable`（非交互、不弹确认框；之后用 `plugin list` / `plugin logs` / `plugin reload` 控制）。见 [plugin-agent-cli.md](plugin-agent-cli.md) |
+| 命令行 / AI agent | `musicxx-cli plugin install "<zip绝对路径>" --enable`（非交互、不弹确认框；之后用 `plugin list` / `plugin logs` / `plugin reload` 控制）。插件包在公网上时用 `plugin install --url <链接> --enable`。见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 随包插件 | 放进主程序的随包插件目录，插件框架启动时与用户目录一起扫描 |
 
 改完代码：JS 插件点「重载」（脚本会重新执行一遍）；动态库插件重新构建后再「重载」。

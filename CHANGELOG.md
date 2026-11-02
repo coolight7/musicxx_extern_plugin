@@ -8,6 +8,28 @@
 
 ## 未发布
 
+### 新增：共享与控制（局域网）与文件接口（主程序侧，插件不使用也不受影响）
+
+主程序新增七条命令与七个 MCP 工具，agent 可以自己发现局域网设备、把指令推过去、
+在本机之间传文件（详见 `docs/musicxx-interfaces.md` §4.3 / §5.2 / §6.6）：
+
+| 命令 | MCP 工具 | 作用 |
+|---|---|---|
+| `lan.scan` | `ScanLanDevices` | 刷新扫描附近设备 |
+| `lan.clients` | `ListLanDevices` | 已发现设备列表（地址 / 账号 / 权限 / 能不能控制） |
+| `lan.control` | `ControlLanDevice` | 把一条 `/control` 指令转发给指定设备 |
+| `file.download` | `DownloadFile` | 按 http/https 链接下载文件到本机（sha256 可校验） |
+| `file.share.register` | `ShareLocalFile` | 把本机文件/目录注册成 HTTP 静态文件服务（`/share/<id>`） |
+| `file.share.list` | `ListSharedFiles` | 现在注册了哪些共享 |
+| `file.share.unregister` | `UnshareLocalFile` | 注销共享 |
+
+- `externPlugin.install` / `InstallExternPlugin` 新增 `url`（直接按链接安装，装完删临时包）与 `sha256`；
+  `musicxx-cli plugin install --url <链接>` 可用。
+- 链接（applink）里调 `file.*` 与 `externPlugin.*` 一样**先弹窗问用户**。
+- `/control` 的 `Play` / `Pause` / 上一首 / 下一首 / 进度 / 循环模式在参数合法时回 `2000`（以前回 `4010`），
+  `percent` / `speed` 接受整数，循环模式还接受模式名。
+- 插件**不参与**设备控制，也没有新增插件动作；这些命令只在本机 CLI / MCP / 链接 / 启动参数上可用。
+
 ### 新增：UDP / 广播 / 组播（`musicxx.net.udp.*`，JS 与动态库插件共用）
 
 插件框架的网络能力新增一组 UDP 通道，JS 插件与动态库插件用法完全一致：
