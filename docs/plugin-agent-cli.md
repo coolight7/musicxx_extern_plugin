@@ -28,7 +28,7 @@
 
 | 条件 | 说明 |
 |---|---|
-| 桌面端 | 命令行入口（`/cli`）只在 Windows / Linux / macOS 开放；Android / iOS 没有，继续用管理页 |
+| 桌面端 | `musicxx-cli` 这个可执行文件是桌面构建的一部分；但**命令入口 `/cli` 现在所有平台都有**（手机与桌面同一份命令表），手机可以通过另一台设备的 `lan.control` 或 MCP 被调用 |
 | 有 `musicxx-cli` | 正常构建/安装应用时会与主程序**编译到同一目录**（Windows `musicxx-cli.exe`；Linux / macOS `musicxx-cli`，macOS 在 `Musicxx.app/Contents/MacOS/`）。找不到时看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里也写着当前路径 |
 | 与主程序同一台机器 | 本机回环直接可用（不需要额外配置）；跨机器使用要开「共享与控制 → 允许远程控制本机」 |
 | 主程序在运行 | 没在运行时命令以退出码 2 结束；加 `--start` 可以先拉起再执行，`musicxx-cli start` 拉起并等它就绪 |

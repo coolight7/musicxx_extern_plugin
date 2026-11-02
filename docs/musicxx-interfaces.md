@@ -166,7 +166,7 @@
 |---|---|
 | 主程序在运行 | MCP / 命令行 / 局域网这几条都由主程序的 HTTP 服务提供（applink 与启动参数本身就能把应用拉起来）。没在运行时命令行退出码 2（加 `--start` 可以先拉起） |
 | HTTP 服务已绑定 | 主程序启动时就绑定（`InternetAddress.anyIPv4`，端口按设置，默认随机）：启动日志里有一行 `[HttpServer] 已启动: http://127.0.0.1:<端口>/` |
-| `/cli` 只在桌面端 | Android / iOS 没有 `/cli`（按平台判断）；`/mcp` 与局域网那几条在服务起来后都能用。**手机上外部只能靠链接**（§1.1） |
+| `/cli` 所有平台都有 | 手机与桌面是同一份命令表（以前 `/cli` 只在桌面端开放）；`/mcp` 与局域网那几条在服务起来后都能用。安卓上也能用链接（§1.1） |
 | 应用已走完启动 | 命令行 / MCP / HTTP 与"应用跑起来之后"进来的链接、启动参数都要等应用就绪：入口调用会先等（默认最多 15 秒），等不到返回 `app_not_ready`（命令行是 503 / 退出码 2）。**唯一不等的是启动流程自己**（首次链接、这次启动带的参数）：它们发生在"就绪"置位之前，与旧行为一致立即执行 |
 | 命令行文件 | `musicxx-cli` 与主程序**编译到同一目录**（Windows `musicxx-cli.exe`；Linux 是 bundle 根目录；macOS 在 `Musicxx.app/Contents/MacOS/musicxx-cli`）。找不到时看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里写着当前路径与可复制的命令 |
 
@@ -330,7 +330,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `kernel.info` | `refresh?`(bool) | 播放内核能播什么、能用哪些过滤器（与 MCP 工具 `GetMediaKernelInfo`、插件动作 `musicxx.media.kernel` 同一份数据）：`mpvVersion` / `ffmpegVersion`（这份 ffmpeg 是裁剪构建，报 `unknown`）/ `kernelReady` / `audioFilters` + `videoFilters`（能直接写进 `af` / `vf` 的名字，每项 `{name, libavName?, depict?, flags, builtin}`；`builtin` 是 mpv 自带的那几个，重名时 `name` 给带 `lavfi-` 前缀的可用名字）/ `decoders`（`{codec, driver, depict?, hardware}`）/ `audioExtensions` + `videoExtensions`（应用扫描时认得的后缀）/ `counts` / `tookMs` |
 | `lan.scan` | `reset?`(bool，缺省 true)、`wait?`(int ms，0~15000，缺省 3000) | `{ok, serverVersion, port, enabled, self, count, clients}`：刷新一次「共享与控制」的设备发现（重新声明本机服务 + 重新浏览 mDNS + 给已发现设备发心跳），最多等 `wait` 毫秒让发现结果进来。需要「共享与控制」开着、本机 HTTP 服务已绑定 |
 | `lan.clients` | `availableOnly?`(bool，缺省 true)、`refresh?`(bool)、`limitServerVersion?`(int) | 同上形状：已发现设备列表。每一项：`clientId` / `displayName` / `name` / `viewName` / `platform` / `appType` / `appTypeName` / `sameApp` / `addr` / `httpPort` / `uid` / `sameUser` / `version` / `serverType`+`serverTypeName` / `acceptRemoteCtrl`+`acceptRemoteCtrlName` / `canControl`（本机现在能不能控制它）/ `available` / `mdnsLost` / `lastNotify` / `lastNotifyAgoMs` / `controlUrl`。`refresh:true` 先发一轮 `/active` 心跳 |
-| `lan.control` | `clientId?` / `addr?`（二选一）、`action?` / `id?`（二选一）、`data?`(object) | `{ok, clientId, addr, httpPort, cmdId, cmdName, data, remoteCode, remoteOk, accepted, tip}`：把一条 `/control` 指令发给指定设备。`action`：play / pause / next / prev / seek / volume / systemVolume / speed / tempSpeed / recoverTempSpeed / loopMode / theme / appToggle / exit / song / playlist / netPlaylist / addPlaylist / sort / lyric（也能直接给数字 `id`）。`data` 按线协议字段给，常用参数有便利写法：seek 的 `percent` 或 `positionMs`+`durationMs`、volume 的 `percent`/`volume`、loopMode 的模式名或数字、theme 的 `useNight`。对方没答复（离线 / 不可达）、明确拒绝（4001 / 4003）或不认识指令（4004）时命令失败 |
+| `lan.control` | `clientId?` / `addr?`（二选一）、`cmd?` + `args?`、`action?` / `id?` + `data?`(object) | `{ok, clientId, addr, httpPort, action?, via, cmd?, cmdId?, cmdName?, remoteOk, data, error?, tip?}`：把一条指令发给指定设备。**默认转发到对方的 `POST /cli`**（命令面），`cmd` + `args` 可以直接给对方的任意命令 id（`musicxx.player.pause`、`playlist.play`、`externPlugin.install`、`file.share.register` …），拿回结构化结果；`action` + `data` 是常用动作的简写，play / pause / next / prev / seek / volume / speed / loopMode 会换成对应命令走 `/cli`，其余（systemVolume / tempSpeed / recoverTempSpeed / theme / appToggle / exit / song / playlist / netPlaylist / addPlaylist / sort / lyric）命令面还没有对应命令，仍走老的 `/control` 数字 id（也可直接给 `id`）。`via` 说明这次走的哪条；`data` 是对方返回的数据。对方不允许远程调用（403 / 4001 / 4003）、不认识命令（404 / 4004）、还在启动（503）或没答复（离线）时命令失败并带回原因 |
 | `file.download` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`(bool，缺省 false)、`sha256?`、`timeoutMs?`(缺省 120000) | `{ok, url, realUrl?, path, bytes, sha256, status, contentType, tookMs}`：按 http/https 链接下载到本机。先写 `<目标>.part`，成功且校验通过才改名；目标已存在且未给 `overwrite` 时失败。不给 `path`/`dir` 时落到 `<系统缓存根>/musicxx/temp/download/<从链接推导的文件名>` |
 | `file.share.register` | `path`(必填，绝对路径)、`id?`、`title?`、`download?`(bool)、`ttlSeconds?`(int，缺省 0 = 不过期) | `{id, route, path, title, isDir, download, size, modified, createdAt, expiresAt, ttlSeconds, hitCount, bytesServed, lastHitAt, localUrl, lanUrls}`：把一个本机文件（或目录）注册成 HTTP 静态文件服务，拿到 `/share/<id>` 与可直接用的链接。route id 随机 32 位十六进制（可自定义，只能 `A-Za-z0-9_-`），**id 就是权限** |
 | `file.share.list` | `id?` | `{ok, count, shares:[...]}`：当前注册的共享 |
@@ -560,14 +560,14 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 |---|---|---|---|
 | `ListLanDevices` | `availableOnly?`、`refresh?`、`limitServerVersion?` | `lan.clients` | 本机信息一行 + 每台设备四行（设备 / 应用与地址 / 账号与同账号 / 分享与权限与可控制性 / 最后通信） |
 | `ScanLanDevices` | `reset?`、`wait?`(ms) | `lan.scan` | 同上（扫描后重新给一份列表） |
-| `ControlLanDevice` | `clientId?` / `addr?`、`action?` / `id?`、`data?`(object) | `lan.control` | 「发了哪条指令给哪台设备」+ 对方答复码与数据 |
+| `ControlLanDevice` | `clientId?` / `addr?`、`cmd?` + `args?`、`action?` / `id?` + `data?`(object) | `lan.control` | 「发了哪条指令给哪台设备」+ 这次走的通道（`/cli` 或 `/control`）与对方返回的数据 |
 | `DownloadFile` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`、`sha256?`、`timeoutMs?` | `file.download` | 落盘路径、字节数、内容类型、sha256、重定向后的地址 |
 | `ShareLocalFile` | `path`(必填)、`id?`、`title?`、`download?`、`ttlSeconds?` | `file.share.register` | 共享的标题 / 类型 / 路由 / 本机与局域网链接 / 过期时间 |
 | `ListSharedFiles` | `id?` | `file.share.list` | 每条共享一行（标题 / 类型 / id / 路径 / 访问次数）+ 链接 |
 | `UnshareLocalFile` | `id?` / `all?` | `file.share.unregister` | `Removed N shared file(s).` |
 
 设备发现与指令转发需要两台设备都开着「共享与控制」，且对方「允许远程控制本机」的权限包含本机账号
-（仅自己账号 = 双方登录同一个账号）；`lan.control` 只转发已有的 `/control` 数字指令，不新增线协议。
+（仅自己账号 = 双方登录同一个账号）；`lan.control` 默认转发到对方的 `/cli`（命令面），只有命令面还没有对应命令的那几条动作才走 `/control` 数字指令，没有新增线协议。
 本机文件对外下载走 `/share/<id>`（见 §6），route id 就是权限，链接不要随便发出去。
 
 **功能点与能力**
@@ -614,7 +614,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 | 路径 | 方法 | 用途 | 权限 |
 |---|---|---|---|
-| `/cli`、`/cli/list`、`/cli/ping` | GET / POST | 本机命令行（§3） | 本机放行；非本机要远控权限 |
+| `/cli`、`/cli/list`、`/cli/ping` | GET / POST | 本机命令行（§3），所有平台都有 | 本机放行；非本机要远控权限 |
 | `/mcp` | POST / GET / DELETE / OPTIONS | MCP（§5） | 不带鉴权 |
 | `/active` | POST | 设备信息 / 存活应答（§6.1） | 放行（受局域网服务开关影响返回内容） |
 | `/share/<id>[/相对路径]` | GET / HEAD | 本机文件的对外下载（§6.6）：`file.share.register` 注册过的文件或目录 | route id 就是权限；非本机还要求「共享与控制」开着 |

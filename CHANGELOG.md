@@ -8,6 +8,16 @@
 
 ## 未发布
 
+### 变更：`/cli` 所有平台可用，`lan.control` 改为转发到 `/cli`
+
+- `/cli`（含 `/cli/list`、`/cli/ping`）不再只在桌面端开放：Android / iOS 上也有**同一份命令表**，
+  供别的设备与 agent 调用（非本机仍然要过「共享与控制 → 允许远程控制本机」）。
+- `lan.control` / `ControlLanDevice` 默认把指令转发到对方的 `POST /cli`：`cmd` + `args` 可以调对端任意命令
+  （`musicxx.player.pause`、`playlist.play`、`externPlugin.install`、`file.share.register` …），结果结构化；
+  `action` 写法里 play / pause / next / prev / seek / volume / speed / loopMode 走命令面，
+  其余动作（主题 / 退出 / 系统音量 / 临时变速 / 整份歌单 / 排序 / 歌词 / 前后台切换）仍走 `/control`。
+  返回多一个 `via` 字段（`cli` / `control`）说明这次走的哪条通道。`/control` 线协议本身没有变。
+
 ### 新增：共享与控制（局域网）与文件接口（主程序侧，插件不使用也不受影响）
 
 主程序新增七条命令与七个 MCP 工具，agent 可以自己发现局域网设备、把指令推过去、
