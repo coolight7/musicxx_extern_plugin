@@ -229,7 +229,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   // js 是 JS 接口下限（1），运行器登记的形态写多少就多少（0 = 不判）。
   const int32_t minInterfaceVersion =
       kindSpec ? kindSpec->minInterfaceVersion
-               : MUSICXX_PLUGINXX_MIN_API_VERSION;
+               : MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
   // 形态事实一起报给调用方：主程序据此展示“这个形态的接口代次”与
   // “要不要请提供者校验”，不在自己的代码里写死形态名。
   info.kindKnown = kindKnown;
@@ -237,7 +237,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   info.kindMinInterfaceVersion = minInterfaceVersion;
   info.kindInterfaceVersion =
       (kindSpec && kindSpec->interfaceVersion > 0) ? kindSpec->interfaceVersion
-                                                  : MUSICXX_PLUGIN_API_VERSION;
+                                                  : MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
   if (kindSpec && !kindSpec->frameworkOwned()) {
     info.kindProvider = kindSpec->provider;
     info.kindProviderId = naming::pluginIdOfInstance(kindSpec->provider);

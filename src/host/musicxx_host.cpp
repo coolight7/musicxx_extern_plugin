@@ -2660,7 +2660,7 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
   Json j;
   j["apiVersion"] = MUSICXX_EXTERN_PLUGIN_API_VERSION;
   j["version"] = MUSICXX_EXTERN_PLUGIN_VERSION;
-  j["pluginAbiVersion"] = MUSICXX_PLUGIN_API_VERSION;
+  j["pluginAbiVersion"] = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
   j["platform"] = platform_;
   j["arch"] = hostArch();
   j["appVersion"] = appVersion_;

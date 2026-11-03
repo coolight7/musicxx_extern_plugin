@@ -62,8 +62,8 @@ struct MusicxxPluginInspect {
   bool kindKnown = true;
   bool kindRequiresPluginAbi = true;
   /// 该形态当前上报的接口代次与它能接受的最低代次（清单 `api_version` 的判定线）
-  int32_t kindInterfaceVersion = MUSICXX_PLUGIN_API_VERSION;
-  int32_t kindMinInterfaceVersion = MUSICXX_PLUGINXX_MIN_API_VERSION;
+  int32_t kindInterfaceVersion = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
+  int32_t kindMinInterfaceVersion = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
   /// 提供者实例名（空 = 插件框架自己跑）与它的插件 id
   std::string kindProvider;
   std::string kindProviderId;

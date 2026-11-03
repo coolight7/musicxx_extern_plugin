@@ -99,8 +99,8 @@ public:
     native.kind = "native";
     native.builtin = true;
     native.requiresPluginAbi = true;
-    native.interfaceVersion = MUSICXX_PLUGIN_API_VERSION;
-    native.minInterfaceVersion = MUSICXX_PLUGINXX_MIN_API_VERSION;
+    native.interfaceVersion = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
+    native.minInterfaceVersion = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
     native.describe = "动态库插件：由插件框架自己加载，调用通用接口表";
     builtins_.push_back(std::move(native));
     // 内置形态：js 由内置 JS 运行器解释执行，按 JS 接口代次判
@@ -159,8 +159,8 @@ public:
     } else if (entry.requiresPluginAbi) {
       // 会调 C 接口表的形态（运行器自己编插件）：接口代次对就是 C 接口那一对，
       // 不让登记方随便写（写了也不采信）
-      entry.interfaceVersion = MUSICXX_PLUGIN_API_VERSION;
-      entry.minInterfaceVersion = MUSICXX_PLUGINXX_MIN_API_VERSION;
+      entry.interfaceVersion = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
+      entry.minInterfaceVersion = MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
     }
     // 解释执行的形态自己声明代次对：下限不能高于当前代次（未声明 = 不判）
     if (entry.interfaceVersion < 0 || entry.minInterfaceVersion < 0) {
@@ -252,7 +252,7 @@ public:
   /// - **未登记的形态按 C 接口下限算**，与 [requiresPluginAbi] 同一个理由。
   int32_t minInterfaceVersion(std::string_view kind) const {
     const MusicxxPluginKindSpec *spec = find(kind);
-    return spec ? spec->minInterfaceVersion : MUSICXX_PLUGINXX_MIN_API_VERSION;
+    return spec ? spec->minInterfaceVersion : MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
   }
 
   /// 该形态当前上报的接口代次（插件读 `host.info().apiVersion` / `config().apiVersion` 看到的值）
@@ -261,7 +261,7 @@ public:
   int32_t interfaceVersion(std::string_view kind) const {
     const MusicxxPluginKindSpec *spec = find(kind);
     return (spec && spec->interfaceVersion > 0) ? spec->interfaceVersion
-                                                : MUSICXX_PLUGIN_API_VERSION;
+                                                : MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION;
   }
 
   /// 形态名是否合法（清单字段与接口表共用这一份规则）
