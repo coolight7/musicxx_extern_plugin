@@ -194,15 +194,33 @@
 
 ### 2.2 权限边界
 
+**对外接口只过一道鉴权**（主程序 `lib/manager/netAuth/MusicxxNetAuth.dart`），判定顺序：
+
+```text
+本机（回环 / 链路本地 / 组播） → 局域网服务没开 → 档位「公开」 → 访问令牌 → sign 同账号 → 弹窗
+```
+
+- 档位只有两档：「询问」（默认，同账号与本机直通、其它来源弹窗）与「公开」（不看身份）；
+- 访问令牌是**全权限、不过期**的一把钥匙（相当于用户本人，不设数量上限），四种写法等价：
+  `Authorization: Bearer <令牌>`、`X-Musicxx-Token: <令牌>`、`Token: <令牌>`、`?token=<令牌>`；
+- 同账号靠 `sign`（账号 uid 的 md5，uid 本来就在 mDNS TXT 里广播）——**它只是同账号标记、不是凭据**；
+  同网段的人能算出来冒充同账号，真正的凭据是访问令牌。
+
 | 入口 | 本机回环 | 非本机 |
 |---|---|---|
-| `/cli`（含 `/cli/list`、`/cli/ping`） | 直接可用，不需要任何配置 | 要「共享与控制 → 允许远程控制本机」判定通过（`?sign=`），否则 403 |
-| `/mcp` | 可用（**本身不带鉴权**） | 只要端口连得上就能调，见 §7 |
-| `/control` | **仍要签名** | 要签名（`isAcceptRemoteCtrl(sign)`） |
-| `/connectEvent`（事件流 WebSocket） | 放行（`musicxx-cli watch` 靠它） | 要签名 |
-| `/getSrc`、`/parseSrc` | 放行 | 要「局域网服务」开着、且服务模式允许对外服务 |
-| `/listenTogether`、`/ws/listenTogether` | — | 不经过远控权限校验：跨账号邀请是否接受由**被邀请方**的确认弹窗决定 |
+| `/cli`（含 `/cli/list`、`/cli/ping`） | 直接可用，不需要任何配置 | 统一鉴权：同账号（`?sign=`）直通；不同账号要令牌或由用户点一次「允许」；没有身份时 403 |
+| `/mcp` | 可用 | 同上（`OPTIONS` 预检不判定）；拒绝时是 JSON-RPC `error`（`code: -32001`） |
+| `/control` | 放行 | 同上（可弹窗） |
+| `/connectEvent`（事件流 WebSocket） | 放行 | 同一道门，但**握手不弹窗**：没有身份直接 403；先 `GET /auth/token` 拿令牌再 `?token=` 连 |
+| `/getSrc`、`/parseSrc` | 放行 | 同一道门 + 「局域网服务」开着、且服务模式允许对外服务 |
+| `/listenTogether`、`/ws/listenTogether` | — | **不进鉴权门**：邀请不看档位，跨账号邀请由被邀请方的确认弹窗把关；`/ws/listenTogether` 只看 `groupId` / `clientId`（再多一层会让用户点两次） |
+| `/auth/token` | 发一把令牌 | 同一道门（可以弹窗），公开档直接告诉你“不需要令牌” |
 | `/active` | 放行 | 放行（未开局域网服务时只回"存活"，不吐设备信息） |
+| `/share/<id>` | 放行 | 链接就是权限（不进鉴权门），但仍要求「局域网服务」开着 |
+
+拿到令牌的两种方便写法：在应用里「共享与控制 → 访问令牌」手动加，或者本机跑
+`musicxx-cli auth token --host <ip> --port <端口>`（只打印，不落盘）。通过弹窗授权的那一次请求，
+响应头会带 `X-Musicxx-Token`，客户端存下来复用即可。
 
 ## 3. `/cli` 的协议形状
 
@@ -224,7 +242,7 @@ POST /cli                   {"cmd": "<入口 id>", "args": {…}}         ← �
 |---|---|
 | 200 | 请求合理。**命令本身的失败也是 200 + `ok:false`**，调用方只看 `ok` |
 | 400 | 请求体不是 JSON 对象 / 缺 `cmd` / `args` 不是对象 / `uri` 认不出来 / `argv` 解析出多条 |
-| 403 | 非本机且没有远程控制权限 |
+| 403 | 非本机且没过鉴权门（`error` 里说明要令牌还是被用户拒绝） |
 | 404 | 路径不认识 |
 | 405 | 方法不对（只接受 GET / POST） |
 | 503 | 应用还在启动收尾（`app_not_ready`；默认先等 15 秒才这么答） |
@@ -560,7 +578,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 |---|---|---|---|
 | `ListLanDevices` | `availableOnly?`、`refresh?`、`limitServerVersion?` | `lan.clients` | 本机信息一行 + 每台设备四行（设备 / 应用与地址 / 账号与同账号 / 分享与权限与可控制性 / 最后通信） |
 | `ScanLanDevices` | `reset?`、`wait?`(ms) | `lan.scan` | 同上（扫描后重新给一份列表） |
-| `RunCommandOnDevice` | `clientId?` / `addr?`、`cmd?` + `args?`、`action?` / `id?` + `data?`(object) | `lan.cli` | 「发了哪条指令给哪台设备」+ 这次走的通道（`/cli` 或 `/control`）与对方返回的数据 |
+| `RunCommandOnDevice` | `clientId?` / `addr?`、`cmd?` + `args?`、`action?` / `id?` + `data?`(object)、`token?` | `lan.cli` | 「发了哪条指令给哪台设备」+ 这次走的通道（`/cli` 或 `/control`）与对方返回的数据。`token` 是对方要求的访问令牌（不同账号的设备要带；同账号可以不带） |
 | `DownloadFile` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`、`sha256?`、`timeoutMs?` | `file.download` | 落盘路径、字节数、内容类型、sha256、重定向后的地址 |
 | `ShareLocalFile` | `path`(必填)、`id?`、`title?`、`download?`、`ttlSeconds?` | `file.share.register` | 共享的标题 / 类型 / 路由 / 本机与局域网链接 / 过期时间 |
 | `ListSharedFiles` | `id?` | `file.share.list` | 每条共享一行（标题 / 类型 / id / 路径 / 访问次数）+ 链接 |
