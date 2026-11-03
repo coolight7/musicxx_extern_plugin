@@ -65,7 +65,7 @@ public:
   /// - `status` = `PLUGINXX_OPERATOR_OK` 时 `payloadJson` 是结果 JSON;
   /// - `status` = `PLUGINXX_OPERATOR_FAILED` 时 `payloadJson` 是错误 JSON
   ///   (`{ok:false,error,message}`);
-  /// - 取消 (插件卸载 / 框架停机) 用 `PLUGINXX_OPERATOR_CANCELLED` + 空载荷。
+  /// - 取消 (插件卸载 / 框架停机) 用 `PLUGINXX_OPERATOR_CANCELED` + 空载荷。
   using DoneFn = std::function<void(int32_t status, const std::string &payloadJson)>;
 
   static std::shared_ptr<PluginNetHub> create(PublishFn publish,

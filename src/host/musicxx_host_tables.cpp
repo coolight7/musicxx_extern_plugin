@@ -935,7 +935,7 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
       const std::string pluginId = pluginIdOf(it->second.plugin);
       if (it->second.notify && it->second.notify->done) {
         it->second.notify->done(it->second.notify->host_ud,
-                                PLUGINXX_OPERATOR_CANCELLED, nullptr);
+                                PLUGINXX_OPERATOR_CANCELED, nullptr);
       }
       XX_LOGW("[musicxx_ext] 动作请求超时: plugin={} action={} id={}", pluginId,
               it->second.action, requestId);
@@ -1016,7 +1016,7 @@ void MusicxxHostManager::cancelAction(int64_t requestId) {
   }
   if (it->second.notify && it->second.notify->done) {
     it->second.notify->done(it->second.notify->host_ud,
-                            PLUGINXX_OPERATOR_CANCELLED, nullptr);
+                            PLUGINXX_OPERATOR_CANCELED, nullptr);
   }
   Json payload;
   payload["requestId"] = requestId;
