@@ -23,8 +23,10 @@
 - **插件清单用同一套格式**：`plugin.yaml` 的 `version` 例 `2026.1010.1`，打包脚本把它带进安装包名
   （见 `plugins/README.md`）。
 - **与版本号无关的三个版本**：
-  - 插件清单的 `api_version` 与插件 SDK 的 `MUSICXX_PLUGIN_API_VERSION` 是**插件 ABI 契约代次**
-    （当前 3），只有破坏性改动时才 +1；低于 `MUSICXX_PLUGINXX_MIN_API_VERSION` 的插件在加载阶段被拒；
+  - 插件清单的 `api_version` 与插件 SDK 的 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 是**插件 ABI 代次**
+    （当前 3），只有破坏性改动时才 +1；低于它的插件在加载阶段被拒；
+    宿主构建时用 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 覆盖 cxx_pluginxx 的 `PLUGINXX_API_VERSION`
+    与 `PLUGINXX_MIN_API_VERSION`（两个值相同）；
   - C ABI 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION`（当前 1）是主程序 ↔ 插件框架库那层 `musicxx_extern_plugin_*`
     函数与结构体的版本，同样只在破坏性改动时 +1。
 - 插件读到的版本号：JS 是 `musicxx.version`，动态库插件是 `host.info().hostVersion`

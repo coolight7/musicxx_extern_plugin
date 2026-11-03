@@ -267,7 +267,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 ///   （本函数是同步的，问不了插件；参约定见 `docs/plugin-native-api.md` §4.3）；
 /// - 返回 OK 表示"判定完成", 目录不存在/清单非法时 `valid=false` + `error`
 ///   (同样返回 OK —— 调用方看 `valid`);
-/// - 清单 `api_version` 低于 `MUSICXX_PLUGINXX_MIN_API_VERSION` 时 `supported=false`
+/// - 清单 `api_version` 低于 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 时 `supported=false`
 ///   (+ reason); 声明更高版本不算不支持;
 /// - 不看运行期开关 (JS 运行时是否可用、安全模式、禁用动态库), 那些由 `plugin_scan` 叠加。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

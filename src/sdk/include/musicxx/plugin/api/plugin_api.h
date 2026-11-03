@@ -34,21 +34,20 @@ extern "C" {
 #define MUSICXX_PLUGIN_SYMBOL_STOP     "musicxx_plugin_stop"
 #define MUSICXX_PLUGIN_SYMBOL_DESTROY  "musicxx_plugin_destroy"
 
-/// 插件 ABI 契约版本 (与插件框架的 PLUGINXX_API_VERSION 同一个值; 供插件读 `get_info`
-/// 展示与能力判定, 清单 `api_version` 也写这个值)
+/// 插件 ABI 代次 (= cxx_pluginxx 的 `PLUGINXX_MIN_API_VERSION`, 也是宿主编译时下发给
+/// `PLUGINXX_API_VERSION` 的同一个值: 目前“当前代次”与“最低接受代次”是同一个数)
 ///
-/// 值由构建侧给出 (cxx_pluginxx 的 CMake 选项 `PLUGINXX_API_VERSION`, 由本包的
-/// `src/CMakeLists.txt` 覆盖成当前代次): 插件包含本头即拿到与插件框架库一致的值,
-/// 不要手写数字。
-#define MUSICXX_PLUGIN_API_VERSION PLUGINXX_API_VERSION
+/// 供插件读 `get_info` 展示与能力判定, 清单 `api_version` 也写这个值。
+/// 值由构建侧给出 (本包 `src/CMakeLists.txt` 用 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION`
+/// 覆盖 cxx_pluginxx 的默认值): 插件包含本头即拿到与插件框架库一致的值, 不要手写数字。
+#define MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION PLUGINXX_MIN_API_VERSION
 
 /// 框架支持的最低插件 API 版本 (清单 `api_version` 与 `PluginxxInfo.api_version`
-/// 都按它检查)
+/// 都按它检查; 就是上面的 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION`)
 ///
 /// 规则只有一条: **插件版本必须 >= 本值**。声明比当前框架更高的版本不再被拒绝
 /// (插件自己按 `host.info()` 里的 `apiVersion` 决定降级), 声明更低版本只要不低于
 /// 本值也照常加载。
-#define MUSICXX_PLUGINXX_MIN_API_VERSION PLUGINXX_MIN_API_VERSION
 
 #pragma pack(push, 8)
 
