@@ -421,10 +421,13 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 ### 4.6 名字存在、但没有实现的动作
 
-下面这些名字在插件 SDK 里能写，主程序当前**没有注册**，调它只会得到"动作未注册"：
-`musicxx.player.setMediaType`、`musicxx.library.querySonglist` / `addSong` /
+下表都是**插件 SDK 里声明过的常量**（在 SDK 里能写），主程序当前**没有注册**，调它只会得到"动作未注册"：
+`musicxx.player.setMediaType`、`musicxx.library.querySonglist` /
 `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` /
 `set` / `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
+
+> 加歌用 `musicxx.playlist.addSong`（已实现）。SDK 里**没有** `musicxx.library.addSong` 这个常量，
+> 照着写只会得到拼写错误类的报错。
 
 ### 4.7 `musicxx-cli` 的糖命令（CLI 名 → 命令 id）
 
