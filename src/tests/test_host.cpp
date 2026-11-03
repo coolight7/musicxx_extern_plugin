@@ -1654,7 +1654,7 @@ int main(int argc, char **argv) {
     const std::string probe2 = probeAgain.payload;
     check(probeAgain.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && probeAgain.ok,
           "超时后探针可读");
-    // PLUGINXX_OPERATOR_CANCELLED == 1: 超时按取消终结,
+    // PLUGINXX_OPERATOR_CANCELED == 1: 超时按取消终结,
     // 插件侧收到恰好一次完成通知
     check(jsonIntField(probe2, "lastActionStatus") == "1",
           "动作超时按取消终结并回调插件");

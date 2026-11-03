@@ -1036,7 +1036,7 @@ void MusicxxHostManager::clearPluginRegistrations(
     auto pending = netHub_->shutdownPlugin(pluginIdOf(instanceName));
     for (auto &done : pending) {
       if (done) {
-        done(PLUGINXX_OPERATOR_CANCELLED, {});
+        done(PLUGINXX_OPERATOR_CANCELED, {});
       }
     }
   }
@@ -1060,7 +1060,7 @@ void MusicxxHostManager::clearPluginRegistrations(
       }
       if (it->second.notify && it->second.notify->done) {
         it->second.notify->done(it->second.notify->host_ud,
-                                PLUGINXX_OPERATOR_CANCELLED, nullptr);
+                                PLUGINXX_OPERATOR_CANCELED, nullptr);
       }
       it = pendingActions_.erase(it);
     } else {
