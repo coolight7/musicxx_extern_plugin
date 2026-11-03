@@ -635,7 +635,10 @@ OpenSSL 版本。所以 `https` 失败只剩真正的原因：`tls_config`（`ca
 - **非 2xx 也按"请求完成"返回**（`ok:true` + `status`），状态码交给插件判断；
   只有传输失败 / TLS 失败 / 超时才 `ok:false`。
 - 响应体是**流式读取**的：给了 `maxBytes` 且读满就断开连接并置 `truncated:true`；
-  不给 `maxBytes` = 整份读到内存（大文件用 `download`，它边读边写盘）。
+  不给 `maxBytes` = 整份读到内存（大文件用 `download`，它边读边写盘）。`responseType` 为 `bytes` 时
+  返回前还要 base64 一份，峰值内存约为响应体大小的 2.3 倍。
+  > 待办：`fetch` 将来会支持把响应体直接流给插件（不先整个收进内存）；在那之前要处理大文件，
+  > 请用 `download` 落盘再自己读。
 - **信任库**：系统根证书（Windows 读系统证书库，Linux/macOS/Android 读常见 bundle 与证书目录）
   始终参与校验；`caFile` / `caPem` 是在此基础上追加。自签名的自建服务要么把它自己的 CA
   通过 `caPem` 给进来，要么 `tlsVerify:false`（生产环境不要这么干）。
