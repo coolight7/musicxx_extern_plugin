@@ -197,14 +197,12 @@
 **对外接口只过一道鉴权**（主程序 `lib/manager/netAuth/MusicxxNetAuth.dart`），判定顺序：
 
 ```text
-本机（回环 / 链路本地 / 组播） → 局域网服务没开 → 档位「公开」 → 访问令牌 → sign 同账号 → 弹窗
+本机（回环 / 链路本地 / 组播） → 局域网服务没开 → 档位「公开」 → 授权密令 → sign 同账号 → 弹窗
 ```
 
 - 档位只有两档：「询问」（默认，同账号与本机直通、其它来源弹窗）与「公开」（不看身份）；
-- 访问令牌是**全权限、不过期**的一把钥匙（相当于用户本人，不设数量上限），四种写法等价：
+- 授权密令是**全权限、不过期**的一把钥匙（相当于用户本人，不设数量上限），四种写法等价：
   `Authorization: Bearer <令牌>`、`X-Musicxx-Token: <令牌>`、`Token: <令牌>`、`?token=<令牌>`；
-- 同账号靠 `sign`（账号 uid 的 md5，uid 本来就在 mDNS TXT 里广播）——**它只是同账号标记、不是凭据**；
-  同网段的人能算出来冒充同账号，真正的凭据是访问令牌。
 
 | 入口 | 本机回环 | 非本机 |
 |---|---|---|
@@ -218,7 +216,7 @@
 | `/active` | 放行 | 放行（未开局域网服务时只回"存活"，不吐设备信息） |
 | `/share/<id>` | 放行 | 链接就是权限（不进鉴权门），但仍要求「局域网服务」开着 |
 
-拿到令牌的两种方便写法：在应用里「共享与控制 → 访问令牌」手动加，或者本机跑
+拿到令牌的两种方便写法：在应用里「共享与控制 → 授权密令」手动加，或者本机跑
 `musicxx-cli auth token --host <ip> --port <端口>`（只打印，不落盘）。通过弹窗授权的那一次请求，
 响应头会带 `X-Musicxx-Token`，客户端存下来复用即可。
 
@@ -578,7 +576,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 |---|---|---|---|
 | `ListLanDevices` | `availableOnly?`、`refresh?`、`limitServerVersion?` | `lan.clients` | 本机信息一行 + 每台设备四行（设备 / 应用与地址 / 账号与同账号 / 分享与权限与可控制性 / 最后通信） |
 | `ScanLanDevices` | `reset?`、`wait?`(ms) | `lan.scan` | 同上（扫描后重新给一份列表） |
-| `RunCommandOnDevice` | `clientId?` / `addr?`、`cmd?` + `args?`、`action?` / `id?` + `data?`(object)、`token?` | `lan.cli` | 「发了哪条指令给哪台设备」+ 这次走的通道（`/cli` 或 `/control`）与对方返回的数据。`token` 是对方要求的访问令牌（不同账号的设备要带；同账号可以不带） |
+| `RunCommandOnDevice` | `clientId?` / `addr?`、`cmd?` + `args?`、`action?` / `id?` + `data?`(object)、`token?` | `lan.cli` | 「发了哪条指令给哪台设备」+ 这次走的通道（`/cli` 或 `/control`）与对方返回的数据。`token` 是对方要求的授权密令（不同账号的设备要带；同账号可以不带） |
 | `DownloadFile` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`、`sha256?`、`timeoutMs?` | `file.download` | 落盘路径、字节数、内容类型、sha256、重定向后的地址 |
 | `ShareLocalFile` | `path`(必填)、`id?`、`title?`、`download?`、`ttlSeconds?` | `file.share.register` | 共享的标题 / 类型 / 路由 / 本机与局域网链接 / 过期时间 |
 | `ListSharedFiles` | `id?` | `file.share.list` | 每条共享一行（标题 / 类型 / id / 路径 / 访问次数）+ 链接 |
