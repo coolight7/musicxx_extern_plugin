@@ -46,6 +46,7 @@ GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<�
 
 | musicxx 版本 | 插件框架版本 | 插件框架提交 | 日期 | 说明 |
 |---|---|---|---|---|
+| 未发布 | 2026.1104.1 | （待补记） | 2026-11-04 | 动作分类拆分：`musicxx.library.*` 里的“读歌单 / 读歌曲 / 播歌”拆成 `musicxx.playlist.*`（歌单）与 `musicxx.songlist.*`（播放列表）；旧名字保留并标为过时（仍可使用），从未实现的那几条也换了名字（仍未实现）；JS 新增 `musicxx.playlist` / `musicxx.songlist`，`musicxx.library` 保留 |
 | 未发布 | 2026.1031.1 | 8314706 | 2026-10-31 | 一个音源类型可以有多个浏览分类：`musicxx.source.browse` 可重复调用（`id` 相同、`view` 不同），每个分类独立的标题 / 图标 / 顺序 / 根目录 / 页大小 / 排序方式 / 索引栅 / 读写能力；`drive.*` 入参恒带 `type` 与 `view`；`source.undefine` 多一个 `view`；`pickSongs` / `pickDir` / `browseDrive` 多一个 `view` 并在返回里回报最终分类；`source.list` 的 `browse` 改为按类型分组（带 `entries`）；分类不进音源身份 |
 | 未发布 | 2026.1026.1 | （待补记） | 2026-10-26 | 依赖库 `cxx_*` 升级到「作用域引用 + 业务语义不进通用表」的一代：通用表 `pluginxx.events` / `capabilities` / `config` / `cancel` 升到 v3（订阅与调能力要带一个可为空的作用域引用，`config` 去掉工具提示词/会话工作目录，`cancel` 只剩 `op_cancel`），插件 ABI 契约代次 1 → 3，旧插件要按新头文件重编；`PLUGINXX_API_VERSION` 由构建侧覆盖（`src/CMakeLists.txt` 默认 3），插件构建由 SDK 自动带上；插件形态（kind）改为注册表（新表 `musicxx.kind`：插件可登记自己的运行器，并可选声明 `validateCapability` 由它判定“这个包能不能装 / 能不能加载”），接口代次按形态分开（`host_kind.h`）：内置 `native` 3/3（C 接口代次）、内置 `js` 2/1（JS 接口只增不改，下限仍 1），插件读到的 `host.info().apiVersion` / `config().apiVersion` 按自己的形态报 |
 | 未发布 | 2026.1025.1 | （待补记） | 2026-10-25 | 静态内容并到 HTTP 服务：`http.serve` 的 `static` / `staticOnly` 与新增 op `http.route` / `http.unroute`（命中后由框架直接回 200/206/416，不进 `http.request`）；删掉单独的 JS 本地文件服务（`musicxx.net.serveFile/serveBytes/serverInfo/stopServer`，从未发布） |

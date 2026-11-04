@@ -8,6 +8,31 @@
 
 ## 未发布
 
+### 变更：动作分类拆分 —— `musicxx.library.*` 改为 `musicxx.playlist.*` 与 `musicxx.songlist.*`
+
+一个前缀里原来混着两个概念（歌单 / 播放列表），调用方从动作名看不出自己在操作哪一个。
+现在前缀就是操作对象：`playlist` = 单张歌单（保存下来的列表），`songlist` = 播放列表
+（当前正在播的那一串歌）。
+
+| 过时 | 现在用 | 说明 |
+|---|---|---|
+| `musicxx.library.querySonglists` | `musicxx.playlist.queryLists` | 列出歌单（我的 / 我喜欢 / 本地） |
+| `musicxx.library.querySongs` | `musicxx.playlist.querySongs`（带 `pid`）/ `musicxx.songlist.querySongs`（当前播放列表） | 同一份实现，`pid` 决定读哪一份 |
+| `musicxx.library.playSong` | `musicxx.songlist.playSong` | 播当前播放列表里的某一首 |
+| `musicxx.library.playSonglist` | `musicxx.playlist.play` | 播放一张歌单 |
+
+- **旧名字不删**：主程序仍然把它们注册成同一份实现，参数与返回一个字都没改，老插件不用改；
+  SDK 里的旧常量加了 `@Deprecated`，IDE 里直接给出替换目标；命令行与 `/cli/list` 里旧名字
+  标着「过时」。
+- 从未实现的 `musicxx.library.querySonglist` / `removeSong` / `createSonglist` / `setSongInfo` /
+  `search` 换成 `musicxx.playlist.querySongs`（带 `pid`）/ `removeSong` / `create` / `setSongInfo`
+  （`search` 没有新名字，曲库检索不属于这两类）。它们**照旧没有实现**，也没有登记别名。
+- JS 新增 `musicxx.playlist`（`queryLists` / `querySongs` / `play` / `addSong`）与
+  `musicxx.songlist`（`querySongs` / `playSong`）；`musicxx.library` 保留，内部转到新动作名。
+- 权限名 `musicxx.library.read` / `musicxx.library.write` **不变**：它们是声明用途的命名空间
+  （覆盖歌单 / 歌曲 / 歌词 / 历史），不是动作分类，改名会让已发布的插件清单变成「未知权限」。
+- MCP 工具名不变，只是它们背后的命令 id 换成新名字；`musicxx-cli` 的糖命令同上。
+
 ### 变更：`/cli` 所有平台可用，`lan.control` 更名为 `lan.cli` 并转发到 `/cli`
 
 - `/cli`（含 `/cli/list`、`/cli/ping`）不再只在桌面端开放：Android / iOS 上也有**同一份命令表**，

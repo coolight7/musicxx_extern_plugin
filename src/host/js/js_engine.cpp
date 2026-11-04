@@ -831,11 +831,26 @@ var featurePointImpls = new Map();
     setLoopMode: function (mode) { return musicxx.call("musicxx.player.setLoopMode", { mode: mode }); }
   };
 
+  // 歌单（playlist = 一张保存下来的列表）
+  musicxx.playlist = {
+    queryLists: function () { return musicxx.call("musicxx.playlist.queryLists"); },
+    querySongs: function (args) { return musicxx.call("musicxx.playlist.querySongs", args); },
+    play: function (args) { return musicxx.call("musicxx.playlist.play", args); },
+    addSong: function (args) { return musicxx.call("musicxx.playlist.addSong", args); }
+  };
+
+  // 播放列表（songlist = 当前正在播的那一串歌）
+  musicxx.songlist = {
+    querySongs: function (args) { return musicxx.call("musicxx.songlist.querySongs", args); },
+    playSong: function (args) { return musicxx.call("musicxx.songlist.playSong", args); }
+  };
+
+  // 过时的分类 `musicxx.library`：名字还能用，内部转成新名字（老插件不用改）
   musicxx.library = {
-    querySongs: function (args) { return musicxx.call("musicxx.library.querySongs", args); },
-    querySonglists: function () { return musicxx.call("musicxx.library.querySonglists"); },
-    playSong: function (args) { return musicxx.call("musicxx.library.playSong", args); },
-    playSonglist: function (args) { return musicxx.call("musicxx.library.playSonglist", args); }
+    querySongs: function (args) { return musicxx.songlist.querySongs(args); },
+    querySonglists: function () { return musicxx.playlist.queryLists(); },
+    playSong: function (args) { return musicxx.songlist.playSong(args); },
+    playSonglist: function (args) { return musicxx.playlist.play(args); }
   };
 
   /// 通用通道钩子 `musicxx.feature.point.call` 的分发器

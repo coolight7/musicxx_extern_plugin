@@ -364,7 +364,8 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 |---|---|
 | `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
-| `musicxx.library` | `querySongs(args?)` `querySonglists()` `playSong(args)` `playSonglist(args)`（改歌单内容用 `musicxx.call("musicxx.playlist.addSong", …)`，没有单独封装） |
+| `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)`（歌单：保存下来的列表） |
+| `musicxx.songlist` | `querySongs(args?)` `playSong(args)`（播放列表：当前正在播的那一串歌） |
 | `musicxx.lyrics` | `getCurrent()` |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
@@ -375,13 +376,17 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)` `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`，没有单独封装） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
+`musicxx.library`（`querySongs` / `querySonglists` / `playSong` / `playSonglist`）是**过时的对象**：
+名字还能用，内部已转成 `musicxx.playlist` / `musicxx.songlist` 的动作名，老脚本不用改；
+新写的插件用上面那两个（一个前缀里混着“歌单”与“播放列表”两个概念，看不出在操作哪一个）。
+
 **动作清单**（每个动作做什么、参数与返回、失败情形与示例）在 [plugin-api.md](plugin-api.md) §3.2；
 本文不再重复。使用时记住三件事：
 
 - **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
-  `musicxx.player.setMediaType`、`musicxx.library.querySonglist` /
-  `removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` / `set` /
+  `musicxx.player.setMediaType`、`musicxx.playlist.removeSong` / `create` / `setSongInfo`、
+  `musicxx.lyrics.getBySrc` / `set` /
   `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` —— 写插件前先按
   [plugin-api.md](plugin-api.md) §3.3 确认一遍；
 - **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度 / 音调用
