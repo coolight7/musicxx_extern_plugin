@@ -8,6 +8,29 @@
 
 ## 未发布
 
+### 变更：歌词动作迁到 `musicxx.lyric.*`，`set` 改成 `current.update`，新增 `current.updateContent`
+
+歌词动作统一到单数域 `musicxx.lyric.*`（与钩子 / 变量 / 状态镜像一致）。旧的 `musicxx.lyrics.*`
+**已删除，不保留别名**，调用会得到 `action_not_registered`。
+
+| 旧 | 现在 | 作用 |
+|---|---|---|
+| `musicxx.lyrics.getCurrent` | `musicxx.lyric.current.get` | 当前歌曲的歌词信息和内容 |
+| `musicxx.lyrics.set` | `musicxx.lyric.current.update` | 只能选拟声云歌词（`lrcid`）+ 改这首歌的歌词偏移（`offsetMs`） |
+| （新增） | `musicxx.lyric.current.updateContent` | 用 LRC 文本临时设置当前歌词：不写缓存、不上传、不改歌曲绑定 |
+| `musicxx.lyrics.getBySrc`（此前未实现） | `musicxx.lyric.getBySrc` | 按歌词源读内容（云 `lrcid` / 本地 `.lrc` / 链接） |
+| `musicxx.lyrics.search`（此前未实现） | `musicxx.lyric.search` | 搜索拟声云歌词 |
+| `musicxx.lyrics.sync`（此前未实现） | 已删除 | — |
+
+- 对外行格式统一成"一句 = 一行原文 + 同组的全部译文行"（`translate` 数组），
+  `timeMs` 改成**毫秒**（旧实现把秒写进了 `timeMs`），逐字时间只在 `word: true` 时给。
+- `current.update` 只作用于当前正在播放的这一首歌，偏移写进这首歌的歌词绑定（不是全局偏移设置）。
+- JS 糖 `musicxx.lyrics` 换成 `musicxx.lyric`：`current.get` / `current.update` /
+  `current.updateContent` / `getBySrc` / `search`。
+- C 侧预留接口表 IID `MUSICXX_PLUGIN_IFACE_LYRICS`（`musicxx.lyrics`）改成
+  `MUSICXX_PLUGIN_IFACE_LYRIC`（`musicxx.lyric`）；表体仍未实现，ABI 代次不变，
+  引用了旧宏的原生插件按新头文件改名字重新编译。
+
 ### 新增：歌单 / 播放列表的写入动作，权限名与 C 接口 IID 同步改为 playlist / songlist
 
 **动作**（参数与返回见 `docs/plugin-api.md` §3.2.2）：

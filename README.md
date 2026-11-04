@@ -751,7 +751,7 @@ final List<MusicxxPluginUIItem> next =
 
 - **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张已实现
   （每张表的版本 / 最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；
-  `musicxx.player` / `library` / `lyrics` / `storage` / `stats` 的 IID 已冻结、表体未实现
+  `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **钩子**：约定 71 个（观察 / 裁决，其中 52 个异步派发）；
   主程序当前**应用派发 13 个**（`docs/plugin-hooks.md` 的「主程序是否已接入」列标「已接入」的共 14 行，

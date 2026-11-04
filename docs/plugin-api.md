@@ -459,19 +459,88 @@ musicxx.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).then((r) =>
 >
 > 改歌信息前建议先 `querySongs` + `detail: true` 读一遍，再把要改的字段回传。
 
-#### 3.2.3 歌词（`musicxx.lyrics.*`）
+#### 3.2.3 歌词（`musicxx.lyric.*`）
 
-**`musicxx.lyrics.getCurrent`** —— 当前歌曲的歌词行
+歌词动作统一在单数域 `musicxx.lyric.*`（与钩子 / 变量 / 状态镜像一致）。旧的复数域
+`musicxx.lyrics.*` 已删除，**不保留别名**，调用会得到 `action_not_registered`。
 
-- 参数：`{limit?=200}`。
-- 返回：`{sid, lrcid, name, artist, lineCount, index, lines:[{timeMs, text}]}`；
-  `index` = 当前播放到的行号，`lineCount` 是总行数（`lines` 被 `limit` 截断时用它算进度），
-  `timeMs` 为 `null` 表示这一行没有时间戳（纯文本行）。
-- 没有歌词时 `lines` 是空数组，`lrcid` 为 `-1`。
+> 类似名称的钩子 `musicxx.lyric.current`："当前歌词行变了"的通知。
+
+**`musicxx.lyric.current.get`** —— 当前歌曲的歌词信息和内容
+
+- 参数：`{limit?, word?}`。`limit` 是折叠后的行数上限（缺省 0 = 全部），`word: true` 时每行附带逐字时间。
+- 返回：
+  `{ok, hasLyric, sid, songName, songArtist, lrcid, name, artist, sourceType, timeType, lineCount,
+  index, rawIndex, offsetMs, songOffsetMs, globalOffsetMs, hasTranslate, showTranslate, lines}`。
+  - `lrcid` 为 `-1` 表示当前歌词不是拟声云歌词（本地 / 内置 / 临时内容）；
+  - `name` / `artist` 是**歌词自身**的名称与歌手，当前歌曲的信息在 `songName` / `songArtist`；
+  - `index` 是当前行在 `lines` 里的下标（`rawIndex` 是应用内部的原始行号）；
+  - `offsetMs` 是实际生效的偏移（全局 + 这首歌的绑定），`songOffsetMs` / `globalOffsetMs` 拆开给；
+  - `lines` 里**一句 = 一行原文 + 同组的全部译文行**：译文放在 `translate` 数组里，可以有多行；
+    `timeMs` 是**毫秒**，没有时间戳的行为 `null`；`word` 是 `[{timeMs, index}]`（字符下标）。
+- 没有歌词时 `hasLyric:false`、`lrcid:-1`、`lineCount:0`、`lines:[]`，不是错误。
 
 ```js
-const lrc = await musicxx.lyrics.getCurrent();
+const lrc = await musicxx.lyric.current.get({ limit: 80 });
 const line = lrc.lines[Math.min(lrc.index, lrc.lines.length - 1)];
+```
+
+**`musicxx.lyric.current.update`** —— 改当前歌曲的拟声云歌词与这首歌的歌词时间偏移
+
+- 参数：`{lrcid?, offsetMs?}`，两者至少给一个。
+  - `lrcid`：拟声云歌词 id（必须 > 0），只能是**拟声云歌词** —— 一般来自
+    `musicxx.lyric.search` 的结果或 `current.get` 的 `lrcid`；读不到就不改任何东西。
+  - `offsetMs`：这首歌的歌词偏移（毫秒，**正 = 歌词提前、负 = 延后**，限制在 ±600000）。
+- 只改当前正在播放的这一首：换云歌词时按界面「选择歌词」的同一份实现落绑定
+  （当前歌词、`songLrcMap`、当前歌曲的 `lyric` 字段、歌单保存），并保留 / 更新偏移；
+  只给 `offsetMs` 时，当前歌词必须是拟声云歌词。
+- 返回：`{ok, sid, lrcid, songOffsetMs, offsetMs, sourceType, lineCount, persisted}`。
+  `persisted:false` = 没有可保存的歌单（临时播放列表），内存里的绑定仍然生效。
+
+```js
+// 从搜索结果里挑一首用上，并把歌词提前 0.5 秒
+await musicxx.lyric.current.update({ lrcid: 12345, offsetMs: 500 });
+```
+
+**`musicxx.lyric.current.updateContent`** —— 用 LRC 文本设置当前歌词（只管显示）
+
+- 参数：`{lrc}`（标准或增强型 LRC 文本，最长 200000 个字符）。
+- **不写歌词缓存、不上传、不改歌曲绑定的歌词、不改来源类型**；切歌或重新加载歌词后恢复成
+  绑定来源的歌词。适合"自己算了一份歌词先看看效果"这类场景。
+- 解析不出歌词行（空文本 / 只有占位行）时返回 `{ok:false, error}`。
+- 返回：`{ok, sid, lineCount, timeType, hasTranslate}`。
+
+```js
+await musicxx.lyric.current.updateContent("[00:01.00]第一行\n[00:02.50]第二行");
+```
+
+**`musicxx.lyric.getBySrc`** —— 按歌词源读取歌词内容（不要求是当前歌曲）
+
+- 参数：`{lrcid}`，或 `{type, src}`：
+  - `myid`：`src` 是拟声云歌词 id（等价于给 `lrcid`）；
+  - `local`：`src` 是本地 `.lrc` 文件路径；
+  - `link`：`src` 是 http(s) 链接。
+- 另可给 `refresh: true`（云歌词跳过内容缓存重新读取）、`limit`、`word`。
+- 返回与 `current.get` 同一套行格式：`{ok, found, lrcid, sourceType, name, artist, timeType,
+  lineCount, lines}`；`found:false` 表示没读到（不是错误）。`name` / `artist` 优先取歌词库里
+  缓存的元信息，其次取 LRC 标签。
+- 其它来源类型（云盘 / 媒体库）需要各自的额外参数，这里不支持，会返回可读错误。
+
+**`musicxx.lyric.search`** —— 搜索拟声云歌词
+
+- 参数：`{keyword}`（也接受 `info` / `q`），或 `{name, artist}`（按应用的识别规则生成搜索串）；
+  `limit` 缺省 20、最大 50。
+- 返回：`{ok, keyword, count, lyrics:[{lrcid, name, artist, depict, timeType, timeTypeName, love,
+  used}]}`。
+- 搜索结果**只有元信息**（搜索接口本身不返回歌词内容）；要内容用 `musicxx.lyric.getBySrc`
+  或直接 `musicxx.lyric.current.update` 选上它。
+- 空关键词返回 `{ok:false, error}`；网络失败返回 `{ok:false, error:"搜索失败"}`。
+
+```js
+const found = await musicxx.lyric.search({ name: "晴天", artist: "周杰伦" });
+if (found.count > 0) {
+  const content = await musicxx.lyric.getBySrc({ lrcid: found.lyrics[0].lrcid });
+}
 ```
 
 #### 3.2.4 提示、弹窗与页面跳转（`musicxx.ui.*`）
@@ -1557,8 +1626,7 @@ musicxx.ui.registerEntry({
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
-`musicxx.player.setMediaType` · `musicxx.lyrics.getBySrc` / `set` / `sync` / `search` ·
-`musicxx.ui.setEntryBadge` · `musicxx.host.shareText`
+`musicxx.player.setMediaType` · `musicxx.ui.setEntryBadge` · `musicxx.host.shareText`
 
 从未实现的旧名字（`musicxx.library.querySonglist` / `removeSong` / `createSonglist` / `setSongInfo`）
 现在都有实现的新名字（`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`），

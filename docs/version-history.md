@@ -46,6 +46,7 @@ GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<�
 
 | musicxx 版本 | 插件框架版本 | 插件框架提交 | 日期 | 说明 |
 |---|---|---|---|---|
+| 未发布 | 2026.1105.1 | （待补记） | 2026-11-05 | 歌词动作迁到单数域 `musicxx.lyric.*`：`current.get` / `current.update` / `current.updateContent` / `getBySrc` / `search`；旧 `musicxx.lyrics.*` 与从未实现的 `sync` 删除（不保留别名）；行格式折叠译文、`timeMs` 改为毫秒；C 侧预留 IID 改成 `MUSICXX_PLUGIN_IFACE_LYRIC` |
 | 未发布 | 2026.1104.2 | （待补记） | 2026-11-04 | 歌单与播放列表的写入动作：`musicxx.playlist.create` / `removeSong` / `updateSong`、`musicxx.songlist.addSong` / `removeSong` / `updateSong`；`querySongs` 新增 `detail`；权限名拆成 `musicxx.playlist.*` / `musicxx.songlist.*`（旧 `musicxx.library.*` 仍认得）；C 侧接口表 IID 与状态键同步改名 |
 | 未发布 | 2026.1104.1 | （待补记） | 2026-11-04 | 动作分类拆分：`musicxx.library.*` 里的“读歌单 / 读歌曲 / 播歌”拆成 `musicxx.playlist.*`（歌单）与 `musicxx.songlist.*`（播放列表）；旧名字保留并标为过时（仍可使用），从未实现的那几条也换了名字（仍未实现）；JS 新增 `musicxx.playlist` / `musicxx.songlist`，`musicxx.library` 保留 |
 | 未发布 | 2026.1031.1 | 8314706 | 2026-10-31 | 一个音源类型可以有多个浏览分类：`musicxx.source.browse` 可重复调用（`id` 相同、`view` 不同），每个分类独立的标题 / 图标 / 顺序 / 根目录 / 页大小 / 排序方式 / 索引栅 / 读写能力；`drive.*` 入参恒带 `type` 与 `view`；`source.undefine` 多一个 `view`；`pickSongs` / `pickDir` / `browseDrive` 多一个 `view` 并在返回里回报最终分类；`source.list` 的 `browse` 改为按类型分组（带 `entries`）；分类不进音源身份 |

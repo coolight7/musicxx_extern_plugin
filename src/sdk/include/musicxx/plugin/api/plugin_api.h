@@ -7,7 +7,7 @@
 /// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
 /// - 专用接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
 ///   `musicxx.net` / `musicxx.kind` / `musicxx.player` / `musicxx.playlist` / `musicxx.songlist` /
-///   `musicxx.lyrics` / `musicxx.storage` / `musicxx.stats`
+///   `musicxx.lyric` / `musicxx.storage` / `musicxx.stats`
 ///   (v1 已实现 hooks / host / ui / vars / net / kind 六张; 其余 IID 先冻结, 表版本 1 留待后续实现;
 ///   每张表都要带齐"四件" —— IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE`,
 ///   规则见下面"专用接口表: 每张表四项 + 判定规则")
@@ -758,7 +758,7 @@ typedef struct MusicxxPluginKindIface {
 #define MUSICXX_PLUGIN_IFACE_PLAYER    "musicxx.player"
 #define MUSICXX_PLUGIN_IFACE_PLAYLIST  "musicxx.playlist" ///< 歌单（保存下来的列表）
 #define MUSICXX_PLUGIN_IFACE_SONGLIST  "musicxx.songlist" ///< 播放列表（当前正在播的那一串歌）
-#define MUSICXX_PLUGIN_IFACE_LYRICS    "musicxx.lyrics"
+#define MUSICXX_PLUGIN_IFACE_LYRIC     "musicxx.lyric" ///< 歌词（单数域，与动作 / 钩子 / 变量一致）
 #define MUSICXX_PLUGIN_IFACE_STORAGE   "musicxx.storage"
 #define MUSICXX_PLUGIN_IFACE_STATS     "musicxx.stats"
 #define MUSICXX_PLUGIN_IFACE_AGENT     "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
