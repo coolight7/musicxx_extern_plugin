@@ -514,7 +514,7 @@ const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 
 
 - **键、每个键的字段、刷新时机与坑**：[plugin-api.md](plugin-api.md) §2（状态镜像那一节）。
   可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`；
-  `musicxx.state.lyric` / `musicxx.state.library` 是预留的，当前版本没有推送（返回空串）；
+  `musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送（返回空串）；
 - C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` / `_LIBRARY` / `_ENV` /
   `_RENDER_SLOTS`；
 - 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
@@ -862,7 +862,9 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 | `musicxx.storage` | 插件私有数据目录与 KV |
 | `musicxx.ui` | 注册 UI 项 / 页面 / 通知 |
 | `musicxx.player.control` | 播放控制动作 |
-| `musicxx.library.read` / `musicxx.library.write` | 读 / 写歌单、歌曲、歌词、历史 |
+| `musicxx.playlist.read` / `musicxx.playlist.write` | 读 / 写歌单（保存下来的列表：新建 / 删除歌单，增删改里面的歌） |
+| `musicxx.songlist.read` / `musicxx.songlist.write` | 读 / 写当前播放列表（正在播的那一串歌） |
+| `musicxx.library.read` / `musicxx.library.write` | **过时（旧分类）**：分别等价于上面两组 read / write；新插件不要写，只为了让旧清单不显示成“未知权限” |
 | `musicxx.net` | 使用主程序网络代理通道（`musicxx.net.fetch` / `download`） |
 | `musicxx.fs.read:<路径>` / `musicxx.fs.write:<路径>` | 直接文件访问（路径限定） |
 | `musicxx.system` | 打开链接 / 剪贴板 / 取目录等外围能力 |

@@ -394,8 +394,8 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 |---|---|
 | 应用前后台（2） | `musicxx.app.foreground` / `background`（与 `window.foreground` / `window.background` 同一份实现） |
 | 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
-| 歌单（4） | `musicxx.playlist.queryLists` / `querySongs` / `play` / `addSong`（往一张歌单里加歌） |
-| 播放列表（2） | `musicxx.songlist.querySongs` / `playSong`（读 / 播当前正在播的那一串歌） |
+| 歌单（7） | `musicxx.playlist.queryLists` / `querySongs` / `play` / `addSong` / `removeSong` / `create` / `updateSong` |
+| 播放列表（5） | `musicxx.songlist.querySongs` / `playSong` / `addSong` / `removeSong` / `updateSong`（读 / 改当前正在播的那一串歌） |
 | 歌词（1） | `musicxx.lyrics.getCurrent` |
 | 提示、弹层与页面（7） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openOverlaySheet` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
@@ -427,11 +427,12 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 ### 4.6 名字存在、但没有实现的动作
 
 下表都是**插件 SDK 里声明过的常量**（在 SDK 里能写），主程序当前**没有注册**，调它只会得到"动作未注册"：
-`musicxx.player.setMediaType`、`musicxx.playlist.removeSong` / `create` / `setSongInfo`、
-`musicxx.lyrics.getBySrc` / `set` / `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
+`musicxx.player.setMediaType`、`musicxx.lyrics.getBySrc` / `set` / `sync` / `search`、
+`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
 
-> 换名字不等于实现：这四条歌单写入动作的旧名字（`musicxx.library.removeSong` / `createSonglist` /
-> `setSongInfo` / `querySonglist`）与 `musicxx.library.search` 同样未注册，也没有登记别名。
+> 曾经的歌单写入动作（`musicxx.library.querySonglist` / `removeSong` / `createSonglist` / `setSongInfo`）
+> 现在都有了实现的新名字：`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`；
+> 旧名字本身仍没注册。`musicxx.library.search`（站内搜索）没有替代名字，仍未实现。
 >
 > 加歌用 `musicxx.playlist.addSong`（已实现）。SDK 里**没有** `musicxx.library.addSong` 这个常量，
 > 照着写只会得到拼写错误类的报错。

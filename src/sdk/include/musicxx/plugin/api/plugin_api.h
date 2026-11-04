@@ -6,8 +6,8 @@
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
 /// - 专用接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
-///   `musicxx.net` / `musicxx.kind` / `musicxx.player` / `musicxx.library` / `musicxx.lyrics` /
-///   `musicxx.storage` / `musicxx.stats`
+///   `musicxx.net` / `musicxx.kind` / `musicxx.player` / `musicxx.playlist` / `musicxx.songlist` /
+///   `musicxx.lyrics` / `musicxx.storage` / `musicxx.stats`
 ///   (v1 已实现 hooks / host / ui / vars / net / kind 六张; 其余 IID 先冻结, 表版本 1 留待后续实现;
 ///   每张表都要带齐"四件" —— IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE`,
 ///   规则见下面"专用接口表: 每张表四项 + 判定规则")
@@ -755,21 +755,22 @@ typedef struct MusicxxPluginKindIface {
 
 /* ==================== 预留接口表 (v1 只冻结 IID 与版本; 表体后续实现) ==================== */
 
-#define MUSICXX_PLUGIN_IFACE_PLAYER  "musicxx.player"
-#define MUSICXX_PLUGIN_IFACE_LIBRARY "musicxx.library"
-#define MUSICXX_PLUGIN_IFACE_LYRICS  "musicxx.lyrics"
-#define MUSICXX_PLUGIN_IFACE_STORAGE "musicxx.storage"
-#define MUSICXX_PLUGIN_IFACE_STATS   "musicxx.stats"
-#define MUSICXX_PLUGIN_IFACE_AGENT   "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
+#define MUSICXX_PLUGIN_IFACE_PLAYER    "musicxx.player"
+#define MUSICXX_PLUGIN_IFACE_PLAYLIST  "musicxx.playlist" ///< 歌单（保存下来的列表）
+#define MUSICXX_PLUGIN_IFACE_SONGLIST  "musicxx.songlist" ///< 播放列表（当前正在播的那一串歌）
+#define MUSICXX_PLUGIN_IFACE_LYRICS    "musicxx.lyrics"
+#define MUSICXX_PLUGIN_IFACE_STORAGE   "musicxx.storage"
+#define MUSICXX_PLUGIN_IFACE_STATS     "musicxx.stats"
+#define MUSICXX_PLUGIN_IFACE_AGENT     "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
 
 /* ==================== 状态镜像键 (官方) ==================== */
 
-#define MUSICXX_STATE_APP      "musicxx.state.app"
-#define MUSICXX_STATE_PLAYER   "musicxx.state.player"
-#define MUSICXX_STATE_SONG     "musicxx.state.song"
-#define MUSICXX_STATE_PLAYLIST "musicxx.state.playlist"
-#define MUSICXX_STATE_LYRIC    "musicxx.state.lyric"
-#define MUSICXX_STATE_LIBRARY  "musicxx.state.library"
+#define MUSICXX_STATE_APP       "musicxx.state.app"
+#define MUSICXX_STATE_PLAYER    "musicxx.state.player"
+#define MUSICXX_STATE_SONG      "musicxx.state.song"
+#define MUSICXX_STATE_PLAYLIST  "musicxx.state.playlist" ///< 播放列表（当前队列）
+#define MUSICXX_STATE_LYRIC     "musicxx.state.lyric"
+#define MUSICXX_STATE_PLAYLISTS "musicxx.state.playlists" ///< 歌单列表（预留，当前没有推送）
 #define MUSICXX_STATE_ENV      "musicxx.state.env"
 
 /// 渲染槽位的运行状态 (谁在画 / 是否可见 / 尺寸 / 昼夜)
