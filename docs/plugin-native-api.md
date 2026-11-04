@@ -1050,7 +1050,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` / `musicxx.kind` 六张表（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `library` / `lyrics` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` / `musicxx.kind` 六张表（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套钩子表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |

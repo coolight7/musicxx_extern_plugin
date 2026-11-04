@@ -1005,8 +1005,34 @@ var featurePointImpls = new Map();
     }
   };
 
-  musicxx.lyrics = {
-    getCurrent: function () { return musicxx.call("musicxx.lyrics.getCurrent"); }
+  /// 歌词：当前歌曲的歌词信息与内容、选拟声云歌词、改这首歌的偏移、
+  /// 临时设置歌词内容、按歌词源读取、搜索云歌词。
+  /// 动作名统一在 `musicxx.lyric.*`（旧的 `musicxx.lyrics.*` 已删除，不保留别名）。
+  musicxx.lyric = {
+    current: {
+      /// 当前歌曲的歌词信息和内容（`{limit?, word?}`；`index` 是 `lines` 里的下标）
+      get: function (args) { return musicxx.call("musicxx.lyric.current.get", args || {}); },
+      /// 改当前歌曲的拟声云歌词（`lrcid`）与这首歌的歌词偏移（`offsetMs`，正 = 提前）
+      update: function (args) { return musicxx.call("musicxx.lyric.current.update", args || {}); },
+      /// 用 LRC 文本设置当前歌词：只影响显示，不写缓存、不上传、不改歌曲绑定
+      updateContent: function (lrcOrArgs) {
+        var args = (typeof lrcOrArgs === "string") ? { lrc: lrcOrArgs } : (lrcOrArgs || {});
+        return musicxx.call("musicxx.lyric.current.updateContent", args);
+      }
+    },
+    /// 按歌词源读内容：`{lrcid}` 或 `{type, src}`（`myid` / `local` / `link`）
+    getBySrc: function (args) { return musicxx.call("musicxx.lyric.getBySrc", args || {}); },
+    /// 搜索拟声云歌词：`search("歌名 - 歌手")` 或 `search({name, artist})`
+    search: function (keywordOrArgs, artist) {
+      var args;
+      if (typeof keywordOrArgs === "string") {
+        args = { keyword: keywordOrArgs };
+        if (artist !== undefined) { args.artist = String(artist); }
+      } else {
+        args = keywordOrArgs || {};
+      }
+      return musicxx.call("musicxx.lyric.search", args);
+    }
   };
 
   musicxx.storage = {

@@ -107,7 +107,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | `musicxx.state.get` | 同步读状态镜像 | §5 |
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
 | `musicxx.call` | 通用动作请求（返回 Promise） | §7 |
-| `musicxx.player` / `library` / `lyrics` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
+| `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
 | `musicxx.events` | 事件总线（发布 / 订阅） | §8；[plugin-api.md](plugin-api.md) §4 |
 | `musicxx.vars` | 变量：读 / 写 / 订阅 / 注册自己的变量 | §9；[plugin-api.md](plugin-api.md) §5 |
 | `musicxx.capability` | 注册自己的能力 / 调用别的插件的能力 | §10；[plugin-api.md](plugin-api.md) §6 |
@@ -366,7 +366,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
 | `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)`（歌单：保存下来的列表） |
 | `musicxx.songlist` | `querySongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（播放列表：当前正在播的那一串歌） |
-| `musicxx.lyrics` | `getCurrent()` |
+| `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
@@ -385,9 +385,8 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 - **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
-  `musicxx.player.setMediaType`、`musicxx.lyrics.getBySrc` / `set` /
-  `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` —— 写插件前先按
-  [plugin-api.md](plugin-api.md) §3.3 确认一遍；
+  `musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` ——
+  写插件前先按 [plugin-api.md](plugin-api.md) §3.3 确认一遍；
 - **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度 / 音调用
   `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用钩子 `musicxx.player.speed` /
   `musicxx.player.pitch`）。

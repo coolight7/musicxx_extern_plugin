@@ -395,11 +395,53 @@ abstract final class MusicxxPluginActionNames {
   @Deprecated('musicxx.library 分类已过时；这一条从未实现，也没有替代的名字')
   static const String librarySearch = 'musicxx.library.search';
 
-  static const String lyricGetCurrent = 'musicxx.lyrics.getCurrent';
-  static const String lyricGetBySrc = 'musicxx.lyrics.getBySrc';
-  static const String lyricSet = 'musicxx.lyrics.set';
-  static const String lyricSync = 'musicxx.lyrics.sync';
-  static const String lyricSearch = 'musicxx.lyrics.search';
+  // ==================== 歌词（单数域 lyric） ====================
+  //
+  // 名字与钩子 / 变量 / 状态镜像一致，统一用 `musicxx.lyric.*`。
+  // 旧的复数域 `musicxx.lyrics.*` 已删除（不保留别名），从未实现过的 `sync` 连名字一起删掉。
+
+  /// 当前歌曲的歌词信息和内容
+  ///
+  /// 参数：`limit?`（折叠后的行数上限，缺省 0 = 全部）、`word?`（true 时每行附带逐字时间）。
+  /// 返回：`{ok, hasLyric, sid, songName, songArtist, lrcid, name, artist, sourceType,
+  /// timeType, lineCount, index, rawIndex, offsetMs, songOffsetMs, globalOffsetMs,
+  /// hasTranslate, showTranslate, lines}`。
+  ///
+  /// `lines` 里一句 = 一行原文 + 同组的全部译文行（`translate`），`index` 就是 `lines` 的下标；
+  /// `timeMs` 是毫秒，没有时间戳的行是 `null`。
+  static const String lyricCurrentGet = 'musicxx.lyric.current.get';
+
+  /// 改当前歌曲的拟声云歌词与这首歌的歌词时间偏移
+  ///
+  /// 参数：`lrcid?`（拟声云歌词 id，只能是云歌词）、`offsetMs?`（毫秒，正 = 歌词提前）。
+  /// 两者至少给一个。只改正在播放的这一首：换歌词按界面"选择歌词"的同一份实现落绑定，
+  /// 偏移写进这首歌的歌词绑定（不是全局偏移设置）。
+  /// 返回：`{ok, sid, lrcid, songOffsetMs, offsetMs, sourceType, lineCount, persisted}`。
+  static const String lyricCurrentUpdate = 'musicxx.lyric.current.update';
+
+  /// 用一段 LRC 文本设置当前歌词（只管显示）
+  ///
+  /// 参数：`lrc`（标准或增强型 LRC 文本）。**不写缓存、不上传、不改歌曲绑定的歌词**，
+  /// 切歌或重新加载歌词后恢复成绑定来源的歌词。
+  /// 返回：`{ok, sid, lineCount, timeType, hasTranslate}`。
+  static const String lyricCurrentUpdateContent =
+      'musicxx.lyric.current.updateContent';
+
+  /// 按歌词源读取歌词内容（不要求是当前歌曲）
+  ///
+  /// 参数：`lrcid?`，或 `type?` + `src?`（`myid` / `local` / `link`），
+  /// 另可给 `refresh?`（云歌词跳过内容缓存）、`limit?`、`word?`。
+  /// 返回与 [lyricCurrentGet] 同一套行格式：`{ok, found, lrcid, sourceType, name, artist,
+  /// timeType, lineCount, lines}`；`found:false` 表示没读到，不是错误。
+  static const String lyricGetBySrc = 'musicxx.lyric.getBySrc';
+
+  /// 搜索拟声云歌词
+  ///
+  /// 参数：`keyword?`（也接受 `info` / `q`），或 `name` + `artist`（按应用的识别规则生成搜索串），
+  /// `limit?`（缺省 20，最大 50）。
+  /// 返回：`{ok, keyword, count, lyrics:[{lrcid, name, artist, depict, timeType, timeTypeName,
+  /// love, used}]}`；搜索结果只有元信息，内容用 [lyricGetBySrc]。
+  static const String lyricSearch = 'musicxx.lyric.search';
 
   static const String uiNotify = 'musicxx.ui.notify';
   static const String uiToast = 'musicxx.ui.toast';

@@ -396,7 +396,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
 | 歌单（7） | `musicxx.playlist.queryLists` / `querySongs` / `play` / `addSong` / `removeSong` / `create` / `updateSong` |
 | 播放列表（5） | `musicxx.songlist.querySongs` / `playSong` / `addSong` / `removeSong` / `updateSong`（读 / 改当前正在播的那一串歌） |
-| 歌词（1） | `musicxx.lyrics.getCurrent` |
+| 歌词（5） | `musicxx.lyric.current.get` / `current.update` / `current.updateContent` / `getBySrc` / `search`（读当前歌词；选拟声云歌词 + 改这首歌的偏移；用 LRC 文本临时设置当前歌词；按歌词源读内容；搜索云歌词） |
 | 提示、弹层与页面（7） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openOverlaySheet` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
 | 插件私有存储（4） | `musicxx.storage.get` / `set` / `delete` / `list` |
@@ -427,8 +427,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 ### 4.6 名字存在、但没有实现的动作
 
 下表都是**插件 SDK 里声明过的常量**（在 SDK 里能写），主程序当前**没有注册**，调它只会得到"动作未注册"：
-`musicxx.player.setMediaType`、`musicxx.lyrics.getBySrc` / `set` / `sync` / `search`、
-`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
+`musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
 
 > 曾经的歌单写入动作（`musicxx.library.querySonglist` / `removeSong` / `createSonglist` / `setSongInfo`）
 > 现在都有了实现的新名字：`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`；
