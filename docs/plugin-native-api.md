@@ -356,7 +356,7 @@ const std::string cfgPath  = configPath();                    // 本插件 confi
 PluginxxOperatorNotify notify{&onDone, this};
 requestAction("musicxx.player.toggle", "{}", &notify, 5000);
 requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
-requestAction("musicxx.library.querySonglists", "{}", &notify, 5000);
+requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
 requestAction("musicxx.ui.notify", R"({"text":"已刷新"})", &notify, 5000);
 requestAction("musicxx.ui.openRoute", R"({"route":"ext://my_plugin/card"})", &notify, 5000);
 // 浮层：等用户操作，超时传 0（不设上限）；结果里 reason 是 confirmed / cancelled / closed

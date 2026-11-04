@@ -279,59 +279,76 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
   插件用动作改值时也会先问钩子，所以钩子不能反过来再调这些动作（会再派发一次）。
 - 没有 `setMediaType`（见 §3.4）。
 
-#### 3.2.2 歌单与歌曲（`musicxx.library.*` / `musicxx.playlist.*`）
+#### 3.2.2 歌单（`musicxx.playlist.*`）与播放列表（`musicxx.songlist.*`）
 
-三个词在这份文档里含义固定，不再混用：
+三个词在这份文档里含义固定，不再混用；动作名的前缀就是它们，从名字就能看出在操作哪一个：
 
 | 词 | 含义 | 出现在哪里 |
 |---|---|---|
-| `playlist` | **单张歌单**（`pid` / `name` / `songs` / `songNum`） | `musicxx.playlist.addSong` 的参数 |
-| `playlists` | **多张歌单的集合** | `musicxx.library.querySonglists` 的 `mine` / `local` / `favorite` |
-| `songlist` | **播放队列**（当前正在播的那一串歌） | `musicxx.library.playSonglist`、状态镜像 `musicxx.state.playlist` |
+| `playlist` | **单张歌单**（`pid` / `name` / `songs` / `songNum`），保存下来的列表 | `musicxx.playlist.*` |
+| `playlists` | **多张歌单的集合**（我的 / 我喜欢 / 本地） | `musicxx.playlist.queryLists` 的 `mine` / `local` / `favorite` |
+| `songlist` | **播放列表**（当前正在播的那一串歌，不单独保存） | `musicxx.songlist.*`、状态镜像 `musicxx.state.playlist` |
 
-读歌单 / 读歌曲 / 播歌是 `musicxx.library.*`（历史名字，不改）；
-**改歌单内容**是 `musicxx.playlist.*`（这一组以后新增的也用它）。
-
-**`musicxx.library.querySonglists`** —— 列出歌单
+**`musicxx.playlist.queryLists`** —— 列出歌单
 
 - 参数：无。
 - 返回：`{mine:[歌单], favorite:[歌单], local:[歌单], currentPid, currentName}`；
   歌单项是 `{pid, name, count, songNum, listen, type}`（`count` = 已加载的曲目数，`songNum` = 歌单声明的曲目数，
   `type` 是歌单类型枚举名）。
 - `favorite` 是"我喜欢"（一直在最前），`mine` 是账号歌单，`local` 是本地歌单。
+- `currentPid` / `currentName` 是**当前播放列表**的 pid 与名字：接着读它的歌用 `musicxx.songlist.querySongs`。
 
-**`musicxx.library.querySongs`** —— 列出一个歌单里的歌
+**`musicxx.playlist.querySongs`** —— 读一张歌单里的歌
 
-- 参数：`{pid?, type?, limit?=200, offset?=0}`。
-  - 不给 `pid`（或给的是当前播放列表的 `pid`）→ 读当前播放列表；
+- 参数：`{pid, type?, limit?=200, offset?=0}`。
+  - `pid` 给的是当前播放列表的 `pid`（或不给）时，读的是当前播放列表 —— 老行为，留着不为难老插件；
+    新代码要读当前播放列表请用 `musicxx.songlist.querySongs`；
   - 给 `type`（`local` = 本地歌单，其它值按在线歌单）可以在歌单还没进当前账号的歌单表时按 `pid` 直接查；
 - 返回：`{pid, total, songs:[{sid, name, artist, album, durationMs}]}`，读当前播放列表时还会带 `available`。
 - 歌单加载失败 → `{ok:false, error:"歌单无法加载：<pid>"}`。
 
-**`musicxx.library.playSong`** —— 播当前歌单里的某一首
+**`musicxx.songlist.querySongs`** —— 读当前播放列表里的歌
 
-- 参数：`{sid}`；**必须在这一首在当前播放列表里**，否则 `{ok:false, error:"当前歌单中未找到歌曲：<sid>"}`。
+- 参数：`{limit?=200, offset?=0}`；参数含义与返回同上，另外带 `available`（当前播放列表还能不能用）。
+
+**`musicxx.songlist.playSong`** —— 播当前播放列表里的某一首
+
+- 参数：`{sid}`；**这首歌必须在当前播放列表里**，否则 `{ok:false, error:"当前播放列表里没有这首歌：<sid>"}`。
 - 返回：`{ok:true}`。
 
-**`musicxx.library.playSonglist`** —— 播放一个歌单
+**`musicxx.playlist.play`** —— 播放一张歌单
 
 - 参数：`{pid, index?}`（`index` 越界或缺失按 0 处理）；歌单为空 → `{ok:false, error:"歌单为空或无法加载：<pid>"}`。
 - 返回：`{ok:true}`。
 
 ```js
-const lists = await musicxx.library.querySonglists();
-await musicxx.library.playSonglist({ pid: lists.local[0].pid, index: 3 });
+const lists = await musicxx.playlist.queryLists();
+await musicxx.playlist.play({ pid: lists.local[0].pid, index: 3 });
 
-const page = await musicxx.library.querySongs({ pid: lists.local[0].pid, limit: 50, offset: 100 });
+const page = await musicxx.playlist.querySongs({ pid: lists.local[0].pid, limit: 50, offset: 100 });
+const queue = await musicxx.songlist.querySongs();     // 当前播放列表
 ```
 
 ```cpp
 // 想先拿歌单再决定播哪一个：在完成通知里读结果，再发第二个动作
-requestAction("musicxx.library.querySonglists", "{}", &notify, 5000);
+requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
 ```
 
 **这首歌的完整音源列表在状态镜像 / 钩子载荷里**（`musicxx.state.song.audio[]`），
 `querySongs` 只给列表用的简报字段（省流量）。
+
+> **过时的分类 `musicxx.library.*`**（旧文档与老插件还在用）：名字保留可用，主程序把它们注册成同一份实现，
+> 新代码不要再写 —— 一个前缀里混着"歌单"与"播放列表"两个概念。对照：
+>
+> | 过时 | 现在用 |
+> |---|---|
+> | `musicxx.library.querySonglists` | `musicxx.playlist.queryLists` |
+> | `musicxx.library.querySongs` | `musicxx.playlist.querySongs`（带 `pid`）/ `musicxx.songlist.querySongs`（当前播放列表） |
+> | `musicxx.library.playSong` | `musicxx.songlist.playSong` |
+> | `musicxx.library.playSonglist` | `musicxx.playlist.play` |
+>
+> 从未实现的 `querySonglist` / `removeSong` / `createSonglist` / `setSongInfo` / `search` 也换了名字
+> （见 §3.4），但**没有登记别名**，调它们仍然是"动作未注册"。
 
 **`musicxx.playlist.addSong`** —— 把歌加进**一张歌单**（插件音源用）
 
@@ -1475,11 +1492,13 @@ musicxx.ui.registerEntry({
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
-`musicxx.player.setMediaType` · `musicxx.library.querySonglist` ·
-`musicxx.library.removeSong` · `musicxx.library.createSonglist` ·
-`musicxx.library.setSongInfo` · `musicxx.library.search` · `musicxx.lyrics.getBySrc` ·
+`musicxx.player.setMediaType` · `musicxx.playlist.removeSong` · `musicxx.playlist.create` ·
+`musicxx.playlist.setSongInfo` · `musicxx.lyrics.getBySrc` ·
 `musicxx.lyrics.set` · `musicxx.lyrics.sync` · `musicxx.lyrics.search` · `musicxx.ui.setEntryBadge` ·
 `musicxx.host.shareText`
+
+它们的旧名字（`musicxx.library.removeSong` / `createSonglist` / `setSongInfo` / `querySonglist` / `search`）
+也仍然是"未注册"—— 换名字不等于实现，旧名字也没登记别名。
 
 要“改应用状态”的能力缺口，用对应的**钩子**或**变量**补：例如想改播放速度 / 音调用动作
 `musicxx.player.setSpeed` / `musicxx.player.setPitch`（已实现）；想拦一次设置变更用钩子

@@ -385,7 +385,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 `AnalyseImageMainColors`（图片主色调）、`GetMediaKernelInfo`（播放内核：版本 / 过滤器 / 解码器 / 后缀）。
 它们的参数由能力自己声明，`feature.list` / MCP 的工具清单里就是同一份。
 
-### 4.5 主程序动作（58 条，命令 id = 动作名）
+### 4.5 主程序动作（命令 id = 动作名）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"：
@@ -394,7 +394,8 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 |---|---|
 | 应用前后台（2） | `musicxx.app.foreground` / `background`（与 `window.foreground` / `window.background` 同一份实现） |
 | 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
-| 歌单与歌曲（5） | `musicxx.library.querySonglists` / `querySongs` / `playSong` / `playSonglist`；`musicxx.playlist.addSong`（往一张歌单里加歌） |
+| 歌单（4） | `musicxx.playlist.queryLists` / `querySongs` / `play` / `addSong`（往一张歌单里加歌） |
+| 播放列表（2） | `musicxx.songlist.querySongs` / `playSong`（读 / 播当前正在播的那一串歌） |
 | 歌词（1） | `musicxx.lyrics.getCurrent` |
 | 提示、弹层与页面（7） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openOverlaySheet` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
@@ -410,6 +411,10 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
 | 统计上报（2） | `musicxx.stats.reportMemory` / `reportMetric` |
 
+> 过时分类 `musicxx.library.*`：`querySonglists` / `querySongs` / `playSong` / `playSonglist` 这四条
+> **仍然注册着**（主程序把它们指向同一份实现，老插件不改也能用），含义分别等同上面的
+> `playlist.queryLists` / `playlist.querySongs` / `songlist.playSong` / `playlist.play`。新代码写新名字。
+
 > 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
 > 客户端支持 https / wss，不经过主程序），见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
 > JS 的 `musicxx.net.fetch` / `download` 已经用它实现（参数与返回形状与动作一致），
@@ -422,10 +427,12 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 ### 4.6 名字存在、但没有实现的动作
 
 下表都是**插件 SDK 里声明过的常量**（在 SDK 里能写），主程序当前**没有注册**，调它只会得到"动作未注册"：
-`musicxx.player.setMediaType`、`musicxx.library.querySonglist` /
-`removeSong` / `createSonglist` / `setSongInfo` / `search`、`musicxx.lyrics.getBySrc` /
-`set` / `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
+`musicxx.player.setMediaType`、`musicxx.playlist.removeSong` / `create` / `setSongInfo`、
+`musicxx.lyrics.getBySrc` / `set` / `sync` / `search`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText`。
 
+> 换名字不等于实现：这四条歌单写入动作的旧名字（`musicxx.library.removeSong` / `createSonglist` /
+> `setSongInfo` / `querySonglist`）与 `musicxx.library.search` 同样未注册，也没有登记别名。
+>
 > 加歌用 `musicxx.playlist.addSong`（已实现）。SDK 里**没有** `musicxx.library.addSong` 这个常量，
 > 照着写只会得到拼写错误类的报错。
 
@@ -440,7 +447,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `seek <毫秒\|mm:ss\|hh:mm:ss\|N%>` | `musicxx.player.seek` |
 | `volume <0~1\|0~100>` / `speed <0.25~8>` / `pitch <0.25~2>` / `loop <模式>` / `quality <名称>` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `setLoopMode` / `setQuality` |
 | `lrc [--word]` | `lrc.current` |
-| `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` | `musicxx.library.querySongs` / `querySonglists` / `playSong` / `playlist.play` |
+| `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` | `musicxx.songlist.querySongs`（不带 `--pid`）/ `musicxx.playlist.querySongs` / `musicxx.playlist.queryLists` / `musicxx.songlist.playSong` / `musicxx.playlist.play` |
 | `toast <文本>` | `musicxx.ui.toast` |
 | `feature list` / `feature call <id> --args JSON` | `feature.list` / `feature.call` |
 | `featurePoint.list` / `featurePoint.call <id>` | `featurePoint.list` / `featurePoint.call` |
@@ -537,9 +544,9 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 | 工具 | 参数 | 等价命令 | 文本形态 |
 |---|---|---|---|
-| `GetPlaylistSongs` | 无 | `musicxx.library.querySongs` | 歌曲列表（序号 / 名称 / 歌手 / 专辑 / 时长） |
-| `GetMineSonglists` | 无 | `musicxx.library.querySonglists` | 先报条数；网络歌单（「我喜欢」排最前）再本地歌单 |
-| `GetSonglistContent` | `pid`(必填)、`type`(local/net，必填) | `musicxx.library.querySongs` | 同 `GetPlaylistSongs` |
+| `GetPlaylistSongs` | 无 | `musicxx.songlist.querySongs` | 歌曲列表（序号 / 名称 / 歌手 / 专辑 / 时长） |
+| `GetMineSonglists` | 无 | `musicxx.playlist.queryLists` | 先报条数；网络歌单（「我喜欢」排最前）再本地歌单 |
+| `GetSonglistContent` | `pid`(必填)、`type`(local/net，必填) | `musicxx.playlist.querySongs` | 同 `GetPlaylistSongs` |
 | `PlayTheSonglist` | `pid`(必填)、`type`(必填)、`songName?` | `playlist.play` | `Success load songlist, current play song name: …` |
 | `MediaPlayByInfo` | `info`(必填) | `history.playByInfo` | `Success` / `No related songs found` |
 | `PlayMedia` | `src?`／`sources?`（二选一）、`type?`(`auto`/`local`/`link`)、`filterExt?`(bool)、`name?` | `musicxx.player.playSrc` | `Playing: <名字> (<n> media)`；没有可播的来源时工具报错 |

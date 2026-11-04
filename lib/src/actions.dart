@@ -238,26 +238,125 @@ abstract final class MusicxxPluginActionNames {
   static const String playerSetLoopMode = 'musicxx.player.setLoopMode';
   static const String playerSetMediaType = 'musicxx.player.setMediaType';
 
-  static const String libraryQuerySongs = 'musicxx.library.querySongs';
-  static const String libraryQuerySonglists = 'musicxx.library.querySonglists';
-  static const String libraryQuerySonglist = 'musicxx.library.querySonglist';
-  static const String libraryPlaySong = 'musicxx.library.playSong';
-  static const String libraryPlaySonglist = 'musicxx.library.playSonglist';
-  static const String libraryRemoveSong = 'musicxx.library.removeSong';
+  // ==================== 歌单（playlist = 单张歌单） ====================
+  //
+  // 三个词含义固定，不再混用（与 docs/plugin-api.md 的术语表一致）：
+  // * `playlist` —— 单张歌单（`pid` / `name` / `songs` / `songNum`）；
+  // * `playlists` —— 多张歌单的集合（我的 / 我喜欢 / 本地）；
+  // * `songlist` —— 播放列表，也就是当前正在播的那一串歌。
 
-  /// 把歌曲加进**一张歌单**（`playlist` = 单张歌单，不是播放队列）
+  /// 列出歌单：我的 / 我喜欢 / 本地
   ///
-  /// 参数：`pid`（必填）、`dedup`（缺省 true）、`songs`（1 ~ 200 首，或单首写成 `song`）。
+  /// 参数：无。
+  /// 返回：`{mine, favorite, local, currentPid, currentName}`；歌单项是
+  /// `{pid, name, count, songNum, listen, type}`（`count` = 已加载的曲目数，`songNum` = 歌单声明的
+  /// 曲目数）。`currentPid` / `currentName` 是**当前播放列表**的 pid 与名字，方便接着调
+  /// [songlistQuerySongs] 或 [playlistQuerySongs]。
+  static const String playlistQueryLists = 'musicxx.playlist.queryLists';
+
+  /// 读一张歌单里的歌
+  ///
+  /// 参数：`pid`（必填）、`type?`（`local` = 本地歌单，其它值按在线歌单，用于歌单还没进
+  /// 当前账号的歌单表时按 `pid` 直接查）、`limit?`（缺省 200）、`offset?`（缺省 0）。
+  /// 返回：`{pid, total, songs:[{sid, name, artist, album, durationMs}]}`。
+  ///
+  /// 不给 `pid` 时读的是当前播放列表（老行为，留着不为难老插件）—— 新代码要读当前播放列表请用
+  /// [songlistQuerySongs]，读的是哪一份一眼就能看出来。
+  static const String playlistQuerySongs = 'musicxx.playlist.querySongs';
+
+  /// 播放一张歌单
+  ///
+  /// 参数：`pid`（必填）、`index?`（第几首，从 0 开始；越界或缺省按 0）。
+  /// 返回：`{ok:true}`；歌单为空或加载失败是 `{ok:false, error}`。
+  static const String playlistPlay = 'musicxx.playlist.play';
+
+  /// 把歌曲加进**一张歌单**（`playlist` = 单张歌单，不是播放列表）
+  ///
+  /// 参数：`pid`（必填）、`dedup`（缺省 true）、`songs`（首数不限，或单首写成 `song`）。
   /// 每首歌：`type`（插件自己的音源类型 `plugin.<插件id>.<类型名>`）、`src`、`name?` /
   /// `artist?`（空则按 `fileName` 交给主程序识别）、`fileName?`、`size?`、`durationMs?`、
   /// `cover?`（本地路径或 `http(s)` 地址）。
   ///
   /// 返回：`{ok, pid, name, total, added, skipped}`；失败是 `{ok:false, error}`。
-  /// 与 `musicxx.library.*` 的区别：那一组是“读歌单 / 读歌曲 / 播歌”，这一条是“改歌单内容”，
-  /// 所以用 `playlist`（单张歌单）。播放队列在文档里一律叫 `songlist`。
   static const String playlistAddSong = 'musicxx.playlist.addSong';
+
+  /// 从一张歌单里移除歌曲（**当前版本没实现**，调它只会得到“动作未注册”）
+  static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
+
+  /// 新建一张歌单（**当前版本没实现**）
+  static const String playlistCreate = 'musicxx.playlist.create';
+
+  /// 改一张歌单里某首歌的信息（歌名 / 歌手；**当前版本没实现**）
+  static const String playlistSetSongInfo = 'musicxx.playlist.setSongInfo';
+
+  // ==================== 播放列表（songlist = 当前播放队列） ====================
+
+  /// 读当前播放列表（正在播的那一串歌）里的歌
+  ///
+  /// 参数：`{limit?=200, offset?=0}`。
+  /// 返回：`{pid, total, songs:[{sid, name, artist, album, durationMs}], available}`
+  /// （`available` 说明当前播放列表还能不能用）。
+  static const String songlistQuerySongs = 'musicxx.songlist.querySongs';
+
+  /// 播当前播放列表里的某一首
+  ///
+  /// 参数：`{sid}`，**这首歌必须已经在当前播放列表里**，否则 `{ok:false, error}`。
+  static const String songlistPlaySong = 'musicxx.songlist.playSong';
+
+  // ==================== 过时的分类 musicxx.library.* ====================
+  //
+  // 这些名字**保留可用**（主程序仍然把它们注册成同一份实现），但新代码不要再写：
+  // 一个前缀里混着“歌单”和“播放列表”两个概念，调用方看不出自己在操作哪一个。
+  // 新名字见上面两组；从未实现的那几条不登记别名，调它们只会得到“动作未注册”。
+
+  /// 过时的分类 `musicxx.library.*` 里**仍然可用**的名字 → 现在的动作名
+  ///
+  /// 主程序按这张表把旧名字注册成同一份实现，命令行与 `/cli/list` 也按它标出“过时”。
+  /// 键写成字符串字面量而不是引用下面的 `@Deprecated` 常量：在自己包里用它们会触发弃用告警。
+  static const Map<String, String> deprecatedLibraryAliases = <String, String>{
+    'musicxx.library.querySonglists': playlistQueryLists,
+    'musicxx.library.querySongs': playlistQuerySongs,
+    'musicxx.library.playSong': songlistPlaySong,
+    'musicxx.library.playSonglist': playlistPlay,
+  };
+
+  @Deprecated(
+    'musicxx.library 分类已过时：用 musicxx.playlist.queryLists（列出歌单）',
+  )
+  static const String libraryQuerySonglists = 'musicxx.library.querySonglists';
+
+  @Deprecated(
+    'musicxx.library 分类已过时：读一张歌单用 musicxx.playlist.querySongs，'
+    '读当前播放列表用 musicxx.songlist.querySongs',
+  )
+  static const String libraryQuerySongs = 'musicxx.library.querySongs';
+
+  @Deprecated(
+    'musicxx.library 分类已过时：用 musicxx.playlist.querySongs（带 pid）',
+  )
+  static const String libraryQuerySonglist = 'musicxx.library.querySonglist';
+
+  @Deprecated(
+    'musicxx.library 分类已过时：用 musicxx.songlist.playSong（播当前播放列表里的某一首）',
+  )
+  static const String libraryPlaySong = 'musicxx.library.playSong';
+
+  @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.play（播放一张歌单）')
+  static const String libraryPlaySonglist = 'musicxx.library.playSonglist';
+
+  @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.removeSong')
+  static const String libraryRemoveSong = 'musicxx.library.removeSong';
+
+  @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.create')
   static const String libraryCreateSonglist = 'musicxx.library.createSonglist';
+
+  @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.setSongInfo')
   static const String librarySetSongInfo = 'musicxx.library.setSongInfo';
+
+  /// 站内搜索（**当前版本没实现**）
+  ///
+  /// 没有新名字：曲库检索既不是“歌单”也不是“播放列表”的操作，等真正实现时再定分类。
+  @Deprecated('musicxx.library 分类已过时；这一条从未实现，也没有替代的名字')
   static const String librarySearch = 'musicxx.library.search';
 
   static const String lyricGetCurrent = 'musicxx.lyrics.getCurrent';
