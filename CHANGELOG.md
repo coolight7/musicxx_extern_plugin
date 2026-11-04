@@ -8,6 +8,37 @@
 
 ## 未发布
 
+### 新增：歌单 / 播放列表的写入动作，权限名与 C 接口 IID 同步改为 playlist / songlist
+
+**动作**（参数与返回见 `docs/plugin-api.md` §3.2.2）：
+
+| 动作 | 作用 |
+|---|---|
+| `musicxx.playlist.create` | 新建歌单（本地 / 在线），可顺手加歌 |
+| `musicxx.playlist.removeSong` | 从一张歌单里移除歌曲 |
+| `musicxx.playlist.updateSong` | 改一张歌单里某首歌的信息（歌名 / 歌手 / 专辑 / 音源 / 封面…） |
+| `musicxx.songlist.addSong` | 往当前播放列表里加歌 |
+| `musicxx.songlist.removeSong` | 从当前播放列表里移除歌曲 |
+| `musicxx.songlist.updateSong` | 改当前播放列表里某首歌的信息 |
+
+- `musicxx.playlist.querySongs` / `musicxx.songlist.querySongs` 新增 `detail: true`：每首歌给完整字段
+  （`type` / `src` / `fileName` / `size` / `track` / `year` / `genre` / `cover` / 时间戳），
+  想改哪首先读一遍再改即可。
+- `playlist.*` 只改**保存下来的歌单**（下次打开/播放才看得到变化，保存失败会回滚）；
+  `songlist.*` 只改**正在播的队列**（立即生效，不写盘）。
+- `musicxx.playlist.setSongInfo` 从未实现过，换成 `musicxx.playlist.updateSong`（不保留别名）。
+- 能改的只有本地歌单、自己创建的在线歌单与“我喜欢”，别人的歌单回 `没有修改这个歌单的权限`。
+
+**权限**：`musicxx.library.read` / `.write` 拆成 `musicxx.playlist.read` / `.write` 与
+`musicxx.songlist.read` / `.write`；旧的两个名字仍然认得（展示时标“过时”），旧清单不会显示成“未知权限”。
+
+**C 接口**：预留接口表 IID `MUSICXX_PLUGIN_IFACE_LIBRARY`（`musicxx.library`）改成
+`MUSICXX_PLUGIN_IFACE_PLAYLIST`（`musicxx.playlist`）与 `MUSICXX_PLUGIN_IFACE_SONGLIST`
+（`musicxx.songlist`）；状态镜像键 `MUSICXX_STATE_LIBRARY`（`musicxx.state.library`）改成
+`MUSICXX_STATE_PLAYLISTS`（`musicxx.state.playlists`，仍然只是预留、当前没有推送）。
+这几张表本来就没实现（查表返回 NULL），插件 ABI 代次不变；引用了旧宏的原生插件需要按新头文件
+改名字重新编译。
+
 ### 变更：动作分类拆分 —— `musicxx.library.*` 改为 `musicxx.playlist.*` 与 `musicxx.songlist.*`
 
 一个前缀里原来混着两个概念（歌单 / 播放列表），调用方从动作名看不出自己在操作哪一个。

@@ -18,4 +18,5 @@ description: "musicxx 外部插件示例: 多目标打包（一个包内含多�
 author: "coolight"
 api_version: 3
 permissions:
-  - musicxx.library.read
+  - musicxx.playlist.read
+  - musicxx.songlist.read

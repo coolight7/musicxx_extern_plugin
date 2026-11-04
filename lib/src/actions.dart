@@ -280,14 +280,29 @@ abstract final class MusicxxPluginActionNames {
   /// 返回：`{ok, pid, name, total, added, skipped}`；失败是 `{ok:false, error}`。
   static const String playlistAddSong = 'musicxx.playlist.addSong';
 
-  /// 从一张歌单里移除歌曲（**当前版本没实现**，调它只会得到“动作未注册”）
+  /// 从一张歌单里移除歌曲
+  ///
+  /// 参数：`pid`（必填）、`sid`（一首）或 `sids`（多首）。
+  /// 返回：`{ok:true, pid, name, total, removed, removedSids, notFound}`
+  /// （`notFound` = 歌单里没找到的那几个 sid，不算失败）。
+  /// 只改保存下来的歌单，**不会**动到正在播放的队列；要改队列用 `musicxx.songlist.removeSong`。
   static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
 
-  /// 新建一张歌单（**当前版本没实现**）
+  /// 新建一张歌单
+  ///
+  /// 参数：`name`（必填，1 ~ 50 个字符）、`type?`（`local` 缺省 = 本地歌单；`net` = 在线歌单，
+  /// 需要登录）、`songs?`（建完顺手加进去，格式与 [playlistAddSong] 的 `songs` 一样）。
+  /// 返回：`{ok:true, pid, name, type, total}`。
   static const String playlistCreate = 'musicxx.playlist.create';
 
-  /// 改一张歌单里某首歌的信息（歌名 / 歌手；**当前版本没实现**）
-  static const String playlistSetSongInfo = 'musicxx.playlist.setSongInfo';
+  /// 改一张歌单里某首歌的信息（歌名 / 歌手 / 专辑 / 音源等）
+  ///
+  /// 参数：`pid`、`sid`（必填，定位到哪一张歌单里的哪一首），再加要改的字段：
+  /// `name` / `artist` / `album` / `track` / `year` / `genre` / `durationMs` /
+  /// `src` / `type`（音源类型）/ `cover`（同 [playlistAddSong] 的 `cover`）。
+  /// 没给的字段保持原值；`sid` 本身不能改。
+  /// 返回：`{ok:true, pid, sid, song:{…}}`。
+  static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
 
   // ==================== 播放列表（songlist = 当前播放队列） ====================
 
@@ -302,6 +317,27 @@ abstract final class MusicxxPluginActionNames {
   ///
   /// 参数：`{sid}`，**这首歌必须已经在当前播放列表里**，否则 `{ok:false, error}`。
   static const String songlistPlaySong = 'musicxx.songlist.playSong';
+
+  /// 往当前播放列表里加歌
+  ///
+  /// 参数与 [playlistAddSong] 的歌曲格式一样：`songs`（或单首 `song`）、`dedup?`（缺省 true），
+  /// 另可给 `afterSid?` 插到那一首之后（不给就插到最前，正在播的歌不会因此换掉）。
+  /// 返回：`{ok:true, pid, name, total, added, skipped}`。
+  static const String songlistAddSong = 'musicxx.songlist.addSong';
+
+  /// 从当前播放列表里移除歌曲
+  ///
+  /// 参数：`sid`（一首）或 `sids`（多首）。
+  /// 返回：`{ok:true, total, removed, removedSids, notFound}`。
+  /// 只改队列，不写回任何歌单；移除正在播的那一首不会停下来（与界面上的“从播放列表移除”一致）。
+  static const String songlistRemoveSong = 'musicxx.songlist.removeSong';
+
+  /// 改当前播放列表里某首歌的信息
+  ///
+  /// 参数与 [playlistUpdateSong] 一样，但用当前队列定位（不需要 `pid`）：`sid` + 要改的字段。
+  /// 正在播的那一首改完会立即刷新播放信息（名字 / 歌手 / 封面）。
+  /// 返回：`{ok:true, sid, song:{…}}`。
+  static const String songlistUpdateSong = 'musicxx.songlist.updateSong';
 
   // ==================== 过时的分类 musicxx.library.* ====================
   //
@@ -350,7 +386,7 @@ abstract final class MusicxxPluginActionNames {
   @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.create')
   static const String libraryCreateSonglist = 'musicxx.library.createSonglist';
 
-  @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.setSongInfo')
+  @Deprecated('musicxx.library 分类已过时：用 musicxx.playlist.updateSong')
   static const String librarySetSongInfo = 'musicxx.library.setSongInfo';
 
   /// 站内搜索（**当前版本没实现**）

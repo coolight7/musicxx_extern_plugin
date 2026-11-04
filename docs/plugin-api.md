@@ -105,7 +105,7 @@ const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_E
 | `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 播放状态、路由、本机服务、登录态变化 |
 | `musicxx.state.renderSlots` | 每个渲染槽位的运行状态（见 §9.2） | 生效项 / 可见性 / 昼夜 / 尺寸变化时按需推 |
 | `musicxx.state.spectrum` | 当前音频频谱（字段见 §3.2.8） | 播放中约 10 Hz（节流 100 ms）；停止、切歌、拿到/读不到数据时各推一次 |
-| `musicxx.state.lyric` / `musicxx.state.library` | 预留 | **当前版本没有推送**（读到的永远是空） |
+| `musicxx.state.lyric` / `musicxx.state.playlists` | 预留 | **当前版本没有推送**（读到的永远是空） |
 
 只出现一次 `musicxx.state.app` → `musicxx.state.env` 的字段含义：
 
@@ -300,10 +300,12 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 
 **`musicxx.playlist.querySongs`** —— 读一张歌单里的歌
 
-- 参数：`{pid, type?, limit?=200, offset?=0}`。
+- 参数：`{pid, type?, limit?=200, offset?=0, detail?}`。
   - `pid` 给的是当前播放列表的 `pid`（或不给）时，读的是当前播放列表 —— 老行为，留着不为难老插件；
     新代码要读当前播放列表请用 `musicxx.songlist.querySongs`；
   - 给 `type`（`local` = 本地歌单，其它值按在线歌单）可以在歌单还没进当前账号的歌单表时按 `pid` 直接查；
+  - `detail: true` 时每首歌给完整字段（在简报字段基础上多 `type` / `src` / `fileName` / `size` /
+    `track` / `year` / `genre` / `cover` / `createdTime` / `lastedTime`），改歌信息前先读一遍用；
 - 返回：`{pid, total, songs:[{sid, name, artist, album, durationMs}]}`，读当前播放列表时还会带 `available`。
 - 歌单加载失败 → `{ok:false, error:"歌单无法加载：<pid>"}`。
 
@@ -347,9 +349,9 @@ requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
 > | `musicxx.library.playSong` | `musicxx.songlist.playSong` |
 > | `musicxx.library.playSonglist` | `musicxx.playlist.play` |
 >
-> 从未实现的 `querySonglist` / `removeSong` / `createSonglist` / `setSongInfo` / `search` 也换了名字
-> （见 §3.4），但**没有登记别名**，调它们仍然是"动作未注册"。
-
+> 从未实现的 `querySonglist` / `removeSong` / `createSonglist` / `setSongInfo` 现在都有了实现的新名字
+> （`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`，见下面几节）；
+> 旧名字本身仍没注册，也没有别名。`musicxx.library.search`（站内搜索）没有替代名字，仍未实现。
 **`musicxx.playlist.addSong`** —— 把歌加进**一张歌单**（插件音源用）
 
 - 参数：
@@ -393,6 +395,69 @@ musicxx.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).then((r) =>
 > `musicxx.ui.addsong.entry` 项（见 §9.1 与 [plugin-ui.md](plugin-ui.md)），
 > 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.openOverlaySheet`），
 > 选完后调这个动作。
+
+**`musicxx.playlist.removeSong`** —— 从一张歌单里移除歌曲
+
+- 参数：`{pid, sid}` 或 `{pid, sids:[…]}`。
+- 返回：`{ok:true, pid, name, total, removed, removedSids, notFound}`；`notFound` 是歌单里没找到的那几个
+  sid，不算失败（一首都没删到也是 `ok:true` + `removed:0`）。
+- 失败：`{ok:false, error}` —— 未找到歌单 / 无法加载 / 不是自己的歌单 / 保存失败（那时已把歌退回原位）。
+- **只改保存下来的歌单**：目标是当前播放队列时，不会去改正在播的那一串；要改队列用
+  `musicxx.songlist.removeSong`。
+
+**`musicxx.playlist.create`** —— 新建一张歌单
+
+- 参数：`{name, type?, songs?, dedup?}`；`name` 是 1 ~ 50 个字符，`type` 是 `local`（缺省）或
+  `net`（在线歌单，需要先登录），`songs` 的写法与 `musicxx.playlist.addSong` 完全一样（建完顺手加进去）。
+- 返回：`{ok:true, pid, name, type, total}`（`type` 是 `local` / `net`）。
+- 失败：`{ok:false, error}`。歌单建好了但加歌失败时，返回里仍带 `pid` / `name`，`ok` 为 false。
+
+**`musicxx.playlist.updateSong`** —— 改一张歌单里某首歌的信息
+
+- 参数：`{pid, sid, …要改的字段}`，没给的字段保持原值：
+
+| 字段 | 说明 |
+|---|---|
+| `name` | 歌名（1 ~ 1000 个字符） |
+| `artist` | 歌手（0 ~ 1000 个字符，空串 = 清空） |
+| `album` / `genre` | 专辑 / 分类（空串 = 清空） |
+| `track` / `year` | 音轨号 / 年份 |
+| `durationMs` | 时长（毫秒，不能是负数） |
+| `src` | 音源地址 / 资源 id（不能为空） |
+| `type` | 音源类型：`plugin.<自己的插件id>.…` 或 `XXSrcType_e` 的枚举名（`Local` / `UrlLink` …） |
+| `cover` | 封面，写法与 `addSong` 的 `cover` 一样；改封面会清掉旧缩略图 |
+
+- `sid` 不能改（它是定位用的）。改完会自动记一条修改时间。
+- 返回：`{ok:true, pid, sid, song:{…}}`（`song` 与 `querySongs` 的 `detail: true` 是同一套字段）。
+- 失败：`{ok:false, error}`；保存失败会把这首歌恢复原样。
+
+**`musicxx.songlist.addSong`** —— 往当前播放列表里加歌
+
+- 参数：`{songs | song, dedup?, afterSid?}`，歌曲格式与 `musicxx.playlist.addSong` 一样
+  （`type` 的命名空间规则也一样）；`afterSid` 插到那一首之后，不给就插到最前（正在播的歌不会因此换掉）。
+- 返回：`{ok:true, pid, name, total, added, skipped}`。
+- 只改队列：**不写进任何歌单**，也不写播放记录标签（真播到它时才算一次播放）。
+
+**`musicxx.songlist.removeSong`** —— 从当前播放列表里移除歌曲
+
+- 参数：`{sid}` 或 `{sids:[…]}`。
+- 返回：`{ok:true, total, removed, removedSids, notFound}`。
+- 移除正在播的那一首**不会停**（与界面上「从播放列表移除」一致，这一首照常播完，再按新队列往下走）。
+
+**`musicxx.songlist.updateSong`** —— 改当前播放列表里某首歌的信息
+
+- 参数：`{sid, …要改的字段}`，字段与 `musicxx.playlist.updateSong` 完全一样，只是不需要 `pid`。
+- 返回：`{ok:true, sid, song:{…}}`。
+- 正在播的那一首改完会立即刷新播放信息（名字 / 歌手 / 封面），不用重新播。
+
+> 写类的三条共同规则：
+> 1. **能改哪些歌单**：本地歌单、自己创建的在线歌单、“我喜欢”；别人的歌单回
+>    `{ok:false, error:"没有修改这个歌单的权限：<pid>"}`；
+> 2. **保存失败会回滚**：内存里的歌单与存盘内容不会不一致；
+> 3. **歌单 ≠ 队列**：`musicxx.playlist.*` 改的是保存下来的歌单（下次打开才看得到变化），
+>    `musicxx.songlist.*` 改的是正在播的那一串（立即生效，不写盘）。
+>
+> 改歌信息前建议先 `querySongs` + `detail: true` 读一遍，再把要改的字段回传。
 
 #### 3.2.3 歌词（`musicxx.lyrics.*`）
 
@@ -1492,13 +1557,12 @@ musicxx.ui.registerEntry({
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
-`musicxx.player.setMediaType` · `musicxx.playlist.removeSong` · `musicxx.playlist.create` ·
-`musicxx.playlist.setSongInfo` · `musicxx.lyrics.getBySrc` ·
-`musicxx.lyrics.set` · `musicxx.lyrics.sync` · `musicxx.lyrics.search` · `musicxx.ui.setEntryBadge` ·
-`musicxx.host.shareText`
+`musicxx.player.setMediaType` · `musicxx.lyrics.getBySrc` / `set` / `sync` / `search` ·
+`musicxx.ui.setEntryBadge` · `musicxx.host.shareText`
 
-它们的旧名字（`musicxx.library.removeSong` / `createSonglist` / `setSongInfo` / `querySonglist` / `search`）
-也仍然是"未注册"—— 换名字不等于实现，旧名字也没登记别名。
+从未实现的旧名字（`musicxx.library.querySonglist` / `removeSong` / `createSonglist` / `setSongInfo`）
+现在都有实现的新名字（`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`），
+但旧名字本身仍没注册；`musicxx.library.search`（站内搜索）没有替代名字，仍未实现。
 
 要“改应用状态”的能力缺口，用对应的**钩子**或**变量**补：例如想改播放速度 / 音调用动作
 `musicxx.player.setSpeed` / `musicxx.player.setPitch`（已实现）；想拦一次设置变更用钩子

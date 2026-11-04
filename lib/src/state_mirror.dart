@@ -24,7 +24,9 @@ class MusicxxPluginState {
   static const String keySong = 'musicxx.state.song';
   static const String keyPlaylist = 'musicxx.state.playlist';
   static const String keyLyric = 'musicxx.state.lyric';
-  static const String keyLibrary = 'musicxx.state.library';
+
+  /// 歌单列表快照（预留：当前版本没有推送）
+  static const String keyPlaylists = 'musicxx.state.playlists';
   static const String keyEnv = 'musicxx.state.env';
 
   /// 渲染槽位状态（哪个插件样式正在画、是否可见、尺寸等）
@@ -46,7 +48,7 @@ class MusicxxPluginState {
     keySong,
     keyPlaylist,
     keyLyric,
-    keyLibrary,
+    keyPlaylists,
     keyEnv,
   ];
 

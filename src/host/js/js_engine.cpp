@@ -836,13 +836,19 @@ var featurePointImpls = new Map();
     queryLists: function () { return musicxx.call("musicxx.playlist.queryLists"); },
     querySongs: function (args) { return musicxx.call("musicxx.playlist.querySongs", args); },
     play: function (args) { return musicxx.call("musicxx.playlist.play", args); },
-    addSong: function (args) { return musicxx.call("musicxx.playlist.addSong", args); }
+    addSong: function (args) { return musicxx.call("musicxx.playlist.addSong", args); },
+    removeSong: function (args) { return musicxx.call("musicxx.playlist.removeSong", args); },
+    create: function (args) { return musicxx.call("musicxx.playlist.create", args); },
+    updateSong: function (args) { return musicxx.call("musicxx.playlist.updateSong", args); }
   };
 
   // 播放列表（songlist = 当前正在播的那一串歌）
   musicxx.songlist = {
     querySongs: function (args) { return musicxx.call("musicxx.songlist.querySongs", args); },
-    playSong: function (args) { return musicxx.call("musicxx.songlist.playSong", args); }
+    playSong: function (args) { return musicxx.call("musicxx.songlist.playSong", args); },
+    addSong: function (args) { return musicxx.call("musicxx.songlist.addSong", args); },
+    removeSong: function (args) { return musicxx.call("musicxx.songlist.removeSong", args); },
+    updateSong: function (args) { return musicxx.call("musicxx.songlist.updateSong", args); }
   };
 
   // 过时的分类 `musicxx.library`：名字还能用，内部转成新名字（老插件不用改）

@@ -11,5 +11,6 @@ author: "coolight"
 api_version: 3
 platforms: [windows, linux, macos, android, ios]
 permissions:
-  - musicxx.library.read
+  - musicxx.playlist.read
+  - musicxx.songlist.read
   - musicxx.ui

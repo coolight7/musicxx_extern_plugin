@@ -13,5 +13,6 @@ platforms: [windows, linux, macos, android, ios]
 
 permissions:
   - musicxx.ui
-  - musicxx.library.read
+  - musicxx.playlist.read
+  - musicxx.songlist.read
   - musicxx.storage
