@@ -217,7 +217,7 @@ Linux / macOS 的同一套流程（示例插件单独一条脚本，构建 + 打
 ```
 
 > 打包出来的安装包在 `.native/output/<平台>-<架构>-<配置>/packages/`，可以直接
-> `musicxx-cli plugin install "<包路径>" --enable` 装进主程序试。
+> `musicxx-cli plugin install "<包路径>"` 装进主程序试（新插件默认启用）。
 
 **主程序构建会自动触发插件框架构建**：`flutter build windows` / `flutter build linux` / `flutter build apk`
 都会在配置阶段调用上面第 1 步（自动模式），因此不必先手工构建 —— 已经是最新时只花一次脚本启动的时间，
@@ -613,7 +613,7 @@ bundle 里的 `format_version` 必须与目标主程序的 Flutter 版本一致�
 ```bash
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin        # 打包（顶层是插件目录内容）
 ./tools/pack_plugin.sh --plugin-dir /work/my_plugin                             # Linux / macOS 上的同一件事
-musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable        # 安装并启用（包名 = 插件id-清单版本号）
+musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip"                  # 安装，新插件默认启用（包名 = 插件id-清单版本号）
 musicxx-cli plugin list                                                         # 每个插件的状态与失败原因
 musicxx-cli plugin logs my_plugin --limit 50                                    # 最近日志（新的在前）
 musicxx-cli plugin reload my_plugin                                             # 改完代码重新加载

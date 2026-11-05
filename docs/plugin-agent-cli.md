@@ -44,8 +44,8 @@
 
 ```bash
 musicxx-cli plugin list                                      # 装了哪些插件、框架在不在跑
-musicxx-cli plugin install "D:/out/my_plugin-2026_1010_1.zip" --enable    # 安装并启用（路径必须绝对路径）
-musicxx-cli plugin install --url https://example.com/my_plugin.zip --enable  # 没有本机包时按链接装
+musicxx-cli plugin install "D:/out/my_plugin-2026_1010_1.zip"             # 安装（新插件默认启用，路径必须绝对路径）
+musicxx-cli plugin install --url https://example.com/my_plugin.zip      # 没有本机包时按链接装
 musicxx-cli plugin logs my_plugin --limit 50                 # 最近的插件日志（新的在前）
 musicxx-cli plugin reload my_plugin                          # 改完文件重新加载（JS脚本会重新执行）
 musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-data 保留插件私有数据）
@@ -61,8 +61,8 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | 命令 | 作用 | 需要框架在跑 |
 |---|---|---|
 | `plugin list` | 框架状态 + 插件清单（启用/加载、声明的权限、目录、失败原因）+ 插件框架自己的版本（版本号 / 提交 / GitHub 仓库地址） | 否 |
-| `plugin install <zip路径> [--enable]` | 按压缩包安装（同名 = 覆盖安装，失败回滚） | **是** |
-| `plugin install --url <链接> [--sha256 <校验>] [--enable]` | 按链接安装：先下到临时目录再装，装完（无论成败）删临时包；`--sha256` 给了就比对 | **是** |
+| `plugin install <zip路径> [--disable]` | 按压缩包安装（同名 = 覆盖安装，失败回滚）；新插件装完**默认启用**，`--disable` 才保持停用 | **是** |
+| `plugin install --url <链接> [--sha256 <校验>] [--disable]` | 按链接安装：先下到临时目录再装，装完（无论成败）删临时包；`--sha256` 给了就比对 | **是** |
 | `plugin enable <插件id>` / `plugin disable <插件id>` | 启用 / 禁用 | 否（不在跑时只记录状态，下次启动生效） |
 | `plugin reload [插件id]` | 给 id 只重载这一个；不给 id = 重扫插件目录 + 重载全部启用中的 | **是** |
 | `plugin restart` | 重启插件框架（插件文件与安装记录都保留） | **是**（重启后仍未运行会失败，原因在错误里） |
@@ -114,8 +114,8 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 # 1) 打包：压缩包顶层就是插件目录的内容（plugin.yaml 在根）；包名 = <插件id>-<清单 version 里的 . 换成 _>.zip
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin
 
-# 2) 安装并立刻启用；不给 --enable 时：新插件保持"未启用"，覆盖安装沿用原状态
-musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable
+# 2) 安装：新插件装完默认启用，不用再加参数；只有想装成停用状态时才加 --disable
+musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip"
 ```
 
 - **路径必须是绝对路径**：agent/命令行的工作目录与应用不同，相对路径会被直接拒绝；
@@ -349,8 +349,8 @@ musicxx-cli doctor
 # 1) 打包（JS 与动态库插件同一套；顶层就是插件目录内容；包名带清单 version，例 my_plugin-2026_1010_1.zip）
 pwsh -NoProfile -File tools/pack_plugin.ps1 -PluginDir D:/work/my_plugin
 
-# 2) 安装并启用
-musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip" --enable
+# 2) 安装（新插件默认启用，不用再加参数）
+musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip"
 
 # 3) 确认真的跑起来了，有问题就看日志
 musicxx-cli plugin list
@@ -393,7 +393,7 @@ musicxx-cli plugin uninstall my_plugin
 | 安装失败「插件框架未启动，无法安装插件」 | 未开启『拟声++』、处于安全模式，或插件框架库不可用 —— 看 `plugin list` 的 `hostStarted` / `supportPlus` / `safeMode` / `lastError` |
 | 安装失败提到"必须绝对路径" | 把路径写成绝对路径（例如 `D:/out/my_plugin.zip`）；相对路径会被直接拒绝 |
 | 安装失败提到「当前平台不在清单声明内」/「库文件缺失」 | 清单 `platforms` / `arch` / `entry` 写错，或多目标包少了当前平台/架构的分支（[plugin-native-api.md](plugin-native-api.md) §1.3） |
-| 装了但没在跑 | 新插件装完默认不启用：`plugin enable <id>`，或重新安装时加 `--enable` |
+| 装了但没在跑 | 新插件装完是启用的：`plugin list` 看 `loaded` / `error`；以前用 `--disable` 装的用 `plugin enable <id>` 打开 |
 | `loaded: false` 且 `error` 有内容 | 加载失败（脚本顶层报错、缺入口符号、依赖缺失…），`plugin logs <id>` 看明细 |
 | 改了文件没变化 | 没重载、重载失败，或插件处于禁用；`plugin reload <id>` 后看结果里的 `failed` |
 | 主程序整体卡住 | 插件占住了框架线程或 JS 线程：看主程序日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |

@@ -1090,8 +1090,8 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 ⑤ 改了 plugin.js：管理页「重载」（或禁用再启用）→ 脚本会重新执行
 ```
 
-不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>" --enable`
-（插件包在公网上时用 `plugin install --url <链接> --enable`）
+不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>"`
+（新插件装完默认启用；插件包在公网上时用 `plugin install --url <链接>`）
 → `plugin list` / `plugin logs` → 改完 `plugin reload <插件id>`。完整用法与 MCP 工具见
 [plugin-agent-cli.md](plugin-agent-cli.md)。
 

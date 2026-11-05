@@ -111,7 +111,7 @@ my_plugin/
 
 ### 3.4 安装与更新
 
-- 压缩包安装：`.zip` 的**顶层就是插件目录内容**（`plugin.yaml` 在根）；同名 = 覆盖升级，失败会回滚。
+- 压缩包安装：`.zip` 的**顶层就是插件目录内容**（`plugin.yaml` 在根）；同名 = 覆盖升级，失败会回滚；新插件装完默认启用。
 - 也可以把目录直接放进 `<应用支持目录>/musicxx/extern_plugin/plugins/<id>/`，再在管理页「重新扫描」（默认不启用）。
 - 插件 id = 清单 `name` = 目录名；插件私有数据（`config.json` 与存储）默认随卸载一起删，命令行可用 `--keep-data` 保留。
 
@@ -295,7 +295,7 @@ iOS 只有 macOS 上能构建（Windows 的 `.ps1` 没有 iOS 工具链）：
 
 ```bash
 musicxx-cli plugin list                       # 框架状态 + 插件清单（含失败原因）
-musicxx-cli plugin install "D:/out/my_plugin-2026_1010_1.zip" --enable   # 路径必须绝对路径
+musicxx-cli plugin install "D:/out/my_plugin-2026_1010_1.zip"   # 路径必须绝对路径（新插件默认启用）
 musicxx-cli plugin logs my_plugin --limit 50  # 最近的插件日志（新的在前）
 musicxx-cli plugin reload my_plugin           # 只重载这一个（不给 id = 重扫 + 重载全部）
 musicxx-cli plugin enable my_plugin             # disable / uninstall / restart / clear-logs 同理

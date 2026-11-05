@@ -970,8 +970,8 @@ Android 见 §11。
 ⑥ 改了代码：重新构建 → 管理页「重载」（或禁用再启用）→ 再试
 ```
 
-不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>" --enable`
-（插件包在公网上时用 `plugin install --url <链接> --enable`）
+不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>"`
+（新插件装完默认启用；插件包在公网上时用 `plugin install --url <链接>`）
 → `plugin list` / `plugin logs` → 重新构建后 `plugin reload <插件id>`。完整用法与 MCP 工具见
 [plugin-agent-cli.md](plugin-agent-cli.md)。
 

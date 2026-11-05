@@ -105,10 +105,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测
 ```
 
 在应用里试：把 `.native/output/<平台>-<架构>-<配置>/plugins/<插件>/` 整个拷进用户插件目录
-（管理页「打开插件目录」），或打包成 `.zip` 用「从压缩包安装」，然后启用。
+（管理页「打开插件目录」，放入后还要在插件页启用），或打包成 `.zip` 用「从压缩包安装」（新插件默认启用）。
 
-不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>" --enable`
-安装并启用，之后用 `plugin list` / `plugin logs` / `plugin reload` 控制（见
+不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>"`
+安装（新插件默认启用），之后用 `plugin list` / `plugin logs` / `plugin reload` 控制（见
 `docs/plugin-agent-cli.md`）。
 
 ## 写作参考

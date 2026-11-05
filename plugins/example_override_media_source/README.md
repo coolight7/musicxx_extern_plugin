@@ -209,7 +209,7 @@ pwsh -NoProfile -File tools/sync_ui_kit.ps1 -Plugin example_override_media_sourc
 # 构建示例插件（框架有改动时会一起重建）
 pwsh -NoProfile -File tools/build_examples.ps1
 # 装进正在运行的应用并重载
-musicxx-cli plugin install "<zip 绝对路径>" --enable
+musicxx-cli plugin install "<zip 绝对路径>"
 musicxx-cli plugin reload example_override_media_source
 musicxx-cli plugin logs example_override_media_source --limit 50
 ```

@@ -25,7 +25,7 @@
 pwsh -NoProfile -File tools/build_examples.ps1
 
 # 2) 装进应用（也可以用管理页「从压缩包安装」）
-musicxx-cli plugin install "<绝对路径>/example_ftp_source-2026_1024_1.zip" --enable
+musicxx-cli plugin install "<绝对路径>/example_ftp_source-2026_1024_1.zip"
 
 # 3) 看日志 / 自检
 musicxx-cli plugin logs example_ftp_source --limit 50

@@ -114,7 +114,7 @@
 | 用途 | 怎么做 |
 |---|---|
 | 远程协助 | 让用户粘一条链接就完成一次操作：跳页面、搜索、播放、切主题、装插件。不用教对方开命令行 / 开 MCP / 装 CLI，也不用发可执行文件 |
-| 装 / 更新插件 | 插件包先放到对方机器上，再给 `musicxx://call/?cmd=externPlugin.install&args=<UrlEncode 后的 {"path":"C:/…/x.zip","enable":true}>`（**要对方点「允许」**，见下）；插件包在公网上时直接用 `url`：`{"url":"https://…/x.zip","sha256":"…","enable":true}`；启用 / 停用 / 卸载 / 重载同理（`externPlugin.setEnabled` / `uninstall` / `reload`） |
+| 装 / 更新插件 | 插件包先放到对方机器上，再给 `musicxx://call/?cmd=externPlugin.install&args=<UrlEncode 后的 {"path":"C:/…/x.zip"}>`（**要对方点「允许」**，见下；新插件装完默认启用，要装成停用状态就写 `"enable":false`）；插件包在公网上时直接用 `url`：`{"url":"https://…/x.zip","sha256":"…"}`；启用 / 停用 / 卸载 / 重载同理（`externPlugin.setEnabled` / `uninstall` / `reload`） |
 | 排查“链接不生效” | 参数改完粘一次就能看到解析结果与报错，不用注册协议、不用退到桌面点链接 |
 | 自测 / 演示 | 插件作者、写文档的人验证自己给出的链接示例是不是还能用 |
 
@@ -348,7 +348,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `app.lifecycle` | 无 | `{foreground, lifecycle, state, backgroundMs, lastBackgroundMs}`：`foreground` = 是否前台；`lifecycle` = `foreground` / `background`；`state` = 原始生命周期状态名（`resumed` / `inactive` / `hidden` / `paused` / `detached`）；`backgroundMs` = 已经在后台多久（前台为 0）；`lastBackgroundMs` = 上一次在后台待了多久。与变量 `musicxx.app.lifecycle` 读的是同一份状态（变量只给 `foreground` / `background`） |
 | `app.commands` | `action?`(string：`install` / `uninstall` / `status`，缺省 `status`) | `{…, text}`：把 `musicxx` / `musicxx-cli` 登记成系统里能直接输入的命令（Windows 写用户 PATH 与 App Paths；macOS / Linux 在 PATH 里的可写目录建入口），或者查 / 删这份登记；`locations` 是实际生效的位置，`problems` 是失败原因 |
 | `externPlugin.list` | 无 | 插件框架现状 + 插件清单（字段见本节末尾那张表） |
-| `externPlugin.install` | `path?`(string，本机绝对路径)、`url?`(string，下载链接)、`enable?`(bool)、`sha256?`(string) | `{ok, id, version, kind, author?, description?, permissions, enabled, path, sha256, isUpgrade, target, targetEntry, targets, fileCount, totalBytes, source, download?, status}`：`path` 与 `url` 二选一（都不给或都给都是命令失败）；`url` 分支先下到 `<系统缓存根>/musicxx/temp/plugin` 再装，**装完（无论成败）删临时包**；`sha256` 给了就比对，不一致不装 |
+| `externPlugin.install` | `path?`(string，本机绝对路径)、`url?`(string，下载链接)、`enable?`(bool，不给时新插件默认启用、覆盖安装沿用原状态)、`sha256?`(string) | `{ok, id, version, kind, author?, description?, permissions, enabled, path, sha256, isUpgrade, target, targetEntry, targets, fileCount, totalBytes, source, download?, status}`：`path` 与 `url` 二选一（都不给或都给都是命令失败）；`url` 分支先下到 `<系统缓存根>/musicxx/temp/plugin` 再装，**装完（无论成败）删临时包**；`sha256` 给了就比对，不一致不装 |
 | `externPlugin.uninstall` | `id`(必填)、`keepData?`(bool) | 卸载结果 + 插件清单 |
 | `externPlugin.setEnabled` | `id`(必填)、`enabled`(必填) | `{id, enabled, loaded, …}` + 插件清单 |
 | `externPlugin.reload` | `id?`（不给 = 重扫目录并重载全部启用中的） | `{reloaded:[id…], failed:{id:原因}, …}` + 插件清单 |
