@@ -339,6 +339,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `musicxx.player.playSrc` | `src?`(string，单个音源)、`sources?`(array，多个音源)、`type?`(string，缺省 `auto`；可写来源类型名 `bili` / `link` / `aliDrive` / `baiduPan` / `drive115` / `subsonic` / `jellyfin` / `emby` / `Lumenxx` / `local` / `localCache` / `LocalCacheId` / `LocalContentUrl` / `assest` / `myid` / `mylink` / `webdav` / `mycos`，或插件音源类型 id `plugin.<插件 id>.<类型名>` —— 这时 `src` 写插件自己的资源 id)、`filterExt?`(bool，只接受扫描配置里的媒体后缀)、`name?`(显示名) | `{count, single, name, sid, artist, sources, skipped?}`：按来源播放（本地路径 / `content://` / 文件链接 / 拟声音源字符串 / 任意来源类型 / 插件音源）。一个来源追加到当前播放列表并播，多个来源列成临时歌单。**这是 applink `musicxx://play/` 与启动参数裸文件背后的入口**，三条通道参数名一致；`type` 写了来源类型就按该类型存（`bili` 的 `src` 写 BV 号或视频链接），能不能播由来源自己的解析决定 |
 | `lrc.current` | `word?`(bool) | `{hasLyric, word, lineCount, text?}`：当前歌词的 `.lrc` 文本，`word:true` 尽量给逐字（增强型） |
 | `playlist.play` | `pid`(int,必填)、`type?`(local/net)、`index?`(int)、`songName?`(string) | `{pid, sid, name, artist}`：播歌单里的一首（按 `index` 或名字包含匹配找，都不给播第一首） |
+| `musicxx.playlist.syncSongs.sync` | `pid`(int,必填) | `{ok, pid, name, total, added, cancelled, failedSources, elapsedMs, sources:[…]}`：同步歌单绑定的音源（本地文件夹 / 歌手 / 专辑、Bili 收藏夹、WebDAV、云盘、媒体库…），把新增的歌加进歌单。`sources` 每项 `{index, id, type, name, loaded, added, error?}`（`loaded` = 这条音源读到多少首，`null` = 读取失败）。只有一部分音源失败时仍 `ok:true`（`failedSources` 是失败条数）；歌单绑了哪些音源只能在应用界面里配，这个命令不收 `sources`。MCP 工具 `SyncPlaylistSources`、CLI 糖命令 `sync-list` 都是它 |
 | `history.playByInfo` | `info`(string,必填)、`tip?`(bool) | `{found, sid?, name?, artist?}`：在播放记录里按标题 / 歌手匹配最相关的一首并播放；`tip:true`（applink `musicxx://play/?search=` 用它）时没找到会弹界面提示 |
 | `musicxx.ui.openSearch` | `type?`(枚举，见下方类型表)、`keyword?`(string) | `{route, type, keyword}`：打开搜索页并带上类型与关键词。**applink `musicxx://search/`、`bilibili://search/` 背后的入口** |
 | `musicxx.entry.argv` | `argv`(array，必填：与命令行里写的一样、不含程序自身路径) | `{count, cmds:[…]}`：把一串启动参数按 §1.1 的规则解析成一次或多次命令调用并执行（Windows 上把第二实例的命令行交给已有实例用的就是它）；解析失败、或其中一条失败都整串拒绝；不能嵌套它自己 |
@@ -461,7 +462,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `seek <毫秒\|mm:ss\|hh:mm:ss\|N%>` | `musicxx.player.seek` |
 | `volume <0~1\|0~100>` / `speed <0.25~8>` / `pitch <0.25~2>` / `loop <模式>` / `quality <名称>` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `setLoopMode` / `setQuality` |
 | `lrc [--word]` / `lyric [--limit N]` | `lrc.current`（`.lrc` 文本）/ `musicxx.lyric.current.get`（逐行结构化，带时间戳与译文） |
-| `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` | `musicxx.songlist.querySongs`（不带 `--pid`）/ `musicxx.playlist.querySongs` / `musicxx.playlist.queryLists` / `musicxx.songlist.playSong` / `musicxx.playlist.play` |
+| `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` / `sync-list <pid>` | `musicxx.songlist.querySongs`（不带 `--pid`）/ `musicxx.playlist.querySongs` / `musicxx.playlist.queryLists` / `musicxx.songlist.playSong` / `musicxx.playlist.play` / `musicxx.playlist.syncSongs.sync`（同步歌单音源，超时给到 10 分钟） |
 | `toast <文本>` | `musicxx.ui.toast` |
 | `feature list` / `feature call <id> --args JSON` | `feature.list` / `feature.call` |
 | `featurePoint.list` / `featurePoint.call <id>` | `featurePoint.list` / `featurePoint.call`（CLI 名大小写不敏感，写 `featurepoint.list` 也一样） |
@@ -566,6 +567,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `GetMineSonglists` | 无 | `musicxx.playlist.queryLists` | 先报条数；网络歌单（「我喜欢」排最前）再本地歌单 |
 | `GetSonglistContent` | `pid`(必填)、`type`(local/net，必填) | `musicxx.playlist.querySongs` | 同 `GetPlaylistSongs` |
 | `PlayTheSonglist` | `pid`(必填)、`type`(必填)、`songName?` | `playlist.play` | `Success load songlist, current play song name: …` |
+| `SyncPlaylistSources` | `pid`(必填) | `musicxx.playlist.syncSongs.sync` | `Added: N song(s), now M song(s) in the playlist` + 每条音源一行（新增 / 共，读取失败的写原因） |
 | `MediaPlayByInfo` | `info`(必填) | `history.playByInfo` | `Success` / `No related songs found` |
 | `PlayMedia` | `src?`／`sources?`（二选一）、`type?`（字符串：`auto` / 来源类型名 / 插件音源类型 id，取值同 §4.3 的 `musicxx.player.playSrc`）、`filterExt?`(bool)、`name?` | `musicxx.player.playSrc` | `Playing: <名字> (<n> media)`；没有可播的来源时工具报错 |
 | `OpenSearch` | `type?`(枚举)、`keyword?` | `musicxx.ui.openSearch` | `Search page opened [<类型>] keyword=<词>` |

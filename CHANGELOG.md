@@ -8,6 +8,25 @@
 
 ## 历史
 
+### 新增：同步歌单音源的动作 `musicxx.playlist.syncSongs.sync`
+
+歌单可以绑定音源（本地文件夹 / 歌手 / 专辑、Bili 收藏夹、WebDAV、云盘、
+Subsonic / Jellyfin / Emby 视图…），应用里「歌单右上角三个点 - 同步歌单音源」会把这些来源
+重新读一遍、把新增的歌加进歌单。**此前这个能力只有界面入口**，插件、MCP、命令行都调不到。
+
+| 动作 | 参数 | 返回 |
+|---|---|---|
+| `musicxx.playlist.syncSongs.sync` | `pid` | `{ok, pid, name, total, added, cancelled, failedSources, elapsedMs, sources:[…]}` |
+
+- `sources` 每项 `{index, id, type, name, loaded, added, error?}`：`loaded` = 这条音源读到多少首，
+  `added` = 这一条新加进歌单多少首；只有一部分音源读取失败时仍然 `ok: true`（`failedSources` 是失败条数）。
+- 能同步的歌单与写类动作同一条规则（本地歌单 / 自己创建的在线歌单 / “我喜欢”）；
+  歌单绑定了哪些音源只能在应用界面里配，动作不收 `sources`。
+- **应用的信息栏会显示一条提示**（不是用户从界面点开始就没人知道）：同步期间显示进度，
+  **成功后 30 秒自动移除，失败则保留**（可以点开看每一条音源的结果）。
+- JS 糖：`musicxx.playlist.syncSongs({ pid })`；本机 CLI 糖命令 `sync-list <pid>`；
+  MCP 工具 `SyncPlaylistSources`。若包与命令的说明同步更新。
+
 ### 变更：歌词动作迁到 `musicxx.lyric.*`，`set` 改成 `current.update`，新增 `current.updateContent`
 
 歌词动作统一到单数域 `musicxx.lyric.*`（与钩子 / 变量 / 状态镜像一致）。旧的 `musicxx.lyrics.*`

@@ -839,7 +839,8 @@ var featurePointImpls = new Map();
     addSong: function (args) { return musicxx.call("musicxx.playlist.addSong", args); },
     removeSong: function (args) { return musicxx.call("musicxx.playlist.removeSong", args); },
     create: function (args) { return musicxx.call("musicxx.playlist.create", args); },
-    updateSong: function (args) { return musicxx.call("musicxx.playlist.updateSong", args); }
+    updateSong: function (args) { return musicxx.call("musicxx.playlist.updateSong", args); },
+    syncSongs: function (args) { return musicxx.call("musicxx.playlist.syncSongs.sync", args); }
   };
 
   // 播放列表（songlist = 当前正在播的那一串歌）

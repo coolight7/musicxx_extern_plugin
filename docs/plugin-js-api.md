@@ -364,7 +364,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 |---|---|
 | `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
-| `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)`（歌单：保存下来的列表） |
+| `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)` `syncSongs(args)`（歌单：保存下来的列表；`syncSongs` = 同步歌单音源，把绑定音源里新增的歌加进歌单） |
 | `musicxx.songlist` | `querySongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（播放列表：当前正在播的那一串歌） |
 | `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |

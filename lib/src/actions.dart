@@ -304,6 +304,21 @@ abstract final class MusicxxPluginActionNames {
   /// 返回：`{ok:true, pid, sid, song:{…}}`。
   static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
 
+  /// 同步歌单音源：把歌单绑定的音源重新读一遍，新增的歌曲加进歌单
+  ///
+  /// 参数：`pid`（必填，目标歌单：本地歌单 / 自己的在线歌单 / “我喜欢”）。
+  /// 歌单绑定了哪些音源（本地文件夹、WebDAV、云盘、Bili 收藏夹、媒体库…）只能在应用界面里配，
+  /// 这里只按已经绑好的音源同步，不收 `sources`。
+  ///
+  /// 返回：`{ok, pid, name, total, added, cancelled, failedSources, elapsedMs, sources:[…]}`；
+  /// `sources` 每项 `{index, id, type, name, loaded, added, error?}`（`loaded` = 这条音源读到多少首，
+  /// `added` = 这一条新加进歌单多少首）。失败是 `{ok:false, error}`：未找到歌单 / 歌单无法加载 /
+  /// 没有修改权限 / 没有绑定音源 / 每条音源都读取失败 / 保存失败（已回滚）/ 这个歌单正在同步。
+  ///
+  /// 不是用户从应用界面点「开始同步音源」触发的（插件 / MCP / 命令行），应用的信息栏会显示一条提示：
+  /// 同步成功后 30 秒自动移除，失败则保留（可以点开看每一条音源的结果）。
+  static const String playlistSyncSongsSync = 'musicxx.playlist.syncSongs.sync';
+
   // ==================== 播放列表（songlist = 当前播放队列） ====================
 
   /// 读当前播放列表（正在播的那一串歌）里的歌
