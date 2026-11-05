@@ -749,16 +749,16 @@ final List<MusicxxPluginUIItem> next =
 
 插件框架已经实现的能力（主程序接入情况见 musicxx 仓库）：
 
-- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` 五张已实现
-  （每张表的版本 / 最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；
-  `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结、表体未实现
+- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` /
+  `musicxx.kind` 六张已实现（每张表的版本 / 最低版本 / 基线字节数与可用性判定见
+  `docs/plugin-native-api.md` §4.1）；
+  `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` / `agent` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
-- **钩子**：约定 71 个（观察 / 裁决，其中 52 个异步派发）；
-  主程序当前**应用派发 13 个**（`docs/plugin-hooks.md` 的「主程序是否已接入」列标「已接入」的共 14 行，
-其中 `musicxx.feature.point.call` 是插件自定义功能点的通用通道、由调用方触发），其余注册成功但不会触发；
-  两个预留的观察钩子（`musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`）已标废弃（主程序不派发，替代做法见其说明）；
-  第 71 条 `musicxx.feature.point.call` 是**插件自定义功能点**的通用通道（不是"主程序会派发的钩子"）：
-  插件声明自己的功能点后，用它实现、也用它被调用（见 `docs/plugin-guide.md` 的「功能点」一节）；
+- **钩子**：约定只看 `tools/hooks.def.json`（生成物是 `docs/plugin-hooks.md`，`dart run tools/gen_contract.dart --check`
+  校验一致），每个条目声明模式、派发方式与阶段；主程序**是否真的会派发**看生成物里「主程序是否已接入」列
+  （由 `wired` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义功能点的通用通道、由调用方触发），
+  其余注册成功但不会触发；曾经预留过的 `musicxx.media.wave.ready` / `musicxx.media.chorus.analysed` 已从
+  钩子表删除，替代做法是 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse`；
 - **JS 运行时**：QuickJS 编入插件框架库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由框架线程执行；
   裁决处理器可以返回 Promise（插件框架一直等到它结算，结算后裁决生效）；
@@ -799,12 +799,12 @@ final List<MusicxxPluginUIItem> next =
 | 能力 | 入口 | 说明 |
 |---|---|---|
 | 钩子 | `musicxx.hooks.register` / `PluginBase::hook` / `observe` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算，结算后裁决生效）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
-| 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 库 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
+| 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
 | 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
-| 网络（可选便利通道） | `musicxx.net.fetch/download` | 经主程序网络栈；插件框架不限定可访问域名 |
-| 内置网络能力 | `musicxx.net.http/socket/ws`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket 的客户端与服务端；只 `http://` / `ws://`，服务端默认只监听回环；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |
-| 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单（当前版本无渲染点）/ 播放页背景；字段见 `docs/plugin-ui.md` |
+| 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |
+| 内置网络能力 | `musicxx.net.http/socket/ws/udp`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket / UDP 的客户端与**服务端**；客户端支持 `https` / `wss`，**服务端只监听明文**且默认只绑回环；UDP 可广播 / 组播；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |
+| 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单 / “添加歌曲”项 / 播放页背景 / 播放页歌曲图（主程序都已有渲染点）；字段见 `docs/plugin-ui.md` |
 | 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→动态库投递框架线程、脚本不阻塞；JS 处理器可以同步返回，也可以返回 Promise（插件框架等到结算）；C++ 处理器同步返回 |
 | 插件页面 | `ext://<插件id>/<视图id>` | 主程序调用插件同名能力取视图描述（Text / Divider / Button / Block / 布局块 / Shader 块） |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |
@@ -823,7 +823,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests
 ```
 
 ```powershell
-dart run tools/gen_contract.dart --check                 # 约定生成物一致（71 个钩子；改动 hooks.def.json 后必须重新生成）
+dart run tools/gen_contract.dart --check                 # 约定生成物一致（钩子数量以 tools/hooks.def.json 为准；改动后必须重新生成）
 flutter analyze                                          # 期望 0 issue
 flutter test                                     # 包内整套流程：框架/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
 | 钩子总表（id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |

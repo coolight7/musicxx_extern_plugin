@@ -372,8 +372,8 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
-| `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` |
-| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)` `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`，没有单独封装） |
+| `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
+| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
 `musicxx.library`（`querySongs` / `querySonglists` / `playSong` / `playSonglist`）是**过时的对象**：
@@ -386,7 +386,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 - **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
   `musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` ——
-  写插件前先按 [plugin-api.md](plugin-api.md) §3.3 确认一遍；
+  写插件前先按 [plugin-api.md](plugin-api.md) §3.4 确认一遍；
 - **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度 / 音调用
   `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用钩子 `musicxx.player.speed` /
   `musicxx.player.pitch`）。
@@ -617,9 +617,12 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 
 常用的可订阅主题（完整清单与载荷字段见 [plugin-api.md](plugin-api.md) §4）：
 `musicxx.state.changed`（状态镜像键变化）、`musicxx.var.changed` / `musicxx.var.writeResult`（变量通道）、
-`musicxx.ui.changed`（UI 项变化）、`musicxx.hook.changed`（钩子注册表变化）、
-`musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn`（日志与告警）、
-`musicxx.hook.decision.result`（异步裁决结果，调试用）。
+以及其它插件发布的 `plugin.<对方 id>.*`。
+
+> `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
+> `musicxx.hook.changed` / `musicxx.hook.decision.result` **不在总线上**（它们是插件框架 → 主程序的
+> 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看钩子注册表用动作
+> `musicxx.hook.handlers`，自己的 UI 项用 `musicxx.ui.entries()`。
 
 ---
 
@@ -722,7 +725,7 @@ const info = await musicxx.capability.call("example_native", "probe", {});
   | 目标 | 行为 |
   |---|---|
   | JS 插件 | 在共享 JS 线程上**直接调用**：处理器同步返回时结果立刻就有，返回 Promise 时等它结算（同一条线程，不跳线程） |
-  | 动态库插件 / 内置目标 | 投递到框架线程执行，脚本**不阻塞**；结果回到 JS 线程（超时缺省 3 s；`≤ 0` 时插件框架仍按 3 秒处理，不是"一直等"） |
+  | 动态库插件 / 内置目标 | 投递到框架线程执行，脚本**不阻塞**；结果回到 JS 线程（超时缺省 3 s；**传 `0` / 负数 = 一直等**） |
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
   （`plugin_capability_not_found: xxx` / `capability_call_failed` / `跨插件调用超时: ...`）；
@@ -1115,7 +1118,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再调一次能力返回 `{view:...}`，或重新打开页面 |
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
-| 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（清单见 [plugin-api.md](plugin-api.md) §3.3） |
+| 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（清单见 [plugin-api.md](plugin-api.md) §3.4） |
 | 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（主程序还没有接） |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |

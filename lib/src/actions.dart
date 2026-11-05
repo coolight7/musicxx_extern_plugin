@@ -481,10 +481,10 @@ abstract final class MusicxxPluginActionNames {
   /// 让主程序打开「选择歌曲」弹窗（挑自己这个音源里的歌，选完直接加进歌单）
   ///
   /// 前提是先声明 `musicxx.source.browse` 并实现 `drive.list` 能力。参数：`type`（必填，
-  /// 自己声明的音源类型 id）、`title?`、`path?`（起始目录，缺省用声明里的 `root`）、
-  /// `pid?`（目标歌单，不给就是当前播放列表）、`multiple?`（默认 true）、
-  /// `allowSelectDir?`（默认 true）、`search?`、`pageSize?`。
-  /// 返回：`{ok, added, skipped, cancelled}`。
+  /// 自己声明的音源类型 id）、`view?`（浏览哪个分类，不给就用第一个）、`title?`、
+  /// `path?`（起始目录，缺省用声明里的 `root`）、`pid?`（目标歌单，不给就是当前播放列表）、
+  /// `multiple?`（默认 true）、`allowSelectDir?`（默认 true）、`search?`、`pageSize?`。
+  /// 返回：`{ok, added, skipped, cancelled, view}`（`view` = 这次浏览的分类）。
   ///
   /// 动作**在弹窗关掉之后才完成**：插件在能力处理器里调它时**不要 await**
   /// （会与主程序动作互相等，与 `musicxx.ui.openOverlaySheet` 同理）。
@@ -492,13 +492,15 @@ abstract final class MusicxxPluginActionNames {
 
   /// 让主程序打开「选择文件夹」弹窗（上传目标、保存位置这类场景）
   ///
-  /// 参数与 [uiPickSongs] 基本相同，`multiple` 缺省 false。返回 `{ok, paths, cancelled}`。
+  /// 参数与 [uiPickSongs] 基本相同，`multiple` 缺省 false。
+  /// 返回：`{ok, paths, items, cancelled, view}`（`items` 每条是 `{view, path}`）。
   static const String uiPickDir = 'musicxx.ui.pickDir';
 
   /// 打开某个浏览来源的**整页列表**（与内置网盘页同一套界面）
   ///
-  /// 参数：`type`（必填）、`path?`（起始目录）、`pid?`（目标歌单，缺省当前播放列表）。
-  /// 返回 `{ok, reason, added}`；`reason` 是 `closed` / `confirmed`。
+  /// 参数：`type`（必填）、`view?`（起始分类，缺省第一个）、`path?`（起始目录）。
+  /// 返回：`{ok, reason:"opened", type, view}`，**不等用户关页面**（插件拿这个页面当自己的
+  /// 浏览器用，不需要“关掉之后做什么”）；要等用户挑完再用 [uiPickSongs] / [uiPickDir]。
   static const String uiBrowseDrive = 'musicxx.ui.browseDrive';
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';

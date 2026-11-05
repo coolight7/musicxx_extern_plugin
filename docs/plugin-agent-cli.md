@@ -91,8 +91,12 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 
 > 另有一条 `musicxx-cli open "<musicxx://…>"`：按**链接形态**请求主程序（与手机点开链接、
 > 启动参数 `--uri` 是同一条解析路径）。它不转发命令，用来验证链接写法（例如
-> `musicxx-cli open "musicxx://play/?url=…"`）。注意**链接里调不了上面这些插件管理命令**
-> （`externPlugin.*` 在链接里被拒绝，装插件等于执行任意代码），要装 / 卸插件请用本表的命令。
+> `musicxx-cli open "musicxx://play/?url=…"`）。
+>
+> 链接里**也能**调插件管理命令，但会**先弹窗问用户**：`externPlugin.*` 与 `file.*` 属于管理类入口
+> （装插件等于执行任意代码、`file.*` 能写任意路径或把本机文件开放出去），从 applink 或应用内粘贴
+> 的链接进来时先列出命令与关键参数，用户点「允许」才执行，关掉窗口算拒绝。本机通道
+> （`musicxx-cli` / MCP / `/cli`）不问。写远程协助链接时把“装的是什么”说清楚，别只说“点一下就好”。
 
 插件之外的两条排障命令（同样可以用 `call` 直调）：
 
@@ -370,8 +374,11 @@ musicxx-cli plugin uninstall my_plugin
   一起删；要留就加 `--keep-data`。
 - **需要框架在跑的三条**：`install` / `reload` / `restart`；其余命令在插件框架没起来时也能用
   （启用/禁用只记录状态，下次启动生效），但未开启『拟声++』时应用不加载插件记录 —— 先开启再操作。
-- **命令行是桌面端能力**：Android / iOS 用管理页。Android 的动态链接器命名空间限制与 iOS 的签名校验
-  （都只允许从应用包内加载动态库）与这里无关，见 [plugin-native-api.md](plugin-native-api.md) §11 / §13。
+- **`musicxx-cli` 可执行文件只随桌面构建**：Android / iOS 上用管理页（或让另一台设备用
+  `lan.cli` 转发命令）。注意**服务端的 `/cli` 在所有平台都开**（手机与桌面同一份命令表），
+  所以手机上没命令行只意味着“没有本机客户端”，不意味着“没有命令面”。
+  Android 的动态链接器命名空间限制与 iOS 的签名校验（都只允许从应用包内加载动态库）与这里无关，
+  见 [plugin-native-api.md](plugin-native-api.md) §11 / §13。
 - **日志有上限**：最近 500 条、只在内存里（`musicxx-cli logs` 读的是应用自己写入磁盘的 `error.log` /
   `info.log`，那份由应用自己按大小裁剪）；要长期保留就自己写入磁盘。
 - **一次只让一个 agent 装/卸同一个插件**：两台同时在装会出现"文件是这次、记录是那次"的竞争。

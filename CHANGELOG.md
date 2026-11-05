@@ -6,7 +6,7 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
-## 未发布
+## 历史
 
 ### 变更：歌词动作迁到 `musicxx.lyric.*`，`set` 改成 `current.update`，新增 `current.updateContent`
 

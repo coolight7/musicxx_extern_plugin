@@ -84,9 +84,13 @@
   也不静默执行 —— 执行前弹窗列出命令与关键参数（`path` / `pid`…），点「允许」才执行，关掉窗口算
   拒绝（见 §7）。本机通道（命令行 / MCP / `/cli`）不问；应用内粘贴的链接与 applink 同一条规则
   （见 §1.1.1）；
-- **Android 的 intent filter 只声明协议**（`scheme=musicxx`，host 不限），所以新增入口形态不用改
-  manifest；桌面端由应用在注册表里注册 `musicxx` 协议（Windows 是 `HKCU\Software\Classes\musicxx`，
-  打开方式为 `"<程序>" "%1"`），点链接即以这条链接为启动参数拉起应用。
+- **系统能把链接递进来的只有 Windows 与 Android**（`GlobalStore.isSupportAppLink()`）：桌面端由应用在
+  注册表里注册 `musicxx` 协议（Windows 是 `HKCU\Software\Classes\musicxx`，打开方式为 `"<程序>" "%1"`），
+  点链接即以这条链接为启动参数拉起应用；Android 的 Deep Link intent filter 声明 `scheme=musicxx`
+  （**host 不限**）与 `bilibili://search/`，所以新增入口形态不用改 manifest。manifest 里另有一条
+  `https://musicxx.bool.run/…` 的 App Link 声明，那是站点跳转用的：应用收到它时按"不认识的链接"
+  处理（只记一行日志，不做任何事）；
+- macOS / iOS / Linux 收不到系统链接，用 §1.1.1 的应用内粘贴入口，或命令行 `musicxx-cli open`。
 - 在桌面端不用真的点链接也能验证：`musicxx-cli open "musicxx://play/?url=…"`，
   或 POST `/cli` 的 `{"uri": "…"}`（同一份解析）。
 
@@ -287,14 +291,20 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 103 条 = 动作命令 65 + 内置与应用命令 33 + 能力导出 2 + 变量 3；动作共 67 条，其中 `musicxx.player.playSrc` 与 `musicxx.ui.openSearch` 由内置表登记（不重复计数）。实际条数以 `musicxx-cli list` 为准）
+## 4. 命令面（当前 118 条 = 内置与应用命令 33 + 动作命令 80 + 能力导出 2 + 变量 3）
+
+> **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
+> 下面各节的数字只是写这份文档时的快照。
+>
+> 动作命令比“已实现的动作”多 4 条：过时分类 `musicxx.library.*` 里仍然可用的四个旧名字也被登记成
+> 命令（见 §4.5 末尾）；`musicxx.player.playSrc` 由内置表登记，不重复计数。
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 33 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源与跳搜索页**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
-| `action` | 65 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名** |
+| `builtin` | 33 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` + `MusicxxEntries` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`）**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
+| `action` | 80 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名**（含 4 条 `musicxx.library.*` 旧名） |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
@@ -405,7 +415,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 封面与频谱（7） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
 | 功能点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
-| 音源（3） | `musicxx.source.define` / `undefine` / `list` |
+| 音源（4） | `musicxx.source.define` / `undefine` / `list` / `browse`（`browse` = 声明这个类型可浏览并挑歌，见 [plugin-api.md](plugin-api.md) §3.3） |
 | 插件网盘 UI（3） | `musicxx.ui.pickSongs` / `pickDir` / `browseDrive`（挑歌 / 选目录 / 整页浏览，**一个类型可以有多个分类 `view`**，见 [plugin-api.md](plugin-api.md) §3.3） |
 | 钩子自省（1） | `musicxx.hook.handlers` |
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
@@ -414,6 +424,10 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 > 过时分类 `musicxx.library.*`：`querySonglists` / `querySongs` / `playSong` / `playSonglist` 这四条
 > **仍然注册着**（主程序把它们指向同一份实现，老插件不改也能用），含义分别等同上面的
 > `playlist.queryLists` / `playlist.querySongs` / `songlist.playSong` / `playlist.play`。新代码写新名字。
+>
+> 上表里的 `musicxx.player.playSrc` 由**内置表**登记（与 `musicxx.ui.openSearch`、`musicxx.entry.argv`
+> 一起，见 §4.3），所以在命令表里只出现一次；插件里照样用 `musicxx.call("musicxx.player.playSrc", …)`，
+> 参数与 §4.3 那张表一致。
 
 > 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
 > 客户端支持 https / wss，不经过主程序），见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
@@ -446,17 +460,19 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `kernel [--refresh]` | `kernel.info`（播放内核信息：版本 / 能用的过滤器 / 解码器 / 后缀） |
 | `seek <毫秒\|mm:ss\|hh:mm:ss\|N%>` | `musicxx.player.seek` |
 | `volume <0~1\|0~100>` / `speed <0.25~8>` / `pitch <0.25~2>` / `loop <模式>` / `quality <名称>` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `setLoopMode` / `setQuality` |
-| `lrc [--word]` | `lrc.current` |
+| `lrc [--word]` / `lyric [--limit N]` | `lrc.current`（`.lrc` 文本）/ `musicxx.lyric.current.get`（逐行结构化，带时间戳与译文） |
 | `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` | `musicxx.songlist.querySongs`（不带 `--pid`）/ `musicxx.playlist.querySongs` / `musicxx.playlist.queryLists` / `musicxx.songlist.playSong` / `musicxx.playlist.play` |
 | `toast <文本>` | `musicxx.ui.toast` |
 | `feature list` / `feature call <id> --args JSON` | `feature.list` / `feature.call` |
-| `featurePoint.list` / `featurePoint.call <id>` | `featurePoint.list` / `featurePoint.call` |
+| `featurePoint.list` / `featurePoint.call <id>` | `featurePoint.list` / `featurePoint.call`（CLI 名大小写不敏感，写 `featurepoint.list` 也一样） |
 | `var list` / `var get <键>` / `var set <键> <值>` | `var.list` / `var.get` / `var.set` |
 | `render list` / `render current` / `render select <id>` | `musicxx.render.list` / `current` / `select` |
 | `plugin …`（装 / 启停 / 重载 / 卸载 / 日志 / 清日志 / 重启） | `externPlugin.*` |
 | `logs [error\|info]` | `app.logs` |
+| `commands [status\|install\|uninstall]` | `app.commands`（把 `musicxx` / `musicxx-cli` 登记成系统命令，或查 / 删这份登记） |
 | `call <命令 id> [--args JSON]` | 任意命令（含全部动作名） |
 | `open <musicxx://…>` | 不转发命令：按链接形态请求主程序（与手机点链接、启动参数 `--uri` 同一条解析） |
+| `auth token [--host <ip> --port <端口>]` | 不转发命令：向对方要一把授权密令（只打印，不落盘；对方是「公开」档时告诉你不需要令牌） |
 | `list` / `doctor` / `ping` / `watch` / `mcp` / `start` / `help` / `version` | 不转发命令：自描述、自检、事件流、stdio 桥、拉起应用 |
 
 CLI 自己的选项与退出码：
@@ -466,7 +482,9 @@ CLI 自己的选项与退出码：
 | `--json` | stdout 只放那份 JSON（`{ok, cmd, data}` 或 `{ok:false, error}`，缩进多行）；提示与诊断走 stderr |
 | `--endpoint <路径>` | 指定接入点文件（默认 `<系统临时目录>/musicxx.cli.json`） |
 | `--port <端口>` | 直接指定端口（跳过接入点文件，排查用） |
-| `--timeout <秒>` | 单次请求超时（默认 30；`featurePoint.call` 这类命令默认 60） |
+| `--timeout <秒>` | 单次请求超时（默认 30；`featurePoint.call` / `featurepoint.list` / `feature` 这些命令自带更长默认值） |
+| `--host <ip>` | 连另一台设备（默认本机回环；跨设备要对方开着「共享与控制」） |
+| `--token <密令>` | 带授权密令（非本机、不同账号时用；本机不需要） |
 | `--start` / `--start-timeout <秒>` / `--app <路径>` | 没在运行时先拉起主程序（默认等 60 秒） |
 
 | 退出码 | 含义 |
@@ -549,7 +567,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `GetSonglistContent` | `pid`(必填)、`type`(local/net，必填) | `musicxx.playlist.querySongs` | 同 `GetPlaylistSongs` |
 | `PlayTheSonglist` | `pid`(必填)、`type`(必填)、`songName?` | `playlist.play` | `Success load songlist, current play song name: …` |
 | `MediaPlayByInfo` | `info`(必填) | `history.playByInfo` | `Success` / `No related songs found` |
-| `PlayMedia` | `src?`／`sources?`（二选一）、`type?`(`auto`/`local`/`link`)、`filterExt?`(bool)、`name?` | `musicxx.player.playSrc` | `Playing: <名字> (<n> media)`；没有可播的来源时工具报错 |
+| `PlayMedia` | `src?`／`sources?`（二选一）、`type?`（字符串：`auto` / 来源类型名 / 插件音源类型 id，取值同 §4.3 的 `musicxx.player.playSrc`）、`filterExt?`(bool)、`name?` | `musicxx.player.playSrc` | `Playing: <名字> (<n> media)`；没有可播的来源时工具报错 |
 | `OpenSearch` | `type?`(枚举)、`keyword?` | `musicxx.ui.openSearch` | `Search page opened [<类型>] keyword=<词>` |
 
 **播放控制**
@@ -617,6 +635,23 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 后三个工具的名字**就是能力 id**，工具说明与参数也来自能力自己的声明 —— 新增能力会自动变成
 新工具，工具清单会跟着长。
 
+**MCP 只覆盖一部分命令**（工具表是手工声明的，不是命令表的镜像）：下面这些命令**没有对应的 MCP 工具**，
+在 MCP 客户端里调不到 —— 要调它们请用命令行（`musicxx-cli call <命令 id> --args '<JSON>'`）
+或 POST `/cli`：
+
+| 没有 MCP 工具的命令 | 替代做法 |
+|---|---|
+| `var.list` / `var.get` / `var.set` | `musicxx-cli var list` / `var get <键>` / `var set <键> <值>`，或 `/cli` |
+| `feature.list` / `feature.call` | 每个能力已经单独变成工具（`GetAudioSpectrum` …），原始清单用 `musicxx-cli feature list` |
+| `app.commands` | `musicxx-cli commands [status\|install\|uninstall]` |
+| `musicxx.entry.argv` | 命令行 `musicxx-cli open` / `call`，或 `/cli` 的 `{"argv": […]}` |
+| 歌单 / 播放列表的写入动作（`musicxx.playlist.create` / `removeSong` / `updateSong`、`musicxx.songlist.addSong` / `removeSong` / `updateSong`） | `/cli`（`musicxx-cli call …`）—— 插件里仍然用 `musicxx.call` |
+| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.render.*`、`musicxx.media.*`（动作本身没有工具：频谱 / 副歌 / 主色调 / 内核信息用 §5.2 里那几个同名能力工具）、`musicxx.source.define` / `undefine`、`musicxx.hook.handlers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.call`） |
+
+判断某个命令有没有 MCP 工具，看 `GET /cli/list` 的 `commands[].id` 与 `tools/list` 的工具名：
+**工具名与命令 id 不是一回事**（`GetPlaylistSongs` ↔ `musicxx.songlist.querySongs`），
+只有 §5.2 表里列出的那些能对上。
+
 ### 5.3 文本形态与"压摘要"
 
 MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有固定的排版：歌曲列表、歌单列表、
@@ -647,13 +682,14 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | 路径 | 方法 | 用途 | 权限 |
 |---|---|---|---|
 | `/help` | GET | 接口说明：`/cli` 与 `/mcp` 怎么用（`text/plain`） | 放行（不需要令牌） |
-| `/cli`、`/cli/list`、`/cli/ping` | GET / POST | 本机命令行（§3），所有平台都有 | 本机放行；非本机要远控权限 |
+| `/auth/token` | GET | 主动要一把授权密令（全权限、不过期） | 统一鉴权门（可弹窗）；「公开」档直接告诉你不需要令牌 |
+| `/cli`、`/cli/list`、`/cli/ping` | GET / POST | 本机命令行（§3），所有平台都有 | 本机放行；非本机走统一鉴权门（§2.2） |
 | `/mcp` | POST / GET / DELETE / OPTIONS | MCP（§5） | 统一鉴权（`OPTIONS` 预检不判定） |
 | `/active` | POST | 设备信息 / 存活应答（§6.1） | 放行（受局域网服务开关影响返回内容） |
 | `/share/<id>[/相对路径]` | GET / HEAD | 本机文件的对外下载（§6.6）：`file.share.register` 注册过的文件或目录 | route id 就是权限；目录只许访问挂载点下面 |
-| `/control` | POST | 局域网控制指令（数字命令 id，§6.2） | 要签名 |
-| `/connectEvent` | WebSocket | 事件流（§4.8 / §6.4） | 本机放行；非本机要签名 |
-| `/getSrc` | GET | 资源代理：把本机能拿到的音源交给请求方（§6.3） | 本机放行；非本机要服务模式允许对外 |
+| `/control` | POST | 局域网控制指令（数字命令 id，§6.2） | 统一鉴权门（可弹窗；同账号 `sign` 直通） |
+| `/connectEvent` | WebSocket | 事件流（§4.8 / §6.4） | 本机放行；非本机过同一道门，但**握手不弹窗**（没身份直接 403，先取令牌再 `?token=`） |
+| `/getSrc` | GET | 资源代理：把本机能拿到的音源交给请求方（§6.3） | 统一鉴权门 + 「局域网服务」开着、且服务模式允许对外 |
 | `/parseSrc` | GET | 请求对方尝试解析音源（局域网里"谁能拿到就给谁"） | 同上 |
 | `/listenTogether` | POST | 一起听的邀请与回执 | 不校验远控权限（被邀请方确认） |
 | `/ws/listenTogether` | WebSocket | 一起听组内同步 | 要 `groupId` + `clientId` 匹配 |
@@ -674,7 +710,9 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 ### 6.2 `/control`（局域网控制，数字命令 id）
 
 请求体是 `{"id": <数字>, "data": {…}}`（可带 `?sign=` 走权限判定），应答是
-`{"code":2000,"data":…,"tip":""}` 或 `{"code":4010,…}`（参数缺失）等 `XXResponse_c` 形状。
+`{"code":2000,"data":…,"tip":""}` 或 `XXResponse_c` 形状的错误：`4001`（权限不足）、
+`4004`（资源找不到）、`4010`（参数缺失）、`4011`（参数错误）。**做过事就回 2000**
+（播放 / 暂停 / 上下曲 / 进度 / 循环模式曾经误回 4010，已修正）。
 
 | id | 名称 | 作用 |
 |---|---|---|
@@ -758,10 +796,11 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 ## 7. 边界与安全
 
 - **装插件等于执行任意代码**：`/mcp` 与 `/cli` 都能装插件、启用插件（动态库插件与主程序
-  同进程运行）。`/cli` 在**所有平台**都开（含手机），非本机请求要过「共享与控制 → 允许远程控制本机」；
-  **`/mcp` 目前不带任何鉴权** —— 端口能被连上就能调（含同网段的其他机器与网页，CORS 是 `*`），
-  请把「共享与控制」的对外服务范围收紧，不要把它暴露到不可信网络；鉴权重设计见应用仓库的
-  `docs/history/api-auth/plan.md`；
+  同进程运行）。`/cli` 在**所有平台**都开（含手机）。两者都走**同一道鉴权门**
+  （`lib/manager/netAuth/MusicxxNetAuth.dart`）：本机回环直接放行；非本机按「本机 → 服务没开 →
+  「公开」档 → 授权密令 → `sign` 同账号 → 弹窗」逐条判，谁都没通过就是 403（`/mcp` 是 JSON-RPC
+  `code: -32001`）。弹窗授权那一次回写 `X-Musicxx-Token`，客户端存下来复用；`/mcp` 的 CORS 是 `*`，
+  所以**不要把端口暴露到不可信网络**；
 - **链接与启动参数也算本机入口**：`musicxx://call/?cmd=…` 能调任意入口，而一条链接任何网页 /
   应用都能触发。所以链接里请求 `externPlugin.*`（装 / 卸 / 启用 / 重载 / 重启插件）与 `file.*`
   （往本机写文件、把本机文件开放给外部下载）这类管理入口时
@@ -770,7 +809,8 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
   `--cmd`）不问。应用内「设置 → 界面 → 调用快捷链接」粘贴的链接（`manual` 通道，§1.1.1）与 applink
   同一条规则。新增“能装东西 / 能执行代码 / 能读写本机文件”的入口时要一起加进这张表；
 - **`/share/<id>` 是“拿到链接就能下载”**：id 猜不到且可设过期时间，但没有账号校验；
-  只按 id 给单个文件（没有子路径与目录），注册只在本次运行有效，**程序重启即全部消失**。
+  注册的是**文件或目录**（目录挂在 `/share/<id>/` 下，相对路径逐段校验、出不了挂载点），
+  注册只在本次运行有效，**程序重启即全部消失**。
   不要把它当成需要鉴权的文件接口；需要限制访问时缩短 `ttlSeconds` 并及时 `file.share.unregister`；
 - **插件装不了插件**：安装 / 重载 / 重启插件框架只有命令行与 MCP 有（插件的动作表里没有
   这几条），这是有意的：否则 JS插件能把自己提升到原生权限；
@@ -793,13 +833,13 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | 接入点文件在但连不上 | 那是上次运行留下的残留（退出不清理），按"没在运行"处理 |
 | 找不到 `musicxx-cli` | 看应用里「设置 → 共享与控制 → 命令行接口（CLI）」；它必须与主程序同目录（`--start` / `mcp` 靠这一点找主程序） |
 | `app_not_ready`（503） | 应用还在启动收尾，稍后重试（命令行本身会先等 15 秒） |
-| 403 | 非本机请求：开「共享与控制 → 允许远程控制本机」，或在本机执行 |
+| 403 | 非本机请求：开「共享与控制 → 允许远程控制本机」、在本机执行，或用授权密令（`musicxx-cli auth token --host <ip> --port <端口>` 要一把） |
 | 退出码 5（协议不匹配） | 命令行与主程序不是同一次构建的产物，换成一起编译出来的那份 |
 | MCP 客户端连不上 | 先 `musicxx-cli doctor`，再 `cd cli && dart run tool/mcp_probe.dart`（不经过客户端直接跑一遍 initialize / tools/list / tools/call，会说明卡在哪一步），最后 `musicxx-cli mcp --verbose` |
 | 命令名/参数不确定 | `musicxx-cli list --json`（或 GET `/cli/list`）拿自描述清单（含 `entries` 链接形态），不要猜 |
 | 点链接 / 启动参数没反应 | 应用日志里搜 `[入口]`：解析失败与不认识的链接都会写一行可读原因。桌面端先用 `musicxx-cli open "<链接>"` 复现（与点链接同一条解析），启动参数用 `musicxx-cli call <入口 id> --args '<JSON>'` 复现 |
-| 链接里调插件管理被拒 | 这是有意的：链接不能装 / 卸 / 启用插件（§7），请用 `musicxx-cli plugin …` 或 MCP |
-| 动作答复"动作未注册" | 它在 §4.6 那张"名字存在但没实现"的表里；换用别的通道（能力导出 / 功能点）或看 [plugin-api.md](plugin-api.md) §3.3 |
+| 链接里调插件管理没反应 | 链接里请求 `externPlugin.*` / `file.*` 会先弹确认框（§7），用户关掉窗口 = 拒绝；拒绝时日志里有一行「用户没有允许管理类入口」。本机通道（`musicxx-cli plugin …` / MCP / `/cli`）不问 |
+| 动作答复"动作未注册" | 它在 §4.6 那张"名字存在但没实现"的表里；换用别的通道（能力导出 / 功能点）或看 [plugin-api.md](plugin-api.md) §3.4 |
 | 工具/能力是不是最新 | 工具条数会随能力注册表增长：以 `tools/list`（或 `feature.list`）的实际结果为准 |
 | 插件相关的排障 | [plugin-agent-cli.md](plugin-agent-cli.md) §10（`plugin list` / `plugin logs` / 主程序卡住的判断） |
 
@@ -819,3 +859,12 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 `lib/main.dart`（启动参数、单实例转发），
 本机服务路由在 `lib/manager/NetServerExt.dart` 与 `lib/share/manager/NetServer.dart`，
 命令行客户端在 `cli/`（协议与事件名表要跟主程序对齐）。这一节的内容都是从这些文件读出来的。
+
+**数字怎么核**（不要手数）：
+
+- 命令条数 / 分类：`musicxx-cli list --json` 里的 `data.commandCount` 与 `commands[].kind`；
+- MCP 工具：`tools/list`（或主程序 `MusicxxMcpTools_c.all()`，它 = 固定工具 + 能力注册表）；
+- 动作有没有实现：看主程序 `lib/plugin/externPlugin/ExternActions.dart` 里有没有 `_add(...)` 那一行
+  （SDK 常量存在不等于已实现）；
+- 钩子已接入 / 未接入：`tools/hooks.def.json` 的 `wired` 字段（`plugin-hooks.md` 由它生成，
+  `dart run tools/gen_contract.dart --check` 校验）。
