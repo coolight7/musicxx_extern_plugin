@@ -345,6 +345,14 @@ $buildBody = {
             Write-MxInfo "[跳过] Android 目标是交叉编译产物, 不能在当前主机运行; 产物在: $(Join-Path $paths.InstallDir 'bin')"
         }
         else {
+            # 共用库 (cxx_pluginxx) 自己的测试: 不启动插件框架, 不需要插件目录参数
+            $libraryTestExe = Join-Path $paths.InstallDir "bin/$($paths.LibraryTestName)"
+            if (-not (Test-Path $libraryTestExe)) { throw "未找到测试可执行文件: $libraryTestExe" }
+            Write-MxInfo "运行: $libraryTestExe"
+            & $libraryTestExe | Out-Host
+            Write-MxInfo "退出码: $LASTEXITCODE"
+            if ($LASTEXITCODE -ne 0) { throw "共用库原生测试失败 (退出码 $LASTEXITCODE)" }
+
             $testExe = Join-Path $paths.InstallDir "bin/$($paths.TestName)"
             if (-not (Test-Path $testExe)) { throw "未找到测试可执行文件: $testExe" }
 

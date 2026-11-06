@@ -284,6 +284,8 @@ function Get-MxBuildPaths {
     elseif ($info.Os -eq 'macos') { 'libmusicxx_extern_plugin.dylib' }
     else { 'libmusicxx_extern_plugin.so' }
     $testName = if ($info.Os -eq 'windows') { 'musicxx_extern_plugin_test.exe' } else { 'musicxx_extern_plugin_test' }
+    # 共用库 (cxx_pluginxx) 自己的测试: 不启动插件框架, 不需要插件目录参数
+    $libraryTestName = if ($info.Os -eq 'windows') { 'musicxx_pluginxx_test.exe' } else { 'musicxx_pluginxx_test' }
 
     return [ordered]@{
         Os            = $info.Os
@@ -300,6 +302,7 @@ function Get-MxBuildPaths {
         InstallDir    = [System.IO.Path]::GetFullPath((Join-Path $buildDir 'musicxx-extern-plugin-install'))
         LibraryName   = $libraryName
         TestName      = $testName
+        LibraryTestName = $libraryTestName
         HostLibrary   = [System.IO.Path]::GetFullPath((Join-Path $outputDir "bin/$libraryName"))
         PluginsDir    = [System.IO.Path]::GetFullPath((Join-Path $outputDir 'plugins'))
     }

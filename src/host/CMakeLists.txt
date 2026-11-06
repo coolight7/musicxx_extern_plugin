@@ -308,6 +308,21 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
     set_target_properties(musicxx_extern_plugin_test PROPERTIES MACOSX_BUNDLE FALSE)
   endif ()
 
+  # 共用库 (cxx_pluginxx) 自己的测试: 只链共用库, 不链插件框架。
+  # 它的能力登记表 / 广播表 / 阶段链是多个主程序共用的一套执行模型, 换实现时
+  # 必须有自己的回归, 不能只靠下面插件框架的原生测试间接验证。
+  add_executable(musicxx_pluginxx_test "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/test_pluginxx.cpp")
+  target_link_libraries(musicxx_pluginxx_test PRIVATE cxx_pluginxx_static)
+  if (MSVC)
+    target_compile_options(musicxx_pluginxx_test PRIVATE /utf-8)
+  endif ()
+  if (WIN32)
+    target_compile_definitions(musicxx_pluginxx_test PRIVATE _WIN32_WINNT=0x0A00)
+  endif ()
+  if (APPLE AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set_target_properties(musicxx_pluginxx_test PROPERTIES MACOSX_BUNDLE FALSE)
+  endif ()
+
   # 测试要用的对照示例插件 (example_native_fail / example_native_bad_entry) 与
   # JS 对照示例都在上面的示例插件一节里随本选项一起构建, 并安装到 plugins/<id>/。
 endif ()
@@ -323,6 +338,12 @@ install(TARGETS musicxx_extern_plugin
   LIBRARY DESTINATION bin
   ARCHIVE DESTINATION lib
 )
+if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
+  # 原生测试可执行文件装进 bin/, 由 tools/build_native.ps1 -RunTests 取用
+  install(TARGETS musicxx_extern_plugin_test musicxx_pluginxx_test
+    RUNTIME DESTINATION bin
+  )
+endif ()
 install(FILES "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/include/musicxx_extern_plugin_api.h"
   DESTINATION include)
 install(DIRECTORY "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/include/"
