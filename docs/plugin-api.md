@@ -1160,7 +1160,8 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 | `musicxx.render.select` | `{id, slot?}` | `{ok:true, slot, id}`；不可用 / 未知 → `{ok:false,error}` |
 
 条目字段：`{id, title, depict?, source, plugin?, available, reason?, selected}`。
-不给 `slot` 时用默认槽位（当前是 `player.background`，播放页背景）；槽位名还有 `player.icon`（播放页歌曲图）。
+不给 `slot` 时用默认槽位（当前是 `player.background`，播放页背景）；槽位名还有 `player.icon`（播放页歌曲图）
+与 `player.visualizer`（播放页音频动效）。
 槽位与样式声明的完整说明见 [plugin-shader-bundle.md](plugin-shader-bundle.md)。
 
 ```js
@@ -2325,7 +2326,12 @@ uiNotify(R"({"text":"已刷新"})");
 
 - UI 类型（短名 / 全名）：`home.entry`（主页入口）、`song.action`（歌曲菜单）、`playlist.action`（歌单菜单）、
   `addsong.entry`（「添加歌曲」弹窗里的来源项）、
-  `playing.background`（播放页背景）、`playing.icon`（播放页歌曲图）。
+  `playing.background`（播放页背景）、`playing.icon`（播放页歌曲图）、
+  `playing.visualizer`（播放页音频动效）、以及九个播放页子页面插入块
+  `playing.lyric.top` / `playing.lyric.bottom` / `playing.lyric.list.top` / `playing.lyric.list.bottom` /
+  `playing.moreinfo.leading` / `playing.moreinfo.trailing` /
+  `playing.songlist.top` / `playing.songlist.bottom` / `playing.songlist.list.top`
+  （**类型本身就是位置**，`data` 里不需要 `slot`）。
 - **页面是"取一次"的快照**：改完配置要让能力再返回一次 `{view: …}`（或重新打开页面）。
 - **入口 / 按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示
   「插件『<插件id>』没有提供『xxx』」。
@@ -2339,8 +2345,12 @@ uiNotify(R"({"text":"已刷新"})");
 
 ### 9.2 渲染槽位与着色器（完整说明见 [plugin-shader-bundle.md](plugin-shader-bundle.md)）
 
-- 播放页背景（`playing.background`）与播放页歌曲图（`playing.icon`）可以交给插件：
-  `shader`（插件着色器绘制）、`view`（界面视图组合）、`mode`（只保留占位 / 不显示）三选一。
+- 播放页背景（`playing.background`）、播放页歌曲图（`playing.icon`）与播放页音频动效
+  （`playing.visualizer`）可以交给插件：`shader`（插件着色器绘制）、`view`（界面视图组合）、
+  `none`（只保留占位 / 不显示）三选一。动效槽位与内置『音乐动效』的四种样式在同一个列表里选，
+  **没安装那个插件时插件样式照样可用**。
+- 页面插入块把界面放进播放页固定位置（歌词页 / 更多信息页 / 播放列表页）：九个位置各一个类型
+  （`musicxx.ui.playing.<页面>.<位置>`），字段与规则见 [plugin-ui.md](plugin-ui.md) §1.6。
 - 着色器是**打包期编译好的 shader bundle**（`format_version` 必须与应用使用的 Flutter 版本一致）。
 - 需要封面纹理时在渲染项里声明 `cover` / `image`：应用负责解码、缩放、预模糊、上传纹理，
   每帧把纹理绑给着色器（插件不搬字节）。

@@ -797,6 +797,46 @@ musicxx.ui.updateEntry({
 ```
 
 ```js
+// 注册一种播放页音频动效样式（类型简称 playing.visualizer）：与内置『音乐动效』的四种样式
+// 在同一个列表里选；没安装那个插件时插件样式照样可用
+musicxx.ui.registerEntry({
+    name: "viz",
+    type: "playing.visualizer",
+    data: {
+        title: "我的频谱",
+        depict: "跟随低频起伏",
+        shader: { bundle: "shader/viz.shaderbundle" },
+        args: {
+            uBass: {
+                kind: "smooth", attackMs: 20, releaseMs: 260,
+                of: { kind: "source", name: "musicxx.spectrum.bands.0" },
+            },
+        },
+        speed: 1, maxFps: 30,
+    },
+});
+
+// 也可以用声明式界面画（不写 shader；柱状条用 AnimatedBuilder 逐帧动）
+musicxx.ui.registerEntry({
+    name: "vizView",
+    type: "playing.visualizer",
+    data: { title: "柱状条", view: "visualizerView" },
+});
+```
+
+```js
+// 在播放页子页面的固定位置插一块自己的界面（位置就是类型，见 plugin-ui.md §1.6）
+musicxx.ui.registerEntry({
+    name: "lyricTip",
+    type: "playing.lyric.top",      // 全名 musicxx.ui.playing.lyric.top
+    order: 10,
+    data: {
+        view: { blocks: [{ kind: "Text", text: "歌词由插件提供", type: "caption" }] },
+    },
+});
+```
+
+```js
 // 有哪些可选样式（含主程序内置项：id 形如 builtin:Auto）
 const r = await musicxx.render.list({ slot: "player.background" });
 // r = { ok:true, slots:[{ slot, title, selectedId, items:[

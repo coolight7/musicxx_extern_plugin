@@ -1,8 +1,8 @@
 # 插件渲染：shader bundle 打包与 uniform 约定
 
-插件可以把**打包期编译好的 shader bundle** 注册成一种主程序渲染样式（当前有两个渲染槽位：
-「播放页背景」`player.background` 与「播放页歌曲图」`player.icon`，后者见 §5.3），由用户在
-「设置 → 主题」里选中后生效（命令行 / agent 用
+插件可以把**打包期编译好的 shader bundle** 注册成一种主程序渲染样式（当前有三个渲染槽位：
+「播放页背景」`player.background`、「播放页歌曲图」`player.icon`（见 §5.3）与「播放页音频动效」
+`player.visualizer`（见 §5.4）），由用户在设置里选中后生效（命令行 / agent 用
 `musicxx-cli render list|select` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 同一个 bundle 也能画在插件自己的页面里（`Shader` 块）。
 
@@ -393,6 +393,54 @@ void main() {
 
 ---
 
+## 5.4 播放页音频动效槽位（`musicxx.ui.playing.visualizer`）：自己画频谱动画
+
+播放页的音频可视化（内置是『音乐动效』的四种样式：方块 / 竖线 / 粒子 / 雾气）也能交给插件：
+注册 UI 项 `musicxx.ui.playing.visualizer`，它与内置四种样式在**同一个列表**里选
+（设置 → 主题 →「播放页音频动效」，『音乐动效』设置页里的样式列表也是同一份）。
+
+**没安装『音乐动效』不影响你的样式**：插件项不靠那个插件的开关，列表里照样可选。频谱数据仍然要有
+来源：注册钩子 `musicxx.media.spectrum.extract`（自己算）或依赖内核逐帧频谱（播放本地 / 缓存音频时
+就有），否则 `musicxx.spectrum.*` 全是 0（看 `uEnv.z` 区分“静音”与“没数据”）。
+
+```jsonc
+// 注册项（musicxx.ui.playing.visualizer 的 data）—— 写法与播放页歌曲图完全一致
+{
+  "title": "我的频谱", "depict": "低频起伏 + 呼吸光晕",
+  "shader": {"bundle": "shader/viz.shaderbundle"},
+  "cover": {"texture": "uCover", "size": 256},
+  "args": {
+    "uBass":  {"kind": "smooth", "attackMs": 20, "releaseMs": 260,
+                "of": {"kind": "source", "name": "musicxx.spectrum.bands.0"}},
+    "uTint":  {"kind": "source", "name": "musicxx.icon.themeMapping.0"}
+  },
+  "speed": 1, "maxFps": 30, "animate": true
+}
+
+// 或者用声明式界面（不写 shader，块里用 musicxx.AnimatedBuilder 逐帧动）
+// {"title": "柱状条", "view": "visualizerView"}
+// {"title": "不显示", "mode": "none"}
+```
+
+规则：
+
+- 三种形态与播放页歌曲图一致：`shader`（有 `shader.bundle`）/ `view`（有 `view`：视图 id / 视图对象 /
+  裸块数组）/ `none`（不显示）；不写 `mode` 时按字段推断；
+- 渲染区域是**播放页的动效区**（封面下方那一块，`Positioned.fill` 给到的整个可用区域）：
+  `uParams.xy` 就是它的像素尺寸。内置动效自己是在底部留 50 的水平边距、120 高的区域里画；
+  插件想跟着这个习惯就在界面 / 着色器里自己留边；
+- **不接手势**（与内置动效一样）：封面点击、拖动切歌、迷你歌词要继续可用，所以外层一直包着
+  `IgnorePointer`。需要交互的功能不要放在这里；
+- `scrim` / `foregroundStyle` / `foregroundColors` 与动效无关（它们是背景槽位的字段），写在这里
+  不会生效；
+- `cover` / `image` / `args` / `speed` / `maxFps` / `resolutionScale` / `animate` 与背景槽位同一套解析；
+  没有 `args` 时**不像背景那样默认给 4 色**，要用颜色自己声明；
+- 槽位状态镜像：`musicxx.state.renderSlots["player.visualizer"]`（字段与背景 / 歌曲图相同）；
+- 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败 3 次、插件停用 / 卸载 → 自动回退到
+  用户原本的内置选择（或“不显示”），原因写在设置列表那一行。
+
+---
+
 ## 6. 着色器写法
 
 顶点（主程序绑定 3 个顶点的全屏三角形，覆盖整个裁剪空间，不做任何变换）：
@@ -660,9 +708,9 @@ void main() {
 | `maxFps` | 16 | ≥ 1（不设上限） | 帧率上限（插件自己定，想要 60 / 120 就写上去） |
 | `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由主程序放大（省 GPU） |
 | `animate` | true | — | false = 只渲染一帧（时间恒为 0） |
-| `scrim` | 0 | 0..0.8 | 背景上叠一层暗化（页面里的 `Shader` 块没有这个字段） |
-| `foregroundStyle` | `mask` | `mask` / `neumorphism` | 播放页前景（歌曲名/图标）用浅色遮罩还是常规样式；未知值按 `mask` |
-| `foregroundColors` | 不声明 | 对象（3 个颜色） | 自定义播放页前景的三色（见 §8.1）；不声明 = 用主题默认色 |
+| `scrim` | 0 | 0..0.8 | 背景上叠一层暗化（**只对播放页背景生效**：页面里的 `Shader` 块、歌曲图与音频动效没有这个字段） |
+| `foregroundStyle` | `mask` | `mask` / `neumorphism` | 播放页前景（歌曲名/图标）用浅色遮罩还是常规样式（**只对播放页背景生效**）；未知值按 `mask` |
+| `foregroundColors` | 不声明 | 对象（3 个颜色） | 自定义播放页前景的三色（见 §8.1；**只对播放页背景生效**）；不声明 = 用主题默认色 |
 
 渲染目标最长边由主程序限制在 **1280 px**
 （超出的部分按比例缩小，再交给 Flutter 放大）；bundle 体积、路径长度与 UI 项数量都不设上限。
@@ -733,8 +781,9 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 
 ## 10. 运行期：查询、切换与状态镜像
 
-槽位用 `slot` 参数区分（省略 = 默认槽位 `player.background`）：`player.background`（播放页背景）
-与 `player.icon`（播放页歌曲图，§5.3）各有自己的候选列表与选择，互不影响。
+槽位用 `slot` 参数区分（省略 = 默认槽位 `player.background`）：`player.background`（播放页背景）、
+`player.icon`（播放页歌曲图，§5.3）与 `player.visualizer`（播放页音频动效，§5.4）各有自己的候选列表与选择，
+互不影响。
 
 ```js
 // 有哪些可选样式（含内置项）

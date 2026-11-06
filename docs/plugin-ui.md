@@ -19,7 +19,7 @@
 
 ## 1. UI 项
 
-### 1.1 六种类型
+### 1.1 类型一览
 
 | 类型（全名） | `data` 字段 | 渲染位置 | 当前版本的实际表现 |
 |---|---|---|---|
@@ -29,6 +29,8 @@
 | `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 歌曲列表页 [+] → 「添加歌曲」弹窗（在**内置来源之后**、“从其他歌单导入”这类工具项之前） | 显示 `title` / `subtitle`；动作参数同样带 `pid` / `name` / `songNum`。常见写法：`command` 动作指向 `musicxx.ui.openOverlaySheet`，把插件自己的挑歌视图打开成底部浮层（见 [plugin-api.md](plugin-api.md) §3.2.4.2） |
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效 |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容） |
+| `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式在同一个列表里，**没安装那个插件时插件样式照样可用** |
+| `musicxx.ui.playing.<页面>.<位置>`（九个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.list.top` / `moreinfo.leading` / `songlist.list.top` …）；在对应位置插入插件声明的界面内容，同一位置可以注册多项，按 `order` 与注册顺序排列 |
 
 `icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写主程序
 （musicxx）自己的图标名 —— 主程序的 svg 名字不会命中任何文件，等于"没有图标"，各渲染点会按
@@ -148,6 +150,71 @@ my_plugin/
   **单色渲染**（`BlendMode.srcIn`），这两个位置用单色的形状图标（不带渐变、不带多色）更合适；
 - 图标随插件目录一起分发（打包时把图标目录放进插件包；动态库插件在 `CMakeLists.txt` 里把
   资源目录写进 `ASSETS`，见 [plugin-native-api.md](plugin-native-api.md)）。
+
+---
+
+### 1.6 页面插入块：在播放页的固定位置放一块自己的界面
+
+播放页的几个子页面留了固定位置，插件可以在那里插一块自己声明的界面（与插件页面同一套块，不写 Flutter 代码）。
+**一个位置就是一个 UI 类型**，类型名统一是 `musicxx.ui.playing.<页面>.<位置>`，注册时把类型写成位置本身，
+`data` 里不再需要 `slot`：
+
+| 类型（全名） | 页面 | 位置 | 是否跟随内容滚动 |
+|---|---|---|---|
+| `musicxx.ui.playing.lyric.top` | 歌词页 | 顶部（列表之上） | 否 |
+| `musicxx.ui.playing.lyric.bottom` | 歌词页 | 底部（列表之下） | 否 |
+| `musicxx.ui.playing.lyric.list.top` | 歌词页 | 列表内顶部 | **是** |
+| `musicxx.ui.playing.lyric.list.bottom` | 歌词页 | 列表内底部 | **是** |
+| `musicxx.ui.playing.moreinfo.leading` | 更多信息页 | 内容开头 | 是（整页都在滚） |
+| `musicxx.ui.playing.moreinfo.trailing` | 更多信息页 | 内容末尾 | 是（整页都在滚） |
+| `musicxx.ui.playing.songlist.top` | 播放列表页 | 顶部（列表之上） | 否 |
+| `musicxx.ui.playing.songlist.bottom` | 播放列表页 | 底部（列表之下） | 否 |
+| `musicxx.ui.playing.songlist.list.top` | 播放列表页 | 列表内顶部 | **是** |
+
+```js
+// 在歌词页顶部放一行小字：动作（dispatch / command / route）与页面里的块完全一样
+musicxx.ui.registerEntry({
+    name: "lyricTip",
+    type: "playing.lyric.top",      // 全名 musicxx.ui.playing.lyric.top
+    order: 10,                     // 同一位置多项时小者靠前
+    data: {
+        view: { blocks: [
+            { kind: "Text", text: "歌词由插件提供", type: "caption", tone: "hint" },
+        ] },
+    },
+});
+
+// 内容多的时候用视图 id：主程序调你同名能力取内容（可以按自己的状态返回不同块）
+musicxx.ui.registerEntry({
+    name: "playlistFilter",
+    type: "playing.songlist.list.top",
+    data: { view: "playlistFilterView" },
+});
+```
+
+```cpp
+uiRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
+           R"({"view":{"blocks":[{"kind":"Text","text":"歌词由插件提供"}]}})",
+           10);
+```
+
+规则：
+
+- `view` 三种写法与 `playing.icon` / `playing.visualizer` 一样：**视图 id 字符串**（调同名能力，返回
+  `{view: …}` 或视图对象）、**视图对象**（`{blocks: […], title?, subtitle?}`）或**裸块数组**；
+- 同一位置可以注册**多项**，按 UI 项的 `order` 与注册顺序从上到下排列（不是替换关系）；
+- 这些类型**不需要 `title`**（它们不画在任何列表里），带 `title` 也不影响渲染；
+- `enabled: false` = 这次不渲染（保留注册：想以后再显示就把 `true` 改回来）；
+- **插入块自己带页面留白**：插进去的地方页面已经给过边距，块只画自己的内容，要留白在块里写
+  `padding` / `gap`；
+- `top` / `bottom` 是**固定区域**（不随列表滚动）：放一两行、不要放很长的内容（窗口矮时会挤小中间的内容区）；
+  长内容用 `list.top` / `list.bottom`，它们跟着列表一起滚；
+- **类型名就是位置**：写错一个字母（拼错页面或位置）时插件框架**直接拒绝注册**（未知 UI 类型，
+  和把 `home.entry` 拼错一样），不会静默不显示；
+- 取不到内容（能力没实现、返回的东西解析不出块）→ 这一块不渲染，不影响同一位置的其它项与页面本身；
+  要刷新就在能力里返回新的 `{view: …}`，或重登记这一项（`musicxx.ui.updateEntry`，整体替换）。
+- 插入块里的逐帧动画用 `musicxx.AnimatedBuilder`（与页面里的写法一样，见 §2.3.2）；播放页的频谱来源
+  `musicxx.spectrum.*` 在这些块里也能用。
 
 ---
 
