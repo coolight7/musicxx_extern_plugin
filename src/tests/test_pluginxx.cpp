@@ -16,9 +16,12 @@
 #include "pluginxx/host/capability_registry.h"
 // 事件订阅句柄的撤销入口是内联函数, 实现体在 runtime/instance_base.h
 #include "pluginxx/runtime/instance_base.h"
+// 生成物：能力 / 广播的 id 常量与已知声明表（定义源 tools/capabilities.def.json）
+#include "musicxx/plugin/api/capability_ids.g.h"
 
 #include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -230,6 +233,147 @@ void testCapabilityRegistry() {
 
 } // namespace
 
+/* ==================== 能力与广播声明表（生成物） ==================== */
+
+namespace {
+
+/// 声明的 id 必须落在两个命名空间之一
+bool cppIdNamespaced(const char *id) {
+  if (!id) {
+    return false;
+  }
+  return std::strncmp(id, "musicxx.", 8) == 0 ||
+         std::strncmp(id, "plugin.", 7) == 0;
+}
+
+/// 一条能力声明的编码自洽（与 tools/capabilities.def.json 的校验规则一致）
+bool cppCapabilityConsistent(const MusicxxCapabilityDecl &decl) {
+  const bool openForImpl =
+      (decl.phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) != 0;
+  const uint32_t usages = decl.usage_mask & (MUSICXX_CAPABILITY_USAGE_POINT |
+                                             MUSICXX_CAPABILITY_USAGE_COMMAND |
+                                             MUSICXX_CAPABILITY_USAGE_SERVICE);
+  if (usages == 0) {
+    return false;
+  }
+  // 不开放实现时只有一个槽位、没有合并策略
+  if (!openForImpl &&
+      (decl.impls != MUSICXX_CAPABILITY_IMPLS_ONE || decl.merge != 0)) {
+    return false;
+  }
+  // 多实现共存时必须写合并策略
+  if (openForImpl && decl.impls == MUSICXX_CAPABILITY_IMPLS_MANY &&
+      decl.merge != MUSICXX_CAPABILITY_MERGE_FIRST &&
+      decl.merge != MUSICXX_CAPABILITY_MERGE_VETO) {
+    return false;
+  }
+  return true;
+}
+
+void testCapabilityDeclarations() {
+  std::printf("\n-- 能力与广播声明表\n");
+  check(musicxxCapabilityDeclCount > 0, "能力声明表非空");
+  check(musicxxBroadcastDeclCount > 0, "广播声明表非空");
+
+  bool idsOk = true;
+  bool idsUnique = true;
+  bool consistent = true;
+  for (size_t i = 0; i < musicxxCapabilityDeclCount; ++i) {
+    const MusicxxCapabilityDecl &decl = musicxxCapabilityDecls[i];
+    if (!cppIdNamespaced(decl.id)) {
+      idsOk = false;
+    }
+    if (!cppCapabilityConsistent(decl)) {
+      consistent = false;
+    }
+    for (size_t j = i + 1; j < musicxxCapabilityDeclCount; ++j) {
+      if (std::strcmp(decl.id, musicxxCapabilityDecls[j].id) == 0) {
+        idsUnique = false;
+      }
+    }
+  }
+  check(idsOk, "每条能力 id 都在 musicxx.* / plugin.* 命名空间里");
+  check(idsUnique, "能力 id 不重复");
+  check(consistent, "每条能力声明的 impls / merge / phases / usage 自洽");
+
+  bool broadcastIdsOk = true;
+  bool broadcastIdsUnique = true;
+  bool broadcastConsistent = true;
+  for (size_t i = 0; i < musicxxBroadcastDeclCount; ++i) {
+    const MusicxxBroadcastDecl &decl = musicxxBroadcastDecls[i];
+    if (!cppIdNamespaced(decl.id)) {
+      broadcastIdsOk = false;
+    }
+    // 没有当前值就不能"订阅即推值"
+    if (decl.push_on_subscribe != 0 &&
+        decl.cache != MUSICXX_BROADCAST_CACHE_LATEST) {
+      broadcastConsistent = false;
+    }
+    if (decl.cache != MUSICXX_BROADCAST_CACHE_NONE &&
+        decl.cache != MUSICXX_BROADCAST_CACHE_LATEST) {
+      broadcastConsistent = false;
+    }
+    for (size_t j = i + 1; j < musicxxBroadcastDeclCount; ++j) {
+      if (std::strcmp(decl.id, musicxxBroadcastDecls[j].id) == 0) {
+        broadcastIdsUnique = false;
+      }
+    }
+  }
+  check(broadcastIdsOk, "每条广播 id 都在 musicxx.* / plugin.* 命名空间里");
+  check(broadcastIdsUnique, "广播 id 不重复");
+  check(broadcastConsistent, "每条广播声明的 cache / pushOnSubscribe 自洽");
+
+  // 具体声明：换表（阶段 P1）之后这些字段是插件框架判阶段的依据，先钉住几个代表
+  const MusicxxCapabilityDecl *seek =
+      musicxxCapabilityDeclOf("musicxx.player.seek");
+  check(seek != nullptr, "查得到 musicxx.player.seek");
+  check(seek && seek->impls == MUSICXX_CAPABILITY_IMPLS_MANY &&
+            seek->merge == MUSICXX_CAPABILITY_MERGE_VETO &&
+            seek->timeout_ms == 500,
+        "seek：多实现 + veto + 500 ms");
+  check(seek && (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) != 0 &&
+            (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_AFTER) != 0,
+        "seek：开放 impl 与 after");
+  check(seek && (seek->usage_mask & MUSICXX_CAPABILITY_USAGE_COMMAND) != 0,
+        "seek：也能当命令调");
+
+  const MusicxxCapabilityDecl *lyricCache =
+      musicxxCapabilityDeclOf("musicxx.lyric.load.cache");
+  check(lyricCache && lyricCache->timeout_ms == 8000 &&
+            (lyricCache->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_BEFORE) != 0,
+        "歌词缓存阶段：8 s、开放 before");
+
+  const MusicxxCapabilityDecl *featureCall =
+      musicxxCapabilityDeclOf("musicxx.feature.point.call");
+  check(featureCall != nullptr &&
+            (featureCall->expose_mask & MUSICXX_CAPABILITY_EXPOSE_CLI) != 0,
+        "通用功能点通道：对外暴露命令行");
+
+  check(musicxxCapabilityDeclOf("musicxx.unknown.point") == nullptr,
+        "未知能力返回 NULL");
+  check(musicxxCapabilityDeclOf(nullptr) == nullptr, "空 id 返回 NULL");
+
+  const MusicxxBroadcastDecl *statePlayer =
+      musicxxBroadcastDeclOf("musicxx.state.player");
+  check(statePlayer && statePlayer->cache == MUSICXX_BROADCAST_CACHE_LATEST &&
+            statePlayer->push_on_subscribe == 1,
+        "状态镜像：快照 + 订阅即推");
+  const MusicxxBroadcastDecl *songChanged =
+      musicxxBroadcastDeclOf("musicxx.song.changed");
+  check(songChanged && songChanged->cache == MUSICXX_BROADCAST_CACHE_NONE &&
+            songChanged->push_on_subscribe == 0,
+        "业务事件：没有当前值");
+  check(musicxxBroadcastDeclOf("musicxx.unknown.channel") == nullptr,
+        "未知广播返回 NULL");
+
+  // 同一个 id 可以既是广播（事件）又是能力（命令）：两张表各自寻址
+  check(musicxxBroadcastDeclOf("musicxx.app.foreground") != nullptr &&
+            musicxxCapabilityDeclOf("musicxx.app.foreground") != nullptr,
+        "app.foreground：广播与命令同 id");
+}
+
+} // namespace
+
 int main() {
   setvbuf(stdout, nullptr, _IONBF, 0);
   std::printf("cxx_pluginxx native test (api_version=%d, min_api_version=%d)\n",
@@ -238,6 +382,7 @@ int main() {
   testScopeRef();
   testIfaceMeta();
   testCapabilityRegistry();
+  testCapabilityDeclarations();
 
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

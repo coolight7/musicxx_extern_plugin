@@ -25,6 +25,7 @@ export 'src/bindings_generated.dart'
         MusicxxExternPluginHostConfig,
         MusicxxExternPluginString,
         MusicxxExternPluginStringView;
+export 'src/capability_ids.g.dart';
 export 'src/events.dart';
 export 'src/hook_ids.g.dart';
 export 'src/hooks.dart'

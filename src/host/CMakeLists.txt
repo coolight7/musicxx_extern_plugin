@@ -312,6 +312,8 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
   # 它的能力登记表 / 广播表 / 阶段链是多个主程序共用的一套执行模型, 换实现时
   # 必须有自己的回归, 不能只靠下面插件框架的原生测试间接验证。
   add_executable(musicxx_pluginxx_test "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/test_pluginxx.cpp")
+  target_include_directories(musicxx_pluginxx_test PRIVATE
+    "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/sdk/include")
   target_link_libraries(musicxx_pluginxx_test PRIVATE cxx_pluginxx_static)
   if (MSVC)
     target_compile_options(musicxx_pluginxx_test PRIVATE /utf-8)

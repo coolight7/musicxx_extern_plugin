@@ -24,6 +24,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'gen_capabilities.dart';
+
 const String _defPath = 'tools/hooks.def.json';
 const String _dartOut = 'lib/src/hook_ids.g.dart';
 const String _cppOut = 'src/sdk/include/musicxx/plugin/api/hook_ids.g.h';
@@ -752,6 +754,24 @@ void main(List<String> args) {
   );
   _emit(_cppOut, _generateCpp(hooks), check: check, drift: drift);
   _emit(_docOut, _generateDoc(hooks), check: check, drift: drift);
+
+  // 能力与广播的声明源（`tools/capabilities.def.json`）
+  //
+  // 阶段 0 起与钩子产物并存：钩子产物仍给现有的钩子注册与派发用，能力产物给新的
+  // 注册表、命令面、MCP、链接入口与作者文档用。阶段 2c 改完插件侧之后再删钩子产物。
+  final Map<String, String> capabilityFiles = buildCapabilityContract();
+  stdout.writeln(
+    '${check ? '校验' : '生成'}能力与广播约定: 来源 $capabilitiesDefPath',
+  );
+  capabilityFiles.forEach((String path, String content) {
+    _emit(
+      path,
+      content,
+      check: check,
+      drift: drift,
+      ignoreFormatting: path.endsWith('.g.dart'),
+    );
+  });
 
   if (check && drift.isNotEmpty) {
     stderr.writeln('生成物与定义不一致（请运行 dart run tools/gen_contract.dart 后提交）:');
