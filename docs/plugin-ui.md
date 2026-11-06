@@ -30,7 +30,7 @@
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效 |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容） |
 | `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式在同一个列表里，**没安装那个插件时插件样式照样可用** |
-| `musicxx.ui.playing.<页面>.<位置>`（九个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.list.top` / `moreinfo.leading` / `songlist.list.top` …）；在对应位置插入插件声明的界面内容，同一位置可以注册多项，按 `order` 与注册顺序排列 |
+| `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreinfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
 
 `icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写主程序
 （musicxx）自己的图标名 —— 主程序的 svg 名字不会命中任何文件，等于"没有图标"，各渲染点会按
@@ -163,13 +163,14 @@ my_plugin/
 |---|---|---|---|
 | `musicxx.ui.playing.lyric.top` | 歌词页 | 顶部（列表之上） | 否 |
 | `musicxx.ui.playing.lyric.bottom` | 歌词页 | 底部（列表之下） | 否 |
-| `musicxx.ui.playing.lyric.list.top` | 歌词页 | 列表内顶部 | **是** |
-| `musicxx.ui.playing.lyric.list.bottom` | 歌词页 | 列表内底部 | **是** |
-| `musicxx.ui.playing.moreinfo.leading` | 更多信息页 | 内容开头 | 是（整页都在滚） |
-| `musicxx.ui.playing.moreinfo.trailing` | 更多信息页 | 内容末尾 | 是（整页都在滚） |
+| `musicxx.ui.playing.lyric.header` | 歌词页 | 列表内顶部（header） | **是** |
+| `musicxx.ui.playing.lyric.footer` | 歌词页 | 列表内底部（footer） | **是** |
+| `musicxx.ui.playing.moreinfo.header` | 更多信息页 | 内容开头 | 是（整页都在滚） |
+| `musicxx.ui.playing.moreinfo.footer` | 更多信息页 | 内容末尾 | 是（整页都在滚） |
 | `musicxx.ui.playing.songlist.top` | 播放列表页 | 顶部（列表之上） | 否 |
 | `musicxx.ui.playing.songlist.bottom` | 播放列表页 | 底部（列表之下） | 否 |
-| `musicxx.ui.playing.songlist.list.top` | 播放列表页 | 列表内顶部 | **是** |
+| `musicxx.ui.playing.songlist.header` | 播放列表页 | 列表内顶部（header） | **是** |
+| `musicxx.ui.playing.songlist.footer` | 播放列表页 | 列表内底部（footer） | **是** |
 
 ```js
 // 在歌词页顶部放一行小字：动作（dispatch / command / route）与页面里的块完全一样
@@ -187,7 +188,7 @@ musicxx.ui.registerEntry({
 // 内容多的时候用视图 id：主程序调你同名能力取内容（可以按自己的状态返回不同块）
 musicxx.ui.registerEntry({
     name: "playlistFilter",
-    type: "playing.songlist.list.top",
+    type: "playing.songlist.header",
     data: { view: "playlistFilterView" },
 });
 ```
@@ -208,7 +209,8 @@ uiRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
 - **插入块自己带页面留白**：插进去的地方页面已经给过边距，块只画自己的内容，要留白在块里写
   `padding` / `gap`；
 - `top` / `bottom` 是**固定区域**（不随列表滚动）：放一两行、不要放很长的内容（窗口矮时会挤小中间的内容区）；
-  长内容用 `list.top` / `list.bottom`，它们跟着列表一起滚；
+  长内容用 `header` / `footer`，它们跟着列表一起滚（歌词页与播放列表页都有 `header` 与 `footer`，
+  更多信息页的 `header` / `footer` 就是内容的首尾）；
 - **类型名就是位置**：写错一个字母（拼错页面或位置）时插件框架**直接拒绝注册**（未知 UI 类型，
   和把 `home.entry` 拼错一样），不会静默不显示；
 - 取不到内容（能力没实现、返回的东西解析不出块）→ 这一块不渲染，不影响同一位置的其它项与页面本身；

@@ -8,14 +8,14 @@
 
 ## 历史
 
-### 新增：播放页音频动效槽位（`musicxx.ui.playing.visualizer`）与九个页面插入块类型
+### 新增：播放页音频动效槽位（`musicxx.ui.playing.visualizer`）与十个页面插入块类型
 
 两件面向插件作者的界面能力：
 
 | UI 类型 | 做什么 |
 |---|---|
 | `musicxx.ui.playing.visualizer` | 注册一种**播放页音频可视化样式**（`shader` / `view` / `none`），与内置『音乐动效』的四种样式在同一个列表里选；**没安装『音乐动效』时插件样式照样可用**（频谱数据需要自己注册 `musicxx.media.spectrum.extract`，或用内核逐帧频谱） |
-| `musicxx.ui.playing.lyric.top` / `.lyric.bottom` / `.lyric.list.top` / `.lyric.list.bottom` / `.moreinfo.leading` / `.moreinfo.trailing` / `.songlist.top` / `.songlist.bottom` / `.songlist.list.top` | 在播放页子页面的固定位置插入一块声明的界面：**类型本身就是位置**（`data` 里不再需要 `slot`），`data.view` 是视图 id / 视图对象 / 裸块数组 |
+| `musicxx.ui.playing.lyric.top` / `.lyric.bottom` / `.lyric.header` / `.lyric.footer` / `.moreinfo.header` / `.moreinfo.footer` / `.songlist.top` / `.songlist.bottom` / `.songlist.header` / `.songlist.footer` | 在播放页子页面的固定位置插入一块声明的界面：**类型本身就是位置**（`data` 里不再需要 `slot`），`data.view` 是视图 id / 视图对象 / 裸块数组；`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表的滚动内容里 |
 
 - 两个类型的字段写法与已有的 `playing.icon` 一致（`shader` / `view` / `none`、`cover` / `image` / `args` /
   `speed` / `maxFps` / `resolutionScale` / `animate`）；动效区域**不接手势**（封面点击、拖动切歌、迷你歌词继续可用）。
