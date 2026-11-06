@@ -236,7 +236,17 @@ var featurePointImpls = new Map();
     "playlist.action": "musicxx.ui.playlist.action",
     "addsong.entry": "musicxx.ui.addsong.entry",
     "playing.background": "musicxx.ui.playing.background",
-    "playing.icon": "musicxx.ui.playing.icon"
+    "playing.icon": "musicxx.ui.playing.icon",
+    "playing.visualizer": "musicxx.ui.playing.visualizer",
+    "playing.lyric.top": "musicxx.ui.playing.lyric.top",
+    "playing.lyric.bottom": "musicxx.ui.playing.lyric.bottom",
+    "playing.lyric.list.top": "musicxx.ui.playing.lyric.list.top",
+    "playing.lyric.list.bottom": "musicxx.ui.playing.lyric.list.bottom",
+    "playing.moreinfo.leading": "musicxx.ui.playing.moreinfo.leading",
+    "playing.moreinfo.trailing": "musicxx.ui.playing.moreinfo.trailing",
+    "playing.songlist.top": "musicxx.ui.playing.songlist.top",
+    "playing.songlist.bottom": "musicxx.ui.playing.songlist.bottom",
+    "playing.songlist.list.top": "musicxx.ui.playing.songlist.list.top"
   };
   function normalizeType(value) {
     assertName(value, "ui.registerEntry: type");

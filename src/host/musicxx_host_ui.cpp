@@ -48,7 +48,39 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_LIST_TOP,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_LIST_BOTTOM,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_LEADING,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_TRAILING,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_BOTTOM,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_LIST_TOP,
 };
+
+/// 播放页子页面的插入块类型（九个位置各一个类型，类型本身就是位置）
+const char *const kPlayingPageBlockTypes[] = {
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_LIST_TOP,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_LIST_BOTTOM,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_LEADING,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_TRAILING,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_BOTTOM,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_LIST_TOP,
+};
+
+bool isPlayingPageBlockType(std::string_view type) {
+  for (const char *item : kPlayingPageBlockTypes) {
+    if (type == item) {
+      return true;
+    }
+  }
+  return false;
+}
 
 bool isKnownUiType(std::string_view type) {
   for (const char *item : kKnownUiTypes) {
@@ -66,7 +98,63 @@ bool requiresTitle(std::string_view type) {
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION ||
          type == MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY ||
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON;
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON ||
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER;
+}
+
+/// 校验 "接管型" 渲染项 (播放页歌曲图 / 播放页音频动效) 的结构
+///
+/// 两者同一套写法: 三种形态 (none / shader / view), 这里只做结构校验
+/// (字段类型与组合的合法性), 渲染细节留给 Dart 侧。
+/// [label] 是出错信息里的中文叫法。
+bool validatePlayingRenderData(std::string_view label, const Json &data,
+                               std::string &err) {
+  const std::string prefix{label};
+  if (data.contains("mode")) {
+    if (!data["mode"].is_string()) {
+      err = prefix + " mode 必须是字符串 (none / shader / view)";
+      return false;
+    }
+    const std::string mode = data["mode"].get<std::string>();
+    if (mode != "none" && mode != "shader" && mode != "view") {
+      err = prefix + " mode 只支持 none / shader / view";
+      return false;
+    }
+  }
+  // shader 形态: 给出 shader 就必须带可用的 bundle (与播放页背景同一份要求)
+  if (data.contains("shader")) {
+    if (!data["shader"].is_object()) {
+      err = prefix + " shader 必须是对象";
+      return false;
+    }
+    const Json &shader = data["shader"];
+    if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
+        shader["bundle"].get<std::string>().empty()) {
+      err = prefix + " 缺少 shader.bundle (非空字符串)";
+      return false;
+    }
+  }
+  // view 形态: 视图 id 字符串或直接给视图对象 / 数组
+  if (data.contains("view") && !data["view"].is_string() &&
+      !data["view"].is_object() && !data["view"].is_array()) {
+    err = prefix + " view 必须是视图 id 字符串或视图对象";
+    return false;
+  }
+  // 明确声明 shader / view 形态但缺字段时早报错 (none 形态可以什么都不给)
+  const std::string mode =
+      (data.contains("mode") && data["mode"].is_string())
+          ? data["mode"].get<std::string>()
+          : std::string{};
+  if (mode == "shader" &&
+      (!data.contains("shader") || !data["shader"].is_object())) {
+    err = prefix + " 声明 mode=shader 时必须给出 shader.bundle";
+    return false;
+  }
+  if (mode == "view" && !data.contains("view")) {
+    err = prefix + " 声明 mode=view 时必须给出 view";
+    return false;
+  }
+  return true;
 }
 
 /// 校验一个动作描述 (data.action)
@@ -180,50 +268,24 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
     }
   }
   if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON) {
-    // 播放页歌曲图: 三种接管方式 (none / shader / view)。
-    // 这里只做结构校验 (字段类型与组合的合法性), 渲染细节留给 Dart 侧。
-    if (data.contains("mode")) {
-      if (!data["mode"].is_string()) {
-        err = "播放页歌曲图 mode 必须是字符串 (none / shader / view)";
-        return false;
-      }
-      const std::string mode = data["mode"].get<std::string>();
-      if (mode != "none" && mode != "shader" && mode != "view") {
-        err = "播放页歌曲图 mode 只支持 none / shader / view";
-        return false;
-      }
-    }
-    // shader 形态: 给出 shader 就必须带可用的 bundle (与播放页背景同一份要求)
-    if (data.contains("shader")) {
-      if (!data["shader"].is_object()) {
-        err = "播放页歌曲图 shader 必须是对象";
-        return false;
-      }
-      const Json &shader = data["shader"];
-      if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
-          shader["bundle"].get<std::string>().empty()) {
-        err = "播放页歌曲图缺少 shader.bundle (非空字符串)";
-        return false;
-      }
-    }
-    // view 形态: 视图 id 字符串或直接给视图对象 / 数组
-    if (data.contains("view") && !data["view"].is_string() &&
-        !data["view"].is_object() && !data["view"].is_array()) {
-      err = "播放页歌曲图 view 必须是视图 id 字符串或视图对象";
+    if (!validatePlayingRenderData("播放页歌曲图", data, err)) {
       return false;
     }
-    // 明确声明 shader / view 形态但缺字段时早报错 (none 形态可以什么都不给)
-    const std::string mode =
-        (data.contains("mode") && data["mode"].is_string())
-            ? data["mode"].get<std::string>()
-            : std::string{};
-    if (mode == "shader" &&
-        (!data.contains("shader") || !data["shader"].is_object())) {
-      err = "播放页歌曲图声明 mode=shader 时必须给出 shader.bundle";
+  }
+  if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER) {
+    if (!validatePlayingRenderData("播放页音频动效", data, err)) {
       return false;
     }
-    if (mode == "view" && !data.contains("view")) {
-      err = "播放页歌曲图声明 mode=view 时必须给出 view";
+  }
+  if (isPlayingPageBlockType(type)) {
+    // 页面插入块: 类型就是位置, 必须给出内容 (view)
+    if (!data.contains("view")) {
+      err = "页面插入块缺少 view 字段 (视图 id 或视图内容)";
+      return false;
+    }
+    if (!data["view"].is_string() && !data["view"].is_object() &&
+        !data["view"].is_array()) {
+      err = "页面插入块 view 必须是视图 id 字符串或视图对象";
       return false;
     }
   }

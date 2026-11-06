@@ -65,6 +65,66 @@ abstract final class MusicxxPluginUIType {
   /// 接管后原来的"点击歌曲图播放 / 暂停"不再生效（整个显示被替换）：需要这个交互就在自己的
   /// 界面里放按钮，动作用 `command` 调官方动作 `musicxx.player.toggle`。
   static const String playingIcon = 'musicxx.ui.playing.icon';
+
+  /// 播放页音频可视化样式（渲染槽位 `player.visualizer`）：与内置『音乐动效』的四种样式在同一个
+  /// 列表里选，**没安装内置插件时插件样式照样可用**
+  ///
+  /// `data = {title, depict?, enabled?, mode?: "none"|"shader"|"view",
+  ///          shader?: {bundle, vertex?, fragment?}, view?: "<视图id>" | {视图对象},
+  ///          cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}`
+  ///
+  /// 字段与 [playingIcon] 完全一致：`shader` 是插件着色器绘制（渲染输入与播放页背景共用；
+  /// 频谱用 `musicxx.spectrum.*` 来源现读），`view` 是插件声明的界面组合（可以配
+  /// `musicxx.AnimatedBuilder` 做逐帧动效），`none` 不显示内容。
+  ///
+  /// 渲染区域是播放页的动效区（封面下方那一块），**不接手势**：原来的封面点击、拖动切歌、
+  /// 迷你歌词要继续可用，所以插件不要假设自己能收到点击。
+  static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
+
+  /// 播放页子页面的插入块：**九个位置各一个类型，类型本身就是位置**（没有 `slot` 字段）
+  ///
+  /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
+  ///
+  /// - [playingLyricTop] / [playingLyricBottom]：歌词页顶部 / 底部（页面固定区域，不随列表滚动）；
+  /// - [playingLyricListTop] / [playingLyricListBottom]：歌词列表内顶部 / 底部（在滚动内容里）；
+  /// - [playingMoreinfoLeading] / [playingMoreinfoTrailing]：更多信息页内容开头 / 末尾；
+  /// - [playingSonglistTop] / [playingSonglistBottom]：播放列表页顶部 / 底部（固定区域）；
+  /// - [playingSonglistListTop]：播放列表内顶部（在滚动内容里）。
+  ///
+  /// 同一位置可以注册多项，按 UI 项的 `order` 与注册顺序从上到下排列；这些类型都不需要
+  /// `title`（它们不画在任何列表里）。插入块的页面已经给过页面边距，块只画自己的内容；
+  /// 取不到内容时只是不渲染，不影响页面与同一位置的其它项。
+  static const String playingLyricTop = 'musicxx.ui.playing.lyric.top';
+
+  /// 歌词页底部（列表之下，不随内容滚动）
+  static const String playingLyricBottom = 'musicxx.ui.playing.lyric.bottom';
+
+  /// 歌词列表内顶部（在列表的滚动内容里，跟随内容滚动）
+  static const String playingLyricListTop =
+      'musicxx.ui.playing.lyric.list.top';
+
+  /// 歌词列表内底部（在列表的滚动内容里，跟随内容滚动）
+  static const String playingLyricListBottom =
+      'musicxx.ui.playing.lyric.list.bottom';
+
+  /// 更多信息页内容开头
+  static const String playingMoreinfoLeading =
+      'musicxx.ui.playing.moreinfo.leading';
+
+  /// 更多信息页内容末尾
+  static const String playingMoreinfoTrailing =
+      'musicxx.ui.playing.moreinfo.trailing';
+
+  /// 播放列表页顶部（列表之上，不随内容滚动）
+  static const String playingSonglistTop = 'musicxx.ui.playing.songlist.top';
+
+  /// 播放列表页底部（列表之下，不随内容滚动）
+  static const String playingSonglistBottom =
+      'musicxx.ui.playing.songlist.bottom';
+
+  /// 播放列表内顶部（在列表的滚动内容里，跟随内容滚动）
+  static const String playingSonglistListTop =
+      'musicxx.ui.playing.songlist.list.top';
 }
 
 /// UI 项动作：与界面描述层的动作写法**完全一致**（同一套解析器）
