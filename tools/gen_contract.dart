@@ -510,8 +510,8 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
     ..writeln()
     ..writeln(
       '下面是主程序**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
-      '尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷字段在主程序接入时补齐'
-      '（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。',
+      '尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷还没有定 '
+      '（注册不会报错，但当前版本不会触发；它们打算做什么见 `plugin-api.md` §8.7）。',
     )
     ..writeln()
     ..writeln('> 载荷统一是 JSON 对象；不裁决时返回 `null`（JS）或把出参留空（C++）。')
@@ -519,6 +519,9 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '> 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 主程序动作自行获取。',
     );
   for (final Map<String, Object?> hook in hooks) {
+    if (hook['wired'] != true) {
+      continue; ///< 未接入的钩子不列载荷（它们的 doc 可能只是设计草稿）
+    }
     final String doc = (hook['doc'] as String?) ?? '';
     if (doc.isEmpty) {
       continue;

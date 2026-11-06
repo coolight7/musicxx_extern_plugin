@@ -71,12 +71,11 @@ extern  ---------->  builtin  ---------->  core
 | `musicxx.player.qualityChanged` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.media.notification` | decision | impl | sync | lastWrite | 未接入 |
 | `musicxx.song.changed` | observe | impl | async | lastWrite | 已接入 |
-| `musicxx.song.info.analyse` | decision | impl | sync | firstNonNull | 未接入 |
+| `musicxx.media.info.analyse` | decision | impl | async | firstNonNull | 未接入 |
 | `musicxx.song.meta.writeback` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.song.beforeAdd` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.song.removed` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.playlist.load` | decision | before+after | async | allMerge | 未接入 |
-| `musicxx.songlist.filter` | decision | impl | async | allMerge | 未接入 |
 | `musicxx.history.record` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.local.scan.file` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.local.scan.finished` | observe | impl | async | lastWrite | 未接入 |
@@ -87,38 +86,27 @@ extern  ---------->  builtin  ---------->  core
 | `musicxx.lyric.load.builtin` | decision | before+impl+after | async | firstNonNull | 已接入 |
 | `musicxx.lyric.load.builtout` | decision | before+impl+after | async | firstNonNull | 已接入 |
 | `musicxx.lyric.load.match` | decision | before+impl+after | async | firstNonNull | 已接入 |
-| `musicxx.icon.fetch` | decision | before+impl+after | async | firstNonNull | 未接入 |
-| `musicxx.media.info.request` | decision | impl | async | firstNonNull | 未接入 |
 | `musicxx.media.spectrum.extract` | decision | impl | async | firstNonNull | 已接入 |
 | `musicxx.media.chorus.analyse` | decision | impl | async | firstNonNull | 已接入 |
 | `musicxx.media.palette.provide` | decision | impl | async | firstNonNull | 已接入 |
 | `musicxx.media.cover.changed` | observe | impl | async | lastWrite | 已接入 |
-| `musicxx.net.request` | decision | before+after | async | anyCancel | 未接入 |
+| `musicxx.app.net.http.request` | decision | before+after | async | anyCancel | 未接入 |
 | `musicxx.net.server.route` | decision | impl | async | firstNonNull | 未接入 |
 | `musicxx.net.mcp.tools` | decision | impl | sync | allMerge | 未接入 |
 | `musicxx.net.lan.event` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.download` | decision | before+after | async | anyCancel | 未接入 |
 | `musicxx.cache.beforeTrim` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.cache.pathRequest` | decision | impl | sync | firstNonNull | 未接入 |
-| `musicxx.ui.home.entries` | decision | impl | sync | allMerge | 未接入 |
-| `musicxx.ui.song.actions` | decision | impl | sync | allMerge | 未接入 |
-| `musicxx.ui.playlist.actions` | decision | impl | sync | allMerge | 未接入 |
 | `musicxx.ui.route.resolve` | decision | impl | sync | firstNonNull | 未接入 |
 | `musicxx.ui.page.enter` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.ui.page.leave` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.ui.theme.changed` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.ui.notify` | decision | impl | sync | anyCancel | 未接入 |
 | `musicxx.ui.user.action` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.script.bound` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.script.disposed` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.script.action.executed` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.clocking.tick` | observe | impl | async | lastWrite | 未接入 |
-| `musicxx.listenTogether.event` | observe | impl | async | lastWrite | 未接入 |
 | `musicxx.feature.point.call` | decision | before+impl+after | async | firstNonNull | 已接入 |
 
 ## 已接入钩子的载荷与裁决
 
-下面是主程序**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷字段在主程序接入时补齐（接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并重新生成本文件）。
+下面是主程序**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷还没有定 （注册不会报错，但当前版本不会触发；它们打算做什么见 `plugin-api.md` §8.7）。
 
 > 载荷统一是 JSON 对象；不裁决时返回 `null`（JS）或把出参留空（C++）。
 > 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 主程序动作自行获取。
@@ -208,11 +196,6 @@ extern  ---------->  builtin  ---------->  core
 - 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
 - 载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前插件框架会先刷新状态镜像，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。
 
-### `musicxx.playlist.load`
-
-- 模式：`decision`；阶段：`before+after`；派发：`async`；合并策略：`allMerge`
-- 包装点（实现固定是应用自己：读取由主程序做）：主程序读完一个歌单时派发。`before` 前链（串行、正序）改这次读取的参数（例如要读哪一份）；`after` 后链（串行、**逆序**）能读到最终列表并过滤它 —— 这就是原来的 `musicxx.playlist.filter`，只是现在和“加载完成”是同一个调用的两端，不必再记两条钩子。原来的 `musicxx.playlist.loaded` / `musicxx.playlist.filter` 是它的两个端点。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
-
 ### `musicxx.lyric.load`
 
 - 模式：`decision`；阶段：`before+impl+after`；派发：`async`；合并策略：`firstNonNull`
@@ -243,11 +226,6 @@ extern  ---------->  builtin  ---------->  core
 - 模式：`decision`；阶段：`before+impl+after`；派发：`async`；合并策略：`firstNonNull`
 - 载荷与回答形状同 `musicxx.lyric.load`。这一阶段做**自动匹配**：前面几个阶段都没拿到歌词时，按歌名 / 歌手 / hash / 大小 / 时长向自建服务要推荐歌词。`enable.match` 为 true 时会被询问（调用方决定；设置里的「自动匹配歌词」开关在主程序那边就并进了这个值）。应用自己的实现还会跳过 15 分钟以上、歌名为空或名字里有『纯音乐 / 伴奏 / instrumental』的歌（插件替换后不再受这条限制）。供参考：`keyword` / `artist` 可以在前链里改写（例如换成自己的搜索串）。`sourceType` 缺省 `match`。插件接管后可以换成自己的匹配方式（歌词站搜索、按音频指纹匹配等）；匹配不到就返回空，主程序按『这首歌没有歌词』处理。
 
-### `musicxx.icon.fetch`
-
-- 模式：`decision`；阶段：`before+impl+after`；派发：`async`；合并策略：`firstNonNull`
-- 取值点（插件可以替代实现）：主程序要为一张封面 / 图标取图时派发。`before` 前链（串行、正序）改这次请求的尺寸 / 来源；`impl` 实现链给图（第一个给出合法结果的生效）；`after` 后链（串行、**逆序**）改最终那张图。原来的 `musicxx.icon.request` / `musicxx.icon.generated` 是它的两个端点。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
-
 ### `musicxx.media.spectrum.extract`
 
 - 模式：`decision`；阶段：`impl`；派发：`async`；合并策略：`firstNonNull`
@@ -268,20 +246,10 @@ extern  ---------->  builtin  ---------->  core
 - 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
 - 载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.hooks.unregister("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉处理器）。
 
-### `musicxx.net.request`
-
-- 模式：`decision`；阶段：`before+after`；派发：`async`；合并策略：`anyCancel`
-- 包装点（实现固定是应用自己：请求由主程序发）：主程序发一次外网请求时派发。`before` 前链（串行、正序）改请求或取消 —— 回答 `{"patch": {…}}` 合并进这次请求，`{"action":"cancel"}` = 这次不发；`after` 后链（串行、**逆序**）读或改响应 —— 回答 `{"value": {…}}` 替换响应，`{"action":"drop"}` = 按“没有响应”处理。原来的 `musicxx.net.request.before` / `musicxx.net.response.after` 是它的两个阶段。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
-
-### `musicxx.download`
-
-- 模式：`decision`；阶段：`before+after`；派发：`async`；合并策略：`anyCancel`
-- 包装点（实现固定是应用自己：下载由主程序做）：主程序下载一首歌时派发。`before` 前链（串行、正序）改目标文件名 / 目录，或者取消这次下载；`after` 后链（串行、**逆序**）拿到下载好的成品路径，可以改写它或者丢弃这次结果。原来的 `musicxx.download.before` / `musicxx.download.completed` 是它的两个阶段。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。
-
 ### `musicxx.feature.point.call`
 
 - 模式：`decision`；阶段：`before+impl+after`；派发：`async`；合并策略：`firstNonNull`
-- 三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{"patch": {"args": {...}}}` 改这次调用的参数、`{"action": "stop"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{"value": ...}` 改最终结果、`{"action": "drop"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一个钩子 id（插件框架只认固定的钩子表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{"patch": {"value": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“我答了”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{"disable": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。
+- 三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{"patch": {"args": {...}}}` 改这次调用的参数、`{"action": "stop"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{"value": ...}` 改最终结果、`{"action": "drop"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一个钩子 id（插件框架只认固定的钩子表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{"patch": {"value": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{"disable": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。
 
 ## 派发方式
 

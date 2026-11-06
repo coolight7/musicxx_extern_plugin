@@ -913,7 +913,7 @@ public:
         return result;
     }
 
-    /// 通知/提示 (等价动作 `musicxx.ui.notify`; fire-and-forget, 不等待用户界面)
+    /// 提示 (等价动作 `musicxx.ui.toast`, 固定记一条插件日志; fire-and-forget, 不等待用户界面)
     int32_t uiNotify(const char* messageJson) {
         if (!iface.ui || !iface.ui->notify) {
             return -1;

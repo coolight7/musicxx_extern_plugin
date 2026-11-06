@@ -458,7 +458,10 @@ abstract final class MusicxxPluginActionNames {
   /// love, used}]}`；搜索结果只有元信息，内容用 [lyricGetBySrc]。
   static const String lyricSearch = 'musicxx.lyric.search';
 
-  static const String uiNotify = 'musicxx.ui.notify';
+  /// 轻提示（应用界面上的一条提示）
+  ///
+  /// 参数：`text`（也接受 `message`）；`kind` = `error` 时走错误样式。
+  /// **固定记一条插件日志**（原来的 `musicxx.ui.notify` 已合并到这里）。
   static const String uiToast = 'musicxx.ui.toast';
   static const String uiDialog = 'musicxx.ui.dialog';
 
@@ -527,6 +530,8 @@ abstract final class MusicxxPluginActionNames {
   static const String storageDelete = 'musicxx.storage.delete';
   static const String storageList = 'musicxx.storage.list';
 
+  /// HTTP 请求 / 下载（**插件框架直接回答**，与原生 `iface.net` 的 `http.fetch` /
+  /// `http.download` 是同一份实现；主程序不再另写一套）
   static const String netFetch = 'musicxx.net.fetch';
   static const String netDownload = 'musicxx.net.download';
 
@@ -606,7 +611,7 @@ abstract final class MusicxxPluginActionNames {
   /// 声明一个**自己的**功能点（id 必须形如 `plugin.<自己的插件 id>.<名字>`）
   ///
   /// 插件声明的功能点共用**一条**通用通道钩子（`musicxx.feature.point.call`），而不是每个点
-  /// 各占一个钩子 id（插件框架只认固定的钩子表）。声明只描述"我提供什么功能"：
+  /// 各占一个钩子 id（插件框架只认固定的钩子表）。声明只描述"本插件提供什么功能"：
   /// 参数 `id`（必填）、`title`（展示名）、`depict`（一句话说明）、`args`（参数说明）、
   /// `result`（结果说明）。同一 id 重复声明 = 覆盖（最后一次生效）。
   /// 声明跟着插件生命周期走（禁用 / 卸载自动撤销），不持久化；重新启用时脚本会再声明一遍。

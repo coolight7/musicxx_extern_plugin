@@ -56,12 +56,11 @@ static inline uint32_t musicxxPluginHookPhaseMask(int32_t phase) {
 #define MUSICXX_PLUGIN_HOOK_PLAYER_QUALITY_CHANGED "musicxx.player.qualityChanged"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_NOTIFICATION "musicxx.media.notification"
 #define MUSICXX_PLUGIN_HOOK_SONG_CHANGED "musicxx.song.changed"
-#define MUSICXX_PLUGIN_HOOK_SONG_INFO_ANALYSE "musicxx.song.info.analyse"
+#define MUSICXX_PLUGIN_HOOK_MEDIA_INFO_ANALYSE "musicxx.media.info.analyse"
 #define MUSICXX_PLUGIN_HOOK_SONG_META_WRITEBACK "musicxx.song.meta.writeback"
 #define MUSICXX_PLUGIN_HOOK_SONG_BEFORE_ADD "musicxx.song.beforeAdd"
 #define MUSICXX_PLUGIN_HOOK_SONG_REMOVED "musicxx.song.removed"
 #define MUSICXX_PLUGIN_HOOK_PLAYLIST_LOAD "musicxx.playlist.load"
-#define MUSICXX_PLUGIN_HOOK_SONGLIST_FILTER "musicxx.songlist.filter"
 #define MUSICXX_PLUGIN_HOOK_HISTORY_RECORD "musicxx.history.record"
 #define MUSICXX_PLUGIN_HOOK_LOCAL_SCAN_FILE "musicxx.local.scan.file"
 #define MUSICXX_PLUGIN_HOOK_LOCAL_SCAN_FINISHED "musicxx.local.scan.finished"
@@ -72,33 +71,22 @@ static inline uint32_t musicxxPluginHookPhaseMask(int32_t phase) {
 #define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_BUILTIN "musicxx.lyric.load.builtin"
 #define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_BUILTOUT "musicxx.lyric.load.builtout"
 #define MUSICXX_PLUGIN_HOOK_LYRIC_LOAD_MATCH "musicxx.lyric.load.match"
-#define MUSICXX_PLUGIN_HOOK_ICON_FETCH "musicxx.icon.fetch"
-#define MUSICXX_PLUGIN_HOOK_MEDIA_INFO_REQUEST "musicxx.media.info.request"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_SPECTRUM_EXTRACT "musicxx.media.spectrum.extract"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_CHORUS_ANALYSE "musicxx.media.chorus.analyse"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_PALETTE_PROVIDE "musicxx.media.palette.provide"
 #define MUSICXX_PLUGIN_HOOK_MEDIA_COVER_CHANGED "musicxx.media.cover.changed"
-#define MUSICXX_PLUGIN_HOOK_NET_REQUEST "musicxx.net.request"
+#define MUSICXX_PLUGIN_HOOK_APP_NET_HTTP_REQUEST "musicxx.app.net.http.request"
 #define MUSICXX_PLUGIN_HOOK_NET_SERVER_ROUTE "musicxx.net.server.route"
 #define MUSICXX_PLUGIN_HOOK_NET_MCP_TOOLS "musicxx.net.mcp.tools"
 #define MUSICXX_PLUGIN_HOOK_NET_LAN_EVENT "musicxx.net.lan.event"
 #define MUSICXX_PLUGIN_HOOK_DOWNLOAD "musicxx.download"
 #define MUSICXX_PLUGIN_HOOK_CACHE_BEFORE_TRIM "musicxx.cache.beforeTrim"
 #define MUSICXX_PLUGIN_HOOK_CACHE_PATH_REQUEST "musicxx.cache.pathRequest"
-#define MUSICXX_PLUGIN_HOOK_UI_HOME_ENTRIES "musicxx.ui.home.entries"
-#define MUSICXX_PLUGIN_HOOK_UI_SONG_ACTIONS "musicxx.ui.song.actions"
-#define MUSICXX_PLUGIN_HOOK_UI_PLAYLIST_ACTIONS "musicxx.ui.playlist.actions"
 #define MUSICXX_PLUGIN_HOOK_UI_ROUTE_RESOLVE "musicxx.ui.route.resolve"
 #define MUSICXX_PLUGIN_HOOK_UI_PAGE_ENTER "musicxx.ui.page.enter"
 #define MUSICXX_PLUGIN_HOOK_UI_PAGE_LEAVE "musicxx.ui.page.leave"
 #define MUSICXX_PLUGIN_HOOK_UI_THEME_CHANGED "musicxx.ui.theme.changed"
-#define MUSICXX_PLUGIN_HOOK_UI_NOTIFY "musicxx.ui.notify"
 #define MUSICXX_PLUGIN_HOOK_UI_USER_ACTION "musicxx.ui.user.action"
-#define MUSICXX_PLUGIN_HOOK_SCRIPT_BOUND "musicxx.script.bound"
-#define MUSICXX_PLUGIN_HOOK_SCRIPT_DISPOSED "musicxx.script.disposed"
-#define MUSICXX_PLUGIN_HOOK_SCRIPT_ACTION_EXECUTED "musicxx.script.action.executed"
-#define MUSICXX_PLUGIN_HOOK_CLOCKING_TICK "musicxx.clocking.tick"
-#define MUSICXX_PLUGIN_HOOK_LISTEN_TOGETHER_EVENT "musicxx.listenTogether.event"
 #define MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL "musicxx.feature.point.call"
 
 #ifdef __cplusplus
@@ -138,12 +126,11 @@ inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
     {"musicxx.player.qualityChanged", 0, 3, 1u},
     {"musicxx.media.notification", 1, 3, 1u},
     {"musicxx.song.changed", 0, 3, 1u},
-    {"musicxx.song.info.analyse", 1, 0, 1u},
+    {"musicxx.media.info.analyse", 1, 0, 1u},
     {"musicxx.song.meta.writeback", 0, 3, 1u},
     {"musicxx.song.beforeAdd", 1, 1, 1u},
     {"musicxx.song.removed", 0, 3, 1u},
     {"musicxx.playlist.load", 1, 2, 6u},
-    {"musicxx.songlist.filter", 1, 2, 1u},
     {"musicxx.history.record", 0, 3, 1u},
     {"musicxx.local.scan.file", 1, 1, 1u},
     {"musicxx.local.scan.finished", 0, 3, 1u},
@@ -154,33 +141,22 @@ inline constexpr MusicxxPluginHookMeta musicxxPluginKnownHooks[] = {
     {"musicxx.lyric.load.builtin", 1, 0, 7u},
     {"musicxx.lyric.load.builtout", 1, 0, 7u},
     {"musicxx.lyric.load.match", 1, 0, 7u},
-    {"musicxx.icon.fetch", 1, 0, 7u},
-    {"musicxx.media.info.request", 1, 0, 1u},
     {"musicxx.media.spectrum.extract", 1, 0, 1u},
     {"musicxx.media.chorus.analyse", 1, 0, 1u},
     {"musicxx.media.palette.provide", 1, 0, 1u},
     {"musicxx.media.cover.changed", 0, 3, 1u},
-    {"musicxx.net.request", 1, 1, 6u},
+    {"musicxx.app.net.http.request", 1, 1, 6u},
     {"musicxx.net.server.route", 1, 0, 1u},
     {"musicxx.net.mcp.tools", 1, 2, 1u},
     {"musicxx.net.lan.event", 0, 3, 1u},
     {"musicxx.download", 1, 1, 6u},
     {"musicxx.cache.beforeTrim", 1, 1, 1u},
     {"musicxx.cache.pathRequest", 1, 0, 1u},
-    {"musicxx.ui.home.entries", 1, 2, 1u},
-    {"musicxx.ui.song.actions", 1, 2, 1u},
-    {"musicxx.ui.playlist.actions", 1, 2, 1u},
     {"musicxx.ui.route.resolve", 1, 0, 1u},
     {"musicxx.ui.page.enter", 0, 3, 1u},
     {"musicxx.ui.page.leave", 0, 3, 1u},
     {"musicxx.ui.theme.changed", 0, 3, 1u},
-    {"musicxx.ui.notify", 1, 1, 1u},
     {"musicxx.ui.user.action", 0, 3, 1u},
-    {"musicxx.script.bound", 0, 3, 1u},
-    {"musicxx.script.disposed", 0, 3, 1u},
-    {"musicxx.script.action.executed", 0, 3, 1u},
-    {"musicxx.clocking.tick", 0, 3, 1u},
-    {"musicxx.listenTogether.event", 0, 3, 1u},
     {"musicxx.feature.point.call", 1, 0, 7u},
 };
 

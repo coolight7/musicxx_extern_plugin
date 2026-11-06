@@ -654,7 +654,7 @@ class _Harness {
       lastToast = '${invocation.args['text']}';
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.uiNotify, (_) {
+    runtime.actions.register(MusicxxPluginActionNames.uiToast, (_) {
       return <String, Object?>{'ok': true};
     });
     runtime.actions.register(MusicxxPluginActionNames.uiOverlayClose, (_) {

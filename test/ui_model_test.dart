@@ -71,16 +71,16 @@ void main() {
     // 官方动作用 command；命令名只在 command 形态下给出
     final MusicxxPluginUIItem command = itemOf(<String, Object?>{
       'kind': 'command',
-      'name': 'musicxx.ui.notify',
+      'name': 'musicxx.ui.toast',
       'args': <String, Object?>{'text': 'hi'},
     });
     expect(command.actionKind, MusicxxPluginUIActionKind.command);
-    expect(command.hostActionName, 'musicxx.ui.notify');
+    expect(command.hostActionName, 'musicxx.ui.toast');
     expect(command.capabilityName, isNull);
 
     // 旧写法（capability / action）不再解析：当成没有动作
     expect(itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action, isNull);
-    expect(itemOf(<String, Object?>{'kind': 'action', 'name': 'musicxx.ui.notify'}).action, isNull);
+    expect(itemOf(<String, Object?>{'kind': 'action', 'name': 'musicxx.ui.toast'}).action, isNull);
     expect(itemOf(<String, Object?>{'kind': 'unknown'}).action, isNull);
   });
 
@@ -131,7 +131,7 @@ void main() {
       'type': MusicxxPluginUIType.songAction,
       'data': <String, Object?>{
         'title': '菜单项',
-        'action': <String, Object?>{'kind': 'command', 'name': 'musicxx.ui.notify'},
+        'action': <String, Object?>{'kind': 'command', 'name': 'musicxx.ui.toast'},
       },
     });
     expect(command.routePlugin, isNull);

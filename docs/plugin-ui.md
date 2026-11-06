@@ -675,7 +675,7 @@ musicxx.capability.register("pickQuality", async function () {
   1. **立刻返回**：先按新模式画页面，处理器直接返回视图；
   2. 动作**后台执行**：`musicxx.ui.setFontFamily(...)` 只跟 `.then(...)`，不 `await`；
   3. 成功后把模式写进自己的状态与 `config.json`；失败就回滚显示、异步提示（那时调用早已返回，
-     用 `musicxx.ui.notify` 这类动作是安全的）；
+     用 `musicxx.ui.toast` 这类动作是安全的）；
   4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
      插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
 - 想知道"主程序现在到底是什么字体"：`musicxx.vars.watch("musicxx.ui.fontFamily")` 保活后

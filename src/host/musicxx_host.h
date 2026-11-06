@@ -426,7 +426,7 @@ public:
   int32_t hookInfoJson(std::string_view hookId, std::string &outJson);
   /// 框架信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
   ///
-  /// - [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是我自己发起的"
+  /// - [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是本插件自己发起的"
   ///   就得知道自己的 id（功能点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
   ///   这个独立入口，那份缓存不带 `pluginId`。
   /// - `apiVersion` 报的是**调用方自己形态的接口代次**（动态库插件看 C 接口代次，JS 看 JS 接口
@@ -475,7 +475,7 @@ public:
   /// 列出某插件已注册的 UI 项 (JSON 数组; `inst` 为空时列出全部)
   int32_t listUiEntries(MusicxxHostInstance *inst, std::string &outJson);
 
-  /// 通知/提示 (fire-and-forget: 走动作 `musicxx.ui.notify`, 结果不回传插件)
+  /// 提示 (fire-and-forget: 走动作 `musicxx.ui.toast`, 结果不回传插件)
   int32_t notifyUi(MusicxxHostInstance *inst, std::string_view messageJson);
 
   /// UI 项数量不设上限 (早期版本每个插件最多 64 项, 已移除)

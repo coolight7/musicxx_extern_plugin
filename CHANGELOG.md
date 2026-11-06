@@ -8,6 +8,27 @@
 
 ## 历史
 
+### 变更（破坏性，dev）：钩子表精简、通知与网络动作归一
+
+这一批改动会改变接口形状，**不保留旧写法**（按“未发布功能不留兼容”的约定）：
+
+- **钩子表从 66 条降到 54 条**（已接入的 28 条不变）：
+  - 删除从未接入、且已经被其它机制取代的 8 条：`musicxx.ui.home.entries` / `musicxx.ui.song.actions` /
+    `musicxx.ui.playlist.actions`（改用 UI 项）、`musicxx.script.bound` / `.disposed` / `.action.executed`、
+    `musicxx.clocking.tick`、`musicxx.listenTogether.event`。
+  - 删除 `musicxx.songlist.filter`（过滤用 `musicxx.playlist.load` 的 `after` 阶段）、`musicxx.icon.fetch`、
+    `musicxx.ui.notify`（提示用动作 `musicxx.ui.toast`；媒体通知改写保留 `musicxx.media.notification`）。
+  - `musicxx.media.info.request` 与 `musicxx.song.info.analyse` 合并成一条 `musicxx.media.info.analyse`。
+  - `musicxx.net.request` 改名 `musicxx.app.net.http.request`（避免与插件框架自己的 `musicxx.net.*` 混在一起）。
+- **通知动作只剩 `musicxx.ui.toast`**：原来的 `musicxx.ui.notify` 删除，`toast` **固定记一条插件日志**，
+  `kind: "error"` 走错误样式；JS 的 `musicxx.ui.notify` 一并删除。
+- **`musicxx.net.fetch` / `musicxx.net.download` 由插件框架直接回答**：与 `iface.net` 的 `http.fetch` /
+  `http.download`、JS 的 `musicxx.net.fetch/download` 是同一份实现，主程序不再另写一套代理；
+  主程序动作表里不再登记这两条（插件调用仍然可用，命令行不再列出它们）。
+
+作者文档已同步：`docs/plugin-hooks.md`（生成物）、`docs/plugin-api.md` §3.2.4 / §3.2.6 / §8.7、
+`docs/plugin-js-api.md`、`docs/plugin-native-api.md`、`docs/plugin-ui.md`、`docs/musicxx-interfaces.md`。
+
 ### 新增：播放页音频动效槽位（`musicxx.ui.playing.visualizer`）与十个页面插入块类型
 
 两件面向插件作者的界面能力：
@@ -399,7 +420,7 @@ QuickJS 没有 `TextDecoder`，所以放在原生层。都是同步返回。
 ### 新增：插件形态（kind）可以由插件提供，`api_version` 只约束“按 C 接口编译”的形态
 
 插件框架原本把 `native` / `js` 两种形态写死在扫描与加载里。这一版把它们收进一张**形态注册表**，
-并新增接口表 `musicxx.kind`：插件可以登记"我支持 kind=X"，交出加载 / 卸载能力，于是
+并新增接口表 `musicxx.kind`：插件可以登记"本插件提供 kind=X"，交出加载 / 卸载能力，于是
 **把 JS 运行器搬到插件里、以后再接 Python 运行器，都不用改插件框架**。
 
 - 内置两项：`native`（动态库插件，按 C ABI 编译）与 `js`（内置 JS 运行器，不按 C ABI 编译）。

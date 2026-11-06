@@ -390,7 +390,7 @@ typedef struct MusicxxPluginUIIface {
         PluginxxString*                   out_json
     );
 
-    /// 通知/提示 (等价于动作 `musicxx.ui.notify`; fire-and-forget, 不等待用户界面)
+    /// 提示 (等价于动作 `musicxx.ui.toast`; fire-and-forget, 不等待用户界面)
     int32_t(PLUGINXX_CALL* notify)(
         const PluginxxHost*               host,
         const PluginxxStringView*         message_json
@@ -703,7 +703,7 @@ typedef struct MusicxxPluginNetIface {
 /* ==================== 接口表: musicxx.kind (插件形态 / 运行器) ==================== */
 
 /// 插件框架自己只实现**动态库插件**与内置 JS 运行器；其它形态（以后的 Python 等）由
-/// 插件登记：声明"我提供 kind=X"，并交出一对能力（load / unload）。插件框架在扫描、
+/// 插件登记：声明"本插件提供 kind=X"，并交出一对能力（load / unload）。插件框架在扫描、
 /// 判定与加载 `kind: X` 的插件时都查这张表：
 ///
 /// - **判定**：没有登记的 `kind` 判为"当前跑不了"（用户会看到"先装运行器插件"）；

@@ -165,14 +165,14 @@ musicxx.ui.registerEntry({
     },
 });
 
-/// 通知 (等价动作 `musicxx.ui.notify`; fire-and-forget)
+/// 提示 (等价动作 `musicxx.ui.toast`; fire-and-forget)
 ///
 /// 提示语是插件设置项 (`greeting`): 等配置读完之后再弹，用户改了提示语下次启动就会看到。
 function notifyGreeting(greeting) {
     const text = (typeof greeting === "string" && greeting !== "")
         ? greeting
         : "example_js 已加载";
-    musicxx.ui.notify({ text: text, kind: "info" }).then(function () {
+    musicxx.ui.toast({ text: text }).then(function () {
         return null;
     }, function (err) {
         musicxx.host.log(3, "发送通知失败: " + err.message);

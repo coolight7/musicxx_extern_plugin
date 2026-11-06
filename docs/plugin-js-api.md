@@ -373,7 +373,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
-| `musicxx.ui` | `notify(args)` `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
+| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
 `musicxx.library`（`querySongs` / `querySonglists` / `playSong` / `playSonglist`）是**过时的对象**：
@@ -565,8 +565,8 @@ musicxx.net.udp.close(udp.id);
 > 参数、白名单（12 个官方页面别名）、拒绝规则见 [plugin-api.md](plugin-api.md) §3.2.4。
 
 ```js
-await musicxx.ui.notify({ text: "已完成" });                 // 站内提示（kind:"error" 走错误样式）
 await musicxx.ui.toast({ text: "轻提示" });
+await musicxx.ui.toast({ text: "出错了", kind: "error" });  // 错误样式
 const answer = await musicxx.ui.dialog({                     // 敏感操作前先问用户
     title: "删除缓存", content: "会删除该插件的缓存文件，是否继续？",
     textConfirm: "继续", textCancel: "取消",
@@ -848,9 +848,9 @@ await musicxx.render.select("builtin:Auto", { slot: "player.background" });   //
 
 const cur = await musicxx.render.current();     // { ok, slot, id, title, source:"builtin"|"plugin", plugin, night }
 
-// 「现在是不是我在画」：同步读状态镜像
+// 「现在是不是本插件在画」：同步读状态镜像
 const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.background"];
-if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 我在画 */ }
+if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 本插件在画 */ }
 ```
 
 ```js

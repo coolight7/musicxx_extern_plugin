@@ -122,7 +122,7 @@ function selectMode(mode, args) {
         if (currentMode === target) {
             currentMode = previous;
         }
-        musicxx.ui.notify({
+        musicxx.ui.toast({
             text: "切换字体失败：" + ((res && res.error) ? res.error : "未知原因"),
             kind: "error",
         }).then(function () {

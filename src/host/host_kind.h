@@ -240,7 +240,7 @@ public:
 
   /// 该形态的插件是否按 C ABI 编译
   /// - **未登记的形态按 true 算**：宁可要求插件声明够新的接口版本，也不要放进来一个
-  ///   我们不知道它怎么编译的二进制。
+  ///   插件框架不知道是怎么编译的二进制。
   bool requiresPluginAbi(std::string_view kind) const {
     const MusicxxPluginKindSpec *spec = find(kind);
     return spec ? spec->requiresPluginAbi : true;

@@ -73,7 +73,7 @@
 | 让"这个功能谁都能实现"（应用或第三方按 id 来调） | **功能点** §7 | 可以有多个实现，按优先级问 |
 
 > 记法：**镜像 = 读现状**，**动作 = 让应用做**，**事件 = 通知发生了**，
-> **变量 = 有值可改可订阅**，**钩子 = 应用来问/告诉我**，**能力 = 我提供给别人调**，
+> **变量 = 有值可改可订阅**，**钩子 = 应用来问插件 / 告诉插件**，**能力 = 插件提供给别人调用**，
 > **功能点 = 谁都能实现的一个 id**。
 
 ---
@@ -604,8 +604,7 @@ if (found.count > 0) {
 
 | 动作 | 参数 | 返回 | 说明 |
 |---|---|---|---|
-| `musicxx.ui.notify` | `{text}`（也接受 `message`）；`{kind:"error"}` 走错误样式 | `{ok:true}` | 站内提示，会记一条插件日志 |
-| `musicxx.ui.toast` | `{text}` | `{ok:true}` | 轻提示（更轻，不记日志） |
+| `musicxx.ui.toast` | `{text}`；`{kind:"error"}` 走错误样式 | `{ok:true}` | 轻提示，**固定记一条插件日志**（原来的 `musicxx.ui.notify` 已合并到这里） |
 | `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
 | `musicxx.ui.overlay.show` | `{preset?, id?, title?, depict?, blocks?, options?, value?, textConfirm?, textCancel?, size?, dismissible?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。参数与返回见 §3.2.4.1 |
 | `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 关这个插件**最上面那一层**浮层（给了 `id` 就关最上面那个名字对得上的层；没有开着的浮层时 `closed:false`） |
@@ -628,7 +627,7 @@ if (found.count > 0) {
 | `musicxx:history` | 播放记录 | `musicxx:lyrics` | 歌词 |
 
 ```js
-await musicxx.ui.notify({ text: "已刷新" });
+await musicxx.ui.toast({ text: "已刷新" });
 await musicxx.ui.toast("轻提示");                    // 也可以直接传字符串
 const answer = await musicxx.ui.dialog({ content: "删除缓存？", textConfirm: "删除", textCancel: "算了" });
 if (answer.confirmed) { /* ... */ }
@@ -868,9 +867,9 @@ netCall(net_op::httpFetch, R"({"url":"https://example.com/a.json","timeoutMs":20
 // 也可以完全不用这套, 自己用系统的网络库
 ```
 
-老的动作 `musicxx.net.fetch` / `musicxx.net.download` 仍然注册在主程序里（给历史上直接调动作的
-插件用，走主程序网络栈、会继承代理设置），但 **JS 封装 `musicxx.net.fetch` / `download` 已经改用
-插件框架自己实现**，两边参数与返回形状一致。新插件请用本节这套。
+老的动作名 `musicxx.net.fetch` / `musicxx.net.download` 仍然可用（历史上直接调动作的插件不会坏）：
+它们由**插件框架直接回答**，走的就是本节这套原生实现，参数与返回形状完全一致，主程序不再
+另写一份代理。新插件请用本节这套。
 
 ##### 静态内容（`http.serve` 的 `static` / `http.route`）：把文件与内存内容变成 http 地址
 
@@ -1166,16 +1165,16 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 
 ```js
 const all = await musicxx.render.list();                        // 默认槽位
-await musicxx.render.select("plugin.my_plugin.bg");             // 切到我的样式
+await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插件的样式
 await musicxx.render.select("builtin:Auto", { slot: "player.background" });  // 切回内置
 ```
 
-**"现在是不是我在画"**用状态镜像同步判断（渲染线程里每帧都会读，不要用动作）：
+**"现在是不是本插件在画"**用状态镜像同步判断（渲染线程里每帧都会读，不要用动作）：
 
 ```js
 const slots = musicxx.state.get("musicxx.state.renderSlots") || {};
 const mine = slots["player.background"];
-if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 我在画，而且看得见 */ }
+if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插件在画，而且看得见 */ }
 ```
 
 条目字段：`{itemId, plugin, selectedId, night, visible, animate, width, height, maxFps}`。
@@ -1398,7 +1397,7 @@ const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", 
 
 ```js
 const info = await musicxx.hooks.handlers("musicxx.media.spectrum.extract");   // JS 封装
-if (info.count === 0) { /* 现在没人提供，我要不要注册 */ }
+if (info.count === 0) { /* 现在没人提供，本插件要不要注册 */ }
 ```
 
 #### 3.2.13 宿主（`musicxx.host.*`）
@@ -1537,7 +1536,7 @@ musicxx.call("musicxx.source.undefine", { id: TYPE_ID });                  // �
 最简单的用法（单分类，等价于 `view: "default"`）：
 
 ```js
-// 1) 声明：我的这个音源类型可以浏览（跟着插件生命周期撤销，不写磁盘）
+// 1) 声明：本插件的这个音源类型可以浏览（跟着插件生命周期撤销，不写磁盘）
 musicxx.call("musicxx.source.browse", {
     id: TYPE_ID,                    // 必填：自己命名空间下的音源类型 id
     title: "FTP 文件",              // 菜单 / 页面标题
@@ -1913,7 +1912,7 @@ C++ 同名方法：`varsInfo` / `varsList` / `varsUnregister`（`own` 与 `subsc
 
 ## 6. 能力（插件之间的调用）
 
-**能力 = "应用或别的插件按名字调我"**，参数与结果由插件自己定。
+**能力 = "应用或别的插件按名字调用本插件"**，参数与结果由插件自己定。
 
 ```js
 musicxx.capability.register("probe", (args) => ({ ok: true, args }));       // 短名，全名自动补前缀
@@ -2014,7 +2013,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
   `{"patch":{"value":…}}`；`provide` 的糖会替你包。
 - **按 `point` 过滤 + 不回答自己发起的调用**：同一条通道上所有实现都会收到同一次调用，
   `caller` 等于自己的插件 id 时要返回空（糖自动做这两件事）。
-- **`value` 键的存在 = "我答了"**（值可以是 `null`，表示"算过了、结果是空"）；返回空串 / `undefined` = 不回答。
+- **`value` 键的存在 = 实现方给出了结果**（值可以是 `null`，表示"算过了、结果是空"）；返回空串 / `undefined` = 不回答。
 - **处理器必须同步返回**：功能点走同步裁决通道，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
   长任务请提前算好，或做成**能力**（§6）。
 - **前链 / 后链**：同一个点在通道上还有 `before` / `after` 两个阶段（同一条 id，用 `phase` 区分）——
@@ -2035,7 +2034,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 
 ---
 
-## 8. 钩子（应用来问我 / 告诉我）
+## 8. 钩子（应用来问插件 / 告诉插件）
 
 钩子 id、模式（`observe` / `decision`）、派发方式（`sync` / `async`）、合并策略，以及**哪些钩子已经被应用接入**，
 都在生成物 [plugin-hooks.md](plugin-hooks.md) 里；本节说"怎么写、为什么这么写"。
@@ -2193,7 +2192,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 - 返回 `{"disable": true}` = "这次不要用别的实现"（应用自己的兜底也不会被问），应用会记一条日志并在自省里
   标出是谁关的；处理器被摘除（停用 / 卸载 / 关闭『拟声++』）后自动还原。
 - 返回 `null` / 空 = "这次不提供"（链条继续问下一个实现）。
-- **不要拿 `disable` 当"我没算完"的挡箭牌**：那样用户会看到功能凭空消失。
+- **不要拿 `disable` 当"实现方还没算完"的挡箭牌**：那样用户会看到功能凭空消失。
 
 ### 8.6 音源解析与插件音源（`musicxx.player.source.resolve`）
 
@@ -2203,7 +2202,7 @@ musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
 
 ```js
 musicxx.hooks.register("musicxx.player.source.resolve", { mode: "decision" }, (ctx) => {
-    if (ctx.pluginType !== "plugin.my_plugin.flac") return null;   // 不是我的音源：不回答
+    if (ctx.pluginType !== "plugin.my_plugin.flac") return null;   // 不是本插件声明的音源类型：不回答
     const track = ctx.src;    // src 就是你自己写下的资源 id
     return { patch: { src: {
         path: `https://cdn.example/${track}.flac`,
@@ -2254,36 +2253,31 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 
 ### 8.7 未接入钩子的名字说明
 
-下面这些钩子**约定已经定下来、主程序还没接**（注册不会触发，将来接入时的载荷以
-`plugin-hooks.md` 为准）。列在这里是让你知道"这个名字打算做什么"，别猜：
+下面这些钩子**约定已经定下来、主程序还没接**（注册不会触发，载荷字段也还没有定；
+接入后会写进 `tools/hooks.def.json` 的 `doc` 字段并生成到 `plugin-hooks.md`）。
+列在这里是让你知道"这个名字打算做什么"，别猜：
 
 | 钩子 | 打算做什么 |
 |---|---|
-| `musicxx.app.exit` | 退出前让插件拦一下（`decision`） |
 | `musicxx.app.deepLink` | 外部链接进来时让插件拦一下 / 处理 |
+| `musicxx.app.exit` | 应用退出前让插件拦一下 / 做收尾 |
 | `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |
 | `musicxx.player.qualityChanged` | 音质切换的通知 |
-| `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写 |
-| `musicxx.song.info.analyse` | 让插件提供歌名 / 歌手识别（替代应用不联网的识别） |
+| `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写；用户可见的提示用动作 `musicxx.ui.toast` |
+| `musicxx.media.info.analyse` | 让插件提供歌名 / 歌手 / 媒体信息识别（替代应用不联网的识别） |
 | `musicxx.song.meta.writeback` | 歌曲信息回写时的通知 |
 | `musicxx.song.beforeAdd` | 加歌前拦一下 |
 | `musicxx.song.removed` | 歌曲被移除的通知 |
-| `musicxx.playlist.load` / `musicxx.songlist.filter` | 歌单读取的前后插手（`after` 就是原来的“过滤”，能读到最终列表）、歌曲列表的过滤（可增删条目） |
+| `musicxx.playlist.load` | 歌单读取的前后插手（`after` 就是原来的“过滤”，能读到最终列表） |
 | `musicxx.history.record` | 写播放记录时的通知 |
 | `musicxx.local.scan.file` / `musicxx.local.scan.finished` | 本地扫描时逐文件裁决（跳过）/ 扫描完成通知 |
 | `musicxx.lyric.current` | 当前歌词行变化通知（歌词加载已按 `musicxx.lyric.load` 接入，见 `plugin-hooks.md`） |
-| `musicxx.icon.fetch` | 让插件提供封面图（`impl` 给图，前链改尺寸 / 来源，后链改最终那张图） |
-| `musicxx.media.info.request` | 让插件提供媒体信息（时长、码率等） |
-| `musicxx.net.request` | 应用发外网请求的前后插手（前链改请求 / 取消，后链读改响应） |
+| `musicxx.app.net.http.request` | 应用发外网请求的前后插手（前链改请求 / 取消，后链读改响应）；原 `musicxx.net.request`，改名是为了与插件框架自己的 `musicxx.net.*` 网络能力分开 |
 | `musicxx.net.server.route` / `musicxx.net.mcp.tools` / `musicxx.net.lan.event` | 本机服务的路由交给插件、MCP 工具清单追加、局域网事件通知 |
 | `musicxx.download` | 下载的前后插手（前链改文件名 / 目录或取消，后链拿成品路径） |
 | `musicxx.cache.beforeTrim` / `musicxx.cache.pathRequest` | 缓存裁剪前裁决 / 缓存路径由插件指定 |
-| `musicxx.ui.home.entries` / `musicxx.ui.song.actions` / `musicxx.ui.playlist.actions` / `musicxx.ui.route.resolve` | 首页入口、歌曲菜单、歌单菜单的**钩子形式**（现在用 UI 项声明，见 §9.1）；路由解析 |
+| `musicxx.ui.route.resolve` | 路由解析 |
 | `musicxx.ui.page.enter` / `musicxx.ui.page.leave` / `musicxx.ui.theme.changed` / `musicxx.ui.user.action` | 页面进入 / 离开、主题变化、用户操作的通知 |
-| `musicxx.ui.notify` | 应用要弹提示时让插件拦一下 / 改写 |
-| `musicxx.script.bound` / `musicxx.script.disposed` / `musicxx.script.action.executed` | 歌曲脚本绑定 / 解绑 / 执行通知 |
-| `musicxx.clocking.tick` | 定时停止的倒计时 tick |
-| `musicxx.listenTogether.event` | "一起听"的事件通知 |
 
 ---
 
@@ -2384,7 +2378,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | 这个钩子现在有谁在提供、排第几 | 动作 `musicxx.hook.handlers`（§3.2.12）；命令行 `musicxx-cli featurePoint.list` 与 MCP `GetFeatureProviders` 读的是同一份数据 |
 | 应用留出了哪些功能点、谁在实现、谁关掉了 | 动作 `musicxx.feature.point.list`（§3.2.11） |
 | 应用自己能做什么（给模型看的文本结论） | 动作 `musicxx.feature.list`（§3.2.10） |
-| 我自己跑了多少、错了几次 | JS：`musicxx.stats.getSelf()`；两边都看得到：管理页「插件详情 → 运行统计」 |
+| 本插件跑了多少、错了几次 | JS：`musicxx.stats.getSelf()`；两边都看得到：管理页「插件详情 → 运行统计」 |
 
 ### 10.3 应用卡住时怎么查
 

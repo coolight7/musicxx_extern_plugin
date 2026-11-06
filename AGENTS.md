@@ -130,7 +130,7 @@ my_plugin/
 | 能力 | `musicxx.capability.register/call` | 自己的功能也能被别人调用；跨插件调用 JS→JS 直调、JS→原生投递（默认 3 s 超时） |
 | UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / **「添加歌曲」弹窗的来源项**（`addsong.entry`）/ 播放页背景 / 播放页歌曲图 / **播放页音频动效**（`playing.visualizer`）/ **播放页子页面插入块**（十个类型：`playing.lyric.top`、`playing.lyric.header`、`playing.moreinfo.footer`、`playing.songlist.footer` 等，类型本身就是位置） |
 | 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用动作 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
-| 往歌单里加歌 | 动作 `musicxx.playlist.addSong` | `{pid, dedup?, songs:[{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}]}` → `{ok, pid, name, total, added, skipped}`。`type` 必须是**你自己的**音源类型（`plugin.<你的 id>.`），歌名/歌手留给主程序按 `fileName` 识别也行；去重、前插、写播放记录标签、当前队列刷新都由主程序做。配合 `addsong.entry` 就是“从我的来源挑歌加到歌单”（完整例子 `plugins/example_ftp_source`） |
+| 往歌单里加歌 | 动作 `musicxx.playlist.addSong` | `{pid, dedup?, songs:[{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}]}` → `{ok, pid, name, total, added, skipped}`。`type` 必须是**你自己的**音源类型（`plugin.<你的 id>.`），歌名/歌手留给主程序按 `fileName` 识别也行；去重、前插、写播放记录标签、当前队列刷新都由主程序做。配合 `addsong.entry` 就是“从自己的来源挑歌加到歌单”（完整例子 `plugins/example_ftp_source`） |
 | 自己的网盘（目录列表 + 挑歌界面） | 动作 `musicxx.source.browse`（**可重复调用，一次一个分类**） + 能力 `drive.list` 等 | 声明一个可浏览分类（`id` = 你的音源类型、`view` = 分类 id（缺省 `default`）、`title` / `icon` / `order` / `root` / `pageSize` / `sort` / `indexBar` / `write` / `search` / `addFolderSongs` / `download` / `capabilities`），实现 `drive.list`（必填：`{type, view, path, offset, limit, sort, reverse}` → `{ok, entries, next}`），就得到与内置网盘一致的目录列表与挑歌弹窗（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 加歌单 / 加队列 / 写操作），**不用自己画界面**。同一个类型多调几次 `musicxx.source.browse` 就是多个分类（界面上是可切换的 tab，对齐内置 Emby 的「歌曲 / 歌手 / 专辑」，分类不进音源身份）。可选能力：`drive.resolveSongs`（勾文件夹时一步读歌）、`drive.search` / `drive.mkdir` / `drive.rename` / `drive.remove` / `drive.info` / `drive.open`。宿主 UI 动作 `musicxx.ui.pickSongs` / `pickDir` 让插件在自己的界面里调用同一个弹窗（**要等用户关掉才完成，不要 await**，参数与返回都带 `view`），`musicxx.ui.browseDrive` 打开与内置网盘一样的**整页浏览**（立即返回）。协议见 `docs/plugin-api.md` §3.3，例子见 `plugins/example_ftp_source`（两个分类 + 两种写法 + 整页入口） |
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` / `playing.visualizer` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图 / 音频动效；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
@@ -145,7 +145,7 @@ my_plugin/
 | 静态内容（把播放器打不开的东西变成 http 地址） | `musicxx.net.http.serve({staticOnly, static})` / `http.route` / `http.unroute` / `http.info` | 把本地文件或一段内容（≤ 8 MiB）挂成 `http://127.0.0.1:<端口>/f/<token>/<文件名>` 地址。**命中后由框架直接回答（200/206/416），不进 `http.request`**；支持 `GET` / `HEAD` + 单段 `Range`；`staticOnly` 让未命中的请求直接 404。只监听回环、路径里只有随机 token（服务端不解析路径）；服务与路由跟着插件实例关掉。**把播放器打不开的东西变成 HTTP** 就是靠它（本地文件、远程数据、FTP / 私有协议、HLS 分片、转码产物）|
 | 内置网络能力（JS 与动态库插件共用） | JS `musicxx.net.http/socket/ws/udp`、C++ `musicxx.net` 表（`netCall` / `netCallAsync` / `netSubscribe`） | HTTP 与 WebSocket 的**客户端 + 服务端**、TCP 客户端与服务、**UDP 通道（广播 / 组播 / 单播）**；跑在插件框架自己的网络线程上。**客户端支持 `http` / `https` / `ws` / `wss`**（TLS 静态链接 OpenSSL），**服务端只有明文**；服务端默认只监听 `127.0.0.1`（`host:"0.0.0.0"` 才暴露给同网段）；UDP 建好就带 `SO_BROADCAST`（可直接发 `255.255.255.255`），组播用 `multicast` / `udp.join`；事件主题 `plugin.<插件id>.net`，**JS 侧直接投递到 JS 线程**（所以可以在返回 Promise 的能力里 `await`）。完整参数与上限见 `docs/plugin-api.md` §3.2.6，示例 `plugins/example_js_net` |
 | 定时器与工具 | `musicxx.timer.*`、`musicxx.util.*` | 定时任务、字符串/编码等小工具（`textEncode` / `textDecode` 做 GBK 这类编码转换，同步返回） |
-| 界面提示 | `musicxx.ui.notify/toast/dialog/openRoute`、`musicxx.ui.setFontFamily` | 通知、弹窗、跳官方页面或插件页面、换全局字体 |
+| 界面提示 | `musicxx.ui.toast/dialog/openRoute`、`musicxx.ui.setFontFamily` | 提示、弹窗、跳官方页面或插件页面、换全局字体 |
 | 统计 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测，不影响调度 |
 
 ## 5. 硬约束（动手前读一遍，坑都在这里）
@@ -168,7 +168,7 @@ my_plugin/
    （删除与合并清单见 `CHANGELOG.md`）。要点：后链**逆序**（外置插件最后改输出）、阶段处理器必须
    是同步处理器、只能注册钩子声明过的阶段（`docs/plugin-hooks.md` 的「阶段」列）。
    写法见 `docs/plugin-api.md` §8.1。
-6. **钩子还没接入就不会触发**：约定 66 个钩子，主程序当前**应用派发**的只是其中一部分
+6. **钩子还没接入就不会触发**：约定 54 个钩子，主程序当前**应用派发**的只是其中一部分
    （`docs/plugin-hooks.md` 的「主程序是否已接入」列；`musicxx.feature.point.call` 是插件功能点的
    通用通道、由调用方触发）；别把功能押在未接入的钩子上（它们打算做什么见 `docs/plugin-api.md` §8.7）。
 7. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
@@ -203,7 +203,7 @@ my_plugin/
     同一签名身份）。插件框架按"安全降级"处理（标记不可用 + 事件 + 不重试），主程序与其它插件照常工作；
     JS插件不受影响。**模拟器比真机宽松**：模拟器里能加载的动态库插件，真机上不一定能加载。
 17. **插件形态（`kind`）不是写死的**：`native` 与 `js` 是框架内置的两种，别种形态由插件用接口表
-    `musicxx.kind` 登记（"我提供 kind=X" + 一对加载 / 卸载能力 + 可选校验能力），见 `docs/plugin-native-api.md` §4.3。
+    `musicxx.kind` 登记（"本插件提供 kind=X" + 一对加载 / 卸载能力 + 可选校验能力），见 `docs/plugin-native-api.md` §4.3。
     **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：内置 `native` 是
     3/3（C 接口代次），内置 `js` 是 **2/1**（JS 接口只增不改，下限仍 1），运行器登记的形态自己写；
     清单 `api_version` 按所属形态的下限判，插件读到的 `apiVersion` 是自己形态的当前代次。

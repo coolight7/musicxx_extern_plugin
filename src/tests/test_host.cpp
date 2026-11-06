@@ -345,7 +345,7 @@ CapabilityCallOutcome callCapability(MusicxxExternPluginHost *host,
       std::this_thread::sleep_for(std::chrono::milliseconds{20});
       continue;
     }
-    // 一条一条取: 是不是"我们等的这条结果事件"
+    // 一条一条取: 是不是"本次等待的那条结果事件"
     const bool isResult =
         body.find("\"type\":\"musicxx.plugin.call.result\"") !=
             std::string::npos &&
@@ -1310,12 +1310,12 @@ int main(int argc, char **argv) {
     check(eventsJson.find("musicxx.plugin.loaded") != std::string::npos ||
               eventsJson.find("musicxx.host.ready") != std::string::npos,
           "事件包含 host.ready / plugin.loaded");
-    // UI 项注册/更新会推送 musicxx.ui.changed; 通知走动作请求通道
-    // (musicxx.ui.notify)
+    // UI 项注册/更新会推送 musicxx.ui.changed; 提示走动作请求通道
+    // (musicxx.ui.toast)
     check(eventsJson.find("musicxx.ui.changed") != std::string::npos,
           "UI 项变化推送 musicxx.ui.changed 事件");
-    check(eventsJson.find("musicxx.ui.notify") != std::string::npos,
-          "通知走动作请求通道 (musicxx.ui.notify)");
+    check(eventsJson.find("musicxx.ui.toast") != std::string::npos,
+          "提示走动作请求通道 (musicxx.ui.toast)");
   }
 
   // decision 钩子: 广告曲目 → skip

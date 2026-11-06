@@ -953,6 +953,49 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
   }
   inst->actionRequests.fetch_add(1);
 
+  /// 插件框架自己的网络能力与两条动作同名。这两条动作按**框架原生实现**回答
+  /// (与 JS `musicxx.net.fetch` / 动态库插件的 `iface.net` 同一份实现), 不再转给
+  /// Dart —— 否则同名接口会有两套行为 (代理设置、TLS 选项、下载落盘位置都不一样)。
+  /// 跑在框架的工作线程上, 不占插件与主程序的线程。
+  if (actionName == "musicxx.net.fetch" ||
+      actionName == "musicxx.net.download") {
+    if (ctx_ && ctx_->workers) {
+      const std::string op =
+          actionName == "musicxx.net.fetch" ? "http.fetch" : "http.download";
+      /// 与 JS 封装一致: `body` 给对象 / 数组时按 JSON 发送 (框架的 `http.fetch`
+      /// 只认字符串 `body` 或 `json` 字段)。
+      utilxx_base::Json netArgs = parseJsonSafe(argsJson);
+      if (netArgs.is_object() && netArgs.contains("body") &&
+          !netArgs.contains("json")) {
+        const auto body = netArgs.find("body");
+        if (body != netArgs.end() && !body->is_string()) {
+          netArgs["json"] = *body;
+          netArgs.erase("body");
+        }
+      }
+      const std::string args = netArgs.dump();
+      auto self = shared_from_this();
+      asio::post(*ctx_->workers, [self, requestId, pluginId, op, args]() {
+        std::string out;
+        const int32_t rc = self->netCall(pluginId, op, args, out);
+        std::string result = out;
+        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+          utilxx_base::Json error;
+          error["ok"] = false;
+          error["error"] = "net_call_failed";
+          error["message"] =
+              out.empty() ? "插件网络能力不可用" : std::move(out);
+          result = error.dump();
+        }
+        /// 传输失败也按"请求完成"回答 (status 0, 结论在结果 JSON 的 ok 里),
+        /// 与 `musicxx.net.fetch` 的约定一致。
+        self->actionRespond(requestId, 0, result);
+      });
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+    /// 没有工作线程 (未启动) 时继续走 Dart 侧, 由它回一个错误
+  }
+
   Json payload;
   payload["requestId"] = requestId;
   payload["plugin"] = pluginId;
@@ -1097,7 +1140,7 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
                          ? MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION
                          : kindRegistry_.interfaceVersion(callerKind);
   j["hostVersion"] = MUSICXX_EXTERN_PLUGIN_VERSION;
-  // 调用方插件自己的 id: 插件要判断"这次调用是不是我自己发起的"就得知道自己的 id
+  // 调用方插件自己的 id: 插件要判断"这次调用是不是本插件自己发起的"就得知道自己的 id
   // (功能点糖用它过滤自己发起的调用)。主程序读同一份信息时不带这个字段。
   if (!instanceName.empty()) {
     j["pluginId"] = pluginIdOf(instanceName);

@@ -916,7 +916,7 @@ Directory _copyPlugin(_Environment env, Directory work, String pluginId) {
 /// 这里只实现本测试需要的那几个动作，行为与主程序接入层一致：
 /// - `namespace: "config"` 读写插件目录的 `config.json`；
 /// - 其它命名空间读写内存里的私有 KV（真实应用是 `data/kv.json`）；
-/// - `musicxx.ui.notify` 直接成功（不看界面）。
+/// - `musicxx.ui.toast` 直接成功（不看界面）。
 void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
   final Map<String, Object?> kv = <String, Object?>{};
 
@@ -994,7 +994,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
   });
   // 界面提示在测试环境没有界面：直接成功
   runtime.actions.register(
-    MusicxxPluginActionNames.uiNotify,
+    MusicxxPluginActionNames.uiToast,
     (invocation) => <String, Object?>{'ok': true},
   );
 }

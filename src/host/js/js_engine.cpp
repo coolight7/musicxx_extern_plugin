@@ -877,7 +877,7 @@ var featurePointImpls = new Map();
   /// - 按 `point` 过滤: 不是自己实现的点直接返回空 (空 = 不回答, 链条继续问别人);
   /// - 不回答自己发起的调用 (`caller` 等于自己的插件 id);
   /// - 回答必须包一层 `patch` (插件框架的 firstNonNull 只在收到 `patch` / `action` 时停止遍历);
-  /// - `value` 键就是"我答了"的判据 (值可以是 null);
+  /// - `value` 键就是"实现方给出了结果"的判据 (值可以是 null);
   /// - 处理器抛异常时给 `{error: ...}` (等于"不提供", 不打断链条)。
   function featurePointDispatch(input) {
     // 钩子处理器拿到的是**已解析的载荷对象**（`ext.invokeHook` 做的解析）；
@@ -1407,9 +1407,6 @@ var featurePointImpls = new Map();
   }
 
   musicxx.ui = {
-    notify: function (args) {
-      return musicxx.call("musicxx.ui.notify", typeof args === "string" ? { text: args } : args);
-    },
     toast: function (args) {
       return musicxx.call("musicxx.ui.toast", typeof args === "string" ? { text: args } : args);
     },

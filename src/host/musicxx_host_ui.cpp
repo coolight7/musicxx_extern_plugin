@@ -496,12 +496,12 @@ int32_t MusicxxHostManager::notifyUi(MusicxxHostInstance *inst,
   if (!parseOk || !data.is_object()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
   }
-  // 通知是 fire-and-forget: 走动作请求通道, Dart 侧执行 `musicxx.ui.notify`,
+  // 轻提示是 fire-and-forget: 走动作请求通道, Dart 侧执行 `musicxx.ui.toast`,
   // 结果不回传 (回复会落在"未登记的请求"上, 由插件框架按调试日志忽略)
   const std::string pluginId = pluginIdOf(inst->name);
   int64_t effectiveTimeout = 0;
   return pushActionRequestEvent(pluginId, allocateRequestId(),
-                                "musicxx.ui.notify", message, 5000,
+                                "musicxx.ui.toast", message, 5000,
                                 &effectiveTimeout);
 }
 

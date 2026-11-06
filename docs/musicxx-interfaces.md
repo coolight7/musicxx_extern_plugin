@@ -291,7 +291,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 118 条 = 内置与应用命令 33 + 动作命令 80 + 能力导出 2 + 变量 3）
+## 4. 命令面（当前 115 条 = 内置与应用命令 33 + 动作命令 77 + 能力导出 2 + 变量 3）
 
 > **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
 > 下面各节的数字只是写这份文档时的快照。
@@ -304,7 +304,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
 | `builtin` | 33 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` + `MusicxxEntries` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`）**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
-| `action` | 80 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名**（含 4 条 `musicxx.library.*` 旧名） |
+| `action` | 77 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名**（含 4 条 `musicxx.library.*` 旧名；`musicxx.net.fetch` / `download` 两条由插件框架直接回答，不进命令表） |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
@@ -405,13 +405,12 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 |---|---|
 | 应用前后台（2） | `musicxx.app.foreground` / `background`（与 `window.foreground` / `window.background` 同一份实现） |
 | 播放（13） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` / `seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
-| 歌单（7） | `musicxx.playlist.queryLists` / `querySongs` / `play` / `addSong` / `removeSong` / `create` / `updateSong` |
+| 歌单（8） | `musicxx.playlist.queryLists` / `querySongs` / `play` / `addSong` / `removeSong` / `create` / `updateSong` / `syncSongs.sync`（把歌单绑定的音源重新读一遍） |
 | 播放列表（5） | `musicxx.songlist.querySongs` / `playSong` / `addSong` / `removeSong` / `updateSong`（读 / 改当前正在播的那一串歌） |
 | 歌词（5） | `musicxx.lyric.current.get` / `current.update` / `current.updateContent` / `getBySrc` / `search`（读当前歌词；选拟声云歌词 + 改这首歌的偏移；用 LRC 文本临时设置当前歌词；按歌词源读内容；搜索云歌词） |
-| 提示、弹层与页面（7） | `musicxx.ui.notify` / `toast` / `dialog` / `overlay.show` / `overlay.close` / `openOverlaySheet` / `openRoute` |
+| 提示、弹层与页面（6） | `musicxx.ui.toast` / `dialog` / `overlay.show` / `overlay.close` / `openOverlaySheet` / `openRoute` |
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
 | 插件私有存储（4） | `musicxx.storage.get` / `set` / `delete` / `list` |
-| 网络（2，保留） | `musicxx.net.fetch` / `net.download`（老插件直接调动作时用；JS 封装与新建插件走插件框架自带的 `musicxx.net` 表） |
 | 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
 | 封面与频谱（7） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
@@ -432,12 +431,11 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 > 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
 > 客户端支持 https / wss，不经过主程序），见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
-> JS 的 `musicxx.net.fetch` / `download` 已经用它实现（参数与返回形状与动作一致），
-> 动作只留给直接调动作的老插件。
+> JS 的 `musicxx.net.fetch` / `download` 与动作同名接口都走这一套（参数与返回形状一致）；
+> 动作由插件框架在收到请求时就地回答，不再转给主程序，也不进命令表。
 
-> 从命令行 / MCP 调这几个动作时**没有插件身份**：`musicxx.storage.*` 与
-> `musicxx.net.download` 会落到"没有插件 id"的空目录下（应用源码注释里写明了这一点）。
-> 要操作某个插件的私有数据，请让插件自己读写，别从命令行代劳。
+> 从命令行 / MCP 调这几个动作时**没有插件身份**：`musicxx.storage.*` 会落到"没有插件 id"的空目录下
+> （应用源码注释里写明了这一点）。要操作某个插件的私有数据，请让插件自己读写，别从命令行代劳。
 
 ### 4.6 名字存在、但没有实现的动作
 

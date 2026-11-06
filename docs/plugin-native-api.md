@@ -92,7 +92,7 @@ permissions:                       # 声明式权限：只做展示，运行时�
 插件框架**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
 要表达版本要求请用 `api_version`：它表示"插件按哪一代接口写的"，判定是 `api_version >= 插件所属形态的
 兼容下限`（动态库插件 3、JS 插件 1，见 §4.3）。**每代接口只增不改**时下限不动，只有破坏性变更才抬
-下限；清单写更高不会被拒（插件自己想表达"我用了新接口"时可以写高）。
+下限；清单写更高不会被拒（插件想表达自己用了新接口时可以写高）。
 
 ### 1.2 安装位置
 
@@ -357,7 +357,7 @@ PluginxxOperatorNotify notify{&onDone, this};
 requestAction("musicxx.player.toggle", "{}", &notify, 5000);
 requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
-requestAction("musicxx.ui.notify", R"({"text":"已刷新"})", &notify, 5000);
+requestAction("musicxx.ui.toast", R"({"text":"已刷新"})", &notify, 5000);
 requestAction("musicxx.ui.openRoute", R"({"route":"ext://my_plugin/card"})", &notify, 5000);
 // 浮层：等用户操作，超时传 0（不设上限）；结果里 reason 是 confirmed / cancelled / closed
 requestAction("musicxx.ui.overlay.show",
@@ -436,7 +436,7 @@ requestAction("musicxx.feature.point.list", "{}", &n2, 5000);
 
 插件框架本身只实现**动态库插件**（`kind: native`），内置的 JS 运行器是第二种形态（`kind: js`）。
 这两种都不是写死的：扫描、判定与加载都先按 `kind` 查一张注册表，所以"把 JS 运行器搬到插件里"、
-"以后接 Python"都不需要改插件框架 —— 由一个插件登记"我支持 kind=X"，交出加载 / 卸载能力即可。
+"以后接 Python"都不需要改插件框架 —— 由一个插件登记"本插件提供 kind=X"，交出加载 / 卸载能力即可。
 
 ```cpp
 iface.kind->register_kind(host, &pluginxxView(R"({
@@ -865,7 +865,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 | `musicxx.playlist.read` / `musicxx.playlist.write` | 读 / 写歌单（保存下来的列表：新建 / 删除歌单，增删改里面的歌） |
 | `musicxx.songlist.read` / `musicxx.songlist.write` | 读 / 写当前播放列表（正在播的那一串歌） |
 | `musicxx.library.read` / `musicxx.library.write` | **过时（旧分类）**：分别等价于上面两组 read / write；新插件不要写，只为了让旧清单不显示成“未知权限” |
-| `musicxx.net` | 使用主程序网络代理通道（`musicxx.net.fetch` / `download`） |
+| `musicxx.net` | 使用插件框架的网络能力（`musicxx.net.*`：HTTP 客户端 / WebSocket / TCP / UDP；插件也可以自行联网） |
 | `musicxx.fs.read:<路径>` / `musicxx.fs.write:<路径>` | 直接文件访问（路径限定） |
 | `musicxx.system` | 打开链接 / 剪贴板 / 取目录等外围能力 |
 | `musicxx.agent` | 预留 |
