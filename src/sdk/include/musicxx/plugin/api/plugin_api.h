@@ -295,29 +295,32 @@ typedef struct MusicxxPluginHostIface {
 /// view = 插件声明的界面组合, none = 不显示. 渲染区域是播放页的动效区,
 /// 没有点击交互 (原来的封面点击 / 拖动切歌 / 迷你歌词要继续可用).
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
-/// 播放页子页面插入块：九个位置各有一个类型（类型本身就是位置，不再需要 `slot`）
+/// 播放页子页面插入块：十个位置各有一个类型（类型本身就是位置，不再需要 `slot`）
 /// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
 /// 说明: 同一位置可以注册多项, 按 UI 项的 `order` 与注册顺序从上到下排列;
-/// 不需要 `title`. 下面九个宏与 docs/plugin-ui.md §1.6 的位置表一一对应.
+/// 不需要 `title`. 下面十个宏与 docs/plugin-ui.md §1.6 的位置表一一对应.
+/// `top` / `bottom` 是页面固定区域（不随列表滚动）；`header` / `footer` 在列表的滚动内容里。
 
 /// 歌词页顶部（列表之上，不随内容滚动）
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP "musicxx.ui.playing.lyric.top"
 /// 歌词页底部（列表之下，不随内容滚动）
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM "musicxx.ui.playing.lyric.bottom"
-/// 歌词列表内顶部（在列表的滚动内容里，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_LIST_TOP "musicxx.ui.playing.lyric.list.top"
-/// 歌词列表内底部（在列表的滚动内容里，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_LIST_BOTTOM "musicxx.ui.playing.lyric.list.bottom"
-/// 更多信息页内容开头
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_LEADING "musicxx.ui.playing.moreinfo.leading"
-/// 更多信息页内容末尾
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_TRAILING "musicxx.ui.playing.moreinfo.trailing"
+/// 歌词列表内顶部（列表的 header，跟随内容滚动）
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_HEADER "musicxx.ui.playing.lyric.header"
+/// 歌词列表内底部（列表的 footer，跟随内容滚动）
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_FOOTER "musicxx.ui.playing.lyric.footer"
+/// 更多信息页内容开头（整页滚动，这一块在内容的最前面）
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_HEADER "musicxx.ui.playing.moreinfo.header"
+/// 更多信息页内容末尾（整页滚动，这一块在内容的最后面）
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_FOOTER "musicxx.ui.playing.moreinfo.footer"
 /// 播放列表页顶部（列表之上，不随内容滚动）
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP "musicxx.ui.playing.songlist.top"
 /// 播放列表页底部（列表之下，不随内容滚动）
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_BOTTOM "musicxx.ui.playing.songlist.bottom"
-/// 播放列表内顶部（在列表的滚动内容里，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_LIST_TOP "musicxx.ui.playing.songlist.list.top"
+/// 播放列表内顶部（列表的 header，跟随内容滚动）
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_HEADER "musicxx.ui.playing.songlist.header"
+/// 播放列表内底部（列表的 footer，跟随内容滚动）
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_FOOTER "musicxx.ui.playing.songlist.footer"
 
 /// 说明: 入口项与菜单项的 `icon` 写**插件自己带的 svg 路径** (一条相对插件目录的路径,
 /// 可省 `.svg` 后缀, 用 `/` 分隔; 例如 `resource/svg/logo.svg`) —— `resource/svg/` 只是

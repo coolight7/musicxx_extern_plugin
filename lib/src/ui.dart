@@ -81,15 +81,18 @@ abstract final class MusicxxPluginUIType {
   /// 迷你歌词要继续可用，所以插件不要假设自己能收到点击。
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
 
-  /// 播放页子页面的插入块：**九个位置各一个类型，类型本身就是位置**（没有 `slot` 字段）
+  /// 播放页子页面的插入块：**十个位置各一个类型，类型本身就是位置**（没有 `slot` 字段）
   ///
   /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
   ///
-  /// - [playingLyricTop] / [playingLyricBottom]：歌词页顶部 / 底部（页面固定区域，不随列表滚动）；
-  /// - [playingLyricListTop] / [playingLyricListBottom]：歌词列表内顶部 / 底部（在滚动内容里）；
-  /// - [playingMoreinfoLeading] / [playingMoreinfoTrailing]：更多信息页内容开头 / 末尾；
-  /// - [playingSonglistTop] / [playingSonglistBottom]：播放列表页顶部 / 底部（固定区域）；
-  /// - [playingSonglistListTop]：播放列表内顶部（在滚动内容里）。
+  /// 页面固定区域（不随列表滚动）：
+  /// - [playingLyricTop] / [playingLyricBottom]：歌词页顶部 / 底部；
+  /// - [playingSonglistTop] / [playingSonglistBottom]：播放列表页顶部 / 底部。
+  ///
+  /// 列表滚动内容里（`header` / `footer`）：
+  /// - [playingLyricHeader] / [playingLyricFooter]：歌词列表的 header / footer；
+  /// - [playingSonglistHeader] / [playingSonglistFooter]：播放列表的 header / footer；
+  /// - [playingMoreinfoHeader] / [playingMoreinfoFooter]：更多信息页内容开头 / 末尾（整页滚动）。
   ///
   /// 同一位置可以注册多项，按 UI 项的 `order` 与注册顺序从上到下排列；这些类型都不需要
   /// `title`（它们不画在任何列表里）。插入块的页面已经给过页面边距，块只画自己的内容；
@@ -99,21 +102,19 @@ abstract final class MusicxxPluginUIType {
   /// 歌词页底部（列表之下，不随内容滚动）
   static const String playingLyricBottom = 'musicxx.ui.playing.lyric.bottom';
 
-  /// 歌词列表内顶部（在列表的滚动内容里，跟随内容滚动）
-  static const String playingLyricListTop =
-      'musicxx.ui.playing.lyric.list.top';
+  /// 歌词列表内顶部（列表的 header，跟随内容滚动）
+  static const String playingLyricHeader = 'musicxx.ui.playing.lyric.header';
 
-  /// 歌词列表内底部（在列表的滚动内容里，跟随内容滚动）
-  static const String playingLyricListBottom =
-      'musicxx.ui.playing.lyric.list.bottom';
+  /// 歌词列表内底部（列表的 footer，跟随内容滚动）
+  static const String playingLyricFooter = 'musicxx.ui.playing.lyric.footer';
 
-  /// 更多信息页内容开头
-  static const String playingMoreinfoLeading =
-      'musicxx.ui.playing.moreinfo.leading';
+  /// 更多信息页内容开头（整页滚动，这一块在内容的最前面）
+  static const String playingMoreinfoHeader =
+      'musicxx.ui.playing.moreinfo.header';
 
-  /// 更多信息页内容末尾
-  static const String playingMoreinfoTrailing =
-      'musicxx.ui.playing.moreinfo.trailing';
+  /// 更多信息页内容末尾（整页滚动，这一块在内容的最后面）
+  static const String playingMoreinfoFooter =
+      'musicxx.ui.playing.moreinfo.footer';
 
   /// 播放列表页顶部（列表之上，不随内容滚动）
   static const String playingSonglistTop = 'musicxx.ui.playing.songlist.top';
@@ -122,9 +123,13 @@ abstract final class MusicxxPluginUIType {
   static const String playingSonglistBottom =
       'musicxx.ui.playing.songlist.bottom';
 
-  /// 播放列表内顶部（在列表的滚动内容里，跟随内容滚动）
-  static const String playingSonglistListTop =
-      'musicxx.ui.playing.songlist.list.top';
+  /// 播放列表内顶部（列表的 header，跟随内容滚动）
+  static const String playingSonglistHeader =
+      'musicxx.ui.playing.songlist.header';
+
+  /// 播放列表内底部（列表的 footer，跟随内容滚动）
+  static const String playingSonglistFooter =
+      'musicxx.ui.playing.songlist.footer';
 }
 
 /// UI 项动作：与界面描述层的动作写法**完全一致**（同一套解析器）
