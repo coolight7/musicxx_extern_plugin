@@ -2,7 +2,8 @@
 
 > **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**; `musicxx`还有早期开发的一套内置插件框架（插件直接编译打包进 musicxx，仅决定是否运行时加载模块功能，不能由用户自定义开发插件）。
 
-- 本项目是 [musicxx](https://github.com/coolight7/musicxx) 的**外部插件框架**（插件框架原生库 + 插件 SDK + 示例插件 + 原生测试），由 [agentxx](https://github.com/coolight7/agentxx) 项目的插件框架通用化发展而来。
+- 本项目是 [musicxx](https://github.com/coolight7/musicxx)/拟声 的**外部插件框架**（插件框架原生库 + 插件 SDK + 示例插件 + 原生测试），由 [agentxx](https://github.com/coolight7/agentxx) 项目的插件框架通用化发展而来。
+- `main`分支对应已经 release 发布的最新 musicxx 版本，`dev`分支对应内测版 musicxx; 但更建议查询安装的 musicxx 的插件框架 commit
 - 这是主程序的接入说明；想直接开发插件请看下面的「文档从哪里读起」。
 
 ## 文档从哪里读起
