@@ -2446,7 +2446,10 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   }
   pluginxx::BroadcastDecl decl;
   decl.id = id;
-  const bool isState = id.rfind("musicxx.state.", 0) == 0;
+  // `musicxx.state.*` 是状态键 (快照 + 订阅即推); `musicxx.state.changed` 是"某个键变了"
+  // 的通知本身, 没有当前值
+  const bool isState
+      = id.rfind("musicxx.state.", 0) == 0 && id != "musicxx.state.changed";
   const bool isVar = id.rfind("musicxx.var.", 0) == 0;
   if (isState || isVar) {
     decl.cache = pluginxx::BroadcastCache_e::Latest;
