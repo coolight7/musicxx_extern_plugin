@@ -1057,14 +1057,11 @@ private:
    *
    * 为什么需要: 插件侧绝不能在 JS 线程上等框架线程 (框架线程可能正等着 JS
    * 处理器 —— 那是死锁)。因此 `peek`/`info`/`list` 不能投递到框架线程去查注册表,
-   * 而是读这份由框架线程维护、用互斥量保护的**快照** (与状态镜像同一套做法)。
+   * 而是读一份由框架线程维护、任何线程可同步读的**快照**。
+   *
+   * 快照存在广播注册表的 `musicxx.var.<key>` 频道里 (与状态镜像同一份缓存实现);
    * 快照里的值仍然是"缓存值", 不是真值。
    */
-
-  /// 保护 [varMirror_]
-  mutable std::mutex varMirrorMutex_;
-  /// key → 变量快照 JSON (含 valueMs; ageMs/stale 在读取时算)
-  std::map<std::string, std::string, std::less<>> varMirror_;
 
   /// 把变量的当前快照写进镜像 (框架线程; 每次注册/写入值/订阅变化后调用)
   void publishVarMirror(const VarEntry &entry);

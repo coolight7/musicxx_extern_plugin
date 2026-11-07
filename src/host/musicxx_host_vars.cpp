@@ -42,6 +42,20 @@ using utilxx_base::Json;
 
 namespace {
 
+/// 变量快照的广播频道 id: `musicxx.var.<key>`
+///
+/// 用这个前缀而不是直接用变量键: 频道 id 要进一张全局的广播表, 带命名空间才不会与
+/// 状态镜像 / 业务事件 / 插件频道混在一起 (宿主也按这个前缀给默认声明)。
+std::string varMirrorChannelId(std::string_view key) {
+  std::string out{"musicxx.var."};
+  out.append(key);
+  return out;
+}
+
+} // namespace
+
+namespace {
+
 /// 等属主回答读取、写入值的超时
 constexpr int64_t kVarReadTimeoutMs = 2000;
 constexpr int64_t kVarWriteOwnerTimeoutMs = 3000;
@@ -592,15 +606,10 @@ int32_t MusicxxHostManager::getVarForApp(
 }
 
 int32_t MusicxxHostManager::peekVar(std::string_view key, std::string &outJson) {
-  // 只读镜像 (任何线程可用): JS 线程绝不等框架线程, 见 varMirror_ 的说明
+  // 只读镜像 (任何线程可用): JS 线程绝不等框架线程, 快照在广播注册表里
   std::string snapshot;
-  {
-    std::lock_guard<std::mutex> lock{varMirrorMutex_};
-    auto it = varMirror_.find(std::string{key});
-    if (it == varMirror_.end()) {
-      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
-    }
-    snapshot = it->second;
+  if (!broadcasts()->read(varMirrorChannelId(key), &snapshot)) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   bool ok = false;
   Json item = parseJsonSafe(snapshot, &ok);
@@ -1653,14 +1662,17 @@ std::string MusicxxHostManager::varMirrorJsonText(const VarEntry &entry) const {
 }
 
 void MusicxxHostManager::publishVarMirror(const VarEntry &entry) {
-  const std::string text = varMirrorJsonText(entry);
-  std::lock_guard<std::mutex> lock{varMirrorMutex_};
-  varMirror_[entry.key] = text;
+  const std::string channel = varMirrorChannelId(entry.key);
+  ensureBroadcastChannel(channel);
+  std::string error;
+  if (publishBroadcast(channel, varMirrorJsonText(entry), std::string{}, &error) !=
+      PLUGINXX_RESULT_OK) {
+    XX_LOGW("[musicxx_ext] 变量镜像 `{}` 写入广播失败: {}", entry.key, error);
+  }
 }
 
 void MusicxxHostManager::eraseVarMirror(const std::string &key) {
-  std::lock_guard<std::mutex> lock{varMirrorMutex_};
-  varMirror_.erase(key);
+  broadcasts()->removeChannel(varMirrorChannelId(key));
 }
 
 std::string MusicxxHostManager::varToJsonText(const VarEntry &entry) const {
@@ -1757,16 +1769,20 @@ std::string MusicxxHostManager::varsDebugJson() const {
 int32_t MusicxxHostManager::listVars(std::string_view prefix,
                                      std::string &outJson) {
   const std::string head{prefix};
+  static constexpr std::string_view kVarChannelPrefix{"musicxx.var."};
   // 只读镜像 (任何线程可用; 顺序按 key, 便于比对)
   std::vector<std::pair<std::string, std::string>> items;
-  {
-    std::lock_guard<std::mutex> lock{varMirrorMutex_};
-    items.reserve(varMirror_.size());
-    for (const auto &[key, snapshot] : varMirror_) {
-      if (!head.empty() && key.compare(0, head.size(), head) != 0) {
-        continue;
-      }
-      items.emplace_back(key, snapshot);
+  for (const auto &id : broadcasts()->ids()) {
+    if (id.rfind(kVarChannelPrefix, 0) != 0) {
+      continue;
+    }
+    std::string key = id.substr(kVarChannelPrefix.size());
+    if (!head.empty() && key.compare(0, head.size(), head) != 0) {
+      continue;
+    }
+    std::string snapshot;
+    if (broadcasts()->read(id, &snapshot)) {
+      items.emplace_back(std::move(key), std::move(snapshot));
     }
   }
   std::sort(items.begin(), items.end(),
@@ -1786,13 +1802,8 @@ int32_t MusicxxHostManager::listVars(std::string_view prefix,
 int32_t MusicxxHostManager::varInfo(std::string_view key,
                                     std::string &outJson) {
   std::string snapshot;
-  {
-    std::lock_guard<std::mutex> lock{varMirrorMutex_};
-    auto it = varMirror_.find(std::string{key});
-    if (it == varMirror_.end()) {
-      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
-    }
-    snapshot = it->second;
+  if (!broadcasts()->read(varMirrorChannelId(key), &snapshot)) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   Json item = parseJsonSafe(snapshot);
   const bool cared = item.contains("subscribers") && item["subscribers"].is_number() &&
