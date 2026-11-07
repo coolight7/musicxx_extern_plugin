@@ -6,13 +6,15 @@
 /// 覆盖:
 /// - 接口表元信息 (版本门槛 / 基线字节数 / 追加成员判定 / 语义档位判定);
 /// - 作用域引用校验;
-/// - 能力登记表 (登记 / 重复 / 归属 / 注销 / 列表);
+/// - 能力登记表 (声明 / 多实现 / 阶段链 / 覆盖 / 注销 / 自省);
+/// - 广播登记表 (缓存 / 写权限 / 订阅即推 / 退订 / 自省);
 /// - 事件订阅句柄的幂等撤销入口。
 ///
 /// 运行: musicxx_pluginxx_test (无参数; 由 tools/build_native.ps1 -RunTests 一起跑)
 
 #include "pluginxx/api/abi.h"
 #include "pluginxx/api/iface_meta.h"
+#include "pluginxx/host/broadcast_registry.h"
 #include "pluginxx/host/capability_registry.h"
 // 事件订阅句柄的撤销入口是内联函数, 实现体在 runtime/instance_base.h
 #include "pluginxx/runtime/instance_base.h"
@@ -20,9 +22,12 @@
 #include "musicxx/plugin/api/capability_ids.g.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -169,11 +174,37 @@ void testIfaceMeta() {
 
 /* ==================== 能力登记表 ==================== */
 
+/// 声明一条应用能力（`impls: one` + `impl`）
+pluginxx::CapabilityDecl appDeclOne(const std::string &id) {
+  pluginxx::CapabilityDecl decl;
+  decl.id = id;
+  decl.impls = pluginxx::CapabilityImpls_e::One;
+  decl.merge = pluginxx::CapabilityMerge_e::First;
+  decl.phases = pluginxx::kCapabilityPhaseMaskImpl;
+  return decl;
+}
+
+/// 一条实现行
+pluginxx::CapabilityProvider row(const std::string &provider,
+                                 pluginxx::CapabilityPhase_e phase,
+                                 int32_t priority, int32_t tag) {
+  pluginxx::CapabilityProvider r;
+  r.provider = provider;
+  r.ownerTag = "tag" + std::to_string(tag);
+  r.phase = phase;
+  r.priority = priority;
+  r.start = &fakeStart;
+  r.cancel = &fakeCancel;
+  r.ctx = reinterpret_cast<void *>(static_cast<intptr_t>(tag));
+  return r;
+}
+
 void testCapabilityRegistry() {
-  std::printf("\n-- 能力登记表\n");
+  std::printf("\n-- 能力登记表（多实现 + 阶段 + 覆盖）\n");
   pluginxx::CapabilityRegistry reg;
 
   check(!reg.has("demo.echo"), "未登记的能力 has = false");
+  check(!reg.declares("demo.echo"), "未声明的能力 declares = false");
   check(reg.get("demo.echo") == nullptr, "未登记的能力 get = nullptr");
   check(reg.providerOf("demo.echo").empty(), "未登记的能力 providerOf 为空串");
   check(reg.names().empty(), "空登记表的 names 为空");
@@ -182,7 +213,7 @@ void testCapabilityRegistry() {
   int ctxB = 2;
   check(reg.registerCapability("demo.echo", "plugin_a", &fakeStart, &fakeCancel,
                                &ctxA),
-        "登记能力成功");
+        "登记能力成功（未声明时自动声明单实现）");
   check(reg.has("demo.echo"), "登记后 has = true");
   const auto *entry = reg.get("demo.echo");
   check(entry != nullptr && entry->provider == "plugin_a",
@@ -192,43 +223,412 @@ void testCapabilityRegistry() {
   check(entry != nullptr && entry->ctx == &ctxA, "登记后上下文原样保存");
   check(reg.providerOf("demo.echo") == "plugin_a", "providerOf 返回登记方");
 
-  // 同一插件重复登记是幂等的 (插件会被多个作用域各挂载一次), 保留首次的回调与上下文
-  check(reg.registerCapability("demo.echo", "plugin_a", nullptr, nullptr, &ctxB),
-        "同一登记方重复登记是幂等成功");
+  // 同一插件再次登记 = 同一行的替换（插件会被多个作用域各挂载一次，重复登记不能长出新行）
+  check(reg.registerCapability("demo.echo", "plugin_a", &fakeStart, &fakeCancel,
+                               &ctxB),
+        "同一登记方重复登记成功");
   entry = reg.get("demo.echo");
-  check(entry != nullptr && entry->ctx == &ctxA,
-        "重复登记保留首次的上下文");
+  check(entry != nullptr && entry->ctx == &ctxB, "重复登记替换成新的上下文");
+  check(reg.names().size() == 1, "重复登记不长出新条目");
 
-  // 别的插件抢同一个名字: 拒绝 (旧语义; 新语义见方案 §4.5 的覆盖)
-  check(!reg.registerCapability("demo.echo", "plugin_b", &fakeStart, &fakeCancel,
-                                &ctxB),
-        "别的插件登记同名能力被拒");
-  check(reg.providerOf("demo.echo") == "plugin_a", "被拒后归属不变");
+  // 新语义：impls: one 的 impl 行后登记（含跨插件）整体覆盖
+  check(reg.registerCapability("demo.echo", "plugin_b", &fakeStart, &fakeCancel,
+                               &ctxB),
+        "别的插件登记同名能力成功（覆盖是设计语义）");
+  check(reg.providerOf("demo.echo") == "plugin_b", "覆盖后归属跟着新登记方");
 
   check(!reg.registerCapability("", "plugin_a"), "空能力名被拒");
 
-  check(reg.registerCapability("demo.two", "plugin_b"), "登记第二条能力");
+  // before / after 是干预链：多个插件可以各登记一份
+  pluginxx::CapabilityDecl chainDecl;
+  chainDecl.id = "demo.chain";
+  chainDecl.impls = pluginxx::CapabilityImpls_e::One;
+  chainDecl.merge = pluginxx::CapabilityMerge_e::First;
+  chainDecl.phases = pluginxx::kCapabilityPhaseMaskImpl |
+                     pluginxx::kCapabilityPhaseMaskBefore |
+                     pluginxx::kCapabilityPhaseMaskAfter;
+  check(reg.declare(chainDecl), "声明带阶段链的能力");
+  check(reg.addProvider("demo.chain", row("plugin_a", pluginxx::CapabilityPhase_e::Impl, 0, 1)),
+        "登记 impl 行");
+  check(reg.addProvider("demo.chain", row("plugin_a", pluginxx::CapabilityPhase_e::Before, 10, 2)),
+        "plugin_a 登记 before 行");
+  check(reg.addProvider("demo.chain", row("plugin_b", pluginxx::CapabilityPhase_e::Before, 5, 3)),
+        "plugin_b 登记 before 行（不覆盖别人）");
+  check(reg.addProvider("demo.chain", row("plugin_a", pluginxx::CapabilityPhase_e::After, 0, 4)),
+        "plugin_a 登记 after 行");
   {
-    const std::vector<std::string> names = reg.names();
-    check(names.size() == 2, "names 返回两条");
-    check(names.size() == 2 && names[0] == "demo.echo" && names[1] == "demo.two",
-          "names 按字典序");
+    const auto beforeRows =
+        reg.rowsOf("demo.chain", pluginxx::CapabilityPhase_e::Before);
+    check(beforeRows.size() == 2, "before 链共存两行");
+    check(beforeRows.size() == 2 && beforeRows[0]->provider == "plugin_b" &&
+              beforeRows[1]->provider == "plugin_a",
+          "before 链按 priority 升序");
+    check(reg.rowsOf("demo.chain", pluginxx::CapabilityPhase_e::Impl).size() == 1,
+          "impl 只有一个槽位");
+    check(reg.rowsOf("demo.chain", pluginxx::CapabilityPhase_e::After).size() == 1,
+          "after 链一行");
+  }
+  // 同插件同阶段再登记 = 替换那一行（ownerTag 一并参与判定）
+  check(reg.addProvider("demo.chain",
+                        row("plugin_a", pluginxx::CapabilityPhase_e::Before, 10, 2)),
+        "同插件同阶段重复登记成功");
+  check(reg.rowsOf("demo.chain", pluginxx::CapabilityPhase_e::Before).size() == 2,
+        "同插件同阶段重复登记不长出新行");
+
+  // 阶段未开放：拒绝并写清原因
+  {
+    pluginxx::CapabilityDecl implOnly = appDeclOne("demo.implOnly");
+    check(reg.declare(implOnly), "声明只开放 impl");
+    std::string error;
+    check(!reg.addProvider(
+              "demo.implOnly",
+              row("plugin_a", pluginxx::CapabilityPhase_e::After, 0, 9), &error),
+          "未开放的阶段被拒");
+    check(error.find("after") != std::string::npos, "拒绝原因写明阶段");
   }
 
-  // 注销只能由登记方发起
-  check(!reg.unregisterCapability("demo.echo", "plugin_b"),
-        "非登记方注销被拒");
-  check(reg.has("demo.echo"), "注销被拒后条目仍在");
-  check(reg.unregisterCapability("demo.echo", "plugin_a"), "登记方注销成功");
-  check(!reg.has("demo.echo"), "注销后 has = false");
-  check(!reg.unregisterCapability("demo.echo", "plugin_a"),
-        "重复注销返回 false");
-  check(!reg.unregisterCapability("demo.unknown", "plugin_a"),
-        "注销不存在的条目返回 false");
+  // 未声明就登记：拒绝
+  {
+    std::string error;
+    check(!reg.addProvider("demo.undeclared",
+                           row("plugin_a", pluginxx::CapabilityPhase_e::Impl, 0, 1),
+                           &error),
+          "未声明就登记实现被拒");
+    check(error.find("not declared") != std::string::npos, "拒绝原因写明未声明");
+  }
+
+  // 声明校验
+  {
+    pluginxx::CapabilityRegistry r;
+    pluginxx::CapabilityDecl empty;
+    std::string error;
+    check(!r.declare(empty, &error), "空 id 的声明被拒");
+
+    pluginxx::CapabilityDecl noPhases;
+    noPhases.id = "demo.none";
+    noPhases.phases = 0;
+    check(!r.declare(noPhases), "phases 为空的声明被拒");
+
+    pluginxx::CapabilityDecl noImplMany;
+    noImplMany.id = "demo.noImplMany";
+    noImplMany.impls = pluginxx::CapabilityImpls_e::Many;
+    noImplMany.phases = pluginxx::kCapabilityPhaseMaskBefore;
+    check(!r.declare(noImplMany), "不开放 impl 却声明多实现被拒");
+
+    pluginxx::CapabilityDecl oneVeto;
+    oneVeto.id = "demo.oneVeto";
+    oneVeto.impls = pluginxx::CapabilityImpls_e::One;
+    oneVeto.merge = pluginxx::CapabilityMerge_e::Veto;
+    check(!r.declare(oneVeto), "单实现配 veto 被拒");
+
+    pluginxx::CapabilityDecl negTimeout;
+    negTimeout.id = "demo.neg";
+    negTimeout.timeoutMs = -1;
+    check(!r.declare(negTimeout), "负超时被拒");
+  }
+
+  // 应用声明是权威来源：插件不能改
+  {
+    pluginxx::CapabilityRegistry r;
+    pluginxx::CapabilityDecl appDecl = appDeclOne("demo.authority");
+    appDecl.phases = pluginxx::kCapabilityPhaseMaskImpl |
+                     pluginxx::kCapabilityPhaseMaskBefore;
+    check(r.declare(appDecl), "应用声明成功");
+    pluginxx::CapabilityDecl pluginDecl = appDeclOne("demo.authority");
+    pluginDecl.declaredBy = "plugin_a";
+    std::string error;
+    check(!r.declare(pluginDecl, &error), "插件覆盖应用声明被拒");
+    check(error.find("application") != std::string::npos, "拒绝原因写明应用声明");
+  }
+
+  // 插件自声明：卸载时连同声明一起消失；应用声明的保留空槽位
+  {
+    pluginxx::CapabilityRegistry r;
+    pluginxx::CapabilityDecl own;
+    own.id = "plugin_a.drive.list";
+    own.impls = pluginxx::CapabilityImpls_e::Many;
+    own.merge = pluginxx::CapabilityMerge_e::First;
+    own.phases = pluginxx::kCapabilityPhaseMaskImpl;
+    own.declaredBy = "plugin_a";
+    check(r.declare(own), "插件自声明成功");
+    check(r.addProvider("plugin_a.drive.list",
+                        row("plugin_a", pluginxx::CapabilityPhase_e::Impl, 0, 1)),
+          "插件登记自己的实现");
+    check(r.removeProvider("plugin_a") == 1, "removeProvider 移除实现行");
+    check(!r.declares("plugin_a.drive.list"),
+          "插件声明的槽位在最后一行移除后删除");
+
+    pluginxx::CapabilityDecl appDecl = appDeclOne("musicxx.app.only");
+    check(r.declare(appDecl), "应用声明成功");
+    check(r.removeProvider("plugin_a") == 0, "没有行的插件移除数量为 0");
+    check(r.declares("musicxx.app.only"), "应用声明的槽位保留");
+  }
+
+  // 精确注销一行 / 旧入口注销整个插件
+  {
+    pluginxx::CapabilityRegistry r;
+    pluginxx::CapabilityDecl decl = appDeclOne("demo.unreg");
+    decl.phases = pluginxx::kCapabilityPhaseMaskImpl |
+                  pluginxx::kCapabilityPhaseMaskBefore;
+    check(r.declare(decl), "声明注销用例");
+    check(r.addProvider("demo.unreg", row("plugin_a", pluginxx::CapabilityPhase_e::Impl, 0, 1)),
+          "登记 impl");
+    check(r.addProvider("demo.unreg", row("plugin_a", pluginxx::CapabilityPhase_e::Before, 0, 1)),
+          "登记 before");
+    check(r.unregisterProvider("demo.unreg", "plugin_a", "tag1",
+                               pluginxx::CapabilityPhase_e::Before),
+          "按 ownerTag + 阶段注销一行");
+    check(!r.unregisterProvider("demo.unreg", "plugin_a", "tag1",
+                                pluginxx::CapabilityPhase_e::Before),
+          "重复注销同一行返回 false");
+    check(r.has("demo.unreg"), "还有 impl 行时 has = true");
+    check(r.unregisterCapability("demo.unreg", "plugin_a"), "旧入口注销整个插件");
+    check(!r.has("demo.unreg"), "注销后 has = false");
+    check(r.declares("demo.unreg"), "应用声明保留");
+    check(!r.unregisterCapability("demo.unreg", "plugin_a"), "重复注销返回 false");
+    check(!r.unregisterCapability("demo.unknown", "plugin_a"),
+          "注销不存在的条目返回 false");
+  }
+
+  // 自省
+  {
+    pluginxx::CapabilityRegistry r;
+    pluginxx::CapabilityDecl decl = appDeclOne("demo.info");
+    decl.phases = pluginxx::kCapabilityPhaseMaskImpl |
+                  pluginxx::kCapabilityPhaseMaskAfter;
+    decl.timeoutMs = 500;
+    check(r.declare(decl), "声明自省用例");
+    check(r.addProvider("demo.info", row("plugin_a", pluginxx::CapabilityPhase_e::Impl, 0, 1)),
+          "登记自省实现");
+    const std::string info = r.infoJson("demo.info");
+    check(info.find("\"impls\":\"one\"") != std::string::npos, "info 含 impls");
+    check(info.find("\"phases\":[\"impl\",\"after\"]") != std::string::npos,
+          "info 含 phases");
+    check(info.find("\"timeoutMs\":500") != std::string::npos, "info 含 timeoutMs");
+    check(info.find("\"provider\":\"plugin_a\"") != std::string::npos,
+          "info 含实现行");
+    const std::string list = r.listJson();
+    check(list.find("demo.info") != std::string::npos, "list 含能力 id");
+    check(r.infoJson("demo.unknown").empty(), "未声明能力的 info 为空串");
+  }
 
   // 事件订阅句柄的撤销入口对空指针是空操作 (插件传过期/空句柄不崩)
   pluginxx::unsubscribePluginSubscription(nullptr);
   check(true, "撤销空的事件订阅句柄不崩");
+}
+
+/* ==================== 广播注册表 ==================== */
+
+void testBroadcastRegistry() {
+  std::printf("\n-- 广播注册表（缓存 / 写权限 / 订阅即推）\n");
+  pluginxx::BroadcastRegistry reg;
+
+  check(!reg.declares("musicxx.state.player"), "未声明的频道 declares = false");
+  check(reg.ids().empty(), "空登记表没有频道");
+  {
+    std::string error;
+    check(!reg.publish("musicxx.state.player", "{}", "",
+                       &error),
+          "未声明的频道发布被拒");
+    check(error.find("not declared") != std::string::npos, "拒绝原因写明未声明");
+    std::string value;
+    check(!reg.read("musicxx.state.player", &value), "未声明的频道读不到值");
+    check(reg.subscribe("musicxx.state.player", "plugin_a",
+                        [](std::string_view) {}, &error) == 0,
+          "未声明的频道订阅失败");
+  }
+
+  pluginxx::BroadcastDecl state;
+  state.id = "musicxx.state.player";
+  state.cache = pluginxx::BroadcastCache_e::Latest;
+  state.writable = pluginxx::BroadcastWritable_e::Owner;
+  state.pushOnSubscribe = true;
+  state.coalesce = true;
+  check(reg.declare(state), "声明状态镜像频道（应用属主）");
+
+  std::vector<std::string> seen;
+  const uint64_t token = reg.subscribe("musicxx.state.player", "plugin_a",
+                                      [&seen](std::string_view v) {
+                                        seen.emplace_back(v);
+                                      });
+  check(token != 0, "订阅成功返回令牌");
+  check(seen.empty(), "还没有值时订阅即推不回调");
+
+  check(reg.publish("musicxx.state.player", R"({"playing":true})", ""),
+        "应用写状态镜像成功");
+  check(seen.size() == 1 && seen[0] == R"({"playing":true})",
+        "订阅方收到发布值");
+  check(reg.publish("musicxx.state.player", R"({"playing":false})", ""),
+        "应用再次写状态镜像成功");
+  {
+    std::string value;
+    check(reg.read("musicxx.state.player", &value) &&
+              value == R"({"playing":false})",
+          "读当前值只有最后一份");
+    check(seen.size() == 2 && seen.back() == R"({"playing":false})",
+          "订阅方收到最后一次");
+  }
+  {
+    std::string error;
+    check(!reg.publish("musicxx.state.player", "{}", "plugin_a", &error),
+          "插件写属主频道被拒");
+    check(error.find("owned by") != std::string::npos, "拒绝原因写明属主");
+  }
+  // 订阅即推：新订阅立刻拿到当前值
+  {
+    std::vector<std::string> pushed;
+    const uint64_t t2 = reg.subscribe("musicxx.state.player", "plugin_b",
+                                     [&pushed](std::string_view v) {
+                                       pushed.emplace_back(v);
+                                     });
+    check(t2 != 0 && pushed.size() == 1 &&
+              pushed[0] == R"({"playing":false})",
+          "订阅即推拿到当前值");
+    check(reg.unsubscribe("musicxx.state.player", t2), "订阅即推后退订成功");
+  }
+
+  // 变量频道：任何人都能写、订阅即推、不合并
+  pluginxx::BroadcastDecl var;
+  var.id = "musicxx.var.player.volume";
+  var.cache = pluginxx::BroadcastCache_e::Latest;
+  var.writable = pluginxx::BroadcastWritable_e::Anyone;
+  var.pushOnSubscribe = true;
+  var.coalesce = false;
+  check(reg.declare(var), "声明变量频道（任何人可写）");
+  {
+    std::vector<std::string> values;
+    const uint64_t t = reg.subscribe("musicxx.var.player.volume", "plugin_a",
+                                    [&values](std::string_view v) {
+                                      values.emplace_back(v);
+                                    });
+    check(t != 0, "变量频道订阅成功");
+    check(reg.publish("musicxx.var.player.volume", "10", "plugin_a"),
+          "插件写变量成功");
+    check(reg.publish("musicxx.var.player.volume", "20", "plugin_b"),
+          "另一个插件写同一个变量成功");
+    check(reg.publish("musicxx.var.player.volume", "30", ""),
+          "应用写变量成功");
+    check(values.size() == 3 && values.back() == "30",
+          "coalesce: false 时每次发布都投递");
+    std::string value;
+    check(reg.read("musicxx.var.player.volume", &value) && value == "30",
+          "变量读当前值");
+  }
+
+  // 事件频道：没有当前值，订阅收到每一条
+  pluginxx::BroadcastDecl event;
+  event.id = "plugin_a.net";
+  event.cache = pluginxx::BroadcastCache_e::None;
+  event.writable = pluginxx::BroadcastWritable_e::Anyone;
+  event.owner = "plugin_a";
+  check(reg.declare(event), "声明事件频道（插件属主）");
+  {
+    std::vector<std::string> events;
+    const uint64_t t = reg.subscribe("plugin_a.net", "plugin_b",
+                                     [&events](std::string_view v) {
+                                       events.emplace_back(v);
+                                     });
+    check(t != 0, "事件频道订阅成功");
+    check(reg.publish("plugin_a.net", R"({"n":1})", "plugin_a"), "发布事件 1");
+    check(reg.publish("plugin_a.net", R"({"n":2})", "plugin_a"), "发布事件 2");
+    check(events.size() == 2, "cache: none 时两条都收到");
+    std::string value;
+    check(!reg.read("plugin_a.net", &value), "cache: none 读不到当前值");
+    // 订阅的回调捕获了块内变量, 离开块之前必须退订 (真实调用方由实例卸载路径撤销)
+    check(reg.unsubscribe("plugin_a.net", t), "事件频道退订成功");
+  }
+
+  // 系统频道：插件不能写
+  pluginxx::BroadcastDecl system;
+  system.id = "musicxx.system.debug";
+  system.scope = pluginxx::BroadcastScope_e::System;
+  system.cache = pluginxx::BroadcastCache_e::Latest;
+  check(reg.declare(system), "声明系统频道");
+  {
+    std::string error;
+    check(!reg.publish("musicxx.system.debug", "{}", "plugin_a", &error),
+          "插件写系统频道被拒");
+    check(error.find("system") != std::string::npos, "拒绝原因写明系统频道");
+    check(reg.publish("musicxx.system.debug", "{}", ""), "应用写系统频道成功");
+  }
+  {
+    pluginxx::BroadcastDecl bad = system;
+    bad.id = "musicxx.system.bad";
+    bad.writable = pluginxx::BroadcastWritable_e::Anyone;
+    check(!reg.declare(bad), "系统频道声明 anyone 可写被拒");
+    pluginxx::BroadcastDecl badPush = event;
+    badPush.id = "plugin_a.badPush";
+    badPush.pushOnSubscribe = true;
+    check(!reg.declare(badPush), "cache: none 配订阅即推被拒");
+    pluginxx::BroadcastDecl empty;
+    check(!reg.declare(empty), "空 id 的广播声明被拒");
+  }
+
+  // 应用声明不能被插件覆盖
+  {
+    pluginxx::BroadcastDecl pluginDecl = state;
+    pluginDecl.owner = "plugin_a";
+    std::string error;
+    check(!reg.declare(pluginDecl, &error), "插件覆盖应用声明被拒");
+    check(error.find("application") != std::string::npos, "拒绝原因写明应用声明");
+  }
+
+  // 订阅回调抛异常不影响其它订阅者与发布结果
+  {
+    pluginxx::BroadcastDecl throwing = event;
+    throwing.id = "plugin_a.throwing";
+    check(reg.declare(throwing), "声明异常回调用例频道");
+    int goodCalls = 0;
+    check(reg.subscribe("plugin_a.throwing", "plugin_b",
+                        [](std::string_view) {
+                          throw std::runtime_error("boom");
+                        }) != 0,
+          "登记抛异常的订阅");
+    check(reg.subscribe("plugin_a.throwing", "plugin_c",
+                        [&goodCalls](std::string_view) { ++goodCalls; }) != 0,
+          "登记正常订阅");
+    check(reg.publish("plugin_a.throwing", "{}", "plugin_a"),
+          "有订阅抛异常时发布仍成功");
+    check(goodCalls == 1, "抛异常的订阅不影响后面的订阅");
+  }
+
+  // 退订
+  {
+    int calls = 0;
+    const uint64_t t = reg.subscribe("plugin_a.net", "plugin_b",
+                                    [&calls](std::string_view) { ++calls; });
+    check(t != 0, "登记待退订的订阅");
+    check(reg.unsubscribe("plugin_a.net", t), "退订成功");
+    check(!reg.unsubscribe("plugin_a.net", t), "重复退订返回 false");
+    check(reg.publish("plugin_a.net", "{}", "plugin_a"), "退订后发布成功");
+    check(calls == 0, "退订后不再收到");
+
+    check(reg.subscribe("musicxx.var.player.volume", "plugin_d",
+                        [](std::string_view) {}) != 0,
+          "登记按属主退订的订阅");
+    check(reg.removeSubscriber("plugin_d") >= 1, "按属主批量退订");
+    check(reg.removeSubscriber("plugin_d") == 0, "重复按属主退订数量为 0");
+    check(reg.removeChannelsOwnedBy("plugin_a") == 2,
+          "按属主删除插件频道（net / throwing）");
+    check(!reg.declares("plugin_a.net"), "插件频道删除后查不到");
+    check(reg.declares("musicxx.state.player"), "应用频道不受影响");
+  }
+
+  // 自省
+  {
+    const std::string info = reg.infoJson("musicxx.state.player");
+    check(info.find("\"cache\":\"latest\"") != std::string::npos, "info 含 cache");
+    check(info.find("\"writable\":\"owner\"") != std::string::npos,
+          "info 含 writable");
+    check(info.find("\"pushOnSubscribe\":true") != std::string::npos,
+          "info 含 pushOnSubscribe");
+    check(info.find("\"hasValue\":true") != std::string::npos, "info 含 hasValue");
+    const std::string list = reg.listJson();
+    check(list.find("musicxx.state.player") != std::string::npos,
+          "list 含频道 id");
+    check(reg.infoJson("musicxx.unknown.channel").empty(),
+          "未声明频道的 info 为空串");
+  }
 }
 
 } // namespace
@@ -382,6 +782,7 @@ int main() {
   testScopeRef();
   testIfaceMeta();
   testCapabilityRegistry();
+  testBroadcastRegistry();
   testCapabilityDeclarations();
 
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);
