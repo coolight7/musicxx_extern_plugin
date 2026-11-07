@@ -638,15 +638,20 @@ public:
                           const std::vector<std::string> &scriptHints,
                           const std::string &version, std::string &err);
 
-  /* ---------- DomainHooks (事件主题规则对外可见: 插件 events 表入口要用)
+  /* ---------- DomainHooks (主题规则对外可见: 插件 broadcasts 表入口要用)
    * ---------- */
 
-  /// 事件后端 (musicxx 只有一条主程序总线, 没有按作用域划分的总线)
-  /// - `scope` 为空: 主程序总线
-  /// - `scope` 带 id: 本程序没有该作用域, 返回空 (插件拿到空订阅句柄)
-  std::shared_ptr<pluginxx::EventSource>
-  eventSource(const PluginxxScopeRef *scope) override;
+  /// 广播 id 的命名空间规则: 只接受官方 `musicxx.*` 与插件 `plugin.<id>.*`
   std::string qualifyEventTopic(std::string_view topic) override;
+
+  /// 实例名 → 插件 id (`js:<id>` → `<id>`; 其余原样), 能力 / 广播的归属都用它
+  std::string pluginId(std::string_view instanceName) override;
+
+  /// 宿主按 id 前缀补一份默认声明 (应用下发声明之前的过渡做法)
+  /// - `musicxx.state.*`: 快照 + 属主写 + 订阅即推
+  /// - `musicxx.var.*`: 快照 + 任何人可写 + 订阅即推 + 不合并
+  /// - 其余 (业务事件): 没有当前值
+  void ensureBroadcastChannel(const std::string &id);
 
 protected:
   /* ---------- 插件框架生命周期接口实现 ---------- */
@@ -883,8 +888,9 @@ private:
   void *wakeUser_ = nullptr;
 
   // 状态镜像 (Dart 线程写, 框架线程读)
-  mutable std::mutex stateMutex_;
-  std::map<std::string, std::string, std::less<>> state_;
+  /// 频道声明簿记 (避免每个事件都去查一遍注册表; 只增不减)
+  std::mutex declaredBroadcastsMutex_;
+  std::set<std::string, std::less<>> declaredBroadcasts_;
 
   // 钩子注册表 (仅框架线程)
   std::map<std::string, std::vector<HookHandler>, std::less<>> hooks_;
@@ -1144,8 +1150,7 @@ private:
   std::map<std::string, std::vector<std::string>, std::less<>>
       stateSubscriptions_;
 
-  // 插件事件总线 (进程内主题表; 见 eventSource()/publishPluginEvent)
-  std::shared_ptr<pluginxx::EventSource> eventBus_;
+  // 插件广播注册表由插件框架持有 (PluginHostCore::broadcasts())
 
   std::chrono::steady_clock::time_point startTime_{};
 };

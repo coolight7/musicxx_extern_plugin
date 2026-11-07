@@ -934,17 +934,17 @@ cmake --build build
 插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
 
 **插件 API 契约版本（`PLUGINXX_API_VERSION`）必须与插件框架库一致**：它决定接口表按哪套写法调
-（例如订阅事件要不要带作用域引用），两侧不一致时是 ABI 不兼容。当前值是 **3**，由 SDK 的
+（例如能力怎么登记、广播怎么订阅），两侧不一致时是 ABI 不兼容。当前值是 **4**，由 SDK 的
 INTERFACE 目标自动带上（`musicxx_plugin_add_target` 也用它），清单 `api_version` 写同一个数。
 自己手写 CMake 时要补：
 
 ```cmake
-target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=3 PLUGINXX_MIN_API_VERSION=3)
+target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=4 PLUGINXX_MIN_API_VERSION=4)
 ```
 
-**按旧头文件编译过的插件必须重新编译**：`pluginxx.events` / `capabilities` /
-`config` / `cancel` 四张通用表升到了 v3，调用约定变了，旧的二进制在加载阶段会被拒
-（「API 版本过低」）。
+**按旧头文件编译过的插件必须重新编译**：`pluginxx.capabilities` 换成了 v4（声明 + 多实现行），
+`pluginxx.events` 换成了 `pluginxx.broadcasts`（频道声明 + 缓存 + 写权限），调用约定变了，
+旧的二进制在加载阶段会被拒（「API 版本过低」）。
 
 插件框架库不在 Flutter 构建里"顺带编译"（依赖链太重），但**主程序构建会自动触发它**：平台工程在配置阶段调用
 包内构建脚本的自动模式（已是最新则秒级返回；关掉见 `README.md`「打包（随应用分发）」）。

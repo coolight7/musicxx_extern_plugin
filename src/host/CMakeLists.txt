@@ -80,7 +80,7 @@ unset(_musicxx_ext_missing)
 # 这里下发到自己的目标 (插件框架库 / 插件 SDK / 示例插件 / 原生测试), 保证插件框架库与
 # 它加载的插件看到同一个值: 插件按 PLUGINXX_API_VERSION 决定用哪套写法
 # (例如 events 订阅是否带作用域引用), 两侧不一致时是 ABI 不兼容。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "3" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "4" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 
 # ==================== OpenSSL (客户端 TLS) ====================

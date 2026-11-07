@@ -8,6 +8,24 @@
 
 ## 历史
 
+### 变更（破坏性，dev）：`cxx_pluginxx` 通用表换成「能力 + 广播」，插件 ABI 代次 3 → 4
+
+`pluginxx.capabilities` 与 `pluginxx.events` 两张表换掉，**不保留旧写法**：
+
+- **`pluginxx.capabilities` v4**：从"名字 → 唯一提供者"改成"声明 + 实现行"。
+  - 插件用 `register_capability(spec)` 登记：`id` 写全名（`musicxx.*`，给应用声明过的能力提供实现）
+    或短名（宿主补成 `plugin.<本插件 id>.<名字>`，同时声明一条自己的能力）；
+  - 一条能力可以有多个实现行（`impls: many`，按阶段 `before` / `impl` / `after` 与 `priority` 排序），
+    或者只有一个（`impls: one`，后登记的整体覆盖）；结果合并由声明的 `merge` 决定（`first` / `veto`）；
+  - `invoke_capability` 取代 `invoke_capability_async`（不再有 `method` 参数，参数与结果都是 JSON）；
+  - 新增 `capability_info` / `list_capabilities` 自省；`has_capability` 删除（用 `capability_info`）。
+- **`pluginxx.broadcasts` v1** 取代 `pluginxx.events`：
+  - 频道先声明（`declare_broadcast`，`cache` / `writable` / `pushOnSubscribe` / `coalesce` / `scope`），
+    再发布 / 订阅 / 读当前值；
+  - `cache: latest` 的频道有当前值，`read_broadcast` 同步读；`pushOnSubscribe` 订阅时补一次当前值；
+  - 写权限按声明判：`writable: owner` 只有属主能写，`scope: system` 只有应用能写。
+- 插件清单 `api_version` 写 **4**；旧的二进制在加载阶段会被拒（「API 版本过低」）。
+
 ### 变更（破坏性，dev）：钩子表精简、通知与网络动作归一
 
 这一批改动会改变接口形状，**不保留旧写法**（按“未发布功能不留兼容”的约定）：

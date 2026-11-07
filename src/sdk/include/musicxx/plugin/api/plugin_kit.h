@@ -513,10 +513,9 @@ public:
     /// - 长任务请在协程里 `co_await pluginxx::offload(*this, work)` 把重活交给框架工作线程池。
     auto capabilityCall(
         std::string_view capability,
-        std::string_view method,
         std::string_view argsJson = "{}"
     ) {
-        return pluginxx::invoke_cap(*this, capability, method, argsJson);
+        return pluginxx::invoke_cap(*this, capability, argsJson);
     }
 
     /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
@@ -525,11 +524,10 @@ public:
     /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
     int32_t capabilityCall(
         std::string_view              capability,
-        std::string_view              method,
         std::string_view              argsJson,
         const PluginxxOperatorNotify* notify
     ) {
-        if (!iface.capabilities || !iface.capabilities->invoke_capability_async) {
+        if (!iface.capabilities || !iface.capabilities->invoke_capability) {
             return -1;
         }
         if (!notify || !notify->done) {
@@ -546,16 +544,15 @@ public:
         pruneActionNotifies();
 
         PluginxxStringView capView  = pluginxxView(capability);
-        PluginxxStringView methView = pluginxxView(method);
         PluginxxStringView argsView = pluginxxView(argsJson.empty() ? "{}" : argsJson);
         PluginxxString     errorOut{};
         // 作用域引用: 音乐类主程序没有作用域概念, 传空表示"发起方不在任何作用域上下文"
-        auto* op = iface.capabilities->invoke_capability_async(
+        auto* op = iface.capabilities->invoke_capability(
             host,
             nullptr,
             &capView,
-            &methView,
             &argsView,
+            0, ///< 阶段: 0 = 走完整链 before → impl → after
             &actionNotifyTrampoline,
             holderPtr,
             &errorOut
@@ -793,8 +790,8 @@ public:
     /// - 处理器持有者与钩子处理器同一存放位置, 生命周期 = 插件实例。
     template<typename Fn>
     int32_t subscribeTopic(const char* topic, Fn&& fn) {
-        if (!iface.events || !iface.events->subscribe) {
-            log.warn("pluginxx.events 表不可用: 事件订阅未生效 (插件框架版本过旧?)");
+        if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
+            log.warn("pluginxx.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
             return -1;
         }
         using FnT       = std::decay_t<Fn>;
@@ -804,8 +801,8 @@ public:
 
         PluginxxStringView topicView = pluginxxView(topic ? topic : "");
         // 作用域引用: 音乐类主程序只有一条主程序总线, 传空表示订阅它
-        auto* sub = iface.events->subscribe(host, nullptr, &topicView,
-                                           &EventHolder<FnT>::invoke, holderPtr);
+        auto* sub = iface.broadcasts->subscribe_broadcast(
+            host, nullptr, &topicView, &EventHolder<FnT>::invoke, holderPtr, nullptr);
         return sub ? 0 : -1;
     }
 

@@ -137,87 +137,6 @@ void ensureStderrLogSink() {
       "[musicxx_ext] stderr 日志已开启 (MUSICXX_EXTERN_PLUGIN_LOG_STDERR)\n");
 }
 
-/* ==================== 插件事件总线 (插件 ↔ 插件框架) ==================== */
-
-/// 进程内主题事件总线 (pluginxx `events` 表的后端)
-///
-/// - 与 Dart 事件队列 (pushEvent/pollEvents) 是**两条独立通道**:
-/// 本总线服务插件之间
-///   与"插件框架 → 插件"的事件; Dart 侧事件仍走有界队列;
-/// - 订阅/撤销在框架线程登记, 回调在**发布者线程**执行
-/// (插件框架发布入口已投递到框架线程),
-///   因此回调里不得阻塞 (与钩子处理器同一条约定);
-/// - 回调在锁外执行: 处理器内部再次订阅/撤销/发布不会自锁。
-class TopicEventBus final : public pluginxx::EventSource {
-public:
-  size_t subscribe(std::string_view topic,
-                   std::function<void(std::string_view)> handler) override {
-    if (topic.empty() || !handler) {
-      return 0; ///< 0 = 订阅失败 (插件框架会记录并拒绝该主题)
-    }
-    std::lock_guard<std::mutex> lock{mutex_};
-    const size_t id = ++nextId_;
-    subscribers_.push_back(
-        Subscriber{std::string{topic}, id, std::move(handler)});
-    return id;
-  }
-
-  void unsubscribe(std::string_view topic, size_t subscriptionId) override {
-    std::lock_guard<std::mutex> lock{mutex_};
-    std::erase_if(subscribers_, [&](const Subscriber &sub) {
-      return sub.id == subscriptionId && sub.topic == topic;
-    });
-  }
-
-  int publish(std::string_view topic, std::string_view eventJson) override {
-    if (topic.empty()) {
-      return -1;
-    }
-    std::vector<std::function<void(std::string_view)>> targets;
-    {
-      std::lock_guard<std::mutex> lock{mutex_};
-      for (const auto &sub : subscribers_) {
-        if (sub.topic == topic) {
-          targets.push_back(sub.handler);
-        }
-      }
-    }
-    for (const auto &fn : targets) {
-      try {
-        fn(eventJson);
-      } catch (const std::exception &e) {
-        XX_LOGW("[musicxx_ext] 事件处理器异常 (topic={}): {}", topic, e.what());
-      } catch (...) {
-        XX_LOGW("[musicxx_ext] 事件处理器未知异常 (topic={})", topic);
-      }
-    }
-    return 0;
-  }
-
-  /// 某主题当前订阅者数量 (用于"没人订阅就别推"的快速判断)
-  int32_t subscriberCount(std::string_view topic) const {
-    std::lock_guard<std::mutex> lock{mutex_};
-    int32_t count = 0;
-    for (const auto &sub : subscribers_) {
-      if (sub.topic == topic) {
-        ++count;
-      }
-    }
-    return count;
-  }
-
-private:
-  struct Subscriber {
-    std::string topic;
-    size_t id = 0;
-    std::function<void(std::string_view)> handler;
-  };
-
-  mutable std::mutex mutex_;
-  std::vector<Subscriber> subscribers_;
-  size_t nextId_ = 0;
-};
-
 /// 当前插件框架的规范架构名（编译目标）
 ///
 /// 判定与多目标分支选择共用一份实现（`currentTargetArch()`，见
@@ -258,7 +177,8 @@ HostContext::~HostContext() {
 MusicxxHostManager::MusicxxHostManager(asio::any_io_executor ex)
     : Base(std::move(ex)) {
   // 事件后端在构造期就绪 (DomainHooks 的任何入口都可能被调用)
-  eventBus_ = std::make_shared<TopicEventBus>();
+  // 广播注册表由插件框架创建 (PluginHostCore::broadcasts()); 宿主只负责
+  // 按 id 前缀补默认声明, 见 ensureBroadcastChannel()
   // 插件网络能力: 自己的网络线程; 事件发到插件框架事件总线, 异步完成回调投递回框架线程
   netHub_ = PluginNetHub::create(
       [this](const std::string &pluginId, const std::string &payload) {
@@ -2292,8 +2212,9 @@ void MusicxxHostManager::startCapabilityCall(
       inst,
       nullptr, ///< 作用域引用: musicxx 没有作用域, 发起方不在任何作用域上下文
       capView,
-      capView, ///< method: 与能力全名一致 (插件按需再细分)
-      argsView, &capabilityCallTrampoline, bridge, &callErr);
+      argsView,
+      0, ///< 阶段: 0 = 走完整链 before → impl → after
+      &capabilityCallTrampoline, bridge, &callErr);
   if (!handle) {
     // 受理失败: 完成回调不会被调用, 由这里回收 bridge 并终结本次调用
     std::unique_ptr<CapabilityCallBridge> holder{bridge};
@@ -2491,18 +2412,8 @@ void MusicxxHostManager::pluginCallAsync(
   });
 }
 
-std::shared_ptr<pluginxx::EventSource>
-MusicxxHostManager::eventSource(const PluginxxScopeRef *scope) {
-  // musicxx 没有按作用域划分的事件总线: 只有一条进程级总线。
-  // - 引用为空 (或结构体不可读): 订阅主程序总线, 这是插件的常规路径;
-  // - 引用带 id: 本程序没有该作用域, 返回空表示不提供作用域总线。
-  if (pluginxx_scope_ref_ok(scope) != 0 && scope->id.data != nullptr &&
-      scope->id.size > 0) {
-    XX_LOGW("[musicxx_ext] 拒绝按作用域 `{}` 订阅事件: 本程序只有主程序总线",
-            std::string_view{scope->id.data, static_cast<size_t>(scope->id.size)});
-    return nullptr;
-  }
-  return eventBus_;
+std::string MusicxxHostManager::pluginId(std::string_view instanceName) {
+  return naming::pluginIdOfInstance(instanceName);
 }
 
 std::string MusicxxHostManager::qualifyEventTopic(std::string_view topic) {
@@ -2521,6 +2432,44 @@ std::string MusicxxHostManager::qualifyEventTopic(std::string_view topic) {
           "plugin.<pluginId>.*)",
           topic);
   return {};
+}
+
+void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
+  if (id.empty()) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock{declaredBroadcastsMutex_};
+    if (declaredBroadcasts_.contains(id)) {
+      return;
+    }
+  }
+  pluginxx::BroadcastDecl decl;
+  decl.id = id;
+  const bool isState = id.rfind("musicxx.state.", 0) == 0;
+  const bool isVar = id.rfind("musicxx.var.", 0) == 0;
+  if (isState || isVar) {
+    decl.cache = pluginxx::BroadcastCache_e::Latest;
+    decl.pushOnSubscribe = true;
+    decl.coalesce = isState;
+    decl.writable = isVar ? pluginxx::BroadcastWritable_e::Anyone
+                          : pluginxx::BroadcastWritable_e::Owner;
+  } else {
+    decl.cache = pluginxx::BroadcastCache_e::None;
+    decl.pushOnSubscribe = false;
+    decl.coalesce = true;
+    decl.writable = pluginxx::BroadcastWritable_e::Anyone;
+  }
+  if (id.rfind("plugin.", 0) == 0) {
+    decl.owner = naming::pluginIdOfTopic(id);
+  }
+  std::string error;
+  if (!broadcasts()->declare(decl, &error)) {
+    XX_LOGW("[musicxx_ext] 广播频道 `{}` 声明失败: {}", id, error);
+    return;
+  }
+  std::lock_guard<std::mutex> lock{declaredBroadcastsMutex_};
+  declaredBroadcasts_.insert(id);
 }
 
 int32_t MusicxxHostManager::publishPluginEvent(const std::string &topic,
@@ -2556,8 +2505,10 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   accountEventForTopic(fullTopic);
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
-  const int32_t rc = eventBus_ ? eventBus_->publish(fullTopic, payload) : -1;
-  if (rc != 0) {
+  ensureBroadcastChannel(fullTopic);
+  std::string  broadcastError;
+  const int32_t rc = publishBroadcast(fullTopic, payload, std::string{}, &broadcastError);
+  if (rc != PLUGINXX_RESULT_OK) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
   // 观测回传: 仅在调试开关打开时把主题镜像给 Dart 侧
@@ -2611,21 +2562,25 @@ int32_t MusicxxHostManager::stateUpdate(const std::string &key,
   }
   std::string text = value.dump();
   /// 单键不再限制大小 (早期版本 512 KiB 上限已移除): 只要求是合法 JSON。
-  {
-    std::lock_guard<std::mutex> lock{stateMutex_};
-    state_[key] = text;
-  }
-  // 通知"声明关心该键"的插件 (musicxx.host.subscribe_state):
-  // 事件处理必须回到框架线程, 因此这里投递后立即返回 (调用方通常是 Dart 线程)
-  {
-    auto self = shared_from_this();
-    asio::post(ctx_->io, [self, key, text] {
-      Json payload;
-      payload["key"] = key;
-      payload["value"] = parseJsonSafe(text);
-      self->eventBus_->publish("musicxx.state.changed", payload.dump());
-    });
-  }
+  ///
+  /// 状态镜像现在只有一份存储: 广播注册表的当前值 (`getState` 读它)。
+  /// 发布与回调必须回到框架线程 (插件处理器约定在框架线程执行), 因此这里投递后
+  /// 立即返回 (调用方通常是 Dart 线程)。
+  auto self = shared_from_this();
+  asio::post(ctx_->io, [self, key, text] {
+    self->ensureBroadcastChannel(key);
+    std::string publishError;
+    if (self->publishBroadcast(key, text, std::string{}, &publishError) != PLUGINXX_RESULT_OK) {
+      XX_LOGW("[musicxx_ext] 状态镜像 `{}` 写入广播失败: {}", key, publishError);
+    }
+    /// 兼容通道: 关心"任意键变化"的插件仍可订阅 `musicxx.state.changed`
+    self->ensureBroadcastChannel("musicxx.state.changed");
+    Json payload;
+    payload["key"] = key;
+    payload["value"] = parseJsonSafe(text);
+    self->publishBroadcast("musicxx.state.changed", payload.dump(), std::string{},
+                           &publishError);
+  });
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 

@@ -1072,13 +1072,15 @@ void MusicxxHostManager::cancelAction(int64_t requestId) {
 
 int32_t MusicxxHostManager::getState(std::string_view key,
                                      std::string &outJson) {
-  std::lock_guard<std::mutex> lock{stateMutex_};
-  auto it = state_.find(std::string{key});
-  if (it == state_.end()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  /// 状态镜像只有一份存储: 广播注册表的当前值 (与 subscribe_broadcast 读到的是同一个)
+  PluginxxString out{nullptr, 0};
+  const int32_t rc = readBroadcast(key, &out);
+  if (rc == PLUGINXX_RESULT_OK) {
+    outJson.assign(out.data, static_cast<size_t>(out.size));
+    pluginxx::hostMemoryFree(out.data);
+    return MUSICXX_EXTERN_PLUGIN_OK;
   }
-  outJson = it->second;
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
 }
 
 int32_t MusicxxHostManager::subscribeState(MusicxxHostInstance *inst,
@@ -1427,86 +1429,165 @@ void *PLUGINXX_CALL xx_alloc_fn(uint64_t size) {
 
 void PLUGINXX_CALL xx_free_fn(void *ptr) { pluginxx::hostMemoryFree(ptr); }
 
-/* ==================== 事件表 (自定义入口: 增加发布归属校验)
- * ==================== */
+/* ==================== 广播表 (自定义入口: 增加 id 归属校验与频道补齐) ==================== */
 
-/// 订阅事件 (任意线程; 插件框架入口语义 + 主题合法性校验)
-PluginxxSubscription *PLUGINXX_CALL xx_subscribe_event(
+/// 声明频道 (任意线程; 名字必须是官方或本插件命名空间)
+int32_t PLUGINXX_CALL xx_declare_broadcast(const PluginxxHost *host,
+                                           const PluginxxStringView *declJson,
+                                           PluginxxString *errorOut) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
+        if (!declJson || !declJson->data) {
+          pluginxx::detail::setErrorString(errorOut, "declare_broadcast: missing declaration");
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string text{
+            declJson->data, static_cast<size_t>(declJson->size)};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, text, errorOut]() -> int32_t {
+              std::string error;
+              const int32_t rc = mgr->declareBroadcast(inst, text, &error);
+              if (rc != PLUGINXX_RESULT_OK) {
+                pluginxx::detail::setErrorString(errorOut, error);
+              }
+              return rc;
+            });
+      });
+}
+
+/// 订阅广播 (任意线程; 主题形状与归属规则与旧事件表一致)
+PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
-    const PluginxxStringView *topic,
-    void(PLUGINXX_CALL *handler)(const PluginxxStringView *event_json,
+    const PluginxxStringView *id,
+    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
                                  void *ud),
-    void *ud) {
+    void *ud, PluginxxString *errorOut) {
   return pluginxx::guardVtableCall(nullptr, [&]() -> PluginxxSubscription * {
     auto call =
         pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
             host);
-    if (!call.ok() || !topic || !topic->data || !handler) {
+    if (!call.ok() || !id || !id->data || !handler) {
+      pluginxx::detail::setErrorString(errorOut,
+                                      "subscribe_broadcast: missing id or handler");
       return nullptr;
     }
     auto mgr = call.manager();
     auto inst = call.instance();
-    const std::string topicText =
-        std::string{topic->data, static_cast<size_t>(topic->size)};
-    // 订阅只要求主题形状合法 (可以订阅其它插件或官方主题); 发布才做归属校验
-    if (mgr->qualifyEventTopic(topicText).empty()) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 订阅非法主题 `{}` 被拒绝", inst->name,
-              topicText);
+    const std::string idText =
+        std::string{id->data, static_cast<size_t>(id->size)};
+    // 订阅只要求 id 形状合法 (可以订阅其它插件或官方频道); 发布才做归属校验
+    if (mgr->qualifyEventTopic(idText).empty()) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 订阅非法广播 `{}` 被拒绝", inst->name,
+              idText);
+      pluginxx::detail::setErrorString(errorOut,
+                                      "subscribe_broadcast: illegal id");
       return nullptr;
     }
+    // 应用下发声明之前, 宿主按 id 前缀补一份默认声明
+    mgr->ensureBroadcastChannel(mgr->qualifyEventTopic(idText));
     // 作用域引用里的 id 是借用视图: 投递前复制成自有结构 (与通用表入口同一做法)
     PluginxxScopeRef scopeCopy{};
     const bool hasScope = pluginxx_scope_ref_ok(scope) != 0;
     if (hasScope) {
       scopeCopy = *scope;
     }
-    return pluginxx::ioCallSyncKeep<PluginxxSubscription *>(
+    auto *sub = pluginxx::ioCallSyncKeep<PluginxxSubscription *>(
         call, mgr,
-        [mgr, inst, hasScope, scopeCopy, topicText, handler, ud]() {
-          return mgr->subscribe(inst, hasScope ? &scopeCopy : nullptr,
-                                topicText, handler, ud);
+        [mgr, inst, hasScope, scopeCopy, idText, handler, ud]() {
+          return mgr->subscribeBroadcast(inst, hasScope ? &scopeCopy : nullptr,
+                                         idText, handler, ud);
         });
+    if (!sub) {
+      pluginxx::detail::setErrorString(errorOut,
+                                      "subscribe_broadcast: rejected");
+    }
+    return sub;
   });
 }
 
 /// 撤销订阅 (幂等; 任意线程)
-void PLUGINXX_CALL xx_unsubscribe_event(PluginxxSubscription *sub) {
-  pluginxx::unsubscribePluginSubscription(sub);
+void PLUGINXX_CALL xx_unsubscribe_broadcast(PluginxxSubscription *sub) {
+  pluginxx::unsubscribePluginBroadcast(sub);
 }
 
-/// 发布事件 (任意线程): 主题必须是官方 `musicxx.*` 或本插件自己的
+/// 发布广播 (任意线程): id 必须是官方 `musicxx.*` 或本插件自己的
 /// `plugin.<id>.*`
-int32_t PLUGINXX_CALL xx_publish_event(const PluginxxHost *host,
-                                       const PluginxxStringView *topic,
-                                       const PluginxxStringView *event_json) {
-  return pluginxx::guardVtableCall(-1, [&]() -> int32_t {
-    auto call =
-        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-            host);
-    if (!call.ok() || !topic || !topic->data || !event_json) {
-      return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-    }
-    auto mgr = call.manager();
-    auto inst = call.instance();
-    const std::string topicText =
-        std::string{topic->data, static_cast<size_t>(topic->size)};
-    const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
-    if (!isTopicOwnedBy(topicText, pluginId)) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 发布事件被拒绝: 主题 `{}` "
-              "不属于该插件命名空间",
-              pluginId, topicText);
-      return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
-    }
-    const std::string payload =
-        (event_json->size > 0 && event_json->data)
-            ? std::string{event_json->data,
-                          static_cast<size_t>(event_json->size)}
-            : std::string{"{}"};
-    return pluginxx::ioCallSyncKeep<int32_t>(
-        call, mgr, [mgr, topicText, payload]() -> int32_t {
-          return mgr->publishOnHostThread(topicText, payload);
-        });
-  });
+int32_t PLUGINXX_CALL xx_publish_broadcast(const PluginxxHost *host,
+                                           const PluginxxStringView *id,
+                                           const PluginxxStringView *payloadJson,
+                                           PluginxxString *errorOut) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !id || !id->data) {
+          pluginxx::detail::setErrorString(errorOut,
+                                          "publish_broadcast: missing id");
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string idText =
+            std::string{id->data, static_cast<size_t>(id->size)};
+        const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
+        if (!isTopicOwnedBy(idText, pluginId)) {
+          XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播被拒绝: id `{}` "
+                  "不属于该插件命名空间",
+                  pluginId, idText);
+          pluginxx::detail::setErrorString(
+              errorOut, "publish_broadcast: id is not in the plugin namespace");
+          return PLUGINXX_RESULT_ERR_PERMISSION;
+        }
+        const std::string payload =
+            (payloadJson && payloadJson->size > 0 && payloadJson->data)
+                ? std::string{payloadJson->data,
+                              static_cast<size_t>(payloadJson->size)}
+                : std::string{"{}"};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, idText, payload, pluginId, errorOut]() -> int32_t {
+              // 事件计数与速率 (只观测不限制): 与 publishOnHostThread 同一份实现
+              mgr->accountEventForTopic(idText);
+              mgr->ensureBroadcastChannel(idText);
+              std::string error;
+              const int32_t rc =
+                  mgr->publishBroadcast(idText, payload, pluginId, &error);
+              if (rc != PLUGINXX_RESULT_OK) {
+                pluginxx::detail::setErrorString(errorOut, error);
+              }
+              return rc;
+            });
+      });
+}
+
+/// 读当前值 (任意线程; 注册表内部加锁)
+int32_t PLUGINXX_CALL xx_read_broadcast(const PluginxxHost *host,
+                                        const PluginxxStringView *id,
+                                        PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
+        if (!id || !id->data || !outJson) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host, true);
+        if (!call.ok()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        const std::string idText{
+            id->data, static_cast<size_t>(id->size)};
+        return mgr->readBroadcast(idText, outJson);
+      });
 }
 
 /* ==================== 接口表: musicxx.kind (插件形态 / 运行器) ==================== */
@@ -1599,12 +1680,14 @@ const MusicxxPluginKindIface g_ifaceKind = {
     /* list_kinds */ xx_kind_list,
 };
 
-const PluginxxEventsIface g_ifaceEvents = {
-    /* version */ PLUGINXX_IFACE_EVENTS_VERSION,
-    /* struct_size */ sizeof(PluginxxEventsIface),
-    /* subscribe */ xx_subscribe_event,
-    /* unsubscribe */ xx_unsubscribe_event,
-    /* publish */ xx_publish_event,
+const PluginxxBroadcastsIface g_ifaceBroadcasts = {
+    /* version */ PLUGINXX_IFACE_BROADCASTS_VERSION,
+    /* struct_size */ sizeof(PluginxxBroadcastsIface),
+    /* declare_broadcast */ xx_declare_broadcast,
+    /* publish_broadcast */ xx_publish_broadcast,
+    /* subscribe_broadcast */ xx_subscribe_broadcast,
+    /* read_broadcast */ xx_read_broadcast,
+    /* unsubscribe_broadcast */ xx_unsubscribe_broadcast,
 };
 
 const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
@@ -1625,10 +1708,10 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   if (name == "__vtable") {
     return &g_hostVtable;
   }
-  // events 表用本框架自己的入口 (需要在发布路径上做命名空间归属校验, 见
-  // xx_publish_event)
-  if (name == PLUGINXX_IFACE_EVENTS) {
-    return &g_ifaceEvents;
+  // 广播表用本框架自己的入口 (需要在发布路径上做命名空间归属校验, 见
+  // xx_publish_broadcast)
+  if (name == PLUGINXX_IFACE_BROADCASTS) {
+    return &g_ifaceBroadcasts;
   }
   // 其余通用表
   // (log/json/config/plugins/scheduler/coroutine_runtime/tasks/cancel/

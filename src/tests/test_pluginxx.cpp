@@ -8,13 +8,14 @@
 /// - 作用域引用校验;
 /// - 能力登记表 (声明 / 多实现 / 阶段链 / 覆盖 / 注销 / 自省);
 /// - 广播登记表 (缓存 / 写权限 / 订阅即推 / 退订 / 自省);
-/// - 事件订阅句柄的幂等撤销入口。
+/// - 广播订阅句柄的幂等撤销入口。
 ///
 /// 运行: musicxx_pluginxx_test (无参数; 由 tools/build_native.ps1 -RunTests 一起跑)
 
 #include "pluginxx/api/abi.h"
 #include "pluginxx/api/iface_meta.h"
 #include "pluginxx/host/broadcast_registry.h"
+#include "pluginxx/host/capability_chain.h"
 #include "pluginxx/host/capability_registry.h"
 // 事件订阅句柄的撤销入口是内联函数, 实现体在 runtime/instance_base.h
 #include "pluginxx/runtime/instance_base.h"
@@ -110,9 +111,10 @@ void checkIfaceMeta(const char *name, int32_t version, int32_t minVersion,
 
 void testIfaceMeta() {
   std::printf("\n-- 接口表元信息\n");
-  checkIfaceMeta<PluginxxEventsIface>("events", PLUGINXX_IFACE_EVENTS_VERSION,
-                                      PLUGINXX_IFACE_EVENTS_MIN_VERSION,
-                                      PLUGINXX_IFACE_EVENTS_BASELINE_SIZE);
+  checkIfaceMeta<PluginxxBroadcastsIface>("broadcasts",
+                                          PLUGINXX_IFACE_BROADCASTS_VERSION,
+                                          PLUGINXX_IFACE_BROADCASTS_MIN_VERSION,
+                                          PLUGINXX_IFACE_BROADCASTS_BASELINE_SIZE);
   checkIfaceMeta<PluginxxCapabilitiesIface>(
       "capabilities", PLUGINXX_IFACE_CAPABILITIES_VERSION,
       PLUGINXX_IFACE_CAPABILITIES_MIN_VERSION,
@@ -413,8 +415,75 @@ void testCapabilityRegistry() {
   }
 
   // 事件订阅句柄的撤销入口对空指针是空操作 (插件传过期/空句柄不崩)
-  pluginxx::unsubscribePluginSubscription(nullptr);
-  check(true, "撤销空的事件订阅句柄不崩");
+  pluginxx::unsubscribePluginBroadcast(nullptr);
+  check(true, "撤销空的广播订阅句柄不崩");
+}
+
+/* ==================== 能力链工具 (补丁合并 / 阶段顺序) ==================== */
+
+void testCapabilityChainHelpers() {
+  std::printf("\n-- 能力链工具\n");
+  using pluginxx::detail::mergeJsonPatch;
+  using pluginxx::detail::parseJson;
+
+  auto base  = parseJson(R"({"a":1,"b":{"c":2,"d":3},"e":[1,2]})");
+  auto patch = parseJson(R"({"b":{"c":20},"e":[9],"f":true})");
+  check(base.ok && patch.ok, "解析对象与补丁");
+  auto target = base.value;
+  mergeJsonPatch(target, patch.value);
+  check(target["a"].is_number() && target["a"].get<int>() == 1,
+        "补丁不动没提到的键");
+  check(target["b"]["c"].get<int>() == 20, "嵌套对象逐键合并");
+  check(target["b"]["d"].get<int>() == 3, "嵌套对象保留没提到的子键");
+  check(target["e"].is_array() && target["e"].size() == 1, "数组整体替换");
+  check(target["f"].is_bool(), "新键加入");
+
+  auto scalar = parseJson("42");
+  auto object = parseJson(R"({"a":1})");
+  mergeJsonPatch(object.value, scalar.value);
+  check(object.value.is_number(), "非对象补丁直接替换目标");
+
+  check(!parseJson("").ok, "空串解析失败");
+  check(!parseJson("{bad").ok, "坏 JSON 解析失败");
+
+  pluginxx::CapabilityRegistry reg;
+  pluginxx::CapabilityDecl   decl;
+  decl.id     = "demo.chain";
+  decl.impls  = pluginxx::CapabilityImpls_e::Many;
+  decl.merge  = pluginxx::CapabilityMerge_e::First;
+  decl.phases = pluginxx::kCapabilityPhaseMaskBefore | pluginxx::kCapabilityPhaseMaskImpl |
+                pluginxx::kCapabilityPhaseMaskAfter;
+  check(reg.declare(decl), "声明三阶段能力");
+  check(reg.addProvider("demo.chain",
+                        row("plugin_a", pluginxx::CapabilityPhase_e::Before, 10, 1)),
+        "登记 before (priority 10)");
+  check(reg.addProvider("demo.chain",
+                        row("plugin_b", pluginxx::CapabilityPhase_e::Before, 5, 2)),
+        "登记 before (priority 5)");
+  check(reg.addProvider("demo.chain",
+                        row("plugin_a", pluginxx::CapabilityPhase_e::Impl, 0, 3)),
+        "登记 impl");
+  check(reg.addProvider("demo.chain",
+                        row("plugin_a", pluginxx::CapabilityPhase_e::After, 10, 4)),
+        "登记 after (priority 10)");
+  check(reg.addProvider("demo.chain",
+                        row("plugin_b", pluginxx::CapabilityPhase_e::After, 5, 5)),
+        "登记 after (priority 5)");
+
+  std::vector<pluginxx::CapabilityProvider> out;
+  pluginxx::detail::appendStage(out, reg, "demo.chain",
+                                pluginxx::CapabilityPhase_e::Before, false);
+  check(out.size() == 2 && out[0].priority == 5 && out[1].priority == 10,
+        "before 阶段按 priority 升序");
+  out.clear();
+  pluginxx::detail::appendStage(out, reg, "demo.chain",
+                                pluginxx::CapabilityPhase_e::After, true);
+  check(out.size() == 2 && out[0].priority == 10 && out[1].priority == 5,
+        "after 阶段倒序");
+  out.clear();
+  pluginxx::detail::appendStage(out, reg, "demo.chain",
+                                pluginxx::CapabilityPhase_e::Impl, false);
+  check(out.size() == 1, "impl 阶段只有一行");
 }
 
 /* ==================== 广播注册表 ==================== */
@@ -782,6 +851,7 @@ int main() {
   testScopeRef();
   testIfaceMeta();
   testCapabilityRegistry();
+  testCapabilityChainHelpers();
   testBroadcastRegistry();
   testCapabilityDeclarations();
 

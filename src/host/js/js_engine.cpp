@@ -3353,10 +3353,10 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   if (!host || !host->vtable || !host->vtable->query_interface) {
     return;
   }
-  const PluginxxStringView iid{"pluginxx.events", 15};
-  const auto *events = static_cast<const PluginxxEventsIface *>(
+  const PluginxxStringView iid{"pluginxx.broadcasts", 19};
+  const auto *broadcasts = static_cast<const PluginxxBroadcastsIface *>(
       host->vtable->query_interface(host, &iid));
-  if (!events || !events->subscribe) {
+  if (!broadcasts || !broadcasts->subscribe_broadcast) {
     return;
   }
   auto holder = std::make_shared<SubscriptionHolder>();
@@ -3365,8 +3365,9 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   holder->topic = topic;
   const PluginxxStringView topicView{holder->topic.data(),
                                      holder->topic.size()};
-  auto *sub = events->subscribe(host, nullptr, &topicView,
-                                &JsEngine::eventTrampoline, holder.get());
+  auto *sub = broadcasts->subscribe_broadcast(
+      host, nullptr, &topicView, &JsEngine::eventTrampoline, holder.get(),
+      nullptr);
   if (!sub) {
     XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
             topic);
@@ -4487,9 +4488,21 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       handler->pluginId = inst->id;
       handler->shortName = item.get<std::string>();
       handler->fullName = "plugin." + inst->id + "." + handler->shortName;
-      const int32_t rc = mgr_->registerCapabilityEx(
-          inst->hostInst, handler->fullName, &JsEngine::capabilityStart,
-          nullptr, handler.get());
+      PluginxxCapabilitySpec spec{};
+      spec.version = PLUGINXX_API_VERSION;
+      spec.struct_size = sizeof(PluginxxCapabilitySpec);
+      const PluginxxStringView nameView{handler->fullName.data(),
+                                        handler->fullName.size()};
+      spec.id = nameView;
+      spec.impls = PLUGINXX_CAPABILITY_IMPLS_ONE;
+      spec.merge = PLUGINXX_CAPABILITY_MERGE_NONE;
+      spec.phases = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL;
+      spec.phase = PLUGINXX_CAPABILITY_PHASE_IMPL;
+      spec.run_start = &JsEngine::capabilityStart;
+      spec.user_data = handler.get();
+      std::string registerError;
+      const int32_t rc = mgr_->registerCapability(
+          inst->hostInst, nullptr, spec, &registerError);
       if (rc != 0) {
         XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 失败 (code={})",
                 inst->id, handler->fullName, rc);
@@ -4510,20 +4523,21 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       holder->engine = this;
       holder->instance = inst->name;
       holder->topic = item.get<std::string>();
-      const PluginxxStringView iid{"pluginxx.events", 15};
-      const auto *events = static_cast<const PluginxxEventsIface *>(
+      const PluginxxStringView iid{"pluginxx.broadcasts", 19};
+      const auto *broadcasts = static_cast<const PluginxxBroadcastsIface *>(
           (host->vtable && host->vtable->query_interface)
               ? host->vtable->query_interface(host, &iid)
               : nullptr);
-      if (!events || !events->subscribe) {
-        XX_LOGW("[musicxx_ext] 事件表不可用: JS插件 `{}` 的订阅未生效",
+      if (!broadcasts || !broadcasts->subscribe_broadcast) {
+        XX_LOGW("[musicxx_ext] 广播表不可用: JS插件 `{}` 的订阅未生效",
                 inst->id);
         continue;
       }
       const PluginxxStringView topicView{holder->topic.data(),
                                          holder->topic.size()};
-      auto *sub = events->subscribe(host, nullptr, &topicView,
-                                    &JsEngine::eventTrampoline, holder.get());
+      auto *sub = broadcasts->subscribe_broadcast(
+          host, nullptr, &topicView, &JsEngine::eventTrampoline,
+          holder.get(), nullptr);
       if (!sub) {
         XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
                 holder->topic);
@@ -4621,7 +4635,8 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   }
   inst->hooks.clear();
   for (const auto &handler : inst->capabilities) {
-    mgr_->unregisterCapability(inst->hostInst, handler->fullName);
+    mgr_->unregisterCapability(inst->hostInst, handler->fullName,
+                               std::string_view{});
   }
   inst->capabilities.clear();
   /// 事件订阅由插件框架随实例 stop/卸载自动撤销 (订阅登记在实例上)

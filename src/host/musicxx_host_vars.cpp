@@ -553,7 +553,7 @@ int32_t MusicxxHostManager::beginVarRead(
     Json payload;
     payload["requestId"] = requestId;
     payload["key"] = key;
-    eventBus_->publish(MUSICXX_PLUGIN_EVENT_VAR_READ, payload.dump());
+    publishOnHostThread(MUSICXX_PLUGIN_EVENT_VAR_READ, payload.dump());
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -770,7 +770,7 @@ int32_t MusicxxHostManager::beginVarWrite(
     pushEvent("musicxx.var.write", "", payload.dump());
   } else {
     // handler 属主: 用事件总线把写请求转给属主实例 (属主订阅 `musicxx.var.write`)
-    eventBus_->publish(MUSICXX_PLUGIN_EVENT_VAR_WRITE, payload.dump());
+    publishOnHostThread(MUSICXX_PLUGIN_EVENT_VAR_WRITE, payload.dump());
   }
 
   Json pending;
@@ -898,7 +898,7 @@ void MusicxxHostManager::completeVarRequest(int64_t requestId, bool ok,
     const std::string payload = result.dump();
     // 写方自己收结果: 插件的即时回执走 `musicxx.var.writeResult` 事件
     // (与通知分开: 通知只表达"值变了", 回执表达"这次写的结果")
-    eventBus_->publish(MUSICXX_PLUGIN_EVENT_VAR_WRITE_RESULT, payload);
+    publishOnHostThread(MUSICXX_PLUGIN_EVENT_VAR_WRITE_RESULT, payload);
     for (const PluginxxOperatorNotify &waiter : request.pluginWaiters) {
       if (waiter.done) {
         PluginxxString out = pluginxx::hostMemoryCreateString(payload);
@@ -1518,7 +1518,7 @@ void MusicxxHostManager::pushVarChanged(const std::string &key,
 
   // 1) 发给插件: 事件总线 (订阅了 `musicxx.var.changed` 的实例收到)
   if (it != vars_.end() && it->second.careCount() > 0) {
-    eventBus_->publish(MUSICXX_PLUGIN_EVENT_VAR_CHANGED, text);
+    publishOnHostThread(MUSICXX_PLUGIN_EVENT_VAR_CHANGED, text);
   }
   // 2) 发给应用 (应用订阅了该键时才推; 没人看就不产生事件)
   if (appCaresAboutVar(key)) {

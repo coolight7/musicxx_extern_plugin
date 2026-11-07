@@ -493,14 +493,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     return 0;
   }
 
-  /// 发布本插件命名空间的事件 (经插件框架 events 表; 主题归属由插件框架校验)
+  /// 发布本插件命名空间的广播 (经插件框架 broadcasts 表; id 归属由插件框架校验)
   int32_t publishOwnEvent(const char *topic, const char *payload) {
-    if (!iface.events || !iface.events->publish) {
+    if (!iface.broadcasts || !iface.broadcasts->publish_broadcast) {
       return -1;
     }
     PluginxxStringView topicView = pluginxxView(topic);
     PluginxxStringView dataView = pluginxxView(payload);
-    return iface.events->publish(host, &topicView, &dataView);
+    return iface.broadcasts->publish_broadcast(host, &topicView, &dataView,
+                                               nullptr);
   }
 
   int32_t onStop() {
