@@ -423,6 +423,20 @@ public:
                        const MusicxxPluginHookSpec &spec);
   int32_t unregisterHook(MusicxxHostInstance *inst, std::string_view hookId,
                          std::string_view ownerTag);
+  /// 用 `pluginxx.capabilities` 的登记形态挂一个钩子处理器（新入口）
+  ///
+  /// 只在"id 是本框架认识的钩子"时由 [onCapabilityRowAdded] 调用；其余 id 是普通能力，
+  /// 由 pluginxx 自己的派发处理。处理器必须是同步的（`spec.sync = 1`）：宿主派发是同步的，
+  /// 异步给结果的处理器在这一轮拿不到结果。
+  int32_t registerCapabilityHook(MusicxxHostInstance *inst,
+                                 const std::string &hookId, int32_t phase,
+                                 int32_t priority, const std::string &ownerTag,
+                                 PluginxxCapabilityStartFunction start,
+                                 PluginxxOperatorCancelFunction cancel,
+                                 void *ctx, std::string &error);
+  int32_t unregisterCapabilityHook(MusicxxHostInstance *inst,
+                                   std::string_view hookId,
+                                   std::string_view ownerTag);
   int32_t hookInfoJson(std::string_view hookId, std::string &outJson);
   /// 框架信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
   ///
@@ -672,6 +686,23 @@ protected:
 
   std::string_view logTag() const noexcept override { return "[musicxx_ext] "; }
 
+  /* ---------- 能力注册路径的挂接（`pluginxx.capabilities` 登记落到钩子引擎） ---------- */
+
+  /// 一条能力实现行登记好了：是钩子 id 就挂进 `hooks_`，其余 id 原样交给 pluginxx 派发
+  int onCapabilityRowAdded(MusicxxHostInstance *inst, const std::string &id,
+                           const PluginxxCapabilitySpec &spec,
+                           std::string *error) override;
+  void onCapabilityRowRemoved(MusicxxHostInstance *inst, const std::string &id,
+                              std::string_view ownerTag) override;
+
+  /// 官方 id 的声明来源：生成物 `capability_ids.g.h` 就是应用声明的权威副本
+  ///
+  /// 主程序还没有把声明下发给宿主的通道（阶段 2b 只做到命令面），所以这里按生成表回答，
+  /// 让插件可以先用 `pluginxx.capabilities` 登记钩子；等真的接上下发通道，这个回退就只
+  /// 用来兜底。
+  bool appCapabilityDecl(std::string_view id,
+                         pluginxx::CapabilityDecl *out) override;
+
   /* ---------- DomainHooks ---------- */
 
   bool postToWorkerThread(std::function<void()> fn) override;
@@ -707,6 +738,14 @@ private:
 
     /// 参与方式 (`MUSICXX_PLUGIN_HOOK_PHASE_*`; 与 `spec.phase` 同值, 方便查询与自省)
     int32_t phase = 0;
+
+    /// 走 `pluginxx.capabilities` 登记的处理器（新入口）
+    ///
+    /// 非空时派发直接调它，`spec.hook_sync` / `spec.hook_start` 都不参与 ——
+    /// 两条入口的区别只有处理器签名与"同步还是异步"，派发与合并规则共用同一份。
+    PluginxxCapabilityStartFunction capStart = nullptr;
+    PluginxxOperatorCancelFunction capCancel = nullptr;
+    void *capCtx = nullptr;
 
     /// 只观测不限制的统计 (耗时/失败次数都只写进管理页, 不参与任何判定)
     int64_t calls = 0;

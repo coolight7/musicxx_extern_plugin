@@ -9,6 +9,7 @@
 #include "musicxx_host.h"
 
 #include "musicxx/plugin/api/hook_ids.g.h"
+#include "musicxx/plugin/api/capability_ids.g.h"
 #include "pluginxx/host/abi_util.h"
 #include "utilxx_base/asio_error.h"
 #include "utilxx_base/json.h"
@@ -197,6 +198,201 @@ int32_t MusicxxHostManager::registerHook(MusicxxHostInstance *inst,
   pushEvent("musicxx.hook.changed", h.pluginId,
             hookChangedPayloadJson(hookId, "register", h.pluginId));
   return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+/* ==================== 钩子走 `pluginxx.capabilities` 的入口 ==================== */
+
+int32_t MusicxxHostManager::registerCapabilityHook(
+    MusicxxHostInstance *inst, const std::string &hookId, int32_t phase,
+    int32_t priority, const std::string &ownerTag,
+    PluginxxCapabilityStartFunction start,
+    PluginxxOperatorCancelFunction cancel, void *ctx, std::string &error) {
+  if (!inst || !start) {
+    error = "hook capability: missing instance or handler";
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  if (!isValidPhase(phase)) {
+    error = "hook capability: illegal phase";
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  if (inst->unloadRequested || !inst->enabled) {
+    error = "hook capability: instance is closing or disabled";
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  const auto *meta = findHookMeta(hookId);
+  if (!meta) {
+    error = "hook capability: unknown hook `" + hookId + "`";
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  }
+  if ((meta->phases & musicxxPluginHookPhaseMask(phase)) == 0) {
+    error = "hook capability: this hook does not open phase " +
+            std::string{phaseNameOf(phase)};
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+
+  auto &handlers = hooks_[hookId];
+  // 与 `musicxx.hooks` 同一套覆盖规则: 同一个 (实例, ownerTag, 阶段) 覆盖式登记
+  handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
+                                [&](const HookHandler &h) {
+                                  return h.plugin == inst->name &&
+                                         h.ownerTag == ownerTag &&
+                                         h.phase == phase;
+                                }),
+                 handlers.end());
+
+  HookHandler h;
+  h.plugin = inst->name;
+  h.pluginId = pluginIdOf(inst->name);
+  h.ownerTag = ownerTag;
+  h.hookId = hookId;
+  h.phase = phase;
+  h.seq = ++hookSeq_;
+  h.capStart = start;
+  h.capCancel = cancel;
+  h.capCtx = ctx;
+  // 派发 / 自省读 `spec` 的几个字段（mode / priority），处理器回调走 capStart
+  h.spec.mode = meta->mode == MUSICXX_PLUGIN_HOOK_MODE_OBSERVE
+                    ? MUSICXX_PLUGIN_HOOK_MODE_OBSERVE
+                    : MUSICXX_PLUGIN_HOOK_MODE_DECISION;
+  h.spec.priority = priority;
+  handlers.push_back(h);
+
+  XX_LOGI("[musicxx_ext] 插件 `{}` 通过能力表注册钩子 `{}` (phase={}, "
+          "priority={}, 当前处理器数={})",
+          inst->name, hookId, phaseNameOf(phase), priority, handlers.size());
+  pushEvent("musicxx.hook.changed", h.pluginId,
+            hookChangedPayloadJson(hookId, "register", h.pluginId));
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+int32_t MusicxxHostManager::unregisterCapabilityHook(
+    MusicxxHostInstance *inst, std::string_view hookId,
+    std::string_view ownerTag) {
+  if (hookId.empty()) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+  }
+  auto it = hooks_.find(std::string{hookId});
+  if (it == hooks_.end()) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  }
+  const std::string pluginName = inst ? inst->name : std::string{};
+  const std::string tag{ownerTag};
+  it->second.erase(std::remove_if(it->second.begin(), it->second.end(),
+                                  [&](const HookHandler &h) {
+                                    return h.plugin == pluginName &&
+                                           h.ownerTag == tag;
+                                  }),
+                   it->second.end());
+  if (it->second.empty()) {
+    hooks_.erase(it);
+  }
+  const std::string hookText{hookId};
+  const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
+  pushEvent("musicxx.hook.changed", pluginId,
+            hookChangedPayloadJson(hookText, "unregister", pluginId));
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
+int MusicxxHostManager::onCapabilityRowAdded(
+    MusicxxHostInstance *inst, const std::string &id,
+    const PluginxxCapabilitySpec &spec, std::string *error) {
+  // 只接本框架认识的钩子 id；其余能力是普通能力，pluginxx 自己的派发处理
+  if (nullptr == findHookMeta(id)) {
+    return PLUGINXX_RESULT_OK;
+  }
+  std::string reason;
+  // 宿主派发是同步的：异步给结果的处理器这一轮拿不到结果，直接拒绝并说清原因
+  if (spec.sync == 0) {
+    reason = "钩子 `" + id +
+             "` 的处理器必须同步给结果（登记时 sync = 1）；"
+             "异步能力请用普通能力名，不要挂在钩子 id 上";
+    if (error) {
+      *error = reason;
+    }
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册钩子能力被拒绝: {}", inst ? inst->name : "?",
+            reason);
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (spec.run_start == nullptr) {
+    reason = "钩子 `" + id + "` 缺少处理器（run_start 为空）";
+    if (error) {
+      *error = reason;
+    }
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  int32_t phase = MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+  switch (spec.phase) {
+  case PLUGINXX_CAPABILITY_PHASE_BEFORE:
+    phase = MUSICXX_PLUGIN_HOOK_PHASE_BEFORE;
+    break;
+  case PLUGINXX_CAPABILITY_PHASE_AFTER:
+    phase = MUSICXX_PLUGIN_HOOK_PHASE_AFTER;
+    break;
+  default:
+    phase = MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+    break;
+  }
+  const std::string ownerTag = spec.owner_tag.data
+                                   ? std::string{spec.owner_tag.data,
+                                                 static_cast<size_t>(
+                                                     spec.owner_tag.size)}
+                                   : std::string{};
+  const int32_t rc =
+      registerCapabilityHook(inst, id, phase, spec.priority, ownerTag,
+                             spec.run_start, spec.cancel, spec.user_data,
+                             reason);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK && error) {
+    *error = reason;
+  }
+  return rc == MUSICXX_EXTERN_PLUGIN_OK ? PLUGINXX_RESULT_OK
+                                       : PLUGINXX_RESULT_ERR_ARG;
+}
+
+void MusicxxHostManager::onCapabilityRowRemoved(MusicxxHostInstance *inst,
+                                               const std::string &id,
+                                               std::string_view ownerTag) {
+  if (nullptr == findHookMeta(id)) {
+    return;
+  }
+  const std::string tag{ownerTag};
+  unregisterCapabilityHook(inst, id, tag);
+}
+
+bool MusicxxHostManager::appCapabilityDecl(std::string_view id,
+                                           pluginxx::CapabilityDecl *out) {
+  if (!out || id.empty()) {
+    return false;
+  }
+  const std::string text{id};
+  const MusicxxCapabilityDecl *decl = musicxxCapabilityDeclOf(text.c_str());
+  if (!decl) {
+    return false;
+  }
+  out->id = text;
+  out->impls = decl->impls == MUSICXX_CAPABILITY_IMPLS_MANY
+                   ? pluginxx::CapabilityImpls_e::Many
+                   : pluginxx::CapabilityImpls_e::One;
+  if (decl->merge == MUSICXX_CAPABILITY_MERGE_FIRST) {
+    out->merge = pluginxx::CapabilityMerge_e::First;
+  } else if (decl->merge == MUSICXX_CAPABILITY_MERGE_VETO) {
+    out->merge = pluginxx::CapabilityMerge_e::Veto;
+  } else {
+    out->merge = pluginxx::CapabilityMerge_e::None;
+  }
+  uint32_t phases = 0;
+  if ((decl->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) != 0) {
+    phases |= pluginxx::kCapabilityPhaseMaskImpl;
+  }
+  if ((decl->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_BEFORE) != 0) {
+    phases |= pluginxx::kCapabilityPhaseMaskBefore;
+  }
+  if ((decl->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_AFTER) != 0) {
+    phases |= pluginxx::kCapabilityPhaseMaskAfter;
+  }
+  out->phases = phases == 0 ? pluginxx::kCapabilityPhaseMaskImpl : phases;
+  out->timeoutMs = decl->timeout_ms;
+  out->declaredBy = "";
+  return true;
 }
 
 int32_t MusicxxHostManager::unregisterHook(MusicxxHostInstance *inst,
@@ -504,6 +700,33 @@ std::string actionOf(const Json &j) {
 
 } // namespace
 
+namespace {
+
+/// 同步调用一个"能力形态"的钩子处理器时收集它的结果
+///
+/// `pluginxx.capabilities` 的处理器是异步契约（`notify->done` 恰好一次）；钩子派发是同步的，
+/// 所以只接受"在 start 返回之前就 done"的处理器，多出来的回调按第一次算。
+struct CapabilitySyncReply {
+  bool done = false;
+  int32_t status = PLUGINXX_OPERATOR_OK;
+  std::string payload;
+};
+
+void PLUGINXX_CALL capabilitySyncDone(void *ud, int32_t status,
+                                      const PluginxxStringView *payload) {
+  auto *reply = static_cast<CapabilitySyncReply *>(ud);
+  if (!reply || reply->done) {
+    return;
+  }
+  reply->done = true;
+  reply->status = status;
+  if (payload && payload->data && payload->size > 0) {
+    reply->payload.assign(payload->data, static_cast<size_t>(payload->size));
+  }
+}
+
+} // namespace
+
 std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
                                              int32_t phase,
                                              const std::string &inputJson,
@@ -562,7 +785,42 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     const auto t0 = std::chrono::steady_clock::now();
     int32_t rc = -1;
     try {
-      rc = h.spec.hook_sync(h.spec.user_data, &hookView, &inputView, &out, &err);
+      if (h.capStart) {
+        // 走 `pluginxx.capabilities` 登记的处理器：同步等它 done
+        CapabilitySyncReply reply;
+        PluginxxOperatorNotify notify{&capabilitySyncDone, &reply};
+        PluginxxString capErr{};
+        const PluginxxStringView methodView{h.hookId.data(), h.hookId.size()};
+        const PluginxxStringView argsView{payloadText.data(),
+                                          payloadText.size()};
+        void *op = nullptr;
+        try {
+          op = h.capStart(h.capCtx, nullptr, &methodView, &argsView, &notify,
+                          &capErr);
+        } catch (const std::exception &e) {
+          XX_LOGW("[musicxx_ext] 插件 `{}` 能力处理器异常 (`{}`, phase={}): {}",
+                  h.pluginId, hookId, phaseNameOf(h.phase), e.what());
+        } catch (...) {
+          XX_LOGW("[musicxx_ext] 插件 `{}` 能力处理器未知异常 (`{}`, phase={})",
+                  h.pluginId, hookId, phaseNameOf(h.phase));
+        }
+        if (capErr.data) {
+          pluginxx::hostMemoryFree(capErr.data);
+        }
+        if (reply.done) {
+          rc = reply.status == PLUGINXX_OPERATOR_OK ? 0 : -1;
+          if (0 == rc) {
+            outText = reply.payload;
+          }
+        } else if (op && h.capCancel) {
+          // 异步给结果：注册时已经要求同步，这里只是兜底（撤销这次操作，本轮不给结果）
+          h.capCancel(h.capCtx, op);
+          rc = -1;
+        }
+      } else {
+        rc = h.spec.hook_sync(h.spec.user_data, &hookView, &inputView, &out,
+                              &err);
+      }
     } catch (const std::exception &e) {
       XX_LOGW("[musicxx_ext] 插件 `{}` 处理器异常 (`{}`, phase={}): {}",
               h.pluginId, hookId, phaseNameOf(h.phase), e.what());
@@ -640,7 +898,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     Json accumulated = Json::object();
     bool stopped = false;
     for (const HookHandler &h : handlers) {
-      if (!h.spec.hook_sync) {
+      if (!h.spec.hook_sync && !h.capStart) {
         // 前链 / 后链只接受同步处理器 (注册时已拒绝), 这里只防御
         continue;
       }
@@ -693,7 +951,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
     Json value = payload.contains("value") ? payload["value"] : Json(nullptr);
     bool dropped = false;
     for (const HookHandler &h : handlers) {
-      if (!h.spec.hook_sync) {
+      if (!h.spec.hook_sync && !h.capStart) {
         continue;
       }
       Json step = payload;
@@ -737,7 +995,7 @@ std::string MusicxxHostManager::dispatchHook(const std::string &hookId,
   std::string action;
 
   for (auto &h : handlers) {
-    if (!h.spec.hook_sync) {
+    if (!h.spec.hook_sync && !h.capStart) {
       // 异步处理器: 本轮只做通知 (调用 hook_start, 结果不参与同步合并)
       if (h.spec.hook_start) {
         PluginxxString err{};
