@@ -154,31 +154,31 @@ abstract final class MusicxxCapabilityId {
   static const String lyricGetBySrc = 'musicxx.lyric.getBySrc';
   /// 搜索歌词
   static const String lyricSearch = 'musicxx.lyric.search';
-  /// musicxx.ui.toast
+  /// 轻提示
   static const String uiToast = 'musicxx.ui.toast';
-  /// musicxx.ui.dialog
+  /// 确认弹窗
   static const String uiDialog = 'musicxx.ui.dialog';
   /// musicxx.ui.overlay.show
   static const String uiOverlayShow = 'musicxx.ui.overlay.show';
-  /// musicxx.ui.overlay.close
+  /// 关闭浮层
   static const String uiOverlayClose = 'musicxx.ui.overlay.close';
   /// musicxx.ui.openOverlaySheet
   static const String uiOpenOverlaySheet = 'musicxx.ui.openOverlaySheet';
-  /// musicxx.ui.openRoute
+  /// 打开页面
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
   /// musicxx.ui.pickSongs
   static const String uiPickSongs = 'musicxx.ui.pickSongs';
   /// musicxx.ui.pickDir
   static const String uiPickDir = 'musicxx.ui.pickDir';
-  /// musicxx.ui.browseDrive
+  /// 浏览插件网盘
   static const String uiBrowseDrive = 'musicxx.ui.browseDrive';
   /// musicxx.ui.setEntryBadge
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
-  /// musicxx.ui.setFontFamily
+  /// 切换字体
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
   /// musicxx.ui.getFontFamily
   static const String uiGetFontFamily = 'musicxx.ui.getFontFamily';
-  /// musicxx.ui.loadFont
+  /// 加载字体
   static const String uiLoadFont = 'musicxx.ui.loadFont';
   /// 读插件存储
   static const String storageGet = 'musicxx.storage.get';
@@ -1744,8 +1744,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '轻提示',
+      depict: '弹一条轻提示（kind 为 error 时用错误样式）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.dialog',
@@ -1759,8 +1759,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '确认弹窗',
+      depict: '弹一个确认框（正文或用 blocks 写富内容），等用户点确定',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.overlay.show',
@@ -1789,8 +1789,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '关闭浮层',
+      depict: '关掉自己在显示的浮层（不给 id 时关当前那个）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.openOverlaySheet',
@@ -1819,8 +1819,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '打开页面',
+      depict: '跳到官方页面或插件自己的页面（ext://<插件id>/<视图id>）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.pickSongs',
@@ -1864,8 +1864,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '浏览插件网盘',
+      depict: '打开某个插件音源的浏览器（可指定分类与起始路径）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.setEntryBadge',
@@ -1894,8 +1894,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '切换字体',
+      depict: '把界面字体换成已注册的字体（空串 = 恢复默认）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.getFontFamily',
@@ -1924,8 +1924,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '加载字体',
+      depict: '从文件或 base64 注册一个字体（apply = 加载后立即使用）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.storage.get',

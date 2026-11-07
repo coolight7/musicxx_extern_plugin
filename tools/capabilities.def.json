@@ -1740,8 +1740,8 @@
     {
       "id": "musicxx.ui.toast",
       "dart": "uiToast",
-      "title": "",
-      "depict": "",
+      "title": "轻提示",
+      "depict": "弹一条轻提示（kind 为 error 时用错误样式）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1765,8 +1765,8 @@
     {
       "id": "musicxx.ui.dialog",
       "dart": "uiDialog",
-      "title": "",
-      "depict": "",
+      "title": "确认弹窗",
+      "depict": "弹一个确认框（正文或用 blocks 写富内容），等用户点确定",
       "impls": "one",
       "phases": [
         "impl"
@@ -1815,8 +1815,8 @@
     {
       "id": "musicxx.ui.overlay.close",
       "dart": "uiOverlayClose",
-      "title": "",
-      "depict": "",
+      "title": "关闭浮层",
+      "depict": "关掉自己在显示的浮层（不给 id 时关当前那个）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1865,8 +1865,8 @@
     {
       "id": "musicxx.ui.openRoute",
       "dart": "uiOpenRoute",
-      "title": "",
-      "depict": "",
+      "title": "打开页面",
+      "depict": "跳到官方页面或插件自己的页面（ext://<插件id>/<视图id>）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1940,8 +1940,8 @@
     {
       "id": "musicxx.ui.browseDrive",
       "dart": "uiBrowseDrive",
-      "title": "",
-      "depict": "",
+      "title": "浏览插件网盘",
+      "depict": "打开某个插件音源的浏览器（可指定分类与起始路径）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1990,8 +1990,8 @@
     {
       "id": "musicxx.ui.setFontFamily",
       "dart": "uiSetFontFamily",
-      "title": "",
-      "depict": "",
+      "title": "切换字体",
+      "depict": "把界面字体换成已注册的字体（空串 = 恢复默认）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2040,8 +2040,8 @@
     {
       "id": "musicxx.ui.loadFont",
       "dart": "uiLoadFont",
-      "title": "",
-      "depict": "",
+      "title": "加载字体",
+      "depict": "从文件或 base64 注册一个字体（apply = 加载后立即使用）",
       "impls": "one",
       "phases": [
         "impl"
