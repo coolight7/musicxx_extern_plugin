@@ -230,8 +230,8 @@ abstract final class MusicxxCapabilityId {
   static const String sourceList = 'musicxx.source.list';
   /// 声明可浏览来源
   static const String sourceBrowse = 'musicxx.source.browse';
-  /// 能力处理器清单
-  static const String hookHandlers = 'musicxx.hook.handlers';
+  /// 能力订阅 / 实现行
+  static const String capabilitySubscribers = 'musicxx.capability.subscribers';
   /// 打开链接
   static const String hostOpenUrl = 'musicxx.host.openUrl';
   /// musicxx.host.shareText
@@ -359,7 +359,7 @@ abstract final class MusicxxCapabilityId {
     sourceUndefine,
     sourceList,
     sourceBrowse,
-    hookHandlers,
+    capabilitySubscribers,
     hostOpenUrl,
     hostShareText,
     hostClipboard,
@@ -1140,7 +1140,7 @@ abstract final class MusicxxCapabilityCatalogue {
       dispatch: 'async',
       timeoutMs: 5000,
       cache: 'none',
-      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      expose: <String>['plugin'],
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
@@ -2303,7 +2303,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '声明这个音源类型可以浏览挑歌（一个类型可以有多个分类，界面复用内置网盘那一套）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.hook.handlers',
+      id: 'musicxx.capability.subscribers',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2314,8 +2314,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '能力处理器清单',
-      depict: '读某个能力当前的处理器（谁注册的、什么形态、在哪个阶段、排第几）',
+      title: '能力订阅 / 实现行',
+      depict: '读某条能力当前的实现行（谁提供、什么形态、在哪个阶段、排第几）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.host.openUrl',

@@ -193,7 +193,7 @@
 #define MUSICXX_CAPABILITY_SOURCE_UNDEFINE "musicxx.source.undefine"
 #define MUSICXX_CAPABILITY_SOURCE_LIST "musicxx.source.list"
 #define MUSICXX_CAPABILITY_SOURCE_BROWSE "musicxx.source.browse"
-#define MUSICXX_CAPABILITY_HOOK_HANDLERS "musicxx.hook.handlers"
+#define MUSICXX_CAPABILITY_CAPABILITY_SUBSCRIBERS "musicxx.capability.subscribers"
 #define MUSICXX_CAPABILITY_HOST_OPEN_URL "musicxx.host.openUrl"
 #define MUSICXX_CAPABILITY_HOST_SHARE_TEXT "musicxx.host.shareText"
 #define MUSICXX_CAPABILITY_HOST_CLIPBOARD "musicxx.host.clipboard"
@@ -298,7 +298,7 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.feature.point.call", 1, 1, 7u, 1, 0, 0, 3u, 15u, 0, 1},
     {"musicxx.app.foreground", 0, 0, 1u, 1, 0, 0, 2u, 15u, 0, 1},
     {"musicxx.app.background", 0, 0, 1u, 1, 0, 0, 2u, 15u, 0, 1},
-    {"musicxx.player.play", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.player.play", 0, 0, 1u, 1, 5000, 0, 2u, 8u, 0, 1},
     {"musicxx.player.pause", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.player.toggle", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.player.stop", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
@@ -376,7 +376,7 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.source.undefine", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.source.list", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.source.browse", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
-    {"musicxx.hook.handlers", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.capability.subscribers", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.host.openUrl", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.host.shareText", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 0},
     {"musicxx.host.clipboard", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},

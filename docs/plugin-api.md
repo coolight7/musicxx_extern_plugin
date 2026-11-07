@@ -1392,18 +1392,18 @@ const points = await musicxx.feature.points({ provided: true });   // 只看有�
 const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", {});
 ```
 
-#### 3.2.12 钩子自省（`musicxx.hook.handlers`）
+#### 3.2.12 能力自省（`musicxx.capability.subscribers`）
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.hook.handlers` | `{hook, phase?}` | `{ok:true, hook, phase, count, handlers:[{plugin, instance, kind, priority, phase, ownerTag}], listAvailable, phasesAvailable}` |
+| `musicxx.capability.subscribers` | `{hook, phase?}` | `{ok:true, hook, phase, count, handlers:[{plugin, instance, kind, priority, phase, ownerTag}], listAvailable, phasesAvailable}` |
 
 - `handlers` 按**调用顺序**排列（`priority` 升序，同优先级按注册顺序）；
 - `phase` 是可选参数：`before` / `impl` / `after`，不给就是全部阶段（按 `before → impl → after` 拼接）；
   每一条 handler 都带自己的 `phase`；
 - `listAvailable:false` = 插件框架库太旧，只能报数量（看 `count`）；`phasesAvailable:false` = 库没有
   分阶段接口，`before` / `after` 阶段现在不会有处理器；
-- 同一个数据也能在管理页「外部插件 → 调试」和 `featurePoint.list` 里看到。
+- 同一个数据也能在管理页「外部插件 → 调试」和 `capability.list` 里看到。
 
 ```js
 const info = await musicxx.capability.handlers("musicxx.media.spectrum.extract");   // JS 封装
@@ -1751,7 +1751,7 @@ iface.events->publish(host, &topic, &data);
 > **下面这些名字不是总线主题**：它们是插件框架 → 主程序的内部事件（与钩子派发、UI 项、日志同一条内部队列），
 > 插件 `subscribe` 它们**不报错但永远收不到回调**：`musicxx.plugin.log` / `musicxx.plugin.error` /
 > `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.hook.changed` / `musicxx.hook.decision.result`。
-> 要看这些数据用别的办法：钩子注册表用动作 `musicxx.hook.handlers`，自己的 UI 项用 JS 的
+> 要看这些数据用别的办法：能力注册表用动作 `musicxx.capability.subscribers`，自己的 UI 项用 JS 的
 > `musicxx.ui.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
 > `await decideAsync` 的返回值（`musicxx.hook.decision.result` 只是同一份结果的调试镜像）。
 
@@ -2044,7 +2044,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本 / `start` 里再声明一遍。
 - 同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`（不排队）。
 
-应用**留出的、可以被主动调用**的功能点有三个（`featurePoint.list` 的 `callDoc` 写着参数与结果形状）：
+应用**留出的、可以被主动调用**的功能点有三个（`capability.list` 的 `callDoc` 写着参数与结果形状）：
 
 | 功能点 id | 作用 | 调用的代价 |
 |---|---|---|
@@ -2402,7 +2402,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 | 想知道 | 用 |
 |---|---|
-| 这个钩子现在有谁在提供、排第几 | 动作 `musicxx.hook.handlers`（§3.2.12）；命令行 `musicxx-cli featurePoint.list` 与 MCP `GetFeatureProviders` 读的是同一份数据 |
+| 这条能力现在有谁在实现、排第几 | 动作 `musicxx.capability.subscribers`（§3.2.12）；命令行 `musicxx-cli capability.subscribers` 读同一份数据 |
 | 应用留出了哪些功能点、谁在实现、谁关掉了 | 动作 `musicxx.feature.point.list`（§3.2.11） |
 | 应用自己能做什么（给模型看的文本结论） | 动作 `musicxx.feature.list`（§3.2.10） |
 | 本插件跑了多少、错了几次 | JS：`musicxx.stats.getSelf()`；两边都看得到：管理页「插件详情 → 运行统计」 |
@@ -2501,10 +2501,10 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再返回一次 `{view:…}`，或重新打开页面 |
 | 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取）里 `await` 了主程序动作 → 两边互等（§8.4） |
 | 主程序整体卡住 | 处理器里做了阻塞操作 / JS 死循环（框架不打断） |
-| 颜色 / 频谱"凭空消失" | 有人返回了 `{"disable": true}`（§8.5）；用 `featurePoint.list` 看是谁 |
+| 颜色 / 频谱"凭空消失" | 有人返回了 `{"disable": true}`（§8.5）；用 `capability.list` 看是谁 |
 | 网络请求拿不到数据 | 看 `status`（非 2xx 也 `ok:true`）与 `truncated`（读满 `maxBytes` 就断开） |
 | 生成的界面在别的客户端样式不对 | 按 `host.info().ui` 的 `blocks` / `controls` 降级，不要按 `kind` 写两套 |
-| 不确定"现在谁在实现这个功能" | `musicxx.hook.handlers` / `musicxx.feature.point.list` / 命令行 `featurePoint.list` |
+| 不确定"现在谁在实现这个功能" | `musicxx.capability.subscribers` / `musicxx.feature.point.list` / 命令行 `capability.list` |
 
 ---
 

@@ -206,8 +206,8 @@ musicxx.capability.register("card", function () {
 - **外置插件永远排在应用自带的实现之前**：功能埋点（应用留出的扩展点）的询问顺序是
   「外置插件钩子 → 内置插件登记的实现 → 应用自身兜底」，同一个钩子上多个处理器按 `priority`
   升序执行（同优先级按注册顺序）。所以你注册上的实现会盖过内置功能，不需要额外声明；
-  想看"这个功能现在有谁在提供、排第几"，用动作 `musicxx.hook.handlers` 或
-  `musicxx.feature.point.list`（命令行 `featurePoint.list`、MCP `GetFeatureProviders` 读同一份数据；
+  想看"这个功能现在有谁在提供、排第几"，用动作 `musicxx.capability.subscribers` 或
+  `musicxx.feature.point.list`（命令行 `capability.list`、MCP `GetFeatureProviders` 读同一份数据；
   里面的 `broadcasts` 是主程序自己注册的观察者，只收"被使用了 / 处理器变了"的通知，与实现无关）；
 - **想关掉内置实现就用 `{"disable": true}`**：频谱提取、副歌分析、封面取色这三个取值型钩子支持它。
   返回它等于"这次不要用别的实现"（应用自己的兜底也不会被问），应用会记一条日志并在自省里标出

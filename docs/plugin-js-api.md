@@ -188,7 +188,7 @@ musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
 
 `listAvailable` 为 `false` 表示插件框架库太旧（只有数量，看 `count`）。`count` 是**全部阶段**的
 总数；只看某个阶段传第二个参数（`musicxx.capability.handlers(id, "after")`）。主程序的自省（命令行
-`featurePoint.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
+`capability.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
 与"用户看到的"一致。
 
 ### 4.2 裁决型钩子的返回值
@@ -629,7 +629,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.changed");
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
 > `musicxx.hook.changed` / `musicxx.hook.decision.result` **不在总线上**（它们是插件框架 → 主程序的
 > 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看钩子注册表用动作
-> `musicxx.hook.handlers`，自己的 UI 项用 `musicxx.ui.entries()`。
+> `musicxx.capability.subscribers`，自己的 UI 项用 `musicxx.ui.entries()`。
 
 ---
 

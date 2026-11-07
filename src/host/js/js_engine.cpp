@@ -1617,7 +1617,7 @@ var featurePointImpls = new Map();
       assertName(id, "capability.handlers: 能力 id");
       var args = { hook: String(id) };
       if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
-      return musicxx.call("musicxx.hook.handlers", args);
+      return musicxx.call("capability.subscribers", args);
     },
     register: function (name, fn) {
       assertName(name, "capability.register: 名称");

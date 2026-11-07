@@ -47,7 +47,7 @@
 | 切到前台 / 后台 | `SwitchForegroundBackground`（`operator`） | `musicxx-cli call window.background`（命令 `window.foreground` / `window.background`） | `musicxx.app.background` / `musicxx.app.foreground` | `musicxx://musicxx.app.background` | `--cmd musicxx.app.background` |
 | 改音量 / 速度 / 音调 / 进度 | `SetAppVolume` / `SetSpeed` / `SetPitch` / `SetCurrentPlaybackPosition` | `musicxx-cli volume` / `speed` / `pitch` / `seek` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `seek` | `musicxx://call/?cmd=musicxx.player.setVolume&args=…` | `--cmd musicxx.player.setPitch --args '{"pitch":1.1}'` |
 | 拦一次改播放值 / 收播放进度 | — | — | 钩子 `musicxx.player.seek` / `volume` / `speed` / `pitch` / `position` | — | — |
-| 功能点清单 | `GetFeatureProviders` | `musicxx-cli featurePoint.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=featurePoint.list` | `--cmd featurePoint.list` |
+| 功能点清单 | `GetFeatureProviders` | `musicxx-cli capability.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=capability.list` | `--cmd capability.list` |
 | 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
 | 插件框架版本 / 提交 / 仓库地址 | `GetExternPlugins`（结果里的 `framework` 段） | `musicxx-cli version` / `list` / `plugin list` | 插件读 `host.info().hostVersion`（同一个版本号） | — | — |
 | 装插件 | `InstallExternPlugin`（`path` 或 `url`） | `musicxx-cli plugin install`（路径或 `--url`） | **没有这个动作**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
@@ -291,20 +291,21 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 115 条 = 内置与应用命令 33 + 动作命令 77 + 能力导出 2 + 变量 3）
+## 4. 命令面（当前 131 条 = 内置与应用命令 34 + 动作命令 92 + 能力导出 2 + 变量 3）
 
 > **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
 > 下面各节的数字只是写这份文档时的快照。
 >
-> 动作命令比“已实现的动作”多 4 条：过时分类 `musicxx.library.*` 里仍然可用的四个旧名字也被登记成
-> 命令（见 §4.5 末尾）；`musicxx.player.playSrc` 由内置表登记，不重复计数。
+> 动作命令 = 88 条开放给命令行的动作 + 4 条过时分类 `musicxx.library.*` 的旧名字（见 §4.5 末尾）；
+> `musicxx.player.playSrc` 由内置表登记，不重复计数。
+> 只有插件看得见、不给命令行的动作（例如 `musicxx.capability.subscribers`）不在这个数里。
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 33 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` + `MusicxxEntries` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、功能点、**播放内核信息**、**统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`）**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
-| `action` | 77 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名**（含 4 条 `musicxx.library.*` 旧名；`musicxx.net.fetch` / `download` 两条由插件框架直接回答，不进命令表） |
+| `builtin` | 34 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` + `MusicxxEntries` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、能力自省（`capability.list` / `capability.call` / `capability.subscribers`）、**播放内核信息**、**统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`）**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
+| `action` | 92 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名**（88 条 + 4 条 `musicxx.library.*` 旧名；`musicxx.net.fetch` / `download` 两条由插件框架直接回答，不进命令表） |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
 | `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
 
@@ -357,9 +358,9 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `externPlugin.logs` | `id?`、`offset?`(≥0)、`level?`(数值 800/900/1000)、`keyword?`、`limit?`(1~500，默认 50) | `{ok:true, buffer, id, level, keyword, logs:[{ts, time, type, plugin, detail}…], total, offset, count, hasMore}`，**新的在前**；`total` 是过滤后的条数 |
 | `externPlugin.clearLogs` | 无 | `{cleared}` |
 | `app.logs` | `file?`(error/info/both)、`offset?`、`level?`(名字或数值)、`keyword?`、`exclude?`、`limit?`(1~500) | `{logs:[{timeText, level, file, source, text}…], total, hasMore, fileSize, parseErrors, flushedHint}`，**新的在前** |
-| `featurePoint.list` | `id?`、`provided?`(bool) | `{ok:true, points:[{id, title, type, available, callable, rows, stages, broadcasts, callDoc?, callStat?}…]}`；`rows` 是实现行（各层谁能提供），`stages` 是**前链与后链上的登记**（与 `rows` 分开），`broadcasts` 是**主程序自己注册的广播订阅**（只收“被使用了 / 处理器变了”的通知，不参与实现，插件不能注册） |
-| `featurePoint.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `stopped` / `dropped` / `busy` / `failed`；`disabled` / `stopped` / `dropped` 是三种不同的“没有结果”） |
-| `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], browse:[{type, plugin, title, tag, entries:[{view, title, order, root, icon, pageSize, sort, indexBar, write, search, addFolderSongs, download, capabilities}…]}…], resolveChain:[…]}`：插件声明的音源类型 + 按类型分组的可浏览分类（`musicxx.source.browse`，一个类型可以有多条 `entries`）+ 音源解析链现状（与 `featurePoint.list` 看 `musicxx.player.source.resolve` 是同一份） |
+| `capability.list` | `id?`、`provided?`(bool) | `{ok:true, points:[{id, title, type, available, callable, rows, stages, broadcasts, callDoc?, callStat?}…]}`；`rows` 是实现行（各层谁能提供），`stages` 是**前链与后链上的登记**（与 `rows` 分开），`broadcasts` 是**主程序自己注册的广播订阅**（只收“被使用了 / 处理器变了”的通知，不参与实现，插件不能注册） |
+| `capability.call` | `id`(必填)、`args?`(object)、`refresh?`(bool) | `{ok, id, value, by, identity, fromCache, ms}`；失败 `{ok:false, error, message}`（`error` 取 `not_callable` / `bad_args` / `no_impl` / `disabled` / `stopped` / `dropped` / `busy` / `failed`；`disabled` / `stopped` / `dropped` 是三种不同的“没有结果”） |
+| `source.list` | 无 | `{ok:true, sources:[{id, title, depict, srcDoc, plugin, declaredBy}…], browse:[{type, plugin, title, tag, entries:[{view, title, order, root, icon, pageSize, sort, indexBar, write, search, addFolderSongs, download, capabilities}…]}…], resolveChain:[…]}`：插件声明的音源类型 + 按类型分组的可浏览分类（`musicxx.source.browse`，一个类型可以有多条 `entries`）+ 音源解析链现状（与 `capability.list` 看 `musicxx.player.source.resolve` 是同一份） |
 | `kernel.info` | `refresh?`(bool) | 播放内核能播什么、能用哪些过滤器（与 MCP 工具 `GetMediaKernelInfo`、插件动作 `musicxx.media.kernel` 同一份数据）：`mpvVersion` / `ffmpegVersion`（这份 ffmpeg 是裁剪构建，报 `unknown`）/ `kernelReady` / `audioFilters` + `videoFilters`（能直接写进 `af` / `vf` 的名字，每项 `{name, libavName?, depict?, flags, builtin}`；`builtin` 是 mpv 自带的那几个，重名时 `name` 给带 `lavfi-` 前缀的可用名字）/ `decoders`（`{codec, driver, depict?, hardware}`）/ `audioExtensions` + `videoExtensions`（应用扫描时认得的后缀）/ `counts` / `tookMs` |
 | `lan.scan` | `reset?`(bool，缺省 true)、`wait?`(int ms，0~15000，缺省 3000) | `{ok, serverVersion, port, enabled, self, count, clients}`：刷新一次「共享与控制」的设备发现（重新声明本机服务 + 重新浏览 mDNS + 给已发现设备发心跳），最多等 `wait` 毫秒让发现结果进来。需要「共享与控制」开着、本机 HTTP 服务已绑定 |
 | `lan.clients` | `availableOnly?`(bool，缺省 true)、`refresh?`(bool)、`limitServerVersion?`(int) | 同上形状：已发现设备列表。每一项：`clientId` / `displayName` / `name` / `viewName` / `platform` / `appType` / `appTypeName` / `sameApp` / `addr` / `httpPort` / `uid` / `sameUser` / `version` / `serverType`+`serverTypeName` / `acceptRemoteCtrl`+`acceptRemoteCtrlName` / `canControl`（本机现在能不能控制它）/ `available` / `mdnsLost` / `lastNotify` / `lastNotifyAgoMs` / `controlUrl`。`refresh:true` 先发一轮 `/active` 心跳 |
@@ -417,7 +418,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 功能点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
 | 音源（4） | `musicxx.source.define` / `undefine` / `list` / `browse`（`browse` = 声明这个类型可浏览并挑歌，见 [plugin-api.md](plugin-api.md) §3.3） |
 | 插件网盘 UI（3） | `musicxx.ui.pickSongs` / `pickDir` / `browseDrive`（挑歌 / 选目录 / 整页浏览，**一个类型可以有多个分类 `view`**，见 [plugin-api.md](plugin-api.md) §3.3） |
-| 钩子自省（1） | `musicxx.hook.handlers` |
+| 能力自省（1） | `musicxx.capability.subscribers` |
 | 宿主（3） | `musicxx.host.openUrl` / `clipboard` / `getPath` |
 | 统计上报（2） | `musicxx.stats.reportMemory` / `reportMetric` |
 
@@ -463,7 +464,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `songs [--pid N]` / `songlists` / `play-song <sid>` / `play-list <pid> [--index N]` / `sync-list <pid>` | `musicxx.songlist.querySongs`（不带 `--pid`）/ `musicxx.playlist.querySongs` / `musicxx.playlist.queryLists` / `musicxx.songlist.playSong` / `musicxx.playlist.play` / `musicxx.playlist.syncSongs.sync`（同步歌单音源，超时给到 10 分钟） |
 | `toast <文本>` | `musicxx.ui.toast` |
 | `feature list` / `feature call <id> --args JSON` | `feature.list` / `feature.call` |
-| `featurePoint.list` / `featurePoint.call <id>` | `featurePoint.list` / `featurePoint.call`（CLI 名大小写不敏感，写 `featurepoint.list` 也一样） |
+| `capability.list` / `capability.call <id>` | `capability.list` / `capability.call`（CLI 名大小写不敏感，写 `featurepoint.list` 也一样） |
 | `var list` / `var get <键>` / `var set <键> <值>` | `var.list` / `var.get` / `var.set` |
 | `render list` / `render current` / `render select <id>` | `musicxx.render.list` / `current` / `select` |
 | `plugin …`（装 / 启停 / 重载 / 卸载 / 日志 / 清日志 / 重启） | `externPlugin.*` |
@@ -481,7 +482,7 @@ CLI 自己的选项与退出码：
 | `--json` | stdout 只放那份 JSON（`{ok, cmd, data}` 或 `{ok:false, error}`，缩进多行）；提示与诊断走 stderr |
 | `--endpoint <路径>` | 指定接入点文件（默认 `<系统临时目录>/musicxx.cli.json`） |
 | `--port <端口>` | 直接指定端口（跳过接入点文件，排查用） |
-| `--timeout <秒>` | 单次请求超时（默认 30；`featurePoint.call` / `featurepoint.list` / `feature` 这些命令自带更长默认值） |
+| `--timeout <秒>` | 单次请求超时（默认 30；`capability.call` / `featurepoint.list` / `feature` 这些命令自带更长默认值） |
 | `--host <ip>` | 连另一台设备（默认本机回环；跨设备要对方开着「共享与控制」） |
 | `--token <密令>` | 带授权密令（非本机、不同账号时用；本机不需要） |
 | `--start` / `--start-timeout <秒>` / `--app <路径>` | 没在运行时先拉起主程序（默认等 60 秒） |
@@ -541,7 +542,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（当前 44 个）
+### 5.2 工具全表（当前 45 个 = 固定 41 + 能力导出 4）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -624,8 +625,8 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 | 工具 | 参数 | 等价命令 | 文本形态 |
 |---|---|---|---|
-| `GetFeatureProviders` | `id?`、`provided?` | `featurePoint.list` | 每个功能点一段：类型、有没有实现、可不可以调、逐行列出实现（生效 / 备选 / 关闭）+ `callDoc` + 被调过几次；有前链 / 后链登记时多一行「前链 / 后链：N 个」，有主程序广播订阅时多一行「广播：N 个订阅」 |
-| `CallFeaturePoint` | `id`(必填)、`args?`、`refresh?` | `featurePoint.call` | 结果 JSON，**超大字符串字段压成摘要**（见下）；失败时的 `error` 与 `featurePoint.call` 同一套取值 |
+| `GetFeatureProviders` | `id?`、`provided?` | `capability.list` | 每个功能点一段：类型、有没有实现、可不可以调、逐行列出实现（生效 / 备选 / 关闭）+ `callDoc` + 被调过几次；有前链 / 后链登记时多一行「前链 / 后链：N 个」，有主程序广播订阅时多一行「广播：N 个订阅」 |
+| `CallFeaturePoint` | `id`(必填)、`args?`、`refresh?` | `capability.call` | 结果 JSON，**超大字符串字段压成摘要**（见下）；失败时的 `error` 与 `capability.call` 同一套取值 |
 | `GetAudioSpectrum` | 见能力声明（`path?`、`start?`、`duration?`、`bandCount?` 等） | `feature.call`（id = `GetAudioSpectrum`） | 文本表（每行一个时间步） |
 | `AnalyseAudioChorus` | 见能力声明 | `feature.call`（id = `AnalyseAudioChorus`） | 文本结论（副歌区段） |
 | `AnalyseImageMainColors` | 见能力声明（`path?` / `url?`） | `feature.call`（id = `AnalyseImageMainColors`） | 主色 + 4 组色值的文本 |
@@ -646,7 +647,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `app.commands` | `musicxx-cli commands [status\|install\|uninstall]` |
 | `musicxx.entry.argv` | 命令行 `musicxx-cli open` / `call`，或 `/cli` 的 `{"argv": […]}` |
 | 歌单 / 播放列表的写入动作（`musicxx.playlist.create` / `removeSong` / `updateSong`、`musicxx.songlist.addSong` / `removeSong` / `updateSong`） | `/cli`（`musicxx-cli call …`）—— 插件里仍然用 `musicxx.call` |
-| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.render.*`、`musicxx.media.*`（动作本身没有工具：频谱 / 副歌 / 主色调 / 内核信息用 §5.2 里那几个同名能力工具）、`musicxx.source.define` / `undefine`、`musicxx.hook.handlers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.call`） |
+| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.render.*`、`musicxx.media.*`（动作本身没有工具：频谱 / 副歌 / 主色调 / 内核信息用 §5.2 里那几个同名能力工具）、`musicxx.source.define` / `undefine`、`musicxx.capability.subscribers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.call`） |
 
 判断某个命令有没有 MCP 工具，看 `GET /cli/list` 的 `commands[].id` 与 `tools/list` 的工具名：
 **工具名与命令 id 不是一回事**（`GetPlaylistSongs` ↔ `musicxx.songlist.querySongs`），
@@ -821,7 +822,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 - **日志有上限**：插件日志是内存里的环形缓冲（最多 500 条，退出即失去）；应用自己的日志写在
   磁盘（`error.log` / `info.log`，按大小裁剪），最后几行可能还在写入缓冲里
   （结果里的 `flushedHint`）；
-- **功能点调用零副作用**：`featurePoint.call` 只读值仓，不写值仓、不改应用状态 ——
+- **功能点调用零副作用**：`capability.call` 只读值仓，不写值仓、不改应用状态 ——
   调一次封面取色不会换掉用户看到的背景色；
 - **一次只让一个 agent 装 / 卸同一个插件**：两台同时操作会出现"文件是这次、记录是那次"的竞争。
 

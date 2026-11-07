@@ -3025,7 +3025,7 @@ int main(int argc, char **argv) {
   // 自省要回答"这个钩子现在有谁在提供、谁先执行": 列表按**调用顺序**给出
   // (priority 升序, 同优先级按注册顺序), 只暴露 plugin / instance / kind / priority /
   // ownerTag —— 不暴露处理器地址、载荷与内部状态。主程序把它写进功能埋点自省,
-  // 插件侧用动作 `musicxx.hook.handlers` 读同一份数据。
+  // 插件侧用动作 `musicxx.capability.subscribers` 读同一份数据。
   {
     // 先归一状态: 这两个插件在前面的用例里可能还装着
     musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"), &log);
