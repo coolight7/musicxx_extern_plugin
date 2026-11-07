@@ -349,13 +349,12 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 
 ## 7. 改这个包时（框架 / SDK 自身）
 
-- **约定只在一处**：插件作者看的声明（能力 / 广播：能不能参与、参与哪一步、载荷与回答）定义在
-  `tools/capabilities.def.json`，由 `dart run tools/gen_contract.dart` 生成作者文档
-  `docs/plugin-capabilities.md` 与 `docs/plugin-broadcasts.md`；派发层用的钩子 id / 模式 / 合并策略 /
-  派发方式定义在 `tools/hooks.def.json`，同一个工具生成 Dart 枚举与 C++ 头。
+- **约定只在一处**：能力与广播（id / 用途 / 能不能参与 / 参与哪一步 / 合并策略 / 派发方式）只定义在
+  `tools/capabilities.def.json`，由 `dart run tools/gen_contract.dart` 生成 Dart 常量、C++ 头
+  （`capability_ids.g.h`）与作者文档 `docs/plugin-capabilities.md` / `docs/plugin-broadcasts.md`。
+  **派发层直接读这份声明**：没有第二份钩子表，也没有 `.before` / `.after` 结尾的独立 id。
   改完必须重新生成并提交生成物（`--check` 可校验）。
-- **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/hook_ids.g.dart`、
-  `lib/src/capability_ids.g.dart`、`src/sdk/include/musicxx/plugin/api/hook_ids.g.h`、
+- **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/capability_ids.g.dart`、
   `src/sdk/include/musicxx/plugin/api/capability_ids.g.h`、`docs/plugin-capabilities.md`、
   `docs/plugin-broadcasts.md`、`docs/musicxx-ui-kit.md`、`js/musicxx_ui_kit.js`，
   以及界面描述层子模块生成的头文件 / Dart / JS。它们都能由工具重跑。
@@ -378,7 +377,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   改导出、C ABI 或线程收尾后重新构建并跑原生测试。**改 C 头文件后要重新生成 Dart 绑定**：
   `fvm dart run ffigen --config ffigen.yaml`（Windows 上 LLVM 路径在配置里）。
   新增查询型 ABI 时，Dart 侧要按"**探测式查找**"接：旧插件框架库里没有这个符号，直接查会抛，
-  应在 `try/catch` 里探测一次并缓存结果，缺失时降级（`musicxx_extern_plugin_hook_handlers`
+  应在 `try/catch` 里探测一次并缓存结果，缺失时降级（`musicxx_extern_plugin_capability_handlers`
   就是这么接的：旧库只报处理器数量）。
 - **Android**：插件框架库必须随 APK 分发（`jniLibs`，系统只允许从 APK 原生库目录加载，放数据目录会报
   `is not accessible for the namespace "classloader-namespace"`）；交叉编译固定 Ninja + `c++_static`；

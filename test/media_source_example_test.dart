@@ -64,11 +64,14 @@ void main() {
     );
     expect(verdict, isNotNull, reason: '单 P 视频应当由插件接管');
     final Map<String, Object?> src = _srcOf(verdict!);
-    expect(src['path'], fakeBestAudioUrl,
-        reason: '返回的应是插件自己解析出来的直链（按音质偏好选中 30280）');
+    expect(
+      src['path'],
+      fakeBestAudioUrl,
+      reason: '返回的应是插件自己解析出来的直链（按音质偏好选中 30280）',
+    );
     expect(src['kind'], 'url');
-    final Map<Object?, Object?> headers =
-        (src['headers'] as Map).cast<Object?, Object?>();
+    final Map<Object?, Object?> headers = (src['headers'] as Map)
+        .cast<Object?, Object?>();
     expect(headers['Referer'], 'https://www.bilibili.com');
     expect(headers['Origin'], 'https://www.bilibili.com');
     expect('${headers['User-Agent']}', contains('Mozilla/5.0'));
@@ -87,8 +90,8 @@ void main() {
 
     // probe 的计数（Bili 被问 2 次、成功 2 次）
     final Map<String, Object?> probe = await harness.probe();
-    final Map<String, Object?> stats =
-        (probe['stats'] as Map).cast<String, Object?>();
+    final Map<String, Object?> stats = (probe['stats'] as Map)
+        .cast<String, Object?>();
     expect(stats['biliCalls'], 2);
     expect(stats['biliOk'], 2);
   }, timeout: const Timeout(Duration(seconds: 60)));
@@ -115,8 +118,8 @@ void main() {
     expect(verdict, isNull, reason: '多 P 视频必须返回 null，让主程序已经算好的那一份继续生效');
 
     final Map<String, Object?> probe = await harness.probe();
-    final Map<String, Object?> stats =
-        (probe['stats'] as Map).cast<String, Object?>();
+    final Map<String, Object?> stats = (probe['stats'] as Map)
+        .cast<String, Object?>();
     expect(stats['biliCalls'], 1);
     expect(stats['biliOk'], 0);
   }, timeout: const Timeout(Duration(seconds: 60)));
@@ -153,8 +156,8 @@ void main() {
     expect((src['headers'] as Map)['Referer'], 'https://www.bilibili.com');
 
     final Map<String, Object?> probe = await harness.probe();
-    final Map<String, Object?> stats =
-        (probe['stats'] as Map).cast<String, Object?>();
+    final Map<String, Object?> stats = (probe['stats'] as Map)
+        .cast<String, Object?>();
     expect(stats['pluginBiliCalls'], 1);
     expect(stats['biliCalls'], 0, reason: '内置 Bili 开关这条路没被问到');
     expect((probe['sourceTypes'] as Map)['bili'], biliType);
@@ -245,7 +248,10 @@ void main() {
 
     // 造一个 200 KB 的文件（内容可校验）
     final File media = File(path.join(harness.work.path, 'sample.bin'));
-    final List<int> content = List<int>.generate(200 * 1024, (int i) => i % 251);
+    final List<int> content = List<int>.generate(
+      200 * 1024,
+      (int i) => i % 251,
+    );
     media.writeAsBytesSync(content);
 
     final Map<String, Object?>? verdict = await harness.resolveSrc(
@@ -314,8 +320,8 @@ void main() {
     // 计数与状态
     final Map<String, Object?> probe = await harness.probe();
     expect((probe['stats'] as Map)['proxyCalls'], 1);
-    final Map<String, Object?> server =
-        (probe['server'] as Map).cast<String, Object?>();
+    final Map<String, Object?> server = (probe['server'] as Map)
+        .cast<String, Object?>();
     expect(server['running'], isTrue);
     expect((server['routes'] as List).length, greaterThanOrEqualTo(1));
 
@@ -433,18 +439,36 @@ void main() {
     expect(view['title'], isNotEmpty);
     final List<String> texts = <String>[];
     _collectText(view, texts);
-    expect(texts.any((String text) => text.contains('覆盖内置 Bili 解析')), isTrue,
-        reason: '设置页要有功能 1 的开关: $texts');
-    expect(texts.any((String text) => text.contains('自定义音源 plugin_bili')), isTrue,
-        reason: '设置页要有功能 2 的开关: $texts');
-    expect(texts.any((String text) => text.contains('播放示例视频')), isTrue,
-        reason: '设置页要有演示按钮: $texts');
-    expect(texts.any((String text) => text.contains('播放自定义音源')), isTrue,
-        reason: '设置页要有自定义音源的演示按钮: $texts');
-    expect(texts.any((String text) => text.contains('本地文件走 HTTP')), isTrue,
-        reason: '设置页要有功能 3 的开关: $texts');
-    expect(texts.any((String text) => text.contains('本地 HTTP 服务')), isTrue,
-        reason: '设置页要有本地服务状态: $texts');
+    expect(
+      texts.any((String text) => text.contains('覆盖内置 Bili 解析')),
+      isTrue,
+      reason: '设置页要有功能 1 的开关: $texts',
+    );
+    expect(
+      texts.any((String text) => text.contains('自定义音源 plugin_bili')),
+      isTrue,
+      reason: '设置页要有功能 2 的开关: $texts',
+    );
+    expect(
+      texts.any((String text) => text.contains('播放示例视频')),
+      isTrue,
+      reason: '设置页要有演示按钮: $texts',
+    );
+    expect(
+      texts.any((String text) => text.contains('播放自定义音源')),
+      isTrue,
+      reason: '设置页要有自定义音源的演示按钮: $texts',
+    );
+    expect(
+      texts.any((String text) => text.contains('本地文件走 HTTP')),
+      isTrue,
+      reason: '设置页要有功能 3 的开关: $texts',
+    );
+    expect(
+      texts.any((String text) => text.contains('本地 HTTP 服务')),
+      isTrue,
+      reason: '设置页要有本地服务状态: $texts',
+    );
     expect(_switchValue(view, 'overrideBili'), isTrue, reason: '默认开启');
     expect(_switchValue(view, 'pluginBiliEnabled'), isTrue, reason: '默认开启');
     expect(_switchValue(view, 'proxyLocalEnabled'), isTrue, reason: '默认开启');
@@ -495,8 +519,8 @@ class _Harness {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull, reason: '插件应能加载');
     expect(
-      runtime.hooks.refreshNativeHandlerCount(
-        MusicxxPluginHookId.playerSourceResolve,
+      runtime.capabilities.refreshNativeHandlerCount(
+        MusicxxCapabilityId.playerSourceResolve,
       ),
       1,
       reason: '音源解析钩子应登记成功',
@@ -601,22 +625,23 @@ class _Harness {
     String? crudeSrc,
     String? pluginType,
   }) {
-    final Future<Map<String, Object?>?> future = runtime.hooks.decideAsync(
-      MusicxxPluginHookId.playerSourceResolve,
-      <String, Object?>{
-        'srcKey': 'test-src-key',
-        'type': type,
-        'src': src,
-        'crudeType': type,
-        'crudeSrc': crudeSrc ?? src,
-        'fileName': null,
-        'durationMs': 213000,
-        'quality': quality,
-        'isMediaSrc': true,
-        'pluginType': pluginType,
-        'caller': null,
-      },
-    );
+    final Future<Map<String, Object?>?> future = runtime.capabilities
+        .dispatchAsync(
+          MusicxxCapabilityId.playerSourceResolve,
+          <String, Object?>{
+            'srcKey': 'test-src-key',
+            'type': type,
+            'src': src,
+            'crudeType': type,
+            'crudeSrc': crudeSrc ?? src,
+            'fileName': null,
+            'durationMs': 213000,
+            'quality': quality,
+            'isMediaSrc': true,
+            'pluginType': pluginType,
+            'caller': null,
+          },
+        );
     return _pumpFuture(runtime, future);
   }
 
@@ -646,7 +671,9 @@ class _Harness {
       configFile.remove('${invocation.args['key']}');
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageList, (invocation) {
+    runtime.actions.register(MusicxxPluginActionNames.storageList, (
+      invocation,
+    ) {
       return <String, Object?>{'keys': configFile.keys.toList()..sort()};
     });
 
@@ -707,22 +734,24 @@ class _Harness {
           },
         });
       } else {
-        body = convert.jsonEncode(<String, Object?>{'code': -404, 'message': 'unexpected url'});
+        body = convert.jsonEncode(<String, Object?>{
+          'code': -404,
+          'message': 'unexpected url',
+        });
       }
       return body;
     };
 
     // 声明音源类型（功能 2 用；这里记录参数，断言清单是否正确）
-    runtime.actions.register(
-      MusicxxPluginActionNames.sourceDefine,
-      (invocation) {
-        final Object? id = invocation.args['id'];
-        if (id is String && !definedSources.contains(id)) {
-          definedSources.add(id);
-        }
-        return <String, Object?>{'ok': true, 'id': id};
-      },
-    );
+    runtime.actions.register(MusicxxPluginActionNames.sourceDefine, (
+      invocation,
+    ) {
+      final Object? id = invocation.args['id'];
+      if (id is String && !definedSources.contains(id)) {
+        definedSources.add(id);
+      }
+      return <String, Object?>{'ok': true, 'id': id};
+    });
   }
 }
 
@@ -758,8 +787,10 @@ Future<_HttpResult> _httpGet(
   Map<String, String>? headers,
   String method = 'GET',
 }) async {
-  final HttpClientRequest request =
-      await client.openUrl(method, Uri.parse(url));
+  final HttpClientRequest request = await client.openUrl(
+    method,
+    Uri.parse(url),
+  );
   headers?.forEach(request.headers.set);
   final HttpClientResponse response = await request.close();
   final List<int> body = method == 'HEAD'
@@ -794,6 +825,7 @@ Object? _switchValue(Map<String, Object?> view, String id) {
     }
     return false;
   }
+
   visit(view);
   return found;
 }
@@ -822,13 +854,16 @@ Future<T> _pumpFuture<T>(MusicxxPluginRuntime runtime, Future<T> future) async {
   T? value;
   Object? error;
   bool done = false;
-  future.then((T result) {
-    value = result;
-    done = true;
-  }, onError: (Object e) {
-    error = e;
-    done = true;
-  });
+  future.then(
+    (T result) {
+      value = result;
+      done = true;
+    },
+    onError: (Object e) {
+      error = e;
+      done = true;
+    },
+  );
   final DateTime deadline = DateTime.now().add(const Duration(seconds: 10));
   while (!done) {
     if (DateTime.now().isAfter(deadline)) {

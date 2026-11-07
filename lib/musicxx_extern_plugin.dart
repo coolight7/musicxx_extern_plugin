@@ -8,7 +8,7 @@
 /// runtime.events.listen((e) => ...);
 /// final found = runtime.plugins.scan();
 /// runtime.plugins.load('example_native');
-/// final verdict = runtime.hooks.decide(MusicxxPluginHookId.playerBeforePlaySong, payload);
+/// final verdict = runtime.capabilities.dispatch(MusicxxCapabilityId.playerBeforePlaySong, payload);
 /// runtime.dispose();
 /// ```
 ///
@@ -28,13 +28,12 @@ export 'src/bindings_generated.dart'
 export 'src/broadcasts.dart' show MusicxxPluginBroadcasts;
 export 'src/capability_ids.g.dart';
 export 'src/events.dart';
-export 'src/hook_ids.g.dart';
-export 'src/hooks.dart'
+export 'src/capabilities.dart'
     show
-        MusicxxPluginDartHandler,
+        MusicxxPluginCapabilities,
+        MusicxxPluginCapabilityContext,
         MusicxxPluginHandlerInfo,
-        MusicxxPluginHookContext,
-        MusicxxPluginHooks,
+        MusicxxPluginImplementation,
         MusicxxPluginThrottle;
 export 'src/manager.dart' show MusicxxPluginManager;
 export 'src/native_library.dart'

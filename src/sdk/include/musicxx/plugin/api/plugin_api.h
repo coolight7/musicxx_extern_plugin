@@ -5,20 +5,20 @@
 ///
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
-/// - 专用接口表 IID: `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` /
-///   `musicxx.net` / `musicxx.kind` / `musicxx.player` / `musicxx.playlist` / `musicxx.songlist` /
-///   `musicxx.lyric` / `musicxx.storage` / `musicxx.stats`
-///   (v1 已实现 hooks / host / ui / vars / net / kind 六张; 其余 IID 先冻结, 表版本 1 留待后续实现;
+/// - 专用接口表 IID: `pluginxx.capabilities` / `pluginxx.broadcasts` (能力与广播, 插件框架通用) 与
+///   `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` / `musicxx.player` /
+///   `musicxx.playlist` / `musicxx.songlist` / `musicxx.lyric` / `musicxx.storage` / `musicxx.stats`
+///   (已实现 host / ui / net / kind 四张专用表; 其余 IID 先冻结, 表版本 1 留待后续实现;
 ///   每张表都要带齐"四件" —— IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE`,
 ///   规则见下面"专用接口表: 每张表四项 + 判定规则")
-/// - 钩子模式 / 标志 / 裁决动作常量
+/// - 能力的裁决动作常量
 #ifndef MUSICXX_PLUGIN_API_H
 #define MUSICXX_PLUGIN_API_H
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "musicxx/plugin/api/hook_ids.g.h"
+#include "musicxx/plugin/api/capability_ids.g.h"
 #include "pluginxx/api/abi.h"
 #include "pluginxx/api/tables.h"
 
@@ -51,18 +51,16 @@ extern "C" {
 
 #pragma pack(push, 8)
 
-/* ==================== 钩子: 模式 / 标志 / 裁决动作 ==================== */
+/* ==================== 能力: 裁决动作 ==================== */
 
-/// 观察型 (通知, 无裁决): 处理器返回值忽略
-#define MUSICXX_PLUGIN_HOOK_MODE_OBSERVE  0
-/// 裁决型: 处理器可返回裁决对象 (JSON), 插件框架按钩子的合并策略处理
-#define MUSICXX_PLUGIN_HOOK_MODE_DECISION 1
-
-/// 裁决动作 (与 Dart 侧 `MusicxxPluginHookAction` 一一对应)
-#define MUSICXX_PLUGIN_HOOK_ACTION_CONTINUE "continue"
-#define MUSICXX_PLUGIN_HOOK_ACTION_SKIP     "skip"
-#define MUSICXX_PLUGIN_HOOK_ACTION_CANCEL   "cancel"
-#define MUSICXX_PLUGIN_HOOK_ACTION_REPLACE  "replace"
+/// 裁决动作 (与 Dart 侧 `MusicxxPluginCapabilityAction` 一一对应)
+///
+/// 一个 id 是能力还是广播由 `tools/capabilities.def.json` 的声明决定 (插件不能自选):
+/// 广播只通知, 处理器给什么都不看; 能力按声明里的 `merge` 合并结果。
+#define MUSICXX_PLUGIN_CAPABILITY_ACTION_CONTINUE "continue"
+#define MUSICXX_PLUGIN_CAPABILITY_ACTION_SKIP     "skip"
+#define MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL   "cancel"
+#define MUSICXX_PLUGIN_CAPABILITY_ACTION_REPLACE  "replace"
 
 /* ==================== 专用接口表: 每张表四项 + 判定规则 ==================== */
 
@@ -438,7 +436,7 @@ typedef struct MusicxxPluginKindIface {
 #define MUSICXX_PLUGIN_IFACE_PLAYER    "musicxx.player"
 #define MUSICXX_PLUGIN_IFACE_PLAYLIST  "musicxx.playlist" ///< 歌单（保存下来的列表）
 #define MUSICXX_PLUGIN_IFACE_SONGLIST  "musicxx.songlist" ///< 播放列表（当前正在播的那一串歌）
-#define MUSICXX_PLUGIN_IFACE_LYRIC     "musicxx.lyric" ///< 歌词（单数域，与动作 / 钩子 / 变量一致）
+#define MUSICXX_PLUGIN_IFACE_LYRIC     "musicxx.lyric" ///< 歌词（单数域，与动作 / 能力 / 变量一致）
 #define MUSICXX_PLUGIN_IFACE_STORAGE   "musicxx.storage"
 #define MUSICXX_PLUGIN_IFACE_STATS     "musicxx.stats"
 #define MUSICXX_PLUGIN_IFACE_AGENT     "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用

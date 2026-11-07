@@ -2707,7 +2707,7 @@
         "command"
       ],
       "implemented": true,
-      "doc": "参数 `hook` = 能力 id（例如 `musicxx.media.spectrum.extract`），可选 `phase`（before / impl / after）。返回 `{hook, count, handlers, listAvailable, phasesAvailable}`，每项带 `phase`。命令面是 `capability.subscribers`（同一份实现，参数名 `id`）；插件调动作时用全名 `musicxx.capability.subscribers`（能力 id 以 musicxx. / plugin. 开头，命令名没有这个前缀）。"
+      "doc": "参数 `id` = 能力 id（例如 `musicxx.media.spectrum.extract`），可选 `phase`（before / impl / after）。返回 `{capability, count, handlers}`，每项带 `phase`。命令面是 `capability.subscribers`（同一份实现，参数名同样是 `id`）；插件调动作时用全名 `musicxx.capability.subscribers`（能力 id 以 musicxx. / plugin. 开头，命令名没有这个前缀）。"
     },
     {
       "id": "musicxx.host.openUrl",

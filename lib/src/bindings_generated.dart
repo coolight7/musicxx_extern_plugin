@@ -413,8 +413,13 @@ class MusicxxExternPluginBindings {
   /// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用插件框架自己的);
   /// - 出参 JSON: `{valid, error, path, dirName, id, kind, version, description, author,
   /// homepage, entry, apiVersion, depends, optionalDepends, permissions, platforms,
-  /// arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason}`
+  /// arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason,
+  /// kindKnown, kindRequiresPluginAbi, kindProvider, kindProviderId, kindValidateCapability}`
   /// (动态库插件才有 target/targetEntry/targetsDir/targets; JS 插件才有 scripts);
+  /// - `kind*` 几项是**形态事实**（由形态注册表回答）：未登记的形态 `kindKnown=false`；
+  /// `kindRequiresPluginAbi` 决定要不要看 `api_version`（解释执行的形态不看）；
+  /// `kindValidateCapability` 非空时，调用方应在安装前再调一次该能力请运行器判定
+  /// （本函数是同步的，问不了插件；参约定见 `docs/plugin-native-api.md` §4.3）；
   /// - 返回 OK 表示"判定完成", 目录不存在/清单非法时 `valid=false` + `error`
   /// (同样返回 OK —— 调用方看 `valid`);
   /// - 清单 `api_version` 低于 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 时 `supported=false`
@@ -804,27 +809,27 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 派发钩子
-  /// - `flags` = MUSICXX_EXTERN_PLUGIN_HOOK_SYNC 时等待处理器链结束 (等待期间不设超时) 并输出合并结果;
-  /// MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC 时入队即返回
-  /// - 裁决型钩子在 ASYNC 模式下为"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
-  /// 处理器链跑完后由事件 `musicxx.hook.decision.result` 回传结果 (payload 含同一个 callId,
-  /// 以及 result/called/handlers 字段); 观察型钩子的 ASYNC 派发不回报结果
+  /// 派发一条能力 (实现链)
+  /// - `flags` = MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC 时等待处理器链结束 (等待期间不设超时) 并输出合并结果;
+  /// MUSICXX_EXTERN_PLUGIN_DISPATCH_ASYNC 时入队即返回
+  /// - 实现链的 ASYNC 模式是"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
+  /// 处理器链跑完后由事件 `musicxx.capability.decision.result` 回传结果 (payload 含同一个 callId,
+  /// 以及 result/called/handlers 字段); 广播的 ASYNC 派发不回报结果
   /// - out_json 形如 {"handled":true,"result":{...},"called":1,"handlers":2}
   /// - `timeout_ms` 保留在签名里 (约定固定) 但不再使用: 插件框架不设等待超时, 处理器链慢就是
   /// 调用线程一起等
-  int musicxx_extern_plugin_hook_emit(
+  int musicxx_extern_plugin_capability_dispatch(
     ffi.Pointer<MusicxxExternPluginHost> h,
-    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginStringView> capability_id,
     ffi.Pointer<MusicxxExternPluginStringView> input_json,
     int flags,
     int timeout_ms,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_emit(
+    return _musicxx_extern_plugin_capability_dispatch(
       h,
-      hook_id,
+      capability_id,
       input_json,
       flags,
       timeout_ms,
@@ -833,7 +838,7 @@ class MusicxxExternPluginBindings {
     );
   }
 
-  late final _musicxx_extern_plugin_hook_emitPtr =
+  late final _musicxx_extern_plugin_capability_dispatchPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -846,9 +851,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_emit');
-  late final _musicxx_extern_plugin_hook_emit =
-      _musicxx_extern_plugin_hook_emitPtr
+      >('musicxx_extern_plugin_capability_dispatch');
+  late final _musicxx_extern_plugin_capability_dispatch =
+      _musicxx_extern_plugin_capability_dispatchPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -861,19 +866,24 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 该钩子当前的原生/JS 处理器数量 (Dart 快速路径判定; 事件增量更新)
+  /// 该条 id 当前的原生/JS 处理器数量 (Dart 快速路径判定; 事件增量更新)
   ///
-  /// 这是**全部阶段**的总数（老符号语义不变）；要按阶段判定用 `_hook_count_phase`。
-  int musicxx_extern_plugin_hook_count(
+  /// 这是**全部阶段**的总数；要按阶段判定用 `_capability_handler_count_phase`。
+  int musicxx_extern_plugin_capability_handler_count(
     ffi.Pointer<MusicxxExternPluginHost> h,
-    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginStringView> capability_id,
     ffi.Pointer<ffi.Int32> out_count,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_count(h, hook_id, out_count, log);
+    return _musicxx_extern_plugin_capability_handler_count(
+      h,
+      capability_id,
+      out_count,
+      log,
+    );
   }
 
-  late final _musicxx_extern_plugin_hook_countPtr =
+  late final _musicxx_extern_plugin_capability_handler_countPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -883,9 +893,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_count');
-  late final _musicxx_extern_plugin_hook_count =
-      _musicxx_extern_plugin_hook_countPtr
+      >('musicxx_extern_plugin_capability_handler_count');
+  late final _musicxx_extern_plugin_capability_handler_count =
+      _musicxx_extern_plugin_capability_handler_countPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -895,18 +905,18 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 按阶段派发钩子
+  /// 按阶段派发能力
   ///
-  /// - `phase` = `impl`：与 `musicxx_extern_plugin_hook_emit` 完全一样（旧的同步/异步约定不变）；
+  /// - `phase` = `impl`：与 `musicxx_extern_plugin_capability_dispatch` 完全一样（同步/异步约定不变）；
   /// - `phase` = `before`：串行、**正序**（priority 升序、同优先级按注册顺序），载荷逐步累积；
   /// out_json 回执的 `result.patch` 是累计后的 patch，`result.action` 为 `stop` 时表示整条链被停下；
   /// - `phase` = `after`：串行、**逆序**（priority 降序、同优先级注册顺序也反），值逐步替换；
   /// out_json 回执的 `result.value` 是最终值，`result.action` 为 `drop` 时表示结果被丢弃；
-  /// - 该阶段没有处理器时返回 `{"handled":false,"handlers":0}`（与旧符号一致）；
-  /// - `flags` / `timeout_ms` 含义与 `hook_emit` 相同。
-  int musicxx_extern_plugin_hook_emit_phase(
+  /// - 该阶段没有处理器时返回 `{"handled":false,"handlers":0}`；
+  /// - `flags` / `timeout_ms` 含义与 `capability_dispatch` 相同。
+  int musicxx_extern_plugin_capability_dispatch_phase(
     ffi.Pointer<MusicxxExternPluginHost> h,
-    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginStringView> capability_id,
     int phase,
     ffi.Pointer<MusicxxExternPluginStringView> input_json,
     int flags,
@@ -914,9 +924,9 @@ class MusicxxExternPluginBindings {
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_emit_phase(
+    return _musicxx_extern_plugin_capability_dispatch_phase(
       h,
-      hook_id,
+      capability_id,
       phase,
       input_json,
       flags,
@@ -926,7 +936,7 @@ class MusicxxExternPluginBindings {
     );
   }
 
-  late final _musicxx_extern_plugin_hook_emit_phasePtr =
+  late final _musicxx_extern_plugin_capability_dispatch_phasePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -940,9 +950,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_emit_phase');
-  late final _musicxx_extern_plugin_hook_emit_phase =
-      _musicxx_extern_plugin_hook_emit_phasePtr
+      >('musicxx_extern_plugin_capability_dispatch_phase');
+  late final _musicxx_extern_plugin_capability_dispatch_phase =
+      _musicxx_extern_plugin_capability_dispatch_phasePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -956,24 +966,24 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 某钩子在某个阶段上的处理器数量（阶段没有处理器时为 0）
-  int musicxx_extern_plugin_hook_count_phase(
+  /// 某条 id 在某个阶段上的处理器数量（阶段没有处理器时为 0）
+  int musicxx_extern_plugin_capability_handler_count_phase(
     ffi.Pointer<MusicxxExternPluginHost> h,
-    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginStringView> capability_id,
     int phase,
     ffi.Pointer<ffi.Int32> out_count,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_count_phase(
+    return _musicxx_extern_plugin_capability_handler_count_phase(
       h,
-      hook_id,
+      capability_id,
       phase,
       out_count,
       log,
     );
   }
 
-  late final _musicxx_extern_plugin_hook_count_phasePtr =
+  late final _musicxx_extern_plugin_capability_handler_count_phasePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -984,9 +994,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_count_phase');
-  late final _musicxx_extern_plugin_hook_count_phase =
-      _musicxx_extern_plugin_hook_count_phasePtr
+      >('musicxx_extern_plugin_capability_handler_count_phase');
+  late final _musicxx_extern_plugin_capability_handler_count_phase =
+      _musicxx_extern_plugin_capability_handler_count_phasePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -997,28 +1007,33 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 该钩子当前的处理器列表 (自省用; 按**调用顺序**给出: priority 升序, 同优先级按注册顺序)
+  /// 该条 id 当前的处理器列表 (自省用; 按**调用顺序**给出: priority 升序, 同优先级按注册顺序)
   ///
   /// out_json 形如:
-  /// {"hook":"musicxx.media.spectrum.extract","count":2,"handlers":[
+  /// {"capability":"musicxx.media.spectrum.extract","count":2,"handlers":[
   /// {"plugin":"example_js","instance":"js:example_js","kind":"js","phase":"impl",
   /// "priority":0,"ownerTag":""},
   /// {"plugin":"example_native","instance":"example_native","kind":"native",
   /// "phase":"after","priority":10,"ownerTag":""}]}
   ///
   /// 只给出 plugin / instance / kind / phase / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
-  /// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 钩子 id 不认识时返回 ERR_NOT_FOUND。
-  /// 这是**全部阶段**的列表；只看一个阶段用 `_hook_handlers_phase`。
-  int musicxx_extern_plugin_hook_handlers(
+  /// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 声明表里没有这个 id 时返回 ERR_NOT_FOUND。
+  /// 这是**全部阶段**的列表；只看一个阶段用 `_capability_handlers_phase`。
+  int musicxx_extern_plugin_capability_handlers(
     ffi.Pointer<MusicxxExternPluginHost> h,
-    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginStringView> capability_id,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_handlers(h, hook_id, out_json, log);
+    return _musicxx_extern_plugin_capability_handlers(
+      h,
+      capability_id,
+      out_json,
+      log,
+    );
   }
 
-  late final _musicxx_extern_plugin_hook_handlersPtr =
+  late final _musicxx_extern_plugin_capability_handlersPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1028,9 +1043,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_handlers');
-  late final _musicxx_extern_plugin_hook_handlers =
-      _musicxx_extern_plugin_hook_handlersPtr
+      >('musicxx_extern_plugin_capability_handlers');
+  late final _musicxx_extern_plugin_capability_handlers =
+      _musicxx_extern_plugin_capability_handlersPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1040,24 +1055,24 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 某钩子在某个阶段上的处理器列表（形状与 `hook_handlers` 相同，只有该阶段）
-  int musicxx_extern_plugin_hook_handlers_phase(
+  /// 某条 id 在某个阶段上的处理器列表（形状与 `capability_handlers` 相同，只有该阶段）
+  int musicxx_extern_plugin_capability_handlers_phase(
     ffi.Pointer<MusicxxExternPluginHost> h,
-    ffi.Pointer<MusicxxExternPluginStringView> hook_id,
+    ffi.Pointer<MusicxxExternPluginStringView> capability_id,
     int phase,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_handlers_phase(
+    return _musicxx_extern_plugin_capability_handlers_phase(
       h,
-      hook_id,
+      capability_id,
       phase,
       out_json,
       log,
     );
   }
 
-  late final _musicxx_extern_plugin_hook_handlers_phasePtr =
+  late final _musicxx_extern_plugin_capability_handlers_phasePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1068,9 +1083,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_handlers_phase');
-  late final _musicxx_extern_plugin_hook_handlers_phase =
-      _musicxx_extern_plugin_hook_handlers_phasePtr
+      >('musicxx_extern_plugin_capability_handlers_phase');
+  late final _musicxx_extern_plugin_capability_handlers_phase =
+      _musicxx_extern_plugin_capability_handlers_phasePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1081,16 +1096,16 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 钩子耗时/失败统计 (调试页; 只观测不限制)
-  int musicxx_extern_plugin_hook_stats(
+  /// 能力处理器耗时/失败统计 (调试页; 只观测不限制)
+  int musicxx_extern_plugin_capability_stats(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_hook_stats(h, out_json, log);
+    return _musicxx_extern_plugin_capability_stats(h, out_json, log);
   }
 
-  late final _musicxx_extern_plugin_hook_statsPtr =
+  late final _musicxx_extern_plugin_capability_statsPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1099,9 +1114,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_hook_stats');
-  late final _musicxx_extern_plugin_hook_stats =
-      _musicxx_extern_plugin_hook_statsPtr
+      >('musicxx_extern_plugin_capability_stats');
+  late final _musicxx_extern_plugin_capability_stats =
+      _musicxx_extern_plugin_capability_statsPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,

@@ -63,7 +63,7 @@ class MusicxxPluginArena {
     return out;
   }
 
-  /// 分配一个 int32 出参槽（用于 `hook_count` 等计数型出参）
+  /// 分配一个 int32 出参槽（用于 `capability_handler_count` 等计数型出参）
   Pointer<Int32> mallocInt() {
     final Pointer<Int32> out = malloc<Int32>();
     _blocks.add(out.cast<Uint8>());

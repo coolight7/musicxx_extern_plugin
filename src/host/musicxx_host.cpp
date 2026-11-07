@@ -1,5 +1,5 @@
 /// musicxx 外部插件原生插件框架: 管理器核心
-/// (配置/启停/事件/专用钩子/插件框架生命周期接口/插件管理)
+/// (配置/启停/事件/专用能力/插件框架生命周期接口/插件管理)
 
 #include "musicxx_host.h"
 
@@ -59,13 +59,13 @@ std::string currentThreadIdText() {
   return oss.str();
 }
 
-/// 钩子 id 列表 → JSON 数组（插件生命周期事件里的 `hooks` 字段）
+/// 能力 id 列表 → JSON 数组（插件生命周期事件里的 `capabilities` 字段）
 ///
-/// Dart 侧收到生命周期事件后会按这份列表逐个回查插件框架里的处理器数量：钩子注册表
-/// 靠 `musicxx.hook.changed`
+/// Dart 侧收到生命周期事件后会按这份列表逐个回查插件框架里的处理器数量：能力注册表
+/// 靠 `musicxx.capability.changed`
 /// 事件维护，事件丢一条就会停在旧值（表现为"插件注册过
-/// 的钩子不再被派发"），这份随事件带上来的列表是它的对齐依据。
-Json hookIdsJson(const std::vector<std::string> &ids) {
+/// 的能力不再被派发"），这份随事件带上来的列表是它的对齐依据。
+Json capabilityIdsJson(const std::vector<std::string> &ids) {
   Json arr = Json::array();
   for (const std::string &id : ids) {
     arr.push_back(id);
@@ -791,8 +791,8 @@ MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance &inst) const {
   j["enabled"] = inst.enabled;
   j["configPath"] = inst.configPath;
   j["counters"] = {
-      {"hookCalls", inst.hookCalls.load()},
-      {"hookTimeouts", inst.hookTimeouts.load()},
+      {"capabilityCalls", inst.capabilityCalls.load()},
+      {"capabilityTimeouts", inst.capabilityTimeouts.load()},
       {"actionRequests", inst.actionRequests.load()},
       {"events", inst.eventsPublished.load()},
       {"errors", inst.errors.load()},
@@ -909,41 +909,41 @@ void MusicxxHostManager::onInstanceLoaded(MusicxxHostInstance &inst) {
   payload["version"] = inst.version;
   payload["path"] = inst.path;
   payload["configPath"] = inst.configPath;
-  /// 该实例注册的钩子 id 列表 (加载已在 start 之后: 列表是完整的)
-  payload["hooks"] = hookIdsJson(hooksOfInstance(inst.name));
+  /// 该实例注册的能力 id 列表 (加载已在 start 之后: 列表是完整的)
+  payload["capabilities"] = capabilityIdsJson(capabilitiesOfInstance(inst.name));
   payload["ok"] = true;
   pushEvent("musicxx.plugin.loaded", pluginIdOf(inst.name), payload.dump());
 }
 
 void MusicxxHostManager::onInstanceUnloaded(MusicxxHostInstance &inst) {
-  /// 先取钩子列表: clearPluginRegistrations 之后就查不到了
-  const std::vector<std::string> removedHooks = hooksOfInstance(inst.name);
+  /// 先取能力列表: clearPluginRegistrations 之后就查不到了
+  const std::vector<std::string> removedIds = capabilitiesOfInstance(inst.name);
   clearPluginRegistrations(inst.name);
   loaded_.erase(inst.name);
   Json payload;
   payload["id"] = pluginIdOf(inst.name);
   payload["instance"] = inst.name;
-  /// 被摘掉的钩子 (Dart 侧按它回查"现在这些钩子还有没有处理器")
-  payload["hooks"] = hookIdsJson(removedHooks);
+  /// 被摘掉的能力 (Dart 侧按它回查"现在这些能力还有没有处理器")
+  payload["capabilities"] = capabilityIdsJson(removedIds);
   pushEvent("musicxx.plugin.unloaded", pluginIdOf(inst.name), payload.dump());
 }
 
 void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
                                                   bool enabled) {
-  std::vector<std::string> hooks;
+  std::vector<std::string> capabilityIdList;
   if (false == enabled) {
-    /// 先取钩子列表: 停用会把这些注册摘掉
-    hooks = hooksOfInstance(inst.name);
+    /// 先取能力列表: 停用会把这些注册摘掉
+    capabilityIdList = capabilitiesOfInstance(inst.name);
     clearPluginRegistrations(inst.name);
   } else {
     /// 启用: start 事务已经跑完 (插件框架在 start 成功之后才回调这里), 列表是新的
-    hooks = hooksOfInstance(inst.name);
+    capabilityIdList = capabilitiesOfInstance(inst.name);
   }
   Json payload;
   payload["id"] = pluginIdOf(inst.name);
   payload["instance"] = inst.name;
   payload["enabled"] = enabled;
-  payload["hooks"] = hookIdsJson(hooks);
+  payload["capabilities"] = capabilityIdsJson(capabilityIdList);
   pushEvent(enabled ? "musicxx.plugin.enabled" : "musicxx.plugin.disabled",
             pluginIdOf(inst.name), payload.dump());
 }
@@ -965,15 +965,15 @@ void MusicxxHostManager::clearPluginRegistrations(
       }
     }
   }
-  for (auto it = hooks_.begin(); it != hooks_.end();) {
+  for (auto it = handlers_.begin(); it != handlers_.end();) {
     auto &handlers = it->second;
     handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
-                                  [&](const HookHandler &h) {
+                                  [&](const CapabilityHandler &h) {
                                     return h.plugin == instanceName;
                                   }),
                    handlers.end());
     if (handlers.empty()) {
-      it = hooks_.erase(it);
+      it = handlers_.erase(it);
     } else {
       ++it;
     }
@@ -2636,7 +2636,7 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
   j["logDir"] = logDir_;
   j["running"] = running_.load();
   j["loadedCount"] = static_cast<int32_t>(loaded_.size());
-  j["hookPoints"] = static_cast<int32_t>(hooks_.size());
+  j["capabilityIds"] = static_cast<int32_t>(handlers_.size());
   {
     std::lock_guard<std::mutex> lock{eventMutex_};
     j["queue"] = {{"size", static_cast<int64_t>(events_.size())},
@@ -2669,8 +2669,8 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
       host["queue"] = {{"size", static_cast<int64_t>(events_.size())},
                        {"dropped", eventDropped_}};
     }
-    Json hooks = Json::object();
-    for (const auto &[hookId, handlers] : hooks_) {
+    Json capabilities = Json::object();
+    for (const auto &[capabilityId, handlers] : handlers_) {
       int64_t calls = 0;
       int64_t failures = 0;
       int64_t totalUs = 0;
@@ -2681,14 +2681,14 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         totalUs += h.totalUs;
         maxUs = (std::max)(maxUs, h.maxUs);
       }
-      hooks[hookId] = {
+      capabilities[capabilityId] = {
           {"calls", calls},
           {"avgUs", calls > 0 ? totalUs / calls : 0},
           {"maxUs", maxUs},
           {"failures", failures},
       };
     }
-    host["hooks"] = hooks;
+    host["capabilities"] = capabilities;
   }
   /// 共享 JS 线程的排队情况 (队列深度/排队等待时长/定时器数;
   /// 插件框架不打断脚本, 只用这些数字在管理页提示"某个脚本正在占住 JS 线程")
@@ -2713,21 +2713,21 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"start", inst->phaseMs.start},     {"stop", inst->phaseMs.stop},
         {"destroy", inst->phaseMs.destroy},
     };
-    int32_t hookCount = 0;
-    for (const auto &[hookId, handlers] : hooks_) {
+    int32_t handlerCount = 0;
+    for (const auto &[capabilityId, handlers] : handlers_) {
       for (const auto &h : handlers) {
         if (h.plugin == inst->name) {
-          ++hookCount;
+          ++handlerCount;
         }
       }
     }
-    p["registrations"] = {{"hooks", hookCount}};
+    p["registrations"] = {{"capabilities", handlerCount}};
     const int64_t uptimeMs =
         inst->loadedAtMs > 0 ? (steadyNowMs() - inst->loadedAtMs) : 0;
     const int64_t events = inst->eventsPublished.load();
     p["counters"] = {
-        {"hookCalls", inst->hookCalls.load()},
-        {"hookTimeouts", inst->hookTimeouts.load()},
+        {"capabilityCalls", inst->capabilityCalls.load()},
+        {"capabilityTimeouts", inst->capabilityTimeouts.load()},
         {"actionRequests", inst->actionRequests.load()},
         {"events", events},
         /// 事件速率: eventsPerSec = 最近一个完整窗口;
@@ -2750,7 +2750,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
         {"jsHeapBytes", jsHeap < 0 ? 0 : jsHeap},
         {"jsHeapSampled", jsHeap >= 0},
     };
-    /// JS插件附带运行时段的明细 (钩子/能力/订阅/定时器/脚本执行次数/堆用量/
+    /// JS插件附带运行时段的明细 (能力/能力/订阅/定时器/脚本执行次数/堆用量/
     /// 异步裁决结算次数), 供管理页与排障直接读取
     if (jsEngine_ && inst->kind == "js") {
       p["js"] = parseJsonSafe(jsEngine_->instanceStatsJson(inst->name));

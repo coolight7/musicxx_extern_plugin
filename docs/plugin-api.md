@@ -36,16 +36,17 @@
 | 声明在 | `tools/capabilities.def.json` 的 `capabilities` → [plugin-capabilities.md](plugin-capabilities.md) | 同一个文件的 `broadcasts` → [plugin-broadcasts.md](plugin-broadcasts.md) |
 
 **同一个 id 只有一份声明**，写清"能不能参与、参与哪一步（前链 / 实现链 / 后链）、派发方式、合并策略、
-超时、缓存、谁能调"。代码里还留着 `hook` 字样（`MusicxxPluginHookId`、`hook_ids.g.h`、C 接口的
-`musicxx_extern_plugin_hook_*`）：那是**派发层**的名字，指"一次调用"。对插件作者来说，它是上面两类之一。
+超时、缓存、谁能调"。这套叫法在整条链路上是同一套：Dart 侧是 `MusicxxCapabilityId` / `MusicxxBroadcastId`，
+C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作者文档就是这一份生成的
+`plugin-capabilities.md` / `plugin-broadcasts.md`。
 
 同一件事，两边怎么写（左列是 JS，右列是 C++）：
 
 | 要做的事 | JS插件 | 动态库插件 | 详见 |
 |---|---|---|---|
-| 实现一条决策型能力（应用来问你） | `musicxx.capability.implement(id, {phase, priority, ownerTag}, fn)` | `hook(id, priority, fn)`（`fn` 里填 `out`） | §8 |
+| 实现一条决策型能力（应用来问你） | `musicxx.capability.implement(id, {phase, priority, ownerTag}, fn)` | `implement(id, priority, fn)`（`fn` 里填 `out`） | §8 |
 | 订阅一个广播频道 | `musicxx.broadcast.subscribe(id, fn)` | `subscribeTopic(id, fn)` | §2 / §4 |
-| 注销 / 退订 | `musicxx.capability.unregister(id)` / `musicxx.broadcast.unsubscribe(id)` | `unregisterHook(id)` / `iface.broadcasts->unsubscribe(...)` | §8 |
+| 注销 / 退订 | `musicxx.capability.unregister(id)` / `musicxx.broadcast.unsubscribe(id)` | `unimplement(id)` / `iface.broadcasts->unsubscribe(...)` | §8 |
 | 读状态镜像 | `musicxx.broadcast.read("musicxx.state.song")` | `stateJson(MUSICXX_STATE_SONG)` | §2 |
 | 让应用做一件事 | `await musicxx.call("musicxx.player.toggle")` | `requestAction("musicxx.player.toggle", "{}", &notify)` | §3 |
 | 读 / 写变量 | `await musicxx.broadcast.get(key)` / `musicxx.broadcast.write(key, v)` | 原生没有变量表（读用 `stateJson`，写用动作） | §5 |
@@ -1410,7 +1411,7 @@ const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", 
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.capability.subscribers` | `{hook, phase?}` | `{ok:true, hook, phase, count, handlers:[{plugin, instance, kind, priority, phase, ownerTag}], listAvailable, phasesAvailable}` |
+| `musicxx.capability.subscribers` | `{id, phase?}` | `{ok:true, capability, phase, count, handlers:[{plugin, instance, kind, priority, phase, ownerTag}]}` |
 
 - `handlers` 按**调用顺序**排列（`priority` 升序，同优先级按注册顺序）；
 - `phase` 是可选参数：`before` / `impl` / `after`，不给就是全部阶段（按 `before → impl → after` 拼接）；
@@ -1764,10 +1765,10 @@ iface.events->publish(host, &topic, &data);
 
 > **下面这些名字不是总线主题**：它们是插件框架 → 主程序的内部事件（与能力派发、UI 项、日志同一条内部队列），
 > 插件 `subscribe` 它们**不报错但永远收不到回调**：`musicxx.plugin.log` / `musicxx.plugin.error` /
-> `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.hook.changed` / `musicxx.hook.decision.result`。
+> `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.capability.changed` / `musicxx.capability.decision.result`。
 > 要看这些数据用别的办法：能力注册表用动作 `musicxx.capability.subscribers`，自己的 UI 项用 JS 的
 > `musicxx.ui.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
-> `await decideAsync` 的返回值（`musicxx.hook.decision.result` 只是同一份结果的调试镜像）。
+> `await dispatchAsync` 的返回值（`musicxx.capability.decision.result` 只是同一份结果的调试镜像）。
 
 > 应用事件（`musicxx.state.changed` 之类）是**广播**上的频道；**能力**是另一条通道
 > （有阶段、有合并策略、可能等裁决）。别把两者混起来：想在切歌时做事，订阅广播频道
@@ -2071,11 +2072,10 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 
 ## 8. 应用来问插件（能力：决策型）
 
-> **两边的登记入口都变了（框架 API 2）**：`musicxx.hooks` 表与 `MusicxxPluginHookSpec` 已删除。
+> **登记入口（插件 ABI 5）**：`musicxx.hooks` 表、`MusicxxPluginHookSpec` 与 `hook` 词汇都已删除。
 > JS 用 `musicxx.capability.implement`；原生插件往 `pluginxx.capabilities` 登记（SDK 的
-> `hook` / `hookBefore` / `hookAfter` 已经这样做）；
-> **观察型的那一批**（`mode: observe`）现在是一组广播频道，JS 用 `musicxx.broadcast.subscribe`，
-> 原生用 `subscribeTopic`。
+> `implement` / `implementBefore` / `implementAfter` / `unimplement` 就是这么做的）。
+> **通知型的那一批**是一组广播频道，JS 用 `musicxx.broadcast.subscribe`，原生用 `subscribeTopic`。
 > 本节剩下的阶段、裁决对象与载荷语义对两种形态同样有效。
 
 能力 id、模式（`observe` / `decision`）、派发方式（`sync` / `async`）、合并策略，以及**哪些能力已经被应用接入**，
@@ -2120,7 +2120,7 @@ extern  ---------->  builtin  ---------->  core
 ### 8.1.1 注册与注销
 
 ```js
-musicxx.capability.implement(id, { mode, priority, ownerTag, phase }, fn);  // 顶层同步注册或运行期注册都行
+musicxx.capability.implement(id, { phase, priority, ownerTag }, fn);  // 顶层同步注册或运行期注册都行
 musicxx.capability.unregister(id);           // 摘掉这条能力上自己的全部阶段
 musicxx.capability.unregister(id, "after");  // 只摘那个阶段
 musicxx.capability.has(id);                  // 自己注册了没有（缺省看 impl 阶段）
@@ -2130,28 +2130,29 @@ musicxx.capability.handlers(id, "after");     // 只看一个阶段（缺省 = �
 ```
 
 ```cpp
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,      // 裁决型，priority = 0
-     [](std::string_view input, std::string& out) -> int32_t {
-         if (input.find("广告") != std::string_view::npos) { out = R"({"action":"skip"})"; }
-         return 0;      // 返回 0 且 out 非空 = 给出裁决；out 空 = 不裁决
-     });
+implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,   // 裁决型，priority = 0
+          [](std::string_view input, std::string& out) -> int32_t {
+              if (input.find("广告") != std::string_view::npos) { out = R"({"action":"skip"})"; }
+              return 0;   // 返回 0 且 out 非空 = 给出裁决；out 空 = 不裁决
+          });
 
-observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,                  // 观察型
+observe(MUSICXX_BROADCAST_SONG_CHANGED,                    // 通知型（广播频道）
         [](std::string_view input, std::string&) -> int32_t { /* 返回值忽略 */ return 0; });
 
 // 阶段: 同一条能力上的前链 / 后链（必须是同步处理器）
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, HookPhase::After, 0,
-     [](std::string_view input, std::string& out) -> int32_t {
-         out = R"({"value":{"action":"continue","patch":{"to":60000}}})";
-         return 0;
-     });
-hookBefore(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);   // 等价写法
-hookAfter (MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
+implement(MUSICXX_CAPABILITY_PLAYER_SEEK, CapabilityPhase::After, 0,
+          [](std::string_view input, std::string& out) -> int32_t {
+              out = R"({"value":{"action":"continue","patch":{"to":60000}}})";
+              return 0;
+          });
+implementBefore(MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);   // 等价写法
+implementAfter (MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);
 
-unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
+unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 ```
 
-- `mode`：`observe` = 只通知（返回值忽略）；`decision` = 可裁决（返回 `null` = 不表态）。
+- 只有两种参与方式：**实现**（`implement`，返回 `null` / 空 = 不表态）与**订阅广播**
+  （`observe` / `musicxx.broadcast.subscribe`，返回值忽略）。没有第三个"模式"参数。
 - `priority`：小者先执行，同优先级按注册顺序。应用询问"这个扩展点谁来实现"时的层间顺序是
   「**外置插件 → 内置插件 → 应用自己兜底**」：外置排最前是刻意的，用户装的插件要能替代内置功能；
   想知道某个功能点现在是谁在生效，用动作 `musicxx.feature.point.list`（§3.2.11）。
@@ -2204,7 +2205,7 @@ unregisterHook(MUSICXX_PLUGIN_HOOK_SONG_CHANGED);
 
 ```js
 // musicxx.player.speed 的载荷是 {from, to}：把不合法的新值换成合法值
-musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, (ctx) => {
+musicxx.capability.implement("musicxx.player.speed", (ctx) => {
     if (ctx.to >= 0.25 && ctx.to <= 3) return null;     // 同步路径：最省时
     return new Promise((resolve) => {                    // 异步路径
         setTimeout(() => resolve({ patch: { to: 3 } }), 20);
@@ -2217,7 +2218,7 @@ musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, (ctx)
   应用最多等 **0.5 秒**（超时按“没意见”走原值），`musicxx.player.source.resolve` 最多等 5 秒，
   `musicxx.player.error` 等它结算。**每条能力具体等多久看 [plugin-capabilities.md](plugin-capabilities.md) 的「超时」列**。
 - 所以异步路径要保证**一定会结算**（失败就 reject）；不结算就是调用点一直等到它的上限。
-- 结算次数在统计里看得到（`asyncHookSettled`）。
+- 结算次数在统计里看得到（`asyncDispatchSettled`）。
 
 ### 8.4 处理器里不要做这些
 

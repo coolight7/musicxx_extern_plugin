@@ -15,7 +15,7 @@
 /// 1、2 关掉后不接管（主程序自己的解析照旧），3 关掉后该来源解析失败。
 ///
 /// 约束与写法说明见 plugins/example_override_media_source/README.md；钩子与解析的接口说明见
-/// 包内 docs/plugin-hooks.md 的 `musicxx.player.source.resolve` 与 docs/plugin-api.md §3.2.6。
+/// 包内 docs/plugin-capabilities.md 的 `musicxx.player.source.resolve` 与 docs/plugin-api.md §3.2.6。
 
 /// 随插件分发的界面 kit（清单 scripts 里按顺序加载了基础 kit 与 musicxx 扩展 kit）
 const kit = pluginxx.ui.kit;

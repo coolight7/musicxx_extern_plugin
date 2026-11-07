@@ -43,7 +43,7 @@ musicxx.capability.register("probe", function () {
         pluginId: musicxx.pluginId,
         runs: runs,
         settled: settled,
-        asyncHookSettled: stats.asyncHookSettled || 0,
+        asyncDispatchSettled: stats.asyncDispatchSettled || 0,
     };
 });
 

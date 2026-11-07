@@ -4,6 +4,78 @@
 // id 是跨边界稳定的约定：字符串值一旦发布不得修改，只能新增或标记废弃。
 // ignore_for_file: type=lint, constant_identifier_names
 
+/// 能力阶段（参与方式）：同一条能力上的三段
+///
+/// 能力 id 表示**一次调用**；参与方式由注册时的阶段表达：
+/// - [before]：进入调用之前，串行、正序，只能改输入或 `stop`；
+/// - [impl]：实现链，给出结果（多数能力只有这一段）；
+/// - [after]：拿到结果之后，串行、逆序，只能改输出或 `drop`。
+enum MusicxxCapabilityPhase {
+  impl(0),
+
+  before(1),
+
+  after(2);
+
+  const MusicxxCapabilityPhase(this.code);
+
+  /// 阶段编号（与 C 侧 `MUSICXX_CAPABILITY_PHASE_*` 一致）
+  final int code;
+
+  /// 位掩码（`1 << code`，与 C 侧 `MUSICXX_CAPABILITY_PHASE_MASK_*` 一致）
+  int get mask => 1 << code;
+
+  /// 对外字符串（事件载荷与自省用它）
+  String get wireName {
+    switch (this) {
+      case MusicxxCapabilityPhase.before:
+        return "before";
+      case MusicxxCapabilityPhase.impl:
+        return "impl";
+      case MusicxxCapabilityPhase.after:
+        return "after";
+    }
+  }
+
+  /// 按对外字符串反查（未知名字返回 null）
+  static MusicxxCapabilityPhase? tryFromName(String name) {
+    switch (name) {
+      case "impl":
+        return MusicxxCapabilityPhase.impl;
+      case "before":
+        return MusicxxCapabilityPhase.before;
+      case "after":
+        return MusicxxCapabilityPhase.after;
+    }
+    return null;
+  }
+}
+
+/// 合并策略：多个实现都给出结果时怎么合
+enum MusicxxCapabilityMerge {
+  /// 第一个合法结果生效，后面的实现不再问
+  first('first'),
+
+  /// 任一实现能否决（最保守的裁决不被后面的实现覆盖）
+  veto('veto');
+
+  const MusicxxCapabilityMerge(this.wireName);
+
+  /// 声明里的写法（`first` / `veto`）
+  final String wireName;
+
+  /// 按声明里的写法反查（空串与未知值都返回 null：包装点没有实现链，不需要策略）
+  static MusicxxCapabilityMerge? tryFromName(String name) {
+    switch (name) {
+      case "first":
+        return MusicxxCapabilityMerge.first;
+      case "veto":
+        return MusicxxCapabilityMerge.veto;
+    }
+    return null;
+  }
+}
+
 /// 能力 id（调用方发一次请求、等一个结果）
 abstract final class MusicxxCapabilityId {
   /// musicxx.app.exit
@@ -548,6 +620,13 @@ final class MusicxxCapabilityDecl {
 
   /// 按请求身份缓存结果
   bool get cachedByIdentity => cache == 'byIdentity';
+
+  /// 合并策略对象（`merge` 为空 = 不适用，例如包装点没有实现链）
+  MusicxxCapabilityMerge? get mergeKind =>
+      MusicxxCapabilityMerge.tryFromName(merge);
+
+  /// 这条 id 是不是广播频道（通知型：只通知、不回答）
+  bool get isNotification => null != MusicxxCapabilityCatalogue.broadcastOf(id);
 }
 
 /// 一条广播的声明

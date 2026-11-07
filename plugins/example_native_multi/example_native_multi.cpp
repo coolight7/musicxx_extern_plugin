@@ -35,7 +35,7 @@ namespace {
 
 /// 实例上下文：每个实例一份，不要放可变全局状态
 struct MultiCtx : public musicxx::plugin::PluginBase {
-  /// 观察钩子的调用次数（只用于自检）
+  /// 观察能力的调用次数（只用于自检）
   int32_t songChangedHits = 0;
 
   /// start 事务：只做注册
@@ -48,15 +48,15 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
       ++songChangedHits;
     });
 
-    /// 阶段示例: 同一个钩子 (`musicxx.playlist.load`, 包装点) 上分别登记前链与后链
+    /// 阶段示例: 同一个能力 (`musicxx.playlist.load`, 包装点) 上分别登记前链与后链
     ///
-    /// 钩子 id 表示一次调用, 参与方式由注册时的阶段表达; 同一个 `ownerTag` 在
+    /// 能力 id 表示一次调用, 参与方式由注册时的阶段表达; 同一个 `ownerTag` 在
     /// 不同阶段的登记互不覆盖。
     /// - 前链 (`before`): 串行、**正序**, 只能改输入或停下。
     ///   这里: `stop` 为真 → 停下 (这次不执行实现); 否则把 `limit` 改成 50。
     /// - 后链 (`after`): 串行、**逆序**, 只能改输出或丢弃。
     ///   这里: `drop` 为真 → 丢弃 (这次没有结果); 否则把结果换成固定的一份。
-    hookBefore(MUSICXX_PLUGIN_HOOK_PLAYLIST_LOAD, 0,
+    implementBefore(MUSICXX_CAPABILITY_PLAYLIST_LOAD, 0,
                [](std::string_view input, std::string &out) -> int32_t {
                  const std::string text{input};
                  if (text.find("\"stop\":true") != std::string::npos) {
@@ -66,7 +66,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
                  out = R"({"patch":{"limit":50}})";
                  return 0;
                });
-    hookAfter(MUSICXX_PLUGIN_HOOK_PLAYLIST_LOAD, 0,
+    implementAfter(MUSICXX_CAPABILITY_PLAYLIST_LOAD, 0,
               [](std::string_view input, std::string &out) -> int32_t {
                 const std::string text{input};
                 if (text.find("\"drop\":true") != std::string::npos) {
@@ -77,7 +77,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
                 return 0;
               });
 
-    // 能力：报出本份构建的分支标签 + 插件框架上报的平台 + 钩子计数
+    // 能力：报出本份构建的分支标签 + 插件框架上报的平台 + 能力计数
     capability(*this, "plugin.example_native_multi.which",
                [this](std::string_view, std::string_view) -> std::string {
                  std::string platform;

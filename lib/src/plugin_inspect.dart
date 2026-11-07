@@ -170,8 +170,7 @@ class MusicxxPluginInspect_c {
             ?.toInt(),
         kindProvider: json['kindProvider'] as String? ?? '',
         kindProviderId: json['kindProviderId'] as String? ?? '',
-        kindValidateCapability:
-            json['kindValidateCapability'] as String? ?? '',
+        kindValidateCapability: json['kindValidateCapability'] as String? ?? '',
       );
 
   /// 包内是否存在分支目录（多目标包）

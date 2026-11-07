@@ -9,31 +9,40 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 
 void main() {
   test('解析插件框架快照：字段读取、排序与动作类型', () {
-    final List<MusicxxPluginUIItem> items = MusicxxPluginUIItem.parseList(<Object?>[
-      <String, Object?>{
-        'id': 'plugin.demo.songInfo',
-        'plugin': 'demo',
-        'type': MusicxxPluginUIType.songAction,
-        'order': 900,
-        'data': <String, Object?>{
-          'title': '菜单项',
-          'action': <String, Object?>{'kind': 'dispatch', 'name': 'probe', 'args': <String, Object?>{'a': 1}},
+    final List<MusicxxPluginUIItem> items = MusicxxPluginUIItem.parseList(
+      <Object?>[
+        <String, Object?>{
+          'id': 'plugin.demo.songInfo',
+          'plugin': 'demo',
+          'type': MusicxxPluginUIType.songAction,
+          'order': 900,
+          'data': <String, Object?>{
+            'title': '菜单项',
+            'action': <String, Object?>{
+              'kind': 'dispatch',
+              'name': 'probe',
+              'args': <String, Object?>{'a': 1},
+            },
+          },
         },
-      },
-      <String, Object?>{
-        'id': 'plugin.demo.card',
-        'plugin': 'demo',
-        'type': MusicxxPluginUIType.homeEntry,
-        'order': 100,
-        'data': <String, Object?>{
-          'title': '入口',
-          'subtitle': '说明',
-          // 图标是插件自己带的 svg：写相对插件目录的路径（resource/svg/ 只是推荐位置）
-          'icon': 'resource/svg/entry.svg',
-          'action': <String, Object?>{'kind': 'route', 'route': 'ext://demo/detail'},
+        <String, Object?>{
+          'id': 'plugin.demo.card',
+          'plugin': 'demo',
+          'type': MusicxxPluginUIType.homeEntry,
+          'order': 100,
+          'data': <String, Object?>{
+            'title': '入口',
+            'subtitle': '说明',
+            // 图标是插件自己带的 svg：写相对插件目录的路径（resource/svg/ 只是推荐位置）
+            'icon': 'resource/svg/entry.svg',
+            'action': <String, Object?>{
+              'kind': 'route',
+              'route': 'ext://demo/detail',
+            },
+          },
         },
-      },
-    ]);
+      ],
+    );
 
     expect(items.length, 2);
     // 排序: home.entry 在 song.action 之前 (类型字典序与插件框架快照一致)
@@ -79,8 +88,17 @@ void main() {
     expect(command.capabilityName, isNull);
 
     // 旧写法（capability / action）不再解析：当成没有动作
-    expect(itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action, isNull);
-    expect(itemOf(<String, Object?>{'kind': 'action', 'name': 'musicxx.ui.toast'}).action, isNull);
+    expect(
+      itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action,
+      isNull,
+    );
+    expect(
+      itemOf(<String, Object?>{
+        'kind': 'action',
+        'name': 'musicxx.ui.toast',
+      }).action,
+      isNull,
+    );
     expect(itemOf(<String, Object?>{'kind': 'unknown'}).action, isNull);
   });
 
@@ -125,21 +143,27 @@ void main() {
     }
 
     // 非 route 动作没有页面目标
-    final MusicxxPluginUIItem command = MusicxxPluginUIItem.fromJson(<String, Object?>{
-      'id': 'plugin.demo.cmd',
-      'plugin': 'demo',
-      'type': MusicxxPluginUIType.songAction,
-      'data': <String, Object?>{
-        'title': '菜单项',
-        'action': <String, Object?>{'kind': 'command', 'name': 'musicxx.ui.toast'},
+    final MusicxxPluginUIItem command = MusicxxPluginUIItem.fromJson(
+      <String, Object?>{
+        'id': 'plugin.demo.cmd',
+        'plugin': 'demo',
+        'type': MusicxxPluginUIType.songAction,
+        'data': <String, Object?>{
+          'title': '菜单项',
+          'action': <String, Object?>{
+            'kind': 'command',
+            'name': 'musicxx.ui.toast',
+          },
+        },
       },
-    });
+    );
     expect(command.routePlugin, isNull);
     expect(command.viewId, isNull);
   });
 
   test('容错：未知字段/非法项被忽略，缺省动作视为无动作', () {
-    final List<MusicxxPluginUIItem> items = MusicxxPluginUIItem.parseList(<Object?>[
+    final List<MusicxxPluginUIItem>
+    items = MusicxxPluginUIItem.parseList(<Object?>[
       <String, Object?>{'id': '', 'type': 'musicxx.ui.home.entry'}, // 缺 id → 跳过
       <String, Object?>{'id': 'plugin.demo.x'}, // 缺 type → 跳过
       'not-a-map', // 类型错 → 跳过
@@ -161,32 +185,57 @@ void main() {
   });
 
   test('按插件整批替换（musicxx.ui.changed 的语义）', () {
-    final MusicxxPluginUIItem a = MusicxxPluginUIItem.fromJson(<String, Object?>{
-      'id': 'plugin.a.card',
-      'plugin': 'a',
-      'type': MusicxxPluginUIType.homeEntry,
-      'data': <String, Object?>{'title': 'A'},
-    });
-    final MusicxxPluginUIItem b = MusicxxPluginUIItem.fromJson(<String, Object?>{
-      'id': 'plugin.b.card',
-      'plugin': 'b',
-      'type': MusicxxPluginUIType.homeEntry,
-      'data': <String, Object?>{'title': 'B'},
-    });
-    final MusicxxPluginUIItem a2 = MusicxxPluginUIItem.fromJson(<String, Object?>{
-      'id': 'plugin.a.new',
-      'plugin': 'a',
-      'type': MusicxxPluginUIType.songAction,
-      'data': <String, Object?>{'title': 'A2'},
-    });
+    final MusicxxPluginUIItem a = MusicxxPluginUIItem.fromJson(
+      <String, Object?>{
+        'id': 'plugin.a.card',
+        'plugin': 'a',
+        'type': MusicxxPluginUIType.homeEntry,
+        'data': <String, Object?>{'title': 'A'},
+      },
+    );
+    final MusicxxPluginUIItem b = MusicxxPluginUIItem.fromJson(
+      <String, Object?>{
+        'id': 'plugin.b.card',
+        'plugin': 'b',
+        'type': MusicxxPluginUIType.homeEntry,
+        'data': <String, Object?>{'title': 'B'},
+      },
+    );
+    final MusicxxPluginUIItem a2 = MusicxxPluginUIItem.fromJson(
+      <String, Object?>{
+        'id': 'plugin.a.new',
+        'plugin': 'a',
+        'type': MusicxxPluginUIType.songAction,
+        'data': <String, Object?>{'title': 'A2'},
+      },
+    );
 
     final List<MusicxxPluginUIItem> replaced =
-        MusicxxPluginUIItems.replacePlugin(<MusicxxPluginUIItem>[a, b], 'a', <MusicxxPluginUIItem>[a2]);
+        MusicxxPluginUIItems.replacePlugin(
+          <MusicxxPluginUIItem>[a, b],
+          'a',
+          <MusicxxPluginUIItem>[a2],
+        );
     expect(replaced.length, 2);
-    expect(replaced.any((MusicxxPluginUIItem item) => item.id == 'plugin.a.card'), isFalse);
-    expect(replaced.any((MusicxxPluginUIItem item) => item.id == 'plugin.b.card'), isTrue);
-    expect(replaced.any((MusicxxPluginUIItem item) => item.id == 'plugin.a.new'), isTrue);
+    expect(
+      replaced.any((MusicxxPluginUIItem item) => item.id == 'plugin.a.card'),
+      isFalse,
+    );
+    expect(
+      replaced.any((MusicxxPluginUIItem item) => item.id == 'plugin.b.card'),
+      isTrue,
+    );
+    expect(
+      replaced.any((MusicxxPluginUIItem item) => item.id == 'plugin.a.new'),
+      isTrue,
+    );
 
-    expect(MusicxxPluginUIItems.byType(replaced, MusicxxPluginUIType.songAction).single.id, 'plugin.a.new');
+    expect(
+      MusicxxPluginUIItems.byType(
+        replaced,
+        MusicxxPluginUIType.songAction,
+      ).single.id,
+      'plugin.a.new',
+    );
   });
 }

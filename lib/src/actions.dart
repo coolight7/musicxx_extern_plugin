@@ -659,8 +659,8 @@ abstract final class MusicxxPluginActionNames {
 
   /// 读某条能力当前的实现行（自省：谁提供、什么形态、在哪个阶段、排第几）
   ///
-  /// 参数：`hook`（能力 id，如 `musicxx.media.spectrum.extract`；参数名保留 `hook`，不去打断已有调用方）。
-  /// 返回 `{hook, count, handlers, listAvailable}`；`listAvailable=false` 表示插件框架库太旧，
+  /// 参数：`id`（能力 id，如 `musicxx.media.spectrum.extract`）。
+  /// 返回 `{capability, count, handlers}`。
   /// 只能报处理器数量（此时看 `count`）。
   static const String capabilitySubscribers = 'musicxx.capability.subscribers';
 

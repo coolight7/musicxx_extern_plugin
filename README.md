@@ -47,13 +47,13 @@ src/host/            插件框架工程（嵌套构建，CMakeLists.txt 里用 f
   js/                JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
                      plugin_api.h 是 musicxx 专用约定、plugin_kit.h 是总头文件（含插件框架 kit）、
-                     hook_ids.g.h 由 tools/gen_contract.dart 生成（能力 id 与已知能力表）
+                     capability_ids.g.h 由 tools/gen_contract.dart 生成（能力 id 与已知能力表）
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
 src/tests/           原生测试（test_host.cpp，不依赖 Dart；被测插件就是 `plugins/` 下的那些 example_*）
 src/third_party/     依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
 lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/能力/状态/动作；插件界面模型来自子模块的
                      pluginxx_ui，经 lib/pluginxx_ui.dart 转发；bindings_generated.dart 与
-                     hook_ids.g.dart 为生成物）
+                     capability_ids.g.dart 为生成物）
 schema/              musicxx 扩展 kit 的定义（musicxx-ui-kit.def.json；改完跑 tools/gen_ui_kit.ps1）
 js/                  生成的扩展 kit（musicxx_ui_kit.js；工具会把它复制进 JS 插件目录）
 test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_test.dart 对真实原生库做
@@ -663,7 +663,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 自动用 <安装�
 
 ```powershell
 flutter pub get                                # 依赖（ffi；dev: ffigen/flutter_test）
-dart run tools/gen_contract.dart               # 由 tools/hooks.def.json 生成 Dart 常量 + C++ 头 + 文档
+dart run tools/gen_contract.dart               # 由 tools/capabilities.def.json 生成 Dart 常量 + C++ 头 + 文档
 dart run tools/gen_contract.dart --check       # CI：生成物与定义不一致时退出码 1
 dart run ffigen --config ffigen.yaml           # 由 src/include/musicxx_extern_plugin_api.h 生成绑定
 flutter analyze
@@ -697,17 +697,18 @@ runtime.plugins.stats();                                     // 统计快照
 runtime.dispose();
 ```
 
-能力派发（Dart 侧处理器 + 原生/JS 处理器链合并）：
+能力派发（Dart 侧实现 + 原生/JS 实现链合并）：
 
 ```dart
-// 注册 Dart 处理器（同一条能力上多个处理器按 priority 升序执行，本线程就地执行）
-runtime.hooks.on(MusicxxPluginHookId.playerBeforePlaySong, (ctx) => null);
+// 登记 Dart 实现（同一条能力上多个实现按 priority 升序执行，本线程就地执行）
+runtime.capabilities.on(MusicxxCapabilityId.playerBeforePlaySong, (ctx) => null);
 
-final Map<String, Object?>? verdict = runtime.hooks.decide(
-  MusicxxPluginHookId.playerBeforePlaySong, <String, Object?>{'sid': sid, 'song': songJson});
-// 异步裁决：调用点本身是 Future 时用它 —— 不占用调用线程，结果经 hook.decision.result 事件回来再合并
-final Map<String, Object?>? asyncVerdict = await runtime.hooks.decideAsync(
-  MusicxxPluginHookId.playerSourceBeforeParse, <String, Object?>{'sid': sid});
+final Map<String, Object?>? verdict = runtime.capabilities.dispatch(
+  MusicxxCapabilityId.playerBeforePlaySong, <String, Object?>{'sid': sid, 'song': songJson});
+// 异步派发：调用点本身是 Future 时用它 —— 不占用调用线程，结果经
+// musicxx.capability.decision.result 事件回来再合并
+final Map<String, Object?>? asyncVerdict = await runtime.capabilities.dispatchAsync(
+  MusicxxCapabilityId.playerSourceBeforeParse, <String, Object?>{'sid': sid});
 ```
 
 状态镜像与动作：
@@ -748,7 +749,7 @@ final List<MusicxxPluginUIItem> next =
   `MUSICXX_EXTERN_PLUGIN_VERSION` 必须是同一个值（`test/version_test.dart` 校验），`runtime.libraryVersion`
   给出加载到的原生库自报的版本 —— 两者不一致说明库不是这次构建的产物；对照表与改版本号的流程见
   `docs/version-history.md`；
-- 包内 `test/`、`docs/plugin-capabilities.md`、`lib/src/*.g.dart`、`src/sdk/include/musicxx/plugin/api/hook_ids.g.h`
+- 包内 `test/`、`docs/plugin-capabilities.md`、`lib/src/*.g.dart`、`src/sdk/include/musicxx/plugin/api/capability_ids.g.h`
   都是生成物或可重跑的用例，不要手工改生成物。
 
 ## 能力现状
@@ -756,19 +757,18 @@ final List<MusicxxPluginUIItem> next =
 插件框架已经实现的能力（主程序接入情况见 musicxx 仓库）：
 
 - **专用接口表**：`musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张已实现（每张表的版本 /
-  最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；`musicxx.hooks` 与
-  `musicxx.vars` 在框架 **API 2** 已删除（能力改走 `pluginxx.capabilities`，通知改成
-  `pluginxx.broadcasts`）；
+  最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；接口表只剩
+  `pluginxx.capabilities`（实现与调用）与 `pluginxx.broadcasts`（通知 / 快照）两张，旧的
+  `musicxx.hooks` / `musicxx.vars` 表已删除；
   `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` / `agent` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **能力 / 广播**：约定只看 `tools/capabilities.def.json`（生成物是 `docs/plugin-capabilities.md` 与 `docs/plugin-broadcasts.md`，`dart run tools/gen_contract.dart --check`
-  校验一致），每个条目声明模式、派发方式与阶段；主程序**是否真的会派发**看生成物里「主程序是否已接入」列
-  （由 `wired` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义功能点的通用通道、由调用方触发），
-  其余注册成功但不会触发；曾经预留过的 `musicxx.media.wave.ready` / `musicxx.media.chorus.analysed` 已从
-  能力表删除，替代做法是 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse`；
+  校验一致），每个条目声明用途、派发方式、阶段与合并策略；主程序**是否真的会派发**看生成物里
+  「主程序是否已接入」列（由 `implemented` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义
+  功能点的通用通道、由调用方触发），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入插件框架库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由框架线程执行；
-  裁决处理器可以返回 Promise（插件框架一直等到它结算，结算后裁决生效）；
+  实现可以返回 Promise（插件框架一直等到它结算，结算后结果生效）；
 - **声明式 UI**：UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景 / 播放页歌曲图）与插件自绘页面
   （`ext://<插件id>/<视图id>`）都已实现；主程序的主页入口、歌曲菜单、歌单菜单与插件页面都已有渲染点
   （字段与渲染表现见 `docs/plugin-ui.md`）；
@@ -796,16 +796,16 @@ final List<MusicxxPluginUIItem> next =
 
 | 对照示例 | 演示 / 验证点 |
 |---|---|
-| `plugins/example_native_fail/` | 能力处理器总是失败 → 插件框架只记统计（`hook_stats` 里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
+| `plugins/example_native_fail/` | 能力处理器总是失败 → 插件框架只记统计（能力统计里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
 | `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 加载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
-| `plugins/example_js_async/` | 裁决处理器返回 Promise → 插件框架一直等到结算，裁决生效（`asyncHookSettled`） |
+| `plugins/example_js_async/` | 实现返回 Promise → 插件框架一直等到结算，结果生效（`asyncDispatchSettled`） |
 | `plugins/example_js_broken/` | 脚本语法错误 → 加载失败并回滚，插件框架继续可用 |
 
 插件侧可用的能力：
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 能力（决策型） | `PluginBase::hook` + `pluginxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
+| 能力（裁决型） | `MusicxxPlugin::implement` + `pluginxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；实现可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
 | 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 观察型（通知）就是广播频道：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
 | 状态镜像 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |

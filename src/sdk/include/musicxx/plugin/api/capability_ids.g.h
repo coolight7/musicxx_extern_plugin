@@ -25,6 +25,12 @@
 
 /* ==================== 阶段位掩码 ==================== */
 
+/* 阶段编号：注册时用它表达参与方式 */
+#define MUSICXX_CAPABILITY_PHASE_IMPL   0
+#define MUSICXX_CAPABILITY_PHASE_BEFORE 1
+#define MUSICXX_CAPABILITY_PHASE_AFTER  2
+
+/* 阶段位掩码：声明里的 phase_mask 字段用它 (1 << 阶段编号) */
 #define MUSICXX_CAPABILITY_PHASE_MASK_IMPL   (1u << 0)
 #define MUSICXX_CAPABILITY_PHASE_MASK_BEFORE (1u << 1)
 #define MUSICXX_CAPABILITY_PHASE_MASK_AFTER  (1u << 2)

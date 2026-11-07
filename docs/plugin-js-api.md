@@ -180,7 +180,7 @@ musicxx.broadcast.subscribe("musicxx.song.changed", (ctx) => {
 
 ```js
 musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
-    // info = {hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}],
+    // info = {capability, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}],
     //         listAvailable}
     // handlers 按**前链调用顺序**（priority 升序，同优先级按注册顺序）给出，phase 标明它在哪个阶段
     if (info.count === 0) { musicxx.capability.implement("musicxx.media.spectrum.extract", fn); }
@@ -218,7 +218,7 @@ musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, (ctx)
 
 - 插件框架一直等到 Promise 结算：结算后裁决生效（没有等待超时，也不会按「无裁决」继续）；
 - 所以异步路径要保证 Promise **一定会结算**（失败就 reject），否则调用点会一直等；
-- 结算次数可在统计里看到（`asyncHookSettled`，见 `musicxx.stats.getSelf()`）。
+- 结算次数可在统计里看到（`asyncDispatchSettled`，见 `musicxx.stats.getSelf()`）。
 
 ### 4.4 功能点（声明 + 实现 + 调用）
 
@@ -628,7 +628,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.changed");
 以及其它插件发布的 `plugin.<对方 id>.*`。
 
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
-> `musicxx.hook.changed` / `musicxx.hook.decision.result` **不在总线上**（它们是插件框架 → 主程序的
+> `musicxx.capability.changed` / `musicxx.capability.decision.result` **不在总线上**（它们是插件框架 → 主程序的
 > 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看能力注册表用动作
 > `musicxx.capability.subscribers`，自己的 UI 项用 `musicxx.ui.entries()`。
 
@@ -1147,8 +1147,8 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查加载失败时很有用）。
 
 **统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到能力调用次数 / 耗时 / 失败（只观测不限制：没有超时与暂停派发）、
-插件声明的注册项与计数，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
-`timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `asyncHookSettled`。
+插件声明的注册项与计数，以及每个 JS 实例的 `capabilities` / `subscriptions` /
+`timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `asyncDispatchSettled`。
 插件里也能自己读：`musicxx.stats.getSelf()`。
 
 **应用卡住时**：主程序日志目录下有一份 `host_call.log`（进插件框架调用的同步轨迹，卡住后

@@ -110,7 +110,8 @@ class MusicxxPluginNativeLibrary {
     String? executableDir,
     String? operatingSystem,
   }) {
-    final String os = (operatingSystem ?? Platform.operatingSystem).toLowerCase();
+    final String os = (operatingSystem ?? Platform.operatingSystem)
+        .toLowerCase();
     final bool isIOS = os == 'ios';
     final String? env = Platform.environment['MUSICXX_EXTERN_PLUGIN_LIBRARY'];
     final List<String> candidates = <String>[
@@ -125,7 +126,9 @@ class MusicxxPluginNativeLibrary {
     // 目录名前缀按当前平台过滤，否则"最新修改时间优先"会把别的平台的库挑出来
     // （在 macOS 上加载 iOS 产物会直接 dlopen 失败）。
     final String? outputPrefix =
-        (os == 'windows' || os == 'linux' || os == 'macos' || isIOS) ? os : null;
+        (os == 'windows' || os == 'linux' || os == 'macos' || isIOS)
+        ? os
+        : null;
     candidates.addAll(
       _globLibraryFiles(
         '$root/.native/output',
@@ -232,7 +235,7 @@ class MusicxxPluginNativeLibrary {
   /// - 加载成功但版本不匹配时抛 [MusicxxPluginApiVersionException]（避免"能加载但行为错乱"）。
   static MusicxxPluginNativeLibrary open({
     String? path,
-    int expectedApiVersion = 2,
+    int expectedApiVersion = 3,
     String? packageRoot,
   }) {
     final List<String> candidates = path != null

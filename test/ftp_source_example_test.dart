@@ -66,11 +66,16 @@ void main() {
     final _Harness harness = (await start())!;
 
     // 第一次进账号页：没配置 → 直接是表单，字段是缺省值
-    final Map<String, Object?> form = await harness.accounts(const <String, Object?>{});
+    final Map<String, Object?> form = await harness.accounts(
+      const <String, Object?>{},
+    );
     expect(_controlValue(form, 'host'), '');
     expect(_controlValue(form, 'port'), 21);
-    expect(_controlValue(form, 'encoding'), isNull,
-        reason: '编码是一排按钮（Button 块），不是 Control');
+    expect(
+      _controlValue(form, 'encoding'),
+      isNull,
+      reason: '编码是一排按钮（Button 块），不是 Control',
+    );
     expect(_controlValue(form, 'timeoutSec'), 10);
 
     // 逐个字段填（控件的 action 只报 id 与 value，插件记在内存草稿里）
@@ -97,17 +102,23 @@ void main() {
     expect((probe['account']! as Map)['rootPath'], '/Music');
 
     // 账号存进了插件 KV（密码只在存储与内存里）
-    final Map<Object?, Object?> stored =
-        (harness.kv['account']! as Map).cast<Object?, Object?>();
+    final Map<Object?, Object?> stored = (harness.kv['account']! as Map)
+        .cast<Object?, Object?>();
     expect(stored['password'], '123456');
     expect(stored['port'], harness.ftp.port);
 
     // 摘要页：密码不回显（只有"已保存（不回显）"这一句）
     final List<String> summaryTexts = _textsOf(saved);
-    expect(summaryTexts.any((String text) => text == '已保存（不回显）'), isTrue,
-        reason: '摘要里密码一栏只写"已保存（不回显）": $summaryTexts');
-    expect(summaryTexts.any((String text) => text.contains('123456')), isFalse,
-        reason: '密码不能出现在页面文本里');
+    expect(
+      summaryTexts.any((String text) => text == '已保存（不回显）'),
+      isTrue,
+      reason: '摘要里密码一栏只写"已保存（不回显）": $summaryTexts',
+    );
+    expect(
+      summaryTexts.any((String text) => text.contains('123456')),
+      isFalse,
+      reason: '密码不能出现在页面文本里',
+    );
 
     // 编辑：密码输入框从空开始（留空 = 不修改）
     final Map<String, Object?> edit = await harness.accounts(
@@ -144,121 +155,157 @@ void main() {
     final Map<String, Object?> cancelled = await harness.accounts(
       const <String, Object?>{'op': 'cancel'},
     );
-    expect(_controlValue(cancelled, 'host'), isNotNull,
-        reason: '取消后应回到表单，而不是一张空摘要');
+    expect(
+      _controlValue(cancelled, 'host'),
+      isNotNull,
+      reason: '取消后应回到表单，而不是一张空摘要',
+    );
     expect(_controlValue(cancelled, 'port'), 21);
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('网盘：声明可浏览 + drive.list 分页 + drive.search + drive.resolveSongs', () async {
-    if (unsupported()) {
-      return;
-    }
-    final _Harness harness = (await start())!;
+  test(
+    '网盘：声明可浏览 + drive.list 分页 + drive.search + drive.resolveSongs',
+    () async {
+      if (unsupported()) {
+        return;
+      }
+      final _Harness harness = (await start())!;
 
-    // 0) 还没配置账号：能力回 ok:false（主程序提示，而不是一直转圈）
-    final Map<String, Object?> noAccount = await harness.call(
-        'drive.list', <String, Object?>{'path': '/', 'offset': '', 'limit': 10});
-    expect(noAccount['ok'], false);
-    expect('${noAccount['error']}', contains('账号'));
-
-    await harness.configureAccount();
-
-    // 1) 声明：同一个类型两个分类（「文件夹」完整能力 + 「按名称」换能力名）
-    final List<Map<String, Object?>> declarations = harness.browseDeclarations;
-    expect(declarations.length, 2, reason: '示例声明了两个分类');
-    // 分类 id 的写法由主程序校验（只允许小写字母 / 数字 / _ / -）：示例要照着写，
-    // 否则插件装上去只会在日志里留一行"声明可浏览来源失败"，界面里少一个分类
-    for (final Map<String, Object?> item in declarations) {
-      expect(
-        RegExp(r'^[a-z0-9_-]{1,32}$').hasMatch('${item['view']}'),
-        true,
-        reason: 'view 只能小写字母 / 数字 / _ / -：${item['view']}',
+      // 0) 还没配置账号：能力回 ok:false（主程序提示，而不是一直转圈）
+      final Map<String, Object?> noAccount = await harness.call(
+        'drive.list',
+        <String, Object?>{'path': '/', 'offset': '', 'limit': 10},
       );
-    }
-    final Map<String, Object?> declared = declarations.firstWhere(
-      (Map<String, Object?> item) => item['view'] == 'dir',
-    );
-    expect(declared['id'], ftpType);
-    expect(declared['root'], '/');
-    expect(declared['search'], true);
-    final Map<String, Object?> caps =
-        (declared['capabilities']! as Map).cast<String, Object?>();
-    expect(caps['list'], 'drive.list');
-    expect(caps['search'], 'drive.search');
-    expect(caps['resolveSongs'], 'drive.resolveSongs');
-    // 另一个分类：换了自己的能力名，不让下载
-    final Map<String, Object?> byName = declarations.firstWhere(
-      (Map<String, Object?> item) => item['view'] == 'byname',
-    );
-    expect(byName['order'], 20);
-    expect(byName['download'], false);
-    expect(
-      (byName['capabilities']! as Map)['list'],
-      'drive.list.byName',
-      reason: '每个分类可以换自己的能力名',
-    );
+      expect(noAccount['ok'], false);
+      expect('${noAccount['error']}', contains('账号'));
 
-    // 2) drive.list：目录优先，按 offset / limit 切片
-    final Map<String, Object?> first = await harness.call('drive.list',
-        <String, Object?>{'path': '/Music', 'offset': '', 'limit': 2});
-    expect(first['ok'], true);
-    final List<Map<String, Object?>> page1 =
-        _driveEntriesOf(first['entries']);
-    expect(page1.length, 2);
-    expect(page1.first['name'], 'sub');
-    expect(page1.first['isDir'], true);
-    expect(first['next'], '2');
-    final Map<String, Object?> file = page1.last;
-    expect(file['isDir'], false);
-    final Map<String, Object?> song =
-        (file['song']! as Map).cast<String, Object?>();
-    expect(song['type'], ftpType, reason: '歌曲要带自己声明的音源类型');
-    expect('${song['src']}', contains('/Music/'),
-        reason: 'src 是插件自己的资源 id（账号指纹 + 路径）');
-    expect(song['fileName'], file['name']);
+      await harness.configureAccount();
 
-    final Map<String, Object?> second = await harness.call('drive.list',
-        <String, Object?>{'path': '/Music', 'offset': '2', 'limit': 2});
-    expect(_driveEntriesOf(second['entries']).length, 2);
-    expect(second['next'], '', reason: '最后一页的 next 是空串');
+      // 1) 声明：同一个类型两个分类（「文件夹」完整能力 + 「按名称」换能力名）
+      final List<Map<String, Object?>> declarations =
+          harness.browseDeclarations;
+      expect(declarations.length, 2, reason: '示例声明了两个分类');
+      // 分类 id 的写法由主程序校验（只允许小写字母 / 数字 / _ / -）：示例要照着写，
+      // 否则插件装上去只会在日志里留一行"声明可浏览来源失败"，界面里少一个分类
+      for (final Map<String, Object?> item in declarations) {
+        expect(
+          RegExp(r'^[a-z0-9_-]{1,32}$').hasMatch('${item['view']}'),
+          true,
+          reason: 'view 只能小写字母 / 数字 / _ / -：${item['view']}',
+        );
+      }
+      final Map<String, Object?> declared = declarations.firstWhere(
+        (Map<String, Object?> item) => item['view'] == 'dir',
+      );
+      expect(declared['id'], ftpType);
+      expect(declared['root'], '/');
+      expect(declared['search'], true);
+      final Map<String, Object?> caps = (declared['capabilities']! as Map)
+          .cast<String, Object?>();
+      expect(caps['list'], 'drive.list');
+      expect(caps['search'], 'drive.search');
+      expect(caps['resolveSongs'], 'drive.resolveSongs');
+      // 另一个分类：换了自己的能力名，不让下载
+      final Map<String, Object?> byName = declarations.firstWhere(
+        (Map<String, Object?> item) => item['view'] == 'byname',
+      );
+      expect(byName['order'], 20);
+      expect(byName['download'], false);
+      expect(
+        (byName['capabilities']! as Map)['list'],
+        'drive.list.byName',
+        reason: '每个分类可以换自己的能力名',
+      );
 
-    // 2.5) 另一个分类：`drive.list.byName` 把子目录里的歌摊平成一屏（不带文件夹行）
-    final Map<String, Object?> flat = await harness.call('drive.list.byName',
-        <String, Object?>{'view': 'byname', 'path': '/Music', 'offset': '', 'limit': 10});
-    expect(flat['ok'], true);
-    final List<Map<String, Object?>> flatEntries =
-        _driveEntriesOf(flat['entries']);
-    expect(flatEntries.isNotEmpty, true);
-    expect(
-      flatEntries.every((Map<String, Object?> item) => item['isDir'] == false),
-      true,
-      reason: '「按名称」只给歌曲行，不给文件夹',
-    );
-    expect(flat['next'], '');
+      // 2) drive.list：目录优先，按 offset / limit 切片
+      final Map<String, Object?> first = await harness.call(
+        'drive.list',
+        <String, Object?>{'path': '/Music', 'offset': '', 'limit': 2},
+      );
+      expect(first['ok'], true);
+      final List<Map<String, Object?>> page1 = _driveEntriesOf(
+        first['entries'],
+      );
+      expect(page1.length, 2);
+      expect(page1.first['name'], 'sub');
+      expect(page1.first['isDir'], true);
+      expect(first['next'], '2');
+      final Map<String, Object?> file = page1.last;
+      expect(file['isDir'], false);
+      final Map<String, Object?> song = (file['song']! as Map)
+          .cast<String, Object?>();
+      expect(song['type'], ftpType, reason: '歌曲要带自己声明的音源类型');
+      expect(
+        '${song['src']}',
+        contains('/Music/'),
+        reason: 'src 是插件自己的资源 id（账号指纹 + 路径）',
+      );
+      expect(song['fileName'], file['name']);
 
-    // 3) drive.search：只在当前目录里按名字找
-    final Map<String, Object?> found = await harness.call(
+      final Map<String, Object?> second = await harness.call(
+        'drive.list',
+        <String, Object?>{'path': '/Music', 'offset': '2', 'limit': 2},
+      );
+      expect(_driveEntriesOf(second['entries']).length, 2);
+      expect(second['next'], '', reason: '最后一页的 next 是空串');
+
+      // 2.5) 另一个分类：`drive.list.byName` 把子目录里的歌摊平成一屏（不带文件夹行）
+      final Map<String, Object?> flat = await harness.call(
+        'drive.list.byName',
+        <String, Object?>{
+          'view': 'byname',
+          'path': '/Music',
+          'offset': '',
+          'limit': 10,
+        },
+      );
+      expect(flat['ok'], true);
+      final List<Map<String, Object?>> flatEntries = _driveEntriesOf(
+        flat['entries'],
+      );
+      expect(flatEntries.isNotEmpty, true);
+      expect(
+        flatEntries.every(
+          (Map<String, Object?> item) => item['isDir'] == false,
+        ),
+        true,
+        reason: '「按名称」只给歌曲行，不给文件夹',
+      );
+      expect(flat['next'], '');
+
+      // 3) drive.search：只在当前目录里按名字找
+      final Map<String, Object?> found = await harness.call(
         'drive.search',
-        <String, Object?>{'path': '/Music', 'keyword': 'FLAC'});
-    expect(_driveEntriesOf(found['entries']).map((item) => item['name']).toList(),
-        <String>['b.flac']);
+        <String, Object?>{'path': '/Music', 'keyword': 'FLAC'},
+      );
+      expect(
+        _driveEntriesOf(found['entries']).map((item) => item['name']).toList(),
+        <String>['b.flac'],
+      );
 
-    // 4) drive.resolveSongs：递归读完（含子目录），每首歌都带类型与资源 id
-    final Map<String, Object?> resolved = await harness
-        .call('drive.resolveSongs', <String, Object?>{'paths': <String>['/Music']});
-    expect(resolved['ok'], true);
-    final List<Map<String, Object?>> songs =
-        _driveEntriesOf(resolved['songs']);
-    expect(songs.length, 4,
-        reason: '3 个文件 + 子目录里的 c.ogg（示例不按后缀过滤）');
-    for (final Map<String, Object?> item in songs) {
-      expect(item['type'], ftpType);
-      expect('${item['src']}'.isNotEmpty, true);
-    }
-    expect(
+      // 4) drive.resolveSongs：递归读完（含子目录），每首歌都带类型与资源 id
+      final Map<String, Object?> resolved = await harness.call(
+        'drive.resolveSongs',
+        <String, Object?>{
+          'paths': <String>['/Music'],
+        },
+      );
+      expect(resolved['ok'], true);
+      final List<Map<String, Object?>> songs = _driveEntriesOf(
+        resolved['songs'],
+      );
+      expect(songs.length, 4, reason: '3 个文件 + 子目录里的 c.ogg（示例不按后缀过滤）');
+      for (final Map<String, Object?> item in songs) {
+        expect(item['type'], ftpType);
+        expect('${item['src']}'.isNotEmpty, true);
+      }
+      expect(
         songs.map((Map<String, Object?> item) => item['fileName']).toList(),
-        contains('c.ogg'));
-  }, timeout: const Timeout(Duration(seconds: 60)));
+        contains('c.ogg'),
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
 
   test('网盘：写能力（新建 / 重命名 / 删除 / 条目信息）', () async {
     if (unsupported()) {
@@ -272,51 +319,65 @@ void main() {
       (Map<String, Object?> item) => item['view'] == 'dir',
     );
     expect(declared['write'], true);
-    final Map<String, Object?> caps =
-        (declared['capabilities']! as Map).cast<String, Object?>();
+    final Map<String, Object?> caps = (declared['capabilities']! as Map)
+        .cast<String, Object?>();
     for (final String name in <String>['mkdir', 'rename', 'remove', 'info']) {
       expect(caps.containsKey(name), true, reason: '声明里要给出 $name');
     }
 
     // 1) 新建目录（FTP MKD）
-    final Map<String, Object?> made = await harness.call('drive.mkdir',
-        <String, Object?>{'parent': '/Music', 'name': 'newDir'});
+    final Map<String, Object?> made = await harness.call(
+      'drive.mkdir',
+      <String, Object?>{'parent': '/Music', 'name': 'newDir'},
+    );
     expect(made['ok'], true);
     expect(made['path'], '/Music/newDir');
     expect(harness.ftp.dirs.contains('/Music/newDir'), true);
 
     // 名字空 / 带斜线：本地就拦掉，不发命令
-    final Map<String, Object?> badName = await harness.call('drive.mkdir',
-        <String, Object?>{'parent': '/Music', 'name': 'a/b'});
+    final Map<String, Object?> badName = await harness.call(
+      'drive.mkdir',
+      <String, Object?>{'parent': '/Music', 'name': 'a/b'},
+    );
     expect(badName['ok'], false);
 
     // 2) 重命名（FTP RNFR + RNTO）
-    final Map<String, Object?> renamed = await harness.call('drive.rename',
-        <String, Object?>{'path': '/Music/a.mp3', 'newName': 'a2.mp3'});
+    final Map<String, Object?> renamed = await harness.call(
+      'drive.rename',
+      <String, Object?>{'path': '/Music/a.mp3', 'newName': 'a2.mp3'},
+    );
     expect(renamed['ok'], true);
     expect(renamed['path'], '/Music/a2.mp3');
     expect(harness.ftp.files.containsKey('/Music/a2.mp3'), true);
     expect(harness.ftp.files.containsKey('/Music/a.mp3'), false);
 
     // 3) 删除：文件走 DELE，目录走 RMD（示例先试 DELE，失败再 RMD）
-    final Map<String, Object?> removed = await harness.call('drive.remove',
-        <String, Object?>{
-          'paths': <String>['/Music/a2.mp3', '/Music/newDir'],
-        });
+    final Map<String, Object?> removed = await harness.call(
+      'drive.remove',
+      <String, Object?>{
+        'paths': <String>['/Music/a2.mp3', '/Music/newDir'],
+      },
+    );
     expect(removed['ok'], true);
     expect(removed['removed'], 2);
     expect(harness.ftp.files.containsKey('/Music/a2.mp3'), false);
     expect(harness.ftp.dirs.contains('/Music/newDir'), false);
 
     // 删不存在的东西：报错（主程序据此提示，不会把列表里的行去掉）
-    final Map<String, Object?> missing = await harness.call('drive.remove',
-        <String, Object?>{'paths': <String>['/Music/nothing.mp3']});
+    final Map<String, Object?> missing = await harness.call(
+      'drive.remove',
+      <String, Object?>{
+        'paths': <String>['/Music/nothing.mp3'],
+      },
+    );
     expect(missing['ok'], false);
     expect('${missing['error']}'.isNotEmpty, true);
 
     // 4) 条目信息：名字 + 大小
-    final Map<String, Object?> info = await harness.call('drive.info',
-        <String, Object?>{'path': '/Music/b.flac'});
+    final Map<String, Object?> info = await harness.call(
+      'drive.info',
+      <String, Object?>{'path': '/Music/b.flac'},
+    );
     expect(info['ok'], true);
     expect(info['title'], 'b.flac');
     final String pairs = '${info['pairs']}';
@@ -357,7 +418,10 @@ void main() {
     expect(full.contentType, 'audio/mpeg');
     expect(full.body.length, fileA.length);
     expect(full.body.sublist(0, 64), fileA.sublist(0, 64));
-    expect(full.body.sublist(fileA.length - 64), fileA.sublist(fileA.length - 64));
+    expect(
+      full.body.sublist(fileA.length - 64),
+      fileA.sublist(fileA.length - 64),
+    );
 
     final _HttpResult head = await harness.httpGet(client, url, method: 'HEAD');
     expect(head.status, 200);
@@ -372,7 +436,10 @@ void main() {
     expect(partial.status, 206);
     // 示例只支持「单区间」，结束位置一律做到文件末尾（播放器按 Content-Range 读自己需要的那段）；
     // 这样不需要在 JS 里截断数据片，也不会让 Content-Length 与正文对不上。
-    expect(partial.contentRange, 'bytes 1024-${fileA.length - 1}/${fileA.length}');
+    expect(
+      partial.contentRange,
+      'bytes 1024-${fileA.length - 1}/${fileA.length}',
+    );
     expect(partial.contentLength, fileA.length - 1024);
     expect(partial.body, fileA.sublist(1024));
 
@@ -407,7 +474,8 @@ void main() {
     expect(missing.status, 404);
 
     final Map<String, Object?> probe = await harness.probe();
-    final Map<String, Object?> proxy = (probe['proxy']! as Map).cast<String, Object?>();
+    final Map<String, Object?> proxy = (probe['proxy']! as Map)
+        .cast<String, Object?>();
     expect(proxy['running'], isTrue);
     expect(proxy['port'], greaterThan(0));
     expect(proxy['requests'], greaterThanOrEqualTo(7));
@@ -436,8 +504,7 @@ void main() {
       url,
       headers: <String, String>{'Range': 'bytes=100-199'},
     );
-    expect(ranged.status, 200,
-        reason: '服务器不支持 REST 时从头发，响应码变回 200');
+    expect(ranged.status, 200, reason: '服务器不支持 REST 时从头发，响应码变回 200');
     expect(ranged.contentLength, fileB.length);
     expect(ranged.body, fileB);
   }, timeout: const Timeout(Duration(seconds: 120)));
@@ -517,8 +584,11 @@ void main() {
     final Map<String, Object?> before = await harness.probe();
     expect(before['netOk'], isTrue);
     expect(before['hasCodec'], isTrue, reason: '插件框架应带 textEncode/textDecode');
-    expect((before['proxy']! as Map)['running'], isFalse,
-        reason: '还没人播放时不该起监听');
+    expect(
+      (before['proxy']! as Map)['running'],
+      isFalse,
+      reason: '还没人播放时不该起监听',
+    );
 
     final Map<String, Object?>? verdict = await harness.resolve(
       '$fingerprint/Music/a.mp3',
@@ -603,8 +673,8 @@ class _Harness {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull, reason: '插件应能加载');
     expect(
-      runtime.hooks.refreshNativeHandlerCount(
-        MusicxxPluginHookId.playerSourceResolve,
+      runtime.capabilities.refreshNativeHandlerCount(
+        MusicxxCapabilityId.playerSourceResolve,
       ),
       1,
       reason: '音源解析钩子应登记成功',
@@ -729,16 +799,19 @@ class _Harness {
       runtime,
       runtime.plugins.call(pluginId, 'plugin.$pluginId.$capability', args),
     );
-    expect(raw, isA<Map<String, Object?>>(),
-        reason: '$capability 应返回对象，实际：$raw');
+    expect(
+      raw,
+      isA<Map<String, Object?>>(),
+      reason: '$capability 应返回对象，实际：$raw',
+    );
     return raw! as Map<String, Object?>;
   }
 
   Future<Map<String, Object?>> accounts(Map<String, Object?> args) =>
       call('accounts', args);
 
-
-  Future<Map<String, Object?>> probe() => call('probe', const <String, Object?>{});
+  Future<Map<String, Object?>> probe() =>
+      call('probe', const <String, Object?>{});
 
   /// 设一个表单字段（等价于控件派发：只有 id 与 value）
   Future<void> setField(String id, Object? value) async {
@@ -761,8 +834,8 @@ class _Harness {
   Future<Map<String, Object?>?> resolve(String src) async {
     final Map<String, Object?>? verdict = await _pumpFuture(
       runtime,
-      runtime.hooks.decideAsync(
-        MusicxxPluginHookId.playerSourceResolve,
+      runtime.capabilities.dispatchAsync(
+        MusicxxCapabilityId.playerSourceResolve,
         <String, Object?>{
           'srcKey': 'test-$src',
           'type': '',
@@ -922,7 +995,6 @@ List<Map<String, Object?>> _driveEntriesOf(Object? raw) {
   ];
 }
 
-
 /* ==================== 假 FTP 服务器 ==================== */
 
 /// 只实现这个示例用到的命令；每个请求都能切换"支持 / 不支持"，用来覆盖退化路径
@@ -956,7 +1028,10 @@ class _FakeFtpServer {
       InternetAddress.loopbackIPv4,
       0,
     );
-    final Map<String, Uint8List> all = <String, Uint8List>{...files, ...textFiles};
+    final Map<String, Uint8List> all = <String, Uint8List>{
+      ...files,
+      ...textFiles,
+    };
     final _FakeFtpServer result = _FakeFtpServer._(server, all);
     for (final String file in all.keys) {
       String parent = path.posix.dirname(file);
@@ -992,8 +1067,12 @@ class _FakeFtpServer {
     }
     final List<String> result = names.toList();
     result.sort((String left, String right) {
-      final bool leftDir = dirs.contains(path.posix.join(base.isEmpty ? '/' : base, left));
-      final bool rightDir = dirs.contains(path.posix.join(base.isEmpty ? '/' : base, right));
+      final bool leftDir = dirs.contains(
+        path.posix.join(base.isEmpty ? '/' : base, left),
+      );
+      final bool rightDir = dirs.contains(
+        path.posix.join(base.isEmpty ? '/' : base, right),
+      );
       if (leftDir != rightDir) {
         return leftDir ? -1 : 1;
       }
@@ -1022,7 +1101,8 @@ class _FakeFtpServer {
     }
     if (dirs.remove(from)) {
       dirs.add(to);
-      for (final String dir in dirs.where((String dir) => dir.startsWith('$from/')).toList()) {
+      for (final String dir
+          in dirs.where((String dir) => dir.startsWith('$from/')).toList()) {
         dirs.remove(dir);
         dirs.add('$to${dir.substring(from.length)}');
       }
@@ -1104,7 +1184,8 @@ class _FtpSession {
 
   void _handle(String line) {
     final int space = line.indexOf(' ');
-    final String cmd = (space < 0 ? line : line.substring(0, space)).toUpperCase();
+    final String cmd = (space < 0 ? line : line.substring(0, space))
+        .toUpperCase();
     final String arg = space < 0 ? '' : line.substring(space + 1);
     switch (cmd) {
       case 'USER':
@@ -1176,7 +1257,8 @@ class _FtpSession {
         break;
       case 'MKD':
         final String target = _normalize(arg);
-        if (_server.dirs.contains(target) || _server.files.containsKey(target)) {
+        if (_server.dirs.contains(target) ||
+            _server.files.containsKey(target)) {
           _write('550 Already exists.\r\n');
           break;
         }
@@ -1287,15 +1369,19 @@ class _FtpSession {
       final String child = dir == '/' ? '/$name' : '$dir/$name';
       if (mlsd) {
         // MLSD 的事实全部写在第一个空格之前（事实之间不加空格）
-        lines.add(_server.isDir(child)
-            ? 'type=dir;modify=20260101120000; $name'
-            : 'type=file;size=${_server.fileAt(child)?.length ?? 0};'
-                'modify=20260101120000; $name');
+        lines.add(
+          _server.isDir(child)
+              ? 'type=dir;modify=20260101120000; $name'
+              : 'type=file;size=${_server.fileAt(child)?.length ?? 0};'
+                    'modify=20260101120000; $name',
+        );
       } else {
-        lines.add(_server.isDir(child)
-            ? 'drwxr-xr-x 1 ftp ftp 0 Jan 01 12:00 $name'
-            : '-rw-r--r-- 1 ftp ftp ${_server.fileAt(child)?.length ?? 0} '
-                'Jan 01 12:00 $name');
+        lines.add(
+          _server.isDir(child)
+              ? 'drwxr-xr-x 1 ftp ftp 0 Jan 01 12:00 $name'
+              : '-rw-r--r-- 1 ftp ftp ${_server.fileAt(child)?.length ?? 0} '
+                    'Jan 01 12:00 $name',
+        );
       }
     }
     final String body = lines.isEmpty ? '' : '${lines.join('\r\n')}\r\n';
@@ -1322,7 +1408,9 @@ class _FtpSession {
     }
     _write('150 Opening BINARY mode data connection.\r\n');
     ++_server.retrCount;
-    final int offset = _server.supportRest ? math.min(_restOffset, file.length) : 0;
+    final int offset = _server.supportRest
+        ? math.min(_restOffset, file.length)
+        : 0;
     const int chunk = 16 * 1024;
     // 插件在拿到它要的数据后会主动断开（拖动 / 只看开头几 KB）：写失败是很常见的事，
     // 这里不能把异常漏出去（异步函数里的未捕获异常会直接把用例判失败）。
@@ -1405,13 +1493,16 @@ Future<T> _pumpFuture<T>(MusicxxPluginRuntime runtime, Future<T> future) async {
   T? value;
   Object? error;
   bool done = false;
-  future.then((T result) {
-    value = result;
-    done = true;
-  }, onError: (Object e) {
-    error = e;
-    done = true;
-  });
+  future.then(
+    (T result) {
+      value = result;
+      done = true;
+    },
+    onError: (Object e) {
+      error = e;
+      done = true;
+    },
+  );
   final DateTime deadline = DateTime.now().add(const Duration(seconds: 30));
   while (!done) {
     if (DateTime.now().isAfter(deadline)) {

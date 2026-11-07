@@ -2,7 +2,7 @@
 
 > 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。
 
-> 原来的 `docs/plugin-hooks.md` 已经拆成两张表：**决策型钩子**（前链改输入 / 实现链给结果 / 后链改输出）就是本文里的能力，**观察型钩子**（只通知、不回答）在 [plugin-broadcasts.md](plugin-broadcasts.md)。写法（注册、阶段顺序、裁决对象）见 [plugin-api.md](plugin-api.md) 第 8 节。
+> 两张表：**能力**（前链改输入 / 实现链给结果 / 后链改输出）就是本文里的这些，**广播**（只通知、不回答）在 [plugin-broadcasts.md](plugin-broadcasts.md)。写法（注册、阶段顺序、裁决对象）见 [plugin-api.md](plugin-api.md) 第 8 节。
 
 **能力** = 调用方发一次请求、等一个结果。同一个 id 只有一份声明，声明里写清：
 
@@ -227,4 +227,4 @@
 
 ### `musicxx.capability.subscribers` 能力订阅 / 实现行
 
-参数 `hook` = 能力 id（例如 `musicxx.media.spectrum.extract`），可选 `phase`（before / impl / after）。返回 `{hook, count, handlers, listAvailable, phasesAvailable}`，每项带 `phase`。命令面是 `capability.subscribers`（同一份实现，参数名 `id`）；插件调动作时用全名 `musicxx.capability.subscribers`（能力 id 以 musicxx. / plugin. 开头，命令名没有这个前缀）。
+参数 `id` = 能力 id（例如 `musicxx.media.spectrum.extract`），可选 `phase`（before / impl / after）。返回 `{capability, count, handlers}`，每项带 `phase`。命令面是 `capability.subscribers`（同一份实现，参数名同样是 `id`）；插件调动作时用全名 `musicxx.capability.subscribers`（能力 id 以 musicxx. / plugin. 开头，命令名没有这个前缀）。

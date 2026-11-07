@@ -5,7 +5,7 @@
 /// `musicxx_plugin_destroy`;
 /// - [MusicxxHostManager]: 继承插件框架 `PluginHostLifecycle`
 /// (加载/启停/禁用启用/卸载/级联依赖)
-///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`musicxx.hooks` /
+///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`pluginxx.capabilities` /
 ///   `musicxx.host`);
 /// - [HostContext]: 框架线程 (asio::io_context + 1 条线程)
 /// 与工作线程池的所有者。
@@ -19,7 +19,7 @@
 
 #include "host_kind.h"
 #include "host_manifest.h"
-#include "musicxx_hook_spec.h"
+#include "musicxx_capability_spec.h"
 #include "musicxx_var_spec.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/entry.h"
@@ -114,7 +114,7 @@ template <typename T> struct WaitSlot {
 /// 插件框架内运行时 (JS 引擎) 的"任意线程动作请求"接驳口
 ///
 /// 背景 (这样才不会出现互相等待): JS 代码只在共享 JS 线程上执行,
-/// 而插件框架 线程派发裁决型钩子时会**等待 JS 处理器**。因此 JS
+/// 而插件框架 线程派发裁决型能力时会**等待 JS 处理器**。因此 JS
 /// 侧发起的动作请求绝不能"投递到 框架线程再等待" —— 那会和"框架线程正等
 /// JS"互锁。JS 引擎自己登记还没回复的请求 (任意线程 可读写的表), 只把事件推给 Dart;
 /// Dart 的回复经 [MusicxxHostManager::actionRespond] 转交到这里。
@@ -178,8 +178,8 @@ public:
     int64_t destroy = 0;
   } phaseMs;
 
-  std::atomic<int64_t> hookCalls{0};
-  std::atomic<int64_t> hookTimeouts{0};
+  std::atomic<int64_t> capabilityCalls{0};
+  std::atomic<int64_t> capabilityTimeouts{0};
   std::atomic<int64_t> actionRequests{0};
   std::atomic<int64_t> eventsPublished{0};
   std::atomic<int64_t> errors{0};
@@ -329,53 +329,53 @@ public:
   /// 框架线程正忙于别的插件代码时, 超过这个窗口就按"未及时受理"失败, 不占用调用线程。
   static constexpr uint32_t capabilityAcceptWaitMs = 2000;
 
-  /* ---------- 钩子 ---------- */
+  /* ---------- 能力派发 ---------- */
 
-  /// 派发钩子
+  /// 派发一条能力 (实现链)
   ///
   /// `timeoutMs` 保留在签名里（C ABI 冻结）但**不再使用**: 插件框架不设等待超时,
   /// 同步派发会一直等到处理器链结束。
-  int32_t hookEmit(const std::string &hookId, const std::string &inputJson,
+  int32_t dispatchCapability(const std::string &capabilityId, const std::string &inputJson,
                    bool sync, uint32_t timeoutMs, std::string &outJson,
                    std::string &err);
 
-  /// 按阶段派发钩子（`impl` / `before` / `after`；非法阶段按参数错误拒绝）
+  /// 按阶段派发（`impl` / `before` / `after`；非法阶段按参数错误拒绝）
   ///
-  /// - `impl`：与 [hookEmit] 完全一样；
+  /// - `impl`：与 [dispatchCapability] 完全一样；
   /// - `before`：串行、**正序**，载荷逐步累积（回执 `result.patch` 是累计结果）；
   /// - `after`：串行、**逆序**，值逐步替换（回执 `result.value` 是最终值）。
-  int32_t hookEmitPhase(const std::string &hookId, int32_t phase,
+  int32_t dispatchCapabilityPhase(const std::string &capabilityId, int32_t phase,
                         const std::string &inputJson, bool sync,
                         uint32_t timeoutMs, std::string &outJson,
                         std::string &err);
 
-  int32_t hookCount(const std::string &hookId, int32_t &outCount);
+  int32_t handlerCount(const std::string &capabilityId, int32_t &outCount);
 
-  /// 某钩子在某个阶段上的处理器数量（阶段没有处理器时为 0）
-  int32_t hookCountPhase(const std::string &hookId, int32_t phase,
+  /// 某条 id 在某个阶段上的处理器数量（阶段没有处理器时为 0）
+  int32_t handlerCountPhase(const std::string &capabilityId, int32_t phase,
                          int32_t &outCount);
-  int32_t hookStatsJson(std::string &outJson);
+  int32_t capabilityStatsJson(std::string &outJson);
 
-  /// 某钩子当前的处理器列表 (自省用)
+  /// 某条 id 当前的处理器列表 (自省用)
   ///
   /// 按调用顺序给出 (priority 升序, 同优先级按注册顺序), 每一项只含
   /// `plugin` / `instance` / `kind` / `phase` / `priority` / `ownerTag` —— 不暴露处理器地址、
-  /// 载荷与内部状态。outJson 形如 `{"hook":"...","count":2,"handlers":[...]}`。
+  /// 载荷与内部状态。outJson 形如 `{"capability":"...","count":2,"handlers":[...]}`。
   /// `phase < 0` = 全部阶段（与旧行为一致）。
-  int32_t hookHandlersJson(std::string_view hookId, std::string &outJson);
-  int32_t hookHandlersJsonPhase(std::string_view hookId, int32_t phase,
+  int32_t capabilityHandlersJson(std::string_view capabilityId, std::string &outJson);
+  int32_t capabilityHandlersJsonPhase(std::string_view capabilityId, int32_t phase,
                                 std::string &outJson);
 
-  /// 某钩子当前的处理器列表 (JSON 数组字符串)
+  /// 某条 id 当前的处理器列表 (JSON 数组字符串)
   ///
-  /// 自省 C ABI 与 `musicxx.hook.changed` 事件共用同一份写法: 两处给出的顺序必须一致,
+  /// 自省 C ABI 与 `musicxx.capability.changed` 事件共用同一份写法: 两处给出的顺序必须一致,
   /// 否则 Dart 侧看到的"排第几"与真实调用顺序对不上。`phase < 0` = 全部阶段。
-  std::string hookHandlersArrayJson(std::string_view hookId,
+  std::string capabilityHandlersArrayJson(std::string_view capabilityId,
                                     int32_t phase = -1) const;
 
-  /// 某实例当前注册的钩子 id（去重；生命周期事件带上它，Dart 侧据此对齐
-  /// "该钩子有没有处理器"——钩子计数只靠 `musicxx.hook.changed` 维护，丢一条就会停在旧值）
-  std::vector<std::string> hooksOfInstance(const std::string &instanceName) const;
+  /// 某实例当前注册的能力 id（去重；生命周期事件带上它，Dart 侧据此对齐
+  /// "这条能力有没有处理器"——计数只靠 `musicxx.capability.changed` 维护，丢一条就会停在旧值）
+  std::vector<std::string> capabilitiesOfInstance(const std::string &instanceName) const;
 
   /* ---------- 动作请求 (插件 → Dart) ---------- */
 
@@ -383,7 +383,7 @@ public:
   ///
   /// 先交给 JS 引擎接驳口就地回答 (它自己的表带互斥); 不属于它的才转给 IO 线程
   /// 查动态库插件的登记表。顺序固定: 这条回复可能就是由"IO 线程正在等 JS"的
-  /// 钩子派发触发的, 先转 IO 线程就会互等。
+  /// 能力派发触发的, 先转 IO 线程就会互等。
   int32_t actionRespond(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 
@@ -421,25 +421,25 @@ public:
 
   /* ---------- 专用表实现 (供 tables 调用; 均在框架线程执行) ---------- */
 
-  int32_t registerHook(MusicxxHostInstance *inst,
-                       const MusicxxPluginHookSpec &spec);
-  int32_t unregisterHook(MusicxxHostInstance *inst, std::string_view hookId,
+  int32_t registerHandler(MusicxxHostInstance *inst,
+                       const MusicxxPluginCapabilitySpec &spec);
+  int32_t unimplement(MusicxxHostInstance *inst, std::string_view capabilityId,
                          std::string_view ownerTag);
-  /// 用 `pluginxx.capabilities` 的登记形态挂一个钩子处理器（新入口）
+  /// 用 `pluginxx.capabilities` 的登记形态挂一个能力处理器（新入口）
   ///
-  /// 只在"id 是本框架认识的钩子"时由 [onCapabilityRowAdded] 调用；其余 id 是普通能力，
+  /// 只在"id 是本框架认识的能力"时由 [onCapabilityRowAdded] 调用；其余 id 是普通能力，
   /// 由 pluginxx 自己的派发处理。处理器必须是同步的（`spec.sync = 1`）：宿主派发是同步的，
   /// 异步给结果的处理器在这一轮拿不到结果。
-  int32_t registerCapabilityHook(MusicxxHostInstance *inst,
-                                 const std::string &hookId, int32_t phase,
+  int32_t registerCapabilityHandler(MusicxxHostInstance *inst,
+                                 const std::string &capabilityId, int32_t phase,
                                  int32_t priority, const std::string &ownerTag,
                                  PluginxxCapabilityStartFunction start,
                                  PluginxxOperatorCancelFunction cancel,
                                  void *ctx, std::string &error);
-  int32_t unregisterCapabilityHook(MusicxxHostInstance *inst,
-                                   std::string_view hookId,
+  int32_t unregisterCapabilityHandler(MusicxxHostInstance *inst,
+                                   std::string_view capabilityId,
                                    std::string_view ownerTag);
-  int32_t hookInfoJson(std::string_view hookId, std::string &outJson);
+  int32_t capabilityInfoJson(std::string_view capabilityId, std::string &outJson);
   /// 框架信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
   ///
   /// - [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是本插件自己发起的"
@@ -589,7 +589,7 @@ public:
   /// 变量表快照 (管理页"变量"区块 / 插件框架调试信息)
   std::string varsDebugJson() const;
 
-  /// 摘除某实例的全部变量与订阅 (生命周期钩子; 推送 `removed` 通知)
+  /// 摘除某实例的全部变量与订阅 (生命周期回调; 推送 `removed` 通知)
   void detachVars(const std::string &instanceName);
 
   /// 插件网络能力 (`musicxx.net` 表; 插件框架启动时创建)
@@ -693,9 +693,9 @@ protected:
 
   std::string_view logTag() const noexcept override { return "[musicxx_ext] "; }
 
-  /* ---------- 能力注册路径的挂接（`pluginxx.capabilities` 登记落到钩子引擎） ---------- */
+  /* ---------- 能力注册路径的挂接（`pluginxx.capabilities` 登记落到能力引擎） ---------- */
 
-  /// 一条能力实现行登记好了：是钩子 id 就挂进 `hooks_`，其余 id 原样交给 pluginxx 派发
+  /// 一条能力实现行登记好了：是能力 id 就挂进 `handlers_`，其余 id 原样交给 pluginxx 派发
   int onCapabilityRowAdded(MusicxxHostInstance *inst, const std::string &id,
                            const PluginxxCapabilitySpec &spec,
                            std::string *error) override;
@@ -705,7 +705,7 @@ protected:
   /// 官方 id 的声明来源：生成物 `capability_ids.g.h` 就是应用声明的权威副本
   ///
   /// 主程序还没有把声明下发给宿主的通道（阶段 2b 只做到命令面），所以这里按生成表回答，
-  /// 让插件可以先用 `pluginxx.capabilities` 登记钩子；等真的接上下发通道，这个回退就只
+  /// 让插件可以先用 `pluginxx.capabilities` 登记能力；等真的接上下发通道，这个回退就只
   /// 用来兜底。
   bool appCapabilityDecl(std::string_view id,
                          pluginxx::CapabilityDecl *out) override;
@@ -749,25 +749,25 @@ private:
   /// 刷新 JS 引擎的框架信息缓存 (语言/配置变化时; 供 JS 侧同步读)
   void refreshJsHostInfo();
 
-  /// 钩子处理器登记项
-  struct HookHandler {
+  /// 能力处理器登记项
+  struct CapabilityHandler {
     std::string plugin;   ///< 实例名
     std::string pluginId; ///< 插件 id (去掉 js: 前缀)
     std::string ownerTag;
-    std::string hookId;
-    MusicxxPluginHookSpec spec{};
+    std::string capabilityId;
+    MusicxxPluginCapabilitySpec spec{};
     uint64_t seq = 0;
 
-    /// 参与方式 (`MUSICXX_PLUGIN_HOOK_PHASE_*`; 与 `spec.phase` 同值, 方便查询与自省)
+    /// 参与方式 (`MUSICXX_CAPABILITY_PHASE_*`; 与 `spec.phase` 同值, 方便查询与自省)
     int32_t phase = 0;
 
-    /// 走 `pluginxx.capabilities` 登记的处理器（新入口）
+    /// 走 `pluginxx.capabilities` 表登记的处理器 (插件 SDK 的常规入口)
     ///
-    /// 非空时派发直接调它，`spec.hook_sync` / `spec.hook_start` 都不参与 ——
+    /// 非空时派发直接调它，`spec.run_sync` / `spec.run_start` 都不参与 ——
     /// 两条入口的区别只有处理器签名与"同步还是异步"，派发与合并规则共用同一份。
-    PluginxxCapabilityStartFunction capStart = nullptr;
-    PluginxxOperatorCancelFunction capCancel = nullptr;
-    void *capCtx = nullptr;
+    PluginxxCapabilityStartFunction rowStart = nullptr;
+    PluginxxOperatorCancelFunction rowCancel = nullptr;
+    void *rowCtx = nullptr;
 
     /// 只观测不限制的统计 (耗时/失败次数都只写进管理页, 不参与任何判定)
     int64_t calls = 0;
@@ -775,6 +775,13 @@ private:
     int64_t totalUs = 0;
     int64_t maxUs = 0;
   };
+
+  /// 同一个 (实例, ownerTag, 阶段) 覆盖式登记: 先摘掉旧的那一条
+  ///
+  /// 同一个 ownerTag 可以分别登记 before / impl / after —— 三者互不覆盖。
+  static void dropHandlerSlot(std::vector<CapabilityHandler> &handlers,
+                              const std::string &plugin,
+                              const std::string &ownerTag, int32_t phase);
 
   /// 未完成动作请求
   struct PendingAction {
@@ -815,7 +822,7 @@ private:
   ///
   /// - 返回 `{ok, message}`：`ok` = 运行器回答 `{"ok":true}`（或能力返回 0）；
   /// - `timeoutMs` 到点按失败返回（运行器没回答不会把加载卡死）；
-  /// - 只做"转发 + 记账"，**不创建插件框架实例**：托管插件的钩子 / UI 都归运行器插件。
+  /// - 只做"转发 + 记账"，**不创建插件框架实例**：托管插件的能力 / UI 都归运行器插件。
   asio::awaitable<std::pair<bool, std::string>> invokeKindProviderAsync(
       const std::string &provider, const std::string &capability,
       const std::string &argsJson, uint32_t timeoutMs);
@@ -886,13 +893,13 @@ private:
   /// 能力调用 requestId 分配器 (受理阶段在任意线程取号, 所以要原子)
   std::atomic<int64_t> nextCallId_{1};
 
-  /// 钩子派发模式
+  /// 能力派发模式
   ///
-  /// - `Sync`：裁决型同步派发（Dart 线程等待结果；插件框架不设等待超时）
-  /// - `Notify`：观察型派发（入队即返回，不等待、不回报结果）
-  /// - `AsyncDecide`：裁决型异步派发（不占用 Dart 线程，完成后推
-  ///   `musicxx.hook.decision.result` 事件）
-  enum class HookDispatchMode {
+  /// - `Sync`：实现链同步派发（Dart 线程等待结果；插件框架不设等待超时）
+  /// - `Notify`：广播派发（入队即返回，不等待、不回报结果）
+  /// - `AsyncDecide`：实现链异步派发（不占用 Dart 线程，完成后推
+  ///   `musicxx.capability.decision.result` 事件）
+  enum class DispatchMode {
     Sync,
     Notify,
     AsyncDecide,
@@ -900,21 +907,21 @@ private:
 
   /// 框架线程上执行的派发（按 [mode] 决定是否等待结果、是否回报事件）
   ///
-  /// [phase] 决定派发哪一组处理器：`impl` = 实现链（按 policy 合并、可提前结束）、
+  /// [phase] 决定派发哪一组处理器：`impl` = 实现链（按声明的 merge 合并、可提前结束）、
   /// `before` = 前链（正序、载荷累积）、`after` = 后链（逆序、值替换）。
-  std::string dispatchHook(const std::string &hookId, int32_t phase,
+  std::string runCapabilityHandlers(const std::string &capabilityId, int32_t phase,
                            const std::string &inputJson,
-                           HookDispatchMode mode);
+                           DispatchMode mode);
 
-  /// `musicxx.hook.changed` 的载荷（注册/注销共用一份写法；返回 JSON 文本）
+  /// `musicxx.capability.changed` 的载荷（注册/注销共用一份写法；返回 JSON 文本）
   ///
   /// 含 `count`（全部阶段总数）与 `phaseCount`（逐阶段数量）、`handlers`（全阶段列表）。
-  std::string hookChangedPayloadJson(const std::string &hookId,
+  std::string capabilityChangedPayloadJson(const std::string &capabilityId,
                                      const char *action,
                                      const std::string &pluginId);
 
-  /// 某钩子在某个阶段上的处理器数量（只在框架线程读写注册表）
-  int32_t countOnPhase(const std::string &hookId, int32_t phase) const;
+  /// 某条 id 在某个阶段上的处理器数量（只在框架线程读写注册表）
+  int32_t countOnPhase(const std::string &capabilityId, int32_t phase) const;
   void clearPluginRegistrations(const std::string &instanceName);
   std::string pluginInstanceJson(const MusicxxHostInstance &inst) const;
   std::string scanDir(const std::string &dir, const std::string &kindHint);
@@ -956,9 +963,9 @@ private:
   std::mutex declaredBroadcastsMutex_;
   std::set<std::string, std::less<>> declaredBroadcasts_;
 
-  // 钩子注册表 (仅框架线程)
-  std::map<std::string, std::vector<HookHandler>, std::less<>> hooks_;
-  uint64_t hookSeq_ = 0;
+  // 能力处理器注册表 (仅框架线程)
+  std::map<std::string, std::vector<CapabilityHandler>, std::less<>> handlers_;
+  uint64_t handlerSeq_ = 0;
 
   /// 一个已注册的 UI 项 (声明式扩展; 生命周期 = 插件实例)
   struct UiEntry {
@@ -1168,9 +1175,9 @@ private:
   /// 请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
   std::atomic<int64_t> nextRequestId_{1};
 
-  /// 异步裁决派发的调用 id 计数器（配 `musicxx.hook.decision.result`
+  /// 异步派发的调用 id 计数器（配 `musicxx.capability.decision.result`
   /// 事件；**任意线程**可用）
-  std::atomic<int64_t> nextHookCallId_{1};
+  std::atomic<int64_t> nextDispatchCallId_{1};
 
   /// 插件框架内运行时的请求接驳口 (JS 引擎; 见 InternalActionRelay)
   std::shared_ptr<InternalActionRelay> internalRelay_;

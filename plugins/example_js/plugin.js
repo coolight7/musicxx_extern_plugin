@@ -409,9 +409,9 @@ musicxx.capability.register("probe", function (args) {
     const greetingPeek = musicxx.broadcast.read("demo.greeting");
     return {
         pluginId: musicxx.pluginId,
-        /// 3 个裁决钩子 + 1 条功能点通用通道（`feature.provide` 登记的实现）；
-        /// 切歌通知是广播订阅，不算钩子
-        hookCount: 4,
+        /// 3 个实现链能力 + 1 条功能点通用通道（`feature.provide` 登记的实现）；
+        /// 切歌通知是广播订阅，不算实现
+        implementationCount: 4,
         songChangedCount: songChangedCount,
         lastSongName: lastSongName,
         errorCount: errorCount,
@@ -423,7 +423,7 @@ musicxx.capability.register("probe", function (args) {
         currentSongName: currentSongName(),
         uiEntries: musicxx.ui.entries().length,
         // 自读统计 (只观测不限制; 插件可据此显示自己的用量)
-        selfStatsHooks: (musicxx.stats.getSelf() || {}).hooks || 0,
+        selfStatsImplementations: (musicxx.stats.getSelf() || {}).implementations || 0,
         crossPending: crossCallState.pending,
         crossOk: crossCallState.ok,
         crossKeys: crossCallState.keys,

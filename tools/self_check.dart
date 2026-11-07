@@ -19,7 +19,9 @@ void step(String message) {
 Future<void> main(List<String> args) async {
   final String? library = args.isNotEmpty ? args.first : _detectLibrary();
   if (library == null) {
-    stderr.writeln('未找到原生库；先运行 pwsh tools/build_native.ps1（或让 flutter build 自动构建）');
+    stderr.writeln(
+      '未找到原生库；先运行 pwsh tools/build_native.ps1（或让 flutter build 自动构建）',
+    );
     exitCode = 2;
     return;
   }
@@ -59,8 +61,8 @@ Future<void> main(List<String> args) async {
   step('4 load 完成: loaded=${runtime.plugins.findLoaded('example_native')}');
 
   step('5 hook_count…');
-  final int count = runtime.hooks.refreshNativeHandlerCount(
-    MusicxxPluginHookId.playerBeforePlaySong,
+  final int count = runtime.capabilities.refreshNativeHandlerCount(
+    MusicxxCapabilityId.playerBeforePlaySong,
   );
   step('5 hook_count 完成: $count');
 
@@ -80,8 +82,8 @@ Future<void> main(List<String> args) async {
   step('7 plugin_call 完成: $probe');
 
   step('8 decide…');
-  final Map<String, Object?>? verdict = runtime.hooks.decide(
-    MusicxxPluginHookId.playerBeforePlaySong,
+  final Map<String, Object?>? verdict = runtime.capabilities.dispatch(
+    MusicxxCapabilityId.playerBeforePlaySong,
     <String, Object?>{
       'sid': 's-ad',
       'song': <String, Object?>{'name': '广告插曲 - 测试'},
@@ -92,11 +94,11 @@ Future<void> main(List<String> args) async {
   step('9 disable/enable…');
   runtime.plugins.disable('example_native');
   step(
-    '9.1 disable 完成 (count=${runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong)})',
+    '9.1 disable 完成 (count=${runtime.capabilities.refreshNativeHandlerCount(MusicxxCapabilityId.playerBeforePlaySong)})',
   );
   runtime.plugins.enable('example_native');
   step(
-    '9.2 enable 完成 (count=${runtime.hooks.refreshNativeHandlerCount(MusicxxPluginHookId.playerBeforePlaySong)})',
+    '9.2 enable 完成 (count=${runtime.capabilities.refreshNativeHandlerCount(MusicxxCapabilityId.playerBeforePlaySong)})',
   );
 
   step('10 unload…');

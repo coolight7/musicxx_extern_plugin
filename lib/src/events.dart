@@ -37,14 +37,15 @@ abstract final class MusicxxPluginEventType {
   /// 插件日志
   static const String pluginLog = 'musicxx.plugin.log';
 
-  /// 钩子处理器注册表变化（Dart 侧据此维护"是否有处理器"位图）
-  static const String hookChanged = 'musicxx.hook.changed';
+  /// 能力处理器注册表变化（Dart 侧据此维护"是否有处理器"位图）
+  static const String capabilityChanged = 'musicxx.capability.changed';
 
-  /// 观察型钩子触发（受调试开关控制，默认仅 debug 构建回传）
-  static const String hookObserve = 'musicxx.hook.observe';
+  /// 广播派发（受调试开关控制，默认仅 debug 构建回传）
+  static const String capabilityObserve = 'musicxx.capability.observe';
 
-  /// 异步裁决钩子完成
-  static const String hookDecisionResult = 'musicxx.hook.decision.result';
+  /// 异步派发完成
+  static const String capabilityDecisionResult =
+      'musicxx.capability.decision.result';
 
   /// 插件能力调用的结果（受理是异步的：Dart 侧按 `requestId` 回填等待中的 `Future`）
   ///

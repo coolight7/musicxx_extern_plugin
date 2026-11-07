@@ -47,8 +47,8 @@ namespace {
 constexpr const char *kCapabilityPendingMarker = "~pending~";
 
 /// 处理器返回 Promise 时, JS 侧回给插件框架的标记 (必须与 prelude 的
-/// `kHookPendingMarker` 一致)
-constexpr const char *kHookPendingMarker = "~pending~";
+/// `kPendingMarker` 一致)
+constexpr const char *kPendingMarker = "~pending~";
 
 /// 编译期是否包含 QuickJS
 constexpr bool kJsCompiled = MUSICXX_EXTERN_PLUGIN_HAS_JS != 0;
@@ -189,7 +189,7 @@ constexpr const char *kPrelude = R"JS(
   var ext = globalThis.__ext;
   if (!ext) { throw new Error("musicxx 运行时桥接缺失"); }
 
-  var hookTable = new Map();
+  var implementationTable = new Map();
   var subTable = new Map();
   var capTable = new Map();
   var uiTable = new Map();
@@ -197,9 +197,9 @@ constexpr const char *kPrelude = R"JS(
   var capabilityWaiters = new Map();
   var timerTable = new Map();
   /// 裁决型能力处理器的 Promise 等待登记 (key = 插件框架给的等待 id)
-  var pendingHookWaits = new Map();
-  /// 处理器返回 Promise 时回给插件框架的标记 (与 C++ 侧 `kHookPendingMarker` 一致)。
-  var kHookPendingMarker = "~pending~";
+  var pendingImplementationWaits = new Map();
+  /// 处理器返回 Promise 时回给插件框架的标记 (与 C++ 侧 `kPendingMarker` 一致)。
+  var kPendingMarker = "~pending~";
   /// 能力处理器返回 Promise 时回给插件框架的标记 (与 C++ 侧
   /// `kCapabilityPendingMarker` 一致)
   var kCapabilityPendingMarker = "~pending~";
@@ -207,9 +207,9 @@ constexpr const char *kPrelude = R"JS(
   var pendingCapabilityWaits = new Map();
 /// 插件自己声明的功能点的实现表 (点 id → 处理函数)
 ///
-/// 功能点走**一条固定的通用通道钩子** (`musicxx.feature.point.call`):
+/// 功能点走**一条固定的通用通道能力** (`musicxx.feature.point.call`):
 /// 同一条通道上所有实现的处理器都会收到同一次调用, 所以这里用一个分发器按 `point` 过滤
-/// (而不是每个点各注册一个处理器 —— JS插件在同一钩子上只能注册一个处理器)。
+/// (而不是每个点各注册一个处理器 —— JS插件在同一能力上只能注册一个处理器)。
 var featurePointImpls = new Map();
 
   function logError(message) {
@@ -284,21 +284,21 @@ var featurePointImpls = new Map();
   musicxx.version = ext.engineVersion();
   musicxx.pluginId = ext.pluginId();
 
-  /// 钩子阶段 (参与方式): 能力 id 表示**一次调用**, 由阶段表达怎么参与
+  /// 能力阶段 (参与方式): 能力 id 表示**一次调用**, 由阶段表达怎么参与
   ///
   /// - `before`: 前链, 串行、正序, 只能改输入 (`{patch: {...}}`) 或停下 (`{action: "stop"}`);
   /// - `impl`  : 实现链, 给结果 / 裁决 (不写阶段就是它);
   /// - `after` : 后链, 串行、**逆序**, 只能改输出 (`{value: ...}`) 或丢弃 (`{action: "drop"}`)。
-  var HOOK_PHASES = { impl: "impl", before: "before", after: "after" };
+  var PHASES = { impl: "impl", before: "before", after: "after" };
   function normalizePhase(value) {
     if (value === undefined || value === null || value === "") { return "impl"; }
     var text = String(value);
-    if (!HOOK_PHASES[text]) {
-      throw new Error("hooks: 未知阶段 " + text + " (只能是 before / impl / after)");
+    if (!PHASES[text]) {
+      throw new Error("implementations: 未知阶段 " + text + " (只能是 before / impl / after)");
     }
     return text;
   }
-  function hookKey(id, phase) { return String(id) + "|" + phase; }
+  function implementationKey(id, phase) { return String(id) + "|" + phase; }
 
 
   /// 宿主自己的信息与日志 (不是频道, 所以留在 host 上)
@@ -848,7 +848,7 @@ var featurePointImpls = new Map();
     playSonglist: function (args) { return musicxx.playlist.play(args); }
   };
 
-  /// 通用通道钩子 `musicxx.feature.point.call` 的分发器
+  /// 通用通道能力 `musicxx.feature.point.call` 的分发器
   ///
   /// 约定 (见包内 `docs/plugin-capabilities.md`):
   /// - 按 `point` 过滤: 不是自己实现的点直接返回空 (空 = 不回答, 链条继续问别人);
@@ -857,7 +857,7 @@ var featurePointImpls = new Map();
   /// - `value` 键就是"实现方给出了结果"的判据 (值可以是 null);
   /// - 处理器抛异常时给 `{error: ...}` (等于"不提供", 不打断链条)。
   function featurePointDispatch(input) {
-    // 能力处理器拿到的是**已解析的载荷对象**（`ext.invokeHook` 做的解析）；
+    // 能力处理器拿到的是**已解析的载荷对象**（`ext.invokeImplementation` 做的解析）；
     // 这里同时接受 JSON 文本（直接调这个分发器时方便）。
     if (typeof input === "string") {
       try { input = JSON.parse(input || "{}"); } catch (e) { input = null; }
@@ -972,7 +972,7 @@ var featurePointImpls = new Map();
         assertName(id, "feature.provide: 功能点 id");
         featurePointImpls.set(String(id), fn);
       });
-      if (!hookTable.has(hookKey("musicxx.feature.point.call", "impl"))) {
+      if (!implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
         musicxx.capability.implement("musicxx.feature.point.call", {
           priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
           ownerTag: ids.map(String).join(",")
@@ -987,7 +987,7 @@ var featurePointImpls = new Map();
         return musicxx;
       }
       featurePointImpls.delete(key);
-      if (featurePointImpls.size === 0 && hookTable.has(hookKey("musicxx.feature.point.call", "impl"))) {
+      if (featurePointImpls.size === 0 && implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
         musicxx.capability.unregister("musicxx.feature.point.call");
       }
       return musicxx;
@@ -1181,7 +1181,7 @@ var featurePointImpls = new Map();
   }
 
   /// 插件框架把网络事件直接投递到 JS 线程 (不经事件总线, 所以不会与
-  /// "返回 Promise 的能力/钩子"互相等)
+  /// "返回 Promise 的能力/能力"互相等)
   ext.onNetEvent = function (json) { handleNetEvent(json); };
 
   // 网络：插件框架内置实现 (需 musicxx.net 权限)
@@ -1557,7 +1557,7 @@ var featurePointImpls = new Map();
   };
 
   musicxx.capability = {
-    /// 给应用声明的能力（`musicxx.*`，含钩子）提供实现
+    /// 给应用声明的能力（`musicxx.*`，含能力）提供实现
     ///
     /// `implement(id, {phase, priority, ownerTag}, fn)`
     /// - 同一条能力上可以分别实现三个阶段（同一个 ownerTag 互不覆盖）；
@@ -1574,15 +1574,13 @@ var featurePointImpls = new Map();
       var entry = {
         id: String(id),
         phase: normalizePhase(options.phase),
-        mode: "decision",
         priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
         ownerTag: typeof options.ownerTag === "string" ? options.ownerTag : "",
         fn: fn
       };
-      hookTable.set(hookKey(entry.id, entry.phase), entry);
+      implementationTable.set(implementationKey(entry.id, entry.phase), entry);
       /// 运行期登记要通知插件框架 (顶层登记由引擎统一回放, 这里只是先记下来)
-      ext.hookOp("register", entry.id, entry.mode, entry.priority, entry.ownerTag,
-                 entry.phase);
+      ext.implementationOp("register", entry.id, entry.priority, entry.ownerTag, entry.phase);
       return musicxx;
     },
     /// 注销实现：`unregister(id)` 摘掉这条能力上自己的全部阶段；
@@ -1591,31 +1589,31 @@ var featurePointImpls = new Map();
       var key = String(id);
       var wantPhase = (phase === undefined || phase === null) ? "" : normalizePhase(phase);
       var keys = [];
-      hookTable.forEach(function (entry, k) {
+      implementationTable.forEach(function (entry, k) {
         if (entry.id !== key) { return; }
         if (wantPhase && entry.phase !== wantPhase) { return; }
         keys.push(k);
       });
       var tags = [];
       keys.forEach(function (k) {
-        var entry = hookTable.get(k);
-        hookTable.delete(k);
+        var entry = implementationTable.get(k);
+        implementationTable.delete(k);
         if (entry && tags.indexOf(entry.ownerTag) < 0) { tags.push(entry.ownerTag); }
       });
       tags.forEach(function (tag) {
-        ext.hookOp("unregister", key, "", 0, tag, wantPhase);
+        ext.implementationOp("unregister", key, 0, tag, wantPhase);
       });
       return musicxx;
     },
     /// 自己有没有在这条能力上登记 (phase 缺省 = impl)
     has: function (id, phase) {
-      return hookTable.has(hookKey(String(id), normalizePhase(phase)));
+      return implementationTable.has(implementationKey(String(id), normalizePhase(phase)));
     },
     /// 读某条能力当前的实现行 (自省: 谁提供、在哪个阶段、排第几)。
-    /// 返回 Promise: {capability|hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
+    /// 返回 Promise: {capability, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
     handlers: function (id, phase) {
       assertName(id, "capability.handlers: 能力 id");
-      var args = { hook: String(id) };
+      var args = { id: String(id) };
       if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
       return musicxx.call("capability.subscribers", args);
     },
@@ -1802,10 +1800,10 @@ var featurePointImpls = new Map();
   /* ---- 插件框架回调入口 (native 在 JS 线程上调用) ---- */
 
   ext.collectRegistrations = function () {
-    var hooks = [];
-    hookTable.forEach(function (entry) {
-      hooks.push({
-        hook: entry.id,
+    var implementations = [];
+    implementationTable.forEach(function (entry) {
+      implementations.push({
+        capability: entry.id,
         phase: entry.phase,
         mode: entry.mode,
         priority: entry.priority,
@@ -1816,24 +1814,24 @@ var featurePointImpls = new Map();
     capTable.forEach(function (value, name) { capabilities.push(name); });
     var subscriptions = [];
     subTable.forEach(function (value, topic) { subscriptions.push(topic); });
-    return JSON.stringify({ hooks: hooks, capabilities: capabilities, subscriptions: subscriptions });
+    return JSON.stringify({ implementations: implementations, capabilities: capabilities, subscriptions: subscriptions });
   };
 
   /// 调用能力处理器
   ///
-  /// - `waitId` 只有裁决型钩子才有 (插件框架一直等到结果); 广播频道为空字符串/undefined;
-  /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
+  /// - `waitId` 只有裁决型能力才有 (插件框架一直等到结果); 广播频道为空字符串/undefined;
+  /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.implementationWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
   /// - 插件框架不设等待超时: Promise 结算多晚都会被接住。
-  ext.invokeHook = function (hookId, phase, inputJson, waitId) {
-    var entry = hookTable.get(hookKey(hookId, phase || "impl"));
+  ext.invokeImplementation = function (capabilityId, phase, inputJson, waitId) {
+    var entry = implementationTable.get(implementationKey(capabilityId, phase || "impl"));
     if (!entry) { return ""; }
     var ctx = {};
     if (inputJson) { try { ctx = JSON.parse(inputJson); } catch (e) { ctx = {}; } }
     var result;
     try { result = entry.fn(ctx); }
     catch (e) {
-      logError("钩子 " + hookId + " 异常: " + (e && e.message ? e.message : String(e)));
+      logError("能力 " + capabilityId + " 异常: " + (e && e.message ? e.message : String(e)));
       return "";
     }
     if (result === null || result === undefined) { return ""; }
@@ -1841,35 +1839,35 @@ var featurePointImpls = new Map();
       var key = (waitId === undefined || waitId === null || waitId === "") ? "" : String(waitId);
       if (!key) {
         Promise.resolve(result).then(function () { return null; }, function (e) {
-          logError("钩子 " + hookId + " 异步执行异常: " + (e && e.message ? e.message : String(e)));
+          logError("能力 " + capabilityId + " 异步执行异常: " + (e && e.message ? e.message : String(e)));
         });
         return "";
       }
-      pendingHookWaits.set(key, true);
+      pendingImplementationWaits.set(key, true);
       Promise.resolve(result).then(function (value) {
-        if (!pendingHookWaits.has(key)) { return null; }
-        pendingHookWaits.delete(key);
-        ext.hookWaitResolve(key, (value === null || value === undefined) ? "" : safeJson(value));
+        if (!pendingImplementationWaits.has(key)) { return null; }
+        pendingImplementationWaits.delete(key);
+        ext.implementationWaitResolve(key, (value === null || value === undefined) ? "" : safeJson(value));
         return null;
       }, function (e) {
-        if (!pendingHookWaits.has(key)) { return null; }
-        pendingHookWaits.delete(key);
-        logError("钩子 " + hookId + " 异步裁决失败: " + (e && e.message ? e.message : String(e)));
-        ext.hookWaitResolve(key, "");
+        if (!pendingImplementationWaits.has(key)) { return null; }
+        pendingImplementationWaits.delete(key);
+        logError("能力 " + capabilityId + " 异步裁决失败: " + (e && e.message ? e.message : String(e)));
+        ext.implementationWaitResolve(key, "");
         return null;
       });
-      return kHookPendingMarker;
+      return kPendingMarker;
     }
     try { return JSON.stringify(result); } catch (e) { return ""; }
   };
 
   ext.reset = function () {
-    hookTable.clear();
+    implementationTable.clear();
     subTable.clear();
     capTable.clear();
     uiTable.clear();
     timerTable.clear();
-    pendingHookWaits.clear();
+    pendingImplementationWaits.clear();
     pendingCapabilityWaits.clear();
     varsTable.clear();
     varBindTable.clear();
@@ -2178,22 +2176,22 @@ JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
 namespace {
 
 /// 阶段名 → 阶段编号 (`before` / `after`; 其它一律按实现链)
-int32_t hookPhaseOfName(const std::string &name) {
+int32_t capabilityPhaseOfName(const std::string &name) {
   if (name == "before") {
-    return MUSICXX_PLUGIN_HOOK_PHASE_BEFORE;
+    return MUSICXX_CAPABILITY_PHASE_BEFORE;
   }
   if (name == "after") {
-    return MUSICXX_PLUGIN_HOOK_PHASE_AFTER;
+    return MUSICXX_CAPABILITY_PHASE_AFTER;
   }
-  return MUSICXX_PLUGIN_HOOK_PHASE_IMPL;
+  return MUSICXX_CAPABILITY_PHASE_IMPL;
 }
 
 /// 阶段编号 → JS 侧使用的阶段名
-const char *hookPhaseNameOf(int32_t phase) {
-  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE) {
+const char *capabilityPhaseNameOf(int32_t phase) {
+  if (phase == MUSICXX_CAPABILITY_PHASE_BEFORE) {
     return "before";
   }
-  if (phase == MUSICXX_PLUGIN_HOOK_PHASE_AFTER) {
+  if (phase == MUSICXX_CAPABILITY_PHASE_AFTER) {
     return "after";
   }
   return "impl";
@@ -2201,36 +2199,32 @@ const char *hookPhaseNameOf(int32_t phase) {
 
 } // namespace
 
-/// 钩子操作 (register | unregister): 运行期注册/注销要落到插件框架注册表
+/// 能力操作 (register | unregister): 运行期注册/注销要落到插件框架注册表
 ///
 /// 顶层登记阶段 (liveRegistrations == false) 由 collectRegistrations 统一回放, 这里
 /// 不做任何事; 运行期由 C++ 侧投递到框架线程执行 (投递不等待)。
-JSValue jsHookOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+JSValue jsImplementationOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 2) {
     return JS_UNDEFINED;
   }
   const char *op = JS_ToCString(ctx, argv[0]);
-  const char *hookId = JS_ToCString(ctx, argv[1]);
-  const char *mode = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
+  const char *capabilityId = JS_ToCString(ctx, argv[1]);
   int32_t priority = 0;
-  if (argc >= 4) {
-    JS_ToInt32(ctx, &priority, argv[3]);
+  if (argc >= 3) {
+    JS_ToInt32(ctx, &priority, argv[2]);
   }
-  const char *ownerTag = (argc >= 5) ? JS_ToCString(ctx, argv[4]) : nullptr;
-  const char *phase = (argc >= 6) ? JS_ToCString(ctx, argv[5]) : nullptr;
-  inst->engine->bridgeHookOp(inst->name, op ? op : "", hookId ? hookId : "",
-                             mode ? mode : "decision", priority,
-                             ownerTag ? ownerTag : "",
-                             phase ? phase : "impl");
+  const char *ownerTag = (argc >= 4) ? JS_ToCString(ctx, argv[3]) : nullptr;
+  const char *phase = (argc >= 5) ? JS_ToCString(ctx, argv[4]) : nullptr;
+  inst->engine->bridgeImplementationOp(inst->name, op ? op : "",
+                                       capabilityId ? capabilityId : "", priority,
+                                       ownerTag ? ownerTag : "",
+                                       phase ? phase : "impl");
   if (op) {
     JS_FreeCString(ctx, op);
   }
-  if (hookId) {
-    JS_FreeCString(ctx, hookId);
-  }
-  if (mode) {
-    JS_FreeCString(ctx, mode);
+  if (capabilityId) {
+    JS_FreeCString(ctx, capabilityId);
   }
   if (ownerTag) {
     JS_FreeCString(ctx, ownerTag);
@@ -2392,9 +2386,9 @@ JSValue jsVarsRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
-/// 裁决型钩子的 Promise 结算 (JS 线程 → 等待槽; 见
-/// JsEngine::bridgeHookWaitResolve)
-JSValue jsHookWaitResolve(JSContext *ctx, JSValueConst, int argc,
+/// 裁决型能力的 Promise 结算 (JS 线程 → 等待槽; 见
+/// JsEngine::bridgeImplementationWaitResolve)
+JSValue jsImplementationWaitResolve(JSContext *ctx, JSValueConst, int argc,
                           JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
@@ -2402,7 +2396,7 @@ JSValue jsHookWaitResolve(JSContext *ctx, JSValueConst, int argc,
   }
   const char *waitId = JS_ToCString(ctx, argv[0]);
   const char *json = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
-  inst->engine->bridgeHookWaitResolve(waitId ? waitId : "", json ? json : "");
+  inst->engine->bridgeImplementationWaitResolve(waitId ? waitId : "", json ? json : "");
   if (waitId) {
     JS_FreeCString(ctx, waitId);
   }
@@ -2626,8 +2620,8 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"varsSet", jsVarsSet, 2},
       {"varsRead", jsVarsRead, 2},
       {"varsRespond", jsVarsRespond, 4},
-      {"hookOp", jsHookOp, 6},
-      {"hookWaitResolve", jsHookWaitResolve, 2},
+      {"implementationOp", jsImplementationOp, 5},
+      {"implementationWaitResolve", jsImplementationWaitResolve, 2},
       {"capabilityWaitResolve", jsCapabilityWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
       {"timerClear", jsTimerClear, 1},
@@ -2854,7 +2848,7 @@ int32_t JsEngine::startThread(std::string &err) {
     tasks_.clear();
     timers_.clear();
     pendingActions_.clear();
-    hookWaits_.clear();
+    dispatchWaits_.clear();
     instances_.clear();
     stopping_.store(false, std::memory_order_release);
   }
@@ -2905,7 +2899,7 @@ void JsEngine::stop() {
     timers_.clear();
     instances_.clear();
     pendingActions_.clear();
-    hookWaits_.clear();
+    dispatchWaits_.clear();
   }
   XX_LOGI("[musicxx_ext] JS 线程已停止");
 }
@@ -3144,25 +3138,25 @@ void JsEngine::bridgeTimerClear(const std::string &instance, int64_t timerId) {
 /* ==================== 桥接: UI / 订阅 / 统计 / 能力调用 ====================
  */
 
-/* ---- 裁决型钩子的 Promise 等待槽 (异步裁决) ---- */
+/* ---- 裁决型能力的 Promise 等待槽 (异步裁决) ---- */
 
 int64_t
-JsEngine::beginHookWait(const std::string &instance,
+JsEngine::beginDispatchWait(const std::string &instance,
                         const std::shared_ptr<WaitSlot<std::string>> &slot) {
-  const int64_t waitId = nextHookWaitId_.fetch_add(1);
+  const int64_t waitId = nextDispatchWaitId_.fetch_add(1);
   std::lock_guard lock{mutex_};
-  hookWaits_[waitId] = HookWait{instance, slot};
+  dispatchWaits_[waitId] = DispatchWait{instance, slot};
   return waitId;
 }
 
-void JsEngine::finishHookWait(int64_t waitId) {
+void JsEngine::finishDispatchWait(int64_t waitId) {
   std::lock_guard lock{mutex_};
-  hookWaits_.erase(waitId);
+  dispatchWaits_.erase(waitId);
 }
 
-void JsEngine::clearHookWaitsOf(const std::string &instance) {
+void JsEngine::clearDispatchWaitsOf(const std::string &instance) {
   std::lock_guard lock{mutex_};
-  std::erase_if(hookWaits_, [&](const auto &item) {
+  std::erase_if(dispatchWaits_, [&](const auto &item) {
     return item.second.instance == instance;
   });
 }
@@ -3172,7 +3166,7 @@ int64_t JsEngine::beginCapabilityWait(
     const std::shared_ptr<WaitSlot<std::string>> &slot) {
   const int64_t waitId = nextCapabilityWaitId_.fetch_add(1);
   std::lock_guard lock{mutex_};
-  capabilityWaits_[waitId] = HookWait{instance, slot};
+  capabilityWaits_[waitId] = DispatchWait{instance, slot};
   return waitId;
 }
 
@@ -3250,7 +3244,7 @@ void JsEngine::deliverCapabilityResult(const std::string &callerInstance,
                    {std::to_string(pendingId), json}, ignored);
 }
 
-void JsEngine::bridgeHookWaitResolve(const std::string &waitId,
+void JsEngine::bridgeImplementationWaitResolve(const std::string &waitId,
                                      const std::string &json) {
   int64_t id = 0;
   try {
@@ -3263,19 +3257,19 @@ void JsEngine::bridgeHookWaitResolve(const std::string &waitId,
   std::shared_ptr<WaitSlot<std::string>> slot;
   {
     std::lock_guard lock{mutex_};
-    const auto it = hookWaits_.find(id);
-    if (it == hookWaits_.end()) {
+    const auto it = dispatchWaits_.find(id);
+    if (it == dispatchWaits_.end()) {
       return; ///< 不属于本引擎 / 已经完成
     }
     instance = it->second.instance;
     slot = it->second.slot;
-    hookWaits_.erase(it);
+    dispatchWaits_.erase(it);
   }
   if (!slot) {
     return;
   }
   if (auto inst = lookupInstance(instance)) {
-    ++inst->asyncHookSettled;
+    ++inst->asyncDispatchSettled;
   }
   slot->set(json);
 }
@@ -3290,7 +3284,7 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
     /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
-    /// (与钩子/能力/订阅同一套做法, 避免"框架线程等 JS、JS 等框架线程")
+    /// (与能力/能力/订阅同一套做法, 避免"框架线程等 JS、JS 等框架线程")
     Instance::PendingUiOp entry;
     entry.op = op;
     entry.name = name;
@@ -3531,7 +3525,7 @@ void JsEngine::bridgeVarsOp(const std::string &instanceName,
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
     /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
-    /// (与钩子/能力/UI 项同一套做法, 避免"框架线程等 JS、JS 等框架线程")
+    /// (与能力/能力/UI 项同一套做法, 避免"框架线程等 JS、JS 等框架线程")
     Instance::PendingVarOp entry;
     entry.op = op;
     entry.key = key;
@@ -3778,11 +3772,12 @@ void JsEngine::clearVarWaitsOf(const std::string &instanceName) {
   }
 }
 
-void JsEngine::bridgeHookOp(const std::string &instanceName,
-                            const std::string &op, const std::string &hookId,
-                            const std::string &mode, int32_t priority,
-                            const std::string &ownerTag,
-                            const std::string &phase) {
+void JsEngine::bridgeImplementationOp(const std::string &instanceName,
+                                      const std::string &op,
+                                      const std::string &capabilityId,
+                                      int32_t priority,
+                                      const std::string &ownerTag,
+                                      const std::string &phase) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !mgr_ || !mgr_->running()) {
     return;
@@ -3796,38 +3791,36 @@ void JsEngine::bridgeHookOp(const std::string &instanceName,
   /// 在这里同步等待就会互锁。失败只记日志与事件, 不回传给脚本。
   auto self = shared_from_this();
   asio::post(mgr_->hostExecutor(),
-             [self, instanceName, op, hookId, mode, priority, ownerTag, phase] {
+             [self, instanceName, op, capabilityId, priority, ownerTag, phase] {
                auto current = self->lookupInstance(instanceName);
                if (current) {
-                 self->applyHookOpOnHost(current, op, hookId, mode, priority,
-                                         ownerTag, phase);
+                 self->applyImplementationOpOnHost(current, op, capabilityId, priority,
+                                                   ownerTag, phase);
                }
              });
 }
 
-void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
-                                 const std::string &op,
-                                 const std::string &hookId,
-                                 const std::string &mode, int32_t priority,
-                                 const std::string &ownerTag,
-                                 const std::string &phase) {
-  if (!inst || !inst->hostInst || !mgr_ || hookId.empty()) {
+void JsEngine::applyImplementationOpOnHost(
+    const std::shared_ptr<Instance> &inst, const std::string &op,
+    const std::string &capabilityId, int32_t priority,
+    const std::string &ownerTag, const std::string &phase) {
+  if (!inst || !inst->hostInst || !mgr_ || capabilityId.empty()) {
     return;
   }
   const bool unregister = op == "unregister";
   if (!unregister && op != "register") {
     return;
   }
-  const int32_t phaseCode = hookPhaseOfName(phase);
-  /// 同一个 (钩子, owner_tag) 只保留一份: 先摘掉插件框架注册 (释放注册表对该
-  /// `HookHandler` 的引用), 再释放 JS 侧持有的对象, 避免出现"注册表指向已释放对象"
+  const int32_t phaseCode = capabilityPhaseOfName(phase);
+  /// 同一个 (能力, owner_tag) 只保留一份: 先摘掉插件框架注册 (释放注册表对该
+  /// `Implementation` 的引用), 再释放 JS 侧持有的对象, 避免出现"注册表指向已释放对象"
   /// 的窗口; 覆盖式注册随后重新登记
-  for (auto it = inst->hooks.begin(); it != inst->hooks.end();) {
+  for (auto it = inst->implementations.begin(); it != inst->implementations.end();) {
     const auto &handler = *it;
-    if (handler && handler->hookId == hookId && handler->ownerTag == ownerTag &&
+    if (handler && handler->capabilityId == capabilityId && handler->ownerTag == ownerTag &&
         handler->phase == phaseCode) {
-      mgr_->unregisterHook(inst->hostInst, handler->hookId, handler->ownerTag);
-      it = inst->hooks.erase(it);
+      mgr_->unimplement(inst->hostInst, handler->capabilityId, handler->ownerTag);
+      it = inst->implementations.erase(it);
       continue;
     }
     ++it;
@@ -3836,50 +3829,41 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
     return;
   }
 
-  auto handler = std::make_shared<HookHandler>();
+  auto handler = std::make_shared<Implementation>();
   handler->engine = this;
   handler->instance = inst->name;
   handler->pluginId = inst->id;
-  handler->hookId = hookId;
+  handler->capabilityId = capabilityId;
   handler->ownerTag = ownerTag;
-  handler->decision = mode != "observe";
   handler->phase = phaseCode;
 
-  MusicxxPluginHookSpec spec{};
-  spec.version = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
-  spec.struct_size = sizeof(MusicxxPluginHookSpec);
+  MusicxxPluginCapabilitySpec spec{};
   spec.phase = phaseCode;
-  spec.hook_id =
-      PluginxxStringView{handler->hookId.data(), handler->hookId.size()};
+  spec.capability_id =
+      PluginxxStringView{handler->capabilityId.data(), handler->capabilityId.size()};
   spec.owner_tag = PluginxxStringView{handler->ownerTag.data(),
                                       handler->ownerTag.size()};
-  spec.mode = handler->decision ? MUSICXX_PLUGIN_HOOK_MODE_DECISION
-                                : MUSICXX_PLUGIN_HOOK_MODE_OBSERVE;
   spec.priority = priority;
   spec.user_data = handler.get();
-  if (handler->decision) {
-    spec.hook_sync = &JsEngine::hookSync;
-  } else {
-    spec.hook_start = &JsEngine::hookStart;
-  }
-  const int32_t rc = mgr_->registerHook(inst->hostInst, spec);
+  spec.run_sync = &JsEngine::implementationRunSync;
+  const int32_t rc = mgr_->registerHandler(inst->hostInst, spec);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
     Json payload;
     payload["id"] = inst->id;
-    payload["phase"] = "hook";
-    payload["hook"] = hookId;
-    payload["code"] = "hook_register_failed";
+    payload["phase"] = "capability";
+    payload["capability"] = capabilityId;
+    payload["code"] = "capability_register_failed";
     payload["message"] =
-        "运行期钩子注册被拒绝 (未知能力 / 没声明该阶段 / 阶段必须用同步处理器)";
+        "运行期能力注册被拒绝 (未知能力 / 没声明该阶段 / 阶段必须用同步处理器)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
     XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 被拒绝 (code={})",
-            inst->id, hookId, rc);
+            inst->id, capabilityId, rc);
     return;
   }
-  inst->hooks.push_back(handler);
+  inst->implementations.push_back(handler);
   XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 已生效 (phase={}, "
-          "mode={}, priority={})",
-          inst->id, hookId, phase, mode, priority);
+          "priority={})",
+          inst->id, capabilityId, phase, priority);
 }
 
 std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
@@ -3909,7 +3893,7 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
   item["version"] = inst->version;
   item["scripts"] = scriptNamesJson(inst->scriptPaths);
   item["scriptLoaded"] = inst->scriptLoaded;
-  item["hooks"] = static_cast<int32_t>(inst->hooks.size());
+  item["implementations"] = static_cast<int32_t>(inst->implementations.size());
   item["capabilities"] = static_cast<int32_t>(inst->capabilities.size());
   item["subscriptions"] = static_cast<int32_t>(inst->subscriptions.size());
   item["timers"] = timers;
@@ -3918,8 +3902,8 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
   item["errors"] = inst->errors.load(std::memory_order_relaxed);
   item["jsHeapBytes"] = inst->jsHeapBytes.load(std::memory_order_relaxed);
   /// 异步裁决统计 (裁决处理器返回 Promise 的情况)
-  item["asyncHookSettled"] =
-      inst->asyncHookSettled.load(std::memory_order_relaxed);
+  item["asyncDispatchSettled"] =
+      inst->asyncDispatchSettled.load(std::memory_order_relaxed);
   return item.dump();
 }
 
@@ -4214,7 +4198,7 @@ void JsEngine::stopInstance(const std::shared_ptr<Instance> &inst) {
     return;
   }
   detachRegistrations(inst);
-  clearHookWaitsOf(inst->name);
+  clearDispatchWaitsOf(inst->name);
   clearCapabilityWaitsOf(inst->name);
   if ((inst->ctx || inst->rt) && running_.load(std::memory_order_acquire)) {
     auto slot = std::make_shared<WaitSlot<bool>>();
@@ -4430,67 +4414,54 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     return;
   }
 
-  // ---- 钩子 ----
-  if (data.contains("hooks") && data["hooks"].is_array()) {
-    for (const auto &item : data["hooks"]) {
-      if (!item.is_object() || !item.contains("hook") ||
-          !item["hook"].is_string()) {
+  // ---- 能力 ----
+  if (data.contains("implementations") && data["implementations"].is_array()) {
+    for (const auto &item : data["implementations"]) {
+      if (!item.is_object() || !item.contains("capability") ||
+          !item["capability"].is_string()) {
         continue;
       }
-      auto handler = std::make_shared<HookHandler>();
+      auto handler = std::make_shared<Implementation>();
       handler->engine = this;
       handler->instance = inst->name;
       handler->pluginId = inst->id;
-      handler->hookId = item["hook"].get<std::string>();
+      handler->capabilityId = item["capability"].get<std::string>();
       handler->ownerTag =
           (item.contains("ownerTag") && item["ownerTag"].is_string())
               ? item["ownerTag"].get<std::string>()
               : std::string{};
-      const std::string mode =
-          (item.contains("mode") && item["mode"].is_string())
-              ? item["mode"].get<std::string>()
-              : std::string{"decision"};
-      handler->decision = mode != "observe";
       /// 阶段: 能力 id 表示一次调用, 参与方式由阶段表达 (老脚本不写 = impl)
-      handler->phase = hookPhaseOfName(
+      handler->phase = capabilityPhaseOfName(
           (item.contains("phase") && item["phase"].is_string())
               ? item["phase"].get<std::string>()
               : std::string{"impl"});
 
-      MusicxxPluginHookSpec spec{};
-      spec.version = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
-      spec.struct_size = sizeof(MusicxxPluginHookSpec);
+      MusicxxPluginCapabilitySpec spec{};
       spec.phase = handler->phase;
-      spec.hook_id =
-          PluginxxStringView{handler->hookId.data(), handler->hookId.size()};
+      spec.capability_id =
+          PluginxxStringView{handler->capabilityId.data(), handler->capabilityId.size()};
       spec.owner_tag = PluginxxStringView{handler->ownerTag.data(),
                                           handler->ownerTag.size()};
-      spec.mode = handler->decision ? MUSICXX_PLUGIN_HOOK_MODE_DECISION
-                                    : MUSICXX_PLUGIN_HOOK_MODE_OBSERVE;
       spec.priority =
           (item.contains("priority") && item["priority"].is_number_integer())
               ? item["priority"].get<int>()
               : 0;
       spec.user_data = handler.get();
-      if (handler->decision) {
-        spec.hook_sync = &JsEngine::hookSync;
-      } else {
-        spec.hook_start = &JsEngine::hookStart;
-      }
-      const int32_t rc = mgr_->registerHook(inst->hostInst, spec);
+      spec.run_sync = &JsEngine::implementationRunSync;
+      const int32_t rc = mgr_->registerHandler(inst->hostInst, spec);
       if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
         Json payload;
         payload["id"] = inst->id;
-        payload["phase"] = "hook";
-        payload["hook"] = handler->hookId;
-        payload["code"] = "hook_register_failed";
-        payload["message"] = "钩子注册被拒绝 (未知能力或命名空间非法)";
+        payload["phase"] = "capability";
+        payload["capability"] = handler->capabilityId;
+        payload["code"] = "capability_register_failed";
+        payload["message"] = "能力注册被拒绝 (未知能力或命名空间非法)";
         mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
         XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 被拒绝 (code={})",
-                inst->id, handler->hookId, rc);
+                inst->id, handler->capabilityId, rc);
         continue;
       }
-      inst->hooks.push_back(handler);
+      inst->implementations.push_back(handler);
     }
   }
 
@@ -4625,9 +4596,9 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
   inst->registrationsApplied = true;
   /// 运行期的 UI/订阅/变量操作改为"投递不等待" (顶层登记阶段已结束)
   inst->liveRegistrations.store(true, std::memory_order_release);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 注册回放完成 (钩子 {} / 能力 {} / 订阅 "
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 注册回放完成 (能力 {} / 能力 {} / 订阅 "
           "{} / UI {} / 变量 {})",
-          inst->id, inst->hooks.size(), inst->capabilities.size(),
+          inst->id, inst->implementations.size(), inst->capabilities.size(),
           inst->subscriptions.size(), uiApplied, varsApplied);
 }
 
@@ -4648,10 +4619,10 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   /// 变量登记 (声明/订阅/保活) 与未结算的变量请求都随实例作废
   /// (变量本身由 `clearPluginRegistrations` → `detachVars` 摘除)
   clearVarWaitsOf(inst->name);
-  for (const auto &handler : inst->hooks) {
-    mgr_->unregisterHook(inst->hostInst, handler->hookId, handler->ownerTag);
+  for (const auto &handler : inst->implementations) {
+    mgr_->unimplement(inst->hostInst, handler->capabilityId, handler->ownerTag);
   }
-  inst->hooks.clear();
+  inst->implementations.clear();
   for (const auto &handler : inst->capabilities) {
     mgr_->unregisterCapability(inst->hostInst, handler->fullName,
                                std::string_view{});
@@ -4664,13 +4635,13 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
 
 /* ==================== 能力处理器 ==================== */
 
-int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
-                                         const PluginxxStringView * /*hookId*/,
+int32_t PLUGINXX_CALL JsEngine::implementationRunSync(void *userData,
+                                         const PluginxxStringView * /*capabilityId*/,
                                          const PluginxxStringView *inputJson,
                                          PluginxxString *outJson,
                                          PluginxxString * /*errorOut*/
 ) {
-  auto *handler = static_cast<HookHandler *>(userData);
+  auto *handler = static_cast<Implementation *>(userData);
   if (!handler || !handler->engine) {
     return -1;
   }
@@ -4679,30 +4650,30 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
   /// 等待期间它可能已经释放, 因此这里先把要用的字段复制出来, 不在等待之后再读
   /// handler。
   const std::string pluginId = handler->pluginId;
-  const std::string hookId = handler->hookId;
+  const std::string capabilityId = handler->capabilityId;
   const std::string name = handler->instance;
-  const std::string phaseName = hookPhaseNameOf(handler->phase);
+  const std::string phaseName = capabilityPhaseNameOf(handler->phase);
   const std::string input =
       inputJson ? viewToStr(inputJson) : std::string{"{}"};
   auto slot = std::make_shared<WaitSlot<std::string>>();
-  /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.hookWaitResolve` 交回结果
-  const int64_t waitId = engine->beginHookWait(name, slot);
-  engine->postTask([engine, name, hookId, phaseName, input, slot, waitId] {
+  /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.implementationWaitResolve` 交回结果
+  const int64_t waitId = engine->beginDispatchWait(name, slot);
+  engine->postTask([engine, name, capabilityId, phaseName, input, slot, waitId] {
     const auto inst = engine->lookupInstance(name);
     std::string result;
     if (!inst || !engine->callBridgeString(
-                     inst, "invokeHook",
-                     {hookId, phaseName, input, std::to_string(waitId)},
+                     inst, "invokeImplementation",
+                     {capabilityId, phaseName, input, std::to_string(waitId)},
                      result)) {
-      engine->finishHookWait(waitId);
+      engine->finishDispatchWait(waitId);
       slot->set(std::string{});
       return;
     }
-    if (result == kHookPendingMarker) {
-      /// 处理器返回 Promise: 不结算, 等 [bridgeHookWaitResolve] 把结果交回来
+    if (result == kPendingMarker) {
+      /// 处理器返回 Promise: 不结算, 等 [bridgeImplementationWaitResolve] 把结果交回来
       return;
     }
-    engine->finishHookWait(waitId);
+    engine->finishDispatchWait(waitId);
     slot->set(std::move(result));
   });
 
@@ -4715,40 +4686,6 @@ int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
   }
   pluginxx::hostMemorySetString(outJson, result);
   return 0;
-}
-
-void *PLUGINXX_CALL JsEngine::hookStart(void *userData,
-                                        const PluginxxStringView * /*hookId*/,
-                                        const PluginxxStringView *inputJson,
-                                        const PluginxxOperatorNotify *notify,
-                                        PluginxxString * /*errorOut*/
-) {
-  auto *handler = static_cast<HookHandler *>(userData);
-  if (!handler || !handler->engine) {
-    return nullptr;
-  }
-  JsEngine *engine = handler->engine;
-  const std::string input =
-      inputJson ? viewToStr(inputJson) : std::string{"{}"};
-  const std::string hookId = handler->hookId;
-  const std::string name = handler->instance;
-  const std::string phaseName = hookPhaseNameOf(handler->phase);
-  /// 观察型: 投递到 JS 线程后立即返回, 不等待 (observe 语义)
-  engine->postTask([engine, name, hookId, phaseName, input] {
-    const auto inst = engine->lookupInstance(name);
-    if (!inst) {
-      return;
-    }
-    std::string ignored;
-    engine->callBridgeString(inst, "invokeHook", {hookId, phaseName, input},
-                             ignored);
-  });
-  /// 插件框架派发观察型处理器时传 nullptr (结果不参与合并); 若将来传了通知器,
-  /// 这里按"已同步完成且无载荷"终结它 (观察型处理器不产生裁决)
-  if (notify && notify->done) {
-    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
-  }
-  return nullptr;
 }
 
 /* ==================== 能力处理器 ==================== */
@@ -5061,7 +4998,7 @@ std::string JsEngine::statsJson() const {
       item["version"] = inst->version;
       item["scripts"] = scriptNamesJson(inst->scriptPaths);
       item["scriptLoaded"] = inst->scriptLoaded;
-      item["hooks"] = static_cast<int32_t>(inst->hooks.size());
+      item["implementations"] = static_cast<int32_t>(inst->implementations.size());
       item["capabilities"] = static_cast<int32_t>(inst->capabilities.size());
       item["subscriptions"] = static_cast<int32_t>(inst->subscriptions.size());
       item["timers"] = timerCount;
@@ -5070,8 +5007,8 @@ std::string JsEngine::statsJson() const {
       item["errors"] = inst->errors.load();
       item["jsHeapBytes"] = inst->jsHeapBytes.load(std::memory_order_relaxed);
       /// 异步裁决统计 (裁决处理器返回 Promise)
-      item["asyncHookSettled"] =
-          inst->asyncHookSettled.load(std::memory_order_relaxed);
+      item["asyncDispatchSettled"] =
+          inst->asyncDispatchSettled.load(std::memory_order_relaxed);
       plugins.push_back(item);
     }
   }

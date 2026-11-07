@@ -1,4 +1,4 @@
-/// 示例动态库插件: 演示钩子注册、状态镜像读取、主程序动作请求、能力注册与日志
+/// 示例动态库插件: 演示能力注册、状态镜像读取、主程序动作请求、能力注册与日志
 ///
 /// 行为:
 /// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回
@@ -77,13 +77,13 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   /// 连续播放错误计数 (仅示例)
   int32_t consecutiveErrors = 0;
 
-  /// start 事务所在线程 (与钩子/能力处理器比对: 必须相同 = 单框架线程模型)
+  /// start 事务所在线程 (与能力/能力处理器比对: 必须相同 = 单框架线程模型)
   std::string startThread;
 
   /// 自检结果 (命名空间校验返回码)
-  int32_t unknownHookRc = 0; ///< 注册应用没声明的官方钩子: 期望 -2 (没声明)
+  int32_t unknownCapabilityRc = 0; ///< 注册应用没声明的官方能力: 期望 -2 (没声明)
   int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
-  int32_t dupHookRc = 0; ///< 覆盖式重复注册: 期望 0
+  int32_t dupImplementRc = 0; ///< 覆盖式重复注册: 期望 0
 
   /// 声明式 UI 扩展自检
   int32_t uiHomeRc = -100; ///< 注册主页入口项: 期望 0
@@ -131,8 +131,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t onStart() {
     startThread = threadIdText();
 
-    // 1) 跳过"广告"曲目 (决定型钩子: 返回 {"action":"skip"})
-    hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
+    // 1) 跳过"广告"曲目 (决定型能力: 返回 {"action":"skip"})
+    implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
          [this](std::string_view input, std::string &out) -> int32_t {
            // 载荷: {"sid":"...","song":{"name":"...","artist":"..."},...}
            if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") !=
@@ -152,7 +152,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                    });
 
     // 3) 播放错误: 连续 2 次错误后建议换源 (不改写主程序既有错误策略)
-    hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
+    implement(MUSICXX_CAPABILITY_PLAYER_ERROR, 0,
          [this](std::string_view input, std::string &out) -> int32_t {
            (void)input;
            ++consecutiveErrors;
@@ -162,16 +162,16 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
            return 0;
          });
 
-    // 4) 命名空间自检: 应用没声明的官方钩子必须被插件框架拒绝
-    unknownHookRc =
-        hook("musicxx.no.such.hook", 0,
+    // 4) 命名空间自检: 应用没声明的官方能力必须被插件框架拒绝
+    unknownCapabilityRc =
+        implement("musicxx.no.such.capability", 0,
              [](std::string_view, std::string &) -> int32_t { return 0; });
-    // 同一 (实例, 钩子, owner_tag) 覆盖式注册: 再注册一次应成功
-    dupHookRc = hook(MUSICXX_PLUGIN_HOOK_PLAYER_VOLUME, 0,
+    // 同一 (实例, 能力, owner_tag) 覆盖式注册: 再注册一次应成功
+    dupImplementRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
                      });
-    dupHookRc = hook(MUSICXX_PLUGIN_HOOK_PLAYER_VOLUME, 0,
+    dupImplementRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
                      });
@@ -307,8 +307,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           oss << "{\"hostApiVersion\":" << hostApiVersion
               << ",\"startThread\":\"" << startThread << "\""
               << ",\"callThread\":\"" << threadIdText() << "\""
-              << ",\"unknownHookRc\":" << unknownHookRc
-              << ",\"dupHookRc\":" << dupHookRc
+              << ",\"unknownCapabilityRc\":" << unknownCapabilityRc
+              << ",\"dupImplementRc\":" << dupImplementRc
               << ",\"foreignActionRc\":" << foreignActionRc
               << ",\"badTopicSubscribeRc\":" << badTopicSubscribeRc
               << ",\"ownPublishRc\":" << ownPublishRc
@@ -368,7 +368,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 的处理器 (ownerTag = 点 id)。糖负责三件事: 按 `point` 过滤、`caller` 等于自己时
     // 不回答、把返回值包成 `{"patch":{"value": …}}`。
     //
-    // 注意: 功能点走的是**同步裁决**通道 (插件框架按 hook_sync 同步调用), 所以处理器必须
+    // 注意: 功能点走的是**同步裁决**通道 (插件框架按 run_sync 同步调用), 所以处理器必须
     // 同步返回; 长任务用能力 (capability) 或事件。
     featurePointSampleId = "plugin." + pluginId() + ".sample";
     featurePointSampleRc = featurePointProvide(
@@ -435,7 +435,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           blocks.push_back(
               pluginxx::ui::dumpItem(kit::listRow(Json::object({
                   {"title", "start 事务线程"},
-                  {"subtitle", "钩子与能力处理器都在这一条线程上执行"},
+                  {"subtitle", "能力与能力处理器都在这一条线程上执行"},
                   {"trailing", startThread},
               }))));
           blocks.push_back(
@@ -508,7 +508,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   }
 
   int32_t onStop() {
-    // 撤销自管资源 (示例没有线程/定时器; 钩子/能力注册由插件框架在 detach
+    // 撤销自管资源 (示例没有线程/定时器; 能力/能力注册由插件框架在 detach
     // 时统一摘除)
     consecutiveErrors = 0;
     return 0;
@@ -528,5 +528,5 @@ int32_t exampleStop(ExampleCtx &ctx) { return ctx.onStop(); }
 } // namespace
 
 MUSICXX_PLUGIN_EXPORT(ExampleCtx, "example_native", "1.0.0",
-                      "musicxx 外部插件示例 (钩子/状态镜像/日志)", exampleStart,
+                      "musicxx 外部插件示例 (能力/状态镜像/日志)", exampleStart,
                       exampleStop)

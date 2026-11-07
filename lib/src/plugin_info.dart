@@ -116,7 +116,7 @@ class MusicxxPluginInfo {
   /// 启用状态（插件框架侧）
   final bool enabled;
 
-  /// 计数器（hookCalls/actionRequests/...）
+  /// 计数器（capabilityCalls/actionRequests/...）
   final Map<String, Object?> counters;
 
   static List<String> _stringList(Object? value) {

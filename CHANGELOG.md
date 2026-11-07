@@ -8,6 +8,33 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1108.1）：能力与广播只剩一份声明，`hook` 词汇全部删除（插件 ABI 5）
+
+- **删除 `tools/hooks.def.json` 与它的两份生成物**（`lib/src/hook_ids.g.dart`、
+  `src/sdk/include/musicxx/plugin/api/hook_ids.g.h`）：派发层直接读 `tools/capabilities.def.json`，
+  "能力 id 与钩子 id 是同一个字符串"这件事不再需要第二份表来对齐。
+- **插件 ABI 4 → 5**（`src/CMakeLists.txt` 的 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION`）：
+  示例插件清单 `api_version` 改 5，低于它的老插件在加载阶段被拒；主程序侧 `kExternPluginMinApiVersion`
+  同步改成 5。C ABI 代次 2 → 3（`hook_*` 符号整体改名，老库按版本号先被拦住，而不是报找不到符号）。
+- **C 接口改名**：`musicxx_extern_plugin_hook_dispatch` / `_dispatch_phase` / `_handler_count` /
+  `_handler_count_phase` / `_handlers` / `_handlers_phase` / `_stats` 全部换成
+  `musicxx_extern_plugin_capability_*`；`MusicxxPluginHookSpec` → `MusicxxPluginCapabilitySpec`
+  （删掉 v1 字段 `version` / `struct_size` / `mode`，新增 `phase`）。
+  `MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC` / `_ASYNC`、`MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_*` 随之改名。
+- **SDK 改名**：`PluginBase::hook` / `hookBefore` / `hookAfter` / `unregisterHook` →
+  `implement` / `implementBefore` / `implementAfter` / `unimplement`（`unimplementWithTag` 保留），
+  `HookPhase` → `CapabilityPhase`；id 常量统一前缀 `MUSICXX_CAPABILITY_*` / `MUSICXX_BROADCAST_*`。
+- **JS 改名**：`musicxx.capability.handlers()` 的参数与回包里的键改成 `id` / `capability`；
+  事件 `musicxx.hook.changed` / `musicxx.hook.decision.result` / `musicxx.hook.observe` 换成
+  `musicxx.capability.*`；统计字段 `asyncHookSettled` → `asyncDispatchSettled`、
+  `hooks` → `implementations`、`selfStatsHooks` → `selfStatsImplementations`。
+- **Dart 侧改名**：`MusicxxPluginHooks` → `MusicxxPluginCapabilities`（`runtime.hooks` → `runtime.capabilities`、
+  `on` / `off` / `dispatch` / `dispatchAsync` / `dispatchAtPhase` / `stats` / `handlersOf`），
+  `MusicxxPluginHookId` / `MusicxxPluginHookMode` 删除，改用 `MusicxxCapabilityId` / `MusicxxBroadcastId`
+  与 `MusicxxCapabilityCatalogue`；`MusicxxPluginDartHandler` → `MusicxxPluginImplementation`。
+- **三个类、三次改名，含义不变**：能力仍是"取值 / 裁决"，广播仍是"通知 / 快照"；一条能力的
+  `before` / `impl` / `after` 三个阶段仍是"前链正序、后链逆序"。
+
 ### 变更（dev）：作者文档收成两张表，`docs/plugin-hooks.md` 删除
 
 - 插件作者看的不再是「钩子总表」，而是 **能力总表** `docs/plugin-capabilities.md`（请求 → 结果：

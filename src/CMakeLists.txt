@@ -151,10 +151,12 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 #   - PLUGINXX_MIN_API_VERSION : 框架接受的最低代次 (低于它的插件在加载阶段被拒)。
 # 两者现在相同 (框架只接受与当前代次相同的插件)。将来若要放低最低接受版本, 再单独加一个变量。
 #
+# 5 = 能力与广播只剩一份声明 (capabilities.def.json)：插件侧 hook 词汇、C ABI 的 hook_* 符号与
+#     `musicxx.hooks` 表全部删掉, 改成 capability / 实现链。
 # 4 = 通用表 capabilities 换成 v4 (声明 + 多实现行)、events 换成 broadcasts v1。
 # 改这个值等于改插件 ABI: 要同步示例插件清单的 api_version、
 # Dart 侧 `kExternPluginMinApiVersion` / `ExternPluginStore.hostMinApiVersion` 与文档。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "4" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "5" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 # ===== Boost (仅头文件) =====
 # 插件框架与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):

@@ -38,7 +38,9 @@ void main() {
 
   test('多 isolate 并发调用：不崩溃、seq 单调、callId 不重复、裁决不串台', () async {
     if (env == null) {
-      markTestSkipped('未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）');
+      markTestSkipped(
+        '未找到原生插件框架库或示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+      );
       return;
     }
 
@@ -62,8 +64,8 @@ void main() {
     );
     runtime.plugins.load('example_native');
     expect(
-      runtime.hooks.refreshNativeHandlerCount(
-        MusicxxPluginHookId.playerBeforePlaySong,
+      runtime.capabilities.refreshNativeHandlerCount(
+        MusicxxCapabilityId.playerBeforePlaySong,
       ),
       greaterThan(0),
     );
@@ -112,8 +114,8 @@ void main() {
     // 3) 主 isolate 同时做同步派发（与 worker 的异步派发并发）
     final List<Map<String, Object?>> verdicts = <Map<String, Object?>>[];
     for (int i = 0; i < 15; ++i) {
-      final Map<String, Object?>? verdict = runtime.hooks.decide(
-        MusicxxPluginHookId.playerBeforePlaySong,
+      final Map<String, Object?>? verdict = runtime.capabilities.dispatch(
+        MusicxxCapabilityId.playerBeforePlaySong,
         <String, Object?>{
           'sid': 'main-$i',
           'song': <String, Object?>{'name': '广告 - 主线程 $i'},
@@ -175,7 +177,7 @@ void main() {
       final Set<Object?> decided = seen
           .where(
             (MusicxxPluginEvent e) =>
-                e.type == MusicxxPluginEventType.hookDecisionResult,
+                e.type == MusicxxPluginEventType.capabilityDecisionResult,
           )
           .map((MusicxxPluginEvent e) => e.payload['callId'])
           .toSet();
@@ -184,7 +186,7 @@ void main() {
     final Set<int> decidedIds = seen
         .where(
           (MusicxxPluginEvent e) =>
-              e.type == MusicxxPluginEventType.hookDecisionResult,
+              e.type == MusicxxPluginEventType.capabilityDecisionResult,
         )
         .map((MusicxxPluginEvent e) => e.payload['callId'])
         .whereType<int>()
@@ -225,8 +227,8 @@ void main() {
 
     // 8) 并发风暴之后插件框架仍然可用（插件没被卸载、处理器位图没丢）
     expect(
-      runtime.hooks.refreshNativeHandlerCount(
-        MusicxxPluginHookId.playerBeforePlaySong,
+      runtime.capabilities.refreshNativeHandlerCount(
+        MusicxxCapabilityId.playerBeforePlaySong,
       ),
       greaterThan(0),
     );
@@ -267,7 +269,7 @@ Future<void> _apiWorker(List<Object?> args) async {
       try {
         final Pointer<Int32> count = countArena.mallocInt();
         final Pointer<MusicxxExternPluginString> log = countArena.outString();
-        final int rc = bindings.musicxx_extern_plugin_hook_count(
+        final int rc = bindings.musicxx_extern_plugin_capability_handler_count(
           host,
           countArena.view('musicxx.player.beforePlaySong'),
           count,
@@ -285,7 +287,7 @@ Future<void> _apiWorker(List<Object?> args) async {
       try {
         final Pointer<MusicxxExternPluginString> out = emitArena.outString();
         final Pointer<MusicxxExternPluginString> log = emitArena.outString();
-        final int rc = bindings.musicxx_extern_plugin_hook_emit(
+        final int rc = bindings.musicxx_extern_plugin_capability_dispatch(
           host,
           emitArena.view('musicxx.player.beforePlaySong'),
           emitArena.view('{"sid":"$name-$i","song":{"name":"广告 - $name"}}'),

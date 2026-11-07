@@ -8,7 +8,7 @@ import 'actions.dart';
 import 'bindings_generated.dart';
 import 'broadcasts.dart';
 import 'events.dart';
-import 'hooks.dart';
+import 'capabilities.dart';
 import 'manager.dart';
 import 'native_library.dart';
 import 'native_strings.dart';
@@ -73,7 +73,7 @@ class MusicxxPluginRuntimeConfig {
   /// 允许 JS 插件
   final bool enableJs;
 
-  /// 是否向 Dart 回传观测事件（observe 钩子/事件镜像；默认关，零开销）
+  /// 是否向 Dart 回传观测事件（observe 能力/事件镜像；默认关，零开销）
   final bool observeEvents;
 
   /// 事件队列容量（0 = 插件框架默认 16384）
@@ -120,16 +120,16 @@ class MusicxxPluginApiException implements Exception {
 
 /// 外部插件框架运行时
 ///
-/// 生命周期：[init] → 用 [plugins]/[hooks]/[state]/[actions] →
-/// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把钩子/动作接到业务上。
+/// 生命周期：[init] → 用 [plugins]/[capabilities]/[state]/[actions] →
+/// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把能力/动作接到业务上。
 ///
 /// **一次生命周期一个实例**：一个运行时 [dispose] 之后不能再 [init]（事件流、
-/// 钩子处理器链、事件序号都已经收尾）。需要"停掉插件框架再启动"时必须用 [create]
+/// 能力实现链、事件序号都已经收尾）。需要"停掉插件框架再启动"时必须用 [create]
 /// 新建一个实例 —— 原生侧 `host_destroy` 之后允许再次 `host_create`，
 /// 所以新建实例是安全的；主程序 `ExternPluginStore` 每次启动插件框架都新建一个。
 ///
 /// 线程模型：插件框架内所有插件代码运行在**原生插件框架线程**上，Dart 线程只在
-/// 同步 FFI 调用（钩子派发、能力调用、状态推送）期间参与，且有等待上界。
+/// 同步 FFI 调用（能力派发、能力调用、状态推送）期间参与，且有等待上界。
 class MusicxxPluginRuntime {
   MusicxxPluginRuntime._();
 
@@ -153,7 +153,10 @@ class MusicxxPluginRuntime {
   final List<MusicxxPluginEvent> _eventLog = <MusicxxPluginEvent>[];
 
   late final MusicxxPluginManager plugins = MusicxxPluginManager.internal(this);
-  late final MusicxxPluginHooks hooks = MusicxxPluginHooks.internal(this);
+
+  /// 能力派发（Dart 侧实现链 + 原生/JS 实现链）
+  late final MusicxxPluginCapabilities capabilities =
+      MusicxxPluginCapabilities.internal(this);
   late final MusicxxPluginState state = MusicxxPluginState.internal(this);
   late final MusicxxPluginActions actions = MusicxxPluginActions.internal(this);
 
@@ -210,7 +213,7 @@ class MusicxxPluginRuntime {
     }
     final List<String> missing = <String>[];
     const List<(String, int)> known = <(String, int)>[
-      ('hooks', 0x1),
+      ('capabilities', 0x1),
       ('state', 0x2),
       ('events', 0x4),
       ('ui', 0x8),
@@ -368,7 +371,7 @@ class MusicxxPluginRuntime {
       _events.close();
     }
     plugins.handleDisposed();
-    hooks.handleDisposed();
+    capabilities.handleDisposed();
     actions.handleDisposed();
   }
 
@@ -465,12 +468,12 @@ class MusicxxPluginRuntime {
     });
   }
 
-  /// 现在有没有"等插件框架答复"的东西（异步裁决的结果、异步动作回复）
+  /// 现在有没有"等插件框架答复"的东西（异步派发的结果、异步动作回复）
   ///
   /// 只有等结果时才需要兜底轮询：结果就是经事件回传的，没人等的时候事件会由唤醒
   /// 回调即时送达（或等下一次真正的调用再取）。
   bool get hasPendingWork =>
-      hooks.pendingAsyncDecisions > 0 || actions.pendingResponses > 0;
+      capabilities.pendingAsyncDispatches > 0 || actions.pendingResponses > 0;
 
   /// 兜底轮询这一轮要不要跑（见 `init` 里对定时器的说明）
   bool _shouldPollFallback() {
@@ -549,10 +552,10 @@ class MusicxxPluginRuntime {
     // 内部订阅者（插件框架维护的位图/动作分发）先处理，异常隔离后继续广播
     try {
       switch (event.type) {
-        case MusicxxPluginEventType.hookChanged:
-          hooks.handleHookChangedEvent(event);
-        case MusicxxPluginEventType.hookDecisionResult:
-          hooks.handleDecisionResultEvent(event);
+        case MusicxxPluginEventType.capabilityChanged:
+          capabilities.handleCapabilityChangedEvent(event);
+        case MusicxxPluginEventType.capabilityDecisionResult:
+          capabilities.handleDecisionResultEvent(event);
         case MusicxxPluginEventType.pluginCallResult:
           plugins.handleCallResultEvent(event);
         case MusicxxPluginEventType.pluginLoaded:
@@ -560,7 +563,7 @@ class MusicxxPluginRuntime {
         case MusicxxPluginEventType.pluginDisabled:
         case MusicxxPluginEventType.pluginUnloaded:
           plugins.handleLifecycleEvent(event);
-          hooks.handlePluginLifecycleEvent(event);
+          capabilities.handlePluginLifecycleEvent(event);
         case MusicxxPluginEventType.actionRequest:
           actions.handleActionRequest(event);
         case MusicxxPluginEventType.actionCancel:
@@ -580,7 +583,7 @@ class MusicxxPluginRuntime {
     }
   }
 
-  // ==================== 通用原生调用（供 manager/hooks/state/actions 使用） ====================
+  // ==================== 通用原生调用（供 manager/capabilities/state/actions 使用） ====================
 
   /// 读取 `log` 出参并在失败时抛异常的通用包装（供子对象复用）
   void checkOrThrow(

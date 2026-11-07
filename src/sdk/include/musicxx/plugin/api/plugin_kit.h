@@ -5,7 +5,7 @@
 ///   直接使用插件框架 `Pluginxx*` 名字, **不引入别名层**;
 /// - musicxx 专用约定: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 专用接口聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
-/// - 便捷注册: `PluginBase::hook` / `observe` / `unregisterHook` / `requestAction` /
+/// - 便捷注册: `PluginBase::implement` / `observe` / `unimplement` / `requestAction` /
 ///   `stateJson` / `hostInfoJson`。
 /// - 界面描述层 `pluginxx::ui`（组件模型 / 解析 / 适配 / 文本降级 / 基础 kit）
 ///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们拼装。
@@ -84,29 +84,29 @@ static_assert(MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE <= sizeof(MusicxxPluginKin
 namespace musicxx {
 namespace plugin {
 
-/// 钩子参与方式（与 `MUSICXX_PLUGIN_HOOK_PHASE_*` 一致）
+/// 能力参与方式（与 `MUSICXX_CAPABILITY_PHASE_*` 一致）
 ///
-/// 钩子 id 表示**一次调用**，参与方式由阶段表达：
+/// 能力 id 表示**一次调用**，参与方式由阶段表达：
 /// - `Impl`  ：实现链，给结果 / 裁决（不写阶段就是它）；
 /// - `Before`：前链，串行、**正序**，只能改输入或 `stop`；
 /// - `After` ：后链，串行、**逆序**，只能改输出或 `drop`。
 ///
 /// 后链逆序是刻意的：外置插件**最后**改输出，应用自己的兜底实现不能盖掉插件的改写
 /// （与实现链里"外置优先"同向）。前链 / 后链必须是同步处理器。
-enum class HookPhase : int32_t {
-    Impl   = MUSICXX_PLUGIN_HOOK_PHASE_IMPL,
-    Before = MUSICXX_PLUGIN_HOOK_PHASE_BEFORE,
-    After  = MUSICXX_PLUGIN_HOOK_PHASE_AFTER,
+enum class CapabilityPhase : int32_t {
+    Impl   = MUSICXX_CAPABILITY_PHASE_IMPL,
+    Before = MUSICXX_CAPABILITY_PHASE_BEFORE,
+    After  = MUSICXX_CAPABILITY_PHASE_AFTER,
 };
 
 /// 阶段编号 → 对外字符串（日志用）
-inline const char* hookPhaseName(HookPhase phase) {
+inline const char* capabilityPhaseName(CapabilityPhase phase) {
     switch (phase) {
-        case HookPhase::Before:
+        case CapabilityPhase::Before:
             return "before";
-        case HookPhase::After:
+        case CapabilityPhase::After:
             return "after";
-        case HookPhase::Impl:
+        case CapabilityPhase::Impl:
         default:
             return "impl";
     }
@@ -388,23 +388,24 @@ public:
         return subscribeTopic(topic.c_str(), std::forward<Fn>(fn));
     }
 
-    /// 注册一个裁决型钩子 (同步处理器)
+    /// 实现一条能力（同步处理器；默认是 `impl` 阶段）
     ///
     /// `fn` 形如 `int32_t(std::string_view input_json, std::string& out_json)`;
-    /// 返回 0 且 out_json 非空表示给出裁决, out_json 为空表示不裁决 (交给下一个处理器)。
+    /// 返回 0 且 out_json 非空表示给出结果 / 裁决, out_json 为空表示没意见 (交给下一个实现)。
     template<typename Fn>
-    int32_t hook(const char* hookId, int32_t priority, Fn&& fn) {
-        return registerSync(hookId, priority, std::forward<Fn>(fn));
+    int32_t implement(const char* capabilityId, int32_t priority, Fn&& fn) {
+        return registerSync(capabilityId, priority, std::forward<Fn>(fn));
     }
 
-    /// 注册某个阶段的钩子处理器（前链 / 实现链 / 后链）
+    /// 实现某条能力的某个阶段（前链 / 实现链 / 后链）
     ///
-    /// 阶段合法性由插件框架按钩子声明校验（拒绝原因会原样回来）；声明里没有该阶段的
-    /// 钩子不要登记，登记了也不会被派发。
+    /// 阶段合法性由插件框架按声明校验（拒绝原因会原样回来）；声明里没有该阶段的
+    /// 能力不要登记，登记了也不会被派发。
     template<typename Fn>
-    int32_t hook(const char* hookId, HookPhase phase, int32_t priority, Fn&& fn) {
+    int32_t implement(const char* capabilityId, CapabilityPhase phase,
+                      int32_t priority, Fn&& fn) {
         return registerSyncWithTag(
-            hookId,
+            capabilityId,
             "",
             priority,
             static_cast<int32_t>(phase),
@@ -412,31 +413,33 @@ public:
         );
     }
 
-    /// 注册前链处理器（改输入 / `stop`），等价于 `hook(id, HookPhase::Before, ...)`
+    /// 实现前链（改输入 / `stop`），等价于 `implement(id, CapabilityPhase::Before, ...)`
     template<typename Fn>
-    int32_t hookBefore(const char* hookId, int32_t priority, Fn&& fn) {
-        return hook(hookId, HookPhase::Before, priority, std::forward<Fn>(fn));
+    int32_t implementBefore(const char* capabilityId, int32_t priority, Fn&& fn) {
+        return implement(capabilityId, CapabilityPhase::Before, priority, std::forward<Fn>(fn));
     }
 
-    /// 注册后链处理器（改输出 / `drop`），等价于 `hook(id, HookPhase::After, ...)`
+    /// 实现后链（改输出 / `drop`），等价于 `implement(id, CapabilityPhase::After, ...)`
     template<typename Fn>
-    int32_t hookAfter(const char* hookId, int32_t priority, Fn&& fn) {
-        return hook(hookId, HookPhase::After, priority, std::forward<Fn>(fn));
+    int32_t implementAfter(const char* capabilityId, int32_t priority, Fn&& fn) {
+        return implement(capabilityId, CapabilityPhase::After, priority, std::forward<Fn>(fn));
     }
 
-    /// 注销钩子 (owner_tag = "")
-    int32_t unregisterHook(const char* hookId) {
-        return unregisterHookWithTag(hookId, "");
+    /// 撤掉本插件在这条能力上的实现 (owner_tag = "")
+    int32_t unimplement(const char* capabilityId) {
+        return unimplementWithTag(capabilityId, "");
     }
 
-    /// 注销钩子（带 `owner_tag`）：处理器按 `(钩子 id, owner_tag)` 登记在能力表里，直接注销
-    int32_t unregisterHookWithTag(const char* hookId, const char* ownerTag) {
+    /// 撤掉本插件在某条能力上带 `ownerTag` 的那个实现
+    ///
+    /// 处理器按 `(能力 id, owner_tag)` 登记在能力表里, 直接往能力表注销即可。
+    int32_t unimplementWithTag(const char* capabilityId, const char* ownerTag) {
         if (!iface.capabilities || !iface.capabilities->unregister_capability) {
             return -1;
         }
-        const PluginxxStringView hookView = pluginxxView(hookId);
+        const PluginxxStringView capabilityView = pluginxxView(capabilityId);
         const PluginxxStringView tagView  = pluginxxView(ownerTag ? ownerTag : "");
-        return iface.capabilities->unregister_capability(host, &hookView, &tagView);
+        return iface.capabilities->unregister_capability(host, &capabilityView, &tagView);
     }
 
     /// 同步读状态镜像 (键不存在返回空串)
@@ -572,7 +575,7 @@ public:
     /// ---------- 功能点 (插件自己声明 / 实现 / 调用) ----------
     ///
     /// 一个功能点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
-    /// 通道钩子 `musicxx.feature.point.call` 的处理器）、**调用**（动作
+    /// 通道能力 `musicxx.feature.point.call` 的处理器）、**调用**（动作
     /// `musicxx.feature.point.call`）。三者都走插件框架，不需要主程序为这个点写任何代码。
     ///
     /// 与能力（capability）的分工见包内 `docs/plugin-guide.md`：
@@ -653,7 +656,7 @@ public:
     ///   `"null"` 或 `"{}"`；
     /// - 糖自动做三件事：按 `point` 过滤、`caller` 等于自己时返回空、
     ///   把返回值包成 `{"patch":{"value": …}}`；
-    /// - **必须同步返回**：裁决型钩子没有异步形态（插件框架按 `hook_sync` 同步调用），长任务要么
+    /// - **必须同步返回**：实现链没有异步形态（插件框架按同步回调调用），长任务要么
     ///   提前算好，要么做成能力（`co_await capabilityCall`）或事件。
     template<typename Fn>
     int32_t featurePointProvide(const char* pointId, Fn&& fn, int32_t priority = 0) {
@@ -668,10 +671,10 @@ public:
             return -1;
         }
         return registerSyncWithTag(
-            MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL,
+            MUSICXX_CAPABILITY_FEATURE_POINT_CALL,
             point.c_str(),
             priority,
-            MUSICXX_PLUGIN_HOOK_PHASE_IMPL,
+            MUSICXX_CAPABILITY_PHASE_IMPL,
             [selfId, point, fn = std::forward<Fn>(fn)](std::string_view input,
                                                       std::string& out) mutable -> int32_t {
                 return detail::answerFeaturePoint(selfId, point, fn, input, out);
@@ -684,7 +687,7 @@ public:
         if (!pointId || !*pointId) {
             return -1;
         }
-        return unregisterHookWithTag(MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL, pointId);
+        return unimplementWithTag(MUSICXX_CAPABILITY_FEATURE_POINT_CALL, pointId);
     }
 
     /// 调一个功能点（**异步形态**；结果经 `notify->done` 回来）
@@ -764,7 +767,7 @@ public:
     ///   `plugin.<本插件id>.*`; 其它前缀会被插件框架拒绝 (返回 -1);
     /// - 处理器形如 `void(std::string_view event_json)`;
     /// - 订阅句柄由插件框架按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
-    /// - 处理器持有者与钩子处理器同一存放位置, 生命周期 = 插件实例。
+    /// - 处理器持有者与能力处理器同一存放位置, 生命周期 = 插件实例。
     template<typename Fn>
     int32_t subscribeTopic(const char* topic, Fn&& fn) {
         if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
@@ -934,24 +937,24 @@ protected:
 protected:
 
     /// 同步处理器持有者基类 (类型擦除: 支持任意 lambda)
-    class HookHolderBase {
+    class CapabilityHolderBase {
     public:
-        virtual ~HookHolderBase() = default;
+        virtual ~CapabilityHolderBase() = default;
     };
 
     template<typename FnT>
-    struct HookHolder : HookHolderBase {
+    struct CapabilityHolder : CapabilityHolderBase {
         const PluginxxHost* host = nullptr;
         FnT                 fn;
 
-        HookHolder(const PluginxxHost* h, FnT f) :
+        CapabilityHolder(const PluginxxHost* h, FnT f) :
             host(h),
             fn(std::move(f)) {}
 
         /// 能力契约的 trampoline (`pluginxx.capabilities` 的处理器形态)
         ///
         /// 同步处理器: 算完就 `notify->done` 一次, 让宿主这一轮就能拿结果
-        /// (宿主派发是同步的, 异步给结果的处理器不会参与钩子合并)。
+        /// (宿主派发是同步的, 异步给结果的处理器不会参与合并)。
         static void* PLUGINXX_CALL invokeCapability(
             void*                            user_data,
             const PluginxxHost*              /*caller_host*/,
@@ -960,7 +963,7 @@ protected:
             const PluginxxOperatorNotify*    notify,
             PluginxxString*                  /*error_out*/
         ) {
-            auto* self = static_cast<HookHolder*>(user_data);
+            auto* self = static_cast<CapabilityHolder*>(user_data);
             if (!self || !notify || !notify->done) {
                 return nullptr;
             }
@@ -997,37 +1000,37 @@ protected:
 
     /// 统一的同步处理器注册路径
     template<typename Fn>
-    int32_t registerSync(const char* hookId, int32_t priority, Fn&& fn) {
-        return registerSyncWithTag(hookId, "", priority,
-                                   MUSICXX_PLUGIN_HOOK_PHASE_IMPL, std::forward<Fn>(fn));
+    int32_t registerSync(const char* capabilityId, int32_t priority, Fn&& fn) {
+        return registerSyncWithTag(capabilityId, "", priority,
+                                   MUSICXX_CAPABILITY_PHASE_IMPL, std::forward<Fn>(fn));
     }
 
     /// 统一的同步处理器注册路径（带 `owner_tag`）
     ///
     /// 统一的同步处理器注册路径（带 `owner_tag`）
     ///
-    /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个钩子上登记多个
+    /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个能力上登记多个
     /// 处理器（靠它区分），自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
     /// （见 [featurePointProvide]）。
     ///
     /// 登记走插件框架的 `pluginxx.capabilities`：处理器是能力契约（同步 `notify->done`），
-    /// 派发走不走的顺序（前链正序、后链逆序、层内按优先级）由插件框架按钩子声明决定。
+    /// 派发走不走的顺序（前链正序、后链逆序、层内按优先级）由插件框架按能力声明决定。
     template<typename Fn>
-    int32_t registerSyncWithTag(const char* hookId, const char* ownerTag,
+    int32_t registerSyncWithTag(const char* capabilityId, const char* ownerTag,
                                 int32_t priority, int32_t phase, Fn&& fn) {
         if (!iface.capabilities || !iface.capabilities->register_capability) {
-            log.warn("pluginxx.capabilities 表不可用: 钩子未注册 (插件框架版本过旧?)");
+            log.warn("pluginxx.capabilities 表不可用: 能力未注册 (插件框架版本过旧?)");
             return -1;
         }
         using FnT       = std::decay_t<Fn>;
-        auto  holder    = std::make_unique<HookHolder<FnT>>(host, std::forward<Fn>(fn));
+        auto  holder    = std::make_unique<CapabilityHolder<FnT>>(host, std::forward<Fn>(fn));
         void* holderPtr = holder.get();
         holders_.push_back(std::move(holder));
 
         PluginxxCapabilitySpec cap{};
         cap.version     = PLUGINXX_API_VERSION;
         cap.struct_size = sizeof(PluginxxCapabilitySpec);
-        cap.id          = pluginxxView(hookId);
+        cap.id          = pluginxxView(capabilityId);
         cap.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
         cap.impls       = PLUGINXX_CAPABILITY_IMPLS_MANY;
         cap.merge       = PLUGINXX_CAPABILITY_MERGE_NONE;
@@ -1035,10 +1038,10 @@ protected:
                           PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
                           PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
         switch (phase) {
-        case MUSICXX_PLUGIN_HOOK_PHASE_BEFORE:
+        case MUSICXX_CAPABILITY_PHASE_BEFORE:
             cap.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
             break;
-        case MUSICXX_PLUGIN_HOOK_PHASE_AFTER:
+        case MUSICXX_CAPABILITY_PHASE_AFTER:
             cap.phase = PLUGINXX_CAPABILITY_PHASE_AFTER;
             break;
         default:
@@ -1046,14 +1049,14 @@ protected:
             break;
         }
         cap.priority  = priority;
-        cap.sync      = 1; ///< 钩子派发是同步的: 只登记同步处理器
-        cap.run_start = &HookHolder<FnT>::invokeCapability;
+        cap.sync      = 1; ///< 宿主派发是同步的: 只登记同步处理器
+        cap.run_start = &CapabilityHolder<FnT>::invokeCapability;
         cap.user_data = holderPtr;
         PluginxxString error{};
         const int32_t  rc =
             iface.capabilities->register_capability(host, nullptr, &cap, &error);
         if (error.data) {
-            log.warn(std::string{"钩子登记失败: "} +
+            log.warn(std::string{"能力登记失败: "} +
                      std::string{error.data, static_cast<size_t>(error.size)});
             hostStringFree(error);
         }
@@ -1078,7 +1081,7 @@ private:
     }
 
     /// 同步处理器持有者 (生命周期与实例相同; start 事务里累积)
-    std::vector<std::unique_ptr<HookHolderBase>> holders_;
+    std::vector<std::unique_ptr<CapabilityHolderBase>> holders_;
 
     /// 动作请求完成通知持有者 (主程序/框架会长期持有该指针; 见 requestAction 说明)
     struct ActionNotifyHolder {
@@ -1136,7 +1139,7 @@ private:
 
     /// 事件订阅处理器持有者 (同上)
     template<typename FnT>
-    struct EventHolder : HookHolderBase {
+    struct EventHolder : CapabilityHolderBase {
         FnT fn;
 
         explicit EventHolder(FnT f) :
@@ -1160,7 +1163,7 @@ private:
         }
     };
 
-    std::vector<std::unique_ptr<HookHolderBase>> eventHolders_;
+    std::vector<std::unique_ptr<CapabilityHolderBase>> eventHolders_;
 
     /// 本插件 id (从 `host.info().pluginId` 读一次后缓存; 功能点糖用它过滤自己发起的调用)
     std::string pluginId_{};

@@ -15,12 +15,12 @@
 ///   先记下来; 脚本执行结束、引擎回到框架线程后再回放注册 —— 避免"框架线程等 JS、JS
 ///   等框架线程" 的互锁 (无死锁不变式);
 /// - **规则与动态库插件一致**:
-/// 命名空间校验、未知钩子拒绝、禁用/卸载摘除注册都沿用同一套约定
+/// 命名空间校验、未知能力拒绝、禁用/卸载摘除注册都沿用同一套约定
 ///   (动作只做命名空间校验: 权限声明由 Dart 侧展示, 不做运行时校验)。
 ///
 /// 线程约定:
 /// - `JSRuntime`/`JSContext`/`JSValue` 只在共享 JS 线程上访问;
-/// - 插件框架生命周期入口 (builtin*) 与钩子处理器由框架线程调用;
+/// - 插件框架生命周期入口 (builtin*) 与能力处理器由框架线程调用;
 /// - `requestAction` / `respondAction` / `cancelActionsOf` 允许任意线程。
 #pragma once
 
@@ -105,16 +105,16 @@ public:
                   const std::string &name, const std::string &type,
                   const std::string &dataJson, int32_t order);
 
-  /// 钩子操作 (op = register | unregister; 只在 JS 线程调用)
+  /// 能力操作 (op = register | unregister; 只在 JS 线程调用)
   ///
   /// 与 [bridgeUiOp] 同一套规则: 顶层登记阶段只记下来 (由
   /// [applyRegistrations] 回放), 运行期投递到框架线程执行 —— 否则
   /// `musicxx.capability.implement/unregister` 只改了 JS 侧的表, 插件框架注册没变
-  /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的钩子永远不触发")。
-  void bridgeHookOp(const std::string &instanceName, const std::string &op,
-                    const std::string &hookId, const std::string &mode,
-                    int32_t priority, const std::string &ownerTag,
-                    const std::string &phase);
+  /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的能力永远不触发")。
+  void bridgeImplementationOp(const std::string &instanceName, const std::string &op,
+                              const std::string &capabilityId, int32_t priority,
+                              const std::string &ownerTag,
+                              const std::string &phase);
 
   /// 运行期动态订阅 (投递到框架线程建立订阅; 顶层声明由回放处理)
   void bridgeSubscribeHost(const std::string &instanceName,
@@ -122,7 +122,7 @@ public:
 
   /// 变量操作 (op = register | unregister | subscribe | unsubscribe | watch | unwatch)
   ///
-  /// 与 [bridgeUiOp] / [bridgeHookOp] 同一套规则: 脚本顶层调用只先记下来
+  /// 与 [bridgeUiOp] / [bridgeImplementationOp] 同一套规则: 脚本顶层调用只先记下来
   /// (由 [applyRegistrations] 在框架线程回放), 运行期投递到框架线程执行 ——
   /// 否则"顶层注册的变量"永远不存在, 而"运行期注销"只改了 JS 侧的表。
   void bridgeVarsOp(const std::string &instanceName, const std::string &op,
@@ -155,19 +155,19 @@ public:
                          bool ok, const std::string &valueJson,
                          const std::string &error);
 
-  /// 裁决型钩子的异步结算 (只在 JS 线程调用)
+  /// 裁决型能力的异步结算 (只在 JS 线程调用)
   ///
-  /// 裁决处理器返回 Promise 时, 框架线程仍在 [hookSync] 里一直等到它结算;
+  /// 裁决处理器返回 Promise 时, 框架线程仍在 [implementationRunSync] 里一直等到它结算;
   /// Promise 结算后 JS
   /// 侧调用本接口把结果交给对应的等待槽。**已经超时的调用不再接收结果** (只计入
   /// "迟到丢弃"统计并打一条日志), 因此不会出现"用了过期裁决"的情况。
-  void bridgeHookWaitResolve(const std::string &waitId,
+  void bridgeImplementationWaitResolve(const std::string &waitId,
                              const std::string &json);
 
   /// 能力处理器的异步结算 (只在 JS 线程调用)
   ///
   /// 能力处理器返回 Promise 时 (`musicxx.capability.register` 的处理器写成
-  /// `async`), JS 侧登记等待并在结算后把结果交给对应的等待槽 —— 与裁决型钩子的
+  /// `async`), JS 侧登记等待并在结算后把结果交给对应的等待槽 —— 与裁决型能力的
   /// Promise 同一套做法, 框架线程在此期间一直等 (没有等待超时)。
   void bridgeCapabilityWaitResolve(const std::string &waitId,
                                    const std::string &json);
@@ -228,16 +228,14 @@ public:
 
   /* ---------- 内部数据结构 (框架内部使用, 不是对外约定) ---------- */
 
-  /// 一个已注册的钩子处理器 (生命周期 = 实例)
-  struct HookHandler {
+  /// 一个已注册的能力处理器 (生命周期 = 实例)
+  struct Implementation {
     JsEngine *engine = nullptr;
     std::string instance; ///< js:<id>
     std::string pluginId;
-    std::string hookId;
+    std::string capabilityId;
     std::string ownerTag;
-    bool decision =
-        true; ///< true = 裁决型 (hook_sync), false = 观察型 (hook_start)
-    /// 参与方式 (`MUSICXX_PLUGIN_HOOK_PHASE_*`): 同一条钩子上可以分别登记前链 /
+    /// 参与方式 (`MUSICXX_CAPABILITY_PHASE_*`): 同一条能力上可以分别登记前链 /
     /// 实现链 / 后链
     int32_t phase = 0;
   };
@@ -304,7 +302,7 @@ public:
     /// 框架侧实例指针 (create 时从 host 视图解析; 与实例同生命周期)
     MusicxxHostInstance *hostInst = nullptr;
 
-    std::vector<std::shared_ptr<HookHandler>> hooks;
+    std::vector<std::shared_ptr<Implementation>> implementations;
     std::vector<std::shared_ptr<CapabilityHandler>> capabilities;
     std::vector<std::shared_ptr<SubscriptionHolder>> subscriptions;    bool registrationsApplied = false;
     bool scriptLoaded = false;
@@ -335,8 +333,8 @@ public:
     /// JS 堆用量 (字节; 负数 = 还没采样过; 只观测不限制)
     std::atomic<int64_t> jsHeapBytes{-1};
 
-    /// 裁决型钩子的 Promise 结算次数 (异步裁决)
-    std::atomic<int64_t> asyncHookSettled{0};
+    /// 裁决型能力的 Promise 结算次数 (异步裁决)
+    std::atomic<int64_t> asyncDispatchSettled{0};
   };
 
   /* ---------- 插件框架内置插件入口 (C ABI 形态; 插件框架在框架线程调用) ---------- */
@@ -356,19 +354,13 @@ public:
   static const PluginxxBuiltinInfo *builtinPlugins(uint64_t *count);
   static const PluginxxBuiltinManifest *builtinManifests(uint64_t *count);
 
-  /* ---------- 钩子处理器 (框架线程调用; 见 HookHandler) ---------- */
+  /* ---------- 能力处理器 (框架线程调用; 见 Implementation) ---------- */
 
-  static int32_t PLUGINXX_CALL hookSync(void *userData,
-                                        const PluginxxStringView *hookId,
+  static int32_t PLUGINXX_CALL implementationRunSync(void *userData,
+                                        const PluginxxStringView *capabilityId,
                                         const PluginxxStringView *inputJson,
                                         PluginxxString *outJson,
                                         PluginxxString *errorOut);
-
-  static void *PLUGINXX_CALL hookStart(void *userData,
-                                       const PluginxxStringView *hookId,
-                                       const PluginxxStringView *inputJson,
-                                       const PluginxxOperatorNotify *notify,
-                                       PluginxxString *errorOut);
 
   /// 能力处理器 (插件框架在框架线程调用; 内部投递到 JS 线程并等待结果)
   static void *PLUGINXX_CALL capabilityStart(
@@ -416,11 +408,12 @@ private:
   void ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
                                 const std::string &topic);
 
-  /// 在框架线程上执行一次运行期钩子操作 (register / unregister)
-  void applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
-                         const std::string &op, const std::string &hookId,
-                         const std::string &mode, int32_t priority,
-                         const std::string &ownerTag, const std::string &phase);
+  /// 在框架线程上执行一次运行期能力操作 (register / unregister)
+  void applyImplementationOpOnHost(const std::shared_ptr<Instance> &inst,
+                                   const std::string &op,
+                                   const std::string &capabilityId, int32_t priority,
+                                   const std::string &ownerTag,
+                                   const std::string &phase);
 
   /// 取回脚本登记的 UI 项操作 (框架线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingUiOp>
@@ -468,7 +461,7 @@ private:
   bool runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
                            std::string &err);
 
-  /// 回放脚本顶层登记的注册 (框架线程; 钩子/能力/事件订阅)
+  /// 回放脚本顶层登记的注册 (框架线程; 能力/能力/事件订阅)
   void applyRegistrations(const std::shared_ptr<Instance> &inst);
   /// 摘除本实例的全部注册 (框架线程)
   void detachRegistrations(const std::shared_ptr<Instance> &inst);
@@ -534,29 +527,29 @@ private:
   std::map<int64_t, PendingAction> pendingActions_;
   std::atomic<int64_t> nextRequestId_{1};
 
-  /// 裁决型钩子的等待槽 (key = 等待 id)
+  /// 裁决型能力的等待槽 (key = 等待 id)
   ///
-  /// 框架线程在 [hookSync] 里登记, JS 线程在 Promise
+  /// 框架线程在 [implementationRunSync] 里登记, JS 线程在 Promise
   /// 结算时取走。超时的条目保留为 "墓碑" (`slot == nullptr`),
   /// 只为了让迟到的结算能计入统计并打一条日志 —— 结果一律丢弃。
-  struct HookWait {
+  struct DispatchWait {
     std::string instance;                        ///< js:<id> (统计归属)
     std::shared_ptr<WaitSlot<std::string>> slot; ///< nullptr = 已超时 (墓碑)
   };
 
-  std::map<int64_t, HookWait> hookWaits_;
-  std::atomic<int64_t> nextHookWaitId_{1};
+  std::map<int64_t, DispatchWait> dispatchWaits_;
+  std::atomic<int64_t> nextDispatchWaitId_{1};
 
   /// 登记等待槽 (框架线程); 返回等待 id
-  int64_t beginHookWait(const std::string &instance,
+  int64_t beginDispatchWait(const std::string &instance,
                         const std::shared_ptr<WaitSlot<std::string>> &slot);
   /// 正常完成: 移除等待槽 (JS 侧若再结算, 找不到条目即丢弃)
-  void finishHookWait(int64_t waitId);
+  void finishDispatchWait(int64_t waitId);
   /// 实例停止/卸载时清理它的等待条目
-  void clearHookWaitsOf(const std::string &instance);
+  void clearDispatchWaitsOf(const std::string &instance);
 
-  /// 能力处理器的等待槽 (与钩子同一套做法; 处理器返回 Promise 时用)
-  std::map<int64_t, HookWait> capabilityWaits_;
+  /// 能力处理器的等待槽 (与能力同一套做法; 处理器返回 Promise 时用)
+  std::map<int64_t, DispatchWait> capabilityWaits_;
   std::atomic<int64_t> nextCapabilityWaitId_{1};
 
   int64_t beginCapabilityWait(
