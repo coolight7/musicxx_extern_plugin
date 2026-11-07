@@ -494,11 +494,14 @@ public:
     /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
     /// - 结果经 `notify->done` **恰好一次** (框架 IO 线程) 回调; status == 0 时载荷是结果 JSON;
     /// - `notify` 由 SDK 复制保存 (与 [requestAction] 同一做法), 插件可以传栈上的 notify;
+    /// - `timeoutMs` < 0 = 用能力声明里的超时; >= 0 = 这次调用的超时 (0 = 不设超时,
+    ///   只对应用实现的能力生效; 插件实现的行由它自己决定什么时候完成);
     /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
     int32_t capabilityCall(
         std::string_view              capability,
         std::string_view              argsJson,
-        const PluginxxOperatorNotify* notify
+        const PluginxxOperatorNotify* notify,
+        int32_t                       timeoutMs = -1
     ) {
         if (!iface.capabilities || !iface.capabilities->invoke_capability) {
             return -1;
@@ -520,16 +523,33 @@ public:
         PluginxxStringView argsView = pluginxxView(argsJson.empty() ? "{}" : argsJson);
         PluginxxString     errorOut{};
         // 作用域引用: 音乐类主程序没有作用域概念, 传空表示"发起方不在任何作用域上下文"
-        auto* op = iface.capabilities->invoke_capability(
-            host,
-            nullptr,
-            &capView,
-            &argsView,
-            0, ///< 阶段: 0 = 走完整链 before → impl → after
-            &actionNotifyTrampoline,
-            holderPtr,
-            &errorOut
-        );
+        PluginxxOperatorHandle* op = nullptr;
+        if (timeoutMs >= 0 &&
+            pluginxx::ifaceHas<&PluginxxCapabilitiesIface::invoke_capability_ex>(
+                iface.capabilities)) {
+            op = iface.capabilities->invoke_capability_ex(
+                host,
+                nullptr,
+                &capView,
+                &argsView,
+                0, ///< 阶段: 0 = 走完整链 before → impl → after
+                timeoutMs,
+                &actionNotifyTrampoline,
+                holderPtr,
+                &errorOut
+            );
+        } else {
+            op = iface.capabilities->invoke_capability(
+                host,
+                nullptr,
+                &capView,
+                &argsView,
+                0, ///< 阶段: 0 = 走完整链 before → impl → after
+                &actionNotifyTrampoline,
+                holderPtr,
+                &errorOut
+            );
+        }
         if (errorOut.data) {
             hostStringFree(errorOut);
         }
@@ -712,8 +732,14 @@ public:
 
     /// 发起主程序动作 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
-    /// 主程序/框架会持有完成通知指针直到本次动作终结 (完成 / 超时 / 取消), 因此 SDK 把通知
-    /// **复制**到实例内部保存并转接回调 —— 插件可以放心传入栈上的 notify。
+    /// 主程序的动作在框架 API 2 之后就是**能力**（`runner = app`）：这里走
+    /// `pluginxx.capabilities` 的调用入口，宿主把调用转给应用，应用回答后回给插件。
+    /// - 超时：`timeoutMs` 是**这次调用**的超时（0 = 不设超时，一直等应用回复）；
+    ///   宿主的插件框架库没有带超时的调用成员时退回"按动作声明的超时"；
+    /// - `outRequestId` 已废弃（能力调用不再给请求号：取消由插件框架的句柄承担），
+    ///   传了也只写 0；
+    /// - 主程序/框架会持有完成通知直到本次动作终结（完成 / 超时 / 取消），SDK 把通知
+    /// **复制**到实例内部转接 —— 插件可以放心传入栈上的 notify。
     int32_t requestAction(
         const char*                   action,
         const char*                   argsJson,
@@ -721,32 +747,16 @@ public:
         uint32_t                      timeoutMs = 5000,
         int64_t*                      outRequestId = nullptr
     ) {
-        if (!iface.host || !iface.host->request_action) {
+        if (!action || !*action) {
             return -1;
         }
-        if (!notify || !notify->done) {
-            return -1;
+        if (outRequestId) {
+            *outRequestId = 0;
         }
-        auto holder     = std::make_unique<ActionNotifyHolder>();
-        holder->user    = *notify;
-        holder->forward = PluginxxOperatorNotify{
-            &PluginBase::actionNotifyTrampoline,
-            holder.get(),
-        };
-        auto* holderPtr = holder.get();
-        actionNotifies_.push_back(std::move(holder));
-        pruneActionNotifies();
-
-        PluginxxStringView actionView = pluginxxView(action);
-        PluginxxStringView argsView   = pluginxxView(argsJson ? argsJson : "{}");
-        return iface.host->request_action(
-            host,
-            &actionView,
-            &argsView,
-            timeoutMs,
-            &actionNotifies_.back()->forward,
-            outRequestId
-        );
+        const int32_t timeout = timeoutMs > 0x7fffffffu
+                                    ? 0x7fffffff
+                                    : static_cast<int32_t>(timeoutMs);
+        return capabilityCall(action, argsJson ? argsJson : "{}", notify, timeout);
     }
 
     /// 订阅事件总线的主题 (**框架线程**执行处理器; 处理器不得阻塞)

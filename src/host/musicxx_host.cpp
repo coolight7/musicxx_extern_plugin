@@ -289,6 +289,11 @@ int32_t MusicxxHostManager::start(std::string &err) {
   running_.store(true, std::memory_order_release);
   startTime_ = std::chrono::steady_clock::now();
 
+  // 应用的能力声明: 生成表 `capability_ids.g.h` 就是应用声明的权威副本。
+  // 先声明好, 插件的 `invoke_capability` 才有"这条能力存在"可判 (没有实现行时
+  // 交给 onAppCapabilityStart 转给应用)。
+  declareAppCapabilities();
+
   // 网络能力: 独立线程 (与插件框架线程分开, 避免网络 I/O 占住插件执行)
   if (netHub_) {
     netHub_->start();
@@ -2213,7 +2218,8 @@ void MusicxxHostManager::startCapabilityCall(
       nullptr, ///< 作用域引用: musicxx 没有作用域, 发起方不在任何作用域上下文
       capView,
       argsView,
-      0, ///< 阶段: 0 = 走完整链 before → impl → after
+      0,  ///< 阶段: 0 = 走完整链 before → impl → after
+      -1, ///< 超时: 用声明里的值 (Dart 侧的调用不带本次调用的超时)
       &capabilityCallTrampoline, bridge, &callErr);
   if (!handle) {
     // 受理失败: 完成回调不会被调用, 由这里回收 bridge 并终结本次调用

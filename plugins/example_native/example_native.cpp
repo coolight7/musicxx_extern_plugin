@@ -175,7 +175,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
                      });
-    // 他人命名空间的动作用请求必须被拒绝 (此处只探测返回码, 不会真的发出)
+    // 没声明的动作名（能力）一律拒绝（这里只探测返回码, 不会真的发出）
     {
       PluginxxOperatorNotify notify{&probeActionDone, nullptr};
       foreignActionRc =
@@ -282,9 +282,10 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           if (args.find("requestAction") != std::string_view::npos) {
             PluginxxOperatorNotify notify{&ExampleCtx::onProbeActionDone, this};
             lastActionStatus = -2; ///< 发起中
-            requestAction("musicxx.test.neverRespond", "{}", &notify, 1000,
-                          &lastActionRequestId);
-            log.info("example_native: 已发起动作请求 musicxx.test.neverRespond "
+            requestAction("musicxx.ui.toast",
+                          R"({"info":"example_native 超时自检"})", &notify,
+                          1000, &lastActionRequestId);
+            log.info("example_native: 已发起动作请求 musicxx.ui.toast "
                      "(等待插件框架超时)");
           }
           std::ostringstream oss;

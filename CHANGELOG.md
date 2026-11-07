@@ -21,8 +21,15 @@
   用 `subscribeTopic(频道, fn)` 订阅；SDK 的 `observe()` 随之删除。
 - **`musicxx.vars` 删除**：`MusicxxPluginVarsIface` 与 SDK 的 `vars*` 包装全部删掉（宿主内部的变量表
   仍在，服务 JS 插件的 `musicxx.vars.*`）。原生插件读当前值用广播频道、改状态用动作 / 能力。
-- **`musicxx.host` 表版本 1 → 2**：去掉 `get_state` / `subscribe_state`（读当前值走广播频道）；
-  还留着 `get_info` / `get_plugin_config_path` / `request_action` / `cancel_action`。
+- **`musicxx.host` 表版本 1 → 2**：去掉 `get_state` / `subscribe_state`（读当前值走广播频道）
+  与 `request_action` / `cancel_action`（动作就是能力），只剩 `get_info` / `get_plugin_config_path`。
+- **动作 = 应用实现的能力**：宿主启动时把生成表 `capability_ids.g.h` 里的应用声明全部声明好，
+  插件调 `musicxx.*` 动作时走 `pluginxx.capabilities`（声明在、没有插件实现行），
+  宿主把它转给应用（同一套 `musicxx.action.request` / `action_respond`）。
+  SDK 的 `requestAction(...)` 签名不变，内部改成能力调用：没声明的动作名现在会被直接拒（`-1`），
+  不再"什么都转给应用"。
+- **`pluginxx.capabilities` 表 v5**：表尾追加 `invoke_capability_ex`（多一个**本次调用**的超时），
+  动作的超时语义不变（`0` = 不设超时，老主程序退回声明里的值）。
 - **框架 C ABI `MUSICXX_EXTERN_PLUGIN_API_VERSION` 1 → 2**：Dart 侧按它校验，两边必须一起更新。
 - 插件清单的 `api_version` 仍写**所属形态的接口代次**（动态库插件 4、JS 插件 1），与本条的框架
   C ABI 代次是两个数，不要混用。

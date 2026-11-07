@@ -84,6 +84,8 @@ extern "C" {
 /* ==================== 接口表: musicxx.host ==================== */
 
 #define MUSICXX_PLUGIN_IFACE_HOST             "musicxx.host"
+/// v2: 删掉 `get_state` / `subscribe_state`（读当前值走广播频道）与
+/// `request_action` / `cancel_action`（动作就是能力，走 `pluginxx.capabilities`）
 #define MUSICXX_PLUGIN_IFACE_HOST_VERSION     2
 #define MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION 2
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
@@ -101,22 +103,6 @@ typedef struct MusicxxPluginHostIface {
         const PluginxxHost*               host,
         PluginxxString*                   out_path
     );
-
-    /// 发起主程序动作 (插件 → Dart, 异步 request/response)
-    /// - action 全名: 官方 `musicxx.<域>.<动作>` / 插件自定义 `plugin.<pluginId>.<动作>`
-    /// - 完成时 notify->done(状态码, 结果 JSON) 恰好一次
-    /// - 受理成功返回 0 并写出 request_id (可用于 cancel_action); 未受理返回负错误码
-    int32_t(PLUGINXX_CALL* request_action)(
-        const PluginxxHost*               host,
-        const PluginxxStringView*         action,
-        const PluginxxStringView*         args_json,
-        uint32_t                          timeout_ms,
-        const PluginxxOperatorNotify*     notify,
-        int64_t*                          out_request_id
-    );
-
-    /// 取消未完成动作请求
-    void(PLUGINXX_CALL* cancel_action)(const PluginxxHost* host, int64_t request_id);
 } MusicxxPluginHostIface;
 
 /* ==================== 接口表: musicxx.ui (声明式 UI 扩展) ==================== */

@@ -292,7 +292,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 框架版本 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, pluginId, ui?}`：`hostVersion` 是插件框架自己的版本（如 `2026.1011.1`），`pluginId` 是本插件 id（只有插件读时才带），`ui` 是客户端界面能力段（可选）；字段说明见 [plugin-api.md](plugin-api.md) §2.5 |
 | 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
-| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；动作名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；**缺省 5000 ms，传 0 = 不设超时** |
+| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；动作名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；**动作就是能力**（`runner = app`）：内部走 `pluginxx.capabilities`，没声明过的动作名直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
 | 自省（异步） | `requestAction("musicxx.hook.handlers", "{\"hook\":\"<钩子 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这个钩子现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这个钩子再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
@@ -325,7 +325,8 @@ MUSICXX_PLUGIN_EXPORT(
 - **`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 已删除**：钩子处理器改成往
   `pluginxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
   观察型钩子改成 `pluginxx.broadcasts` 的频道，变量的读写改用能力 / 动作；
-  `musicxx.host` 同时去掉了 `get_state` / `subscribe_state`（表版本 2）—— 当前值读广播频道。
+  `musicxx.host` 同时去掉了 `get_state` / `subscribe_state` / `request_action` /
+  `cancel_action`（表版本 2）—— 当前值读广播频道，动作就是能力（走 `pluginxx.capabilities`）。
 - **插件形态（kind）不是写死的**：插件框架自带 `native`（动态库，按 C ABI 编译）与 `js`
   （内置 JS 运行器，不按 C ABI 编译），其它形态（以后的 Python 等）由插件用
   `musicxx.kind` 登记，见 §4.3。

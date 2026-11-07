@@ -452,6 +452,11 @@ public:
       std::string &outJson,
       std::string_view instanceName = std::string_view{},
       std::string_view kind = std::string_view{});
+  /// 声明应用的能力（生成表 `capability_ids.g.h`）
+  ///
+  /// 在 `start()` 里跑一次（已绑定 IO 线程）：声明之后插件的 `invoke_capability`
+  /// 才认识官方 id；应用实现（动作）由 [onAppCapabilityStart] 转给 Dart。
+  void declareAppCapabilities();
   int32_t getState(std::string_view key, std::string &outJson);
   int32_t subscribeState(MusicxxHostInstance *inst, const std::string &keysJson,
                          int32_t &outCount);
@@ -705,6 +710,21 @@ protected:
   bool appCapabilityDecl(std::string_view id,
                          pluginxx::CapabilityDecl *out) override;
 
+  /// 应用实现的能力被调用：转给应用（Dart）的动作通道，结果原样回答
+  ///
+  /// 应用的动作用能力名暴露（`capability_ids.g.h` 里 `runner = app` 那些），它们没有
+  /// 插件实现行；`invoke_capability` 因此把调用先交给这里。转发走同一套
+  /// `requestAction`（事件 `musicxx.action.request` + `action_respond`），取消走
+  /// `cancelAction`（事件 `musicxx.action.cancel`）。
+  void *onAppCapabilityStart(MusicxxHostInstance *inst,
+                             const std::string &capability,
+                             std::string_view argsJson, int32_t timeoutMs,
+                             const PluginxxOperatorNotify *notify,
+                             PluginxxString *errorOut) override;
+  void onAppCapabilityCancel(MusicxxHostInstance *inst,
+                             const std::string &capability,
+                             void *handle) override;
+
   /* ---------- DomainHooks ---------- */
 
   bool postToWorkerThread(std::function<void()> fn) override;
@@ -761,6 +781,9 @@ private:
     std::string plugin;
     std::string action;
     const PluginxxOperatorNotify *notify = nullptr;
+    /// 完成通知的**持有者**: 有的调用方 (插件框架的 Operation) 给的通知是临时的,
+    /// 只在调用当场有效; 这里存一份, 随这次请求一起活到终结
+    std::shared_ptr<PluginxxOperatorNotify> notifyOwner;
     std::chrono::steady_clock::time_point deadline{};
     /// 超时定时器 (只在调用方给了超时时创建: Dart 若一直不回复, 到点终结该 op
     /// 并通知 Dart 收尾)

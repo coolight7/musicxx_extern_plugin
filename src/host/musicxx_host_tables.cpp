@@ -395,6 +395,91 @@ bool MusicxxHostManager::appCapabilityDecl(std::string_view id,
   return true;
 }
 
+void MusicxxHostManager::declareAppCapabilities() {
+  auto caps = capabilities();
+  if (!caps) {
+    return;
+  }
+  for (size_t i = 0; i < musicxxCapabilityDeclCount; ++i) {
+    const MusicxxCapabilityDecl &entry = musicxxCapabilityDecls[i];
+    if (!entry.id) {
+      continue;
+    }
+    pluginxx::CapabilityDecl decl;
+    decl.id = entry.id;
+    decl.impls = entry.impls == MUSICXX_CAPABILITY_IMPLS_MANY
+                     ? pluginxx::CapabilityImpls_e::Many
+                     : pluginxx::CapabilityImpls_e::One;
+    if (entry.merge == MUSICXX_CAPABILITY_MERGE_FIRST) {
+      decl.merge = pluginxx::CapabilityMerge_e::First;
+    } else if (entry.merge == MUSICXX_CAPABILITY_MERGE_VETO) {
+      decl.merge = pluginxx::CapabilityMerge_e::Veto;
+    } else {
+      decl.merge = pluginxx::CapabilityMerge_e::None;
+    }
+    uint32_t phases = 0;
+    if ((entry.phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) != 0) {
+      phases |= pluginxx::kCapabilityPhaseMaskImpl;
+    }
+    if ((entry.phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_BEFORE) != 0) {
+      phases |= pluginxx::kCapabilityPhaseMaskBefore;
+    }
+    if ((entry.phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_AFTER) != 0) {
+      phases |= pluginxx::kCapabilityPhaseMaskAfter;
+    }
+    decl.phases = phases == 0 ? pluginxx::kCapabilityPhaseMaskImpl : phases;
+    decl.timeoutMs = entry.timeout_ms;
+    decl.declaredBy.clear(); ///< 应用声明
+    std::string error;
+    if (!caps->declare(decl, &error)) {
+      XX_LOGW("[musicxx_ext] 能力 `{}` 声明失败: {}", entry.id, error);
+    }
+  }
+}
+
+void *MusicxxHostManager::onAppCapabilityStart(
+    MusicxxHostInstance *inst, const std::string &capability,
+    std::string_view argsJson, int32_t timeoutMs,
+    const PluginxxOperatorNotify *notify, PluginxxString *errorOut) {
+  if (!inst || !notify || !notify->done) {
+    pluginxx::detail::setErrorString(
+        errorOut, "app capability: missing instance or completion notify");
+    return nullptr;
+  }
+  int64_t       requestId = 0;
+  const uint32_t timeout =
+      timeoutMs > 0 ? static_cast<uint32_t>(timeoutMs) : uint32_t{0};
+  /// 插件框架给的完成通知是临时对象 (只在 start 调用期间有效): 存一份,
+  /// 跟这次请求一起活到终结
+  auto holder = std::make_shared<PluginxxOperatorNotify>(*notify);
+  const int32_t rc = requestAction(inst, capability, argsJson, timeout,
+                                   holder.get(), &requestId);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    pluginxx::detail::setErrorString(
+        errorOut, "app capability: request could not be queued");
+    return nullptr;
+  }
+  auto it = pendingActions_.find(requestId);
+  if (it == pendingActions_.end()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "app capability: request is gone");
+    return nullptr;
+  }
+  it->second.notifyOwner = std::move(holder);
+  it->second.notify = it->second.notifyOwner.get();
+  /// 句柄只用来取消: 动作请求号是宿主自增的 int64, 放得进指针
+  return reinterpret_cast<void *>(static_cast<intptr_t>(requestId));
+}
+
+void MusicxxHostManager::onAppCapabilityCancel(MusicxxHostInstance * /*inst*/,
+                                               const std::string & /*capability*/,
+                                               void *handle) {
+  if (!handle) {
+    return;
+  }
+  cancelAction(static_cast<int64_t>(reinterpret_cast<intptr_t>(handle)));
+}
+
 int32_t MusicxxHostManager::unregisterHook(MusicxxHostInstance *inst,
                                            std::string_view hookId,
                                            std::string_view ownerTag) {
@@ -1474,65 +1559,11 @@ int32_t PLUGINXX_CALL xx_host_config_path(const PluginxxHost *host,
       });
 }
 
-int32_t PLUGINXX_CALL xx_host_request_action(
-    const PluginxxHost *host, const PluginxxStringView *action,
-    const PluginxxStringView *argsJson, uint32_t timeoutMs,
-    const PluginxxOperatorNotify *notify, int64_t *outRequestId) {
-  return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !action || !action->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view actionName{action->data,
-                                          static_cast<size_t>(action->size)};
-        const std::string args =
-            argsJson && argsJson->data
-                ? std::string{argsJson->data,
-                              static_cast<size_t>(argsJson->size)}
-                : std::string{"{}"};
-        int64_t requestId = 0;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr,
-            [mgr, inst, actionName, args, timeoutMs, notify, outRequestId,
-             &requestId]() -> int32_t {
-              return mgr->requestAction(inst, actionName, args, timeoutMs,
-                                        notify,
-                                        outRequestId ? &requestId : nullptr);
-            });
-        if (rc == MUSICXX_EXTERN_PLUGIN_OK && outRequestId) {
-          *outRequestId = requestId;
-        }
-        return rc;
-      });
-}
-
-void PLUGINXX_CALL xx_host_cancel_action(const PluginxxHost *host,
-                                         int64_t requestId) {
-  pluginxx::guardVtableCallVoid([&] {
-    auto call =
-        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-            host);
-    if (!call.ok()) {
-      return;
-    }
-    auto mgr = call.manager();
-    pluginxx::ioCallSyncVoidKeep(
-        call, mgr, [mgr, requestId]() { mgr->cancelAction(requestId); });
-  });
-}
-
 const MusicxxPluginHostIface g_ifaceHost = {
     /* version */ MUSICXX_PLUGIN_IFACE_HOST_VERSION,
     /* struct_size */ sizeof(MusicxxPluginHostIface),
     /* get_info */ xx_host_get_info,
     /* get_plugin_config_path */ xx_host_config_path,
-    /* request_action */ xx_host_request_action,
-    /* cancel_action */ xx_host_cancel_action,
 };
 
 void *PLUGINXX_CALL xx_alloc_fn(uint64_t size) {

@@ -235,8 +235,8 @@ void main() {
     );
     expect(
       probe['foreignActionRc'],
-      0,
-      reason: '动作名不再做命名空间校验（任意动作都被受理）',
+      -1,
+      reason: '没声明过的动作名（能力）必须被拒绝',
     );
     expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的状态镜像');
 

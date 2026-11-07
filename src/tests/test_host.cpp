@@ -1606,11 +1606,11 @@ int main(int argc, char **argv) {
     check(!startThread.empty() && startThread == callThread,
           "插件代码全部在插件框架线程执行");
 
-    // 钩子 / 事件命名空间校验 (动作名不再校验: 插件的动作请求一律受理)
+    // 钩子 / 事件命名空间校验 (动作名也是能力名: 没声明的一律拒绝)
     check(jsonIntField(probe, "unknownHookRc") == "-2",
           "应用没声明的官方钩子注册被拒绝");
-    check(jsonIntField(probe, "foreignActionRc") == "0",
-          "任意动作名都被受理 (不再做命名空间校验)");
+    check(jsonIntField(probe, "foreignActionRc") == "-1",
+          "没声明过的动作名（能力）被拒绝");
     check(jsonIntField(probe, "dupHookRc") == "0",
           "同一钩子覆盖式重复注册成功");
     // 事件命名空间与订阅
