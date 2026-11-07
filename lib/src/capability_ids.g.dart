@@ -68,7 +68,7 @@ abstract final class MusicxxCapabilityId {
   static const String cachePathRequest = 'musicxx.cache.pathRequest';
   /// musicxx.ui.route.resolve
   static const String uiRouteResolve = 'musicxx.ui.route.resolve';
-  /// musicxx.feature.point.call
+  /// 调用功能点
   static const String featurePointCall = 'musicxx.feature.point.call';
   /// musicxx.app.foreground
   static const String appForeground = 'musicxx.app.foreground';
@@ -110,11 +110,11 @@ abstract final class MusicxxCapabilityId {
   static const String playlistAddSong = 'musicxx.playlist.addSong';
   /// 从歌单移除歌曲
   static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
-  /// musicxx.playlist.create
+  /// 新建歌单
   static const String playlistCreate = 'musicxx.playlist.create';
   /// musicxx.playlist.updateSong
   static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
-  /// musicxx.playlist.syncSongs.sync
+  /// 同步歌单音源
   static const String playlistSyncSongsSync = 'musicxx.playlist.syncSongs.sync';
   /// 读播放列表歌曲
   static const String songlistQuerySongs = 'musicxx.songlist.querySongs';
@@ -214,23 +214,23 @@ abstract final class MusicxxCapabilityId {
   static const String mediaKernel = 'musicxx.media.kernel';
   /// musicxx.feature.list
   static const String featureList = 'musicxx.feature.list';
-  /// musicxx.feature.call
+  /// 调用能力
   static const String featureCall = 'musicxx.feature.call';
-  /// musicxx.feature.point.list
+  /// 功能点清单
   static const String featurePointList = 'musicxx.feature.point.list';
-  /// musicxx.feature.point.define
+  /// 声明功能点
   static const String featurePointDefine = 'musicxx.feature.point.define';
-  /// musicxx.feature.point.undefine
+  /// 收回功能点
   static const String featurePointUndefine = 'musicxx.feature.point.undefine';
-  /// musicxx.source.define
+  /// 声明音源类型
   static const String sourceDefine = 'musicxx.source.define';
-  /// musicxx.source.undefine
+  /// 收回音源类型
   static const String sourceUndefine = 'musicxx.source.undefine';
   /// musicxx.source.list
   static const String sourceList = 'musicxx.source.list';
-  /// musicxx.source.browse
+  /// 声明可浏览来源
   static const String sourceBrowse = 'musicxx.source.browse';
-  /// musicxx.hook.handlers
+  /// 能力处理器清单
   static const String hookHandlers = 'musicxx.hook.handlers';
   /// 打开链接
   static const String hostOpenUrl = 'musicxx.host.openUrl';
@@ -240,9 +240,9 @@ abstract final class MusicxxCapabilityId {
   static const String hostClipboard = 'musicxx.host.clipboard';
   /// musicxx.host.getPath
   static const String hostGetPath = 'musicxx.host.getPath';
-  /// musicxx.stats.reportMemory
+  /// 自报内存占用
   static const String statsReportMemory = 'musicxx.stats.reportMemory';
-  /// musicxx.stats.reportMetric
+  /// 自报自定义指标
   static const String statsReportMetric = 'musicxx.stats.reportMetric';
 
   /// 全部能力 id（按声明顺序）
@@ -1099,8 +1099,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['point', 'command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '调用功能点',
+      depict: '调用一个功能点（应用留出的或插件自己声明的）；只读值缓存，不改应用状态',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.app.foreground',
@@ -1414,8 +1414,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '新建歌单',
+      depict: '新建一张本地或在线歌单，可以顺手把歌加进去',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.playlist.updateSong',
@@ -1444,8 +1444,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '同步歌单音源',
+      depict: '把歌单绑定的音源重读一遍，新增的歌加进歌单',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.songlist.querySongs',
@@ -2194,8 +2194,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '调用能力',
+      depict: '调一个应用能力（见 `musicxx.feature.list`），返回文本或 JSON',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.point.list',
@@ -2209,8 +2209,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '功能点清单',
+      depict: '列出功能点与实现行（谁在提供、哪个阶段、排第几、有没有被关掉）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.point.define',
@@ -2224,8 +2224,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '声明功能点',
+      depict: '声明一个自己的功能点（`plugin.<自己的插件 id>.<名字>`），实现是那条通用通道的处理器',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.point.undefine',
@@ -2239,8 +2239,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '收回功能点',
+      depict: '收回自己声明的功能点（停用 / 卸载会自动撤）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.source.define',
@@ -2254,8 +2254,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '声明音源类型',
+      depict: '声明一个自己的音源类型（`plugin.<自己的插件 id>.<类型名>`），播放地址由音源解析给出',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.source.undefine',
@@ -2269,8 +2269,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '收回音源类型',
+      depict: '收回自己声明的音源类型；给了 `view` 时只撤那一个浏览分类',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.source.list',
@@ -2299,8 +2299,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '声明可浏览来源',
+      depict: '声明这个音源类型可以浏览挑歌（一个类型可以有多个分类，界面复用内置网盘那一套）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.hook.handlers',
@@ -2314,8 +2314,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '能力处理器清单',
+      depict: '读某个能力当前的处理器（谁注册的、什么形态、在哪个阶段、排第几）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.host.openUrl',
@@ -2389,8 +2389,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '自报内存占用',
+      depict: '插件自报内存占用（字节；只观测不限制）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.stats.reportMetric',
@@ -2404,8 +2404,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '自报自定义指标',
+      depict: '插件自报一个自定义指标（名字 + 任意 JSON 值；只观测）',
     ),
   ];
 
