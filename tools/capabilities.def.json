@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "comment": "能力与广播的单一定义来源。tools/gen_contract.dart 由此生成 Dart 常量、C++ 头、JS 常量表与作者文档；改动后必须重新生成并提交生成物。\n\n能力（capabilities）= 调用方发一次请求、等一个结果：`impls` 说明有几个槽位（one = 后登记覆盖先登记；many = 多实现按 (层, priority, 登记顺序) 组成链），`merge` 只在 impls=many 且 phases 含 impl 时写，`phases` 省略 impl 表示实现固定由应用提供（插件只能注册 before / after），`usage` 说明这条能力用来干什么（point = 功能埋点 / command = 外部命令 / service = 插件服务），`expose` 说明谁能调，`consent` 说明链接触发时要不要先问用户。\n\n广播（broadcasts）= 属主改了东西、通知所有关心的人：`cache` 区分事件（none）与快照（latest），`writable` 区分只读（owner）与变量（anyone），`pushOnSubscribe` 表示订阅时是否立刻收到当前值。\n\n同一个 id 可以同时出现在两张表里（例如 `musicxx.app.foreground` 既是广播事件、又是让应用按前台处理的命令）；两张表各自寻址，互不覆盖。\n\n`implemented` = 主程序是否已经接入（原来 hooks.def.json 的 `wired`）；未接入的条目只用于占位与文档草稿，作者文档不输出它们的载荷小节。",
+  "comment": "能力与广播的单一定义来源。tools/gen_contract.dart 由此生成 Dart 常量（capability_ids.g.dart）、C++ 头（capability_ids.g.h）与两篇作者文档；改动后必须重新生成并提交生成物。\n\n能力（capabilities）= 调用方发一次请求、等一个结果：`impls` 说明有几个槽位（one = 后登记覆盖先登记；many = 多实现按 (层, priority, 登记顺序) 组成链），`merge` 只在 impls=many 且 phases 含 impl 时写，`phases` 省略 impl 表示实现固定由应用提供（插件只能注册 before / after），`usage` 说明这条能力用来干什么（point = 功能埋点 / command = 外部命令 / service = 插件服务），`expose` 说明谁能调，`consent` 说明链接触发时要不要先问用户。\n\n广播（broadcasts）= 属主改了东西、通知所有关心的人：`cache` 区分事件（none）与快照（latest），`writable` 区分只读（owner）与变量（anyone），`pushOnSubscribe` 表示订阅时是否立刻收到当前值。\n\n同一个 id 可以同时出现在两张表里（例如 `musicxx.app.foreground` 既是广播事件、又是让应用按前台处理的命令）；两张表各自寻址，互不覆盖。\n\n`implemented` = 主程序是否已经接入（原来 hooks.def.json 的 `wired`）；未接入的条目只用于占位与文档草稿，作者文档不输出它们的载荷小节。",
   "capabilities": [
     {
       "id": "musicxx.app.exit",
