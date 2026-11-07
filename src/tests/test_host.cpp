@@ -1607,8 +1607,8 @@ int main(int argc, char **argv) {
           "插件代码全部在插件框架线程执行");
 
     // 钩子 / 事件命名空间校验 (动作名不再校验: 插件的动作请求一律受理)
-    check(jsonIntField(probe, "unknownHookRc") == "-4",
-          "未知前缀钩子注册被拒绝");
+    check(jsonIntField(probe, "unknownHookRc") == "-2",
+          "应用没声明的官方钩子注册被拒绝");
     check(jsonIntField(probe, "foreignActionRc") == "0",
           "任意动作名都被受理 (不再做命名空间校验)");
     check(jsonIntField(probe, "dupHookRc") == "0",
@@ -2723,8 +2723,8 @@ int main(int argc, char **argv) {
   // ====================
   //
   // 对照示例 example_native_fail 注册两个处理器:
-  //   musicxx.song.changed     → 每次失败 (返回非 0)
-  //   musicxx.player.completed → 每次成功
+  //   musicxx.player.volume   → 每次失败 (返回非 0)
+  //   musicxx.player.speed    → 每次成功
   // 期望: 失败只累计到统计 (hook_stats 的 failures), 处理器每次都照常被调用;
   // 没有"连续失败暂停派发"这回事, 插件也不会被卸载。
   {
@@ -2762,7 +2762,7 @@ int main(int argc, char **argv) {
     }
 
     int32_t fixtureHooks = -1;
-    musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
+    musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.volume"),
                                      &fixtureHooks, &log);
     check(fixtureHooks == 1, "失败处理器的处理器数为 1 (其余插件已卸载)");
 
@@ -2770,7 +2770,7 @@ int main(int argc, char **argv) {
     for (int i = 1; i <= 5; ++i) {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_hook_emit(
-          host, viewCP("musicxx.song.changed"),
+          host, viewCP("musicxx.player.volume"),
           viewP(R"({"sid":"brk","song":{"name":"失败目标"}})"),
           MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &out, &log);
       const std::string result = take(out);
@@ -2812,7 +2812,7 @@ int main(int argc, char **argv) {
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_hook_emit(
-          host, viewCP("musicxx.player.completed"),
+          host, viewCP("musicxx.player.speed"),
           viewP(R"({"sid":"brk","playedMs":1000})"),
           MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &out, &log);
       const std::string result = take(out);
@@ -2840,7 +2840,7 @@ int main(int argc, char **argv) {
                 host, viewCP("example_native_fail"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
             "失败对照示例卸载成功");
       int32_t after = -1;
-      musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
+      musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.volume"),
                                        &after, &log);
       check(after == 0, "失败对照示例卸载后无钩子残留");
       int32_t pitchAfter = -1;

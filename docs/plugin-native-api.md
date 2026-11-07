@@ -206,13 +206,11 @@ struct MyCtx : public musicxx::plugin::PluginBase {
                  return 0;   // 返回 0 且 out 为空 = 不裁决，交给下一个处理器
              });
 
-        // 观察型钩子：切歌时同步读状态镜像并写日志
-        observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
-                [](std::string_view, std::string&) -> int32_t {
-                    const std::string song = stateJson(MUSICXX_STATE_SONG);
-                    log.info("切歌了，歌曲快照长度=" + std::to_string(song.size()));
-                    return 0;
-                });
+        // 切歌是广播频道（`musicxx.song.changed`）：订阅后收推送，顺手同步读状态镜像
+        subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED, [](std::string_view) {
+            const std::string song = stateJson(MUSICXX_STATE_SONG);
+            log.info("切歌了，歌曲快照长度=" + std::to_string(song.size()));
+        });
 
         // 能力：全名必须是 plugin.<自己的插件 id>.<短名>
         capability(*this, "plugin.my_plugin.probe",
@@ -288,7 +286,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 能力 | API | 说明 |
 |---|---|---|
 | 裁决钩子 | `hook(id, priority, fn)` | `fn = int32_t(std::string_view input, std::string& out)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决 |
-| 观察钩子 | `observe(id, fn)` | 返回值忽略；处理器要尽快返回 |
+| 观察（切歌 / 播放状态 / 进度…） | `subscribeTopic(频道, fn)` | 观察型钩子在框架 API 2 之后是**广播频道**（`MUSICXX_BROADCAST_*`）；处理器要尽快返回 |
 | 注销钩子 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
 | 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
 | 框架版本 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, pluginId, ui?}`：`hostVersion` 是插件框架自己的版本（如 `2026.1011.1`），`pluginId` 是本插件 id（只有插件读时才带），`ui` 是客户端界面能力段（可选）；字段说明见 [plugin-api.md](plugin-api.md) §2.5 |
@@ -322,8 +320,12 @@ MUSICXX_PLUGIN_EXPORT(
 - 每张表的 `MUSICXX_PLUGIN_IFACE_*_VERSION` / `..._MIN_VERSION` / `..._BASELINE_SIZE` 与表体一起声明在
   `plugin_api.h`，SDK 在 `plugin_kit.h` 里逐表给出 `pluginxx::IfaceMeta` 特化（上面两条门槛读的就是它）。
   插件不要自己造表、也不要改主程序给的表。
-- 现在的 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` /
-  `musicxx.kind` 六张表都是 v1，基线 = 整表大小，也就是"表可用即全部成员可用"。
+- 现在的 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表都是 v1，
+  基线 = 整表大小，也就是"表可用即全部成员可用"；
+- **`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 已删除**：钩子处理器改成往
+  `pluginxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
+  观察型钩子改成 `pluginxx.broadcasts` 的频道，变量的读写改用能力 / 动作；
+  `musicxx.host` 同时去掉了 `get_state` / `subscribe_state`（表版本 2）—— 当前值读广播频道。
 - **插件形态（kind）不是写死的**：插件框架自带 `native`（动态库，按 C ABI 编译）与 `js`
   （内置 JS 运行器，不按 C ABI 编译），其它形态（以后的 Python 等）由插件用
   `musicxx.kind` 登记，见 §4.3。
@@ -531,81 +533,19 @@ const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 
   带 `sid` / `positionMs` / `durationMs`），要当场读当前值用变量 `musicxx.player.position`；
 - 加载时想立刻确认框架给的环境：`config()`（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）
   与 `argsJson()`（默认 `{}`）；
-- 接口表里还有一个 `subscribe_state`（声明关心的状态键），当前版本插件侧用事件订阅就够了。
+- 接口表里**已经没有** `subscribe_state`（框架 API 2 删掉）：状态键用广播频道的订阅与 `cache` 拿，当场读值用 `stateJson`。
 
 ---
 
-## 5.5 变量（有属主、可读、可写、可订阅变动的小值）
+## 5.5 变量：原生插件已不再有这张表
 
-> 概念、与镜像/动作/事件的分工、三条读法的取舍、handler 模式、官方变量目录、错误码与超时：
-> [plugin-api.md](plugin-api.md) §5 与 [plugin-vars.md](plugin-vars.md)。本节是 C++ 侧的写法。
-
-接口表 `musicxx.vars`（`MusicxxPluginVarsIface`，SDK 里是 `iface.vars`）。
-它和状态镜像的区别是：**能双向读写，而且能订阅"值变了"**。
-真值在属主那里（主程序的配置，或你自己插件里的状态），插件框架只保留一份服务同步读的缓存。
-
-```cpp
-// 声明式（declared）：值由框架代存，set 即提交 —— 零代码
-MusicxxPluginVarSpec spec{};
-spec.version = 1;
-spec.struct_size = sizeof(spec);
-spec.key        = pluginxxView("stats.skipCount");          // 短名会自动补前缀
-spec.caps       = MUSICXX_PLUGIN_VAR_CAP_GET | MUSICXX_PLUGIN_VAR_CAP_SET | MUSICXX_PLUGIN_VAR_CAP_NOTIFY;
-spec.write_scope = MUSICXX_PLUGIN_VAR_WRITE_ANY;             // 或 ..._OWNER
-spec.mode        = MUSICXX_PLUGIN_VAR_MODE_DECLARED;
-spec.type        = pluginxxView("number");
-spec.value_json  = pluginxxView("0");                        // 缓存初值（不是真值来源）
-spec.meta_json   = pluginxxView(R"({"title":"跳过次数"})");
-iface.vars->register_var(host, &spec);
-// SDK 便利包装: varsRegister(spec) / varsUnregister("stats.skipCount")
-
-// 异步读（官方键由应用回答；结果经 notify->done 回来，不要就地等待）
-PluginxxOperatorNotify notify{};
-notify.done = [](void* ud, int32_t status, const PluginxxStringView* json) {
-  // status == 0 时 json 是值
-};
-int64_t requestId = 0;
-iface.vars->get(host, &pluginxxView("musicxx.ui.animatedLevel"), &notify, &requestId);
-
-// 同步读缓存（热路径用；不保证最新，返回里带 revision/ageMs/stale）
-PluginxxString cached{};
-iface.vars->peek(host, &pluginxxView("musicxx.ui.songIconWave"), &cached);
-hostStringFree(cached);   // 插件侧: host->vtable->free
-
-// 写官方键（由应用写入）：立即结算时 out_json 是结果，转给属主时是
-// {"pending":true,"requestId":N}，最终结果经事件 `musicxx.var.writeResult` 送达
-PluginxxString out{};
-iface.vars->set(host, &pluginxxView("musicxx.ui.particleAnimate"), &pluginxxView("false"), &out);
-
-// 订阅变动：先登记关心，再订阅事件主题 `musicxx.var.changed`（载荷里带 key）
-int32_t count = 0;
-iface.vars->subscribe(host, &pluginxxView(R"(["musicxx.ui.animatedLevel"])"), &count);
-// 事件表: events->subscribe(host, &pluginxxView(MUSICXX_PLUGIN_EVENT_VAR_CHANGED), cb, ud)
-```
-
-**handler 模式**（值本来就在你手里）：声明 `mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER`，
-订阅 `musicxx.var.read` / `musicxx.var.write` 两个事件，处理完用 `respond` 回答
-（也可以对自己的键 `set` 一次 = 提交，框架把提交当作回执与回答）：
-
-```cpp
-// 收到 musicxx.var.read {requestId, key} 时：
-iface.vars->respond(host, requestId, /*ok=*/1, &pluginxxView(当前值), nullptr, &out);
-// 收到 musicxx.var.write {requestId, key, value, by} 时：
-//   校验/写入后回最终值；拒绝时 ok=0 并把原因写进 error
-iface.vars->respond(host, requestId, 1, &pluginxxView(最终值), nullptr, &out);
-```
-
-SDK 便利包装：`varsRegister` / `varsUnregister` / `varsGet` / `varsPeek` / `varsWatch` /
-`varsUnwatch` / `varsSet` / `varsList` / `varsInfo` / `varsSubscribe` / `varsUnsubscribe` / `varsRespond`
-（没有 `own` 与 `subscribers` 的单独方法：用 `varsInfo` 读 `subscribers` 字段）。
-
-容量与超时（变量的数量、键长、值大小、订阅数都不设上限；读默认 2 秒、写 3 秒、应用键 5 秒；
-未回执的读/写请求各 ≤ 32 条）见 [plugin-api.md](plugin-api.md) §5.5 与 §11.2。
-返回码：`-1` 参数 / `-2` 状态 / `-3` 值不是合法 JSON / `-4` 键不存在 / `-6` 命名空间或写权限 /
-`-7` 超限 / `-9` 该变量没有声明对应能力（写只读变量、读只写变量）。
-
-官方变量（`musicxx.*`）的目录见 [plugin-vars.md](plugin-vars.md)：它们由应用声明并提供，
-没声明的键读/写一律返回「未找到」。
+> **框架 API 2 起，`musicxx.vars` 表（`MusicxxPluginVarsIface`）与 SDK 的 `vars*` 包装全部删除。**
+> 原生插件不要再按本节旧写法登记变量：读应用的当前值用**广播频道**（`musicxx.state.*` 带
+> `cache: latest`，订阅即推；`stateJson` 读到的就是它），改应用的状态用**动作 / 能力**
+> （例如 `requestAction("musicxx.player.play", ...)`）。
+>
+> JS 插件侧的 `musicxx.vars.*` 还在（走的不是这张表），写法见 [plugin-api.md](plugin-api.md) §5 与
+> [plugin-vars.md](plugin-vars.md)。
 
 ---
 
@@ -758,14 +698,14 @@ hookBefore(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
 - 前链（`before`）**正序**、只能改输入（`{"patch": {...}}`）或停下（`{"action":"stop"}`）；
 - 后链（`after`）**逆序**、只能改输出（`{"value": ...}`）或丢弃（`{"action":"drop"}`）。
   逆序是刻意的：外置插件最后改输出，应用自己的兜底实现不能盖掉插件的改写；
-- 阶段处理器**必须是同步处理器**（`hook_sync`）：要拿到这一步的结果才能跑下一步；
-- 只能注册钩子**声明过的**阶段。SDK 在注册前会读 `hook_info` 的 `phases`，没声明就返回 `-1`
-  并记一条可读日志（低层直接调 `register_hook` 时插件框架同样拒绝，返回 `-1`）；
+- 阶段处理器**必须是同步处理器**（能力登记里的 `sync = 1`）：要拿到这一步的结果才能跑下一步；
+- 只能注册钩子**声明过的**阶段：应用没声明的官方 id 会被拒（`-2`），声明里没有该阶段的也拒；
+  拒绝原因会原样回来，SDK 同时记一条可读日志；
 - 一个 `ownerTag` 可以分别登记三个阶段（覆盖键含阶段）；`unregisterHook` 会把该 `ownerTag`
   在所有阶段的登记一起摘掉；
-- 低层写法：`MusicxxPluginHookSpec` 末尾追加了 `phase` 成员，写它时把 `version` 设成
-  `MUSICXX_PLUGIN_HOOK_SPEC_VERSION`（2）并让 `struct_size = sizeof(..)`；
-  老写法（`version = 1`、不带 `phase`）照旧可用，等价于 `impl`。
+- 低层写法：往 `pluginxx.capabilities` 登记一条能力 —— `id` = 钩子 id、`phase`、`priority`、
+  `sync = 1`、`run_start` 是同步处理器。`MusicxxPluginHookSpec` 与 `register_hook` 已随
+  `musicxx.hooks` 表一起删除（框架 API 2）。
 
 - 载荷字段与裁决语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
@@ -1050,7 +990,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` / `musicxx.kind` 六张表（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，钩子改走 `pluginxx.capabilities`、观察改成 `pluginxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套钩子表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |

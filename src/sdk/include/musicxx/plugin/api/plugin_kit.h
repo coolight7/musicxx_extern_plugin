@@ -15,6 +15,7 @@
 /// `destroy` 只释放本地对象。插件内不得有可变全局状态 (多实例规则)。
 #pragma once
 
+#include "musicxx/plugin/api/capability_ids.g.h"
 #include "musicxx/plugin/api/musicxx_ui_kit.g.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/iface_meta.h"
@@ -47,14 +48,6 @@
 namespace pluginxx {
 
 template<>
-struct IfaceMeta<MusicxxPluginHooksIface> {
-    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_HOOKS_MIN_VERSION;
-    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE;
-};
-static_assert(MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE >= 8u);
-static_assert(MUSICXX_PLUGIN_IFACE_HOOKS_BASELINE_SIZE <= sizeof(MusicxxPluginHooksIface));
-
-template<>
 struct IfaceMeta<MusicxxPluginHostIface> {
     static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION;
     static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_HOST_BASELINE_SIZE;
@@ -69,14 +62,6 @@ struct IfaceMeta<MusicxxPluginUIIface> {
 };
 static_assert(MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE >= 8u);
 static_assert(MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE <= sizeof(MusicxxPluginUIIface));
-
-template<>
-struct IfaceMeta<MusicxxPluginVarsIface> {
-    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_VARS_MIN_VERSION;
-    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE;
-};
-static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE >= 8u);
-static_assert(MUSICXX_PLUGIN_IFACE_VARS_BASELINE_SIZE <= sizeof(MusicxxPluginVarsIface));
 
 template<>
 struct IfaceMeta<MusicxxPluginNetIface> {
@@ -265,10 +250,8 @@ int32_t answerFeaturePoint(const std::string& selfId, const std::string& point,
 /// 作为 `pluginxx::PluginBaseT<IfacesT>` 的模板实参使用 (上下文基类会调用 [query]
 /// 拉取全部接口表; 框架未实现的表为 nullptr)。
 struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
-    const MusicxxPluginHooksIface* hooks = nullptr; ///< "musicxx.hooks"
     const MusicxxPluginHostIface*  host  = nullptr; ///< "musicxx.host"
     const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
-    const MusicxxPluginVarsIface*  vars  = nullptr; ///< "musicxx.vars"
     const MusicxxPluginNetIface*   net   = nullptr; ///< "musicxx.net"
     const MusicxxPluginKindIface*  kind  = nullptr; ///< "musicxx.kind"（插件形态 / 运行器）
 
@@ -276,10 +259,6 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     static MusicxxPluginIfaces query(const PluginxxHost* host) {
         MusicxxPluginIfaces ifaces;
         static_cast<pluginxx::PluginIfaceCore&>(ifaces) = pluginxx::PluginIfaceCore::query(host);
-        ifaces.hooks = pluginxx::queryInterface<MusicxxPluginHooksIface>(
-            host,
-            MUSICXX_PLUGIN_IFACE_HOOKS
-        );
         ifaces.host = pluginxx::queryInterface<MusicxxPluginHostIface>(
             host,
             MUSICXX_PLUGIN_IFACE_HOST
@@ -287,10 +266,6 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
         ifaces.ui = pluginxx::queryInterface<MusicxxPluginUIIface>(
             host,
             MUSICXX_PLUGIN_IFACE_UI
-        );
-        ifaces.vars = pluginxx::queryInterface<MusicxxPluginVarsIface>(
-            host,
-            MUSICXX_PLUGIN_IFACE_VARS
         );
         ifaces.net = pluginxx::queryInterface<MusicxxPluginNetIface>(
             host,
@@ -419,25 +394,18 @@ public:
     /// 返回 0 且 out_json 非空表示给出裁决, out_json 为空表示不裁决 (交给下一个处理器)。
     template<typename Fn>
     int32_t hook(const char* hookId, int32_t priority, Fn&& fn) {
-        return registerSync(
-            hookId,
-            MUSICXX_PLUGIN_HOOK_MODE_DECISION,
-            priority,
-            std::forward<Fn>(fn)
-        );
+        return registerSync(hookId, priority, std::forward<Fn>(fn));
     }
 
     /// 注册某个阶段的钩子处理器（前链 / 实现链 / 后链）
     ///
-    /// 阶段必须是该钩子在钩子表里声明过的（`hook_info` 的 `phases`）；没声明就返回 -1
-    /// 并记一条可读日志。老插件框架库的 `hook_info` 没有 `phases` 字段时同样拒绝
-    /// （不退回"按 impl 注册"，那会让阶段处理器收到错阶段的载荷）。
+    /// 阶段合法性由插件框架按钩子声明校验（拒绝原因会原样回来）；声明里没有该阶段的
+    /// 钩子不要登记，登记了也不会被派发。
     template<typename Fn>
     int32_t hook(const char* hookId, HookPhase phase, int32_t priority, Fn&& fn) {
         return registerSyncWithTag(
             hookId,
             "",
-            MUSICXX_PLUGIN_HOOK_MODE_DECISION,
             priority,
             static_cast<int32_t>(phase),
             std::forward<Fn>(fn)
@@ -456,57 +424,35 @@ public:
         return hook(hookId, HookPhase::After, priority, std::forward<Fn>(fn));
     }
 
-    /// 注册观察型钩子 (返回值忽略; 处理器应尽快返回)
-    template<typename Fn>
-    int32_t observe(const char* hookId, Fn&& fn) {
-        return registerSync(hookId, MUSICXX_PLUGIN_HOOK_MODE_OBSERVE, 0, std::forward<Fn>(fn));
-    }
-
     /// 注销钩子 (owner_tag = "")
     int32_t unregisterHook(const char* hookId) {
         return unregisterHookWithTag(hookId, "");
     }
 
-    /// 注销钩子（带 `owner_tag`）：先走能力表，能力表不可用时退回 `musicxx.hooks`
+    /// 注销钩子（带 `owner_tag`）：处理器按 `(钩子 id, owner_tag)` 登记在能力表里，直接注销
     int32_t unregisterHookWithTag(const char* hookId, const char* ownerTag) {
-        const PluginxxStringView hookView = pluginxxView(hookId);
-        const PluginxxStringView tagView  = pluginxxView(ownerTag ? ownerTag : "");
-        if (iface.capabilities && iface.capabilities->unregister_capability) {
-            const int32_t rc =
-                iface.capabilities->unregister_capability(host, &hookView, &tagView);
-            if (rc == 0) {
-                return rc;
-            }
-        }
-        if (!iface.hooks || !iface.hooks->unregister_hook) {
+        if (!iface.capabilities || !iface.capabilities->unregister_capability) {
             return -1;
         }
-        return iface.hooks->unregister_hook(host, &hookView, &tagView);
+        const PluginxxStringView hookView = pluginxxView(hookId);
+        const PluginxxStringView tagView  = pluginxxView(ownerTag ? ownerTag : "");
+        return iface.capabilities->unregister_capability(host, &hookView, &tagView);
     }
 
-    /// 同步读状态镜像 (键不存在/框架未实现返回空串)
+    /// 同步读状态镜像 (键不存在返回空串)
     ///
-    /// 先读广播频道（`musicxx.state.*` 是 `cache: latest` 的频道，订阅即推），
-    /// 能力表不可用时退回旧的状态表。
+    /// 状态由应用发布在广播频道 `musicxx.state.*`（`cache: latest`，订阅即推）。
     std::string stateJson(const char* key) const {
         if (!key || !*key) {
             return {};
         }
-        const PluginxxStringView keyView = pluginxxView(key);
-        if (iface.broadcasts && iface.broadcasts->read_broadcast) {
-            PluginxxString out{};
-            if (iface.broadcasts->read_broadcast(host, &keyView, &out) == 0 &&
-                out.data) {
-                std::string result{out.data, static_cast<size_t>(out.size)};
-                hostStringFree(out);
-                return result;
-            }
-        }
-        if (!iface.host || !iface.host->get_state) {
+        if (!iface.broadcasts || !iface.broadcasts->read_broadcast) {
             return {};
         }
-        PluginxxString out{};
-        if (iface.host->get_state(host, &keyView, &out) != 0 || !out.data) {
+        const PluginxxStringView keyView = pluginxxView(key);
+        PluginxxString           out{};
+        if (iface.broadcasts->read_broadcast(host, &keyView, &out) != 0 ||
+            !out.data) {
             return {};
         }
         std::string result{out.data, static_cast<size_t>(out.size)};
@@ -704,7 +650,6 @@ public:
         return registerSyncWithTag(
             MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL,
             point.c_str(),
-            MUSICXX_PLUGIN_HOOK_MODE_DECISION,
             priority,
             MUSICXX_PLUGIN_HOOK_PHASE_IMPL,
             [selfId, point, fn = std::forward<Fn>(fn)](std::string_view input,
@@ -941,114 +886,6 @@ public:
         return iface.ui->notify(host, &messageView);
     }
 
-    /// ---------- 变量 (musicxx.vars) ----------
-    ///
-    /// 三条读法按需要选一条：
-    /// - `varsGet` 异步、权威（插件框架向属主取一次真实值，结果经 [PluginxxOperatorNotify]
-    ///   回来 —— **不要在回调里等结果**，框架线程上的就地等待等于死锁）；
-    /// - `varsPeek` 同步读缓存（可能旧，返回里带 revision/ageMs/stale）；
-    /// - 订阅变动：调 `varsSubscribe` 登记关心，再订阅事件主题
-    ///   `musicxx.var.changed`（载荷里带 key）。
-    ///
-    /// 写：`varsSet` 的返回值是 JSON —— 写自己的变量（或 `declared` 模式）立即结算，
-    /// 交给属主写入时是 `{"pending":true,"requestId":N}`，最终结果经事件
-    /// `musicxx.var.writeResult` 送达。
-    ///
-    /// 注册：`mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER` 时属主自己收
-    /// `musicxx.var.read` / `musicxx.var.write` 两个事件，用 `varsRespond` 回答。
-
-    /// 注册/覆盖一个变量（key 可写短名，插件框架自动补 `plugin.<本插件id>.` 前缀）
-    int32_t varsRegister(const MusicxxPluginVarSpec& spec) {
-        if (!iface.vars || !iface.vars->register_var) {
-            return -1;
-        }
-        return iface.vars->register_var(host, &spec);
-    }
-
-    /// 注销自己的变量
-    int32_t varsUnregister(const char* key) {
-        if (!iface.vars || !iface.vars->unregister_var) {
-            return -1;
-        }
-        PluginxxStringView keyView = pluginxxView(key ? key : "");
-        return iface.vars->unregister_var(host, &keyView);
-    }
-
-    /// 异步读（结果经 notify 回来；同键进行中请求由插件框架合并）
-    int32_t varsGet(const char* key, const PluginxxOperatorNotify* notify,
-                    int64_t* outRequestId = nullptr) {
-        if (!iface.vars || !iface.vars->get) {
-            return -1;
-        }
-        PluginxxStringView keyView = pluginxxView(key ? key : "");
-        return iface.vars->get(host, &keyView, notify, outRequestId);
-    }
-
-    /// 同步读缓存（没有缓存过返回 -4；不保证最新）
-    std::string varsPeek(const char* key) const {
-        return readVarsString(&MusicxxPluginVarsIface::peek, key);
-    }
-
-    /// 保活缓存（订阅但不回调；需要 notify 能力位）
-    int32_t varsWatch(const char* keysJson) {
-        return writeVarsCount(&MusicxxPluginVarsIface::watch, keysJson);
-    }
-    int32_t varsUnwatch(const char* keysJson) {
-        return writeVarsCount(&MusicxxPluginVarsIface::unwatch, keysJson);
-    }
-
-    /// 写（自己的变量 = 提交；官方键与 handler 变量交给属主写入）
-    std::string varsSet(const char* key, const char* valueJson) {
-        if (!iface.vars || !iface.vars->set) {
-            return {};
-        }
-        PluginxxStringView keyView = pluginxxView(key ? key : "");
-        PluginxxStringView valueView = pluginxxView(valueJson ? valueJson : "null");
-        PluginxxString out{};
-        if (iface.vars->set(host, &keyView, &valueView, &out) != 0 || !out.data) {
-            return {};
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
-    /// 列出变量（prefix 可空；值字段是缓存值）
-    std::string varsList(const char* prefix = nullptr) const {
-        return readVarsString(&MusicxxPluginVarsIface::list, prefix);
-    }
-
-    /// 声明信息 + 缓存状态
-    std::string varsInfo(const char* key) const {
-        return readVarsString(&MusicxxPluginVarsIface::info, key);
-    }
-
-    /// 订阅/退订变更通知（keys_json 是字符串数组；订阅后事件走 `musicxx.var.changed`）
-    int32_t varsSubscribe(const char* keysJson) {
-        return writeVarsCount(&MusicxxPluginVarsIface::subscribe, keysJson);
-    }
-    int32_t varsUnsubscribe(const char* keysJson) {
-        return writeVarsCount(&MusicxxPluginVarsIface::unsubscribe, keysJson);
-    }
-
-    /// handler 属主回答一次被转过来的请求（ok = 0 表示拒绝，原因写 error）
-    std::string varsRespond(int64_t requestId, bool ok, const char* valueJson,
-                            const char* error = nullptr) {
-        if (!iface.vars || !iface.vars->respond) {
-            return {};
-        }
-        PluginxxStringView valueView = pluginxxView(valueJson ? valueJson : "null");
-        PluginxxStringView errorView = pluginxxView(error ? error : "");
-        PluginxxString out{};
-        if (iface.vars->respond(host, requestId, ok ? 1 : 0, &valueView, &errorView,
-                                &out) != 0 || !out.data) {
-            return {};
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
     /// 用框架堆把字符串写进跨边界出参 (插件必须用框架分配器, 不得用 CRT malloc)
     static void hostStringSet(const PluginxxHost* host, PluginxxString* out, std::string_view text) {
         if (!out) {
@@ -1078,39 +915,6 @@ public:
         s.size = 0;
     }
 
-    /// 变量接口里"输入一个字符串、输出一段 JSON"的那些入口 (peek/info/list)
-    using VarsStringFn = int32_t (PLUGINXX_CALL* MusicxxPluginVarsIface::*)(
-        const PluginxxHost*, const PluginxxStringView*, PluginxxString*);
-    /// 变量接口里"输入一组键、输出条数"的那些入口 (watch/unwatch/subscribe/unsubscribe)
-    using VarsCountFn = int32_t (PLUGINXX_CALL* MusicxxPluginVarsIface::*)(
-        const PluginxxHost*, const PluginxxStringView*, int32_t*);
-
-    /// 调一个变量接口的 JSON 出参入口 (表不可用或失败返回空串)
-    std::string readVarsString(VarsStringFn fn, const char* text) const {
-        if (!iface.vars || !fn) {
-            return {};
-        }
-        PluginxxStringView view = pluginxxView(text ? text : "");
-        PluginxxString     out{};
-        if ((iface.vars->*fn)(host, &view, &out) != 0 || !out.data) {
-            return {};
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
-    /// 调一个变量接口的计数入口 (表不可用返回 -1; 失败返回错误码)
-    int32_t writeVarsCount(VarsCountFn fn, const char* keysJson) {
-        if (!iface.vars || !fn) {
-            return -1;
-        }
-        PluginxxStringView view = pluginxxView(keysJson ? keysJson : "[]");
-        int32_t            count = 0;
-        const int32_t      rc    = (iface.vars->*fn)(host, &view, &count);
-        return rc == 0 ? count : rc;
-    }
-
 protected:
 
     /// 构造 C ABI 字符串视图 (跨边界只读借用)
@@ -1133,51 +937,6 @@ protected:
         HookHolder(const PluginxxHost* h, FnT f) :
             host(h),
             fn(std::move(f)) {}
-
-        /// C ABI 同步处理器 trampoline
-        static int32_t PLUGINXX_CALL invoke(
-            void*                     user_data,
-            const PluginxxStringView* /*hook_id*/,
-            const PluginxxStringView* input_json,
-            PluginxxString*           out_json,
-            PluginxxString*           error_out
-        ) {
-            auto* self = static_cast<HookHolder*>(user_data);
-            if (!self) {
-                return -1;
-            }
-            try {
-                std::string_view input{};
-                if (input_json && input_json->data) {
-                    input = std::string_view{
-                        input_json->data,
-                        static_cast<size_t>(input_json->size)
-                    };
-                }
-                std::string   out;
-                const int32_t rc = self->fn(input, out);
-                if (rc != 0) {
-                    if (error_out) {
-                        hostStringSet(self->host, error_out, "hook handler failed");
-                    }
-                    return rc;
-                }
-                if (!out.empty() && out_json) {
-                    hostStringSet(self->host, out_json, out);
-                }
-                return 0;
-            } catch (const std::exception& e) {
-                if (error_out) {
-                    hostStringSet(self->host, error_out, e.what());
-                }
-                return -1;
-            } catch (...) {
-                if (error_out) {
-                    hostStringSet(self->host, error_out, "unknown exception");
-                }
-                return -1;
-            }
-        }
 
         /// 能力契约的 trampoline (`pluginxx.capabilities` 的处理器形态)
         ///
@@ -1228,31 +987,26 @@ protected:
 
     /// 统一的同步处理器注册路径
     template<typename Fn>
-    int32_t registerSync(const char* hookId, int32_t mode, int32_t priority, Fn&& fn) {
-        return registerSyncWithTag(hookId, "", mode, priority,
+    int32_t registerSync(const char* hookId, int32_t priority, Fn&& fn) {
+        return registerSyncWithTag(hookId, "", priority,
                                    MUSICXX_PLUGIN_HOOK_PHASE_IMPL, std::forward<Fn>(fn));
     }
 
     /// 统一的同步处理器注册路径（带 `owner_tag`）
     ///
+    /// 统一的同步处理器注册路径（带 `owner_tag`）
+    ///
     /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个钩子上登记多个
     /// 处理器（靠它区分），自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
     /// （见 [featurePointProvide]）。
+    ///
+    /// 登记走插件框架的 `pluginxx.capabilities`：处理器是能力契约（同步 `notify->done`），
+    /// 派发走不走的顺序（前链正序、后链逆序、层内按优先级）由插件框架按钩子声明决定。
     template<typename Fn>
-    int32_t registerSyncWithTag(const char* hookId, const char* ownerTag, int32_t mode,
+    int32_t registerSyncWithTag(const char* hookId, const char* ownerTag,
                                 int32_t priority, int32_t phase, Fn&& fn) {
-        // 阶段合法性：能力表这条路由宿主按声明校验（拒绝原因会原样回来）；
-        // 只有退回 `musicxx.hooks` 时才需要本地预检（老插件框架库没有 phases 字段）。
-        const bool viaCapabilities =
-            iface.capabilities && iface.capabilities->register_capability;
-        if (!viaCapabilities && phase != MUSICXX_PLUGIN_HOOK_PHASE_IMPL &&
-            !hookDeclaresPhase(hookId, phase)) {
-            std::string message = "钩子 `";
-            message += hookId ? hookId : "";
-            message += "` 没有声明 ";
-            message += (phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE ? "before" : "after");
-            message += " 阶段（或插件框架库太旧）: 注册被拒绝";
-            log.warn(message);
+        if (!iface.capabilities || !iface.capabilities->register_capability) {
+            log.warn("pluginxx.capabilities 表不可用: 钩子未注册 (插件框架版本过旧?)");
             return -1;
         }
         using FnT       = std::decay_t<Fn>;
@@ -1260,95 +1014,43 @@ protected:
         void* holderPtr = holder.get();
         holders_.push_back(std::move(holder));
 
-        // 优先走 `pluginxx.capabilities`（阶段 2c 之后插件只看这张表）：
-        // 处理器是能力契约（同步 `notify->done`），宿主按 owner_tag / 阶段 / 优先级派发，
-        // 与旧的 `musicxx.hooks` 登记完全同一套规则。
-        if (viaCapabilities) {
-            PluginxxCapabilitySpec cap{};
-            cap.version     = PLUGINXX_API_VERSION;
-            cap.struct_size = sizeof(PluginxxCapabilitySpec);
-            cap.id          = pluginxxView(hookId);
-            cap.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
-            cap.impls       = PLUGINXX_CAPABILITY_IMPLS_MANY;
-            cap.merge       = PLUGINXX_CAPABILITY_MERGE_NONE;
-            cap.phases      = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL |
-                              PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
-                              PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
-            switch (phase) {
-            case MUSICXX_PLUGIN_HOOK_PHASE_BEFORE:
-                cap.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
-                break;
-            case MUSICXX_PLUGIN_HOOK_PHASE_AFTER:
-                cap.phase = PLUGINXX_CAPABILITY_PHASE_AFTER;
-                break;
-            default:
-                cap.phase = PLUGINXX_CAPABILITY_PHASE_IMPL;
-                break;
-            }
-            cap.priority = priority;
-            cap.sync     = 1; ///< 钩子派发是同步的: 只登记同步处理器
-            cap.run_start = &HookHolder<FnT>::invokeCapability;
-            cap.user_data = holderPtr;
-            PluginxxString error{};
-            const int32_t rc =
-                iface.capabilities->register_capability(host, nullptr, &cap, &error);
-            if (error.data) {
-                log.warn(std::string{"钩子登记失败: "} +
-                         std::string{error.data, static_cast<size_t>(error.size)});
-                hostStringFree(error);
-            }
-            if (rc == 0) {
-                return rc;
-            }
-            log.warn("能力表登记失败, 退回 musicxx.hooks 再试一次");
+        PluginxxCapabilitySpec cap{};
+        cap.version     = PLUGINXX_API_VERSION;
+        cap.struct_size = sizeof(PluginxxCapabilitySpec);
+        cap.id          = pluginxxView(hookId);
+        cap.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
+        cap.impls       = PLUGINXX_CAPABILITY_IMPLS_MANY;
+        cap.merge       = PLUGINXX_CAPABILITY_MERGE_NONE;
+        cap.phases      = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL |
+                          PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
+                          PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
+        switch (phase) {
+        case MUSICXX_PLUGIN_HOOK_PHASE_BEFORE:
+            cap.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
+            break;
+        case MUSICXX_PLUGIN_HOOK_PHASE_AFTER:
+            cap.phase = PLUGINXX_CAPABILITY_PHASE_AFTER;
+            break;
+        default:
+            cap.phase = PLUGINXX_CAPABILITY_PHASE_IMPL;
+            break;
         }
-
-        MusicxxPluginHookSpec spec{};
-        spec.version     = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
-        spec.struct_size = sizeof(MusicxxPluginHookSpec);
-        spec.hook_id     = pluginxxView(hookId);
-        spec.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
-        spec.mode        = mode;
-        spec.priority    = priority;
-        spec.flags       = 0;
-        spec.hook_sync   = &HookHolder<FnT>::invoke;
-        spec.hook_start  = nullptr;
-        spec.hook_cancel = nullptr;
-        spec.user_data   = holderPtr;
-        spec.phase       = phase;
-
-        if (!iface.hooks || !iface.hooks->register_hook) {
-            log.warn("musicxx.hooks 表不可用: 钩子未注册 (插件框架版本过旧?)");
-            return -1;
+        cap.priority  = priority;
+        cap.sync      = 1; ///< 钩子派发是同步的: 只登记同步处理器
+        cap.run_start = &HookHolder<FnT>::invokeCapability;
+        cap.user_data = holderPtr;
+        PluginxxString error{};
+        const int32_t  rc =
+            iface.capabilities->register_capability(host, nullptr, &cap, &error);
+        if (error.data) {
+            log.warn(std::string{"钩子登记失败: "} +
+                     std::string{error.data, static_cast<size_t>(error.size)});
+            hostStringFree(error);
         }
-        return iface.hooks->register_hook(host, &spec);
+        return rc;
     }
 
 private:
-
-    /// 钩子有没有声明某个阶段（读 `hook_info` 的 `phases`）
-    ///
-    /// 返回 false 有两种情况：这个钩子没声明该阶段，或者插件框架库太旧（`hook_info`
-    /// 里没有 `phases` 字段）。两种都按"不能注册"处理 —— 注册了也不会被派发。
-    bool hookDeclaresPhase(const char* hookId, int32_t phase) const {
-        if (!hookId || !iface.hooks || !iface.hooks->hook_info) {
-            return false;
-        }
-        PluginxxString     out{};
-        PluginxxStringView hookView = pluginxxView(hookId);
-        if (iface.hooks->hook_info(host, &hookView, &out) != 0 || !out.data) {
-            return false;
-        }
-        std::string text{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        const size_t at = text.find("\"phases\"");
-        if (at == std::string::npos) {
-            return false;
-        }
-        const char* name = phase == MUSICXX_PLUGIN_HOOK_PHASE_BEFORE ? "\"before\""
-                                                                    : "\"after\"";
-        return text.find(name, at) != std::string::npos;
-    }
 
     /// 读取 host 表里的字符串型查询 (统一处理出参所有权)
     template<typename FnT>

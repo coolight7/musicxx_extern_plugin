@@ -1417,83 +1417,6 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
 
 namespace {
 
-int32_t PLUGINXX_CALL xx_register_hook(const PluginxxHost *host,
-                                       const MusicxxPluginHookSpec *spec) {
-  return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !spec) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const auto specCopy = *spec;
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, specCopy]() -> int32_t {
-              return mgr->registerHook(inst, specCopy);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_unregister_hook(const PluginxxHost *host,
-                                         const PluginxxStringView *hookId,
-                                         const PluginxxStringView *ownerTag) {
-  return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !hookId || !hookId->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view id{hookId->data,
-                                  static_cast<size_t>(hookId->size)};
-        const std::string_view tag =
-            (ownerTag && ownerTag->data)
-                ? std::string_view{ownerTag->data,
-                                   static_cast<size_t>(ownerTag->size)}
-                : std::string_view{};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id, tag]() -> int32_t {
-              return mgr->unregisterHook(inst, id, tag);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_hook_info(const PluginxxHost *host,
-                                   const PluginxxStringView *hookId,
-                                   PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
-        if (!hookId || !hookId->data || !outJson) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        const std::string_view id{hookId->data,
-                                  static_cast<size_t>(hookId->size)};
-        std::string json;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, id, &json]() -> int32_t {
-              return mgr->hookInfoJson(id, json);
-            });
-        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-          return rc;
-        }
-        pluginxx::hostMemorySetString(outJson, json);
-        return MUSICXX_EXTERN_PLUGIN_OK;
-      });
-}
-
 int32_t PLUGINXX_CALL xx_host_get_info(const PluginxxHost *host,
                                        PluginxxString *outJson) {
   return pluginxx::guardVtableCall(
@@ -1520,65 +1443,6 @@ int32_t PLUGINXX_CALL xx_host_get_info(const PluginxxHost *host,
         }
         pluginxx::hostMemorySetString(outJson, json);
         return MUSICXX_EXTERN_PLUGIN_OK;
-      });
-}
-
-int32_t PLUGINXX_CALL xx_host_get_state(const PluginxxHost *host,
-                                        const PluginxxStringView *key,
-                                        PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
-        if (!key || !key->data || !outJson) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        const std::string_view name{key->data, static_cast<size_t>(key->size)};
-        std::string json;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, name, &json]() -> int32_t {
-              return mgr->getState(name, json);
-            });
-        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-          return rc;
-        }
-        pluginxx::hostMemorySetString(outJson, json);
-        return MUSICXX_EXTERN_PLUGIN_OK;
-      });
-}
-
-int32_t PLUGINXX_CALL
-xx_host_subscribe_state(const PluginxxHost *host,
-                        const PluginxxStringView *keysJson, int32_t *outCount) {
-  return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string keys =
-            keysJson && keysJson->data
-                ? std::string{keysJson->data,
-                              static_cast<size_t>(keysJson->size)}
-                : std::string{"[]"};
-        int32_t count = 0;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, keys, &count]() -> int32_t {
-              return mgr->subscribeState(inst, keys, count);
-            });
-        if (outCount) {
-          *outCount = count;
-        }
-        return rc;
       });
 }
 
@@ -1662,20 +1526,10 @@ void PLUGINXX_CALL xx_host_cancel_action(const PluginxxHost *host,
   });
 }
 
-const MusicxxPluginHooksIface g_ifaceHooks = {
-    /* version */ MUSICXX_PLUGIN_IFACE_HOOKS_VERSION,
-    /* struct_size */ sizeof(MusicxxPluginHooksIface),
-    /* register_hook */ xx_register_hook,
-    /* unregister_hook */ xx_unregister_hook,
-    /* hook_info */ xx_hook_info,
-};
-
 const MusicxxPluginHostIface g_ifaceHost = {
     /* version */ MUSICXX_PLUGIN_IFACE_HOST_VERSION,
     /* struct_size */ sizeof(MusicxxPluginHostIface),
     /* get_info */ xx_host_get_info,
-    /* get_state */ xx_host_get_state,
-    /* subscribe_state */ xx_host_subscribe_state,
     /* get_plugin_config_path */ xx_host_config_path,
     /* request_action */ xx_host_request_action,
     /* cancel_action */ xx_host_cancel_action,
@@ -1979,9 +1833,6 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
                                             MusicxxHostManager>(name)) {
     return generic;
   }
-  if (name == MUSICXX_PLUGIN_IFACE_HOOKS) {
-    return &g_ifaceHooks;
-  }
   if (name == MUSICXX_PLUGIN_IFACE_HOST) {
     return &g_ifaceHost;
   }
@@ -1990,9 +1841,6 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   }
   if (name == MUSICXX_PLUGIN_IFACE_KIND) {
     return &g_ifaceKind;
-  }
-  if (name == MUSICXX_PLUGIN_IFACE_VARS) {
-    return varsIfaceForQuery();
   }
   if (name == MUSICXX_PLUGIN_IFACE_NET) {
     return netIfaceForQuery();

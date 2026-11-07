@@ -8,6 +8,25 @@
 
 ## 历史
 
+### 变更（破坏性，dev）：`musicxx.hooks` / `musicxx.vars` 表删除，框架 C ABI 1 → 2
+
+原生插件只看 `pluginxx.capabilities` 与 `pluginxx.broadcasts`，**不保留旧写法**：
+
+- **`musicxx.hooks` 删除**：`MusicxxPluginHookSpec` / `register_hook` / `unregister_hook` / `hook_info`
+  一并删掉。钩子处理器改成往 `pluginxx.capabilities` 登记（`id` = 钩子 id、`phase`、`priority`、
+  `sync = 1`、`run_start` 是同步处理器）；SDK 的 `hook` / `hookBefore` / `hookAfter` 已经这样做。
+  应用没声明的官方 id 会被拒（`-2`），不再是旧的 `-4`。
+- **观察型钩子变成广播频道**：`musicxx.song.changed`、`musicxx.player.state` / `.position` /
+  `.completed` 这类 `mode: observe` 的钩子现在是 `musicxx.broadcasts` 里的频道（`MUSICXX_BROADCAST_*`），
+  用 `subscribeTopic(频道, fn)` 订阅；SDK 的 `observe()` 随之删除。
+- **`musicxx.vars` 删除**：`MusicxxPluginVarsIface` 与 SDK 的 `vars*` 包装全部删掉（宿主内部的变量表
+  仍在，服务 JS 插件的 `musicxx.vars.*`）。原生插件读当前值用广播频道、改状态用动作 / 能力。
+- **`musicxx.host` 表版本 1 → 2**：去掉 `get_state` / `subscribe_state`（读当前值走广播频道）；
+  还留着 `get_info` / `get_plugin_config_path` / `request_action` / `cancel_action`。
+- **框架 C ABI `MUSICXX_EXTERN_PLUGIN_API_VERSION` 1 → 2**：Dart 侧按它校验，两边必须一起更新。
+- 插件清单的 `api_version` 仍写**所属形态的接口代次**（动态库插件 4、JS 插件 1），与本条的框架
+  C ABI 代次是两个数，不要混用。
+
 ### 变更（破坏性，dev）：`cxx_pluginxx` 通用表换成「能力 + 广播」，插件 ABI 代次 3 → 4
 
 `pluginxx.capabilities` 与 `pluginxx.events` 两张表换掉，**不保留旧写法**：

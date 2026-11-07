@@ -43,12 +43,10 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
     log.info(std::string{"多目标示例插件已启动, 本分支 = "} +
              MUSICXX_PLUGIN_BUILD_TAG);
 
-    // 观察型钩子：切歌时累加计数（不裁决、不做重活）
-    observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
-            [this](std::string_view, std::string &) -> int32_t {
-              ++songChangedHits;
-              return 0;
-            });
+    // 切歌是广播频道 (`musicxx.song.changed`): 订阅后累加计数（不裁决、不做重活）
+    subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED, [this](std::string_view) {
+      ++songChangedHits;
+    });
 
     /// 阶段示例: 同一个钩子 (`musicxx.playlist.load`, 包装点) 上分别登记前链与后链
     ///

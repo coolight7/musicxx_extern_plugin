@@ -1750,6 +1750,10 @@ iface.events->publish(host, &topic, &data);
 
 ## 5. 变量（有属主、可读、可写、可订阅变动的小值）
 
+> **本节只对 JS 插件有效**：框架 API 2 删掉了原生侧的 `musicxx.vars` 表与 SDK 的 `vars*` 包装。
+> 原生插件读当前值用广播频道（`musicxx.state.*`）、改状态用动作 / 能力，见
+> [plugin-native-api.md](plugin-native-api.md) §5.5。
+
 **定位**：一份有当前值的小状态/配置 —— 要读、要改、改了要让别人知道。
 真值在属主那里（应用的设置项，或你自己插件里的状态），插件框架只保留一份服务同步读的缓存。
 
@@ -2035,6 +2039,11 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 ---
 
 ## 8. 钩子（应用来问插件 / 告诉插件）
+
+> **原生插件的登记入口变了（框架 API 2）**：`musicxx.hooks` 表与 `MusicxxPluginHookSpec` 已删除，
+> 原生插件往 `pluginxx.capabilities` 登记（SDK 的 `hook` / `hookBefore` / `hookAfter` 已经这样做）；
+> **观察型钩子**（`mode: observe`）现在是一组广播频道，用 `subscribeTopic` 订阅。
+> 本节剩下的牌子、阶段、裁决对象与载荷语义对两种形态同样有效。
 
 钩子 id、模式（`observe` / `decision`）、派发方式（`sync` / `async`）、合并策略，以及**哪些钩子已经被应用接入**，
 都在生成物 [plugin-hooks.md](plugin-hooks.md) 里；本节说"怎么写、为什么这么写"。

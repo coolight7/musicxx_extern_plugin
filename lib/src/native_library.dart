@@ -232,7 +232,7 @@ class MusicxxPluginNativeLibrary {
   /// - 加载成功但版本不匹配时抛 [MusicxxPluginApiVersionException]（避免"能加载但行为错乱"）。
   static MusicxxPluginNativeLibrary open({
     String? path,
-    int expectedApiVersion = 1,
+    int expectedApiVersion = 2,
     String? packageRoot,
   }) {
     final List<String> candidates = path != null

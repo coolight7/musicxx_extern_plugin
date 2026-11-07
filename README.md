@@ -750,9 +750,10 @@ final List<MusicxxPluginUIItem> next =
 
 插件框架已经实现的能力（主程序接入情况见 musicxx 仓库）：
 
-- **专用接口表**：`musicxx.hooks` / `musicxx.host` / `musicxx.ui` / `musicxx.vars` / `musicxx.net` /
-  `musicxx.kind` 六张已实现（每张表的版本 / 最低版本 / 基线字节数与可用性判定见
-  `docs/plugin-native-api.md` §4.1）；
+- **专用接口表**：`musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张已实现（每张表的版本 /
+  最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；`musicxx.hooks` 与
+  `musicxx.vars` 在框架 **API 2** 已删除（钩子改走 `pluginxx.capabilities`，观察改成
+  `pluginxx.broadcasts`）；
   `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` / `agent` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
 - **钩子**：约定只看 `tools/hooks.def.json`（生成物是 `docs/plugin-hooks.md`，`dart run tools/gen_contract.dart --check`
@@ -799,7 +800,7 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 钩子 | `musicxx.hooks.register` / `PluginBase::hook` / `observe` | 观察型与裁决型；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算，结算后裁决生效）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
+| 钩子 | `PluginBase::hook`（原生）/ `musicxx.hooks.register`（JS） | 裁决型与阶段（前链 / 实现链 / 后链）；观察型钩子在框架 API 2 之后是广播频道（原生 `subscribeTopic`）；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
 | 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |

@@ -67,7 +67,7 @@ void main() {
     final MusicxxPluginEvent ready = seen.firstWhere(
       (MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hostReady,
     );
-    expect(ready.payload['apiVersion'], 1);
+    expect(ready.payload['apiVersion'], 2);
     expect(ready.payload['platform'], MusicxxPluginRuntime.currentPlatform);
 
     _step('2 host.ready 已收到');
@@ -228,7 +228,11 @@ void main() {
       equals(probe['callThread']),
       reason: '插件代码必须只在插件框架线程执行',
     );
-    expect(probe['unknownHookRc'], -4, reason: '未知前缀钩子必须被拒绝');
+    expect(
+      probe['unknownHookRc'],
+      -2,
+      reason: '应用没声明的官方钩子必须被拒绝 (能力表返回"没声明")',
+    );
     expect(
       probe['foreignActionRc'],
       0,

@@ -19,6 +19,8 @@
 
 #include "host_kind.h"
 #include "host_manifest.h"
+#include "musicxx_hook_spec.h"
+#include "musicxx_var_spec.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/entry.h"
 #include "pluginxx/host/lifecycle.h"

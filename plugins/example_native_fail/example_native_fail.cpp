@@ -46,7 +46,7 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     return nullptr;
   }
 
-  /// 用 `pluginxx.capabilities` 注册一个钩子（与 `observe(...)` 的入口不同）
+  /// 用 `pluginxx.capabilities` 直接注册一个钩子（手写能力规格的写法）
   void registerPitchHook() {
     if (!iface.capabilities || !iface.capabilities->register_capability) {
       return;
@@ -73,18 +73,18 @@ struct FailCtx : public musicxx::plugin::PluginBase {
 
   int32_t onStart() {
     // 1) 总是失败的处理器: 返回非 0 = 处理器失败
-    observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
-            [this](std::string_view, std::string &) -> int32_t {
-              ++failingCalls;
-              return -1; ///< 非 0: 插件框架计入 failures; 连续 3 次后暂停派发 60 秒
-            });
+    hook(MUSICXX_PLUGIN_HOOK_PLAYER_VOLUME, 0,
+         [this](std::string_view, std::string &) -> int32_t {
+           ++failingCalls;
+           return -1; ///< 非 0: 插件框架计入 failures, 每次都照常派发
+         });
 
-    // 2) 始终成功的处理器: 用于验证暂停派发的范围只到"单个处理器"
-    observe(MUSICXX_PLUGIN_HOOK_PLAYER_COMPLETED,
-            [this](std::string_view, std::string &) -> int32_t {
-              ++goodCalls;
-              return 0;
-            });
+    // 2) 始终成功的处理器: 用于验证失败统计只算到"单个处理器"
+    hook(MUSICXX_PLUGIN_HOOK_PLAYER_SPEED, 0,
+         [this](std::string_view, std::string &) -> int32_t {
+           ++goodCalls;
+           return 0;
+         });
 
     // 3) 走能力表注册的钩子（阶段 2c 的新入口）
     registerPitchHook();

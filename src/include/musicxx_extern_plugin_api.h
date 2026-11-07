@@ -44,7 +44,7 @@
 #define MUSICXX_EXTERN_PLUGIN_CALL
 #endif
 
-#define MUSICXX_EXTERN_PLUGIN_API_VERSION 1
+#define MUSICXX_EXTERN_PLUGIN_API_VERSION 2
 
 /// 插件框架版本号：`<年>.<月日>.<小版本号>`（例 `2026.1011.1` = 2026 年 10 月 11 日的第 1 版）
 ///

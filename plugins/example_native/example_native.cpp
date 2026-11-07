@@ -81,7 +81,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   std::string startThread;
 
   /// 自检结果 (命名空间校验返回码)
-  int32_t unknownHookRc = 0; ///< 注册未知前缀钩子: 期望 -4 (未知钩子)
+  int32_t unknownHookRc = 0; ///< 注册应用没声明的官方钩子: 期望 -2 (没声明)
   int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
   int32_t dupHookRc = 0; ///< 覆盖式重复注册: 期望 0
 
@@ -143,16 +143,13 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
            return 0;
          });
 
-    // 2) 观察切歌 (只读状态镜像 + 日志)
-    observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
-            [this](std::string_view input, std::string &out) -> int32_t {
-              (void)out;
-              (void)input;
-              const std::string song = stateJson("musicxx.state.song");
-              log.info("example_native: 歌曲变化事件; 状态镜像长度=" +
-                       std::to_string(song.size()));
-              return 0;
-            });
+    // 2) 观察切歌: 切歌是广播频道 (`musicxx.song.changed`), 订阅后收推送
+    subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED,
+                   [this](std::string_view) {
+                     const std::string song = stateJson("musicxx.state.song");
+                     log.info("example_native: 歌曲变化广播; 状态镜像长度=" +
+                              std::to_string(song.size()));
+                   });
 
     // 3) 播放错误: 连续 2 次错误后建议换源 (不改写主程序既有错误策略)
     hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
@@ -165,14 +162,19 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
            return 0;
          });
 
-    // 4) 命名空间自检: 未知前缀的钩子必须被插件框架拒绝
+    // 4) 命名空间自检: 应用没声明的官方钩子必须被插件框架拒绝
     unknownHookRc =
-        hook("foo.bar.baz", 0,
+        hook("musicxx.no.such.hook", 0,
              [](std::string_view, std::string &) -> int32_t { return 0; });
     // 同一 (实例, 钩子, owner_tag) 覆盖式注册: 再注册一次应成功
-    dupHookRc =
-        observe(MUSICXX_PLUGIN_HOOK_SONG_CHANGED,
-                [](std::string_view, std::string &) -> int32_t { return 0; });
+    dupHookRc = hook(MUSICXX_PLUGIN_HOOK_PLAYER_VOLUME, 0,
+                     [](std::string_view, std::string &) -> int32_t {
+                       return 0;
+                     });
+    dupHookRc = hook(MUSICXX_PLUGIN_HOOK_PLAYER_VOLUME, 0,
+                     [](std::string_view, std::string &) -> int32_t {
+                       return 0;
+                     });
     // 他人命名空间的动作用请求必须被拒绝 (此处只探测返回码, 不会真的发出)
     {
       PluginxxOperatorNotify notify{&probeActionDone, nullptr};
