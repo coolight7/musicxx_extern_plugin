@@ -2739,6 +2739,28 @@ int main(int argc, char **argv) {
     }
     check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "失败对照示例加载成功 (example_native_fail)");
 
+    // 同一个插件还有一条**走 `pluginxx.capabilities` 注册**的钩子（阶段 2c 的新入口）：
+    // 注册结果与派发要和 `musicxx.hooks` 那套完全一样
+    {
+      int32_t pitchHooks = -1;
+      musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.pitch"),
+                                       &pitchHooks, &log);
+      check(pitchHooks == 1, "能力表注册的钩子出现在处理器计数里");
+
+      MusicxxExternPluginString pitchOut{};
+      const auto pitchRc = musicxx_extern_plugin_hook_emit(
+          host, viewCP("musicxx.player.pitch"), viewP(R"({"pitch":1.0})"),
+          MUSICXX_EXTERN_PLUGIN_HOOK_SYNC, 200, &pitchOut, &log);
+      const std::string pitchResult = take(pitchOut);
+      check(pitchRc == MUSICXX_EXTERN_PLUGIN_OK, "能力表注册的钩子可派发");
+      check(jsonIntField(pitchResult, "called") == "1",
+            "能力表注册的处理器被调用");
+      check(pitchResult.find("\"pitch\"") != std::string::npos,
+            "能力处理器的回答进入合并结果");
+      check(pitchResult.find("1.25") != std::string::npos,
+            "合并结果就是能力处理器给的值");
+    }
+
     int32_t fixtureHooks = -1;
     musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                      &fixtureHooks, &log);
@@ -2821,6 +2843,10 @@ int main(int argc, char **argv) {
       musicxx_extern_plugin_hook_count(host, viewCP("musicxx.song.changed"),
                                        &after, &log);
       check(after == 0, "失败对照示例卸载后无钩子残留");
+      int32_t pitchAfter = -1;
+      musicxx_extern_plugin_hook_count(host, viewCP("musicxx.player.pitch"),
+                                       &pitchAfter, &log);
+      check(pitchAfter == 0, "能力表注册的钩子随插件卸载一起摘除");
     }
   }
 
