@@ -8,6 +8,17 @@
 
 ## 历史
 
+### 变更（dev）：作者文档收成两张表，`docs/plugin-hooks.md` 删除
+
+- 插件作者看的不再是「钩子总表」，而是 **能力总表** `docs/plugin-capabilities.md`（请求 → 结果：
+  动作、插件服务、功能点、应用来问插件）与 **广播总表** `docs/plugin-broadcasts.md`
+  （通知 / 快照：状态镜像、事件、值频道）。两份都是 `tools/capabilities.def.json` 生成的。
+- `docs/plugin-api.md` 篇首改成「两件事」，§2 / §4 / §5 归广播，§3 / §6 / §7 / §8 归能力；
+  写法（注册、阶段顺序、裁决对象、异步、处理器里不该做的事）仍在 §8。
+- 声明源没变：`tools/capabilities.def.json`（能力 + 广播）与 `tools/hooks.def.json`
+  （派发层：处理器链的模式 / 合并策略 / 阶段）。`docs/plugin-hooks.md` 是同一批 id 的第三份清单，
+  已删除，`dart run tools/gen_contract.dart` 不再生成它。
+
 ### 变更（破坏性，dev）：JS 插件入口收敛成「能力 + 广播」
 
 内置 JS 引擎跟着框架 ABI 2 一起改，**不保留旧名字**（老脚本加载时会报错）：

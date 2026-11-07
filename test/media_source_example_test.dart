@@ -726,7 +726,7 @@ class _Harness {
   }
 }
 
-/// 取裁决里的 `src` 对象（插件框架会把 `patch` 合并到顶层，见 docs/plugin-hooks.md）
+/// 取裁决里的 `src` 对象（插件框架会把 `patch` 合并到顶层，见 docs/plugin-capabilities.md）
 Map<String, Object?> _srcOf(Map<String, Object?> verdict) {
   final Object? src = verdict['src'];
   expect(src, isA<Map<String, Object?>>(), reason: '裁决里应有 src: $verdict');
