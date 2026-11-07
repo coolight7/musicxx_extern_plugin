@@ -1090,8 +1090,8 @@
     {
       "id": "musicxx.playlist.querySongs",
       "dart": "playlistQuerySongs",
-      "title": "",
-      "depict": "",
+      "title": "读歌单歌曲",
+      "depict": "读一张歌单（或当前播放列表）里的歌曲，可截断与要完整字段",
       "impls": "one",
       "phases": [
         "impl"
@@ -1115,8 +1115,8 @@
     {
       "id": "musicxx.playlist.play",
       "dart": "playlistPlay",
-      "title": "",
-      "depict": "",
+      "title": "播放歌单",
+      "depict": "打开一张歌单并从指定位置开始播",
       "impls": "one",
       "phases": [
         "impl"
@@ -1265,8 +1265,8 @@
     {
       "id": "musicxx.songlist.querySongs",
       "dart": "songlistQuerySongs",
-      "title": "",
-      "depict": "",
+      "title": "读播放列表歌曲",
+      "depict": "读当前播放列表里的歌曲，可截断与要完整字段",
       "impls": "one",
       "phases": [
         "impl"
@@ -1290,8 +1290,8 @@
     {
       "id": "musicxx.songlist.playSong",
       "dart": "songlistPlaySong",
-      "title": "",
-      "depict": "",
+      "title": "播播放列表里的歌",
+      "depict": "按 sid 播放当前播放列表里的某一首",
       "impls": "one",
       "phases": [
         "impl"

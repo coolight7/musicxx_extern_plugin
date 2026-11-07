@@ -102,9 +102,9 @@ abstract final class MusicxxCapabilityId {
   static const String playerSetMediaType = 'musicxx.player.setMediaType';
   /// musicxx.playlist.queryLists
   static const String playlistQueryLists = 'musicxx.playlist.queryLists';
-  /// musicxx.playlist.querySongs
+  /// 读歌单歌曲
   static const String playlistQuerySongs = 'musicxx.playlist.querySongs';
-  /// musicxx.playlist.play
+  /// 播放歌单
   static const String playlistPlay = 'musicxx.playlist.play';
   /// musicxx.playlist.addSong
   static const String playlistAddSong = 'musicxx.playlist.addSong';
@@ -116,9 +116,9 @@ abstract final class MusicxxCapabilityId {
   static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
   /// musicxx.playlist.syncSongs.sync
   static const String playlistSyncSongsSync = 'musicxx.playlist.syncSongs.sync';
-  /// musicxx.songlist.querySongs
+  /// 读播放列表歌曲
   static const String songlistQuerySongs = 'musicxx.songlist.querySongs';
-  /// musicxx.songlist.playSong
+  /// 播播放列表里的歌
   static const String songlistPlaySong = 'musicxx.songlist.playSong';
   /// musicxx.songlist.addSong
   static const String songlistAddSong = 'musicxx.songlist.addSong';
@@ -1354,8 +1354,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '读歌单歌曲',
+      depict: '读一张歌单（或当前播放列表）里的歌曲，可截断与要完整字段',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.playlist.play',
@@ -1369,8 +1369,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '播放歌单',
+      depict: '打开一张歌单并从指定位置开始播',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.playlist.addSong',
@@ -1459,8 +1459,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '读播放列表歌曲',
+      depict: '读当前播放列表里的歌曲，可截断与要完整字段',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.songlist.playSong',
@@ -1474,8 +1474,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '播播放列表里的歌',
+      depict: '按 sid 播放当前播放列表里的某一首',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.songlist.addSong',
