@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 
 import 'actions.dart';
 import 'bindings_generated.dart';
+import 'broadcasts.dart';
 import 'events.dart';
 import 'hooks.dart';
 import 'manager.dart';
@@ -155,6 +156,10 @@ class MusicxxPluginRuntime {
   late final MusicxxPluginHooks hooks = MusicxxPluginHooks.internal(this);
   late final MusicxxPluginState state = MusicxxPluginState.internal(this);
   late final MusicxxPluginActions actions = MusicxxPluginActions.internal(this);
+
+  /// 广播频道发布（事件类频道，例如 `musicxx.song.changed`）
+  late final MusicxxPluginBroadcasts broadcasts =
+      MusicxxPluginBroadcasts.internal(this);
 
   /// 变量通道（`musicxx.vars`；官方键的真值在主程序，见 [MusicxxPluginVars]）
   late final MusicxxPluginVars vars = MusicxxPluginVars.internal(this);

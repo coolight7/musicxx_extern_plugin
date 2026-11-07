@@ -103,14 +103,11 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 | 命名空间 | 用途 | 详细 |
 |---|---|---|
-| `musicxx.hooks` | 注册 / 注销钩子处理器、读谁在提供这个钩子 | §4；[plugin-api.md](plugin-api.md) §8 |
-| `musicxx.state.get` | 同步读状态镜像 | §5 |
+| `musicxx.capability` | 实现应用声明的能力（钩子）、注册自己的能力 / 调用别的插件的能力、读谁在实现 | §4、§10；[plugin-api.md](plugin-api.md) §6 / §8 |
+| `musicxx.broadcast` | 广播：读当前值、订阅、发布，以及声明自己的值频道（变量） | §5、§8、§9；[plugin-api.md](plugin-api.md) §4 / §5 |
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
 | `musicxx.call` | 通用动作请求（返回 Promise） | §7 |
 | `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
-| `musicxx.events` | 事件总线（发布 / 订阅） | §8；[plugin-api.md](plugin-api.md) §4 |
-| `musicxx.vars` | 变量：读 / 写 / 订阅 / 注册自己的变量 | §9；[plugin-api.md](plugin-api.md) §5 |
-| `musicxx.capability` | 注册自己的能力 / 调用别的插件的能力 | §10；[plugin-api.md](plugin-api.md) §6 |
 | `musicxx.feature` | 功能点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
 | `musicxx.timer` / `musicxx.util` | 定时器与工具 | §13 |
 | `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id | — |
@@ -121,45 +118,48 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 ---
 
-## 4. 钩子
+## 4. 能力（实现应用声明的钩子）
 
-### 4.1 注册与注销
+> 概念与载荷见 [plugin-hooks.md](plugin-hooks.md)；这里只说 JS 的写法。
+> **观察型钩子在框架 API 2 之后是广播频道**：用 `musicxx.broadcast.subscribe(id, fn)` 订阅，
+> 不再写成钩子（`mode: "observe"` 会被拒绝，报错会告诉你改用广播）。
+
+### 4.1 实现与注销
 
 ```js
-musicxx.hooks.register(id, { phase, mode, priority, ownerTag }, fn);
-musicxx.hooks.unregister(id);           // 摘掉这个钩子上自己的全部阶段
-musicxx.hooks.unregister(id, "after");  // 只摘那个阶段
-musicxx.hooks.has(id);                  // 自己注册了没有（缺省看 impl 阶段）
-musicxx.hooks.has(id, "after");         // 某个阶段注册了没有
-musicxx.hooks.handlers(id);             // Promise：谁注册了这个钩子（见下）
-musicxx.hooks.handlers(id, "after");    // 只看一个阶段（缺省 = 全部阶段）
+musicxx.capability.implement(id, { phase, priority, ownerTag }, fn);
+musicxx.capability.unregister(id);           // 摘掉这条能力上自己的全部阶段
+musicxx.capability.unregister(id, "after");  // 只摘那个阶段
+musicxx.capability.has(id);                  // 自己实现了吗（缺省看 impl 阶段）
+musicxx.capability.has(id, "after");         // 某个阶段实现了没有
+musicxx.capability.handlers(id);             // Promise：谁实现了这条能力（见下）
+musicxx.capability.handlers(id, "after");    // 只看一个阶段（缺省 = 全部阶段）
 ```
 
-- `id` 必须是**全名**（官方 `musicxx.*`）；插件框架的约定表里没有的钩子会被拒绝；
+- `id` 必须是**全名**（官方 `musicxx.*`）；插件框架的约定表里没有的能力会被拒绝；
 - `phase`：参与方式 —— `"before"`（前链：改输入 / `stop`）、`"impl"`（实现链，**不写就是它**）、
-  `"after"`（后链：改输出 / `drop`）。只能注册钩子声明过的阶段（[plugin-hooks.md](plugin-hooks.md)
+  `"after"`（后链：改输出 / `drop`）。只能实现能力声明过的阶段（[plugin-hooks.md](plugin-hooks.md)
   的「阶段」列），否则插件框架会拒绝并在日志里说明；**前链 / 后链必须是同步返回**（返回 Promise
   拿不到结果），要逐步串行；
 - **后链是逆序执行的**（优先级降序、同优先级注册顺序也反）：外置插件最后改输出，
   应用自己的兜底实现不能盖掉你的改写。顺序说明见 [plugin-api.md](plugin-api.md) §8.1；
-- `mode`：`"observe"` = 只观察（返回值忽略）；其它值（含不写）= `"decision"` 裁决型；
 - `priority`：小者先执行；同优先级按注册顺序；
-- `ownerTag`：同一插件在同一个钩子上区分多个处理器的标记。**同一个阶段**不要用不同 ownerTag
+- `ownerTag`：同一插件在同一条能力上区分多个处理器的标记。**同一个阶段**不要用不同 ownerTag
   注册两次（见 §15 常见坑）；不同阶段可以用同一个 ownerTag，互不覆盖；
-- `fn(ctx)`：`ctx` 是钩子载荷（JSON 对象，字段见 [plugin-hooks.md](plugin-hooks.md)）；
+- `fn(ctx)`：`ctx` 是载荷（JSON 对象，字段见 [plugin-hooks.md](plugin-hooks.md)）；
   返回 `null` / `undefined` = 不裁决。
 
 同一条钩子上的三个阶段写法：
 
 ```js
 // 前链：改输入（这一步累加的 patch 会交给下一步与实现链）；action=stop 表示这次不执行实现
-musicxx.hooks.register("musicxx.player.seek", { phase: "before" }, (ctx) => {
+musicxx.capability.implement("musicxx.player.seek", { phase: "before" }, (ctx) => {
     if (ctx.to > 600000) return { patch: { to: 600000 } };
     return null;
 });
 
 // 后链：改输出（拿到的是上一步的输出，不是原始载荷）；action=drop 表示这次没有结果
-musicxx.hooks.register("musicxx.player.seek", { phase: "after" }, (ctx) => {
+musicxx.capability.implement("musicxx.player.seek", { phase: "after" }, (ctx) => {
     // ctx.to / ctx.from / ctx.durationMs 仍然在，ctx.value 是当前的合并结果
     return { value: { action: "continue", patch: { to: 60000 } } };
 });
@@ -167,7 +167,7 @@ musicxx.hooks.register("musicxx.player.seek", { phase: "after" }, (ctx) => {
 
 ```js
 // 观察型：切歌时打一条日志
-musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
+musicxx.broadcast.subscribe("musicxx.song.changed", (ctx) => {
     musicxx.host.log(2, "正在播放: " + ((ctx.song && ctx.song.name) || "未知"));
 });
 ```
@@ -175,19 +175,19 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
 顶层同步注册会在脚本执行结束后由引擎统一登记；**运行期**调用 `register` / `unregister` 同样生效
 （插件框架把它投递到框架线程执行，不在脚本线程等待）。
 
-**想知道"这个钩子现在有谁在提供"**用 `musicxx.hooks.handlers(id)`（异步，读的是插件框架的权威数据）：
+**想知道"这个钩子现在有谁在提供"**用 `musicxx.capability.handlers(id)`（异步，读的是插件框架的权威数据）：
 
 ```js
-musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
+musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
     // info = {hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}],
     //         listAvailable}
     // handlers 按**前链调用顺序**（priority 升序，同优先级按注册顺序）给出，phase 标明它在哪个阶段
-    if (info.count === 0) { musicxx.hooks.register("musicxx.media.spectrum.extract", fn); }
+    if (info.count === 0) { musicxx.capability.implement("musicxx.media.spectrum.extract", fn); }
 });
 ```
 
 `listAvailable` 为 `false` 表示插件框架库太旧（只有数量，看 `count`）。`count` 是**全部阶段**的
-总数；只看某个阶段传第二个参数（`musicxx.hooks.handlers(id, "after")`）。主程序的自省（命令行
+总数；只看某个阶段传第二个参数（`musicxx.capability.handlers(id, "after")`）。主程序的自省（命令行
 `featurePoint.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
 与"用户看到的"一致。
 
@@ -207,7 +207,7 @@ musicxx.hooks.handlers("musicxx.media.spectrum.extract").then((info) => {
 ### 4.3 异步裁决（返回 Promise）
 
 ```js
-musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, (ctx) => {
+musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, (ctx) => {
     if (ctx.to >= 0.25 && ctx.to <= 3) return null;      // 当场不表态：最省时
     return new Promise((resolve) => {                     // 异步路径
         setTimeout(() => resolve({ patch: { to: 3 } }), 20);
@@ -268,13 +268,13 @@ JS 侧需要记住的几条：
 > 这里只说 JS 侧的用法。
 
 ```js
-const song = musicxx.state.get("musicxx.state.song");   // 没推送过 → null
-const playing = (musicxx.state.get("musicxx.state.env") || {}).isPlaying === true;
+const song = musicxx.broadcast.read("musicxx.state.song");   // 没推送过 → null
+const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying === true;
 ```
 
 要点（键与字段的完整清单见 [plugin-api.md](plugin-api.md) §2）：
 
-- `state.get` 是**同步**读（读插件框架里的快照），没有网络与 IO，可以放在钩子处理器、定时器、
+- `musicxx.broadcast.read` 是**同步**读（读插件框架里的快照），没有网络与 IO，可以放在钩子处理器、定时器、
   页面能力处理器里；
 - 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`
   （`musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送，读到的永远是 `null`）；
@@ -289,7 +289,7 @@ const playing = (musicxx.state.get("musicxx.state.env") || {}).isPlaying === tru
 - 变化通知：订阅 `musicxx.state.changed`（载荷 `{key, value}`）：
 
   ```js
-  musicxx.events.subscribe("musicxx.state.changed", (payload) => {
+  musicxx.broadcast.subscribe("musicxx.state.changed", (payload) => {
       if (payload.key === "musicxx.state.song") { /* 刷新自己的界面数据 */ }
   });
   ```
@@ -362,19 +362,22 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 | 分类 | 方法 |
 |---|---|
-| `musicxx.hooks` | `register(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)` |
+| `musicxx.capability` | `implement(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)`（实现应用声明的能力 = 钩子） **+** `register(name, fn)` `call(id, method, args?, timeoutMs?)`（自己提供给别人的能力） |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
 | `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)` `syncSongs(args)`（歌单：保存下来的列表；`syncSongs` = 同步歌单音源，把绑定音源里新增的歌加进歌单） |
 | `musicxx.songlist` | `querySongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（播放列表：当前正在播的那一串歌） |
 | `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
 | `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
-| `musicxx.vars` | `get(key, options?)` `getMany(keys, options?)` `peek(key)` `watch/unwatch(key)` `set(key, value)` `bind(key, fn)` `unbind(key, fn?)` `register(spec)` `unregister(key)` `has(key)` `info(key)` `list(prefix?)` `own()` `subscribers(key)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
 | `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
+
+`musicxx` 全局对象上还有两个**不是** `musicxx.call` 封装的名字空间：`musicxx.capability`（能力：
+实现应用声明的能力、注册自己的能力、调别的插件、自省）与 `musicxx.broadcast`（广播：读当前值、
+订阅、发布、声明自己的值频道），方法见 §3 的表与 §4 / §5 / §8 / §9 / §10。
 
 `musicxx.library`（`querySongs` / `querySonglists` / `playSong` / `playSonglist`）是**过时的对象**：
 名字还能用，内部已转成 `musicxx.playlist` / `musicxx.songlist` 的动作名，老脚本不用改；
@@ -599,12 +602,16 @@ await musicxx.ui.overlayClose();                              // 自己收起当
 
 ---
 
-## 8. 事件
+## 8. 广播（事件频道：发布 / 订阅）
+
+> 广播就是“有人发了、关心的人都能收到”的频道。带当前值的（`cache: latest`，例如 `musicxx.state.*`、变量）
+> 另外还能同步 `read`；没有当前值的（`cache: none`，例如 `musicxx.song.changed`）只有事件。
+> 频道清单与字段见 [plugin-broadcasts.md](plugin-broadcasts.md)，变量键目录见 [plugin-vars.md](plugin-vars.md)。
 
 ```js
-musicxx.events.subscribe("musicxx.state.changed", (payload, topic) => { /* ... */ });
-musicxx.events.publish("plugin.my_plugin.hello", { at: Date.now() });
-musicxx.events.unsubscribe("musicxx.state.changed");
+musicxx.broadcast.subscribe("musicxx.state.changed", (payload, topic) => { /* ... */ });
+musicxx.broadcast.publish("plugin.my_plugin.hello", { at: Date.now() });
+musicxx.broadcast.unsubscribe("musicxx.state.changed");
 ```
 
 - **订阅**：顶层声明或运行期订阅都可以；可订阅官方 `musicxx.*` 主题，以及其它插件的
@@ -626,7 +633,7 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 
 ---
 
-## 9. 变量（有属主、可读、可写、可订阅变动的小值）
+## 9. 值频道（变量：有属主、可读、可写、可订阅变动的小值）
 
 > 概念、与邻居的分工（镜像 / 动作 / 事件 / 变量怎么选）、三条读法的取舍、注册与 handler 模式、
 > 错误码与超时，都在 [plugin-api.md](plugin-api.md) §5；官方变量目录见
@@ -634,26 +641,26 @@ musicxx.events.unsubscribe("musicxx.state.changed");
 
 ```js
 // 读：权威读（异步）/ 一次读多个 / 同步读缓存 / 变化回调 / 只保活缓存
-var level = await musicxx.vars.get("musicxx.ui.animatedLevel");
-var values = await musicxx.vars.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
-musicxx.vars.watch("musicxx.ui.songIconWave");
-var cached = musicxx.vars.peek("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
-var off = musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
+var level = await musicxx.broadcast.get("musicxx.ui.animatedLevel");
+var values = await musicxx.broadcast.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
+musicxx.broadcast.watch("musicxx.ui.songIconWave");
+var cached = musicxx.broadcast.read("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
+var off = musicxx.broadcast.subscribe("musicxx.ui.animatedLevel", function (value, info) {
     musicxx.host.log(2, "动画等级变成 " + value + "（由 " + (info.by || "应用") + " 改的）");
 });
 off();                                   // bind 返回解绑函数；unbind(key, fn) 也可以
 
 // 写：结果 {key, accepted, value, changed, error?}
-var result = await musicxx.vars.set("musicxx.theme.mode", "night");
+var result = await musicxx.broadcast.write("musicxx.theme.mode", "night");
 if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
 
 // 注册自己的变量（短名，框架补 plugin.<自己 id>. 前缀）
-musicxx.vars.register({ key: "tip.start", caps: ["get", "set", "notify"], type: "bool", value: false,
+musicxx.broadcast.declare({ key: "tip.start", caps: ["get", "set", "notify"], type: "bool", value: false,
                         title: "开场提示", depict: "为真时播放页显示一句开场提示" });
-musicxx.vars.unregister("tip.start");
+musicxx.broadcast.undeclare("tip.start");
 
 // 自省：has(key) / info(key) / list(prefix?) / own() / subscribers(key)
-musicxx.vars.subscribers("tip.start");   // 判断"还要不要继续高频推"
+musicxx.broadcast.subscribers("tip.start");   // 判断"还要不要继续高频推"
 ```
 
 handler 模式（值本来就在脚本里，不想再维护一份副本）：
@@ -661,7 +668,7 @@ handler 模式（值本来就在脚本里，不想再维护一份副本）：
 ```js
 var tipStart = false;                    // 唯一真值在脚本里
 
-musicxx.vars.register({
+musicxx.broadcast.declare({
   key: "tip.start",
   caps: ["get", "set", "notify"],
   mode: "handler",
@@ -674,15 +681,15 @@ musicxx.vars.register({
   }
 });
 
-function setTipStart(next) { tipStart = next; musicxx.vars.set("tip.start", next); }  // 自己改了要主动提交
+function setTipStart(next) { tipStart = next; musicxx.broadcast.write("tip.start", next); }  // 自己改了要主动提交
 ```
 
 JS 侧要记住的几条：
 
-- **`peek` 是同步的**（返回 `null` = 没缓存过），`get` / `set` 返回 Promise：
+- **`read` 是同步的**（返回 `null` = 没缓存过），`get` / `write` 返回 Promise：
   `get` 失败走 Promise 拒绝（`变量不存在` / `该变量不可读` / `读取超时`）；`set` 被拒时
   `result.accepted === false`（不会抛异常）；
-- `watch` 只是"订阅但不回调"，用来让 `peek` 有新鲜值（需要该变量声明了 `notify` 能力位）；
+- `watch` 只是"订阅但不回调"，用来让 `read` 有新鲜值（需要该变量声明了 `notify` 能力位）；
 - `register` 的 `onRead` / `onWrite` **可以返回 Promise**（框架等它结算）；`onWrite` 抛异常会被转成一次
   "拒绝"，异常文案带给写入方；
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销自己的全部变量；每次启用脚本都会重新声明一遍；
@@ -707,7 +714,7 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 - **处理器里不要等动作**：主程序打开页面 / 点按钮会等能力结果，而主程序动作要由主程序线程执行 ——
   处理器里 `await` 一个动作会与动作执行互相等下去（表现是"整个主程序卡住几秒 + 调用插件能力失败"）。
   异步处理器本身没问题（例如等 JS 定时器、等跨插件调用），只是不要等**主程序**动作：
-  - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）读状态镜像（`musicxx.state.get`）；
+  - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）同步读广播缓存（`musicxx.broadcast.read`）；
   - 要动作结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
     —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
   同一条规则也适用于**同步派发**的钩子（`musicxx.player.beforePlaySong` 等调用点就地等待的钩子）：
@@ -717,7 +724,7 @@ const info = await musicxx.capability.call("example_native", "probe", {});
   **Dart 侧的回答不经过框架线程**（先问 JS 引擎自己的请求登记表），所以处理器里
   `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果
   —— `plugins/example_override_media_source` 就是靠这一条把 BV 号换成播放地址。
-  但仍然**只等主程序动作**：`musicxx.vars.*`、跨插件调用、`musicxx.hooks.*` 这些要框架线程处理的
+  但仍然**只等主程序动作**：`musicxx.broadcast.*`、跨插件调用、`musicxx.capability.*` 这些要框架线程处理的
   接口在处理器里等会一直等到超时（框架线程正卡在等这个处理器返回）。异步钩子里要这类数据请读
   状态镜像，或者提前存在脚本里。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
@@ -849,7 +856,7 @@ await musicxx.render.select("builtin:Auto", { slot: "player.background" });   //
 const cur = await musicxx.render.current();     // { ok, slot, id, title, source:"builtin"|"plugin", plugin, night }
 
 // 「现在是不是本插件在画」：同步读状态镜像
-const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.background"];
+const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
 if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 本插件在画 */ }
 ```
 
@@ -884,7 +891,7 @@ await musicxx.media.setPalette({ main: "#ff8844", dark: "#20222a" });
 // 等动作会把两边互相拖住，表现是"切歌 / 换背景样式卡几秒"（实测踩过）。
 // 正确写法：命中的缓存**同步**返回，没命中就返回 null（应用走它自己的快速取色），
 // 同时在后台算，算好用 `musicxx.media.setPalette` 主动写回。
-musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
+musicxx.capability.implement("musicxx.media.palette.provide", function (payload) {
     // payload = { srcKey, name, artist, hasCover, night }
     if (!payload || payload.hasCover !== true) return null;
     const cached = paletteCache[payload.srcKey];
@@ -894,7 +901,7 @@ musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
 });
 
 // 换歌时先把颜色算起来（观察型），应用来问时通常已经命中缓存
-musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (payload) => {
+musicxx.broadcast.subscribe("musicxx.media.cover.changed", (payload) => {
     if (payload && payload.hasCover === true) warmPalette(payload.srcKey);
 });
 
@@ -924,7 +931,7 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
 // 所以只在自己本来就要分析音频时才注册它。给了数据 → 应用直接用它（进度条波形、播放页动效、
 // 状态镜像、MCP 能力都用这一份）；返回 null → 应用接着用已登记的实现（装了『音乐动效』
 // 就是它自己的提取）；都没有 → 这个功能整体不可用（用户会看到"没有插件提供频谱提取实现"）。
-musicxx.hooks.register("musicxx.media.spectrum.extract", function (payload) {
+musicxx.capability.implement("musicxx.media.spectrum.extract", function (payload) {
     // payload = { srcKey, name, artist, kind, path, durationMs,
     //             frames, binCount, frameHz, maxSeconds }
     const hit = spectrumCache[payload.srcKey];
@@ -935,7 +942,7 @@ musicxx.hooks.register("musicxx.media.spectrum.extract", function (payload) {
 });
 
 // 提供"副歌分析"实现（替代内置算法）：应用要分析副歌时先问插件
-musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
+musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) {
     // payload = { srcKey, name, artist, kind, path, durationMs, hasWave,
     //             frames, binCount, frameHz, spectrums?, waveform?, config }
     // hasWave 为真时附带应用已经拿到的整曲频谱（base64，可能几百 KB）：可以用自己的算法
@@ -967,13 +974,13 @@ musicxx.hooks.register("musicxx.media.chorus.analyse", function (payload) {
   采样就声明渲染项的 `cover` / `image`；**可以回退移除**，插件停用 / 卸载时插件框架也会自动摘掉：
 
 ```js
-musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, (ctx) => {
+musicxx.broadcast.subscribe("musicxx.media.cover.changed", (ctx) => {
     // ctx = { srcKey, name, artist, hasCover, kind }
     myOverlay.refresh(ctx);          // 例如自己算色、刷新自己的界面、通知自己下载的素材
 });
 
 // 回退移除这个绑定（移除后不再收到通知）
-musicxx.hooks.unregister("musicxx.media.cover.changed");
+musicxx.capability.unregister("musicxx.media.cover.changed");
 ```
 
 - 主程序**每帧**把 `args` 声明的成员写进 uniform（`uParams` / `uEnv` 是自动成员），所以
@@ -981,7 +988,7 @@ musicxx.hooks.unregister("musicxx.media.cover.changed");
   频谱来源（`musicxx.spectrum.*`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）
   是例外：没有数据时写 0（静音），要看 `uEnv.z` 判断"现在有没有数据"；
 - 只想让画面跟着音乐动，用着色器参数来源就够了（每帧现读、零成本）；需要把频谱画成
-  自己的界面（柱状图、波形历史）时，用 `musicxx.state.get("musicxx.state.spectrum")`
+  自己的界面（柱状图、波形历史）时，用 `musicxx.broadcast.read("musicxx.state.spectrum")`
   在自己的定时器里同步读（播放中约 10 Hz 更新），或按自己的节奏调用
   `musicxx.media.spectrum`；
 - 频谱数值**已经是渲染用的**（每帧按自己的最高频点归一、再把高低差拉开），直接画即可，
@@ -1096,10 +1103,10 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 
 | 位置 | 演示了什么 |
 |---|---|
-| `musicxx.hooks.register("musicxx.player.beforePlaySong")` | 裁决型钩子：命中就跳过本曲 |
-| `musicxx.hooks.register("musicxx.song.changed")` | 观察型钩子 + 状态镜像 |
-| `musicxx.hooks.register("musicxx.player.error")` | 错误裁决（换源建议） |
-| `musicxx.hooks.register("musicxx.player.speed")` | 异步裁决（Promise）的写法 |
+| `musicxx.capability.implement("musicxx.player.beforePlaySong")` | 裁决型钩子：命中就跳过本曲 |
+| `musicxx.capability.implement("musicxx.song.changed")` | 观察型钩子 + 状态镜像 |
+| `musicxx.capability.implement("musicxx.player.error")` | 错误裁决（换源建议） |
+| `musicxx.capability.implement("musicxx.player.speed")` | 异步裁决（Promise）的写法 |
 | `musicxx.timer.setInterval` | 后台定时任务（心跳日志） |
 | `musicxx.ui.registerEntry` | 主页入口 + 歌曲菜单项 |
 | `musicxx.capability.register("card"/"settings")` | 功能页与设置页（自绘） |

@@ -452,7 +452,7 @@ musicxx.capability.register("probe", function () {
 ///
 /// 只做三件事：确认是自己的类型 → 指纹对得上 → 登记 token 拿一个本机地址。
 /// 不登录、不查大小（那些都在真正播放的 HTTP 请求里做）。
-musicxx.hooks.register("musicxx.player.source.resolve", {
+musicxx.capability.implement("musicxx.player.source.resolve", {
     mode: "decision",
     ownerTag: PLUGIN_ID + ".ftp"
 }, function (ctx) {

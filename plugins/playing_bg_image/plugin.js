@@ -792,7 +792,7 @@ function foregroundSpecsSignature() {
 
 /// 当前歌曲的身份（换歌判断用；镜像里没有就是空串）
 function currentSongKey() {
-    const song = musicxx.state.get("musicxx.state.song");
+    const song = musicxx.broadcast.read("musicxx.state.song");
     if (song && typeof song.srcKey === "string") {
         return song.srcKey;
     }
@@ -884,7 +884,7 @@ function applyForegroundLater() {
 /// 只在还没有值时用它当初始值：运行期切了主题镜像不会更新（主程序只在启动时推这个键），
 /// 拿它当"当前值"会和当场查询的结果打架，配色就会隔一会儿跳一次。
 function isNightFromMirror() {
-    const app = musicxx.state.get("musicxx.state.app");
+    const app = musicxx.broadcast.read("musicxx.state.app");
     if (app && typeof app.isNight === "boolean") {
         return app.isNight;
     }
@@ -972,7 +972,7 @@ function foregroundStateText() {
     if (null === isNightNow) {
         return "读取中";
     }
-    if (false == musicxx.hooks.has("musicxx.media.palette.provide")) {
+    if (false == musicxx.capability.has("musicxx.media.palette.provide")) {
         return "取色未注册";
     }
     const mode = currentMode();
@@ -1482,7 +1482,7 @@ function warmPalette(key) {
 ///   `musicxx.media.palette.set` 写回（颜色稍后会被插件的算法替换）。
 ///
 /// **处理器绝不返回 Promise**：见 [warmPalette] 的说明。
-musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
+musicxx.capability.implement("musicxx.media.palette.provide", function (payload) {
     // 载荷里的 night 是当场算的：主题切了状态镜像不会更新，这里顺手校正一次
     // （处理器里不直接调主程序动作，排到本次之后重推前景三色）
     if (payload) {
@@ -1506,7 +1506,7 @@ musicxx.hooks.register("musicxx.media.palette.provide", function (payload) {
 });
 
 /// 封面变化（观察型）：换歌时先把颜色算起来，等应用来问时通常已经命中
-musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, function (payload) {
+musicxx.broadcast.subscribe("musicxx.media.cover.changed", function (payload) {
     const key = (payload && typeof payload.srcKey === "string") ? payload.srcKey : "";
     if (!payload || payload.hasCover !== true) {
         onCoverMissing(key);
@@ -1543,7 +1543,7 @@ let lastLinkNote = "";
 
 /// 读一个槽位的状态（同步读，不产生动作往返）
 function slotOf(slotId) {
-    const slots = musicxx.state.get("musicxx.state.renderSlots") || {};
+    const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
     return slots[slotId] || null;
 }
 
@@ -1717,7 +1717,7 @@ function renderStateText() {
 
 /// 取色状态文本
 function paletteStateText() {
-    if (false == musicxx.hooks.has("musicxx.media.palette.provide")) {
+    if (false == musicxx.capability.has("musicxx.media.palette.provide")) {
         return "未注册";
     }
     return "已注册 · 缓存 " + Object.keys(paletteCache).length + "/" +
@@ -1726,7 +1726,7 @@ function paletteStateText() {
 
 /// 取色的详细计数（写在说明里：它是会变的数字，放在右侧状态位会把行撑长）
 function paletteDetailText() {
-    if (false == musicxx.hooks.has("musicxx.media.palette.provide")) {
+    if (false == musicxx.capability.has("musicxx.media.palette.provide")) {
         return "未注册（应用走它自己的封面取色）";
     }
     return "问过 " + paletteCalls + " 次（命中 " + paletteHits + "）、写回 " +

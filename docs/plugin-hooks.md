@@ -39,7 +39,7 @@ extern  ---------->  builtin  ---------->  core
 
 ## 怎么读这张表
 
-- **主程序是否已接入**：`已接入` = 主程序已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；`未接入` = 钩子约定已经定下来、主程序**还没有接**（注册不会报错，但当前版本不会触发）。想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。
+- **主程序是否已接入**：`已接入` = 主程序已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；`未接入` = 钩子约定已经定下来、主程序**还没有接**（注册不会报错，但当前版本不会触发）。想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），或在插件里调 `musicxx.capability.has(id)`（只反映自己注册没注册），观察型钩子的订阅方用 `musicxx.capability.handlers(id)`（现在它们已经是广播频道，用`musicxx.broadcast.subscribe` 订阅）。
 - **模式**：`observe` = 只通知（返回值忽略、不等待）；`decision` = 可裁决，返回 `null` 表示这次不表态。
 - **派发**：`sync` = 调用点就地等待（占用调用线程）；`async` = 不占用调用线程，裁决结果经 `musicxx.hook.decision.result` 事件回传（调用点用 `decideAsync` 时）。
 - **合并策略**：多个处理器给出裁决时怎么合并（`firstNonNull` 首个非空生效并停止询问、`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。
@@ -244,7 +244,7 @@ extern  ---------->  builtin  ---------->  core
 ### `musicxx.media.cover.changed`
 
 - 模式：`observe`；阶段：`impl`；派发：`async`；合并策略：`lastWrite`
-- 载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.hooks.unregister("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉处理器）。
+- 载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.broadcast.unsubscribe("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉订阅）。
 
 ### `musicxx.feature.point.call`
 

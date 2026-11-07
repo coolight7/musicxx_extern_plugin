@@ -32,7 +32,7 @@ let timerTicks = 0;
 
 /// 读当前歌曲名 (来自主程序状态镜像的只读快照, 同步读取)
 function currentSongName() {
-    const song = musicxx.state.get("musicxx.state.song");
+    const song = musicxx.broadcast.read("musicxx.state.song");
     if (song && typeof song.name === "string") {
         return song.name;
     }
@@ -42,7 +42,7 @@ function currentSongName() {
 /// 裁决型钩子: 播放前跳过"广告"曲目
 /// 开关来自插件自己的配置 (config.json 的 skipAds; 脚本给默认值 true,
 /// 在自绘设置页里切换, 见下面的 settingsView)。
-musicxx.hooks.register("musicxx.player.beforePlaySong", { mode: "decision", priority: 0 }, function (ctx) {
+musicxx.capability.implement("musicxx.player.beforePlaySong", { mode: "decision", priority: 0 }, function (ctx) {
     const name = (ctx && ctx.song && ctx.song.name) ? String(ctx.song.name) : "";
     if (!skipAdsEnabled()) {
         return null;
@@ -54,8 +54,8 @@ musicxx.hooks.register("musicxx.player.beforePlaySong", { mode: "decision", prio
     return null;
 });
 
-/// 观察型钩子: 切歌通知 (异步执行, 不阻塞调用点)
-musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, function (ctx) {
+/// 观察型通知: 切歌 (广播频道 `musicxx.song.changed`, 不阻塞调用点)
+musicxx.broadcast.subscribe("musicxx.song.changed", function (ctx) {
     songChangedCount += 1;
     lastSongName = (ctx && ctx.song && ctx.song.name) ? String(ctx.song.name) : "";
     musicxx.host.log(2, "切歌: " + lastSongName);
@@ -68,7 +68,7 @@ musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, function (ct
 });
 
 /// 裁决型钩子: 播放错误 (首个错误建议换源, 之后交给主程序原有策略)
-musicxx.hooks.register("musicxx.player.error", { mode: "decision", priority: 0 }, function (ctx) {
+musicxx.capability.implement("musicxx.player.error", { mode: "decision", priority: 0 }, function (ctx) {
     errorCount += 1;
     if (errorCount === 1) {
         return { action: "continue", patch: { tryNextSrc: true } };
@@ -87,7 +87,7 @@ musicxx.hooks.register("musicxx.player.error", { mode: "decision", priority: 0 }
 /// 这里演示"限速"这一常见需求: 先把 0.25~3 之外的速度夹回来。
 /// 说明: 真实插件通常在这里 `await` 一次异步来源 (存储/网络/其它插件能力);
 /// 用 Promise 只是让"异步裁决"这条路走通, 拿不到结果时插件应当不裁决。
-musicxx.hooks.register("musicxx.player.speed", { mode: "decision" }, function (ctx) {
+musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, function (ctx) {
     const to = (ctx && typeof ctx.to === "number") ? ctx.to : 1;
     if (to >= 0.25 && to <= 3) {
         return null;   // 同步路径: 不需要裁决时立刻返回 (最省时)
@@ -357,12 +357,12 @@ musicxx.capability.register("cycleHeartbeat", function (args) {
     return { view: settingsView(args, { heartbeatMs: next }) };
 });
 
-/// 变量通道 (musicxx.vars)
+/// 值频道 (`musicxx.broadcast`)
 ///
 /// 变量 = 有属主、可读、可写、可订阅变动的小值。这里演示两件事:
 /// 1. 注册自己的变量 (declared 模式: 值由插件框架代存, set 即提交);
 /// 2. 绑定官方变量 (用户改设置时同步自己的行为) 与异步读一次 (权威值)。
-musicxx.vars.register({
+musicxx.broadcast.declare({
     key: "demo.greeting",
     caps: ["get", "set", "notify"],
     type: "string",
@@ -371,10 +371,10 @@ musicxx.vars.register({
     depict: "演示用: 别的插件与应用都能读写它"
 });
 
-/// 官方变量变化 (bind): 用户改动画等级时会被叫到
+/// 官方变量变化 (broadcast.subscribe): 用户改动画等级时会被叫到
 let animatedLevelChanges = 0;
 let lastAnimatedLevel = "";
-musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
+musicxx.broadcast.subscribe("musicxx.ui.animatedLevel", function (value, info) {
     ++animatedLevelChanges;
     lastAnimatedLevel = String(value);
     musicxx.host.log(2, "动画等级变成 " + value + " (by=" + (info.by || "应用") + ")");
@@ -382,7 +382,7 @@ musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
 
 /// 异步、权威读一次 (启动时读就好); 结果留给 probe 展示
 let readAnimatedLevel = "(读取中)";
-musicxx.vars.get("musicxx.ui.animatedLevel").then(function (value) {
+musicxx.broadcast.get("musicxx.ui.animatedLevel").then(function (value) {
     readAnimatedLevel = String(value);
     return null;
 }, function (e) {
@@ -406,11 +406,12 @@ musicxx.capability.register("slowProbe", function (args) {
 musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
     const ui = (info && typeof info.ui === "object" && info.ui !== null) ? info.ui : null;
-    const greetingPeek = musicxx.vars.peek("demo.greeting");
+    const greetingPeek = musicxx.broadcast.read("demo.greeting");
     return {
         pluginId: musicxx.pluginId,
-        /// 4 个业务钩子 + 1 条功能点通用通道（`feature.provide` 登记的实现）
-        hookCount: 5,
+        /// 3 个裁决钩子 + 1 条功能点通用通道（`feature.provide` 登记的实现）；
+        /// 切歌通知是广播订阅，不算钩子
+        hookCount: 4,
         songChangedCount: songChangedCount,
         lastSongName: lastSongName,
         errorCount: errorCount,
@@ -431,12 +432,12 @@ musicxx.capability.register("probe", function (args) {
         configSkipAds: musicxx.storage.configCache.skipAds,
         configGreeting: musicxx.storage.configCache.greeting,
         // 变量: 自己注册的条数 / 官方变量的变化次数与最新值 / 异步读到值 / 自己变量的缓存值
-        varOwn: musicxx.vars.own().length,
+        varOwn: musicxx.broadcast.declared().length,
         animatedLevelChanges: animatedLevelChanges,
         lastAnimatedLevel: lastAnimatedLevel,
         readAnimatedLevel: readAnimatedLevel,
         greetingPeek: (greetingPeek && greetingPeek.value !== undefined) ? greetingPeek.value : null,
-        greetingSubscribers: musicxx.vars.subscribers("demo.greeting"),
+        greetingSubscribers: musicxx.broadcast.subscribers("demo.greeting"),
     };
 });
 

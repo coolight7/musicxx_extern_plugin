@@ -330,7 +330,7 @@ function onCoverChanged(payload) {
     musicxx.host.log(2, "封面变化: " + JSON.stringify(payload || {}));
 }
 
-musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, onCoverChanged);
+musicxx.broadcast.subscribe("musicxx.media.cover.changed", onCoverChanged);
 
 /// 绑定 / 解除封面变化处理器
 ///
@@ -340,9 +340,9 @@ function setCoverHookBound(bound) {
         return;
     }
     if (bound) {
-        musicxx.hooks.register("musicxx.media.cover.changed", { mode: "observe" }, onCoverChanged);
+        musicxx.broadcast.subscribe("musicxx.media.cover.changed", onCoverChanged);
     } else {
-        musicxx.hooks.unregister("musicxx.media.cover.changed");
+        musicxx.broadcast.unsubscribe("musicxx.media.cover.changed");
     }
     coverHookBound = bound;
     musicxx.host.log(2, "封面变化处理器: " + (bound ? "已绑定" : "已移除"));
@@ -350,7 +350,7 @@ function setCoverHookBound(bound) {
 
 /// 读状态镜像: 播放页背景槽位的当前状态 (同步读取, 不用等动作往返)
 function backgroundSlot() {
-    const slots = musicxx.state.get("musicxx.state.renderSlots") || {};
+    const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
     return slots["player.background"] || {};
 }
 
@@ -436,7 +436,7 @@ function renderStateText() {
 /// 镜像里的数据是"现在这一帧"的响度与 16 个频带(都是 0~1); `available` 为假时
 /// `level` / `bands` 都是 0, 用 `status` 说明原因 ("正在提取" / "未启用音乐动效" / ...)。
 function spectrumStateText() {
-    const s = musicxx.state.get("musicxx.state.spectrum");
+    const s = musicxx.broadcast.read("musicxx.state.spectrum");
     if (!s) {
         return "无状态";
     }

@@ -1846,16 +1846,16 @@ int main(int argc, char **argv) {
             "JS 裁决: 首个错误建议换源");
     }
 
-    // observe 钩子 (异步): 切歌通知 + 脚本日志
+    // 广播频道 (异步): 切歌通知 + 脚本日志
+    //
+    // 观察型钩子在框架 API 2 之后就是广播频道, 所以这里发布广播
+    // （与 Dart 侧 app 推 `musicxx.song.changed` 走的是同一条路）。
     {
-      MusicxxExternPluginString out{};
       const std::string payload =
           R"({"sid":"js4","song":{"name":"观察目标 JS"}})";
-      const auto rc = musicxx_extern_plugin_hook_emit(
-          host, viewCP("musicxx.song.changed"), viewP(payload),
-          MUSICXX_EXTERN_PLUGIN_HOOK_ASYNC, 0, &out, &log);
-      freeStr(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 观察钩子入队成功");
+      const auto rc = musicxx_extern_plugin_state_update(
+          host, viewCP("musicxx.song.changed"), viewP(payload), &log);
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "切歌广播发布成功");
 
       // 等 JS 线程执行完 (含脚本定时器 50ms)
       std::this_thread::sleep_for(std::chrono::milliseconds{500});
@@ -1863,7 +1863,7 @@ int main(int argc, char **argv) {
       check(eventsJson.find("musicxx.plugin.log") != std::string::npos,
             "JS 日志经事件回传");
       check(eventsJson.find("切歌") != std::string::npos,
-            "JS 观察钩子已执行 (切歌通知)");
+            "JS 广播订阅已执行 (切歌通知)");
     }
 
     // 能力探针 (Dart → JS): 自检信息 + 状态镜像同步读
@@ -1875,10 +1875,10 @@ int main(int argc, char **argv) {
             "JS 能力调用成功 (probe)");
       check(jsonStringField(probe, "pluginId") == "example_js",
             "JS 能力读到插件 id");
-      check(jsonIntField(probe, "hookCount") == "5",
-            "JS 注册了 5 个钩子 (含功能点通用通道)");
+      check(jsonIntField(probe, "hookCount") == "4",
+            "JS 注册了 4 个钩子 (3 个裁决 + 功能点通用通道)");
       check(jsonIntField(probe, "songChangedCount") == "1",
-            "JS 观察钩子计数为 1 (钩子真的执行了)");
+            "JS 广播订阅计数为 1 (订阅真的收到了)");
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
             "JS 同步读状态镜像 (musicxx.state.song)");
       check(jsonStringField(probe, "hostPlatform") == testPlatform(),
@@ -1888,7 +1888,7 @@ int main(int argc, char **argv) {
       // 设置界面是插件自己的页面, 不是 UI 项)
       check(jsonIntField(probe, "uiEntries") == "2",
             "JS 注册了 2 个 UI 项 (脚本侧登记)");
-      check(jsonIntField(probe, "selfStatsHooks") == "5",
+      check(jsonIntField(probe, "selfStatsHooks") == "4",
             "JS 能读自己的统计 (stats.getSelf 的钩子计数, 含功能点通道)");
       // 客户端界面能力段: 插件框架配置里给的 ui 段原样出现在 host.info() 里
       check(jsonStringField(probe, "hostUiKind") == "gui",

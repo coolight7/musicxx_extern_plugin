@@ -15,7 +15,7 @@ let runs = 0;      // 处理器被调用的次数 (验证"没有被跳过")
 let settled = 0;   // 脚本侧 Promise 结算的次数
 
 /// 裁决型钩子 (异步): 30 ms 后返回 patch
-musicxx.hooks.register("musicxx.player.seek", { mode: "decision" }, function () {
+musicxx.capability.implement("musicxx.player.seek", { mode: "decision" }, function () {
     runs += 1;
     return new Promise(function (resolve) {
         setTimeout(function () {
@@ -26,7 +26,7 @@ musicxx.hooks.register("musicxx.player.seek", { mode: "decision" }, function () 
 });
 
 /// 裁决型钩子 (异步): 1.5 秒后才结算 (插件框架会等到它结算, 裁决照常生效)
-musicxx.hooks.register("musicxx.player.volume", { mode: "decision" }, function () {
+musicxx.capability.implement("musicxx.player.volume", { mode: "decision" }, function () {
     runs += 1;
     return new Promise(function (resolve) {
         setTimeout(function () {

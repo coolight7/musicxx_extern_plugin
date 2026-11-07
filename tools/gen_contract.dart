@@ -465,7 +465,9 @@ String _generateDoc(List<Map<String, Object?>> hooks) {
       '- **主程序是否已接入**：`已接入` = 主程序已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
       '`未接入` = 钩子约定已经定下来、主程序**还没有接**（注册不会报错，但当前版本不会触发）。'
       '想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），'
-      '或在插件里调 `musicxx.hooks.has(id)`（只反映自己注册没注册）。',
+      '或在插件里调 `musicxx.capability.has(id)`（只反映自己注册没注册），'
+      '观察型钩子的订阅方用 `musicxx.capability.handlers(id)`（现在它们已经是广播频道，用'
+      '`musicxx.broadcast.subscribe` 订阅）。',
     )
     ..writeln(
       '- **模式**：`observe` = 只通知（返回值忽略、不等待）；`decision` = 可裁决，'

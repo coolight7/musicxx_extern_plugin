@@ -537,8 +537,8 @@ void main() {
     );
 
     _step('14.6 JS Promise 裁决完成');
-    // 观察型钩子 (异步) + JS 侧日志
-    runtime.hooks.observe(MusicxxPluginHookId.songChanged, <String, Object?>{
+    // 观察型通知：现在是广播频道，应用发布、插件订阅（框架 API 2）
+    runtime.broadcasts.publish('musicxx.song.changed', <String, Object?>{
       'sid': 's-js',
       'song': <String, Object?>{'name': 'JS 观察目标'},
     });
@@ -550,7 +550,7 @@ void main() {
       ),
     );
 
-    _step('15 JS 观察钩子执行完成');
+    _step('15 JS 广播订阅执行完成');
     // 能力探针: JS 侧同步读状态镜像 + 插件框架信息
     final jsProbeRaw = await runtime.plugins.call(
       'example_js',

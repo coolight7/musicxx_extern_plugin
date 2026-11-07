@@ -69,7 +69,7 @@ permissions: [musicxx.ui, musicxx.storage]   # 声明式：只做展示，运行
 ```
 
 ```js
-musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, (ctx) => {
+musicxx.broadcast.subscribe("musicxx.song.changed", (ctx) => {
     musicxx.host.log(2, "正在播放: " + ctx.song.name);
 });
 
@@ -122,11 +122,11 @@ my_plugin/
 
 | 能力 | 入口 | 要点 |
 |---|---|---|
-| 钩子 | `musicxx.hooks.register/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的钩子会触发**（见 §5.6）；`musicxx.hooks.handlers(id[, phase])` 读"这个钩子现在有谁在提供、在哪个阶段、排第几" |
+| 钩子（应用声明的能力） | `musicxx.capability.implement/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的钩子会触发**（见 §5.6）；`musicxx.capability.handlers(id[, phase])` 读"这个钩子现在有谁在提供、在哪个阶段、排第几" |
 | 动作（调主程序） | `musicxx.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
-| 状态镜像 | JS `musicxx.state.get(key)` / C++ `stateJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
-| 变量 | `musicxx.vars.get/set/bind/watch/peek` | 有属主、可读可写可订阅的小值；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
-| 事件 | `musicxx.events.subscribe/publish/unsubscribe` | 插件之间、插件与页面之间的小消息（官方主题如 `musicxx.state.changed`） |
+| 状态镜像 | JS `musicxx.broadcast.read(key)` / C++ `stateJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
+| 变量 | `musicxx.broadcast.get/write/subscribe/watch/read/declare` | 有属主、可读可写可订阅的小值（带当前值的广播频道）；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
+| 广播（事件） | `musicxx.broadcast.subscribe/publish/unsubscribe` | 插件之间、插件与页面之间的小消息（官方主题如 `musicxx.state.changed`），与变量同一组入口 |
 | 能力 | `musicxx.capability.register/call` | 自己的功能也能被别人调用；跨插件调用 JS→JS 直调、JS→原生投递（默认 3 s 超时） |
 | UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / **「添加歌曲」弹窗的来源项**（`addsong.entry`）/ 播放页背景 / 播放页歌曲图 / **播放页音频动效**（`playing.visualizer`）/ **播放页子页面插入块**（十个类型：`playing.lyric.top`、`playing.lyric.header`、`playing.moreinfo.footer`、`playing.songlist.footer` 等，类型本身就是位置） |
 | 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用动作 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
@@ -156,7 +156,7 @@ my_plugin/
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
    **例外**：异步派发的裁决钩子（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
    里 `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
-   但仍然**只能等主程序动作**：`musicxx.vars.*` / 跨插件调用 / `musicxx.hooks.*` 要框架线程处理，在处理器里等会一直等到超时。
+   但仍然**只能等主程序动作**：`musicxx.broadcast.*` / 跨插件调用 / `musicxx.capability.*` 要框架线程处理，在处理器里等会一直等到超时。
 2. **JS 顶层必须同步完成注册**，位置放 `await` 会让加载失败并回滚。
 3. **回调要尽快返回**：所有 JS插件共用一条 JS 线程；长时间同步计算或死循环会卡住其它插件，
    插件框架**不会打断脚本**，只能重启主程序。启动阶段的钩子（`app.start`）不要做重活。

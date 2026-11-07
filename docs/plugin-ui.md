@@ -656,9 +656,9 @@ musicxx.capability.register("pickQuality", async function () {
 3. **通过官方变量读取/设置**：
    ```js
    // 读当前生效字体
-   var current = await musicxx.vars.get("musicxx.ui.fontFamily");
+   var current = await musicxx.broadcast.get("musicxx.ui.fontFamily");
    // 设置字体
-   await musicxx.vars.set("musicxx.ui.fontFamily", "SimSun");
+   await musicxx.broadcast.write("musicxx.ui.fontFamily", "SimSun");
    ```
 4. **生命周期自动恢复**：
    当设置字体的插件被停用或卸载、或插件框架停止时，主程序会自动恢复为默认字体，避免残留不可用的字体配置。
@@ -678,8 +678,8 @@ musicxx.capability.register("pickQuality", async function () {
      用 `musicxx.ui.toast` 这类动作是安全的）；
   4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
      插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
-- 想知道"主程序现在到底是什么字体"：`musicxx.vars.watch("musicxx.ui.fontFamily")` 保活后
-  用 `musicxx.vars.peek("musicxx.ui.fontFamily")` **同步**读缓存（值形如 `{value, revision, ageMs, stale}`），
+- 想知道"主程序现在到底是什么字体"：`musicxx.broadcast.watch("musicxx.ui.fontFamily")` 保活后
+  用 `musicxx.broadcast.read("musicxx.ui.fontFamily")` **同步**读缓存（值形如 `{value, revision, ageMs, stale}`），
   不要为了显示状态再 `await` 一次 `vars.get`。
 
 > 这条规则对**所有**"改应用状态"的动作都成立（播放页背景、播放控制、存储写入…）：能力处理器必须

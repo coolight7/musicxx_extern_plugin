@@ -1,7 +1,8 @@
 # musicxx 官方变量目录（`musicxx.*`）
 
 > **框架 API 2 起**：原生插件侧的 `musicxx.vars` 表已删除（SDK 不再有 `vars*` 包装），本文件里的
-> 键名与取值规则仍然描述应用声明的变量，**JS 插件**照旧用 `musicxx.vars.*` 访问它们；
+> 键名与取值规则仍然描述应用声明的变量，**JS 插件**用 `musicxx.broadcast.*` 访问它们（`read` 同步读缓存、
+> `get` 异步取真值、`write` 写、`subscribe` 订阅变化）；
 > 原生插件请用广播频道读当前值、用动作 / 能力改状态（见
 > [plugin-native-api.md](plugin-native-api.md) §5.5）。
 
@@ -9,9 +10,9 @@
 
 > 本文件是**官方变量**的清单与取值规则说明。变量属于「第五条通道」：有属主、可读、可写、
 > 可订阅变动的小值（配置 / 小状态）。通道本身的能力（三条读法、注册、handler 模式、超时与错误码）见
-> `docs/plugin-api.md` §5；两种形态的写法见同文件（JS `musicxx.vars.*` / C++ `vars*`）。
+> `docs/plugin-api.md` §5；两种形态的写法见同文件（JS `musicxx.broadcast.*`；原生已没有变量表）。
 >
-> **真值在主程序**：插件框架里没有第二份真值，只保留一份服务同步读（`peek`）的缓存。
+> **真值在主程序**：插件框架里没有第二份真值，只保留一份服务同步读（`read`）的缓存。
 > 没有列在这里的官方键**不存在**：读/写会返回「未找到」——应用没有声明它。
 > 加一条官方变量 = 在主程序登记实现 + 更新本文件。
 
@@ -62,20 +63,20 @@
 
 ```js
 // 读一次（异步、权威）
-var level = await musicxx.vars.get("musicxx.ui.animatedLevel");
+var level = await musicxx.broadcast.get("musicxx.ui.animatedLevel");
 
 // 用户改设置时跟着调整自己的行为
-var off = musicxx.vars.bind("musicxx.ui.animatedLevel", function (value, info) {
+var off = musicxx.broadcast.subscribe("musicxx.ui.animatedLevel", function (value, info) {
   if (value === "disable") { musicxx.host.log(2, "动画已关闭"); }
 });
 
 // 插件也想改：由应用写入，应用不接受时会给出原因
-var result = await musicxx.vars.set("musicxx.theme.mode", "night");
+var result = await musicxx.broadcast.write("musicxx.theme.mode", "night");
 if (!result.accepted) { musicxx.host.log(3, "写入被拒绝: " + result.error); }
 
 // 只在热路径里同步判断：先保活缓存，再 peek
-musicxx.vars.watch("musicxx.ui.songIconWave");
-var cached = musicxx.vars.peek("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
+musicxx.broadcast.watch("musicxx.ui.songIconWave");
+var cached = musicxx.broadcast.read("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
 ```
 
 ## 维护约定

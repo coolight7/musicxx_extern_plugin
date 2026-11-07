@@ -300,76 +300,8 @@ var featurePointImpls = new Map();
   }
   function hookKey(id, phase) { return String(id) + "|" + phase; }
 
-  musicxx.hooks = {
-    /// 注册处理器: register(id, {phase, mode, priority, ownerTag}, fn)
-    ///
-    /// 同一条钩子上可以分别注册三个阶段 (同一个 ownerTag 互不覆盖)。
-    register: function (id, options, fn) {
-      assertName(id, "hooks.register: 钩子 id");
-      if (typeof options === "function") { fn = options; options = null; }
-      options = options || {};
-      if (typeof fn !== "function") { throw new Error("hooks.register: 缺少处理函数"); }
-      var entry = {
-        id: String(id),
-        phase: normalizePhase(options.phase),
-        mode: options.mode === "observe" ? "observe" : "decision",
-        priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
-        ownerTag: typeof options.ownerTag === "string" ? options.ownerTag : "",
-        fn: fn
-      };
-      hookTable.set(hookKey(entry.id, entry.phase), entry);
-      /// 运行期注册要通知插件框架 (顶层登记阶段由引擎统一回放, 这里只是先记下来)
-      ext.hookOp("register", entry.id, entry.mode, entry.priority, entry.ownerTag,
-                 entry.phase);
-      return musicxx;
-    },
-    /// 注销处理器: unregister(id) 摘掉这个钩子上自己的全部阶段; unregister(id, phase)
-    /// 只摘那个阶段。插件框架按 (钩子, ownerTag) 摘, 所以同一个 ownerTag 在其它阶段的
-    /// 登记也会一起被摘掉。
-    unregister: function (id, phase) {
-      var key = String(id);
-      var wantPhase = (phase === undefined || phase === null) ? "" : normalizePhase(phase);
-      var keys = [];
-      hookTable.forEach(function (entry, k) {
-        if (entry.id !== key) { return; }
-        if (wantPhase && entry.phase !== wantPhase) { return; }
-        keys.push(k);
-      });
-      var tags = [];
-      keys.forEach(function (k) {
-        var entry = hookTable.get(k);
-        hookTable.delete(k);
-        if (entry && tags.indexOf(entry.ownerTag) < 0) { tags.push(entry.ownerTag); }
-      });
-      tags.forEach(function (tag) {
-        ext.hookOp("unregister", key, "", 0, tag, wantPhase);
-      });
-      return musicxx;
-    },
-    /// 自己有没有在这个钩子上注册 (phase 缺省 = impl)
-    has: function (id, phase) {
-      return hookTable.has(hookKey(String(id), normalizePhase(phase)));
-    },
-    /// 读某个钩子当前的处理器列表 (自省: 谁注册了、什么形态、在哪个阶段、排第几)。
-    /// 返回 Promise: {hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
-    /// `phase` 可省 (省了 = 全部阶段)。
-    handlers: function (id, phase) {
-      assertName(id, "hooks.handlers: 钩子 id");
-      var args = { hook: String(id) };
-      if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
-      return musicxx.call("musicxx.hook.handlers", args);
-    }
-  };
 
-  musicxx.state = {
-    get: function (key) {
-      assertName(key, "state.get: 键");
-      var text = ext.stateGet(key);
-      if (!text) { return null; }
-      try { return JSON.parse(text); } catch (e) { return null; }
-    }
-  };
-
+  /// 宿主自己的信息与日志 (不是频道, 所以留在 host 上)
   musicxx.host = {
     info: function () {
       try { return JSON.parse(ext.hostInfo() || "{}"); } catch (e) { return {}; }
@@ -516,23 +448,55 @@ var featurePointImpls = new Map();
     for (var i = 0; i < list.length; i++) {
       var item = String(list[i]);
       if (item !== "get" && item !== "set" && item !== "notify") {
-        throw new Error("vars.register: 未知能力位 " + item);
+        throw new Error("broadcast.declare: 未知能力位 " + item);
       }
       if (out.indexOf(item) < 0) { out.push(item); }
     }
-    if (out.length === 0) { throw new Error("vars.register: caps 不能为空"); }
+    if (out.length === 0) { throw new Error("broadcast.declare: caps 不能为空"); }
     return out;
   }
 
 
-  musicxx.vars = {
-    /// 注册/覆盖一个变量; 返回 true (失败抛错, 原因写在异常里)
-    register: function (spec) {
+  /// 值频道（变量）还是事件频道？看它是不是本插件声明的键、或插件框架认识的变量键
+  function broadcastIsValueChannel(id) {
+    var text = String(id);
+    if (varsTable.has(varShortKey(text))) { return true; }
+    try { return !!ext.varsRead("info", varFullKey(text)); } catch (e) { return false; }
+  }
+
+  /// 订阅一个值频道（变量）: `fn(value, info)`；返回解绑函数
+  function broadcastBindValue(key, fn) {
+    var full = varFullKey(key);
+    if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
+    var list = varBindTable.get(full);
+    var isNew = !list;
+    if (!list) { list = []; varBindTable.set(full, list); }
+    list.push(fn);
+    if (isNew) {
+      ensureVarTopics();
+      ext.varsOp("subscribe", full, "{}");
+    }
+    return function () { musicxx.broadcast.unsubscribe(full, fn); };
+  }
+
+  /// 订阅一个事件频道: `fn(payload, info)`
+  function broadcastSubscribeTopic(topic, fn) {
+    assertName(topic, "broadcast.subscribe: 频道");
+    if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
+    var isNew = !subTable.has(topic);
+    subTable.set(topic, fn);
+    if (isNew) { ext.subscribeHost(topic); }
+    return function () { musicxx.broadcast.unsubscribe(topic); };
+  }
+
+  musicxx.broadcast = {
+    /// 声明 / 覆盖一个自己拥有的值频道; 返回 true (失败抛错, 原因写在异常里)
+    declare: function (spec) {
       if (!spec || typeof spec !== "object") {
-        throw new Error("vars.register: 需要对象参数");
+        throw new Error("broadcast.declare: 需要对象参数");
       }
       var key = varShortKey(spec.key === undefined ? "" : spec.key);
-      assertName(key, "vars.register: key");
+      assertName(key, "broadcast.declare: key");
       var declare = {
         key: key,
         caps: varNormalizeCaps(spec.caps),
@@ -560,20 +524,20 @@ var featurePointImpls = new Map();
       ext.varsOp("register", key, safeJson(declare));
       return true;
     },
-    unregister: function (key) {
+    undeclare: function (key) {
       var short = varShortKey(key);
       varsTable.delete(short);
       varHandlers.delete(varFullKey(short));
       ext.varsOp("unregister", short, "{}");
       return true;
     },
-    /// 变量是否登记过 (读注册表, 不读值)
+    /// 频道是否登记过 (读注册表, 不读值)
     has: function (key) {
       if (varsTable.has(varShortKey(key))) { return true; }
       var text = ext.varsRead("info", varFullKey(key));
       return !!text;
     },
-    /// 异步、权威读: 插件框架向属主取一次真实值 (顺手刷新 peek 缓存)
+    /// 异步、权威读一次 (值频道的属主往返; 顺手刷新 read 的缓存)
     get: function (key, options) {
       var full = varFullKey(key);
       var budget = (options && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0)
@@ -582,8 +546,8 @@ var featurePointImpls = new Map();
       try { control = JSON.parse(ext.varsGet(full) || "null"); }
       catch (e) { control = null; }
       if (!control || control.status !== "pending") {
-        var reason = (control && control.error) ? control.error : "vars_get_failed";
-        return Promise.reject(new Error("读取变量失败: " + full + " (" + reason + ")"));
+        var reason = (control && control.error) ? control.error : "broadcast_get_failed";
+        return Promise.reject(new Error("读取频道失败: " + full + " (" + reason + ")"));
       }
       return new Promise(function (resolve, reject) {
         var id = String(control.id);
@@ -597,7 +561,7 @@ var featurePointImpls = new Map();
         varGetWaiters.set(id, waiter);
       });
     },
-    /// 一次读多个键 (同键进行中请求由插件框架合并); 单项失败不影响其它项
+    /// 一次读多个频道 (同键进行中请求由插件框架合并); 单项失败不影响其它项
     getMany: function (keys, options) {
       var list = Array.isArray(keys) ? keys : [keys];
       var result = {};
@@ -605,7 +569,7 @@ var featurePointImpls = new Map();
       for (var i = 0; i < list.length; i++) {
         (function (key) {
           var name = String(key);
-          jobs.push(musicxx.vars.get(name, options).then(function (value) {
+          jobs.push(musicxx.broadcast.get(name, options).then(function (value) {
             result[name] = value;
             return null;
           }, function (e) {
@@ -616,12 +580,18 @@ var featurePointImpls = new Map();
       }
       return Promise.all(jobs).then(function () { return result; });
     },
-    /// 同步读缓存 (不保证最新); 没有缓存过返回 null
-    peek: function (key) {
+    /// 同步读当前值: 先读广播注册表的缓存 (`musicxx.state.*` 这类快照频道),
+    /// 再退回宿主变量表里的缓存值 (插件自己声明的值频道)
+    read: function (key) {
       var text = null;
-      try { text = ext.varsRead("peek", varFullKey(key)); } catch (e) { text = null; }
-      if (!text) { return null; }
-      try { return JSON.parse(text); } catch (e) { return null; }
+      try { text = ext.stateGet(String(key)); } catch (e) { text = null; }
+      if (text) {
+        try { return JSON.parse(text); } catch (e) { /* 不是 JSON 就按文本 */ return text; }
+      }
+      var cached = null;
+      try { cached = ext.varsRead("peek", varFullKey(key)); } catch (e) { cached = null; }
+      if (!cached) { return null; }
+      try { return JSON.parse(cached); } catch (e) { return null; }
     },
     /// 保活缓存 (等价于"订阅但不回调"; 需要 notify 能力位)
     watch: function (key) {
@@ -637,15 +607,15 @@ var featurePointImpls = new Map();
       ext.varsOp("unwatch", full, "{}");
       return true;
     },
-    /// 异步写; 结果 {key, accepted, value, changed, error?}
-    set: function (key, value) {
+    /// 写一个值频道; 结果 Promise<{key, accepted, value, changed, error?}>
+    write: function (key, value) {
       var full = varFullKey(key);
       var control = null;
       try { control = JSON.parse(ext.varsSet(full, safeJson(value)) || "null"); }
       catch (e) { control = null; }
       if (!control || control.status !== "pending") {
-        var reason = (control && control.error) ? control.error : "vars_set_failed";
-        return Promise.reject(new Error("写入变量失败: " + full + " (" + reason + ")"));
+        var reason = (control && control.error) ? control.error : "broadcast_write_failed";
+        return Promise.reject(new Error("写入频道失败: " + full + " (" + reason + ")"));
       }
       return new Promise(function (resolve, reject) {
         var id = String(control.id);
@@ -658,34 +628,32 @@ var featurePointImpls = new Map();
         varSetWaiters.set(id, waiter);
       });
     },
-    /// 绑定变动: fn(value, info); 返回解绑函数
-    bind: function (key, fn) {
-      var full = varFullKey(key);
-      if (typeof fn !== "function") { throw new Error("vars.bind: 缺少回调"); }
-      var list = varBindTable.get(full);
-      var isNew = !list;
-      if (!list) { list = []; varBindTable.set(full, list); }
-      list.push(fn);
-      if (isNew) {
-        ensureVarTopics();
-        ext.varsOp("subscribe", full, "{}");
-      }
-      return function () { musicxx.vars.unbind(full, fn); };
+    /// 订阅一个频道: 值频道给 `fn(value, info)`, 事件频道给 `fn(payload, info)`
+    ///
+    /// 返回解绑函数; 也可以把 id 交给 [unsubscribe]。
+    subscribe: function (id, fn) {
+      if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
+      if (broadcastIsValueChannel(id)) { return broadcastBindValue(id, fn); }
+      return broadcastSubscribeTopic(id, fn);
     },
-    unbind: function (key, fn) {
-      var full = varFullKey(key);
+    /// 退订: 传 id 摘掉这个频道上的全部回调; 再传 fn 只摘那一个
+    unsubscribe: function (id, fn) {
+      var full = varFullKey(id);
       var list = varBindTable.get(full);
-      if (!list) { return true; }
-      if (typeof fn === "function") {
-        var index = list.indexOf(fn);
-        if (index >= 0) { list.splice(index, 1); }
-      } else {
-        list.length = 0;
+      if (list) {
+        if (typeof fn === "function") {
+          var index = list.indexOf(fn);
+          if (index >= 0) { list.splice(index, 1); }
+        } else {
+          list.length = 0;
+        }
+        if (list.length === 0) {
+          varBindTable.delete(full);
+          ext.varsOp("unsubscribe", full, "{}");
+        }
       }
-      if (list.length === 0) {
-        varBindTable.delete(full);
-        ext.varsOp("unsubscribe", full, "{}");
-      }
+      var key = String(id);
+      if (subTable.has(key)) { subTable.delete(key); }
       return true;
     },
     /// 声明 + 缓存状态 (key/caps/mode/owner/type/title/value/revision/ageMs/stale/subscribers)
@@ -695,7 +663,7 @@ var featurePointImpls = new Map();
       if (!text) { return null; }
       try { return JSON.parse(text); } catch (e) { return null; }
     },
-    /// 列出变量 (prefix 可空); 值字段是缓存值
+    /// 列出频道 (prefix 可空); 值字段是缓存值
     list: function (prefix) {
       var text = null;
       try { text = ext.varsRead("list", prefix === undefined ? "" : String(prefix)); }
@@ -703,16 +671,25 @@ var featurePointImpls = new Map();
       if (!text) { return []; }
       try { return JSON.parse(text); } catch (e) { return []; }
     },
-    /// 本插件注册的变量声明
-    own: function () {
+    /// 本插件声明过的频道
+    declared: function () {
       var out = [];
       varsTable.forEach(function (value, key) { out.push({ key: key, declare: value }); });
       return out;
     },
-    /// 关心 (订阅或 watch) 该键的数量: 插件自己判断"还要不要继续高频推"的依据
+    /// 关心 (订阅或 watch) 该频道的数量: 插件自己判断"还要不要继续高频推"的依据
     subscribers: function (key) {
-      var info = musicxx.vars.info(key);
+      var info = musicxx.broadcast.info(key);
       return info && Number.isFinite(info.subscribers) ? info.subscribers : 0;
+    },
+    /// 发一条事件: `publish(topic, data)`
+    ///
+    /// 无属主、谁都能发；主题只能是官方 `musicxx.*` 或自己命名空间 `plugin.<本插件 id>.*`。
+    publish: function (topic, data) {
+      assertName(topic, "broadcast.publish: 频道");
+      var err = ext.publish(topic, safeJson(data === undefined ? {} : data));
+      if (err) { throw new Error(err); }
+      return undefined;
     }
   };
 
@@ -996,7 +973,7 @@ var featurePointImpls = new Map();
         featurePointImpls.set(String(id), fn);
       });
       if (!hookTable.has(hookKey("musicxx.feature.point.call", "impl"))) {
-        musicxx.hooks.register("musicxx.feature.point.call", {
+        musicxx.capability.implement("musicxx.feature.point.call", {
           priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
           ownerTag: ids.map(String).join(",")
         }, function (ctx) { return featurePointDispatch(ctx); });
@@ -1011,7 +988,7 @@ var featurePointImpls = new Map();
       }
       featurePointImpls.delete(key);
       if (featurePointImpls.size === 0 && hookTable.has(hookKey("musicxx.feature.point.call", "impl"))) {
-        musicxx.hooks.unregister("musicxx.feature.point.call");
+        musicxx.capability.unregister("musicxx.feature.point.call");
       }
       return musicxx;
     }
@@ -1561,27 +1538,6 @@ var featurePointImpls = new Map();
     }
   };
 
-  musicxx.events = {
-    publish: function (topic, data) {
-      assertName(topic, "events.publish: 主题");
-      var err = ext.publish(topic, safeJson(data === undefined ? {} : data));
-      if (err) { throw new Error(err); }
-      return undefined;
-    },
-    subscribe: function (topic, fn) {
-      assertName(topic, "events.subscribe: 主题");
-      if (typeof fn !== "function") { throw new Error("events.subscribe: 缺少处理函数"); }
-      var isNew = !subTable.has(topic);
-      subTable.set(topic, fn);
-      if (isNew) { ext.subscribeHost(topic); }
-      return undefined;
-    },
-    unsubscribe: function (topic) {
-      var key = String(topic);
-      subTable.delete(key);
-      return undefined;
-    }
-  };
   ext.onEvent = function (topic, json) {
     // 变量通道的内部回调: 变更通知与写结果 (与用户订阅同一主题时两边都会收到)
     if (topic === "musicxx.var.changed") { handleVarChanged(json); }
@@ -1601,6 +1557,68 @@ var featurePointImpls = new Map();
   };
 
   musicxx.capability = {
+    /// 给应用声明的能力（`musicxx.*`，含钩子）提供实现
+    ///
+    /// `implement(id, {phase, priority, ownerTag}, fn)`
+    /// - 同一条能力上可以分别实现三个阶段（同一个 ownerTag 互不覆盖）；
+    /// - 观察型钩子在框架 API 2 之后是**广播频道**：用 `musicxx.broadcast.subscribe` 订阅，
+    ///   这里再写 `mode: "observe"` 会被拒绝。
+    implement: function (id, options, fn) {
+      assertName(id, "capability.implement: 能力 id");
+      if (typeof options === "function") { fn = options; options = null; }
+      options = options || {};
+      if (options.mode === "observe") {
+        throw new Error("capability.implement: 观察型钩子已改成广播频道，请用 musicxx.broadcast.subscribe");
+      }
+      if (typeof fn !== "function") { throw new Error("capability.implement: 缺少处理函数"); }
+      var entry = {
+        id: String(id),
+        phase: normalizePhase(options.phase),
+        mode: "decision",
+        priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
+        ownerTag: typeof options.ownerTag === "string" ? options.ownerTag : "",
+        fn: fn
+      };
+      hookTable.set(hookKey(entry.id, entry.phase), entry);
+      /// 运行期登记要通知插件框架 (顶层登记由引擎统一回放, 这里只是先记下来)
+      ext.hookOp("register", entry.id, entry.mode, entry.priority, entry.ownerTag,
+                 entry.phase);
+      return musicxx;
+    },
+    /// 注销实现：`unregister(id)` 摘掉这条能力上自己的全部阶段；
+    /// `unregister(id, phase)` 只摘那个阶段（插件框架按 (能力, ownerTag) 摘）。
+    unregister: function (id, phase) {
+      var key = String(id);
+      var wantPhase = (phase === undefined || phase === null) ? "" : normalizePhase(phase);
+      var keys = [];
+      hookTable.forEach(function (entry, k) {
+        if (entry.id !== key) { return; }
+        if (wantPhase && entry.phase !== wantPhase) { return; }
+        keys.push(k);
+      });
+      var tags = [];
+      keys.forEach(function (k) {
+        var entry = hookTable.get(k);
+        hookTable.delete(k);
+        if (entry && tags.indexOf(entry.ownerTag) < 0) { tags.push(entry.ownerTag); }
+      });
+      tags.forEach(function (tag) {
+        ext.hookOp("unregister", key, "", 0, tag, wantPhase);
+      });
+      return musicxx;
+    },
+    /// 自己有没有在这条能力上登记 (phase 缺省 = impl)
+    has: function (id, phase) {
+      return hookTable.has(hookKey(String(id), normalizePhase(phase)));
+    },
+    /// 读某条能力当前的实现行 (自省: 谁提供、在哪个阶段、排第几)。
+    /// 返回 Promise: {capability|hook, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
+    handlers: function (id, phase) {
+      assertName(id, "capability.handlers: 能力 id");
+      var args = { hook: String(id) };
+      if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
+      return musicxx.call("musicxx.hook.handlers", args);
+    },
     register: function (name, fn) {
       assertName(name, "capability.register: 名称");
       if (typeof fn !== "function") { throw new Error("capability.register: 缺少处理函数"); }
@@ -3397,7 +3415,7 @@ JsEngine::takePendingVarOps(const std::shared_ptr<Instance> &inst) {
   return ops;
 }
 
-/* ==================== 变量 (musicxx.vars) ==================== */
+/* ==================== 值频道 (广播里带当前值的那一类) ==================== */
 
 /// 在框架线程上执行一次变量声明/订阅操作 (**必须已在框架线程调用**)
 int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,

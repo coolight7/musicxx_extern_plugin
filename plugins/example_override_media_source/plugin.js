@@ -451,7 +451,7 @@ function answerProxyLocal(rawPath) {
 ///
 /// 处理器是**异步派发**的（Dart 侧最多等 5 秒），所以这里可以返回 Promise（网络请求）；
 /// 同步就能判断"不接管"的分支要立刻返回 null（最省时间）。
-musicxx.hooks.register("musicxx.player.source.resolve", {
+musicxx.capability.implement("musicxx.player.source.resolve", {
     mode: "decision",
     ownerTag: "example_override_media_source.bili",
 }, function (ctx) {

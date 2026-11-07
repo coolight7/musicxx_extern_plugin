@@ -1,4 +1,4 @@
-// 变量通道示例（`musicxx.vars`）
+// 值频道示例（`musicxx.broadcast`）
 //
 // 覆盖：
 // - 顶层登记自己的变量（declared 模式：值由插件框架代存，set 即提交）；
@@ -16,7 +16,7 @@ var writeResult = null;  // 最近一次异步写的结果
 var writeError = "";     // 最近一次异步写的失败原因
 var pendingReads = 0;    // 还在等结果的读次数
 
-musicxx.vars.register({
+musicxx.broadcast.declare({
   key: "tip.start",
   caps: ["get", "set", "notify"],
   type: "bool",
@@ -25,7 +25,7 @@ musicxx.vars.register({
   depict: "为真时播放页显示一句开场提示"
 });
 
-musicxx.vars.register({
+musicxx.broadcast.declare({
   key: "stats.reads",
   caps: ["get", "set"],
   type: "number",
@@ -35,7 +35,7 @@ musicxx.vars.register({
 // handler 模式: 值就是插件自己的状态 (唯一真值), 插件框架只留一份同步读缓存 ——
 // 读写在属主手里, 因此别人写这个变量时会转到 onWrite, 读会转到 onRead。
 var handlerTip = false;
-musicxx.vars.register({
+musicxx.broadcast.declare({
   key: "handler.tip",
   caps: ["get", "set", "notify"],
   mode: "handler",
@@ -49,8 +49,8 @@ musicxx.vars.register({
   }
 });
 
-// 绑定官方变量：记录每次变化（这是"订阅 + 回调"）
-musicxx.vars.bind("musicxx.test.bound", function (value, info) {
+// 绑定官方变量：记录每次变化（这是 `broadcast.subscribe`，值频道回调）
+musicxx.broadcast.subscribe("musicxx.test.bound", function (value, info) {
   changes.push({
     value: value,
     by: info.by,
@@ -58,17 +58,17 @@ musicxx.vars.bind("musicxx.test.bound", function (value, info) {
     removed: info.removed === true
   });
   // 收到变化时顺手保活缓存（watch 就是"订阅但不要回调"）
-  musicxx.vars.watch("musicxx.test.bound");
+  musicxx.broadcast.watch("musicxx.test.bound");
 });
 
 musicxx.capability.register("probe", function () {
   return {
-    own: musicxx.vars.own().map(function (item) { return item.key; }),
-    listCount: musicxx.vars.list("plugin.example_js_vars").length,
-    tipPeek: musicxx.vars.peek("tip.start"),
+    own: musicxx.broadcast.declared().map(function (item) { return item.key; }),
+    listCount: musicxx.broadcast.list("plugin.example_js_vars").length,
+    tipPeek: musicxx.broadcast.read("tip.start"),
     handlerTip: handlerTip,
-    handlerPeek: musicxx.vars.peek("handler.tip"),
-    boundInfo: musicxx.vars.info("musicxx.test.bound"),
+    handlerPeek: musicxx.broadcast.read("handler.tip"),
+    boundInfo: musicxx.broadcast.info("musicxx.test.bound"),
     changes: changes.length,
     lastChange: changes.length ? changes[changes.length - 1] : null,
     readValue: readValue,
@@ -84,7 +84,7 @@ musicxx.capability.register("probe", function () {
 /// 属主自己改了值: 提交一次别人才看得到 (也可以等 refreshAfterMs 让插件框架来取)
 musicxx.capability.register("setHandlerInternal", function (args) {
   handlerTip = args && args.value === true;
-  musicxx.vars.set("handler.tip", handlerTip);
+  musicxx.broadcast.write("handler.tip", handlerTip);
   return { tipStart: handlerTip };
 });
 
@@ -93,7 +93,7 @@ musicxx.capability.register("triggerRead", function (args) {
   readError = "";
   ++pendingReads;
   // 异步、权威读：插件框架向属主取一次真实值，结果回到这里
-  musicxx.vars.get(key).then(function (value) {
+  musicxx.broadcast.get(key).then(function (value) {
     readValue = value;
     --pendingReads;
   }, function (e) {
@@ -108,7 +108,7 @@ musicxx.capability.register("triggerWrite", function (args) {
   var value = args ? args.value : null;
   writeResult = null;
   writeError = "";
-  musicxx.vars.set(key, value).then(function (result) {
+  musicxx.broadcast.write(key, value).then(function (result) {
     writeResult = result;
   }, function (e) {
     writeError = (e && e.message) ? e.message : String(e);

@@ -545,8 +545,8 @@ const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 
 > `cache: latest`，订阅即推；`stateJson` 读到的就是它），改应用的状态用**动作 / 能力**
 > （例如 `requestAction("musicxx.player.play", ...)`）。
 >
-> JS 插件侧的 `musicxx.vars.*` 还在（走的不是这张表），写法见 [plugin-api.md](plugin-api.md) §5 与
-> [plugin-vars.md](plugin-vars.md)。
+> JS 插件侧的阅读入口是 `musicxx.broadcast.*`（`read` / `get` / `write` / `subscribe` / `declare` …），
+> 写法见 [plugin-api.md](plugin-api.md) §5 与 [plugin-vars.md](plugin-vars.md)。
 
 ---
 

@@ -715,6 +715,9 @@ runtime.state.update(MusicxxPluginState.keySong, songView);          // 单键�
 runtime.state.updateThrottled(MusicxxPluginState.keyPlayer, view);   // 高频键节流
 runtime.state.updateBatch({...});                                    // 同帧多键合并成一次调用
 
+// 事件频道（`cache: none`，例如切歌通知）用 broadcasts.publish 发；订阅方是插件
+runtime.broadcasts.publish('musicxx.song.changed', <String, Object?>{'sid': sid});
+
 // 注册主程序动作实现（插件经 request_action 发起；未注册的动作会立刻收到"未找到"）
 runtime.actions.register(MusicxxPluginActionNames.playerToggle, (invocation) async {
   await player.playOrPause();
@@ -800,9 +803,9 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 钩子 | `PluginBase::hook`（原生）/ `musicxx.hooks.register`（JS） | 裁决型与阶段（前链 / 实现链 / 后链）；观察型钩子在框架 API 2 之后是广播频道（原生 `subscribeTopic`）；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
+| 钩子 | `PluginBase::hook`（原生）/ `musicxx.capability.implement`（JS） | 裁决型与阶段（前链 / 实现链 / 后链）；观察型钩子在框架 API 2 之后是广播频道（JS `musicxx.broadcast.subscribe`，原生 `subscribeTopic`）；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
-| 状态镜像 | `musicxx.state.get` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
+| 状态镜像 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |
 | 内置网络能力 | `musicxx.net.http/socket/ws/udp`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket / UDP 的客户端与**服务端**；客户端支持 `https` / `wss`，**服务端只监听明文**且默认只绑回环；UDP 可广播 / 组播；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |

@@ -8,6 +8,37 @@
 
 ## 历史
 
+### 变更（破坏性，dev）：JS 插件入口收敛成「能力 + 广播」
+
+内置 JS 引擎跟着框架 ABI 2 一起改，**不保留旧名字**（老脚本加载时会报错）：
+
+- **`musicxx.hooks` 删除**，四个方法并入 `musicxx.capability`：
+  `register` → **`implement(id, {phase, priority, ownerTag}, fn)`**、
+  `unregister` / `has` / `handlers` 同名搬过去；`mode: "observe"` 会被拒绝并提示改用广播。
+  `capability.register` / `capability.call`（自己提供给别人的能力）不变。
+- **观察型钩子改用 `musicxx.broadcast.subscribe(id, fn)`**：这些 id 现在是广播频道
+  （`musicxx.song.changed`、`musicxx.player.state` / `.position` / `.completed`、
+  `musicxx.media.cover.changed` 等），订阅即收事件；`unsubscribe` 退订。
+- **`musicxx.state.get` 删除** — 读当前值统一走 **`musicxx.broadcast.read(key)`**
+  （先读广播缓存，再退回值频道缓存；`musicxx.state.*` 这类快照频道都走它）。
+- **`musicxx.vars` 删除**，整组并入 `musicxx.broadcast`：
+  `register` → `declare`、`unregister` → `undeclare`、`peek` → `read`、`set` → `write`、
+  `bind` → `subscribe`、`unbind` → `unsubscribe`、`own` → `declared`；
+  `get` / `getMany` / `watch` / `unwatch` / `has` / `info` / `list` / `subscribers` 同名搬过去。
+  传输层没变：变量仍走宿主变量表，`musicxx.var.changed` / `musicxx.var.writeResult` 事件照旧。
+- **`musicxx.events` 删除**，只剩 **`musicxx.broadcast.publish(topic, data)`**
+  （订阅 / 退订已并进 `broadcast.subscribe` / `unsubscribe`）。
+- `musicxx.host` 保留 `info` / `log` / `configPath`（它们是宿主工具，不是频道）。
+- 示例插件（`example_js*`、`example_ftp_source`、`example_override_media_source`、
+  `playing_bg_image`）已全部改成新写法。
+
+### 新增（接入方）：`runtime.broadcasts.publish(id, value)`
+
+应用发布**事件频道**（`cache: none`，例如 `musicxx.song.changed`）的 Dart 入口：
+以前这类通知靠观察型钩子，钩子没了之后必须由应用把事件写进广播表，订阅它的插件（原生 / JS）才收得到。
+快照频道（`musicxx.state.*`）仍用 `runtime.state.update*`（它同时写缓存与通知）。
+
+
 ### 变更（破坏性，dev）：`musicxx.hooks` / `musicxx.vars` 表删除，框架 C ABI 1 → 2
 
 原生插件只看 `pluginxx.capabilities` 与 `pluginxx.broadcasts`，**不保留旧写法**：

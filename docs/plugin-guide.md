@@ -89,7 +89,7 @@ description: "我的第一个插件"
 
 ```js
 // 观察型钩子：切歌时写一条日志
-musicxx.hooks.register("musicxx.song.changed", { mode: "observe" }, function (ctx) {
+musicxx.broadcast.subscribe("musicxx.song.changed", function (ctx) {
     musicxx.host.log(2, "正在播放: " + ((ctx.song && ctx.song.name) || "未知"));
 });
 
@@ -138,11 +138,11 @@ musicxx.capability.register("card", function () {
 
 | 能力 | 什么时候用 | 入口 | 详细 |
 |---|---|---|---|
-| **钩子** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.hooks.register` / `PluginBase::hook`（带 `phase`） | [plugin-hooks.md](plugin-hooks.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
-| **状态镜像** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.state.get` / `stateJson` | [plugin-api.md](plugin-api.md) §2 |
-| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | `musicxx.vars.*` / `varsGet` / `varsSet` | [plugin-api.md](plugin-api.md) §5 + [plugin-vars.md](plugin-vars.md) |
+| **钩子（应用声明的能力）** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.capability.implement` / `PluginBase::hook`（带 `phase`） | [plugin-hooks.md](plugin-hooks.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
+| **状态镜像** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.broadcast.read` / `stateJson` | [plugin-api.md](plugin-api.md) §2 |
+| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | JS `musicxx.broadcast.*`（原生已没有变量表） | [plugin-api.md](plugin-api.md) §5 + [plugin-vars.md](plugin-vars.md) |
 | **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-api.md](plugin-api.md) §3（全部动作的参数与返回） |
-| **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.events.*` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
+| **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
 | **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |
 | **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 / 歌曲图 / 音频动效、页面插入块（歌词页 / 更多信息页 / 播放列表页） | `musicxx.ui.registerEntry` / `uiRegister` | [plugin-ui.md](plugin-ui.md) §1 |
@@ -176,7 +176,7 @@ musicxx.capability.register("card", function () {
 
 - 能力处理器里 `await` 一个主程序动作，就会与动作执行互相等下去：表现为**整个主程序卡住几秒**，
   最后以「调用插件能力失败」结束；
-- 正确做法：当场要的数据同步读状态镜像（`musicxx.state.get`）；动作结果异步读回来，
+- 正确做法：当场要的数据同步读广播缓存（`musicxx.broadcast.read`）；动作结果异步读回来，
   记进自己的状态，由页面下一次调用时回读（示例：`plugins/example_js` 的 `crossCall`、
   `plugins/example_js_shader` 的频谱读取）；
 - **长任务不要写在处理器里**：能力调用是异步的（调用方不会因为插件慢而卡住界面），

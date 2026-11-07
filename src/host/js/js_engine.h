@@ -10,7 +10,7 @@
 ///   每个实例持有独立 `JSRuntime`/`JSContext` (全局隔离), 只是时间片共享;
 /// - **不阻塞框架线程**: 脚本顶层与处理器里调用插件框架能力时, 只做"投递不等待"
 ///   (动作请求走 [InternalActionRelay], 状态读取直接读互斥保护的镜像);
-/// - **顶层注册 + 回放**: 脚本顶层调用 `musicxx.hooks.register`
+/// - **顶层注册 + 回放**: 脚本顶层调用 `musicxx.capability.implement`
 /// 等注册接口时先在 JS 侧
 ///   先记下来; 脚本执行结束、引擎回到框架线程后再回放注册 —— 避免"框架线程等 JS、JS
 ///   等框架线程" 的互锁 (无死锁不变式);
@@ -109,7 +109,7 @@ public:
   ///
   /// 与 [bridgeUiOp] 同一套规则: 顶层登记阶段只记下来 (由
   /// [applyRegistrations] 回放), 运行期投递到框架线程执行 —— 否则
-  /// `musicxx.hooks.register/unregister` 只改了 JS 侧的表, 插件框架注册没变
+  /// `musicxx.capability.implement/unregister` 只改了 JS 侧的表, 插件框架注册没变
   /// (表现为"注销了但每次派发仍然跨线程调用", 或"新注册的钩子永远不触发")。
   void bridgeHookOp(const std::string &instanceName, const std::string &op,
                     const std::string &hookId, const std::string &mode,
@@ -128,13 +128,13 @@ public:
   void bridgeVarsOp(const std::string &instanceName, const std::string &op,
                     const std::string &key, const std::string &json);
 
-  /// JS 侧发起异步读 (`musicxx.vars.get`; 任意线程)
+  /// JS 侧发起异步读 (`musicxx.broadcast.get`; 任意线程)
   ///
   /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onVarGetDone(id, json)` 回到 JS 线程;
   /// 负数 = 没能发起 (实例不在了/插件框架没跑)。
   int64_t beginVarGet(const std::string &instanceName, const std::string &key);
 
-  /// JS 侧发起写 (`musicxx.vars.set`; 任意线程)
+  /// JS 侧发起写 (`musicxx.broadcast.write`; 任意线程)
   ///
   /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onVarSetDone(id, json)` 回到 JS 线程;
   /// 如果写请求被交给属主写入, JS 侧还要等 `musicxx.var.writeResult` 事件
@@ -142,13 +142,13 @@ public:
   int64_t beginVarSet(const std::string &instanceName, const std::string &key,
                       const std::string &valueJson);
 
-  /// 同步调用插件框架 `musicxx.vars` 表的只读入口 (peek / info / list)
+  /// 同步调用宿主变量表的只读入口 (peek / info / list)
   ///
   /// 这些调用只查插件框架注册表 (耗时是几纳秒), 因此可以直接在 JS 线程上同步做 ——
   /// 与需要等属主的 `get` 不同。
   std::string bridgeVarsRead(const std::string &op, const std::string &key);
 
-  /// handler 属主回答一次被转过来的请求 (`musicxx.vars.respond`; 任意线程)
+  /// handler 属主回答一次被转过来的请求 (`musicxx.broadcast` 的 handler 写回; 任意线程)
   ///
   /// 投递不等待: 结果与失败都写日志/事件, 不回给脚本 (脚本侧只是"回答完了")。
   void bridgeVarsRespond(const std::string &instanceName, int64_t requestId,
@@ -260,7 +260,7 @@ public:
 
   /// 一次"JS 侧发起的变量读/写"的框架侧登记
   ///
-  /// `host_ud` 指向它的裸指针会被 `musicxx.vars` 表复制走, 属主回答/写入时经
+  /// `host_ud` 指向它的裸指针会被宿主变量表复制走, 属主回答/写入时经
   /// [varGetDoneTrampoline] / [varSetDoneTrampoline] 回调; 因此它必须活到那一刻 ——
   /// 由 [varWaits_] 持有 (实例停用时残余的登记进 [varWaitGraveyard_]).
   struct VarWait {

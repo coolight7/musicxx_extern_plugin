@@ -27,7 +27,7 @@ const FONT_MODE_KEY = "fontMode";
 const FONT_FILE_PATH = "resource/font/example-font.ttf";
 const FONT_FILE_FAMILY = "ExampleFont";
 const YAHEI_FAMILY = "Microsoft YaHei";
-/// 官方变量：应用当前生效的全局字体（可同步 peek 读缓存，不必等动作往返）
+/// 官方变量：应用当前生效的全局字体（可同步 `read` 读缓存，不必等动作往返）
 const FONT_VAR_KEY = "musicxx.ui.fontFamily";
 
 const MODE_LABELS = {
@@ -43,12 +43,12 @@ let appliedMode = "default";
 /// 最近一次失败原因（页面展示 + 日志）
 let lastError = "";
 
-/// 订阅官方变量 `musicxx.ui.fontFamily`，让 `peek` 缓存一直是最新的
+/// 订阅官方变量 `musicxx.ui.fontFamily`，让 `read` 读到的缓存一直是最新的
 ///
 /// 规则：只有"有人关心（订阅或 watch）"的键，主程序才会推值给插件框架；
-/// watch 是保活（不要回调），页面用 `peek` 同步读缓存 —— 不做 FFI 往返，也不会阻塞。
+/// watch 是保活（不要回调），页面用 `read` 同步读缓存 —— 不做 FFI 往返，也不会阻塞。
 /// 顶层调用会被引擎推迟到"注册回放"阶段执行（与钩子/能力/UI 项同一套做法）。
-musicxx.vars.watch(FONT_VAR_KEY);
+musicxx.broadcast.watch(FONT_VAR_KEY);
 
 function normalizeMode(mode) {
     return (mode === "yahei" || mode === "file") ? mode : "default";
@@ -56,7 +56,7 @@ function normalizeMode(mode) {
 
 /// 主程序当前生效字体（同步读变量缓存；缓存还没到就给"未知"）
 function appliedFontText() {
-    const cached = musicxx.vars.peek(FONT_VAR_KEY);
+    const cached = musicxx.broadcast.read(FONT_VAR_KEY);
     const value = (cached && typeof cached.value === "string") ? cached.value : "";
     return value === "" ? "（未知）" : value;
 }

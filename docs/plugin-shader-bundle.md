@@ -797,7 +797,7 @@ await musicxx.render.select("builtin:Auto");     // 省略 slot 用默认槽位
 // 成功 → { ok:true, slot, id }；不可用 / 未知槽位 → { ok:false, error:"<原因>" }
 
 // 现在是谁在画（同步读状态镜像）
-const slot = (musicxx.state.get("musicxx.state.renderSlots") || {})["player.background"];
+const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
 ```
 
 - 内置候选 id 是 `builtin:<内置样式名>`，例如 `builtin:Auto`（内置换算出来的列表见
@@ -835,7 +835,7 @@ const s = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 //       level, bands:[...], frameData? }        // frameData 需要 includeBins:true
 
 // ③ 同步读状态镜像（播放中约 10 Hz 推送，适合插件自己的绘制循环）
-const live = musicxx.state.get("musicxx.state.spectrum");
+const live = musicxx.broadcast.read("musicxx.state.spectrum");
 // { status, available, loading, reason, source, srcKey,
 //   frameHz, frameIndex, frames, bandCount, level, bands:[16] }
 ```
