@@ -103,7 +103,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{srcKey, type, src, crudeType, crudeSrc, fileName, durationMs, quality, isMediaSrc, pluginType, caller}`：主程序要把一个音源解析成**播放器内核能打开的地址与请求头**时派发一次（外置 → 内置插件 → 应用自身，第一个给出合法结果的生效）。`src` = 本轮要解析的音源（插件自己的音源就是它写下的资源 id / 路径；内置来源是已经解析出来的临时直链或本地路径 —— 注册这条钩子的插件看得到这些内容，这是它能换地址的前提）；`crudeSrc` = 歌曲实体里保存的原始地址；`type` / `crudeType` = 对应的来源类型（`link` / `bili` / `aliDrive` / `local` 等；插件音源是空串）；`pluginType` = 本轮音源的插件音源类型 id（`plugin.<插件 id>.<类型名>`；不是插件音源则为空串）；`quality` = 用户当前音质偏好（枚举名小写）；`isMediaSrc` = false 表示这次要的是封面（媒体库来源）；`caller` = 谁在问（空串 = 主程序自己或命令行）。处理器返回 `{\"src\": {\"path\": \"<地址>\", \"headers\": {\"Referer\": \"...\"}, \"kind\": \"url\", \"expireAtMs\": 0, \"size\": 0, \"durationMs\": 0, \"quality\": \"hq\"}}`（`src` 也可以直接给一个地址字符串）：这就是播放器要打开的地址与请求头。`path` 支持网络地址、本地文件路径、`content://`、`asset://`；`kind` 取 `url` / `file` / `content` / `asset`，缺省按地址自己判断（判断错会让本地文件被当成网络流去做缓存）；`headers` 可省；`expireAtMs` 给临时地址的过期时间戳（毫秒，只用于排障）。**回答请用 `patch` 包一层**（写成 `patch.src`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历。给自己的音源给出地址与请求头、给内置来源换地址（加代理、换 CDN、统一请求头）都是这条路。不返回 / 结果不合法 = 这次不提供，主程序接着问内置实现。返回 `{\"disable\": true}` 是显式置空：这次不再问别的实现，该音源会解析失败（只在明确知道它不该播时用）。异步派发：主程序最多等 5 s（超时按没给处理，改走内置实现），处理器请尽快返回。主程序只在\"该钩子有处理器\"时才派发。"
+      "doc": "载荷 `{srcKey, type, src, crudeType, crudeSrc, fileName, durationMs, quality, isMediaSrc, pluginType, caller}`：主程序要把一个音源解析成**播放器内核能打开的地址与请求头**时派发一次（外置 → 内置插件 → 应用自身，第一个给出合法结果的生效）。`src` = 本轮要解析的音源（插件自己的音源就是它写下的资源 id / 路径；内置来源是已经解析出来的临时直链或本地路径 —— 实现这条能力的插件看得到这些内容，这是它能换地址的前提）；`crudeSrc` = 歌曲实体里保存的原始地址；`type` / `crudeType` = 对应的来源类型（`link` / `bili` / `aliDrive` / `local` 等；插件音源是空串）；`pluginType` = 本轮音源的插件音源类型 id（`plugin.<插件 id>.<类型名>`；不是插件音源则为空串）；`quality` = 用户当前音质偏好（枚举名小写）；`isMediaSrc` = false 表示这次要的是封面（媒体库来源）；`caller` = 谁在问（空串 = 主程序自己或命令行）。处理器返回 `{\"src\": {\"path\": \"<地址>\", \"headers\": {\"Referer\": \"...\"}, \"kind\": \"url\", \"expireAtMs\": 0, \"size\": 0, \"durationMs\": 0, \"quality\": \"hq\"}}`（`src` 也可以直接给一个地址字符串）：这就是播放器要打开的地址与请求头。`path` 支持网络地址、本地文件路径、`content://`、`asset://`；`kind` 取 `url` / `file` / `content` / `asset`，缺省按地址自己判断（判断错会让本地文件被当成网络流去做缓存）；`headers` 可省；`expireAtMs` 给临时地址的过期时间戳（毫秒，只用于排障）。**回答请用 `patch` 包一层**（写成 `patch.src`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历。给自己的音源给出地址与请求头、给内置来源换地址（加代理、换 CDN、统一请求头）都是这条路。不返回 / 结果不合法 = 这次不提供，主程序接着问内置实现。返回 `{\"disable\": true}` 是显式置空：这次不再问别的实现，该音源会解析失败（只在明确知道它不该播时用）。异步派发：主程序最多等 5 s（超时按没给处理，改走内置实现），处理器请尽快返回。主程序只在\"这条能力有处理器\"时才派发。"
     },
     {
       "id": "musicxx.player.seek",
@@ -218,7 +218,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{\"action\":\"stop\"}` = 停止播放；`{\"action\":\"skip\"}`（或 `cancel`）= 跳到下一曲；`{\"action\":\"continue\",\"patch\":{\"tryNextSrc\":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按主程序的换源/下一曲策略走）。异步派发（不占用调用线程，主程序不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。主程序只在\"该钩子有处理器\"时才派发。"
+      "doc": "载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{\"action\":\"stop\"}` = 停止播放；`{\"action\":\"skip\"}`（或 `cancel`）= 跳到下一曲；`{\"action\":\"continue\",\"patch\":{\"tryNextSrc\":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按主程序的换源/下一曲策略走）。异步派发（不占用调用线程，主程序不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。主程序只在\"这条能力有处理器\"时才派发。"
     },
     {
       "id": "musicxx.media.notification",
@@ -298,7 +298,7 @@
         "point"
       ],
       "implemented": false,
-      "doc": "包装点（实现固定是应用自己：读取由主程序做）：主程序读完一个歌单时派发。`before` 前链（串行、正序）改这次读取的参数（例如要读哪一份）；`after` 后链（串行、**逆序**）能读到最终列表并过滤它 —— 这就是原来的 `musicxx.playlist.filter`，只是现在和“加载完成”是同一个调用的两端，不必再记两条钩子。原来的 `musicxx.playlist.loaded` / `musicxx.playlist.filter` 是它的两个端点。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。"
+      "doc": "包装点（实现固定是应用自己：读取由主程序做）：主程序读完一个歌单时派发。`before` 前链（串行、正序）改这次读取的参数（例如要读哪一份）；`after` 后链（串行、**逆序**）能读到最终列表并过滤它 —— 这就是原来的 `musicxx.playlist.filter`，只是现在和“加载完成”是同一个调用的两端，不必再记两条频道。原来的 `musicxx.playlist.loaded` / `musicxx.playlist.filter` 是它的两个端点。载荷字段在主程序接入时补齐：当前版本注册不会报错，也不会触发。"
     },
     {
       "id": "musicxx.local.scan.file",
@@ -477,7 +477,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, frames, binCount, frameHz, maxSeconds, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要提取一首歌的**整曲频谱**时派发一次（`path` 是本地/缓存文件路径，不是网络直链；`kind` = `local` / `cache` / `content` / `other`；`frames` 按时长推算、只作提示）。处理器返回 `{\"spectrum\": {\"spectrums\": \"<base64>\", \"waveform\": \"<base64，可省>\", \"binCount\": 256, \"frameHz\": 10}}` 就用插件的数据替代内置提取（内置实现是主程序自己用 mediaxx 提取）：`spectrums` 是整曲频点（帧数 × 256 个字节，0~255 表示 -80~0 dB，默认每秒 10 帧），`waveform` 是每帧 1 字节 RMS 响度（0~255 表示 -60~+20 dB；省掉或长度对不上时按每帧频点均值补一份近似响度）。不返回 / 没有 `spectrum` / 数据不合法（不是 base64、长度不是 256 的整数倍、`binCount` 与 `frameHz` 不是 256 与 10）= 这次不提供，主程序接着用已登记的实现（内置『音乐动效』）。**回答请用 `patch` 包一层**（写成 `patch.spectrum`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 30 s（超时按没给处理）；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"该钩子有处理器\"时才派发。返回 `{\"disable\": true}` 是显式的**置空裁决**：主程序这次不再询问其它实现（内置『音乐动效』也不跑，播放页频谱与副歌分析都拿不到数据），这次结果不写缓存；置空只在本次询问有效，处理器被摘除（插件停用 / 卸载 / 关闭『拟声++』）后自动还原。要用它请先确认自己的数据已经算好（例如自己起线程提前算完），否则用户会看到功能凭空消失。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到原始数据，参数与结果见 `capability.list` 里的 `callDoc`。调用同样按这条处理器链问一遍，但**不写主程序的值仓、不改主程序状态**（只读值仓，绝不记录置空标记），同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
+      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, frames, binCount, frameHz, maxSeconds, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要提取一首歌的**整曲频谱**时派发一次（`path` 是本地/缓存文件路径，不是网络直链；`kind` = `local` / `cache` / `content` / `other`；`frames` 按时长推算、只作提示）。处理器返回 `{\"spectrum\": {\"spectrums\": \"<base64>\", \"waveform\": \"<base64，可省>\", \"binCount\": 256, \"frameHz\": 10}}` 就用插件的数据替代内置提取（内置实现是主程序自己用 mediaxx 提取）：`spectrums` 是整曲频点（帧数 × 256 个字节，0~255 表示 -80~0 dB，默认每秒 10 帧），`waveform` 是每帧 1 字节 RMS 响度（0~255 表示 -60~+20 dB；省掉或长度对不上时按每帧频点均值补一份近似响度）。不返回 / 没有 `spectrum` / 数据不合法（不是 base64、长度不是 256 的整数倍、`binCount` 与 `frameHz` 不是 256 与 10）= 这次不提供，主程序接着用已登记的实现（内置『音乐动效』）。**回答请用 `patch` 包一层**（写成 `patch.spectrum`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 30 s（超时按没给处理）；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"这条能力有处理器\"时才派发。返回 `{\"disable\": true}` 是显式的**置空裁决**：主程序这次不再询问其它实现（内置『音乐动效』也不跑，播放页频谱与副歌分析都拿不到数据），这次结果不写缓存；置空只在本次询问有效，处理器被摘除（插件停用 / 卸载 / 关闭『拟声++』）后自动还原。要用它请先确认自己的数据已经算好（例如自己起线程提前算完），否则用户会看到功能凭空消失。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到原始数据，参数与结果见 `capability.list` 里的 `callDoc`。调用同样按这条处理器链问一遍，但**不写主程序的值仓、不改主程序状态**（只读值仓，绝不记录置空标记），同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
     },
     {
       "id": "musicxx.media.chorus.analyse",
@@ -498,7 +498,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, hasWave, frames, binCount, frameHz, spectrums?, waveform?, config, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要分析一首歌的**副歌（高潮）区段**时派发一次。`hasWave` 为真时附带主程序已经拿到的整曲频谱（`spectrums` / `waveform` 的 base64，4 分钟歌曲约 800 KB —— 用不上的插件请不要注册这个钩子）；`config` 是内置算法的参数（`bandCount` / `hopFrames` / `windowFrames` / `minRepeatLagSeconds` / `segmentSimilarity` / `minSegmentSeconds` / `maxSegmentSeconds` / `mergeGapSeconds`）。处理器返回 `{\"chorus\": {\"sections\": [{\"start\": 64000, \"end\": 100000, \"confidence\": 0.8, \"energy\": 0.7, \"similarity\": 0.9, \"repeat\": 3}], \"totalDuration\": 253000, \"analyseTimeMs\": 120}}`（时间单位毫秒）就用插件的区段替代内置分析；`sections` 是必需项（空数组 = 分析过了、这首歌没有副歌），每段至少要有 `start` 与 `end`，其余字段缺失按 0 处理。不返回 / 缺少 `sections` / 一个区段都解析不出来 = 这次不提供。**回答请用 `patch` 包一层**（写成 `patch.chorus`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 20 s；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"该钩子有处理器\"时才派发。返回 `{\"disable\": true}` 可以显式置空这个功能：主程序这次不再走内置分析（进度条上的副歌标记就没有了），处理器被摘除后自动还原。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它（参数与结果见 `capability.list` 里的 `callDoc`）；调用会先取一次频谱，**这一层同样不写值仓**，也不改主程序状态，同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
+      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, hasWave, frames, binCount, frameHz, spectrums?, waveform?, config, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要分析一首歌的**副歌（高潮）区段**时派发一次。`hasWave` 为真时附带主程序已经拿到的整曲频谱（`spectrums` / `waveform` 的 base64，4 分钟歌曲约 800 KB —— 用不上的插件请不要注册这条能力）；`config` 是内置算法的参数（`bandCount` / `hopFrames` / `windowFrames` / `minRepeatLagSeconds` / `segmentSimilarity` / `minSegmentSeconds` / `maxSegmentSeconds` / `mergeGapSeconds`）。处理器返回 `{\"chorus\": {\"sections\": [{\"start\": 64000, \"end\": 100000, \"confidence\": 0.8, \"energy\": 0.7, \"similarity\": 0.9, \"repeat\": 3}], \"totalDuration\": 253000, \"analyseTimeMs\": 120}}`（时间单位毫秒）就用插件的区段替代内置分析；`sections` 是必需项（空数组 = 分析过了、这首歌没有副歌），每段至少要有 `start` 与 `end`，其余字段缺失按 0 处理。不返回 / 缺少 `sections` / 一个区段都解析不出来 = 这次不提供。**回答请用 `patch` 包一层**（写成 `patch.chorus`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 20 s；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"这条能力有处理器\"时才派发。返回 `{\"disable\": true}` 可以显式置空这个功能：主程序这次不再走内置分析（进度条上的副歌标记就没有了），处理器被摘除后自动还原。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它（参数与结果见 `capability.list` 里的 `callDoc`）；调用会先取一次频谱，**这一层同样不写值仓**，也不改主程序状态，同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
     },
     {
       "id": "musicxx.media.palette.provide",
@@ -687,7 +687,7 @@
         "command"
       ],
       "implemented": true,
-      "doc": "三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{\"patch\": {\"args\": {...}}}` 改这次调用的参数、`{\"action\": \"stop\"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{\"value\": ...}` 改最终结果、`{\"action\": \"drop\"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一个钩子 id（插件框架只认固定的钩子表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{\"patch\": {\"value\": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{\"disable\": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。"
+      "doc": "三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{\"patch\": {\"args\": {...}}}` 改这次调用的参数、`{\"action\": \"stop\"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{\"value\": ...}` 改最终结果、`{\"action\": \"drop\"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一条能力 id（插件框架只认固定的能力表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{\"patch\": {\"value\": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{\"disable\": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。"
     },
     {
       "id": "musicxx.app.foreground",
@@ -2950,7 +2950,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个钩子）。"
+      "doc": "载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个频道）。"
     },
     {
       "id": "musicxx.player.position",
@@ -2963,7 +2963,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读状态镜像 `musicxx.state.env.isPlaying`，要“状态变了”用钩子 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。"
+      "doc": "载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读状态镜像 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播频道 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。"
     },
     {
       "id": "musicxx.player.completed",

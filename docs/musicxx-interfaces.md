@@ -7,7 +7,7 @@
 > `{"cmd": "<入口 id>", "args": {…}}`。链接（applink）与进程启动参数只是"把这次调用说出来"
 > 的两种额外写法，见 §1。
 >
-> 插件自己的接口（动作 / 变量 / 功能点 / 钩子 / 能力 / 界面）在 [plugin-api.md](plugin-api.md)；
+> 插件自己的接口（动作 / 值频道 / 功能点 / 能力 / 界面）在 [plugin-api.md](plugin-api.md)；
 > 用命令行装插件、改完刷新、看插件日志在 [plugin-agent-cli.md](plugin-agent-cli.md)。
 
 **术语**：**主程序**指 musicxx（Flutter/Dart 业务层）；**插件框架**指外置插件的 C++ 层。
@@ -30,7 +30,7 @@
 | **本机命令行** | 人、脚本、agent | `musicxx-cli`（独立可执行文件）→ 主程序 `/cli` | §4 |
 | **本机链接（applink / deep link）** | 手机点链接、桌面点 `musicxx://…`、其他应用跳过来；也可以由用户在应用里自己粘贴 | `musicxx://…` 交给系统 → 应用自己解析 | §1.1、§1.1.1 |
 | **进程启动参数** | 文件关联、"用拟声打开"、命令行传参、第二个实例转发 | `musicxx <参数…>` | §1.2 |
-| **插件内部** | 装在应用里的动态库插件 / JS插件 | 动作 / 变量 / 功能点 / 钩子 / 能力 | [plugin-api.md](plugin-api.md) |
+| **插件内部** | 装在应用里的动态库插件 / JS插件 | 动作 / 值频道 / 功能点 / 能力 | [plugin-api.md](plugin-api.md) |
 | **局域网设备之间** | 另一台装了 musicxx / 流明的设备（控制页、一起听、资源代理） | `/control`、`/connectEvent`、`/getSrc`、`/parseSrc`、`/listenTogether`、`/ws/*` | §6 |
 | **设备发现** | 同网段的设备互相发现 | mDNS 服务 `_boolxx-service._udp` + HTTP `/active` | §6.1 |
 
@@ -46,7 +46,7 @@
 | 读前后台状态 | `GetAppLifecycle` | `musicxx-cli call app.lifecycle` | 变量 `musicxx.app.lifecycle`（读值 + 订阅） | `musicxx://call/?cmd=app.lifecycle` | `--cmd app.lifecycle` |
 | 切到前台 / 后台 | `SwitchForegroundBackground`（`operator`） | `musicxx-cli call window.background`（命令 `window.foreground` / `window.background`） | `musicxx.app.background` / `musicxx.app.foreground` | `musicxx://musicxx.app.background` | `--cmd musicxx.app.background` |
 | 改音量 / 速度 / 音调 / 进度 | `SetAppVolume` / `SetSpeed` / `SetPitch` / `SetCurrentPlaybackPosition` | `musicxx-cli volume` / `speed` / `pitch` / `seek` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `seek` | `musicxx://call/?cmd=musicxx.player.setVolume&args=…` | `--cmd musicxx.player.setPitch --args '{"pitch":1.1}'` |
-| 拦一次改播放值 / 收播放进度 | — | — | 钩子 `musicxx.player.seek` / `volume` / `speed` / `pitch` / `position` | — | — |
+| 拦一次改播放值 / 收播放进度 | — | — | 能力 `musicxx.player.seek` / `volume` / `speed` / `pitch` + 广播频道 `musicxx.player.position` | — | — |
 | 功能点清单 | `GetFeatureProviders` | `musicxx-cli capability.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=capability.list` | `--cmd capability.list` |
 | 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
 | 插件框架版本 / 提交 / 仓库地址 | `GetExternPlugins`（结果里的 `framework` 段） | `musicxx-cli version` / `list` / `plugin list` | 插件读 `host.info().hostVersion`（同一个版本号） | — | — |
@@ -268,7 +268,7 @@ POST /cli                   {"cmd": "<入口 id>", "args": {…}}         ← �
 | `commit` | 这个版本号首次出现的提交（短号；空串 = 还没补记） |
 | `date` | 该版本的日期（`YYYY-MM-DD`） |
 | `describe` | 一行说明：`2026.1031.1（2026-10-31 · commit 8314706）` |
-| `repositoryUrl` | 插件框架的 GitHub 仓库地址（写插件时对着它看钩子与文档） |
+| `repositoryUrl` | 插件框架的 GitHub 仓库地址（写插件时对着它看能力与文档） |
 | `commitUrl` | 该版本提交的地址（没补记提交号时与 `repositoryUrl` 相同） |
 
 - 这是**随应用一起编译进来的那份声明**（插件包 `lib/src/version.dart`）；
@@ -848,7 +848,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 **相关文档**：[plugin-api.md](plugin-api.md)（插件侧接口手册）、
 [plugin-agent-cli.md](plugin-agent-cli.md)（用命令行 / MCP 管插件）、
-[plugin-vars.md](plugin-vars.md)（变量）、[plugin-hooks.md](plugin-hooks.md)（钩子总表）、
+[plugin-vars.md](plugin-vars.md)（变量）、[plugin-capabilities.md](plugin-capabilities.md)（能力总表）、
 [plugin-guide.md](plugin-guide.md)（总入口）。
 
 **维护者注**（改接口时一起改的地方）：命令与工具的实现都在主程序
@@ -867,5 +867,5 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 - MCP 工具：`tools/list`（或主程序 `MusicxxMcpTools_c.all()`，它 = 固定工具 + 能力注册表）；
 - 动作有没有实现：看主程序 `lib/plugin/externPlugin/ExternActions.dart` 里有没有 `_add(...)` 那一行
   （SDK 常量存在不等于已实现）；
-- 钩子已接入 / 未接入：`tools/hooks.def.json` 的 `wired` 字段（`plugin-hooks.md` 由它生成，
+- 能力已接入 / 未接入：`tools/capabilities.def.json` 的 `implemented` 字段（`plugin-capabilities.md` 由它生成，
   `dart run tools/gen_contract.dart --check` 校验）。

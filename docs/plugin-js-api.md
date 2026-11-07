@@ -5,13 +5,14 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 
 | 主题 | 文档 |
 |---|---|
-| **两种形态共用的接口**（状态镜像 / 动作 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
+| **两种形态共用的接口**（能力与广播（状态镜像 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
-| 钩子 id / 模式 / 派发，以及已接入钩子的载荷与裁决语义 | [plugin-hooks.md](plugin-hooks.md) |
+| 能力 id / 能不能参与 / 载荷与回答 | [plugin-capabilities.md](plugin-capabilities.md) |
+| 广播频道 id / 有没有当前值 / 谁能写 / 载荷 | [plugin-broadcasts.md](plugin-broadcasts.md) |
 | 界面（UI 项、插件页面、设置页）的字段与块类型 | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
-| 动态库插件（钩子/能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
+| 动态库插件（能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
 | 单特性示例（多脚本加载 / 变量通道 / 异步裁决 / 全局字体 / 音源解析） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/`、`plugins/example_js_font/`、`plugins/example_override_media_source/` |
 
@@ -74,23 +75,23 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | 阶段 | 发生了什么 |
 |---|---|
 | 加载（`kind: js`） | 插件框架为该插件登记一个合成实例 `js:<插件id>`，建立独立的 `JSRuntime`/`JSContext` |
-| 脚本顶层执行 | 顶层**必须同步完成注册**（钩子 / 能力 / 订阅）；顶层抛异常 = 加载失败并回滚 |
-| 启用中 | 钩子处理器与定时器工作；同步读状态镜像、异步发动作请求 |
+| 脚本顶层执行 | 顶层**必须同步完成注册**（能力实现 / 自己登记的能力 / 广播订阅）；顶层抛异常 = 加载失败并回滚 |
+| 启用中 | 能力处理器与定时器工作；同步读状态镜像、异步发动作请求 |
 | 停用（disable） | 脚本的注册全部摘除、定时器清空、`JSRuntime` 释放；**再次启用会重新执行一遍脚本** |
 | 卸载（unload） | 实例销毁；插件目录与私有数据保留（除非用户在管理页选择彻底卸载） |
 
 硬约束（踩过坑的都在这里）：
 
-1. **顶层不能有 `await`**；异步逻辑放到钩子、定时器或 Promise 回调里。
+1. **顶层不能有 `await`**；异步逻辑放到能力处理器、定时器或 Promise 回调里。
 2. 所有 JS 代码跑在插件框架的**一条共享 JS 线程**上（多个 JS插件共用一个线程、各自独立运行时）：
    回调要尽快返回，不要在里面做长时间同步计算。
-3. 裁决型钩子的**推荐写法是同步返回**裁决对象；需要 `await` 才能决定时可以先同步判断
+3. 决策型能力的**推荐写法是同步返回**裁决对象；需要 `await` 才能决定时可以先同步判断
    "这次要不要裁决"，只在需要的那次返回 Promise（见 §4.3）。返回 Promise 时插件框架会一直等到它结算。
 4. `require`、`fs`、`fetch`、原生模块都**不存在**；框架与主程序能力全部经 `musicxx.*`。
 5. 插件之间不做隔离（同一条 JS 线程）；不要依赖全局副作用，状态放插件自己的存储里。
-6. 钩子处理器抛异常只记日志与统计（**不会暂停派发、也不会卸载插件**）
+6. 能力处理器抛异常只记日志与统计（**不会暂停派发、也不会卸载插件**）
    （超时不算失败；统计里看得到 `paused`）。
-7. 脚本顶层与处理器里**都可以**读写 `musicxx`；但处理器里不要递归触发同一个钩子。
+7. 脚本顶层与处理器里**都可以**读写 `musicxx`；但处理器里不要递归触发同一条能力。
 8. 脚本每次启用都会重新执行：**注册语句要写成幂等的**（重复执行不会累积副作用），
    定时器在 `stop` 时由插件框架清理，不要假设它还在。
 9. **主程序整体卡住**（脚本死循环、长时间同步计算）时，插件框架不会打断脚本：主程序连续两次启动没走完
@@ -103,7 +104,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 | 命名空间 | 用途 | 详细 |
 |---|---|---|
-| `musicxx.capability` | 实现应用声明的能力（钩子）、注册自己的能力 / 调用别的插件的能力、读谁在实现 | §4、§10；[plugin-api.md](plugin-api.md) §6 / §8 |
+| `musicxx.capability` | 实现应用声明的能力、注册自己的能力 / 调用别的插件的能力、读谁在实现 | §4、§10；[plugin-api.md](plugin-api.md) §6 / §8 |
 | `musicxx.broadcast` | 广播：读当前值、订阅、发布，以及声明自己的值频道（变量） | §5、§8、§9；[plugin-api.md](plugin-api.md) §4 / §5 |
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
 | `musicxx.call` | 通用动作请求（返回 Promise） | §7 |
@@ -118,11 +119,11 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 ---
 
-## 4. 能力（实现应用声明的钩子）
+## 4. 应用来问插件（实现应用声明的决策型能力）
 
-> 概念与载荷见 [plugin-hooks.md](plugin-hooks.md)；这里只说 JS 的写法。
-> **观察型钩子在框架 API 2 之后是广播频道**：用 `musicxx.broadcast.subscribe(id, fn)` 订阅，
-> 不再写成钩子（`mode: "observe"` 会被拒绝，报错会告诉你改用广播）。
+> 概念与载荷见 [plugin-capabilities.md](plugin-capabilities.md)；这里只说 JS 的写法。
+> **广播频道在框架 API 2 之后是广播频道**：用 `musicxx.broadcast.subscribe(id, fn)` 订阅，
+> 不再写成"观察型的能力实现"（`mode: "observe"` 会被拒绝，报错会告诉你改用广播）。
 
 ### 4.1 实现与注销
 
@@ -138,7 +139,7 @@ musicxx.capability.handlers(id, "after");    // 只看一个阶段（缺省 = �
 
 - `id` 必须是**全名**（官方 `musicxx.*`）；插件框架的约定表里没有的能力会被拒绝；
 - `phase`：参与方式 —— `"before"`（前链：改输入 / `stop`）、`"impl"`（实现链，**不写就是它**）、
-  `"after"`（后链：改输出 / `drop`）。只能实现能力声明过的阶段（[plugin-hooks.md](plugin-hooks.md)
+  `"after"`（后链：改输出 / `drop`）。只能实现能力声明过的阶段（[plugin-capabilities.md](plugin-capabilities.md)
   的「阶段」列），否则插件框架会拒绝并在日志里说明；**前链 / 后链必须是同步返回**（返回 Promise
   拿不到结果），要逐步串行；
 - **后链是逆序执行的**（优先级降序、同优先级注册顺序也反）：外置插件最后改输出，
@@ -146,10 +147,10 @@ musicxx.capability.handlers(id, "after");    // 只看一个阶段（缺省 = �
 - `priority`：小者先执行；同优先级按注册顺序；
 - `ownerTag`：同一插件在同一条能力上区分多个处理器的标记。**同一个阶段**不要用不同 ownerTag
   注册两次（见 §15 常见坑）；不同阶段可以用同一个 ownerTag，互不覆盖；
-- `fn(ctx)`：`ctx` 是载荷（JSON 对象，字段见 [plugin-hooks.md](plugin-hooks.md)）；
+- `fn(ctx)`：`ctx` 是载荷（JSON 对象，字段见 [plugin-capabilities.md](plugin-capabilities.md)）；
   返回 `null` / `undefined` = 不裁决。
 
-同一条钩子上的三个阶段写法：
+同一条能力上的三个阶段写法：
 
 ```js
 // 前链：改输入（这一步累加的 patch 会交给下一步与实现链）；action=stop 表示这次不执行实现
@@ -175,7 +176,7 @@ musicxx.broadcast.subscribe("musicxx.song.changed", (ctx) => {
 顶层同步注册会在脚本执行结束后由引擎统一登记；**运行期**调用 `register` / `unregister` 同样生效
 （插件框架把它投递到框架线程执行，不在脚本线程等待）。
 
-**想知道"这个钩子现在有谁在提供"**用 `musicxx.capability.handlers(id)`（异步，读的是插件框架的权威数据）：
+**想知道"这条能力现在有谁在提供"**用 `musicxx.capability.handlers(id)`（异步，读的是插件框架的权威数据）：
 
 ```js
 musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
@@ -191,14 +192,14 @@ musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
 `capability.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
 与"用户看到的"一致。
 
-### 4.2 裁决型钩子的返回值
+### 4.2 决策型能力的返回值
 
 ```js
 { action: "continue" | "skip" | "cancel" | "replace", patch: { ... }, error?: "说明" }
 ```
 
 `action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲）。当前版本已接入的
-裁决钩子有七个，语义见 [plugin-hooks.md](plugin-hooks.md) 的「已接入钩子的载荷与裁决」：
+裁决型能力有七个，语义见 [plugin-capabilities.md](plugin-capabilities.md) 的「载荷与回答（已接入的能力）」：
 `player.beforePlaySong`（只支持 `skip`）、`player.source.beforeParse`（`skip` / `patch.src`）、
 `player.error`（`stop` / `skip` / `patch.tryNextSrc`），以及“改播放值”的四个：
 `player.seek` / `player.volume` / `player.speed` / `player.pitch`（`patch.to` 换新值，
@@ -257,7 +258,7 @@ JS 侧需要记住的几条：
   不回答（避免把自己算出的结果再问回去）、把返回值包成 `{"patch": {"value": …}}`。
   要返回"算过了、结果是空"就给 `null`（`undefined` 与空串 = 这次不回答）。
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本再声明一遍（声明不写入磁盘）。
-- 手写钩子处理器（不用糖）时，约定见 [plugin-hooks.md](plugin-hooks.md) 的
+- 手写能力处理器（不用糖）时，约定见 [plugin-capabilities.md](plugin-capabilities.md) 的
   `musicxx.feature.point.call`：**回答必须用 `patch` 包一层**，否则后面的处理器会覆盖你的结果。
 
 ---
@@ -274,13 +275,13 @@ const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying ==
 
 要点（键与字段的完整清单见 [plugin-api.md](plugin-api.md) §2）：
 
-- `musicxx.broadcast.read` 是**同步**读（读插件框架里的快照），没有网络与 IO，可以放在钩子处理器、定时器、
+- `musicxx.broadcast.read` 是**同步**读（读插件框架里的快照），没有网络与 IO，可以放在能力处理器、定时器、
   页面能力处理器里；
 - 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`
   （`musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送，读到的永远是 `null`）；
 - 键名固定（官方 `musicxx.state.*`），写错就是 `null`，不会报错；
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
-  （**不是实时值**）。要按秒推进度用钩子 `musicxx.player.position`（每秒一条），
+  （**不是实时值**）。要按秒推进度用广播频道 `musicxx.player.position`（每秒一条），
   要当场读当前值用变量 `musicxx.player.position` —— 不要把它当每秒更新的镜像用；
 - 要在自绘界面里"跟着音乐动"，用 `musicxx.state.spectrum`（约 10 Hz）或着色器的
   `musicxx.spectrum.*` 来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
@@ -362,7 +363,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 
 | 分类 | 方法 |
 |---|---|
-| `musicxx.capability` | `implement(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)`（实现应用声明的能力 = 钩子） **+** `register(name, fn)` `call(id, method, args?, timeoutMs?)`（自己提供给别人的能力） |
+| `musicxx.capability` | `implement(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)`（实现应用声明的能力） **+** `register(name, fn)` `call(id, method, args?, timeoutMs?)`（自己提供给别人的能力） |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
 | `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)` `syncSongs(args)`（歌单：保存下来的列表；`syncSongs` = 同步歌单音源，把绑定音源里新增的歌加进歌单） |
 | `musicxx.songlist` | `querySongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（播放列表：当前正在播的那一串歌） |
@@ -390,8 +391,8 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
   `musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` ——
   写插件前先按 [plugin-api.md](plugin-api.md) §3.4 确认一遍；
-- **要"改应用状态"而动作里没有**：多半有对应的钩子或变量（例如改播放速度 / 音调用
-  `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用钩子 `musicxx.player.speed` /
+- **要"改应用状态"而动作里没有**：多半有对应的能力或值频道（例如改播放速度 / 音调用
+  `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用能力 `musicxx.player.speed` /
   `musicxx.player.pitch`）。
 
 ### 7.2 存储（插件私有数据）
@@ -545,7 +546,7 @@ musicxx.net.udp.close(udp.id);
 
 要知道的几点：
 
-- **`await musicxx.net.http.request(...)` 可以在返回 Promise 的能力/钩子里用**：网络事件由插件框架
+- **`await musicxx.net.http.request(...)` 可以在返回 Promise 的能力实现里用**：网络事件由插件框架
   直接投递到 JS 线程，不走事件总线（绕事件总线会与"框架线程等 Promise"互相等）。
 - **客户端支持 `https://` / `wss://`**：TLS 由插件框架静态链接的 OpenSSL 完成（证书链与主机名
   校验默认开）；`wss` 同样能传 `tlsVerify` / `caFile` / `caPem` / `serverName`。
@@ -628,7 +629,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.changed");
 
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
 > `musicxx.hook.changed` / `musicxx.hook.decision.result` **不在总线上**（它们是插件框架 → 主程序的
-> 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看钩子注册表用动作
+> 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看能力注册表用动作
 > `musicxx.capability.subscribers`，自己的 UI 项用 `musicxx.ui.entries()`。
 
 ---
@@ -717,15 +718,15 @@ const info = await musicxx.capability.call("example_native", "probe", {});
   - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）同步读广播缓存（`musicxx.broadcast.read`）；
   - 要动作结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
     —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
-  同一条规则也适用于**同步派发**的钩子（`musicxx.player.beforePlaySong` 等调用点就地等待的钩子）：
+  同一条规则也适用于**同步派发**的能力（`musicxx.player.beforePlaySong` 等调用点就地等待的能力）：
   处理器里等动作会一直卡住调用线程。
-- **异步派发的裁决钩子可以等动作**（`musicxx.player.source.resolve` / `musicxx.player.error` 这类
-  主程序用 `decideAsync` 派发的钩子）：插件框架在框架线程上派发并就地等处理器结果，但
+- **异步派发的裁决型能力可以等动作**（`musicxx.player.source.resolve` / `musicxx.player.error` 这类
+  主程序用 `decideAsync` 派发的能力）：插件框架在框架线程上派发并就地等处理器结果，但
   **Dart 侧的回答不经过框架线程**（先问 JS 引擎自己的请求登记表），所以处理器里
   `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果
   —— `plugins/example_override_media_source` 就是靠这一条把 BV 号换成播放地址。
   但仍然**只等主程序动作**：`musicxx.broadcast.*`、跨插件调用、`musicxx.capability.*` 这些要框架线程处理的
-  接口在处理器里等会一直等到超时（框架线程正卡在等这个处理器返回）。异步钩子里要这类数据请读
+  接口在处理器里等会一直等到超时（框架线程正卡在等这个处理器返回）。异步能力实现里要这类数据请读
   状态镜像，或者提前存在脚本里。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
 
@@ -914,7 +915,7 @@ function warmPalette(key) {
     });
 }
 
-// 当前音频频谱（由插件提供的实现提取：内置『音乐动效』或注册了提取钩子的插件；
+// 当前音频频谱（由插件提供的实现提取：内置『音乐动效』或注册了提取实现的插件；
 // 每帧 256 个频点、10 帧/秒）
 const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 // { ok, status:"ready"|"loading"|"none"|"off"|"unavailable", available, loading, reason,
@@ -955,8 +956,8 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
 });
 ```
 
-- 三个"取值型"钩子的完整语义（载荷、数据格式、超时、置空裁决、失效规则）见
-  [plugin-hooks.md](plugin-hooks.md)，调用方的写法与代价见 [plugin-api.md](plugin-api.md) §7：
+- 三个"取值型"能力的完整语义（载荷、数据格式、超时、置空裁决、失效规则）见
+  [plugin-capabilities.md](plugin-capabilities.md)，调用方的写法与代价见 [plugin-api.md](plugin-api.md) §7：
   - **封面取色**（`musicxx.media.palette.provide`）：命中缓存就**同步**返回，未命中返回 `null`
     并异步预热，算好用 `musicxx.media.setPalette` 写回。**绝不要在处理器里 `await` 主程序动作**
     （切换背景样式、切歌、渲染准备都在等这次裁决，等动作会互相拖到超时 —— 表现是"卡几秒"）；
@@ -966,7 +967,7 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
   - **副歌分析**（`musicxx.media.chorus.analyse`）：应用最多等 20 s，载荷里带上已拿到的整曲频谱
     （`hasWave` 为真），返回 `{chorus: {sections: [...]}}`（空数组 = 分析过了、这首歌没有副歌）。
 - `musicxx.media.palette.set` 是**主动写**：只覆盖你给的键，其余保持不变；换歌后内置分析会照旧
-  重跑（想持续提供就用上面的钩子）；
+  重跑（想持续提供就用上面的能力）；
 - **封面变化**（`musicxx.media.cover.changed`）是**观察型**：注册后，换歌、同一首歌换了封面图、
   封面被清空时各收到一次（同一个封面源被重复设置不会重复派发）。载荷
   `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` /
@@ -1103,8 +1104,8 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 
 | 位置 | 演示了什么 |
 |---|---|
-| `musicxx.capability.implement("musicxx.player.beforePlaySong")` | 裁决型钩子：命中就跳过本曲 |
-| `musicxx.capability.implement("musicxx.song.changed")` | 观察型钩子 + 状态镜像 |
+| `musicxx.capability.implement("musicxx.player.beforePlaySong")` | 决策型能力：命中就跳过本曲 |
+| `musicxx.capability.implement("musicxx.song.changed")` | 广播频道 + 状态镜像 |
 | `musicxx.capability.implement("musicxx.player.error")` | 错误裁决（换源建议） |
 | `musicxx.capability.implement("musicxx.player.speed")` | 异步裁决（Promise）的写法 |
 | `musicxx.timer.setInterval` | 后台定时任务（心跳日志） |
@@ -1121,7 +1122,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 `plugins/example_js_font/`（动态加载字体并设为全局字体）。
 
 动态库侧的对照读：`plugins/example_native/example_native.cpp` 与 `plugins/example_js/plugin.js` **行为等价**
-（钩子 / 状态镜像 / 动作 / 事件 / 能力 / 功能点 / UI / 通知各一遍），同一个功能想看两边写法时对照着读最省事。
+（能力 / 广播 / 动作 / 事件 / UI / 通知各一遍），同一个功能想看两边写法时对照着读最省事。
 
 ---
 
@@ -1133,7 +1134,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 ① 写 plugin.yaml + plugin.js
 ② 把整个目录放进用户插件目录（管理页「打开插件目录」），或打包 zip 用「从压缩包安装」
 ③ 管理页 →「重新扫描」→ 启用（加载时执行脚本顶层）
-④ 触发钩子 / 打开页面看效果；日志看「插件详情 → 日志」
+④ 触发能力 / 订阅广播 / 打开页面看效果；日志看「插件详情 → 日志」
 ⑤ 改了 plugin.js：管理页「重载」（或禁用再启用）→ 脚本会重新执行
 ```
 
@@ -1145,7 +1146,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 **日志**：`console.*` 与 `musicxx.host.log(...)` 都进插件日志；插件框架自己的日志设环境变量
 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可以打印到 stderr（排查加载失败时很有用）。
 
-**统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到钩子调用次数 / 耗时 / 失败（只观测不限制：没有超时与暂停派发）、
+**统计**：管理页「外部插件 → 调试」分页与「插件详情 → 运行统计」能给到能力调用次数 / 耗时 / 失败（只观测不限制：没有超时与暂停派发）、
 插件声明的注册项与计数，以及每个 JS 实例的 `hooks` / `capabilities` / `subscriptions` /
 `timers` / `pendingActions` / `jsRuns` / `errors` / `jsHeapBytes` / `asyncHookSettled`。
 插件里也能自己读：`musicxx.stats.getSelf()`。
@@ -1166,8 +1167,8 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 动作一直失败 `action_not_registered` | 该动作当前版本没有实现（清单见 [plugin-api.md](plugin-api.md) §3.4） |
-| 钩子不触发 | 该钩子在 [plugin-hooks.md](plugin-hooks.md) 里标「未接入」（主程序还没有接） |
-| 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一个钩子**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一个钩子只注册一次，或注销时用同一个 `ownerTag` |
+| 处理器不触发 | 这条能力在 [plugin-capabilities.md](plugin-capabilities.md) 里标「未接入」（主程序还没有接） |
+| 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一条能力**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一条能力只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |
 | 脚本报错但插件仍在运行 | 运行期异常只记日志（顶层抛异常才会加载失败）；先看日志 |
 | 主程序整体卡住 | 脚本里有死循环或长时间同步计算（共享 JS 线程）。插件框架不打断脚本、也没有中断开关，只能重启主程序 —— 写脚本时自己保证循环能结束 |

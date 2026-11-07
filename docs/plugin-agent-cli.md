@@ -205,8 +205,8 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 
 | 命令 | 插件开发时用来 |
 |---|---|
-| `musicxx-cli status` / `play` / `pause` / `next` | 快速把播放状态摆到你要的位置（触发钩子、看背景效果） |
-| `musicxx-cli watch --events song,playerState` | 看应用事件有没有按预期发生（钩子与事件的对应见 [plugin-hooks.md](plugin-hooks.md)） |
+| `musicxx-cli status` / `play` / `pause` / `next` | 快速把播放状态摆到你要的位置（触发能力、看背景效果） |
+| `musicxx-cli watch --events song,playerState` | 看应用事件有没有按预期发生（能力见 [plugin-capabilities.md](plugin-capabilities.md)，广播频道见 [plugin-broadcasts.md](plugin-broadcasts.md)） |
 | `musicxx-cli toast <文本>` | 在应用界面上弹一条提示（对照插件的 `musicxx.ui.toast`） |
 | `musicxx-cli var list` / `var get <键>` | 看官方变量当前值（与插件的变量通道对照） |
 | `musicxx-cli feature call GetAudioSpectrum --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
@@ -404,6 +404,6 @@ musicxx-cli plugin uninstall my_plugin
 
 相关文档：[plugin-guide.md](plugin-guide.md)（总入口）、[plugin-api.md](plugin-api.md)（共用接口手册）、
 [musicxx-interfaces.md](musicxx-interfaces.md)（musicxx 对外接口全表：MCP 工具 / 命令 / 本机 HTTP）、
-[plugin-hooks.md](plugin-hooks.md)（钩子总表）、
+[plugin-capabilities.md](plugin-capabilities.md)（能力总表）、
 [plugin-js-api.md](plugin-js-api.md) / [plugin-native-api.md](plugin-native-api.md)（语言写法）、
 [plugin-ui.md](plugin-ui.md)（界面）、[plugin-shader-bundle.md](plugin-shader-bundle.md)（背景渲染）。

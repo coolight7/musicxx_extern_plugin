@@ -24,7 +24,7 @@
 > 音轨纹路 + 左上柔光 + 外缘倒角高光，盘心圆裁封面（`cover.square = true`）并按 `speed` 旋转，
 > 右上方一支白亮唱臂（线段距离场画的管身与针杆）、唱针落在盘边；同一个 `player.background` 槽位里
 > 注册三项，用户选哪一项就是哪种模式）。
-> 它同时演示了歌曲图槽位（§5.3）与封面取色钩子 —— 见 `plugins/playing_bg_image/plugin.js`。
+> 它同时演示了歌曲图槽位（§5.3）与封面取色能力 —— 见 `plugins/playing_bg_image/plugin.js`。
 
 ---
 
@@ -400,7 +400,7 @@ void main() {
 （设置 → 主题 →「播放页音频动效」，『音乐动效』设置页里的样式列表也是同一份）。
 
 **没安装『音乐动效』不影响你的样式**：插件项不靠那个插件的开关，列表里照样可选。频谱数据仍然要有
-来源：注册钩子 `musicxx.media.spectrum.extract`（自己算）或依赖内核逐帧频谱（播放本地 / 缓存音频时
+来源：注册能力 `musicxx.media.spectrum.extract`（自己算）或依赖内核逐帧频谱（播放本地 / 缓存音频时
 就有），否则 `musicxx.spectrum.*` 全是 0（看 `uEnv.z` 区分“静音”与“没数据”）。
 
 ```jsonc
@@ -620,7 +620,7 @@ void main() {
 | **局部通道名（`AnimatedBuilder.values` 的键）** | 优先于上面两类；只在那一层作用域里可见（页面里的用法见 `plugin-ui.md`） |
 
 **频谱来源（`musicxx.spectrum.*`）** 读的是**插件提供的实现**提取的数据（内置『音乐动效』插件是
-应用默认登记的那一份，注册了钩子 `musicxx.media.spectrum.extract` 的插件可以替代它；每 100 ms 一帧）：
+应用默认登记的那一份，注册了能力 `musicxx.media.spectrum.extract` 的插件可以替代它；每 100 ms 一帧）：
 
 - 有三档粒度（都是一帧 256 个频点再按频率分组，低频在前）：`bands.0..3`（16 个频带）、
   `bands64.0..15`（64 个频带）、`bins.0..63`（256 个频点，等于原始频点）。画面上要摆几十个点时
@@ -665,7 +665,7 @@ void main() {
   一致，频带 0 最低、频带 15 最高，每组取覆盖范围内最大的那一段）；想要别的规则或整曲数据用
   `musicxx.media.spectrum` 动作自己算；
 - 能取到数据的条件：正在播放**本地/缓存**的音频（网络流要先有本地缓存），时长不超过
-  15 分钟，且有插件提供频谱提取实现（内置『音乐动效』，或注册了钩子
+  15 分钟，且有插件提供频谱提取实现（内置『音乐动效』，或注册了实现
   `musicxx.media.spectrum.extract` 的插件）。
 
 ### 7.3 时间与状态
@@ -821,7 +821,7 @@ const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 主程序 4 色），需要封面像素用
   `musicxx.media.cover`（`size` 16..1024，`format` = `jpeg`/`png`/`rgba`，`data` 是 base64）。
 
-**当前音频频谱**（由插件提供的实现提取：内置『音乐动效』或注册了提取钩子的插件）有两条读法，
+**当前音频频谱**（由插件提供的实现提取：内置『音乐动效』或注册了提取实现的插件）有两条读法，
 着色器与 JS 各用一条：
 
 ```js

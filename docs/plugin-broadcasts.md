@@ -2,6 +2,8 @@
 
 > 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。
 
+> 原来的 `docs/plugin-hooks.md` 已经拆成两张表：**观察型钩子**（只通知、不回答）就是这里的频道，**决策型钩子**（能改输入、给结果、改输出）在 [plugin-capabilities.md](plugin-capabilities.md)。订阅 / 发布的写法见 [plugin-api.md](plugin-api.md) 第 8 节。
+
 **广播** = 属主改了东西、通知所有关心的人。它没有返回值、不等待、允许丢中间值；
 要不要"当前值"由声明决定：`cache: latest` 的频道订阅时就能拿到当前值，也能同步读；
 `cache: none` 的是事件，只能等下一次通知。
@@ -83,11 +85,11 @@
 
 ### `musicxx.player.state` 播放状态变化
 
-载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个钩子）。
+载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个频道）。
 
 ### `musicxx.player.position` 播放进度
 
-载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读状态镜像 `musicxx.state.env.isPlaying`，要“状态变了”用钩子 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。
+载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读状态镜像 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播频道 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。
 
 ### `musicxx.player.completed` 一曲播放完成
 

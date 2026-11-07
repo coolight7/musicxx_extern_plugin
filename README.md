@@ -12,14 +12,15 @@
 |---|---|
 | 给 **AI Agent / 自动化脚本** 的浓缩指南（插件框架是什么 / 框架怎么跑 / 插件怎么写 / 命令 / 排障） | [AGENTS.md](AGENTS.md) |
 | **第一次写插件**（选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查） | [docs/plugin-guide.md](docs/plugin-guide.md) |
-| **查某个接口做什么、参数是什么、怎么用**（状态镜像 / 动作 / 事件 / 变量 / 能力 / 功能点 / 钩子写法，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
+| **查某个接口做什么、参数是什么、怎么用**（能力与广播：状态镜像 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
 | 写一个 **动态库插件**（清单 / SDK / 线程 / 构建 / 常用接口的 C++ 写法） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
 | 写一个 **JS插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
 | 给插件加**界面**（主页入口、歌曲菜单、插件页面、插件自己画的设置页） | [docs/plugin-ui.md](docs/plugin-ui.md) |
 | 用**命令行 / MCP** 装插件、刷新、看日志（AI agent 与自动化） | [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md) |
 | **musicxx 对外暴露的全部接口**（MCP 工具全表 / 命令行命令全表 / 本机 HTTP 与 WebSocket 路由 / 权限边界） | [docs/musicxx-interfaces.md](docs/musicxx-interfaces.md) |
-| 查**钩子** id / 模式 / 载荷 / 裁决语义 | [docs/plugin-hooks.md](docs/plugin-hooks.md) |
+| 查**能力** id / 能不能参与 / 载荷与回答 | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
+| 查**广播频道** id / 有没有当前值 / 谁能写 / 载荷 | [docs/plugin-broadcasts.md](docs/plugin-broadcasts.md) |
 | 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
 | 查**版本对照**（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）、改版本号的流程 | [docs/version-history.md](docs/version-history.md) |
 | 构建插件框架库、把插件框架库随主程序分发 | 本文件「构建」「打包（随应用分发）」 |
@@ -30,7 +31,7 @@
 - **两种插件形态**：
   - 动态库插件（同进程、能自己起线程；桌面端与 Android 可以加载，iOS 只允许加载应用包内、与主程序同签名身份的库，用户装的库通常会被系统拒绝）；一般使用 C/C++ 等语言开发，高性能/高权限/高自由，但开发难度高，且需要对不同系统平台适配编译动态库
   - JS插件（无需编译、跨平台、处理器可以同步返回也可以返回 Promise）
-  - 两者共用同一套钩子、UI、主程序动作约定；
+  - 两者共用同一套能力、广播、UI、主程序动作约定；
 - **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面）/ shader 由主程序渲染；
 - **动态加载 shader 支持**：插件可以利用 `flutter_gpu` 编译 shader，并打包进插件安装包内，主程序可以在运行时动态加载并渲染
 - **插件框架是可选功能**：插件框架库缺失或初始化失败时主程序照常启动，只是没有加载外部插件。
@@ -46,11 +47,11 @@ src/host/            插件框架工程（嵌套构建，CMakeLists.txt 里用 f
   js/                JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
 src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
                      plugin_api.h 是 musicxx 专用约定、plugin_kit.h 是总头文件（含插件框架 kit）、
-                     hook_ids.g.h 由 tools/gen_contract.dart 生成（钩子 id 与已知钩子表）
+                     hook_ids.g.h 由 tools/gen_contract.dart 生成（能力 id 与已知能力表）
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
 src/tests/           原生测试（test_host.cpp，不依赖 Dart；被测插件就是 `plugins/` 下的那些 example_*）
 src/third_party/     依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
-lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/钩子/状态/动作；插件界面模型来自子模块的
+lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/能力/状态/动作；插件界面模型来自子模块的
                      pluginxx_ui，经 lib/pluginxx_ui.dart 转发；bindings_generated.dart 与
                      hook_ids.g.dart 为生成物）
 schema/              musicxx 扩展 kit 的定义（musicxx-ui-kit.def.json；改完跑 tools/gen_ui_kit.ps1）
@@ -59,13 +60,13 @@ test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_
                      整套流程验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新加载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
 plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
-  example_native/   示例插件（C++，演示钩子/状态镜像/日志/能力/事件订阅/声明式 UI）
+  example_native/   示例插件（C++，演示能力/状态镜像/日志/事件订阅/声明式 UI）
   example_native_multi/ 示例插件（C++，多目标打包：包内多个系统/架构分支，运行时按系统与架构选分支）
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝加载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
   example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带三种背景样式：晶格 / 光圈 / 插件纹理铺底）
-  playing_bg_image/ 示例插件（JS，零编译；插件显示名『示例封面背景』：三种播放页背景模式 —— 模糊 / 沉浸 / 黑胶 —— + 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：一个插件把背景、前景色、图标槽位与取色钩子串起来）
+  playing_bg_image/ 示例插件（JS，零编译；插件显示名『示例封面背景』：三种播放页背景模式 —— 模糊 / 沉浸 / 黑胶 —— + 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：一个插件把背景、前景色、图标槽位与取色能力串起来）
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
   example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序加载）
@@ -73,8 +74,9 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_net/   示例插件（JS：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的客户端与服务端，载入后自动跑一遍本机自检）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
-docs/plugin-api.md 两种形态共用的接口手册（状态镜像 / 动作全表 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 通用排障）
-docs/plugin-hooks.md 钩子总表（生成物：id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决）
+docs/plugin-api.md 两种形态共用的接口手册（能力与广播：状态镜像 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障）
+docs/plugin-capabilities.md 能力总表（生成物：id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答）
+docs/plugin-broadcasts.md 广播总表（生成物：频道 / 有没有当前值 / 谁能写 / 载荷）
 docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
@@ -575,7 +577,7 @@ musicxx_plugin_add_target(my_plugin
 ```text
 my_plugin/
 ├── plugin.yaml              # name / kind: js / version / api_version / permissions ...
-├── plugin.js                # 顶层同步注册钩子与能力
+├── plugin.js                # 顶层同步注册能力与能力
 └── resource/svg/example.svg # 可选：插件自己的图标（UI 项写 icon: "resource/svg/example.svg"，
                              #   resource/svg/ 只是推荐位置）
 ```
@@ -625,18 +627,18 @@ musicxx-cli plugin uninstall my_plugin                                          
 完整命令表、MCP 工具名与参数、退出码约定见
 [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md)。
 
-参考实现：`plugins/example_native/`（钩子/能力/动作/事件/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
+参考实现：`plugins/example_native/`（能力/动作/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
 `plugins/example_js_shader/`（只演示播放页背景与动画速率；三种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`、
 插件纹理铺底复用 `bg.frag`）、
 `plugins/playing_bg_image/`（显示名『示例封面背景』：三种播放页背景模式『模糊』/『沉浸』/『黑胶』+ 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景三色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：
-背景、前景色、图标槽位与钩子在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、`playing.icon` 三种形态里的 `none`、
+背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、`playing.icon` 三种形态里的 `none`、
 `musicxx.media.palette.provide`、`foregroundColors`（运行期改前景三色）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面）；
 另外 `plugins/example_js_vars/`（变量通道）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、
 `plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），
 以及下面「对照示例」一组 —— 它们演示插件框架在
 插件写坏时的保护行为，写插件前先看一眼可以少踩坑。
-钩子总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-hooks.md`；界面字段见 `docs/plugin-ui.md`。
+能力总表与派发方式（`sync`/`async`）见生成物 `docs/plugin-capabilities.md`；界面字段见 `docs/plugin-ui.md`。
 
 ## 原生测试
 
@@ -695,10 +697,10 @@ runtime.plugins.stats();                                     // 统计快照
 runtime.dispose();
 ```
 
-钩子派发（Dart 侧处理器 + 原生/JS 处理器链合并）：
+能力派发（Dart 侧处理器 + 原生/JS 处理器链合并）：
 
 ```dart
-// 注册 Dart 处理器（同一钩子多个处理器按 priority 升序执行，本线程就地执行）
+// 注册 Dart 处理器（同一条能力上多个处理器按 priority 升序执行，本线程就地执行）
 runtime.hooks.on(MusicxxPluginHookId.playerBeforePlaySong, (ctx) => null);
 
 final Map<String, Object?>? verdict = runtime.hooks.decide(
@@ -746,7 +748,7 @@ final List<MusicxxPluginUIItem> next =
   `MUSICXX_EXTERN_PLUGIN_VERSION` 必须是同一个值（`test/version_test.dart` 校验），`runtime.libraryVersion`
   给出加载到的原生库自报的版本 —— 两者不一致说明库不是这次构建的产物；对照表与改版本号的流程见
   `docs/version-history.md`；
-- 包内 `test/`、`docs/plugin-hooks.md`、`lib/src/*.g.dart`、`src/sdk/include/musicxx/plugin/api/hook_ids.g.h`
+- 包内 `test/`、`docs/plugin-capabilities.md`、`lib/src/*.g.dart`、`src/sdk/include/musicxx/plugin/api/hook_ids.g.h`
   都是生成物或可重跑的用例，不要手工改生成物。
 
 ## 能力现状
@@ -755,15 +757,15 @@ final List<MusicxxPluginUIItem> next =
 
 - **专用接口表**：`musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张已实现（每张表的版本 /
   最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；`musicxx.hooks` 与
-  `musicxx.vars` 在框架 **API 2** 已删除（钩子改走 `pluginxx.capabilities`，观察改成
+  `musicxx.vars` 在框架 **API 2** 已删除（能力改走 `pluginxx.capabilities`，通知改成
   `pluginxx.broadcasts`）；
   `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` / `agent` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
-- **钩子**：约定只看 `tools/hooks.def.json`（生成物是 `docs/plugin-hooks.md`，`dart run tools/gen_contract.dart --check`
+- **能力 / 广播**：约定只看 `tools/capabilities.def.json`（生成物是 `docs/plugin-capabilities.md` 与 `docs/plugin-broadcasts.md`，`dart run tools/gen_contract.dart --check`
   校验一致），每个条目声明模式、派发方式与阶段；主程序**是否真的会派发**看生成物里「主程序是否已接入」列
   （由 `wired` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义功能点的通用通道、由调用方触发），
   其余注册成功但不会触发；曾经预留过的 `musicxx.media.wave.ready` / `musicxx.media.chorus.analysed` 已从
-  钩子表删除，替代做法是 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse`；
+  能力表删除，替代做法是 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse`；
 - **JS 运行时**：QuickJS 编入插件框架库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由框架线程执行；
   裁决处理器可以返回 Promise（插件框架一直等到它结算，结算后裁决生效）；
@@ -779,7 +781,7 @@ final List<MusicxxPluginUIItem> next =
   HTTP / WebSocket 的**服务端**，跑在插件框架自己的网络线程上；
   **客户端支持 `https` / `wss`**（OpenSSL 静态链接，证书链与主机名校验默认开），
   **服务端只监听明文**且默认只绑 `127.0.0.1`（见 `docs/plugin-api.md` §3.2.6）；
-- **观测**：钩子统计（调用 / 耗时 / 超时 / 失败 / 被暂停的处理器）、插件各阶段耗时、注册项计数、
+- **观测**：能力统计（调用 / 耗时 / 超时 / 失败 / 被暂停的处理器）、插件各阶段耗时、注册项计数、
   JS 实例统计与内存采样、内存环形事件日志；
 - **平台打包**：Windows 与 Linux 已接入（插件框架库随主程序分发，见「打包（随主程序分发）」）、
   Android 已接入（NDK 交叉编译 + `jniLibs`，见 `android/README.md`）、
@@ -794,7 +796,7 @@ final List<MusicxxPluginUIItem> next =
 
 | 对照示例 | 演示 / 验证点 |
 |---|---|
-| `plugins/example_native_fail/` | 钩子处理器总是失败 → 插件框架只记统计（`hook_stats` 里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
+| `plugins/example_native_fail/` | 能力处理器总是失败 → 插件框架只记统计（`hook_stats` 里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
 | `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 加载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
 | `plugins/example_js_async/` | 裁决处理器返回 Promise → 插件框架一直等到结算，裁决生效（`asyncHookSettled`） |
 | `plugins/example_js_broken/` | 脚本语法错误 → 加载失败并回滚，插件框架继续可用 |
@@ -803,7 +805,8 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 钩子 | `PluginBase::hook`（原生）/ `musicxx.capability.implement`（JS） | 裁决型与阶段（前链 / 实现链 / 后链）；观察型钩子在框架 API 2 之后是广播频道（JS `musicxx.broadcast.subscribe`，原生 `subscribeTopic`）；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的钩子由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-hooks.md` |
+| 能力（决策型） | `PluginBase::hook` + `pluginxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；裁决处理器可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
+| 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 观察型（通知）就是广播频道：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
 | 状态镜像 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
@@ -828,7 +831,8 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests
 ```
 
 ```powershell
-dart run tools/gen_contract.dart --check                 # 约定生成物一致（钩子数量以 tools/hooks.def.json 为准；改动后必须重新生成）
+dart run tools/gen_contract.dart --check                 # 约定生成物一致（能力 / 广播数量以 tools/capabilities.def.json 为准；改动后必须重新生成）
 flutter analyze                                          # 期望 0 issue
 flutter test                                     # 包内整套流程：框架/JS/配置读写/多 isolate（需先构建原生库，找不到库时跳过而不是失败）
-| 钩子总表（id / 模式 / 派发 / 主程序是否已接入 + 已接入钩子的载荷与裁决） | `docs/plugin-hooks.md`（由 `tools/hooks.def.json` 生成） |
+| 能力总表（id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答） | `docs/plugin-capabilities.md`（由 `tools/capabilities.def.json` 生成） |
+| 广播总表（频道 / 有没有当前值 / 谁能写 / 载荷） | `docs/plugin-broadcasts.md`（同一份声明源） |

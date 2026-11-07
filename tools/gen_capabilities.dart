@@ -1166,6 +1166,13 @@ String _generateCapabilityDoc(CapabilityContract contract) {
       '> 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。',
     )
     ..writeln()
+    ..writeln(
+      '> 原来的 `docs/plugin-hooks.md` 已经拆成两张表：**决策型钩子**（前链改输入 / 实现链给结果 / '
+      '后链改输出）就是本文里的能力，**观察型钩子**（只通知、不回答）在 '
+      '[plugin-broadcasts.md](plugin-broadcasts.md)。写法（注册、阶段顺序、裁决对象）见 '
+      '[plugin-api.md](plugin-api.md) 第 8 节。',
+    )
+    ..writeln()
     ..writeln('**能力** = 调用方发一次请求、等一个结果。同一个 id 只有一份声明，声明里写清：')
     ..writeln()
     ..writeln('| 字段 | 含义 |')
@@ -1255,6 +1262,12 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln(
       '> 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。',
+    )
+    ..writeln()
+    ..writeln(
+      '> 原来的 `docs/plugin-hooks.md` 已经拆成两张表：**观察型钩子**（只通知、不回答）就是这里的频道，'
+      '**决策型钩子**（能改输入、给结果、改输出）在 [plugin-capabilities.md](plugin-capabilities.md)。'
+      '订阅 / 发布的写法见 [plugin-api.md](plugin-api.md) 第 8 节。',
     )
     ..writeln()
     ..writeln('**广播** = 属主改了东西、通知所有关心的人。它没有返回值、不等待、允许丢中间值；')

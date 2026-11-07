@@ -1,14 +1,14 @@
 # example_override_media_source（插件音源解析示例）
 
 演示**插件参与音源解析**：主程序要把一首歌的音源换成"播放器内核能打开的地址 + 请求头"时，
-会先问钩子 `musicxx.player.source.resolve`（外置插件 → 内置插件 → 应用自身，第一个给出合法结果的生效）。
-这个插件在该钩子上注册一个处理器，按载荷里的来源类型分流。
+会先问能力 `musicxx.player.source.resolve`（外置插件 → 内置插件 → 应用自身，第一个给出合法结果的生效）。
+这个插件在这条能力上注册一个处理器，按载荷里的来源类型分流。
 
 当前实现的功能：
 
 | # | 来源 | 音源字符串写什么 | 插件返回什么 |
 |---|---|---|---|
-| 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（钩子载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
+| 1 | 内置 Bili（`type = "bili"`） | 歌曲实体里是 BV 号（能力载荷的 `crudeSrc`） | B 站音频直链 + `Referer/Origin/User-Agent` |
 | 2 | `plugin.<插件 id>.plugin_bili`（插件音源类型） | BV 号，例 `type = "plugin.…plugin_bili"` + `src = "BV1GJ411x7h7"` | 同一份 B 站直链 + 请求头 |
 | 3 | `plugin.<插件 id>.plugin_proxy_local`（插件音源类型） | 本地文件路径，例 `type = "plugin.…plugin_proxy_local"` + `src = "D:/music/a.mp3"` | `http://127.0.0.1:<端口>/f/<token>`（插件 HTTP 服务的静态路由） |
 
@@ -37,8 +37,8 @@ example_override_media_source/
 
 ## 功能 1：覆盖内置 Bili 解析
 
-主程序在问这条钩子之前，已经把 Bili 歌曲的 BV 号换成了临时直链（`MediaPlayer_c.parseMediaSrc`），
-所以钩子载荷里：
+主程序在问这条能力之前，已经把 Bili 歌曲的 BV 号换成了临时直链（`MediaPlayer_c.parseMediaSrc`），
+所以能力载荷里：
 
 - `type = "bili"`；
 - `src` = 已经换好的 `https://...m4s?...` 临时直链；
@@ -55,7 +55,7 @@ example_override_media_source/
 
 ### 两个必须知道的限制
 
-- **多 P 视频不接管**：钩子载荷里没有分 P 序号（`biliPIndex` 存在歌曲实体的 `appInfo1` 里，
+- **多 P 视频不接管**：能力载荷里没有分 P 序号（`biliPIndex` 存在歌曲实体的 `appInfo1` 里，
   载荷只给只读视图，不带它）。插件看到 `pages.length > 1` 时直接返回 null，让主程序已经算好的
   那一份继续生效 —— 否则第 2 P 会被播成第 1 P。
 - **匿名解析**：`musicxx.net.fetch` 不带主程序的 B 站登录 Cookie，所以只能拿到匿名档位
@@ -87,10 +87,10 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"bi
 |---|---|---|
 | `type`（播放时给的来源类型） | 插件音源类型 id | `plugin.example_override_media_source.plugin_bili` |
 | `src`（歌曲里存的资源） | 插件自己的资源 id / 路径 | `BV1GJ411x7h7` |
-| 钩子载荷 | `pluginType` = 类型 id，`src` = 资源 id | `pluginType` = `plugin.…plugin_bili` |
+| 能力载荷 | `pluginType` = 类型 id，`src` = 资源 id | `pluginType` = `plugin.…plugin_bili` |
 
 类型串存在歌曲的音源信息里（序列化后是 `{"type":"plugin.…plugin_bili", …}BV1GJ411x7h7`）。
-主程序内置实现不接管这类来源（核心层看到插件音源类型就返回"不解析"），而是问同一条钩子。
+主程序内置实现不接管这类来源（核心层看到插件音源类型就返回"不解析"），而是问同一条能力。
 
 `src` 怎么解释完全由插件决定，本示例把它当 BV 号。
 
@@ -219,7 +219,7 @@ musicxx-cli plugin logs example_override_media_source --limit 50
 | 主题 | 文档 |
 |---|---|
 | 插件总入口（选形态 / 第一个插件 / 注意事项） | 包内 `docs/plugin-guide.md` |
-| 钩子总表与 `musicxx.player.source.resolve` 的载荷 / 裁决 | 包内 `docs/plugin-hooks.md` |
+| 能力总表与 `musicxx.player.source.resolve` 的载荷 / 裁决 | 包内 `docs/plugin-capabilities.md` |
 | 音源解析链、插件音源写法、自省命令 | 包内 `docs/plugin-api.md` §3.2.6 / §3.2.15 |
 | 静态内容路由（`http.serve({static})` / `http.route`） | 包内 `docs/plugin-api.md` §3.2.6、`docs/plugin-js-api.md` §7.3.1 |
 | JS 插件写法（顶层注册、处理器不能等动作） | 包内 `docs/plugin-js-api.md` |

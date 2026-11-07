@@ -60,7 +60,7 @@ enum MusicxxPluginHookDispatch {
 ///   回答 `{"value": ...}` / `{"action": "drop"}`。
 ///
 /// 后链逆序是为了保住同一个直觉：外置插件**最后**改输出，应用自己的兜底实现
-/// 不能盖掉插件的改写（与实现链里“外置优先”同向）。详见 `docs/plugin-hooks.md`。
+/// 不能盖掉插件的改写（与实现链里“外置优先”同向）。详见 `docs/plugin-api.md` 第 8 节。
 enum MusicxxPluginHookPhase {
   /// 实现链：给出结果 / 裁决（不写阶段就是它）
   impl(0),

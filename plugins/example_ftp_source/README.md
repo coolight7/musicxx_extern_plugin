@@ -13,7 +13,7 @@
 | 歌单「添加歌曲」里的入口 | `musicxx.source.browse` 声明（每个分类一行，界面由主程序画） |
 | 挑歌弹窗的数据 | 能力 `drive.list` 等（主程序内置网盘那套界面） |
 | 加进歌单 | 主程序负责（插件只给条目） |
-| 播放 | 钩子 `musicxx.player.source.resolve` + 本机 HTTP 转流服务 |
+| 播放 | 能力 `musicxx.player.source.resolve` + 本机 HTTP 转流服务 |
 | 自检 | 能力 `probe` |
 
 ---
@@ -142,7 +142,7 @@ musicxx.capability.register("drive.list", function (args) {
 
 ```text
 点歌 → type = plugin.example_ftp_source.audio
-  → 钩子 musicxx.player.source.resolve（最多 5 秒）
+  → 能力 musicxx.player.source.resolve（最多 5 秒）
       → 校验指纹 → 第一次启动本机转流服务（127.0.0.1:<随机端口>）
       → 登记 token（同一 <指纹, 路径> 复用同一个地址）
       → 回答 http://127.0.0.1:<port>/s/<token>，kind = url
@@ -221,7 +221,7 @@ musicxx.capability.register("drive.list", function (args) {
 | 文件 | 内容 |
 |---|---|
 | `plugin.yaml` | 清单（`kind: js`，`scripts` 按顺序：两个 kit → `ftp.js` → `proxy.js` → `ui.js` → `plugin.js`） |
-| `plugin.js` | 注册（UI 项 / 能力 / 钩子 / 音源类型）、账号状态、浏览状态、加歌与播放 |
+| `plugin.js` | 注册（UI 项 / 能力 / 音源类型）、账号状态、浏览状态、加歌与播放 |
 | `ftp.js` | FTP 客户端：控制连接、登录、被动模式、`MLSD` / `LIST` / `SIZE` / `REST` / `RETR`、编码转换 |
 | `proxy.js` | 本机 HTTP 转流服务：请求解析、`Range`、token 表、数据转发与背压 |
 | `ui.js` | 账号页与浏览页的视图拼装（kit） |

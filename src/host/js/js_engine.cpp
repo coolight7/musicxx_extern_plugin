@@ -196,7 +196,7 @@ constexpr const char *kPrelude = R"JS(
   var actionWaiters = new Map();
   var capabilityWaiters = new Map();
   var timerTable = new Map();
-  /// 裁决型钩子处理器的 Promise 等待登记 (key = 插件框架给的等待 id)
+  /// 裁决型能力处理器的 Promise 等待登记 (key = 插件框架给的等待 id)
   var pendingHookWaits = new Map();
   /// 处理器返回 Promise 时回给插件框架的标记 (与 C++ 侧 `kHookPendingMarker` 一致)。
   var kHookPendingMarker = "~pending~";
@@ -284,7 +284,7 @@ var featurePointImpls = new Map();
   musicxx.version = ext.engineVersion();
   musicxx.pluginId = ext.pluginId();
 
-  /// 钩子阶段 (参与方式): 钩子 id 表示**一次调用**, 由阶段表达怎么参与
+  /// 钩子阶段 (参与方式): 能力 id 表示**一次调用**, 由阶段表达怎么参与
   ///
   /// - `before`: 前链, 串行、正序, 只能改输入 (`{patch: {...}}`) 或停下 (`{action: "stop"}`);
   /// - `impl`  : 实现链, 给结果 / 裁决 (不写阶段就是它);
@@ -850,14 +850,14 @@ var featurePointImpls = new Map();
 
   /// 通用通道钩子 `musicxx.feature.point.call` 的分发器
   ///
-  /// 约定 (见包内 `docs/plugin-hooks.md`):
+  /// 约定 (见包内 `docs/plugin-capabilities.md`):
   /// - 按 `point` 过滤: 不是自己实现的点直接返回空 (空 = 不回答, 链条继续问别人);
   /// - 不回答自己发起的调用 (`caller` 等于自己的插件 id);
   /// - 回答必须包一层 `patch` (插件框架的 firstNonNull 只在收到 `patch` / `action` 时停止遍历);
   /// - `value` 键就是"实现方给出了结果"的判据 (值可以是 null);
   /// - 处理器抛异常时给 `{error: ...}` (等于"不提供", 不打断链条)。
   function featurePointDispatch(input) {
-    // 钩子处理器拿到的是**已解析的载荷对象**（`ext.invokeHook` 做的解析）；
+    // 能力处理器拿到的是**已解析的载荷对象**（`ext.invokeHook` 做的解析）；
     // 这里同时接受 JSON 文本（直接调这个分发器时方便）。
     if (typeof input === "string") {
       try { input = JSON.parse(input || "{}"); } catch (e) { input = null; }
@@ -871,7 +871,7 @@ var featurePointImpls = new Map();
     var args = (input.args && typeof input.args === "object") ? input.args : {};
     var value;
     try {
-      // 第二个参数给上下文（点 id 与调用方）: 与钩子处理器拿到 ctx 的写法一致
+      // 第二个参数给上下文（点 id 与调用方）: 与能力处理器拿到 ctx 的写法一致
       value = fn(args, { point: input.point, caller: input.caller || "" });
     } catch (e) {
       var message = (e && e.message) ? e.message : String(e);
@@ -884,7 +884,7 @@ var featurePointImpls = new Map();
                        "); 功能点走同步裁决通道, 请提前算好或改成能力调用 (musicxx.capability.call)");
       return "";
     }
-    // 返回**对象**: 钩子处理器返回非 null 值会被 `JSON.stringify` 成裁决 JSON,
+    // 返回**对象**: 能力处理器返回非 null 值会被 `JSON.stringify` 成裁决 JSON,
     // 只有对象才带得上 `patch`（插件框架的 firstNonNull 靠 patch 判"这一轮有人回答"）
     return { patch: { value: value === undefined ? null : value } };
   }
@@ -959,7 +959,7 @@ var featurePointImpls = new Map();
     ///
     /// - `fn(args)` **同步返回**结果（对象原样给，其它类型包成 `{value: …}`）；
     /// - 不是自己的点、或调用方就是自己时，糖不会回答（分发器按 `point` 与 `caller` 过滤）；
-    /// - 这条通道是同步裁决钩子：`fn` 返回 Promise 拿不到结果（会记一条日志），
+    /// - 这条通道是同步裁决型能力：`fn` 返回 Promise 拿不到结果（会记一条日志），
     ///   长任务请提前算好，或者做成**能力调用**（`musicxx.capability.call`）。
     provide: function (idOrIds, fn, options) {
       if (typeof fn !== "function") {
@@ -1561,14 +1561,14 @@ var featurePointImpls = new Map();
     ///
     /// `implement(id, {phase, priority, ownerTag}, fn)`
     /// - 同一条能力上可以分别实现三个阶段（同一个 ownerTag 互不覆盖）；
-    /// - 观察型钩子在框架 API 2 之后是**广播频道**：用 `musicxx.broadcast.subscribe` 订阅，
+    /// - 广播频道在框架 API 2 之后是**广播频道**：用 `musicxx.broadcast.subscribe` 订阅，
     ///   这里再写 `mode: "observe"` 会被拒绝。
     implement: function (id, options, fn) {
       assertName(id, "capability.implement: 能力 id");
       if (typeof options === "function") { fn = options; options = null; }
       options = options || {};
       if (options.mode === "observe") {
-        throw new Error("capability.implement: 观察型钩子已改成广播频道，请用 musicxx.broadcast.subscribe");
+        throw new Error("capability.implement: 广播频道已改成广播频道，请用 musicxx.broadcast.subscribe");
       }
       if (typeof fn !== "function") { throw new Error("capability.implement: 缺少处理函数"); }
       var entry = {
@@ -1819,9 +1819,9 @@ var featurePointImpls = new Map();
     return JSON.stringify({ hooks: hooks, capabilities: capabilities, subscriptions: subscriptions });
   };
 
-  /// 调用钩子处理器
+  /// 调用能力处理器
   ///
-  /// - `waitId` 只有裁决型钩子才有 (插件框架一直等到结果); 观察型钩子为空字符串/undefined;
+  /// - `waitId` 只有裁决型钩子才有 (插件框架一直等到结果); 广播频道为空字符串/undefined;
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.hookWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
   /// - 插件框架不设等待超时: Promise 结算多晚都会被接住。
@@ -3870,14 +3870,14 @@ void JsEngine::applyHookOpOnHost(const std::shared_ptr<Instance> &inst,
     payload["hook"] = hookId;
     payload["code"] = "hook_register_failed";
     payload["message"] =
-        "运行期钩子注册被拒绝 (未知钩子 / 没声明该阶段 / 阶段必须用同步处理器)";
+        "运行期钩子注册被拒绝 (未知能力 / 没声明该阶段 / 阶段必须用同步处理器)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 被拒绝 (code={})",
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 被拒绝 (code={})",
             inst->id, hookId, rc);
     return;
   }
   inst->hooks.push_back(handler);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册钩子 `{}` 已生效 (phase={}, "
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 已生效 (phase={}, "
           "mode={}, priority={})",
           inst->id, hookId, phase, mode, priority);
 }
@@ -4451,7 +4451,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
               ? item["mode"].get<std::string>()
               : std::string{"decision"};
       handler->decision = mode != "observe";
-      /// 阶段: 钩子 id 表示一次调用, 参与方式由阶段表达 (老脚本不写 = impl)
+      /// 阶段: 能力 id 表示一次调用, 参与方式由阶段表达 (老脚本不写 = impl)
       handler->phase = hookPhaseOfName(
           (item.contains("phase") && item["phase"].is_string())
               ? item["phase"].get<std::string>()
@@ -4484,9 +4484,9 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
         payload["phase"] = "hook";
         payload["hook"] = handler->hookId;
         payload["code"] = "hook_register_failed";
-        payload["message"] = "钩子注册被拒绝 (未知钩子或命名空间非法)";
+        payload["message"] = "钩子注册被拒绝 (未知能力或命名空间非法)";
         mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-        XX_LOGW("[musicxx_ext] JS插件 `{}` 注册钩子 `{}` 被拒绝 (code={})",
+        XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 被拒绝 (code={})",
                 inst->id, handler->hookId, rc);
         continue;
       }
@@ -4662,7 +4662,7 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   inst->registrationsApplied = false;
 }
 
-/* ==================== 钩子处理器 ==================== */
+/* ==================== 能力处理器 ==================== */
 
 int32_t PLUGINXX_CALL JsEngine::hookSync(void *userData,
                                          const PluginxxStringView * /*hookId*/,

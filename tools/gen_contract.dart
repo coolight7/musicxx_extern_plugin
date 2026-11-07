@@ -1,4 +1,4 @@
-/// 钩子清单生成器：把 `tools/hooks.def.json` 生成三份产物
+/// 钩子定义生成器：把 `tools/hooks.def.json` 生成两份产物（给派发层用，不是作者文档）
 ///
 /// 用法（在包目录下）：
 /// ```
@@ -11,10 +11,16 @@
 /// |---|---|
 /// | `lib/src/hook_ids.g.dart` | Dart 侧 `MusicxxPluginHookId` 枚举 + 元信息 + id 查找 |
 /// | `src/sdk/include/musicxx/plugin/api/hook_ids.g.h` | C++ 侧钩子 id 常量 + 已知钩子表（插件框架与插件共用） |
-/// | `docs/plugin-hooks.md` | 插件作者文档（钩子总表） |
+/// | `docs/plugin-capabilities.md` | 插件作者文档：能力总表（由 `tools/gen_capabilities.dart` 生成） |
+/// | `docs/plugin-broadcasts.md` | 插件作者文档：广播总表（同上） |
 ///
-/// 为什么是这三处：Dart 侧调用与派发要用枚举、原生插件框架要用表拒绝未知钩子、
-/// 插件作者要有一份可查的清单。定义只有一处，避免常量不一致。
+/// 为什么是这两处：Dart 侧调用与派发要用枚举、原生插件框架要用表拒绝未知钩子。
+/// 定义只有一处，避免常量不一致。
+///
+/// **作者文档不在这里生成**：同一个 id 在 `tools/capabilities.def.json` 里已经声明过一次
+/// （能不能参与、参与哪一步、载荷是什么），作者要看的就是那里生成的
+/// [plugin-capabilities.md] 与 [plugin-broadcasts.md]。原来那份 `docs/plugin-hooks.md` 是
+/// 钩子时代的第三份清单，拆成「能力 + 广播」之后它只是重复，已删除。
 ///
 /// 说明：C++ 头放在 **SDK 目录** 而不是 `src/host/include/`，
 /// 这样插件框架（`find_package` 后拿到的 SDK 头）与插件作者（`musicxx_extern_plugin_sdk`）
@@ -29,7 +35,6 @@ import 'gen_capabilities.dart';
 const String _defPath = 'tools/hooks.def.json';
 const String _dartOut = 'lib/src/hook_ids.g.dart';
 const String _cppOut = 'src/sdk/include/musicxx/plugin/api/hook_ids.g.h';
-const String _docOut = 'docs/plugin-hooks.md';
 
 /// 合并策略名 → C++/Dart 两侧共用的整数编码（与插件框架 `dispatchHook` 的判据一致）
 const Map<String, int> _policyCodes = <String, int>{
@@ -54,19 +59,6 @@ const Map<String, int> _phaseCodes = <String, int>{
 
 /// 阶段位掩码（`1 << 编号`；钩子元信息与 Dart 侧 `hasPhase` 用它）
 int _phaseMask(String phase) => 1 << _phaseCodes[phase]!;
-
-/// 阶段的中文说法（文档与日志用）
-String _phaseText(String phase) {
-  switch (phase) {
-    case 'before':
-      return "前链：进入调用之前改输入 / 停下";
-    case 'impl':
-      return "实现链：给出结果 / 裁决";
-    case 'after':
-      return "后链：拿到结果之后改输出 / 丢弃";
-  }
-  return phase;
-}
 
 /// C++ 常量名后缀：`musicxx.player.beforePlaySong` → `PLAYER_BEFORE_PLAY_SONG`
 String _cppConstant(String id) {
@@ -158,7 +150,7 @@ String _generateDart(List<Map<String, Object?>> hooks) {
     ..writeln('///   回答 `{"value": ...}` / `{"action": "drop"}`。')
     ..writeln('///')
     ..writeln('/// 后链逆序是为了保住同一个直觉：外置插件**最后**改输出，应用自己的兜底实现')
-    ..writeln('/// 不能盖掉插件的改写（与实现链里“外置优先”同向）。详见 `docs/plugin-hooks.md`。')
+    ..writeln('/// 不能盖掉插件的改写（与实现链里“外置优先”同向）。详见 `docs/plugin-api.md` 第 8 节。')
     ..writeln('enum MusicxxPluginHookPhase {')
     ..writeln('  /// 实现链：给出结果 / 裁决（不写阶段就是它）')
     ..writeln('  impl(0),')
@@ -388,201 +380,6 @@ String _generateCpp(List<Map<String, Object?>> hooks) {
   return sb.toString();
 }
 
-String _generateDoc(List<Map<String, Object?>> hooks) {
-  final StringBuffer sb = StringBuffer()
-    ..writeln('# 钩子总表（插件作者文档）')
-    ..writeln()
-    ..writeln(
-      '> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。',
-    )
-    ..writeln('>')
-    ..writeln(
-      '> 本文件由 `tools/gen_contract.dart` 从 `tools/hooks.def.json` 生成，请勿手改。',
-    )
-    ..writeln('>')
-    ..writeln('> 注册钩子时必须写全名（官方 `musicxx.*`）；插件自定义事件/能力/UI 项用')
-    ..writeln('> `plugin.<pluginId>.*`。插件框架会拒绝未知钩子与未知前缀。')
-    ..writeln('>')
-    ..writeln(
-      '> 钩子怎么写（两种形态的注册写法、优先级、裁决对象、异步裁决、处理器里不该做的事）'
-      '与未接入的钩子打算做什么，见 [plugin-api.md](plugin-api.md) §8。',
-    )
-    ..writeln()
-    ..writeln('## 阶段：一个钩子 = 前链 + 实现链 + 后链')
-    ..writeln()
-    ..writeln(
-      '**钩子 id 表示一次调用；参与方式（before / impl / after）由注册时的 `phase` 表达。**',
-    )
-    ..writeln('不再用 `.before` / `.after` 后缀造新 id（那样一条调用会变成好几条钩子）。')
-    ..writeln()
-    ..writeln('| 阶段 | 何时跑 | 能做什么 | 不能做什么 | 回答格式 | 结束整条链 |')
-    ..writeln('|---|---|---|---|---|---|')
-    ..writeln(
-      '| `before` | 进入调用之前，串行、**正序** | 改输入（累加）、停下（这次不执行实现） '
-      '| 给数据（那是实现链的事） | `{"patch": {...}}` | `{"action":"stop"}` |',
-    )
-    ..writeln(
-      '| `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与以前一样 | 按钩子声明的合并策略 |',
-    )
-    ..writeln(
-      '| `after` | 拿到结果之后，串行、**逆序** | 改输出（累加）、丢弃（这次没有结果） '
-      '| 造出本来没有的结果 | `{"value": <新结果>}` | `{"action":"drop"}` |',
-    )
-    ..writeln()
-    ..writeln('**顺序**：一条钩子按 `(优先级升序, 注册顺序)` 排成一条链。')
-    ..writeln()
-    ..writeln('```text')
-    ..writeln('线头（离调用方最近）                              线尾（离实现最近）')
-    ..writeln('extern  ---------->  builtin  ---------->  core')
-    ..writeln('   ^                                          |')
-    ..writeln('   +---------------  后链（逆序） <------------+')
-    ..writeln('```')
-    ..writeln()
-    ..writeln(
-      '- **前链正序**：线头 → 线尾，每一步拿到**上一步改过**的输入；',
-    )
-    ..writeln(
-      '- **后链逆序**：线尾 → 线头，每一步拿到**上一步改过**的输出。所以外置插件**最后**改输出，'
-      '应用自己的兜底实现不能盖掉插件的改写（与实现链里“外置优先”同向）；',
-    )
-    ..writeln(
-      '- 同一插件对同一个钩子可以分别注册三个阶段（同一个 `ownerTag` 互不覆盖）；'
-      '`unregister` 按 `(hook, ownerTag)` 摘，一个 `ownerTag` 在所有阶段的登记一起摘掉；',
-    )
-    ..writeln(
-      '- **阶段处理器必须是同步处理器**（要拿到这一步的结果才能跑下一步），注册异步处理器会被拒绝；',
-    )
-    ..writeln(
-      '- 三种“没有结果”含义不同：实现链的 `{"disable": true}`（不再问别人）、'
-      '前链的 `stop`（这次不执行实现）、后链的 `drop`（实现跑完但结果丢掉）。',
-    )
-    ..writeln()
-    ..writeln('没有声明的阶段登记会被拒绝（日志写清“这个钩子没有 before 阶段”）。')
-    ..writeln()
-    ..writeln('## 怎么读这张表')
-    ..writeln()
-    ..writeln(
-      '- **主程序是否已接入**：`已接入` = 主程序已经在调用点接上这个钩子（当前版本会派发，插件注册后会被调用）；'
-      '`未接入` = 钩子约定已经定下来、主程序**还没有接**（注册不会报错，但当前版本不会触发）。'
-      '想知道某个钩子此刻有没有处理器，看管理页「外部插件 → 调试」分页的钩子统计（`hooks` 段），'
-      '或在插件里调 `musicxx.capability.has(id)`（只反映自己注册没注册），'
-      '观察型钩子的订阅方用 `musicxx.capability.handlers(id)`（现在它们已经是广播频道，用'
-      '`musicxx.broadcast.subscribe` 订阅）。',
-    )
-    ..writeln(
-      '- **模式**：`observe` = 只通知（返回值忽略、不等待）；`decision` = 可裁决，'
-      '返回 `null` 表示这次不表态。',
-    )
-    ..writeln(
-      '- **派发**：`sync` = 调用点就地等待（占用调用线程）；`async` = 不占用调用线程，'
-      '裁决结果经 `musicxx.hook.decision.result` 事件回传（调用点用 `decideAsync` 时）。',
-    )
-    ..writeln(
-      '- **合并策略**：多个处理器给出裁决时怎么合并（`firstNonNull` 首个非空生效并停止询问、'
-      '`anyCancel` 任一 cancel/skip 即生效、`allMerge` 全部合并、`lastWrite` 最后一个生效）。',
-    )
-    ..writeln(
-      '- **阶段**：这个钩子支持哪几个阶段（`impl` = 实现链；`before` = 前链，正序改输入；'
-      '`after` = 后链，逆序改输出）。只列**真的会派发**的阶段 —— 注册了不派发的阶段'
-      '等于“注册成功但永远不触发”。',
-    )
-    ..writeln(
-      '- **耗时**：插件框架不设置等待超时（不因为处理器慢而中断派发、也不按耗时暂停某个处理器），'
-      '处理器耗时只记进统计（管理页调试分页可看）。处理器请自己保持短小：它跑在插件框架线程上，'
-      '慢就是别人一起等。',
-    )
-    ..writeln(
-      '- **怎么写**：注册与注销、优先级与执行顺序、裁决对象外壳、异步裁决、自省，'
-      '以及“处理器里不要等主程序动作”这类坑，见 `docs/plugin-api.md` §8。',
-    )
-    ..writeln()
-    ..writeln(
-      '| 钩子 id | 模式 | 阶段 | 派发 | 合并策略 | 主程序是否已接入 |',
-    )
-    ..writeln('|---|---|---|---|---|---|');
-  for (final Map<String, Object?> hook in hooks) {
-    final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
-    final String wiredText = hook['wired'] == true ? '已接入' : '未接入';
-    sb.writeln(
-      "| `${hook['id']}` | ${hook['mode']} | ${_phasesText(hook)} | $dispatch "
-      '| ${hook['policy']} | $wiredText |',
-    );
-  }
-  sb
-    ..writeln()
-    ..writeln('## 已接入钩子的载荷与裁决')
-    ..writeln()
-    ..writeln(
-      '下面是主程序**已经接入**的钩子：处理器拿到的载荷字段与裁决语义都在这里。'
-      '尚未接入的钩子只定下了 id / 模式 / 派发 / 合并策略，载荷还没有定 '
-      '（注册不会报错，但当前版本不会触发；它们打算做什么见 `plugin-api.md` §8.7）。',
-    )
-    ..writeln()
-    ..writeln('> 载荷统一是 JSON 对象；不裁决时返回 `null`（JS）或把出参留空（C++）。')
-    ..writeln(
-      '> 载荷里不放音频直链与 token：需要地址时请用 `musicxx.net` / 主程序动作自行获取。',
-    );
-  for (final Map<String, Object?> hook in hooks) {
-    if (hook['wired'] != true) {
-      continue; ///< 未接入的钩子不列载荷（它们的 doc 可能只是设计草稿）
-    }
-    final String doc = (hook['doc'] as String?) ?? '';
-    if (doc.isEmpty) {
-      continue;
-    }
-    final String dispatch = (hook['dispatch'] as String?) ?? 'sync';
-    sb
-      ..writeln()
-      ..writeln('### `${hook['id']}`')
-      ..writeln()
-      ..writeln(
-        '- 模式：`${hook['mode']}`；阶段：`${_phasesText(hook)}`；派发：`$dispatch`；'
-        '合并策略：`${hook['policy']}`',
-      )
-      ..writeln('- $doc');
-  }
-  sb
-    ..writeln()
-    ..writeln('## 派发方式')
-    ..writeln()
-    ..writeln('| 派发 | 含义 | 调用点写法 |')
-    ..writeln('|---|---|---|')
-    ..writeln('| `sync` | 调用点就地等待裁决（占用调用线程） | `decide(...)` |')
-    ..writeln(
-      '| `async` | 调用点本身是 Future：异步派发，结果经事件回传 | `await decideAsync(...)` |',
-    )
-    ..writeln()
-    ..writeln(
-      '两种方式对插件处理器是**透明的**：处理器照常返回裁决对象即可；区别只在插件框架侧'
-      '（同步派发阻塞调用线程，异步派发不阻塞、结果经 `musicxx.hook.decision.result` 回传）。',
-    )
-    ..writeln(
-      '异步派发的调用点在拿到结果前可能已经切歌/切列表，**插件要自己在载荷里带上身份字段'
-      '（`sid` 等）并在调用点校验**，插件框架只负责丢弃过期结果。',
-    )
-    ..writeln()
-    ..writeln('## 裁决对象通用外壳')
-    ..writeln()
-    ..writeln('```jsonc')
-    ..writeln('{ "action": "continue" | "skip" | "cancel" | "replace",')
-    ..writeln('  "patch": { /* 钩子专属字段 */ },')
-    ..writeln('  "error": "可选说明" }')
-    ..writeln('```')
-    ..writeln()
-    ..writeln('- 返回 `null` / 空对象表示“不裁决”，交给下一个处理器；')
-    ..writeln('- `action` 的主程序语义由各调用点决定（例如 `beforePlaySong` 的 `skip` 表示跳过本曲）；')
-    ..writeln('- 处理器必须尽快返回：它跑在插件框架线程上，慢就是业务与其它插件一起等（插件框架不设置等待超时、也不会强行中断）。')
-    ..writeln()
-    ..writeln('## 处理器失败')
-    ..writeln()
-    ..writeln(
-      '- 处理器抛异常 / 返回失败只记日志与统计，**不影响其它处理器与插件**（插件框架不会因为失败次数暂停派发、也不会卸载插件）；',
-    )
-    ..writeln('- 处理器耗时只记统计（管理页「外部插件 → 调试」分页可看单处理器平均/最大耗时）；')
-    ..writeln('- 派发期间注册/注销钩子不会破坏本轮遍历：插件框架在派发前对处理器列表做快照。');
-  return sb.toString();
-}
-
 /// 一个钩子声明的阶段（已归一为 before → impl → after 的固定次序；缺省 `["impl"]`）
 List<String> _phasesOf(Map<String, Object?> hook) {
   final Object? raw = hook['phases'];
@@ -600,10 +397,6 @@ int _phasesMask(Map<String, Object?> hook) {
   }
   return mask;
 }
-
-/// 阶段列表的文本写法（`impl` / `before+impl` / `before+after` …）
-String _phasesText(Map<String, Object?> hook) =>
-    _phasesOf(hook).join('+');
 
 /// 读定义文件并做基本校验
 List<Map<String, Object?>> _loadHooks() {
@@ -755,12 +548,11 @@ void main(List<String> args) {
     ignoreFormatting: true,
   );
   _emit(_cppOut, _generateCpp(hooks), check: check, drift: drift);
-  _emit(_docOut, _generateDoc(hooks), check: check, drift: drift);
 
   // 能力与广播的声明源（`tools/capabilities.def.json`）
   //
-  // 阶段 0 起与钩子产物并存：钩子产物仍给现有的钩子注册与派发用，能力产物给新的
-  // 注册表、命令面、MCP、链接入口与作者文档用。阶段 2c 改完插件侧之后再删钩子产物。
+  // 钩子产物（上面两份）只给派发层用；作者看的文档全在这两份：能力（请求 → 结果）
+  // 与广播（通知 / 快照）。同一批 id 不再在“钩子总表”里另写一遍。
   final Map<String, String> capabilityFiles = buildCapabilityContract();
   stdout.writeln(
     '${check ? '校验' : '生成'}能力与广播约定: 来源 $capabilitiesDefPath',

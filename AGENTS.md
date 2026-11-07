@@ -5,7 +5,7 @@
 写给 AI Agent 与自动化脚本：**这是什么 / 插件怎么写 / 改这个包要注意什么**。
 更细的说明在 `README.md` 与 `docs/`；本文件是浓缩与索引，冲突时以 `docs/` 和源码为准。
 
-> **未发布功能不留兼容**：本包 `dev` 分支上的功能（钩子载荷字段、动作参数、音源写法、界面描述
+> **未发布功能不留兼容**：本包 `dev` 分支上的功能（能力载荷字段、动作参数、音源写法、界面描述
 > 字段……）在合并进 `main` 之前都算未发布内容 —— 可能整段改写或直接删除，不保留旧写法、不做迁移，
 > 文档里也不留“老写法 / 兼容”这类说明。写插件时以当前 `docs/` 与源码为准，不要按早先草稿里的
 > 写法（尤其是已经删掉的字段与地址格式）去做适配。
@@ -25,7 +25,7 @@
 ```text
 用户安装插件（管理页装 .zip / 直接把目录放进插件目录 / musicxx-cli plugin install）
   → 主程序启动时加载插件框架库 → 扫描插件目录 → 加载"用户已启用"的插件
-  → 运行期：派发钩子、执行插件的主程序动作请求、同步读状态镜像、渲染插件声明的界面与着色器
+  → 运行期：派发能力、执行插件的主程序动作请求、同步读状态镜像、渲染插件声明的界面与着色器
 ```
 
 - **插件框架是可选能力**：插件框架库缺失或初始化失败时主程序照常启动，只是没有外部插件；用户没开『拟声++』或处于安全模式时同样不加载插件。
@@ -40,9 +40,9 @@
 | 平台 | 全部平台（含 iOS / OHOS） | Windows / Linux / macOS / Android；iOS 上只有"应用包内、与主程序同一签名身份"的库能加载（用户装的库通常被系统拒绝，见 §5） |
 | 执行线程 | 插件框架的一条共享 JS 线程（多插件共用一个线程） | 插件框架线程（自己能起线程） |
 | 处理器返回 | 可同步返回，也可返回 Promise（插件框架等到结算） | 同步返回 |
-| 适合 | 几乎所有功能：钩子、动作、界面、背景、变量 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
+| 适合 | 几乎所有功能：能力、动作、界面、背景、值频道 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
 
-两者**共用同一套约定**：钩子、动作、状态镜像、UI 项、插件页面、渲染槽位。学会一套即可迁移。
+两者**共用同一套约定**：能力、广播、动作、状态镜像、UI 项、插件页面、渲染槽位。学会一套即可迁移。
 
 ## 3. 插件长什么样
 
@@ -91,7 +91,7 @@ my_plugin/
 - 清单里 `entry` **统一按 Linux 写 `<名>.so`**：插件框架在 Windows / macOS 上会修正扩展名（一份目录三平台通用）；
   文件不存在时插件框架还会按平台默认库名再找一次（`lib<name>.so` / `<name>.dll`）。
 - 入口符号固定：`musicxx_plugin_start` / `musicxx_plugin_stop`（缺任一个加载阶段就拒绝，可读原因）。
-- 最小骨架与完整 API 照抄 `plugins/example_native/`（含 SDK 用法、钩子、能力、事件订阅、声明式 UI）。
+- 最小骨架与完整 API 照抄 `plugins/example_native/`（含 SDK 用法、能力、广播订阅、声明式 UI）。
 
 ### 3.3 多目标包（一份包放多个系统 / 架构，仅动态库插件）
 
@@ -122,7 +122,7 @@ my_plugin/
 
 | 能力 | 入口 | 要点 |
 |---|---|---|
-| 钩子（应用声明的能力） | `musicxx.capability.implement/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的钩子会触发**（见 §5.6）；`musicxx.capability.handlers(id[, phase])` 读"这个钩子现在有谁在提供、在哪个阶段、排第几" |
+| 应用来问插件（决策型能力） | `musicxx.capability.implement/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的能力会触发**（见 §5.6）；`musicxx.capability.handlers(id[, phase])` 读"这条能力现在有谁在提供、在哪个阶段、排第几" |
 | 动作（调主程序） | `musicxx.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
 | 状态镜像 | JS `musicxx.broadcast.read(key)` / C++ `stateJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
 | 变量 | `musicxx.broadcast.get/write/subscribe/watch/read/declare` | 有属主、可读可写可订阅的小值（带当前值的广播频道）；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
@@ -135,11 +135,11 @@ my_plugin/
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` / `playing.visualizer` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图 / 音频动效；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
 | 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
 | 播放内核信息（能用哪些过滤器 / 解码器） | 动作 `musicxx.media.kernel`（JS `musicxx.media.kernel()`） | 读应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**（含 mpv 自带的，重名时给 `lavfi-` 前缀的名字）、mpv 能用的解码器（`hardware` 标出硬件）、应用认得的音视频后缀。**这份 ffmpeg 是裁剪构建**（`ffmpegVersion` 就是 `unknown`），写音效 / 拼滤镜前先按它确认名字在不在，别按上游 ffmpeg 文档假设。命令行 `kernel`、MCP `GetMediaKernelInfo` 是同一份数据 |
-| 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：钩子 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原）。**数值已经按帧归一并拉开过高低差，直接拿去渲染即可**，不要再自己抬增益、减底噪或取指数；确实要改对比度时按 `docs/plugin-shader-bundle.md` §7 的公式做（放大差异 `pow(v/m, k)`、缩小差异 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1） |
+| 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：能力 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"disable": true}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原）。**数值已经按帧归一并拉开过高低差，直接拿去渲染即可**，不要再自己抬增益、减底噪或取指数；确实要改对比度时按 `docs/plugin-shader-bundle.md` §7 的公式做（放大差异 `pow(v/m, k)`、缩小差异 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1） |
 | 功能埋点自省 | 动作 `musicxx.feature.point.list`、`musicxx.capability.subscribers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 音源解析 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁置空、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `capability.list`、MCP `GetFeatureProviders` 读同一份数据 |
-| 自己的音源（播放地址） | 钩子 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源在歌曲里存成"类型 + 资源 id"：类型 id 是 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的资源 id / 路径。主程序内置实现**不解析**这种类型，播放时问这条钩子要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用静态内容路由（`http.serve` 的 `static` / `http.route`）转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 插件音源 / 本地文件代理）、
+| 自己的音源（播放地址） | 能力 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源在歌曲里存成"类型 + 资源 id"：类型 id 是 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的资源 id / 路径。主程序内置实现**不解析**这种类型，播放时问这条能力要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用静态内容路由（`http.serve` 的 `static` / `http.route`）转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 插件音源 / 本地文件代理）、
   `plugins/example_ftp_source`（FTP：账号页 + 歌单挑歌浮层 + 加歌 + 回环转流）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
-| 功能点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新钩子） |
+| 功能点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新能力） |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
 | 网络 | `musicxx.net.fetch/download`（= `http.fetch/download`） | 走**插件框架自己**的网络实现（不经过主程序）：支持 `http` / `https`（OpenSSL 静态链接，证书链与主机名校验默认开，可用 `tlsVerify`/`caFile`/`caPem`/`serverName`）；响应体流式读取，**超时与大小都不限制**（`maxBytes` 缺省不限制，给了就给）；下载边读边写入插件数据目录；**非 2xx 也算请求完成** |
 | 静态内容（把播放器打不开的东西变成 http 地址） | `musicxx.net.http.serve({staticOnly, static})` / `http.route` / `http.unroute` / `http.info` | 把本地文件或一段内容（≤ 8 MiB）挂成 `http://127.0.0.1:<端口>/f/<token>/<文件名>` 地址。**命中后由框架直接回答（200/206/416），不进 `http.request`**；支持 `GET` / `HEAD` + 单段 `Range`；`staticOnly` 让未命中的请求直接 404。只监听回环、路径里只有随机 token（服务端不解析路径）；服务与路由跟着插件实例关掉。**把播放器打不开的东西变成 HTTP** 就是靠它（本地文件、远程数据、FTP / 私有协议、HLS 分片、转码产物）|
@@ -150,27 +150,27 @@ my_plugin/
 
 ## 5. 硬约束（动手前读一遍，坑都在这里）
 
-1. **处理器里绝不等主程序动作**（**异步派发**的裁决钩子是例外，见下）。打开插件页面、点按钮、部分钩子（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
+1. **处理器里绝不等主程序动作**（**异步派发**的裁决型能力是例外，见下）。打开插件页面、点按钮、部分能力（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
    你在处理器里 `await musicxx.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
    正确做法：要"现在这一帧"的数据读状态镜像；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
-   **例外**：异步派发的裁决钩子（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
+   **例外**：异步派发的裁决型能力（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
    里 `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
    但仍然**只能等主程序动作**：`musicxx.broadcast.*` / 跨插件调用 / `musicxx.capability.*` 要框架线程处理，在处理器里等会一直等到超时。
 2. **JS 顶层必须同步完成注册**，位置放 `await` 会让加载失败并回滚。
 3. **回调要尽快返回**：所有 JS插件共用一条 JS 线程；长时间同步计算或死循环会卡住其它插件，
-   插件框架**不会打断脚本**，只能重启主程序。启动阶段的钩子（`app.start`）不要做重活。
-4. **裁决型钩子返回裁决对象**；需要 `await` 才能决定时，先同步判断"这次要不要裁决"，只在需要的那次返回 Promise
+   插件框架**不会打断脚本**，只能重启主程序。启动阶段的广播（`app.start`）不要做重活。
+4. **决策型能力返回裁决对象**；需要 `await` 才能决定时，先同步判断"这次要不要裁决"，只在需要的那次返回 Promise
    （插件框架一直等到它结算）。返回 `null` / `undefined` = 不裁决。裁决只是建议，调用点会校验身份字段（如 `sid`），过期裁决会被丢弃。
-5. **钩子 id 表示一次调用，参与方式由阶段表达**：一个调用 = **前链（`before`，正序，只能改输入或
+5. **能力 id 表示一次调用，参与方式由阶段表达**：一个调用 = **前链（`before`，正序，只能改输入或
    `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，逆序，只能改输出或 `drop`）+ 旁路广播**。
-   不再有 `.before` / `.after` 后缀的钩子 id —— 那类成对的旧 id 已合并成一条钩子上的两个阶段
+   不再有 `.before` / `.after` 后缀的能力 id —— 那类成对的旧 id 已合并成一条能力上的两个阶段
    （删除与合并清单见 `CHANGELOG.md`）。要点：后链**逆序**（外置插件最后改输出）、阶段处理器必须
-   是同步处理器、只能注册钩子声明过的阶段（`docs/plugin-hooks.md` 的「阶段」列）。
+   是同步处理器、只能注册能力声明过的阶段（`docs/plugin-capabilities.md` 的「可注册阶段」列）。
    写法见 `docs/plugin-api.md` §8.1。
-6. **钩子还没接入就不会触发**：约定 54 个钩子，主程序当前**应用派发**的只是其中一部分
-   （`docs/plugin-hooks.md` 的「主程序是否已接入」列；`musicxx.feature.point.call` 是插件功能点的
-   通用通道、由调用方触发）；别把功能押在未接入的钩子上（它们打算做什么见 `docs/plugin-api.md` §8.7）。
+6. **能力还没接入就不会触发**：约定 54 条能力 / 广播，主程序当前**真的派发**的只是其中一部分
+   （`docs/plugin-capabilities.md` 的「状态」列；`musicxx.feature.point.call` 是插件功能点的
+   通用通道、由调用方触发）；别把功能押在未接入的能力上（它们打算做什么见 `docs/plugin-api.md` §8.7）。
 7. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
    加粗要显式写 `bold: true` 或 `type: "title"`；行内的开关 / 勾选框放在**定宽 `SizedBox`** 里，"几选一"用一排 `Button`；
    行尾的长文本要自己约束宽度（否则窄窗口会撑破整行）；按钮文案要短（字不换行）；
@@ -317,7 +317,7 @@ MCP 客户端用 `musicxx-cli mcp`（stdio ↔ 本机 `/mcp` 的桥），工具�
 ```powershell
 flutter pub get
 pwsh -NoProfile -File tools/build_examples.ps1   # 先构建示例插件与原生测试（测试需要它们；已是最新则只重新打包）
-dart run tools/gen_contract.dart --check   # 钩子约定生成物一致（改动后必须重新生成）
+dart run tools/gen_contract.dart --check   # 能力 / 广播 / 派发表的生成物一致（改动后必须重新生成）
 dart run ffigen --config ffigen.yaml       # 改过 C ABI 后重新生成 Dart 绑定
 flutter analyze                            # 期望 0 issue
 flutter test                               # 真实原生库上的整套流程（找不到库/示例插件时跳过）；含版本号校验 version_test.dart
@@ -349,12 +349,16 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 
 ## 7. 改这个包时（框架 / SDK 自身）
 
-- **约定只在一处**：钩子 id / 模式 / 合并策略 / 派发方式定义在 `tools/hooks.def.json`，
-  由 `dart run tools/gen_contract.dart` 生成 Dart 枚举、C++ 头与作者文档 `docs/plugin-hooks.md`；
+- **约定只在一处**：插件作者看的声明（能力 / 广播：能不能参与、参与哪一步、载荷与回答）定义在
+  `tools/capabilities.def.json`，由 `dart run tools/gen_contract.dart` 生成作者文档
+  `docs/plugin-capabilities.md` 与 `docs/plugin-broadcasts.md`；派发层用的钩子 id / 模式 / 合并策略 /
+  派发方式定义在 `tools/hooks.def.json`，同一个工具生成 Dart 枚举与 C++ 头。
   改完必须重新生成并提交生成物（`--check` 可校验）。
 - **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/hook_ids.g.dart`、
-  `src/sdk/include/musicxx/plugin/api/hook_ids.g.h`、`docs/plugin-hooks.md`、`docs/musicxx-ui-kit.md`、
-  `js/musicxx_ui_kit.js`，以及界面描述层子模块生成的头文件 / Dart / JS。它们都能由工具重跑。
+  `lib/src/capability_ids.g.dart`、`src/sdk/include/musicxx/plugin/api/hook_ids.g.h`、
+  `src/sdk/include/musicxx/plugin/api/capability_ids.g.h`、`docs/plugin-capabilities.md`、
+  `docs/plugin-broadcasts.md`、`docs/musicxx-ui-kit.md`、`js/musicxx_ui_kit.js`，
+  以及界面描述层子模块生成的头文件 / Dart / JS。它们都能由工具重跑。
 - **接口表的"四件"只在一处**：每张表的 IID + `X_VERSION` + `X_MIN_VERSION` + `X_BASELINE_SIZE` 与表体写在同一处
   —— musicxx 专用表在 `src/sdk/include/musicxx/plugin/api/plugin_api.h`，通用表在子模块
   `cxx_pluginxx` 的 `pluginxx/api/tables.h`；SDK 侧再补一处的 `pluginxx::IfaceMeta` 特化（`plugin_kit.h`
@@ -385,10 +389,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   构建与打包走 `tools/build_examples.ps1`（Linux/macOS：`./tools/build_examples.sh`；插件框架本身默认不构建它们，见下一条）。
 - **插件网络能力**的实现在 `src/host/host_net.{h,cpp}`（独立网络线程；服务表 / 连接表 / HTTP 待回答表都在网络线程），
   表入口是 `src/host/musicxx_host_net.cpp`。JS 的网络事件**直接投递到 JS 线程**（`JsEngine::deliverNetEvent`），
-  不能改回只走事件总线：插件框架派发"返回 Promise 的能力/钩子"时会等着它结算，两边一起等就是死锁。
+  不能改回只走事件总线：插件框架派发"返回 Promise 的能力实现"时会等着它结算，两边一起等就是死锁。
   原生插件的网络事件仍走事件总线（主题 `plugin.<插件id>.net`）。
 - **文档纪律**：任何"插件作者会遇到的行为、限制、排查方法"都必须写进本包（主程序不开源，写在主程序侧等于没写）；
-  改 API / UI 项 / 钩子 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
+  改 API / UI 项 / 能力 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
 - **版本号只在一处声明**：插件框架版本在 `lib/src/version.dart`（Dart 侧）与
   `src/include/musicxx_extern_plugin_api.h` 的 `MUSICXX_EXTERN_PLUGIN_VERSION`（C 侧）各一处，
   `pubspec.yaml` 的 `version` 跟着走；三处必须一致（`flutter test test/version_test.dart` 校验）。
@@ -434,10 +438,11 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 要看什么 | 文件 |
 |---|---|
 | 第一次写插件（选形态 / 环境 / 第一个插件 / 注意事项 / 调试 / 发布检查） | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（状态镜像 / 动作全表 / 事件 / 变量 / 能力 / 功能点 / 钩子写法 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播：状态镜像 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | JS 插件作者指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
-| 钩子总表（id / 模式 / 派发 / 是否已接入 + 载荷与裁决） | `docs/plugin-hooks.md`（生成物） |
+| 能力总表（id / 能不能参与 / 派发 / 是否已接入 + 载荷与回答） | `docs/plugin-capabilities.md`（生成物） |
+| 广播总表（频道 / 有没有当前值 / 谁能写 / 载荷） | `docs/plugin-broadcasts.md`（生成物） |
 | 官方变量目录（键 / 能力位 / 取值 / 风险） | `docs/plugin-vars.md` |
 | 界面（UI 项 / 插件页面 / 自己的设置页 / 布局约定） | `docs/plugin-ui.md` |
 | shader bundle（打包 / uniform / 参数表达式 / 渲染槽位） | `docs/plugin-shader-bundle.md` |
