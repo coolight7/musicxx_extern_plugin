@@ -1615,8 +1615,8 @@
     {
       "id": "musicxx.lyric.current.get",
       "dart": "lyricCurrentGet",
-      "title": "",
-      "depict": "",
+      "title": "当前歌词",
+      "depict": "读当前歌曲的歌词内容与逐行信息（limit 截断、word 带逐字）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1640,8 +1640,8 @@
     {
       "id": "musicxx.lyric.current.update",
       "dart": "lyricCurrentUpdate",
-      "title": "",
-      "depict": "",
+      "title": "换当前歌词",
+      "depict": "改当前歌曲的拟声云歌词 id 或这首歌的歌词偏移",
       "impls": "one",
       "phases": [
         "impl"
@@ -1665,8 +1665,8 @@
     {
       "id": "musicxx.lyric.current.updateContent",
       "dart": "lyricCurrentUpdateContent",
-      "title": "",
-      "depict": "",
+      "title": "换显示歌词",
+      "depict": "直接换显示内容（不写缓存、不改歌曲绑定）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1690,8 +1690,8 @@
     {
       "id": "musicxx.lyric.getBySrc",
       "dart": "lyricGetBySrc",
-      "title": "",
-      "depict": "",
+      "title": "按来源取歌词",
+      "depict": "按音源或云歌词 id 读歌词，不换当前歌词",
       "impls": "one",
       "phases": [
         "impl"
@@ -1715,8 +1715,8 @@
     {
       "id": "musicxx.lyric.search",
       "dart": "lyricSearch",
-      "title": "",
-      "depict": "",
+      "title": "搜索歌词",
+      "depict": "按关键词或歌名歌手搜拟声云歌词",
       "impls": "one",
       "phases": [
         "impl"

@@ -144,15 +144,15 @@ abstract final class MusicxxCapabilityId {
   static const String librarySetSongInfo = 'musicxx.library.setSongInfo';
   /// musicxx.library.search
   static const String librarySearch = 'musicxx.library.search';
-  /// musicxx.lyric.current.get
+  /// 当前歌词
   static const String lyricCurrentGet = 'musicxx.lyric.current.get';
-  /// musicxx.lyric.current.update
+  /// 换当前歌词
   static const String lyricCurrentUpdate = 'musicxx.lyric.current.update';
-  /// musicxx.lyric.current.updateContent
+  /// 换显示歌词
   static const String lyricCurrentUpdateContent = 'musicxx.lyric.current.updateContent';
-  /// musicxx.lyric.getBySrc
+  /// 按来源取歌词
   static const String lyricGetBySrc = 'musicxx.lyric.getBySrc';
-  /// musicxx.lyric.search
+  /// 搜索歌词
   static const String lyricSearch = 'musicxx.lyric.search';
   /// musicxx.ui.toast
   static const String uiToast = 'musicxx.ui.toast';
@@ -1669,8 +1669,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '当前歌词',
+      depict: '读当前歌曲的歌词内容与逐行信息（limit 截断、word 带逐字）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.lyric.current.update',
@@ -1684,8 +1684,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '换当前歌词',
+      depict: '改当前歌曲的拟声云歌词 id 或这首歌的歌词偏移',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.lyric.current.updateContent',
@@ -1699,8 +1699,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '换显示歌词',
+      depict: '直接换显示内容（不写缓存、不改歌曲绑定）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.lyric.getBySrc',
@@ -1714,8 +1714,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '按来源取歌词',
+      depict: '按音源或云歌词 id 读歌词，不换当前歌词',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.lyric.search',
@@ -1729,8 +1729,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '搜索歌词',
+      depict: '按关键词或歌名歌手搜拟声云歌词',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.toast',
