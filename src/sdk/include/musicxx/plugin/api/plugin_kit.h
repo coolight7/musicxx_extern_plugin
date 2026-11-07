@@ -464,21 +464,48 @@ public:
 
     /// 注销钩子 (owner_tag = "")
     int32_t unregisterHook(const char* hookId) {
+        return unregisterHookWithTag(hookId, "");
+    }
+
+    /// 注销钩子（带 `owner_tag`）：先走能力表，能力表不可用时退回 `musicxx.hooks`
+    int32_t unregisterHookWithTag(const char* hookId, const char* ownerTag) {
+        const PluginxxStringView hookView = pluginxxView(hookId);
+        const PluginxxStringView tagView  = pluginxxView(ownerTag ? ownerTag : "");
+        if (iface.capabilities && iface.capabilities->unregister_capability) {
+            const int32_t rc =
+                iface.capabilities->unregister_capability(host, &hookView, &tagView);
+            if (rc == 0) {
+                return rc;
+            }
+        }
         if (!iface.hooks || !iface.hooks->unregister_hook) {
             return -1;
         }
-        PluginxxStringView hookView = pluginxxView(hookId);
-        PluginxxStringView tagView  = pluginxxView("");
         return iface.hooks->unregister_hook(host, &hookView, &tagView);
     }
 
     /// 同步读状态镜像 (键不存在/框架未实现返回空串)
+    ///
+    /// 先读广播频道（`musicxx.state.*` 是 `cache: latest` 的频道，订阅即推），
+    /// 能力表不可用时退回旧的状态表。
     std::string stateJson(const char* key) const {
+        if (!key || !*key) {
+            return {};
+        }
+        const PluginxxStringView keyView = pluginxxView(key);
+        if (iface.broadcasts && iface.broadcasts->read_broadcast) {
+            PluginxxString out{};
+            if (iface.broadcasts->read_broadcast(host, &keyView, &out) == 0 &&
+                out.data) {
+                std::string result{out.data, static_cast<size_t>(out.size)};
+                hostStringFree(out);
+                return result;
+            }
+        }
         if (!iface.host || !iface.host->get_state) {
             return {};
         }
-        PluginxxStringView keyView = pluginxxView(key);
-        PluginxxString   out{};
+        PluginxxString out{};
         if (iface.host->get_state(host, &keyView, &out) != 0 || !out.data) {
             return {};
         }
@@ -689,15 +716,10 @@ public:
 
     /// 摘除一个功能点的实现（注销 `owner_tag` = 点 id 的那个处理器）
     int32_t featurePointUnprovide(const char* pointId) {
-        if (!iface.hooks || !iface.hooks->unregister_hook) {
-            return -1;
-        }
         if (!pointId || !*pointId) {
             return -1;
         }
-        PluginxxStringView hookView = pluginxxView(MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL);
-        PluginxxStringView tagView  = pluginxxView(pointId);
-        return iface.hooks->unregister_hook(host, &hookView, &tagView);
+        return unregisterHookWithTag(MUSICXX_PLUGIN_HOOK_FEATURE_POINT_CALL, pointId);
     }
 
     /// 调一个功能点（**异步形态**；结果经 `notify->done` 回来）
@@ -1219,8 +1241,11 @@ protected:
     template<typename Fn>
     int32_t registerSyncWithTag(const char* hookId, const char* ownerTag, int32_t mode,
                                 int32_t priority, int32_t phase, Fn&& fn) {
-        // 阶段必须是钩子声明过的（老插件框架库没有 phases 字段 → 同样拒绝）
-        if (phase != MUSICXX_PLUGIN_HOOK_PHASE_IMPL &&
+        // 阶段合法性：能力表这条路由宿主按声明校验（拒绝原因会原样回来）；
+        // 只有退回 `musicxx.hooks` 时才需要本地预检（老插件框架库没有 phases 字段）。
+        const bool viaCapabilities =
+            iface.capabilities && iface.capabilities->register_capability;
+        if (!viaCapabilities && phase != MUSICXX_PLUGIN_HOOK_PHASE_IMPL &&
             !hookDeclaresPhase(hookId, phase)) {
             std::string message = "钩子 `";
             message += hookId ? hookId : "";
@@ -1238,7 +1263,7 @@ protected:
         // 优先走 `pluginxx.capabilities`（阶段 2c 之后插件只看这张表）：
         // 处理器是能力契约（同步 `notify->done`），宿主按 owner_tag / 阶段 / 优先级派发，
         // 与旧的 `musicxx.hooks` 登记完全同一套规则。
-        if (iface.capabilities && iface.capabilities->register_capability) {
+        if (viaCapabilities) {
             PluginxxCapabilitySpec cap{};
             cap.version     = PLUGINXX_API_VERSION;
             cap.struct_size = sizeof(PluginxxCapabilitySpec);
