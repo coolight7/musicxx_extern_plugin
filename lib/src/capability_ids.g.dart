@@ -86,17 +86,17 @@ abstract final class MusicxxCapabilityId {
   static const String playerNext = 'musicxx.player.next';
   /// musicxx.player.prev
   static const String playerPrev = 'musicxx.player.prev';
-  /// musicxx.player.playSrc
+  /// 按来源播放
   static const String playerPlaySrc = 'musicxx.player.playSrc';
-  /// musicxx.player.setVolume
+  /// 设置应用内音量
   static const String playerSetVolume = 'musicxx.player.setVolume';
-  /// musicxx.player.setSpeed
+  /// 设置播放速度
   static const String playerSetSpeed = 'musicxx.player.setSpeed';
-  /// musicxx.player.setPitch
+  /// 设置音调
   static const String playerSetPitch = 'musicxx.player.setPitch';
-  /// musicxx.player.setQuality
+  /// 设置音质
   static const String playerSetQuality = 'musicxx.player.setQuality';
-  /// musicxx.player.setLoopMode
+  /// 设置播放模式
   static const String playerSetLoopMode = 'musicxx.player.setLoopMode';
   /// musicxx.player.setMediaType
   static const String playerSetMediaType = 'musicxx.player.setMediaType';
@@ -1234,8 +1234,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '按来源播放',
+      depict: '播放一个或多个音源（文件 / 链接 / 音源字符串；多个作为临时歌单）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setVolume',
@@ -1249,8 +1249,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '设置应用内音量',
+      depict: '把应用内音量改到 0~1（大于 1 按百分比处理），不影响系统音量',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setSpeed',
@@ -1264,8 +1264,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '设置播放速度',
+      depict: '把播放速度改到 0.25~8 倍（1 = 原速）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setPitch',
@@ -1279,8 +1279,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '设置音调',
+      depict: '把音调改到 0.25~2 倍（1 = 原调），不影响播放速度',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setQuality',
@@ -1294,8 +1294,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '设置音质',
+      depict: '选在线音源播放时想要的音质（AudioQuality_e 的名字）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setLoopMode',
@@ -1309,8 +1309,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '设置播放模式',
+      depict: '改播放模式（Order / RealRand / Only / SimulateRand / SimulateRandReflush）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setMediaType',
