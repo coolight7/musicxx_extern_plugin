@@ -198,19 +198,19 @@ abstract final class MusicxxCapabilityId {
   static const String renderCurrent = 'musicxx.render.current';
   /// 选择渲染项
   static const String renderSelect = 'musicxx.render.select';
-  /// musicxx.media.palette
+  /// 封面取色
   static const String mediaPalette = 'musicxx.media.palette';
   /// musicxx.media.cover
   static const String mediaCover = 'musicxx.media.cover';
   /// musicxx.media.palette.set
   static const String mediaPaletteSet = 'musicxx.media.palette.set';
-  /// musicxx.media.bindImage
+  /// 登记插件图片
   static const String mediaBindImage = 'musicxx.media.bindImage';
-  /// musicxx.media.unbindImage
+  /// 撤销插件图片
   static const String mediaUnbindImage = 'musicxx.media.unbindImage';
   /// musicxx.media.spectrum
   static const String mediaSpectrum = 'musicxx.media.spectrum';
-  /// musicxx.media.kernel
+  /// 媒体内核信息
   static const String mediaKernel = 'musicxx.media.kernel';
   /// musicxx.feature.list
   static const String featureList = 'musicxx.feature.list';
@@ -2074,8 +2074,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '封面取色',
+      depict: '取当前封面的主色调（force 时跳缓存重算）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.cover',
@@ -2119,8 +2119,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '登记插件图片',
+      depict: '把一张图片（base64）按 key 登记给主程序的图片槽位',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.unbindImage',
@@ -2134,8 +2134,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '撤销插件图片',
+      depict: '按 key 撤销之前登记的图片',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.spectrum',
@@ -2164,8 +2164,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '媒体内核信息',
+      depict: '读播放内核与解码信息（part 选段，refresh 重新探测）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.list',

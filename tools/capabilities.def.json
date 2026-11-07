@@ -2290,8 +2290,8 @@
     {
       "id": "musicxx.media.palette",
       "dart": "mediaPalette",
-      "title": "",
-      "depict": "",
+      "title": "封面取色",
+      "depict": "取当前封面的主色调（force 时跳缓存重算）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2365,8 +2365,8 @@
     {
       "id": "musicxx.media.bindImage",
       "dart": "mediaBindImage",
-      "title": "",
-      "depict": "",
+      "title": "登记插件图片",
+      "depict": "把一张图片（base64）按 key 登记给主程序的图片槽位",
       "impls": "one",
       "phases": [
         "impl"
@@ -2390,8 +2390,8 @@
     {
       "id": "musicxx.media.unbindImage",
       "dart": "mediaUnbindImage",
-      "title": "",
-      "depict": "",
+      "title": "撤销插件图片",
+      "depict": "按 key 撤销之前登记的图片",
       "impls": "one",
       "phases": [
         "impl"
@@ -2440,8 +2440,8 @@
     {
       "id": "musicxx.media.kernel",
       "dart": "mediaKernel",
-      "title": "",
-      "depict": "",
+      "title": "媒体内核信息",
+      "depict": "读播放内核与解码信息（part 选段，refresh 重新探测）",
       "impls": "one",
       "phases": [
         "impl"
