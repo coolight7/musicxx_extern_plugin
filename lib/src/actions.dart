@@ -43,7 +43,8 @@ class MusicxxPluginActionInvocation {
 
 /// 主程序动作注册表
 ///
-/// 插件经 `musicxx.host.request_action` 发起动作；Dart 侧在 [register] 注册实现。
+/// 动作就是**应用实现的能力**：插件通过 `pluginxx.capabilities` 调 `musicxx.*` 的 id，
+/// 宿主把它转成动作请求（`musicxx.action.request`），Dart 侧在 [register] 注册实现。
 /// **未注册的动作会立即收到"未找到"**，避免插件 op 一直挂到超时。
 class MusicxxPluginActions {
   MusicxxPluginActions.internal(this._runtime);
