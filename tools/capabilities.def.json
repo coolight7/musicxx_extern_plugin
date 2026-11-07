@@ -2065,8 +2065,8 @@
     {
       "id": "musicxx.storage.get",
       "dart": "storageGet",
-      "title": "",
-      "depict": "",
+      "title": "读插件存储",
+      "depict": "读插件私有存储里的一个键（命名空间可省）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2090,8 +2090,8 @@
     {
       "id": "musicxx.storage.set",
       "dart": "storageSet",
-      "title": "",
-      "depict": "",
+      "title": "写插件存储",
+      "depict": "把值写进插件私有存储（值可以是任意 JSON）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2115,8 +2115,8 @@
     {
       "id": "musicxx.storage.delete",
       "dart": "storageDelete",
-      "title": "",
-      "depict": "",
+      "title": "删插件存储",
+      "depict": "删掉插件私有存储里的一个键",
       "impls": "one",
       "phases": [
         "impl"
@@ -2140,8 +2140,8 @@
     {
       "id": "musicxx.storage.list",
       "dart": "storageList",
-      "title": "",
-      "depict": "",
+      "title": "列出插件存储",
+      "depict": "列出插件私有存储里的键（命名空间可省）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2215,8 +2215,8 @@
     {
       "id": "musicxx.render.list",
       "dart": "renderList",
-      "title": "",
-      "depict": "",
+      "title": "列出渲染槽位",
+      "depict": "列出渲染槽位与候选（可以只看一个槽位）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2240,8 +2240,8 @@
     {
       "id": "musicxx.render.current",
       "dart": "renderCurrent",
-      "title": "",
-      "depict": "",
+      "title": "当前渲染项",
+      "depict": "读某个槽位当前选中的项",
       "impls": "one",
       "phases": [
         "impl"
@@ -2265,8 +2265,8 @@
     {
       "id": "musicxx.render.select",
       "dart": "renderSelect",
-      "title": "",
-      "depict": "",
+      "title": "选择渲染项",
+      "depict": "把某个槽位换成指定候选（插件项与内置项同一份列表）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2715,8 +2715,8 @@
     {
       "id": "musicxx.host.openUrl",
       "dart": "hostOpenUrl",
-      "title": "",
-      "depict": "",
+      "title": "打开链接",
+      "depict": "把地址交给系统打开（协议不限）",
       "impls": "one",
       "phases": [
         "impl"
@@ -2765,8 +2765,8 @@
     {
       "id": "musicxx.host.clipboard",
       "dart": "hostClipboard",
-      "title": "",
-      "depict": "",
+      "title": "写剪贴板",
+      "depict": "把文本写进系统剪贴板",
       "impls": "one",
       "phases": [
         "impl"

@@ -180,23 +180,23 @@ abstract final class MusicxxCapabilityId {
   static const String uiGetFontFamily = 'musicxx.ui.getFontFamily';
   /// musicxx.ui.loadFont
   static const String uiLoadFont = 'musicxx.ui.loadFont';
-  /// musicxx.storage.get
+  /// 读插件存储
   static const String storageGet = 'musicxx.storage.get';
-  /// musicxx.storage.set
+  /// 写插件存储
   static const String storageSet = 'musicxx.storage.set';
-  /// musicxx.storage.delete
+  /// 删插件存储
   static const String storageDelete = 'musicxx.storage.delete';
-  /// musicxx.storage.list
+  /// 列出插件存储
   static const String storageList = 'musicxx.storage.list';
   /// musicxx.net.fetch
   static const String netFetch = 'musicxx.net.fetch';
   /// musicxx.net.download
   static const String netDownload = 'musicxx.net.download';
-  /// musicxx.render.list
+  /// 列出渲染槽位
   static const String renderList = 'musicxx.render.list';
-  /// musicxx.render.current
+  /// 当前渲染项
   static const String renderCurrent = 'musicxx.render.current';
-  /// musicxx.render.select
+  /// 选择渲染项
   static const String renderSelect = 'musicxx.render.select';
   /// musicxx.media.palette
   static const String mediaPalette = 'musicxx.media.palette';
@@ -232,11 +232,11 @@ abstract final class MusicxxCapabilityId {
   static const String sourceBrowse = 'musicxx.source.browse';
   /// musicxx.hook.handlers
   static const String hookHandlers = 'musicxx.hook.handlers';
-  /// musicxx.host.openUrl
+  /// 打开链接
   static const String hostOpenUrl = 'musicxx.host.openUrl';
   /// musicxx.host.shareText
   static const String hostShareText = 'musicxx.host.shareText';
-  /// musicxx.host.clipboard
+  /// 写剪贴板
   static const String hostClipboard = 'musicxx.host.clipboard';
   /// musicxx.host.getPath
   static const String hostGetPath = 'musicxx.host.getPath';
@@ -1939,8 +1939,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '读插件存储',
+      depict: '读插件私有存储里的一个键（命名空间可省）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.storage.set',
@@ -1954,8 +1954,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '写插件存储',
+      depict: '把值写进插件私有存储（值可以是任意 JSON）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.storage.delete',
@@ -1969,8 +1969,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '删插件存储',
+      depict: '删掉插件私有存储里的一个键',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.storage.list',
@@ -1984,8 +1984,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '列出插件存储',
+      depict: '列出插件私有存储里的键（命名空间可省）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.net.fetch',
@@ -2029,8 +2029,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '列出渲染槽位',
+      depict: '列出渲染槽位与候选（可以只看一个槽位）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.render.current',
@@ -2044,8 +2044,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '当前渲染项',
+      depict: '读某个槽位当前选中的项',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.render.select',
@@ -2059,8 +2059,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '选择渲染项',
+      depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.palette',
@@ -2329,8 +2329,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '打开链接',
+      depict: '把地址交给系统打开（协议不限）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.host.shareText',
@@ -2359,8 +2359,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '写剪贴板',
+      depict: '把文本写进系统剪贴板',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.host.getPath',
