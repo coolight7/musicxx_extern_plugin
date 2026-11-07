@@ -1165,8 +1165,8 @@
     {
       "id": "musicxx.playlist.removeSong",
       "dart": "playlistRemoveSong",
-      "title": "",
-      "depict": "",
+      "title": "从歌单移除歌曲",
+      "depict": "把歌从保存下来的歌单里删掉（sid 或 sids，可多个）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1340,8 +1340,8 @@
     {
       "id": "musicxx.songlist.removeSong",
       "dart": "songlistRemoveSong",
-      "title": "",
-      "depict": "",
+      "title": "从播放列表移除歌曲",
+      "depict": "只改当前播放队列（sid 或 sids，可多个）",
       "impls": "one",
       "phases": [
         "impl"

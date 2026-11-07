@@ -108,7 +108,7 @@ abstract final class MusicxxCapabilityId {
   static const String playlistPlay = 'musicxx.playlist.play';
   /// musicxx.playlist.addSong
   static const String playlistAddSong = 'musicxx.playlist.addSong';
-  /// musicxx.playlist.removeSong
+  /// 从歌单移除歌曲
   static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
   /// musicxx.playlist.create
   static const String playlistCreate = 'musicxx.playlist.create';
@@ -122,7 +122,7 @@ abstract final class MusicxxCapabilityId {
   static const String songlistPlaySong = 'musicxx.songlist.playSong';
   /// musicxx.songlist.addSong
   static const String songlistAddSong = 'musicxx.songlist.addSong';
-  /// musicxx.songlist.removeSong
+  /// 从播放列表移除歌曲
   static const String songlistRemoveSong = 'musicxx.songlist.removeSong';
   /// musicxx.songlist.updateSong
   static const String songlistUpdateSong = 'musicxx.songlist.updateSong';
@@ -1399,8 +1399,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '从歌单移除歌曲',
+      depict: '把歌从保存下来的歌单里删掉（sid 或 sids，可多个）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.playlist.create',
@@ -1504,8 +1504,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '',
-      depict: '',
+      title: '从播放列表移除歌曲',
+      depict: '只改当前播放队列（sid 或 sids，可多个）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.songlist.updateSong',
