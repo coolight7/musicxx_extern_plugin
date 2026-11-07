@@ -1156,6 +1156,52 @@ protected:
                 return -1;
             }
         }
+
+        /// 能力契约的 trampoline (`pluginxx.capabilities` 的处理器形态)
+        ///
+        /// 同步处理器: 算完就 `notify->done` 一次, 让宿主这一轮就能拿结果
+        /// (宿主派发是同步的, 异步给结果的处理器不会参与钩子合并)。
+        static void* PLUGINXX_CALL invokeCapability(
+            void*                            user_data,
+            const PluginxxHost*              /*caller_host*/,
+            const PluginxxStringView*        /*method*/,
+            const PluginxxStringView*        args_json,
+            const PluginxxOperatorNotify*    notify,
+            PluginxxString*                  /*error_out*/
+        ) {
+            auto* self = static_cast<HookHolder*>(user_data);
+            if (!self || !notify || !notify->done) {
+                return nullptr;
+            }
+            int32_t     status = PLUGINXX_OPERATOR_OK;
+            std::string out;
+            try {
+                std::string_view input{};
+                if (args_json && args_json->data) {
+                    input = std::string_view{
+                        args_json->data,
+                        static_cast<size_t>(args_json->size)
+                    };
+                }
+                if (self->fn(input, out) != 0) {
+                    status = PLUGINXX_OPERATOR_FAILED;
+                    out.clear();
+                }
+            } catch (const std::exception& e) {
+                status = PLUGINXX_OPERATOR_FAILED;
+                out = e.what();
+            } catch (...) {
+                status = PLUGINXX_OPERATOR_FAILED;
+                out = "unknown exception";
+            }
+            if (status == PLUGINXX_OPERATOR_OK && out.empty()) {
+                notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+            } else {
+                const PluginxxStringView view{out.data(), out.size()};
+                notify->done(notify->host_ud, status, &view);
+            }
+            return nullptr;
+        }
     };
 
     /// 统一的同步处理器注册路径
@@ -1188,6 +1234,49 @@ protected:
         auto  holder    = std::make_unique<HookHolder<FnT>>(host, std::forward<Fn>(fn));
         void* holderPtr = holder.get();
         holders_.push_back(std::move(holder));
+
+        // 优先走 `pluginxx.capabilities`（阶段 2c 之后插件只看这张表）：
+        // 处理器是能力契约（同步 `notify->done`），宿主按 owner_tag / 阶段 / 优先级派发，
+        // 与旧的 `musicxx.hooks` 登记完全同一套规则。
+        if (iface.capabilities && iface.capabilities->register_capability) {
+            PluginxxCapabilitySpec cap{};
+            cap.version     = PLUGINXX_API_VERSION;
+            cap.struct_size = sizeof(PluginxxCapabilitySpec);
+            cap.id          = pluginxxView(hookId);
+            cap.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
+            cap.impls       = PLUGINXX_CAPABILITY_IMPLS_MANY;
+            cap.merge       = PLUGINXX_CAPABILITY_MERGE_NONE;
+            cap.phases      = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL |
+                              PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
+                              PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
+            switch (phase) {
+            case MUSICXX_PLUGIN_HOOK_PHASE_BEFORE:
+                cap.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
+                break;
+            case MUSICXX_PLUGIN_HOOK_PHASE_AFTER:
+                cap.phase = PLUGINXX_CAPABILITY_PHASE_AFTER;
+                break;
+            default:
+                cap.phase = PLUGINXX_CAPABILITY_PHASE_IMPL;
+                break;
+            }
+            cap.priority = priority;
+            cap.sync     = 1; ///< 钩子派发是同步的: 只登记同步处理器
+            cap.run_start = &HookHolder<FnT>::invokeCapability;
+            cap.user_data = holderPtr;
+            PluginxxString error{};
+            const int32_t rc =
+                iface.capabilities->register_capability(host, nullptr, &cap, &error);
+            if (error.data) {
+                log.warn(std::string{"钩子登记失败: "} +
+                         std::string{error.data, static_cast<size_t>(error.size)});
+                hostStringFree(error);
+            }
+            if (rc == 0) {
+                return rc;
+            }
+            log.warn("能力表登记失败, 退回 musicxx.hooks 再试一次");
+        }
 
         MusicxxPluginHookSpec spec{};
         spec.version     = MUSICXX_PLUGIN_HOOK_SPEC_VERSION;
