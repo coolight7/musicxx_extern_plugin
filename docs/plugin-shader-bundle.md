@@ -382,7 +382,7 @@ void main() {
   插件按这个尺寸画；`animate: false` 时只出一帧；
 - 没有额外 uniform 成员：通用成员（`uParams` / `uEnv`）够描述"画在多大的一块里"，
   颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
-- 槽位状态镜像：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
+- 槽位快照频道：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
   例如"背景是自己时才接管歌曲图"这种跟随（`plugins/playing_bg_image` 就是这么做的：它的三种
   背景模式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
@@ -435,7 +435,7 @@ void main() {
   不会生效；
 - `cover` / `image` / `args` / `speed` / `maxFps` / `resolutionScale` / `animate` 与背景槽位同一套解析；
   没有 `args` 时**不像背景那样默认给 4 色**，要用颜色自己声明；
-- 槽位状态镜像：`musicxx.state.renderSlots["player.visualizer"]`（字段与背景 / 歌曲图相同）；
+- 槽位快照频道：`musicxx.state.renderSlots["player.visualizer"]`（字段与背景 / 歌曲图相同）；
 - 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败 3 次、插件停用 / 卸载 → 自动回退到
   用户原本的内置选择（或“不显示”），原因写在设置列表那一行。
 
@@ -779,7 +779,7 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 
 ---
 
-## 10. 运行期：查询、切换与状态镜像
+## 10. 运行期：查询、切换与快照频道
 
 槽位用 `slot` 参数区分（省略 = 默认槽位 `player.background`）：`player.background`（播放页背景）、
 `player.icon`（播放页歌曲图，§5.3）与 `player.visualizer`（播放页音频动效，§5.4）各有自己的候选列表与选择，
@@ -796,7 +796,7 @@ await musicxx.call("musicxx.render.select", { slot: "player.background", id: "pl
 await musicxx.render.select("builtin:Auto");     // 省略 slot 用默认槽位
 // 成功 → { ok:true, slot, id }；不可用 / 未知槽位 → { ok:false, error:"<原因>" }
 
-// 现在是谁在画（同步读状态镜像）
+// 现在是谁在画（同步读快照频道）
 const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
 ```
 
@@ -834,7 +834,7 @@ const s = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 //       frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
 //       level, bands:[...], frameData? }        // frameData 需要 includeBins:true
 
-// ③ 同步读状态镜像（播放中约 10 Hz 推送，适合插件自己的绘制循环）
+// ③ 同步读快照频道（播放中约 10 Hz 推送，适合插件自己的绘制循环）
 const live = musicxx.broadcast.read("musicxx.state.spectrum");
 // { status, available, loading, reason, source, srcKey,
 //   frameHz, frameIndex, frames, bandCount, level, bands:[16] }

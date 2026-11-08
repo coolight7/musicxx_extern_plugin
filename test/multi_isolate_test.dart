@@ -7,7 +7,7 @@
 ///   否则同一进程会出现两套插件实例与两条事件队列；
 /// - Dart 处理器与主程序动作只允许在 UI isolate 注册：worker 只调用管理/派发/状态类 API。
 ///
-/// 覆盖：两个 worker 并发 `hook_count` / `hook_emit(ASYNC)` / `state_update`，主 isolate
+/// 覆盖：两个 worker 并发 `hook_count` / `hook_emit(ASYNC)` / `broadcast_publish`，主 isolate
 /// 同时跑同步派发；断言不崩溃、事件 `seq` 严格递增、`callId` 不重复、裁决结果不串台、
 /// 多 isolate 写入的状态镜像可见。
 ///
@@ -156,7 +156,7 @@ void main() {
       expect(
         report['stateOk'],
         _rounds,
-        reason: '${report['name']}: state_update',
+        reason: '${report['name']}: broadcast_publish',
       );
       callIds.addAll((report['callIds']! as List<Object?>).cast<int>());
     }
@@ -310,13 +310,13 @@ Future<void> _apiWorker(List<Object?> args) async {
         emitArena.dispose();
       }
 
-      // 3) state_update（状态镜像写入；值定长，便于主 isolate 回读校验）
+      // 3) broadcast_publish（快照频道写入；值定长，便于主 isolate 回读校验）
       final MusicxxPluginArena stateArena = MusicxxPluginArena();
       try {
         final Pointer<MusicxxExternPluginString> log = stateArena.outString();
-        final int rc = bindings.musicxx_extern_plugin_state_update(
+        final int rc = bindings.musicxx_extern_plugin_broadcast_publish(
           host,
-          stateArena.view(MusicxxPluginState.keySong),
+          stateArena.view(MusicxxBroadcastId.stateSong),
           stateArena.view(_statePayload(name, i)),
           log,
         );

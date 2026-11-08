@@ -156,7 +156,7 @@ my_plugin/
 
 1. **处理器里绝不等主程序动作**（**异步派发**的裁决型能力是例外，见下）。打开插件页面、点按钮、部分能力（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
    你在处理器里 `await musicxx.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
-   正确做法：要"现在这一帧"的数据读状态镜像；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
+   正确做法：要"现在这一帧"的数据读快照频道；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
    **例外**：异步派发的裁决型能力（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
    里 `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
@@ -441,7 +441,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 要看什么 | 文件 |
 |---|---|
 | 第一次写插件（选形态 / 环境 / 第一个插件 / 注意事项 / 调试 / 发布检查） | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（能力与广播：状态镜像 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播：快照频道 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | JS 插件作者指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 是否已接入 + 载荷与回答） | `docs/plugin-capabilities.md`（生成物） |

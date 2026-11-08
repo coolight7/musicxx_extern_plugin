@@ -584,7 +584,7 @@ var featurePointImpls = new Map();
     /// 再退回宿主变量表里的缓存值 (插件自己声明的值频道)
     read: function (key) {
       var text = null;
-      try { text = ext.stateGet(String(key)); } catch (e) { text = null; }
+      try { text = ext.broadcastPeek(String(key)); } catch (e) { text = null; }
       if (text) {
         try { return JSON.parse(text); } catch (e) { /* 不是 JSON 就按文本 */ return text; }
       }
@@ -1960,7 +1960,7 @@ std::string takeException(JSContext *ctx) {
   return text;
 }
 
-JSValue jsStateGet(JSContext *ctx, JSValueConst /*thisVal*/, int argc,
+JSValue jsBroadcastPeek(JSContext *ctx, JSValueConst /*thisVal*/, int argc,
                    JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
@@ -1968,7 +1968,7 @@ JSValue jsStateGet(JSContext *ctx, JSValueConst /*thisVal*/, int argc,
   }
   const char *key = JS_ToCString(ctx, argv[0]);
   std::string out;
-  const bool ok = key && inst->engine->bridgeStateGet(key, out) == 0;
+  const bool ok = key && inst->engine->bridgeBroadcastPeek(key, out) == 0;
   if (key) {
     JS_FreeCString(ctx, key);
   }
@@ -2607,7 +2607,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
     int argc;
   };
   const Entry entries[] = {
-      {"stateGet", jsStateGet, 1},
+      {"broadcastPeek", jsBroadcastPeek, 1},
       {"hostInfo", jsHostInfo, 0},
       {"log", jsLog, 2},
       {"configPath", jsConfigPath, 0},
@@ -3080,13 +3080,13 @@ void JsEngine::expireActions() {
 
 /* ==================== 桥接 (线程安全) ==================== */
 
-int32_t JsEngine::bridgeStateGet(const std::string &key,
+int32_t JsEngine::bridgeBroadcastPeek(const std::string &key,
                                  std::string &out) const {
   if (!mgr_) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
   /// 状态镜像由插件框架的互斥保护, 任何线程可读 (只读快照)
-  return mgr_->getState(key, out);
+  return mgr_->readChannel(key, out);
 }
 
 std::string JsEngine::bridgeHostInfo() const {
@@ -3110,7 +3110,7 @@ int32_t JsEngine::bridgePublish(const std::string &pluginId,
   if (!mgr_) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  return mgr_->publishPluginEventFrom(pluginId, topic, payload);
+  return mgr_->broadcastPublishFrom(pluginId, topic, payload);
 }
 
 int64_t JsEngine::bridgeTimerSet(const std::string &instance, int64_t delayMs,

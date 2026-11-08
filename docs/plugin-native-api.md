@@ -5,7 +5,7 @@
 
 | 主题 | 文档 |
 |---|---|
-| **两种形态共用的接口**（能力与广播（状态镜像 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
+| **两种形态共用的接口**（能力与广播（快照频道 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
 | 能力 id / 能不能参与 / 载荷与回答 | [plugin-capabilities.md](plugin-capabilities.md) |
 | 广播频道 id / 有没有当前值 / 谁能写 / 载荷 | [plugin-broadcasts.md](plugin-broadcasts.md) |
@@ -17,7 +17,7 @@
 
 > **本文只写 C++ 特有的东西**：清单与多目标打包、SDK、框架线程、接口表判定、构建部署、排障。
 > **每个接口"做什么、参数是什么、返回什么、什么时候用、有什么坑"在 [plugin-api.md](plugin-api.md)** ——
-> 那份文档 JS 与动态库插件共用（两边的接口是同一批：同一套能力表、同一份动作注册表、同一份状态镜像）。
+> 那份文档 JS 与动态库插件共用（两边的接口是同一批：同一套能力表、同一份动作注册表、同一份快照频道）。
 > 同一个功能在 C++ 里怎么写，§4.2 有一份对照示例。
 
 > 动态库与主程序**同进程、同地址空间**：插件崩溃 = 主程序崩溃。开发期请先在
@@ -207,7 +207,7 @@ struct MyCtx : public musicxx::plugin::PluginBase {
                  return 0;   // 返回 0 且 out 为空 = 不裁决，交给下一个处理器
              });
 
-        // 切歌是广播频道（`musicxx.song.changed`）：订阅后收推送，顺手同步读状态镜像
+        // 切歌是广播频道（`musicxx.song.changed`）：订阅后收推送，顺手同步读快照频道
         subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED, [](std::string_view) {
             const std::string song = stateJson(MUSICXX_STATE_SONG);
             log.info("切歌了，歌曲快照长度=" + std::to_string(song.size()));
@@ -268,7 +268,7 @@ MUSICXX_PLUGIN_EXPORT(
 | `stop` | 框架线程 | 撤销自管资源（线程、定时器、后台任务、临时文件）；注册由框架统一摘除 |
 | `destroy` | 框架线程 | 只释放本地对象（不要在这里做 IO / 通知） |
 
-- 全部动态库插件代码都在**同一条框架线程**（插件管理器线程）上顺序执行：注册表、统计、状态镜像
+- 全部动态库插件代码都在**同一条框架线程**（插件管理器线程）上顺序执行：注册表、统计、快照频道
   都不需要锁，**处理器之间按 (priority, 注册顺序) 稳定执行**；
 - **处理器里禁止阻塞**：网络请求、大文件、编解码、`sleep` 都不要直接做 —— 一个插件卡住会拖慢
   同一线程上的所有插件（插件框架不会强杀你，只会记录耗时并提示）。耗时工作的正确做法：
@@ -278,7 +278,7 @@ MUSICXX_PLUGIN_EXPORT(
   2. 把工作拆成「提交 + 回调」两段：`start` 只注册，真正的初始化放进异步任务，完成后再补注册 / 写状态；
 - 插件**可以**自己起线程或定时器，但要在 `stop` 里回收，并且**调用框架接口一律经接口表**
   （`iface.*` / `PluginBase` 的便捷方法），不要直接触碰框架内部结构；
-- 状态镜像的读取是**同步**的（`stateJson(...)`），动作请求是**异步**的（结果经回调）。
+- 快照频道的读取是**同步**的（`stateJson(...)`），动作请求是**异步**的（结果经回调）。
 
 ---
 
@@ -289,7 +289,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 裁决型能力 | `hook(id, priority, fn)` | `fn = int32_t(std::string_view input, std::string& out)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决 |
 | 观察（切歌 / 播放状态 / 进度…） | `subscribeTopic(频道, fn)` | 广播频道在框架 API 2 之后是**广播频道**（`MUSICXX_BROADCAST_*`）；处理器要尽快返回 |
 | 注销能力 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
-| 状态镜像（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
+| 快照频道（同步只读） | `stateJson("musicxx.state.song")` 等 | 见 §5 |
 | 框架版本 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, pluginId, ui?}`：`hostVersion` 是插件框架自己的版本（如 `2026.1011.1`），`pluginId` 是本插件 id（只有插件读时才带），`ui` 是客户端界面能力段（可选）；字段说明见 [plugin-api.md](plugin-api.md) §2.5 |
 | 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
@@ -344,7 +344,7 @@ static void onDone(void* ud, int32_t status, const PluginxxStringView* json) {
 }
 ```
 
-**状态镜像 / 框架信息**（同步读，见 [plugin-api.md](plugin-api.md) §2）：
+**快照频道 / 框架信息**（同步读，见 [plugin-api.md](plugin-api.md) §2）：
 
 ```cpp
 const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 空串
@@ -379,8 +379,8 @@ requestAction("musicxx.media.spectrum", R"({"bandCount":16})", &notify, 5000);
 **事件**（主题与载荷见 [plugin-api.md](plugin-api.md) §4）：
 
 ```cpp
-subscribeTopic("musicxx.state.changed", [](std::string_view json) {
-    // {"key":"musicxx.state.song","value":{...}}
+subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
+    // {"sid":..., "name":...} 当前歌曲快照
 });
 subscribeTopic("musicxx.var.changed", [](std::string_view json) { /* ... */ });
 
@@ -508,7 +508,7 @@ iface.kind->register_kind(host, &pluginxxView(R"({
 
 ---
 
-## 5. 状态镜像（插件读主程序状态的最快方式）
+## 5. 快照频道（插件读主程序状态的最快方式）
 
 插件框架把应用的关键状态做成 JSON 快照，插件**同步**读（不往返、不占线程）：
 
@@ -516,17 +516,17 @@ iface.kind->register_kind(host, &pluginxxView(R"({
 const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 空串
 ```
 
-- **键、每个键的字段、刷新时机与坑**：[plugin-api.md](plugin-api.md) §2（状态镜像那一节）。
+- **键、每个键的字段、刷新时机与坑**：[plugin-api.md](plugin-api.md) §2（快照频道那一节）。
   可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`；
   `musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送（返回空串）；
-- C++ 常量：`MUSICXX_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` / `_LIBRARY` / `_ENV` /
-  `_RENDER_SLOTS`；
+- C++ 常量：生成的 `MUSICXX_BROADCAST_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` /
+  `_PLAYLISTS` / `_ENV` / `_RENDER_SLOTS` / `_SPECTRUM`（`capability_ids.g.h`，不要手写键名）；
 - 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
-- 每个键更新都会推 `musicxx.state.changed` 事件（载荷 `{key, value}`），可以订阅它做增量处理：
+- 每个快照频道各自带当前值：订阅哪个就收哪个（`cache: latest` 的频道订阅时先推一次）
 
   ```cpp
-  subscribeTopic("musicxx.state.changed", [](std::string_view json) {
-      // {"key":"musicxx.state.song","value":{...}}
+  subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
+      // {"sid":..., "name":...} 当前歌曲快照
   });
   ```
 
@@ -997,7 +997,7 @@ Android 见 §11。
 |---|---|
 | 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
-| 接口面与 JS 插件的关系 | **同一批接口**：同一套能力表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
+| 接口面与 JS 插件的关系 | **同一批接口**：同一套能力表、同一份动作注册表、同一份快照频道 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |

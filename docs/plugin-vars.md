@@ -43,7 +43,7 @@
 
 | 键 | caps | 值 | 风险 | 说明 |
 |---|---|---|---|---|
-| `musicxx.player.position` | get | 整数（毫秒） | low | 当场读当前播放位置。**要“每秒收到进度”用广播频道 `musicxx.player.position`**（带 `sid` / `durationMs`，1 秒一条）；状态镜像 `musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，不能当实时值用；改位置用动作 `musicxx.player.seek` |
+| `musicxx.player.position` | get | 整数（毫秒） | low | 当场读当前播放位置。**要“每秒收到进度”用广播频道 `musicxx.player.position`**（带 `sid` / `durationMs`，1 秒一条）；快照频道 `musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新，不能当实时值用；改位置用动作 `musicxx.player.seek` |
 
 ## 界面动画（`musicxx.ui.*`）
 

@@ -188,7 +188,7 @@ MusicxxHostManager::MusicxxHostManager(asio::any_io_executor ex)
           engine->deliverNetEvent(pluginId, payload);
         }
         // 原生插件: 走事件总线 (主题 `plugin.<id>.net` 属于该插件自己的命名空间)
-        publishPluginEventFrom(pluginId, "plugin." + pluginId + ".net", payload);
+        broadcastPublishFrom(pluginId, "plugin." + pluginId + ".net", payload);
       },
       [this](std::function<void()> fn) {
         if (!ctx_) {
@@ -637,7 +637,7 @@ int32_t MusicxxHostManager::prepareJsPlugin(
 }
 
 int32_t
-MusicxxHostManager::publishPluginEventFrom(const std::string &pluginId,
+MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
                                            const std::string &topic,
                                            const std::string &payloadJson) {
   if (!running_.load(std::memory_order_acquire)) {
@@ -2455,10 +2455,10 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   }
   pluginxx::BroadcastDecl decl;
   decl.id = id;
-  // `musicxx.state.*` 是状态键 (快照 + 订阅即推); `musicxx.state.changed` 是"某个键变了"
-  // 的通知本身, 没有当前值
+  // `musicxx.state.*` 是快照频道 (带当前值 + 订阅即推)
+  // 其它 id 按事件频道处理 (没有当前值)
   const bool isState
-      = id.rfind("musicxx.state.", 0) == 0 && id != "musicxx.state.changed";
+      = id.rfind("musicxx.state.", 0) == 0;
   const bool isVar = id.rfind("musicxx.var.", 0) == 0;
   if (isState || isVar) {
     decl.cache = pluginxx::BroadcastCache_e::Latest;
@@ -2484,7 +2484,7 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   declaredBroadcasts_.insert(id);
 }
 
-int32_t MusicxxHostManager::publishPluginEvent(const std::string &topic,
+int32_t MusicxxHostManager::broadcastPublish(const std::string &topic,
                                                const std::string &payloadJson) {
   if (!running_.load(std::memory_order_acquire)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
@@ -2556,69 +2556,6 @@ void MusicxxHostManager::accountEventForTopic(const std::string &topic) {
     inst->eventsWindowCount = 0;
     inst->eventsWindowStartMs = now;
   }
-}
-
-/* ==================== 状态镜像 (Dart → 原生) ==================== */
-int32_t MusicxxHostManager::stateUpdate(const std::string &key,
-                                        const std::string &valueJson,
-                                        std::string &err) {
-  if (key.empty()) {
-    err = "state_update: empty key";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
-  bool parseOk = false;
-  Json value = parseJsonSafe(valueJson, &parseOk);
-  if (!parseOk) {
-    err = "state_update: value 必须是合法 JSON";
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
-  }
-  std::string text = value.dump();
-  /// 单键不再限制大小 (早期版本 512 KiB 上限已移除): 只要求是合法 JSON。
-  ///
-  /// 状态镜像现在只有一份存储: 广播注册表的当前值 (`getState` 读它)。
-  /// 发布与回调必须回到框架线程 (插件处理器约定在框架线程执行), 因此这里投递后
-  /// 立即返回 (调用方通常是 Dart 线程)。
-  auto self = shared_from_this();
-  asio::post(ctx_->io, [self, key, text] {
-    self->ensureBroadcastChannel(key);
-    std::string publishError;
-    if (self->publishBroadcast(key, text, std::string{}, &publishError) != PLUGINXX_RESULT_OK) {
-      XX_LOGW("[musicxx_ext] 状态镜像 `{}` 写入广播失败: {}", key, publishError);
-    }
-    /// 兼容通道: 关心"任意键变化"的插件仍可订阅 `musicxx.state.changed`
-    self->ensureBroadcastChannel("musicxx.state.changed");
-    Json payload;
-    payload["key"] = key;
-    payload["value"] = parseJsonSafe(text);
-    self->publishBroadcast("musicxx.state.changed", payload.dump(), std::string{},
-                           &publishError);
-  });
-  return MUSICXX_EXTERN_PLUGIN_OK;
-}
-
-int32_t MusicxxHostManager::stateUpdateBatch(const std::string &itemsJson,
-                                             std::string &err) {
-  bool parseOk = false;
-  Json items = parseJsonSafe(itemsJson, &parseOk);
-  if (!parseOk || !items.is_array()) {
-    err = "state_update_batch: items 必须是 JSON 数组";
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
-  }
-  int32_t rc = MUSICXX_EXTERN_PLUGIN_OK;
-  for (const auto &item : items) {
-    if (!item.is_object() || !item.contains("key") || !item.contains("value")) {
-      rc = MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-      continue;
-    }
-    std::string subErr;
-    const auto sub = stateUpdate(item["key"].get<std::string>(),
-                                 item["value"].dump(), subErr);
-    if (sub != MUSICXX_EXTERN_PLUGIN_OK && rc == MUSICXX_EXTERN_PLUGIN_OK) {
-      rc = sub;
-      err = subErr;
-    }
-  }
-  return rc;
 }
 
 /* ==================== 观测 / 统计 ==================== */

@@ -2894,7 +2894,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。派发前状态镜像已刷新（`musicxx.state.app.foreground` 为 false），处理器里同步读到的就是新状态；同一状态重复上报不会重复派发。观察型、异步：不等待处理器，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值用变量 `musicxx.app.lifecycle`（可订阅）或状态镜像。"
+      "doc": "载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。派发前快照频道已刷新（`musicxx.state.app.foreground` 为 false），处理器里同步读到的就是新状态；同一状态重复上报不会重复派发。观察型、异步：不等待处理器，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值用变量 `musicxx.app.lifecycle`（可订阅）或快照频道。"
     },
     {
       "id": "musicxx.app.foreground",
@@ -2946,7 +2946,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读状态镜像 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个频道）。"
+      "doc": "载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读快照频道 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个频道）。"
     },
     {
       "id": "musicxx.player.position",
@@ -2959,7 +2959,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读状态镜像 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播频道 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。"
+      "doc": "载荷 `{sid, positionMs, durationMs}`：播放进度，**按 1 秒节流**推送（应用本来就有 1 Hz 的进度节流，直接复用它；暂停与缓冲时不推进）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。观察型、异步：不等待处理器，不影响播放。它只报进度、不报状态：要判断“是否在播放”读快照频道 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播频道 `musicxx.player.state`；要读当前值用变量 `musicxx.player.position`（镜像 `musicxx.state.player.position` 仍只在启动、切歌与播放状态变化时刷新）。"
     },
     {
       "id": "musicxx.player.completed",
@@ -2991,14 +2991,14 @@
       "id": "musicxx.song.changed",
       "dart": "songChanged",
       "title": "切歌",
-      "depict": "切歌时派发（派发前调用方已刷新状态镜像与封面）",
+      "depict": "切歌时派发（派发前调用方已刷新快照频道与封面）",
       "cache": "none",
       "writable": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前插件框架会先刷新状态镜像，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。"
+      "doc": "载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前插件框架会先刷新快照频道，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。"
     },
     {
       "id": "musicxx.song.meta.writeback",
@@ -3147,7 +3147,7 @@
       "id": "musicxx.state.app",
       "dart": "stateApp",
       "title": "应用状态",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3160,7 +3160,7 @@
       "id": "musicxx.state.player",
       "dart": "statePlayer",
       "title": "播放器状态",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3173,7 +3173,7 @@
       "id": "musicxx.state.song",
       "dart": "stateSong",
       "title": "当前歌曲",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3186,7 +3186,7 @@
       "id": "musicxx.state.playlist",
       "dart": "statePlaylist",
       "title": "当前播放列表",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3199,7 +3199,7 @@
       "id": "musicxx.state.lyric",
       "dart": "stateLyric",
       "title": "当前歌词",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3212,7 +3212,7 @@
       "id": "musicxx.state.playlists",
       "dart": "statePlaylists",
       "title": "歌单列表快照",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3225,7 +3225,7 @@
       "id": "musicxx.state.env",
       "dart": "stateEnv",
       "title": "运行环境",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3238,7 +3238,7 @@
       "id": "musicxx.state.renderSlots",
       "dart": "stateRenderSlots",
       "title": "渲染槽位状态",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3251,7 +3251,7 @@
       "id": "musicxx.state.spectrum",
       "dart": "stateSpectrum",
       "title": "当前频谱",
-      "depict": "状态镜像：属主推送，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
       "cache": "latest",
       "writable": "owner",
       "pushOnSubscribe": true,
@@ -3260,19 +3260,7 @@
       "implemented": true,
       "doc": ""
     },
-    {
-      "id": "musicxx.state.changed",
-      "dart": "stateChanged",
-      "title": "状态镜像变化通知",
-      "depict": "任意状态键变化时推一次，载荷 `{key}`；要用当前值请直接读那个键",
-      "cache": "none",
-      "writable": "owner",
-      "pushOnSubscribe": false,
-      "coalesce": true,
-      "scope": "system",
-      "implemented": true,
-      "doc": "过渡期仍在的总线话题：订阅具体状态键（`musicxx.state.*`）比订阅它更准。"
-    },
+
     {
       "id": "musicxx.event.published",
       "dart": "eventPublished",

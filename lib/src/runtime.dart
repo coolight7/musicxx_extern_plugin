@@ -12,7 +12,6 @@ import 'capabilities.dart';
 import 'manager.dart';
 import 'native_library.dart';
 import 'native_strings.dart';
-import 'state_mirror.dart';
 import 'vars.dart';
 
 /// 插件框架配置（对应 C ABI `MusicxxExternPluginHostConfig`）
@@ -157,10 +156,9 @@ class MusicxxPluginRuntime {
   /// 能力派发（Dart 侧实现链 + 原生/JS 实现链）
   late final MusicxxPluginCapabilities capabilities =
       MusicxxPluginCapabilities.internal(this);
-  late final MusicxxPluginState state = MusicxxPluginState.internal(this);
   late final MusicxxPluginActions actions = MusicxxPluginActions.internal(this);
 
-  /// 广播频道发布（事件类频道，例如 `musicxx.song.changed`）
+  /// 广播输入（快照 / 事件 / 值频道都走它；声明里 `cache: latest` 的就是快照频道）
   late final MusicxxPluginBroadcasts broadcasts =
       MusicxxPluginBroadcasts.internal(this);
 

@@ -238,7 +238,6 @@
 #define MUSICXX_BROADCAST_STATE_ENV "musicxx.state.env"
 #define MUSICXX_BROADCAST_STATE_RENDER_SLOTS "musicxx.state.renderSlots"
 #define MUSICXX_BROADCAST_STATE_SPECTRUM "musicxx.state.spectrum"
-#define MUSICXX_BROADCAST_STATE_CHANGED "musicxx.state.changed"
 #define MUSICXX_BROADCAST_EVENT_PUBLISHED "musicxx.event.published"
 
 /* ==================== 已知声明表 ==================== */
@@ -426,7 +425,6 @@ static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
     {"musicxx.state.env", 1, 0, 1, 1, 0, 1},
     {"musicxx.state.renderSlots", 1, 0, 1, 1, 0, 1},
     {"musicxx.state.spectrum", 1, 0, 1, 1, 0, 1},
-    {"musicxx.state.changed", 0, 0, 0, 1, 1, 1},
     {"musicxx.event.published", 0, 0, 0, 1, 1, 1},
 };
 

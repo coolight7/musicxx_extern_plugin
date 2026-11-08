@@ -52,7 +52,7 @@ class PluginNetHub {
 public:
   /// 发一条插件网络事件 (实现里已带 `kind` 字段)
   ///
-  /// 调用方必须把它投递到插件框架线程再广播 (`MusicxxHostManager::publishPluginEventFrom`
+  /// 调用方必须把它投递到插件框架线程再广播 (`MusicxxHostManager::broadcastPublishFrom`
   /// 就是这个语义), 不要在网络线程上直接调插件代码。
   using PublishFn = std::function<void(const std::string &pluginId,
                                        const std::string &payloadJson)>;

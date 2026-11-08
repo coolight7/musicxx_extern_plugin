@@ -308,7 +308,7 @@ void main() {
       int width = 0,
       int height = 0,
     }) {
-      runtime.state.update('musicxx.state.renderSlots', <String, Object?>{
+      runtime.broadcasts.publish('musicxx.state.renderSlots', <String, Object?>{
         'player.background': <String, Object?>{
           'itemId': itemId,
           'plugin': itemId.isEmpty ? '' : pluginId,
@@ -472,7 +472,7 @@ void main() {
     expect(_rowOf(view, '状态镜像')?['right'], '无状态');
 
     // 推一条"有数据"的镜像：镜像那一行按镜像说真话（同步、实时）
-    runtime.state.update('musicxx.state.spectrum', <String, Object?>{
+    runtime.broadcasts.publish('musicxx.state.spectrum', <String, Object?>{
       'status': 'ready',
       'available': true,
       'loading': false,

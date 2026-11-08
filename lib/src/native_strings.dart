@@ -19,7 +19,7 @@ import 'bindings_generated.dart';
 /// ```dart
 /// final arena = MusicxxPluginArena();
 /// try {
-///   bindings.musicxx_extern_plugin_state_update(host, arena.view(key), arena.view(json), log);
+///   bindings.musicxx_extern_plugin_broadcast_publish(host, arena.view(id), arena.view(json), log);
 /// } finally {
 ///   arena.dispose();
 /// }

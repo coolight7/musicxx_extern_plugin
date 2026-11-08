@@ -69,7 +69,7 @@ void main() {
     final MusicxxPluginEvent ready = seen.firstWhere(
       (MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hostReady,
     );
-    expect(ready.payload['apiVersion'], 3);
+    expect(ready.payload['apiVersion'], 4);
     expect(ready.payload['platform'], MusicxxPluginRuntime.currentPlatform);
 
     _step('2 host.ready 已收到');
@@ -209,8 +209,8 @@ void main() {
     );
 
     _step('5 hook_count 完成');
-    // 状态镜像：Dart 推送 → 插件同步可读（探针里回报 stateLen）
-    runtime.state.update(MusicxxPluginState.keySong, <String, Object?>{
+    // 快照频道：Dart 发布 → 插件同步可读（探针里回报 stateLen）
+    runtime.broadcasts.publish(MusicxxBroadcastId.stateSong, <String, Object?>{
       'sid': 's-dart',
       'name': 'Dart 推送的歌曲',
     });

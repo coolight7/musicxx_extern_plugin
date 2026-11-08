@@ -102,7 +102,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
 
   /// 事件订阅自检
   int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (插件框架拒绝)
-  int32_t stateEvents = 0;         ///< musicxx.state.changed 收到次数
+  int32_t stateEvents = 0;         ///< musicxx.state.song 快照频道收到次数
   int32_t pingEvents = 0;          ///< musicxx.test.ping 收到次数
   int32_t ownPublishRc = 0; ///< 发布本插件命名空间事件: 期望 0
   int32_t foreignPublishRc = 0; ///< 发布他人命名空间事件: 期望非 0 (插件框架拒绝)
@@ -191,11 +191,11 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           requestAction("plugin.other_plugin.x", "{}", &notify, 1000);
     }
 
-    // 5) 事件订阅 (插件框架事件总线): 状态镜像变化 + 插件框架发布的测试主题
+    // 5) 广播订阅: 快照频道 (musicxx.state.song) + 插件框架发布的测试主题
     badTopicSubscribeRc = subscribeTopic("foo.bar", [](std::string_view) {
       // 非法主题: 插件框架应在订阅时就拒绝 (返回 -1), 该处理器不会被调用
     });
-    subscribeTopic("musicxx.state.changed", [this](std::string_view data) {
+    subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [this](std::string_view data) {
       ++stateEvents;
       (void)data;
     });

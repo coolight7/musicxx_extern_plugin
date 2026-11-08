@@ -38,7 +38,7 @@
 
 | 要做的事 | MCP | 命令行 | 插件动作 | 链接（applink） | 启动参数 |
 |---|---|---|---|---|---|
-| 读当前媒体信息 | `GetMediaInfo` | `musicxx-cli status`（命令 `status`） | —（读状态镜像 `musicxx.state.player`） | `musicxx://call/?cmd=status` | `--cmd status` |
+| 读当前媒体信息 | `GetMediaInfo` | `musicxx-cli status`（命令 `status`） | —（读快照频道 `musicxx.state.player`） | `musicxx://call/?cmd=status` | `--cmd status` |
 | 暂停 | `MediaPlayOrPause`（`operator:"pause"`） | `musicxx-cli pause`（命令 `musicxx.player.pause`） | `musicxx.player.pause` | `musicxx://musicxx.player.pause` | `--cmd musicxx.player.pause` |
 | 播放一个文件 / 链接 | `PlayMedia`（命令 `musicxx.player.playSrc`） | `musicxx-cli call musicxx.player.playSrc --args '{"src":"…"}'` | `musicxx.player.playSrc` | `musicxx://play/?url=…` | 直接给文件路径，或 `--uri …` |
 | 跳搜索页 | `OpenSearch`（命令 `musicxx.ui.openSearch`） | `musicxx-cli call musicxx.ui.openSearch --args '{"keyword":"…"}'` | —（插件用 `musicxx.ui.openRoute`） | `musicxx://search/?keyword=…` | `--cmd musicxx.ui.openSearch --args '{"keyword":"…"}'` |

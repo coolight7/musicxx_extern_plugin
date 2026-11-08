@@ -85,7 +85,7 @@ public:
 
   /* ---------- JS 桥接 (primitive 用; 线程安全) ---------- */
 
-  int32_t bridgeStateGet(const std::string &key, std::string &out) const;
+  int32_t bridgeBroadcastPeek(const std::string &key, std::string &out) const;
   std::string bridgeHostInfo() const;
   void bridgeLog(const std::string &pluginId, int32_t level,
                  const std::string &message);

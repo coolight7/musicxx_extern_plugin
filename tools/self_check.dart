@@ -66,12 +66,12 @@ Future<void> main(List<String> args) async {
   );
   step('5 hook_count 完成: $count');
 
-  step('6 state.update…');
-  runtime.state.update(MusicxxPluginState.keySong, <String, Object?>{
+  step('6 snapshot publish…');
+  runtime.broadcasts.publish(MusicxxBroadcastId.stateSong, <String, Object?>{
     'sid': 's-selfcheck',
     'name': '自检歌曲',
   });
-  step('6 state.update 完成');
+  step('6 snapshot publish 完成');
 
   step('7 plugin_call…');
   final Object? probe = await runtime.plugins.call(

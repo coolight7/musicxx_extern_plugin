@@ -44,7 +44,7 @@
 #define MUSICXX_EXTERN_PLUGIN_CALL
 #endif
 
-#define MUSICXX_EXTERN_PLUGIN_API_VERSION 3
+#define MUSICXX_EXTERN_PLUGIN_API_VERSION 4
 
 /// 插件框架版本号：`<年>.<月日>.<小版本号>`（例 `2026.1011.1` = 2026 年 10 月 11 日的第 1 版）
 ///
@@ -228,9 +228,14 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString* log
     );
 
-/// 插件框架 → 插件事件总线发布 (topic 必须 musicxx.* 或 plugin.<id>.*)
+/// 发布一条广播 (Dart → 原生; 任何频道都用它)
+///
+/// - `topic` 必须是 `musicxx.*` 或 `plugin.<id>.*`;
+/// - 频道未声明时按 id 前缀补一份默认声明 (应用自己的 `musicxx.state.*` 快照频道带
+///   `cache: latest` + 订阅即推, 其它频道按事件处理);
+/// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做, 见 `MusicxxPluginBroadcasts.publish`)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_event_publish(
+    musicxx_extern_plugin_broadcast_publish(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* topic,
         const MusicxxExternPluginStringView* payload_json,
@@ -483,7 +488,6 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     );
 
 /* ==================== 动作请求 (插件 → Dart) ==================== */
-
 /// 回复插件发起的动作请求 (status 见错误码; result_json 可为空)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_action_respond(
@@ -491,25 +495,6 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         int64_t                               request_id,
         int32_t                               status,
         const MusicxxExternPluginStringView* result_json,
-        MusicxxExternPluginString*           log
-    );
-
-/* ==================== 状态镜像 (Dart → 原生) ==================== */
-
-/// 推送单个状态键 (值必须为合法 JSON; 大小不限制)
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_state_update(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* key,
-        const MusicxxExternPluginStringView* value_json,
-        MusicxxExternPluginString*           log
-    );
-
-/// 批量推送状态键: [{"key":"...","value":{...}}, ...]
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_state_update_batch(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* items_json,
         MusicxxExternPluginString*           log
     );
 
@@ -532,8 +517,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// 缺位时**不要**继续调用对应的一批 API: 老库上没有这些符号, 报错会是一句难懂的
 /// `undefined symbol`。包层在 init 时读一次并给出"请重新构建插件框架库"的说明。
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITIES  0x1
-#define MUSICXX_EXTERN_PLUGIN_FEATURE_STATE  0x2
-#define MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS 0x4
+/// 广播 (频道声明 / 发布 / 订阅 / 读当前值)；快照频道与事件频道同一套入口
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS 0x6
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_UI     0x8
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_VARS   0x10
 /// 分阶段派发（`_capability_dispatch_phase` / `_capability_handler_count_phase` /

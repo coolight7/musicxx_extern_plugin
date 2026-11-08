@@ -1410,7 +1410,7 @@ void MusicxxHostManager::cancelAction(int64_t requestId) {
 
 /* ==================== 状态镜像读取 ==================== */
 
-int32_t MusicxxHostManager::getState(std::string_view key,
+int32_t MusicxxHostManager::readChannel(std::string_view key,
                                      std::string &outJson) {
   /// 状态镜像只有一份存储: 广播注册表的当前值 (与 subscribe_broadcast 读到的是同一个)
   PluginxxString out{nullptr, 0};

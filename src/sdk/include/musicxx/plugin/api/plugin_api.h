@@ -456,19 +456,11 @@ typedef struct MusicxxPluginKindIface {
 #define MUSICXX_PLUGIN_IFACE_STATS     "musicxx.stats"
 #define MUSICXX_PLUGIN_IFACE_AGENT     "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
 
-/* ==================== 状态镜像键 (官方) ==================== */
+/* ==================== 快照频道的键 ==================== */
 
-#define MUSICXX_STATE_APP       "musicxx.state.app"
-#define MUSICXX_STATE_PLAYER    "musicxx.state.player"
-#define MUSICXX_STATE_SONG      "musicxx.state.song"
-#define MUSICXX_STATE_PLAYLIST  "musicxx.state.playlist" ///< 播放列表（当前队列）
-#define MUSICXX_STATE_LYRIC     "musicxx.state.lyric"
-#define MUSICXX_STATE_PLAYLISTS "musicxx.state.playlists" ///< 歌单列表（预留，当前没有推送）
-#define MUSICXX_STATE_ENV      "musicxx.state.env"
-
-/// 渲染槽位的运行状态 (谁在画 / 是否可见 / 尺寸 / 昼夜)
-/// 不随启动全量推送: 生效、可见性、昼夜或尺寸变化时按需推送
-#define MUSICXX_STATE_RENDER_SLOTS "musicxx.state.renderSlots"
+/// 官方的 `musicxx.state.*` 快照频道键由生成头给出:
+/// `MUSICXX_BROADCAST_STATE_*`（`capability_ids.g.h`，声明源是 `tools/capabilities.def.json`）。
+/// 读当前值用广播频道（`musicxx.broadcast.read` / SDK 的 `broadcastJson`）。
 
 #pragma pack(pop)
 

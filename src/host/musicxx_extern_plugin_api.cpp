@@ -315,7 +315,7 @@ musicxx_extern_plugin_poll_events(MusicxxExternPluginHost *h, int32_t max_count,
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_event_publish(
+musicxx_extern_plugin_broadcast_publish(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *topic,
     const MusicxxExternPluginStringView *payload_json,
     MusicxxExternPluginString *log) {
@@ -325,13 +325,13 @@ musicxx_extern_plugin_event_publish(
   }
   const std::string topicText = viewToStd(topic);
   const std::string payload = viewToStd(payload_json);
-  // 发布到**插件事件总线** (插件订阅者); 主题命名空间校验在框架内完成。
+  // 发布到**广播注册表** (插件订阅者); 主题命名空间校验在框架内完成。
   // 注意与 musicxx.host.* / musicxx.plugin.* 事件区分: 那些是插件框架 → Dart
   // 的事件队列。
-  const auto rc = handle->manager->publishPluginEvent(
+  const auto rc = handle->manager->broadcastPublish(
       topicText, payload.empty() ? "{}" : payload);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, "event_publish: 主题必须是 musicxx.* 或 plugin.<pluginId>.*");
+    setErr(log, "broadcast_publish: 主题必须是 musicxx.* 或 plugin.<pluginId>.*");
   }
   return rc;
 }
@@ -792,48 +792,11 @@ musicxx_extern_plugin_action_respond(
   return rc;
 }
 
-/* ==================== 状态镜像 ==================== */
-
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_state_update(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *key,
-    const MusicxxExternPluginStringView *value_json,
-    MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
-  std::string err;
-  const auto rc =
-      handle->manager->stateUpdate(viewToStd(key), viewToStd(value_json), err);
-  if (!err.empty()) {
-    setErr(log, err);
-  }
-  return rc;
-}
-
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_state_update_batch(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *items_json,
-    MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
-  std::string err;
-  const auto rc = handle->manager->stateUpdateBatch(viewToStd(items_json), err);
-  if (!err.empty()) {
-    setErr(log, err);
-  }
-  return rc;
-}
-
 /* ==================== 变量表 (第五条通道) ==================== */
 
 int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_feature_bits(void) {
   return MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITIES |
-         MUSICXX_EXTERN_PLUGIN_FEATURE_STATE |
-         MUSICXX_EXTERN_PLUGIN_FEATURE_EVENTS |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS |
          MUSICXX_EXTERN_PLUGIN_FEATURE_UI |
          MUSICXX_EXTERN_PLUGIN_FEATURE_VARS |
          MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITY_PHASES |

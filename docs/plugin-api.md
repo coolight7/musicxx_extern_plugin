@@ -58,7 +58,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 实现一条决策型能力（应用来问你） | `musicxx.capability.implement(id, {phase, priority, ownerTag}, fn)` | `implement(id, priority, fn)`（`fn` 里填 `out`） | §8 |
 | 订阅一个广播频道 | `musicxx.broadcast.subscribe(id, fn)` | `subscribeTopic(id, fn)` | §2 / §4 |
 | 注销 / 退订 | `musicxx.capability.unregister(id)` / `musicxx.broadcast.unsubscribe(id)` | `unimplement(id)` / `iface.broadcasts->unsubscribe(...)` | §8 |
-| 读状态镜像 | `musicxx.broadcast.read("musicxx.state.song")` | `stateJson(MUSICXX_STATE_SONG)` | §2 |
+| 读快照频道 | `musicxx.broadcast.read("musicxx.state.song")` | `stateJson(MUSICXX_STATE_SONG)` | §2 |
 | 让应用做一件事 | `await musicxx.call("musicxx.player.toggle")` | `requestAction("musicxx.player.toggle", "{}", &notify)` | §3 |
 | 读 / 写变量 | `await musicxx.broadcast.get(key)` / `musicxx.broadcast.write(key, v)` | 原生没有变量表（读用 `stateJson`，写用动作） | §5 |
 | 订阅事件 | `musicxx.broadcast.subscribe(topic, fn)` | `subscribeTopic(topic, fn)` | §4 |
@@ -91,7 +91,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 |---|---|---|
 | 跟着应用的通知做事（切歌了、播放状态变了、封面变了） | **广播 · 订阅频道** §2 / §4 | 单向通知，最轻；`cache: latest` 的频道还能同步读当前值 |
 | 想拦一下 / 参与一次调用（跳过本曲、换源、停止播放、改歌词加载、改频谱数据） | **能力 · 应用来问插件** §8 | 唯一能"被应用调用"的通道；能拿到载荷、能回答 |
-| 高频读实时数据（播放状态、当前歌曲、频谱槽位状态） | **广播 · 状态镜像** §2 | 框架同步读，不用往返 |
+| 高频读实时数据（播放状态、当前歌曲、频谱槽位状态） | **广播 · 快照频道** §2 | 框架同步读，不用往返 |
 | 一次性命令（播放控制 / 列歌单 / 发通知 / 开页面 / 写插件自己的数据） | **能力 · 动作** §3 | 有返回值、有错误码，由主程序执行 |
 | 一件"已经发生了"的事（没有当前值） | **广播 · 事件** §4 | 单向广播，最轻 |
 | 一份有当前值、要能改、改了要让别人知道的小状态 | **广播 · 值频道（变量）** §5 | 有属主、可读可写可订阅；框架帮你去重与合并 |
@@ -99,21 +99,20 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 让"这个功能谁都能实现"（应用或第三方按 id 来调） | **能力 · 功能点** §7 | 可以有多个实现，按优先级问 |
 
 > 记法：**能力 = 问一件事、等一个结果**（动作是让应用做，插件服务是给别的插件用，
-> 功能点是按 id 问，§8 是应用来问你）；**广播 = 告诉一声**（状态镜像是当前值，
+> 功能点是按 id 问，§8 是应用来问你）；**广播 = 告诉一声**（快照频道是当前值，
 > 事件是刚发生，值频道是能改的小值）。
 >
 > **JS 侧的入口就两个**：**能力** 全部走 `musicxx.capability`（实现 / 注册 / 调用 / 自省），
 > **广播** 全部走 `musicxx.broadcast`（读当前值 / 订阅 / 发布 / 声明自己的值频道）。
-> 下文的“状态镜像”“变量”“事件”都是广播的一类频道，具体行为由声明决定
+> 下文的“快照频道”“变量”“事件”都是广播的一类频道，具体行为由声明决定
 > （`cache: latest` 的能同步读，`cache: none` 的只有事件）。
 
 ---
 
-## 2. 状态镜像（广播：同步读应用现状）
+## 2. 快照频道（广播：同步读应用现状）
 
-> **迁移中**：这一节讲的“状态镜像”就是 `cache: latest` 的广播频道（应用发布、插件订阅即拿到当前值）。
-> 它的专用入口正在并入广播（C 的 `state_update` 系列、C++ 的 `stateJson` / `MUSICXX_STATE_*`
-> 由广播的发布与生成常量取代），**频道 id 与载荷都不变**。
+应用向 `musicxx.state.*` 这些 `cache: latest` 的广播频道发布快照：插件订阅即拿到当前值，
+也能同步读缓存；**频道 id 与载荷稳定**（声明源是 `tools/capabilities.def.json`）。
 
 插件框架把应用的关键状态做成 JSON 快照，插件**同步**读：不用往返、不占线程、不怕应用忙。
 
@@ -179,17 +178,17 @@ const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_E
 
 ### 2.3 订阅状态变化
 
-每个键更新都会推事件 `musicxx.state.changed`（载荷 `{key, value}`），两边订阅方式一样（见 §4）：
+每个快照频道各自带当前值：订阅哪个频道就收到哪个频道的更新（`cache: latest` 的频道订阅时还会先推一次当前值）。两边订阅方式一样（见 §4）：
 
 ```js
-musicxx.broadcast.subscribe("musicxx.state.changed", (payload) => {
-    if (payload.key === "musicxx.state.song") { refreshMyPanel(payload.value); }
+musicxx.broadcast.subscribe("musicxx.state.song", (song) => {
+    refreshMyPanel(song);
 });
 ```
 
 ```cpp
-subscribeTopic("musicxx.state.changed", [](std::string_view json) {
-    // json = {"key":"musicxx.state.song","value":{...}}
+subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
+    // json = 当前歌曲快照
 });
 ```
 
@@ -331,7 +330,7 @@ requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 |---|---|---|
 | `playlist` | **单张歌单**（`pid` / `name` / `songs` / `songNum`），保存下来的列表 | `musicxx.playlist.*` |
 | `playlists` | **多张歌单的集合**（我的 / 我喜欢 / 本地） | `musicxx.playlist.queryLists` 的 `mine` / `local` / `favorite` |
-| `songlist` | **播放列表**（当前正在播的那一串歌，不单独保存） | `musicxx.songlist.*`、状态镜像 `musicxx.state.playlist` |
+| `songlist` | **播放列表**（当前正在播的那一串歌，不单独保存） | `musicxx.songlist.*`、快照频道 `musicxx.state.playlist` |
 
 **`musicxx.playlist.queryLists`** —— 列出歌单
 
@@ -380,7 +379,7 @@ const queue = await musicxx.songlist.querySongs();     // 当前播放列表
 requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
 ```
 
-**这首歌的完整音源列表在状态镜像 / 能力载荷里**（`musicxx.state.song.audio[]`），
+**这首歌的完整音源列表在快照频道 / 能力载荷里**（`musicxx.state.song.audio[]`），
 `querySongs` 只给列表用的简报字段（省流量）。
 
 > **过时的分类 `musicxx.library.*`**（旧文档与老插件还在用）：名字保留可用，主程序把它们注册成同一份实现，
@@ -1213,7 +1212,7 @@ await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插�
 await musicxx.render.select("builtin:Auto", { slot: "player.background" });  // 切回内置
 ```
 
-**"现在是不是本插件在画"**用状态镜像同步判断（渲染线程里每帧都会读，不要用动作）：
+**"现在是不是本插件在画"**用快照频道同步判断（渲染线程里每帧都会读，不要用动作）：
 
 ```js
 const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
@@ -1300,7 +1299,7 @@ if (cover.ok) { const bytes = cover.data; /* base64 */ }
 const spec = await musicxx.media.spectrum({ bandCount: 16, includeBins: true });
 if (spec.available) { drawBars(spec.bands); }
 
-// 想要"每帧都新鲜"的频谱（着色器、自绘动效）读状态镜像，约 10 Hz：
+// 想要"每帧都新鲜"的频谱（着色器、自绘动效）读快照频道，约 10 Hz：
 const live = musicxx.broadcast.read("musicxx.state.spectrum");
 if (live && live.available) { drawBars(live.bands); }
 ```
@@ -1517,9 +1516,9 @@ const off = musicxx.broadcast.subscribe("musicxx.app.lifecycle", (v) => musicxx.
 ```
 
 - 切完**不要**假定状态已经变了：真正的状态由应用的生命周期事件决定，变了之后会发布广播并刷新
-  状态镜像 `musicxx.state.app`（`foreground` / `lifecycleState`），处理器里读到的才是新值。
+  快照频道 `musicxx.state.app`（`foreground` / `lifecycleState`），处理器里读到的才是新值。
 - 要"进后台 / 回前台"做事，用广播频道（§2 / §4）而不是在这里轮询动作；要当前值用变量
-  `musicxx.app.lifecycle`（可订阅）或状态镜像。
+  `musicxx.app.lifecycle`（可订阅）或快照频道。
 - 用户可能正在看着窗口：隐藏前先想清楚（这类动作是"替用户按一下按钮"，不是给插件自己让路的）。
 
 ### 3.3 插件网盘：让应用提供目录列表与挑歌界面
@@ -1752,13 +1751,13 @@ musicxx.ui.registerEntry({
 > 按频道声明区分投递方式）。以下是两边的写法：
 
 ```js
-musicxx.broadcast.subscribe("musicxx.state.changed", (payload, topic) => { /* ... */ });
+musicxx.broadcast.subscribe("musicxx.state.song", (song, topic) => { /* ... */ });
 musicxx.broadcast.publish("plugin.my_plugin.hello", { at: Date.now() });   // 只能发自己命名空间
-musicxx.broadcast.unsubscribe("musicxx.state.changed");
+musicxx.broadcast.unsubscribe("musicxx.state.song");
 ```
 
 ```cpp
-subscribeTopic("musicxx.state.changed", [](std::string_view json) { /* 载荷 JSON */ });
+subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) { /* 载荷 JSON */ });
 // 发布：主题归属由插件框架校验
 PluginxxStringView topic = pluginxxView("plugin.my_plugin.hello");
 PluginxxStringView data  = pluginxxView(R"({"at":1})");
@@ -1781,7 +1780,6 @@ iface.events->publish(host, &topic, &data);
 
 | 主题 | 什么时候来 | 载荷 |
 |---|---|---|
-| `musicxx.state.changed` | 状态镜像某个键变化 | `{key, value}` |
 | `musicxx.var.changed` | 变量变化 | `{key, value, prev, by, revision, ts, removed?, coalesced?}`（`by` 空串 = 应用改的） |
 | `musicxx.var.writeResult` | 自己发起的变量写入最终结果 | `{requestId, key, accepted, value, error?}` |
 | `plugin.<其它插件 id>.*` | 对方插件发布 | 由对方定义 |
@@ -1793,10 +1791,10 @@ iface.events->publish(host, &topic, &data);
 > `musicxx.ui.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
 > `await dispatchAsync` 的返回值（`musicxx.capability.decision.result` 只是同一份结果的调试镜像）。
 
-> 应用事件（`musicxx.state.changed` 之类）是**广播**上的频道；**能力**是另一条通道
+> 应用事件（`musicxx.song.changed` 之类）是**广播**上的频道；**能力**是另一条通道
 > （有阶段、有合并策略、可能等裁决）。别把两者混起来：想在切歌时做事，订阅广播频道
 > `musicxx.song.changed`；想拦一次切歌，实现能力 `musicxx.player.beforePlaySong`；
-> 想在状态变了刷新自己的显示，订阅 `musicxx.state.changed`。
+> 想在状态变了刷新自己的显示，订阅对应的快照频道（例如 `musicxx.state.song`）。
 
 ---
 
@@ -1819,7 +1817,7 @@ iface.events->publish(host, &topic, &data);
 
 | 需要 | 用哪条 |
 |---|---|
-| 每秒多次读的实时数据（播放进度、频谱） | 状态镜像（§2） |
+| 每秒多次读的实时数据（播放进度、频谱） | 快照频道（§2） |
 | 一次性命令（播放、发通知、开页面） | 动作（§3） |
 | 广播"发生了某事"（没有当前值） | 事件（§4） |
 | **有当前值、要能改、改了要让别人知道** | **变量（本节）** |
@@ -2003,7 +2001,7 @@ pluginxx::Task<void> probeOther() {
 - 超时缺省 3 秒（调用方自己给）；**传 `0` / 负数 = 不设超时（一直等）**，不是“仍按 3 秒”。
 - 失败原因：`plugin_capability_not_found: <名字>` / `capability_call_failed` / `跨插件调用超时: ...`。
 - **处理器里不要等主程序动作**：打开插件页面 / 点按钮时主程序在等能力结果，而主程序动作要由主程序线程执行，
-  两边互等会让**整个应用卡住几秒**。要"现在这一帧"的数据读状态镜像；要动作结果就异步读回来、
+  两边互等会让**整个应用卡住几秒**。要"现在这一帧"的数据读快照频道；要动作结果就异步读回来、
   记进自己的状态，由页面下一次调用时回读。
 - 插件页面就是能力：主程序打开 `ext://<插件id>/<视图id>` 时调用**同名能力**（见 §9.1）。
 
@@ -2480,7 +2478,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 ### 11.1 命名空间
 
-- 官方标识一律 `musicxx.*`（能力 / 广播频道 / 动作 / UI 类型 / 权限 / 状态镜像键 / 变量键）；
+- 官方标识一律 `musicxx.*`（能力 / 广播频道 / 动作 / UI 类型 / 权限 / 快照频道键 / 变量键）；
 - 插件自定义一律 `plugin.<自己的插件 id>.*`（事件主题、能力名、UI 项 id、变量键、功能点 id）；
 - 冒充他人命名空间会被拒绝（返回 `-6`）。**动作名与能力 id 不受此限**：
   动作任意名字都受理（由主程序决定理不理），能力必须是声明表里已有的。
@@ -2489,7 +2487,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 | 项目 | 限制 |
 |---|---|
-| 状态镜像单键大小 | 不限制（必须是合法 JSON。镜像由应用按需推送、插件只读；高频数据用变量并声明 `throttleMs`） |
+| 快照频道单键大小 | 不限制（必须是合法 JSON。镜像由应用按需推送、插件只读；高频数据用变量并声明 `throttleMs`） |
 | 插件私有 KV / `config.json` | 不设配额（每次写入整文件重写，别当数据库） |
 | `musicxx.storage.list` | 每次最多 500 个键 |
 | 变量数量 / 键长 / 值大小 / 订阅数 | 不限制 |

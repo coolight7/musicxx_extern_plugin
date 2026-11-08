@@ -390,12 +390,6 @@ public:
   /// 取消未完成动作 (插件卸载/插件框架关闭时统一取消)
   void cancelAction(int64_t requestId);
 
-  /* ---------- 状态镜像 (Dart → 原生) ---------- */
-
-  int32_t stateUpdate(const std::string &key, const std::string &valueJson,
-                      std::string &err);
-  int32_t stateUpdateBatch(const std::string &itemsJson, std::string &err);
-
   /* ---------- 观测与配置 ---------- */
 
   int32_t debugInfo(std::string &outJson);
@@ -406,13 +400,13 @@ public:
   void applyLanguage(const std::string &lang);
   void logMessage(int32_t level, const std::string &message);
 
-  /// 插件框架 → 插件事件总线发布 (主题按命名空间校验; 投递到框架线程执行)
+  /// 插件框架 → 广播发布 (主题按命名空间校验; 投递到框架线程执行)
   ///
   /// Dart 侧 (C ABI) 入口: 插件框架自身只能发布官方 `musicxx.*` 主题。
-  int32_t publishPluginEvent(const std::string &topic,
-                             const std::string &payloadJson);
+  int32_t broadcastPublish(const std::string &topic,
+                           const std::string &payloadJson);
 
-  /// 在框架线程上发布事件 (插件 events 表入口调用; 调用方保证已在框架线程)
+  /// 在框架线程上发布广播 (插件频道的发布路径调用; 调用方保证已在框架线程)
   int32_t publishOnHostThread(const std::string &topic,
                               const std::string &payloadJson);
 
@@ -457,7 +451,7 @@ public:
   /// 在 `start()` 里跑一次（已绑定 IO 线程）：声明之后插件的 `invoke_capability`
   /// 才认识官方 id；应用实现（动作）由 [onAppCapabilityStart] 转给 Dart。
   void declareAppCapabilities();
-  int32_t getState(std::string_view key, std::string &outJson);
+  int32_t readChannel(std::string_view key, std::string &outJson);
   int32_t subscribeState(MusicxxHostInstance *inst, const std::string &keysJson,
                          int32_t &outCount);
   int32_t pluginConfigPathFor(MusicxxHostInstance *inst, std::string &out);
@@ -637,10 +631,10 @@ public:
                                  uint32_t timeoutMs,
                                  int64_t *outEffectiveTimeoutMs);
 
-  /// 插件发布事件 (**任意线程**; 主题归属校验后再投递到框架线程)
-  int32_t publishPluginEventFrom(const std::string &pluginId,
-                                 const std::string &topic,
-                                 const std::string &payloadJson);
+  /// 插件发布广播 (**任意线程**; 主题归属校验后再投递到框架线程)
+  int32_t broadcastPublishFrom(const std::string &pluginId,
+                               const std::string &topic,
+                               const std::string &payloadJson);
 
   /// 取消某实例的全部未完成请求 (**任意线程**): 框架侧登记 + JS 引擎侧登记
   void cancelActionsOfInstance(const std::string &instanceName);

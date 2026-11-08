@@ -1420,13 +1420,13 @@ int main(int argc, char **argv) {
           "未知能力无处理器");
   }
 
-  // 状态镜像
+  // 快照频道
   {
     const std::string key = "musicxx.state.song";
     const std::string val = R"({"sid":"s1","name":"镜像歌曲"})";
-    check(musicxx_extern_plugin_state_update(host, viewP(key), viewP(val),
+    check(musicxx_extern_plugin_broadcast_publish(host, viewP(key), viewP(val),
                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
-          "state_update 成功");
+          "broadcast_publish 成功");
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
               MUSICXX_EXTERN_PLUGIN_OK,
@@ -1525,16 +1525,16 @@ int main(int argc, char **argv) {
     // 先让插件框架发布一个测试主题 (插件已订阅), 再读探针 —— 两者都投递到插件框架线程,
     // 因此顺序确定 (先进先出), 探针一定看到已处理的事件
     MusicxxExternPluginString pubLog{};
-    const auto pubRc = musicxx_extern_plugin_event_publish(
+    const auto pubRc = musicxx_extern_plugin_broadcast_publish(
         host, viewCP("musicxx.test.ping"), viewCP(R"({"n":1})"), &pubLog);
-    check(pubRc == MUSICXX_EXTERN_PLUGIN_OK, "event_publish 合法主题成功");
+    check(pubRc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_publish 合法主题成功");
     freeStr(pubLog);
 
     MusicxxExternPluginString badPubLog{};
-    const auto badPubRc = musicxx_extern_plugin_event_publish(
+    const auto badPubRc = musicxx_extern_plugin_broadcast_publish(
         host, viewCP("foo.bar"), viewCP("{}"), &badPubLog);
     check(badPubRc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION,
-          "event_publish 非法主题被拒绝");
+          "broadcast_publish 非法主题被拒绝");
     freeStr(badPubLog);
 
     const CapabilityCallOutcome probeCall =
@@ -1626,9 +1626,9 @@ int main(int argc, char **argv) {
           "他人命名空间事件发布被拒绝");
     check(jsonIntField(probe, "pingEvents") == "1", "插件收到插件框架发布的事件");
     check(jsonIntField(probe, "stateEvents") != "0",
-          "状态镜像变化通知到订阅插件");
-    // 状态镜像可被插件同步读到 (上一段推送过 musicxx.state.song)
-    check(jsonIntField(probe, "stateLen") != "0", "插件可同步读状态镜像");
+          "快照频道变化通知到订阅插件");
+    // 快照频道可被插件同步读到 (上一段推送过 musicxx.state.song)
+    check(jsonIntField(probe, "stateLen") != "0", "插件可同步读快照频道");
   }
 
   // 动作请求超时保护: 插件请求 → Dart 不回复 → 插件框架到点终结并推
@@ -1787,7 +1787,7 @@ int main(int argc, char **argv) {
   // ==================== JS 插件 (零编译) ====================
   //
   // 同一套用例在原生插件与 JS 插件上都跑: decision 裁决、observe
-  // 通知、能力探针、 状态镜像读取、事件订阅、定时器、禁用/卸载摘除。
+  // 通知、能力探针、 快照频道读取、事件订阅、定时器、禁用/卸载摘除。
   {
     MusicxxExternPluginString loadLog{};
     const auto jsLoadRc = musicxx_extern_plugin_plugin_load_sync(
@@ -1857,7 +1857,7 @@ int main(int argc, char **argv) {
     {
       const std::string payload =
           R"({"sid":"js4","song":{"name":"观察目标 JS"}})";
-      const auto rc = musicxx_extern_plugin_state_update(
+      const auto rc = musicxx_extern_plugin_broadcast_publish(
           host, viewCP("musicxx.song.changed"), viewP(payload), &log);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "切歌广播发布成功");
 
@@ -1870,7 +1870,7 @@ int main(int argc, char **argv) {
             "JS 广播订阅已执行 (切歌通知)");
     }
 
-    // 能力探针 (Dart → JS): 自检信息 + 状态镜像同步读
+    // 能力探针 (Dart → JS): 自检信息 + 快照频道同步读
     {
       const CapabilityCallOutcome probeCall =
           callCapability(host, "example_js", "probe", "{}", 8000);
@@ -1884,7 +1884,7 @@ int main(int argc, char **argv) {
       check(jsonIntField(probe, "songChangedCount") == "1",
             "JS 广播订阅计数为 1 (订阅真的收到了)");
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
-            "JS 同步读状态镜像 (musicxx.state.song)");
+            "JS 同步读快照频道 (musicxx.state.song)");
       check(jsonStringField(probe, "hostPlatform") == testPlatform(),
             "JS 读到插件框架信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 插件框架线程回放)

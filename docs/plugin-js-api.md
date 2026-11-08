@@ -5,7 +5,7 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 
 | 主题 | 文档 |
 |---|---|
-| **两种形态共用的接口**（能力与广播（状态镜像 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
+| **两种形态共用的接口**（能力与广播（快照频道 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
 | 能力 id / 能不能参与 / 载荷与回答 | [plugin-capabilities.md](plugin-capabilities.md) |
 | 广播频道 id / 有没有当前值 / 谁能写 / 载荷 | [plugin-broadcasts.md](plugin-broadcasts.md) |
@@ -76,7 +76,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 |---|---|
 | 加载（`kind: js`） | 插件框架为该插件登记一个合成实例 `js:<插件id>`，建立独立的 `JSRuntime`/`JSContext` |
 | 脚本顶层执行 | 顶层**必须同步完成注册**（能力实现 / 自己登记的能力 / 广播订阅）；顶层抛异常 = 加载失败并回滚 |
-| 启用中 | 能力处理器与定时器工作；同步读状态镜像、异步发动作请求 |
+| 启用中 | 能力处理器与定时器工作；同步读快照频道、异步发动作请求 |
 | 停用（disable） | 脚本的注册全部摘除、定时器清空、`JSRuntime` 释放；**再次启用会重新执行一遍脚本** |
 | 卸载（unload） | 实例销毁；插件目录与私有数据保留（除非用户在管理页选择彻底卸载） |
 
@@ -268,7 +268,7 @@ JS 侧需要记住的几条：
 
 ---
 
-## 5. 状态镜像（同步读应用现状）
+## 5. 快照频道（同步读应用现状）
 
 > 键清单、每个键的字段、刷新时机、常见坑，都在 [plugin-api.md](plugin-api.md) §2。
 > 这里只说 JS 侧的用法。
@@ -292,11 +292,11 @@ const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying ==
   `musicxx.spectrum.*` 来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
   识别格式：`status` = `ready` / `loading` / `none` / `off` / `unavailable`，
   `available` 为假时 `level` 与 `bands` 都是 0（原因读 `reason`）；
-- 变化通知：订阅 `musicxx.state.changed`（载荷 `{key, value}`）：
+- 变化通知：每个快照频道带当前值，订阅哪个就收哪个（`cache: latest` 的频道订阅时先推一次）：
 
   ```js
-  musicxx.broadcast.subscribe("musicxx.state.changed", (payload) => {
-      if (payload.key === "musicxx.state.song") { /* 刷新自己的界面数据 */ }
+  musicxx.broadcast.subscribe("musicxx.state.spectrum", (frame) => {
+      /* 用 frame 刷新自己的界面数据 */
   });
   ```
 
@@ -615,9 +615,9 @@ await musicxx.ui.overlayClose();                              // 自己收起当
 > 频道清单与字段见 [plugin-broadcasts.md](plugin-broadcasts.md)，变量键目录见 [plugin-vars.md](plugin-vars.md)。
 
 ```js
-musicxx.broadcast.subscribe("musicxx.state.changed", (payload, topic) => { /* ... */ });
+musicxx.broadcast.subscribe("musicxx.state.song", (song, topic) => { /* ... */ });
 musicxx.broadcast.publish("plugin.my_plugin.hello", { at: Date.now() });
-musicxx.broadcast.unsubscribe("musicxx.state.changed");
+musicxx.broadcast.unsubscribe("musicxx.state.song");
 ```
 
 - **订阅**：顶层声明或运行期订阅都可以；可订阅官方 `musicxx.*` 主题，以及其它插件的
@@ -629,7 +629,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.changed");
   事件是单向通知，能力调用有返回值。
 
 常用的可订阅主题（完整清单与载荷字段见 [plugin-api.md](plugin-api.md) §4）：
-`musicxx.state.changed`（状态镜像键变化）、`musicxx.var.changed` / `musicxx.var.writeResult`（变量通道）、
+`musicxx.state.*`（快照频道变化）、`musicxx.var.changed` / `musicxx.var.writeResult`（变量通道）、
 以及其它插件发布的 `plugin.<对方 id>.*`。
 
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
@@ -732,7 +732,7 @@ const info = await musicxx.capability.call("example_native", "probe", {});
   —— `plugins/example_override_media_source` 就是靠这一条把 BV 号换成播放地址。
   但仍然**只等主程序动作**：`musicxx.broadcast.*`、跨插件调用、`musicxx.capability.*` 这些要框架线程处理的
   接口在处理器里等会一直等到超时（框架线程正卡在等这个处理器返回）。异步能力实现里要这类数据请读
-  状态镜像，或者提前存在脚本里。
+  快照频道，或者提前存在脚本里。
 - `capability.call(插件id, 能力名, 参数?, 超时毫秒?)`：
 
   | 目标 | 行为 |
@@ -861,7 +861,7 @@ await musicxx.render.select("builtin:Auto", { slot: "player.background" });   //
 
 const cur = await musicxx.render.current();     // { ok, slot, id, title, source:"builtin"|"plugin", plugin, night }
 
-// 「现在是不是本插件在画」：同步读状态镜像
+// 「现在是不是本插件在画」：同步读快照频道
 const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
 if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 本插件在画 */ }
 ```
@@ -935,7 +935,7 @@ const spec = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" })
 //
 // 应用会等这次裁决（最多 30 s），数据量大（4 分钟歌曲约 600 KB 频点，base64 后约 800 KB），
 // 所以只在自己本来就要分析音频时才注册它。给了数据 → 应用直接用它（进度条波形、播放页动效、
-// 状态镜像、MCP 能力都用这一份）；返回 null → 应用接着用已登记的实现（装了『音乐动效』
+// 快照频道、MCP 能力都用这一份）；返回 null → 应用接着用已登记的实现（装了『音乐动效』
 // 就是它自己的提取）；都没有 → 这个功能整体不可用（用户会看到"没有插件提供频谱提取实现"）。
 musicxx.capability.implement("musicxx.media.spectrum.extract", function (payload) {
     // payload = { srcKey, name, artist, kind, path, durationMs,
@@ -1008,7 +1008,7 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
 - `musicxx.media.cover` 这条动作是**读数据**用的（自己分析像素：哈希、取色、外部识别…）：
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
-- 槽位状态镜像见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
+- 槽位快照频道见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
   （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（可能是 `builtin:*`），
   `visible:false` = 主程序当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
 
@@ -1110,7 +1110,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | 位置 | 演示了什么 |
 |---|---|
 | `musicxx.capability.implement("musicxx.player.beforePlaySong")` | 决策型能力：命中就跳过本曲 |
-| `musicxx.capability.implement("musicxx.song.changed")` | 广播频道 + 状态镜像 |
+| `musicxx.capability.implement("musicxx.song.changed")` | 广播频道 + 快照频道 |
 | `musicxx.capability.implement("musicxx.player.error")` | 错误裁决（换源建议） |
 | `musicxx.capability.implement("musicxx.player.speed")` | 异步裁决（Promise）的写法 |
 | `musicxx.timer.setInterval` | 后台定时任务（心跳日志） |
