@@ -8,16 +8,21 @@
 
 ## 历史
 
-### 变更（破坏性，2026.1108.1 内，未发布）：阶段词统一，拦下一律叫 `cancel`
+### 变更（破坏性，2026.1108.1 内，未发布）：阶段词统一：cancel / skip / drop
 
-- **一个处理只有一个词**：前链 / 实现链的“这次不做”都是 `{"action":"cancel"}`（原来的 `stop` / `skip`
-  不再接受，也不再当同义词）；后链“这次的值作废”是 `{"action":"drop"}`；实现链“别再问别人”是
-  `{"disable": true}`。插件框架头文件只剩 `CONTINUE` / `CANCEL` / `DROP` 三个动作宏。
-- **`stop` 只剩一处**：`musicxx.player.error` 的 `{"action":"stop"}` = 停止播放（域动作，不是阶段词）。
-- 示例插件（`example_js` / `example_js_broken` / `example_native` / `example_native_multi`）同步改成
-  `cancel`；`example_native_multi` 前链的入参也改叫 `cancel`。
-- 主程序侧的自省与错误码跟着改名：`stoppedBy` → `canceledBy`、`lastStoppedBy` → `lastCanceledBy`、
-  `stops` → `cancels`、错误码 `stopped` → `canceled`。
+- **一个处理只有一个词**（三个阶段通用）：
+  - `{"action":"cancel"}` = **拦下这次调用**：前链 = 实现不跑；实现链 = 不再问任何实现，这次没有结果
+    （原来的 `{"disable": true}` 并入这里）；
+  - `{"action":"skip"}` = **这一份实现这次不参与**：链条继续问下一个（原来的实现链 `cancel`，以及最早的 `skip`）；
+  - `{"action":"drop"}` = 后链把算出来的结果作废；
+  - `{"action":"stop"}` 只剩 `musicxx.player.error` 的“停止播放”，不是阶段词。
+- 插件框架头文件的动作宏：`CONTINUE` / `SKIP` / `CANCEL` / `DROP`；宿主收到 `cancel` 一律停止实现链
+  （与合并策略无关），`skip` 在 `veto` 下仍然粘住并结束。
+- 示例插件（`example_js` / `example_js_broken` / `example_js_async` / `example_native`）的“跳过广告曲目”
+  改回 `skip`；`example_native_multi` 前链的入参也改叫 `cancel`。
+- 主程序侧：`disabled` 错误码与 `disabledBy` / `lastDisabledBy` / `lastStoppedBy` 全部收进
+  `canceled` / `canceledBy` / `lastCanceledBy`，`stages[].cancels` 取代 `stops`；
+  `ExternCapabilityVerdict.isSkip`（`skip`）/ `isCancel`（`cancel`）。
 - 插件 ABI / C ABI 版本不变（只是回答里的词变了，示例与文档同步）。
 
 ### 变更（2026.1108.1，非破坏）：预设表只做常量与文档，任何 id 都能用

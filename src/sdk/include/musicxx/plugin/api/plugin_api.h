@@ -58,6 +58,7 @@ extern "C" {
 /// 一个 id 是能力还是广播由 `tools/capabilities.def.json` 的声明决定 (插件不能自选):
 /// 广播只通知, 处理器给什么都不看; 能力按声明里的 `merge` 合并结果。
 #define MUSICXX_PLUGIN_CAPABILITY_ACTION_CONTINUE "continue"
+#define MUSICXX_PLUGIN_CAPABILITY_ACTION_SKIP     "skip"
 #define MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL   "cancel"
 #define MUSICXX_PLUGIN_CAPABILITY_ACTION_DROP     "drop"
 

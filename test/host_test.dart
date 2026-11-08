@@ -247,7 +247,7 @@ void main() {
       },
     );
     expect(verdict, isNotNull);
-    expect(verdict!['action'], 'cancel');
+    expect(verdict!['action'], 'skip');
     // 普通曲目 → 无裁决
     expect(
       runtime.capabilities.dispatch(
@@ -284,7 +284,7 @@ void main() {
         'song': <String, Object?>{'name': '广告曲目 2'},
       },
     );
-    expect(merged!['action'], 'cancel', reason: 'veto：cancel 不被后续覆盖');
+    expect(merged!['action'], 'skip', reason: 'veto：skip 不被后续覆盖');
     runtime.capabilities.off(
       MusicxxCapabilityId.playerBeforePlaySong,
       dartHandler,
@@ -317,7 +317,7 @@ void main() {
           },
         );
     expect(asyncVerdict, isNotNull);
-    expect(asyncVerdict!['action'], 'cancel', reason: '异步裁决结果应与同步一致');
+    expect(asyncVerdict!['action'], 'skip', reason: '异步裁决结果应与同步一致');
     expect(
       await runtime.capabilities.dispatchAsync(
         MusicxxCapabilityId.playerBeforePlaySong,
@@ -513,7 +513,7 @@ void main() {
       },
     );
     expect(jsVerdict, isNotNull);
-    expect(jsVerdict!['action'], 'cancel');
+    expect(jsVerdict!['action'], 'skip');
     expect(
       runtime.capabilities.dispatch(
         MusicxxCapabilityId.playerBeforePlaySong,
@@ -536,7 +536,7 @@ void main() {
           },
         );
     expect(jsAsyncVerdict, isNotNull);
-    expect(jsAsyncVerdict!['action'], 'cancel');
+    expect(jsAsyncVerdict!['action'], 'skip');
 
     _step('14.5 JS 异步裁决完成');
     // JS 裁决处理器返回 Promise (异步裁决): 插件框架一直等到脚本结算, 结算后裁决生效

@@ -1125,13 +1125,17 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       }
     }
 
+    // `cancel` = 拦下这次调用: 后面谁都不再问 (与合并策略无关)
+    if (a == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL) {
+      break;
+    }
     // 合并策略来自声明: first = 第一个合法结果生效; veto = 任一否决即停
     if (meta.merge == MUSICXX_CAPABILITY_MERGE_FIRST &&
         (hasPatch || !action.empty())) {
       break;
     }
     if (meta.merge == MUSICXX_CAPABILITY_MERGE_VETO &&
-        action == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL) {
+        action == MUSICXX_PLUGIN_CAPABILITY_ACTION_SKIP) {
       break;
     }
   }

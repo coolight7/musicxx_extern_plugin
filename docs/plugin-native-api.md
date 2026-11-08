@@ -638,11 +638,11 @@ netCallAsync(net_op::httpDownload,
 当前可用的决策型能力有七个（前三个是播放链路，后四个是“改播放值”）：
 
 ```cpp
-// ① 跳过本曲：只支持 cancel（返回其它 action 会被记日志后忽略）
+// ① 跳过本曲：只支持 skip（返回其它 action 会被记日志后忽略）
 hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
-             out = R"({"action":"cancel"})";
+             out = R"({"action":"skip"})";
          }
          return 0;
      });
@@ -651,7 +651,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
 hook(MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_BEFORE_PARSE, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          if (input.find("\"type\":\"Bili\"") != std::string_view::npos) {
-             out = R"({"action":"cancel"})";   // 本轮不解析该音源
+             out = R"({"action":"skip"})";   // 本轮不解析该音源
              // 或者只替换本轮使用的音源（不改歌曲实体的音源列表）：
              // out = R"({"patch":{"src":{"type":"UrlLink","src":"https://example.com/a.mp3"}}})";
          }
@@ -666,7 +666,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
      });
 
 // ④ 改播放值（音量 / 速度 / 音调 / 跳进度）：载荷都有 `from` / `to`
-//    `{"patch":{"to":…}}` = 换新值；`{"action":"cancel"}` = 这次不改
+//    `{"patch":{"to":…}}` = 换新值；`{"action":"skip"}` = 这次不改
 //    下面只演示回答形状：真实插件要按自己的规则判断（用 utilxx_base::Json 读 `to`）
 hook(MUSICXX_PLUGIN_HOOK_PLAYER_SPEED, 0,
      [](std::string_view input, std::string& out) -> int32_t {
@@ -983,7 +983,7 @@ Android 见 §11。
 | 主程序卡住、不知道卡在哪一次调用 | 看主程序日志目录下的 `host_call.log`：进插件框架调用是同步的，卡住后最后一行就是没返回的那次调用 |
 | 设置项改完重启又变回默认 | 把 `musicxx.storage.get` 的应答当成了对象外壳：**应答就是值本身**（见 [plugin-api.md](plugin-api.md) §3.2.5） |
 | 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取、错误裁决）里发起了动作并等它：调用线程与主程序线程互等。改成"提前算好 / 异步读回"（[plugin-api.md](plugin-api.md) §8.4） |
-| 封面取色 / 频谱"凭空消失" | 有处理器返回了 `{"disable": true}`（显式置空裁决）：用动作 `musicxx.feature.point.list` 看是谁关的（[plugin-api.md](plugin-api.md) §8.5） |
+| 封面取色 / 频谱"凭空消失" | 有处理器返回了 `{"action":"cancel"}`（拦下这次调用）：用动作 `musicxx.feature.point.list` 看是谁拦的（[plugin-api.md](plugin-api.md) §8.5） |
 | 不知道某个动作的参数与返回 | 查 [plugin-api.md](plugin-api.md) §3（那一份是两种形态共用的动作清单）；没有列出的名字当前版本没实现 |
 
 ---

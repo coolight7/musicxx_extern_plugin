@@ -720,7 +720,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '播放前',
-      depict: '播放某一曲之前：可以跳过本曲（cancel）；换音源/改音质当前版本未实现',
+      depict: '播放某一曲之前：可以跳过本曲（skip）；换音源/改音质当前版本未实现',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.source.beforeParse',
@@ -735,7 +735,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '音源解析前',
-      depict: '解析某个音源之前：可以跳过它（cancel）或替换本轮使用的音源（patch.src）',
+      depict: '解析某个音源之前：可以跳过它（skip）或替换本轮使用的音源（patch.src）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.source.resolve',
@@ -765,7 +765,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point', 'command'],
       implemented: true,
       title: '跳转播放位置',
-      depict: '要把播放位置改到新目标之前：可以改目标位置（patch.to）或取消这次跳转（cancel）',
+      depict: '要把播放位置改到新目标之前：可以改目标位置（patch.to）或取消这次跳转（skip）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.volume',
@@ -780,7 +780,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '调整音量',
-      depict: '要把音量改成新值之前：可以改新值（patch.to）或这次不改（cancel）',
+      depict: '要把音量改成新值之前：可以改新值（patch.to）或这次不改（skip）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.speed',
@@ -795,7 +795,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '调整播放速度',
-      depict: '要把播放速度改成新值之前：可以改新值（patch.to）或这次不改（cancel）',
+      depict: '要把播放速度改成新值之前：可以改新值（patch.to）或这次不改（skip）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.pitch',
@@ -810,7 +810,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '调整音调',
-      depict: '要把音调改成新值之前：可以改新值（patch.to）或这次不改（cancel）',
+      depict: '要把音调改成新值之前：可以改新值（patch.to）或这次不改（skip）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.error',
@@ -825,7 +825,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '播放失败',
-      depict: '播放失败：可以停止播放（stop）、跳过当前曲目（cancel）或不再尝试当前源（patch.tryNextSrc）',
+      depict: '播放失败：可以停止播放（stop）、跳过当前曲目（skip）或不再尝试当前源（patch.tryNextSrc）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.notification',

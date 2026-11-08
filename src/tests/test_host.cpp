@@ -1278,8 +1278,8 @@ int main(int argc, char **argv) {
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
     const std::string result = take(out);
     check(rc == MUSICXX_EXTERN_PLUGIN_OK, "capability_dispatch_phase(impl) 返回成功");
-    check(result.find("\"cancel\"") != std::string::npos,
-          "impl 阶段与旧符号行为一致 (cancel)");
+    check(result.find("\"skip\"") != std::string::npos,
+          "impl 阶段与旧符号行为一致 (skip)");
 
     MusicxxExternPluginString beforeOut{};
     const auto rcBefore = musicxx_extern_plugin_capability_dispatch_phase(
@@ -1328,8 +1328,8 @@ int main(int argc, char **argv) {
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
     const std::string result = take(out);
     check(rc == MUSICXX_EXTERN_PLUGIN_OK, "capability_dispatch(sync) 返回成功");
-    check(result.find("\"cancel\"") != std::string::npos,
-          "广告曲目被裁决为 cancel");
+    check(result.find("\"skip\"") != std::string::npos,
+          "广告曲目被裁决为 skip");
   }
 
   // decision 能力: 普通曲目 → 无裁决
@@ -1342,8 +1342,8 @@ int main(int argc, char **argv) {
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
     const std::string result = take(out);
     check(rc == MUSICXX_EXTERN_PLUGIN_OK, "capability_dispatch(sync) 普通曲目成功");
-    check(result.find("\"cancel\"") == std::string::npos,
-          "普通曲目无 cancel 裁决");
+    check(result.find("\"skip\"") == std::string::npos,
+          "普通曲目无 skip 裁决");
   }
 
   // 观察型能力 (异步派发)
@@ -1389,8 +1389,8 @@ int main(int argc, char **argv) {
       const std::string tail = eventsJson.substr(at);
       check(tail.find("\"callId\":" + callId) != std::string::npos,
             "结果事件带同一个 callId");
-      check(tail.find("\"cancel\"") != std::string::npos,
-            "异步裁决结果为 cancel");
+      check(tail.find("\"skip\"") != std::string::npos,
+            "异步裁决结果为 skip");
       check(tail.find("\"capability\":\"musicxx.player.beforePlaySong\"") !=
                 std::string::npos,
             "结果事件带能力 id");
@@ -1816,8 +1816,8 @@ int main(int argc, char **argv) {
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 能力派发返回成功");
-      check(result.find("\"cancel\"") != std::string::npos,
-            "JS 裁决: 广告曲目 cancel");
+      check(result.find("\"skip\"") != std::string::npos,
+            "JS 裁决: 广告曲目 skip");
     }
 
     // decision 能力: 普通曲目 → 无裁决
@@ -1830,8 +1830,8 @@ int main(int argc, char **argv) {
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 能力 (普通曲目) 派发成功");
-      check(result.find("\"cancel\"") == std::string::npos,
-            "JS 裁决: 普通曲目无 cancel");
+      check(result.find("\"skip\"") == std::string::npos,
+            "JS 裁决: 普通曲目无 skip");
     }
 
     // decision 能力: 播放错误 → patch.tryNextSrc
@@ -2456,8 +2456,8 @@ int main(int argc, char **argv) {
       std::printf("  [info] async volume result=%s (%lld ms)\n", result.c_str(),
                   static_cast<long long>(elapsedMs));
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "长 Promise 的派发返回成功");
-      check(result.find("\"cancel\"") != std::string::npos,
-            "插件框架等到 Promise 结算, 裁决生效 (cancel)");
+      check(result.find("\"skip\"") != std::string::npos,
+            "插件框架等到 Promise 结算, 裁决生效 (skip)");
       check(elapsedMs >= 1200, "插件框架等满了 Promise 的等待时间");
     }
 

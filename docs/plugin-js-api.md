@@ -195,15 +195,16 @@ musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
 ### 4.2 决策型能力的返回值
 
 ```js
-{ action: "continue" | "cancel", patch: { ... }, error?: "说明" }
+{ action: "continue" | "skip" | "cancel", patch: { ... }, error?: "说明" }
 ```
 
-`action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `cancel` = 跳过本曲）。当前版本已接入的
-裁决型能力有七个，语义见 [plugin-capabilities.md](plugin-capabilities.md) 的「载荷与回答（已接入的能力）」：
-`player.beforePlaySong`（`cancel`）、`player.source.beforeParse`（`cancel` / `patch.src`）、
-`player.error`（`stop` 停止播放 / `cancel` 跳过本曲 / `patch.tryNextSrc`），以及“改播放值”的四个：
+`action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲，`cancel` = 拦下这次调用）。
+当前版本已接入的裁决型能力有七个，语义见 [plugin-capabilities.md](plugin-capabilities.md) 的
+「载荷与回答（已接入的能力）」：`player.beforePlaySong`（`skip`）、
+`player.source.beforeParse`（`skip` / `patch.src`）、
+`player.error`（`stop` 停止播放 / `skip` 跳过本曲 / `patch.tryNextSrc`），以及“改播放值”的四个：
 `player.seek` / `player.volume` / `player.speed` / `player.pitch`（`patch.to` 换新值，
-`cancel` 这次不改）。
+`skip` 这次不改）。
 
 ### 4.3 异步裁决（返回 Promise）
 
@@ -956,7 +957,7 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
 });
 ```
 
-- 三个"取值型"能力的完整语义（载荷、数据格式、超时、置空裁决、失效规则）见
+- 三个"取值型"能力的完整语义（载荷、数据格式、超时、`cancel` 拦下、失效规则）见
   [plugin-capabilities.md](plugin-capabilities.md)，调用方的写法与代价见 [plugin-api.md](plugin-api.md) §7：
   - **封面取色**（`musicxx.media.palette.provide`）：命中缓存就**同步**返回，未命中返回 `null`
     并异步预热，算好用 `musicxx.media.setPalette` 写回。**绝不要在处理器里 `await` 主程序动作**

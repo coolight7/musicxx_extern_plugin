@@ -242,7 +242,7 @@ musicxx-cli capability.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
   （`extern:<插件id>` / `builtin:<插件key>:<实现>` / `core:<域>:<实现>`），
   `identity` 是资源身份（音源 md5 / 文件路径），调用方可以据此自己缓存；
 - 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这个功能点没对外开放）/
-  `bad_args`（参数不对）/ `no_impl`（现在没有实现）/ `disabled`（被某个实现显式置空）/
+  `bad_args`（参数不对）/ `no_impl`（现在没有实现）/ `canceled`（被某个实现拦下）/
   `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`；
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 调一次封面取色**不会**换掉用户看到的
   背景色（要改观感请用动作 `musicxx.media.palette.set`）；

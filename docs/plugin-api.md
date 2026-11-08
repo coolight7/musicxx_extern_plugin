@@ -1384,7 +1384,7 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 | `musicxx.feature.point.undefine` | `{id}` | `{ok, removed}` |
 
 - `rows` 里的每一行是"这个功能点的一个实现"：`layer` = `extern`（外置插件实现）/ `builtin`（内置插件）/
-  `core`（应用兜底），`effective` = 现在真正生效的那一个；`note` 会写清"谁把它关掉了"（`disable` 裁决）。
+  `core`（应用兜底），`effective` = 现在真正生效的那一个；`note` 会写清"谁把它拦下了"（`cancel` 裁决）。
 - `stages` 是**同一个功能点的前链与后链**（与 `rows` 是两回事）：`before` / `after` 为真表示这条
   登记管哪一段，`runs` / `cancels` / `drops` / `errors` 是计数；顺序按前链（层 → 优先级 → 登记顺序），
   **后链逆序执行**（所以这个列表的最后一行是最先改输出的）。`lastCanceledBy` / `lastDroppedBy` /
@@ -1395,9 +1395,10 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
   `stageReentries`（>0 才带）是后链重入次数，用来发现"后链又改了一次自己的输出"。
 - `musicxx.feature.point.call` 的 `error` 取值：
   `not_callable`（这个点不能主动调）/ `bad_args`（参数不符合 `callDoc`）/ `no_impl`（没有任何实现）/
-  `disabled`（被置空裁决关掉了）/ `stopped`（前链把这次调用停下了）/ `dropped`（后链把结果丢弃了）/
+  `canceled`（被拦下了：前链或实现链）/ `dropped`（后链把结果丢弃了）/
   `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。这三种"没有结果"是不同的事：
-  `disabled` 是某个实现说"别问别人"、`stopped` 是前链不让执行、`dropped` 是实现跑完了但结果被丢掉。
+  `canceled` 是这次调用被拦下（之后谁都不问）、`dropped` 是实现跑完了但结果被丢掉；`skip` 不是错误，
+  它只是这一份实现没参与。
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态。想让用户看到效果要用对应的设置动作
   （例如 `musicxx.media.palette.set`）。
 - `refresh:true` 跳过值仓重新算一遍（一般不用：值仓里就是最近一次的结果）。
@@ -2092,7 +2093,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 | 阶段 | 什么时候跑 | 能做什么 | 不能做什么 | 回答格式 | 结束整条链 |
 |---|---|---|---|---|---|
 | `before` | 进入调用之前，串行、**正序** | 改输入（累加）、拦下（这次不执行实现） | 给数据（那是实现链的事） | `{"patch": {...}}` | `{"action":"cancel"}` |
-| `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与以前一样（§8.2） | 按声明的合并策略 |
+| `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与以前一样（§8.2） | 按声明的合并策略（`first` 下任一回答都结束本轮遍历）；`cancel` 一律停止 |
 | `after` | 拿到结果之后，串行、**逆序** | 改输出（累加）、丢弃（这次没有结果） | 造出本来没有的结果 | `{"value": <新结果>}` | `{"action":"drop"}` |
 
 ```text
@@ -2111,11 +2112,12 @@ extern  ---------->  builtin  ---------->  core
 - 只能注册能力**声明过的**阶段（生成物 `plugin-capabilities.md` 的「可注册阶段」列）；没声明就注册会被
   拒绝（C++ 返回 `-1` 并记日志，JS 在后台拒绝并记日志），因为“注册成功但永远不触发”
   比报错更难查；
-- 三种“没有结果”含义不同，别混：实现链的 `{"disable": true}`（不再问别人）、前链的
-  `{"action":"cancel"}`（这次不执行实现）、后链的 `{"action":"drop"}`（实现跑完了但结果丢掉）。
-  实现链自己也能回答 `{"action":"cancel"}` = 这次不处理。
-- **一个处理只有一个词**：拦下 = `cancel`，作废 = `drop`，不再问别人 = `disable`。`skip` 已合并进
-  `cancel`；`stop` 只保留在 `musicxx.player.error`（= 停止播放），它不是阶段词。
+- 三种“没有结果”含义不同，别混：`{"action":"skip"}` 是**这一份实现**这次不参与（应用按“没有结果”
+  接着问下一层实现；同一条能力的处理器列表里它仍算一次回答，`veto` 下就此结束遍历）；`{"action":"cancel"}`
+  是**拦下这次调用**（前链：实现不跑；实现链：不再问任何实现，这次没有结果）；`{"action":"drop"}`
+  是后链把已经算出来的结果作废。
+- **一个处理只有一个词**：拦下这次调用 = `cancel`（前链 / 实现链通用），这一份不参与 = `skip`，
+  结果作废 = `drop`。`stop` 只保留在 `musicxx.player.error`（= 停止播放），它不是阶段词。
 - **载荷里不自动带 `phase`**：同一个函数要服务多个阶段就各注册一份自己的闭包，不要指望从载荷里
   分辨阶段。唯一例外是插件功能点的通用通道 `musicxx.feature.point.call` —— 它的载荷带 `phase`，
   因为一个插件点可能用同一段代码处理三个阶段（见 §7）。
@@ -2138,7 +2140,7 @@ musicxx.capability.handlers(id, "after");     // 只看一个阶段（缺省 = �
 ```cpp
 implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,   // 裁决型，priority = 0
           [](std::string_view input, std::string& out) -> int32_t {
-              if (input.find("广告") != std::string_view::npos) { out = R"({"action":"cancel"})"; }
+              if (input.find("广告") != std::string_view::npos) { out = R"({"action":"skip"})"; }
               return 0;   // 返回 0 且 out 非空 = 给出裁决；out 空 = 不裁决
           });
 
@@ -2186,7 +2188,7 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 ```
 
 - 返回 `null` / 空对象 = “不裁决”，交给下一个处理器；`action` 的语义由各调用点决定
-  （例如 `beforePlaySong` 的 `cancel` = 跳过本曲，`musicxx.player.error` 的 `stop` = 停止播放）。
+  （例如 `beforePlaySong` 的 `skip` = 跳过本曲，`musicxx.player.error` 的 `stop` = 停止播放）。
 - **裁决是“建议”**：调用点会校验裁决的身份字段（如 `sid`），过期的裁决会被丢掉 ——
   异步派发的能力尤其要注意（等待期间可能已经切歌 / 切列表）。
 - **处理器失败只记统计**：抛异常 / 返回失败不会暂停派发、也不会卸载插件。
@@ -2235,14 +2237,14 @@ musicxx.capability.implement("musicxx.player.speed", (ctx) => {
 - **不要等主程序动作**（同步派发的能力尤其致命）：调用点就地等你的返回值，而动作要由主程序线程执行，两边互等。
 - 必要的长任务提前算好（例如换歌时预热缓存），处理器里只做"查缓存 → 返回或返回空"。
 
-### 8.5 取值型能力的"置空"与"不提供"
+### 8.5 取值型能力的"拦下"与"不提供"
 
-频谱提取、副歌分析、封面取色这三个取值型能力支持显式置空：
+频谱提取、副歌分析、封面取色这三个取值型能力可以拦下整次调用：
 
-- 返回 `{"disable": true}` = "这次不要用别的实现"（应用自己的兜底也不会被问），应用会记一条日志并在自省里
-  标出是谁关的；处理器被摘除（停用 / 卸载 / 关闭『拟声++』）后自动还原。
-- 返回 `null` / 空 = "这次不提供"（链条继续问下一个实现）。
-- **不要拿 `disable` 当"实现方还没算完"的挡箭牌**：那样用户会看到功能凭空消失。
+- 返回 `{"action":"cancel"}` = 拦下这次调用（应用自己的兜底也不会被问），应用会记一条日志并在自省里
+  标出是谁拦的；处理器被摘除（停用 / 卸载 / 关闭『拟声++』）后自动还原。
+- 返回 `null` / 空 / `{"action":"skip"}` = "这次不提供"（链条继续问下一个实现）。
+- **不要拿 `cancel` 当"实现方还没算完"的挡箭牌**：那样用户会看到功能凭空消失。
 
 ### 8.6 音源解析与插件音源（`musicxx.player.source.resolve`）
 
@@ -2291,8 +2293,8 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
   网络流去套 HTTP 缓存代理（地址还会被当成 URI 改写），能写就写；
 - `headers` 是这个地址要用到的请求头（可以省）；`expireAtMs` / `size` / `durationMs` / `quality` 可选；
 - **用 `patch` 包一层**（多个实现时裸字段会被后面的处理器盖掉，只有一个实现时两种写法等价）；
-- 返回空 / 结果不合法 = 这次不提供，应用接着问内置实现；返回 `{"disable": true}` = 这次不再问
-  别的实现，该音源会解析失败（只在明确知道它不该播时用）。
+- 返回空 / 结果不合法 = 这次不提供，应用接着问内置实现；返回 `{"action":"cancel"}` = 拦下这次调用
+  （不再问别的实现），该音源会解析失败（只在明确知道它不该播时用）。
 
 注意：
 
@@ -2524,7 +2526,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再返回一次 `{view:…}`，或重新打开页面 |
 | 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取）里 `await` 了主程序动作 → 两边互等（§8.4） |
 | 主程序整体卡住 | 处理器里做了阻塞操作 / JS 死循环（框架不打断） |
-| 颜色 / 频谱"凭空消失" | 有人返回了 `{"disable": true}`（§8.5）；用 `capability.list` 看是谁 |
+| 颜色 / 频谱"凭空消失" | 有人返回了 `{"action":"cancel"}`（§8.5）；用 `capability.list` 看是谁 |
 | 网络请求拿不到数据 | 看 `status`（非 2xx 也 `ok:true`）与 `truncated`（读满 `maxBytes` 就断开） |
 | 生成的界面在别的客户端样式不对 | 按 `host.info().ui` 的 `blocks` / `controls` 降级，不要按 `kind` 写两套 |
 | 不确定"现在谁在实现这个功能" | `musicxx.capability.subscribers` / `musicxx.feature.point.list` / 命令行 `capability.list` |

@@ -597,7 +597,7 @@ abstract final class MusicxxPluginActionNames {
   ///
   /// 返回 `{ok, id, value, by, identity, fromCache, ms}`；失败是
   /// `{ok:false, error, message}`，`error` 取 `not_callable` / `bad_args` / `no_impl` /
-  /// `disabled` / `busy` / `failed`。
+  /// `canceled` / `dropped` / `busy` / `failed`。
   ///
   /// **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 插件调一次封面取色
   /// 不会换掉用户看到的背景色（要改观感请看 `musicxx.media.palette.set`）。

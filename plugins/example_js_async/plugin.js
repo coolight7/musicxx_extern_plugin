@@ -31,7 +31,7 @@ musicxx.capability.implement("musicxx.player.volume", { mode: "decision" }, func
     return new Promise(function (resolve) {
         setTimeout(function () {
             settled += 1;
-            resolve({ action: "cancel" });
+            resolve({ action: "skip" });
         }, 1500);
     });
 });
