@@ -2001,6 +2001,40 @@ int main(int argc, char **argv) {
             "卸载后背景示例的 UI 项无残留");
     }
 
+    // ============ 网络能力 (example_js_net 的 selftest 跑完整一轮) ============
+    //
+    // 这一段是插件网络层唯一的端到端回归: 起 HTTP 服务并自请求、静态路由与 Range、
+    // TCP 服务端/客户端、WebSocket 两端、UDP 通道都在 selftest 里走一遍。
+    // 换网络实现（或改 op 分发）之后这里必须仍然是 ok。
+    {
+      MusicxxExternPluginString netLoadLog{};
+      const auto netLoadRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP("example_js_net"), viewCP(R"({"enabled":true})"), 8000,
+          &netLoadLog);
+      if (netLoadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+        std::printf("  [info] net example load rc=%d log=%s\n", netLoadRc,
+                    take(netLoadLog).c_str());
+      } else {
+        freeStr(netLoadLog);
+      }
+      check(netLoadRc == MUSICXX_EXTERN_PLUGIN_OK,
+            "网络示例插件加载成功 (example_js_net)");
+
+      const CapabilityCallOutcome selfTest =
+          callCapability(host, "example_js_net", "selftest", "{}", 60000);
+      if (!selfTest.ok) {
+        std::printf("  [info] net selftest rc=%d payload=%s\n",
+                    selfTest.acceptRc, selfTest.payload.c_str());
+      }
+      check(selfTest.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && selfTest.ok &&
+                selfTest.payload.find("\"ok\":true") != std::string::npos,
+            "网络能力自检通过 (HTTP 服务/客户端、静态路由与 Range、TCP、WebSocket、UDP)");
+
+      check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_net"),
+                                                &log) == MUSICXX_EXTERN_PLUGIN_OK,
+            "卸载网络示例插件");
+    }
+
     // ============ 清单 scripts: 多脚本按顺序加载 (JS 插件) ============
     //
     // `scripts: [kit.js, plugin.js]` 里的脚本在**同一个 JS 上下文**里依次执行:
