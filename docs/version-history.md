@@ -46,7 +46,7 @@ GitHub 上打开：`https://github.com/coolight7/musicxx_extern_plugin/commit/<�
 
 | musicxx 版本 | 插件框架版本 | 插件框架提交 | 日期 | 说明 |
 |---|---|---|---|---|
-| 未发布 | 2026.1108.1 | （待补记） | 2026-11-08 | 能力与广播只剩一份声明：删掉 `tools/hooks.def.json` 与它的两份生成物，派发层直接读 `capabilities.def.json`；插件 ABI 4 → 5、C ABI 2 → 3；C 接口 `musicxx_extern_plugin_hook_*` → `_capability_*`、`MusicxxPluginHookSpec` → `MusicxxPluginCapabilitySpec`（加 `phase`，删 v1 字段）；SDK `hook*` → `implement*`；JS / Dart 同步改名（`runtime.capabilities`、`MusicxxCapabilityCatalogue`） |
+| 未发布 | 2026.1108.1 | （待补记） | 2026-11-08 | 能力与广播只剩一份声明：删掉 `tools/hooks.def.json` 与它的两份生成物，派发层直接读 `capabilities.def.json`；插件 ABI 4 → 5、C ABI 2 → 3；C 接口 `musicxx_extern_plugin_hook_*` → `_capability_*`、`MusicxxPluginHookSpec` → `MusicxxPluginCapabilitySpec`（加 `phase`，删 v1 字段）；SDK `hook*` → `implement*`；JS / Dart 同步改名（`runtime.capabilities`、`MusicxxCapabilityCatalogue`）；广播的动态写法补成三条（`plugin.<插件 id>.<名字>` 通用化、新增 `musicxx.point.<名字>`），生成物带匹配器 |
 | 2026.1106.1 | 2026.1106.1 | （待补记） | 2026-11-06 | 新增同步歌单音源的动作 `musicxx.playlist.syncSongs.sync`（传 `pid` 就把歌单绑定音源里新增的歌加进歌单）；JS 糖 `musicxx.playlist.syncSongs`，本机 CLI 糖命令 `sync-list`，MCP 工具 `SyncPlaylistSources`；外部触发的同步在应用信息栏里显示提示（成功 30 秒后自动移除、失败保留） |
 | 未发布 | 2026.1105.1 | （待补记） | 2026-11-05 | 歌词动作迁到单数域 `musicxx.lyric.*`：`current.get` / `current.update` / `current.updateContent` / `getBySrc` / `search`；旧 `musicxx.lyrics.*` 与从未实现的 `sync` 删除（不保留别名）；行格式折叠译文、`timeMs` 改为毫秒；C 侧预留 IID 改成 `MUSICXX_PLUGIN_IFACE_LYRIC` |
 | 未发布 | 2026.1104.2 | （待补记） | 2026-11-04 | 歌单与播放列表的写入动作：`musicxx.playlist.create` / `removeSong` / `updateSong`、`musicxx.songlist.addSong` / `removeSong` / `updateSong`；`querySongs` 新增 `detail`；权限名拆成 `musicxx.playlist.*` / `musicxx.songlist.*`（旧 `musicxx.library.*` 仍认得）；C 侧接口表 IID 与状态键同步改名 |

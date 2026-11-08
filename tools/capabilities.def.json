@@ -3304,15 +3304,26 @@
       "doc": "属主卸载时删键并推 `removed: true`。键名不在这里逐条登记：由声明方在运行期决定，登记时断言属主前缀。"
     },
     {
-      "idPattern": "plugin.<插件 id>.net",
-      "title": "插件网络事件",
-      "depict": "插件自己的网络请求进度 / 完成事件",
+      "idPattern": "plugin.<插件 id>.<名字>",
+      "title": "插件自定义频道",
+      "depict": "插件自己发的事件（网络进度、自己的状态变化）；网络请求的进度 / 完成建议叫 `plugin.<插件 id>.net`",
       "cache": "none",
       "writable": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
-      "doc": ""
+      "doc": "只有这个插件自己能发。名字由插件自己定，但必须落在自己的命名空间里；发布与订阅的写法见 `plugin-api.md` 第 4 节。"
+    },
+    {
+      "idPattern": "musicxx.point.<名字>",
+      "title": "埋点旁路广播",
+      "depict": "功能埋点自己身上发生的事：`<名字>` = `<埋点 id>.<种类>`，种类是 `used` / `bind` / `unbind` / `extern_changed` / `invalidate`",
+      "cache": "none",
+      "writable": "owner",
+      "pushOnSubscribe": false,
+      "coalesce": true,
+      "scope": "system",
+      "doc": "应用内部的自省通道：观察某个埋点被谁用了、谁登记了实现。订阅它不改变任何取值与裁决结果。"
     }
   ]
 }

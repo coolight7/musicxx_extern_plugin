@@ -8,6 +8,17 @@
 
 ## 历史
 
+### 新增（2026.1108.1，非破坏）：广播支持运行期 id（插件自定义频道 / 埋点旁路）
+
+- 声明源的 `dynamicBroadcasts` 从两条变成三条：`plugin.<插件 id>.net` 换成通用的
+  `plugin.<插件 id>.<名字>`（网络请求进度 / 完成仍建议叫 `.net`，写法不变），新增 `musicxx.point.<名字>`
+  （应用内部的埋点旁路广播，应用自己登记，插件能订阅、不能写）。
+- 生成物新增匹配器：`MusicxxDynamicBroadcastDecl.matches`、
+  `MusicxxCapabilityCatalogue.dynamicBroadcastOf` / `broadcastDeclarationOf`（静态声明优先，
+  其次按写法合成一份），两边不再各写一套匹配。
+- 行为不变：插件发布的主题仍限自己的命名空间与官方 `musicxx.*`，C ABI / 插件 ABI 都不变；
+  变的只是应用侧把这类 id 当“已声明”处理（能出现在 `capability.list` 的广播段里）。
+
 ### 变更（破坏性，2026.1108.1）：能力与广播只剩一份声明，`hook` 词汇全部删除（插件 ABI 5）
 
 - **删除 `tools/hooks.def.json` 与它的两份生成物**（`lib/src/hook_ids.g.dart`、

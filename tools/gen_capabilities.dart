@@ -902,6 +902,38 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  final String scope;')
     ..writeln('  final String title;')
     ..writeln('  final String depict;')
+    ..writeln()
+    ..writeln('  /// 这个 id 是不是命中这类写法')
+    ..writeln('  ///')
+    ..writeln('  /// - `<占位>` 每段匹配一个非空片段；')
+    ..writeln('  /// - 最后一段是占位时吃掉剩下的全部（`musicxx.point.<名字>` 允许名字里再带点）。')
+    ..writeln('  bool matches(String id) {')
+    ..writeln('    final List<String> patternParts = idPattern.split(".");')
+    ..writeln('    final List<String> idParts = id.split(".");')
+    ..writeln('    if (idParts.length < patternParts.length) {')
+    ..writeln('      return false;')
+    ..writeln('    }')
+    ..writeln('    for (int i = 0; i < patternParts.length; i++) {')
+    ..writeln('      final String part = patternParts[i];')
+    ..writeln(
+      '      final bool placeholder = part.startsWith("<") && part.endsWith(">");',
+    )
+    ..writeln('      if (placeholder) {')
+    ..writeln('        if (i == patternParts.length - 1) {')
+    ..writeln('          // 最后一段吃掉剩下的部分：至少要有一段')
+    ..writeln('          return idParts.length >= patternParts.length;')
+    ..writeln('        }')
+    ..writeln('        if (idParts[i].isEmpty) {')
+    ..writeln('          return false;')
+    ..writeln('        }')
+    ..writeln('        continue;')
+    ..writeln('      }')
+    ..writeln('      if (part != idParts[i]) {')
+    ..writeln('        return false;')
+    ..writeln('      }')
+    ..writeln('    }')
+    ..writeln('    return idParts.length == patternParts.length;')
+    ..writeln('  }')
     ..writeln('}')
     ..writeln()
     ..writeln('/// 声明清单（与 `tools/capabilities.def.json` 一一对应）')
@@ -1014,6 +1046,53 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// 这个 id 是不是声明过的广播')
     ..writeln('  static bool declaresBroadcast(String id) =>')
     ..writeln('      _broadcastIndex.containsKey(id);')
+    ..writeln()
+    ..writeln('  /// 命中哪一类动态写法（没有时返回 null）')
+    ..writeln('  ///')
+    ..writeln('  /// 按声明顺序匹配，同一条 id 只落在一类写法里（`plugin.<id>.net` 这种具体名字')
+    ..writeln('  /// 也走通用写法）。')
+    ..writeln(
+      '  static MusicxxDynamicBroadcastDecl? dynamicBroadcastOf(String id) {',
+    )
+    ..writeln(
+      '    for (final MusicxxDynamicBroadcastDecl decl in dynamicBroadcasts) {',
+    )
+    ..writeln('      if (decl.matches(id)) {')
+    ..writeln('        return decl;')
+    ..writeln('      }')
+    ..writeln('    }')
+    ..writeln('    return null;')
+    ..writeln('  }')
+    ..writeln()
+    ..writeln('  /// 按 id 取广播声明：静态优先，其次按动态写法合成一份')
+    ..writeln('  ///')
+    ..writeln('  /// 合成出来的是运行期频道的声明（`id` 就是传进来的那个）；缓存 / 写权限 /')
+    ..writeln('  /// 合并 / 作用域都来自那一类写法。')
+    ..writeln(
+      '  static MusicxxBroadcastDecl? broadcastDeclarationOf(String id) {',
+    )
+    ..writeln('    final MusicxxBroadcastDecl? declared = _broadcastIndex[id];')
+    ..writeln('    if (null != declared) {')
+    ..writeln('      return declared;')
+    ..writeln('    }')
+    ..writeln(
+      '    final MusicxxDynamicBroadcastDecl? dynamic = dynamicBroadcastOf(id);',
+    )
+    ..writeln('    if (null == dynamic) {')
+    ..writeln('      return null;')
+    ..writeln('    }')
+    ..writeln('    return MusicxxBroadcastDecl(')
+    ..writeln('      id: id,')
+    ..writeln('      cache: dynamic.cache,')
+    ..writeln('      writable: dynamic.writable,')
+    ..writeln('      pushOnSubscribe: dynamic.pushOnSubscribe,')
+    ..writeln('      coalesce: dynamic.coalesce,')
+    ..writeln('      scope: dynamic.scope,')
+    ..writeln('      implemented: true,')
+    ..writeln('      title: dynamic.title,')
+    ..writeln('      depict: dynamic.depict,')
+    ..writeln('    );')
+    ..writeln('  }')
     ..writeln('}');
   return sb.toString();
 }
@@ -1389,6 +1468,12 @@ String _generateBroadcastDoc(CapabilityContract contract) {
       ..writeln()
       ..writeln('## 动态频道（id 由属主在运行期决定）')
       ..writeln()
+      ..writeln(
+        '这几类的**形状**由声明表决定，**具体 id** 在运行期由属主给出（插件发布时生成，'
+        '应用自己登记的点频道由应用登记）：缓存 / 写权限 / 作用域都跟着这一类写法，'
+        '不需要逐个 id 上报。',
+      )
+      ..writeln()
       ..writeln('| id 写法 | 缓存 | 写权限 | 订阅即推 | 合并 | 作用域 | 说明 |')
       ..writeln('|---|---|---|---|---|---|---|');
     for (final DynamicBroadcastDeclaration decl in contract.dynamicBroadcasts) {
@@ -1398,6 +1483,14 @@ String _generateBroadcastDoc(CapabilityContract contract) {
         '${decl.coalesce ? "允许" : "不合并"} | '
         '${decl.scope} | ${decl.depict} |',
       );
+    }
+    for (final DynamicBroadcastDeclaration decl in contract.dynamicBroadcasts) {
+      if (decl.doc.trim().isEmpty) {
+        continue;
+      }
+      sb
+        ..writeln()
+        ..writeln('**`${decl.idPattern}`**：${decl.doc.trim()}');
     }
   }
 
