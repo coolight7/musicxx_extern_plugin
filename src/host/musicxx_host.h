@@ -704,7 +704,8 @@ protected:
   ///
   /// 应用的动作用能力名暴露（`capability_ids.g.h` 里 `runner = app` 那些），它们没有
   /// 插件实现行；`invoke_capability` 因此把调用先交给这里。转发走同一套
-  /// `requestAppCapability`（事件 `musicxx.capability.app.request` + `action_respond`），取消走
+  /// `requestAppCapability`（事件 `musicxx.capability.app.request` +
+  /// `musicxx_extern_plugin_capability_app_respond`），取消走
   /// `cancelAppCapability`（事件 `musicxx.capability.app.cancel`）。
   void *onAppCapabilityStart(MusicxxHostInstance *inst,
                              const std::string &capability,

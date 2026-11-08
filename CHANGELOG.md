@@ -8,6 +8,30 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1108.1 内，未发布）：对外只剩“能力 + 广播”两个概念
+
+以前的三套旧入口全部归入能力与广播，不再单独存在：
+
+- **状态镜像 → 广播快照频道**：`musicxx_extern_plugin_state_update` / `_batch` 删除，改用
+  `musicxx_extern_plugin_broadcast_publish`（事件发布也改名成它）；Dart 侧删 `MusicxxPluginState`，
+  用 `MusicxxPluginBroadcasts.publish`；`musicxx.state.changed` 删除（订阅具体频道）。
+- **变量 → 广播值频道**：`musicxx_extern_plugin_var_*` 全部改名 `musicxx_extern_plugin_broadcast_declare` /
+  `_update` / `_update_batch` / `_read` / `_write` / `_read_result` / `_write_result` / `_list` /
+  `_subscribe` / `_unsubscribe`；事件 `musicxx.var.*` → `musicxx.broadcast.*`；Dart 侧
+  `MusicxxPluginVars` → `MusicxxPluginChannels`（`runtime.vars` → `runtime.channels`）；
+  频道 id 从 `musicxx.var.<键>` 改成 `musicxx.broadcast.<键>`。
+- **动作 → 应用实现的能力**：宿主侧设施与事件改名（`musicxx.action.request` / `.cancel` →
+  `musicxx.capability.app.request` / `.cancel`，载荷键 `action` → `capability`；
+  `musicxx_extern_plugin_action_respond` → `musicxx_extern_plugin_capability_app_respond`）；
+  Dart 侧 `MusicxxPluginActions` → `MusicxxPluginAppCapabilities`；**JS 的 `musicxx.call` 删除**，
+  改用 `musicxx.capability.call(id, args?, timeoutMs?)`（第一个参数以 `musicxx.` 开头就是
+  应用实现的能力）；原生 SDK 的 `requestAction` 别名删除，直接用 `capabilityCall`；
+  手写的 `MusicxxPluginActionNames` 删除，改用生成的 `MusicxxCapabilityId`。
+- **框架 C ABI `MUSICXX_EXTERN_PLUGIN_API_VERSION` 3 → 4**：Dart 包装与原生库要求相等。
+  `MUSICXX_EXTERN_PLUGIN_FEATURE_STATE` / `_VARS` / `_EVENTS` 合并为 `FEATURE_BROADCASTS`（`0x16`）。
+- **SDK**：`PluginBase::stateJson` 改名 `broadcastJson`；`requestAction` 删除（就是 `capabilityCall`）。
+- 通用表 IID 的前缀改由构建期的应用名拼出（本项目仍是 `musicxx.*`），插件 ABI 代次 5 → 6。
+
 ### 变更（破坏性，2026.1108.1 内，未发布）：“改播放值”的四个能力改成固定实现（拦截点）
 
 - `musicxx.player.seek` / `volume` / `speed` / `pitch` 的“把播放器改成新值”变成应用自己的

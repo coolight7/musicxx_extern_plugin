@@ -6,7 +6,7 @@
 /// - musicxx 专用约定: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 专用接口聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
 /// - 便捷注册: `PluginBase::implement` / `observe` / `unimplement` / `capabilityCall` /
-///   `stateJson` / `hostInfoJson`。
+///   `broadcastJson` / `hostInfoJson`。
 /// - 界面描述层 `pluginxx::ui`（组件模型 / 解析 / 适配 / 文本降级 / 基础 kit）
 ///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们拼装。
 ///
@@ -445,7 +445,7 @@ public:
     /// 同步读快照频道 (键不存在返回空串)
     ///
     /// 状态由应用发布在广播频道 `musicxx.state.*`（`cache: latest`，订阅即推）。
-    std::string stateJson(const char* key) const {
+    std::string broadcastJson(const char* key) const {
         if (!key || !*key) {
             return {};
         }

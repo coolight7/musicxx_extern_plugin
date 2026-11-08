@@ -714,8 +714,8 @@ final Map<String, Object?>? asyncVerdict = await runtime.capabilities.dispatchAs
 快照频道与动作：
 
 ```dart
-runtime.state.update(MusicxxPluginState.keySong, songView);          // 单键（相同值会跳过）
-runtime.state.updateThrottled(MusicxxPluginState.keyPlayer, view);   // 高频键节流
+runtime.broadcasts.publish(MusicxxBroadcastId.stateSong, songView);   // 相同值会跳过
+runtime.broadcasts.publish(MusicxxBroadcastId.statePlayer, view);     // 高频键自己节流
 runtime.state.updateBatch({...});                                    // 同帧多键合并成一次调用
 
 // 事件频道（`cache: none`，例如切歌通知）用 broadcasts.publish 发；订阅方是插件
@@ -761,7 +761,7 @@ final List<MusicxxPluginUIItem> next =
   `musicxx.capabilities`（实现与调用）与 `musicxx.broadcasts`（通知 / 快照）两张，旧的
   `musicxx.hooks` / `musicxx.vars` 表已删除；
   `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` / `agent` 的 IID 已冻结、表体未实现
-  （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
+  （查询返回 NULL）→ 这些能力统一走能力 id（`capabilityCall("musicxx.player.play", ...)`），由应用分派；
 - **能力 / 广播**：约定只看 `tools/capabilities.def.json`（生成物是 `docs/plugin-capabilities.md` 与 `docs/plugin-broadcasts.md`，`dart run tools/gen_contract.dart --check`
   校验一致），每个条目声明用途、派发方式、阶段与合并策略；主程序**是否真的会派发**看生成物里
   「主程序是否已接入」列（由 `implemented` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义

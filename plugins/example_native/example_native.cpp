@@ -1,9 +1,9 @@
-/// 示例动态库插件: 演示能力注册、状态镜像读取、主程序动作请求、能力注册与日志
+/// 示例动态库插件: 演示能力注册、快照频道读取、主程序动作请求、能力注册与日志
 ///
 /// 行为:
 /// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回
 /// skip 裁决;
-/// 2. 注册 `musicxx.song.changed` (observe): 读状态镜像里的歌曲名并写日志;
+/// 2. 注册 `musicxx.song.changed` (observe): 读快照频道里的歌曲名并写日志;
 /// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
 /// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
 ///    命名空间校验返回码、处理器调用次数), 供插件框架原生测试读取。
@@ -147,8 +147,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 2) 观察切歌: 切歌是广播频道 (`musicxx.song.changed`), 订阅后收推送
     subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED,
                    [this](std::string_view) {
-                     const std::string song = stateJson("musicxx.state.song");
-                     log.info("example_native: 歌曲变化广播; 状态镜像长度=" +
+                     const std::string song = broadcastJson("musicxx.state.song");
+                     log.info("example_native: 歌曲变化广播; 快照频道长度=" +
                               std::to_string(song.size()));
                    });
 
@@ -335,7 +335,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiUpdateRc\":" << uiUpdateRc
               << ",\"uiNotifyRc\":" << uiNotifyRc
               << ",\"uiBackgroundRc\":" << uiBackgroundRc
-              << ",\"stateLen\":" << stateJson("musicxx.state.song").size()
+              << ",\"stateLen\":" << broadcastJson("musicxx.state.song").size()
               << ",\"featurePointId\":\"" << featurePointSampleId << "\""
               << ",\"featurePointRc\":" << featurePointSampleRc
               << ",\"featurePointUnprovidedId\":\""
@@ -462,7 +462,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               }))));
           blocks.push_back(
               pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "状态镜像变化事件"},
+                  {"title", "快照频道变化事件"},
                   {"trailing", std::to_string(stateEvents)},
               }))));
           blocks.push_back(
@@ -477,9 +477,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                   {"trailing", std::to_string(uiOk)},
               }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "状态镜像 musicxx.state.song"},
+              {"title", "快照频道 musicxx.state.song"},
               {"subtitle", "主程序推送的最近一份歌曲快照 (字节)"},
-              {"trailing", std::to_string(stateJson("musicxx.state.song").size())},
+              {"trailing", std::to_string(broadcastJson("musicxx.state.song").size())},
           }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
               {"label", "刷新本页"},
@@ -538,5 +538,5 @@ int32_t exampleStop(ExampleCtx &ctx) { return ctx.onStop(); }
 } // namespace
 
 MUSICXX_PLUGIN_EXPORT(ExampleCtx, "example_native", "1.0.0",
-                      "musicxx 外部插件示例 (能力/状态镜像/日志)", exampleStart,
+                      "musicxx 外部插件示例 (能力/快照频道/日志)", exampleStart,
                       exampleStop)

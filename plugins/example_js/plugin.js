@@ -5,7 +5,7 @@
 /// - `musicxx.song.changed` 观察: 切歌时记录名称并累加计数;
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
 /// - `musicxx.player.speed` 前链 (处理器返回 Promise): 把越界的速度改回合法值 (限速演示);
-/// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
+/// - `example_js.probe` 能力: 返回自检信息 (计数/线程/快照频道读取)。
 /// - `example_js.card` 能力: 主页入口打开的插件页面 (`ext://example_js/card`)。
 /// - 插件自绘设置页 (`ext://example_js/settings`, 从 card 页的按钮进入; 框架不管理设置入口)
 ///   + 主程序网络代理通道 (musicxx.net.fetch) 演示。
@@ -30,7 +30,7 @@ let lastSongName = "";
 let errorCount = 0;
 let timerTicks = 0;
 
-/// 读当前歌曲名 (来自主程序状态镜像的只读快照, 同步读取)
+/// 读当前歌曲名 (来自主程序快照频道的只读快照, 同步读取)
 function currentSongName() {
     const song = musicxx.broadcast.read("musicxx.state.song");
     if (song && typeof song.name === "string") {

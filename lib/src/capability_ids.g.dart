@@ -80,361 +80,240 @@ enum MusicxxCapabilityMerge {
 abstract final class MusicxxCapabilityId {
   /// musicxx.app.exit
   static const String appExit = 'musicxx.app.exit';
-
   /// musicxx.app.deepLink
   static const String appDeepLink = 'musicxx.app.deepLink';
-
   /// 播放前
   static const String playerBeforePlaySong = 'musicxx.player.beforePlaySong';
-
   /// 音源解析前
-  static const String playerSourceBeforeParse =
-      'musicxx.player.source.beforeParse';
-
+  static const String playerSourceBeforeParse = 'musicxx.player.source.beforeParse';
   /// 音源解析
   static const String playerSourceResolve = 'musicxx.player.source.resolve';
-
   /// 跳转播放位置
   static const String playerSeek = 'musicxx.player.seek';
-
   /// 调整音量
   static const String playerVolume = 'musicxx.player.volume';
-
   /// 调整播放速度
   static const String playerSpeed = 'musicxx.player.speed';
-
   /// 调整音调
   static const String playerPitch = 'musicxx.player.pitch';
-
   /// 播放失败
   static const String playerError = 'musicxx.player.error';
-
   /// musicxx.media.notification
   static const String mediaNotification = 'musicxx.media.notification';
-
   /// musicxx.media.info.analyse
   static const String mediaInfoAnalyse = 'musicxx.media.info.analyse';
-
   /// musicxx.song.beforeAdd
   static const String songBeforeAdd = 'musicxx.song.beforeAdd';
-
   /// musicxx.playlist.load
   static const String playlistLoad = 'musicxx.playlist.load';
-
   /// musicxx.local.scan.file
   static const String localScanFile = 'musicxx.local.scan.file';
-
   /// 歌词加载
   static const String lyricLoad = 'musicxx.lyric.load';
-
   /// 歌词加载 · 拟声云歌词
-  static const String lyricLoadMusicxxServer =
-      'musicxx.lyric.load.musicxx_server';
-
+  static const String lyricLoadMusicxxServer = 'musicxx.lyric.load.musicxx_server';
   /// 歌词加载 · 歌词缓存
   static const String lyricLoadCache = 'musicxx.lyric.load.cache';
-
   /// 歌词加载 · 内置歌词
   static const String lyricLoadBuiltin = 'musicxx.lyric.load.builtin';
-
   /// 歌词加载 · 外置歌词
   static const String lyricLoadBuiltout = 'musicxx.lyric.load.builtout';
-
   /// 歌词加载 · 自动匹配
   static const String lyricLoadMatch = 'musicxx.lyric.load.match';
-
   /// musicxx.media.spectrum.extract
   static const String mediaSpectrumExtract = 'musicxx.media.spectrum.extract';
-
   /// musicxx.media.chorus.analyse
   static const String mediaChorusAnalyse = 'musicxx.media.chorus.analyse';
-
   /// musicxx.media.palette.provide
   static const String mediaPaletteProvide = 'musicxx.media.palette.provide';
-
   /// musicxx.app.net.http.request
   static const String appNetHttpRequest = 'musicxx.app.net.http.request';
-
   /// musicxx.net.server.route
   static const String netServerRoute = 'musicxx.net.server.route';
-
   /// musicxx.net.mcp.tools
   static const String netMcpTools = 'musicxx.net.mcp.tools';
-
   /// musicxx.download
   static const String download = 'musicxx.download';
-
   /// musicxx.cache.beforeTrim
   static const String cacheBeforeTrim = 'musicxx.cache.beforeTrim';
-
   /// musicxx.cache.pathRequest
   static const String cachePathRequest = 'musicxx.cache.pathRequest';
-
   /// musicxx.ui.route.resolve
   static const String uiRouteResolve = 'musicxx.ui.route.resolve';
-
   /// 调用功能点
   static const String featurePointCall = 'musicxx.feature.point.call';
-
   /// musicxx.app.foreground
   static const String appForeground = 'musicxx.app.foreground';
-
   /// musicxx.app.background
   static const String appBackground = 'musicxx.app.background';
-
   /// musicxx.player.play
   static const String playerPlay = 'musicxx.player.play';
-
   /// musicxx.player.pause
   static const String playerPause = 'musicxx.player.pause';
-
   /// musicxx.player.toggle
   static const String playerToggle = 'musicxx.player.toggle';
-
   /// musicxx.player.stop
   static const String playerStop = 'musicxx.player.stop';
-
   /// musicxx.player.next
   static const String playerNext = 'musicxx.player.next';
-
   /// musicxx.player.prev
   static const String playerPrev = 'musicxx.player.prev';
-
   /// 按来源播放
   static const String playerPlaySrc = 'musicxx.player.playSrc';
-
   /// 设置应用内音量
   static const String playerSetVolume = 'musicxx.player.setVolume';
-
   /// 设置播放速度
   static const String playerSetSpeed = 'musicxx.player.setSpeed';
-
   /// 设置音调
   static const String playerSetPitch = 'musicxx.player.setPitch';
-
   /// 设置音质
   static const String playerSetQuality = 'musicxx.player.setQuality';
-
   /// 设置播放模式
   static const String playerSetLoopMode = 'musicxx.player.setLoopMode';
-
   /// musicxx.player.setMediaType
   static const String playerSetMediaType = 'musicxx.player.setMediaType';
-
   /// musicxx.playlist.queryLists
   static const String playlistQueryLists = 'musicxx.playlist.queryLists';
-
   /// 读歌单歌曲
   static const String playlistQuerySongs = 'musicxx.playlist.querySongs';
-
   /// 播放歌单
   static const String playlistPlay = 'musicxx.playlist.play';
-
   /// musicxx.playlist.addSong
   static const String playlistAddSong = 'musicxx.playlist.addSong';
-
   /// 从歌单移除歌曲
   static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
-
   /// 新建歌单
   static const String playlistCreate = 'musicxx.playlist.create';
-
   /// musicxx.playlist.updateSong
   static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
-
   /// 同步歌单音源
   static const String playlistSyncSongsSync = 'musicxx.playlist.syncSongs.sync';
-
   /// 读播放列表歌曲
   static const String songlistQuerySongs = 'musicxx.songlist.querySongs';
-
   /// 播播放列表里的歌
   static const String songlistPlaySong = 'musicxx.songlist.playSong';
-
   /// musicxx.songlist.addSong
   static const String songlistAddSong = 'musicxx.songlist.addSong';
-
   /// 从播放列表移除歌曲
   static const String songlistRemoveSong = 'musicxx.songlist.removeSong';
-
   /// musicxx.songlist.updateSong
   static const String songlistUpdateSong = 'musicxx.songlist.updateSong';
-
   /// musicxx.library.querySonglists
   static const String libraryQuerySonglists = 'musicxx.library.querySonglists';
-
   /// musicxx.library.querySongs
   static const String libraryQuerySongs = 'musicxx.library.querySongs';
-
   /// musicxx.library.querySonglist
   static const String libraryQuerySonglist = 'musicxx.library.querySonglist';
-
   /// musicxx.library.playSong
   static const String libraryPlaySong = 'musicxx.library.playSong';
-
   /// musicxx.library.playSonglist
   static const String libraryPlaySonglist = 'musicxx.library.playSonglist';
-
   /// musicxx.library.removeSong
   static const String libraryRemoveSong = 'musicxx.library.removeSong';
-
   /// musicxx.library.createSonglist
   static const String libraryCreateSonglist = 'musicxx.library.createSonglist';
-
   /// musicxx.library.setSongInfo
   static const String librarySetSongInfo = 'musicxx.library.setSongInfo';
-
   /// musicxx.library.search
   static const String librarySearch = 'musicxx.library.search';
-
   /// 当前歌词
   static const String lyricCurrentGet = 'musicxx.lyric.current.get';
-
   /// 换当前歌词
   static const String lyricCurrentUpdate = 'musicxx.lyric.current.update';
-
   /// 换显示歌词
-  static const String lyricCurrentUpdateContent =
-      'musicxx.lyric.current.updateContent';
-
+  static const String lyricCurrentUpdateContent = 'musicxx.lyric.current.updateContent';
   /// 按来源取歌词
   static const String lyricGetBySrc = 'musicxx.lyric.getBySrc';
-
   /// 搜索歌词
   static const String lyricSearch = 'musicxx.lyric.search';
-
   /// 轻提示
   static const String uiToast = 'musicxx.ui.toast';
-
   /// 确认弹窗
   static const String uiDialog = 'musicxx.ui.dialog';
-
   /// musicxx.ui.overlay.show
   static const String uiOverlayShow = 'musicxx.ui.overlay.show';
-
   /// 关闭浮层
   static const String uiOverlayClose = 'musicxx.ui.overlay.close';
-
   /// musicxx.ui.openOverlaySheet
   static const String uiOpenOverlaySheet = 'musicxx.ui.openOverlaySheet';
-
   /// 打开页面
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
-
   /// musicxx.ui.pickSongs
   static const String uiPickSongs = 'musicxx.ui.pickSongs';
-
   /// musicxx.ui.pickDir
   static const String uiPickDir = 'musicxx.ui.pickDir';
-
   /// 浏览插件网盘
   static const String uiBrowseDrive = 'musicxx.ui.browseDrive';
-
   /// musicxx.ui.setEntryBadge
   static const String uiSetEntryBadge = 'musicxx.ui.setEntryBadge';
-
   /// 切换字体
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
-
   /// musicxx.ui.getFontFamily
   static const String uiGetFontFamily = 'musicxx.ui.getFontFamily';
-
   /// 加载字体
   static const String uiLoadFont = 'musicxx.ui.loadFont';
-
   /// 读插件存储
   static const String storageGet = 'musicxx.storage.get';
-
   /// 写插件存储
   static const String storageSet = 'musicxx.storage.set';
-
   /// 删插件存储
   static const String storageDelete = 'musicxx.storage.delete';
-
   /// 列出插件存储
   static const String storageList = 'musicxx.storage.list';
-
   /// musicxx.net.fetch
   static const String netFetch = 'musicxx.net.fetch';
-
   /// musicxx.net.download
   static const String netDownload = 'musicxx.net.download';
-
   /// 列出渲染槽位
   static const String renderList = 'musicxx.render.list';
-
   /// 当前渲染项
   static const String renderCurrent = 'musicxx.render.current';
-
   /// 选择渲染项
   static const String renderSelect = 'musicxx.render.select';
-
   /// 封面取色
   static const String mediaPalette = 'musicxx.media.palette';
-
   /// musicxx.media.cover
   static const String mediaCover = 'musicxx.media.cover';
-
   /// musicxx.media.palette.set
   static const String mediaPaletteSet = 'musicxx.media.palette.set';
-
   /// 登记插件图片
   static const String mediaBindImage = 'musicxx.media.bindImage';
-
   /// 撤销插件图片
   static const String mediaUnbindImage = 'musicxx.media.unbindImage';
-
   /// musicxx.media.spectrum
   static const String mediaSpectrum = 'musicxx.media.spectrum';
-
   /// 媒体内核信息
   static const String mediaKernel = 'musicxx.media.kernel';
-
   /// musicxx.feature.list
   static const String featureList = 'musicxx.feature.list';
-
   /// 调用能力
   static const String featureCall = 'musicxx.feature.call';
-
   /// 功能点清单
   static const String featurePointList = 'musicxx.feature.point.list';
-
   /// 声明功能点
   static const String featurePointDefine = 'musicxx.feature.point.define';
-
   /// 收回功能点
   static const String featurePointUndefine = 'musicxx.feature.point.undefine';
-
   /// 声明音源类型
   static const String sourceDefine = 'musicxx.source.define';
-
   /// 收回音源类型
   static const String sourceUndefine = 'musicxx.source.undefine';
-
   /// musicxx.source.list
   static const String sourceList = 'musicxx.source.list';
-
   /// 声明可浏览来源
   static const String sourceBrowse = 'musicxx.source.browse';
-
   /// 能力订阅 / 实现行
   static const String capabilitySubscribers = 'musicxx.capability.subscribers';
-
   /// 打开链接
   static const String hostOpenUrl = 'musicxx.host.openUrl';
-
   /// musicxx.host.shareText
   static const String hostShareText = 'musicxx.host.shareText';
-
   /// 写剪贴板
   static const String hostClipboard = 'musicxx.host.clipboard';
-
   /// musicxx.host.getPath
   static const String hostGetPath = 'musicxx.host.getPath';
-
   /// 自报内存占用
   static const String statsReportMemory = 'musicxx.stats.reportMemory';
-
   /// 自报自定义指标
   static const String statsReportMetric = 'musicxx.stats.reportMetric';
 
@@ -566,97 +445,66 @@ abstract final class MusicxxCapabilityId {
 abstract final class MusicxxBroadcastId {
   /// 应用启动
   static const String appStart = 'musicxx.app.start';
-
   /// 应用就绪
   static const String appReady = 'musicxx.app.ready';
-
   /// 应用进入后台
   static const String appBackground = 'musicxx.app.background';
-
   /// 应用回到前台
   static const String appForeground = 'musicxx.app.foreground';
-
   /// musicxx.app.upgrade
   static const String appUpgrade = 'musicxx.app.upgrade';
-
   /// 音源解析完成
   static const String playerSourceResolved = 'musicxx.player.source.resolved';
-
   /// 播放状态变化
   static const String playerState = 'musicxx.player.state';
-
   /// 播放进度
   static const String playerPosition = 'musicxx.player.position';
-
   /// 一曲播放完成
   static const String playerCompleted = 'musicxx.player.completed';
-
   /// musicxx.player.qualityChanged
   static const String playerQualityChanged = 'musicxx.player.qualityChanged';
-
   /// 切歌
   static const String songChanged = 'musicxx.song.changed';
-
   /// musicxx.song.meta.writeback
   static const String songMetaWriteback = 'musicxx.song.meta.writeback';
-
   /// musicxx.song.removed
   static const String songRemoved = 'musicxx.song.removed';
-
   /// musicxx.history.record
   static const String historyRecord = 'musicxx.history.record';
-
   /// musicxx.local.scan.finished
   static const String localScanFinished = 'musicxx.local.scan.finished';
-
   /// musicxx.lyric.current
   static const String lyricCurrent = 'musicxx.lyric.current';
-
   /// 封面变化
   static const String mediaCoverChanged = 'musicxx.media.cover.changed';
-
   /// musicxx.net.lan.event
   static const String netLanEvent = 'musicxx.net.lan.event';
-
   /// musicxx.ui.page.enter
   static const String uiPageEnter = 'musicxx.ui.page.enter';
-
   /// musicxx.ui.page.leave
   static const String uiPageLeave = 'musicxx.ui.page.leave';
-
   /// musicxx.ui.theme.changed
   static const String uiThemeChanged = 'musicxx.ui.theme.changed';
-
   /// musicxx.ui.user.action
   static const String uiUserAction = 'musicxx.ui.user.action';
-
   /// 应用状态
   static const String stateApp = 'musicxx.state.app';
-
   /// 播放器状态
   static const String statePlayer = 'musicxx.state.player';
-
   /// 当前歌曲
   static const String stateSong = 'musicxx.state.song';
-
   /// 当前播放列表
   static const String statePlaylist = 'musicxx.state.playlist';
-
   /// 当前歌词
   static const String stateLyric = 'musicxx.state.lyric';
-
   /// 歌单列表快照
   static const String statePlaylists = 'musicxx.state.playlists';
-
   /// 运行环境
   static const String stateEnv = 'musicxx.state.env';
-
   /// 渲染槽位状态
   static const String stateRenderSlots = 'musicxx.state.renderSlots';
-
   /// 当前频谱
   static const String stateSpectrum = 'musicxx.state.spectrum';
-
   /// 事件发布观测
   static const String eventPublished = 'musicxx.event.published';
 
@@ -825,8 +673,7 @@ final class MusicxxBroadcastDecl {
 /// 声明清单（与 `tools/capabilities.def.json` 一一对应）
 abstract final class MusicxxCapabilityCatalogue {
   /// 全部能力声明（按声明顺序）
-  static const List<MusicxxCapabilityDecl>
-  capabilities = <MusicxxCapabilityDecl>[
+  static const List<MusicxxCapabilityDecl> capabilities = <MusicxxCapabilityDecl>[
     MusicxxCapabilityDecl(
       id: 'musicxx.app.exit',
       impls: 'many',
@@ -915,8 +762,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point', 'command'],
       implemented: true,
       title: '跳转播放位置',
-      depict:
-          '要把播放位置改到新目标之前：可以在前链改目标位置（patch.to）或拦下这次跳转（cancel），在后链改最终位置或作废这次的值（drop）',
+      depict: '要把播放位置改到新目标之前：可以在前链改目标位置（patch.to）或拦下这次跳转（cancel），在后链改最终位置或作废这次的值（drop）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.volume',
@@ -946,8 +792,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['point'],
       implemented: true,
       title: '调整播放速度',
-      depict:
-          '要把播放速度改成新值之前：可以在前链改新值（patch.to）或这次不改（cancel），在后链改最终值或作废这次的值（drop）',
+      depict: '要把播放速度改成新值之前：可以在前链改新值（patch.to）或这次不改（cancel），在后链改最终值或作废这次的值（drop）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.pitch',
@@ -1517,8 +1362,7 @@ abstract final class MusicxxCapabilityCatalogue {
       usage: <String>['command'],
       implemented: true,
       title: '设置播放模式',
-      depict:
-          '改播放模式（Order / RealRand / Only / SimulateRand / SimulateRandReflush）',
+      depict: '改播放模式（Order / RealRand / Only / SimulateRand / SimulateRandReflush）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.setMediaType',
@@ -2975,23 +2819,27 @@ abstract final class MusicxxCapabilityCatalogue {
 
   static final Map<String, MusicxxCapabilityDecl> _capabilityIndex =
       <String, MusicxxCapabilityDecl>{
-        for (final MusicxxCapabilityDecl decl in capabilities) decl.id: decl,
-      };
+    for (final MusicxxCapabilityDecl decl in capabilities) decl.id: decl,
+  };
 
   static final Map<String, MusicxxBroadcastDecl> _broadcastIndex =
       <String, MusicxxBroadcastDecl>{
-        for (final MusicxxBroadcastDecl decl in broadcasts) decl.id: decl,
-      };
+    for (final MusicxxBroadcastDecl decl in broadcasts) decl.id: decl,
+  };
 
   /// 按 id 找能力声明（没有时返回 null）
-  static MusicxxCapabilityDecl? capabilityOf(String id) => _capabilityIndex[id];
+  static MusicxxCapabilityDecl? capabilityOf(String id) =>
+      _capabilityIndex[id];
 
   /// 按 id 找广播声明（没有时返回 null）
-  static MusicxxBroadcastDecl? broadcastOf(String id) => _broadcastIndex[id];
+  static MusicxxBroadcastDecl? broadcastOf(String id) =>
+      _broadcastIndex[id];
 
   /// 这个 id 是不是声明过的能力
-  static bool declaresCapability(String id) => _capabilityIndex.containsKey(id);
+  static bool declaresCapability(String id) =>
+      _capabilityIndex.containsKey(id);
 
   /// 这个 id 是不是声明过的广播
-  static bool declaresBroadcast(String id) => _broadcastIndex.containsKey(id);
+  static bool declaresBroadcast(String id) =>
+      _broadcastIndex.containsKey(id);
 }

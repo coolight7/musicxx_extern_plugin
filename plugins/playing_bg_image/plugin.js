@@ -24,7 +24,7 @@
 /// 2. **接管播放页歌曲图**（渲染槽位 `player.icon`）：声明 `mode: "none"` + `keepSpace: true`
 ///    —— 不显示内容、只保留占位（封面已经铺满画面 / 已经在盘心，原来的封面圆盘与它重复）。
 ///    设置页的「隐藏歌曲图」**默认关**（多数用户希望播放页保留歌曲图）；打开后，背景是本插件
-///    的三种模式之一时自动接管：每秒读一次状态镜像 `musicxx.state.renderSlots` 判断，
+///    的三种模式之一时自动接管：每秒读一次快照频道 `musicxx.state.renderSlots` 判断，
 ///    背景切走（或关掉开关）就自动交还。
 ///
 /// 3. **封面取色**（钩子 `musicxx.media.palette.provide`）：自己算封面配色 ——
@@ -49,7 +49,7 @@
 /// 热浪扭曲波纹、隐藏歌曲图、自动调整前景色。
 ///
 /// 排查入口：主程序日志（`musicxx.host.log`）、设置页（`ext://playing_bg_image/settings`）、
-/// 说明页（`ext://playing_bg_image/card`）、状态镜像里的 `player.background` / `player.icon`
+/// 说明页（`ext://playing_bg_image/card`）、快照频道里的 `player.background` / `player.icon`
 /// 两个槽位。
 ///
 /// 约束：脚本顶层必须**同步**完成注册（顶层不能用 await）；异步逻辑放到钩子或定时器里。
@@ -360,7 +360,7 @@ function refreshConfig() {
     function done() {
         --pending;
         if (0 === pending) {
-            // 先用状态镜像里的昼夜（主程序启动时推过一次），异步查到的值会再校正一次；
+            // 先用快照频道里的昼夜（主程序启动时推过一次），异步查到的值会再校正一次；
             // 顺带问一次"当前昼夜 + 封面主色"，"恢复上次的歌"时启动完就能上色
             if (null === isNightNow) {
                 isNightNow = isNightFromMirror();
@@ -413,7 +413,7 @@ function saveConfig(key, value) {
 //      [FG_CONTRAST_FLOOR]），最后才让颜色 —— 保色优先，只有给不出颜色时才退回黑 / 白；
 //   4. 减淡色 = 普通色 30% 透明；块状背景色取"与普通色相反的一侧"的低饱和中间色。
 //
-// 昼夜从哪来：状态镜像里的 `musicxx.state.app.isNight` 只在启动时推过一次，运行期切主题
+// 昼夜从哪来：快照频道里的 `musicxx.state.app.isNight` 只在启动时推过一次，运行期切主题
 // 它不会更新，所以它**只用来当初始值**；之后的判断一律以 `musicxx.media.palette()` 返回的
 // `night`（主程序当场算的）与取色钩子载荷里的 `night` 为准。两个来源混用会让配色每隔一段
 // 时间来回跳（镜像里还是上一个主题的值）。
@@ -801,7 +801,7 @@ function currentSongKey() {
 
 /// 记下封面取色的主色、平均色与"色相来源"（取色算完 / 当前歌已有分析结果时调用）
 ///
-/// [key] 是这套颜色属于哪首歌（srcKey）：报上来的歌和状态镜像里正在放的不是同一首、
+/// [key] 是这套颜色属于哪首歌（srcKey）：报上来的歌和快照频道里正在放的不是同一首、
 /// 或者同一首歌的结果晚到了（切歌了），都不写进来 —— 颜色错配比"晚一点上色"更难受。
 /// [accent] 是前景色的色相来源（见 [accentColorOf]），空串表示没有（退回主色）。
 /// 只改脚本里的状态，重推排到本次之后（见 [applyForegroundLater]）—— 这个函数会从
@@ -879,7 +879,7 @@ function applyForegroundLater() {
     }, 0);
 }
 
-/// 从状态镜像里读昼夜（主程序启动时推过一次；读不到返回 null）
+/// 从快照频道里读昼夜（主程序启动时推过一次；读不到返回 null）
 ///
 /// 只在还没有值时用它当初始值：运行期切了主题镜像不会更新（主程序只在启动时推这个键），
 /// 拿它当"当前值"会和当场查询的结果打架，配色就会隔一会儿跳一次。
@@ -937,7 +937,7 @@ function refreshForegroundState() {
 
 /// 到点就查一次（每秒的跟随检查里顺带做）
 ///
-/// 没有值时先用状态镜像里的昼夜兜一下（主程序启动时推的那份就是当时的真实值），
+/// 没有值时先用快照频道里的昼夜兜一下（主程序启动时推的那份就是当时的真实值），
 /// 之后一律以当场查询为准 —— 见 [isNightFromMirror] 的说明。
 ///
 /// [force] 写成 `true != force` 判断（不是 `false == force`）：定时器回调不带参数，
@@ -1483,7 +1483,7 @@ function warmPalette(key) {
 ///
 /// **处理器绝不返回 Promise**：见 [warmPalette] 的说明。
 musicxx.capability.implement("musicxx.media.palette.provide", function (payload) {
-    // 载荷里的 night 是当场算的：主题切了状态镜像不会更新，这里顺手校正一次
+    // 载荷里的 night 是当场算的：主题切了快照频道不会更新，这里顺手校正一次
     // （处理器里不直接调主程序动作，排到本次之后重推前景三色）
     if (payload) {
         applyNightState(payload.night);
@@ -1597,7 +1597,7 @@ function requestSlotSelect(slotId, itemId, note, manual) {
 
 /// 每秒检查一次：打开「隐藏歌曲图」且背景是本插件的两种模式之一时接管，否则交还
 ///
-/// 用状态镜像判断（同步读，不产生动作往返）：容器里没有"槽位变化事件"，轮询 1 秒足够 ——
+/// 用快照频道判断（同步读，不产生动作往返）：容器里没有"槽位变化事件"，轮询 1 秒足够 ——
 /// 一次读 + 一次字符串比较。用户手动操作后 10 分钟内不自动跟随；同一个目标 30 秒内不重复
 /// 请求（失败时不要每秒重试）。
 ///
@@ -1784,7 +1784,7 @@ function statusRows() {
     return [
         infoRow(
             "播放页背景",
-            "渲染槽位 player.background（状态镜像同步读）",
+            "渲染槽位 player.background（快照频道同步读）",
             backgroundStateText()),
         infoRow(
             "播放页歌曲图",
@@ -2110,7 +2110,7 @@ musicxx.capability.register("settings", function (args) {
 ///
 /// 模式选择走槽位动作（`musicxx.render.select`，异步）；其余几项写 config.json 并重新登记
 /// 三个背景样式（`updateEntry` 是整体替换）；处理器**同步返回**页面（动作结果稍后由页面
-/// 自己从状态镜像读到，见 [currentMode]）。
+/// 自己从快照频道读到，见 [currentMode]）。
 musicxx.capability.register("setOption", function (args) {
     const id = (args && typeof args.id === "string") ? args.id : "";
     const value = args ? args.value : null;

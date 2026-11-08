@@ -93,7 +93,7 @@ class MusicxxPluginAppCapabilities {
         log,
       );
       if (rc != 0) {
-        _runtime.log(3, 'action_respond(#$requestId) 失败(code=$rc)');
+        _runtime.log(3, 'capability_app_respond(#$requestId) 失败(code=$rc)');
       }
     } finally {
       arena.dispose();

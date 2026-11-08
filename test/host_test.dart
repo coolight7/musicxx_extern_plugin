@@ -5,7 +5,7 @@
 /// - 事件泵（host.ready / plugin.loaded 等按序到达）；
 /// - 插件扫描/加载/能力调用/卸载；
 /// - 钩子派发：Dart 处理器链 + 原生处理器链 + 合并，以及"无处理器"快速路径；
-/// - 状态镜像推送（插件侧同步可读）。
+/// - 快照频道推送（插件侧同步可读）。
 ///
 /// 前置：先跑 `tools/build_examples.ps1`（Windows）或 `tools/build_examples.sh`（Linux/macOS）（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 若找不到原生库或示例插件，测试会跳过而不是失败（CI 里可以先构建再跑）。
@@ -235,7 +235,7 @@ void main() {
       reason: '应用没声明的官方钩子必须被拒绝 (能力表返回"没声明")',
     );
     expect(probe['foreignActionRc'], -1, reason: '没声明过的动作名（能力）必须被拒绝');
-    expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的状态镜像');
+    expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的快照频道');
 
     _step('7 能力调用完成: $probeRaw');
     // 钩子派发（裁决型）：广告曲目 → cancel
@@ -579,7 +579,7 @@ void main() {
     );
 
     _step('15 JS 广播订阅执行完成');
-    // 能力探针: JS 侧同步读状态镜像 + 插件框架信息
+    // 能力探针: JS 侧同步读快照频道 + 插件框架信息
     final jsProbeRaw = await runtime.plugins.call(
       'example_js',
       'plugin.example_js.probe',
@@ -601,7 +601,7 @@ void main() {
     expect(slow['ok'], true);
     expect(slow['waitedMs'], 250);
     expect(slow['pluginId'], 'example_js');
-    expect(jsProbe['currentSongName'], 'Dart 推送的歌曲', reason: 'JS 应能同步读到状态镜像');
+    expect(jsProbe['currentSongName'], 'Dart 推送的歌曲', reason: 'JS 应能同步读到快照频道');
     expect(jsProbe['songChangedCount'], greaterThan(0));
 
     _step('16 JS 能力调用完成');
@@ -836,7 +836,7 @@ void main() {
       expect(imageCard['title'], isNotEmpty);
       expect(imageCard['blocks'], isA<List<Object?>>());
       // 设置项：控件把自己的 id 与值交回来（`args.id` / `args.value`），插件写 config.json
-      // 并重新登记背景样式；处理器同步返回页面（动作结果由页面自己从状态镜像读到）。
+      // 并重新登记背景样式；处理器同步返回页面（动作结果由页面自己从快照频道读到）。
       final Object? setOptionRaw = await runtime.plugins.call(
         'playing_bg_image',
         'plugin.playing_bg_image.setOption',

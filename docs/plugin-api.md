@@ -44,7 +44,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 >
 > | 旧说法 | 现在是什么 |
 > |---|---|
-> | 状态镜像 | `cache: latest` 的广播频道（`musicxx.state.*`）：应用发布，插件订阅即拿到当前值 |
+> | 快照频道 | `cache: latest` 的广播频道（`musicxx.state.*`）：应用发布，插件订阅即拿到当前值 |
 > | 变量 | 广播值频道（`writable` 决定谁能写，写要回执时属主回答） |
 > | 动作 | `runner: app` 的能力：主程序实现，宿主转发给应用并带回结果 |
 >
@@ -58,9 +58,9 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 实现一条决策型能力（应用来问你） | `musicxx.capability.implement(id, {phase, priority, ownerTag}, fn)` | `implement(id, priority, fn)`（`fn` 里填 `out`） | §8 |
 | 订阅一个广播频道 | `musicxx.broadcast.subscribe(id, fn)` | `subscribeTopic(id, fn)` | §2 / §4 |
 | 注销 / 退订 | `musicxx.capability.unregister(id)` / `musicxx.broadcast.unsubscribe(id)` | `unimplement(id)` / `iface.broadcasts->unsubscribe(...)` | §8 |
-| 读快照频道 | `musicxx.broadcast.read("musicxx.state.song")` | `stateJson(MUSICXX_STATE_SONG)` | §2 |
+| 读快照频道 | `musicxx.broadcast.read("musicxx.state.song")` | `broadcastJson(MUSICXX_BROADCAST_STATE_SONG)` | §2 |
 | 让应用做一件事 | `await musicxx.capability.call("musicxx.player.toggle")` | `capabilityCall("musicxx.player.toggle", "{}", &notify)` | §3 |
-| 读 / 写变量 | `await musicxx.broadcast.get(key)` / `musicxx.broadcast.write(key, v)` | 原生没有变量表（读用 `stateJson`，写用动作） | §5 |
+| 读 / 写变量 | `await musicxx.broadcast.get(key)` / `musicxx.broadcast.write(key, v)` | 原生没有变量表（读用 `broadcastJson`，写用动作） | §5 |
 | 订阅事件 | `musicxx.broadcast.subscribe(topic, fn)` | `subscribeTopic(topic, fn)` | §4 |
 | 发布事件 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
@@ -124,8 +124,9 @@ const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying ==
 
 ```cpp
 // C++：读一次（没有推送过的键返回空串）
-const std::string songJson = stateJson(MUSICXX_STATE_SONG);
-const utilxx_base::Json env = utilxx_base::Json::parse(stateJson(MUSICXX_STATE_ENV));
+const std::string songJson = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);
+const utilxx_base::Json env =
+    utilxx_base::Json::parse(broadcastJson(MUSICXX_BROADCAST_STATE_ENV));
 ```
 
 ### 2.1 有哪些键
@@ -202,7 +203,7 @@ subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
   或读变量 `musicxx.player.position`（当场读当前值）。不要以为读镜像就能拿到实时进度。
 - **要"是否在播放"读 `musicxx.state.env.isPlaying`**（布尔），不要靠 `player.state` 的字符串判断
   （它是"播放/暂停/停止事件"与枚举名的混合值，见 §3.2.1 的说明）。
-- **键名是固定的官方键**，写错就是读不到（`get` 返回 `null` / `stateJson` 返回空串），不会报错。
+- **键名是固定的官方键**，写错就是读不到（`get` 返回 `null` / `broadcastJson` 返回空串），不会报错。
 - 镜像里**不放**临时直链、token、插件自己的数据。插件自己的状态放 §5 的变量或私有存储里。
 
 ### 2.5 框架与应用信息（`host.info`）
@@ -1826,7 +1827,7 @@ iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 | 写法（JS） | 原生侧 | 时延与新鲜度 | 适合 |
 |---|---|---|---|
 | `await musicxx.broadcast.get(key)` | 没有对应入口（原生侧没有权威读） | 一次往返；值来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
-| `musicxx.broadcast.read(key)` | `stateJson("musicxx.broadcast.<键>")`：读快照频道里存的值（带 `hasValue` / `revision` / `ageMs` / `stale`） | 查框架线程的表（纳秒级）；可能旧 | 能力处理器、按帧 / 按事件的热路径 |
+| `musicxx.broadcast.read(key)` | `broadcastJson("musicxx.broadcast.<键>")`：读快照频道里存的值（带 `hasValue` / `revision` / `ageMs` / `stale`） | 查框架线程的表（纳秒级）；可能旧 | 能力处理器、按帧 / 按事件的热路径 |
 | `musicxx.broadcast.subscribe(key, fn)` / `broadcast.watch(key)` | `subscribeTopic("musicxx.broadcast.<键>", fn)`：订阅快照频道（订阅即推当前值） | 变化时回调 / 只保证读到的值新鲜 | 跟着变化做事 / 只要同步读不要回调 |
 
 ```js
@@ -1847,7 +1848,7 @@ const off = musicxx.broadcast.subscribe("musicxx.ui.animatedLevel", (value, info
 ```cpp
 // 同步读：值频道的快照存在广播频道 `musicxx.broadcast.<键>` 里
 // snapshot = {"key":..,"value":..,"revision":..,"hasValue":true,"valueMs":..,"ageMs":..,"stale":false}
-std::string snapshot = stateJson("musicxx.broadcast.musicxx.ui.songIconWave");
+std::string snapshot = broadcastJson("musicxx.broadcast.musicxx.ui.songIconWave");
 
 // 订阅变化：订阅快照频道（订阅即推一次当前值，之后每次提交都推一份快照）
 subscribeTopic("musicxx.broadcast.musicxx.ui.animatedLevel", [](std::string_view json) {
@@ -1933,7 +1934,7 @@ musicxx.broadcast.subscribers("tip.start");           // 有多少人在看（�
 musicxx.broadcast.undeclare("tip.start");
 ```
 
-原生侧没有自省方法：要读某个键的当前快照就 `stateJson("musicxx.broadcast.<键>")`；
+原生侧没有自省方法：要读某个键的当前快照就 `broadcastJson("musicxx.broadcast.<键>")`；
 “谁能写”“几个人在看”这类信息只有 JS 侧能读。
 
 ### 5.5 高频与超时

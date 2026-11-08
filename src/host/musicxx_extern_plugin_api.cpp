@@ -787,7 +787,7 @@ musicxx_extern_plugin_capability_app_respond(
   /// 才投到 IO 线程。
   const auto rc = handle->manager->respondAppCapability(request_id, status, result);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, "action_respond: 未知 requestId");
+    setErr(log, "capability_app_respond: 未知 requestId");
   }
   return rc;
 }

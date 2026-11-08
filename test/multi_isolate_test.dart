@@ -9,7 +9,7 @@
 ///
 /// 覆盖：两个 worker 并发 `hook_count` / `hook_emit(ASYNC)` / `broadcast_publish`，主 isolate
 /// 同时跑同步派发；断言不崩溃、事件 `seq` 严格递增、`callId` 不重复、裁决结果不串台、
-/// 多 isolate 写入的状态镜像可见。
+/// 多 isolate 写入的快照频道可见。
 ///
 /// 前置：先跑 `tools/build_examples.ps1`（Windows）或 `tools/build_examples.sh`（Linux/macOS）（产出 `.native/output/<平台>-<架构>-<配置>/`，含示例插件）。
 /// 找不到原生库或示例插件时跳过而不是失败（CI 里可以先构建再跑）。
@@ -27,7 +27,7 @@ import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 /// 与 C ABI 的 `MUSICXX_EXTERN_PLUGIN_HOOK_*` 一致（ffigen 不导出宏，这里显式声明）
 const int _hookAsync = 0;
 
-/// 状态镜像载荷的固定长度（worker 写入后由插件探针回读长度，证明写入真的生效）
+/// 快照频道载荷的固定长度（worker 写入后由插件探针回读长度，证明写入真的生效）
 const int _statePayloadBytes = 200;
 
 /// worker 轮数（每个 worker 的调用次数）
@@ -202,7 +202,7 @@ void main() {
       lastSeq = event.seq;
     }
 
-    // 7) 多 isolate 写入的状态镜像确实生效（插件侧同步读到的字节数）
+    // 7) 多 isolate 写入的快照频道确实生效（插件侧同步读到的字节数）
     int stateLen = -1;
     final DateTime deadline = DateTime.now().add(const Duration(seconds: 5));
     while (DateTime.now().isBefore(deadline)) {
@@ -220,9 +220,9 @@ void main() {
       runtime.pumpEvents();
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
-    expect(stateLen, _statePayloadBytes, reason: 'worker 写入的状态镜像必须可见');
+    expect(stateLen, _statePayloadBytes, reason: 'worker 写入的快照频道必须可见');
     _step(
-      '事件 ${seen.length} 条 (seq 单调)、裁决结果事件 ${decidedIds.length} 条、状态镜像 ${stateLen}B',
+      '事件 ${seen.length} 条 (seq 单调)、裁决结果事件 ${decidedIds.length} 条、快照频道 ${stateLen}B',
     );
 
     // 8) 并发风暴之后插件框架仍然可用（插件没被卸载、处理器位图没丢）
@@ -362,7 +362,7 @@ Future<void> _initGuardWorker(List<Object?> args) async {
   Isolate.exit(port, result);
 }
 
-/// 定长状态镜像载荷（ASCII，utf8 字节数 == [_statePayloadBytes]）
+/// 定长快照频道载荷（ASCII，utf8 字节数 == [_statePayloadBytes]）
 String _statePayload(String name, int index) {
   final String head = '{"sid":"$name-$index","pad":"';
   const String tail = '"}';

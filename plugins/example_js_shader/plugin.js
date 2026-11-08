@@ -16,7 +16,7 @@
 ///   插件框架把当前歌曲封面解码、缩放、可选预模糊后上传成 GPU 纹理)，第三种用**插件绑定的图片**
 ///   (`image` 声明 + 动作绑定)。
 /// - 把动画速率做成插件自己的设置项 (0.5x / 1x / 2x), 改完立即生效 (两种样式一起改)。
-/// - 频谱的两条读法 (『读取当前频谱』按钮): 状态镜像 (`musicxx.state.spectrum`, 同步、实时)
+/// - 频谱的两条读法 (『读取当前频谱』按钮): 快照频道 (`musicxx.state.spectrum`, 同步、实时)
 ///   与动作 (`musicxx.media.spectrum`, 异步)。动作**不能在能力处理器里等** —— 能力是同步
 ///   进插件框架调用的, 处理器里 await 动作会与调用方互锁; 这里异步读、结果记下来回读。
 ///
@@ -348,7 +348,7 @@ function setCoverHookBound(bound) {
     musicxx.host.log(2, "封面变化处理器: " + (bound ? "已绑定" : "已移除"));
 }
 
-/// 读状态镜像: 播放页背景槽位的当前状态 (同步读取, 不用等动作往返)
+/// 读快照频道: 播放页背景槽位的当前状态 (同步读取, 不用等动作往返)
 function backgroundSlot() {
     const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
     return slots["player.background"] || {};
@@ -431,7 +431,7 @@ function renderStateText() {
     return (slot.animate === false ? "静态一帧" : "动画中") + ", " + size;
 }
 
-/// 频谱状态文字 (读状态镜像 `musicxx.state.spectrum`, 播放中约 10 Hz 推送)
+/// 频谱状态文字 (读快照频道 `musicxx.state.spectrum`, 播放中约 10 Hz 推送)
 ///
 /// 镜像里的数据是"现在这一帧"的响度与 16 个频带(都是 0~1); `available` 为假时
 /// `level` / `bands` 都是 0, 用 `status` 说明原因 ("正在提取" / "未启用音乐动效" / ...)。
@@ -748,7 +748,7 @@ function cardView(args) {
                 children: [
                     kit.listRow({
                         title: "播放页背景",
-                        subtitle: "当前生效项 (状态镜像 musicxx.state.renderSlots)",
+                        subtitle: "当前生效项 (快照频道 musicxx.state.renderSlots)",
                         trailing: backgroundStateText(),
                     }, env),
                     kit.listRow({
@@ -764,7 +764,7 @@ function cardView(args) {
                     }, env),
                     kit.listRow({
                         title: "音频频谱",
-                        subtitle: "状态镜像 musicxx.state.spectrum（同步、实时）；完整结果点下面的按钮（异步读动作）",
+                        subtitle: "快照频道 musicxx.state.spectrum（同步、实时）；完整结果点下面的按钮（异步读动作）",
                         trailing: spectrumStateText(),
                     }, env),
                 ]
@@ -828,7 +828,7 @@ function spectrumActionText(s, err) {
 /// 主程序打开页面、点按钮都是**同步进插件框架**调用这个能力的 (主程序线程全程等插件框架返回),
 /// 而动作要由应用线程执行 —— 处理器里等动作就会与调用方互相等下去, 最后只能等到超时,
 /// 表现是"整个应用卡住几秒 + 调用插件能力失败, 未在时限内完成"。
-/// 所以这一页当场用状态镜像 (同步、实时) 画出来, 动作结果异步读取、读完记下来回读
+/// 所以这一页当场用快照频道 (同步、实时) 画出来, 动作结果异步读取、读完记下来回读
 /// (与 `example_js` 的 `crossCall` 同一做法)。
 let spectrumActionState = { pending: 0, text: "", error: "" };
 
@@ -881,7 +881,7 @@ function spectrumProbeView(args) {
         subtitle: "数据来自内置『音乐动效』插件提取的频谱",
         blocks: [
             kit.listRow({
-                title: "状态镜像",
+                title: "快照频道",
                 subtitle: "musicxx.state.spectrum（同步读，播放中约 10 Hz 刷新）",
                 trailing: spectrumStateText(),
             }, env),
@@ -895,7 +895,7 @@ function spectrumProbeView(args) {
                 text: "• 没有数据时 status 是 loading（正在提取）/ off（未启用音乐动效）/ unavailable（来源不是本地或缓存、时长超限），这时值恒为 0，请按 status 判断，不要按数值判断。",
             }, env),
             kit.hint({
-                text: "• 这一页也演示了『能力处理器里不能等动作』这条规则：能力是同步进插件框架调用的（主程序线程在等它返回），处理器里 await 动作会与调用方互锁、只能等到超时；要实时数据读状态镜像，要动作结果就异步读、把结果记下来回读（本页与 example_js 的 crossCall 都是这么做的）。",
+                text: "• 这一页也演示了『能力处理器里不能等动作』这条规则：能力是同步进插件框架调用的（主程序线程在等它返回），处理器里 await 动作会与调用方互锁、只能等到超时；要实时数据读快照频道，要动作结果就异步读、把结果记下来回读（本页与 example_js 的 crossCall 都是这么做的）。",
             }, env),
             // 动画示例：值表达式 + 动画块（musicxx.AnimatedBuilder / SizeTransition / FadeTransition）
             //

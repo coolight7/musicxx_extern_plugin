@@ -14,7 +14,7 @@
 
 | 类型 | 插件 | 说明 |
 |---|---|---|
-| 演示示例 | `example_native` | 动态库插件：能力 / 广播 / 状态镜像 / 日志 / UI / 播放页背景 |
+| 演示示例 | `example_native` | 动态库插件：能力 / 广播 / 快照频道 / 日志 / UI / 播放页背景 |
 | 演示示例 | `example_native_multi` | 动态库插件：**多目标打包**（一个包里放多个系统/架构分支，运行时按当前系统与 CPU 架构选分支） |
 | 演示示例 | `example_js` | JS插件：与 native 版行为等价（零编译） |
 | 演示示例 | `example_js_shader` | JS插件：播放页背景样式 + 动画速率设置 + 页面内联着色器块 |
@@ -116,7 +116,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测
 | 主题 | 文档 |
 |---|---|
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（能力与广播：状态镜像 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播：快照频道 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答） | `docs/plugin-capabilities.md`（由 `tools/capabilities.def.json` 生成） |
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（总头文件）与 `plugin_api.h`（musicxx 专用约定） |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |

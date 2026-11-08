@@ -151,7 +151,7 @@ class MusicxxPluginManager {
   /// 加载插件（同步等待，带超时）
   ///
   /// - [idOrPath] 传插件 id（扫描结果的 `id`）或插件目录/库文件路径；
-  /// - [args] 作为插件参数下发（插件经 `pluginxx.config` 的 `get_plugin_args` 读取）；
+  /// - [args] 作为插件参数下发（插件经 `<应用名>.config` 表的 `get_plugin_args` 读取）；
   /// - 结果事件：`musicxx.plugin.loaded` / `musicxx.plugin.error`。
   void load(
     String idOrPath, {

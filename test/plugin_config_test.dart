@@ -8,7 +8,7 @@
 /// - 改设置 → 写回 config.json → 重新加载（等价于重启）后仍然生效；
 /// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里
 ///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
-/// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着状态镜像走：
+/// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着快照频道走：
 ///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要更新（不能停在"已请求"）。
 /// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
 ///   异步回读 —— 处理器里等动作会与同步进插件框架的调用方互锁，只能等到 5 秒超时（这条用例守它）。
@@ -260,7 +260,7 @@ void main() {
     expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('example_js_shader：背景状态文字跟着状态镜像更新', () async {
+  test('example_js_shader：背景状态文字跟着快照频道更新', () async {
     if (env == null || !env.hasPlugin('example_js_shader')) {
       markTestSkipped(
         '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
@@ -469,7 +469,7 @@ void main() {
       reason: '能力处理器不能等动作：这一页必须立刻返回（等动作会卡到超时）',
     );
     // 镜像还没推过：镜像那一行只能说"无状态"（动作结果照旧异步读，不影响这一页当场画出来）
-    expect(_rowOf(view, '状态镜像')?['right'], '无状态');
+    expect(_rowOf(view, '快照频道')?['right'], '无状态');
 
     // 推一条"有数据"的镜像：镜像那一行按镜像说真话（同步、实时）
     runtime.broadcasts.publish('musicxx.state.spectrum', <String, Object?>{
@@ -482,7 +482,7 @@ void main() {
       'frameHz': 10,
     });
     view = await _callView(runtime, 'spectrumProbe', plugin: pluginId);
-    expect(_rowOf(view, '状态镜像')?['right'], '有数据（响度 42%）');
+    expect(_rowOf(view, '快照频道')?['right'], '有数据（响度 42%）');
 
     // 动作结果由页面回读：每次取页面都会再发起一次读取，所以这里反复取页面，
     // 直到某一次读到的就是异步读回的结果（处理器同步返回，每次取都是立即的）
