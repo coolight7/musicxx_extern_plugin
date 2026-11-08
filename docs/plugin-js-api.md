@@ -138,7 +138,7 @@ musicxx.capability.handlers(id, "after");    // 只看一个阶段（缺省 = �
 ```
 
 - `id` 必须是**全名**（官方 `musicxx.*`）；插件框架的约定表里没有的能力会被拒绝；
-- `phase`：参与方式 —— `"before"`（前链：改输入 / `stop`）、`"impl"`（实现链，**不写就是它**）、
+- `phase`：参与方式 —— `"before"`（前链：改输入 / `cancel`）、`"impl"`（实现链，**不写就是它**）、
   `"after"`（后链：改输出 / `drop`）。只能实现能力声明过的阶段（[plugin-capabilities.md](plugin-capabilities.md)
   的「阶段」列），否则插件框架会拒绝并在日志里说明；**前链 / 后链必须是同步返回**（返回 Promise
   拿不到结果），要逐步串行；
@@ -195,13 +195,13 @@ musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
 ### 4.2 决策型能力的返回值
 
 ```js
-{ action: "continue" | "skip" | "cancel" | "replace", patch: { ... }, error?: "说明" }
+{ action: "continue" | "cancel", patch: { ... }, error?: "说明" }
 ```
 
-`action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `skip` = 跳过本曲）。当前版本已接入的
+`action` 的含义由各调用点决定（例如 `beforePlaySong` 的 `cancel` = 跳过本曲）。当前版本已接入的
 裁决型能力有七个，语义见 [plugin-capabilities.md](plugin-capabilities.md) 的「载荷与回答（已接入的能力）」：
-`player.beforePlaySong`（只支持 `skip`）、`player.source.beforeParse`（`skip` / `patch.src`）、
-`player.error`（`stop` / `skip` / `patch.tryNextSrc`），以及“改播放值”的四个：
+`player.beforePlaySong`（`cancel`）、`player.source.beforeParse`（`cancel` / `patch.src`）、
+`player.error`（`stop` 停止播放 / `cancel` 跳过本曲 / `patch.tryNextSrc`），以及“改播放值”的四个：
 `player.seek` / `player.volume` / `player.speed` / `player.pitch`（`patch.to` 换新值，
 `cancel` 这次不改）。
 

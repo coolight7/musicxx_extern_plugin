@@ -46,7 +46,7 @@
       "id": "musicxx.player.beforePlaySong",
       "dart": "playerBeforePlaySong",
       "title": "播放前",
-      "depict": "播放某一曲之前：可以跳过本曲（skip）；换音源/改音质当前版本未实现",
+      "depict": "播放某一曲之前：可以跳过本曲（cancel）；换音源/改音质当前版本未实现",
       "impls": "many",
       "merge": "veto",
       "phases": [
@@ -61,13 +61,13 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, song, mode, quality}`：`song` 是只读视图（`sid/name/artist/album/durationMs/year/genre/srcKey/audio[]/video[]`，不含音频直链），`mode` = 播放模式、`quality` = 当前音质。裁决只实现 `{\"action\":\"skip\"}` = 跳过本曲（走应用既有的切下一曲流程）；`patch`（换音源/改音质）当前版本未实现，会被记一条日志后忽略。异步派发：切歌不会被插件拖慢；等待期间若又来了新的切歌请求，本次裁决被丢弃（插件可以自己用 `sid` 判断）。"
+      "doc": "载荷 `{sid, song, mode, quality}`：`song` 是只读视图（`sid/name/artist/album/durationMs/year/genre/srcKey/audio[]/video[]`，不含音频直链），`mode` = 播放模式、`quality` = 当前音质。裁决只实现 `{\"action\":\"cancel\"}` = 跳过本曲（走应用既有的切下一曲流程）；`patch`（换音源/改音质）当前版本未实现，会被记一条日志后忽略。异步派发：切歌不会被插件拖慢；等待期间若又来了新的切歌请求，本次裁决被丢弃（插件可以自己用 `sid` 判断）。"
     },
     {
       "id": "musicxx.player.source.beforeParse",
       "dart": "playerSourceBeforeParse",
       "title": "音源解析前",
-      "depict": "解析某个音源之前：可以跳过它（skip）或替换本轮使用的音源（patch.src）",
+      "depict": "解析某个音源之前：可以跳过它（cancel）或替换本轮使用的音源（patch.src）",
       "impls": "many",
       "merge": "first",
       "phases": [
@@ -82,7 +82,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, srcKey, src, index, tryLocalOrCache}`：`src` 是音源视图（`type/empty/srcKey/quality/durationMs/hashMd5/size`），`index` = 本轮解析的音源下标。裁决：`{\"action\":\"skip\"}` = 本轮不解析该音源（调用方接着试下一个）；`patch.src = {\"type\":\"Local|UrlLink|Bili|...\",\"src\":\"<新地址>\",\"info\":{...}}` = 只替换本轮使用的音源（不改动歌曲实体的音源列表），字段不合法会被忽略。异步派发（不卡住解析），等待期间切歌则本次裁决作废。"
+      "doc": "载荷 `{sid, srcKey, src, index, tryLocalOrCache}`：`src` 是音源视图（`type/empty/srcKey/quality/durationMs/hashMd5/size`），`index` = 本轮解析的音源下标。裁决：`{\"action\":\"cancel\"}` = 本轮不解析该音源（调用方接着试下一个）；`patch.src = {\"type\":\"Local|UrlLink|Bili|...\",\"src\":\"<新地址>\",\"info\":{...}}` = 只替换本轮使用的音源（不改动歌曲实体的音源列表），字段不合法会被忽略。异步派发（不卡住解析），等待期间切歌则本次裁决作废。"
     },
     {
       "id": "musicxx.player.source.resolve",
@@ -131,7 +131,7 @@
         "command"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）之前**派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 动作 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。裁决：`{\"action\":\"continue\",\"patch\":{\"to\":60000}}` = 换成别的目标位置；`{\"action\":\"cancel\"}`（或 `skip`）= 这次不跳（保持原位）。超出范围的目标会被应用夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。"
+      "doc": "载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）之前**派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 动作 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。裁决：`{\"action\":\"continue\",\"patch\":{\"to\":60000}}` = 换成别的目标位置；`{\"action\":\"cancel\"}` = 这次不跳（保持原位）。超出范围的目标会被应用夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。"
     },
     {
       "id": "musicxx.player.volume",
@@ -203,7 +203,7 @@
       "id": "musicxx.player.error",
       "dart": "playerError",
       "title": "播放失败",
-      "depict": "播放失败：可以停止播放（stop）、跳过当前曲目（skip）或不再尝试当前源（patch.tryNextSrc）",
+      "depict": "播放失败：可以停止播放（stop）、跳过当前曲目（cancel）或不再尝试当前源（patch.tryNextSrc）",
       "impls": "many",
       "merge": "veto",
       "phases": [
@@ -218,7 +218,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{\"action\":\"stop\"}` = 停止播放；`{\"action\":\"skip\"}`（或 `cancel`）= 跳到下一曲；`{\"action\":\"continue\",\"patch\":{\"tryNextSrc\":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按主程序的换源/下一曲策略走）。异步派发（不占用调用线程，主程序不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。主程序只在\"这条能力有处理器\"时才派发。"
+      "doc": "载荷 `{sid, srcKey, isNowUseSrc, errorCount, durationMs, positionMs}`（`errorCount` 已包含本次失败）。裁决：`{\"action\":\"stop\"}` = 停止播放；`{\"action\":\"cancel\"}` = 跳到下一曲；`{\"action\":\"continue\",\"patch\":{\"tryNextSrc\":false}}` = 不再尝试当前源（跳过忽略错误并重试的分支，直接按主程序的换源/下一曲策略走）。异步派发（不占用调用线程，主程序不会被插件拖住）：等待期间切歌则本次裁决作废；处理器请尽快给出裁决，本次失败处理会等它结算。主程序只在\"这条能力有处理器\"时才派发。"
     },
     {
       "id": "musicxx.media.notification",
@@ -341,7 +341,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, song, audio, parsed, path, enable, keyword, artist, lrcid, position, caller}`：主程序要为**一首歌加载歌词**时派发一次（外置 → 内置插件 → 应用自身，第一个给出合法歌词的生效）。`song` 是歌曲只读视图（`sid/name/artist/album/durationMs/srcKey/audio[]/video[]`，不含音频直链）；`audio` = 本轮音源视图（`type/srcKey/quality/durationMs/hashMd5/size`）；`parsed` = 实际播放用的那份音源（缓存文件 / 临时直链，字段同上）；`path` 只有本地、缓存、`content://`、asset 才有值（网络来源是空串 —— 要直链请自己走 `musicxx.net`）；`enable` = 这一轮允许做的事 `{musicxx_server（读拟声云歌词）, cache（读应用的歌词缓存）, builtin（读内置歌词：播放器元数据与媒体文件标签）, builtout（读同名外置歌词）, match（自动匹配）, upload（可自动上传）}`；`keyword` / `artist` = 自动匹配用的搜索串（前链可以改写）；`lrcid` > 0 = 强制用这一条云歌词；`position` 非空 = 强制读这个位置（文件路径，或歌词来源自己的标识）；`caller` = 谁在问（空串 = 主程序自己或命令行）。处理器回答 `{\"patch\": {\"lyric\": {\"content\": \"[00:12.34]…\", \"lrcid\": 0, \"sourceType\": \"builtin\", \"offsetMs\": 0}}}`：`content` 是 LRC 文本（主程序自己解析，不认别的格式），`sourceType` 取 `builtin` / `builtout` / `local` / `musicxx_server` / `match`（另有 `builtinCache` / `builtoutCache`；省掉按 `musicxx_server` 算；写 `builtin` / `builtout` 的歌词会像应用自己读到的那样进歌词缓存，并按 `enable.upload` 决定是否自动上传），`offsetMs` = 这首歌的歌词偏移（毫秒，可省）。`content` 为空、解析不出歌词行 = 这次不提供，主程序接着问下一个实现。`{\"patch\": {\"lyric\": {\"disabled\": true}}}` = 这首歌**禁用歌词**（这是合法结果：界面显示『禁用歌词』，后续读取全部不做）。`{\"disable\": true}` 是框架级置空：这次不再问别的实现，也不写缓存。后链回答 `{\"value\": {\"lyric\": {…}}}` 换掉这次的结果，`{\"action\": \"drop\"}` = 这次按没有歌词处理。**回答请用 `patch` 包一层**：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历。前链能改写 `keyword` / `artist` / `lrcid` / `position` 与 `enable` 里的各项（回答 `{\"patch\": {…}}`），`{\"action\": \"stop\"}` = 这次不加载歌词。异步派发：主程序最多等 8 s（超时按没给处理，接着走应用自己的加载）。应用自己的实现会把这一轮拆成五个细分埋点按顺序询问（`musicxx.lyric.load.musicxx_server` → `.cache` → `.builtin` → `.builtout` → `.match`）；**插件在这里接管之后，细分埋点不会再被询问**。"
+      "doc": "载荷 `{sid, song, audio, parsed, path, enable, keyword, artist, lrcid, position, caller}`：主程序要为**一首歌加载歌词**时派发一次（外置 → 内置插件 → 应用自身，第一个给出合法歌词的生效）。`song` 是歌曲只读视图（`sid/name/artist/album/durationMs/srcKey/audio[]/video[]`，不含音频直链）；`audio` = 本轮音源视图（`type/srcKey/quality/durationMs/hashMd5/size`）；`parsed` = 实际播放用的那份音源（缓存文件 / 临时直链，字段同上）；`path` 只有本地、缓存、`content://`、asset 才有值（网络来源是空串 —— 要直链请自己走 `musicxx.net`）；`enable` = 这一轮允许做的事 `{musicxx_server（读拟声云歌词）, cache（读应用的歌词缓存）, builtin（读内置歌词：播放器元数据与媒体文件标签）, builtout（读同名外置歌词）, match（自动匹配）, upload（可自动上传）}`；`keyword` / `artist` = 自动匹配用的搜索串（前链可以改写）；`lrcid` > 0 = 强制用这一条云歌词；`position` 非空 = 强制读这个位置（文件路径，或歌词来源自己的标识）；`caller` = 谁在问（空串 = 主程序自己或命令行）。处理器回答 `{\"patch\": {\"lyric\": {\"content\": \"[00:12.34]…\", \"lrcid\": 0, \"sourceType\": \"builtin\", \"offsetMs\": 0}}}`：`content` 是 LRC 文本（主程序自己解析，不认别的格式），`sourceType` 取 `builtin` / `builtout` / `local` / `musicxx_server` / `match`（另有 `builtinCache` / `builtoutCache`；省掉按 `musicxx_server` 算；写 `builtin` / `builtout` 的歌词会像应用自己读到的那样进歌词缓存，并按 `enable.upload` 决定是否自动上传），`offsetMs` = 这首歌的歌词偏移（毫秒，可省）。`content` 为空、解析不出歌词行 = 这次不提供，主程序接着问下一个实现。`{\"patch\": {\"lyric\": {\"disabled\": true}}}` = 这首歌**禁用歌词**（这是合法结果：界面显示『禁用歌词』，后续读取全部不做）。`{\"disable\": true}` 是框架级置空：这次不再问别的实现，也不写缓存。后链回答 `{\"value\": {\"lyric\": {…}}}` 换掉这次的结果，`{\"action\": \"drop\"}` = 这次按没有歌词处理。**回答请用 `patch` 包一层**：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历。前链能改写 `keyword` / `artist` / `lrcid` / `position` 与 `enable` 里的各项（回答 `{\"patch\": {…}}`），`{\"action\": \"cancel\"}` = 这次不加载歌词。异步派发：主程序最多等 8 s（超时按没给处理，接着走应用自己的加载）。应用自己的实现会把这一轮拆成五个细分埋点按顺序询问（`musicxx.lyric.load.musicxx_server` → `.cache` → `.builtin` → `.builtout` → `.match`）；**插件在这里接管之后，细分埋点不会再被询问**。"
     },
     {
       "id": "musicxx.lyric.load.musicxx_server",
@@ -687,7 +687,7 @@
         "command"
       ],
       "implemented": true,
-      "doc": "三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{\"patch\": {\"args\": {...}}}` 改这次调用的参数、`{\"action\": \"stop\"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{\"value\": ...}` 改最终结果、`{\"action\": \"drop\"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一条能力 id（插件框架只认固定的能力表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{\"patch\": {\"value\": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{\"disable\": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。"
+      "doc": "三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{\"patch\": {\"args\": {...}}}` 改这次调用的参数、`{\"action\": \"cancel\"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{\"value\": ...}` 改最终结果、`{\"action\": \"drop\"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一条能力 id（插件框架只认固定的能力表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{\"patch\": {\"value\": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{\"disable\": true}` 是显式置空：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。"
     },
     {
       "id": "musicxx.app.foreground",

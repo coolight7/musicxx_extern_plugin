@@ -2,7 +2,7 @@
 ///
 /// 行为:
 /// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回
-/// skip 裁决;
+/// cancel 裁决;
 /// 2. 注册 `musicxx.song.changed` (observe): 读状态镜像里的歌曲名并写日志;
 /// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
 /// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
@@ -131,13 +131,13 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t onStart() {
     startThread = threadIdText();
 
-    // 1) 跳过"广告"曲目 (决定型能力: 返回 {"action":"skip"})
+    // 1) 跳过"广告"曲目 (决定型能力: 返回 {"action":"cancel"})
     implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
          [this](std::string_view input, std::string &out) -> int32_t {
            // 载荷: {"sid":"...","song":{"name":"...","artist":"..."},...}
            if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") !=
                std::string_view::npos) {
-             out = R"({"action":"skip","reason":"example_native: 广告曲目"})";
+             out = R"({"action":"cancel","reason":"example_native: 广告曲目"})";
              log.info("example_native: 命中广告曲目, 请求跳过");
            }
            return 0;

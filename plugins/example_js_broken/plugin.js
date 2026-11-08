@@ -5,5 +5,5 @@
 /// 这是刻意的（对照示例），不要照着它写自己的插件。
 
 musicxx.capability.implement("musicxx.player.beforePlaySong", { mode: "decision" }, function (ctx) {
-    return { action: "skip" };
+    return { action: "cancel" };
 }

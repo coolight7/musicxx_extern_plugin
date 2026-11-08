@@ -202,7 +202,7 @@ struct MyCtx : public musicxx::plugin::PluginBase {
              [this](std::string_view input, std::string& out) -> int32_t {
                  if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
                      ++hits;
-                     out = R"({"action":"skip","error":"my_plugin: 广告曲目"})";
+                     out = R"({"action":"cancel","error":"my_plugin: 广告曲目"})";
                  }
                  return 0;   // 返回 0 且 out 为空 = 不裁决，交给下一个处理器
              });
@@ -638,11 +638,11 @@ netCallAsync(net_op::httpDownload,
 当前可用的决策型能力有七个（前三个是播放链路，后四个是“改播放值”）：
 
 ```cpp
-// ① 跳过本曲：只支持 skip（返回其它 action 会被记日志后忽略）
+// ① 跳过本曲：只支持 cancel（返回其它 action 会被记日志后忽略）
 hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
-             out = R"({"action":"skip"})";
+             out = R"({"action":"cancel"})";
          }
          return 0;
      });
@@ -651,9 +651,9 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
 hook(MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_BEFORE_PARSE, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          if (input.find("\"type\":\"Bili\"") != std::string_view::npos) {
-             out = R"({"action":"skip"})";   // 本轮不解析该音源
+             out = R"({"action":"cancel"})";   // 本轮不解析该音源
              // 或者只替换本轮使用的音源（不改歌曲实体的音源列表）：
-             // out = R"({"action":"replace","patch":{"src":{"type":"UrlLink","src":"https://example.com/a.mp3"}}})";
+             // out = R"({"patch":{"src":{"type":"UrlLink","src":"https://example.com/a.mp3"}}})";
          }
          return 0;
      });
@@ -697,7 +697,7 @@ hookBefore(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
 
 规则（完整说明见 [plugin-api.md](plugin-api.md) §8.1）：
 
-- 前链（`before`）**正序**、只能改输入（`{"patch": {...}}`）或停下（`{"action":"stop"}`）；
+- 前链（`before`）**正序**、只能改输入（`{"patch": {...}}`）或拦下（`{"action":"cancel"}`）；
 - 后链（`after`）**逆序**、只能改输出（`{"value": ...}`）或丢弃（`{"action":"drop"}`）。
   逆序是刻意的：外置插件最后改输出，应用自己的兜底实现不能盖掉插件的改写；
 - 阶段处理器**必须是同步处理器**（能力登记里的 `sync = 1`）：要拿到这一步的结果才能跑下一步；

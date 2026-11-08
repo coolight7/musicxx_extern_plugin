@@ -8,6 +8,18 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1108.1 内，未发布）：阶段词统一，拦下一律叫 `cancel`
+
+- **一个处理只有一个词**：前链 / 实现链的“这次不做”都是 `{"action":"cancel"}`（原来的 `stop` / `skip`
+  不再接受，也不再当同义词）；后链“这次的值作废”是 `{"action":"drop"}`；实现链“别再问别人”是
+  `{"disable": true}`。插件框架头文件只剩 `CONTINUE` / `CANCEL` / `DROP` 三个动作宏。
+- **`stop` 只剩一处**：`musicxx.player.error` 的 `{"action":"stop"}` = 停止播放（域动作，不是阶段词）。
+- 示例插件（`example_js` / `example_js_broken` / `example_native` / `example_native_multi`）同步改成
+  `cancel`；`example_native_multi` 前链的入参也改叫 `cancel`。
+- 主程序侧的自省与错误码跟着改名：`stoppedBy` → `canceledBy`、`lastStoppedBy` → `lastCanceledBy`、
+  `stops` → `cancels`、错误码 `stopped` → `canceled`。
+- 插件 ABI / C ABI 版本不变（只是回答里的词变了，示例与文档同步）。
+
 ### 变更（2026.1108.1，非破坏）：预设表只做常量与文档，任何 id 都能用
 
 - **删掉 `dynamicBroadcasts` 与写法匹配**：`tools/capabilities.def.json` 的 `broadcasts` / `capabilities`

@@ -238,7 +238,7 @@ void main() {
     expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的状态镜像');
 
     _step('7 能力调用完成: $probeRaw');
-    // 钩子派发（裁决型）：广告曲目 → skip
+    // 钩子派发（裁决型）：广告曲目 → cancel
     final Map<String, Object?>? verdict = runtime.capabilities.dispatch(
       MusicxxCapabilityId.playerBeforePlaySong,
       <String, Object?>{
@@ -247,7 +247,7 @@ void main() {
       },
     );
     expect(verdict, isNotNull);
-    expect(verdict!['action'], 'skip');
+    expect(verdict!['action'], 'cancel');
     // 普通曲目 → 无裁决
     expect(
       runtime.capabilities.dispatch(
@@ -261,7 +261,7 @@ void main() {
     );
 
     _step('8 decide 完成');
-    // Dart 处理器链 + 合并：Dart 侧给 patch，原生侧给 skip（veto 最保守 → 保留 skip）
+    // Dart 处理器链 + 合并：Dart 侧给 patch，原生侧给 cancel（veto 最保守 → 保留 cancel）
     Map<String, Object?> dartHandler(MusicxxPluginCapabilityContext context) =>
         <String, Object?>{
           'action': 'continue',
@@ -284,7 +284,7 @@ void main() {
         'song': <String, Object?>{'name': '广告曲目 2'},
       },
     );
-    expect(merged!['action'], 'skip', reason: 'veto：cancel/skip 不被后续覆盖');
+    expect(merged!['action'], 'cancel', reason: 'veto：cancel 不被后续覆盖');
     runtime.capabilities.off(
       MusicxxCapabilityId.playerBeforePlaySong,
       dartHandler,
@@ -317,7 +317,7 @@ void main() {
           },
         );
     expect(asyncVerdict, isNotNull);
-    expect(asyncVerdict!['action'], 'skip', reason: '异步裁决结果应与同步一致');
+    expect(asyncVerdict!['action'], 'cancel', reason: '异步裁决结果应与同步一致');
     expect(
       await runtime.capabilities.dispatchAsync(
         MusicxxCapabilityId.playerBeforePlaySong,
@@ -513,7 +513,7 @@ void main() {
       },
     );
     expect(jsVerdict, isNotNull);
-    expect(jsVerdict!['action'], 'skip');
+    expect(jsVerdict!['action'], 'cancel');
     expect(
       runtime.capabilities.dispatch(
         MusicxxCapabilityId.playerBeforePlaySong,
@@ -536,7 +536,7 @@ void main() {
           },
         );
     expect(jsAsyncVerdict, isNotNull);
-    expect(jsAsyncVerdict!['action'], 'skip');
+    expect(jsAsyncVerdict!['action'], 'cancel');
 
     _step('14.5 JS 异步裁决完成');
     // JS 裁决处理器返回 Promise (异步裁决): 插件框架一直等到脚本结算, 结算后裁决生效

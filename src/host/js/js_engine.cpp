@@ -286,7 +286,7 @@ var featurePointImpls = new Map();
 
   /// 能力阶段 (参与方式): 能力 id 表示**一次调用**, 由阶段表达怎么参与
   ///
-  /// - `before`: 前链, 串行、正序, 只能改输入 (`{patch: {...}}`) 或停下 (`{action: "stop"}`);
+  /// - `before`: 前链, 串行、正序, 只能改输入 (`{patch: {...}}`) 或拦下 (`{action: "cancel"}`);
   /// - `impl`  : 实现链, 给结果 / 裁决 (不写阶段就是它);
   /// - `after` : 后链, 串行、**逆序**, 只能改输出 (`{value: ...}`) 或丢弃 (`{action: "drop"}`)。
   var PHASES = { impl: "impl", before: "before", after: "after" };

@@ -52,15 +52,15 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
     ///
     /// 能力 id 表示一次调用, 参与方式由注册时的阶段表达; 同一个 `ownerTag` 在
     /// 不同阶段的登记互不覆盖。
-    /// - 前链 (`before`): 串行、**正序**, 只能改输入或停下。
-    ///   这里: `stop` 为真 → 停下 (这次不执行实现); 否则把 `limit` 改成 50。
+    /// - 前链 (`before`): 串行、**正序**, 只能改输入或拦下。
+    ///   这里: `cancel` 为真 → 拦下 (这次不执行实现); 否则把 `limit` 改成 50。
     /// - 后链 (`after`): 串行、**逆序**, 只能改输出或丢弃。
     ///   这里: `drop` 为真 → 丢弃 (这次没有结果); 否则把结果换成固定的一份。
     implementBefore(MUSICXX_CAPABILITY_PLAYLIST_LOAD, 0,
                [](std::string_view input, std::string &out) -> int32_t {
                  const std::string text{input};
-                 if (text.find("\"stop\":true") != std::string::npos) {
-                   out = R"({"action":"stop"})";
+                 if (text.find("\"cancel\":true") != std::string::npos) {
+                   out = R"({"action":"cancel"})";
                    return 0;
                  }
                  out = R"({"patch":{"limit":50}})";

@@ -981,7 +981,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       current = Json::object();
     }
     Json accumulated = Json::object();
-    bool stopped = false;
+    bool canceled = false;
     for (const CapabilityHandler &h : handlers) {
       if (!h.spec.run_sync && !h.rowStart) {
         // 前链 / 后链只接受同步处理器 (注册时已拒绝), 这里只防御
@@ -1003,9 +1003,8 @@ std::string MusicxxHostManager::runCapabilityHandlers(
         deepMergeInto(accumulated, answer["patch"]);
       }
       const std::string action = actionOf(answer);
-      if (action == "stop" || action == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL ||
-          action == MUSICXX_PLUGIN_CAPABILITY_ACTION_SKIP) {
-        stopped = true;
+      if (action == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL) {
+        canceled = true;
         break;
       }
     }
@@ -1013,13 +1012,13 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     result["handled"] = called > 0 && mode != DispatchMode::Notify;
     result["handlers"] = static_cast<int32_t>(handlers.size());
     result["called"] = called;
-    if (stopped || !accumulated.empty()) {
+    if (canceled || !accumulated.empty()) {
       Json res = Json::object();
       if (!accumulated.empty()) {
         res["patch"] = accumulated;
       }
-      if (stopped) {
-        res["action"] = "stop";
+      if (canceled) {
+        res["action"] = MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL;
       }
       result["result"] = res;
     }
@@ -1055,7 +1054,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       if (answer.contains("value")) {
         value = answer["value"];
       }
-      if (actionOf(answer) == "drop") {
+      if (actionOf(answer) == MUSICXX_PLUGIN_CAPABILITY_ACTION_DROP) {
         dropped = true;
         break;
       }
@@ -1067,7 +1066,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     Json res = Json::object();
     res["value"] = value;
     if (dropped) {
-      res["action"] = "drop";
+      res["action"] = MUSICXX_PLUGIN_CAPABILITY_ACTION_DROP;
     }
     result["result"] = res;
     emitObserveMirror(called);
@@ -1132,8 +1131,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       break;
     }
     if (meta.merge == MUSICXX_CAPABILITY_MERGE_VETO &&
-        (action == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL ||
-         action == MUSICXX_PLUGIN_CAPABILITY_ACTION_SKIP)) {
+        action == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL) {
       break;
     }
   }

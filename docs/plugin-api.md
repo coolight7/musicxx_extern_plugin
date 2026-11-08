@@ -1378,17 +1378,17 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 
 | 动作 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id, title, type, depict, available, callable, callDoc, callStat, rows:[{type, layer, owner, name, priority, enabled, effective, note}], stages:[{owner, name, layer, priority, enabled, before, after, runs, stops, drops, errors}], broadcasts:[…], lastStoppedBy?, lastDroppedBy?, lastRewrittenBy?, stageReentries?}]}` |
-| `musicxx.feature.point.call` | `{id, args?, refresh?}` | `{ok, id, value, by, identity, fromCache, ms, stoppedBy?, droppedBy?}` 或 `{ok:false, error, message}` |
+| `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id, title, type, depict, available, callable, callDoc, callStat, rows:[{type, layer, owner, name, priority, enabled, effective, note}], stages:[{owner, name, layer, priority, enabled, before, after, runs, cancels, drops, errors}], broadcasts:[…], lastCanceledBy?, lastDroppedBy?, lastRewrittenBy?, stageReentries?}]}` |
+| `musicxx.feature.point.call` | `{id, args?, refresh?}` | `{ok, id, value, by, identity, fromCache, ms, canceledBy?, droppedBy?}` 或 `{ok:false, error, message}` |
 | `musicxx.feature.point.define` | `{id, title?, depict?, args?, result?}` | `{ok:true, id}` 或 `{ok:false, error}` |
 | `musicxx.feature.point.undefine` | `{id}` | `{ok, removed}` |
 
 - `rows` 里的每一行是"这个功能点的一个实现"：`layer` = `extern`（外置插件实现）/ `builtin`（内置插件）/
   `core`（应用兜底），`effective` = 现在真正生效的那一个；`note` 会写清"谁把它关掉了"（`disable` 裁决）。
 - `stages` 是**同一个功能点的前链与后链**（与 `rows` 是两回事）：`before` / `after` 为真表示这条
-  登记管哪一段，`runs` / `stops` / `drops` / `errors` 是计数；顺序按前链（层 → 优先级 → 登记顺序），
-  **后链逆序执行**（所以这个列表的最后一行是最先改输出的）。`lastStoppedBy` / `lastDroppedBy` /
-  `lastRewrittenBy` 是最近一次调用里"谁停下 / 谁丢弃 / 谁最后改了输出"，只用于排障。
+  登记管哪一段，`runs` / `cancels` / `drops` / `errors` 是计数；顺序按前链（层 → 优先级 → 登记顺序），
+  **后链逆序执行**（所以这个列表的最后一行是最先改输出的）。`lastCanceledBy` / `lastDroppedBy` /
+  `lastRewrittenBy` 是最近一次调用里"谁拦下 / 谁丢弃 / 谁最后改了输出"，只用于排障。
   概念见 [plugin-api.md](plugin-api.md) §8.1。
 - `callable` / `callDoc` 说明"这个点能不能被主动调用、参数与结果是什么形状"：
   **调之前先看 `callDoc`**。`broadcasts` 是谁订阅了这个埋点的广播通知（只收通知，既不参与实现也不影响结果）；
@@ -2056,7 +2056,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 - **处理器必须同步返回**：功能点走同步裁决通道，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
   长任务请提前算好，或做成**能力**（§6）。
 - **前链 / 后链**：同一个点在通道上还有 `before` / `after` 两个阶段（同一条 id，用 `phase` 区分）——
-  前链改这次调用的 `args`（或 `{"action":"stop"}` 这次不执行），后链改最终 `value`（或
+  前链改这次调用的 `args`（或 `{"action":"cancel"}` 拦下这次），后链改最终 `value`（或
   `{"action":"drop"}` 这次没有结果）；只有 `impl` 阶段算"有人实现"。`provide` 的糖只登记实现链，
   要插手前后链直接用能力 API（`musicxx.capability.implement("musicxx.feature.point.call", {phase:"after"}, fn)`）。
   概念与顺序见 §8.1。
@@ -2091,7 +2091,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 
 | 阶段 | 什么时候跑 | 能做什么 | 不能做什么 | 回答格式 | 结束整条链 |
 |---|---|---|---|---|---|
-| `before` | 进入调用之前，串行、**正序** | 改输入（累加）、停下（这次不执行实现） | 给数据（那是实现链的事） | `{"patch": {...}}` | `{"action":"stop"}` |
+| `before` | 进入调用之前，串行、**正序** | 改输入（累加）、拦下（这次不执行实现） | 给数据（那是实现链的事） | `{"patch": {...}}` | `{"action":"cancel"}` |
 | `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与以前一样（§8.2） | 按声明的合并策略 |
 | `after` | 拿到结果之后，串行、**逆序** | 改输出（累加）、丢弃（这次没有结果） | 造出本来没有的结果 | `{"value": <新结果>}` | `{"action":"drop"}` |
 
@@ -2111,8 +2111,11 @@ extern  ---------->  builtin  ---------->  core
 - 只能注册能力**声明过的**阶段（生成物 `plugin-capabilities.md` 的「可注册阶段」列）；没声明就注册会被
   拒绝（C++ 返回 `-1` 并记日志，JS 在后台拒绝并记日志），因为“注册成功但永远不触发”
   比报错更难查；
-- 三种“没有结果”含义不同，别混：实现链的 `{"disable": true}`（不再问别人）、前链的 `stop`
-  （这次不执行实现）、后链的 `drop`（实现跑完了但结果丢掉）。
+- 三种“没有结果”含义不同，别混：实现链的 `{"disable": true}`（不再问别人）、前链的
+  `{"action":"cancel"}`（这次不执行实现）、后链的 `{"action":"drop"}`（实现跑完了但结果丢掉）。
+  实现链自己也能回答 `{"action":"cancel"}` = 这次不处理。
+- **一个处理只有一个词**：拦下 = `cancel`，作废 = `drop`，不再问别人 = `disable`。`skip` 已合并进
+  `cancel`；`stop` 只保留在 `musicxx.player.error`（= 停止播放），它不是阶段词。
 - **载荷里不自动带 `phase`**：同一个函数要服务多个阶段就各注册一份自己的闭包，不要指望从载荷里
   分辨阶段。唯一例外是插件功能点的通用通道 `musicxx.feature.point.call` —— 它的载荷带 `phase`，
   因为一个插件点可能用同一段代码处理三个阶段（见 §7）。
@@ -2135,7 +2138,7 @@ musicxx.capability.handlers(id, "after");     // 只看一个阶段（缺省 = �
 ```cpp
 implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,   // 裁决型，priority = 0
           [](std::string_view input, std::string& out) -> int32_t {
-              if (input.find("广告") != std::string_view::npos) { out = R"({"action":"skip"})"; }
+              if (input.find("广告") != std::string_view::npos) { out = R"({"action":"cancel"})"; }
               return 0;   // 返回 0 且 out 非空 = 给出裁决；out 空 = 不裁决
           });
 
@@ -2177,13 +2180,13 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 实现链（以及普通裁决型能力）的回答与以前一样：
 
 ```jsonc
-{ "action": "continue" | "skip" | "cancel" | "replace",
+{ "action": "continue" | "cancel",
   "patch": { /* 这条能力专属的字段 */ },
   "error": "可选说明" }
 ```
 
 - 返回 `null` / 空对象 = “不裁决”，交给下一个处理器；`action` 的语义由各调用点决定
-  （例如 `beforePlaySong` 的 `skip` = 跳过本曲）。
+  （例如 `beforePlaySong` 的 `cancel` = 跳过本曲，`musicxx.player.error` 的 `stop` = 停止播放）。
 - **裁决是“建议”**：调用点会校验裁决的身份字段（如 `sid`），过期的裁决会被丢掉 ——
   异步派发的能力尤其要注意（等待期间可能已经切歌 / 切列表）。
 - **处理器失败只记统计**：抛异常 / 返回失败不会暂停派发、也不会卸载插件。
@@ -2191,9 +2194,9 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 前链 / 后链用自己的两种回答（见 §8.1）：
 
 ```jsonc
-// before：只认 patch（一步接一步合并进本轮载荷），action=stop 结束整条链
+// before：只认 patch（一步接一步合并进本轮载荷），action=cancel 拦下整条链
 { "patch": { "to": 60000 }, "reason": "可选说明" }
-{ "action": "stop" }
+{ "action": "cancel" }
 
 // after：只认 value（替换当前结果），action=drop 结束整条链
 { "value": { "action": "continue", "patch": { "to": 60000 } } }
