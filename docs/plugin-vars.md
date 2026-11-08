@@ -1,5 +1,9 @@
 # musicxx 官方变量目录（`musicxx.*`，广播的值频道）
 
+> **迁移中（`plugin-model-unify` 任务）**：本文件将并入 [plugin-broadcasts.md](plugin-broadcasts.md) 的
+> “官方值频道”一节后删除 —— 变量就是广播值频道，不再单独成册。键名与取值规则**不变**，
+> 下面的内容在合并前仍然准确。
+
 > **框架 API 2 起**：原生插件侧的 `musicxx.vars` 表已删除（SDK 不再有 `vars*` 包装），本文件里的
 > 键名与取值规则仍然描述应用声明的变量，**JS 插件**用 `musicxx.broadcast.*` 访问它们（`read` 同步读缓存、
 > `get` 异步取真值、`write` 写、`subscribe` 订阅变化）；

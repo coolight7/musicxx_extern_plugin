@@ -5,8 +5,8 @@
 这篇是**两种插件形态共用的接口手册**：能力（请求 → 结果）、广播（通知 / 快照）、界面入口、日志与自省，
 以及命名空间、超时、容量这些两边一样的约定。
 
-**为什么共用**：JS插件与动态库插件能用的接口是**同一批**（同一份能力声明、同一份广播频道、同一份动作注册表、
-同一份状态镜像），只是写法不同 —— JS 用 `musicxx.*` 的 Promise 封装，动态库插件用 SDK 的
+**为什么共用**：JS插件与动态库插件能用的接口是**同一批**（同一份能力声明、同一份广播频道、
+同一份应用实现的能力表），只是写法不同 —— JS 用 `musicxx.*` 的 Promise 封装，动态库插件用 SDK 的
 方法 + 异步完成通知。所以"某个接口做什么、参数是什么、返回什么、什么情况下用、有什么坑"只写在这里，
 两篇形态文档只写各自的语言差异：
 
@@ -32,13 +32,24 @@
 | 形态 | 发一次请求、等一个结果 | 属主改了东西，通知所有关心的人 |
 | 有返回值 | 有（可能失败、可能超时） | 没有；不等待、允许丢中间值 |
 | 谁发起 | 调用方（插件、应用、命令行） | 属主发布 |
-| 典型 | 动作 §3、插件服务 §6、功能点 §7、应用来问插件 §8 | 状态镜像 §2、事件 §4、值频道 §5 |
+| 典型 | 应用实现的能力 §3、插件服务 §6、功能点 §7、应用来问插件 §8 | 快照频道 §2、值频道 §5、事件 §4 |
 | 声明在 | `tools/capabilities.def.json` 的 `capabilities` → [plugin-capabilities.md](plugin-capabilities.md) | 同一个文件的 `broadcasts` → [plugin-broadcasts.md](plugin-broadcasts.md) |
 
 **同一个 id 只有一份声明**，写清"能不能参与、参与哪一步（前链 / 实现链 / 后链）、派发方式、合并策略、
 超时、缓存、谁能调"。这套叫法在整条链路上是同一套：Dart 侧是 `MusicxxCapabilityId` / `MusicxxBroadcastId`，
 C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作者文档就是这一份生成的
 `plugin-capabilities.md` / `plugin-broadcasts.md`。
+
+> **旧说法与现在的对应**（只有这两张表，没有第三个概念）：
+>
+> | 旧说法 | 现在是什么 |
+> |---|---|
+> | 状态镜像 | `cache: latest` 的广播频道（`musicxx.state.*`）：应用发布，插件订阅即拿到当前值 |
+> | 变量 | 广播值频道（`writable` 决定谁能写，写要回执时属主回答） |
+> | 动作 | `runner: app` 的能力：主程序实现，宿主转发给应用并带回结果 |
+>
+> 这三套旧入口正在 `plugin-model-unify` 任务里删除或改名，本文相应章节随代码一起改；
+> 新写的插件直接用 `musicxx.capability.*` 与 `musicxx.broadcast.*` 两组入口即可。
 
 同一件事，两边怎么写（左列是 JS，右列是 C++）：
 
@@ -99,6 +110,10 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 ---
 
 ## 2. 状态镜像（广播：同步读应用现状）
+
+> **迁移中**：这一节讲的“状态镜像”就是 `cache: latest` 的广播频道（应用发布、插件订阅即拿到当前值）。
+> 它的专用入口正在并入广播（C 的 `state_update` 系列、C++ 的 `stateJson` / `MUSICXX_STATE_*`
+> 由广播的发布与生成常量取代），**频道 id 与载荷都不变**。
 
 插件框架把应用的关键状态做成 JSON 快照，插件**同步**读：不用往返、不占线程、不怕应用忙。
 
@@ -221,6 +236,10 @@ JS 插件用动作 `musicxx.host.getPath` 拿插件目录、数据目录与日�
 ---
 
 ## 3. 动作（能力：让应用做一件事）
+
+> **迁移中**：这一节讲的“动作”就是 `runner: app` 的能力（主程序实现、宿主转发给应用并带回结果），
+> 不是第二个概念。JS 的 `musicxx.call` 会删除（改用 `musicxx.capability.call`），
+> 原生 SDK 的 `requestAction` 会删除（同样是 `capabilityCall`）；**能力 id 与参数都不变**。
 
 > **动作就是能力（`runner = app`）**：每个动作在 `pluginxx.capabilities` 里都有一条应用声明，
 > 由应用实现。原生插件用 SDK 的 `requestAction`（内部就是一次能力调用，带本次调用的超时），
@@ -1782,6 +1801,9 @@ iface.events->publish(host, &topic, &data);
 ---
 
 ## 5. 值频道（广播：有属主、可读、可写、可订阅变动的小值）
+
+> **迁移中**：这一节讲的“变量”就是广播值频道，只是入口与内部的叫法改成了广播
+> （JS 与 C 侧都叫 `broadcast*`，Dart 是 `MusicxxPluginChannels`）；**键、读写与回执行为不变**。
 
 > **JS 写法**：`musicxx.broadcast.declare` / `read` / `get` / `write` / `subscribe` / `watch` …
 > （变量就是“带当前值的广播频道”）。
