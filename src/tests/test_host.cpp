@@ -2734,7 +2734,7 @@ int main(int argc, char **argv) {
   // 只能注册前链 / 后链）:
   //   musicxx.player.volume   → 每次失败 (返回非 0)
   //   musicxx.player.speed    → 每次成功
-  //   musicxx.player.pitch    → 走 pluginxx.capabilities 注册的前链
+  //   musicxx.player.pitch    → 走 musicxx.capabilities 注册的前链
   // 期望: 失败只累计到统计 (capability_stats 的 failures), 处理器每次都照常被调用;
   // 没有"连续失败暂停派发"这回事, 插件也不会被卸载。
   {
@@ -2749,8 +2749,8 @@ int main(int argc, char **argv) {
     }
     check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "失败对照示例加载成功 (example_native_fail)");
 
-    // 同一个插件还有一条**走 `pluginxx.capabilities` 注册**的能力（阶段 2c 的新入口）：
-    // 注册结果与派发要和 `pluginxx.capabilities` 那套完全一样
+    // 同一个插件还有一条**走 `musicxx.capabilities` 注册**的能力（阶段 2c 的新入口）：
+    // 注册结果与派发要和 `musicxx.capabilities` 那套完全一样
     {
       int32_t pitchIds = -1;
       musicxx_extern_plugin_capability_handler_count(host, viewCP("musicxx.player.pitch"),

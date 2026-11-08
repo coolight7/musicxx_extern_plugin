@@ -758,7 +758,7 @@ final List<MusicxxPluginUIItem> next =
 
 - **专用接口表**：`musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张已实现（每张表的版本 /
   最低版本 / 基线字节数与可用性判定见 `docs/plugin-native-api.md` §4.1）；接口表只剩
-  `pluginxx.capabilities`（实现与调用）与 `pluginxx.broadcasts`（通知 / 快照）两张，旧的
+  `musicxx.capabilities`（实现与调用）与 `musicxx.broadcasts`（通知 / 快照）两张，旧的
   `musicxx.hooks` / `musicxx.vars` 表已删除；
   `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` / `agent` 的 IID 已冻结、表体未实现
   （查询返回 NULL）→ 这些能力统一走动作名（`requestAction("musicxx.player.play", ...)`），由主程序分派；
@@ -805,7 +805,7 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 能力（裁决型） | `MusicxxPlugin::implement` + `pluginxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；实现可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
+| 能力（裁决型） | `MusicxxPlugin::implement` + `musicxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；实现可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
 | 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 观察型（通知）就是广播频道：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
 | 状态镜像 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |

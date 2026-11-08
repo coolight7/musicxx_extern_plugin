@@ -221,7 +221,7 @@ int32_t MusicxxHostManager::registerHandler(
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 能力表 `pluginxx.capabilities` 的入口 ==================== */
+/* ==================== 能力表 `musicxx.capabilities` 的入口 ==================== */
 
 int32_t MusicxxHostManager::registerCapabilityHandler(
     MusicxxHostInstance *inst, const std::string &capabilityId, int32_t phase,
@@ -793,7 +793,7 @@ namespace {
 
 /// 同步调用一个“能力表”形态的处理器时收集它的结果
 ///
-/// `pluginxx.capabilities` 的处理器是异步契约（`notify->done` 恰好一次）；宿主派发是同步的，
+/// `musicxx.capabilities` 的处理器是异步契约（`notify->done` 恰好一次）；宿主派发是同步的，
 /// 所以只接受“在 start 返回之前就 done”的处理器，多出来的回调按第一次算。
 struct CapabilitySyncReply {
   bool done = false;
@@ -828,7 +828,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
   /// 派发前**快照**本阶段的处理器列表 (派发期间注册表变化不影响本轮遍历)
   ///
   /// 插件处理器在框架线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
-  /// `pluginxx.capabilities` 的注册 / 注销会改动 handlers_ 里的同一条 vector:
+  /// `musicxx.capabilities` 的注册 / 注销会改动 handlers_ 里的同一条 vector:
   /// 注册会重新分配, 注销最后一个会让整条 vector 失效 —— 直接遍历活表会出现
   /// 迭代器/引用失效 (漏派发或读到已释放内存)。快照只决定"本轮派发谁被调用",
   /// 注册表的变化从下一轮起生效; 统计写回按 (实例, ownerTag, 阶段) 重新查活表。
@@ -871,7 +871,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     int32_t rc = -1;
     try {
       if (h.rowStart) {
-        // 走 `pluginxx.capabilities` 登记的处理器：同步等它 done
+        // 走 `musicxx.capabilities` 登记的处理器：同步等它 done
         CapabilitySyncReply reply;
         PluginxxOperatorNotify notify{&capabilitySyncDone, &reply};
         PluginxxString capErr{};

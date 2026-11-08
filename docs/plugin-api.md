@@ -241,7 +241,7 @@ JS 插件用动作 `musicxx.host.getPath` 拿插件目录、数据目录与日�
 > 不是第二个概念。JS 的 `musicxx.call` 会删除（改用 `musicxx.capability.call`），
 > 原生 SDK 的 `requestAction` 会删除（同样是 `capabilityCall`）；**能力 id 与参数都不变**。
 
-> **动作就是能力（`runner = app`）**：每个动作在 `pluginxx.capabilities` 里都有一条应用声明，
+> **动作就是能力（`runner = app`）**：每个动作在 `musicxx.capabilities` 里都有一条应用声明，
 > 由应用实现。原生插件用 SDK 的 `requestAction`（内部就是一次能力调用，带本次调用的超时），
 > JS 插件用 `musicxx.call`；**没声明的动作名会被直接拒绝**（不再"什么都转给应用再回未找到"）。
 > 超时语义不变：`<= 0` = 不设超时（一直等应用回复），缺省 5000 ms。
@@ -2099,7 +2099,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 ## 8. 应用来问插件（能力：决策型）
 
 > **登记入口（插件 ABI 5）**：`musicxx.hooks` 表、`MusicxxPluginHookSpec` 与 `hook` 词汇都已删除。
-> JS 用 `musicxx.capability.implement`；原生插件往 `pluginxx.capabilities` 登记（SDK 的
+> JS 用 `musicxx.capability.implement`；原生插件往 `musicxx.capabilities` 登记（SDK 的
 > `implement` / `implementBefore` / `implementAfter` / `unimplement` 就是这么做的）。
 > **通知型的那一批**是一组广播频道，JS 用 `musicxx.broadcast.subscribe`，原生用 `subscribeTopic`。
 > 本节剩下的阶段、裁决对象与载荷语义对两种形态同样有效。

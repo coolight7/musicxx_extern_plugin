@@ -212,6 +212,9 @@ MusicxxHostManager::create(HostContext &ctx,
       new MusicxxHostManager(ctx.io.get_executor()));
   mgr->ctx_ = &ctx;
   mgr->setDomainHooks(mgr.get());
+  // 官方标识前缀 (`musicxx.`): 默认已是构建期注入的应用名, 这里显式写出来,
+  // 一眼能看出这个宿主认什么前缀。
+  mgr->setOfficialPrefix(pluginxx::appIdPrefix());
   mgr->applyConfig(cfg);
   return mgr;
 }

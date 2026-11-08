@@ -65,7 +65,7 @@ name: my_plugin                    # 插件 id（唯一；同名视为同一插�
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
 version: 2026.1010.1              # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）；打包脚本用它拼安装包名
-api_version: 5                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 5）；JS 插件写 1（JS 接口当前 2、兼容下限 1，见 §4.3）
+api_version: 5                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 6）；JS 插件写 1（JS 接口当前 2、兼容下限 1，见 §4.3）
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（别名 win32 / osx 也认；多目标包通常不写，见 §1.3）
@@ -293,7 +293,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 框架版本 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, pluginId, ui?}`：`hostVersion` 是插件框架自己的版本（如 `2026.1011.1`），`pluginId` 是本插件 id（只有插件读时才带），`ui` 是客户端界面能力段（可选）；字段说明见 [plugin-api.md](plugin-api.md) §2.5 |
 | 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
-| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；动作名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；**动作就是能力**（`runner = app`）：内部走 `pluginxx.capabilities`，没声明过的动作名直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
+| 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；动作名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；**动作就是能力**（`runner = app`）：内部走 `musicxx.capabilities`，没声明过的动作名直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
 | 自省（异步） | `requestAction("musicxx.capability.subscribers", "{\"hook\":\"<能力 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这条能力现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这条能力再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
@@ -324,10 +324,10 @@ MUSICXX_PLUGIN_EXPORT(
 - 现在的 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表都是 v1，
   基线 = 整表大小，也就是"表可用即全部成员可用"；
 - **`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 已删除**：能力处理器改成往
-  `pluginxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
-  广播频道改成 `pluginxx.broadcasts` 的频道，变量的读写改用能力 / 动作；
+  `musicxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
+  广播频道改成 `musicxx.broadcasts` 的频道，变量的读写改用能力 / 动作；
   `musicxx.host` 同时去掉了 `get_state` / `subscribe_state` / `request_action` /
-  `cancel_action`（表版本 2）—— 当前值读广播频道，动作就是能力（走 `pluginxx.capabilities`）。
+  `cancel_action`（表版本 2）—— 当前值读广播频道，动作就是能力（走 `musicxx.capabilities`）。
 - **插件形态（kind）不是写死的**：插件框架自带 `native`（动态库，按 C ABI 编译）与 `js`
   （内置 JS 运行器，不按 C ABI 编译），其它形态（以后的 Python 等）由插件用
   `musicxx.kind` 登记，见 §4.3。
@@ -708,7 +708,7 @@ implementBefore(MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);
   拒绝原因会原样回来，SDK 同时记一条可读日志；
 - 一个 `ownerTag` 可以分别登记三个阶段（覆盖键含阶段）；`unregisterHook` 会把该 `ownerTag`
   在所有阶段的登记一起摘掉；
-- 低层写法：往 `pluginxx.capabilities` 登记一条能力 —— `id` = 能力 id、`phase`、`priority`、
+- 低层写法：往 `musicxx.capabilities` 登记一条能力 —— `id` = 能力 id、`phase`、`priority`、
   `sync = 1`、`run_start` 是同步处理器。`MusicxxPluginHookSpec` 与 `register_hook` 已随
   `musicxx.hooks` 表一起删除（框架 API 2）。
 
@@ -884,11 +884,11 @@ INTERFACE 目标自动带上（`musicxx_plugin_add_target` 也用它），清单
 自己手写 CMake 时要补：
 
 ```cmake
-target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=5 PLUGINXX_MIN_API_VERSION=5)
+target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=6 PLUGINXX_MIN_API_VERSION=6)
 ```
 
-**按旧头文件编译过的插件必须重新编译**：`pluginxx.capabilities` 换成了 v4（声明 + 多实现行），
-`pluginxx.events` 换成了 `pluginxx.broadcasts`（频道声明 + 缓存 + 写权限），调用约定变了，
+**按旧头文件编译过的插件必须重新编译**：`musicxx.capabilities` 换成了 v4（声明 + 多实现行），
+旧的 `events` 表换成了 `broadcasts`（频道声明 + 缓存 + 写权限），调用约定变了，
 旧的二进制在加载阶段会被拒（「API 版本过低」）。
 
 插件框架库不在 Flutter 构建里"顺带编译"（依赖链太重），但**主程序构建会自动触发它**：平台工程在配置阶段调用
@@ -973,7 +973,7 @@ Android 见 §11。
 |---|---|
 | 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名插件框架会按平台修正） |
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
-| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 5、JS 插件 1）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（5 / 2），声明更高不会被拒。JS 接口目前只增不改，所以写 1 的 JS 插件照常加载 |
+| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 6、JS 插件 1）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（6 / 2），声明更高不会被拒。JS 接口目前只增不改，所以写 1 的 JS 插件照常加载 |
 | 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或插件框架禁用了动态库插件 / 处于安全模式 |
 | 注册能力返回 `-4` | 能力 id 不在约定表里（拼错或用了没声明的能力）；用 `capability_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
@@ -995,7 +995,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `pluginxx.capabilities`、通知改成 `pluginxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `requestAction("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套能力表、同一份动作注册表、同一份状态镜像 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |

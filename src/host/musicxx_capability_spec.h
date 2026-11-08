@@ -1,6 +1,6 @@
 /// 能力实现规格: **宿主内部**的类型
 ///
-/// 插件只看 `pluginxx.capabilities` / `pluginxx.broadcasts`；这个结构只剩宿主自己的
+/// 插件只看 `musicxx.capabilities` / `musicxx.broadcasts`；这个结构只剩宿主自己的
 /// 实现表（`MusicxxHostManager::handlers_`）与内置 JS 引擎在进程内使用，不是插件的 ABI。
 ///
 /// 新写原生插件请用 SDK 的 `implement` / `implementBefore` / `implementAfter`

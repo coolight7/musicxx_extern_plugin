@@ -191,7 +191,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
 MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_destroy(MusicxxExternPluginHost* h);
 
-/// 热更新语言 (插件可读; 插件侧 `pluginxx.config` 表 get_language)
+/// 热更新语言 (插件可读; 插件侧 `musicxx.config` 表 get_language)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_set_language(
         MusicxxExternPluginHost*              h,

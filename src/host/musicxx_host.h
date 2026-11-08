@@ -5,7 +5,7 @@
 /// `musicxx_plugin_destroy`;
 /// - [MusicxxHostManager]: 继承插件框架 `PluginHostLifecycle`
 /// (加载/启停/禁用启用/卸载/级联依赖)
-///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`pluginxx.capabilities` /
+///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`musicxx.capabilities` /
 ///   `musicxx.host`);
 /// - [HostContext]: 框架线程 (asio::io_context + 1 条线程)
 /// 与工作线程池的所有者。
@@ -425,7 +425,7 @@ public:
                        const MusicxxPluginCapabilitySpec &spec);
   int32_t unimplement(MusicxxHostInstance *inst, std::string_view capabilityId,
                          std::string_view ownerTag);
-  /// 用 `pluginxx.capabilities` 的登记形态挂一个能力处理器（新入口）
+  /// 用 `musicxx.capabilities` 的登记形态挂一个能力处理器（新入口）
   ///
   /// 只在"id 是本框架认识的能力"时由 [onCapabilityRowAdded] 调用；其余 id 是普通能力，
   /// 由 pluginxx 自己的派发处理。处理器必须是同步的（`spec.sync = 1`）：宿主派发是同步的，
@@ -693,7 +693,7 @@ protected:
 
   std::string_view logTag() const noexcept override { return "[musicxx_ext] "; }
 
-  /* ---------- 能力注册路径的挂接（`pluginxx.capabilities` 登记落到能力引擎） ---------- */
+  /* ---------- 能力注册路径的挂接（`musicxx.capabilities` 登记落到能力引擎） ---------- */
 
   /// 一条能力实现行登记好了：是能力 id 就挂进 `handlers_`，其余 id 原样交给 pluginxx 派发
   int onCapabilityRowAdded(MusicxxHostInstance *inst, const std::string &id,
@@ -705,7 +705,7 @@ protected:
   /// 官方 id 的声明来源：生成物 `capability_ids.g.h` 就是应用声明的权威副本
   ///
   /// 主程序还没有把声明下发给宿主的通道（阶段 2b 只做到命令面），所以这里按生成表回答，
-  /// 让插件可以先用 `pluginxx.capabilities` 登记能力；等真的接上下发通道，这个回退就只
+  /// 让插件可以先用 `musicxx.capabilities` 登记能力；等真的接上下发通道，这个回退就只
   /// 用来兜底。
   bool appCapabilityDecl(std::string_view id,
                          pluginxx::CapabilityDecl *out) override;
@@ -761,7 +761,7 @@ private:
     /// 参与方式 (`MUSICXX_CAPABILITY_PHASE_*`; 与 `spec.phase` 同值, 方便查询与自省)
     int32_t phase = 0;
 
-    /// 走 `pluginxx.capabilities` 表登记的处理器 (插件 SDK 的常规入口)
+    /// 走 `musicxx.capabilities` 表登记的处理器 (插件 SDK 的常规入口)
     ///
     /// 非空时派发直接调它，`spec.run_sync` / `spec.run_start` 都不参与 ——
     /// 两条入口的区别只有处理器签名与"同步还是异步"，派发与合并规则共用同一份。

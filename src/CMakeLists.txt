@@ -154,9 +154,11 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 # 5 = 能力与广播只剩一份声明 (capabilities.def.json)：插件侧 hook 词汇、C ABI 的 hook_* 符号与
 #     `musicxx.hooks` 表全部删掉, 改成 capability / 实现链。
 # 4 = 通用表 capabilities 换成 v4 (声明 + 多实现行)、events 换成 broadcasts v1。
+# 6 = 接口表 IID 从 `pluginxx.<表名>` 改成 `<应用名>.<表名>` (本工程拼出 `musicxx.<表名>`)。
+#     代次 5 的插件按旧 IID 查询拿不到表又不会当场报错, 所以抬一档让它在扫描阶段就被拒。
 # 改这个值等于改插件 ABI: 要同步示例插件清单的 api_version、
 # Dart 侧 `kExternPluginMinApiVersion` / `ExternPluginStore.hostMinApiVersion` 与文档。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "5" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "6" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 # ===== Boost (仅头文件) =====
 # 插件框架与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):
@@ -652,9 +654,11 @@ ExternalProject_Add(
   CMAKE_ARGS
     ${_COMMON_CMAKE_ARGS}
     # 插件 API 契约版本: cxx_pluginxx 的默认值是 1 (该库被多个主程序共用), 主程序必须覆盖
-    # (见文件上方「插件 API 契约版本」)。
+    # (见文件上方「插件 ABI 代次」)。
     "-DPLUGINXX_API_VERSION:STRING=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}"
     "-DPLUGINXX_MIN_API_VERSION:STRING=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}"
+    # 应用名: 通用表 IID 与官方标识的前缀 (本工程拼出 `musicxx.log` / `musicxx.capabilities`)
+    "-DPLUGINXX_APP_NAME:STRING=musicxx"
   CMAKE_CACHE_ARGS
     ${_COMMON_CMAKE_CACHE_ARGS}
   TEST_COMMAND ""

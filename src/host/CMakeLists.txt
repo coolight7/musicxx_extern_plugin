@@ -80,7 +80,11 @@ unset(_musicxx_ext_missing)
 # 这里下发到自己的目标 (插件框架库 / 插件 SDK / 示例插件 / 原生测试), 保证插件框架库与
 # 它加载的插件看到同一个值: 插件按 PLUGINXX_API_VERSION 决定用哪套写法
 # (例如 events 订阅是否带作用域引用), 两侧不一致时是 ABI 不兼容。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "4" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "6" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+
+# 应用名: 通用表 IID 与官方标识的前缀。单独构建本工程时也要与 cxx_pluginxx 一致
+# (`-DPLUGINXX_APP_NAME=musicxx`), 否则插件按 `<表名>` 查询时对不上。
+set(MUSICXX_EXTERN_PLUGIN_APP_NAME "musicxx" CACHE STRING "应用名 (接口表 IID 与官方标识的前缀)")
 
 
 # ==================== OpenSSL (客户端 TLS) ====================
@@ -150,10 +154,11 @@ target_include_directories(musicxx_extern_plugin
 
 target_compile_definitions(musicxx_extern_plugin PRIVATE MUSICXX_EXTERN_PLUGIN_BUILD=1)
 
-# 插件 API 契约版本: PUBLIC 下发到所有链接本库的目标 (原生测试), 与插件 SDK / 插件一致
+# 插件 API 契约版本与应用名: PUBLIC 下发到所有链接本库的目标 (原生测试), 与插件 SDK / 插件一致
 target_compile_definitions(musicxx_extern_plugin PUBLIC
   PLUGINXX_API_VERSION=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}
   PLUGINXX_MIN_API_VERSION=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}
+  PLUGINXX_APP_NAME="${MUSICXX_EXTERN_PLUGIN_APP_NAME}"
 )
 
 if (MUSICXX_EXTERN_PLUGIN_JS_AVAILABLE)
@@ -229,9 +234,10 @@ target_compile_definitions(musicxx_extern_plugin_sdk INTERFACE
   BOOST_ASIO_STANDALONE=1
   ASIO_STANDALONE=1
   UTILXX_USE_BOOST_ASIO=1
-  # 插件与插件框架库必须看到同一个契约版本 (cxx_pluginxx 只在 MSVC 分支下发该定义)
+  # 插件与插件框架库必须看到同一个契约版本与应用名 (cxx_pluginxx 只在 MSVC 分支下发契约版本)
   PLUGINXX_API_VERSION=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}
   PLUGINXX_MIN_API_VERSION=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}
+  PLUGINXX_APP_NAME="${MUSICXX_EXTERN_PLUGIN_APP_NAME}"
 )
 if (MSVC)
   target_compile_options(musicxx_extern_plugin_sdk INTERFACE /utf-8)

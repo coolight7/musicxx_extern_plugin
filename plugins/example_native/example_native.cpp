@@ -175,7 +175,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                      });
     // 固定实现的能力（“改播放值”的四个）不开放 impl 阶段：注册实现会被拒
     // C 接口直接注册返回 -4 (`MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`)；
-    // 走 SDK 这一层（`pluginxx.capabilities`）的失败码统一折算成 -1，日志里写着原因
+    // 走 SDK 这一层（`musicxx.capabilities`）的失败码统一折算成 -1，日志里写着原因
     fixedImplRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;

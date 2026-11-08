@@ -220,7 +220,7 @@ class MusicxxExternPluginBindings {
       _musicxx_extern_plugin_host_destroyPtr
           .asFunction<void Function(ffi.Pointer<MusicxxExternPluginHost>)>();
 
-  /// 热更新语言 (插件可读; 插件侧 `pluginxx.config` 表 get_language)
+  /// 热更新语言 (插件可读; 插件侧 `musicxx.config` 表 get_language)
   int musicxx_extern_plugin_set_language(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> lang,

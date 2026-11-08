@@ -736,7 +736,7 @@ public:
     /// 发起主程序动作 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
     /// 主程序的动作在框架 API 2 之后就是**能力**（`runner = app`）：这里走
-    /// `pluginxx.capabilities` 的调用入口，宿主把调用转给应用，应用回答后回给插件。
+    /// `musicxx.capabilities` 的调用入口，宿主把调用转给应用，应用回答后回给插件。
     /// - 超时：`timeoutMs` 是**这次调用**的超时（0 = 不设超时，一直等应用回复）；
     ///   宿主的插件框架库没有带超时的调用成员时退回"按动作声明的超时"；
     /// - `outRequestId` 已废弃（能力调用不再给请求号：取消由插件框架的句柄承担），
@@ -771,7 +771,7 @@ public:
     template<typename Fn>
     int32_t subscribeTopic(const char* topic, Fn&& fn) {
         if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
-            log.warn("pluginxx.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
+            log.warn("<应用名>.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
             return -1;
         }
         using FnT       = std::decay_t<Fn>;
@@ -951,7 +951,7 @@ protected:
             host(h),
             fn(std::move(f)) {}
 
-        /// 能力契约的 trampoline (`pluginxx.capabilities` 的处理器形态)
+        /// 能力契约的 trampoline (`musicxx.capabilities` 的处理器形态)
         ///
         /// 同步处理器: 算完就 `notify->done` 一次, 让宿主这一轮就能拿结果
         /// (宿主派发是同步的, 异步给结果的处理器不会参与合并)。
@@ -1013,13 +1013,13 @@ protected:
     /// 处理器（靠它区分），自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
     /// （见 [featurePointProvide]）。
     ///
-    /// 登记走插件框架的 `pluginxx.capabilities`：处理器是能力契约（同步 `notify->done`），
+    /// 登记走插件框架的 `musicxx.capabilities`：处理器是能力契约（同步 `notify->done`），
     /// 派发走不走的顺序（前链正序、后链逆序、层内按优先级）由插件框架按能力声明决定。
     template<typename Fn>
     int32_t registerSyncWithTag(const char* capabilityId, const char* ownerTag,
                                 int32_t priority, int32_t phase, Fn&& fn) {
         if (!iface.capabilities || !iface.capabilities->register_capability) {
-            log.warn("pluginxx.capabilities 表不可用: 能力未注册 (插件框架版本过旧?)");
+            log.warn("musicxx.capabilities 表不可用: 能力未注册 (插件框架版本过旧?)");
             return -1;
         }
         using FnT       = std::decay_t<Fn>;

@@ -5,7 +5,8 @@
 ///
 /// 目录:
 /// - 入口符号名: `musicxx_plugin_*` (由框架在 entrySymbols() 中交出同一批名字)
-/// - 专用接口表 IID: `pluginxx.capabilities` / `pluginxx.broadcasts` (能力与广播, 插件框架通用) 与
+/// - 专用接口表 IID: 通用表（能力与广播等）的 IID 由应用名拼出，形如 `musicxx.capabilities` /
+///   `musicxx.broadcasts`（见 `pluginxx/api/app.h`）与
 ///   `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` / `musicxx.player` /
 ///   `musicxx.playlist` / `musicxx.songlist` / `musicxx.lyric` / `musicxx.storage` / `musicxx.stats`
 ///   (已实现 host / ui / net / kind 四张专用表; 其余 IID 先冻结, 表版本 1 留待后续实现;
@@ -82,8 +83,13 @@ extern "C" {
 /* ==================== 接口表: musicxx.host ==================== */
 
 #define MUSICXX_PLUGIN_IFACE_HOST             "musicxx.host"
+/// 专用表的 IID 是**已发布的冻结值**, 继续写字面量; 它与应用名拼出来的一致
+/// (`PLUGINXX_APP_ID("host")` → `"musicxx.host"`), 改了应用名就对不上。
+#ifdef __cplusplus
+static_assert(std::string_view(PLUGINXX_APP_ID("host")) == MUSICXX_PLUGIN_IFACE_HOST);
+#endif
 /// v2: 删掉 `get_state` / `subscribe_state`（读当前值走广播频道）与
-/// `request_action` / `cancel_action`（动作就是能力，走 `pluginxx.capabilities`）
+/// `request_action` / `cancel_action`（动作就是能力，走 `musicxx.capabilities`）
 #define MUSICXX_PLUGIN_IFACE_HOST_VERSION     2
 #define MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION 2
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
@@ -106,6 +112,9 @@ typedef struct MusicxxPluginHostIface {
 /* ==================== 接口表: musicxx.ui (声明式 UI 扩展) ==================== */
 
 #define MUSICXX_PLUGIN_IFACE_UI             "musicxx.ui"
+#ifdef __cplusplus
+static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI);
+#endif
 #define MUSICXX_PLUGIN_IFACE_UI_VERSION     1
 #define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 1
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
@@ -263,7 +272,7 @@ typedef struct MusicxxPluginUIIface {
 /// - **服务端默认只监听回环** (`host` 缺省 `127.0.0.1`); 写 `0.0.0.0` 表示同网段可访问,
 ///   由插件自己承担暴露风险;
 /// - **事件走事件总线**: 主题 `plugin.<插件id>.net`, 载荷带 `kind` 字段; 插件用
-///   `pluginxx.events` 表订阅 (JS 是 `musicxx.net.on(...)`)。
+///   `musicxx.broadcasts` 表订阅 (JS 是 `musicxx.net.on(...)`)。
 ///
 /// 操作 (`call` / `call_async` 的 `op` 参数):
 ///
@@ -300,6 +309,9 @@ typedef struct MusicxxPluginUIIface {
 /// - `ws.close` / `socket.closed`: `by (remote/local/error/plugin), code?,
 ///   reason?, error?`。
 #define MUSICXX_PLUGIN_IFACE_NET             "musicxx.net"
+#ifdef __cplusplus
+static_assert(std::string_view(PLUGINXX_APP_ID("net")) == MUSICXX_PLUGIN_IFACE_NET);
+#endif
 #define MUSICXX_PLUGIN_IFACE_NET_VERSION     1
 #define MUSICXX_PLUGIN_IFACE_NET_MIN_VERSION 1
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
@@ -359,6 +371,9 @@ typedef struct MusicxxPluginNetIface {
 /// 登记的形态跟着插件生命周期撤销（停用 / 卸载 / 关闭『拟声++』），不写磁盘。内置形态
 /// `native` / `js` 不能被覆盖。
 #define MUSICXX_PLUGIN_IFACE_KIND             "musicxx.kind"
+#ifdef __cplusplus
+static_assert(std::string_view(PLUGINXX_APP_ID("kind")) == MUSICXX_PLUGIN_IFACE_KIND);
+#endif
 #define MUSICXX_PLUGIN_IFACE_KIND_VERSION     1
 #define MUSICXX_PLUGIN_IFACE_KIND_MIN_VERSION 1
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */

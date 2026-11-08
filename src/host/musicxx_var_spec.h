@@ -1,6 +1,6 @@
 /// 变量注册规格: **宿主内部**的类型
 ///
-/// 阶段 2c 起插件只看 `pluginxx.capabilities` / `pluginxx.broadcasts`，`musicxx.vars`
+/// 阶段 2c 起插件只看 `musicxx.capabilities` / `musicxx.broadcasts`，`musicxx.vars`
 /// 表已经删除；这里的常量与结构只剩宿主自己的变量表
 /// (`MusicxxHostManager::vars_` / `musicxx_host_vars.cpp`) 与内置 JS 引擎在进程内使用，
 /// 不再是插件的 ABI。

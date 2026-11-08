@@ -4,8 +4,8 @@
 /// - 前链注册 `musicxx.player.volume`: 每次返回非 0 (处理器失败) —— 插件框架只累计 failures,
 ///   不暂停派发、不卸载插件;
 /// - 前链注册 `musicxx.player.speed`: 始终成功 —— 用于证明"另一个处理器照常被调用";
-/// - **走 `pluginxx.capabilities` 注册 `musicxx.player.pitch` 的前链**（能力表入口）：
-///   处理器是能力契约（同步 `notify->done`），派发与合并和 `pluginxx.capabilities` 那套完全一样；
+/// - **走 `musicxx.capabilities` 注册 `musicxx.player.pitch` 的前链**（能力表入口）：
+///   处理器是能力契约（同步 `notify->done`），派发与合并和 `musicxx.capabilities` 那套完全一样；
 /// - 能力 `plugin.example_native_fail.probe`: 回报两个处理器的调用次数, 供原生测试断言。
 ///
 /// 三个能力都是"改播放值"的固定实现点（应用自己改值）: 插件只能注册前链 / 后链,
@@ -45,7 +45,7 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     return nullptr;
   }
 
-  /// 用 `pluginxx.capabilities` 直接注册一个前链处理器（手写能力规格的写法）
+  /// 用 `musicxx.capabilities` 直接注册一个前链处理器（手写能力规格的写法）
   void registerPitchImplementation() {
     if (!iface.capabilities || !iface.capabilities->register_capability) {
       return;

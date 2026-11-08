@@ -3365,7 +3365,8 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   if (!host || !host->vtable || !host->vtable->query_interface) {
     return;
   }
-  const PluginxxStringView iid{"pluginxx.broadcasts", 19};
+  // 广播表的 IID 由应用名拼出 (`<应用名>.broadcasts`), 不写字面量
+  const PluginxxStringView iid{PLUGINXX_IFACE_BROADCASTS, sizeof(PLUGINXX_IFACE_BROADCASTS) - 1};
   const auto *broadcasts = static_cast<const PluginxxBroadcastsIface *>(
       host->vtable->query_interface(host, &iid));
   if (!broadcasts || !broadcasts->subscribe_broadcast) {
@@ -4512,7 +4513,9 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       holder->engine = this;
       holder->instance = inst->name;
       holder->topic = item.get<std::string>();
-      const PluginxxStringView iid{"pluginxx.broadcasts", 19};
+      // 广播表的 IID 由应用名拼出 (`<应用名>.broadcasts`), 不写字面量
+      const PluginxxStringView iid{
+          PLUGINXX_IFACE_BROADCASTS, sizeof(PLUGINXX_IFACE_BROADCASTS) - 1};
       const auto *broadcasts = static_cast<const PluginxxBroadcastsIface *>(
           (host->vtable && host->vtable->query_interface)
               ? host->vtable->query_interface(host, &iid)
