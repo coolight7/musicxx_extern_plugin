@@ -107,8 +107,8 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | `musicxx.capability` | 实现应用声明的能力、注册自己的能力 / 调用别的插件的能力、读谁在实现 | §4、§10；[plugin-api.md](plugin-api.md) §6 / §8 |
 | `musicxx.broadcast` | 广播：读当前值、订阅、发布，以及声明自己的值频道（变量） | §5、§8、§9；[plugin-api.md](plugin-api.md) §4 / §5 |
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
-| `musicxx.call` | 通用动作请求（返回 Promise） | §7 |
-| `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
+| `musicxx.capability.call` | 通用动作请求（返回 Promise） | §7 |
+| `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.capability.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
 | `musicxx.feature` | 功能点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
 | `musicxx.timer` / `musicxx.util` | 定时器与工具 | §13 |
 | `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id | — |
@@ -349,7 +349,7 @@ ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 ## 7. 动作（异步请求）
 
 ```js
-const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超时毫秒?);
+const result = await musicxx.capability.call("musicxx.<域>.<动作>", { ...参数 }, 超时毫秒?);
 ```
 
 - 默认超时 **5000 ms**；`timeoutMs` 传 0 或负数时仍按缺省值处理（**不是"一直等"**）。
@@ -369,7 +369,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | 分类 | 方法 |
 |---|---|
 | `musicxx.capability` | `implement(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)`（实现应用声明的能力） **+** `register(name, fn)` `call(id, method, args?, timeoutMs?)`（自己提供给别人的能力） |
-| `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.call("musicxx.player.setQuality", {quality})` / `musicxx.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
+| `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.capability.call("musicxx.player.setQuality", {quality})` / `musicxx.capability.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
 | `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)` `syncSongs(args)`（歌单：保存下来的列表；`syncSongs` = 同步歌单音源，把绑定音源里新增的歌加进歌单） |
 | `musicxx.songlist` | `querySongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（播放列表：当前正在播的那一串歌） |
 | `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
@@ -378,10 +378,10 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
-| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
+| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.capability.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.capability.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
-`musicxx` 全局对象上还有两个**不是** `musicxx.call` 封装的名字空间：`musicxx.capability`（能力：
+`musicxx` 全局对象上还有两个**不是** `musicxx.capability.call` 封装的名字空间：`musicxx.capability`（能力：
 实现应用声明的能力、注册自己的能力、调别的插件、自省）与 `musicxx.broadcast`（广播：读当前值、
 订阅、发布、声明自己的值频道），方法见 §3 的表与 §4 / §5 / §8 / §9 / §10。
 
@@ -392,7 +392,7 @@ const result = await musicxx.call("musicxx.<域>.<动作>", { ...参数 }, 超�
 **动作清单**（每个动作做什么、参数与返回、失败情形与示例）在 [plugin-api.md](plugin-api.md) §3.2；
 本文不再重复。使用时记住三件事：
 
-- **动作名没在上面的便捷封装里也没关系**：`musicxx.call("musicxx.<域>.<动作>", {参数})` 一样能调；
+- **动作名没在上面的便捷封装里也没关系**：`musicxx.capability.call("musicxx.<域>.<动作>", {参数})` 一样能调；
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
   `musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` ——
   写插件前先按 [plugin-api.md](plugin-api.md) §3.4 确认一遍；
@@ -435,7 +435,7 @@ const resp = await musicxx.net.fetch({
 - `responseType:"json"` 目前也给文本（自己 `JSON.parse`）；要原始字节用 `"bytes"`（给 `bodyBase64`）；
 - 方法与大小都不设白名单：`method` 只挡会让请求行出错的字符；
 - 这条路走**插件框架自己**的网络实现，不受主程序动作超时影响；如果改用动作通道
-  （`musicxx.call("musicxx.net.fetch", …)`），记得自己给够 `timeoutMs` —— 动作缺省只有 5 秒。
+  （`musicxx.capability.call("musicxx.net.fetch", …)`），记得自己给够 `timeoutMs` —— 动作缺省只有 5 秒。
 
 ```js
 const file = await musicxx.net.download({ url: "https://.../a.mp3", fileName: "a.mp3" });

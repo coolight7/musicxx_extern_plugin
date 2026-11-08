@@ -141,7 +141,7 @@ musicxx.capability.register("card", function () {
 | **应用来问插件（决策型能力）** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.capability.implement` / `PluginBase::implement`（带 `phase`） | [plugin-capabilities.md](plugin-capabilities.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
 | **快照频道** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.broadcast.read` / `stateJson` | [plugin-api.md](plugin-api.md) §2 |
 | **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | JS `musicxx.broadcast.*`（原生已没有变量表） | [plugin-api.md](plugin-api.md) §5 + [plugin-value-channels.md](plugin-value-channels.md) |
-| **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-api.md](plugin-api.md) §3（全部动作的参数与返回） |
+| **应用实现的能力** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.capability.call` / `capabilityCall` | [plugin-api.md](plugin-api.md) §3（全部能力的参数与返回） |
 | **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
 | **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |

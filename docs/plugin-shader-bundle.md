@@ -279,17 +279,17 @@ void main() {
 
 ```js
 // 1) 把图片交给主程序（主程序解码 + 上传成 GPU 纹理，登记进这个插件的图像表）
-await musicxx.call("musicxx.media.bindImage", {
+await musicxx.capability.call("musicxx.media.bindImage", {
     key: "mini",            // 本地名字，渲染项里用它引用
     data: base64,           // 图片字节（png / jpeg / rgba）
     format: "png",          // png / jpeg / rgba（rgba 还要 width / height）
 });
 
 // 或者"读封面顺便绑"：复用同一次解码的像素，不重复解码
-await musicxx.call("musicxx.media.cover", { size: 96, format: "rgba", bind: "mini" });
+await musicxx.capability.call("musicxx.media.cover", { size: 96, format: "rgba", bind: "mini" });
 
 // 不再需要时释放（不释放也会随插件停用/卸载、插件框架停止自动摘掉）
-await musicxx.call("musicxx.media.unbindImage", { key: "mini" });
+await musicxx.capability.call("musicxx.media.unbindImage", { key: "mini" });
 ```
 
 ```jsonc
@@ -792,7 +792,7 @@ const r = await musicxx.render.list({ slot: "player.background" });
 //     { id, title, depict?, source:"builtin"|"plugin", plugin?, available, reason?, selected } ] }
 
 // 一键使用（也可以切到内置样式）
-await musicxx.call("musicxx.render.select", { slot: "player.background", id: "plugin.my_plugin.bg" });
+await musicxx.capability.call("musicxx.render.select", { slot: "player.background", id: "plugin.my_plugin.bg" });
 await musicxx.render.select("builtin:Auto");     // 省略 slot 用默认槽位
 // 成功 → { ok:true, slot, id }；不可用 / 未知槽位 → { ok:false, error:"<原因>" }
 

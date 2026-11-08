@@ -427,7 +427,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 > `playlist.queryLists` / `playlist.querySongs` / `songlist.playSong` / `playlist.play`。新代码写新名字。
 >
 > 上表里的 `musicxx.player.playSrc` 由**内置表**登记（与 `musicxx.ui.openSearch`、`musicxx.entry.argv`
-> 一起，见 §4.3），所以在命令表里只出现一次；插件里照样用 `musicxx.call("musicxx.player.playSrc", …)`，
+> 一起，见 §4.3），所以在命令表里只出现一次；插件里照样用 `musicxx.capability.call("musicxx.player.playSrc", …)`，
 > 参数与 §4.3 那张表一致。
 
 > 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
@@ -646,8 +646,8 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `feature.list` / `feature.call` | 每个能力已经单独变成工具（`GetAudioSpectrum` …），原始清单用 `musicxx-cli feature list` |
 | `app.commands` | `musicxx-cli commands [status\|install\|uninstall]` |
 | `musicxx.entry.argv` | 命令行 `musicxx-cli open` / `call`，或 `/cli` 的 `{"argv": […]}` |
-| 歌单 / 播放列表的写入动作（`musicxx.playlist.create` / `removeSong` / `updateSong`、`musicxx.songlist.addSong` / `removeSong` / `updateSong`） | `/cli`（`musicxx-cli call …`）—— 插件里仍然用 `musicxx.call` |
-| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.render.*`、`musicxx.media.*`（动作本身没有工具：频谱 / 副歌 / 主色调 / 内核信息用 §5.2 里那几个同名能力工具）、`musicxx.source.define` / `undefine`、`musicxx.capability.subscribers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.call`） |
+| 歌单 / 播放列表的写入动作（`musicxx.playlist.create` / `removeSong` / `updateSong`、`musicxx.songlist.addSong` / `removeSong` / `updateSong`） | `/cli`（`musicxx-cli call …`）—— 插件里仍然用 `musicxx.capability.call` |
+| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.render.*`、`musicxx.media.*`（动作本身没有工具：频谱 / 副歌 / 主色调 / 内核信息用 §5.2 里那几个同名能力工具）、`musicxx.source.define` / `undefine`、`musicxx.capability.subscribers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.capability.call`） |
 
 判断某个命令有没有 MCP 工具，看 `GET /cli/list` 的 `commands[].id` 与 `tools/list` 的工具名：
 **工具名与命令 id 不是一回事**（`GetPlaylistSongs` ↔ `musicxx.songlist.querySongs`），
@@ -865,7 +865,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 - 命令条数 / 分类：`musicxx-cli list --json` 里的 `data.commandCount` 与 `commands[].kind`；
 - MCP 工具：`tools/list`（或主程序 `MusicxxMcpTools_c.all()`，它 = 固定工具 + 能力注册表）；
-- 动作有没有实现：看主程序 `lib/plugin/externPlugin/ExternActions.dart` 里有没有 `_add(...)` 那一行
+- 能力有没有实现：看主程序 `lib/plugin/externPlugin/ExternAppCapabilities.dart` 里有没有 `_add(...)` 那一行
   （SDK 常量存在不等于已实现）；
 - 能力已接入 / 未接入：`tools/capabilities.def.json` 的 `implemented` 字段（`plugin-capabilities.md` 由它生成，
   `dart run tools/gen_contract.dart --check` 校验）。

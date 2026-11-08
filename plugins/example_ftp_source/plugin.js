@@ -503,7 +503,7 @@ function noteAccountProblem(reason) {
 ///
 /// 只用于自省与更清楚的报错（`musicxx-cli call musicxx.source.list` / MCP `ListMediaSources`
 /// 读这份清单）；能不能播看的是上面那个解析处理器。声明跟着插件生命周期撤销，不写磁盘。
-musicxx.call("musicxx.source.define", {
+musicxx.capability.call("musicxx.source.define", {
     id: TYPE_ID,
     title: "FTP 文件",
     // 列表标签里的短名：歌单里显示成 `[FTP]`（不写就用 title）
@@ -536,7 +536,7 @@ const BY_NAME_MAX_DEPTH = 2;
 /// `view` 只能小写（与音源类型 id 同一套字符规则），能力名不受这个限制。
 /// 分类不进音源身份：两边的歌 `src` 一样，播放 / 缓存 / 播放记录都是同一份。
 /// 声明跟着插件生命周期撤销，不写磁盘。
-musicxx.call("musicxx.source.browse", {
+musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID,
     view: "dir",                       // 分类 id：a-z 0-9 _ -，缺省 default
     title: "文件夹",                    // 分类名（界面上的 tab）
@@ -562,7 +562,7 @@ musicxx.call("musicxx.source.browse", {
     noteError("声明可浏览来源失败：" + err.message);
 });
 
-musicxx.call("musicxx.source.browse", {
+musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID,
     view: "byname",                    // 分类 id 只能小写字母 / 数字 / _ / -
     title: "按名称",

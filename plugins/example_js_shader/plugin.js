@@ -675,7 +675,7 @@ function requestBackground(id) {
     // 先记一条日志: 排查"按钮有没有点到插件"时就看主程序日志里有没有这一行
     musicxx.host.log(2, "收到切换播放页背景请求: " + id);
     lastBackgroundRequest = id;
-    musicxx.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
+    musicxx.capability.call("musicxx.render.select", { slot: "player.background", id: id }).then(function (r) {
         // 动作成功 = 选择已经生效 (镜像同步更新): 不再需要"已请求"提示
         lastBackgroundRequest = "";
         musicxx.host.log(2, "切换播放页背景成功: " + JSON.stringify(r));

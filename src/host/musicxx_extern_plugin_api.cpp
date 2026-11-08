@@ -772,7 +772,7 @@ musicxx_extern_plugin_capability_handlers_phase(
 
 /* ==================== 动作回应 ==================== */
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_action_respond(
+musicxx_extern_plugin_capability_app_respond(
     MusicxxExternPluginHost *h, int64_t request_id, int32_t status,
     const MusicxxExternPluginStringView *result_json,
     MusicxxExternPluginString *log) {
@@ -783,9 +783,9 @@ musicxx_extern_plugin_action_respond(
   const std::string result = viewToStd(result_json);
   /// 不能转投 IO 线程再回答: 触发这条回复的处理器自身常常**正占着 IO 线程**等 JS
   /// (裁决型能力的同步等待, 见 JsEngine::implementationRunSync), 转投就会互相等到超时。
-  /// actionRespond 自己负责线程归属: JS 引擎的请求就地回答, 动态库插件的登记表
+  /// respondAppCapability 自己负责线程归属: JS 引擎的请求就地回答, 动态库插件的登记表
   /// 才投到 IO 线程。
-  const auto rc = handle->manager->actionRespond(request_id, status, result);
+  const auto rc = handle->manager->respondAppCapability(request_id, status, result);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
     setErr(log, "action_respond: 未知 requestId");
   }

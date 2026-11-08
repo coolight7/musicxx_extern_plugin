@@ -5,7 +5,7 @@
 ///   直接使用插件框架 `Pluginxx*` 名字, **不引入别名层**;
 /// - musicxx 专用约定: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 专用接口聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
-/// - 便捷注册: `PluginBase::implement` / `observe` / `unimplement` / `requestAction` /
+/// - 便捷注册: `PluginBase::implement` / `observe` / `unimplement` / `capabilityCall` /
 ///   `stateJson` / `hostInfoJson`。
 /// - 界面描述层 `pluginxx::ui`（组件模型 / 解析 / 适配 / 文本降级 / 基础 kit）
 ///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们拼装。
@@ -496,7 +496,7 @@ public:
 
     /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
     /// - 结果经 `notify->done` **恰好一次** (框架 IO 线程) 回调; status == 0 时载荷是结果 JSON;
-    /// - `notify` 由 SDK 复制保存 (与 [requestAction] 同一做法), 插件可以传栈上的 notify;
+    /// - `notify` 由 SDK 复制保存 (与 [capabilityCall] 同一做法), 插件可以传栈上的 notify;
     /// - `timeoutMs` < 0 = 用能力声明里的超时; >= 0 = 这次调用的超时 (0 = 不设超时,
     ///   只对应用实现的能力生效; 插件实现的行由它自己决定什么时候完成);
     /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
@@ -557,7 +557,7 @@ public:
             hostStringFree(errorOut);
         }
         if (!op) {
-            /// 未受理: 完成回调不会被调用, 这里补一次 (与 requestAction 的约定一致)
+            /// 未受理: 完成回调不会被调用, 这里补一次 (与 capabilityCall 的约定一致)
             if (!holderPtr->doneCalled) {
                 holderPtr->doneCalled = true;
                 if (holderPtr->user.done) {
@@ -610,7 +610,7 @@ public:
         payload["args"]   = spec.args ? spec.args : "";
         payload["result"] = spec.result ? spec.result : "";
         const std::string text = payload.dump();
-        return requestAction("musicxx.feature.point.define", text.c_str(), notify, timeoutMs);
+        return capabilityCall("musicxx.feature.point.define", text.c_str(), notify, timeoutMs);
     }
 
     /// 收回自己声明的功能点（一般不用调：禁用 / 卸载会自动撤销）
@@ -619,7 +619,7 @@ public:
         utilxx_base::Json payload = utilxx_base::Json::object();
         payload["id"] = id ? id : "";
         const std::string text = payload.dump();
-        return requestAction("musicxx.feature.point.undefine", text.c_str(), notify, timeoutMs);
+        return capabilityCall("musicxx.feature.point.undefine", text.c_str(), notify, timeoutMs);
     }
 
     /// 本插件的 id（读一次 `host.info()` 的 `pluginId` 并缓存；拿不到时空串）
@@ -718,8 +718,8 @@ public:
             return -1;
         }
         const std::string text = payload.dump();
-        return requestAction("musicxx.feature.point.call", text.c_str(), notify, timeoutMs,
-                             outRequestId);
+        return capabilityCall("musicxx.feature.point.call", text.c_str(), notify,
+                              timeoutMs);
     }
 
     /// 当前有哪些功能点、谁在实现（行文本；等价动作 `musicxx.feature.point.list`）
@@ -730,38 +730,11 @@ public:
         if (!notify || !notify->done) {
             return -1;
         }
-        return requestAction("musicxx.feature.point.list", "{}", notify, timeoutMs);
+        return capabilityCall("musicxx.feature.point.list", "{}", notify, timeoutMs);
     }
 
     /// 发起主程序动作 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
-    /// 主程序的动作在框架 API 2 之后就是**能力**（`runner = app`）：这里走
-    /// `musicxx.capabilities` 的调用入口，宿主把调用转给应用，应用回答后回给插件。
-    /// - 超时：`timeoutMs` 是**这次调用**的超时（0 = 不设超时，一直等应用回复）；
-    ///   宿主的插件框架库没有带超时的调用成员时退回"按动作声明的超时"；
-    /// - `outRequestId` 已废弃（能力调用不再给请求号：取消由插件框架的句柄承担），
-    ///   传了也只写 0；
-    /// - 主程序/框架会持有完成通知直到本次动作终结（完成 / 超时 / 取消），SDK 把通知
-    /// **复制**到实例内部转接 —— 插件可以放心传入栈上的 notify。
-    int32_t requestAction(
-        const char*                   action,
-        const char*                   argsJson,
-        const PluginxxOperatorNotify* notify,
-        uint32_t                      timeoutMs = 5000,
-        int64_t*                      outRequestId = nullptr
-    ) {
-        if (!action || !*action) {
-            return -1;
-        }
-        if (outRequestId) {
-            *outRequestId = 0;
-        }
-        const int32_t timeout = timeoutMs > 0x7fffffffu
-                                    ? 0x7fffffff
-                                    : static_cast<int32_t>(timeoutMs);
-        return capabilityCall(action, argsJson ? argsJson : "{}", notify, timeout);
-    }
-
     /// 订阅事件总线的主题 (**框架线程**执行处理器; 处理器不得阻塞)
     /// - 主题必须符合命名空间规则: 官方 `musicxx.*` 或插件自定义
     ///   `plugin.<本插件id>.*`; 其它前缀会被插件框架拒绝 (返回 -1);
@@ -1083,7 +1056,7 @@ private:
     /// 同步处理器持有者 (生命周期与实例相同; start 事务里累积)
     std::vector<std::unique_ptr<CapabilityHolderBase>> holders_;
 
-    /// 动作请求完成通知持有者 (主程序/框架会长期持有该指针; 见 requestAction 说明)
+    /// 动作请求完成通知持有者 (主程序/框架会长期持有该指针; 见 capabilityCall 说明)
     struct ActionNotifyHolder {
         PluginxxOperatorNotify user{};      ///< 插件传入的完成通知 (原样保留)
         PluginxxOperatorNotify forward{};   ///< 转交给主程序的通知 (地址在堆上, 稳定)

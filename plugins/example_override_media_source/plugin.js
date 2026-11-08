@@ -510,7 +510,7 @@ musicxx.capability.implement("musicxx.player.source.resolve", {
 /// 每次启用脚本都会重新声明一遍。命令行 `musicxx-cli call musicxx.source.list`、
 /// MCP `ListMediaSources` 与插件动作 `musicxx.source.list` 读的就是这份清单。
 function declareSourceTypes() {
-    musicxx.call("musicxx.source.define", {
+    musicxx.capability.call("musicxx.source.define", {
         id: TYPE_PLUGIN_BILI,
         title: "B 站（插件解析）",
         depict: "地址里写 BV 号，插件自己查 B 站接口换播放地址与请求头",
@@ -522,7 +522,7 @@ function declareSourceTypes() {
     }, function (err) {
         noteError("声明音源类型失败: " + err.message);
     });
-    musicxx.call("musicxx.source.define", {
+    musicxx.capability.call("musicxx.source.define", {
         id: TYPE_PROXY_LOCAL,
         title: "本地文件（HTTP 代理）",
         depict: "地址里写本地文件路径，插件把它挂到自己的 HTTP 服务上，播放器拿到一个 http 地址",
@@ -681,7 +681,7 @@ musicxx.capability.register("setSwitch", function (args) {
 /// 能力处理器必须同步返回，所以动作发出去就结束，结果只写日志（页面不靠它刷新）。
 /// `type` 与歌曲实体的来源类型一致：内置 Bili 是 `bili`，插件自己的音源写类型 id。
 function playViaEntry(name, src, type) {
-    musicxx.call("musicxx.player.playSrc", {
+    musicxx.capability.call("musicxx.player.playSrc", {
         src: src,
         type: type,
         name: name,

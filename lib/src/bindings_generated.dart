@@ -1136,14 +1136,14 @@ class MusicxxExternPluginBindings {
           >();
 
   /// 回复插件发起的动作请求 (status 见错误码; result_json 可为空)
-  int musicxx_extern_plugin_action_respond(
+  int musicxx_extern_plugin_capability_app_respond(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int request_id,
     int status,
     ffi.Pointer<MusicxxExternPluginStringView> result_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_action_respond(
+    return _musicxx_extern_plugin_capability_app_respond(
       h,
       request_id,
       status,
@@ -1152,7 +1152,7 @@ class MusicxxExternPluginBindings {
     );
   }
 
-  late final _musicxx_extern_plugin_action_respondPtr =
+  late final _musicxx_extern_plugin_capability_app_respondPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1163,9 +1163,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_action_respond');
-  late final _musicxx_extern_plugin_action_respond =
-      _musicxx_extern_plugin_action_respondPtr
+      >('musicxx_extern_plugin_capability_app_respond');
+  late final _musicxx_extern_plugin_capability_app_respond =
+      _musicxx_extern_plugin_capability_app_respondPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,

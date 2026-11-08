@@ -443,9 +443,9 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
 }
 
 MusicxxHostManager::~MusicxxHostManager() {
-  // 成员按**声明逆序**销毁: registryMutex_ 声明在 internalRelay_ / jsEngine_
+  // 成员按**声明逆序**销毁: registryMutex_ 声明在 internalCapabilityRelay_ / jsEngine_
   // 之后, 因此会先被销毁。而 JS 引擎(同时是那个
-  // InternalActionRelay)析构时会回调 setInternalActionRelay(nullptr) 回来加锁
+  // InternalAppCapabilityRelay)析构时会回调 setInternalAppCapabilityRelay(nullptr) 回来加锁
   // registryMutex_ —— 等到成员销毁阶段才放它, 锁已经没了: Android 的 bionic
   // FORTIFY 会直接 abort (实测 `FORTIFY: pthread_mutex_lock called on a
   // destroyed mutex`), Windows/glibc 下则是 "未定义但通常不发作"。
@@ -453,7 +453,7 @@ MusicxxHostManager::~MusicxxHostManager() {
   // 析构体执行时所有成员都还活着, 因此在这里先把两个引用搬到局部变量再释放:
   // 引擎与接驳口在这时候一起收尾, 回调拿到的 registryMutex_ 仍然有效。
   {
-    std::shared_ptr<InternalActionRelay> relay = std::move(internalRelay_);
+    std::shared_ptr<InternalAppCapabilityRelay> relay = std::move(internalCapabilityRelay_);
     std::shared_ptr<JsEngine> engine = std::move(jsEngine_);
     engine.reset(); ///< 先放引擎自身的那份引用 (引擎此时仍由 relay 持有)
     relay.reset(); ///< 最后一个引用消失时真正析构引擎, 这时锁仍然有效
@@ -520,10 +520,10 @@ void MusicxxHostManager::pushHostError(const std::string &code,
 
 /* ==================== 框架内运行时 (JS 引擎) 接驳 ==================== */
 
-void MusicxxHostManager::setInternalActionRelay(
-    std::shared_ptr<InternalActionRelay> relay) {
+void MusicxxHostManager::setInternalAppCapabilityRelay(
+    std::shared_ptr<InternalAppCapabilityRelay> relay) {
   std::lock_guard<std::mutex> lock{registryMutex_};
-  internalRelay_ = std::move(relay);
+  internalCapabilityRelay_ = std::move(relay);
 }
 
 int64_t MusicxxHostManager::allocateRequestId() {
@@ -545,7 +545,7 @@ void MusicxxHostManager::refreshJsHostInfo() {
   engine->setHostInfoCache(info);
 }
 
-int32_t MusicxxHostManager::pushActionRequestEvent(
+int32_t MusicxxHostManager::pushAppCapabilityRequestEvent(
     const std::string &pluginId, int64_t requestId, const std::string &action,
     const std::string &argsJson, uint32_t timeoutMs,
     int64_t *outEffectiveTimeoutMs) {
@@ -553,32 +553,32 @@ int32_t MusicxxHostManager::pushActionRequestEvent(
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
   /// 动作名不校验、不拒绝 (与动态库插件的动作请求一致): 由 Dart 侧按注册表
-  /// 决定理不理它。命名建议见 `requestAction`。
+  /// 决定理不理它。命名建议见 `requestAppCapability`。
   ///
   /// 超时也不再限制区间: 0 = 不设超时。
   const int64_t effectiveTimeoutMs = static_cast<int64_t>(timeoutMs);
   Json payload;
   payload["requestId"] = requestId;
   payload["plugin"] = pluginId;
-  payload["action"] = action;
+  payload["capability"] = action;
   payload["timeoutMs"] = effectiveTimeoutMs;
   payload["args"] = parseJsonSafe(argsJson);
-  pushEvent("musicxx.action.request", pluginId, payload.dump());
+  pushEvent("musicxx.capability.app.request", pluginId, payload.dump());
   if (outEffectiveTimeoutMs) {
     *outEffectiveTimeoutMs = effectiveTimeoutMs;
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-void MusicxxHostManager::cancelActionsOfInstance(
+void MusicxxHostManager::cancelAppCapabilitiesOfInstance(
     const std::string &instanceName) {
-  std::shared_ptr<InternalActionRelay> relay;
+  std::shared_ptr<InternalAppCapabilityRelay> relay;
   {
     std::lock_guard<std::mutex> lock{registryMutex_};
-    relay = internalRelay_;
+    relay = internalCapabilityRelay_;
   }
   if (relay) {
-    relay->cancelActionsOf(instanceName);
+    relay->cancelAppCapabilitiesOf(instanceName);
   }
 }
 
@@ -796,7 +796,7 @@ MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance &inst) const {
   j["counters"] = {
       {"capabilityCalls", inst.capabilityCalls.load()},
       {"capabilityTimeouts", inst.capabilityTimeouts.load()},
-      {"actionRequests", inst.actionRequests.load()},
+      {"appCapabilityRequests", inst.appCapabilityRequests.load()},
       {"events", inst.eventsPublished.load()},
       {"errors", inst.errors.load()},
   };
@@ -981,7 +981,7 @@ void MusicxxHostManager::clearPluginRegistrations(
       ++it;
     }
   }
-  for (auto it = pendingActions_.begin(); it != pendingActions_.end();) {
+  for (auto it = pendingAppCapabilities_.begin(); it != pendingAppCapabilities_.end();) {
     if (it->second.plugin == instanceName) {
       if (it->second.timer) {
         it->second.timer->cancel(); ///< 实例卸载: 撤销超时保护
@@ -990,7 +990,7 @@ void MusicxxHostManager::clearPluginRegistrations(
         it->second.notify->done(it->second.notify->host_ud,
                                 PLUGINXX_OPERATOR_CANCELED, nullptr);
       }
-      it = pendingActions_.erase(it);
+      it = pendingAppCapabilities_.erase(it);
     } else {
       ++it;
     }
@@ -1001,7 +1001,7 @@ void MusicxxHostManager::clearPluginRegistrations(
   // 变量与订阅随实例摘除 (订阅者收到一条 removed 通知)
   detachChannels(instanceName);
   // JS 引擎登记的动作请求 (由 JS 侧自己保活) 也要一起取消
-  cancelActionsOfInstance(instanceName);
+  cancelAppCapabilitiesOfInstance(instanceName);
 }
 
 /* ==================== 插件管理 ==================== */
@@ -2668,7 +2668,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
     p["counters"] = {
         {"capabilityCalls", inst->capabilityCalls.load()},
         {"capabilityTimeouts", inst->capabilityTimeouts.load()},
-        {"actionRequests", inst->actionRequests.load()},
+        {"appCapabilityRequests", inst->appCapabilityRequests.load()},
         {"events", events},
         /// 事件速率: eventsPerSec = 最近一个完整窗口;
         /// eventsAvgPerSec = 加载以来平均

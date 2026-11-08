@@ -100,7 +100,7 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 | `"openSettings"` | — | **字符串短写**，等于 `dispatch`：调用本插件的能力 |
 | `{"kind":"dispatch"}` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
 | `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面，**允许指向任意插件**（含自己）：跨插件时页面由对方插件自己绘制、发起方拿不到对方的数据。与动作 `musicxx.ui.openRoute` 同一套规则 |
-| `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行主程序动作（与插件自己调 `musicxx.call` 同一份实现） |
+| `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行主程序动作（与插件自己调 `musicxx.capability.call` 同一份实现） |
 | `{"kind":"none"}` / 不写 | — | 纯展示项，点了没有动作 |
 
 - 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与视图 id；`dispatch` 必须有非空 `name`；

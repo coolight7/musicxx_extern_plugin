@@ -1636,7 +1636,7 @@ int main(int argc, char **argv) {
   {
     const CapabilityCallOutcome neverRespond = callCapability(
         host, "example_native", "probe",
-        R"({"requestAction":"musicxx.test.neverRespond"})", 8000);
+        R"({"appCapabilityCall":"musicxx.test.neverRespond"})", 8000);
     check(neverRespond.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && neverRespond.ok,
           "probe 触发插件动作请求成功");
 
@@ -1648,9 +1648,9 @@ int main(int argc, char **argv) {
     check(events.rc == MUSICXX_EXTERN_PLUGIN_OK ||
               events.rc == MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
           "poll_events 可调用");
-    check(eventsJson.find("musicxx.action.request") != std::string::npos,
+    check(eventsJson.find("musicxx.capability.app.request") != std::string::npos,
           "Dart 侧收到动作请求事件");
-    check(eventsJson.find("musicxx.action.cancel") != std::string::npos,
+    check(eventsJson.find("musicxx.capability.app.cancel") != std::string::npos,
           "动作超时后收到取消事件");
 
     const CapabilityCallOutcome probeAgain =

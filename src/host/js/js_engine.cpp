@@ -193,7 +193,7 @@ constexpr const char *kPrelude = R"JS(
   var subTable = new Map();
   var capTable = new Map();
   var uiTable = new Map();
-  var actionWaiters = new Map();
+  var appCapabilityWaiters = new Map();
   var capabilityWaiters = new Map();
   var timerTable = new Map();
   /// 裁决型能力处理器的 Promise 等待登记 (key = 插件框架给的等待 id)
@@ -773,71 +773,74 @@ var featurePointImpls = new Map();
   ext.onChannelChanged = handleChannelChanged;
   ext.onChannelWriteResult = handleChannelWriteResult;
 
-  musicxx.call = function (name, args, timeoutMs) {
-    assertName(name, "call: 动作名");
+  /// 调一次**应用实现的能力**（`musicxx.*`），返回 Promise
+  ///
+  /// 内部入口，插件用 `musicxx.capability.call(id, args, timeoutMs?)`。
+  /// 请求当场从 JS 线程推给应用（不投递到框架线程：start 事务期间会互等），
+  /// 结果经 `ext.onCapabilityResult` 回来，与本文件里跨插件调用共用一张等待表。
+  function appCall(id, args, budget) {
+    assertName(id, "capability.call: 能力 id");
     return new Promise(function (resolve, reject) {
       var payload = safeJson(args === undefined || args === null ? {} : args);
-      var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 5000;
-      var id = ext.action(name, payload, budget);
-      if (typeof id !== "number" || id < 0) {
-        reject(new Error("动作请求未被受理: " + name + " (code=" + id + ")"));
+      var timeout = (typeof budget === "number" && budget > 0) ? Math.trunc(budget) : 5000;
+      var requestId = ext.appCapabilityCall(id, payload, timeout);
+      if (typeof requestId !== "number" || requestId < 0) {
+        reject(new Error("应用能力调用未被受理: " + id + " (code=" + requestId + ")"));
         return;
       }
-      // 表格用**字符串键**: 插件框架回调 `onActionDone` 传进来的 id 是字符串
-      // (数字键会让查找落空 → 动作 Promise 永远不结算, 脚本读不到任何动作结果)
-      actionWaiters.set(String(id), { resolve: resolve, reject: reject });
+      // 键用字符串: 插件框架回调传进来的 id 是字符串
+      appCapabilityWaiters.set(String(requestId), { resolve: resolve, reject: reject });
     });
-  };
-  ext.onActionDone = function (id, status, json) {
-    // 插件框架按字符串传参: 键与状态都要先归一, 不能直接和数字比较
+  }
+  ext.onAppCapabilityDone = function (id, status, json) {
     var key = String(id);
-    var waiter = actionWaiters.get(key);
+    var waiter = appCapabilityWaiters.get(key);
     if (!waiter) { return; }
-    actionWaiters.delete(key);
+    appCapabilityWaiters.delete(key);
     var value = null;
     if (json) { try { value = JSON.parse(json); } catch (e) { value = json; } }
     if (Number(status) === 0) {
       waiter.resolve(value);
     } else {
       var reason = (value && value.error) ? value.error : ("status=" + status);
-      waiter.reject(new Error("动作失败: " + reason));
+      waiter.reject(new Error("应用能力调用失败: " + reason));
     }
   };
 
   musicxx.player = {
-    play: function (args) { return musicxx.call("musicxx.player.play", args); },
-    pause: function () { return musicxx.call("musicxx.player.pause"); },
-    toggle: function () { return musicxx.call("musicxx.player.toggle"); },
-    stop: function () { return musicxx.call("musicxx.player.stop"); },
-    next: function () { return musicxx.call("musicxx.player.next"); },
-    prev: function () { return musicxx.call("musicxx.player.prev"); },
+    play: function (args) { return appCall("musicxx.player.play", args); },
+    pause: function () { return appCall("musicxx.player.pause"); },
+    toggle: function () { return appCall("musicxx.player.toggle"); },
+    stop: function () { return appCall("musicxx.player.stop"); },
+    next: function () { return appCall("musicxx.player.next"); },
+    prev: function () { return appCall("musicxx.player.prev"); },
     seek: function (args) {
-      return musicxx.call("musicxx.player.seek", typeof args === "number" ? { positionMs: args } : args);
+      return appCall("musicxx.player.seek", typeof args === "number" ? { positionMs: args } : args);
     },
-    setVolume: function (value) { return musicxx.call("musicxx.player.setVolume", { volume: value }); },
-    setSpeed: function (value) { return musicxx.call("musicxx.player.setSpeed", { speed: value }); },
-    setLoopMode: function (mode) { return musicxx.call("musicxx.player.setLoopMode", { mode: mode }); }
+    setVolume: function (value) { return appCall("musicxx.player.setVolume", { volume: value }); },
+    setSpeed: function (value) { return appCall("musicxx.player.setSpeed", { speed: value }); },
+    setLoopMode: function (mode) { return appCall("musicxx.player.setLoopMode", { mode: mode }); }
   };
 
   // 歌单（playlist = 一张保存下来的列表）
   musicxx.playlist = {
-    queryLists: function () { return musicxx.call("musicxx.playlist.queryLists"); },
-    querySongs: function (args) { return musicxx.call("musicxx.playlist.querySongs", args); },
-    play: function (args) { return musicxx.call("musicxx.playlist.play", args); },
-    addSong: function (args) { return musicxx.call("musicxx.playlist.addSong", args); },
-    removeSong: function (args) { return musicxx.call("musicxx.playlist.removeSong", args); },
-    create: function (args) { return musicxx.call("musicxx.playlist.create", args); },
-    updateSong: function (args) { return musicxx.call("musicxx.playlist.updateSong", args); },
-    syncSongs: function (args) { return musicxx.call("musicxx.playlist.syncSongs.sync", args); }
+    queryLists: function () { return appCall("musicxx.playlist.queryLists"); },
+    querySongs: function (args) { return appCall("musicxx.playlist.querySongs", args); },
+    play: function (args) { return appCall("musicxx.playlist.play", args); },
+    addSong: function (args) { return appCall("musicxx.playlist.addSong", args); },
+    removeSong: function (args) { return appCall("musicxx.playlist.removeSong", args); },
+    create: function (args) { return appCall("musicxx.playlist.create", args); },
+    updateSong: function (args) { return appCall("musicxx.playlist.updateSong", args); },
+    syncSongs: function (args) { return appCall("musicxx.playlist.syncSongs.sync", args); }
   };
 
   // 播放列表（songlist = 当前正在播的那一串歌）
   musicxx.songlist = {
-    querySongs: function (args) { return musicxx.call("musicxx.songlist.querySongs", args); },
-    playSong: function (args) { return musicxx.call("musicxx.songlist.playSong", args); },
-    addSong: function (args) { return musicxx.call("musicxx.songlist.addSong", args); },
-    removeSong: function (args) { return musicxx.call("musicxx.songlist.removeSong", args); },
-    updateSong: function (args) { return musicxx.call("musicxx.songlist.updateSong", args); }
+    querySongs: function (args) { return appCall("musicxx.songlist.querySongs", args); },
+    playSong: function (args) { return appCall("musicxx.songlist.playSong", args); },
+    addSong: function (args) { return appCall("musicxx.songlist.addSong", args); },
+    removeSong: function (args) { return appCall("musicxx.songlist.removeSong", args); },
+    updateSong: function (args) { return appCall("musicxx.songlist.updateSong", args); }
   };
 
   // 过时的分类 `musicxx.library`：名字还能用，内部转成新名字（老插件不用改）
@@ -894,11 +897,11 @@ var featurePointImpls = new Map();
   /// - call(id, args) 调一个能力；频谱/副歌这类要解码分析的长任务给更长的超时，
   ///   默认 30 秒（也可以自己传 timeoutMs）。
   musicxx.feature = {
-    list: function () { return musicxx.call("musicxx.feature.list"); },
+    list: function () { return appCall("musicxx.feature.list"); },
     call: function (id, args, timeoutMs) {
       assertName(id, "feature.call: 能力 id");
       var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 30000;
-      return musicxx.call("musicxx.feature.call",
+      return appCall("musicxx.feature.call",
                           { id: String(id), args: (args || {}) }, budget);
     },
     /// 功能埋点清单: 应用留出了哪些功能、现在谁在实现它 (谁生效、谁备选、谁把它关掉了)。
@@ -909,7 +912,7 @@ var featurePointImpls = new Map();
       var args = {};
       if (options.id) { args.id = String(options.id); }
       if (options.provided !== undefined) { args.provided = !!options.provided; }
-      return musicxx.call("musicxx.feature.point.list", args);
+      return appCall("musicxx.feature.point.list", args);
     },
     /// 调一个**功能点**并拿到结果（应用留出的埋点, 或插件自己声明的功能点）。
     ///
@@ -923,7 +926,7 @@ var featurePointImpls = new Map();
     callPoint: function (id, args, timeoutMs) {
       assertName(id, "feature.callPoint: 功能点 id");
       var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 60000;
-      return musicxx.call("musicxx.feature.point.call",
+      return appCall("musicxx.feature.point.call",
                           { id: String(id), args: (args || {}) }, budget);
     },
     /// 声明一个**自己的**功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
@@ -942,7 +945,7 @@ var featurePointImpls = new Map();
       }
       if (!full.id) { throw new Error("feature.define: 缺少功能点 id"); }
       assertName(full.id, "feature.define: 功能点 id");
-      return musicxx.call("musicxx.feature.point.define", {
+      return appCall("musicxx.feature.point.define", {
         id: String(full.id),
         title: full.title === undefined ? "" : String(full.title),
         depict: full.depict === undefined ? "" : String(full.depict),
@@ -953,7 +956,7 @@ var featurePointImpls = new Map();
     /// 收回自己声明的功能点（一般不用调：停用 / 卸载会自动撤销）
     undefine: function (id) {
       assertName(id, "feature.undefine: 功能点 id");
-      return musicxx.call("musicxx.feature.point.undefine", { id: String(id) });
+      return appCall("musicxx.feature.point.undefine", { id: String(id) });
     },
     /// 登记功能点的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
     ///
@@ -1000,17 +1003,17 @@ var featurePointImpls = new Map();
   musicxx.lyric = {
     current: {
       /// 当前歌曲的歌词信息和内容（`{limit?, word?}`；`index` 是 `lines` 里的下标）
-      get: function (args) { return musicxx.call("musicxx.lyric.current.get", args || {}); },
+      get: function (args) { return appCall("musicxx.lyric.current.get", args || {}); },
       /// 改当前歌曲的拟声云歌词（`lrcid`）与这首歌的歌词偏移（`offsetMs`，正 = 提前）
-      update: function (args) { return musicxx.call("musicxx.lyric.current.update", args || {}); },
+      update: function (args) { return appCall("musicxx.lyric.current.update", args || {}); },
       /// 用 LRC 文本设置当前歌词：只影响显示，不写缓存、不上传、不改歌曲绑定
       updateContent: function (lrcOrArgs) {
         var args = (typeof lrcOrArgs === "string") ? { lrc: lrcOrArgs } : (lrcOrArgs || {});
-        return musicxx.call("musicxx.lyric.current.updateContent", args);
+        return appCall("musicxx.lyric.current.updateContent", args);
       }
     },
     /// 按歌词源读内容：`{lrcid}` 或 `{type, src}`（`myid` / `local` / `link`）
-    getBySrc: function (args) { return musicxx.call("musicxx.lyric.getBySrc", args || {}); },
+    getBySrc: function (args) { return appCall("musicxx.lyric.getBySrc", args || {}); },
     /// 搜索拟声云歌词：`search("歌名 - 歌手")` 或 `search({name, artist})`
     search: function (keywordOrArgs, artist) {
       var args;
@@ -1020,13 +1023,13 @@ var featurePointImpls = new Map();
       } else {
         args = keywordOrArgs || {};
       }
-      return musicxx.call("musicxx.lyric.search", args);
+      return appCall("musicxx.lyric.search", args);
     }
   };
 
   musicxx.storage = {
     get: function (key, defaultValue) {
-      return musicxx.call("musicxx.storage.get", { key: String(key) }).then(function (value) {
+      return appCall("musicxx.storage.get", { key: String(key) }).then(function (value) {
         if (value === null || value === undefined) {
           return defaultValue === undefined ? null : defaultValue;
         }
@@ -1034,13 +1037,13 @@ var featurePointImpls = new Map();
       });
     },
     set: function (key, value) {
-      return musicxx.call("musicxx.storage.set", { key: String(key), value: value });
+      return appCall("musicxx.storage.set", { key: String(key), value: value });
     },
-    remove: function (key) { return musicxx.call("musicxx.storage.delete", { key: String(key) }); },
-    list: function () { return musicxx.call("musicxx.storage.list"); },
+    remove: function (key) { return appCall("musicxx.storage.delete", { key: String(key) }); },
+    list: function () { return appCall("musicxx.storage.list"); },
     // 插件配置文件 config.json（插件自绘的设置页改的就是这份）
     getConfig: function (key, defaultValue) {
-      return musicxx.call("musicxx.storage.get", { key: String(key), namespace: "config" })
+      return appCall("musicxx.storage.get", { key: String(key), namespace: "config" })
         .then(function (value) {
           if (value === null || value === undefined) {
             return defaultValue === undefined ? null : defaultValue;
@@ -1049,7 +1052,7 @@ var featurePointImpls = new Map();
         });
     },
     setConfig: function (key, value) {
-      return musicxx.call("musicxx.storage.set",
+      return appCall("musicxx.storage.set",
                           { key: String(key), value: value, namespace: "config" });
     }
   };
@@ -1385,19 +1388,19 @@ var featurePointImpls = new Map();
 
   musicxx.ui = {
     toast: function (args) {
-      return musicxx.call("musicxx.ui.toast", typeof args === "string" ? { text: args } : args);
+      return appCall("musicxx.ui.toast", typeof args === "string" ? { text: args } : args);
     },
     // 确认弹窗 (敏感操作前先问用户; 返回 { ok, confirmed })
     // * 要等用户点，所以缺省预算给 10 分钟（musicxx.call 的缺省 5 秒不够）
     dialog: function (args, timeoutMs) {
-      return musicxx.call("musicxx.ui.dialog", typeof args === "string" ? { content: args } : args,
+      return appCall("musicxx.ui.dialog", typeof args === "string" ? { content: args } : args,
                           waitUserBudget(timeoutMs));
     },
     // 浮层 (代码打开一层 sheet, 等用户关掉它; 返回 { ok, reason, value? })
     // - args: { preset, id, title, depict, blocks, options, value, textConfirm, textCancel, size, dismissible }
     // - 参数全部同动作 musicxx.ui.overlay.show，页面里的块也可以用 command 动作指向它
     overlay: function (args, timeoutMs) {
-      return musicxx.call("musicxx.ui.overlay.show", args || {}, waitUserBudget(timeoutMs));
+      return appCall("musicxx.ui.overlay.show", args || {}, waitUserBudget(timeoutMs));
     },
     // 选择浮层 (overlay 的 preset=picker: 标题 + 多行描述; 返回 { ok, selected } / { ok, cancelled })
     pick: function (args, timeoutMs) {
@@ -1405,30 +1408,30 @@ var featurePointImpls = new Map();
       var src = args || {};
       for (var key in src) { req[key] = src[key]; }
       req.preset = "picker";
-      return musicxx.call("musicxx.ui.overlay.show", req, waitUserBudget(timeoutMs));
+      return appCall("musicxx.ui.overlay.show", req, waitUserBudget(timeoutMs));
     },
     // 主动收起这个插件当前那一层浮层 (返回 { ok, closed })
     overlayClose: function (args) {
       var id = (typeof args === "string") ? args : ((args && args.id) ? String(args.id) : "");
-      return musicxx.call("musicxx.ui.overlay.close", { id: id });
+      return appCall("musicxx.ui.overlay.close", { id: id });
     },
     // 打开页面: 任意插件的声明式页面 (ext://<插件id>/<视图id>, 含本插件), 或官方白名单页面
     // (见作者文档; 跨插件页面由对方插件自己绘制)
     openRoute: function (route, args) {
-      return musicxx.call("musicxx.ui.openRoute", { route: String(route), arguments: args });
+      return appCall("musicxx.ui.openRoute", { route: String(route), arguments: args });
     },
     // 更换全局字体 (支持设置系统字体名, 或传入 'default'/null/'' 恢复默认)
     setFontFamily: function (args) {
       var req = (typeof args === "string") ? { fontFamily: args } : (args || {});
-      return musicxx.call("musicxx.ui.setFontFamily", req);
+      return appCall("musicxx.ui.setFontFamily", req);
     },
     // 获取当前生效的全局字体与默认字体信息
     getFontFamily: function () {
-      return musicxx.call("musicxx.ui.getFontFamily", {});
+      return appCall("musicxx.ui.getFontFamily", {});
     },
     // 动态加载并注册字体文件 (支持插件目录相对路径 path 或 base64 data, 默认立即应用)
     loadFont: function (options) {
-      return musicxx.call("musicxx.ui.loadFont", options || {});
+      return appCall("musicxx.ui.loadFont", options || {});
     },
     registerEntry: function (spec) {
       var entry = normalizeEntry(spec);
@@ -1467,15 +1470,15 @@ var featurePointImpls = new Map();
   // - select 只在"该项可用"时成功; 失败返回 { ok:false, error }.
   musicxx.render = {
     list: function (args) {
-      return musicxx.call("musicxx.render.list", { slot: (args && args.slot) ? String(args.slot) : undefined });
+      return appCall("musicxx.render.list", { slot: (args && args.slot) ? String(args.slot) : undefined });
     },
     current: function (args) {
-      return musicxx.call("musicxx.render.current", { slot: (args && args.slot) ? String(args.slot) : undefined });
+      return appCall("musicxx.render.current", { slot: (args && args.slot) ? String(args.slot) : undefined });
     },
     select: function (id, args) {
       var req = (args && typeof args === "object") ? args : {};
       req.id = String(id);
-      return musicxx.call("musicxx.render.select", req);
+      return appCall("musicxx.render.select", req);
     }
   };
 
@@ -1484,28 +1487,28 @@ var featurePointImpls = new Map();
     // 封面颜色分析结果 + 主程序内置背景实际使用的 4 色
     palette: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.palette", req);
+      return appCall("musicxx.media.palette", req);
     },
     // 写封面取色 (与内置分析是同一批字段): {main, light, lightMuted, dark, darkMuted}
     setPalette: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.palette.set", req);
+      return appCall("musicxx.media.palette.set", req);
     },
     // 封面字节 (jpeg/png/rgba, base64 放在 data 字段; size 16..512);
     // args.bind 非空时同时把这次解码出来的封面绑成纹理 (渲染项 image 引用那个 key)
     cover: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.cover", req);
+      return appCall("musicxx.media.cover", req);
     },
     // 把插件自己的图片绑成纹理: {key, data(base64), format: png|jpeg|rgba, width?, height?}
     bindImage: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.bindImage", req);
+      return appCall("musicxx.media.bindImage", req);
     },
     // 释放之前绑定的图片纹理: {key}
     unbindImage: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.unbindImage", req);
+      return appCall("musicxx.media.unbindImage", req);
     },
     // 当前音频频谱 (内置『音乐动效』提取的数据):
     //   args.bandCount 1..64 且能整除 256 (缺省 16)
@@ -1514,7 +1517,7 @@ var featurePointImpls = new Map();
     // 没有数据不是错误: 结果里的 status / available / loading / reason 说明原因
     spectrum: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.spectrum", req);
+      return appCall("musicxx.media.spectrum", req);
     },
     // 播放内核信息 (mpv / ffmpeg 版本、能写进 af/vf 的过滤器、解码器、认得的音视频后缀):
     //   args.part     all(缺省) | versions | filters | decoders | formats (只影响 text)
@@ -1522,7 +1525,7 @@ var featurePointImpls = new Map();
     // 返回 {ok, kernel, text}; 判断某个过滤器名能不能写进 af 用 kernel.audioFilters
     kernel: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return musicxx.call("musicxx.media.kernel", req);
+      return appCall("musicxx.media.kernel", req);
     }
   };
 
@@ -1531,10 +1534,10 @@ var featurePointImpls = new Map();
       try { return JSON.parse(ext.stats() || "{}"); } catch (e) { return {}; }
     },
     reportMemory: function (bytes) {
-      return musicxx.call("musicxx.stats.reportMemory", { bytes: Number(bytes) || 0 });
+      return appCall("musicxx.stats.reportMemory", { bytes: Number(bytes) || 0 });
     },
     reportMetric: function (name, value) {
-      return musicxx.call("musicxx.stats.reportMetric", { name: String(name), value: value });
+      return appCall("musicxx.stats.reportMetric", { name: String(name), value: value });
     }
   };
 
@@ -1615,7 +1618,7 @@ var featurePointImpls = new Map();
       assertName(id, "capability.handlers: 能力 id");
       var args = { id: String(id) };
       if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
-      return musicxx.call("capability.subscribers", args);
+      return appCall("musicxx.capability.subscribers", args);
     },
     register: function (name, fn) {
       assertName(name, "capability.register: 名称");
@@ -1624,7 +1627,15 @@ var featurePointImpls = new Map();
       return undefined;
     },
     call: function (pluginId, name, args, timeoutMs) {
-      assertName(pluginId, "capability.call: 插件 id");
+      assertName(pluginId, "capability.call");
+      /// 应用实现的能力：第一个参数直接写能力 id（`musicxx.<域>.<动作>`），
+      /// 后面是 `(id, args?, timeoutMs?)`。插件 id 不会以 `musicxx.` 开头，两种写法不撞。
+      if (pluginId.indexOf("musicxx.") === 0) {
+        var appArgs = (name === undefined || name === null) ? {} : name;
+        var appBudget = (typeof args === "number") ? args
+                       : ((typeof timeoutMs === "number") ? timeoutMs : undefined);
+        return appCall(pluginId, appArgs, appBudget);
+      }
       assertName(name, "capability.call: 能力名");
       // 超时是调用方自己的选择: 不传 = 3 秒; 传 0 = 一直等
       var budget = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 3000;
@@ -1884,10 +1895,10 @@ var featurePointImpls = new Map();
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
     broadcastSetWaiters.clear();
-    actionWaiters.forEach(function (waiter) {
+    appCapabilityWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
-    actionWaiters.clear();
+    appCapabilityWaiters.clear();
     capabilityWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
@@ -2051,7 +2062,12 @@ JSValue jsNetCancel(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) 
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
-JSValue jsAction(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+/// 受理一次应用能力调用（`ext.appCapabilityCall`）
+///
+/// 参数: `(能力 id, 参数 JSON, 超时毫秒)`；返回请求号（`< 0` = 未受理）。
+/// 结果经 `ext.onAppCapabilityDone` 回到 JS 线程。
+JSValue jsAppCapabilityCall(JSContext *ctx, JSValueConst, int argc,
+                            JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || !inst->hostInst || argc < 1) {
     return JS_NewInt32(ctx, -1);
@@ -2067,7 +2083,7 @@ JSValue jsAction(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   }
   int64_t requestId = -1;
   const auto rc =
-      inst->engine->requestAction(inst->hostInst, name ? name : "",
+      inst->engine->requestAppCapability(inst->hostInst, name ? name : "",
                                   args ? args : "{}", timeoutMs, &requestId);
   if (name) {
     JS_FreeCString(ctx, name);
@@ -2077,16 +2093,6 @@ JSValue jsAction(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   }
   return JS_NewInt32(ctx, rc == 0 ? static_cast<int32_t>(requestId)
                                   : static_cast<int32_t>(rc));
-}
-
-JSValue jsActionCancel(JSContext *ctx, JSValueConst, int /*argc*/,
-                       JSValueConst * /*argv*/) {
-  auto *inst = contextInstance(ctx);
-  if (inst && inst->engine) {
-    /// v1: 取消该实例的全部未完成请求 (单条取消留给后续版本)
-    inst->engine->cancelActionsOf(inst->name);
-  }
-  return JS_UNDEFINED;
 }
 
 JSValue jsPublish(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
@@ -2611,8 +2617,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"hostInfo", jsHostInfo, 0},
       {"log", jsLog, 2},
       {"configPath", jsConfigPath, 0},
-      {"action", jsAction, 3},
-      {"actionCancel", jsActionCancel, 0},
+      {"appCapabilityCall", jsAppCapabilityCall, 3},
       {"publish", jsPublish, 2},
       {"subscribeHost", jsSubscribeHost, 1},
       {"broadcastChannelOp", jsBroadcastChannelOp, 3},
@@ -2692,7 +2697,7 @@ JsEngine::~JsEngine() {
   auto *expected = this;
   table.engine.compare_exchange_strong(expected, nullptr);
   if (mgr_) {
-    mgr_->setInternalActionRelay(nullptr);
+    mgr_->setInternalAppCapabilityRelay(nullptr);
   }
 }
 
@@ -2703,7 +2708,7 @@ std::shared_ptr<JsEngine> JsEngine::create(MusicxxHostManager *mgr) {
   installBuiltinProvider();
   if (mgr) {
     /// 动作请求接驳口: JS 侧已发出、还没收到回复的请求由引擎自己登记, Dart 的回复经它转交
-    mgr->setInternalActionRelay(engine);
+    mgr->setInternalAppCapabilityRelay(engine);
   }
   return engine;
 }
@@ -2847,7 +2852,7 @@ int32_t JsEngine::startThread(std::string &err) {
     std::lock_guard lock{mutex_};
     tasks_.clear();
     timers_.clear();
-    pendingActions_.clear();
+    pendingAppCapabilities_.clear();
     dispatchWaits_.clear();
     instances_.clear();
     stopping_.store(false, std::memory_order_release);
@@ -2898,7 +2903,7 @@ void JsEngine::stop() {
     tasks_.clear();
     timers_.clear();
     instances_.clear();
-    pendingActions_.clear();
+    pendingAppCapabilities_.clear();
     dispatchWaits_.clear();
   }
   XX_LOGI("[musicxx_ext] JS 线程已停止");
@@ -2922,7 +2927,7 @@ int64_t JsEngine::nextWaitMsLocked() const {
     wait = (std::min)(wait,
                       (std::max)(static_cast<int64_t>(0), timer.dueMs - now));
   }
-  for (const auto &[id, pending] : pendingActions_) {
+  for (const auto &[id, pending] : pendingAppCapabilities_) {
     (void)id;
     wait = (std::min)(
         wait, (std::max)(static_cast<int64_t>(0), pending.deadlineMs - now));
@@ -3045,14 +3050,14 @@ void JsEngine::fireDueTimers() {
 }
 
 void JsEngine::expireActions() {
-  std::vector<PendingAction> expired;
+  std::vector<PendingAppCapability> expired;
   {
     std::lock_guard lock{mutex_};
     const auto now = nowSteadyMs();
-    for (auto it = pendingActions_.begin(); it != pendingActions_.end();) {
+    for (auto it = pendingAppCapabilities_.begin(); it != pendingAppCapabilities_.end();) {
       if (it->second.deadlineMs <= now) {
         expired.push_back(it->second);
-        it = pendingActions_.erase(it);
+        it = pendingAppCapabilities_.erase(it);
       } else {
         ++it;
       }
@@ -3060,11 +3065,11 @@ void JsEngine::expireActions() {
   }
   for (auto &item : expired) {
     XX_LOGW("[musicxx_ext] JS插件 `{}` 的动作请求超时: {} (id={})",
-            item.pluginId, item.action, item.requestId);
+            item.pluginId, item.capability, item.requestId);
     const auto inst = lookupInstance(item.instance);
     if (inst) {
       std::string ignored;
-      callBridgeString(inst, "onActionDone",
+      callBridgeString(inst, "onAppCapabilityDone",
                        {std::to_string(item.requestId), "1",
                         R"({"error":"action_timeout"})"},
                        ignored);
@@ -3073,7 +3078,7 @@ void JsEngine::expireActions() {
       Json payload;
       payload["requestId"] = item.requestId;
       payload["reason"] = "timeout";
-      mgr_->pushEvent("musicxx.action.cancel", item.pluginId, payload.dump());
+      mgr_->pushEvent("musicxx.capability.app.cancel", item.pluginId, payload.dump());
     }
   }
 }
@@ -3881,7 +3886,7 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
         ++timers;
       }
     }
-    for (const auto &[id, item] : pendingActions_) {
+    for (const auto &[id, item] : pendingAppCapabilities_) {
       (void)id;
       if (item.instance == inst->name) {
         ++pendingOps;
@@ -3898,7 +3903,7 @@ std::string JsEngine::instanceStatsJson(const std::string &instanceName) const {
   item["capabilities"] = static_cast<int32_t>(inst->capabilities.size());
   item["subscriptions"] = static_cast<int32_t>(inst->subscriptions.size());
   item["timers"] = timers;
-  item["pendingActions"] = pendingOps;
+  item["pendingAppCapabilities"] = pendingOps;
   item["jsRuns"] = inst->jsRuns.load();
   item["errors"] = inst->errors.load(std::memory_order_relaxed);
   item["jsHeapBytes"] = inst->jsHeapBytes.load(std::memory_order_relaxed);
@@ -4866,7 +4871,7 @@ void PLUGINXX_CALL JsEngine::builtinDestroy(void *ctx) {
 
 /* ==================== 动作请求 (JS 侧) ==================== */
 
-int32_t JsEngine::requestAction(MusicxxHostInstance *inst,
+int32_t JsEngine::requestAppCapability(MusicxxHostInstance *inst,
                                 const std::string &action,
                                 const std::string &argsJson, uint32_t timeoutMs,
                                 int64_t *outRequestId) {
@@ -4876,40 +4881,40 @@ int32_t JsEngine::requestAction(MusicxxHostInstance *inst,
   const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
   const int64_t requestId = mgr_->allocateRequestId();
   int64_t effectiveTimeoutMs = 0;
-  const int32_t rc = mgr_->pushActionRequestEvent(
+  const int32_t rc = mgr_->pushAppCapabilityRequestEvent(
       pluginId, requestId, action, argsJson, timeoutMs, &effectiveTimeoutMs);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
     return rc;
   }
   {
     std::lock_guard lock{mutex_};
-    PendingAction pending;
+    PendingAppCapability pending;
     pending.requestId = requestId;
     pending.instance = inst->name;
     pending.pluginId = pluginId;
-    pending.action = action;
+    pending.capability = action;
     pending.deadlineMs = nowSteadyMs() + effectiveTimeoutMs;
-    pendingActions_[requestId] = std::move(pending);
+    pendingAppCapabilities_[requestId] = std::move(pending);
   }
   cv_.notify_all();
-  inst->actionRequests.fetch_add(1);
+  inst->appCapabilityRequests.fetch_add(1);
   if (outRequestId) {
     *outRequestId = requestId;
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-bool JsEngine::respondAction(int64_t requestId, int32_t status,
+bool JsEngine::respondAppCapability(int64_t requestId, int32_t status,
                              const std::string &resultJson) {
-  PendingAction pending;
+  PendingAppCapability pending;
   {
     std::lock_guard lock{mutex_};
-    auto it = pendingActions_.find(requestId);
-    if (it == pendingActions_.end()) {
+    auto it = pendingAppCapabilities_.find(requestId);
+    if (it == pendingAppCapabilities_.end()) {
       return false;
     }
     pending = it->second;
-    pendingActions_.erase(it);
+    pendingAppCapabilities_.erase(it);
   }
   /// 回复来自 Dart 线程: 只投递到 JS 线程执行 (绝不在调用线程碰 JSContext)
   const std::string text =
@@ -4923,19 +4928,19 @@ bool JsEngine::respondAction(int64_t requestId, int32_t status,
       return;
     }
     std::string ignored;
-    callBridgeString(inst, "onActionDone", {idText, statusText, text}, ignored);
+    callBridgeString(inst, "onAppCapabilityDone", {idText, statusText, text}, ignored);
   });
   return true;
 }
 
-void JsEngine::cancelActionsOf(const std::string &instanceName) {
-  std::vector<PendingAction> cancelled;
+void JsEngine::cancelAppCapabilitiesOf(const std::string &instanceName) {
+  std::vector<PendingAppCapability> cancelled;
   {
     std::lock_guard lock{mutex_};
-    for (auto it = pendingActions_.begin(); it != pendingActions_.end();) {
+    for (auto it = pendingAppCapabilities_.begin(); it != pendingAppCapabilities_.end();) {
       if (it->second.instance == instanceName) {
         cancelled.push_back(it->second);
-        it = pendingActions_.erase(it);
+        it = pendingAppCapabilities_.erase(it);
       } else {
         ++it;
       }
@@ -4953,7 +4958,7 @@ void JsEngine::cancelActionsOf(const std::string &instanceName) {
     for (const auto &item : cancelled) {
       std::string ignored;
       callBridgeString(
-          inst, "onActionDone",
+          inst, "onAppCapabilityDone",
           {std::to_string(item.requestId), "1", R"({"error":"cancelled"})"},
           ignored);
     }
@@ -4963,7 +4968,7 @@ void JsEngine::cancelActionsOf(const std::string &instanceName) {
       Json payload;
       payload["requestId"] = item.requestId;
       payload["reason"] = "plugin_unloaded";
-      mgr_->pushEvent("musicxx.action.cancel", item.pluginId, payload.dump());
+      mgr_->pushEvent("musicxx.capability.app.cancel", item.pluginId, payload.dump());
     }
   }
 }
@@ -4988,7 +4993,7 @@ std::string JsEngine::statsJson() const {
         }
       }
       int32_t pendingCount = 0;
-      for (const auto &[id, pending] : pendingActions_) {
+      for (const auto &[id, pending] : pendingAppCapabilities_) {
         (void)id;
         if (pending.instance == inst->name) {
           ++pendingCount;
@@ -5005,7 +5010,7 @@ std::string JsEngine::statsJson() const {
       item["capabilities"] = static_cast<int32_t>(inst->capabilities.size());
       item["subscriptions"] = static_cast<int32_t>(inst->subscriptions.size());
       item["timers"] = timerCount;
-      item["pendingActions"] = pendingCount;
+      item["pendingAppCapabilities"] = pendingCount;
       item["jsRuns"] = inst->jsRuns.load();
       item["errors"] = inst->errors.load();
       item["jsHeapBytes"] = inst->jsHeapBytes.load(std::memory_order_relaxed);
@@ -5025,7 +5030,7 @@ std::string JsEngine::statsJson() const {
     std::lock_guard lock{mutex_};
     result["queueDepth"] = static_cast<int64_t>(tasks_.size());
     result["timers"] = static_cast<int64_t>(timers_.size());
-    result["pendingActions"] = static_cast<int64_t>(pendingActions_.size());
+    result["pendingAppCapabilities"] = static_cast<int64_t>(pendingAppCapabilities_.size());
   }
   result["queueWaitLastMs"] = queueWaitLastMs_.load(std::memory_order_relaxed);
   result["queueWaitMaxMs"] = queueWaitMaxMs_.load(std::memory_order_relaxed);

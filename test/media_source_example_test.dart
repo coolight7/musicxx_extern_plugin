@@ -649,7 +649,7 @@ class _Harness {
       _pumpUntil(runtime, condition);
 
   void _registerHostActions() {
-    runtime.actions.register(MusicxxPluginActionNames.storageGet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (invocation) {
       final String key = '${invocation.args['key']}';
       if (invocation.args['namespace'] == 'config') {
         // 约定：返回**值本身**；键不存在返回 null（插件用自己给的默认值）
@@ -657,7 +657,7 @@ class _Harness {
       }
       return null;
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageSet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (invocation) {
       final String key = '${invocation.args['key']}';
       if (invocation.args['namespace'] == 'config') {
         configFile[key] = invocation.args['value'] ?? '';
@@ -665,13 +665,13 @@ class _Harness {
       }
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageDelete, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageDelete, (
       invocation,
     ) {
       configFile.remove('${invocation.args['key']}');
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageList, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageList, (
       invocation,
     ) {
       return <String, Object?>{'keys': configFile.keys.toList()..sort()};
@@ -743,7 +743,7 @@ class _Harness {
     };
 
     // 声明音源类型（功能 2 用；这里记录参数，断言清单是否正确）
-    runtime.actions.register(MusicxxPluginActionNames.sourceDefine, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.sourceDefine, (
       invocation,
     ) {
       final Object? id = invocation.args['id'];

@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:ffi/ffi.dart';
 
-import 'actions.dart';
+import 'app_capabilities.dart';
 import 'bindings_generated.dart';
 import 'broadcasts.dart';
 import 'events.dart';
@@ -156,7 +156,8 @@ class MusicxxPluginRuntime {
   /// 能力派发（Dart 侧实现链 + 原生/JS 实现链）
   late final MusicxxPluginCapabilities capabilities =
       MusicxxPluginCapabilities.internal(this);
-  late final MusicxxPluginActions actions = MusicxxPluginActions.internal(this);
+  late final MusicxxPluginAppCapabilities appCapabilities =
+      MusicxxPluginAppCapabilities.internal(this);
 
   /// 广播输入（快照 / 事件 / 值频道都走它；声明里 `cache: latest` 的就是快照频道）
   late final MusicxxPluginBroadcasts broadcasts =
@@ -371,7 +372,7 @@ class MusicxxPluginRuntime {
     }
     plugins.handleDisposed();
     capabilities.handleDisposed();
-    actions.handleDisposed();
+    appCapabilities.handleDisposed();
   }
 
   // ==================== 内部：绑定/插件框架访问 ====================
@@ -472,7 +473,8 @@ class MusicxxPluginRuntime {
   /// 只有等结果时才需要兜底轮询：结果就是经事件回传的，没人等的时候事件会由唤醒
   /// 回调即时送达（或等下一次真正的调用再取）。
   bool get hasPendingWork =>
-      capabilities.pendingAsyncDispatches > 0 || actions.pendingResponses > 0;
+      capabilities.pendingAsyncDispatches > 0 ||
+      appCapabilities.pendingResponses > 0;
 
   /// 兜底轮询这一轮要不要跑（见 `init` 里对定时器的说明）
   bool _shouldPollFallback() {
@@ -563,10 +565,10 @@ class MusicxxPluginRuntime {
         case MusicxxPluginEventType.pluginUnloaded:
           plugins.handleLifecycleEvent(event);
           capabilities.handlePluginLifecycleEvent(event);
-        case MusicxxPluginEventType.actionRequest:
-          actions.handleActionRequest(event);
-        case MusicxxPluginEventType.actionCancel:
-          actions.handleActionCancel(event);
+        case MusicxxPluginEventType.appCapabilityRequest:
+          appCapabilities.handleAppCapabilityRequest(event);
+        case MusicxxPluginEventType.appCapabilityCancel:
+          appCapabilities.handleAppCapabilityCancel(event);
         case MusicxxPluginEventType.hostError:
           final String? code = event.stringOf('code');
           if (code == 'event_queue_overflow') {

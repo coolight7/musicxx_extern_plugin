@@ -416,7 +416,7 @@ void main() {
 
     // 频谱动作用一条固定结果回答（真实实现读播放器提取的频谱，这里只验证调用能走通）
     int spectrumCalls = 0;
-    runtime.actions.register(MusicxxPluginActionNames.mediaSpectrum, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.mediaSpectrum, (
       invocation,
     ) {
       ++spectrumCalls;
@@ -543,7 +543,7 @@ void main() {
     // 正阻塞在这次能力调用里 —— 两边互等到动作超时（5 秒）。正确写法是"发出去就返回"。
     final List<String> fontCalls = <String>[];
     const Duration fontWork = Duration(milliseconds: 400);
-    runtime.actions.register(MusicxxPluginActionNames.uiSetFontFamily, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.uiSetFontFamily, (
       invocation,
     ) {
       final String family = '${invocation.args['fontFamily']}';
@@ -555,7 +555,7 @@ void main() {
         'isCustom': family != 'default',
       };
     });
-    runtime.actions.register(MusicxxPluginActionNames.uiLoadFont, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.uiLoadFont, (invocation) {
       final String family = '${invocation.args['family']}';
       fontCalls.add('file:$family');
       sleep(fontWork);
@@ -566,8 +566,8 @@ void main() {
         'fontFamily': family,
       };
     });
-    runtime.actions.register(
-      MusicxxPluginActionNames.uiToast,
+    runtime.appCapabilities.register(
+      MusicxxCapabilityId.uiToast,
       (invocation) => <String, Object?>{'ok': true},
     );
 
@@ -920,7 +920,7 @@ Directory _copyPlugin(_Environment env, Directory work, String pluginId) {
 void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
   final Map<String, Object?> kv = <String, Object?>{};
 
-  String pluginIdOf(MusicxxPluginActionInvocation invocation) =>
+  String pluginIdOf(MusicxxPluginAppCapabilityInvocation invocation) =>
       invocation.plugin.startsWith('js:')
       ? invocation.plugin.substring(3)
       : invocation.plugin;
@@ -944,7 +944,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     }
   }
 
-  runtime.actions.register(MusicxxPluginActionNames.storageGet, (invocation) {
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (invocation) {
     final String key = '${invocation.args['key']}';
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
@@ -953,7 +953,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     }
     return kv['$id:$key'];
   });
-  runtime.actions.register(MusicxxPluginActionNames.storageSet, (invocation) {
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (invocation) {
     final String key = '${invocation.args['key']}';
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
@@ -967,7 +967,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     kv['$id:$key'] = invocation.args['value'] ?? '';
     return <String, Object?>{'ok': true};
   });
-  runtime.actions.register(MusicxxPluginActionNames.storageDelete, (
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageDelete, (
     invocation,
   ) {
     final String key = '${invocation.args['key']}';
@@ -980,7 +980,7 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     kv.remove('$id:$key');
     return <String, Object?>{'ok': true};
   });
-  runtime.actions.register(MusicxxPluginActionNames.storageList, (invocation) {
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageList, (invocation) {
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
       return <String, Object?>{'keys': readConfig(id).keys.toList()..sort()};
@@ -993,8 +993,8 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     };
   });
   // 界面提示在测试环境没有界面：直接成功
-  runtime.actions.register(
-    MusicxxPluginActionNames.uiToast,
+  runtime.appCapabilities.register(
+    MusicxxCapabilityId.uiToast,
     (invocation) => <String, Object?>{'ok': true},
   );
 }

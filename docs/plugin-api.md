@@ -59,7 +59,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 订阅一个广播频道 | `musicxx.broadcast.subscribe(id, fn)` | `subscribeTopic(id, fn)` | §2 / §4 |
 | 注销 / 退订 | `musicxx.capability.unregister(id)` / `musicxx.broadcast.unsubscribe(id)` | `unimplement(id)` / `iface.broadcasts->unsubscribe(...)` | §8 |
 | 读快照频道 | `musicxx.broadcast.read("musicxx.state.song")` | `stateJson(MUSICXX_STATE_SONG)` | §2 |
-| 让应用做一件事 | `await musicxx.call("musicxx.player.toggle")` | `requestAction("musicxx.player.toggle", "{}", &notify)` | §3 |
+| 让应用做一件事 | `await musicxx.capability.call("musicxx.player.toggle")` | `capabilityCall("musicxx.player.toggle", "{}", &notify)` | §3 |
 | 读 / 写变量 | `await musicxx.broadcast.get(key)` / `musicxx.broadcast.write(key, v)` | 原生没有变量表（读用 `stateJson`，写用动作） | §5 |
 | 订阅事件 | `musicxx.broadcast.subscribe(topic, fn)` | `subscribeTopic(topic, fn)` | §4 |
 | 发布事件 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
@@ -234,44 +234,42 @@ JS 插件用动作 `musicxx.host.getPath` 拿插件目录、数据目录与日�
 
 ---
 
-## 3. 动作（能力：让应用做一件事）
+## 3. 应用实现的能力（能力：让应用做一件事）
 
-> **迁移中**：这一节讲的“动作”就是 `runner: app` 的能力（主程序实现、宿主转发给应用并带回结果），
-> 不是第二个概念。JS 的 `musicxx.call` 会删除（改用 `musicxx.capability.call`），
-> 原生 SDK 的 `requestAction` 会删除（同样是 `capabilityCall`）；**能力 id 与参数都不变**。
+> **一回事**：以前叫“动作”的就是应用实现的能力（应用执行、宿主转发并带回结果），
+> **不是第二个概念**。JS 用 `musicxx.capability.call`，原生插件用 SDK 的 `capabilityCall`；
+> **能力 id 与参数都没变**。
 
-> **动作就是能力（`runner = app`）**：每个动作在 `musicxx.capabilities` 里都有一条应用声明，
-> 由应用实现。原生插件用 SDK 的 `requestAction`（内部就是一次能力调用，带本次调用的超时），
-> JS 插件用 `musicxx.call`；**没声明的动作名会被直接拒绝**（不再"什么都转给应用再回未找到"）。
+> **能力就是能力**：每个应用实现的能力在 `musicxx.capabilities` 里都有一条应用声明。
+> **没声明的名字会被直接拒绝**（不再“什么都转给应用再回未找到”）。
 > 超时语义不变：`<= 0` = 不设超时（一直等应用回复），缺省 5000 ms。
 
 ### 3.1 通用约定
 
 ```js
-const result = await musicxx.call("musicxx.<域>.<动作>", { 参数 }, 超时毫秒?);
-// 也有分类便捷封装（都等价于 musicxx.call）：
+const result = await musicxx.capability.call("musicxx.<域>.<动作>", { 参数 }, 超时毫秒?);
+// 也有分类便捷封装（都等价于上面这一行）：
 await musicxx.player.toggle();
 await musicxx.storage.set("k", 1);
 ```
 
 ```cpp
-// 动态库插件：动作只有异步形态，结果经完成通知回来（恰好一次）
-static void onActionDone(void* ud, int32_t status, const PluginxxStringView* json) {
+// 动态库插件：只有异步形态，结果经完成通知回来（恰好一次）
+static void onCapabilityDone(void* ud, int32_t status, const PluginxxStringView* json) {
     // status == 0 → json 是结果；否则是错误（json 里通常有 {"ok":false,"error":"..."}）
 }
-PluginxxOperatorNotify notify{&onActionDone, this};
-int64_t requestId = 0;
-requestAction("musicxx.player.toggle", "{}", &notify, 5000, &requestId);
+PluginxxOperatorNotify notify{&onCapabilityDone, this};
+capabilityCall("musicxx.player.toggle", "{}", &notify, 5000);
 ```
 
 规则（两边一样）：
 
-- **超时**：JS 的 `musicxx.call(name, args, timeoutMs)` 缺省 **5000 ms**，`timeoutMs <= 0` 时按缺省值处理（不会"一直等"）；
-  动态库的 `requestAction(..., timeoutMs)` 缺省 **5000 ms**，**传 0 = 不设超时**（框架不建定时器，一直等主程序回复）；
-  到点后框架终结这次请求并推 `musicxx.action.cancel` 让主程序收尾。
+- **超时**：JS 的 `musicxx.capability.call(name, args, timeoutMs)` 缺省 **5000 ms**，`timeoutMs <= 0` 时按缺省值处理（不会"一直等"）；
+  动态库的 `capabilityCall(..., timeoutMs)` 缺省 **5000 ms**，**传 0 = 不设超时**（框架不建定时器，一直等主程序回复）；
+  到点后框架终结这次请求并推 `musicxx.capability.app.cancel` 让应用收尾。
   个别动作需要更长时间（如 `musicxx.feature.call` 要解码整曲），调用方自己加大。
-- **返回**：成功是 `{ok:true, ...}` 或动作自己的结果；失败是 `{ok:false, error:"说明"}`；
-  动作没注册会立刻失败（`action_not_registered: <动作名>`），不会挂到超时。
+- **返回**：成功是 `{ok:true, ...}` 或能力自己的结果；失败是 `{ok:false, error:"说明"}`；
+  没注册会立刻失败（`app_capability_not_registered: <能力 id>`），不会挂到超时。
 - **不做权限校验**：清单里的 `permissions` 只做展示，不会因为没声明就拒绝调用（见 [plugin-native-api.md](plugin-native-api.md) §8）。
 - **动作名不校验**：插件框架受理任意名字的动作，由主程序按"注册了没有"决定理不理它。
   官方动作是 `musicxx.<域>.<动作>`；插件自己的动作建议写成 `plugin.<包名>.*` 以免撞名。
@@ -305,15 +303,15 @@ requestAction("musicxx.player.toggle", "{}", &notify, 5000, &requestId);
 ```js
 await musicxx.player.setVolume(0.6);       // 便捷封装：setVolume(60) 会当作 60%
 await musicxx.player.seek(64000);          // 数字 = 毫秒
-await musicxx.call("musicxx.player.seek", { percent: 0.5 });
+await musicxx.capability.call("musicxx.player.seek", { percent: 0.5 });
 await musicxx.player.setSpeed(1.25);
 await musicxx.player.setPitch(1.1);        // 音调偏高：速度不变
 const mode = (musicxx.broadcast.read("musicxx.state.playlist") || {}).loopMode;   // 读当前值
 ```
 
 ```cpp
-requestAction("musicxx.player.setLoopMode", R"({"mode":"Only"})", &notify, 5000);
-requestAction("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
+capabilityCall("musicxx.player.setLoopMode", R"({"mode":"Only"})", &notify, 5000);
+capabilityCall("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 ```
 
 - 这些动作都是"替用户按一下按钮"：会走应用既有的流程（例如 `stop` 会做它平时的收尾），不要绕过它们直接改状态。
@@ -376,7 +374,7 @@ const queue = await musicxx.songlist.querySongs();     // 当前播放列表
 
 ```cpp
 // 想先拿歌单再决定播哪一个：在完成通知里读结果，再发第二个动作
-requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
+capabilityCall("musicxx.playlist.queryLists", "{}", &notify, 5000);
 ```
 
 **这首歌的完整音源列表在快照频道 / 能力载荷里**（`musicxx.state.song.audio[]`），
@@ -431,7 +429,7 @@ requestAction("musicxx.playlist.queryLists", "{}", &notify, 5000);
 
 ```js
 // 加完再看结果：处理器里不要 await（会与主程序互相等）
-musicxx.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).then((r) => {
+musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).then((r) => {
   musicxx.host.log(2, r && r.ok ? ("已添加 " + r.added + " 首") : ("添加失败: " + ((r && r.error) || "")));
 });
 ```
@@ -520,8 +518,8 @@ Subsonic / Jellyfin / Emby 视图等），应用里「歌单右上角三个点 -
 
 ```js
 // 插件里：先把歌单列表读出来，再同步用户选中的那一张
-// 同步可能要几十秒，而 musicxx.call 缺省 5 秒就超时 —— 要结果就把超时给大一点
-const r = await musicxx.call("musicxx.playlist.syncSongs.sync", { pid: 123 }, 120000);
+// 同步可能要几十秒，而 musicxx.capability.call 缺省 5 秒就超时 —— 要结果就把超时给大一点
+const r = await musicxx.capability.call("musicxx.playlist.syncSongs.sync", { pid: 123 }, 120000);
 if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
 ```
 
@@ -681,7 +679,7 @@ await musicxx.ui.openRoute("musicxx:localSongs");
 ```cpp
 // C++ 侧只有声明式提示（fire-and-forget）；弹窗与开页面走同名动作
 uiNotify(R"({"text":"已刷新"})");
-requestAction("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 0);   // 0 = 一直等用户点
+capabilityCall("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 0);   // 0 = 一直等用户点
 ```
 
 > 弹窗与浮层都是**用户操作**：等它们的时候把超时设长一点（动态库侧传 0 表示不设超时；
@@ -750,9 +748,9 @@ await musicxx.ui.overlayClose();
 ```
 
 ```cpp
-// C++：requestAction 传 0 = 一直等用户操作
-requestAction("musicxx.ui.overlay.show", R"({"title":"运行详情","blocks":[],"textConfirm":"知道了"})", &callback, 0);
-requestAction("musicxx.ui.overlay.close", R"({})", &callback, 0);
+// C++：capabilityCall 的超时传 0 = 一直等用户操作
+capabilityCall("musicxx.ui.overlay.show", R"({"title":"运行详情","blocks":[],"textConfirm":"知道了"})", &callback, 0);
+capabilityCall("musicxx.ui.overlay.close", R"({})", &callback, 0);
 ```
 
 #### 3.2.4.2 插件视图浮层（`musicxx.ui.openOverlaySheet`）
@@ -820,8 +818,8 @@ await musicxx.storage.setConfig("theme", "light");
 ```cpp
 // C++：读写配置文件可以直接用 configPath()（拿路径自己读写），
 // 走私有 KV 就用动作（注意应答就是值本身，不是对象外壳）
-requestAction("musicxx.storage.get", R"({"key":"greeting"})", &notify, 5000);
-requestAction("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})", &notify, 5000);
+capabilityCall("musicxx.storage.get", R"({"key":"greeting"})", &notify, 5000);
+capabilityCall("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})", &notify, 5000);
 ```
 
 必须记住的几条：
@@ -1492,12 +1490,12 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
   `musicxx.player.source.resolve` 是同一份数据（命令行 `source.list`、MCP `ListMediaSources` 也读它）。
 
 ```js
-await musicxx.call("musicxx.source.define", {
+await musicxx.capability.call("musicxx.source.define", {
     id: "plugin.my_plugin.flac", title: "我的高解析音源",
     tag: "FLAC",                 // 歌单里的标签：显示成 [FLAC]
     srcDoc: "track/<歌曲 id>"
 });
-await musicxx.call("musicxx.player.playSrc", {
+await musicxx.capability.call("musicxx.player.playSrc", {
     src: "track/1", type: "plugin.my_plugin.flac"
 });
 ```
@@ -1510,7 +1508,7 @@ await musicxx.call("musicxx.player.playSrc", {
 | `musicxx.app.background` | 无 | `{ok:true, requested:"background", foreground}` | 把主窗口隐藏到后台（移动端退到后台），播放不受影响。与命令行 `window.background` 是同一份实现 |
 
 ```js
-await musicxx.call("musicxx.app.background");        // 隐藏窗口（用户看不见，但仍在播放）
+await musicxx.capability.call("musicxx.app.background");        // 隐藏窗口（用户看不见，但仍在播放）
 const state = await musicxx.broadcast.get("musicxx.app.lifecycle");   // "foreground" / "background"
 const off = musicxx.broadcast.subscribe("musicxx.app.lifecycle", (v) => musicxx.host.log(2, "现在：" + v));
 ```
@@ -1538,18 +1536,18 @@ const off = musicxx.broadcast.subscribe("musicxx.app.lifecycle", (v) => musicxx.
 const TYPE_ID = "plugin.my_ftp.audio";
 
 // 「歌曲」：一屏歌曲，支持搜索
-musicxx.call("musicxx.source.browse", {
+musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID, view: "songs", title: "歌曲", order: 10,
     root: "/", search: true,
     capabilities: { list: "drive.list", search: "drive.search", resolveSongs: "drive.resolveSongs" }
 });
 // 「歌手」：字母索引栅，只允许按名称 / 歌曲数排序，不能下载
-musicxx.call("musicxx.source.browse", {
+musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID, view: "artists", title: "歌手", order: 20,
     root: "/artists", indexBar: true, sort: ["name", "songCount"], download: false
 });
 // 「专辑」：同一个处理器按 view 分支就够了；也可以给每个分类换自己的能力名
-musicxx.call("musicxx.source.browse", {
+musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID, view: "albums", title: "专辑", order: 30,
     root: "/albums", indexBar: true, sort: ["name", "createdTime"],
     capabilities: { list: "drive.list.albums" }
@@ -1563,8 +1561,8 @@ musicxx.capability.register("drive.list", async function (args) {
 });
 
 // 撤销：只撤一个分类，或者撤这个类型的全部分类
-musicxx.call("musicxx.source.undefine", { id: TYPE_ID, view: "albums" });   // 只撤「专辑」
-musicxx.call("musicxx.source.undefine", { id: TYPE_ID });                  // 全撤（类型声明也撤）
+musicxx.capability.call("musicxx.source.undefine", { id: TYPE_ID, view: "albums" });   // 只撤「专辑」
+musicxx.capability.call("musicxx.source.undefine", { id: TYPE_ID });                  // 全撤（类型声明也撤）
 ```
 
 用途分工是固定的：
@@ -1581,7 +1579,7 @@ musicxx.call("musicxx.source.undefine", { id: TYPE_ID });                  // �
 
 ```js
 // 1) 声明：本插件的这个音源类型可以浏览（跟着插件生命周期撤销，不写磁盘）
-musicxx.call("musicxx.source.browse", {
+musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID,                    // 必填：自己命名空间下的音源类型 id
     title: "FTP 文件",              // 菜单 / 页面标题
     root: "/",                      // 根目录（插件自己的标识）
@@ -1704,7 +1702,7 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 
 ```js
 // 挑歌并加进当前歌单（插件自己的按钮里用）
-musicxx.call("musicxx.ui.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
+musicxx.capability.call("musicxx.ui.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
 
 // 在自己插件的主页入口里打开整页浏览（与内置网盘页一模一样）
 musicxx.ui.registerEntry({

@@ -17,7 +17,7 @@
 /// UI isolate 调用时是"有界等待"（不发起长任务）。
 library;
 
-export 'src/actions.dart';
+export 'src/app_capabilities.dart';
 export 'src/bindings_generated.dart'
     show
         MusicxxExternPluginBindings,

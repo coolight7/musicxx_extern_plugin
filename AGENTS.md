@@ -127,7 +127,7 @@ my_plugin/
 | 能力 | 入口 | 要点 |
 |---|---|---|
 | 应用来问插件（决策型能力） | `musicxx.capability.implement/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的能力会触发**（见 §5.6）；`musicxx.capability.handlers(id[, phase])` 读"这条能力现在有谁在提供、在哪个阶段、排第几" |
-| 动作（调主程序） | `musicxx.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
+| 动作（调主程序） | `musicxx.capability.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
 | 快照频道 | JS `musicxx.broadcast.read(key)` / C++ `broadcastJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
 | 变量 | `musicxx.broadcast.get/write/subscribe/watch/read/declare` | 有属主、可读可写可订阅的小值（带当前值的广播频道）；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
 | 广播（事件） | `musicxx.broadcast.subscribe/publish/unsubscribe` | 插件之间、插件与页面之间的小消息（官方主题如 `musicxx.state.changed`），与变量同一组入口 |
@@ -155,7 +155,7 @@ my_plugin/
 ## 5. 硬约束（动手前读一遍，坑都在这里）
 
 1. **处理器里绝不等主程序动作**（**异步派发**的裁决型能力是例外，见下）。打开插件页面、点按钮、部分能力（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
-   你在处理器里 `await musicxx.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
+   你在处理器里 `await musicxx.capability.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
    正确做法：要"现在这一帧"的数据读快照频道；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
    **例外**：异步派发的裁决型能力（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）

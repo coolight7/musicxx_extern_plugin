@@ -699,39 +699,39 @@ class _Harness {
   }
 
   void _registerHostActions() {
-    runtime.actions.register(MusicxxPluginActionNames.storageGet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (invocation) {
       final String key = '${invocation.args['key']}';
       if (invocation.args['namespace'] == 'config') {
         return null;
       }
       return kv[key];
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageSet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (invocation) {
       kv['${invocation.args['key']}'] = invocation.args['value'];
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageDelete, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageDelete, (
       invocation,
     ) {
       kv.remove('${invocation.args['key']}');
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.storageList, (_) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageList, (_) {
       return <String, Object?>{'keys': kv.keys.toList()..sort()};
     });
-    runtime.actions.register(MusicxxPluginActionNames.uiToast, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.uiToast, (invocation) {
       ++toastCount;
       lastToast = '${invocation.args['text']}';
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.uiToast, (_) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.uiToast, (_) {
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.uiOverlayClose, (_) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.uiOverlayClose, (_) {
       ++overlayCloseCalls;
       return <String, Object?>{'ok': true, 'closed': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.playlistAddSong, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.playlistAddSong, (
       invocation,
     ) {
       addSongPid = int.tryParse('${invocation.args['pid']}') ?? 0;
@@ -752,13 +752,13 @@ class _Harness {
         'skipped': 0,
       };
     });
-    runtime.actions.register(MusicxxPluginActionNames.playerPlaySrc, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.playerPlaySrc, (
       invocation,
     ) {
       lastPlaySrc = invocation.args.cast<String, Object?>();
       return <String, Object?>{'ok': true};
     });
-    runtime.actions.register(MusicxxPluginActionNames.sourceDefine, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.sourceDefine, (
       invocation,
     ) {
       definedSourceArgs.add(invocation.args.cast<String, Object?>());
@@ -768,13 +768,13 @@ class _Harness {
       }
       return <String, Object?>{'ok': true, 'id': id};
     });
-    runtime.actions.register(MusicxxPluginActionNames.sourceBrowse, (
+    runtime.appCapabilities.register(MusicxxCapabilityId.sourceBrowse, (
       invocation,
     ) {
       browseDeclarations.add(invocation.args.cast<String, Object?>());
       return <String, Object?>{'ok': true, 'type': invocation.args['id']};
     });
-    runtime.actions.register(MusicxxPluginActionNames.sourceUndefine, (_) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.sourceUndefine, (_) {
       return <String, Object?>{'ok': true};
     });
   }

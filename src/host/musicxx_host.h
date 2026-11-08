@@ -113,18 +113,18 @@ template <typename T> struct WaitSlot {
 /// 而插件框架 线程派发裁决型能力时会**等待 JS 处理器**。因此 JS
 /// 侧发起的动作请求绝不能"投递到 框架线程再等待" —— 那会和"框架线程正等
 /// JS"互锁。JS 引擎自己登记还没回复的请求 (任意线程 可读写的表), 只把事件推给 Dart;
-/// Dart 的回复经 [MusicxxHostManager::actionRespond] 转交到这里。
-class InternalActionRelay {
+/// Dart 的回复经 [MusicxxHostManager::respondAppCapability] 转交到这里。
+class InternalAppCapabilityRelay {
 public:
-  virtual ~InternalActionRelay() = default;
+  virtual ~InternalAppCapabilityRelay() = default;
 
   /// 回复一条本接驳口登记的请求 (**任意线程**)
   /// - 返回 false 表示该 requestId 不属于本接驳口 (调用方继续按"未找到"处理)
-  virtual bool respondAction(int64_t requestId, int32_t status,
+  virtual bool respondAppCapability(int64_t requestId, int32_t status,
                              const std::string &resultJson) = 0;
 
   /// 取消某实例的全部未完成请求 (**任意线程**; 实例卸载/禁用/插件框架关闭时统一取消)
-  virtual void cancelActionsOf(const std::string &instanceName) = 0;
+  virtual void cancelAppCapabilitiesOf(const std::string &instanceName) = 0;
 };
 
 /* ==================== 插件实例 ==================== */
@@ -176,7 +176,7 @@ public:
 
   std::atomic<int64_t> capabilityCalls{0};
   std::atomic<int64_t> capabilityTimeouts{0};
-  std::atomic<int64_t> actionRequests{0};
+  std::atomic<int64_t> appCapabilityRequests{0};
   std::atomic<int64_t> eventsPublished{0};
   std::atomic<int64_t> errors{0};
   std::atomic<int64_t> selfReportedBytes{0};
@@ -380,11 +380,11 @@ public:
   /// 先交给 JS 引擎接驳口就地回答 (它自己的表带互斥); 不属于它的才转给 IO 线程
   /// 查动态库插件的登记表。顺序固定: 这条回复可能就是由"IO 线程正在等 JS"的
   /// 能力派发触发的, 先转 IO 线程就会互等。
-  int32_t actionRespond(int64_t requestId, int32_t status,
+  int32_t respondAppCapability(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 
   /// 取消未完成动作 (插件卸载/插件框架关闭时统一取消)
-  void cancelAction(int64_t requestId);
+  void cancelAppCapability(int64_t requestId);
 
   /* ---------- 观测与配置 ---------- */
 
@@ -451,7 +451,7 @@ public:
   int32_t subscribeState(MusicxxHostInstance *inst, const std::string &keysJson,
                          int32_t &outCount);
   int32_t pluginConfigPathFor(MusicxxHostInstance *inst, std::string &out);
-  int32_t requestAction(MusicxxHostInstance *inst, std::string_view action,
+  int32_t requestAppCapability(MusicxxHostInstance *inst, std::string_view action,
                         std::string_view argsJson, uint32_t timeoutMs,
                         const PluginxxOperatorNotify *notify,
                         int64_t *outRequestId);
@@ -609,7 +609,7 @@ public:
   /* ---------- 插件框架内运行时 (JS 引擎) ---------- */
 
   /// 注册插件框架内运行时的动作请求接驳口 (JS 引擎创建时调用)
-  void setInternalActionRelay(std::shared_ptr<InternalActionRelay> relay);
+  void setInternalAppCapabilityRelay(std::shared_ptr<InternalAppCapabilityRelay> relay);
 
   /// 分配一个请求 id (**任意线程**; 动态库插件与 JS 引擎共用同一计数器,
   /// 避免 id 撞车)
@@ -617,11 +617,11 @@ public:
 
   /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做请求登记)
   ///
-  /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态 (见 [InternalActionRelay]),
+  /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态 (见 [InternalAppCapabilityRelay]),
   /// 插件框架这里只做事件推送 (动作名不做校验, 由 Dart 侧按注册表决定理不理它)。
   /// - 返回 0 = 已推送; -1 = 参数非法
   /// - `outEffectiveTimeoutMs` 输出实际生效的超时 (0 = 不设超时, 由调用方/插件自担)
-  int32_t pushActionRequestEvent(const std::string &pluginId, int64_t requestId,
+  int32_t pushAppCapabilityRequestEvent(const std::string &pluginId, int64_t requestId,
                                  const std::string &action,
                                  const std::string &argsJson,
                                  uint32_t timeoutMs,
@@ -633,7 +633,7 @@ public:
                                const std::string &payloadJson);
 
   /// 取消某实例的全部未完成请求 (**任意线程**): 框架侧登记 + JS 引擎侧登记
-  void cancelActionsOfInstance(const std::string &instanceName);
+  void cancelAppCapabilitiesOfInstance(const std::string &instanceName);
 
   /// JS 引擎实例 (未启用 JS 运行时或未启动时为空)
   std::shared_ptr<JsEngine> jsEngine() const;
@@ -704,8 +704,8 @@ protected:
   ///
   /// 应用的动作用能力名暴露（`capability_ids.g.h` 里 `runner = app` 那些），它们没有
   /// 插件实现行；`invoke_capability` 因此把调用先交给这里。转发走同一套
-  /// `requestAction`（事件 `musicxx.action.request` + `action_respond`），取消走
-  /// `cancelAction`（事件 `musicxx.action.cancel`）。
+  /// `requestAppCapability`（事件 `musicxx.capability.app.request` + `action_respond`），取消走
+  /// `cancelAppCapability`（事件 `musicxx.capability.app.cancel`）。
   void *onAppCapabilityStart(MusicxxHostInstance *inst,
                              const std::string &capability,
                              std::string_view argsJson, int32_t timeoutMs,
@@ -774,9 +774,9 @@ private:
                               const std::string &ownerTag, int32_t phase);
 
   /// 未完成动作请求
-  struct PendingAction {
+  struct PendingAppCapability {
     std::string plugin;
-    std::string action;
+    std::string capability;
     const PluginxxOperatorNotify *notify = nullptr;
     /// 完成通知的**持有者**: 有的调用方 (插件框架的 Operation) 给的通知是临时的,
     /// 只在调用当场有效; 这里存一份, 随这次请求一起活到终结
@@ -1161,7 +1161,7 @@ private:
   size_t countChannelsOfPlugin(const std::string &pluginId) const;
 
   // 动作请求 (框架线程)
-  std::map<int64_t, PendingAction> pendingActions_;
+  std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;
   /// 请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
   std::atomic<int64_t> nextRequestId_{1};
 
@@ -1169,8 +1169,8 @@ private:
   /// 事件；**任意线程**可用）
   std::atomic<int64_t> nextDispatchCallId_{1};
 
-  /// 插件框架内运行时的请求接驳口 (JS 引擎; 见 InternalActionRelay)
-  std::shared_ptr<InternalActionRelay> internalRelay_;
+  /// 插件框架内运行时的请求接驳口 (JS 引擎; 见 InternalAppCapabilityRelay)
+  std::shared_ptr<InternalAppCapabilityRelay> internalCapabilityRelay_;
 
   /// JS 运行时 (启用 JS 时在 start() 里创建, stop() 里释放)
   std::shared_ptr<JsEngine> jsEngine_;

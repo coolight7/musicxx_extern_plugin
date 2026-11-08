@@ -9,7 +9,7 @@
 /// - **共享 1 条 JS 线程**: 全部 JS插件实例的脚本都在该线程顺序执行;
 ///   每个实例持有独立 `JSRuntime`/`JSContext` (全局隔离), 只是时间片共享;
 /// - **不阻塞框架线程**: 脚本顶层与处理器里调用插件框架能力时, 只做"投递不等待"
-///   (动作请求走 [InternalActionRelay], 状态读取直接读互斥保护的镜像);
+///   (动作请求走 [InternalAppCapabilityRelay], 状态读取直接读互斥保护的镜像);
 /// - **顶层注册 + 回放**: 脚本顶层调用 `musicxx.capability.implement`
 /// 等注册接口时先在 JS 侧
 ///   先记下来; 脚本执行结束、引擎回到框架线程后再回放注册 —— 避免"框架线程等 JS、JS
@@ -21,7 +21,7 @@
 /// 线程约定:
 /// - `JSRuntime`/`JSContext`/`JSValue` 只在共享 JS 线程上访问;
 /// - 插件框架生命周期入口 (builtin*) 与能力处理器由框架线程调用;
-/// - `requestAction` / `respondAction` / `cancelActionsOf` 允许任意线程。
+/// - `requestAppCapability` / `respondAppCapability` / `cancelAppCapabilitiesOf` 允许任意线程。
 #pragma once
 
 #include "musicxx_host.h"
@@ -47,7 +47,7 @@ namespace musicxx {
 namespace extern_plugin {
 
 /// JS插件运行时 (共享 1 条 JS 线程; 进程内单例, 与插件框架同生命周期)
-class JsEngine final : public InternalActionRelay,
+class JsEngine final : public InternalAppCapabilityRelay,
                        public std::enable_shared_from_this<JsEngine> {
 public:
   ~JsEngine() override;
@@ -278,11 +278,11 @@ public:
   };
 
   /// 未完成动作请求 (JS 侧登记; 任意线程读写, 由 mutex_ 保护)
-  struct PendingAction {
+  struct PendingAppCapability {
     int64_t requestId = 0;
     std::string instance;
     std::string pluginId;
-    std::string action;
+    std::string capability;
     int64_t deadlineMs = 0;
   };
 
@@ -379,14 +379,14 @@ public:
   static void PLUGINXX_CALL channelWaitDoneTrampoline(
       void *ud, int32_t status, const PluginxxStringView *payload);
 
-  /* ---------- InternalActionRelay (任意线程) ---------- */
+  /* ---------- InternalAppCapabilityRelay (任意线程) ---------- */
 
-  bool respondAction(int64_t requestId, int32_t status,
+  bool respondAppCapability(int64_t requestId, int32_t status,
                      const std::string &resultJson) override;
-  void cancelActionsOf(const std::string &instanceName) override;
+  void cancelAppCapabilitiesOf(const std::string &instanceName) override;
 
   /// JS 侧发起动作请求 (任意线程; 不阻塞): 校验命名空间 → 登记 → 推事件给 Dart
-  int32_t requestAction(MusicxxHostInstance *inst, const std::string &action,
+  int32_t requestAppCapability(MusicxxHostInstance *inst, const std::string &action,
                         const std::string &argsJson, uint32_t timeoutMs,
                         int64_t *outRequestId);
 
@@ -524,7 +524,7 @@ private:
   std::map<std::string, std::shared_ptr<Instance>, std::less<>> instances_;
 
   /// 未完成动作请求 (任意线程读写)
-  std::map<int64_t, PendingAction> pendingActions_;
+  std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;
   std::atomic<int64_t> nextRequestId_{1};
 
   /// 裁决型能力的等待槽 (key = 等待 id)

@@ -54,11 +54,11 @@ abstract final class MusicxxPluginEventType {
   /// 插件框架停机（`host_stopped`）四条路都会推一条；受理失败只在返回码上体现，不推事件。
   static const String pluginCallResult = 'musicxx.plugin.call.result';
 
-  /// 插件请求主程序动作（Dart 侧执行后必须 action_respond）
-  static const String actionRequest = 'musicxx.action.request';
+  /// 插件调用应用实现的能力（Dart 侧执行后必须回执）
+  static const String appCapabilityRequest = 'musicxx.capability.app.request';
 
-  /// 动作请求被取消/超时（Dart 侧应中断在做的工作）
-  static const String actionCancel = 'musicxx.action.cancel';
+  /// 应用能力请求被取消 / 超时（Dart 侧应中断在做的工作）
+  static const String appCapabilityCancel = 'musicxx.capability.app.cancel';
 
   /// 插件贡献的 UI 项变化
   static const String uiChanged = 'musicxx.ui.changed';

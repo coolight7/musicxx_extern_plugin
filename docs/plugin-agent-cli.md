@@ -289,7 +289,7 @@ musicxx://play/?search=%E6%99%B4%E5%A4%A9
 - **退出码**：`0` 成功 / `1` 参数错误（CLI 自己发现的）/ `2` 应用没在运行 / `3` 等响应超时 /
   `4` 命令执行失败（原因在 stderr）/ `5` 协议不匹配（CLI 与主程序版本差太多）；
 - 命令名是**自描述**的：`musicxx-cli list --json` 里有全部命令与参数，不要硬编码参数表；
-- **这几条命令不在插件的动作表里**：插件里 `musicxx.call("externPlugin.install", …)` 只会得到
+- **这几条命令不在插件的动作表里**：插件里 `musicxx.capability.call("externPlugin.install", …)` 只会得到
   "动作未注册"。装插件 = 执行任意代码，这条通道只留给本机命令行与 MCP（主程序有意如此，
   不是遗漏）。
 

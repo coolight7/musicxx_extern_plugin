@@ -722,7 +722,7 @@ runtime.state.updateBatch({...});                                    // 同帧�
 runtime.broadcasts.publish('musicxx.song.changed', <String, Object?>{'sid': sid});
 
 // 注册主程序动作实现（插件经 request_action 发起；未注册的动作会立刻收到"未找到"）
-runtime.actions.register(MusicxxPluginActionNames.playerToggle, (invocation) async {
+runtime.appCapabilities.register(MusicxxCapabilityId.playerToggle, (invocation) async {
   await player.playOrPause();
   return <String, Object?>{'ok': true};
 });
@@ -807,7 +807,7 @@ final List<MusicxxPluginUIItem> next =
 |---|---|---|
 | 能力（裁决型） | `MusicxxPlugin::implement` + `musicxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；实现可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
 | 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 观察型（通知）就是广播频道：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
-| 动作 | `musicxx.call` / `PluginBase::requestAction` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（主程序分派；不做权限校验） |
+| 应用实现的能力 | `musicxx.capability.call` / `PluginBase::capabilityCall` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（应用分派；不做权限校验） |
 | 快照频道 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |

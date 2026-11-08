@@ -188,7 +188,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     {
       PluginxxOperatorNotify notify{&probeActionDone, nullptr};
       foreignActionRc =
-          requestAction("plugin.other_plugin.x", "{}", &notify, 1000);
+          capabilityCall("plugin.other_plugin.x", "{}", &notify, 1000);
     }
 
     // 5) 广播订阅: 快照频道 (musicxx.state.song) + 插件框架发布的测试主题
@@ -286,15 +286,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     capability(
         *this, "plugin.example_native.probe",
         [this](std::string_view, std::string_view args) -> std::string {
-          // args 里带 requestAction 时顺带发起一次动作请求
+          // args 里带 appCapabilityCall 时顺带发起一次应用能力调用
           // (用于验证插件框架超时保护)
-          if (args.find("requestAction") != std::string_view::npos) {
+          if (args.find("appCapabilityCall") != std::string_view::npos) {
             PluginxxOperatorNotify notify{&ExampleCtx::onProbeActionDone, this};
             lastActionStatus = -2; ///< 发起中
-            requestAction("musicxx.ui.toast",
+            capabilityCall("musicxx.ui.toast",
                           R"({"info":"example_native 超时自检"})", &notify,
-                          1000, &lastActionRequestId);
-            log.info("example_native: 已发起动作请求 musicxx.ui.toast "
+                          1000);
+            log.info("example_native: 已发起应用能力调用 musicxx.ui.toast "
                      "(等待插件框架超时)");
           }
           std::ostringstream oss;

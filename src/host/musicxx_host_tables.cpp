@@ -457,15 +457,15 @@ void *MusicxxHostManager::onAppCapabilityStart(
   /// 插件框架给的完成通知是临时对象 (只在 start 调用期间有效): 存一份,
   /// 跟这次请求一起活到终结
   auto holder = std::make_shared<PluginxxOperatorNotify>(*notify);
-  const int32_t rc = requestAction(inst, capability, argsJson, timeout,
+  const int32_t rc = requestAppCapability(inst, capability, argsJson, timeout,
                                    holder.get(), &requestId);
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
     pluginxx::detail::setErrorString(
         errorOut, "app capability: request could not be queued");
     return nullptr;
   }
-  auto it = pendingActions_.find(requestId);
-  if (it == pendingActions_.end()) {
+  auto it = pendingAppCapabilities_.find(requestId);
+  if (it == pendingAppCapabilities_.end()) {
     pluginxx::detail::setErrorString(errorOut,
                                      "app capability: request is gone");
     return nullptr;
@@ -482,7 +482,7 @@ void MusicxxHostManager::onAppCapabilityCancel(MusicxxHostInstance * /*inst*/,
   if (!handle) {
     return;
   }
-  cancelAction(static_cast<int64_t>(reinterpret_cast<intptr_t>(handle)));
+  cancelAppCapability(static_cast<int64_t>(reinterpret_cast<intptr_t>(handle)));
 }
 
 int32_t MusicxxHostManager::unimplement(MusicxxHostInstance *inst,
@@ -1233,7 +1233,7 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
 
 /* ==================== 主程序动作请求 (插件 → Dart) ==================== */
 
-int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
+int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
                                           std::string_view action,
                                           std::string_view argsJson,
                                           uint32_t timeoutMs,
@@ -1242,7 +1242,7 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
   if (!inst || action.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  const std::string actionName{action};
+  const std::string capabilityName{action};
   const std::string pluginId = pluginIdOf(inst->name);
   /// 动作名不校验、不拒绝: 插件想调什么就调什么, 由 Dart 侧按"注册了没有"决定
   /// 理不理它 (没注册的动作立刻回"未找到")。
@@ -1253,9 +1253,9 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
   /// 超时不再限制区间: 传 0 表示不设超时 (一直等 Dart 侧回复); 非 0 时按插件给的值
   /// 到点终结该 op 并通知 Dart 收尾。
   const int64_t effectiveTimeoutMs = static_cast<int64_t>(timeoutMs);
-  PendingAction pending;
+  PendingAppCapability pending;
   pending.plugin = inst->name;
-  pending.action = actionName;
+  pending.capability = capabilityName;
   pending.notify = notify;
   pending.deadline = std::chrono::steady_clock::now() +
                      std::chrono::milliseconds{effectiveTimeoutMs};
@@ -1268,8 +1268,8 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
       if (ec) {
         return; ///< 已回复/已取消: 定时器被主动取消
       }
-      auto it = pendingActions_.find(requestId);
-      if (it == pendingActions_.end()) {
+      auto it = pendingAppCapabilities_.find(requestId);
+      if (it == pendingAppCapabilities_.end()) {
         return;
       }
       const std::string pluginId = pluginIdOf(it->second.plugin);
@@ -1278,30 +1278,31 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
                                 PLUGINXX_OPERATOR_CANCELED, nullptr);
       }
       XX_LOGW("[musicxx_ext] 动作请求超时: plugin={} action={} id={}", pluginId,
-              it->second.action, requestId);
+              it->second.capability, requestId);
       Json payload;
       payload["requestId"] = requestId;
       payload["reason"] = "timeout";
-      pushEvent("musicxx.action.cancel", pluginId, payload.dump());
-      pendingActions_.erase(it);
+      pushEvent("musicxx.capability.app.cancel", pluginId, payload.dump());
+      pendingAppCapabilities_.erase(it);
     });
     pending.timer = std::move(timer);
   }
-  pendingActions_[requestId] = std::move(pending);
+  pendingAppCapabilities_[requestId] = std::move(pending);
   if (outRequestId) {
     *outRequestId = requestId;
   }
-  inst->actionRequests.fetch_add(1);
+  inst->appCapabilityRequests.fetch_add(1);
 
   /// 插件框架自己的网络能力与两条动作同名。这两条动作按**框架原生实现**回答
   /// (与 JS `musicxx.net.fetch` / 动态库插件的 `iface.net` 同一份实现), 不再转给
   /// Dart —— 否则同名接口会有两套行为 (代理设置、TLS 选项、下载落盘位置都不一样)。
   /// 跑在框架的工作线程上, 不占插件与主程序的线程。
-  if (actionName == "musicxx.net.fetch" ||
-      actionName == "musicxx.net.download") {
+  if (capabilityName == "musicxx.net.fetch" ||
+      capabilityName == "musicxx.net.download") {
     if (ctx_ && ctx_->workers) {
       const std::string op =
-          actionName == "musicxx.net.fetch" ? "http.fetch" : "http.download";
+          capabilityName == "musicxx.net.fetch" ? "http.fetch"
+                                                                : "http.download";
       /// 与 JS 封装一致: `body` 给对象 / 数组时按 JSON 发送 (框架的 `http.fetch`
       /// 只认字符串 `body` 或 `json` 字段)。
       utilxx_base::Json netArgs = parseJsonSafe(argsJson);
@@ -1329,7 +1330,7 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
         }
         /// 传输失败也按"请求完成"回答 (status 0, 结论在结果 JSON 的 ok 里),
         /// 与 `musicxx.net.fetch` 的约定一致。
-        self->actionRespond(requestId, 0, result);
+        self->respondAppCapability(requestId, 0, result);
       });
       return MUSICXX_EXTERN_PLUGIN_OK;
     }
@@ -1339,34 +1340,34 @@ int32_t MusicxxHostManager::requestAction(MusicxxHostInstance *inst,
   Json payload;
   payload["requestId"] = requestId;
   payload["plugin"] = pluginId;
-  payload["action"] = actionName;
+  payload["capability"] = capabilityName;
   payload["timeoutMs"] = effectiveTimeoutMs;
   Json args = parseJsonSafe(argsJson);
   payload["args"] = args;
-  pushEvent("musicxx.action.request", pluginId, payload.dump());
+  pushEvent("musicxx.capability.app.request", pluginId, payload.dump());
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-int32_t MusicxxHostManager::actionRespond(int64_t requestId, int32_t status,
+int32_t MusicxxHostManager::respondAppCapability(int64_t requestId, int32_t status,
                                           const std::string &resultJson) {
   /// 先问 JS 引擎的接驳口: 它用自己的表登记未回复的请求, 自带互斥, **任何线程**
   /// 都能就地回答。顺序不能反过来 —— 这条回复往往是由"正在 IO 线程上等 JS"的
   /// 能力派发 (见 JsEngine::implementationRunSync) 触发的, 先投 IO 线程就会两边互等。
   {
-    std::shared_ptr<InternalActionRelay> relay;
+    std::shared_ptr<InternalAppCapabilityRelay> relay;
     {
       std::lock_guard<std::mutex> lock{registryMutex_};
-      relay = internalRelay_;
+      relay = internalCapabilityRelay_;
     }
-    if (relay && relay->respondAction(requestId, status, resultJson)) {
+    if (relay && relay->respondAppCapability(requestId, status, resultJson)) {
       return MUSICXX_EXTERN_PLUGIN_OK;
     }
   }
   /// 动态库插件的请求: 登记表归 IO 线程 (调用方已在 IO 线程时就地执行)
   return pluginxx::ioCallSync<int32_t>(
       this, [this, requestId, status, resultJson]() -> int32_t {
-        auto it = pendingActions_.find(requestId);
-        if (it == pendingActions_.end()) {
+        auto it = pendingAppCapabilities_.find(requestId);
+        if (it == pendingAppCapabilities_.end()) {
           return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
         }
         if (it->second.timer) {
@@ -1384,14 +1385,14 @@ int32_t MusicxxHostManager::actionRespond(int64_t requestId, int32_t status,
             pluginxx::hostMemoryFree(payload.data);
           }
         }
-        pendingActions_.erase(it);
+        pendingAppCapabilities_.erase(it);
         return MUSICXX_EXTERN_PLUGIN_OK;
       });
 }
 
-void MusicxxHostManager::cancelAction(int64_t requestId) {
-  auto it = pendingActions_.find(requestId);
-  if (it == pendingActions_.end()) {
+void MusicxxHostManager::cancelAppCapability(int64_t requestId) {
+  auto it = pendingAppCapabilities_.find(requestId);
+  if (it == pendingAppCapabilities_.end()) {
     return;
   }
   if (it->second.timer) {
@@ -1403,9 +1404,9 @@ void MusicxxHostManager::cancelAction(int64_t requestId) {
   }
   Json payload;
   payload["requestId"] = requestId;
-  pushEvent("musicxx.action.cancel", pluginIdOf(it->second.plugin),
+  pushEvent("musicxx.capability.app.cancel", pluginIdOf(it->second.plugin),
             payload.dump());
-  pendingActions_.erase(it);
+  pendingAppCapabilities_.erase(it);
 }
 
 /* ==================== 快照频道读取 ==================== */

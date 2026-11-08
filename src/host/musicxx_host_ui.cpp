@@ -500,7 +500,7 @@ int32_t MusicxxHostManager::notifyUi(MusicxxHostInstance *inst,
   // 结果不回传 (回复会落在"未登记的请求"上, 由插件框架按调试日志忽略)
   const std::string pluginId = pluginIdOf(inst->name);
   int64_t effectiveTimeout = 0;
-  return pushActionRequestEvent(pluginId, allocateRequestId(),
+  return pushAppCapabilityRequestEvent(pluginId, allocateRequestId(),
                                 "musicxx.ui.toast", message, 5000,
                                 &effectiveTimeout);
 }
