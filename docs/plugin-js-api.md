@@ -203,13 +203,17 @@ musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
 「载荷与回答（已接入的能力）」：`player.beforePlaySong`（`skip`）、
 `player.source.beforeParse`（`skip` / `patch.src`）、
 `player.error`（`stop` 停止播放 / `skip` 跳过本曲 / `patch.tryNextSrc`），以及“改播放值”的四个：
-`player.seek` / `player.volume` / `player.speed` / `player.pitch`（`patch.to` 换新值，
-`skip` 这次不改）。
+`player.seek` / `player.volume` / `player.speed` / `player.pitch`。
+
+**最后这四个是拦截点**：应用改值的实现固定（`impl` 阶段不开放，注册会被拒），插件只能
+在前链改目标值（`{patch:{to:…}}`）或拦下（`{action:"cancel"}`），在后链改最终值
+（`{value:{patch:{to:…}}}`）或`{action:"drop"}` 作废——后链拦不下动作，`drop` 之后应用仍按
+前链后的目标值执行。
 
 ### 4.3 异步裁决（返回 Promise）
 
 ```js
-musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, (ctx) => {
+musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, (ctx) => {
     if (ctx.to >= 0.25 && ctx.to <= 3) return null;      // 当场不表态：最省时
     return new Promise((resolve) => {                     // 异步路径
         setTimeout(() => resolve({ patch: { to: 3 } }), 20);

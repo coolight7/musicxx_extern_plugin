@@ -710,7 +710,9 @@ class MusicxxPluginCapabilities {
         MusicxxPluginCapabilityContext(
           id: id,
           payload: payload,
-          sid: payload['sid'] as String?,
+          // `sid` 在不同载荷里是数字（进度 / 跳转 / 播放失败）或字符串（内部会话键）：
+          // 这里统一转成字符串，直接 `as String?` 会让带数字 sid 的载荷整条派发失败
+          sid: payload['sid']?.toString(),
         );
     Map<String, Object?>? merged;
     for (final _DartImplementationEntry entry

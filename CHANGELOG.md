@@ -8,6 +8,24 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1108.1 内，未发布）：“改播放值”的四个能力改成固定实现（拦截点）
+
+- `musicxx.player.seek` / `volume` / `speed` / `pitch` 的“把播放器改成新值”变成应用自己的
+  固定实现：声明改为 `impls: one`、`phases: ["before", "after"]`、没有 `merge`。
+- **插件注册它们的 `impl` 会被拒**（C 接口返回 `-4`，日志写“does not open phase impl”；
+  SDK / `pluginxx.capabilities` 入口统一折算成 `-1` 并回可读日志）。老写法（在 `impl` 上回答
+  `{"patch":{"to":…}}` / `{"action":"skip"}`）要改成：
+  - 前链 `before`：`{"patch":{"to":…}}` = 改这次的目标值，`{"action":"cancel"}` = 这次不改（界面回弹）；
+  - 后链 `after`：`{"value":{"patch":{"to":…}}}` = 改最终值，`{"action":"drop"}` = 这次的值作废。
+- **后链在这四个点上现在一定会被调用**（以前只在插件给了裁决时才跑）；`drop` **拦不下动作**：
+  动作已经做了，应用按前链后的目标值继续执行。要“这次不改”用前链的 `cancel`。
+- 回调时点不变：仍然是“要改之前”派发一次，载荷（`{from, to}` / `{sid, from, to, durationMs}`）
+  与以前一致；0.5 s 等待上限、超时按“没意见”、等待期间切歌作废也都不变。
+- Dart 侧 `MusicxxPluginCapabilities._runDartImpls` 的 `sid` 不再按字符串强转（带数字 `sid` 的
+  载荷以前会整条派发失败）。
+- 示例与原生测试同步：`example_js` 的限速、`example_js_async` 的异步裁决、`example_native` /
+  `example_native_fail` 的覆盖注册与失败统计都改用前链。
+
 ### 变更（破坏性，2026.1108.1 内，未发布）：阶段词统一：cancel / skip / drop
 
 - **一个处理只有一个词**（三个阶段通用）：

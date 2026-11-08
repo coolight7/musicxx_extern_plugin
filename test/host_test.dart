@@ -539,20 +539,26 @@ void main() {
     expect(jsAsyncVerdict!['action'], 'skip');
 
     _step('14.5 JS 异步裁决完成');
-    // JS 裁决处理器返回 Promise (异步裁决): 插件框架一直等到脚本结算, 结算后裁决生效
+    // JS 前链处理器返回 Promise: 插件框架一直等到脚本结算, 结算后改写生效
+    // （“改播放值”的四个能力实现固定, 插件只能注册前链 / 后链）
     final Map<String, Object?>? jsPromiseVerdict = runtime.capabilities
-        .dispatch(MusicxxCapabilityId.playerSpeed, <String, Object?>{
-          'sid': 's-js-speed',
-          'from': 1.0,
-          'to': 8.0,
-        });
+        .dispatchAtPhase(
+          MusicxxCapabilityId.playerSpeed,
+          MusicxxCapabilityPhase.before,
+          <String, Object?>{'sid': 's-js-speed', 'from': 1.0, 'to': 8.0},
+        );
     expect(jsPromiseVerdict, isNotNull, reason: 'example_js 的异步裁决应生效');
-    // 插件框架把处理器返回的 patch 合并进结果对象（顶层键，与其它裁决钩子一致）
-    expect((jsPromiseVerdict!['to'] as num?)?.toDouble(), 3.0);
+    // 前链的 patch 合进结果对象里（`result.patch.to`）
+    final Map<String, Object?> jsPromisePatch =
+        (jsPromiseVerdict!['patch'] as Map<Object?, Object?>?)
+            ?.cast<String, Object?>() ??
+        const <String, Object?>{};
+    expect((jsPromisePatch['to'] as num?)?.toDouble(), 3.0);
     // 同一个处理器在"不需要裁决"的分支上同步返回 null → 没有裁决
     expect(
-      runtime.capabilities.dispatch(
+      runtime.capabilities.dispatchAtPhase(
         MusicxxCapabilityId.playerSpeed,
+        MusicxxCapabilityPhase.before,
         <String, Object?>{'sid': 's-js-speed-ok', 'from': 1.0, 'to': 1.5},
       ),
       isNull,

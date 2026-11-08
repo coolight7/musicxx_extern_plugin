@@ -1615,6 +1615,8 @@ int main(int argc, char **argv) {
           "没声明过的动作名（能力）被拒绝");
     check(jsonIntField(probe, "dupImplementRc") == "0",
           "同一能力覆盖式重复注册成功");
+    check(jsonIntField(probe, "fixedImplRc") != "0",
+          "固定实现的能力拒绝注册 impl (只开放前链 / 后链)");
     // 事件命名空间与订阅
     check(jsonIntField(probe, "badTopicSubscribeRc") == "-1",
           "非法事件主题订阅被拒绝");
@@ -2426,26 +2428,28 @@ int main(int argc, char **argv) {
                                      &seekHandlers, &log);
     check(seekHandlers == 1, "异步裁决处理器已注册 (player.seek = 1)");
 
-    // 1) Promise 30 ms 后结算 → patch 生效
+    // 1) Promise 30 ms 后结算 → 前链改过的目标位置生效
     {
       MusicxxExternPluginString out{};
-      const auto rc = musicxx_extern_plugin_capability_dispatch(
+      const auto rc = musicxx_extern_plugin_capability_dispatch_phase(
           host, viewCP("musicxx.player.seek"),
-          viewP(R"({"sid":"async1","fromMs":1000,"toMs":2000})"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"sid":"async1","from":1000,"to":2000})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
       std::printf("  [info] async seek result=%s\n", result.c_str());
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决能力派发成功");
-      check(jsonIntField(result, "toMs") == "12345",
-            "Promise 结算的 patch 生效 (toMs)");
+      check(jsonIntField(result, "to") == "12345",
+            "Promise 结算的 patch 生效 (to)");
     }
 
     // 2) Promise 1.5 s 后才结算 → 插件框架一直等, 裁决照样生效 (没有等待超时)
     {
       MusicxxExternPluginString out{};
       const auto t0 = std::chrono::steady_clock::now();
-      const auto rc = musicxx_extern_plugin_capability_dispatch(
+      const auto rc = musicxx_extern_plugin_capability_dispatch_phase(
           host, viewCP("musicxx.player.volume"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
           viewP(R"({"sid":"async2","from":0.5,"to":0.9})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
@@ -2456,16 +2460,17 @@ int main(int argc, char **argv) {
       std::printf("  [info] async volume result=%s (%lld ms)\n", result.c_str(),
                   static_cast<long long>(elapsedMs));
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "长 Promise 的派发返回成功");
-      check(result.find("\"skip\"") != std::string::npos,
-            "插件框架等到 Promise 结算, 裁决生效 (skip)");
+      check(result.find("\"cancel\"") != std::string::npos,
+            "插件框架等到 Promise 结算, 裁决生效 (cancel)");
       check(elapsedMs >= 1200, "插件框架等满了 Promise 的等待时间");
     }
 
     // 3) 结算之后可以继续派发 (处理器没有被跳过)
     {
       MusicxxExternPluginString out{};
-      const auto rc = musicxx_extern_plugin_capability_dispatch(
+      const auto rc = musicxx_extern_plugin_capability_dispatch_phase(
           host, viewCP("musicxx.player.volume"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
           viewP(R"({"sid":"async3","from":0.1,"to":0.2})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       freeStr(out);
@@ -2722,12 +2727,14 @@ int main(int argc, char **argv) {
     freeStr(unloadLog);
   }
 
-  // ==================== 处理器失败只记统计 (不再暂停派发)
+  // ==================== 处理器失败只记统计 (不暂停派发)
   // ====================
   //
-  // 对照示例 example_native_fail 注册两个处理器:
+  // 对照示例 example_native_fail 在前链注册三个处理器（“改播放值”的三个能力实现固定，
+  // 只能注册前链 / 后链）:
   //   musicxx.player.volume   → 每次失败 (返回非 0)
   //   musicxx.player.speed    → 每次成功
+  //   musicxx.player.pitch    → 走 pluginxx.capabilities 注册的前链
   // 期望: 失败只累计到统计 (capability_stats 的 failures), 处理器每次都照常被调用;
   // 没有"连续失败暂停派发"这回事, 插件也不会被卸载。
   {
@@ -2751,8 +2758,10 @@ int main(int argc, char **argv) {
       check(pitchIds == 1, "能力表注册的能力出现在处理器计数里");
 
       MusicxxExternPluginString pitchOut{};
-      const auto pitchRc = musicxx_extern_plugin_capability_dispatch(
-          host, viewCP("musicxx.player.pitch"), viewP(R"({"pitch":1.0})"),
+      const auto pitchRc = musicxx_extern_plugin_capability_dispatch_phase(
+          host, viewCP("musicxx.player.pitch"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"from":1.0,"to":0.9})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &pitchOut, &log);
       const std::string pitchResult = take(pitchOut);
       check(pitchRc == MUSICXX_EXTERN_PLUGIN_OK, "能力表注册的能力可派发");
@@ -2772,9 +2781,10 @@ int main(int argc, char **argv) {
     // 连续 5 次派发: 每次都真的调用了处理器 (called=1), 不做任何跳过
     for (int i = 1; i <= 5; ++i) {
       MusicxxExternPluginString out{};
-      const auto rc = musicxx_extern_plugin_capability_dispatch(
+      const auto rc = musicxx_extern_plugin_capability_dispatch_phase(
           host, viewCP("musicxx.player.volume"),
-          viewP(R"({"sid":"brk","song":{"name":"失败目标"}})"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"sid":"brk","from":1.0,"to":0.8})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
       const std::string result = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "失败处理器派发可调用");
@@ -2814,9 +2824,10 @@ int main(int argc, char **argv) {
     // 同一插件的另一个处理器照常工作
     {
       MusicxxExternPluginString out{};
-      const auto rc = musicxx_extern_plugin_capability_dispatch(
+      const auto rc = musicxx_extern_plugin_capability_dispatch_phase(
           host, viewCP("musicxx.player.speed"),
-          viewP(R"({"sid":"brk","playedMs":1000})"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"from":1.0,"to":1.25})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
       const std::string result = take(out);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "同插件的另一个处理器派发成功");

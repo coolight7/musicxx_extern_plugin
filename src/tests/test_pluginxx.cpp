@@ -796,13 +796,14 @@ void testCapabilityDeclarations() {
   const MusicxxCapabilityDecl *seek =
       musicxxCapabilityDeclOf("musicxx.player.seek");
   check(seek != nullptr, "查得到 musicxx.player.seek");
-  check(seek && seek->impls == MUSICXX_CAPABILITY_IMPLS_MANY &&
-            seek->merge == MUSICXX_CAPABILITY_MERGE_VETO &&
+  check(seek && seek->impls == MUSICXX_CAPABILITY_IMPLS_ONE &&
+            seek->merge == 0 && // 0 = 不适用（固定实现没有实现链可合）
             seek->timeout_ms == 500,
-        "seek：多实现 + veto + 500 ms");
-  check(seek && (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) != 0 &&
+        "seek：实现固定（one、无合并策略）+ 500 ms");
+  check(seek && (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) == 0 &&
+            (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_BEFORE) != 0 &&
             (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_AFTER) != 0,
-        "seek：开放 impl 与 after");
+        "seek：只开放 before 与 after（impl 注册被拒）");
   check(seek && (seek->usage_mask & MUSICXX_CAPABILITY_USAGE_COMMAND) != 0,
         "seek：也能当命令调");
 

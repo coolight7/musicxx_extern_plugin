@@ -84,6 +84,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t unknownCapabilityRc = 0; ///< 应用没声明的官方 id: 期望 -2 (官方命名空间归应用)
   int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
   int32_t dupImplementRc = 0; ///< 覆盖式重复注册: 期望 0
+  int32_t fixedImplRc = 0; ///< 给固定实现的能力注册 impl: 期望 -4 (只开放前链 / 后链)
 
   /// 声明式 UI 扩展自检
   int32_t uiHomeRc = -100; ///< 注册主页入口项: 期望 0
@@ -166,12 +167,20 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     unknownCapabilityRc =
         implement("musicxx.no.such.capability", 0,
              [](std::string_view, std::string &) -> int32_t { return 0; });
-    // 同一 (实例, 能力, owner_tag) 覆盖式注册: 再注册一次应成功
-    dupImplementRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+    // 同一 (实例, 能力, owner_tag, 阶段) 覆盖式注册: 再注册一次应成功
+    // 用前链: “改音量”的实现固定是应用自己，插件的 `impl` 注册会被拒
+    dupImplementRc = implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
                      });
-    dupImplementRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+    // 固定实现的能力（“改播放值”的四个）不开放 impl 阶段：注册实现会被拒
+    // C 接口直接注册返回 -4 (`MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`)；
+    // 走 SDK 这一层（`pluginxx.capabilities`）的失败码统一折算成 -1，日志里写着原因
+    fixedImplRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+                     [](std::string_view, std::string &) -> int32_t {
+                       return 0;
+                     });
+    dupImplementRc = implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
                      });
@@ -309,6 +318,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"callThread\":\"" << threadIdText() << "\""
               << ",\"unknownCapabilityRc\":" << unknownCapabilityRc
               << ",\"dupImplementRc\":" << dupImplementRc
+              << ",\"fixedImplRc\":" << fixedImplRc
               << ",\"foreignActionRc\":" << foreignActionRc
               << ",\"badTopicSubscribeRc\":" << badTopicSubscribeRc
               << ",\"ownPublishRc\":" << ownPublishRc

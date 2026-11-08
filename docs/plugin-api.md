@@ -2125,6 +2125,20 @@ extern  ---------->  builtin  ---------->  core
 包装点（网络请求 / 下载 / 歌单读取这类「实现固定是应用自己」的能力）没有 `impl` 阶段，
 插件只在前后插手；取值点（频谱 / 副歌 / 取色 / 音源解析）通常只有 `impl`。
 
+**“改播放值”的四个能力是拦截点，不是可接管的能力**：`musicxx.player.seek` / `volume` /
+`speed` / `pitch` 的实现固定是应用自己（声明里 `impls: one`、`phases` 只有 `before` / `after`），
+因为“把播放器改到这个值”是应用的动作，不能让插件换掉（多插件时用户看到的“拖到 50% 却停在 30%”
+无法解释）。插件在这四个点上的位置：
+
+| 阶段 | 能做什么 | 回答 |
+|---|---|---|
+| `before` | 改这次的目标值 / 拦下（这次不改，界面回弹） | `{"patch":{"to":0.5}}` / `{"action":"cancel"}` |
+| `after` | 改最终值 / 把这次的值作废（动作已经做了，拦不下） | `{"value":{"patch":{"to":0.5}}}` / `{"action":"drop"}` |
+
+注册它们的 `impl` 会被拒（C++ 返回 `-4`，日志写“does not open phase impl”）。
+后链在这四个点上**一定被调用**（以前只在插件给了裁决时才会跑）；`drop` 之后应用按
+`before` 之后的目标值执行 —— 不要把它当“取消这次操作”，要取消请用 `before` 的 `cancel`。
+
 ### 8.1.1 注册与注销
 
 ```js
@@ -2214,7 +2228,8 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 
 ```js
 // musicxx.player.speed 的载荷是 {from, to}：把不合法的新值换成合法值
-musicxx.capability.implement("musicxx.player.speed", (ctx) => {
+// （“改播放值”的四个能力实现固定，插件只能注册前链 / 后链）
+musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, (ctx) => {
     if (ctx.to >= 0.25 && ctx.to <= 3) return null;     // 同步路径：最省时
     return new Promise((resolve) => {                    // 异步路径
         setTimeout(() => resolve({ patch: { to: 3 } }), 20);

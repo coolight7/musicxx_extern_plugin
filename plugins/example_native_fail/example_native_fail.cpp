@@ -1,16 +1,15 @@
-/// 对照示例: "处理器总是失败"的动态库插件, 演示插件框架暂停派发失败处理器的行为
+/// 对照示例: "处理器总是失败"的动态库插件, 演示插件框架对失败处理器的统计行为
 ///
 /// 行为:
-/// - 注册 `musicxx.song.changed` (观察型): 每次返回非 0 (处理器失败) ——
-/// 插件框架连续计数,
-///   达到 3 次即临时暂停该处理器的派发 (只暂停, 不卸载插件);
-/// - 注册 `musicxx.player.completed` (观察型): 始终成功 ——
-/// 用于证明"暂停只影响出问题的
-///   处理器, 同一插件的其它处理器照常被调用";
-/// - **走 `pluginxx.capabilities` 注册 `musicxx.player.pitch`**（阶段 2c 的新入口）：
+/// - 前链注册 `musicxx.player.volume`: 每次返回非 0 (处理器失败) —— 插件框架只累计 failures,
+///   不暂停派发、不卸载插件;
+/// - 前链注册 `musicxx.player.speed`: 始终成功 —— 用于证明"另一个处理器照常被调用";
+/// - **走 `pluginxx.capabilities` 注册 `musicxx.player.pitch` 的前链**（能力表入口）：
 ///   处理器是能力契约（同步 `notify->done`），派发与合并和 `pluginxx.capabilities` 那套完全一样；
-/// - 能力 `plugin.example_native_fail.probe`: 回报两个处理器的调用次数, 供原生测试断言
-///   "暂停后处理器真的没有被调用"。
+/// - 能力 `plugin.example_native_fail.probe`: 回报两个处理器的调用次数, 供原生测试断言。
+///
+/// 三个能力都是"改播放值"的固定实现点（应用自己改值）: 插件只能注册前链 / 后链,
+/// 注册 `impl` 会被拒绝（返回 `MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`）。
 ///
 /// 与示例插件同一套约定: `start` 事务里只做注册, 不阻塞、不做 IO。
 
@@ -46,7 +45,7 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     return nullptr;
   }
 
-  /// 用 `pluginxx.capabilities` 直接注册一个能力（手写能力规格的写法）
+  /// 用 `pluginxx.capabilities` 直接注册一个前链处理器（手写能力规格的写法）
   void registerPitchImplementation() {
     if (!iface.capabilities || !iface.capabilities->register_capability) {
       return;
@@ -58,9 +57,9 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     spec.owner_tag = pluginxxView("");
     spec.impls = PLUGINXX_CAPABILITY_IMPLS_ONE;
     spec.merge = PLUGINXX_CAPABILITY_MERGE_NONE;
-    spec.phases = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL;
-    spec.phase = PLUGINXX_CAPABILITY_PHASE_IMPL;
-    spec.sync = 1; ///< 宿主派发是同步的: 只有同步处理器能挂在能力上
+    spec.phases = PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE;
+    spec.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
+    spec.sync = 1; ///< 前链必须是同步处理器: 要拿到这一步的结果才能跑下一步
     spec.run_start = &FailCtx::pitchStart;
     spec.user_data = this;
     PluginxxString error{};
@@ -72,15 +71,15 @@ struct FailCtx : public musicxx::plugin::PluginBase {
   }
 
   int32_t onStart() {
-    // 1) 总是失败的处理器: 返回非 0 = 处理器失败
-    implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+    // 1) 总是失败的前链处理器: 返回非 0 = 处理器失败
+    implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
          [this](std::string_view, std::string &) -> int32_t {
            ++failingCalls;
            return -1; ///< 非 0: 插件框架计入 failures, 每次都照常派发
          });
 
-    // 2) 始终成功的处理器: 用于验证失败统计只算到"单个处理器"
-    implement(MUSICXX_CAPABILITY_PLAYER_SPEED, 0,
+    // 2) 始终成功的前链处理器: 用于验证失败统计只算到"单个处理器"
+    implementBefore(MUSICXX_CAPABILITY_PLAYER_SPEED, 0,
          [this](std::string_view, std::string &) -> int32_t {
            ++goodCalls;
            return 0;

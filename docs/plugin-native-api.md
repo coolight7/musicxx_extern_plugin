@@ -666,9 +666,11 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
      });
 
 // ④ 改播放值（音量 / 速度 / 音调 / 跳进度）：载荷都有 `from` / `to`
-//    `{"patch":{"to":…}}` = 换新值；`{"action":"skip"}` = 这次不改
+//    这四个能力的“改值”由应用自己执行（实现固定）：只能注册前链 / 后链，`impl` 会被拒
+//    前链 `{"patch":{"to":…}}` = 改这次的目标值；`{"action":"cancel"}` = 这次不改
+//    后链改最终值 / `{"action":"drop"}` 作废（后链拦不下动作，应用仍按前链后的值执行）
 //    下面只演示回答形状：真实插件要按自己的规则判断（用 utilxx_base::Json 读 `to`）
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_SPEED, 0,
+implementBefore(MUSICXX_CAPABILITY_PLAYER_SPEED, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          out = R"({"patch":{"to":2.0}})";   // 例：不管用户改成多少，都压到 2 倍速
          return 0;
@@ -678,21 +680,22 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_SPEED, 0,
 ### 6.1 阶段：前链 / 实现链 / 后链
 
 能力 id 表示**一次调用**，参与方式由注册时的阶段表达（不再有 `.before` / `.after` 后缀的 id）。
-`musicxx.player.seek` / `volume` / `speed` / `pitch` / `error` / `beforePlaySong` /
-`source.beforeParse` 声明了 `impl` + `after`，`musicxx.feature.point.call` 声明了三个阶段。
+`musicxx.player.seek` / `volume` / `speed` / `pitch` 的实现在应用自己身上（只开放
+`before` + `after`），`musicxx.player.error` / `beforePlaySong` / `source.beforeParse`
+声明了 `impl` + `after`，`musicxx.feature.point.call` 声明了三个阶段。
 
 ```cpp
-// 后链（改最终裁决）：拿到的是实现链合并出来的结果（这一步之前的结果）
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, musicxx::plugin::HookPhase::After, 0,
+// 后链（改最终值）：拿到的是实现链合出来的结果（这一步之前的结果）
+implementAfter(MUSICXX_CAPABILITY_PLAYER_SEEK, 0,
      [](std::string_view input, std::string& out) -> int32_t {
-         // 载荷里除原有字段外还有 `value` = 当前的合并结果
-         out = R"({"value":{"action":"continue","patch":{"to":60000}}})";
+         // 载荷里除原有字段外还有 `value` = 当前的结果
+         out = R"({"value":{"patch":{"to":60000}}})";
          return 0;
      });
 
 // 等价写法
-hookAfter(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
-hookBefore(MUSICXX_PLUGIN_HOOK_PLAYER_SEEK, 0, ...);
+implement(MUSICXX_CAPABILITY_PLAYER_SEEK, CapabilityPhase::After, 0, ...);
+implementBefore(MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);
 ```
 
 规则（完整说明见 [plugin-api.md](plugin-api.md) §8.1）：

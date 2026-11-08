@@ -34,10 +34,10 @@
 | `musicxx.player.beforePlaySong` | 功能埋点 | impl / after | veto | async | - | - | - | 已接入 |
 | `musicxx.player.source.beforeParse` | 功能埋点 | impl / after | first | async | - | - | - | 已接入 |
 | `musicxx.player.source.resolve` | 功能埋点 | impl | first | async | 5000 ms | 按身份 | - | 已接入 |
-| `musicxx.player.seek` | 功能埋点、命令 | impl / after | veto | async | 500 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.volume` | 功能埋点 | impl / after | veto | async | 500 ms | - | - | 已接入 |
-| `musicxx.player.speed` | 功能埋点 | impl / after | veto | async | 500 ms | - | - | 已接入 |
-| `musicxx.player.pitch` | 功能埋点 | impl / after | veto | async | 500 ms | - | - | 已接入 |
+| `musicxx.player.seek` | 功能埋点、命令 | 只能 before / after | - | async | 500 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.player.volume` | 功能埋点 | 只能 before / after | - | async | 500 ms | - | - | 已接入 |
+| `musicxx.player.speed` | 功能埋点 | 只能 before / after | - | async | 500 ms | - | - | 已接入 |
+| `musicxx.player.pitch` | 功能埋点 | 只能 before / after | - | async | 500 ms | - | - | 已接入 |
 | `musicxx.player.error` | 功能埋点 | impl / after | veto | async | - | - | - | 已接入 |
 | `musicxx.media.notification` | 功能埋点 | impl | first | sync | - | - | - | 未接入 |
 | `musicxx.media.info.analyse` | 功能埋点 | impl | first | async | - | - | - | 未接入 |
@@ -167,19 +167,19 @@
 
 ### `musicxx.player.seek` 跳转播放位置
 
-载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）之前**派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 动作 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。裁决：`{"action":"continue","patch":{"to":60000}}` = 换成别的目标位置；`{"action":"skip"}` = 这次不跳（保持原位）。超出范围的目标会被应用夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。
+载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）**时派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 动作 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。**跳转本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{"patch":{"to":60000}}` = 换这次的目标位置，`{"action":"cancel"}` = 这次不跳（界面回弹）；`after` 回答 `{"value":{"patch":{"to":60000}}}` = 改最终位置，`{"action":"drop"}` = 这次的值作废（仍按 `before` 之后的目标位置跳：动作已经做过了，后链拦不下动作）。`impl` 阶段不开放（注册被拒，返回码 -4）：跳不跳不能让插件换掉。目标位置最终会被夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。
 
 ### `musicxx.player.volume` 调整音量
 
-载荷 `{from, to}`：应用**要把音量改成 `to` 之前**派发一次（`from` = 当前音量，`to` = 这次要用的音量，都是 0~1，可能略大于 1 表示增益）。音量滑块、快捷键、静音 / 取消静音、局域网控制、命令行 / 动作、启动时恢复设置都会走这里。裁决 `{"patch":{"to":0.5}}` = 换成别的音量；`{"action":"skip"}` = 这次不改（保持原音量）。最终值会被夹到应用的合法范围（0~1）。**异步派发、最多等 0.5 s**：超时或不回答 = 按原值执行。处理器里不要再调 `musicxx.player.setVolume`（会再派发一次）。
+载荷 `{from, to}`：应用**要把音量改成 `to`** 时派发一次（`from` = 当前音量，`to` = 这次要用的音量，都是 0~1，可能略大于 1 表示增益）。音量滑块、快捷键、静音 / 取消静音、局域网控制、命令行 / 动作、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{"patch":{"to":0.5}}` = 改这次的目标值，`{"action":"cancel"}` = 这次不改（保持原音量，界面回弹）；`after` 回答 `{"value":{"patch":{"to":0.5}}}` = 改最终值，`{"action":"drop"}` = 这次的值作废（仍按 `before` 之后的目标值改：动作已经做过了，后链拦不下动作）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0~1）。**异步派发、最多等 0.5 s**：超时或不回答 = 按原值执行。处理器里不要再调 `musicxx.player.setVolume`（会再派发一次）。
 
 ### `musicxx.player.speed` 调整播放速度
 
-载荷 `{from, to}`：应用**要把播放速度改成 `to` 之前**派发一次（`from` = 当前速度，`to` = 这次要用的速度，单位是倍速）。速度菜单、长按加速 / 减速、命令行 / 动作、定时停止的变速、启动时恢复设置都会走这里。裁决 `{"patch":{"to":1.5}}` = 换成别的速度；`{"action":"skip"}` = 这次不改。最终值会被夹到应用的合法范围（0.25~8）。**异步派发、最多等 0.5 s**。长按加 / 减速这类连续变化会连派多次，处理器要保持快，处理器里也不要再调 `musicxx.player.setSpeed`。
+载荷 `{from, to}`：应用**要把播放速度改成 `to`** 时派发一次（`from` = 当前速度，`to` = 这次要用的速度，单位是倍速）。速度菜单、长按加速 / 减速、命令行 / 动作、定时停止的变速、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{"patch":{"to":1.5}}` = 改这次的目标值，`{"action":"cancel"}` = 这次不改（界面回弹）；`after` 回答 `{"value":{"patch":{"to":1.5}}}` = 改最终值，`{"action":"drop"}` = 这次的值作废（仍按 `before` 之后的目标值改）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0.25~8）。**异步派发、最多等 0.5 s**。长按加 / 减速这类连续变化会连派多次，处理器要保持快，处理器里也不要再调 `musicxx.player.setSpeed`。
 
 ### `musicxx.player.pitch` 调整音调
 
-载荷 `{from, to}`：应用**要把音调改成 `to` 之前**派发一次（`from` = 当前音调，`to` = 这次要用的音调；1 是原调，范围 0.25~2）。播放页的音调菜单、快捷键、音效切换时的复位、启动时恢复设置都会走这里。裁决 `{"patch":{"to":1.1}}` = 换成别的音调；`{"action":"skip"}` = 这次不改。最终值会被夹到应用的合法范围（0.25~2）。**异步派发、最多等 0.5 s**。要主动改音调用动作 `musicxx.player.setPitch`；处理器里不要再调它（会再派发一次）。
+载荷 `{from, to}`：应用**要把音调改成 `to`** 时派发一次（`from` = 当前音调，`to` = 这次要用的音调；1 是原调，范围 0.25~2）。播放页的音调菜单、快捷键、音效切换时的复位、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{"patch":{"to":1.1}}` = 改这次的目标值，`{"action":"cancel"}` = 这次不改（界面回弹）；`after` 回答 `{"value":{"patch":{"to":1.1}}}` = 改最终值，`{"action":"drop"}` = 这次的值作废（仍按 `before` 之后的目标值改）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0.25~2）。**异步派发、最多等 0.5 s**。要主动改音调用动作 `musicxx.player.setPitch`；处理器里不要再调它（会再派发一次）。
 
 ### `musicxx.player.error` 播放失败
 

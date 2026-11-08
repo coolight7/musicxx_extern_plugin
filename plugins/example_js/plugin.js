@@ -4,7 +4,7 @@
 /// - `musicxx.player.beforePlaySong` 裁决: 含"广告"的曲目 → skip;
 /// - `musicxx.song.changed` 观察: 切歌时记录名称并累加计数;
 /// - `musicxx.player.error` 裁决: 首次错误时建议换源 (patch.tryNextSrc);
-/// - `musicxx.player.speed` 裁决 (处理器返回 Promise; 该钩子当前版本未接入): 限速演示;
+/// - `musicxx.player.speed` 前链 (处理器返回 Promise): 把越界的速度改回合法值 (限速演示);
 /// - `example_js.probe` 能力: 返回自检信息 (计数/线程/状态镜像读取)。
 /// - `example_js.card` 能力: 主页入口打开的插件页面 (`ext://example_js/card`)。
 /// - 插件自绘设置页 (`ext://example_js/settings`, 从 card 页的按钮进入; 框架不管理设置入口)
@@ -79,22 +79,23 @@ musicxx.capability.implement("musicxx.player.error", { mode: "decision", priorit
 /// 裁决型钩子: 处理器返回 Promise 也能生效 —— 插件框架一直等到 Promise 结算
 /// (没有等待超时, 也不会"超时按不裁决继续"), 结算之后裁决才生效。
 /// 注意两件事:
-/// - `musicxx.player.speed` 当前版本**还没有接入** (约定已固定, 主程序没有调用):
-///   注册它不会报错, 但这段处理现在不会被执行, 写法可以照抄到已接入的钩子上;
-/// - 这个钩子在约定里是**同步派发**的: 真接入时返回 Promise 会让调用方等这 20 ms。
-///   同步派发的钩子里`await` 主程序动作/变量会互相等死 —— 主程序线程正阻塞在这次钩子
+/// - `musicxx.player.speed` 的"改速度"由应用自己执行（实现固定）: 插件只能在 **前链**
+///   改这次的目标值（`{"patch":{"to":…}}`）或 `{"action":"cancel"}` 拦下这次，
+///   在 **后链** 改最终值 / 作废；`impl` 阶段注册会被拒绝（返回 -4）;
+/// - 这个钩子在约定里是**异步派发**的: 处理器返回 Promise 时调用方会等这 20 ms。
+///   处理器里 `await` 主程序动作/变量会互相等死 —— 主程序线程正阻塞在这次钩子
 ///   调用上, 动作没人处理, 表现是应用一直卡住。
-/// 这里演示"限速"这一常见需求: 先把 0.25~3 之外的速度夹回来。
+/// 这里演示"限速"这一常见需求: 先把 0.25~3 之外的速度改回合法值。
 /// 说明: 真实插件通常在这里 `await` 一次异步来源 (存储/网络/其它插件能力);
 /// 用 Promise 只是让"异步裁决"这条路走通, 拿不到结果时插件应当不裁决。
-musicxx.capability.implement("musicxx.player.speed", { mode: "decision" }, function (ctx) {
+musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, function (ctx) {
     const to = (ctx && typeof ctx.to === "number") ? ctx.to : 1;
     if (to >= 0.25 && to <= 3) {
         return null;   // 同步路径: 不需要裁决时立刻返回 (最省时)
     }
     return new Promise(function (resolve) {
         setTimeout(function () {
-            resolve({ action: "continue", patch: { to: Math.min(3, Math.max(0.25, to)) } });
+            resolve({ patch: { to: Math.min(3, Math.max(0.25, to)) } });
         }, 20);
     });
 });
