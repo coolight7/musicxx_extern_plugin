@@ -20,6 +20,7 @@
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/iface_meta.h"
 #include "pluginxx/kit/kit.h"
+#include "pluginxx/net/ops.h"
 #include "pluginxx/ui.h"
 
 #include <algorithm>
@@ -63,13 +64,9 @@ struct IfaceMeta<MusicxxPluginUIIface> {
 static_assert(MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE >= 8u);
 static_assert(MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE <= sizeof(MusicxxPluginUIIface));
 
-template<>
-struct IfaceMeta<MusicxxPluginNetIface> {
-    static constexpr int32_t  min_version   = MUSICXX_PLUGIN_IFACE_NET_MIN_VERSION;
-    static constexpr uint32_t baseline_size = MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE;
-};
-static_assert(MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE >= 8u);
-static_assert(MUSICXX_PLUGIN_IFACE_NET_BASELINE_SIZE <= sizeof(MusicxxPluginNetIface));
+// 网络表是插件框架的通用表 (`<应用名>.net`), 元信息定义在插件框架库里, 这里直接用。
+static_assert(PLUGINXX_IFACE_NET_BASELINE_SIZE >= 8u);
+static_assert(PLUGINXX_IFACE_NET_BASELINE_SIZE <= sizeof(PluginxxNetIface));
 
 template<>
 struct IfaceMeta<MusicxxPluginKindIface> {
@@ -112,42 +109,12 @@ inline const char* capabilityPhaseName(CapabilityPhase phase) {
     }
 }
 
-/// 网络操作名 (`musicxx.net` 表的 `op` 参数; 完整参数见 `docs/plugin-api.md`)
+/// 网络操作名 (`<应用名>.net` 表的 `op` 参数; 常量定义在 `pluginxx/net/ops.h`)
 ///
-/// 约定: `*_call` 系列都是同步操作 (结果 JSON 里带 `ok`); `http.request` 可以
-/// 同步受理 + 听事件, 也可以走 `netCallAsync` 拿完成回调。
-/// `http.fetch` / `http.download` 是同一个 HTTP 实现的两个常用形态 (与 JS 的
-/// `musicxx.net.fetch` / `musicxx.net.download` 一一对应), 同样走 `netCallAsync`。
-namespace net_op {
-inline constexpr const char* httpRequest     = "http.request";
-inline constexpr const char* httpFetch       = "http.fetch";
-inline constexpr const char* httpDownload    = "http.download";
-inline constexpr const char* httpCancel      = "http.cancel";
-inline constexpr const char* httpServe       = "http.serve";
-inline constexpr const char* httpRoute       = "http.route";
-inline constexpr const char* httpUnroute     = "http.unroute";
-inline constexpr const char* httpRespond     = "http.respond";
-inline constexpr const char* httpStop        = "http.stop";
-inline constexpr const char* httpInfo        = "http.info";
-inline constexpr const char* socketConnect   = "socket.connect";
-inline constexpr const char* socketListen    = "socket.listen";
-inline constexpr const char* socketSend      = "socket.send";
-inline constexpr const char* socketClose     = "socket.close";
-inline constexpr const char* socketServerStop = "socket.serverStop";
-inline constexpr const char* wsConnect       = "ws.connect";
-inline constexpr const char* wsListen        = "ws.listen";
-inline constexpr const char* wsSend          = "ws.send";
-inline constexpr const char* wsPing          = "ws.ping";
-inline constexpr const char* wsClose         = "ws.close";
-inline constexpr const char* wsServerStop    = "ws.serverStop";
-inline constexpr const char* udpOpen         = "udp.open";
-inline constexpr const char* udpSend         = "udp.send";
-inline constexpr const char* udpJoin         = "udp.join";
-inline constexpr const char* udpLeave        = "udp.leave";
-inline constexpr const char* udpClose        = "udp.close";
-inline constexpr const char* udpInfo         = "udp.info";
-inline constexpr const char* info            = "net.info";
-} // namespace net_op
+/// 约定: 同步操作的结果 JSON 里带 `ok`; `http.request` 可以"同步受理 + 听事件",
+/// 也可以走 `netCallAsync` 拿完成回调。`http.fetch` / `http.download` 是同一个 HTTP
+/// 实现的另外两个形态, 只走 `netCallAsync`。
+namespace net_op = pluginxx::net_op;
 
 namespace detail {
 
@@ -252,7 +219,7 @@ int32_t answerFeaturePoint(const std::string& selfId, const std::string& point,
 struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
     const MusicxxPluginHostIface*  host  = nullptr; ///< "musicxx.host"
     const MusicxxPluginUIIface*    ui    = nullptr; ///< "musicxx.ui"
-    const MusicxxPluginNetIface*   net   = nullptr; ///< "musicxx.net"
+    const PluginxxNetIface*        net   = nullptr; ///< "<应用名>.net"
     const MusicxxPluginKindIface*  kind  = nullptr; ///< "musicxx.kind"（插件形态 / 运行器）
 
     /// 从框架查询全部接口表 (host 为空时返回全 NULL 聚合)
@@ -267,9 +234,9 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
             host,
             MUSICXX_PLUGIN_IFACE_UI
         );
-        ifaces.net = pluginxx::queryInterface<MusicxxPluginNetIface>(
+        ifaces.net = pluginxx::queryInterface<PluginxxNetIface>(
             host,
-            MUSICXX_PLUGIN_IFACE_NET
+            PLUGINXX_IFACE_NET
         );
         ifaces.kind = pluginxx::queryInterface<MusicxxPluginKindIface>(
             host,
@@ -290,7 +257,7 @@ public:
         return iface.net && iface.net->call;
     }
 
-    /// 同步网络操作 (`op` 用 `net_op::*`; 结果写进 `outJson`)
+    /// 同步网络操作 (`op` 用 `pluginxx::net_op::*`; 结果写进 `outJson`)
     ///
     /// 返回 0 = 操作执行完毕 (业务结论看结果 JSON 的 `ok`); 表不可用时返回 -1。
     int32_t netCall(const char* op, const char* argsJson, std::string& outJson) {

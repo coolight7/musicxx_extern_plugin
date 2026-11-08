@@ -672,28 +672,6 @@ ExternalProject_Add(
   TEST_COMMAND ""
 )
 
-# cxx_utilxx (网络与通用工具: HTTP 客户端/服务端、WebSocket、路由、加密、正则)
-# - **只给插件框架库用**: 插件 SDK 不依赖它, 插件编译时只有普通接口表与 op 名常量
-ExternalProject_Add(
-  cxx_utilxx_repo
-  DEPENDS
-    cxx_utilxx_base_repo
-    fmt_repo
-    html2md_repo
-  SOURCE_DIR "${MUSICXX_EXTERN_PLUGIN_THIRD_PARTY_DIR}/cxx_utilxx/"
-  BINARY_DIR "${MUSICXX_EXTERN_PLUGIN_BUILD_ROOT}/utilxx"
-  INSTALL_DIR "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}"
-  BUILD_ALWAYS TRUE
-  INSTALL_ALWAYS TRUE
-  CMAKE_ARGS
-    ${_COMMON_CMAKE_ARGS}
-    -DCXX_UTILXX_ENABLE_HYPERSCAN=OFF
-    "-DCMAKE_CXX_FLAGS:STRING=${_DEPS_CXX_FLAGS_BIGOBJ}"
-  CMAKE_CACHE_ARGS
-    ${_COMMON_CMAKE_CACHE_ARGS}
-  TEST_COMMAND ""
-)
-
 # cxx_pluginxx (插件框架)
 ExternalProject_Add(
   cxx_pluginxx_repo
@@ -714,6 +692,30 @@ ExternalProject_Add(
     "-DPLUGINXX_MIN_API_VERSION:STRING=${MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION}"
     # 应用名: 通用表 IID 与官方标识的前缀 (本工程拼出 `musicxx.log` / `musicxx.capabilities`)
     "-DPLUGINXX_APP_NAME:STRING=musicxx"
+  CMAKE_CACHE_ARGS
+    ${_COMMON_CMAKE_CACHE_ARGS}
+  TEST_COMMAND ""
+)
+
+# cxx_utilxx (网络与通用工具: HTTP 客户端/服务端、WebSocket、路由、加密、正则)
+# - **只给插件框架库用**: 插件 SDK 不依赖它, 插件编译时只有普通接口表与 op 名常量
+ExternalProject_Add(
+  cxx_utilxx_repo
+  DEPENDS
+    cxx_utilxx_base_repo
+    fmt_repo
+    html2md_repo
+    # 插件网络宿主的公开头包含 pluginxx/api/net.h: 头文件要先装好
+    cxx_pluginxx_repo
+  SOURCE_DIR "${MUSICXX_EXTERN_PLUGIN_THIRD_PARTY_DIR}/cxx_utilxx/"
+  BINARY_DIR "${MUSICXX_EXTERN_PLUGIN_BUILD_ROOT}/utilxx"
+  INSTALL_DIR "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}"
+  BUILD_ALWAYS TRUE
+  INSTALL_ALWAYS TRUE
+  CMAKE_ARGS
+    ${_COMMON_CMAKE_ARGS}
+    -DCXX_UTILXX_ENABLE_HYPERSCAN=OFF
+    "-DCMAKE_CXX_FLAGS:STRING=${_DEPS_CXX_FLAGS_BIGOBJ}"
   CMAKE_CACHE_ARGS
     ${_COMMON_CMAKE_CACHE_ARGS}
   TEST_COMMAND ""

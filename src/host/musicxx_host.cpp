@@ -7,10 +7,10 @@
 #include "host_json.h"
 #include "host_manifest.h"
 #include "host_naming.h"
-#include "host_net.h"
 #include "host_target.h"
 #include "js/js_engine.h"
 
+#include "pluginxx/api/net.h"
 #include "pluginxx/host/abi_util.h"
 #include "pluginxx/host/manifest.h"
 #include "utilxx_base/json.h"
@@ -838,7 +838,7 @@ int32_t MusicxxHostManager::netCall(const std::string &pluginId,
                                     const std::string &argsJson,
                                     std::string &outJson) {
   if (!netHub_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_NET_ERR_STATE;
   }
   return netHub_->call(pluginId, op, argsJson, outJson);
 }
@@ -846,12 +846,12 @@ int32_t MusicxxHostManager::netCall(const std::string &pluginId,
 int32_t MusicxxHostManager::netCallAsync(
     const std::string &pluginId, const std::string &op,
     const std::string &argsJson,
-    std::function<void(int32_t, const std::string &)> done, std::string &outJson,
-    int64_t *outRequestId) {
+    std::function<void(utilxx::NetDoneStatus, const std::string &)> done,
+    std::string &outJson, int64_t *outRequestId) {
   if (!netHub_) {
     outJson =
         R"({"ok":false,"error":"not_running","message":"插件网络能力没有运行"})";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_NET_ERR_STATE;
   }
   return netHub_->callAsync(pluginId, op, argsJson, std::move(done), outJson,
                             outRequestId);
@@ -861,7 +861,7 @@ int32_t MusicxxHostManager::netCancel(const std::string &pluginId,
                                       int64_t requestId,
                                       std::string &outJson) {
   if (!netHub_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_NET_ERR_STATE;
   }
   return netHub_->cancel(pluginId, requestId, outJson);
 }
@@ -964,7 +964,7 @@ void MusicxxHostManager::clearPluginRegistrations(
     auto pending = netHub_->shutdownPlugin(pluginIdOf(instanceName));
     for (auto &done : pending) {
       if (done) {
-        done(PLUGINXX_OPERATOR_CANCELED, {});
+        done(utilxx::NetDoneStatus::Canceled, {});
       }
     }
   }
@@ -2786,6 +2786,142 @@ void MusicxxHostManager::logMessage(int32_t level, const std::string &message) {
     break;
   }
 }
+
+/* ==================== `musicxx.net` 表 (网络能力) ==================== */
+
+// 表体只有三个入口: 同步 `call` / 异步 `call_async` / `cancel`, 全部用
+// "op + 参数 JSON → 结果 JSON" 的写法 —— 新增操作只加 op 名, 不动 C ABI。
+// 实现与线程模型在 cxx_utilxx 的 `utilxx::PluginNetHub` (自有网络线程): 这里只做
+// "宿主 + 实例 → 插件 id" 的解析与有界等待, 不做任何协议处理。
+
+namespace {
+
+std::string netViewToStr(const PluginxxStringView *view) {
+  if (!view || !view->data) {
+    return {};
+  }
+  return std::string{view->data, static_cast<size_t>(view->size)};
+}
+
+int32_t PLUGINXX_CALL xxNetCall(const PluginxxHost *host,
+                               const PluginxxStringView *op,
+                               const PluginxxStringView *argsJson,
+                               PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL,
+                                   [&]() -> int32_t {
+    if (!op || !op->data) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    auto call =
+        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+    if (!call.ok()) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    auto mgr = call.manager();
+    auto inst = call.instance();
+    if (!mgr || !inst) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
+    const std::string opText = netViewToStr(op);
+    const std::string argsText = netViewToStr(argsJson);
+    std::string result;
+    const int32_t rc = mgr->netCall(pluginId, opText, argsText, result);
+    if (rc != PLUGINXX_NET_OK) {
+      return rc;
+    }
+    if (outJson) {
+      pluginxx::hostMemorySetString(outJson, result);
+    }
+    return PLUGINXX_NET_OK;
+  });
+}
+
+int32_t PLUGINXX_CALL xxNetCallAsync(const PluginxxHost *host,
+                                    const PluginxxStringView *op,
+                                    const PluginxxStringView *argsJson,
+                                    const PluginxxOperatorNotify *notify,
+                                    PluginxxString *outJson,
+                                    int64_t *outRequestId) {
+  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
+    if (!op || !op->data || !notify || !notify->done) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    auto call =
+        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+    if (!call.ok()) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    auto mgr = call.manager();
+    auto inst = call.instance();
+    if (!mgr || !inst) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
+    const std::string opText = netViewToStr(op);
+    const std::string argsText = netViewToStr(argsJson);
+    // 通知器由插件 (SDK) 保活到结算: 这里只复制结构体, host_ud 仍指向插件侧
+    const PluginxxOperatorNotify notifyCopy = *notify;
+    auto done = [notifyCopy](utilxx::NetDoneStatus status,
+                             const std::string &payload) {
+      if (!notifyCopy.done) {
+        return;
+      }
+      PluginxxStringView view{};
+      if (!payload.empty()) {
+        view.data = payload.data();
+        view.size = payload.size();
+      }
+      notifyCopy.done(notifyCopy.host_ud, static_cast<int32_t>(status),
+                     payload.empty() ? nullptr : &view);
+    };
+    std::string result;
+    const int32_t rc = mgr->netCallAsync(pluginId, opText, argsText,
+                                         std::move(done), result, outRequestId);
+    if (outJson && !result.empty()) {
+      pluginxx::hostMemorySetString(outJson, result);
+    }
+    return rc;
+  });
+}
+
+int32_t PLUGINXX_CALL xxNetCancel(const PluginxxHost *host, int64_t requestId,
+                                  PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
+    auto call =
+        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+    if (!call.ok()) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    auto mgr = call.manager();
+    auto inst = call.instance();
+    if (!mgr || !inst) {
+      return PLUGINXX_NET_ERR_ARG;
+    }
+    const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
+    std::string result;
+    const int32_t rc = mgr->netCancel(pluginId, requestId, result);
+    if (rc != PLUGINXX_NET_OK) {
+      return rc;
+    }
+    if (outJson) {
+      pluginxx::hostMemorySetString(outJson, result);
+    }
+    return PLUGINXX_NET_OK;
+  });
+}
+
+const PluginxxNetIface g_ifaceNet = {
+    /* version */ PLUGINXX_IFACE_NET_VERSION,
+    /* struct_size */ sizeof(PluginxxNetIface),
+    /* call */ xxNetCall,
+    /* call_async */ xxNetCallAsync,
+    /* cancel */ xxNetCancel,
+};
+
+} // namespace
+
+const void *netIfaceForQuery() { return &g_ifaceNet; }
 
 } // namespace extern_plugin
 } // namespace musicxx

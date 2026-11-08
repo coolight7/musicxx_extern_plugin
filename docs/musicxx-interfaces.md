@@ -430,8 +430,10 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 > 一起，见 §4.3），所以在命令表里只出现一次；插件里照样用 `musicxx.capability.call("musicxx.player.playSrc", …)`，
 > 参数与 §4.3 那张表一致。
 
-> 另外，插件框架自己还有一张 `musicxx.net` 接口表（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
-> 客户端支持 https / wss，不经过主程序），见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
+> 另外，插件框架自己还有一张网络接口表 `<应用名>.net`（HTTP / TCP / WebSocket / UDP 的客户端与服务端，
+> 客户端支持 https / wss，不经过主程序），它是框架的**通用表**（`pluginxx/api/net.h`，本项目 IID
+> 就是 `musicxx.net`，实现在 `cxx_utilxx` 的 `utilxx::PluginNetHub`），
+> 见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
 > JS 的 `musicxx.net.fetch` / `download` 与动作同名接口都走这一套（参数与返回形状一致）；
 > 动作由插件框架在收到请求时就地回答，不再转给主程序，也不进命令表。
 

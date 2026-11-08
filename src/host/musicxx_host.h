@@ -23,8 +23,10 @@
 #include "musicxx_channel_spec.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/entry.h"
+#include "pluginxx/api/net.h"
 #include "pluginxx/host/lifecycle.h"
 #include "pluginxx/host/tables_impl.h"
+#include "utilxx/plugin_net_hub.h"
 
 #include <asio/awaitable.hpp>
 #include <asio/executor_work_guard.hpp>
@@ -54,14 +56,14 @@ namespace extern_plugin {
 /// JS 运行时 (定义在 js/js_engine.h)
 class JsEngine;
 
-/// 插件网络能力 (定义在 host_net.h)
-class PluginNetHub;
+/// 插件网络能力 (实现在 cxx_utilxx 的 `utilxx/plugin_net_hub.h`)
+using PluginNetHub = utilxx::PluginNetHub;
 
 /// `musicxx.ui` 表的 C ABI 实现 (定义在 musicxx_host_ui.cpp; 供 query_interface
 /// 分发)
 const void *uiIfaceForQuery();
 
-/// `musicxx.net` 表的 C ABI 实现 (定义在 musicxx_host_net.cpp; 供
+/// `musicxx.net` 表的 C ABI 实现 (定义在 musicxx_host.cpp; 供
 /// query_interface 分发)
 const void *netIfaceForQuery();
 
@@ -589,10 +591,11 @@ public:
   int32_t netCall(const std::string &pluginId, const std::string &op,
                   const std::string &argsJson, std::string &outJson);
 
-  /// `musicxx.net` 表入口: 异步操作 (`http.request`)
+  /// `musicxx.net` 表入口: 异步操作 (`http.request` / `http.fetch` / `http.download`)
   int32_t netCallAsync(const std::string &pluginId, const std::string &op,
                        const std::string &argsJson,
-                       std::function<void(int32_t, const std::string &)> done,
+                       std::function<void(utilxx::NetDoneStatus,
+                                          const std::string &)> done,
                        std::string &outJson, int64_t *outRequestId);
 
   /// `musicxx.net` 表入口: 取消进行中的异步请求

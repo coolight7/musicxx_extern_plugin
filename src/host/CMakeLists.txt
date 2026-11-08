@@ -50,6 +50,11 @@ find_package(cxx_pluginxx_ui CONFIG QUIET)
 if (NOT cxx_pluginxx_ui_FOUND)
   list(APPEND _musicxx_ext_missing "cxx_pluginxx_ui")
 endif ()
+# 网络实现 (HTTP / TCP / WebSocket / UDP 的插件网络宿主 `utilxx::PluginNetHub`)
+find_package(cxx_utilxx CONFIG QUIET)
+if (NOT cxx_utilxx_FOUND)
+  list(APPEND _musicxx_ext_missing "cxx_utilxx")
+endif ()
 find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
   list(APPEND _musicxx_ext_missing "fmt")
@@ -88,8 +93,9 @@ set(MUSICXX_EXTERN_PLUGIN_APP_NAME "musicxx" CACHE STRING "应用名 (接口表 
 
 
 # ==================== OpenSSL (客户端 TLS) ====================
-# https / wss 由 OpenSSL 完成; 静态链接进插件框架库 (应用包里不需要多带 libssl/libcrypto)。
-# 安装树由顶层 superbuild 通过 -DOPENSSL_ROOT_DIR / -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 传入。
+# https / wss 由 cxx_utilxx 的插件网络宿主完成 (实现里用 OpenSSL), 静态链接进插件框架库
+# (应用包里不需要多带 libssl/libcrypto)。安装树由顶层 superbuild 通过 -DOPENSSL_ROOT_DIR /
+# -DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 传入。
 #
 # TLS 是必备能力 (不是可选项): 找不到就失败, 不会编出一个没有 https / wss 的库。
 # 交叉编译时 (CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY) OpenSSL 只在 FIND_ROOT_PATH 里找,
@@ -132,12 +138,8 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host_tables.cpp
   musicxx_host_ui.cpp
   musicxx_host_channels.cpp
-  musicxx_host_net.cpp
   host_inspect.cpp
   host_manifest.cpp
-  host_net.cpp
-  host_net_tls.cpp
-  host_text.cpp
   host_target.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
@@ -172,7 +174,8 @@ if (MSVC)
 endif ()
 
 target_link_libraries(musicxx_extern_plugin
-  PRIVATE cxx_pluginxx_static cxx_pluginxx_ui_static fmt::fmt yaml-cpp::yaml-cpp
+  PRIVATE cxx_pluginxx_static cxx_pluginxx_ui_static cxx_utilxx_static fmt::fmt
+          yaml-cpp::yaml-cpp
 )
 
 # 客户端 TLS: 静态链接 OpenSSL。Windows 静态库还依赖系统库 (socket / 证书库 /

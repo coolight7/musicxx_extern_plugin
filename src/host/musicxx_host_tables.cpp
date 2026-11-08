@@ -1871,7 +1871,7 @@ const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,
   if (name == MUSICXX_PLUGIN_IFACE_KIND) {
     return &g_ifaceKind;
   }
-  if (name == MUSICXX_PLUGIN_IFACE_NET) {
+  if (name == PLUGINXX_IFACE_NET) {
     return netIfaceForQuery();
   }
   // 预留表 (musicxx.player/playlist/songlist/lyric/storage/stats/agent): v1

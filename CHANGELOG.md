@@ -8,6 +8,18 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1108.1 内，未发布）：网络表变成插件框架的通用表，实现在 `cxx_utilxx`
+
+- **表体搬到插件框架**：`pluginxx/api/net.h`（IID 仍是 `<应用名>.net`，本项目即 `musicxx.net`，
+  表版本 v1、成员顺序与表大小都不变）；SDK 里 `MusicxxPluginNetIface` → `PluginxxNetIface`，
+  `MUSICXX_PLUGIN_IFACE_NET*` → `PLUGINXX_IFACE_NET*`，结果码 `MUSICXX_EXTERN_PLUGIN_ERR_*` →
+  `PLUGINXX_NET_ERR_*`（数值不变）。**已编译的插件不用重编**（ABI 未变），只影响重编时的源代码写法。
+- **操作名常量搬到 `pluginxx/net/ops.h`**：SDK 用 `namespace net_op = pluginxx::net_op;` 引入，
+  插件里 `net_op::httpServe` / `musicxx::plugin::net_op::info` 的写法不变。
+- **实现不在本包了**：HTTP / TCP / WebSocket / UDP 与插件隔离 (`PluginNetHub`) 搬进 `cxx_utilxx`
+  (`utilxx::PluginNetHub`、`utilxx::NetDoneStatus`)，本包只剩“宿主 + 实例 → 插件 id”的解析与
+  就地表；`host_net*` 与 `musicxx_host_net.cpp` 删除。对插件作者没有行为变化。
+
 ### 变更（破坏性，2026.1108.1 内，未发布）：对外只剩“能力 + 广播”两个概念
 
 以前的三套旧入口全部归入能力与广播，不再单独存在：

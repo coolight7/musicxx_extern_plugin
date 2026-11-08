@@ -1188,7 +1188,7 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 **跟着插件实例走**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时，该插件的服务、连接、UDP 通道与
 未完成的请求一起关掉（端口释放）。完整示例：`plugins/example_js_net`（HTTP / TCP / WebSocket / UDP
 一次跑完，载入后自动自检）。旧插件框架没有这套能力：JS 先看 `typeof musicxx.net.http === "object"`，
-动态库插件看 `pluginxx::queryInterface<MusicxxPluginNetIface>(...)` 是否为 `nullptr`。
+动态库插件看 `pluginxx::queryInterface<PluginxxNetIface>(host, PLUGINXX_IFACE_NET)` 是否为 `nullptr`。
 
 #### 3.2.7 渲染槽位（`musicxx.render.*`）
 

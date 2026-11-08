@@ -318,10 +318,11 @@ MUSICXX_PLUGIN_EXPORT(
 - **表能查到 ≠ 表里每个成员都能用**：以后往表尾追加的成员要单独判
   `pluginxx::ifaceHas<&MusicxxPluginUIIface::新成员>(iface.ui) && iface.ui->新成员`。
   只判空指针会读到紧邻的另一块内存（老主程序给的表比插件期望的短）。
-- 每张表的 `MUSICXX_PLUGIN_IFACE_*_VERSION` / `..._MIN_VERSION` / `..._BASELINE_SIZE` 与表体一起声明在
-  `plugin_api.h`，SDK 在 `plugin_kit.h` 里逐表给出 `pluginxx::IfaceMeta` 特化（上面两条门槛读的就是它）。
-  插件不要自己造表、也不要改主程序给的表。
-- 现在的 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表都是 v1，
+- 专用表（`musicxx.host` / `musicxx.ui` / `musicxx.kind`）的 `MUSICXX_PLUGIN_IFACE_*_VERSION` /
+  `..._MIN_VERSION` / `..._BASELINE_SIZE` 与表体一起声明在 `plugin_api.h`；通用表（能力、广播、
+  网络）的在插件框架库的 `pluginxx/api/*.h` 里。SDK 在 `plugin_kit.h` 里逐表给出 `pluginxx::IfaceMeta`
+  特化（上面两条门槛读的就是它）。插件不要自己造表、也不要改主程序给的表。
+- 现在的 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表都是 v1，
   基线 = 整表大小，也就是"表可用即全部成员可用"；
 - **`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 已删除**：能力处理器改成往
   `musicxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
@@ -552,12 +553,17 @@ const std::string songJson = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);   // �
 
 ---
 
-## 5.6 网络（`musicxx.net`：HTTP / TCP / WebSocket）
+## 5.6 网络（`<应用名>.net`：HTTP / TCP / WebSocket / UDP）
 
-接口表 `musicxx.net`（`MusicxxPluginNetIface`，SDK 里是 `iface.net`），只有三个入口：
-同步 `call`、异步 `call_async`（目前只有 `http.request`）、取消 `cancel`。所有操作都是
-`op + 参数 JSON → 结果 JSON`，op 全表、参数、事件字段与上限见
-[plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」。
+接口表 `<应用名>.net`（本项目是 `musicxx.net`）是插件框架的**通用表**，声明在
+`pluginxx/api/net.h`：IID `PLUGINXX_IFACE_NET`（= `PLUGINXX_APP_ID("net")`）、表体类型
+`PluginxxNetIface`（SDK 里是 `iface.net`）。实现不在本包：它是 `cxx_utilxx` 的
+`utilxx::PluginNetHub`（自有网络线程）；本包只做“宿主 + 实例 → 插件 id”的解析。
+
+只有三个入口：同步 `call`、异步 `call_async`（`http.request` / `http.fetch` /
+`http.download`）、取消 `cancel`。所有操作都是 `op + 参数 JSON → 结果 JSON`，op 全表、参数、
+事件字段与上限见 [plugin-api.md](plugin-api.md) §3.2.6「内置网络能力」；op 常量在
+`pluginxx/net/ops.h`（SDK 把它以 `net_op` 别名引入，写法不变）。
 
 ```cpp
 // 起一个 HTTP 服务（默认只监听 127.0.0.1；port = 0 由系统分配）
@@ -996,7 +1002,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.net` / `musicxx.kind` 四张表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `capabilityCall("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；网络是插件框架的通用表 `<应用名>.net`（§5.6）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `capabilityCall("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套能力表、同一份动作注册表、同一份快照频道 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
