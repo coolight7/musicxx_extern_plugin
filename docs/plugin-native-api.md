@@ -65,7 +65,7 @@ name: my_plugin                    # 插件 id（唯一；同名视为同一插�
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
 version: 2026.1010.1              # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）；打包脚本用它拼安装包名
-api_version: 3                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 3）；JS 插件写 1（JS 接口当前 2、兼容下限 1，见 §4.3）
+api_version: 5                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 5）；JS 插件写 1（JS 接口当前 2、兼容下限 1，见 §4.3）
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（别名 win32 / osx 也认；多目标包通常不写，见 §1.3）
@@ -92,7 +92,7 @@ permissions:                       # 声明式权限：只做展示，运行时�
 
 插件框架**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
 要表达版本要求请用 `api_version`：它表示"插件按哪一代接口写的"，判定是 `api_version >= 插件所属形态的
-兼容下限`（动态库插件 3、JS 插件 1，见 §4.3）。**每代接口只增不改**时下限不动，只有破坏性变更才抬
+兼容下限`（动态库插件 5、JS 插件 1，见 §4.3）。**每代接口只增不改**时下限不动，只有破坏性变更才抬
 下限；清单写更高不会被拒（插件想表达自己用了新接口时可以写高）。
 
 ### 1.2 安装位置
@@ -876,12 +876,12 @@ cmake --build build
 插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
 
 **插件 API 契约版本（`PLUGINXX_API_VERSION`）必须与插件框架库一致**：它决定接口表按哪套写法调
-（例如能力怎么登记、广播怎么订阅），两侧不一致时是 ABI 不兼容。当前值是 **4**，由 SDK 的
+（例如能力怎么登记、广播怎么订阅），两侧不一致时是 ABI 不兼容。当前值是 **5**，由 SDK 的
 INTERFACE 目标自动带上（`musicxx_plugin_add_target` 也用它），清单 `api_version` 写同一个数。
 自己手写 CMake 时要补：
 
 ```cmake
-target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=4 PLUGINXX_MIN_API_VERSION=4)
+target_compile_definitions(my_plugin PRIVATE PLUGINXX_API_VERSION=5 PLUGINXX_MIN_API_VERSION=5)
 ```
 
 **按旧头文件编译过的插件必须重新编译**：`pluginxx.capabilities` 换成了 v4（声明 + 多实现行），
@@ -970,7 +970,7 @@ Android 见 §11。
 |---|---|
 | 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名插件框架会按平台修正） |
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `start`/`stop` 没导出；核对 §11 的导出面自查 |
-| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 3、JS 插件 1）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（3 / 2），声明更高不会被拒。JS 接口目前只增不改，所以写 1 的 JS 插件照常加载 |
+| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 5、JS 插件 1）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（5 / 2），声明更高不会被拒。JS 接口目前只增不改，所以写 1 的 JS 插件照常加载 |
 | 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或插件框架禁用了动态库插件 / 处于安全模式 |
 | 注册能力返回 `-4` | 能力 id 不在约定表里（拼错或用了没声明的能力）；用 `capability_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名/动作命名空间不属于本插件 |
