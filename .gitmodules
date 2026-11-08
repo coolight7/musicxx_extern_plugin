@@ -25,3 +25,9 @@
 [submodule "src/third_party/cxx_pluginxx_ui"]
 	path = src/third_party/cxx_pluginxx_ui
 	url = https://github.com/coolight7/cxx_pluginxx_ui
+[submodule "src/third_party/html2md"]
+	path = src/third_party/html2md
+	url = https://github.com/coolight7/html2md
+[submodule "src/third_party/cxx_utilxx"]
+	path = src/third_party/cxx_utilxx
+	url = https://github.com/coolight7/cxx_utilxx

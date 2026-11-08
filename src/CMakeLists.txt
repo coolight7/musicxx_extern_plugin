@@ -528,6 +528,18 @@ message("[musicxx_ext] 安装目录: ${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}")
 include(ExternalProject)
 set(MUSICXX_EXTERN_PLUGIN_BUILD_ROOT "${CMAKE_BINARY_DIR}/e")
 
+# 追加给依赖库的编译选项:
+# - /utf-8: 这两个库的源码里有中文且是 UTF-8 无 BOM, MSVC 默认按系统代码页 (936) 读会报 C2001/C4819;
+# - /bigobj: cxx_utilxx 模板展开多, 默认节数上限会报 C1128。
+# 必须把 `${CMAKE_CXX_FLAGS}` 一起带上: -DCMAKE_CXX_FLAGS 是整体覆盖而不是追加, 只写新增项会把
+# MSVC 默认的 /EHsc 一并去掉 (boost 因此判定没开异常, 链接时报缺 boost::throw_exception)。
+set(_DEPS_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+set(_DEPS_CXX_FLAGS_BIGOBJ "${CMAKE_CXX_FLAGS}")
+if (XX_IS_MSVC_D)
+  string(APPEND _DEPS_CXX_FLAGS " /utf-8")
+  string(APPEND _DEPS_CXX_FLAGS_BIGOBJ " /utf-8 /bigobj")
+endif ()
+
 # fmt
 ExternalProject_Add(
   fmt_repo
@@ -634,6 +646,49 @@ ExternalProject_Add(
     -DCXX_UTILXX_BASE_ENABLE_CHARSET=ON
     -DCXX_UTILXX_BASE_USE_BOOST_ASIO=ON
     -DCXX_UTILXX_BASE_LINUX_IO_URING_SUPPORTED=OFF
+  CMAKE_CACHE_ARGS
+    ${_COMMON_CMAKE_CACHE_ARGS}
+  TEST_COMMAND ""
+)
+
+# html2md (cxx_utilxx 的依赖: HTML → Markdown)
+# - 只构建静态库; 可执行文件 / 文档 / 测试 / Python 绑定都不需要
+ExternalProject_Add(
+  html2md_repo
+  SOURCE_DIR "${MUSICXX_EXTERN_PLUGIN_THIRD_PARTY_DIR}/html2md/"
+  BINARY_DIR "${MUSICXX_EXTERN_PLUGIN_BUILD_ROOT}/html2md"
+  INSTALL_DIR "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}"
+  BUILD_ALWAYS TRUE
+  INSTALL_ALWAYS TRUE
+  CMAKE_ARGS
+    ${_COMMON_CMAKE_ARGS}
+    -DBUILD_EXE=OFF
+    -DBUILD_DOC=OFF
+    -DBUILD_TEST=OFF
+    -DPYTHON_BINDINGS=OFF
+    "-DCMAKE_CXX_FLAGS:STRING=${_DEPS_CXX_FLAGS}"
+  CMAKE_CACHE_ARGS
+    ${_COMMON_CMAKE_CACHE_ARGS}
+  TEST_COMMAND ""
+)
+
+# cxx_utilxx (网络与通用工具: HTTP 客户端/服务端、WebSocket、路由、加密、正则)
+# - **只给插件框架库用**: 插件 SDK 不依赖它, 插件编译时只有普通接口表与 op 名常量
+ExternalProject_Add(
+  cxx_utilxx_repo
+  DEPENDS
+    cxx_utilxx_base_repo
+    fmt_repo
+    html2md_repo
+  SOURCE_DIR "${MUSICXX_EXTERN_PLUGIN_THIRD_PARTY_DIR}/cxx_utilxx/"
+  BINARY_DIR "${MUSICXX_EXTERN_PLUGIN_BUILD_ROOT}/utilxx"
+  INSTALL_DIR "${MUSICXX_EXTERN_PLUGIN_INSTALL_DIR}"
+  BUILD_ALWAYS TRUE
+  INSTALL_ALWAYS TRUE
+  CMAKE_ARGS
+    ${_COMMON_CMAKE_ARGS}
+    -DCXX_UTILXX_ENABLE_HYPERSCAN=OFF
+    "-DCMAKE_CXX_FLAGS:STRING=${_DEPS_CXX_FLAGS_BIGOBJ}"
   CMAKE_CACHE_ARGS
     ${_COMMON_CMAKE_CACHE_ARGS}
   TEST_COMMAND ""
