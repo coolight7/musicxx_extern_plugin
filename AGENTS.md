@@ -390,9 +390,12 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   演示示例一律 `example_` 开头；故意做坏的对照示例（`*_fail` / `*_bad_entry` / `*_broken`）用来演示插件框架的保护机制，
   随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 构建；新增动态库插件要在 `src/host/CMakeLists.txt` 的插件列表登记。
   构建与打包走 `tools/build_examples.ps1`（Linux/macOS：`./tools/build_examples.sh`；插件框架本身默认不构建它们，见下一条）。
-- **插件网络能力**的实现在 `src/host/host_net.{h,cpp}`（独立网络线程；服务表 / 连接表 / HTTP 待回答表都在网络线程），
-  表入口是 `src/host/musicxx_host_net.cpp`。JS 的网络事件**直接投递到 JS 线程**（`JsEngine::deliverNetEvent`），
-  不能改回只走事件总线：插件框架派发"返回 Promise 的能力实现"时会等着它结算，两边一起等就是死锁。
+- **插件网络能力**的实现在 `cxx_utilxx`（`utilxx/plugin_net_hub.{h,cpp}`：独立网络线程；服务表 / 连接表 /
+  HTTP 待回答表都在网络线程），接口表 `<应用名>.net` 声明在 `pluginxx/api/net.h`，op 常量在
+  `pluginxx/net/ops.h`；本包只在 `src/host/musicxx_host.cpp` 的 `netIfaceForQuery` 里做
+  “宿主 + 实例 → 插件 id”然后交给 hub。改网络协议要改 `cxx_utilxx` 那个仓库并重建依赖。
+  JS 的网络事件**直接投递到 JS 线程**（`JsEngine::deliverNetEvent`），
+  不能改回只走事件总线：插件框架派发“返回 Promise 的能力实现”时会等着它结算，两边一起等就是死锁。
   原生插件的网络事件仍走事件总线（主题 `plugin.<插件id>.net`）。
 - **文档纪律**：任何"插件作者会遇到的行为、限制、排查方法"都必须写进本包（主程序不开源，写在主程序侧等于没写）；
   改 API / UI 项 / 能力 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
