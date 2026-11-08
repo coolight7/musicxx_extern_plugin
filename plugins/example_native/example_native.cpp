@@ -81,7 +81,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   std::string startThread;
 
   /// 自检结果 (命名空间校验返回码)
-  int32_t unknownCapabilityRc = 0; ///< 注册应用没声明的官方能力: 期望 -2 (没声明)
+  int32_t unknownCapabilityRc = 0; ///< 应用没声明的官方 id: 期望 -2 (官方命名空间归应用)
   int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
   int32_t dupImplementRc = 0; ///< 覆盖式重复注册: 期望 0
 
@@ -162,7 +162,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
            return 0;
          });
 
-    // 4) 命名空间自检: 应用没声明的官方能力必须被插件框架拒绝
+    // 4) 命名空间自检: 官方 `musicxx.*` 归应用，应用没声明的 id 不能注册（自定义 id 用 `plugin.<插件 id>.*`）
     unknownCapabilityRc =
         implement("musicxx.no.such.capability", 0,
              [](std::string_view, std::string &) -> int32_t { return 0; });

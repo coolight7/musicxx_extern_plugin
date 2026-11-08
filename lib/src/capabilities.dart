@@ -612,10 +612,6 @@ class MusicxxPluginCapabilities {
     if (capabilityId == null || capabilityId.isEmpty) {
       return;
     }
-    if (!MusicxxCapabilityCatalogue.declaresCapability(capabilityId) &&
-        !MusicxxCapabilityCatalogue.declaresBroadcast(capabilityId)) {
-      return;
-    }
     final Object? rawPhaseCount = event.payload['phaseCount'];
     final Map<String, Object?>? phaseCount = rawPhaseCount is Map
         ? rawPhaseCount.cast<String, Object?>()

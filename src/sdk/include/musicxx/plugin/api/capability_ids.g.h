@@ -1,7 +1,7 @@
 /// 自动生成（tools/gen_contract.dart ← tools/capabilities.def.json）—— 请勿手改。
 ///
-/// C++ 侧能力与广播约定：id 常量 + 已知声明表（插件框架据此拒绝未知 id、
-/// 判实现槽位 / 合并策略 / 阶段 / 超时 / 缓存与写权限）。
+/// C++ 侧能力与广播约定：id 常量 + 预设声明表（表里的 id 带实现槽位 /
+/// 合并策略 / 阶段 / 超时；表外的 id 一律按默认属性处理）。
 #ifndef MUSICXX_CAPABILITY_IDS_G_H
 #define MUSICXX_CAPABILITY_IDS_G_H
 

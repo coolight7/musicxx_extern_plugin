@@ -673,60 +673,6 @@ final class MusicxxBroadcastDecl {
   bool get writableByAnyone => writable == 'anyone';
 }
 
-/// 一类动态广播（id 由属主在运行期决定，例如变量）
-final class MusicxxDynamicBroadcastDecl {
-  const MusicxxDynamicBroadcastDecl({
-    required this.idPattern,
-    required this.cache,
-    required this.writable,
-    required this.pushOnSubscribe,
-    required this.coalesce,
-    required this.scope,
-    required this.title,
-    required this.depict,
-  });
-
-  /// `musicxx.var.<属主>.<键>` 这类写法，用 <占位名> 表达属主决定的部分
-  final String idPattern;
-  final String cache;
-  final String writable;
-  final bool pushOnSubscribe;
-  final bool coalesce;
-  final String scope;
-  final String title;
-  final String depict;
-
-  /// 这个 id 是不是命中这类写法
-  ///
-  /// - `<占位>` 每段匹配一个非空片段；
-  /// - 最后一段是占位时吃掉剩下的全部（`musicxx.point.<名字>` 允许名字里再带点）。
-  bool matches(String id) {
-    final List<String> patternParts = idPattern.split(".");
-    final List<String> idParts = id.split(".");
-    if (idParts.length < patternParts.length) {
-      return false;
-    }
-    for (int i = 0; i < patternParts.length; i++) {
-      final String part = patternParts[i];
-      final bool placeholder = part.startsWith("<") && part.endsWith(">");
-      if (placeholder) {
-        if (i == patternParts.length - 1) {
-          // 最后一段吃掉剩下的部分：至少要有一段
-          return idParts.length >= patternParts.length;
-        }
-        if (idParts[i].isEmpty) {
-          return false;
-        }
-        continue;
-      }
-      if (part != idParts[i]) {
-        return false;
-      }
-    }
-    return idParts.length == patternParts.length;
-  }
-}
-
 /// 声明清单（与 `tools/capabilities.def.json` 一一对应）
 abstract final class MusicxxCapabilityCatalogue {
   /// 全部能力声明（按声明顺序）
@@ -2885,41 +2831,6 @@ abstract final class MusicxxCapabilityCatalogue {
     ),
   ];
 
-  /// 动态广播声明（id 在运行期由属主决定）
-  static const List<MusicxxDynamicBroadcastDecl> dynamicBroadcasts =
-      <MusicxxDynamicBroadcastDecl>[
-    MusicxxDynamicBroadcastDecl(
-      idPattern: 'musicxx.var.<属主>.<键>',
-      cache: 'latest',
-      writable: 'anyone',
-      pushOnSubscribe: true,
-      coalesce: false,
-      scope: 'app',
-      title: '变量',
-      depict: '有属主的小值（配置 / 小状态）；写要回执，订阅时立刻收到当前值',
-    ),
-    MusicxxDynamicBroadcastDecl(
-      idPattern: 'plugin.<插件 id>.<名字>',
-      cache: 'none',
-      writable: 'owner',
-      pushOnSubscribe: false,
-      coalesce: true,
-      scope: 'app',
-      title: '插件自定义频道',
-      depict: '插件自己发的事件（网络进度、自己的状态变化）；网络请求的进度 / 完成建议叫 `plugin.<插件 id>.net`',
-    ),
-    MusicxxDynamicBroadcastDecl(
-      idPattern: 'musicxx.point.<名字>',
-      cache: 'none',
-      writable: 'owner',
-      pushOnSubscribe: false,
-      coalesce: true,
-      scope: 'system',
-      title: '埋点旁路广播',
-      depict: '功能埋点自己身上发生的事：`<名字>` = `<埋点 id>.<种类>`，种类是 `used` / `bind` / `unbind` / `extern_changed` / `invalidate`',
-    ),
-  ];
-
   static final Map<String, MusicxxCapabilityDecl> _capabilityIndex =
       <String, MusicxxCapabilityDecl>{
     for (final MusicxxCapabilityDecl decl in capabilities) decl.id: decl,
@@ -2945,43 +2856,4 @@ abstract final class MusicxxCapabilityCatalogue {
   /// 这个 id 是不是声明过的广播
   static bool declaresBroadcast(String id) =>
       _broadcastIndex.containsKey(id);
-
-  /// 命中哪一类动态写法（没有时返回 null）
-  ///
-  /// 按声明顺序匹配，同一条 id 只落在一类写法里（`plugin.<id>.net` 这种具体名字
-  /// 也走通用写法）。
-  static MusicxxDynamicBroadcastDecl? dynamicBroadcastOf(String id) {
-    for (final MusicxxDynamicBroadcastDecl decl in dynamicBroadcasts) {
-      if (decl.matches(id)) {
-        return decl;
-      }
-    }
-    return null;
-  }
-
-  /// 按 id 取广播声明：静态优先，其次按动态写法合成一份
-  ///
-  /// 合成出来的是运行期频道的声明（`id` 就是传进来的那个）；缓存 / 写权限 /
-  /// 合并 / 作用域都来自那一类写法。
-  static MusicxxBroadcastDecl? broadcastDeclarationOf(String id) {
-    final MusicxxBroadcastDecl? declared = _broadcastIndex[id];
-    if (null != declared) {
-      return declared;
-    }
-    final MusicxxDynamicBroadcastDecl? dynamic = dynamicBroadcastOf(id);
-    if (null == dynamic) {
-      return null;
-    }
-    return MusicxxBroadcastDecl(
-      id: id,
-      cache: dynamic.cache,
-      writable: dynamic.writable,
-      pushOnSubscribe: dynamic.pushOnSubscribe,
-      coalesce: dynamic.coalesce,
-      scope: dynamic.scope,
-      implemented: true,
-      title: dynamic.title,
-      depict: dynamic.depict,
-    );
-  }
 }

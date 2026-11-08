@@ -71,8 +71,8 @@ struct CapabilityMeta {
   int32_t merge = 0;       ///< 结果合并策略 (MUSICXX_CAPABILITY_MERGE_*; 0 = 不适用)
 };
 
-/// 查一条 id 的派发属性 (声明表里没有它返回 false)
-bool capabilityMetaOf(std::string_view id, CapabilityMeta *out) {
+/// 查一条 id 的**预设**派发属性 (预设表里没有它返回 false)
+bool presetMetaOf(std::string_view id, CapabilityMeta *out) {
   if (!out || id.empty()) {
     return false;
   }
@@ -94,6 +94,23 @@ bool capabilityMetaOf(std::string_view id, CapabilityMeta *out) {
   return true;
 }
 
+/// 派发属性：预设表里没有的 id 用默认值
+///
+/// 预设表只是“常用能力的属性表”，不是白名单：自定义 id 照样能注册与派发，
+/// 只是没有预设的合并策略与阶段限制（三个阶段都能注册、不提前终止）。
+CapabilityMeta metaOf(std::string_view id) {
+  CapabilityMeta meta;
+  if (presetMetaOf(id, &meta)) {
+    return meta;
+  }
+  meta.notifyOnly = false;
+  meta.merge = 0;
+  meta.phases = phaseMaskOf(MUSICXX_CAPABILITY_PHASE_IMPL) |
+                phaseMaskOf(MUSICXX_CAPABILITY_PHASE_BEFORE) |
+                phaseMaskOf(MUSICXX_CAPABILITY_PHASE_AFTER);
+  return meta;
+}
+
 /// 把内部拼好的 JSON 数组文本转成 Json（定义见文件下方）
 ///
 /// 这段文本由 `capabilityHandlersArrayJson` 自己构造，正常不会解析失败；真失败时退回空数组
@@ -106,19 +123,13 @@ Json jsonArrayOf(const std::string &text);
 
 namespace {
 
-/// 一条 id 能不能登记这个阶段 (声明里有它, 且开了这个阶段)
+/// 一条 id 能不能登记这个阶段
 ///
-/// 未知 id 一律拒绝 (插件不得制造插件框架不认识的能力 id); 声明里没开的阶段也拒 ——
+/// 预设表里没有的 id 也能登记（三个阶段都开放）；预设过的 id 只能登记它开了的阶段 ——
 /// 登记了不派发的阶段等于给插件一个永远不触发的坑。
 bool checkRegistrable(std::string_view capabilityId, int32_t phase,
                       std::string *reason) {
-  CapabilityMeta meta;
-  if (!capabilityMetaOf(capabilityId, &meta)) {
-    if (reason) {
-      *reason = "unknown capability `" + std::string{capabilityId} + "`";
-    }
-    return false;
-  }
+  const CapabilityMeta meta = metaOf(capabilityId);
   if ((meta.phases & phaseMaskOf(phase)) == 0) {
     if (reason) {
       *reason = "capability `" + std::string{capabilityId} +
@@ -288,9 +299,9 @@ int32_t MusicxxHostManager::unregisterCapabilityHandler(
 int MusicxxHostManager::onCapabilityRowAdded(
     MusicxxHostInstance *inst, const std::string &id,
     const PluginxxCapabilitySpec &spec, std::string *error) {
-  // 只接本框架声明过的 id；其余 id 是插件自己的普通能力，交给 pluginxx 派发
+  // 只接预设表里有的 id；其余 id 是插件自己的普通能力，交给 pluginxx 派发
   CapabilityMeta meta;
-  if (!capabilityMetaOf(id, &meta)) {
+  if (!presetMetaOf(id, &meta)) {
     return PLUGINXX_RESULT_OK;
   }
   std::string reason;
@@ -345,7 +356,7 @@ void MusicxxHostManager::onCapabilityRowRemoved(MusicxxHostInstance *inst,
                                                const std::string &id,
                                                std::string_view ownerTag) {
   CapabilityMeta meta;
-  if (!capabilityMetaOf(id, &meta)) {
+  if (!presetMetaOf(id, &meta)) {
     return;
   }
   const std::string tag{ownerTag};
@@ -543,13 +554,16 @@ int32_t MusicxxHostManager::countOnPhase(const std::string &capabilityId,
 
 int32_t MusicxxHostManager::capabilityInfoJson(std::string_view capabilityId,
                                                std::string &outJson) {
-  CapabilityMeta meta;
-  if (!capabilityMetaOf(capabilityId, &meta)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  if (capabilityId.empty()) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
+  const CapabilityMeta meta = metaOf(capabilityId);
   const std::string capabilityText{capabilityId};
   Json j;
   j["id"] = capabilityText;
+  // 预设表里有没有这一条（没有也能用，只是属性是默认值）
+  CapabilityMeta preset;
+  j["preset"] = presetMetaOf(capabilityId, &preset) ? true : false;
   // 一个 id 要么是广播 (只通知), 要么是实现链 (按声明里的 merge 合并结果)
   j["broadcast"] = meta.notifyOnly;
   // 这条 id 声明了哪几个阶段 (注册时只能选这里有的阶段)
@@ -711,10 +725,6 @@ int32_t MusicxxHostManager::capabilityHandlersJsonPhase(std::string_view capabil
   if (phase < -1 || !isValidPhase(phase == -1 ? 0 : phase)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  CapabilityMeta meta;
-  if (!capabilityMetaOf(capabilityId, &meta)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
-  }
   const std::string capabilityText{capabilityId};
   auto it = handlers_.find(capabilityText);
   Json j;
@@ -809,10 +819,7 @@ void PLUGINXX_CALL capabilitySyncDone(void *ud, int32_t status,
 std::string MusicxxHostManager::runCapabilityHandlers(
     const std::string &capabilityId, int32_t phase,
     const std::string &inputJson, DispatchMode mode) {
-  CapabilityMeta meta;
-  if (!capabilityMetaOf(capabilityId, &meta)) {
-    return R"({"handled":false,"error":"unknown_capability"})";
-  }
+  const CapabilityMeta meta = metaOf(capabilityId);
   auto it = handlers_.find(capabilityId);
   if (it == handlers_.end() || it->second.empty()) {
     return R"({"handled":false,"handlers":0})";
@@ -1172,11 +1179,7 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
     err = "capability dispatch: host not started";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  CapabilityMeta meta;
-  if (!capabilityMetaOf(capabilityId, &meta)) {
-    outJson = R"({"handled":false,"error":"unknown_capability"})";
-    return MUSICXX_EXTERN_PLUGIN_OK;
-  }
+  const CapabilityMeta meta = metaOf(capabilityId);
   if (countOnPhase(capabilityId, phase) == 0) {
     outJson = R"({"handled":false,"handlers":0})";
     return MUSICXX_EXTERN_PLUGIN_OK;

@@ -4,7 +4,7 @@
 /// - test_host_lifecycle: create/start/stop/destroy 幂等;
 /// - test_plugin_load: 扫描 + 加载示例插件 + 能力注册生效;
 /// - test_capabilities: decision 能力裁决 (skip) / 观察能力 / 未命中时零处理器;
-/// - test_namespace: 未知能力注册被拒 (由插件框架实现保证, 这里校验已注册集合);
+/// - test_namespace: 官方 id 的命名空间规则 + 自定义 id（`plugin.<id>.*`）不受预设表限制;
 /// - 卸载后能力注册全部摘除 (无残留)。
 ///
 /// 运行: musicxx_extern_plugin_test <example_native 插件目录>
@@ -1606,7 +1606,7 @@ int main(int argc, char **argv) {
     check(!startThread.empty() && startThread == callThread,
           "插件代码全部在插件框架线程执行");
 
-    // 能力 / 事件命名空间校验 (动作名也是能力名: 没声明的一律拒绝)
+    // 能力 / 事件命名空间校验 (官方 id 归应用: 应用没声明的不能注册)
     check(jsonIntField(probe, "unknownCapabilityRc") == "-2",
           "应用没声明的官方能力注册被拒绝");
     check(jsonIntField(probe, "foreignActionRc") == "-1",
@@ -2190,8 +2190,8 @@ int main(int argc, char **argv) {
 
     // ============ 通用通道: 插件声明的功能点 ============
     //
-    // 插件点共用**一条固定能力** `musicxx.feature.point.call`（插件框架只认固定的能力表，
-    // 插件不得制造未知能力）:
+    // 插件点共用**一条固定能力** `musicxx.feature.point.call`（点是运行期数据，
+    // 插件框架的预设表不可能逐条登记；插件点走这一条通道，靠 `point` 参数区分）:
     // - 处理器按 `point` 过滤，回答要包一层 `patch`（firstNonNull 只在收到 patch 时才停）；
     // - `ownerTag` = 点 id（只用于自省"这个处理器声称实现哪个点"）；
     // - 不回答自己发起的调用（`caller` 等于自己的插件 id）。
@@ -3054,13 +3054,14 @@ int main(int argc, char **argv) {
     }
     check(jsRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例加载 JS 插件");
 
-    // 未知能力 id 明确报"没找到", 不是"没有处理器"
+    // 预设表里没有的能力 id：查询得到 0 个处理器（不自报“没找到”）
     {
       MusicxxExternPluginString out{};
       const auto rc = musicxx_extern_plugin_capability_handlers(
-          host, viewCP("musicxx.no.such.capability"), &out, &log);
-      freeStr(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND, "未知能力查询返回未找到");
+          host, viewCP("musicxx.no.such.capability2"), &out, &log);
+      const std::string json = take(out);
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "自定义能力查询返回成功");
+      check(jsonIntField(json, "count") == "0", "自定义能力无处理器");
     }
 
     // 两种形态同时在: 列表给出两个处理器, 并带上 kind 与实例名

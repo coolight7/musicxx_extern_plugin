@@ -3854,7 +3854,7 @@ void JsEngine::applyImplementationOpOnHost(
     payload["capability"] = capabilityId;
     payload["code"] = "capability_register_failed";
     payload["message"] =
-        "运行期能力注册被拒绝 (未知能力 / 没声明该阶段 / 阶段必须用同步处理器)";
+        "运行期能力注册被拒绝 (这条 id 没开这个阶段 / 阶段必须用同步处理器)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
     XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 被拒绝 (code={})",
             inst->id, capabilityId, rc);
@@ -4455,7 +4455,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
         payload["phase"] = "capability";
         payload["capability"] = handler->capabilityId;
         payload["code"] = "capability_register_failed";
-        payload["message"] = "能力注册被拒绝 (未知能力或命名空间非法)";
+        payload["message"] = "能力注册被拒绝 (这条 id 没开这个阶段 / 阶段必须用同步处理器)";
         mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
         XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 被拒绝 (code={})",
                 inst->id, handler->capabilityId, rc);

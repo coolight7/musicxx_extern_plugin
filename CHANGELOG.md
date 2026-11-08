@@ -8,16 +8,17 @@
 
 ## 历史
 
-### 新增（2026.1108.1，非破坏）：广播支持运行期 id（插件自定义频道 / 埋点旁路）
+### 变更（2026.1108.1，非破坏）：预设表只做常量与文档，任何 id 都能用
 
-- 声明源的 `dynamicBroadcasts` 从两条变成三条：`plugin.<插件 id>.net` 换成通用的
-  `plugin.<插件 id>.<名字>`（网络请求进度 / 完成仍建议叫 `.net`，写法不变），新增 `musicxx.point.<名字>`
-  （应用内部的埋点旁路广播，应用自己登记，插件能订阅、不能写）。
-- 生成物新增匹配器：`MusicxxDynamicBroadcastDecl.matches`、
-  `MusicxxCapabilityCatalogue.dynamicBroadcastOf` / `broadcastDeclarationOf`（静态声明优先，
-  其次按写法合成一份），两边不再各写一套匹配。
-- 行为不变：插件发布的主题仍限自己的命名空间与官方 `musicxx.*`，C ABI / 插件 ABI 都不变；
-  变的只是应用侧把这类 id 当“已声明”处理（能出现在 `capability.list` 的广播段里）。
+- **删掉 `dynamicBroadcasts` 与写法匹配**：`tools/capabilities.def.json` 的 `broadcasts` / `capabilities`
+  只用于生成常量、作者文档与 SDK 快捷函数，**不再是白名单**（生成物里没有 `MusicxxDynamicBroadcastDecl` /
+  `dynamicBroadcastOf` / `broadcastDeclarationOf` 了）。
+- **广播**：任何 id 都能发布 / 订阅；表里的 id 用表里的属性，表外的按默认（只有事件、属主能写、允许合并）。
+  属主按前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。
+- **能力**：自定义能力用 `plugin.<你的插件 id>.*`，**不需要声明**；官方 `musicxx.*` 仍要求应用先声明
+  （这是命名空间归属规则，不是表当白名单）。C 接口里去掉了“未知能力注册被拒”（插件框架的 `capability.info`
+  多一个 `preset` 字段，`capability.handlers` 对表外 id 返回空列表而不是 `-4`）。
+- 插件 ABI / C ABI 版本不变（行为变宽，没有接口变更）。
 
 ### 变更（破坏性，2026.1108.1）：能力与广播只剩一份声明，`hook` 词汇全部删除（插件 ABI 5）
 

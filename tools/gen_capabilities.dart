@@ -233,42 +233,12 @@ final class BroadcastDeclaration {
   bool get cached => cache == 'latest';
 }
 
-/// 一类动态广播（id 由属主在运行期决定，例如变量）
-final class DynamicBroadcastDeclaration {
-  DynamicBroadcastDeclaration({
-    required this.idPattern,
-    required this.title,
-    required this.depict,
-    required this.cache,
-    required this.writable,
-    required this.pushOnSubscribe,
-    required this.coalesce,
-    required this.scope,
-    required this.doc,
-  });
-
-  final String idPattern;
-  final String title;
-  final String depict;
-  final String cache;
-  final String writable;
-  final bool pushOnSubscribe;
-  final bool coalesce;
-  final String scope;
-  final String doc;
-}
-
 /// 定义文件的全部内容
 final class CapabilityContract {
-  CapabilityContract({
-    required this.capabilities,
-    required this.broadcasts,
-    required this.dynamicBroadcasts,
-  });
+  CapabilityContract({required this.capabilities, required this.broadcasts});
 
   final List<CapabilityDeclaration> capabilities;
   final List<BroadcastDeclaration> broadcasts;
-  final List<DynamicBroadcastDeclaration> dynamicBroadcasts;
 }
 
 /* ==================== 读取与校验 ==================== */
@@ -512,56 +482,7 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
     );
   }
 
-  final List<DynamicBroadcastDeclaration> dynamicBroadcasts =
-      <DynamicBroadcastDeclaration>[];
-  final Object? rawDynamic = def['dynamicBroadcasts'];
-  if (rawDynamic is List) {
-    final Set<String> patterns = <String>{};
-    for (final Object? item in rawDynamic) {
-      final Map<String, Object?> json = item! as Map<String, Object?>;
-      final String pattern = _requireString(json, 'idPattern', '动态广播');
-      final String where = '动态广播 $pattern';
-      if (!pattern.contains('<')) {
-        throw StateError('$where: idPattern 里要用 <占位名> 表达属主决定的部分');
-      }
-      if (!patterns.add(pattern)) {
-        throw StateError('动态广播 idPattern 重复: $pattern');
-      }
-      final String cache = _requireEnum(
-        json,
-        'cache',
-        where,
-        _broadcastCacheCodes,
-      );
-      final bool pushOnSubscribe = _optionalBool(
-        json,
-        'pushOnSubscribe',
-        where,
-      );
-      if (pushOnSubscribe && cache != 'latest') {
-        throw StateError('$where: 只有 cache=latest 才能在订阅时立刻推当前值');
-      }
-      dynamicBroadcasts.add(
-        DynamicBroadcastDeclaration(
-          idPattern: pattern,
-          title: _optionalString(json, 'title'),
-          depict: _optionalString(json, 'depict'),
-          cache: cache,
-          writable: _requireEnum(json, 'writable', where, _writableCodes),
-          pushOnSubscribe: pushOnSubscribe,
-          coalesce: _optionalBool(json, 'coalesce', where),
-          scope: _requireEnum(json, 'scope', where, _scopeCodes),
-          doc: _optionalString(json, 'doc'),
-        ),
-      );
-    }
-  }
-
-  return CapabilityContract(
-    capabilities: capabilities,
-    broadcasts: broadcasts,
-    dynamicBroadcasts: dynamicBroadcasts,
-  );
+  return CapabilityContract(capabilities: capabilities, broadcasts: broadcasts);
 }
 
 /* ==================== 小工具 ==================== */
@@ -880,62 +801,6 @@ String _generateDart(CapabilityContract contract) {
     ..writeln("  bool get writableByAnyone => writable == 'anyone';")
     ..writeln('}')
     ..writeln()
-    ..writeln('/// 一类动态广播（id 由属主在运行期决定，例如变量）')
-    ..writeln('final class MusicxxDynamicBroadcastDecl {')
-    ..writeln('  const MusicxxDynamicBroadcastDecl({')
-    ..writeln('    required this.idPattern,')
-    ..writeln('    required this.cache,')
-    ..writeln('    required this.writable,')
-    ..writeln('    required this.pushOnSubscribe,')
-    ..writeln('    required this.coalesce,')
-    ..writeln('    required this.scope,')
-    ..writeln('    required this.title,')
-    ..writeln('    required this.depict,')
-    ..writeln('  });')
-    ..writeln()
-    ..writeln('  /// `musicxx.var.<属主>.<键>` 这类写法，用 <占位名> 表达属主决定的部分')
-    ..writeln('  final String idPattern;')
-    ..writeln('  final String cache;')
-    ..writeln('  final String writable;')
-    ..writeln('  final bool pushOnSubscribe;')
-    ..writeln('  final bool coalesce;')
-    ..writeln('  final String scope;')
-    ..writeln('  final String title;')
-    ..writeln('  final String depict;')
-    ..writeln()
-    ..writeln('  /// 这个 id 是不是命中这类写法')
-    ..writeln('  ///')
-    ..writeln('  /// - `<占位>` 每段匹配一个非空片段；')
-    ..writeln('  /// - 最后一段是占位时吃掉剩下的全部（`musicxx.point.<名字>` 允许名字里再带点）。')
-    ..writeln('  bool matches(String id) {')
-    ..writeln('    final List<String> patternParts = idPattern.split(".");')
-    ..writeln('    final List<String> idParts = id.split(".");')
-    ..writeln('    if (idParts.length < patternParts.length) {')
-    ..writeln('      return false;')
-    ..writeln('    }')
-    ..writeln('    for (int i = 0; i < patternParts.length; i++) {')
-    ..writeln('      final String part = patternParts[i];')
-    ..writeln(
-      '      final bool placeholder = part.startsWith("<") && part.endsWith(">");',
-    )
-    ..writeln('      if (placeholder) {')
-    ..writeln('        if (i == patternParts.length - 1) {')
-    ..writeln('          // 最后一段吃掉剩下的部分：至少要有一段')
-    ..writeln('          return idParts.length >= patternParts.length;')
-    ..writeln('        }')
-    ..writeln('        if (idParts[i].isEmpty) {')
-    ..writeln('          return false;')
-    ..writeln('        }')
-    ..writeln('        continue;')
-    ..writeln('      }')
-    ..writeln('      if (part != idParts[i]) {')
-    ..writeln('        return false;')
-    ..writeln('      }')
-    ..writeln('    }')
-    ..writeln('    return idParts.length == patternParts.length;')
-    ..writeln('  }')
-    ..writeln('}')
-    ..writeln()
     ..writeln('/// 声明清单（与 `tools/capabilities.def.json` 一一对应）')
     ..writeln('abstract final class MusicxxCapabilityCatalogue {')
     ..writeln('  /// 全部能力声明（按声明顺序）')
@@ -990,29 +855,6 @@ String _generateDart(CapabilityContract contract) {
   sb
     ..writeln('  ];')
     ..writeln()
-    ..writeln('  /// 动态广播声明（id 在运行期由属主决定）')
-    ..writeln(
-      '  static const List<MusicxxDynamicBroadcastDecl> dynamicBroadcasts =',
-    )
-    ..writeln('      <MusicxxDynamicBroadcastDecl>[');
-
-  for (final DynamicBroadcastDeclaration decl in contract.dynamicBroadcasts) {
-    sb
-      ..writeln('    MusicxxDynamicBroadcastDecl(')
-      ..writeln('      idPattern: ${_dartLiteral(decl.idPattern)},')
-      ..writeln('      cache: ${_dartLiteral(decl.cache)},')
-      ..writeln('      writable: ${_dartLiteral(decl.writable)},')
-      ..writeln('      pushOnSubscribe: ${decl.pushOnSubscribe},')
-      ..writeln('      coalesce: ${decl.coalesce},')
-      ..writeln('      scope: ${_dartLiteral(decl.scope)},')
-      ..writeln('      title: ${_dartLiteral(decl.title)},')
-      ..writeln('      depict: ${_dartLiteral(decl.depict)},')
-      ..writeln('    ),');
-  }
-
-  sb
-    ..writeln('  ];')
-    ..writeln()
     ..writeln(
       '  static final Map<String, MusicxxCapabilityDecl> _capabilityIndex =',
     )
@@ -1046,53 +888,6 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// 这个 id 是不是声明过的广播')
     ..writeln('  static bool declaresBroadcast(String id) =>')
     ..writeln('      _broadcastIndex.containsKey(id);')
-    ..writeln()
-    ..writeln('  /// 命中哪一类动态写法（没有时返回 null）')
-    ..writeln('  ///')
-    ..writeln('  /// 按声明顺序匹配，同一条 id 只落在一类写法里（`plugin.<id>.net` 这种具体名字')
-    ..writeln('  /// 也走通用写法）。')
-    ..writeln(
-      '  static MusicxxDynamicBroadcastDecl? dynamicBroadcastOf(String id) {',
-    )
-    ..writeln(
-      '    for (final MusicxxDynamicBroadcastDecl decl in dynamicBroadcasts) {',
-    )
-    ..writeln('      if (decl.matches(id)) {')
-    ..writeln('        return decl;')
-    ..writeln('      }')
-    ..writeln('    }')
-    ..writeln('    return null;')
-    ..writeln('  }')
-    ..writeln()
-    ..writeln('  /// 按 id 取广播声明：静态优先，其次按动态写法合成一份')
-    ..writeln('  ///')
-    ..writeln('  /// 合成出来的是运行期频道的声明（`id` 就是传进来的那个）；缓存 / 写权限 /')
-    ..writeln('  /// 合并 / 作用域都来自那一类写法。')
-    ..writeln(
-      '  static MusicxxBroadcastDecl? broadcastDeclarationOf(String id) {',
-    )
-    ..writeln('    final MusicxxBroadcastDecl? declared = _broadcastIndex[id];')
-    ..writeln('    if (null != declared) {')
-    ..writeln('      return declared;')
-    ..writeln('    }')
-    ..writeln(
-      '    final MusicxxDynamicBroadcastDecl? dynamic = dynamicBroadcastOf(id);',
-    )
-    ..writeln('    if (null == dynamic) {')
-    ..writeln('      return null;')
-    ..writeln('    }')
-    ..writeln('    return MusicxxBroadcastDecl(')
-    ..writeln('      id: id,')
-    ..writeln('      cache: dynamic.cache,')
-    ..writeln('      writable: dynamic.writable,')
-    ..writeln('      pushOnSubscribe: dynamic.pushOnSubscribe,')
-    ..writeln('      coalesce: dynamic.coalesce,')
-    ..writeln('      scope: dynamic.scope,')
-    ..writeln('      implemented: true,')
-    ..writeln('      title: dynamic.title,')
-    ..writeln('      depict: dynamic.depict,')
-    ..writeln('    );')
-    ..writeln('  }')
     ..writeln('}');
   return sb.toString();
 }
@@ -1105,8 +900,8 @@ String _generateCpp(CapabilityContract contract) {
       '/// 自动生成（tools/gen_contract.dart ← tools/capabilities.def.json）—— 请勿手改。',
     )
     ..writeln('///')
-    ..writeln('/// C++ 侧能力与广播约定：id 常量 + 已知声明表（插件框架据此拒绝未知 id、')
-    ..writeln('/// 判实现槽位 / 合并策略 / 阶段 / 超时 / 缓存与写权限）。')
+    ..writeln('/// C++ 侧能力与广播约定：id 常量 + 预设声明表（表里的 id 带实现槽位 /')
+    ..writeln('/// 合并策略 / 阶段 / 超时；表外的 id 一律按默认属性处理）。')
     ..writeln('#ifndef MUSICXX_CAPABILITY_IDS_G_H')
     ..writeln('#define MUSICXX_CAPABILITY_IDS_G_H')
     ..writeln()
@@ -1463,36 +1258,26 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     );
   }
 
-  if (contract.dynamicBroadcasts.isNotEmpty) {
-    sb
-      ..writeln()
-      ..writeln('## 动态频道（id 由属主在运行期决定）')
-      ..writeln()
-      ..writeln(
-        '这几类的**形状**由声明表决定，**具体 id** 在运行期由属主给出（插件发布时生成，'
-        '应用自己登记的点频道由应用登记）：缓存 / 写权限 / 作用域都跟着这一类写法，'
-        '不需要逐个 id 上报。',
-      )
-      ..writeln()
-      ..writeln('| id 写法 | 缓存 | 写权限 | 订阅即推 | 合并 | 作用域 | 说明 |')
-      ..writeln('|---|---|---|---|---|---|---|');
-    for (final DynamicBroadcastDeclaration decl in contract.dynamicBroadcasts) {
-      sb.writeln(
-        '| `${decl.idPattern}` | ${decl.cache} | ${decl.writable} | '
-        '${decl.pushOnSubscribe ? "是" : "否"} | '
-        '${decl.coalesce ? "允许" : "不合并"} | '
-        '${decl.scope} | ${decl.depict} |',
-      );
-    }
-    for (final DynamicBroadcastDeclaration decl in contract.dynamicBroadcasts) {
-      if (decl.doc.trim().isEmpty) {
-        continue;
-      }
-      sb
-        ..writeln()
-        ..writeln('**`${decl.idPattern}`**：${decl.doc.trim()}');
-    }
-  }
+  sb
+    ..writeln()
+    ..writeln('## 表外的频道（id 自己造）')
+    ..writeln()
+    ..writeln(
+      '这张表只是**预设**：应用与插件都可以用表里没有的 id 发布 / 订阅，不需要事先登记。'
+      '表外 id 的默认属性是「只有事件（`cache: none`）、属主能写、允许合并、作用域 `app`」；'
+      '属主按 id 前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。',
+    )
+    ..writeln()
+    ..writeln(
+      '- 插件自定义频道：`plugin.<你的插件 id>.<名字>`（网络请求的进度 / 完成建议叫 `.net`），'
+      '只有你能发，别的插件能订阅；',
+    )
+    ..writeln(
+      '- 应用自己的运行期频道（例如埋点旁路广播 `musicxx.point.<埋点 id>.<种类>`）同理，'
+      '不需要在定义文件里占一行。',
+    )
+    ..writeln()
+    ..writeln('要快照（订阅时拿到当前值）/ 允许别人写这类属性时，才需要在定义文件的 `broadcasts` 里占一行。');
 
   final List<BroadcastDeclaration> documented = <BroadcastDeclaration>[
     for (final BroadcastDeclaration decl in contract.broadcasts)
