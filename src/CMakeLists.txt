@@ -748,6 +748,7 @@ if (MUSICXX_EXTERN_PLUGIN_BUILD_HOST)
     DEPENDS
       cxx_pluginxx_repo
       cxx_pluginxx_ui_repo
+      cxx_utilxx_repo
       fmt_repo
       yaml_cpp_repo
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/host/"
