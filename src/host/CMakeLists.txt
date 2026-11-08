@@ -131,7 +131,7 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host.cpp
   musicxx_host_tables.cpp
   musicxx_host_ui.cpp
-  musicxx_host_vars.cpp
+  musicxx_host_channels.cpp
   musicxx_host_net.cpp
   host_inspect.cpp
   host_manifest.cpp

@@ -54,7 +54,7 @@ constexpr const char *kPendingMarker = "~pending~";
 constexpr bool kJsCompiled = MUSICXX_EXTERN_PLUGIN_HAS_JS != 0;
 
 /// 变量接口返回码 → 面向插件作者的原因文本 (JS 侧会把它包进异常)
-const char *varErrorText(int32_t rc) {
+const char *channelErrorText(int32_t rc) {
   switch (rc) {
     case MUSICXX_EXTERN_PLUGIN_ERR_ARG:
       return "参数非法 (键名/值超限)";
@@ -70,7 +70,7 @@ const char *varErrorText(int32_t rc) {
       return "命名空间不属于本插件, 或没有写权限";
     case MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL:
       return "超出容量上限";
-    case MUSICXX_PLUGIN_VAR_ERR_UNSUPPORTED:
+    case MUSICXX_PLUGIN_CHANNEL_ERR_UNSUPPORTED:
       return "该变量没有声明对应能力 (读只写变量 / 写只读变量)";
     default:
       return "变量操作失败";
@@ -323,21 +323,21 @@ var featurePointImpls = new Map();
    * 插件框架自动补 `plugin.<本插件id>.` 前缀。
    */
   // 变量：注册
-  var varsTable = new Map();       // 本插件注册的变量 (短名 → 声明)
-  var varBindTable = new Map();    // 键 → [回调]
-  var varWatchSet = new Set();     // watch 保活的键
-  var varGetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
-  var varSetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
-  var varHandlers = new Map();     // handler 变量: 全名 → {onRead, onWrite}
-  var varTopicsReady = { changed: false, result: false, owner: false };
+  var channelsTable = new Map();       // 本插件注册的变量 (短名 → 声明)
+  var channelBindTable = new Map();    // 键 → [回调]
+  var broadcastWatchSet = new Set();     // watch 保活的键
+  var broadcastGetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
+  var broadcastSetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
+  var channelHandlers = new Map();     // handler 变量: 全名 → {onRead, onWrite}
+  var broadcastTopicsReady = { changed: false, result: false, owner: false };
 
-  function varShortKey(key) {
+  function broadcastShortKey(key) {
     var text = String(key);
     var prefix = "plugin." + musicxx.pluginId + ".";
     return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
   }
-  function varFullKey(key) {
-    assertName(key, "vars: 键");
+  function broadcastFullKey(key) {
+    assertName(key, "broadcast: 键");
     var text = String(key);
     if (text.indexOf("musicxx.") === 0 || text.indexOf("plugin.") === 0) { return text; }
     return "plugin." + musicxx.pluginId + "." + text;
@@ -347,37 +347,37 @@ var featurePointImpls = new Map();
   /// 注意: 必须同时记进 `subTable` —— 脚本顶层调用 `ext.subscribeHost` 会被引擎
   /// 推迟到"注册回放"阶段执行, 而回放的内容正是 `collectRegistrations` 从
   /// `subTable` 里取的; 只调原语不记账的话, 顶层绑定会静默地收不到任何事件。
-  function ensureVarTopics() {
-    if (!varTopicsReady.changed) {
-      varTopicsReady.changed = true;
-      if (!subTable.has("musicxx.var.changed")) {
-        subTable.set("musicxx.var.changed", function () {});
+  function ensureChannelTopics() {
+    if (!broadcastTopicsReady.changed) {
+      broadcastTopicsReady.changed = true;
+      if (!subTable.has("musicxx.broadcast.changed")) {
+        subTable.set("musicxx.broadcast.changed", function () {});
       }
-      ext.subscribeHost("musicxx.var.changed");
+      ext.subscribeHost("musicxx.broadcast.changed");
     }
-    if (!varTopicsReady.result) {
-      varTopicsReady.result = true;
-      if (!subTable.has("musicxx.var.writeResult")) {
-        subTable.set("musicxx.var.writeResult", function () {});
+    if (!broadcastTopicsReady.result) {
+      broadcastTopicsReady.result = true;
+      if (!subTable.has("musicxx.broadcast.writeResult")) {
+        subTable.set("musicxx.broadcast.writeResult", function () {});
       }
-      ext.subscribeHost("musicxx.var.writeResult");
+      ext.subscribeHost("musicxx.broadcast.writeResult");
     }
   }
 
   /// handler 属主要收"被转过来的读写请求", 也要让引擎把订阅建起来
-  function ensureVarOwnerTopics() {
-    if (varTopicsReady.owner) { return; }
-    varTopicsReady.owner = true;
-    ["musicxx.var.read", "musicxx.var.write"].forEach(function (topic) {
+  function ensureChannelOwnerTopics() {
+    if (broadcastTopicsReady.owner) { return; }
+    broadcastTopicsReady.owner = true;
+    ["musicxx.broadcast.read", "musicxx.broadcast.write"].forEach(function (topic) {
       if (!subTable.has(topic)) { subTable.set(topic, function () {}); }
       ext.subscribeHost(topic);
     });
   }
 
   /// handler 属主回答一次请求 (投递不等待; 失败只记日志)
-  function varRespond(requestId, ok, value, error) {
+  function channelRespond(requestId, ok, value, error) {
     try {
-      ext.varsRespond(Number(requestId), ok ? 1 : 0,
+      ext.broadcastRespond(Number(requestId), ok ? 1 : 0,
                       safeJson(value === undefined ? null : value),
                       error ? String(error) : "");
     } catch (e) {
@@ -386,48 +386,48 @@ var featurePointImpls = new Map();
   }
 
   /// 把处理器的返回值(可能是 Promise)变成一次回答
-  function varAnswerWith(result, requestId) {
+  function channelAnswerWith(result, requestId) {
     if (result && typeof result.then === "function") {
       Promise.resolve(result).then(function (value) {
-        varRespond(requestId, true, value, null);
+        channelRespond(requestId, true, value, null);
         return null;
       }, function (e) {
-        varRespond(requestId, false, null,
+        channelRespond(requestId, false, null,
                    (e && e.message) ? e.message : String(e));
         return null;
       });
       return;
     }
-    varRespond(requestId, true, result, null);
+    channelRespond(requestId, true, result, null);
   }
 
   /// 属主被取真实值 (handler 模式): 交给 onRead, 返回值就是答案
-  function handleVarRead(json) {
+  function handleChannelRead(json) {
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
     if (!info || typeof info.key !== "string") { return; }
-    var entry = varHandlers.get(info.key);
+    var entry = channelHandlers.get(info.key);
     if (!entry) { return; }   // 不是自己的变量: 忽略 (别的属主会回答)
     var result;
     try {
       result = entry.onRead ? entry.onRead() : null;
     } catch (e) {
-      varRespond(info.requestId, false, null,
+      channelRespond(info.requestId, false, null,
                  "onRead 异常: " + (e && e.message ? e.message : String(e)));
       return;
     }
-    varAnswerWith(result, info.requestId);
+    channelAnswerWith(result, info.requestId);
   }
 
   /// 属主收到写请求 (handler 模式): 交给 onWrite, 返回值就是最终值
-  function handleVarWrite(json) {
+  function handleChannelWrite(json) {
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
     if (!info || typeof info.key !== "string") { return; }
-    var entry = varHandlers.get(info.key);
+    var entry = channelHandlers.get(info.key);
     if (!entry) { return; }
     if (!entry.onWrite) {
-      varRespond(info.requestId, false, null,
+      channelRespond(info.requestId, false, null,
                  "该变量是只读的 (没有提供 onWrite)");
       return;
     }
@@ -435,13 +435,13 @@ var featurePointImpls = new Map();
     try {
       result = entry.onWrite(info.value);
     } catch (e) {
-      varRespond(info.requestId, false, null,
+      channelRespond(info.requestId, false, null,
                  "onWrite 异常: " + (e && e.message ? e.message : String(e)));
       return;
     }
-    varAnswerWith(result, info.requestId);
+    channelAnswerWith(result, info.requestId);
   }
-  function varNormalizeCaps(value) {
+  function channelNormalizeCaps(value) {
     if (value === undefined || value === null) { return ["get"]; }
     var list = Array.isArray(value) ? value : [value];
     var out = [];
@@ -460,21 +460,21 @@ var featurePointImpls = new Map();
   /// 值频道（变量）还是事件频道？看它是不是本插件声明的键、或插件框架认识的变量键
   function broadcastIsValueChannel(id) {
     var text = String(id);
-    if (varsTable.has(varShortKey(text))) { return true; }
-    try { return !!ext.varsRead("info", varFullKey(text)); } catch (e) { return false; }
+    if (channelsTable.has(broadcastShortKey(text))) { return true; }
+    try { return !!ext.broadcastRead("info", broadcastFullKey(text)); } catch (e) { return false; }
   }
 
   /// 订阅一个值频道（变量）: `fn(value, info)`；返回解绑函数
   function broadcastBindValue(key, fn) {
-    var full = varFullKey(key);
+    var full = broadcastFullKey(key);
     if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
-    var list = varBindTable.get(full);
+    var list = channelBindTable.get(full);
     var isNew = !list;
-    if (!list) { list = []; varBindTable.set(full, list); }
+    if (!list) { list = []; channelBindTable.set(full, list); }
     list.push(fn);
     if (isNew) {
-      ensureVarTopics();
-      ext.varsOp("subscribe", full, "{}");
+      ensureChannelTopics();
+      ext.broadcastChannelOp("subscribe", full, "{}");
     }
     return function () { musicxx.broadcast.unsubscribe(full, fn); };
   }
@@ -495,11 +495,11 @@ var featurePointImpls = new Map();
       if (!spec || typeof spec !== "object") {
         throw new Error("broadcast.declare: 需要对象参数");
       }
-      var key = varShortKey(spec.key === undefined ? "" : spec.key);
+      var key = broadcastShortKey(spec.key === undefined ? "" : spec.key);
       assertName(key, "broadcast.declare: key");
       var declare = {
         key: key,
-        caps: varNormalizeCaps(spec.caps),
+        caps: channelNormalizeCaps(spec.caps),
         mode: spec.mode === "handler" ? "handler" : "declared",
         write: spec.write === "owner" ? "owner" : "any",
         type: typeof spec.type === "string" ? spec.type : "",
@@ -512,38 +512,38 @@ var featurePointImpls = new Map();
         notifyThrottleMs: Number.isFinite(spec.notifyThrottleMs) ? Math.trunc(spec.notifyThrottleMs) : 0,
         refreshAfterMs: Number.isFinite(spec.refreshAfterMs) ? Math.trunc(spec.refreshAfterMs) : 0
       };
-      varsTable.set(key, declare);
+      channelsTable.set(key, declare);
       if (declare.mode === "handler") {
         // handler 模式: 读写都转回这里 (onRead/onWrite 只留在 JS 侧, 不进声明)
-        varHandlers.set("plugin." + musicxx.pluginId + "." + key, {
+        channelHandlers.set("plugin." + musicxx.pluginId + "." + key, {
           onRead: (typeof spec.onRead === "function") ? spec.onRead : null,
           onWrite: (typeof spec.onWrite === "function") ? spec.onWrite : null
         });
-        ensureVarOwnerTopics();
+        ensureChannelOwnerTopics();
       }
-      ext.varsOp("register", key, safeJson(declare));
+      ext.broadcastChannelOp("register", key, safeJson(declare));
       return true;
     },
     undeclare: function (key) {
-      var short = varShortKey(key);
-      varsTable.delete(short);
-      varHandlers.delete(varFullKey(short));
-      ext.varsOp("unregister", short, "{}");
+      var short = broadcastShortKey(key);
+      channelsTable.delete(short);
+      channelHandlers.delete(broadcastFullKey(short));
+      ext.broadcastChannelOp("unregister", short, "{}");
       return true;
     },
     /// 频道是否登记过 (读注册表, 不读值)
     has: function (key) {
-      if (varsTable.has(varShortKey(key))) { return true; }
-      var text = ext.varsRead("info", varFullKey(key));
+      if (channelsTable.has(broadcastShortKey(key))) { return true; }
+      var text = ext.broadcastRead("info", broadcastFullKey(key));
       return !!text;
     },
     /// 异步、权威读一次 (值频道的属主往返; 顺手刷新 read 的缓存)
     get: function (key, options) {
-      var full = varFullKey(key);
+      var full = broadcastFullKey(key);
       var budget = (options && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0)
         ? Math.trunc(options.timeoutMs) : 2000;
       var control = null;
-      try { control = JSON.parse(ext.varsGet(full) || "null"); }
+      try { control = JSON.parse(ext.channelGet(full) || "null"); }
       catch (e) { control = null; }
       if (!control || control.status !== "pending") {
         var reason = (control && control.error) ? control.error : "broadcast_get_failed";
@@ -554,11 +554,11 @@ var featurePointImpls = new Map();
         var waiter = { resolve: resolve, reject: reject, timer: 0 };
         // 表用**字符串键**: 插件框架回调传进来的 id 是字符串 (数字键会让查找落空)
         waiter.timer = musicxx.timer.setTimeout(function () {
-          if (varGetWaiters.delete(id)) {
+          if (broadcastGetWaiters.delete(id)) {
             reject(new Error("读取超时: " + full));
           }
         }, budget + 500);
-        varGetWaiters.set(id, waiter);
+        broadcastGetWaiters.set(id, waiter);
       });
     },
     /// 一次读多个频道 (同键进行中请求由插件框架合并); 单项失败不影响其它项
@@ -589,29 +589,29 @@ var featurePointImpls = new Map();
         try { return JSON.parse(text); } catch (e) { /* 不是 JSON 就按文本 */ return text; }
       }
       var cached = null;
-      try { cached = ext.varsRead("peek", varFullKey(key)); } catch (e) { cached = null; }
+      try { cached = ext.broadcastRead("peek", broadcastFullKey(key)); } catch (e) { cached = null; }
       if (!cached) { return null; }
       try { return JSON.parse(cached); } catch (e) { return null; }
     },
     /// 保活缓存 (等价于"订阅但不回调"; 需要 notify 能力位)
     watch: function (key) {
-      var full = varFullKey(key);
-      varWatchSet.add(full);
-      ensureVarTopics();
-      ext.varsOp("watch", full, "{}");
+      var full = broadcastFullKey(key);
+      broadcastWatchSet.add(full);
+      ensureChannelTopics();
+      ext.broadcastChannelOp("watch", full, "{}");
       return true;
     },
     unwatch: function (key) {
-      var full = varFullKey(key);
-      varWatchSet.delete(full);
-      ext.varsOp("unwatch", full, "{}");
+      var full = broadcastFullKey(key);
+      broadcastWatchSet.delete(full);
+      ext.broadcastChannelOp("unwatch", full, "{}");
       return true;
     },
     /// 写一个值频道; 结果 Promise<{key, accepted, value, changed, error?}>
     write: function (key, value) {
-      var full = varFullKey(key);
+      var full = broadcastFullKey(key);
       var control = null;
-      try { control = JSON.parse(ext.varsSet(full, safeJson(value)) || "null"); }
+      try { control = JSON.parse(ext.broadcastWrite(full, safeJson(value)) || "null"); }
       catch (e) { control = null; }
       if (!control || control.status !== "pending") {
         var reason = (control && control.error) ? control.error : "broadcast_write_failed";
@@ -621,11 +621,11 @@ var featurePointImpls = new Map();
         var id = String(control.id);
         var waiter = { resolve: resolve, reject: reject, timer: 0 };
         waiter.timer = musicxx.timer.setTimeout(function () {
-          if (varSetWaiters.delete(id)) {
+          if (broadcastSetWaiters.delete(id)) {
             reject(new Error("写入未回执: " + full));
           }
         }, 6000);
-        varSetWaiters.set(id, waiter);
+        broadcastSetWaiters.set(id, waiter);
       });
     },
     /// 订阅一个频道: 值频道给 `fn(value, info)`, 事件频道给 `fn(payload, info)`
@@ -638,8 +638,8 @@ var featurePointImpls = new Map();
     },
     /// 退订: 传 id 摘掉这个频道上的全部回调; 再传 fn 只摘那一个
     unsubscribe: function (id, fn) {
-      var full = varFullKey(id);
-      var list = varBindTable.get(full);
+      var full = broadcastFullKey(id);
+      var list = channelBindTable.get(full);
       if (list) {
         if (typeof fn === "function") {
           var index = list.indexOf(fn);
@@ -648,8 +648,8 @@ var featurePointImpls = new Map();
           list.length = 0;
         }
         if (list.length === 0) {
-          varBindTable.delete(full);
-          ext.varsOp("unsubscribe", full, "{}");
+          channelBindTable.delete(full);
+          ext.broadcastChannelOp("unsubscribe", full, "{}");
         }
       }
       var key = String(id);
@@ -659,14 +659,14 @@ var featurePointImpls = new Map();
     /// 声明 + 缓存状态 (key/caps/mode/owner/type/title/value/revision/ageMs/stale/subscribers)
     info: function (key) {
       var text = null;
-      try { text = ext.varsRead("info", varFullKey(key)); } catch (e) { text = null; }
+      try { text = ext.broadcastRead("info", broadcastFullKey(key)); } catch (e) { text = null; }
       if (!text) { return null; }
       try { return JSON.parse(text); } catch (e) { return null; }
     },
     /// 列出频道 (prefix 可空); 值字段是缓存值
     list: function (prefix) {
       var text = null;
-      try { text = ext.varsRead("list", prefix === undefined ? "" : String(prefix)); }
+      try { text = ext.broadcastRead("list", prefix === undefined ? "" : String(prefix)); }
       catch (e) { text = null; }
       if (!text) { return []; }
       try { return JSON.parse(text); } catch (e) { return []; }
@@ -674,7 +674,7 @@ var featurePointImpls = new Map();
     /// 本插件声明过的频道
     declared: function () {
       var out = [];
-      varsTable.forEach(function (value, key) { out.push({ key: key, declare: value }); });
+      channelsTable.forEach(function (value, key) { out.push({ key: key, declare: value }); });
       return out;
     },
     /// 关心 (订阅或 watch) 该频道的数量: 插件自己判断"还要不要继续高频推"的依据
@@ -694,11 +694,11 @@ var featurePointImpls = new Map();
   };
 
   /// 异步读的回执 (插件框架在 JS 线程上调用)
-  ext.onVarGetDone = function (id, json) {
+  ext.onChannelGetDone = function (id, json) {
     var key = String(id);
-    var waiter = varGetWaiters.get(key);
+    var waiter = broadcastGetWaiters.get(key);
     if (!waiter) { return; }
-    varGetWaiters.delete(key);
+    broadcastGetWaiters.delete(key);
     if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
@@ -711,15 +711,15 @@ var featurePointImpls = new Map();
 
   /// 写请求的即时回执 (插件框架在 JS 线程上调用)
   /// - 已经在属主那里结算完: 直接给出结果;
-  /// - 交给属主写入: 结果等 `musicxx.var.writeResult` 事件 (键 = requestId)
-  ext.onVarSetDone = function (id, json) {
+  /// - 交给属主写入: 结果等 `musicxx.broadcast.writeResult` 事件 (键 = requestId)
+  ext.onChannelSetDone = function (id, json) {
     var key = String(id);
-    var waiter = varSetWaiters.get(key);
+    var waiter = broadcastSetWaiters.get(key);
     if (!waiter) { return; }
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
     if (!info || info.ok !== true) {
-      varSetWaiters.delete(key);
+      broadcastSetWaiters.delete(key);
       if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
       waiter.reject(new Error("写入变量失败: " + ((info && info.error) ? info.error : "write_failed")));
       return;
@@ -727,21 +727,21 @@ var featurePointImpls = new Map();
     var result = info.result || {};
     if (result.pending === true) {
       // 等属主写入: 换到 writeResult 的等待表里 (键 = 插件框架给的 requestId)
-      varSetWaiters.delete(key);
-      varSetWaiters.set(String(result.requestId), waiter);
+      broadcastSetWaiters.delete(key);
+      broadcastSetWaiters.set(String(result.requestId), waiter);
       return;
     }
-    varSetWaiters.delete(key);
+    broadcastSetWaiters.delete(key);
     if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
     waiter.resolve(result);
   };
 
   /// 变量变更 (插件框架经事件总线送达; 载荷带 key/value/prev/by/revision/ts)
-  function handleVarChanged(json) {
+  function handleChannelChanged(json) {
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
     if (!info || typeof info.key !== "string") { return; }
-    var list = varBindTable.get(info.key);
+    var list = channelBindTable.get(info.key);
     if (!list || list.length === 0) { return; }
     var snapshot = list.slice();
     for (var i = 0; i < snapshot.length; i++) {
@@ -754,14 +754,14 @@ var featurePointImpls = new Map();
   }
 
   /// 写结果 (插件框架经事件总线送达; 键 = requestId)
-  function handleVarWriteResult(json) {
+  function handleChannelWriteResult(json) {
     var info = null;
     try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
     if (!info) { return; }
     var id = String(info.requestId);
-    var waiter = varSetWaiters.get(id);
+    var waiter = broadcastSetWaiters.get(id);
     if (!waiter) { return; }
-    varSetWaiters.delete(id);
+    broadcastSetWaiters.delete(id);
     if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
     if (info.accepted === true) {
       waiter.resolve(info);
@@ -770,8 +770,8 @@ var featurePointImpls = new Map();
     }
   }
 
-  ext.onVarChanged = handleVarChanged;
-  ext.onVarWriteResult = handleVarWriteResult;
+  ext.onChannelChanged = handleChannelChanged;
+  ext.onChannelWriteResult = handleChannelWriteResult;
 
   musicxx.call = function (name, args, timeoutMs) {
     assertName(name, "call: 动作名");
@@ -1540,11 +1540,11 @@ var featurePointImpls = new Map();
 
   ext.onEvent = function (topic, json) {
     // 变量通道的内部回调: 变更通知与写结果 (与用户订阅同一主题时两边都会收到)
-    if (topic === "musicxx.var.changed") { handleVarChanged(json); }
-    if (topic === "musicxx.var.writeResult") { handleVarWriteResult(json); }
+    if (topic === "musicxx.broadcast.changed") { handleChannelChanged(json); }
+    if (topic === "musicxx.broadcast.writeResult") { handleChannelWriteResult(json); }
     // handler 属主: 插件框架转过来的读写请求
-    if (topic === "musicxx.var.read") { handleVarRead(json); }
-    if (topic === "musicxx.var.write") { handleVarWrite(json); }
+    if (topic === "musicxx.broadcast.read") { handleChannelRead(json); }
+    if (topic === "musicxx.broadcast.write") { handleChannelWrite(json); }
     var fn = subTable.get(topic);
     if (!fn) { return; }
     var payload = {};
@@ -1561,14 +1561,14 @@ var featurePointImpls = new Map();
     ///
     /// `implement(id, {phase, priority, ownerTag}, fn)`
     /// - 同一条能力上可以分别实现三个阶段（同一个 ownerTag 互不覆盖）；
-    /// - 广播频道在框架 API 2 之后是**广播频道**：用 `musicxx.broadcast.subscribe` 订阅，
+    /// - 观察（`mode: "observe"`）在框架 API 2 之后改用广播订阅：用 `musicxx.broadcast.subscribe`，
     ///   这里再写 `mode: "observe"` 会被拒绝。
     implement: function (id, options, fn) {
       assertName(id, "capability.implement: 能力 id");
       if (typeof options === "function") { fn = options; options = null; }
       options = options || {};
       if (options.mode === "observe") {
-        throw new Error("capability.implement: 广播频道已改成广播频道，请用 musicxx.broadcast.subscribe");
+        throw new Error("capability.implement: 观察已改成广播订阅，请用 musicxx.broadcast.subscribe");
       }
       if (typeof fn !== "function") { throw new Error("capability.implement: 缺少处理函数"); }
       var entry = {
@@ -1869,21 +1869,21 @@ var featurePointImpls = new Map();
     timerTable.clear();
     pendingImplementationWaits.clear();
     pendingCapabilityWaits.clear();
-    varsTable.clear();
-    varBindTable.clear();
-    varWatchSet.clear();
-    varHandlers.clear();
-    varTopicsReady.changed = false;
-    varTopicsReady.result = false;
-    varTopicsReady.owner = false;
-    varGetWaiters.forEach(function (waiter) {
+    channelsTable.clear();
+    channelBindTable.clear();
+    broadcastWatchSet.clear();
+    channelHandlers.clear();
+    broadcastTopicsReady.changed = false;
+    broadcastTopicsReady.result = false;
+    broadcastTopicsReady.owner = false;
+    broadcastGetWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
-    varGetWaiters.clear();
-    varSetWaiters.forEach(function (waiter) {
+    broadcastGetWaiters.clear();
+    broadcastSetWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
-    varSetWaiters.clear();
+    broadcastSetWaiters.clear();
     actionWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
@@ -2251,7 +2251,7 @@ JSValue jsSubscribeHost(JSContext *ctx, JSValueConst, int argc,
 }
 
 /// 变量操作 (register | unregister | subscribe | unsubscribe | watch | unwatch)
-JSValue jsVarsOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+JSValue jsBroadcastChannelOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 2) {
     return JS_UNDEFINED;
@@ -2259,7 +2259,7 @@ JSValue jsVarsOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   const char *op = JS_ToCString(ctx, argv[0]);
   const char *key = JS_ToCString(ctx, argv[1]);
   const char *json = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
-  inst->engine->bridgeVarsOp(inst->name, op ? op : "", key ? key : "",
+  inst->engine->bridgeBroadcastChannelOp(inst->name, op ? op : "", key ? key : "",
                              json ? json : "{}");
   if (op) {
     JS_FreeCString(ctx, op);
@@ -2273,8 +2273,8 @@ JSValue jsVarsOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_UNDEFINED;
 }
 
-/// 异步读的发起 (返回控制对象 JSON; 结果经 ext.onVarGetDone 回到 JS 线程)
-JSValue jsVarsGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+/// 异步读的发起 (返回控制对象 JSON; 结果经 ext.onChannelGetDone 回到 JS 线程)
+JSValue jsChannelGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
     return JS_NewString(ctx, R"({"status":"error","error":"参数非法","code":-1})");
@@ -2290,7 +2290,7 @@ JSValue jsVarsGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     out["error"] = "键不能为空";
     out["code"] = -1;
   } else {
-    const int64_t id = inst->engine->beginVarGet(inst->name, text);
+    const int64_t id = inst->engine->beginChannelGet(inst->name, text);
     if (id < 0) {
       out["status"] = "error";
       out["error"] = "插件框架未启动或插件实例已停止";
@@ -2304,8 +2304,8 @@ JSValue jsVarsGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
-/// 写入的发起 (返回控制对象 JSON; 结果经 ext.onVarSetDone 回到 JS 线程)
-JSValue jsVarsSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+/// 写入的发起 (返回控制对象 JSON; 结果经 ext.onChannelSetDone 回到 JS 线程)
+JSValue jsBroadcastWrite(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 2) {
     return JS_NewString(ctx, R"({"status":"error","error":"参数非法","code":-1})");
@@ -2326,7 +2326,7 @@ JSValue jsVarsSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     out["error"] = "键不能为空";
     out["code"] = -1;
   } else {
-    const int64_t id = inst->engine->beginVarSet(inst->name, keyText, valueText);
+    const int64_t id = inst->engine->beginChannelSet(inst->name, keyText, valueText);
     if (id < 0) {
       out["status"] = "error";
       out["error"] = "插件框架未启动或插件实例已停止";
@@ -2341,7 +2341,7 @@ JSValue jsVarsSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
 }
 
 /// handler 属主回答一次被转过来的请求 (投递不等待)
-JSValue jsVarsRespond(JSContext *ctx, JSValueConst, int argc,
+JSValue jsBroadcastRespond(JSContext *ctx, JSValueConst, int argc,
                       JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 3) {
@@ -2352,7 +2352,7 @@ JSValue jsVarsRespond(JSContext *ctx, JSValueConst, int argc,
   const int32_t ok = JS_ToBool(ctx, argv[1]);
   const char *value = JS_ToCString(ctx, argv[2]);
   const char *error = (argc >= 4) ? JS_ToCString(ctx, argv[3]) : nullptr;
-  inst->engine->bridgeVarsRespond(inst->name, requestId, 0 != ok,
+  inst->engine->bridgeBroadcastRespond(inst->name, requestId, 0 != ok,
                                   value ? value : "null", error ? error : "");
   if (value) {
     JS_FreeCString(ctx, value);
@@ -2367,7 +2367,7 @@ JSValue jsVarsRespond(JSContext *ctx, JSValueConst, int argc,
 ///
 /// 读的是插件框架维护的**同步镜像** (互斥量保护), 因此不需要投递到框架线程 ——
 /// JS 线程绝不等框架线程 (框架线程可能正等着 JS 处理器)。
-JSValue jsVarsRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+JSValue jsBroadcastRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 2) {
     return JS_NewString(ctx, "");
@@ -2382,7 +2382,7 @@ JSValue jsVarsRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   if (key) {
     JS_FreeCString(ctx, key);
   }
-  const std::string json = inst->engine->bridgeVarsRead(opText, keyText);
+  const std::string json = inst->engine->bridgeBroadcastRead(opText, keyText);
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
@@ -2615,11 +2615,11 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"actionCancel", jsActionCancel, 0},
       {"publish", jsPublish, 2},
       {"subscribeHost", jsSubscribeHost, 1},
-      {"varsOp", jsVarsOp, 3},
-      {"varsGet", jsVarsGet, 1},
-      {"varsSet", jsVarsSet, 2},
-      {"varsRead", jsVarsRead, 2},
-      {"varsRespond", jsVarsRespond, 4},
+      {"broadcastChannelOp", jsBroadcastChannelOp, 3},
+      {"broadcastRead", jsBroadcastRead, 2},
+      {"broadcastWrite", jsBroadcastWrite, 2},
+      {"broadcastRespond", jsBroadcastRespond, 4},
+      {"channelGet", jsChannelGet, 1},
       {"implementationOp", jsImplementationOp, 5},
       {"implementationWaitResolve", jsImplementationWaitResolve, 2},
       {"capabilityWaitResolve", jsCapabilityWaitResolve, 2},
@@ -3085,7 +3085,7 @@ int32_t JsEngine::bridgeBroadcastPeek(const std::string &key,
   if (!mgr_) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  /// 状态镜像由插件框架的互斥保护, 任何线程可读 (只读快照)
+  /// 快照频道由插件框架的互斥保护, 任何线程可读 (只读快照)
   return mgr_->readChannel(key, out);
 }
 
@@ -3400,20 +3400,20 @@ JsEngine::takePendingUiOps(const std::shared_ptr<Instance> &inst) {
   return ops;
 }
 
-std::vector<JsEngine::Instance::PendingVarOp>
-JsEngine::takePendingVarOps(const std::shared_ptr<Instance> &inst) {
-  std::vector<Instance::PendingVarOp> ops;
+std::vector<JsEngine::Instance::PendingChannelOp>
+JsEngine::takePendingChannelOps(const std::shared_ptr<Instance> &inst) {
+  std::vector<Instance::PendingChannelOp> ops;
   if (!inst) {
     return ops;
   }
-  ops.swap(inst->pendingVarOps);
+  ops.swap(inst->pendingChannelOps);
   return ops;
 }
 
 /* ==================== 值频道 (广播里带当前值的那一类) ==================== */
 
 /// 在框架线程上执行一次变量声明/订阅操作 (**必须已在框架线程调用**)
-int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
+int32_t JsEngine::applyChannelOpOnHost(const std::shared_ptr<Instance> &inst,
                                    const std::string &op, const std::string &key,
                                    const std::string &json) {
   if (!inst || !inst->hostInst) {
@@ -3426,9 +3426,9 @@ int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
     if (!parseOk || !spec.is_object()) {
       return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
     }
-    MusicxxPluginVarSpec native{};
+    MusicxxPluginChannelSpec native{};
     native.version = 1;
-    native.struct_size = sizeof(MusicxxPluginVarSpec);
+    native.struct_size = sizeof(MusicxxPluginChannelSpec);
     native.key = PluginxxStringView{key.data(), key.size()};
     int32_t caps = 0;
     if (spec.contains("caps") && spec["caps"].is_array()) {
@@ -3438,11 +3438,11 @@ int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
         }
         const std::string name = item.get<std::string>();
         if (name == "get") {
-          caps |= MUSICXX_PLUGIN_VAR_CAP_GET;
+          caps |= MUSICXX_PLUGIN_CHANNEL_CAP_GET;
         } else if (name == "set") {
-          caps |= MUSICXX_PLUGIN_VAR_CAP_SET;
+          caps |= MUSICXX_PLUGIN_CHANNEL_CAP_SET;
         } else if (name == "notify") {
-          caps |= MUSICXX_PLUGIN_VAR_CAP_NOTIFY;
+          caps |= MUSICXX_PLUGIN_CHANNEL_CAP_NOTIFY;
         }
       }
     }
@@ -3450,13 +3450,13 @@ int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
     const std::string mode = (spec.contains("mode") && spec["mode"].is_string())
                                  ? spec["mode"].get<std::string>()
                                  : std::string{"declared"};
-    native.mode = (mode == "handler") ? MUSICXX_PLUGIN_VAR_MODE_HANDLER
-                                      : MUSICXX_PLUGIN_VAR_MODE_DECLARED;
+    native.mode = (mode == "handler") ? MUSICXX_PLUGIN_CHANNEL_MODE_HANDLER
+                                      : MUSICXX_PLUGIN_CHANNEL_MODE_DECLARED;
     const std::string write = (spec.contains("write") && spec["write"].is_string())
                                   ? spec["write"].get<std::string>()
                                   : std::string{"any"};
-    native.write_scope = (write == "owner") ? MUSICXX_PLUGIN_VAR_WRITE_OWNER
-                                            : MUSICXX_PLUGIN_VAR_WRITE_ANY;
+    native.write_scope = (write == "owner") ? MUSICXX_PLUGIN_CHANNEL_WRITE_OWNER
+                                            : MUSICXX_PLUGIN_CHANNEL_WRITE_ANY;
     native.throttle_ms = (spec.contains("throttleMs") && spec["throttleMs"].is_number())
                              ? spec["throttleMs"].get<int32_t>()
                              : 0;
@@ -3491,11 +3491,11 @@ int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
     }
     const std::string metaText = meta.empty() ? std::string{} : meta.dump();
     native.meta_json = PluginxxStringView{metaText.data(), metaText.size()};
-    const int32_t rc = mgr_->registerVar(host, native);
+    const int32_t rc = mgr_->registerChannel(host, native);
     return rc;
   }
   if (op == "unregister") {
-    return mgr_->unregisterVar(host, key);
+    return mgr_->unregisterChannel(host, key);
   }
   // subscribe / unsubscribe / watch / unwatch: 单键的数组形式
   Json keys = Json::array();
@@ -3503,21 +3503,21 @@ int32_t JsEngine::applyVarOpOnHost(const std::shared_ptr<Instance> &inst,
   const std::string keysJson = keys.dump();
   int32_t count = 0;
   if (op == "subscribe") {
-    return mgr_->subscribeVars(host, keysJson, count);
+    return mgr_->subscribeChannels(host, keysJson, count);
   }
   if (op == "unsubscribe") {
-    return mgr_->unsubscribeVars(host, keysJson, count);
+    return mgr_->unsubscribeChannels(host, keysJson, count);
   }
   if (op == "watch") {
-    return mgr_->watchVars(host, keysJson, true, count);
+    return mgr_->watchChannels(host, keysJson, true, count);
   }
   if (op == "unwatch") {
-    return mgr_->watchVars(host, keysJson, false, count);
+    return mgr_->watchChannels(host, keysJson, false, count);
   }
   return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
 }
 
-void JsEngine::bridgeVarsOp(const std::string &instanceName,
+void JsEngine::bridgeBroadcastChannelOp(const std::string &instanceName,
                             const std::string &op, const std::string &key,
                             const std::string &json) {
   auto inst = lookupInstance(instanceName);
@@ -3527,11 +3527,11 @@ void JsEngine::bridgeVarsOp(const std::string &instanceName,
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
     /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
     /// (与能力/能力/UI 项同一套做法, 避免"框架线程等 JS、JS 等框架线程")
-    Instance::PendingVarOp entry;
+    Instance::PendingChannelOp entry;
     entry.op = op;
     entry.key = key;
     entry.json = json;
-    inst->pendingVarOps.push_back(std::move(entry));
+    inst->pendingChannelOps.push_back(std::move(entry));
     return;
   }
   const std::string pluginId = inst->id;
@@ -3543,28 +3543,28 @@ void JsEngine::bridgeVarsOp(const std::string &instanceName,
                  return;
                }
                const int32_t rc =
-                   self->applyVarOpOnHost(current, op, key, json);
+                   self->applyChannelOpOnHost(current, op, key, json);
                if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
                  return;
                }
                Json payload;
                payload["id"] = pluginId;
-               payload["phase"] = "vars";
+               payload["phase"] = "channels";
                payload["op"] = op;
                payload["key"] = key;
                payload["code"] = rc;
                payload["message"] =
-                   "变量操作被拒绝 (检查 key/caps/命名空间, 或插件框架是否支持该模式)";
+                   "频道操作被拒绝 (检查 key/caps/命名空间, 或插件框架是否支持该模式)";
                self->mgr_->pushEvent("musicxx.plugin.error", pluginId,
                                      payload.dump());
                XX_LOGW(
-                   "[musicxx_ext] JS插件 `{}` 运行期变量操作 `{}` `{}` 失败 "
+                   "[musicxx_ext] JS插件 `{}` 运行期频道操作 `{}` `{}` 失败 "
                    "(code={})",
                    pluginId, op, key, rc);
              });
 }
 
-std::string JsEngine::bridgeVarsRead(const std::string &op,
+std::string JsEngine::bridgeBroadcastRead(const std::string &op,
                                      const std::string &key) {
   MusicxxHostManager *mgr = mgr_;
   if (!mgr) {
@@ -3573,18 +3573,18 @@ std::string JsEngine::bridgeVarsRead(const std::string &op,
   std::string out;
   int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   if (op == "peek") {
-    rc = mgr->peekVar(key, out);
+    rc = mgr->peekChannel(key, out);
   } else if (op == "info") {
-    rc = mgr->varInfo(key, out);
+    rc = mgr->channelInfo(key, out);
   } else if (op == "list") {
-    rc = mgr->listVars(key, out);
+    rc = mgr->listChannels(key, out);
   } else {
     return {};
   }
   return rc == MUSICXX_EXTERN_PLUGIN_OK ? out : std::string{};
 }
 
-void JsEngine::bridgeVarsRespond(const std::string &instanceName,
+void JsEngine::bridgeBroadcastRespond(const std::string &instanceName,
                                  int64_t requestId, bool ok,
                                  const std::string &valueJson,
                                  const std::string &error) {
@@ -3600,7 +3600,7 @@ void JsEngine::bridgeVarsRespond(const std::string &instanceName,
       return;
     }
     std::string out;
-    const int32_t rc = self->mgr_->respondVar(current->hostInst, requestId, ok,
+    const int32_t rc = self->mgr_->respondChannel(current->hostInst, requestId, ok,
                                               valueJson, error, out);
     if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
       return;
@@ -3609,7 +3609,7 @@ void JsEngine::bridgeVarsRespond(const std::string &instanceName,
     /// 已经超时结算, 或者回答的不是自己的变量
     Json payload;
     payload["id"] = current->id;
-    payload["phase"] = "vars";
+    payload["phase"] = "channels";
     payload["op"] = "respond";
     payload["code"] = rc;
     payload["requestId"] = requestId;
@@ -3620,24 +3620,24 @@ void JsEngine::bridgeVarsRespond(const std::string &instanceName,
   });
 }
 
-int64_t JsEngine::beginVarGet(const std::string &instanceName,
+int64_t JsEngine::beginChannelGet(const std::string &instanceName,
                               const std::string &key) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !inst->hostInst || !mgr_ || !mgr_->running()) {
     return -1;
   }
-  auto wait = std::make_shared<VarWait>();
+  auto wait = std::make_shared<ChannelWait>();
   wait->engine = this;
   wait->instance = instanceName;
-  wait->id = nextVarWaitId_.fetch_add(1);
+  wait->id = nextChannelWaitId_.fetch_add(1);
   wait->kind = 1;
   {
-    std::lock_guard<std::mutex> lock{varWaitMutex_};
-    varWaits_[wait->id] = wait;
+    std::lock_guard<std::mutex> lock{channelWaitMutex_};
+    channelWaits_[wait->id] = wait;
   }
   const int64_t waitId = wait->id;
   PluginxxOperatorNotify notify{};
-  notify.done = &JsEngine::varWaitDoneTrampoline;
+  notify.done = &JsEngine::channelWaitDoneTrampoline;
   notify.host_ud = wait.get();
   auto self = shared_from_this();
   asio::post(mgr_->hostExecutor(), [self, instanceName, key, notify, waitId] {
@@ -3645,35 +3645,35 @@ int64_t JsEngine::beginVarGet(const std::string &instanceName,
     int64_t requestId = 0;
     int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
     if (current && current->hostInst) {
-      rc = self->mgr_->getVar(current->hostInst, key, &notify, &requestId);
+      rc = self->mgr_->getChannel(current->hostInst, key, &notify, &requestId);
     }
     if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
       /// 未受理: 属主不会被通知, done 也不会被调用 —— 这里自己回一条失败
       Json out;
       out["ok"] = false;
-      out["error"] = varErrorText(rc);
+      out["error"] = channelErrorText(rc);
       out["code"] = rc;
-      self->postVarWaitResult(instanceName, waitId, "onVarGetDone", out.dump());
+      self->postChannelWaitResult(instanceName, waitId, "onChannelGetDone", out.dump());
     }
   });
   return waitId;
 }
 
-int64_t JsEngine::beginVarSet(const std::string &instanceName,
+int64_t JsEngine::beginChannelSet(const std::string &instanceName,
                               const std::string &key,
                               const std::string &valueJson) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !inst->hostInst || !mgr_ || !mgr_->running()) {
     return -1;
   }
-  auto wait = std::make_shared<VarWait>();
+  auto wait = std::make_shared<ChannelWait>();
   wait->engine = this;
   wait->instance = instanceName;
-  wait->id = nextVarWaitId_.fetch_add(1);
+  wait->id = nextChannelWaitId_.fetch_add(1);
   wait->kind = 2;
   {
-    std::lock_guard<std::mutex> lock{varWaitMutex_};
-    varWaits_[wait->id] = wait;
+    std::lock_guard<std::mutex> lock{channelWaitMutex_};
+    channelWaits_[wait->id] = wait;
   }
   const int64_t waitId = wait->id;
   auto self = shared_from_this();
@@ -3682,32 +3682,32 @@ int64_t JsEngine::beginVarSet(const std::string &instanceName,
     std::string result;
     int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
     if (current && current->hostInst) {
-      rc = self->mgr_->setVar(current->hostInst, key, valueJson, result);
+      rc = self->mgr_->setChannel(current->hostInst, key, valueJson, result);
     }
     Json out;
     if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
       out["ok"] = false;
-      out["error"] = varErrorText(rc);
+      out["error"] = channelErrorText(rc);
       out["code"] = rc;
     } else {
       /// 结果可能是"已结算"(accepted) 或"转给属主"(pending + requestId):
-      /// 后者由预置层换到 `musicxx.var.writeResult` 的等待表里继续等
+      /// 后者由预置层换到 `musicxx.broadcast.writeResult` 的等待表里继续等
       out["ok"] = true;
       out["result"] = parseJsonSafe(result);
     }
-    self->postVarWaitResult(instanceName, waitId, "onVarSetDone", out.dump());
+    self->postChannelWaitResult(instanceName, waitId, "onChannelSetDone", out.dump());
   });
   return waitId;
 }
 
 void PLUGINXX_CALL
-JsEngine::varWaitDoneTrampoline(void *ud, int32_t status,
+JsEngine::channelWaitDoneTrampoline(void *ud, int32_t status,
                                 const PluginxxStringView *payload) {
-  auto *wait = static_cast<VarWait *>(ud);
+  auto *wait = static_cast<ChannelWait *>(ud);
   if (!wait || !wait->engine) {
     return;
   }
-  /// 先把需要的字段拷出来: 结算之后登记就会被释放 (见 VarWait 的说明)
+  /// 先把需要的字段拷出来: 结算之后登记就会被释放 (见 ChannelWait 的说明)
   JsEngine *engine = wait->engine;
   const int64_t id = wait->id;
   const int kind = wait->kind;
@@ -3728,12 +3728,12 @@ JsEngine::varWaitDoneTrampoline(void *ud, int32_t status,
     out["ok"] = false;
     out["error"] = text.empty() ? "variables_op_failed" : text;
   }
-  engine->postVarWaitResult(instance, id,
-                            kind == 2 ? "onVarSetDone" : "onVarGetDone",
+  engine->postChannelWaitResult(instance, id,
+                            kind == 2 ? "onChannelSetDone" : "onChannelGetDone",
                             out.dump());
 }
 
-void JsEngine::postVarWaitResult(const std::string &instanceName,
+void JsEngine::postChannelWaitResult(const std::string &instanceName,
                                  int64_t waitId, const std::string &callback,
                                  const std::string &json) {
   auto self = shared_from_this();
@@ -3744,23 +3744,23 @@ void JsEngine::postVarWaitResult(const std::string &instanceName,
       self->callBridgeString(inst, callback.c_str(),
                              {std::to_string(waitId), json}, ignored);
     }
-    self->finishVarWait(waitId);
+    self->finishChannelWait(waitId);
   });
 }
 
-void JsEngine::finishVarWait(int64_t waitId) {
-  std::lock_guard<std::mutex> lock{varWaitMutex_};
-  varWaits_.erase(waitId);
+void JsEngine::finishChannelWait(int64_t waitId) {
+  std::lock_guard<std::mutex> lock{channelWaitMutex_};
+  channelWaits_.erase(waitId);
 }
 
-void JsEngine::clearVarWaitsOf(const std::string &instanceName) {
-  std::vector<std::shared_ptr<VarWait>> leftovers;
+void JsEngine::clearChannelWaitsOf(const std::string &instanceName) {
+  std::vector<std::shared_ptr<ChannelWait>> leftovers;
   {
-    std::lock_guard<std::mutex> lock{varWaitMutex_};
-    for (auto it = varWaits_.begin(); it != varWaits_.end();) {
+    std::lock_guard<std::mutex> lock{channelWaitMutex_};
+    for (auto it = channelWaits_.begin(); it != channelWaits_.end();) {
       if (it->second && it->second->instance == instanceName) {
         leftovers.push_back(it->second);
-        it = varWaits_.erase(it);
+        it = channelWaits_.erase(it);
       } else {
         ++it;
       }
@@ -3768,7 +3768,7 @@ void JsEngine::clearVarWaitsOf(const std::string &instanceName) {
     /// 不能直接释放: 属主的回答可能已经在路上, 回调仍会带着这个指针进来。
     /// 残余登记随引擎一起销毁 (正常路径上属主都已经结算完了)。
     for (auto &item : leftovers) {
-      varWaitGraveyard_.push_back(std::move(item));
+      channelWaitGraveyard_.push_back(std::move(item));
     }
   }
 }
@@ -4576,16 +4576,16 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
   }
 
   // ---- 变量登记与订阅 ----
-  int32_t varsApplied = 0;
-  for (const auto &op : takePendingVarOps(inst)) {
-    const int32_t rc = applyVarOpOnHost(inst, op.op, op.key, op.json);
+  int32_t channelsApplied = 0;
+  for (const auto &op : takePendingChannelOps(inst)) {
+    const int32_t rc = applyChannelOpOnHost(inst, op.op, op.key, op.json);
     if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
-      ++varsApplied;
+      ++channelsApplied;
       continue;
     }
     Json payload;
     payload["id"] = inst->id;
-    payload["phase"] = "vars";
+    payload["phase"] = "channels";
     payload["op"] = op.op;
     payload["key"] = op.key;
     payload["code"] = rc;
@@ -4602,7 +4602,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
   XX_LOGI("[musicxx_ext] JS插件 `{}` 注册回放完成 (能力 {} / 能力 {} / 订阅 "
           "{} / UI {} / 变量 {})",
           inst->id, inst->implementations.size(), inst->capabilities.size(),
-          inst->subscriptions.size(), uiApplied, varsApplied);
+          inst->subscriptions.size(), uiApplied, channelsApplied);
 }
 
 void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
@@ -4618,10 +4618,10 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   /// (随实例销毁丢弃)
   inst->liveRegistrations.store(false, std::memory_order_release);
   inst->pendingUiOps.clear();
-  inst->pendingVarOps.clear();
+  inst->pendingChannelOps.clear();
   /// 变量登记 (声明/订阅/保活) 与未结算的变量请求都随实例作废
-  /// (变量本身由 `clearPluginRegistrations` → `detachVars` 摘除)
-  clearVarWaitsOf(inst->name);
+  /// (变量本身由 `clearPluginRegistrations` → `detachChannels` 摘除)
+  clearChannelWaitsOf(inst->name);
   for (const auto &handler : inst->implementations) {
     mgr_->unimplement(inst->hostInst, handler->capabilityId, handler->ownerTag);
   }

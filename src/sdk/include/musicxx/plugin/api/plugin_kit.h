@@ -442,7 +442,7 @@ public:
         return iface.capabilities->unregister_capability(host, &capabilityView, &tagView);
     }
 
-    /// 同步读状态镜像 (键不存在返回空串)
+    /// 同步读快照频道 (键不存在返回空串)
     ///
     /// 状态由应用发布在广播频道 `musicxx.state.*`（`cache: latest`，订阅即推）。
     std::string stateJson(const char* key) const {

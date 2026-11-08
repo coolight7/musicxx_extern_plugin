@@ -12,7 +12,7 @@ import 'capabilities.dart';
 import 'manager.dart';
 import 'native_library.dart';
 import 'native_strings.dart';
-import 'vars.dart';
+import 'channels.dart';
 
 /// 插件框架配置（对应 C ABI `MusicxxExternPluginHostConfig`）
 class MusicxxPluginRuntimeConfig {
@@ -162,8 +162,9 @@ class MusicxxPluginRuntime {
   late final MusicxxPluginBroadcasts broadcasts =
       MusicxxPluginBroadcasts.internal(this);
 
-  /// 变量通道（`musicxx.vars`；官方键的真值在主程序，见 [MusicxxPluginVars]）
-  late final MusicxxPluginVars vars = MusicxxPluginVars.internal(this);
+  /// 值频道（`musicxx.broadcasts` 的值频道部分；官方键的真值在主程序，见 [MusicxxPluginChannels]）
+  late final MusicxxPluginChannels channels =
+      MusicxxPluginChannels.internal(this);
 
   /// 原生 → Dart 唤醒回调
   ///

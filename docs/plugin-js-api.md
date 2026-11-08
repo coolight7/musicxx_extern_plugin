@@ -612,7 +612,7 @@ await musicxx.ui.overlayClose();                              // 自己收起当
 
 > 广播就是“有人发了、关心的人都能收到”的频道。带当前值的（`cache: latest`，例如 `musicxx.state.*`、变量）
 > 另外还能同步 `read`；没有当前值的（`cache: none`，例如 `musicxx.song.changed`）只有事件。
-> 频道清单与字段见 [plugin-broadcasts.md](plugin-broadcasts.md)，变量键目录见 [plugin-vars.md](plugin-vars.md)。
+> 频道清单与字段见 [plugin-broadcasts.md](plugin-broadcasts.md)，变量键目录见 [plugin-value-channels.md](plugin-value-channels.md)。
 
 ```js
 musicxx.broadcast.subscribe("musicxx.state.song", (song, topic) => { /* ... */ });
@@ -629,7 +629,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
   事件是单向通知，能力调用有返回值。
 
 常用的可订阅主题（完整清单与载荷字段见 [plugin-api.md](plugin-api.md) §4）：
-`musicxx.state.*`（快照频道变化）、`musicxx.var.changed` / `musicxx.var.writeResult`（变量通道）、
+`musicxx.state.*`（快照频道变化）、`musicxx.broadcast.changed` / `musicxx.broadcast.writeResult`（变量通道）、
 以及其它插件发布的 `plugin.<对方 id>.*`。
 
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
@@ -643,7 +643,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 
 > 概念、与邻居的分工（镜像 / 动作 / 事件 / 变量怎么选）、三条读法的取舍、注册与 handler 模式、
 > 错误码与超时，都在 [plugin-api.md](plugin-api.md) §5；官方变量目录见
-> [plugin-vars.md](plugin-vars.md)。本节只给 JS 的 API 与写法。
+> [plugin-value-channels.md](plugin-value-channels.md)。本节只给 JS 的 API 与写法。
 
 ```js
 // 读：权威读（异步）/ 一次读多个 / 同步读缓存 / 变化回调 / 只保活缓存

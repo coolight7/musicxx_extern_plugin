@@ -446,7 +446,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 是否已接入 + 载荷与回答） | `docs/plugin-capabilities.md`（生成物） |
 | 广播总表（频道 / 有没有当前值 / 谁能写 / 载荷） | `docs/plugin-broadcasts.md`（生成物） |
-| 官方变量目录（键 / 能力位 / 取值 / 风险） | `docs/plugin-vars.md` |
+| 官方值频道目录（键 / 能力位 / 取值 / 风险） | `docs/plugin-value-channels.md` |
 | 界面（UI 项 / 插件页面 / 自己的设置页 / 布局约定） | `docs/plugin-ui.md` |
 | shader bundle（打包 / uniform / 参数表达式 / 渲染槽位） | `docs/plugin-shader-bundle.md` |
 | 命令行与 MCP（装 / 刷新 / 看日志） | `docs/plugin-agent-cli.md` |

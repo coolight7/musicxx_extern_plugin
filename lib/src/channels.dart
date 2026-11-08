@@ -5,9 +5,9 @@ import 'bindings_generated.dart';
 import 'native_strings.dart';
 import 'runtime.dart';
 
-/// 主程序声明一条变量（对应 `musicxx_extern_plugin_var_declare` 的一项）
-class MusicxxPluginVarDeclare {
-  const MusicxxPluginVarDeclare({
+/// 主程序声明一条变量（对应 `musicxx_extern_plugin_broadcast_declare` 的一项）
+class MusicxxPluginChannelDeclare {
+  const MusicxxPluginChannelDeclare({
     required this.key,
     this.caps = const <String>['get'],
     this.type = '',
@@ -70,42 +70,42 @@ class MusicxxPluginVarDeclare {
   };
 }
 
-/// 变量通道（`runtime.vars`）：有属主、可读、可写、可订阅变动的小值
+/// 值频道（`runtime.channels`）：有属主、可读、可写、可订阅变动的小值
 ///
 /// 语义要点：
 /// - **主程序是官方键的真值所在**：值由主程序推（[update]），写入由主程序执行
 ///   （[readResult] / [writeResult]）；
 /// - `get` / `peek` / `list` 是只读查询：插件键可以读，官方键只能由主程序自己持有；
 /// - 没有真值存在插件框架里：插件框架只保留一份服务 `peek` 的同步读缓存。
-class MusicxxPluginVars {
-  MusicxxPluginVars.internal(this._runtime);
+class MusicxxPluginChannels {
+  MusicxxPluginChannels.internal(this._runtime);
 
   final MusicxxPluginRuntime _runtime;
 
-  /// 能力位常量（与原生 `MUSICXX_PLUGIN_VAR_CAP_*` 一致）
+  /// 能力位常量（与原生 `MUSICXX_PLUGIN_CHANNEL_CAP_*` 一致）
   static const int capGet = 0x1;
   static const int capSet = 0x2;
   static const int capNotify = 0x4;
 
-  /// 插件框架能力位：变量通道（`musicxx_extern_plugin_feature_bits`）
-  static const int featureVars = 0x10;
+  /// 插件框架能力位：广播（值频道与快照频道同一批 API，`musicxx_extern_plugin_feature_bits`）
+  static const int featureBroadcasts = 0x16;
 
   final Map<String, String> _lastPushed = <String, String>{};
 
-  /// 声明一批变量（插件框架启动后调用一次；必须在加载插件之前）
+  /// 声明一批值频道（插件框架启动后调用一次；必须在加载插件之前）
   ///
   /// 逐项失败只会记一条日志（返回值仍是 0），不影响其它项与启动流程。
-  bool declare(List<MusicxxPluginVarDeclare> items) {
+  bool declare(List<MusicxxPluginChannelDeclare> items) {
     if (!_runtime.isRunning || items.isEmpty) {
       return false;
     }
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final String json = _encode(
-        items.map((MusicxxPluginVarDeclare item) => item.toJson()).toList(),
+        items.map((MusicxxPluginChannelDeclare item) => item.toJson()).toList(),
       );
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_declare(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_declare(
         _runtime.host,
         arena.view(json),
         log,
@@ -136,7 +136,7 @@ class MusicxxPluginVars {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_update(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_update(
         _runtime.host,
         arena.view(key),
         arena.view(json),
@@ -176,7 +176,7 @@ class MusicxxPluginVars {
     try {
       final Pointer<MusicxxExternPluginString> log = arena.outString();
       final int rc = _runtime.bindings
-          .musicxx_extern_plugin_var_update_batch(
+          .musicxx_extern_plugin_broadcast_update_batch(
             _runtime.host,
             arena.view(_encode(payload)),
             log,
@@ -213,7 +213,7 @@ class MusicxxPluginVars {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_write_result(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_write_result(
         _runtime.host,
         requestId,
         accepted ? 1 : 0,
@@ -235,7 +235,7 @@ class MusicxxPluginVars {
     }
   }
 
-  /// 回答插件对官方键的读请求（`musicxx.var.read` → 这条）
+  /// 回答插件对官方键的读请求（`musicxx.broadcast.read` → 这条）
   bool readResult(
     int requestId, {
     required bool ok,
@@ -248,7 +248,7 @@ class MusicxxPluginVars {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_read_result(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_read_result(
         _runtime.host,
         requestId,
         ok ? 1 : 0,
@@ -281,7 +281,7 @@ class MusicxxPluginVars {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_get(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_read(
         _runtime.host,
         arena.view(key),
         out,
@@ -324,7 +324,7 @@ class MusicxxPluginVars {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_set(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_write(
         _runtime.host,
         arena.view(key),
         arena.view(_encode(value)),
@@ -353,7 +353,7 @@ class MusicxxPluginVars {
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_var_list(
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_list(
         _runtime.host,
         arena.view(prefix),
         out,
@@ -374,7 +374,7 @@ class MusicxxPluginVars {
 
   /// 订阅插件键的变动（`keysOrPrefixes` 支持前缀：`plugin.` / `plugin.<id>.`）
   ///
-  /// 订阅了某个键，它变化时才会推 `musicxx.var.changed` 事件。
+  /// 订阅了某个键，它变化时才会推 `musicxx.broadcast.changed` 事件。
   bool subscribe(List<String> keysOrPrefixes) =>
       _sub(keysOrPrefixes, subscribe: true);
 
@@ -390,12 +390,12 @@ class MusicxxPluginVars {
     try {
       final Pointer<MusicxxExternPluginString> log = arena.outString();
       final int rc = subscribe
-          ? _runtime.bindings.musicxx_extern_plugin_var_subscribe(
+          ? _runtime.bindings.musicxx_extern_plugin_broadcast_subscribe(
               _runtime.host,
               arena.view(_encode(keysOrPrefixes)),
               log,
             )
-          : _runtime.bindings.musicxx_extern_plugin_var_unsubscribe(
+          : _runtime.bindings.musicxx_extern_plugin_broadcast_unsubscribe(
               _runtime.host,
               arena.view(_encode(keysOrPrefixes)),
               log,

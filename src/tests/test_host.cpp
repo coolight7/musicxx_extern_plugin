@@ -2864,12 +2864,12 @@ int main(int argc, char **argv) {
     }
   }
 
-  // ==================== 变量表 (musicxx.vars) ====================
+  // ==================== 值频道 (musicxx.broadcasts) ====================
   {
     // 能力位: 本次构建必须带变量通道
     {
       const int32_t bits = musicxx_extern_plugin_feature_bits();
-      check((bits & MUSICXX_EXTERN_PLUGIN_FEATURE_VARS) != 0,
+      check((bits & MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS) != 0,
             "feature_bits 含变量通道");
       check((bits & MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITIES) != 0,
             "feature_bits 含能力通道");
@@ -2878,23 +2878,23 @@ int main(int argc, char **argv) {
     // 声明之前的官方键: 列出为空
     {
       MusicxxExternPluginString out{};
-      const int32_t rc = musicxx_extern_plugin_var_list(
+      const int32_t rc = musicxx_extern_plugin_broadcast_list(
           host, viewCP("musicxx."), &out, &log);
       const std::string json = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "var_list 可读 (声明之前)");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_list 可读 (声明之前)");
       check(json == "[]", "声明之前没有官方变量");
     }
 
     // 未声明的键: 读/写都要明确报"未找到"
     {
       MusicxxExternPluginString out{};
-      const int32_t readRc = musicxx_extern_plugin_var_get(
+      const int32_t readRc = musicxx_extern_plugin_broadcast_read(
           host, viewCP("musicxx.test.missing"), &out, &log);
       take(out);
       check(readRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
             "读未声明的官方键返回未找到 (插件据此知道要先声明)");
       MusicxxExternPluginString setOut{};
-      const int32_t writeRc = musicxx_extern_plugin_var_set(
+      const int32_t writeRc = musicxx_extern_plugin_broadcast_write(
           host, viewCP("musicxx.test.missing"), viewCP("1"), &setOut, &log);
       take(setOut);
       check(writeRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
@@ -2909,30 +2909,30 @@ int main(int argc, char **argv) {
         {"key":"musicxx.test.onlyWrite","caps":["set"],"type":"string"}
       ])";
       MusicxxExternPluginString message{};
-      const int32_t rc = musicxx_extern_plugin_var_declare(host, viewP(items),
+      const int32_t rc = musicxx_extern_plugin_broadcast_declare(host, viewP(items),
                                                           &message);
       const std::string text = take(message);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "var_declare 受理");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_declare 受理");
       check(text.empty(), "合法声明不产生拒绝日志");
     }
 
     // 列出来: 两条都在, caps/type/options 如实
     {
       MusicxxExternPluginString out{};
-      musicxx_extern_plugin_var_list(host, viewCP("musicxx.test."), &out, &log);
+      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test."), &out, &log);
       const std::string json = take(out);
       check(json.find("musicxx.test.value") != std::string::npos,
-            "var_list 列出读写的官方键");
+            "broadcast_list 列出读写的官方键");
       check(json.find("musicxx.test.onlyWrite") != std::string::npos,
-            "var_list 列出只写的官方键");
+            "broadcast_list 列出只写的官方键");
       check(json.find("\"notify\"") != std::string::npos,
-            "var_list 如实给出能力位");
+            "broadcast_list 如实给出能力位");
       check(json.find("\"options\"") != std::string::npos,
-            "var_list 带上候选值");
+            "broadcast_list 带上候选值");
       check(json.find("\"hasValue\":true") != std::string::npos,
-            "var_list 如实标记有没有缓存值");
+            "broadcast_list 如实标记有没有缓存值");
       check(json.find("\"valueMs\"") != std::string::npos,
-            "var_list 带上缓存时刻 (ageMs/stale 由它算)");
+            "broadcast_list 带上缓存时刻 (ageMs/stale 由它算)");
     }
 
     // 声明里不合法的项: 只记日志 (整体仍然返回 0, 不影响启动)
@@ -2944,12 +2944,12 @@ int main(int argc, char **argv) {
       ])";
       MusicxxExternPluginString message{};
       const int32_t rc =
-          musicxx_extern_plugin_var_declare(host, viewP(bad), &message);
+          musicxx_extern_plugin_broadcast_declare(host, viewP(bad), &message);
       const std::string text = take(message);
       check(rc == MUSICXX_EXTERN_PLUGIN_OK, "非法声明不导致整体失败");
       check(!text.empty(), "非法声明在日志里说明原因");
       MusicxxExternPluginString out{};
-      musicxx_extern_plugin_var_list(host, viewCP("musicxx.test.noCaps"), &out,
+      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.noCaps"), &out,
                                      &log);
       check(take(out) == "[]", "非法声明没有建出变量");
     }
@@ -2957,11 +2957,11 @@ int main(int argc, char **argv) {
     // 推值: 值变了才通知, 值没变不产生事件
     {
       MusicxxExternPluginString out{};
-      const int32_t rc = musicxx_extern_plugin_var_update(
+      const int32_t rc = musicxx_extern_plugin_broadcast_update(
           host, viewCP("musicxx.test.value"), viewCP(R"("b")"), &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "var_update 受理");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_update 受理");
       MusicxxExternPluginString listed{};
-      musicxx_extern_plugin_var_list(host, viewCP("musicxx.test.value"), &listed,
+      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.value"), &listed,
                                      &log);
       const std::string json = take(listed);
       check(json.find("\"value\":\"b\"") != std::string::npos,
@@ -2971,9 +2971,9 @@ int main(int argc, char **argv) {
 
       // 值没变: 再来一次, revision 不动 (不产生通知)
       MusicxxExternPluginString again{};
-      musicxx_extern_plugin_var_update(host, viewCP("musicxx.test.value"),
+      musicxx_extern_plugin_broadcast_update(host, viewCP("musicxx.test.value"),
                                        viewCP(R"("b")"), &log);
-      musicxx_extern_plugin_var_list(host, viewCP("musicxx.test.value"), &again,
+      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.value"), &again,
                                      &log);
       check(take(again).find("\"revision\":1") != std::string::npos,
             "值没变时不涨修订号 (也就不通知)");
@@ -2982,7 +2982,7 @@ int main(int argc, char **argv) {
     // 非法值: 拒绝 (不写入值、不通知)
     {
       MusicxxExternPluginString message{};
-      const int32_t rc = musicxx_extern_plugin_var_update(
+      const int32_t rc = musicxx_extern_plugin_broadcast_update(
           host, viewCP("musicxx.test.value"), viewCP("{不是 JSON"), &message);
       check(rc != MUSICXX_EXTERN_PLUGIN_OK, "非法 JSON 值被拒绝");
     }
@@ -2993,11 +2993,11 @@ int main(int argc, char **argv) {
         {"key":"musicxx.test.value","value":"a"},
         {"key":"musicxx.test.onlyWrite","value":"x"}
       ])";
-      const int32_t rc = musicxx_extern_plugin_var_update_batch(
+      const int32_t rc = musicxx_extern_plugin_broadcast_update_batch(
           host, viewP(items), &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "var_update_batch 受理");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_update_batch 受理");
       MusicxxExternPluginString listed{};
-      musicxx_extern_plugin_var_list(host, viewCP("musicxx.test.value"), &listed,
+      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.value"), &listed,
                                      &log);
       check(take(listed).find("\"value\":\"a\"") != std::string::npos,
             "批量推值逐个生效");
@@ -3006,19 +3006,19 @@ int main(int argc, char **argv) {
     // 关心数回传: 声明/订阅变化时会推给应用 (没人关心时也会推 0)
     {
       const std::string json = pollEvents(host, 500).json;
-      check(json.find("musicxx.var.subscriptions") != std::string::npos,
+      check(json.find("musicxx.broadcast.subscriptions") != std::string::npos,
             "关心数变化回传给应用 (键与数量)");
     }
 
     // 应用订阅插件键: 订阅一个还不存在的键也能受理 (键出现时自动挂)
     {
       const std::string keys = R"(["plugin.nobody.tip","plugin."])";
-      const int32_t rc = musicxx_extern_plugin_var_subscribe(host, viewP(keys),
+      const int32_t rc = musicxx_extern_plugin_broadcast_subscribe(host, viewP(keys),
                                                               &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "var_subscribe 受理 (含前缀写法)");
-      const int32_t unRc = musicxx_extern_plugin_var_unsubscribe(
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_subscribe 受理 (含前缀写法)");
+      const int32_t unRc = musicxx_extern_plugin_broadcast_unsubscribe(
           host, viewP(R"(["plugin.nobody.tip"])"), &log);
-      check(unRc == MUSICXX_EXTERN_PLUGIN_OK, "var_unsubscribe 受理");
+      check(unRc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_unsubscribe 受理");
     }
 
     // 调试信息里能看到变量表规模 (排障用)
@@ -3026,9 +3026,9 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString debug{};
       musicxx_extern_plugin_debug_info(host, &debug, &log);
       const std::string json = take(debug);
-      check(json.find("\"vars\"") != std::string::npos,
+      check(json.find("\"channels\"") != std::string::npos,
             "调试信息含变量表");
-      check(json.find("\"appVars\"") != std::string::npos,
+      check(json.find("\"appChannels\"") != std::string::npos,
             "调试信息区分官方键与插件键");
     }
   }

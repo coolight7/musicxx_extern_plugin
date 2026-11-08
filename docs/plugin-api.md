@@ -16,7 +16,7 @@
 | 清单与多目标打包、SDK、CMake、框架线程、构建部署、接口表判定、插件形态（运行器） | [plugin-native-api.md](plugin-native-api.md) |
 | 能力 id / 能不能参与 / 参与哪一步 / 载荷与回答 | [plugin-capabilities.md](plugin-capabilities.md)（生成物） |
 | 广播频道 id / 有没有当前值 / 谁能写 / 载荷 | [plugin-broadcasts.md](plugin-broadcasts.md)（生成物） |
-| 官方变量（`musicxx.*`）的键目录 | [plugin-vars.md](plugin-vars.md) |
+| 官方值频道（`musicxx.*`）的目录 | [plugin-value-channels.md](plugin-value-channels.md) |
 | 界面（UI 项字段、插件页面块类型、设置页） | [plugin-ui.md](plugin-ui.md) |
 | 播放页背景 / 内联块的着色器 | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | 装插件、刷新、看日志（命令行 / MCP） | [plugin-agent-cli.md](plugin-agent-cli.md) |
@@ -62,7 +62,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 让应用做一件事 | `await musicxx.call("musicxx.player.toggle")` | `requestAction("musicxx.player.toggle", "{}", &notify)` | §3 |
 | 读 / 写变量 | `await musicxx.broadcast.get(key)` / `musicxx.broadcast.write(key, v)` | 原生没有变量表（读用 `stateJson`，写用动作） | §5 |
 | 订阅事件 | `musicxx.broadcast.subscribe(topic, fn)` | `subscribeTopic(topic, fn)` | §4 |
-| 发布事件 | `musicxx.broadcast.publish(topic, data)` | `iface.events->publish(host, topic, json)` | §4 |
+| 发布事件 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
 | 调别的插件的能力 | `await musicxx.capability.call(id, "probe", args)` | `co_await capabilityCall(cap, method, args)` | §6 |
 | 声明 / 实现 / 调用功能点 | `musicxx.feature.define/provide/callPoint` | `featurePointDefine/Provide/Call` | §7 |
@@ -1758,10 +1758,10 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 
 ```cpp
 subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) { /* 载荷 JSON */ });
-// 发布：主题归属由插件框架校验
-PluginxxStringView topic = pluginxxView("plugin.my_plugin.hello");
-PluginxxStringView data  = pluginxxView(R"({"at":1})");
-iface.events->publish(host, &topic, &data);
+// 发布：频道归属由插件框架校验
+PluginxxStringView channel = pluginxxView("plugin.my_plugin.hello");
+PluginxxStringView data    = pluginxxView(R"({"at":1})");
+iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 ```
 
 规则：
@@ -1780,8 +1780,8 @@ iface.events->publish(host, &topic, &data);
 
 | 主题 | 什么时候来 | 载荷 |
 |---|---|---|
-| `musicxx.var.changed` | 变量变化 | `{key, value, prev, by, revision, ts, removed?, coalesced?}`（`by` 空串 = 应用改的） |
-| `musicxx.var.writeResult` | 自己发起的变量写入最终结果 | `{requestId, key, accepted, value, error?}` |
+| `musicxx.broadcast.changed` | 变量变化 | `{key, value, prev, by, revision, ts, removed?, coalesced?}`（`by` 空串 = 应用改的） |
+| `musicxx.broadcast.writeResult` | 自己发起的变量写入最终结果 | `{requestId, key, accepted, value, error?}` |
 | `plugin.<其它插件 id>.*` | 对方插件发布 | 由对方定义 |
 
 > **下面这些名字不是总线主题**：它们是插件框架 → 主程序的内部事件（与能力派发、UI 项、日志同一条内部队列），
@@ -1800,8 +1800,8 @@ iface.events->publish(host, &topic, &data);
 
 ## 5. 值频道（广播：有属主、可读、可写、可订阅变动的小值）
 
-> **迁移中**：这一节讲的“变量”就是广播值频道，只是入口与内部的叫法改成了广播
-> （JS 与 C 侧都叫 `broadcast*`，Dart 是 `MusicxxPluginChannels`）；**键、读写与回执行为不变**。
+> **这一节讲的就是广播值频道**（以前叫“变量”）：入口与内部的叫法都是广播
+> （JS 与 C 侧叫 `broadcast*`，Dart 是 `MusicxxPluginChannels`）；**键、读写与回执行为不变**。
 
 > **JS 写法**：`musicxx.broadcast.declare` / `read` / `get` / `write` / `subscribe` / `watch` …
 > （变量就是“带当前值的广播频道”）。
@@ -1820,16 +1820,16 @@ iface.events->publish(host, &topic, &data);
 | 每秒多次读的实时数据（播放进度、频谱） | 快照频道（§2） |
 | 一次性命令（播放、发通知、开页面） | 动作（§3） |
 | 广播"发生了某事"（没有当前值） | 事件（§4） |
-| **有当前值、要能改、改了要让别人知道** | **变量（本节）** |
-| 能力处理器 / 热路径里**同步**判断 | 变量 + `watch`（保活缓存）+ `read` |
+| **有当前值、要能改、改了要让别人知道** | **值频道（本节）** |
+| 能力处理器 / 热路径里**同步**判断 | 值频道 + `watch`（保活缓存）+ `read` |
 
 ### 5.1 三条读法
 
-| 写法（JS） | 对应 C++ | 时延与新鲜度 | 适合 |
+| 写法（JS） | 原生侧 | 时延与新鲜度 | 适合 |
 |---|---|---|---|
-| `await musicxx.broadcast.get(key)` | `varsGet(key, &notify)` | 一次往返；值来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
-| `musicxx.broadcast.read(key)` | `varsPeek(key)` | 查框架线程的表（纳秒级）；可能旧，返回里带 `ageMs` / `stale` | 能力处理器、按帧 / 按事件的热路径（先用 `watch` 保活） |
-| `musicxx.broadcast.subscribe(key, fn)` / `vars.watch(key)` | `varsSubscribe(keysJson)` + 订阅 `musicxx.var.changed` / `varsWatch` | 变化时回调 / 只保证 `peek` 新鲜 | 跟着变化做事 / 只要同步读不要回调 |
+| `await musicxx.broadcast.get(key)` | 没有对应入口（原生侧没有权威读） | 一次往返；值来自属主（权威） | 启动时读一次、低频读、要绝对正确 |
+| `musicxx.broadcast.read(key)` | `stateJson("musicxx.broadcast.<键>")`：读快照频道里存的值（带 `hasValue` / `revision` / `ageMs` / `stale`） | 查框架线程的表（纳秒级）；可能旧 | 能力处理器、按帧 / 按事件的热路径 |
+| `musicxx.broadcast.subscribe(key, fn)` / `broadcast.watch(key)` | `subscribeTopic("musicxx.broadcast.<键>", fn)`：订阅快照频道（订阅即推当前值） | 变化时回调 / 只保证读到的值新鲜 | 跟着变化做事 / 只要同步读不要回调 |
 
 ```js
 // 权威读
@@ -1847,17 +1847,18 @@ const off = musicxx.broadcast.subscribe("musicxx.ui.animatedLevel", (value, info
 ```
 
 ```cpp
-// C++：同步读缓存（热路径），结果里带 revision / ageMs / stale
-std::string cached = varsPeek("musicxx.ui.songIconWave");
-// 异步权威读：结果经完成通知回来
-PluginxxOperatorNotify notify{&onVarDone, this};
-varsGet("musicxx.ui.animatedLevel", &notify);
-// 订阅变化：登记关心之后，事件走 musicxx.var.changed（再用 subscribeTopic 订它）
-varsSubscribe(R"(["musicxx.ui.animatedLevel"])");
+// 同步读：值频道的快照存在广播频道 `musicxx.broadcast.<键>` 里
+// snapshot = {"key":..,"value":..,"revision":..,"hasValue":true,"valueMs":..,"ageMs":..,"stale":false}
+std::string snapshot = stateJson("musicxx.broadcast.musicxx.ui.songIconWave");
+
+// 订阅变化：订阅快照频道（订阅即推一次当前值，之后每次提交都推一份快照）
+subscribeTopic("musicxx.broadcast.musicxx.ui.animatedLevel", [](std::string_view json) {
+    // json 同上（一份快照）
+});
 ```
 
 读失败：JS 的 `get` 走 Promise 拒绝（`变量不存在` / `该变量不可读` / `读取超时`），
-同步的 `peek` 返回 `null`（没有缓存过就是没有，不抛异常）。
+同步的 `read` 返回 `null`（没有缓存过就是没有，不抛异常）。
 
 ### 5.2 写
 
@@ -1867,15 +1868,13 @@ if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
 ```
 
 ```cpp
-std::string out = varsSet("musicxx.ui.particleAnimate", "false");
-// 立即结算时 out 是结果；交给属主写入时是 {"pending":true,"requestId":N}，
-// 最终结果经事件 `musicxx.var.writeResult` 送达
+// 原生侧没有写值频道的入口：改应用的状态用能力（§3），发布自己的广播用 `publish_broadcast`
 ```
 
 写入一律**交给属主**：官方键由应用写入（走用户在设置里改的同一条路径）；你自己注册的 `declared`
 变量由插件框架代存（立即结算）；`handler` 变量转回你自己的 `onWrite`。
 
-### 5.3 注册自己的变量
+### 5.3 声明自己的值频道（JS）
 
 键名写**短名**（`tip.start`），插件框架补成 `plugin.<你的插件id>.tip.start`；分组可以多级。
 
@@ -1893,17 +1892,10 @@ musicxx.broadcast.declare({
 ```
 
 ```cpp
-MusicxxPluginVarSpec spec{};
-spec.version = 1;
-spec.struct_size = sizeof(spec);
-spec.key         = pluginxxView("tip.start");
-spec.caps        = MUSICXX_PLUGIN_VAR_CAP_GET | MUSICXX_PLUGIN_VAR_CAP_SET | MUSICXX_PLUGIN_VAR_CAP_NOTIFY;
-spec.write_scope = MUSICXX_PLUGIN_VAR_WRITE_ANY;
-spec.mode        = MUSICXX_PLUGIN_VAR_MODE_DECLARED;
-spec.type        = pluginxxView("bool");
-spec.value_json  = pluginxxView("false");
-spec.meta_json   = pluginxxView(R"({"title":"开场提示"})");
-varsRegister(spec);
+// 原生侧没有声明值频道的入口（caps / 类型 / write 范围 / handler 都是 JS 侧的能力）。
+// 要发布自己的广播频道用广播表的 `declare_broadcast` + `publish_broadcast`（见
+// [plugin-native-api.md](plugin-native-api.md) §4）；要一个可读 / 可写 / 可回执的值频道，
+// 写在 JS 插件里，或者让主程序声明它。
 ```
 
 **handler 模式**：值本来就在你自己手里（不想再维护一份副本，或写入要立刻做别的事）：
@@ -1929,17 +1921,7 @@ function setTipStart(next) { tipStart = next; musicxx.broadcast.write("tip.start
 ```
 
 ```cpp
-// C++ 的 handler 模式：订阅 musicxx.var.read / musicxx.var.write 两个事件，
-// 处理完用 varsRespond 回答（也可以对自己的键 set 一次 = 提交，框架把它当回执与回答）
-varsRegister(spec);                            // spec.mode = MUSICXX_PLUGIN_VAR_MODE_HANDLER
-subscribeTopic("musicxx.var.read", [this](std::string_view json) {
-    // json = {"requestId":N,"key":"plugin.my_plugin.tip.start"}
-    varsRespond(requestId, /*ok=*/1, "true", nullptr);
-});
-subscribeTopic("musicxx.var.write", [this](std::string_view json) {
-    // json = {"requestId":N,"key":"...","value":...,"by":"..."}
-    varsRespond(requestId, 1, "true", nullptr);   // 拒绝时 ok=0 并把原因写进 error
-});
+// 原生侧同样没有 handler 模式：读 / 写请求只发给 JS 声明过 handler 的频道。
 ```
 
 ### 5.4 自省
@@ -1953,8 +1935,8 @@ musicxx.broadcast.subscribers("tip.start");           // 有多少人在看（�
 musicxx.broadcast.undeclare("tip.start");
 ```
 
-C++ 同名方法：`varsInfo` / `varsList` / `varsUnregister`（`own` 与 `subscribers` 没有单独方法，
-用 `varsInfo` 读 `subscribers` 字段）。
+原生侧没有自省方法：要读某个键的当前快照就 `stateJson("musicxx.broadcast.<键>")`；
+“谁能写”“几个人在看”这类信息只有 JS 侧能读。
 
 ### 5.5 高频与超时
 
@@ -1965,7 +1947,7 @@ C++ 同名方法：`varsInfo` / `varsList` / `varsUnregister`（`own` 与 `subsc
   **缓存保持不变**。读 / 写请求的未回执上限各 32 条。
 - 变量数量、键长、值大小、订阅数都**不设上限**。
 
-官方变量（`musicxx.*`）的键目录见 [plugin-vars.md](plugin-vars.md)：由应用声明并提供，
+官方值频道（`musicxx.*`）的目录见 [plugin-value-channels.md](plugin-value-channels.md)：由应用声明并提供，
 没声明的键读 / 写一律返回"未找到"。
 
 ---
@@ -2575,7 +2557,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 - [plugin-native-api.md](plugin-native-api.md) —— 动态库插件：清单与多目标打包、SDK、线程、构建、部署、排障
 - [plugin-capabilities.md](plugin-capabilities.md) —— 能力总表：能不能参与、参与哪一步、载荷与回答（生成物）
 - [plugin-broadcasts.md](plugin-broadcasts.md) —— 广播总表：频道、有没有当前值、谁能写、载荷（生成物）
-- [plugin-vars.md](plugin-vars.md) —— 官方变量目录
+- [plugin-value-channels.md](plugin-value-channels.md) —— 官方变量目录
 - [plugin-ui.md](plugin-ui.md) —— 界面字段、块类型、插件页面与设置页
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— shader bundle 打包、uniform、参数表达式
 - [plugin-agent-cli.md](plugin-agent-cli.md) —— 命令行 / MCP：装插件、刷新、看日志

@@ -295,7 +295,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
 | 主程序动作（异步） | `requestAction(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；动作名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；**动作就是能力**（`runner = app`）：内部走 `musicxx.capabilities`，没声明过的动作名直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
 | 自省（异步） | `requestAction("musicxx.capability.subscribers", "{\"hook\":\"<能力 id>\"}", ...)`、`requestAction("musicxx.feature.point.list", ...)` | 前者答"这条能力现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这条能力再决定要不要登记"就用它们，别猜 |
-| 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.events->publish` | 主题须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 主题是允许的 |
+| 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.broadcasts->publish_broadcast` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
@@ -382,22 +382,22 @@ requestAction("musicxx.media.spectrum", R"({"bandCount":16})", &notify, 5000);
 subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
     // {"sid":..., "name":...} 当前歌曲快照
 });
-subscribeTopic("musicxx.var.changed", [](std::string_view json) { /* ... */ });
+subscribeTopic("musicxx.broadcast.changed", [](std::string_view json) { /* ... */ });
 
-// 发布：只能发官方主题或自己命名空间 plugin.<自己 id>.*
-PluginxxStringView topic = pluginxxView("plugin.my_plugin.hello");
-PluginxxStringView data  = pluginxxView(R"({"at":1})");
-iface.events->publish(host, &topic, &data);
+// 发布：只能发官方频道或自己命名空间 plugin.<自己 id>.*
+PluginxxStringView channel = pluginxxView("plugin.my_plugin.hello");
+PluginxxStringView data    = pluginxxView(R"({"at":1})");
+iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 ```
 
-**变量**（语义与错误码见 [plugin-api.md](plugin-api.md) §5）：
+**值频道**（语义与错误码见 [plugin-api.md](plugin-api.md) §5；原生侧只有广播表的读与订阅）：
 
 ```cpp
-std::string cached = varsPeek("musicxx.ui.songIconWave");           // 同步读缓存（可能旧）
-PluginxxOperatorNotify n{&onDone, this};
-varsGet("musicxx.ui.animatedLevel", &n);                            // 异步权威读
-varsSubscribe(R"(["musicxx.ui.animatedLevel"])");                   // 订阅（事件 musicxx.var.changed）
-std::string out = varsSet("musicxx.ui.particleAnimate", "false");   // 写：给了结果就结算，否则 {"pending":true,…}
+// 读当前快照（同步，可能旧；键的当前值存在 `musicxx.broadcast.<键>` 里）
+std::string snapshot = stateJson("musicxx.broadcast.musicxx.ui.songIconWave");
+// 订变化：订阅快照频道（订阅即推当前值）
+subscribeTopic("musicxx.broadcast.musicxx.ui.animatedLevel",
+               [](std::string_view json) { /* 一份快照 */ });
 ```
 
 **能力 / 功能点 / UI / 日志**：
@@ -532,22 +532,23 @@ const std::string songJson = stateJson(MUSICXX_STATE_SONG);   // 键没推过 = 
 
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
   （**不是实时值**）。要按秒推进度用广播频道 `musicxx.player.position`（每秒一条，
-  带 `sid` / `positionMs` / `durationMs`），要当场读当前值用变量 `musicxx.player.position`；
+  带 `sid` / `positionMs` / `durationMs`），要当场读当前值用值频道 `musicxx.player.position`
+  （快照存在 `musicxx.broadcast.<键>`）；
 - 加载时想立刻确认框架给的环境：`config()`（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）
   与 `argsJson()`（默认 `{}`）；
 - 接口表里**已经没有** `subscribe_state`（框架 API 2 删掉）：状态键用广播频道的订阅与 `cache` 拿，当场读值用 `stateJson`。
 
 ---
 
-## 5.5 变量：原生插件已不再有这张表
+## 5.5 值频道：原生插件只有广播表
 
 > **框架 API 2 起，`musicxx.vars` 表（`MusicxxPluginVarsIface`）与 SDK 的 `vars*` 包装全部删除。**
-> 原生插件不要再按本节旧写法登记变量：读应用的当前值用**广播频道**（`musicxx.state.*` 带
-> `cache: latest`，订阅即推；`stateJson` 读到的就是它），改应用的状态用**动作 / 能力**
-> （例如 `requestAction("musicxx.player.play", ...)`）。
+> 原生插件没有声明 / 读取 / 写入值频道的入口：读某个键的当前快照用 `stateJson("musicxx.broadcast.<键>")`、
+> 订变化用 `subscribeTopic("musicxx.broadcast.<键>", fn)`（快照频道，订阅即推）；
+> 改应用的状态用**能力**（§6），要发布自己的广播用广播表的 `declare_broadcast` + `publish_broadcast`。
 >
-> JS 插件侧的阅读入口是 `musicxx.broadcast.*`（`read` / `get` / `write` / `subscribe` / `declare` …），
-> 写法见 [plugin-api.md](plugin-api.md) §5 与 [plugin-vars.md](plugin-vars.md)。
+> JS 插件侧的入口是 `musicxx.broadcast.*`（`read` / `get` / `write` / `subscribe` / `declare` …），
+> 写法见 [plugin-api.md](plugin-api.md) §5 与 [plugin-value-channels.md](plugin-value-channels.md)。
 
 ---
 

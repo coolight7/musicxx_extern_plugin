@@ -798,13 +798,12 @@ int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_feature_bits(void) {
   return MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITIES |
          MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS |
          MUSICXX_EXTERN_PLUGIN_FEATURE_UI |
-         MUSICXX_EXTERN_PLUGIN_FEATURE_VARS |
-         MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITY_PHASES |
+        MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITY_PHASES |
          MUSICXX_EXTERN_PLUGIN_FEATURE_NET;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_declare(MusicxxExternPluginHost *h,
+musicxx_extern_plugin_broadcast_declare(MusicxxExternPluginHost *h,
                                   const MusicxxExternPluginStringView *items_json,
                                   MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
@@ -814,7 +813,7 @@ musicxx_extern_plugin_var_declare(MusicxxExternPluginHost *h,
   const std::string items = viewToStd(items_json);
   std::string message;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->declareVars(items, message);
+    return handle->manager->declareChannels(items, message);
   });
   if (!message.empty()) {
     setErr(log, message);
@@ -823,7 +822,7 @@ musicxx_extern_plugin_var_declare(MusicxxExternPluginHost *h,
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_update(MusicxxExternPluginHost *h,
+musicxx_extern_plugin_broadcast_update(MusicxxExternPluginHost *h,
                                  const MusicxxExternPluginStringView *key,
                                  const MusicxxExternPluginStringView *value_json,
                                  MusicxxExternPluginString *log) {
@@ -835,16 +834,16 @@ musicxx_extern_plugin_var_update(MusicxxExternPluginHost *h,
   const std::string value = viewToStd(value_json);
   std::string err;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->updateVar(keyText, value, err);
+    return handle->manager->updateChannel(keyText, value, err);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, err.empty() ? "var_update failed" : err);
+    setErr(log, err.empty() ? "broadcast_update failed" : err);
   }
   return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_update_batch(
+musicxx_extern_plugin_broadcast_update_batch(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *items_json,
     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
@@ -854,16 +853,16 @@ musicxx_extern_plugin_var_update_batch(
   const std::string items = viewToStd(items_json);
   std::string err;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->updateVarsBatch(items, err);
+    return handle->manager->publishChannels(items, err);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, err.empty() ? "var_update_batch failed" : err);
+    setErr(log, err.empty() ? "broadcast_update_batch failed" : err);
   }
   return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_write_result(
+musicxx_extern_plugin_broadcast_write_result(
     MusicxxExternPluginHost *h, int64_t request_id, int32_t accepted,
     const MusicxxExternPluginStringView *value_json,
     const MusicxxExternPluginStringView *error, MusicxxExternPluginString *log) {
@@ -874,16 +873,16 @@ musicxx_extern_plugin_var_write_result(
   const std::string value = value_json ? viewToStd(value_json) : std::string{};
   const std::string reason = error ? viewToStd(error) : std::string{};
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->varWriteResult(request_id, accepted, value, reason);
+    return handle->manager->channelWriteResult(request_id, accepted, value, reason);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, "var_write_result: 找不到对应的写请求 (可能已超时结算)");
+    setErr(log, "broadcast_write_result: 找不到对应的写请求 (可能已超时结算)");
   }
   return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_read_result(
+musicxx_extern_plugin_broadcast_read_result(
     MusicxxExternPluginHost *h, int64_t request_id, int32_t ok,
     const MusicxxExternPluginStringView *value_json,
     const MusicxxExternPluginStringView *error, MusicxxExternPluginString *log) {
@@ -894,16 +893,16 @@ musicxx_extern_plugin_var_read_result(
   const std::string value = value_json ? viewToStd(value_json) : std::string{};
   const std::string reason = error ? viewToStd(error) : std::string{};
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->varReadResult(request_id, ok, value, reason);
+    return handle->manager->channelReadResult(request_id, ok, value, reason);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, "var_read_result: 找不到对应的读请求 (可能已超时结算)");
+    setErr(log, "broadcast_read_result: 找不到对应的读请求 (可能已超时结算)");
   }
   return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_get(MusicxxExternPluginHost *h,
+musicxx_extern_plugin_broadcast_read(MusicxxExternPluginHost *h,
                               const MusicxxExternPluginStringView *key,
                               MusicxxExternPluginString *out_json,
                               MusicxxExternPluginString *log) {
@@ -917,15 +916,15 @@ musicxx_extern_plugin_var_get(MusicxxExternPluginHost *h,
   auto slot = std::make_shared<musicxx::extern_plugin::WaitSlot<std::string>>();
   std::string err;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->getVarForApp(keyText, err, slot);
+    return handle->manager->getChannelForApp(keyText, err, slot);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, err.empty() ? ("var_get failed: " + keyText) : err);
+    setErr(log, err.empty() ? ("broadcast_read failed: " + keyText) : err);
     return rc;
   }
   std::string payload;
   if (!slot->wait(2500, payload)) {
-    setErr(log, "var_get: 属主未在超时前回答 (" + keyText + ")");
+    setErr(log, "broadcast_read: 属主未在超时前回答 (" + keyText + ")");
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   setOut(out_json, payload);
@@ -933,7 +932,7 @@ musicxx_extern_plugin_var_get(MusicxxExternPluginHost *h,
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_set(MusicxxExternPluginHost *h,
+musicxx_extern_plugin_broadcast_write(MusicxxExternPluginHost *h,
                               const MusicxxExternPluginStringView *key,
                               const MusicxxExternPluginStringView *value_json,
                               MusicxxExternPluginString *out_json,
@@ -947,10 +946,10 @@ musicxx_extern_plugin_var_set(MusicxxExternPluginHost *h,
   auto slot = std::make_shared<musicxx::extern_plugin::WaitSlot<std::string>>();
   std::string immediate;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->setVarForApp(keyText, value, immediate, slot);
+    return handle->manager->setChannelForApp(keyText, value, immediate, slot);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, immediate.empty() ? ("var_set failed: " + keyText) : immediate);
+    setErr(log, immediate.empty() ? ("broadcast_write failed: " + keyText) : immediate);
     return rc;
   }
   if (!immediate.empty()) {
@@ -959,7 +958,7 @@ musicxx_extern_plugin_var_set(MusicxxExternPluginHost *h,
   }
   std::string payload;
   if (!slot->wait(3500, payload)) {
-    setErr(log, "var_set: 属主未在时限内写入 (" + keyText + ")");
+    setErr(log, "broadcast_write: 属主未在时限内写入 (" + keyText + ")");
     return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
   }
   setOut(out_json, payload);
@@ -967,7 +966,7 @@ musicxx_extern_plugin_var_set(MusicxxExternPluginHost *h,
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_list(MusicxxExternPluginHost *h,
+musicxx_extern_plugin_broadcast_list(MusicxxExternPluginHost *h,
                                const MusicxxExternPluginStringView *prefix,
                                MusicxxExternPluginString *out_json,
                                MusicxxExternPluginString *log) {
@@ -978,10 +977,10 @@ musicxx_extern_plugin_var_list(MusicxxExternPluginHost *h,
   const std::string head = prefix ? viewToStd(prefix) : std::string{};
   std::string json;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->listVars(head, json);
+    return handle->manager->listChannels(head, json);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, "var_list failed");
+    setErr(log, "broadcast_list failed");
     return rc;
   }
   setOut(out_json, json);
@@ -989,7 +988,7 @@ musicxx_extern_plugin_var_list(MusicxxExternPluginHost *h,
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_subscribe(
+musicxx_extern_plugin_broadcast_subscribe(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *keys_json,
     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
@@ -999,16 +998,16 @@ musicxx_extern_plugin_var_subscribe(
   const std::string keys = viewToStd(keys_json);
   std::string err;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->subscribeVarsForApp(keys, true, err);
+    return handle->manager->subscribeChannelsForApp(keys, true, err);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, err.empty() ? "var_subscribe failed" : err);
+    setErr(log, err.empty() ? "broadcast_subscribe failed" : err);
   }
   return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_var_unsubscribe(
+musicxx_extern_plugin_broadcast_unsubscribe(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *keys_json,
     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
@@ -1018,10 +1017,10 @@ musicxx_extern_plugin_var_unsubscribe(
   const std::string keys = viewToStd(keys_json);
   std::string err;
   const int32_t rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->subscribeVarsForApp(keys, false, err);
+    return handle->manager->subscribeChannelsForApp(keys, false, err);
   });
   if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-    setErr(log, err.empty() ? "var_unsubscribe failed" : err);
+    setErr(log, err.empty() ? "broadcast_unsubscribe failed" : err);
   }
   return rc;
 }

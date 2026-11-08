@@ -64,21 +64,21 @@ abstract final class MusicxxPluginEventType {
   static const String uiChanged = 'musicxx.ui.changed';
 
   /// 变量：插件框架把插件发出的"取真实值"请求转给主程序（主程序用 `var_read_result` 回答）
-  static const String varRead = 'musicxx.var.read';
+  static const String broadcastRead = 'musicxx.broadcast.read';
 
   /// 变量：插件框架把插件发出的写请求转给主程序（主程序用 `var_write_result` 回执）
-  static const String varWrite = 'musicxx.var.write';
+  static const String broadcastWrite = 'musicxx.broadcast.write';
 
   /// 变量：某个键的值变了（主程序订阅过的插件键才会收到）
-  static const String varChanged = 'musicxx.var.changed';
+  static const String broadcastChanged = 'musicxx.broadcast.changed';
 
   /// 变量：写请求的最终结果（写给插件自己收；Dart 侧只记录）
-  static const String varWriteResult = 'musicxx.var.writeResult';
+  static const String broadcastWriteResult = 'musicxx.broadcast.writeResult';
 
   /// 变量：某个键的关心者（订阅或 watch）数量变化
   ///
   /// 主程序据此维护"哪些键有人看"：没人看的键值变化只更新本地缓存，不推插件框架。
-  static const String varSubscriptions = 'musicxx.var.subscriptions';
+  static const String broadcastSubscriptions = 'musicxx.broadcast.subscriptions';
 
   /// 插件请求状态刷新
   static const String stateRequest = 'musicxx.state.request';

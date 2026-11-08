@@ -212,13 +212,13 @@ abstract final class MusicxxPluginActionNames {
   /// 切到前台（把主窗口显示出来）
   ///
   /// 与命令行 `window.foreground` 是同一份实现（`GlobalStore.appForeground`）。
-  /// 切完会派发通知型钩子 `musicxx.app.foreground`，并刷新状态镜像 `musicxx.state.app`。
+  /// 切完会派发通知型能力 `musicxx.app.foreground`，并刷新快照频道 `musicxx.state.app`。
   static const String appForeground = 'musicxx.app.foreground';
 
   /// 切到后台（隐藏主窗口，播放不受影响）
   ///
   /// 与命令行 `window.background` 是同一份实现（`GlobalStore.appBackground`）。
-  /// 切完会派发通知型钩子 `musicxx.app.background`，并刷新状态镜像 `musicxx.state.app`。
+  /// 切完会派发通知型能力 `musicxx.app.background`，并刷新快照频道 `musicxx.state.app`。
   static const String appBackground = 'musicxx.app.background';
 
   static const String playerPlay = 'musicxx.player.play';
@@ -408,7 +408,7 @@ abstract final class MusicxxPluginActionNames {
 
   // ==================== 歌词（单数域 lyric） ====================
   //
-  // 名字与钩子 / 变量 / 状态镜像一致，统一用 `musicxx.lyric.*`。
+  // 名字与能力 / 值频道 / 快照频道一致，统一用 `musicxx.lyric.*`。
   // 旧的复数域 `musicxx.lyrics.*` 已删除（不保留别名），从未实现过的 `sync` 连名字一起删掉。
 
   /// 当前歌曲的歌词信息和内容

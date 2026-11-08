@@ -513,7 +513,7 @@ void testBroadcastRegistry() {
   state.writable = pluginxx::BroadcastWritable_e::Owner;
   state.pushOnSubscribe = true;
   state.coalesce = true;
-  check(reg.declare(state), "声明状态镜像频道（应用属主）");
+  check(reg.declare(state), "声明快照频道（应用属主）");
 
   std::vector<std::string> seen;
   const uint64_t token = reg.subscribe("musicxx.state.player", "plugin_a",
@@ -524,11 +524,11 @@ void testBroadcastRegistry() {
   check(seen.empty(), "还没有值时订阅即推不回调");
 
   check(reg.publish("musicxx.state.player", R"({"playing":true})", ""),
-        "应用写状态镜像成功");
+        "应用写快照频道成功");
   check(seen.size() == 1 && seen[0] == R"({"playing":true})",
         "订阅方收到发布值");
   check(reg.publish("musicxx.state.player", R"({"playing":false})", ""),
-        "应用再次写状态镜像成功");
+        "应用再次写快照频道成功");
   {
     std::string value;
     check(reg.read("musicxx.state.player", &value) &&
@@ -558,7 +558,7 @@ void testBroadcastRegistry() {
 
   // 变量频道：任何人都能写、订阅即推、不合并
   pluginxx::BroadcastDecl var;
-  var.id = "musicxx.var.player.volume";
+  var.id = "plugin_a.volume";
   var.cache = pluginxx::BroadcastCache_e::Latest;
   var.writable = pluginxx::BroadcastWritable_e::Anyone;
   var.pushOnSubscribe = true;
@@ -566,21 +566,21 @@ void testBroadcastRegistry() {
   check(reg.declare(var), "声明变量频道（任何人可写）");
   {
     std::vector<std::string> values;
-    const uint64_t t = reg.subscribe("musicxx.var.player.volume", "plugin_a",
+    const uint64_t t = reg.subscribe("plugin_a.volume", "plugin_a",
                                     [&values](std::string_view v) {
                                       values.emplace_back(v);
                                     });
     check(t != 0, "变量频道订阅成功");
-    check(reg.publish("musicxx.var.player.volume", "10", "plugin_a"),
+    check(reg.publish("plugin_a.volume", "10", "plugin_a"),
           "插件写变量成功");
-    check(reg.publish("musicxx.var.player.volume", "20", "plugin_b"),
+    check(reg.publish("plugin_a.volume", "20", "plugin_b"),
           "另一个插件写同一个变量成功");
-    check(reg.publish("musicxx.var.player.volume", "30", ""),
+    check(reg.publish("plugin_a.volume", "30", ""),
           "应用写变量成功");
     check(values.size() == 3 && values.back() == "30",
           "coalesce: false 时每次发布都投递");
     std::string value;
-    check(reg.read("musicxx.var.player.volume", &value) && value == "30",
+    check(reg.read("plugin_a.volume", &value) && value == "30",
           "变量读当前值");
   }
 
@@ -672,7 +672,7 @@ void testBroadcastRegistry() {
     check(reg.publish("plugin_a.net", "{}", "plugin_a"), "退订后发布成功");
     check(calls == 0, "退订后不再收到");
 
-    check(reg.subscribe("musicxx.var.player.volume", "plugin_d",
+    check(reg.subscribe("plugin_a.volume", "plugin_d",
                         [](std::string_view) {}) != 0,
           "登记按属主退订的订阅");
     check(reg.removeSubscriber("plugin_d") >= 1, "按属主批量退订");
@@ -827,7 +827,7 @@ void testCapabilityDeclarations() {
       musicxxBroadcastDeclOf("musicxx.state.player");
   check(statePlayer && statePlayer->cache == MUSICXX_BROADCAST_CACHE_LATEST &&
             statePlayer->push_on_subscribe == 1,
-        "状态镜像：快照 + 订阅即推");
+        "快照频道：快照 + 订阅即推");
   const MusicxxBroadcastDecl *songChanged =
       musicxxBroadcastDeclOf("musicxx.song.changed");
   check(songChanged && songChanged->cache == MUSICXX_BROADCAST_CACHE_NONE &&

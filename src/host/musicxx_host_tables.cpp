@@ -1408,11 +1408,11 @@ void MusicxxHostManager::cancelAction(int64_t requestId) {
   pendingActions_.erase(it);
 }
 
-/* ==================== 状态镜像读取 ==================== */
+/* ==================== 快照频道读取 ==================== */
 
 int32_t MusicxxHostManager::readChannel(std::string_view key,
                                      std::string &outJson) {
-  /// 状态镜像只有一份存储: 广播注册表的当前值 (与 subscribe_broadcast 读到的是同一个)
+  /// 快照频道只有一份存储: 广播注册表的当前值 (与 subscribe_broadcast 读到的是同一个)
   PluginxxString out{nullptr, 0};
   const int32_t rc = readBroadcast(key, &out);
   if (rc == PLUGINXX_RESULT_OK) {

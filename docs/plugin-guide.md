@@ -11,7 +11,7 @@
 | 写 JS插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 写 动态库插件（含多目标打包） | [plugin-native-api.md](plugin-native-api.md) |
 | 查能力 id / 模式 / 载荷 / 裁决 | [plugin-capabilities.md](plugin-capabilities.md)（生成物） |
-| 读 / 改 / 订阅变量 | [plugin-vars.md](plugin-vars.md) |
+| 读 / 改 / 订阅变量 | [plugin-value-channels.md](plugin-value-channels.md) |
 | 加界面（主页入口、歌曲菜单、插件页面） | [plugin-ui.md](plugin-ui.md) |
 | 写着色器（播放页背景 / 页面内联块） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **用命令行 / AI agent 装插件、刷新、看日志**（不点管理页） | [plugin-agent-cli.md](plugin-agent-cli.md) |
@@ -140,7 +140,7 @@ musicxx.capability.register("card", function () {
 |---|---|---|---|
 | **应用来问插件（决策型能力）** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.capability.implement` / `PluginBase::implement`（带 `phase`） | [plugin-capabilities.md](plugin-capabilities.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
 | **快照频道** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.broadcast.read` / `stateJson` | [plugin-api.md](plugin-api.md) §2 |
-| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | JS `musicxx.broadcast.*`（原生已没有变量表） | [plugin-api.md](plugin-api.md) §5 + [plugin-vars.md](plugin-vars.md) |
+| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | JS `musicxx.broadcast.*`（原生已没有变量表） | [plugin-api.md](plugin-api.md) §5 + [plugin-value-channels.md](plugin-value-channels.md) |
 | **动作** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.call` / `requestAction` | [plugin-api.md](plugin-api.md) §3（全部动作的参数与返回） |
 | **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
@@ -369,7 +369,7 @@ musicxx.capability.register("card", function () {
   接口表判定、常用接口的 C++ 写法（§4.2）、构建、部署、排障
 - [plugin-capabilities.md](plugin-capabilities.md) —— 能力总表：能不能参与、参与哪一步、载荷与回答（生成物）
 - [plugin-broadcasts.md](plugin-broadcasts.md) —— 广播总表：频道、有没有当前值、谁能写、载荷（生成物）
-- [plugin-vars.md](plugin-vars.md) —— 官方变量目录与读写规则
+- [plugin-value-channels.md](plugin-value-channels.md) —— 官方变量目录与读写规则
 - [plugin-ui.md](plugin-ui.md) —— UI 项、插件页面组件、用 kit 拼装、页面间跳转
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— bundle 打包、uniform 约定、参数表达式、排查
 - [plugin-agent-cli.md](plugin-agent-cli.md) —— 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化）

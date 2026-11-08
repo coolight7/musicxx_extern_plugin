@@ -1188,22 +1188,22 @@ class MusicxxExternPluginBindings {
   late final _musicxx_extern_plugin_feature_bits =
       _musicxx_extern_plugin_feature_bitsPtr.asFunction<int Function()>();
 
-  /// 变量表 · 应用声明: items_json = [{"key":"musicxx.ui.animatedLevel",
+  /// 值频道 · 应用声明: items_json = [{"key":"musicxx.ui.animatedLevel",
   /// "caps":["get","set","notify"],"type":"string","options":["a","b"],
   /// "value":true,"title":"..","depict":"..","risk":"low",
   /// "throttleMs":0,"notifyThrottleMs":0}, ...]
   ///
   /// 逐项失败只写进 `log` (不影响其它项; 也不影响启动 —— 与"启动绝不失败"一致)。
   /// 主程序需要在插件框架启动后、加载插件之前声明一次, 插件才能读到这些键。
-  int musicxx_extern_plugin_var_declare(
+  int musicxx_extern_plugin_broadcast_declare(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> items_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_declare(h, items_json, log);
+    return _musicxx_extern_plugin_broadcast_declare(h, items_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_declarePtr =
+  late final _musicxx_extern_plugin_broadcast_declarePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1212,9 +1212,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_declare');
-  late final _musicxx_extern_plugin_var_declare =
-      _musicxx_extern_plugin_var_declarePtr
+      >('musicxx_extern_plugin_broadcast_declare');
+  late final _musicxx_extern_plugin_broadcast_declare =
+      _musicxx_extern_plugin_broadcast_declarePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1223,17 +1223,17 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 主程序推值 (官方键的主程序变动; 值没变不会通知)
-  int musicxx_extern_plugin_var_update(
+  /// 值频道 · 主程序推值 (官方键的主程序变动; 值没变不会通知)
+  int musicxx_extern_plugin_broadcast_update(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> key,
     ffi.Pointer<MusicxxExternPluginStringView> value_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_update(h, key, value_json, log);
+    return _musicxx_extern_plugin_broadcast_update(h, key, value_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_updatePtr =
+  late final _musicxx_extern_plugin_broadcast_updatePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1243,9 +1243,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_update');
-  late final _musicxx_extern_plugin_var_update =
-      _musicxx_extern_plugin_var_updatePtr
+      >('musicxx_extern_plugin_broadcast_update');
+  late final _musicxx_extern_plugin_broadcast_update =
+      _musicxx_extern_plugin_broadcast_updatePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1255,16 +1255,16 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 应用批量推值: [{"key":"...","value":...}, ...]
-  int musicxx_extern_plugin_var_update_batch(
+  /// 值频道 · 应用批量推值: [{"key":"...","value":...}, ...]
+  int musicxx_extern_plugin_broadcast_update_batch(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> items_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_update_batch(h, items_json, log);
+    return _musicxx_extern_plugin_broadcast_update_batch(h, items_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_update_batchPtr =
+  late final _musicxx_extern_plugin_broadcast_update_batchPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1273,9 +1273,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_update_batch');
-  late final _musicxx_extern_plugin_var_update_batch =
-      _musicxx_extern_plugin_var_update_batchPtr
+      >('musicxx_extern_plugin_broadcast_update_batch');
+  late final _musicxx_extern_plugin_broadcast_update_batch =
+      _musicxx_extern_plugin_broadcast_update_batchPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1284,8 +1284,8 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 应用回执写请求 (**回执即写入**): accepted 且带 value 时写入值并按需广播
-  int musicxx_extern_plugin_var_write_result(
+  /// 值频道 · 应用回执写请求 (**回执即写入**): accepted 且带 value 时写入值并按需广播
+  int musicxx_extern_plugin_broadcast_write_result(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int request_id,
     int accepted,
@@ -1293,7 +1293,7 @@ class MusicxxExternPluginBindings {
     ffi.Pointer<MusicxxExternPluginStringView> error,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_write_result(
+    return _musicxx_extern_plugin_broadcast_write_result(
       h,
       request_id,
       accepted,
@@ -1303,7 +1303,7 @@ class MusicxxExternPluginBindings {
     );
   }
 
-  late final _musicxx_extern_plugin_var_write_resultPtr =
+  late final _musicxx_extern_plugin_broadcast_write_resultPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1315,9 +1315,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_write_result');
-  late final _musicxx_extern_plugin_var_write_result =
-      _musicxx_extern_plugin_var_write_resultPtr
+      >('musicxx_extern_plugin_broadcast_write_result');
+  late final _musicxx_extern_plugin_broadcast_write_result =
+      _musicxx_extern_plugin_broadcast_write_resultPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1329,9 +1329,9 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 主程序回答读取请求 (插件 `get` 官方键时插件框架转过来的那条)
+  /// 值频道 · 主程序回答读取请求 (插件 `get` 官方键时插件框架转过来的那条)
   /// - 一条读请求只回答一次; 不答则调用方按 `read_timeout` 结算
-  int musicxx_extern_plugin_var_read_result(
+  int musicxx_extern_plugin_broadcast_read_result(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int request_id,
     int ok,
@@ -1339,7 +1339,7 @@ class MusicxxExternPluginBindings {
     ffi.Pointer<MusicxxExternPluginStringView> error,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_read_result(
+    return _musicxx_extern_plugin_broadcast_read_result(
       h,
       request_id,
       ok,
@@ -1349,7 +1349,7 @@ class MusicxxExternPluginBindings {
     );
   }
 
-  late final _musicxx_extern_plugin_var_read_resultPtr =
+  late final _musicxx_extern_plugin_broadcast_read_resultPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1361,9 +1361,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_read_result');
-  late final _musicxx_extern_plugin_var_read_result =
-      _musicxx_extern_plugin_var_read_resultPtr
+      >('musicxx_extern_plugin_broadcast_read_result');
+  late final _musicxx_extern_plugin_broadcast_read_result =
+      _musicxx_extern_plugin_broadcast_read_resultPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1375,17 +1375,17 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 主程序读插件键 (有界等待插件框架与属主; 结果经 out_json 给出)
-  int musicxx_extern_plugin_var_get(
+  /// 值频道 · 主程序读插件键 (有界等待插件框架与属主; 结果经 out_json 给出)
+  int musicxx_extern_plugin_broadcast_read(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> key,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_get(h, key, out_json, log);
+    return _musicxx_extern_plugin_broadcast_read(h, key, out_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_getPtr =
+  late final _musicxx_extern_plugin_broadcast_readPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1395,29 +1395,36 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_get');
-  late final _musicxx_extern_plugin_var_get = _musicxx_extern_plugin_var_getPtr
-      .asFunction<
-        int Function(
-          ffi.Pointer<MusicxxExternPluginHost>,
-          ffi.Pointer<MusicxxExternPluginStringView>,
-          ffi.Pointer<MusicxxExternPluginString>,
-          ffi.Pointer<MusicxxExternPluginString>,
-        )
-      >();
+      >('musicxx_extern_plugin_broadcast_read');
+  late final _musicxx_extern_plugin_broadcast_read =
+      _musicxx_extern_plugin_broadcast_readPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
 
-  /// 变量表 · 应用写插件键 (declared 立即结算; handler 等属主, 有界等待)
-  int musicxx_extern_plugin_var_set(
+  /// 值频道 · 应用写插件键 (declared 立即结算; handler 等属主, 有界等待)
+  int musicxx_extern_plugin_broadcast_write(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> key,
     ffi.Pointer<MusicxxExternPluginStringView> value_json,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_set(h, key, value_json, out_json, log);
+    return _musicxx_extern_plugin_broadcast_write(
+      h,
+      key,
+      value_json,
+      out_json,
+      log,
+    );
   }
 
-  late final _musicxx_extern_plugin_var_setPtr =
+  late final _musicxx_extern_plugin_broadcast_writePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1428,29 +1435,30 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_set');
-  late final _musicxx_extern_plugin_var_set = _musicxx_extern_plugin_var_setPtr
-      .asFunction<
-        int Function(
-          ffi.Pointer<MusicxxExternPluginHost>,
-          ffi.Pointer<MusicxxExternPluginStringView>,
-          ffi.Pointer<MusicxxExternPluginStringView>,
-          ffi.Pointer<MusicxxExternPluginString>,
-          ffi.Pointer<MusicxxExternPluginString>,
-        )
-      >();
+      >('musicxx_extern_plugin_broadcast_write');
+  late final _musicxx_extern_plugin_broadcast_write =
+      _musicxx_extern_plugin_broadcast_writePtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
 
-  /// 变量表 · 应用列变量 (prefix 可空; 值字段是缓存值, 带 revision/ageMs/stale)
-  int musicxx_extern_plugin_var_list(
+  /// 值频道 · 应用列变量 (prefix 可空; 值字段是缓存值, 带 revision/ageMs/stale)
+  int musicxx_extern_plugin_broadcast_list(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> prefix,
     ffi.Pointer<MusicxxExternPluginString> out_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_list(h, prefix, out_json, log);
+    return _musicxx_extern_plugin_broadcast_list(h, prefix, out_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_listPtr =
+  late final _musicxx_extern_plugin_broadcast_listPtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1460,9 +1468,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_list');
-  late final _musicxx_extern_plugin_var_list =
-      _musicxx_extern_plugin_var_listPtr
+      >('musicxx_extern_plugin_broadcast_list');
+  late final _musicxx_extern_plugin_broadcast_list =
+      _musicxx_extern_plugin_broadcast_listPtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1472,18 +1480,18 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 变量表 · 应用订阅/退订插件键的变动
+  /// 值频道 · 应用订阅/退订插件键的变动
   /// - keys_json = 字符串数组, 支持前缀写法 ("plugin." / "plugin.<id>.")
-  /// - 应用订阅了某个键, 该键变化时才会推 `musicxx.var.changed` 事件
-  int musicxx_extern_plugin_var_subscribe(
+  /// - 应用订阅了某个键, 该键变化时才会推 `musicxx.broadcast.changed` 事件
+  int musicxx_extern_plugin_broadcast_subscribe(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> keys_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_subscribe(h, keys_json, log);
+    return _musicxx_extern_plugin_broadcast_subscribe(h, keys_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_subscribePtr =
+  late final _musicxx_extern_plugin_broadcast_subscribePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1492,9 +1500,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_subscribe');
-  late final _musicxx_extern_plugin_var_subscribe =
-      _musicxx_extern_plugin_var_subscribePtr
+      >('musicxx_extern_plugin_broadcast_subscribe');
+  late final _musicxx_extern_plugin_broadcast_subscribe =
+      _musicxx_extern_plugin_broadcast_subscribePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,
@@ -1503,15 +1511,15 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  int musicxx_extern_plugin_var_unsubscribe(
+  int musicxx_extern_plugin_broadcast_unsubscribe(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> keys_json,
     ffi.Pointer<MusicxxExternPluginString> log,
   ) {
-    return _musicxx_extern_plugin_var_unsubscribe(h, keys_json, log);
+    return _musicxx_extern_plugin_broadcast_unsubscribe(h, keys_json, log);
   }
 
-  late final _musicxx_extern_plugin_var_unsubscribePtr =
+  late final _musicxx_extern_plugin_broadcast_unsubscribePtr =
       _lookup<
         ffi.NativeFunction<
           ffi.Int32 Function(
@@ -1520,9 +1528,9 @@ class MusicxxExternPluginBindings {
             ffi.Pointer<MusicxxExternPluginString>,
           )
         >
-      >('musicxx_extern_plugin_var_unsubscribe');
-  late final _musicxx_extern_plugin_var_unsubscribe =
-      _musicxx_extern_plugin_var_unsubscribePtr
+      >('musicxx_extern_plugin_broadcast_unsubscribe');
+  late final _musicxx_extern_plugin_broadcast_unsubscribe =
+      _musicxx_extern_plugin_broadcast_unsubscribePtr
           .asFunction<
             int Function(
               ffi.Pointer<MusicxxExternPluginHost>,

@@ -21,7 +21,7 @@
 | **musicxx 对外暴露的全部接口**（MCP 工具全表 / 命令行命令全表 / 本机 HTTP 与 WebSocket 路由 / 权限边界） | [docs/musicxx-interfaces.md](docs/musicxx-interfaces.md) |
 | 查**能力** id / 能不能参与 / 载荷与回答 | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
 | 查**广播频道** id / 有没有当前值 / 谁能写 / 载荷 | [docs/plugin-broadcasts.md](docs/plugin-broadcasts.md) |
-| 读 / 改 / 订阅**变量**（官方变量目录与规则） | [docs/plugin-vars.md](docs/plugin-vars.md) |
+| 读 / 改 / 订阅**值频道**（官方值频道目录与规则） | [docs/plugin-value-channels.md](docs/plugin-value-channels.md) |
 | 查**版本对照**（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）、改版本号的流程 | [docs/version-history.md](docs/version-history.md) |
 | 构建插件框架库、把插件框架库随主程序分发 | 本文件「构建」「打包（随应用分发）」 |
 | 在 Dart 侧接入插件框架（主程序开发者） | 本文件「Dart 侧（包内）」+ `lib/musicxx_extern_plugin.dart` 文件头 |
@@ -77,7 +77,7 @@ docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个�
 docs/plugin-api.md 两种形态共用的接口手册（能力与广播：快照频道 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障）
 docs/plugin-capabilities.md 能力总表（生成物：id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答）
 docs/plugin-broadcasts.md 广播总表（生成物：频道 / 有没有当前值 / 谁能写 / 载荷）
-docs/plugin-vars.md 官方变量目录（键 / 能力位 / 取值 / 风险 + 维护约定）
+docs/plugin-value-channels.md 官方值频道目录（键 / 能力位 / 取值 / 风险 + 维护约定）
 docs/plugin-native-api.md 动态库插件作者指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 拼装内容/插件自己的设置页写法）

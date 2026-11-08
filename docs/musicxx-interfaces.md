@@ -392,7 +392,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `var.get` | `key`(必填) | `{key, value, type, options, caps, title, depict, risk}` |
 | `var.set` | `key`(必填)、`value`(必填，任意 JSON 值) | `{key, value}`；属主不接受时是命令失败（原因可读） |
 
-变量清单与语义见 [plugin-vars.md](plugin-vars.md)。当前四个导出能力：
+变量清单与语义见 [plugin-value-channels.md](plugin-value-channels.md)。当前四个导出能力：
 `GetAudioSpectrum`（整曲频谱，文本表）、`AnalyseAudioChorus`（副歌区段）、
 `AnalyseImageMainColors`（图片主色调）、`GetMediaKernelInfo`（播放内核：版本 / 过滤器 / 解码器 / 后缀）。
 它们的参数由能力自己声明，`feature.list` / MCP 的工具清单里就是同一份。
@@ -848,7 +848,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 **相关文档**：[plugin-api.md](plugin-api.md)（插件侧接口手册）、
 [plugin-agent-cli.md](plugin-agent-cli.md)（用命令行 / MCP 管插件）、
-[plugin-vars.md](plugin-vars.md)（变量）、[plugin-capabilities.md](plugin-capabilities.md)（能力总表）、
+[plugin-value-channels.md](plugin-value-channels.md)（变量）、[plugin-capabilities.md](plugin-capabilities.md)（能力总表）、
 [plugin-guide.md](plugin-guide.md)（总入口）。
 
 **维护者注**（改接口时一起改的地方）：命令与工具的实现都在主程序

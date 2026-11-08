@@ -999,7 +999,7 @@ void MusicxxHostManager::clearPluginRegistrations(
   // 声明式 UI 项随实例摘除 (卸载后不再渲染该插件的入口/菜单)
   detachUiEntries(instanceName);
   // 变量与订阅随实例摘除 (订阅者收到一条 removed 通知)
-  detachVars(instanceName);
+  detachChannels(instanceName);
   // JS 引擎登记的动作请求 (由 JS 侧自己保活) 也要一起取消
   cancelActionsOfInstance(instanceName);
 }
@@ -2459,12 +2459,12 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   // 其它 id 按事件频道处理 (没有当前值)
   const bool isState
       = id.rfind("musicxx.state.", 0) == 0;
-  const bool isVar = id.rfind("musicxx.var.", 0) == 0;
-  if (isState || isVar) {
+  const bool isChannel = id.rfind("musicxx.broadcast.", 0) == 0;
+  if (isState || isChannel) {
     decl.cache = pluginxx::BroadcastCache_e::Latest;
     decl.pushOnSubscribe = true;
     decl.coalesce = isState;
-    decl.writable = isVar ? pluginxx::BroadcastWritable_e::Anyone
+    decl.writable = isChannel ? pluginxx::BroadcastWritable_e::Anyone
                           : pluginxx::BroadcastWritable_e::Owner;
   } else {
     decl.cache = pluginxx::BroadcastCache_e::None;
@@ -2589,7 +2589,7 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
                      : parseJsonSafe(R"({"available":false,"running":false})");
   }
   // 变量表诊断 (条数/能力分布/订阅数/未回执的读写请求)
-  j["vars"] = parseJsonSafe(varsDebugJson());
+  j["channels"] = parseJsonSafe(channelsDebugJson());
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
