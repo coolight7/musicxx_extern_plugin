@@ -882,7 +882,10 @@ OpenSSL 版本。所以 `https` 失败只剩真正的原因：`tls_config`（`ca
 ```
 
 - **非 2xx 也按"请求完成"返回**（`ok:true` + `status`），状态码交给插件判断；
-  只有传输失败 / TLS 失败 / 超时才 `ok:false`。
+  只有传输失败 / TLS 失败 / 超时才 `ok:false`。**`download` 是例外**：非 2xx 直接回
+  `ok:false`（不把错误页正文写成文件）。
+- 失败时的 `error` 是归类后的字符串（`resolve_failed` / `connect_failed` / `tls_*` /
+  `incomplete` / `timeout` / `cancelled` 等），`message` 是具体原因。
 - 响应体是**流式读取**的：给了 `maxBytes` 且读满就断开连接并置 `truncated:true`；
   不给 `maxBytes` = 整份读到内存（大文件用 `download`，它边读边写盘）。`responseType` 为 `bytes` 时
   返回前还要 base64 一份，峰值内存约为响应体大小的 2.3 倍。
@@ -1063,7 +1066,7 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 → `{ok, id, host, port, url, routes?}`。每个请求发一条
 `http.request`，**必须**用 `http.respond` 回答（`status` / `headers` / `contentType` /
 `body`|`bodyBase64`），否则 `requestTimeoutMs`（缺省 30 s）后自动回 504 并关连接。
-支持 `Connection: keep-alive`；分块请求体不支持（回 411，请用 `Content-Length`）。
+支持 `Connection: keep-alive`；请求体可以是 `Content-Length`，也可以分块传输（chunked）。
 
 **TCP**：`socket.connect` / `socket.listen` 之后用同一套 `socket.send` / `socket.close`
 （服务端连接用事件里的 `id`，并带 `serverId` 区分来源）。字节以 `dataBase64` 给出，
@@ -1122,7 +1125,8 @@ musicxx.net.socket.pause(upstreamId, false);
 - **广播**：通道建好就打开了 `SO_BROADCAST`，直接 `send({host:"255.255.255.255"})` 或子网广播地址
   （`192.168.1.255`）就行，不需要额外声明。
 - **组播**：建通道时在 `multicast` 里声明，或运行期 `udp.join` / `udp.leave`；
-  组播地址必须是合法的组播 IP，否则报 `bad_group`。收组播一般绑定 `0.0.0.0:端口`。
+  组播地址必须是合法的组播 IP，否则报 `bad_group`（当前只支持 **IPv4 组播**）。
+  收组播一般绑定 `0.0.0.0:端口`。
 - `reuseAddress` 缺省开（组播 / 多进程监听同一端口要用）；不要时写 `false`。
 - **单包容积**：UDP 本身的上限约 64 KiB，超过由系统报错（框架不拆分、不分片）。
 - 收包事件：`{kind:"udp.message", id, host, port, bytes, dataBase64, text?, data?}`
@@ -1163,8 +1167,9 @@ netCall(musicxx::plugin::net_op::udpSend, R"({"id":"udp1","host":"255.255.255.25
 | `ws.listening` / `ws.serverClosed` | `id, host, port, url` |
 | `ws.open` | `id, serverId?, url?, path?, remote, headers, subprotocol?` |
 | `ws.message` | `id, serverId?, binary, text?, dataBase64, bytes` |
-| `ws.pong` | `id, serverId?, bytes` |
 | `ws.close` | `id, serverId?, by, code?, reason?, error?` |
+
+> `ws.pong` **不再单独发事件**（ping/pong 由框架自己应答，插件不会收到 pong）。
 | `udp.open` | `id, host, port` |
 | `udp.message` | `id, host, port, bytes, dataBase64, text?` |
 | `udp.closed` | `id, reason`（`local_close` / `plugin_unloaded`） |

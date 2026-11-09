@@ -8,6 +8,20 @@
 
 ## 历史
 
+### 变更（2026.1108.1 内，未发布）：插件网络的协议实现全部换成 `cxx_utilxx` 的网络库
+
+手写的 HTTP / TCP / WebSocket / UDP 协议实现（头解析、chunked 解码、Range、WS 握手与帧、
+accept 循环）全删，改成库里的 `HttpClient` / `HttpServer` / `TcpConnection` / `TcpServer` /
+`WsClient` / `UdpSocket`。**op、参数、结果字段、事件名与容量上限都不变**，下面几条是具体行为差异：
+
+- `http.download` 遇到非 2xx 直接 `ok:false`（以前会把错误页正文写成文件）；
+- `http.request` / `fetch` 的 `receivedBytes` 是正文字节数；失败时 `error` 按原因归类
+  （`resolve_failed` / `connect_failed` / `tls_*` / `incomplete` / `timeout` / `cancelled`）；
+- HTTP 服务端支持分块请求体（以前回 411）；
+- UDP 组播只接受 IPv4 地址（其余报 `bad_group`）；
+- WebSocket 的 `ws.pong` 事件不再发出（ping/pong 由框架自己应答）；
+- WebSocket 服务端连接的 `ws.open` 事件带 `path` 与握手 `headers`。
+
 ### 变更（破坏性，2026.1108.1 内，未发布）：网络表变成插件框架的通用表，实现在 `cxx_utilxx`
 
 - **表体搬到插件框架**：`pluginxx/api/net.h`（IID 仍是 `<应用名>.net`，本项目即 `musicxx.net`，
