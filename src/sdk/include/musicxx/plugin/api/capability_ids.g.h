@@ -75,10 +75,10 @@
 /// 快照：订阅即拿到当前值，也能同步读
 #define MUSICXX_BROADCAST_CACHE_LATEST 1
 
-/// 只有属主能写
-#define MUSICXX_BROADCAST_WRITABLE_OWNER  0
-/// 任何人都能写（变量）
-#define MUSICXX_BROADCAST_WRITABLE_ANYONE 1
+/// 只有属主能发布
+#define MUSICXX_BROADCAST_PUBLISH_OWNER  0
+/// 任何人都能发布
+#define MUSICXX_BROADCAST_PUBLISH_ANYONE 1
 
 /// 业务频道
 #define MUSICXX_BROADCAST_SCOPE_APP    0
@@ -173,6 +173,13 @@
 #define MUSICXX_CAPABILITY_UI_SET_ENTRY_BADGE "musicxx.ui.setEntryBadge"
 #define MUSICXX_CAPABILITY_UI_SET_FONT_FAMILY "musicxx.ui.setFontFamily"
 #define MUSICXX_CAPABILITY_UI_GET_FONT_FAMILY "musicxx.ui.getFontFamily"
+#define MUSICXX_CAPABILITY_UI_SET_ANIMATED_LEVEL "musicxx.ui.setAnimatedLevel"
+#define MUSICXX_CAPABILITY_UI_SET_PARTICLE_ANIMATE "musicxx.ui.setParticleAnimate"
+#define MUSICXX_CAPABILITY_UI_SET_SONG_ICON_ROTATE "musicxx.ui.setSongIconRotate"
+#define MUSICXX_CAPABILITY_UI_SET_SONG_ICON_WAVE "musicxx.ui.setSongIconWave"
+#define MUSICXX_CAPABILITY_THEME_SET_CURRENT "musicxx.theme.setCurrent"
+#define MUSICXX_CAPABILITY_THEME_SET_MODE "musicxx.theme.setMode"
+#define MUSICXX_CAPABILITY_THEME_TEMP_SWITCH "musicxx.theme.tempSwitch"
 #define MUSICXX_CAPABILITY_UI_LOAD_FONT "musicxx.ui.loadFont"
 #define MUSICXX_CAPABILITY_STORAGE_GET "musicxx.storage.get"
 #define MUSICXX_CAPABILITY_STORAGE_SET "musicxx.storage.set"
@@ -212,6 +219,7 @@
 #define MUSICXX_BROADCAST_APP_BACKGROUND "musicxx.app.background"
 #define MUSICXX_BROADCAST_APP_FOREGROUND "musicxx.app.foreground"
 #define MUSICXX_BROADCAST_APP_UPGRADE "musicxx.app.upgrade"
+#define MUSICXX_BROADCAST_APP_LIFECYCLE "musicxx.app.lifecycle"
 #define MUSICXX_BROADCAST_PLAYER_SOURCE_RESOLVED "musicxx.player.source.resolved"
 #define MUSICXX_BROADCAST_PLAYER_STATE "musicxx.player.state"
 #define MUSICXX_BROADCAST_PLAYER_POSITION "musicxx.player.position"
@@ -229,6 +237,14 @@
 #define MUSICXX_BROADCAST_UI_PAGE_LEAVE "musicxx.ui.page.leave"
 #define MUSICXX_BROADCAST_UI_THEME_CHANGED "musicxx.ui.theme.changed"
 #define MUSICXX_BROADCAST_UI_USER_ACTION "musicxx.ui.user.action"
+#define MUSICXX_BROADCAST_UI_ANIMATED_LEVEL "musicxx.ui.animatedLevel"
+#define MUSICXX_BROADCAST_UI_PARTICLE_ANIMATE "musicxx.ui.particleAnimate"
+#define MUSICXX_BROADCAST_UI_SONG_ICON_ROTATE "musicxx.ui.songIconRotate"
+#define MUSICXX_BROADCAST_UI_SONG_ICON_WAVE "musicxx.ui.songIconWave"
+#define MUSICXX_BROADCAST_UI_FONT_FAMILY "musicxx.ui.fontFamily"
+#define MUSICXX_BROADCAST_THEME_AVAILABLE "musicxx.theme.available"
+#define MUSICXX_BROADCAST_THEME_CURRENT "musicxx.theme.current"
+#define MUSICXX_BROADCAST_THEME_MODE "musicxx.theme.mode"
 #define MUSICXX_BROADCAST_STATE_APP "musicxx.state.app"
 #define MUSICXX_BROADCAST_STATE_PLAYER "musicxx.state.player"
 #define MUSICXX_BROADCAST_STATE_SONG "musicxx.state.song"
@@ -261,7 +277,7 @@ typedef struct MusicxxCapabilityDecl {
 typedef struct MusicxxBroadcastDecl {
     const char* id;
     int32_t     cache;             ///< MUSICXX_BROADCAST_CACHE_*
-    int32_t     writable;          ///< MUSICXX_BROADCAST_WRITABLE_*
+    int32_t     publish;           ///< MUSICXX_BROADCAST_PUBLISH_*
     int32_t     push_on_subscribe; ///< 订阅时立刻推当前值
     int32_t     coalesce;          ///< 允许合并（允许丢中间值）
     int32_t     scope;             ///< MUSICXX_BROADCAST_SCOPE_*
@@ -355,6 +371,13 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.ui.setEntryBadge", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 0},
     {"musicxx.ui.setFontFamily", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.getFontFamily", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.ui.setAnimatedLevel", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.ui.setParticleAnimate", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.ui.setSongIconRotate", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.ui.setSongIconWave", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.theme.setCurrent", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.theme.setMode", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.theme.tempSwitch", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.loadFont", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.storage.get", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.storage.set", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
@@ -399,9 +422,10 @@ static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
     {"musicxx.app.background", 0, 0, 0, 1, 0, 1},
     {"musicxx.app.foreground", 0, 0, 0, 1, 0, 1},
     {"musicxx.app.upgrade", 0, 0, 0, 1, 0, 0},
+    {"musicxx.app.lifecycle", 1, 0, 1, 0, 0, 1},
     {"musicxx.player.source.resolved", 0, 0, 0, 1, 0, 1},
     {"musicxx.player.state", 0, 0, 0, 1, 0, 1},
-    {"musicxx.player.position", 0, 0, 0, 1, 0, 1},
+    {"musicxx.player.position", 1, 0, 1, 0, 0, 1},
     {"musicxx.player.completed", 0, 0, 0, 1, 0, 1},
     {"musicxx.player.qualityChanged", 0, 0, 0, 1, 0, 0},
     {"musicxx.song.changed", 0, 0, 0, 1, 0, 1},
@@ -416,6 +440,14 @@ static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
     {"musicxx.ui.page.leave", 0, 0, 0, 1, 0, 0},
     {"musicxx.ui.theme.changed", 0, 0, 0, 1, 0, 0},
     {"musicxx.ui.user.action", 0, 0, 0, 1, 0, 0},
+    {"musicxx.ui.animatedLevel", 1, 0, 1, 0, 0, 1},
+    {"musicxx.ui.particleAnimate", 1, 0, 1, 0, 0, 1},
+    {"musicxx.ui.songIconRotate", 1, 0, 1, 0, 0, 1},
+    {"musicxx.ui.songIconWave", 1, 0, 1, 0, 0, 1},
+    {"musicxx.ui.fontFamily", 1, 0, 1, 0, 0, 1},
+    {"musicxx.theme.available", 1, 0, 1, 0, 0, 1},
+    {"musicxx.theme.current", 1, 0, 1, 0, 0, 1},
+    {"musicxx.theme.mode", 1, 0, 1, 0, 0, 1},
     {"musicxx.state.app", 1, 0, 1, 1, 0, 1},
     {"musicxx.state.player", 1, 0, 1, 1, 0, 1},
     {"musicxx.state.song", 1, 0, 1, 1, 0, 1},

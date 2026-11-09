@@ -250,6 +250,20 @@ abstract final class MusicxxCapabilityId {
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
   /// musicxx.ui.getFontFamily
   static const String uiGetFontFamily = 'musicxx.ui.getFontFamily';
+  /// 设置动画等级
+  static const String uiSetAnimatedLevel = 'musicxx.ui.setAnimatedLevel';
+  /// 设置粒子动画
+  static const String uiSetParticleAnimate = 'musicxx.ui.setParticleAnimate';
+  /// 设置歌曲图旋转
+  static const String uiSetSongIconRotate = 'musicxx.ui.setSongIconRotate';
+  /// 设置歌曲图波浪
+  static const String uiSetSongIconWave = 'musicxx.ui.setSongIconWave';
+  /// 切换当前主题
+  static const String themeSetCurrent = 'musicxx.theme.setCurrent';
+  /// 设置主题模式
+  static const String themeSetMode = 'musicxx.theme.setMode';
+  /// 临时切换主题
+  static const String themeTempSwitch = 'musicxx.theme.tempSwitch';
   /// 加载字体
   static const String uiLoadFont = 'musicxx.ui.loadFont';
   /// 读插件存储
@@ -405,6 +419,13 @@ abstract final class MusicxxCapabilityId {
     uiSetEntryBadge,
     uiSetFontFamily,
     uiGetFontFamily,
+    uiSetAnimatedLevel,
+    uiSetParticleAnimate,
+    uiSetSongIconRotate,
+    uiSetSongIconWave,
+    themeSetCurrent,
+    themeSetMode,
+    themeTempSwitch,
     uiLoadFont,
     storageGet,
     storageSet,
@@ -453,6 +474,8 @@ abstract final class MusicxxBroadcastId {
   static const String appForeground = 'musicxx.app.foreground';
   /// musicxx.app.upgrade
   static const String appUpgrade = 'musicxx.app.upgrade';
+  /// 前后台状态
+  static const String appLifecycle = 'musicxx.app.lifecycle';
   /// 音源解析完成
   static const String playerSourceResolved = 'musicxx.player.source.resolved';
   /// 播放状态变化
@@ -487,6 +510,22 @@ abstract final class MusicxxBroadcastId {
   static const String uiThemeChanged = 'musicxx.ui.theme.changed';
   /// musicxx.ui.user.action
   static const String uiUserAction = 'musicxx.ui.user.action';
+  /// 动画等级
+  static const String uiAnimatedLevel = 'musicxx.ui.animatedLevel';
+  /// 粒子动画
+  static const String uiParticleAnimate = 'musicxx.ui.particleAnimate';
+  /// 歌曲图旋转
+  static const String uiSongIconRotate = 'musicxx.ui.songIconRotate';
+  /// 歌曲图波浪
+  static const String uiSongIconWave = 'musicxx.ui.songIconWave';
+  /// 全局字体
+  static const String uiFontFamily = 'musicxx.ui.fontFamily';
+  /// 可用主题
+  static const String themeAvailable = 'musicxx.theme.available';
+  /// 当前主题
+  static const String themeCurrent = 'musicxx.theme.current';
+  /// 主题切换模式
+  static const String themeMode = 'musicxx.theme.mode';
   /// 应用状态
   static const String stateApp = 'musicxx.state.app';
   /// 播放器状态
@@ -515,6 +554,7 @@ abstract final class MusicxxBroadcastId {
     appBackground,
     appForeground,
     appUpgrade,
+    appLifecycle,
     playerSourceResolved,
     playerState,
     playerPosition,
@@ -532,6 +572,14 @@ abstract final class MusicxxBroadcastId {
     uiPageLeave,
     uiThemeChanged,
     uiUserAction,
+    uiAnimatedLevel,
+    uiParticleAnimate,
+    uiSongIconRotate,
+    uiSongIconWave,
+    uiFontFamily,
+    themeAvailable,
+    themeCurrent,
+    themeMode,
     stateApp,
     statePlayer,
     stateSong,
@@ -631,10 +679,12 @@ final class MusicxxBroadcastDecl {
   const MusicxxBroadcastDecl({
     required this.id,
     required this.cache,
-    required this.writable,
+    required this.publish,
     required this.pushOnSubscribe,
     required this.coalesce,
     required this.scope,
+    required this.type,
+    required this.options,
     required this.implemented,
     required this.title,
     required this.depict,
@@ -645,8 +695,8 @@ final class MusicxxBroadcastDecl {
   /// `none`（事件）/ `latest`（快照）
   final String cache;
 
-  /// `owner` / `anyone`
-  final String writable;
+  /// `owner` / `anyone`：谁能往这个频道发布
+  final String publish;
 
   /// 订阅时是否立刻收到当前缓存值（只有 `cache=latest` 能是 true）
   final bool pushOnSubscribe;
@@ -657,6 +707,12 @@ final class MusicxxBroadcastDecl {
   /// `app` / `system`
   final String scope;
 
+  /// 值的类型提示（`bool` / `number` / `string` / `json`；空串 = 没写）
+  final String type;
+
+  /// 枚举取值域（稳定 id；只用于文档与自省）
+  final List<String> options;
+
   final bool implemented;
 
   final String title;
@@ -666,8 +722,8 @@ final class MusicxxBroadcastDecl {
   /// 能同步读当前值
   bool get cached => cache == 'latest';
 
-  /// 任何人都能写（变量）
-  bool get writableByAnyone => writable == 'anyone';
+  /// 任何人都能往它发布
+  bool get publishByAnyone => publish == 'anyone';
 }
 
 /// 声明清单（与 `tools/capabilities.def.json` 一一对应）
@@ -1965,6 +2021,111 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '',
     ),
     MusicxxCapabilityDecl(
+      id: 'musicxx.ui.setAnimatedLevel',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '设置动画等级',
+      depict: '把界面动画等级改成指定值（越高动画越多，越低越省电）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.setParticleAnimate',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '设置粒子动画',
+      depict: '开关点击与拖动时的粒子效果',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.setSongIconRotate',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '设置歌曲图旋转',
+      depict: '开关播放时圆形歌曲图的旋转',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.setSongIconWave',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '设置歌曲图波浪',
+      depict: '开关播放时歌曲图随节拍起伏',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.theme.setCurrent',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '切换当前主题',
+      depict: '只切显示的主题（不改主题模式、不写用户的模式设置、不暂停跟随）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.theme.setMode',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '设置主题模式',
+      depict: '改主题模式（跟随系统 / 跟随时间 / 跟随屏幕亮度 / 固定白昼 / 固定夜间）并立即生效',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.theme.tempSwitch',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '临时切换主题',
+      depict: '临时切一次主题（toggle = 明暗互切）；会暂停主题跟随',
+    ),
+    MusicxxCapabilityDecl(
       id: 'musicxx.ui.loadFont',
       impls: 'one',
       merge: '',
@@ -2466,10 +2627,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.app.start',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '应用启动',
       depict: '主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次',
@@ -2477,10 +2640,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.app.ready',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '应用就绪',
       depict: '应用初始化收尾（首屏与数据都就绪）派发一次，比应用启动晚',
@@ -2488,10 +2653,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.app.background',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '应用进入后台',
       depict: '应用进入后台（窗口隐藏 / 最小化，或移动到后台）时派发；观察型，不等待',
@@ -2499,10 +2666,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.app.foreground',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '应用回到前台',
       depict: '应用回到前台时派发，带这次在后台待了多久；观察型，不等待',
@@ -2510,21 +2679,38 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.app.upgrade',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
     ),
     MusicxxBroadcastDecl(
+      id: 'musicxx.app.lifecycle',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'string',
+      options: <String>['foreground', 'background'],
+      implemented: true,
+      title: '前后台状态',
+      depict: '应用现在在前台还是后台（变化时发布，订阅即拿到当前值）',
+    ),
+    MusicxxBroadcastDecl(
       id: 'musicxx.player.source.resolved',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '音源解析完成',
       depict: '某个音源解析完成（拿到真正播放用的路径与请求头）；载荷里没有直链与 token',
@@ -2532,32 +2718,38 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.player.state',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '播放状态变化',
       depict: '播放状态变化（播放 / 暂停 / 停止 / 结束）时派发；播放进度不走这个埋点',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.player.position',
-      cache: 'none',
-      writable: 'owner',
-      pushOnSubscribe: false,
-      coalesce: true,
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
       scope: 'app',
+      type: 'json',
+      options: <String>[],
       implemented: true,
       title: '播放进度',
-      depict: '播放进度（1 秒节流）；只报位置，不报“是否在播放”',
+      depict: '播放进度（不限频，按播放内核上报的节奏发布）；只读，改位置调用能力 musicxx.player.seek',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.player.completed',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '一曲播放完成',
       depict: '一曲播放完成（正常结束或按完成处理）之后派发；不代表已经切歌',
@@ -2565,10 +2757,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.player.qualityChanged',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2576,10 +2770,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.song.changed',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '切歌',
       depict: '切歌时派发（派发前调用方已刷新快照频道与封面）',
@@ -2587,10 +2783,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.song.meta.writeback',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2598,10 +2796,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.song.removed',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2609,10 +2809,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.history.record',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2620,10 +2822,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.local.scan.finished',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2631,10 +2835,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.lyric.current',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2642,10 +2848,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.media.cover.changed',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '封面变化',
       depict: '当前歌曲的封面发生变化（换歌、换封面图、封面被清空）；载荷里没有直链与图片字节',
@@ -2653,10 +2861,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.net.lan.event',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2664,10 +2874,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.ui.page.enter',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2675,10 +2887,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.ui.page.leave',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2686,10 +2900,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.ui.theme.changed',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
@@ -2697,21 +2913,129 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.ui.user.action',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: false,
       title: '',
       depict: '',
     ),
     MusicxxBroadcastDecl(
+      id: 'musicxx.ui.animatedLevel',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'string',
+      options: <String>['undefined', 'disable', 'low', 'medium', 'high', 'max'],
+      implemented: true,
+      title: '动画等级',
+      depict: '界面动画等级（越高动画越多）；只读，改等级调用能力 musicxx.ui.setAnimatedLevel',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.ui.particleAnimate',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'bool',
+      options: <String>[],
+      implemented: true,
+      title: '粒子动画',
+      depict: '点击与拖动时的粒子效果开关；只读，改开关调用能力 musicxx.ui.setParticleAnimate',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.ui.songIconRotate',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'bool',
+      options: <String>[],
+      implemented: true,
+      title: '歌曲图旋转',
+      depict: '播放时圆形歌曲图旋转的开关；只读，改开关调用能力 musicxx.ui.setSongIconRotate',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.ui.songIconWave',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'bool',
+      options: <String>[],
+      implemented: true,
+      title: '歌曲图波浪',
+      depict: '播放时歌曲图随节拍起伏的开关；只读，改开关调用能力 musicxx.ui.setSongIconWave',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.ui.fontFamily',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'string',
+      options: <String>[],
+      implemented: true,
+      title: '全局字体',
+      depict: '界面现在用的字体名（默认字体时是 default）；只读，切换字体调用能力 musicxx.ui.setFontFamily',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.theme.available',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'json',
+      options: <String>[],
+      implemented: true,
+      title: '可用主题',
+      depict: '主题目录（静态列表：id / 标题 / 明暗）',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.theme.current',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'string',
+      options: <String>['mimicryLight', 'mimicryNight'],
+      implemented: true,
+      title: '当前主题',
+      depict: '当前显示的主题 id；只读，切主题调用能力 musicxx.theme.setCurrent / musicxx.theme.tempSwitch',
+    ),
+    MusicxxBroadcastDecl(
+      id: 'musicxx.theme.mode',
+      cache: 'latest',
+      publish: 'owner',
+      pushOnSubscribe: true,
+      coalesce: false,
+      scope: 'app',
+      type: 'string',
+      options: <String>['light', 'night', 'followSystem', 'followTime', 'followScreenBrightness'],
+      implemented: true,
+      title: '主题切换模式',
+      depict: '跟随系统 / 跟随时间 / 跟随屏幕亮度，或固定白昼、夜间；只读，改模式调用能力 musicxx.theme.setMode',
+    ),
+    MusicxxBroadcastDecl(
       id: 'musicxx.state.app',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '应用状态',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2719,10 +3043,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.player',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '播放器状态',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2730,10 +3056,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.song',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '当前歌曲',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2741,10 +3069,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.playlist',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '当前播放列表',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2752,10 +3082,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.lyric',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '当前歌词',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2763,10 +3095,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.playlists',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '歌单列表快照',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2774,10 +3108,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.env',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '运行环境',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2785,10 +3121,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.renderSlots',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '渲染槽位状态',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2796,10 +3134,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.state.spectrum',
       cache: 'latest',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: true,
       coalesce: true,
       scope: 'app',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '当前频谱',
       depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
@@ -2807,10 +3147,12 @@ abstract final class MusicxxCapabilityCatalogue {
     MusicxxBroadcastDecl(
       id: 'musicxx.event.published',
       cache: 'none',
-      writable: 'owner',
+      publish: 'owner',
       pushOnSubscribe: false,
       coalesce: true,
       scope: 'system',
+      type: '',
+      options: <String>[],
       implemented: true,
       title: '事件发布观测',
       depict: '调试用：插件发布事件时推一份原始载荷',

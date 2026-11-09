@@ -115,6 +115,13 @@
 | `musicxx.ui.setEntryBadge` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
 | `musicxx.ui.setFontFamily` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.getFontFamily` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.ui.setAnimatedLevel` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.ui.setParticleAnimate` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.ui.setSongIconRotate` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.ui.setSongIconWave` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.theme.setCurrent` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.theme.setMode` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.theme.tempSwitch` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.loadFont` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.storage.get` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.storage.set` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
@@ -224,6 +231,48 @@
 ### `musicxx.feature.point.call` 调用功能点
 
 三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{"patch": {"args": {...}}}` 改这次调用的参数、`{"action": "cancel"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{"value": ...}` 改最终结果、`{"action": "drop"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能点**时派发一次（`point` = 功能点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能点共用它，而不是每个点各占一条能力 id（插件框架只认固定的能力表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{"patch": {"value": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{"action":"cancel"}` 是拦下这次调用：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。
+
+### `musicxx.ui.setAnimatedLevel` 设置动画等级
+
+参数 `{level}`：`level` 取 `undefined` / `disable` / `low` / `medium` / `high` / `max`（枚举 id，也接受原来的整数编码 -1/10/20/30/40/50）。走与设置页**完全相同**的写入路径（`theme_s.setEnableAnimatedLevel`），改完发布广播 `musicxx.ui.animatedLevel`。
+
+回答 `{ok: true, level}`；取值非法时返回失败并说明原因（`level` 不能识别）。值没变时也算成功（不会重复写库）。
+
+### `musicxx.ui.setParticleAnimate` 设置粒子动画
+
+参数 `{value}`：布尔开关（也接受 `1` / `0` / `true` / `false` 文本）。走设置页同一条写入路径（`setting_s.enableSnappableAnimate.setValue`），改完发布广播 `musicxx.ui.particleAnimate`。
+
+回答 `{ok: true, value}`；值解析不出布尔时返回失败并说明原因。
+
+### `musicxx.ui.setSongIconRotate` 设置歌曲图旋转
+
+参数 `{value}`：布尔开关（也接受 `1` / `0` / `true` / `false` 文本）。走设置页同一条写入路径（`setting_s.enableIconRotate.setValue`），改完发布广播 `musicxx.ui.songIconRotate`。
+
+回答 `{ok: true, value}`；值解析不出布尔时返回失败并说明原因。
+
+### `musicxx.ui.setSongIconWave` 设置歌曲图波浪
+
+参数 `{value}`：布尔开关（也接受 `1` / `0` / `true` / `false` 文本）。走设置页同一条写入路径（`setting_s.enableIconWave.setValue`），改完发布广播 `musicxx.ui.songIconWave`。
+
+回答 `{ok: true, value}`；值解析不出布尔时返回失败并说明原因。
+
+### `musicxx.theme.setCurrent` 切换当前主题
+
+参数 `{id}`：主题 id（`mimicryLight` / `mimicryNight`，也接受主题标题里用的 id 写法）。走 `theme_s.setIndex`：只切显示，**不改主题模式**、不写用户的模式设置、不暂停跟随（下一次跟随判断照样会改回来 —— 要“切了就停在那”用 `musicxx.theme.tempSwitch`）。改完发布广播 `musicxx.theme.current`。
+
+回答 `{ok: true, id}`；id 非法时返回失败并说明原因。
+
+### `musicxx.theme.setMode` 设置主题模式
+
+参数 `{mode}`：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（也接受原来的整数编码 1~5）。写进用户的持久设置并立即按新模式切（`theme_s.setUseModel`），改完发布广播 `musicxx.theme.mode`（以及 `musicxx.theme.current`、快照频道 `musicxx.state.app.isNight`）。
+
+回答 `{ok: true, mode}`；取值非法时返回失败并说明原因。
+
+### `musicxx.theme.tempSwitch` 临时切换主题
+
+参数 `{target}`：主题 id 或 `toggle`（按当前明暗互切）。与侧边抽屉按钮、局域网控制的临时切主题是同一语义：走 `theme_s.setCustom`，**会暂停主题跟随**（用户下次手动切模式才恢复）。
+
+它表达的是一次操作、没有当前值，所以只有能力、没有对应广播。回答 `{ok: true, id}`；`target` 既不是主题 id 也不是 `toggle` 时返回失败并说明原因。
 
 ### `musicxx.capability.subscribers` 能力订阅 / 实现行
 

@@ -67,8 +67,11 @@ const Map<String, int> _broadcastCacheCodes = <String, int>{
   'latest': 1,
 };
 
-/// 广播的写权限：`owner`（只有属主能写）/ `anyone`（变量）
-const Map<String, int> _writableCodes = <String, int>{'owner': 0, 'anyone': 1};
+/// 广播的发布权限：`owner`（只有属主能发布）/ `anyone`（任何人都能发布）
+const Map<String, int> _publishCodes = <String, int>{'owner': 0, 'anyone': 1};
+
+/// 广播值的类型提示（可选；只用于文档与自省，不参与派发）
+const List<String> _broadcastTypes = <String>['bool', 'number', 'string', 'json'];
 
 /// 广播的作用域：`app`（业务频道）/ `system`（调试与自省频道，插件不能写）
 const Map<String, int> _scopeCodes = <String, int>{'app': 0, 'system': 1};
@@ -203,10 +206,12 @@ final class BroadcastDeclaration {
     required this.title,
     required this.depict,
     required this.cache,
-    required this.writable,
+    required this.publish,
     required this.pushOnSubscribe,
     required this.coalesce,
     required this.scope,
+    required this.type,
+    required this.options,
     required this.implemented,
     required this.doc,
   });
@@ -219,10 +224,16 @@ final class BroadcastDeclaration {
   /// `none` / `latest`
   final String cache;
 
-  /// `owner` / `anyone`
-  final String writable;
+  /// `owner` / `anyone`：谁能往这个频道发布
+  final String publish;
   final bool pushOnSubscribe;
   final bool coalesce;
+
+  /// 值的类型提示（`bool` / `number` / `string` / `json`；空串 = 没写）
+  final String type;
+
+  /// 枚举取值域（稳定 id，不用本地化文案；只用于文档与自省）
+  final List<String> options;
 
   /// `app` / `system`
   final String scope;
@@ -318,6 +329,30 @@ List<String> _stringList(
     for (final String item in order)
       if (declared.contains(item)) item,
   ];
+}
+
+/// 原样读一个字符串数组（`options` 这类自由取值用；保持定义文件里的顺序）
+List<String> _freeStringList(
+  Map<String, Object?> json,
+  String key,
+  String where,
+) {
+  final Object? raw = json[key];
+  if (raw == null) {
+    return const <String>[];
+  }
+  if (raw is! List) {
+    throw StateError('$where: `$key` 必须是字符串数组');
+  }
+  final List<String> values = <String>[];
+  for (final Object? item in raw) {
+    final String value = "$item";
+    if (values.contains(value)) {
+      throw StateError('$where: `$key` 里有重复取值 `$value`');
+    }
+    values.add(value);
+  }
+  return values;
 }
 
 /// 读取定义文件并做全部校验
@@ -465,6 +500,16 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
     if (pushOnSubscribe && cache != 'latest') {
       throw StateError('$where: 只有 cache=latest 才能在订阅时立刻推当前值');
     }
+    final String type = _optionalString(json, 'type');
+    if (type.isNotEmpty && !_broadcastTypes.contains(type)) {
+      throw StateError(
+        '$where: `type` 取值非法 `$type`（可用 ${_broadcastTypes.join(", ")}）',
+      );
+    }
+    final List<String> options = _freeStringList(json, 'options', where);
+    if ((type.isNotEmpty || options.isNotEmpty) && cache != 'latest') {
+      throw StateError('$where: `type` / `options` 只对 cache=latest 的频道有意义');
+    }
     broadcasts.add(
       BroadcastDeclaration(
         id: id,
@@ -472,10 +517,12 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
         title: _optionalString(json, 'title'),
         depict: _optionalString(json, 'depict'),
         cache: cache,
-        writable: _requireEnum(json, 'writable', where, _writableCodes),
+        publish: _requireEnum(json, 'publish', where, _publishCodes),
         pushOnSubscribe: pushOnSubscribe,
         coalesce: _optionalBool(json, 'coalesce', where),
         scope: _requireEnum(json, 'scope', where, _scopeCodes),
+        type: type,
+        options: options,
         implemented: _optionalBool(json, 'implemented', where),
         doc: _optionalString(json, 'doc'),
       ),
@@ -762,10 +809,12 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  const MusicxxBroadcastDecl({')
     ..writeln('    required this.id,')
     ..writeln('    required this.cache,')
-    ..writeln('    required this.writable,')
+    ..writeln('    required this.publish,')
     ..writeln('    required this.pushOnSubscribe,')
     ..writeln('    required this.coalesce,')
     ..writeln('    required this.scope,')
+    ..writeln('    required this.type,')
+    ..writeln('    required this.options,')
     ..writeln('    required this.implemented,')
     ..writeln('    required this.title,')
     ..writeln('    required this.depict,')
@@ -776,8 +825,8 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// `none`（事件）/ `latest`（快照）')
     ..writeln('  final String cache;')
     ..writeln()
-    ..writeln('  /// `owner` / `anyone`')
-    ..writeln('  final String writable;')
+    ..writeln('  /// `owner` / `anyone`：谁能往这个频道发布')
+    ..writeln('  final String publish;')
     ..writeln()
     ..writeln('  /// 订阅时是否立刻收到当前缓存值（只有 `cache=latest` 能是 true）')
     ..writeln('  final bool pushOnSubscribe;')
@@ -788,6 +837,12 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// `app` / `system`')
     ..writeln('  final String scope;')
     ..writeln()
+    ..writeln('  /// 值的类型提示（`bool` / `number` / `string` / `json`；空串 = 没写）')
+    ..writeln('  final String type;')
+    ..writeln()
+    ..writeln('  /// 枚举取值域（稳定 id；只用于文档与自省）')
+    ..writeln('  final List<String> options;')
+    ..writeln()
     ..writeln('  final bool implemented;')
     ..writeln()
     ..writeln('  final String title;')
@@ -797,8 +852,8 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// 能同步读当前值')
     ..writeln("  bool get cached => cache == 'latest';")
     ..writeln()
-    ..writeln('  /// 任何人都能写（变量）')
-    ..writeln("  bool get writableByAnyone => writable == 'anyone';")
+    ..writeln('  /// 任何人都能往它发布')
+    ..writeln("  bool get publishByAnyone => publish == 'anyone';")
     ..writeln('}')
     ..writeln()
     ..writeln('/// 声明清单（与 `tools/capabilities.def.json` 一一对应）')
@@ -842,10 +897,12 @@ String _generateDart(CapabilityContract contract) {
       ..writeln('    MusicxxBroadcastDecl(')
       ..writeln('      id: ${_dartLiteral(decl.id)},')
       ..writeln('      cache: ${_dartLiteral(decl.cache)},')
-      ..writeln('      writable: ${_dartLiteral(decl.writable)},')
+      ..writeln('      publish: ${_dartLiteral(decl.publish)},')
       ..writeln('      pushOnSubscribe: ${decl.pushOnSubscribe},')
       ..writeln('      coalesce: ${decl.coalesce},')
       ..writeln('      scope: ${_dartLiteral(decl.scope)},')
+      ..writeln('      type: ${_dartLiteral(decl.type)},')
+      ..writeln('      options: ${_dartStringList(decl.options)},')
       ..writeln('      implemented: ${decl.implemented},')
       ..writeln('      title: ${_dartLiteral(decl.title)},')
       ..writeln('      depict: ${_dartLiteral(decl.depict)},')
@@ -975,10 +1032,10 @@ String _generateCpp(CapabilityContract contract) {
     ..writeln('/// 快照：订阅即拿到当前值，也能同步读')
     ..writeln('#define MUSICXX_BROADCAST_CACHE_LATEST 1')
     ..writeln()
-    ..writeln('/// 只有属主能写')
-    ..writeln('#define MUSICXX_BROADCAST_WRITABLE_OWNER  0')
-    ..writeln('/// 任何人都能写（变量）')
-    ..writeln('#define MUSICXX_BROADCAST_WRITABLE_ANYONE 1')
+    ..writeln('/// 只有属主能发布')
+    ..writeln('#define MUSICXX_BROADCAST_PUBLISH_OWNER  0')
+    ..writeln('/// 任何人都能发布')
+    ..writeln('#define MUSICXX_BROADCAST_PUBLISH_ANYONE 1')
     ..writeln()
     ..writeln('/// 业务频道')
     ..writeln('#define MUSICXX_BROADCAST_SCOPE_APP    0')
@@ -1029,7 +1086,7 @@ String _generateCpp(CapabilityContract contract) {
       '    int32_t     cache;             ///< MUSICXX_BROADCAST_CACHE_*',
     )
     ..writeln(
-      '    int32_t     writable;          ///< MUSICXX_BROADCAST_WRITABLE_*',
+      '    int32_t     publish;           ///< MUSICXX_BROADCAST_PUBLISH_*',
     )
     ..writeln('    int32_t     push_on_subscribe; ///< 订阅时立刻推当前值')
     ..writeln('    int32_t     coalesce;          ///< 允许合并（允许丢中间值）')
@@ -1068,7 +1125,7 @@ String _generateCpp(CapabilityContract contract) {
   for (final BroadcastDeclaration decl in contract.broadcasts) {
     sb.writeln(
       '    {"${decl.id}", ${_broadcastCacheCodes[decl.cache]!}, '
-      '${_writableCodes[decl.writable]!}, ${decl.pushOnSubscribe ? 1 : 0}, '
+      '${_publishCodes[decl.publish]!}, ${decl.pushOnSubscribe ? 1 : 0}, '
       '${decl.coalesce ? 1 : 0}, ${_scopeCodes[decl.scope]!}, '
       '${decl.implemented ? 1 : 0}},',
     );
@@ -1236,27 +1293,104 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('要不要"当前值"由声明决定：`cache: latest` 的频道订阅时就能拿到当前值，也能同步读；')
     ..writeln('`cache: none` 的是事件，只能等下一次通知。')
     ..writeln()
+    ..writeln('广播只做四件事：**声明自己的频道 / 发布 / 读当前值 / 订阅**。')
+    ..writeln('它**不提供写入**（没有"给别人的频道写值"这个操作，也没有回执）：')
+    ..writeln('要改应用状态一律调能力（见 [plugin-capabilities.md](plugin-capabilities.md)），')
+    ..writeln('结果的校验与拒绝原因由能力告诉你。')
+    ..writeln()
     ..writeln('| 字段 | 含义 |')
     ..writeln('|---|---|')
     ..writeln('| `cache` | `latest` = 有当前值（快照，只保留最后一份）；`none` = 只有事件 |')
-    ..writeln('| `writable` | `owner` = 只有属主能写；`anyone` = 任何人都能写（变量） |')
+    ..writeln('| `publish` | `owner` = 只有属主能发布；`anyone` = 任何人都能发布（共享频道） |')
     ..writeln('| `pushOnSubscribe` | 订阅时立刻收到当前缓存值（仅 `cache: latest`） |')
-    ..writeln('| `coalesce` | 允许合并（允许丢中间值）；变量类是 `false`（写要回执，不能丢） |')
-    ..writeln('| `scope` | `app` = 业务频道；`system` = 调试与自省频道（插件不能写） |')
+    ..writeln('| `coalesce` | 允许合并（允许丢中间值）；状态类频道一般写 `false`，每次发布都通知 |')
+    ..writeln('| `scope` | `app` = 业务频道；`system` = 调试与自省频道（插件不能发布） |')
+    ..writeln('| `type` | 值的类型提示（`bool` / `number` / `string` / `json`，可选；只用于文档与自省） |')
+    ..writeln('| `options` | 枚举取值域（稳定 id，不用本地化文案；可选，只用于文档与自省） |')
     ..writeln()
     ..writeln('## 频道清单')
     ..writeln()
-    ..writeln('| 广播 id | 缓存 | 写权限 | 订阅即推 | 合并 | 作用域 | 状态 |')
+    ..writeln('| 广播 id | 缓存 | 谁能发布 | 订阅即推 | 合并 | 作用域 | 状态 |')
     ..writeln('|---|---|---|---|---|---|---|');
 
   for (final BroadcastDeclaration decl in contract.broadcasts) {
     sb.writeln(
-      '| `${decl.id}` | ${decl.cache} | ${decl.writable} | '
+      '| `${decl.id}` | ${decl.cache} | ${decl.publish} | '
       '${decl.pushOnSubscribe ? "是" : "否"} | '
       '${decl.coalesce ? "允许" : "不合并"} | '
       '${decl.scope} | ${decl.implemented ? "已接入" : "未接入"} |',
     );
   }
+
+  sb
+    ..writeln()
+    ..writeln('## 官方频道取值')
+    ..writeln()
+    ..writeln(
+      '官方频道（`musicxx.*`）都是 `cache: latest` + 订阅即推，`type` / `options` 说明值长什么样：',
+    )
+    ..writeln()
+    ..writeln('| 广播 id | 类型 | 取值 | 要改它请调能力 |')
+    ..writeln('|---|---|---|---|');
+
+  /// 官方频道对应的写入能力（广播只读，写入一律走能力）
+  const Map<String, String> writerOf = <String, String>{
+    'musicxx.app.lifecycle': '',
+    'musicxx.player.position': '`musicxx.player.seek`',
+    'musicxx.ui.animatedLevel': '`musicxx.ui.setAnimatedLevel`',
+    'musicxx.ui.particleAnimate': '`musicxx.ui.setParticleAnimate`',
+    'musicxx.ui.songIconRotate': '`musicxx.ui.setSongIconRotate`',
+    'musicxx.ui.songIconWave': '`musicxx.ui.setSongIconWave`',
+    'musicxx.ui.fontFamily': '`musicxx.ui.setFontFamily`',
+    'musicxx.theme.available': '',
+    'musicxx.theme.current': '`musicxx.theme.setCurrent` / `musicxx.theme.tempSwitch`',
+    'musicxx.theme.mode': '`musicxx.theme.setMode`',
+  };
+
+  for (final BroadcastDeclaration decl in contract.broadcasts) {
+    if (!writerOf.containsKey(decl.id)) {
+      continue;
+    }
+    final String options = decl.options.isEmpty
+        ? '-'
+        : decl.options.join(' / ');
+    sb.writeln(
+      '| `${decl.id}` | ${decl.type.isEmpty ? "-" : decl.type} | $options | '
+      '${writerOf[decl.id]!.isEmpty ? "（只读，由应用自己决定）" : writerOf[decl.id]} |',
+    );
+  }
+
+  sb
+    ..writeln()
+    ..writeln('## 订阅频率限制')
+    ..writeln()
+    ..writeln(
+      '高频频道（典型是 `musicxx.player.position`）不必让应用降频：**每个订阅方自己声明通知频率**，',
+    )
+    ..writeln('互不影响。订阅时多传一个 `options`：')
+    ..writeln()
+    ..writeln('```json')
+    ..writeln('{ "intervalMs": 200, "mode": "delay" }')
+    ..writeln('```')
+    ..writeln()
+    ..writeln('| 字段 | 含义 |')
+    ..writeln('|---|---|')
+    ..writeln('| `intervalMs` | 通知间隔（毫秒）；`0` / 缺省 = 不限频，每次发布都通知 |')
+    ..writeln(
+      '| `mode` | `delay`（默认）= 间隔内只保留**最新一条**，间隔到点补发一次；'
+      '`drop` = 间隔内的通知直接丢掉，只有距上次通知已满 `intervalMs` 的才通知 |',
+    )
+    ..writeln()
+    ..writeln('几条约定：')
+    ..writeln()
+    ..writeln('- **订阅后的第一条通知立即到达**；`pushOnSubscribe` 补的当前值算第一条，也是限频窗口的起点；')
+    ..writeln('- 计时用单调时钟，改系统时间不影响；`intervalMs` 传负数按 0 处理，`mode` 不认识按 `delay`；')
+    ..writeln('- 退订 / 插件停用：等着的补发一并丢弃，不会再回调；')
+    ..writeln('- 例：`intervalMs = 200`，广播时刻 `0 / 50 / 100 / 250 / 300` 时，')
+    ..writeln('  不限频收到 `0 50 100 250 300`，`delay` 收到 `0`（值=0）、`200`（值=100）、`400`（值=300），')
+    ..writeln('  `drop` 收到 `0`、`250`。')
+    ..writeln()
+    ..writeln('只看候选值范围、临时把 `intervalMs` 调大都不需要重新订阅；换频率就退订后重新订阅。');
 
   sb
     ..writeln()
