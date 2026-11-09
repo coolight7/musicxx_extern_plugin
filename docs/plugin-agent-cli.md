@@ -208,7 +208,7 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 | `musicxx-cli status` / `play` / `pause` / `next` | 快速把播放状态摆到你要的位置（触发能力、看背景效果） |
 | `musicxx-cli watch --events song,playerState` | 看应用事件有没有按预期发生（能力见 [plugin-capabilities.md](plugin-capabilities.md)，广播频道见 [plugin-broadcasts.md](plugin-broadcasts.md)） |
 | `musicxx-cli toast <文本>` | 在应用界面上弹一条提示（对照插件的 `musicxx.ui.toast`） |
-| `musicxx-cli var list` / `var get <键>` | 看官方变量当前值（与插件的变量通道对照） |
+| `musicxx-cli broadcast list` / `broadcast read <频道id>` | 看广播频道的当前值与订阅数（与插件的 `read` 对照） |
 | `musicxx-cli feature call GetAudioSpectrum --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
 | `musicxx-cli kernel` | 看应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**、解码器与认得的音视频后缀（与插件动作 `musicxx.media.kernel` 同一份数据；这份 ffmpeg 是裁剪构建，写音效前先确认名字在不在） |
 

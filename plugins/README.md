@@ -19,7 +19,7 @@
 | 演示示例 | `example_js` | JS插件：与 native 版行为等价（零编译） |
 | 演示示例 | `example_js_shader` | JS插件：播放页背景样式 + 动画速率设置 + 页面内联着色器块 |
 | 演示示例 | `example_js_async` | JS插件：决策型能力返回 Promise（异步裁决：插件框架一直等到结算，结算后裁决生效） |
-| 演示示例 | `example_js_vars` | JS插件：变量通道（登记插件变量、绑定与读写官方变量） |
+| 演示示例 | `example_js_broadcast` | JS插件：广播（声明 / 发布自己的频道、订阅官方值频道并按需声明订阅频率） |
 | 演示示例 | `example_js_multi_script` | JS插件：清单 `scripts` 多脚本按顺序加载（kit 随插件目录分发） |
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
 | 演示示例 | `example_js_net` | JS插件：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的**客户端 + 服务端**（客户端支持 https / wss；载入后自动跑一遍本机自检，含 `fetch` / `download`） |
@@ -55,7 +55,7 @@ plugins/
 │   └── plugin.yaml             清单里 kind: js，scripts 按顺序列出上面三个脚本
 ├── example_js_shader/           JS插件 + shader/ 资源目录（资源直接放在插件目录里）
 ├── example_js_async/            JS插件（只要 plugin.yaml + plugin.js）
-├── example_js_vars/             JS插件
+├── example_js_broadcast/        JS插件（广播：声明 / 发布 / 订阅频率）
 ├── example_js_multi_script/     JS插件 + 自己的 kit.js（清单 scripts 里两个脚本）
 ├── example_js_net/              JS插件：网络能力示例（HTTP / TCP / WebSocket 客户端 + 服务端）
 ├── example_override_media_source/  JS插件：音源解析示例（按来源分流 / 自定义音源地址 / 本地 HTTP 服务）
@@ -116,7 +116,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测
 | 主题 | 文档 |
 |---|---|
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（能力与广播：快照频道 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答） | `docs/plugin-capabilities.md`（由 `tools/capabilities.def.json` 生成） |
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（总头文件）与 `plugin_api.h`（musicxx 专用约定） |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |

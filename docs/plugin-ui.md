@@ -315,8 +315,8 @@ capability(*this, "plugin.my_plugin.settings",
   求值结果当文本用，求值失败或没有上下文时用字面量作为回退（`{"kind":"format", …}` 可以把数值写进文案）；
 - **公共字段 `visible`**（每个块都能写）：布尔字面量或值表达式，求值为假时这一块**不渲染**；
 - 节点表、来源（`musicxx.theme.*` / `musicxx.icon.*` / `musicxx.spectrum.*` / `musicxx.env.*`、
-  变量目录里的自定义键）、上限与降级规则见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7；
-- 名字空间：`musicxx.` 前缀是框架保留的（派生来源与官方变量），**自定义名字允许含 `.`**
+  广播频道的当前值）、上限与降级规则见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7；
+- 名字空间：`musicxx.` 前缀是框架保留的（派生来源与官方值频道），**自定义名字允许含 `.`**
   （例如 `plugin.<插件id>.progress`）；
 - 求值失败（未知 `kind`、参数写错）只**忽略该字段**并按缺省处理，日志里留一条原因；
 - 当前版本：字段求值是"每次重画算一次"（`tween` / `lfo` 这类随时间变化的节点要等页面里的
@@ -653,12 +653,12 @@ musicxx.capability.register("pickQuality", async function () {
      apply: true,                         // 可选，默认 true
    });
    ```
-3. **通过官方变量读取/设置**：
+3. **读 / 改官方值频道**：
    ```js
-   // 读当前生效字体
-   var current = await musicxx.broadcast.get("musicxx.ui.fontFamily");
-   // 设置字体
-   await musicxx.broadcast.write("musicxx.ui.fontFamily", "SimSun");
+   // 读当前生效字体（同步，走插件框架里的缓存）
+   var current = musicxx.broadcast.read("musicxx.ui.fontFamily");
+   // 改字体调能力（广播是只读的）
+   await musicxx.ui.setFontFamily("SimSun");
    ```
 4. **生命周期自动恢复**：
    当设置字体的插件被停用或卸载、或插件框架停止时，主程序会自动恢复为默认字体，避免残留不可用的字体配置。
@@ -678,9 +678,8 @@ musicxx.capability.register("pickQuality", async function () {
      用 `musicxx.ui.toast` 这类动作是安全的）；
   4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
      插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
-- 想知道"主程序现在到底是什么字体"：`musicxx.broadcast.watch("musicxx.ui.fontFamily")` 保活后
-  用 `musicxx.broadcast.read("musicxx.ui.fontFamily")` **同步**读缓存（值形如 `{value, revision, ageMs, stale}`），
-  不要为了显示状态再 `await` 一次 `vars.get`。
+- 想知道"主程序现在到底是什么字体"：`musicxx.broadcast.read("musicxx.ui.fontFamily")` **同步**读当前值
+  （值就是字体名字符串，如 `"SimSun"` / `"default"`），不要为了显示状态再去 `await` 一次动作。
 
 > 这条规则对**所有**"改应用状态"的动作都成立（播放页背景、播放控制、存储写入…）：能力处理器必须
 > 快速返回，长活儿发给动作后在 `.then` 里收尾。处理器返回 Promise 时插件框架会一直等它结算

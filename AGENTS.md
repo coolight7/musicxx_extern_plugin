@@ -40,13 +40,13 @@
 | 平台 | 全部平台（含 iOS / OHOS） | Windows / Linux / macOS / Android；iOS 上只有"应用包内、与主程序同一签名身份"的库能加载（用户装的库通常被系统拒绝，见 §5） |
 | 执行线程 | 插件框架的一条共享 JS 线程（多插件共用一个线程） | 插件框架线程（自己能起线程） |
 | 处理器返回 | 可同步返回，也可返回 Promise（插件框架等到结算） | 同步返回 |
-| 适合 | 几乎所有功能：能力、动作、界面、背景、值频道 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
+| 适合 | 几乎所有功能：能力、动作、界面、背景、广播 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
 
-两者**共用同一套约定**：能力、广播（快照频道 / 值频道 / 事件）、UI 项、插件页面、渲染槽位。学会一套即可迁移。
+两者**共用同一套约定**：能力、广播（快照频道 / 官方值频道 / 事件）、UI 项、插件页面、渲染槽位。学会一套即可迁移。
 
-> **只有两个概念**：**能力** = 发一次请求、等一个结果；**广播** = 属主改了东西、通知所有关心的人（带当前值的频道还能同步读）。
-> 旧文档里的“状态镜像”（= `cache: latest` 的广播频道）、“变量”（= 广播值频道）、“动作”（= `runner: app` 的能力，
-> 由主程序实现）都是它们的一部分，不再当独立概念使用；入口在 `plugin-model-unify` 任务里删除/改名。
+> **只有两个概念**：**能力** = 发一次请求、等一个结果；**广播** = 属主改了东西、通知所有关心的人（带当前值的频道还能同步读；插件只能读与订阅）。
+> 旧文档里的“状态镜像”与“变量”（= `cache: latest` 的广播频道）、“动作”（= `runner: app` 的能力，
+> 由主程序实现）都是它们的一部分，不再当独立概念使用；入口在 `plugin-model-unify` / `broadcast-only` 任务里已经删除或改名。
 
 ## 3. 插件长什么样
 
@@ -129,8 +129,8 @@ my_plugin/
 | 应用来问插件（决策型能力） | `musicxx.capability.implement/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的能力会触发**（见 §5.6）；`musicxx.capability.handlers(id[, phase])` 读"这条能力现在有谁在提供、在哪个阶段、排第几" |
 | 动作（调主程序） | `musicxx.capability.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
 | 快照频道 | JS `musicxx.broadcast.read(key)` / C++ `broadcastJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
-| 变量 | `musicxx.broadcast.get/write/subscribe/watch/read/declare` | 有属主、可读可写可订阅的小值（带当前值的广播频道）；官方键 `musicxx.*`，插件键 `plugin.<id>.*` |
-| 广播（事件） | `musicxx.broadcast.subscribe/publish/unsubscribe` | 插件之间、插件与页面之间的小消息（官方主题如 `musicxx.state.changed`），与变量同一组入口 |
+| 官方值频道 | `musicxx.broadcast.read/subscribe/info/list` | 应用发布的 `cache: latest` 频道（动画等级、字体、主题、前后台、播放进度）：插件只能读与订阅，要改它们调能力（`musicxx.ui.setAnimatedLevel` 这类）；插件自己的频道用 `plugin.<id>.*` |
+| 广播（事件 / 自己的频道） | `musicxx.broadcast.subscribe/publish/unsubscribe/declare` | 插件之间、插件与页面之间的小消息；订阅可带 `{intervalMs, mode}`，自己的频道只能自己发布（或声明 `publish: anyone`） |
 | 能力 | `musicxx.capability.register/call` | 自己的功能也能被别人调用；跨插件调用 JS→JS 直调、JS→原生投递（默认 3 s 超时） |
 | UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / **「添加歌曲」弹窗的来源项**（`addsong.entry`）/ 播放页背景 / 播放页歌曲图 / **播放页音频动效**（`playing.visualizer`）/ **播放页子页面插入块**（十个类型：`playing.lyric.top`、`playing.lyric.header`、`playing.moreinfo.footer`、`playing.songlist.footer` 等，类型本身就是位置） |
 | 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用动作 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
@@ -193,7 +193,7 @@ my_plugin/
    改了影响界面/渲染的字段要用 `musicxx.ui.updateEntry` 重新声明（整体替换，不是合并）；
    影响帧调度或分辨率的字段（`maxFps` / `resolutionScale` / `animate`）要用户重新选中该项才完全生效。
 11. **动作和跨插件调用都可能失败**：检查返回值 / 捕获 Promise 拒绝，把原因写进日志；
-    所有插件命名空间（UI 项名、变量名、能力名）都归 `plugin.<插件id>.*`，不要冒充别人。
+    所有插件命名空间（UI 项名、广播频道名、能力名）都归 `plugin.<插件id>.*`，不要冒充别人。
 12. **失败是可见的**：脚本顶层报错 = 加载失败并回滚；处理器里抛异常只记统计（不暂停、不卸载）；
     不要在启动阶段调用未接入的能力或做重活。
 13. **权限只是声明**：写进 `permissions` 只影响安装确认弹窗与详情页展示，框架不做运行时校验（放目录里的插件同样不检查）。
@@ -444,12 +444,11 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 要看什么 | 文件 |
 |---|---|
 | 第一次写插件（选形态 / 环境 / 第一个插件 / 注意事项 / 调试 / 发布检查） | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（能力与广播：快照频道 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | JS 插件作者指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 是否已接入 + 载荷与回答） | `docs/plugin-capabilities.md`（生成物） |
-| 广播总表（频道 / 有没有当前值 / 谁能写 / 载荷） | `docs/plugin-broadcasts.md`（生成物） |
-| 官方值频道目录（键 / 能力位 / 取值 / 风险） | `docs/plugin-value-channels.md` |
+| 广播总表（频道 / 有没有当前值 / 谁能发布 / 载荷与取值域 / 改它调哪个能力） | `docs/plugin-broadcasts.md`（生成物） |
 | 界面（UI 项 / 插件页面 / 自己的设置页 / 布局约定） | `docs/plugin-ui.md` |
 | shader bundle（打包 / uniform / 参数表达式 / 渲染槽位） | `docs/plugin-shader-bundle.md` |
 | 命令行与 MCP（装 / 刷新 / 看日志） | `docs/plugin-agent-cli.md` |

@@ -5,7 +5,7 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 
 | 主题 | 文档 |
 |---|---|
-| **两种形态共用的接口**（能力与广播（快照频道 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
+| **两种形态共用的接口**（能力与广播（快照频道 / 官方值频道 / 动作 / 事件 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
 | 能力 id / 能不能参与 / 载荷与回答 | [plugin-capabilities.md](plugin-capabilities.md) |
 | 广播频道 id / 有没有当前值 / 谁能写 / 载荷 | [plugin-broadcasts.md](plugin-broadcasts.md) |
@@ -14,7 +14,7 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 动态库插件（能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
 | 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
-| 单特性示例（多脚本加载 / 变量通道 / 异步裁决 / 全局字体 / 音源解析） | `plugins/example_js_multi_script/`、`plugins/example_js_vars/`、`plugins/example_js_async/`、`plugins/example_js_font/`、`plugins/example_override_media_source/` |
+| 单特性示例（多脚本加载 / 广播 / 异步裁决 / 全局字体 / 音源解析） | `plugins/example_js_multi_script/`、`plugins/example_js_broadcast/`、`plugins/example_js_async/`、`plugins/example_js_font/`、`plugins/example_override_media_source/` |
 
 > **本文只写 JS 特有的东西**：目录与清单、生命周期与硬约束、`musicxx` 全局对象的写法、JS 线程、
 > 定时器与工具、调试与坑。**接口本身"做什么、参数是什么、返回什么"在 [plugin-api.md](plugin-api.md)** ——
@@ -105,7 +105,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | 命名空间 | 用途 | 详细 |
 |---|---|---|
 | `musicxx.capability` | 实现应用声明的能力、注册自己的能力 / 调用别的插件的能力、读谁在实现 | §4、§10；[plugin-api.md](plugin-api.md) §6 / §8 |
-| `musicxx.broadcast` | 广播：读当前值、订阅、发布，以及声明自己的值频道（变量） | §5、§8、§9；[plugin-api.md](plugin-api.md) §4 / §5 |
+| `musicxx.broadcast` | 广播：读当前值、订阅（可声明频率）、发布自己频道的值、声明频道 | §5、§8、§9；[plugin-api.md](plugin-api.md) §4 / §5 |
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
 | `musicxx.capability.call` | 通用动作请求（返回 Promise） | §7 |
 | `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.capability.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
@@ -286,8 +286,8 @@ const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying ==
   （`musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送，读到的永远是 `null`）；
 - 键名固定（官方 `musicxx.state.*`），写错就是 `null`，不会报错；
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
-  （**不是实时值**）。要按秒推进度用广播频道 `musicxx.player.position`（每秒一条），
-  要当场读当前值用变量 `musicxx.player.position` —— 不要把它当每秒更新的镜像用；
+  （**不是实时值**）。要按秒推进度就订阅广播频道 `musicxx.player.position`（不限频，订阅时声明
+  `intervalMs`），或当场 `read` 它 —— 不要把它当每秒更新的镜像用；
 - 要在自绘界面里"跟着音乐动"，用 `musicxx.state.spectrum`（约 10 Hz）或着色器的
   `musicxx.spectrum.*` 来源（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7）；
   识别格式：`status` = `ready` / `loading` / `none` / `off` / `unavailable`，
@@ -383,7 +383,7 @@ const result = await musicxx.capability.call("musicxx.<域>.<动作>", { ...参�
 
 `musicxx` 全局对象上还有两个**不是** `musicxx.capability.call` 封装的名字空间：`musicxx.capability`（能力：
 实现应用声明的能力、注册自己的能力、调别的插件、自省）与 `musicxx.broadcast`（广播：读当前值、
-订阅、发布、声明自己的值频道），方法见 §3 的表与 §4 / §5 / §8 / §9 / §10。
+订阅、发布、声明自己的频道），方法见 §3 的表与 §4 / §5 / §8 / §9 / §10。
 
 `musicxx.library`（`querySongs` / `querySonglists` / `playSong` / `playSonglist`）是**过时的对象**：
 名字还能用，内部已转成 `musicxx.playlist` / `musicxx.songlist` 的动作名，老脚本不用改；
@@ -396,7 +396,7 @@ const result = await musicxx.capability.call("musicxx.<域>.<动作>", { ...参�
 - **名字存在但当前版本没实现**的动作会立刻失败（`action_not_registered`）：
   `musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` ——
   写插件前先按 [plugin-api.md](plugin-api.md) §3.4 确认一遍；
-- **要"改应用状态"而动作里没有**：多半有对应的能力或值频道（例如改播放速度 / 音调用
+- **要"改应用状态"而动作里没有**：多半有对应的能力（例如改播放速度 / 音调用
   `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用能力 `musicxx.player.speed` /
   `musicxx.player.pitch`）。
 
@@ -610,9 +610,10 @@ await musicxx.ui.overlayClose();                              // 自己收起当
 
 ## 8. 广播（事件频道：发布 / 订阅）
 
-> 广播就是“有人发了、关心的人都能收到”的频道。带当前值的（`cache: latest`，例如 `musicxx.state.*`、变量）
-> 另外还能同步 `read`；没有当前值的（`cache: none`，例如 `musicxx.song.changed`）只有事件。
-> 频道清单与字段见 [plugin-broadcasts.md](plugin-broadcasts.md)，变量键目录见 [plugin-value-channels.md](plugin-value-channels.md)。
+> 广播就是“有人发了、关心的人都能收到”的频道。带当前值的（`cache: latest`，例如 `musicxx.state.*`、
+> `musicxx.ui.*` / `musicxx.theme.*` 这些官方值频道）另外还能同步 `read`；没有当前值的（`cache: none`，
+> 例如 `musicxx.song.changed`）只有事件。频道清单、取值与“改它调哪个能力”见
+> [plugin-broadcasts.md](plugin-broadcasts.md)。
 
 ```js
 musicxx.broadcast.subscribe("musicxx.state.song", (song, topic) => { /* ... */ });
@@ -629,7 +630,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
   事件是单向通知，能力调用有返回值。
 
 常用的可订阅主题（完整清单与载荷字段见 [plugin-api.md](plugin-api.md) §4）：
-`musicxx.state.*`（快照频道变化）、`musicxx.broadcast.changed` / `musicxx.broadcast.writeResult`（变量通道）、
+`musicxx.state.*`（快照频道变化）、`musicxx.broadcast.subscribers`（某个频道的订阅数变了）、
 以及其它插件发布的 `plugin.<对方 id>.*`。
 
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
@@ -639,67 +640,44 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 
 ---
 
-## 9. 值频道（变量：有属主、可读、可写、可订阅变动的小值）
+## 9. 官方值频道（广播：应用是属主，插件只能读与订阅）
 
-> 概念、与邻居的分工（镜像 / 动作 / 事件 / 变量怎么选）、三条读法的取舍、注册与 handler 模式、
-> 错误码与超时，都在 [plugin-api.md](plugin-api.md) §5；官方变量目录见
-> [plugin-value-channels.md](plugin-value-channels.md)。本节只给 JS 的 API 与写法。
-
-```js
-// 读：权威读（异步）/ 一次读多个 / 同步读缓存 / 变化回调 / 只保活缓存
-var level = await musicxx.broadcast.get("musicxx.ui.animatedLevel");
-var values = await musicxx.broadcast.getMany(["musicxx.ui.songIconRotate", "musicxx.ui.songIconWave"]);
-musicxx.broadcast.watch("musicxx.ui.songIconWave");
-var cached = musicxx.broadcast.read("musicxx.ui.songIconWave");   // {value, revision, ageMs, stale} 或 null
-var off = musicxx.broadcast.subscribe("musicxx.ui.animatedLevel", function (value, info) {
-    musicxx.host.log(2, "动画等级变成 " + value + "（由 " + (info.by || "应用") + " 改的）");
-});
-off();                                   // bind 返回解绑函数；unbind(key, fn) 也可以
-
-// 写：结果 {key, accepted, value, changed, error?}
-var result = await musicxx.broadcast.write("musicxx.theme.mode", "night");
-if (!result.accepted) { musicxx.host.log(3, "被拒绝: " + result.error); }
-
-// 注册自己的变量（短名，框架补 plugin.<自己 id>. 前缀）
-musicxx.broadcast.declare({ key: "tip.start", caps: ["get", "set", "notify"], type: "bool", value: false,
-                        title: "开场提示", depict: "为真时播放页显示一句开场提示" });
-musicxx.broadcast.undeclare("tip.start");
-
-// 自省：has(key) / info(key) / list(prefix?) / own() / subscribers(key)
-musicxx.broadcast.subscribers("tip.start");   // 判断"还要不要继续高频推"
-```
-
-handler 模式（值本来就在脚本里，不想再维护一份副本）：
+> 概念、与邻居的分工（快照频道 / 官方值频道 / 动作 / 事件怎么选）、要改它调哪个能力，都在
+> [plugin-api.md](plugin-api.md) §5；完整频道表（类型 / 取值域 / 改它调哪个能力）见
+> [plugin-broadcasts.md](plugin-broadcasts.md)。本节只给 JS 的 API 与写法。
 
 ```js
-var tipStart = false;                    // 唯一真值在脚本里
+// 读当前值（同步，走插件框架里的缓存；没发布过是 null）
+var level = musicxx.broadcast.read("musicxx.ui.animatedLevel");     // "medium"
+var inFront = musicxx.broadcast.read("musicxx.app.lifecycle") === "foreground";
 
-musicxx.broadcast.declare({
-  key: "tip.start",
-  caps: ["get", "set", "notify"],
-  mode: "handler",
-  type: "bool",
-  refreshAfterMs: 5000,                  // 有人 watch 时框架最多 5 秒来取一次真实值
-  onRead:  function () { return tipStart; },              // 回答 get（可以返回 Promise）
-  onWrite: function (value) {                             // 别人写这个变量时由这里处理
-    tipStart = (value === true);
-    return tipStart;                                      // 返回值 = 提交给框架的最终值
-  }
-});
+// 订阅变化：第一条立即到达（快照频道先补一次当前值），之后按自己声明的频率
+var off = musicxx.broadcast.subscribe("musicxx.player.position", function (pos) {
+    draw(pos.positionMs, pos.durationMs);
+}, { intervalMs: 500, mode: "delay" });     // 每 500 ms 最多一条，只留最新
+off();                                       // 解绑（句柄随插件停止也会自动撤销）
 
-function setTipStart(next) { tipStart = next; musicxx.broadcast.write("tip.start", next); }  // 自己改了要主动提交
+// 要改它：调能力（广播没有写入口）
+await musicxx.capability.call("musicxx.ui.setAnimatedLevel", { "level": "low" });
+
+// 发布自己的频道（只能发自己命名空间；要当前值先声明 cache: "latest"）
+musicxx.broadcast.declare({ id: "tip.start", cache: "latest", publish: "owner",
+                            title: "开场提示" });
+musicxx.broadcast.publish("tip.start", { on: true });
+
+// 自省：has(id) / info(id) / list(prefix?) / declared() / subscribers(id)
+musicxx.broadcast.subscribers("tip.start");   // 判断"还要不要继续高频发"
 ```
 
 JS 侧要记住的几条：
 
-- **`read` 是同步的**（返回 `null` = 没缓存过），`get` / `write` 返回 Promise：
-  `get` 失败走 Promise 拒绝（`变量不存在` / `该变量不可读` / `读取超时`）；`set` 被拒时
-  `result.accepted === false`（不会抛异常）；
-- `watch` 只是"订阅但不回调"，用来让 `read` 有新鲜值（需要该变量声明了 `notify` 能力位）；
-- `register` 的 `onRead` / `onWrite` **可以返回 Promise**（框架等它结算）；`onWrite` 抛异常会被转成一次
-  "拒绝"，异常文案带给写入方；
-- 声明跟着插件生命周期走：禁用 / 卸载会撤销自己的全部变量；每次启用脚本都会重新声明一遍；
-- 键名可以写多级分组（`tip.start.detail`）；写全名 `plugin.<自己的插件id>.*` 也认；
+- **`read` 是同步的**（返回 `null` = 没有当前值；`cache: none` 的频道永远没有）；
+- **订阅频率是自己声明的**：`{intervalMs, mode}`，`0` / 缺省 = 不限频；`mode` 是 `delay`（只留最新一条到点补发）
+  或 `drop`（直接丢）；同一个频道可以用不同频率订多次；
+- **广播是只读的**：官方频道只能读与订阅，改应用状态调能力；自己的频道只能自己发布（声明 `publish: "anyone"`
+  才是共享频道）；
+- 声明跟着插件生命周期走：禁用 / 卸载会撤销自己的全部频道；每次启用脚本都会重新声明一遍；
+- id 写短名（`tip.start`，框架补成 `plugin.<自己 id>.tip.start`）或多级分组都行，写全名也认。
 
 ## 10. 能力（注册 + 跨插件调用）
 
@@ -1122,7 +1100,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | `musicxx.stats.reportMetric` | 自报指标（只展示） |
 
 只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）；
-只关心某一个特性时读对应的单特性示例：`plugins/example_js_vars/`（变量通道）、
+只关心某一个特性时读对应的单特性示例：`plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、`plugins/example_js_async/`（裁决处理器返回 Promise）、
 `plugins/example_js_font/`（动态加载字体并设为全局字体）。
 

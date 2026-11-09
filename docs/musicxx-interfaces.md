@@ -7,7 +7,7 @@
 > `{"cmd": "<入口 id>", "args": {…}}`。链接（applink）与进程启动参数只是"把这次调用说出来"
 > 的两种额外写法，见 §1。
 >
-> 插件自己的接口（动作 / 值频道 / 功能点 / 能力 / 界面）在 [plugin-api.md](plugin-api.md)；
+> 插件自己的接口（动作 / 广播 / 功能点 / 能力 / 界面）在 [plugin-api.md](plugin-api.md)；
 > 用命令行装插件、改完刷新、看插件日志在 [plugin-agent-cli.md](plugin-agent-cli.md)。
 
 **术语**：**主程序**指 musicxx（Flutter/Dart 业务层）；**插件框架**指外置插件的 C++ 层。
@@ -30,7 +30,7 @@
 | **本机命令行** | 人、脚本、agent | `musicxx-cli`（独立可执行文件）→ 主程序 `/cli` | §4 |
 | **本机链接（applink / deep link）** | 手机点链接、桌面点 `musicxx://…`、其他应用跳过来；也可以由用户在应用里自己粘贴 | `musicxx://…` 交给系统 → 应用自己解析 | §1.1、§1.1.1 |
 | **进程启动参数** | 文件关联、"用拟声打开"、命令行传参、第二个实例转发 | `musicxx <参数…>` | §1.2 |
-| **插件内部** | 装在应用里的动态库插件 / JS插件 | 动作 / 值频道 / 功能点 / 能力 | [plugin-api.md](plugin-api.md) |
+| **插件内部** | 装在应用里的动态库插件 / JS插件 | 动作 / 广播 / 功能点 / 能力 | [plugin-api.md](plugin-api.md) |
 | **局域网设备之间** | 另一台装了 musicxx / 流明的设备（控制页、一起听、资源代理） | `/control`、`/connectEvent`、`/getSrc`、`/parseSrc`、`/listenTogether`、`/ws/*` | §6 |
 | **设备发现** | 同网段的设备互相发现 | mDNS 服务 `_boolxx-service._udp` + HTTP `/active` | §6.1 |
 
@@ -43,7 +43,7 @@
 | 播放一个文件 / 链接 | `PlayMedia`（命令 `musicxx.player.playSrc`） | `musicxx-cli call musicxx.player.playSrc --args '{"src":"…"}'` | `musicxx.player.playSrc` | `musicxx://play/?url=…` | 直接给文件路径，或 `--uri …` |
 | 跳搜索页 | `OpenSearch`（命令 `musicxx.ui.openSearch`） | `musicxx-cli call musicxx.ui.openSearch --args '{"keyword":"…"}'` | —（插件用 `musicxx.ui.openRoute`） | `musicxx://search/?keyword=…` | `--cmd musicxx.ui.openSearch --args '{"keyword":"…"}'` |
 | 副歌区段 | `AnalyseAudioChorus`（能力工具） | `musicxx-cli feature call AnalyseAudioChorus` | `musicxx.feature.call` | — | — |
-| 读前后台状态 | `GetAppLifecycle` | `musicxx-cli call app.lifecycle` | 变量 `musicxx.app.lifecycle`（读值 + 订阅） | `musicxx://call/?cmd=app.lifecycle` | `--cmd app.lifecycle` |
+| 读前后台状态 | `GetAppLifecycle` | `musicxx-cli call app.lifecycle` | 广播 `musicxx.app.lifecycle`（读当前值 + 订阅） | `musicxx://call/?cmd=app.lifecycle` | `--cmd app.lifecycle` |
 | 切到前台 / 后台 | `SwitchForegroundBackground`（`operator`） | `musicxx-cli call window.background`（命令 `window.foreground` / `window.background`） | `musicxx.app.background` / `musicxx.app.foreground` | `musicxx://musicxx.app.background` | `--cmd musicxx.app.background` |
 | 改音量 / 速度 / 音调 / 进度 | `SetAppVolume` / `SetSpeed` / `SetPitch` / `SetCurrentPlaybackPosition` | `musicxx-cli volume` / `speed` / `pitch` / `seek` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `seek` | `musicxx://call/?cmd=musicxx.player.setVolume&args=…` | `--cmd musicxx.player.setPitch --args '{"pitch":1.1}'` |
 | 拦一次改播放值 / 收播放进度 | — | — | 能力 `musicxx.player.seek` / `volume` / `speed` / `pitch` + 广播频道 `musicxx.player.position` | — | — |
@@ -291,7 +291,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"status"}'
 ```
 
-## 4. 命令面（当前 131 条 = 内置与应用命令 34 + 动作命令 92 + 能力导出 2 + 变量 3）
+## 4. 命令面（当前 130 条 = 内置与应用命令 34 + 动作命令 92 + 能力导出 2 + 广播 2）
 
 > **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
 > 下面各节的数字只是写这份文档时的快照。
@@ -307,7 +307,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `builtin` | 34 | `MusicxxCliCommandsSetup` + `MusicxxAppCommands` + `MusicxxEntryCommands` + `MusicxxEntries` | `status`、歌词、歌单、播放记录、定时停止、前后台状态与切换、外部插件管理、日志、能力自省（`capability.list` / `capability.call` / `capability.subscribers`）、**播放内核信息**、**统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`）**、**共享与控制（设备扫描/列表/指令转发）**、**文件（按链接下载 / 注册静态文件服务）** |
 | `action` | 92 | 主程序动作表 | 与插件、MCP 共用同一份实现；**命令 id 就是动作名**（88 条 + 4 条 `musicxx.library.*` 旧名；`musicxx.net.fetch` / `download` 两条由插件框架直接回答，不进命令表） |
 | `feature` | 2 | 应用能力导出 | `feature.list` / `feature.call` |
-| `variable` | 3 | 变量目录 | `var.list` / `var.get` / `var.set` |
+| `broadcast` | 2 | 广播频道 | `broadcast.list` / `broadcast.read`（写状态调能力） |
 
 命令表**自描述**：`musicxx-cli list --json`（或 GET `/cli/list`）里 `commands[]` 每项是
 `{id, title, kind, description?, params: []}`，另有 `entries[]`（链接形态）。写脚本时先问一次，
@@ -347,7 +347,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `clocking.set` | `duration?`(秒 1~86400)、`enableStopAfterFinish?`、`enableSleepMode?`、`exitWhenStop?` | `{started, durationSeconds, durationText, …}`；什么都不给时沿用用户上次的设置（没有则 60 分钟） |
 | `clocking.cancel` | 无 | `{ok:true}`（没设置过也算成功） |
 | `window.foreground` / `window.background` | 无 | `{ok:true}` |
-| `app.lifecycle` | 无 | `{foreground, lifecycle, state, backgroundMs, lastBackgroundMs}`：`foreground` = 是否前台；`lifecycle` = `foreground` / `background`；`state` = 原始生命周期状态名（`resumed` / `inactive` / `hidden` / `paused` / `detached`）；`backgroundMs` = 已经在后台多久（前台为 0）；`lastBackgroundMs` = 上一次在后台待了多久。与变量 `musicxx.app.lifecycle` 读的是同一份状态（变量只给 `foreground` / `background`） |
+| `app.lifecycle` | 无 | `{foreground, lifecycle, state, backgroundMs, lastBackgroundMs}`：`foreground` = 是否前台；`lifecycle` = `foreground` / `background`；`state` = 原始生命周期状态名（`resumed` / `inactive` / `hidden` / `paused` / `detached`）；`backgroundMs` = 已经在后台多久（前台为 0）；`lastBackgroundMs` = 上一次在后台待了多久。与广播 `musicxx.app.lifecycle` 读的是同一份状态（广播只给 `foreground` / `background`） |
 | `app.commands` | `action?`(string：`install` / `uninstall` / `status`，缺省 `status`) | `{…, text}`：把 `musicxx` / `musicxx-cli` 登记成系统里能直接输入的命令（Windows 写用户 PATH 与 App Paths；macOS / Linux 在 PATH 里的可写目录建入口），或者查 / 删这份登记；`locations` 是实际生效的位置，`problems` 是失败原因 |
 | `externPlugin.list` | 无 | 插件框架现状 + 插件清单（字段见本节末尾那张表） |
 | `externPlugin.install` | `path?`(string，本机绝对路径)、`url?`(string，下载链接)、`enable?`(bool，不给时新插件默认启用、覆盖安装沿用原状态)、`sha256?`(string) | `{ok, id, version, kind, author?, description?, permissions, enabled, path, sha256, isUpgrade, target, targetEntry, targets, fileCount, totalBytes, source, download?, status}`：`path` 与 `url` 二选一（都不给或都给都是命令失败）；`url` 分支先下到 `<系统缓存根>/musicxx/temp/plugin` 再装，**装完（无论成败）删临时包**；`sha256` 给了就比对，不一致不装 |
@@ -382,17 +382,16 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 `pendingCapabilityCalls`、`plugins[]`（`id` / `version` / `kind` / `enabled` / `loaded` /
 `supported` / `reason` / `target` / `path` / `permissions` / `error`）。
 
-### 4.4 能力导出与变量（5 条）
+### 4.4 能力导出与广播（4 条）
 
 | 命令 | 参数 | `data` |
 |---|---|---|
 | `feature.list` | 无 | `{features:[{id, title, depict, args, output}…]}`（与 MCP 工具同一份注册表） |
 | `feature.call` | `id`(必填)、`args?`(object) | `{id, output, text?, json?}`；失败时是命令失败（`ok:false` + 原因） |
-| `var.list` | 无 | `{variables:[…]}`：键、能力位、类型、候选值、当前值 |
-| `var.get` | `key`(必填) | `{key, value, type, options, caps, title, depict, risk}` |
-| `var.set` | `key`(必填)、`value`(必填，任意 JSON 值) | `{key, value}`；属主不接受时是命令失败（原因可读） |
+| `broadcast.list` | 无 | `{channels:[…]}`：频道、缓存属性（`cache` / `publish`）、属主、订阅数、当前值（官方频道来自 Dart 注册表，插件频道由插件框架补） |
+| `broadcast.read` | `id`(必填) | `{id, value}`；没有当前值时是命令失败（原因可读） |
 
-变量清单与语义见 [plugin-value-channels.md](plugin-value-channels.md)。当前四个导出能力：
+频道清单、取值域与“改它调哪个能力”见 [plugin-broadcasts.md](plugin-broadcasts.md)。当前四个导出能力：
 `GetAudioSpectrum`（整曲频谱，文本表）、`AnalyseAudioChorus`（副歌区段）、
 `AnalyseImageMainColors`（图片主色调）、`GetMediaKernelInfo`（播放内核：版本 / 过滤器 / 解码器 / 后缀）。
 它们的参数由能力自己声明，`feature.list` / MCP 的工具清单里就是同一份。
@@ -467,7 +466,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `toast <文本>` | `musicxx.ui.toast` |
 | `feature list` / `feature call <id> --args JSON` | `feature.list` / `feature.call` |
 | `capability.list` / `capability.call <id>` | `capability.list` / `capability.call`（CLI 名大小写不敏感，写 `featurepoint.list` 也一样） |
-| `var list` / `var get <键>` / `var set <键> <值>` | `var.list` / `var.get` / `var.set` |
+| `broadcast list` / `broadcast read <频道id>` | `broadcast.list` / `broadcast.read`（写状态调能力） |
 | `render list` / `render current` / `render select <id>` | `musicxx.render.list` / `current` / `select` |
 | `plugin …`（装 / 启停 / 重载 / 卸载 / 日志 / 清日志 / 重启） | `externPlugin.*` |
 | `logs [error\|info]` | `app.logs` |
@@ -644,7 +643,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 | 没有 MCP 工具的命令 | 替代做法 |
 |---|---|
-| `var.list` / `var.get` / `var.set` | `musicxx-cli var list` / `var get <键>` / `var set <键> <值>`，或 `/cli` |
+| `broadcast.list` / `broadcast.read` | `musicxx-cli broadcast list` / `broadcast read <频道id>`，或 `/cli` |
 | `feature.list` / `feature.call` | 每个能力已经单独变成工具（`GetAudioSpectrum` …），原始清单用 `musicxx-cli feature list` |
 | `app.commands` | `musicxx-cli commands [status\|install\|uninstall]` |
 | `musicxx.entry.argv` | 命令行 `musicxx-cli open` / `call`，或 `/cli` 的 `{"argv": […]}` |
@@ -850,7 +849,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 **相关文档**：[plugin-api.md](plugin-api.md)（插件侧接口手册）、
 [plugin-agent-cli.md](plugin-agent-cli.md)（用命令行 / MCP 管插件）、
-[plugin-value-channels.md](plugin-value-channels.md)（变量）、[plugin-capabilities.md](plugin-capabilities.md)（能力总表）、
+[plugin-broadcasts.md](plugin-broadcasts.md)（广播频道与取值）、[plugin-capabilities.md](plugin-capabilities.md)（能力总表）、
 [plugin-guide.md](plugin-guide.md)（总入口）。
 
 **维护者注**（改接口时一起改的地方）：命令与工具的实现都在主程序

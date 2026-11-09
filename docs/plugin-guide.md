@@ -7,18 +7,18 @@
 
 | 你要做的事 | 读这篇 |
 |---|---|
-| **查某个接口做什么、参数是什么、怎么用**（能力与广播（快照频道 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件）） | [plugin-api.md](plugin-api.md)（两种形态共用） |
+| **查某个接口做什么、参数是什么、怎么用**（能力与广播（快照频道 / 官方值频道 / 动作 / 事件 / 插件服务 / 功能点 / 应用来问插件）） | [plugin-api.md](plugin-api.md)（两种形态共用） |
 | 写 JS插件（零编译） | [plugin-js-api.md](plugin-js-api.md) |
 | 写 动态库插件（含多目标打包） | [plugin-native-api.md](plugin-native-api.md) |
 | 查能力 id / 模式 / 载荷 / 裁决 | [plugin-capabilities.md](plugin-capabilities.md)（生成物） |
-| 读 / 改 / 订阅变量 | [plugin-value-channels.md](plugin-value-channels.md) |
+| 查广播频道（官方值频道 / 事件）与“改它调哪个能力” | [plugin-broadcasts.md](plugin-broadcasts.md)（生成物） |
 | 加界面（主页入口、歌曲菜单、插件页面） | [plugin-ui.md](plugin-ui.md) |
 | 写着色器（播放页背景 / 页面内联块） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **用命令行 / AI agent 装插件、刷新、看日志**（不点管理页） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 构建插件框架库、把插件框架库随主程序分发 | 本包 `README.md` |
 
 > 选形态之后**先读 [plugin-api.md](plugin-api.md)**：两种插件能用的接口是同一批（同一套能力表、
-> 同一份动作注册表、同一份快照频道与变量协议），只是写法不同（JS 是 Promise，C++ 是完成通知 / 协程）。
+> 同一份动作注册表、同一份快照频道与官方值频道协议），只是写法不同（JS 是 Promise，C++ 是完成通知 / 协程）。
 > 那份文档写清每个接口的功能、参数、返回、用法与坑，两篇形态文档只写各自的语言差异。
 
 三句话理解这套框架：
@@ -140,7 +140,7 @@ musicxx.capability.register("card", function () {
 |---|---|---|---|
 | **应用来问插件（决策型能力）** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.capability.implement` / `PluginBase::implement`（带 `phase`） | [plugin-capabilities.md](plugin-capabilities.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
 | **快照频道** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.broadcast.read` / `broadcastJson` | [plugin-api.md](plugin-api.md) §2 |
-| **变量** | 读 / 改应用的设置项（官方键），或把自己的小状态暴露给别的插件与应用（可订阅变化） | JS `musicxx.broadcast.*`（原生已没有变量表） | [plugin-api.md](plugin-api.md) §5 + [plugin-value-channels.md](plugin-value-channels.md) |
+| **官方值频道** | 读应用的设置项与状态（动画等级、字体、主题、前后台、播放进度），订它的变化；**要改它调能力** | JS `musicxx.broadcast.read/subscribe` / 原生 `broadcastJson` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §5 + [plugin-broadcasts.md](plugin-broadcasts.md) |
 | **应用实现的能力** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.capability.call` / `capabilityCall` | [plugin-api.md](plugin-api.md) §3（全部能力的参数与返回） |
 | **事件** | 插件之间 / 插件与插件框架之间广播小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
@@ -299,11 +299,11 @@ musicxx.capability.register("card", function () {
 
 ### 5.10 性能
 
-- **高频数据用快照频道**：镜像按需推送（播放状态按变化推、频谱约 10 Hz），`get` 是同步读，
-  比反复发动作便宜得多；
+- **高频数据用快照频道 / 官方值频道**：应用按变化发布，插件的 `read` 是同步读，比反复发动作便宜得多；
 - **声明式界面的动画是局部的**：只有放进 `musicxx.AnimatedBuilder` 的子树会逐帧重建，
   其它部分保持快照；动画等级低时连时间都不推进；
-- **变量声明节流**：超过约 5 Hz 的值声明 `throttleMs`，否则插件框架会记警告日志；
+- **高频频道声明订阅频率**：超过约 5 Hz 的变化，订阅时声明 `{intervalMs, mode}`；
+  自己发布的高频频道先看 `subscribers(id)` 是不是 0（没人听就不发）；
 - **着色器 uniform 成员越多越慢**：实测 16 个频带成员约 5 ms 量级，64 个成员（256 个频点）会到
   90 ms 以上 —— 需要更细的频带就用 `bands64`，不要逐像素在 64 个成员里挑；
 - 定时器精度是 ≤ 50 ms 轮询，不要用它做高精度计时；日志不要当数据通道用（高频写日志会拖慢应用）。
@@ -316,7 +316,7 @@ musicxx.capability.register("card", function () {
 |---|---|
 | 管理页「插件」分页 | 扫描结果、启用 / 禁用 / 重载 / 卸载、插件详情（清单、声明的权限、注册项、日志、统计） |
 | 命令行 / MCP | 同一批操作不用点界面：`musicxx-cli plugin list / install / enable / disable / reload / uninstall / restart / logs`，MCP 工具同名对应（见 [plugin-agent-cli.md](plugin-agent-cli.md)） |
-| 管理页「调试」分页 | 能力统计（调用次数 / 平均 / 最大 / 超时 / 失败）、每个插件的阶段耗时与计数、JS 实例统计与内存采样、最近事件、变量快照、界面描述层版本 |
+| 管理页「调试」分页 | 能力统计（调用次数 / 平均 / 最大 / 超时 / 失败）、每个插件的阶段耗时与计数、JS 实例统计与内存采样、最近事件、广播频道（订阅数与当前值）、界面描述层版本 |
 | 管理页「设置」分页 | 框架开关（总开关、动态库 / JS 开关、安全模式、事件日志开关） |
 | 插件日志 | `console.*` / `musicxx.host.log(...)` 与框架日志；设 `MUSICXX_EXTERN_PLUGIN_LOG_STDERR=1` 可让框架日志打到 stderr |
 | `host_call.log` | 应用日志目录下的同步调用轨迹：应用卡住时最后一行就是没返回的那次调用 |
@@ -362,14 +362,13 @@ musicxx.capability.register("card", function () {
 ## 8. 相关文档
 
 - [plugin-api.md](plugin-api.md) —— **两种形态共用的接口手册**：快照频道、动作（全部动作的参数与返回）、
-  事件、值频道、能力、功能点、应用来问插件、界面入口、日志与自省、命名空间 / 超时 / 容量、通用排障
+  事件、官方值频道、能力、功能点、应用来问插件、界面入口、日志与自省、命名空间 / 超时 / 容量、通用排障
 - [plugin-js-api.md](plugin-js-api.md) —— JS 插件专有：目录与清单、生命周期与硬约束、`musicxx` 全局对象、
   定时器与工具、常见坑（§15）、v1 边界（§16）
 - [plugin-native-api.md](plugin-native-api.md) —— 动态库插件专有：清单与多目标打包、SDK、框架线程、
   接口表判定、常用接口的 C++ 写法（§4.2）、构建、部署、排障
 - [plugin-capabilities.md](plugin-capabilities.md) —— 能力总表：能不能参与、参与哪一步、载荷与回答（生成物）
-- [plugin-broadcasts.md](plugin-broadcasts.md) —— 广播总表：频道、有没有当前值、谁能写、载荷（生成物）
-- [plugin-value-channels.md](plugin-value-channels.md) —— 官方变量目录与读写规则
+- [plugin-broadcasts.md](plugin-broadcasts.md) —— 广播总表：频道、有没有当前值、谁能发布、载荷与取值域（生成物）
 - [plugin-ui.md](plugin-ui.md) —— UI 项、插件页面组件、用 kit 拼装、页面间跳转
 - [plugin-shader-bundle.md](plugin-shader-bundle.md) —— bundle 打包、uniform 约定、参数表达式、排查
 - [plugin-agent-cli.md](plugin-agent-cli.md) —— 用命令行 / MCP 装插件、刷新、看日志（给 AI agent 与自动化）

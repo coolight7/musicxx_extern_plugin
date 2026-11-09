@@ -5,7 +5,7 @@
 
 | 主题 | 文档 |
 |---|---|
-| **两种形态共用的接口**（能力与广播（快照频道 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
+| **两种形态共用的接口**（能力与广播（快照频道 / 官方值频道 / 动作 / 事件 / 插件服务 / 功能点 / 应用来问插件） / 约定 / 排障） | [plugin-api.md](plugin-api.md) |
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | [plugin-guide.md](plugin-guide.md) |
 | 能力 id / 能不能参与 / 载荷与回答 | [plugin-capabilities.md](plugin-capabilities.md) |
 | 广播频道 id / 有没有当前值 / 谁能写 / 载荷 | [plugin-broadcasts.md](plugin-broadcasts.md) |
@@ -313,7 +313,7 @@ MUSICXX_PLUGIN_EXPORT(
 `version >= 该表的最低版本`（`MUSICXX_PLUGIN_IFACE_*_MIN_VERSION`）且
 `struct_size >= 该表的基线字节数`（`..._BASELINE_SIZE`）。SDK 的 `pluginxx::queryInterface<表>(host, IID)`
 已经按它做完：拿到非空指针 = 表可用，**基线段成员全部可用**；不满足门槛时整张表返回 NULL
-（`iface.hooks` / `iface.host` / `iface.ui` / `iface.vars` 为 `nullptr`），按"这个能力没有"降级即可。
+（`iface.host` / `iface.ui` / `iface.net` 为 `nullptr`），按"这个能力没有"降级即可。
 
 - **表能查到 ≠ 表里每个成员都能用**：以后往表尾追加的成员要单独判
   `pluginxx::ifaceHas<&MusicxxPluginUIIface::新成员>(iface.ui) && iface.ui->新成员`。
@@ -324,9 +324,9 @@ MUSICXX_PLUGIN_EXPORT(
   特化（上面两条门槛读的就是它）。插件不要自己造表、也不要改主程序给的表。
 - 现在的 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表都是 v1，
   基线 = 整表大小，也就是"表可用即全部成员可用"；
-- **`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 已删除**：能力处理器改成往
+- **`musicxx.hooks` 与 `musicxx.vars` 早已删除**：能力处理器改成往
   `musicxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
-  广播频道改成 `musicxx.broadcasts` 的频道，变量的读写改用能力 / 动作；
+  广播频道改成 `musicxx.broadcasts` 的频道，应用的状态只能读与订阅（要改调能力）；
   `musicxx.host` 同时去掉了 `get_state` / `subscribe_state` / `request_action` /
   `cancel_action`（表版本 2）—— 当前值读广播频道，动作就是能力（走 `musicxx.capabilities`）。
 - **插件形态（kind）不是写死的**：插件框架自带 `native`（动态库，按 C ABI 编译）与 `js`
@@ -391,14 +391,16 @@ PluginxxStringView data    = pluginxxView(R"({"at":1})");
 iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 ```
 
-**值频道**（语义与错误码见 [plugin-api.md](plugin-api.md) §5；原生侧只有广播表的读与订阅）：
+**官方值频道**（语义与错误码见 [plugin-api.md](plugin-api.md) §5；原生侧只有广播表的读与订阅）：
 
 ```cpp
-// 读当前快照（同步，可能旧；键的当前值存在 `musicxx.broadcast.<键>` 里）
-std::string snapshot = broadcastJson("musicxx.broadcast.musicxx.ui.songIconWave");
-// 订变化：订阅快照频道（订阅即推当前值）
-subscribeTopic("musicxx.broadcast.musicxx.ui.animatedLevel",
-               [](std::string_view json) { /* 一份快照 */ });
+// 读当前值（同步，走插件框架里的缓存）
+std::string level = broadcastJson(MUSICXX_BROADCAST_UI_ANIMATED_LEVEL);
+// 订变化：订阅时先补一次当前值，之后按自己声明的频率
+auto sub = subscribeTopic(MUSICXX_BROADCAST_PLAYER_POSITION,
+                          [](std::string_view json) { /* {sid, positionMs, durationMs} */ },
+                          PluginxxHost::SubscribeOptions{500, "delay"});
+// 要改它们：调能力（§6）；广播是只读的
 ```
 
 **能力 / 功能点 / UI / 日志**：
@@ -485,8 +487,8 @@ iface.kind->register_kind(host, &pluginxxView(R"({
 
   | 形态 | 当前代次 | 兼容下限 | 含义 |
   |---|---|---|---|
-  | `native`（内置） | 3 | 3 | C 接口代次；通用表变了就是破坏性变更，下限跟着抬 |
-  | `js`（内置） | **2** | **1** | JS 接口代次；至今只增不改（变量通道 / 网络 / 功能点调用 / 静态路由 / 界面层 v2 …），所以下限仍 1 |
+  | `native`（内置） | 7 | 7 | C 接口代次（跟 `PLUGINXX_API_VERSION` / `MIN_API_VERSION` 一起抬）；通用表变了就是破坏性变更，下限跟着抬 |
+  | `js`（内置） | **2** | **1** | JS 接口代次；至今只增不改（广播订阅频率 / 网络 / 功能点调用 / 静态路由 / 界面层 v2 …），所以下限仍 1 |
   | 运行器登记的形态 | 自己写 | 自己写 | `requiresPluginAbi: true` 的用框架的 C 接口那一对；解释执行的自报，不写 = 不判 |
 
   - **只增不改 → 只抬当前代次**：JS 插件写 `api_version: 1`（示例就是这样）仍能加载，插件可以读
@@ -532,24 +534,23 @@ const std::string songJson = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);   // �
   ```
 
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
-  （**不是实时值**）。要按秒推进度用广播频道 `musicxx.player.position`（每秒一条，
-  带 `sid` / `positionMs` / `durationMs`），要当场读当前值用值频道 `musicxx.player.position`
-  （快照存在 `musicxx.broadcast.<键>`）；
+  （**不是实时值**）。要按秒推进度就订阅广播频道 `musicxx.player.position`（不限频，
+  带 `sid` / `positionMs` / `durationMs`，订阅时声明 `SubscribeOptions{intervalMs, mode}`），
+  要当场读当前值用 `broadcastJson`；
 - 加载时想立刻确认框架给的环境：`config()`（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）
   与 `argsJson()`（默认 `{}`）；
 - 接口表里**已经没有** `subscribe_state`（框架 API 2 删掉）：状态键用广播频道的订阅与 `cache` 拿，当场读值用 `broadcastJson`。
 
 ---
 
-## 5.5 值频道：原生插件只有广播表
+## 5.5 官方值频道：原生插件只能读与订阅
 
-> **框架 API 2 起，值频道的原生接口表就删掉了（`vars*` 包装也没有了）。**
-> 原生插件没有声明 / 读取 / 写入值频道的入口：读某个键的当前快照用 `broadcastJson("musicxx.broadcast.<键>")`、
-> 订变化用 `subscribeTopic("musicxx.broadcast.<键>", fn)`（快照频道，订阅即推）；
-> 改应用的状态用**能力**（§6），要发布自己的广播用广播表的 `declare_broadcast` + `publish_broadcast`。
+> **广播是只读的**：原生插件没有写应用状态的入口。读当前值用 `broadcastJson(<频道宏>)`、
+> 订变化用 `subscribeTopic(<频道宏>, fn, options)`；改应用的状态调**能力**（§6），
+> 发布自己命名空间下的频道用广播表的 `declare_broadcast` + `publish_broadcast`。
 >
-> JS 插件侧的入口是 `musicxx.broadcast.*`（`read` / `get` / `write` / `subscribe` / `declare` …），
-> 写法见 [plugin-api.md](plugin-api.md) §5 与 [plugin-value-channels.md](plugin-value-channels.md)。
+> JS 插件侧是同一套（`musicxx.broadcast.read` / `subscribe` / `declare` / `publish`），
+> 写法见 [plugin-api.md](plugin-api.md) §5，频道与取值域见 [plugin-broadcasts.md](plugin-broadcasts.md)。
 
 ---
 
@@ -796,7 +797,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
 | `-3` | JSON 非法 | 载荷解析失败 |
 | `-4` | 未找到 | 未知 UI 类型、注销不存在的项 |
 | `-5` | 超时 | 动作请求 / 能力调用超时 |
-| `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 变量键；**动作名与能力 id 不受此限**：动作任意名都受理；自定义能力用 `plugin.<自己>.` 即可） |
+| `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 广播频道 id；**动作名与能力 id 不受此限**：动作任意名都受理；自定义能力用 `plugin.<自己>.` 即可） |
 | `-7` | 队列满 | 保留的错误码（当前没有容量类限制，不会再产生） |
 | `-99` | 内部异常 | 插件框架内部错误（看日志） |
 
@@ -1004,7 +1005,7 @@ Android 见 §11。
 |---|---|
 | 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；网络是插件框架的通用表 `<应用名>.net`（§5.6）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `capabilityCall("musicxx.player.play", ...)` 等动作名，由主程序分派（动作清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用动作 `musicxx.stats.reportMemory` / `reportMetric` |
-| 接口面与 JS 插件的关系 | **同一批接口**：同一套能力表、同一份动作注册表、同一份快照频道 / 变量协议 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
+| 接口面与 JS 插件的关系 | **同一批接口**：同一套能力表、同一份动作注册表、同一份快照频道 / 官方值频道 / 功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与动作超时（插件自己给的时间）；统计只观测不限制 |

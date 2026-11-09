@@ -12,7 +12,7 @@
 |---|---|
 | 给 **AI Agent / 自动化脚本** 的浓缩指南（插件框架是什么 / 框架怎么跑 / 插件怎么写 / 命令 / 排障） | [AGENTS.md](AGENTS.md) |
 | **第一次写插件**（选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查） | [docs/plugin-guide.md](docs/plugin-guide.md) |
-| **查某个接口做什么、参数是什么、怎么用**（能力与广播：快照频道 / 动作 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
+| **查某个接口做什么、参数是什么、怎么用**（能力与广播：快照频道 / 官方值频道 / 动作 / 事件 / 插件服务 / 功能点 / 应用来问插件，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
 | 写一个 **动态库插件**（清单 / SDK / 线程 / 构建 / 常用接口的 C++ 写法） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
 | 写一个 **JS插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
@@ -20,8 +20,7 @@
 | 用**命令行 / MCP** 装插件、刷新、看日志（AI agent 与自动化） | [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md) |
 | **musicxx 对外暴露的全部接口**（MCP 工具全表 / 命令行命令全表 / 本机 HTTP 与 WebSocket 路由 / 权限边界） | [docs/musicxx-interfaces.md](docs/musicxx-interfaces.md) |
 | 查**能力** id / 能不能参与 / 载荷与回答 | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
-| 查**广播频道** id / 有没有当前值 / 谁能写 / 载荷 | [docs/plugin-broadcasts.md](docs/plugin-broadcasts.md) |
-| 读 / 改 / 订阅**值频道**（官方值频道目录与规则） | [docs/plugin-value-channels.md](docs/plugin-value-channels.md) |
+| 查**广播频道** id / 有没有当前值 / 谁能发布 / 载荷与取值域 / 改它调哪个能力 | [docs/plugin-broadcasts.md](docs/plugin-broadcasts.md) |
 | 查**版本对照**（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）、改版本号的流程 | [docs/version-history.md](docs/version-history.md) |
 | 构建插件框架库、把插件框架库随主程序分发 | 本文件「构建」「打包（随应用分发）」 |
 | 在 Dart 侧接入插件框架（主程序开发者） | 本文件「Dart 侧（包内）」+ `lib/musicxx_extern_plugin.dart` 文件头 |
@@ -68,16 +67,15 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带三种背景样式：晶格 / 光圈 / 插件纹理铺底）
   playing_bg_image/ 示例插件（JS，零编译；插件显示名『示例封面背景』：三种播放页背景模式 —— 模糊 / 沉浸 / 黑胶 —— + 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：一个插件把背景、前景色、图标槽位与取色能力串起来）
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
-  example_js_vars/  示例插件（JS：变量通道 —— 登记插件变量 + 读写与绑定官方变量）
+  example_js_broadcast/ 示例插件（JS：广播 —— 声明 / 发布自己的频道、订阅官方频道并按需声明订阅频率）
   example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序加载）
   example_js_font/  示例插件（JS：全局字体切换 —— 系统字体 / 插件自带字体文件 / 恢复默认，演示"按钮动作立刻返回 + 后台执行"）
   example_js_net/   示例插件（JS：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的客户端与服务端，载入后自动跑一遍本机自检）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
-docs/plugin-api.md 两种形态共用的接口手册（能力与广播：快照频道 / 动作全表 / 事件 / 值频道 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障）
+docs/plugin-api.md 两种形态共用的接口手册（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障）
 docs/plugin-capabilities.md 能力总表（生成物：id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答）
-docs/plugin-broadcasts.md 广播总表（生成物：频道 / 有没有当前值 / 谁能写 / 载荷）
-docs/plugin-value-channels.md 官方值频道目录（键 / 能力位 / 取值 / 风险 + 维护约定）
+docs/plugin-broadcasts.md 广播总表（生成物：频道 / 有没有当前值 / 谁能发布 / 载荷与取值域 / 改它调哪个能力）
 docs/plugin-native-api.md 动态库插件作者指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
 docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 拼装内容/插件自己的设置页写法）
@@ -583,7 +581,7 @@ my_plugin/
 ```
 
 不需要 CMake、不需要编译；放进插件目录后「重新扫描」即可。完整 API、硬约束与排障见
-[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（动作 / 快照频道 / 变量 / 事件 / 能力 / 功能点）
+[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（动作 / 快照频道 / 官方值频道 / 事件 / 能力 / 功能点）
 见 [docs/plugin-api.md](docs/plugin-api.md)。
 
 ### 着色器（播放页背景 / 页面内联块）
@@ -633,7 +631,7 @@ musicxx-cli plugin uninstall my_plugin                                          
 `plugins/playing_bg_image/`（显示名『示例封面背景』：三种播放页背景模式『模糊』/『沉浸』/『黑胶』+ 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景三色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：
 背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、`playing.icon` 三种形态里的 `none`、
 `musicxx.media.palette.provide`、`foregroundColors`（运行期改前景三色）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面）；
-另外 `plugins/example_js_vars/`（变量通道）、
+另外 `plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、
 `plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），
 以及下面「对照示例」一组 —— 它们演示插件框架在

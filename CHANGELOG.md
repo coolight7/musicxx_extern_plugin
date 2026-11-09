@@ -8,6 +8,36 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1109.1 内，未发布）：广播只保留“读 + 订阅”，写状态改调能力
+
+广播现在是**只读**的：**属主发布、别人只能读与订阅**。原“值频道”（有属主、可读可写、带写回执的小值）
+整个删掉，三套东西分家：
+
+- **应用的状态（动画等级 / 字体 / 主题 / 前后台 / 播放进度）**：变成官方值广播（`musicxx.ui.*` /
+  `musicxx.theme.*` / `musicxx.app.lifecycle` / `musicxx.player.position`，都是 `cache: latest`）；
+  插件只能 `read` 与 `subscribe`，**要改它们调能力**（新增 `musicxx.ui.setAnimatedLevel` /
+  `setParticleAnimate` / `setSongIconRotate` / `setSongIconWave` / `setFontFamily`、
+  `musicxx.theme.setCurrent` / `setMode` / `tempSwitch`；改播放位置仍是 `musicxx.player.seek`）。
+- **插件自己的状态**：自己存私有存储；要给别人看就声明并发布自己命名空间下的频道
+  （`musicxx.broadcast.declare` / `publish`，默认只有自己可发布）。
+- **订阅频率由订阅方声明**：`subscribe(id, fn, {intervalMs, mode})`，第一条立即到达（含
+  `pushOnSubscribe` 补的当前值），窗口内 `delay` 只留最新一条到补发、`drop` 直接丢；应用侧不再节流。
+  `musicxx.player.position` 不再按 1 s 节流，要几百毫秒一条就写几百毫秒。
+- **删除的接口**：C ABI 的 8 个值频道导出（`declare` / `update` / `update_batch` / `write_result` /
+  `read_result` / `write` / `subscribe` / `unsubscribe`）→ 改为 `feature_bits` / `broadcast_publish` /
+  `broadcast_read` / `broadcast_list`；JS 的 `musicxx.broadcast.get` / `getMany` / `write` /
+  `watch` / `undeclare` 删除（`declare` 改为频道声明，`read` / `subscribe` / `publish` / `info` /
+  `list` / `subscribers` / `declared` 保留）；Dart 侧 `runtime.channels` 与 `MusicxxPluginChannels`
+  删除，改用 `runtime.broadcasts` 的 `read` / `list` / `publish` / `onSubscribers`。
+- **声明字段 `writable` 改名 `publish`**（`owner` / `anyone`），C 宏 `MUSICXX_BROADCAST_WRITABLE_*` →
+  `MUSICXX_BROADCAST_PUBLISH_*`；声明新增可选的 `type` 与 `options`（只用于文档与自省）。
+- **新事件 `musicxx.broadcast.subscribers`**（载荷 `{id, subscribers}`）：插件框架在频道订阅数变化时回传，
+  主程序用它做自省与“`cache: none` 的频道没人听就不发”的门。
+- **插件 ABI `PLUGINXX_API_VERSION` / `MIN_API_VERSION` 6 → 7**（广播表 v2：`subscribe_broadcast`
+  多 `options_json`）；**框架 C ABI `MUSICXX_EXTERN_PLUGIN_API_VERSION` 4 → 5**。
+- **命令面**：`var.list` / `var.get` / `var.set` → `broadcast.list` / `broadcast.read`（没有写命令）。
+- **文档**：`docs/plugin-value-channels.md` 删除，官方频道表并入生成的 `docs/plugin-broadcasts.md`。
+
 ### 变更（2026.1108.1 内，未发布）：插件网络的协议实现全部换成 `cxx_utilxx` 的网络库
 
 手写的 HTTP / TCP / WebSocket / UDP 协议实现（头解析、chunked 解码、Range、WS 握手与帧、
@@ -45,11 +75,8 @@ accept 循环）全删，改成库里的 `HttpClient` / `HttpServer` / `TcpConne
 - **状态镜像 → 广播快照频道**：`musicxx_extern_plugin_state_update` / `_batch` 删除，改用
   `musicxx_extern_plugin_broadcast_publish`（事件发布也改名成它）；Dart 侧删 `MusicxxPluginState`，
   用 `MusicxxPluginBroadcasts.publish`；`musicxx.state.changed` 删除（订阅具体频道）。
-- **变量 → 广播值频道**：`musicxx_extern_plugin_var_*` 全部改名 `musicxx_extern_plugin_broadcast_declare` /
-  `_update` / `_update_batch` / `_read` / `_write` / `_read_result` / `_write_result` / `_list` /
-  `_subscribe` / `_unsubscribe`；事件 `musicxx.var.*` → `musicxx.broadcast.*`；Dart 侧
-  `MusicxxPluginVars` → `MusicxxPluginChannels`（`runtime.vars` → `runtime.channels`）；
-  频道 id 从 `musicxx.var.<键>` 改成 `musicxx.broadcast.<键>`。
+- **变量 → 广播频道**：`musicxx_extern_plugin_var_*` 全部删除；状态与变量都走广播频道（只读 + 订阅），
+  写状态改调能力；事件前缀 `musicxx.var.*` → `musicxx.broadcast.*`（具体接口见上一节“广播只保留读 + 订阅”）。
 - **动作 → 应用实现的能力**：宿主侧设施与事件改名（`musicxx.action.request` / `.cancel` →
   `musicxx.capability.app.request` / `.cancel`，载荷键 `action` → `capability`；
   `musicxx_extern_plugin_action_respond` → `musicxx_extern_plugin_capability_app_respond`）；
