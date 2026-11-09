@@ -258,7 +258,7 @@
 
 ### `musicxx.theme.setCurrent` 切换当前主题
 
-参数 `{id}`：主题 id（`mimicryLight` / `mimicryNight`，也接受主题标题里用的 id 写法）。走 `theme_s.setIndex`：只切显示，**不改主题模式**、不写用户的模式设置、不暂停跟随（下一次跟随判断照样会改回来 —— 要“切了就停在那”用 `musicxx.theme.tempSwitch`）。改完发布广播 `musicxx.theme.current`。
+参数 `{id}`：主题 id（`mimicryLight` / `mimicryNight`，也认明暗写法 `light` / `night`，即 `musicxx.theme.available` 里的 `kind`）。走 `theme_s.setIndex`：只切显示，**不改主题模式**、不写用户的模式设置、不暂停跟随（下一次跟随判断照样会改回来 —— 要“切了就停在那”用 `musicxx.theme.tempSwitch`）。改完发布广播 `musicxx.theme.current`。
 
 回答 `{ok: true, id}`；id 非法时返回失败并说明原因。
 
