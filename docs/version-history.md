@@ -24,11 +24,13 @@
   （见 `plugins/README.md`）。
 - **与版本号无关的三个版本**：
   - 插件清单的 `api_version` 与插件 SDK 的 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 是**插件 ABI 代次**
-    （当前 5），只有破坏性改动时才 +1；低于它的插件在加载阶段被拒；
+    （当前 7），只有破坏性改动时才 +1；低于它的插件在加载阶段被拒；
     宿主构建时用 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 覆盖 cxx_pluginxx 的 `PLUGINXX_API_VERSION`
     与 `PLUGINXX_MIN_API_VERSION`（两个值相同）；
-  - C ABI 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION`（当前 3）是主程序 ↔ 插件框架库那层 `musicxx_extern_plugin_*`
-    函数与结构体的版本，同样只在破坏性改动时 +1。
+  - C ABI 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION`（当前 5）是主程序 ↔ 插件框架库那层 `musicxx_extern_plugin_*`
+    函数与结构体的版本，同样只在破坏性改动时 +1；
+  - 每个形态另有自己的**接口代次对**（清单 `api_version` 按所属形态的下限判）：内置 `native` 跟随插件 ABI
+    （当前 7/7），内置 `js` 当前 3/3（详见 `docs/plugin-native-api.md` §4.3）。
 - 插件读到的版本号：JS 是 `musicxx.version`，动态库插件是 `host.info().hostVersion`
   （与 `musicxx_extern_plugin_version()` 同一个值）。
 

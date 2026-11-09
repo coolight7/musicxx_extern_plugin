@@ -272,8 +272,8 @@ typedef struct MusicxxPluginUIIface {
 ///
 /// - **判定**：没有登记的 `kind` 判为"当前跑不了"（用户会看到"先装运行器插件"）；
 /// - **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：清单的
-///   `api_version` 按它判（`>= 下限`）；内置 `native` 是 C 接口那一对（3/3），内置 `js` 是
-///   JS 接口那一对（2/1：只增不改时只抬当前代次，破坏性变更才抬下限）；
+///   `api_version` 按它判（`>= 下限`）；内置 `native` 是 C 接口那一对（7/7），内置 `js` 是
+///   JS 接口那一对（3/3：删接口后下限一起抬）；
 /// - **校验**：可选的 `validateCapability` —— 加载前（以及主程序安装预检时）先问它
 ///   "这个目录能不能作为这个形态跑"，它比框架更清楚这种插件长什么样；
 /// - **加载 / 卸载**：插件框架调登记时给的能力，`{"ok":true}` 表示接手成功。
@@ -310,7 +310,7 @@ typedef struct MusicxxPluginKindIface {
     /// - `interfaceVersion` / `minInterfaceVersion`：解释执行的形态自己的**接口代次对**
     ///   （当前代次 / 兼容下限）。清单 `api_version` 的判定是 `>= minInterfaceVersion`；
     ///   插件读 `config().apiVersion` 拿到的是 `interfaceVersion`。只增不改时只抬当前代次，
-    ///   破坏性变更才抬下限；都不写 = 不判（内置 `js` 是 2 / 1）；
+    ///   破坏性变更才抬下限；都不写 = 不判（内置 `js` 是 3 / 3）；
     /// - `loadCapability` / `unloadCapability`：**必须写在本插件的命名空间**
     ///   （`plugin.<插件id>.`）下；缺 `loadCapability` 会被拒绝；
     /// - `validateCapability`（可选，同样要在本插件命名空间下）：加载一个该形态的插件之前

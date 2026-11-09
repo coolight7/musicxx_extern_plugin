@@ -83,7 +83,7 @@ my_plugin/
 name: my_plugin
 kind: js
 version: 2026.1010.1
-api_version: 1                  # JS 接口代次：当前 2、兼容下限 1（只增不改，写 1 仍能加载）
+api_version: 3                  # JS 接口代次：当前与兼容下限都是 3（写 1 / 2 会被拒）
 description: "我的第一个插件"
 ```
 
@@ -335,7 +335,7 @@ musicxx.capability.register("card", function () {
 清单与打包：
 
 - [ ] `plugin.yaml` 的 `name` = 插件 id = 目录名；`version` 已递增（同名视为同一插件的升级覆盖）；
-- [ ] `api_version`：填**插件所属形态**的当前代次（动态库插件 6、JS 插件 2）；兼容下限是 6 / 1，
+- [ ] `api_version`：填**插件所属形态**的当前代次（动态库插件 7、JS 插件 3）；兼容下限是 7 / 3，
       写低到下限以下会被拒，写高不会被拒；
 - [ ] `platforms` / `arch` 只列真的支持的目标；`depends` / `optional_depends` 写对（缺失会拒绝加载 / 只影响顺序）；
 - [ ] `permissions` 声明齐全（只做展示：安装弹窗与详情页会列给用户看）；

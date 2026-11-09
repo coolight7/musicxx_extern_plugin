@@ -35,6 +35,9 @@
   主程序用它做自省与“`cache: none` 的频道没人听就不发”的门。
 - **插件 ABI `PLUGINXX_API_VERSION` / `MIN_API_VERSION` 6 → 7**（广播表 v2：`subscribe_broadcast`
   多 `options_json`）；**框架 C ABI `MUSICXX_EXTERN_PLUGIN_API_VERSION` 4 → 5**。
+- **JS 接口代次 2 / 1 → 3 / 3**：上面对 JS 删了接口、改了声明字段与订阅写法，属于破坏性变更，
+  所以内置 `js` 的兼容下限也抬到了当前代次；示例 JS 插件的 `api_version` 改 3，
+  清单写 1 / 2 的 JS 插件在加载阶段被拒（理由里写最低 3）。
 - **命令面**：`var.list` / `var.get` / `var.set` → `broadcast.list` / `broadcast.read`（没有写命令）。
 - **文档**：`docs/plugin-value-channels.md` 删除，官方频道表并入生成的 `docs/plugin-broadcasts.md`。
 

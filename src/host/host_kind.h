@@ -6,8 +6,8 @@
 /// - 每一项声明：谁提供（插件框架自己 / 插件实例名）、这个形态自己的**接口代次对**
 ///   （当前代次 + 兼容下限，清单的 `api_version` 按它判）、交给提供者加载 / 卸载 / 校验的
 ///   能力全名、一行说明；
-/// - 框架自带两项：`native`（插件框架自己加载动态库，按 C 接口代次判：当前 3、下限 3）与
-///   `js`（内置 JS 运行器，按 JS 接口代次判：当前 2、**下限仍 1** —— 至今只增不改）；
+/// - 框架自带两项：`native`（插件框架自己加载动态库，按 C 接口代次判：当前 7、下限 7）与
+///   `js`（内置 JS 运行器，按 JS 接口代次判：当前 3、下限 3 —— 2026-11 删接口后一起抬）；
 /// - 插件通过接口表 `musicxx.kind` 登记自己的形态；**内置形态可以被插件接管**
 ///   （`overrideBuiltin`，例如把 JS 运行器搬到插件里），撤销后自动回到内置实现；
 /// - 跟着插件生命周期撤销（禁用 / 卸载 / 关闭『拟声++』），不写磁盘。
@@ -34,13 +34,13 @@ namespace extern_plugin {
 
 /// 内置 JS 运行器的接口代次对（与 C 接口代次是**两套独立编号**，不要互相比较）
 ///
-/// - 当前代次 `jsInterfaceVersion = 2`：2026-10 的增补（变量通道、网络能力、功能点调用、
-///   HTTP 静态路由、界面描述层 v2 …）—— **全是新增**，所以下限不动；
-/// - 兼容下限 `jsMinInterfaceVersion = 1`：最初的 JS 接口。只有发生**破坏性变更**
-///   （改名 / 删接口 / 改语义）时才把它抬到当时的当前代次，与 C 接口的 `PLUGINXX_MIN_API_VERSION`
-///   是同一套规则。
-inline constexpr int32_t jsInterfaceVersion = 2;
-inline constexpr int32_t jsMinInterfaceVersion = 1;
+/// - 当前代次 `jsInterfaceVersion = 3`：2026-11 的广播只剩读与订阅（删掉 `musicxx.broadcast.get` /
+///   `write` / `watch` 与 `undeclare`，声明字段 `writable` → `publish`，订阅带 `intervalMs` /
+///   `mode`）—— **删接口**，所以下限一起抬到 3；
+/// - 兼容下限 `jsMinInterfaceVersion = 3`：只接受按这一代接口写的 JS 插件。下限与当前代次相同
+///   = 没有跨代兼容；以后只做新增时再单独抬当前代次（参考 C 接口的 `PLUGINXX_MIN_API_VERSION`）。
+inline constexpr int32_t jsInterfaceVersion = 3;
+inline constexpr int32_t jsMinInterfaceVersion = 3;
 
 /// 一种插件形态的声明
 struct MusicxxPluginKindSpec {
@@ -104,7 +104,7 @@ public:
     native.describe = "动态库插件：由插件框架自己加载，调用通用接口表";
     builtins_.push_back(std::move(native));
     // 内置形态：js 由内置 JS 运行器解释执行，按 JS 接口代次判
-    // （当前 2 / 下限 1：至今只增不改，破坏性变更时才抬下限）
+    // （当前 3 / 下限 3：删接口后下限一起抬）
     MusicxxPluginKindSpec js;
     js.kind = "js";
     js.builtin = true;

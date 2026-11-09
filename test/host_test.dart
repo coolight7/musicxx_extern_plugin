@@ -1009,9 +1009,9 @@ void main() {
 
     Map<String, Object?> probe() => probeCache;
 
-    // 2) 插件看到的接口代次按它自己的形态报：JS 插件看到 JS 接口代次（当前 2）
+    // 2) 插件看到的接口代次按它自己的形态报：JS 插件看到 JS 接口代次（当前 3）
     await refreshProbe();
-    expect(probe()['apiVersion'], 2);
+    expect(probe()['apiVersion'], 3);
 
     // 3) 插件声明的频道进了广播表，声明字段如实
     final List<Map<String, Object?>> own = runtime.broadcasts.list(

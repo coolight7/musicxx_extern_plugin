@@ -68,7 +68,7 @@ musicxx.capability.register("probe", function () {
     lastChange: changes.length ? changes[changes.length - 1] : null,
     positionNotices: positionNotices,
     lastPosition: lastPosition,
-    // 插件框架按本插件的形态报接口代次：JS 插件看到的是 JS 接口代次（当前 2）
+    // 插件框架按本插件的形态报接口代次：JS 插件看到的是 JS 接口代次（当前 3）
     apiVersion: musicxx.host.info().apiVersion,
   };
 });

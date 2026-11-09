@@ -67,7 +67,7 @@ kind: js
 entry: plugin.js                 # 可省略（清单只要求 name）
 scripts: [pluginxx_ui_kit.js, plugin.js]   # 可选：同一 JS 上下文里按顺序执行
 version: 2026.1010.1            # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）
-api_version: 1                   # 接口代次：JS 接口当前 2、兼容下限 1（只增不改，写 1 仍能加载）
+api_version: 3                   # 接口代次：JS 接口当前与兼容下限都是 3（写 1 / 2 会被拒）
 platforms: [windows, linux, macos, android, ios]
 permissions: [musicxx.ui, musicxx.storage]   # 声明式：只做展示，运行时不校验
 ```
@@ -209,7 +209,8 @@ my_plugin/
 17. **插件形态（`kind`）不是写死的**：`native` 与 `js` 是框架内置的两种，别种形态由插件用接口表
     `musicxx.kind` 登记（"本插件提供 kind=X" + 一对加载 / 卸载能力 + 可选校验能力），见 `docs/plugin-native-api.md` §4.3。
     **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：内置 `native` 是
-    跟随插件 ABI 代次（当前 6/6），内置 `js` 是 **2/1**（JS 接口只增不改，下限仍 1），运行器登记的形态自己写；
+    跟随插件 ABI 代次（当前 7/7），内置 `js` 是 **3/3**（广播只剩读与订阅后当前代次与下限一起抬），
+    运行器登记的形态自己写；
     清单 `api_version` 按所属形态的下限判，插件读到的 `apiVersion` 是自己形态的当前代次。
     **"这个包能不能跑"也交给运行器判定**（`validateCapability`）：
     插件框架在加载前调它，主程序在安装预检里按 `plugin_inspect` 报出的能力名调它；
@@ -426,7 +427,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 现象 | 先看 / 怎么做 |
 |---|---|
 | 装不上：「插件框架未启动，无法安装插件」 | 用户没开『拟声++』、处于安全模式，或插件框架库不可用（`plugin list` 会显示框架状态） |
-| 加载失败：「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 6、JS 插件 1）；插件框架报的 `apiVersion` 是该形态的当前代次（6 / 2），声明更高不会被拒 |
+| 加载失败：「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 7、JS 插件 3）；插件框架报的 `apiVersion` 是该形态的当前代次（7 / 3），声明更高不会被拒 |
 | 「动态库插件库文件缺失」/「JS 插件缺少脚本文件」 | `entry` 写错（动态库统一写 `<名>.so`）、分支目录缺当前平台，或脚本文件没跟着分发 |
 | 点入口提示「插件『x』没有提供『y』」 | 动作指向的能力没注册，或页面视图 id 与能力短名不一致 |
 | 「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全拼错（未识别的块会被忽略） |

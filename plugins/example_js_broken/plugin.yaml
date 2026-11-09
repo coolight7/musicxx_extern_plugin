@@ -8,8 +8,8 @@ kind: js
 entry: plugin.js
 
 version: 2026.1010.1
-# 这一项只对按 C 接口编译的形态做下限判定（动态库插件）；JS 由内置运行器解释执行，保持 1
-api_version: 1
+# JS 接口代次：当前 3、兼容下限 3（2026-11 广播只剩读与订阅后抬的，写 1 / 2 加载会被拒）
+api_version: 3
 author: "coolight"
 description: "对照示例: 脚本语法错误, 演示加载失败与回滚 (脚本本身坏了, 加载一定失败)"
 platforms: [windows, linux, macos, android, ios]

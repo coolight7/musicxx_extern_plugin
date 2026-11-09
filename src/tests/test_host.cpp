@@ -1001,24 +1001,23 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     checkText(jsInfo.find("\"kindRequiresPluginAbi\":false") !=
                   std::string::npos,
               "JS 形态报出不按 C ABI 编译");
-    // JS 有自己的接口代次对：当前 2（只增不改），兼容下限仍 1
-    checkText(jsonIntField(jsInfo, "kindInterfaceVersion") == "2" &&
-                  jsonIntField(jsInfo, "kindMinInterfaceVersion") == "1",
-              "JS 形态的接口代次对是 2/1 (增补只抬当前代次)");
+    // JS 有自己的接口代次对：广播只剩读与订阅后当前代次与兼容下限都是 3
+    checkText(jsonIntField(jsInfo, "kindInterfaceVersion") == "3" &&
+                  jsonIntField(jsInfo, "kindMinInterfaceVersion") == "3",
+              "JS 形态的接口代次对是 3/3 (删接口后下限一起抬)");
     checkText(jsInfo.find("\"targetsDir\"") == std::string::npos &&
                   jsInfo.find("\"targetEntry\"") == std::string::npos,
               "JS 插件不出现动态库分支字段");
     // 示例插件都声明了 platforms：按插件框架当前环境判定必须是可用（安装预检的调用形状）
     checkText(jsInfo.find("\"supported\":true") != std::string::npos,
               "声明了 platforms 的 JS 示例插件按插件框架当前环境判定为可用");
-    // 清单写 api_version 1 也照常可用：这项判定只约束按 C ABI 编译的形态
-    // （示例 JS 插件清单因此保持 1，不跟着插件 ABI 代次抬高）
-    checkText(jsonIntField(jsInfo, "apiVersion") == "1",
-              "JS 示例插件清单里的 api_version 为 1 (与插件 ABI 代次无关)");
+    // 示例 JS 插件清单写 3：与自己的形态代次一致（不跟着插件 ABI 代次抬高）
+    checkText(jsonIntField(jsInfo, "apiVersion") == "3",
+              "JS 示例插件清单里的 api_version 为 3 (与插件 ABI 代次无关)");
   }
 
-  // 8) 形态自己的接口下限也要生效：JS 接口下限是 1，清单写 0 就跑不了
-  //     （与动态库插件判 3 是同一套规则，只是下限来自形态注册表）
+  // 8) 形态自己的接口下限也要生效：JS 接口下限是 3，清单写 0 就跑不了
+  //     （与动态库插件判 7 是同一套规则，只是下限来自形态注册表）
   {
     const std::filesystem::path jsLowRoot = makeTempPluginRoot(
         "tgt_js_low",
@@ -1028,7 +1027,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
         inspect((jsLowRoot / "tgt_js_low").string(), "", "");
     checkText(lowInfo.find("\"supported\":false") != std::string::npos,
               "JS 插件声明 api_version 0 (低于形态下限) 判为不可用");
-    checkText(lowInfo.find("最低 1") != std::string::npos,
+    checkText(lowInfo.find("最低 3") != std::string::npos,
               "不可用原因给出这个形态的最低接口代次");
     removePath(jsLowRoot);
   }
@@ -1549,7 +1548,7 @@ int main(int argc, char **argv) {
     std::printf("  [info] probe=%s\n", probe.c_str());
 
     // 插件框架按本插件的形态报接口代次：动态库插件看到插件 ABI 代次（7），
-    // 与 JS 插件的 JS 接口代次（2）是两套编号
+    // 与 JS 插件的 JS 接口代次（3）是两套编号
     check(jsonIntField(probe, "hostApiVersion") == "7",
           "动态库插件看到的接口代次是插件 ABI 代次 7");
 
