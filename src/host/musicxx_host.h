@@ -20,7 +20,6 @@
 #include "host_kind.h"
 #include "host_manifest.h"
 #include "musicxx_capability_spec.h"
-#include "musicxx_channel_spec.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/api/entry.h"
 #include "pluginxx/api/net.h"
@@ -449,9 +448,6 @@ public:
   /// 在 `start()` 里跑一次（已绑定 IO 线程）：声明之后插件的 `invoke_capability`
   /// 才认识官方 id；应用实现（动作）由 [onAppCapabilityStart] 转给 Dart。
   void declareAppCapabilities();
-  int32_t readChannel(std::string_view key, std::string &outJson);
-  int32_t subscribeState(MusicxxHostInstance *inst, const std::string &keysJson,
-                         int32_t &outCount);
   int32_t pluginConfigPathFor(MusicxxHostInstance *inst, std::string &out);
   int32_t requestAppCapability(MusicxxHostInstance *inst, std::string_view action,
                         std::string_view argsJson, uint32_t timeoutMs,
@@ -492,97 +488,6 @@ public:
   int32_t notifyUi(MusicxxHostInstance *inst, std::string_view messageJson);
 
   /// UI 项数量不设上限 (早期版本每个插件最多 64 项, 已移除)
-
-  /* ---------- 变量表 (均在框架线程执行) ---------- */
-
-  /// 变量表只保留"未回执请求"这一个容量限制 (避免慢属主把框架事件队列灌满);
-  /// 变量数、变量总数、键长、值大小、订阅数都不再限制。
-  static constexpr int32_t kMaxChannelPendingPerPlugin = 32;
-
-  /// 注册/覆盖一个变量 (插件注册自己的; 应用声明的官方键走 [declareChannels])
-  int32_t registerChannel(MusicxxHostInstance *inst,
-                      const MusicxxPluginChannelSpec &spec);
-
-  /// 注销一个变量 (只能注销自己的; 不存在返回 `ERR_NOT_FOUND`)
-  int32_t unregisterChannel(MusicxxHostInstance *inst, std::string_view key);
-
-  /// 异步读: 插件框架向属主取一次真实值, 完成后调用 `notify->done` 恰好一次
-  ///
-  /// - 官方键由应用回答 (`musicxx.broadcast.read` → `broadcast_read_result`);
-  /// - `declared` 模式的插件变量由插件框架立即作答 (值就在注册表里);
-  /// - 同一键上未完成的读请求合并 (新的读只挂到等待者列表上)。
-  int32_t getChannel(MusicxxHostInstance *inst, std::string_view key,
-                 const PluginxxOperatorNotify *notify, int64_t *outRequestId);
-
-  /// 同步读缓存 (给 `peek` 用; 不保证最新)
-  int32_t peekChannel(std::string_view key, std::string &outJson);
-
-  /// 写: 写自己的变量 (或 declared 模式的变量) = 提交, 立即结算;
-  /// 官方键与 handler 模式交给属主写入, 最终结果经 `musicxx.broadcast.writeResult` 送达
-  int32_t setChannel(MusicxxHostInstance *inst, std::string_view key,
-                 std::string_view valueJson, std::string &outJson);
-
-  /// 列出变量 (prefix 可空; 值字段是缓存值)
-  int32_t listChannels(std::string_view prefix, std::string &outJson);
-
-  /// 订阅/退订/保活某个键的变更 (keys_json = 字符串数组)
-  int32_t subscribeChannels(MusicxxHostInstance *inst, const std::string &keysJson,
-                        int32_t &outCount);
-  int32_t unsubscribeChannels(MusicxxHostInstance *inst,
-                          const std::string &keysJson, int32_t &outCount);
-  int32_t watchChannels(MusicxxHostInstance *inst, const std::string &keysJson,
-                    bool watch, int32_t &outCount);
-
-  /// 单个变量的声明信息 + 缓存状态
-  int32_t channelInfo(std::string_view key, std::string &outJson);
-
-  /// 属主回答一次被转过来的请求 (`handler` 模式)
-  ///
-  /// - 只有请求的属主能回答 (别人的请求返回 `ERR_PERMISSION`);
-  /// - `ok = false` 表示拒绝, 原因在 `error`; 结算完成后写 `outJson`;
-  /// - 请求已结算/不存在返回 `ERR_NOT_FOUND`。
-  int32_t respondChannel(MusicxxHostInstance *inst, int64_t requestId, bool ok,
-                     const std::string &valueJson, const std::string &error,
-                     std::string &outJson);
-
-  /* ---------- 变量表 · 主程序入口 (C ABI 调用; 均在框架线程执行) ---------- */
-
-  /// 应用声明一批变量 (items_json = 声明数组; 逐项失败只记日志)
-  int32_t declareChannels(const std::string &itemsJson, std::string &log);
-
-  /// 应用推值 (官方键的主程序变动; 只有真变化才通知)
-  int32_t updateChannel(const std::string &key, const std::string &valueJson,
-                    std::string &err);
-  int32_t publishChannels(const std::string &itemsJson, std::string &err);
-
-  /// 应用回执 (回执即写入: accepted 且带 value 时写入值并按需广播)
-  int32_t channelWriteResult(int64_t requestId, int32_t accepted,
-                         const std::string &valueJson,
-                         const std::string &error);
-
-  /// 应用回答读取请求 (官方键被插件 `get` 时用)
-  int32_t channelReadResult(int64_t requestId, int32_t ok,
-                        const std::string &valueJson,
-                        const std::string &error);
-
-  /// 应用读插件键 (有界等待; 见 musicxx_extern_plugin_api.cpp)
-  int32_t getChannelForApp(const std::string &key, std::string &outJson,
-                       std::shared_ptr<WaitSlot<std::string>> slot);
-
-  /// 应用写插件键 (有界等待)
-  int32_t setChannelForApp(const std::string &key, const std::string &valueJson,
-                       std::string &outJson,
-                       std::shared_ptr<WaitSlot<std::string>> slot);
-
-  /// 应用订阅/退订插件键的变动 (keys_json = 数组或 "plugin." 前缀)
-  int32_t subscribeChannelsForApp(const std::string &keysJson, bool subscribe,
-                              std::string &err);
-
-  /// 变量表快照 (管理页"变量"区块 / 插件框架调试信息)
-  std::string channelsDebugJson() const;
-
-  /// 摘除某实例的全部变量与订阅 (生命周期回调; 推送 `removed` 通知)
-  void detachChannels(const std::string &instanceName);
 
   /// 插件网络能力 (`musicxx.net` 表; 插件框架启动时创建)
   std::shared_ptr<PluginNetHub> netHub() const { return netHub_; }
@@ -661,10 +566,11 @@ public:
   /// 实例名 → 插件 id (`js:<id>` → `<id>`; 其余原样), 能力 / 广播的归属都用它
   std::string pluginId(std::string_view instanceName) override;
 
-  /// 宿主按 id 前缀补一份默认声明 (应用下发声明之前的过渡做法)
-  /// - `musicxx.state.*`: 快照 + 属主写 + 订阅即推
-  /// - `musicxx.broadcast.*`: 快照 + 任何人可写 + 订阅即推 + 不合并
-  /// - 其余 (业务事件): 没有当前值
+  /// 按生成表 `capability_ids.g.h` 补一份频道声明 (应用还没下发时的默认做法)
+  ///
+  /// - 表里的 id: 用声明里的 `cache` / `publish` / `pushOnSubscribe` / `coalesce` / `scope`;
+  /// - 表外的 id: 默认属性 (只有事件、属主能发布、允许合并、作用域 `app`);
+  /// - `plugin.<id>.*` 的属主是那个插件 (只有它能发布)。
   void ensureBroadcastChannel(const std::string &id);
 
 protected:
@@ -982,188 +888,6 @@ private:
   /// 序列化 UI 项 (pluginId 为空 = 全部; 按 type/order/seq 排序)
   std::string uiItemsJson(const std::string &pluginId) const;
 
-  /* ---------- 变量表 (仅框架线程) ---------- */
-
-  /// 一个变量 (注册项 + **同步读缓存**)
-  ///
-  /// 这里**没有真值**: 真值只在属主那里 (主程序的 Store/配置, 或插件自己的状态)。
-  /// `valueJson` 只是"最后一次已知值", 服务 `peek` 这条同步捷径, 来源三处:
-  /// 属主推送、每次异步读的结果 (read-through)、注册时的初值。
-  struct ChannelEntry {
-    std::string key;
-    std::string owner;    ///< 实例名; 空 = 应用 (官方键)
-    std::string pluginId; ///< 空 = 应用
-    int32_t caps = 0;     ///< MUSICXX_PLUGIN_CHANNEL_CAP_*
-    int32_t mode = 0;     ///< MUSICXX_PLUGIN_CHANNEL_MODE_*
-    int32_t writeScope = 0;
-
-    std::string type;
-    std::string optionsJson; ///< 数组或空
-    std::string title;
-    std::string depict;
-    std::string risk;
-
-    /// 同步读缓存 (见结构体说明)
-    std::string valueJson;
-    int64_t revision = 0;
-    int64_t valueMs = 0; ///< 写入时刻 (steady 毫秒; 算 ageMs)
-    /// handler 模式下缓存有没有被属主回答过一次 (没回答过时 peek 返回空)
-    bool everRefreshed = false;
-
-    int32_t throttleMs = 0;
-    int32_t notifyThrottleMs = 0;
-    int32_t refreshAfterMs = 0;
-
-    uint64_t seq = 0; ///< 注册顺序 (list 与调试信息用稳定排序)
-    /// 订阅变更的实例 (bind 与 watch 都算"有人关心")
-    std::set<std::string> subscribers;
-    /// 只用过 watch (不带回调) 的实例: unwatch 不能把 bind 的订阅一起摘掉
-    std::set<std::string> watchers;
-
-    /// 通知合并窗口 (notifyThrottleMs > 0 时用; 窗口结束时发一条带 coalesced 的通知)
-    std::shared_ptr<asio::steady_timer> notifyTimer;
-    int32_t pendingCoalesced = 0;
-    std::string pendingPrevJson;
-
-    /// handler 属主不主动推时的保活定时器 (`refreshAfterMs`; 有人关心才跑)
-    std::shared_ptr<asio::steady_timer> refreshTimer;
-
-    /// 关心这个键的实例数 (bind 的订阅 + watch 的保活, 去重)
-    size_t careCount() const {
-      size_t count = subscribers.size();
-      for (const std::string &item : watchers) {
-        if (subscribers.find(item) == subscribers.end()) {
-          ++count;
-        }
-      }
-      return count;
-    }
-  };
-
-  /// 变量表 (仅框架线程)
-  std::map<std::string, ChannelEntry, std::less<>> channels_;
-  uint64_t channelSeq_ = 0;
-
-  /// 未完成的变量请求 (读/写都要等属主回答或写入)
-  struct PendingChannelRequest {
-    std::string key;
-    std::string byPluginId; ///< 发起方插件 id (空 = 应用; 写请求里作为 `by`)
-    std::string byInstance; ///< 发起方实例名 (写结果的 `musicxx.broadcast.writeResult` 发给它)
-    int32_t kind = 0;       ///< ChannelRequestKind
-    std::string valueJson;  ///< 写请求值
-    std::string owner;      ///< 属主实例名; 空 = 应用
-    int32_t caps = 0;       ///< 申请时的能力位 (结算时回执用)
-    /// 插件侧等待者 (同键进行中读合并后, 答案分发给全部等待者)
-    std::vector<PluginxxOperatorNotify> pluginWaiters;
-    /// 主程序等待者 (C ABI 的有界等待槽)
-    std::vector<std::shared_ptr<WaitSlot<std::string>>> appWaiters;
-    std::shared_ptr<asio::steady_timer> timer;
-  };
-
-  enum ChannelRequestKind {
-    ChannelRequestRead = 1,
-    ChannelRequestWrite = 2,
-  };
-
-  std::map<int64_t, PendingChannelRequest> pendingChannelRequests_;
-  /// 键 → 进行中的"向属主取真实值"请求 id (同键合并)
-  std::map<std::string, int64_t, std::less<>> pendingReadByKey_;
-
-  /// 应用订阅的插件键前缀/全名 (broadcast_subscribe; 只用来决定要不要推给应用)
-  std::vector<std::string> appChannelSubscriptions_;
-
-  /// 实例订阅的键 (bind; 去重的唯一来源)
-  std::map<std::string, std::set<std::string>, std::less<>> channelSubscriptions_;
-  /// 实例只做保活 (watch) 的键: unwatch 不能把 bind 的订阅一起摘掉
-  std::map<std::string, std::set<std::string>, std::less<>> channelWatchers_;
-
-  /// 全部键的关心者合计 (变化时回传 `musicxx.broadcast.subscriptions`)
-  int64_t channelCareTotal_ = 0;
-
-  /// 结算一条变量请求 (框架线程): 读 → 写缓存并分发答案; 写 → 写入值并广播
-  void completeChannelRequest(int64_t requestId, bool ok, const std::string &valueJson,
-                          const std::string &error);
-  /// 结算超时的变量请求 (框架线程): 读按 read_timeout, 写按 not_served / owner_timeout
-  void expireChannelRequest(int64_t requestId);
-
-  /// 读请求的公共实现 (插件侧与主程序共用)
-  int32_t beginChannelRead(const std::string &key, const std::string &byPluginId,
-                       const PluginxxOperatorNotify *notify,
-                       std::shared_ptr<WaitSlot<std::string>> appSlot,
-                       int64_t *outRequestId);
-
-  /// 写请求的公共实现 (立即结算或交给属主写入)
-  int32_t beginChannelWrite(const std::string &key, const std::string &valueJson,
-                        const std::string &byPluginId,
-                        const std::string &byInstance,
-                        const PluginxxOperatorNotify *notify,
-                        std::shared_ptr<WaitSlot<std::string>> appSlot,
-                        std::string &outJson);
-  /// 请求 id 是否属于变量表 (供 C ABI 的 write_result / read_result 路由)
-  bool hasPendingChannelRequest(int64_t requestId) const;
-
-  /// 写入值 + 广播 (框架线程; changed 才广播; 返回是否真的变了)
-  bool applyChannelValue(ChannelEntry &entry, const std::string &valueJson,
-                     const std::string &byPluginId, std::string &prevJson);
-  /// 广播一条变量变更 (框架线程; 按 notifyThrottleMs 合并)
-  void pushChannelChanged(const std::string &key, const std::string &valueJson,
-                      const std::string &prevJson, const std::string &byPluginId,
-                      bool removed, int32_t coalesced);
-  /// 应用是否订阅了这个键 (决定要不要把插件键的变化推给 Dart)
-  bool appCaresAboutChannel(const std::string &key) const;
-  /// 把一个值写进某个键的缓存并向关心者广播 (官方键的主程序推值走这条)
-  int32_t applyAppChannelValue(const std::string &key, const std::string &valueJson,
-                           std::string &err);
-
-  /// 序列化一个变量 (list/info/debug 共用; 值字段明确标为缓存值)
-  std::string channelToJsonText(const ChannelEntry &entry) const;
-
-  /* ---------- 同步读镜像 (任何线程可读; 给 JS 侧的 peek/info/list 用) ----------
-   *
-   * 为什么需要: 插件侧绝不能在 JS 线程上等框架线程 (框架线程可能正等着 JS
-   * 处理器 —— 那是死锁)。因此 `peek`/`info`/`list` 不能投递到框架线程去查注册表,
-   * 而是读一份由框架线程维护、任何线程可同步读的**快照**。
-   *
-   * 快照存在广播注册表的 `musicxx.broadcast.<key>` 频道里 (与其他快照频道同一份缓存实现);
-   * 快照里的值仍然是"缓存值", 不是真值。
-   */
-
-  /// 把值频道的当前值写进快照频道 (框架线程; 每次注册/写入值/订阅变化后调用)
-  void publishChannelSnapshot(const ChannelEntry &entry);
-  /// 从镜像里摘掉一个键 (框架线程)
-  void eraseChannelSnapshot(const std::string &key);
-  /// 变量快照的 JSON (镜像内容; 不含 ageMs/stale 这两个与时刻有关的字段)
-  std::string channelSnapshotJsonText(const ChannelEntry &entry) const;
-
-  /// 变量表快照的文本 (调试信息用; 与 [channelToJsonText] 同一份规则)
-  std::string channelsSnapshotText() const;
-
-  /// 取消某实例的变量等待者 (实例停用/卸载时; 框架线程)
-  void cancelChannelsOf(const std::string &instanceName);
-
-  /// 记一次订阅/退订 (实例 ↔ 键; 同步维护 ChannelEntry 上的订阅集合与关心计数)
-  ///
-  /// - `watch` = true 表示"保活缓存"(不带回调), false 表示订阅 (bind);
-  /// - 订阅还不存在的键也会被记下来 (键出现时自动挂上并补一条初始通知);
-  /// - `outCount` 累计本次实际生效的条数 (当前框架不设订阅数量上限)。
-  void markChannelSubscriber(const std::string &instanceName, const std::string &key,
-                         bool watch, bool add, int32_t &outCount);
-
-  /// 重新计算某键的关心者数量并把数量回传给应用 (`musicxx.broadcast.subscriptions`)
-  void refreshChannelCare(const ChannelEntry &entry);
-
-  /// 排/停 handler 属主变量的保活定时器 (`refreshAfterMs`; 有人关心才跑)
-  void ensureChannelRefresh(const std::string &key);
-  /// 保活定时器到点: 去属主那里取一次真实值 (没人等结果, 只刷新缓存)
-  void onChannelRefreshTick(const std::string &key);
-
-  /// 属主提交了自己的值: 用这次提交结算该键上未完成的请求
-  /// (写请求 = 写入回执; 读请求 = 这次读的答案)
-  void settleChannelRequestsOnCommit(const std::string &key,
-                                 const std::string &valueJson);
-  /// 某插件注册了多少个变量 (统计与调试信息用)
-  size_t countChannelsOfPlugin(const std::string &pluginId) const;
-
   // 动作请求 (框架线程)
   std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;
   /// 请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
@@ -1205,12 +929,8 @@ private:
   /// 由运行器插件托管的插件 (id → 记录; 由 registryMutex_ 保护)
   std::map<std::string, HostedKindPlugin, std::less<>> hostedKindPlugins_;
 
-  /// 保护 loaded_ / discovered_ / stateSubscriptions_ 的跨线程读写
+  /// 保护 loaded_ / discovered_ 的跨线程读写
   mutable std::mutex registryMutex_;
-
-  // 已声明的状态订阅 (插件 id → 键列表; 框架线程)
-  std::map<std::string, std::vector<std::string>, std::less<>>
-      stateSubscriptions_;
 
   // 插件广播注册表由插件框架持有 (PluginHostCore::broadcasts())
 

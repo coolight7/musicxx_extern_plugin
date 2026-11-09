@@ -263,7 +263,8 @@ $buildBody = {
         '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON'
         "-DMUSICXX_EXTERN_PLUGIN_BOOST_INCLUDE=$boostHeaderRoot"
         "-DMUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT=$openSslInstallRoot"
-        # 示例插件与原生测试: 默认关 (示例插件交给 tools/build_examples.ps1)        "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=$(if ($buildExamples) { '1' } else { '0' })"
+        # 示例插件与原生测试: 默认关 (示例插件交给 tools/build_examples.ps1)
+        "-DMUSICXX_EXTERN_PLUGIN_BUILD_EXAMPLE=$(if ($buildExamples) { '1' } else { '0' })"
         "-DMUSICXX_EXTERN_PLUGIN_BUILD_TESTS=$(if ($buildTests) { '1' } else { '0' })"
     )
     if ($Android) {

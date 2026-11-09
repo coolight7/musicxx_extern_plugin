@@ -53,30 +53,6 @@ constexpr const char *kPendingMarker = "~pending~";
 /// 编译期是否包含 QuickJS
 constexpr bool kJsCompiled = MUSICXX_EXTERN_PLUGIN_HAS_JS != 0;
 
-/// 变量接口返回码 → 面向插件作者的原因文本 (JS 侧会把它包进异常)
-const char *channelErrorText(int32_t rc) {
-  switch (rc) {
-    case MUSICXX_EXTERN_PLUGIN_ERR_ARG:
-      return "参数非法 (键名/值超限)";
-    case MUSICXX_EXTERN_PLUGIN_ERR_STATE:
-      return "插件框架未启动或未回执的请求过多";
-    case MUSICXX_EXTERN_PLUGIN_ERR_JSON:
-      return "值不是合法 JSON";
-    case MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND:
-      return "变量不存在 (官方键要先由应用声明)";
-    case MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT:
-      return "属主没有在超时前回答";
-    case MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION:
-      return "命名空间不属于本插件, 或没有写权限";
-    case MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL:
-      return "超出容量上限";
-    case MUSICXX_PLUGIN_CHANNEL_ERR_UNSUPPORTED:
-      return "该变量没有声明对应能力 (读只写变量 / 写只读变量)";
-    default:
-      return "变量操作失败";
-  }
-}
-
 int64_t nowSteadyMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::steady_clock::now().time_since_epoch())
@@ -190,7 +166,6 @@ constexpr const char *kPrelude = R"JS(
   if (!ext) { throw new Error("musicxx 运行时桥接缺失"); }
 
   var implementationTable = new Map();
-  var subTable = new Map();
   var capTable = new Map();
   var uiTable = new Map();
   var appCapabilityWaiters = new Map();
@@ -312,24 +287,21 @@ var featurePointImpls = new Map();
     configPath: function () { return ext.configPath(); }
   };
 
-  /* ---- 变量 (第五条通道: 有属主、可读、可写、可订阅变动的小值) ----
+  /* ---- 广播 (属主发布, 任何人读 / 订阅) ----
    *
-   * 三条读法按需要选一条:
-   *   await get(key)  异步、权威 (插件框架向属主取一次真实值);
-   *   peek(key)       同步、读缓存 (可能旧, 返回里带 revision/ageMs/stale);
-   *   bind(key, fn)   订阅变动 (由框架推送)。
+   * 广播只做四件事: **声明自己的频道 / 发布 / 读当前值 / 订阅**。
+   * 它**没有写入**: 没有"给别人的频道写值"这个操作, 也没有回执;
+   * 要改应用或别的插件的状态, 调能力 (`musicxx.capability.call(id, args)`)。
    *
-   * 键: 官方 `musicxx.<域>.<名>` 直接写全名; 自己的变量写短名 (如 `tip.start`),
+   * 频道 id: 官方 `musicxx.<域>.<名>` 直接写全名; 自己的频道写短名 (如 `score.total`),
    * 插件框架自动补 `plugin.<本插件id>.` 前缀。
+   *
+   * 回调只有一种形状: `fn(payload, info)`, `info.id` 是频道全名。
+   * 高频频道不必自己降频: 订阅时给 `{intervalMs, mode}` 声明你的通知频率。
    */
-  // 变量：注册
-  var channelsTable = new Map();       // 本插件注册的变量 (短名 → 声明)
-  var channelBindTable = new Map();    // 键 → [回调]
-  var broadcastWatchSet = new Set();     // watch 保活的键
-  var broadcastGetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
-  var broadcastSetWaiters = new Map();   // 请求号 → {resolve, reject, timer}
-  var channelHandlers = new Map();     // handler 变量: 全名 → {onRead, onWrite}
-  var broadcastTopicsReady = { changed: false, result: false, owner: false };
+  var declaredBroadcasts = new Map();  // 短名 → 声明 (declare 记下的; 供 declared() 与回放)
+  var broadcastSubs = new Map();       // 全名 → [{fn, options}]
+  var broadcastHostSubs = new Set();   // 已向插件框架订过的 "全名\u0000options"
 
   function broadcastShortKey(key) {
     var text = String(key);
@@ -337,441 +309,140 @@ var featurePointImpls = new Map();
     return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
   }
   function broadcastFullKey(key) {
-    assertName(key, "broadcast: 键");
+    assertName(key, "broadcast: 频道");
     var text = String(key);
     if (text.indexOf("musicxx.") === 0 || text.indexOf("plugin.") === 0) { return text; }
     return "plugin." + musicxx.pluginId + "." + text;
   }
-  /// 变更通知与写结果都走事件总线: 各订阅一次就够 (插件框架按 key 过滤交给 JS 侧)
+  /// 订阅频率选项 → 交给插件框架的 JSON (空串 = 不限频)
+  function broadcastOptionsJson(options) {
+    if (!options || typeof options !== "object") { return ""; }
+    var intervalMs = Number.isFinite(options.intervalMs) ? Math.trunc(options.intervalMs) : 0;
+    if (intervalMs < 0) { intervalMs = 0; }
+    var mode = options.mode === "drop" ? "drop" : "delay";
+    if (intervalMs === 0 && mode === "delay") { return ""; }
+    return JSON.stringify({ intervalMs: intervalMs, mode: mode });
+  }
+  /// 向插件框架订一次 (同一个频道 + 同一套频率只订一次; 回放阶段由引擎统一建立)
   ///
-  /// 注意: 必须同时记进 `subTable` —— 脚本顶层调用 `ext.subscribeHost` 会被引擎
+  /// 注意: 必须同时记进 `broadcastSubs` —— 脚本顶层调用 `ext.subscribeHost` 会被引擎
   /// 推迟到"注册回放"阶段执行, 而回放的内容正是 `collectRegistrations` 从
-  /// `subTable` 里取的; 只调原语不记账的话, 顶层绑定会静默地收不到任何事件。
-  function ensureChannelTopics() {
-    if (!broadcastTopicsReady.changed) {
-      broadcastTopicsReady.changed = true;
-      if (!subTable.has("musicxx.broadcast.changed")) {
-        subTable.set("musicxx.broadcast.changed", function () {});
-      }
-      ext.subscribeHost("musicxx.broadcast.changed");
-    }
-    if (!broadcastTopicsReady.result) {
-      broadcastTopicsReady.result = true;
-      if (!subTable.has("musicxx.broadcast.writeResult")) {
-        subTable.set("musicxx.broadcast.writeResult", function () {});
-      }
-      ext.subscribeHost("musicxx.broadcast.writeResult");
-    }
-  }
-
-  /// handler 属主要收"被转过来的读写请求", 也要让引擎把订阅建起来
-  function ensureChannelOwnerTopics() {
-    if (broadcastTopicsReady.owner) { return; }
-    broadcastTopicsReady.owner = true;
-    ["musicxx.broadcast.read", "musicxx.broadcast.write"].forEach(function (topic) {
-      if (!subTable.has(topic)) { subTable.set(topic, function () {}); }
-      ext.subscribeHost(topic);
-    });
-  }
-
-  /// handler 属主回答一次请求 (投递不等待; 失败只记日志)
-  function channelRespond(requestId, ok, value, error) {
-    try {
-      ext.broadcastRespond(Number(requestId), ok ? 1 : 0,
-                      safeJson(value === undefined ? null : value),
-                      error ? String(error) : "");
-    } catch (e) {
-      logError("变量回答失败: " + (e && e.message ? e.message : String(e)));
-    }
-  }
-
-  /// 把处理器的返回值(可能是 Promise)变成一次回答
-  function channelAnswerWith(result, requestId) {
-    if (result && typeof result.then === "function") {
-      Promise.resolve(result).then(function (value) {
-        channelRespond(requestId, true, value, null);
-        return null;
-      }, function (e) {
-        channelRespond(requestId, false, null,
-                   (e && e.message) ? e.message : String(e));
-        return null;
-      });
-      return;
-    }
-    channelRespond(requestId, true, result, null);
-  }
-
-  /// 属主被取真实值 (handler 模式): 交给 onRead, 返回值就是答案
-  function handleChannelRead(json) {
-    var info = null;
-    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
-    if (!info || typeof info.key !== "string") { return; }
-    var entry = channelHandlers.get(info.key);
-    if (!entry) { return; }   // 不是自己的变量: 忽略 (别的属主会回答)
-    var result;
-    try {
-      result = entry.onRead ? entry.onRead() : null;
-    } catch (e) {
-      channelRespond(info.requestId, false, null,
-                 "onRead 异常: " + (e && e.message ? e.message : String(e)));
-      return;
-    }
-    channelAnswerWith(result, info.requestId);
-  }
-
-  /// 属主收到写请求 (handler 模式): 交给 onWrite, 返回值就是最终值
-  function handleChannelWrite(json) {
-    var info = null;
-    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
-    if (!info || typeof info.key !== "string") { return; }
-    var entry = channelHandlers.get(info.key);
-    if (!entry) { return; }
-    if (!entry.onWrite) {
-      channelRespond(info.requestId, false, null,
-                 "该变量是只读的 (没有提供 onWrite)");
-      return;
-    }
-    var result;
-    try {
-      result = entry.onWrite(info.value);
-    } catch (e) {
-      channelRespond(info.requestId, false, null,
-                 "onWrite 异常: " + (e && e.message ? e.message : String(e)));
-      return;
-    }
-    channelAnswerWith(result, info.requestId);
-  }
-  function channelNormalizeCaps(value) {
-    if (value === undefined || value === null) { return ["get"]; }
-    var list = Array.isArray(value) ? value : [value];
-    var out = [];
-    for (var i = 0; i < list.length; i++) {
-      var item = String(list[i]);
-      if (item !== "get" && item !== "set" && item !== "notify") {
-        throw new Error("broadcast.declare: 未知能力位 " + item);
-      }
-      if (out.indexOf(item) < 0) { out.push(item); }
-    }
-    if (out.length === 0) { throw new Error("broadcast.declare: caps 不能为空"); }
-    return out;
-  }
-
-
-  /// 值频道（变量）还是事件频道？看它是不是本插件声明的键、或插件框架认识的变量键
-  function broadcastIsValueChannel(id) {
-    var text = String(id);
-    if (channelsTable.has(broadcastShortKey(text))) { return true; }
-    try { return !!ext.broadcastRead("info", broadcastFullKey(text)); } catch (e) { return false; }
-  }
-
-  /// 订阅一个值频道（变量）: `fn(value, info)`；返回解绑函数
-  function broadcastBindValue(key, fn) {
-    var full = broadcastFullKey(key);
-    if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
-    var list = channelBindTable.get(full);
-    var isNew = !list;
-    if (!list) { list = []; channelBindTable.set(full, list); }
-    list.push(fn);
-    if (isNew) {
-      ensureChannelTopics();
-      ext.broadcastChannelOp("subscribe", full, "{}");
-    }
-    return function () { musicxx.broadcast.unsubscribe(full, fn); };
-  }
-
-  /// 订阅一个事件频道: `fn(payload, info)`
-  function broadcastSubscribeTopic(topic, fn) {
-    assertName(topic, "broadcast.subscribe: 频道");
-    if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
-    var isNew = !subTable.has(topic);
-    subTable.set(topic, fn);
-    if (isNew) { ext.subscribeHost(topic); }
-    return function () { musicxx.broadcast.unsubscribe(topic); };
+  /// `broadcastSubs` 里取的; 只调原语不记账的话, 顶层绑定会静默地收不到任何事件。
+  function ensureBroadcastHostSubscription(topic, optionsJson) {
+    var key = topic + "\u0000" + optionsJson;
+    if (broadcastHostSubs.has(key)) { return; }
+    broadcastHostSubs.add(key);
+    ext.subscribeHost(topic, optionsJson);
   }
 
   musicxx.broadcast = {
-    /// 声明 / 覆盖一个自己拥有的值频道; 返回 true (失败抛错, 原因写在异常里)
+    /// 声明 / 覆盖自己的一个频道; 返回 true (失败抛错, 原因写在异常里)
+    ///
+    /// `declare({id, cache, publish, pushOnSubscribe, coalesce, title, depict})`
+    /// - `cache`: `none`(默认, 只有事件)/ `latest`(有当前值, 订阅即推);
+    /// - `publish`: `owner`(默认, 只有自己能发)/ `anyone`(共享频道, 谁都能发);
+    /// - 运行期重复声明同一个 id 会覆盖属性, 当前值仍然保留 (要刷新就用 `publish`)。
     declare: function (spec) {
       if (!spec || typeof spec !== "object") {
         throw new Error("broadcast.declare: 需要对象参数");
       }
-      var key = broadcastShortKey(spec.key === undefined ? "" : spec.key);
-      assertName(key, "broadcast.declare: key");
-      var declare = {
-        key: key,
-        caps: channelNormalizeCaps(spec.caps),
-        mode: spec.mode === "handler" ? "handler" : "declared",
-        write: spec.write === "owner" ? "owner" : "any",
-        type: typeof spec.type === "string" ? spec.type : "",
-        hasValue: spec.value !== undefined,
-        value: spec.value === undefined ? null : spec.value,
+      var full = broadcastFullKey(spec.id === undefined ? "" : spec.id);
+      var cache = spec.cache === "latest" ? "latest" : "none";
+      var decl = {
+        id: full,
+        cache: cache,
+        publish: spec.publish === "anyone" ? "anyone" : "owner",
+        pushOnSubscribe: cache === "latest" && spec.pushOnSubscribe !== false,
+        coalesce: spec.coalesce === true,
+        scope: spec.scope === "system" ? "system" : "app",
         title: typeof spec.title === "string" ? spec.title : "",
-        depict: typeof spec.depict === "string" ? spec.depict : "",
-        options: Array.isArray(spec.options) ? spec.options : [],
-        throttleMs: Number.isFinite(spec.throttleMs) ? Math.trunc(spec.throttleMs) : 0,
-        notifyThrottleMs: Number.isFinite(spec.notifyThrottleMs) ? Math.trunc(spec.notifyThrottleMs) : 0,
-        refreshAfterMs: Number.isFinite(spec.refreshAfterMs) ? Math.trunc(spec.refreshAfterMs) : 0
+        depict: typeof spec.depict === "string" ? spec.depict : ""
       };
-      channelsTable.set(key, declare);
-      if (declare.mode === "handler") {
-        // handler 模式: 读写都转回这里 (onRead/onWrite 只留在 JS 侧, 不进声明)
-        channelHandlers.set("plugin." + musicxx.pluginId + "." + key, {
-          onRead: (typeof spec.onRead === "function") ? spec.onRead : null,
-          onWrite: (typeof spec.onWrite === "function") ? spec.onWrite : null
-        });
-        ensureChannelOwnerTopics();
-      }
-      ext.broadcastChannelOp("register", key, safeJson(declare));
+      declaredBroadcasts.set(broadcastShortKey(full), decl);
+      ext.declareBroadcast(safeJson(decl));
       return true;
     },
-    undeclare: function (key) {
-      var short = broadcastShortKey(key);
-      channelsTable.delete(short);
-      channelHandlers.delete(broadcastFullKey(short));
-      ext.broadcastChannelOp("unregister", short, "{}");
-      return true;
+    /// 发布一条广播 (自己的频道, 或 `publish: anyone` 的共享频道)
+    publish: function (id, payload) {
+      var full = broadcastFullKey(id);
+      var err = ext.publish(full, safeJson(payload === undefined ? null : payload));
+      if (err) { throw new Error(err); }
+      return undefined;
     },
-    /// 频道是否登记过 (读注册表, 不读值)
-    has: function (key) {
-      if (channelsTable.has(broadcastShortKey(key))) { return true; }
-      var text = ext.broadcastRead("info", broadcastFullKey(key));
-      return !!text;
-    },
-    /// 异步、权威读一次 (值频道的属主往返; 顺手刷新 read 的缓存)
-    get: function (key, options) {
-      var full = broadcastFullKey(key);
-      var budget = (options && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0)
-        ? Math.trunc(options.timeoutMs) : 2000;
-      var control = null;
-      try { control = JSON.parse(ext.channelGet(full) || "null"); }
-      catch (e) { control = null; }
-      if (!control || control.status !== "pending") {
-        var reason = (control && control.error) ? control.error : "broadcast_get_failed";
-        return Promise.reject(new Error("读取频道失败: " + full + " (" + reason + ")"));
-      }
-      return new Promise(function (resolve, reject) {
-        var id = String(control.id);
-        var waiter = { resolve: resolve, reject: reject, timer: 0 };
-        // 表用**字符串键**: 插件框架回调传进来的 id 是字符串 (数字键会让查找落空)
-        waiter.timer = musicxx.timer.setTimeout(function () {
-          if (broadcastGetWaiters.delete(id)) {
-            reject(new Error("读取超时: " + full));
-          }
-        }, budget + 500);
-        broadcastGetWaiters.set(id, waiter);
-      });
-    },
-    /// 一次读多个频道 (同键进行中请求由插件框架合并); 单项失败不影响其它项
-    getMany: function (keys, options) {
-      var list = Array.isArray(keys) ? keys : [keys];
-      var result = {};
-      var jobs = [];
-      for (var i = 0; i < list.length; i++) {
-        (function (key) {
-          var name = String(key);
-          jobs.push(musicxx.broadcast.get(name, options).then(function (value) {
-            result[name] = value;
-            return null;
-          }, function (e) {
-            result[name] = null;
-            return null;
-          }));
-        })(list[i]);
-      }
-      return Promise.all(jobs).then(function () { return result; });
-    },
-    /// 同步读当前值: 先读广播注册表的缓存 (`musicxx.state.*` 这类快照频道),
-    /// 再退回宿主变量表里的缓存值 (插件自己声明的值频道)
-    read: function (key) {
+    /// 同步读当前值 (没有当前值返回 null; `cache: none` 的频道永远没有)
+    read: function (id) {
       var text = null;
-      try { text = ext.broadcastPeek(String(key)); } catch (e) { text = null; }
-      if (text) {
-        try { return JSON.parse(text); } catch (e) { /* 不是 JSON 就按文本 */ return text; }
-      }
-      var cached = null;
-      try { cached = ext.broadcastRead("peek", broadcastFullKey(key)); } catch (e) { cached = null; }
-      if (!cached) { return null; }
-      try { return JSON.parse(cached); } catch (e) { return null; }
+      try { text = ext.broadcastRead(broadcastFullKey(id)); } catch (e) { text = null; }
+      if (!text) { return null; }
+      try { return JSON.parse(text); } catch (e) { return text; }
     },
-    /// 保活缓存 (等价于"订阅但不回调"; 需要 notify 能力位)
-    watch: function (key) {
-      var full = broadcastFullKey(key);
-      broadcastWatchSet.add(full);
-      ensureChannelTopics();
-      ext.broadcastChannelOp("watch", full, "{}");
-      return true;
-    },
-    unwatch: function (key) {
-      var full = broadcastFullKey(key);
-      broadcastWatchSet.delete(full);
-      ext.broadcastChannelOp("unwatch", full, "{}");
-      return true;
-    },
-    /// 写一个值频道; 结果 Promise<{key, accepted, value, changed, error?}>
-    write: function (key, value) {
-      var full = broadcastFullKey(key);
-      var control = null;
-      try { control = JSON.parse(ext.broadcastWrite(full, safeJson(value)) || "null"); }
-      catch (e) { control = null; }
-      if (!control || control.status !== "pending") {
-        var reason = (control && control.error) ? control.error : "broadcast_write_failed";
-        return Promise.reject(new Error("写入频道失败: " + full + " (" + reason + ")"));
-      }
-      return new Promise(function (resolve, reject) {
-        var id = String(control.id);
-        var waiter = { resolve: resolve, reject: reject, timer: 0 };
-        waiter.timer = musicxx.timer.setTimeout(function () {
-          if (broadcastSetWaiters.delete(id)) {
-            reject(new Error("写入未回执: " + full));
-          }
-        }, 6000);
-        broadcastSetWaiters.set(id, waiter);
-      });
-    },
-    /// 订阅一个频道: 值频道给 `fn(value, info)`, 事件频道给 `fn(payload, info)`
+    /// 订阅一个频道: `fn(payload, info)`; `options` = `{intervalMs, mode}`
     ///
-    /// 返回解绑函数; 也可以把 id 交给 [unsubscribe]。
-    subscribe: function (id, fn) {
+    /// - `intervalMs` = 通知间隔 (毫秒, 0 / 缺省 = 不限频);
+    /// - `mode` = `delay`(默认, 间隔内只留最新一条、到点补发)/ `drop`(间隔内直接丢掉);
+    /// - 第一条通知立即到达 (`cache: latest` 的频道会先补一次当前值);
+    /// - 返回解绑函数。同一个频道可以用不同频率订阅多次。
+    subscribe: function (id, fn, options) {
       if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
-      if (broadcastIsValueChannel(id)) { return broadcastBindValue(id, fn); }
-      return broadcastSubscribeTopic(id, fn);
+      var full = broadcastFullKey(id);
+      var optionsJson = broadcastOptionsJson(options);
+      var list = broadcastSubs.get(full);
+      if (!list) { list = []; broadcastSubs.set(full, list); }
+      list.push({ fn: fn, options: optionsJson });
+      ensureBroadcastHostSubscription(full, optionsJson);
+      return function () { musicxx.broadcast.unsubscribe(full, fn); };
     },
     /// 退订: 传 id 摘掉这个频道上的全部回调; 再传 fn 只摘那一个
     unsubscribe: function (id, fn) {
       var full = broadcastFullKey(id);
-      var list = channelBindTable.get(full);
-      if (list) {
-        if (typeof fn === "function") {
-          var index = list.indexOf(fn);
-          if (index >= 0) { list.splice(index, 1); }
-        } else {
-          list.length = 0;
+      var list = broadcastSubs.get(full);
+      if (!list) { return false; }
+      if (typeof fn === "function") {
+        for (var i = 0; i < list.length; i += 1) {
+          if (list[i].fn === fn) { list.splice(i, 1); break; }
         }
-        if (list.length === 0) {
-          channelBindTable.delete(full);
-          ext.broadcastChannelOp("unsubscribe", full, "{}");
-        }
+      } else {
+        list.length = 0;
       }
-      var key = String(id);
-      if (subTable.has(key)) { subTable.delete(key); }
+      if (list.length === 0) { broadcastSubs.delete(full); }
       return true;
     },
-    /// 声明 + 缓存状态 (key/caps/mode/owner/type/title/value/revision/ageMs/stale/subscribers)
-    info: function (key) {
+    /// 频道声明过没有 (读注册表, 不读值)
+    has: function (id) {
       var text = null;
-      try { text = ext.broadcastRead("info", broadcastFullKey(key)); } catch (e) { text = null; }
+      try { text = ext.broadcastInfo(broadcastFullKey(id)); } catch (e) { text = null; }
+      return !!text;
+    },
+    /// 声明 + 当前值状态 (id/cache/publish/scope/owner/subscribers/hasValue/...)
+    info: function (id) {
+      var text = null;
+      try { text = ext.broadcastInfo(broadcastFullKey(id)); } catch (e) { text = null; }
       if (!text) { return null; }
       try { return JSON.parse(text); } catch (e) { return null; }
     },
-    /// 列出频道 (prefix 可空); 值字段是缓存值
+    /// 列出频道 (prefix 可空); 每项带声明与当前值
     list: function (prefix) {
       var text = null;
-      try { text = ext.broadcastRead("list", prefix === undefined ? "" : String(prefix)); }
-      catch (e) { text = null; }
+      try {
+        text = ext.broadcastList(prefix === undefined ? "" : String(prefix));
+      } catch (e) { text = null; }
       if (!text) { return []; }
       try { return JSON.parse(text); } catch (e) { return []; }
+    },
+    /// 有几个插件在听这个频道 (自己判断"还要不要继续高频发"的依据)
+    subscribers: function (id) {
+      var info = musicxx.broadcast.info(id);
+      return info && Number.isFinite(info.subscribers) ? info.subscribers : 0;
     },
     /// 本插件声明过的频道
     declared: function () {
       var out = [];
-      channelsTable.forEach(function (value, key) { out.push({ key: key, declare: value }); });
+      declaredBroadcasts.forEach(function (value, key) {
+        out.push({ id: key, declare: value });
+      });
       return out;
-    },
-    /// 关心 (订阅或 watch) 该频道的数量: 插件自己判断"还要不要继续高频推"的依据
-    subscribers: function (key) {
-      var info = musicxx.broadcast.info(key);
-      return info && Number.isFinite(info.subscribers) ? info.subscribers : 0;
-    },
-    /// 发一条事件: `publish(topic, data)`
-    ///
-    /// 无属主、谁都能发；主题只能是官方 `musicxx.*` 或自己命名空间 `plugin.<本插件 id>.*`。
-    publish: function (topic, data) {
-      assertName(topic, "broadcast.publish: 频道");
-      var err = ext.publish(topic, safeJson(data === undefined ? {} : data));
-      if (err) { throw new Error(err); }
-      return undefined;
     }
   };
-
-  /// 异步读的回执 (插件框架在 JS 线程上调用)
-  ext.onChannelGetDone = function (id, json) {
-    var key = String(id);
-    var waiter = broadcastGetWaiters.get(key);
-    if (!waiter) { return; }
-    broadcastGetWaiters.delete(key);
-    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
-    var info = null;
-    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
-    if (info && info.ok === true) {
-      waiter.resolve(info.value === undefined ? null : info.value);
-    } else {
-      waiter.reject(new Error("读取变量失败: " + ((info && info.error) ? info.error : "read_failed")));
-    }
-  };
-
-  /// 写请求的即时回执 (插件框架在 JS 线程上调用)
-  /// - 已经在属主那里结算完: 直接给出结果;
-  /// - 交给属主写入: 结果等 `musicxx.broadcast.writeResult` 事件 (键 = requestId)
-  ext.onChannelSetDone = function (id, json) {
-    var key = String(id);
-    var waiter = broadcastSetWaiters.get(key);
-    if (!waiter) { return; }
-    var info = null;
-    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
-    if (!info || info.ok !== true) {
-      broadcastSetWaiters.delete(key);
-      if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
-      waiter.reject(new Error("写入变量失败: " + ((info && info.error) ? info.error : "write_failed")));
-      return;
-    }
-    var result = info.result || {};
-    if (result.pending === true) {
-      // 等属主写入: 换到 writeResult 的等待表里 (键 = 插件框架给的 requestId)
-      broadcastSetWaiters.delete(key);
-      broadcastSetWaiters.set(String(result.requestId), waiter);
-      return;
-    }
-    broadcastSetWaiters.delete(key);
-    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
-    waiter.resolve(result);
-  };
-
-  /// 变量变更 (插件框架经事件总线送达; 载荷带 key/value/prev/by/revision/ts)
-  function handleChannelChanged(json) {
-    var info = null;
-    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
-    if (!info || typeof info.key !== "string") { return; }
-    var list = channelBindTable.get(info.key);
-    if (!list || list.length === 0) { return; }
-    var snapshot = list.slice();
-    for (var i = 0; i < snapshot.length; i++) {
-      try {
-        snapshot[i](info.value, info);
-      } catch (e) {
-        logError("变量回调异常 (" + info.key + "): " + (e && e.message ? e.message : String(e)));
-      }
-    }
-  }
-
-  /// 写结果 (插件框架经事件总线送达; 键 = requestId)
-  function handleChannelWriteResult(json) {
-    var info = null;
-    try { info = JSON.parse(json || "{}"); } catch (e) { info = null; }
-    if (!info) { return; }
-    var id = String(info.requestId);
-    var waiter = broadcastSetWaiters.get(id);
-    if (!waiter) { return; }
-    broadcastSetWaiters.delete(id);
-    if (waiter.timer) { musicxx.timer.clear(waiter.timer); }
-    if (info.accepted === true) {
-      waiter.resolve(info);
-    } else {
-      waiter.reject(new Error("写入被拒绝: " + (info.error || "rejected")));
-    }
-  }
-
-  ext.onChannelChanged = handleChannelChanged;
-  ext.onChannelWriteResult = handleChannelWriteResult;
 
   /// 调一次**应用实现的能力**（`musicxx.*`），返回 Promise
   ///
@@ -1542,20 +1213,18 @@ var featurePointImpls = new Map();
   };
 
   ext.onEvent = function (topic, json) {
-    // 变量通道的内部回调: 变更通知与写结果 (与用户订阅同一主题时两边都会收到)
-    if (topic === "musicxx.broadcast.changed") { handleChannelChanged(json); }
-    if (topic === "musicxx.broadcast.writeResult") { handleChannelWriteResult(json); }
-    // handler 属主: 插件框架转过来的读写请求
-    if (topic === "musicxx.broadcast.read") { handleChannelRead(json); }
-    if (topic === "musicxx.broadcast.write") { handleChannelWrite(json); }
-    var fn = subTable.get(topic);
-    if (!fn) { return; }
+    var list = broadcastSubs.get(topic);
+    if (!list || list.length === 0) { return; }
     var payload = {};
     if (json) { try { payload = JSON.parse(json); } catch (e) { payload = {}; } }
-    try {
-      fn(payload, topic);
-    } catch (e) {
-      logError("事件处理异常 (" + topic + "): " + (e && e.message ? e.message : String(e)));
+    var info = { id: topic };
+    var snapshot = list.slice();
+    for (var i = 0; i < snapshot.length; i++) {
+      try {
+        snapshot[i].fn(payload, info);
+      } catch (e) {
+        logError("广播回调异常 (" + topic + "): " + (e && e.message ? e.message : String(e)));
+      }
     }
   };
 
@@ -1824,8 +1493,19 @@ var featurePointImpls = new Map();
     var capabilities = [];
     capTable.forEach(function (value, name) { capabilities.push(name); });
     var subscriptions = [];
-    subTable.forEach(function (value, topic) { subscriptions.push(topic); });
-    return JSON.stringify({ implementations: implementations, capabilities: capabilities, subscriptions: subscriptions });
+    broadcastSubs.forEach(function (list, topic) {
+      for (var i = 0; i < list.length; i += 1) {
+        subscriptions.push({ topic: topic, options: list[i].options });
+      }
+    });
+    var broadcasts = [];
+    declaredBroadcasts.forEach(function (decl) { broadcasts.push(decl); });
+    return JSON.stringify({
+      implementations: implementations,
+      capabilities: capabilities,
+      subscriptions: subscriptions,
+      broadcasts: broadcasts
+    });
   };
 
   /// 调用能力处理器
@@ -1874,27 +1554,14 @@ var featurePointImpls = new Map();
 
   ext.reset = function () {
     implementationTable.clear();
-    subTable.clear();
     capTable.clear();
     uiTable.clear();
     timerTable.clear();
     pendingImplementationWaits.clear();
     pendingCapabilityWaits.clear();
-    channelsTable.clear();
-    channelBindTable.clear();
-    broadcastWatchSet.clear();
-    channelHandlers.clear();
-    broadcastTopicsReady.changed = false;
-    broadcastTopicsReady.result = false;
-    broadcastTopicsReady.owner = false;
-    broadcastGetWaiters.forEach(function (waiter) {
-      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
-    });
-    broadcastGetWaiters.clear();
-    broadcastSetWaiters.forEach(function (waiter) {
-      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
-    });
-    broadcastSetWaiters.clear();
+    declaredBroadcasts.clear();
+    broadcastSubs.clear();
+    broadcastHostSubs.clear();
     appCapabilityWaiters.forEach(function (waiter) {
       try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
     });
@@ -1951,6 +1618,7 @@ JsEngine::Instance *contextInstance(JSContext *ctx) {
 std::string takeException(JSContext *ctx) {
   JSValue exception = JS_GetException(ctx);
   std::string text;
+  std::string stack;
   if (JS_IsObject(exception)) {
     JSValue message = JS_GetPropertyStr(ctx, exception, "message");
     const char *cstr = JS_ToCString(ctx, message);
@@ -1959,6 +1627,16 @@ std::string takeException(JSContext *ctx) {
       JS_FreeCString(ctx, cstr);
     }
     JS_FreeValue(ctx, message);
+    // 栈的第一行就是出错位置 (`at <文件>:<行>`): 带上它, 作者不用猜是哪一行
+    JSValue trace = JS_GetPropertyStr(ctx, exception, "stack");
+    if (JS_IsString(trace)) {
+      const char *traceText = JS_ToCString(ctx, trace);
+      if (traceText) {
+        stack = traceText;
+        JS_FreeCString(ctx, traceText);
+      }
+    }
+    JS_FreeValue(ctx, trace);
   }
   if (text.empty()) {
     const char *cstr = JS_ToCString(ctx, exception);
@@ -1968,22 +1646,11 @@ std::string takeException(JSContext *ctx) {
     }
   }
   JS_FreeValue(ctx, exception);
+  if (!stack.empty() && stack.find(text) == std::string::npos) {
+    const auto lineEnd = stack.find('\n');
+    text += " (" + stack.substr(0, lineEnd) + ")";
+  }
   return text;
-}
-
-JSValue jsBroadcastPeek(JSContext *ctx, JSValueConst /*thisVal*/, int argc,
-                   JSValueConst *argv) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine || argc < 1) {
-    return JS_NewString(ctx, "");
-  }
-  const char *key = JS_ToCString(ctx, argv[0]);
-  std::string out;
-  const bool ok = key && inst->engine->bridgeBroadcastPeek(key, out) == 0;
-  if (key) {
-    JS_FreeCString(ctx, key);
-  }
-  return JS_NewString(ctx, ok ? out.c_str() : "");
 }
 
 JSValue jsHostInfo(JSContext *ctx, JSValueConst, int /*argc*/,
@@ -2241,154 +1908,88 @@ JSValue jsImplementationOp(JSContext *ctx, JSValueConst, int argc, JSValueConst 
   return JS_UNDEFINED;
 }
 
-/// 运行期动态订阅 (顶层声明由回放处理; 这里只处理运行期新增)
-JSValue jsSubscribeHost(JSContext *ctx, JSValueConst, int argc,
-                        JSValueConst *argv) {
+/// 动态订阅一个广播频道
+///
+/// 顶层声明由注册回放处理；`optionsJson` 空串 = 不限频。
+JSValue jsSubscribeHostOpts(JSContext *ctx, JSValueConst, int argc,
+                            JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
     return JS_UNDEFINED;
   }
   const char *topic = JS_ToCString(ctx, argv[0]);
-  inst->engine->bridgeSubscribeHost(inst->name, topic ? topic : "");
+  const char *options = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+  inst->engine->bridgeSubscribeHost(inst->name, topic ? topic : "",
+                                    options ? options : "");
   if (topic) {
     JS_FreeCString(ctx, topic);
   }
-  return JS_UNDEFINED;
-}
-
-/// 变量操作 (register | unregister | subscribe | unsubscribe | watch | unwatch)
-JSValue jsBroadcastChannelOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine || argc < 2) {
-    return JS_UNDEFINED;
-  }
-  const char *op = JS_ToCString(ctx, argv[0]);
-  const char *key = JS_ToCString(ctx, argv[1]);
-  const char *json = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
-  inst->engine->bridgeBroadcastChannelOp(inst->name, op ? op : "", key ? key : "",
-                             json ? json : "{}");
-  if (op) {
-    JS_FreeCString(ctx, op);
-  }
-  if (key) {
-    JS_FreeCString(ctx, key);
-  }
-  if (json) {
-    JS_FreeCString(ctx, json);
+  if (options) {
+    JS_FreeCString(ctx, options);
   }
   return JS_UNDEFINED;
 }
 
-/// 异步读的发起 (返回控制对象 JSON; 结果经 ext.onChannelGetDone 回到 JS 线程)
-JSValue jsChannelGet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+/// 运行期声明自己的广播频道（顶层声明由注册回放处理）
+JSValue jsDeclareBroadcast(JSContext *ctx, JSValueConst, int argc,
+                           JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
-    return JS_NewString(ctx, R"({"status":"error","error":"参数非法","code":-1})");
-  }
-  const char *key = JS_ToCString(ctx, argv[0]);
-  const std::string text = key ? key : "";
-  if (key) {
-    JS_FreeCString(ctx, key);
-  }
-  Json out;
-  if (text.empty()) {
-    out["status"] = "error";
-    out["error"] = "键不能为空";
-    out["code"] = -1;
-  } else {
-    const int64_t id = inst->engine->beginChannelGet(inst->name, text);
-    if (id < 0) {
-      out["status"] = "error";
-      out["error"] = "插件框架未启动或插件实例已停止";
-      out["code"] = -2;
-    } else {
-      out["status"] = "pending";
-      out["id"] = id;
-    }
-  }
-  const std::string json = out.dump();
-  return JS_NewStringLen(ctx, json.data(), json.size());
-}
-
-/// 写入的发起 (返回控制对象 JSON; 结果经 ext.onChannelSetDone 回到 JS 线程)
-JSValue jsBroadcastWrite(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine || argc < 2) {
-    return JS_NewString(ctx, R"({"status":"error","error":"参数非法","code":-1})");
-  }
-  const char *key = JS_ToCString(ctx, argv[0]);
-  const char *value = JS_ToCString(ctx, argv[1]);
-  const std::string keyText = key ? key : "";
-  const std::string valueText = value ? value : "null";
-  if (key) {
-    JS_FreeCString(ctx, key);
-  }
-  if (value) {
-    JS_FreeCString(ctx, value);
-  }
-  Json out;
-  if (keyText.empty()) {
-    out["status"] = "error";
-    out["error"] = "键不能为空";
-    out["code"] = -1;
-  } else {
-    const int64_t id = inst->engine->beginChannelSet(inst->name, keyText, valueText);
-    if (id < 0) {
-      out["status"] = "error";
-      out["error"] = "插件框架未启动或插件实例已停止";
-      out["code"] = -2;
-    } else {
-      out["status"] = "pending";
-      out["id"] = id;
-    }
-  }
-  const std::string json = out.dump();
-  return JS_NewStringLen(ctx, json.data(), json.size());
-}
-
-/// handler 属主回答一次被转过来的请求 (投递不等待)
-JSValue jsBroadcastRespond(JSContext *ctx, JSValueConst, int argc,
-                      JSValueConst *argv) {
-  auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine || argc < 3) {
     return JS_UNDEFINED;
   }
-  int64_t requestId = 0;
-  JS_ToInt64(ctx, &requestId, argv[0]);
-  const int32_t ok = JS_ToBool(ctx, argv[1]);
-  const char *value = JS_ToCString(ctx, argv[2]);
-  const char *error = (argc >= 4) ? JS_ToCString(ctx, argv[3]) : nullptr;
-  inst->engine->bridgeBroadcastRespond(inst->name, requestId, 0 != ok,
-                                  value ? value : "null", error ? error : "");
-  if (value) {
-    JS_FreeCString(ctx, value);
-  }
-  if (error) {
-    JS_FreeCString(ctx, error);
+  const char *decl = JS_ToCString(ctx, argv[0]);
+  inst->engine->bridgeDeclareBroadcast(inst->name, decl ? decl : "{}");
+  if (decl) {
+    JS_FreeCString(ctx, decl);
   }
   return JS_UNDEFINED;
 }
 
-/// 同步读缓存 (op = peek | info | list)
+/// 同步读一个频道的当前值（没有当前值返回空串）
 ///
-/// 读的是插件框架维护的**同步镜像** (互斥量保护), 因此不需要投递到框架线程 ——
-/// JS 线程绝不等框架线程 (框架线程可能正等着 JS 处理器)。
+/// 读的是广播注册表里的当前值（内部加锁），不需要投递到框架线程 ——
+/// JS 线程绝不等框架线程（框架线程可能正等着 JS 处理器）。
 JSValue jsBroadcastRead(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
-  if (!inst || !inst->engine || argc < 2) {
+  if (!inst || !inst->engine || argc < 1) {
     return JS_NewString(ctx, "");
   }
-  const char *op = JS_ToCString(ctx, argv[0]);
-  const char *key = JS_ToCString(ctx, argv[1]);
-  const std::string opText = op ? op : "";
+  const char *key = JS_ToCString(ctx, argv[0]);
   const std::string keyText = key ? key : "";
-  if (op) {
-    JS_FreeCString(ctx, op);
-  }
   if (key) {
     JS_FreeCString(ctx, key);
   }
-  const std::string json = inst->engine->bridgeBroadcastRead(opText, keyText);
+  const std::string json = inst->engine->bridgeBroadcastRead(keyText);
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 同步读一个频道的声明与状态（未声明返回空串）
+JSValue jsBroadcastInfo(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 1) {
+    return JS_NewString(ctx, "");
+  }
+  const char *key = JS_ToCString(ctx, argv[0]);
+  const std::string keyText = key ? key : "";
+  if (key) {
+    JS_FreeCString(ctx, key);
+  }
+  const std::string json = inst->engine->bridgeBroadcastInfo(keyText);
+  return JS_NewStringLen(ctx, json.data(), json.size());
+}
+
+/// 同步列频道（`prefix` 可空; 返回 JSON 数组）
+JSValue jsBroadcastList(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine) {
+    return JS_NewString(ctx, "[]");
+  }
+  const char *prefix = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
+  const std::string head = prefix ? prefix : "";
+  if (prefix) {
+    JS_FreeCString(ctx, prefix);
+  }
+  const std::string json = inst->engine->bridgeBroadcastList(head);
   return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
@@ -2613,18 +2214,16 @@ JSValue buildBridgeObject(JSContext *ctx) {
     int argc;
   };
   const Entry entries[] = {
-      {"broadcastPeek", jsBroadcastPeek, 1},
       {"hostInfo", jsHostInfo, 0},
       {"log", jsLog, 2},
       {"configPath", jsConfigPath, 0},
       {"appCapabilityCall", jsAppCapabilityCall, 3},
       {"publish", jsPublish, 2},
-      {"subscribeHost", jsSubscribeHost, 1},
-      {"broadcastChannelOp", jsBroadcastChannelOp, 3},
-      {"broadcastRead", jsBroadcastRead, 2},
-      {"broadcastWrite", jsBroadcastWrite, 2},
-      {"broadcastRespond", jsBroadcastRespond, 4},
-      {"channelGet", jsChannelGet, 1},
+      {"subscribeHost", jsSubscribeHostOpts, 2},
+      {"declareBroadcast", jsDeclareBroadcast, 1},
+      {"broadcastRead", jsBroadcastRead, 1},
+      {"broadcastInfo", jsBroadcastInfo, 1},
+      {"broadcastList", jsBroadcastList, 1},
       {"implementationOp", jsImplementationOp, 5},
       {"implementationWaitResolve", jsImplementationWaitResolve, 2},
       {"capabilityWaitResolve", jsCapabilityWaitResolve, 2},
@@ -3085,15 +2684,6 @@ void JsEngine::expireActions() {
 
 /* ==================== 桥接 (线程安全) ==================== */
 
-int32_t JsEngine::bridgeBroadcastPeek(const std::string &key,
-                                 std::string &out) const {
-  if (!mgr_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
-  }
-  /// 快照频道由插件框架的互斥保护, 任何线程可读 (只读快照)
-  return mgr_->readChannel(key, out);
-}
-
 std::string JsEngine::bridgeHostInfo() const {
   std::lock_guard lock{hostInfoMutex_};
   return hostInfoJson_.empty() ? std::string{"{}"} : hostInfoJson_;
@@ -3339,7 +2929,8 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
 }
 
 void JsEngine::bridgeSubscribeHost(const std::string &instanceName,
-                                   const std::string &topic) {
+                                   const std::string &topic,
+                                   const std::string &optionsJson) {
   auto inst = lookupInstance(instanceName);
   if (!inst) {
     return;
@@ -3348,21 +2939,23 @@ void JsEngine::bridgeSubscribeHost(const std::string &instanceName,
     /// 顶层登记阶段的订阅由 applyRegistrations 统一建立
     return;
   }
-  asio::post(mgr_->hostExecutor(), [this, instanceName, topic] {
+  asio::post(mgr_->hostExecutor(), [this, instanceName, topic, optionsJson] {
     auto current = lookupInstance(instanceName);
     if (current) {
-      ensureSubscriptionOnHost(current, topic);
+      ensureSubscriptionOnHost(current, topic, optionsJson);
     }
   });
 }
 
 void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
-                                        const std::string &topic) {
+                                        const std::string &topic,
+                                        const std::string &optionsJson) {
   if (!inst || topic.empty() || !inst->hostInst) {
     return;
   }
   for (const auto &existing : inst->subscriptions) {
-    if (existing && existing->topic == topic) {
+    if (existing && existing->topic == topic
+        && existing->options == optionsJson) {
       return;
     }
   }
@@ -3381,18 +2974,22 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   holder->engine = this;
   holder->instance = inst->name;
   holder->topic = topic;
+  holder->options = optionsJson;
   const PluginxxStringView topicView{holder->topic.data(),
                                      holder->topic.size()};
+  const PluginxxStringView optionsView{holder->options.data(),
+                                       holder->options.size()};
   auto *sub = broadcasts->subscribe_broadcast(
       host, nullptr, &topicView, &JsEngine::eventTrampoline, holder.get(),
-      nullptr);
+      holder->options.empty() ? nullptr : &optionsView, nullptr);
   if (!sub) {
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒继", inst->id,
             topic);
     return;
   }
   inst->subscriptions.push_back(holder);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 已生效", inst->id, topic);
+  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 已生效 (intervalMs={})",
+          inst->id, topic, holder->options);
 }
 
 std::vector<JsEngine::Instance::PendingUiOp>
@@ -3405,377 +3002,86 @@ JsEngine::takePendingUiOps(const std::shared_ptr<Instance> &inst) {
   return ops;
 }
 
-std::vector<JsEngine::Instance::PendingChannelOp>
-JsEngine::takePendingChannelOps(const std::shared_ptr<Instance> &inst) {
-  std::vector<Instance::PendingChannelOp> ops;
-  if (!inst) {
-    return ops;
-  }
-  ops.swap(inst->pendingChannelOps);
-  return ops;
-}
+/* ==================== 广播 (只读与订阅) ==================== */
 
-/* ==================== 值频道 (广播里带当前值的那一类) ==================== */
-
-/// 在框架线程上执行一次变量声明/订阅操作 (**必须已在框架线程调用**)
-int32_t JsEngine::applyChannelOpOnHost(const std::shared_ptr<Instance> &inst,
-                                   const std::string &op, const std::string &key,
-                                   const std::string &json) {
-  if (!inst || !inst->hostInst) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
-  }
-  MusicxxHostInstance *host = inst->hostInst;
-  if (op == "register") {
-    bool parseOk = false;
-    Json spec = parseJsonSafe(json, &parseOk);
-    if (!parseOk || !spec.is_object()) {
-      return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
-    }
-    MusicxxPluginChannelSpec native{};
-    native.version = 1;
-    native.struct_size = sizeof(MusicxxPluginChannelSpec);
-    native.key = PluginxxStringView{key.data(), key.size()};
-    int32_t caps = 0;
-    if (spec.contains("caps") && spec["caps"].is_array()) {
-      for (const auto &item : spec["caps"]) {
-        if (!item.is_string()) {
-          continue;
-        }
-        const std::string name = item.get<std::string>();
-        if (name == "get") {
-          caps |= MUSICXX_PLUGIN_CHANNEL_CAP_GET;
-        } else if (name == "set") {
-          caps |= MUSICXX_PLUGIN_CHANNEL_CAP_SET;
-        } else if (name == "notify") {
-          caps |= MUSICXX_PLUGIN_CHANNEL_CAP_NOTIFY;
-        }
-      }
-    }
-    native.caps = caps;
-    const std::string mode = (spec.contains("mode") && spec["mode"].is_string())
-                                 ? spec["mode"].get<std::string>()
-                                 : std::string{"declared"};
-    native.mode = (mode == "handler") ? MUSICXX_PLUGIN_CHANNEL_MODE_HANDLER
-                                      : MUSICXX_PLUGIN_CHANNEL_MODE_DECLARED;
-    const std::string write = (spec.contains("write") && spec["write"].is_string())
-                                  ? spec["write"].get<std::string>()
-                                  : std::string{"any"};
-    native.write_scope = (write == "owner") ? MUSICXX_PLUGIN_CHANNEL_WRITE_OWNER
-                                            : MUSICXX_PLUGIN_CHANNEL_WRITE_ANY;
-    native.throttle_ms = (spec.contains("throttleMs") && spec["throttleMs"].is_number())
-                             ? spec["throttleMs"].get<int32_t>()
-                             : 0;
-    native.notify_throttle_ms =
-        (spec.contains("notifyThrottleMs") && spec["notifyThrottleMs"].is_number())
-            ? spec["notifyThrottleMs"].get<int32_t>()
-            : 0;
-    native.refresh_after_ms =
-        (spec.contains("refreshAfterMs") && spec["refreshAfterMs"].is_number())
-            ? spec["refreshAfterMs"].get<int32_t>()
-            : 0;
-    const std::string type = (spec.contains("type") && spec["type"].is_string())
-                                 ? spec["type"].get<std::string>()
-                                 : std::string{};
-    native.type = PluginxxStringView{type.data(), type.size()};
-    std::string valueText;
-    if (spec.contains("hasValue") && spec["hasValue"].is_boolean() &&
-        spec["hasValue"].get<bool>() && spec.contains("value")) {
-      valueText = spec["value"].dump();
-    }
-    native.value_json = PluginxxStringView{valueText.data(), valueText.size()};
-    Json meta = Json::object();
-    for (const char *field : {"title", "depict"}) {
-      if (spec.contains(field) && spec[field].is_string() &&
-          !spec[field].get<std::string>().empty()) {
-        meta[field] = spec[field].get<std::string>();
-      }
-    }
-    if (spec.contains("options") && spec["options"].is_array() &&
-        !spec["options"].empty()) {
-      meta["options"] = spec["options"];
-    }
-    const std::string metaText = meta.empty() ? std::string{} : meta.dump();
-    native.meta_json = PluginxxStringView{metaText.data(), metaText.size()};
-    const int32_t rc = mgr_->registerChannel(host, native);
-    return rc;
-  }
-  if (op == "unregister") {
-    return mgr_->unregisterChannel(host, key);
-  }
-  // subscribe / unsubscribe / watch / unwatch: 单键的数组形式
-  Json keys = Json::array();
-  keys.push_back(key);
-  const std::string keysJson = keys.dump();
-  int32_t count = 0;
-  if (op == "subscribe") {
-    return mgr_->subscribeChannels(host, keysJson, count);
-  }
-  if (op == "unsubscribe") {
-    return mgr_->unsubscribeChannels(host, keysJson, count);
-  }
-  if (op == "watch") {
-    return mgr_->watchChannels(host, keysJson, true, count);
-  }
-  if (op == "unwatch") {
-    return mgr_->watchChannels(host, keysJson, false, count);
-  }
-  return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-}
-
-void JsEngine::bridgeBroadcastChannelOp(const std::string &instanceName,
-                            const std::string &op, const std::string &key,
-                            const std::string &json) {
+/// 运行期声明自己的一个广播频道 (**投递到框架线程; 不等待**)
+///
+/// 顶层登记阶段的声明由 `applyRegistrations` 从 `collectRegistrations` 的
+/// `broadcasts` 段统一回放, 这里什么都不做 (避免"框架线程等 JS、JS 等框架线程")。
+void JsEngine::bridgeDeclareBroadcast(const std::string &instanceName,
+                                      const std::string &declJson) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !mgr_ || !mgr_->running()) {
     return;
   }
   if (!inst->liveRegistrations.load(std::memory_order_acquire)) {
-    /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
-    /// (与能力/能力/UI 项同一套做法, 避免"框架线程等 JS、JS 等框架线程")
-    Instance::PendingChannelOp entry;
-    entry.op = op;
-    entry.key = key;
-    entry.json = json;
-    inst->pendingChannelOps.push_back(std::move(entry));
     return;
   }
-  const std::string pluginId = inst->id;
   auto self = shared_from_this();
-  asio::post(mgr_->hostExecutor(),
-             [self, pluginId, instanceName, op, key, json] {
-               auto current = self->lookupInstance(instanceName);
-               if (!current) {
-                 return;
-               }
-               const int32_t rc =
-                   self->applyChannelOpOnHost(current, op, key, json);
-               if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
-                 return;
-               }
-               Json payload;
-               payload["id"] = pluginId;
-               payload["phase"] = "channels";
-               payload["op"] = op;
-               payload["key"] = key;
-               payload["code"] = rc;
-               payload["message"] =
-                   "频道操作被拒绝 (检查 key/caps/命名空间, 或插件框架是否支持该模式)";
-               self->mgr_->pushEvent("musicxx.plugin.error", pluginId,
-                                     payload.dump());
-               XX_LOGW(
-                   "[musicxx_ext] JS插件 `{}` 运行期频道操作 `{}` `{}` 失败 "
-                   "(code={})",
-                   pluginId, op, key, rc);
-             });
+  asio::post(mgr_->hostExecutor(), [self, instanceName, declJson] {
+    auto current = self->lookupInstance(instanceName);
+    if (current) {
+      self->applyBroadcastDeclOnHost(current, declJson);
+    }
+  });
 }
 
-std::string JsEngine::bridgeBroadcastRead(const std::string &op,
-                                     const std::string &key) {
+/// 在框架线程上声明一个广播频道 (**必须已在框架线程调用**)
+int32_t JsEngine::applyBroadcastDeclOnHost(const std::shared_ptr<Instance> &inst,
+                                           const std::string &declJson) {
+  if (!inst || !inst->hostInst || !mgr_) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  std::string error;
+  const int32_t rc = mgr_->declareBroadcast(inst->hostInst, declJson, &error);
+  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    Json payload;
+    payload["id"] = inst->id;
+    payload["phase"] = "broadcast";
+    payload["op"] = "declare";
+    payload["code"] = rc;
+    payload["message"] = error.empty() ? "广播声明被拒绝" : error;
+    mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 声明广播 `{}` 被拒绝 (code={}): {}",
+            inst->id, declJson, rc, error);
+  }
+  return rc;
+}
+
+/// 同步读一个频道的当前值 (`cache: latest` 才可能有值; 内部加锁)
+std::string JsEngine::bridgeBroadcastRead(const std::string &key) {
   MusicxxHostManager *mgr = mgr_;
-  if (!mgr) {
+  if (!mgr || key.empty()) {
     return {};
   }
   std::string out;
-  int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
-  if (op == "peek") {
-    rc = mgr->peekChannel(key, out);
-  } else if (op == "info") {
-    rc = mgr->channelInfo(key, out);
-  } else if (op == "list") {
-    rc = mgr->listChannels(key, out);
-  } else {
+  if (mgr->broadcasts()->read(key, &out)) {
+    return out;
+  }
+  return {};
+}
+
+/// 同步读一个频道的声明与状态 (未声明返回空串)
+std::string JsEngine::bridgeBroadcastInfo(const std::string &key) {
+  MusicxxHostManager *mgr = mgr_;
+  if (!mgr || key.empty()) {
     return {};
   }
-  return rc == MUSICXX_EXTERN_PLUGIN_OK ? out : std::string{};
+  return mgr->broadcasts()->infoJson(key);
 }
 
-void JsEngine::bridgeBroadcastRespond(const std::string &instanceName,
-                                 int64_t requestId, bool ok,
-                                 const std::string &valueJson,
-                                 const std::string &error) {
+/// 同步列频道 (`prefix` 可空; 返回声明数组, 每项带当前值)
+std::string JsEngine::bridgeBroadcastList(const std::string &prefix) {
   MusicxxHostManager *mgr = mgr_;
-  if (!mgr || !mgr->running()) {
-    return;
+  if (!mgr) {
+    return "[]";
   }
-  auto self = shared_from_this();
-  asio::post(mgr->hostExecutor(), [self, instanceName, requestId, ok,
-                                   valueJson, error] {
-    auto current = self->lookupInstance(instanceName);
-    if (!current || !current->hostInst) {
-      return;
-    }
-    std::string out;
-    const int32_t rc = self->mgr_->respondChannel(current->hostInst, requestId, ok,
-                                              valueJson, error, out);
-    if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
-      return;
-    }
-    /// 回答失败只记日志与事件 (脚本侧不等待结果): 常见原因是被转过来的请求
-    /// 已经超时结算, 或者回答的不是自己的变量
-    Json payload;
-    payload["id"] = current->id;
-    payload["phase"] = "channels";
-    payload["op"] = "respond";
-    payload["code"] = rc;
-    payload["requestId"] = requestId;
-    payload["message"] = "变量回答被拒绝 (请求已结算或不属于本插件)";
-    self->mgr_->pushEvent("musicxx.plugin.error", current->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 回答变量请求 {} 失败 (code={})",
-            current->id, requestId, rc);
-  });
-}
-
-int64_t JsEngine::beginChannelGet(const std::string &instanceName,
-                              const std::string &key) {
-  auto inst = lookupInstance(instanceName);
-  if (!inst || !inst->hostInst || !mgr_ || !mgr_->running()) {
-    return -1;
+  bool parseOk = false;
+  Json list = parseJsonSafe(mgr->broadcasts()->listJson(prefix), &parseOk);
+  if (!parseOk || !list.is_object() || !list.contains("broadcasts")) {
+    return "[]";
   }
-  auto wait = std::make_shared<ChannelWait>();
-  wait->engine = this;
-  wait->instance = instanceName;
-  wait->id = nextChannelWaitId_.fetch_add(1);
-  wait->kind = 1;
-  {
-    std::lock_guard<std::mutex> lock{channelWaitMutex_};
-    channelWaits_[wait->id] = wait;
-  }
-  const int64_t waitId = wait->id;
-  PluginxxOperatorNotify notify{};
-  notify.done = &JsEngine::channelWaitDoneTrampoline;
-  notify.host_ud = wait.get();
-  auto self = shared_from_this();
-  asio::post(mgr_->hostExecutor(), [self, instanceName, key, notify, waitId] {
-    auto current = self->lookupInstance(instanceName);
-    int64_t requestId = 0;
-    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
-    if (current && current->hostInst) {
-      rc = self->mgr_->getChannel(current->hostInst, key, &notify, &requestId);
-    }
-    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-      /// 未受理: 属主不会被通知, done 也不会被调用 —— 这里自己回一条失败
-      Json out;
-      out["ok"] = false;
-      out["error"] = channelErrorText(rc);
-      out["code"] = rc;
-      self->postChannelWaitResult(instanceName, waitId, "onChannelGetDone", out.dump());
-    }
-  });
-  return waitId;
-}
-
-int64_t JsEngine::beginChannelSet(const std::string &instanceName,
-                              const std::string &key,
-                              const std::string &valueJson) {
-  auto inst = lookupInstance(instanceName);
-  if (!inst || !inst->hostInst || !mgr_ || !mgr_->running()) {
-    return -1;
-  }
-  auto wait = std::make_shared<ChannelWait>();
-  wait->engine = this;
-  wait->instance = instanceName;
-  wait->id = nextChannelWaitId_.fetch_add(1);
-  wait->kind = 2;
-  {
-    std::lock_guard<std::mutex> lock{channelWaitMutex_};
-    channelWaits_[wait->id] = wait;
-  }
-  const int64_t waitId = wait->id;
-  auto self = shared_from_this();
-  asio::post(mgr_->hostExecutor(), [self, instanceName, key, valueJson, waitId] {
-    auto current = self->lookupInstance(instanceName);
-    std::string result;
-    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
-    if (current && current->hostInst) {
-      rc = self->mgr_->setChannel(current->hostInst, key, valueJson, result);
-    }
-    Json out;
-    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
-      out["ok"] = false;
-      out["error"] = channelErrorText(rc);
-      out["code"] = rc;
-    } else {
-      /// 结果可能是"已结算"(accepted) 或"转给属主"(pending + requestId):
-      /// 后者由预置层换到 `musicxx.broadcast.writeResult` 的等待表里继续等
-      out["ok"] = true;
-      out["result"] = parseJsonSafe(result);
-    }
-    self->postChannelWaitResult(instanceName, waitId, "onChannelSetDone", out.dump());
-  });
-  return waitId;
-}
-
-void PLUGINXX_CALL
-JsEngine::channelWaitDoneTrampoline(void *ud, int32_t status,
-                                const PluginxxStringView *payload) {
-  auto *wait = static_cast<ChannelWait *>(ud);
-  if (!wait || !wait->engine) {
-    return;
-  }
-  /// 先把需要的字段拷出来: 结算之后登记就会被释放 (见 ChannelWait 的说明)
-  JsEngine *engine = wait->engine;
-  const int64_t id = wait->id;
-  const int kind = wait->kind;
-  const std::string instance = wait->instance;
-  std::string text;
-  if (payload && payload->data) {
-    text.assign(payload->data, static_cast<size_t>(payload->size));
-  }
-  Json out;
-  if (status == PLUGINXX_OPERATOR_OK) {
-    out["ok"] = true;
-    if (kind == 2) {
-      out["result"] = parseJsonSafe(text);
-    } else {
-      out["value"] = parseJsonSafe(text);
-    }
-  } else {
-    out["ok"] = false;
-    out["error"] = text.empty() ? "variables_op_failed" : text;
-  }
-  engine->postChannelWaitResult(instance, id,
-                            kind == 2 ? "onChannelSetDone" : "onChannelGetDone",
-                            out.dump());
-}
-
-void JsEngine::postChannelWaitResult(const std::string &instanceName,
-                                 int64_t waitId, const std::string &callback,
-                                 const std::string &json) {
-  auto self = shared_from_this();
-  postTask([self, instanceName, waitId, callback, json] {
-    auto inst = self->lookupInstance(instanceName);
-    if (inst) {
-      std::string ignored;
-      self->callBridgeString(inst, callback.c_str(),
-                             {std::to_string(waitId), json}, ignored);
-    }
-    self->finishChannelWait(waitId);
-  });
-}
-
-void JsEngine::finishChannelWait(int64_t waitId) {
-  std::lock_guard<std::mutex> lock{channelWaitMutex_};
-  channelWaits_.erase(waitId);
-}
-
-void JsEngine::clearChannelWaitsOf(const std::string &instanceName) {
-  std::vector<std::shared_ptr<ChannelWait>> leftovers;
-  {
-    std::lock_guard<std::mutex> lock{channelWaitMutex_};
-    for (auto it = channelWaits_.begin(); it != channelWaits_.end();) {
-      if (it->second && it->second->instance == instanceName) {
-        leftovers.push_back(it->second);
-        it = channelWaits_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    /// 不能直接释放: 属主的回答可能已经在路上, 回调仍会带着这个指针进来。
-    /// 残余登记随引擎一起销毁 (正常路径上属主都已经结算完了)。
-    for (auto &item : leftovers) {
-      channelWaitGraveyard_.push_back(std::move(item));
-    }
-  }
+  return list["broadcasts"].dump();
 }
 
 void JsEngine::bridgeImplementationOp(const std::string &instanceName,
@@ -4507,17 +3813,37 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     }
   }
 
-  // ---- 事件订阅 ----
+  // ---- 广播声明 ----
+  int32_t broadcastsApplied = 0;
+  if (data.contains("broadcasts") && data["broadcasts"].is_array()) {
+    for (const auto &item : data["broadcasts"]) {
+      if (!item.is_object()) {
+        continue;
+      }
+      if (applyBroadcastDeclOnHost(inst, item.dump()) == MUSICXX_EXTERN_PLUGIN_OK) {
+        ++broadcastsApplied;
+      }
+    }
+  }
+
+  // ---- 广播订阅 (带各自的频率选项) ----
   if (data.contains("subscriptions") && data["subscriptions"].is_array()) {
     const PluginxxHost *host = inst->hostInst->hostView();
     for (const auto &item : data["subscriptions"]) {
-      if (!item.is_string() || !host) {
+      if (!item.is_object() || !host) {
+        continue;
+      }
+      if (!item.contains("topic") || !item["topic"].is_string()) {
         continue;
       }
       auto holder = std::make_shared<SubscriptionHolder>();
       holder->engine = this;
       holder->instance = inst->name;
-      holder->topic = item.get<std::string>();
+      holder->topic = item["topic"].get<std::string>();
+      holder->options =
+          (item.contains("options") && item["options"].is_string())
+              ? item["options"].get<std::string>()
+              : std::string{};
       // 广播表的 IID 由应用名拼出 (`<应用名>.broadcasts`), 不写字面量
       const PluginxxStringView iid{
           PLUGINXX_IFACE_BROADCASTS, sizeof(PLUGINXX_IFACE_BROADCASTS) - 1};
@@ -4532,9 +3858,12 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       }
       const PluginxxStringView topicView{holder->topic.data(),
                                          holder->topic.size()};
+      const PluginxxStringView optionsView{holder->options.data(),
+                                           holder->options.size()};
       auto *sub = broadcasts->subscribe_broadcast(
           host, nullptr, &topicView, &JsEngine::eventTrampoline,
-          holder.get(), nullptr);
+          holder.get(), holder->options.empty() ? nullptr : &optionsView,
+          nullptr);
       if (!sub) {
         XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
                 holder->topic);
@@ -4580,34 +3909,15 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     }
   }
 
-  // ---- 变量登记与订阅 ----
-  int32_t channelsApplied = 0;
-  for (const auto &op : takePendingChannelOps(inst)) {
-    const int32_t rc = applyChannelOpOnHost(inst, op.op, op.key, op.json);
-    if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
-      ++channelsApplied;
-      continue;
-    }
-    Json payload;
-    payload["id"] = inst->id;
-    payload["phase"] = "channels";
-    payload["op"] = op.op;
-    payload["key"] = op.key;
-    payload["code"] = rc;
-    payload["message"] =
-        "变量注册被拒绝 (检查 key/caps/命名空间, 或插件框架是否支持该模式)";
-    mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 注册变量 `{}` 被拒绝 (code={})",
-            inst->id, op.key, rc);
-  }
-
+  /// 变量表随值频道一起删除: JS 侧的广播只有声明(上面)、发布、读、订阅
+  /// (`broadcastsApplied` 是这次回放里声明成功的频道数)
   inst->registrationsApplied = true;
   /// 运行期的 UI/订阅/变量操作改为"投递不等待" (顶层登记阶段已结束)
   inst->liveRegistrations.store(true, std::memory_order_release);
   XX_LOGI("[musicxx_ext] JS插件 `{}` 注册回放完成 (能力 {} / 能力 {} / 订阅 "
-          "{} / UI {} / 变量 {})",
+          "{} / UI {} / 广播 {})",
           inst->id, inst->implementations.size(), inst->capabilities.size(),
-          inst->subscriptions.size(), uiApplied, channelsApplied);
+          inst->subscriptions.size(), uiApplied, broadcastsApplied);
 }
 
 void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
@@ -4623,10 +3933,8 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   /// (随实例销毁丢弃)
   inst->liveRegistrations.store(false, std::memory_order_release);
   inst->pendingUiOps.clear();
-  inst->pendingChannelOps.clear();
-  /// 变量登记 (声明/订阅/保活) 与未结算的变量请求都随实例作废
-  /// (变量本身由 `clearPluginRegistrations` → `detachChannels` 摘除)
-  clearChannelWaitsOf(inst->name);
+  /// 广播订阅由插件框架随实例 stop/卸载自动撤销; 声明出来的频道由
+  /// `removeChannelsOwnedBy` 随实例一起摘除
   for (const auto &handler : inst->implementations) {
     mgr_->unimplement(inst->hostInst, handler->capabilityId, handler->ownerTag);
   }

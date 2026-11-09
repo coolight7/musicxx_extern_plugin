@@ -94,7 +94,7 @@ struct MusicxxPluginKindSpec {
 class MusicxxPluginKindRegistry {
 public:
   MusicxxPluginKindRegistry() {
-    // 内置形态：native 由插件框架自己加载，按 C 接口代次判（当前 3 / 下限 3）
+    // 内置形态：native 由插件框架自己加载，按插件 ABI 代次判（当前 7 / 下限 7）
     MusicxxPluginKindSpec native;
     native.kind = "native";
     native.builtin = true;

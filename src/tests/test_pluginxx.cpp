@@ -508,7 +508,7 @@ void testBroadcastRegistry() {
     std::string value;
     check(!reg.read("musicxx.state.player", &value), "未声明的频道读不到值");
     check(reg.subscribe("musicxx.state.player", "plugin_a",
-                        [](std::string_view) {}, &error) == 0,
+                        [](std::string_view) {}, {}, &error) == 0,
           "未声明的频道订阅失败");
   }
 

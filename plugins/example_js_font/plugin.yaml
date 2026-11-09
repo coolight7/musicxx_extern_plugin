@@ -14,4 +14,4 @@ platforms: [windows, linux, macos, android, ios]
 permissions:
   - musicxx.ui
   - musicxx.storage
-  - musicxx.variables
+  - musicxx.broadcast

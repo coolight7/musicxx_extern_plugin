@@ -1,0 +1,19 @@
+# 示例（JS 插件）：广播（`musicxx.broadcast`）
+#
+# 演示插件侧能做的四件事：声明并发布自己的频道、声明一个共享频道（`publish: anyone`）、
+# 订阅官方频道、给高频频道声明自己的通知频率（`intervalMs` / `mode`）。
+# 能力处理器不能返回 Promise（跨边界不支持异步返回值），所以这里把订阅结果记在变量里，
+# 由 probe 能力回报 —— 原生测试与包内整套流程测试都读这几个字段。
+name: example_js_broadcast
+kind: js
+entry: plugin.js
+
+version: 2026.1010.1
+# 这一项只对按 C 接口编译的形态做下限判定（动态库插件）；JS 由内置运行器解释执行，保持 1
+api_version: 1
+author: "coolight"
+description: "示例: 广播 —— 声明并发布频道 + 订阅官方频道（含通知频率）"
+platforms: [windows, linux, macos, android, ios]
+
+permissions:
+  - musicxx.broadcast

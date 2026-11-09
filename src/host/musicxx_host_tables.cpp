@@ -1409,43 +1409,6 @@ void MusicxxHostManager::cancelAppCapability(int64_t requestId) {
   pendingAppCapabilities_.erase(it);
 }
 
-/* ==================== 快照频道读取 ==================== */
-
-int32_t MusicxxHostManager::readChannel(std::string_view key,
-                                     std::string &outJson) {
-  /// 快照频道只有一份存储: 广播注册表的当前值 (与 subscribe_broadcast 读到的是同一个)
-  PluginxxString out{nullptr, 0};
-  const int32_t rc = readBroadcast(key, &out);
-  if (rc == PLUGINXX_RESULT_OK) {
-    outJson.assign(out.data, static_cast<size_t>(out.size));
-    pluginxx::hostMemoryFree(out.data);
-    return MUSICXX_EXTERN_PLUGIN_OK;
-  }
-  return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
-}
-
-int32_t MusicxxHostManager::subscribeState(MusicxxHostInstance *inst,
-                                           const std::string &keysJson,
-                                           int32_t &outCount) {
-  if (!inst) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
-  }
-  bool parseOk = false;
-  Json keys = parseJsonSafe(keysJson, &parseOk);
-  if (!parseOk || !keys.is_array()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
-  }
-  std::vector<std::string> list;
-  for (const auto &item : keys) {
-    if (item.is_string()) {
-      list.push_back(item.get<std::string>());
-    }
-  }
-  stateSubscriptions_[inst->name] = std::move(list);
-  outCount = static_cast<int32_t>(stateSubscriptions_[inst->name].size());
-  return MUSICXX_EXTERN_PLUGIN_OK;
-}
-
 int32_t MusicxxHostManager::pluginConfigPathFor(MusicxxHostInstance *inst,
                                                 std::string &out) {
   if (!inst) {
@@ -1605,12 +1568,15 @@ int32_t PLUGINXX_CALL xx_declare_broadcast(const PluginxxHost *host,
 }
 
 /// 订阅广播 (任意线程; 主题形状与归属规则与旧事件表一致)
+///
+/// `options_json` 是订阅方自己的通知频率 (`{"intervalMs":200,"mode":"delay"}`; 可空)。
 PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
     const PluginxxStringView *id,
     void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
                                  void *ud),
-    void *ud, PluginxxString *errorOut) {
+    void *ud, const PluginxxStringView *optionsJson,
+    PluginxxString *errorOut) {
   return pluginxx::guardVtableCall(nullptr, [&]() -> PluginxxSubscription * {
     auto call =
         pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
@@ -1634,6 +1600,12 @@ PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
     }
     // 应用下发声明之前, 宿主按 id 前缀补一份默认声明
     mgr->ensureBroadcastChannel(mgr->qualifyEventTopic(idText));
+    // 订阅频率选项是借用视图: 投递前复制成自有的字符串
+    const std::string options =
+        (optionsJson && optionsJson->data)
+            ? std::string{optionsJson->data,
+                          static_cast<size_t>(optionsJson->size)}
+            : std::string{};
     // 作用域引用里的 id 是借用视图: 投递前复制成自有结构 (与通用表入口同一做法)
     PluginxxScopeRef scopeCopy{};
     const bool hasScope = pluginxx_scope_ref_ok(scope) != 0;
@@ -1642,9 +1614,9 @@ PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
     }
     auto *sub = pluginxx::ioCallSyncKeep<PluginxxSubscription *>(
         call, mgr,
-        [mgr, inst, hasScope, scopeCopy, idText, handler, ud]() {
+        [mgr, inst, hasScope, scopeCopy, idText, handler, ud, options]() {
           return mgr->subscribeBroadcast(inst, hasScope ? &scopeCopy : nullptr,
-                                         idText, handler, ud);
+                                         idText, handler, ud, options);
         });
     if (!sub) {
       pluginxx::detail::setErrorString(errorOut,

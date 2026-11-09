@@ -292,6 +292,41 @@ int32_t MusicxxHostManager::start(std::string &err) {
   running_.store(true, std::memory_order_release);
   startTime_ = std::chrono::steady_clock::now();
 
+  // 广播的订阅限频补发: 注册表自己不计时, 由宿主给一个 asio 定时器。
+  // 定时器回调投递到框架 IO 线程后执行 (补发回调在那条线程上跑, 与发布同一线程)。
+  {
+    auto self = shared_from_this();
+    broadcasts()->setScheduler([self](int64_t delayMs, std::function<void()> task) {
+      auto timer = std::make_shared<asio::steady_timer>(self->ctx_->io);
+      timer->expires_after(std::chrono::milliseconds(delayMs > 0 ? delayMs : 0));
+      timer->async_wait([self, timer, task = std::move(task)](
+                            const utilxx_base::AsioErrorCode &ec) {
+        if (ec) {
+          return; ///< 框架收尾时定时器被取消
+        }
+        asio::post(self->ctx_->io, [self, task]() {
+          if (task) {
+            task();
+          }
+        });
+      });
+    });
+    // 订阅数变化 (订阅 / 退订 / 插件卸载 / 删频道): 发一条只读通知给应用
+    broadcasts()->setSubscriberChangeCallback(
+        [self](std::string_view id, size_t subscribers) {
+          if (!self->running_.load(std::memory_order_acquire)) {
+            return;
+          }
+          Json payload;
+          payload["id"] = std::string{id};
+          payload["subscribers"] = static_cast<int64_t>(subscribers);
+          asio::post(self->ctx_->io, [self, text = payload.dump()]() {
+            self->pushEvent("musicxx.broadcast.subscribers", "", text);
+          });
+        }
+    );
+  }
+
   // 应用的能力声明: 生成表 `capability_ids.g.h` 就是应用声明的权威副本。
   // 先声明好, 插件的 `invoke_capability` 才有"这条能力存在"可判 (没有实现行时
   // 交给 onAppCapabilityStart 转给应用)。
@@ -995,11 +1030,21 @@ void MusicxxHostManager::clearPluginRegistrations(
       ++it;
     }
   }
-  stateSubscriptions_.erase(instanceName);
   // 声明式 UI 项随实例摘除 (卸载后不再渲染该插件的入口/菜单)
   detachUiEntries(instanceName);
-  // 变量与订阅随实例摘除 (订阅者收到一条 removed 通知)
-  detachChannels(instanceName);
+  // 广播频道的声明与订阅随实例摘除 (注册表自己会发订阅数变化)
+  //
+  // 同时去掉"已补过默认声明"的记账: 不同步的话, 插件重装后再次 ensureBroadcastChannel
+  // 会被记账拦住, 频道德在注册表里不存在 (发布变成"未声明"被拒)。
+  const std::string pluginId = pluginIdOf(instanceName);
+  broadcasts()->removeChannelsOwnedBy(pluginId);
+  {
+    const std::string prefix = "plugin." + pluginId + ".";
+    std::lock_guard<std::mutex> lock{declaredBroadcastsMutex_};
+    std::erase_if(declaredBroadcasts_, [&prefix](const std::string &id) {
+      return id.rfind(prefix, 0) == 0;
+    });
+  }
   // JS 引擎登记的动作请求 (由 JS 侧自己保活) 也要一起取消
   cancelAppCapabilitiesOfInstance(instanceName);
 }
@@ -2455,22 +2500,20 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   }
   pluginxx::BroadcastDecl decl;
   decl.id = id;
-  // `musicxx.state.*` 是快照频道 (带当前值 + 订阅即推)
-  // 其它 id 按事件频道处理 (没有当前值)
-  const bool isState
-      = id.rfind("musicxx.state.", 0) == 0;
-  const bool isChannel = id.rfind("musicxx.broadcast.", 0) == 0;
-  if (isState || isChannel) {
-    decl.cache = pluginxx::BroadcastCache_e::Latest;
-    decl.pushOnSubscribe = true;
-    decl.coalesce = isState;
-    decl.writable = isChannel ? pluginxx::BroadcastWritable_e::Anyone
-                          : pluginxx::BroadcastWritable_e::Owner;
-  } else {
-    decl.cache = pluginxx::BroadcastCache_e::None;
-    decl.pushOnSubscribe = false;
-    decl.coalesce = true;
-    decl.writable = pluginxx::BroadcastWritable_e::Anyone;
+  // 频道属性只从生成表来 (与作者文档、Dart 声明同一份), 表外 id 用默认属性
+  const MusicxxBroadcastDecl *preset = musicxxBroadcastDeclOf(id.c_str());
+  if (preset != nullptr) {
+    decl.cache = preset->cache == MUSICXX_BROADCAST_CACHE_LATEST
+                     ? pluginxx::BroadcastCache_e::Latest
+                     : pluginxx::BroadcastCache_e::None;
+    decl.publish = preset->publish == MUSICXX_BROADCAST_PUBLISH_ANYONE
+                       ? pluginxx::BroadcastPublisher_e::Anyone
+                       : pluginxx::BroadcastPublisher_e::Owner;
+    decl.pushOnSubscribe = preset->push_on_subscribe != 0;
+    decl.coalesce = preset->coalesce != 0;
+    decl.scope = preset->scope == MUSICXX_BROADCAST_SCOPE_SYSTEM
+                     ? pluginxx::BroadcastScope_e::System
+                     : pluginxx::BroadcastScope_e::App;
   }
   if (id.rfind("plugin.", 0) == 0) {
     decl.owner = naming::pluginIdOfTopic(id);
@@ -2589,7 +2632,7 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
                      : parseJsonSafe(R"({"available":false,"running":false})");
   }
   // 变量表诊断 (条数/能力分布/订阅数/未回执的读写请求)
-  j["channels"] = parseJsonSafe(channelsDebugJson());
+  j["broadcasts"] = parseJsonSafe(broadcasts()->listJson());
   outJson = j.dump();
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

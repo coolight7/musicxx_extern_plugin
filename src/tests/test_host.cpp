@@ -866,9 +866,9 @@ void testPluginInspect(MusicxxExternPluginHost *host,
   checkText(info.find("\"kindKnown\":true") != std::string::npos &&
                 info.find("\"kindRequiresPluginAbi\":true") != std::string::npos,
             "plugin_inspect 报出形态事实：已登记且按 C ABI 编译");
-  checkText(jsonIntField(info, "kindInterfaceVersion") == "3" &&
-                jsonIntField(info, "kindMinInterfaceVersion") == "3",
-            "动态库形态的接口代次对是 C 接口那一对 (3/3)");
+  checkText(jsonIntField(info, "kindInterfaceVersion") == "7" &&
+                jsonIntField(info, "kindMinInterfaceVersion") == "7",
+            "动态库形态的接口代次对是 C 接口那一对 (7/7)");
   checkText(jsonStringField(info, "kindProviderId").empty() &&
                 jsonStringField(info, "kindValidateCapability").empty(),
             "内置形态没有运行器提供者与校验能力");
@@ -1548,10 +1548,10 @@ int main(int argc, char **argv) {
                 static_cast<long long>(probeCall.resultMs));
     std::printf("  [info] probe=%s\n", probe.c_str());
 
-    // 插件框架按本插件的形态报接口代次：动态库插件看到 C 接口代次（3），
+    // 插件框架按本插件的形态报接口代次：动态库插件看到插件 ABI 代次（7），
     // 与 JS 插件的 JS 接口代次（2）是两套编号
-    check(jsonIntField(probe, "hostApiVersion") == "3",
-          "动态库插件看到的接口代次是 C 接口代次 3");
+    check(jsonIntField(probe, "hostApiVersion") == "7",
+          "动态库插件看到的接口代次是插件 ABI 代次 7");
 
     // ==================== 声明式 UI 扩展 (动态库插件)
     // ====================
@@ -2898,172 +2898,99 @@ int main(int argc, char **argv) {
     }
   }
 
-  // ==================== 值频道 (musicxx.broadcasts) ====================
+  // ==================== 广播 (发布 / 读当前值 / 列频道) ====================
+  //
+  // 广播只有四件事: 声明 (宿主按生成表补)、发布、读当前值、订阅 (插件侧)。
+  // 应用侧能用的入口是 broadcast_publish / broadcast_read / broadcast_list。
   {
-    // 能力位: 本次构建必须带变量通道
+    // 能力位: 本次构建必须带广播通道
     {
       const int32_t bits = musicxx_extern_plugin_feature_bits();
       check((bits & MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS) != 0,
-            "feature_bits 含变量通道");
+            "feature_bits 含广播通道");
       check((bits & MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITIES) != 0,
             "feature_bits 含能力通道");
     }
 
-    // 声明之前的官方键: 列出为空
-    {
-      MusicxxExternPluginString out{};
-      const int32_t rc = musicxx_extern_plugin_broadcast_list(
-          host, viewCP("musicxx."), &out, &log);
-      const std::string json = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_list 可读 (声明之前)");
-      check(json == "[]", "声明之前没有官方变量");
-    }
-
-    // 未声明的键: 读/写都要明确报"未找到"
+    // 未声明的频道: 读要明确报"未声明"
     {
       MusicxxExternPluginString out{};
       const int32_t readRc = musicxx_extern_plugin_broadcast_read(
           host, viewCP("musicxx.test.missing"), &out, &log);
       take(out);
       check(readRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
-            "读未声明的官方键返回未找到 (插件据此知道要先声明)");
-      MusicxxExternPluginString setOut{};
-      const int32_t writeRc = musicxx_extern_plugin_broadcast_write(
-          host, viewCP("musicxx.test.missing"), viewCP("1"), &setOut, &log);
-      take(setOut);
-      check(writeRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
-            "写未声明的官方键返回未找到");
+            "读未声明的频道返回未找到");
     }
 
-    // 应用声明两个变量 (一个读写通知齐全, 一个只写)
+    // 生成表里有当前值的频道: 发布之后读回同一份
     {
-      const std::string items = R"([
-        {"key":"musicxx.test.value","caps":["get","set","notify"],"type":"string",
-         "options":["a","b"],"value":"a","title":"测试值","depict":"测试用","risk":"low"},
-        {"key":"musicxx.test.onlyWrite","caps":["set"],"type":"string"}
-      ])";
-      MusicxxExternPluginString message{};
-      const int32_t rc = musicxx_extern_plugin_broadcast_declare(host, viewP(items),
-                                                          &message);
-      const std::string text = take(message);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_declare 受理");
-      check(text.empty(), "合法声明不产生拒绝日志");
+      const std::string topic = "musicxx.player.position";
+      const std::string value = R"({"positionMs":1234})";
+      const int32_t pubRc = musicxx_extern_plugin_broadcast_publish(
+          host, viewP(topic), viewP(value), &log);
+      check(pubRc == MUSICXX_EXTERN_PLUGIN_OK, "发布官方频道成功");
+      MusicxxExternPluginString out{};
+      const int32_t readRc = musicxx_extern_plugin_broadcast_read(
+          host, viewP(topic), &out, &log);
+      check(readRc == MUSICXX_EXTERN_PLUGIN_OK, "读官方频道当前值成功");
+      check(take(out) == value, "读回的当前值是最后一次发布的内容");
     }
 
-    // 列出来: 两条都在, caps/type/options 如实
+    // 表外 id: 默认没有当前值 (cache: none), 发布成功但读不到
+    {
+      const std::string topic = "musicxx.test.plain";
+      check(musicxx_extern_plugin_broadcast_publish(
+                host, viewP(topic), viewCP(R"({"v":1})"), &log) ==
+                MUSICXX_EXTERN_PLUGIN_OK,
+            "发布表外频道时按默认属性补声明");
+      MusicxxExternPluginString out{};
+      const int32_t readRc = musicxx_extern_plugin_broadcast_read(
+          host, viewP(topic), &out, &log);
+      take(out);
+      check(readRc == MUSICXX_EXTERN_PLUGIN_ERR_ARG,
+            "没有当前值的频道读值返回参数错误");
+    }
+
+    // 插件命名空间的频道由插件自己发: 应用侧发布要被拒
+    {
+      const int32_t rc = musicxx_extern_plugin_broadcast_publish(
+          host, viewCP("plugin.someone.tip"), viewCP("{}"), &log);
+      check(rc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION,
+            "应用侧不能发布插件命名空间的频道");
+    }
+
+    // 列出来: 声明字段与当前值都在, 前缀能过滤
     {
       MusicxxExternPluginString out{};
-      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test."), &out, &log);
+      const int32_t rc = musicxx_extern_plugin_broadcast_list(
+          host, viewCP("musicxx.player.position"), &out, &log);
       const std::string json = take(out);
-      check(json.find("musicxx.test.value") != std::string::npos,
-            "broadcast_list 列出读写的官方键");
-      check(json.find("musicxx.test.onlyWrite") != std::string::npos,
-            "broadcast_list 列出只写的官方键");
-      check(json.find("\"notify\"") != std::string::npos,
-            "broadcast_list 如实给出能力位");
-      check(json.find("\"options\"") != std::string::npos,
-            "broadcast_list 带上候选值");
+      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_list 受理");
+      check(json.find("\"broadcasts\"") != std::string::npos,
+            "列表带 broadcasts 段");
+      check(json.find("musicxx.player.position") != std::string::npos,
+            "前缀过滤命中该频道");
+      check(json.find("musicxx.test.plain") == std::string::npos,
+            "前缀过滤排除别的频道");
+      check(json.find("\"cache\":\"latest\"") != std::string::npos,
+            "列表给出缓存属性");
+      check(json.find("\"publish\":\"owner\"") != std::string::npos,
+            "列表给出谁能发布");
       check(json.find("\"hasValue\":true") != std::string::npos,
-            "broadcast_list 如实标记有没有缓存值");
-      check(json.find("\"valueMs\"") != std::string::npos,
-            "broadcast_list 带上缓存时刻 (ageMs/stale 由它算)");
+            "列表给出有没有当前值");
+      check(json.find("\"subscribers\":") != std::string::npos,
+            "列表给出订阅数");
+      check(json.find("\"value\"") != std::string::npos,
+            "列表带上当前值");
     }
 
-    // 声明里不合法的项: 只记日志 (整体仍然返回 0, 不影响启动)
-    {
-      const std::string bad = R"([
-        {"key":"plugin.other.foo","caps":["get"]},
-        {"key":"musicxx.test.noCaps","caps":[]},
-        {"caps":["get"]}
-      ])";
-      MusicxxExternPluginString message{};
-      const int32_t rc =
-          musicxx_extern_plugin_broadcast_declare(host, viewP(bad), &message);
-      const std::string text = take(message);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "非法声明不导致整体失败");
-      check(!text.empty(), "非法声明在日志里说明原因");
-      MusicxxExternPluginString out{};
-      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.noCaps"), &out,
-                                     &log);
-      check(take(out) == "[]", "非法声明没有建出变量");
-    }
-
-    // 推值: 值变了才通知, 值没变不产生事件
-    {
-      MusicxxExternPluginString out{};
-      const int32_t rc = musicxx_extern_plugin_broadcast_update(
-          host, viewCP("musicxx.test.value"), viewCP(R"("b")"), &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_update 受理");
-      MusicxxExternPluginString listed{};
-      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.value"), &listed,
-                                     &log);
-      const std::string json = take(listed);
-      check(json.find("\"value\":\"b\"") != std::string::npos,
-            "推值后列表里是缓存的最新值");
-      check(json.find("\"revision\":1") != std::string::npos,
-            "推值让修订号前进一步");
-
-      // 值没变: 再来一次, revision 不动 (不产生通知)
-      MusicxxExternPluginString again{};
-      musicxx_extern_plugin_broadcast_update(host, viewCP("musicxx.test.value"),
-                                       viewCP(R"("b")"), &log);
-      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.value"), &again,
-                                     &log);
-      check(take(again).find("\"revision\":1") != std::string::npos,
-            "值没变时不涨修订号 (也就不通知)");
-    }
-
-    // 非法值: 拒绝 (不写入值、不通知)
-    {
-      MusicxxExternPluginString message{};
-      const int32_t rc = musicxx_extern_plugin_broadcast_update(
-          host, viewCP("musicxx.test.value"), viewCP("{不是 JSON"), &message);
-      check(rc != MUSICXX_EXTERN_PLUGIN_OK, "非法 JSON 值被拒绝");
-    }
-
-    // 批量推值
-    {
-      const std::string items = R"([
-        {"key":"musicxx.test.value","value":"a"},
-        {"key":"musicxx.test.onlyWrite","value":"x"}
-      ])";
-      const int32_t rc = musicxx_extern_plugin_broadcast_update_batch(
-          host, viewP(items), &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_update_batch 受理");
-      MusicxxExternPluginString listed{};
-      musicxx_extern_plugin_broadcast_list(host, viewCP("musicxx.test.value"), &listed,
-                                     &log);
-      check(take(listed).find("\"value\":\"a\"") != std::string::npos,
-            "批量推值逐个生效");
-    }
-
-    // 关心数回传: 声明/订阅变化时会推给应用 (没人关心时也会推 0)
-    {
-      const std::string json = pollEvents(host, 500).json;
-      check(json.find("musicxx.broadcast.subscriptions") != std::string::npos,
-            "关心数变化回传给应用 (键与数量)");
-    }
-
-    // 应用订阅插件键: 订阅一个还不存在的键也能受理 (键出现时自动挂)
-    {
-      const std::string keys = R"(["plugin.nobody.tip","plugin."])";
-      const int32_t rc = musicxx_extern_plugin_broadcast_subscribe(host, viewP(keys),
-                                                              &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_subscribe 受理 (含前缀写法)");
-      const int32_t unRc = musicxx_extern_plugin_broadcast_unsubscribe(
-          host, viewP(R"(["plugin.nobody.tip"])"), &log);
-      check(unRc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_unsubscribe 受理");
-    }
-
-    // 调试信息里能看到变量表规模 (排障用)
+    // 调试信息里能看到广播表 (排障用)
     {
       MusicxxExternPluginString debug{};
       musicxx_extern_plugin_debug_info(host, &debug, &log);
       const std::string json = take(debug);
-      check(json.find("\"channels\"") != std::string::npos,
-            "调试信息含变量表");
-      check(json.find("\"appChannels\"") != std::string::npos,
-            "调试信息区分官方键与插件键");
+      check(json.find("\"broadcasts\"") != std::string::npos,
+            "调试信息含广播表");
     }
   }
 

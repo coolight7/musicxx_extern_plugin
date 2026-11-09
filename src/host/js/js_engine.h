@@ -85,7 +85,6 @@ public:
 
   /* ---------- JS 桥接 (primitive 用; 线程安全) ---------- */
 
-  int32_t bridgeBroadcastPeek(const std::string &key, std::string &out) const;
   std::string bridgeHostInfo() const;
   void bridgeLog(const std::string &pluginId, int32_t level,
                  const std::string &message);
@@ -117,43 +116,25 @@ public:
                               const std::string &phase);
 
   /// 运行期动态订阅 (投递到框架线程建立订阅; 顶层声明由回放处理)
+  ///
+  /// `optionsJson` 是这个订阅方自己的通知频率 (`{"intervalMs":200,"mode":"delay"}`,
+  /// 空串 = 不限频)。
   void bridgeSubscribeHost(const std::string &instanceName,
-                           const std::string &topic);
+                           const std::string &topic,
+                           const std::string &optionsJson);
 
-  /// 变量操作 (op = register | unregister | subscribe | unsubscribe | watch | unwatch)
-  ///
-  /// 与 [bridgeUiOp] / [bridgeImplementationOp] 同一套规则: 脚本顶层调用只先记下来
-  /// (由 [applyRegistrations] 在框架线程回放), 运行期投递到框架线程执行 ——
-  /// 否则"顶层注册的变量"永远不存在, 而"运行期注销"只改了 JS 侧的表。
-  void bridgeBroadcastChannelOp(const std::string &instanceName, const std::string &op,
-                    const std::string &key, const std::string &json);
+  /// 运行期声明自己的一个广播频道 (顶层声明由回放处理)
+  void bridgeDeclareBroadcast(const std::string &instanceName,
+                              const std::string &declJson);
 
-  /// JS 侧发起异步读 (`musicxx.broadcast.get`; 任意线程)
-  ///
-  /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onChannelGetDone(id, json)` 回到 JS 线程;
-  /// 负数 = 没能发起 (实例不在了/插件框架没跑)。
-  int64_t beginChannelGet(const std::string &instanceName, const std::string &key);
+  /// 同步读一个频道的当前值 (内部加锁, 不投递; 没有当前值返回空串)
+  std::string bridgeBroadcastRead(const std::string &key);
 
-  /// JS 侧发起写 (`musicxx.broadcast.write`; 任意线程)
-  ///
-  /// 返回 JS 侧的请求号 (≥0), 结果经 `ext.onChannelSetDone(id, json)` 回到 JS 线程;
-  /// 如果写请求被交给属主写入, JS 侧还要等 `musicxx.broadcast.writeResult` 事件
-  /// (载荷里的 requestId 就是等待键)。
-  int64_t beginChannelSet(const std::string &instanceName, const std::string &key,
-                      const std::string &valueJson);
+  /// 同步读一个频道的声明与状态 (未声明返回空串)
+  std::string bridgeBroadcastInfo(const std::string &key);
 
-  /// 同步调用宿主变量表的只读入口 (peek / info / list)
-  ///
-  /// 这些调用只查插件框架注册表 (耗时是几纳秒), 因此可以直接在 JS 线程上同步做 ——
-  /// 与需要等属主的 `get` 不同。
-  std::string bridgeBroadcastRead(const std::string &op, const std::string &key);
-
-  /// handler 属主回答一次被转过来的请求 (`musicxx.broadcast` 的 handler 写回; 任意线程)
-  ///
-  /// 投递不等待: 结果与失败都写日志/事件, 不回给脚本 (脚本侧只是"回答完了")。
-  void bridgeBroadcastRespond(const std::string &instanceName, int64_t requestId,
-                         bool ok, const std::string &valueJson,
-                         const std::string &error);
+  /// 同步列频道 (返回 JSON 数组文本)
+  std::string bridgeBroadcastList(const std::string &prefix);
 
   /// 裁决型能力的异步结算 (只在 JS 线程调用)
   ///
@@ -254,18 +235,8 @@ public:
     JsEngine *engine = nullptr;
     std::string instance;
     std::string topic;
-  };
-
-  /// 一次"JS 侧发起的变量读/写"的框架侧登记
-  ///
-  /// `host_ud` 指向它的裸指针会被宿主变量表复制走, 属主回答/写入时经
-  /// [channelGetDoneTrampoline] / [channelSetDoneTrampoline] 回调; 因此它必须活到那一刻 ——
-  /// 由 [channelWaits_] 持有 (实例停用时残余的登记进 [channelWaitGraveyard_]).
-  struct ChannelWait {
-    JsEngine *engine = nullptr;
-    std::string instance; ///< js:<插件id>
-    int64_t id = 0;       ///< JS 侧请求号
-    int32_t kind = 1;     ///< 1 = 读 (get), 2 = 写 (set)
+    /// 订阅频率选项 JSON (`{"intervalMs":200,"mode":"delay"}`; 空串 = 不限频)
+    std::string options;
   };
 
   /// 脚本定时器 (`musicxx.timer.*`)
@@ -320,14 +291,6 @@ public:
     };
     std::vector<PendingUiOp> pendingUiOps;
 
-    /// 脚本顶层登记的变量操作 (JS 线程写, 框架线程在回放时取走)
-    struct PendingChannelOp {
-      std::string op; ///< register | unregister | subscribe | unsubscribe | watch | unwatch
-      std::string key;
-      std::string json; ///< register 时的声明 (其余操作为 "{}")
-    };
-    std::vector<PendingChannelOp> pendingChannelOps;
-
     std::atomic<int64_t> jsRuns{0};
     std::atomic<int64_t> errors{0};
     /// JS 堆用量 (字节; 负数 = 还没采样过; 只观测不限制)
@@ -373,11 +336,6 @@ public:
                                             void *userData);
 
   /// 变量等待的完成回调 (框架线程调用; 只投递到 JS 线程, 不等待)
-  ///
-  /// `ud` 指向 [ChannelWait] (由 [channelWaits_] 持有一份 shared_ptr)。回调里先把需要的
-  /// 字段拷出来再用, 因为结算之后登记就会被释放。
-  static void PLUGINXX_CALL channelWaitDoneTrampoline(
-      void *ud, int32_t status, const PluginxxStringView *payload);
 
   /* ---------- InternalAppCapabilityRelay (任意线程) ---------- */
 
@@ -404,9 +362,10 @@ private:
   /// 采样 JS 堆用量 (JS 线程调用; 结果写入实例字段供统计读取)
   void sampleHeap(const std::shared_ptr<Instance> &inst);
 
-  /// 在框架线程上建立一个事件订阅 (幂等; 同一 (实例, 主题) 只建一次)
+  /// 在框架线程上建立一个事件订阅 (幂等; 同一 (实例, 主题, 频率) 只建一次)
   void ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
-                                const std::string &topic);
+                                const std::string &topic,
+                                const std::string &optionsJson);
 
   /// 在框架线程上执行一次运行期能力操作 (register / unregister)
   void applyImplementationOpOnHost(const std::shared_ptr<Instance> &inst,
@@ -419,24 +378,9 @@ private:
   std::vector<Instance::PendingUiOp>
   takePendingUiOps(const std::shared_ptr<Instance> &inst);
 
-  /// 取回脚本登记的变量操作 (框架线程; 回放后清空实例上的缓存)
-  std::vector<Instance::PendingChannelOp>
-  takePendingChannelOps(const std::shared_ptr<Instance> &inst);
-
-  /// 在框架线程上执行一次变量操作 (register/unregister/subscribe/unwatch/watch)
-  int32_t applyChannelOpOnHost(const std::shared_ptr<Instance> &inst,
-                           const std::string &op, const std::string &key,
-                           const std::string &json);
-
-  /// 把变量等待结果交给 JS 线程 (任意线程; 投递后立即返回)
-  void postChannelWaitResult(const std::string &instanceName, int64_t waitId,
-                         const std::string &callback, const std::string &json);
-
-  /// 释放一个变量等待登记 (JS 线程或框架线程)
-  void finishChannelWait(int64_t waitId);
-
-  /// 实例停用时清掉它的变量等待登记 (残余的进 [channelWaitGraveyard_])
-  void clearChannelWaitsOf(const std::string &instanceName);
+  /// 在框架线程上声明一个广播频道 (运行期与注册回放共用)
+  int32_t applyBroadcastDeclOnHost(const std::shared_ptr<Instance> &inst,
+                                   const std::string &declJson);
 
   int32_t startThread(std::string &err);
   void runLoop();
@@ -492,16 +436,6 @@ private:
 
   /// 跨插件能力调用的回执 id 计数器 (任意线程)
   std::atomic<int64_t> nextCapabilityCallId_{1};
-
-  /// JS 侧的变量请求登记 (key = JS 侧请求号; 任意线程读写)
-  std::map<int64_t, std::shared_ptr<ChannelWait>> channelWaits_;
-  /// 保护 [channelWaits_] / [channelWaitGraveyard_]
-  mutable std::mutex channelWaitMutex_;
-  /// 实例停用时还没结算的登记 (不能直接释放: 属主的回答可能已经在路上, 回调
-  /// 仍会带着这个指针进来)。只在异常路径上积累, 随引擎一起销毁。
-  std::vector<std::shared_ptr<ChannelWait>> channelWaitGraveyard_;
-  /// JS 侧变量请求号计数器 (任意线程)
-  std::atomic<int64_t> nextChannelWaitId_{1};
 
   mutable std::mutex mutex_;
   std::condition_variable cv_;

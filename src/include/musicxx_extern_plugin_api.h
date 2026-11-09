@@ -44,12 +44,12 @@
 #define MUSICXX_EXTERN_PLUGIN_CALL
 #endif
 
-#define MUSICXX_EXTERN_PLUGIN_API_VERSION 4
+#define MUSICXX_EXTERN_PLUGIN_API_VERSION 5
 
 /// 插件框架版本号：`<年>.<月日>.<小版本号>`（例 `2026.1011.1` = 2026 年 10 月 11 日的第 1 版）
 ///
 /// 这是**插件框架自己的版本**（发布节奏用），与 [MUSICXX_EXTERN_PLUGIN_API_VERSION]
-/// （跨边界 C ABI 版本，只在破坏性改动时才 +1）是两件事。
+/// （跳边界 C ABI 版本，只在破坏性改动时才 +1）是两件事。
 /// Dart 侧同名声明是 `MusicxxPluginVersion.version`（`lib/src/version.dart`），
 /// 两处必须一致（包内 `test/version_test.dart` 校验）；插件清单的 `version` 用同一套格式。
 /// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
@@ -226,20 +226,6 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         int32_t                     max_count,
         MusicxxExternPluginString* out_json,
         MusicxxExternPluginString* log
-    );
-
-/// 发布一条广播 (Dart → 原生; 任何频道都用它)
-///
-/// - `topic` 必须是 `musicxx.*` 或 `plugin.<id>.*`;
-/// - 频道未声明时按 id 前缀补一份默认声明 (应用自己的 `musicxx.state.*` 快照频道带
-///   `cache: latest` + 订阅即推, 其它频道按事件处理);
-/// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做, 见 `MusicxxPluginBroadcasts.publish`)。
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_publish(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* topic,
-        const MusicxxExternPluginStringView* payload_json,
-        MusicxxExternPluginString*           log
     );
 
 /* ==================== 插件管理 ==================== */
@@ -498,26 +484,23 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/* ==================== 值频道 (Dart ⇄ 原生; 第五条通道) ==================== */
+/* ==================== 广播 (Dart ⇄ 原生; 只发布 / 读 / 列表) ==================== */
 
-/// 值频道 = 有属主、可读、可写、可订阅变动的小值 (配置/小状态)。
+/// 广播 = 属主发一次, 关心的人读当前值或订阅。
 ///
-/// 与快照频道的区别: 快照频道只能应用发布、插件同步只读; 值频道可以双向读写, 且能订阅
-/// "值变了"。**插件框架里没有真值**: 真值只在属主那里 (主程序 Store/配置, 或插件自己的
-/// 状态), 插件框架只保留一份服务 `peek` 同步读的缓存。
-///
-/// 命名空间: 官方 `musicxx.<域>.<名>` (由应用声明), 插件 `plugin.<插件id>.<分组>...`。
-///
-/// Dart 侧要处理两个事件 (插件发起的读写):
-/// - `musicxx.broadcast.read`  {requestId, key}         → 用 broadcast_read_result 回答
-/// - `musicxx.broadcast.write` {requestId, key, value, by} → 用 broadcast_write_result 回执
+/// **只有发布、读当前值、列频道三个入口**:
+/// - 能改应用状态的通道是**能力** (改设置、切主题、跳转进度…), 广播侧没有写入,
+///   也没有读写回执;
+/// - 声明由宿主按生成表 (`capability_ids.g.h`) 补; 插件声明自己的频道走插件接口表;
+/// - 订阅在插件侧 (`<应用名>.broadcasts` 表, 带自己的 `intervalMs` / `mode`);
+///   Dart 侧不订阅插件频道, 只看当前值与订阅数。
 
 /// 插件框架能力位 (Dart 侧据此判断加载到的插件框架库是不是这次构建的产物)
 ///
 /// 缺位时**不要**继续调用对应的一批 API: 老库上没有这些符号, 报错会是一句难懂的
 /// `undefined symbol`。包层在 init 时读一次并给出"请重新构建插件框架库"的说明。
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITIES  0x1
-/// 广播 (频道声明 / 发布 / 订阅 / 读当前值 / 值频道的读与写回执)；快照 / 事件 / 值频道同一套入口
+/// 广播 (发布 / 读当前值 / 列频道); 声明与订阅走插件接口表
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS 0x16
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_UI     0x8
 /// 分阶段派发（`_capability_dispatch_phase` / `_capability_handler_count_phase` /
@@ -530,101 +513,41 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_feature_bits(void);
 
-/// 值频道 · 应用声明: items_json = [{"key":"musicxx.ui.animatedLevel",
-///   "caps":["get","set","notify"],"type":"string","options":["a","b"],
-///   "value":true,"title":"..","depict":"..","risk":"low",
-///   "throttleMs":0,"notifyThrottleMs":0}, ...]
+/// 发布一条广播 (Dart → 原生; 任何频道都用它)
 ///
-/// 逐项失败只写进 `log` (不影响其它项; 也不影响启动 —— 与"启动绝不失败"一致)。
-/// 主程序需要在插件框架启动后、加载插件之前声明一次, 插件才能读到这些键。
+/// - `topic` 必须是 `musicxx.*` 或 `plugin.<id>.*`;
+/// - 频道未声明时按生成表 (`capability_ids.g.h`) 补一份声明, 表外 id 用默认属性
+///   (`cache: none` / `publish: owner` / `coalesce: true` / `scope: app`);
+/// - 属主才能发布: 官方频道只有应用能发, 插件频道只有属主能发 (发布失败写 `log`);
+/// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做, 见 `MusicxxPluginBroadcasts.publish`)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_declare(
+    musicxx_extern_plugin_broadcast_publish(
         MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* items_json,
+        const MusicxxExternPluginStringView* topic,
+        const MusicxxExternPluginStringView* payload_json,
         MusicxxExternPluginString*           log
     );
 
-/// 值频道 · 主程序推值 (官方键的主程序变动; 值没变不会通知)
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_update(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* key,
-        const MusicxxExternPluginStringView* value_json,
-        MusicxxExternPluginString*           log
-    );
-
-/// 值频道 · 应用批量推值: [{"key":"...","value":...}, ...]
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_update_batch(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* items_json,
-        MusicxxExternPluginString*           log
-    );
-
-/// 值频道 · 应用回执写请求 (**回执即写入**): accepted 且带 value 时写入值并按需广播
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_write_result(
-        MusicxxExternPluginHost*              h,
-        int64_t                               request_id,
-        int32_t                               accepted,
-        const MusicxxExternPluginStringView* value_json,
-        const MusicxxExternPluginStringView* error,
-        MusicxxExternPluginString*           log
-    );
-
-/// 值频道 · 主程序回答读取请求 (插件 `get` 官方键时插件框架转过来的那条)
-/// - 一条读请求只回答一次; 不答则调用方按 `read_timeout` 结算
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_read_result(
-        MusicxxExternPluginHost*              h,
-        int64_t                               request_id,
-        int32_t                               ok,
-        const MusicxxExternPluginStringView* value_json,
-        const MusicxxExternPluginStringView* error,
-        MusicxxExternPluginString*           log
-    );
-
-/// 值频道 · 主程序读插件键 (有界等待插件框架与属主; 结果经 out_json 给出)
+/// 读一条频道的当前值 (同步; `cache: latest` 且有过值才写 `out_json`)
+///
+/// 返回 `MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`: 频道没声明;
+/// 返回 `MUSICXX_EXTERN_PLUGIN_ERR_ARG`: 频道没有当前值 (`cache: none` / 还没发过)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_read(
         MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* key,
+        const MusicxxExternPluginStringView* id,
         MusicxxExternPluginString*           out_json,
         MusicxxExternPluginString*           log
     );
 
-/// 值频道 · 应用写插件键 (declared 立即结算; handler 等属主, 有界等待)
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_write(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* key,
-        const MusicxxExternPluginStringView* value_json,
-        MusicxxExternPluginString*           out_json,
-        MusicxxExternPluginString*           log
-    );
-
-/// 值频道 · 应用列变量 (prefix 可空; 值字段是缓存值, 带 revision/ageMs/stale)
+/// 列出全部频道 (声明 + 当前值 + 订阅数; `prefix` 可空)
+///
+/// out_json 形如 `{"broadcasts":[{"id","cache","publish","scope","subscribers","hasValue","value"}]}`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_list(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* prefix,
         MusicxxExternPluginString*           out_json,
-        MusicxxExternPluginString*           log
-    );
-
-/// 值频道 · 应用订阅/退订插件键的变动
-/// - keys_json = 字符串数组, 支持前缀写法 ("plugin." / "plugin.<id>.")
-/// - 应用订阅了某个键, 该键变化时才会推 `musicxx.broadcast.changed` 事件
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_subscribe(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* keys_json,
-        MusicxxExternPluginString*           log
-    );
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_broadcast_unsubscribe(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* keys_json,
         MusicxxExternPluginString*           log
     );
 

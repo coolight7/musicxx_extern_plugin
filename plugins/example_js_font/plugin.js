@@ -43,18 +43,20 @@ let appliedMode = "default";
 /// 最近一次失败原因（页面展示 + 日志）
 let lastError = "";
 
-/// 订阅官方变量 `musicxx.ui.fontFamily`，让 `read` 读到的缓存一直是最新的
+/// 订阅官方频道 `musicxx.ui.fontFamily`: 当前值的变更会主动推过来
 ///
-/// 规则：只有"有人关心（订阅或 watch）"的键，主程序才会推值给插件框架；
-/// watch 是保活（不要回调），页面用 `read` 同步读缓存 —— 不做 FFI 往返，也不会阻塞。
-/// 顶层调用会被引擎推迟到"注册回放"阶段执行（与钩子/能力/UI 项同一套做法）。
-musicxx.broadcast.watch(FONT_VAR_KEY);
+/// 页面用 `read` 同步读当前值 —— 不做 FFI 往返, 也不会阻塞。
+/// 顶层调用会被引擎推迟到"注册回放"阶段执行 (与钩子/能力/UI 项同一套做法)。
+musicxx.broadcast.subscribe(FONT_VAR_KEY, function (value) {
+    const mode = (value && typeof value.value === "string") ? value.value : "";
+    musicxx.host.log(2, "字体变成 " + mode);
+});
 
 function normalizeMode(mode) {
     return (mode === "yahei" || mode === "file") ? mode : "default";
 }
 
-/// 主程序当前生效字体（同步读变量缓存；缓存还没到就给"未知"）
+/// 主程序当前生效字体 (同步读当前值; 还没有值时给"未知")
 function appliedFontText() {
     const cached = musicxx.broadcast.read(FONT_VAR_KEY);
     const value = (cached && typeof cached.value === "string") ? cached.value : "";

@@ -85,7 +85,7 @@ unset(_musicxx_ext_missing)
 # 这里下发到自己的目标 (插件框架库 / 插件 SDK / 示例插件 / 原生测试), 保证插件框架库与
 # 它加载的插件看到同一个值: 插件按 PLUGINXX_API_VERSION 决定用哪套写法
 # (例如 events 订阅是否带作用域引用), 两侧不一致时是 ABI 不兼容。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "6" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "7" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 # 应用名: 通用表 IID 与官方标识的前缀。单独构建本工程时也要与 cxx_pluginxx 一致
 # (`-DPLUGINXX_APP_NAME=musicxx`), 否则插件按 `<表名>` 查询时对不上。
@@ -137,7 +137,6 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host.cpp
   musicxx_host_tables.cpp
   musicxx_host_ui.cpp
-  musicxx_host_channels.cpp
   host_inspect.cpp
   host_manifest.cpp
   host_target.cpp
@@ -265,7 +264,7 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js
   example_js_shader
   example_js_async
-  example_js_vars
+  example_js_broadcast
   example_js_multi_script
   example_js_font
   example_js_net

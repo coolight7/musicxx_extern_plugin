@@ -18,4 +18,4 @@ permissions:
   - musicxx.ui
   - musicxx.storage
   - musicxx.net
-  - musicxx.variables
+  - musicxx.broadcast
