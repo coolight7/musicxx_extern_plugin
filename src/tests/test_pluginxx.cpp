@@ -7,7 +7,8 @@
 /// - 接口表元信息 (版本门槛 / 基线字节数 / 追加成员判定 / 语义档位判定);
 /// - 作用域引用校验;
 /// - 能力登记表 (声明 / 多实现 / 阶段链 / 覆盖 / 注销 / 自省);
-/// - 广播登记表 (缓存 / 写权限 / 订阅即推 / 退订 / 自省);
+/// - 广播登记表 (缓存 / 发布权限 / 订阅即推 / 退订 / 自省);
+/// - 广播订阅限频 (intervalMs / delay / drop / 订阅即推算第一条 / 退订取消补发)。
 /// - 广播订阅句柄的幂等撤销入口。
 ///
 /// 运行: musicxx_pluginxx_test (无参数; 由 tools/build_native.ps1 -RunTests 一起跑)
@@ -22,13 +23,17 @@
 // 生成物：能力 / 广播的 id 常量与已知声明表（定义源 tools/capabilities.def.json）
 #include "musicxx/plugin/api/capability_ids.g.h"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -489,7 +494,7 @@ void testCapabilityChainHelpers() {
 /* ==================== 广播注册表 ==================== */
 
 void testBroadcastRegistry() {
-  std::printf("\n-- 广播注册表（缓存 / 写权限 / 订阅即推）\n");
+  std::printf("\n-- 广播注册表（缓存 / 发布权限 / 订阅即推）\n");
   pluginxx::BroadcastRegistry reg;
 
   check(!reg.declares("musicxx.state.player"), "未声明的频道 declares = false");
@@ -510,7 +515,7 @@ void testBroadcastRegistry() {
   pluginxx::BroadcastDecl state;
   state.id = "musicxx.state.player";
   state.cache = pluginxx::BroadcastCache_e::Latest;
-  state.writable = pluginxx::BroadcastWritable_e::Owner;
+  state.publish = pluginxx::BroadcastPublisher_e::Owner;
   state.pushOnSubscribe = true;
   state.coalesce = true;
   check(reg.declare(state), "声明快照频道（应用属主）");
@@ -524,11 +529,11 @@ void testBroadcastRegistry() {
   check(seen.empty(), "还没有值时订阅即推不回调");
 
   check(reg.publish("musicxx.state.player", R"({"playing":true})", ""),
-        "应用写快照频道成功");
+        "应用发布快照频道成功");
   check(seen.size() == 1 && seen[0] == R"({"playing":true})",
         "订阅方收到发布值");
   check(reg.publish("musicxx.state.player", R"({"playing":false})", ""),
-        "应用再次写快照频道成功");
+        "应用再次发布快照频道成功");
   {
     std::string value;
     check(reg.read("musicxx.state.player", &value) &&
@@ -540,7 +545,7 @@ void testBroadcastRegistry() {
   {
     std::string error;
     check(!reg.publish("musicxx.state.player", "{}", "plugin_a", &error),
-          "插件写属主频道被拒");
+          "插件发布属主频道被拒");
     check(error.find("owned by") != std::string::npos, "拒绝原因写明属主");
   }
   // 订阅即推：新订阅立刻拿到当前值
@@ -556,39 +561,39 @@ void testBroadcastRegistry() {
     check(reg.unsubscribe("musicxx.state.player", t2), "订阅即推后退订成功");
   }
 
-  // 变量频道：任何人都能写、订阅即推、不合并
+  // 共享频道：任何人都能发布、订阅即推、不合并
   pluginxx::BroadcastDecl var;
   var.id = "plugin_a.volume";
   var.cache = pluginxx::BroadcastCache_e::Latest;
-  var.writable = pluginxx::BroadcastWritable_e::Anyone;
+  var.publish = pluginxx::BroadcastPublisher_e::Anyone;
   var.pushOnSubscribe = true;
   var.coalesce = false;
-  check(reg.declare(var), "声明变量频道（任何人可写）");
+  check(reg.declare(var), "声明共享频道（任何人可发布）");
   {
     std::vector<std::string> values;
     const uint64_t t = reg.subscribe("plugin_a.volume", "plugin_a",
                                     [&values](std::string_view v) {
                                       values.emplace_back(v);
                                     });
-    check(t != 0, "变量频道订阅成功");
+    check(t != 0, "共享频道订阅成功");
     check(reg.publish("plugin_a.volume", "10", "plugin_a"),
-          "插件写变量成功");
+          "插件发布共享频道成功");
     check(reg.publish("plugin_a.volume", "20", "plugin_b"),
-          "另一个插件写同一个变量成功");
+          "另一个插件发布同一个共享频道成功");
     check(reg.publish("plugin_a.volume", "30", ""),
-          "应用写变量成功");
+          "应用发布共享频道成功");
     check(values.size() == 3 && values.back() == "30",
           "coalesce: false 时每次发布都投递");
     std::string value;
     check(reg.read("plugin_a.volume", &value) && value == "30",
-          "变量读当前值");
+          "共享频道读当前值");
   }
 
   // 事件频道：没有当前值，订阅收到每一条
   pluginxx::BroadcastDecl event;
   event.id = "plugin_a.net";
   event.cache = pluginxx::BroadcastCache_e::None;
-  event.writable = pluginxx::BroadcastWritable_e::Anyone;
+  event.publish = pluginxx::BroadcastPublisher_e::Anyone;
   event.owner = "plugin_a";
   check(reg.declare(event), "声明事件频道（插件属主）");
   {
@@ -616,15 +621,15 @@ void testBroadcastRegistry() {
   {
     std::string error;
     check(!reg.publish("musicxx.system.debug", "{}", "plugin_a", &error),
-          "插件写系统频道被拒");
+          "插件发布系统频道被拒");
     check(error.find("system") != std::string::npos, "拒绝原因写明系统频道");
-    check(reg.publish("musicxx.system.debug", "{}", ""), "应用写系统频道成功");
+    check(reg.publish("musicxx.system.debug", "{}", ""), "应用发布系统频道成功");
   }
   {
     pluginxx::BroadcastDecl bad = system;
     bad.id = "musicxx.system.bad";
-    bad.writable = pluginxx::BroadcastWritable_e::Anyone;
-    check(!reg.declare(bad), "系统频道声明 anyone 可写被拒");
+    bad.publish = pluginxx::BroadcastPublisher_e::Anyone;
+    check(!reg.declare(bad), "系统频道声明 anyone 可发布被拒");
     pluginxx::BroadcastDecl badPush = event;
     badPush.id = "plugin_a.badPush";
     badPush.pushOnSubscribe = true;
@@ -687,8 +692,8 @@ void testBroadcastRegistry() {
   {
     const std::string info = reg.infoJson("musicxx.state.player");
     check(info.find("\"cache\":\"latest\"") != std::string::npos, "info 含 cache");
-    check(info.find("\"writable\":\"owner\"") != std::string::npos,
-          "info 含 writable");
+    check(info.find("\"publish\":\"owner\"") != std::string::npos,
+          "info 含 publish");
     check(info.find("\"pushOnSubscribe\":true") != std::string::npos,
           "info 含 pushOnSubscribe");
     check(info.find("\"hasValue\":true") != std::string::npos, "info 含 hasValue");
@@ -697,6 +702,176 @@ void testBroadcastRegistry() {
           "list 含频道 id");
     check(reg.infoJson("musicxx.unknown.channel").empty(),
           "未声明频道的 info 为空串");
+  }
+}
+
+} // namespace
+
+/* ==================== 广播订阅限频 ==================== */
+
+namespace {
+
+/// 假调度器: 只记下"到点要做什么", 由用例决定何时执行
+///
+/// 注册表用单调时钟判断"间隔到没到", 所以时序用例真的等一小会儿 (40~60 ms);
+/// 调度器只负责把补发任务交回用例执行。
+void testBroadcastRateLimit() {
+  std::printf("\n-- 广播订阅限频（intervalMs / delay / drop）\n");
+  pluginxx::BroadcastRegistry reg;
+  std::vector<std::function<void()>> armed;
+  reg.setScheduler([&armed](int64_t delayMs, std::function<void()> task) {
+    check(delayMs >= 0, "补发延迟不为负");
+    armed.push_back(std::move(task));
+  });
+  auto runArmed = [&armed]() {
+    std::vector<std::function<void()>> tasks;
+    tasks.swap(armed);
+    for (auto &task : tasks) {
+      task();
+    }
+  };
+  auto sleepMs = [](int ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+  };
+
+  pluginxx::BroadcastDecl tick;
+  tick.id = "musicxx.test.tick";
+  tick.cache = pluginxx::BroadcastCache_e::Latest;
+  check(reg.declare(tick), "声明限频用例频道");
+
+  // 1) intervalMs = 0：每次发布都通知（等价改动前的行为）
+  {
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.tick", "plugin_zero",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{0, pluginxx::BroadcastLimitMode_e::Delay});
+    check(t != 0, "不限频订阅成功");
+    check(reg.publish("musicxx.test.tick", "1", ""), "不限频发布 1");
+    check(reg.publish("musicxx.test.tick", "2", ""), "不限频发布 2");
+    check(seen.size() == 2 && seen[0] == "1" && seen[1] == "2",
+          "intervalMs = 0 时每次广播都通知");
+    check(reg.unsubscribe("musicxx.test.tick", t), "不限频订阅退订成功");
+  }
+
+  // 2) delay：第一条立即到达，窗口内只留最新一条，到点补发
+  {
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.tick", "plugin_delay",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{40, pluginxx::BroadcastLimitMode_e::Delay});
+    check(t != 0, "delay 订阅成功");
+    check(reg.publish("musicxx.test.tick", "a", ""), "delay 发布 a");
+    check(seen.size() == 1 && seen[0] == "a", "订阅后的第一条通知立即到达");
+    check(reg.publish("musicxx.test.tick", "b", ""), "delay 窗口内发布 b");
+    check(reg.publish("musicxx.test.tick", "c", ""), "delay 窗口内发布 c");
+    check(seen.size() == 1, "delay 窗口内不立即通知");
+    sleepMs(60);
+    runArmed();
+    check(seen.size() == 2 && seen[1] == "c", "delay 到点补发只发最新一条");
+    check(reg.unsubscribe("musicxx.test.tick", t), "delay 订阅退订成功");
+  }
+
+  // 3) drop：窗口内的通知直接丢掉
+  {
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.tick", "plugin_drop",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{40, pluginxx::BroadcastLimitMode_e::Drop});
+    check(t != 0, "drop 订阅成功");
+    check(reg.publish("musicxx.test.tick", "x", ""), "drop 发布 x");
+    check(reg.publish("musicxx.test.tick", "y", ""), "drop 窗口内发布 y");
+    check(seen.size() == 1 && seen[0] == "x", "drop 窗口内的通知被丢掉");
+    check(armed.empty(), "drop 模式不排补发");
+    sleepMs(60);
+    check(reg.publish("musicxx.test.tick", "z", ""), "drop 已过间隔再发布 z");
+    check(seen.size() == 2 && seen[1] == "z", "drop 过了间隔的通知照常到达");
+    check(reg.unsubscribe("musicxx.test.tick", t), "drop 订阅退订成功");
+  }
+
+  // 4) 负数间隔按 0 处理
+  {
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.tick", "plugin_neg",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{-5, pluginxx::BroadcastLimitMode_e::Delay});
+    check(t != 0, "负数间隔订阅成功");
+    check(reg.publish("musicxx.test.tick", "n1", ""), "负数间隔发布 n1");
+    check(reg.publish("musicxx.test.tick", "n2", ""), "负数间隔发布 n2");
+    check(seen.size() == 2, "intervalMs 为负时按不限频处理");
+    check(reg.unsubscribe("musicxx.test.tick", t), "负数间隔订阅退订成功");
+  }
+
+  // 5) pushOnSubscribe 补的当前值算第一条通知（也是限频窗口的起点）
+  {
+    pluginxx::BroadcastDecl snapshot = tick;
+    snapshot.id = "musicxx.test.push";
+    snapshot.pushOnSubscribe = true;
+    check(reg.declare(snapshot), "声明订阅即推频道");
+    check(reg.publish("musicxx.test.push", "current", ""), "给订阅即推频道写初值");
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.push", "plugin_push",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{40, pluginxx::BroadcastLimitMode_e::Delay});
+    check(seen.size() == 1 && seen[0] == "current", "订阅即推先拿到当前值");
+    check(reg.publish("musicxx.test.push", "next", ""), "订阅即推后立刻发布");
+    check(seen.size() == 1, "订阅即推算第一条：紧接着的广播进窗口");
+    sleepMs(60);
+    runArmed();
+    check(seen.size() == 2 && seen[1] == "next", "窗口结束后补发最新值");
+    check(reg.unsubscribe("musicxx.test.push", t), "订阅即推订阅退订成功");
+  }
+
+  // 6) 退订取消补发
+  {
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.tick", "plugin_cancel",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{40, pluginxx::BroadcastLimitMode_e::Delay});
+    check(t != 0, "待取消的订阅成功");
+    check(reg.publish("musicxx.test.tick", "first", ""), "发布 first");
+    check(reg.publish("musicxx.test.tick", "pending", ""), "发布 pending");
+    check(reg.unsubscribe("musicxx.test.tick", t), "带待补发的订阅退订成功");
+    sleepMs(60);
+    runArmed();
+    check(seen.size() == 1, "退订后不再补发");
+    // 订阅方走的渠道与 pushOnSubscribe 不同: 这里再确认一次"按属主退订"也会丢掉待补发
+    std::vector<std::string> other;
+    check(reg.subscribe(
+              "musicxx.test.tick", "plugin_cancel2",
+              [&other](std::string_view v) { other.emplace_back(v); },
+              pluginxx::BroadcastSubscribeOptions{40,
+                                                  pluginxx::BroadcastLimitMode_e::Delay}) !=
+              0,
+          "第二个待取消的订阅成功");
+    check(reg.publish("musicxx.test.tick", "o1", ""), "为第二个订阅发布 o1");
+    check(reg.publish("musicxx.test.tick", "o2", ""), "为第二个订阅发布 o2");
+    check(reg.removeSubscriber("plugin_cancel2") == 1, "按属主退订成功");
+    sleepMs(60);
+    runArmed();
+    check(other.size() == 1, "按属主退订后不再补发");
+  }
+
+  // 7) 自省里看得到每个订阅的频率
+  {
+    std::vector<std::string> seen;
+    const uint64_t t = reg.subscribe(
+        "musicxx.test.tick", "plugin_info",
+        [&seen](std::string_view v) { seen.emplace_back(v); },
+        pluginxx::BroadcastSubscribeOptions{200, pluginxx::BroadcastLimitMode_e::Drop});
+    const std::string info = reg.infoJson("musicxx.test.tick");
+    check(info.find("\"intervalMs\":200") != std::string::npos,
+          "自省含订阅间隔");
+    check(info.find("\"mode\":\"drop\"") != std::string::npos,
+          "自省含订阅间隔的处理方式");
+    check(info.find("\"publish\":\"owner\"") != std::string::npos,
+          "自省含发布权限");
+    reg.unsubscribe("musicxx.test.tick", t);
   }
 }
 
@@ -854,6 +1029,7 @@ int main() {
   testCapabilityRegistry();
   testCapabilityChainHelpers();
   testBroadcastRegistry();
+  testBroadcastRateLimit();
   testCapabilityDeclarations();
 
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);

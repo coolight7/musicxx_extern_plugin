@@ -702,14 +702,28 @@ public:
 
     /// 发起主程序动作 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
-    /// 订阅事件总线的主题 (**框架线程**执行处理器; 处理器不得阻塞)
-    /// - 主题必须符合命名空间规则: 官方 `musicxx.*` 或插件自定义
+    /// 订阅频率选项（每个订阅方自己的属性，互不影响）
+    ///
+    /// - `intervalMs` = 通知间隔（毫秒；`0` / 负数 = 不限频，每次广播都通知）；
+    /// - `mode` = 间隔内怎么处理：`"delay"`（缺省）只留最新一条、到点补发；
+    ///   `"drop"` 直接丢掉。
+    struct SubscribeOptions {
+        int64_t     intervalMs = 0;
+        const char* mode       = "delay";
+    };
+
+    /// 订阅广播频道（**框架线程**执行处理器；处理器不得阻塞）
+    /// - 频道必须符合命名空间规则: 官方 `musicxx.*` 或插件自定义
     ///   `plugin.<本插件id>.*`; 其它前缀会被插件框架拒绝 (返回 -1);
-    /// - 处理器形如 `void(std::string_view event_json)`;
+    /// - 处理器形如 `void(std::string_view payload_json)`; 订阅回调只有这一种形状
+    ///   （广播不分"事件"与"值"两种回调）;
+    /// - `pushOnSubscribe` 的频道在订阅返回前先用当前值回调一次，这次也算第一条通知；
+    /// - `options` 是这个订阅方自己的通知频率（见 [SubscribeOptions]），不传 = 不限频；
     /// - 订阅句柄由插件框架按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
     /// - 处理器持有者与能力处理器同一存放位置, 生命周期 = 插件实例。
     template<typename Fn>
-    int32_t subscribeTopic(const char* topic, Fn&& fn) {
+    int32_t subscribeTopic(const char* topic, Fn&& fn,
+                           const SubscribeOptions& options = {}) {
         if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
             log.warn("<应用名>.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
             return -1;
@@ -721,8 +735,23 @@ public:
 
         PluginxxStringView topicView = pluginxxView(topic ? topic : "");
         // 作用域引用: 音乐类主程序只有一条主程序总线, 传空表示订阅它
+        std::string optionsJson;
+        if (options.intervalMs > 0 || (options.mode && std::string_view{options.mode} != "delay")) {
+            optionsJson = std::string{"{\"intervalMs\":"}
+                          + std::to_string(options.intervalMs > 0 ? options.intervalMs : 0)
+                          + ",\"mode\":\""
+                          + (options.mode && *options.mode ? options.mode : "delay") + "\"}";
+        }
+        const PluginxxStringView optionsView = pluginxxView(optionsJson.c_str());
         auto* sub = iface.broadcasts->subscribe_broadcast(
-            host, nullptr, &topicView, &EventHolder<FnT>::invoke, holderPtr, nullptr);
+            host,
+            nullptr,
+            &topicView,
+            &EventHolder<FnT>::invoke,
+            holderPtr,
+            optionsJson.empty() ? nullptr : &optionsView,
+            nullptr
+        );
         return sub ? 0 : -1;
     }
 
