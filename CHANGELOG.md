@@ -18,6 +18,10 @@ accept 循环）全删，改成库里的 `HttpClient` / `HttpServer` / `TcpConne
 - `http.request` / `fetch` 的 `receivedBytes` 是正文字节数；失败时 `error` 按原因归类
   （`resolve_failed` / `connect_failed` / `tls_*` / `incomplete` / `timeout` / `cancelled`）；
 - HTTP 服务端支持分块请求体（以前回 411）；
+- HTTP 服务端静态路由的 `Range` 支持后缀写法 `bytes=-N`（读文件尾部元数据会用）；
+  短响应（404 / 503 / 504）回完就关连接，不保持 keep-alive（与以前一致）；
+  `http.stop` / 插件卸载会把已建立的连接一起断开（以前只关监听端口）；
+- `socket.close` 先把发送队列里已排队的字节写完再关（最多 5 秒），"发完就 close" 不会丢尾巴；
 - UDP 组播只接受 IPv4 地址（其余报 `bad_group`）；
 - WebSocket 的 `ws.pong` 事件不再发出（ping/pong 由框架自己应答）；
 - WebSocket 服务端连接的 `ws.open` 事件带 `path` 与握手 `headers`。

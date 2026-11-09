@@ -976,14 +976,16 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 
 - **只监听回环**：默认 `host: "127.0.0.1"`，局域网访问不到。自动生成的路径里只有随机 token，
   服务端**按路径查表、不解析路径**，拿到 URL 也读不到表以外的文件。
-- **支持 `GET` / `HEAD` 与单段 `Range`**（`206` + `Content-Range`；越界 `416`），文件按 64 KiB
-  边读边写；播放器拖动进度就靠它，否则会退化成整段重下。多段 `Range` 当成"没有 Range"整段返回。
+- **支持 `GET` / `HEAD` 与单段 `Range`**（`bytes=a-b` / `bytes=a-` / `bytes=-N`；`206` +
+  `Content-Range`，越界 `416`），文件按 64 KiB 边读边写；播放器拖动进度、读文件尾部元数据
+  都靠它，否则会退化成整段重下。多段 `Range` 当成"没有 Range"整段返回。
 - **`staticOnly: true`**：没命中任何静态路由的请求直接回 404，不再发给插件（纯文件服务都该打开，
   否则每个 404 都要等到 `requestTimeoutMs` 才回 504）。不写这项时未命中的请求照旧发
   `http.request`，于是"同一个服务既能挂文件、也能自己回答接口"。
 - **同一个文件 / 同一段内容重复登记返回同一个 URL**（按路径 + 大小 + 修改时间，或内容比较）。
-- **生命周期跟着插件实例**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时服务一起关掉（端口释放），
-  路由也跟着没了；提前关服务用 `http.stop(id)`，只摘一条用 `http.unroute`。
+- **生命周期跟着插件实例**：停用 / 卸载 / 关『拟声++』/ 插件框架停机时服务一起关掉
+  （端口释放，已建立的连接也一并断开），路由也跟着没了；提前关服务用 `http.stop(id)`，
+  只摘一条用 `http.unroute`。
 - 容量：单条内存内容 ≤ 8 MiB（大文件用 `file`）、每个服务路由 ≤ 1024、服务数 ≤ 8、
   连接 ≤ 64（见 `musicxx.net.info()` 的 `limits`）。
 - **老版本的插件框架没有静态路由**（只有 `musicxx.net.http.serve`）：调用前先看
@@ -1072,6 +1074,9 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 （服务端连接用事件里的 `id`，并带 `serverId` 区分来源）。字节以 `dataBase64` 给出，
 合法 UTF-8 时再给 `text` / `data`。连接事件：`socket.connected` / `socket.accepted` /
 `socket.data` / `socket.closed`（`by` = `remote` / `local` / `error` / `plugin`）。
+
+`socket.close` **会先把发送队列里已经排队的字节写完再关**（最多等 5 秒；对端一直不读就强关），
+所以"发完最后一段就 close"不会丢掉尾巴。`close` 之后这条连接不再接受 `send`（回 `closed`）。
 
 **转发大流量时要做背压**：读是连续的，而发送队列上限 4 MiB（超了 `socket.send` 回 `queue_full`）。
 所以：
