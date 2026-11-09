@@ -1879,7 +1879,7 @@ int main(int argc, char **argv) {
       check(jsonStringField(probe, "pluginId") == "example_js",
             "JS 能力读到插件 id");
       check(jsonIntField(probe, "implementationCount") == "4",
-            "JS 注册了 4 个能力 (3 个裁决 + 功能点通用通道)");
+            "JS 注册了 4 个能力 (3 个裁决 + 功能埋点通用通道)");
       check(jsonIntField(probe, "songChangedCount") == "1",
             "JS 广播订阅计数为 1 (订阅真的收到了)");
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
@@ -1892,7 +1892,7 @@ int main(int argc, char **argv) {
       check(jsonIntField(probe, "uiEntries") == "2",
             "JS 注册了 2 个 UI 项 (脚本侧登记)");
       check(jsonIntField(probe, "selfStatsImplementations") == "4",
-            "JS 能读自己的统计 (stats.getSelf 的能力计数, 含功能点通道)");
+            "JS 能读自己的统计 (stats.getSelf 的能力计数, 含功能埋点通道)");
       // 客户端界面能力段: 插件框架配置里给的 ui 段原样出现在 host.info() 里
       check(jsonStringField(probe, "hostUiKind") == "gui",
             "JS 从 host.info().ui 读到客户端能力段 (渲染类型)");
@@ -2225,7 +2225,7 @@ int main(int argc, char **argv) {
             "卸载临时加载的动态库插件");
     }
 
-    // ============ 通用通道: 插件声明的功能点 ============
+    // ============ 通用通道: 插件声明的功能埋点 ============
     //
     // 插件点共用**一条固定能力** `musicxx.feature.point.call`（点是运行期数据，
     // 插件框架的预设表不可能逐条登记；插件点走这一条通道，靠 `point` 参数区分）:
@@ -2237,11 +2237,11 @@ int main(int argc, char **argv) {
       const CapabilityCallOutcome featureProbe = callCapability(
           host, "example_js", "featureProbe", "{}", 8000);
       check(featureProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && featureProbe.ok,
-            "功能点示例能力可调用 (featureProbe)");
+            "功能埋点示例能力可调用 (featureProbe)");
       std::printf("  [info] featureProbe=%s\n", featureProbe.payload.c_str());
       check(jsonStringField(featureProbe.payload, "declared") ==
                 "plugin.example_js.beat",
-            "插件声明了功能点 (plugin.<插件id>.beat)");
+            "插件声明了功能埋点 (plugin.<插件id>.beat)");
 
       // 2) 处理器登记成功 + ownerTag = 点 id（还能在自省里看到）
       {
@@ -2255,7 +2255,7 @@ int main(int argc, char **argv) {
               "通用通道上有处理器 (示例插件登记了实现)");
         check(json.find("\"ownerTag\":\"plugin.example_js.beat\"") !=
                   std::string::npos,
-              "处理器的 ownerTag 是它实现的功能点 id");
+              "处理器的 ownerTag 是它实现的功能埋点 id");
       }
 
       // 3) 派发一次: 处理器的回答按 `patch` 合并到顶层 (`value` 就是结果)
@@ -2276,7 +2276,7 @@ int main(int argc, char **argv) {
             host, "musicxx.feature.point.call",
             R"({"point":"plugin.nobody.other","args":{},"caller":""})");
         check(ack.find("\"bpm\"") == std::string::npos,
-              "不是自己实现的功能点不回答");
+              "不是自己实现的功能埋点不回答");
       }
 
       // 5) 不回答自己发起的调用（`caller` 等于自己的插件 id）
@@ -2318,7 +2318,7 @@ int main(int argc, char **argv) {
                   "plugin.example_native.sample",
               "动态库插件读了 host.info().pluginId 并拼出自己的点 id");
         check(jsonIntField(nativeProbe.payload, "featurePointRc") == "0",
-              "native 糖登记功能点实现成功 (ownerTag = 点 id)");
+              "native 糖登记功能埋点实现成功 (ownerTag = 点 id)");
 
         const std::string nativeAck = dispatchCapabilitySync(
             host, "musicxx.feature.point.call",

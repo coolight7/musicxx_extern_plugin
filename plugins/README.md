@@ -116,7 +116,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -RunTests    # 顺带跑原生测
 | 主题 | 文档 |
 |---|---|
 | 总入口：选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查 | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能埋点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答） | `docs/plugin-capabilities.md`（由 `tools/capabilities.def.json` 生成） |
 | C++ 插件 SDK 与导出宏 | `src/sdk/include/musicxx/plugin/api/plugin_kit.h`（总头文件）与 `plugin_api.h`（musicxx 专用约定） |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |

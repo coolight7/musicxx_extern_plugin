@@ -353,7 +353,7 @@ inline pluginxx::ui::Item selectRow(
     return pluginxx::ui::detail::expandKit("selectRow", params, env, &kitTemplate);
 }
 
-/// 点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show）
+/// 点击打开浮层的行（零代码：动作就是官方能力 musicxx.ui.overlay.show）
 /// 参数：label(text, 必填)、value(text)、title(text)、depict(text)、blocks(items, 必填)、textConfirm(text)
 inline pluginxx::ui::Item overlayRow(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),

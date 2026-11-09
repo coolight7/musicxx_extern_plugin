@@ -459,7 +459,7 @@
     },
     {
       "name": "overlayRow",
-      "doc": "点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show）",
+      "doc": "点击打开浮层的行（零代码：动作就是官方能力 musicxx.ui.overlay.show）",
       "params": [
         { "name": "label", "type": "text", "required": true },
         { "name": "value", "type": "text" },

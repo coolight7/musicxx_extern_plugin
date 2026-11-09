@@ -180,9 +180,9 @@ constexpr const char *kPrelude = R"JS(
   var kCapabilityPendingMarker = "~pending~";
   /// 异步能力处理器还没结算的等待号 (JSON 结果由插件框架等待槽接收)
   var pendingCapabilityWaits = new Map();
-/// 插件自己声明的功能点的实现表 (点 id → 处理函数)
+/// 插件自己声明的功能埋点的实现表 (点 id → 处理函数)
 ///
-/// 功能点走**一条固定的通用通道能力** (`musicxx.feature.point.call`):
+/// 功能埋点走**一条固定的通用通道能力** (`musicxx.feature.point.call`):
 /// 同一条通道上所有实现的处理器都会收到同一次调用, 所以这里用一个分发器按 `point` 过滤
 /// (而不是每个点各注册一个处理器 —— JS插件在同一能力上只能注册一个处理器)。
 var featurePointImpls = new Map();
@@ -553,9 +553,9 @@ var featurePointImpls = new Map();
       return { error: message };
     }
     if (value && typeof value.then === "function") {
-      // 功能点是同步裁决通道: 异步处理器拿不到结果, 直接按"不回答"处理并说明原因
+      // 功能埋点是同步裁决通道: 异步处理器拿不到结果, 直接按"不回答"处理并说明原因
       musicxx.host.log(3, "feature.provide: 处理器返回了 Promise (" + input.point +
-                       "); 功能点走同步裁决通道, 请提前算好或改成能力调用 (musicxx.capability.call)");
+                       "); 功能埋点走同步裁决通道, 请提前算好或改成能力调用 (musicxx.capability.call)");
       return "";
     }
     // 返回**对象**: 能力处理器返回非 null 值会被 `JSON.stringify` 成裁决 JSON,
@@ -585,22 +585,22 @@ var featurePointImpls = new Map();
       if (options.provided !== undefined) { args.provided = !!options.provided; }
       return appCall("musicxx.feature.point.list", args);
     },
-    /// 调一个**功能点**并拿到结果（应用留出的埋点, 或插件自己声明的功能点）。
+    /// 调一个**功能埋点**并拿到结果（应用留出的埋点, 或插件自己声明的功能埋点）。
     ///
     /// - `id` 既可以是应用留出的（`musicxx.media.spectrum.extract` /
     ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.provide`），
     ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
-    /// - `args` 是这个功能点自己的参数，形状看 `points()` 里的 `callDoc`；
+    /// - `args` 是这个功能埋点自己的参数，形状看 `points()` 里的 `callDoc`；
     /// - **调用零副作用**：不写应用的值仓、不改应用状态（调一次封面取色不会换掉背景色）；
-    /// - 默认超时 60 秒（频谱要解码整曲，慢就自己加大）；同一功能点 + 同一调用方的
+    /// - 默认超时 60 秒（频谱要解码整曲，慢就自己加大）；同一功能埋点 + 同一调用方的
     ///   上一次没结束时拿到 `busy`。
     callPoint: function (id, args, timeoutMs) {
-      assertName(id, "feature.callPoint: 功能点 id");
+      assertName(id, "feature.callPoint: 功能埋点 id");
       var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 60000;
       return appCall("musicxx.feature.point.call",
                           { id: String(id), args: (args || {}) }, budget);
     },
-    /// 声明一个**自己的**功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
+    /// 声明一个**自己的**功能埋点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
     ///
     /// - `define({id, title, depict, args, result})` 或 `define(id, {title, ...})`；
     /// - 同一 id 重复声明 = 覆盖（最后一次生效）；
@@ -614,8 +614,8 @@ var featurePointImpls = new Map();
         full = Object.assign({}, spec || {});
         full.id = specOrId;
       }
-      if (!full.id) { throw new Error("feature.define: 缺少功能点 id"); }
-      assertName(full.id, "feature.define: 功能点 id");
+      if (!full.id) { throw new Error("feature.define: 缺少功能埋点 id"); }
+      assertName(full.id, "feature.define: 功能埋点 id");
       return appCall("musicxx.feature.point.define", {
         id: String(full.id),
         title: full.title === undefined ? "" : String(full.title),
@@ -624,12 +624,12 @@ var featurePointImpls = new Map();
         result: full.result === undefined ? "" : String(full.result)
       });
     },
-    /// 收回自己声明的功能点（一般不用调：停用 / 卸载会自动撤销）
+    /// 收回自己声明的功能埋点（一般不用调：停用 / 卸载会自动撤销）
     undefine: function (id) {
-      assertName(id, "feature.undefine: 功能点 id");
+      assertName(id, "feature.undefine: 功能埋点 id");
       return appCall("musicxx.feature.point.undefine", { id: String(id) });
     },
-    /// 登记功能点的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
+    /// 登记功能埋点的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
     ///
     /// - `fn(args)` **同步返回**结果（对象原样给，其它类型包成 `{value: …}`）；
     /// - 不是自己的点、或调用方就是自己时，糖不会回答（分发器按 `point` 与 `caller` 过滤）；
@@ -641,9 +641,9 @@ var featurePointImpls = new Map();
       }
       options = options || {};
       var ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-      if (ids.length === 0) { throw new Error("feature.provide: 缺少功能点 id"); }
+      if (ids.length === 0) { throw new Error("feature.provide: 缺少功能埋点 id"); }
       ids.forEach(function (id) {
-        assertName(id, "feature.provide: 功能点 id");
+        assertName(id, "feature.provide: 功能埋点 id");
         featurePointImpls.set(String(id), fn);
       });
       if (!implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {

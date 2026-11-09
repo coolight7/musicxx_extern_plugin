@@ -581,7 +581,7 @@ my_plugin/
 ```
 
 不需要 CMake、不需要编译；放进插件目录后「重新扫描」即可。完整 API、硬约束与排障见
-[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（能力 / 广播 / 功能点）
+[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（能力 / 广播 / 功能埋点）
 见 [docs/plugin-api.md](docs/plugin-api.md)。
 
 ### 着色器（播放页背景 / 页面内联块）
@@ -762,7 +762,7 @@ final List<MusicxxPluginUIItem> next =
 - **能力 / 广播**：约定只看 `tools/capabilities.def.json`（生成物是 `docs/plugin-capabilities.md` 与 `docs/plugin-broadcasts.md`，`dart run tools/gen_contract.dart --check`
   校验一致），每个条目声明用途、派发方式、阶段与合并策略；主程序**是否真的会派发**看生成物里
   「主程序是否已接入」列（由 `implemented` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义
-  功能点的通用通道、由调用方触发），其余注册成功但不会触发；
+  功能埋点的通用通道、由调用方触发），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入插件框架库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
   `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由框架线程执行；
   实现可以返回 Promise（插件框架一直等到它结算，结算后结果生效）；

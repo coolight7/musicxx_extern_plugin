@@ -239,7 +239,7 @@
   // 参数：id(string, 必填)、title(text, 必填)、depict(text)、value(json)、options(options, 必填)、action(action)
   kit.selectRow = function (params, env) { return expand("selectRow", params || {}, env); };
 
-  // 点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show）
+  // 点击打开浮层的行（零代码：动作就是官方能力 musicxx.ui.overlay.show）
   // 参数：label(text, 必填)、value(text)、title(text)、depict(text)、blocks(items, 必填)、textConfirm(text)
   kit.overlayRow = function (params, env) { return expand("overlayRow", params || {}, env); };
 

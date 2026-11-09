@@ -5,7 +5,7 @@
 /// `musicxx_plugin_destroy`;
 /// - [MusicxxHostManager]: 继承插件框架 `PluginHostLifecycle`
 /// (加载/启停/禁用启用/卸载/级联依赖)
-///   与 `DomainHooks` (通用表取数), 并实现 musicxx 专用表 (`musicxx.capabilities` /
+///   与 `DomainServices` (通用表取数), 并实现 musicxx 专用表 (`musicxx.capabilities` /
 ///   `musicxx.host`);
 /// - [HostContext]: 框架线程 (asio::io_context + 1 条线程)
 /// 与工作线程池的所有者。
@@ -215,7 +215,7 @@ struct HostContext {
 
 class MusicxxHostManager final
     : public pluginxx::PluginHostLifecycle<MusicxxHostInstance>,
-      public pluginxx::DomainHooks,
+      public pluginxx::DomainServices,
       public std::enable_shared_from_this<MusicxxHostManager> {
 public:
   using Base = pluginxx::PluginHostLifecycle<MusicxxHostInstance>;
@@ -434,7 +434,7 @@ public:
   /// 框架信息 JSON (应用版本/平台/语言/插件目录; 供插件 `host.info()` 读)
   ///
   /// - [instanceName] 非空时额外给出 `pluginId`: 插件要判断"这次调用是不是本插件自己发起的"
-  ///   就得知道自己的 id（功能点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
+  ///   就得知道自己的 id（功能埋点糖用它过滤自己发起的调用）。JS 侧有 `musicxx.pluginId`
   ///   这个独立入口，那份缓存不带 `pluginId`。
   /// - `apiVersion` 报的是**调用方自己形态的接口代次**（动态库插件看 C 接口代次，JS 看 JS 接口
   ///   代次，两套编号独立，见 `host_kind.h`）：[kind] 非空时用它，否则按 [instanceName] 查实例。
@@ -557,7 +557,7 @@ public:
                           const std::vector<std::string> &scriptHints,
                           const std::string &version, std::string &err);
 
-  /* ---------- DomainHooks (主题规则对外可见: 插件 broadcasts 表入口要用)
+  /* ---------- DomainServices (主题规则对外可见: 插件 broadcasts 表入口要用)
    * ---------- */
 
   /// 广播 id 的命名空间规则: 只接受官方 `musicxx.*` 与插件 `plugin.<id>.*`
@@ -625,7 +625,7 @@ protected:
                              const std::string &capability,
                              void *handle) override;
 
-  /* ---------- DomainHooks ---------- */
+  /* ---------- DomainServices ---------- */
 
   bool postToWorkerThread(std::function<void()> fn) override;
   std::string configJson() override;

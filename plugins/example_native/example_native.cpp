@@ -112,8 +112,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t lastActionPayloadLen = 0;
   int64_t lastActionRequestId = 0;
 
-  /// 功能点自检 (插件自定义功能点: 声明 / 实现 / 摘除)
-  std::string featurePointSampleId;     ///< 示例功能点 id
+  /// 功能埋点自检 (插件自定义功能埋点: 声明 / 实现 / 摘除)
+  std::string featurePointSampleId;     ///< 示例功能埋点 id
   int32_t featurePointSampleRc = -100;  ///< 登记实现: 期望 0
   std::string featurePointUnprovidedId; ///< 用来验证摘除的点 id
 
@@ -371,14 +371,14 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           co_return std::string{R"({"ok":true,"async":true})"};
         });
 
-    // 10) 功能点: 声明 + 实现 (native 侧糖)
+    // 10) 功能埋点: 声明 + 实现 (native 侧糖)
     //
-    // 功能点 = "这个功能谁都能实现, 应用与别的插件按 id 来调": 声明走动作
+    // 功能埋点 = "这个功能谁都能实现, 应用与别的插件按 id 来调": 声明走动作
     // `musicxx.feature.point.define`, 实现走**一条固定通道** `musicxx.feature.point.call`
     // 的处理器 (ownerTag = 点 id)。糖负责三件事: 按 `point` 过滤、`caller` 等于自己时
     // 不回答、把返回值包成 `{"patch":{"value": …}}`。
     //
-    // 注意: 功能点走的是**同步裁决**通道 (插件框架按 run_sync 同步调用), 所以处理器必须
+    // 注意: 功能埋点走的是**同步裁决**通道 (插件框架按 run_sync 同步调用), 所以处理器必须
     // 同步返回; 长任务用能力 (capability) 或事件。
     featurePointSampleId = "plugin." + pluginId() + ".sample";
     featurePointSampleRc = featurePointProvide(
@@ -409,7 +409,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
       featurePointDefine(
           featurePointSampleId.c_str(),
           MusicxxPluginPointSpec{
-              "示例功能点", "把两个数相加 (演示插件功能点的声明与实现)",
+              "示例功能埋点", "把两个数相加 (演示插件功能埋点的声明与实现)",
               "a、b (数字), 缺省 0", "{sum}"},
           &notify, 5000);
     }

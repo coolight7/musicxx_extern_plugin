@@ -7,7 +7,7 @@
 > `{"cmd": "<入口 id>", "args": {…}}`。链接（applink）与进程启动参数只是"把这次调用说出来"
 > 的两种额外写法，见 §1。
 >
-> 插件自己的接口（能力 / 广播 / 功能点 / 界面）在 [plugin-api.md](plugin-api.md)；
+> 插件自己的接口（能力 / 广播 / 功能埋点 / 界面）在 [plugin-api.md](plugin-api.md)；
 > 用命令行装插件、改完刷新、看插件日志在 [plugin-agent-cli.md](plugin-agent-cli.md)。
 
 **术语**：**主程序**指 musicxx（Flutter/Dart 业务层）；**插件框架**指外置插件的 C++ 层。
@@ -30,7 +30,7 @@
 | **本机命令行** | 人、脚本、agent | `musicxx-cli`（独立可执行文件）→ 主程序 `/cli` | §4 |
 | **本机链接（applink / deep link）** | 手机点链接、桌面点 `musicxx://…`、其他应用跳过来；也可以由用户在应用里自己粘贴 | `musicxx://…` 交给系统 → 应用自己解析 | §1.1、§1.1.1 |
 | **进程启动参数** | 文件关联、"用拟声打开"、命令行传参、第二个实例转发 | `musicxx <参数…>` | §1.2 |
-| **插件内部** | 装在应用里的动态库插件 / JS插件 | 能力 / 广播 / 功能点 | [plugin-api.md](plugin-api.md) |
+| **插件内部** | 装在应用里的动态库插件 / JS插件 | 能力 / 广播 / 功能埋点 | [plugin-api.md](plugin-api.md) |
 | **局域网设备之间** | 另一台装了 musicxx / 流明的设备（控制页、一起听、资源代理） | `/control`、`/connectEvent`、`/getSrc`、`/parseSrc`、`/listenTogether`、`/ws/*` | §6 |
 | **设备发现** | 同网段的设备互相发现 | mDNS 服务 `_boolxx-service._udp` + HTTP `/active` | §6.1 |
 
@@ -47,7 +47,7 @@
 | 切到前台 / 后台 | `SwitchForegroundBackground`（`operator`） | `musicxx-cli call window.background`（命令 `window.foreground` / `window.background`） | `musicxx.app.background` / `musicxx.app.foreground` | `musicxx://musicxx.app.background` | `--cmd musicxx.app.background` |
 | 改音量 / 速度 / 音调 / 进度 | `SetAppVolume` / `SetSpeed` / `SetPitch` / `SetCurrentPlaybackPosition` | `musicxx-cli volume` / `speed` / `pitch` / `seek` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `seek` | `musicxx://call/?cmd=musicxx.player.setVolume&args=…` | `--cmd musicxx.player.setPitch --args '{"pitch":1.1}'` |
 | 拦一次改播放值 / 收播放进度 | — | — | 能力 `musicxx.player.seek` / `volume` / `speed` / `pitch` + 广播频道 `musicxx.player.position` | — | — |
-| 功能点清单 | `GetFeatureProviders` | `musicxx-cli capability.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=capability.list` | `--cmd capability.list` |
+| 功能埋点清单 | `GetFeatureProviders` | `musicxx-cli capability.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=capability.list` | `--cmd capability.list` |
 | 音源类型与解析链 | `ListMediaSources` | `musicxx-cli source.list` | `musicxx.source.list` | `musicxx://call/?cmd=source.list` | `--cmd source.list` |
 | 插件框架版本 / 提交 / 仓库地址 | `GetExternPlugins`（结果里的 `framework` 段） | `musicxx-cli version` / `list` / `plugin list` | 插件读 `host.info().hostVersion`（同一个版本号） | — | — |
 | 装插件 | `InstallExternPlugin`（`path` 或 `url`） | `musicxx-cli plugin install`（路径或 `--url`） | **没有这条能力**（见 §7） | — | `--cmd externPlugin.install --args '{"path":"…"}'` |
@@ -414,7 +414,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
 | 封面与频谱（7） | `musicxx.media.palette` / `palette.set` / `cover` / `bindImage` / `unbindImage` / `spectrum` / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
 | 能力导出（2） | `musicxx.feature.list` / `feature.call` |
-| 功能点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
+| 功能埋点（4） | `musicxx.feature.point.list` / `call` / `define` / `undefine` |
 | 音源（4） | `musicxx.source.define` / `undefine` / `list` / `browse`（`browse` = 声明这个类型可浏览并挑歌，见 [plugin-api.md](plugin-api.md) §3.3） |
 | 插件网盘 UI（3） | `musicxx.ui.pickSongs` / `pickDir` / `browseDrive`（挑歌 / 选目录 / 整页浏览，**一个类型可以有多个分类 `view`**，见 [plugin-api.md](plugin-api.md) §3.3） |
 | 能力自省（1） | `musicxx.capability.subscribers` |
@@ -622,11 +622,11 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 （仅自己账号 = 双方登录同一个账号）；`lan.cli` 默认转发到对方的 `/cli`（命令面），只有命令面还没有对应命令的那几条指令才走 `/control` 数字指令，没有新增线协议。
 本机文件对外下载走 `/share/<id>`（见 §6），目录挂在 `/share/<id>/` 下（相对路径不许穿出去），route id 就是权限，链接不要随便发出去；注册只在本次运行有效，程序重启即消失。
 
-**功能点与能力**
+**功能埋点与能力**
 
 | 工具 | 参数 | 等价命令 | 文本形态 |
 |---|---|---|---|
-| `GetFeatureProviders` | `id?`、`provided?` | `capability.list` | 每个功能点一段：类型、有没有实现、可不可以调、逐行列出实现（生效 / 备选 / 关闭）+ `callDoc` + 被调过几次；有前链 / 后链登记时多一行「前链 / 后链：N 个」，有主程序广播订阅时多一行「广播：N 个订阅」 |
+| `GetFeatureProviders` | `id?`、`provided?` | `capability.list` | 每个功能埋点一段：类型、有没有实现、可不可以调、逐行列出实现（生效 / 备选 / 关闭）+ `callDoc` + 被调过几次；有前链 / 后链登记时多一行「前链 / 后链：N 个」，有主程序广播订阅时多一行「广播：N 个订阅」 |
 | `CallFeaturePoint` | `id`(必填)、`args?`、`refresh?` | `capability.call` | 结果 JSON，**超大字符串字段压成摘要**（见下）；失败时的 `error` 与 `capability.call` 同一套取值 |
 | `GetAudioSpectrum` | 见能力声明（`path?`、`start?`、`duration?`、`bandCount?` 等） | `feature.call`（id = `GetAudioSpectrum`） | 文本表（每行一个时间步） |
 | `AnalyseAudioChorus` | 见能力声明 | `feature.call`（id = `AnalyseAudioChorus`） | 文本结论（副歌区段） |
@@ -823,7 +823,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 - **日志有上限**：插件日志是内存里的环形缓冲（最多 500 条，退出即失去）；应用自己的日志写在
   磁盘（`error.log` / `info.log`，按大小裁剪），最后几行可能还在写入缓冲里
   （结果里的 `flushedHint`）；
-- **功能点调用零副作用**：`capability.call` 只读值仓，不写值仓、不改应用状态 ——
+- **功能埋点调用零副作用**：`capability.call` 只读值仓，不写值仓、不改应用状态 ——
   调一次封面取色不会换掉用户看到的背景色；
 - **一次只让一个 agent 装 / 卸同一个插件**：两台同时操作会出现"文件是这次、记录是那次"的竞争。
 
@@ -841,7 +841,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 | 命令名/参数不确定 | `musicxx-cli list --json`（或 GET `/cli/list`）拿自描述清单（含 `entries` 链接形态），不要猜 |
 | 点链接 / 启动参数没反应 | 应用日志里搜 `[入口]`：解析失败与不认识的链接都会写一行可读原因。桌面端先用 `musicxx-cli open "<链接>"` 复现（与点链接同一条解析），启动参数用 `musicxx-cli call <入口 id> --args '<JSON>'` 复现 |
 | 链接里调插件管理没反应 | 链接里请求 `externPlugin.*` / `file.*` 会先弹确认框（§7），用户关掉窗口 = 拒绝；拒绝时日志里有一行「用户没有允许管理类入口」。本机通道（`musicxx-cli plugin …` / MCP / `/cli`）不问 |
-| 调用答复"能力未注册" | 它在 §4.6 那张"名字存在但没实现"的表里；换用别的通道（能力导出 / 功能点）或看 [plugin-api.md](plugin-api.md) §3.4 |
+| 调用答复"能力未注册" | 它在 §4.6 那张"名字存在但没实现"的表里；换用别的通道（能力导出 / 功能埋点）或看 [plugin-api.md](plugin-api.md) §3.4 |
 | 工具/能力是不是最新 | 工具条数会随能力注册表增长：以 `tools/list`（或 `feature.list`）的实际结果为准 |
 | 插件相关的排障 | [plugin-agent-cli.md](plugin-agent-cli.md) §10（`plugin list` / `plugin logs` / 主程序卡住的判断） |
 

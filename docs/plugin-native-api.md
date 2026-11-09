@@ -300,7 +300,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
 | 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连插件框架（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（插件框架会拒绝在 IO 线程阻塞等待） |
-| 功能点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能点、给出实现、或调应用留出的功能点（频谱 / 副歌 / 封面取色） |
+| 功能埋点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能埋点、给出实现、或调应用留出的功能埋点（频谱 / 副歌 / 封面取色） |
 | 日志 | `log.trace/debug/info/warn/error` | 进插件日志流 → 管理页「日志」；也随 `musicxx.plugin.log` 事件回传 |
 | 后台任务 / 取消 | `iface.scheduler`（`offload` / `sleep` / `post_to_io` / `op_cancel`）、`iface.tasks`、`cancelRegistry` | 任务随实例停用自动取消 |
 
@@ -403,7 +403,7 @@ auto sub = subscribeTopic(MUSICXX_BROADCAST_PLAYER_POSITION,
 // 要改它们：调能力（§6）；广播是只读的
 ```
 
-**能力 / 功能点 / UI / 日志**：
+**能力 / 功能埋点 / UI / 日志**：
 
 ```cpp
 capability(*this, "plugin.my_plugin.probe",
@@ -729,16 +729,16 @@ implementBefore(MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);
 
 ---
 
-## 6.5 功能点（声明 / 实现 / 调用）
+## 6.5 功能埋点（声明 / 实现 / 调用）
 
-功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。与能力的区别：能力是"应用直接调本插件"、
-参数与结果由插件自己定；功能点是"应用或第三方按 id 来调，谁实现都行"（可以有多个实现、按优先级问）。
-**概念、通道的三条约定（`patch` 包装 / 按 `point` 过滤 / 不回答自己发起的调用）、三个可调的应用功能点、
+功能埋点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。与能力的区别：能力是"应用直接调本插件"、
+参数与结果由插件自己定；功能埋点是"应用或第三方按 id 来调，谁实现都行"（可以有多个实现、按优先级问）。
+**概念、通道的三条约定（`patch` 包装 / 按 `point` 过滤 / 不回答自己发起的调用）、三个可调的应用功能埋点、
 `busy` 与零副作用规则**见 [plugin-api.md](plugin-api.md) §7；本节是 C++ 的写法。
 插件点共用**一条固定能力** `musicxx.feature.point.call`（插件框架只认固定的能力表，**不要为每个点造新能力**）。
 
 ```cpp
-// 1) 声明自己的功能点（id 必须落在自己的命名空间里；结果经 notify 回来）
+// 1) 声明自己的功能埋点（id 必须落在自己的命名空间里；结果经 notify 回来）
 PluginxxOperatorNotify defineDone{&myDefineDone, this};
 featurePointDefine(
     "plugin.my_plugin.beat",
@@ -757,16 +757,16 @@ featurePointProvide("plugin.my_plugin.beat",
 // featurePointProvide("plugin.my_plugin.beat",
 //     [](std::string_view point, std::string_view argsJson, std::string_view caller) { … });
 
-// 3) 调一个功能点（应用留出的，或别的插件声明的）—— **只有异步形态**
+// 3) 调一个功能埋点（应用留出的，或别的插件声明的）—— **只有异步形态**
 PluginxxOperatorNotify callDone{&myCallDone, this};
 featurePointCall("musicxx.media.palette.provide",
                  R"({"path":"D:/covers/a.jpg"})", 60000, &callDone);
 
 featurePointUnprovide("plugin.my_plugin.beat");   // 摘除实现（一般不用：停用/卸载自动撤）
-featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在实现
+featurePointList(&someNotify, 5000);              // 有哪些功能埋点、谁在实现
 ```
 
-- **处理函数必须同步返回**：功能点走同步裁决通道（插件框架按 `hook_sync` 就地调用），
+- **处理函数必须同步返回**：功能埋点走同步裁决通道（插件框架按 `hook_sync` 就地调用），
   返回 `pluginxx::Task<T>` / 等异步结果都拿不到。长任务要么提前算好，要么做成**能力**
   （`co_await capabilityCall`）或事件。
 - 返回 `utilxx_base::Json` / 字符串 / 数字 / 布尔；字符串先按 JSON 解析，解析不了就当 JSON 字符串
@@ -775,7 +775,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能点、谁在
   把返回值包成 `{"patch":{"value": …}}`。已自带 `patch` / `action` 的返回值原样通过。
 - `featurePointCall` 的默认超时 60 秒（频谱要解码整曲）；**没有同步版** ——
   框架线程上就地等待等于死锁（处理器可能正等着你返回），要结果就在 `notify->done` 里处理。
-- 现在可调的应用功能点有三个（`featurePointList` 的 `callDoc` 写着参数与结果形状）：整曲频谱
+- 现在可调的应用功能埋点有三个（`featurePointList` 的 `callDoc` 写着参数与结果形状）：整曲频谱
   `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
   `musicxx.media.palette.provide`。**调用零副作用**：不写应用的值仓、不改应用状态。
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时 `start` 事务里再声明一遍。
@@ -1005,7 +1005,7 @@ Android 见 §11。
 |---|---|
 | 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；网络是插件框架的通用表 `<应用名>.net`（§5.6）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `capabilityCall("musicxx.player.play", ...)` 等能力名，由应用分派（能力清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用能力 `musicxx.stats.reportMemory` / `reportMetric` |
-| 接口面与 JS 插件的关系 | **同一批接口**：同一套能力声明、同一份广播频道、同一份功能点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
+| 接口面与 JS 插件的关系 | **同一批接口**：同一套能力声明、同一份广播频道、同一份功能埋点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与能力调用超时（插件自己给的时间）；统计只观测不限制 |

@@ -103,8 +103,8 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | CLI | 服务端命令 id | 作用 |
 |---|---|---|
 | `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `app.logs` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
-| `musicxx-cli call capability.list [--args '{"provided":true}']` | `capability.list` | 功能点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`）；`broadcasts` 是主程序自己注册的广播订阅（只收通知，不参与实现，插件不能注册） |
-| `musicxx-cli capability.call <功能点id> --args JSON [--refresh]` | `capability.call` | **调一个功能点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
+| `musicxx-cli call capability.list [--args '{"provided":true}']` | `capability.list` | 功能埋点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`）；`broadcasts` 是主程序自己注册的广播订阅（只收通知，不参与实现，插件不能注册） |
+| `musicxx-cli capability.call <功能埋点 id> --args JSON [--refresh]` | `capability.call` | **调一个功能埋点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
 | `musicxx-cli capability.subscribers <能力id> [--phase before\|impl\|after]` | `capability.subscribers` | 这条能力现在谁在实现、在哪个阶段、排第几（每项带 `phase`）；插件里用能力 `musicxx.capability.subscribers` |
 
 ## 5. 常用做法
@@ -214,10 +214,10 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 
 ### 5.7 取一次应用的功能结果（`capability.call`）
 
-`capability.call` 调的是**功能点**：应用留出的扩展点（`musicxx.media.*`），或插件自己声明的点
+`capability.call` 调的是**功能埋点**：应用留出的扩展点（`musicxx.media.*`），或插件自己声明的点
 （`plugin.<插件id>.<名字>`）。它和 §5.6 里的 `feature call` 不是一回事：
 
-| | `feature call <能力id>`（能力导出） | `capability.call <功能点id>`（功能埋点） |
+| | `feature call <能力id>`（能力导出） | `capability.call <功能埋点 id>`（功能埋点） |
 |---|---|---|
 | 是什么 | 应用**能做什么**（读文件、格式化文本） | 应用/插件**留出了什么功能**（谁实现都行） |
 | 结果 | 给模型读的文本结论 | 原始数据（base64 等）+ 出处（`by` / `identity` / `ms`） |
@@ -233,17 +233,17 @@ musicxx-cli capability.call musicxx.media.chorus.analyse --args '{"path":"D:/a.f
 # 整曲频谱（base64，4 分钟约 820 KB）：重定向到文件，别直接打屏
 musicxx-cli capability.call musicxx.media.spectrum.extract --args '{"path":"D:/a.flac"}' --json > spectrum.json
 
-# 调插件自己声明的功能点（参数与结果形状看它声明的 args / result）
+# 调插件自己声明的功能埋点（参数与结果形状看它声明的 args / result）
 musicxx-cli capability.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
 ```
 
-- **参数与结果形状**一律看 `capability.list` 的 `callDoc`（每个功能点一段），不要凭猜；
+- **参数与结果形状**一律看 `capability.list` 的 `callDoc`（每个功能埋点一段），不要凭猜；
 - 结果形状：`{ok, id, value, by, identity, fromCache, ms}`。`by` 是这次是谁给的
   （`extern:<插件id>` / `builtin:<插件key>:<实现>` / `core:<域>:<实现>`），
   `identity` 是资源身份（音源 md5 / 文件路径），调用方可以据此自己缓存；
-- 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这个功能点没对外开放）/
+- 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这个功能埋点没对外开放）/
   `bad_args`（参数不对）/ `no_impl`（现在没有实现）/ `canceled`（被某个实现拦下）/
-  `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`；
+  `busy`（同一功能埋点 + 同一调用方的上一次还没结束）/ `failed`；
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 调一次封面取色**不会**换掉用户看到的
   背景色（要改观感请用能力 `musicxx.media.palette.set`）；
 - 默认超时 60 秒，频谱要解码整曲、慢的话用 `--timeout` 加长；`--refresh` 跳过值仓重新算一遍；

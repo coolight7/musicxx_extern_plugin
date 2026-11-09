@@ -33,7 +33,7 @@
 | `inputRow` | `id`* `title`* `depict` `value` `multiline`=false `action` | 输入行：标题 + 说明 + 输入框（不带底色，输入完成即派发动作） |
 | `passwordRow` | `id`* `title`* `depict` `value` `action` | 密码输入行：标题 + 说明 + 遮住的输入框（带眼睛按钮，输入完成即派发动作） |
 | `selectRow` | `id`* `title`* `depict` `value` `options`* `action` | 下拉选择行：标题 + 说明 + 下拉框（选中即派发动作；候选项只有一行标题时用它） |
-| `overlayRow` | `label`* `value` `title` `depict` `blocks`* `textConfirm` | 点击打开浮层的行（零代码：动作就是官方动作 musicxx.ui.overlay.show） |
+| `overlayRow` | `label`* `value` `title` `depict` `blocks`* `textConfirm` | 点击打开浮层的行（零代码：动作就是官方能力 musicxx.ui.overlay.show） |
 | `shaderBlock` | `bundle`* `args` `speed`=1 `maxFps` `animate`=true `resolutionScale`=1 | 插件着色器块（musicxx 专属组件；终端之类不认识它的客户端会跳过） |
 | `coverRow` | `cover`* `title`* `subtitle` `trailing` `size`=40 `action` | 带封面的行：封面 + 标题 + 副标题 + 可选右侧状态（不带底色；取不到图片时显示标题） |
 | `animScope` | `values`* `maxFps` `children`* | 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder） |

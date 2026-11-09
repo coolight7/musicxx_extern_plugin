@@ -31,7 +31,7 @@
 | 形态 | 发一次请求、等一个结果 | 属主改了东西，通知所有关心的人 |
 | 有返回值 | 有（可能失败、可能超时） | 没有；不等待、允许丢中间值 |
 | 谁发起 | 调用方（插件、应用、命令行） | 属主发布 |
-| 典型 | 应用实现的能力 §3、插件服务 §6、功能点 §7、应用来问插件 §8 | 带当前值的频道 §2、没有当前值的频道 §4、官方频道 §5 |
+| 典型 | 应用实现的能力 §3、插件服务 §6、功能埋点 §7、应用来问插件 §8 | 带当前值的频道 §2、没有当前值的频道 §4、官方频道 §5 |
 | 声明在 | `tools/capabilities.def.json` 的 `capabilities` → [plugin-capabilities.md](plugin-capabilities.md) | 同一个文件的 `broadcasts` → [plugin-broadcasts.md](plugin-broadcasts.md) |
 
 **同一个 id 只有一份声明**，写清"能不能参与、参与哪一步（前链 / 实现链 / 后链）、派发方式、合并策略、
@@ -54,7 +54,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 发布自己频道的值 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
 | 调别的插件的能力 | `await musicxx.capability.call(id, "probe", args)` | `co_await capabilityCall(cap, method, args)` | §6 |
-| 声明 / 实现 / 调用功能点 | `musicxx.feature.define/provide/callPoint` | `featurePointDefine/Provide/Call` | §7 |
+| 声明 / 实现 / 调用功能埋点 | `musicxx.feature.define/provide/callPoint` | `featurePointDefine/Provide/Call` | §7 |
 | 声明界面项 | `musicxx.ui.registerEntry({name, type, data})` | `uiRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, json)` | §9 |
 | 写日志 | `musicxx.host.log(2, "文字")` / `console.log(...)` | `log.info("文字")` | §10 |
 | 读框架信息 | `musicxx.host.info()` | `hostInfoJson()` | §2.5 |
@@ -69,7 +69,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 能不能直接用系统 API | 不能（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.*` | 可以（自己起线程、自己联网） |
 | 定时器 | 内置 `musicxx.timer` / 全局 `setTimeout` | 自己起线程 / 定时器，在 `stop` 里回收；或 `pluginxx::sleep` |
 | 能力处理器可以异步 | 可以（返回 Promise） | 可以（返回 `pluginxx::Task<T>`） |
-| 功能点处理器 | **必须同步返回** | **必须同步返回** |
+| 功能埋点处理器 | **必须同步返回** | **必须同步返回** |
 | 读自己的统计 | `musicxx.stats.getSelf()` | 没有便捷接口（看管理页「插件详情 → 运行统计」） |
 
 ---
@@ -85,10 +85,10 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 一件"已经发生了"的事（没有当前值） | **广播 · `cache: none` 的频道** §4 | 单向通知，最轻 |
 | 改应用的状态 | **能力 · 应用实现的** §3 | 有返回值、有错误码；广播是只读的，改完应用自己会发广播 |
 | 把自己的功能给别的插件用 | **能力 · 插件服务** §6 | 有返回值、参数与结果由你自己定 |
-| 让"这个功能谁都能实现"（应用或第三方按 id 来调） | **能力 · 功能点** §7 | 可以有多个实现，按优先级问 |
+| 让"这个功能谁都能实现"（应用或第三方按 id 来调） | **能力 · 功能埋点** §7 | 可以有多个实现，按优先级问 |
 
 > 记法：**能力 = 问一件事、等一个结果**（应用实现的是让应用做，插件服务是给别的插件用，
-> 功能点是按 id 问，§8 是应用来问你）；**广播 = 告诉一声**（`cache: latest` 的带着当前值，
+> 功能埋点是按 id 问，§8 是应用来问你）；**广播 = 告诉一声**（`cache: latest` 的带着当前值，
 > `cache: none` 的只有这一次通知）。广播**只能读与订阅**：要改应用的状态调能力，插件自己的状态自己存。
 >
 > **JS 侧的入口就两个**：**能力** 全部走 `musicxx.capability`（实现 / 注册 / 调用 / 自省），
@@ -1378,16 +1378,16 @@ await musicxx.ui.setFontFamily({ fontFamily: "default" });     // 恢复
 
 - 典型能力：`GetAudioSpectrum`（整曲频谱的文本表）、`AnalyseAudioChorus`（副歌区段）等；
   **要解码整曲的长任务给更长的超时**（JS 封装 `musicxx.feature.call(id, args, timeoutMs)` 缺省 30 秒）。
-- 想要**原始数据**而不是文本结论，用 §3.2.11 的功能点调用（`musicxx.feature.point.call`）。
+- 想要**原始数据**而不是文本结论，用 §3.2.11 的功能埋点调用（`musicxx.feature.point.call`）。
 
 ```js
 const list = await musicxx.feature.list();
 const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 ```
 
-#### 3.2.11 功能点（`musicxx.feature.point.*`）
+#### 3.2.11 功能埋点（`musicxx.feature.point.*`）
 
-读"应用留出了哪些扩展点、现在谁在实现"，以及**主动调一个功能点拿原始数据**。
+读"应用留出了哪些扩展点、现在谁在实现"，以及**主动调一个功能埋点拿原始数据**。
 概念与写法见 §7，这里只列能力：
 
 | 能力 | 参数 | 返回 |
@@ -1397,9 +1397,9 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 | `musicxx.feature.point.define` | `{id, title?, depict?, args?, result?}` | `{ok:true, id}` 或 `{ok:false, error}` |
 | `musicxx.feature.point.undefine` | `{id}` | `{ok, removed}` |
 
-- `rows` 里的每一行是"这个功能点的一个实现"：`layer` = `extern`（外置插件实现）/ `builtin`（内置插件）/
+- `rows` 里的每一行是"这个功能埋点的一个实现"：`layer` = `extern`（外置插件实现）/ `builtin`（内置插件）/
   `core`（应用兜底），`effective` = 现在真正生效的那一个；`note` 会写清"谁把它拦下了"（`cancel` 裁决）。
-- `stages` 是**同一个功能点的前链与后链**（与 `rows` 是两回事）：`before` / `after` 为真表示这条
+- `stages` 是**同一个功能埋点的前链与后链**（与 `rows` 是两回事）：`before` / `after` 为真表示这条
   登记管哪一段，`runs` / `cancels` / `drops` / `errors` 是计数；顺序按前链（层 → 优先级 → 登记顺序），
   **后链逆序执行**（所以这个列表的最后一行是最先改输出的）。`lastCanceledBy` / `lastDroppedBy` /
   `lastRewrittenBy` 是最近一次调用里"谁拦下 / 谁丢弃 / 谁最后改了输出"，只用于排障。
@@ -1410,7 +1410,7 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 - `musicxx.feature.point.call` 的 `error` 取值：
   `not_callable`（这个点不能主动调）/ `bad_args`（参数不符合 `callDoc`）/ `no_impl`（没有任何实现）/
   `canceled`（被拦下了：前链或实现链）/ `dropped`（后链把结果丢弃了）/
-  `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。这三种"没有结果"是不同的事：
+  `busy`（同一功能埋点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。这三种"没有结果"是不同的事：
   `canceled` 是这次调用被拦下（之后谁都不问）、`dropped` 是实现跑完了但结果被丢掉；`skip` 不是错误，
   它只是这一份实现没参与。
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态。想让用户看到效果要用对应的设置能力
@@ -1923,11 +1923,11 @@ pluginxx::Task<void> probeOther() {
 
 ---
 
-## 7. 功能点（能力：谁都能实现的一个 id）
+## 7. 功能埋点（能力：谁都能实现的一个 id）
 
-功能点是"**这个功能谁都能实现**，应用与别的插件按 id 来调"。与能力的区别：
+功能埋点是"**这个功能谁都能实现**，应用与别的插件按 id 来调"。与能力的区别：
 
-| | 能力 | 功能点 |
+| | 能力 | 功能埋点 |
 |---|---|---|
 | 谁调 | 应用（打开页面 / 按名字调）或别的插件 | 应用、别的插件、命令行、agent 都能按 id 调 |
 | 实现个数 | 一个插件的一个名字只有一个处理器 | **可以有多个实现**，按优先级依次问 |
@@ -1983,7 +1983,7 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 - **按 `point` 过滤 + 不回答自己发起的调用**：同一条通道上所有实现都会收到同一次调用，
   `caller` 等于自己的插件 id 时要返回空（糖自动做这两件事）。
 - **`value` 键的存在 = 实现方给出了结果**（值可以是 `null`，表示"算过了、结果是空"）；返回空串 / `undefined` = 不回答。
-- **处理器必须同步返回**：功能点走同步裁决通道，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
+- **处理器必须同步返回**：功能埋点走同步裁决通道，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
   长任务请提前算好，或做成**能力**（§6）。
 - **前链 / 后链**：同一个点在通道上还有 `before` / `after` 两个阶段（同一条 id，用 `phase` 区分）——
   前链改这次调用的 `args`（或 `{"action":"cancel"}` 拦下这次），后链改最终 `value`（或
@@ -1991,11 +1991,11 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
   要插手前后链直接用能力 API（`musicxx.capability.implement("musicxx.feature.point.call", {phase:"after"}, fn)`）。
   概念与顺序见 §8.1。
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本 / `start` 里再声明一遍。
-- 同一个功能点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`（不排队）。
+- 同一个功能埋点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`（不排队）。
 
-应用**留出的、可以被主动调用**的功能点有三个（`capability.list` 的 `callDoc` 写着参数与结果形状）：
+应用**留出的、可以被主动调用**的功能埋点有三个（`capability.list` 的 `callDoc` 写着参数与结果形状）：
 
-| 功能点 id | 作用 | 调用的代价 |
+| 功能埋点 id | 作用 | 调用的代价 |
 |---|---|---|
 | `musicxx.media.spectrum.extract` | 整曲频谱（帧数 × 256 个频点 + 每帧响度） | 要解码整曲，慢（缺省超时 60 秒） |
 | `musicxx.media.chorus.analyse` | 副歌（高潮）区段 | 会先取一次频谱，慢 |
@@ -2048,7 +2048,7 @@ extern  ---------->  builtin  ---------->  core
 - **一个处理只有一个词**：拦下这次调用 = `cancel`（前链 / 实现链通用），这一份不参与 = `skip`，
   结果作废 = `drop`。`stop` 只保留在 `musicxx.player.error`（= 停止播放），它不是阶段词。
 - **载荷里不自动带 `phase`**：同一个函数要服务多个阶段就各注册一份自己的闭包，不要指望从载荷里
-  分辨阶段。唯一例外是插件功能点的通用通道 `musicxx.feature.point.call` —— 它的载荷带 `phase`，
+  分辨阶段。唯一例外是插件功能埋点的通用通道 `musicxx.feature.point.call` —— 它的载荷带 `phase`，
   因为一个插件点可能用同一段代码处理三个阶段（见 §7）。
 
 包装点（网络请求 / 下载 / 歌单读取这类「实现固定是应用自己」的能力）没有 `impl` 阶段，
@@ -2106,7 +2106,7 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
   （`observe` / `musicxx.broadcast.subscribe`，返回值忽略）。没有第三个"模式"参数。
 - `priority`：小者先执行，同优先级按注册顺序。应用询问"这个扩展点谁来实现"时的层间顺序是
   「**外置插件 → 内置插件 → 应用自己兜底**」：外置排最前是刻意的，用户装的插件要能替代内置功能；
-  想知道某个功能点现在是谁在生效，用能力 `musicxx.feature.point.list`（§3.2.11）。
+  想知道某个功能埋点现在是谁在生效，用能力 `musicxx.feature.point.list`（§3.2.11）。
 - `ownerTag`：同一插件在同一条能力上区分多个处理器用的标记。
   **不要用不同 `ownerTag` 注册同一条能力**：JS 侧只保留一个处理器、框架侧却留下多条注册，
   表现为处理器被重复调用。同一条能力只注册一次。
@@ -2118,7 +2118,7 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 - **只有"已接入"的能力会触发**：以 [plugin-capabilities.md](plugin-capabilities.md) 的「状态」列为准
   （那一列由 `tools/capabilities.def.json` 的 `implemented` 字段生成，别手数）：标「已接入」的会真的派发，
   标「未接入」的注册成功但不会触发 —— 别把功能押在未接入的能力上（它们打算做什么见 §8.7）。
-  其中 `musicxx.feature.point.call` 是插件功能点的通用通道，由调用方触发、不是应用主动派发。
+  其中 `musicxx.feature.point.call` 是插件功能埋点的通用通道，由调用方触发、不是应用主动派发。
 
 ### 8.2 裁决对象
 
@@ -2372,7 +2372,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | 想知道 | 用 |
 |---|---|
 | 这条能力现在有谁在实现、排第几 | 能力 `musicxx.capability.subscribers`（§3.2.12）；命令行 `musicxx-cli capability.subscribers` 读同一份数据 |
-| 应用留出了哪些功能点、谁在实现、谁关掉了 | 能力 `musicxx.feature.point.list`（§3.2.11） |
+| 应用留出了哪些功能埋点、谁在实现、谁关掉了 | 能力 `musicxx.feature.point.list`（§3.2.11） |
 | 应用自己能做什么（给模型看的文本结论） | 能力 `musicxx.feature.list`（§3.2.10） |
 | 本插件跑了多少、错了几次 | JS：`musicxx.stats.getSelf()`；两边都看得到：管理页「插件详情 → 运行统计」 |
 
@@ -2388,7 +2388,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 ### 11.1 命名空间
 
 - 官方标识一律 `musicxx.*`（能力 / 广播频道 / UI 类型 / 权限 / 频道 id）；
-- 插件自定义一律 `plugin.<自己的插件 id>.*`（广播频道、能力名、UI 项 id、功能点 id）；
+- 插件自定义一律 `plugin.<自己的插件 id>.*`（广播频道、能力名、UI 项 id、功能埋点 id）；
 - 冒充他人命名空间会被拒绝（返回 `-6`）。**调用的名字不受此限**：
   任意名字都受理（由应用决定理不理），官方能力必须是声明表里已有的。
 
@@ -2420,7 +2420,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 |---|---|---|---|
 | 应用实现的能力 | 5000 ms（`<=0` 按缺省） | 5000 ms（**0 = 不设超时**） | 需要更久自己加大（如解码整曲） |
 | 跨插件能力调用 | 3000 ms（不传 = 3000；**传 `0` / 负数 = 一直等**） | 框架不设等待超时（受理失败会立刻返回） | 只有异步形态 |
-| 功能点调用 | 60000 ms | 60000 ms | 频谱要解码整曲 |
+| 功能埋点调用 | 60000 ms | 60000 ms | 频谱要解码整曲 |
 | 能力等待 | **没有超时** | **没有超时** | 异步裁决不结算就是调用点一直等 |
 
 ### 11.4 插件框架的错误码（动态库插件返回码）
@@ -2444,7 +2444,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 
 插件被禁用或卸载时，插件框架**统一摘除**：
 
-- 全部能力处理器；全部已声明能力；全部事件订阅；全部 UI 项声明；全部功能点声明与实现；
+- 全部能力处理器；全部已声明能力；全部事件订阅；全部 UI 项声明；全部功能埋点声明与实现；
 - **自己起的网络服务与静态路由**（端口立刻释放，旧 URL 立即失效）；
 - 定时器（JS）；未完成的能力请求（JS 的 Promise 被拒绝，原因"插件已停止"）；
 - 自管的线程 / 定时器 / 临时文件由你在 `stop` 事务里自己回收（动态库插件）。

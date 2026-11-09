@@ -118,9 +118,9 @@ namespace net_op = pluginxx::net_op;
 
 namespace detail {
 
-/* ==================== 功能点糖的内部实现 (给 PluginBase 用) ==================== */
+/* ==================== 功能埋点糖的内部实现 (给 PluginBase 用) ==================== */
 
-/// 把处理函数的返回值转成功能点的"回答值"
+/// 把处理函数的返回值转成功能埋点的"回答值"
 ///
 /// 返回 `false` = **这次不回答**（返回了空串），交给同一条通道上的下一个实现。
 /// - `utilxx_base::Json` 原样用（`null` 也算回答："算过了，结果是空"）；
@@ -154,7 +154,7 @@ bool featurePointValueOf(const T& raw, utilxx_base::Json& out) {
     }
 }
 
-/// 功能点处理器：按 `point` 过滤、跳过自己发起的调用、把回答包成 `{"patch": {"value": …}}`
+/// 功能埋点处理器：按 `point` 过滤、跳过自己发起的调用、把回答包成 `{"patch": {"value": …}}`
 ///
 /// `fn` 的形参按可调用性选一种：`fn(point, argsJson, caller)` / `fn(point, argsJson)` /
 /// `fn(argsJson)`（都是 `std::string_view`）。
@@ -539,22 +539,22 @@ public:
         return 0;
     }
 
-    /// ---------- 功能点 (插件自己声明 / 实现 / 调用) ----------
+    /// ---------- 功能埋点 (插件自己声明 / 实现 / 调用) ----------
     ///
-    /// 一个功能点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
+    /// 一个功能埋点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
     /// 通道能力 `musicxx.feature.point.call` 的处理器）、**调用**（能力
     /// `musicxx.feature.point.call`）。三者都走插件框架，不需要主程序为这个点写任何代码。
     ///
     /// 与能力（capability）的分工见包内 `docs/plugin-guide.md`：
     /// - 能力 = "应用直接调本插件"，参数与结果由插件自己定；
-    /// - 功能点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。
+    /// - 功能埋点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。
     ///
     /// 通道写法（框架约定，糖已经照做）：
     /// 1. 回答**必须包一层 `patch`**（插件框架只在收到 `patch` 时才认为"有人回答了"）；
     /// 2. 处理器要**按 `point` 过滤**（同一条通道上所有实现都收到同一次调用）；
     /// 3. **不回答自己发起的调用**（`caller` 等于自己的插件 id 时返回空）。
 
-    /// 功能点声明信息（对应能力 `musicxx.feature.point.define` 的可读字段）
+    /// 功能埋点声明信息（对应能力 `musicxx.feature.point.define` 的可读字段）
     struct MusicxxPluginPointSpec {
         const char* title  = ""; ///< 展示名（缺省用 id）
         const char* depict = ""; ///< 一句话说明
@@ -562,7 +562,7 @@ public:
         const char* result = ""; ///< 结果说明（文本：给出什么形状的结果）
     };
 
-    /// 声明一个**自己的**功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
+    /// 声明一个**自己的**功能埋点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
     ///
     /// - 走能力调用（`notify->done` 拿到 `{ok, id}` 或 `{ok:false, error}`）；
     /// - 同一 id 重复声明 = 覆盖；声明跟着插件生命周期走（禁用 / 卸载自动撤销）；
@@ -580,7 +580,7 @@ public:
         return capabilityCall("musicxx.feature.point.define", text.c_str(), notify, timeoutMs);
     }
 
-    /// 收回自己声明的功能点（一般不用调：禁用 / 卸载会自动撤销）
+    /// 收回自己声明的功能埋点（一般不用调：禁用 / 卸载会自动撤销）
     int32_t featurePointUndefine(const char* id, const PluginxxOperatorNotify* notify,
                                  uint32_t timeoutMs = 5000) {
         utilxx_base::Json payload = utilxx_base::Json::object();
@@ -591,7 +591,7 @@ public:
 
     /// 本插件的 id（读一次 `host.info()` 的 `pluginId` 并缓存；拿不到时空串）
     ///
-    /// 用途：功能点糖要判断"这次的 `caller` 是不是自己"（自己发起的调用不回答）。
+    /// 用途：功能埋点糖要判断"这次的 `caller` 是不是自己"（自己发起的调用不回答）。
     std::string pluginId() {
         if (!pluginIdLoaded_) {
             pluginIdLoaded_ = true;
@@ -607,7 +607,7 @@ public:
         return pluginId_;
     }
 
-    /// 登记一个功能点的实现（**一个点一个处理器**，`owner_tag` = 点 id）
+    /// 登记一个功能埋点的实现（**一个点一个处理器**，`owner_tag` = 点 id）
     ///
     /// `fn` 有三种写法（按可调用性自动选一种）：
     /// ```cpp
@@ -629,7 +629,7 @@ public:
     int32_t featurePointProvide(const char* pointId, Fn&& fn, int32_t priority = 0) {
         const std::string point = pointId ? pointId : "";
         if (point.empty()) {
-            log.warn("featurePointProvide: 缺少功能点 id");
+            log.warn("featurePointProvide: 缺少功能埋点 id");
             return -1;
         }
         const std::string selfId = pluginId();
@@ -649,7 +649,7 @@ public:
         );
     }
 
-    /// 摘除一个功能点的实现（注销 `owner_tag` = 点 id 的那个处理器）
+    /// 摘除一个功能埋点的实现（注销 `owner_tag` = 点 id 的那个处理器）
     int32_t featurePointUnprovide(const char* pointId) {
         if (!pointId || !*pointId) {
             return -1;
@@ -657,12 +657,12 @@ public:
         return unimplementWithTag(MUSICXX_CAPABILITY_FEATURE_POINT_CALL, pointId);
     }
 
-    /// 调一个功能点（**异步形态**；结果经 `notify->done` 回来）
+    /// 调一个功能埋点（**异步形态**；结果经 `notify->done` 回来）
     ///
     /// - `id` 既可以是应用留出的埋点（`musicxx.media.spectrum.extract` /
     ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.provide`），
     ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
-    /// - `argsJson` 是这个功能点自己的参数（看清单里的 `callDoc`）；
+    /// - `argsJson` 是这个功能埋点自己的参数（看清单里的 `callDoc`）；
     /// - **默认超时 60 秒**：频谱提取要解码整曲，慢就自己加大；
     /// - **调用零副作用**：不写应用的值仓、不改应用状态；
     /// - **没有同步版**：框架线程上的就地等待等于死锁（处理器可能正等着你返回），
@@ -689,7 +689,7 @@ public:
                               timeoutMs);
     }
 
-    /// 当前有哪些功能点、谁在实现（行文本；等价能力 `musicxx.feature.point.list`）
+    /// 当前有哪些功能埋点、谁在实现（行文本；等价能力 `musicxx.feature.point.list`）
     ///
     /// 异步调用：结果经 `notify->done` 回来（`payload` 是清单文本）。
     int32_t featurePointList(const PluginxxOperatorNotify* notify,
@@ -979,7 +979,7 @@ protected:
     /// 统一的同步处理器注册路径（带 `owner_tag`）
     ///
     /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个能力上登记多个
-    /// 处理器（靠它区分），自省里也会原样列出；功能点的约定是 `owner_tag = 点 id`
+    /// 处理器（靠它区分），自省里也会原样列出；功能埋点的约定是 `owner_tag = 点 id`
     /// （见 [featurePointProvide]）。
     ///
     /// 登记走插件框架的 `musicxx.capabilities`：处理器是能力契约（同步 `notify->done`），
@@ -1134,7 +1134,7 @@ private:
 
     std::vector<std::unique_ptr<CapabilityHolderBase>> eventHolders_;
 
-    /// 本插件 id (从 `host.info().pluginId` 读一次后缓存; 功能点糖用它过滤自己发起的调用)
+    /// 本插件 id (从 `host.info().pluginId` 读一次后缓存; 功能埋点糖用它过滤自己发起的调用)
     std::string pluginId_{};
     bool        pluginIdLoaded_ = false;
 };

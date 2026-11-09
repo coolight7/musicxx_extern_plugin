@@ -176,7 +176,7 @@ HostContext::~HostContext() {
 
 MusicxxHostManager::MusicxxHostManager(asio::any_io_executor ex)
     : Base(std::move(ex)) {
-  // 事件后端在构造期就绪 (DomainHooks 的任何入口都可能被调用)
+  // 事件后端在构造期就绪 (DomainServices 的任何入口都可能被调用)
   // 广播注册表由插件框架创建 (PluginHostCore::broadcasts()); 宿主只负责
   // 按 id 前缀补默认声明, 见 ensureBroadcastChannel()
   // 插件网络能力: 自己的网络线程; 事件发到插件框架事件总线, 异步完成回调投递回框架线程
@@ -211,7 +211,7 @@ MusicxxHostManager::create(HostContext &ctx,
   auto mgr = std::shared_ptr<MusicxxHostManager>(
       new MusicxxHostManager(ctx.io.get_executor()));
   mgr->ctx_ = &ctx;
-  mgr->setDomainHooks(mgr.get());
+  mgr->setDomainServices(mgr.get());
   // 官方标识前缀 (`musicxx.`): 默认已是构建期注入的应用名, 这里显式写出来,
   // 一眼能看出这个宿主认什么前缀。
   mgr->setOfficialPrefix(pluginxx::appIdPrefix());
@@ -737,7 +737,7 @@ int32_t MusicxxHostManager::pollEvents(int32_t maxCount, std::string &outJson) {
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== DomainHooks ==================== */
+/* ==================== DomainServices ==================== */
 
 bool MusicxxHostManager::postToWorkerThread(std::function<void()> fn) {
   if (!ctx_ || !ctx_->workers) {

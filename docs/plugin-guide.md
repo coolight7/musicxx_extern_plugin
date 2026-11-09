@@ -144,7 +144,7 @@ musicxx.capability.register("card", function () {
 | **应用实现的能力** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.capability.call` / `capabilityCall` | [plugin-api.md](plugin-api.md) §3（全部能力的参数与返回） |
 | **广播 · 自己的频道** | 插件之间 / 插件与插件框架之间传小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
-| **功能点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能点并给出实现，或调用应用留出的功能点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |
+| **功能埋点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能埋点并给出实现，或调用应用留出的功能埋点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.feature.define/provide/callPoint` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |
 | **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 / 歌曲图 / 音频动效、页面插入块（歌词页 / 更多信息页 / 播放列表页） | `musicxx.ui.registerEntry` / `uiRegister` | [plugin-ui.md](plugin-ui.md) §1 |
 | **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `{ view: … }` + 路由 `ext://<插件id>/<视图id>` | [plugin-ui.md](plugin-ui.md) §2 |
 | **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、播放页音频动效（音频可视化）、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` / `playing.icon` / `playing.visualizer` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
@@ -182,7 +182,7 @@ musicxx.capability.register("card", function () {
 - **长任务不要写在处理器里**：能力调用是异步的（调用方不会因为插件慢而卡住界面），
   但处理器仍然占着 JS 线程 / 框架线程。native 用 `co_await pluginxx::offload(*this, work)`
   把重活交给工作线程池（或返回 `pluginxx::Task<T>` 的服务端协程），
-  JS 返回 Promise 但别在 Promise 里做同步大计算；功能点的处理函数必须**同步返回**（通道是同步裁决），
+  JS 返回 Promise 但别在 Promise 里做同步大计算；功能埋点的处理函数必须**同步返回**（通道是同步裁决），
   长任务请提前算好或做成能力；
 - 排查"应用卡住"：看主程序日志目录下的 `host_call.log`（进插件框架调用的同步轨迹，
   **最后一行就是没有返回的那次调用**）。
@@ -361,7 +361,7 @@ musicxx.capability.register("card", function () {
 
 ## 8. 相关文档
 
-- [plugin-api.md](plugin-api.md) —— **两种形态共用的接口手册**：能力（全部参数与返回）、广播、功能点、
+- [plugin-api.md](plugin-api.md) —— **两种形态共用的接口手册**：能力（全部参数与返回）、广播、功能埋点、
   应用来问插件、界面入口、日志与自省、命名空间 / 超时 / 容量、通用排障
 - [plugin-js-api.md](plugin-js-api.md) —— JS 插件专有：目录与清单、生命周期与硬约束、`musicxx` 全局对象、
   定时器与工具、常见坑（§15）、v1 边界（§16）

@@ -412,7 +412,7 @@ musicxx.capability.register("probe", function (args) {
     const greetingPeek = musicxx.broadcast.read(GREETING_TOPIC);
     return {
         pluginId: musicxx.pluginId,
-        /// 3 个实现链能力 + 1 条功能点通用通道（`feature.provide` 登记的实现）；
+        /// 3 个实现链能力 + 1 条功能埋点通用通道（`feature.provide` 登记的实现）；
         /// 切歌通知是广播订阅，不算实现
         implementationCount: 4,
         songChangedCount: songChangedCount,
@@ -486,7 +486,7 @@ musicxx.capability.register("reloadConfig", function () {
     return { accepted: 1 };
 });
 
-/// 主动调用应用功能点的最近一次结果（`featureProbe` 回读用）
+/// 主动调用应用功能埋点的最近一次结果（`featureProbe` 回读用）
 let featureCallState = { pending: 0, ok: 0, keys: 0, error: "" };
 
 /// 插件页面: 主页入口指向 `ext://example_js/card`
@@ -567,11 +567,11 @@ musicxx.capability.register("card", function (args) {
     return { view: cardView(args) };
 });
 
-/* ==================== 功能点: 声明 + 实现 + 调用（插件互通） ====================
+/* ==================== 功能埋点: 声明 + 实现 + 调用（插件互通） ====================
  *
  * 这一段演示"插件自己定义功能、别的插件与应用都能调它":
 
- * 1) `feature.define(...)` 声明一个功能点（id 必须落在自己的命名空间里）；
+ * 1) `feature.define(...)` 声明一个功能埋点（id 必须落在自己的命名空间里）；
  * 2) `feature.provide(id, fn)` 登记实现 —— 实现走**一条固定通道**
  *    (`musicxx.feature.point.call`)，同一条通道上的所有实现都收到同一次调用，
  *    所以 `fn` 只需按 args 算自己的结果，过滤与包装由糖负责；
@@ -601,17 +601,17 @@ musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args) 
     return { bpm: bpm, beats: beats, confident: 0.9 };
 });
 
-/// 能力: 让 Dart 侧/测试回读功能点这一段的状态（谁声明了、provide 了哪些点）
+/// 能力: 让 Dart 侧/测试回读功能埋点这一段的状态（谁声明了、provide 了哪些点）
 musicxx.capability.register("featureProbe", function () {
-    // 主动调应用留出的一个功能点: 封面取色（`path`/`url`/`data` 三选一；
+    // 主动调应用留出的一个功能埋点: 封面取色（`path`/`url`/`data` 三选一；
     // 这里不给来源 = 当前歌曲的封面）。调用零副作用: 不改应用状态。
     // 没有实现/当前没有封面时拿到的是 `no_impl`/`bad_args`，属于正常结果。
     musicxx.feature.callPoint("musicxx.media.palette.provide", {}).then(function (result) {
         featureCallState = { pending: 0, ok: 1, keys: Object.keys(result || {}).length, error: "" };
-        musicxx.host.log(2, "调用应用功能点成功: " + featureCallState.keys + " 个字段");
+        musicxx.host.log(2, "调用应用功能埋点成功: " + featureCallState.keys + " 个字段");
     }, function (err) {
         featureCallState = { pending: 0, ok: 0, keys: 0, error: err.message };
-        musicxx.host.log(3, "调用应用功能点失败: " + err.message);
+        musicxx.host.log(3, "调用应用功能埋点失败: " + err.message);
     });
     return {
         declared: "plugin." + musicxx.pluginId + ".beat",
@@ -623,7 +623,7 @@ musicxx.capability.register("featureProbe", function () {
     };
 });
 
-/// 能力: 让 Dart 侧/测试摘除上面那个功能点的实现（`feature.unprovide`）
+/// 能力: 让 Dart 侧/测试摘除上面那个功能埋点的实现（`feature.unprovide`）
 ///
 /// 用来验证"摘除之后不再回答"：真实插件一般不需要主动摘除（停用/卸载自动撤）。
 musicxx.capability.register("featureUnprovide", function () {

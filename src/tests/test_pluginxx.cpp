@@ -992,7 +992,7 @@ void testCapabilityDeclarations() {
       musicxxCapabilityDeclOf("musicxx.feature.point.call");
   check(featureCall != nullptr &&
             (featureCall->expose_mask & MUSICXX_CAPABILITY_EXPOSE_CLI) != 0,
-        "通用功能点通道：对外暴露命令行");
+        "通用功能埋点通道：对外暴露命令行");
 
   check(musicxxCapabilityDeclOf("musicxx.unknown.point") == nullptr,
         "未知能力返回 NULL");

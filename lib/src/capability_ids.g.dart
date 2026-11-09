@@ -140,7 +140,7 @@ abstract final class MusicxxCapabilityId {
   static const String cachePathRequest = 'musicxx.cache.pathRequest';
   /// musicxx.ui.route.resolve
   static const String uiRouteResolve = 'musicxx.ui.route.resolve';
-  /// 调用功能点
+  /// 调用功能埋点
   static const String featurePointCall = 'musicxx.feature.point.call';
   /// musicxx.app.foreground
   static const String appForeground = 'musicxx.app.foreground';
@@ -302,11 +302,11 @@ abstract final class MusicxxCapabilityId {
   static const String featureList = 'musicxx.feature.list';
   /// 调用能力
   static const String featureCall = 'musicxx.feature.call';
-  /// 功能点清单
+  /// 功能埋点清单
   static const String featurePointList = 'musicxx.feature.point.list';
-  /// 声明功能点
+  /// 声明功能埋点
   static const String featurePointDefine = 'musicxx.feature.point.define';
-  /// 收回功能点
+  /// 收回功能埋点
   static const String featurePointUndefine = 'musicxx.feature.point.undefine';
   /// 声明音源类型
   static const String sourceDefine = 'musicxx.source.define';
@@ -1204,8 +1204,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['point', 'command'],
       implemented: true,
-      title: '调用功能点',
-      depict: '调用一个功能点（应用留出的或插件自己声明的）；只读值缓存，不改应用状态',
+      title: '调用功能埋点',
+      depict: '调用一个功能埋点（应用留出的或插件自己声明的）；只读值缓存，不改应用状态',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.app.foreground',
@@ -2419,8 +2419,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '功能点清单',
-      depict: '列出功能点与实现行（谁在提供、哪个阶段、排第几、有没有被关掉）',
+      title: '功能埋点清单',
+      depict: '列出功能埋点与实现行（谁在提供、哪个阶段、排第几、有没有被关掉）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.point.define',
@@ -2434,8 +2434,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '声明功能点',
-      depict: '声明一个自己的功能点（`plugin.<自己的插件 id>.<名字>`），实现是那条通用通道的处理器',
+      title: '声明功能埋点',
+      depict: '声明一个自己的功能埋点（`plugin.<自己的插件 id>.<名字>`），实现是那条通用通道的处理器',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.point.undefine',
@@ -2449,8 +2449,8 @@ abstract final class MusicxxCapabilityCatalogue {
       consent: 'none',
       usage: <String>['command'],
       implemented: true,
-      title: '收回功能点',
-      depict: '收回自己声明的功能点（停用 / 卸载会自动撤）',
+      title: '收回功能埋点',
+      depict: '收回自己声明的功能埋点（停用 / 卸载会自动撤）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.source.define',

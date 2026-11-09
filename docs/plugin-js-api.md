@@ -109,7 +109,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
 | `musicxx.capability.call` | 通用能力调用（返回 Promise） | §7 |
 | `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.capability.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
-| `musicxx.feature` | 功能点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
+| `musicxx.feature` | 功能埋点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
 | `musicxx.timer` / `musicxx.util` | 定时器与工具 | §13 |
 | `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id | — |
 | `console` | `log` / `info` / `warn` / `error` 转发到框架日志 | §6 |
@@ -225,14 +225,14 @@ musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, (ctx) 
 - 所以异步路径要保证 Promise **一定会结算**（失败就 reject），否则调用点会一直等；
 - 结算次数可在统计里看到（`asyncDispatchSettled`，见 `musicxx.stats.getSelf()`）。
 
-### 4.4 功能点（声明 + 实现 + 调用）
+### 4.4 功能埋点（声明 + 实现 + 调用）
 
 > 概念、与能力的区别、通道的三条约定（`patch` 包装 / 按 `point` 过滤 / 不回答自己发起的调用）、
 > 应用留出的三个可调点、调用零副作用与 `busy` 规则，都在 [plugin-api.md](plugin-api.md) §7。
 > 这里只给 JS 的写法与 JS 特有的注意点。
 
 ```js
-// 1) 声明自己的功能点（id 必须落在自己的命名空间里）
+// 1) 声明自己的功能埋点（id 必须落在自己的命名空间里）
 musicxx.feature.define({
     id: "plugin." + musicxx.pluginId + ".beat",
     title: "节拍检测",
@@ -248,7 +248,7 @@ musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args, 
 });
 musicxx.feature.provide(["plugin.a.x", "plugin.a.y"], (args) => ({ ok: true }));  // 一组点共用一个实现
 
-// 3) 调一个功能点（应用留出的，或别的插件声明的）
+// 3) 调一个功能埋点（应用留出的，或别的插件声明的）
 const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", {});
 
 musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除实现
@@ -257,7 +257,7 @@ musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除�
 JS 侧需要记住的几条：
 
 - `callPoint(id, args?, timeoutMs?)`：默认 60 秒（频谱要解码整曲）。
-- `provide` 的 `fn(args, ctx)` **必须同步返回**：功能点走**同步裁决**通道（插件框架就地等结果），
+- `provide` 的 `fn(args, ctx)` **必须同步返回**：功能埋点走**同步裁决**通道（插件框架就地等结果），
   返回 Promise 拿不到结果（会记一条日志）。长任务请提前算好，或做成**能力**（`musicxx.capability.call`）。
 - 糖自动做三件事：按 `point` 过滤（同一条通道上所有实现都收到同一次调用）、`ctx.caller` 等于自己时
   不回答（避免把自己算出的结果再问回去）、把返回值包成 `{"patch": {"value": …}}`。
@@ -682,7 +682,7 @@ JS 侧要记住的几条：
 
 ## 10. 能力（注册 + 跨插件调用）
 
-> 能力的定位（与"功能点"的分工）、注册与调用的约定、超时与失败原因见
+> 能力的定位（与"功能埋点"的分工）、注册与调用的约定、超时与失败原因见
 > [plugin-api.md](plugin-api.md) §6；这里只给 JS 的写法与 JS 线程相关的注意点。
 
 ```js
