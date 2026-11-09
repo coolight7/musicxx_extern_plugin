@@ -678,20 +678,39 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
   if (!running_.load(std::memory_order_acquire)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 归属校验: 插件只能发布官方主题或自己命名空间下的主题
+  // 归属校验: 插件只能发布自己命名空间下的主题 (官方频道属于应用)
   if (!naming::isTopicOwnedBy(topic, pluginId)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 发布事件被拒绝: 主题 `{}` "
+    XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播被拒绝: 主题 `{}` "
             "不属于该插件命名空间",
             pluginId, topic);
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
+  // 频道声明: 插件自己的 declare 已经写过就沿用 (ensureBroadcastChannel 不会再补一份
+  // 默认声明); 注册表内部加锁, 所以这里可以直接在调用方线程上发布
+  // (JS 线程希望发布完立刻能 read 到当前值)。
+  ensureBroadcastChannel(topic);
+  std::string  broadcastError;
+  const int32_t rc =
+      publishBroadcast(topic, payload, pluginId, &broadcastError);
+  if (rc != PLUGINXX_RESULT_OK) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播 `{}` 被拒绝 (code={}): {}",
+            pluginId, topic, rc, broadcastError);
+    return rc == PLUGINXX_RESULT_ERR_PERMISSION
+               ? MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION
+               : MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  }
   auto self = shared_from_this();
-  // 事件总线的订阅/发布约定在框架线程: 投递后立即返回 (调用方通常是 JS 线程)
-  asio::post(ctx_->io, [self, topic, payload] {
-    self->publishOnHostThread(topic, payload);
-  });
+  // 事件计数 (只观测不限制) 放在框架线程做: 实例计数器只在那条线程上改
+  asio::post(ctx_->io, [self, topic] { self->accountEventForTopic(topic); });
+  // 观测回传: 仅在调试开关打开时把主题镜像给 Dart 侧 (默认关闭零开销)
+  if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
+    Json mirror;
+    mirror["topic"] = topic;
+    mirror["data"] = parseJsonSafe(payload);
+    pushEvent("musicxx.event.published", "", mirror.dump());
+  }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
@@ -2497,6 +2516,13 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
     if (declaredBroadcasts_.contains(id)) {
       return;
     }
+  }
+  // 已经声明过 (插件自己的 declare 不走这份记账): 不要再补一份默认声明,
+  // 否则会用默认属性把它声明的 cache / publish 覆盖掉。
+  if (broadcasts()->declares(id)) {
+    std::lock_guard<std::mutex> lock{declaredBroadcastsMutex_};
+    declaredBroadcasts_.insert(id);
+    return;
   }
   pluginxx::BroadcastDecl decl;
   decl.id = id;

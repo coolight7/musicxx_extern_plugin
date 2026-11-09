@@ -2705,6 +2705,15 @@ int32_t JsEngine::bridgePublish(const std::string &pluginId,
   if (!mgr_) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
+  // 脚本顶层还没有把声明交给框架: 先存着, 注册回放完再按顺序发 (见 pendingPublishes)
+  // 否则 `declare` + `publish` 初始值的写法会被判成"频道未声明"。
+  if (const auto inst = lookupInstance("js:" + pluginId)) {
+    if (!inst->registrationsApplied) {
+      std::lock_guard lock{mutex_};
+      inst->pendingPublishes.emplace_back(topic, payload);
+      return MUSICXX_EXTERN_PLUGIN_OK;
+    }
+  }
   return mgr_->broadcastPublishFrom(pluginId, topic, payload);
 }
 
@@ -3909,8 +3918,20 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     }
   }
 
-  /// 变量表随值频道一起删除: JS 侧的广播只有声明(上面)、发布、读、订阅
-  /// (`broadcastsApplied` 是这次回放里声明成功的频道数)
+  /// 广播只有声明(上面)、发布、读、订阅: 回放完把脚本顶层存下的发布按顺序发出去
+  /// (顶层的 declare + publish 初始值不能早于声明落到框架上)
+  std::vector<std::pair<std::string, std::string>> queued;
+  {
+    std::lock_guard lock{mutex_};
+    queued.swap(inst->pendingPublishes);
+  }
+  for (const auto &[topic, payload] : queued) {
+    const int32_t rc = mgr_->broadcastPublishFrom(inst->id, topic, payload);
+    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+      XX_LOGW("[musicxx_ext] JS插件 `{}` 顶层发布 `{}` 被拒绝 (code={})",
+              inst->id, topic, rc);
+    }
+  }
   inst->registrationsApplied = true;
   /// 运行期的 UI/订阅/变量操作改为"投递不等待" (顶层登记阶段已结束)
   inst->liveRegistrations.store(true, std::memory_order_release);
@@ -3933,6 +3954,10 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
   /// (随实例销毁丢弃)
   inst->liveRegistrations.store(false, std::memory_order_release);
   inst->pendingUiOps.clear();
+  {
+    std::lock_guard lock{mutex_};
+    inst->pendingPublishes.clear();
+  }
   /// 广播订阅由插件框架随实例 stop/卸载自动撤销; 声明出来的频道由
   /// `removeChannelsOwnedBy` 随实例一起摘除
   for (const auto &handler : inst->implementations) {

@@ -291,6 +291,12 @@ public:
     };
     std::vector<PendingUiOp> pendingUiOps;
 
+    /// 脚本顶层发布的广播 (声明要到注册回放才落到框架上, 先存着; 回放完再按顺序发)
+    ///
+    /// - 不存的话, 顶层 `declare` + `publish` 的初始值会发到"还没声明"的频道上被拒；
+    /// - JS 线程写, 框架线程在 [applyRegistrations] 里取走 (用 `JsEngine::mutex_` 保护)。
+    std::vector<std::pair<std::string, std::string>> pendingPublishes;
+
     std::atomic<int64_t> jsRuns{0};
     std::atomic<int64_t> errors{0};
     /// JS 堆用量 (字节; 负数 = 还没采样过; 只观测不限制)

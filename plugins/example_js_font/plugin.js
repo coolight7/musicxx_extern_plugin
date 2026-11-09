@@ -27,7 +27,6 @@ const FONT_MODE_KEY = "fontMode";
 const FONT_FILE_PATH = "resource/font/example-font.ttf";
 const FONT_FILE_FAMILY = "ExampleFont";
 const YAHEI_FAMILY = "Microsoft YaHei";
-/// 官方变量：应用当前生效的全局字体（可同步 `read` 读缓存，不必等动作往返）
 const FONT_VAR_KEY = "musicxx.ui.fontFamily";
 
 const MODE_LABELS = {
@@ -48,19 +47,20 @@ let lastError = "";
 /// 页面用 `read` 同步读当前值 —— 不做 FFI 往返, 也不会阻塞。
 /// 顶层调用会被引擎推迟到"注册回放"阶段执行 (与钩子/能力/UI 项同一套做法)。
 musicxx.broadcast.subscribe(FONT_VAR_KEY, function (value) {
-    const mode = (value && typeof value.value === "string") ? value.value : "";
-    musicxx.host.log(2, "字体变成 " + mode);
+    musicxx.host.log(2, "字体变成 " + String(value));
 });
 
 function normalizeMode(mode) {
     return (mode === "yahei" || mode === "file") ? mode : "default";
 }
 
-/// 主程序当前生效字体 (同步读当前值; 还没有值时给"未知")
+/// 主程序当前生效字体 (同步读当前值; 值是字体名或 `default`)
 function appliedFontText() {
     const cached = musicxx.broadcast.read(FONT_VAR_KEY);
-    const value = (cached && typeof cached.value === "string") ? cached.value : "";
-    return value === "" ? "（未知）" : value;
+    if (typeof cached !== "string" || cached === "" || cached === "default") {
+        return "（未知）";
+    }
+    return cached;
 }
 
 /// 应用一个字体模式：**后台执行**，返回 Promise（成功 `{ok:true}`，失败 `{ok:false, error}`）

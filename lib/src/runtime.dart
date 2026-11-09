@@ -12,7 +12,6 @@ import 'capabilities.dart';
 import 'manager.dart';
 import 'native_library.dart';
 import 'native_strings.dart';
-import 'channels.dart';
 
 /// 插件框架配置（对应 C ABI `MusicxxExternPluginHostConfig`）
 class MusicxxPluginRuntimeConfig {
@@ -159,13 +158,9 @@ class MusicxxPluginRuntime {
   late final MusicxxPluginAppCapabilities appCapabilities =
       MusicxxPluginAppCapabilities.internal(this);
 
-  /// 广播输入（快照 / 事件 / 值频道都走它；声明里 `cache: latest` 的就是快照频道）
+  /// 广播：发布 / 读当前值 / 列频道
   late final MusicxxPluginBroadcasts broadcasts =
       MusicxxPluginBroadcasts.internal(this);
-
-  /// 值频道（`musicxx.broadcasts` 的值频道部分；官方键的真值在主程序，见 [MusicxxPluginChannels]）
-  late final MusicxxPluginChannels channels =
-      MusicxxPluginChannels.internal(this);
 
   /// 原生 → Dart 唤醒回调
   ///
@@ -217,7 +212,7 @@ class MusicxxPluginRuntime {
       ('state', 0x2),
       ('events', 0x4),
       ('ui', 0x8),
-      ('vars', 0x10),
+      ('broadcasts', 0x16),
     ];
     for (final (String name, int bit) in known) {
       if (bits & bit == 0) {
@@ -373,6 +368,7 @@ class MusicxxPluginRuntime {
     plugins.handleDisposed();
     capabilities.handleDisposed();
     appCapabilities.handleDisposed();
+    broadcasts.dispose();
   }
 
   // ==================== 内部：绑定/插件框架访问 ====================

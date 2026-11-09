@@ -69,7 +69,7 @@ void main() {
     final MusicxxPluginEvent ready = seen.firstWhere(
       (MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hostReady,
     );
-    expect(ready.payload['apiVersion'], 4);
+    expect(ready.payload['apiVersion'], 5);
     expect(ready.payload['platform'], MusicxxPluginRuntime.currentPlatform);
 
     _step('2 host.ready 已收到');
@@ -963,41 +963,21 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('变量通道：声明/读/写/订阅（对真实原生库）', () async {
-    if (env == null || !env.hasPlugin('example_js_vars')) {
+  test('广播：发布 / 读当前值 / 列频道 / 订阅数（对真实原生库）', () async {
+    if (env == null || !env.hasPlugin('example_js_broadcast')) {
       markTestSkipped(
-        '未找到原生插件框架库或变量通道示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
+        '未找到原生插件框架库或广播示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
       return;
     }
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
 
-    // 主程序"官方键的真值"（真值在主程序这里，插件框架只留一份服务 peek 的缓存）
-    Object? officialValue = 'v0';
-
-    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen((
-      MusicxxPluginEvent e,
-    ) {
-      switch (e.type) {
-        case MusicxxPluginEventType.broadcastRead:
-          // 插件发起异步读 → 主程序回答（本地的直接问实现，权威且立刻可得）
-          runtime.channels.readResult(
-            e.intOf('requestId') ?? -1,
-            ok: true,
-            value: officialValue,
-          );
-        case MusicxxPluginEventType.broadcastWrite:
-          // 插件发起写 → 主程序写入（回执即写入）后回执
-          officialValue = e.payload['value'];
-          runtime.channels.writeResult(
-            e.intOf('requestId') ?? -1,
-            accepted: true,
-            value: officialValue,
-          );
-      }
-    });
-    addTearDown(sub.cancel);
+    // 订阅数回调（事件驱动）：应用据此决定"还要不要继续发这个频道"
+    final Map<String, int> subscriberCounts = <String, int>{};
+    runtime.broadcasts.onSubscribers = (String id, int count) {
+      subscriberCounts[id] = count;
+    };
 
     runtime.init(
       config: MusicxxPluginRuntimeConfig(
@@ -1009,34 +989,17 @@ void main() {
       libraryPath: env.libraryPath,
     );
 
-    // 旧插件框架库诊断：本次构建必须带变量位
+    // 旧插件框架库诊断：本次构建必须带广播位
     expect(runtime.featureBits, isNotNull);
     expect(runtime.missingFeatures, isEmpty, reason: runtime.featureHint);
 
-    // 1) 声明官方键（必须赶在加载插件之前：脚本顶层就要能读到）
-    expect(
-      runtime.channels.declare(<MusicxxPluginChannelDeclare>[
-        const MusicxxPluginChannelDeclare(
-          key: 'musicxx.test.bound',
-          caps: <String>['get', 'set', 'notify'],
-          type: 'string',
-          options: <String>['v0', 'v1', 'v2'],
-          hasValue: true,
-          value: 'v0',
-          title: '绑定测试值',
-          risk: 'low',
-        ),
-      ]),
-      isTrue,
-    );
-
-    // 2) 加载变量通道示例（顶层登记自己的变量 + 订阅官方键）
-    runtime.plugins.load('example_js_vars');
+    // 1) 加载广播示例（顶层声明自己的频道 + 订阅官方频道）
+    runtime.plugins.load('example_js_broadcast');
 
     Map<String, Object?> probeCache = <String, Object?>{};
     Future<void> refreshProbe() async {
       final Object? raw = await runtime.plugins.call(
-        'example_js_vars',
+        'example_js_broadcast',
         'probe',
       );
       probeCache = raw is Map
@@ -1046,40 +1009,49 @@ void main() {
 
     Map<String, Object?> probe() => probeCache;
 
-    // 3) 插件看到的接口代次按它自己的形态报：JS 插件看到 JS 接口代次（当前 2），
-    // 不是动态库插件用的 C 接口代次（两套编号独立，见 `host_kind.h`）
+    // 2) 插件看到的接口代次按它自己的形态报：JS 插件看到 JS 接口代次（当前 2）
     await refreshProbe();
     expect(probe()['apiVersion'], 2);
 
-    // 3) 插件变量进了变量表，声明字段如实
-    final List<Map<String, Object?>> own = runtime.channels.list(
-      prefix: 'plugin.example_js_vars',
+    // 3) 插件声明的频道进了广播表，声明字段如实
+    final List<Map<String, Object?>> own = runtime.broadcasts.list(
+      prefix: 'plugin.example_js_broadcast',
     );
-    final List<Object?> ownKeys = own
-        .map((Map<String, Object?> e) => e['key'])
+    final List<Object?> ownIds = own
+        .map((Map<String, Object?> e) => e['id'])
         .toList();
-    expect(ownKeys, contains('plugin.example_js_vars.tip.start'));
-    expect(ownKeys, contains('plugin.example_js_vars.stats.reads'));
+    expect(ownIds, contains('plugin.example_js_broadcast.tip.start'));
+    expect(ownIds, contains('plugin.example_js_broadcast.stats.reads'));
     final Map<String, Object?> tip = own.firstWhere(
       (Map<String, Object?> e) =>
-          e['key'] == 'plugin.example_js_vars.tip.start',
+          e['id'] == 'plugin.example_js_broadcast.tip.start',
     );
-    expect(tip['owner'], 'example_js_vars');
-    expect(tip['caps'], <Object?>['get', 'set', 'notify']);
-    expect(tip['type'], 'bool');
-    // 声明了初值 → 同步读缓存里就有值（declared 模式由插件框架代存）
-    await refreshProbe();
-    final Map<String, Object?> peeked =
-        (probe()['tipPeek'] as Map<Object?, Object?>?)
-            ?.cast<String, Object?>() ??
-        <String, Object?>{};
-    expect(peeked['value'], false);
+    expect(tip['cache'], 'latest');
+    expect(tip['publish'], 'owner');
+    expect(tip['owner'], 'example_js_broadcast');
+    expect(tip['hasValue'], isTrue);
 
-    // 4) 主程序推值 → 订阅了该键的插件收到通知（bind 回调）
-    officialValue = 'v1';
-    expect(runtime.channels.update('musicxx.test.bound', 'v1'), isTrue);
-    // 同一个值再推一次: 包层就不发了（去重）
-    expect(runtime.channels.update('musicxx.test.bound', 'v1'), isFalse);
+    // 声明时就发布过一次初始值：主程序同步读得到
+    expect(
+      runtime.broadcasts.read('plugin.example_js_broadcast.tip.start'),
+      false,
+    );
+
+    // 4) 插件自己改值（publish）→ 主程序读到的当前值跟着变
+    await runtime.plugins.call(
+      'example_js_broadcast',
+      'publishTip',
+      <String, Object?>{'value': true},
+    );
+    expect(
+      runtime.broadcasts.read('plugin.example_js_broadcast.tip.start'),
+      true,
+    );
+
+    // 5) 插件订阅了官方频道：主程序发布后被叫到（订阅真的收到了）
+    expect(runtime.broadcasts.publish('musicxx.ui.animatedLevel', 3), isTrue);
+    // 同一个值再发一次：包层去重，不再发
+    expect(runtime.broadcasts.publish('musicxx.ui.animatedLevel', 3), isFalse);
     await _pumpUntil(() async {
       await refreshProbe();
       return _intOf(probe()['changes']) >= 1;
@@ -1088,89 +1060,48 @@ void main() {
         (probe()['lastChange'] as Map<Object?, Object?>?)
             ?.cast<String, Object?>() ??
         <String, Object?>{};
-    expect(lastChange['value'], 'v1');
-    expect(lastChange['by'], ''); // 写入方是主程序（不是插件）
+    expect(lastChange['value'], 3);
 
-    // 5) 插件异步读官方键（插件框架向主程序取一次真实值）
-    await runtime.plugins.call(
-      'example_js_vars',
-      'triggerRead',
-      <String, Object?>{'key': 'musicxx.test.bound'},
-    );
+    // 6) 插件订阅官方频道时，应用收到订阅数变化（这里同时验证事件载荷）
     await _pumpUntil(() async {
-      await refreshProbe();
-      return probe()['readValue'] != null;
+      runtime.pumpEvents();
+      return subscriberCounts.containsKey('musicxx.ui.animatedLevel');
     });
-    expect(probe()['readValue'], 'v1', reason: '异步读应当拿到主程序的真值');
-
-    // 6) 插件异步写官方键（主程序写入后才算数）
-    await runtime.plugins.call(
-      'example_js_vars',
-      'triggerWrite',
-      <String, Object?>{'key': 'musicxx.test.bound', 'value': 'v2'},
-    );
-    await _pumpUntil(() async {
-      await refreshProbe();
-      return probe()['writeResult'] != null;
-    });
-    final Map<String, Object?> writeResult =
-        (probe()['writeResult'] as Map<Object?, Object?>?)
-            ?.cast<String, Object?>() ??
-        <String, Object?>{};
-    expect(writeResult['accepted'], isTrue);
-    expect(writeResult['value'], 'v2');
-    expect(officialValue, 'v2', reason: '写入由主程序执行');
-    // 写成功后值真的变了 → 订阅者再收到一条通知
-    await _pumpUntil(() async {
-      await refreshProbe();
-      return _intOf(probe()['changes']) >= 2;
-    });
-
-    // 7) 主程序读/写插件键（declared 模式立即结算）
-    expect(runtime.channels.get('plugin.example_js_vars.tip.start'), false);
-    final Map<String, Object?> setResult =
-        runtime.channels.set('plugin.example_js_vars.tip.start', true) ??
-        <String, Object?>{};
-    expect(setResult['accepted'], isTrue);
-    expect(setResult['changed'], isTrue);
-    expect(runtime.channels.get('plugin.example_js_vars.tip.start'), true);
-
-    // 7.5) handler 模式：读写在属主手里（插件框架只留同步读缓存）
-    //      - 读: 插件框架把请求转给属主, 由 onRead 回答
-    //      - 写: 插件框架把请求转给 onWrite, 属主写入后回执
     expect(
-      runtime.channels.get('plugin.example_js_vars.handler.tip'),
-      false,
-      reason: 'handler 变量的读要走属主',
+      subscriberCounts['musicxx.ui.animatedLevel'],
+      greaterThanOrEqualTo(1),
+      reason: '插件订阅后应用应当知道这个频道有人听',
     );
-    final Map<String, Object?> handlerWrite =
-        runtime.channels.set('plugin.example_js_vars.handler.tip', true) ??
-        <String, Object?>{};
-    expect(handlerWrite['accepted'], isTrue);
-    expect(handlerWrite['value'], true, reason: '回执带的是属主写入的最终值');
-    await refreshProbe();
-    expect(_intOf(probe()['handlerTip']), 0); // 插件侧状态是 bool, 这里只校验可取到
-    expect(runtime.channels.get('plugin.example_js_vars.handler.tip'), true);
-    // 属主自己改值时提交一次（不是主程序写的）
-    await runtime.plugins.call(
-      'example_js_vars',
-      'setHandlerInternal',
-      <String, Object?>{'value': false},
-    );
-    expect(runtime.channels.get('plugin.example_js_vars.handler.tip'), false);
 
-    // 8) 不存在的键: 读/写都要明确失败（而不是静默成功）
-    expect(runtime.channels.get('plugin.example_js_vars.nope'), isNull);
-    expect(runtime.channels.set('plugin.example_js_vars.nope', 1), isNull);
-
-    // 9) 卸载后变量随实例摘除
+    // 7) 高频频道按订阅方声明的频率到达（示例给的是 500 ms / delay）
     expect(
-      runtime.channels.list(prefix: 'plugin.example_js_vars').isNotEmpty,
+      runtime.broadcasts.publish(
+        'musicxx.player.position',
+        <String, Object?>{'positionMs': 1000, 'durationMs': 200000},
+        skipIfUnchanged: false,
+      ),
       isTrue,
-      reason: '卸载前应当能看到插件变量',
     );
-    runtime.plugins.unload('example_js_vars');
-    expect(runtime.channels.list(prefix: 'plugin.example_js_vars'), isEmpty);
+    await _pumpUntil(() async {
+      await refreshProbe();
+      return _intOf(probe()['positionNotices']) >= 1;
+    });
+    expect(_intOf(probe()['positionNotices']), greaterThanOrEqualTo(1));
+
+    // 8) 不存在的频道：读不到值（不抛异常，也不返回旧值）
+    expect(runtime.broadcasts.read('musicxx.test.nope'), isNull);
+
+    // 9) 卸载后插件频道随实例摘除
+    expect(
+      runtime.broadcasts.list(prefix: 'plugin.example_js_broadcast').isNotEmpty,
+      isTrue,
+      reason: '卸载前应当能看到插件频道',
+    );
+    runtime.plugins.unload('example_js_broadcast');
+    expect(
+      runtime.broadcasts.list(prefix: 'plugin.example_js_broadcast'),
+      isEmpty,
+    );
   });
 
   test('库缺失时抛出可诊断异常', () {

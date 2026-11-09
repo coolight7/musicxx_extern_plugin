@@ -581,16 +581,8 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    // 官方变量：插件顶层会 watch 它（主程序侧就是 MusicxxVariableCatalog 的 musicxx.ui.fontFamily）
-    runtime.channels.declare(<MusicxxPluginChannelDeclare>[
-      const MusicxxPluginChannelDeclare(
-        key: 'musicxx.ui.fontFamily',
-        caps: <String>['get', 'notify'],
-        type: 'string',
-        hasValue: true,
-        value: 'default',
-      ),
-    ]);
+    // 官方频道：插件顶层会订阅它（主程序侧就是 MusicxxValueBroadcasts 的 musicxx.ui.fontFamily）
+    runtime.broadcasts.publish('musicxx.ui.fontFamily', 'default');
     runtime.plugins.scan();
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
@@ -643,8 +635,8 @@ void main() {
     expect(fontCalls, <String>['Microsoft YaHei']);
     expect(_readConfig(config)['fontMode'], 'yahei');
 
-    // 主程序推一次官方变量（真实主程序在字体变化时推）：页面用同步 peek 读到它
-    runtime.channels.update('musicxx.ui.fontFamily', 'Microsoft YaHei');
+    // 主程序推一次官方频道（真实主程序在字体变化时推）：页面用同步 read 读到它
+    runtime.broadcasts.publish('musicxx.ui.fontFamily', 'Microsoft YaHei');
     await _pumpUntil(
       () async =>
           _rowOf(await viewOf('card'), '主程序生效字体')?['right'] ==
