@@ -32,7 +32,7 @@ namespace {
 
 /// 命名空间规则 单一实现在 host_naming.h
 ///
-/// 说明: 动作名不再做归属校验 (插件可以调任意名字的动作), 这里只保留事件主题的
+/// 说明: 名字不再做归属校验 (插件可以调任意名字), 这里只保留广播频道的
 /// 归属判定 (发布事件仍要求 `musicxx.*` 或自己命名空间)。
 using naming::isTopicOwnedBy;
 
@@ -64,7 +64,7 @@ const char *phaseNameOf(int32_t phase) {
 /// 一条 id 的派发属性
 ///
 /// 能力与广播各有一份声明, 同一个 id 也可能两样都写 (`musicxx.app.foreground` 这类
-/// 既是动作又是广播): 派发一律按广播处理 —— 广播只通知, 不回报结果。
+/// 既是能力又是广播): 派发一律按广播处理 —— 广播只通知, 不回报结果。
 struct CapabilityMeta {
   bool notifyOnly = false; ///< 广播: 只通知, 异步派发不回传结果
   uint32_t phases = 0;     ///< 开放的阶段位掩码
@@ -472,7 +472,7 @@ void *MusicxxHostManager::onAppCapabilityStart(
   }
   it->second.notifyOwner = std::move(holder);
   it->second.notify = it->second.notifyOwner.get();
-  /// 句柄只用来取消: 动作请求号是宿主自增的 int64, 放得进指针
+  /// 句柄只用来取消: 能力调用号是宿主自增的 int64, 放得进指针
   return reinterpret_cast<void *>(static_cast<intptr_t>(requestId));
 }
 
@@ -958,17 +958,17 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     }
   };
 
-  /// 观察型能力的执行镜像 (仅调试开关打开时回传; 默认关闭 → 零开销)
-  auto emitObserveMirror = [&](int32_t called) {
+  /// 通知型能力派发的调试回传 (仅调试开关打开时回传; 默认关闭 → 零开销)
+  auto emitNotifyDebugEvent = [&](int32_t called) {
     if (mode == DispatchMode::Notify &&
         (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
-      Json mirror;
-      mirror["capability"] = capabilityId;
-      mirror["phase"] = phaseNameOf(phase);
-      mirror["input"] = parseJsonSafe(inputJson);
-      mirror["called"] = called;
-      mirror["handlers"] = static_cast<int32_t>(handlers.size());
-      pushEvent("musicxx.capability.observe", "", mirror.dump());
+      Json debugEvent;
+      debugEvent["capability"] = capabilityId;
+      debugEvent["phase"] = phaseNameOf(phase);
+      debugEvent["input"] = parseJsonSafe(inputJson);
+      debugEvent["called"] = called;
+      debugEvent["handlers"] = static_cast<int32_t>(handlers.size());
+      pushEvent("musicxx.capability.observe", "", debugEvent.dump());
     }
   };
 
@@ -1022,7 +1022,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       }
       result["result"] = res;
     }
-    emitObserveMirror(called);
+    emitNotifyDebugEvent(called);
     return result.dump();
   }
 
@@ -1069,7 +1069,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       res["action"] = MUSICXX_PLUGIN_CAPABILITY_ACTION_DROP;
     }
     result["result"] = res;
-    emitObserveMirror(called);
+    emitNotifyDebugEvent(called);
     return result.dump();
   }
 
@@ -1152,8 +1152,8 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     result["result"] = merged;
   }
 
-  /// 观测回传: 观察型能力的执行镜像 (仅调试开关打开时回传)
-  emitObserveMirror(called);
+  /// 调试回传: 通知型能力的派发过程 (仅调试开关打开时回传)
+  emitNotifyDebugEvent(called);
   return result.dump();
 }
 
@@ -1231,7 +1231,7 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 主程序动作请求 (插件 → Dart) ==================== */
+/* ==================== 能力调用 (插件 → Dart) ==================== */
 
 int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
                                           std::string_view action,
@@ -1244,9 +1244,9 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
   }
   const std::string capabilityName{action};
   const std::string pluginId = pluginIdOf(inst->name);
-  /// 动作名不校验、不拒绝: 插件想调什么就调什么, 由 Dart 侧按"注册了没有"决定
-  /// 理不理它 (没注册的动作立刻回"未找到")。
-  /// 命名建议: 官方动作 `musicxx.<域>.<动作>`; 插件自己的动作用 `plugin.<包名>.*`
+  /// 名字不校验、不拒绝: 插件想调什么就调什么, 由 Dart 侧按"注册了没有"决定
+  /// 理不理它 (没注册的名称立刻回"未找到")。
+  /// 命名建议: 官方能力 `musicxx.<域>.<名字>`; 插件自己的力量用 `plugin.<包名>.*`
   /// 以免与别的插件撞名。
 
   const int64_t requestId = nextRequestId_++;
@@ -1277,7 +1277,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
         it->second.notify->done(it->second.notify->host_ud,
                                 PLUGINXX_OPERATOR_CANCELED, nullptr);
       }
-      XX_LOGW("[musicxx_ext] 动作请求超时: plugin={} action={} id={}", pluginId,
+      XX_LOGW("[musicxx_ext] 能力调用超时: plugin={} action={} id={}", pluginId,
               it->second.capability, requestId);
       Json payload;
       payload["requestId"] = requestId;
@@ -1293,7 +1293,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
   }
   inst->appCapabilityRequests.fetch_add(1);
 
-  /// 插件框架自己的网络能力与两条动作同名。这两条动作按**框架原生实现**回答
+  /// 插件框架自己的网络能力与两条能力同名。这两条按**框架原生实现**回答
   /// (与 JS `musicxx.net.fetch` / 动态库插件的 `iface.net` 同一份实现), 不再转给
   /// Dart —— 否则同名接口会有两套行为 (代理设置、TLS 选项、下载落盘位置都不一样)。
   /// 跑在框架的工作线程上, 不占插件与主程序的线程。

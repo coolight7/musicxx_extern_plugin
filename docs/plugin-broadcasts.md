@@ -6,7 +6,7 @@
 
 **广播** = 属主改了东西、通知所有关心的人。它没有返回值、不等待、允许丢中间值；
 要不要"当前值"由声明决定：`cache: latest` 的频道订阅时就能拿到当前值，也能同步读；
-`cache: none` 的是事件，只能等下一次通知。
+`cache: none` 没有当前值，只能等下一次通知。
 
 广播只做四件事：**声明自己的频道 / 发布 / 读当前值 / 订阅**。
 它**不提供写入**（没有"给别人的频道写值"这个操作，也没有回执）：
@@ -15,10 +15,10 @@
 
 | 字段 | 含义 |
 |---|---|
-| `cache` | `latest` = 有当前值（快照，只保留最后一份）；`none` = 只有事件 |
+| `cache` | `latest` = 有当前值（只保留最后一份）；`none` = 没有当前值，只能等下一次通知 |
 | `publish` | `owner` = 只有属主能发布；`anyone` = 任何人都能发布（共享频道） |
 | `pushOnSubscribe` | 订阅时立刻收到当前缓存值（仅 `cache: latest`） |
-| `coalesce` | 允许合并（允许丢中间值）；状态类频道一般写 `false`，每次发布都通知 |
+| `coalesce` | 允许合并（允许丢中间值）；带当前值的频道一般写 `false`，每次发布都通知 |
 | `scope` | `app` = 业务频道；`system` = 调试与自省频道（插件不能发布） |
 | `type` | 值的类型提示（`bool` / `number` / `string` / `json`，可选；只用于文档与自省） |
 | `options` | 枚举取值域（稳定 id，不用本地化文案；可选，只用于文档与自省） |
@@ -67,11 +67,10 @@
 | `musicxx.state.env` | latest | owner | 是 | 允许 | app | 已接入 |
 | `musicxx.state.renderSlots` | latest | owner | 是 | 允许 | app | 已接入 |
 | `musicxx.state.spectrum` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.event.published` | none | owner | 否 | 允许 | system | 已接入 |
 
-## 官方频道取值
+## 官方频道当前值
 
-官方频道（`musicxx.*`）都是 `cache: latest` + 订阅即推，`type` / `options` 说明值长什么样：
+下面这些频道带当前值（`cache: latest` + 订阅即推），`type` / `options` 说明值长什么样：
 
 | 广播 id | 类型 | 取值 | 要改它请调能力 |
 |---|---|---|---|
@@ -113,64 +112,64 @@
 
 ## 表外的频道（id 自己造）
 
-这张表只是**预设**：应用与插件都可以用表里没有的 id 发布 / 订阅，不需要事先登记。表外 id 的默认属性是「只有事件（`cache: none`）、属主能写、允许合并、作用域 `app`」；属主按 id 前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。
+这张表只是**预设**：应用与插件都可以用表里没有的 id 发布 / 订阅，不需要事先登记。表外 id 的默认属性是「没有当前值（`cache: none`）、只有属主能发布、允许合并、作用域 `app`」；属主按 id 前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。
 
 - 插件自定义频道：`plugin.<你的插件 id>.<名字>`（网络请求的进度 / 完成建议叫 `.net`），只有你能发，别的插件能订阅；
-- 应用自己的运行期频道（例如埋点旁路广播 `musicxx.point.<埋点 id>.<种类>`）同理，不需要在定义文件里占一行。
+- 应用自己的运行期频道（例如埋点广播 `musicxx.point.<埋点 id>.<种类>`）同理，不需要在定义文件里占一行。
 
-要快照（订阅时拿到当前值）/ 允许别人写这类属性时，才需要在定义文件的 `broadcasts` 里占一行。
+要当前值（订阅时就能拿到）/ 允许别人发布这类属性时，才需要在定义文件的 `broadcasts` 里占一行。
 
 ## 载荷（已接入的频道）
 
 ### `musicxx.app.start` 应用启动
 
-载荷 `{version, platform, branch, installId, lang}`。主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事，观察型没有裁决。
+载荷 `{version, platform, branch, installId, lang}`。主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事。它只通知，没有返回值，也不参与裁决。
 
 ### `musicxx.app.ready` 应用就绪
 
-载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后派发一次（比 `app.start` 晚），观察型。
+载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后发布一次（比 `app.start` 晚）；只通知，没有返回值。
 
 ### `musicxx.app.background` 应用进入后台
 
-载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。派发前快照频道已刷新（`musicxx.state.app.foreground` 为 false），处理器里同步读到的就是新状态；同一状态重复上报不会重复派发。观察型、异步：不等待处理器，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值用广播 `musicxx.app.lifecycle`（`cache: latest`，可订阅）或快照频道。
+载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。发布前会先更新广播 `musicxx.state.app`（`foreground` 为 false），订阅回调里同步读到的就是新状态；同一状态重复上报不会重复发布。只通知、异步：不等待订阅方，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值订阅广播 `musicxx.app.lifecycle`（`cache: latest`）或同步读 `musicxx.state.app`。
 
 ### `musicxx.app.foreground` 应用回到前台
 
-载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时派发一次；**只在前台与后台真的切换时**派发，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。观察型、异步：不等待处理器；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。
+载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时发布一次；**只在前台与后台真的切换时**发布，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。只通知、异步：不等待订阅方；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。
 
 ### `musicxx.app.lifecycle` 前后台状态
 
 值：`foreground` / `background`。应用在前台与后台之间切换时发布，订阅即拿到当前值。
 
-要“在后台待了多久 / 什么时候回前台”订阅广播 `musicxx.app.foreground`（载荷带 `backgroundMs`）或 `musicxx.app.background`；要完整快照读 `musicxx.state.app`。**只读**：应用的前后台状态由系统与应用自己决定，没有写入入口。
+要“在后台待了多久 / 什么时候回前台”订阅广播 `musicxx.app.foreground`（载荷带 `backgroundMs`）或 `musicxx.app.background`；要完整状态同步读 `musicxx.state.app`。**只读**：应用的前后台状态由系统与应用自己决定，没有写入入口。
 
 ### `musicxx.player.source.resolved` 音源解析完成
 
-载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后派发。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；观察型。
+载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后发布。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；只通知，没有返回值。
 
 ### `musicxx.player.state` 播放状态变化
 
-载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读快照频道 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个频道）。
+载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读广播 `musicxx.state.env.isPlaying`（布尔，`cache: latest`）。只在播放状态变化时发布（播放进度不走这条广播）。
 
 ### `musicxx.player.position` 播放进度
 
 载荷 `{sid, positionMs, durationMs}`：播放进度，**不限频**（播放内核上报一次就发布一次，暂停与缓冲时不推进；同一位置重复上报由应用按毫秒去重）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。
 
-**快照频道**：`cache: latest` + 订阅即推，订阅时先拿到当前值，之后按播放内核节奏收到新值；也能 `read` 读当前值。**订阅频率由订阅方自己声明**：`subscribe(id, fn, {intervalMs, mode})`——`intervalMs` = 通知间隔（0 = 不限），`mode` = `delay`（间隔内只留最新一条，到点补发，默认）/ `drop`（间隔内的通知直接丢掉）。只想要 1 秒一次就是 `{intervalMs: 1000, mode: "delay"}`。
+**这条广播带当前值**（`cache: latest`）：订阅即推，订阅时先拿到当前值，之后按播放内核节奏收到新值；也能 `read` 读当前值。**订阅频率由订阅方自己声明**：`subscribe(id, fn, {intervalMs, mode})`——`intervalMs` = 通知间隔（0 = 不限），`mode` = `delay`（间隔内只留最新一条，到点补发，默认）/ `drop`（间隔内的通知直接丢掉）。只想要 1 秒一次就是 `{intervalMs: 1000, mode: "delay"}`。
 
-**广播是只读的**：要跳转 / 拖动进度，调用能力 `musicxx.player.seek`（参数 `positionMs` / `percent`），广播侧没有写入入口。它只报进度、不报状态：要判断“是否在播放”读快照频道 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播频道 `musicxx.player.state`。
+**广播是只读的**：要跳转 / 拖动进度，调用能力 `musicxx.player.seek`（参数 `positionMs` / `percent`），广播侧没有写入入口。它只报进度、不报状态：要判断“是否在播放”读广播 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播 `musicxx.player.state`。
 
 ### `musicxx.player.completed` 一曲播放完成
 
-载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。
+载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后发布；只通知，没有返回值。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。
 
 ### `musicxx.song.changed` 切歌
 
-载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前插件框架会先刷新快照频道，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。
+载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时发布；发布前插件框架会先更新广播 `musicxx.state.song`，所以订阅回调里同步读到的就是新歌。只通知，没有返回值。
 
 ### `musicxx.media.cover.changed` 封面变化
 
-载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.broadcast.unsubscribe("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉订阅）。
+载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时发布一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调能力 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。只通知、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复发布。用 `musicxx.broadcast.unsubscribe("musicxx.media.cover.changed")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉订阅）。
 
 ### `musicxx.ui.animatedLevel` 动画等级
 

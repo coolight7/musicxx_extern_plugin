@@ -2,7 +2,7 @@
 ///
 /// 见 js_engine.h 的设计说明。本文件包含四部分:
 /// 1. 进程级内置槽位表 (`js:<pluginId>` 的合成内置插件描述);
-/// 2. 共享 JS 线程与任务/定时器/动作超时循环;
+/// 2. 共享 JS 线程与任务/定时器/能力调用超时循环;
 /// 3. `musicxx` 全局对象的 JS 预置代码 (prelude) 与 C 桥接原语;
 /// 4. 实例生命周期 (建 runtime → 执行脚本 → 回放注册 → 停止时摘除注册并释放
 /// runtime)。
@@ -670,7 +670,7 @@ var featurePointImpls = new Map();
 
   /// 歌词：当前歌曲的歌词信息与内容、选拟声云歌词、改这首歌的偏移、
   /// 临时设置歌词内容、按歌词源读取、搜索云歌词。
-  /// 动作名统一在 `musicxx.lyric.*`（旧的 `musicxx.lyrics.*` 已删除，不保留别名）。
+  /// 名字统一在 `musicxx.lyric.*`（旧的 `musicxx.lyrics.*` 已删除，不保留别名）。
   musicxx.lyric = {
     current: {
       /// 当前歌曲的歌词信息和内容（`{limit?, word?}`；`index` 是 `lines` 里的下标）
@@ -730,7 +730,7 @@ var featurePointImpls = new Map();
 
   /* ---- 网络能力 (插件框架内置: HTTP / TCP / WebSocket) ----
    *
-   * 所有联网能力都由**插件框架自己**提供, 不再经过主程序的动作:
+   * 所有联网能力都由**插件框架自己**提供, 不再经过应用实现的能力:
    * - `musicxx.net.fetch` / `download` 与 `http.request` 同一套实现 (支持 https);
    * - http / socket / ws 是插件框架自己的 socket 实现 (http / https / ws / wss),
    *   好处是能与本地服务、TCP、WebSocket 一起用;
@@ -1052,7 +1052,7 @@ var featurePointImpls = new Map();
     }
   };
 
-  // 等用户操作的动作用的预算（毫秒）：缺省 10 分钟，调用方可以自己给
+  // 等用户操作的调用用的预算（毫秒）：缺省 10 分钟，调用方可以自己给
   function waitUserBudget(timeoutMs) {
     return (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 600000;
   }
@@ -1069,7 +1069,7 @@ var featurePointImpls = new Map();
     },
     // 浮层 (代码打开一层 sheet, 等用户关掉它; 返回 { ok, reason, value? })
     // - args: { preset, id, title, depict, blocks, options, value, textConfirm, textCancel, size, dismissible }
-    // - 参数全部同动作 musicxx.ui.overlay.show，页面里的块也可以用 command 动作指向它
+    // - 参数全部同能力 musicxx.ui.overlay.show，页面里的块也可以用 command 动作指向它
     overlay: function (args, timeoutMs) {
       return appCall("musicxx.ui.overlay.show", args || {}, waitUserBudget(timeoutMs));
     },
@@ -1297,7 +1297,7 @@ var featurePointImpls = new Map();
     },
     call: function (pluginId, name, args, timeoutMs) {
       assertName(pluginId, "capability.call");
-      /// 应用实现的能力：第一个参数直接写能力 id（`musicxx.<域>.<动作>`），
+      /// 应用实现的能力：第一个参数直接写能力 id（`musicxx.<域>.<名字>`），
       /// 后面是 `(id, args?, timeoutMs?)`。插件 id 不会以 `musicxx.` 开头，两种写法不撞。
       if (pluginId.indexOf("musicxx.") === 0) {
         var appArgs = (name === undefined || name === null) ? {} : name;
@@ -1512,7 +1512,7 @@ var featurePointImpls = new Map();
   ///
   /// - `waitId` 只有裁决型能力才有 (插件框架一直等到结果); 广播频道为空字符串/undefined;
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.implementationWaitResolve` 交回结果;
-  ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (观察型本来就不看返回值);
+  ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (通知型本来就不看返回值);
   /// - 插件框架不设等待超时: Promise 结算多晚都会被接住。
   ext.invokeImplementation = function (capabilityId, phase, inputJson, waitId) {
     var entry = implementationTable.get(implementationKey(capabilityId, phase || "impl"));
@@ -2306,7 +2306,7 @@ std::shared_ptr<JsEngine> JsEngine::create(MusicxxHostManager *mgr) {
   slotTable().engine.store(engine.get(), std::memory_order_release);
   installBuiltinProvider();
   if (mgr) {
-    /// 动作请求接驳口: JS 侧已发出、还没收到回复的请求由引擎自己登记, Dart 的回复经它转交
+    /// 能力调用接驳口: JS 侧已发出、还没收到回复的请求由引擎自己登记, Dart 的回复经它转交
     mgr->setInternalAppCapabilityRelay(engine);
   }
   return engine;
@@ -2663,7 +2663,7 @@ void JsEngine::expireActions() {
     }
   }
   for (auto &item : expired) {
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 的动作请求超时: {} (id={})",
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 的能力调用超时: {} (id={})",
             item.pluginId, item.capability, item.requestId);
     const auto inst = lookupInstance(item.instance);
     if (inst) {
@@ -4202,7 +4202,7 @@ void PLUGINXX_CALL JsEngine::builtinDestroy(void *ctx) {
   }
 }
 
-/* ==================== 动作请求 (JS 侧) ==================== */
+/* ==================== 能力调用 (JS 侧) ==================== */
 
 int32_t JsEngine::requestAppCapability(MusicxxHostInstance *inst,
                                 const std::string &action,

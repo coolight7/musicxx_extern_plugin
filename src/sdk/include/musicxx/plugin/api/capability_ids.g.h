@@ -68,11 +68,11 @@
 #define MUSICXX_CAPABILITY_CONSENT_NONE 0
 #define MUSICXX_CAPABILITY_CONSENT_ASK  1
 
-/* ==================== 广播的缓存与写权限 ==================== */
+/* ==================== 广播的缓存与发布权限 ==================== */
 
-/// 事件：没有当前值
+/// 没有当前值：每次发布都通知
 #define MUSICXX_BROADCAST_CACHE_NONE   0
-/// 快照：订阅即拿到当前值，也能同步读
+/// 有当前值：订阅即拿到，也能同步读
 #define MUSICXX_BROADCAST_CACHE_LATEST 1
 
 /// 只有属主能发布
@@ -254,7 +254,6 @@
 #define MUSICXX_BROADCAST_STATE_ENV "musicxx.state.env"
 #define MUSICXX_BROADCAST_STATE_RENDER_SLOTS "musicxx.state.renderSlots"
 #define MUSICXX_BROADCAST_STATE_SPECTRUM "musicxx.state.spectrum"
-#define MUSICXX_BROADCAST_EVENT_PUBLISHED "musicxx.event.published"
 
 /* ==================== 已知声明表 ==================== */
 
@@ -457,7 +456,6 @@ static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
     {"musicxx.state.env", 1, 0, 1, 1, 0, 1},
     {"musicxx.state.renderSlots", 1, 0, 1, 1, 0, 1},
     {"musicxx.state.spectrum", 1, 0, 1, 1, 0, 1},
-    {"musicxx.event.published", 0, 0, 0, 1, 1, 1},
 };
 
 /// 已知广播条目数

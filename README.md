@@ -12,7 +12,7 @@
 |---|---|
 | 给 **AI Agent / 自动化脚本** 的浓缩指南（插件框架是什么 / 框架怎么跑 / 插件怎么写 / 命令 / 排障） | [AGENTS.md](AGENTS.md) |
 | **第一次写插件**（选形态 / 环境准备 / 第一个插件 / 注意事项 / 发布检查） | [docs/plugin-guide.md](docs/plugin-guide.md) |
-| **查某个接口做什么、参数是什么、怎么用**（能力与广播：快照频道 / 官方值频道 / 动作 / 事件 / 插件服务 / 功能点 / 应用来问插件，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
+| **查某个接口做什么、参数是什么、怎么用**（能力与广播，两种形态共用） | [docs/plugin-api.md](docs/plugin-api.md) |
 | 写一个 **动态库插件**（清单 / SDK / 线程 / 构建 / 常用接口的 C++ 写法） | [docs/plugin-native-api.md](docs/plugin-native-api.md) |
 | 写一个 **JS插件**（零编译，一个目录即可） | [docs/plugin-js-api.md](docs/plugin-js-api.md) |
 | 给 **播放页背景 / 页面内联块** 写**着色器**（shader bundle） | [docs/plugin-shader-bundle.md](docs/plugin-shader-bundle.md) |
@@ -30,7 +30,7 @@
 - **两种插件形态**：
   - 动态库插件（同进程、能自己起线程；桌面端与 Android 可以加载，iOS 只允许加载应用包内、与主程序同签名身份的库，用户装的库通常会被系统拒绝）；一般使用 C/C++ 等语言开发，高性能/高权限/高自由，但开发难度高，且需要对不同系统平台适配编译动态库
   - JS插件（无需编译、跨平台、处理器可以同步返回也可以返回 Promise）
-  - 两者共用同一套能力、广播、UI、主程序动作约定；
+  - 两者共用同一套能力、广播、UI 约定；
 - **插件不写 Flutter 代码**：界面靠声明（UI 项 + 插件页面）/ shader 由主程序渲染；
 - **动态加载 shader 支持**：插件可以利用 `flutter_gpu` 编译 shader，并打包进插件安装包内，主程序可以在运行时动态加载并渲染
 - **插件框架是可选功能**：插件框架库缺失或初始化失败时主程序照常启动，只是没有加载外部插件。
@@ -50,7 +50,7 @@ src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖�
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
 src/tests/           原生测试（test_host.cpp，不依赖 Dart；被测插件就是 `plugins/` 下的那些 example_*）
 src/third_party/     依赖子模块（cxx_pluginxx / cxx_utilxx_base / fmt / yaml-cpp / simdjson / libiconv-native / uchardet / quickjs）
-lib/                 Dart 侧（FFI 绑定 + 运行时/管理器/能力/状态/动作；插件界面模型来自子模块的
+lib/                 Dart 侧（FFI 绑定 + 运行时 / 管理器 / 能力 / 广播；插件界面模型来自子模块的
                      pluginxx_ui，经 lib/pluginxx_ui.dart 转发；bindings_generated.dart 与
                      capability_ids.g.dart 为生成物）
 schema/              musicxx 扩展 kit 的定义（musicxx-ui-kit.def.json；改完跑 tools/gen_ui_kit.ps1）
@@ -59,7 +59,7 @@ test/                Dart 侧测试（ui_model_test.dart 纯模型单测；host_
                      整套流程验证；plugin_config_test.dart 覆盖示例插件的设置读写往返与重新加载后的
                      持久化；multi_isolate_test.dart 覆盖多 isolate 并发调用）
 plugins/            官方插件与示例（**每个子目录一个插件**，目录名 = 插件 id = 清单 name；见该目录 README）
-  example_native/   示例插件（C++，演示能力/快照频道/日志/事件订阅/声明式 UI）
+  example_native/   示例插件（C++，演示能力/广播/日志/声明式 UI）
   example_native_multi/ 示例插件（C++，多目标打包：包内多个系统/架构分支，运行时按系统与架构选分支）
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝加载）
@@ -73,7 +73,7 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_js_net/   示例插件（JS：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的客户端与服务端，载入后自动跑一遍本机自检）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
 docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个插件 / 注意事项 / 调试 / 发布前检查清单）
-docs/plugin-api.md 两种形态共用的接口手册（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障）
+docs/plugin-api.md 两种形态共用的接口手册（能力与广播 / 约定 / 通用排障）
 docs/plugin-capabilities.md 能力总表（生成物：id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答）
 docs/plugin-broadcasts.md 广播总表（生成物：频道 / 有没有当前值 / 谁能发布 / 载荷与取值域 / 改它调哪个能力）
 docs/plugin-native-api.md 动态库插件作者指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
@@ -482,7 +482,7 @@ flutter build macos --release  # → musicxx.app/Contents/Frameworks/libmusicxx_
 
 macOS 与其它桌面的差别（改这块之前先看这两处）：
 
-- **复制进应用包的动作由主程序的 Runner 工程做**：`macos/Runner.xcodeproj` 里名为 `musicxx-extern-plugin`
+- **复制进应用包这一步由主程序的 Runner 工程做**：`macos/Runner.xcodeproj` 里名为 `musicxx-extern-plugin`
   的构建阶段调用 `macos/tool/copy_extern_plugin_dylib.sh`（与 `musicxx-cli` 阶段同一套路）。macOS 的 Flutter
   插件走 CocoaPods，pod 里的脚本阶段拿不到应用包的输出目录，所以 Windows/Linux 那种"包内 CMakeLists 交给
   `PLUGIN_BUNDLED_LIBRARIES`"在 macOS 上没有对应物；目标位置是 `musicxx.app/Contents/Frameworks/`
@@ -581,7 +581,7 @@ my_plugin/
 ```
 
 不需要 CMake、不需要编译；放进插件目录后「重新扫描」即可。完整 API、硬约束与排障见
-[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（动作 / 快照频道 / 官方值频道 / 事件 / 能力 / 功能点）
+[docs/plugin-js-api.md](docs/plugin-js-api.md)；接口本身（能力 / 广播 / 功能点）
 见 [docs/plugin-api.md](docs/plugin-api.md)。
 
 ### 着色器（播放页背景 / 页面内联块）
@@ -625,7 +625,7 @@ musicxx-cli plugin uninstall my_plugin                                          
 完整命令表、MCP 工具名与参数、退出码约定见
 [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md)。
 
-参考实现：`plugins/example_native/`（能力/动作/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
+参考实现：`plugins/example_native/`（能力/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
 `plugins/example_js_shader/`（只演示播放页背景与动画速率；三种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`、
 插件纹理铺底复用 `bg.frag`）、
 `plugins/playing_bg_image/`（显示名『示例封面背景』：三种播放页背景模式『模糊』/『沉浸』/『黑胶』+ 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景三色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：
@@ -709,17 +709,16 @@ final Map<String, Object?>? asyncVerdict = await runtime.capabilities.dispatchAs
   MusicxxCapabilityId.playerSourceBeforeParse, <String, Object?>{'sid': sid});
 ```
 
-快照频道与动作：
+状态广播与能力：
 
 ```dart
 runtime.broadcasts.publish(MusicxxBroadcastId.stateSong, songView);   // 相同值会跳过
-runtime.broadcasts.publish(MusicxxBroadcastId.statePlayer, view);     // 高频键自己节流
-runtime.state.updateBatch({...});                                    // 同帧多键合并成一次调用
+runtime.broadcasts.publish(MusicxxBroadcastId.statePlayer, view);     // 高频值自己节流
 
-// 事件频道（`cache: none`，例如切歌通知）用 broadcasts.publish 发；订阅方是插件
+// 没有当前值的频道（`cache: none`，例如切歌通知）也用 broadcasts.publish 发；订阅方是插件
 runtime.broadcasts.publish('musicxx.song.changed', <String, Object?>{'sid': sid});
 
-// 注册主程序动作实现（插件经 request_action 发起；未注册的动作会立刻收到"未找到"）
+// 注册应用实现的能力（插件经 `musicxx.capability.call` 发起；没注册的名字会立刻收到"未找到"）
 runtime.appCapabilities.register(MusicxxCapabilityId.playerToggle, (invocation) async {
   await player.playOrPause();
   return <String, Object?>{'ok': true};
@@ -804,9 +803,9 @@ final List<MusicxxPluginUIItem> next =
 | 能力 | 入口 | 说明 |
 |---|---|---|
 | 能力（裁决型） | `MusicxxPlugin::implement` + `musicxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；实现可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
-| 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 观察型（通知）就是广播频道：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
+| 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 属主发布、订阅方收到：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 应用实现的能力 | `musicxx.capability.call` / `PluginBase::capabilityCall` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（应用分派；不做权限校验） |
-| 快照频道 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读快照（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
+| 状态广播 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |
 | 内置网络能力 | `musicxx.net.http/socket/ws/udp`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket / UDP 的客户端与**服务端**；客户端支持 `https` / `wss`，**服务端只监听明文**且默认只绑回环；UDP 可广播 / 组播；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |

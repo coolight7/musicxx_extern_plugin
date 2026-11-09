@@ -55,7 +55,7 @@ class MusicxxPluginRuntimeConfig {
 
   /// 客户端界面能力段（JSON 文本；界面描述层库生成）
   ///
-  /// 插件框架原样转发：插件在 `musicxx.host.info().ui`（原生插件走 `host.info` 动作）
+  /// 插件框架原样转发：插件在 `musicxx.host.info().ui`（原生插件读 `musicxx.host` 表的 `get_info`）
   /// 里读到它，据此决定该给什么界面内容。空串 = 不发布这个字段。
   final String uiCapabilities;
 
@@ -71,7 +71,7 @@ class MusicxxPluginRuntimeConfig {
   /// 允许 JS 插件
   final bool enableJs;
 
-  /// 是否向 Dart 回传观测事件（observe 能力/事件镜像；默认关，零开销）
+  /// 是否向 Dart 回传调试事件（通知型能力的派发过程；默认关，零开销）
   final bool observeEvents;
 
   /// 事件队列容量（0 = 插件框架默认 16384）
@@ -119,7 +119,7 @@ class MusicxxPluginApiException implements Exception {
 /// 外部插件框架运行时
 ///
 /// 生命周期：[init] → 用 [plugins]/[capabilities]/[state]/[actions] →
-/// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把能力/动作接到业务上。
+/// [dispose]。Dart 侧只做三件事：加载原生库、泵事件、把能力接到业务上。
 ///
 /// **一次生命周期一个实例**：一个运行时 [dispose] 之后不能再 [init]（事件流、
 /// 能力实现链、事件序号都已经收尾）。需要"停掉插件框架再启动"时必须用 [create]
@@ -325,7 +325,7 @@ class MusicxxPluginRuntime {
     }
     _pollFallback = Timer.periodic(const Duration(milliseconds: 200), (_) {
       // 唤醒回调可用时事件由原生侧主动推过来，这个定时器只是兜底：只有"有东西在等
-      // 结果"（异步裁决、异步动作回复）时才需要它；没有未决请求时不排帧、不做 FFI。
+      // 结果"（异步裁决、能力调用的回复）时才需要它；没有未决请求时不排帧、不做 FFI。
       // 唤醒回调没注册成功时必须每轮都取，否则事件永远拿不到。
       if (false == _shouldPollFallback()) {
         return;
@@ -464,7 +464,7 @@ class MusicxxPluginRuntime {
     });
   }
 
-  /// 现在有没有"等插件框架答复"的东西（异步派发的结果、异步动作回复）
+  /// 现在有没有"等插件框架答复"的东西（异步派发的结果、能力调用的回复）
   ///
   /// 只有等结果时才需要兜底轮询：结果就是经事件回传的，没人等的时候事件会由唤醒
   /// 回调即时送达（或等下一次真正的调用再取）。
@@ -546,7 +546,7 @@ class MusicxxPluginRuntime {
       _eventLog.removeRange(0, _eventLog.length - 512);
     }
 
-    // 内部订阅者（插件框架维护的位图/动作分发）先处理，异常隔离后继续广播
+    // 内部订阅者（插件框架维护的位图 / 能力分发）先处理，异常隔离后继续广播
     try {
       switch (event.type) {
         case MusicxxPluginEventType.capabilityChanged:

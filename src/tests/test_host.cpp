@@ -1345,7 +1345,7 @@ int main(int argc, char **argv) {
           "普通曲目无 skip 裁决");
   }
 
-  // 观察型能力 (异步派发)
+  // 通知型能力 (异步派发)
   {
     MusicxxExternPluginString out{};
     const std::string payload = R"({"sid":"s3","song":{"name":"观察目标"}})";
@@ -1419,7 +1419,7 @@ int main(int argc, char **argv) {
           "未知能力无处理器");
   }
 
-  // 快照频道
+  // 带当前值的广播
   {
     const std::string key = "musicxx.state.song";
     const std::string val = R"({"sid":"s1","name":"镜像歌曲"})";
@@ -1625,9 +1625,9 @@ int main(int argc, char **argv) {
           "他人命名空间事件发布被拒绝");
     check(jsonIntField(probe, "pingEvents") == "1", "插件收到插件框架发布的事件");
     check(jsonIntField(probe, "stateEvents") != "0",
-          "快照频道变化通知到订阅插件");
-    // 快照频道可被插件同步读到 (上一段推送过 musicxx.state.song)
-    check(jsonIntField(probe, "stateLen") != "0", "插件可同步读快照频道");
+          "带当前值的频道变化会通知订阅插件");
+    // 带当前值的频道可被插件同步读到 (上一段推送过 musicxx.state.song)
+    check(jsonIntField(probe, "stateLen") != "0", "插件可同步读带当前值的频道");
   }
 
   // 动作请求超时保护: 插件请求 → Dart 不回复 → 插件框架到点终结并推
@@ -1786,7 +1786,7 @@ int main(int argc, char **argv) {
   // ==================== JS 插件 (零编译) ====================
   //
   // 同一套用例在原生插件与 JS 插件上都跑: decision 裁决、observe
-  // 通知、能力探针、 快照频道读取、事件订阅、定时器、禁用/卸载摘除。
+  // 通知、能力探针、当前值读取、广播订阅、定时器、禁用/卸载摘除。
   {
     MusicxxExternPluginString loadLog{};
     const auto jsLoadRc = musicxx_extern_plugin_plugin_load_sync(
@@ -1851,7 +1851,7 @@ int main(int argc, char **argv) {
 
     // 广播频道 (异步): 切歌通知 + 脚本日志
     //
-    // 观察型能力在框架 API 2 之后就是广播频道, 所以这里发布广播
+    // 通知型能力在框架 API 2 之后就是广播频道, 所以这里发布广播
     // （与 Dart 侧 app 推 `musicxx.song.changed` 走的是同一条路）。
     {
       const std::string payload =
@@ -1869,7 +1869,7 @@ int main(int argc, char **argv) {
             "JS 广播订阅已执行 (切歌通知)");
     }
 
-    // 能力探针 (Dart → JS): 自检信息 + 快照频道同步读
+    // 能力探针 (Dart → JS): 自检信息 + 频道当前值同步读
     {
       const CapabilityCallOutcome probeCall =
           callCapability(host, "example_js", "probe", "{}", 8000);
@@ -1883,7 +1883,7 @@ int main(int argc, char **argv) {
       check(jsonIntField(probe, "songChangedCount") == "1",
             "JS 广播订阅计数为 1 (订阅真的收到了)");
       check(jsonStringField(probe, "currentSongName") == "镜像歌曲",
-            "JS 同步读快照频道 (musicxx.state.song)");
+            "JS 同步读频道当前值 (musicxx.state.song)");
       check(jsonStringField(probe, "hostPlatform") == testPlatform(),
             "JS 读到插件框架信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 插件框架线程回放)

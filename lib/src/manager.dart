@@ -194,7 +194,7 @@ class MusicxxPluginManager {
     });
   }
 
-  /// 启用插件（重新执行插件 `start` 事务，插件借此重新注册钩子/能力/订阅）
+  /// 启用插件（重新执行插件 `start` 事务，插件借此重新注册能力 / 订阅）
   void enable(String id) {
     _requireRunning('plugin_enable');
     _withArena((
@@ -281,7 +281,8 @@ class MusicxxPluginManager {
   }
 
   /// 插件配置文件路径（管理页/插件自读配置用）
-  String configPath(String id) {    _requireRunning('plugin_get_config_path');
+  String configPath(String id) {
+    _requireRunning('plugin_get_config_path');
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> out = arena.outString();
@@ -372,10 +373,7 @@ class MusicxxPluginManager {
           return;
         }
         // 到点只是"调用方不再等了"：目标插件照它自己的节奏跑完，结果丢弃（不是取消）
-        _runtime.log(
-          3,
-          '能力调用超时，结果丢弃: $id.$method #$requestId',
-        );
+        _runtime.log(3, '能力调用超时，结果丢弃: $id.$method #$requestId');
         pending.completeError(
           MusicxxPluginApiException(
             -5,
@@ -392,7 +390,7 @@ class MusicxxPluginManager {
     }
   }
 
-  /// 资源与耗时统计快照（各阶段耗时/钩子耗时/注册项/计数器；只观测不限制）
+  /// 资源与耗时统计快照（各阶段耗时 / 能力耗时 / 注册项 / 计数器；只统计不限制）
   Map<String, Object?> stats({Map<String, Object?>? scope}) {
     _requireRunning('stats');
     final MusicxxPluginArena arena = MusicxxPluginArena();

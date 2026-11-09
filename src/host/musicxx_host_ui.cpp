@@ -10,7 +10,7 @@
 /// - **命名空间校验**: 项 id 必须是本插件命名空间 (`plugin.<pluginId>.<名>`),
 /// 短名由插件框架补前缀;
 ///   动作里的 `route` 允许指向**任意插件**的 `ext://<插件id>/<视图id>` 页面
-///   (页面由被跳转插件自己绘制), `action` 只允许官方 `musicxx.*` 动作;
+///   (页面由被跳转插件自己绘制), `action` 只允许官方 `musicxx.*` 能力;
 /// - **结构校验在注册时做**: data 必须是 JSON 对象且按类型含必需字段 (title
 /// 等),
 ///   早报错好过让 Dart 侧渲染时才发现;
@@ -166,7 +166,7 @@ bool validatePlayingRenderData(std::string_view label, const Json &data,
 /// - `{"kind":"dispatch","name":"<本插件能力短名>","args":{...}}` —— 交回本插件处理;
 /// - `{"kind":"route","route":"ext://<插件id>/<视图id>"}` —— 允许指向任意插件
 ///   (含自己): 页面由被跳转插件自己绘制, 发起方只是把它打开;
-/// - `{"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}` —— 主程序动作;
+/// - `{"kind":"command","name":"musicxx.<域>.<能力>","args":{...}}` —— 主程序能力;
 /// - `{"kind":"none"}`
 bool validateAction(const Json &action, std::string_view pluginId,
                     std::string &err) {
@@ -174,9 +174,9 @@ bool validateAction(const Json &action, std::string_view pluginId,
     return true; ///< 没有动作 = 纯展示项
   }
   if (action.is_string()) {
-    /// 短写形态: 必须给出非空动作名
+    /// 短写形态: 必须给出非空的能力短名
     if (action.get<std::string>().empty()) {
-      err = "短写动作必须是插件能力的非空短名";
+      err = "短写形态必须给出插件能力的非空短名";
       return false;
     }
     return true;
@@ -229,9 +229,9 @@ bool validateAction(const Json &action, std::string_view pluginId,
       err = "command 动作缺少 name 字段";
       return false;
     }
-    // 官方动作只能调 `musicxx.*`; 插件自定义能力用默认的 dispatch 形态
+    // 官方能力只能调 `musicxx.*`; 插件自定义能力用默认的 dispatch 形态
     if (!naming::isOfficial(action["name"].get<std::string>())) {
-      err = "command 动作必须使用官方名称 (musicxx.<域>.<动作>)";
+      err = "command 必须使用官方能力名称 (musicxx.<域>.<能力>)";
       return false;
     }
     return true;
@@ -496,7 +496,7 @@ int32_t MusicxxHostManager::notifyUi(MusicxxHostInstance *inst,
   if (!parseOk || !data.is_object()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
   }
-  // 轻提示是 fire-and-forget: 走动作请求通道, Dart 侧执行 `musicxx.ui.toast`,
+  // 轻提示是 fire-and-forget: 走能力请求通道, Dart 侧执行 `musicxx.ui.toast`,
   // 结果不回传 (回复会落在"未登记的请求"上, 由插件框架按调试日志忽略)
   const std::string pluginId = pluginIdOf(inst->name);
   int64_t effectiveTimeout = 0;

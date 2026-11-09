@@ -40,7 +40,7 @@ abstract final class MusicxxPluginEventType {
   /// 能力处理器注册表变化（Dart 侧据此维护"是否有处理器"位图）
   static const String capabilityChanged = 'musicxx.capability.changed';
 
-  /// 广播派发（受调试开关控制，默认仅 debug 构建回传）
+  /// 广播派发的调试回传（受调试开关控制，默认只在 debug 构建回传）
   static const String capabilityObserve = 'musicxx.capability.observe';
 
   /// 异步派发完成
@@ -69,16 +69,13 @@ abstract final class MusicxxPluginEventType {
   /// 没人听时就不必构造载荷与发布（应用内部订阅由 Dart 注册表自己服务）。
   static const String broadcastSubscribers = 'musicxx.broadcast.subscribers';
 
-  /// 插件请求状态刷新
-  static const String stateRequest = 'musicxx.state.request';
-
   /// JS 控制台输出（受调试开关控制）
   static const String jsConsole = 'musicxx.js.console';
 
   /// 周期性统计上报（默认关闭）
   static const String statsReport = 'musicxx.stats.report';
 
-  /// 事件总线发布镜像（受调试开关控制）
+  /// 广播发布的调试回传（受调试开关控制）
   static const String eventPublished = 'musicxx.event.published';
 }
 

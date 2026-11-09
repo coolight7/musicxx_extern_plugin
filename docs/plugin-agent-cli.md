@@ -105,7 +105,7 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 | `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `app.logs` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
 | `musicxx-cli call capability.list [--args '{"provided":true}']` | `capability.list` | 功能点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`）；`broadcasts` 是主程序自己注册的广播订阅（只收通知，不参与实现，插件不能注册） |
 | `musicxx-cli capability.call <功能点id> --args JSON [--refresh]` | `capability.call` | **调一个功能点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
-| `musicxx-cli capability.subscribers <能力id> [--phase before\|impl\|after]` | `capability.subscribers` | 这条能力现在谁在实现、在哪个阶段、排第几（每项带 `phase`）；插件里用动作 `musicxx.capability.subscribers` |
+| `musicxx-cli capability.subscribers <能力id> [--phase before\|impl\|after]` | `capability.subscribers` | 这条能力现在谁在实现、在哪个阶段、排第几（每项带 `phase`）；插件里用能力 `musicxx.capability.subscribers` |
 
 ## 5. 常用做法
 
@@ -210,7 +210,7 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 | `musicxx-cli toast <文本>` | 在应用界面上弹一条提示（对照插件的 `musicxx.ui.toast`） |
 | `musicxx-cli broadcast list` / `broadcast read <频道id>` | 看广播频道的当前值与订阅数（与插件的 `read` 对照） |
 | `musicxx-cli feature call GetAudioSpectrum --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
-| `musicxx-cli kernel` | 看应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**、解码器与认得的音视频后缀（与插件动作 `musicxx.media.kernel` 同一份数据；这份 ffmpeg 是裁剪构建，写音效前先确认名字在不在） |
+| `musicxx-cli kernel` | 看应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**、解码器与认得的音视频后缀（与插件能力 `musicxx.media.kernel` 同一份数据；这份 ffmpeg 是裁剪构建，写音效前先确认名字在不在） |
 
 ### 5.7 取一次应用的功能结果（`capability.call`）
 
@@ -245,7 +245,7 @@ musicxx-cli capability.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
   `bad_args`（参数不对）/ `no_impl`（现在没有实现）/ `canceled`（被某个实现拦下）/
   `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`；
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 调一次封面取色**不会**换掉用户看到的
-  背景色（要改观感请用动作 `musicxx.media.palette.set`）；
+  背景色（要改观感请用能力 `musicxx.media.palette.set`）；
 - 默认超时 60 秒，频谱要解码整曲、慢的话用 `--timeout` 加长；`--refresh` 跳过值仓重新算一遍；
 - 结果不进值仓、不写入磁盘：要长期留着就自己重定向到文件。
 
@@ -289,8 +289,8 @@ musicxx://play/?search=%E6%99%B4%E5%A4%A9
 - **退出码**：`0` 成功 / `1` 参数错误（CLI 自己发现的）/ `2` 应用没在运行 / `3` 等响应超时 /
   `4` 命令执行失败（原因在 stderr）/ `5` 协议不匹配（CLI 与主程序版本差太多）；
 - 命令名是**自描述**的：`musicxx-cli list --json` 里有全部命令与参数，不要硬编码参数表；
-- **这几条命令不在插件的动作表里**：插件里 `musicxx.capability.call("externPlugin.install", …)` 只会得到
-  "动作未注册"。装插件 = 执行任意代码，这条通道只留给本机命令行与 MCP（主程序有意如此，
+- **这几条命令不在插件的能力表里**：插件里 `musicxx.capability.call("externPlugin.install", …)` 只会得到
+  "能力未注册"。装插件 = 执行任意代码，这条通道只留给本机命令行与 MCP（主程序有意如此，
   不是遗漏）。
 
 ## 7. MCP（给只会 stdio 的 AI 客户端）

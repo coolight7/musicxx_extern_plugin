@@ -473,8 +473,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString* log
     );
 
-/* ==================== 动作请求 (插件 → Dart) ==================== */
-/// 回复插件发起的动作请求 (status 见错误码; result_json 可为空)
+/* ==================== 能力请求 (插件 → Dart) ==================== */
+/// 回复插件发起的能力请求 (status 见错误码; result_json 可为空)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_capability_app_respond(
         MusicxxExternPluginHost*              h,

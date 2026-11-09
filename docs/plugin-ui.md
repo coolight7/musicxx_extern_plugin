@@ -84,7 +84,7 @@ musicxx.ui.registerEntry({
 ```js
 musicxx.ui.updateEntry("card", { ...完整 data... });  // 整体替换，不是合并
 musicxx.ui.unregisterEntry("card");
-musicxx.ui.entries();                                  // 本插件已注册的项（脚本侧镜像）
+musicxx.ui.entries();                                  // 本插件已注册的项（脚本侧副本）
 ```
 
 > `updateEntry` 是**整体替换**：只想改一个字段也要把完整的 `data` 传回去，否则剩下的字段会丢。
@@ -100,7 +100,7 @@ musicxx.ui.entries();                                  // 本插件已注册的�
 | `"openSettings"` | — | **字符串短写**，等于 `dispatch`：调用本插件的能力 |
 | `{"kind":"dispatch"}` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
 | `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面，**允许指向任意插件**（含自己）：跨插件时页面由对方插件自己绘制、发起方拿不到对方的数据。与动作 `musicxx.ui.openRoute` 同一套规则 |
-| `{"kind":"command"}` | `name: "musicxx.<域>.<动作>"`, `args?` | 执行主程序动作（与插件自己调 `musicxx.capability.call` 同一份实现） |
+| `{"kind":"command"}` | `name: "musicxx.<域>.<名字>"`, `args?` | 调应用实现的能力（与插件自己调 `musicxx.capability.call` 同一份实现） |
 | `{"kind":"none"}` / 不写 | — | 纯展示项，点了没有动作 |
 
 - 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与视图 id；`dispatch` 必须有非空 `name`；
@@ -316,7 +316,7 @@ capability(*this, "plugin.my_plugin.settings",
 - **公共字段 `visible`**（每个块都能写）：布尔字面量或值表达式，求值为假时这一块**不渲染**；
 - 节点表、来源（`musicxx.theme.*` / `musicxx.icon.*` / `musicxx.spectrum.*` / `musicxx.env.*`、
   广播频道的当前值）、上限与降级规则见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §7；
-- 名字空间：`musicxx.` 前缀是框架保留的（派生来源与官方值频道），**自定义名字允许含 `.`**
+- 名字空间：`musicxx.` 前缀是框架保留的（派生来源与官方广播频道），**自定义名字允许含 `.`**
   （例如 `plugin.<插件id>.progress`）；
 - 求值失败（未知 `kind`、参数写错）只**忽略该字段**并按缺省处理，日志里留一条原因；
 - 当前版本：字段求值是"每次重画算一次"（`tween` / `lfo` 这类随时间变化的节点要等页面里的
@@ -653,7 +653,7 @@ musicxx.capability.register("pickQuality", async function () {
      apply: true,                         // 可选，默认 true
    });
    ```
-3. **读 / 改官方值频道**：
+3. **读 / 改官方广播频道**：
    ```js
    // 读当前生效字体（同步，走插件框架里的缓存）
    var current = musicxx.broadcast.read("musicxx.ui.fontFamily");
@@ -663,25 +663,25 @@ musicxx.capability.register("pickQuality", async function () {
 4. **生命周期自动恢复**：
    当设置字体的插件被停用或卸载、或插件框架停止时，主程序会自动恢复为默认字体，避免残留不可用的字体配置。
 
-### 4.1 在页面按钮里切换字体：**处理器里不要 `await` 这些动作**
+### 4.1 在页面按钮里切换字体：**处理器里不要 `await` 这些能力**
 
 换字体会重建整棵界面、耗时几百毫秒到几秒。页面按钮走的是 `dispatch` →
 `plugin_call`，**应用线程全程阻塞等这次能力调用返回**；处理器里 `await`
 `musicxx.ui.setFontFamily` / `loadFont` 就会与调用方互锁：
 
 - 主程序表现：点一下**整个程序卡几秒**，然后插件收到 `action_timeout` 报"切换失败"，
-  可字体其实已经切过去了（动作是在超时之后才轮到应用线程处理的）；
+  可字体其实已经切过去了（能力是在超时之后才轮到应用线程处理的）；
 - 正确写法（可照抄 `plugins/example_js_font/plugin.js`）：
   1. **立刻返回**：先按新模式画页面，处理器直接返回视图；
-  2. 动作**后台执行**：`musicxx.ui.setFontFamily(...)` 只跟 `.then(...)`，不 `await`；
+  2. 能力**后台执行**：`musicxx.ui.setFontFamily(...)` 只跟 `.then(...)`，不 `await`；
   3. 成功后把模式写进自己的状态与 `config.json`；失败就回滚显示、异步提示（那时调用早已返回，
-     用 `musicxx.ui.toast` 这类动作是安全的）；
+     用 `musicxx.ui.toast` 这类能力是安全的）；
   4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
      插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
 - 想知道"主程序现在到底是什么字体"：`musicxx.broadcast.read("musicxx.ui.fontFamily")` **同步**读当前值
-  （值就是字体名字符串，如 `"SimSun"` / `"default"`），不要为了显示状态再去 `await` 一次动作。
+  （值就是字体名字符串，如 `"SimSun"` / `"default"`），不要为了显示状态再去 `await` 一次能力。
 
-> 这条规则对**所有**"改应用状态"的动作都成立（播放页背景、播放控制、存储写入…）：能力处理器必须
+> 这条规则对**所有**"改应用状态"的能力都成立（播放页背景、播放控制、存储写入…）：能力处理器必须
 > 快速返回，长活儿发给动作后在 `.then` 里收尾。处理器返回 Promise 时插件框架会一直等它结算
 > （`plugin_call` 的等待上界是 5 秒，超时就是上面那种"卡几秒 + 失败"）。
 

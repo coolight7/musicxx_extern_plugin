@@ -156,9 +156,9 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 # 4 = 通用表 capabilities 换成 v4 (声明 + 多实现行)、events 换成 broadcasts v1。
 # 6 = 接口表 IID 从 `pluginxx.<表名>` 改成 `<应用名>.<表名>` (本工程拼出 `musicxx.<表名>`)。
 #     代次 5 的插件按旧 IID 查询拿不到表又不会当场报错, 所以抬一档让它在扫描阶段就被拒。
-# 7 = 广播只保留声读与订阅: 广播接口表换成 v2 (`subscribe_broadcast` 多一个 `options_json`,
+# 7 = 广播只保留读与订阅: 广播接口表换成 v2 (`subscribe_broadcast` 多一个 `options_json`,
 #     每个订阅方自己声明通知频率), 声明字段 `writable` 改名 `publish`,
-#     值频道 (广播的读 / 写 / 回执 / 变动推送) 整套删除。
+#     原来的值频道（读 / 写 / 回执 / 变动推送那一整套）删除，广播只剩读与订阅。
 # 改这个值等于改插件 ABI: 要同步示例插件清单的 api_version、
 # Dart 侧 `kExternPluginMinApiVersion` / `ExternPluginStore.hostMinApiVersion` 与文档。
 set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "7" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")

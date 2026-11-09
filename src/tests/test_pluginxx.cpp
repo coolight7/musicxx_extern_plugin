@@ -518,7 +518,7 @@ void testBroadcastRegistry() {
   state.publish = pluginxx::BroadcastPublisher_e::Owner;
   state.pushOnSubscribe = true;
   state.coalesce = true;
-  check(reg.declare(state), "声明快照频道（应用属主）");
+  check(reg.declare(state), "声明带当前值的频道（应用属主）");
 
   std::vector<std::string> seen;
   const uint64_t token = reg.subscribe("musicxx.state.player", "plugin_a",
@@ -529,11 +529,11 @@ void testBroadcastRegistry() {
   check(seen.empty(), "还没有值时订阅即推不回调");
 
   check(reg.publish("musicxx.state.player", R"({"playing":true})", ""),
-        "应用发布快照频道成功");
+        "应用发布带当前值的频道成功");
   check(seen.size() == 1 && seen[0] == R"({"playing":true})",
         "订阅方收到发布值");
   check(reg.publish("musicxx.state.player", R"({"playing":false})", ""),
-        "应用再次发布快照频道成功");
+        "应用再次发布带当前值的频道成功");
   {
     std::string value;
     check(reg.read("musicxx.state.player", &value) &&
@@ -1002,7 +1002,7 @@ void testCapabilityDeclarations() {
       musicxxBroadcastDeclOf("musicxx.state.player");
   check(statePlayer && statePlayer->cache == MUSICXX_BROADCAST_CACHE_LATEST &&
             statePlayer->push_on_subscribe == 1,
-        "快照频道：快照 + 订阅即推");
+        "带当前值的频道：订阅即推");
   const MusicxxBroadcastDecl *songChanged =
       musicxxBroadcastDeclOf("musicxx.song.changed");
   check(songChanged && songChanged->cache == MUSICXX_BROADCAST_CACHE_NONE &&

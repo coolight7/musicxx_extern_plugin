@@ -9,14 +9,14 @@
 /// - **共享 1 条 JS 线程**: 全部 JS插件实例的脚本都在该线程顺序执行;
 ///   每个实例持有独立 `JSRuntime`/`JSContext` (全局隔离), 只是时间片共享;
 /// - **不阻塞框架线程**: 脚本顶层与处理器里调用插件框架能力时, 只做"投递不等待"
-///   (动作请求走 [InternalAppCapabilityRelay], 状态读取直接读互斥保护的镜像);
+///   (能力调用走 [InternalAppCapabilityRelay], 状态读取直接读互斥保护的副本);
 /// - **顶层注册 + 回放**: 脚本顶层调用 `musicxx.capability.implement`
 /// 等注册接口时先在 JS 侧
 ///   先记下来; 脚本执行结束、引擎回到框架线程后再回放注册 —— 避免"框架线程等 JS、JS
 ///   等框架线程" 的互锁 (无死锁不变式);
 /// - **规则与动态库插件一致**:
 /// 命名空间校验、未知能力拒绝、禁用/卸载摘除注册都沿用同一套约定
-///   (动作只做命名空间校验: 权限声明由 Dart 侧展示, 不做运行时校验)。
+///   (调用只做命名空间校验: 权限声明由 Dart 侧展示, 不做运行时校验)。
 ///
 /// 线程约定:
 /// - `JSRuntime`/`JSContext`/`JSValue` 只在共享 JS 线程上访问;
@@ -248,7 +248,7 @@ public:
     bool repeat = false;
   };
 
-  /// 未完成动作请求 (JS 侧登记; 任意线程读写, 由 mutex_ 保护)
+  /// 未完成的能力调用 (JS 侧登记; 任意线程读写, 由 mutex_ 保护)
   struct PendingAppCapability {
     int64_t requestId = 0;
     std::string instance;
@@ -349,7 +349,7 @@ public:
                      const std::string &resultJson) override;
   void cancelAppCapabilitiesOf(const std::string &instanceName) override;
 
-  /// JS 侧发起动作请求 (任意线程; 不阻塞): 校验命名空间 → 登记 → 推事件给 Dart
+  /// JS 侧发起能力调用 (任意线程; 不阻塞): 校验命名空间 → 登记 → 推事件给 Dart
   int32_t requestAppCapability(MusicxxHostInstance *inst, const std::string &action,
                         const std::string &argsJson, uint32_t timeoutMs,
                         int64_t *outRequestId);
@@ -463,7 +463,7 @@ private:
   /// 已加载的实例 (key = js:<id>; 任意线程读写)
   std::map<std::string, std::shared_ptr<Instance>, std::less<>> instances_;
 
-  /// 未完成动作请求 (任意线程读写)
+  /// 未完成的能力调用 (任意线程读写)
   std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;
   std::atomic<int64_t> nextRequestId_{1};
 

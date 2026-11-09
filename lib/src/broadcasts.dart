@@ -11,8 +11,8 @@ import 'runtime.dart';
 ///
 /// 语义（与插件框架的广播表对应，见 `docs/plugin-broadcasts.md`）：
 /// - 广播只有四件事：**声明**（宿主按生成表补）、**发布**、**读当前值**、**订阅**（插件侧）；
-/// - **任何频道都走 [publish]**：快照频道（`cache: latest`，例如 `musicxx.state.song`）既写
-///   当前值（插件可以同步 [read]）、也通知订阅方；事件频道（`cache: none`，例如
+/// - **任何频道都走 [publish]**：带当前值的频道（`cache: latest`，例如 `musicxx.state.song`）既写
+///   当前值（插件可以同步 [read]）、也通知订阅方；没有当前值的频道（`cache: none`，例如
 ///   `musicxx.song.changed`）只通知，之后谁也不留当前值；
 /// - 频道未声明时插件框架按生成表补一份默认声明，所以应用只要发布即可；
 ///   声明源在生成物 `MusicxxCapabilityCatalogue.broadcasts`；

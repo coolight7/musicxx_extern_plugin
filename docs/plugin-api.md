@@ -2,7 +2,7 @@
 
 > **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件分为**动态库插件**与**JS插件**。
 
-这篇是**两种插件形态共用的接口手册**：能力（请求 → 结果）、广播（通知 / 快照）、界面入口、日志与自省，
+这篇是**两种插件形态共用的接口手册**：能力（请求 → 结果）、广播（只通知，不回答）、界面入口、日志与自省，
 以及命名空间、超时、容量这些两边一样的约定。
 
 **为什么共用**：JS插件与动态库插件能用的接口是**同一批**（同一份能力声明、同一份广播频道、
@@ -22,7 +22,7 @@
 
 ---
 
-## 0. 两件事：能力（请求 → 结果）与广播（通知 / 快照）
+## 0. 两件事：能力（请求 → 结果）与广播（只通知，不回答）
 
 插件跟应用之间的交互只有两类。先把这两类分清，后面的各节都是它们的具体形态：
 
@@ -31,7 +31,7 @@
 | 形态 | 发一次请求、等一个结果 | 属主改了东西，通知所有关心的人 |
 | 有返回值 | 有（可能失败、可能超时） | 没有；不等待、允许丢中间值 |
 | 谁发起 | 调用方（插件、应用、命令行） | 属主发布 |
-| 典型 | 应用实现的能力 §3、插件服务 §6、功能点 §7、应用来问插件 §8 | 快照频道 §2、事件 §4、官方值频道 §5 |
+| 典型 | 应用实现的能力 §3、插件服务 §6、功能点 §7、应用来问插件 §8 | 带当前值的频道 §2、没有当前值的频道 §4、官方频道 §5 |
 | 声明在 | `tools/capabilities.def.json` 的 `capabilities` → [plugin-capabilities.md](plugin-capabilities.md) | 同一个文件的 `broadcasts` → [plugin-broadcasts.md](plugin-broadcasts.md) |
 
 **同一个 id 只有一份声明**，写清"能不能参与、参与哪一步（前链 / 实现链 / 后链）、派发方式、合并策略、
@@ -39,16 +39,8 @@
 C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作者文档就是这一份生成的
 `plugin-capabilities.md` / `plugin-broadcasts.md`。
 
-> **旧说法与现在的对应**（只有这两张表，没有第三个概念）：
->
-> | 旧说法 | 现在是什么 |
-> |---|---|
-> | 快照频道 | `cache: latest` 的广播频道（`musicxx.state.*`）：应用发布，插件订阅即拿到当前值 |
-> | 变量 | `cache: latest` 的广播频道（`musicxx.ui.*` / `musicxx.theme.*` 这类官方值频道）：**只能属主发布**，插件只能读与订阅；要改应用的状态调能力 |
-> | 动作 | `runner: app` 的能力：主程序实现，宿主转发给应用并带回结果 |
->
-> 这三套旧入口已在 `plugin-model-unify` / `broadcast-only` 任务里删除或改名，本文相应章节随代码一起改；
-> 新写的插件直接用 `musicxx.capability.*` 与 `musicxx.broadcast.*` 两组入口即可。
+> 只有这两个概念，没有第三个：能写的东西都是广播，值只能由属主发布；
+> 要改应用的状态调能力。
 
 同一件事，两边怎么写（左列是 JS，右列是 C++）：
 
@@ -57,11 +49,9 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 实现一条决策型能力（应用来问你） | `musicxx.capability.implement(id, {phase, priority, ownerTag}, fn)` | `implement(id, priority, fn)`（`fn` 里填 `out`） | §8 |
 | 订阅一个广播频道（可声明频率） | `musicxx.broadcast.subscribe(id, fn, {intervalMs, mode})` | `subscribeTopic(id, fn, {intervalMs, mode})` | §2 / §4 |
 | 注销 / 退订 | `musicxx.capability.unregister(id)` / `musicxx.broadcast.unsubscribe(id)` | `unimplement(id)` / `iface.broadcasts->unsubscribe(...)` | §8 |
-| 读快照频道 | `musicxx.broadcast.read("musicxx.state.song")` | `broadcastJson(MUSICXX_BROADCAST_STATE_SONG)` | §2 |
+| 读一条频道的当前值（`cache: latest` 才有） | `musicxx.broadcast.read("musicxx.state.song")` | `broadcastJson(MUSICXX_BROADCAST_STATE_SONG)` / `broadcasts->read(...)` | §2 / §5 |
 | 让应用做一件事 | `await musicxx.capability.call("musicxx.player.toggle")` | `capabilityCall("musicxx.player.toggle", "{}", &notify)` | §3 |
-| 读一条频道的当前值 | `musicxx.broadcast.read(id)` | `broadcastJson(<频道宏>)` / `broadcasts->read(...)` | §2 / §5 |
-| 订阅事件 | `musicxx.broadcast.subscribe(topic, fn)` | `subscribeTopic(topic, fn)` | §4 |
-| 发布事件 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
+| 发布自己频道的值 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
 | 调别的插件的能力 | `await musicxx.capability.call(id, "probe", args)` | `co_await capabilityCall(cap, method, args)` | §6 |
 | 声明 / 实现 / 调用功能点 | `musicxx.feature.define/provide/callPoint` | `featurePointDefine/Provide/Call` | §7 |
@@ -88,32 +78,31 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 
 | 你的需要 | 用哪条 | 为什么 |
 |---|---|---|
-| 跟着应用的通知做事（切歌了、播放状态变了、封面变了） | **广播 · 订阅频道** §2 / §4 | 单向通知，最轻；`cache: latest` 的频道还能同步读当前值 |
+| 跟着应用的通知做事（切歌了、播放状态变了、封面变了） | **广播** §2 / §4 | 单向通知，最轻；`cache: latest` 的频道还能同步读当前值 |
 | 想拦一下 / 参与一次调用（跳过本曲、换源、停止播放、改歌词加载、改频谱数据） | **能力 · 应用来问插件** §8 | 唯一能"被应用调用"的通道；能拿到载荷、能回答 |
-| 高频读实时数据（播放状态、当前歌曲、频谱槽位状态） | **广播 · 快照频道** §2 | 框架同步读，不用往返 |
-| 一次性命令（播放控制 / 列歌单 / 发通知 / 开页面 / 写插件自己的数据） | **能力 · 动作** §3 | 有返回值、有错误码，由主程序执行 |
-| 一件"已经发生了"的事（没有当前值） | **广播 · 事件** §4 | 单向广播，最轻 |
-| 改应用的状态 | **能力 · 动作** §3 | 有返回值、有错误码；广播是只读的，改完应用自己会发广播 |
+| 高频读实时数据（播放状态、当前歌曲、频谱槽位状态） | **广播 · `cache: latest` 的频道** §2 | 同步读，不用往返 |
+| 一次性命令（播放控制 / 列歌单 / 发通知 / 开页面 / 写插件自己的数据） | **能力 · 应用实现的** §3 | 有返回值、有错误码，由应用执行 |
+| 一件"已经发生了"的事（没有当前值） | **广播 · `cache: none` 的频道** §4 | 单向通知，最轻 |
+| 改应用的状态 | **能力 · 应用实现的** §3 | 有返回值、有错误码；广播是只读的，改完应用自己会发广播 |
 | 把自己的功能给别的插件用 | **能力 · 插件服务** §6 | 有返回值、参数与结果由你自己定 |
 | 让"这个功能谁都能实现"（应用或第三方按 id 来调） | **能力 · 功能点** §7 | 可以有多个实现，按优先级问 |
 
-> 记法：**能力 = 问一件事、等一个结果**（动作是让应用做，插件服务是给别的插件用，
-> 功能点是按 id 问，§8 是应用来问你）；**广播 = 告诉一声**（快照频道是当前值，
-> 事件是刚发生）。广播**只能读与订阅**：要改应用的状态调能力，插件自己的状态自己存。
+> 记法：**能力 = 问一件事、等一个结果**（应用实现的是让应用做，插件服务是给别的插件用，
+> 功能点是按 id 问，§8 是应用来问你）；**广播 = 告诉一声**（`cache: latest` 的带着当前值，
+> `cache: none` 的只有这一次通知）。广播**只能读与订阅**：要改应用的状态调能力，插件自己的状态自己存。
 >
 > **JS 侧的入口就两个**：**能力** 全部走 `musicxx.capability`（实现 / 注册 / 调用 / 自省），
 > **广播** 全部走 `musicxx.broadcast`（读当前值 / 订阅 / 发布自己频道的值 / 声明自己的频道）。
-> 下文的“快照频道”“官方值频道”“事件”都是广播的一类频道，具体行为由声明决定
-> （`cache: latest` 的能同步读，`cache: none` 的只有事件）。
+> 一个频道有没有当前值由声明里的 `cache` 决定，不需要再记别的分类。
 
 ---
 
-## 2. 快照频道（广播：同步读应用现状）
+## 2. 状态广播（`cache: latest`）：同步读应用现状
 
-应用向 `musicxx.state.*` 这些 `cache: latest` 的广播频道发布快照：插件订阅即拿到当前值，
+应用把关键状态发布到 `musicxx.state.*` 这些 `cache: latest` 的广播频道：插件订阅即拿到当前值，
 也能同步读缓存；**频道 id 与载荷稳定**（声明源是 `tools/capabilities.def.json`）。
 
-插件框架把应用的关键状态做成 JSON 快照，插件**同步**读：不用往返、不占线程、不怕应用忙。
+插件框架把这些值做成 JSON，插件**同步**读：不用往返、不占线程、不怕应用忙。
 
 ```js
 // JS：读一次（没有推送过的键返回 null）
@@ -151,7 +140,7 @@ const utilxx_base::Json env =
   `musicxx.app.lifecycle`（`cache: latest`，值是 `foreground` / `background`）。
 - `musicxx.state.player.quality` 是音质枚举名（`Undefined` / `Lower` / `Standard` / `HQ` / `SQ` / `Hifi` / `Upper`），
   `mediaType` 是媒体类型枚举名；`cacheLength` 是已缓存时长（毫秒）；`pitch` 是当前音调（1 = 原调）。
-  这几个值都是“变化时才刷新”的快照：要“变的时候拦一下”用能力 `musicxx.player.volume` /
+  这几个值都是“变化时才刷新”的：要“变的时候拦一下”用能力 `musicxx.player.volume` /
   `musicxx.player.speed` / `musicxx.player.pitch`，要当场读当前进度用广播 `musicxx.player.position`。
 - `musicxx.state.playlist.loopMode` 是循环模式枚举名（`Order` / `Only` / `RealRand` / `SimulateRand` / `SimulateRandReflush`），
   `autoPlayMode` 是 `auto` 或 `off`；`index` 是当前曲目在歌单里的下标。
@@ -173,12 +162,12 @@ const utilxx_base::Json env =
 }
 ```
 
-**载荷与镜像里永远没有音频直链和 token**：`src` 正文不给，只给来源类型与稳定 key（`srcKey` 是音源身份，
-同一首歌在不同设备上也一样，适合做缓存键）。要地址就自己走 `musicxx.net.*` 动作或让应用做事。
+**载荷与这些频道里永远没有音频直链和 token**：`src` 正文不给，只给来源类型与稳定 key（`srcKey` 是音源身份，
+同一首歌在不同设备上也一样，适合做缓存键）。要地址就自己走 `musicxx.net.*` 能力或让应用做事。
 
 ### 2.3 订阅状态变化
 
-每个快照频道各自带当前值：订阅哪个频道就收到哪个频道的更新（`cache: latest` 的频道订阅时还会先推一次当前值）。两边订阅方式一样（见 §4）：
+每条状态广播都带当前值：订阅哪条就收到哪条的更新（订阅时还会先推一次当前值）。两边订阅方式一样（见 §4）：
 
 ```js
 musicxx.broadcast.subscribe("musicxx.state.song", (song) => {
@@ -188,22 +177,22 @@ musicxx.broadcast.subscribe("musicxx.state.song", (song) => {
 
 ```cpp
 subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
-    // json = 当前歌曲快照
+    // json = 当前歌曲的视图
 });
 ```
 
 ### 2.4 坑
 
-- **`musicxx.state.app.isNight` 是启动时的快照**：运行期切了主题它不会跟着变。要"当前值"就当场问一次：
-  动作 `musicxx.media.palette` 或 `musicxx.render.current` 的 `night`；
+- **`musicxx.state.app.isNight` 是启动时的值**：运行期切了主题它不会跟着变。要"当前值"就当场问一次：
+  能力 `musicxx.media.palette` 或 `musicxx.render.current` 的 `night`；
   `musicxx.state.renderSlots` 里条目的 `night` 也只在槽位状态变化时刷新，同样不能当当前值用。
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌、播放状态变化时刷新（**不是实时值**）。
   要按秒推进度：订阅广播频道 `musicxx.player.position`（不限频，带 `sid` / `positionMs` / `durationMs`，
-  订阅时声明 `intervalMs`），或当场 `read` 它。不要以为读镜像就能拿到实时进度。
+  订阅时声明 `intervalMs`），或当场 `read` 它。不要以为读这个频道就能拿到实时进度。
 - **要"是否在播放"读 `musicxx.state.env.isPlaying`**（布尔），不要靠 `player.state` 的字符串判断
   （它是"播放/暂停/停止事件"与枚举名的混合值，见 §3.2.1 的说明）。
 - **键名是固定的官方键**，写错就是读不到（`get` 返回 `null` / `broadcastJson` 返回空串），不会报错。
-- 镜像里**不放**临时直链、token、插件自己的数据。插件自己的状态自己存（私有存储或自己命名空间下的频道）。
+- 这些频道里**不放**临时直链、token、插件自己的数据。插件自己的状态自己存（私有存储或自己命名空间下的频道）。
 
 ### 2.5 框架与应用信息（`host.info`）
 
@@ -230,15 +219,14 @@ const std::string infoJson = hostInfoJson();   // 同一份 JSON
 | `ui` | 客户端界面能力段（只有客户端配置过时才出现，见 [plugin-ui.md](plugin-ui.md)） |
 
 运行环境（`arch` / `logDir` / `pluginDirs` 等）在 SDK 侧还有一份：动态库插件用 `config()`（JSON），
-JS 插件用动作 `musicxx.host.getPath` 拿插件目录、数据目录与日志目录。
+JS 插件用能力 `musicxx.host.getPath` 拿插件目录、数据目录与日志目录。
 
 ---
 
 ## 3. 应用实现的能力（能力：让应用做一件事）
 
-> **一回事**：以前叫“动作”的就是应用实现的能力（应用执行、宿主转发并带回结果），
-> **不是第二个概念**。JS 用 `musicxx.capability.call`，原生插件用 SDK 的 `capabilityCall`；
-> **能力 id 与参数都没变**。
+> **应用实现的能力也属于能力**：应用执行、宿主转发并带回结果，不是第二个概念。
+> JS 用 `musicxx.capability.call`，原生插件用 SDK 的 `capabilityCall`。
 
 > **能力就是能力**：每个应用实现的能力在 `musicxx.capabilities` 里都有一条应用声明。
 > **没声明的名字会被直接拒绝**（不再“什么都转给应用再回未找到”）。
@@ -247,7 +235,7 @@ JS 插件用动作 `musicxx.host.getPath` 拿插件目录、数据目录与日�
 ### 3.1 通用约定
 
 ```js
-const result = await musicxx.capability.call("musicxx.<域>.<动作>", { 参数 }, 超时毫秒?);
+const result = await musicxx.capability.call("musicxx.<域>.<名字>", { 参数 }, 超时毫秒?);
 // 也有分类便捷封装（都等价于上面这一行）：
 await musicxx.player.toggle();
 await musicxx.storage.set("k", 1);
@@ -267,24 +255,24 @@ capabilityCall("musicxx.player.toggle", "{}", &notify, 5000);
 - **超时**：JS 的 `musicxx.capability.call(name, args, timeoutMs)` 缺省 **5000 ms**，`timeoutMs <= 0` 时按缺省值处理（不会"一直等"）；
   动态库的 `capabilityCall(..., timeoutMs)` 缺省 **5000 ms**，**传 0 = 不设超时**（框架不建定时器，一直等主程序回复）；
   到点后框架终结这次请求并推 `musicxx.capability.app.cancel` 让应用收尾。
-  个别动作需要更长时间（如 `musicxx.feature.call` 要解码整曲），调用方自己加大。
+  个别能力需要更长时间（如 `musicxx.feature.call` 要解码整曲），调用方自己加大。
 - **返回**：成功是 `{ok:true, ...}` 或能力自己的结果；失败是 `{ok:false, error:"说明"}`；
   没注册会立刻失败（`app_capability_not_registered: <能力 id>`），不会挂到超时。
 - **不做权限校验**：清单里的 `permissions` 只做展示，不会因为没声明就拒绝调用（见 [plugin-native-api.md](plugin-native-api.md) §8）。
-- **动作名不校验**：插件框架受理任意名字的动作，由主程序按"注册了没有"决定理不理它。
-  官方动作是 `musicxx.<域>.<动作>`；插件自己的动作建议写成 `plugin.<包名>.*` 以免撞名。
+- **名字不校验**：插件框架受理任意名字的调用，由应用按"注册了没有"决定理不理它。
+  官方能力是 `musicxx.<域>.<名字>`；插件自己的能力建议写成 `plugin.<包名>.*` 以免撞名。
 - **Result 里可能出现 `ok:false` 但调用成功**两种情况要分清：
-  - 调用失败（动作没注册 / 处理器抛异常）→ JS 的 Promise **拒绝**（`err.message` 带原因）；C++ 的 `status != 0`；
-  - 动作执行了但条件不满足（参数错、找不到歌单）→ Promise 成功、结果里 `{ok:false, error:"..."}`。
+  - 调用失败（能力没注册 / 处理器抛异常）→ JS 的 Promise **拒绝**（`err.message` 带原因）；C++ 的 `status != 0`；
+  - 调用执行了但条件不满足（参数错、找不到歌单）→ Promise 成功、结果里 `{ok:false, error:"..."}`。
 
-### 3.2 全部已实现的动作
+### 3.2 全部已实现的能力
 
-下面每一节都是"当前版本注册过、调用能得到结果"的动作。**没有列在这里的 `musicxx.*` 名字都还没实现**
+下面每一节都是"当前版本注册过、调用能得到结果"的能力。**没有列在这里的 `musicxx.*` 名字都还没实现**
 （调用会得到 `action_not_registered`，见 §3.4）。
 
 #### 3.2.1 播放控制（`musicxx.player.*`）
 
-| 动作 | 参数 | 返回 | 说明 |
+| 能力 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `musicxx.player.play` | 无 | `{ok:true}` | 开始播放 |
 | `musicxx.player.pause` | 无 | `{ok:true}` | 暂停 |
@@ -314,21 +302,21 @@ capabilityCall("musicxx.player.setLoopMode", R"({"mode":"Only"})", &notify, 5000
 capabilityCall("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 ```
 
-- 这些动作都是"替用户按一下按钮"：会走应用既有的流程（例如 `stop` 会做它平时的收尾），不要绕过它们直接改状态。
+- 这些能力都是"替用户按一下按钮"：会走应用既有的流程（例如 `stop` 会做它平时的收尾），不要绕过它们直接改状态。
 - **这四个值都有“要变之前拦一下”的能力**：`musicxx.player.seek` / `musicxx.player.volume` /
   `musicxx.player.speed` / `musicxx.player.pitch`（见 §8 与 [plugin-capabilities.md](plugin-capabilities.md)）：
-  插件用动作改值时也会先问能力，所以这条能力的处理器不能反过来再调这些动作（会再派发一次）。
+  插件通过能力改值时也会先问这条能力，所以它的处理器不能反过来再调这些能力（会再派发一次）。
 - 没有 `setMediaType`（见 §3.4）。
 
 #### 3.2.2 歌单（`musicxx.playlist.*`）与播放列表（`musicxx.songlist.*`）
 
-三个词在这份文档里含义固定，不再混用；动作名的前缀就是它们，从名字就能看出在操作哪一个：
+三个词在这份文档里含义固定，不再混用；能力名的前缀就是它们，从名字就能看出在操作哪一个：
 
 | 词 | 含义 | 出现在哪里 |
 |---|---|---|
 | `playlist` | **单张歌单**（`pid` / `name` / `songs` / `songNum`），保存下来的列表 | `musicxx.playlist.*` |
 | `playlists` | **多张歌单的集合**（我的 / 我喜欢 / 本地） | `musicxx.playlist.queryLists` 的 `mine` / `local` / `favorite` |
-| `songlist` | **播放列表**（当前正在播的那一串歌，不单独保存） | `musicxx.songlist.*`、快照频道 `musicxx.state.playlist` |
+| `songlist` | **播放列表**（当前正在播的那一串歌，不单独保存） | `musicxx.songlist.*`、广播 `musicxx.state.playlist` |
 
 **`musicxx.playlist.queryLists`** —— 列出歌单
 
@@ -373,11 +361,11 @@ const queue = await musicxx.songlist.querySongs();     // 当前播放列表
 ```
 
 ```cpp
-// 想先拿歌单再决定播哪一个：在完成通知里读结果，再发第二个动作
+// 想先拿歌单再决定播哪一个：在完成通知里读结果，再再调一次能力
 capabilityCall("musicxx.playlist.queryLists", "{}", &notify, 5000);
 ```
 
-**这首歌的完整音源列表在快照频道 / 能力载荷里**（`musicxx.state.song.audio[]`），
+**这首歌的完整音源列表在广播 `musicxx.state.song` / 能力载荷里**（`musicxx.state.song.audio[]`），
 `querySongs` 只给列表用的简报字段（省流量）。
 
 > **过时的分类 `musicxx.library.*`**（旧文档与老插件还在用）：名字保留可用，主程序把它们注册成同一份实现，
@@ -437,7 +425,7 @@ musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).
 > 插件想让用户“选目录 / 选文件 → 加进歌单”，可以在「添加歌曲」弹窗里注册一个
 > `musicxx.ui.addsong.entry` 项（见 §9.1 与 [plugin-ui.md](plugin-ui.md)），
 > 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.openOverlaySheet`），
-> 选完后调这个动作。
+> 选完后调这条能力。
 
 **`musicxx.playlist.removeSong`** —— 从一张歌单里移除歌曲
 
@@ -478,7 +466,7 @@ musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).
 
 歌单可以绑定“音源”（本地文件夹 / 歌手 / 专辑、Bili 收藏夹、WebDAV、云盘、
 Subsonic / Jellyfin / Emby 视图等），应用里「歌单右上角三个点 - 同步歌单音源」会把这些来源
-重新读一遍，把新增的歌加进歌单。这个动作就是那件事的非界面入口。
+重新读一遍，把新增的歌加进歌单。这条能力就是那件事的非界面入口。
 
 - 参数：`{pid}`（必填：目标歌单，本地歌单 / 自己的在线歌单 / “我喜欢”）。
 - 返回：
@@ -510,7 +498,7 @@ Subsonic / Jellyfin / Emby 视图等），应用里「歌单右上角三个点 -
   已经开始读写的失败才会留下提示。
 - **只有一部分音源读取失败时仍然是成功**（`failedSources` 与 `sources[].error` 照报），
   免得一条坏音源把整次同步判死。
-- 歌单绑定了哪些音源只能在应用界面里配，这个动作不收 `sources`；它只按已经绑好的音源同步。
+- 歌单绑定了哪些音源只能在应用界面里配，这条能力不收 `sources`；它只按已经绑好的音源同步。
 - 新歌**往前插**（与「加歌」一致），保存后写歌单关联；目标就是当前播放列表时会刷新队列。
 - **应用的信息栏会显示一条提示**：不是用户从界面点「开始同步音源」触发的（插件 / MCP / 命令行），
   用户就不知道有人在同步 —— 因此同步期间显示进度，**成功后 30 秒自动移除，失败则保留**
@@ -545,7 +533,7 @@ if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
 - 返回：`{ok:true, sid, song:{…}}`。
 - 正在播的那一首改完会立即刷新播放信息（名字 / 歌手 / 封面），不用重新播。
 
-> 写类的四条共同规则（上面几个动作与 `syncSongs.sync` 都适用）：
+> 写类的四条共同规则（上面几条能力与 `syncSongs.sync` 都适用）：
 > 1. **能改哪些歌单**：本地歌单、自己创建的在线歌单、“我喜欢”；别人的歌单回
 >    `{ok:false, error:"没有修改这个歌单的权限：<pid>"}`；
 > 2. **保存失败会回滚**：内存里的歌单与存盘内容不会不一致；
@@ -557,7 +545,7 @@ if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
 
 #### 3.2.3 歌词（`musicxx.lyric.*`）
 
-歌词动作统一在单数域 `musicxx.lyric.*`（与能力 / 广播频道一致）。旧的复数域
+歌词能力统一在单数域 `musicxx.lyric.*`（与能力 / 广播频道一致）。旧的复数域
 `musicxx.lyrics.*` 已删除，**不保留别名**，调用会得到 `action_not_registered`。
 
 > 类似名称的广播频道 `musicxx.lyric.current`："当前歌词行变了"的通知。
@@ -643,7 +631,7 @@ if (found.count > 0) {
 
 #### 3.2.4 提示、弹窗与页面跳转（`musicxx.ui.*`）
 
-| 动作 | 参数 | 返回 | 说明 |
+| 能力 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `musicxx.ui.toast` | `{text}`；`{kind:"error"}` 走错误样式 | `{ok:true}` | 轻提示，**固定记一条插件日志**（原来的 `musicxx.ui.notify` 已合并到这里） |
 | `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
@@ -677,7 +665,7 @@ await musicxx.ui.openRoute("musicxx:localSongs");
 ```
 
 ```cpp
-// C++ 侧只有声明式提示（fire-and-forget）；弹窗与开页面走同名动作
+// C++ 侧只有声明式提示（fire-and-forget）；弹窗与开页面走同名能力
 uiNotify(R"({"text":"已刷新"})");
 capabilityCall("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 0);   // 0 = 一直等用户点
 ```
@@ -688,7 +676,7 @@ capabilityCall("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify,
 
 #### 3.2.4.1 浮层（`musicxx.ui.overlay.show`）
 
-浮层是"代码打开、等结果"的动作：插件打开一层 sheet，用户在浮层里操作，关掉后动作返回
+浮层是"代码打开、等结果"的调用：插件打开一层 sheet，用户在浮层里操作，关掉后调用返回
 **怎么关的**。页面里想让某一行打开浮层，就让那一行带一个 `command` 动作指向它（同一个函数、同一份参数）。
 
 | 参数 | 类型 | 说明 |
@@ -756,7 +744,7 @@ capabilityCall("musicxx.ui.overlay.close", R"({})", &callback, 0);
 #### 3.2.4.2 插件视图浮层（`musicxx.ui.openOverlaySheet`）
 
 `overlay.show` 的内容是调用方给的静态 `blocks`；这一条的内容是**插件自己的视图**，
-所以能在浮层里翻页（浮层里的按钮动作返回 `{"view": …}` 就换成新内容）。
+所以能在浮层里翻页（浮层里的按钮调用返回 `{"view": …}` 就换成新内容）。
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
@@ -767,8 +755,8 @@ capabilityCall("musicxx.ui.overlay.close", R"({})", &callback, 0);
 
 - 返回：`{ok, reason, title?}`（`reason` 是 `confirmed` / `cancelled` / `closed`）；
   取不到插件视图时是 `{ok:false, error}`（不会开一个空浮层）；
-- **动作在浮层关掉之后才完成**，所以调用方正好能在关闭后刷新自己的列表；
-- 插件在能力处理器里调它时**不要 await**（会与主程序动作互相等）；用入口项（`command` 动作）
+- **这次调用在浮层关掉之后才完成**，所以调用方正好能在关闭后刷新自己的列表；
+- 插件在能力处理器里调它时**不要 await**（会与应用实现的能力互相等）；用入口项（`command` 动作）
   或页面里的按钮（`command`）调都不受这个限制 —— 那是主程序在执行。
 
 ```js
@@ -795,12 +783,12 @@ musicxx.ui.registerEntry({
 
 两块地方、两套语义：
 
-| 用途 | 动作 / 参数 | 存放位置 |
+| 用途 | 能力 / 参数 | 存放位置 |
 |---|---|---|
 | 私有 KV（不需要给用户看的数据） | `musicxx.storage.get/set/delete/list`，`namespace` 省略或写别的值 | `<dataDir>/<插件id>/data/kv.json` |
 | 用户可见的设置 | 同上，`namespace:"config"` | **插件目录里的 `config.json`**（用户可以直接编辑） |
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.storage.get` | `{key, namespace?}` | **值本身**（键不存在时是空应答；JS 封装回退到默认值） |
 | `musicxx.storage.set` | `{key, value, namespace?}` | `{ok:true}` 或 `{ok:false, error}` |
@@ -817,7 +805,7 @@ await musicxx.storage.setConfig("theme", "light");
 
 ```cpp
 // C++：读写配置文件可以直接用 configPath()（拿路径自己读写），
-// 走私有 KV 就用动作（注意应答就是值本身，不是对象外壳）
+// 走私有 KV 就用能力（注意应答就是值本身，不是对象外壳）
 capabilityCall("musicxx.storage.get", R"({"key":"greeting"})", &notify, 5000);
 capabilityCall("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})", &notify, 5000);
 ```
@@ -911,7 +899,7 @@ netCall(net_op::httpFetch, R"({"url":"https://example.com/a.json","timeoutMs":20
 // 也可以完全不用这套, 自己用系统的网络库
 ```
 
-老的动作名 `musicxx.net.fetch` / `musicxx.net.download` 仍然可用（历史上直接调动作的插件不会坏）：
+老的能力名 `musicxx.net.fetch` / `musicxx.net.download` 仍然可用（历史上直接调这些名字的插件不会坏）：
 它们由**插件框架直接回答**，走的就是本节这套原生实现，参数与返回形状完全一致，主程序不再
 另写一份代理。新插件请用本节这套。
 
@@ -1203,7 +1191,7 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 
 用来查询"有哪些可选样式"、读"现在选中/生效的是谁"、并且**允许插件切样式**（包括切回内置样式）。
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.render.list` | `{slot?}` | `{ok:true, slots:[{slot, title, selectedId, items:[...]}]}` |
 | `musicxx.render.current` | `{slot?}` | `{ok:true, slot, id, title, source:"builtin"\|"plugin", plugin, night}`；没有生效项 → `{ok:false,error:"no_item"}` |
@@ -1220,7 +1208,7 @@ await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插�
 await musicxx.render.select("builtin:Auto", { slot: "player.background" });  // 切回内置
 ```
 
-**"现在是不是本插件在画"**用快照频道同步判断（渲染线程里每帧都会读，不要用动作）：
+**"现在是不是本插件在画"**用广播 `musicxx.state.renderSlots` 同步判断（渲染线程里每帧都会读，不要调能力）：
 
 ```js
 const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
@@ -1307,7 +1295,7 @@ if (cover.ok) { const bytes = cover.data; /* base64 */ }
 const spec = await musicxx.media.spectrum({ bandCount: 16, includeBins: true });
 if (spec.available) { drawBars(spec.bands); }
 
-// 想要"每帧都新鲜"的频谱（着色器、自绘动效）读快照频道，约 10 Hz：
+// 想要"每帧都新鲜"的频谱（着色器、自绘动效）读广播 `musicxx.state.spectrum`，约 10 Hz：
 const live = musicxx.broadcast.read("musicxx.state.spectrum");
 if (live && live.available) { drawBars(live.bands); }
 ```
@@ -1356,7 +1344,7 @@ const hw = info.kernel.decoders.filter((d) => d.hardware).map((d) => d.driver);
 
 #### 3.2.9 全局字体（`musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont`）
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.ui.setFontFamily` | `{fontFamily}`（`default` / `""` / `null` = 恢复默认） | `{ok:true, fontFamily, isCustom}` |
 | `musicxx.ui.getFontFamily` | 无 | `{ok:true, fontFamily, defaultFontFamily, customFontFamily, isCustom, ownerPluginId}` |
@@ -1367,7 +1355,7 @@ const hw = info.kernel.decoders.filter((d) => d.hardware).map((d) => d.driver);
   框架不限制插件能读哪个文件（动态库插件与主程序同进程，本来就能读写整台机器的文件）。
   `path` 与 `data`（base64 字体字节）给一个即可；`apply` 为真时加载完立刻设为全局字体。
   字体文件最大 100 MiB（超过直接回错误）。
-- **换字体会重建整棵界面，动作本身可能耗时几百毫秒到几秒**：
+- **换字体会重建整棵界面，调用本身可能耗时几百毫秒到几秒**：
   在声明式页面的按钮处理器里调用时必须"发出去就返回"（`.then` 收尾），
   `await` 它会与同步进插件框架的调用方互相等到超时（见 [plugin-ui.md](plugin-ui.md) §4.1）。
 
@@ -1380,10 +1368,10 @@ await musicxx.ui.setFontFamily({ fontFamily: "default" });     // 恢复
 
 #### 3.2.10 应用能力导出（`musicxx.feature.list` / `musicxx.feature.call`）
 
-这两个动作读的是"**应用自己能做什么**"（与 MCP 工具、本机命令行共用同一份实现），
+这两条能力读的是"**应用自己能做什么**"（与 MCP 工具、本机命令行共用同一份实现），
 输出是给模型/脚本看的文本或 JSON：
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.feature.list` | 无 | `{ok:true, features:[{id, title, depict, args, output:"text"\|"json"}]}` |
 | `musicxx.feature.call` | `{id, args}` | `{ok:true, text?, json?, output}` 或 `{ok:false, error}` |
@@ -1400,9 +1388,9 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 #### 3.2.11 功能点（`musicxx.feature.point.*`）
 
 读"应用留出了哪些扩展点、现在谁在实现"，以及**主动调一个功能点拿原始数据**。
-概念与写法见 §7，这里只列动作：
+概念与写法见 §7，这里只列能力：
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.feature.point.list` | `{id?, provided?}` | `{ok:true, points:[{id, title, type, depict, available, callable, callDoc, callStat, rows:[{type, layer, owner, name, priority, enabled, effective, note}], stages:[{owner, name, layer, priority, enabled, before, after, runs, cancels, drops, errors}], broadcasts:[…], lastCanceledBy?, lastDroppedBy?, lastRewrittenBy?, stageReentries?}]}` |
 | `musicxx.feature.point.call` | `{id, args?, refresh?}` | `{ok, id, value, by, identity, fromCache, ms, canceledBy?, droppedBy?}` 或 `{ok:false, error, message}` |
@@ -1425,7 +1413,7 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
   `busy`（同一功能点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。这三种"没有结果"是不同的事：
   `canceled` 是这次调用被拦下（之后谁都不问）、`dropped` 是实现跑完了但结果被丢掉；`skip` 不是错误，
   它只是这一份实现没参与。
-- **调用零副作用**：只读值仓、不写值仓、不改应用状态。想让用户看到效果要用对应的设置动作
+- **调用零副作用**：只读值仓、不写值仓、不改应用状态。想让用户看到效果要用对应的设置能力
   （例如 `musicxx.media.palette.set`）。
 - `refresh:true` 跳过值仓重新算一遍（一般不用：值仓里就是最近一次的结果）。
 
@@ -1436,7 +1424,7 @@ const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", 
 
 #### 3.2.12 能力自省（`musicxx.capability.subscribers`）
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.capability.subscribers` | `{id, phase?}` | `{ok:true, capability, phase, count, handlers:[{plugin, instance, kind, priority, phase, ownerTag}]}` |
 
@@ -1454,7 +1442,7 @@ if (info.count === 0) { /* 现在没人提供，本插件要不要注册 */ }
 
 #### 3.2.13 宿主（`musicxx.host.*`）
 
-| 动作 | 参数 | 返回 | 说明 |
+| 能力 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `musicxx.host.openUrl` | `{url}` | `{ok:true}` | 交给系统处理（协议不限，系统认不认是另一回事）；会先弹一次确认 |
 | `musicxx.host.clipboard` | `{text}` | `{ok:true}` | 写系统剪贴板 |
@@ -1464,7 +1452,7 @@ if (info.count === 0) { /* 现在没人提供，本插件要不要注册 */ }
 
 #### 3.2.14 统计上报（`musicxx.stats.*`）
 
-| 动作 | 参数 | 返回 | 说明 |
+| 能力 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `musicxx.stats.reportMemory` | `{bytes}` | `{ok:true}` | 自报内存占用（只展示，不影响运行） |
 | `musicxx.stats.reportMetric` | `{name, value}` | `{ok:true}` | 自报自定义指标（只展示） |
@@ -1473,7 +1461,7 @@ if (info.count === 0) { /* 现在没人提供，本插件要不要注册 */ }
 musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 也不会报错
 ```
 
-读自己的运行统计：JS 插件用 `musicxx.stats.getSelf()`（能力实现 / 订阅 / 定时器 / 未完成动作 /
+读自己的运行统计：JS 插件用 `musicxx.stats.getSelf()`（能力实现 / 订阅 / 定时器 / 未完成的能力调用 /
 脚本执行次数 / 错误数 / JS 堆大小 / 异步裁决结算数）；动态库插件目前只能看管理页
 「插件详情 → 运行统计」。
 
@@ -1481,9 +1469,9 @@ musicxx.stats.reportMetric("hitCount", hits);       // 便捷封装，不 await 
 
 插件自己的音源：在歌曲里存成"类型 + 资源 id" —— 类型 id 写成
 `plugin.<你的插件 id>.<类型名>`，`src` 就是你自己定义的资源 id / 路径。主程序的内置实现
-**不解析**这种类型，播放时问能力 `musicxx.player.source.resolve`（见 §8.6）。四个动作做声明与自省：
+**不解析**这种类型，播放时问能力 `musicxx.player.source.resolve`（见 §8.6）。四条能力做声明与自省：
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.source.define` | `{id, title?, tag?, depict?, srcDoc?}` | `{ok:true, id}` 或 `{ok:false, error}` |
 | `musicxx.source.undefine` | `{id, view?}` | `{ok, removed}`；给了 `view` 就只撤那一个分类（音源类型与 `[标签]` 不变）；不给 `view` 时连类型声明一起撤，返回里另带 `browseRemoved`（撤掉几个浏览分类） |
@@ -1512,7 +1500,7 @@ await musicxx.capability.call("musicxx.player.playSrc", {
 
 #### 3.2.16 应用前后台（`musicxx.app.*`）
 
-| 动作 | 参数 | 返回 | 说明 |
+| 能力 | 参数 | 返回 | 说明 |
 |---|---|---|---|
 | `musicxx.app.foreground` | 无 | `{ok:true, requested:"foreground", foreground}` | 把主窗口显示到前台（移动端把应用拉到前台）。与命令行 `window.foreground` 是同一份实现 |
 | `musicxx.app.background` | 无 | `{ok:true, requested:"background", foreground}` | 把主窗口隐藏到后台（移动端退到后台），播放不受影响。与命令行 `window.background` 是同一份实现 |
@@ -1524,10 +1512,10 @@ const off = musicxx.broadcast.subscribe("musicxx.app.lifecycle", (v) => musicxx.
 ```
 
 - 切完**不要**假定状态已经变了：真正的状态由应用的生命周期事件决定，变了之后会发布广播并刷新
-  快照频道 `musicxx.state.app`（`foreground` / `lifecycleState`），处理器里读到的才是新值。
-- 要"进后台 / 回前台"做事，用广播频道（§2 / §4）而不是在这里轮询动作；要当前值 `read`
-  `musicxx.app.lifecycle`（可订阅）或读快照频道。
-- 用户可能正在看着窗口：隐藏前先想清楚（这类动作是"替用户按一下按钮"，不是给插件自己让路的）。
+  广播 `musicxx.state.app`（`foreground` / `lifecycleState`），订阅回调里读到的才是新值。
+- 要"进后台 / 回前台"做事，用广播频道（§2 / §4）而不是在这里轮询能力；要当前值 `read`
+  `musicxx.app.lifecycle`（可订阅）或同步读 `musicxx.state.app`。
+- 用户可能正在看着窗口：隐藏前先想清楚（这类能力是"替用户按一下按钮"，不是给插件自己让路的）。
 
 ### 3.3 插件网盘：让应用提供目录列表与挑歌界面
 
@@ -1577,7 +1565,7 @@ musicxx.capability.call("musicxx.source.undefine", { id: TYPE_ID });            
 
 用途分工是固定的：
 
-| 动作 | 管什么 | 可以调几次 |
+| 能力 | 管什么 | 可以调几次 |
 |---|---|---|
 | `musicxx.source.define` | **类型**：身份、列表 `[标签]`、播放时的解析说明 | 一个类型一次（重复 = 覆盖） |
 | `musicxx.source.browse` | **分类**：界面上的一个浏览入口 | 一个分类一次，同类型可多次 |
@@ -1702,9 +1690,9 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 - **限制**：整目录递归最多 5 层；`drive.resolveSongs` 返回多少首就收多少（不再有上限）；同一个插件的
   同名能力应用会串行调用（最多排 2 条），多个分类共用同一个排队队列，不要在处理器里长时间阻塞。
 
-宿主 UI 动作（插件自己的界面里想让应用开挑歌弹窗时用）：
+宿主提供的界面能力（插件自己的界面里想让应用开挑歌弹窗时用）：
 
-| 动作 | 参数 | 返回 |
+| 能力 | 参数 | 返回 |
 |---|---|---|
 | `musicxx.ui.pickSongs` | `type`（必填）、`view?`（浏览哪个分类，缺省第一个）、`title?`、`path?`、`pid?`（目标歌单，缺省当前播放列表）、`multiple?`（缺省 true）、`allowSelectDir?`（缺省 true）、`search?`（缺省 true）、`pageSize?` | `{ok, added, skipped, cancelled, view}` |
 | `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false、`allowSelectDir` 恒为 true） | `{ok, paths, items:[{view, path}], cancelled, view}` |
@@ -1727,7 +1715,7 @@ musicxx.ui.registerEntry({
   弹窗里没有切换。返回值里的 `view` 是这次浏览的分类；`pickDir` 的 `items` 每条另带
   `{view, path}`（目录的 `path` 只在它自己的分类里有意义）。
 - `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时**不要 await**
-  （会与应用动作互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。`browseDrive` 相反：
+  （会与应用实现的能力互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。`browseDrive` 相反：
   它打开页面后立即返回 `{ok, reason:"opened", type, view}`，不等用户关页面。
 - 插件调它们只能打开**自己声明**的来源（`type` 必须是自己的）；应用自己调（如菜单里那一行）
   没有这个限制。
@@ -1737,7 +1725,7 @@ musicxx.ui.registerEntry({
   `view` / `title` / `order` / `root` / `pageSize` / `sort` / `indexBar` / `write` / `search` /
   `addFolderSongs` / `download` / `capabilities`）。
 
-### 3.4 名字存在、但当前版本没有实现的动作
+### 3.4 名字存在、但当前版本没有实现的能力
 
 调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
 
@@ -1747,15 +1735,15 @@ musicxx.ui.registerEntry({
 现在都有实现的新名字（`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`），
 但旧名字本身仍没注册；`musicxx.library.search`（站内搜索）没有替代名字，仍未实现。
 
-要“改应用状态”的能力缺口，用对应的**能力**补：例如想改播放速度 / 音调用动作
+要“改应用状态”的能力缺口，用对应的**能力**补：例如想改播放速度 / 音调用能力
 `musicxx.player.setSpeed` / `musicxx.player.setPitch`（已实现）；想拦一次设置变更用能力
 `musicxx.player.speed` / `musicxx.player.pitch`（已接入，见 [plugin-capabilities.md](plugin-capabilities.md)）。
 
 ---
 
-## 4. 事件（广播：已经发生的事）
+## 4. 没有当前值的广播（`cache: none`）：已经发生的事
 
-> **JS 写法**：`musicxx.broadcast.publish` / `subscribe` / `unsubscribe`（与官方值频道同一组入口，
+> **JS 写法**：`musicxx.broadcast.publish` / `subscribe` / `unsubscribe`（与其它频道同一组入口，
 > 按频道声明区分投递方式）。以下是两边的写法：
 
 ```js
@@ -1778,36 +1766,36 @@ iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
   同一主题**只建立一条 host 订阅**（JS 侧再 `subscribe` 是复用，不是叠加）。
 - **发布**：只能发官方主题或**自己命名空间**（`plugin.<自己的插件 id>.*`）；主题非法时
   JS 的 `publish` 直接抛异常、C++ 返回非 0。
-- 插件之间协作：单向通知用事件，要返回值用能力调用（§6）。
-- **自己的主题不必申报**：广播频道表只是一份**预设**（常用频道带标题 / 属性），表里没有的 id 照样能发、能订，
-  默认属性是「只有事件、属主能写、允许合并」；网络请求的进度 / 完成约定叫 `plugin.<你的插件 id>.net`。
-  名字只能落在自己的命名空间里，写别的插件或官方主题都会被拒。
-- 事件处理器**要快**：它跑在插件框架线程 / JS 线程上，慢就是别人一起等。
+- 插件之间协作：单向通知用广播，要返回值用能力调用（§6）。
+- **自己的频道不必申报**：广播频道表只是一份**预设**（常用频道带标题 / 属性），表里没有的 id 照样能发、能订，
+  默认属性是「没有当前值、只有属主能发布、允许合并」；网络请求的进度 / 完成约定叫 `plugin.<你的插件 id>.net`。
+  名字只能落在自己的命名空间里，发别的插件或官方频道都会被拒。
+- 订阅回调**要快**：它跑在插件框架线程 / JS 线程上，慢就是别人一起等。
 
-常用主题（都在**插件总线上**，可以订阅）：
+常用频道（都在**插件总线上**，可以订阅）：
 
-| 主题 | 什么时候来 | 载荷 |
+| 频道 | 什么时候来 | 载荷 |
 |---|---|---|
-| `musicxx.broadcast.subscribers` | 某个频道的订阅数变了（插件框架回传，主程序用它做自省与 `cache: none` 的闸门） | `{id, subscribers}` |
+| `musicxx.broadcast.subscribers` | 某个频道的订阅数变了（插件框架回传，应用用它做自省与 `cache: none` 的闸门） | `{id, subscribers}` |
 | `plugin.<其它插件 id>.*` | 对方插件发布 | 由对方定义 |
 
-> **下面这些名字不是总线主题**：它们是插件框架 → 主程序的内部事件（与能力派发、UI 项、日志同一条内部队列），
+> **下面这些名字不是总线频道**：它们是插件框架 → 应用的内部事件（与能力派发、UI 项、日志同一条内部队列），
 > 插件 `subscribe` 它们**不报错但永远收不到回调**：`musicxx.plugin.log` / `musicxx.plugin.error` /
 > `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.capability.changed` / `musicxx.capability.decision.result`。
-> 要看这些数据用别的办法：能力注册表用动作 `musicxx.capability.subscribers`，自己的 UI 项用 JS 的
+> 要看这些数据用别的办法：能力注册表用能力 `musicxx.capability.subscribers`，自己的 UI 项用 JS 的
 > `musicxx.ui.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
-> `await dispatchAsync` 的返回值（`musicxx.capability.decision.result` 只是同一份结果的调试镜像）。
+> `await dispatchAsync` 的返回值（`musicxx.capability.decision.result` 只是同一份结果的调试回传）。
 
-> 应用事件（`musicxx.song.changed` 之类）是**广播**上的频道；**能力**是另一条通道
+> 应用的 `musicxx.song.changed` 之类也是**广播**上的频道；**能力**是另一条通道
 > （有阶段、有合并策略、可能等裁决）。别把两者混起来：想在切歌时做事，订阅广播频道
 > `musicxx.song.changed`；想拦一次切歌，实现能力 `musicxx.player.beforePlaySong`；
-> 想在状态变了刷新自己的显示，订阅对应的快照频道（例如 `musicxx.state.song`）。
+> 想在状态变了刷新自己的显示，订阅对应的状态广播（例如 `musicxx.state.song`）。
 
 ---
 
-## 5. 官方值频道（广播：应用是属主，插件只能读与订阅）
+## 5. 官方广播频道（应用是属主，插件只能读与订阅）
 
-> **这一节讲应用发布的那些"有当前值"的频道**（以前叫“变量”）：`musicxx.app.lifecycle`、
+> **这一节讲应用发布的、带当前值的官方频道**：`musicxx.app.lifecycle`、
 > `musicxx.ui.animatedLevel` / `particleAnimate` / `songIconRotate` / `songIconWave` / `fontFamily`、
 > `musicxx.theme.available` / `current` / `mode`、`musicxx.player.position`。它们都是 `cache: latest`：
 > 订阅即拿到当前值，也能同步读缓存。**完整目录、字段与取值域见
@@ -1827,11 +1815,11 @@ iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 
 | 需要 | 用哪条 |
 |---|---|
-| 每秒多次读的实时数据（播放进度、频谱槽位） | 官方值频道 / 快照频道（§2、本节） |
-| 一次性命令（播放、发通知、开页面） | 动作（§3） |
-| 广播"发生了某事"（没有当前值） | 事件（§4） |
+| 每秒多次读的实时数据（播放进度、频谱槽位） | 带当前值的广播（§2、本节） |
+| 一次性命令（播放、发通知、开页面） | 能力（§3） |
+| 广播"发生了某事"（没有当前值） | `cache: none` 的广播（§4） |
 | **想改应用的状态**（动画等级、主题、字体、播放位置…） | **能力**（§3），改完应用自己会发广播 |
-| 能力处理器 / 热路径里**同步**判断 | 官方值频道 + `read`（同步走缓存） |
+| 能力处理器 / 热路径里**同步**判断 | 带当前值的广播 + `read`（同步走缓存） |
 
 ### 5.1 读当前值
 
@@ -1921,8 +1909,8 @@ pluginxx::Task<void> probeOther() {
 - 跨插件调用**只有异步形态**（调用方不会被慢插件卡住）。
 - 超时缺省 3 秒（调用方自己给）；**传 `0` / 负数 = 不设超时（一直等）**，不是“仍按 3 秒”。
 - 失败原因：`plugin_capability_not_found: <名字>` / `capability_call_failed` / `跨插件调用超时: ...`。
-- **处理器里不要等主程序动作**：打开插件页面 / 点按钮时主程序在等能力结果，而主程序动作要由主程序线程执行，
-  两边互等会让**整个应用卡住几秒**。要"现在这一帧"的数据读快照频道；要动作结果就异步读回来、
+- **处理器里不要等应用实现的能力**：打开插件页面 / 点按钮时主程序在等能力结果，而应用实现的能力要由应用线程执行，
+  两边互等会让**整个应用卡住几秒**。要"现在这一帧"的数据读带当前值的广播；要能力的结果就异步读回来、
   记进自己的状态，由页面下一次调用时回读。
 - 插件页面就是能力：主程序打开 `ext://<插件id>/<视图id>` 时调用**同名能力**（见 §9.1）。
 
@@ -2068,13 +2056,13 @@ extern  ---------->  builtin  ---------->  core
 
 **“改播放值”的四个能力是拦截点，不是可接管的能力**：`musicxx.player.seek` / `volume` /
 `speed` / `pitch` 的实现固定是应用自己（声明里 `impls: one`、`phases` 只有 `before` / `after`），
-因为“把播放器改到这个值”是应用的动作，不能让插件换掉（多插件时用户看到的“拖到 50% 却停在 30%”
+因为“把播放器改到这个值”是应用做的事，不能让插件换掉（多插件时用户看到的“拖到 50% 却停在 30%”
 无法解释）。插件在这四个点上的位置：
 
 | 阶段 | 能做什么 | 回答 |
 |---|---|---|
 | `before` | 改这次的目标值 / 拦下（这次不改，界面回弹） | `{"patch":{"to":0.5}}` / `{"action":"cancel"}` |
-| `after` | 改最终值 / 把这次的值作废（动作已经做了，拦不下） | `{"value":{"patch":{"to":0.5}}}` / `{"action":"drop"}` |
+| `after` | 改最终值 / 把这次的值作废（值已经改过，拦不下） | `{"value":{"patch":{"to":0.5}}}` / `{"action":"drop"}` |
 
 注册它们的 `impl` 会被拒（C++ 返回 `-4`，日志写“does not open phase impl”）。
 后链在这四个点上**一定被调用**（以前只在插件给了裁决时才会跑）；`drop` 之后应用按
@@ -2118,7 +2106,7 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
   （`observe` / `musicxx.broadcast.subscribe`，返回值忽略）。没有第三个"模式"参数。
 - `priority`：小者先执行，同优先级按注册顺序。应用询问"这个扩展点谁来实现"时的层间顺序是
   「**外置插件 → 内置插件 → 应用自己兜底**」：外置排最前是刻意的，用户装的插件要能替代内置功能；
-  想知道某个功能点现在是谁在生效，用动作 `musicxx.feature.point.list`（§3.2.11）。
+  想知道某个功能点现在是谁在生效，用能力 `musicxx.feature.point.list`（§3.2.11）。
 - `ownerTag`：同一插件在同一条能力上区分多个处理器用的标记。
   **不要用不同 `ownerTag` 注册同一条能力**：JS 侧只保留一个处理器、框架侧却留下多条注册，
   表现为处理器被重复调用。同一条能力只注册一次。
@@ -2190,7 +2178,7 @@ musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, (ctx) 
 - **不要阻塞**：网络、大文件、编解码、`sleep` 都不要直接在处理器里做 ——
   它跑在插件框架线程 / JS 线程上，慢就是业务与其它插件一起等。
   动态库插件用 `pluginxx::offload` / `pluginxx::sleep`；JS 用定时器或把工作拆成两段。
-- **不要等主程序动作**（同步派发的能力尤其致命）：调用点就地等你的返回值，而动作要由主程序线程执行，两边互等。
+- **不要等应用实现的能力**（同步派发的能力尤其致命）：调用点就地等你的返回值，而应用实现的能力要由应用线程执行，两边互等。
 - 必要的长任务提前算好（例如换歌时预热缓存），处理器里只做"查缓存 → 返回或返回空"。
 
 ### 8.5 取值型能力的"拦下"与"不提供"
@@ -2271,7 +2259,7 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 | `musicxx.app.exit` | 应用退出前让插件拦一下 / 做收尾 |
 | `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |
 | `musicxx.player.qualityChanged` | 音质切换的通知 |
-| `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写；用户可见的提示用动作 `musicxx.ui.toast` |
+| `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写；用户可见的提示用能力 `musicxx.ui.toast` |
 | `musicxx.media.info.analyse` | 让插件提供歌名 / 歌手 / 媒体信息识别（替代应用不联网的识别） |
 | `musicxx.song.meta.writeback` | 歌曲信息回写时的通知 |
 | `musicxx.song.beforeAdd` | 加歌前拦一下 |
@@ -2334,11 +2322,11 @@ uiNotify(R"({"text":"已刷新"})");
   `playing.moreinfo.header` / `playing.moreinfo.footer` /
   `playing.songlist.top` / `playing.songlist.bottom` / `playing.songlist.header` / `playing.songlist.footer`
   （**类型本身就是位置**，`data` 里不需要 `slot`；`top` / `bottom` 是固定区域，`header` / `footer` 在列表滚动内容里）。
-- **页面是"取一次"的快照**：改完配置要让能力再返回一次 `{view: …}`（或重新打开页面）。
+- **页面内容是打开时取一次的**：改完配置要让能力再返回一次 `{view: …}`（或重新打开页面）。
 - **入口 / 按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示
   「插件『<插件id>』没有提供『xxx』」。
 - 动作写法只有四种：`route` / `dispatch` / `command` / `none`。
-  入口/菜单项里的 `route` 与动作 `musicxx.ui.openRoute` 走同一套规则：**允许指向任意插件**的页面
+  入口/菜单项里的 `route` 与能力 `musicxx.ui.openRoute` 走同一套规则：**允许指向任意插件**的页面
   （`ext://<插件id>/<视图id>`，含自己）。跨插件时页面由**对方插件**自己绘制，发起方拿不到对方的数据，
   所以只该跳"两边都装得上"的公共页面，跳之前用 `musicxx.plugin.list` 之类的办法确认对方在。
 - **组件要按客户端能力降级**：`musicxx.host.info().ui`（`blocks` / `controls` / `kind`）告诉你这个
@@ -2383,15 +2371,15 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 | 想知道 | 用 |
 |---|---|
-| 这条能力现在有谁在实现、排第几 | 动作 `musicxx.capability.subscribers`（§3.2.12）；命令行 `musicxx-cli capability.subscribers` 读同一份数据 |
-| 应用留出了哪些功能点、谁在实现、谁关掉了 | 动作 `musicxx.feature.point.list`（§3.2.11） |
-| 应用自己能做什么（给模型看的文本结论） | 动作 `musicxx.feature.list`（§3.2.10） |
+| 这条能力现在有谁在实现、排第几 | 能力 `musicxx.capability.subscribers`（§3.2.12）；命令行 `musicxx-cli capability.subscribers` 读同一份数据 |
+| 应用留出了哪些功能点、谁在实现、谁关掉了 | 能力 `musicxx.feature.point.list`（§3.2.11） |
+| 应用自己能做什么（给模型看的文本结论） | 能力 `musicxx.feature.list`（§3.2.10） |
 | 本插件跑了多少、错了几次 | JS：`musicxx.stats.getSelf()`；两边都看得到：管理页「插件详情 → 运行统计」 |
 
 ### 10.3 应用卡住时怎么查
 
 主程序日志目录下有一份 `host_call.log`（进插件框架调用的同步轨迹）：**卡住后最后一行就是没有返回的那次调用**。
-配合「插件详情 → 日志」就能区分是脚本死循环、动作等待，还是插件框架本身的问题。
+配合「插件详情 → 日志」就能区分是脚本死循环、能力等待，还是插件框架本身的问题。
 
 ---
 
@@ -2399,16 +2387,16 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 ### 11.1 命名空间
 
-- 官方标识一律 `musicxx.*`（能力 / 广播频道 / 动作 / UI 类型 / 权限 / 快照频道 id）；
+- 官方标识一律 `musicxx.*`（能力 / 广播频道 / UI 类型 / 权限 / 频道 id）；
 - 插件自定义一律 `plugin.<自己的插件 id>.*`（广播频道、能力名、UI 项 id、功能点 id）；
-- 冒充他人命名空间会被拒绝（返回 `-6`）。**动作名与能力 id 不受此限**：
-  动作任意名字都受理（由主程序决定理不理），能力必须是声明表里已有的。
+- 冒充他人命名空间会被拒绝（返回 `-6`）。**调用的名字不受此限**：
+  任意名字都受理（由应用决定理不理），官方能力必须是声明表里已有的。
 
 ### 11.2 容量与限制（当前版本）
 
 | 项目 | 限制 |
 |---|---|
-| 快照频道单键大小 | 不限制（必须是合法 JSON。镜像由应用按需推送、插件只读；高频数据用事件频道并按需声明订阅频率） |
+| 单条广播的值大小 | 不限制（必须是合法 JSON。值由应用按需发布、插件只读；高频数据用没有当前值的频道并按订阅方自己的频率接收） |
 | 插件私有 KV / `config.json` | 不设配额（每次写入整文件重写，别当数据库） |
 | `musicxx.storage.list` | 每次最多 500 个键 |
 | 广播频道数量 / 单条载荷大小 / 每个频道的订阅数 | 不限制；高频频道由订阅方自己声明 `intervalMs` |
@@ -2430,7 +2418,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 | 场景 | JS 缺省 | 动态库缺省 | 备注 |
 |---|---|---|---|
-| 主程序动作 | 5000 ms（`<=0` 按缺省） | 5000 ms（**0 = 不设超时**） | 需要更久自己加大（如解码整曲） |
+| 应用实现的能力 | 5000 ms（`<=0` 按缺省） | 5000 ms（**0 = 不设超时**） | 需要更久自己加大（如解码整曲） |
 | 跨插件能力调用 | 3000 ms（不传 = 3000；**传 `0` / 负数 = 一直等**） | 框架不设等待超时（受理失败会立刻返回） | 只有异步形态 |
 | 功能点调用 | 60000 ms | 60000 ms | 频谱要解码整曲 |
 | 能力等待 | **没有超时** | **没有超时** | 异步裁决不结算就是调用点一直等 |
@@ -2444,7 +2432,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | `-2` | 状态错误 | 实例未启动 / 已禁用 / 正在卸载 |
 | `-3` | JSON 非法 | 载荷解析失败 |
 | `-4` | 未找到 | 注册未知能力、未知 UI 类型、注销不存在的项 |
-| `-5` | 超时 | 动作请求 / 能力调用超时 |
+| `-5` | 超时 | 能力请求 / 能力调用超时 |
 | `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 广播频道 id） |
 | `-7` | 队列满 | 保留值（当前没有容量类限制） |
 | `-99` | 内部异常 | 插件框架内部错误（看日志） |
@@ -2458,7 +2446,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 
 - 全部能力处理器；全部已声明能力；全部事件订阅；全部 UI 项声明；全部功能点声明与实现；
 - **自己起的网络服务与静态路由**（端口立刻释放，旧 URL 立即失效）；
-- 定时器（JS）；未完成的动作请求（JS 的 Promise 被拒绝，原因"插件已停止"）；
+- 定时器（JS）；未完成的能力请求（JS 的 Promise 被拒绝，原因"插件已停止"）；
 - 自管的线程 / 定时器 / 临时文件由你在 `stop` 事务里自己回收（动态库插件）。
 
 重新启用 = 重新跑一遍注册：**注册语句要写成幂等的**（重复执行不会累积副作用）。
@@ -2469,16 +2457,16 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| 动作一直 `action_not_registered` | 动作当前版本没实现（§3.4）；或名字拼错 |
+| 调用一直 `action_not_registered` | 能力当前版本没实现（§3.4）；或名字拼错 |
 | 处理器不触发 | 这条能力在 `plugin-capabilities.md` 里标"未接入"；或插件被禁用；或注册失败（看返回码 / 返回值） |
 | 处理器被调用多次 | 用不同 `ownerTag` 注册了同一条能力（§8.1） |
 | 定时器 / 初始化执行两遍 | 每次启用都会重新执行注册（写成幂等） |
 | 设置项改完重启又变回默认 | 把 `storage.get` 的"值本身"当成了对象外壳（§3.2.5） |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，覆盖了用户刚改的值（加"已经改过就不再覆盖"的保护） |
-| 点入口提示「插件没有提供『xxx』」 | 入口动作指向的能力没注册（页面视图 id 必须与能力短名一致） |
+| 点入口提示「插件没有提供『xxx』」 | 入口指向的能力没注册（页面视图 id 必须与能力短名一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 视图没有 `blocks`，或块类型名全部拼错（未识别的块会被静默忽略） |
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再返回一次 `{view:…}`，或重新打开页面 |
-| 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取）里 `await` 了主程序动作 → 两边互等（§8.4） |
+| 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取）里 `await` 了应用实现的能力 → 两边互等（§8.4） |
 | 主程序整体卡住 | 处理器里做了阻塞操作 / JS 死循环（框架不打断） |
 | 颜色 / 频谱"凭空消失" | 有人返回了 `{"action":"cancel"}`（§8.5）；用 `capability.list` 看是谁 |
 | 网络请求拿不到数据 | 看 `status`（非 2xx 也 `ok:true`）与 `truncated`（读满 `maxBytes` 就断开） |

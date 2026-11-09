@@ -55,9 +55,9 @@ extern "C" {
 
 #pragma pack(push, 8)
 
-/* ==================== 能力: 裁决动作 ==================== */
+/* ==================== 能力: 裁决结果里的 action ==================== */
 
-/// 裁决动作 (与 Dart 侧 `MusicxxPluginCapabilityAction` 一一对应)
+/// 裁决结果里的 `action` 取值 (与 Dart 侧 `MusicxxPluginCapabilityAction` 一一对应)
 ///
 /// 一个 id 是能力还是广播由 `tools/capabilities.def.json` 的声明决定 (插件不能自选):
 /// 广播只通知, 处理器给什么都不看; 能力按声明里的 `merge` 合并结果。
@@ -92,7 +92,7 @@ extern "C" {
 static_assert(std::string_view(PLUGINXX_APP_ID("host")) == MUSICXX_PLUGIN_IFACE_HOST);
 #endif
 /// v2: 删掉 `get_state` / `subscribe_state`（读当前值走广播频道）与
-/// `request_action` / `cancel_action`（动作就是能力，走 `musicxx.capabilities`）
+/// `request_action` / `cancel_action`（要应用做事就调能力，走 `musicxx.capabilities`）
 #define MUSICXX_PLUGIN_IFACE_HOST_VERSION     2
 #define MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION 2
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
@@ -132,8 +132,8 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
 /// 「添加歌曲」弹窗里的来源项 (歌曲列表页 [+] → 添加歌曲): data = {title, subtitle?, icon?, action?}
 ///
-/// 点它时主程序会把当前歌单的上下文 (pid / name / songNum) 合进动作参数, 与歌单菜单项一致。
-/// 常见写法是把动作指向 `musicxx.ui.openOverlaySheet`, 由主程序打开一层浮层并等用户关掉
+/// 点它时应用会把当前歌单的上下文 (pid / name / songNum) 合进界面动作的参数, 与歌单菜单项一致。
+/// 常见写法是把动作指向能力 `musicxx.ui.openOverlaySheet`, 由应用打开一层浮层并等用户关掉
 /// (浮层内容是插件视图, 参数见 docs/plugin-api.md §3.2.4)。
 #define MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY "musicxx.ui.addsong.entry"
 /// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
@@ -197,14 +197,14 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
 /// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。
 
-/* UI 项动作类型 (data.action; 与界面描述层的动作写法一致) */
+/* UI 项的界面动作类型 (data.action; 与界面描述层的写法一致) */
 /// 打开声明式插件页面: {"kind":"route","route":"ext://<插件id>/<视图id>"}
 /// (允许指向任意插件: 页面由被跳转插件自己绘制)
 #define MUSICXX_PLUGIN_UI_ACTION_ROUTE      "route"
 /// 调用本插件自己的能力: {"kind":"dispatch","name":"<短名>","args":{...}}
 /// (字符串短写 "动作名" 等价于这一种)
 #define MUSICXX_PLUGIN_UI_ACTION_DISPATCH   "dispatch"
-/// 调用主程序官方动作: {"kind":"command","name":"musicxx.<域>.<动作>","args":{...}}
+/// 调应用实现的官方能力: {"kind":"command","name":"musicxx.<域>.<名字>","args":{...}}
 #define MUSICXX_PLUGIN_UI_ACTION_COMMAND    "command"
 /// 无动作 (纯展示项)
 #define MUSICXX_PLUGIN_UI_ACTION_NONE       "none"
@@ -257,7 +257,7 @@ typedef struct MusicxxPluginUIIface {
         PluginxxString*                   out_json
     );
 
-    /// 提示 (等价于动作 `musicxx.ui.toast`; fire-and-forget, 不等待用户界面)
+    /// 提示 (等价于能力 `musicxx.ui.toast`; fire-and-forget, 不等待用户界面)
     int32_t(PLUGINXX_CALL* notify)(
         const PluginxxHost*               host,
         const PluginxxStringView*         message_json
@@ -361,14 +361,14 @@ typedef struct MusicxxPluginKindIface {
 #define MUSICXX_PLUGIN_IFACE_PLAYER    "musicxx.player"
 #define MUSICXX_PLUGIN_IFACE_PLAYLIST  "musicxx.playlist" ///< 歌单（保存下来的列表）
 #define MUSICXX_PLUGIN_IFACE_SONGLIST  "musicxx.songlist" ///< 播放列表（当前正在播的那一串歌）
-#define MUSICXX_PLUGIN_IFACE_LYRIC     "musicxx.lyric" ///< 歌词（单数域，与动作 / 能力 / 变量一致）
+#define MUSICXX_PLUGIN_IFACE_LYRIC     "musicxx.lyric" ///< 歌词（单数域，与能力 / 广播频道一致）
 #define MUSICXX_PLUGIN_IFACE_STORAGE   "musicxx.storage"
 #define MUSICXX_PLUGIN_IFACE_STATS     "musicxx.stats"
 #define MUSICXX_PLUGIN_IFACE_AGENT     "musicxx.agent" ///< 预留: 实现 AI 相关能力时使用
 
-/* ==================== 快照频道的键 ==================== */
+/* ==================== 状态广播的键 ==================== */
 
-/// 官方的 `musicxx.state.*` 快照频道键由生成头给出:
+/// 官方的 `musicxx.state.*` 广播频道键由生成头给出:
 /// `MUSICXX_BROADCAST_STATE_*`（`capability_ids.g.h`，声明源是 `tools/capabilities.def.json`）。
 /// 读当前值用广播频道（`musicxx.broadcast.read` / SDK 的 `broadcastJson`）。
 

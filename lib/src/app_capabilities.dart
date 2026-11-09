@@ -12,7 +12,7 @@ import 'runtime.dart';
 typedef MusicxxPluginAppCapabilityHandler =
     Object? Function(MusicxxPluginAppCapabilityInvocation invocation);
 
-/// 一次动作请求（插件 → Dart）
+/// 一次能力调用（插件 → Dart）
 class MusicxxPluginAppCapabilityInvocation {
   const MusicxxPluginAppCapabilityInvocation({
     required this.requestId,
@@ -28,7 +28,7 @@ class MusicxxPluginAppCapabilityInvocation {
   /// 发起插件（可能是 `js:<id>` 的 id 形式）
   final String plugin;
 
-  /// 能力 id（`musicxx.<域>.<动作>`）
+  /// 能力 id（`musicxx.<域>.<名字>`）
   final String capability;
 
   /// 参数
@@ -56,7 +56,8 @@ class MusicxxPluginAppCapabilities {
       <String, MusicxxPluginAppCapabilityHandler>{};
 
   /// 已注册的能力 id
-  Set<String> get registeredCapabilities => Set<String>.unmodifiable(_handlers.keys);
+  Set<String> get registeredCapabilities =>
+      Set<String>.unmodifiable(_handlers.keys);
 
   /// 还没回复的异步能力数量（异步处理器返回 Future 时记一笔）
   ///
@@ -85,13 +86,14 @@ class MusicxxPluginAppCapabilities {
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
       final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_capability_app_respond(
-        _runtime.host,
-        requestId,
-        status,
-        arena.view(payload),
-        log,
-      );
+      final int rc = _runtime.bindings
+          .musicxx_extern_plugin_capability_app_respond(
+            _runtime.host,
+            requestId,
+            status,
+            arena.view(payload),
+            log,
+          );
       if (rc != 0) {
         _runtime.log(3, 'capability_app_respond(#$requestId) 失败(code=$rc)');
       }
@@ -217,8 +219,7 @@ class MusicxxPluginAppCapabilities {
 /// 主程序按这张表把旧名字也注册成同一份实现，命令行与 `/cli/list` 也按它标出“过时”。
 /// 新能力不要再往这里加：能力 id 一律用生成的 [MusicxxCapabilityId]。
 const Map<String, String> kDeprecatedLibraryAliases = <String, String>{
-  'musicxx.library.querySonglists':
-      MusicxxCapabilityId.playlistQueryLists,
+  'musicxx.library.querySonglists': MusicxxCapabilityId.playlistQueryLists,
   'musicxx.library.querySongs': MusicxxCapabilityId.playlistQuerySongs,
   'musicxx.library.playSong': MusicxxCapabilityId.songlistPlaySong,
   'musicxx.library.playSonglist': MusicxxCapabilityId.playlistPlay,

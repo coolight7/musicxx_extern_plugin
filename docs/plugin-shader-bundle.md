@@ -178,7 +178,7 @@ float t = render_info.uParams.z * render_info.uParams.w;   // 速率变了立即
 ## 5.1 封面纹理（`cover`）：把当前歌曲封面交给着色器采样
 
 播放页背景经常要用当前歌曲封面（模糊铺底、圆心盘、扭曲、像素化…）。**不要把封面字节读进插件再想办法画**
-—— 动作 `musicxx.media.cover` 那套是给"读数据"用的（插件脚本拿到的是 base64 字节，进不了 GPU）。
+—— 能力 `musicxx.media.cover` 那套是给"读数据"用的（插件脚本拿到的是 base64 字节，进不了 GPU）。
 渲染项里声明 `cover`，剩下的事由主程序做：解码 → 缩放（可选中心裁剪成正方形）→ 可选**预模糊**
 （引擎的图像滤镜，GPU 一次）→ 上传成 GPU 纹理 → 每帧绑定到你指定的 `sampler2D`。
 
@@ -376,13 +376,13 @@ void main() {
 
 - **接管是"整个显示"**：原来的"点击歌曲图播放 / 暂停"、滑动切歌（`musicxx.ui` 设置里的
   「滑动切换歌曲」）、视频播放按钮都不再出现。需要这些交互的插件自己在界面里放按钮 ——
-  `view` 形态可以声明动作（`dispatch` 调自己的能力、`command` 调官方动作如
+  `view` 形态可以声明动作（`dispatch` 调自己的能力、`command` 调官方能力如
   `musicxx.player.toggle`）；
 - `shader` 形态的渲染区域就是**内置歌曲图占的那块**：`uParams.xy` 是它的像素尺寸（不是整屏），
   插件按这个尺寸画；`animate: false` 时只出一帧；
 - 没有额外 uniform 成员：通用成员（`uParams` / `uEnv`）够描述"画在多大的一块里"，
   颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
-- 槽位快照频道：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
+- 槽位状态广播：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
   例如"背景是自己时才接管歌曲图"这种跟随（`plugins/playing_bg_image` 就是这么做的：它的三种
   背景模式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
@@ -435,7 +435,7 @@ void main() {
   不会生效；
 - `cover` / `image` / `args` / `speed` / `maxFps` / `resolutionScale` / `animate` 与背景槽位同一套解析；
   没有 `args` 时**不像背景那样默认给 4 色**，要用颜色自己声明；
-- 槽位快照频道：`musicxx.state.renderSlots["player.visualizer"]`（字段与背景 / 歌曲图相同）；
+- 槽位状态广播：`musicxx.state.renderSlots["player.visualizer"]`（字段与背景 / 歌曲图相同）；
 - 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败 3 次、插件停用 / 卸载 → 自动回退到
   用户原本的内置选择（或“不显示”），原因写在设置列表那一行。
 
@@ -518,7 +518,7 @@ void main() {
 
 **名字空间与解析顺序**（与页面/`AnimatedBuilder` 里用的是同一套值系统）：
 
-- **`musicxx.*` 是框架/应用保留的**：派生来源（主题色 / 封面取色 / 频谱 / 环境量）与官方值频道
+- **`musicxx.*` 是框架/应用保留的**：派生来源（主题色 / 封面取色 / 频谱 / 环境量）与官方广播频道
   （`musicxx.ui.*` / `musicxx.theme.*` 这类，只能读）；插件不要用这个前缀声明自己的频道；
 - **其它名字（允许含 `.`）是自定义的**：`AnimatedBuilder.values` 里的局部通道，或广播频道的当前值
   （应用登记的官方频道、插件自己声明并发布的 `plugin.<插件id>.<名>`）；名字里的 `.` 不再用来判别"系统还是自定义"；
@@ -616,7 +616,7 @@ void main() {
 | `musicxx.spectrum.bands64.0` .. `musicxx.spectrum.bands64.15` | 当前音频的 **64 个频带**（低频在前，0~1；每项 4 个连续频带写在 xyzw）——画面上要摆很多点时用这一档 |
 | `musicxx.spectrum.bins.0` .. `musicxx.spectrum.bins.63` | 当前音频的**全部 256 个频点**（低频在前，0~1；每项 4 个连续频点写在 xyzw） |
 | `musicxx.env.night` / `musicxx.env.hasPalette` / `musicxx.env.hasSpectrum` / `musicxx.env.hasCover` | 环境量：是否夜间 / 有没有封面配色 / 有没有频谱数据 / 有没有封面图（0 或 1，写在 4 个分量）；配 `mix` 就能写出"按环境切换"的值 |
-| **其它任意名字（可含 `.`）** | 广播频道的当前值（`read`）：应用登记的官方值频道、插件自己声明并发布的 `plugin.<插件id>.<名>`（发布前要 `cache: "latest"` 才有当前值）；值是数字 / 布尔 / 文本，主程序按字段期望的类型转换 |
+| **其它任意名字（可含 `.`）** | 广播频道的当前值（`read`）：应用登记的官方广播频道、插件自己声明并发布的 `plugin.<插件id>.<名>`（发布前要 `cache: "latest"` 才有当前值）；值是数字 / 布尔 / 文本，主程序按字段期望的类型转换 |
 | **局部通道名（`AnimatedBuilder.values` 的键）** | 优先于上面两类；只在那一层作用域里可见（页面里的用法见 `plugin-ui.md`） |
 
 **频谱来源（`musicxx.spectrum.*`）** 读的是**插件提供的实现**提取的数据（内置『音乐动效』插件是
@@ -663,7 +663,7 @@ void main() {
     能调；示例插件『光圈』现在**直接用数值**（不套任何曲线），要改时照上面两条公式改就行；
 - 一帧有 **256 个频点**，频带是这些频点再按频率分组后的 16 个值（与能力的 `GetAudioSpectrum`
   一致，频带 0 最低、频带 15 最高，每组取覆盖范围内最大的那一段）；想要别的规则或整曲数据用
-  `musicxx.media.spectrum` 动作自己算；
+  `musicxx.media.spectrum` 能力自己算；
 - 能取到数据的条件：正在播放**本地/缓存**的音频（网络流要先有本地缓存），时长不超过
   15 分钟，且有插件提供频谱提取实现（内置『音乐动效』，或注册了实现
   `musicxx.media.spectrum.extract` 的插件）。
@@ -779,7 +779,7 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 
 ---
 
-## 10. 运行期：查询、切换与快照频道
+## 10. 运行期：查询、切换与状态广播
 
 槽位用 `slot` 参数区分（省略 = 默认槽位 `player.background`）：`player.background`（播放页背景）、
 `player.icon`（播放页歌曲图，§5.3）与 `player.visualizer`（播放页音频动效，§5.4）各有自己的候选列表与选择，
@@ -796,7 +796,7 @@ await musicxx.capability.call("musicxx.render.select", { slot: "player.backgroun
 await musicxx.render.select("builtin:Auto");     // 省略 slot 用默认槽位
 // 成功 → { ok:true, slot, id }；不可用 / 未知槽位 → { ok:false, error:"<原因>" }
 
-// 现在是谁在画（同步读快照频道）
+// 现在是谁在画（同步读状态广播）
 const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
 ```
 
@@ -804,7 +804,7 @@ const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player
   `musicxx.render.list` 的返回）；
 - 命令行 / agent 不用写插件也能切：`musicxx-cli render list` / `render current` /
   `render select plugin.my_plugin.bg`（见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
-- 镜像 `musicxx.state.renderSlots` 每个槽位一个条目，字段：
+- 广播 `musicxx.state.renderSlots` 每个槽位一个条目，字段：
 
   | 字段 | 含义 |
   |---|---|
@@ -826,7 +826,7 @@ const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player
 
 ```js
 // ① 着色器参数（每帧现读，零成本）：见 §7 的 musicxx.spectrum.* 来源
-// ② JS 侧读一帧快照（异步动作）：当前这一帧的响度与频带
+// ② JS 侧读一帧（异步调用）：当前这一帧的响度与频带
 const s = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 // s = { ok:true, status:"ready"|"loading"|"none"|"off"|"unavailable",
 //       available, loading, reason, source:"extracted"|"live",
@@ -834,7 +834,7 @@ const s = await musicxx.media.spectrum({ bandCount: 16, unit: "normalized" });
 //       frameHz:10, frameIndex, frames, binCount:256, bandCount, unit,
 //       level, bands:[...], frameData? }        // frameData 需要 includeBins:true
 
-// ③ 同步读快照频道（播放中约 10 Hz 推送，适合插件自己的绘制循环）
+// ③ 同步读状态广播（播放中约 10 Hz 推送，适合插件自己的绘制循环）
 const live = musicxx.broadcast.read("musicxx.state.spectrum");
 // { status, available, loading, reason, source, srcKey,
 //   frameHz, frameIndex, frames, bandCount, level, bands:[16] }
@@ -905,6 +905,6 @@ function applyRate(rate) {
 | 封面没画出来（`cover` 声明了） | 按顺序看：① `uCoverInfo.w` 是不是 0（当前歌曲没有封面 / 封面还没加载好 / 封面源解析失败，主程序日志里有"插件封面纹理准备失败"）；② 着色器里有没有 `uniform sampler2D <cover.texture>;`（名字不一致时主程序会记"没有声明这个纹理 uniform，已跳过绑定"）；③ 采样坐标要对：渲染目标与纹理都是 y 向下，把 `p.y` 翻过的着色器要翻回去；④ 采样到的是 1×1 透明占位纹理时颜色全黑，别用它判断"有没有封面" |
 | 用了封面纹理后崩溃 / 画面异常 | 着色器里的 `sampler2D` 名字与渲染项 `cover.texture` 不一致，或**渲染项压根没声明 `cover`**：那种 sampler 从未被绑定，采样未绑定的纹理在部分后端上行为未定义（软件后端实测会崩）。名字必须两边一致；当前没有封面时主程序会绑 1×1 透明占位纹理，所以"声明了但没封面"是安全的 |
 | `image` 纹理没画出来 | ① 插件有没有先 `musicxx.media.bindImage`（或 `cover` 的 `bind`）——返回里看 `ok` 与 `bindError`；② 渲染项 `image.key` 与绑定的 `key` 是否一致；③ `image.texture` 与着色器里的 `sampler2D` 名是否一致；④ `uXxxInfo.w` 是不是 0（还没绑定 / 已解绑） |
-| 绑定图片失败 | 键不合法（1..64 位字母数字与 `_ - .`）、`format: "rgba"` 缺 `width` / `height` 或字节数与尺寸不匹配 —— 原因都在动作返回的 `bindError` / `error` 里（张数与尺寸已不再限制） |
+| 绑定图片失败 | 键不合法（1..64 位字母数字与 `_ - .`）、`format: "rgba"` 缺 `width` / `height` 或字节数与尺寸不匹配 —— 原因都在调用返回的 `bindError` / `error` 里（张数与尺寸已不再限制） |
 | 封面上下颠倒 | 纹理坐标要把"向上为正"的坐标翻回去（`vec2(x, -y) * 0.5 + 0.5`），见 §5.1 |
 | 画面比预期快/慢 | `uParams.z` 是真实秒数、`uParams.w` 是插件声明的速度：主程序的基准速度就是插件给的值（示例把 1 当 1×） |

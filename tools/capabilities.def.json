@@ -130,7 +130,7 @@
         "command"
       ],
       "implemented": true,
-      "doc": "载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）**时派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 能力 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。**跳转本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{\"patch\":{\"to\":60000}}` = 换这次的目标位置，`{\"action\":\"cancel\"}` = 这次不跳（界面回弹）；`after` 回答 `{\"value\":{\"patch\":{\"to\":60000}}}` = 改最终位置，`{\"action\":\"drop\"}` = 这次的值作废（仍按 `before` 之后的目标位置跳：动作已经做过了，后链拦不下动作）。`impl` 阶段不开放（注册被拒，返回码 -4）：跳不跳不能让插件换掉。目标位置最终会被夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。"
+      "doc": "载荷 `{sid, from, to, durationMs}`：应用**要把播放位置改到 `to`（毫秒）**时派发一次。拖动进度条、点歌词、快捷键快进快退、局域网控制、命令行 / 能力 / 脚本、恢复播放进度都会走这里。`from` = 改之前的进度，`durationMs` = 总时长（未知为 0），`sid` = 当前歌曲会话 id。**跳转本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{\"patch\":{\"to\":60000}}` = 换这次的目标位置，`{\"action\":\"cancel\"}` = 这次不跳（界面回弹）；`after` 回答 `{\"value\":{\"patch\":{\"to\":60000}}}` = 改最终位置，`{\"action\":\"drop\"}` = 这次的值作废（仍按 `before` 之后的目标位置跳：这次改动已经做过了，后链拦不下它）。`impl` 阶段不开放（注册被拒，返回码 -4）：跳不跳不能让插件换掉。目标位置最终会被夹到 0~总时长。**异步派发、最多等 0.5 s**：超时或不回答 = 按原目标跳；等待期间切歌则本次裁决作废（插件不用自己判断 `sid`）。处理器里不要再调 `musicxx.player.seek`（会再派发一次）。"
     },
     {
       "id": "musicxx.player.volume",
@@ -151,7 +151,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{from, to}`：应用**要把音量改成 `to`** 时派发一次（`from` = 当前音量，`to` = 这次要用的音量，都是 0~1，可能略大于 1 表示增益）。音量滑块、快捷键、静音 / 取消静音、局域网控制、命令行 / 能力、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{\"patch\":{\"to\":0.5}}` = 改这次的目标值，`{\"action\":\"cancel\"}` = 这次不改（保持原音量，界面回弹）；`after` 回答 `{\"value\":{\"patch\":{\"to\":0.5}}}` = 改最终值，`{\"action\":\"drop\"}` = 这次的值作废（仍按 `before` 之后的目标值改：动作已经做过了，后链拦不下动作）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0~1）。**异步派发、最多等 0.5 s**：超时或不回答 = 按原值执行。处理器里不要再调 `musicxx.player.setVolume`（会再派发一次）。"
+      "doc": "载荷 `{from, to}`：应用**要把音量改成 `to`** 时派发一次（`from` = 当前音量，`to` = 这次要用的音量，都是 0~1，可能略大于 1 表示增益）。音量滑块、快捷键、静音 / 取消静音、局域网控制、命令行 / 能力、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{\"patch\":{\"to\":0.5}}` = 改这次的目标值，`{\"action\":\"cancel\"}` = 这次不改（保持原音量，界面回弹）；`after` 回答 `{\"value\":{\"patch\":{\"to\":0.5}}}` = 改最终值，`{\"action\":\"drop\"}` = 这次的值作废（仍按 `before` 之后的目标值改：这次改动已经做过了，后链拦不下它）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0~1）。**异步派发、最多等 0.5 s**：超时或不回答 = 按原值执行。处理器里不要再调 `musicxx.player.setVolume`（会再派发一次）。"
     },
     {
       "id": "musicxx.player.speed",
@@ -193,7 +193,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{from, to}`：应用**要把音调改成 `to`** 时派发一次（`from` = 当前音调，`to` = 这次要用的音调；1 是原调，范围 0.25~2）。播放页的音调菜单、快捷键、音效切换时的复位、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{\"patch\":{\"to\":1.1}}` = 改这次的目标值，`{\"action\":\"cancel\"}` = 这次不改（界面回弹）；`after` 回答 `{\"value\":{\"patch\":{\"to\":1.1}}}` = 改最终值，`{\"action\":\"drop\"}` = 这次的值作废（仍按 `before` 之后的目标值改）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0.25~2）。**异步派发、最多等 0.5 s**。要主动改音调用动作 `musicxx.player.setPitch`；处理器里不要再调它（会再派发一次）。"
+      "doc": "载荷 `{from, to}`：应用**要把音调改成 `to`** 时派发一次（`from` = 当前音调，`to` = 这次要用的音调；1 是原调，范围 0.25~2）。播放页的音调菜单、快捷键、音效切换时的复位、启动时恢复设置都会走这里。**改值本身由应用执行（实现固定），插件只能插手两头**：`before` 回答 `{\"patch\":{\"to\":1.1}}` = 改这次的目标值，`{\"action\":\"cancel\"}` = 这次不改（界面回弹）；`after` 回答 `{\"value\":{\"patch\":{\"to\":1.1}}}` = 改最终值，`{\"action\":\"drop\"}` = 这次的值作废（仍按 `before` 之后的目标值改）。`impl` 阶段不开放（注册被拒，返回码 -4）。最终值会被夹到应用的合法范围（0.25~2）。**异步派发、最多等 0.5 s**。要主动改音调就调能力 `musicxx.player.setPitch`；处理器里不要再调它（会再派发一次）。"
     },
     {
       "id": "musicxx.player.error",
@@ -473,7 +473,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, frames, binCount, frameHz, maxSeconds, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要提取一首歌的**整曲频谱**时派发一次（`path` 是本地/缓存文件路径，不是网络直链；`kind` = `local` / `cache` / `content` / `other`；`frames` 按时长推算、只作提示）。处理器返回 `{\"spectrum\": {\"spectrums\": \"<base64>\", \"waveform\": \"<base64，可省>\", \"binCount\": 256, \"frameHz\": 10}}` 就用插件的数据替代内置提取（内置实现是主程序自己用 mediaxx 提取）：`spectrums` 是整曲频点（帧数 × 256 个字节，0~255 表示 -80~0 dB，默认每秒 10 帧），`waveform` 是每帧 1 字节 RMS 响度（0~255 表示 -60~+20 dB；省掉或长度对不上时按每帧频点均值补一份近似响度）。不返回 / 没有 `spectrum` / 数据不合法（不是 base64、长度不是 256 的整数倍、`binCount` 与 `frameHz` 不是 256 与 10）= 这次不提供，主程序接着用已登记的实现（内置『音乐动效』）。**回答请用 `patch` 包一层**（写成 `patch.spectrum`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 30 s（超时按没给处理）；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"这条能力有处理器\"时才派发。返回 `{\"action\":\"cancel\"}` 是拦下这次调用：主程序这次不再询问其它实现（内置『音乐动效』也不跑，播放页频谱与副歌分析都拿不到数据），这次结果不写缓存；拦下只在本次询问有效，处理器被摘除（插件停用 / 卸载 / 关闭『拟声++』）后自动还原。要用它请先确认自己的数据已经算好（例如自己起线程提前算完），否则用户会看到功能凭空消失。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到原始数据，参数与结果见 `capability.list` 里的 `callDoc`。调用同样按这条处理器链问一遍，但**不写主程序的值仓、不改主程序状态**（只读值仓，绝不记录拦下标记），同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
+      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, frames, binCount, frameHz, maxSeconds, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要提取一首歌的**整曲频谱**时派发一次（`path` 是本地/缓存文件路径，不是网络直链；`kind` = `local` / `cache` / `content` / `other`；`frames` 按时长推算、只作提示）。处理器返回 `{\"spectrum\": {\"spectrums\": \"<base64>\", \"waveform\": \"<base64，可省>\", \"binCount\": 256, \"frameHz\": 10}}` 就用插件的数据替代内置提取（内置实现是主程序自己用 mediaxx 提取）：`spectrums` 是整曲频点（帧数 × 256 个字节，0~255 表示 -80~0 dB，默认每秒 10 帧），`waveform` 是每帧 1 字节 RMS 响度（0~255 表示 -60~+20 dB；省掉或长度对不上时按每帧频点均值补一份近似响度）。不返回 / 没有 `spectrum` / 数据不合法（不是 base64、长度不是 256 的整数倍、`binCount` 与 `frameHz` 不是 256 与 10）= 这次不提供，主程序接着用已登记的实现（内置『音乐动效』）。**回答请用 `patch` 包一层**（写成 `patch.spectrum`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 30 s（超时按没给处理）；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"这条能力有处理器\"时才派发。返回 `{\"action\":\"cancel\"}` 是拦下这次调用：主程序这次不再询问其它实现（内置『音乐动效』也不跑，播放页频谱与副歌分析都拿不到数据），这次结果不写缓存；拦下只在本次询问有效，处理器被摘除（插件停用 / 卸载 / 关闭『拟声++』）后自动还原。要用它请先确认自己的数据已经算好（例如自己起线程提前算完），否则用户会看到功能凭空消失。**这个功能点对外开放调用**（能力 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到原始数据，参数与结果见 `capability.list` 里的 `callDoc`。调用同样按这条处理器链问一遍，但**不写主程序的值仓、不改主程序状态**（只读值仓，绝不记录拦下标记），同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
     },
     {
       "id": "musicxx.media.chorus.analyse",
@@ -494,7 +494,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, hasWave, frames, binCount, frameHz, spectrums?, waveform?, config, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要分析一首歌的**副歌（高潮）区段**时派发一次。`hasWave` 为真时附带主程序已经拿到的整曲频谱（`spectrums` / `waveform` 的 base64，4 分钟歌曲约 800 KB —— 用不上的插件请不要注册这条能力）；`config` 是内置算法的参数（`bandCount` / `hopFrames` / `windowFrames` / `minRepeatLagSeconds` / `segmentSimilarity` / `minSegmentSeconds` / `maxSegmentSeconds` / `mergeGapSeconds`）。处理器返回 `{\"chorus\": {\"sections\": [{\"start\": 64000, \"end\": 100000, \"confidence\": 0.8, \"energy\": 0.7, \"similarity\": 0.9, \"repeat\": 3}], \"totalDuration\": 253000, \"analyseTimeMs\": 120}}`（时间单位毫秒）就用插件的区段替代内置分析；`sections` 是必需项（空数组 = 分析过了、这首歌没有副歌），每段至少要有 `start` 与 `end`，其余字段缺失按 0 处理。不返回 / 缺少 `sections` / 一个区段都解析不出来 = 这次不提供。**回答请用 `patch` 包一层**（写成 `patch.chorus`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 20 s；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"这条能力有处理器\"时才派发。返回 `{\"action\":\"cancel\"}` 可以拦下这次调用：主程序这次不再走内置分析（进度条上的副歌标记就没有了），处理器被摘除后自动还原。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它（参数与结果见 `capability.list` 里的 `callDoc`）；调用会先取一次频谱，**这一层同样不写值仓**，也不改主程序状态，同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
+      "doc": "载荷 `{srcKey, name, artist, kind, path, durationMs, hasWave, frames, binCount, frameHz, spectrums?, waveform?, config, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要分析一首歌的**副歌（高潮）区段**时派发一次。`hasWave` 为真时附带主程序已经拿到的整曲频谱（`spectrums` / `waveform` 的 base64，4 分钟歌曲约 800 KB —— 用不上的插件请不要注册这条能力）；`config` 是内置算法的参数（`bandCount` / `hopFrames` / `windowFrames` / `minRepeatLagSeconds` / `segmentSimilarity` / `minSegmentSeconds` / `maxSegmentSeconds` / `mergeGapSeconds`）。处理器返回 `{\"chorus\": {\"sections\": [{\"start\": 64000, \"end\": 100000, \"confidence\": 0.8, \"energy\": 0.7, \"similarity\": 0.9, \"repeat\": 3}], \"totalDuration\": 253000, \"analyseTimeMs\": 120}}`（时间单位毫秒）就用插件的区段替代内置分析；`sections` 是必需项（空数组 = 分析过了、这首歌没有副歌），每段至少要有 `start` 与 `end`，其余字段缺失按 0 处理。不返回 / 缺少 `sections` / 一个区段都解析不出来 = 这次不提供。**回答请用 `patch` 包一层**（写成 `patch.chorus`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 20 s；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在\"这条能力有处理器\"时才派发。返回 `{\"action\":\"cancel\"}` 可以拦下这次调用：主程序这次不再走内置分析（进度条上的副歌标记就没有了），处理器被摘除后自动还原。**这个功能点对外开放调用**（能力 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它（参数与结果见 `capability.list` 里的 `callDoc`）；调用会先取一次频谱，**这一层同样不写值仓**，也不改主程序状态，同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
     },
     {
       "id": "musicxx.media.palette.provide",
@@ -515,7 +515,7 @@
         "point"
       ],
       "implemented": true,
-      "doc": "载荷 `{srcKey, name, artist, hasCover, night, caller, cover}`：主程序要为一张封面取色（内置实现是封面颜色分析）时派发一次。`caller` = 谁在问（空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）；`cover` = 这次算哪一张图：`{kind: current | file | url | data, path?, url?, bytes?, imageBase64?, coverKey}`（`current` = 当前歌曲的封面，`file` / `url` / `data` 是调用方指定的那一张；`path` / `url` 是对应的地址，`data` 给 `bytes` 与 `imageBase64` —— 图太大时只有 `bytes`；`coverKey` 是这次的身份，插件可以按它自己缓存）。老插件不认 `cover` 也能跑：它们只看 `srcKey` / `name` / `artist` / `night`，对 `current` 这一种用法的结果是对的；别的来源它们给不出（返回空），主程序接着走自己的分析 —— 不会给错数据。处理器返回 `{\"colors\": {\"main\": \"#rrggbb\", ...}}`（键可取 `main` / `light` / `lightMuted` / `dark` / `darkMuted`，写法 `#rrggbb` 或 `#aarrggbb`）就用插件提供的这套颜色替代内置分析：它写进与内置分析同一批字段（**只在主程序自己问当前封面时**；外置通过 `musicxx.feature.point.call` 调它时只拿数据、不写字段），内置背景、插件背景与 `musicxx.icon.*` 来源都会拿到；不返回 / 没有 `colors` / 颜色一个都解析不出来 = 这次不提供，主程序照旧走内置分析。**回答请用 `patch` 包一层**（写成 `patch.colors`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：不会卡住渲染准备；等待期间切歌时本次结果会被丢弃（可用 `srcKey` 自行校验）。返回 `{\"action\":\"cancel\"}` 可以拦下这次调用：主程序这次不再走内置取色（保持上一次的颜色），处理器被摘除后自动还原。**这个功能点对外开放调用**（动作 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到 5 个原始色槽位，参数与结果见 `capability.list` 里的 `callDoc`。**调用没有副作用**：不写封面取色字段、不改内置背景（要改观感请用 `musicxx.media.palette.set`），同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
+      "doc": "载荷 `{srcKey, name, artist, hasCover, night, caller, cover}`：主程序要为一张封面取色（内置实现是封面颜色分析）时派发一次。`caller` = 谁在问（空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）；`cover` = 这次算哪一张图：`{kind: current | file | url | data, path?, url?, bytes?, imageBase64?, coverKey}`（`current` = 当前歌曲的封面，`file` / `url` / `data` 是调用方指定的那一张；`path` / `url` 是对应的地址，`data` 给 `bytes` 与 `imageBase64` —— 图太大时只有 `bytes`；`coverKey` 是这次的身份，插件可以按它自己缓存）。老插件不认 `cover` 也能跑：它们只看 `srcKey` / `name` / `artist` / `night`，对 `current` 这一种用法的结果是对的；别的来源它们给不出（返回空），主程序接着走自己的分析 —— 不会给错数据。处理器返回 `{\"colors\": {\"main\": \"#rrggbb\", ...}}`（键可取 `main` / `light` / `lightMuted` / `dark` / `darkMuted`，写法 `#rrggbb` 或 `#aarrggbb`）就用插件提供的这套颜色替代内置分析：它写进与内置分析同一批字段（**只在主程序自己问当前封面时**；外置通过 `musicxx.feature.point.call` 调它时只拿数据、不写字段），内置背景、插件背景与 `musicxx.icon.*` 来源都会拿到；不返回 / 没有 `colors` / 颜色一个都解析不出来 = 这次不提供，主程序照旧走内置分析。**回答请用 `patch` 包一层**（写成 `patch.colors`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：不会卡住渲染准备；等待期间切歌时本次结果会被丢弃（可用 `srcKey` 自行校验）。返回 `{\"action\":\"cancel\"}` 可以拦下这次调用：主程序这次不再走内置取色（保持上一次的颜色），处理器被摘除后自动还原。**这个功能点对外开放调用**（能力 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到 5 个原始色槽位，参数与结果见 `capability.list` 里的 `callDoc`。**调用没有副作用**：不写封面取色字段、不改内置背景（要改观感请用 `musicxx.media.palette.set`），同一个功能点 + 同一个调用方的上一次调用没结束时拿到 `busy`。"
     },
     {
       "id": "musicxx.app.net.http.request",
@@ -2181,7 +2181,7 @@
         "command"
       ],
       "implemented": true,
-      "doc": "参数 `{mode}`：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（也接受原来的整数编码 1~5）。写进用户的持久设置并立即按新模式切（`theme_s.setUseModel`），改完发布广播 `musicxx.theme.mode`（以及 `musicxx.theme.current`、快照频道 `musicxx.state.app.isNight`）。\n\n回答 `{ok: true, mode}`；取值非法时返回失败并说明原因。"
+      "doc": "参数 `{mode}`：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（也接受原来的整数编码 1~5）。写进用户的持久设置并立即按新模式切（`theme_s.setUseModel`），改完发布广播 `musicxx.theme.mode`（以及 `musicxx.theme.current`、`musicxx.state.app` 里的 `isNight`）。\n\n回答 `{ok: true, mode}`；取值非法时返回失败并说明原因。"
     },
     {
       "id": "musicxx.theme.tempSwitch",
@@ -3043,7 +3043,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{version, platform, branch, installId, lang}`。主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事，观察型没有裁决。"
+      "doc": "载荷 `{version, platform, branch, installId, lang}`。主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事。它只通知，没有返回值，也不参与裁决。"
     },
     {
       "id": "musicxx.app.ready",
@@ -3056,33 +3056,33 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后派发一次（比 `app.start` 晚），观察型。"
+      "doc": "载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后发布一次（比 `app.start` 晚）；只通知，没有返回值。"
     },
     {
       "id": "musicxx.app.background",
       "dart": "appBackground",
       "title": "应用进入后台",
-      "depict": "应用进入后台（窗口隐藏 / 最小化，或移动到后台）时派发；观察型，不等待",
+      "depict": "应用进入后台（窗口隐藏 / 最小化，或移动到后台）时发布；只通知，不等回答",
       "cache": "none",
       "publish": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。派发前快照频道已刷新（`musicxx.state.app.foreground` 为 false），处理器里同步读到的就是新状态；同一状态重复上报不会重复派发。观察型、异步：不等待处理器，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值用广播 `musicxx.app.lifecycle`（`cache: latest`，可订阅）或快照频道。"
+      "doc": "载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。发布前会先更新广播 `musicxx.state.app`（`foreground` 为 false），订阅回调里同步读到的就是新状态；同一状态重复上报不会重复发布。只通知、异步：不等待订阅方，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值订阅广播 `musicxx.app.lifecycle`（`cache: latest`）或同步读 `musicxx.state.app`。"
     },
     {
       "id": "musicxx.app.foreground",
       "dart": "appForeground",
       "title": "应用回到前台",
-      "depict": "应用回到前台时派发，带这次在后台待了多久；观察型，不等待",
+      "depict": "应用回到前台时发布，带这次在后台待了多久；只通知，不等回答",
       "cache": "none",
       "publish": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时派发一次；**只在前台与后台真的切换时**派发，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。观察型、异步：不等待处理器；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。"
+      "doc": "载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时发布一次；**只在前台与后台真的切换时**发布，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。只通知、异步：不等待订阅方；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。"
     },
     {
       "id": "musicxx.app.upgrade",
@@ -3113,7 +3113,7 @@
         "background"
       ],
       "implemented": true,
-      "doc": "值：`foreground` / `background`。应用在前台与后台之间切换时发布，订阅即拿到当前值。\n\n要“在后台待了多久 / 什么时候回前台”订阅广播 `musicxx.app.foreground`（载荷带 `backgroundMs`）或 `musicxx.app.background`；要完整快照读 `musicxx.state.app`。**只读**：应用的前后台状态由系统与应用自己决定，没有写入入口。"
+      "doc": "值：`foreground` / `background`。应用在前台与后台之间切换时发布，订阅即拿到当前值。\n\n要“在后台待了多久 / 什么时候回前台”订阅广播 `musicxx.app.foreground`（载荷带 `backgroundMs`）或 `musicxx.app.background`；要完整状态同步读 `musicxx.state.app`。**只读**：应用的前后台状态由系统与应用自己决定，没有写入入口。"
     },
     {
       "id": "musicxx.player.source.resolved",
@@ -3126,20 +3126,20 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后派发。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；观察型。"
+      "doc": "载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后发布。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；只通知，没有返回值。"
     },
     {
       "id": "musicxx.player.state",
       "dart": "playerState",
       "title": "播放状态变化",
-      "depict": "播放状态变化（播放 / 暂停 / 停止 / 结束）时派发；播放进度不走这个埋点",
+      "depict": "播放状态变化（播放 / 暂停 / 停止 / 结束）时发布；播放进度不走这条广播",
       "cache": "none",
       "publish": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读快照频道 `musicxx.state.env.isPlaying`（布尔）。观察型，只在播放状态变化时派发（播放进度不走这个频道）。"
+      "doc": "载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读广播 `musicxx.state.env.isPlaying`（布尔，`cache: latest`）。只在播放状态变化时发布（播放进度不走这条广播）。"
     },
     {
       "id": "musicxx.player.position",
@@ -3153,20 +3153,20 @@
       "scope": "app",
       "type": "json",
       "implemented": true,
-      "doc": "载荷 `{sid, positionMs, durationMs}`：播放进度，**不限频**（播放内核上报一次就发布一次，暂停与缓冲时不推进；同一位置重复上报由应用按毫秒去重）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。\n\n**快照频道**：`cache: latest` + 订阅即推，订阅时先拿到当前值，之后按播放内核节奏收到新值；也能 `read` 读当前值。**订阅频率由订阅方自己声明**：`subscribe(id, fn, {intervalMs, mode})`——`intervalMs` = 通知间隔（0 = 不限），`mode` = `delay`（间隔内只留最新一条，到点补发，默认）/ `drop`（间隔内的通知直接丢掉）。只想要 1 秒一次就是 `{intervalMs: 1000, mode: \"delay\"}`。\n\n**广播是只读的**：要跳转 / 拖动进度，调用能力 `musicxx.player.seek`（参数 `positionMs` / `percent`），广播侧没有写入入口。它只报进度、不报状态：要判断“是否在播放”读快照频道 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播频道 `musicxx.player.state`。"
+      "doc": "载荷 `{sid, positionMs, durationMs}`：播放进度，**不限频**（播放内核上报一次就发布一次，暂停与缓冲时不推进；同一位置重复上报由应用按毫秒去重）。`positionMs` = 当前播放位置（毫秒），`durationMs` = 总时长（还不知道时为 0），`sid` = 当前歌曲会话 id（切歌后以新 `sid` 为准）。\n\n**这条广播带当前值**（`cache: latest`）：订阅即推，订阅时先拿到当前值，之后按播放内核节奏收到新值；也能 `read` 读当前值。**订阅频率由订阅方自己声明**：`subscribe(id, fn, {intervalMs, mode})`——`intervalMs` = 通知间隔（0 = 不限），`mode` = `delay`（间隔内只留最新一条，到点补发，默认）/ `drop`（间隔内的通知直接丢掉）。只想要 1 秒一次就是 `{intervalMs: 1000, mode: \"delay\"}`。\n\n**广播是只读的**：要跳转 / 拖动进度，调用能力 `musicxx.player.seek`（参数 `positionMs` / `percent`），广播侧没有写入入口。它只报进度、不报状态：要判断“是否在播放”读广播 `musicxx.state.env.isPlaying`，要“状态变了”订阅广播 `musicxx.player.state`。"
     },
     {
       "id": "musicxx.player.completed",
       "dart": "playerCompleted",
       "title": "一曲播放完成",
-      "depict": "一曲播放完成（正常结束或按完成处理）之后派发；不代表已经切歌",
+      "depict": "一曲播放完成（正常结束或按完成处理）之后发布；不代表已经切歌",
       "cache": "none",
       "publish": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后派发；观察型。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。"
+      "doc": "载荷 `{sid, playedMs}`：一曲播放完成（正常结束或按完成处理）之后发布；只通知，没有返回值。它只表示这首歌放完了，不代表已经切歌（切歌另有 `musicxx.song.changed`）。"
     },
     {
       "id": "musicxx.player.qualityChanged",
@@ -3185,14 +3185,14 @@
       "id": "musicxx.song.changed",
       "dart": "songChanged",
       "title": "切歌",
-      "depict": "切歌时派发（派发前调用方已刷新快照频道与封面）",
+      "depict": "切歌时发布（发布前调用方已更新 `musicxx.state.*` 广播与封面）",
       "cache": "none",
       "publish": "owner",
       "pushOnSubscribe": false,
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时派发；派发前插件框架会先刷新快照频道，所以处理器里同步读 `musicxx.state.song` 拿到的就是新歌。观察型。"
+      "doc": "载荷 `{sid, prevSid, song}`：`song` 与 `beforePlaySong` 的同一个只读视图，`prevSid` = 上一首的 sid（没有则为 null）。切歌时发布；发布前插件框架会先更新广播 `musicxx.state.song`，所以订阅回调里同步读到的就是新歌。只通知，没有返回值。"
     },
     {
       "id": "musicxx.song.meta.writeback",
@@ -3270,7 +3270,7 @@
       "coalesce": true,
       "scope": "app",
       "implemented": true,
-      "doc": "载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时派发一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。观察型、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复派发。用 `musicxx.broadcast.unsubscribe(\"musicxx.media.cover.changed\")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉订阅）。"
+      "doc": "载荷 `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`，没有封面时为空串）：当前歌曲的封面发生变化（换歌、同一首歌换了封面图、封面被清空）时发布一次。**载荷里没有直链、也没有图片字节** —— 要图片自己调能力 `musicxx.media.cover`（可配 `bind` 绑成纹理），要在着色器里采样就声明渲染项的 `cover` / `image`。只通知、异步：不卡住播放与封面加载；同一个封面源被重复设置不会重复发布。用 `musicxx.broadcast.unsubscribe(\"musicxx.media.cover.changed\")` 移除后就不再收到（插件停用 / 卸载、关闭『拟声++』时插件框架也会自动摘掉订阅）。"
     },
     {
       "id": "musicxx.net.lan.event",
@@ -3472,7 +3472,7 @@
       "id": "musicxx.state.app",
       "dart": "stateApp",
       "title": "应用状态",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3485,7 +3485,7 @@
       "id": "musicxx.state.player",
       "dart": "statePlayer",
       "title": "播放器状态",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3498,7 +3498,7 @@
       "id": "musicxx.state.song",
       "dart": "stateSong",
       "title": "当前歌曲",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3511,7 +3511,7 @@
       "id": "musicxx.state.playlist",
       "dart": "statePlaylist",
       "title": "当前播放列表",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3524,7 +3524,7 @@
       "id": "musicxx.state.lyric",
       "dart": "stateLyric",
       "title": "当前歌词",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3537,7 +3537,7 @@
       "id": "musicxx.state.playlists",
       "dart": "statePlaylists",
       "title": "歌单列表快照",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3550,7 +3550,7 @@
       "id": "musicxx.state.env",
       "dart": "stateEnv",
       "title": "运行环境",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3563,7 +3563,7 @@
       "id": "musicxx.state.renderSlots",
       "dart": "stateRenderSlots",
       "title": "渲染槽位状态",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -3576,26 +3576,12 @@
       "id": "musicxx.state.spectrum",
       "dart": "stateSpectrum",
       "title": "当前频谱",
-      "depict": "快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存",
+      "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
       "coalesce": true,
       "scope": "app",
-      "implemented": true,
-      "doc": ""
-    },
-
-    {
-      "id": "musicxx.event.published",
-      "dart": "eventPublished",
-      "title": "事件发布观测",
-      "depict": "调试用：插件发布事件时推一份原始载荷",
-      "cache": "none",
-      "publish": "owner",
-      "pushOnSubscribe": false,
-      "coalesce": true,
-      "scope": "system",
       "implemented": true,
       "doc": ""
     }

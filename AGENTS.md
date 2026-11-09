@@ -5,7 +5,7 @@
 写给 AI Agent 与自动化脚本：**这是什么 / 插件怎么写 / 改这个包要注意什么**。
 更细的说明在 `README.md` 与 `docs/`；本文件是浓缩与索引，冲突时以 `docs/` 和源码为准。
 
-> **未发布功能不留兼容**：本包 `dev` 分支上的功能（能力载荷字段、动作参数、音源写法、界面描述
+> **未发布功能不留兼容**：本包 `dev` 分支上的功能（能力载荷字段、能力参数、音源写法、界面描述
 > 字段……）在合并进 `main` 之前都算未发布内容 —— 可能整段改写或直接删除，不保留旧写法、不做迁移，
 > 文档里也不留“老写法 / 兼容”这类说明。写插件时以当前 `docs/` 与源码为准，不要按早先草稿里的
 > 写法（尤其是已经删掉的字段与地址格式）去做适配。
@@ -25,7 +25,7 @@
 ```text
 用户安装插件（管理页装 .zip / 直接把目录放进插件目录 / musicxx-cli plugin install）
   → 主程序启动时加载插件框架库 → 扫描插件目录 → 加载"用户已启用"的插件
-  → 运行期：派发能力、执行插件发起的能力调用（应用实现的能力）、同步读快照频道、渲染插件声明的界面与着色器
+  → 运行期：派发能力、执行插件发起的能力调用（应用实现的能力）、同步读带当前值的广播、渲染插件声明的界面与着色器
 ```
 
 - **插件框架是可选能力**：插件框架库缺失或初始化失败时主程序照常启动，只是没有外部插件；用户没开『拟声++』或处于安全模式时同样不加载插件。
@@ -40,13 +40,12 @@
 | 平台 | 全部平台（含 iOS / OHOS） | Windows / Linux / macOS / Android；iOS 上只有"应用包内、与主程序同一签名身份"的库能加载（用户装的库通常被系统拒绝，见 §5） |
 | 执行线程 | 插件框架的一条共享 JS 线程（多插件共用一个线程） | 插件框架线程（自己能起线程） |
 | 处理器返回 | 可同步返回，也可返回 Promise（插件框架等到结算） | 同步返回 |
-| 适合 | 几乎所有功能：能力、动作、界面、背景、广播 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
+| 适合 | 几乎所有功能：能力、界面、背景、广播 | 需要自己起线程、用第三方 C++ 库、重计算、直接调本地库 |
 
-两者**共用同一套约定**：能力、广播（快照频道 / 官方值频道 / 事件）、UI 项、插件页面、渲染槽位。学会一套即可迁移。
+两者**共用同一套约定**：能力、广播、UI 项、插件页面、渲染槽位。学会一套即可迁移。
 
 > **只有两个概念**：**能力** = 发一次请求、等一个结果；**广播** = 属主改了东西、通知所有关心的人（带当前值的频道还能同步读；插件只能读与订阅）。
-> 旧文档里的“状态镜像”与“变量”（= `cache: latest` 的广播频道）、“动作”（= `runner: app` 的能力，
-> 由主程序实现）都是它们的一部分，不再当独立概念使用；入口在 `plugin-model-unify` / `broadcast-only` 任务里已经删除或改名。
+> 能写的东西都是广播，值只能由属主发布；要改应用的状态调能力。没有第三个概念。
 
 ## 3. 插件长什么样
 
@@ -127,21 +126,21 @@ my_plugin/
 | 能力 | 入口 | 要点 |
 |---|---|---|
 | 应用来问插件（决策型能力） | `musicxx.capability.implement/unregister`（可带 `phase`） | 一个调用 = 前链（`before`，改输入 / `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，**逆序**，改输出 / `drop`）；**只有"已接入"的能力会触发**（见 §5.6）；`musicxx.capability.handlers(id[, phase])` 读"这条能力现在有谁在提供、在哪个阶段、排第几" |
-| 动作（调主程序） | `musicxx.capability.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
-| 快照频道 | JS `musicxx.broadcast.read(key)` / C++ `broadcastJson` | 同步只读快照（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
-| 官方值频道 | `musicxx.broadcast.read/subscribe/info/list` | 应用发布的 `cache: latest` 频道（动画等级、字体、主题、前后台、播放进度）：插件只能读与订阅，要改它们调能力（`musicxx.ui.setAnimatedLevel` 这类）；插件自己的频道用 `plugin.<id>.*` |
-| 广播（事件 / 自己的频道） | `musicxx.broadcast.subscribe/publish/unsubscribe/declare` | 插件之间、插件与页面之间的小消息；订阅可带 `{intervalMs, mode}`，自己的频道只能自己发布（或声明 `publish: anyone`） |
+| 应用实现的能力（调应用） | `musicxx.capability.call(...)` + 分类封装 `musicxx.player/library/lyrics/storage/net/render/media/ui` | 播放、界面提示、跳页面、渲染切换、封面取色……失败会返回原因 |
+| 带当前值的广播 | JS `musicxx.broadcast.read(key)` / C++ `broadcastJson` | 同步只读（播放状态、当前歌曲、播放列表、频谱、渲染槽位……），最快的读法 |
+| 官方广播频道 | `musicxx.broadcast.read/subscribe/info/list` | 应用发布的 `cache: latest` 频道（动画等级、字体、主题、前后台、播放进度）：插件只能读与订阅，要改它们调能力（`musicxx.ui.setAnimatedLevel` 这类）；插件自己的频道用 `plugin.<id>.*` |
+| 广播（自己的频道） | `musicxx.broadcast.subscribe/publish/unsubscribe/declare` | 插件之间、插件与页面之间的小消息；订阅可带 `{intervalMs, mode}`，自己的频道只能自己发布（或声明 `publish: anyone`） |
 | 能力 | `musicxx.capability.register/call` | 自己的功能也能被别人调用；跨插件调用 JS→JS 直调、JS→原生投递（默认 3 s 超时） |
 | UI 项 | `musicxx.ui.registerEntry/updateEntry` | 主页入口 / 歌曲菜单 / 歌单菜单 / **「添加歌曲」弹窗的来源项**（`addsong.entry`）/ 播放页背景 / 播放页歌曲图 / **播放页音频动效**（`playing.visualizer`）/ **播放页子页面插入块**（十个类型：`playing.lyric.top`、`playing.lyric.header`、`playing.moreinfo.footer`、`playing.songlist.footer` 等，类型本身就是位置） |
-| 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用动作 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
-| 往歌单里加歌 | 动作 `musicxx.playlist.addSong` | `{pid, dedup?, songs:[{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}]}` → `{ok, pid, name, total, added, skipped}`。`type` 必须是**你自己的**音源类型（`plugin.<你的 id>.`），歌名/歌手留给主程序按 `fileName` 识别也行；去重、前插、写播放记录标签、当前队列刷新都由主程序做。配合 `addsong.entry` 就是“从自己的来源挑歌加到歌单”（完整例子 `plugins/example_ftp_source`） |
-| 自己的网盘（目录列表 + 挑歌界面） | 动作 `musicxx.source.browse`（**可重复调用，一次一个分类**） + 能力 `drive.list` 等 | 声明一个可浏览分类（`id` = 你的音源类型、`view` = 分类 id（缺省 `default`）、`title` / `icon` / `order` / `root` / `pageSize` / `sort` / `indexBar` / `write` / `search` / `addFolderSongs` / `download` / `capabilities`），实现 `drive.list`（必填：`{type, view, path, offset, limit, sort, reverse}` → `{ok, entries, next}`），就得到与内置网盘一致的目录列表与挑歌弹窗（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 加歌单 / 加队列 / 写操作），**不用自己画界面**。同一个类型多调几次 `musicxx.source.browse` 就是多个分类（界面上是可切换的 tab，对齐内置 Emby 的「歌曲 / 歌手 / 专辑」，分类不进音源身份）。可选能力：`drive.resolveSongs`（勾文件夹时一步读歌）、`drive.search` / `drive.mkdir` / `drive.rename` / `drive.remove` / `drive.info` / `drive.open`。宿主 UI 动作 `musicxx.ui.pickSongs` / `pickDir` 让插件在自己的界面里调用同一个弹窗（**要等用户关掉才完成，不要 await**，参数与返回都带 `view`），`musicxx.ui.browseDrive` 打开与内置网盘一样的**整页浏览**（立即返回）。协议见 `docs/plugin-api.md` §3.3，例子见 `plugins/example_ftp_source`（两个分类 + 两种写法 + 整页入口） |
+| 插件页面 | `ext://<插件id>/<视图id>` | 插件自己画的功能页与设置页（能力返回 `{view: {...}}`）；想以**底部浮层**形式打开就用能力 `musicxx.ui.openOverlaySheet`（内容同样是插件视图，浮层里的动作返回 `{"view": …}` 就能翻页） |
+| 往歌单里加歌 | 能力 `musicxx.playlist.addSong` | `{pid, dedup?, songs:[{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}]}` → `{ok, pid, name, total, added, skipped}`。`type` 必须是**你自己的**音源类型（`plugin.<你的 id>.`），歌名/歌手留给主程序按 `fileName` 识别也行；去重、前插、写播放记录标签、当前队列刷新都由主程序做。配合 `addsong.entry` 就是“从自己的来源挑歌加到歌单”（完整例子 `plugins/example_ftp_source`） |
+| 自己的网盘（目录列表 + 挑歌界面） | 能力 `musicxx.source.browse`（**可重复调用，一次一个分类**） + 能力 `drive.list` 等 | 声明一个可浏览分类（`id` = 你的音源类型、`view` = 分类 id（缺省 `default`）、`title` / `icon` / `order` / `root` / `pageSize` / `sort` / `indexBar` / `write` / `search` / `addFolderSongs` / `download` / `capabilities`），实现 `drive.list`（必填：`{type, view, path, offset, limit, sort, reverse}` → `{ok, entries, next}`），就得到与内置网盘一致的目录列表与挑歌弹窗（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 加歌单 / 加队列 / 写操作），**不用自己画界面**。同一个类型多调几次 `musicxx.source.browse` 就是多个分类（界面上是可切换的 tab，对齐内置 Emby 的「歌曲 / 歌手 / 专辑」，分类不进音源身份）。可选能力：`drive.resolveSongs`（勾文件夹时一步读歌）、`drive.search` / `drive.mkdir` / `drive.rename` / `drive.remove` / `drive.info` / `drive.open`。宿主提供的界面能力 `musicxx.ui.pickSongs` / `pickDir` 让插件在自己的界面里调用同一个弹窗（**要等用户关掉才完成，不要 await**，参数与返回都带 `view`），`musicxx.ui.browseDrive` 打开与内置网盘一样的**整页浏览**（立即返回）。协议见 `docs/plugin-api.md` §3.3，例子见 `plugins/example_ftp_source`（两个分类 + 两种写法 + 整页入口） |
 | 渲染槽位 | UI 项 `playing.background` / `playing.icon` / `playing.visualizer` | 交 shader bundle（或界面视图）接管播放页背景 / 歌曲图 / 音频动效；背景项可以用 `foregroundColors` 一起指定播放页前景三色（普通色 / 减淡色 / block 背景色，见 `docs/plugin-shader-bundle.md` §8.1） |
-| 封面与图片 | 渲染项 `cover` / `image` + 动作 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
-| 播放内核信息（能用哪些过滤器 / 解码器） | 动作 `musicxx.media.kernel`（JS `musicxx.media.kernel()`） | 读应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**（含 mpv 自带的，重名时给 `lavfi-` 前缀的名字）、mpv 能用的解码器（`hardware` 标出硬件）、应用认得的音视频后缀。**这份 ffmpeg 是裁剪构建**（`ffmpegVersion` 就是 `unknown`），写音效 / 拼滤镜前先按它确认名字在不在，别按上游 ffmpeg 文档假设。命令行 `kernel`、MCP `GetMediaKernelInfo` 是同一份数据 |
-| 音频频谱与副歌 | 读：动作 `musicxx.media.spectrum` / 镜像 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：能力 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"action":"cancel"}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原）。**数值已经按帧归一并拉开过高低差，直接拿去渲染即可**，不要再自己抬增益、减底噪或取指数；确实要改对比度时按 `docs/plugin-shader-bundle.md` §7 的公式做（放大差异 `pow(v/m, k)`、缩小差异 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1） |
-| 功能埋点自省 | 动作 `musicxx.feature.point.list`、`musicxx.capability.subscribers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 音源解析 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁拦下、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `capability.list`、MCP `GetFeatureProviders` 读同一份数据 |
-| 自己的音源（播放地址） | 能力 `musicxx.player.source.resolve` + 动作 `musicxx.source.define/undefine/list` | 插件自己的音源在歌曲里存成"类型 + 资源 id"：类型 id 是 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的资源 id / 路径。主程序内置实现**不解析**这种类型，播放时问这条能力要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用静态内容路由（`http.serve` 的 `static` / `http.route`）转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 插件音源 / 本地文件代理）、
+| 封面与图片 | 渲染项 `cover` / `image` + 能力 `musicxx.media.cover/bindImage` | 封面可当纹理采样或只取 4 个颜色；插件自己的图可绑成纹理 |
+| 播放内核信息（能用哪些过滤器 / 解码器） | 能力 `musicxx.media.kernel`（JS `musicxx.media.kernel()`） | 读应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**（含 mpv 自带的，重名时给 `lavfi-` 前缀的名字）、mpv 能用的解码器（`hardware` 标出硬件）、应用认得的音视频后缀。**这份 ffmpeg 是裁剪构建**（`ffmpegVersion` 就是 `unknown`），写音效 / 拼滤镜前先按它确认名字在不在，别按上游 ffmpeg 文档假设。命令行 `kernel`、MCP `GetMediaKernelInfo` 是同一份数据 |
+| 音频频谱与副歌 | 读：能力 `musicxx.media.spectrum` / 广播 `musicxx.state.spectrum` / shader 来源 `musicxx.spectrum.*`；**提供实现**：能力 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | 每帧 256 频点 + 响度（10 帧/秒），自动做帧间过渡；注册提取/分析实现可以替代内置实现（装了『音乐动效』时是它），两边都没有则这个功能整体不可用。**外置实现永远排在内置与应用自身之前**；返回 `{"action":"cancel"}` 表示"这次不要用别的实现"（应用自身的兜底也不再被问，处理器摘除后自动还原）。**数值已经按帧归一并拉开过高低差，直接拿去渲染即可**，不要再自己抬增益、减底噪或取指数；确实要改对比度时按 `docs/plugin-shader-bundle.md` §7 的公式做（放大差异 `pow(v/m, k)`、缩小差异 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1） |
+| 功能埋点自省 | 能力 `musicxx.feature.point.list`、`musicxx.capability.subscribers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 音源解析 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁拦下、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `capability.list`、MCP `GetFeatureProviders` 读同一份数据 |
+| 自己的音源（播放地址） | 能力 `musicxx.player.source.resolve` + 能力 `musicxx.source.define/undefine/list` | 插件自己的音源在歌曲里存成"类型 + 资源 id"：类型 id 是 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的资源 id / 路径。主程序内置实现**不解析**这种类型，播放时问这条能力要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用静态内容路由（`http.serve` 的 `static` / `http.route`）转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 插件音源 / 本地文件代理）、
   `plugins/example_ftp_source`（FTP：账号页 + 歌单挑歌浮层 + 加歌 + 回环转流）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
 | 功能点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新能力） |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
@@ -154,25 +153,26 @@ my_plugin/
 
 ## 5. 硬约束（动手前读一遍，坑都在这里）
 
-1. **处理器里绝不等主程序动作**（**异步派发**的裁决型能力是例外，见下）。打开插件页面、点按钮、部分能力（同步派发）都是"主程序线程同步进插件框架"调用你的代码；
+1. **处理器里绝不等应用实现的能力**（**异步派发**的裁决型能力是例外，见下）。打开插件页面、点按钮、部分能力（同步派发）都是"应用线程同步进插件框架"调用你的代码；
    你在处理器里 `await musicxx.capability.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
-   正确做法：要"现在这一帧"的数据读快照频道；要动作结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
+   正确做法：要"现在这一帧"的数据读带当前值的广播；要能力的结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
    （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
    **例外**：异步派发的裁决型能力（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
-   里 `await musicxx.net.fetch(...)` 一类**主程序动作**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
-   但仍然**只能等主程序动作**：`musicxx.broadcast.*` / 跨插件调用 / `musicxx.capability.*` 要框架线程处理，在处理器里等会一直等到超时。
+   里 `await musicxx.net.fetch(...)` 一类**应用实现的能力**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
+   但仍然**只能等这类能力**：`musicxx.broadcast.*` / 跨插件调用 / `musicxx.capability.*` 要框架线程处理，在处理器里等会一直等到超时。
 2. **JS 顶层必须同步完成注册**，位置放 `await` 会让加载失败并回滚。
 3. **回调要尽快返回**：所有 JS插件共用一条 JS 线程；长时间同步计算或死循环会卡住其它插件，
    插件框架**不会打断脚本**，只能重启主程序。启动阶段的广播（`app.start`）不要做重活。
 4. **决策型能力返回裁决对象**；需要 `await` 才能决定时，先同步判断"这次要不要裁决"，只在需要的那次返回 Promise
    （插件框架一直等到它结算）。返回 `null` / `undefined` = 不裁决。裁决只是建议，调用点会校验身份字段（如 `sid`），过期裁决会被丢弃。
 5. **能力 id 表示一次调用，参与方式由阶段表达**：一个调用 = **前链（`before`，正序，只能改输入或
-   `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，逆序，只能改输出或 `drop`）+ 旁路广播**。
+   `stop`）+ 实现链（`impl`，给结果）+ 后链（`after`，逆序，只能改输出或 `drop`），另外发一条广播**。
    不再有 `.before` / `.after` 后缀的能力 id —— 那类成对的旧 id 已合并成一条能力上的两个阶段
    （删除与合并清单见 `CHANGELOG.md`）。要点：后链**逆序**（外置插件最后改输出）、阶段处理器必须
    是同步处理器、只能注册能力声明过的阶段（`docs/plugin-capabilities.md` 的「可注册阶段」列）。
    写法见 `docs/plugin-api.md` §8.1。
-6. **能力还没接入就不会触发**：约定 54 条能力 / 广播，主程序当前**真的派发**的只是其中一部分
+6. **能力还没接入就不会触发**：声明表里的能力 / 广播条数以 `docs/plugin-capabilities.md` 与
+   `docs/plugin-broadcasts.md` 为准，主程序当前**真的派发**的只是其中一部分
    （`docs/plugin-capabilities.md` 的「状态」列；`musicxx.feature.point.call` 是插件功能点的
    通用通道、由调用方触发）；别把功能押在未接入的能力上（它们打算做什么见 `docs/plugin-api.md` §8.7）。
 7. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
@@ -192,12 +192,12 @@ my_plugin/
 10. **存储**：默认值写在插件里（`getConfig(key, 默认值)`）；读到旧值不要覆盖用户刚改的；
    改了影响界面/渲染的字段要用 `musicxx.ui.updateEntry` 重新声明（整体替换，不是合并）；
    影响帧调度或分辨率的字段（`maxFps` / `resolutionScale` / `animate`）要用户重新选中该项才完全生效。
-11. **动作和跨插件调用都可能失败**：检查返回值 / 捕获 Promise 拒绝，把原因写进日志；
+11. **能力调用和跨插件调用都可能失败**：检查返回值 / 捕获 Promise 拒绝，把原因写进日志；
     所有插件命名空间（UI 项名、广播频道名、能力名）都归 `plugin.<插件id>.*`，不要冒充别人。
 12. **失败是可见的**：脚本顶层报错 = 加载失败并回滚；处理器里抛异常只记统计（不暂停、不卸载）；
     不要在启动阶段调用未接入的能力或做重活。
 13. **权限只是声明**：写进 `permissions` 只影响安装确认弹窗与详情页展示，框架不做运行时校验（放目录里的插件同样不检查）。
-14. **验证用真机/真实环境**：插件框架不限制内存 / 网络 / 数量，只做自我保护（事件队列上限、动作超时）；有问题先看日志。
+14. **验证用真机/真实环境**：插件框架不限制内存 / 网络 / 数量，只做自我保护（事件队列上限、能力调用超时）；有问题先看日志。
 15. **接口表只读不造**：`iface.*` 的表由主程序提供，能不能用由 SDK 按「`version >= 最低版本` 且
     `struct_size >= 基线字节数`」判好（拿到 `nullptr` = 这个能力没有）。以后往**表尾追加**的成员要先用
     `pluginxx::ifaceHas<&表::成员>(t)` 判一下再取值 —— 老主程序给的表比插件期望的短，只判空指针会读到紧邻的另一块内存。
@@ -357,7 +357,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 - **约定只在一处**：能力与广播（id / 用途 / 能不能参与 / 参与哪一步 / 合并策略 / 派发方式）只定义在
   `tools/capabilities.def.json`，由 `dart run tools/gen_contract.dart` 生成 Dart 常量、C++ 头
   （`capability_ids.g.h`）与作者文档 `docs/plugin-capabilities.md` / `docs/plugin-broadcasts.md`。
-  **派发层直接读这份声明**：没有第二份钩子表，也没有 `.before` / `.after` 结尾的独立 id。
+  **派发层直接读这份声明**：没有第二份派发表，也没有 `.before` / `.after` 结尾的独立 id。
   改完必须重新生成并提交生成物（`--check` 可校验）。
 - **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/capability_ids.g.dart`、
   `src/sdk/include/musicxx/plugin/api/capability_ids.g.h`、`docs/plugin-capabilities.md`、
@@ -376,7 +376,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   扩展 kit 定义在 `schema/musicxx-ui-kit.def.json`（`tools/gen_ui_kit.ps1` 生成、`tools/sync_ui_kit.ps1` 复制进插件目录）。
   **`cxx_*` 子模块只放通用内容**（`cxx_utilxx_base` / `cxx_pluginxx` / `cxx_pluginxx_ui` 都被多个项目共用）：
   不为 musicxx 的某个概念加结构体、字段或解析分支；musicxx 自己的数据用通用载体带（列表项 `data`、
-  动作 `args`），解释器留在主程序（例如 `lib/plugin/externPlugin/ui/ExternPluginUiItemSong.dart` 读 `data.song`）。
+  能力 `args`），解释器留在应用（例如 `lib/plugin/externPlugin/ui/ExternPluginUiItemSong.dart` 读 `data.song`）。
   判据与反例见 `src/third_party/cxx_pluginxx_ui/README.md`「只放通用内容」与它 `docs/integration.md` §6.1。
 - **插件框架库导出面**只允许 `musicxx_extern_plugin_*`（MSVC 导出宏 / GNU version script / Apple 隐藏可见性）；
   改导出、C ABI 或线程收尾后重新构建并跑原生测试。**改 C 头文件后要重新生成 Dart 绑定**：
@@ -429,9 +429,9 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 装不上：「插件框架未启动，无法安装插件」 | 用户没开『拟声++』、处于安全模式，或插件框架库不可用（`plugin list` 会显示框架状态） |
 | 加载失败：「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 7、JS 插件 3）；插件框架报的 `apiVersion` 是该形态的当前代次（7 / 3），声明更高不会被拒 |
 | 「动态库插件库文件缺失」/「JS 插件缺少脚本文件」 | `entry` 写错（动态库统一写 `<名>.so`）、分支目录缺当前平台，或脚本文件没跟着分发 |
-| 点入口提示「插件『x』没有提供『y』」 | 动作指向的能力没注册，或页面视图 id 与能力短名不一致 |
+| 点入口提示「插件『x』没有提供『y』」 | 入口指向的能力没注册，或页面视图 id 与能力短名不一致 |
 | 「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全拼错（未识别的块会被忽略） |
-| 主程序卡住几秒 / 一直卡 | 处理器里在等主程序动作或做了长时间同步计算；应用日志目录下 `host_call.log` 的**最后一行**就是没返回的那次调用 |
+| 应用卡住几秒 / 一直卡 | 处理器里在等应用实现的能力或做了长时间同步计算；应用日志目录下 `host_call.log` 的**最后一行**就是没返回的那次调用 |
 | 改完没生效 | JS 需要 `plugin reload`；插件框架库被正在运行的主程序占用时复制的是旧文件；影响帧调度的字段要重新选中该项 |
 | 改了插件框架 C++ 但主程序里行为没变 | 主程序构建会自动重建插件框架库（`flutter build` 日志里有"插件框架库就绪"一行）；没生效时先看它是不是跳过了（"已是最新"判定看的是 `src/`、`plugins/` 的改动时间与构建标记），必要时 `tools/build_native.ps1 -Force` |
 | macOS 上「外部插件框架不可用」 | 先看 `musicxx.app/Contents/Frameworks/libmusicxx_extern_plugin.dylib` 在不在（`flutter build macos` 的日志里有 `musicxx-extern-plugin` 那一段）；不在就手工跑 `MUSICXX_EXTERN_PLUGIN_APP_DIR=<musicxx.app> bash macos/tool/copy_extern_plugin_dylib.sh` 看提示。库在却被拒绝加载时，看 `macos/Runner/{DebugProfile,Release}.entitlements` 里的 `com.apple.security.cs.disable-library-validation` 还在不在（Hardened Runtime 只放行同团队签名的库） |
@@ -445,7 +445,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 要看什么 | 文件 |
 |---|---|
 | 第一次写插件（选形态 / 环境 / 第一个插件 / 注意事项 / 调试 / 发布检查） | `docs/plugin-guide.md` |
-| **两种形态共用的接口手册**（能力与广播：快照频道 / 官方值频道 / 动作全表 / 事件 / 插件服务 / 功能点 / 应用来问插件 / 约定 / 通用排障） | `docs/plugin-api.md` |
+| **两种形态共用的接口手册**（能力与广播 / 约定 / 通用排障） | `docs/plugin-api.md` |
 | JS 插件作者指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
 | 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 是否已接入 + 载荷与回答） | `docs/plugin-capabilities.md`（生成物） |

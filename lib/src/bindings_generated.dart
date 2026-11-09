@@ -1093,7 +1093,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 回复插件发起的动作请求 (status 见错误码; result_json 可为空)
+  /// 回复插件发起的能力请求 (status 见错误码; result_json 可为空)
   int musicxx_extern_plugin_capability_app_respond(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int request_id,

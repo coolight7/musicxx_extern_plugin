@@ -544,8 +544,6 @@ abstract final class MusicxxBroadcastId {
   static const String stateRenderSlots = 'musicxx.state.renderSlots';
   /// 当前频谱
   static const String stateSpectrum = 'musicxx.state.spectrum';
-  /// 事件发布观测
-  static const String eventPublished = 'musicxx.event.published';
 
   /// 全部广播 id（按声明顺序）
   static const List<String> all = <String>[
@@ -589,7 +587,6 @@ abstract final class MusicxxBroadcastId {
     stateEnv,
     stateRenderSlots,
     stateSpectrum,
-    eventPublished,
   ];
 }
 
@@ -692,7 +689,7 @@ final class MusicxxBroadcastDecl {
 
   final String id;
 
-  /// `none`（事件）/ `latest`（快照）
+  /// `none`（没有当前值）/ `latest`（有当前值，订阅即拿到）
   final String cache;
 
   /// `owner` / `anyone`：谁能往这个频道发布
@@ -2661,7 +2658,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '应用进入后台',
-      depict: '应用进入后台（窗口隐藏 / 最小化，或移动到后台）时派发；观察型，不等待',
+      depict: '应用进入后台（窗口隐藏 / 最小化，或移动到后台）时发布；只通知，不等回答',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.app.foreground',
@@ -2674,7 +2671,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '应用回到前台',
-      depict: '应用回到前台时派发，带这次在后台待了多久；观察型，不等待',
+      depict: '应用回到前台时发布，带这次在后台待了多久；只通知，不等回答',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.app.upgrade',
@@ -2726,7 +2723,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '播放状态变化',
-      depict: '播放状态变化（播放 / 暂停 / 停止 / 结束）时派发；播放进度不走这个埋点',
+      depict: '播放状态变化（播放 / 暂停 / 停止 / 结束）时发布；播放进度不走这条广播',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.player.position',
@@ -2752,7 +2749,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '一曲播放完成',
-      depict: '一曲播放完成（正常结束或按完成处理）之后派发；不代表已经切歌',
+      depict: '一曲播放完成（正常结束或按完成处理）之后发布；不代表已经切歌',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.player.qualityChanged',
@@ -2778,7 +2775,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '切歌',
-      depict: '切歌时派发（派发前调用方已刷新快照频道与封面）',
+      depict: '切歌时发布（发布前调用方已更新 `musicxx.state.*` 广播与封面）',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.song.meta.writeback',
@@ -3038,7 +3035,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '应用状态',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.player',
@@ -3051,7 +3048,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '播放器状态',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.song',
@@ -3064,7 +3061,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '当前歌曲',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.playlist',
@@ -3077,7 +3074,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '当前播放列表',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.lyric',
@@ -3090,7 +3087,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '当前歌词',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.playlists',
@@ -3103,7 +3100,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '歌单列表快照',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.env',
@@ -3116,7 +3113,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '运行环境',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.renderSlots',
@@ -3129,7 +3126,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '渲染槽位状态',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.spectrum',
@@ -3142,20 +3139,7 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       implemented: true,
       title: '当前频谱',
-      depict: '快照频道：属主发布，插件订阅即拿到当前值，也可以同步读缓存',
-    ),
-    MusicxxBroadcastDecl(
-      id: 'musicxx.event.published',
-      cache: 'none',
-      publish: 'owner',
-      pushOnSubscribe: false,
-      coalesce: true,
-      scope: 'system',
-      type: '',
-      options: <String>[],
-      implemented: true,
-      title: '事件发布观测',
-      depict: '调试用：插件发布事件时推一份原始载荷',
+      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
   ];
 

@@ -770,7 +770,7 @@ musicxx_extern_plugin_capability_handlers_phase(
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-/* ==================== 动作回应 ==================== */
+/* ==================== 能力调用的回应 ==================== */
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_capability_app_respond(
     MusicxxExternPluginHost *h, int64_t request_id, int32_t status,

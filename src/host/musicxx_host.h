@@ -108,11 +108,11 @@ template <typename T> struct WaitSlot {
 
 /* ==================== 插件框架内运行时接驳口 ==================== */
 
-/// 插件框架内运行时 (JS 引擎) 的"任意线程动作请求"接驳口
+/// 插件框架内运行时 (JS 引擎) 的"任意线程能力调用"接驳口
 ///
 /// 背景 (这样才不会出现互相等待): JS 代码只在共享 JS 线程上执行,
 /// 而插件框架 线程派发裁决型能力时会**等待 JS 处理器**。因此 JS
-/// 侧发起的动作请求绝不能"投递到 框架线程再等待" —— 那会和"框架线程正等
+/// 侧发起的调用绝不能"投递到 框架线程再等待" —— 那会和"框架线程正等
 /// JS"互锁。JS 引擎自己登记还没回复的请求 (任意线程 可读写的表), 只把事件推给 Dart;
 /// Dart 的回复经 [MusicxxHostManager::respondAppCapability] 转交到这里。
 class InternalAppCapabilityRelay {
@@ -374,9 +374,9 @@ public:
   /// "这条能力有没有处理器"——计数只靠 `musicxx.capability.changed` 维护，丢一条就会停在旧值）
   std::vector<std::string> capabilitiesOfInstance(const std::string &instanceName) const;
 
-  /* ---------- 动作请求 (插件 → Dart) ---------- */
+  /* ---------- 能力调用 (插件 → Dart) ---------- */
 
-  /// 回答一条插件发起的动作请求 (**任意线程**)
+  /// 回答一条插件发起的能力调用 (**任意线程**)
   ///
   /// 先交给 JS 引擎接驳口就地回答 (它自己的表带互斥); 不属于它的才转给 IO 线程
   /// 查动态库插件的登记表。顺序固定: 这条回复可能就是由"IO 线程正在等 JS"的
@@ -384,7 +384,7 @@ public:
   int32_t respondAppCapability(int64_t requestId, int32_t status,
                         const std::string &resultJson);
 
-  /// 取消未完成动作 (插件卸载/插件框架关闭时统一取消)
+  /// 取消未完成的能力调用 (插件卸载/插件框架关闭时统一取消)
   void cancelAppCapability(int64_t requestId);
 
   /* ---------- 观测与配置 ---------- */
@@ -446,7 +446,7 @@ public:
   /// 声明应用的能力（生成表 `capability_ids.g.h`）
   ///
   /// 在 `start()` 里跑一次（已绑定 IO 线程）：声明之后插件的 `invoke_capability`
-  /// 才认识官方 id；应用实现（动作）由 [onAppCapabilityStart] 转给 Dart。
+  /// 才认识官方 id；应用实现的能力由 [onAppCapabilityStart] 转给 Dart。
   void declareAppCapabilities();
   int32_t pluginConfigPathFor(MusicxxHostInstance *inst, std::string &out);
   int32_t requestAppCapability(MusicxxHostInstance *inst, std::string_view action,
@@ -484,7 +484,7 @@ public:
   /// 列出某插件已注册的 UI 项 (JSON 数组; `inst` 为空时列出全部)
   int32_t listUiEntries(MusicxxHostInstance *inst, std::string &outJson);
 
-  /// 提示 (fire-and-forget: 走动作 `musicxx.ui.toast`, 结果不回传插件)
+  /// 提示 (fire-and-forget: 调能力 `musicxx.ui.toast`, 结果不回传插件)
   int32_t notifyUi(MusicxxHostInstance *inst, std::string_view messageJson);
 
   /// UI 项数量不设上限 (早期版本每个插件最多 64 项, 已移除)
@@ -516,17 +516,17 @@ public:
 
   /* ---------- 插件框架内运行时 (JS 引擎) ---------- */
 
-  /// 注册插件框架内运行时的动作请求接驳口 (JS 引擎创建时调用)
+  /// 注册插件框架内运行时的能力调用接驳口 (JS 引擎创建时调用)
   void setInternalAppCapabilityRelay(std::shared_ptr<InternalAppCapabilityRelay> relay);
 
   /// 分配一个请求 id (**任意线程**; 动态库插件与 JS 引擎共用同一计数器,
   /// 避免 id 撞车)
   int64_t allocateRequestId();
 
-  /// 推送"插件 → Dart"的动作请求事件 (**任意线程**; 不做请求登记)
+  /// 推送"插件 → Dart"的能力调用事件 (**任意线程**; 不做请求登记)
   ///
   /// 供 JS 引擎使用: JS 引擎自己保活 in-flight 状态 (见 [InternalAppCapabilityRelay]),
-  /// 插件框架这里只做事件推送 (动作名不做校验, 由 Dart 侧按注册表决定理不理它)。
+  /// 插件框架这里只做事件推送 (名字不做校验, 由 Dart 侧按注册表决定理不理它)。
   /// - 返回 0 = 已推送; -1 = 参数非法
   /// - `outEffectiveTimeoutMs` 输出实际生效的超时 (0 = 不设超时, 由调用方/插件自担)
   int32_t pushAppCapabilityRequestEvent(const std::string &pluginId, int64_t requestId,
@@ -609,9 +609,9 @@ protected:
   bool appCapabilityDecl(std::string_view id,
                          pluginxx::CapabilityDecl *out) override;
 
-  /// 应用实现的能力被调用：转给应用（Dart）的动作通道，结果原样回答
+  /// 应用实现的能力被调用：转给应用（Dart），结果原样回答
   ///
-  /// 应用的动作用能力名暴露（`capability_ids.g.h` 里 `runner = app` 那些），它们没有
+  /// 应用实现的能力用能力名暴露（`capability_ids.g.h` 里 `runner = app` 那些），它们没有
   /// 插件实现行；`invoke_capability` 因此把调用先交给这里。转发走同一套
   /// `requestAppCapability`（事件 `musicxx.capability.app.request` +
   /// `musicxx_extern_plugin_capability_app_respond`），取消走
@@ -683,7 +683,7 @@ private:
                               const std::string &plugin,
                               const std::string &ownerTag, int32_t phase);
 
-  /// 未完成动作请求
+  /// 未完成的能力调用
   struct PendingAppCapability {
     std::string plugin;
     std::string capability;
@@ -858,7 +858,7 @@ private:
   MusicxxExternPluginWakeFn wakeFn_ = nullptr;
   void *wakeUser_ = nullptr;
 
-  // 快照频道 (Dart 线程写, 框架线程读)
+  // 状态广播 (Dart 线程写, 框架线程读)
   /// 频道声明簿记 (避免每个事件都去查一遍注册表; 只增不减)
   std::mutex declaredBroadcastsMutex_;
   std::set<std::string, std::less<>> declaredBroadcasts_;
@@ -888,7 +888,7 @@ private:
   /// 序列化 UI 项 (pluginId 为空 = 全部; 按 type/order/seq 排序)
   std::string uiItemsJson(const std::string &pluginId) const;
 
-  // 动作请求 (框架线程)
+  // 能力调用 (框架线程)
   std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;
   /// 请求 id 计数器 (动态库插件与 JS 引擎共用; **任意线程**可用)
   std::atomic<int64_t> nextRequestId_{1};

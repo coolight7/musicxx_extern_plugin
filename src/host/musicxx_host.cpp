@@ -587,7 +587,7 @@ int32_t MusicxxHostManager::pushAppCapabilityRequestEvent(
   if (action.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  /// 动作名不校验、不拒绝 (与动态库插件的动作请求一致): 由 Dart 侧按注册表
+  /// 名字不校验、不拒绝 (与动态库插件的能力调用一致): 由 Dart 侧按注册表
   /// 决定理不理它。命名建议见 `requestAppCapability`。
   ///
   /// 超时也不再限制区间: 0 = 不设超时。
@@ -702,14 +702,14 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
                : MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
   }
   auto self = shared_from_this();
-  // 事件计数 (只观测不限制) 放在框架线程做: 实例计数器只在那条线程上改
+  // 广播计数 (只统计不限制) 放在框架线程做: 实例计数器只在那条线程上改
   asio::post(ctx_->io, [self, topic] { self->accountEventForTopic(topic); });
-  // 观测回传: 仅在调试开关打开时把主题镜像给 Dart 侧 (默认关闭零开销)
+  // 调试回传: 仅在调试开关打开时把这次发布告诉 Dart 侧 (默认关闭零开销)
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
-    Json mirror;
-    mirror["topic"] = topic;
-    mirror["data"] = parseJsonSafe(payload);
-    pushEvent("musicxx.event.published", "", mirror.dump());
+    Json debugEvent;
+    debugEvent["topic"] = topic;
+    debugEvent["data"] = parseJsonSafe(payload);
+    pushEvent("musicxx.event.published", "", debugEvent.dump());
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
@@ -1064,7 +1064,7 @@ void MusicxxHostManager::clearPluginRegistrations(
       return id.rfind(prefix, 0) == 0;
     });
   }
-  // JS 引擎登记的动作请求 (由 JS 侧自己保活) 也要一起取消
+  // JS 引擎登记的能力调用 (由 JS 侧自己保活) 也要一起取消
   cancelAppCapabilitiesOfInstance(instanceName);
 }
 
@@ -2581,7 +2581,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   if (fullTopic.empty()) {
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
-  /// 事件计数与速率 (只观测不限制): 只有插件自定义主题才归属到插件,
+  /// 事件计数与速率 (只统计不限制): 只有插件自定义主题才归属到插件,
   /// 官方 `musicxx.*` 主题 (插件框架/Dart 发布) 不计入任何插件的速率
   accountEventForTopic(fullTopic);
   const std::string payload =
@@ -2592,13 +2592,13 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   if (rc != PLUGINXX_RESULT_OK) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 观测回传: 仅在调试开关打开时把主题镜像给 Dart 侧
+  // 调试回传: 仅在调试开关打开时把这次发布告诉 Dart 侧
   // (默认关闭零开销)
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
-    Json mirror;
-    mirror["topic"] = fullTopic;
-    mirror["data"] = parseJsonSafe(payload);
-    pushEvent("musicxx.event.published", "", mirror.dump());
+    Json debugEvent;
+    debugEvent["topic"] = fullTopic;
+    debugEvent["data"] = parseJsonSafe(payload);
+    pushEvent("musicxx.event.published", "", debugEvent.dump());
   }
   return MUSICXX_EXTERN_PLUGIN_OK;
 }

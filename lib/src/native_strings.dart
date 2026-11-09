@@ -106,7 +106,7 @@ String takeOutString(
   return text;
 }
 
-/// 释放插件框架堆字符串但**不读取内容**（观察型派发的回执没有读者）
+/// 释放插件框架堆字符串但**不读取内容**（通知型派发的回执没有读者）
 void discardOutString(
   Pointer<MusicxxExternPluginString> out,
   MusicxxExternPluginBindings b,

@@ -63,7 +63,7 @@ abstract final class MusicxxPluginUIType {
   /// - `none`：不显示内容；`keepSpace`（缺省 true）决定是否保留原来的占位尺寸。
   ///
   /// 接管后原来的"点击歌曲图播放 / 暂停"不再生效（整个显示被替换）：需要这个交互就在自己的
-  /// 界面里放按钮，动作用 `command` 调官方动作 `musicxx.player.toggle`。
+  /// 界面里放按钮，动作用 `command` 调官方能力 `musicxx.player.toggle`。
   static const String playingIcon = 'musicxx.ui.playing.icon';
 
   /// 播放页音频可视化样式（渲染槽位 `player.visualizer`）：与内置『音乐动效』的四种样式在同一个
@@ -145,7 +145,7 @@ abstract final class MusicxxPluginUIActionKind {
   /// 调用插件自己的能力：`{kind:"dispatch", name:"<短名>", args:{...}}`（或字符串短写）
   static const String dispatch = 'dispatch';
 
-  /// 调用主程序官方动作：`{kind:"command", name:"musicxx.<域>.<动作>", args:{...}}`
+  /// 调用主程序官方能力：`{kind:"command", name:"musicxx.<域>.<能力>", args:{...}}`
   static const String command = 'command';
 
   /// 无动作（纯展示项）
@@ -269,7 +269,7 @@ class MusicxxPluginUIItem {
       ? _nonEmpty(action?.name)
       : null;
 
-  /// 官方动作全名（`command` 动作）
+  /// 官方能力全名（`command` 动作）
   String? get hostActionName => actionKind == MusicxxPluginUIActionKind.command
       ? _nonEmpty(action?.name)
       : null;

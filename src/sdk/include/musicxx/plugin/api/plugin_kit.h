@@ -409,7 +409,7 @@ public:
         return iface.capabilities->unregister_capability(host, &capabilityView, &tagView);
     }
 
-    /// 同步读快照频道 (键不存在返回空串)
+    /// 同步读广播的当前值 (没有当前值时返回空串)
     ///
     /// 状态由应用发布在广播频道 `musicxx.state.*`（`cache: latest`，订阅即推）。
     std::string broadcastJson(const char* key) const {
@@ -542,7 +542,7 @@ public:
     /// ---------- 功能点 (插件自己声明 / 实现 / 调用) ----------
     ///
     /// 一个功能点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
-    /// 通道能力 `musicxx.feature.point.call` 的处理器）、**调用**（动作
+    /// 通道能力 `musicxx.feature.point.call` 的处理器）、**调用**（能力
     /// `musicxx.feature.point.call`）。三者都走插件框架，不需要主程序为这个点写任何代码。
     ///
     /// 与能力（capability）的分工见包内 `docs/plugin-guide.md`：
@@ -554,7 +554,7 @@ public:
     /// 2. 处理器要**按 `point` 过滤**（同一条通道上所有实现都收到同一次调用）；
     /// 3. **不回答自己发起的调用**（`caller` 等于自己的插件 id 时返回空）。
 
-    /// 功能点声明信息（对应动作 `musicxx.feature.point.define` 的可读字段）
+    /// 功能点声明信息（对应能力 `musicxx.feature.point.define` 的可读字段）
     struct MusicxxPluginPointSpec {
         const char* title  = ""; ///< 展示名（缺省用 id）
         const char* depict = ""; ///< 一句话说明
@@ -564,7 +564,7 @@ public:
 
     /// 声明一个**自己的**功能点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
     ///
-    /// - 走异步动作（`notify->done` 拿到 `{ok, id}` 或 `{ok:false, error}`）；
+    /// - 走能力调用（`notify->done` 拿到 `{ok, id}` 或 `{ok:false, error}`）；
     /// - 同一 id 重复声明 = 覆盖；声明跟着插件生命周期走（禁用 / 卸载自动撤销）；
     /// - 声明之后用 [featurePointProvide] 给出实现，别的插件与应用就能调它。
     int32_t featurePointDefine(const char* id, const MusicxxPluginPointSpec& spec,
@@ -689,9 +689,9 @@ public:
                               timeoutMs);
     }
 
-    /// 当前有哪些功能点、谁在实现（行文本；等价动作 `musicxx.feature.point.list`）
+    /// 当前有哪些功能点、谁在实现（行文本；等价能力 `musicxx.feature.point.list`）
     ///
-    /// 异步动作：结果经 `notify->done` 回来（`payload` 是清单文本）。
+    /// 异步调用：结果经 `notify->done` 回来（`payload` 是清单文本）。
     int32_t featurePointList(const PluginxxOperatorNotify* notify,
                              uint32_t timeoutMs = 5000) {
         if (!notify || !notify->done) {
@@ -700,7 +700,7 @@ public:
         return capabilityCall("musicxx.feature.point.list", "{}", notify, timeoutMs);
     }
 
-    /// 发起主程序动作 (异步; 结果经 `notify->done` 恰好一次回调)
+    /// 调一条应用实现的能力 (异步; 结果经 `notify->done` 恰好一次回调)
     ///
     /// 订阅频率选项（每个订阅方自己的属性，互不影响）
     ///
@@ -859,7 +859,7 @@ public:
         return result;
     }
 
-    /// 提示 (等价动作 `musicxx.ui.toast`, 固定记一条插件日志; fire-and-forget, 不等待用户界面)
+    /// 提示 (等价能力 `musicxx.ui.toast`, 固定记一条插件日志; fire-and-forget, 不等待用户界面)
     int32_t uiNotify(const char* messageJson) {
         if (!iface.ui || !iface.ui->notify) {
             return -1;
@@ -1052,7 +1052,7 @@ private:
     /// 同步处理器持有者 (生命周期与实例相同; start 事务里累积)
     std::vector<std::unique_ptr<CapabilityHolderBase>> holders_;
 
-    /// 动作请求完成通知持有者 (主程序/框架会长期持有该指针; 见 capabilityCall 说明)
+    /// 能力调用完成通知的持有者 (应用/框架会长期持有该指针; 见 capabilityCall 说明)
     struct ActionNotifyHolder {
         PluginxxOperatorNotify user{};      ///< 插件传入的完成通知 (原样保留)
         PluginxxOperatorNotify forward{};   ///< 转交给主程序的通知 (地址在堆上, 稳定)
@@ -1079,7 +1079,7 @@ private:
         }
     }
 
-    /// 回收已完成的动作通知 (保留最近若干张作为墓碑, 防止迟到回调命中已释放内存)
+    /// 回收已完成的调用通知 (保留最近若干张作为墓碑, 防止迟到回调命中已释放内存)
     void pruneActionNotifies() {
         constexpr size_t kFinishedRetention = 8;
         size_t           finished           = 0;

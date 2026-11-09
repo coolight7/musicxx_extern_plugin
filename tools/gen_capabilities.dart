@@ -8,7 +8,7 @@
 /// | `lib/src/capability_ids.g.dart` | Dart 侧 id 常量 + 声明（impls / merge / phases / dispatch / timeout / cache / expose / usage / implemented） |
 /// | `src/sdk/include/musicxx/plugin/api/capability_ids.g.h` | C++ 侧 id 常量 + 已知声明表（插件框架据此拒绝未知 id、判阶段与合并策略） |
 /// | `docs/plugin-capabilities.md` | 能力（请求 → 结果）作者文档 |
-/// | `docs/plugin-broadcasts.md` | 广播（通知 / 快照）作者文档 |
+/// | `docs/plugin-broadcasts.md` | 广播（只通知，不回答）作者文档 |
 ///
 /// 为什么只有一个定义源：同一个 id 现在同时出现在"派发、命令面、MCP、链接入口、自省、
 /// 作者文档"几处，靠手写常量加断言对齐迟早会漂；生成物把 id 与声明字段一起带出去。
@@ -45,7 +45,7 @@ const Map<String, int> _implsCodes = <String, int>{'one': 0, 'many': 1};
 /// 合并策略：`first`（第一个合法结果生效）/ `veto`（任一实现能否）
 const Map<String, int> _mergeCodes = <String, int>{'first': 1, 'veto': 2};
 
-/// 阶段编号（与 `MUSICXX_PLUGIN_HOOK_PHASE_*` 一致：impl 0 / before 1 / after 2）
+/// 阶段编号（与 `MUSICXX_CAPABILITY_PHASE_*` 一致：impl 0 / before 1 / after 2）
 const Map<String, int> _phaseCodes = <String, int>{
   'impl': 0,
   'before': 1,
@@ -61,7 +61,7 @@ const Map<String, int> _dispatchCodes = <String, int>{'sync': 0, 'async': 1};
 /// 能力的值缓存：`none` / `byIdentity`（同一请求身份不重复算）
 const Map<String, int> _cacheCodes = <String, int>{'none': 0, 'byIdentity': 1};
 
-/// 广播的缓存：`none`（事件）/ `latest`（快照，订阅即拿到当前值）
+/// 广播的缓存：`none`（没有当前值）/ `latest`（有当前值，订阅即拿到，也能同步读）
 const Map<String, int> _broadcastCacheCodes = <String, int>{
   'none': 0,
   'latest': 1,
@@ -822,7 +822,7 @@ String _generateDart(CapabilityContract contract) {
     ..writeln()
     ..writeln('  final String id;')
     ..writeln()
-    ..writeln('  /// `none`（事件）/ `latest`（快照）')
+    ..writeln('  /// `none`（没有当前值）/ `latest`（有当前值，订阅即拿到）')
     ..writeln('  final String cache;')
     ..writeln()
     ..writeln('  /// `owner` / `anyone`：谁能往这个频道发布')
@@ -1025,11 +1025,11 @@ String _generateCpp(CapabilityContract contract) {
     ..writeln('#define MUSICXX_CAPABILITY_CONSENT_NONE 0')
     ..writeln('#define MUSICXX_CAPABILITY_CONSENT_ASK  1')
     ..writeln()
-    ..writeln('/* ==================== 广播的缓存与写权限 ==================== */')
+    ..writeln('/* ==================== 广播的缓存与发布权限 ==================== */')
     ..writeln()
-    ..writeln('/// 事件：没有当前值')
+    ..writeln('/// 没有当前值：每次发布都通知')
     ..writeln('#define MUSICXX_BROADCAST_CACHE_NONE   0')
-    ..writeln('/// 快照：订阅即拿到当前值，也能同步读')
+    ..writeln('/// 有当前值：订阅即拿到，也能同步读')
     ..writeln('#define MUSICXX_BROADCAST_CACHE_LATEST 1')
     ..writeln()
     ..writeln('/// 只有属主能发布')
@@ -1291,7 +1291,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln('**广播** = 属主改了东西、通知所有关心的人。它没有返回值、不等待、允许丢中间值；')
     ..writeln('要不要"当前值"由声明决定：`cache: latest` 的频道订阅时就能拿到当前值，也能同步读；')
-    ..writeln('`cache: none` 的是事件，只能等下一次通知。')
+    ..writeln('`cache: none` 没有当前值，只能等下一次通知。')
     ..writeln()
     ..writeln('广播只做四件事：**声明自己的频道 / 发布 / 读当前值 / 订阅**。')
     ..writeln('它**不提供写入**（没有"给别人的频道写值"这个操作，也没有回执）：')
@@ -1300,10 +1300,10 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln('| 字段 | 含义 |')
     ..writeln('|---|---|')
-    ..writeln('| `cache` | `latest` = 有当前值（快照，只保留最后一份）；`none` = 只有事件 |')
+    ..writeln('| `cache` | `latest` = 有当前值（只保留最后一份）；`none` = 没有当前值，只能等下一次通知 |')
     ..writeln('| `publish` | `owner` = 只有属主能发布；`anyone` = 任何人都能发布（共享频道） |')
     ..writeln('| `pushOnSubscribe` | 订阅时立刻收到当前缓存值（仅 `cache: latest`） |')
-    ..writeln('| `coalesce` | 允许合并（允许丢中间值）；状态类频道一般写 `false`，每次发布都通知 |')
+    ..writeln('| `coalesce` | 允许合并（允许丢中间值）；带当前值的频道一般写 `false`，每次发布都通知 |')
     ..writeln('| `scope` | `app` = 业务频道；`system` = 调试与自省频道（插件不能发布） |')
     ..writeln('| `type` | 值的类型提示（`bool` / `number` / `string` / `json`，可选；只用于文档与自省） |')
     ..writeln('| `options` | 枚举取值域（稳定 id，不用本地化文案；可选，只用于文档与自省） |')
@@ -1324,10 +1324,10 @@ String _generateBroadcastDoc(CapabilityContract contract) {
 
   sb
     ..writeln()
-    ..writeln('## 官方频道取值')
+    ..writeln('## 官方频道当前值')
     ..writeln()
     ..writeln(
-      '官方频道（`musicxx.*`）都是 `cache: latest` + 订阅即推，`type` / `options` 说明值长什么样：',
+      '下面这些频道带当前值（`cache: latest` + 订阅即推），`type` / `options` 说明值长什么样：',
     )
     ..writeln()
     ..writeln('| 广播 id | 类型 | 取值 | 要改它请调能力 |')
@@ -1398,7 +1398,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln(
       '这张表只是**预设**：应用与插件都可以用表里没有的 id 发布 / 订阅，不需要事先登记。'
-      '表外 id 的默认属性是「只有事件（`cache: none`）、属主能写、允许合并、作用域 `app`」；'
+      '表外 id 的默认属性是「没有当前值（`cache: none`）、只有属主能发布、允许合并、作用域 `app`」；'
       '属主按 id 前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。',
     )
     ..writeln()
@@ -1407,11 +1407,11 @@ String _generateBroadcastDoc(CapabilityContract contract) {
       '只有你能发，别的插件能订阅；',
     )
     ..writeln(
-      '- 应用自己的运行期频道（例如埋点旁路广播 `musicxx.point.<埋点 id>.<种类>`）同理，'
+      '- 应用自己的运行期频道（例如埋点广播 `musicxx.point.<埋点 id>.<种类>`）同理，'
       '不需要在定义文件里占一行。',
     )
     ..writeln()
-    ..writeln('要快照（订阅时拿到当前值）/ 允许别人写这类属性时，才需要在定义文件的 `broadcasts` 里占一行。');
+    ..writeln('要当前值（订阅时就能拿到）/ 允许别人发布这类属性时，才需要在定义文件的 `broadcasts` 里占一行。');
 
   final List<BroadcastDeclaration> documented = <BroadcastDeclaration>[
     for (final BroadcastDeclaration decl in contract.broadcasts)
