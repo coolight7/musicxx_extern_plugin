@@ -478,7 +478,7 @@ iface.kind->register_kind(host, &pluginxxView(R"({
    "kindValidateCapability":"plugin.py_runtime.kind_validate"}
   ```
 
-  主程序据此展示"这个形态的接口代次"，再把上面那句 `validate` 请求发出去，被拒就不装。
+  主程序据此展示"运行环境接口版本"，再把上面那句 `validate` 请求发出去，被拒就不装。
   **`api_version` 的判定不在主程序做**（结论在 `supported` / `reason` 里）；宿主也可以直接读
   `kindList()`（`status_info` 里的 `host.kinds`）拿到同一份信息。
 - **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：清单里的

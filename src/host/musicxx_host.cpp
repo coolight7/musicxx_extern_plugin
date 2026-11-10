@@ -61,7 +61,8 @@ std::string currentThreadIdText() {
 
 /// 能力 id 列表 → JSON 数组（插件生命周期事件里的 `capabilities` 字段）
 ///
-/// Dart 侧收到生命周期事件后会按这份列表逐个回查插件框架里的处理器数量：能力注册表
+/// Dart
+/// 侧收到生命周期事件后会按这份列表逐个回查插件框架里的处理器数量：能力注册表
 /// 靠 `musicxx.capability.changed`
 /// 事件维护，事件丢一条就会停在旧值（表现为"插件注册过
 /// 的能力不再被派发"），这份随事件带上来的列表是它的对齐依据。
@@ -179,15 +180,17 @@ MusicxxHostManager::MusicxxHostManager(asio::any_io_executor ex)
   // 事件后端在构造期就绪 (DomainServices 的任何入口都可能被调用)
   // 广播注册表由插件框架创建 (PluginHostCore::broadcasts()); 宿主只负责
   // 按 id 前缀补默认声明, 见 ensureBroadcastChannel()
-  // 插件网络能力: 自己的网络线程; 事件发到插件框架事件总线, 异步完成回调投递回框架线程
+  // 插件网络能力: 自己的网络线程; 事件发到插件框架事件总线,
+  // 异步完成回调投递回框架线程
   netHub_ = PluginNetHub::create(
       [this](const std::string &pluginId, const std::string &payload) {
-        // JS插件: 直接投递到 JS 线程 (框架线程可能正在等一个返回 Promise 的能力,
-        // 绕框架线程会把"等网络事件"变成互锁)
+        // JS插件: 直接投递到 JS 线程 (框架线程可能正在等一个返回 Promise
+        // 的能力, 绕框架线程会把"等网络事件"变成互锁)
         if (auto engine = jsEngine()) {
           engine->deliverNetEvent(pluginId, payload);
         }
-        // 原生插件: 走事件总线 (主题 `plugin.<id>.net` 属于该插件自己的命名空间)
+        // 原生插件: 走事件总线 (主题 `plugin.<id>.net`
+        // 属于该插件自己的命名空间)
         broadcastPublishFrom(pluginId, "plugin." + pluginId + ".net", payload);
       },
       [this](std::function<void()> fn) {
@@ -293,24 +296,27 @@ int32_t MusicxxHostManager::start(std::string &err) {
   startTime_ = std::chrono::steady_clock::now();
 
   // 广播的订阅限频补发: 注册表自己不计时, 由宿主给一个 asio 定时器。
-  // 定时器回调投递到框架 IO 线程后执行 (补发回调在那条线程上跑, 与发布同一线程)。
+  // 定时器回调投递到框架 IO 线程后执行 (补发回调在那条线程上跑,
+  // 与发布同一线程)。
   {
     auto self = shared_from_this();
-    broadcasts()->setScheduler([self](int64_t delayMs, std::function<void()> task) {
-      auto timer = std::make_shared<asio::steady_timer>(self->ctx_->io);
-      timer->expires_after(std::chrono::milliseconds(delayMs > 0 ? delayMs : 0));
-      timer->async_wait([self, timer, task = std::move(task)](
-                            const utilxx_base::AsioErrorCode &ec) {
-        if (ec) {
-          return; ///< 框架收尾时定时器被取消
-        }
-        asio::post(self->ctx_->io, [self, task]() {
-          if (task) {
-            task();
-          }
+    broadcasts()->setScheduler(
+        [self](int64_t delayMs, std::function<void()> task) {
+          auto timer = std::make_shared<asio::steady_timer>(self->ctx_->io);
+          timer->expires_after(
+              std::chrono::milliseconds(delayMs > 0 ? delayMs : 0));
+          timer->async_wait([self, timer, task = std::move(task)](
+                                const utilxx_base::AsioErrorCode &ec) {
+            if (ec) {
+              return; ///< 框架收尾时定时器被取消
+            }
+            asio::post(self->ctx_->io, [self, task]() {
+              if (task) {
+                task();
+              }
+            });
+          });
         });
-      });
-    });
     // 订阅数变化 (订阅 / 退订 / 插件卸载 / 删频道): 发一条只读通知给应用
     broadcasts()->setSubscriberChangeCallback(
         [self](std::string_view id, size_t subscribers) {
@@ -323,8 +329,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
           asio::post(self->ctx_->io, [self, text = payload.dump()]() {
             self->pushEvent("musicxx.broadcast.subscribers", "", text);
           });
-        }
-    );
+        });
   }
 
   // 应用的能力声明: 生成表 `capability_ids.g.h` 就是应用声明的权威副本。
@@ -337,9 +342,9 @@ int32_t MusicxxHostManager::start(std::string &err) {
     netHub_->start();
   }
 
-  // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create), 插件框架
-  // PluginManagerBase 记录的是构造线程; 若不在框架线程上重绑, 各 vtable
-  // 入口会误判 "当前不在 IO 线程" → 投递回框架线程并同步等待,
+  // 绑定 IO 线程标识 (关键): 管理器是在**调用方线程**构造的 (host_create),
+  // 插件框架 PluginManagerBase 记录的是构造线程; 若不在框架线程上重绑, 各
+  // vtable 入口会误判 "当前不在 IO 线程" → 投递回框架线程并同步等待,
   // 而框架线程正卡在该调用栈里 (插件 start/create/处理器都在这条线程上跑) →
   // 单线程执行器自锁。
   if (!bindIoThread()) {
@@ -478,17 +483,19 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
 }
 
 MusicxxHostManager::~MusicxxHostManager() {
-  // 成员按**声明逆序**销毁: registryMutex_ 声明在 internalCapabilityRelay_ / jsEngine_
-  // 之后, 因此会先被销毁。而 JS 引擎(同时是那个
-  // InternalAppCapabilityRelay)析构时会回调 setInternalAppCapabilityRelay(nullptr) 回来加锁
-  // registryMutex_ —— 等到成员销毁阶段才放它, 锁已经没了: Android 的 bionic
-  // FORTIFY 会直接 abort (实测 `FORTIFY: pthread_mutex_lock called on a
-  // destroyed mutex`), Windows/glibc 下则是 "未定义但通常不发作"。
+  // 成员按**声明逆序**销毁: registryMutex_ 声明在 internalCapabilityRelay_ /
+  // jsEngine_ 之后, 因此会先被销毁。而 JS 引擎(同时是那个
+  // InternalAppCapabilityRelay)析构时会回调
+  // setInternalAppCapabilityRelay(nullptr) 回来加锁 registryMutex_ ——
+  // 等到成员销毁阶段才放它, 锁已经没了: Android 的 bionic FORTIFY 会直接 abort
+  // (实测 `FORTIFY: pthread_mutex_lock called on a destroyed mutex`),
+  // Windows/glibc 下则是 "未定义但通常不发作"。
   //
   // 析构体执行时所有成员都还活着, 因此在这里先把两个引用搬到局部变量再释放:
   // 引擎与接驳口在这时候一起收尾, 回调拿到的 registryMutex_ 仍然有效。
   {
-    std::shared_ptr<InternalAppCapabilityRelay> relay = std::move(internalCapabilityRelay_);
+    std::shared_ptr<InternalAppCapabilityRelay> relay =
+        std::move(internalCapabilityRelay_);
     std::shared_ptr<JsEngine> engine = std::move(jsEngine_);
     engine.reset(); ///< 先放引擎自身的那份引用 (引擎此时仍由 relay 持有)
     relay.reset(); ///< 最后一个引用消失时真正析构引擎, 这时锁仍然有效
@@ -673,8 +680,8 @@ int32_t MusicxxHostManager::prepareJsPlugin(
 
 int32_t
 MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
-                                           const std::string &topic,
-                                           const std::string &payloadJson) {
+                                         const std::string &topic,
+                                         const std::string &payloadJson) {
   if (!running_.load(std::memory_order_acquire)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
@@ -687,11 +694,11 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
   }
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
-  // 频道声明: 插件自己的 declare 已经写过就沿用 (ensureBroadcastChannel 不会再补一份
-  // 默认声明); 注册表内部加锁, 所以这里可以直接在调用方线程上发布
+  // 频道声明: 插件自己的 declare 已经写过就沿用 (ensureBroadcastChannel
+  // 不会再补一份 默认声明); 注册表内部加锁, 所以这里可以直接在调用方线程上发布
   // (JS 线程希望发布完立刻能 read 到当前值)。
   ensureBroadcastChannel(topic);
-  std::string  broadcastError;
+  std::string broadcastError;
   const int32_t rc =
       publishBroadcast(topic, payload, pluginId, &broadcastError);
   if (rc != PLUGINXX_RESULT_OK) {
@@ -881,7 +888,8 @@ pluginxx::PluginEntrySymbols MusicxxHostManager::entrySymbols() const {
 }
 
 std::string MusicxxHostManager::pluginIdOf(std::string_view instanceName) {
-  // JS插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身（规则在 host_naming.h）
+  // JS插件实例名形如 "js:<pluginId>"; 其余即插件 id 本身（规则在
+  // host_naming.h）
   return naming::pluginIdOfInstance(instanceName);
 }
 
@@ -912,8 +920,7 @@ int32_t MusicxxHostManager::netCallAsync(
 }
 
 int32_t MusicxxHostManager::netCancel(const std::string &pluginId,
-                                      int64_t requestId,
-                                      std::string &outJson) {
+                                      int64_t requestId, std::string &outJson) {
   if (!netHub_) {
     return PLUGINXX_NET_ERR_STATE;
   }
@@ -967,7 +974,8 @@ void MusicxxHostManager::onInstanceLoaded(MusicxxHostInstance &inst) {
   payload["path"] = inst.path;
   payload["configPath"] = inst.configPath;
   /// 该实例注册的能力 id 列表 (加载已在 start 之后: 列表是完整的)
-  payload["capabilities"] = capabilityIdsJson(capabilitiesOfInstance(inst.name));
+  payload["capabilities"] =
+      capabilityIdsJson(capabilitiesOfInstance(inst.name));
   payload["ok"] = true;
   pushEvent("musicxx.plugin.loaded", pluginIdOf(inst.name), payload.dump());
 }
@@ -993,7 +1001,8 @@ void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
     capabilityIdList = capabilitiesOfInstance(inst.name);
     clearPluginRegistrations(inst.name);
   } else {
-    /// 启用: start 事务已经跑完 (插件框架在 start 成功之后才回调这里), 列表是新的
+    /// 启用: start 事务已经跑完 (插件框架在 start 成功之后才回调这里),
+    /// 列表是新的
     capabilityIdList = capabilitiesOfInstance(inst.name);
   }
   Json payload;
@@ -1013,7 +1022,8 @@ void MusicxxHostManager::clearPluginRegistrations(
     kindRegistry_.unregisterAllOf(instanceName);
   }
   // 网络能力跟着插件实例: 服务 / 连接 / 未完成的请求一起收尾
-  // (未完成的 HTTP 请求要在这里按"已取消"结算 —— 它们可能在插件 stop 之后才回来)
+  // (未完成的 HTTP 请求要在这里按"已取消"结算 —— 它们可能在插件 stop
+  // 之后才回来)
   if (netHub_) {
     auto pending = netHub_->shutdownPlugin(pluginIdOf(instanceName));
     for (auto &done : pending) {
@@ -1035,7 +1045,8 @@ void MusicxxHostManager::clearPluginRegistrations(
       ++it;
     }
   }
-  for (auto it = pendingAppCapabilities_.begin(); it != pendingAppCapabilities_.end();) {
+  for (auto it = pendingAppCapabilities_.begin();
+       it != pendingAppCapabilities_.end();) {
     if (it->second.plugin == instanceName) {
       if (it->second.timer) {
         it->second.timer->cancel(); ///< 实例卸载: 撤销超时保护
@@ -1053,8 +1064,9 @@ void MusicxxHostManager::clearPluginRegistrations(
   detachUiEntries(instanceName);
   // 广播频道的声明与订阅随实例摘除 (注册表自己会发订阅数变化)
   //
-  // 同时去掉"已补过默认声明"的记账: 不同步的话, 插件重装后再次 ensureBroadcastChannel
-  // 会被记账拦住, 频道德在注册表里不存在 (发布变成"未声明"被拒)。
+  // 同时去掉"已补过默认声明"的记账: 不同步的话, 插件重装后再次
+  // ensureBroadcastChannel 会被记账拦住, 频道德在注册表里不存在
+  // (发布变成"未声明"被拒)。
   const std::string pluginId = pluginIdOf(instanceName);
   broadcasts()->removeChannelsOwnedBy(pluginId);
   {
@@ -1248,13 +1260,13 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
     std::lock_guard<std::mutex> lock{registryMutex_};
     return hostedKindPlugins_.count(name) > 0;
   }();
-  item["kindRequiresPluginAbi"] =
-      kindSpec ? kindSpec->requiresPluginAbi : true;
+  item["kindRequiresPluginAbi"] = kindSpec ? kindSpec->requiresPluginAbi : true;
   // 接口代次对：当前代次（上报给插件）/ 下限（清单 api_version 的判定线）
   item["kindInterfaceVersion"] = info.kindInterfaceVersion;
   item["kindMinInterfaceVersion"] = info.kindMinInterfaceVersion;
-  item["kindProvider"] =
-      (kindSpec && !kindSpec->frameworkOwned()) ? kindSpec->provider : std::string{};
+  item["kindProvider"] = (kindSpec && !kindSpec->frameworkOwned())
+                             ? kindSpec->provider
+                             : std::string{};
   item["hosted"] = hostedLoaded;
   item["apiVersion"] = apiVersion;
   item["valid"] = true;
@@ -1439,16 +1451,17 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
         const std::string manifestVersion = manifestFields.version;
         const std::vector<std::string> manifestScripts = manifestFields.scripts;
 
-        // 形态（kind）查注册表：内置 native / js 由插件框架自己加载，其余交给登记它的
-        // 运行器插件（以后接 Python 这类运行器就不用再改这里）。
-        // 清单既没写 kind 又没写 entry 时按 native 走（报“入口缺失”比报“形态未知”有用）。
+        // 运行环境（kind）查注册表：内置 native / js
+        // 由插件框架自己加载，其余交给登记它的 运行器插件（以后接 Python
+        // 这类运行器就不用再改这里）。 清单既没写 kind 又没写 entry 时按 native
+        // 走（报“入口缺失”比报“形态未知”有用）。
         const std::string kindForRegistry =
             manifestKind.empty() ? std::string{"native"} : manifestKind;
         const MusicxxPluginKindSpec *kindSpec =
             self->kindRegistry_.find(kindForRegistry);
         if (!kindSpec) {
           *failMsg = "没有运行器声明支持插件形态 `" + manifestKind +
-                     "` (先安装并启用提供这个形态的插件)";
+                     "` (先安装并启用提供该运行环境的插件)";
           Json payload;
           payload["id"] = pluginId;
           payload["phase"] = "load";
@@ -1469,8 +1482,8 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
               depLoaded = self->hostedKindPlugins_.count(dep) > 0;
             }
             if (!depLoaded) {
-              *failMsg = "插件加载失败: 必选依赖 `" + dep +
-                         "` 未加载 (请先加载它)";
+              *failMsg =
+                  "插件加载失败: 必选依赖 `" + dep + "` 未加载 (请先加载它)";
               Json payload;
               payload["id"] = pluginId;
               payload["phase"] = "load";
@@ -1483,8 +1496,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           }
           std::string hostedFail;
           const bool hostedOk = co_await self->loadHostedKindAsync(
-              *kindSpec, pluginId, path, manifestFields, *options,
-              hostedFail);
+              *kindSpec, pluginId, path, manifestFields, *options, hostedFail);
           if (!hostedOk) {
             *failMsg = hostedFail;
             Json payload;
@@ -1667,8 +1679,8 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
         asio::detached);
     bool ok = false;
     if (!slot->wait(30000, ok) || !ok) {
-      err = "plugin_enable: 运行器插件 `" + hosted.provider + "` 没能重新加载 `" +
-            id + "`";
+      err = "plugin_enable: 运行器插件 `" + hosted.provider +
+            "` 没能重新加载 `" + id + "`";
       return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
     }
     {
@@ -1883,8 +1895,8 @@ int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
   entry.loadCapability = spec.value("loadCapability", std::string{});
   entry.unloadCapability = spec.value("unloadCapability", std::string{});
   entry.validateCapability = spec.value("validateCapability", std::string{});
-  // 解释执行的形态自己声明接口代次对（不声明 = 不判；会调 C 接口表的形态由注册表
-  // 强制用框架的 C 接口那一对，写什么都不采信）
+  // 解释执行的形态自己声明接口代次对（不声明 = 不判；会调 C
+  // 接口表的形态由注册表 强制用框架的 C 接口那一对，写什么都不采信）
   if (spec.contains("interfaceVersion") &&
       spec["interfaceVersion"].is_number_integer()) {
     entry.interfaceVersion = spec["interfaceVersion"].get<int32_t>();
@@ -1917,7 +1929,8 @@ int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
   }
   std::string problem;
   bool overrideBuiltin = false;
-  if (spec.contains("overrideBuiltin") && spec["overrideBuiltin"].is_boolean()) {
+  if (spec.contains("overrideBuiltin") &&
+      spec["overrideBuiltin"].is_boolean()) {
     overrideBuiltin = spec["overrideBuiltin"].get<bool>();
   }
   bool registered = false;
@@ -1929,15 +1942,17 @@ int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
     err = "插件形态登记: " + problem;
     return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
   }
-  XX_LOGI("[musicxx_ext] 插件 `{}` 登记插件形态 `{}` (requiresPluginAbi={}, 接口代次 {}/{})",
+  XX_LOGI("[musicxx_ext] 插件 `{}` 登记插件形态 `{}` (requiresPluginAbi={}, "
+          "接口代次 {}/{})",
           pluginIdOf(instanceName), entry.kind, entry.requiresPluginAbi,
           entry.minInterfaceVersion, entry.interfaceVersion);
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
-int32_t MusicxxHostManager::unregisterPluginKind(
-    const std::string &instanceName, const std::string &kind,
-    std::string &err) {
+int32_t
+MusicxxHostManager::unregisterPluginKind(const std::string &instanceName,
+                                         const std::string &kind,
+                                         std::string &err) {
   if (!find(instanceName)) {
     err = "插件形态撤销: 插件未加载";
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
@@ -2019,25 +2034,26 @@ MusicxxHostManager::invokeKindProviderAsync(const std::string &provider,
   }
   auto state = std::make_shared<KindProviderCall>();
   state->wake = std::make_unique<asio::steady_timer>(ctx_->io);
-  startCapabilityCall(
-      inst.get(), capability, argsJson,
-      [state](int32_t rc, const std::string &text) {
-        state->done = true;
-        state->ok = rc == 0;
-        state->text = text;
-        // 唤醒等待方: 还没在等的时候取消也无害 (cancel 失败只说明没有等待项)
-        try {
-          state->wake->cancel();
-        } catch (...) {
-        }
-      });
+  startCapabilityCall(inst.get(), capability, argsJson,
+                      [state](int32_t rc, const std::string &text) {
+                        state->done = true;
+                        state->ok = rc == 0;
+                        state->text = text;
+                        // 唤醒等待方: 还没在等的时候取消也无害 (cancel
+                        // 失败只说明没有等待项)
+                        try {
+                          state->wake->cancel();
+                        } catch (...) {
+                        }
+                      });
   if (!state->done) {
     state->wake->expires_after(std::chrono::milliseconds{timeoutMs});
     co_await state->wake->async_wait(asio::as_tuple(asio::use_awaitable));
   }
   if (!state->done) {
-    co_return std::make_pair(
-        false, "运行器插件 `" + provider + "` 没有在超时内回答 (" + capability + ")");
+    co_return std::make_pair(false, "运行器插件 `" + provider +
+                                        "` 没有在超时内回答 (" + capability +
+                                        ")");
   }
   if (!state->ok) {
     co_return std::make_pair(false, state->text.empty()
@@ -2055,8 +2071,9 @@ MusicxxHostManager::invokeKindProviderAsync(const std::string &provider,
   co_return std::make_pair(true, state->text);
 }
 
-asio::awaitable<bool> MusicxxHostManager::startHostedKindAsync(
-    const HostedKindPlugin &record, std::string &failReason) {
+asio::awaitable<bool>
+MusicxxHostManager::startHostedKindAsync(const HostedKindPlugin &record,
+                                         std::string &failReason) {
   const MusicxxPluginKindSpec *spec = kindRegistry_.find(record.kind);
   if (!spec || spec->frameworkOwned()) {
     failReason = "插件形态 `" + record.kind + "` 的运行器已撤销";
@@ -2077,16 +2094,15 @@ asio::awaitable<bool> MusicxxHostManager::startHostedKindAsync(
   const auto [ok, message] = co_await invokeKindProviderAsync(
       record.provider, spec->loadCapability, payload.dump(), 30000);
   if (!ok) {
-    failReason = message.empty()
-                     ? ("运行器插件 `" + record.provider + "` 加载 `" + record.id +
-                        "` 失败")
-                     : message;
+    failReason = message.empty() ? ("运行器插件 `" + record.provider +
+                                    "` 加载 `" + record.id + "` 失败")
+                                 : message;
   }
   co_return ok;
 }
 
-asio::awaitable<bool> MusicxxHostManager::stopHostedKindAsync(
-    const HostedKindPlugin &record) {
+asio::awaitable<bool>
+MusicxxHostManager::stopHostedKindAsync(const HostedKindPlugin &record) {
   const MusicxxPluginKindSpec *spec = kindRegistry_.find(record.kind);
   if (!spec || spec->frameworkOwned() || spec->unloadCapability.empty()) {
     co_return true; ///< 没声明卸载能力: 运行器自己收尾, 框架这里没有可做的
@@ -2168,8 +2184,8 @@ asio::awaitable<bool> MusicxxHostManager::loadHostedKindAsync(
   co_return true;
 }
 
-asio::awaitable<void> MusicxxHostManager::unloadHostedKindAsync(
-    const std::string &pluginId) {
+asio::awaitable<void>
+MusicxxHostManager::unloadHostedKindAsync(const std::string &pluginId) {
   HostedKindPlugin record;
   {
     std::lock_guard<std::mutex> lock{registryMutex_};
@@ -2283,9 +2299,8 @@ void MusicxxHostManager::startCapabilityCall(
   auto *handle = invokeCapabilityAsync(
       inst,
       nullptr, ///< 作用域引用: musicxx 没有作用域, 发起方不在任何作用域上下文
-      capView,
-      argsView,
-      0,  ///< 阶段: 0 = 走完整链 before → impl → after
+      capView, argsView,
+      0, ///< 阶段: 0 = 走完整链 before → impl → after
       -1, ///< 超时: 用声明里的值 (Dart 侧的调用不带本次调用的超时)
       &capabilityCallTrampoline, bridge, &callErr);
   if (!handle) {
@@ -2464,7 +2479,8 @@ void MusicxxHostManager::finishAllPendingCalls() {
   for (const auto &hit : hits) {
     pushCapabilityCallResult(hit.first, hit.second.id, hit.second.method,
                              MUSICXX_EXTERN_PLUGIN_ERR_STATE, std::string{},
-                             hit.second.started, "host_stopped: 插件框架已停止");
+                             hit.second.started,
+                             "host_stopped: 插件框架已停止");
   }
 }
 
@@ -2554,14 +2570,16 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
 }
 
 int32_t MusicxxHostManager::broadcastPublish(const std::string &topic,
-                                               const std::string &payloadJson) {
+                                             const std::string &payloadJson) {
   if (!running_.load(std::memory_order_acquire)) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
-  // 插件框架自身没有插件命名空间: 只允许发布官方主题 (插件自定义主题由插件自己发布)
+  // 插件框架自身没有插件命名空间: 只允许发布官方主题
+  // (插件自定义主题由插件自己发布)
   if (topic.rfind("musicxx.", 0) != 0) {
-    XX_LOGW("[musicxx_ext] 插件框架发布事件被拒绝: 主题 `{}` 必须以 musicxx. 开头",
-            topic);
+    XX_LOGW(
+        "[musicxx_ext] 插件框架发布事件被拒绝: 主题 `{}` 必须以 musicxx. 开头",
+        topic);
     return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
   }
   const std::string payload =
@@ -2587,8 +2605,9 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
   ensureBroadcastChannel(fullTopic);
-  std::string  broadcastError;
-  const int32_t rc = publishBroadcast(fullTopic, payload, std::string{}, &broadcastError);
+  std::string broadcastError;
+  const int32_t rc =
+      publishBroadcast(fullTopic, payload, std::string{}, &broadcastError);
   if (rc != PLUGINXX_RESULT_OK) {
     return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
   }
@@ -2860,8 +2879,8 @@ void MusicxxHostManager::logMessage(int32_t level, const std::string &message) {
 
 // 表体只有三个入口: 同步 `call` / 异步 `call_async` / `cancel`, 全部用
 // "op + 参数 JSON → 结果 JSON" 的写法 —— 新增操作只加 op 名, 不动 C ABI。
-// 实现与线程模型在 cxx_utilxx 的 `utilxx::PluginNetHub` (自有网络线程): 这里只做
-// "宿主 + 实例 → 插件 id" 的解析与有界等待, 不做任何协议处理。
+// 实现与线程模型在 cxx_utilxx 的 `utilxx::PluginNetHub` (自有网络线程):
+// 这里只做 "宿主 + 实例 → 插件 id" 的解析与有界等待, 不做任何协议处理。
 
 namespace {
 
@@ -2873,16 +2892,16 @@ std::string netViewToStr(const PluginxxStringView *view) {
 }
 
 int32_t PLUGINXX_CALL xxNetCall(const PluginxxHost *host,
-                               const PluginxxStringView *op,
-                               const PluginxxStringView *argsJson,
-                               PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL,
-                                   [&]() -> int32_t {
+                                const PluginxxStringView *op,
+                                const PluginxxStringView *argsJson,
+                                PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
     if (!op || !op->data) {
       return PLUGINXX_NET_ERR_ARG;
     }
     auto call =
-        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+            host);
     if (!call.ok()) {
       return PLUGINXX_NET_ERR_ARG;
     }
@@ -2907,17 +2926,18 @@ int32_t PLUGINXX_CALL xxNetCall(const PluginxxHost *host,
 }
 
 int32_t PLUGINXX_CALL xxNetCallAsync(const PluginxxHost *host,
-                                    const PluginxxStringView *op,
-                                    const PluginxxStringView *argsJson,
-                                    const PluginxxOperatorNotify *notify,
-                                    PluginxxString *outJson,
-                                    int64_t *outRequestId) {
+                                     const PluginxxStringView *op,
+                                     const PluginxxStringView *argsJson,
+                                     const PluginxxOperatorNotify *notify,
+                                     PluginxxString *outJson,
+                                     int64_t *outRequestId) {
   return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
     if (!op || !op->data || !notify || !notify->done) {
       return PLUGINXX_NET_ERR_ARG;
     }
     auto call =
-        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+            host);
     if (!call.ok()) {
       return PLUGINXX_NET_ERR_ARG;
     }
@@ -2942,7 +2962,7 @@ int32_t PLUGINXX_CALL xxNetCallAsync(const PluginxxHost *host,
         view.size = payload.size();
       }
       notifyCopy.done(notifyCopy.host_ud, static_cast<int32_t>(status),
-                     payload.empty() ? nullptr : &view);
+                      payload.empty() ? nullptr : &view);
     };
     std::string result;
     const int32_t rc = mgr->netCallAsync(pluginId, opText, argsText,
@@ -2958,7 +2978,8 @@ int32_t PLUGINXX_CALL xxNetCancel(const PluginxxHost *host, int64_t requestId,
                                   PluginxxString *outJson) {
   return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
     auto call =
-        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+            host);
     if (!call.ok()) {
       return PLUGINXX_NET_ERR_ARG;
     }
