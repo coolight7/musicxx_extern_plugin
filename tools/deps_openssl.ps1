@@ -393,6 +393,53 @@ function Initialize-MxOpenSslSource {
     return $sourceDir
 }
 
+# 源码补丁标记: 用脚本从源码编出来的安装树会盖上这个标记, 解析缓存时据此判断
+# "这棵树是不是打过补丁的那一版编的"。加新补丁时换一个标记值。
+$script:MxOpenSslSourcePatchTag = '2026.11.10-1'
+$script:MxOpenSslSourcePatchFileName = 'musicxx_source_patch.txt'
+
+# 给 OpenSSL 源码打上必要的补丁 (在 Configure 之前调用; 重复执行没有副作用)
+#
+# 目前只有一个补丁: aarch64 的 SVE2 poly1305 汇编补 .hidden。
+#   crypto/poly1305/asm/poly1305-armv8.pl 用 adrp/add 取 poly1305_blocks_sve2 的地址,
+#   而这个符号在 crypto/poly1305/asm/poly1305-armv9-sve2.pl 里是默认可见的全局符号。
+#   链接共享库时这种符号可能被外部的同名定义替换, ld.lld 因此拒绝 adrp/add 重定位, 报
+#   "relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'poly1305_blocks_sve2';
+#    recompile with -fPIC" —— 把 libcrypto.a 链进 .so 的工程 (插件的 Android 库就是这样) 编不出来。
+#   upstream 已在 openssl-4.0 分支修好 (给符号加 .hidden), 但 4.0.1 / 4.0.2 这些发行版里还没有;
+#   等源码版本自带这一行, 本函数就直接返回。
+function Update-MxOpenSslSource {
+    param([Parameter(Mandatory)][string]$SourceDir)
+
+    $sve2 = Join-Path $SourceDir 'crypto/poly1305/asm/poly1305-armv9-sve2.pl'
+    # 这个版本的源码里没有该文件: 不需要补
+    if (-not (Test-Path $sve2)) { return }
+
+    $text = [System.IO.File]::ReadAllText($sve2)
+    # 已经补过 / upstream 已修
+    if ($text -match '(?m)^\s*\.hidden\s+poly1305_blocks_sve2\s*$') { return }
+
+    $match = [regex]::Match($text, '(?m)^([ \t]*)\.globl([ \t]+)poly1305_blocks_sve2[ \t]*$')
+    if (-not $match.Success) {
+        Write-MxWarn "OpenSSL: $sve2 里找不到 .globl poly1305_blocks_sve2, 跳过源码补丁 (链接共享库可能失败)"
+        return
+    }
+    $newline = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $hidden = $match.Value -replace '\.globl', '.hidden'
+    $patched = $text.Insert($match.Index + $match.Length, $newline + $hidden)
+    # 源码包里的文件是 LF + 纯 ASCII; 写回时保持原样, 不引入 BOM 与 CRLF
+    [System.IO.File]::WriteAllText($sve2, $patched, [System.Text.UTF8Encoding]::new($false))
+    Write-MxInfo 'OpenSSL: 补上 aarch64 SVE2 poly1305 汇编的 .hidden (upstream 尚未发行的修复)'
+}
+
+# 这棵安装树是不是打过补丁的脚本编出来的
+function Test-MxOpenSslSourcePatchStamp([string]$InstallDir) {
+    if (-not $InstallDir) { return $false }
+    $stamp = Join-Path $InstallDir $script:MxOpenSslSourcePatchFileName
+    if (-not (Test-Path $stamp)) { return $false }
+    return ((Get-Content -Raw $stamp).Trim() -eq $script:MxOpenSslSourcePatchTag)
+}
+
 # 用本机 NDK 编一个 Android ABI 的 OpenSSL 静态库, 产物装到 $InstallDir
 #   成功返回安装树路径; 缺少必要工具时返回空串 (由调用方统一报错)。
 #
@@ -434,6 +481,8 @@ function Build-MxOpenSslForAndroid {
     $sourceDir = $null
     try { $sourceDir = Initialize-MxOpenSslSource -NativeRoot $nativeRoot }
     catch { Write-MxWarn "OpenSSL: $($_.Exception.Message)"; return '' }
+    # 补丁必须在 Configure 之前打: 汇编文件 (.S) 是 Configure 用这些 .pl 生成的
+    Update-MxOpenSslSource -SourceDir $sourceDir
 
     # perl 兼容模块: 拷进源码树, 用相对 PERL5LIB 传进去
     #   相对路径是必须的: msys perl 会把 "C:\dir" 里的冒号当成列表分隔符。
@@ -457,6 +506,8 @@ function Build-MxOpenSslForAndroid {
     if ($Jobs -le 0) { $Jobs = [Environment]::ProcessorCount }
 
     Write-MxInfo "OpenSSL: 用 NDK 编译 $configureTarget (API $AndroidApi) → $InstallDir"
+    # 重编期间先摘掉补丁标记: 编到一半失败时, 缓存里剩下的还是旧库, 不能被当成"已打过补丁"
+    Remove-Item (Join-Path $InstallDir $script:MxOpenSslSourcePatchFileName) -Force -ErrorAction SilentlyContinue
 
     # 子进程的环境: NDK 工具链在 PATH 最前, plus perl shim 与 NDK 根
     #   msys / Cygwin 的 perl 需要 NDK 根写成 msys 写法, 否则 Configure 认不出 NDK 布局
@@ -526,6 +577,13 @@ function Build-MxOpenSslForAndroid {
         Write-MxWarn "OpenSSL: 编译完成但产物不完整: $InstallDir"
         return ''
     }
+    # 盖补丁标记 (写不进只是下次多编一次, 不影响这次使用)
+    try {
+        $stamp = Join-Path $InstallDir $script:MxOpenSslSourcePatchFileName
+        [System.IO.File]::WriteAllText($stamp, $script:MxOpenSslSourcePatchTag + "`n",
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    catch { Write-MxWarn "OpenSSL: 写补丁标记失败: $($_.Exception.Message)" }
     return (Resolve-Path $InstallDir).Path
 }
 
@@ -587,7 +645,14 @@ function Resolve-MxOpenSslRoot {
         Write-MxWarn "环境变量 MUSICXX_EXTERN_PLUGIN_OPENSSL_ROOT 指向的目录不可用 (目标 $TargetTag): $fromEnv"
     }
     if (Test-MxOpenSslRoot $cached $TargetTag) {
-        return [ordered]@{ Root = (Resolve-Path $cached).Path; Version = (Get-MxOpenSslVersionText $cached); Source = 'cache' }
+        # aarch64 的树才需要 SVE2 poly1305 那个补丁 (见 Update-MxOpenSslSource): 老版本脚本编出来的
+        # 这种树链接共享库会直接失败, 所以当它不存在, 走下面的重编。其它 ABI 的旧树照旧复用。
+        if ($TargetTag -eq 'android-arm64-v8a' -and -not (Test-MxOpenSslSourcePatchStamp $cached)) {
+            Write-MxWarn "OpenSSL: 缓存的安装树是旧版脚本编的 (缺源码补丁), 重编: $cached"
+        }
+        else {
+            return [ordered]@{ Root = (Resolve-Path $cached).Path; Version = (Get-MxOpenSslVersionText $cached); Source = 'cache' }
+        }
     }
     foreach ($packaged in $packagedDirs) {
         if (Test-MxOpenSslRoot $packaged $TargetTag) {

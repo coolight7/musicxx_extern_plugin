@@ -140,6 +140,13 @@ tools/               setup_native_env.ps1（Windows：配置开发编译环境 �
      之后复用；4 个 ABI 全编约 20~30 分钟。
    - **Linux / macOS**：由 `tools/build_native.sh` 从源码编到 `.native/openssl/<平台>-<架构>`
      （`no-shared`，约 3~8 分钟）。
+   - **脚本会给源码打一个补丁**（`tools/deps_openssl.ps1` 的 `Update-MxOpenSslSource`、
+     `tools/build_native.sh` 的 `patch_openssl_source`）：OpenSSL 4.0.1 / 4.0.2 的 aarch64 SVE2
+     poly1305 汇编漏了 `.hidden`，把 `libcrypto.a` 链进共享库（Android / iOS / macOS 的插件框架库）会报
+     `relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'poly1305_blocks_sve2'`。
+     upstream 已在 `openssl-4.0` 分支修好但还没进发行版，所以脚本在 Configure 之前自己补上
+     （已有这行的不重复补）。编出来的安装树里会出现 `musicxx_source_patch.txt` 标记：
+     没有标记的旧 arm64 树会被当成不可用而自动重编，其它架构不受这个补丁影响，旧树照旧复用。
    - **TLS 是插件框架的必备能力**，不提供关掉的开关：拿不到 OpenSSL 时构建**直接失败**，
      不会编出一个没有 `https` / `wss` 的库（各平台功能必须一致）。
    - 安装树**按目标平台分开，不能互相顶替**：Windows 的 `.lib` 在 Android / Linux 上链接不了，
@@ -165,6 +172,9 @@ make -j8 && make install_sw
      其它 ABI 的 `Configure` 目标：`armeabi-v7a` → `android-arm`、`x86_64` → `android-x86_64`、
      `x86` → `android-x86`。手动编的话把整棵安装树（含 `include/` 与 `lib/libssl.a`、
      `lib/libcrypto.a`）放到上面那个目录（也可以放到它的 `openssl/` 子目录）。
+     手动编 arm64 时同样要先给 `crypto/poly1305/asm/poly1305-armv9-sve2.pl` 的
+     `.globl poly1305_blocks_sve2` 补一行 `.hidden poly1305_blocks_sve2`（同上一个补丁）；
+     否则插件框架库链接时就报那个 `poly1305_blocks_sve2` 重定位错误。
    - 构建脚本与 CMake 的查找顺序：`-OpenSslRoot` / 环境变量 → `resource/libs/<平台>/<架构>/` →
      `.native/openssl/<目标标签>/`（Android 缺的时候在现场编，Linux / macOS 从源码编）。
    - 安装树里要有 `include/openssl/ssl.h` 与静态库（Windows：`lib/VC/x64/MD{,d}/libssl_static.lib`；

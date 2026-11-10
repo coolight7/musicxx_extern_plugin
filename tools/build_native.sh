@@ -680,6 +680,50 @@ openssl_version="${MUSICXX_EXTERN_PLUGIN_OPENSSL_VERSION:-4.0.1}"
 openssl_source_url='https://www.openssl.org/source/openssl-@VERSION@.tar.gz'
 openssl_source_url_github='https://github.com/openssl/openssl/releases/download/openssl-@VERSION@/openssl-@VERSION@.tar.gz'
 
+# 源码补丁标记: 用本脚本从源码编出来的安装树会盖上这个标记, 解析缓存时据此判断
+# "这棵树是不是打过补丁的那一版编的"。与 tools/deps_openssl.ps1 的
+# $script:MxOpenSslSourcePatchTag 同一个值, 加补丁时两边一起改。
+openssl_source_patch_tag='2026.11.10-1'
+openssl_source_patch_file='musicxx_source_patch.txt'
+
+# 这棵安装树是不是打过补丁的脚本编出来的
+test_openssl_patch_stamp() {
+    [ -n "${1:-}" ] || return 1
+    [ -f "$1/${openssl_source_patch_file}" ] || return 1
+    [ "$(tr -d '\r\n' < "$1/${openssl_source_patch_file}")" = "$openssl_source_patch_tag" ]
+}
+
+# 给 OpenSSL 源码打上必要的补丁 (在 Configure 之前调用; 重复执行没有副作用)
+#
+# 目前只有一个补丁: aarch64 的 SVE2 poly1305 汇编补 .hidden。
+#   crypto/poly1305/asm/poly1305-armv8.pl 用 adrp/add 取 poly1305_blocks_sve2 的地址,
+#   而这个符号在 crypto/poly1305/asm/poly1305-armv9-sve2.pl 里是默认可见的全局符号。
+#   链接共享库时这种符号可能被外部的同名定义替换, ld.lld 因此拒绝 adrp/add 重定位, 报
+#   "relocation R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'poly1305_blocks_sve2'",
+#   把 libcrypto.a 链进 .so 的工程 (插件的 Android / iOS / macOS 库就是这样) 就编不出来。
+#   upstream 已在 openssl-4.0 分支修好 (给符号加 .hidden), 但 4.0.1 / 4.0.2 这些发行版里还没有;
+#   等源码版本自带这一行, 本函数什么也不做。
+patch_openssl_source() {
+    local source_dir="$1"
+    local file="${source_dir}/crypto/poly1305/asm/poly1305-armv9-sve2.pl"
+    # 这个版本的源码里没有该文件: 不需要补
+    [ -f "$file" ] || return 0
+    # 已经补过 / upstream 已修
+    if grep -Eq '^[[:space:]]*\.hidden[[:space:]]+poly1305_blocks_sve2[[:space:]]*$' "$file"; then
+        return 0
+    fi
+    if ! grep -Eq '^[[:space:]]*\.globl[[:space:]]+poly1305_blocks_sve2[[:space:]]*$' "$file"; then
+        warn "OpenSSL: ${file} 里找不到 .globl poly1305_blocks_sve2, 跳过源码补丁 (链接共享库可能失败)"
+        return 0
+    fi
+    # 在 .globl 那一行后面插一行 .hidden (用 perl 原地改, 保持原来的换行与编码)
+    if ! perl -pi -e 's/^([ \t]*)\.globl([ \t]+)(poly1305_blocks_sve2[ \t]*)\r?\n/$1.globl$2$3\n$1.hidden$2$3\n/' "$file"; then
+        warn "OpenSSL: 写回源码补丁失败: ${file}"
+        return 0
+    fi
+    printf '  OpenSSL: 补上 aarch64 SVE2 poly1305 汇编的 .hidden (upstream 尚未发行的修复)\n'
+}
+
 # 安装树可用吗 (头文件 + 静态库)
 # 只认 libssl.a: 这是源码编译 (no-shared) 的产物。Windows 那棵用 .lib 的树不能被借给
 # Linux / macOS / Android / iOS —— 头文件找得到、库却链接不了, 嵌套工程 find_package(OpenSSL) 会失败。
@@ -735,6 +779,9 @@ build_openssl_from_source() {
         tar -xf "$archive" -C "$source_dir" --strip-components=1 || die "解包 OpenSSL 失败: $archive"
     fi
 
+    # 汇编文件 (.S) 是 Configure 用这些 .pl 生成的, 补丁必须在 Configure 之前打
+    patch_openssl_source "$source_dir"
+
     # Configure 目标: 桌面交给它自己识别; Android / iOS 用交叉目标
     local configure_target=()
     if [ "$android" = 1 ]; then
@@ -760,6 +807,8 @@ build_openssl_from_source() {
     fi
 
     printf '  OpenSSL: 开始从源码编译 (%s → %s)\n' "${configure_target[*]:-本机默认目标}" "$install_dir" >&2
+    # 重编期间先摘掉补丁标记: 编到一半失败时, 缓存里剩下的还是旧库, 不能被当成"已打过补丁"
+    rm -f "${install_dir}/${openssl_source_patch_file}"
     local make_jobs="$jobs"
     if [ "${make_jobs:-0}" -le 0 ] 2>/dev/null; then
         make_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '4')"
@@ -780,6 +829,9 @@ build_openssl_from_source() {
 
     test_openssl_root "$install_dir" ||
         die "OpenSSL 安装产物缺失 (期望 ${install_dir}/lib/libssl.a)"
+    # 盖补丁标记 (写不进只是下次多编一次, 不影响这次使用)
+    printf '%s\n' "$openssl_source_patch_tag" > "${install_dir}/${openssl_source_patch_file}" 2>/dev/null ||
+        warn "OpenSSL: 写补丁标记失败: ${install_dir}/${openssl_source_patch_file}"
 }
 
 # OpenSSL 安装树解析顺序: --openssl-root → 环境变量 → resource/libs/<目标标签>/openssl
@@ -822,7 +874,21 @@ resolve_openssl_root() {
     fi
     local cached
     cached="$(openssl_cache_dir)"
+    local cache_usable=0
     if test_openssl_root "$cached"; then
+        cache_usable=1
+        # aarch64 的树才需要 SVE2 poly1305 那个补丁 (见 patch_openssl_source): 老版本脚本编出来的
+        # 这种树链接共享库会直接失败, 所以当它不存在, 走下面的重编。其它架构的旧树照旧复用。
+        case "$target_tag" in
+            *-arm64*)
+                if ! test_openssl_patch_stamp "$cached"; then
+                    cache_usable=0
+                    warn "OpenSSL: 缓存的安装树是旧版脚本编的 (缺源码补丁), 重编: ${cached}"
+                fi
+                ;;
+        esac
+    fi
+    if [ "$cache_usable" = 1 ]; then
         printf '  OpenSSL: 使用已编译的 %s\n' "$cached" >&2
         printf '%s' "$cached"
         return 0
