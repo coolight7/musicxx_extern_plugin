@@ -1025,7 +1025,7 @@ void MusicxxHostManager::clearPluginRegistrations(
   // (未完成的 HTTP 请求要在这里按"已取消"结算 —— 它们可能在插件 stop
   // 之后才回来)
   if (netHub_) {
-    auto pending = netHub_->shutdownPlugin(pluginIdOf(instanceName));
+    auto pending = netHub_->shutdownOwner(pluginIdOf(instanceName));
     for (auto &done : pending) {
       if (done) {
         done(utilxx::NetDoneStatus::Canceled, {});
@@ -2879,7 +2879,7 @@ void MusicxxHostManager::logMessage(int32_t level, const std::string &message) {
 
 // 表体只有三个入口: 同步 `call` / 异步 `call_async` / `cancel`, 全部用
 // "op + 参数 JSON → 结果 JSON" 的写法 —— 新增操作只加 op 名, 不动 C ABI。
-// 实现与线程模型在 cxx_utilxx 的 `utilxx::PluginNetHub` (自有网络线程):
+// 实现与线程模型在 cxx_utilxx 的 `utilxx::NetHub` (自有网络线程):
 // 这里只做 "宿主 + 实例 → 插件 id" 的解析与有界等待, 不做任何协议处理。
 
 namespace {

@@ -25,7 +25,7 @@
 #include "pluginxx/api/net.h"
 #include "pluginxx/host/lifecycle.h"
 #include "pluginxx/host/tables_impl.h"
-#include "utilxx/plugin_net_hub.h"
+#include "utilxx/net_hub.h"
 
 #include <asio/awaitable.hpp>
 #include <asio/executor_work_guard.hpp>
@@ -55,8 +55,8 @@ namespace extern_plugin {
 /// JS 运行时 (定义在 js/js_engine.h)
 class JsEngine;
 
-/// 插件网络能力 (实现在 cxx_utilxx 的 `utilxx/plugin_net_hub.h`)
-using PluginNetHub = utilxx::PluginNetHub;
+/// 插件网络能力 (实现在 cxx_utilxx 的 `utilxx/net_hub.h`)
+using PluginNetHub = utilxx::NetHub;
 
 /// `musicxx.ui` 表的 C ABI 实现 (定义在 musicxx_host_ui.cpp; 供 query_interface
 /// 分发)
