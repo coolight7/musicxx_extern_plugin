@@ -1134,7 +1134,7 @@ function vinylBackgroundData() {
 /// 接管歌曲图的 UI 项内容：不显示内容、保留占位
 function iconData() {
     return {
-        title: "隐藏歌曲图（" + PLUGIN_TITLE + " 配套）",
+        title: "隐藏歌曲图",
         depict: "接管播放页中间的歌曲图：保留占位、不画内容；背景换回其它样式时自动交还",
         mode: "none",
         keepSpace: true,
