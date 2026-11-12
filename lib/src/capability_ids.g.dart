@@ -142,34 +142,34 @@ abstract final class MusicxxCapabilityId {
   static const String playerSetQuality = 'musicxx.player.setQuality';
   /// 设置播放模式
   static const String playerSetLoopMode = 'musicxx.player.setLoopMode';
-  /// musicxx.playlist.queryLists
-  static const String playlistQueryLists = 'musicxx.playlist.queryLists';
+  /// musicxx.songlist.list
+  static const String songlistList = 'musicxx.songlist.list';
   /// 读歌单歌曲
-  static const String playlistQuerySongs = 'musicxx.playlist.querySongs';
+  static const String songlistListSongs = 'musicxx.songlist.listSongs';
   /// 播放歌单
-  static const String playlistPlay = 'musicxx.playlist.play';
-  /// musicxx.playlist.addSong
-  static const String playlistAddSong = 'musicxx.playlist.addSong';
-  /// 从歌单移除歌曲
-  static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
-  /// 新建歌单
-  static const String playlistCreate = 'musicxx.playlist.create';
-  /// musicxx.playlist.updateSong
-  static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
-  /// 收藏当前歌曲
-  static const String playlistSongFavorite = 'musicxx.playlist.song.favorite';
-  /// 同步歌单音源
-  static const String playlistSyncSongsSync = 'musicxx.playlist.syncSongs.sync';
-  /// 读播放列表歌曲
-  static const String songlistQuerySongs = 'musicxx.songlist.querySongs';
-  /// 播播放列表里的歌
-  static const String songlistPlaySong = 'musicxx.songlist.playSong';
+  static const String songlistPlay = 'musicxx.songlist.play';
   /// musicxx.songlist.addSong
   static const String songlistAddSong = 'musicxx.songlist.addSong';
-  /// 从播放列表移除歌曲
+  /// 从歌单移除歌曲
   static const String songlistRemoveSong = 'musicxx.songlist.removeSong';
+  /// 新建歌单
+  static const String songlistCreate = 'musicxx.songlist.create';
   /// musicxx.songlist.updateSong
   static const String songlistUpdateSong = 'musicxx.songlist.updateSong';
+  /// 收藏当前歌曲
+  static const String songlistFavorite = 'musicxx.songlist.favorite';
+  /// 同步歌单音源
+  static const String songlistSync = 'musicxx.songlist.sync';
+  /// 读播放列表歌曲
+  static const String playlistListSongs = 'musicxx.playlist.listSongs';
+  /// 播播放列表里的歌
+  static const String playlistPlaySong = 'musicxx.playlist.playSong';
+  /// musicxx.playlist.addSong
+  static const String playlistAddSong = 'musicxx.playlist.addSong';
+  /// 从播放列表移除歌曲
+  static const String playlistRemoveSong = 'musicxx.playlist.removeSong';
+  /// musicxx.playlist.updateSong
+  static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
   /// 当前歌词
   static const String lyricCurrentGet = 'musicxx.lyric.current.get';
   /// 换当前歌词
@@ -188,18 +188,18 @@ abstract final class MusicxxCapabilityId {
   static const String uiOverlayShow = 'musicxx.ui.overlay.show';
   /// 关闭浮层
   static const String uiOverlayClose = 'musicxx.ui.overlay.close';
-  /// musicxx.ui.openOverlaySheet
-  static const String uiOpenOverlaySheet = 'musicxx.ui.openOverlaySheet';
+  /// musicxx.ui.overlay.showSheet
+  static const String uiOverlayShowSheet = 'musicxx.ui.overlay.showSheet';
   /// 打开页面
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
   /// 播放页「更多」菜单
   static const String uiPlayingOpenMenu = 'musicxx.ui.playing.openMenu';
-  /// musicxx.ui.pickSongs
-  static const String uiPickSongs = 'musicxx.ui.pickSongs';
-  /// musicxx.ui.pickDir
-  static const String uiPickDir = 'musicxx.ui.pickDir';
+  /// musicxx.ui.drive.pickSongs
+  static const String uiDrivePickSongs = 'musicxx.ui.drive.pickSongs';
+  /// musicxx.ui.drive.pickDir
+  static const String uiDrivePickDir = 'musicxx.ui.drive.pickDir';
   /// 浏览插件网盘
-  static const String uiBrowseDrive = 'musicxx.ui.browseDrive';
+  static const String uiDriveBrowse = 'musicxx.ui.drive.browse';
   /// 切换字体
   static const String uiSetFontFamily = 'musicxx.ui.setFontFamily';
   /// musicxx.ui.getFontFamily
@@ -217,7 +217,7 @@ abstract final class MusicxxCapabilityId {
   /// 设置主题模式
   static const String themeSetMode = 'musicxx.theme.setMode';
   /// 临时切换主题
-  static const String themeTempSwitch = 'musicxx.theme.tempSwitch';
+  static const String themeSetTempMode = 'musicxx.theme.setTempMode';
   /// 加载字体
   static const String uiLoadFont = 'musicxx.ui.loadFont';
   /// 读插件存储
@@ -239,7 +239,7 @@ abstract final class MusicxxCapabilityId {
   /// 选择渲染项
   static const String renderSelect = 'musicxx.render.select';
   /// 封面取色
-  static const String mediaPalette = 'musicxx.media.palette';
+  static const String mediaPaletteGet = 'musicxx.media.palette.get';
   /// musicxx.media.cover
   static const String mediaCover = 'musicxx.media.cover';
   /// musicxx.media.palette.set
@@ -317,20 +317,20 @@ abstract final class MusicxxCapabilityId {
     playerSetPitch,
     playerSetQuality,
     playerSetLoopMode,
-    playlistQueryLists,
-    playlistQuerySongs,
-    playlistPlay,
-    playlistAddSong,
-    playlistRemoveSong,
-    playlistCreate,
-    playlistUpdateSong,
-    playlistSongFavorite,
-    playlistSyncSongsSync,
-    songlistQuerySongs,
-    songlistPlaySong,
+    songlistList,
+    songlistListSongs,
+    songlistPlay,
     songlistAddSong,
     songlistRemoveSong,
+    songlistCreate,
     songlistUpdateSong,
+    songlistFavorite,
+    songlistSync,
+    playlistListSongs,
+    playlistPlaySong,
+    playlistAddSong,
+    playlistRemoveSong,
+    playlistUpdateSong,
     lyricCurrentGet,
     lyricCurrentUpdate,
     lyricCurrentUpdateContent,
@@ -340,12 +340,12 @@ abstract final class MusicxxCapabilityId {
     uiDialog,
     uiOverlayShow,
     uiOverlayClose,
-    uiOpenOverlaySheet,
+    uiOverlayShowSheet,
     uiOpenRoute,
     uiPlayingOpenMenu,
-    uiPickSongs,
-    uiPickDir,
-    uiBrowseDrive,
+    uiDrivePickSongs,
+    uiDrivePickDir,
+    uiDriveBrowse,
     uiSetFontFamily,
     uiGetFontFamily,
     uiSetAnimatedLevel,
@@ -354,7 +354,7 @@ abstract final class MusicxxCapabilityId {
     uiSetSongIconWave,
     themeSetCurrent,
     themeSetMode,
-    themeTempSwitch,
+    themeSetTempMode,
     uiLoadFont,
     storageGet,
     storageSet,
@@ -365,7 +365,7 @@ abstract final class MusicxxCapabilityId {
     renderList,
     renderCurrent,
     renderSelect,
-    mediaPalette,
+    mediaPaletteGet,
     mediaCover,
     mediaPaletteSet,
     mediaBindImage,
@@ -441,7 +441,7 @@ abstract final class MusicxxBroadcastId {
   /// 当前歌词
   static const String stateLyric = 'musicxx.state.lyric';
   /// 歌单列表快照
-  static const String statePlaylists = 'musicxx.state.playlists';
+  static const String stateSonglists = 'musicxx.state.songlists';
   /// 运行环境
   static const String stateEnv = 'musicxx.state.env';
   /// 渲染槽位状态
@@ -475,7 +475,7 @@ abstract final class MusicxxBroadcastId {
     stateSong,
     statePlaylist,
     stateLyric,
-    statePlaylists,
+    stateSonglists,
     stateEnv,
     stateRenderSlots,
     stateSpectrum,
@@ -1309,7 +1309,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '改播放模式（Order / RealRand / Only / SimulateRand / SimulateRandReflush）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.queryLists',
+      id: 'musicxx.songlist.list',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1329,7 +1329,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.querySongs',
+      id: 'musicxx.songlist.listSongs',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1349,7 +1349,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '读一张歌单（或当前播放列表）里的歌曲，可截断与要完整字段',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.play',
+      id: 'musicxx.songlist.play',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1367,166 +1367,6 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '播放歌单',
       depict: '打开一张歌单并从指定位置开始播',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.addSong',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '',
-      depict: '',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.removeSong',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '从歌单移除歌曲',
-      depict: '把歌从保存下来的歌单里删掉（sid 或 sids，可多个）',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.create',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '新建歌单',
-      depict: '新建一张本地或在线歌单，可以顺手把歌加进去',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.updateSong',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '',
-      depict: '',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.song.favorite',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '收藏当前歌曲',
-      depict: '收藏 / 取消收藏当前歌曲（「我喜欢」歌单），返回动作之后的状态',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.playlist.syncSongs.sync',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '同步歌单音源',
-      depict: '把歌单绑定的音源重读一遍，新增的歌加进歌单',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.songlist.querySongs',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '读播放列表歌曲',
-      depict: '读当前播放列表里的歌曲，可截断与要完整字段',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.songlist.playSong',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '播播放列表里的歌',
-      depict: '按 sid 播放当前播放列表里的某一首',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.songlist.addSong',
@@ -1565,11 +1405,171 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
+      title: '从歌单移除歌曲',
+      depict: '把歌从保存下来的歌单里删掉（sid 或 sids，可多个）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.songlist.create',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '新建歌单',
+      depict: '新建一张本地或在线歌单，可以顺手把歌加进去',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.songlist.updateSong',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '',
+      depict: '',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.songlist.favorite',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '收藏当前歌曲',
+      depict: '收藏 / 取消收藏当前歌曲（「我喜欢」歌单），返回动作之后的状态',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.songlist.sync',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '同步歌单音源',
+      depict: '把歌单绑定的音源重读一遍，新增的歌加进歌单',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.playlist.listSongs',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '读播放列表歌曲',
+      depict: '读当前播放列表里的歌曲，可截断与要完整字段',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.playlist.playSong',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '播播放列表里的歌',
+      depict: '按 sid 播放当前播放列表里的某一首',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.playlist.addSong',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '',
+      depict: '',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.playlist.removeSong',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
       title: '从播放列表移除歌曲',
       depict: '只改当前播放队列（sid 或 sids，可多个）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.songlist.updateSong',
+      id: 'musicxx.playlist.updateSong',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1769,7 +1769,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '关掉自己在显示的浮层（不给 id 时关当前那个）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.ui.openOverlaySheet',
+      id: 'musicxx.ui.overlay.showSheet',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1829,7 +1829,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '打开播放页的「更多」菜单（与底部控制栏的菜单按钮、右上角的「更多」快捷功能同一份内容）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.ui.pickSongs',
+      id: 'musicxx.ui.drive.pickSongs',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1849,7 +1849,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.ui.pickDir',
+      id: 'musicxx.ui.drive.pickDir',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -1869,7 +1869,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.ui.browseDrive',
+      id: 'musicxx.ui.drive.browse',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2049,7 +2049,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '改主题模式（跟随系统 / 跟随时间 / 跟随屏幕亮度 / 固定白昼 / 固定夜间）并立即生效',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.theme.tempSwitch',
+      id: 'musicxx.theme.setTempMode',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2269,7 +2269,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.media.palette',
+      id: 'musicxx.media.palette.get',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2926,7 +2926,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: 'string',
       options: <String>['mimicryLight', 'mimicryNight'],
       title: '当前主题',
-      depict: '当前显示的主题 id；只读，切主题调用能力 musicxx.theme.setCurrent / musicxx.theme.tempSwitch',
+      depict: '当前显示的主题 id；只读，切主题调用能力 musicxx.theme.setCurrent / musicxx.theme.setTempMode',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.theme.mode',
@@ -3001,7 +3001,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
-      id: 'musicxx.state.playlists',
+      id: 'musicxx.state.songlists',
       cache: 'latest',
       publish: 'owner',
       pushOnSubscribe: true,

@@ -2766,19 +2766,19 @@ int main(int argc, char **argv) {
     check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
           "加载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
 
-    // 阶段 (前链 / 后链): 该示例插件在 `musicxx.playlist.load` (包装点, 声明了
+    // 阶段 (前链 / 后链): 该示例插件在 `musicxx.lyric.load` (固定实现的裁决点, 声明了
     // before + after) 上分别登记了一个处理器。
     {
       int32_t beforeCount = -1;
       int32_t afterCount = -1;
       check(musicxx_extern_plugin_capability_handler_count_phase(
-                host, viewCP("musicxx.playlist.load"),
+                host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE, &beforeCount,
                 &log) == MUSICXX_EXTERN_PLUGIN_OK &&
                 beforeCount == 1,
             "包装点声明了 before 阶段且已有处理器");
       check(musicxx_extern_plugin_capability_handler_count_phase(
-                host, viewCP("musicxx.playlist.load"),
+                host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &afterCount,
                 &log) == MUSICXX_EXTERN_PLUGIN_OK &&
                 afterCount == 1,
@@ -2787,14 +2787,14 @@ int main(int argc, char **argv) {
       // 旧符号是全阶段的总数（包装点两个阶段都已登记）
       int32_t totalCount = 0;
       check(musicxx_extern_plugin_capability_handler_count(
-                host, viewCP("musicxx.playlist.load"), &totalCount, &log) ==
+                host, viewCP("musicxx.lyric.load"), &totalCount, &log) ==
                     MUSICXX_EXTERN_PLUGIN_OK &&
                 totalCount == 2,
             "旧符号报告全部阶段的处理器总数");
       // 没有 impl 阶段: 包装点的实现固定是应用自己
       int32_t implCount = -1;
       check(musicxx_extern_plugin_capability_handler_count_phase(
-                host, viewCP("musicxx.playlist.load"),
+                host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL, &implCount,
                 &log) == MUSICXX_EXTERN_PLUGIN_OK &&
                 implCount == 0,
@@ -2803,7 +2803,7 @@ int main(int argc, char **argv) {
       // 前链: 串行、正序, 累积的 patch 交回调用方
       MusicxxExternPluginString beforeOut{};
       const auto rcBefore = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.playlist.load"),
+          host, viewCP("musicxx.lyric.load"),
           MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
           viewP(R"({"pid":"p1"})"), MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0,
           &beforeOut, &log);
@@ -2815,7 +2815,7 @@ int main(int argc, char **argv) {
       // 前链 cancel: 回执带 action=cancel
       MusicxxExternPluginString cancelOut{};
       const auto rcCancel = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.playlist.load"),
+          host, viewCP("musicxx.lyric.load"),
           MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
           viewP(R"({"pid":"p1","cancel":true})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &cancelOut, &log);
@@ -2827,7 +2827,7 @@ int main(int argc, char **argv) {
       // 后链: 值被替换
       MusicxxExternPluginString afterOut{};
       const auto rcAfter = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.playlist.load"),
+          host, viewCP("musicxx.lyric.load"),
           MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
           viewP(R"({"pid":"p1","value":{"items":1}})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &afterOut, &log);
@@ -2841,7 +2841,7 @@ int main(int argc, char **argv) {
       // 后链 drop: 回执带 action=drop
       MusicxxExternPluginString dropOut{};
       const auto rcDrop = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.playlist.load"),
+          host, viewCP("musicxx.lyric.load"),
           MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
           viewP(R"({"pid":"p1","drop":true,"value":{"items":1}})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &dropOut, &log);
@@ -2854,7 +2854,7 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString handlersOut{};
       MusicxxExternPluginString handlersLog{};
       check(musicxx_extern_plugin_capability_handlers_phase(
-                host, viewCP("musicxx.playlist.load"),
+                host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &handlersOut,
                 &handlersLog) == MUSICXX_EXTERN_PLUGIN_OK,
             "分阶段处理器列表可读");

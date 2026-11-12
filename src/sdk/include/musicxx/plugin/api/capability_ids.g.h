@@ -107,20 +107,20 @@
 #define MUSICXX_CAPABILITY_PLAYER_SET_PITCH "musicxx.player.setPitch"
 #define MUSICXX_CAPABILITY_PLAYER_SET_QUALITY "musicxx.player.setQuality"
 #define MUSICXX_CAPABILITY_PLAYER_SET_LOOP_MODE "musicxx.player.setLoopMode"
-#define MUSICXX_CAPABILITY_PLAYLIST_QUERY_LISTS "musicxx.playlist.queryLists"
-#define MUSICXX_CAPABILITY_PLAYLIST_QUERY_SONGS "musicxx.playlist.querySongs"
-#define MUSICXX_CAPABILITY_PLAYLIST_PLAY "musicxx.playlist.play"
-#define MUSICXX_CAPABILITY_PLAYLIST_ADD_SONG "musicxx.playlist.addSong"
-#define MUSICXX_CAPABILITY_PLAYLIST_REMOVE_SONG "musicxx.playlist.removeSong"
-#define MUSICXX_CAPABILITY_PLAYLIST_CREATE "musicxx.playlist.create"
-#define MUSICXX_CAPABILITY_PLAYLIST_UPDATE_SONG "musicxx.playlist.updateSong"
-#define MUSICXX_CAPABILITY_PLAYLIST_SONG_FAVORITE "musicxx.playlist.song.favorite"
-#define MUSICXX_CAPABILITY_PLAYLIST_SYNC_SONGS_SYNC "musicxx.playlist.syncSongs.sync"
-#define MUSICXX_CAPABILITY_SONGLIST_QUERY_SONGS "musicxx.songlist.querySongs"
-#define MUSICXX_CAPABILITY_SONGLIST_PLAY_SONG "musicxx.songlist.playSong"
+#define MUSICXX_CAPABILITY_SONGLIST_LIST "musicxx.songlist.list"
+#define MUSICXX_CAPABILITY_SONGLIST_LIST_SONGS "musicxx.songlist.listSongs"
+#define MUSICXX_CAPABILITY_SONGLIST_PLAY "musicxx.songlist.play"
 #define MUSICXX_CAPABILITY_SONGLIST_ADD_SONG "musicxx.songlist.addSong"
 #define MUSICXX_CAPABILITY_SONGLIST_REMOVE_SONG "musicxx.songlist.removeSong"
+#define MUSICXX_CAPABILITY_SONGLIST_CREATE "musicxx.songlist.create"
 #define MUSICXX_CAPABILITY_SONGLIST_UPDATE_SONG "musicxx.songlist.updateSong"
+#define MUSICXX_CAPABILITY_SONGLIST_FAVORITE "musicxx.songlist.favorite"
+#define MUSICXX_CAPABILITY_SONGLIST_SYNC "musicxx.songlist.sync"
+#define MUSICXX_CAPABILITY_PLAYLIST_LIST_SONGS "musicxx.playlist.listSongs"
+#define MUSICXX_CAPABILITY_PLAYLIST_PLAY_SONG "musicxx.playlist.playSong"
+#define MUSICXX_CAPABILITY_PLAYLIST_ADD_SONG "musicxx.playlist.addSong"
+#define MUSICXX_CAPABILITY_PLAYLIST_REMOVE_SONG "musicxx.playlist.removeSong"
+#define MUSICXX_CAPABILITY_PLAYLIST_UPDATE_SONG "musicxx.playlist.updateSong"
 #define MUSICXX_CAPABILITY_LYRIC_CURRENT_GET "musicxx.lyric.current.get"
 #define MUSICXX_CAPABILITY_LYRIC_CURRENT_UPDATE "musicxx.lyric.current.update"
 #define MUSICXX_CAPABILITY_LYRIC_CURRENT_UPDATE_CONTENT "musicxx.lyric.current.updateContent"
@@ -130,12 +130,12 @@
 #define MUSICXX_CAPABILITY_UI_DIALOG "musicxx.ui.dialog"
 #define MUSICXX_CAPABILITY_UI_OVERLAY_SHOW "musicxx.ui.overlay.show"
 #define MUSICXX_CAPABILITY_UI_OVERLAY_CLOSE "musicxx.ui.overlay.close"
-#define MUSICXX_CAPABILITY_UI_OPEN_OVERLAY_SHEET "musicxx.ui.openOverlaySheet"
+#define MUSICXX_CAPABILITY_UI_OVERLAY_SHOW_SHEET "musicxx.ui.overlay.showSheet"
 #define MUSICXX_CAPABILITY_UI_OPEN_ROUTE "musicxx.ui.openRoute"
 #define MUSICXX_CAPABILITY_UI_PLAYING_OPEN_MENU "musicxx.ui.playing.openMenu"
-#define MUSICXX_CAPABILITY_UI_PICK_SONGS "musicxx.ui.pickSongs"
-#define MUSICXX_CAPABILITY_UI_PICK_DIR "musicxx.ui.pickDir"
-#define MUSICXX_CAPABILITY_UI_BROWSE_DRIVE "musicxx.ui.browseDrive"
+#define MUSICXX_CAPABILITY_UI_DRIVE_PICK_SONGS "musicxx.ui.drive.pickSongs"
+#define MUSICXX_CAPABILITY_UI_DRIVE_PICK_DIR "musicxx.ui.drive.pickDir"
+#define MUSICXX_CAPABILITY_UI_DRIVE_BROWSE "musicxx.ui.drive.browse"
 #define MUSICXX_CAPABILITY_UI_SET_FONT_FAMILY "musicxx.ui.setFontFamily"
 #define MUSICXX_CAPABILITY_UI_GET_FONT_FAMILY "musicxx.ui.getFontFamily"
 #define MUSICXX_CAPABILITY_UI_SET_ANIMATED_LEVEL "musicxx.ui.setAnimatedLevel"
@@ -144,7 +144,7 @@
 #define MUSICXX_CAPABILITY_UI_SET_SONG_ICON_WAVE "musicxx.ui.setSongIconWave"
 #define MUSICXX_CAPABILITY_THEME_SET_CURRENT "musicxx.theme.setCurrent"
 #define MUSICXX_CAPABILITY_THEME_SET_MODE "musicxx.theme.setMode"
-#define MUSICXX_CAPABILITY_THEME_TEMP_SWITCH "musicxx.theme.tempSwitch"
+#define MUSICXX_CAPABILITY_THEME_SET_TEMP_MODE "musicxx.theme.setTempMode"
 #define MUSICXX_CAPABILITY_UI_LOAD_FONT "musicxx.ui.loadFont"
 #define MUSICXX_CAPABILITY_STORAGE_GET "musicxx.storage.get"
 #define MUSICXX_CAPABILITY_STORAGE_SET "musicxx.storage.set"
@@ -155,7 +155,7 @@
 #define MUSICXX_CAPABILITY_RENDER_LIST "musicxx.render.list"
 #define MUSICXX_CAPABILITY_RENDER_CURRENT "musicxx.render.current"
 #define MUSICXX_CAPABILITY_RENDER_SELECT "musicxx.render.select"
-#define MUSICXX_CAPABILITY_MEDIA_PALETTE "musicxx.media.palette"
+#define MUSICXX_CAPABILITY_MEDIA_PALETTE_GET "musicxx.media.palette.get"
 #define MUSICXX_CAPABILITY_MEDIA_COVER "musicxx.media.cover"
 #define MUSICXX_CAPABILITY_MEDIA_PALETTE_SET "musicxx.media.palette.set"
 #define MUSICXX_CAPABILITY_MEDIA_BIND_IMAGE "musicxx.media.bindImage"
@@ -202,7 +202,7 @@
 #define MUSICXX_BROADCAST_STATE_SONG "musicxx.state.song"
 #define MUSICXX_BROADCAST_STATE_PLAYLIST "musicxx.state.playlist"
 #define MUSICXX_BROADCAST_STATE_LYRIC "musicxx.state.lyric"
-#define MUSICXX_BROADCAST_STATE_PLAYLISTS "musicxx.state.playlists"
+#define MUSICXX_BROADCAST_STATE_SONGLISTS "musicxx.state.songlists"
 #define MUSICXX_BROADCAST_STATE_ENV "musicxx.state.env"
 #define MUSICXX_BROADCAST_STATE_RENDER_SLOTS "musicxx.state.renderSlots"
 #define MUSICXX_BROADCAST_STATE_SPECTRUM "musicxx.state.spectrum"
@@ -264,20 +264,20 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.player.setPitch", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.setQuality", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.setLoopMode", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.queryLists", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.querySongs", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.play", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.addSong", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.removeSong", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.create", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.updateSong", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.song.favorite", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.playlist.syncSongs.sync", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.songlist.querySongs", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.songlist.playSong", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.songlist.list", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.songlist.listSongs", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.songlist.play", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.songlist.addSong", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.songlist.removeSong", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.songlist.create", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.songlist.updateSong", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.songlist.favorite", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.songlist.sync", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.playlist.listSongs", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.playlist.playSong", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.playlist.addSong", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.playlist.removeSong", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.playlist.updateSong", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.lyric.current.get", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.lyric.current.update", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.lyric.current.updateContent", 0, 0, 1u, 1, 5000, 0, 5u},
@@ -287,12 +287,12 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.ui.dialog", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.overlay.show", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.ui.overlay.close", 0, 0, 1u, 1, 5000, 0, 4u},
-    {"musicxx.ui.openOverlaySheet", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.ui.overlay.showSheet", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.ui.openRoute", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.playing.openMenu", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.ui.pickSongs", 0, 0, 1u, 1, 5000, 0, 4u},
-    {"musicxx.ui.pickDir", 0, 0, 1u, 1, 5000, 0, 4u},
-    {"musicxx.ui.browseDrive", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.ui.drive.pickSongs", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.ui.drive.pickDir", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.ui.drive.browse", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.ui.setFontFamily", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.getFontFamily", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.setAnimatedLevel", 0, 0, 1u, 1, 5000, 0, 5u},
@@ -301,7 +301,7 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.ui.setSongIconWave", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.theme.setCurrent", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.theme.setMode", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.theme.tempSwitch", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.theme.setTempMode", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.loadFont", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.storage.get", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.storage.set", 0, 0, 1u, 1, 5000, 0, 4u},
@@ -312,7 +312,7 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.render.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.render.current", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.render.select", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.media.palette", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.media.palette.get", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.cover", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.palette.set", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.bindImage", 0, 0, 1u, 1, 5000, 0, 4u},
@@ -364,7 +364,7 @@ static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
     {"musicxx.state.song", 1, 0, 1, 1, 0},
     {"musicxx.state.playlist", 1, 0, 1, 1, 0},
     {"musicxx.state.lyric", 1, 0, 1, 1, 0},
-    {"musicxx.state.playlists", 1, 0, 1, 1, 0},
+    {"musicxx.state.songlists", 1, 0, 1, 1, 0},
     {"musicxx.state.env", 1, 0, 1, 1, 0},
     {"musicxx.state.renderSlots", 1, 0, 1, 1, 0},
     {"musicxx.state.spectrum", 1, 0, 1, 1, 0},

@@ -48,7 +48,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
       ++songChangedHits;
     });
 
-    /// 阶段示例: 同一个能力 (`musicxx.playlist.load`, 包装点) 上分别登记前链与后链
+    /// 阶段示例: 同一个能力 (`musicxx.lyric.load`, 包装点) 上分别登记前链与后链
     ///
     /// 能力 id 表示一次调用, 参与方式由注册时的阶段表达; 同一个 `ownerTag` 在
     /// 不同阶段的登记互不覆盖。
@@ -56,7 +56,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
     ///   这里: `cancel` 为真 → 拦下 (这次不执行实现); 否则把 `limit` 改成 50。
     /// - 后链 (`after`): 串行、**逆序**, 只能改输出或丢弃。
     ///   这里: `drop` 为真 → 丢弃 (这次没有结果); 否则把结果换成固定的一份。
-    implementBefore(MUSICXX_CAPABILITY_PLAYLIST_LOAD, 0,
+    implementBefore(MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
                [](std::string_view input, std::string &out) -> int32_t {
                  const std::string text{input};
                  if (text.find("\"cancel\":true") != std::string::npos) {
@@ -66,7 +66,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
                  out = R"({"patch":{"limit":50}})";
                  return 0;
                });
-    implementAfter(MUSICXX_CAPABILITY_PLAYLIST_LOAD, 0,
+    implementAfter(MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
               [](std::string_view input, std::string &out) -> int32_t {
                 const std::string text{input};
                 if (text.find("\"drop\":true") != std::string::npos) {

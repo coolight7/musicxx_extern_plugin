@@ -514,33 +514,25 @@ var featurePointImpls = new Map();
     setLoopMode: function (mode) { return appCall("musicxx.player.setLoopMode", { mode: mode }); }
   };
 
-  // 歌单（playlist = 一张保存下来的列表）
+  // 播放列表（playlist = 当前正在播的那一串歌）
   musicxx.playlist = {
-    queryLists: function () { return appCall("musicxx.playlist.queryLists"); },
-    querySongs: function (args) { return appCall("musicxx.playlist.querySongs", args); },
-    play: function (args) { return appCall("musicxx.playlist.play", args); },
+    listSongs: function (args) { return appCall("musicxx.playlist.listSongs", args); },
+    playSong: function (args) { return appCall("musicxx.playlist.playSong", args); },
     addSong: function (args) { return appCall("musicxx.playlist.addSong", args); },
     removeSong: function (args) { return appCall("musicxx.playlist.removeSong", args); },
-    create: function (args) { return appCall("musicxx.playlist.create", args); },
-    updateSong: function (args) { return appCall("musicxx.playlist.updateSong", args); },
-    syncSongs: function (args) { return appCall("musicxx.playlist.syncSongs.sync", args); }
+    updateSong: function (args) { return appCall("musicxx.playlist.updateSong", args); }
   };
 
-  // 播放列表（songlist = 当前正在播的那一串歌）
+  // 歌单（songlist = 保存下来的列表，读歌要带 pid）
   musicxx.songlist = {
-    querySongs: function (args) { return appCall("musicxx.songlist.querySongs", args); },
-    playSong: function (args) { return appCall("musicxx.songlist.playSong", args); },
+    list: function () { return appCall("musicxx.songlist.list"); },
+    listSongs: function (args) { return appCall("musicxx.songlist.listSongs", args); },
+    play: function (args) { return appCall("musicxx.songlist.play", args); },
     addSong: function (args) { return appCall("musicxx.songlist.addSong", args); },
     removeSong: function (args) { return appCall("musicxx.songlist.removeSong", args); },
-    updateSong: function (args) { return appCall("musicxx.songlist.updateSong", args); }
-  };
-
-  // 过时的分类 `musicxx.library`：名字还能用，内部转成新名字（老插件不用改）
-  musicxx.library = {
-    querySongs: function (args) { return musicxx.songlist.querySongs(args); },
-    querySonglists: function () { return musicxx.playlist.queryLists(); },
-    playSong: function (args) { return musicxx.songlist.playSong(args); },
-    playSonglist: function (args) { return musicxx.playlist.play(args); }
+    create: function (args) { return appCall("musicxx.songlist.create", args); },
+    updateSong: function (args) { return appCall("musicxx.songlist.updateSong", args); },
+    sync: function (args) { return appCall("musicxx.songlist.sync", args); }
   };
 
   /// 通用通道能力 `musicxx.feature.point.call` 的分发器

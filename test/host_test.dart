@@ -706,7 +706,7 @@ void main() {
       runtime.plugins.load('playing_bg_image');
       expect(
         runtime.capabilities.refreshNativeHandlerCount(
-          MusicxxCapabilityId.mediaPaletteProvide,
+          MusicxxCapabilityId.mediaPaletteAnalyse,
         ),
         1,
         reason: '取色钩子的处理器要在插件框架侧登记成功（插件框架库没重建时这里会是 0）',
@@ -774,7 +774,7 @@ void main() {
       final Stopwatch paletteWatch = Stopwatch()..start();
       final Map<String, Object?>? paletteVerdict = await runtime.capabilities
           .dispatchAsync(
-            MusicxxCapabilityId.mediaPaletteProvide,
+            MusicxxCapabilityId.mediaPaletteAnalyse,
             <String, Object?>{
               'srcKey': 'test-key',
               'name': '测试歌曲',

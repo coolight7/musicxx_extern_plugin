@@ -523,8 +523,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.playlist.queryLists",
-      "dart": "playlistQueryLists",
+      "id": "musicxx.songlist.list",
+      "dart": "songlistList",
       "title": "",
       "depict": "",
       "impls": "one",
@@ -539,8 +539,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.playlist.querySongs",
-      "dart": "playlistQuerySongs",
+      "id": "musicxx.songlist.listSongs",
+      "dart": "songlistListSongs",
       "title": "读歌单歌曲",
       "depict": "读一张歌单（或当前播放列表）里的歌曲，可截断与要完整字段",
       "impls": "one",
@@ -555,138 +555,10 @@
       "doc": ""
     },
     {
-      "id": "musicxx.playlist.play",
-      "dart": "playlistPlay",
+      "id": "musicxx.songlist.play",
+      "dart": "songlistPlay",
       "title": "播放歌单",
       "depict": "打开一张歌单并从指定位置开始播",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.playlist.addSong",
-      "dart": "playlistAddSong",
-      "title": "",
-      "depict": "",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.playlist.removeSong",
-      "dart": "playlistRemoveSong",
-      "title": "从歌单移除歌曲",
-      "depict": "把歌从保存下来的歌单里删掉（sid 或 sids，可多个）",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.playlist.create",
-      "dart": "playlistCreate",
-      "title": "新建歌单",
-      "depict": "新建一张本地或在线歌单，可以顺手把歌加进去",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.playlist.updateSong",
-      "dart": "playlistUpdateSong",
-      "title": "",
-      "depict": "",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.playlist.song.favorite",
-      "dart": "playlistSongFavorite",
-      "title": "收藏当前歌曲",
-      "depict": "收藏 / 取消收藏当前歌曲（「我喜欢」歌单），返回动作之后的状态",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": "参数 `{favorite?}`：不写 = 按当前状态取反；写 `true` / `false` = 设成那个状态（已经是目标状态时不再发请求）。\n\n返回 `{ok, favorite, srcKey}`：`favorite` = 动作之后当前歌曲在「我喜欢」里的状态，`srcKey` = 当前歌曲的音源身份（完整 md5 串，没有音源身份时为空串）。当前没有歌曲 / 歌曲没有音源身份 → `{ok:false, error:\"当前没有可收藏的歌曲\"}`。\n\n行为与播放页的收藏按钮一致：未登录时不会收藏（应用自己提示登录），当前播放列表就是「我喜欢」时同步增删播放队列。"
-    },
-    {
-      "id": "musicxx.playlist.syncSongs.sync",
-      "dart": "playlistSyncSongsSync",
-      "title": "同步歌单音源",
-      "depict": "把歌单绑定的音源重读一遍，新增的歌加进歌单",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.songlist.querySongs",
-      "dart": "songlistQuerySongs",
-      "title": "读播放列表歌曲",
-      "depict": "读当前播放列表里的歌曲，可截断与要完整字段",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.songlist.playSong",
-      "dart": "songlistPlaySong",
-      "title": "播播放列表里的歌",
-      "depict": "按 sid 播放当前播放列表里的某一首",
       "impls": "one",
       "phases": [
         "impl"
@@ -717,8 +589,24 @@
     {
       "id": "musicxx.songlist.removeSong",
       "dart": "songlistRemoveSong",
-      "title": "从播放列表移除歌曲",
-      "depict": "只改当前播放队列（sid 或 sids，可多个）",
+      "title": "从歌单移除歌曲",
+      "depict": "把歌从保存下来的歌单里删掉（sid 或 sids，可多个）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.songlist.create",
+      "dart": "songlistCreate",
+      "title": "新建歌单",
+      "depict": "新建一张本地或在线歌单，可以顺手把歌加进去",
       "impls": "one",
       "phases": [
         "impl"
@@ -733,6 +621,118 @@
     {
       "id": "musicxx.songlist.updateSong",
       "dart": "songlistUpdateSong",
+      "title": "",
+      "depict": "",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.songlist.favorite",
+      "dart": "songlistFavorite",
+      "title": "收藏当前歌曲",
+      "depict": "收藏 / 取消收藏当前歌曲（「我喜欢」歌单），返回动作之后的状态",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": "参数 `{favorite?}`：不写 = 按当前状态取反；写 `true` / `false` = 设成那个状态（已经是目标状态时不再发请求）。\n\n返回 `{ok, favorite, srcKey}`：`favorite` = 动作之后当前歌曲在「我喜欢」里的状态，`srcKey` = 当前歌曲的音源身份（完整 md5 串，没有音源身份时为空串）。当前没有歌曲 / 歌曲没有音源身份 → `{ok:false, error:\"当前没有可收藏的歌曲\"}`。\n\n行为与播放页的收藏按钮一致：未登录时不会收藏（应用自己提示登录），当前播放列表就是「我喜欢」时同步增删播放队列。"
+    },
+    {
+      "id": "musicxx.songlist.sync",
+      "dart": "songlistSync",
+      "title": "同步歌单音源",
+      "depict": "把歌单绑定的音源重读一遍，新增的歌加进歌单",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.playlist.listSongs",
+      "dart": "playlistListSongs",
+      "title": "读播放列表歌曲",
+      "depict": "读当前播放列表里的歌曲，可截断与要完整字段",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.playlist.playSong",
+      "dart": "playlistPlaySong",
+      "title": "播播放列表里的歌",
+      "depict": "按 sid 播放当前播放列表里的某一首",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.playlist.addSong",
+      "dart": "playlistAddSong",
+      "title": "",
+      "depict": "",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.playlist.removeSong",
+      "dart": "playlistRemoveSong",
+      "title": "从播放列表移除歌曲",
+      "depict": "只改当前播放队列（sid 或 sids，可多个）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": ""
+    },
+    {
+      "id": "musicxx.playlist.updateSong",
+      "dart": "playlistUpdateSong",
       "title": "",
       "depict": "",
       "impls": "one",
@@ -889,8 +889,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.ui.openOverlaySheet",
-      "dart": "uiOpenOverlaySheet",
+      "id": "musicxx.ui.overlay.showSheet",
+      "dart": "uiOverlayShowSheet",
       "title": "",
       "depict": "",
       "impls": "one",
@@ -936,8 +936,8 @@
       "doc": "无参数，打开菜单后**立即**返回 `{ok:true}`（不等用户关掉菜单）。\n\n菜单内容与内置的完全一样：歌词来源 / 选择歌词 / 刷新歌词 / 局域网投送 / 加入歌单 / 移除当前歌曲 / 快捷功能 / 视频开关 / 播放模式 / 时长显示 / 沉浸模式。插件替换了整块控制按钮栏（`musicxx.ui.playing.controlBar`）又想保留这个入口时用它。"
     },
     {
-      "id": "musicxx.ui.pickSongs",
-      "dart": "uiPickSongs",
+      "id": "musicxx.ui.drive.pickSongs",
+      "dart": "uiDrivePickSongs",
       "title": "",
       "depict": "",
       "impls": "one",
@@ -951,8 +951,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.ui.pickDir",
-      "dart": "uiPickDir",
+      "id": "musicxx.ui.drive.pickDir",
+      "dart": "uiDrivePickDir",
       "title": "",
       "depict": "",
       "impls": "one",
@@ -966,8 +966,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.ui.browseDrive",
-      "dart": "uiBrowseDrive",
+      "id": "musicxx.ui.drive.browse",
+      "dart": "uiDriveBrowse",
       "title": "浏览插件网盘",
       "depict": "打开某个插件音源的浏览器（可指定分类与起始路径）",
       "impls": "one",
@@ -1090,7 +1090,7 @@
       "cache": "none",
       "cli": {},
       "plugin": {},
-      "doc": "参数 `{id}`：主题 id（`mimicryLight` / `mimicryNight`，也认明暗写法 `light` / `night`，即 `musicxx.theme.available` 里的 `kind`）。走 `theme_s.setIndex`：只切显示，**不改主题模式**、不写用户的模式设置、不暂停跟随（下一次跟随判断照样会改回来 —— 要“切了就停在那”用 `musicxx.theme.tempSwitch`）。改完发布广播 `musicxx.theme.current`。\n\n回答 `{ok: true, id}`；id 非法时返回失败并说明原因。"
+      "doc": "参数 `{id}`：主题 id（`mimicryLight` / `mimicryNight`，也认明暗写法 `light` / `night`，即 `musicxx.theme.available` 里的 `kind`）。走 `theme_s.setIndex`：只切显示，**不改主题模式**、不写用户的模式设置、不暂停跟随（下一次跟随判断照样会改回来 —— 要“切了就停在那”用 `musicxx.theme.setTempMode`）。改完发布广播 `musicxx.theme.current`。\n\n回答 `{ok: true, id}`；id 非法时返回失败并说明原因。"
     },
     {
       "id": "musicxx.theme.setMode",
@@ -1109,8 +1109,8 @@
       "doc": "参数 `{mode}`：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（也接受原来的整数编码 1~5）。写进用户的持久设置并立即按新模式切（`theme_s.setUseModel`），改完发布广播 `musicxx.theme.mode`（以及 `musicxx.theme.current`、`musicxx.state.app` 里的 `isNight`）。\n\n回答 `{ok: true, mode}`；取值非法时返回失败并说明原因。"
     },
     {
-      "id": "musicxx.theme.tempSwitch",
-      "dart": "themeTempSwitch",
+      "id": "musicxx.theme.setTempMode",
+      "dart": "themeSetTempMode",
       "title": "临时切换主题",
       "depict": "临时切一次主题（toggle = 明暗互切）；会暂停主题跟随",
       "impls": "one",
@@ -1281,8 +1281,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.media.palette",
-      "dart": "mediaPalette",
+      "id": "musicxx.media.palette.get",
+      "dart": "mediaPaletteGet",
       "title": "封面取色",
       "depict": "取当前封面的主色调（force 时跳缓存重算）",
       "impls": "one",
@@ -1855,7 +1855,7 @@
       "id": "musicxx.theme.current",
       "dart": "themeCurrent",
       "title": "当前主题",
-      "depict": "当前显示的主题 id；只读，切主题调用能力 musicxx.theme.setCurrent / musicxx.theme.tempSwitch",
+      "depict": "当前显示的主题 id；只读，切主题调用能力 musicxx.theme.setCurrent / musicxx.theme.setTempMode",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
@@ -1866,7 +1866,7 @@
         "mimicryLight",
         "mimicryNight"
       ],
-      "doc": "值：主题 id（`mimicryLight` / `mimicryNight`）。显示的主题变了之后发布，订阅即拿到当前值。\n\n**只读**：切主题调用能力 `musicxx.theme.setCurrent`（参数 `id`，只切显示、不改模式、不暂停跟随）或 `musicxx.theme.tempSwitch`（一次操作，会暂停主题跟随）。"
+      "doc": "值：主题 id（`mimicryLight` / `mimicryNight`）。显示的主题变了之后发布，订阅即拿到当前值。\n\n**只读**：切主题调用能力 `musicxx.theme.setCurrent`（参数 `id`，只切显示、不改模式、不暂停跟随）或 `musicxx.theme.setTempMode`（一次操作，会暂停主题跟随）。"
     },
     {
       "id": "musicxx.theme.mode",
@@ -1949,8 +1949,8 @@
       "doc": ""
     },
     {
-      "id": "musicxx.state.playlists",
-      "dart": "statePlaylists",
+      "id": "musicxx.state.songlists",
+      "dart": "stateSonglists",
       "title": "歌单列表快照",
       "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",

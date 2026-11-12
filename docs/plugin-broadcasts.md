@@ -51,7 +51,7 @@
 | `musicxx.state.song` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.playlist` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.lyric` | latest | owner | 是 | 允许 | app |
-| `musicxx.state.playlists` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.songlists` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.env` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.renderSlots` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.spectrum` | latest | owner | 是 | 允许 | app |
@@ -202,7 +202,7 @@
 
 值：主题 id（`mimicryLight` / `mimicryNight`）。显示的主题变了之后发布，订阅即拿到当前值。
 
-**只读**：切主题调用能力 `musicxx.theme.setCurrent`（参数 `id`，只切显示、不改模式、不暂停跟随）或 `musicxx.theme.tempSwitch`（一次操作，会暂停主题跟随）。
+**只读**：切主题调用能力 `musicxx.theme.setCurrent`（参数 `id`，只切显示、不改模式、不暂停跟随）或 `musicxx.theme.setTempMode`（一次操作，会暂停主题跟随）。
 
 ### `musicxx.theme.mode` 主题切换模式
 

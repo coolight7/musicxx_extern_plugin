@@ -133,7 +133,7 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// 「添加歌曲」弹窗里的来源项 (歌曲列表页 [+] → 添加歌曲): data = {title, subtitle?, icon?, action?}
 ///
 /// 点它时应用会把当前歌单的上下文 (pid / name / songNum) 合进界面动作的参数, 与歌单菜单项一致。
-/// 常见写法是把动作指向能力 `musicxx.ui.openOverlaySheet`, 由应用打开一层浮层并等用户关掉
+/// 常见写法是把动作指向能力 `musicxx.ui.overlay.showSheet`, 由应用打开一层浮层并等用户关掉
 /// (浮层内容是插件视图, 参数见 docs/plugin-api.md §3.2.4)。
 #define MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY "musicxx.ui.addsong.entry"
 /// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
