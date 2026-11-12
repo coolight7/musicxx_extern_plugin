@@ -68,7 +68,8 @@ abstract final class MusicxxPluginUIType {
   /// 设置入口是「设置 → 主题 → 播放页面歌曲图」，内置显示按形状分成三条候选
   /// `musicxx:circle` / `musicxx:square` / `musicxx:adaptive` 与插件项在同一份列表里。
   /// `musicxx:previous` 是"交还控制权"（恢复上一个形状，没有记录时不动设置项，重复调用安全）；
-  /// `musicxx:default` 是"重置成默认形状"（写之前会记下原来的值）。两个动作都不进列表。
+  /// `musicxx:default` 是"重置成默认形状"（写之前会记下原来的值）。两个动作都不进列表，
+  /// 背景 / 歌曲图 / 音频动效三个槽位都支持它们（内置项 id 统一是 `musicxx:<名字>`）。
   static const String playingIcon = 'musicxx.ui.playing.icon';
 
   /// 播放页音频可视化样式（渲染槽位 `player.visualizer`）：与内置『音乐动效』的四种样式在同一个

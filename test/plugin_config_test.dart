@@ -300,7 +300,7 @@ void main() {
     /// 推一条播放页背景槽位的状态（主程序侧就是 `musicxx.state.renderSlots`）
     ///
     /// 规则：`itemId` = 现在由哪个插件项在画（空 = 没有插件项在画），
-    /// `selectedId` = 用户选中的是谁（可能是 `builtin:*`）。
+    /// `selectedId` = 用户选中的是谁（可能是 `musicxx:*`）。
     void pushSlot({
       required String itemId,
       required String selectedId,
@@ -341,7 +341,7 @@ void main() {
     expect(await backgroundText(), '无状态');
 
     // 用户选中的是内置样式（条目仍在，itemId 为空）
-    pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
+    pushSlot(itemId: '', selectedId: 'musicxx:Auto', visible: false);
     expect(await backgroundText(), '内置背景');
     expect(await renderText(), '未生效');
 
@@ -377,7 +377,7 @@ void main() {
     expect(await renderText(), '动画中, 1280x720');
 
     // 切回内置：条目还在（itemId 为空），状态文字要更新，不能一直停在"已请求"
-    pushSlot(itemId: '', selectedId: 'builtin:Auto', visible: false);
+    pushSlot(itemId: '', selectedId: 'musicxx:Auto', visible: false);
     await _pumpUntil(
       () async => await backgroundText() == '内置背景',
       runtime: runtime,

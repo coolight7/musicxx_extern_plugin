@@ -829,13 +829,15 @@ musicxx.ui.registerEntry({
 ```
 
 ```js
-// 有哪些可选样式（含主程序内置项：id 形如 builtin:Auto）
+// 有哪些可选样式（含主程序内置项：id 形如 musicxx:Auto）
 const r = await musicxx.render.list({ slot: "player.background" });
 // r = { ok:true, slots:[{ slot, title, selectedId, items:[
 //        { id, title, depict?, source:"builtin"|"plugin", plugin?, available, reason?, selected } ] }] }
 
 await musicxx.render.select("plugin.my_plugin.bg");                  // 省略 slot 用默认槽位
-await musicxx.render.select("builtin:Auto", { slot: "player.background" });   // 也可以切回内置
+await musicxx.render.select("musicxx:Auto", { slot: "player.background" });   // 也可以切回内置
+// 交还控制权用 musicxx:previous（恢复音乐动效 / 歌曲图等被 musicxx:default 重置掉的值，没有记录时不动）；
+// musicxx:default = 写回该设置项的默认值（背景 musicxx:Auto、动效 musicxx:none、歌曲图 musicxx:circle）
 // 成功 → { ok:true, slot, id }；不可用 / 未知 → { ok:false, error }
 
 const cur = await musicxx.render.current();     // { ok, slot, id, title, source:"builtin"|"plugin", plugin, night }
@@ -988,8 +990,7 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态广播见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
-  （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（内置项 id：背景 / 动效是 `builtin:*`，
-  歌曲图是 `musicxx:*`），
+  （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（内置项 id：三个槽位都是 `musicxx:*`），
   `visible:false` = 主程序当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
 
 ---

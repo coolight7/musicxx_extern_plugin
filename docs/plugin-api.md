@@ -1205,10 +1205,11 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 ```js
 const all = await musicxx.render.list();                        // 默认槽位
 await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插件的样式
-await musicxx.render.select("builtin:Auto", { slot: "player.background" });  // 切回内置
+await musicxx.render.select("musicxx:Auto", { slot: "player.background" });  // 切回内置
 
-// 播放页歌曲图槽位：内置项按形状分成三条（musicxx:circle / square / adaptive），
-// 交还控制权用 musicxx:previous（恢复上一个形状，没有记录时不动）；musicxx:default 是重置成默认形状
+// 三个槽位的 id 写法同一套：内置项 `musicxx:<名字>`（背景 / 动效用枚举名，歌曲图用短名），
+// 交还控制权用 `musicxx:previous`（恢复 `musicxx:default` 重置掉的值，没有记录时不动），
+// `musicxx:default` = 写回该设置项的默认值（背景 `musicxx:Auto`、动效 `musicxx:none`、歌曲图 `musicxx:circle`）
 await musicxx.render.select("musicxx:square", { slot: "player.icon" });
 await musicxx.render.select("musicxx:previous", { slot: "player.icon" });
 ```
