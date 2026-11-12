@@ -624,9 +624,25 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 
 - **订阅**：顶层声明或运行期订阅都可以；可订阅官方 `musicxx.*` 主题，以及其它插件的
   `plugin.<id>.*` 主题。同一主题的 **host 订阅只会建立一次**：`unsubscribe` 之后该主题的回调不再触发，
-  但再次 `subscribe` 会复用原来那条订阅（不会重复建立）。
+  但再次 `subscribe` 会复用原来那条订阅（不会重复建立）。流结束是例外：宿主侧订阅随结束被摘掉，
+  这次订阅连带撤销；重新 `declare` 同一个 id 后再 `subscribe` 会建一条新的。
+  运行期 `subscribe` 是“投递不等待”（宿主订阅稍后建立），所以**同一段脚本里 `subscribe` 完立刻
+  `publish` 收不到值**；要这种顺序（自检、初始值）把 `subscribe` 写在脚本顶层，它在登记回放时就建好。
 - **发布**：只能发布官方主题或**自己命名空间**（`plugin.<自己的插件 id>.*`）的主题；主题非法时
   `publish` 直接抛异常。
+- **结束自己的一条流**：第 4 个参数给结束回调，属主把流收尾时回调一次；之后这条频道不能再发布、
+  `read` 读不到值；再次 `declare` 同一个 id = 开一条新流。
+
+  ```js
+  musicxx.broadcast.subscribe("task", function (progress) {
+      /* 值 */
+  }, null, function (reason) {
+      /* reason 是属主给的 JSON，默认 {} */
+  });
+
+  musicxx.broadcast.end("task", { reason: "done" });   // 只有属主能结束；失败抛错
+  ```
+
 - 插件之间做协作时，用「对方的 `plugin.<对方id>.*` 主题」或能力调用（§10）都行：
   广播是单向通知，能力调用有返回值。
 

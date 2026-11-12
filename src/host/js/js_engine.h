@@ -136,6 +136,18 @@ public:
   /// 同步列频道 (返回 JSON 数组文本)
   std::string bridgeBroadcastList(const std::string &prefix);
 
+  /// 结束本插件的一条流 (任意线程; 只有频道属主能结束)
+  ///
+  /// 返回插件框架的结果码: `0` = 已结束（重复结束也是 0）；`-2` = 插件登记还没回放完
+  /// （顶层的声明还没交给框架）；`-4` = 频道不存在 / 不是属主；`-6` = 不是自己
+  /// 命名空间下的频道。
+  ///
+  /// 在调用方线程直接调注册表 (与发布同一套做法): 投递到框架线程再等,
+  /// 会和"框架线程等 JS 处理器返回"互锁。
+  int32_t bridgeEndBroadcast(const std::string &pluginId,
+                             const std::string &topic,
+                             const std::string &reasonJson);
+
   /// 裁决型能力的异步结算 (只在 JS 线程调用)
   ///
   /// 裁决处理器返回 Promise 时, 框架线程仍在 [implementationRunSync] 里一直等到它结算;
@@ -237,6 +249,11 @@ public:
     std::string topic;
     /// 订阅频率选项 JSON (`{"intervalMs":200,"mode":"delay"}`; 空串 = 不限频)
     std::string options;
+    /// 属主已经结束这条流 (宿主随之摘掉了这条订阅): 记账留着也不当真
+    std::atomic<bool> ended{false};
+    /// 自己的弱引用: 结束之后记账可能在已经投递的任务跑之前被摘掉,
+    /// 投递时先 lock 一下, 拿不到就不跑了 (不再碰到已释放的持有者)
+    std::weak_ptr<SubscriptionHolder> weakSelf;
   };
 
   /// 脚本定时器 (`musicxx.timer.*`)
@@ -340,6 +357,10 @@ public:
   /// 事件订阅回调 (框架线程调用; 只投递到 JS 线程, 不等待)
   static void PLUGINXX_CALL eventTrampoline(const PluginxxStringView *eventJson,
                                             void *userData);
+
+  /// 流结束回调 (框架线程调用; 与 [eventTrampoline] 同一个 `ud`)
+  static void PLUGINXX_CALL endTrampoline(const PluginxxStringView *reasonJson,
+                                          void *userData);
 
   /// 变量等待的完成回调 (框架线程调用; 只投递到 JS 线程, 不等待)
 

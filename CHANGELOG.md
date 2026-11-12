@@ -8,6 +8,21 @@
 
 ## 历史
 
+### 新增（2026.1109.1 内，未发布）：广播表 v2 → v3，属主可以结束一条流
+
+- **`musicxx.broadcasts` 表尾追加两个成员**（插件框架 `cxx_pluginxx` 0.3.0）：
+  `end_broadcast`（属主结束一条流）与 `subscribe_broadcast_ex`（订阅时带结束回调）。
+  表是追加成员，老插件不受影响；用新入口前要 `ifaceHas` + 判空（SDK 已经代做）。
+- **流的结束语义**：结束后发布返回 `PLUGINXX_RESULT_ERR_ENDED`（`-5`）、`read` 不给值、
+  全部订阅先用 reason JSON 回调一次再摘掉；再次 `declare` 同一个 id = 开一条新流。
+- **SDK 新增**（`plugin_kit.h`）：`subscribeTopicWithEnd(id, fn, onEnd, options)` 与
+  `endTopic(id, reason)`；`subscribeTopic` 签名不变，走的仍然是 v2 的 `subscribe_broadcast`。
+- **JS 侧同样可用**：`musicxx.broadcast.subscribe(id, fn, options, onEnd)` 多一个结束回调，
+  新增 `musicxx.broadcast.end(id, reason)`（失败抛错，错误码是插件框架的 `-2` / `-4` / `-6`）。
+  它只在运行期有意义：脚本顶层调用时声明还没交给框架，会抛“插件登记还没完成”。
+- `-5` 与 `MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT` 数值相同，但一个是广播表的结果码、一个是
+  插件框架自己的错误码，不要混着判。
+
 ### 新增（2026.1109.1 内，未发布）：播放页控制按钮栏可以交给插件、两个新能力
 
 - **六个新 UI 类型**（**替换**关系，不是插入）：`musicxx.ui.playing.controlBar` 换掉整块控制按钮栏，

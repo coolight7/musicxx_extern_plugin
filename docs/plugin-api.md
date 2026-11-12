@@ -1810,6 +1810,45 @@ iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 > `musicxx.song.changed`；想拦一次切歌，实现能力 `musicxx.player.beforePlaySong`；
 > 想在状态变了刷新自己的显示，订阅对应的状态广播（例如 `musicxx.state.song`）。
 
+### 4.1 结束一条流（`end`）
+
+频道可以表示一段**有限的东西**（一次任务的结果流、一次会话的通知流）。属主可以把它**结束**：
+
+- 结束之后：**发布被拒**（广播表返回 `-5`，`PLUGINXX_RESULT_ERR_ENDED`；JS 侧 `publish`
+  抛错），`read` 拿不到当前值、全部订阅先用 `reason` 回调一次再摘掉；
+- **再次声明同一个 id = 开一条新流**（清掉结束标记与缓存）；重复结束是幂等成功；
+- 只有属主能结束：别人的频道（含官方 `musicxx.*`）结束不了。
+
+```cpp
+// 订阅时多给一个结束回调（动态库插件）
+subscribeTopicWithEnd("plugin.my_plugin.task",
+                      [](std::string_view progress) { /* 值 */ },
+                      [](std::string_view reason)   { /* 属主给的 reason JSON */ });
+
+// 结束时：只有属主能结束自己的频道
+endTopic("plugin.my_plugin.task", R"({"reason":"done"})");
+```
+
+```js
+// JS 侧：subscribe 的第 4 个参数是结束回调（短名会自动补成 plugin.<本插件 id>.）
+musicxx.broadcast.subscribe("task", function (progress) {
+    /* 值 */
+}, null, function (reason) {
+    /* 属主给的 reason JSON */
+});
+
+// 结束时（只有属主能结束）；失败会抛错，错误信息里写着原因
+musicxx.broadcast.end("task", { reason: "done" });
+```
+
+返回码（动态库侧，即广播表）：`0` = 已结束（重复结束也是 `0`）；`-3` = 不是自己的命名空间；
+`-1` = 频道不存在 / 不是这条频道的属主（原因同时写进日志）。JS 侧的 `end` 走插件框架的
+错误码（`-2` = 插件登记还没回放完，`-4` = 频道不存在 / 不是属主，`-6` = 不是自己
+命名空间下的频道），并统一折成抛错，脚本里用 `try / catch` 接。
+
+> `-5` 是**广播表**的结果码，与插件框架自己的错误码（那里的 `-5` 是超时）不是一套，
+> 两套常量不要混着判。
+
 ---
 
 ## 5. 官方广播频道（应用是属主，插件只能读与订阅）

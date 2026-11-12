@@ -404,6 +404,19 @@ auto sub = subscribeTopic(MUSICXX_BROADCAST_PLAYER_POSITION,
 // 要改它们：调能力（§6）；广播是只读的
 ```
 
+**结束自己的一条流**（广播表 v3；语义与返回码见 [plugin-api.md](plugin-api.md) §4.1）：
+
+```cpp
+// 订阅时给结束回调：属主结束时回调一次
+subscribeTopicWithEnd("plugin.my_plugin.task",
+                      [](std::string_view progress) { /* 值 */ },
+                      [](std::string_view reason)   { /* reason JSON */ });
+
+// 只有属主能结束自己的频道；结束后发布返回 -5（ERR_ENDED），
+// 再 declareBroadcast 同一个 id = 开一条新流
+endTopic("plugin.my_plugin.task", R"({"reason":"done"})");
+```
+
 **能力 / 功能埋点 / UI / 日志**：
 
 ```cpp

@@ -724,35 +724,58 @@ public:
     template<typename Fn>
     int32_t subscribeTopic(const char* topic, Fn&& fn,
                            const SubscribeOptions& options = {}) {
-        if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
-            log.warn("<应用名>.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
-            return -1;
-        }
         using FnT       = std::decay_t<Fn>;
         auto  holder    = std::make_unique<EventHolder<FnT>>(std::forward<Fn>(fn));
         void* holderPtr = holder.get();
         eventHolders_.push_back(std::move(holder));
+        return subscribeOnTable(topic, &EventHolder<FnT>::invoke, holderPtr, nullptr,
+                               options);
+    }
 
-        PluginxxStringView topicView = pluginxxView(topic ? topic : "");
-        // 作用域引用: 音乐类主程序只有一条主程序总线, 传空表示订阅它
-        std::string optionsJson;
-        if (options.intervalMs > 0 || (options.mode && std::string_view{options.mode} != "delay")) {
-            optionsJson = std::string{"{\"intervalMs\":"}
-                          + std::to_string(options.intervalMs > 0 ? options.intervalMs : 0)
-                          + ",\"mode\":\""
-                          + (options.mode && *options.mode ? options.mode : "delay") + "\"}";
+    /// 订阅广播频道，并在**流结束**时收到一次回调
+    ///
+    /// 频道属主结束这条流之后（[endTopic]）：`onEnd(reason_json)` 回调一次、订阅随即摘掉；
+    /// 之后发布返回 `PLUGINXX_RESULT_ERR_ENDED`（`-5`），`broadcastJson` 也读不到值。
+    /// 再次声明同一个 id = 开一条新流。
+    ///
+    /// 老插件框架（广播表 v2）没有 `subscribe_broadcast_ex`：按普通订阅降级，订阅本身照常，
+    /// 只是收不到结束通知（记一条日志）。
+    template<typename Fn, typename EndFn>
+    int32_t subscribeTopicWithEnd(const char* topic, Fn&& fn, EndFn&& onEnd,
+                                  const SubscribeOptions& options = {}) {
+        using HolderT = EventWithEndHolder<std::decay_t<Fn>, std::decay_t<EndFn>>;
+        auto  holder  = std::make_unique<HolderT>(std::forward<Fn>(fn),
+                                                 std::forward<EndFn>(onEnd));
+        void* holderPtr = holder.get();
+        eventHolders_.push_back(std::move(holder));
+        return subscribeOnTable(topic, &HolderT::invoke, holderPtr, &HolderT::invokeEnd,
+                               options);
+    }
+
+    /// 结束本插件的一条流（只有频道属主能结束）
+    ///
+    /// - `reasonJson` 原样交给每个订阅方的结束回调（空 = `{}`）；
+    /// - 返回 0 = 已结束（重复结束也算成功）；非 0 = 频道不存在 / 不是自己的频道 /
+    ///   插件框架版本过旧（表里没有 `end_broadcast`）；
+    /// - 结束后这条频道不能再发布、读不到当前值；再次 `declareBroadcast` 同一个 id
+    ///   才开一条新流。
+    int32_t endTopic(const char* topic, const char* reasonJson = nullptr) {
+        if (!iface.broadcasts || !iface.broadcasts->end_broadcast) {
+            log.warn("<应用名>.broadcasts 表没有 end_broadcast: 结束流未生效 (插件框架版本过旧?)");
+            return -1;
         }
-        const PluginxxStringView optionsView = pluginxxView(optionsJson.c_str());
-        auto* sub = iface.broadcasts->subscribe_broadcast(
-            host,
-            nullptr,
-            &topicView,
-            &EventHolder<FnT>::invoke,
-            holderPtr,
-            optionsJson.empty() ? nullptr : &optionsView,
-            nullptr
-        );
-        return sub ? 0 : -1;
+        PluginxxStringView idView = pluginxxView(topic ? topic : "");
+        PluginxxStringView reasonView =
+            pluginxxView((reasonJson && *reasonJson) ? reasonJson : "{}");
+        PluginxxString error{};
+        const int32_t rc =
+            iface.broadcasts->end_broadcast(host, &idView, &reasonView, &error);
+        if (error.data) {
+            log.warn(std::string{"结束广播失败: "}
+                     + std::string{error.data, static_cast<size_t>(error.size)});
+            hostStringFree(error);
+        }
+        return rc;
     }
 
     /* ---------- 插件形态（kind）：把自己做成某种语言 / 格式的运行器 ---------- */
@@ -1133,6 +1156,100 @@ private:
     };
 
     std::vector<std::unique_ptr<CapabilityHolderBase>> eventHolders_;
+
+    /// 事件订阅 + 流结束回调的持有者
+    ///
+    /// 广播表的 `subscribe_broadcast_ex` 只给一个 `ud`，两个回调必须从同一块内存取各自的
+    /// 函数对象，所以放在一个持有者里。
+    template<typename FnT, typename EndFnT>
+    struct EventWithEndHolder : CapabilityHolderBase {
+        FnT    fn;
+        EndFnT endFn;
+
+        EventWithEndHolder(FnT f, EndFnT e) :
+            fn(std::move(f)),
+            endFn(std::move(e)) {}
+
+        /// 值回调 (框架线程调用; 异常必须就地吞掉)
+        static void PLUGINXX_CALL invoke(const PluginxxStringView* event_json, void* ud) noexcept {
+            auto* self = static_cast<EventWithEndHolder*>(ud);
+            if (!self) {
+                return;
+            }
+            try {
+                std::string_view data{};
+                if (event_json && event_json->data) {
+                    data = std::string_view{event_json->data, static_cast<size_t>(event_json->size)};
+                }
+                self->fn(data);
+            } catch (...) {
+                // 回调异常不得穿越 C ABI
+            }
+        }
+
+        /// 流结束回调 (框架线程调用; 同一个 `ud`)
+        static void PLUGINXX_CALL invokeEnd(const PluginxxStringView* reason_json, void* ud) noexcept {
+            auto* self = static_cast<EventWithEndHolder*>(ud);
+            if (!self) {
+                return;
+            }
+            try {
+                std::string_view reason{};
+                if (reason_json && reason_json->data) {
+                    reason = std::string_view{reason_json->data, static_cast<size_t>(reason_json->size)};
+                }
+                self->endFn(reason);
+            } catch (...) {
+                // 回调异常不得穿越 C ABI
+            }
+        }
+    };
+
+    /// 订阅频率选项转成 JSON 文本（空串 = 不限频，不传给插件框架）
+    static std::string subscribeOptionsJson(const SubscribeOptions& options) {
+        if (options.intervalMs <= 0
+            && (!options.mode || std::string_view{options.mode} == "delay")) {
+            return {};
+        }
+        return std::string{"{\"intervalMs\":"}
+               + std::to_string(options.intervalMs > 0 ? options.intervalMs : 0)
+               + ",\"mode\":\""
+               + (options.mode && *options.mode ? options.mode : "delay") + "\"}";
+    }
+
+    /// 订阅的广播表调用（两个订阅入口共用）
+    ///
+    /// 广播表 v3 有 `subscribe_broadcast_ex` 时用它（多一个结束回调），否则退回
+    /// `subscribe_broadcast`。表只给一个 `ud`，值回调与结束回调共用它。
+    int32_t subscribeOnTable(const char* topic,
+                             void(PLUGINXX_CALL* handler)(const PluginxxStringView*, void*),
+                             void* ud,
+                             void(PLUGINXX_CALL* onEnd)(const PluginxxStringView*, void*),
+                             const SubscribeOptions& options) {
+        if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
+            log.warn("<应用名>.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
+            return -1;
+        }
+        PluginxxStringView topicView = pluginxxView(topic ? topic : "");
+        // 作用域引用: 主程序只有一条主题总线, 传空表示订阅它
+        const std::string optionsJson = subscribeOptionsJson(options);
+        const PluginxxStringView optionsView = pluginxxView(optionsJson.c_str());
+        const PluginxxStringView* optionsPtr =
+            optionsJson.empty() ? nullptr : &optionsView;
+        PluginxxSubscription* sub = nullptr;
+        if (onEnd && iface.broadcasts->subscribe_broadcast_ex) {
+            sub = iface.broadcasts->subscribe_broadcast_ex(
+                host, nullptr, &topicView, handler, onEnd, ud, optionsPtr, nullptr);
+        } else {
+            if (onEnd) {
+                log.warn("<应用名>.broadcasts 表没有 subscribe_broadcast_ex: "
+                         "收不到流结束通知 (插件框架版本过旧?)");
+            }
+            sub = iface.broadcasts->subscribe_broadcast(
+                host, nullptr, &topicView, handler, ud, optionsPtr, nullptr);
+        }
+        return sub ? 0 : -1;
+    }
 
     /// 本插件 id (从 `host.info().pluginId` 读一次后缓存; 功能埋点糖用它过滤自己发起的调用)
     std::string pluginId_{};

@@ -9,6 +9,7 @@
 #include "js_engine.h"
 
 #include "host_json.h"
+#include "pluginxx/api/iface_meta.h"
 #include "pluginxx/api/tables.h"
 #include "pluginxx/host/abi_util.h"
 #include "pluginxx/host/manifest.h"
@@ -387,14 +388,17 @@ var featurePointImpls = new Map();
     /// - `intervalMs` = 通知间隔 (毫秒, 0 / 缺省 = 不限频);
     /// - `mode` = `delay`(默认, 间隔内只留最新一条、到点补发)/ `drop`(间隔内直接丢掉);
     /// - 第一条通知立即到达 (`cache: latest` 的频道会先补一次当前值);
+    /// - `onEnd`（可选）: 频道被属主结束时回调一次 `onEnd(reason, info)`，这个订阅随即失效；
     /// - 返回解绑函数。同一个频道可以用不同频率订阅多次。
-    subscribe: function (id, fn, options) {
+    subscribe: function (id, fn, options, onEnd) {
       if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
       var full = broadcastFullKey(id);
       var optionsJson = broadcastOptionsJson(options);
       var list = broadcastSubs.get(full);
       if (!list) { list = []; broadcastSubs.set(full, list); }
-      list.push({ fn: fn, options: optionsJson });
+      list.push({ fn: fn,
+                  onEnd: typeof onEnd === "function" ? onEnd : null,
+                  options: optionsJson });
       ensureBroadcastHostSubscription(full, optionsJson);
       return function () { musicxx.broadcast.unsubscribe(full, fn); };
     },
@@ -412,6 +416,17 @@ var featurePointImpls = new Map();
       }
       if (list.length === 0) { broadcastSubs.delete(full); }
       return true;
+    },
+    /// 结束自己的一条流（只有频道属主能结束）
+    ///
+    /// - `reason` 原样交给每个订阅方的结束回调（可空，默认 `{}`）；
+    /// - 结束后发布被拒 (抛错)、`read` 读不到值，订阅方的 `onEnd` 各回调一次；
+    /// - 再次 `declare` 同一个 id = 开一条新流。
+    end: function (id, reason) {
+      var full = broadcastFullKey(id);
+      var err = ext.endBroadcast(full, reason === undefined ? "" : safeJson(reason));
+      if (err) { throw new Error(err); }
+      return undefined;
     },
     /// 频道声明过没有 (读注册表, 不读值)
     has: function (id) {
@@ -1234,6 +1249,31 @@ var featurePointImpls = new Map();
     }
   };
 
+  /// 流结束: 这个频道上的订阅全部失效（宿主已经摘掉订阅），逐个回调 onEnd
+  ext.onEventEnd = function (topic, json) {
+    var list = broadcastSubs.get(topic);
+    broadcastSubs.delete(topic);
+    // 宿主侧订阅已随结束被摘掉: 清掉记账，之后重新 declare + subscribe 才能再建
+    var stale = [];
+    broadcastHostSubs.forEach(function (value, key) {
+      if (key.indexOf(topic + "\u0000") === 0) { stale.push(key); }
+    });
+    for (var s = 0; s < stale.length; s += 1) { broadcastHostSubs.delete(stale[s]); }
+    if (!list || list.length === 0) { return; }
+    var reason = {};
+    if (json) { try { reason = JSON.parse(json); } catch (e) { reason = {}; } }
+    var info = { id: topic };
+    var snapshot = list.slice();
+    for (var i = 0; i < snapshot.length; i += 1) {
+      if (typeof snapshot[i].onEnd !== "function") { continue; }
+      try {
+        snapshot[i].onEnd(reason, info);
+      } catch (e) {
+        logError("广播结束回调异常 (" + topic + "): " + (e && e.message ? e.message : String(e)));
+      }
+    }
+  };
+
   musicxx.capability = {
     /// 给应用声明的能力（`musicxx.*`，含能力）提供实现
     ///
@@ -1783,8 +1823,44 @@ JSValue jsPublish(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   if (data) {
     JS_FreeCString(ctx, data);
   }
-  return JS_NewString(ctx,
-                      rc == 0 ? "" : "事件发布被拒绝 (主题命名空间不允许)");
+  if (rc == 0) {
+    return JS_NewString(ctx, "");
+  }
+  if (rc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION) {
+    return JS_NewString(ctx, "事件发布被拒绝 (只有属主能发布这条频道)");
+  }
+  // 广播表把"流已结束"与"频道不存在"归到同一个码上 (见 broadcastPublishFrom):
+  // 已结束的频道终归发不出去, 文案把两种可能都说清楚
+  return JS_NewString(ctx, "事件发布被拒绝 (频道不存在, 或这条流已经被属主结束)");
+}
+
+/// 结束本插件的一条流: 返回空串 = 已结束, 否则是给脚本的错误文本
+JSValue jsEndBroadcast(JSContext *ctx, JSValueConst, int argc,
+                       JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 1) {
+    return JS_NewString(ctx, "参数非法");
+  }
+  const char *topic = JS_ToCString(ctx, argv[0]);
+  const char *reason = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
+  const int32_t rc = inst->engine->bridgeEndBroadcast(
+      inst->id, topic ? topic : "", reason ? reason : "");
+  if (topic) {
+    JS_FreeCString(ctx, topic);
+  }
+  if (reason) {
+    JS_FreeCString(ctx, reason);
+  }
+  if (rc == 0) {
+    return JS_NewString(ctx, "");
+  }
+  if (rc == MUSICXX_EXTERN_PLUGIN_ERR_STATE) {
+    return JS_NewString(ctx, "结束流被拒绝 (插件登记还没完成)");
+  }
+  return JS_NewString(
+      ctx, rc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION
+               ? "结束流被拒绝 (不是自己命名空间下的频道)"
+               : "结束流被拒绝 (频道不存在, 或不是它的属主)");
 }
 
 JSValue jsTimerSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
@@ -2225,6 +2301,7 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"configPath", jsConfigPath, 0},
       {"appCapabilityCall", jsAppCapabilityCall, 3},
       {"publish", jsPublish, 2},
+      {"endBroadcast", jsEndBroadcast, 2},
       {"subscribeHost", jsSubscribeHostOpts, 2},
       {"declareBroadcast", jsDeclareBroadcast, 1},
       {"broadcastRead", jsBroadcastRead, 1},
@@ -2968,11 +3045,19 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   if (!inst || topic.empty() || !inst->hostInst) {
     return;
   }
-  for (const auto &existing : inst->subscriptions) {
-    if (existing && existing->topic == topic
-        && existing->options == optionsJson) {
+  for (size_t i = 0; i < inst->subscriptions.size(); ++i) {
+    const auto &existing = inst->subscriptions[i];
+    if (!existing || existing->topic != topic
+        || existing->options != optionsJson) {
+      continue;
+    }
+    if (!existing->ended.load(std::memory_order_acquire)) {
       return;
     }
+    /// 上一次"结束流"之后宿主已经摘掉了那条订阅: 去掉旧记账, 重新订一次
+    inst->subscriptions.erase(inst->subscriptions.begin() +
+                              static_cast<std::ptrdiff_t>(i));
+    break;
   }
   const PluginxxHost *host = inst->hostInst->hostView();
   if (!host || !host->vtable || !host->vtable->query_interface) {
@@ -2990,15 +3075,27 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   holder->instance = inst->name;
   holder->topic = topic;
   holder->options = optionsJson;
+  holder->weakSelf = holder;
   const PluginxxStringView topicView{holder->topic.data(),
                                      holder->topic.size()};
   const PluginxxStringView optionsView{holder->options.data(),
                                        holder->options.size()};
-  auto *sub = broadcasts->subscribe_broadcast(
-      host, nullptr, &topicView, &JsEngine::eventTrampoline, holder.get(),
-      holder->options.empty() ? nullptr : &optionsView, nullptr);
+  const PluginxxStringView *optionsPtr =
+      holder->options.empty() ? nullptr : &optionsView;
+  // 表 v3 才能带流结束回调: 频道被属主结束时回调一次 (与值回调同一个 ud)
+  const bool hasEnd = pluginxx::ifaceHas<
+      &PluginxxBroadcastsIface::subscribe_broadcast_ex>(broadcasts)
+      && broadcasts->subscribe_broadcast_ex != nullptr;
+  auto *sub = hasEnd
+                  ? broadcasts->subscribe_broadcast_ex(
+                        host, nullptr, &topicView, &JsEngine::eventTrampoline,
+                        &JsEngine::endTrampoline, holder.get(), optionsPtr,
+                        nullptr)
+                  : broadcasts->subscribe_broadcast(
+                        host, nullptr, &topicView, &JsEngine::eventTrampoline,
+                        holder.get(), optionsPtr, nullptr);
   if (!sub) {
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒继", inst->id,
+    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
             topic);
     return;
   }
@@ -3097,6 +3194,23 @@ std::string JsEngine::bridgeBroadcastList(const std::string &prefix) {
     return "[]";
   }
   return list["broadcasts"].dump();
+}
+
+int32_t JsEngine::bridgeEndBroadcast(const std::string &pluginId,
+                                    const std::string &topic,
+                                    const std::string &reasonJson) {
+  if (!mgr_) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  // 脚本顶层还没有把声明交给框架: 现在结束只会得到"频道不存在"
+  if (const auto inst = lookupInstance("js:" + pluginId)) {
+    if (!inst->registrationsApplied) {
+      return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    }
+  }
+  // 与发布同一套做法: 在调用方线程直接结束 (见 bridgePublish)。
+  // 投递到框架线程再等会和"框架线程等 JS 处理器返回"互锁。
+  return mgr_->broadcastEndFrom(pluginId, topic, reasonJson);
 }
 
 void JsEngine::bridgeImplementationOp(const std::string &instanceName,
@@ -3859,6 +3973,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
           (item.contains("options") && item["options"].is_string())
               ? item["options"].get<std::string>()
               : std::string{};
+      holder->weakSelf = holder;
       // 广播表的 IID 由应用名拼出 (`<应用名>.broadcasts`), 不写字面量
       const PluginxxStringView iid{
           PLUGINXX_IFACE_BROADCASTS, sizeof(PLUGINXX_IFACE_BROADCASTS) - 1};
@@ -3875,10 +3990,21 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
                                          holder->topic.size()};
       const PluginxxStringView optionsView{holder->options.data(),
                                            holder->options.size()};
-      auto *sub = broadcasts->subscribe_broadcast(
-          host, nullptr, &topicView, &JsEngine::eventTrampoline,
-          holder.get(), holder->options.empty() ? nullptr : &optionsView,
-          nullptr);
+      const PluginxxStringView *optionsPtr =
+          holder->options.empty() ? nullptr : &optionsView;
+      const bool hasEnd = pluginxx::ifaceHas<
+          &PluginxxBroadcastsIface::subscribe_broadcast_ex>(broadcasts)
+          && broadcasts->subscribe_broadcast_ex != nullptr;
+      auto *sub = hasEnd
+                      ? broadcasts->subscribe_broadcast_ex(
+                            host, nullptr, &topicView,
+                            &JsEngine::eventTrampoline,
+                            &JsEngine::endTrampoline, holder.get(), optionsPtr,
+                            nullptr)
+                      : broadcasts->subscribe_broadcast(
+                            host, nullptr, &topicView,
+                            &JsEngine::eventTrampoline, holder.get(), optionsPtr,
+                            nullptr);
       if (!sub) {
         XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
                 holder->topic);
@@ -4119,19 +4245,52 @@ JsEngine::eventTrampoline(const PluginxxStringView *eventJson, void *userData) {
   if (!holder || !holder->engine) {
     return;
   }
+  /// 先拿住一份引用: 投递之后记账可能被摘掉 (流结束 / 重新订阅), 任务靠它活到跑完
+  const auto keep = holder->weakSelf.lock();
+  if (!keep) {
+    return;
+  }
   const std::string payload =
       eventJson ? viewToStr(eventJson) : std::string{"{}"};
   const std::string topic = holder->topic;
   const std::string name = holder->instance;
   /// 事件回调在框架线程 (发布者线程) 执行: 只投递, 不等 JS
-  holder->engine->postTask([holder, name, topic, payload] {
-    JsEngine *engine = holder->engine;
+  holder->engine->postTask([keep, name, topic, payload] {
+    JsEngine *engine = keep->engine;
     const auto inst = engine->lookupInstance(name);
     if (!inst) {
       return;
     }
     std::string ignored;
     engine->callBridgeString(inst, "onEvent", {topic, payload}, ignored);
+  });
+}
+
+void PLUGINXX_CALL
+JsEngine::endTrampoline(const PluginxxStringView *reasonJson, void *userData) {
+  auto *holder = static_cast<SubscriptionHolder *>(userData);
+  if (!holder || !holder->engine) {
+    return;
+  }
+  /// 宿主已经随结束摘掉了这条订阅: 记账留着也不当真 (重新订阅时按它清掉)
+  holder->ended.store(true, std::memory_order_release);
+  const auto keep = holder->weakSelf.lock();
+  if (!keep) {
+    return;
+  }
+  const std::string reason =
+      reasonJson ? viewToStr(reasonJson) : std::string{"{}"};
+  const std::string topic = holder->topic;
+  const std::string name = holder->instance;
+  /// 与值回调同一套投递方式: 不在框架线程上跑脚本
+  holder->engine->postTask([keep, name, topic, reason] {
+    JsEngine *engine = keep->engine;
+    const auto inst = engine->lookupInstance(name);
+    if (!inst) {
+      return;
+    }
+    std::string ignored;
+    engine->callBridgeString(inst, "onEventEnd", {topic, reason}, ignored);
   });
 }
 

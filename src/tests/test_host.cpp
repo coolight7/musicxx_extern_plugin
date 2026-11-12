@@ -1573,6 +1573,34 @@ int main(int argc, char **argv) {
                 static_cast<long long>(probeCall.resultMs));
     std::printf("  [info] probe=%s\n", probe.c_str());
 
+    // ==================== 流结束 (广播表 v3) ====================
+    //
+    // 属主结束自己的一条流: 带结束回调的订阅 → 发布一个值 → 结束 → 再发布。
+    // 期望: 订阅/发布/结束都是 0; 结束回调恰好一次且拿到 reason; 结束之后再发布
+    // 返回 `PLUGINXX_RESULT_ERR_ENDED` (-5)。
+    {
+      const CapabilityCallOutcome endCall = callCapability(
+          host, "example_native", "plugin.example_native.probe",
+          R"({"streamEndCheck":1})", 8000);
+      const std::string result = endCall.payload;
+      check(endCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && endCall.ok,
+            "plugin_call(probe, streamEndCheck) 成功");
+      check(jsonIntField(result, "streamEndSubRc") == "0",
+            "带结束回调订阅成功 (rc=0)");
+      check(jsonIntField(result, "streamEndValueRc") == "0",
+            "结束前发布值成功 (rc=0)");
+      check(jsonIntField(result, "streamEndValues") == "1",
+            "订阅在结束前收到发布的值");
+      check(jsonIntField(result, "streamEndRc") == "0",
+            "属主结束自己的流成功 (rc=0)");
+      check(jsonIntField(result, "streamEndEnds") == "1",
+            "结束回调恰好一次");
+      check(jsonIntField(result, "streamEndReasonOk") == "1",
+            "结束回调拿到 reason JSON");
+      check(jsonIntField(result, "streamEndPublishAfterRc") == "-5",
+            "流结束之后再发布返回 ERR_ENDED (-5)");
+    }
+
     // 插件框架按本插件的形态报接口代次：动态库插件看到插件 ABI 代次（7），
     // 与 JS 插件的 JS 接口代次（3）是两套编号
     check(jsonIntField(probe, "hostApiVersion") == "7",
@@ -1927,6 +1955,39 @@ int main(int argc, char **argv) {
             "JS 从 host.info().ui 读到客户端能力段 (渲染类型)");
       check(jsonIntField(probe, "hostUiBlocks") == "3",
             "JS 从 host.info().ui 读到客户端支持的组件数");
+    }
+
+    // 流结束 (广播表 v3): JS 侧同样能订阅结束回调、结束自己的流
+    //
+    // 分两次 probe: 第一次触发自检（返回值与「结束之后再发布」的异常是同步的），
+    // 结束回调与值回调在之后的 JS 任务里执行，第二次 probe 才能读到。
+    {
+      const CapabilityCallOutcome trigger =
+          callCapability(host, "example_js", "probe",
+                         R"({"streamEndCheck":1})", 8000);
+      const std::string result = trigger.payload;
+      check(trigger.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && trigger.ok,
+            "JS probe(streamEndCheck) 成功");
+      check(jsonIntField(result, "streamEndSubscribed") == "1",
+            "JS 带结束回调订阅成功");
+      check(jsonIntField(result, "streamEndPublishOk") == "1",
+            "JS 结束前发布值成功");
+      check(jsonIntField(result, "streamEndEndOk") == "1",
+            "JS 属主结束自己的流成功");
+      check(!jsonStringField(result, "streamEndAfterEndError").empty(),
+            "JS 流结束之后再发布抛错 (ERR_ENDED)");
+
+      const CapabilityCallOutcome after =
+          callCapability(host, "example_js", "probe", "{}", 8000);
+      const std::string state = after.payload;
+      check(after.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && after.ok,
+            "JS probe() 二次读取成功");
+      check(jsonIntField(state, "streamEndValues") == "1",
+            "JS 订阅在结束前收到发布的值");
+      check(jsonIntField(state, "streamEndEnds") == "1",
+            "JS 结束回调恰好一次");
+      check(jsonIntField(state, "streamEndReasonOk") == "1",
+            "JS 结束回调拿到 reason JSON");
     }
 
     // JS 插件的 UI 项进入插件框架快照 (与动态库插件同一注册表)

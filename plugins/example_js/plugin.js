@@ -30,6 +30,17 @@ let lastSongName = "";
 let errorCount = 0;
 let timerTicks = 0;
 
+/// 流结束自检 (广播表 v3: 带结束回调的订阅 + 属主结束自己的流)
+///
+/// 订阅放在**脚本顶层**: 运行期订阅是"投递不等待", 同一段脚本里紧接着发布收不到值。
+/// 值回调与结束回调都在之后的任务里执行, 所以结果分两次 probe 读。
+const STREAM_TOPIC = "stream";
+let streamSubscribed = 0;
+let streamEndState = {
+    subscribed: 0, publishOk: 0, endOk: 0, values: 0, ends: 0,
+    reasonOk: 0, afterEndError: "", error: ""
+};
+
 /// 读当前歌曲名 (来自主程序快照频道的只读快照, 同步读取)
 function currentSongName() {
     const song = musicxx.broadcast.read("musicxx.state.song");
@@ -375,6 +386,23 @@ musicxx.broadcast.declare({
 });
 musicxx.broadcast.publish(GREETING_TOPIC, "example_js 已加载");
 
+/// 流结束自检用的频道: 顶层声明 + 顶层订阅 (登记回放时就建好),
+/// probe 只负责发布 / 结束 (运行期订阅是投递不等待, 当场发布收不到值)
+musicxx.broadcast.declare({
+    id: STREAM_TOPIC,
+    cache: "none",
+    publish: "owner",
+    title: "示例流",
+    depict: "演示用: 属主结束这条流时, 订阅方会收到结束回调"
+});
+musicxx.broadcast.subscribe(STREAM_TOPIC, function () {
+    streamEndState.values += 1;
+}, null, function (reason) {
+    streamEndState.ends += 1;
+    streamEndState.reasonOk = (reason && reason.reason === "example_js") ? 1 : 0;
+});
+streamSubscribed = 1;
+
 /// 官方频道变化 (broadcast.subscribe): 用户改动画等级时会被叫到
 let animatedLevelChanges = 0;
 let lastAnimatedLevel = "";
@@ -405,8 +433,33 @@ musicxx.capability.register("slowProbe", function (args) {
     });
 });
 
+/// 流结束自检: 发布 → 属主结束 → 再发布（应当被拒）
+///
+/// 期望: 发布/结束都成功；结束之后再发布抛错（结束过的频道发不出去）；
+/// 订阅方的结束回调恰好一次且拿到 reason。
+function runStreamEndCheck() {
+    streamEndState = {
+        subscribed: streamSubscribed, publishOk: 0, endOk: 0, values: 0, ends: 0,
+        reasonOk: 0, afterEndError: "", error: ""
+    };
+    try {
+        musicxx.broadcast.publish(STREAM_TOPIC, { v: 1 });
+        streamEndState.publishOk = 1;
+        musicxx.broadcast.end(STREAM_TOPIC, { reason: "example_js" });
+        streamEndState.endOk = 1;
+        try {
+            musicxx.broadcast.publish(STREAM_TOPIC, { v: 2 });
+        } catch (e) {
+            streamEndState.afterEndError = String((e && e.message) ? e.message : e);
+        }
+    } catch (e) {
+        streamEndState.error = String((e && e.message) ? e.message : e);
+    }
+}
+
 /// 能力: 供 Dart 侧 `plugin_call` 探针调用
 musicxx.capability.register("probe", function (args) {
+    if (args && args.streamEndCheck) { runStreamEndCheck(); }
     const info = musicxx.host.info();
     const ui = (info && typeof info.ui === "object" && info.ui !== null) ? info.ui : null;
     const greetingPeek = musicxx.broadcast.read(GREETING_TOPIC);
@@ -441,6 +494,15 @@ musicxx.capability.register("probe", function (args) {
         readAnimatedLevel: readAnimatedLevel,
         greetingPeek: (greetingPeek === undefined) ? null : greetingPeek,
         greetingSubscribers: musicxx.broadcast.subscribers(GREETING_TOPIC),
+        // 流结束自检 (广播表 v3)
+        streamEndSubscribed: streamEndState.subscribed,
+        streamEndPublishOk: streamEndState.publishOk,
+        streamEndEndOk: streamEndState.endOk,
+        streamEndValues: streamEndState.values,
+        streamEndEnds: streamEndState.ends,
+        streamEndReasonOk: streamEndState.reasonOk,
+        streamEndAfterEndError: streamEndState.afterEndError,
+        streamEndError: streamEndState.error,
     };
 });
 

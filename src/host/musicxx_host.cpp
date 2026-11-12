@@ -721,6 +721,32 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
   return MUSICXX_EXTERN_PLUGIN_OK;
 }
 
+int32_t MusicxxHostManager::broadcastEndFrom(const std::string &pluginId,
+                                             const std::string &topic,
+                                             const std::string &reasonJson) {
+  if (!running_.load(std::memory_order_acquire)) {
+    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  }
+  // 与发布同一条归属规则: 只能结束自己命名空间下的频道
+  if (!naming::isTopicOwnedBy(topic, pluginId)) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播被拒绝: 主题 `{}` "
+            "不属于该插件命名空间",
+            pluginId, topic);
+    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+  }
+  const std::string reason = reasonJson.empty() ? std::string{"{}"} : reasonJson;
+  // 注册表内部加锁, 所以与发布一样直接在调用方线程上结束: 订阅方的结束回调就在本次
+  // 调用内投递 (JS 订阅只把脚本回调排到 JS 线程), 不需要等框架线程
+  std::string broadcastError;
+  const int32_t rc = endBroadcast(topic, reason, pluginId, &broadcastError);
+  if (rc != PLUGINXX_RESULT_OK) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播 `{}` 被拒绝 (code={}): {}",
+            pluginId, topic, rc, broadcastError);
+    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+  }
+  return MUSICXX_EXTERN_PLUGIN_OK;
+}
+
 int32_t MusicxxHostManager::pollEvents(int32_t maxCount, std::string &outJson) {
   std::lock_guard<std::mutex> lock{eventMutex_};
   if (events_.empty()) {

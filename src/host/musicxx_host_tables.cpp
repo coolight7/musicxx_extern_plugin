@@ -1567,14 +1567,17 @@ int32_t PLUGINXX_CALL xx_declare_broadcast(const PluginxxHost *host,
       });
 }
 
-/// 订阅广播 (任意线程; 主题形状与归属规则与旧事件表一致)
+/// 订阅广播的共同实现 (任意线程; 主题形状与归属规则与旧事件表一致)
 ///
 /// `options_json` 是订阅方自己的通知频率 (`{"intervalMs":200,"mode":"delay"}`; 可空)。
-PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
+/// 表 v2 的 `subscribe_broadcast` 与 v3 的 `subscribe_broadcast_ex` 只差 `onEnd`:
+/// 频道被属主结束时用 reason JSON 回调一次, 随后这个订阅被摘掉。
+PluginxxSubscription *subscribeBroadcastFromTable(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
     const PluginxxStringView *id,
     void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
                                  void *ud),
+    void(PLUGINXX_CALL *onEnd)(const PluginxxStringView *reason_json, void *ud),
     void *ud, const PluginxxStringView *optionsJson,
     PluginxxString *errorOut) {
   return pluginxx::guardVtableCall(nullptr, [&]() -> PluginxxSubscription * {
@@ -1614,9 +1617,9 @@ PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
     }
     auto *sub = pluginxx::ioCallSyncKeep<PluginxxSubscription *>(
         call, mgr,
-        [mgr, inst, hasScope, scopeCopy, idText, handler, ud, options]() {
+        [mgr, inst, hasScope, scopeCopy, idText, handler, onEnd, ud, options]() {
           return mgr->subscribeBroadcast(inst, hasScope ? &scopeCopy : nullptr,
-                                         idText, handler, ud, options);
+                                         idText, handler, ud, options, onEnd);
         });
     if (!sub) {
       pluginxx::detail::setErrorString(errorOut,
@@ -1626,9 +1629,87 @@ PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
   });
 }
 
+/// 订阅广播 (任意线程; 主题形状与归属规则与旧事件表一致)
+PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
+    const PluginxxHost *host, const PluginxxScopeRef *scope,
+    const PluginxxStringView *id,
+    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
+                                 void *ud),
+    void *ud, const PluginxxStringView *optionsJson,
+    PluginxxString *errorOut) {
+  return subscribeBroadcastFromTable(host, scope, id, handler, nullptr, ud,
+                                     optionsJson, errorOut);
+}
+
+/// 订阅广播, 并带流结束回调 (表 v3 的追加成员; 任意线程)
+PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast_ex(
+    const PluginxxHost *host, const PluginxxScopeRef *scope,
+    const PluginxxStringView *id,
+    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
+                                 void *ud),
+    void(PLUGINXX_CALL *onEnd)(const PluginxxStringView *reason_json,
+                               void *ud),
+    void *ud, const PluginxxStringView *optionsJson,
+    PluginxxString *errorOut) {
+  return subscribeBroadcastFromTable(host, scope, id, handler, onEnd, ud,
+                                     optionsJson, errorOut);
+}
+
 /// 撤销订阅 (幂等; 任意线程)
 void PLUGINXX_CALL xx_unsubscribe_broadcast(PluginxxSubscription *sub) {
   pluginxx::unsubscribePluginBroadcast(sub);
+}
+
+/// 结束一条流 (表 v3 的追加成员; 任意线程): 只有频道属主能结束自己的频道
+///
+/// 结束后: 发布返回 `PLUGINXX_RESULT_ERR_ENDED`, 读不到当前值, 全部订阅先用
+/// reason JSON 回调一次再摘掉; 再次声明同一个 id = 开一条新流。
+int32_t PLUGINXX_CALL xx_end_broadcast(const PluginxxHost *host,
+                                       const PluginxxStringView *id,
+                                       const PluginxxStringView *reasonJson,
+                                       PluginxxString *errorOut) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
+        if (!id || !id->data || id->size == 0) {
+          pluginxx::detail::setErrorString(errorOut,
+                                          "end_broadcast: missing id");
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string idText{id->data, static_cast<size_t>(id->size)};
+        // 与发布同一条归属规则: 只能结束自己命名空间下的频道
+        const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
+        if (!isTopicOwnedBy(idText, pluginId)) {
+          XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播被拒绝: id `{}` "
+                  "不属于该插件命名空间",
+                  pluginId, idText);
+          pluginxx::detail::setErrorString(
+              errorOut, "end_broadcast: id is not in the plugin namespace");
+          return PLUGINXX_RESULT_ERR_PERMISSION;
+        }
+        const std::string reason =
+            (reasonJson && reasonJson->data && reasonJson->size > 0)
+                ? std::string{reasonJson->data,
+                              static_cast<size_t>(reasonJson->size)}
+                : std::string{"{}"};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, idText, reason, errorOut]() -> int32_t {
+              std::string error;
+              const int32_t rc =
+                  mgr->endBroadcastFrom(inst, idText, reason, &error);
+              if (rc != PLUGINXX_RESULT_OK) {
+                pluginxx::detail::setErrorString(errorOut, error);
+              }
+              return rc;
+            });
+      });
 }
 
 /// 发布广播 (任意线程): id 必须是官方 `musicxx.*` 或本插件自己的
@@ -1801,6 +1882,8 @@ const PluginxxBroadcastsIface g_ifaceBroadcasts = {
     /* subscribe_broadcast */ xx_subscribe_broadcast,
     /* read_broadcast */ xx_read_broadcast,
     /* unsubscribe_broadcast */ xx_unsubscribe_broadcast,
+    /* end_broadcast */ xx_end_broadcast,
+    /* subscribe_broadcast_ex */ xx_subscribe_broadcast_ex,
 };
 
 const void *PLUGINXX_CALL xx_query_interface(const PluginxxHost *,

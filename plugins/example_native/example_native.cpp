@@ -107,6 +107,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t ownPublishRc = 0; ///< 发布本插件命名空间事件: 期望 0
   int32_t foreignPublishRc = 0; ///< 发布他人命名空间事件: 期望非 0 (插件框架拒绝)
 
+  /// 流结束自检 (广播表 v3: 带结束回调的订阅 + 属主结束自己的流)
+  int32_t streamEndSubRc = -100;       ///< 带结束回调订阅: 期望 0
+  int32_t streamEndValueRc = -100;     ///< 发布一个值: 期望 0
+  int32_t streamEndRc = -100;          ///< 结束这条流: 期望 0
+  int32_t streamEndPublishAfterRc = 0; ///< 结束之后再发布: 期望 -5 (ERR_ENDED)
+  int32_t streamEndValues = 0;         ///< 值回调次数: 期望 1
+  int32_t streamEndEnds = 0;           ///< 结束回调次数: 期望 1
+  bool streamEndReasonOk = false;      ///< 结束回调拿到的 reason 带示例标记
+
   /// 动作请求自检
   int32_t lastActionStatus = -100; ///< 最近一次动作请求终态 (-100 = 从未发起)
   int32_t lastActionPayloadLen = 0;
@@ -297,6 +306,10 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
             log.info("example_native: 已发起应用能力调用 musicxx.ui.toast "
                      "(等待插件框架超时)");
           }
+          // 带 `streamEndCheck` 时跑一次流结束自检 (广播表 v3)
+          if (args.find("streamEndCheck") != std::string_view::npos) {
+            runStreamEndCheck();
+          }
           std::ostringstream oss;
           // 插件框架按**本插件的形态**报接口代次：动态库插件看到的是 C 接口代次（3），
           // JS 插件看到的是 JS 接口代次（2）——两套编号独立（见 host_kind.h）
@@ -323,6 +336,13 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"badTopicSubscribeRc\":" << badTopicSubscribeRc
               << ",\"ownPublishRc\":" << ownPublishRc
               << ",\"foreignPublishRc\":" << foreignPublishRc
+              << ",\"streamEndSubRc\":" << streamEndSubRc
+              << ",\"streamEndValueRc\":" << streamEndValueRc
+              << ",\"streamEndRc\":" << streamEndRc
+              << ",\"streamEndPublishAfterRc\":" << streamEndPublishAfterRc
+              << ",\"streamEndValues\":" << streamEndValues
+              << ",\"streamEndEnds\":" << streamEndEnds
+              << ",\"streamEndReasonOk\":" << (streamEndReasonOk ? 1 : 0)
               << ",\"stateEvents\":" << stateEvents
               << ",\"pingEvents\":" << pingEvents
               << ",\"lastActionStatus\":" << lastActionStatus
@@ -522,6 +542,27 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     // 时统一摘除)
     consecutiveErrors = 0;
     return 0;
+  }
+
+  /// 流结束自检 (广播表 v3): 自己的频道 → 带结束回调订阅 → 发布 → 结束 → 再发布
+  ///
+  /// 期望: 订阅 0 / 发布 0 / 结束 0 / 结束之后再发布 -5 (`PLUGINXX_RESULT_ERR_ENDED`),
+  /// 值回调 1 次、结束回调 1 次。先订阅再发布, 频道由订阅自动补一份默认声明。
+  void runStreamEndCheck() {
+    static constexpr const char *kTopic = "plugin.example_native.stream";
+    streamEndValues = 0;
+    streamEndEnds = 0;
+    streamEndReasonOk = false;
+    streamEndSubRc = subscribeTopicWithEnd(
+        kTopic, [this](std::string_view) { ++streamEndValues; },
+        [this](std::string_view reason) {
+          ++streamEndEnds;
+          streamEndReasonOk =
+              reason.find("example_native") != std::string_view::npos;
+        });
+    streamEndValueRc = publishOwnEvent(kTopic, R"({"v":1})");
+    streamEndRc = endTopic(kTopic, R"({"reason":"example_native"})");
+    streamEndPublishAfterRc = publishOwnEvent(kTopic, R"({"v":2})");
   }
 };
 

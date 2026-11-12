@@ -1293,7 +1293,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('要不要"当前值"由声明决定：`cache: latest` 的频道订阅时就能拿到当前值，也能同步读；')
     ..writeln('`cache: none` 没有当前值，只能等下一次通知。')
     ..writeln()
-    ..writeln('广播只做四件事：**声明自己的频道 / 发布 / 读当前值 / 订阅**。')
+    ..writeln('广播只做这几件事：**声明自己的频道 / 发布 / 读当前值 / 订阅 / 结束自己的流**。')
     ..writeln('它**不提供写入**（没有"给别人的频道写值"这个操作，也没有回执）：')
     ..writeln('要改应用状态一律调能力（见 [plugin-capabilities.md](plugin-capabilities.md)），')
     ..writeln('结果的校验与拒绝原因由能力告诉你。')
@@ -1391,6 +1391,30 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('  `drop` 收到 `0`、`250`。')
     ..writeln()
     ..writeln('只看候选值范围、临时把 `intervalMs` 调大都不需要重新订阅；换频率就退订后重新订阅。');
+
+  sb
+    ..writeln()
+    ..writeln('## 结束一条流')
+    ..writeln()
+    ..writeln(
+      '频道可以表示一段有限的东西（一次任务的结果流、一次会话的通知流）。属主可以把它**结束**：'
+      '结束之后发布返回 `-5`（`PLUGINXX_RESULT_ERR_ENDED`）、读不到当前值、全部订阅先用 reason JSON '
+      '回调一次再摘掉；再次声明同一个 id = 开一条新流（清掉结束标记与缓存）。',
+    )
+    ..writeln()
+    ..writeln('- 只有属主能结束；结束别人的频道（含应用频道）会被拒绝；')
+    ..writeln('- `reason` 是给订阅方看的 JSON（可空，默认 `{}`），原样交给结束回调；')
+    ..writeln('- 重复结束是幂等成功；频道不存在 / 不归自己时返回非 0（原因在日志里）；')
+    ..writeln(
+      '- 订阅：动态库插件用 `subscribeTopicWithEnd(id, fn, onEnd, options)`，'
+      'JS 用 `musicxx.broadcast.subscribe(id, fn, options, onEnd)`；',
+    )
+    ..writeln(
+      '- 结束：动态库插件用 `endTopic(id, reason)`，JS 用 `musicxx.broadcast.end(id, reason)`；',
+    )
+    ..writeln(
+      '- `-5` 是广播表的结果码，与插件框架自己的错误码（那里的 `-5` 是超时）不是一套，不要混用。',
+    );
 
   sb
     ..writeln()

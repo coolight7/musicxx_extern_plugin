@@ -535,10 +535,22 @@ public:
                                  uint32_t timeoutMs,
                                  int64_t *outEffectiveTimeoutMs);
 
-  /// 插件发布广播 (**任意线程**; 主题归属校验后再投递到框架线程)
+  /// 插件发布广播 (**任意线程**; 归属校验后在调用方线程直接发布)
+  ///
+  /// 广播注册表内部加锁: 缓存与投递都在本次调用内完成, 不投递到框架线程 ——
+  /// JS 线程发布完要能立刻读到当前值, 而框架线程此刻可能正等 JS 返回 (等待即互锁)。
   int32_t broadcastPublishFrom(const std::string &pluginId,
                                const std::string &topic,
                                const std::string &payloadJson);
+
+  /// 插件结束自己的一条流 (**任意线程**; 归属校验后在调用方线程直接结束)
+  ///
+  /// 与 [broadcastPublishFrom] 同一套做法 (注册表内部加锁, 结束与回调投递都在本次
+  /// 调用内完成): JS 线程要"结束完立刻看到后续发布被拒", 投递到框架线程再等会和
+  /// "框架线程等 JS 返回"互锁。
+  int32_t broadcastEndFrom(const std::string &pluginId,
+                           const std::string &topic,
+                           const std::string &reasonJson);
 
   /// 取消某实例的全部未完成请求 (**任意线程**): 框架侧登记 + JS 引擎侧登记
   void cancelAppCapabilitiesOfInstance(const std::string &instanceName);
