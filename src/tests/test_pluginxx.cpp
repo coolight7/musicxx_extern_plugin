@@ -1011,10 +1011,11 @@ void testCapabilityDeclarations() {
   check(musicxxBroadcastDeclOf("musicxx.unknown.channel") == nullptr,
         "未知广播返回 NULL");
 
-  // 同一个 id 可以既是广播（事件）又是能力（命令）：两张表各自寻址
-  check(musicxxBroadcastDeclOf("musicxx.app.foreground") != nullptr &&
-            musicxxCapabilityDeclOf("musicxx.app.foreground") != nullptr,
-        "app.foreground：广播与命令同 id");
+  // 两张表各自寻址：同一个字符串会各查各的表（删掉 `musicxx.app.foreground` / `.background`
+  // 两条广播之后，预设表里没有同名条目，这里改成验证“只声明为广播的 id 不在能力表里”）
+  check(musicxxBroadcastDeclOf("musicxx.app.started") != nullptr &&
+            musicxxCapabilityDeclOf("musicxx.app.started") == nullptr,
+        "只声明为广播的 id 不在能力表里");
 }
 
 } // namespace

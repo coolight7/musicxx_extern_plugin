@@ -178,13 +178,11 @@
 #define MUSICXX_CAPABILITY_STATS_REPORT_MEMORY "musicxx.stats.reportMemory"
 #define MUSICXX_CAPABILITY_STATS_REPORT_METRIC "musicxx.stats.reportMetric"
 
-#define MUSICXX_BROADCAST_APP_START "musicxx.app.start"
+#define MUSICXX_BROADCAST_APP_STARTED "musicxx.app.started"
 #define MUSICXX_BROADCAST_APP_READY "musicxx.app.ready"
-#define MUSICXX_BROADCAST_APP_BACKGROUND "musicxx.app.background"
-#define MUSICXX_BROADCAST_APP_FOREGROUND "musicxx.app.foreground"
 #define MUSICXX_BROADCAST_APP_LIFECYCLE "musicxx.app.lifecycle"
 #define MUSICXX_BROADCAST_PLAYER_SOURCE_RESOLVED "musicxx.player.source.resolved"
-#define MUSICXX_BROADCAST_PLAYER_STATE "musicxx.player.state"
+#define MUSICXX_BROADCAST_PLAYER_STATE_CHANGED "musicxx.player.stateChanged"
 #define MUSICXX_BROADCAST_PLAYER_POSITION "musicxx.player.position"
 #define MUSICXX_BROADCAST_PLAYER_COMPLETED "musicxx.player.completed"
 #define MUSICXX_BROADCAST_SONG_CHANGED "musicxx.song.changed"
@@ -340,13 +338,11 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
 static const size_t musicxxCapabilityDeclCount = sizeof(musicxxCapabilityDecls) / sizeof(musicxxCapabilityDecls[0]);
 
 static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
-    {"musicxx.app.start", 0, 0, 0, 1, 0},
+    {"musicxx.app.started", 0, 0, 0, 1, 0},
     {"musicxx.app.ready", 0, 0, 0, 1, 0},
-    {"musicxx.app.background", 0, 0, 0, 1, 0},
-    {"musicxx.app.foreground", 0, 0, 0, 1, 0},
     {"musicxx.app.lifecycle", 1, 0, 1, 0, 0},
     {"musicxx.player.source.resolved", 0, 0, 0, 1, 0},
-    {"musicxx.player.state", 0, 0, 0, 1, 0},
+    {"musicxx.player.stateChanged", 0, 0, 0, 1, 0},
     {"musicxx.player.position", 1, 0, 1, 0, 0},
     {"musicxx.player.completed", 0, 0, 0, 1, 0},
     {"musicxx.song.changed", 0, 0, 0, 1, 0},

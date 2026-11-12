@@ -1628,8 +1628,8 @@
   ],
   "broadcasts": [
     {
-      "id": "musicxx.app.start",
-      "dart": "appStart",
+      "id": "musicxx.app.started",
+      "dart": "appStarted",
       "title": "应用启动",
       "depict": "主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次",
       "cache": "none",
@@ -1650,30 +1650,6 @@
       "coalesce": true,
       "scope": "app",
       "doc": "载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后发布一次（比 `app.start` 晚）；只通知，没有返回值。"
-    },
-    {
-      "id": "musicxx.app.background",
-      "dart": "appBackground",
-      "title": "应用进入后台",
-      "depict": "应用进入后台（窗口隐藏 / 最小化，或移动到后台）时发布；只通知，不等回答",
-      "cache": "none",
-      "publish": "owner",
-      "pushOnSubscribe": false,
-      "coalesce": true,
-      "scope": "app",
-      "doc": "载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。发布前会先更新广播 `musicxx.state.app`（`foreground` 为 false），订阅回调里同步读到的就是新状态；同一状态重复上报不会重复发布。只通知、异步：不等待订阅方，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值订阅广播 `musicxx.app.lifecycle`（`cache: latest`）或同步读 `musicxx.state.app`。"
-    },
-    {
-      "id": "musicxx.app.foreground",
-      "dart": "appForeground",
-      "title": "应用回到前台",
-      "depict": "应用回到前台时发布，带这次在后台待了多久；只通知，不等回答",
-      "cache": "none",
-      "publish": "owner",
-      "pushOnSubscribe": false,
-      "coalesce": true,
-      "scope": "app",
-      "doc": "载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时发布一次；**只在前台与后台真的切换时**发布，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。只通知、异步：不等待订阅方；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。"
     },
     {
       "id": "musicxx.app.lifecycle",
@@ -1705,8 +1681,8 @@
       "doc": "载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后发布。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；只通知，没有返回值。"
     },
     {
-      "id": "musicxx.player.state",
-      "dart": "playerState",
+      "id": "musicxx.player.stateChanged",
+      "dart": "playerStateChanged",
       "title": "播放状态变化",
       "depict": "播放状态变化（播放 / 暂停 / 停止 / 结束）时发布；播放进度不走这条广播",
       "cache": "none",

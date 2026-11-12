@@ -27,13 +27,11 @@
 
 | 广播 id | 缓存 | 谁能发布 | 订阅即推 | 合并 | 作用域 |
 |---|---|---|---|---|---|
-| `musicxx.app.start` | none | owner | 否 | 允许 | app |
+| `musicxx.app.started` | none | owner | 否 | 允许 | app |
 | `musicxx.app.ready` | none | owner | 否 | 允许 | app |
-| `musicxx.app.background` | none | owner | 否 | 允许 | app |
-| `musicxx.app.foreground` | none | owner | 否 | 允许 | app |
 | `musicxx.app.lifecycle` | latest | owner | 是 | 不合并 | app |
 | `musicxx.player.source.resolved` | none | owner | 否 | 允许 | app |
-| `musicxx.player.state` | none | owner | 否 | 允许 | app |
+| `musicxx.player.stateChanged` | none | owner | 否 | 允许 | app |
 | `musicxx.player.position` | latest | owner | 是 | 不合并 | app |
 | `musicxx.player.completed` | none | owner | 否 | 允许 | app |
 | `musicxx.song.changed` | none | owner | 否 | 允许 | app |
@@ -120,21 +118,13 @@
 
 ## 载荷
 
-### `musicxx.app.start` 应用启动
+### `musicxx.app.started` 应用启动
 
 载荷 `{version, platform, branch, installId, lang}`。主程序启动阶段（业务 Store 与插件框架都就绪之后）派发一次：适合做初始化自己的状态、登记定时器这类事。它只通知，没有返回值，也不参与裁决。
 
 ### `musicxx.app.ready` 应用就绪
 
 载荷 `{firstRun, restoredSong}`：`firstRun` = 是否首次启动，`restoredSong` = 恢复播放的歌曲（可能缺省）。首屏与数据都就绪后发布一次（比 `app.start` 晚）；只通知，没有返回值。
-
-### `musicxx.app.background` 应用进入后台
-
-载荷 `{state}`：`state` = 触发这次通知的生命周期状态名（`paused` / `hidden` / `inactive` / `detached`）。应用**真的**进后台时派发一次（桌面端隐藏 / 最小化窗口，移动端切到后台）；窗口只是失去焦点（`inactive` 但画面仍可见）不算后台。发布前会先更新广播 `musicxx.state.app`（`foreground` 为 false），订阅回调里同步读到的就是新状态；同一状态重复上报不会重复发布。只通知、异步：不等待订阅方，不影响播放与缓存。要记“在后台待了多久”用 `musicxx.app.foreground` 的 `backgroundMs`；要读当前值订阅广播 `musicxx.app.lifecycle`（`cache: latest`）或同步读 `musicxx.state.app`。
-
-### `musicxx.app.foreground` 应用回到前台
-
-载荷 `{state, backgroundMs}`：`state` = 回到前台时的生命周期状态名（一般是 `resumed`），`backgroundMs` = 这次在后台待了多久（毫秒）。应用回到前台时发布一次；**只在前台与后台真的切换时**发布，所以启动阶段的初次 `resumed` 不会触发它（启动用 `musicxx.app.start` / `musicxx.app.ready`）。只通知、异步：不等待订阅方；插件适合在这里做“回前台补一次刷新”（检查时间是否跨越太久、重新拉一次数据）。
 
 ### `musicxx.app.lifecycle` 前后台状态
 
@@ -146,7 +136,7 @@
 
 载荷 `{sid, srcKey, useSrcKey, parsedType, pathKind, hasHeaders, cacheStream}`：某个音源解析完成（拿到真正播放用的路径与请求头）之后发布。载荷里没有直链与 token，只报来源类型与路径种类（本地 / 缓存 / 远程流 / 带请求头）；只通知，没有返回值。
 
-### `musicxx.player.state` 播放状态变化
+### `musicxx.player.stateChanged` 播放状态变化
 
 载荷 `{state, sid, positionMs}`。`state` 是播放状态文本：播放 / 暂停 / 停止这三个事件给 `play`、`pause`、`stop`，其它状态变化给枚举名 `Play` / `Pause` / `Stop` / `Completed`；要判断当前是否在播放，请读广播 `musicxx.state.env.isPlaying`（布尔，`cache: latest`）。只在播放状态变化时发布（播放进度不走这条广播）。
 

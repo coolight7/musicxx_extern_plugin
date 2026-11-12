@@ -393,19 +393,15 @@ abstract final class MusicxxCapabilityId {
 /// 广播 id（属主改了东西、通知关心的人）
 abstract final class MusicxxBroadcastId {
   /// 应用启动
-  static const String appStart = 'musicxx.app.start';
+  static const String appStarted = 'musicxx.app.started';
   /// 应用就绪
   static const String appReady = 'musicxx.app.ready';
-  /// 应用进入后台
-  static const String appBackground = 'musicxx.app.background';
-  /// 应用回到前台
-  static const String appForeground = 'musicxx.app.foreground';
   /// 前后台状态
   static const String appLifecycle = 'musicxx.app.lifecycle';
   /// 音源解析完成
   static const String playerSourceResolved = 'musicxx.player.source.resolved';
   /// 播放状态变化
-  static const String playerState = 'musicxx.player.state';
+  static const String playerStateChanged = 'musicxx.player.stateChanged';
   /// 播放进度
   static const String playerPosition = 'musicxx.player.position';
   /// 一曲播放完成
@@ -451,13 +447,11 @@ abstract final class MusicxxBroadcastId {
 
   /// 全部广播 id（按声明顺序）
   static const List<String> all = <String>[
-    appStart,
+    appStarted,
     appReady,
-    appBackground,
-    appForeground,
     appLifecycle,
     playerSourceResolved,
-    playerState,
+    playerStateChanged,
     playerPosition,
     playerCompleted,
     songChanged,
@@ -2713,7 +2707,7 @@ abstract final class MusicxxCapabilityCatalogue {
   /// 全部广播声明（按声明顺序）
   static const List<MusicxxBroadcastDecl> broadcasts = <MusicxxBroadcastDecl>[
     MusicxxBroadcastDecl(
-      id: 'musicxx.app.start',
+      id: 'musicxx.app.started',
       cache: 'none',
       publish: 'owner',
       pushOnSubscribe: false,
@@ -2735,30 +2729,6 @@ abstract final class MusicxxCapabilityCatalogue {
       options: <String>[],
       title: '应用就绪',
       depict: '应用初始化收尾（首屏与数据都就绪）派发一次，比应用启动晚',
-    ),
-    MusicxxBroadcastDecl(
-      id: 'musicxx.app.background',
-      cache: 'none',
-      publish: 'owner',
-      pushOnSubscribe: false,
-      coalesce: true,
-      scope: 'app',
-      type: '',
-      options: <String>[],
-      title: '应用进入后台',
-      depict: '应用进入后台（窗口隐藏 / 最小化，或移动到后台）时发布；只通知，不等回答',
-    ),
-    MusicxxBroadcastDecl(
-      id: 'musicxx.app.foreground',
-      cache: 'none',
-      publish: 'owner',
-      pushOnSubscribe: false,
-      coalesce: true,
-      scope: 'app',
-      type: '',
-      options: <String>[],
-      title: '应用回到前台',
-      depict: '应用回到前台时发布，带这次在后台待了多久；只通知，不等回答',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.app.lifecycle',
@@ -2785,7 +2755,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '某个音源解析完成（拿到真正播放用的路径与请求头）；载荷里没有直链与 token',
     ),
     MusicxxBroadcastDecl(
-      id: 'musicxx.player.state',
+      id: 'musicxx.player.stateChanged',
       cache: 'none',
       publish: 'owner',
       pushOnSubscribe: false,
