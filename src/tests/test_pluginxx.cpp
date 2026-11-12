@@ -894,10 +894,10 @@ bool cppIdNamespaced(const char *id) {
 bool cppCapabilityConsistent(const MusicxxCapabilityDecl &decl) {
   const bool openForImpl =
       (decl.phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_IMPL) != 0;
-  const uint32_t usages = decl.usage_mask & (MUSICXX_CAPABILITY_USAGE_POINT |
-                                             MUSICXX_CAPABILITY_USAGE_COMMAND |
-                                             MUSICXX_CAPABILITY_USAGE_SERVICE);
-  if (usages == 0) {
+  // 通道位掩码只用声明的三位
+  if ((decl.channels & (MUSICXX_CAPABILITY_CHANNEL_CLI |
+                        MUSICXX_CAPABILITY_CHANNEL_MCP |
+                        MUSICXX_CAPABILITY_CHANNEL_PLUGIN)) != decl.channels) {
     return false;
   }
   // 不开放实现时只有一个槽位、没有合并策略
@@ -938,7 +938,7 @@ void testCapabilityDeclarations() {
   }
   check(idsOk, "每条能力 id 都在 musicxx.* / plugin.* 命名空间里");
   check(idsUnique, "能力 id 不重复");
-  check(consistent, "每条能力声明的 impls / merge / phases / usage 自洽");
+  check(consistent, "每条能力声明的 impls / merge / phases 自洽");
 
   bool broadcastIdsOk = true;
   bool broadcastIdsUnique = true;
@@ -979,7 +979,7 @@ void testCapabilityDeclarations() {
             (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_BEFORE) != 0 &&
             (seek->phase_mask & MUSICXX_CAPABILITY_PHASE_MASK_AFTER) != 0,
         "seek：只开放 before 与 after（impl 注册被拒）");
-  check(seek && (seek->usage_mask & MUSICXX_CAPABILITY_USAGE_COMMAND) != 0,
+  check(seek && (seek->channels & MUSICXX_CAPABILITY_CHANNEL_CLI) != 0,
         "seek：也能当命令调");
 
   const MusicxxCapabilityDecl *lyricCache =
@@ -991,7 +991,7 @@ void testCapabilityDeclarations() {
   const MusicxxCapabilityDecl *featureCall =
       musicxxCapabilityDeclOf("musicxx.feature.point.call");
   check(featureCall != nullptr &&
-            (featureCall->expose_mask & MUSICXX_CAPABILITY_EXPOSE_CLI) != 0,
+            (featureCall->channels & MUSICXX_CAPABILITY_CHANNEL_CLI) != 0,
         "通用功能埋点通道：对外暴露命令行");
 
   check(musicxxCapabilityDeclOf("musicxx.unknown.point") == nullptr,

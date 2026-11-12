@@ -660,7 +660,7 @@ public:
     /// 调一个功能埋点（**异步形态**；结果经 `notify->done` 回来）
     ///
     /// - `id` 既可以是应用留出的埋点（`musicxx.media.spectrum.extract` /
-    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.provide`），
+    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.analyse`），
     ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
     /// - `argsJson` 是这个功能埋点自己的参数（看清单里的 `callDoc`）；
     /// - **默认超时 60 秒**：频谱提取要解码整曲，慢就自己加大；

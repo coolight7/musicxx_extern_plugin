@@ -668,7 +668,7 @@ musicxx.capability.register("featureProbe", function () {
     // 主动调应用留出的一个功能埋点: 封面取色（`path`/`url`/`data` 三选一；
     // 这里不给来源 = 当前歌曲的封面）。调用零副作用: 不改应用状态。
     // 没有实现/当前没有封面时拿到的是 `no_impl`/`bad_args`，属于正常结果。
-    musicxx.feature.callPoint("musicxx.media.palette.provide", {}).then(function (result) {
+    musicxx.feature.callPoint("musicxx.media.palette.analyse", {}).then(function (result) {
         featureCallState = { pending: 0, ok: 1, keys: Object.keys(result || {}).length, error: "" };
         musicxx.host.log(2, "调用应用功能埋点成功: " + featureCallState.keys + " 个字段");
     }, function (err) {

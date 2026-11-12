@@ -609,7 +609,7 @@ var featurePointImpls = new Map();
     /// 调一个**功能埋点**并拿到结果（应用留出的埋点, 或插件自己声明的功能埋点）。
     ///
     /// - `id` 既可以是应用留出的（`musicxx.media.spectrum.extract` /
-    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.provide`），
+    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.analyse`），
     ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
     /// - `args` 是这个功能埋点自己的参数，形状看 `points()` 里的 `callDoc`；
     /// - **调用零副作用**：不写应用的值仓、不改应用状态（调一次封面取色不会换掉背景色）；

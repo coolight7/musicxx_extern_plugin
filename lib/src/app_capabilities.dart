@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:ffi';
 
 import 'bindings_generated.dart';
-import 'capability_ids.g.dart';
 import 'events.dart';
 import 'native_strings.dart';
 import 'runtime.dart';
@@ -213,14 +212,3 @@ class MusicxxPluginAppCapabilities {
   static String _errorJson(String message) =>
       jsonEncode(<String, Object?>{'error': message});
 }
-
-/// 过时的分类 `musicxx.library.*` 里**仍然可用**的名字 → 现在的能力 id
-///
-/// 主程序按这张表把旧名字也注册成同一份实现，命令行与 `/cli/list` 也按它标出“过时”。
-/// 新能力不要再往这里加：能力 id 一律用生成的 [MusicxxCapabilityId]。
-const Map<String, String> kDeprecatedLibraryAliases = <String, String>{
-  'musicxx.library.querySonglists': MusicxxCapabilityId.playlistQueryLists,
-  'musicxx.library.querySongs': MusicxxCapabilityId.playlistQuerySongs,
-  'musicxx.library.playSong': MusicxxCapabilityId.songlistPlaySong,
-  'musicxx.library.playSonglist': MusicxxCapabilityId.playlistPlay,
-};

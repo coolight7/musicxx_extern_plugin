@@ -25,48 +25,36 @@
 
 ## 频道清单
 
-| 广播 id | 缓存 | 谁能发布 | 订阅即推 | 合并 | 作用域 | 状态 |
-|---|---|---|---|---|---|---|
-| `musicxx.app.start` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.app.ready` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.app.background` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.app.foreground` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.app.upgrade` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.app.lifecycle` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.player.source.resolved` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.player.state` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.player.position` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.player.completed` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.player.qualityChanged` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.song.changed` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.song.meta.writeback` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.song.removed` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.history.record` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.local.scan.finished` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.lyric.current` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.media.cover.changed` | none | owner | 否 | 允许 | app | 已接入 |
-| `musicxx.net.lan.event` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.ui.page.enter` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.ui.page.leave` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.ui.theme.changed` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.ui.user.action` | none | owner | 否 | 允许 | app | 未接入 |
-| `musicxx.ui.animatedLevel` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.ui.particleAnimate` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.ui.songIconRotate` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.ui.songIconWave` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.ui.fontFamily` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.theme.available` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.theme.current` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.theme.mode` | latest | owner | 是 | 不合并 | app | 已接入 |
-| `musicxx.state.app` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.player` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.song` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.playlist` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.lyric` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.playlists` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.env` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.renderSlots` | latest | owner | 是 | 允许 | app | 已接入 |
-| `musicxx.state.spectrum` | latest | owner | 是 | 允许 | app | 已接入 |
+| 广播 id | 缓存 | 谁能发布 | 订阅即推 | 合并 | 作用域 |
+|---|---|---|---|---|---|
+| `musicxx.app.start` | none | owner | 否 | 允许 | app |
+| `musicxx.app.ready` | none | owner | 否 | 允许 | app |
+| `musicxx.app.background` | none | owner | 否 | 允许 | app |
+| `musicxx.app.foreground` | none | owner | 否 | 允许 | app |
+| `musicxx.app.lifecycle` | latest | owner | 是 | 不合并 | app |
+| `musicxx.player.source.resolved` | none | owner | 否 | 允许 | app |
+| `musicxx.player.state` | none | owner | 否 | 允许 | app |
+| `musicxx.player.position` | latest | owner | 是 | 不合并 | app |
+| `musicxx.player.completed` | none | owner | 否 | 允许 | app |
+| `musicxx.song.changed` | none | owner | 否 | 允许 | app |
+| `musicxx.media.cover.changed` | none | owner | 否 | 允许 | app |
+| `musicxx.ui.animatedLevel` | latest | owner | 是 | 不合并 | app |
+| `musicxx.ui.particleAnimate` | latest | owner | 是 | 不合并 | app |
+| `musicxx.ui.songIconRotate` | latest | owner | 是 | 不合并 | app |
+| `musicxx.ui.songIconWave` | latest | owner | 是 | 不合并 | app |
+| `musicxx.ui.fontFamily` | latest | owner | 是 | 不合并 | app |
+| `musicxx.theme.available` | latest | owner | 是 | 不合并 | app |
+| `musicxx.theme.current` | latest | owner | 是 | 不合并 | app |
+| `musicxx.theme.mode` | latest | owner | 是 | 不合并 | app |
+| `musicxx.state.app` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.player` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.song` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.playlist` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.lyric` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.playlists` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.env` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.renderSlots` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.spectrum` | latest | owner | 是 | 允许 | app |
 
 ## 官方频道当前值
 
@@ -130,7 +118,7 @@
 
 要当前值（订阅时就能拿到）/ 允许别人发布这类属性时，才需要在定义文件的 `broadcasts` 里占一行。
 
-## 载荷（已接入的频道）
+## 载荷
 
 ### `musicxx.app.start` 应用启动
 

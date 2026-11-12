@@ -5,7 +5,7 @@
 /// 产物：
 /// | 产物 | 用途 |
 /// |---|---|
-/// | `lib/src/capability_ids.g.dart` | Dart 侧 id 常量 + 声明（impls / merge / phases / dispatch / timeout / cache / expose / usage / implemented） |
+/// | `lib/src/capability_ids.g.dart` | Dart 侧 id 常量 + 声明（impls / merge / phases / dispatch / timeout / cache / 三个通道块） |
 /// | `src/sdk/include/musicxx/plugin/api/capability_ids.g.h` | C++ 侧 id 常量 + 已知声明表（插件框架据此拒绝未知 id、判阶段与合并策略） |
 /// | `docs/plugin-capabilities.md` | 能力（请求 → 结果）作者文档 |
 /// | `docs/plugin-broadcasts.md` | 广播（只通知，不回答）作者文档 |
@@ -14,7 +14,8 @@
 /// 作者文档"几处，靠手写常量加断言对齐迟早会漂；生成物把 id 与声明字段一起带出去。
 ///
 /// - 校验规则见 [loadCapabilityContract]：id 命名空间、`impls` 与 `phases` 的组合、
-///   `merge` 的适用范围、`usage` 非空、广播"订阅即推值"只能在 `cache=latest` 时声明。
+///   `merge` 的适用范围、通道块（`cli` / `mcp` / `plugin`）的字段与取值、
+///   广播"订阅即推值"只能在 `cache=latest` 时声明。
 /// - 生成物是提交物：改完定义文件必须跑 `dart run tools/gen_contract.dart` 并提交。
 library;
 
@@ -71,54 +72,51 @@ const Map<String, int> _broadcastCacheCodes = <String, int>{
 const Map<String, int> _publishCodes = <String, int>{'owner': 0, 'anyone': 1};
 
 /// 广播值的类型提示（可选；只用于文档与自省，不参与派发）
-const List<String> _broadcastTypes = <String>['bool', 'number', 'string', 'json'];
+const List<String> _broadcastTypes = <String>[
+  'bool',
+  'number',
+  'string',
+  'json',
+];
 
 /// 广播的作用域：`app`（业务频道）/ `system`（调试与自省频道，插件不能写）
 const Map<String, int> _scopeCodes = <String, int>{'app': 0, 'system': 1};
 
-/// 链接触发时是否先问用户
-const Map<String, int> _consentCodes = <String, int>{'none': 0, 'ask': 1};
-
-/// 用途位掩码：功能埋点 / 命令 / 插件服务
-const Map<String, int> _usageCodes = <String, int>{
-  'point': 1,
-  'command': 2,
-  'service': 4,
-};
-
-/// 用途的固定次序（生成的数组与文档列都按它写）
-const List<String> _usageOrder = <String>['point', 'command', 'service'];
-
-/// 外部入口位掩码
-const Map<String, int> _exposeCodes = <String, int>{
+/// 外部通道位掩码：一个能力可以同时有几个
+///
+/// 声明里的三个可选块 `cli` / `mcp` / `plugin` 各对应一位；没有块 = 只能应用内部调
+/// （纯实现 / 干预类能力，例如 `musicxx.player.source.resolve`）。
+const Map<String, int> _channelCodes = <String, int>{
   'cli': 1,
   'mcp': 2,
-  'link': 4,
-  'plugin': 8,
-  'ui': 16,
-  'page': 32,
-  'drive': 64,
+  'plugin': 4,
 };
 
-/// 外部入口的固定次序
-const List<String> _exposeOrder = <String>[
-  'cli',
-  'mcp',
-  'link',
-  'plugin',
-  'ui',
-  'page',
-  'drive',
-];
+/// MCP 工具名的字符集：协议不接受点号，统一 PascalCase
+final RegExp _mcpNamePattern = RegExp(r'^[A-Z][A-Za-z0-9]*$');
 
-/// 用途的中文说法（文档用）
-const Map<String, String> _usageText = <String, String>{
-  'point': '功能埋点',
-  'command': '命令',
-  'service': '插件服务',
-};
+/// MCP 工具说明的格式：`text`（排好版的文本）/ `json`（结构化，缺省）
+const Map<String, int> _mcpFormatCodes = <String, int>{'json': 0, 'text': 1};
 
 /* ==================== 声明模型 ==================== */
+
+/// 按 id 生成默认的 MCP 工具名：`musicxx.player.toggle` → `PlayerToggle`
+///
+/// 段分隔符（`.` / `_`）各算一个词边界，其余原样保留；工具名不能带点（MCP 协议不接受）。
+String defaultMcpNameOf(String id) {
+  final String body = id.startsWith('musicxx.')
+      ? id.substring('musicxx.'.length)
+      : id;
+  final StringBuffer sb = StringBuffer();
+  for (final String part in body.split(RegExp(r'[._]'))) {
+    if (part.isEmpty) {
+      continue;
+    }
+    sb.write(part[0].toUpperCase());
+    sb.write(part.substring(1));
+  }
+  return sb.toString();
+}
 
 /// 一条能力声明
 final class CapabilityDeclaration {
@@ -133,10 +131,15 @@ final class CapabilityDeclaration {
     required this.dispatch,
     required this.timeoutMs,
     required this.cache,
-    required this.expose,
+    required this.cli,
+    required this.commandTitle,
     required this.consent,
-    required this.usage,
-    required this.implemented,
+    required this.mcp,
+    required this.mcpName,
+    required this.mcpFormat,
+    required this.mcpTitle,
+    required this.mcpDepict,
+    required this.plugin,
     required this.doc,
   });
 
@@ -163,19 +166,34 @@ final class CapabilityDeclaration {
   /// `none` / `byIdentity`
   final String cache;
 
-  /// `cli` / `mcp` / `link` / `plugin` / `ui` / `page` / `drive`，按固定次序
-  final List<String> expose;
+  /// 命令面能调（声明里有 `cli` 块）
+  final bool cli;
 
-  /// `none` / `ask`
+  /// 命令标题（`cli.title`；空串 = 用 [title]）
+  final String commandTitle;
+
+  /// 从链接触发时先问用户的原因（`cli.consent`；空串 = 不问）
   final String consent;
 
-  /// `point` / `command` / `service`，按固定次序
-  final List<String> usage;
+  /// 进 MCP 工具表（声明里有 `mcp` 块）
+  final bool mcp;
 
-  /// 主程序是否已经接入
-  final bool implemented;
+  /// MCP 工具名（`mcp.name`；空串 = 按 id 生成）
+  final String mcpName;
 
-  /// 载荷与回答的说明（未接入的条目为空或只是草稿）
+  /// `json` / `text`
+  final String mcpFormat;
+
+  /// 给模型看的标题（`mcp.title`；空串 = 用 [title]）
+  final String mcpTitle;
+
+  /// 给模型看的说明（`mcp.depict`；空串 = 用 [depict]）
+  final String mcpDepict;
+
+  /// 允许插件在 `musicxx.capability.call` 里调（声明里有 `plugin` 块）
+  final bool plugin;
+
+  /// 载荷与回答的说明
   final String doc;
 
   /// 实现是否开放（`phases` 含 `impl`）
@@ -187,15 +205,34 @@ final class CapabilityDeclaration {
     (int mask, String phase) => mask | (1 << _phaseCodes[phase]!),
   );
 
-  /// 用途位掩码
-  int get usageMask =>
-      usage.fold<int>(0, (int mask, String item) => mask | _usageCodes[item]!);
+  /// 外部通道位掩码
+  int get channelMask {
+    int mask = 0;
+    if (cli) {
+      mask |= _channelCodes['cli']!;
+    }
+    if (mcp) {
+      mask |= _channelCodes['mcp']!;
+    }
+    if (plugin) {
+      mask |= _channelCodes['plugin']!;
+    }
+    return mask;
+  }
 
-  /// 外部入口位掩码
-  int get exposeMask => expose.fold<int>(
-    0,
-    (int mask, String item) => mask | _exposeCodes[item]!,
-  );
+  /// 实际生效的工具名（`mcp.name` 没写时按 id 生成：`musicxx.player.toggle` → `PlayerToggle`）
+  String get effectiveMcpName =>
+      mcpName.isNotEmpty ? mcpName : defaultMcpNameOf(id);
+
+  /// 实际生效的工具说明标题（没写用声明里的）
+  String get effectiveMcpTitle => mcpTitle.isNotEmpty ? mcpTitle : title;
+
+  /// 实际生效的工具说明（没写用声明里的）
+  String get effectiveMcpDepict => mcpDepict.isNotEmpty ? mcpDepict : depict;
+
+  /// 实际生效的命令标题（没写用声明里的）
+  String get effectiveCommandTitle =>
+      commandTitle.isNotEmpty ? commandTitle : title;
 }
 
 /// 一条广播声明
@@ -212,7 +249,6 @@ final class BroadcastDeclaration {
     required this.scope,
     required this.type,
     required this.options,
-    required this.implemented,
     required this.doc,
   });
 
@@ -237,7 +273,7 @@ final class BroadcastDeclaration {
 
   /// `app` / `system`
   final String scope;
-  final bool implemented;
+
   final String doc;
 
   /// 有没有"当前值"可读
@@ -355,13 +391,73 @@ List<String> _freeStringList(
   return values;
 }
 
+/// 读一个可选的通道块（`cli` / `mcp` / `plugin`）
+///
+/// 没写 = 没有这个外部通道（返回 null）；写了必须是对象，字段只能是 [allowed] 里的。
+Map<String, Object?>? _optionalBlock(
+  Map<String, Object?> json,
+  String key,
+  String where, {
+  required List<String> allowed,
+}) {
+  final Object? raw = json[key];
+  if (raw == null) {
+    return null;
+  }
+  if (raw is! Map) {
+    throw StateError('$where: `$key` 必须是对象（没有字段就写 {}）');
+  }
+  final Map<String, Object?> block = raw.cast<String, Object?>();
+  for (final String name in block.keys) {
+    if (!allowed.contains(name)) {
+      throw StateError(
+        '$where: `$key` 里出现未知字段 `$name`（可用 ${allowed.join(", ")}）',
+      );
+    }
+  }
+  return block;
+}
+
+/// 读通道块里的字符串字段（没写返回空串）
+String _blockString(Map<String, Object?>? block, String key, String where) {
+  if (block == null || null == block[key]) {
+    return '';
+  }
+  final Object? raw = block[key];
+  if (raw is! String) {
+    throw StateError('$where: `$key` 必须是字符串');
+  }
+  return raw;
+}
+
+/// 读通道块里的枚举字段（没写返回 [fallback]）
+String _blockEnum(
+  Map<String, Object?>? block,
+  String key,
+  String where,
+  Map<String, int> codes,
+  String fallback,
+) {
+  final String value = _blockString(block, key, where);
+  if (value.isEmpty) {
+    return fallback;
+  }
+  if (!codes.containsKey(value)) {
+    throw StateError(
+      '$where: `$key` 取值非法 `$value`（可用 ${codes.keys.join(", ")}）',
+    );
+  }
+  return value;
+}
+
 /// 读取定义文件并做全部校验
 ///
 /// 校验的是"设计语义"，不是格式：
 /// - id 命名空间只有 `musicxx.*` 与 `plugin.*` 两个；
 /// - `phases` 不含 `impl` 时只能是 `impls: one`（实现固定由应用提供，插件只能注册 before / after）；
 /// - `merge` 只在 `impls: many` 且 `phases` 含 `impl` 时写，其余情况写了就是声明错了；
-/// - `usage` 至少一项（否则这条能力没有任何调用方）；
+/// - 三个通道块 `cli` / `mcp` / `plugin` 的字段只能是用到的那几个；
+/// - `mcp.name` 必须是 PascalCase 且全局不重复（协议不接受点号）；
 /// - 广播的 `pushOnSubscribe` 只能在 `cache: latest` 时声明（没有当前值就没什么可推的）。
 CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
   final File file = File(path);
@@ -382,6 +478,7 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
   final List<CapabilityDeclaration> capabilities = <CapabilityDeclaration>[];
   final Set<String> capabilityIds = <String>{};
   final Set<String> capabilityDartNames = <String>{};
+  final Map<String, String> mcpToolOwners = <String, String>{};
   for (final Object? item in rawCaps) {
     final Map<String, Object?> json = item! as Map<String, Object?>;
     final String id = _requireString(json, 'id', '能力');
@@ -435,14 +532,34 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
       }
       timeoutMs = rawTimeout;
     }
-    final List<String> usage = _stringList(
+    final Map<String, Object?>? cliBlock = _optionalBlock(
       json,
-      'usage',
+      'cli',
       where,
-      allowed: _usageCodes.keys.toList(growable: false),
-      order: _usageOrder,
-      allowEmpty: false,
+      allowed: <String>['title', 'consent', 'params'],
     );
+    final Map<String, Object?>? mcpBlock = _optionalBlock(
+      json,
+      'mcp',
+      where,
+      allowed: <String>['name', 'format', 'title', 'depict'],
+    );
+    final Map<String, Object?>? pluginBlock = _optionalBlock(
+      json,
+      'plugin',
+      where,
+      allowed: const <String>[],
+    );
+    if (null != cliBlock && null != cliBlock['params']) {
+      final Object? rawParams = cliBlock['params'];
+      if (rawParams is! List) {
+        throw StateError('$where: `cli.params` 必须是数组');
+      }
+    }
+    final String mcpName = _blockString(mcpBlock, 'name', '$where 的 mcp 块');
+    if (mcpName.isNotEmpty && !_mcpNamePattern.hasMatch(mcpName)) {
+      throw StateError('$where: `mcp.name` 必须是 PascalCase（当前 `$mcpName`）');
+    }
     capabilities.add(
       CapabilityDeclaration(
         id: id,
@@ -455,19 +572,33 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
         dispatch: dispatch,
         timeoutMs: timeoutMs,
         cache: _requireEnum(json, 'cache', where, _cacheCodes),
-        expose: _stringList(
-          json,
-          'expose',
-          where,
-          allowed: _exposeCodes.keys.toList(growable: false),
-          order: _exposeOrder,
+        cli: null != cliBlock,
+        commandTitle: _blockString(cliBlock, 'title', '$where 的 cli 块'),
+        consent: _blockString(cliBlock, 'consent', '$where 的 cli 块'),
+        mcp: null != mcpBlock,
+        mcpName: mcpName,
+        mcpFormat: _blockEnum(
+          mcpBlock,
+          'format',
+          '$where 的 mcp 块',
+          _mcpFormatCodes,
+          'json',
         ),
-        consent: _requireEnum(json, 'consent', where, _consentCodes),
-        usage: usage,
-        implemented: _optionalBool(json, 'implemented', where),
+        mcpTitle: _blockString(mcpBlock, 'title', '$where 的 mcp 块'),
+        mcpDepict: _blockString(mcpBlock, 'depict', '$where 的 mcp 块'),
+        plugin: null != pluginBlock,
         doc: _optionalString(json, 'doc'),
       ),
     );
+    final CapabilityDeclaration decl = capabilities.last;
+    if (decl.mcp) {
+      final String toolName = decl.effectiveMcpName;
+      final String? owner = mcpToolOwners[toolName];
+      if (null != owner) {
+        throw StateError('MCP 工具名重复: `$toolName`（$owner 与 $id）');
+      }
+      mcpToolOwners[toolName] = id;
+    }
   }
 
   final List<BroadcastDeclaration> broadcasts = <BroadcastDeclaration>[];
@@ -523,7 +654,6 @@ CapabilityContract loadCapabilityContract({String path = capabilitiesDefPath}) {
         scope: _requireEnum(json, 'scope', where, _scopeCodes),
         type: type,
         options: options,
-        implemented: _optionalBool(json, 'implemented', where),
         doc: _optionalString(json, 'doc'),
       ),
     );
@@ -573,9 +703,15 @@ String _cppConstant(String prefix, String id) {
   return sb.toString();
 }
 
-/// 用途的中文说法（多个用顿号连起来）
-String _usageTextOf(List<String> usage) =>
-    usage.map((String item) => _usageText[item] ?? item).join('、');
+/// 通道的中文说法（多个用顿号连起来）
+String _channelTextOf(CapabilityDeclaration decl) {
+  final List<String> names = <String>[
+    if (decl.cli) '命令',
+    if (decl.mcp) 'MCP 工具',
+    if (decl.plugin) '插件',
+  ];
+  return names.isEmpty ? '-' : names.join('、');
+}
 
 /// 阶段的中文说法（没有 impl 时写清"只能 before / after"）
 String _phaseTextOf(CapabilityDeclaration decl) {
@@ -720,6 +856,27 @@ String _generateDart(CapabilityContract contract) {
     ..writeln(
       '/// 字段含义见 `tools/capabilities.def.json` 与 `docs/plugin-capabilities.md`。',
     )
+    ..writeln('///')
+    ..writeln(
+      '/// 按 id 生成默认的 MCP 工具名（`musicxx.player.toggle` → `PlayerToggle`）：',
+    )
+    ..writeln('/// 工具名不能带点（MCP 协议不接受），段分隔符各算一个词边界。')
+    ..writeln('String musicxxDefaultMcpNameOf(String id) {')
+    ..writeln("  const String prefix = 'musicxx.';")
+    ..writeln(
+      '  final String body = id.startsWith(prefix) ? id.substring(prefix.length) : id;',
+    )
+    ..writeln('  final StringBuffer sb = StringBuffer();')
+    ..writeln("  for (final String part in body.split(RegExp(r'[._]'))) {")
+    ..writeln('    if (part.isEmpty) {')
+    ..writeln('      continue;')
+    ..writeln('    }')
+    ..writeln('    sb.write(part[0].toUpperCase());')
+    ..writeln('    sb.write(part.substring(1));')
+    ..writeln('  }')
+    ..writeln('  return sb.toString();')
+    ..writeln('}')
+    ..writeln()
     ..writeln('final class MusicxxCapabilityDecl {')
     ..writeln('  const MusicxxCapabilityDecl({')
     ..writeln('    required this.id,')
@@ -729,10 +886,15 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('    required this.dispatch,')
     ..writeln('    required this.timeoutMs,')
     ..writeln('    required this.cache,')
-    ..writeln('    required this.expose,')
+    ..writeln('    required this.cli,')
+    ..writeln('    required this.commandTitle,')
     ..writeln('    required this.consent,')
-    ..writeln('    required this.usage,')
-    ..writeln('    required this.implemented,')
+    ..writeln('    required this.mcp,')
+    ..writeln('    required this.mcpName,')
+    ..writeln('    required this.mcpFormat,')
+    ..writeln('    required this.mcpTitle,')
+    ..writeln('    required this.mcpDepict,')
+    ..writeln('    required this.plugin,')
     ..writeln('    required this.title,')
     ..writeln('    required this.depict,')
     ..writeln('  });')
@@ -757,19 +919,57 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// `none` / `byIdentity`')
     ..writeln('  final String cache;')
     ..writeln()
+    ..writeln('  /// `cli` / `mcp` / `plugin` 三个通道块：有哪一块，谁就能调它')
     ..writeln(
-      '  /// `cli` / `mcp` / `link` / `plugin` / `ui` / `page` / `drive` 的子集',
+      '  /// - `cli`：命令面（命令行 / /cli / 链接）；`commandTitle` / `consent` 是它的可选字段',
     )
-    ..writeln('  final List<String> expose;')
+    ..writeln('  /// - `mcp`：进 MCP 工具表，工具名 `mcpName`（不写时按 id 生成）')
+    ..writeln('  /// - `plugin`：插件可以在 `musicxx.capability.call` 里调')
+    ..writeln('  final bool cli;')
     ..writeln()
-    ..writeln('  /// `none` / `ask`（链接触发时是否先问用户）')
+    ..writeln('  /// 命令标题（`cli.title`；空串 = 用 [title]）')
+    ..writeln('  final String commandTitle;')
+    ..writeln()
+    ..writeln('  /// 从链接触发时先问用户的原因（`cli.consent`；空串 = 不问）')
     ..writeln('  final String consent;')
     ..writeln()
-    ..writeln('  /// `point` / `command` / `service` 的子集')
-    ..writeln('  final List<String> usage;')
+    ..writeln('  /// 进 MCP 工具表（声明里有 `mcp` 块）')
+    ..writeln('  final bool mcp;')
     ..writeln()
-    ..writeln('  /// 主程序是否已经接入（未接入的条目注册不会报错，也不会触发）')
-    ..writeln('  final bool implemented;')
+    ..writeln('  /// MCP 工具名（`mcp.name`；空串 = 按 id 生成）')
+    ..writeln('  final String mcpName;')
+    ..writeln()
+    ..writeln('  /// `json`（结构化，缺省）/ `text`（排好版的文本）')
+    ..writeln('  final String mcpFormat;')
+    ..writeln()
+    ..writeln('  /// 给模型看的标题（`mcp.title`；空串 = 用 [title]）')
+    ..writeln('  final String mcpTitle;')
+    ..writeln()
+    ..writeln('  /// 给模型看的说明（`mcp.depict`；空串 = 用 [depict]）')
+    ..writeln('  final String mcpDepict;')
+    ..writeln()
+    ..writeln('  /// 允许插件在 `musicxx.capability.call` 里调（声明里有 `plugin` 块）')
+    ..writeln('  final bool plugin;')
+    ..writeln()
+    ..writeln('  /// 实际生效的工具名（`mcp.name` 没写时按 id 生成）')
+    ..writeln(
+      '  String get effectiveMcpName => mcpName.isNotEmpty ? mcpName : musicxxDefaultMcpNameOf(id);',
+    )
+    ..writeln()
+    ..writeln('  /// 实际生效的工具标题（没写用 [title]）')
+    ..writeln(
+      '  String get effectiveMcpTitle => mcpTitle.isNotEmpty ? mcpTitle : title;',
+    )
+    ..writeln()
+    ..writeln('  /// 实际生效的工具说明（没写用 [depict]）')
+    ..writeln(
+      '  String get effectiveMcpDepict => mcpDepict.isNotEmpty ? mcpDepict : depict;',
+    )
+    ..writeln()
+    ..writeln('  /// 实际生效的命令标题（没写用 [title]）')
+    ..writeln(
+      '  String get effectiveCommandTitle => commandTitle.isNotEmpty ? commandTitle : title;',
+    )
     ..writeln()
     ..writeln('  /// 一句话标题（自省与文档用）')
     ..writeln('  final String title;')
@@ -785,11 +985,11 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('  /// 多个实现共存')
     ..writeln("  bool get many => impls == 'many';")
     ..writeln()
-    ..writeln('  /// 只作功能埋点（界面上叫"功能埋点"，代码里叫能力）')
-    ..writeln("  bool get isPoint => usage.contains('point');")
+    ..writeln('  /// 只给模型用（不进命令表，也不对插件开放）')
+    ..writeln('  bool get mcpOnly => mcp && !cli && !plugin;')
     ..writeln()
-    ..writeln('  /// 能被外部当命令调')
-    ..writeln("  bool get isCommand => usage.contains('command');")
+    ..writeln('  /// 只能应用内部调（三个通道块都没有）')
+    ..writeln('  bool get internalOnly => !cli && !mcp && !plugin;')
     ..writeln()
     ..writeln('  /// 按请求身份缓存结果')
     ..writeln("  bool get cachedByIdentity => cache == 'byIdentity';")
@@ -815,7 +1015,6 @@ String _generateDart(CapabilityContract contract) {
     ..writeln('    required this.scope,')
     ..writeln('    required this.type,')
     ..writeln('    required this.options,')
-    ..writeln('    required this.implemented,')
     ..writeln('    required this.title,')
     ..writeln('    required this.depict,')
     ..writeln('  });')
@@ -842,8 +1041,6 @@ String _generateDart(CapabilityContract contract) {
     ..writeln()
     ..writeln('  /// 枚举取值域（稳定 id；只用于文档与自省）')
     ..writeln('  final List<String> options;')
-    ..writeln()
-    ..writeln('  final bool implemented;')
     ..writeln()
     ..writeln('  final String title;')
     ..writeln()
@@ -874,10 +1071,15 @@ String _generateDart(CapabilityContract contract) {
       ..writeln('      dispatch: ${_dartLiteral(decl.dispatch)},')
       ..writeln('      timeoutMs: ${decl.timeoutMs},')
       ..writeln('      cache: ${_dartLiteral(decl.cache)},')
-      ..writeln('      expose: ${_dartStringList(decl.expose)},')
+      ..writeln('      cli: ${decl.cli},')
+      ..writeln('      commandTitle: ${_dartLiteral(decl.commandTitle)},')
       ..writeln('      consent: ${_dartLiteral(decl.consent)},')
-      ..writeln('      usage: ${_dartStringList(decl.usage)},')
-      ..writeln('      implemented: ${decl.implemented},')
+      ..writeln('      mcp: ${decl.mcp},')
+      ..writeln('      mcpName: ${_dartLiteral(decl.mcpName)},')
+      ..writeln('      mcpFormat: ${_dartLiteral(decl.mcpFormat)},')
+      ..writeln('      mcpTitle: ${_dartLiteral(decl.mcpTitle)},')
+      ..writeln('      mcpDepict: ${_dartLiteral(decl.mcpDepict)},')
+      ..writeln('      plugin: ${decl.plugin},')
       ..writeln('      title: ${_dartLiteral(decl.title)},')
       ..writeln('      depict: ${_dartLiteral(decl.depict)},')
       ..writeln('    ),');
@@ -903,7 +1105,6 @@ String _generateDart(CapabilityContract contract) {
       ..writeln('      scope: ${_dartLiteral(decl.scope)},')
       ..writeln('      type: ${_dartLiteral(decl.type)},')
       ..writeln('      options: ${_dartStringList(decl.options)},')
-      ..writeln('      implemented: ${decl.implemented},')
       ..writeln('      title: ${_dartLiteral(decl.title)},')
       ..writeln('      depict: ${_dartLiteral(decl.depict)},')
       ..writeln('    ),');
@@ -1004,26 +1205,14 @@ String _generateCpp(CapabilityContract contract) {
     ..writeln('#define MUSICXX_CAPABILITY_CACHE_NONE        0')
     ..writeln('#define MUSICXX_CAPABILITY_CACHE_BY_IDENTITY 1')
     ..writeln()
-    ..writeln('/* ==================== 用途位掩码 ==================== */')
+    ..writeln('/* ==================== 外部通道位掩码 ==================== */')
     ..writeln()
-    ..writeln('#define MUSICXX_CAPABILITY_USAGE_POINT   0x1u')
-    ..writeln('#define MUSICXX_CAPABILITY_USAGE_COMMAND 0x2u')
-    ..writeln('#define MUSICXX_CAPABILITY_USAGE_SERVICE 0x4u')
-    ..writeln()
-    ..writeln('/* ==================== 外部入口位掩码 ==================== */')
-    ..writeln()
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_CLI    0x01u')
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_MCP    0x02u')
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_LINK   0x04u')
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_PLUGIN 0x08u')
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_UI     0x10u')
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_PAGE   0x20u')
-    ..writeln('#define MUSICXX_CAPABILITY_EXPOSE_DRIVE  0x40u')
-    ..writeln()
-    ..writeln('/* ==================== 链接触发时是否先问用户 ==================== */')
-    ..writeln()
-    ..writeln('#define MUSICXX_CAPABILITY_CONSENT_NONE 0')
-    ..writeln('#define MUSICXX_CAPABILITY_CONSENT_ASK  1')
+    ..writeln('/// 命令面能调（命令行 / /cli / 链接）')
+    ..writeln('#define MUSICXX_CAPABILITY_CHANNEL_CLI    0x01u')
+    ..writeln('/// 进 MCP 工具表')
+    ..writeln('#define MUSICXX_CAPABILITY_CHANNEL_MCP    0x02u')
+    ..writeln('/// 插件可以在 musicxx.capability.call 里调')
+    ..writeln('#define MUSICXX_CAPABILITY_CHANNEL_PLUGIN 0x04u')
     ..writeln()
     ..writeln('/* ==================== 广播的缓存与发布权限 ==================== */')
     ..writeln()
@@ -1073,10 +1262,7 @@ String _generateCpp(CapabilityContract contract) {
     ..writeln('    int32_t     dispatch;    ///< MUSICXX_CAPABILITY_DISPATCH_*')
     ..writeln('    int32_t     timeout_ms;  ///< 等实现的上限（0 = 不设上限）')
     ..writeln('    int32_t     cache;       ///< MUSICXX_CAPABILITY_CACHE_*')
-    ..writeln('    uint32_t    usage_mask;  ///< MUSICXX_CAPABILITY_USAGE_*')
-    ..writeln('    uint32_t    expose_mask; ///< MUSICXX_CAPABILITY_EXPOSE_*')
-    ..writeln('    int32_t     consent;     ///< MUSICXX_CAPABILITY_CONSENT_*')
-    ..writeln('    int32_t     implemented; ///< 主程序是否已经接入')
+    ..writeln('    uint32_t    channels;    ///< MUSICXX_CAPABILITY_CHANNEL_*')
     ..writeln('} MusicxxCapabilityDecl;')
     ..writeln()
     ..writeln('/// 一条广播的声明')
@@ -1093,7 +1279,6 @@ String _generateCpp(CapabilityContract contract) {
     ..writeln(
       '    int32_t     scope;             ///< MUSICXX_BROADCAST_SCOPE_*',
     )
-    ..writeln('    int32_t     implemented;       ///< 主程序是否已经接入')
     ..writeln('} MusicxxBroadcastDecl;')
     ..writeln()
     ..writeln(
@@ -1106,8 +1291,7 @@ String _generateCpp(CapabilityContract contract) {
     sb.writeln(
       '    {"${decl.id}", $impls, $merge, ${decl.phaseMask}u, '
       '${_dispatchCodes[decl.dispatch]!}, ${decl.timeoutMs}, '
-      '${_cacheCodes[decl.cache]!}, ${decl.usageMask}u, ${decl.exposeMask}u, '
-      '${_consentCodes[decl.consent]!}, ${decl.implemented ? 1 : 0}},',
+      '${_cacheCodes[decl.cache]!}, ${decl.channelMask}u},',
     );
   }
 
@@ -1126,8 +1310,7 @@ String _generateCpp(CapabilityContract contract) {
     sb.writeln(
       '    {"${decl.id}", ${_broadcastCacheCodes[decl.cache]!}, '
       '${_publishCodes[decl.publish]!}, ${decl.pushOnSubscribe ? 1 : 0}, '
-      '${decl.coalesce ? 1 : 0}, ${_scopeCodes[decl.scope]!}, '
-      '${decl.implemented ? 1 : 0}},',
+      '${decl.coalesce ? 1 : 0}, ${_scopeCodes[decl.scope]!}},',
     );
   }
 
@@ -1212,28 +1395,25 @@ String _generateCapabilityDoc(CapabilityContract contract) {
     ..writeln('| `timeoutMs` | 等实现的上限，超时按"没给"处理；`0` = 不设上限 |')
     ..writeln('| `cache` | `byIdentity` = 同一个请求身份不重复算；`none` = 每次都问实现 |')
     ..writeln(
-      '| `usage` | 这条能力用来干什么。**功能埋点** = 只给应用自己当埋点调；'
-      '**命令** = 外部（命令行 / MCP / 链接）能调；**插件服务** = 插件之间互相调 |',
+      '| `cli` | 命令面能调（命令行 / `/cli` / 链接）。块内可写 `title`（命令标题）、'
+      '`consent`（从链接调时先问用户的原因） |',
     )
     ..writeln(
-      '| `expose` | 谁能调：`cli` / `mcp` / `link` / `plugin` / `ui` / `page` / `drive` |',
+      '| `mcp` | 进 MCP 工具表。块内可写 `name`（工具名，PascalCase）、`format`（`text` / `json`） |',
     )
-    ..writeln('| `consent` | 链接触发时是否先问用户（`ask` = 问，`none` = 不问） |')
+    ..writeln('| `plugin` | 插件可以在 `musicxx.capability.call(id, args)` 里调 |')
     ..writeln()
     ..writeln('## 怎么读这张表')
     ..writeln()
     ..writeln(
-      '- **用途**列就是界面与文档里的说法：`功能埋点` 对应代码里的"能力"'
-      '（插件接管它的实现就是替代应用自己的这一段）；',
+      '- **通道**列就是"谁能调它"：`命令` = 命令行 / `/cli` / 链接；`MCP 工具` = 给模型的工具；'
+      '`插件` = 插件能调；`-` = 只能应用内部调（纯实现 / 干预类，插件只能注册前后链）；',
     )
     ..writeln(
       '- **可注册阶段**列写清插件能参与哪一步；只写 `before / after` 的能力**不能**注册实现'
       '（注册会被拒并说明原因）；',
     )
-    ..writeln(
-      '- **状态**列 `已接入` = 主程序已经在调用点接上（注册后会被调用）；'
-      '`未接入` = 约定已定、主程序还没接（注册不报错，也不会触发）；',
-    )
+    ..writeln('- **MCP 工具**列就是模型看到的工具名（`mcp.name`，不写时按 id 生成）；不做工具的能力写 `-`；')
     ..writeln(
       '- 注册时写全名：官方 `musicxx.*`；实现 / 声明自己的能力时写名字'
       '（宿主补成 `plugin.<本插件 id>.<名字>`，名字可以含点，例如 `drive.list`）。',
@@ -1241,28 +1421,26 @@ String _generateCapabilityDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln('## 能力清单')
     ..writeln()
-    ..writeln('| 能力 id | 用途 | 可注册阶段 | 合并 | 派发 | 超时 | 缓存 | 外部入口 | 状态 |')
-    ..writeln('|---|---|---|---|---|---|---|---|---|');
+    ..writeln('| 能力 id | 通道 | 可注册阶段 | 合并 | 派发 | 超时 | 缓存 | MCP 工具 |')
+    ..writeln('|---|---|---|---|---|---|---|---|');
 
   for (final CapabilityDeclaration decl in contract.capabilities) {
     final String timeout = decl.timeoutMs == 0 ? '-' : '${decl.timeoutMs} ms';
     final String cache = decl.cache == 'byIdentity' ? '按身份' : '-';
-    final String expose = decl.expose.isEmpty ? '-' : decl.expose.join('/');
+    final String tool = decl.mcp ? '`${decl.effectiveMcpName}`' : '-';
     sb.writeln(
-      '| `${decl.id}` | ${_usageTextOf(decl.usage)} | ${_phaseTextOf(decl)} | '
+      '| `${decl.id}` | ${_channelTextOf(decl)} | ${_phaseTextOf(decl)} | '
       '${decl.merge.isEmpty ? "-" : decl.merge} | ${decl.dispatch} | $timeout | '
-      '$cache | $expose | ${decl.implemented ? "已接入" : "未接入"} |',
+      '$cache | $tool |',
     );
   }
 
   sb
     ..writeln()
-    ..writeln('## 载荷与回答（已接入的能力）')
-    ..writeln()
-    ..writeln('未接入的能力只占位：注册不会报错，也不会触发。已接入的每一条下面写清载荷字段与回答格式。');
+    ..writeln('## 载荷与回答');
 
   for (final CapabilityDeclaration decl in contract.capabilities) {
-    if (!decl.implemented || decl.doc.trim().isEmpty) {
+    if (decl.doc.trim().isEmpty) {
       continue;
     }
     final String heading = decl.title.isEmpty ? '' : ' ${decl.title}';
@@ -1295,7 +1473,9 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln('广播只做这几件事：**声明自己的频道 / 发布 / 读当前值 / 订阅 / 结束自己的流**。')
     ..writeln('它**不提供写入**（没有"给别人的频道写值"这个操作，也没有回执）：')
-    ..writeln('要改应用状态一律调能力（见 [plugin-capabilities.md](plugin-capabilities.md)），')
+    ..writeln(
+      '要改应用状态一律调能力（见 [plugin-capabilities.md](plugin-capabilities.md)），',
+    )
     ..writeln('结果的校验与拒绝原因由能力告诉你。')
     ..writeln()
     ..writeln('| 字段 | 含义 |')
@@ -1305,20 +1485,22 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('| `pushOnSubscribe` | 订阅时立刻收到当前缓存值（仅 `cache: latest`） |')
     ..writeln('| `coalesce` | 允许合并（允许丢中间值）；带当前值的频道一般写 `false`，每次发布都通知 |')
     ..writeln('| `scope` | `app` = 业务频道；`system` = 调试与自省频道（插件不能发布） |')
-    ..writeln('| `type` | 值的类型提示（`bool` / `number` / `string` / `json`，可选；只用于文档与自省） |')
+    ..writeln(
+      '| `type` | 值的类型提示（`bool` / `number` / `string` / `json`，可选；只用于文档与自省） |',
+    )
     ..writeln('| `options` | 枚举取值域（稳定 id，不用本地化文案；可选，只用于文档与自省） |')
     ..writeln()
     ..writeln('## 频道清单')
     ..writeln()
-    ..writeln('| 广播 id | 缓存 | 谁能发布 | 订阅即推 | 合并 | 作用域 | 状态 |')
-    ..writeln('|---|---|---|---|---|---|---|');
+    ..writeln('| 广播 id | 缓存 | 谁能发布 | 订阅即推 | 合并 | 作用域 |')
+    ..writeln('|---|---|---|---|---|---|');
 
   for (final BroadcastDeclaration decl in contract.broadcasts) {
     sb.writeln(
       '| `${decl.id}` | ${decl.cache} | ${decl.publish} | '
       '${decl.pushOnSubscribe ? "是" : "否"} | '
       '${decl.coalesce ? "允许" : "不合并"} | '
-      '${decl.scope} | ${decl.implemented ? "已接入" : "未接入"} |',
+      '${decl.scope} |',
     );
   }
 
@@ -1326,9 +1508,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln('## 官方频道当前值')
     ..writeln()
-    ..writeln(
-      '下面这些频道带当前值（`cache: latest` + 订阅即推），`type` / `options` 说明值长什么样：',
-    )
+    ..writeln('下面这些频道带当前值（`cache: latest` + 订阅即推），`type` / `options` 说明值长什么样：')
     ..writeln()
     ..writeln('| 广播 id | 类型 | 取值 | 要改它请调能力 |')
     ..writeln('|---|---|---|---|');
@@ -1343,7 +1523,8 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     'musicxx.ui.songIconWave': '`musicxx.ui.setSongIconWave`',
     'musicxx.ui.fontFamily': '`musicxx.ui.setFontFamily`',
     'musicxx.theme.available': '',
-    'musicxx.theme.current': '`musicxx.theme.setCurrent` / `musicxx.theme.tempSwitch`',
+    'musicxx.theme.current':
+        '`musicxx.theme.setCurrent` / `musicxx.theme.tempSwitch`',
     'musicxx.theme.mode': '`musicxx.theme.setMode`',
   };
 
@@ -1364,9 +1545,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln('## 订阅频率限制')
     ..writeln()
-    ..writeln(
-      '高频频道（典型是 `musicxx.player.position`）不必让应用降频：**每个订阅方自己声明通知频率**，',
-    )
+    ..writeln('高频频道（典型是 `musicxx.player.position`）不必让应用降频：**每个订阅方自己声明通知频率**，')
     ..writeln('互不影响。订阅时多传一个 `options`：')
     ..writeln()
     ..writeln('```json')
@@ -1387,7 +1566,9 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('- 计时用单调时钟，改系统时间不影响；`intervalMs` 传负数按 0 处理，`mode` 不认识按 `delay`；')
     ..writeln('- 退订 / 插件停用：等着的补发一并丢弃，不会再回调；')
     ..writeln('- 例：`intervalMs = 200`，广播时刻 `0 / 50 / 100 / 250 / 300` 时，')
-    ..writeln('  不限频收到 `0 50 100 250 300`，`delay` 收到 `0`（值=0）、`200`（值=100）、`400`（值=300），')
+    ..writeln(
+      '  不限频收到 `0 50 100 250 300`，`delay` 收到 `0`（值=0）、`200`（值=100）、`400`（值=300），',
+    )
     ..writeln('  `drop` 收到 `0`、`250`。')
     ..writeln()
     ..writeln('只看候选值范围、临时把 `intervalMs` 调大都不需要重新订阅；换频率就退订后重新订阅。');
@@ -1412,9 +1593,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     ..writeln(
       '- 结束：动态库插件用 `endTopic(id, reason)`，JS 用 `musicxx.broadcast.end(id, reason)`；',
     )
-    ..writeln(
-      '- `-5` 是广播表的结果码，与插件框架自己的错误码（那里的 `-5` 是超时）不是一套，不要混用。',
-    );
+    ..writeln('- `-5` 是广播表的结果码，与插件框架自己的错误码（那里的 `-5` 是超时）不是一套，不要混用。');
 
   sb
     ..writeln()
@@ -1439,12 +1618,12 @@ String _generateBroadcastDoc(CapabilityContract contract) {
 
   final List<BroadcastDeclaration> documented = <BroadcastDeclaration>[
     for (final BroadcastDeclaration decl in contract.broadcasts)
-      if (decl.implemented && decl.doc.trim().isNotEmpty) decl,
+      if (decl.doc.trim().isNotEmpty) decl,
   ];
   if (documented.isNotEmpty) {
     sb
       ..writeln()
-      ..writeln('## 载荷（已接入的频道）');
+      ..writeln('## 载荷');
     for (final BroadcastDeclaration decl in documented) {
       final String heading = decl.title.isEmpty ? '' : ' ${decl.title}';
       sb

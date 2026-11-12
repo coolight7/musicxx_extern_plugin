@@ -14,153 +14,125 @@
 | `dispatch` | `sync` = 调用方等结果（插件侧只能同步处理器）；`async` = 不占用调用线程 |
 | `timeoutMs` | 等实现的上限，超时按"没给"处理；`0` = 不设上限 |
 | `cache` | `byIdentity` = 同一个请求身份不重复算；`none` = 每次都问实现 |
-| `usage` | 这条能力用来干什么。**功能埋点** = 只给应用自己当埋点调；**命令** = 外部（命令行 / MCP / 链接）能调；**插件服务** = 插件之间互相调 |
-| `expose` | 谁能调：`cli` / `mcp` / `link` / `plugin` / `ui` / `page` / `drive` |
-| `consent` | 链接触发时是否先问用户（`ask` = 问，`none` = 不问） |
+| `cli` | 命令面能调（命令行 / `/cli` / 链接）。块内可写 `title`（命令标题）、`consent`（从链接调时先问用户的原因） |
+| `mcp` | 进 MCP 工具表。块内可写 `name`（工具名，PascalCase）、`format`（`text` / `json`） |
+| `plugin` | 插件可以在 `musicxx.capability.call(id, args)` 里调 |
 
 ## 怎么读这张表
 
-- **用途**列就是界面与文档里的说法：`功能埋点` 对应代码里的"能力"（插件接管它的实现就是替代应用自己的这一段）；
+- **通道**列就是"谁能调它"：`命令` = 命令行 / `/cli` / 链接；`MCP 工具` = 给模型的工具；`插件` = 插件能调；`-` = 只能应用内部调（纯实现 / 干预类，插件只能注册前后链）；
 - **可注册阶段**列写清插件能参与哪一步；只写 `before / after` 的能力**不能**注册实现（注册会被拒并说明原因）；
-- **状态**列 `已接入` = 主程序已经在调用点接上（注册后会被调用）；`未接入` = 约定已定、主程序还没接（注册不报错，也不会触发）；
+- **MCP 工具**列就是模型看到的工具名（`mcp.name`，不写时按 id 生成）；不做工具的能力写 `-`；
 - 注册时写全名：官方 `musicxx.*`；实现 / 声明自己的能力时写名字（宿主补成 `plugin.<本插件 id>.<名字>`，名字可以含点，例如 `drive.list`）。
 
 ## 能力清单
 
-| 能力 id | 用途 | 可注册阶段 | 合并 | 派发 | 超时 | 缓存 | 外部入口 | 状态 |
-|---|---|---|---|---|---|---|---|---|
-| `musicxx.app.exit` | 功能埋点 | impl | veto | sync | - | - | - | 未接入 |
-| `musicxx.app.deepLink` | 功能埋点 | impl | veto | sync | - | - | - | 未接入 |
-| `musicxx.player.beforePlaySong` | 功能埋点 | impl / after | veto | async | - | - | - | 已接入 |
-| `musicxx.player.source.beforeParse` | 功能埋点 | impl / after | first | async | - | - | - | 已接入 |
-| `musicxx.player.source.resolve` | 功能埋点 | impl | first | async | 5000 ms | 按身份 | - | 已接入 |
-| `musicxx.player.seek` | 功能埋点、命令 | 只能 before / after | - | async | 500 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.volume` | 功能埋点 | 只能 before / after | - | async | 500 ms | - | - | 已接入 |
-| `musicxx.player.speed` | 功能埋点 | 只能 before / after | - | async | 500 ms | - | - | 已接入 |
-| `musicxx.player.pitch` | 功能埋点 | 只能 before / after | - | async | 500 ms | - | - | 已接入 |
-| `musicxx.player.error` | 功能埋点 | impl / after | veto | async | - | - | - | 已接入 |
-| `musicxx.media.notification` | 功能埋点 | impl | first | sync | - | - | - | 未接入 |
-| `musicxx.media.info.analyse` | 功能埋点 | impl | first | async | - | - | - | 未接入 |
-| `musicxx.song.beforeAdd` | 功能埋点 | impl | veto | sync | - | - | - | 未接入 |
-| `musicxx.playlist.load` | 功能埋点 | 只能 before / after | - | async | - | - | - | 未接入 |
-| `musicxx.local.scan.file` | 功能埋点 | impl | veto | sync | - | - | - | 未接入 |
-| `musicxx.lyric.load` | 功能埋点 | before / impl / after | first | async | 8000 ms | 按身份 | - | 已接入 |
-| `musicxx.lyric.load.musicxx_server` | 功能埋点 | before / impl / after | first | async | 8000 ms | 按身份 | - | 已接入 |
-| `musicxx.lyric.load.cache` | 功能埋点 | before / impl / after | first | async | 8000 ms | 按身份 | - | 已接入 |
-| `musicxx.lyric.load.builtin` | 功能埋点 | before / impl / after | first | async | 8000 ms | 按身份 | - | 已接入 |
-| `musicxx.lyric.load.builtout` | 功能埋点 | before / impl / after | first | async | 8000 ms | 按身份 | - | 已接入 |
-| `musicxx.lyric.load.match` | 功能埋点 | before / impl / after | first | async | 8000 ms | 按身份 | - | 已接入 |
-| `musicxx.media.spectrum.extract` | 功能埋点 | impl | first | async | 30000 ms | 按身份 | - | 已接入 |
-| `musicxx.media.chorus.analyse` | 功能埋点 | impl | first | async | 20000 ms | 按身份 | - | 已接入 |
-| `musicxx.media.palette.provide` | 功能埋点 | impl | first | async | 800 ms | 按身份 | - | 已接入 |
-| `musicxx.app.net.http.request` | 功能埋点 | 只能 before / after | - | async | - | - | - | 未接入 |
-| `musicxx.net.server.route` | 功能埋点 | impl | first | async | - | - | - | 未接入 |
-| `musicxx.net.mcp.tools` | 功能埋点 | impl | first | sync | - | - | - | 未接入 |
-| `musicxx.download` | 功能埋点 | 只能 before / after | - | async | - | - | - | 未接入 |
-| `musicxx.cache.beforeTrim` | 功能埋点 | impl | veto | sync | - | - | - | 未接入 |
-| `musicxx.cache.pathRequest` | 功能埋点 | impl | first | sync | - | - | - | 未接入 |
-| `musicxx.ui.route.resolve` | 功能埋点 | impl | first | sync | - | - | - | 未接入 |
-| `musicxx.feature.point.call` | 功能埋点、命令 | before / impl / after | first | async | - | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.app.foreground` | 命令 | impl | - | async | - | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.app.background` | 命令 | impl | - | async | - | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.play` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.pause` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.toggle` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.stop` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.next` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.prev` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.playSrc` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.setVolume` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.setSpeed` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.setPitch` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.setQuality` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.setLoopMode` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.player.setMediaType` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.playlist.queryLists` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.querySongs` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.play` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.addSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.removeSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.create` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.updateSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.song.favorite` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.playlist.syncSongs.sync` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.songlist.querySongs` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.songlist.playSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.songlist.addSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.songlist.removeSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.songlist.updateSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.library.querySonglists` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.querySongs` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.querySonglist` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.playSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.playSonglist` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.removeSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.createSonglist` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.setSongInfo` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.library.search` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.lyric.current.get` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.lyric.current.update` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.lyric.current.updateContent` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.lyric.getBySrc` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.lyric.search` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.toast` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.dialog` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.overlay.show` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.overlay.close` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.openOverlaySheet` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.openRoute` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.playing.openMenu` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.pickSongs` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.pickDir` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.browseDrive` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.setEntryBadge` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.ui.setFontFamily` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.getFontFamily` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.setAnimatedLevel` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.setParticleAnimate` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.setSongIconRotate` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.setSongIconWave` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.theme.setCurrent` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.theme.setMode` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.theme.tempSwitch` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.ui.loadFont` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.storage.get` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.storage.set` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.storage.delete` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.storage.list` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.net.fetch` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.net.download` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.render.list` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.render.current` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.render.select` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.palette` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.cover` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.palette.set` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.bindImage` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.unbindImage` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.spectrum` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.media.kernel` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.feature.list` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.feature.call` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.feature.point.list` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.feature.point.define` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.feature.point.undefine` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.source.define` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.source.undefine` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.source.list` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.source.browse` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.capability.subscribers` | 命令 | impl | - | async | 5000 ms | - | plugin | 已接入 |
-| `musicxx.host.openUrl` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.host.shareText` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 未接入 |
-| `musicxx.host.clipboard` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.host.getPath` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.stats.reportMemory` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
-| `musicxx.stats.reportMetric` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| 能力 id | 通道 | 可注册阶段 | 合并 | 派发 | 超时 | 缓存 | MCP 工具 |
+|---|---|---|---|---|---|---|---|
+| `musicxx.player.beforePlaySong` | - | impl / after | veto | async | - | - | - |
+| `musicxx.player.source.beforeParse` | - | impl / after | first | async | - | - | - |
+| `musicxx.player.source.resolve` | - | impl | first | async | 5000 ms | 按身份 | - |
+| `musicxx.player.seek` | 命令、插件 | 只能 before / after | - | async | 500 ms | - | - |
+| `musicxx.player.volume` | - | 只能 before / after | - | async | 500 ms | - | - |
+| `musicxx.player.speed` | - | 只能 before / after | - | async | 500 ms | - | - |
+| `musicxx.player.pitch` | - | 只能 before / after | - | async | 500 ms | - | - |
+| `musicxx.player.error` | - | impl / after | veto | async | - | - | - |
+| `musicxx.lyric.load` | - | before / impl / after | first | async | 8000 ms | 按身份 | - |
+| `musicxx.lyric.load.musicxx_server` | - | before / impl / after | first | async | 8000 ms | 按身份 | - |
+| `musicxx.lyric.load.cache` | - | before / impl / after | first | async | 8000 ms | 按身份 | - |
+| `musicxx.lyric.load.builtin` | - | before / impl / after | first | async | 8000 ms | 按身份 | - |
+| `musicxx.lyric.load.builtout` | - | before / impl / after | first | async | 8000 ms | 按身份 | - |
+| `musicxx.lyric.load.match` | - | before / impl / after | first | async | 8000 ms | 按身份 | - |
+| `musicxx.media.spectrum.extract` | MCP 工具 | impl | first | async | 30000 ms | 按身份 | `GetAudioSpectrum` |
+| `musicxx.media.chorus.analyse` | MCP 工具 | impl | first | async | 20000 ms | 按身份 | `AnalyseAudioChorus` |
+| `musicxx.media.palette.analyse` | MCP 工具 | impl | - | async | 800 ms | 按身份 | `AnalyseImageMainColors` |
+| `musicxx.feature.point.call` | 命令、插件 | before / impl / after | first | async | - | - | - |
+| `musicxx.app.foreground` | 命令、插件 | impl | - | async | - | - | - |
+| `musicxx.app.background` | 命令、插件 | impl | - | async | - | - | - |
+| `musicxx.player.play` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.pause` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.toggle` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.stop` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.next` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.prev` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.playSrc` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.setVolume` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.setSpeed` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.setPitch` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.setQuality` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.setLoopMode` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.queryLists` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.querySongs` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.play` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.addSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.removeSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.create` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.updateSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.song.favorite` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.playlist.syncSongs.sync` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.songlist.querySongs` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.songlist.playSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.songlist.addSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.songlist.removeSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.songlist.updateSong` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.lyric.current.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.lyric.current.update` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.lyric.current.updateContent` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.lyric.getBySrc` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.lyric.search` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.toast` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.dialog` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.overlay.show` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.overlay.close` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.openOverlaySheet` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.openRoute` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.playing.openMenu` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.pickSongs` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.pickDir` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.browseDrive` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.setFontFamily` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.getFontFamily` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.setAnimatedLevel` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.setParticleAnimate` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.setSongIconRotate` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.setSongIconWave` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.theme.setCurrent` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.theme.setMode` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.theme.tempSwitch` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.loadFont` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.storage.get` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.storage.set` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.storage.delete` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.storage.list` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.net.fetch` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.net.download` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.render.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.render.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.render.select` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.palette` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.cover` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.palette.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.bindImage` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.unbindImage` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.spectrum` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.kernel` | 命令、MCP 工具、插件 | impl | - | async | 5000 ms | - | `GetMediaKernelInfo` |
+| `musicxx.feature.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.feature.call` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.feature.point.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.feature.point.define` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.feature.point.undefine` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.source.define` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.source.undefine` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.source.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.source.browse` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.capability.subscribers` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.host.openUrl` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.host.clipboard` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.host.getPath` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.stats.reportMemory` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.stats.reportMetric` | 插件 | impl | - | async | 5000 ms | - | - |
 
-## 载荷与回答（已接入的能力）
-
-未接入的能力只占位：注册不会报错，也不会触发。已接入的每一条下面写清载荷字段与回答格式。
+## 载荷与回答
 
 ### `musicxx.player.beforePlaySong` 播放前
 
@@ -226,7 +198,7 @@
 
 载荷 `{srcKey, name, artist, kind, path, durationMs, hasWave, frames, binCount, frameHz, spectrums?, waveform?, config, caller}`（`caller` = 谁在问：空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）：主程序要分析一首歌的**副歌（高潮）区段**时派发一次。`hasWave` 为真时附带主程序已经拿到的整曲频谱（`spectrums` / `waveform` 的 base64，4 分钟歌曲约 800 KB —— 用不上的插件请不要注册这条能力）；`config` 是内置算法的参数（`bandCount` / `hopFrames` / `windowFrames` / `minRepeatLagSeconds` / `segmentSimilarity` / `minSegmentSeconds` / `maxSegmentSeconds` / `mergeGapSeconds`）。处理器返回 `{"chorus": {"sections": [{"start": 64000, "end": 100000, "confidence": 0.8, "energy": 0.7, "similarity": 0.9, "repeat": 3}], "totalDuration": 253000, "analyseTimeMs": 120}}`（时间单位毫秒）就用插件的区段替代内置分析；`sections` 是必需项（空数组 = 分析过了、这首歌没有副歌），每段至少要有 `start` 与 `end`，其余字段缺失按 0 处理。不返回 / 缺少 `sections` / 一个区段都解析不出来 = 这次不提供。**回答请用 `patch` 包一层**（写成 `patch.chorus`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：主程序最多等 20 s；等待期间切歌则本次结果会被丢弃（可用 `srcKey` 自行校验）。主程序只在"这条能力有处理器"时才派发。返回 `{"action":"cancel"}` 可以拦下这次调用：主程序这次不再走内置分析（进度条上的副歌标记就没有了），处理器被摘除后自动还原。**这个功能埋点对外开放调用**（能力 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它（参数与结果见 `capability.list` 里的 `callDoc`）；调用会先取一次频谱，**这一层同样不写值仓**，也不改主程序状态，同一个功能埋点 + 同一个调用方的上一次调用没结束时拿到 `busy`。
 
-### `musicxx.media.palette.provide`
+### `musicxx.media.palette.analyse`
 
 载荷 `{srcKey, name, artist, hasCover, night, caller, cover}`：主程序要为一张封面取色（内置实现是封面颜色分析）时派发一次。`caller` = 谁在问（空串 = 主程序自己取值或命令行，非空 = 主动调用它的插件 id）；`cover` = 这次算哪一张图：`{kind: current | file | url | data, path?, url?, bytes?, imageBase64?, coverKey}`（`current` = 当前歌曲的封面，`file` / `url` / `data` 是调用方指定的那一张；`path` / `url` 是对应的地址，`data` 给 `bytes` 与 `imageBase64` —— 图太大时只有 `bytes`；`coverKey` 是这次的身份，插件可以按它自己缓存）。老插件不认 `cover` 也能跑：它们只看 `srcKey` / `name` / `artist` / `night`，对 `current` 这一种用法的结果是对的；别的来源它们给不出（返回空），主程序接着走自己的分析 —— 不会给错数据。处理器返回 `{"colors": {"main": "#rrggbb", ...}}`（键可取 `main` / `light` / `lightMuted` / `dark` / `darkMuted`，写法 `#rrggbb` 或 `#aarrggbb`）就用插件提供的这套颜色替代内置分析：它写进与内置分析同一批字段（**只在主程序自己问当前封面时**；外置通过 `musicxx.feature.point.call` 调它时只拿数据、不写字段），内置背景、插件背景与 `musicxx.icon.*` 来源都会拿到；不返回 / 没有 `colors` / 颜色一个都解析不出来 = 这次不提供，主程序照旧走内置分析。**回答请用 `patch` 包一层**（写成 `patch.colors`）：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，多个实现时裸字段会被后面的处理器覆盖（只有一个实现时两种写法等价）。异步派发：不会卡住渲染准备；等待期间切歌时本次结果会被丢弃（可用 `srcKey` 自行校验）。返回 `{"action":"cancel"}` 可以拦下这次调用：主程序这次不再走内置取色（保持上一次的颜色），处理器被摘除后自动还原。**这个功能埋点对外开放调用**（能力 `musicxx.feature.point.call`）：外置插件、命令行与 agent 能主动调它并拿到 5 个原始色槽位，参数与结果见 `capability.list` 里的 `callDoc`。**调用没有副作用**：不写封面取色字段、不改内置背景（要改观感请用 `musicxx.media.palette.set`），同一个功能埋点 + 同一个调用方的上一次调用没结束时拿到 `busy`。
 

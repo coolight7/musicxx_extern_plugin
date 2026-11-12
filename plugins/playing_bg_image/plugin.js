@@ -27,7 +27,7 @@
 ///    的三种模式之一时自动接管：每秒读一次快照频道 `musicxx.state.renderSlots` 判断，
 ///    背景切走（或关掉开关）就自动交还。
 ///
-/// 3. **封面取色**（钩子 `musicxx.media.palette.provide`）：自己算封面配色 ——
+/// 3. **封面取色**（钩子 `musicxx.media.palette.analyse`）：自己算封面配色 ——
 ///    把封面缩到 64×64 读 RGBA，按 4 bit/通道量化统计，取出现次数最多的 4 个色点，
 ///    按亮度映射成 main / light / lightMuted / dark / darkMuted，替代内置的颜色分析。
 ///    『沉浸』的渐变底用的就是这套颜色（`musicxx.icon.main` / `musicxx.icon.dark`），
@@ -978,7 +978,7 @@ function foregroundStateText() {
     if (null === isNightNow) {
         return "读取中";
     }
-    if (false == musicxx.capability.has("musicxx.media.palette.provide")) {
+    if (false == musicxx.capability.has("musicxx.media.palette.analyse")) {
         return "取色未注册";
     }
     const mode = currentMode();
@@ -1191,7 +1191,7 @@ musicxx.ui.registerEntry({
     },
 });
 
-/* ==================== 封面取色（钩子 musicxx.media.palette.provide） ==================== */
+/* ==================== 封面取色（钩子 musicxx.media.palette.analyse） ==================== */
 
 /// base64 字符表（QuickJS 里没有 atob，自己解码：4 个字符 → 3 字节）
 const BASE64_CHARS =
@@ -1488,7 +1488,7 @@ function warmPalette(key) {
 ///   `musicxx.media.palette.set` 写回（颜色稍后会被插件的算法替换）。
 ///
 /// **处理器绝不返回 Promise**：见 [warmPalette] 的说明。
-musicxx.capability.implement("musicxx.media.palette.provide", function (payload) {
+musicxx.capability.implement("musicxx.media.palette.analyse", function (payload) {
     // 载荷里的 night 是当场算的：主题切了快照频道不会更新，这里顺手校正一次
     // （处理器里不直接调主程序动作，排到本次之后重推前景三色）
     if (payload) {
@@ -1725,7 +1725,7 @@ function renderStateText() {
 
 /// 取色状态文本
 function paletteStateText() {
-    if (false == musicxx.capability.has("musicxx.media.palette.provide")) {
+    if (false == musicxx.capability.has("musicxx.media.palette.analyse")) {
         return "未注册";
     }
     return "已注册 · 缓存 " + Object.keys(paletteCache).length + "/" +
@@ -1734,7 +1734,7 @@ function paletteStateText() {
 
 /// 取色的详细计数（写在说明里：它是会变的数字，放在右侧状态位会把行撑长）
 function paletteDetailText() {
-    if (false == musicxx.capability.has("musicxx.media.palette.provide")) {
+    if (false == musicxx.capability.has("musicxx.media.palette.analyse")) {
         return "未注册（应用走它自己的封面取色）";
     }
     return "问过 " + paletteCalls + " 次（命中 " + paletteHits + "）、写回 " +
@@ -1800,7 +1800,7 @@ function statusRows() {
             iconStateText()),
         infoRow(
             "封面取色",
-            "钩子 musicxx.media.palette.provide：统计封面里出现最多的 4 个色点（" +
+            "钩子 musicxx.media.palette.analyse：统计封面里出现最多的 4 个色点（" +
             paletteDetailText() + "）；『沉浸』的渐变底与『黑胶』的底色用的就是它写的颜色",
             paletteStateText()),
         infoRow(
@@ -2078,7 +2078,7 @@ function cardView(args) {
                     "浅色字、对比度多少。",
             }, env),
             kit.hint({
-                text: "• 封面取色由本插件提供（钩子 musicxx.media.palette.provide）：把封面缩到 " +
+                text: "• 封面取色由本插件提供（钩子 musicxx.media.palette.analyse）：把封面缩到 " +
                     PALETTE_COVER_SIZE + "×" + PALETTE_COVER_SIZE + " 读 RGBA，按 4 bit/通道" +
                     "统计出现次数最多的 " + PALETTE_TOP_COLORS + " 个色点，按亮度映射成 " +
                     "main / light / lightMuted / dark / darkMuted。它替代内置的封面颜色分析，" +
