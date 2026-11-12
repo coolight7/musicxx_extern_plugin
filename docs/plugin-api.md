@@ -276,7 +276,7 @@ capabilityCall("musicxx.player.toggle", "{}", &notify, 5000);
 |---|---|---|---|
 | `musicxx.player.play` | 无 | `{ok:true}` | 开始播放 |
 | `musicxx.player.pause` | 无 | `{ok:true}` | 暂停 |
-| `musicxx.player.toggle` | 无 | `{ok:true}` | 播放/暂停切换 |
+| `musicxx.player.toggle` | 无 | `{ok:true}` | 播放/暂停切换（与播放页的播放按钮同一行为：歌曲快结束时按播放会按设置走下一曲） |
 | `musicxx.player.stop` | 无 | `{ok:true}` | 停止 |
 | `musicxx.player.next` | 无 | `{ok:true}` | 下一曲（走应用的切歌流程） |
 | `musicxx.player.prev` | 无 | `{ok:true}` | 上一曲 |
@@ -462,6 +462,18 @@ musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).
 - 返回：`{ok:true, pid, sid, song:{…}}`（`song` 与 `querySongs` 的 `detail: true` 是同一套字段）。
 - 失败：`{ok:false, error}`；保存失败会把这首歌恢复原样。
 
+**`musicxx.playlist.song.favorite`** —— 收藏 / 取消收藏当前歌曲
+
+与播放页的收藏按钮、锁屏音乐的收藏是同一份实现。
+
+- 参数：`{favorite?}`（布尔）。不写 = 按当前状态取反；写 `true` / `false` = 设成那个状态
+  （已经是目标状态时不再发请求）。文本写法 `"true"` / `"1"` 也算真。
+- 返回：`{ok:true, favorite, srcKey}`——`favorite` 是动作之后当前歌曲在「我喜欢」里的状态，
+  `srcKey` 是当前歌曲的音源身份（完整 md5 串）。
+- 未登录时不会收藏（应用自己提示登录），返回的 `favorite` 仍是 `false`。
+- 当前播放列表就是「我喜欢」时，队列里的这一首也会同步增删。
+- 当前没有歌曲 / 歌曲没有音源身份：`{ok:false, error:"当前没有可收藏的歌曲"}`。
+
 **`musicxx.playlist.syncSongs.sync`** —— 同步歌单音源（把音源里新增的歌加进歌单）
 
 歌单可以绑定“音源”（本地文件夹 / 歌手 / 专辑、Bili 收藏夹、WebDAV、云盘、
@@ -639,6 +651,7 @@ if (found.count > 0) {
 | `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 关这个插件**最上面那一层**浮层（给了 `id` 就关最上面那个名字对得上的层；没有开着的浮层时 `closed:false`） |
 | `musicxx.ui.openOverlaySheet` | `{route, title?, arguments?}` | `{ok, reason, title?}` | 把**插件视图**打开成一层浮层，等用户关掉它。与 `overlay.show` 的区别：内容是插件视图，浮层里的动作能返回 `{"view": …}` 刷新内容（翻目录 / 改选择）。参数见 §3.2.4.2；入口项里的常见写法也是它 |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` | 打开插件页面或官方页面，规则见下 |
+| `musicxx.ui.playing.openMenu` | 无 | `{ok:true}` | 打开播放页的「更多」菜单（与底部控制栏的菜单按钮、右上角的「更多」快捷功能同一份内容）。打开后立即返回，不等用户关掉 |
 
 `musicxx.ui.openRoute` 允许两类目标（别的地址会被拒绝，错误信息里会列出全部可用别名）：
 
@@ -2323,7 +2336,9 @@ uiNotify(R"({"text":"已刷新"})");
 - UI 类型（短名 / 全名）：`home.entry`（主页入口）、`song.action`（歌曲菜单）、`playlist.action`（歌单菜单）、
   `addsong.entry`（「添加歌曲」弹窗里的来源项）、
   `playing.background`（播放页背景）、`playing.icon`（播放页歌曲图）、
-  `playing.visualizer`（播放页音频动效）、以及十个播放页子页面插入块
+  `playing.visualizer`（播放页音频动效）、`playing.controlBar` 与
+  `playing.controlBar.menu` / `.previous` / `.playOrPause` / `.next` / `.favorite`（播放页底部控制按钮栏，
+  **替换**内置栏或其中的一个按钮，见 [plugin-ui.md](plugin-ui.md) §1.7）、以及十个播放页子页面插入块
   `playing.lyric.top` / `playing.lyric.bottom` / `playing.lyric.header` / `playing.lyric.footer` /
   `playing.moreinfo.header` / `playing.moreinfo.footer` /
   `playing.songlist.top` / `playing.songlist.bottom` / `playing.songlist.header` / `playing.songlist.footer`
@@ -2347,6 +2362,8 @@ uiNotify(R"({"text":"已刷新"})");
   **没安装那个插件时插件样式照样可用**。
 - 页面插入块把界面放进播放页固定位置（歌词页 / 更多信息页 / 播放列表页）：十个位置各一个类型
   （`musicxx.ui.playing.<页面>.<位置>`），字段与规则见 [plugin-ui.md](plugin-ui.md) §1.6。
+- 播放页底部控制按钮栏可以整栏或单个按钮换成插件画的：六个类型，参数（`playing` / `favorite` /
+  `song` / `colors` …）与动作写法见 [plugin-ui.md](plugin-ui.md) §1.7。
 - 着色器是**打包期编译好的 shader bundle**（`format_version` 必须与应用使用的 Flutter 版本一致）。
 - 需要封面纹理时在渲染项里声明 `cover` / `image`：应用负责解码、缩放、预模糊、上传纹理，
   每帧把纹理绑给着色器（插件不搬字节）。

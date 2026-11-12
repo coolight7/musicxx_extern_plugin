@@ -49,6 +49,12 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PLAY_OR_PAUSE,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_NEXT,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_HEADER,
@@ -77,6 +83,28 @@ const char *const kPlayingPageBlockTypes[] = {
 
 bool isPlayingPageBlockType(std::string_view type) {
   for (const char *item : kPlayingPageBlockTypes) {
+    if (type == item) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// 播放页底部控制按钮栏的替换位置（整栏一个类型 + 五个按钮各一个类型）
+///
+/// 与页面插入块的区别: 这些类型是**替换**关系 (插件画的视图取代内置界面),
+/// 所以内容同样必填 (`view`), 但不需要 `title`.
+const char *const kPlayingControlBarTypes[] = {
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PLAY_OR_PAUSE,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_NEXT,
+    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
+};
+
+bool isPlayingControlBarType(std::string_view type) {
+  for (const char *item : kPlayingControlBarTypes) {
     if (type == item) {
       return true;
     }
@@ -279,15 +307,17 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
       return false;
     }
   }
-  if (isPlayingPageBlockType(type)) {
-    // 页面插入块: 类型就是位置, 必须给出内容 (view)
+  if (isPlayingPageBlockType(type) || isPlayingControlBarType(type)) {
+    // 插入块与控制按钮栏的替换位置都要有内容: "这里画插件给的视图"
+    const std::string label =
+        isPlayingControlBarType(type) ? "控制按钮栏" : "页面插入块";
     if (!data.contains("view")) {
-      err = "页面插入块缺少 view 字段 (视图 id 或视图内容)";
+      err = label + "缺少 view 字段 (视图 id 或视图内容)";
       return false;
     }
     if (!data["view"].is_string() && !data["view"].is_object() &&
         !data["view"].is_array()) {
-      err = "页面插入块 view 必须是视图 id 字符串或视图对象";
+      err = label + " view 必须是视图 id 字符串或视图对象";
       return false;
     }
   }

@@ -31,6 +31,7 @@
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx:circle` / `musicxx:square` / `musicxx:adaptive`）也在同一份列表里 |
 | `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx:none` / `musicxx:WaveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
 | `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreinfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
+| `musicxx.ui.playing.controlBar` 与 `musicxx.ui.playing.controlBar.<按钮>`（六个，见 §1.7） | `view`（必填）、`enabled?` | 播放页底部控制按钮栏（整栏或单个按钮） | **替换**内置界面：整栏由插件画，或只换五个按钮里的某几个；同一位置只认一项（`order` 小的优先），取不到内容时回到内置界面 |
 
 三个播放页槽位的**内置项 id 与动作 id 是同一套**：内置项 `musicxx:<名字>`（背景 / 动效用枚举名，
 歌曲图用短名）；`musicxx:previous` = 交还控制权（恢复 `musicxx:default` 重置掉的那个值，没有记录时
@@ -223,6 +224,95 @@ uiRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
   要刷新就在能力里返回新的 `{view: …}`，或重登记这一项（`musicxx.ui.updateEntry`，整体替换）。
 - 插入块里的逐帧动画用 `musicxx.AnimatedBuilder`（与页面里的写法一样，见 §2.3.2）；播放页的频谱来源
   `musicxx.spectrum.*` 在这些块里也能用。
+
+---
+
+### 1.7 播放页控制按钮栏：换掉整栏或换掉某一个按钮
+
+播放页底部那一排控制按钮默认是「菜单 / 上一曲 / 播放暂停 / 下一曲 / 收藏」。插件可以**替换**它，
+分两层，按需要选一层就够：
+
+| 类型（全名） | 换掉什么 | 内置按钮原本做什么（插件要自己写这些动作） |
+|---|---|---|
+| `musicxx.ui.playing.controlBar` | **整块**控制按钮栏 | 五个按钮全部由插件摆、由插件写动作 |
+| `musicxx.ui.playing.controlBar.menu` | 只换「菜单」按钮的显示 | 打开「更多」菜单：`musicxx.ui.playing.openMenu` |
+| `musicxx.ui.playing.controlBar.previous` | 只换「上一曲」按钮的显示 | `musicxx.player.prev` |
+| `musicxx.ui.playing.controlBar.playOrPause` | 只换「播放 / 暂停」按钮的显示 | `musicxx.player.toggle` |
+| `musicxx.ui.playing.controlBar.next` | 只换「下一曲」按钮的显示 | `musicxx.player.next` |
+| `musicxx.ui.playing.controlBar.favorite` | 只换「收藏」按钮的显示 | `musicxx.playlist.song.favorite` |
+
+`data` 与页面插入块一样，只有 `view`（必填）与 `enabled`（可选）：
+
+```js
+// 只换「播放 / 暂停」这一个按钮：图标用插件自己的 svg，动作调官方能力
+// （要跟着播放状态换图标：按视图参数 `playing` 返回不同的 `view`，见下面“状态变了会重新取一次视图”）
+musicxx.ui.registerEntry({
+    name: "playBtn",
+    type: "playing.controlBar.playOrPause",   // 全名 musicxx.ui.playing.controlBar.playOrPause
+    data: {
+        view: { blocks: [
+            { kind: "Button", label: "", variant: "ghost", icon: "resource/svg/play.svg",
+              action: { kind: "command", name: "musicxx.player.toggle" } },
+        ] },
+    },
+});
+
+// 整栏都由自己画：三个按钮 + 右侧收藏，动作都调官方能力
+musicxx.ui.registerEntry({
+    name: "miniBar",
+    type: "playing.controlBar",
+    data: {
+        view: "miniBarView",     // 调插件自己的同名能力取视图（能按状态返回不同内容）
+    },
+});
+```
+
+```cpp
+// 只换「收藏」按钮：动作调官方能力 musicxx.playlist.song.favorite
+uiRegister("favBtn", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
+           R"({"view":{"blocks":[{"kind":"Button","label":"","variant":"ghost","icon":"resource/svg/heart.svg","action":{"kind":"command","name":"musicxx.playlist.song.favorite"}}]}})",
+           0);
+// 整栏替换（视图 id 形态：主程序调插件的能力 `plugin.my_plugin/controlBar` 取内容）
+uiRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
+           R"({"view":"controlBar"})", 0);
+```
+
+规则：
+
+- **替换，不是插入**：有插件声明整栏时，内置的五个按钮不再显示，五个按钮级类型也**不再参与渲染**；
+  只有没声明整栏时才按按钮级类型逐个替换（没声明的那几个按钮照旧是内置的）。
+- **同一个位置只认一项**：`order` 小的优先，同 `order` 按注册顺序。多个插件声明同一位置时，
+  只有第一个生效，其余的不报错也不显示。
+- **取不到内容就回退内置界面**：能力没实现、返回的东西解析不出块、插件被停用 —— 这些情况下
+  画回内置按钮，用户仍然能暂停 / 切歌 / 收藏。日志里留一条原因（同一个位置只记一次）。
+- **点击由插件自己的块接收**：主程序不在外面再包一层手势（否则一次点击会触发两次）。可点的块有两种：
+  `Button`（自带按钮样式，`icon` 写插件自己的 svg），或者任何写了 `action` 的块（`Icon` / `Text` /
+  `SizedBox` 这类，主程序会给它包一层点击）；动作写 `command` 调官方能力。
+- **尺寸**：主程序只给高度（与内置栏一样，由页面按窗口大小决定），宽度由插件这一块自己占；
+  整栏替换时建议用 `Row` + `mainAxisAlignment: "spaceBetween"`（kit 里的 `kit.row` 一样），
+  与内置栏看起来一致。**不接 shader**（`shader` / `none` 这两种形态在这里无效）。
+- **主程序会给视图参数**（取视图时一起交回去，能力处理器里能读到）：
+
+  | 参数 | 含义 |
+  |---|---|
+  | `slot` | 这个视图是哪个位置（`musicxx.ui.playing.controlBar` 或 `musicxx.ui.playing.controlBar.<按钮>`） |
+  | `button` | 按钮名（`menu` / `previous` / `playOrPause` / `next` / `favorite`）；整栏时是空串 |
+  | `playing` | 当前是否在播放（布尔） |
+  | `favorite` | 当前歌曲是否已在「我喜欢」里（布尔） |
+  | `hasSong` | 现在有没有在播的歌（布尔） |
+  | `song` | 当前歌曲的只读视图（与广播 `musicxx.song.changed` 载荷里的 `song` 同一份；没有歌时是空对象） |
+  | `colors` | 播放页前景三色 `{main, cross, block}`（`#aarrggbb` 字符串，与页面上的文字 / 图标同色） |
+
+- **状态变了会重新取一次视图**：播放 / 暂停、切歌、收藏状态变化、换主题（三色变了）时，主程序会
+  带着新的参数再取一次（旧画面留到新视图回来，不会闪空）。所以"图标跟着播放状态变"最简单的写法就是
+  **按 `args.playing` 返回不同的 `view`**；也可以完全不管参数，自己在块里用 `musicxx.AnimatedBuilder` +
+  值表达式读广播（见 §2.3.2）。
+- 换主题时 `colors` 会变，插件用它画的按钮不用另做什么就会跟着切；不想跟主题就忽略它、自己写颜色。
+- 插件卸载 / 停用 / 关闭『拟声++』后立刻回到内置界面；用户也可以在插件管理里停用插件来还原。
+
+> 整栏替换之后，内置的「更多」菜单（选歌词 / 投屏 / 加入歌单 / 播放模式 / 沉浸模式…）就没有入口了。
+> 两个办法：在自己画的栏里放一个按钮调 `musicxx.ui.playing.openMenu`；或者提醒用户把播放页右上角的
+> 快捷功能设成「更多」（在那个按钮上长按 / 桌面右键 → 快捷功能 → 更多），它弹出的菜单与内置菜单按钮完全一样。
 
 ---
 

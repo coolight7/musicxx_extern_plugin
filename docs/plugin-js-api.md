@@ -829,6 +829,27 @@ musicxx.ui.registerEntry({
 ```
 
 ```js
+// 播放页底部控制按钮栏：整栏替换，或者只换其中一个按钮（替换关系，见 plugin-ui.md §1.7）
+musicxx.ui.registerEntry({
+    name: "brandPlayBtn",
+    type: "playing.controlBar.playOrPause",   // 全名 musicxx.ui.playing.controlBar.playOrPause
+    data: {
+        // 视图参数里有 playing / favorite / song / colors：状态变了主程序会重新取一次视图
+        view: { blocks: [
+            { kind: "Button", label: "", variant: "ghost", icon: "resource/svg/play.svg",
+              action: { kind: "command", name: "musicxx.player.toggle" } },
+        ] },
+    },
+});
+
+musicxx.ui.registerEntry({
+    name: "miniBar",
+    type: "playing.controlBar",               // 整栏都由本插件画（五个按钮级类型不再参与）
+    data: { view: "controlBarView" },
+});
+```
+
+```js
 // 有哪些可选样式（含主程序内置项：id 形如 musicxx:Auto）
 const r = await musicxx.render.list({ slot: "player.background" });
 // r = { ok:true, slots:[{ slot, title, selectedId, items:[

@@ -1234,6 +1234,31 @@
       "doc": ""
     },
     {
+      "id": "musicxx.playlist.song.favorite",
+      "dart": "playlistSongFavorite",
+      "title": "收藏当前歌曲",
+      "depict": "收藏 / 取消收藏当前歌曲（「我喜欢」歌单），返回动作之后的状态",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "expose": [
+        "cli",
+        "mcp",
+        "link",
+        "plugin"
+      ],
+      "consent": "none",
+      "usage": [
+        "command"
+      ],
+      "implemented": true,
+      "doc": "参数 `{favorite?}`：不写 = 按当前状态取反；写 `true` / `false` = 设成那个状态（已经是目标状态时不再发请求）。\n\n返回 `{ok, favorite, srcKey}`：`favorite` = 动作之后当前歌曲在「我喜欢」里的状态，`srcKey` = 当前歌曲的音源身份（完整 md5 串，没有音源身份时为空串）。当前没有歌曲 / 歌曲没有音源身份 → `{ok:false, error:\"当前没有可收藏的歌曲\"}`。\n\n行为与播放页的收藏按钮一致：未登录时不会收藏（应用自己提示登录），当前播放列表就是「我喜欢」时同步增删播放队列。"
+    },
+    {
       "id": "musicxx.playlist.syncSongs.sync",
       "dart": "playlistSyncSongsSync",
       "title": "同步歌单音源",
@@ -1882,6 +1907,31 @@
       ],
       "implemented": true,
       "doc": ""
+    },
+    {
+      "id": "musicxx.ui.playing.openMenu",
+      "dart": "uiPlayingOpenMenu",
+      "title": "播放页「更多」菜单",
+      "depict": "打开播放页的「更多」菜单（与底部控制栏的菜单按钮、右上角的「更多」快捷功能同一份内容）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "expose": [
+        "cli",
+        "mcp",
+        "link",
+        "plugin"
+      ],
+      "consent": "none",
+      "usage": [
+        "command"
+      ],
+      "implemented": true,
+      "doc": "无参数，打开菜单后**立即**返回 `{ok:true}`（不等用户关掉菜单）。\n\n菜单内容与内置的完全一样：歌词来源 / 选择歌词 / 刷新歌词 / 局域网投送 / 加入歌单 / 移除当前歌曲 / 快捷功能 / 视频开关 / 播放模式 / 时长显示 / 沉浸模式。插件替换了整块控制按钮栏（`musicxx.ui.playing.controlBar`）又想保留这个入口时用它。"
     },
     {
       "id": "musicxx.ui.pickSongs",

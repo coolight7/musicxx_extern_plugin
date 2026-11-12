@@ -186,6 +186,8 @@ abstract final class MusicxxCapabilityId {
   static const String playlistCreate = 'musicxx.playlist.create';
   /// musicxx.playlist.updateSong
   static const String playlistUpdateSong = 'musicxx.playlist.updateSong';
+  /// 收藏当前歌曲
+  static const String playlistSongFavorite = 'musicxx.playlist.song.favorite';
   /// 同步歌单音源
   static const String playlistSyncSongsSync = 'musicxx.playlist.syncSongs.sync';
   /// 读播放列表歌曲
@@ -238,6 +240,8 @@ abstract final class MusicxxCapabilityId {
   static const String uiOpenOverlaySheet = 'musicxx.ui.openOverlaySheet';
   /// 打开页面
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
+  /// 播放页「更多」菜单
+  static const String uiPlayingOpenMenu = 'musicxx.ui.playing.openMenu';
   /// musicxx.ui.pickSongs
   static const String uiPickSongs = 'musicxx.ui.pickSongs';
   /// musicxx.ui.pickDir
@@ -387,6 +391,7 @@ abstract final class MusicxxCapabilityId {
     playlistRemoveSong,
     playlistCreate,
     playlistUpdateSong,
+    playlistSongFavorite,
     playlistSyncSongsSync,
     songlistQuerySongs,
     songlistPlaySong,
@@ -413,6 +418,7 @@ abstract final class MusicxxCapabilityId {
     uiOverlayClose,
     uiOpenOverlaySheet,
     uiOpenRoute,
+    uiPlayingOpenMenu,
     uiPickSongs,
     uiPickDir,
     uiBrowseDrive,
@@ -1538,6 +1544,21 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '',
     ),
     MusicxxCapabilityDecl(
+      id: 'musicxx.playlist.song.favorite',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '收藏当前歌曲',
+      depict: '收藏 / 取消收藏当前歌曲（「我喜欢」歌单），返回动作之后的状态',
+    ),
+    MusicxxCapabilityDecl(
       id: 'musicxx.playlist.syncSongs.sync',
       impls: 'one',
       merge: '',
@@ -1926,6 +1947,21 @@ abstract final class MusicxxCapabilityCatalogue {
       implemented: true,
       title: '打开页面',
       depict: '跳到官方页面或插件自己的页面（ext://<插件id>/<视图id>）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.playing.openMenu',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      expose: <String>['cli', 'mcp', 'link', 'plugin'],
+      consent: 'none',
+      usage: <String>['command'],
+      implemented: true,
+      title: '播放页「更多」菜单',
+      depict: '打开播放页的「更多」菜单（与底部控制栏的菜单按钮、右上角的「更多」快捷功能同一份内容）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.pickSongs',

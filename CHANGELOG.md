@@ -8,6 +8,24 @@
 
 ## 历史
 
+### 新增（2026.1109.1 内，未发布）：播放页控制按钮栏可以交给插件、两个新能力
+
+- **六个新 UI 类型**（**替换**关系，不是插入）：`musicxx.ui.playing.controlBar` 换掉整块控制按钮栏，
+  `musicxx.ui.playing.controlBar.menu` / `.previous` / `.playOrPause` / `.next` / `.favorite`
+  只换内置栏里的一个按钮。`data = {view, enabled?}`；同一位置只认一项（`order` 小的优先，
+  同 `order` 按注册顺序）；取不到内容 / 插件停用时回到内置界面；视图参数（`slot` / `button` /
+  `playing` / `favorite` / `hasSong` / `song` / `colors`）变化时主程序重新取一次视图。
+  写法见 `docs/plugin-ui.md` §1.7。C 宏 `MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR*`、
+  JS 短名 `playing.controlBar*`、Dart 常量 `MusicxxPluginUIType.playingControlBar*`。
+- **新能力 `musicxx.ui.playing.openMenu`**：打开播放页的「更多」菜单（插件整栏替换后用它保留
+  "选歌词 / 投屏 / 加入歌单 / 播放模式"这些入口）。
+- **新能力 `musicxx.playlist.song.favorite`**：收藏 / 取消收藏当前歌曲（`{favorite?}`，不写 = 取反），
+  与播放页的收藏按钮、锁屏音乐的收藏是同一份实现。
+- **`musicxx.player.toggle` 与播放页的播放按钮对齐**：歌曲快结束时按播放会按设置走下一曲
+  （以前是直接重新播 / 暂停当前歌曲）。
+- 播放页右上角可更换的快捷功能多一个「更多」（图标与行为等同于底部控制栏的菜单按钮）。
+- 这一批是**增量**：插件 ABI 代次与框架 C ABI 代次都不变，老插件不受影响。
+
 ### 变更（破坏性，2026.1109.1 内，未发布）：广播只保留“读 + 订阅”，写状态改调能力
 
 广播现在是**只读**的：**属主发布、别人只能读与订阅**。原“值频道”（有属主、可读可写、带写回执的小值）

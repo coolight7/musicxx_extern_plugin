@@ -87,6 +87,55 @@ abstract final class MusicxxPluginUIType {
   /// 迷你歌词要继续可用，所以插件不要假设自己能收到点击。
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
 
+  /// 播放页底部控制按钮栏：**整栏**由插件画（替换，不是插入）
+  ///
+  /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
+  ///
+  /// 有插件声明这个类型时，内置的五个按钮（菜单 / 上一曲 / 播放暂停 / 下一曲 / 收藏）
+  /// 不再显示，整栏都由这个视图负责：按钮、图标、点击动作都在视图里写
+  /// （动作用 `command` 调官方能力，见 `docs/plugin-api.md` §3.2）。
+  ///
+  /// **同一个位置只认一项**：`order` 小的优先，同 `order` 按注册顺序；
+  /// 先声明整栏的插件生效时，下面五个按钮级类型不再参与渲染。
+  /// 取不到内容（能力没实现 / 返回的界面解析不出来）时回到内置界面，
+  /// 插件停用 / 卸载后也一样。见 `docs/plugin-ui.md` §1.7。
+  static const String playingControlBar = 'musicxx.ui.playing.controlBar';
+
+  /// 播放页控制按钮栏的「菜单」按钮：只替换这一个按钮的显示（内置栏布局不变）
+  ///
+  /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
+  ///
+  /// 内置按钮的行为是打开「更多」菜单，插件可以用官方能力
+  /// `musicxx.ui.playing.openMenu` 做同一件事。
+  static const String playingControlBarMenu =
+      'musicxx.ui.playing.controlBar.menu';
+
+  /// 播放页控制按钮栏的「上一曲」按钮（只替换显示）
+  ///
+  /// 对应的官方能力是 `musicxx.player.prev`。
+  static const String playingControlBarPrevious =
+      'musicxx.ui.playing.controlBar.previous';
+
+  /// 播放页控制按钮栏的「播放 / 暂停」按钮（只替换显示）
+  ///
+  /// 对应的官方能力是 `musicxx.player.toggle`（与内置按钮同一行为）。
+  /// 视图参数里有 `playing`（当前是否在播放），播放状态变了主程序会重新取一次视图。
+  static const String playingControlBarPlayOrPause =
+      'musicxx.ui.playing.controlBar.playOrPause';
+
+  /// 播放页控制按钮栏的「下一曲」按钮（只替换显示）
+  ///
+  /// 对应的官方能力是 `musicxx.player.next`。
+  static const String playingControlBarNext =
+      'musicxx.ui.playing.controlBar.next';
+
+  /// 播放页控制按钮栏的「收藏」按钮（只替换显示）
+  ///
+  /// 对应的官方能力是 `musicxx.playlist.song.favorite`（收藏 / 取消收藏当前歌曲）。
+  /// 视图参数里有 `favorite`（当前歌曲是否已收藏），收藏状态变了主程序会重新取一次视图。
+  static const String playingControlBarFavorite =
+      'musicxx.ui.playing.controlBar.favorite';
+
   /// 播放页子页面的插入块：**十个位置各一个类型，类型本身就是位置**（没有 `slot` 字段）
   ///
   /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`

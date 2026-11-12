@@ -162,6 +162,25 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// view = 插件声明的界面组合, none = 不显示. 渲染区域是播放页的动效区,
 /// 没有点击交互 (原来的封面点击 / 拖动切歌 / 迷你歌词要继续可用).
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
+/// 播放页底部控制按钮栏: 整栏由插件画
+/// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
+/// 说明: 与播放页子页面的插入块写法一致, 但这里是**替换**不是插入 —— 有插件声明这个类型时,
+/// 内置的五个按钮不再显示, 整栏都由插件那个视图负责 (按钮与动作都自己写).
+/// 同一个类型只认一项: `order` 小的优先, 同 `order` 按注册顺序; 取不到内容时回到内置界面.
+/// 五个按钮也可以单独替换, 见下面五个 `..._CONTROL_BAR_*` 宏。
+/// 详见 docs/plugin-ui.md §1.7。
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR "musicxx.ui.playing.controlBar"
+/// 播放页控制按钮栏的「菜单」按钮 (单独的替换位置)
+/// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU "musicxx.ui.playing.controlBar.menu"
+/// 播放页控制按钮栏的「上一曲」按钮 (单独的替换位置)
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS "musicxx.ui.playing.controlBar.previous"
+/// 播放页控制按钮栏的「播放 / 暂停」按钮 (单独的替换位置)
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PLAY_OR_PAUSE "musicxx.ui.playing.controlBar.playOrPause"
+/// 播放页控制按钮栏的「下一曲」按钮 (单独的替换位置)
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_NEXT "musicxx.ui.playing.controlBar.next"
+/// 播放页控制按钮栏的「收藏」按钮 (单独的替换位置)
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE "musicxx.ui.playing.controlBar.favorite"
 /// 播放页子页面插入块：十个位置各有一个类型（类型本身就是位置，不再需要 `slot`）
 /// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
 /// 说明: 同一位置可以注册多项, 按 UI 项的 `order` 与注册顺序从上到下排列;

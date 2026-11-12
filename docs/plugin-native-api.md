@@ -298,6 +298,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.broadcasts->publish_broadcast` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| 播放页控制按钮栏 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
 | 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连插件框架（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（插件框架会拒绝在 IO 线程阻塞等待） |
 | 功能埋点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能埋点、给出实现、或调应用留出的功能埋点（频谱 / 副歌 / 封面取色） |

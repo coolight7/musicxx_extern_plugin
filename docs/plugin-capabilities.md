@@ -83,6 +83,7 @@
 | `musicxx.playlist.removeSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.playlist.create` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.playlist.updateSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.playlist.song.favorite` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.playlist.syncSongs.sync` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.songlist.querySongs` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.songlist.playSong` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
@@ -109,6 +110,7 @@
 | `musicxx.ui.overlay.close` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.openOverlaySheet` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.openRoute` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
+| `musicxx.ui.playing.openMenu` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.pickSongs` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.pickDir` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
 | `musicxx.ui.browseDrive` | 命令 | impl | - | async | 5000 ms | - | cli/mcp/link/plugin | 已接入 |
@@ -231,6 +233,20 @@
 ### `musicxx.feature.point.call` 调用功能埋点
 
 三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{"patch": {"args": {...}}}` 改这次调用的参数、`{"action": "cancel"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{"value": ...}` 改最终结果、`{"action": "drop"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能埋点**时派发一次（`point` = 功能埋点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能埋点共用它，而不是每个点各占一条能力 id（插件框架只认固定的能力表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{"patch": {"value": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{"action":"cancel"}` 是拦下这次调用：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能埋点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能埋点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。
+
+### `musicxx.playlist.song.favorite` 收藏当前歌曲
+
+参数 `{favorite?}`：不写 = 按当前状态取反；写 `true` / `false` = 设成那个状态（已经是目标状态时不再发请求）。
+
+返回 `{ok, favorite, srcKey}`：`favorite` = 动作之后当前歌曲在「我喜欢」里的状态，`srcKey` = 当前歌曲的音源身份（完整 md5 串，没有音源身份时为空串）。当前没有歌曲 / 歌曲没有音源身份 → `{ok:false, error:"当前没有可收藏的歌曲"}`。
+
+行为与播放页的收藏按钮一致：未登录时不会收藏（应用自己提示登录），当前播放列表就是「我喜欢」时同步增删播放队列。
+
+### `musicxx.ui.playing.openMenu` 播放页「更多」菜单
+
+无参数，打开菜单后**立即**返回 `{ok:true}`（不等用户关掉菜单）。
+
+菜单内容与内置的完全一样：歌词来源 / 选择歌词 / 刷新歌词 / 局域网投送 / 加入歌单 / 移除当前歌曲 / 快捷功能 / 视频开关 / 播放模式 / 时长显示 / 沉浸模式。插件替换了整块控制按钮栏（`musicxx.ui.playing.controlBar`）又想保留这个入口时用它。
 
 ### `musicxx.ui.setAnimatedLevel` 设置动画等级
 

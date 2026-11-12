@@ -141,6 +141,7 @@
 #define MUSICXX_CAPABILITY_PLAYLIST_REMOVE_SONG "musicxx.playlist.removeSong"
 #define MUSICXX_CAPABILITY_PLAYLIST_CREATE "musicxx.playlist.create"
 #define MUSICXX_CAPABILITY_PLAYLIST_UPDATE_SONG "musicxx.playlist.updateSong"
+#define MUSICXX_CAPABILITY_PLAYLIST_SONG_FAVORITE "musicxx.playlist.song.favorite"
 #define MUSICXX_CAPABILITY_PLAYLIST_SYNC_SONGS_SYNC "musicxx.playlist.syncSongs.sync"
 #define MUSICXX_CAPABILITY_SONGLIST_QUERY_SONGS "musicxx.songlist.querySongs"
 #define MUSICXX_CAPABILITY_SONGLIST_PLAY_SONG "musicxx.songlist.playSong"
@@ -167,6 +168,7 @@
 #define MUSICXX_CAPABILITY_UI_OVERLAY_CLOSE "musicxx.ui.overlay.close"
 #define MUSICXX_CAPABILITY_UI_OPEN_OVERLAY_SHEET "musicxx.ui.openOverlaySheet"
 #define MUSICXX_CAPABILITY_UI_OPEN_ROUTE "musicxx.ui.openRoute"
+#define MUSICXX_CAPABILITY_UI_PLAYING_OPEN_MENU "musicxx.ui.playing.openMenu"
 #define MUSICXX_CAPABILITY_UI_PICK_SONGS "musicxx.ui.pickSongs"
 #define MUSICXX_CAPABILITY_UI_PICK_DIR "musicxx.ui.pickDir"
 #define MUSICXX_CAPABILITY_UI_BROWSE_DRIVE "musicxx.ui.browseDrive"
@@ -338,6 +340,7 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.playlist.removeSong", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.playlist.create", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.playlist.updateSong", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.playlist.song.favorite", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.playlist.syncSongs.sync", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.songlist.querySongs", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.songlist.playSong", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
@@ -364,6 +367,7 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.ui.overlay.close", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.openOverlaySheet", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.openRoute", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
+    {"musicxx.ui.playing.openMenu", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.pickSongs", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.pickDir", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
     {"musicxx.ui.browseDrive", 0, 0, 1u, 1, 5000, 0, 2u, 15u, 0, 1},
