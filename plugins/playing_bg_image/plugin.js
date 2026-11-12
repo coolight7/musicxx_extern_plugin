@@ -120,7 +120,13 @@ const SETTINGS_VIEW_ID = "settings";
 const BACKGROUND_SLOT = "player.background";
 const ICON_SLOT = "player.icon";
 const BUILTIN_BG_ID = "builtin:Auto";
-const BUILTIN_ICON_ID = "builtin:default";
+/// 歌曲图槽位的内置项是"内置显示 + 三种形状"，id 都是 `musicxx:` 开头。
+///
+/// 交还歌曲图用 `musicxx:previous`：它把主程序记下的"上一个形状"恢复回来，没有记录时
+/// 什么都不改（重复调用也安全），不会把用户现在选的形状冲掉。
+/// `musicxx:default` 是"把形状重置成默认值"，只在确实想重置用户设置时用。
+const PREVIOUS_ICON_ID = "musicxx:previous";
+const BUILTIN_ICON_PREFIX = "musicxx:";
 
 /// 封面纹理参数：主程序解码 → 缩放 → 可选预模糊（着色器只做放大、漂移、扭曲）
 ///
@@ -1553,7 +1559,7 @@ function slotItemIdOf(slotId) {
     return (slot && typeof slot.itemId === "string") ? slot.itemId : "";
 }
 
-/// 用户选中了谁（可能是内置样式 `builtin:*`）
+/// 用户选中了谁（可能是内置项 id：背景 / 动效是 `builtin:*`，歌曲图是 `musicxx:*`）
 function slotSelectedIdOf(slotId) {
     const slot = slotOf(slotId);
     return (slot && typeof slot.selectedId === "string") ? slot.selectedId : "";
@@ -1620,7 +1626,7 @@ function followTick(force) {
         target = ICON_ITEM_ID;
         note = "已隐藏歌曲图";
     } else if ((false == configuredHideIcon() || false == bgMine) && iconMine) {
-        target = BUILTIN_ICON_ID;
+        target = PREVIOUS_ICON_ID;
         note = configuredHideIcon() ? "背景已切走，交还" : "已关闭开关，交还";
     }
     if (!target) {
@@ -1693,11 +1699,13 @@ function iconStateText() {
     if (slot.itemId === ICON_ITEM_ID) {
         return (slot.visible === true) ? "已隐藏" : "已隐藏 · 未渲染";
     }
-    if (!slot.selectedId) {
-        return "显示中";
-    }
     if (slot.selectedId === ICON_ITEM_ID && slot.itemId !== ICON_ITEM_ID) {
         return "检查中";
+    }
+    // 没有选中项、或选中项是内置显示（`musicxx:circle` / `musicxx:square` /
+    // `musicxx:adaptive` 这些形状）时，画的是主程序自己的歌曲图
+    if (!slot.selectedId || slot.selectedId.indexOf(BUILTIN_ICON_PREFIX) === 0) {
+        return "显示中";
     }
     return "别的样式";
 }
@@ -2149,9 +2157,9 @@ musicxx.capability.register("takeIcon", function (args) {
     return { view: pageView(args) };
 });
 
-/// 交还歌曲图（手动，显示内置的歌曲图）
+/// 交还歌曲图（手动，恢复主程序记下的上一个形状；没有记录时保持用户现在的形状）
 musicxx.capability.register("releaseIcon", function (args) {
-    requestSlotSelect(ICON_SLOT, BUILTIN_ICON_ID, "手动交还", true);
+    requestSlotSelect(ICON_SLOT, PREVIOUS_ICON_ID, "手动交还", true);
     return { view: pageView(args) };
 });
 

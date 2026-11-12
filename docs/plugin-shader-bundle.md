@@ -340,8 +340,19 @@ void main() {
 ## 5.3 播放页歌曲图槽位（`musicxx.ui.playing.icon`）：接管中间那张歌曲图
 
 除了背景，插件还能接管沉浸式播放页**中间那张歌曲图**（内置显示是"封面图 + 播放状态按钮 / 视频"）。
-它是一个独立的渲染槽位 `player.icon`：用户在「设置 → 主题 → 播放页歌曲图」里选择，或插件用
-`musicxx.render.select(id, {slot: "player.icon"})` 切换（内置项 id 是 `builtin:default`）。
+它是一个独立的渲染槽位 `player.icon`：用户在「设置 → 主题 → 播放页面歌曲图」里选择，或插件用
+`musicxx.render.select(id, {slot: "player.icon"})` 切换。
+
+内置显示也在这份列表里，按形状分成三条候选：`musicxx:circle`（圆形，会跟着旋转与波浪）、
+`musicxx:square`（方形）、`musicxx:adaptive`（按封面比例自适应，不裁剪）。
+另外两个 id 不进入列表，是动作：
+
+- `musicxx:previous`：恢复主程序记下的"上一个形状"（`musicxx:default` 重置掉的那个）；
+  没有记录时不动设置项，重复调用也安全 —— **交还歌曲图用它**；
+- `musicxx:default`：把形状写回设置项的默认值（圆形）；写之前会把原来的值记下来，
+  只在确实想重置用户设置时用。
+
+`musicxx.render.list` 回复里 `source: "builtin"` 的是三条形状；`selectedId` 在内置时是它们的 id。
 
 ```jsonc
 // 渲染项（musicxx.ui.playing.icon 的 data）—— 三种形态挑一种
@@ -810,12 +821,13 @@ const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player
   |---|---|
   | `itemId` | 现在由哪个**插件项**在画（为空 = 没有插件项在画） |
   | `plugin` | 生效项所属插件 |
-  | `selectedId` | 用户选中的是谁（可能是内置样式 `builtin:*`） |
+  | `selectedId` | 用户选中的是谁（背景 / 动效用内置样式时是 `builtin:*`，歌曲图是 `musicxx:*`） |
   | `visible` | 主程序当前是否在渲染（播放页被遮挡 / 切后台 / 播放页不在页面上 → false） |
   | `night` | 是否夜间表现 |
   | `animate` / `maxFps` / `width` / `height` | 该样式的渲染参数与当前像素尺寸（不可见时为 0） |
 
-- 槽位条目**一直存在**：用户切回内置样式时 `itemId` 为空而 `selectedId` 是 `builtin:*`，
+- 槽位条目**一直存在**：用户切回内置样式时 `itemId` 为空而 `selectedId` 是内置项 id
+  （背景 / 动效是 `builtin:*`，歌曲图是 `musicxx:*`），
   插件据此就能说清「内置背景」而不是猜「没有条目意味着什么」；只有插件框架停止（关闭『拟声++』）
   才清空；
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 主程序 4 色），需要封面像素用

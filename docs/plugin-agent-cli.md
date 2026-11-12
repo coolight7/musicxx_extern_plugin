@@ -201,6 +201,16 @@ musicxx-cli render select builtin:Auto           # 切回内置样式
 选中的样式失效时（bundle 预检不过、运行期渲染失败、插件被停用/卸载、关闭『拟声++』）会自动
 回退内置样式；细节见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10。
 
+播放页歌曲图用同一个命令，带 `--slot player.icon`：内置项按形状分成三条
+（`musicxx:circle` / `musicxx:square` / `musicxx:adaptive`）；`musicxx:previous` = 交还控制权
+（恢复上一个形状，没有记录时不动），`musicxx:default` = 重置成默认形状：
+
+```bash
+musicxx-cli render list --slot player.icon
+musicxx-cli render select musicxx:square --slot player.icon
+musicxx-cli render select musicxx:previous --slot player.icon
+```
+
 ### 5.6 其它顺手命令
 
 | 命令 | 插件开发时用来 |

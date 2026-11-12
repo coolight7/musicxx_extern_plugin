@@ -1206,6 +1206,11 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 const all = await musicxx.render.list();                        // 默认槽位
 await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插件的样式
 await musicxx.render.select("builtin:Auto", { slot: "player.background" });  // 切回内置
+
+// 播放页歌曲图槽位：内置项按形状分成三条（musicxx:circle / square / adaptive），
+// 交还控制权用 musicxx:previous（恢复上一个形状，没有记录时不动）；musicxx:default 是重置成默认形状
+await musicxx.render.select("musicxx:square", { slot: "player.icon" });
+await musicxx.render.select("musicxx:previous", { slot: "player.icon" });
 ```
 
 **"现在是不是本插件在画"**用广播 `musicxx.state.renderSlots` 同步判断（渲染线程里每帧都会读，不要调能力）：

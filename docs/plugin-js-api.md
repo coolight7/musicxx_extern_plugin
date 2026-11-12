@@ -988,7 +988,8 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态广播见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
-  （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（可能是 `builtin:*`），
+  （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（内置项 id：背景 / 动效是 `builtin:*`，
+  歌曲图是 `musicxx:*`），
   `visible:false` = 主程序当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
 
 ---
