@@ -27,16 +27,16 @@
 | `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
 | `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
 | `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 歌曲列表页 [+] → 「添加歌曲」弹窗（在**内置来源之后**、“从其他歌单导入”这类工具项之前） | 显示 `title` / `subtitle`；动作参数同样带 `pid` / `name` / `songNum`。常见写法：`command` 动作指向 `musicxx.ui.openOverlaySheet`，把插件自己的挑歌视图打开成底部浮层（见 [plugin-api.md](plugin-api.md) §3.2.4.2） |
-| `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效；内置样式是 `musicxx:Auto` 这类 id（`musicxx:*`） |
-| `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx:circle` / `musicxx:square` / `musicxx:adaptive`）也在同一份列表里 |
-| `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx:none` / `musicxx:WaveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
-| `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreinfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
+| `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效；内置样式是 `musicxx.auto` 这类 id（`musicxx.*`） |
+| `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx.circle` / `musicxx.square` / `musicxx.adaptive`）也在同一份列表里 |
+| `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx.none` / `musicxx.waveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
+| `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreInfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
 | `musicxx.ui.playing.controlBar` 与 `musicxx.ui.playing.controlBar.<按钮>`（六个，见 §1.7） | `view`（必填）、`enabled?` | 播放页底部控制按钮栏（整栏或单个按钮） | **替换**内置界面：整栏由插件画，或只换五个按钮里的某几个；同一位置只认一项（`order` 小的优先），取不到内容时回到内置界面 |
 
-三个播放页槽位的**内置项 id 与动作 id 是同一套**：内置项 `musicxx:<名字>`（背景 / 动效用枚举名，
-歌曲图用短名）；`musicxx:previous` = 交还控制权（恢复 `musicxx:default` 重置掉的那个值，没有记录时
-不动、重复调用安全）；`musicxx:default` = 写回该设置项的默认值（背景 `musicxx:Auto`、动效 `musicxx:none`、
-歌曲图 `musicxx:circle`）。两个动作 id 不进候选列表，细节见
+三个播放页槽位的**内置项 id 与动作 id 是同一套**：内置项 `musicxx.<名字>`（背景 / 动效用枚举名，
+歌曲图用短名）；`musicxx.previous` = 交还控制权（恢复 `musicxx.default` 重置掉的那个值，没有记录时
+不动、重复调用安全）；`musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、动效 `musicxx.none`、
+歌曲图 `musicxx.circle`）。两个动作 id 不进候选列表，细节见
 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10。
 
 `icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写主程序
@@ -172,8 +172,8 @@ my_plugin/
 | `musicxx.ui.playing.lyric.bottom` | 歌词页 | 底部（列表之下） | 否 |
 | `musicxx.ui.playing.lyric.header` | 歌词页 | 列表内顶部（header） | **是** |
 | `musicxx.ui.playing.lyric.footer` | 歌词页 | 列表内底部（footer） | **是** |
-| `musicxx.ui.playing.moreinfo.header` | 更多信息页 | 内容开头 | 是（整页都在滚） |
-| `musicxx.ui.playing.moreinfo.footer` | 更多信息页 | 内容末尾 | 是（整页都在滚） |
+| `musicxx.ui.playing.moreInfo.header` | 更多信息页 | 内容开头 | 是（整页都在滚） |
+| `musicxx.ui.playing.moreInfo.footer` | 更多信息页 | 内容末尾 | 是（整页都在滚） |
 | `musicxx.ui.playing.songlist.top` | 播放列表页 | 顶部（列表之上） | 否 |
 | `musicxx.ui.playing.songlist.bottom` | 播放列表页 | 底部（列表之下） | 否 |
 | `musicxx.ui.playing.songlist.header` | 播放列表页 | 列表内顶部（header） | **是** |
@@ -655,7 +655,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 - 跳转：按钮 / 可点块上用 `{"kind":"route","route":"ext://<插件id>/<视图id>"}`（**允许指向任意插件**，
   含自己；页面由目标插件绘制，发起方拿不到对方的数据）。要跳**官方页面**
-  （`musicxx:settings`、`musicxx:player`、`musicxx:search` 等）只能用动作 `musicxx.ui.openRoute`
+  （`musicxx.settings`、`musicxx.player`、`musicxx.search` 等）只能用动作 `musicxx.ui.openRoute`
   （白名单见 [plugin-api.md](plugin-api.md) §3.2.4）；UI 项与页面里的动作走的是**同一套判定**；
 - 刷新当前页：能力返回新的 `{"view": {...}}`，主程序直接用新视图重画当前页面（不用重新打开）；
 - 每个插件视图是**独立页面**（框架按路由 + 视图 id 区分），从 A 页跳到 B 页后返回能回到 A 页。

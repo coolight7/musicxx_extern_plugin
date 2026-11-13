@@ -134,7 +134,7 @@ void main() {
       'ext://card',
       'ext://demo/',
       'ext:///card',
-      'musicxx:settings',
+      'musicxx.settings',
       '',
     ]) {
       final MusicxxPluginUIItem item = itemOf(bad);

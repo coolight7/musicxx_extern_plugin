@@ -661,12 +661,12 @@ if (found.count > 0) {
 
 | 别名键 | 页面 | 别名键 | 页面 |
 |---|---|---|---|
-| `musicxx:settings` | 设置 | `musicxx:player` | 播放页 |
-| `musicxx:about` | 关于 | `musicxx:home` | 音乐主页 |
-| `musicxx:logs` | 日志 | `musicxx:userHome` | 用户页 |
-| `musicxx:plugins` | 插件管理 | `musicxx:search` | 搜索 |
-| `musicxx:externPlugins` | 外部插件管理 | `musicxx:localSongs` | 本地歌曲 |
-| `musicxx:history` | 播放记录 | `musicxx:lyrics` | 歌词 |
+| `musicxx.settings` | 设置 | `musicxx.player` | 播放页 |
+| `musicxx.about` | 关于 | `musicxx.home` | 音乐主页 |
+| `musicxx.logs` | 日志 | `musicxx.userHome` | 用户页 |
+| `musicxx.plugins` | 插件管理 | `musicxx.search` | 搜索 |
+| `musicxx.externPlugins` | 外部插件管理 | `musicxx.localSongs` | 本地歌曲 |
+| `musicxx.history` | 播放记录 | `musicxx.lyrics` | 歌词 |
 
 ```js
 await musicxx.ui.toast({ text: "已刷新" });
@@ -674,7 +674,7 @@ await musicxx.ui.toast("轻提示");                    // 也可以直接传字
 const answer = await musicxx.ui.dialog({ content: "删除缓存？", textConfirm: "删除", textCancel: "算了" });
 if (answer.confirmed) { /* ... */ }
 await musicxx.ui.openRoute("ext://my_plugin/settings");
-await musicxx.ui.openRoute("musicxx:localSongs");
+await musicxx.ui.openRoute("musicxx.localSongs");
 ```
 
 ```cpp
@@ -1144,7 +1144,7 @@ musicxx.net.udp.on("message", (ev) => {
     console.log("来自", ev.host, ev.port, ev.text);
 });
 const ch = musicxx.net.udp.open({ port: 45678 });   // 0.0.0.0:45678，可收广播
-musicxx.net.udp.send({ id: ch.id, host: "255.255.255.255", port: 45678, data: "musicxx:hello" });
+musicxx.net.udp.send({ id: ch.id, host: "255.255.255.255", port: 45678, data: "musicxx.hello" });
 
 // 组播：加入一个组，收别的设备发的包
 const mc = musicxx.net.udp.open({ port: 37020, multicast: ["239.255.42.99"] });
@@ -1218,13 +1218,13 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 ```js
 const all = await musicxx.render.list();                        // 默认槽位
 await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插件的样式
-await musicxx.render.select("musicxx:Auto", { slot: "player.background" });  // 切回内置
+await musicxx.render.select("musicxx.auto", { slot: "player.background" });  // 切回内置
 
-// 三个槽位的 id 写法同一套：内置项 `musicxx:<名字>`（背景 / 动效用枚举名，歌曲图用短名），
-// 交还控制权用 `musicxx:previous`（恢复 `musicxx:default` 重置掉的值，没有记录时不动），
-// `musicxx:default` = 写回该设置项的默认值（背景 `musicxx:Auto`、动效 `musicxx:none`、歌曲图 `musicxx:circle`）
-await musicxx.render.select("musicxx:square", { slot: "player.icon" });
-await musicxx.render.select("musicxx:previous", { slot: "player.icon" });
+// 三个槽位的 id 写法同一套：内置项 `musicxx.<名字>`（背景 / 动效用枚举名，歌曲图用短名），
+// 交还控制权用 `musicxx.previous`（恢复 `musicxx.default` 重置掉的值，没有记录时不动），
+// `musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、动效 `musicxx.none`、歌曲图 `musicxx.circle`）
+await musicxx.render.select("musicxx.square", { slot: "player.icon" });
+await musicxx.render.select("musicxx.previous", { slot: "player.icon" });
 ```
 
 **"现在是不是本插件在画"**用广播 `musicxx.state.renderSlots` 同步判断（渲染线程里每帧都会读，不要调能力）：
@@ -2379,7 +2379,7 @@ uiNotify(R"({"text":"已刷新"})");
   `playing.controlBar.menu` / `.previous` / `.playOrPause` / `.next` / `.favorite`（播放页底部控制按钮栏，
   **替换**内置栏或其中的一个按钮，见 [plugin-ui.md](plugin-ui.md) §1.7）、以及十个播放页子页面插入块
   `playing.lyric.top` / `playing.lyric.bottom` / `playing.lyric.header` / `playing.lyric.footer` /
-  `playing.moreinfo.header` / `playing.moreinfo.footer` /
+  `playing.moreInfo.header` / `playing.moreInfo.footer` /
   `playing.songlist.top` / `playing.songlist.bottom` / `playing.songlist.header` / `playing.songlist.footer`
   （**类型本身就是位置**，`data` 里不需要 `slot`；`top` / `bottom` 是固定区域，`header` / `footer` 在列表滚动内容里）。
 - **页面内容是打开时取一次的**：改完配置要让能力再返回一次 `{view: …}`（或重新打开页面）。

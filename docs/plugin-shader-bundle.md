@@ -343,13 +343,13 @@ void main() {
 它是一个独立的渲染槽位 `player.icon`：用户在「设置 → 主题 → 播放页面歌曲图」里选择，或插件用
 `musicxx.render.select(id, {slot: "player.icon"})` 切换。
 
-内置显示也在这份列表里，按形状分成三条候选：`musicxx:circle`（圆形，会跟着旋转与波浪）、
-`musicxx:square`（方形）、`musicxx:adaptive`（按封面比例自适应，不裁剪）。
+内置显示也在这份列表里，按形状分成三条候选：`musicxx.circle`（圆形，会跟着旋转与波浪）、
+`musicxx.square`（方形）、`musicxx.adaptive`（按封面比例自适应，不裁剪）。
 另外两个 id 不进入列表，是动作：
 
-- `musicxx:previous`：恢复主程序记下的"上一个形状"（`musicxx:default` 重置掉的那个）；
+- `musicxx.previous`：恢复主程序记下的"上一个形状"（`musicxx.default` 重置掉的那个）；
   没有记录时不动设置项，重复调用也安全 —— **交还歌曲图用它**；
-- `musicxx:default`：把形状写回设置项的默认值（圆形）；写之前会把原来的值记下来，
+- `musicxx.default`：把形状写回设置项的默认值（圆形）；写之前会把原来的值记下来，
   只在确实想重置用户设置时用。
 
 `musicxx.render.list` 回复里 `source: "builtin"` 的是三条形状；`selectedId` 在内置时是它们的 id。
@@ -805,18 +805,18 @@ const r = await musicxx.render.list({ slot: "player.background" });
 
 // 一键使用（也可以切到内置样式）
 await musicxx.capability.call("musicxx.render.select", { slot: "player.background", id: "plugin.my_plugin.bg" });
-await musicxx.render.select("musicxx:Auto");     // 省略 slot 用默认槽位
+await musicxx.render.select("musicxx.auto");     // 省略 slot 用默认槽位
 // 成功 → { ok:true, slot, id }；不可用 / 未知槽位 → { ok:false, error:"<原因>" }
 
 // 现在是谁在画（同步读状态广播）
 const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
 ```
 
-- 内置候选 id 是 `musicxx:<内置样式名>`，例如 `musicxx:Auto`（内置换算出来的列表见
-  `musicxx.render.list` 的返回）；三个槽位统一这套前缀（歌曲图用短名，例如 `musicxx:circle`）；
-- 两个动作 id 不进候选列表：`musicxx:previous` = 交还控制权（恢复 `musicxx:default` 重置掉的那个值，
-  没有记录时不动、重复调用安全），`musicxx:default` = 写回该设置项的默认值（背景 `musicxx:Auto`、
-  动效 `musicxx:none`、歌曲图 `musicxx:circle`），只在确实想重置用户设置时用；
+- 内置候选 id 是 `musicxx.<内置样式名>`，例如 `musicxx.auto`（内置换算出来的列表见
+  `musicxx.render.list` 的返回）；三个槽位统一这套前缀（歌曲图用短名，例如 `musicxx.circle`）；
+- 两个动作 id 不进候选列表：`musicxx.previous` = 交还控制权（恢复 `musicxx.default` 重置掉的那个值，
+  没有记录时不动、重复调用安全），`musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、
+  动效 `musicxx.none`、歌曲图 `musicxx.circle`），只在确实想重置用户设置时用；
 - 命令行 / agent 不用写插件也能切：`musicxx-cli render list` / `render current` /
   `render select plugin.my_plugin.bg`（见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 - 广播 `musicxx.state.renderSlots` 每个槽位一个条目，字段：
@@ -825,13 +825,13 @@ const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player
   |---|---|
   | `itemId` | 现在由哪个**插件项**在画（为空 = 没有插件项在画） |
   | `plugin` | 生效项所属插件 |
-  | `selectedId` | 用户选中的是谁（三个槽位的内置项都是 `musicxx:*`） |
+  | `selectedId` | 用户选中的是谁（三个槽位的内置项都是 `musicxx.*`） |
   | `visible` | 主程序当前是否在渲染（播放页被遮挡 / 切后台 / 播放页不在页面上 → false） |
   | `night` | 是否夜间表现 |
   | `animate` / `maxFps` / `width` / `height` | 该样式的渲染参数与当前像素尺寸（不可见时为 0） |
 
 - 槽位条目**一直存在**：用户切回内置样式时 `itemId` 为空而 `selectedId` 是内置项 id
-  （三个槽位都是 `musicxx:*`），
+  （三个槽位都是 `musicxx.*`），
   插件据此就能说清「内置背景」而不是猜「没有条目意味着什么」；只有插件框架停止（关闭『拟声++』）
   才清空；
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 主程序 4 色），需要封面像素用

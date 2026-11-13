@@ -66,10 +66,10 @@ abstract final class MusicxxPluginUIType {
   /// 界面里放按钮，动作用 `command` 调官方能力 `musicxx.player.toggle`。
   ///
   /// 设置入口是「设置 → 主题 → 播放页面歌曲图」，内置显示按形状分成三条候选
-  /// `musicxx:circle` / `musicxx:square` / `musicxx:adaptive` 与插件项在同一份列表里。
-  /// `musicxx:previous` 是"交还控制权"（恢复上一个形状，没有记录时不动设置项，重复调用安全）；
-  /// `musicxx:default` 是"重置成默认形状"（写之前会记下原来的值）。两个动作都不进列表，
-  /// 背景 / 歌曲图 / 音频动效三个槽位都支持它们（内置项 id 统一是 `musicxx:<名字>`）。
+  /// `musicxx.circle` / `musicxx.square` / `musicxx.adaptive` 与插件项在同一份列表里。
+  /// `musicxx.previous` 是"交还控制权"（恢复上一个形状，没有记录时不动设置项，重复调用安全）；
+  /// `musicxx.default` 是"重置成默认形状"（写之前会记下原来的值）。两个动作都不进列表，
+  /// 背景 / 歌曲图 / 音频动效三个槽位都支持它们（内置项 id 统一是 `musicxx.<名字>`）。
   static const String playingIcon = 'musicxx.ui.playing.icon';
 
   /// 播放页音频可视化样式（渲染槽位 `player.visualizer`）：与内置『音乐动效』的四种样式在同一个
@@ -147,7 +147,7 @@ abstract final class MusicxxPluginUIType {
   /// 列表滚动内容里（`header` / `footer`）：
   /// - [playingLyricHeader] / [playingLyricFooter]：歌词列表的 header / footer；
   /// - [playingSonglistHeader] / [playingSonglistFooter]：播放列表的 header / footer；
-  /// - [playingMoreinfoHeader] / [playingMoreinfoFooter]：更多信息页内容开头 / 末尾（整页滚动）。
+  /// - [playingMoreInfoHeader] / [playingMoreInfoFooter]：更多信息页内容开头 / 末尾（整页滚动）。
   ///
   /// 同一位置可以注册多项，按 UI 项的 `order` 与注册顺序从上到下排列；这些类型都不需要
   /// `title`（它们不画在任何列表里）。插入块的页面已经给过页面边距，块只画自己的内容；
@@ -164,12 +164,12 @@ abstract final class MusicxxPluginUIType {
   static const String playingLyricFooter = 'musicxx.ui.playing.lyric.footer';
 
   /// 更多信息页内容开头（整页滚动，这一块在内容的最前面）
-  static const String playingMoreinfoHeader =
-      'musicxx.ui.playing.moreinfo.header';
+  static const String playingMoreInfoHeader =
+      'musicxx.ui.playing.moreInfo.header';
 
   /// 更多信息页内容末尾（整页滚动，这一块在内容的最后面）
-  static const String playingMoreinfoFooter =
-      'musicxx.ui.playing.moreinfo.footer';
+  static const String playingMoreInfoFooter =
+      'musicxx.ui.playing.moreInfo.footer';
 
   /// 播放列表页顶部（列表之上，不随内容滚动）
   static const String playingSonglistTop = 'musicxx.ui.playing.songlist.top';

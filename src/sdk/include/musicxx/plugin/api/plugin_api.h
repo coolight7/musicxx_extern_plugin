@@ -196,9 +196,9 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// 歌词列表内底部（列表的 footer，跟随内容滚动）
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_FOOTER "musicxx.ui.playing.lyric.footer"
 /// 更多信息页内容开头（整页滚动，这一块在内容的最前面）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_HEADER "musicxx.ui.playing.moreinfo.header"
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_HEADER "musicxx.ui.playing.moreInfo.header"
 /// 更多信息页内容末尾（整页滚动，这一块在内容的最后面）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MOREINFO_FOOTER "musicxx.ui.playing.moreinfo.footer"
+#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_FOOTER "musicxx.ui.playing.moreInfo.footer"
 /// 播放列表页顶部（列表之上，不随内容滚动）
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP "musicxx.ui.playing.songlist.top"
 /// 播放列表页底部（列表之下，不随内容滚动）

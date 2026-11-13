@@ -195,21 +195,21 @@ musicxx-cli plugin uninstall my_plugin --keep-data   # 保留 config.json 与存
 musicxx-cli render list                          # 谁能画：内置样式 + 各插件样式（含可用性）
 musicxx-cli render current                       # 现在是谁在画
 musicxx-cli render select plugin.my_plugin.bg    # 切到插件样式
-musicxx-cli render select musicxx:Auto           # 切回内置样式
+musicxx-cli render select musicxx.auto           # 切回内置样式
 ```
 
 选中的样式失效时（bundle 预检不过、运行期渲染失败、插件被停用/卸载、关闭『拟声++』）会自动
 回退内置样式；细节见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10。
 
 播放页歌曲图 / 音频动效用同一个命令，带 `--slot player.icon` / `--slot player.visualizer`：内置项 id
-都是 `musicxx:<名字>`（歌曲图是 `musicxx:circle` / `musicxx:square` / `musicxx:adaptive`，动效是
-`musicxx:none` / `musicxx:WaveRect` …）；`musicxx:previous` = 交还控制权（恢复 `musicxx:default`
-重置掉的值，没有记录时不动），`musicxx:default` = 重置成该设置项的默认值：
+都是 `musicxx.<名字>`（歌曲图是 `musicxx.circle` / `musicxx.square` / `musicxx.adaptive`，动效是
+`musicxx.none` / `musicxx.waveRect` …）；`musicxx.previous` = 交还控制权（恢复 `musicxx.default`
+重置掉的值，没有记录时不动），`musicxx.default` = 重置成该设置项的默认值：
 
 ```bash
 musicxx-cli render list --slot player.icon
-musicxx-cli render select musicxx:square --slot player.icon
-musicxx-cli render select musicxx:previous --slot player.icon
+musicxx-cli render select musicxx.square --slot player.icon
+musicxx-cli render select musicxx.previous --slot player.icon
 ```
 
 ### 5.6 其它顺手命令

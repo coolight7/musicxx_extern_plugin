@@ -119,14 +119,14 @@ const SETTINGS_VIEW_ID = "settings";
 /// 两个槽位与它们的内置项 id（切回内置背景 / 交还歌曲图用）
 const BACKGROUND_SLOT = "player.background";
 const ICON_SLOT = "player.icon";
-const BUILTIN_BG_ID = "musicxx:Auto";
-/// 歌曲图槽位的内置项是"内置显示 + 三种形状"，id 都是 `musicxx:` 开头。
+const BUILTIN_BG_ID = "musicxx.auto";
+/// 歌曲图槽位的内置项是"内置显示 + 三种形状"，id 都是 `musicxx.` 开头。
 ///
-/// 交还歌曲图用 `musicxx:previous`：它把主程序记下的"上一个形状"恢复回来，没有记录时
+/// 交还歌曲图用 `musicxx.previous`：它把主程序记下的"上一个形状"恢复回来，没有记录时
 /// 什么都不改（重复调用也安全），不会把用户现在选的形状冲掉。
-/// `musicxx:default` 是"把形状重置成默认值"，只在确实想重置用户设置时用。
-const PREVIOUS_ICON_ID = "musicxx:previous";
-const BUILTIN_ICON_PREFIX = "musicxx:";
+/// `musicxx.default` 是"把形状重置成默认值"，只在确实想重置用户设置时用。
+const PREVIOUS_ICON_ID = "musicxx.previous";
+const BUILTIN_ICON_PREFIX = "musicxx.";
 
 /// 封面纹理参数：主程序解码 → 缩放 → 可选预模糊（着色器只做放大、漂移、扭曲）
 ///
@@ -1559,7 +1559,7 @@ function slotItemIdOf(slotId) {
     return (slot && typeof slot.itemId === "string") ? slot.itemId : "";
 }
 
-/// 用户选中了谁（可能是内置项 id：三个槽位都是 `musicxx:*`）
+/// 用户选中了谁（可能是内置项 id：三个槽位都是 `musicxx.*`）
 function slotSelectedIdOf(slotId) {
     const slot = slotOf(slotId);
     return (slot && typeof slot.selectedId === "string") ? slot.selectedId : "";
@@ -1664,7 +1664,7 @@ function currentMode() {
         return selectedMode;
     }
     const selected = slotSelectedIdOf(BACKGROUND_SLOT);
-    if (selected === "" || selected.indexOf("musicxx:") === 0) {
+    if (selected === "" || selected.indexOf("musicxx.") === 0) {
         return MODE_BUILTIN;
     }
     return "other";
@@ -1684,7 +1684,7 @@ function backgroundStateText() {
     if (modeOfItemId(selected)) {
         return "检查中";
     }
-    if (selected === "" || selected.indexOf("musicxx:") === 0) {
+    if (selected === "" || selected.indexOf("musicxx.") === 0) {
         return "内置背景";
     }
     return "其它样式";
@@ -1702,8 +1702,8 @@ function iconStateText() {
     if (slot.selectedId === ICON_ITEM_ID && slot.itemId !== ICON_ITEM_ID) {
         return "检查中";
     }
-    // 没有选中项、或选中项是内置显示（`musicxx:circle` / `musicxx:square` /
-    // `musicxx:adaptive` 这些形状）时，画的是主程序自己的歌曲图
+    // 没有选中项、或选中项是内置显示（`musicxx.circle` / `musicxx.square` /
+    // `musicxx.adaptive` 这些形状）时，画的是主程序自己的歌曲图
     if (!slot.selectedId || slot.selectedId.indexOf(BUILTIN_ICON_PREFIX) === 0) {
         return "显示中";
     }

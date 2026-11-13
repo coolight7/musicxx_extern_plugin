@@ -75,7 +75,7 @@ BACKGROUND_TITLES[RING_ITEM_ID] = RING_TITLE;
 BACKGROUND_TITLES[BOUND_ITEM_ID] = BOUND_TITLE;
 
 /// 内置样式的候选 id (设置页与说明页的"切回内置背景"用它)
-const BUILTIN_AUTO_ID = "musicxx:Auto";
+const BUILTIN_AUTO_ID = "musicxx.auto";
 
 /// 基准速度与可选倍率
 ///
@@ -362,7 +362,7 @@ let lastBackgroundRequest = "";
 
 /// 当前生效项的文字说明
 ///
-/// 镜像里的 `selectedId` 是"用户选中的是谁"(可能是 `musicxx:*` 内置项), `itemId` 是"现在由哪个
+/// 镜像里的 `selectedId` 是"用户选中的是谁"(可能是 `musicxx.*` 内置项), `itemId` 是"现在由哪个
 /// 插件项在画"(没有插件项生效时为空)。两个字段分开读, 才既能说清"内置背景", 又能说清
 /// 本插件到底有没有在画。
 ///
@@ -382,7 +382,7 @@ function backgroundStateText() {
     if (ownStyleTitle(selected) !== "") {
         return "已选中";
     }
-    if (selected.indexOf("musicxx:") === 0) {
+    if (selected.indexOf("musicxx.") === 0) {
         return "内置背景";
     }
     return selected === "" ? "无状态" : ("其它插件: " + selected);
@@ -408,7 +408,7 @@ function backgroundStyleText() {
         return selected + "（未渲染）";
     }
     const id = slot.selectedId || "";
-    if (id.indexOf("musicxx:") === 0) {
+    if (id.indexOf("musicxx.") === 0) {
         return "内置背景";
     }
     return id === "" ? "无状态" : id;
@@ -666,7 +666,7 @@ musicxx.capability.register("cycleBackgroundRate", function (args) {
     };
 });
 
-/// 一键切换播放页背景 (也可以切到内置样式: id 用 "musicxx:<内置样式名>")
+/// 一键切换播放页背景 (也可以切到内置样式: id 用 "musicxx.<内置样式名>")
 ///
 /// `musicxx.render.select` 是主程序官方动作: 只允许选中**可用**项, 选中后立即生效,
 /// 用户在设置里随时能改回来。能力处理器必须同步返回, 所以这里只说明"已请求",
