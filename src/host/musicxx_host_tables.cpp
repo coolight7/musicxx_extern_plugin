@@ -1,7 +1,7 @@
 /// musicxx 外部插件原生插件框架: 能力派发 (宿主自己的实现表) 与专用接口表
 ///
 /// 能力 / 广播的声明只有一份: `tools/capabilities.def.json` → `tools/gen_contract.dart`
-/// 生成 `musicxx/plugin/api/capability_ids.g.h`（插件框架与插件作者共用同一份）。
+/// 生成 `musicxx/plugin/api/capability_ids.g.h`（插件框架与插件开发者共用同一份）。
 /// 宿主在这里按 id 查声明，决定一条 id 能不能派发、开哪几个阶段、异步要不要回传结果。
 ///
 /// 线程约定: 表入口在 Dart 线程被调用, 内部投递到框架线程并等待;

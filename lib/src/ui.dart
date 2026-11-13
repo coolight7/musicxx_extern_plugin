@@ -33,7 +33,7 @@ abstract final class MusicxxPluginUIType {
   ///
   /// 位置：歌曲列表页 [+] → 「添加歌曲」弹窗，排在内置来源之后、“从其他歌单导入”这类工具项之前。
   /// 点击时主程序把当前歌单的上下文（`pid` / `name` / `songNum`）合进动作参数。
-  /// 典型写法是把动作指向 `musicxx.ui.openOverlaySheet`（打开一层插件视图浮层），
+  /// 典型写法是把动作指向 `musicxx.ui.overlay.showSheet`（打开一层插件视图浮层），
   /// 或者指向自己的能力，返回一个视图描述（主程序会把它当成插件页面打开）。
   static const String addSongEntry = 'musicxx.ui.addsong.entry';
 

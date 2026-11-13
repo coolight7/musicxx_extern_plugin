@@ -1,4 +1,4 @@
-# 广播总表（插件作者文档）
+# 广播总表（插件开发文档）
 
 > 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。
 
@@ -68,7 +68,7 @@
 | `musicxx.ui.songIconWave` | bool | - | `musicxx.ui.setSongIconWave` |
 | `musicxx.ui.fontFamily` | string | - | `musicxx.ui.setFontFamily` |
 | `musicxx.theme.available` | json | - | （只读，由应用自己决定） |
-| `musicxx.theme.current` | string | mimicryLight / mimicryNight | `musicxx.theme.setCurrent` / `musicxx.theme.tempSwitch` |
+| `musicxx.theme.current` | string | mimicryLight / mimicryNight | `musicxx.theme.setCurrent` / `musicxx.theme.setTempMode` |
 | `musicxx.theme.mode` | string | light / night / followSystem / followTime / followScreenBrightness | `musicxx.theme.setMode` |
 
 ## 订阅频率限制

@@ -26,7 +26,7 @@
 | `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在主程序内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） |
 | `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
 | `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
-| `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 歌曲列表页 [+] → 「添加歌曲」弹窗（在**内置来源之后**、“从其他歌单导入”这类工具项之前） | 显示 `title` / `subtitle`；动作参数同样带 `pid` / `name` / `songNum`。常见写法：`command` 动作指向 `musicxx.ui.openOverlaySheet`，把插件自己的挑歌视图打开成底部浮层（见 [plugin-api.md](plugin-api.md) §3.2.4.2） |
+| `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 歌曲列表页 [+] → 「添加歌曲」弹窗（在**内置来源之后**、“从其他歌单导入”这类工具项之前） | 显示 `title` / `subtitle`；动作参数同样带 `pid` / `name` / `songNum`。常见写法：`command` 动作指向 `musicxx.ui.overlay.showSheet`，把插件自己的挑歌视图打开成底部浮层（见 [plugin-api.md](plugin-api.md) §3.2.4.2） |
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效；内置样式是 `musicxx.auto` 这类 id（`musicxx.*`） |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx.circle` / `musicxx.square` / `musicxx.adaptive`）也在同一份列表里 |
 | `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx.none` / `musicxx.waveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
@@ -45,7 +45,7 @@
 
 **整页由主程序给，不需要新类型**：声明了可浏览来源（`musicxx.source.browse`，见
 [plugin-api.md](plugin-api.md) §3.3）之后，入口的动作写
-`{kind:"command", name:"musicxx.ui.browseDrive", args:{type, view?}}`，点开就是与内置网盘**完全一样**的
+`{kind:"command", name:"musicxx.ui.drive.browse", args:{type, view?}}`，点开就是与内置网盘**完全一样**的
 整页目录列表（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 下载 / 重命名 / 删除 / 条目信息）。
 主页入口、歌单菜单项、插件自己页面里的按钮都能用它；动作立即返回
 `{ok, reason:"opened", type, view}`，不等用户关页面。
@@ -239,7 +239,7 @@ uiRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
 | `musicxx.ui.playing.controlBar.previous` | 只换「上一曲」按钮的显示 | `musicxx.player.prev` |
 | `musicxx.ui.playing.controlBar.playOrPause` | 只换「播放 / 暂停」按钮的显示 | `musicxx.player.toggle` |
 | `musicxx.ui.playing.controlBar.next` | 只换「下一曲」按钮的显示 | `musicxx.player.next` |
-| `musicxx.ui.playing.controlBar.favorite` | 只换「收藏」按钮的显示 | `musicxx.playlist.song.favorite` |
+| `musicxx.ui.playing.controlBar.favorite` | 只换「收藏」按钮的显示 | `musicxx.songlist.favorite` |
 
 `data` 与页面插入块一样，只有 `view`（必填）与 `enabled`（可选）：
 
@@ -268,9 +268,9 @@ musicxx.ui.registerEntry({
 ```
 
 ```cpp
-// 只换「收藏」按钮：动作调官方能力 musicxx.playlist.song.favorite
+// 只换「收藏」按钮：动作调官方能力 musicxx.songlist.favorite
 uiRegister("favBtn", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
-           R"({"view":{"blocks":[{"kind":"Button","label":"","variant":"ghost","icon":"resource/svg/heart.svg","action":{"kind":"command","name":"musicxx.playlist.song.favorite"}}]}})",
+           R"({"view":{"blocks":[{"kind":"Button","label":"","variant":"ghost","icon":"resource/svg/heart.svg","action":{"kind":"command","name":"musicxx.songlist.favorite"}}]}})",
            0);
 // 整栏替换（视图 id 形态：主程序调插件的能力 `plugin.my_plugin/controlBar` 取内容）
 uiRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,

@@ -18,7 +18,7 @@
 | 能播放 | 本地文件、Bilibili、阿里云盘、115、百度云盘、WebDAV、Subsonic、Jellyfin、Emby、自建云；音频 / 视频 / 歌词 / 逐字歌词 / 频谱 / 主题 / 悬浮歌词 |
 | 还能做 | 局域网控制与"一起听"、投屏、本机 HTTP / WebSocket 服务、MCP（给 AI 客户端）、命令行 `musicxx-cli` |
 | 平台 | Windows / Linux / macOS / Android / iOS / OHOS |
-| 开源情况 | **主程序本体不开源**。插件作者与 AI 能看到的只有本包 —— 所以插件会遇到的行为、限制、排障都必须写进本包 `docs/` |
+| 开源情况 | **主程序本体不开源**。插件开发者与 AI 能看到的只有本包 —— 所以插件会遇到的行为、限制、排障都必须写进本包 `docs/` |
 
 主程序怎么用插件：
 
@@ -142,7 +142,7 @@ my_plugin/
 | 功能埋点自省 | 能力 `musicxx.feature.point.list`、`musicxx.capability.subscribers` | 功能埋点 = 应用留出的扩展点（频谱 / 副歌 / 封面取色 / 音源解析 / 播放链路裁决 / 应用事件）；清单给出每个埋点的各层实现（外置 / 内置 / 应用自身）、优先级、谁生效、被谁拦下、**能不能被主动调用与怎么调**（`callable` / `callDoc`）。命令行 `capability.list`、MCP `GetFeatureProviders` 读同一份数据 |
 | 自己的音源（播放地址） | 能力 `musicxx.player.source.resolve` + 能力 `musicxx.source.define/undefine/list` | 插件自己的音源在歌曲里存成"类型 + 资源 id"：类型 id 是 `plugin.<插件 id>.<类型名>`，`src` 是你自己定义的资源 id / 路径。主程序内置实现**不解析**这种类型，播放时问这条能力要"播放器能打开的地址 + 请求头"（`{"src": {"path": …, "headers": {…}, "kind": "url"}}`，`kind` 别写错，它决定要不要走缓存代理）。**注册了就排在内置实现之前**，所以也能给内置来源换地址（代理 / 换 CDN）。要给的不是网络地址（本地文件以外的数据、需要鉴权/转码的东西）就用静态内容路由（`http.serve` 的 `static` / `http.route`）转一道。完整例子：`plugins/example_override_media_source`（覆盖内置 Bili 解析 / 插件音源 / 本地文件代理）、
   `plugins/example_ftp_source`（FTP：账号页 + 歌单挑歌浮层 + 加歌 + 回环转流）。命令行 `source.list`、MCP `ListMediaSources` 看声明与解析链现状 |
-| 功能埋点（声明 / 实现 / 调用） | `musicxx.feature.define/provide/callPoint/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能埋点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能埋点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新能力） |
+| 功能埋点（声明 / 实现 / 调用） | `musicxx.capability.define/provide/call/unprovide`（JS）、`featurePointDefine/Provide/Unprovide/Call`（native） | **主动调应用留出的功能埋点**（整曲频谱 `musicxx.media.spectrum.extract`、副歌 `musicxx.media.chorus.analyse`、封面取色 `musicxx.media.palette.provide`），拿到原始数据；也可以**声明自己的功能埋点**并给出实现，让应用与别的插件按 id 来调。调用零副作用（不写应用的值仓、不改应用状态）。实现走一条固定通道 `musicxx.feature.point.call`（不要为每个点造新能力） |
 | 存储与配置 | `musicxx.storage.get/set`（`getConfig`/`setConfig` 针对插件目录的 `config.json`） | **默认值由插件自己给**；`config.json` 用户也能直接编辑 |
 | 网络 | `musicxx.net.fetch/download`（= `http.fetch/download`） | 走**插件框架自己**的网络实现（不经过主程序）：支持 `http` / `https`（OpenSSL 静态链接，证书链与主机名校验默认开，可用 `tlsVerify`/`caFile`/`caPem`/`serverName`）；响应体流式读取，**超时与大小都不限制**（`maxBytes` 缺省不限制，给了就给）；下载边读边写入插件数据目录；**非 2xx 也算请求完成** |
 | 静态内容（把播放器打不开的东西变成 http 地址） | `musicxx.net.http.serve({staticOnly, static})` / `http.route` / `http.unroute` / `http.info` | 把本地文件或一段内容（≤ 8 MiB）挂成 `http://127.0.0.1:<端口>/f/<token>/<文件名>` 地址。**命中后由框架直接回答（200/206/416），不进 `http.request`**；支持 `GET` / `HEAD` + 单段 `Range`；`staticOnly` 让未命中的请求直接 404。只监听回环、路径里只有随机 token（服务端不解析路径）；服务与路由跟着插件实例关掉。**把播放器打不开的东西变成 HTTP** 就是靠它（本地文件、远程数据、FTP / 私有协议、HLS 分片、转码产物）|
@@ -173,7 +173,7 @@ my_plugin/
    写法见 `docs/plugin-api.md` §8.1。
 6. **能力还没接入就不会触发**：声明表里的能力 / 广播条数以 `docs/plugin-capabilities.md` 与
    `docs/plugin-broadcasts.md` 为准，主程序当前**真的派发**的只是其中一部分
-   （`docs/plugin-capabilities.md` 的「状态」列；`musicxx.feature.point.call` 是插件功能埋点的
+   （`docs/plugin-capabilities.md` 的「可注册阶段」列；`musicxx.feature.point.call` 是插件功能埋点的
    通用通道、由调用方触发）；别把功能押在未接入的能力上（它们打算做什么见 `docs/plugin-api.md` §8.7）。
 7. **界面规则**：块只画自己（没有隐含边距，留白靠 `padding`/`margin`/kit）；
    加粗要显式写 `bold: true` 或 `type: "title"`；行内的开关 / 勾选框放在**定宽 `SizedBox`** 里，"几选一"用一排 `Button`；
@@ -356,7 +356,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 
 - **约定只在一处**：能力与广播（id / 用途 / 能不能参与 / 参与哪一步 / 合并策略 / 派发方式）只定义在
   `tools/capabilities.def.json`，由 `dart run tools/gen_contract.dart` 生成 Dart 常量、C++ 头
-  （`capability_ids.g.h`）与作者文档 `docs/plugin-capabilities.md` / `docs/plugin-broadcasts.md`。
+  （`capability_ids.g.h`）与插件开发文档 `docs/plugin-capabilities.md` / `docs/plugin-broadcasts.md`。
   **派发层直接读这份声明**：没有第二份派发表，也没有 `.before` / `.after` 结尾的独立 id。
   改完必须重新生成并提交生成物（`--check` 可校验）。
 - **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/capability_ids.g.dart`、
@@ -398,7 +398,7 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   JS 的网络事件**直接投递到 JS 线程**（`JsEngine::deliverNetEvent`），
   不能改回只走事件总线：插件框架派发“返回 Promise 的能力实现”时会等着它结算，两边一起等就是死锁。
   原生插件的网络事件仍走事件总线（主题 `plugin.<插件id>.net`）。
-- **文档纪律**：任何"插件作者会遇到的行为、限制、排查方法"都必须写进本包（主程序不开源，写在主程序侧等于没写）；
+- **文档纪律**：任何"插件开发者会遇到的行为、限制、排查方法"都必须写进本包（主程序不开源，写在主程序侧等于没写）；
   改 API / UI 项 / 能力 / 构建方式时，同步更新 `docs/`、`README.md` 的索引表与本文件。
 - **版本号只在一处声明**：插件框架版本在 `lib/src/version.dart`（Dart 侧）与
   `src/include/musicxx_extern_plugin_api.h` 的 `MUSICXX_EXTERN_PLUGIN_VERSION`（C 侧）各一处，
@@ -446,8 +446,8 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 |---|---|
 | 第一次写插件（选形态 / 环境 / 第一个插件 / 注意事项 / 调试 / 发布检查） | `docs/plugin-guide.md` |
 | **两种形态共用的接口手册**（能力与广播 / 约定 / 通用排障） | `docs/plugin-api.md` |
-| JS 插件作者指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
-| 动态库插件作者指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
+| JS 插件开发指南（目录与清单、生命周期、硬约束、`musicxx` 全局对象、排障） | `docs/plugin-js-api.md` |
+| 动态库插件开发指南（清单与多目标打包 / SDK / 线程 / 接口表判定 / 常用接口的 C++ 写法 / 构建部署） | `docs/plugin-native-api.md` |
 | 能力总表（id / 能不能参与 / 派发 / 是否已接入 + 载荷与回答） | `docs/plugin-capabilities.md`（生成物） |
 | 广播总表（频道 / 有没有当前值 / 谁能发布 / 载荷与取值域 / 改它调哪个能力） | `docs/plugin-broadcasts.md`（生成物） |
 | 界面（UI 项 / 插件页面 / 自己的设置页 / 布局约定） | `docs/plugin-ui.md` |

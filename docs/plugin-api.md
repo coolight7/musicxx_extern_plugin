@@ -36,7 +36,7 @@
 
 **同一个 id 只有一份声明**，写清"能不能参与、参与哪一步（前链 / 实现链 / 后链）、派发方式、合并策略、
 超时、缓存、谁能调"。这套叫法在整条链路上是同一套：Dart 侧是 `MusicxxCapabilityId` / `MusicxxBroadcastId`，
-C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作者文档就是这一份生成的
+C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，插件开发文档就是这一份生成的
 `plugin-capabilities.md` / `plugin-broadcasts.md`。
 
 > 只有这两个概念，没有第三个：能写的东西都是广播，值只能由属主发布；
@@ -54,7 +54,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，作
 | 发布自己频道的值 | `musicxx.broadcast.publish(topic, data)` | `iface.broadcasts->publish_broadcast(host, channel, json, err)` | §4 |
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
 | 调别的插件的能力 | `await musicxx.capability.call(id, "probe", args)` | `co_await capabilityCall(cap, method, args)` | §6 |
-| 声明 / 实现 / 调用功能埋点 | `musicxx.feature.define/provide/callPoint` | `featurePointDefine/Provide/Call` | §7 |
+| 声明 / 实现 / 调用功能埋点 | `musicxx.capability.define/provide/call` | `featurePointDefine/Provide/Call` | §7 |
 | 声明界面项 | `musicxx.ui.registerEntry({name, type, data})` | `uiRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, json)` | §9 |
 | 写日志 | `musicxx.host.log(2, "文字")` / `console.log(...)` | `log.info("文字")` | §10 |
 | 读框架信息 | `musicxx.host.info()` | `hostInfoJson()` | §2.5 |
@@ -128,7 +128,7 @@ const utilxx_base::Json env =
 | `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 播放状态、路由、本机服务、登录态变化 |
 | `musicxx.state.renderSlots` | 每个渲染槽位的运行状态（见 §9.2） | 生效项 / 可见性 / 昼夜 / 尺寸变化时按需推 |
 | `musicxx.state.spectrum` | 当前音频频谱（字段见 §3.2.8） | 播放中约 10 Hz（节流 100 ms）；停止、切歌、拿到/读不到数据时各推一次 |
-| `musicxx.state.lyric` / `musicxx.state.playlists` | 预留 | **当前版本没有推送**（读到的永远是空） |
+| `musicxx.state.lyric` / `musicxx.state.songlists` | 声明里有、当前版本**没有推送** | 读到的永远是空（预留） |
 
 只出现一次 `musicxx.state.app` → `musicxx.state.env` 的字段含义：
 
@@ -184,7 +184,7 @@ subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
 ### 2.4 坑
 
 - **`musicxx.state.app.isNight` 是启动时的值**：运行期切了主题它不会跟着变。要"当前值"就当场问一次：
-  能力 `musicxx.media.palette` 或 `musicxx.render.current` 的 `night`；
+  能力 `musicxx.media.palette.get` 或 `musicxx.render.current` 的 `night`；
   `musicxx.state.renderSlots` 里条目的 `night` 也只在槽位状态变化时刷新，同样不能当当前值用。
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌、播放状态变化时刷新（**不是实时值**）。
   要按秒推进度：订阅广播频道 `musicxx.player.position`（不限频，带 `sid` / `positionMs` / `durationMs`，
@@ -228,9 +228,10 @@ JS 插件用能力 `musicxx.host.getPath` 拿插件目录、数据目录与日�
 > **应用实现的能力也属于能力**：应用执行、宿主转发并带回结果，不是第二个概念。
 > JS 用 `musicxx.capability.call`，原生插件用 SDK 的 `capabilityCall`。
 
-> **能力就是能力**：每个应用实现的能力在 `musicxx.capabilities` 里都有一条应用声明。
+> **能力就是能力**：每条能力在 `tools/capabilities.def.json` 的 `capabilities` 段里都有一条声明
+> （`musicxx.*` 是应用实现或应用留出的，`plugin.<插件id>.*` 是插件自己声明的）。
 > **没声明的名字会被直接拒绝**（不再“什么都转给应用再回未找到”）。
-> 超时语义不变：`<= 0` = 不设超时（一直等应用回复），缺省 5000 ms。
+> 超时语义：JS 的 `<= 0` 按缺省 5000 ms 处理，原生 SDK 传 0 = 不设超时。
 
 ### 3.1 通用约定
 
@@ -255,10 +256,13 @@ capabilityCall("musicxx.player.toggle", "{}", &notify, 5000);
 - **超时**：JS 的 `musicxx.capability.call(name, args, timeoutMs)` 缺省 **5000 ms**，`timeoutMs <= 0` 时按缺省值处理（不会"一直等"）；
   动态库的 `capabilityCall(..., timeoutMs)` 缺省 **5000 ms**，**传 0 = 不设超时**（框架不建定时器，一直等主程序回复）；
   到点后框架终结这次请求并推 `musicxx.capability.app.cancel` 让应用收尾。
-  个别能力需要更长时间（如 `musicxx.feature.call` 要解码整曲），调用方自己加大。
+  个别能力需要更长时间（如 `musicxx.media.spectrum.extract` 要解码整曲），调用方自己加大。
 - **返回**：成功是 `{ok:true, ...}` 或能力自己的结果；失败是 `{ok:false, error:"说明"}`；
-  没注册会立刻失败（`app_capability_not_registered: <能力 id>`），不会挂到超时。
-- **不做权限校验**：清单里的 `permissions` 只做展示，不会因为没声明就拒绝调用（见 [plugin-native-api.md](plugin-native-api.md) §8）。
+  不认识的能力 id 立刻得到 `{ok:false, error:"not_found"}`；声明里有、当前没有人实现的得到
+  `{ok:false, error:"no_impl"}`（`message` 里带能力 id）—— 这两种都不会挂到超时。
+- **能不能被插件调看声明里的通道块**：声明里没有 `plugin` 块的能力，插件调它会得到
+  `{ok:false, error:"not_allowed"}`（命令面照常能调）。清单里的 `permissions` 只做展示，不参与判定
+  （见 [plugin-native-api.md](plugin-native-api.md) §8）。
 - **名字不校验**：插件框架受理任意名字的调用，由应用按"注册了没有"决定理不理它。
   官方能力是 `musicxx.<域>.<名字>`；插件自己的能力建议写成 `plugin.<包名>.*` 以免撞名。
 - **Result 里可能出现 `ok:false` 但调用成功**两种情况要分清：
@@ -267,8 +271,10 @@ capabilityCall("musicxx.player.toggle", "{}", &notify, 5000);
 
 ### 3.2 全部已实现的能力
 
-下面每一节都是"当前版本注册过、调用能得到结果"的能力。**没有列在这里的 `musicxx.*` 名字都还没实现**
-（调用会得到 `action_not_registered`，见 §3.4）。
+下面每一节都是"当前版本注册过、调用能得到结果"的能力。**完整清单只信声明表**
+（`tools/capabilities.def.json` → [plugin-capabilities.md](plugin-capabilities.md)）：
+名字不在声明表里得到 `{ok:false, error:"not_found"}`，在表里但当前没有人实现的得到
+`{ok:false, error:"no_impl"}`。
 
 #### 3.2.1 播放控制（`musicxx.player.*`）
 
@@ -306,7 +312,6 @@ capabilityCall("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 - **这四个值都有“要变之前拦一下”的能力**：`musicxx.player.seek` / `musicxx.player.volume` /
   `musicxx.player.speed` / `musicxx.player.pitch`（见 §8 与 [plugin-capabilities.md](plugin-capabilities.md)）：
   插件通过能力改值时也会先问这条能力，所以它的处理器不能反过来再调这些能力（会再派发一次）。
-- 没有 `setMediaType`（见 §3.4）。
 
 #### 3.2.2 歌单（`musicxx.playlist.*`）与播放列表（`musicxx.songlist.*`）
 
@@ -315,74 +320,61 @@ capabilityCall("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
 | 词 | 含义 | 出现在哪里 |
 |---|---|---|
 | `playlist` | **单张歌单**（`pid` / `name` / `songs` / `songNum`），保存下来的列表 | `musicxx.playlist.*` |
-| `playlists` | **多张歌单的集合**（我的 / 我喜欢 / 本地） | `musicxx.playlist.queryLists` 的 `mine` / `local` / `favorite` |
+| `playlists` | **多张歌单的集合**（我的 / 我喜欢 / 本地） | `musicxx.songlist.list` 的 `mine` / `local` / `favorite` |
 | `songlist` | **播放列表**（当前正在播的那一串歌，不单独保存） | `musicxx.songlist.*`、广播 `musicxx.state.playlist` |
 
-**`musicxx.playlist.queryLists`** —— 列出歌单
+**`musicxx.songlist.list`** —— 列出歌单
 
 - 参数：无。
 - 返回：`{mine:[歌单], favorite:[歌单], local:[歌单], currentPid, currentName}`；
   歌单项是 `{pid, name, count, songNum, listen, type}`（`count` = 已加载的曲目数，`songNum` = 歌单声明的曲目数，
   `type` 是歌单类型枚举名）。
 - `favorite` 是"我喜欢"（一直在最前），`mine` 是账号歌单，`local` 是本地歌单。
-- `currentPid` / `currentName` 是**当前播放列表**的 pid 与名字：接着读它的歌用 `musicxx.songlist.querySongs`。
+- `currentPid` / `currentName` 是**当前播放列表**的 pid 与名字：接着读它的歌用 `musicxx.playlist.listSongs`。
 
-**`musicxx.playlist.querySongs`** —— 读一张歌单里的歌
+**`musicxx.songlist.listSongs`** —— 读一张歌单里的歌
 
 - 参数：`{pid, type?, limit?=200, offset?=0, detail?}`。
   - `pid` 给的是当前播放列表的 `pid`（或不给）时，读的是当前播放列表 —— 老行为，留着不为难老插件；
-    新代码要读当前播放列表请用 `musicxx.songlist.querySongs`；
+    新代码要读当前播放列表请用 `musicxx.playlist.listSongs`；
   - 给 `type`（`local` = 本地歌单，其它值按在线歌单）可以在歌单还没进当前账号的歌单表时按 `pid` 直接查；
   - `detail: true` 时每首歌给完整字段（在简报字段基础上多 `type` / `src` / `fileName` / `size` /
     `track` / `year` / `genre` / `cover` / `createdTime` / `lastedTime`），改歌信息前先读一遍用；
 - 返回：`{pid, total, songs:[{sid, name, artist, album, durationMs}]}`，读当前播放列表时还会带 `available`。
 - 歌单加载失败 → `{ok:false, error:"歌单无法加载：<pid>"}`。
 
-**`musicxx.songlist.querySongs`** —— 读当前播放列表里的歌
+**`musicxx.playlist.listSongs`** —— 读当前播放列表里的歌
 
 - 参数：`{limit?=200, offset?=0}`；参数含义与返回同上，另外带 `available`（当前播放列表还能不能用）。
 
-**`musicxx.songlist.playSong`** —— 播当前播放列表里的某一首
+**`musicxx.playlist.playSong`** —— 播当前播放列表里的某一首
 
 - 参数：`{sid}`；**这首歌必须在当前播放列表里**，否则 `{ok:false, error:"当前播放列表里没有这首歌：<sid>"}`。
 - 返回：`{ok:true}`。
 
-**`musicxx.playlist.play`** —— 播放一张歌单
+**`musicxx.songlist.play`** —— 播放一张歌单
 
 - 参数：`{pid, index?}`（`index` 越界或缺失按 0 处理）；歌单为空 → `{ok:false, error:"歌单为空或无法加载：<pid>"}`。
 - 返回：`{ok:true}`。
 
 ```js
-const lists = await musicxx.playlist.queryLists();
-await musicxx.playlist.play({ pid: lists.local[0].pid, index: 3 });
+const lists = await musicxx.songlist.list();
+await musicxx.songlist.play({ pid: lists.local[0].pid, index: 3 });
 
-const page = await musicxx.playlist.querySongs({ pid: lists.local[0].pid, limit: 50, offset: 100 });
-const queue = await musicxx.songlist.querySongs();     // 当前播放列表
+const page = await musicxx.songlist.listSongs({ pid: lists.local[0].pid, limit: 50, offset: 100 });
+const queue = await musicxx.playlist.listSongs();     // 当前播放列表
 ```
 
 ```cpp
 // 想先拿歌单再决定播哪一个：在完成通知里读结果，再再调一次能力
-capabilityCall("musicxx.playlist.queryLists", "{}", &notify, 5000);
+capabilityCall("musicxx.songlist.list", "{}", &notify, 5000);
 ```
 
 **这首歌的完整音源列表在广播 `musicxx.state.song` / 能力载荷里**（`musicxx.state.song.audio[]`），
 `querySongs` 只给列表用的简报字段（省流量）。
 
-> **过时的分类 `musicxx.library.*`**（旧文档与老插件还在用）：名字保留可用，主程序把它们注册成同一份实现，
-> 新代码不要再写 —— 一个前缀里混着"歌单"与"播放列表"两个概念。对照：
->
-> | 过时 | 现在用 |
-> |---|---|
-> | `musicxx.library.querySonglists` | `musicxx.playlist.queryLists` |
-> | `musicxx.library.querySongs` | `musicxx.playlist.querySongs`（带 `pid`）/ `musicxx.songlist.querySongs`（当前播放列表） |
-> | `musicxx.library.playSong` | `musicxx.songlist.playSong` |
-> | `musicxx.library.playSonglist` | `musicxx.playlist.play` |
->
-> 从未实现的 `querySonglist` / `removeSong` / `createSonglist` / `setSongInfo` 现在都有了实现的新名字
-> （`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`，见下面几节）；
-> 旧名字本身仍没注册，也没有别名。`musicxx.library.search`（站内搜索）没有替代名字，仍未实现。
 
-**`musicxx.playlist.addSong`** —— 把歌加进**一张歌单**（插件音源用）
+**`musicxx.songlist.addSong`** —— 把歌加进**一张歌单**（插件音源用）
 
 - 参数：
 
@@ -417,33 +409,33 @@ capabilityCall("musicxx.playlist.queryLists", "{}", &notify, 5000);
 
 ```js
 // 加完再看结果：处理器里不要 await（会与主程序互相等）
-musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).then((r) => {
+musicxx.capability.call("musicxx.songlist.addSong", { pid: 123, songs: songs }).then((r) => {
   musicxx.host.log(2, r && r.ok ? ("已添加 " + r.added + " 首") : ("添加失败: " + ((r && r.error) || "")));
 });
 ```
 
 > 插件想让用户“选目录 / 选文件 → 加进歌单”，可以在「添加歌曲」弹窗里注册一个
 > `musicxx.ui.addsong.entry` 项（见 §9.1 与 [plugin-ui.md](plugin-ui.md)），
-> 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.openOverlaySheet`），
+> 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.overlay.showSheet`），
 > 选完后调这条能力。
 
-**`musicxx.playlist.removeSong`** —— 从一张歌单里移除歌曲
+**`musicxx.songlist.removeSong`** —— 从一张歌单里移除歌曲
 
 - 参数：`{pid, sid}` 或 `{pid, sids:[…]}`。
 - 返回：`{ok:true, pid, name, total, removed, removedSids, notFound}`；`notFound` 是歌单里没找到的那几个
   sid，不算失败（一首都没删到也是 `ok:true` + `removed:0`）。
 - 失败：`{ok:false, error}` —— 未找到歌单 / 无法加载 / 不是自己的歌单 / 保存失败（那时已把歌退回原位）。
 - **只改保存下来的歌单**：目标是当前播放队列时，不会去改正在播的那一串；要改队列用
-  `musicxx.songlist.removeSong`。
+  `musicxx.playlist.removeSong`。
 
-**`musicxx.playlist.create`** —— 新建一张歌单
+**`musicxx.songlist.create`** —— 新建一张歌单
 
 - 参数：`{name, type?, songs?, dedup?}`；`name` 是 1 ~ 50 个字符，`type` 是 `local`（缺省）或
-  `net`（在线歌单，需要先登录），`songs` 的写法与 `musicxx.playlist.addSong` 完全一样（建完顺手加进去）。
+  `net`（在线歌单，需要先登录），`songs` 的写法与 `musicxx.songlist.addSong` 完全一样（建完顺手加进去）。
 - 返回：`{ok:true, pid, name, type, total}`（`type` 是 `local` / `net`）。
 - 失败：`{ok:false, error}`。歌单建好了但加歌失败时，返回里仍带 `pid` / `name`，`ok` 为 false。
 
-**`musicxx.playlist.updateSong`** —— 改一张歌单里某首歌的信息
+**`musicxx.songlist.updateSong`** —— 改一张歌单里某首歌的信息
 
 - 参数：`{pid, sid, …要改的字段}`，没给的字段保持原值：
 
@@ -462,7 +454,7 @@ musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).
 - 返回：`{ok:true, pid, sid, song:{…}}`（`song` 与 `querySongs` 的 `detail: true` 是同一套字段）。
 - 失败：`{ok:false, error}`；保存失败会把这首歌恢复原样。
 
-**`musicxx.playlist.song.favorite`** —— 收藏 / 取消收藏当前歌曲
+**`musicxx.songlist.favorite`** —— 收藏 / 取消收藏当前歌曲
 
 与播放页的收藏按钮、锁屏音乐的收藏是同一份实现。
 
@@ -474,7 +466,7 @@ musicxx.capability.call("musicxx.playlist.addSong", { pid: 123, songs: songs }).
 - 当前播放列表就是「我喜欢」时，队列里的这一首也会同步增删。
 - 当前没有歌曲 / 歌曲没有音源身份：`{ok:false, error:"当前没有可收藏的歌曲"}`。
 
-**`musicxx.playlist.syncSongs.sync`** —— 同步歌单音源（把音源里新增的歌加进歌单）
+**`musicxx.songlist.sync`** —— 同步歌单音源（把音源里新增的歌加进歌单）
 
 歌单可以绑定“音源”（本地文件夹 / 歌手 / 专辑、Bili 收藏夹、WebDAV、云盘、
 Subsonic / Jellyfin / Emby 视图等），应用里「歌单右上角三个点 - 同步歌单音源」会把这些来源
@@ -519,29 +511,29 @@ Subsonic / Jellyfin / Emby 视图等），应用里「歌单右上角三个点 -
 ```js
 // 插件里：先把歌单列表读出来，再同步用户选中的那一张
 // 同步可能要几十秒，而 musicxx.capability.call 缺省 5 秒就超时 —— 要结果就把超时给大一点
-const r = await musicxx.capability.call("musicxx.playlist.syncSongs.sync", { pid: 123 }, 120000);
+const r = await musicxx.capability.call("musicxx.songlist.sync", { pid: 123 }, 120000);
 if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
 ```
 
 > 调用方超时也不影响同步继续跑（它在应用里自己跑完，信息栏里能看到结果）；
 > 插件里不需要结果时不要 `await`，直接在完成通知里写日志。
 
-**`musicxx.songlist.addSong`** —— 往当前播放列表里加歌
+**`musicxx.playlist.addSong`** —— 往当前播放列表里加歌
 
-- 参数：`{songs | song, dedup?, afterSid?}`，歌曲格式与 `musicxx.playlist.addSong` 一样
+- 参数：`{songs | song, dedup?, afterSid?}`，歌曲格式与 `musicxx.songlist.addSong` 一样
   （`type` 的命名空间规则也一样）；`afterSid` 插到那一首之后，不给就插到最前（正在播的歌不会因此换掉）。
 - 返回：`{ok:true, pid, name, total, added, skipped}`。
 - 只改队列：**不写进任何歌单**，也不写播放记录标签（真播到它时才算一次播放）。
 
-**`musicxx.songlist.removeSong`** —— 从当前播放列表里移除歌曲
+**`musicxx.playlist.removeSong`** —— 从当前播放列表里移除歌曲
 
 - 参数：`{sid}` 或 `{sids:[…]}`。
 - 返回：`{ok:true, total, removed, removedSids, notFound}`。
 - 移除正在播的那一首**不会停**（与界面上「从播放列表移除」一致，这一首照常播完，再按新队列往下走）。
 
-**`musicxx.songlist.updateSong`** —— 改当前播放列表里某首歌的信息
+**`musicxx.playlist.updateSong`** —— 改当前播放列表里某首歌的信息
 
-- 参数：`{sid, …要改的字段}`，字段与 `musicxx.playlist.updateSong` 完全一样，只是不需要 `pid`。
+- 参数：`{sid, …要改的字段}`，字段与 `musicxx.songlist.updateSong` 完全一样，只是不需要 `pid`。
 - 返回：`{ok:true, sid, song:{…}}`。
 - 正在播的那一首改完会立即刷新播放信息（名字 / 歌手 / 封面），不用重新播。
 
@@ -645,11 +637,11 @@ if (found.count > 0) {
 
 | 能力 | 参数 | 返回 | 说明 |
 |---|---|---|---|
-| `musicxx.ui.toast` | `{text}`；`{kind:"error"}` 走错误样式 | `{ok:true}` | 轻提示，**固定记一条插件日志**（原来的 `musicxx.ui.notify` 已合并到这里） |
+| `musicxx.ui.toast` | `{text}`；`{kind:"error"}` 走错误样式 | `{ok:true}` | 轻提示，**固定记一条插件日志** |
 | `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
 | `musicxx.ui.overlay.show` | `{preset?, id?, title?, depict?, blocks?, options?, value?, textConfirm?, textCancel?, size?, dismissible?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。参数与返回见 §3.2.4.1 |
 | `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 关这个插件**最上面那一层**浮层（给了 `id` 就关最上面那个名字对得上的层；没有开着的浮层时 `closed:false`） |
-| `musicxx.ui.openOverlaySheet` | `{route, title?, arguments?}` | `{ok, reason, title?}` | 把**插件视图**打开成一层浮层，等用户关掉它。与 `overlay.show` 的区别：内容是插件视图，浮层里的动作能返回 `{"view": …}` 刷新内容（翻目录 / 改选择）。参数见 §3.2.4.2；入口项里的常见写法也是它 |
+| `musicxx.ui.overlay.showSheet` | `{route, title?, arguments?}` | `{ok, reason, title?}` | 把**插件视图**打开成一层浮层，等用户关掉它。与 `overlay.show` 的区别：内容是插件视图，浮层里的动作能返回 `{"view": …}` 刷新内容（翻目录 / 改选择）。参数见 §3.2.4.2；入口项里的常见写法也是它 |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` | 打开插件页面或官方页面，规则见下 |
 | `musicxx.ui.playing.openMenu` | 无 | `{ok:true}` | 打开播放页的「更多」菜单（与底部控制栏的菜单按钮、右上角的「更多」快捷功能同一份内容）。打开后立即返回，不等用户关掉 |
 
@@ -754,7 +746,7 @@ capabilityCall("musicxx.ui.overlay.show", R"({"title":"运行详情","blocks":[]
 capabilityCall("musicxx.ui.overlay.close", R"({})", &callback, 0);
 ```
 
-#### 3.2.4.2 插件视图浮层（`musicxx.ui.openOverlaySheet`）
+#### 3.2.4.2 插件视图浮层（`musicxx.ui.overlay.showSheet`）
 
 `overlay.show` 的内容是调用方给的静态 `blocks`；这一条的内容是**插件自己的视图**，
 所以能在浮层里翻页（浮层里的按钮调用返回 `{"view": …}` 就换成新内容）。
@@ -782,7 +774,7 @@ musicxx.ui.registerEntry({
     subtitle: "自己画的挑歌界面",
     action: {
       kind: "command",
-      name: "musicxx.ui.openOverlaySheet",
+      name: "musicxx.ui.overlay.showSheet",
       args: { route: "ext://my_plugin/picker", title: "挑歌" },
     },
   },
@@ -1242,7 +1234,7 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插�
 
 封面**只作为数据来源**（不参与画面绘制、不推直链）；要在着色器里用封面，声明渲染项的 `cover` / `image`。
 
-**`musicxx.media.palette`** —— 封面取色结果 + 内置背景实际用的 4 色
+**`musicxx.media.palette.get`** —— 封面取色结果 + 内置背景实际用的 4 色
 
 - 参数：`{force?:bool}`（`true` = 强制重新分析）。
 - 返回：`{ok, hasCover, analyzed, night, source:"plugin"|"builtin", srcKey, version,
@@ -1385,29 +1377,33 @@ await musicxx.ui.loadFont({ family: "我的字体", path: "C:/Windows/Fonts/msyh
 await musicxx.ui.setFontFamily({ fontFamily: "default" });     // 恢复
 ```
 
-#### 3.2.10 应用能力导出（`musicxx.feature.list` / `musicxx.feature.call`）
+#### 3.2.10 能力清单与调用（命令面 `musicxx.capability.list` / `.call`）
 
-这两条能力读的是"**应用自己能做什么**"（与 MCP 工具、本机命令行共用同一份实现），
-输出是给模型/脚本看的文本或 JSON：
+命令行、`/cli`、链接与 MCP 读"应用与插件一共有哪些能力、现在谁在实现"、调一条能力，用的就是这两条
+**命令**；插件在代码里调能力走 §3.2.11 的那组能力，数据是同一份。
 
-| 能力 | 参数 | 返回 |
+| 命令 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.feature.list` | 无 | `{ok:true, features:[{id, title, depict, args, output:"text"\|"json"}]}` |
-| `musicxx.feature.call` | `{id, args}` | `{ok:true, text?, json?, output}` 或 `{ok:false, error}` |
+| `musicxx.capability.list` | `{id?, provided?}` | `{ok:true, points:[…], broadcasts:[…]}` |
+| `musicxx.capability.call` | `{id, args?, refresh?}` | 被调能力的原样结果（`{ok:true, …}`，或 `{ok:false, error, message}`） |
+| `musicxx.capability.subscribers` | `{id, phase?}` | `{ok:true, capability, phase, count, handlers:[…]}` |
 
-- 典型能力：`GetAudioSpectrum`（整曲频谱的文本表）、`AnalyseAudioChorus`（副歌区段）等；
-  **要解码整曲的长任务给更长的超时**（JS 封装 `musicxx.feature.call(id, args, timeoutMs)` 缺省 30 秒）。
-- 想要**原始数据**而不是文本结论，用 §3.2.11 的功能埋点调用（`musicxx.feature.point.call`）。
+- `points` 一段一个能力：声明（`type` / `depict`）、实现行（外置插件 / 内置插件 / 应用自身）、谁生效、
+  被谁拦下、能不能被外部调用（`callable`）、怎么调（`callDoc`，含参数与结果形状）、被调过几次（`callStat`）；
+- `broadcasts` 是应用内的广播订阅行（只收通知，不参与"谁能提供功能"）；
+- `.call` 是**零副作用**的：只读值缓存、不写值缓存、不改应用状态；`refresh:true` 跳过缓存重算一遍；
+- 要解码整曲的能力（频谱 / 副歌）要给足超时：命令行默认 60 秒，可用 `--timeout` 加长。
 
-```js
-const list = await musicxx.feature.list();
-const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
+```bash
+musicxx-cli capability list --json                 # 全部能力（含插件自己声明的）
+musicxx-cli capability call musicxx.media.palette.analyse --args '{"path":"D:/covers/a.jpg"}'
 ```
 
-#### 3.2.11 功能埋点（`musicxx.feature.point.*`）
+#### 3.2.11 能力清单、调用与声明（`musicxx.feature.point.*`）
 
-读"应用留出了哪些扩展点、现在谁在实现"，以及**主动调一个功能埋点拿原始数据**。
-概念与写法见 §7，这里只列能力：
+这四条是**插件在代码里**用的那组：读"有哪些能力、现在谁在实现"、主动调一条、声明自己的一条。
+叫"功能埋点"是这组 id 的历史叫法 —— 它就是一条**能力**，区别只在 id 可能是运行期声明的
+（`plugin.<插件id>.<名字>`），而不是写死在声明表里。概念见 §7，这里只列能力：
 
 | 能力 | 参数 | 返回 |
 |---|---|---|
@@ -1427,7 +1423,8 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
   **调之前先看 `callDoc`**。`broadcasts` 是谁订阅了这个埋点的广播通知（只收通知，既不参与实现也不影响结果）；
   `stageReentries`（>0 才带）是后链重入次数，用来发现"后链又改了一次自己的输出"。
 - `musicxx.feature.point.call` 的 `error` 取值：
-  `not_callable`（这个点不能主动调）/ `bad_args`（参数不符合 `callDoc`）/ `no_impl`（没有任何实现）/
+  `not_callable`（这个点不能主动调）/ `invalid_argument`（参数不符合 `callDoc`）/ `not_allowed`（声明里没有
+  `plugin` 块）/ `no_impl`（没有任何实现）/
   `canceled`（被拦下了：前链或实现链）/ `dropped`（后链把结果丢弃了）/
   `busy`（同一功能埋点 + 同一调用方的上一次还没结束）/ `failed`（实现报错）。这三种"没有结果"是不同的事：
   `canceled` 是这次调用被拦下（之后谁都不问）、`dropped` 是实现跑完了但结果被丢掉；`skip` 不是错误，
@@ -1437,8 +1434,8 @@ const chorus = await musicxx.feature.call("AnalyseAudioChorus", {});
 - `refresh:true` 跳过值仓重新算一遍（一般不用：值仓里就是最近一次的结果）。
 
 ```js
-const points = await musicxx.feature.points({ provided: true });   // 只看有实现的点
-const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", {});
+const points = await musicxx.capability.points({ provided: true });   // 只看有实现的点
+const colors = await musicxx.capability.call("musicxx.media.palette.analyse", {});
 ```
 
 #### 3.2.12 能力自省（`musicxx.capability.subscribers`）
@@ -1467,7 +1464,6 @@ if (info.count === 0) { /* 现在没人提供，本插件要不要注册 */ }
 | `musicxx.host.clipboard` | `{text}` | `{ok:true}` | 写系统剪贴板 |
 | `musicxx.host.getPath` | 无 | `{pluginId, pluginDir, dataDir, logDir, platform}` | 插件目录 / 数据目录 / 日志目录，排查时很有用 |
 
-`musicxx.host.shareText` 目前**没有实现**（见 §3.4）。
 
 #### 3.2.14 统计上报（`musicxx.stats.*`）
 
@@ -1713,19 +1709,19 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 
 | 能力 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.ui.pickSongs` | `type`（必填）、`view?`（浏览哪个分类，缺省第一个）、`title?`、`path?`、`pid?`（目标歌单，缺省当前播放列表）、`multiple?`（缺省 true）、`allowSelectDir?`（缺省 true）、`search?`（缺省 true）、`pageSize?` | `{ok, added, skipped, cancelled, view}` |
-| `musicxx.ui.pickDir` | 同上（`multiple` 缺省 false、`allowSelectDir` 恒为 true） | `{ok, paths, items:[{view, path}], cancelled, view}` |
-| `musicxx.ui.browseDrive` | `type`（必填）、`view?`（起始分类）、`path?`（起始目录） | `{ok, reason:"opened", type, view}`（**不等用户关页面**） |
+| `musicxx.ui.drive.pickSongs` | `type`（必填）、`view?`（浏览哪个分类，缺省第一个）、`title?`、`path?`、`pid?`（目标歌单，缺省当前播放列表）、`multiple?`（缺省 true）、`allowSelectDir?`（缺省 true）、`search?`（缺省 true）、`pageSize?` | `{ok, added, skipped, cancelled, view}` |
+| `musicxx.ui.drive.pickDir` | 同上（`multiple` 缺省 false、`allowSelectDir` 恒为 true） | `{ok, paths, items:[{view, path}], cancelled, view}` |
+| `musicxx.ui.drive.browse` | `type`（必填）、`view?`（起始分类）、`path?`（起始目录） | `{ok, reason:"opened", type, view}`（**不等用户关页面**） |
 
 ```js
 // 挑歌并加进当前歌单（插件自己的按钮里用）
-musicxx.capability.call("musicxx.ui.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
+musicxx.capability.call("musicxx.ui.drive.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
 
 // 在自己插件的主页入口里打开整页浏览（与内置网盘页一模一样）
 musicxx.ui.registerEntry({
     name: "drive", type: "home.entry",
     data: { title: "我的 FTP", icon: "resource/svg/ftp.svg",
-            action: { kind: "command", name: "musicxx.ui.browseDrive",
+            action: { kind: "command", name: "musicxx.ui.drive.browse",
                       args: { type: TYPE_ID, view: "songs" } } }
 });
 ```
@@ -1734,7 +1730,7 @@ musicxx.ui.registerEntry({
   弹窗里没有切换。返回值里的 `view` 是这次浏览的分类；`pickDir` 的 `items` 每条另带
   `{view, path}`（目录的 `path` 只在它自己的分类里有意义）。
 - `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时**不要 await**
-  （会与应用实现的能力互相等，和 `musicxx.ui.openOverlaySheet` 同一个问题）。`browseDrive` 相反：
+  （会与应用实现的能力互相等，和 `musicxx.ui.overlay.showSheet` 同一个问题）。`browse` 相反：
   它打开页面后立即返回 `{ok, reason:"opened", type, view}`，不等用户关页面。
 - 插件调它们只能打开**自己声明**的来源（`type` 必须是自己的）；应用自己调（如菜单里那一行）
   没有这个限制。
@@ -1743,20 +1739,6 @@ musicxx.ui.registerEntry({
 - 自省：`musicxx.source.list` 的 `browse` 段按类型分组，每组带 `entries`（每个分类一行：
   `view` / `title` / `order` / `root` / `pageSize` / `sort` / `indexBar` / `write` / `search` /
   `addFolderSongs` / `download` / `capabilities`）。
-
-### 3.4 名字存在、但当前版本没有实现的能力
-
-调用这些会立刻得到 `action_not_registered`（**别把功能押在它们上面**）：
-
-`musicxx.player.setMediaType` · `musicxx.ui.setEntryBadge` · `musicxx.host.shareText`
-
-从未实现的旧名字（`musicxx.library.querySonglist` / `removeSong` / `createSonglist` / `setSongInfo`）
-现在都有实现的新名字（`musicxx.playlist.querySongs` / `removeSong` / `create` / `updateSong`），
-但旧名字本身仍没注册；`musicxx.library.search`（站内搜索）没有替代名字，仍未实现。
-
-要“改应用状态”的能力缺口，用对应的**能力**补：例如想改播放速度 / 音调用能力
-`musicxx.player.setSpeed` / `musicxx.player.setPitch`（已实现）；想拦一次设置变更用能力
-`musicxx.player.speed` / `musicxx.player.pitch`（已接入，见 [plugin-capabilities.md](plugin-capabilities.md)）。
 
 ---
 
@@ -1981,21 +1963,25 @@ pluginxx::Task<void> probeOther() {
 
 ---
 
-## 7. 功能埋点（能力：谁都能实现的一个 id）
+## 7. 功能埋点（能力：一个 id 可以有多个实现）
 
-功能埋点是"**这个功能谁都能实现**，应用与别的插件按 id 来调"。与能力的区别：
+"功能埋点"是这组 id 的历史叫法，**它同样是能力**：一次请求、一个结果。区别只有两点：
 
-| | 能力 | 功能埋点 |
+- **id 可以运行期声明**（`plugin.<插件id>.<名字>`），不必写死在声明表里；
+- **实现可以有多个**（应用留出的频谱 / 副歌 / 取色就是这种），按 (层, priority, 登记顺序) 依次问，
+  插件一般只登记自己的实现。
+
+| | 应用实现的能力（§3） | 这种能力（多个实现 / 运行期声明） |
 |---|---|---|
-| 谁调 | 应用（打开页面 / 按名字调）或别的插件 | 应用、别的插件、命令行、agent 都能按 id 调 |
-| 实现个数 | 一个插件的一个名字只有一个处理器 | **可以有多个实现**，按优先级依次问 |
-| 参数 | 自己定 | 声明时写清（`args` / `result` / `callDoc`），调用方按它传 |
+| 谁调 | 应用、插件、命令行 | 应用、插件、命令行、agent 都能按 id 调 |
+| 实现个数 | 一个名字一个处理器 | **可以有多个实现**，按顺序问 |
+| 参数 | 声明表里写死 | 声明时写清（`args` / `result` / `callDoc`），调用方按它传 |
 
-三件事：**声明**（说清这个点是什么）、**实现**（给出处理器）、**调用**（按 id 拿结果）。
+三件事：**声明**（说清这个 id 是什么）、**实现**（给出处理器）、**调用**（按 id 拿结果）。
 
 ```js
 // 1) 声明（id 必须落在自己的命名空间里）
-musicxx.feature.define({
+musicxx.capability.define({
     id: "plugin." + musicxx.pluginId + ".beat",
     title: "节拍检测",
     depict: "按 BPM 与拍号算出若干拍的时刻",
@@ -2004,16 +1990,16 @@ musicxx.feature.define({
 });
 
 // 2) 实现：返回的是**值**（糖自动包成 {"patch":{"value": …}}）
-musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args) {
+musicxx.capability.provide("plugin." + musicxx.pluginId + ".beat", function (args) {
     const bpm = (args && args.bpm) || 120;
     return { bpm: bpm, beats: [0, Math.round(60000 / bpm)], confident: 0.9 };
 });
-musicxx.feature.provide(["plugin.a.x", "plugin.a.y"], (args) => ({ ok: true }));   // 一组点共用一个实现
+musicxx.capability.provide(["plugin.a.x", "plugin.a.y"], (args) => ({ ok: true }));   // 一组点共用一个实现
 
 // 3) 调用（应用留出的点，或别的插件声明的点）
-const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", {});
+const colors = await musicxx.capability.call("musicxx.media.palette.analyse", {});
 
-musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");
+musicxx.capability.unprovide("plugin." + musicxx.pluginId + ".beat");
 ```
 
 ```cpp
@@ -2031,7 +2017,7 @@ featurePointProvide("plugin.my_plugin.beat", [](std::string_view argsJson) -> st
 
 // 3) 调用：只有异步形态，结果在完成通知里
 PluginxxOperatorNotify callDone{&onCallDone, this};
-featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})", 60000, &callDone);
+featurePointCall("musicxx.media.palette.analyse", R"({"path":"D:/covers/a.jpg"})", 60000, &callDone);
 ```
 
 必须记住的约定：
@@ -2041,8 +2027,8 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 - **按 `point` 过滤 + 不回答自己发起的调用**：同一条通道上所有实现都会收到同一次调用，
   `caller` 等于自己的插件 id 时要返回空（糖自动做这两件事）。
 - **`value` 键的存在 = 实现方给出了结果**（值可以是 `null`，表示"算过了、结果是空"）；返回空串 / `undefined` = 不回答。
-- **处理器必须同步返回**：功能埋点走同步裁决通道，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
-  长任务请提前算好，或做成**能力**（§6）。
+- **处理器必须同步返回**：这条通道是同步裁决型，返回 Promise / `Task<T>` 拿不到结果（会记一条日志）。
+  长任务请提前算好，或者改登记成普通的实现（`musicxx.capability.implement`，§6 / §8）。
 - **前链 / 后链**：同一个点在通道上还有 `before` / `after` 两个阶段（同一条 id，用 `phase` 区分）——
   前链改这次调用的 `args`（或 `{"action":"cancel"}` 拦下这次），后链改最终 `value`（或
   `{"action":"drop"}` 这次没有结果）；只有 `impl` 阶段算"有人实现"。`provide` 的糖只登记实现链，
@@ -2057,15 +2043,14 @@ featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})
 |---|---|---|
 | `musicxx.media.spectrum.extract` | 整曲频谱（帧数 × 256 个频点 + 每帧响度） | 要解码整曲，慢（缺省超时 60 秒） |
 | `musicxx.media.chorus.analyse` | 副歌（高潮）区段 | 会先取一次频谱，慢 |
-| `musicxx.media.palette.provide` | 封面取色（5 个色槽位） | 要分析一张图 |
+| `musicxx.media.palette.analyse` | 封面取色（5 个色槽位） | 要分析一张图 |
 
 ---
 
 ## 8. 应用来问插件（能力：决策型）
 
-> **登记入口（插件 ABI 5）**：`musicxx.hooks` 表、`MusicxxPluginHookSpec` 与 `hook` 词汇都已删除。
-> JS 用 `musicxx.capability.implement`；原生插件往 `musicxx.capabilities` 登记（SDK 的
-> `implement` / `implementBefore` / `implementAfter` / `unimplement` 就是这么做的）。
+> **登记入口只有能力**：JS 用 `musicxx.capability.implement`；原生插件走 SDK 的
+> `implement` / `implementBefore` / `implementAfter` / `unimplement`（都登记在能力表上）。
 > **通知型的那一批**是一组广播频道，JS 用 `musicxx.broadcast.subscribe`，原生用 `subscribeTopic`。
 > 本节剩下的阶段、裁决对象与载荷语义对两种形态同样有效。
 
@@ -2174,8 +2159,8 @@ unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
   频道 / UI 项 / 广播频道的 id 同一条规则。JS 的 `musicxx.capability.has(id)` 只看脚本自己注册没注册，
   不代表插件框架受理了。
 - **只有"已接入"的能力会触发**：以 [plugin-capabilities.md](plugin-capabilities.md) 的「状态」列为准
-  （那一列由 `tools/capabilities.def.json` 的 `implemented` 字段生成，别手数）：标「已接入」的会真的派发，
-  标「未接入」的注册成功但不会触发 —— 别把功能押在未接入的能力上（它们打算做什么见 §8.7）。
+  （那一列由 `tools/capabilities.def.json` 生成，别手数）：能注册 `impl` 的会真的派发，
+  只写 `before` / `after` 的注册实现会被拒（那类能力由应用自己把事做完，你只能改输入 / 改输出）。
   其中 `musicxx.feature.point.call` 是插件功能埋点的通用通道，由调用方触发、不是应用主动派发。
 
 ### 8.2 裁决对象
@@ -2305,36 +2290,6 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 - 应用最多等你 **5 秒**（超时按"没给"处理）；地址是临时直链时自己缓存好，处理器里越快越好。
 - 观看型的 `musicxx.player.source.resolved` 只报"种类"，**不给地址**：要看播放是否成功用它。
 
-### 8.7 未接入能力的名字说明
-
-下面这些能力**约定已经定下来、主程序还没接**（注册不会触发，载荷字段也还没有定；
-接入后会写进 `tools/capabilities.def.json` 的 `doc` 字段并生成到 `plugin-capabilities.md`）。
-列在这里是让你知道"这个名字打算做什么"，别猜：
-
-| 能力 id | 打算做什么 |
-|---|---|
-| `musicxx.app.deepLink` | 外部链接进来时让插件拦一下 / 处理 |
-| `musicxx.app.exit` | 应用退出前让插件拦一下 / 做收尾 |
-| `musicxx.app.upgrade` | 版本升级后的通知（做数据迁移） |
-| `musicxx.player.qualityChanged` | 音质切换的通知 |
-| `musicxx.media.notification` | 系统媒体通知的内容（标题/封面）让插件改写；用户可见的提示用能力 `musicxx.ui.toast` |
-| `musicxx.media.info.analyse` | 让插件提供歌名 / 歌手 / 媒体信息识别（替代应用不联网的识别） |
-| `musicxx.song.meta.writeback` | 歌曲信息回写时的通知 |
-| `musicxx.song.beforeAdd` | 加歌前拦一下 |
-| `musicxx.song.removed` | 歌曲被移除的通知 |
-| `musicxx.playlist.load` | 歌单读取的前后插手（`after` 就是原来的“过滤”，能读到最终列表） |
-| `musicxx.history.record` | 写播放记录时的通知 |
-| `musicxx.local.scan.file` / `musicxx.local.scan.finished` | 本地扫描时逐文件裁决（跳过）/ 扫描完成通知 |
-| `musicxx.lyric.current` | 当前歌词行变化通知（歌词加载已按 `musicxx.lyric.load` 接入，见 `plugin-capabilities.md`） |
-| `musicxx.app.net.http.request` | 应用发外网请求的前后插手（前链改请求 / 取消，后链读改响应）；原 `musicxx.net.request`，改名是为了与插件框架自己的 `musicxx.net.*` 网络能力分开 |
-| `musicxx.net.server.route` / `musicxx.net.mcp.tools` / `musicxx.net.lan.event` | 本机服务的路由交给插件、MCP 工具清单追加、局域网事件通知 |
-| `musicxx.download` | 下载的前后插手（前链改文件名 / 目录或取消，后链拿成品路径） |
-| `musicxx.cache.beforeTrim` / `musicxx.cache.pathRequest` | 缓存裁剪前裁决 / 缓存路径由插件指定 |
-| `musicxx.ui.route.resolve` | 路由解析 |
-| `musicxx.ui.page.enter` / `musicxx.ui.page.leave` / `musicxx.ui.theme.changed` / `musicxx.ui.user.action` | 页面进入 / 离开、主题变化、用户操作的通知 |
-
----
-
 ## 9. 界面与渲染（入口）
 
 ### 9.1 界面（完整字段见 [plugin-ui.md](plugin-ui.md)）
@@ -2435,7 +2390,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 |---|---|
 | 这条能力现在有谁在实现、排第几 | 能力 `musicxx.capability.subscribers`（§3.2.12）；命令行 `musicxx-cli capability.subscribers` 读同一份数据 |
 | 应用留出了哪些功能埋点、谁在实现、谁关掉了 | 能力 `musicxx.feature.point.list`（§3.2.11） |
-| 应用自己能做什么（给模型看的文本结论） | 能力 `musicxx.feature.list`（§3.2.10） |
+| 应用能做什么、谁在实现 | 命令面 `musicxx.capability.list` / `.call`（§3.2.10；插件在代码里用 §3.2.11 那组） |
 | 本插件跑了多少、错了几次 | JS：`musicxx.stats.getSelf()`；两边都看得到：管理页「插件详情 → 运行统计」 |
 
 ### 10.3 应用卡住时怎么查
@@ -2468,7 +2423,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | UDP 通道（`musicxx.net.udp.*`） | 每插件 ≤ 32 条；单包受系统 UDP 上限（约 64 KiB）约束 |
 | `musicxx.media.bindImage` | 键 1~64 位 `[A-Za-z0-9_.-]`；**张数与尺寸都不限制**（`format: "rgba"` 仍要高宽与字节数匹配） |
 | `musicxx.ui.loadFont` | 字体文件 ≤ 100 MiB（超过直接回错误）；`path` 不限范围（绝对路径 / `file://` / `~` / 相对插件目录） |
-| `musicxx.playlist.addSong` | 一次首数与字段长度都**不限制** |
+| `musicxx.songlist.addSong` | 一次首数与字段长度都**不限制** |
 | 插件网盘声明（`musicxx.source.browse`） | 分类数量、标题 / 根目录 / 图标 / 能力名的长度、页大小（>0 即可）、`resolveSongs` 首数、条目文本长度都**不限制** |
 | 插件浮层（`musicxx.ui.overlay.*`） | **层数不限制**（一个插件可以同时开多层，`overlay.close` 关最上面那层） |
 | 安装包解包 | 大小 / 条目数 / 解包体积都**不限制**；仍拒绝绝对路径 / `..` 逃逸 / 符号链接 / 非普通文件 / 大小写重名 |
@@ -2482,25 +2437,66 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 |---|---|---|---|
 | 应用实现的能力 | 5000 ms（`<=0` 按缺省） | 5000 ms（**0 = 不设超时**） | 需要更久自己加大（如解码整曲） |
 | 跨插件能力调用 | 3000 ms（不传 = 3000；**传 `0` / 负数 = 一直等**） | 框架不设等待超时（受理失败会立刻返回） | 只有异步形态 |
-| 功能埋点调用 | 60000 ms | 60000 ms | 频谱要解码整曲 |
+| 功能埋点调用（`musicxx.feature.point.call`） | 调用方自己给 | 调用方自己给 | 声明里没有上限；频谱 / 副歌这类要解码整曲的给 60 秒以上（命令面缺省 60 秒） |
 | 能力等待 | **没有超时** | **没有超时** | 异步裁决不结算就是调用点一直等 |
 
-### 11.4 插件框架的错误码（动态库插件返回码）
+### 11.4 返回码（只到 C / FFI 边界，只有一份表）
 
-| 码 | 含义 | 常见原因 |
-|---|---|---|
-| `0` | 成功 | — |
-| `-1` | 参数非法 | `data` 不是 JSON 对象、缺 `title`、结构体大小不符 |
-| `-2` | 状态错误 | 实例未启动 / 已禁用 / 正在卸载 |
-| `-3` | JSON 非法 | 载荷解析失败 |
-| `-4` | 未找到 | 注册未知能力、未知 UI 类型、注销不存在的项 |
-| `-5` | 超时 | 能力请求 / 能力调用超时 |
-| `-6` | 权限拒绝 | 命名空间非法（冒充他人事件主题 / UI 项 id / 广播频道 id） |
-| `-7` | 队列满 | 保留值（当前没有容量类限制） |
-| `-99` | 内部异常 | 插件框架内部错误（看日志） |
+码表的唯一声明：`cxx_pluginxx/include/pluginxx/api/result.h`（通用 / 广播 / 生命周期 / 内部）与
+`cxx_utilxx/include/utilxx/net_error.h`（网络段）。插件只 include 一个头：
+`musicxx_extern_plugin_api.h` 已经把 `pluginxx/api/result.h` 转出来了（**原来那 10 个
+`MUSICXX_EXTERN_PLUGIN_ERR_*` 与网络表的 10 个 `PLUGINXX_NET_ERR_*` 已删除**）。
 
-JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`action_not_registered: xxx`、
-`请求失败：…`、`status=…`、`频道未声明: …`。
+两条纪律：
+
+- **每个码都有唯一名称**；码 → 名称用 `musicxx_extern_plugin_result_name(int32_t code)`（NULL = 没有
+  这个码）。Dart 侧调的就是它，**不要在 Dart / JS 里再抄一份表**；
+- **数字不出现在 JSON 与上层接口里**：命令面 / `/cli` / MCP / 能力调用失败一律
+  `{ok:false, error:"<名称>", message:"<句子>"}`。
+
+**通用段**（宏前缀 `PLUGINXX_RESULT_ERR_`，任何表、任何入口都可能返回）
+
+| 码 | 宏 | 名称 | 常见原因 |
+|---|---|---|---|
+| `0` | `PLUGINXX_RESULT_OK` | `ok` | 成功 |
+| `-1` | `ERR_ARG` | `invalid_argument` | 参数非法：`data` 不是 JSON 对象、缺 `title`、结构体大小不符 |
+| `-2` | `ERR_STATE` | `invalid_state` | 状态不对：实例未启动 / 已禁用 / 正在卸载 / 已经做过 |
+| `-3` | `ERR_JSON` | `invalid_json` | JSON 非法：载荷解析失败 |
+| `-4` | `ERR_NOT_FOUND` | `not_found` | 未找到：注册未知能力、未知 UI 类型、注销不存在的项 |
+| `-5` | `ERR_TIMEOUT` | `timeout` | 超时：等宿主线程 / 插件超时 |
+| `-6` | `ERR_PERMISSION` | `permission_denied` | 没有权限：命名空间非法（冒充他人事件主题 / UI 项 id / 广播频道 id）、不是属主、路径越界 |
+| `-7` | `ERR_BUSY` | `busy` | 排队已满（连接 / 请求 / 服务上限） |
+| `-8` | `ERR_NO_MEMORY` | `out_of_memory` | 内存不足（保留） |
+
+**广播段**（`-200`~`-203`）
+
+| 码 | 宏 | 名称 | 含义 |
+|---|---|---|---|
+| `-200` | `ERR_NOT_DECLARED` | `not_declared` | 频道没有声明 |
+| `-201` | `ERR_NO_VALUE` | `no_value` | 没有当前值（`cache: none` 或还没写过） |
+| `-202` | `ERR_ENDED` | `ended` | 流已结束（发布 / 读取 / 订阅都被拒） |
+| `-203` | `ERR_NOT_OWNER` | `not_owner` | 不是这条频道的属主 |
+
+**生命周期与内部**：`-500` `ERR_NOT_READY`（`not_ready`，宿主未启动 / 加载中）、
+`-999` `ERR_INTERNAL`（`internal`，框架内部错误，看日志）。**内部错误从 `-99` 改成了 `-999`**。
+
+**网络段**（`-100`~`-199`，宏前缀 `UTILXX_NET_ERR_*`，见 `utilxx/net_error.h`）：
+`invalid_url`（`-100`）/ `invalid_host`（`-101`）/ `invalid_port`（`-102`）/ `invalid_id`（`-103`）/
+`exists`（`-104`）/ `not_connected`（`-105`）/ `wrong_kind`（`-106`）/ `bind_failed`（`-107`）/
+`write_failed`（`-108`）/ `unsupported_op`（`-109`）/ `canceled`（`-110`）。
+
+**自定义段**（只约定区间，不定义码）：`-5000`~`-9999` 应用自定义、`-10000`~`-19999` 插件自定义。
+用自有码报错时，`nameOf()` 对这两段返回 NULL、`categoryOf()` 按区间给 `app_custom` /
+`plugin_custom`，名称由属主自己解释；低于 `-20000` 未定义（`unknown`）。
+
+**应用侧另有几个只有名称、没有数字的码**（不跨 C 边界，所以不给数字）：`not_callable`（这条能力没有
+对外开放调用）、`no_impl`（名字对、现在没有实现）、`not_allowed`（这条能力没有对插件开放：声明里
+没有 `plugin` 块）、`canceled` / `dropped`（两种不同的"没有结果"：被拦下 / 被丢弃）、`skipped`
+（`skipIfUnchanged` 且值没变）、`no_value`、`failed`（实现抛了异常）。词表共用，所以同一件事在两层
+是同一个名。
+
+JS 插件拿到的是**异常与文字**（Promise 拒绝原因里带名称与句子）；`status=<数字>` 只出现在网络接口的
+结果里（§3.2.6），判断成功看 `ok`。
 
 ### 11.5 停用 / 卸载时会自动发生什么
 
@@ -2519,7 +2515,7 @@ JS 插件拿到的是**文字**（异常信息 / Promise 拒绝原因）：`acti
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| 调用一直 `action_not_registered` | 能力当前版本没实现（§3.4）；或名字拼错 |
+| 调用得到 `not_found` / `no_impl` | `not_found` = 名字拼错或没在声明表里；`no_impl` = 声明里有、但当前没有人实现（应用没接、插件也没给） |
 | 处理器不触发 | 这条能力在 `plugin-capabilities.md` 里标"未接入"；或插件被禁用；或注册失败（看返回码 / 返回值） |
 | 处理器被调用多次 | 用不同 `ownerTag` 注册了同一条能力（§8.1） |
 | 定时器 / 初始化执行两遍 | 每次启用都会重新执行注册（写成幂等） |

@@ -1,4 +1,4 @@
-# musicxx JS 插件作者指南（v1）
+# musicxx JS 插件开发指南
 
 JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）即可，插件框架用内置的 QuickJS
 运行时执行脚本，脚本通过全局对象 `musicxx` 使用框架与主程序能力。
@@ -108,8 +108,8 @@ permissions:                     # 声明式权限：只做展示，运行时不
 | `musicxx.broadcast` | 广播：读当前值、订阅（可声明频率）、发布自己频道的值、声明频道 | §5、§8、§9；[plugin-api.md](plugin-api.md) §4 / §5 |
 | `musicxx.host` | 框架信息、日志、配置路径 | §6 |
 | `musicxx.capability.call` | 通用能力调用（返回 Promise） | §7 |
-| `musicxx.player` / `playlist` / `songlist` / `library`（过时）/ `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` / `feature` | 分类便捷封装（都等价于 `musicxx.capability.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
-| `musicxx.feature` | 功能埋点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
+| `musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `net` / `render` / `media` / `ui` / `stats` | 分类便捷封装（都等价于 `musicxx.capability.call`） | §7.1；[plugin-api.md](plugin-api.md) §3 |
+| `musicxx.capability` 里的 `points` / `define` / `undefine` / `provide` / `unprovide` | 功能埋点：调用 / 声明 / 实现 | §4.4；[plugin-api.md](plugin-api.md) §7 |
 | `musicxx.timer` / `musicxx.util` | 定时器与工具 | §13 |
 | `musicxx.version` / `musicxx.pluginId` | 运行时版本（插件框架版本，如 `"2026.1011.1"`，与 `musicxx.host.info().hostVersion` 同一个值）/ 本插件 id | — |
 | `console` | `log` / `info` / `warn` / `error` 转发到框架日志 | §6 |
@@ -233,7 +233,7 @@ musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, (ctx) 
 
 ```js
 // 1) 声明自己的功能埋点（id 必须落在自己的命名空间里）
-musicxx.feature.define({
+musicxx.capability.define({
     id: "plugin." + musicxx.pluginId + ".beat",
     title: "节拍检测",
     depict: "按 BPM 与拍号算出若干拍的时刻",
@@ -242,21 +242,21 @@ musicxx.feature.define({
 });
 
 // 2) 给出实现：返回的是**值**（糖自动包成 {"patch":{"value": …}}）
-musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args, ctx) {
+musicxx.capability.provide("plugin." + musicxx.pluginId + ".beat", function (args, ctx) {
     const bpm = (args && args.bpm) || 120;
     return { bpm: bpm, beats: [0, Math.round(60000 / bpm)], confident: 0.9 };
 });
-musicxx.feature.provide(["plugin.a.x", "plugin.a.y"], (args) => ({ ok: true }));  // 一组点共用一个实现
+musicxx.capability.provide(["plugin.a.x", "plugin.a.y"], (args) => ({ ok: true }));  // 一组点共用一个实现
 
 // 3) 调一个功能埋点（应用留出的，或别的插件声明的）
-const colors = await musicxx.feature.callPoint("musicxx.media.palette.provide", {});
+const colors = await musicxx.capability.call("musicxx.media.palette.analyse", {});
 
-musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除实现
+musicxx.capability.unprovide("plugin." + musicxx.pluginId + ".beat");   // 摘除实现
 ```
 
 JS 侧需要记住的几条：
 
-- `callPoint(id, args?, timeoutMs?)`：默认 60 秒（频谱要解码整曲）。
+- `call(id, args?, timeoutMs?)`：默认 5 秒，要解码整曲的（频谱 / 副歌）自己加大到 60 秒以上。
 - `provide` 的 `fn(args, ctx)` **必须同步返回**：功能埋点走**同步裁决**通道（插件框架就地等结果），
   返回 Promise 拿不到结果（会记一条日志）。长任务请提前算好，或做成**能力**（`musicxx.capability.call`）。
 - 糖自动做三件事：按 `point` 过滤（同一条通道上所有实现都收到同一次调用）、`ctx.caller` 等于自己时
@@ -283,7 +283,7 @@ const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying ==
 - `musicxx.broadcast.read` 是**同步**读（读插件框架里缓存的值），没有网络与 IO，可以放在能力处理器、定时器、
   页面能力处理器里；
 - 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`
-  （`musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送，读到的永远是 `null`）；
+  （`musicxx.state.lyric` / `musicxx.state.songlists` 是预留的，当前版本没有推送，读到的永远是 `null`）；
 - 键名固定（官方 `musicxx.state.*`），写错就是 `null`，不会报错；
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
   （**不是实时值**）。要按秒推进度就订阅广播频道 `musicxx.player.position`（不限频，订阅时声明
@@ -369,34 +369,28 @@ const result = await musicxx.capability.call("musicxx.<域>.<名字>", { ...参�
 
 | 分类 | 方法 |
 |---|---|
-| `musicxx.capability` | `implement(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)`（实现应用声明的能力） **+** `register(name, fn)` `call(id, method, args?, timeoutMs?)`（自己提供给别人的能力） |
+| `musicxx.capability` | `implement(id, options?, fn)` `unregister(id)` `has(id)` `handlers(id)`（实现应用声明的能力） **+** `register(name, fn)` `call(id, args?, timeoutMs?)`（按 id 调能力，自己提供给别人的也走它） **+** `points(options?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)`（功能埋点：清单 / 声明 / 实现，见 §4.4） |
 | `musicxx.player` | `play(args?)` `pause()` `toggle()` `stop()` `next()` `prev()` `seek(ms\|args)` `setVolume(v)` `setSpeed(v)` `setLoopMode(mode)`（改音质、音调用全名：`musicxx.capability.call("musicxx.player.setQuality", {quality})` / `musicxx.capability.call("musicxx.player.setPitch", {pitch})`，没有单独封装） |
-| `musicxx.playlist` | `queryLists()` `querySongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)` `syncSongs(args)`（歌单：保存下来的列表；`syncSongs` = 同步歌单音源，把绑定音源里新增的歌加进歌单） |
-| `musicxx.songlist` | `querySongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（播放列表：当前正在播的那一串歌） |
+| `musicxx.songlist` | `list()` `listSongs(args?)` `play(args)` `addSong(args)` `removeSong(args)` `create(args)` `updateSong(args)` `sync(args)`（**歌单**：保存下来的列表；`sync` = 同步歌单音源，把绑定音源里新增的歌加进歌单） |
+| `musicxx.playlist` | `listSongs(args?)` `playSong(args)` `addSong(args)` `removeSong(args)` `updateSong(args)`（**播放队列**：当前正在播的那一串歌） |
 | `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
-| `musicxx.feature` | `list()` `call(id, args?, timeoutMs?)` `points(options?)` `callPoint(id, args?, timeoutMs?)` `define(specOrId, spec?)` `undefine(id)` `provide(idOrIds, fn, options?)` `unprovide(id, fn?)` |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
 | `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
-| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.capability.call("musicxx.ui.openOverlaySheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.capability.call("musicxx.ui.pickSongs" / "pickDir" / "browseDrive", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
+| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.capability.call("musicxx.ui.overlay.showSheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.capability.call("musicxx.ui.drive.pickSongs" / "musicxx.ui.drive.pickDir" / "musicxx.ui.drive.browse", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
 `musicxx` 全局对象上还有两个**不是** `musicxx.capability.call` 封装的名字空间：`musicxx.capability`（能力：
 实现应用声明的能力、注册自己的能力、调别的插件、自省）与 `musicxx.broadcast`（广播：读当前值、
 订阅、发布、声明自己的频道），方法见 §3 的表与 §4 / §5 / §8 / §9 / §10。
 
-`musicxx.library`（`querySongs` / `querySonglists` / `playSong` / `playSonglist`）是**过时的对象**：
-名字还能用，内部已转成 `musicxx.playlist` / `musicxx.songlist` 的能力名，老脚本不用改；
-新写的插件用上面那两个（一个前缀里混着“歌单”与“播放列表”两个概念，看不出在操作哪一个）。
-
 **能力清单**（每条能力做什么、参数与返回、失败情形与示例）在 [plugin-api.md](plugin-api.md) §3.2；
 本文不再重复。使用时记住三件事：
 
 - **能力名没在上面的便捷封装里也没关系**：`musicxx.capability.call("musicxx.<域>.<名字>", {参数})` 一样能调；
-- **名字存在但当前版本没实现**的能力会立刻失败（`action_not_registered`）：
-  `musicxx.player.setMediaType`、`musicxx.ui.setEntryBadge`、`musicxx.host.shareText` ——
-  写插件前先按 [plugin-api.md](plugin-api.md) §3.4 确认一遍；
+- **名字不在声明表里**会立刻得到 `not_found`；声明表里有、但当前没有人实现的得到 `no_impl`
+  （`message` 里带能力 id）—— 写插件前先按 [plugin-api.md](plugin-api.md) §3 的清单确认一遍；
 - **要"改应用状态"而没有对应能力**：多半能找到一条（例如改播放速度 / 音调用
   `musicxx.player.setSpeed` / `setPitch`，想拦一次用户改速或改音调用能力 `musicxx.player.speed` /
   `musicxx.player.pitch`）。

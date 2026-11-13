@@ -1,4 +1,4 @@
-/// musicxx 插件 SDK: 总头文件 (插件作者只需包含本头)
+/// musicxx 插件 SDK: 总头文件 (插件开发者只需包含本头)
 ///
 /// 组成:
 /// - 插件框架通用部分: `pluginxx/kit/kit.h` (通用表聚合 / 日志 / 任务 / 协程 / 能力注册) —
@@ -1293,7 +1293,7 @@ namespace musicxx {
 namespace plugin {
 namespace detail {
 
-/// 生命周期事务适配 (导出宏内部使用): 把插件作者的简单事务函数包装成插件框架入口
+/// 生命周期事务适配 (导出宏内部使用): 把插件开发者的简单事务函数包装成插件框架入口
 ///
 /// 支持两种写法:
 /// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按插件框架约定
@@ -1346,7 +1346,7 @@ inline void* runLifecycleEntry(
 
 /// 插件入口导出宏 (生成 `musicxx_plugin_{get_info,create,start,stop,destroy}`)
 ///
-/// 用法 (插件作者只写两个事务函数, 完成通知由 SDK 处理):
+/// 用法 (插件开发者只写两个事务函数, 完成通知由 SDK 处理):
 /// ```cpp
 /// struct MyCtx : musicxx::plugin::PluginBase {};
 /// MUSICXX_PLUGIN_EXPORT(MyCtx, "example_native", "1.0.0", "示例插件",

@@ -1454,7 +1454,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
       [self, path, options, slot, failMsg, pluginId,
        created]() -> asio::awaitable<void> {
         // JS插件 (清单 kind: js): 登记内置槽位后按合成实例 js:<id> 加载;
-        // 脚本与清单都在插件目录里, 插件作者无需编译任何东西。
+        // 脚本与清单都在插件目录里, 插件开发者无需编译任何东西。
         const fs::path pluginPath{path};
         // 清单字段只有一处实现: 插件框架解析 name/entry/depends,
         // 框架读自己的扩展字段
@@ -2568,7 +2568,7 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   }
   pluginxx::BroadcastDecl decl;
   decl.id = id;
-  // 频道属性只从生成表来 (与作者文档、Dart 声明同一份), 表外 id 用默认属性
+  // 频道属性只从生成表来 (与插件开发文档、Dart 声明同一份), 表外 id 用默认属性
   const MusicxxBroadcastDecl *preset = musicxxBroadcastDeclOf(id.c_str());
   if (preset != nullptr) {
     decl.cache = preset->cache == MUSICXX_BROADCAST_CACHE_LATEST

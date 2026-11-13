@@ -7,11 +7,11 @@
 /// |---|---|
 /// | `lib/src/capability_ids.g.dart` | Dart 侧 id 常量 + 声明（impls / merge / phases / dispatch / timeout / cache / 三个通道块） |
 /// | `src/sdk/include/musicxx/plugin/api/capability_ids.g.h` | C++ 侧 id 常量 + 已知声明表（插件框架据此拒绝未知 id、判阶段与合并策略） |
-/// | `docs/plugin-capabilities.md` | 能力（请求 → 结果）作者文档 |
-/// | `docs/plugin-broadcasts.md` | 广播（只通知，不回答）作者文档 |
+/// | `docs/plugin-capabilities.md` | 能力（请求 → 结果）插件开发文档 |
+/// | `docs/plugin-broadcasts.md` | 广播（只通知，不回答）插件开发文档 |
 ///
 /// 为什么只有一个定义源：同一个 id 现在同时出现在"派发、命令面、MCP、链接入口、自省、
-/// 作者文档"几处，靠手写常量加断言对齐迟早会漂；生成物把 id 与声明字段一起带出去。
+/// 插件开发文档"几处，靠手写常量加断言对齐迟早会漂；生成物把 id 与声明字段一起带出去。
 ///
 /// - 校验规则见 [loadCapabilityContract]：id 命名空间、`impls` 与 `phases` 的组合、
 ///   `merge` 的适用范围、通道块（`cli` / `mcp` / `plugin`）的字段与取值、
@@ -32,10 +32,10 @@ const String capabilityDartOut = 'lib/src/capability_ids.g.dart';
 const String capabilityCppOut =
     'src/sdk/include/musicxx/plugin/api/capability_ids.g.h';
 
-/// 能力作者文档
+/// 能力总表（插件开发文档）
 const String capabilityDocOut = 'docs/plugin-capabilities.md';
 
-/// 广播作者文档
+/// 广播总表（插件开发文档）
 const String broadcastDocOut = 'docs/plugin-broadcasts.md';
 
 /* ==================== 编码（Dart 与 C++ 两侧共用） ==================== */
@@ -1359,11 +1359,11 @@ String _generateCpp(CapabilityContract contract) {
   return sb.toString();
 }
 
-/* ==================== 作者文档 ==================== */
+/* ==================== 插件开发文档 ==================== */
 
 String _generateCapabilityDoc(CapabilityContract contract) {
   final StringBuffer sb = StringBuffer()
-    ..writeln('# 能力总表（插件作者文档）')
+    ..writeln('# 能力总表（插件开发文档）')
     ..writeln()
     ..writeln(
       '> 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。',
@@ -1455,7 +1455,7 @@ String _generateCapabilityDoc(CapabilityContract contract) {
 
 String _generateBroadcastDoc(CapabilityContract contract) {
   final StringBuffer sb = StringBuffer()
-    ..writeln('# 广播总表（插件作者文档）')
+    ..writeln('# 广播总表（插件开发文档）')
     ..writeln()
     ..writeln(
       '> 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。',
@@ -1524,7 +1524,7 @@ String _generateBroadcastDoc(CapabilityContract contract) {
     'musicxx.ui.fontFamily': '`musicxx.ui.setFontFamily`',
     'musicxx.theme.available': '',
     'musicxx.theme.current':
-        '`musicxx.theme.setCurrent` / `musicxx.theme.tempSwitch`',
+        '`musicxx.theme.setCurrent` / `musicxx.theme.setTempMode`',
     'musicxx.theme.mode': '`musicxx.theme.setMode`',
   };
 

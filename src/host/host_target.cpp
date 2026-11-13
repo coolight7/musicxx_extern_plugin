@@ -148,7 +148,7 @@ std::string findLibraryInDir(const fs::path &dir, const std::string &entry,
       return fallback.string();
     }
   }
-  // 3) 目录里只有一个动态库文件时直接用它 (插件作者不用关心文件叫什么;
+  // 3) 目录里只有一个动态库文件时直接用它 (插件开发者不用关心文件叫什么;
   //    有多个说明分不清哪个是入口, 交给清单 entry 明确指定)
   std::string only;
   for (const auto &item : fs::directory_iterator(dir, ec)) {

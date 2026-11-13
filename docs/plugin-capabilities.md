@@ -1,4 +1,4 @@
-# 能力总表（插件作者文档）
+# 能力总表（插件开发文档）
 
 > 本文件由 `tools/gen_contract.dart` 从 `tools/capabilities.def.json` 生成，请勿手改。
 

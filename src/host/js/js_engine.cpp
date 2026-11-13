@@ -998,7 +998,7 @@ var featurePointImpls = new Map();
       return appCall("musicxx.ui.overlay.close", { id: id });
     },
     // 打开页面: 任意插件的声明式页面 (ext://<插件id>/<视图id>, 含本插件), 或官方白名单页面
-    // (见作者文档; 跨插件页面由对方插件自己绘制)
+    // (见插件开发文档; 跨插件页面由对方插件自己绘制)
     openRoute: function (route, args) {
       return appCall("musicxx.ui.openRoute", { route: String(route), arguments: args });
     },
@@ -1069,7 +1069,7 @@ var featurePointImpls = new Map();
     // 封面颜色分析结果 + 主程序内置背景实际使用的 4 色
     palette: function (args) {
       var req = (args && typeof args === "object") ? args : {};
-      return appCall("musicxx.media.palette", req);
+      return appCall("musicxx.media.palette.get", req);
     },
     // 写封面取色 (与内置分析是同一批字段): {main, light, lightMuted, dark, darkMuted}
     setPalette: function (args) {
@@ -1643,7 +1643,7 @@ std::string takeException(JSContext *ctx) {
       JS_FreeCString(ctx, cstr);
     }
     JS_FreeValue(ctx, message);
-    // 栈的第一行就是出错位置 (`at <文件>:<行>`): 带上它, 作者不用猜是哪一行
+    // 栈的第一行就是出错位置 (`at <文件>:<行>`): 带上它, 插件开发者不用猜是哪一行
     JSValue trace = JS_GetPropertyStr(ctx, exception, "stack");
     if (JS_IsString(trace)) {
       const char *traceText = JS_ToCString(ctx, trace);
@@ -3726,7 +3726,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
   });
 
   std::string result;
-  /// 不设等待上界: 脚本跑多久就等多久 (死循环会占住共享 JS 线程, 由作者自己避免)
+  /// 不设等待上界: 脚本跑多久就等多久 (死循环会占住共享 JS 线程, 由插件开发者自己避免)
   slot->wait(result);
   if (!result.empty()) {
     err = result;

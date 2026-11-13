@@ -44,7 +44,7 @@ src/CMakeLists.txt   顶层 superbuild：XX_IS_* 平台/编译器宏 → BoostCo
 src/include/         Dart ⇄ 原生 C ABI v1（musicxx_extern_plugin_api.h，ffigen 入口，唯一导出约定）
 src/host/            插件框架工程（嵌套构建，CMakeLists.txt 里用 find_package 取依赖）
   js/                JS 插件运行时（QuickJS）：共享 JS 线程 + js:<pluginId> 合成内置实例 + musicxx API 面
-src/sdk/include/     插件作者 SDK（musicxx/plugin/api/*；插件只依赖头文件）
+src/sdk/include/     插件 SDK（musicxx/plugin/api/*；插件只依赖头文件）
                      plugin_api.h 是 musicxx 专用约定、plugin_kit.h 是总头文件（含插件框架 kit）、
                      capability_ids.g.h 由 tools/gen_contract.dart 生成（能力 id 与已知能力表）
 src/sdk/cmake/       构建助手 musicxx_plugin.cmake + find_package 配置模板
@@ -76,8 +76,8 @@ docs/plugin-guide.md 插件开发指南（选形态 / 环境准备 / 第一个�
 docs/plugin-api.md 两种形态共用的接口手册（能力与广播 / 约定 / 通用排障）
 docs/plugin-capabilities.md 能力总表（生成物：id / 能不能参与 / 派发 / 主程序是否已接入 + 已接入能力的载荷与回答）
 docs/plugin-broadcasts.md 广播总表（生成物：频道 / 有没有当前值 / 谁能发布 / 载荷与取值域 / 改它调哪个能力）
-docs/plugin-native-api.md 动态库插件作者指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
-docs/plugin-js-api.md JS 插件作者指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
+docs/plugin-native-api.md 动态库插件开发指南（清单/多目标打包/SDK 用法/线程约定/接口表判定/构建/部署/排障）
+docs/plugin-js-api.md JS 插件开发指南（目录结构/生命周期/`musicxx` API/硬约束/排障）
 docs/plugin-ui.md 插件界面参考（UI 项类型与字段/插件页面组件/用 kit 拼装内容/插件自己的设置页写法）
 docs/musicxx-ui-kit.md 生成的扩展 kit 说明（组件与参数；与库的 docs/kit.md 对照看）
 docs/version-history.md 版本对照（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）与改版本号的流程
@@ -182,7 +182,7 @@ make -j8 && make install_sw
 
 ## 构建
 
-三条线分开：**配环境**（一次就够，结果存缓存）、**构建插件框架**（应用与插件作者都要的东西）、
+三条线分开：**配环境**（一次就够，结果存缓存）、**构建插件框架**（应用与插件开发者都要的东西）、
 **构建示例插件**（只想跑示例/测试时才需要）。结构仿照 agentxx（`agent/CMakeLists.txt` + `agent/script/windows_*_build.bat`）：
 
 ```text
@@ -501,7 +501,7 @@ macOS 与其它桌面的差别（改这块之前先看这两处）：
   `MUSICXX_EXTERN_PLUGIN_CONFIG=Debug` 换配置、`MUSICXX_EXTERN_PLUGIN_LIBRARY=<dylib 路径>` 显式指定；
   复制过去之后，脚本还会用当前签名身份给 dylib 补一次签名（拿不到身份时保持原样，不影响加载）；
 - **Hardened Runtime 下必须关掉库签名校验**：主程序是 Hardened Runtime 签名（工程里的
-  `ENABLE_HARDENED_RUNTIME = YES`），系统默认只允许加载**同团队签名**的动态库，而插件框架库与插件作者
+  `ENABLE_HARDENED_RUNTIME = YES`），系统默认只允许加载**同团队签名**的动态库，而插件框架库与插件开发者
   自己编的库都不是这个团队 —— 不加 `com.apple.security.cs.disable-library-validation` 时 `dlopen` 会得到
   `code signature ... not valid for use in process: mapping process and mapped file (non-platform) have
   different Team IDs`（用户看到的就是"外部插件框架不可用"）。这一项已经在
@@ -530,7 +530,7 @@ macOS 与其它桌面的差别（改这块之前先看这两处）：
 
 ### 动态库插件（SDK 与构建模板）
 
-插件作者只需要 SDK 头文件 + 一个 CMake 助手，不需要了解插件框架工程结构：
+插件开发者只需要 SDK 头文件 + 一个 CMake 助手，不需要了解插件框架工程结构：
 
 ```cmake
 cmake_minimum_required(VERSION 3.20)
@@ -550,7 +550,7 @@ musicxx_plugin_add_target(my_plugin
 
 `musicxx_plugin_add_target`（`src/sdk/cmake/musicxx_plugin.cmake`）负责：
 
-- 建 SHARED 库并链接 SDK 与插件框架/工具库（`cxx_pluginxx_static`/`cxx_utilxx_base_static`/`fmt::fmt` 存在就链接，插件作者不用记名字）；
+- 建 SHARED 库并链接 SDK 与插件框架/工具库（`cxx_pluginxx_static`/`cxx_utilxx_base_static`/`fmt::fmt` 存在就链接，插件开发者不用记名字）；
 - C++26 + MSVC `/utf-8` + 符号默认隐藏；
 - **只导出入口符号**：非 MSVC 平台加 version script（GNU/Clang）或导出符号表（Apple），因此插件不会把插件框架/C++ 运行时符号暴露出去；
 - 多配置生成器下把库文件与 `plugin.yaml` 放在同一层 —— 该目录可以直接作为"插件目录"使用；
@@ -798,7 +798,7 @@ final List<MusicxxPluginUIItem> next =
   并补签名，见同节的 iOS 一节）；
   OHOS 的平台工程属于后续工作（只跑 JS插件）。
 
-对照示例（故意做出问题行为的示例插件：既服务原生测试，也让插件作者看清「写坏了会怎样」。
+对照示例（故意做出问题行为的示例插件：既服务原生测试，也让插件开发者看清「写坏了会怎样」。
 它们随 `MUSICXX_EXTERN_PLUGIN_BUILD_TESTS` 一起构建，并安装到 `<安装前缀>/plugins/`）：
 
 | 对照示例 | 演示 / 验证点 |

@@ -695,7 +695,7 @@ void main() {
 
     // 新槽位示例 playing_bg_image（示例封面背景）: 同时注册『播放页背景样式』与『播放页歌曲图
     // 接管项』（`musicxx.ui.playing.icon` 是这一轮新增的 UI 项类型）。它顶层还注册了
-    // `musicxx.media.palette.provide` 取色钩子 —— 这两条都能挡住"忘了重建插件框架库"
+    // `musicxx.media.palette.analyse` 取色钩子 —— 这两条都能挡住"忘了重建插件框架库"
     // （旧插件框架库会以未知 UI 项类型 / 未知钩子拒绝注册）。
     if (Directory('${env.pluginRoot}/playing_bg_image').existsSync()) {
       final MusicxxPluginInfo? imagePlugin = found2

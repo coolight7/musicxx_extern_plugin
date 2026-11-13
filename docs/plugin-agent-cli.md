@@ -80,21 +80,21 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 
 | CLI | 服务端命令 id |
 |---|---|
-| `plugin list` | `externPlugin.list` |
-| `plugin install` | `externPlugin.install` |
-| `plugin enable/disable` | `externPlugin.setEnabled` |
-| `plugin reload` | `externPlugin.reload` |
-| `plugin restart` | `externPlugin.restart` |
-| `plugin uninstall` | `externPlugin.uninstall` |
-| `plugin logs` | `externPlugin.logs` |
-| `plugin clear-logs` | `externPlugin.clearLogs` |
+| `plugin list` | `musicxx.plugins.list` |
+| `plugin install` | `musicxx.plugins.install` |
+| `plugin enable/disable` | `musicxx.plugins.setEnabled` |
+| `plugin reload` | `musicxx.plugins.reload` |
+| `plugin restart` | `musicxx.plugins.restart` |
+| `plugin uninstall` | `musicxx.plugins.uninstall` |
+| `plugin logs` | `musicxx.log.plugin` |
+| `plugin clear-logs` | `musicxx.log.plugin.clear` |
 
 > 另有一条 `musicxx-cli open "<musicxx://…>"`：按**链接形态**请求主程序（与手机点开链接、
 > 启动参数 `--uri` 是同一条解析路径）。它不转发命令，用来验证链接写法（例如
 > `musicxx-cli open "musicxx://play/?url=…"`）。
 >
-> 链接里**也能**调插件管理命令，但会**先弹窗问用户**：`externPlugin.*` 与 `file.*` 属于管理类入口
-> （装插件等于执行任意代码、`file.*` 能写任意路径或把本机文件开放出去），从 applink 或应用内粘贴
+> 链接里**也能**调插件管理命令，但会**先弹窗问用户**：`musicxx.plugins.*`、`musicxx.net.file.*`
+> 这类命令在声明里带 `consent`（装插件等于执行任意代码，`file.*` 能写任意路径或把本机文件开放出去），从 applink 或应用内粘贴
 > 的链接进来时先列出命令与关键参数，用户点「允许」才执行，关掉窗口算拒绝。本机通道
 > （`musicxx-cli` / MCP / `/cli`）不问。写远程协助链接时把“装的是什么”说清楚，别只说“点一下就好”。
 
@@ -102,10 +102,10 @@ musicxx-cli plugin uninstall my_plugin                       # 卸载（--keep-d
 
 | CLI | 服务端命令 id | 作用 |
 |---|---|---|
-| `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `app.logs` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
-| `musicxx-cli call capability.list [--args '{"provided":true}']` | `capability.list` | 功能埋点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`）；`broadcasts` 是主程序自己注册的广播订阅（只收通知，不参与实现，插件不能注册） |
-| `musicxx-cli capability.call <功能埋点 id> --args JSON [--refresh]` | `capability.call` | **调一个功能埋点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
-| `musicxx-cli capability.subscribers <能力id> [--phase before\|impl\|after]` | `capability.subscribers` | 这条能力现在谁在实现、在哪个阶段、排第几（每项带 `phase`）；插件里用能力 `musicxx.capability.subscribers` |
+| `logs [error\|info] [--limit N] [--offset N] [--level 级别] [--keyword 子串] [--exclude 子串]` | `musicxx.log.app` | musicxx 自己的日志（`error.log` / `info.log`，新的在前，最多 500 条，`--offset` 翻页） |
+| `musicxx-cli call musicxx.capability.list [--args '{"provided":true}']` | `musicxx.capability.list` | 功能埋点清单：应用留出了哪些扩展点、现在谁在提供（外置插件 / 内置插件 / 应用自身）、谁把它关掉了、**能不能被调用（`callable`）、怎么调（`callDoc`）**、被调过几次（`callStat`）；`broadcasts` 是主程序自己注册的广播订阅（只收通知，不参与实现，插件不能注册） |
+| `musicxx-cli capability.call <功能埋点 id> --args JSON [--refresh]` | `musicxx.capability.call` | **调一个功能埋点并拿到结果**（应用留出的频谱提取 / 副歌分析 / 封面取色，或插件自己声明的点），见 §5.7 |
+| `musicxx-cli capability.subscribers <能力id> [--phase before\|impl\|after]` | `musicxx.capability.subscribers` | 这条能力现在谁在实现、在哪个阶段、排第几（每项带 `phase`）；插件里用能力 `musicxx.capability.subscribers` |
 
 ## 5. 常用做法
 
@@ -220,41 +220,37 @@ musicxx-cli render select musicxx.previous --slot player.icon
 | `musicxx-cli watch --events song,playerState` | 看应用事件有没有按预期发生（能力见 [plugin-capabilities.md](plugin-capabilities.md)，广播频道见 [plugin-broadcasts.md](plugin-broadcasts.md)） |
 | `musicxx-cli toast <文本>` | 在应用界面上弹一条提示（对照插件的 `musicxx.ui.toast`） |
 | `musicxx-cli broadcast list` / `broadcast read <频道id>` | 看广播频道的当前值与订阅数（与插件的 `read` 对照） |
-| `musicxx-cli feature call GetAudioSpectrum --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
+| `musicxx-cli capability call musicxx.media.spectrum.extract --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
 | `musicxx-cli kernel` | 看应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**、解码器与认得的音视频后缀（与插件能力 `musicxx.media.kernel` 同一份数据；这份 ffmpeg 是裁剪构建，写音效前先确认名字在不在） |
 
 ### 5.7 取一次应用的功能结果（`capability.call`）
 
-`capability.call` 调的是**功能埋点**：应用留出的扩展点（`musicxx.media.*`），或插件自己声明的点
-（`plugin.<插件id>.<名字>`）。它和 §5.6 里的 `feature call` 不是一回事：
-
-| | `feature call <能力id>`（能力导出） | `capability.call <功能埋点 id>`（功能埋点） |
-|---|---|---|
-| 是什么 | 应用**能做什么**（读文件、格式化文本） | 应用/插件**留出了什么功能**（谁实现都行） |
-| 结果 | 给模型读的文本结论 | 原始数据（base64 等）+ 出处（`by` / `identity` / `ms`） |
-| 适合 | 让 agent 自己看一眼频谱/副歌/主色调 | 让插件处理数据，或校验别人的实现 |
+`capability call` 调的是**能力**：应用留出的（频谱提取 / 副歌分析 / 封面取色），或插件自己声明的
+（`plugin.<插件id>.<名字>`）。只有这一条通道 —— 原来那套单独的"导出"命令已经删掉，
+文本结论也走同一条能力。
 
 ```bash
 # 取一张指定图片的颜色（三种来源三选一：path / url / data；都不给 = 当前歌曲的封面）
-musicxx-cli capability.call musicxx.media.palette.provide --args '{"path":"D:/covers/a.jpg"}'
+musicxx-cli capability call musicxx.media.palette.analyse --args '{"path":"D:/covers/a.jpg"}'
 
 # 分析一首歌的副歌区段（结果很小，适合直接看）
-musicxx-cli capability.call musicxx.media.chorus.analyse --args '{"path":"D:/a.flac"}'
+musicxx-cli capability call musicxx.media.chorus.analyse --args '{"path":"D:/a.flac"}'
 
 # 整曲频谱（base64，4 分钟约 820 KB）：重定向到文件，别直接打屏
-musicxx-cli capability.call musicxx.media.spectrum.extract --args '{"path":"D:/a.flac"}' --json > spectrum.json
+musicxx-cli capability call musicxx.media.spectrum.extract --args '{"path":"D:/a.flac"}' --json > spectrum.json
 
 # 调插件自己声明的功能埋点（参数与结果形状看它声明的 args / result）
-musicxx-cli capability.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
+musicxx-cli capability call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
 ```
 
-- **参数与结果形状**一律看 `capability.list` 的 `callDoc`（每个功能埋点一段），不要凭猜；
+- **参数与结果形状**一律看 `capability list` 的 `callDoc`（每条能力一段），不要凭猜；
 - 结果形状：`{ok, id, value, by, identity, fromCache, ms}`。`by` 是这次是谁给的
   （`extern:<插件id>` / `builtin:<插件key>:<实现>` / `core:<域>:<实现>`），
   `identity` 是资源身份（音源 md5 / 文件路径），调用方可以据此自己缓存；
-- 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这个功能埋点没对外开放）/
-  `bad_args`（参数不对）/ `no_impl`（现在没有实现）/ `canceled`（被某个实现拦下）/
-  `busy`（同一功能埋点 + 同一调用方的上一次还没结束）/ `failed`；
+- 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这条能力没对外开放调用）/
+  `invalid_argument`（参数不对）/ `not_allowed`（声明里没有 `plugin` 块）/ `no_impl`（现在没有实现）/
+  `canceled`（被前链或实现拦下）/ `dropped`（后链把结果丢了）/
+  `busy`（同一条能力 + 同一调用方的上一次还没结束）/ `failed`；
 - **调用零副作用**：只读值仓、不写值仓、不改应用状态 —— 调一次封面取色**不会**换掉用户看到的
   背景色（要改观感请用能力 `musicxx.media.palette.set`）；
 - 默认超时 60 秒，频谱要解码整曲、慢的话用 `--timeout` 加长；`--refresh` 跳过值仓重新算一遍；
@@ -270,11 +266,11 @@ musicxx-cli capability.call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
 ```text
 # 你要发出去的是一条链接，不是命令：
 # 装插件（插件包要先到用户机器上，path 是那台机器上的绝对路径，args 必须 UrlEncode）
-musicxx://call/?cmd=externPlugin.install&args=%7B%22path%22%3A%22C%3A%2FUsers%2Fme%2Fmy_plugin.zip%22%2C%22enable%22%3Atrue%7D
+musicxx://call/?cmd=musicxx.plugins.install&args=%7B%22path%22%3A%22C%3A%2FUsers%2Fme%2Fmy_plugin.zip%22%2C%22enable%22%3Atrue%7D
 # 启用 / 停用
-musicxx://call/?cmd=externPlugin.setEnabled&args=%7B%22id%22%3A%22my_plugin%22%2C%22enabled%22%3Atrue%7D
+musicxx://call/?cmd=musicxx.plugins.setEnabled&args=%7B%22id%22%3A%22my_plugin%22%2C%22enabled%22%3Atrue%7D
 # 改完 JS 脚本重新加载
-musicxx://call/?cmd=externPlugin.reload&args=%7B%22id%22%3A%22my_plugin%22%7D
+musicxx://call/?cmd=musicxx.plugins.reload&args=%7B%22id%22%3A%22my_plugin%22%7D
 # 跳搜索页 / 播放
 musicxx://search/?keyword=%E6%99%B4%E5%A4%A9
 musicxx://play/?search=%E6%99%B4%E5%A4%A9
@@ -282,10 +278,10 @@ musicxx://play/?search=%E6%99%B4%E5%A4%A9
 
 - **`args` 用 `Uri.encodeComponent` 生成**：手写容易漏引号与空格，漏了在用户那侧会直接报
   “参数 args 不是合法 JSON”；
-- **管理类链接（`externPlugin.*`）在用户那边会再弹一次确认**（列出命令与 `path` / `pid`），点「允许」
+- **管理类链接（`musicxx.plugins.*`）在用户那边会再弹一次确认**（列出命令与 `path` / `pid`），点「允许」
   才执行，关掉算拒绝 —— 所以要把“装的是什么、为什么要装”讲清楚，别只说“点一下就好”；
 - **只有界面提示，没有返回值**：成功是「已执行：<入口 id>」，失败是原因。要结构化结果还是得用
-  命令行 / MCP；失败时应用会往日志里写一行「调用快捷链接失败」（`app.logs` 读得到，带链接与服务端给的原因），
+  命令行 / MCP；失败时应用会往日志里写一行「调用快捷链接失败」（`musicxx.log.app` 读得到，带链接与服务端给的原因），
   用户复述不清楚时看那一行；
 - **链接里引用的文件必须在用户机器上**：跨机器时先让用户下载插件包（或你托管一个直链，
   让他下载后按绝对路径安装）；
@@ -300,9 +296,9 @@ musicxx://play/?search=%E6%99%B4%E5%A4%A9
 - **退出码**：`0` 成功 / `1` 参数错误（CLI 自己发现的）/ `2` 应用没在运行 / `3` 等响应超时 /
   `4` 命令执行失败（原因在 stderr）/ `5` 协议不匹配（CLI 与主程序版本差太多）；
 - 命令名是**自描述**的：`musicxx-cli list --json` 里有全部命令与参数，不要硬编码参数表；
-- **这几条命令不在插件的能力表里**：插件里 `musicxx.capability.call("externPlugin.install", …)` 只会得到
-  "能力未注册"。装插件 = 执行任意代码，这条通道只留给本机命令行与 MCP（主程序有意如此，
-  不是遗漏）。
+- **这几条命令不在插件的能力表里**：声明里只有 `cli` 块（没有 `plugin` 块），插件里
+  `musicxx.capability.call("musicxx.plugins.install", …)` 会得到 `not_allowed`。装插件 = 执行任意代码，
+  这条通道只留给本机命令行与 MCP（主程序有意如此，不是遗漏）。
 
 ## 7. MCP（给只会 stdio 的 AI 客户端）
 
@@ -330,24 +326,24 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 | MCP 工具 | 参数 | 等价命令 |
 |---|---|---|
-| `GetExternPlugins` | 无 | `plugin list` |
-| `InstallExternPlugin` | `path?`（绝对路径）**或** `url?`（链接）、`enable?`、`sha256?` | `plugin install` |
-| `SetExternPluginEnabled` | `id`、`enabled` | `plugin enable` / `disable` |
-| `ReloadExternPlugins` | `id?` | `plugin reload` |
-| `RestartExternPluginHost` | 无 | `plugin restart` |
-| `UninstallExternPlugin` | `id`、`keepData?` | `plugin uninstall` |
-| `GetExternPluginLogs` | `id?`、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?` | `plugin logs` |
-| `ClearExternPluginLogs` | 无 | `plugin clear-logs` |
-| `GetAppLogs` | `file?`（error / info / both）、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?`、`exclude?` | `logs` |
-| `GetFeatureProviders` | `id?`、`provided?` | `call capability.list` |
-| `CallFeaturePoint` | `id`、`args?`、`refresh?` | `capability.call` |
+| `ListPlugins` | 无 | `plugin list` / `musicxx.plugins.list` |
+| `InstallPlugin` | `path?`（绝对路径）**或** `url?`（链接）、`enable?`、`sha256?` | `plugin install` / `musicxx.plugins.install` |
+| `SetPluginEnabled` | `id`、`enabled` | `plugin enable` / `disable` / `musicxx.plugins.setEnabled` |
+| `ReloadPlugins` | `id?` | `plugin reload` / `musicxx.plugins.reload` |
+| `RestartPluginHost` | 无 | `plugin restart` / `musicxx.plugins.restart` |
+| `UninstallPlugin` | `id`、`keepData?` | `plugin uninstall` / `musicxx.plugins.uninstall` |
+| `GetPluginLogs` | `id?`、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?` | `plugin logs` / `musicxx.log.plugin` |
+| `ClearPluginLogs` | 无 | `plugin clear-logs` / `musicxx.log.plugin.clear` |
+| `GetAppLogs` | `file?`（error / info / both）、`limit?`（1~500，默认 50）、`offset?`、`level?`、`keyword?`、`exclude?` | `logs` / `musicxx.log.app` |
+| `ListCapabilities` | `id?`、`provided?` | `capability list` / `musicxx.capability.list` |
+| `CallCapability` | `id`、`args?`、`refresh?` | `capability call` / `musicxx.capability.call` |
 
 - 工具结果里都带一份**现在的插件清单**（装了什么、启用/加载状态、失败原因），一次调用就能确认
   结果，不用再问一次；
-- `CallFeaturePoint` 的文本形态里**超大字符串字段会被压成摘要**
+- `CallCapability` 的文本形态里**超大字符串字段会被压成摘要**
   （超过 4 KB 的字符串给 `{"omitted":true,"bytes":N,"head":"<前 256 个字符>"}`）：
   频谱一次 820 KB base64，整块塞进模型上下文既没用又挤掉别的东西 —— 只要可读的频谱文本请用
-  `GetAudioSpectrum`（那是"能力导出"那条路：文本形态）；
+  `GetAudioSpectrum`（同一条能力，输出排成文本表）；
 - 拟声没在运行时桥**不会退出**：请求返回可读的 JSON-RPC 错误（`-32000`），默认会自动拉起主程序
   （`--no-start` 关掉），应用起来后下一次调用自动可用；
 - stdout 只放协议消息，日志都在 stderr；排查用 `musicxx-cli mcp --verbose`。

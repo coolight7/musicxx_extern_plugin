@@ -1,4 +1,4 @@
-# musicxx 动态库插件作者指南（C++ / v1）
+# musicxx 动态库插件开发指南（C++）
 
 本文写给**要写一个动态库插件**的人：目录与清单、代码示例、开发流程、能用的框架与主程序能力、
 构建与部署、排障。相关文档：
@@ -198,7 +198,7 @@ struct MyCtx : public musicxx::plugin::PluginBase {
     /// start 事务：只做注册，禁止阻塞（网络 / 大文件 / 等别人都不行）
     int32_t onStart() {
         // 决策型能力：载荷里出现「广告」就跳过本曲
-        hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
+        implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
              [this](std::string_view input, std::string& out) -> int32_t {
                  if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
                      ++hits;
@@ -208,8 +208,8 @@ struct MyCtx : public musicxx::plugin::PluginBase {
              });
 
         // 切歌是广播频道（`musicxx.song.changed`）：订阅后收推送，顺手同步读状态广播
-        subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED, [](std::string_view) {
-            const std::string song = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);
+        subscribeBroadcast(MUSICXX_BROADCAST_SONG_CHANGED, [](std::string_view) {
+            const std::string song = readBroadcast(MUSICXX_BROADCAST_STATE_SONG);
             log.info("切歌了，歌曲 JSON 长度=" + std::to_string(song.size()));
         });
 
@@ -251,7 +251,7 @@ MUSICXX_PLUGIN_EXPORT(
 - 两个事务函数的签名是 `int32_t(Ctx&)`：返回 `0` = 成功，非 0 = 失败并回滚。完成通知由 SDK 负责
   （插件框架要求「返回前恰好一次 done」，手写容易漏）。需要自己做异步 start 时，改用插件框架原始签名
   `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`，此时由你自己调用 `notify->done`；
-- `hook` / `observe` / `capability` / `broadcastJson` 这些便捷方法都在
+- `implement` / `observe` / `capability` / `readBroadcast` 这些便捷方法都在
   `musicxx::plugin::PluginBase`（头文件 `musicxx/plugin/api/plugin_kit.h`）上；
 - 注册失败会返回负错误码（见 §7 错误码），**不要忽略返回值**：官方 id 没被应用声明、命名空间非法、
   数据不合法都会在注册时直接失败；自己造的能力用 `plugin.<你的插件 id>.*`，不需要事先声明。
@@ -278,7 +278,7 @@ MUSICXX_PLUGIN_EXPORT(
   2. 把工作拆成「提交 + 回调」两段：`start` 只注册，真正的初始化放进异步任务，完成后再补注册 / 写状态；
 - 插件**可以**自己起线程或定时器，但要在 `stop` 里回收，并且**调用框架接口一律经接口表**
   （`iface.*` / `PluginBase` 的便捷方法），不要直接触碰框架内部结构；
-- 带当前值的广播是**同步**读的（`broadcastJson(...)`），能力调用是**异步**的（结果经回调）。
+- 带当前值的广播是**同步**读的（`readBroadcast(...)`），能力调用是**异步**的（结果经回调）。
 
 ---
 
@@ -286,16 +286,16 @@ MUSICXX_PLUGIN_EXPORT(
 
 | 能力 | API | 说明 |
 |---|---|---|
-| 裁决型能力 | `hook(id, priority, fn)` | `fn = int32_t(std::string_view input, std::string& out)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决 |
-| 收通知（切歌 / 播放状态 / 进度…） | `subscribeTopic(频道, fn)` | 就是**广播频道**（`MUSICXX_BROADCAST_*`）；订阅回调要尽快返回 |
-| 注销能力 | `unregisterHook(id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
-| 带当前值的广播（同步只读） | `broadcastJson("musicxx.state.song")` 等 | 见 §5 |
+| 裁决型能力 | `implement(能力 id, priority, fn)`（`implementBefore` / `implementAfter` 管前链 / 后链） | `fn = int32_t(std::string_view input, std::string& out)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决 |
+| 收通知（切歌 / 播放状态 / 进度…） | `subscribeBroadcast(频道, fn, options)` | 就是**广播频道**（`MUSICXX_BROADCAST_*`）；订阅回调要尽快返回 |
+| 注销能力 | `unimplement(能力 id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
+| 带当前值的广播（同步只读） | `readBroadcast("musicxx.state.song")` 等 | 见 §5 |
 | 框架版本 | `hostInfoJson()` | `{appVersion, platform, language, dataDir, userPluginDir, builtinPluginDir, apiVersion, hostVersion, pluginId, ui?}`：`hostVersion` 是插件框架自己的版本（如 `2026.1011.1`），`pluginId` 是本插件 id（只有插件读时才带），`ui` 是客户端界面能力段（可选）；字段说明见 [plugin-api.md](plugin-api.md) §2.5 |
 | 运行环境 | `config()`、`language()`、`argsJson()` | `config()` 是运行环境 JSON（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）；`argsJson()` 是加载时框架给的参数（默认 `{}`） |
 | 插件配置路径 | `configPath()` | 插件目录下的 `config.json`；插件自己读写（见 [plugin-ui.md](plugin-ui.md) §3） |
-| 应用实现的能力（异步） | `capabilityCall(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；能力名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；内部走 `musicxx.capabilities`，没声明过的名字直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
-| 自省（异步） | `capabilityCall("musicxx.capability.subscribers", "{\"hook\":\"<能力 id>\"}", ...)`、`capabilityCall("musicxx.feature.point.list", ...)` | 前者答"这条能力现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这条能力再决定要不要登记"就用它们，别猜 |
-| 事件 | `subscribeTopic(topic, fn)`；发布用 `iface.broadcasts->publish_broadcast` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
+| 应用实现的能力（异步） | `capabilityCall(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；能力名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；内部按声明表（`tools/capabilities.def.json` 生成的 `capability_ids.g.h`）判，没声明过的名字直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
+| 自省（异步） | `capabilityCall("musicxx.capability.subscribers", "{\"id\":\"<能力 id>\"}", ...)`、`capabilityCall("musicxx.feature.point.list", ...)` | 前者答"这条能力现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这条能力再决定要不要登记"就用它们，别猜 |
+| 事件 | `subscribeBroadcast(topic, fn)`；发布用 `publishBroadcast(topic, payload)` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | 播放页控制按钮栏 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
@@ -325,11 +325,10 @@ MUSICXX_PLUGIN_EXPORT(
   特化（上面两条门槛读的就是它）。插件不要自己造表、也不要改主程序给的表。
 - 现在的 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表都是 v1，
   基线 = 整表大小，也就是"表可用即全部成员可用"；
-- **`musicxx.hooks` 与 `musicxx.vars` 早已删除**：能力处理器改成往
-  `musicxx.capabilities` 登记一条能力（SDK 的 `hook` / `hookBefore` / `hookAfter` 就是这样做的），
-  广播频道改成 `musicxx.broadcasts` 的频道，应用的状态只能读与订阅（要改调能力）；
-  `musicxx.host` 同时去掉了 `get_state` / `subscribe_state` / `request_action` /
-  `cancel_action`（表版本 2）—— 当前值读广播频道，要应用做事就调能力（走 `musicxx.capabilities`）。
+- **只有能力与广播两套表**：能力处理器往能力表登记（SDK 的 `implement` / `implementBefore` /
+  `implementAfter` / `unimplement` 就是这么做的），通知走广播表的频道；应用的状态只能读与订阅，
+  要改就调能力。`musicxx.host` 表里也没有"读状态 / 订阅状态 / 请求动作"成员（表版本 2）——
+  当前值读广播频道，要应用做事就调能力（走能力表）。
 - **插件形态（kind）不是写死的**：插件框架自带 `native`（动态库，按 C ABI 编译）与 `js`
   （内置 JS 运行器，不按 C ABI 编译），其它形态（以后的 Python 等）由插件用
   `musicxx.kind` 登记，见 §4.3。
@@ -349,8 +348,8 @@ static void onDone(void* ud, int32_t status, const PluginxxStringView* json) {
 **状态广播 / 框架信息**（同步读，见 [plugin-api.md](plugin-api.md) §2）：
 
 ```cpp
-const std::string songJson = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);   // 键没推过 = 空串
-const std::string envJson  = broadcastJson(MUSICXX_BROADCAST_STATE_ENV);
+const std::string songJson = readBroadcast(MUSICXX_BROADCAST_STATE_SONG);   // 键没推过 = 空串
+const std::string envJson  = readBroadcast(MUSICXX_BROADCAST_STATE_ENV);
 const std::string infoJson = hostInfoJson();                  // 版本 / 平台 / 目录 / 本插件 id
 const std::string cfgPath  = configPath();                    // 本插件 config.json 的路径
 ```
@@ -362,7 +361,7 @@ const std::string cfgPath  = configPath();                    // 本插件 confi
 PluginxxOperatorNotify notify{&onDone, this};
 capabilityCall("musicxx.player.toggle", "{}", &notify, 5000);
 capabilityCall("musicxx.player.seek", R"({"positionMs":64000})", &notify, 5000);
-capabilityCall("musicxx.playlist.queryLists", "{}", &notify, 5000);
+capabilityCall("musicxx.songlist.list", "{}", &notify, 5000);
 capabilityCall("musicxx.ui.toast", R"({"text":"已刷新"})", &notify, 5000);
 capabilityCall("musicxx.ui.openRoute", R"({"route":"ext://my_plugin/card"})", &notify, 5000);
 // 浮层：等用户操作，超时传 0（不设上限）；结果里 reason 是 confirmed / cancelled / closed
@@ -381,24 +380,22 @@ capabilityCall("musicxx.media.spectrum", R"({"bandCount":16})", &notify, 5000);
 **事件**（主题与载荷见 [plugin-api.md](plugin-api.md) §4）：
 
 ```cpp
-subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
+subscribeBroadcast(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
     // {"sid":..., "name":...} 当前歌曲的视图
 });
-subscribeTopic("musicxx.broadcast.changed", [](std::string_view json) { /* ... */ });
 
-// 发布：只能发官方频道或自己命名空间 plugin.<自己 id>.*
-PluginxxStringView channel = pluginxxView("plugin.my_plugin.hello");
-PluginxxStringView data    = pluginxxView(R"({"at":1})");
-iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
+// 发布：只能发自己命名空间 plugin.<自己 id>.*（要带标题 / 允许合并这类声明时，
+// 用广播表的 declare_broadcast 先声明）
+publishBroadcast("plugin.my_plugin.hello", R"({"at":1})");
 ```
 
 **官方广播频道**（语义与错误码见 [plugin-api.md](plugin-api.md) §5；原生侧只有广播表的读与订阅）：
 
 ```cpp
 // 读当前值（同步，走插件框架里的缓存）
-std::string level = broadcastJson(MUSICXX_BROADCAST_UI_ANIMATED_LEVEL);
+std::string level = readBroadcast(MUSICXX_BROADCAST_UI_ANIMATED_LEVEL);
 // 订变化：订阅时先补一次当前值，之后按自己声明的频率
-auto sub = subscribeTopic(MUSICXX_BROADCAST_PLAYER_POSITION,
+auto sub = subscribeBroadcast(MUSICXX_BROADCAST_PLAYER_POSITION,
                           [](std::string_view json) { /* {sid, positionMs, durationMs} */ },
                           PluginxxHost::SubscribeOptions{500, "delay"});
 // 要改它们：调能力（§6）；广播是只读的
@@ -408,13 +405,13 @@ auto sub = subscribeTopic(MUSICXX_BROADCAST_PLAYER_POSITION,
 
 ```cpp
 // 订阅时给结束回调：属主结束时回调一次
-subscribeTopicWithEnd("plugin.my_plugin.task",
+subscribeBroadcastWithEnd("plugin.my_plugin.task",
                       [](std::string_view progress) { /* 值 */ },
                       [](std::string_view reason)   { /* reason JSON */ });
 
 // 只有属主能结束自己的频道；结束后发布返回 -5（ERR_ENDED），
 // 再 declareBroadcast 同一个 id = 开一条新流
-endTopic("plugin.my_plugin.task", R"({"reason":"done"})");
+endBroadcast("plugin.my_plugin.task", R"({"reason":"done"})");
 ```
 
 **能力 / 功能埋点 / UI / 日志**：
@@ -444,7 +441,7 @@ log.info("切歌了: " + songJson);
 
 ```cpp
 PluginxxOperatorNotify n2{&onInspectDone, this};
-capabilityCall("musicxx.capability.subscribers", R"({"hook":"musicxx.media.spectrum.extract"})", &n2, 5000);
+capabilityCall("musicxx.capability.subscribers", R"({"id":"musicxx.media.spectrum.extract"})", &n2, 5000);
 capabilityCall("musicxx.feature.point.list", "{}", &n2, 5000);
 ```
 
@@ -502,13 +499,12 @@ iface.kind->register_kind(host, &pluginxxView(R"({
   | 形态 | 当前代次 | 兼容下限 | 含义 |
   |---|---|---|---|
   | `native`（内置） | 7 | 7 | C 接口代次（跟 `PLUGINXX_API_VERSION` / `MIN_API_VERSION` 一起抬）；通用表变了就是破坏性变更，下限跟着抬 |
-  | `js`（内置） | **3** | **3** | JS 接口代次；2026-11 广播只剩读与订阅（删掉 `musicxx.broadcast.get` / `write` / `watch`）属破坏性变更，下限一起抬到 3 |
+  | `js`（内置） | **3** | **3** | JS 接口代次；2026-11 广播只剩读与订阅（旧的取值 / 写入 / 监听三个方法删掉）属破坏性变更，下限一起抬到 3 |
   | 运行器登记的形态 | 自己写 | 自己写 | `requiresPluginAbi: true` 的用框架的 C 接口那一对；解释执行的自报，不写 = 不判 |
 
   - **只增不改 → 只抬当前代次**：以后 JS 接口只做新增时，只改 `jsInterfaceVersion`，老插件照常加载，
     插件可以读 `config().apiVersion` 判断能不能用新接口；
-  - **破坏性变更才抬下限**：已经发生过一次（2026-11 删掉 `musicxx.broadcast.get` / `write` /
-    `watch`），把 `jsMinInterfaceVersion` 抬到了当时的当前代次——老插件（`api_version` 写 1 / 2）
+  - **破坏性变更才抬下限**：已经发生过一次（2026-11 广播只剩读与订阅），把 `jsMinInterfaceVersion` 抬到了当时的当前代次——老插件（`api_version` 写 1 / 2）
     会被判“跑不了”，理由里带着它能用的最低代次（与 C 接口的 `PLUGINXX_MIN_API_VERSION` 同一套规则）；
   - **两套编号独立**：JS 的 3 与 C 接口的 7 不能互相比较（插件只看得到自己那一份）。
 - **加载 / 卸载**：插件框架把插件目录交给登记的能力（请求
@@ -530,19 +526,19 @@ iface.kind->register_kind(host, &pluginxxView(R"({
 插件框架把应用的关键状态缓存成 JSON，插件**同步**读（不往返、不占线程）：
 
 ```cpp
-const std::string songJson = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);   // 键没推过 = 空串
+const std::string songJson = readBroadcast(MUSICXX_BROADCAST_STATE_SONG);   // 键没推过 = 空串
 ```
 
 - **键、每个键的字段、刷新时机与坑**：[plugin-api.md](plugin-api.md) §2（状态广播那一节）。
   可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`；
-  `musicxx.state.lyric` / `musicxx.state.playlists` 是预留的，当前版本没有推送（返回空串）；
+  `musicxx.state.lyric` / `musicxx.state.songlists` 是预留的，当前版本没有推送（返回空串）；
 - C++ 常量：生成的 `MUSICXX_BROADCAST_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` /
   `_PLAYLISTS` / `_ENV` / `_RENDER_SLOTS` / `_SPECTRUM`（`capability_ids.g.h`，不要手写键名）；
 - 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
 - 每条状态广播带当前值：订阅哪个就收哪个（订阅时先推一次当前值）
 
   ```cpp
-  subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
+  subscribeBroadcast(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
       // {"sid":..., "name":...} 当前歌曲的视图
   });
   ```
@@ -550,18 +546,18 @@ const std::string songJson = broadcastJson(MUSICXX_BROADCAST_STATE_SONG);   // �
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
   （**不是实时值**）。要按秒推进度就订阅广播频道 `musicxx.player.position`（不限频，
   带 `sid` / `positionMs` / `durationMs`，订阅时声明 `SubscribeOptions{intervalMs, mode}`），
-  要当场读当前值用 `broadcastJson`；
+  要当场读当前值用 `readBroadcast`；
 - 加载时想立刻确认框架给的环境：`config()`（`appVersion/platform/arch/language/dataDir/logDir/pluginDirs/apiVersion`）
   与 `argsJson()`（默认 `{}`）；
-- 接口表里**已经没有** `subscribe_state`（框架 API 2 删掉）：状态键用广播频道的订阅与 `cache` 拿，当场读值用 `broadcastJson`。
+- 接口表里**已经没有** `subscribe_state`（框架 API 2 删掉）：状态键用广播频道的订阅与 `cache` 拿，当场读值用 `readBroadcast`。
 
 ---
 
 ## 5.5 官方广播频道：原生插件只能读与订阅
 
-> **广播是只读的**：原生插件没有写应用状态的入口。读当前值用 `broadcastJson(<频道宏>)`、
-> 订变化用 `subscribeTopic(<频道宏>, fn, options)`；改应用的状态调**能力**（§6），
-> 发布自己命名空间下的频道用广播表的 `declare_broadcast` + `publish_broadcast`。
+> **广播是只读的**：原生插件没有写应用状态的入口。读当前值用 `readBroadcast(<频道宏>)`、
+> 订变化用 `subscribeBroadcast(<频道宏>, fn, options)`；改应用的状态调**能力**（§6），
+> 发布自己命名空间下的频道用 `publishBroadcast`（要先声明频道时用广播表的 `declare_broadcast`）。
 >
 > JS 插件侧是同一套（`musicxx.broadcast.read` / `subscribe` / `declare` / `publish`），
 > 写法见 [plugin-api.md](plugin-api.md) §5，频道与取值域见 [plugin-broadcasts.md](plugin-broadcasts.md)。
@@ -661,7 +657,7 @@ netCallAsync(net_op::httpDownload,
 
 ```cpp
 // ① 跳过本曲：只支持 skip（返回其它 action 会被记日志后忽略）
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
+implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") != std::string_view::npos) {
              out = R"({"action":"skip"})";
@@ -670,7 +666,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_BEFORE_PLAY_SONG, 0,
      });
 
 // ② 不解析某个音源（换下一个）/ 只为本轮换一个地址
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_BEFORE_PARSE, 0,
+implement(MUSICXX_CAPABILITY_PLAYER_SOURCE_BEFORE_PARSE, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          if (input.find("\"type\":\"Bili\"") != std::string_view::npos) {
              out = R"({"action":"skip"})";   // 本轮不解析该音源
@@ -681,7 +677,7 @@ hook(MUSICXX_PLUGIN_HOOK_PLAYER_SOURCE_BEFORE_PARSE, 0,
      });
 
 // ③ 播放错误：停止 / 下一曲 / 不再重试当前源
-hook(MUSICXX_PLUGIN_HOOK_PLAYER_ERROR, 0,
+implement(MUSICXX_CAPABILITY_PLAYER_ERROR, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          out = R"({"action":"continue","patch":{"tryNextSrc":false}})";
          return 0;
@@ -728,11 +724,10 @@ implementBefore(MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);
 - 阶段处理器**必须是同步处理器**（能力登记里的 `sync = 1`）：要拿到这一步的结果才能跑下一步；
 - 只能注册能力**声明过的**阶段：应用没声明的官方 id 会被拒（`-2`），声明里没有该阶段的也拒；
   拒绝原因会原样回来，SDK 同时记一条可读日志；
-- 一个 `ownerTag` 可以分别登记三个阶段（覆盖键含阶段）；`unregisterHook` 会把该 `ownerTag`
+- 一个 `ownerTag` 可以分别登记三个阶段（覆盖键含阶段）；`unimplement` 会把该 `ownerTag`
   在所有阶段的登记一起摘掉；
-- 低层写法：往 `musicxx.capabilities` 登记一条能力 —— `id` = 能力 id、`phase`、`priority`、
-  `sync = 1`、`run_start` 是同步处理器。`MusicxxPluginHookSpec` 与 `register_hook` 已随
-  `musicxx.hooks` 表一起删除（框架 API 2）。
+- 低层写法：往能力表登记一条能力 —— `id` = 能力 id、`phase`、`priority`、`sync = 1`、
+  `run_start` 是同步处理器（`musicxx.capability.implement` 的 C++ 侧就是这个调用）。
 
 - 载荷字段与裁决语义见 [plugin-capabilities.md](plugin-capabilities.md) 的「载荷与回答（已接入的能力）」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
@@ -780,7 +775,7 @@ featurePointUnprovide("plugin.my_plugin.beat");   // 摘除实现（一般不用
 featurePointList(&someNotify, 5000);              // 有哪些功能埋点、谁在实现
 ```
 
-- **处理函数必须同步返回**：功能埋点走同步裁决通道（插件框架按 `hook_sync` 就地调用），
+- **处理函数必须同步返回**：这条通道是同步裁决型（插件框架在受理线程上就地调用），
   返回 `pluginxx::Task<T>` / 等异步结果都拿不到。长任务要么提前算好，要么做成**能力**
   （`co_await capabilityCall`）或事件。
 - 返回 `utilxx_base::Json` / 字符串 / 数字 / 布尔；字符串先按 JSON 解析，解析不了就当 JSON 字符串
@@ -829,13 +824,12 @@ featurePointList(&someNotify, 5000);              // 有哪些功能埋点、谁
 | `musicxx.storage` | 插件私有数据目录与 KV |
 | `musicxx.ui` | 注册 UI 项 / 页面 / 通知 |
 | `musicxx.player.control` | 播放控制能力 |
-| `musicxx.playlist.read` / `musicxx.playlist.write` | 读 / 写歌单（保存下来的列表：新建 / 删除歌单，增删改里面的歌） |
-| `musicxx.songlist.read` / `musicxx.songlist.write` | 读 / 写当前播放列表（正在播的那一串歌） |
-| `musicxx.library.read` / `musicxx.library.write` | **过时（旧分类）**：分别等价于上面两组 read / write；新插件不要写，只为了让旧清单不显示成“未知权限” |
+| `musicxx.songlist.read` / `musicxx.songlist.write` | 读 / 写歌单（保存下来的列表：新建 / 删除歌单，增删改里面的歌） |
+| `musicxx.playlist.read` / `musicxx.playlist.write` | 读 / 写当前播放列表（正在播的那一串歌） |
 | `musicxx.net` | 使用插件框架的网络能力（`musicxx.net.*`：HTTP 客户端 / WebSocket / TCP / UDP；插件也可以自行联网） |
 | `musicxx.fs.read:<路径>` / `musicxx.fs.write:<路径>` | 直接文件访问（路径限定） |
 | `musicxx.system` | 打开链接 / 剪贴板 / 取目录等外围能力 |
-| `musicxx.agent` | 预留 |
+| `musicxx.variables` / `musicxx.agent` | 预留（本版本不做限制） |
 
 **运行时不做权限校验**：能力调用不会因为没声明而被拒绝，直接放进插件目录的插件同样不检查权限；
 权限是「防误用 + 用户知情」，不是沙箱（动态库插件与主程序同进程）。
@@ -1017,7 +1011,7 @@ Android 见 §11。
 
 | 边界 | 说明 |
 |---|---|
-| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表（`musicxx.hooks` 与 `musicxx.vars` 在框架 API 2 删除，能力改走 `musicxx.capabilities`、通知改成 `musicxx.broadcasts`）（判定与追加规则见 §4.1；形态注册见 §4.3）；网络是插件框架的通用表 `<应用名>.net`（§5.6）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `capabilityCall("musicxx.player.play", ...)` 等能力名，由应用分派（能力清单见 [plugin-api.md](plugin-api.md) §3） |
+| 专用接口表 | 已实现 `musicxx.host` / `musicxx.ui` / `musicxx.kind` 三张专用表（判定与追加规则见 §4.1；形态注册见 §4.3）；网络是插件框架的通用表 `<应用名>.net`（§5.6）；`musicxx.player` / `playlist` / `songlist` / `lyric` / `storage` / `stats` 的 IID 已冻结但**表体未实现**（查询返回 NULL）→ 这些能力统一走 `capabilityCall("musicxx.player.play", ...)` 等能力名，由应用分派（能力清单见 [plugin-api.md](plugin-api.md) §3） |
 | 读自己的统计 | 没有便捷接口（`musicxx.stats` 表未实现）：看统计用管理页「插件详情 → 运行统计」；上报用能力 `musicxx.stats.reportMemory` / `reportMetric` |
 | 接口面与 JS 插件的关系 | **同一批接口**：同一套能力声明、同一份广播频道、同一份功能埋点协议；差别只在写法（C++ 是"发起 + 完成通知 / 协程"，JS 是 Promise）与语言能力（C++ 能自己起线程、直接用系统 API） |
 | 进程隔离 | 插件与主程序同进程（无沙箱）：插件崩溃 = 主程序崩溃，权限只是声明 |

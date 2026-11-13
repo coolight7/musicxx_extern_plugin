@@ -448,7 +448,7 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
   }
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   bool idOk = false;
-  // 短名与全名都接受 (脚本/插件作者写短名更省事)
+  // 短名与全名都接受 (脚本/插件开发者写短名更省事)
   const std::string fullId = normalizeItemId(itemId, pluginId, idOk);
   if (!idOk) {
     return PLUGINXX_RESULT_ERR_PERMISSION;

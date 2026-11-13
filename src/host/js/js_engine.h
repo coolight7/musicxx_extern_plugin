@@ -214,7 +214,7 @@ public:
                          std::string &err);
 
   /// 可选执行上限已移除: 插件框架不限制脚本执行时长 (死循环会占住共享 JS 线程,
-  /// 由插件作者自己避免)。
+  /// 由插件开发者自己避免)。
 
   /// 刷新框架信息缓存 (框架线程: 语言/配置变化时调用)
   void setHostInfoCache(const std::string &json);

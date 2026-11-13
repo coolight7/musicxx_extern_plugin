@@ -1,12 +1,46 @@
 # 变更记录（框架 / SDK / 插件框架库）
 
-这个文件只记**会影响插件作者与接入方**的改动：协议、ABI、行为约定、破坏性变更。
-细节说明在各篇作者文档里（`docs/`），这里给"从哪一版开始不一样了"。
+这个文件只记**会影响插件开发者与接入方**的改动：协议、ABI、行为约定、破坏性变更。
+细节说明在各篇插件开发文档里（`docs/`），这里给"从哪一版开始不一样了"。
 
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
 ## 历史
+
+### 变更（破坏性，2026.1113.1 内，未发布）：对外接口命名统一
+
+一次改名把能力 / 广播 / 命令 / MCP 工具对齐成"全前缀 + 同一个概念用同一个名字"。
+**旧名字一律删除，不保留别名**，插件 ABI 因此从 7 抬到 8（低于它的插件加载时被拒，提示里带最低代次）。
+
+- **只剩两个概念**：能力（发一次请求、等一个结果）与广播（属主改了什么、通知关心的人）。
+  "功能埋点" = 一条可以有多个实现、id 可以在运行期声明的**能力**，不是第三个概念。
+- **能力 id 改名**：
+  - `musicxx.feature.list` / `.call` → `musicxx.capability.list` / `musicxx.capability.call`
+    （命令面与 MCP 用这两个名字；插件在代码里用 `musicxx.feature.point.list` / `.call`）；
+  - `musicxx.feature.define` / `.provide` / `.unprovide` / `.callPoint` / `.points` →
+    `musicxx.feature.point.define` / `musicxx.capability.provide` / `.unprovide` / `.call` / `.points`；
+  - `musicxx.media.palette.provide` → `musicxx.media.palette.analyse`（只允许一个实现，内置是封面取色）；
+    `musicxx.media.palette` → `musicxx.media.palette.get`；`musicxx.media.setPalette` → `musicxx.media.palette.set`；
+  - `musicxx.ui.pickSongs` / `.pickDir` / `.browseDrive` → `musicxx.ui.drive.pickSongs` / `.pickDir` / `.browse`；
+    `musicxx.ui.openOverlaySheet` → `musicxx.ui.overlay.showSheet`；`musicxx.ui.overlayClose` → `musicxx.ui.overlay.close`；
+  - `musicxx.storage.getConfig` / `.setConfig` → `musicxx.storage.get` / `.set`（多一个 `namespace`）；
+  - `musicxx.theme.tempSwitch` → `musicxx.theme.setTempMode`。
+- **`songlist` = 歌单（保存下来的列表），`playlist` = 播放队列（正在播的那一串歌）**，与旧的用法正好相反：
+  `musicxx.songlist.list` / `.listSongs` / `.play` / `.create` / `.sync` 管歌单；
+  `musicxx.playlist.listSongs` / `.playSong` / `.addSong` / `.removeSong` / `.updateSong` 管播放队列。
+  过时前缀 `musicxx.library.*`（含 `.read` / `.write` 权限）**整份删除**。
+- **删掉"名字存在但没实现"的那批能力**：`musicxx.player.setMediaType` / `musicxx.ui.setEntryBadge` /
+  `musicxx.host.shareText` 等不再存在于声明表里，调用得到 `not_found`；声明表里有、当前没人实现的得到
+  `no_impl`（不再有 `action_not_registered` 这种说法）。
+- **JS 侧**：`musicxx.feature` 对象删除，声明 / 实现 / 清单并入 `musicxx.capability`
+  （`define` / `provide` / `unprovide` / `points` / `call`）；`musicxx.library` 对象删除；
+  `musicxx.playlist` 与 `musicxx.songlist` 的方法按上面的方向对调。
+- **SDK（C++）**：`subscribeTopic` → `subscribeBroadcast`、`subscribeTopicWithEnd` → `subscribeBroadcastWithEnd`、
+  `broadcastJson` → `readBroadcast`、`endTopic` → `endBroadcast`；发布用 `publishBroadcast`
+  （C 表成员 `publish_broadcast` 名字不变）。能力注册仍是 `implement` / `implementBefore` / `implementAfter` /
+  `unimplement`，旧的 `hook` / `unregisterHook` / `MUSICXX_PLUGIN_HOOK_*` 早已删除。
+- **返回码**：见下面那条（码表只剩一份，数值有变，C ABI 抬到 6）。
 
 ### 变更（破坏性，2026.1113.1 内，未发布）：返回码只有一份表，名称与句子分开
 

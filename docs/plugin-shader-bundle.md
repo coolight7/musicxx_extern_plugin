@@ -859,7 +859,7 @@ const live = musicxx.broadcast.read("musicxx.state.spectrum");
 - 没有数据（没有任何插件提供提取实现 / 正在提取 / 来源不支持）都回 `ok: true`：
   `status` = `off` / `loading` / `none` / `unavailable`，`available` 为假、`bands` 与 `level` 是 0；
 - `unit` 可选 `normalized`（0~1，缺省）/ `db`（频点 -80~0 dB，响度 -60~+20 dB）/ `raw`（0~255）；
-  想自己分析整曲频谱用能力 `GetAudioSpectrum`（`musicxx.feature.call`）。
+  想自己分析整曲频谱用能力 `musicxx.media.spectrum.extract`（MCP 工具 `GetAudioSpectrum`）。
 
 ---
 
