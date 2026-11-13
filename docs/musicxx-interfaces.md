@@ -173,6 +173,67 @@
 - **数字与布尔接受文本写法**（`"0.5"`、`"600"`、`"true"`），因为链接与 HTTP 查询串里都是字符串；
 - 没有声明参数的入口按"宽松解析"处理（数字与字符串可互转），参数不对时的答复里带可读原因。
 
+### 1.4 命名规则（加新名字之前先看这一节）
+
+**R1 命名空间与分隔符**
+
+- **所有对外 id 一律 `musicxx.` 开头**（能力、广播、命令、页面、候选 / 模式 id）；
+- 插件自定义一律 `plugin.<插件 id>.<名字>`，两者不会混淆；
+- 分隔符只用来分点：id 里不放冒号与中划线（`musicxx:xxx` 已全部改成 `musicxx.xxx`）；
+- 段内允许小写字母、数字、下划线、lowerCamelCase；同一个 id 里不要混用两种分词风格；
+- 段数：能力 / 广播 / 命令都 ≤ 3 段（不含 `musicxx.`），确有必要超出的在声明里写一句理由。
+
+**R2 域（这张表以外的域要先讨论）**
+
+`app` `player` `playlist` `songlist` `song` `lyric` `media` `source` `ui` `theme` `storage` `render`
+`plugins` `net` `lan` `log` `capability` `broadcast` `stats` `host` `entry` `timer` `history`
+
+- **`songlist` = 歌单（保存下来的列表）**、**`playlist` = 播放队列（正在播的那一串歌）**；
+- `plugins` = 外部插件的装 / 卸 / 启停 / 日志；单数 `plugin.` 只属于插件自己的命名空间；
+- `net` = 网络与文件（本机文件对外下载在 `musicxx.net.file.*`）；
+- `song` = 当前这一首歌（广播 `musicxx.song.changed`）；
+- **`state` 不是命令域，是广播快照的部分**：`musicxx.state.<对象>` 的对象固定为
+  `app` / `player` / `song` / `playlist` / `songlists` / `lyric` / `env` / `renderSlots` / `spectrum`。
+  它和命令的 `.state` 后缀是一个意思的两种形态：`musicxx.player.state` 是"读一次"，`musicxx.state.player` 是
+  "变了就发、带当前值"。
+
+**R3 动词（表外的动词要在声明里写理由）**
+
+| 类别 | 动词 | 说明 |
+|---|---|---|
+| 读单个 | `get` | 有对应写操作时用它（`musicxx.storage.get` / `.set`） |
+| 读集合 | `list`（集合）/ `listSongs`（集合里的歌） | `musicxx.source.list`、`musicxx.songlist.list` / `.listSongs` |
+| 快照 | `state` | 只读的复合状态（`musicxx.player.state`、`musicxx.app.state`） |
+| 设值 | `set` | 设一个标量或枚举（`musicxx.player.setVolume`） |
+| 改对象 | `update` | 改一条已有记录（`musicxx.songlist.updateSong`） |
+| 执行 | `play` `open` `close` `show` `select` `search` `analyse` `exec` | 语义动词，不硬套 `set` |
+| 声明 | `define` / `undefine` | 声明"我自己的东西"（音源类型、能力） |
+| 登记 | `register` / `unregister` | 登记"已存在的实现"（本机文件共享） |
+| 删除 | `remove` / `delete` / `uninstall` | 从集合拿掉 / 删一条数据 / 卸载包 |
+| 通知 | `toast` / `publish` | 界面提示 / 广播发布 |
+
+**R4 各面怎么写**
+
+| 面 | 规则 |
+|---|---|
+| 命令 / 能力 / 广播 / UI 类型 / 候选 id | `musicxx.` + 点分，段内 lowerCamelCase 或下划线 |
+| MCP 工具 | PascalCase，`<Verb><Object>`；协议不接受点号，工具名写在能力的 `mcp.name` 里 |
+| `musicxx-cli` 糖命令 | 小写 kebab；这是**前端名字**，不是 id |
+| HTTP 路径 | 小写单词或 kebab；存量 camelCase 路径不改（跨设备老版本还在用） |
+| `/control` 名 | PascalCase，只是数字 id 的说明，代码里冻结 |
+
+**R5 一个词一件事**
+
+对外只有"**能力**"与"**广播**"两个概念。能力 = 发一次请求、等一个结果；广播 = 属主改了东西、通知关心的人。
+"钩子 / 动作 / 状态镜像 / 变量 / 能力导出"这些旧叫法都已退役；`feature` / `export` 两个词从对外 id 与
+JS 对象里消失（`musicxx.feature.point.*` 是"一个 id 可以有多个实现"的那组**能力**，仍是一条能力）。
+
+**R6 地址空间互不干扰**
+
+官方是 `musicxx.*`，插件是 `plugin.<插件 id>.*`。页面 id 与候选 / 模式 id 也在官方命名空间里，但
+**不与能力 / 广播共用地址空间**（同一个字符串可以既是候选 id 又是能力 id，按用途各查各的表）；
+广播与命令也不共用：`musicxx.player.state` 是命令，`musicxx.state.player` 是广播。
+
 ## 2. 先决条件与连接
 
 | 条件 | 说明 |
