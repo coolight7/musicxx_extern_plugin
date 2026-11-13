@@ -75,12 +75,21 @@ class MusicxxPluginAppCapabilities {
   }
 
   /// 主动回复某个请求（一般由内部调用；长任务可先记录 requestId 再异步回复）
-  void respond(int requestId, {Object? result, int status = 0, String? error}) {
+  ///
+  /// [error] 是可读句子，[errorName] 是失败名称（`no_impl` / `failed` …：插件按名称分支，
+  /// 句子给人看）。两者一起写成 `{"error": <名称>, "message": <句子>}`。
+  void respond(
+    int requestId, {
+    Object? result,
+    int status = 0,
+    String? error,
+    String errorName = 'failed',
+  }) {
     if (!_runtime.isRunning) {
       return;
     }
     final String payload = result == null
-        ? (error == null ? '' : _errorJson(error))
+        ? (error == null ? '' : _errorJson(errorName, error))
         : _encode(result);
     final MusicxxPluginArena arena = MusicxxPluginArena();
     try {
@@ -157,8 +166,9 @@ class MusicxxPluginAppCapabilities {
     if (handler == null) {
       respond(
         requestId,
-        status: -4,
-        error: 'app_capability_not_registered: $capability',
+        status: MusicxxPluginResultCode_c.notFound,
+        error: '应用能力没有注册: $capability（看 musicxx.capability.list 里有什么）',
+        errorName: 'no_impl',
       );
       return;
     }
@@ -182,14 +192,24 @@ class MusicxxPluginAppCapabilities {
           },
           onError: (Object error) {
             --_pendingResponses;
-            respond(requestId, status: -99, error: error.toString());
+            respond(
+              requestId,
+              status: MusicxxPluginResultCode_c.internal,
+              error: error.toString(),
+              errorName: 'failed',
+            );
           },
         );
         return;
       }
       respond(requestId, result: result);
     } catch (error) {
-      respond(requestId, status: -99, error: error.toString());
+      respond(
+        requestId,
+        status: MusicxxPluginResultCode_c.internal,
+        error: error.toString(),
+        errorName: 'failed',
+      );
     }
   }
 
@@ -209,6 +229,6 @@ class MusicxxPluginAppCapabilities {
 
   static String _encode(Object? value) => jsonEncode(value);
 
-  static String _errorJson(String message) =>
-      jsonEncode(<String, Object?>{'error': message});
+  static String _errorJson(String name, String message) =>
+      jsonEncode(<String, Object?>{'error': name, 'message': message});
 }

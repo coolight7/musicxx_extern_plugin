@@ -101,11 +101,25 @@ const int _flagNoNative = 0x0002;
 const int _flagNoJs = 0x0004;
 const int _flagDebugObserveEvents = 0x0008;
 
+/// 插件框架结果码里 **Dart 侧会用到** 的几个
+///
+/// 完整码表不在这里抄：定义在 C 头 `pluginxx/api/result.h`（通用 / 广播 / 生命周期 / 内部）
+/// 与 `utilxx/net_error.h`（网络段），码 → 名称用 `musicxx_extern_plugin_result_name()`。
+/// 这里只放 Dart 自己会产生的那几个码，避免在各处写数字。
+abstract final class MusicxxPluginResultCode_c {
+  /// 找不到（能力没登记、频道不存在）；名称 `not_found`
+  static const int notFound = -4;
+
+  /// 框架内部错误（宿主异常、创建失败）；名称 `internal`
+  static const int internal = -999;
+}
+
 /// 一次原生调用失败（承载插件框架返回的错误码与可读原因）
 class MusicxxPluginApiException implements Exception {
   MusicxxPluginApiException(this.code, this.message, {this.operation = ''});
 
-  /// C ABI 错误码（0 成功 / -1 参数 / -2 状态 / -3 JSON / -4 未找到 / -5 超时 / -6 权限 …）
+  /// 结果码（0 成功；其余见 C 头 `pluginxx/api/result.h`，名称查询用
+  /// `musicxx_extern_plugin_result_name()`）
   final int code;
   final String message;
   final String operation;
@@ -278,7 +292,7 @@ class MusicxxPluginRuntime {
         _host = bindings.musicxx_extern_plugin_host_create(cfg, log);
         if (_host == nullptr) {
           throw MusicxxPluginApiException(
-            -99,
+            MusicxxPluginResultCode_c.internal,
             takeOutString(log, bindings),
             operation: 'host_create',
           );

@@ -8,6 +8,30 @@
 
 ## 历史
 
+### 变更（破坏性，2026.1113.1 内，未发布）：返回码只有一份表，名称与句子分开
+
+- **码表只有一处**：`pluginxx/api/result.h`（通用 / 广播 / 生命周期 / 内部）与
+  `utilxx/net_error.h`（网络段）。C 头里那 10 个 `MUSICXX_EXTERN_PLUGIN_ERR_*`、
+  `pluginxx/api/net.h` 的 10 个 `PLUGINXX_NET_ERR_*`、`pluginxx/api/tables.h` 自带的结果码
+  **整份删除**，插件只 include 一个头、只用一套 `PLUGINXX_RESULT_*` / `PLUGINXX_RESULT_ERR_*`。
+- **数值变了**（按旧值判的插件会误读，所以框架 C ABI `MUSICXX_EXTERN_PLUGIN_API_VERSION` 抬到 6）：
+  - 通用段：`-1` `ERR_ARG`（`invalid_argument`）、`-2` `ERR_STATE`（`invalid_state`）、
+    `-3` `ERR_JSON`（`invalid_json`）、`-4` `ERR_NOT_FOUND`（`not_found`）、`-5` `ERR_TIMEOUT`（`timeout`）、
+    `-6` `ERR_PERMISSION`（`permission_denied`）、`-7` `ERR_BUSY`（`busy`）、`-8` `ERR_NO_MEMORY`（`out_of_memory`）；
+  - 内部错误从 `-99` 变成 **`-999`**（`ERR_INTERNAL`，名称 `internal`）；不放歌 / 应用没就绪是 `-500`（`not_ready`）；
+  - 广播表：`-2` → **`-200`**（`not_declared`）、`-4` → **`-201`**（`no_value`）、
+    `-5` → **`-202`**（`ended`）、不是属主从 `-1` 拆成 **`-203`**（`not_owner`）；
+  - 网络段 `-100`~`-199`（`UTILXX_NET_ERR_*`）：`invalid_url` / `invalid_host` / `invalid_port` /
+    `invalid_id` / `exists` / `not_connected` / `wrong_kind` / `bind_failed` / `write_failed` /
+    `unsupported_op` / `canceled`。
+- **新导出 `musicxx_extern_plugin_result_name(int32_t code)`**：码 → 名称（没有这个码返回 NULL；
+  `-5000`~`-9999` 是应用自定义段、`-10000`~`-19999` 是插件自定义段，名称由属主自己解释）。
+  Dart 侧不再另抄一份表，直接用这个函数。
+- **失败形状统一成 `{ok: false, error: <名称>, message: <句子>}`**：`error` 说大致原因、按它分支；
+  `message` 说细节与怎么办，给人看。应用能力、命令、广播操作、`/cli`、MCP 的失败都是这个形状。
+  应用内部的能力裁决另有几个只有名称、没有数字的码：`not_callable` / `no_impl` /
+  `not_allowed`（声明里没有 `plugin` 块） / `canceled` / `dropped` / `skipped` / `no_value` / `failed`。
+
 ### 新增（2026.1109.1 内，未发布）：广播表 v2 → v3，属主可以结束一条流
 
 - **`musicxx.broadcasts` 表尾追加两个成员**（插件框架 `cxx_pluginxx` 0.3.0）：

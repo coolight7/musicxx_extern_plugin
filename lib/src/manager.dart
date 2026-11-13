@@ -513,7 +513,11 @@ class MusicxxPluginManager {
     }
     final String reason = event.stringOf('error') ?? '插件能力执行失败';
     completer.completeError(
-      MusicxxPluginApiException(-99, reason, operation: 'plugin_call'),
+      MusicxxPluginApiException(
+        MusicxxPluginResultCode_c.internal,
+        reason,
+        operation: 'plugin_call',
+      ),
     );
   }
 
