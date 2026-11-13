@@ -161,7 +161,7 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 #     原来的值频道（读 / 写 / 回执 / 变动推送那一整套）删除，广播只剩读与订阅。
 # 改这个值等于改插件 ABI: 要同步示例插件清单的 api_version、
 # Dart 侧 `kExternPluginMinApiVersion` / `ExternPluginStore.hostMinApiVersion` 与文档。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "7" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "8" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 # ===== Boost (仅头文件) =====
 # 插件框架与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):

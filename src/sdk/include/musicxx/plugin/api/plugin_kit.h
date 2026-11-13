@@ -6,7 +6,7 @@
 /// - musicxx 专用约定: `musicxx/plugin/api/plugin_api.h`;
 /// - musicxx 专用接口聚合 [MusicxxPluginIfaces] 与实例上下文 [PluginBase];
 /// - 便捷注册: `PluginBase::implement` / `observe` / `unimplement` / `capabilityCall` /
-///   `broadcastJson` / `hostInfoJson`。
+///   `readBroadcast` / `hostInfoJson`。
 /// - 界面描述层 `pluginxx::ui`（组件模型 / 解析 / 适配 / 文本降级 / 基础 kit）
 ///   与 musicxx 扩展 kit `musicxx::ui::kit`：插件的页面内容用它们拼装。
 ///
@@ -352,7 +352,7 @@ public:
     template<typename Fn>
     int32_t netSubscribe(Fn&& fn) {
         const std::string topic = "plugin." + pluginId() + ".net";
-        return subscribeTopic(topic.c_str(), std::forward<Fn>(fn));
+        return subscribeBroadcast(topic.c_str(), std::forward<Fn>(fn));
     }
 
     /// 实现一条能力（同步处理器；默认是 `impl` 阶段）
@@ -412,7 +412,7 @@ public:
     /// 同步读广播的当前值 (没有当前值时返回空串)
     ///
     /// 状态由应用发布在广播频道 `musicxx.state.*`（`cache: latest`，订阅即推）。
-    std::string broadcastJson(const char* key) const {
+    std::string readBroadcast(const char* key) const {
         if (!key || !*key) {
             return {};
         }
@@ -428,6 +428,34 @@ public:
         std::string result{out.data, static_cast<size_t>(out.size)};
         hostStringFree(out);
         return result;
+    }
+
+    /// 发布一条广播（只有自己的频道能发）
+    ///
+    /// - 频道必须符合命名空间规则：官方 `musicxx.*` 只能由应用发；插件发
+    ///   `plugin.<本插件id>.*`，自定义频道要先 [declareBroadcast]；
+    /// - `payloadJson` 原样传给每个订阅方（空 = `{}`）；
+    /// - 返回 0 = 已发出；非 0 = 频道不存在 / 不是自己的频道 / 插件框架版本过旧。
+    int32_t publishBroadcast(const char* channel, const char* payloadJson = nullptr) {
+        if (!channel || !*channel) {
+            return -1;
+        }
+        if (!iface.broadcasts || !iface.broadcasts->publish_broadcast) {
+            log.warn("<应用名>.broadcasts 表没有 publish_broadcast: 发布未生效 (插件框架版本过旧?)");
+            return -1;
+        }
+        const PluginxxStringView channelView = pluginxxView(channel);
+        const PluginxxStringView payloadView =
+            pluginxxView((payloadJson && *payloadJson) ? payloadJson : "{}");
+        PluginxxString error{};
+        const int32_t rc =
+            iface.broadcasts->publish_broadcast(host, &channelView, &payloadView, &error);
+        if (error.data) {
+            log.warn(std::string{"发布广播失败: "}
+                     + std::string{error.data, static_cast<size_t>(error.size)});
+            hostStringFree(error);
+        }
+        return rc;
     }
 
     /// 框架信息 JSON (主程序版本/平台/语言/插件目录)
@@ -722,8 +750,8 @@ public:
     /// - 订阅句柄由插件框架按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
     /// - 处理器持有者与能力处理器同一存放位置, 生命周期 = 插件实例。
     template<typename Fn>
-    int32_t subscribeTopic(const char* topic, Fn&& fn,
-                           const SubscribeOptions& options = {}) {
+    int32_t subscribeBroadcast(const char* topic, Fn&& fn,
+                               const SubscribeOptions& options = {}) {
         using FnT       = std::decay_t<Fn>;
         auto  holder    = std::make_unique<EventHolder<FnT>>(std::forward<Fn>(fn));
         void* holderPtr = holder.get();
@@ -734,15 +762,15 @@ public:
 
     /// 订阅广播频道，并在**流结束**时收到一次回调
     ///
-    /// 频道属主结束这条流之后（[endTopic]）：`onEnd(reason_json)` 回调一次、订阅随即摘掉；
-    /// 之后发布返回 `PLUGINXX_RESULT_ERR_ENDED`（`-5`），`broadcastJson` 也读不到值。
+    /// 频道属主结束这条流之后（[endBroadcast]）：`onEnd(reason_json)` 回调一次、订阅随即摘掉；
+    /// 之后发布返回 `PLUGINXX_RESULT_ERR_ENDED`（`-5`），`readBroadcast` 也读不到值。
     /// 再次声明同一个 id = 开一条新流。
     ///
     /// 老插件框架（广播表 v2）没有 `subscribe_broadcast_ex`：按普通订阅降级，订阅本身照常，
     /// 只是收不到结束通知（记一条日志）。
     template<typename Fn, typename EndFn>
-    int32_t subscribeTopicWithEnd(const char* topic, Fn&& fn, EndFn&& onEnd,
-                                  const SubscribeOptions& options = {}) {
+    int32_t subscribeBroadcastWithEnd(const char* topic, Fn&& fn, EndFn&& onEnd,
+                                      const SubscribeOptions& options = {}) {
         using HolderT = EventWithEndHolder<std::decay_t<Fn>, std::decay_t<EndFn>>;
         auto  holder  = std::make_unique<HolderT>(std::forward<Fn>(fn),
                                                  std::forward<EndFn>(onEnd));
@@ -759,7 +787,7 @@ public:
     ///   插件框架版本过旧（表里没有 `end_broadcast`）；
     /// - 结束后这条频道不能再发布、读不到当前值；再次 `declareBroadcast` 同一个 id
     ///   才开一条新流。
-    int32_t endTopic(const char* topic, const char* reasonJson = nullptr) {
+    int32_t endBroadcast(const char* topic, const char* reasonJson = nullptr) {
         if (!iface.broadcasts || !iface.broadcasts->end_broadcast) {
             log.warn("<应用名>.broadcasts 表没有 end_broadcast: 结束流未生效 (插件框架版本过旧?)");
             return -1;

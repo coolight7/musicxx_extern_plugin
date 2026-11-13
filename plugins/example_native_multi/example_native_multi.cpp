@@ -44,7 +44,7 @@ struct MultiCtx : public musicxx::plugin::PluginBase {
              MUSICXX_PLUGIN_BUILD_TAG);
 
     // 切歌是广播频道 (`musicxx.song.changed`): 订阅后累加计数（不裁决、不做重活）
-    subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED, [this](std::string_view) {
+    subscribeBroadcast(MUSICXX_BROADCAST_SONG_CHANGED, [this](std::string_view) {
       ++songChangedHits;
     });
 

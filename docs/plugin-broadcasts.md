@@ -103,8 +103,8 @@
 - 只有属主能结束；结束别人的频道（含应用频道）会被拒绝；
 - `reason` 是给订阅方看的 JSON（可空，默认 `{}`），原样交给结束回调；
 - 重复结束是幂等成功；频道不存在 / 不归自己时返回非 0（原因在日志里）；
-- 订阅：动态库插件用 `subscribeTopicWithEnd(id, fn, onEnd, options)`，JS 用 `musicxx.broadcast.subscribe(id, fn, options, onEnd)`；
-- 结束：动态库插件用 `endTopic(id, reason)`，JS 用 `musicxx.broadcast.end(id, reason)`；
+- 订阅：动态库插件用 `subscribeBroadcastWithEnd(id, fn, onEnd, options)`，JS 用 `musicxx.broadcast.subscribe(id, fn, options, onEnd)`；
+- 结束：动态库插件用 `endBroadcast(id, reason)`，JS 用 `musicxx.broadcast.end(id, reason)`；
 - `-5` 是广播表的结果码，与插件框架自己的错误码（那里的 `-5` 是超时）不是一套，不要混用。
 
 ## 表外的频道（id 自己造）

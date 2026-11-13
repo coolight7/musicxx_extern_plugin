@@ -69,7 +69,7 @@ void main() {
     final MusicxxPluginEvent ready = seen.firstWhere(
       (MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hostReady,
     );
-    expect(ready.payload['apiVersion'], 5);
+    expect(ready.payload['apiVersion'], 6);
     expect(ready.payload['platform'], MusicxxPluginRuntime.currentPlatform);
 
     _step('2 host.ready 已收到');

@@ -154,9 +154,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
          });
 
     // 2) 观察切歌: 切歌是广播频道 (`musicxx.song.changed`), 订阅后收推送
-    subscribeTopic(MUSICXX_BROADCAST_SONG_CHANGED,
+    subscribeBroadcast(MUSICXX_BROADCAST_SONG_CHANGED,
                    [this](std::string_view) {
-                     const std::string song = broadcastJson("musicxx.state.song");
+                     const std::string song = readBroadcast("musicxx.state.song");
                      log.info("example_native: 歌曲变化广播; 快照频道长度=" +
                               std::to_string(song.size()));
                    });
@@ -201,14 +201,14 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     }
 
     // 5) 广播订阅: 快照频道 (musicxx.state.song) + 插件框架发布的测试主题
-    badTopicSubscribeRc = subscribeTopic("foo.bar", [](std::string_view) {
+    badTopicSubscribeRc = subscribeBroadcast("foo.bar", [](std::string_view) {
       // 非法主题: 插件框架应在订阅时就拒绝 (返回 -1), 该处理器不会被调用
     });
-    subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [this](std::string_view data) {
+    subscribeBroadcast(MUSICXX_BROADCAST_STATE_SONG, [this](std::string_view data) {
       ++stateEvents;
       (void)data;
     });
-    subscribeTopic("musicxx.test.ping", [this](std::string_view data) {
+    subscribeBroadcast("musicxx.test.ping", [this](std::string_view data) {
       ++pingEvents;
       (void)data;
     });
@@ -355,7 +355,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiUpdateRc\":" << uiUpdateRc
               << ",\"uiNotifyRc\":" << uiNotifyRc
               << ",\"uiBackgroundRc\":" << uiBackgroundRc
-              << ",\"stateLen\":" << broadcastJson("musicxx.state.song").size()
+              << ",\"stateLen\":" << readBroadcast("musicxx.state.song").size()
               << ",\"featurePointId\":\"" << featurePointSampleId << "\""
               << ",\"featurePointRc\":" << featurePointSampleRc
               << ",\"featurePointUnprovidedId\":\""
@@ -499,7 +499,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
               {"title", "快照频道 musicxx.state.song"},
               {"subtitle", "主程序推送的最近一份歌曲快照 (字节)"},
-              {"trailing", std::to_string(broadcastJson("musicxx.state.song").size())},
+              {"trailing", std::to_string(readBroadcast("musicxx.state.song").size())},
           }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
               {"label", "刷新本页"},
@@ -526,15 +526,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     return 0;
   }
 
-  /// 发布本插件命名空间的广播 (经插件框架 broadcasts 表; id 归属由插件框架校验)
+  /// 发布本插件命名空间的广播 (id 归属由插件框架校验)
   int32_t publishOwnEvent(const char *topic, const char *payload) {
-    if (!iface.broadcasts || !iface.broadcasts->publish_broadcast) {
-      return -1;
-    }
-    PluginxxStringView topicView = pluginxxView(topic);
-    PluginxxStringView dataView = pluginxxView(payload);
-    return iface.broadcasts->publish_broadcast(host, &topicView, &dataView,
-                                               nullptr);
+    return publishBroadcast(topic, payload);
   }
 
   int32_t onStop() {
@@ -553,7 +547,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     streamEndValues = 0;
     streamEndEnds = 0;
     streamEndReasonOk = false;
-    streamEndSubRc = subscribeTopicWithEnd(
+    streamEndSubRc = subscribeBroadcastWithEnd(
         kTopic, [this](std::string_view) { ++streamEndValues; },
         [this](std::string_view reason) {
           ++streamEndEnds;
@@ -561,7 +555,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               reason.find("example_native") != std::string_view::npos;
         });
     streamEndValueRc = publishOwnEvent(kTopic, R"({"v":1})");
-    streamEndRc = endTopic(kTopic, R"({"reason":"example_native"})");
+    streamEndRc = endBroadcast(kTopic, R"({"reason":"example_native"})");
     streamEndPublishAfterRc = publishOwnEvent(kTopic, R"({"v":2})");
   }
 };

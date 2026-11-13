@@ -389,7 +389,7 @@ typedef struct MusicxxPluginKindIface {
 
 /// 官方的 `musicxx.state.*` 广播频道键由生成头给出:
 /// `MUSICXX_BROADCAST_STATE_*`（`capability_ids.g.h`，声明源是 `tools/capabilities.def.json`）。
-/// 读当前值用广播频道（`musicxx.broadcast.read` / SDK 的 `broadcastJson`）。
+/// 读当前值用广播频道（`musicxx.broadcast.read` / SDK 的 `readBroadcast`）。
 
 #pragma pack(pop)
 
