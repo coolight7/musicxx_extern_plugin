@@ -162,8 +162,6 @@
 #define MUSICXX_CAPABILITY_MEDIA_UNBIND_IMAGE "musicxx.media.unbindImage"
 #define MUSICXX_CAPABILITY_MEDIA_SPECTRUM "musicxx.media.spectrum"
 #define MUSICXX_CAPABILITY_MEDIA_KERNEL "musicxx.media.kernel"
-#define MUSICXX_CAPABILITY_FEATURE_LIST "musicxx.feature.list"
-#define MUSICXX_CAPABILITY_FEATURE_CALL "musicxx.feature.call"
 #define MUSICXX_CAPABILITY_FEATURE_POINT_LIST "musicxx.feature.point.list"
 #define MUSICXX_CAPABILITY_FEATURE_POINT_DEFINE "musicxx.feature.point.define"
 #define MUSICXX_CAPABILITY_FEATURE_POINT_UNDEFINE "musicxx.feature.point.undefine"
@@ -317,8 +315,6 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.media.unbindImage", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.media.spectrum", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.kernel", 0, 0, 1u, 1, 5000, 0, 7u},
-    {"musicxx.feature.list", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.feature.call", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.feature.point.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.feature.point.define", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.feature.point.undefine", 0, 0, 1u, 1, 5000, 0, 4u},

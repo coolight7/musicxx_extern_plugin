@@ -116,8 +116,6 @@
 | `musicxx.media.unbindImage` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.spectrum` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.kernel` | 命令、MCP 工具、插件 | impl | - | async | 5000 ms | - | `GetMediaKernelInfo` |
-| `musicxx.feature.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.feature.call` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.feature.point.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.feature.point.define` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.feature.point.undefine` | 插件 | impl | - | async | 5000 ms | - | - |

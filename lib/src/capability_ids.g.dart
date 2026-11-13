@@ -252,10 +252,6 @@ abstract final class MusicxxCapabilityId {
   static const String mediaSpectrum = 'musicxx.media.spectrum';
   /// 媒体内核信息
   static const String mediaKernel = 'musicxx.media.kernel';
-  /// musicxx.feature.list
-  static const String featureList = 'musicxx.feature.list';
-  /// 调用能力
-  static const String featureCall = 'musicxx.feature.call';
   /// 功能埋点清单
   static const String featurePointList = 'musicxx.feature.point.list';
   /// 声明功能埋点
@@ -372,8 +368,6 @@ abstract final class MusicxxCapabilityId {
     mediaUnbindImage,
     mediaSpectrum,
     mediaKernel,
-    featureList,
-    featureCall,
     featurePointList,
     featurePointDefine,
     featurePointUndefine,
@@ -2401,46 +2395,6 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '媒体内核信息',
       depict: '读播放内核与解码信息（part 选段，refresh 重新探测）',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.feature.list',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '',
-      depict: '',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.feature.call',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: true,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
-      title: '调用能力',
-      depict: '调一个应用能力（见 `musicxx.feature.list`），返回文本或 JSON',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.feature.point.list',

@@ -1395,38 +1395,6 @@
       "doc": ""
     },
     {
-      "id": "musicxx.feature.list",
-      "dart": "featureList",
-      "title": "",
-      "depict": "",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.feature.call",
-      "dart": "featureCall",
-      "title": "调用能力",
-      "depict": "调一个应用能力（见 `musicxx.feature.list`），返回文本或 JSON",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "cli": {},
-      "plugin": {},
-      "doc": ""
-    },
-    {
       "id": "musicxx.feature.point.list",
       "dart": "featurePointList",
       "title": "功能埋点清单",

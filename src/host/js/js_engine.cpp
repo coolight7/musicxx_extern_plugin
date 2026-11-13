@@ -576,18 +576,13 @@ var featurePointImpls = new Map();
     return { patch: { value: value === undefined ? null : value } };
   }
 
-  /// 应用能力导出（与 MCP 工具同一份实现）：
-  /// - list() 拿能力的声明（id/说明/参数）；
-  /// - call(id, args) 调一个能力；频谱/副歌这类要解码分析的长任务给更长的超时，
-  ///   默认 30 秒（也可以自己传 timeoutMs）。
+  /// 功能埋点（应用留出的口子）：
+  /// - `points()` 看有哪些、谁在实现；
+  /// - `callPoint(id, args)` 调一个并拿到原始数据（频谱/副歌这类要解码分析的长任务自己给超时）；
+  /// - `define(...)` / `provide(...)` 声明并实现自己的功能埋点。
+  /// "应用里有哪些能力、谁实现"与“应用能做什么”看能力面（`appCall("musicxx.capability.list")`
+  /// 或直接 `appCall("musicxx.capability.call")`）。
   musicxx.feature = {
-    list: function () { return appCall("musicxx.feature.list"); },
-    call: function (id, args, timeoutMs) {
-      assertName(id, "feature.call: 能力 id");
-      var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 30000;
-      return appCall("musicxx.feature.call",
-                          { id: String(id), args: (args || {}) }, budget);
-    },
     /// 功能埋点清单: 应用留出了哪些功能、现在谁在实现它 (谁生效、谁备选、谁把它关掉了)。
     /// points() 看全部; points({id: "..."}) 看一个; points({provided: true}) 只看有实现的。
     /// 每个点的 `callDoc` 写着"参数与结果形状"（调它之前先看这一行）。
