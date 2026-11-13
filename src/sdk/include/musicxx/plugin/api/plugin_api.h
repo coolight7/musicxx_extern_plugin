@@ -162,6 +162,13 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// view = 插件声明的界面组合, none = 不显示. 渲染区域是播放页的动效区,
 /// 没有点击交互 (原来的封面点击 / 拖动切歌 / 迷你歌词要继续可用).
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
+/// 音效: 播放时叠加的一段音频滤镜, 注册后追加在『音效』插件的音效页面里
+/// data = {title, subtitle?（或 depict?）, filters（必填, 字符串数组）, pitch?, cpuCost?, enabled?}
+/// 说明: filters 按顺序拼进 mpv `af`（可以写 `lavfi=[...]` 图语法）, 至少要有一条或者给出 pitch;
+/// pitch 是变调类音效的音调 (0.25~2.0), 选中会把用户自定义音调复位;
+/// cpuCost 是 1~5 的性能负担 (默认 3, 只用于页面提示); enabled=false 保留注册但不出现.
+/// 音效与均衡器 / 自定义音调互斥 (与内置预设同一套规则).
+#define MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT "musicxx.ui.audioEffect"
 /// 播放页底部控制按钮栏: 整栏由插件画
 /// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
 /// 说明: 与播放页子页面的插入块写法一致, 但这里是**替换**不是插入 —— 有插件声明这个类型时,

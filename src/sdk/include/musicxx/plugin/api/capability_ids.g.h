@@ -159,6 +159,9 @@
 #define MUSICXX_CAPABILITY_RENDER_LIST "musicxx.render.list"
 #define MUSICXX_CAPABILITY_RENDER_CURRENT "musicxx.render.current"
 #define MUSICXX_CAPABILITY_RENDER_SELECT "musicxx.render.select"
+#define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_LIST "musicxx.player.audioEffect.list"
+#define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_GET "musicxx.player.audioEffect.get"
+#define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_SET "musicxx.player.audioEffect.set"
 #define MUSICXX_CAPABILITY_MEDIA_PALETTE_GET "musicxx.media.palette.get"
 #define MUSICXX_CAPABILITY_MEDIA_COVER "musicxx.media.cover"
 #define MUSICXX_CAPABILITY_MEDIA_PALETTE_SET "musicxx.media.palette.set"
@@ -316,6 +319,9 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.render.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.render.current", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.render.select", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.player.audioEffect.list", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.player.audioEffect.get", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.player.audioEffect.set", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.palette.get", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.cover", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.palette.set", 0, 0, 1u, 1, 5000, 0, 5u},

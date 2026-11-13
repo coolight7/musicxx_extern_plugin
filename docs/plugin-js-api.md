@@ -842,6 +842,23 @@ musicxx.ui.registerEntry({
 ```
 
 ```js
+// 注册自己的音效（类型简称 audio.effect）：追加在『音效』插件的音效页面里，与内置预设同一个列表。
+// filters 按顺序拼进 mpv af（可以写 lavfi=[...] 图语法）；与均衡器、自定义音调互斥。
+musicxx.ui.registerEntry({
+    name: "bass",
+    type: "audio.effect",
+    title: "低音炮",
+    subtitle: "加强 60~140 Hz",
+    cpuCost: 3,
+    filters: [
+        "volume=-3dB",
+        "equalizer=f=80:width_type=q:width=1:g=8",
+        "alimiter=limit=0.89:level=false:latency=false",
+    ],
+});
+```
+
+```js
 // 在播放页子页面的固定位置插一块自己的界面（位置就是类型，见 plugin-ui.md §1.6）
 musicxx.ui.registerEntry({
     name: "lyricTip",

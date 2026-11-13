@@ -1361,6 +1361,54 @@
       "doc": ""
     },
     {
+      "id": "musicxx.player.audioEffect.list",
+      "dart": "playerAudioEffectList",
+      "title": "列出音效",
+      "depict": "列出内置预设与插件注册的音效，以及当前选中的那一项",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": "音效 id 有两种：内置预设 `musicxx.<短名>`（例如 `musicxx.bassUp`），插件注册的音效就是它的 UI 项 id（`plugin.<插件id>.<短名>`）。`enabled` = 『音效』插件当前是否启用（关着时音效不会真的生效）。`selected` 标出当前选中的那一项。"
+    },
+    {
+      "id": "musicxx.player.audioEffect.get",
+      "dart": "playerAudioEffectGet",
+      "title": "当前音效",
+      "depict": "读当前选中的音效（没有时 id 为空串）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": "没有音效时返回 `{ok: true, enabled, id: \"\", title: \"\"}`，不是错误。"
+    },
+    {
+      "id": "musicxx.player.audioEffect.set",
+      "dart": "playerAudioEffectSet",
+      "title": "设置音效",
+      "depict": "把音效设成指定 id（`musicxx.none` / 空串 = 取消）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": "`id` 必须来自 `musicxx.player.audioEffect.list`；未知 id 返回 `unknown_item`。设置会写库并立即应用（写 mpv `af`，与界面里选音效完全同一条路）。音效与均衡器、自定义音调互斥：选用音效会关掉均衡器；带 `pitch` 的音效会先把用户音调复位。`enabled` 为假表示『音效』插件没启用，配置已写入但当前不生效。停用 / 卸载插件后选中的插件音效会回退成「没有音效」。"
+    },
+    {
       "id": "musicxx.media.palette.get",
       "dart": "mediaPaletteGet",
       "title": "封面取色",

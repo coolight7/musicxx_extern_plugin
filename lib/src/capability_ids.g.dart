@@ -246,6 +246,12 @@ abstract final class MusicxxCapabilityId {
   static const String renderCurrent = 'musicxx.render.current';
   /// 选择渲染项
   static const String renderSelect = 'musicxx.render.select';
+  /// 列出音效
+  static const String playerAudioEffectList = 'musicxx.player.audioEffect.list';
+  /// 当前音效
+  static const String playerAudioEffectGet = 'musicxx.player.audioEffect.get';
+  /// 设置音效
+  static const String playerAudioEffectSet = 'musicxx.player.audioEffect.set';
   /// 封面取色
   static const String mediaPaletteGet = 'musicxx.media.palette.get';
   /// musicxx.media.cover
@@ -373,6 +379,9 @@ abstract final class MusicxxCapabilityId {
     renderList,
     renderCurrent,
     renderSelect,
+    playerAudioEffectList,
+    playerAudioEffectGet,
+    playerAudioEffectSet,
     mediaPaletteGet,
     mediaCover,
     mediaPaletteSet,
@@ -2347,6 +2356,66 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '选择渲染项',
       depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.audioEffect.list',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '列出音效',
+      depict: '列出内置预设与插件注册的音效，以及当前选中的那一项',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.audioEffect.get',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '当前音效',
+      depict: '读当前选中的音效（没有时 id 为空串）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.audioEffect.set',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '设置音效',
+      depict: '把音效设成指定 id（`musicxx.none` / 空串 = 取消）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.palette.get',

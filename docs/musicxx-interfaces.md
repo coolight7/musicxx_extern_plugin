@@ -51,6 +51,7 @@
 | 读前后台状态 | `GetAppLifecycle` | `musicxx-cli call musicxx.app.state` | 广播 `musicxx.app.lifecycle`（读当前值 + 订阅） | `musicxx://call/?cmd=musicxx.app.state` | `--cmd musicxx.app.state` |
 | 切到前台 / 后台 | `SwitchAppForeground`（`operator`） | `musicxx-cli call musicxx.app.background` | `musicxx.app.background` / `musicxx.app.foreground` | `musicxx://musicxx.app.background` | `--cmd musicxx.app.background` |
 | 改音量 / 速度 / 音调 / 进度 | `SetVolume` / `SetSpeed` / `SetPitch` / `SeekTo` | `musicxx-cli volume` / `speed` / `pitch` / `seek` | `musicxx.player.setVolume` / `setSpeed` / `setPitch` / `seek` | `musicxx://call/?cmd=musicxx.player.setVolume&volume=0.5` | `--cmd musicxx.player.setPitch --args '{"pitch":1.1}'` |
+| 看 / 选音效 | `ListAudioEffects` / `GetAudioEffect` / `SetAudioEffect` | `musicxx-cli call musicxx.player.audioEffect.list` / `.get` / `.set` | `musicxx.player.audioEffect.list` / `.get` / `.set` | `musicxx://call/?cmd=musicxx.player.audioEffect.set&id=musicxx.bassUp` | `--cmd musicxx.player.audioEffect.set --args '{"id":"musicxx.bassUp"}'` |
 | 拦一次改播放值 / 收播放进度 | — | — | 能力 `musicxx.player.seek` / `volume` / `speed` / `pitch` + 广播频道 `musicxx.player.position` | — | — |
 | 能力清单（谁在实现、能不能调、怎么调） | `ListCapabilities` | `musicxx-cli capability list` | —（插件在 SDK 的 `musicxx.capability` 里看） | `musicxx://call/?cmd=musicxx.capability.list` | `--cmd musicxx.capability.list` |
 | 功能埋点清单 | `ListCapabilities`（同一个数据源） | `musicxx-cli call musicxx.feature.point.list` | `musicxx.feature.point.list` | `musicxx://call/?cmd=musicxx.feature.point.list` | `--cmd musicxx.feature.point.list` |
@@ -362,21 +363,22 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"musicxx.player.state"}'
 ```
 
-## 4. 命令面（当前 97 条 = 应用自己的命令 30 + 能力命令 67）
+## 4. 命令面（当前 98 条 = 应用自己的命令 32 + 能力命令 64 + 广播 2）
 
 > **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
 > 下面各节的数字只是写这份文档时的快照。
 >
-> 能力命令 = 声明表里带 `cli` 块的能力（63 条，其中 `musicxx.net.fetch` / `download` 两条由插件框架
-> 直接回答、不进命令表）；应用自己的命令 30 条。只有插件能调的（21 条，声明里只有 `plugin` 块）与
+> 能力命令 = 声明表里带 `cli` 块的能力（70 条）：其中 `musicxx.player.playSrc` / `musicxx.songlist.play` /
+> `musicxx.media.kernel` / `musicxx.source.list` 这 4 条由应用自己的命令实现（算在 `builtin` 里），
+> `musicxx.net.fetch` / `download` 两条由插件框架直接回答，实际登记为 `action` 的 64 条。只有插件能调的（21 条，声明里只有 `plugin` 块）与
 > 只给模型用的（3 条，只有 `mcp` 块）不在这个数里。
 
 ### 4.1 命令从哪来
 
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
-| `builtin` | 30 | `MusicxxAppCommands` + `MusicxxCliCommandsSetup` + `MusicxxEntryCommands` + `MusicxxEntries` + `MusicxxLanCommands` + `MusicxxFileCommands` | 播放状态、歌词文本、歌单播放与同步、播放记录、定时停止、前后台状态、系统命令登记、外部插件管理、日志、能力自省（`musicxx.capability.*`）、音源清单、局域网（`musicxx.lan.*`）、静态文件（`musicxx.net.file.*`）、统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`） |
-| `action` | 63 | 应用能力表 | 与插件、MCP 共用同一份实现；**命令 id 就是能力名**；声明里没写 `cli` 块的能力不登记 |
+| `builtin` | 32 | `MusicxxAppCommands` + `MusicxxCliCommandsSetup` + `MusicxxEntryCommands` + `MusicxxEntries` + `MusicxxLanCommands` + `MusicxxFileCommands` | 播放状态、歌词文本、歌单播放与同步、播放记录、定时停止、前后台状态、系统命令登记、外部插件管理、日志、能力自省（`musicxx.capability.*`）、音源清单、局域网（`musicxx.lan.*`）、静态文件（`musicxx.net.file.*`）、统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`） |
+| `action` | 64 | 应用能力表 | 与插件、MCP 共用同一份实现；**命令 id 就是能力名**；声明里没写 `cli` 块的能力不登记 |
 | `broadcast` | 2 | 广播频道 | `musicxx.broadcast.list` / `musicxx.broadcast.read`（写状态调能力） |
 
 命令表**自描述**：`musicxx-cli list --json`（或 GET `/cli/list`）里 `commands[]` 每项是
@@ -460,7 +462,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 广播是**只读**的：属主发布，别人只能读与订阅；要改应用状态请调对应的能力。
 
-### 4.5 应用实现的能力（命令 id = 能力名，65 条）
+### 4.5 应用实现的能力（命令 id = 能力名，64 条）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"（下表是**能当命令调**的那些；只有插件能调、只给模型用的不在其中）：
@@ -470,6 +472,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 应用前后台（2） | `musicxx.app.foreground` / `background` |
 | 播放控制（7） | `musicxx.player.play` / `pause` / `toggle` / `stop` / `next` / `prev` / `playSrc` |
 | 播放参数（6） | `musicxx.player.seek` / `setVolume` / `setSpeed` / `setPitch` / `setQuality` / `setLoopMode` |
+| 音效（3） | `musicxx.player.audioEffect.list` / `get` / `set`（列内置预设与插件注册的音效、读当前选中、按 id 设一个；`musicxx.none` = 取消） |
 | 歌单（9） | `musicxx.songlist.list` / `listSongs` / `play` / `addSong` / `removeSong` / `create` / `updateSong` / `favorite` / `sync`（把歌单绑定的音源重新读一遍） |
 | 播放列表（5） | `musicxx.playlist.listSongs` / `playSong` / `addSong` / `removeSong` / `updateSong`（读 / 改当前正在播的那一串歌） |
 | 歌词（5） | `musicxx.lyric.current.get` / `current.update` / `current.updateContent` / `getBySrc` / `search`（读当前歌词；选拟声云歌词 + 改这首歌的偏移；用 LRC 文本临时设置当前歌词；按歌词源读内容；搜索云歌词） |
@@ -664,7 +667,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（48 个）
+### 5.2 工具全表（51 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -708,6 +711,9 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `CancelStopTimer` | 无 | `musicxx.timer.cancel` | `Success` |
 | `SwitchAppForeground` | `operator`(必填，foreground/background) | `musicxx.app.foreground` / `background` | `Switch to [foreground\|background] Success` |
 | `GetAppLifecycle` | 无 | `musicxx.app.state` | `The app is in the foreground (lifecycle state: resumed)` / `The app is in the background for 12s (lifecycle state: paused)` |
+| `ListAudioEffects` | 无 | `musicxx.player.audioEffect.list` | 先一行当前选中（未选时 `当前: 无`，『音效』插件关着时另加一行提醒），之后一行一条：`✓ id · 标题 · 性能负担 n/5 · 来源` |
+| `GetAudioEffect` | 无 | `musicxx.player.audioEffect.get` | `Audio effect: <标题> (<id>)`；没选时是 `No audio effect` |
+| `SetAudioEffect` | `id`(必填) | `musicxx.player.audioEffect.set` | `Success`；id 不在清单里时工具报错（`unknown_item`） |
 
 **外部插件管理**（细节见 [plugin-agent-cli.md](plugin-agent-cli.md)）
 

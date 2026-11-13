@@ -214,6 +214,7 @@ var featurePointImpls = new Map();
     "playing.background": "musicxx.ui.playing.background",
     "playing.icon": "musicxx.ui.playing.icon",
     "playing.visualizer": "musicxx.ui.playing.visualizer",
+    "audio.effect": "musicxx.ui.audioEffect",
     "playing.controlBar": "musicxx.ui.playing.controlBar",
     "playing.controlBar.menu": "musicxx.ui.playing.controlBar.menu",
     "playing.controlBar.previous": "musicxx.ui.playing.controlBar.previous",

@@ -145,7 +145,8 @@ musicxx.capability.register("card", function () {
 | **广播 · 自己的频道** | 插件之间 / 插件与插件框架之间传小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeBroadcast` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
 | **功能埋点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能埋点并给出实现，或调用应用留出的功能埋点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.capability.define/provide/call` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |
-| **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 / 歌曲图 / 音频动效、页面插入块（歌词页 / 更多信息页 / 播放列表页） | `musicxx.ui.registerEntry` / `uiRegister` | [plugin-ui.md](plugin-ui.md) §1 |
+| **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 / 歌曲图 / 音频动效、音效、页面插入块（歌词页 / 更多信息页 / 播放列表页） | `musicxx.ui.registerEntry` / `uiRegister` | [plugin-ui.md](plugin-ui.md) §1 |
+| **插件音效** | 注册一段自己的音频滤镜（音效），追加在『音效』插件的音效页面里供用户选择；与内置音效同一套互斥规则（均衡器 / 自定义音调） | UI 项 `musicxx.ui.audioEffect`（JS 简称 `audio.effect`） | [plugin-ui.md](plugin-ui.md) §1.8 |
 | **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `{ view: … }` + 路由 `ext://<插件id>/<视图id>` | [plugin-ui.md](plugin-ui.md) §2 |
 | **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、播放页音频动效（音频可视化）、页面里画一块自己的着色器；当前歌曲封面（`cover`）与插件自己绑定的图片（`image`）都能当纹理采样 | UI 项 `playing.background` / `playing.icon` / `playing.visualizer` + shader bundle | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **封面取色 / 封面变化** | 读 / 写封面取色（`musicxx.media.palette` / `musicxx.media.setPalette`，对应能力 `musicxx.media.palette.get` / `.set`），用能力注册取色实现替代内置分析；也可以订阅封面变化（`musicxx.media.cover.changed`，可随时移除） | 能力 `musicxx.media.palette.get` / `.set` + 能力 `musicxx.media.palette.analyse` + 广播频道 `musicxx.media.cover.changed` | [plugin-api.md](plugin-api.md) §3.2.8 + [plugin-capabilities.md](plugin-capabilities.md) |

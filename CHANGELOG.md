@@ -8,6 +8,24 @@
 
 ## 历史
 
+### 新增（2026.1114.x 内，未发布）：音效项（`musicxx.ui.audioEffect`）
+
+- 插件可以注册自己的音效（一段音频滤镜链），追加在『音效』插件的音效页面里，与 21 个内置预设同一个列表，
+  用户选中后作为播放音效生效（写进 mpv `af` 的应用音效段）。
+- `data = {title, subtitle?（或 depict?）, filters（字符串数组，必填）, pitch?, cpuCost?, enabled?}`；
+  `filters` 与 `pitch` 至少要有一个，只有 `pitch` 就是纯变调音效。
+- 与内置音效同一套规则：与均衡器互斥；带 `pitch` 的音效会先把用户自定义音调复位。
+  插件停用 / 卸载 / 关闭『拟声++』后这一项从列表消失，当前选择回退成「未启用音效」。
+- SDK：C 头新增 `MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT`，Dart 新增 `MusicxxPluginUIType.audioEffect`，
+  JS 短名为 `audio.effect`；字段与示例见 `docs/plugin-ui.md` §1.8。
+- **音效也能从外部接口选**（同一份实现）：三条能力 `musicxx.player.audioEffect.list` /
+  `.get` / `.set`，同样能当命令与 MCP 工具用（`ListAudioEffects` / `GetAudioEffect` /
+  `SetAudioEffect`）。`set` 的 `id` 取自 `list`：内置预设是 `musicxx.<短名>`
+  （如 `musicxx.bassUp`），插件音效就是它的 UI 项 id（`plugin.<插件 id>.<短名>`），
+  `musicxx.none` 或空串 = 取消。未知 id 返回 `unknown_item`。
+- 内置预设的 id 从 `builtin:<序号>` 改成 `musicxx.<短名>`，与渲染槽位的内置候选写法一致；
+  这条规则同时适用于页面选择、命令与插件能力（旧写法只在读取旧配置时迁移）。
+
 ### 变更（破坏性，2026.1113.1 内，未发布）：对外接口命名统一
 
 一次改名把能力 / 广播 / 命令 / MCP 工具对齐成"全前缀 + 同一个概念用同一个名字"。

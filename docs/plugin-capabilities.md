@@ -113,6 +113,9 @@
 | `musicxx.render.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.render.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.render.select` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.audioEffect.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.audioEffect.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.audioEffect.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.palette.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.cover` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.palette.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
@@ -279,6 +282,18 @@
 参数 `{target}`：主题 id 或 `toggle`（按当前明暗互切）。与侧边抽屉按钮、局域网控制的临时切主题是同一语义：走 `theme_s.setCustom`，**会暂停主题跟随**（用户下次手动切模式才恢复）。
 
 它表达的是一次操作、没有当前值，所以只有能力、没有对应广播。回答 `{ok: true, id}`；`target` 既不是主题 id 也不是 `toggle` 时返回失败并说明原因。
+
+### `musicxx.player.audioEffect.list` 列出音效
+
+音效 id 有两种：内置预设 `musicxx.<短名>`（例如 `musicxx.bassUp`），插件注册的音效就是它的 UI 项 id（`plugin.<插件id>.<短名>`）。`enabled` = 『音效』插件当前是否启用（关着时音效不会真的生效）。`selected` 标出当前选中的那一项。
+
+### `musicxx.player.audioEffect.get` 当前音效
+
+没有音效时返回 `{ok: true, enabled, id: "", title: ""}`，不是错误。
+
+### `musicxx.player.audioEffect.set` 设置音效
+
+`id` 必须来自 `musicxx.player.audioEffect.list`；未知 id 返回 `unknown_item`。设置会写库并立即应用（写 mpv `af`，与界面里选音效完全同一条路）。音效与均衡器、自定义音调互斥：选用音效会关掉均衡器；带 `pitch` 的音效会先把用户音调复位。`enabled` 为假表示『音效』插件没启用，配置已写入但当前不生效。停用 / 卸载插件后选中的插件音效会回退成「没有音效」。
 
 ### `musicxx.capability.subscribers` 能力订阅 / 实现行
 

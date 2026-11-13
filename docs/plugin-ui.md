@@ -30,6 +30,7 @@
 | `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md)（封面纹理 `cover` 见该文 §5.1） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效；内置样式是 `musicxx.auto` 这类 id（`musicxx.*`） |
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx.circle` / `musicxx.square` / `musicxx.adaptive`）也在同一份列表里 |
 | `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx.none` / `musicxx.waveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
+| `musicxx.ui.audioEffect` | `title`（必填）、`subtitle?`（或 `depict?`）、`filters`（必填，字符串数组）、`pitch?`、`cpuCost?`、`enabled?` | 『音效』插件的音效页面（设置 → 插件 音效；播放页「更多」菜单里的音效行也进同一个页面） | 追加在 21 个内置预设之后；选中后作为播放音效生效，与内置音效同一套互斥规则（均衡器 / 自定义音调）；说明行写「来自插件 <插件id>」。见 §1.8 |
 | `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填）、`enabled?` | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreInfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
 | `musicxx.ui.playing.controlBar` 与 `musicxx.ui.playing.controlBar.<按钮>`（六个，见 §1.7） | `view`（必填）、`enabled?` | 播放页底部控制按钮栏（整栏或单个按钮） | **替换**内置界面：整栏由插件画，或只换五个按钮里的某几个；同一位置只认一项（`order` 小的优先），取不到内容时回到内置界面 |
 
@@ -83,7 +84,7 @@ musicxx.ui.registerEntry({
 - `name` 用**短名**，插件框架补成 `plugin.<插件id>.<短名>`；写全名时也必须属于本插件命名空间（冒充别人返回 `-6`）；
 - 同一个项名再次注册 = **覆盖**（保留原来的排序位置）；
 - UI 项数量与单条 `data` 大小都不设上限（早期版本的 64 个 / 64 KiB 已移除）；
-- 类型必须是上表六种之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
+- 类型必须是上表列出的类型之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
 - 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，主程序整批替换）。
 
 更新与注销：
@@ -313,6 +314,77 @@ uiRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
 > 整栏替换之后，内置的「更多」菜单（选歌词 / 投屏 / 加入歌单 / 播放模式 / 沉浸模式…）就没有入口了。
 > 两个办法：在自己画的栏里放一个按钮调 `musicxx.ui.playing.openMenu`；或者提醒用户把播放页右上角的
 > 快捷功能设成「更多」（在那个按钮上长按 / 桌面右键 → 快捷功能 → 更多），它弹出的菜单与内置菜单按钮完全一样。
+
+### 1.8 音效：把自己的音频滤镜加进音效页面
+
+注册一项 `musicxx.ui.audioEffect`，它就会出现在『音效』插件的音效页面里（排在 21 个内置预设之后）。
+用户选中后，这一段滤镜链与内置音效完全一样地生效：写进 mpv `af` 里应用自己的「音效」段。
+
+```json
+{
+  "title": "低音炮",
+  "subtitle": "加强 60~140 Hz",
+  "filters": [
+    "volume=-3dB",
+    "equalizer=f=80:width_type=q:width=1:g=8",
+    "alimiter=limit=0.89:level=false:latency=false"
+  ],
+  "pitch": 1.0,
+  "cpuCost": 3
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `title` | 是 | 音效名，音效页面与「已启用」提示用；为空时退回 UI 项的短名 |
+| `subtitle` | 否 | 说明（页面第二行）；也接受 `depict`（与渲染槽位一致，同时给时 `depict` 优先） |
+| `filters` | 是 | 滤镜串数组，按顺序拼进 `af`。最后一项常常是 `alimiter=...`；与内置预设一样可以写 `lavfi=[...]` 图语法 |
+| `pitch` | 否 | 变调类音效的音调（0.25~2.0）。给了它就等于「小风车」那种音效：选中时会把用户自定义的音调复位 |
+| `cpuCost` | 否 | 1~5 的性能负担（1 最省，默认 3），只用于页面上提示用户 |
+| `enabled` | 否 | `false` = 保留注册但不在列表里出现 |
+
+`filters` 与 `pitch` 至少要有一个（只有 `pitch` 也可以，那就是纯变调），否则这一项会被跳过。
+
+C++ 插件：
+
+```cpp
+uiRegister("bass", MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
+    R"({"title":"低音炮","subtitle":"加强 60~140 Hz","cpuCost":3,
+        "filters":["volume=-3dB","equalizer=f=80:width_type=q:width=1:g=8",
+                   "alimiter=limit=0.89:level=false:latency=false"]})");
+```
+
+JS 插件：
+
+```js
+musicxx.ui.registerEntry({
+  name: "bass",
+  type: "audio.effect",          // 也可以写全名 musicxx.ui.audioEffect
+  title: "低音炮",
+  subtitle: "加强 60~140 Hz",
+  cpuCost: 3,
+  filters: [
+    "volume=-3dB",
+    "equalizer=f=80:width_type=q:width=1:g=8",
+    "alimiter=limit=0.89:level=false:latency=false",
+  ],
+});
+```
+
+规则与注意：
+
+- **与均衡器、自定义音调互斥**：开均衡器会关掉音效；带 `pitch` 的音效会先把用户音调复位。
+  这与内置音效完全一样，插件不需要自己处理。
+- **滤镜名必须是这份构建里真的存在的**（mpv 的 `af` 与 mediaxx 自带的 ffmpeg）：写错时这一项会失效
+  （mpv 拒绝写入），不会影响应用自己的均衡器 / 音调段。写之前先看包内
+  [plugin-api.md](plugin-api.md) 里列出的可用滤镜，或在应用的「播放内核信息」里查。
+- **不要用 `lavfi-complex`**：那是另一条音频链路，运行期清理它会把音频输出弄坏；音效一律留在 `af` 里
+  （需要图语法就写 `lavfi=[...]`，与内置的「人声消减」一样）。
+- **插件停用 / 卸载 / 关闭『拟声++』后**，这一项从列表消失；如果用户当时选的是它，会回退成「未启用音效」
+  （不会把一段已经不存在的滤镜留在播放器上）。重新启用后需要用户再选一次。
+- 一个插件可以注册多个音效，按 UI 项的 `order` 与注册顺序排列；`title` 是用户看到的唯一标识，
+  改短名等于换了一个音效（旧选择失效）。
+- 音效是“全局播放”的：选中后一直生效到用户取消或改用别的音效，不区分歌曲。
 
 ---
 

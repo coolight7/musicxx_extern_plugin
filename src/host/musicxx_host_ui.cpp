@@ -49,6 +49,7 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER,
+    MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS,
@@ -129,7 +130,8 @@ bool requiresTitle(std::string_view type) {
          type == MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY ||
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND ||
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER;
+         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER ||
+         type == MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT;
 }
 
 /// 校验 "接管型" 渲染项 (播放页歌曲图 / 播放页音频动效) 的结构
@@ -182,6 +184,47 @@ bool validatePlayingRenderData(std::string_view label, const Json &data,
   }
   if (mode == "view" && !data.contains("view")) {
     err = prefix + " 声明 mode=view 时必须给出 view";
+    return false;
+  }
+  return true;
+}
+
+/// 校验一条音效项 (`musicxx.ui.audioEffect`) 的结构
+///
+/// 只做结构校验 (字段类型, 以及至少要有一项内容): 滤镜名是否在这份 ffmpeg / mpv 构建里
+/// 存在由插件自己保证。写错的滤镜串会被 mpv 拒绝, 不会影响应用自己的其它音频段。
+bool validateAudioEffectData(const Json &data, std::string &err) {
+  bool hasFilters = false;
+  if (data.contains("filters")) {
+    const Json &filters = data["filters"];
+    if (filters.is_string()) {
+      hasFilters = !filters.get<std::string>().empty();
+    } else if (filters.is_array()) {
+      for (const Json &item : filters) {
+        if (!item.is_string()) {
+          err = "音效项 filters 必须是字符串数组";
+          return false;
+        }
+        if (!item.get<std::string>().empty()) {
+          hasFilters = true;
+        }
+      }
+    } else {
+      err = "音效项 filters 必须是字符串数组";
+      return false;
+    }
+  }
+  if (data.contains("pitch") && !data["pitch"].is_number()) {
+    err = "音效项 pitch 必须是数字 (0.25~2.0)";
+    return false;
+  }
+  if (data.contains("cpuCost") && !data["cpuCost"].is_number()) {
+    err = "音效项 cpuCost 必须是数字 (1~5)";
+    return false;
+  }
+  const bool hasPitch = data.contains("pitch") && data["pitch"].is_number();
+  if (!hasFilters && !hasPitch) {
+    err = "音效项至少要给出 filters (字符串数组) 或 pitch (数字)";
     return false;
   }
   return true;
@@ -304,6 +347,11 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
   }
   if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER) {
     if (!validatePlayingRenderData("播放页音频动效", data, err)) {
+      return false;
+    }
+  }
+  if (type == MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT) {
+    if (!validateAudioEffectData(data, err)) {
       return false;
     }
   }

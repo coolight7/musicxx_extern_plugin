@@ -87,6 +87,23 @@ abstract final class MusicxxPluginUIType {
   /// 迷你歌词要继续可用，所以插件不要假设自己能收到点击。
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
 
+  /// 音效（播放时叠加的一段音频滤镜）：注册后追加在『音效』插件的音效页面里，
+  /// 与内置预设同一个列表，用户选中才生效
+  ///
+  /// `data = {title, subtitle?（或 depict?）, filters（必填，字符串数组）, pitch?, cpuCost?, enabled?}`
+  ///
+  /// 字段说明：
+  /// - `filters`：按顺序拼进 mpv `af` 的滤镜串（可以写 `lavfi=[...]` 图语法）。至少要有一条，
+  ///   或者给出 `pitch`；
+  /// - `pitch`：变调类音效的音调（0.25 ~ 2.0）。选中它会把用户自定义的音调复位，与内置的
+  ///   「小风车」这类预设一致；
+  /// - `cpuCost`：1~5 的性能负担（1 最省，默认 3），只用于页面上提示用户；
+  /// - `enabled`：false = 保留注册但不在列表里出现。
+  ///
+  /// 音效与均衡器、自定义音调互斥（与内置音效同一套规则）。插件停用 / 卸载后这一项从列表
+  /// 消失，如果用户当时选的是它，会回退成「未启用音效」。写法见 `docs/plugin-ui.md` §1.8。
+  static const String audioEffect = 'musicxx.ui.audioEffect';
+
   /// 播放页底部控制按钮栏：**整栏**由插件画（替换，不是插入）
   ///
   /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
