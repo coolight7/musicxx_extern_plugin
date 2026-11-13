@@ -550,7 +550,7 @@ if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
 #### 3.2.3 歌词（`musicxx.lyric.*`）
 
 歌词能力统一在单数域 `musicxx.lyric.*`（与能力 / 广播频道一致）。旧的复数域
-`musicxx.lyrics.*` 已删除，**不保留别名**，调用会得到 `action_not_registered`。
+`musicxx.lyrics.*` 已删除，**不保留别名**，调用会得到 `not_found`。
 
 > 类似名称的广播频道 `musicxx.lyric.current`："当前歌词行变了"的通知。
 

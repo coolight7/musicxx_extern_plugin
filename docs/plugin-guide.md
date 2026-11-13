@@ -207,7 +207,7 @@ musicxx.capability.register("card", function () {
   「外置插件实现 → 内置插件登记的实现 → 应用自身兜底」，同一条能力上多个处理器按 `priority`
   升序执行（同优先级按注册顺序）。所以你注册上的实现会盖过内置功能，不需要额外声明；
   想看"这个功能现在有谁在提供、排第几"，用能力 `musicxx.capability.subscribers` 或
-  `musicxx.feature.point.list`（命令行 `capability.list`、MCP `GetFeatureProviders` 读同一份数据；
+  `musicxx.feature.point.list`（命令行 `musicxx.capability.list`、MCP `ListCapabilities` 读同一份数据；
   里面的 `broadcasts` 是主程序自己注册的订阅方，只收"被使用了 / 处理器变了"的通知，与实现无关）；
 - **想拦下整次调用就用 `{"action":"cancel"}`**：频谱提取、副歌分析、封面取色这三个取值型能力支持它。
   返回它等于"这次不要用别的实现"（应用自己的兜底也不会被问），应用会记一条日志并在自省里标出

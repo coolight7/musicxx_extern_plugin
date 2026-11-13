@@ -375,7 +375,8 @@ capabilityCall("musicxx.media.spectrum", R"({"bandCount":16})", &notify, 5000);
 ```
 
 - 需要更长时间（等用户点弹窗、解码整曲）就把 `timeoutMs` 给大，或传 `0` = 不设超时；
-- 能力调用**不做权限校验**，名字也不校验：写错名字会在完成通知里拿到 `action_not_registered`。
+- 能力调用**按声明里的通道块校验**：写错名字 / 不在声明表里拿到 `not_found`，声明里没有 `plugin` 块的拿到
+  `not_allowed`，声明里有但当前没人实现的拿到 `no_impl`。
 
 **事件**（主题与载荷见 [plugin-api.md](plugin-api.md) §4）：
 
@@ -432,7 +433,7 @@ featurePointProvide("plugin.my_plugin.beat", [](std::string_view argsJson) -> st
     return R"({"bpm":128,"beats":[0,469,938]})";
 });
 PluginxxOperatorNotify fc{&onDone, this};
-featurePointCall("musicxx.media.palette.provide", R"({"path":"D:/covers/a.jpg"})", 60000, &fc);
+featurePointCall("musicxx.media.palette.analyse", R"({"path":"D:/covers/a.jpg"})", 60000, &fc);
 
 log.info("切歌了: " + songJson);
 ```
@@ -768,7 +769,7 @@ featurePointProvide("plugin.my_plugin.beat",
 
 // 3) 调一个功能埋点（应用留出的，或别的插件声明的）—— **只有异步形态**
 PluginxxOperatorNotify callDone{&myCallDone, this};
-featurePointCall("musicxx.media.palette.provide",
+featurePointCall("musicxx.media.palette.analyse",
                  R"({"path":"D:/covers/a.jpg"})", 60000, &callDone);
 
 featurePointUnprovide("plugin.my_plugin.beat");   // 摘除实现（一般不用：停用/卸载自动撤）
@@ -786,7 +787,7 @@ featurePointList(&someNotify, 5000);              // 有哪些功能埋点、谁
   框架线程上就地等待等于死锁（处理器可能正等着你返回），要结果就在 `notify->done` 里处理。
 - 现在可调的应用功能埋点有三个（`featurePointList` 的 `callDoc` 写着参数与结果形状）：整曲频谱
   `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
-  `musicxx.media.palette.provide`。**调用零副作用**：不写应用的值仓、不改应用状态。
+  `musicxx.media.palette.analyse`。**调用零副作用**：不写应用的值仓、不改应用状态。
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时 `start` 事务里再声明一遍。
 - 手写处理器（不用糖）时按 [plugin-capabilities.md](plugin-capabilities.md) 的 `musicxx.feature.point.call`：
   **回答必须用 `patch` 包一层**，否则后面的处理器会覆盖你的结果。

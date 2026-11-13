@@ -640,7 +640,7 @@ musicxx-cli plugin uninstall my_plugin                                          
 插件纹理铺底复用 `bg.frag`）、
 `plugins/playing_bg_image/`（显示名『示例封面背景』：三种播放页背景模式『模糊』/『沉浸』/『黑胶』+ 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景三色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：
 背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、`playing.icon` 三种形态里的 `none`、
-`musicxx.media.palette.provide`、`foregroundColors`（运行期改前景三色）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面）；
+`musicxx.media.palette.analyse`、`foregroundColors`（运行期改前景三色）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面）；
 另外 `plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
 `plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、
 `plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），
@@ -816,7 +816,7 @@ final List<MusicxxPluginUIItem> next =
 | 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 属主发布、订阅方收到：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 应用实现的能力 | `musicxx.capability.call` / `PluginBase::capabilityCall` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（应用分派；不做权限校验） |
 | 状态广播 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
-| 配置 | `musicxx.storage.getConfig/setConfig`（命名空间 `config`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
+| 配置 | `musicxx.storage.get` / `.set`（带 `namespace: "config"`；JS 糖是 `getConfig` / `setConfig`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |
 | 内置网络能力 | `musicxx.net.http/socket/ws/udp`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket / UDP 的客户端与**服务端**；客户端支持 `https` / `wss`，**服务端只监听明文**且默认只绑回环；UDP 可广播 / 组播；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |
 | 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单 / “添加歌曲”项 / 播放页背景 / 播放页歌曲图（主程序都已有渲染点）；字段见 `docs/plugin-ui.md` |

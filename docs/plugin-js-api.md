@@ -189,7 +189,7 @@ musicxx.capability.handlers("musicxx.media.spectrum.extract").then((info) => {
 
 `listAvailable` 为 `false` 表示插件框架库太旧（只有数量，看 `count`）。`count` 是**全部阶段**的
 总数；只看某个阶段传第二个参数（`musicxx.capability.handlers(id, "after")`）。主程序的自省（命令行
-`capability.list` / MCP `GetFeatureProviders` / 设置页说明）读的是同一份数据，所以"插件里看到的"
+`musicxx.capability.list` / MCP `ListCapabilities` / 设置页说明）读的是同一份数据，所以"插件里看到的"
 与"用户看到的"一致。
 
 ### 4.2 决策型能力的返回值
@@ -355,7 +355,7 @@ const result = await musicxx.capability.call("musicxx.<域>.<名字>", { ...参�
 
 - 默认超时 **5000 ms**；`timeoutMs` 传 0 或负数时仍按缺省值处理（**不是"一直等"**）。
   要等更久（解码整曲、等用户点弹窗）就把超时给大一点；
-- Promise 拒绝时 `err.message` 里带原因，例如 `action_not_registered: xxx`、
+- Promise 拒绝时 `err.message` 里带原因，例如 `not_found: xxx`、
   `请求失败：...`、`status=...`；
 - **能力调用不做权限校验**：清单里的 `permissions` 只做展示，不会拒绝任何调用；
 - 没注册的能力（当前版本没实现）会立刻失败，不会挂到超时。
@@ -909,7 +909,7 @@ await musicxx.media.setPalette({ main: "#ff8844", dark: "#20222a" });
 // 等它会互相拖住，表现是"切歌 / 换背景样式卡几秒"（实测踩过）。
 // 正确写法：命中的缓存**同步**返回，没命中就返回 null（应用走它自己的快速取色），
 // 同时在后台算，算好用 `musicxx.media.setPalette` 主动写回。
-musicxx.capability.implement("musicxx.media.palette.provide", function (payload) {
+musicxx.capability.implement("musicxx.media.palette.analyse", function (payload) {
     // payload = { srcKey, name, artist, hasCover, night }
     if (!payload || payload.hasCover !== true) return null;
     const cached = paletteCache[payload.srcKey];
@@ -975,7 +975,7 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
 
 - 三个"取值型"能力的完整语义（载荷、数据格式、超时、`cancel` 拦下、失效规则）见
   [plugin-capabilities.md](plugin-capabilities.md)，调用方的写法与代价见 [plugin-api.md](plugin-api.md) §7：
-  - **封面取色**（`musicxx.media.palette.provide`）：命中缓存就**同步**返回，未命中返回 `null`
+  - **封面取色**（`musicxx.media.palette.analyse`）：命中缓存就**同步**返回，未命中返回 `null`
     并异步预热，算好用 `musicxx.media.setPalette` 写回。**绝不要在处理器里 `await` 应用实现的能力**
     （切换背景样式、切歌、渲染准备都在等这次裁决，等它会互相拖到超时 —— 表现是"卡几秒"）；
     应用最多等 800 ms（超时按"没给"处理）；
@@ -1183,7 +1183,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再调一次能力返回 `{view:...}`，或重新打开页面 |
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
-| 调用一直失败 `action_not_registered` | 该能力当前版本没有实现（清单见 [plugin-api.md](plugin-api.md) §3.4） |
+| 调用失败 `not_found` / `no_impl` | `not_found` = 名字拼错或没在声明表里；`no_impl` = 声明里有、当前没有人实现（清单见 [plugin-capabilities.md](plugin-capabilities.md)） |
 | 处理器不触发 | 这条能力在 [plugin-capabilities.md](plugin-capabilities.md) 里标「未接入」（主程序还没有接） |
 | 处理器被调用多次 | 用**不同 `ownerTag` 注册了同一条能力**：JS 侧只保留一个处理器，框架侧却留下多条注册，于是每次派发都会重复调用。同一条能力只注册一次，或注销时用同一个 `ownerTag` |
 | 定时器/初始化执行两遍 | 每次启用都会重新执行脚本：注册要写成幂等的 |

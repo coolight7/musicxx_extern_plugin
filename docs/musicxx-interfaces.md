@@ -718,7 +718,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有固定的排版：歌曲列表、歌单列表、
 状态快照、插件清单、日志都按人读的顺序行输出。没有专门排版的就是缩进 JSON。
 
-`CallFeaturePoint` 的结果里，**超过 4 KB 的字符串字段会被压成**
+`CallCapability` 的结果里，**超过 4 KB 的字符串字段会被压成**
 `{"omitted":true,"bytes":N,"head":"<前 256 个字符>"}`：整曲频谱一次约 820 KB base64，
 整块塞进模型上下文既没用又挤掉别的内容。只要可读的频谱文本请改用 `GetAudioSpectrum`
 （那是"能力导出"那条路，输出是文本表）。
