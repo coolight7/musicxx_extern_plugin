@@ -9,7 +9,7 @@
 /// - 能力 `plugin.example_native_fail.probe`: 回报两个处理器的调用次数, 供原生测试断言。
 ///
 /// 三个能力都是"改播放值"的固定实现点（应用自己改值）: 插件只能注册前链 / 后链,
-/// 注册 `impl` 会被拒绝（返回 `MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`）。
+/// 注册 `impl` 会被拒绝（返回 `PLUGINXX_RESULT_ERR_NOT_FOUND`）。
 ///
 /// 与示例插件同一套约定: `start` 事务里只做注册, 不阻塞、不做 IO。
 

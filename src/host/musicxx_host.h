@@ -295,7 +295,7 @@ public:
 
   /// 调用插件能力 (**Dart → 插件**; 异步, 不占调用线程)
   ///
-  /// - **只受理不等待结果**: 受理成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出
+  /// - **只受理不等待结果**: 受理成功返回 `PLUGINXX_RESULT_OK` 并写出
   ///   `outRequestId`; 结果经事件 `musicxx.plugin.call.result` 回给调用方
   ///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
   /// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 插件框架没在跑) 直接返回负错误码,

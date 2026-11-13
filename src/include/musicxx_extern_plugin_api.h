@@ -55,18 +55,16 @@
 /// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
 #define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1113.1"
 
-/* ==================== 错误码 ==================== */
+/* ==================== 返回码 ==================== */
+//
+// 码表只有一份，在 `pluginxx/api/result.h`：通用段（-1 ~ -99）、广播段（-200 ~ -299）、
+// 生命周期与内部段（-500 / -999），以及自定义区间（应用 -5000 ~ -9999、插件 -10000 ~ -19999）。
+// 网络段（-100 ~ -199）属于实现网络的那一层（`utilxx/net_error.h`），主程序与插件包都有它。
+//
+// 数字只到 C / FFI 边界：JSON 与上层接口里用名称，查名称用导出的
+// [musicxx_extern_plugin_result_name]（Dart 侧也是这样查，不另抄一份表）。
 
-#define MUSICXX_EXTERN_PLUGIN_OK                 0
-#define MUSICXX_EXTERN_PLUGIN_ERR_ARG           -1
-#define MUSICXX_EXTERN_PLUGIN_ERR_STATE         -2
-#define MUSICXX_EXTERN_PLUGIN_ERR_JSON          -3
-#define MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND     -4
-#define MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT       -5
-#define MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION    -6
-#define MUSICXX_EXTERN_PLUGIN_ERR_QUEUE_FULL    -7
-#define MUSICXX_EXTERN_PLUGIN_ERR_NO_MEMORY     -8
-#define MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL      -99
+#include "pluginxx/api/result.h"
 
 /* ==================== 插件框架配置标志 ==================== */
 
@@ -155,6 +153,14 @@ MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_api_version(void);
 
+/// 返回码的名称（`invalid_argument` / `not_found` / `no_value` / …）
+///
+/// - 覆盖通用段、广播段、生命周期 / 内部段与网络段；
+/// - 不认识（包括未定义区间与应用 / 插件自定义区间）返回 NULL，由属主自己解释；
+/// - 返回的字符串是静态字面量，不需要释放。
+MUSICXX_EXTERN_PLUGIN_EXPORT const char* MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_result_name(int32_t code);
+
 /// 插件框架库版本字符串 (形如 "2026.1011.1"; 与 MUSICXX_EXTERN_PLUGIN_VERSION 一致);
 /// 写入 out (框架堆, 需 string_free)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
@@ -180,7 +186,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
     MusicxxExternPluginString* log
 );
 
-/// 同步停止 (幂等); 超时返回 MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT
+/// 同步停止 (幂等); 超时返回 PLUGINXX_RESULT_ERR_TIMEOUT
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_host_stop(
     MusicxxExternPluginHost*    h,
     uint32_t                    timeout_ms,
@@ -219,7 +225,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         void*                           user_data
     );
 
-/// 批量取事件 (JSON 数组字符串); 无事件返回 MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT
+/// 批量取事件 (JSON 数组字符串); 无事件返回 PLUGINXX_RESULT_ERR_TIMEOUT
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_poll_events(
         MusicxxExternPluginHost*    h,
@@ -342,7 +348,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /// 调用插件能力 (Dart → 插件; **异步, 不占调用线程**)
 ///
-/// - 只受理不等待结果: 成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出 `out_request_id`;
+/// - 只受理不等待结果: 成功返回 `PLUGINXX_RESULT_OK` 并写出 `out_request_id`;
 ///   结果经事件 `musicxx.plugin.call.result` 回给 Dart
 ///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
 /// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 插件框架没在跑) 直接返回负错误码,
@@ -530,8 +536,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /// 读一条频道的当前值 (同步; `cache: latest` 且有过值才写 `out_json`)
 ///
-/// 返回 `MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`: 频道没声明;
-/// 返回 `MUSICXX_EXTERN_PLUGIN_ERR_ARG`: 频道没有当前值 (`cache: none` / 还没发过)。
+/// 返回 `PLUGINXX_RESULT_ERR_NOT_FOUND`: 频道没声明;
+/// 返回 `PLUGINXX_RESULT_ERR_ARG`: 频道没有当前值 (`cache: none` / 还没发过)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_read(
         MusicxxExternPluginHost*              h,

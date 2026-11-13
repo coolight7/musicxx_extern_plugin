@@ -157,38 +157,38 @@ void MusicxxHostManager::dropHandlerSlot(
 int32_t MusicxxHostManager::registerHandler(
     MusicxxHostInstance *inst, const MusicxxPluginCapabilitySpec &spec) {
   if (!inst) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (!spec.capability_id.data || spec.capability_id.size == 0) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string capabilityId{spec.capability_id.data,
                                  static_cast<size_t>(spec.capability_id.size)};
   if (!spec.run_sync && !spec.run_start) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const int32_t phase = spec.phase;
   if (!isValidPhase(phase)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 被拒绝: 阶段 {} 不合法",
             inst->name, capabilityId, phase);
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   /// 前链 / 后链必须是同步处理器: 要拿到这一步的结果才能跑下一步
   if (phase != MUSICXX_CAPABILITY_PHASE_IMPL && !spec.run_sync) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 的 {} 阶段被拒绝: "
             "阶段处理器必须是同步处理器 (run_start 无法逐步串行)",
             inst->name, capabilityId, phaseNameOf(phase));
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 被拒绝: 实例正在关闭或已禁用",
             inst->name, capabilityId);
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   std::string reason;
   if (!checkRegistrable(capabilityId, phase, &reason)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册被拒绝: {}", inst->name, reason);
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
 
   const std::string ownerTag =
@@ -218,7 +218,7 @@ int32_t MusicxxHostManager::registerHandler(
   // 通知 Dart 侧刷新"这个能力有没有处理器"的位图与各阶段的处理器列表
   pushEvent("musicxx.capability.changed", h.pluginId,
             capabilityChangedPayloadJson(capabilityId, "register", h.pluginId));
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 /* ==================== 能力表 `musicxx.capabilities` 的入口 ==================== */
@@ -230,18 +230,18 @@ int32_t MusicxxHostManager::registerCapabilityHandler(
     PluginxxOperatorCancelFunction cancel, void *ctx, std::string &error) {
   if (!inst || !start) {
     error = "capability: missing instance or handler";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (!isValidPhase(phase)) {
     error = "capability: illegal phase";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
     error = "capability: instance is closing or disabled";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   if (!checkRegistrable(capabilityId, phase, &error)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
 
   auto &handlers = handlers_[capabilityId];
@@ -265,18 +265,18 @@ int32_t MusicxxHostManager::registerCapabilityHandler(
           inst->name, capabilityId, phaseNameOf(phase), priority, handlers.size());
   pushEvent("musicxx.capability.changed", h.pluginId,
             capabilityChangedPayloadJson(capabilityId, "register", h.pluginId));
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::unregisterCapabilityHandler(
     MusicxxHostInstance *inst, std::string_view capabilityId,
     std::string_view ownerTag) {
   if (capabilityId.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   auto it = handlers_.find(std::string{capabilityId});
   if (it == handlers_.end()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   const std::string pluginName = inst ? inst->name : std::string{};
   const std::string tag{ownerTag};
@@ -293,7 +293,7 @@ int32_t MusicxxHostManager::unregisterCapabilityHandler(
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   pushEvent("musicxx.capability.changed", pluginId,
             capabilityChangedPayloadJson(capabilityText, "unregister", pluginId));
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int MusicxxHostManager::onCapabilityRowAdded(
@@ -345,10 +345,10 @@ int MusicxxHostManager::onCapabilityRowAdded(
       registerCapabilityHandler(inst, id, phase, spec.priority, ownerTag,
                              spec.run_start, spec.cancel, spec.user_data,
                              reason);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK && error) {
+  if (rc != PLUGINXX_RESULT_OK && error) {
     *error = reason;
   }
-  return rc == MUSICXX_EXTERN_PLUGIN_OK ? PLUGINXX_RESULT_OK
+  return rc == PLUGINXX_RESULT_OK ? PLUGINXX_RESULT_OK
                                        : PLUGINXX_RESULT_ERR_ARG;
 }
 
@@ -459,7 +459,7 @@ void *MusicxxHostManager::onAppCapabilityStart(
   auto holder = std::make_shared<PluginxxOperatorNotify>(*notify);
   const int32_t rc = requestAppCapability(inst, capability, argsJson, timeout,
                                    holder.get(), &requestId);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     pluginxx::detail::setErrorString(
         errorOut, "app capability: request could not be queued");
     return nullptr;
@@ -489,11 +489,11 @@ int32_t MusicxxHostManager::unimplement(MusicxxHostInstance *inst,
                                            std::string_view capabilityId,
                                            std::string_view ownerTag) {
   if (capabilityId.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   auto it = handlers_.find(std::string{capabilityId});
   if (it == handlers_.end()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   const std::string pluginName = inst ? inst->name : std::string{};
   const std::string tag{ownerTag};
@@ -511,7 +511,7 @@ int32_t MusicxxHostManager::unimplement(MusicxxHostInstance *inst,
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   pushEvent("musicxx.capability.changed", pluginId,
             capabilityChangedPayloadJson(capabilityText, "unregister", pluginId));
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 std::string MusicxxHostManager::capabilityChangedPayloadJson(
@@ -555,7 +555,7 @@ int32_t MusicxxHostManager::countOnPhase(const std::string &capabilityId,
 int32_t MusicxxHostManager::capabilityInfoJson(std::string_view capabilityId,
                                                std::string &outJson) {
   if (capabilityId.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const CapabilityMeta meta = metaOf(capabilityId);
   const std::string capabilityText{capabilityId};
@@ -585,24 +585,24 @@ int32_t MusicxxHostManager::capabilityInfoJson(std::string_view capabilityId,
   }
   j["phaseCount"] = counts;
   outJson = j.dump();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::handlerCount(const std::string &capabilityId,
                                       int32_t &outCount) {
   auto it = handlers_.find(capabilityId);
   outCount = (it == handlers_.end()) ? 0 : static_cast<int32_t>(it->second.size());
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::handlerCountPhase(const std::string &capabilityId,
                                            int32_t phase, int32_t &outCount) {
   if (!isValidPhase(phase)) {
     outCount = 0;
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   outCount = countOnPhase(capabilityId, phase);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 std::vector<std::string>
@@ -649,7 +649,7 @@ int32_t MusicxxHostManager::capabilityStatsJson(std::string &outJson) {
   Json j;
   j["capabilities"] = capabilities;
   outJson = j.dump();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 namespace {
@@ -720,10 +720,10 @@ int32_t MusicxxHostManager::capabilityHandlersJsonPhase(std::string_view capabil
                                                   int32_t phase,
                                                   std::string &outJson) {
   if (capabilityId.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (phase < -1 || !isValidPhase(phase == -1 ? 0 : phase)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string capabilityText{capabilityId};
   auto it = handlers_.find(capabilityText);
@@ -738,7 +738,7 @@ int32_t MusicxxHostManager::capabilityHandlersJsonPhase(std::string_view capabil
   }
   j["handlers"] = jsonArrayOf(capabilityHandlersArrayJson(capabilityText, phase));
   outJson = j.dump();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 /* ==================== 能力派发 ==================== */
@@ -1171,20 +1171,20 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
     bool sync, uint32_t /*timeoutMs*/, std::string &outJson, std::string &err) {
   if (capabilityId.empty()) {
     err = "capability dispatch: empty id";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (!isValidPhase(phase)) {
     err = "capability dispatch: invalid phase";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (!running_.load(std::memory_order_acquire)) {
     err = "capability dispatch: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   const CapabilityMeta meta = metaOf(capabilityId);
   if (countOnPhase(capabilityId, phase) == 0) {
     outJson = R"({"handled":false,"handlers":0})";
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
 
   /// 实现链的异步派发：不占用 Dart 线程，完成后经
@@ -1221,14 +1221,14 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
       ack["callId"] = callId;
     }
     outJson = ack.dump();
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   /// 同步派发没有等待超时: 一直等到处理器链结束 (处理器链里包含插件自己的代码,
   /// 慢就是调用线程一起等。超时参数保留在 C ABI 里但不再使用)。
   std::string result;
   slot->wait(result);
   outJson = std::move(result);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 /* ==================== 能力调用 (插件 → Dart) ==================== */
@@ -1240,7 +1240,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
                                           const PluginxxOperatorNotify *notify,
                                           int64_t *outRequestId) {
   if (!inst || action.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string capabilityName{action};
   const std::string pluginId = pluginIdOf(inst->name);
@@ -1320,7 +1320,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
         std::string out;
         const int32_t rc = self->netCall(pluginId, op, args, out);
         std::string result = out;
-        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+        if (rc != PLUGINXX_RESULT_OK) {
           utilxx_base::Json error;
           error["ok"] = false;
           error["error"] = "net_call_failed";
@@ -1332,7 +1332,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
         /// 与 `musicxx.net.fetch` 的约定一致。
         self->respondAppCapability(requestId, 0, result);
       });
-      return MUSICXX_EXTERN_PLUGIN_OK;
+      return PLUGINXX_RESULT_OK;
     }
     /// 没有工作线程 (未启动) 时继续走 Dart 侧, 由它回一个错误
   }
@@ -1345,7 +1345,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
   Json args = parseJsonSafe(argsJson);
   payload["args"] = args;
   pushEvent("musicxx.capability.app.request", pluginId, payload.dump());
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::respondAppCapability(int64_t requestId, int32_t status,
@@ -1360,7 +1360,7 @@ int32_t MusicxxHostManager::respondAppCapability(int64_t requestId, int32_t stat
       relay = internalCapabilityRelay_;
     }
     if (relay && relay->respondAppCapability(requestId, status, resultJson)) {
-      return MUSICXX_EXTERN_PLUGIN_OK;
+      return PLUGINXX_RESULT_OK;
     }
   }
   /// 动态库插件的请求: 登记表归 IO 线程 (调用方已在 IO 线程时就地执行)
@@ -1368,7 +1368,7 @@ int32_t MusicxxHostManager::respondAppCapability(int64_t requestId, int32_t stat
       this, [this, requestId, status, resultJson]() -> int32_t {
         auto it = pendingAppCapabilities_.find(requestId);
         if (it == pendingAppCapabilities_.end()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+          return PLUGINXX_RESULT_ERR_NOT_FOUND;
         }
         if (it->second.timer) {
           it->second.timer->cancel(); ///< 已回复: 撤销超时保护
@@ -1386,7 +1386,7 @@ int32_t MusicxxHostManager::respondAppCapability(int64_t requestId, int32_t stat
           }
         }
         pendingAppCapabilities_.erase(it);
-        return MUSICXX_EXTERN_PLUGIN_OK;
+        return PLUGINXX_RESULT_OK;
       });
 }
 
@@ -1412,15 +1412,15 @@ void MusicxxHostManager::cancelAppCapability(int64_t requestId) {
 int32_t MusicxxHostManager::pluginConfigPathFor(MusicxxHostInstance *inst,
                                                 std::string &out) {
   if (!inst) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (!inst->configPath.empty()) {
     out = inst->configPath;
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   out = deriveConfigPath(pluginIdOf(inst->name), {});
-  return out.empty() ? MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND
-                     : MUSICXX_EXTERN_PLUGIN_OK;
+  return out.empty() ? PLUGINXX_RESULT_ERR_NOT_FOUND
+                     : PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
@@ -1456,7 +1456,7 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
     j["ui"] = parseJsonSafe(uiCapabilitiesJson_);
   }
   outJson = j.dump();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 /* ==================== 专用接口表 (C ABI 函数 + vtable) ==================== */
@@ -1466,15 +1466,15 @@ namespace {
 int32_t PLUGINXX_CALL xx_host_get_info(const PluginxxHost *host,
                                        PluginxxString *outJson) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         if (!outJson) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host, true);
         if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -1484,26 +1484,26 @@ int32_t PLUGINXX_CALL xx_host_get_info(const PluginxxHost *host,
             call, mgr, [mgr, name, &json]() -> int32_t {
               return mgr->hostInfoJson(json, name);
             });
-        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+        if (rc != PLUGINXX_RESULT_OK) {
           return rc;
         }
         pluginxx::hostMemorySetString(outJson, json);
-        return MUSICXX_EXTERN_PLUGIN_OK;
+        return PLUGINXX_RESULT_OK;
       });
 }
 
 int32_t PLUGINXX_CALL xx_host_config_path(const PluginxxHost *host,
                                           PluginxxString *outPath) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         if (!outPath) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host, true);
         if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -1512,11 +1512,11 @@ int32_t PLUGINXX_CALL xx_host_config_path(const PluginxxHost *host,
             call, mgr, [mgr, inst, &path]() -> int32_t {
               return mgr->pluginConfigPathFor(inst, path);
             });
-        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+        if (rc != PLUGINXX_RESULT_OK) {
           return rc;
         }
         pluginxx::hostMemorySetString(outPath, path);
-        return MUSICXX_EXTERN_PLUGIN_OK;
+        return PLUGINXX_RESULT_OK;
       });
 }
 
@@ -1790,15 +1790,15 @@ int32_t PLUGINXX_CALL xx_read_broadcast(const PluginxxHost *host,
 int32_t PLUGINXX_CALL xx_kind_register(const PluginxxHost *host,
                                        const PluginxxStringView *spec_json) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         if (!spec_json || !spec_json->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
         if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -1809,7 +1809,7 @@ int32_t PLUGINXX_CALL xx_kind_register(const PluginxxHost *host,
               std::string err;
               const int32_t rc =
                   mgr->registerPluginKind(inst->name, specText, err);
-              if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+              if (rc != PLUGINXX_RESULT_OK) {
                 XX_LOGW("[musicxx_ext] 插件 `{}` 登记插件形态失败: {}",
                         inst->name, err);
               }
@@ -1822,15 +1822,15 @@ int32_t PLUGINXX_CALL xx_kind_register(const PluginxxHost *host,
 int32_t PLUGINXX_CALL xx_kind_unregister(const PluginxxHost *host,
                                          const PluginxxStringView *kind) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         if (!kind || !kind->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
         if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -1848,21 +1848,21 @@ int32_t PLUGINXX_CALL xx_kind_unregister(const PluginxxHost *host,
 int32_t PLUGINXX_CALL xx_kind_list(const PluginxxHost *host,
                                    PluginxxString *out_json) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         if (!out_json) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host, /*allowClosing=*/true);
         if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         const std::string json = pluginxx::ioCallSyncKeep<std::string>(
             call, mgr, [mgr]() { return mgr->kindsJson(); });
         pluginxx::hostMemorySetString(out_json, json);
-        return MUSICXX_EXTERN_PLUGIN_OK;
+        return PLUGINXX_RESULT_OK;
       });
 }
 

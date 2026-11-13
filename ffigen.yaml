@@ -19,6 +19,9 @@ headers:
     - 'src/include/musicxx_extern_plugin_api.h'
   include-directives:
     - '**musicxx_extern_plugin_api.h'
+# 头文件里 include 了返回码表（子模块），给 clang 指一下 include 路径
+compiler-opts:
+  - '-Isrc/third_party/cxx_pluginxx/include'
 functions:
   include:
     - 'musicxx_extern_plugin_.*'

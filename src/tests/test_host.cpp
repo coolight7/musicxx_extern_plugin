@@ -114,7 +114,7 @@ std::string jsonStringField(const std::string &json, const std::string &key);
 /// `musicxx.plugin.call.result` 事件回填。测试里等结果是允许的 ——
 /// 这里是同步测试代码, 等的东西只可能是事件, 不会互锁。
 struct CapabilityCallOutcome {
-  int32_t acceptRc = MUSICXX_EXTERN_PLUGIN_ERR_STATE; ///< 受理码 (0 = 已受理)
+  int32_t acceptRc = PLUGINXX_RESULT_ERR_STATE; ///< 受理码 (0 = 已受理)
   std::string acceptErr;                              ///< 受理失败原因
   int64_t requestId = 0;
   bool gotResult = false; ///< 收到结果事件 (受理成功时一定有)
@@ -330,7 +330,7 @@ CapabilityCallOutcome callCapability(MusicxxExternPluginHost *host,
       host, viewP(id), viewP(method), viewP(argsJson), &requestId, &log);
   outcome.acceptErr = take(log);
   outcome.acceptRc = rc;
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     return outcome; ///< 受理失败: 没有 requestId, 也不会推事件
   }
   outcome.requestId = requestId;
@@ -629,7 +629,7 @@ std::string scanPluginItem(MusicxxExternPluginHost *host,
   const auto rc = musicxx_extern_plugin_plugin_scan(host, &out, &scanLog);
   freeStr(scanLog);
   const std::string json = take(out);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     return {};
   }
   return scanItemOf(json, id);
@@ -799,13 +799,13 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
     MusicxxExternPluginString loadLog{};
     const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 10000, &loadLog);
-    if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (loadRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] 分支加载失败 log=%s\n", take(loadLog).c_str());
       freeStr(loadLog);
     } else {
       freeStr(loadLog);
     }
-    checkText(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "分支里的库文件能真正加载");
+    checkText(loadRc == PLUGINXX_RESULT_OK, "分支里的库文件能真正加载");
     {
       MusicxxExternPluginString listOut{};
       MusicxxExternPluginString listLog{};
@@ -846,7 +846,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
         host, viewP(dir), viewP(os), viewP(arch), &out, &log);
     freeStr(log);
     const std::string json = take(out);
-    return rc == MUSICXX_EXTERN_PLUGIN_OK ? json : std::string{};
+    return rc == PLUGINXX_RESULT_OK ? json : std::string{};
   };
 
   const std::string os = testPlatform();
@@ -876,9 +876,9 @@ void testPluginInspect(MusicxxExternPluginHost *host,
                 info.find("\"kindRequiresPluginAbi\":true") !=
                     std::string::npos,
             "plugin_inspect 报出形态事实：已登记且按 C ABI 编译");
-  checkText(jsonIntField(info, "kindInterfaceVersion") == "7" &&
-                jsonIntField(info, "kindMinInterfaceVersion") == "7",
-            "动态库形态的接口代次对是 C 接口那一对 (7/7)");
+  checkText(jsonIntField(info, "kindInterfaceVersion") == "8" &&
+                jsonIntField(info, "kindMinInterfaceVersion") == "8",
+            "动态库形态的接口代次对是 C 接口那一对 (8/8)");
   checkText(jsonStringField(info, "kindProviderId").empty() &&
                 jsonStringField(info, "kindValidateCapability").empty(),
             "内置形态没有运行器提供者与校验能力");
@@ -1130,7 +1130,7 @@ int main(int argc, char **argv) {
 
   MusicxxExternPluginString log{};
   MusicxxExternPluginString version{};
-  check(musicxx_extern_plugin_version(&version) == MUSICXX_EXTERN_PLUGIN_OK &&
+  check(musicxx_extern_plugin_version(&version) == PLUGINXX_RESULT_OK &&
             version.size > 0,
         "version 可读");
   freeStr(version);
@@ -1169,14 +1169,14 @@ int main(int argc, char **argv) {
   check(host != nullptr, "host_create");
 
   check(musicxx_extern_plugin_host_start(host, &log) ==
-            MUSICXX_EXTERN_PLUGIN_OK,
+            PLUGINXX_RESULT_OK,
         "host_start");
 
   // 扫描
   MusicxxExternPluginString scan{};
   const auto scanRc = musicxx_extern_plugin_plugin_scan(host, &scan, &log);
   const std::string scanJson = take(scan);
-  check(scanRc == MUSICXX_EXTERN_PLUGIN_OK, "plugin_scan 成功");
+  check(scanRc == PLUGINXX_RESULT_OK, "plugin_scan 成功");
   std::printf("  [info] scanJson=%s\n", scanJson.substr(0, 400).c_str());
   // 扫描应同时发现原生与 JS 示例插件 (JS 插件零编译)
   check(scanJson.find("example_native") != std::string::npos,
@@ -1215,21 +1215,21 @@ int main(int argc, char **argv) {
   const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
       host, viewCP("example_native"), viewCP(R"({"enabled":true})"), 10000,
       &log);
-  if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (loadRc != PLUGINXX_RESULT_OK) {
     std::printf("  [info] load rc=%d log=%s\n", loadRc, take(log).c_str());
   }
-  check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "plugin_load_sync 成功");
+  check(loadRc == PLUGINXX_RESULT_OK, "plugin_load_sync 成功");
 
   // 能力处理器数量
   int32_t count = 0;
   check(musicxx_extern_plugin_capability_handler_count(
             host, viewCP("musicxx.player.beforePlaySong"), &count, &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK &&
+                PLUGINXX_RESULT_OK &&
             count == 1,
         "beforePlaySong 处理器数为 1");
   check(musicxx_extern_plugin_capability_handler_count(
             host, viewCP("musicxx.player.completed"), &count, &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK &&
+                PLUGINXX_RESULT_OK &&
             count == 0,
         "未注册能力的处理器数为 0");
 
@@ -1241,24 +1241,24 @@ int main(int argc, char **argv) {
     check(musicxx_extern_plugin_capability_handler_count_phase(
               host, viewCP("musicxx.player.beforePlaySong"),
               MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL, &implCount,
-              &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+              &log) == PLUGINXX_RESULT_OK &&
               implCount == 1,
           "beforePlaySong 的 impl 阶段处理器数为 1");
     check(musicxx_extern_plugin_capability_handler_count_phase(
               host, viewCP("musicxx.player.beforePlaySong"),
               MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE, &beforeCount,
-              &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+              &log) == PLUGINXX_RESULT_OK &&
               beforeCount == 0,
           "beforePlaySong 的 before 阶段处理器数为 0");
     check(musicxx_extern_plugin_capability_handler_count_phase(
               host, viewCP("musicxx.player.beforePlaySong"),
               MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &afterCount,
-              &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+              &log) == PLUGINXX_RESULT_OK &&
               afterCount == 0,
           "beforePlaySong 的 after 阶段处理器数为 0");
     check(musicxx_extern_plugin_capability_handler_count_phase(
               host, viewCP("musicxx.player.beforePlaySong"), 9, &afterCount,
-              &log) == MUSICXX_EXTERN_PLUGIN_ERR_ARG,
+              &log) == PLUGINXX_RESULT_ERR_ARG,
           "非法阶段编号被拒绝");
   }
 
@@ -1268,7 +1268,7 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString capabilityInfoLog{};
     check(musicxx_extern_plugin_capability_handlers(
               host, viewCP("musicxx.player.beforePlaySong"), &out,
-              &capabilityInfoLog) == MUSICXX_EXTERN_PLUGIN_OK,
+              &capabilityInfoLog) == PLUGINXX_RESULT_OK,
           "capability_handlers 可调用");
     const std::string handlers = take(out);
     check(handlers.find("\"phase\":\"impl\"") != std::string::npos,
@@ -1279,7 +1279,7 @@ int main(int argc, char **argv) {
     check(musicxx_extern_plugin_capability_handlers_phase(
               host, viewCP("musicxx.player.beforePlaySong"),
               MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &phaseOut,
-              &phaseLog) == MUSICXX_EXTERN_PLUGIN_OK,
+              &phaseLog) == PLUGINXX_RESULT_OK,
           "capability_handlers_phase 可调用");
     const std::string afterHandlers = take(phaseOut);
     check(afterHandlers.find("\"count\":0") != std::string::npos,
@@ -1296,7 +1296,7 @@ int main(int argc, char **argv) {
         MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL, viewP(payload),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
     const std::string result = take(out);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK,
+    check(rc == PLUGINXX_RESULT_OK,
           "capability_dispatch_phase(impl) 返回成功");
     check(result.find("\"skip\"") != std::string::npos,
           "impl 阶段与旧符号行为一致 (skip)");
@@ -1307,7 +1307,7 @@ int main(int argc, char **argv) {
         MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE, viewP(payload),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &beforeOut, &log);
     const std::string beforeResult = take(beforeOut);
-    check(rcBefore == MUSICXX_EXTERN_PLUGIN_OK &&
+    check(rcBefore == PLUGINXX_RESULT_OK &&
               beforeResult.find("\"handled\":false") != std::string::npos,
           "没有 before 处理器时不派发");
 
@@ -1315,7 +1315,7 @@ int main(int argc, char **argv) {
     check(musicxx_extern_plugin_capability_dispatch_phase(
               host, viewCP("musicxx.player.beforePlaySong"), 7, viewP(payload),
               MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &badOut,
-              &log) == MUSICXX_EXTERN_PLUGIN_ERR_ARG,
+              &log) == PLUGINXX_RESULT_ERR_ARG,
           "非法阶段派发被拒绝");
     freeStr(badOut);
   }
@@ -1324,8 +1324,8 @@ int main(int argc, char **argv) {
   {
     const PolledEvents pumped = pollEvents(host, 200);
     const std::string eventsJson = pumped.json;
-    check(pumped.rc == MUSICXX_EXTERN_PLUGIN_OK ||
-              pumped.rc == MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
+    check(pumped.rc == PLUGINXX_RESULT_OK ||
+              pumped.rc == PLUGINXX_RESULT_ERR_TIMEOUT,
           "poll_events 可调用");
     check(eventsJson.find("musicxx.plugin.loaded") != std::string::npos ||
               eventsJson.find("musicxx.host.ready") != std::string::npos,
@@ -1347,7 +1347,7 @@ int main(int argc, char **argv) {
         host, viewCP("musicxx.player.beforePlaySong"), viewP(payload),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
     const std::string result = take(out);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK, "capability_dispatch(sync) 返回成功");
+    check(rc == PLUGINXX_RESULT_OK, "capability_dispatch(sync) 返回成功");
     check(result.find("\"skip\"") != std::string::npos,
           "广告曲目被裁决为 skip");
   }
@@ -1361,7 +1361,7 @@ int main(int argc, char **argv) {
         host, viewCP("musicxx.player.beforePlaySong"), viewP(payload),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
     const std::string result = take(out);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK,
+    check(rc == PLUGINXX_RESULT_OK,
           "capability_dispatch(sync) 普通曲目成功");
     check(result.find("\"skip\"") == std::string::npos, "普通曲目无 skip 裁决");
   }
@@ -1374,7 +1374,7 @@ int main(int argc, char **argv) {
         host, viewCP("musicxx.song.changed"), viewP(payload),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_ASYNC, 0, &out, &log);
     freeStr(out);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK,
+    check(rc == PLUGINXX_RESULT_OK,
           "capability_dispatch(async) 入队成功");
   }
 
@@ -1387,7 +1387,7 @@ int main(int argc, char **argv) {
         host, viewCP("musicxx.player.beforePlaySong"), viewP(payload),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_ASYNC, 200, &out, &log);
     const std::string ack = take(out);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK, "裁决型能力异步派发返回成功");
+    check(rc == PLUGINXX_RESULT_OK, "裁决型能力异步派发返回成功");
     check(ack.find("\"async\":true") != std::string::npos,
           "异步派发确认 async=true");
     const std::string callId = jsonIntField(ack, "callId");
@@ -1400,7 +1400,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 50 && !seen; ++i) {
       std::this_thread::sleep_for(std::chrono::milliseconds{20});
       const PolledEvents pumped = pollEvents(host, 500);
-      if (pumped.rc == MUSICXX_EXTERN_PLUGIN_OK) {
+      if (pumped.rc == PLUGINXX_RESULT_OK) {
         eventsJson += pumped.json;
       }
       seen = eventsJson.find("musicxx.capability.decision.result") !=
@@ -1425,7 +1425,7 @@ int main(int argc, char **argv) {
         viewCP(R"({"sid":"s5","song":{"name":"普通歌曲"}})"),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_ASYNC, 200, &out2, &log);
     const std::string ack2 = take(out2);
-    check(rc2 == MUSICXX_EXTERN_PLUGIN_OK, "异步派发普通曲目成功");
+    check(rc2 == PLUGINXX_RESULT_OK, "异步派发普通曲目成功");
     check(ack2.find("\"callId\"") != std::string::npos,
           "异步派发每次都分配 callId");
   }
@@ -1437,7 +1437,7 @@ int main(int argc, char **argv) {
         host, viewCP("musicxx.plugin.unknownCapability"), viewCP("{}"),
         MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 50, &out, &log);
     const std::string result = take(out);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK, "未知能力派发不报错");
+    check(rc == PLUGINXX_RESULT_OK, "未知能力派发不报错");
     check(result.find("\"handled\":false") != std::string::npos,
           "未知能力无处理器");
   }
@@ -1447,11 +1447,11 @@ int main(int argc, char **argv) {
     const std::string key = "musicxx.state.song";
     const std::string val = R"({"sid":"s1","name":"镜像歌曲"})";
     check(musicxx_extern_plugin_broadcast_publish(
-              host, viewP(key), viewP(val), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+              host, viewP(key), viewP(val), &log) == PLUGINXX_RESULT_OK,
           "broadcast_publish 成功");
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
-              MUSICXX_EXTERN_PLUGIN_OK,
+              PLUGINXX_RESULT_OK,
           "plugin_list 成功");
     const std::string listJson = take(listed);
     check(listJson.find("example_native") != std::string::npos,
@@ -1472,7 +1472,7 @@ int main(int argc, char **argv) {
     {
       const CapabilityCallOutcome outcome = callCapability(
           host, "example_native", "plugin.example_native.probe", "{}", 8000);
-      check(outcome.acceptRc == MUSICXX_EXTERN_PLUGIN_OK,
+      check(outcome.acceptRc == PLUGINXX_RESULT_OK,
             "能力调用受理成功 (返回 requestId)");
       check(outcome.requestId > 0, "受理成功给出非零 requestId");
       check(outcome.gotResult, "结果事件按 requestId 回传");
@@ -1487,7 +1487,7 @@ int main(int argc, char **argv) {
     {
       const CapabilityCallOutcome gone = callCapability(
           host, "example_native", "noSuchCapability", "{}", 1500);
-      check(gone.acceptRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
+      check(gone.acceptRc == PLUGINXX_RESULT_ERR_NOT_FOUND,
             "未声明能力: 受理阶段返回未找到");
       check(!gone.gotResult, "受理失败不推结果事件");
     }
@@ -1497,7 +1497,7 @@ int main(int argc, char **argv) {
   {
     MusicxxExternPluginString stats{};
     check(musicxx_extern_plugin_stats(host, nullptr, &stats, &log) ==
-              MUSICXX_EXTERN_PLUGIN_OK,
+              PLUGINXX_RESULT_OK,
           "stats 可读");
     const std::string statsJson = take(stats);
     check(statsJson.find("example_native") != std::string::npos,
@@ -1520,7 +1520,7 @@ int main(int argc, char **argv) {
     // 没有"暂停派发"这个概念)
     MusicxxExternPluginString statsOut{};
     check(musicxx_extern_plugin_capability_stats(host, &statsOut, &log) ==
-              MUSICXX_EXTERN_PLUGIN_OK,
+              PLUGINXX_RESULT_OK,
           "capability_stats 可读");
     const std::string capabilityStatsJson = take(statsOut);
     check(capabilityStatsJson.find("\"failures\":") != std::string::npos,
@@ -1533,7 +1533,7 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString info{};
     const auto infoRc = musicxx_extern_plugin_debug_info(host, &info, &log);
     const std::string infoJson = take(info);
-    check(infoRc == MUSICXX_EXTERN_PLUGIN_OK, "debug_info 可读");
+    check(infoRc == PLUGINXX_RESULT_OK, "debug_info 可读");
 
     // 架构标识: 上报给插件的 `arch` 必须是规范名, 而且与"选分支/判清单 arch
     // 用的架构" 是同一个名字 (32 位 ARM 上曾经报 unknown, 于是 armeabi-v7a
@@ -1553,20 +1553,20 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString pubLog{};
     const auto pubRc = musicxx_extern_plugin_broadcast_publish(
         host, viewCP("musicxx.test.ping"), viewCP(R"({"n":1})"), &pubLog);
-    check(pubRc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_publish 合法主题成功");
+    check(pubRc == PLUGINXX_RESULT_OK, "broadcast_publish 合法主题成功");
     freeStr(pubLog);
 
     MusicxxExternPluginString badPubLog{};
     const auto badPubRc = musicxx_extern_plugin_broadcast_publish(
         host, viewCP("foo.bar"), viewCP("{}"), &badPubLog);
-    check(badPubRc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION,
+    check(badPubRc == PLUGINXX_RESULT_ERR_PERMISSION,
           "broadcast_publish 非法主题被拒绝");
     freeStr(badPubLog);
 
     const CapabilityCallOutcome probeCall = callCapability(
         host, "example_native", "plugin.example_native.probe", "{}", 8000);
     const std::string probe = probeCall.payload;
-    check(probeCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && probeCall.ok,
+    check(probeCall.acceptRc == PLUGINXX_RESULT_OK && probeCall.ok,
           "plugin_call(probe) 成功 (异步受理 + 结果事件)");
     std::printf("  [info] plugin_call requestId=%lld ms=%lld\n",
                 static_cast<long long>(probeCall.requestId),
@@ -1583,7 +1583,7 @@ int main(int argc, char **argv) {
           host, "example_native", "plugin.example_native.probe",
           R"({"streamEndCheck":1})", 8000);
       const std::string result = endCall.payload;
-      check(endCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && endCall.ok,
+      check(endCall.acceptRc == PLUGINXX_RESULT_OK && endCall.ok,
             "plugin_call(probe, streamEndCheck) 成功");
       check(jsonIntField(result, "streamEndSubRc") == "0",
             "带结束回调订阅成功 (rc=0)");
@@ -1597,14 +1597,15 @@ int main(int argc, char **argv) {
             "结束回调恰好一次");
       check(jsonIntField(result, "streamEndReasonOk") == "1",
             "结束回调拿到 reason JSON");
-      check(jsonIntField(result, "streamEndPublishAfterRc") == "-5",
-            "流结束之后再发布返回 ERR_ENDED (-5)");
+      check(jsonIntField(result, "streamEndPublishAfterRc") ==
+                std::to_string(PLUGINXX_RESULT_ERR_ENDED),
+            "流结束之后再发布返回 ended");
     }
 
     // 插件框架按本插件的形态报接口代次：动态库插件看到插件 ABI 代次（7），
     // 与 JS 插件的 JS 接口代次（3）是两套编号
-    check(jsonIntField(probe, "hostApiVersion") == "7",
-          "动态库插件看到的接口代次是插件 ABI 代次 7");
+    check(jsonIntField(probe, "hostApiVersion") == "8",
+          "动态库插件看到的接口代次是插件 ABI 代次 8");
 
     // ==================== 声明式 UI 扩展 (动态库插件)
     // ====================
@@ -1630,7 +1631,7 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
       const std::string snapshot = take(snap);
-      check(snapRc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 成功");
+      check(snapRc == PLUGINXX_RESULT_OK, "ui_snapshot 成功");
       check(snapshot.find("plugin.example_native.card") != std::string::npos,
             "快照含主页入口项");
       check(snapshot.find("plugin.example_native.songInfo") !=
@@ -1662,8 +1663,9 @@ int main(int argc, char **argv) {
           "插件代码全部在插件框架线程执行");
 
     // 能力 / 事件命名空间校验 (官方 id 归应用: 应用没声明的不能注册)
-    check(jsonIntField(probe, "unknownCapabilityRc") == "-2",
-          "应用没声明的官方能力注册被拒绝");
+    check(jsonIntField(probe, "unknownCapabilityRc") ==
+              std::to_string(PLUGINXX_RESULT_ERR_NOT_DECLARED),
+          "应用没声明的官方能力注册被拒绝（not_declared）");
     check(jsonIntField(probe, "foreignActionRc") == "-1",
           "没声明过的动作名（能力）被拒绝");
     check(jsonIntField(probe, "dupImplementRc") == "0",
@@ -1691,7 +1693,7 @@ int main(int argc, char **argv) {
     const CapabilityCallOutcome neverRespond = callCapability(
         host, "example_native", "probe",
         R"({"appCapabilityCall":"musicxx.test.neverRespond"})", 8000);
-    check(neverRespond.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && neverRespond.ok,
+    check(neverRespond.acceptRc == PLUGINXX_RESULT_OK && neverRespond.ok,
           "probe 触发插件动作请求成功");
 
     // 动作超时: 插件给的时间就是生效的超时 (不再钳制区间);
@@ -1700,8 +1702,8 @@ int main(int argc, char **argv) {
 
     const PolledEvents events = pollEvents(host, 500);
     const std::string eventsJson = events.json;
-    check(events.rc == MUSICXX_EXTERN_PLUGIN_OK ||
-              events.rc == MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
+    check(events.rc == PLUGINXX_RESULT_OK ||
+              events.rc == PLUGINXX_RESULT_ERR_TIMEOUT,
           "poll_events 可调用");
     check(eventsJson.find("musicxx.capability.app.request") !=
               std::string::npos,
@@ -1712,7 +1714,7 @@ int main(int argc, char **argv) {
     const CapabilityCallOutcome probeAgain =
         callCapability(host, "example_native", "probe", "{}", 8000);
     const std::string probe2 = probeAgain.payload;
-    check(probeAgain.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && probeAgain.ok,
+    check(probeAgain.acceptRc == PLUGINXX_RESULT_OK && probeAgain.ok,
           "超时后探针可读");
     // PLUGINXX_OPERATOR_CANCELED == 1: 超时按取消终结,
     // 插件侧收到恰好一次完成通知
@@ -1724,13 +1726,13 @@ int main(int argc, char **argv) {
   {
     const CapabilityCallOutcome notLoaded =
         callCapability(host, "no_such_plugin", "probe", "{}", 2000);
-    check(notLoaded.acceptRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
+    check(notLoaded.acceptRc == PLUGINXX_RESULT_ERR_NOT_FOUND,
           "plugin_call 未加载插件返回未找到 (受理阶段, 不推事件)");
     check(notLoaded.gotResult == false, "受理失败不推结果事件");
 
     const CapabilityCallOutcome noCapability =
         callCapability(host, "example_native", "noSuchCapability", "{}", 2000);
-    check(noCapability.acceptRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
+    check(noCapability.acceptRc == PLUGINXX_RESULT_ERR_NOT_FOUND,
           "plugin_call 未声明能力返回未找到");
     check(noCapability.gotResult == false, "未声明能力也不推结果事件");
   }
@@ -1742,8 +1744,8 @@ int main(int argc, char **argv) {
         host, viewCP("definitely_missing_plugin"), viewCP("{}"), 3000,
         &loadLog);
     const std::string loadErr = take(loadLog);
-    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "加载不存在的插件返回失败");
-    check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
+    check(rc != PLUGINXX_RESULT_OK, "加载不存在的插件返回失败");
+    check(rc != PLUGINXX_RESULT_ERR_TIMEOUT,
           "失败是明确失败而非挂住超时");
     check(!loadErr.empty(), "失败原因有可读文本");
     std::printf("  [info] load-fail rc=%d log=%s\n", rc, loadErr.c_str());
@@ -1752,12 +1754,12 @@ int main(int argc, char **argv) {
     const auto rc2 = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("definitely_missing_plugin"), viewCP("{}"), 3000, &again);
     take(again);
-    check(rc2 != MUSICXX_EXTERN_PLUGIN_OK, "失败后不会静默重试成功");
+    check(rc2 != PLUGINXX_RESULT_OK, "失败后不会静默重试成功");
 
     // 插件框架仍可正常工作
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
-                  MUSICXX_EXTERN_PLUGIN_OK &&
+                  PLUGINXX_RESULT_OK &&
               take(listed).find("example_native") != std::string::npos,
           "加载失败后插件框架仍可用");
   }
@@ -1765,7 +1767,7 @@ int main(int argc, char **argv) {
   // 禁用 → 能力摘除, 启用 → 重新注册
   {
     check(musicxx_extern_plugin_plugin_disable(
-              host, viewCP("example_native"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+              host, viewCP("example_native"), &log) == PLUGINXX_RESULT_OK,
           "plugin_disable 成功");
     int32_t afterDisable = 0;
     musicxx_extern_plugin_capability_handler_count(
@@ -1776,7 +1778,7 @@ int main(int argc, char **argv) {
   // 卸载
   {
     check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
-                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                                              &log) == PLUGINXX_RESULT_OK,
           "plugin_unload 成功");
     int32_t after = 0;
     musicxx_extern_plugin_capability_handler_count(
@@ -1784,12 +1786,12 @@ int main(int argc, char **argv) {
     check(after == 0, "卸载后无能力残留");
     // 幂等: 重复卸载视为已达目标状态 (Dart 侧状态不同步/重复点击都会走到这里)
     check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
-                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                                              &log) == PLUGINXX_RESULT_OK,
           "重复卸载幂等成功");
     // 卸载后能力调用应受理失败 (注册已随实例摘除)
     const CapabilityCallOutcome afterUnload =
         callCapability(host, "example_native", "probe", "{}", 2000);
-    check(afterUnload.acceptRc != MUSICXX_EXTERN_PLUGIN_OK,
+    check(afterUnload.acceptRc != PLUGINXX_RESULT_OK,
           "卸载后能力调用失败");
   }
 
@@ -1801,13 +1803,13 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString reloadLog{};
     const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 10000, &reloadLog);
-    if (reloadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (reloadRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] 终局用例加载 rc=%d log=%s\n", reloadRc,
                   take(reloadLog).c_str());
     } else {
       freeStr(reloadLog);
     }
-    check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为终局用例加载动态库插件");
+    check(reloadRc == PLUGINXX_RESULT_OK, "为终局用例加载动态库插件");
 
     // 让插件发起一个"永远不回复"的主程序动作请求, 把这通能力调用卡住
     MusicxxExternPluginString callLog{};
@@ -1816,7 +1818,7 @@ int main(int argc, char **argv) {
         host, viewCP("example_native"), viewCP("asyncProbe"),
         viewCP(R"({"waitMs":1200})"), &requestId, &callLog);
     freeStr(callLog);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步完成的能力已受理 (协程挂起中)");
+    check(rc == PLUGINXX_RESULT_OK, "异步完成的能力已受理 (协程挂起中)");
     check(requestId > 0, "异步能力拿到 requestId");
 
     // 协程还在睡: 插件框架线程是空闲的,
@@ -1826,7 +1828,7 @@ int main(int argc, char **argv) {
     const auto unloadRc = musicxx_extern_plugin_plugin_unload(
         host, viewCP("example_native"), &unloadLog);
     freeStr(unloadLog);
-    check(unloadRc == MUSICXX_EXTERN_PLUGIN_OK, "卸载异步完成的能力所在插件");
+    check(unloadRc == PLUGINXX_RESULT_OK, "卸载异步完成的能力所在插件");
 
     // 卸载先给这通调用一个终局: 事件里 error 说的是 plugin_unloaded
     const std::string unloadPayload =
@@ -1849,18 +1851,18 @@ int main(int argc, char **argv) {
     const auto jsLoadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_js"), viewCP(R"({"enabled":true})"), 15000,
         &loadLog);
-    if (jsLoadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (jsLoadRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] js load rc=%d log=%s\n", jsLoadRc,
                   take(loadLog).c_str());
     } else {
       freeStr(loadLog);
     }
-    check(jsLoadRc == MUSICXX_EXTERN_PLUGIN_OK, "JS 插件加载成功 (example_js)");
+    check(jsLoadRc == PLUGINXX_RESULT_OK, "JS 插件加载成功 (example_js)");
 
     int32_t jsImplementationCount = 0;
     check(musicxx_extern_plugin_capability_handler_count(
               host, viewCP("musicxx.player.beforePlaySong"),
-              &jsImplementationCount, &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+              &jsImplementationCount, &log) == PLUGINXX_RESULT_OK &&
               jsImplementationCount == 1,
           "JS 能力处理器已注册 (beforePlaySong = 1)");
 
@@ -1873,7 +1875,7 @@ int main(int argc, char **argv) {
           host, viewCP("musicxx.player.beforePlaySong"), viewP(payload),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 能力派发返回成功");
+      check(rc == PLUGINXX_RESULT_OK, "JS 能力派发返回成功");
       check(result.find("\"skip\"") != std::string::npos,
             "JS 裁决: 广告曲目 skip");
     }
@@ -1887,7 +1889,7 @@ int main(int argc, char **argv) {
           host, viewCP("musicxx.player.beforePlaySong"), viewP(payload),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 能力 (普通曲目) 派发成功");
+      check(rc == PLUGINXX_RESULT_OK, "JS 能力 (普通曲目) 派发成功");
       check(result.find("\"skip\"") == std::string::npos,
             "JS 裁决: 普通曲目无 skip");
     }
@@ -1901,7 +1903,7 @@ int main(int argc, char **argv) {
           host, viewCP("musicxx.player.error"), viewP(payload),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "JS 错误能力派发成功");
+      check(rc == PLUGINXX_RESULT_OK, "JS 错误能力派发成功");
       check(result.find("tryNextSrc") != std::string::npos,
             "JS 裁决: 首个错误建议换源");
     }
@@ -1915,7 +1917,7 @@ int main(int argc, char **argv) {
           R"({"sid":"js4","song":{"name":"观察目标 JS"}})";
       const auto rc = musicxx_extern_plugin_broadcast_publish(
           host, viewCP("musicxx.song.changed"), viewP(payload), &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "切歌广播发布成功");
+      check(rc == PLUGINXX_RESULT_OK, "切歌广播发布成功");
 
       // 等 JS 线程执行完 (含脚本定时器 50ms)
       std::this_thread::sleep_for(std::chrono::milliseconds{500});
@@ -1931,7 +1933,7 @@ int main(int argc, char **argv) {
       const CapabilityCallOutcome probeCall =
           callCapability(host, "example_js", "probe", "{}", 8000);
       const std::string probe = probeCall.payload;
-      check(probeCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && probeCall.ok,
+      check(probeCall.acceptRc == PLUGINXX_RESULT_OK && probeCall.ok,
             "JS 能力调用成功 (probe)");
       check(jsonStringField(probe, "pluginId") == "example_js",
             "JS 能力读到插件 id");
@@ -1966,7 +1968,7 @@ int main(int argc, char **argv) {
           callCapability(host, "example_js", "probe",
                          R"({"streamEndCheck":1})", 8000);
       const std::string result = trigger.payload;
-      check(trigger.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && trigger.ok,
+      check(trigger.acceptRc == PLUGINXX_RESULT_OK && trigger.ok,
             "JS probe(streamEndCheck) 成功");
       check(jsonIntField(result, "streamEndSubscribed") == "1",
             "JS 带结束回调订阅成功");
@@ -1980,7 +1982,7 @@ int main(int argc, char **argv) {
       const CapabilityCallOutcome after =
           callCapability(host, "example_js", "probe", "{}", 8000);
       const std::string state = after.payload;
-      check(after.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && after.ok,
+      check(after.acceptRc == PLUGINXX_RESULT_OK && after.ok,
             "JS probe() 二次读取成功");
       check(jsonIntField(state, "streamEndValues") == "1",
             "JS 订阅在结束前收到发布的值");
@@ -1995,7 +1997,7 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString snap{};
       const auto rc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
       const std::string snapshot = take(snap);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 可读 (含 JS 项)");
+      check(rc == PLUGINXX_RESULT_OK, "ui_snapshot 可读 (含 JS 项)");
       check(snapshot.find("plugin.example_js.card") != std::string::npos,
             "JS 插件的主页入口项进入快照");
       check(snapshot.find("plugin.example_js.songInfo") != std::string::npos,
@@ -2016,7 +2018,7 @@ int main(int argc, char **argv) {
       const CapabilityCallOutcome settingsCall = callCapability(
           host, "example_js", "settings", R"({"view":"settings"})", 8000);
       const std::string view = settingsCall.payload;
-      check(settingsCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(settingsCall.acceptRc == PLUGINXX_RESULT_OK &&
                 settingsCall.ok,
             "设置界面能力调用成功 (插件自绘页面)");
       check(view.find("\"blocks\"") != std::string::npos,
@@ -2032,19 +2034,19 @@ int main(int argc, char **argv) {
       const auto shaderLoadRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP("example_js_shader"), viewCP(R"({"enabled":true})"),
           8000, &loadLog);
-      if (shaderLoadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      if (shaderLoadRc != PLUGINXX_RESULT_OK) {
         std::printf("  [info] shader js load rc=%d log=%s\n", shaderLoadRc,
                     take(loadLog).c_str());
       } else {
         freeStr(loadLog);
       }
-      check(shaderLoadRc == MUSICXX_EXTERN_PLUGIN_OK,
+      check(shaderLoadRc == PLUGINXX_RESULT_OK,
             "背景示例插件加载成功 (example_js_shader)");
 
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
       const std::string snapshot = take(snap);
-      check(snapRc == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(snapRc == PLUGINXX_RESULT_OK &&
                 snapshot.find("plugin.example_js_shader.bg") !=
                     std::string::npos &&
                 snapshot.find("musicxx.ui.playing.background") !=
@@ -2059,7 +2061,7 @@ int main(int argc, char **argv) {
       const CapabilityCallOutcome beforeCall =
           callCapability(host, "example_js_shader", "settings", "{}", 8000);
       const std::string beforeView = beforeCall.payload;
-      check(beforeCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && beforeCall.ok &&
+      check(beforeCall.acceptRc == PLUGINXX_RESULT_OK && beforeCall.ok &&
                 beforeView.find("背景动画速率") != std::string::npos,
             "背景示例的设置页含『背景动画速率』设置项");
       const std::string beforeRate = jsonFirstRateText(beforeView);
@@ -2069,7 +2071,7 @@ int main(int argc, char **argv) {
                          R"({"view":"settings"})", 8000);
       const std::string cycleView = cycleCall.payload;
       const std::string afterRate = jsonFirstRateText(cycleView);
-      check(cycleCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && cycleCall.ok,
+      check(cycleCall.acceptRc == PLUGINXX_RESULT_OK && cycleCall.ok,
             "切换背景动画速率的能力可调用");
       check(!beforeRate.empty() && !afterRate.empty() &&
                 beforeRate != afterRate,
@@ -2078,13 +2080,13 @@ int main(int argc, char **argv) {
       // 卸载 → UI 项摘除
       check(
           musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_shader"),
-                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                                              &log) == PLUGINXX_RESULT_OK,
           "卸载背景示例插件");
       MusicxxExternPluginString after{};
       const auto afterRc =
           musicxx_extern_plugin_ui_snapshot(host, &after, &log);
       const std::string afterSnapshot = take(after);
-      check(afterRc == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(afterRc == PLUGINXX_RESULT_OK &&
                 afterSnapshot.find("plugin.example_js_shader.bg") ==
                     std::string::npos,
             "卸载后背景示例的 UI 项无残留");
@@ -2101,13 +2103,13 @@ int main(int argc, char **argv) {
       const auto netLoadRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP("example_js_net"), viewCP(R"({"enabled":true})"), 8000,
           &netLoadLog);
-      if (netLoadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      if (netLoadRc != PLUGINXX_RESULT_OK) {
         std::printf("  [info] net example load rc=%d log=%s\n", netLoadRc,
                     take(netLoadLog).c_str());
       } else {
         freeStr(netLoadLog);
       }
-      check(netLoadRc == MUSICXX_EXTERN_PLUGIN_OK,
+      check(netLoadRc == PLUGINXX_RESULT_OK,
             "网络示例插件加载成功 (example_js_net)");
 
       const CapabilityCallOutcome selfTest =
@@ -2116,14 +2118,14 @@ int main(int argc, char **argv) {
         std::printf("  [info] net selftest rc=%d payload=%s\n",
                     selfTest.acceptRc, selfTest.payload.c_str());
       }
-      check(selfTest.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && selfTest.ok &&
+      check(selfTest.acceptRc == PLUGINXX_RESULT_OK && selfTest.ok &&
                 selfTest.payload.find("\"ok\":true") != std::string::npos,
             "网络能力自检通过 (HTTP 服务/客户端、静态路由与 "
             "Range、TCP、WebSocket、UDP)");
 
       check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_net"),
                                                 &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "卸载网络示例插件");
     }
 
@@ -2136,18 +2138,18 @@ int main(int argc, char **argv) {
       const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP("example_js_multi_script"), viewCP("{}"), 8000,
           &loadLog);
-      if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      if (loadRc != PLUGINXX_RESULT_OK) {
         std::printf("  [info] example_js_multi_script load rc=%d log=%s\n",
                     loadRc, take(loadLog).c_str());
       } else {
         freeStr(loadLog);
       }
-      check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多脚本插件加载成功");
+      check(loadRc == PLUGINXX_RESULT_OK, "多脚本插件加载成功");
 
       const CapabilityCallOutcome multiProbe =
           callCapability(host, "example_js_multi_script", "probe", "{}", 8000);
       const std::string probe = multiProbe.payload;
-      check(multiProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && multiProbe.ok,
+      check(multiProbe.acceptRc == PLUGINXX_RESULT_OK && multiProbe.ok,
             "多脚本插件的能力可调用");
       check(jsonStringField(probe, "marker") == "kit-loaded",
             "脚本按 scripts 顺序执行 (前一个脚本的全局量在后一个里可见)");
@@ -2158,7 +2160,7 @@ int main(int argc, char **argv) {
 
       check(musicxx_extern_plugin_plugin_unload(
                 host, viewCP("example_js_multi_script"), &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "多脚本插件卸载成功");
     }
 
@@ -2171,13 +2173,13 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString loadLog{};
       const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP("example_js_net"), viewCP("{}"), 8000, &loadLog);
-      if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      if (loadRc != PLUGINXX_RESULT_OK) {
         std::printf("  [info] example_js_net load rc=%d log=%s\n", loadRc,
                     take(loadLog).c_str());
       } else {
         freeStr(loadLog);
       }
-      check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "网络示例插件加载成功");
+      check(loadRc == PLUGINXX_RESULT_OK, "网络示例插件加载成功");
 
       // 插件载入 1.5 s 后会自动跑一遍; 这里主动调一次（同一时间只跑一份，
       // 不会互相抢固定的服务 id）。
@@ -2185,7 +2187,7 @@ int main(int argc, char **argv) {
           callCapability(host, "example_js_net", "selftest", "{}", 20000);
       const std::string report = netTest.payload;
       std::printf("  [info] example_js_net selftest=%s\n", report.c_str());
-      check(netTest.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && netTest.ok,
+      check(netTest.acceptRc == PLUGINXX_RESULT_OK && netTest.ok,
             "网络示例的自检能力可调用");
       check(jsonRawField(report, "ok") == "true",
             "网络示例自检通过 (HTTP / TCP / WebSocket 客户端 + 服务端)");
@@ -2218,7 +2220,7 @@ int main(int argc, char **argv) {
       // 自省: 自检结束会主动关掉服务与连接
       const CapabilityCallOutcome netInfo =
           callCapability(host, "example_js_net", "info", "{}", 8000);
-      check(netInfo.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && netInfo.ok,
+      check(netInfo.acceptRc == PLUGINXX_RESULT_OK && netInfo.ok,
             "网络自省能力可调用");
       check(netInfo.payload.find("\"connections\":[]") != std::string::npos,
             "自检结束后没有残留连接");
@@ -2245,7 +2247,7 @@ int main(int argc, char **argv) {
           std::printf("  [info] https selftest=%s\n",
                       httpsTest.payload.c_str());
           check(
-              httpsTest.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && httpsTest.ok &&
+              httpsTest.acceptRc == PLUGINXX_RESULT_OK && httpsTest.ok &&
                   httpsTest.payload.find("\"https\":{") != std::string::npos &&
                   httpsTest.payload.find("\"status\":200") != std::string::npos,
               "https 客户端能完成 TLS 握手并拿到 200 (证书链与主机名校验通过)");
@@ -2254,7 +2256,7 @@ int main(int argc, char **argv) {
 
       check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_net"),
                                                 &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "网络示例插件卸载成功");
     }
 
@@ -2268,14 +2270,14 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString reloadLog{};
       const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP("example_native"), viewCP("{}"), 8000, &reloadLog);
-      check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK,
+      check(reloadRc == PLUGINXX_RESULT_OK,
             "临时加载动态库插件 (跨插件调用被调用方)");
 
       const CapabilityCallOutcome crossCall = callCapability(
           host, "example_js", "crossCall",
           R"({"target":"example_native","method":"probe"})", 8000);
       const std::string callJson = crossCall.payload;
-      check(crossCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && crossCall.ok,
+      check(crossCall.acceptRc == PLUGINXX_RESULT_OK && crossCall.ok,
             "触发跨插件调用 (JS → 原生)");
       check(jsonIntField(callJson, "accepted") == "1", "跨插件调用被受理");
 
@@ -2284,7 +2286,7 @@ int main(int argc, char **argv) {
       const CapabilityCallOutcome probe3Call =
           callCapability(host, "example_js", "probe", "{}", 8000);
       const std::string probe3Json = probe3Call.payload;
-      check(probe3Call.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && probe3Call.ok,
+      check(probe3Call.acceptRc == PLUGINXX_RESULT_OK && probe3Call.ok,
             "回读跨插件调用结果");
       check(jsonIntField(probe3Json, "crossPending") == "0",
             "跨插件调用已结束 (无挂起)");
@@ -2301,13 +2303,13 @@ int main(int argc, char **argv) {
           host, "example_js", "crossCall",
           R"({"target":"example_js","method":"slowProbe","args":{"waitMs":120}})",
           8000);
-      check(jsToJs.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && jsToJs.ok,
+      check(jsToJs.acceptRc == PLUGINXX_RESULT_OK && jsToJs.ok,
             "触发跨插件调用 (JS → JS 的异步能力)");
       std::this_thread::sleep_for(std::chrono::milliseconds{600});
       const CapabilityCallOutcome probe4Call =
           callCapability(host, "example_js", "probe", "{}", 8000);
       const std::string probe4Json = probe4Call.payload;
-      check(probe4Call.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && probe4Call.ok,
+      check(probe4Call.acceptRc == PLUGINXX_RESULT_OK && probe4Call.ok,
             "回读 JS → JS 异步能力的调用结果");
       if (jsonIntField(probe4Json, "crossOk") != "1") {
         std::printf("  [info] js->js cross error=%s\n",
@@ -2320,7 +2322,7 @@ int main(int argc, char **argv) {
 
       check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
                                                 &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "卸载临时加载的动态库插件");
     }
 
@@ -2337,7 +2339,7 @@ int main(int argc, char **argv) {
       // 1) JS 示例声明并实现了 `plugin.example_js.beat`
       const CapabilityCallOutcome featureProbe =
           callCapability(host, "example_js", "featureProbe", "{}", 8000);
-      check(featureProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(featureProbe.acceptRc == PLUGINXX_RESULT_OK &&
                 featureProbe.ok,
             "功能埋点示例能力可调用 (featureProbe)");
       std::printf("  [info] featureProbe=%s\n", featureProbe.payload.c_str());
@@ -2351,7 +2353,7 @@ int main(int argc, char **argv) {
         const auto rc = musicxx_extern_plugin_capability_handlers(
             host, viewCP("musicxx.feature.point.call"), &out, &log);
         const std::string json = take(out);
-        check(rc == MUSICXX_EXTERN_PLUGIN_OK,
+        check(rc == PLUGINXX_RESULT_OK,
               "通用通道能力存在 (插件注册处理器不是 ERR_NOT_FOUND)");
         check(jsonIntField(json, "count") != "0",
               "通用通道上有处理器 (示例插件登记了实现)");
@@ -2394,7 +2396,7 @@ int main(int argc, char **argv) {
       {
         const CapabilityCallOutcome unprovide =
             callCapability(host, "example_js", "featureUnprovide", "{}", 8000);
-        check(unprovide.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && unprovide.ok,
+        check(unprovide.acceptRc == PLUGINXX_RESULT_OK && unprovide.ok,
               "示例插件能摘除自己的实现");
         const std::string ack = dispatchCapabilitySync(
             host, "musicxx.feature.point.call",
@@ -2410,12 +2412,12 @@ int main(int argc, char **argv) {
         const auto nativeRc = musicxx_extern_plugin_plugin_load_sync(
             host, viewCP("example_native"), viewCP("{}"), 8000, &nativeLog);
         freeStr(nativeLog);
-        check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK,
+        check(nativeRc == PLUGINXX_RESULT_OK,
               "加载动态库插件 (native 糖用例)");
 
         const CapabilityCallOutcome nativeProbe = callCapability(
             host, "example_native", "plugin.example_native.probe", "{}", 8000);
-        check(nativeProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK &&
+        check(nativeProbe.acceptRc == PLUGINXX_RESULT_OK &&
                   nativeProbe.ok,
               "动态库插件的探针可读");
         check(jsonStringField(nativeProbe.payload, "featurePointId") ==
@@ -2451,7 +2453,7 @@ int main(int argc, char **argv) {
 
         check(musicxx_extern_plugin_plugin_unload(
                   host, viewCP("example_native"), &log) ==
-                  MUSICXX_EXTERN_PLUGIN_OK,
+                  PLUGINXX_RESULT_OK,
               "卸载动态库插件 (native 糖用例结束)");
       }
     }
@@ -2465,13 +2467,13 @@ int main(int argc, char **argv) {
     {
       check(musicxx_extern_plugin_set_config(host,
                                              viewP(R"({"jsExecGuardMs":400})"),
-                                             &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                                             &log) == PLUGINXX_RESULT_OK,
             "执行上限配置项被忽略 (不再报错)");
       MusicxxExternPluginString stats{};
       const auto statsRc =
           musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
       const std::string statsJson = take(stats);
-      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (无执行上限)");
+      check(statsRc == PLUGINXX_RESULT_OK, "stats 可读 (无执行上限)");
       check(statsJson.find("execGuardHits") == std::string::npos,
             "统计不再含执行上限中断计数");
       check(statsJson.find("execGuardMs") == std::string::npos,
@@ -2481,7 +2483,7 @@ int main(int argc, char **argv) {
     // 禁用 → 能力摘除, 启用 → 重新注册 (脚本重跑)
     {
       check(musicxx_extern_plugin_plugin_disable(
-                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                host, viewCP("example_js"), &log) == PLUGINXX_RESULT_OK,
             "JS 插件禁用成功");
       int32_t afterDisable = 0;
       musicxx_extern_plugin_capability_handler_count(
@@ -2489,7 +2491,7 @@ int main(int argc, char **argv) {
       check(afterDisable == 0, "JS 插件禁用后能力被摘除");
 
       check(musicxx_extern_plugin_plugin_enable(
-                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                host, viewCP("example_js"), &log) == PLUGINXX_RESULT_OK,
             "JS 插件重新启用成功");
       std::this_thread::sleep_for(std::chrono::milliseconds{300});
       int32_t afterEnable = 0;
@@ -2503,7 +2505,7 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString debug{};
       const auto rc = musicxx_extern_plugin_debug_info(host, &debug, &log);
       const std::string debugJson = take(debug);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "debug_info 可读");
+      check(rc == PLUGINXX_RESULT_OK, "debug_info 可读");
       check(debugJson.find("\"available\":true") != std::string::npos,
             "调试信息含 JS 运行时");
       check(debugJson.find("example_js") != std::string::npos,
@@ -2516,7 +2518,7 @@ int main(int argc, char **argv) {
 
       MusicxxExternPluginString stats{};
       check(musicxx_extern_plugin_stats(host, nullptr, &stats, &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "stats 可读 (含 JS 段)");
       const std::string statsJson = take(stats);
       check(statsJson.find("\"queueDepth\":") != std::string::npos,
@@ -2528,7 +2530,7 @@ int main(int argc, char **argv) {
     // 卸载 → 注册全部摘除
     {
       check(musicxx_extern_plugin_plugin_unload(
-                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                host, viewCP("example_js"), &log) == PLUGINXX_RESULT_OK,
             "JS 插件卸载成功");
       int32_t after = 0;
       musicxx_extern_plugin_capability_handler_count(
@@ -2536,7 +2538,7 @@ int main(int argc, char **argv) {
       check(after == 0, "JS 插件卸载后无能力残留");
       const CapabilityCallOutcome jsAfterUnload =
           callCapability(host, "example_js", "probe", "{}", 2000);
-      check(jsAfterUnload.acceptRc != MUSICXX_EXTERN_PLUGIN_OK,
+      check(jsAfterUnload.acceptRc != PLUGINXX_RESULT_OK,
             "JS 插件卸载后能力调用失败");
     }
   }
@@ -2552,9 +2554,9 @@ int main(int argc, char **argv) {
     const auto jsAsyncRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_js_async"), viewCP(R"({"enabled":true})"), 8000,
         &loadLog);
-    check(jsAsyncRc == MUSICXX_EXTERN_PLUGIN_OK,
+    check(jsAsyncRc == PLUGINXX_RESULT_OK,
           "异步裁决对照示例加载成功 (example_js_async)");
-    if (jsAsyncRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (jsAsyncRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] example_js_async rc=%d log=%s\n", jsAsyncRc,
                   take(loadLog).c_str());
     } else {
@@ -2576,7 +2578,7 @@ int main(int argc, char **argv) {
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       const std::string result = take(out);
       std::printf("  [info] async seek result=%s\n", result.c_str());
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "异步裁决能力派发成功");
+      check(rc == PLUGINXX_RESULT_OK, "异步裁决能力派发成功");
       check(jsonIntField(result, "to") == "12345",
             "Promise 结算的 patch 生效 (to)");
     }
@@ -2597,7 +2599,7 @@ int main(int argc, char **argv) {
               .count();
       std::printf("  [info] async volume result=%s (%lld ms)\n", result.c_str(),
                   static_cast<long long>(elapsedMs));
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "长 Promise 的派发返回成功");
+      check(rc == PLUGINXX_RESULT_OK, "长 Promise 的派发返回成功");
       check(result.find("\"cancel\"") != std::string::npos,
             "插件框架等到 Promise 结算, 裁决生效 (cancel)");
       check(elapsedMs >= 1200, "插件框架等满了 Promise 的等待时间");
@@ -2612,7 +2614,7 @@ int main(int argc, char **argv) {
           viewP(R"({"sid":"async3","from":0.1,"to":0.2})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 300, &out, &log);
       freeStr(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "再次派发成功 (处理器未被跳过)");
+      check(rc == PLUGINXX_RESULT_OK, "再次派发成功 (处理器未被跳过)");
     }
 
     // 4) 统计: 三次派发的 Promise 都结算 (没有超时/迟到这两个概念)
@@ -2621,7 +2623,7 @@ int main(int argc, char **argv) {
           callCapability(host, "example_js_async", "probe", "{}", 8000);
       const std::string probe = asyncProbe.payload;
       std::printf("  [info] async probe=%s\n", probe.c_str());
-      check(asyncProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && asyncProbe.ok,
+      check(asyncProbe.acceptRc == PLUGINXX_RESULT_OK && asyncProbe.ok,
             "异步裁决对照示例能力调用成功 (probe)");
       check(jsonIntField(probe, "asyncDispatchSettled") == "3",
             "统计: 三次派发都在结算后拿到结果");
@@ -2639,7 +2641,7 @@ int main(int argc, char **argv) {
       const auto rc =
           musicxx_extern_plugin_capability_stats(host, &stats, &log);
       const std::string statsJson = take(stats);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "capability_stats 可读");
+      check(rc == PLUGINXX_RESULT_OK, "capability_stats 可读");
       const auto at = statsJson.find("musicxx.player.volume");
       const std::string entry =
           (at == std::string::npos)
@@ -2653,7 +2655,7 @@ int main(int argc, char **argv) {
     {
       check(
           musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_async"),
-                                              &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                                              &log) == PLUGINXX_RESULT_OK,
           "异步裁决对照示例卸载成功");
       int32_t seekAfter = 0;
       int32_t volumeAfter = 0;
@@ -2672,14 +2674,14 @@ int main(int argc, char **argv) {
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_js_broken"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
-    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "脚本错误的 JS 插件加载失败");
-    check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
+    check(rc != PLUGINXX_RESULT_OK, "脚本错误的 JS 插件加载失败");
+    check(rc != PLUGINXX_RESULT_ERR_TIMEOUT,
           "脚本错误是明确失败而非超时");
     std::printf("  [info] example_js_broken rc=%d log=%s\n", rc,
                 errText.c_str());
     MusicxxExternPluginString listed{};
     check(musicxx_extern_plugin_plugin_list(host, &listed, &log) ==
-              MUSICXX_EXTERN_PLUGIN_OK,
+              PLUGINXX_RESULT_OK,
           "脚本错误后插件框架仍可用");
     freeStr(listed);
   }
@@ -2689,7 +2691,7 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString snap{};
     const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
     const std::string snapshot = take(snap);
-    check(snapRc == MUSICXX_EXTERN_PLUGIN_OK, "ui_snapshot 可读 (全部卸载后)");
+    check(snapRc == PLUGINXX_RESULT_OK, "ui_snapshot 可读 (全部卸载后)");
     check(snapshot.find("plugin.example_native.card") == std::string::npos,
           "动态库插件卸载后 UI 项无残留");
     check(snapshot.find("plugin.example_js.card") == std::string::npos,
@@ -2708,8 +2710,8 @@ int main(int argc, char **argv) {
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native_bad_entry"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
-    check(rc != MUSICXX_EXTERN_PLUGIN_OK, "缺 start/stop 入口的库被拒绝加载");
-    check(rc != MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT,
+    check(rc != PLUGINXX_RESULT_OK, "缺 start/stop 入口的库被拒绝加载");
+    check(rc != PLUGINXX_RESULT_ERR_TIMEOUT,
           "拒绝是明确失败而非挂住超时");
     check(errText.find("入口符号") != std::string::npos,
           "失败原因指向缺失的入口符号");
@@ -2749,19 +2751,19 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString loadLog{};
     const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native_multi"), viewCP("{}"), 10000, &loadLog);
-    if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (loadRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] example_native_multi load rc=%d log=%s\n", loadRc,
                   take(loadLog).c_str());
     } else {
       freeStr(loadLog);
     }
-    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK, "多目标包按分支加载成功");
+    check(loadRc == PLUGINXX_RESULT_OK, "多目标包按分支加载成功");
 
     const CapabilityCallOutcome whichCall =
         callCapability(host, "example_native_multi",
                        "plugin.example_native_multi.which", "{}", 8000);
     const std::string cap = whichCall.payload;
-    check(whichCall.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && whichCall.ok,
+    check(whichCall.acceptRc == PLUGINXX_RESULT_OK && whichCall.ok,
           "多目标包的能力可调用");
     check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
           "加载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
@@ -2774,13 +2776,13 @@ int main(int argc, char **argv) {
       check(musicxx_extern_plugin_capability_handler_count_phase(
                 host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE, &beforeCount,
-                &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+                &log) == PLUGINXX_RESULT_OK &&
                 beforeCount == 1,
             "包装点声明了 before 阶段且已有处理器");
       check(musicxx_extern_plugin_capability_handler_count_phase(
                 host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &afterCount,
-                &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+                &log) == PLUGINXX_RESULT_OK &&
                 afterCount == 1,
             "包装点声明了 after 阶段且已有处理器");
 
@@ -2788,7 +2790,7 @@ int main(int argc, char **argv) {
       int32_t totalCount = 0;
       check(musicxx_extern_plugin_capability_handler_count(
                 host, viewCP("musicxx.lyric.load"), &totalCount, &log) ==
-                    MUSICXX_EXTERN_PLUGIN_OK &&
+                    PLUGINXX_RESULT_OK &&
                 totalCount == 2,
             "旧符号报告全部阶段的处理器总数");
       // 没有 impl 阶段: 包装点的实现固定是应用自己
@@ -2796,7 +2798,7 @@ int main(int argc, char **argv) {
       check(musicxx_extern_plugin_capability_handler_count_phase(
                 host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL, &implCount,
-                &log) == MUSICXX_EXTERN_PLUGIN_OK &&
+                &log) == PLUGINXX_RESULT_OK &&
                 implCount == 0,
             "包装点没有 impl 阶段");
 
@@ -2808,7 +2810,7 @@ int main(int argc, char **argv) {
           viewP(R"({"pid":"p1"})"), MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0,
           &beforeOut, &log);
       const std::string beforeResult = take(beforeOut);
-      check(rcBefore == MUSICXX_EXTERN_PLUGIN_OK, "前链派发成功");
+      check(rcBefore == PLUGINXX_RESULT_OK, "前链派发成功");
       check(beforeResult.find("\"patch\":{\"limit\":50}") != std::string::npos,
             "前链改过的输入交回调用方");
 
@@ -2820,7 +2822,7 @@ int main(int argc, char **argv) {
           viewP(R"({"pid":"p1","cancel":true})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &cancelOut, &log);
       const std::string cancelResult = take(cancelOut);
-      check(rcCancel == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(rcCancel == PLUGINXX_RESULT_OK &&
                 cancelResult.find("\"action\":\"cancel\"") != std::string::npos,
             "前链 cancel 结束整条链");
 
@@ -2832,7 +2834,7 @@ int main(int argc, char **argv) {
           viewP(R"({"pid":"p1","value":{"items":1}})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &afterOut, &log);
       const std::string afterResult = take(afterOut);
-      check(rcAfter == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(rcAfter == PLUGINXX_RESULT_OK &&
                 afterResult.find("\"items\":3") != std::string::npos,
             "后链改掉了输出");
       check(afterResult.find("example_native_multi") != std::string::npos,
@@ -2846,7 +2848,7 @@ int main(int argc, char **argv) {
           viewP(R"({"pid":"p1","drop":true,"value":{"items":1}})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &dropOut, &log);
       const std::string dropResult = take(dropOut);
-      check(rcDrop == MUSICXX_EXTERN_PLUGIN_OK &&
+      check(rcDrop == PLUGINXX_RESULT_OK &&
                 dropResult.find("\"action\":\"drop\"") != std::string::npos,
             "后链 drop 结束整条链");
 
@@ -2856,7 +2858,7 @@ int main(int argc, char **argv) {
       check(musicxx_extern_plugin_capability_handlers_phase(
                 host, viewCP("musicxx.lyric.load"),
                 MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &handlersOut,
-                &handlersLog) == MUSICXX_EXTERN_PLUGIN_OK,
+                &handlersLog) == PLUGINXX_RESULT_OK,
             "分阶段处理器列表可读");
       const std::string handlers = take(handlersOut);
       check(handlers.find("\"phase\":\"after\"") != std::string::npos,
@@ -2883,13 +2885,13 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString loadLog{};
     const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native_fail"), viewCP("{}"), 8000, &loadLog);
-    if (loadRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (loadRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] example_native_fail load rc=%d log=%s\n", loadRc,
                   take(loadLog).c_str());
     } else {
       freeStr(loadLog);
     }
-    check(loadRc == MUSICXX_EXTERN_PLUGIN_OK,
+    check(loadRc == PLUGINXX_RESULT_OK,
           "失败对照示例加载成功 (example_native_fail)");
 
     // 同一个插件还有一条**走 `musicxx.capabilities` 注册**的能力（阶段 2c
@@ -2907,7 +2909,7 @@ int main(int argc, char **argv) {
           viewP(R"({"from":1.0,"to":0.9})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &pitchOut, &log);
       const std::string pitchResult = take(pitchOut);
-      check(pitchRc == MUSICXX_EXTERN_PLUGIN_OK, "能力表注册的能力可派发");
+      check(pitchRc == PLUGINXX_RESULT_OK, "能力表注册的能力可派发");
       check(jsonIntField(pitchResult, "called") == "1",
             "能力表注册的处理器被调用");
       check(pitchResult.find("\"pitch\"") != std::string::npos,
@@ -2930,7 +2932,7 @@ int main(int argc, char **argv) {
           viewP(R"({"sid":"brk","from":1.0,"to":0.8})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
       const std::string result = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "失败处理器派发可调用");
+      check(rc == PLUGINXX_RESULT_OK, "失败处理器派发可调用");
       check(jsonIntField(result, "called") == "1",
             "失败处理器每次都被调用 (不跳过)");
     }
@@ -2941,7 +2943,7 @@ int main(int argc, char **argv) {
       const auto statsRc =
           musicxx_extern_plugin_capability_stats(host, &stats, &log);
       const std::string statsJson = take(stats);
-      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK,
+      check(statsRc == PLUGINXX_RESULT_OK,
             "capability_stats 可读 (失败统计)");
       check(statsJson.find("\"calls\":5") != std::string::npos,
             "失败处理器被调用 5 次 (每次都派发)");
@@ -2959,7 +2961,7 @@ int main(int argc, char **argv) {
       const auto statsRc =
           musicxx_extern_plugin_stats(host, nullptr, &stats, &log);
       const std::string statsJson = take(stats);
-      check(statsRc == MUSICXX_EXTERN_PLUGIN_OK, "stats 可读 (失败统计)");
+      check(statsRc == PLUGINXX_RESULT_OK, "stats 可读 (失败统计)");
       check(statsJson.find("example_native_fail") != std::string::npos,
             "聚合统计含失败对照示例插件");
       check(statsJson.find("\"calls\":") != std::string::npos,
@@ -2975,7 +2977,7 @@ int main(int argc, char **argv) {
           viewP(R"({"from":1.0,"to":1.25})"),
           MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 200, &out, &log);
       const std::string result = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "同插件的另一个处理器派发成功");
+      check(rc == PLUGINXX_RESULT_OK, "同插件的另一个处理器派发成功");
       check(jsonIntField(result, "called") == "1", "另一个处理器不受影响");
     }
 
@@ -2985,7 +2987,7 @@ int main(int argc, char **argv) {
           callCapability(host, "example_native_fail",
                          "plugin.example_native_fail.probe", "{}", 8000);
       const std::string probeJson = failProbe.payload;
-      check(failProbe.acceptRc == MUSICXX_EXTERN_PLUGIN_OK && failProbe.ok,
+      check(failProbe.acceptRc == PLUGINXX_RESULT_OK && failProbe.ok,
             "失败之后插件仍可响应能力调用 (未被卸载)");
       check(jsonIntField(probeJson, "failingCalls") == "5",
             "失败处理器被调用 5 次 (全部派发)");
@@ -2997,7 +2999,7 @@ int main(int argc, char **argv) {
     {
       check(musicxx_extern_plugin_plugin_unload(
                 host, viewCP("example_native_fail"), &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "失败对照示例卸载成功");
       int32_t after = -1;
       musicxx_extern_plugin_capability_handler_count(
@@ -3030,7 +3032,7 @@ int main(int argc, char **argv) {
       const int32_t readRc = musicxx_extern_plugin_broadcast_read(
           host, viewCP("musicxx.test.missing"), &out, &log);
       take(out);
-      check(readRc == MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND,
+      check(readRc == PLUGINXX_RESULT_ERR_NOT_FOUND,
             "读未声明的频道返回未找到");
     }
 
@@ -3040,11 +3042,11 @@ int main(int argc, char **argv) {
       const std::string value = R"({"positionMs":1234})";
       const int32_t pubRc = musicxx_extern_plugin_broadcast_publish(
           host, viewP(topic), viewP(value), &log);
-      check(pubRc == MUSICXX_EXTERN_PLUGIN_OK, "发布官方频道成功");
+      check(pubRc == PLUGINXX_RESULT_OK, "发布官方频道成功");
       MusicxxExternPluginString out{};
       const int32_t readRc =
           musicxx_extern_plugin_broadcast_read(host, viewP(topic), &out, &log);
-      check(readRc == MUSICXX_EXTERN_PLUGIN_OK, "读官方频道当前值成功");
+      check(readRc == PLUGINXX_RESULT_OK, "读官方频道当前值成功");
       check(take(out) == value, "读回的当前值是最后一次发布的内容");
     }
 
@@ -3053,13 +3055,13 @@ int main(int argc, char **argv) {
       const std::string topic = "musicxx.test.plain";
       check(musicxx_extern_plugin_broadcast_publish(
                 host, viewP(topic), viewCP(R"({"v":1})"), &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "发布表外频道时按默认属性补声明");
       MusicxxExternPluginString out{};
       const int32_t readRc =
           musicxx_extern_plugin_broadcast_read(host, viewP(topic), &out, &log);
       take(out);
-      check(readRc == MUSICXX_EXTERN_PLUGIN_ERR_ARG,
+      check(readRc == PLUGINXX_RESULT_ERR_ARG,
             "没有当前值的频道读值返回参数错误");
     }
 
@@ -3067,7 +3069,7 @@ int main(int argc, char **argv) {
     {
       const int32_t rc = musicxx_extern_plugin_broadcast_publish(
           host, viewCP("plugin.someone.tip"), viewCP("{}"), &log);
-      check(rc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION,
+      check(rc == PLUGINXX_RESULT_ERR_PERMISSION,
             "应用侧不能发布插件命名空间的频道");
     }
 
@@ -3077,7 +3079,7 @@ int main(int argc, char **argv) {
       const int32_t rc = musicxx_extern_plugin_broadcast_list(
           host, viewCP("musicxx.player.position"), &out, &log);
       const std::string json = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "broadcast_list 受理");
+      check(rc == PLUGINXX_RESULT_OK, "broadcast_list 受理");
       check(json.find("\"broadcasts\"") != std::string::npos,
             "列表带 broadcasts 段");
       check(json.find("musicxx.player.position") != std::string::npos,
@@ -3121,25 +3123,25 @@ int main(int argc, char **argv) {
     MusicxxExternPluginString nativeLoadLog{};
     const auto nativeRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 8000, &nativeLoadLog);
-    if (nativeRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (nativeRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] example_native load rc=%d log=%s\n", nativeRc,
                   take(nativeLoadLog).c_str());
     } else {
       freeStr(nativeLoadLog);
     }
-    check(nativeRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例加载动态库插件");
+    check(nativeRc == PLUGINXX_RESULT_OK, "自省用例加载动态库插件");
 
     MusicxxExternPluginString jsLoadLog{};
     const auto jsRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_js"), viewCP(R"({"enabled":true})"), 15000,
         &jsLoadLog);
-    if (jsRc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (jsRc != PLUGINXX_RESULT_OK) {
       std::printf("  [info] example_js load rc=%d log=%s\n", jsRc,
                   take(jsLoadLog).c_str());
     } else {
       freeStr(jsLoadLog);
     }
-    check(jsRc == MUSICXX_EXTERN_PLUGIN_OK, "自省用例加载 JS 插件");
+    check(jsRc == PLUGINXX_RESULT_OK, "自省用例加载 JS 插件");
 
     // 预设表里没有的能力 id：查询得到 0 个处理器（不自报“没找到”）
     {
@@ -3147,7 +3149,7 @@ int main(int argc, char **argv) {
       const auto rc = musicxx_extern_plugin_capability_handlers(
           host, viewCP("musicxx.no.such.capability2"), &out, &log);
       const std::string json = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "自定义能力查询返回成功");
+      check(rc == PLUGINXX_RESULT_OK, "自定义能力查询返回成功");
       check(jsonIntField(json, "count") == "0", "自定义能力无处理器");
     }
 
@@ -3157,7 +3159,7 @@ int main(int argc, char **argv) {
       const auto rc = musicxx_extern_plugin_capability_handlers(
           host, viewCP("musicxx.player.beforePlaySong"), &out, &log);
       const std::string json = take(out);
-      check(rc == MUSICXX_EXTERN_PLUGIN_OK, "capability_handlers 可读");
+      check(rc == PLUGINXX_RESULT_OK, "capability_handlers 可读");
       check(jsonStringField(json, "capability") ==
                 "musicxx.player.beforePlaySong",
             "回报的是同一个能力 id");
@@ -3207,7 +3209,7 @@ int main(int argc, char **argv) {
     // 禁用 JS 插件 → 列表只剩原生那一条; 重新启用 → 又回来
     {
       check(musicxx_extern_plugin_plugin_disable(
-                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                host, viewCP("example_js"), &log) == PLUGINXX_RESULT_OK,
             "禁用 JS 插件");
       MusicxxExternPluginString out{};
       musicxx_extern_plugin_capability_handlers(
@@ -3218,7 +3220,7 @@ int main(int argc, char **argv) {
             "禁用后 JS 处理器从列表里消失");
 
       check(musicxx_extern_plugin_plugin_enable(
-                host, viewCP("example_js"), &log) == MUSICXX_EXTERN_PLUGIN_OK,
+                host, viewCP("example_js"), &log) == PLUGINXX_RESULT_OK,
             "重新启用 JS 插件");
       std::this_thread::sleep_for(std::chrono::milliseconds{300});
       MusicxxExternPluginString out2{};
@@ -3274,15 +3276,15 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString probeLog{};
       const auto probeRc = musicxx_extern_plugin_plugin_load_sync(
           host, viewCP(probePath.c_str()), viewCP("{}"), 8000, &probeLog);
-      check(probeRc == MUSICXX_EXTERN_PLUGIN_OK, "副本插件加载成功");
-      if (probeRc != MUSICXX_EXTERN_PLUGIN_OK) {
+      check(probeRc == PLUGINXX_RESULT_OK, "副本插件加载成功");
+      if (probeRc != PLUGINXX_RESULT_OK) {
         std::printf("  [info] 副本加载失败原因: %s\n", take(probeLog).c_str());
       } else {
         freeStr(probeLog);
       }
       check(musicxx_extern_plugin_plugin_unload(host, viewCP("example_native"),
                                                 &log) ==
-                MUSICXX_EXTERN_PLUGIN_OK,
+                PLUGINXX_RESULT_OK,
             "副本插件卸载成功");
 
       ec.clear();
@@ -3309,7 +3311,7 @@ int main(int argc, char **argv) {
     const auto reloadRc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native"), viewCP("{}"), 10000, &reloadLog);
     freeStr(reloadLog);
-    check(reloadRc == MUSICXX_EXTERN_PLUGIN_OK, "为停机用例加载动态库插件");
+    check(reloadRc == PLUGINXX_RESULT_OK, "为停机用例加载动态库插件");
 
     MusicxxExternPluginString callLog{};
     int64_t requestId = 0;
@@ -3317,12 +3319,12 @@ int main(int argc, char **argv) {
         host, viewCP("example_native"), viewCP("asyncProbe"),
         viewCP(R"({"waitMs":20000})"), &requestId, &callLog);
     freeStr(callLog);
-    check(rc == MUSICXX_EXTERN_PLUGIN_OK, "停机前受理一个异步完成的能力调用");
+    check(rc == PLUGINXX_RESULT_OK, "停机前受理一个异步完成的能力调用");
     std::this_thread::sleep_for(std::chrono::milliseconds{100});
 
     // 停机预算给得比能力的等待短: 停机不会一直等它 (日志里会记一条)
     check(musicxx_extern_plugin_host_stop(host, 1500, &log) ==
-              MUSICXX_EXTERN_PLUGIN_OK,
+              PLUGINXX_RESULT_OK,
           "host_stop");
 
     // 停机时推的那条终局事件: error 说的是 host_stopped
@@ -3336,7 +3338,7 @@ int main(int argc, char **argv) {
   }
 
   check(musicxx_extern_plugin_host_stop(host, 1000, &log) ==
-            MUSICXX_EXTERN_PLUGIN_OK,
+            PLUGINXX_RESULT_OK,
         "host_stop 幂等");
   musicxx_extern_plugin_host_destroy(host);
 

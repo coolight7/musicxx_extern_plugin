@@ -85,7 +85,7 @@ unset(_musicxx_ext_missing)
 # 这里下发到自己的目标 (插件框架库 / 插件 SDK / 示例插件 / 原生测试), 保证插件框架库与
 # 它加载的插件看到同一个值: 插件按 PLUGINXX_API_VERSION 决定用哪套写法
 # (例如 events 订阅是否带作用域引用), 两侧不一致时是 ABI 不兼容。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "7" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "8" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 # 应用名: 通用表 IID 与官方标识的前缀。单独构建本工程时也要与 cxx_pluginxx 一致
 # (`-DPLUGINXX_APP_NAME=musicxx`), 否则插件按 `<表名>` 查询时对不上。
@@ -297,7 +297,8 @@ unset(_plugin)
 if (MUSICXX_EXTERN_PLUGIN_BUILD_TESTS)
   add_executable(musicxx_extern_plugin_test "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/tests/test_host.cpp")
   target_include_directories(musicxx_extern_plugin_test PRIVATE "${MUSICXX_EXTERN_PLUGIN_SRC_DIR}/include")
-  target_link_libraries(musicxx_extern_plugin_test PRIVATE musicxx_extern_plugin)
+  # 头文件里 include 了返回码表 (`pluginxx/api/result.h`)，所以测试目标也要拿到 pluginxx 的 include
+  target_link_libraries(musicxx_extern_plugin_test PRIVATE musicxx_extern_plugin cxx_pluginxx_static)
   # 内部小工具 (host_text.cpp) 的单元校验: 它不是导出符号 (Windows 上没导出就链不上),
   # 所以直接编进测试目标, 来源还是同一份源文件
   target_sources(musicxx_extern_plugin_test PRIVATE

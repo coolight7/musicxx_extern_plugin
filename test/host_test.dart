@@ -231,8 +231,8 @@ void main() {
     );
     expect(
       probe['unknownCapabilityRc'],
-      -2,
-      reason: '应用没声明的官方钩子必须被拒绝 (能力表返回"没声明")',
+      -200,
+      reason: '应用没声明的官方能力必须被拒绝 (能力表返回 not_declared = -200)',
     );
     expect(probe['foreignActionRc'], -1, reason: '没声明过的动作名（能力）必须被拒绝');
     expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的快照频道');

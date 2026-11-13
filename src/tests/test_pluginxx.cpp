@@ -15,6 +15,7 @@
 
 #include "pluginxx/api/abi.h"
 #include "pluginxx/api/iface_meta.h"
+#include "pluginxx/api/result.h"
 #include "pluginxx/host/broadcast_registry.h"
 #include "pluginxx/host/capability_chain.h"
 #include "pluginxx/host/capability_registry.h"
@@ -24,6 +25,7 @@
 #include "musicxx/plugin/api/capability_ids.g.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -966,6 +968,64 @@ void testCapabilityDeclarations() {
   check(broadcastIdsOk, "每条广播 id 都在 musicxx.* / plugin.* 命名空间里");
   check(broadcastIdsUnique, "广播 id 不重复");
   check(broadcastConsistent, "每条广播声明的 cache / pushOnSubscribe 自洽");
+
+  // 返回码：码表只有一份（pluginxx/api/result.h），名称全局唯一、每码落在自己那一段、
+  // 自定义两段查不到名称但类别对。JSON 与上层接口按名称判断，所以这张表也是对外契约。
+  {
+    struct CodeRow {
+      int32_t code;
+      const char *name;
+      const char *category;
+    };
+    const CodeRow rows[] = {
+        {PLUGINXX_RESULT_OK, "ok", "ok"},
+        {PLUGINXX_RESULT_ERR_ARG, "invalid_argument", "general"},
+        {PLUGINXX_RESULT_ERR_STATE, "invalid_state", "general"},
+        {PLUGINXX_RESULT_ERR_JSON, "invalid_json", "general"},
+        {PLUGINXX_RESULT_ERR_NOT_FOUND, "not_found", "general"},
+        {PLUGINXX_RESULT_ERR_TIMEOUT, "timeout", "general"},
+        {PLUGINXX_RESULT_ERR_PERMISSION, "permission_denied", "general"},
+        {PLUGINXX_RESULT_ERR_BUSY, "busy", "general"},
+        {PLUGINXX_RESULT_ERR_NO_MEMORY, "out_of_memory", "general"},
+        {PLUGINXX_RESULT_ERR_NOT_DECLARED, "not_declared", "broadcast"},
+        {PLUGINXX_RESULT_ERR_NO_VALUE, "no_value", "broadcast"},
+        {PLUGINXX_RESULT_ERR_ENDED, "ended", "broadcast"},
+        {PLUGINXX_RESULT_ERR_NOT_OWNER, "not_owner", "broadcast"},
+        {PLUGINXX_RESULT_ERR_NOT_READY, "not_ready", "lifecycle"},
+        {PLUGINXX_RESULT_ERR_INTERNAL, "internal", "internal"},
+    };
+    bool namesOk  = true;
+    bool catsOk   = true;
+    std::vector<std::string> names;
+    for (const CodeRow &row : rows) {
+      const char *name = pluginxx::result::nameOf(row.code);
+      if (!name || std::string{name} != row.name) {
+        namesOk = false;
+      }
+      if (std::string{pluginxx::result::categoryOf(row.code)} != row.category) {
+        catsOk = false;
+      }
+      if (name) {
+        names.push_back(name);
+      }
+    }
+    std::sort(names.begin(), names.end());
+    names.erase(std::unique(names.begin(), names.end()), names.end());
+    check(namesOk, "每个返回码都能查回约定的名称");
+    check(names.size() == sizeof(rows) / sizeof(rows[0]),
+          "返回码名称全局唯一");
+    check(catsOk, "每个返回码落在自己那一段");
+    check(pluginxx::result::nameOf(-5000) == nullptr &&
+              std::string{pluginxx::result::categoryOf(-5000)} == "app_custom",
+          "应用自定义段没有名称，但类别对");
+    check(pluginxx::result::nameOf(-10000) == nullptr &&
+              std::string{pluginxx::result::categoryOf(-10000)} ==
+                  "plugin_custom",
+          "插件自定义段没有名称，但类别对");
+    check(pluginxx::result::nameOf(-20000) == nullptr &&
+              std::string{pluginxx::result::categoryOf(-20000)} == "unknown",
+          "低于自定义区间未定义（类别 unknown）");
+  }
 
   // 具体声明：换表（阶段 P1）之后这些字段是插件框架判阶段的依据，先钉住几个代表
   const MusicxxCapabilityDecl *seek =

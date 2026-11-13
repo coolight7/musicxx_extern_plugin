@@ -360,24 +360,24 @@ int32_t
 MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
                                     const MusicxxPluginUIEntrySpec &spec) {
   if (!inst) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (spec.struct_size != 0 &&
       spec.struct_size < sizeof(MusicxxPluginUIEntrySpec)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (spec.flags != 0) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项: flags 必须为 0", inst->name);
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项被拒绝: 实例正在关闭或已禁用",
             inst->name);
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   if (!spec.item_id.data || spec.item_id.size == 0 || !spec.type.data ||
       spec.type.size == 0) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
 
   const std::string pluginId = pluginIdOf(inst->name);
@@ -385,7 +385,7 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   if (!isKnownUiType(type)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册未知 UI 项类型 `{}` 被拒绝",
             inst->name, type);
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
 
   bool idOk = false;
@@ -396,7 +396,7 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   if (!idOk) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项 `{}` 被拒绝: 命名空间非法",
             inst->name, itemId);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
 
   const std::string dataJson =
@@ -408,7 +408,7 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   if (!validateUiData(type, dataJson, pluginId, err)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项 `{}` 被拒绝: {}", inst->name,
             itemId, err);
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
 
   const auto existing = uiEntries_.find(itemId);
@@ -417,7 +417,7 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
     // 规范化逻辑变动引入漏洞)
     XX_LOGW("[musicxx_ext] 插件 `{}` 试图覆盖他人 UI 项 `{}`", inst->name,
             itemId);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
 
   UiEntry entry;
@@ -438,29 +438,29 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   changed["id"] = pluginId;
   changed["items"] = parseJsonSafe(uiItemsJson(pluginId));
   pushEvent("musicxx.ui.changed", pluginId, changed.dump());
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
                                               std::string_view itemId) {
   if (itemId.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   bool idOk = false;
   // 短名与全名都接受 (脚本/插件作者写短名更省事)
   const std::string fullId = normalizeItemId(itemId, pluginId, idOk);
   if (!idOk) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   auto it = uiEntries_.find(fullId);
   if (it == uiEntries_.end()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (inst && it->second.pluginId != pluginId) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 试图注销他人 UI 项 `{}`", inst->name,
             itemId);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string ownerId = it->second.pluginId;
   uiEntries_.erase(it);
@@ -470,33 +470,33 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
   changed["id"] = ownerId;
   changed["items"] = parseJsonSafe(uiItemsJson(ownerId));
   pushEvent("musicxx.ui.changed", ownerId, changed.dump());
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::updateUiEntry(MusicxxHostInstance *inst,
                                           std::string_view itemId,
                                           std::string_view dataJson) {
   if (itemId.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   bool idOk = false;
   const std::string fullId = normalizeItemId(itemId, pluginId, idOk);
   if (!idOk) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   auto it = uiEntries_.find(fullId);
   if (it == uiEntries_.end()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (inst && it->second.pluginId != pluginId) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string data{dataJson};
   std::string err;
   if (!validateUiData(it->second.type, data, it->second.pluginId, err)) {
     XX_LOGW("[musicxx_ext] 更新 UI 项 `{}` 被拒绝: {}", itemId, err);
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   it->second.dataJson = data;
 
@@ -505,26 +505,26 @@ int32_t MusicxxHostManager::updateUiEntry(MusicxxHostInstance *inst,
   changed["id"] = it->second.pluginId;
   changed["items"] = parseJsonSafe(uiItemsJson(it->second.pluginId));
   pushEvent("musicxx.ui.changed", it->second.pluginId, changed.dump());
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::listUiEntries(MusicxxHostInstance *inst,
                                           std::string &outJson) {
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   outJson = uiItemsJson(pluginId);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::notifyUi(MusicxxHostInstance *inst,
                                      std::string_view messageJson) {
   if (!inst) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string message{messageJson};
   bool parseOk = false;
   Json data = parseJsonSafe(message, &parseOk);
   if (!parseOk || !data.is_object()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+    return PLUGINXX_RESULT_ERR_JSON;
   }
   // 轻提示是 fire-and-forget: 走能力请求通道, Dart 侧执行 `musicxx.ui.toast`,
   // 结果不回传 (回复会落在"未登记的请求"上, 由插件框架按调试日志忽略)
@@ -597,12 +597,12 @@ namespace {
 int32_t PLUGINXX_CALL xx_ui_register_entry(
     const PluginxxHost *host, const MusicxxPluginUIEntrySpec *spec) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
         if (!call.ok() || !spec) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -617,12 +617,12 @@ int32_t PLUGINXX_CALL xx_ui_register_entry(
 int32_t PLUGINXX_CALL xx_ui_unregister_entry(const PluginxxHost *host,
                                              const PluginxxStringView *itemId) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
         if (!call.ok() || !itemId || !itemId->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -639,13 +639,13 @@ int32_t PLUGINXX_CALL xx_ui_update_entry(const PluginxxHost *host,
                                          const PluginxxStringView *itemId,
                                          const PluginxxStringView *dataJson) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
         if (!call.ok() || !itemId || !itemId->data || !dataJson ||
             !dataJson->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -663,15 +663,15 @@ int32_t PLUGINXX_CALL xx_ui_update_entry(const PluginxxHost *host,
 int32_t PLUGINXX_CALL xx_ui_list_entries(const PluginxxHost *host,
                                          PluginxxString *outJson) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         if (!outJson) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host, true);
         if (!call.ok()) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
@@ -680,23 +680,23 @@ int32_t PLUGINXX_CALL xx_ui_list_entries(const PluginxxHost *host,
             call, mgr, [mgr, inst, &json]() -> int32_t {
               return mgr->listUiEntries(inst, json);
             });
-        if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+        if (rc != PLUGINXX_RESULT_OK) {
           return rc;
         }
         pluginxx::hostMemorySetString(outJson, json);
-        return MUSICXX_EXTERN_PLUGIN_OK;
+        return PLUGINXX_RESULT_OK;
       });
 }
 
 int32_t PLUGINXX_CALL xx_ui_notify(const PluginxxHost *host,
                                    const PluginxxStringView *messageJson) {
   return pluginxx::guardVtableCall(
-      MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL, [&]() -> int32_t {
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
         if (!call.ok() || !messageJson || !messageJson->data) {
-          return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+          return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();

@@ -1796,7 +1796,7 @@ JSValue jsPublish(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   if (rc == 0) {
     return JS_NewString(ctx, "");
   }
-  if (rc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION) {
+  if (rc == PLUGINXX_RESULT_ERR_PERMISSION) {
     return JS_NewString(ctx, "事件发布被拒绝 (只有属主能发布这条频道)");
   }
   // 广播表把"流已结束"与"频道不存在"归到同一个码上 (见 broadcastPublishFrom):
@@ -1824,11 +1824,11 @@ JSValue jsEndBroadcast(JSContext *ctx, JSValueConst, int argc,
   if (rc == 0) {
     return JS_NewString(ctx, "");
   }
-  if (rc == MUSICXX_EXTERN_PLUGIN_ERR_STATE) {
+  if (rc == PLUGINXX_RESULT_ERR_STATE) {
     return JS_NewString(ctx, "结束流被拒绝 (插件登记还没完成)");
   }
   return JS_NewString(
-      ctx, rc == MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION
+      ctx, rc == PLUGINXX_RESULT_ERR_PERMISSION
                ? "结束流被拒绝 (不是自己命名空间下的频道)"
                : "结束流被拒绝 (频道不存在, 或不是它的属主)");
 }
@@ -2490,11 +2490,11 @@ bool JsEngine::hasBuiltin(const std::string &pluginId) const {
 
 int32_t JsEngine::start(std::string &err) {
   if (running_.load(std::memory_order_acquire)) {
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   if (!kJsCompiled) {
     err = "本次构建未包含 JS 运行时 (未编译 QuickJS 子模块)";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   return startThread(err);
 }
@@ -2515,10 +2515,10 @@ int32_t JsEngine::startThread(std::string &err) {
   } catch (const std::exception &e) {
     running_.store(false, std::memory_order_release);
     err = std::string{"JS 线程创建失败: "} + e.what();
-    return MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL;
+    return PLUGINXX_RESULT_ERR_INTERNAL;
   }
   XX_LOGI("[musicxx_ext] JS 线程已启动 (全部 JS插件实例共享这 1 条线程)");
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void JsEngine::stop() {
@@ -2756,7 +2756,7 @@ int32_t JsEngine::bridgePublish(const std::string &pluginId,
                                 const std::string &topic,
                                 const std::string &payload) {
   if (!mgr_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 脚本顶层还没有把声明交给框架: 先存着, 注册回放完再按顺序发 (见 pendingPublishes)
   // 否则 `declare` + `publish` 初始值的写法会被判成"频道未声明"。
@@ -2764,7 +2764,7 @@ int32_t JsEngine::bridgePublish(const std::string &pluginId,
     if (!inst->registrationsApplied) {
       std::lock_guard lock{mutex_};
       inst->pendingPublishes.emplace_back(topic, payload);
-      return MUSICXX_EXTERN_PLUGIN_OK;
+      return PLUGINXX_RESULT_OK;
     }
   }
   return mgr_->broadcastPublishFrom(pluginId, topic, payload);
@@ -2959,7 +2959,7 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
     if (!current) {
       return;
     }
-    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    int32_t rc = PLUGINXX_RESULT_ERR_STATE;
     if (op == "register") {
       MusicxxPluginUIEntrySpec spec{};
       spec.version = 1;
@@ -2975,7 +2975,7 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
     } else if (op == "unregister") {
       rc = mgr_->unregisterUiEntry(current.get(), name);
     }
-    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (rc != PLUGINXX_RESULT_OK) {
       Json payload;
       payload["id"] = pluginId;
       payload["phase"] = "ui";
@@ -3112,11 +3112,11 @@ void JsEngine::bridgeDeclareBroadcast(const std::string &instanceName,
 int32_t JsEngine::applyBroadcastDeclOnHost(const std::shared_ptr<Instance> &inst,
                                            const std::string &declJson) {
   if (!inst || !inst->hostInst || !mgr_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   std::string error;
   const int32_t rc = mgr_->declareBroadcast(inst->hostInst, declJson, &error);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     Json payload;
     payload["id"] = inst->id;
     payload["phase"] = "broadcast";
@@ -3170,12 +3170,12 @@ int32_t JsEngine::bridgeEndBroadcast(const std::string &pluginId,
                                     const std::string &topic,
                                     const std::string &reasonJson) {
   if (!mgr_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 脚本顶层还没有把声明交给框架: 现在结束只会得到"频道不存在"
   if (const auto inst = lookupInstance("js:" + pluginId)) {
     if (!inst->registrationsApplied) {
-      return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+      return PLUGINXX_RESULT_ERR_STATE;
     }
   }
   // 与发布同一套做法: 在调用方线程直接结束 (见 bridgePublish)。
@@ -3258,7 +3258,7 @@ void JsEngine::applyImplementationOpOnHost(
   spec.user_data = handler.get();
   spec.run_sync = &JsEngine::implementationRunSync;
   const int32_t rc = mgr_->registerHandler(inst->hostInst, spec);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     Json payload;
     payload["id"] = inst->id;
     payload["phase"] = "capability";
@@ -3327,7 +3327,7 @@ std::string JsEngine::bridgeNetCall(const std::string &instanceName,
   }
   std::string out;
   const int32_t rc = mgr_->netCall(inst->id, op, argsJson, out);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     Json err = Json::object();
     err["ok"] = false;
     err["error"] = "call_failed";
@@ -3346,7 +3346,7 @@ std::string JsEngine::bridgeNetCancel(const std::string &instanceName,
   }
   std::string out;
   const int32_t rc = mgr_->netCancel(inst->id, requestId, out);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     Json err = Json::object();
     err["ok"] = false;
     err["error"] = "cancel_failed";
@@ -3408,21 +3408,21 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
   }
   if (targetId.empty() || name.empty()) {
     err = "插件 id 与能力名都不能为空";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   /// JS 目标: 同一 JS 线程上直接调用 (脚本↔脚本零跨线程跳跃)
   auto target = lookupInstance("js:" + targetId);
   if (target) {
     if (!target->scriptLoaded) {
       err = "目标 JS插件未启用: " + targetId;
-      return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+      return PLUGINXX_RESULT_ERR_STATE;
     }
     std::string shortName = name;
     const std::string prefix = "plugin." + targetId + ".";
     if (shortName.rfind("plugin.", 0) == 0) {
       if (shortName.rfind(prefix, 0) != 0) {
         err = "能力命名空间不属于目标插件";
-        return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+        return PLUGINXX_RESULT_ERR_PERMISSION;
       }
       shortName = shortName.substr(prefix.size());
     }
@@ -3435,7 +3435,7 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
                           {shortName, argsJson, std::to_string(pendingId)},
                           text)) {
       err = "目标插件未声明该能力 (需要在 start 事务里注册): " + shortName;
-      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+      return PLUGINXX_RESULT_ERR_NOT_FOUND;
     }
     if (text == kCapabilityPendingMarker) {
       {
@@ -3455,18 +3455,18 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
       err = (ok && data.contains("error") && data["error"].is_string())
                 ? data["error"].get<std::string>()
                 : std::string{"capability_call_failed"};
-      return MUSICXX_EXTERN_PLUGIN_ERR_INTERNAL;
+      return PLUGINXX_RESULT_ERR_INTERNAL;
     }
     outJson =
         data.contains("result") ? data["result"].dump() : std::string{"null"};
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   /// 原生/内置目标: 投递到框架线程执行, **JS 侧不等待** (框架线程可能正等 JS
   /// 处理器, 若在这里同步等待就会互锁); 结果经 `ext.onCapabilityResult` 回到 JS
   /// 线程。
   if (!mgr_) {
     err = "插件框架不可用";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   const int64_t pendingId = nextCapabilityCallId_.fetch_add(1);
   if (outPendingId) {
@@ -3476,8 +3476,8 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
   auto finishCall = [self, pendingId, callerInstance](int32_t rc,
                                                       const std::string &text) {
     Json payload;
-    payload["ok"] = (rc == MUSICXX_EXTERN_PLUGIN_OK);
-    if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+    payload["ok"] = (rc == PLUGINXX_RESULT_OK);
+    if (rc == PLUGINXX_RESULT_OK) {
       payload["result"] = text.empty() ? Json(nullptr) : parseJsonSafe(text);
     } else {
       payload["error"] =
@@ -3579,7 +3579,7 @@ int32_t JsEngine::startInstance(const std::shared_ptr<Instance> &inst,
                                 std::string &err) {
   if (!inst) {
     err = "实例为空";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string info;
   if (mgr_) {
@@ -3597,11 +3597,11 @@ int32_t JsEngine::startInstance(const std::shared_ptr<Instance> &inst,
 #endif
       });
     }
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   applyRegistrations(inst);
   inst->scriptLoaded = true;
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void JsEngine::stopInstance(const std::shared_ptr<Instance> &inst) {
@@ -3860,7 +3860,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       spec.user_data = handler.get();
       spec.run_sync = &JsEngine::implementationRunSync;
       const int32_t rc = mgr_->registerHandler(inst->hostInst, spec);
-      if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+      if (rc != PLUGINXX_RESULT_OK) {
         Json payload;
         payload["id"] = inst->id;
         payload["phase"] = "capability";
@@ -3919,7 +3919,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       if (!item.is_object()) {
         continue;
       }
-      if (applyBroadcastDeclOnHost(inst, item.dump()) == MUSICXX_EXTERN_PLUGIN_OK) {
+      if (applyBroadcastDeclOnHost(inst, item.dump()) == PLUGINXX_RESULT_OK) {
         ++broadcastsApplied;
       }
     }
@@ -3987,7 +3987,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
   // ---- UI 声明式扩展项 ----
   int32_t uiApplied = 0;
   for (const auto &op : takePendingUiOps(inst)) {
-    int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    int32_t rc = PLUGINXX_RESULT_ERR_ARG;
     if (op.op == "register") {
       MusicxxPluginUIEntrySpec spec{};
       spec.version = 1;
@@ -4004,7 +4004,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     } else if (op.op == "unregister") {
       rc = mgr_->unregisterUiEntry(inst->hostInst, op.name);
     }
-    if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+    if (rc == PLUGINXX_RESULT_OK) {
       ++uiApplied;
     } else {
       Json payload;
@@ -4029,7 +4029,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
   }
   for (const auto &[topic, payload] : queued) {
     const int32_t rc = mgr_->broadcastPublishFrom(inst->id, topic, payload);
-    if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (rc != PLUGINXX_RESULT_OK) {
       XX_LOGW("[musicxx_ext] JS插件 `{}` 顶层发布 `{}` 被拒绝 (code={})",
               inst->id, topic, rc);
     }
@@ -4282,23 +4282,23 @@ const PluginxxInfo *PLUGINXX_CALL JsEngine::builtinGetInfo() {
 int32_t PLUGINXX_CALL JsEngine::builtinCreate(const PluginxxHost *host,
                                               void **outCtx) {
   if (!outCtx) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
   auto inst = instanceFromHost(host, err);
   if (!inst) {
     XX_LOGE("[musicxx_ext] JS插件实例创建失败: {}", err);
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   *outCtx = inst.get();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void *PLUGINXX_CALL JsEngine::builtinStart(void *ctx,
                                            const PluginxxOperatorNotify *notify,
                                            PluginxxString *errorOut) {
   auto *inst = static_cast<Instance *>(ctx);
-  int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+  int32_t rc = PLUGINXX_RESULT_ERR_STATE;
   std::string err{"JS 实例上下文无效"};
   if (inst && inst->engine) {
     rc = inst->engine->startInstance(inst->engine->lookupInstance(inst->name),
@@ -4344,14 +4344,14 @@ int32_t JsEngine::requestAppCapability(MusicxxHostInstance *inst,
                                 const std::string &argsJson, uint32_t timeoutMs,
                                 int64_t *outRequestId) {
   if (!inst || action.empty() || !mgr_) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
   const int64_t requestId = mgr_->allocateRequestId();
   int64_t effectiveTimeoutMs = 0;
   const int32_t rc = mgr_->pushAppCapabilityRequestEvent(
       pluginId, requestId, action, argsJson, timeoutMs, &effectiveTimeoutMs);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     return rc;
   }
   {
@@ -4369,7 +4369,7 @@ int32_t JsEngine::requestAppCapability(MusicxxHostInstance *inst,
   if (outRequestId) {
     *outRequestId = requestId;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 bool JsEngine::respondAppCapability(int64_t requestId, int32_t status,

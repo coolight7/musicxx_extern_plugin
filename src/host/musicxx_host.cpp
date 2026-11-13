@@ -272,11 +272,11 @@ void MusicxxHostManager::setUiCapabilities(
 
 int32_t MusicxxHostManager::start(std::string &err) {
   if (running_.load(std::memory_order_acquire)) {
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   if (!ctx_) {
     err = "host_start: host context missing";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
 
   // 工作线程池 (插件 offload 用) + 框架线程 (唯一动态库插件执行线程)
@@ -350,7 +350,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
   if (!bindIoThread()) {
     running_.store(false, std::memory_order_release);
     err = "host_start: 插件框架 IO 线程未在超时前就绪";
-    return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    return PLUGINXX_RESULT_ERR_TIMEOUT;
   }
 
   // 插件框架内运行时: JS 线程 (全部 JS插件实例共享这 1 条线程)
@@ -359,7 +359,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
       JsEngine::available()) {
     jsEngine_ = JsEngine::create(this);
     std::string jsErr;
-    if (jsEngine_->start(jsErr) != MUSICXX_EXTERN_PLUGIN_OK) {
+    if (jsEngine_->start(jsErr) != PLUGINXX_RESULT_OK) {
       XX_LOGE("[musicxx_ext] JS 运行时未启动: {}", jsErr);
       pushHostError("js_runtime_unavailable", jsErr);
       jsEngine_.reset();
@@ -392,7 +392,7 @@ int32_t MusicxxHostManager::start(std::string &err) {
           (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_NATIVE) != 0,
           (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0,
           jsEngine_ != nullptr);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 bool MusicxxHostManager::bindIoThread() {
@@ -431,7 +431,7 @@ bool MusicxxHostManager::bindIoThread() {
 int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
   (void)err;
   if (!ctx_ || !running_.load(std::memory_order_acquire)) {
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   auto slot = std::make_shared<WaitSlot<bool>>();
   auto self = shared_from_this();
@@ -479,7 +479,7 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
   // v1: 框架为一次性对象 (start 之后 stop 不再重启); 需要重新启动时由 Dart
   // 侧销毁框架并重建
   XX_LOGI("[musicxx_ext] host stopped");
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 MusicxxHostManager::~MusicxxHostManager() {
@@ -592,7 +592,7 @@ int32_t MusicxxHostManager::pushAppCapabilityRequestEvent(
     const std::string &argsJson, uint32_t timeoutMs,
     int64_t *outEffectiveTimeoutMs) {
   if (action.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   /// 名字不校验、不拒绝 (与动态库插件的能力调用一致): 由 Dart 侧按注册表
   /// 决定理不理它。命名建议见 `requestAppCapability`。
@@ -609,7 +609,7 @@ int32_t MusicxxHostManager::pushAppCapabilityRequestEvent(
   if (outEffectiveTimeoutMs) {
     *outEffectiveTimeoutMs = effectiveTimeoutMs;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void MusicxxHostManager::cancelAppCapabilitiesOfInstance(
@@ -633,11 +633,11 @@ int32_t MusicxxHostManager::prepareJsPlugin(
     err = (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS) != 0
               ? "框架配置禁用了 JS插件"
               : "JS 运行时不可用 (未编译或启动失败)";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_SAFE_MODE) != 0) {
     err = "安全模式: 本次启动不加载任何外部插件";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   const fs::path dir{pluginDir};
   // 脚本清单：清单 `scripts` 为准；没写时退回 `entry`（写成 .js 时）→
@@ -647,7 +647,7 @@ int32_t MusicxxHostManager::prepareJsPlugin(
     const fs::path candidate = dir / hint;
     if (!fs::is_regular_file(candidate)) {
       err = "JS插件缺少脚本文件: " + candidate.string();
-      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+      return PLUGINXX_RESULT_ERR_NOT_FOUND;
     }
     scripts.push_back(candidate);
   }
@@ -663,7 +663,7 @@ int32_t MusicxxHostManager::prepareJsPlugin(
     std::error_code ec;
     if (!fs::is_regular_file(script, ec)) {
       err = "JS插件缺少脚本文件: " + script.string();
-      return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+      return PLUGINXX_RESULT_ERR_NOT_FOUND;
     }
     scripts.push_back(script);
   }
@@ -673,9 +673,9 @@ int32_t MusicxxHostManager::prepareJsPlugin(
     paths.push_back(script.string());
   }
   if (!engine->registerBuiltin(pluginId, paths, version, err)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t
@@ -683,14 +683,14 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
                                          const std::string &topic,
                                          const std::string &payloadJson) {
   if (!running_.load(std::memory_order_acquire)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 归属校验: 插件只能发布自己命名空间下的主题 (官方频道属于应用)
   if (!naming::isTopicOwnedBy(topic, pluginId)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播被拒绝: 主题 `{}` "
             "不属于该插件命名空间",
             pluginId, topic);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
@@ -705,8 +705,8 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
     XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播 `{}` 被拒绝 (code={}): {}",
             pluginId, topic, rc, broadcastError);
     return rc == PLUGINXX_RESULT_ERR_PERMISSION
-               ? MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION
-               : MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+               ? PLUGINXX_RESULT_ERR_PERMISSION
+               : PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   auto self = shared_from_this();
   // 广播计数 (只统计不限制) 放在框架线程做: 实例计数器只在那条线程上改
@@ -718,21 +718,21 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
     debugEvent["data"] = parseJsonSafe(payload);
     pushEvent("musicxx.event.published", "", debugEvent.dump());
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::broadcastEndFrom(const std::string &pluginId,
                                              const std::string &topic,
                                              const std::string &reasonJson) {
   if (!running_.load(std::memory_order_acquire)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 与发布同一条归属规则: 只能结束自己命名空间下的频道
   if (!naming::isTopicOwnedBy(topic, pluginId)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播被拒绝: 主题 `{}` "
             "不属于该插件命名空间",
             pluginId, topic);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string reason = reasonJson.empty() ? std::string{"{}"} : reasonJson;
   // 注册表内部加锁, 所以与发布一样直接在调用方线程上结束: 订阅方的结束回调就在本次
@@ -742,16 +742,16 @@ int32_t MusicxxHostManager::broadcastEndFrom(const std::string &pluginId,
   if (rc != PLUGINXX_RESULT_OK) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播 `{}` 被拒绝 (code={}): {}",
             pluginId, topic, rc, broadcastError);
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::pollEvents(int32_t maxCount, std::string &outJson) {
   std::lock_guard<std::mutex> lock{eventMutex_};
   if (events_.empty()) {
     outJson.clear();
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   const size_t take =
       (maxCount <= 0)
@@ -767,7 +767,7 @@ int32_t MusicxxHostManager::pollEvents(int32_t maxCount, std::string &outJson) {
   }
   joined.push_back(']');
   outJson = std::move(joined);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 /* ==================== DomainServices ==================== */
@@ -926,7 +926,7 @@ int32_t MusicxxHostManager::netCall(const std::string &pluginId,
                                     const std::string &argsJson,
                                     std::string &outJson) {
   if (!netHub_) {
-    return PLUGINXX_NET_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   return netHub_->call(pluginId, op, argsJson, outJson);
 }
@@ -939,7 +939,7 @@ int32_t MusicxxHostManager::netCallAsync(
   if (!netHub_) {
     outJson =
         R"({"ok":false,"error":"not_running","message":"插件网络能力没有运行"})";
-    return PLUGINXX_NET_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   return netHub_->callAsync(pluginId, op, argsJson, std::move(done), outJson,
                             outRequestId);
@@ -948,7 +948,7 @@ int32_t MusicxxHostManager::netCallAsync(
 int32_t MusicxxHostManager::netCancel(const std::string &pluginId,
                                       int64_t requestId, std::string &outJson) {
   if (!netHub_) {
-    return PLUGINXX_NET_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   return netHub_->cancel(pluginId, requestId, outJson);
 }
@@ -1112,7 +1112,7 @@ int32_t MusicxxHostManager::scanPlugins(std::string &outJson,
                                         std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_scan: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   std::string json = "[";
   bool first = true;
@@ -1153,7 +1153,7 @@ int32_t MusicxxHostManager::scanPlugins(std::string &outJson,
   }
   json.push_back(']');
   outJson = std::move(json);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 std::string MusicxxHostManager::scanDir(const std::string &dir,
@@ -1309,7 +1309,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
 
 int32_t MusicxxHostManager::pluginListJson(std::string &outJson) {
   outJson = pluginsJson();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 asio::awaitable<MusicxxHostManager::InstancePtr>
@@ -1381,11 +1381,11 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
                                        std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_load: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   if (idOrPath.empty()) {
     err = "plugin_load: empty id/path";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
 
   auto options = std::make_shared<pluginxx::PluginLoadOptions>();
@@ -1394,7 +1394,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
     Json parsed = parseJsonSafe(optionsJson, &parseOk);
     if (!parseOk) {
       err = "plugin_load: options_json 非法";
-      return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+      return PLUGINXX_RESULT_ERR_JSON;
     }
     if (parsed.is_object() && parsed.contains("args") &&
         parsed["args"].is_object()) {
@@ -1441,7 +1441,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
   }
   if (pluginId.empty()) {
     err = "plugin_load: 无法从路径推导插件 id";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   options->configPath = deriveConfigPath(pluginId, path);
 
@@ -1496,7 +1496,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           payload["message"] = *failMsg;
           self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
           XX_LOGE("[musicxx_ext] {}", *failMsg);
-          slot->set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+          slot->set(PLUGINXX_RESULT_ERR_NOT_FOUND);
           co_return;
         }
         // 托管形态：运行器负责跑，插件框架只转发加载 / 卸载，并留一条记录
@@ -1516,7 +1516,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
               payload["code"] = "dependency_missing";
               payload["message"] = *failMsg;
               self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
-              slot->set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+              slot->set(PLUGINXX_RESULT_ERR_NOT_FOUND);
               co_return;
             }
           }
@@ -1532,10 +1532,10 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             payload["kind"] = manifestKind;
             payload["message"] = hostedFail;
             self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
-            slot->set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
+            slot->set(PLUGINXX_RESULT_ERR_STATE);
             co_return;
           }
-          slot->set(MUSICXX_EXTERN_PLUGIN_OK);
+          slot->set(PLUGINXX_RESULT_OK);
           co_return;
         }
         if (manifestKind == "js") {
@@ -1562,7 +1562,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
               payload["message"] = *failMsg;
               self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
               XX_LOGE("[musicxx_ext] {}", *failMsg);
-              slot->set(MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND);
+              slot->set(PLUGINXX_RESULT_ERR_NOT_FOUND);
               co_return;
             }
             jsDependsResolved.push_back(depInst->name);
@@ -1580,7 +1580,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           const int32_t prepareRc = self->prepareJsPlugin(
               pluginId, path, manifestEntry, manifestScripts, manifestVersion,
               prepareErr);
-          if (prepareRc != MUSICXX_EXTERN_PLUGIN_OK) {
+          if (prepareRc != PLUGINXX_RESULT_OK) {
             *failMsg = prepareErr;
             Json payload;
             payload["id"] = pluginId;
@@ -1608,7 +1608,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             payload["code"] = "js_load_failed";
             payload["message"] = *failMsg;
             self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
-            slot->set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
+            slot->set(PLUGINXX_RESULT_ERR_STATE);
             co_return;
           }
           jsInst->kind = "js";
@@ -1620,7 +1620,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
               std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - created)
                   .count();
-          slot->set(MUSICXX_EXTERN_PLUGIN_OK);
+          slot->set(PLUGINXX_RESULT_OK);
           co_return;
         }
 
@@ -1643,7 +1643,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           payload["code"] = "load_failed";
           payload["message"] = *failMsg;
           self->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
-          slot->set(MUSICXX_EXTERN_PLUGIN_ERR_STATE);
+          slot->set(PLUGINXX_RESULT_ERR_STATE);
           co_return;
         }
         if (options->args.contains("kind") &&
@@ -1655,19 +1655,19 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - created)
                 .count();
-        slot->set(MUSICXX_EXTERN_PLUGIN_OK);
+        slot->set(PLUGINXX_RESULT_OK);
       },
       asio::detached);
 
   if (!sync) {
-    return MUSICXX_EXTERN_PLUGIN_OK; ///< 结果经事件回报
+    return PLUGINXX_RESULT_OK; ///< 结果经事件回报
   }
-  int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+  int32_t rc = PLUGINXX_RESULT_ERR_TIMEOUT;
   if (!slot->wait(timeoutMs == 0 ? 10000 : timeoutMs, rc)) {
     err = "plugin_load: 加载未在时限内完成 (结果稍后经事件回报)";
-    return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    return PLUGINXX_RESULT_ERR_TIMEOUT;
   }
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     err = failMsg->empty() ? "plugin_load failed" : *failMsg;
   }
   return rc;
@@ -1677,7 +1677,7 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
                                          std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_enable: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 运行器插件托管的插件: 启用 = 让运行器重新把它跑起来
   HostedKindPlugin hosted;
@@ -1692,7 +1692,7 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
   }
   if (isHosted) {
     if (hosted.enabled) {
-      return MUSICXX_EXTERN_PLUGIN_OK;
+      return PLUGINXX_RESULT_OK;
     }
     auto slot = std::make_shared<WaitSlot<bool>>();
     auto self = shared_from_this();
@@ -1707,7 +1707,7 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
     if (!slot->wait(30000, ok) || !ok) {
       err = "plugin_enable: 运行器插件 `" + hosted.provider +
             "` 没能重新加载 `" + id + "`";
-      return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+      return PLUGINXX_RESULT_ERR_STATE;
     }
     {
       std::lock_guard<std::mutex> lock{registryMutex_};
@@ -1717,22 +1717,22 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
       }
     }
     pushEvent("musicxx.plugin.enabled", id, R"({"hosted":true})");
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   auto inst = resolveInstance(id);
   if (!inst) {
     err = "plugin_enable: plugin not loaded: " + id;
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   enable(inst->name);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::disablePlugin(const std::string &id,
                                           std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_disable: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 运行器插件托管的插件: 停用 = 让运行器把它停掉 (记录保留, 启用时可以再开)
   HostedKindPlugin hosted;
@@ -1764,22 +1764,22 @@ int32_t MusicxxHostManager::disablePlugin(const std::string &id,
       }
     }
     pushEvent("musicxx.plugin.disabled", id, R"({"hosted":true})");
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   auto inst = resolveInstance(id);
   if (!inst) {
     err = "plugin_disable: plugin not loaded: " + id;
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   disable(inst->name);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
                                          uint32_t timeoutMs, std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_unload: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 幂等: 未加载视为"已经是未加载状态"; 插件 id 与实例名都接受 (JS插件实例名为
   // js:<id>)
@@ -1803,15 +1803,15 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
       bool ok = false;
       if (!slot->wait(timeoutMs == 0 ? 30000 : timeoutMs + 500, ok) || !ok) {
         err = "plugin_unload: 卸载未完成 (运行器插件没有在超时内回答)";
-        return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+        return PLUGINXX_RESULT_ERR_TIMEOUT;
       }
-      return MUSICXX_EXTERN_PLUGIN_OK;
+      return PLUGINXX_RESULT_OK;
     }
   }
   auto inst = resolveInstance(id);
   if (!inst) {
     XX_LOGI("[musicxx_ext] plugin_unload: `{}` 未加载, 视为已卸载", id);
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   const std::string instanceName = inst->name;
   auto slot = std::make_shared<WaitSlot<bool>>();
@@ -1830,9 +1830,9 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
   bool ok = false;
   if (!slot->wait(timeoutMs == 0 ? 30000 : timeoutMs + 500, ok) || !ok) {
     err = "plugin_unload: 卸载未完成 (存在长时间运行的任务或 stop 事务未返回)";
-    return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    return PLUGINXX_RESULT_ERR_TIMEOUT;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::setPluginArgs(const std::string &id,
@@ -1842,7 +1842,7 @@ int32_t MusicxxHostManager::setPluginArgs(const std::string &id,
   Json args = parseJsonSafe(argsJson, &parseOk);
   if (!parseOk || !args.is_object()) {
     err = "plugin_set_args: args_json 必须是 JSON 对象";
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+    return PLUGINXX_RESULT_ERR_JSON;
   }
   auto slot = std::make_shared<WaitSlot<bool>>();
   MusicxxHostManager *self = this;
@@ -1858,9 +1858,9 @@ int32_t MusicxxHostManager::setPluginArgs(const std::string &id,
   bool ok = false;
   if (!slot->wait(3000, ok) || !ok) {
     err = "plugin_set_args: plugin not loaded: " + id;
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 std::string
@@ -1882,16 +1882,16 @@ int32_t MusicxxHostManager::pluginConfigPath(const std::string &id,
   auto inst = resolveInstance(id);
   if (inst && !inst->configPath.empty()) {
     out = inst->configPath;
-    return MUSICXX_EXTERN_PLUGIN_OK;
+    return PLUGINXX_RESULT_OK;
   }
   auto dirIt = discovered_.find(id);
   out = (dirIt != discovered_.end()) ? deriveConfigPath(id, dirIt->second)
                                      : deriveConfigPath(id, {});
   if (out.empty()) {
     err = "plugin_get_config_path: 无法推导插件目录 (用户插件目录未配置)";
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 /* ==================== 插件形态 (kind) ==================== */
@@ -1902,13 +1902,13 @@ int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
   auto inst = find(instanceName);
   if (!inst) {
     err = "插件形态登记: 插件未加载";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   bool parseOk = false;
   Json spec = parseJsonSafe(specJson, &parseOk);
   if (!parseOk || !spec.is_object()) {
     err = "插件形态登记: spec_json 必须是 JSON 对象";
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+    return PLUGINXX_RESULT_ERR_JSON;
   }
   MusicxxPluginKindSpec entry;
   entry.kind = spec.value("kind", std::string{});
@@ -1935,23 +1935,23 @@ int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
   // "接管内置形态"（例如把 JS 运行器搬进插件）要显式声明
   if (entry.kind.empty()) {
     err = "插件形态登记: 缺少 kind";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   // 能力必须落在本插件自己的命名空间: 否则谁都能把自己登记的形态指向别人的能力
   const std::string expected = "plugin." + pluginIdOf(instanceName) + ".";
   if (entry.loadCapability.rfind(expected, 0) != 0) {
     err = "插件形态登记: loadCapability 必须写在 `" + expected + "` 下";
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   if (!entry.unloadCapability.empty() &&
       entry.unloadCapability.rfind(expected, 0) != 0) {
     err = "插件形态登记: unloadCapability 必须写在 `" + expected + "` 下";
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   if (!entry.validateCapability.empty() &&
       entry.validateCapability.rfind(expected, 0) != 0) {
     err = "插件形态登记: validateCapability 必须写在 `" + expected + "` 下";
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   std::string problem;
   bool overrideBuiltin = false;
@@ -1966,13 +1966,13 @@ int32_t MusicxxHostManager::registerPluginKind(const std::string &instanceName,
   }
   if (!registered) {
     err = "插件形态登记: " + problem;
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   XX_LOGI("[musicxx_ext] 插件 `{}` 登记插件形态 `{}` (requiresPluginAbi={}, "
           "接口代次 {}/{})",
           pluginIdOf(instanceName), entry.kind, entry.requiresPluginAbi,
           entry.minInterfaceVersion, entry.interfaceVersion);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t
@@ -1981,7 +1981,7 @@ MusicxxHostManager::unregisterPluginKind(const std::string &instanceName,
                                          std::string &err) {
   if (!find(instanceName)) {
     err = "插件形态撤销: 插件未加载";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   std::string problem;
   bool removed = false;
@@ -1991,9 +1991,9 @@ MusicxxHostManager::unregisterPluginKind(const std::string &instanceName,
   }
   if (!removed) {
     err = "插件形态撤销: " + problem;
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 MusicxxPluginKindRegistry MusicxxHostManager::kindRegistrySnapshot() const {
@@ -2274,8 +2274,8 @@ void PLUGINXX_CALL capabilityCallTrampoline(
   }
   if (holder->done) {
     holder->done(status == PLUGINXX_OPERATOR_OK
-                     ? MUSICXX_EXTERN_PLUGIN_OK
-                     : MUSICXX_EXTERN_PLUGIN_ERR_STATE,
+                     ? PLUGINXX_RESULT_OK
+                     : PLUGINXX_RESULT_ERR_STATE,
                  text);
   }
 }
@@ -2289,7 +2289,7 @@ int32_t MusicxxHostManager::acceptCapabilityCall(const std::string &id,
                                                  std::string &problem) {
   if (id.empty() || method.empty()) {
     problem = "plugin_call: id 与 method 都不能为空";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
   // 能力全名: 官方前缀 (plugin.<pluginId>.) 缺失时由插件框架补齐
   cap = method.rfind("plugin.", 0) == 0 ? method
@@ -2297,19 +2297,19 @@ int32_t MusicxxHostManager::acceptCapabilityCall(const std::string &id,
   auto inst = resolveInstance(id);
   if (!inst) {
     problem = "插件未加载: " + id;
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   const auto *entry = capabilities()->get(cap);
   if (!entry || !entry->start) {
     problem = "插件未声明该能力 (需要在 start 事务里注册): " + cap;
-    return MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND;
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (entry->provider != inst->name) {
     problem = "能力归属校验失败 (声明的插件: " + entry->provider + ")";
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   outInst = std::move(inst);
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void MusicxxHostManager::startCapabilityCall(
@@ -2340,7 +2340,7 @@ void MusicxxHostManager::startCapabilityCall(
       pluginxx::hostMemoryFree(callErr.data);
     }
     if (holder->done) {
-      holder->done(MUSICXX_EXTERN_PLUGIN_ERR_STATE, message);
+      holder->done(PLUGINXX_RESULT_ERR_STATE, message);
     }
   }
 }
@@ -2353,7 +2353,7 @@ void MusicxxHostManager::invokeCapabilityOnHostThread(
   InstancePtr inst;
   std::string problem;
   const int32_t rc = acceptCapabilityCall(id, method, cap, inst, problem);
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     if (done) {
       done(rc, problem.empty() ? std::string{"plugin_call failed"} : problem);
     }
@@ -2370,11 +2370,11 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
   outRequestId = 0;
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_call: host not started";
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   if (id.empty() || method.empty()) {
     err = "plugin_call: id 与 method 都不能为空";
-    return MUSICXX_EXTERN_PLUGIN_ERR_ARG;
+    return PLUGINXX_RESULT_ERR_ARG;
   }
 
   auto self = shared_from_this();
@@ -2394,7 +2394,7 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
                std::string problem;
                const int32_t rc =
                    self->acceptCapabilityCall(id, method, cap, inst, problem);
-               if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+               if (rc != PLUGINXX_RESULT_OK) {
                  state->error = problem;
                  state->slot.set(rc);
                  return;
@@ -2403,7 +2403,7 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
                  return;
                }
                self->rememberPendingCall(requestId, id, method, started);
-               state->slot.set(MUSICXX_EXTERN_PLUGIN_OK);
+               state->slot.set(PLUGINXX_RESULT_OK);
                self->startCapabilityCall(
                    inst.get(), cap, argsJson,
                    [self, requestId, id, method,
@@ -2417,21 +2417,21 @@ int32_t MusicxxHostManager::pluginCallAsync(const std::string &id,
                    });
              });
 
-  int32_t rc = MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+  int32_t rc = PLUGINXX_RESULT_ERR_TIMEOUT;
   if (!state->slot.wait(capabilityAcceptWaitMs, rc)) {
     state->cancelled.store(true, std::memory_order_release);
     err = "plugin_call: 插件框架正忙, 未在 " +
           std::to_string(capabilityAcceptWaitMs) + " ms 内受理 (" + id + "." +
           method + ")";
-    return MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT;
+    return PLUGINXX_RESULT_ERR_TIMEOUT;
   }
-  if (rc != MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc != PLUGINXX_RESULT_OK) {
     err =
         state->error.empty() ? std::string{"plugin_call failed"} : state->error;
     return rc;
   }
   outRequestId = requestId;
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void MusicxxHostManager::rememberPendingCall(
@@ -2459,9 +2459,9 @@ void MusicxxHostManager::pushCapabilityCallResult(
   payload["requestId"] = requestId;
   payload["id"] = id;
   payload["method"] = method;
-  payload["ok"] = (rc == MUSICXX_EXTERN_PLUGIN_OK);
+  payload["ok"] = (rc == PLUGINXX_RESULT_OK);
   payload["ms"] = ms;
-  if (rc == MUSICXX_EXTERN_PLUGIN_OK) {
+  if (rc == PLUGINXX_RESULT_OK) {
     payload["result"] = parseJsonSafe(text);
   } else if (!reason.empty()) {
     // 不是插件给的结果 (插件卸载 / 框架停机): 说法用 reason, 插件自己的说明放
@@ -2490,7 +2490,7 @@ void MusicxxHostManager::finishPendingCallsOf(const std::string &pluginId) {
   }
   for (const auto &hit : hits) {
     pushCapabilityCallResult(hit.first, hit.second.id, hit.second.method,
-                             MUSICXX_EXTERN_PLUGIN_ERR_STATE, std::string{},
+                             PLUGINXX_RESULT_ERR_STATE, std::string{},
                              hit.second.started,
                              "plugin_unloaded: 插件已卸载: " + pluginId);
   }
@@ -2504,7 +2504,7 @@ void MusicxxHostManager::finishAllPendingCalls() {
   pendingCalls_.clear();
   for (const auto &hit : hits) {
     pushCapabilityCallResult(hit.first, hit.second.id, hit.second.method,
-                             MUSICXX_EXTERN_PLUGIN_ERR_STATE, std::string{},
+                             PLUGINXX_RESULT_ERR_STATE, std::string{},
                              hit.second.started,
                              "host_stopped: 插件框架已停止");
   }
@@ -2516,7 +2516,7 @@ void MusicxxHostManager::pluginCallAsync(
     std::function<void(int32_t, const std::string &)> done) {
   if (!running_.load(std::memory_order_acquire)) {
     if (done) {
-      done(MUSICXX_EXTERN_PLUGIN_ERR_STATE, "plugin_call: host not started");
+      done(PLUGINXX_RESULT_ERR_STATE, "plugin_call: host not started");
     }
     return;
   }
@@ -2598,7 +2598,7 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
 int32_t MusicxxHostManager::broadcastPublish(const std::string &topic,
                                              const std::string &payloadJson) {
   if (!running_.load(std::memory_order_acquire)) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 插件框架自身没有插件命名空间: 只允许发布官方主题
   // (插件自定义主题由插件自己发布)
@@ -2606,7 +2606,7 @@ int32_t MusicxxHostManager::broadcastPublish(const std::string &topic,
     XX_LOGW(
         "[musicxx_ext] 插件框架发布事件被拒绝: 主题 `{}` 必须以 musicxx. 开头",
         topic);
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string payload =
       payloadJson.empty() ? std::string{"{}"} : payloadJson;
@@ -2615,7 +2615,7 @@ int32_t MusicxxHostManager::broadcastPublish(const std::string &topic,
   asio::post(ctx_->io, [self, topic, payload] {
     self->publishOnHostThread(topic, payload);
   });
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t
@@ -2623,7 +2623,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
                                         const std::string &payloadJson) {
   const std::string fullTopic = qualifyEventTopic(topic);
   if (fullTopic.empty()) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_PERMISSION;
+    return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   /// 事件计数与速率 (只统计不限制): 只有插件自定义主题才归属到插件,
   /// 官方 `musicxx.*` 主题 (插件框架/Dart 发布) 不计入任何插件的速率
@@ -2635,7 +2635,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   const int32_t rc =
       publishBroadcast(fullTopic, payload, std::string{}, &broadcastError);
   if (rc != PLUGINXX_RESULT_OK) {
-    return MUSICXX_EXTERN_PLUGIN_ERR_STATE;
+    return PLUGINXX_RESULT_ERR_STATE;
   }
   // 调试回传: 仅在调试开关打开时把这次发布告诉 Dart 侧
   // (默认关闭零开销)
@@ -2645,7 +2645,7 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
     debugEvent["data"] = parseJsonSafe(payload);
     pushEvent("musicxx.event.published", "", debugEvent.dump());
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void MusicxxHostManager::accountEventForTopic(const std::string &topic) {
@@ -2705,7 +2705,7 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
   // 变量表诊断 (条数/能力分布/订阅数/未回执的读写请求)
   j["broadcasts"] = parseJsonSafe(broadcasts()->listJson());
   outJson = j.dump();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
@@ -2813,7 +2813,7 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
   }
   j["plugins"] = plugins;
   outJson = j.dump();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::statsConfig(const std::string &cfgJson,
@@ -2822,12 +2822,12 @@ int32_t MusicxxHostManager::statsConfig(const std::string &cfgJson,
   Json cfg = parseJsonSafe(cfgJson, &parseOk);
   if (!parseOk || !cfg.is_object()) {
     err = "stats_config: 需要 JSON 对象";
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+    return PLUGINXX_RESULT_ERR_JSON;
   }
   if (cfg.contains("enable") && cfg["enable"].is_boolean()) {
     statsEnabled_ = cfg["enable"].get<bool>();
   }
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 asio::any_io_executor MusicxxHostManager::hostExecutor() const {
@@ -2841,7 +2841,7 @@ int32_t MusicxxHostManager::uiSnapshot(std::string &outJson) {
   // 声明式 UI 扩展: 返回全部插件的 UI 项 (按 type/order/seq 排序),
   // Dart 侧据此渲染主页入口 / 菜单项 / 设置页入口 / 附加信息块。
   outJson = uiItemsJson(std::string{});
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
@@ -2850,7 +2850,7 @@ int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
   Json cfg = parseJsonSafe(cfgJson, &parseOk);
   if (!parseOk || !cfg.is_object()) {
     err = "set_config: 需要 JSON 对象";
-    return MUSICXX_EXTERN_PLUGIN_ERR_JSON;
+    return PLUGINXX_RESULT_ERR_JSON;
   }
   auto readString = [&cfg](const char *key, std::string &dst) {
     if (cfg.contains(key) && cfg[key].is_string()) {
@@ -2873,7 +2873,7 @@ int32_t MusicxxHostManager::setConfig(const std::string &cfgJson,
   }
   // JS 侧同步读框架信息: 配置变化后刷新缓存 (避免跨线程读管理器字段)
   refreshJsHostInfo();
-  return MUSICXX_EXTERN_PLUGIN_OK;
+  return PLUGINXX_RESULT_OK;
 }
 
 void MusicxxHostManager::applyLanguage(const std::string &lang) {
@@ -2921,33 +2921,33 @@ int32_t PLUGINXX_CALL xxNetCall(const PluginxxHost *host,
                                 const PluginxxStringView *op,
                                 const PluginxxStringView *argsJson,
                                 PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
+  return pluginxx::guardVtableCall(PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
     if (!op || !op->data) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     auto call =
         pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
             host);
     if (!call.ok()) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     auto mgr = call.manager();
     auto inst = call.instance();
     if (!mgr || !inst) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
     const std::string opText = netViewToStr(op);
     const std::string argsText = netViewToStr(argsJson);
     std::string result;
     const int32_t rc = mgr->netCall(pluginId, opText, argsText, result);
-    if (rc != PLUGINXX_NET_OK) {
+    if (rc != PLUGINXX_RESULT_OK) {
       return rc;
     }
     if (outJson) {
       pluginxx::hostMemorySetString(outJson, result);
     }
-    return PLUGINXX_NET_OK;
+    return PLUGINXX_RESULT_OK;
   });
 }
 
@@ -2957,20 +2957,20 @@ int32_t PLUGINXX_CALL xxNetCallAsync(const PluginxxHost *host,
                                      const PluginxxOperatorNotify *notify,
                                      PluginxxString *outJson,
                                      int64_t *outRequestId) {
-  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
+  return pluginxx::guardVtableCall(PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
     if (!op || !op->data || !notify || !notify->done) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     auto call =
         pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
             host);
     if (!call.ok()) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     auto mgr = call.manager();
     auto inst = call.instance();
     if (!mgr || !inst) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
     const std::string opText = netViewToStr(op);
@@ -3002,28 +3002,28 @@ int32_t PLUGINXX_CALL xxNetCallAsync(const PluginxxHost *host,
 
 int32_t PLUGINXX_CALL xxNetCancel(const PluginxxHost *host, int64_t requestId,
                                   PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(PLUGINXX_NET_ERR_INTERNAL, [&]() -> int32_t {
+  return pluginxx::guardVtableCall(PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
     auto call =
         pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
             host);
     if (!call.ok()) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     auto mgr = call.manager();
     auto inst = call.instance();
     if (!mgr || !inst) {
-      return PLUGINXX_NET_ERR_ARG;
+      return PLUGINXX_RESULT_ERR_ARG;
     }
     const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
     std::string result;
     const int32_t rc = mgr->netCancel(pluginId, requestId, result);
-    if (rc != PLUGINXX_NET_OK) {
+    if (rc != PLUGINXX_RESULT_OK) {
       return rc;
     }
     if (outJson) {
       pluginxx::hostMemorySetString(outJson, result);
     }
-    return PLUGINXX_NET_OK;
+    return PLUGINXX_RESULT_OK;
   });
 }
 

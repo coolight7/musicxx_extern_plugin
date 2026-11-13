@@ -100,6 +100,23 @@ class MusicxxExternPluginBindings {
   late final _musicxx_extern_plugin_api_version =
       _musicxx_extern_plugin_api_versionPtr.asFunction<int Function()>();
 
+  /// 返回码的名称（`invalid_argument` / `not_found` / `no_value` / …）
+  ///
+  /// - 覆盖通用段、广播段、生命周期 / 内部段与网络段；
+  /// - 不认识（包括未定义区间与应用 / 插件自定义区间）返回 NULL，由属主自己解释；
+  /// - 返回的字符串是静态字面量，不需要释放。
+  ffi.Pointer<ffi.Char> musicxx_extern_plugin_result_name(int code) {
+    return _musicxx_extern_plugin_result_name(code);
+  }
+
+  late final _musicxx_extern_plugin_result_namePtr =
+      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function(ffi.Int32)>>(
+        'musicxx_extern_plugin_result_name',
+      );
+  late final _musicxx_extern_plugin_result_name =
+      _musicxx_extern_plugin_result_namePtr
+          .asFunction<ffi.Pointer<ffi.Char> Function(int)>();
+
   /// 插件框架库版本字符串 (形如 "2026.1011.1"; 与 MUSICXX_EXTERN_PLUGIN_VERSION 一致);
   /// 写入 out (框架堆, 需 string_free)
   int musicxx_extern_plugin_version(
@@ -174,7 +191,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 同步停止 (幂等); 超时返回 MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT
+  /// 同步停止 (幂等); 超时返回 PLUGINXX_RESULT_ERR_TIMEOUT
   int musicxx_extern_plugin_host_stop(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int timeout_ms,
@@ -309,7 +326,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 批量取事件 (JSON 数组字符串); 无事件返回 MUSICXX_EXTERN_PLUGIN_ERR_TIMEOUT
+  /// 批量取事件 (JSON 数组字符串); 无事件返回 PLUGINXX_RESULT_ERR_TIMEOUT
   int musicxx_extern_plugin_poll_events(
     ffi.Pointer<MusicxxExternPluginHost> h,
     int max_count,
@@ -721,7 +738,7 @@ class MusicxxExternPluginBindings {
 
   /// 调用插件能力 (Dart → 插件; **异步, 不占调用线程**)
   ///
-  /// - 只受理不等待结果: 成功返回 `MUSICXX_EXTERN_PLUGIN_OK` 并写出 `out_request_id`;
+  /// - 只受理不等待结果: 成功返回 `PLUGINXX_RESULT_OK` 并写出 `out_request_id`;
   /// 结果经事件 `musicxx.plugin.call.result` 回给 Dart
   /// (载荷 `{requestId, id, method, ok, result|error, ms}`);
   /// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 插件框架没在跑) 直接返回负错误码,
@@ -1191,8 +1208,8 @@ class MusicxxExternPluginBindings {
 
   /// 读一条频道的当前值 (同步; `cache: latest` 且有过值才写 `out_json`)
   ///
-  /// 返回 `MUSICXX_EXTERN_PLUGIN_ERR_NOT_FOUND`: 频道没声明;
-  /// 返回 `MUSICXX_EXTERN_PLUGIN_ERR_ARG`: 频道没有当前值 (`cache: none` / 还没发过)。
+  /// 返回 `PLUGINXX_RESULT_ERR_NOT_FOUND`: 频道没声明;
+  /// 返回 `PLUGINXX_RESULT_ERR_ARG`: 频道没有当前值 (`cache: none` / 还没发过)。
   int musicxx_extern_plugin_broadcast_read(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> id,
