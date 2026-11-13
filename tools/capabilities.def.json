@@ -523,6 +523,86 @@
       "doc": ""
     },
     {
+      "id": "musicxx.player.mpv.get",
+      "dart": "playerMpvGet",
+      "title": "读 mpv 属性",
+      "depict": "按 MPV_FORMAT_STRING 读一条 mpv 属性（不做禁读；节点型属性读不了时带回 mpv 的错误码）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "mcp": {
+        "name": "GetMpvProperty",
+        "format": "json"
+      },
+      "plugin": {},
+      "doc": "参数 `name`（mpv 属性名，原样交给 mpv）。返回 `{ok, name, value}`，`value` 是 mpv 的文本形态（布尔是 yes / no）。**不做禁读**：`http-header-fields`（当前音源的请求头）、`path`（解析后的播放地址）也能读，里面可能有 token / cookie。节点型属性（`track-list` / `chapter-list`）要读子属性路径（`track-list/0/codec`），读不了时 `error` 是 `invalid_argument`。**高危接口**：直接操作播放内核，写错、执行错命令的后果由调用方承担（见 `docs/plugin-api.md` 的「mpv 控制接口」）。要观察属性变化就订阅广播 `musicxx.player.mpv.<属性名>`，不用调这条能力。"
+    },
+    {
+      "id": "musicxx.player.mpv.set",
+      "dart": "playerMpvSet",
+      "title": "写 mpv 属性",
+      "depict": "把一条属性原样写进 mpv（不做检查；写错的后果由调用方承担）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "mcp": {
+        "name": "SetMpvProperty",
+        "format": "json"
+      },
+      "plugin": {},
+      "doc": "参数 `name` / `value`（都是文本；布尔写 `yes` / `no`）。返回 `{ok, name, value, mpvCode}`，`mpvCode` 是 libmpv 的返回（0 = 成功）。**不判断属性归属**：`volume` / `pause` / `time-pos` / `af` / `demuxer-cache-dir` 这类会和应用抢同一个值、或往磁盘写东西的属性也能写；应用自管的属性写完之后界面与设置里的值不会跟着变（下一次应用设置会覆盖回来）。要长期生效的滤镜用 `musicxx.player.mpv.filter`（按槽位加），直接写 `af` 是整串替换。**高危接口**：后果由调用方承担。"
+    },
+    {
+      "id": "musicxx.player.mpv.command",
+      "dart": "playerMpvCommand",
+      "title": "执行 mpv 命令",
+      "depict": "把一条 mpv 命令（参数数组）原样交给播放内核执行",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "mcp": {
+        "name": "RunMpvCommand",
+        "format": "json"
+      },
+      "plugin": {},
+      "doc": "动词 `command` 是 mpv 自己的说法（`mpv_command`）：这条能力就是「执行一条 mpv 命令」，不另起语义动词。参数 `args`（字符串数组，第一项是命令名，后面是参数，至少 1 项），原样交给 `mpv_command_async`。**没有白名单**：`run` / `subprocess`（执行本机程序）、`loadfile`（换片源）、`screenshot-to-file` / `dump-cache`（写任意路径）、`script-*`、`quit`、`playlist-*` 都会真的执行。返回 `{ok, command, mpvCode}`。不支持「一整行文本」的写法（libmpv 只有同步的 `mpv_command_string`，本接口只用异步接口）。**高危接口**：后果由调用方承担。"
+    },
+    {
+      "id": "musicxx.player.mpv.filter",
+      "dart": "playerMpvFilter",
+      "title": "音视频滤镜槽位",
+      "depict": "按槽位加 / 删音频（af）或视频（vf）滤镜，与音效 / 均衡器 / 音调共存",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "mcp": {
+        "name": "SetMpvFilter",
+        "format": "json"
+      },
+      "plugin": {},
+      "doc": "动词 `filter` 是 mpv 自己的说法（`af` / `vf` 的滤镜链）：这条能力管的就是滤镜槽位。参数 `action`（`set` / `remove` / `list`，缺省 `set`）、`target`（`audio` / `video`，缺省 `audio`）、`name`（槽位名，1~64 位字母数字与 `_ - .`）、`value`（滤镜串，`set` 必填）。插件调用时槽位键自动加 `plugin:<插件 id>:` 前缀，两个插件不会撞名、卸载时按前缀摘掉；应用自己的三段（均衡器 / 音效 / 音调）排在插件槽位前面。写入被 mpv 拒绝时先把槽位还原再写一次，应用原本的音效仍然生效。返回 `{ok, target, name, slot, value, chain}`；`list` 返回 `{ok, audio:{槽位:滤镜串}, video:{...}}`。**高危接口**：滤镜串写错的后果由调用方承担。"
+    },
+    {
       "id": "musicxx.songlist.list",
       "dart": "songlistList",
       "title": "",

@@ -142,6 +142,14 @@ abstract final class MusicxxCapabilityId {
   static const String playerSetQuality = 'musicxx.player.setQuality';
   /// 设置播放模式
   static const String playerSetLoopMode = 'musicxx.player.setLoopMode';
+  /// 读 mpv 属性
+  static const String playerMpvGet = 'musicxx.player.mpv.get';
+  /// 写 mpv 属性
+  static const String playerMpvSet = 'musicxx.player.mpv.set';
+  /// 执行 mpv 命令
+  static const String playerMpvCommand = 'musicxx.player.mpv.command';
+  /// 音视频滤镜槽位
+  static const String playerMpvFilter = 'musicxx.player.mpv.filter';
   /// musicxx.songlist.list
   static const String songlistList = 'musicxx.songlist.list';
   /// 读歌单歌曲
@@ -313,6 +321,10 @@ abstract final class MusicxxCapabilityId {
     playerSetPitch,
     playerSetQuality,
     playerSetLoopMode,
+    playerMpvGet,
+    playerMpvSet,
+    playerMpvCommand,
+    playerMpvFilter,
     songlistList,
     songlistListSongs,
     songlistPlay,
@@ -1295,6 +1307,86 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '设置播放模式',
       depict: '改播放模式（Order / RealRand / Only / SimulateRand / SimulateRandReflush）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.mpv.get',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: true,
+      mcpName: 'GetMpvProperty',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '读 mpv 属性',
+      depict: '按 MPV_FORMAT_STRING 读一条 mpv 属性（不做禁读；节点型属性读不了时带回 mpv 的错误码）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.mpv.set',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: true,
+      mcpName: 'SetMpvProperty',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '写 mpv 属性',
+      depict: '把一条属性原样写进 mpv（不做检查；写错的后果由调用方承担）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.mpv.command',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: true,
+      mcpName: 'RunMpvCommand',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '执行 mpv 命令',
+      depict: '把一条 mpv 命令（参数数组）原样交给播放内核执行',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.player.mpv.filter',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: true,
+      mcpName: 'SetMpvFilter',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '音视频滤镜槽位',
+      depict: '按槽位加 / 删音频（af）或视频（vf）滤镜，与音效 / 均衡器 / 音调共存',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.songlist.list',

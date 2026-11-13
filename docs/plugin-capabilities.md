@@ -61,6 +61,10 @@
 | `musicxx.player.setPitch` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.setQuality` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.setLoopMode` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.player.mpv.get` | 命令、MCP 工具、插件 | impl | - | async | 5000 ms | - | `GetMpvProperty` |
+| `musicxx.player.mpv.set` | 命令、MCP 工具、插件 | impl | - | async | 5000 ms | - | `SetMpvProperty` |
+| `musicxx.player.mpv.command` | 命令、MCP 工具、插件 | impl | - | async | 5000 ms | - | `RunMpvCommand` |
+| `musicxx.player.mpv.filter` | 命令、MCP 工具、插件 | impl | - | async | 5000 ms | - | `SetMpvFilter` |
 | `musicxx.songlist.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.songlist.listSongs` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.songlist.play` | 命令、插件 | impl | - | async | 5000 ms | - | - |
@@ -203,6 +207,22 @@
 ### `musicxx.feature.point.call` 调用功能埋点
 
 三个阶段都在同一条通道上（`before` / `impl` / `after`），载荷都带 `phase` 以便同一个处理器分辨自己被叫的阶段：`before` 是 `{point, phase, args, caller}`（回答 `{"patch": {"args": {...}}}` 改这次调用的参数、`{"action": "cancel"}` 这次不执行实现）、`impl` 是 `{point, phase, args, caller}`（回答见下）、`after` 是 `{point, phase, args, value, caller}`（回答 `{"value": ...}` 改最终结果、`{"action": "drop"}` 这次没有结果）。以下是实现链（`impl`）的规则：有人要算一个**外置插件声明的功能埋点**时派发一次（`point` = 功能埋点 id，`args` = 调用方给的参数，`caller` = 调用方插件 id，空串 = 应用自己或命令行）。这是**一条通用的实现通道**：插件声明的功能埋点共用它，而不是每个点各占一条能力 id（插件框架只认固定的能力表，见 docs/plugin-guide.md）。处理器只实现自己负责的点：不是自己的点直接返回空（空 = 不回答）；是自己的点就返回 `{"patch": {"value": <任意 JSON>}}` —— **必须用 `patch` 包一层**，插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历，否则后面的处理器会覆盖你的结果。`value` 键就是“实现方给出了结果”的判据（值可以是 null，例如“算过了、结果是空”）。返回 `{"action":"cancel"}` 是拦下这次调用：这次不再问别的实现。**同一条通道上所有实现都会收到同一次调用**，请按 `point` 过滤，不要假设只有自己收到。不要回答自己发起的调用（`caller` 等于自己的插件 id 时返回空；SDK 糖会自动做）。主程序不设超时，最多等到调用方自己的动作超时；同一个功能埋点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`。功能埋点由插件用动作 `musicxx.feature.point.define` 声明、`musicxx.feature.point.undefine` 收回，声明跟着插件生命周期走。
+
+### `musicxx.player.mpv.get` 读 mpv 属性
+
+参数 `name`（mpv 属性名，原样交给 mpv）。返回 `{ok, name, value}`，`value` 是 mpv 的文本形态（布尔是 yes / no）。**不做禁读**：`http-header-fields`（当前音源的请求头）、`path`（解析后的播放地址）也能读，里面可能有 token / cookie。节点型属性（`track-list` / `chapter-list`）要读子属性路径（`track-list/0/codec`），读不了时 `error` 是 `invalid_argument`。**高危接口**：直接操作播放内核，写错、执行错命令的后果由调用方承担（见 `docs/plugin-api.md` 的「mpv 控制接口」）。要观察属性变化就订阅广播 `musicxx.player.mpv.<属性名>`，不用调这条能力。
+
+### `musicxx.player.mpv.set` 写 mpv 属性
+
+参数 `name` / `value`（都是文本；布尔写 `yes` / `no`）。返回 `{ok, name, value, mpvCode}`，`mpvCode` 是 libmpv 的返回（0 = 成功）。**不判断属性归属**：`volume` / `pause` / `time-pos` / `af` / `demuxer-cache-dir` 这类会和应用抢同一个值、或往磁盘写东西的属性也能写；应用自管的属性写完之后界面与设置里的值不会跟着变（下一次应用设置会覆盖回来）。要长期生效的滤镜用 `musicxx.player.mpv.filter`（按槽位加），直接写 `af` 是整串替换。**高危接口**：后果由调用方承担。
+
+### `musicxx.player.mpv.command` 执行 mpv 命令
+
+动词 `command` 是 mpv 自己的说法（`mpv_command`）：这条能力就是「执行一条 mpv 命令」，不另起语义动词。参数 `args`（字符串数组，第一项是命令名，后面是参数，至少 1 项），原样交给 `mpv_command_async`。**没有白名单**：`run` / `subprocess`（执行本机程序）、`loadfile`（换片源）、`screenshot-to-file` / `dump-cache`（写任意路径）、`script-*`、`quit`、`playlist-*` 都会真的执行。返回 `{ok, command, mpvCode}`。不支持「一整行文本」的写法（libmpv 只有同步的 `mpv_command_string`，本接口只用异步接口）。**高危接口**：后果由调用方承担。
+
+### `musicxx.player.mpv.filter` 音视频滤镜槽位
+
+动词 `filter` 是 mpv 自己的说法（`af` / `vf` 的滤镜链）：这条能力管的就是滤镜槽位。参数 `action`（`set` / `remove` / `list`，缺省 `set`）、`target`（`audio` / `video`，缺省 `audio`）、`name`（槽位名，1~64 位字母数字与 `_ - .`）、`value`（滤镜串，`set` 必填）。插件调用时槽位键自动加 `plugin:<插件 id>:` 前缀，两个插件不会撞名、卸载时按前缀摘掉；应用自己的三段（均衡器 / 音效 / 音调）排在插件槽位前面。写入被 mpv 拒绝时先把槽位还原再写一次，应用原本的音效仍然生效。返回 `{ok, target, name, slot, value, chain}`；`list` 返回 `{ok, audio:{槽位:滤镜串}, video:{...}}`。**高危接口**：滤镜串写错的后果由调用方承担。
 
 ### `musicxx.songlist.favorite` 收藏当前歌曲
 

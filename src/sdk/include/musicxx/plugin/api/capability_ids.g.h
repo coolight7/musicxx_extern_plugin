@@ -107,6 +107,10 @@
 #define MUSICXX_CAPABILITY_PLAYER_SET_PITCH "musicxx.player.setPitch"
 #define MUSICXX_CAPABILITY_PLAYER_SET_QUALITY "musicxx.player.setQuality"
 #define MUSICXX_CAPABILITY_PLAYER_SET_LOOP_MODE "musicxx.player.setLoopMode"
+#define MUSICXX_CAPABILITY_PLAYER_MPV_GET "musicxx.player.mpv.get"
+#define MUSICXX_CAPABILITY_PLAYER_MPV_SET "musicxx.player.mpv.set"
+#define MUSICXX_CAPABILITY_PLAYER_MPV_COMMAND "musicxx.player.mpv.command"
+#define MUSICXX_CAPABILITY_PLAYER_MPV_FILTER "musicxx.player.mpv.filter"
 #define MUSICXX_CAPABILITY_SONGLIST_LIST "musicxx.songlist.list"
 #define MUSICXX_CAPABILITY_SONGLIST_LIST_SONGS "musicxx.songlist.listSongs"
 #define MUSICXX_CAPABILITY_SONGLIST_PLAY "musicxx.songlist.play"
@@ -260,6 +264,10 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.player.setPitch", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.setQuality", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.setLoopMode", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.player.mpv.get", 0, 0, 1u, 1, 5000, 0, 7u},
+    {"musicxx.player.mpv.set", 0, 0, 1u, 1, 5000, 0, 7u},
+    {"musicxx.player.mpv.command", 0, 0, 1u, 1, 5000, 0, 7u},
+    {"musicxx.player.mpv.filter", 0, 0, 1u, 1, 5000, 0, 7u},
     {"musicxx.songlist.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.songlist.listSongs", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.songlist.play", 0, 0, 1u, 1, 5000, 0, 5u},
