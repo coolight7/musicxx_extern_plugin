@@ -637,12 +637,12 @@ musicxx.capability.register("card", function (args) {
  * 2) `feature.provide(id, fn)` 登记实现 —— 实现走**一条固定通道**
  *    (`musicxx.feature.point.call`)，同一条通道上的所有实现都收到同一次调用，
  *    所以 `fn` 只需按 args 算自己的结果，过滤与包装由糖负责；
- * 3) 任何一方（应用、别的插件）用 `musicxx.feature.callPoint(id, args)` 调它。
+ * 3) 任何一方（应用、别的插件）用 `musicxx.capability.call(id, args)` 调它。
  *
  * 注意：这条通道是**同步裁决**（处理器必须同步返回）。长任务请提前算好，
  * 或者做成能力（`musicxx.capability.register` + `musicxx.capability.call`）。
  */
-musicxx.feature.define({
+musicxx.capability.define({
     id: "plugin." + musicxx.pluginId + ".beat",
     title: "节拍检测（示例）",
     depict: "按 BPM 与拍号算出若干拍的时刻（示例：不读音频，只做算式）",
@@ -650,7 +650,7 @@ musicxx.feature.define({
     result: "{bpm, beats: [ms, ...], confident}",
 });
 
-musicxx.feature.provide("plugin." + musicxx.pluginId + ".beat", function (args) {
+musicxx.capability.provide("plugin." + musicxx.pluginId + ".beat", function (args) {
     const bpm = (args && Number.isFinite(args.bpm) && args.bpm > 0) ? args.bpm : 120;
     const count = (args && Number.isFinite(args.beats) && args.beats > 0)
         ? Math.min(Math.trunc(args.beats), 64)
@@ -668,7 +668,7 @@ musicxx.capability.register("featureProbe", function () {
     // 主动调应用留出的一个功能埋点: 封面取色（`path`/`url`/`data` 三选一；
     // 这里不给来源 = 当前歌曲的封面）。调用零副作用: 不改应用状态。
     // 没有实现/当前没有封面时拿到的是 `no_impl`/`bad_args`，属于正常结果。
-    musicxx.feature.callPoint("musicxx.media.palette.analyse", {}).then(function (result) {
+    musicxx.capability.call("musicxx.media.palette.analyse", {}).then(function (result) {
         featureCallState = { pending: 0, ok: 1, keys: Object.keys(result || {}).length, error: "" };
         musicxx.host.log(2, "调用应用功能埋点成功: " + featureCallState.keys + " 个字段");
     }, function (err) {
@@ -689,7 +689,7 @@ musicxx.capability.register("featureProbe", function () {
 ///
 /// 用来验证"摘除之后不再回答"：真实插件一般不需要主动摘除（停用/卸载自动撤）。
 musicxx.capability.register("featureUnprovide", function () {
-    musicxx.feature.unprovide("plugin." + musicxx.pluginId + ".beat");
+    musicxx.capability.unprovide("plugin." + musicxx.pluginId + ".beat");
     return { accepted: 1 };
 });
 

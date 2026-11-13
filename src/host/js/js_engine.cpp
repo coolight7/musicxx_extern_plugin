@@ -576,106 +576,9 @@ var featurePointImpls = new Map();
     return { patch: { value: value === undefined ? null : value } };
   }
 
-  /// 功能埋点（应用留出的口子）：
-  /// - `points()` 看有哪些、谁在实现；
-  /// - `callPoint(id, args)` 调一个并拿到原始数据（频谱/副歌这类要解码分析的长任务自己给超时）；
-  /// - `define(...)` / `provide(...)` 声明并实现自己的功能埋点。
-  /// "应用里有哪些能力、谁实现"与“应用能做什么”看能力面（`appCall("musicxx.capability.list")`
-  /// 或直接 `appCall("musicxx.capability.call")`）。
-  musicxx.feature = {
-    /// 功能埋点清单: 应用留出了哪些功能、现在谁在实现它 (谁生效、谁备选、谁把它关掉了)。
-    /// points() 看全部; points({id: "..."}) 看一个; points({provided: true}) 只看有实现的。
-    /// 每个点的 `callDoc` 写着"参数与结果形状"（调它之前先看这一行）。
-    points: function (options) {
-      options = options || {};
-      var args = {};
-      if (options.id) { args.id = String(options.id); }
-      if (options.provided !== undefined) { args.provided = !!options.provided; }
-      return appCall("musicxx.feature.point.list", args);
-    },
-    /// 调一个**功能埋点**并拿到结果（应用留出的埋点, 或插件自己声明的功能埋点）。
-    ///
-    /// - `id` 既可以是应用留出的（`musicxx.media.spectrum.extract` /
-    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.analyse`），
-    ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
-    /// - `args` 是这个功能埋点自己的参数，形状看 `points()` 里的 `callDoc`；
-    /// - **调用零副作用**：不写应用的值仓、不改应用状态（调一次封面取色不会换掉背景色）；
-    /// - 默认超时 60 秒（频谱要解码整曲，慢就自己加大）；同一功能埋点 + 同一调用方的
-    ///   上一次没结束时拿到 `busy`。
-    callPoint: function (id, args, timeoutMs) {
-      assertName(id, "feature.callPoint: 功能埋点 id");
-      var budget = (typeof timeoutMs === "number" && timeoutMs > 0) ? Math.trunc(timeoutMs) : 60000;
-      return appCall("musicxx.feature.point.call",
-                          { id: String(id), args: (args || {}) }, budget);
-    },
-    /// 声明一个**自己的**功能埋点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
-    ///
-    /// - `define({id, title, depict, args, result})` 或 `define(id, {title, ...})`；
-    /// - 同一 id 重复声明 = 覆盖（最后一次生效）；
-    /// - 声明跟着插件生命周期走：禁用 / 卸载会自动撤销，重新启用时脚本会再声明一遍；
-    /// - 声明之后用 `provide(id, fn)` 给出实现，别的插件与应用就能调它。
-    define: function (specOrId, spec) {
-      var full;
-      if (specOrId && typeof specOrId === "object") {
-        full = Object.assign({}, specOrId);
-      } else {
-        full = Object.assign({}, spec || {});
-        full.id = specOrId;
-      }
-      if (!full.id) { throw new Error("feature.define: 缺少功能埋点 id"); }
-      assertName(full.id, "feature.define: 功能埋点 id");
-      return appCall("musicxx.feature.point.define", {
-        id: String(full.id),
-        title: full.title === undefined ? "" : String(full.title),
-        depict: full.depict === undefined ? "" : String(full.depict),
-        args: full.args === undefined ? "" : String(full.args),
-        result: full.result === undefined ? "" : String(full.result)
-      });
-    },
-    /// 收回自己声明的功能埋点（一般不用调：停用 / 卸载会自动撤销）
-    undefine: function (id) {
-      assertName(id, "feature.undefine: 功能埋点 id");
-      return appCall("musicxx.feature.point.undefine", { id: String(id) });
-    },
-    /// 登记功能埋点的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
-    ///
-    /// - `fn(args)` **同步返回**结果（对象原样给，其它类型包成 `{value: …}`）；
-    /// - 不是自己的点、或调用方就是自己时，糖不会回答（分发器按 `point` 与 `caller` 过滤）；
-    /// - 这条通道是同步裁决型能力：`fn` 返回 Promise 拿不到结果（会记一条日志），
-    ///   长任务请提前算好，或者做成**能力调用**（`musicxx.capability.call`）。
-    provide: function (idOrIds, fn, options) {
-      if (typeof fn !== "function") {
-        throw new Error("feature.provide: 缺少处理函数");
-      }
-      options = options || {};
-      var ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-      if (ids.length === 0) { throw new Error("feature.provide: 缺少功能埋点 id"); }
-      ids.forEach(function (id) {
-        assertName(id, "feature.provide: 功能埋点 id");
-        featurePointImpls.set(String(id), fn);
-      });
-      if (!implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
-        musicxx.capability.implement("musicxx.feature.point.call", {
-          priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
-          ownerTag: ids.map(String).join(",")
-        }, function (ctx) { return featurePointDispatch(ctx); });
-      }
-      return musicxx;
-    },
-    /// 摘除实现（给了 `fn` 时只有"就是它"才摘）
-    unprovide: function (id, fn) {
-      var key = String(id);
-      if (arguments.length > 1 && featurePointImpls.get(key) !== fn) {
-        return musicxx;
-      }
-      featurePointImpls.delete(key);
-      if (featurePointImpls.size === 0 && implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
-        musicxx.capability.unregister("musicxx.feature.point.call");
-      }
-      return musicxx;
-    }
-  };
-
+  /// 功能埋点的分发器与实现表：声明与调用的糖在 `musicxx.capability` 上
+  /// （`points` / `define` / `undefine` / `provide` / `unprovide`），这里只有内部状态。
+  ///
   /// 歌词：当前歌曲的歌词信息与内容、选拟声云歌词、改这首歌的偏移、
   /// 临时设置歌词内容、按歌词源读取、搜索云歌词。
   /// 名字统一在 `musicxx.lyric.*`（旧的 `musicxx.lyrics.*` 已删除，不保留别名）。
@@ -1330,9 +1233,11 @@ var featurePointImpls = new Map();
     },
     call: function (pluginId, name, args, timeoutMs) {
       assertName(pluginId, "capability.call");
-      /// 应用实现的能力：第一个参数直接写能力 id（`musicxx.<域>.<名字>`），
-      /// 后面是 `(id, args?, timeoutMs?)`。插件 id 不会以 `musicxx.` 开头，两种写法不撞。
-      if (pluginId.indexOf("musicxx.") === 0) {
+      /// 应用侧的能力：第一个参数直接写能力 id（`musicxx.<域>.<名字>`, 或插件声明、
+      /// 应用侧回答的 `plugin.<插件id>.<名字>`），后面是 `(id, args?, timeoutMs?)`。
+      /// 应用能力与功能埋点都是能力，调用方不需要区分——应用侧按 id 自己找。
+      /// 不以这两类前缀开头的才是跨插件调用（第一节参数是插件 id）。
+      if (pluginId.indexOf("musicxx.") === 0 || pluginId.indexOf("plugin.") === 0) {
         var appArgs = (name === undefined || name === null) ? {} : name;
         var appBudget = (typeof args === "number") ? args
                        : ((typeof timeoutMs === "number") ? timeoutMs : undefined);
@@ -1368,6 +1273,84 @@ var featurePointImpls = new Map();
         });
       }
       return Promise.reject(new Error("跨插件调用失败: " + (info.error || "capability_call_failed")));
+    },
+    /// 能力清单：应用留出了哪些能力、现在谁在实现它（谁生效、谁备选、谁把它关掉了）。
+    ///
+    /// `points()` 看全部；`points({id: "..."})` 看一个；`points({provided: true})` 只看有实现的。
+    /// 每条的 `callDoc` 写着“参数与结果形状”（调它之前先看这一行）。
+    points: function (options) {
+      options = options || {};
+      var args = {};
+      if (options.id) { args.id = String(options.id); }
+      if (options.provided !== undefined) { args.provided = !!options.provided; }
+      return appCall("musicxx.feature.point.list", args);
+    },
+    /// 声明一个**自己的**能力（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
+    ///
+    /// - `define({id, title, depict, args, result})` 或 `define(id, {title, ...})`；
+    /// - 同一 id 重复声明 = 覆盖（最后一次生效）；
+    /// - 声明跟着插件生命周期走：禁用 / 卸载会自动撤销，重新启用时脚本会再声明一遍；
+    /// - 声明之后用 `provide(id, fn)` 给出实现，别的插件与应用就能用
+    ///   `musicxx.capability.call(id, args)` 调它。
+    define: function (specOrId, spec) {
+      var full;
+      if (specOrId && typeof specOrId === "object") {
+        full = Object.assign({}, specOrId);
+      } else {
+        full = Object.assign({}, spec || {});
+        full.id = specOrId;
+      }
+      if (!full.id) { throw new Error("capability.define: 缺少能力 id"); }
+      assertName(full.id, "capability.define: 能力 id");
+      return appCall("musicxx.feature.point.define", {
+        id: String(full.id),
+        title: full.title === undefined ? "" : String(full.title),
+        depict: full.depict === undefined ? "" : String(full.depict),
+        args: full.args === undefined ? "" : String(full.args),
+        result: full.result === undefined ? "" : String(full.result)
+      });
+    },
+    /// 收回自己声明的能力（一般不用调：停用 / 卸载会自动撤销）
+    undefine: function (id) {
+      assertName(id, "capability.undefine: 能力 id");
+      return appCall("musicxx.feature.point.undefine", { id: String(id) });
+    },
+    /// 登记自己声明的能力的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
+    ///
+    /// - `fn(args)` **同步返回**结果（对象原样给，其它类型包成 `{value: …}`）；
+    /// - 不是自己的点、或调用方就是自己时，糖不会回答（分发器按 `point` 与 `caller` 过滤）；
+    /// - 这条通道是同步裁决型能力：`fn` 返回 Promise 拿不到结果（会记一条日志），
+    ///   长任务请提前算好，或者改成普通能力实现（`musicxx.capability.implement`）。
+    provide: function (idOrIds, fn, options) {
+      if (typeof fn !== "function") {
+        throw new Error("capability.provide: 缺少处理函数");
+      }
+      options = options || {};
+      var ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
+      if (ids.length === 0) { throw new Error("capability.provide: 缺少能力 id"); }
+      ids.forEach(function (id) {
+        assertName(id, "capability.provide: 能力 id");
+        featurePointImpls.set(String(id), fn);
+      });
+      if (!implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
+        musicxx.capability.implement("musicxx.feature.point.call", {
+          priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
+          ownerTag: ids.map(String).join(",")
+        }, function (ctx) { return featurePointDispatch(ctx); });
+      }
+      return musicxx;
+    },
+    /// 摘除实现（给了 `fn` 时只有“就是它”才摘）
+    unprovide: function (id, fn) {
+      var key = String(id);
+      if (arguments.length > 1 && featurePointImpls.get(key) !== fn) {
+        return musicxx;
+      }
+      featurePointImpls.delete(key);
+      if (featurePointImpls.size === 0 && implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
+        musicxx.capability.unregister("musicxx.feature.point.call");
+      }
+      return musicxx;
     }
   };
   ext.onCapabilityResult = function (id, json) {
