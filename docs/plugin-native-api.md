@@ -563,6 +563,20 @@ const std::string songJson = readBroadcast(MUSICXX_BROADCAST_STATE_SONG);   // �
 > JS 插件侧是同一套（`musicxx.broadcast.read` / `subscribe` / `declare` / `publish`），
 > 写法见 [plugin-api.md](plugin-api.md) §5，频道与取值域见 [plugin-broadcasts.md](plugin-broadcasts.md)。
 
+**订阅一条 mpv 属性就是观察它**：频道 id 是 `musicxx.player.mpv.` + mpv 属性名原样
+（`musicxx.player.mpv.audio-delay`、`musicxx.player.mpv.track-list/0/codec`）。有人订阅才绑
+`mpv_observe_property`，退订 / 插件停用就解绑，**没人订阅时应用完全不避 mpv**（所以不需要“先登记再订阅”）：
+
+```cpp
+const int32_t sub = subscribeTopic("musicxx.player.mpv.volume",
+    [](std::string_view json) { /* 载荷 {name, value} */ },
+    PluginxxHost::SubscribeOptions{500, "delay"});
+```
+
+绑不上（节点型属性、只能按二进制读的 `audio-fft`）会收到一条 `{name, value: null, error}`。
+要**写**属性 / 执行命令 / 加滤镜用能力 `musicxx.player.mpv.set` / `.command` / `.filter`（高危，
+见 [musicxx-interfaces.md](musicxx-interfaces.md) §4.8）。
+
 ---
 
 ## 5.6 网络（`<应用名>.net`：HTTP / TCP / WebSocket / UDP）

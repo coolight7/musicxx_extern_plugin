@@ -222,6 +222,15 @@ musicxx-cli render select musicxx.previous --slot player.icon
 | `musicxx-cli broadcast list` / `broadcast read <频道id>` | 看广播频道的当前值与订阅数（与插件的 `read` 对照） |
 | `musicxx-cli capability call musicxx.media.spectrum.extract --args '{"path":"D:/a.mp3"}'` | 单独取一份频谱/副歌数据，与插件里的读数对照（[plugin-shader-bundle.md](plugin-shader-bundle.md) §10） |
 | `musicxx-cli kernel` | 看应用内嵌的 mpv / ffmpeg 版本、**能直接写进 `af` / `vf` 的过滤器**、解码器与认得的音视频后缀（与插件能力 `musicxx.media.kernel` 同一份数据；这份 ffmpeg 是裁剪构建，写音效前先确认名字在不在） |
+| `musicxx-cli call musicxx.player.mpv.get --args '{"name":"audio-out-params"}'` | 直接读一条 mpv 属性（应用没包装的值：`audio-out-params` / `audio-delay` / `track-list/0/codec` …） |
+| `musicxx-cli call musicxx.player.mpv.set --args '{"name":"audio-delay","value":"-0.05"}'` | 直接写一条 mpv 属性 |
+| `musicxx-cli call musicxx.player.mpv.command --args '{"args":["frame-step"]}'` | 执行一条 mpv 命令（参数数组；写成一整行文本不支持） |
+| `musicxx-cli call musicxx.player.mpv.filter --args '{"action":"set","name":"wide","value":"stereotools=mlev=1:slev=1.8"}'` | 加一条音频滤镜槽位（`list` / `remove` 同一个命令） |
+
+> 这四行是**高危**接口：属性与命令原样交给 mpv，不设白名单、不做检查。写错的后果由调用方自己承担
+> （轻则没声音，重则崩溃 / 写任意文件 / 执行本机程序）。属性观察不在命令里：用插件里的
+> `musicxx.broadcast.subscribe("musicxx.player.mpv.<属性名>", …)`，详见
+> [musicxx-interfaces.md](musicxx-interfaces.md) §4.8。
 
 ### 5.7 取一次应用的功能结果（`capability.call`）
 

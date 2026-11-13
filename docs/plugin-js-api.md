@@ -690,6 +690,21 @@ JS 侧要记住的几条：
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销自己的全部频道；每次启用脚本都会重新声明一遍；
 - id 写短名（`tip.start`，框架补成 `plugin.<自己 id>.tip.start`）或多级分组都行，写全名也认。
 
+**订阅一条 mpv 属性就是观察它**：频道 id 是 `musicxx.player.mpv.` + mpv 属性名原样
+（`musicxx.player.mpv.audio-delay`、`musicxx.player.mpv.track-list/0/codec`）。有人订阅才绑
+`mpv_observe_property`，退订 / 插件停用就解绑，**没人订阅时应用完全不避 mpv**：
+
+```js
+var off = musicxx.broadcast.subscribe("musicxx.player.mpv.volume", function (v) {
+    log(v.name + "=" + v.value);           // {name, value}
+});
+off();
+```
+
+绑不上（节点型属性、只能按二进制读的 `audio-fft`）会收到一条 `{name, value: null, error}`。
+要**写**属性 / 执行命令 / 加滤镜用能力 `musicxx.player.mpv.set` / `.command` / `.filter`（高危，
+见 [musicxx-interfaces.md](musicxx-interfaces.md) §4.8）。
+
 ## 10. 能力（注册 + 跨插件调用）
 
 > 能力的定位（与"功能埋点"的分工）、注册与调用的约定、超时与失败原因见

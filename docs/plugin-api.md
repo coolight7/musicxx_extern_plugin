@@ -1903,6 +1903,25 @@ const int32_t sub = subscribeTopic(MUSICXX_BROADCAST_PLAYER_POSITION,
 - 播放进度是**不限频**广播：应用每报告一次位置就发一条，按自己需要的频率订阅即可；
 - 解绑函数的句柄随插件停止自动撤销，不需要时调 `off()` 也行。
 
+**订阅一条 mpv 属性就是观察它**：`musicxx.player.mpv.<属性名>`（属性名原样拼，例如
+`musicxx.player.mpv.audio-delay`、`musicxx.player.mpv.track-list/0/codec`）。有人订阅才绑
+`mpv_observe_property`，人数归零就解绑 —— 没人订阅时应用完全不碰 mpv，所以插件不需要**先登记**再订阅：
+
+```js
+const off = musicxx.broadcast.subscribe("musicxx.player.mpv.audio-out-params", (v) => {
+    log(v.name, v.value);                       // {name, value}
+}, { intervalMs: 500, mode: "delay" });
+off();                                          // 退订 = 停止观察
+```
+
+- 绑上之后先读一次当前值发一条（频道没有当前值），之后每次变化发 `{name, value}`；
+  **值没变不发**、**没人订阅不发**；属性消失时 `value` 是 `null`；
+- 绑不上（节点型属性、只能按二进制读的 `audio-fft` 这类）会收到一条 `{name, value: null, error}`；
+- 不要订阅 `time-pos` 这类每帧都变的属性（进度用 `musicxx.player.position`），频谱用
+  `musicxx.state.spectrum`；
+- 要**写**属性 / 执行 mpv 命令 / 加滤镜用能力 `musicxx.player.mpv.set` / `.command` / `.filter`
+  （高危，见 [musicxx-interfaces.md](musicxx-interfaces.md) §4.8），广播只读不写。
+
 ### 5.3 要改它：调能力
 
 广播**不提供写入口**。对应的能力见 §3，例如：

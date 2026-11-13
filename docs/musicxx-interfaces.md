@@ -362,7 +362,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"musicxx.player.state"}'
 ```
 
-## 4. 命令面（当前 93 条 = 应用自己的命令 30 + 能力命令 63）
+## 4. 命令面（当前 97 条 = 应用自己的命令 30 + 能力命令 67）
 
 > **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
 > 下面各节的数字只是写这份文档时的快照。
@@ -460,7 +460,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 广播是**只读**的：属主发布，别人只能读与订阅；要改应用状态请调对应的能力。
 
-### 4.5 应用实现的能力（命令 id = 能力名，61 条）
+### 4.5 应用实现的能力（命令 id = 能力名，65 条）
 
 参数与返回的完整说明在 [plugin-api.md](plugin-api.md) §3.2（本文不重复，避免两处不一致）。
 这一节只给"有哪些、大致做什么"（下表是**能当命令调**的那些；只有插件能调、只给模型用的不在其中）：
@@ -479,6 +479,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 主题（3） | `musicxx.theme.setCurrent` / `setMode` / `setTempMode` |
 | 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
 | 封面、频谱与内核（5） | `musicxx.media.palette.get` / `cover` / `palette.set` / `spectrum` / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
+| mpv 控制（4） | `musicxx.player.mpv.get` / `set` / `command` / `filter`（直接读写 mpv 属性、执行 mpv 命令、加 / 删音视频滤镜槽位；**高危**，见 §4.8） |
 | 功能埋点（2） | `musicxx.feature.point.list` / `call` |
 | 音源（1） | `musicxx.source.list` |
 | 宿主（2） | `musicxx.host.openUrl` / `clipboard` |
@@ -569,6 +570,67 @@ CLI 自己的选项与退出码：
 选项：`--events`、`--count N`（收满就退）、`--for 秒`、`--heartbeat`、`--json`。
 事件号与事件名的对应表在 §6.4 —— **两边必须对得上**，命令行侧硬编码了这张表。
 
+### 4.8 mpv 控制接口（高危）
+
+> **这套接口把 mpv 的属性与命令原样交出去**：不设属性白名单、不做命令过滤、不弹确认、不设总开关。
+> 写错属性名、写错值、执行错命令的后果由调用方自己承担：轻则播放异常 / 没有声音，重则播放器崩溃、
+> 往任意路径写文件、执行本机程序。用之前对照 mpv 官方文档：
+> [属性](https://mpv.io/manual/master/#properties)、
+> [命令](https://mpv.io/manual/master/#list-of-input-commands)、
+> [选项](https://mpv.io/manual/master/#options)。
+
+四条能力（同时也是命令，工具名见 §5.2）：
+
+| 能力 | 参数 | 返回 |
+|---|---|---|
+| `musicxx.player.mpv.get` | `name`（属性名） | `{ok, name, value}`；`value` 是 mpv 的文本形态（布尔是 `yes` / `no`） |
+| `musicxx.player.mpv.set` | `name`、`value`（都是文本） | `{ok, name, value, mpvCode}`，`mpvCode` 是 libmpv 的返回（0 = 成功） |
+| `musicxx.player.mpv.command` | `args`（字符串数组，至少 1 项） | `{ok, command, mpvCode}` |
+| `musicxx.player.mpv.filter` | `action`（`set`/`remove`/`list`）、`target`（`audio`/`video`）、`name`、`value` | `{ok, target, name, slot, value, chain}`；`list` 给 `{ok, audio:{槽位:滤镜串}, video:{…}}` |
+
+几条必须知道的：
+
+- **只用异步接口**：写属性、读属性、执行命令都走 mpv 的异步接口，不提供同步执行的版本（同步接口会在
+  “结束当前文件、准备下一个文件”的窗口里把界面卡住）。所以 `command` 只收参数数组，
+  **不支持一整行文本**（libmpv 只有同步的 `mpv_command_string`，这里不提供）。
+- **读**：只支持能按 `MPV_FORMAT_STRING` 读的属性；节点型属性（`track-list` / `chapter-list`）读子属性路径
+  （`track-list/0/codec`），读不了时 `error` 是 `invalid_argument`。`http-header-fields`（当前音源的请求头）、
+  `path`（解析后的播放地址）也能读，**里面可能有 token / cookie**。
+- **写**：不判断属性归属。写 `volume` / `speed` / `pitch` / `pause` / `time-pos` / `af` / `vf` /
+  `demuxer-cache-dir` 这类会和应用抢同一个值或往磁盘写东西的属性都行，但应用自己那份设置与界面上的值
+  **不会跟着变**（下一次应用设置会写回去）。要长期生效的滤镜用 `filter`（按槽位加），
+  直接写 `af` 是整串替换。
+- **命令**：`run` / `subprocess`（执行本机程序）、`loadfile`（换片源）、`screenshot-to-file` /
+  `dump-cache`（写任意路径）、`script-*`、`quit`、`playlist-*` 都会真的执行。
+- **滤镜槽位**：`set` 写入的槽位与音效 / 均衡器 / 音调共存（应用那三段排在前，插件槽位按槽位名排序在后，
+  每段写成 `@<label>:<滤镜串>`）；写进去的滤镜被 mpv 拒绝时先把槽位还原再写一次，应用原本的音效仍然生效。
+  插件调时槽位键自动加 `plugin:<插件 id>:` 前缀，插件停用 / 卸载时按前缀摘掉。应用之后自己换音效 /
+  均衡器 / 音调时，那一段会被重新插到表尾（内容**不会丢**），下一次 `filter` 操作会把顺序整理回来。
+- **错误码**：libmpv 的码按词表命名 —— `-3`/`-10`/`-16` → `not_ready`，`-4`/`-6`/`-7`/`-9` →
+  `invalid_argument`，`-5`/`-8` → `not_found`，`-18`/`-19` → `not_allowed`，其余 → `failed`；
+  `message` 里带原始错误码，便于对照 mpv 自己的日志。
+
+**观察属性用广播，不是能力**：订阅频道 `musicxx.player.mpv.<属性名>` 就是开始观察，退订就是停止。
+频道 id 里的属性名**原样拼**（`musicxx.player.mpv.audio-delay`、`musicxx.player.mpv.track-list/0/codec`），
+去掉前缀就是属性名，不用转义。
+
+```js
+// 插件（JS）：订阅 = 开始观察，退订 = 停止（原生插件用广播表的 subscribe，参数一样）
+const off = musicxx.broadcast.subscribe(
+  "musicxx.player.mpv.audio-out-params",
+  (v) => log(v.name, v.value),          // {name, value}
+  { intervalMs: 500, mode: "delay" },   // 频率由订阅方自己声明
+);
+off();
+```
+
+- 有人订阅才绑 `mpv_observe_property`，人数归零就解绑：**没人订阅时完全不碰 mpv**；
+- 绑上之后先读一次当前值发一条（频道没有当前值），之后每次变化发 `{name, value}`；**值没变不发**、
+  **没人订阅不发**；属性消失时 `value` 是 `null`；
+- 绑不上（节点型属性、只能按二进制读的 `audio-fft` 这类）会收到一条 `{name, value: null, error}`，不静默；
+- 不要订阅 `time-pos` 这类每帧都变的属性（进度用 `musicxx.player.position`）；频谱用
+  `musicxx.state.spectrum`，`audio-fft` 不能按文本观察。
+
 ## 5. MCP 工具面
 
 ### 5.1 怎么连
@@ -602,7 +664,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
 
-### 5.2 工具全表（44 个）
+### 5.2 工具全表（48 个）
 
 工具名、说明、inputSchema 与文本形态**对外就是契约**（模型看到的就是它们），
 声明全在 `lib/manager/cli/MusicxxMcpTools.dart`。下面按用途分组，
@@ -696,6 +758,18 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 
 最后四个工具直接跑能力自己的实现（不同于 `CallCapability`：它们把数据排成可读文本），
 能力说明与参数也来自能力声明。
+
+**直接操作 mpv（高危，见 §4.8）**
+
+| 工具 | 参数 | 等价命令 | 文本形态 |
+|---|---|---|---|
+| `GetMpvProperty` | `name`(必填) | `musicxx.player.mpv.get` | 能力答复 JSON（`{ok, name, value}`） |
+| `SetMpvProperty` | `name`(必填)、`value`(必填) | `musicxx.player.mpv.set` | 能力答复 JSON（带 `mpvCode`） |
+| `RunMpvCommand` | `args`(必填，字符串数组) | `musicxx.player.mpv.command` | 能力答复 JSON（带 `mpvCode`） |
+| `SetMpvFilter` | `action?`(set/remove/list)、`target?`(audio/video)、`name?`、`value?` | `musicxx.player.mpv.filter` | 能力答复 JSON（带拼出来的 `chain`） |
+
+这四个工具与插件能力是**同一份实现**（`lib/player/MpvControl.dart`）：不设属性白名单、不做命令过滤，
+写错 / 执行错由调用方承担；属性观察不在工具里，要观察就订阅广播 `musicxx.player.mpv.<属性名>`。
 
 **MCP 只覆盖一部分命令**（工具表是手工声明的，不是命令表的副本）：下面这些命令**没有对应的 MCP 工具**，
 在 MCP 客户端里调不到 —— 要调它们请用命令行（`musicxx-cli call <命令 id> --args '<JSON>'`）
@@ -876,6 +950,11 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
   不要把它当成需要鉴权的文件接口；需要限制访问时缩短 `ttlSeconds` 并及时 `musicxx.net.file.share.unregister`；
 - **插件装不了插件**：安装 / 重载 / 重启插件框架只有命令行与 MCP 有（插件的能力表里没有
   这几条），这是有意的：否则 JS插件能把自己提升到原生权限；
+- **mpv 控制接口是有意“不设防”的**：`musicxx.player.mpv.get` / `set` / `command` / `filter` 把 mpv 的属性与
+  命令原样交出去（不设白名单、不做归属判断、链接里也不弹窗），因为它的用途就是“应用没包装的能力直接调 mpv”。
+  代价是它能改音量 / 进度 / 输出设备、能往任意路径写文件（`dump-cache` / `screenshot-to-file`）、
+  能执行本机程序（`run` / `subprocess`）。拿到一条能调这四条能力的**授权密令**就等于拿到同等能力，
+  发出去前想清楚；见 §4.8；
 - **`/cli` 与 `/control` 是两套东西**：`/cli` 是命令面（全量命令、结构化结果，本机与远程都能调，
   远程要过远控权限）；`/control` 是局域网设备之间的老远程控制（数字 id、要签名、面窄）。
   本机与 agent 要下发命令请走 `/cli`（跨设备用 `lan.cli` 转发）；
