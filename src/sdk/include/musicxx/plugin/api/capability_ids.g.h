@@ -164,6 +164,8 @@
 #define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_SET "musicxx.player.audioEffect.set"
 #define MUSICXX_CAPABILITY_MEDIA_PALETTE_GET "musicxx.media.palette.get"
 #define MUSICXX_CAPABILITY_MEDIA_COVER "musicxx.media.cover"
+#define MUSICXX_CAPABILITY_MEDIA_COVER_SET "musicxx.media.cover.set"
+#define MUSICXX_CAPABILITY_MEDIA_COVER_RESOLVE "musicxx.media.cover.resolve"
 #define MUSICXX_CAPABILITY_MEDIA_PALETTE_SET "musicxx.media.palette.set"
 #define MUSICXX_CAPABILITY_MEDIA_BIND_IMAGE "musicxx.media.bindImage"
 #define MUSICXX_CAPABILITY_MEDIA_UNBIND_IMAGE "musicxx.media.unbindImage"
@@ -324,6 +326,8 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.player.audioEffect.set", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.palette.get", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.cover", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.media.cover.set", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.media.cover.resolve", 1, 1, 7u, 1, 3000, 0, 0u},
     {"musicxx.media.palette.set", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.media.bindImage", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.media.unbindImage", 0, 0, 1u, 1, 5000, 0, 4u},

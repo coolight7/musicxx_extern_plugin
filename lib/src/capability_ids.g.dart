@@ -256,6 +256,10 @@ abstract final class MusicxxCapabilityId {
   static const String mediaPaletteGet = 'musicxx.media.palette.get';
   /// musicxx.media.cover
   static const String mediaCover = 'musicxx.media.cover';
+  /// 设置当前歌曲图片
+  static const String mediaCoverSet = 'musicxx.media.cover.set';
+  /// 指定当前歌曲图片
+  static const String mediaCoverResolve = 'musicxx.media.cover.resolve';
   /// musicxx.media.palette.set
   static const String mediaPaletteSet = 'musicxx.media.palette.set';
   /// 登记插件图片
@@ -384,6 +388,8 @@ abstract final class MusicxxCapabilityId {
     playerAudioEffectSet,
     mediaPaletteGet,
     mediaCover,
+    mediaCoverSet,
+    mediaCoverResolve,
     mediaPaletteSet,
     mediaBindImage,
     mediaUnbindImage,
@@ -2456,6 +2462,46 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '',
       depict: '',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.media.cover.set',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '设置当前歌曲图片',
+      depict: '把给定图片设为当前正在播放歌曲的图；可选再给 96 缩略图，不给时统一用整图',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.media.cover.resolve',
+      impls: 'many',
+      merge: 'first',
+      phases: <String>['before', 'impl', 'after'],
+      dispatch: 'async',
+      timeoutMs: 3000,
+      cache: 'none',
+      cli: false,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: false,
+      title: '指定当前歌曲图片',
+      depict: '决定当前歌曲用哪张图片（外置插件 → 歌曲信息 → 图片缓存 → 媒体内嵌图）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.media.palette.set',

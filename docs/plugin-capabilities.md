@@ -118,6 +118,8 @@
 | `musicxx.player.audioEffect.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.palette.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.cover` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.cover.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.media.cover.resolve` | - | before / impl / after | first | async | 3000 ms | - | - |
 | `musicxx.media.palette.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.bindImage` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.media.unbindImage` | 插件 | impl | - | async | 5000 ms | - | - |
@@ -294,6 +296,14 @@
 ### `musicxx.player.audioEffect.set` 设置音效
 
 `id` 必须来自 `musicxx.player.audioEffect.list`；未知 id 返回 `unknown_item`。设置会写库并立即应用（写 mpv `af`，与界面里选音效完全同一条路）。音效与均衡器、自定义音调互斥：选用音效会关掉均衡器；带 `pitch` 的音效会先把用户音调复位。`enabled` 为假表示『音效』插件没启用，配置已写入但当前不生效。停用 / 卸载插件后选中的插件音效会回退成「没有音效」。
+
+### `musicxx.media.cover.set` 设置当前歌曲图片
+
+把一张图片设为**当前正在播放歌曲的图**：播放页大图、通知栏、锁屏、桌面小组件、封面取色都读这一份，设置后立即生效。参数 `icon` 必给、`icon96` 可选，两者都支持三种写法：`{"data": "<图片字节的 base64>", "format": "png", "width": 0, "height": 0}` / `{"path": "<本地绝对路径>"}` / `{"url": "https://…"}`。`data` 的 `format` 可省（按内容识别）；给原始像素（`format: "rgba"`）时必须一起给 `width` / `height`。`data` 会写进图片缓存（`<音源身份>@cover-<内容键>`，给了 `icon96` 时再写一张 `…_96`），单张上限 16 MiB，解码失败会拒绝；`path` / `url` 原样使用、不复制（文件/地址失效时界面回退默认图）。可选 `sid` = 调用方认为的当前歌曲，与当前不一致返回 `stale`。`{"clear": true}` = 删掉这首歌的插件图并重新取一次封面（同时清掉 `set` 锁，回落应用自己的取值链，这条链仍然可以再问 `musicxx.media.cover.resolve`）。回答 `{ok, sid, srcKey, origin, icon, icon96, bytes, width, height}`：`icon` / `icon96` 是 `{kind, type, src}`（`kind` = `cache` / `local` / `network`；`icon96` 没给时为 null）；`bytes` / `width` / `height` 只在 `data` 形态下有意义（其余为 0）。失败回答 `{ok: false, error: …}`，`error` 取 `no_song`（当前没有正在播放的歌曲或它没有音源身份）/ `stale`（`sid` 与当前歌曲不一致）/ `invalid_argument`（参数形状不对、`path` 不存在 / 不是普通文件、`url` 不是 http(s)）/ `too_large`（单张超过 16 MiB）/ `decode_failed`（字节解不出图片）/ `write_failed`（写缓存失败）。**只对本次播放有效**：不写 `song.icon`、不落盘「下次还用这张」，切歌后按正常取值链重新取（要持久换封面请用 `musicxx.songlist.updateSong` / `musicxx.playlist.updateSong` 的 `cover`）。插件 `set` 过的这首歌本次播放内不再被问 `musicxx.media.cover.resolve`（免得应用自己的提取把刚定的图换掉），直到切歌、`clear` 或这张图本身加载失败。`icon96` 只是省一次解码的缩略图（取色与锁屏在它存在时优先用它），**当前歌曲图一般可以不给**，不给时消费方统一用整图。
+
+### `musicxx.media.cover.resolve` 指定当前歌曲图片
+
+主程序要决定**当前这首歌用哪张图**时派发一次。**每一次这首歌加载都会问一次**：切歌、重播、切走再切回来、换音源 / 切音质导致的重新解析、`musicxx.media.cover.set` 的 `clear` 之后、以及当前没有可用封面时的重试，各算一次。读封面的代码（播放页、通知栏、锁屏、桌面小组件、封面取色、`musicxx.media.cover`、渲染项 `cover`）只读应用保存的那一张，**不会触发这条能力**。载荷 `{sid, srcKey, name, artist, album, durationMs, audio, parsed, path, icon, icon96, cache, current, reason, force, caller}`：`audio` = 本轮音源视图（`type/src/customType/fileName/size/durationMs/quality`）；`parsed` = 实际播放用的那一份（本地缓存文件或临时直链，字段同上 + `kind`）；`path` 只有本地 / 缓存 / `content://` / asset 才有值（网络来源是空串，要直链请走 `musicxx.net`）；`icon` / `icon96` = 歌曲元数据里的封面（`song.icon` / `icon_96`），只报 `{hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`；本地 / 缓存类要求文件存在，网络地址不探远程）；`cache` = `{exists, exists96}`，应用图片缓存里这首歌的图在不在；`current` = **现在实际显示的那张图** `{origin, by, icon, icon96}`（`origin` = `initial`（切歌时的初值：元数据封面 / 缓存 id）/ `builtin`（应用的三段取值给的）/ `plugin`（插件给的）/ `set`（插件 `set` 定的）/ `none`（已经清空）；`by` = 产出方 owner 或插件名，初值为空串；`icon` / `icon96` 只报 `{kind, type, src}`，不给直链）；`reason` = `load`（切歌 / 重播 / 切回来）/ `reparse`（换音源、切音质导致的重新解析，同一首歌的重新加载都算）/ `reload`（封面加载失败且当前没有可用图）/ `clear`（`set clear` 之后重算）；`force` = 真时内置实现跳过「缓存已存在」这条短路、重新提取；`caller` = 谁在问（空串 = 应用自己或命令行）。**回答**：`{"patch": {"cover": {"icon": {"data": "<base64>", "format": "png"}}}}`（图片写法与 `musicxx.media.cover.set` 完全一样，`icon` 必给、`icon96` 可选；**必须用 `patch` 包一层**：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历）；`{"action": "cancel"}` = **这次不修改当前图片**（不取图、不刷通知栏与背景色，界面保持现在显示的那张）。`cancel` 同时就是「就用现在这张」的回答：`current` 显示的是缓存图时它等于「别提取了，就用缓存」，显示的是你上次给的图时它等于「继续用它」。空回答 / 形状不对 / 单张超过 16 MiB = 这次不提供，主程序接着问内置实现（歌曲信息 → 图片缓存 → 媒体内嵌图）。**后链**（`after`）拿到 `value`（`{origin, icon, icon96, width, height}` 的只读摘要，不带图片字节），回答 `{"value": {"cover": {…}}}` 换图（可以只换 `icon96`），或 `{"action": "drop"}` 让这次没有封面。**前链**（`before`）只认 `{"patch": {"force": true}}`（要求内置实现跳过缓存、重新提取）与 `{"action": "cancel"}`（这次不修改）。**三种结果**：有 `cover` = 就用它；前链或实现链 `cancel` = 什么都不做，保持当前图；后链 `drop` 或整条链都没有实现给值（最终为 null）= **清空**（界面回到默认图，没有单独的「没有封面」标记）。**记住结果不阻止下次询问**：这条能力每次加载都会被问到，应用只记住「这一次用了哪张」，用于失败重试与 `set clear`，不会因为记过就不再问你；唯一不重问的情况是插件用 `musicxx.media.cover.set` 定了这首歌的图（本次播放内锁住）。异步派发：最多等 3 s（超时按没给处理），不阻塞起播；插件实现**不受**内置实现那 1 秒延迟影响。处理器里不要再调 `musicxx.media.cover.set`（会多刷一次封面）。常见写法：完全接管用 `impl` 直接回答 `cover`；只在应用取不到时补一张时先看 `icon.hasCover` 与 `cache.exists`，两者都为假才回答；要改写应用已有的封面（加水印、换色、统一风格）用 `after`（它只在实现链拿到值时才会跑，应用本来就没有封面时请走 `impl`）。
 
 ### `musicxx.capability.subscribers` 能力订阅 / 实现行
 
