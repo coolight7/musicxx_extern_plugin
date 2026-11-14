@@ -481,7 +481,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 界面开关（4） | `musicxx.ui.setAnimatedLevel` / `setParticleAnimate` / `setSongIconRotate` / `setSongIconWave` |
 | 主题（3） | `musicxx.theme.setCurrent` / `setMode` / `setTempMode` |
 | 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
-| 封面、频谱与内核（5） | `musicxx.media.palette.get` / `cover` / `palette.set` / `spectrum` / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
+| 封面、频谱与内核（7） | `musicxx.media.palette.get` / `cover` / `palette.set` / `spectrum` / `cover.set`（把一张图设为当前歌曲图：`data` / `path` / `url`，`icon96` 可选，只对本次播放有效） / `cover.resolve`（每次歌曲加载决定用哪张图，插件可 `impl` / `before` / `after`） / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
 | mpv 控制（4） | `musicxx.player.mpv.get` / `set` / `command` / `filter`（直接读写 mpv 属性、执行 mpv 命令、加 / 删音视频滤镜槽位；**高危**，见 §4.8） |
 | 功能埋点（2） | `musicxx.feature.point.list` / `call` |
 | 音源（1） | `musicxx.source.list` |

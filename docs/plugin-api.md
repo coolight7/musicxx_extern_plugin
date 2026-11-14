@@ -535,7 +535,9 @@ if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
 
 - 参数：`{sid, …要改的字段}`，字段与 `musicxx.songlist.updateSong` 完全一样，只是不需要 `pid`。
 - 返回：`{ok:true, sid, song:{…}}`。
-- 正在播的那一首改完会立即刷新播放信息（名字 / 歌手 / 封面），不用重新播。
+- 正在播的那一首改完会立即刷新播放信息（名字 / 歌手），**封面要等这首歌下次加载才换**：
+  应用里的“当前歌曲图”只在歌曲加载时决定一次（读取方都读同一份保存值，不会因为改了元数据就
+  重新取图）。播放中要立刻换图请用 `musicxx.media.cover.set`。
 
 > 写类的四条共同规则（上面几条能力与 `syncSongs.sync` 都适用）：
 > 1. **能改哪些歌单**：本地歌单、自己创建的在线歌单、“我喜欢”；别人的歌单回
@@ -1261,6 +1263,101 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插�
 - 返回：`{ok, srcKey, kind:"local"|"cache"|"content"|"asset"|"network", path?, width, height,
   format, bytes, sha256, data(base64), fromCache, bound?, bindKey?, bindError?}`；失败 `{ok:false, error:"no_cover" |
   "cover_decode_failed" | "读取封面失败：…"}`。
+
+**`musicxx.media.cover.set`** —— 把一张图设为**当前歌曲图**（立刻生效）
+
+- 参数：`{icon, icon96?, sid?, clear?}`：
+  - `icon` 必给、`icon96` 可选，两者都支持三种写法：
+    - `{data:"<图片字节的 base64>", format?:"png"|"jpeg"|"rgba", width?, height?}`
+      （`format` 可省、按内容识别；写原始像素时给 `rgba` 并且必须带 `width` / `height`）；
+    - `{path:"<本地绝对路径>"}`（文件必须存在）；
+    - `{url:"https://…"}`（只收 http / https）。
+  - `sid` 可选：你认为的当前歌曲，与当前不一致回 `stale`；
+  - `clear:true` = 删掉这首歌的插件图并**重新取一次封面**（同时解掉 `set` 锁，
+    回落应用自己的取值链；重新取图在后台进行，图会在几秒内出现）。
+- 返回：`{ok, sid, srcKey, origin:"set", icon, icon96, bytes, width, height}`：
+  `icon` / `icon96` 是 `{kind:"cache"|"local"|"network", type, src}`（没给 96 时 `icon96` 为 null）；
+  `bytes` / `width` / `height` 只在 `data` 写法下有意义。
+- 失败：`{ok:false, error, message}`，`error` 取 `no_song`（没有正在播的歌 / 它没有音源身份）、
+  `stale`、`invalid_argument`（形状不对、`path` 不存在 / 不是文件、`url` 不是 http(s)）、
+  `too_large`（单张超过 16 MiB）、`decode_failed`（字节解不出图片）、`write_failed`（写缓存失败）。
+- **只对本次播放有效**：不写 `song.icon`，也不记“下次还用这张”；切歌后按正常取值链重新取。
+  要**持久**换封面用 `musicxx.songlist.updateSong` / `musicxx.playlist.updateSong` 的 `cover`。
+- 插件 `set` 过的这首歌**本次播放内不再问** `musicxx.media.cover.resolve`（否则应用自己的提取
+  可能把刚定的图换掉），直到切歌、`clear` 或这张图本身加载失败。
+- `icon96` 只是省一次解码的缩略图（取色与锁屏在它存在时优先用它），**当前歌曲图一般不用给**，
+  不给时消费方统一用整图。
+- 与调音量 / 切歌同级：**不问用户**，链接触发的也直接执行。
+
+```js
+// 自己算出来的一张图（PNG 字节）→ 立刻作为当前歌曲图
+const png = makeCover(); // Uint8Array
+await musicxx.media.cover.set({ icon: { data: toBase64(png), format: "png" } });
+
+// 用本地文件 / 网络地址（不复制、不下载，失效时界面回退默认图）
+await musicxx.media.cover.set({ icon: { path: "D:/covers/a.jpg" } });
+await musicxx.media.cover.set({ icon: { url: "https://example.com/a.jpg" } });
+
+// 撤销这次设置，让应用重新取一次
+await musicxx.media.cover.set({ clear: true });
+```
+
+**`musicxx.media.cover.resolve`** —— 决定当前歌曲用哪张图（插件接管取图）
+
+这条能力是“这首歌的图从哪来”的入口：应用自己的兜底顺序是
+**歌曲信息里的封面 → 图片缓存 → 媒体文件里的内嵌图**，插件可以整段替代、要求重新提取，或者
+改写最终结果。
+
+- **什么时候问**：**每一次这首歌加载都问一次** —— 切歌、重播、切走再切回来、换音源 / 切音质导致的
+  重新解析、`cover.set clear` 之后、当前没有可用封面时的重试。读封面的代码（播放页、通知栏、
+  锁屏、桌面小组件、封面取色、`musicxx.media.cover`、渲染项 `cover`）只读应用保存的那一张，
+  **不会触发这条能力**。
+- 载荷：`{sid, srcKey, name, artist, album, durationMs, audio, parsed, path, icon, icon96, cache,
+  current, reason, force, caller}`：
+  - `audio` = 本轮音源 `{type, src, customType, fileName, size, durationMs, quality}`；
+    `parsed` = 实际播放用的那一份（`kind` 是 `file` / `content` / `asset` / `url`）；
+  - `path` 只有本地 / 缓存 / `content://` / asset 才有值（网络来源是空串）；
+  - `icon` / `icon96` = 歌曲信息里的封面 `{hasCover, kind}`（`kind` = `local` / `cache` / `content` /
+    `asset` / `network`；本地类要求文件存在，网络地址不探远程）；
+  - `cache` = `{exists, exists96}`：应用图片缓存里这首歌的图在不在；
+  - `current` = **现在显示的那张图** `{origin, by, icon, icon96}`（`origin` = `initial`（切歌时的初值）/\
+    `builtin`（应用的三段取值）/ `plugin`（插件给的）/ `set`（`cover.set` 定的）/ `none`（已清空）；
+    `icon` / `icon96` 只报类别，本地 / 缓存类带 `src`，网络类**不给直链**）；
+  - `reason` = `load` / `reparse` / `reload` / `clear`；`force` = 要求内置实现跳过“缓存已存在”
+    重新提取；`caller` = 谁在问（空串 = 应用自己）。
+- 回答（**必须用 `patch` 包一层**，否则多个实现之间会互相覆盖）：
+  - `{"patch": {"cover": {"icon": {...}, "icon96": {...}}}}`：换一张（写法与 `cover.set` 完全一样，
+    `icon` 必给、`icon96` 可选）；
+  - `{"action": "cancel"}`：**这次不修改当前图片**（不取图、不刷通知栏与背景色）。它同时就是
+    “就用现在这张”的回答：`current` 是缓存图时等于“别提取了”，是你上次给的图时等于“继续用它”；
+  - 不回答 / 形状不对 / 单张超过 16 MiB：这次不提供，应用接着按自己的三段兜底取；
+  - **后链**（`after`）回答 `{"value": {"cover": {...}}}` 换图（可以只换 `icon96`），或
+    `{"action": "drop"}` 让这次没有封面；**前链**（`before`）只认 `{"patch": {"force": true}}` 与
+    `{"action": "cancel"}`。
+- **三种结果**：有 `cover` = 用它；前链或实现链 `cancel` = 什么都不做（保持当前图）；
+  后链 `drop` 或整条链都没有实现给值 = **清空**（界面回到默认图）。
+- 记住结果**不会**阻止下次询问：应用只记“这一次用了哪张”，用于失败重试与 `clear`；
+  每次加载你都会被重新问到（`current` 告诉你现在显示什么，据此决定保持还是换）。
+- 异步派发、最多等 3 秒（超时按“没给”处理），不阻塞起播；实现不受内置提取那 1 秒延迟影响。
+
+```js
+// 完全接管：每次加载都自己算一张
+musicxx.capability.on("musicxx.media.cover.resolve", () => ({
+  patch: { cover: { icon: { url: coverUrlOf(song) } } },
+}));
+
+// 只在应用取不到时补一张；应用已经有图就保持（cancel）
+musicxx.capability.on("musicxx.media.cover.resolve", (p) => {
+  if (p.icon.hasCover || p.cache.exists) return { action: "cancel" };
+  return { patch: { cover: { icon: { url: fallbackCoverUrl(p) } } } };
+});
+
+// 改写应用已经取到的封面（加水印 / 统一风格），应用本来没封面时不会进这里
+musicxx.capability.on("musicxx.media.cover.resolve", null, {
+  phase: "after",
+  handler: (p) => ({ value: { cover: { icon: { data: watermark(p.value) } } } }),
+});
+```
 
 **`musicxx.media.bindImage` / `musicxx.media.unbindImage`** —— 把插件自己的图片绑成纹理给着色器采样
 
