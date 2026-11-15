@@ -12,7 +12,7 @@
 #   tools/pack_plugin.sh --plugin-dir <插件目录> --check      # 只检查，不打包
 #
 # 包名：不给 --out 时是 <插件 id>-<清单 version 里的 . 换成 _>.zip，与插件目录同级
-# （例：example_js_shader 的 version 是 2026.1010.1 → example_js_shader-2026_1010_1.zip）。
+# （例：my_plugin 的 version 是 2026.1010.1 → my_plugin-2026_1010_1.zip）。
 #
 # 例（打包构建产物里的多目标示例插件）：
 #   tools/pack_plugin.sh --plugin-dir .native/output/macos-arm64-release/plugins/example_native_multi

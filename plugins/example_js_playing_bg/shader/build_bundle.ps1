@@ -1,8 +1,12 @@
-# 打包本插件（example_js_shader）的 shader bundle（Windows 用 pwsh）
+# 打包本插件（example_js_playing_bg）的五个 shader bundle（Windows 用 pwsh）
 #
-# 本插件有两个背景样式，各自一个 bundle：
-#   bundle.json      + shaders/bg.frag    → bg.shaderbundle   （『示例晶格背景』）
-#   bundle_ring.json + shaders/ring.frag  → ring.shaderbundle（『光圈』：频谱圆环）
+# 六个背景样式共用五份片段着色器（『晶格』与『插件纹理铺底』是同一个 bundle，
+# 区别在底层纹理的来源）：
+#   bundle_heat.json    + shaders/full.vert + shaders/heat.frag    → heat.shaderbundle   （『模糊』）
+#   bundle_card.json    + shaders/full.vert + shaders/card.frag    → card.shaderbundle   （『沉浸』）
+#   bundle_vinyl.json   + shaders/full.vert + shaders/vinyl.frag   → vinyl.shaderbundle  （『黑胶』）
+#   bundle_lattice.json + shaders/full.vert + shaders/bg.frag      → bg.shaderbundle     （『晶格』『插件纹理铺底』）
+#   bundle_ring.json    + shaders/full.vert + shaders/ring.frag    → ring.shaderbundle   （『光圈』）
 #
 # 用法：
 #   pwsh -NoProfile -File .\build_bundle.ps1 [-FlutterRoot <Flutter SDK 根目录>]
@@ -11,7 +15,7 @@
 #
 # Linux / macOS 用同样的参数调用对应平台的 impellerc（无 .exe 后缀）：
 #   "$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/impellerc" \
-#     --shader-bundle="$(tr -d '\n' < bundle.json)" --sl=bg.shaderbundle
+#     --shader-bundle="$(tr -d '\n' < bundle_heat.json)" --sl=heat.shaderbundle
 param(
     [string]$FlutterRoot = ""
 )
@@ -29,7 +33,7 @@ if ([string]::IsNullOrEmpty($FlutterRoot)) {
     }
 }
 if ([string]::IsNullOrEmpty($FlutterRoot) -or -not (Test-Path $FlutterRoot)) {
-    throw '找不到 Flutter SDK：请用 -FlutterRoot 指定（例如 C:\Users\me\fvm\versions\3.47.5）'
+    throw '找不到 Flutter SDK：请用 -FlutterRoot 指定（例如 C:\Users\me\fvm\versions\3.50.0）'
 }
 
 $engineDir = Join-Path $FlutterRoot 'bin\cache\artifacts\engine'
@@ -40,7 +44,10 @@ if ([string]::IsNullOrEmpty($impellerc)) {
 
 # 要编译的 bundle：描述文件 → 产物文件名
 $targets = @(
-    @{ Spec = 'bundle.json'; Out = 'bg.shaderbundle' },
+    @{ Spec = 'bundle_heat.json'; Out = 'heat.shaderbundle' },
+    @{ Spec = 'bundle_card.json'; Out = 'card.shaderbundle' },
+    @{ Spec = 'bundle_vinyl.json'; Out = 'vinyl.shaderbundle' },
+    @{ Spec = 'bundle_lattice.json'; Out = 'bg.shaderbundle' },
     @{ Spec = 'bundle_ring.json'; Out = 'ring.shaderbundle' }
 )
 

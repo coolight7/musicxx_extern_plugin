@@ -97,7 +97,7 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"BV1GJ411x7h7","type":"bi
 声明（`declareSourceTypes()`，脚本加载时跑一次）：
 
 ```js
-musicxx.call("musicxx.source.define", {
+musicxx.capability.call("musicxx.source.define", {
     id: "plugin.example_override_media_source.plugin_bili",
     title: "B 站（插件解析）",
     depict: "地址里写 BV 号，插件自己查 B 站接口换播放地址与请求头",

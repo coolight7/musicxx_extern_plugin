@@ -15,7 +15,7 @@
 /// 页面里给的组件都会经客户端的适配步骤限制到客户端支持的组件 —— 客户端不支持的组件会被降级, 插件不用自己判断。
 ///
 /// 说明: 播放页背景 (shader bundle) 与它的动画速率设置原先也在这里, 2026-09 已拆成独立插件
-/// `plugins/example_js_shader` —— 要照抄"插件渲染背景"那一套就看它。
+/// `plugins/example_js_playing_bg` —— 要照抄"插件渲染背景"那一套就看它。
 ///
 /// 约束: 脚本顶层必须**同步**完成注册 (顶层不能用 await);
 /// 异步逻辑放到钩子或定时器里。
@@ -96,10 +96,15 @@ musicxx.capability.implement("musicxx.player.error", { mode: "decision", priorit
 /// - 这个钩子在约定里是**异步派发**的: 处理器返回 Promise 时调用方会等这 20 ms。
 ///   处理器里 `await` 主程序动作/变量会互相等死 —— 主程序线程正阻塞在这次钩子
 ///   调用上, 动作没人处理, 表现是应用一直卡住。
-/// 这里演示"限速"这一常见需求: 先把 0.25~3 之外的速度改回合法值。
+/// 这里演示"限速"这一常见需求: 把 0.25~3 之外的速度改回合法值。
+/// **开关在插件自己的配置里** (`config.json` 的 `speedLimit`, 默认开): 插件不能默默改掉
+/// 用户真正想要的速度, 所以关闭后直接不裁决。
 /// 说明: 真实插件通常在这里 `await` 一次异步来源 (存储/网络/其它插件能力);
 /// 用 Promise 只是让"异步裁决"这条路走通, 拿不到结果时插件应当不裁决。
 musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, function (ctx) {
+    if (!speedLimitEnabled()) {
+        return null;
+    }
     const to = (ctx && typeof ctx.to === "number") ? ctx.to : 1;
     if (to >= 0.25 && to <= 3) {
         return null;   // 同步路径: 不需要裁决时立刻返回 (最省时)
@@ -217,31 +222,41 @@ musicxx.capability.register("crossCall", function (args) {
 /// 配置读取: config.json 由插件自己读写 (自绘设置页 + 手改文件都改它),
 /// 用 getConfig 异步读、给默认值 (框架不再提供 settings_schema 默认值)。
 /// 能力处理器必须同步返回, 所以这里把最近一次读到的值记下来, 由 probe / 设置页回读。
-musicxx.storage.configCache = {
+/// 状态放在脚本自己的对象里: 不必往宿主对象 (`musicxx.*`) 上挂东西。
+const configCache = {
     skipAds: null,
     greeting: "",
     heartbeatMs: null,
+    speedLimit: null,
 };
 
 /// 是否开启"跳过广告" (默认开启; 配置还没读到时也按默认值处理)
 function skipAdsEnabled() {
-    return musicxx.storage.configCache.skipAds !== false;
+    return configCache.skipAds !== false;
+}
+
+/// 是否限制播放速度到 0.25x~3x (默认开启; 关掉后不裁决, 用户设什么就是什么)
+function speedLimitEnabled() {
+    return configCache.speedLimit !== false;
 }
 
 function refreshConfig() {
     musicxx.storage.getConfig("skipAds", true).then(function (value) {
-        musicxx.storage.configCache.skipAds = (typeof value === "boolean") ? value : true;
+        configCache.skipAds = (typeof value === "boolean") ? value : true;
     }, function () { return null; });
     musicxx.storage.getConfig("greeting", "example_js 已加载").then(function (value) {
         const text = (value === null || value === undefined) ? "" : String(value);
-        musicxx.storage.configCache.greeting = text;
+        configCache.greeting = text;
         // 读到了配置才弹提示: 用户设置的提示语才真正用得上
         notifyGreeting(text);
     }, function () { return null; });
     musicxx.storage.getConfig("heartbeatMs", DEFAULT_HEARTBEAT_MS).then(function (value) {
         const ms = normalizeHeartbeat(value);
-        musicxx.storage.configCache.heartbeatMs = ms;
+        configCache.heartbeatMs = ms;
         applyHeartbeat(ms);
+    }, function () { return null; });
+    musicxx.storage.getConfig("speedLimit", true).then(function (value) {
+        configCache.speedLimit = (typeof value === "boolean") ? value : true;
     }, function () { return null; });
 }
 refreshConfig();
@@ -265,10 +280,13 @@ function viewEnv(args) {
 /// 让主程序直接用新页面刷新)。
 function settingsView(args, override) {
     const env = viewEnv(args);
-    const cache = musicxx.storage.configCache;
+    const cache = configCache;
     const skipAds = (override && typeof override.skipAds === "boolean")
         ? override.skipAds
         : skipAdsEnabled();
+    const speedLimit = (override && typeof override.speedLimit === "boolean")
+        ? override.speedLimit
+        : speedLimitEnabled();
     const greeting = (override && typeof override.greeting === "string")
         ? override.greeting
         : (cache.greeting || "");
@@ -287,6 +305,11 @@ function settingsView(args, override) {
                 trailing: skipAds ? "已开启" : "已关闭",
             }, env),
             kit.listRow({
+                title: "限制播放速度",
+                subtitle: "前链裁决: 把 0.25x~3x 之外的速度改回合法值（关掉后不干预用户设置）",
+                trailing: speedLimit ? "已开启" : "已关闭",
+            }, env),
+            kit.listRow({
                 title: "启动提示语",
                 subtitle: "加载时弹出的提示",
                 trailing: greeting === "" ? "(未设置)" : greeting,
@@ -300,6 +323,10 @@ function settingsView(args, override) {
                 label: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
                 variant: "primary",
                 action: "toggleSkipAds",
+            }, env),
+            kit.button({
+                label: speedLimit ? "关闭『限制播放速度』" : "开启『限制播放速度』",
+                action: "toggleSpeedLimit",
             }, env),
             kit.button({
                 label: "切换心跳间隔（10 / 30 / 60 秒）",
@@ -316,7 +343,7 @@ function settingsView(args, override) {
 
 /// 写一个配置项: 先更新脚本里记下的值, 再异步写 config.json (失败只记日志)
 function saveConfig(key, value) {
-    musicxx.storage.configCache[key] = value;
+    configCache[key] = value;
     musicxx.storage.setConfig(key, value).then(function () {
         return null;
     }, function (err) {
@@ -326,7 +353,7 @@ function saveConfig(key, value) {
 
 /// 当前生效的心跳间隔 (配置还没读到 / 值非法时用默认值)
 function configuredHeartbeatMs() {
-    const value = musicxx.storage.configCache.heartbeatMs;
+    const value = configCache.heartbeatMs;
     return (typeof value === "number") ? value : DEFAULT_HEARTBEAT_MS;
 }
 
@@ -344,6 +371,18 @@ musicxx.capability.register("toggleSkipAds", function (args) {
     musicxx.host.log(2, "设置页: 跳过广告曲目 → " + next);
     return {
         view: (args && args.view === "card") ? cardView(args) : settingsView(args, { skipAds: next }),
+    };
+});
+
+/// 设置页按钮: 切换"限制播放速度"
+///
+/// 同 `toggleSkipAds`：功能页 (`card`) 的列表项也复用这个能力 (看清楚现生效的值)。
+musicxx.capability.register("toggleSpeedLimit", function (args) {
+    const next = !speedLimitEnabled();
+    saveConfig("speedLimit", next);
+    musicxx.host.log(2, "设置页: 限制播放速度 → " + next);
+    return {
+        view: (args && args.view === "card") ? cardView(args) : settingsView(args, { speedLimit: next }),
     };
 });
 
@@ -463,11 +502,11 @@ musicxx.capability.register("probe", function (args) {
     const info = musicxx.host.info();
     const ui = (info && typeof info.ui === "object" && info.ui !== null) ? info.ui : null;
     const greetingPeek = musicxx.broadcast.read(GREETING_TOPIC);
+    // 自己的统计: 实现链能力几个 (3 个裁决 + 功能埋点通用通道)、订阅几个、定时器几个
+    const selfStats = musicxx.stats.getSelf() || {};
     return {
         pluginId: musicxx.pluginId,
-        /// 3 个实现链能力 + 1 条功能埋点通用通道（`feature.provide` 登记的实现）；
-        /// 切歌通知是广播订阅，不算实现
-        implementationCount: 4,
+        implementationCount: selfStats.implementations || 0,
         songChangedCount: songChangedCount,
         lastSongName: lastSongName,
         errorCount: errorCount,
@@ -479,14 +518,15 @@ musicxx.capability.register("probe", function (args) {
         currentSongName: currentSongName(),
         uiEntries: musicxx.ui.entries().length,
         // 自读统计 (只观测不限制; 插件可据此显示自己的用量)
-        selfStatsImplementations: (musicxx.stats.getSelf() || {}).implementations || 0,
+        selfStatsImplementations: selfStats.implementations || 0,
         crossPending: crossCallState.pending,
         crossOk: crossCallState.ok,
         crossKeys: crossCallState.keys,
         crossError: crossCallState.error,
         // 配置读取 (config.json; 默认值由脚本在 getConfig 里给)
-        configSkipAds: musicxx.storage.configCache.skipAds,
-        configGreeting: musicxx.storage.configCache.greeting,
+        configSkipAds: configCache.skipAds,
+        configGreeting: configCache.greeting,
+        configSpeedLimit: configCache.speedLimit,
         // 广播: 自己声明的条数 / 官方频道的变化次数与最新值 / 读到的当前值 / 订阅人数
         varOwn: musicxx.broadcast.declared().length,
         animatedLevelChanges: animatedLevelChanges,
@@ -610,6 +650,12 @@ function cardView(args) {
                 subtitle: "点这一条直接切换 (等于设置页里的开关)",
                 trailing: skipAdsEnabled() ? "已开启" : "已关闭",
                 action: { kind: "dispatch", name: "toggleSkipAds", args: { view: "card" } },
+            }, env),
+            kit.listRow({
+                title: "限制播放速度",
+                subtitle: "点这一条直接切换 (0.25x~3x 之外的改回合法值)",
+                trailing: speedLimitEnabled() ? "已开启" : "已关闭",
+                action: { kind: "dispatch", name: "toggleSpeedLimit", args: { view: "card" } },
             }, env),
             kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
             kit.button({

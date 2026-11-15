@@ -1183,8 +1183,8 @@ int main(int argc, char **argv) {
         "扫描发现 example_native");
   check(scanJson.find("example_js") != std::string::npos,
         "扫描发现 example_js (JS 插件)");
-  check(scanJson.find("example_js_shader") != std::string::npos,
-        "扫描发现 example_js_shader (JS 插件)");
+  check(scanJson.find("example_js_playing_bg") != std::string::npos,
+        "扫描发现 example_js_playing_bg (JS 插件)");
   check(scanJson.find("\"kind\":\"js\"") != std::string::npos,
         "JS 插件的 kind 为 js");
   check(scanJson.find("本次运行未启用 JS 运行时") == std::string::npos,
@@ -1260,6 +1260,146 @@ int main(int argc, char **argv) {
               host, viewCP("musicxx.player.beforePlaySong"), 9, &afterCount,
               &log) == PLUGINXX_RESULT_ERR_ARG,
           "非法阶段编号被拒绝");
+  }
+
+  // 包装点 `musicxx.lyric.load` 上的阶段示例: 前链改输入 / 拦下, 后链改输出 / 丢弃
+  //
+  // 示例只在载荷带 `"example_native_demo":true` 时动手, 其余调用原样返回 ——
+  // 装上这个示例插件的用户不会因此丢歌词。(两段示例原先在 `example_native_multi`
+  // 里无条件改写结果, 已迁移到这里并加上标记。)
+  {
+    int32_t lyricBefore = -1;
+    int32_t lyricAfter = -1;
+    check(musicxx_extern_plugin_capability_handler_count_phase(
+              host, viewCP("musicxx.lyric.load"),
+              MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE, &lyricBefore,
+              &log) == PLUGINXX_RESULT_OK &&
+              lyricBefore == 1,
+          "包装点声明了 before 阶段且已有处理器");
+    check(musicxx_extern_plugin_capability_handler_count_phase(
+              host, viewCP("musicxx.lyric.load"),
+              MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &lyricAfter,
+              &log) == PLUGINXX_RESULT_OK &&
+              lyricAfter == 1,
+          "包装点声明了 after 阶段且已有处理器");
+
+    // 旧符号是全阶段的总数（包装点两个阶段都已登记）
+    int32_t lyricTotal = 0;
+    check(musicxx_extern_plugin_capability_handler_count(
+              host, viewCP("musicxx.lyric.load"), &lyricTotal, &log) ==
+                  PLUGINXX_RESULT_OK &&
+              lyricTotal == 2,
+          "旧符号报告全部阶段的处理器总数");
+    // 没有 impl 阶段: 包装点的实现固定是应用自己
+    int32_t lyricImpl = -1;
+    check(musicxx_extern_plugin_capability_handler_count_phase(
+              host, viewCP("musicxx.lyric.load"),
+              MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL, &lyricImpl,
+              &log) == PLUGINXX_RESULT_OK &&
+              lyricImpl == 0,
+          "包装点没有 impl 阶段");
+
+    // 不带演示标记: 处理器照常被调用, 但不改任何东西
+    {
+      MusicxxExternPluginString plainOut{};
+      const auto rcPlain = musicxx_extern_plugin_capability_dispatch_phase(
+          host, viewCP("musicxx.lyric.load"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"pid":"p1","cancel":true})"),
+          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &plainOut, &log);
+      const std::string plainResult = take(plainOut);
+      check(rcPlain == PLUGINXX_RESULT_OK,
+            "不带演示标记的前链派发成功");
+      check(plainResult.find("\"action\"") == std::string::npos &&
+                plainResult.find("\"patch\"") == std::string::npos,
+            "不带演示标记时前链不改输入 (也不拦下)");
+
+      MusicxxExternPluginString plainAfterOut{};
+      const auto rcPlainAfter =
+          musicxx_extern_plugin_capability_dispatch_phase(
+              host, viewCP("musicxx.lyric.load"),
+              MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
+              viewP(R"({"pid":"p1","value":{"lyric":{"content":"x"}}})"),
+              MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &plainAfterOut,
+              &log);
+      const std::string plainAfterResult = take(plainAfterOut);
+      check(rcPlainAfter == PLUGINXX_RESULT_OK,
+            "不带演示标记的后链派发成功");
+      check(plainAfterResult.find("\"items\":3") == std::string::npos,
+            "不带演示标记时后链不改输出 (真实歌词结果不被换成固定值)");
+    }
+
+    // 前链: 串行、正序, 累积的 patch 交回调用方
+    {
+      MusicxxExternPluginString beforeOut{};
+      const auto rcBefore = musicxx_extern_plugin_capability_dispatch_phase(
+          host, viewCP("musicxx.lyric.load"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"pid":"p1","example_native_demo":true})"),
+          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &beforeOut, &log);
+      const std::string beforeResult = take(beforeOut);
+      check(rcBefore == PLUGINXX_RESULT_OK, "前链派发成功");
+      check(beforeResult.find("\"patch\":{\"limit\":50}") != std::string::npos,
+            "前链改过的输入交回调用方");
+    }
+
+    // 前链 cancel: 回执带 action=cancel
+    {
+      MusicxxExternPluginString cancelOut{};
+      const auto rcCancel = musicxx_extern_plugin_capability_dispatch_phase(
+          host, viewCP("musicxx.lyric.load"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
+          viewP(R"({"pid":"p1","example_native_demo":true,"cancel":true})"),
+          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &cancelOut, &log);
+      const std::string cancelResult = take(cancelOut);
+      check(rcCancel == PLUGINXX_RESULT_OK &&
+                cancelResult.find("\"action\":\"cancel\"") != std::string::npos,
+            "前链 cancel 结束整条链");
+    }
+
+    // 后链: 值被替换
+    {
+      MusicxxExternPluginString afterOut{};
+      const auto rcAfter = musicxx_extern_plugin_capability_dispatch_phase(
+          host, viewCP("musicxx.lyric.load"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
+          viewP(R"({"pid":"p1","example_native_demo":true,"value":{"items":1}})"),
+          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &afterOut, &log);
+      const std::string afterResult = take(afterOut);
+      check(rcAfter == PLUGINXX_RESULT_OK &&
+                afterResult.find("\"items\":3") != std::string::npos,
+            "后链改掉了输出");
+      check(afterResult.find("example_native") != std::string::npos,
+            "后链拿到的是上一步的输出 (不是原始载荷)");
+    }
+
+    // 后链 drop: 回执带 action=drop
+    {
+      MusicxxExternPluginString dropOut{};
+      const auto rcDrop = musicxx_extern_plugin_capability_dispatch_phase(
+          host, viewCP("musicxx.lyric.load"),
+          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
+          viewP(R"({"pid":"p1","example_native_demo":true,"drop":true,"value":{"items":1}})"),
+          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &dropOut, &log);
+      const std::string dropResult = take(dropOut);
+      check(rcDrop == PLUGINXX_RESULT_OK &&
+                dropResult.find("\"action\":\"drop\"") != std::string::npos,
+            "后链 drop 结束整条链");
+    }
+
+    // 处理器列表能看出每个处理器在哪个阶段 (自省)
+    {
+      MusicxxExternPluginString handlersOut{};
+      MusicxxExternPluginString handlersLog{};
+      check(musicxx_extern_plugin_capability_handlers_phase(
+                host, viewCP("musicxx.lyric.load"),
+                MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &handlersOut,
+                &handlersLog) == PLUGINXX_RESULT_OK,
+            "分阶段处理器列表可读");
+      const std::string handlers = take(handlersOut);
+      check(handlers.find("\"phase\":\"after\"") != std::string::npos,
+            "分阶段处理器列表带 phase");
+    }
   }
 
   // capability_info 带 phases / phaseCount; 处理器列表每项带 phase
@@ -1946,8 +2086,7 @@ int main(int argc, char **argv) {
       check(jsonStringField(probe, "hostPlatform") == testPlatform(),
             "JS 读到插件框架信息 (平台)");
       // JS 侧的声明式 UI 项 (顶层注册 → 插件框架线程回放)
-      // 2 项 = 主页入口 + 歌曲菜单 (播放页背景样式已拆到 example_js_shader;
-      // 设置界面是插件自己的页面, 不是 UI 项)
+      // 2 项 = 主页入口 + 歌曲菜单 (设置界面是插件自己的页面, 不是 UI 项)
       check(jsonIntField(probe, "uiEntries") == "2",
             "JS 注册了 2 个 UI 项 (脚本侧登记)");
       check(jsonIntField(probe, "selfStatsImplementations") == "4",
@@ -2027,48 +2166,68 @@ int main(int argc, char **argv) {
             "设置界面内容由插件给出 (说明自己的 config.json 用法)");
     }
 
-    // 播放页背景示例已拆成独立插件 `example_js_shader`: 它声明背景样式,
-    // 速率 (0.5× / 1× / 2×) 是它自己的设置项, 改完重新声明 UI 项。
+    // 播放页背景示例 `example_js_playing_bg`: 六种背景样式（封面三种 + 图案三种）
+    // + 歌曲图接管 + 封面取色钩子 + 说明页 / 设置页 / 频谱页。
+    //
+    // 这个块同时验证"一个插件多个脚本"：探针里的计数来自不同脚本声明的常量与函数，
+    // 少执行一个脚本就对不上（原先单独用一个 27 行的插件教这件事，现已并入这里）。
     {
       MusicxxExternPluginString loadLog{};
-      const auto shaderLoadRc = musicxx_extern_plugin_plugin_load_sync(
-          host, viewCP("example_js_shader"), viewCP(R"({"enabled":true})"),
+      const auto bgLoadRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP("example_js_playing_bg"), viewCP(R"({"enabled":true})"),
           8000, &loadLog);
-      if (shaderLoadRc != PLUGINXX_RESULT_OK) {
-        std::printf("  [info] shader js load rc=%d log=%s\n", shaderLoadRc,
+      if (bgLoadRc != PLUGINXX_RESULT_OK) {
+        std::printf("  [info] playing_bg js load rc=%d log=%s\n", bgLoadRc,
                     take(loadLog).c_str());
       } else {
         freeStr(loadLog);
       }
-      check(shaderLoadRc == PLUGINXX_RESULT_OK,
-            "背景示例插件加载成功 (example_js_shader)");
+      check(bgLoadRc == PLUGINXX_RESULT_OK,
+            "播放页背景示例插件加载成功 (example_js_playing_bg)");
+
+      // 多脚本: 六个脚本都执行过
+      const CapabilityCallOutcome bgProbe =
+          callCapability(host, "example_js_playing_bg", "probe", "{}", 8000);
+      check(bgProbe.acceptRc == PLUGINXX_RESULT_OK && bgProbe.ok,
+            "背景示例的多脚本探针可读");
+      check(jsonIntField(bgProbe.payload, "styles") == "6",
+            "六种背景样式都在 (backgrounds.js 执行过)");
+      check(jsonIntField(bgProbe.payload, "uiEntries") == "8",
+            "UI 项 8 个 = 六种样式 + 歌曲图接管 + 主页入口");
+      check(jsonIntField(bgProbe.payload, "paletteHook") == "1",
+            "取色钩子已注册 (palette.js 执行过)");
+      check(jsonIntField(bgProbe.payload, "hasSettingsView") == "1" &&
+                jsonIntField(bgProbe.payload, "hasSpectrumView") == "1",
+            "页面函数都在 (views.js 执行过)");
 
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
       const std::string snapshot = take(snap);
       check(snapRc == PLUGINXX_RESULT_OK &&
-                snapshot.find("plugin.example_js_shader.bg") !=
+                snapshot.find("plugin.example_js_playing_bg.lattice") !=
                     std::string::npos &&
                 snapshot.find("musicxx.ui.playing.background") !=
                     std::string::npos &&
                 snapshot.find("shader/bg.shaderbundle") != std::string::npos,
-            "背景示例的播放页背景样式进入快照 (含 shader bundle)");
-      check(snapshot.find("plugin.example_js_shader.card") != std::string::npos,
+            "背景示例的图案样式进入快照 (含 shader bundle)");
+      // 注册名是 `home`（入口打开的页面 id 才是 `card`），快照里的 id 取注册名
+      check(snapshot.find("plugin.example_js_playing_bg.home") !=
+                std::string::npos,
             "背景示例的主页入口项进入快照");
 
       // 速率设置: 页面里能读到, 切一档后显示的值跟着变
       // (设置页的行由布局块组合, 右侧状态按值的形态读: 见 jsonFirstRateText)
-      const CapabilityCallOutcome beforeCall =
-          callCapability(host, "example_js_shader", "settings", "{}", 8000);
+      const CapabilityCallOutcome beforeCall = callCapability(
+          host, "example_js_playing_bg", "settings", "{}", 8000);
       const std::string beforeView = beforeCall.payload;
       check(beforeCall.acceptRc == PLUGINXX_RESULT_OK && beforeCall.ok &&
                 beforeView.find("背景动画速率") != std::string::npos,
             "背景示例的设置页含『背景动画速率』设置项");
       const std::string beforeRate = jsonFirstRateText(beforeView);
 
-      const CapabilityCallOutcome cycleCall =
-          callCapability(host, "example_js_shader", "cycleBackgroundRate",
-                         R"({"view":"settings"})", 8000);
+      const CapabilityCallOutcome cycleCall = callCapability(
+          host, "example_js_playing_bg", "cycleBackgroundRate",
+          R"({"view":"settings"})", 8000);
       const std::string cycleView = cycleCall.payload;
       const std::string afterRate = jsonFirstRateText(cycleView);
       check(cycleCall.acceptRc == PLUGINXX_RESULT_OK && cycleCall.ok,
@@ -2078,18 +2237,116 @@ int main(int argc, char **argv) {
             "切换后设置页显示的速率随之变化");
 
       // 卸载 → UI 项摘除
-      check(
-          musicxx_extern_plugin_plugin_unload(host, viewCP("example_js_shader"),
-                                              &log) == PLUGINXX_RESULT_OK,
-          "卸载背景示例插件");
+      check(musicxx_extern_plugin_plugin_unload(
+                host, viewCP("example_js_playing_bg"), &log) ==
+                PLUGINXX_RESULT_OK,
+            "卸载背景示例插件");
       MusicxxExternPluginString after{};
       const auto afterRc =
           musicxx_extern_plugin_ui_snapshot(host, &after, &log);
       const std::string afterSnapshot = take(after);
       check(afterRc == PLUGINXX_RESULT_OK &&
-                afterSnapshot.find("plugin.example_js_shader.bg") ==
+                afterSnapshot.find("plugin.example_js_playing_bg.lattice") ==
                     std::string::npos,
             "卸载后背景示例的 UI 项无残留");
+    }
+
+    // ============ 播放页插槽示例 (example_js_playing_slots)
+    // ============
+    //
+    // 三类位置各验一遍：插入块（歌词页 "/ 播放列表页 "/ 更多信息页）、
+    // 按钮级 / 整栏替换（controlBar）与音频动效（playing.visualizer）。
+    {
+      MusicxxExternPluginString loadLog{};
+      const auto slotsRc = musicxx_extern_plugin_plugin_load_sync(
+          host, viewCP("example_js_playing_slots"),
+          viewCP(R"({"enabled":true})"), 8000, &loadLog);
+      if (slotsRc != PLUGINXX_RESULT_OK) {
+        std::printf("  [info] slots js load rc=%d log=%s\n", slotsRc,
+                    take(loadLog).c_str());
+      } else {
+        freeStr(loadLog);
+      }
+      check(slotsRc == PLUGINXX_RESULT_OK,
+            "播插槽示例插件加载成功 (example_js_playing_slots)");
+
+      const CapabilityCallOutcome slotsProbe = callCapability(
+          host, "example_js_playing_slots", "probe", "{}", 8000);
+      check(slotsProbe.acceptRc == PLUGINXX_RESULT_OK && slotsProbe.ok,
+            "插槽示例的探针可读");
+      check(jsonIntField(slotsProbe.payload, "uiEntries") == "7",
+            "UI 项 7 个 = 3 个插入块 + 2 个按钮 + 1 个动效 + 1 个主页入口");
+      check(jsonIntField(slotsProbe.payload, "hasControlBar") == "1" &&
+                jsonIntField(slotsProbe.payload, "visualizer") == "1",
+            "控制栏视图与动效声明都在 (三个业务脚本都执行过)");
+
+      MusicxxExternPluginString snap{};
+      const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+      const std::string snapshot = take(snap);
+      check(snapRc == PLUGINXX_RESULT_OK &&
+                snapshot.find("musicxx.ui.playing.lyric.top") !=
+                    std::string::npos &&
+                snapshot.find("musicxx.ui.playing.songlist.header") !=
+                    std::string::npos &&
+                snapshot.find("musicxx.ui.playing.moreInfo.footer") !=
+                    std::string::npos,
+            "三个插入块的位置类型进入快照");
+      check(snapshot.find("musicxx.ui.playing.controlBar.menu") !=
+                    std::string::npos &&
+                snapshot.find("musicxx.ui.playing.controlBar.favorite") !=
+                    std::string::npos,
+            "按钮级替换项进入快照 (菜单 / 收藏)");
+      check(snapshot.find("musicxx.ui.playing.visualizer") !=
+                    std::string::npos &&
+                snapshot.find("shader/viz.shaderbundle") != std::string::npos,
+            "音频动效项进入快照 (含 shader bundle)");
+
+      // 整栏替换：开启后多出 controlBar 项（按钮级项保留，主程序会忽略它们）
+      const CapabilityCallOutcome barCall = callCapability(
+          host, "example_js_playing_slots", "toggleWholeBar",
+          R"({"view":"settings"})", 8000);
+      check(barCall.acceptRc == PLUGINXX_RESULT_OK && barCall.ok,
+            "切换整栏替换的能力可调用");
+      MusicxxExternPluginString barSnap{};
+      const auto barSnapRc =
+          musicxx_extern_plugin_ui_snapshot(host, &barSnap, &log);
+      const std::string barSnapshot = take(barSnap);
+      check(barSnapRc == PLUGINXX_RESULT_OK &&
+                barSnapshot.find("\"type\":\"musicxx.ui.playing.controlBar\"") !=
+                    std::string::npos,
+            "开启后整栏替换项进入快照");
+      check(barSnapshot.find("musicxx.ui.playing.controlBar.menu") !=
+                    std::string::npos,
+            "按钮级项仍然保留 (整栏生效时由主程序忽略)");
+
+      // 整栏视图能力：主程序带状态参数取内容，处理器同步返回
+      const CapabilityCallOutcome barViewCall = callCapability(
+          host, "example_js_playing_slots", "controlBar",
+          R"({"slot":"musicxx.ui.playing.controlBar","button":"","playing":true,"favorite":true,"hasSong":true})",
+          8000);
+      check(barViewCall.acceptRc == PLUGINXX_RESULT_OK && barViewCall.ok &&
+                barViewCall.payload.find("\"blocks\"") != std::string::npos,
+            "整栏视图能力同步返回块描述");
+
+      // 关回去：把 config.json 里的整栏开关恢复默认，重复跑同一个构建目录也不会改变计数
+      const CapabilityCallOutcome barReset = callCapability(
+          host, "example_js_playing_slots", "toggleWholeBar",
+          R"({"view":"settings"})", 8000);
+      check(barReset.acceptRc == PLUGINXX_RESULT_OK && barReset.ok,
+            "整栏替换可以关回去");
+
+      check(musicxx_extern_plugin_plugin_unload(
+                host, viewCP("example_js_playing_slots"), &log) ==
+                PLUGINXX_RESULT_OK,
+            "卸载插槽示例插件");
+      MusicxxExternPluginString afterSlots{};
+      const auto afterSlotsRc =
+          musicxx_extern_plugin_ui_snapshot(host, &afterSlots, &log);
+      const std::string afterSlotsSnapshot = take(afterSlots);
+      check(afterSlotsRc == PLUGINXX_RESULT_OK &&
+                afterSlotsSnapshot.find(
+                    "musicxx.ui.playing.lyric.top") == std::string::npos,
+            "卸载后插槽示例的 UI 项无残留");
     }
 
     // ============ 网络能力 (example_js_net 的 selftest 跑完整一轮)
@@ -2129,40 +2386,13 @@ int main(int argc, char **argv) {
             "卸载网络示例插件");
     }
 
-    // ============ 清单 scripts: 多脚本按顺序加载 (JS 插件) ============
+    // ============ 多脚本按顺序加载 ============
     //
-    // `scripts: [kit.js, plugin.js]` 里的脚本在**同一个 JS 上下文**里依次执行:
-    // 前一个脚本定义的全局量在后一个里可见 (kit 随插件目录分发的用法)。
-    {
-      MusicxxExternPluginString loadLog{};
-      const auto loadRc = musicxx_extern_plugin_plugin_load_sync(
-          host, viewCP("example_js_multi_script"), viewCP("{}"), 8000,
-          &loadLog);
-      if (loadRc != PLUGINXX_RESULT_OK) {
-        std::printf("  [info] example_js_multi_script load rc=%d log=%s\n",
-                    loadRc, take(loadLog).c_str());
-      } else {
-        freeStr(loadLog);
-      }
-      check(loadRc == PLUGINXX_RESULT_OK, "多脚本插件加载成功");
-
-      const CapabilityCallOutcome multiProbe =
-          callCapability(host, "example_js_multi_script", "probe", "{}", 8000);
-      const std::string probe = multiProbe.payload;
-      check(multiProbe.acceptRc == PLUGINXX_RESULT_OK && multiProbe.ok,
-            "多脚本插件的能力可调用");
-      check(jsonStringField(probe, "marker") == "kit-loaded",
-            "脚本按 scripts 顺序执行 (前一个脚本的全局量在后一个里可见)");
-      check(jsonStringField(probe, "rowKind") == "Text",
-            "后一个脚本能调用前一个脚本定义的函数");
-      check(jsonStringField(probe, "hostUiKind") == "gui",
-            "多脚本插件同样读到 host.info().ui");
-
-      check(musicxx_extern_plugin_plugin_unload(
-                host, viewCP("example_js_multi_script"), &log) ==
-                PLUGINXX_RESULT_OK,
-            "多脚本插件卸载成功");
-    }
+    // 清单 `scripts` 里的脚本在**同一个 JS 上下文**里依次执行，前一个脚本声明的常量与
+    // 函数在后一个里可见。这条已经由 `example_js_playing_bg` 的探针覆盖
+    // （背景示例上面的 `probe`: styles / uiEntries / hasSettingsView 分别来自
+    // backgrounds.js、palette.js 与 views.js；清单漏一个脚本就对不上），
+    // 原先那个只教多脚本的示例插件（`example_js_multi_script`）已删除。
 
     // ============ 插件框架内置网络能力 (example_js_net) ============
     //
@@ -2768,102 +2998,8 @@ int main(int argc, char **argv) {
     check(jsonStringField(cap, "tag") == selectedTag && !selectedTag.empty(),
           "加载的正是插件框架选中的分支 (插件自报构建标签与分支标签一致)");
 
-    // 阶段 (前链 / 后链): 该示例插件在 `musicxx.lyric.load` (固定实现的裁决点, 声明了
-    // before + after) 上分别登记了一个处理器。
-    {
-      int32_t beforeCount = -1;
-      int32_t afterCount = -1;
-      check(musicxx_extern_plugin_capability_handler_count_phase(
-                host, viewCP("musicxx.lyric.load"),
-                MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE, &beforeCount,
-                &log) == PLUGINXX_RESULT_OK &&
-                beforeCount == 1,
-            "包装点声明了 before 阶段且已有处理器");
-      check(musicxx_extern_plugin_capability_handler_count_phase(
-                host, viewCP("musicxx.lyric.load"),
-                MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &afterCount,
-                &log) == PLUGINXX_RESULT_OK &&
-                afterCount == 1,
-            "包装点声明了 after 阶段且已有处理器");
-
-      // 旧符号是全阶段的总数（包装点两个阶段都已登记）
-      int32_t totalCount = 0;
-      check(musicxx_extern_plugin_capability_handler_count(
-                host, viewCP("musicxx.lyric.load"), &totalCount, &log) ==
-                    PLUGINXX_RESULT_OK &&
-                totalCount == 2,
-            "旧符号报告全部阶段的处理器总数");
-      // 没有 impl 阶段: 包装点的实现固定是应用自己
-      int32_t implCount = -1;
-      check(musicxx_extern_plugin_capability_handler_count_phase(
-                host, viewCP("musicxx.lyric.load"),
-                MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL, &implCount,
-                &log) == PLUGINXX_RESULT_OK &&
-                implCount == 0,
-            "包装点没有 impl 阶段");
-
-      // 前链: 串行、正序, 累积的 patch 交回调用方
-      MusicxxExternPluginString beforeOut{};
-      const auto rcBefore = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.lyric.load"),
-          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
-          viewP(R"({"pid":"p1"})"), MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0,
-          &beforeOut, &log);
-      const std::string beforeResult = take(beforeOut);
-      check(rcBefore == PLUGINXX_RESULT_OK, "前链派发成功");
-      check(beforeResult.find("\"patch\":{\"limit\":50}") != std::string::npos,
-            "前链改过的输入交回调用方");
-
-      // 前链 cancel: 回执带 action=cancel
-      MusicxxExternPluginString cancelOut{};
-      const auto rcCancel = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.lyric.load"),
-          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE,
-          viewP(R"({"pid":"p1","cancel":true})"),
-          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &cancelOut, &log);
-      const std::string cancelResult = take(cancelOut);
-      check(rcCancel == PLUGINXX_RESULT_OK &&
-                cancelResult.find("\"action\":\"cancel\"") != std::string::npos,
-            "前链 cancel 结束整条链");
-
-      // 后链: 值被替换
-      MusicxxExternPluginString afterOut{};
-      const auto rcAfter = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.lyric.load"),
-          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
-          viewP(R"({"pid":"p1","value":{"items":1}})"),
-          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &afterOut, &log);
-      const std::string afterResult = take(afterOut);
-      check(rcAfter == PLUGINXX_RESULT_OK &&
-                afterResult.find("\"items\":3") != std::string::npos,
-            "后链改掉了输出");
-      check(afterResult.find("example_native_multi") != std::string::npos,
-            "后链拿到的是上一步的输出 (不是原始载荷)");
-
-      // 后链 drop: 回执带 action=drop
-      MusicxxExternPluginString dropOut{};
-      const auto rcDrop = musicxx_extern_plugin_capability_dispatch_phase(
-          host, viewCP("musicxx.lyric.load"),
-          MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER,
-          viewP(R"({"pid":"p1","drop":true,"value":{"items":1}})"),
-          MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC, 0, &dropOut, &log);
-      const std::string dropResult = take(dropOut);
-      check(rcDrop == PLUGINXX_RESULT_OK &&
-                dropResult.find("\"action\":\"drop\"") != std::string::npos,
-            "后链 drop 结束整条链");
-
-      // 处理器列表能看出每个处理器在哪个阶段 (自省)
-      MusicxxExternPluginString handlersOut{};
-      MusicxxExternPluginString handlersLog{};
-      check(musicxx_extern_plugin_capability_handlers_phase(
-                host, viewCP("musicxx.lyric.load"),
-                MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER, &handlersOut,
-                &handlersLog) == PLUGINXX_RESULT_OK,
-            "分阶段处理器列表可读");
-      const std::string handlers = take(handlersOut);
-      check(handlers.find("\"phase\":\"after\"") != std::string::npos,
-            "分阶段处理器列表带 phase");
-    }
+    // 多目标包只讲"打包"一件事: 前链 / 后链的示例已经搬到 `example_native`
+    // (那里带演示标记, 不会误伤真实调用)。
 
     MusicxxExternPluginString unloadLog{};
     musicxx_extern_plugin_plugin_unload(host, viewCP("example_native_multi"),

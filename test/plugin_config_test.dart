@@ -7,10 +7,10 @@
 /// - 设置页能力读到的值与 config.json 一致；
 /// - 改设置 → 写回 config.json → 重新加载（等价于重启）后仍然生效；
 /// - 运行期改插件自己的背景动画速率设置能反映到 UI 项快照里
-///   （`example_js_shader`：播放页背景与速率示例已从这个插件拆出独立实现）。
-/// - 播放页背景的状态文字（`example_js_shader` 的说明页）跟着快照频道走：
+///   （`example_js_playing_bg`：播放页背景合集：六种样式 + 速率 + 取色 + 前景色）。
+/// - 播放页背景的状态文字（`example_js_playing_bg` 的说明页）跟着快照频道走：
 ///   选中本插件但播放页没打开时也不能报成"内置背景"，切回内置后要更新（不能停在"已请求"）。
-/// - 频谱页（`example_js_shader` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
+/// - 频谱页（`example_js_playing_bg` 的 `spectrumProbe`）必须**同步返回**：镜像当场可用、动作结果
 ///   异步回读 —— 处理器里等动作会与同步进插件框架的调用方互锁，只能等到 5 秒超时（这条用例守它）。
 /// - 字体切换页（`example_js_font`）的按钮同样必须**立刻返回**：动作在后台执行（回读）
 ///   ，处理器里 await 字体动作会锁到动作超时（用户看到"卡几秒 + 切换失败但字体已变"）。
@@ -127,8 +127,8 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('example_js_shader：背景动画速率写入磁盘，重新加载后仍然生效', () async {
-    if (env == null || !env.hasPlugin('example_js_shader')) {
+  test('example_js_playing_bg：背景动画速率写入磁盘，重新加载后仍然生效', () async {
+    if (env == null || !env.hasPlugin('example_js_playing_bg')) {
       markTestSkipped(
         '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
@@ -136,7 +136,7 @@ void main() {
     }
 
     final Directory work = Directory.systemTemp.createTempSync(
-      'musicxx_plugin_shader_config_test',
+      'musicxx_plugin_playing_bg_config_test',
     );
     addTearDown(() {
       if (work.existsSync()) {
@@ -144,7 +144,7 @@ void main() {
       }
     });
 
-    const String pluginId = 'example_js_shader';
+    const String pluginId = 'example_js_playing_bg';
     final Directory pluginRoot = _copyPlugin(env, work, pluginId);
 
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
@@ -166,14 +166,16 @@ void main() {
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
     // 背景样式声明本身：类型、bundle 路径、默认速率（1x = 基准速度 1）
+    //
+    // 第一个样式是封面类『模糊』；动画速率只影响三个图案样式，所以速度读『晶格』。
     final MusicxxPluginUIItem? background = _backgroundItem(runtime, pluginId);
     expect(background, isNotNull, reason: '插件应注册播放页背景样式');
     expect(background!.type, MusicxxPluginUIType.playingBackground);
     final Object? shader = background.data['shader'];
     expect(
       shader is Map ? shader['bundle'] : null,
-      'shader/bg.shaderbundle',
-      reason: 'bundle 用插件目录内的相对路径',
+      'shader/heat.shaderbundle',
+      reason: 'bundle 用插件目录内的相对路径（第一个样式是『模糊』）',
     );
     expect(_backgroundSpeed(runtime, pluginId), 1);
 
@@ -260,8 +262,8 @@ void main() {
     expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('example_js_shader：背景状态文字跟着快照频道更新', () async {
-    if (env == null || !env.hasPlugin('example_js_shader')) {
+  test('example_js_playing_bg：背景状态文字跟着快照频道更新', () async {
+    if (env == null || !env.hasPlugin('example_js_playing_bg')) {
       markTestSkipped(
         '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
@@ -269,7 +271,7 @@ void main() {
     }
 
     final Directory work = Directory.systemTemp.createTempSync(
-      'musicxx_plugin_shader_state_test',
+      'musicxx_plugin_playing_bg_state_test',
     );
     addTearDown(() {
       if (work.existsSync()) {
@@ -277,8 +279,8 @@ void main() {
       }
     });
 
-    const String pluginId = 'example_js_shader';
-    const String itemId = 'plugin.example_js_shader.bg';
+    const String pluginId = 'example_js_playing_bg';
+    const String itemId = 'plugin.example_js_playing_bg.lattice';
     final Directory pluginRoot = _copyPlugin(env, work, pluginId);
 
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
@@ -390,8 +392,8 @@ void main() {
     expect(await renderText(), '未生效');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
-  test('example_js_shader：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
-    if (env == null || !env.hasPlugin('example_js_shader')) {
+  test('example_js_playing_bg：频谱页同步返回（镜像当场可用，动作异步回读）', () async {
+    if (env == null || !env.hasPlugin('example_js_playing_bg')) {
       markTestSkipped(
         '未找到原生插件框架库或背景示例插件，跳过（先跑 tools/build_examples.ps1（Windows）或 tools/build_examples.sh（Linux/macOS）产出原生库与示例插件）',
       );
@@ -399,7 +401,7 @@ void main() {
     }
 
     final Directory work = Directory.systemTemp.createTempSync(
-      'musicxx_plugin_shader_spectrum_test',
+      'musicxx_plugin_playing_bg_spectrum_test',
     );
     addTearDown(() {
       if (work.existsSync()) {
@@ -407,7 +409,7 @@ void main() {
       }
     });
 
-    const String pluginId = 'example_js_shader';
+    const String pluginId = 'example_js_playing_bg';
     final Directory pluginRoot = _copyPlugin(env, work, pluginId);
 
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
@@ -871,9 +873,9 @@ void _collectSourceNames(Object? node, Set<String> out) {
   }
 }
 
-/// 背景样式声明的动画速度（`data.speed`）
+/// 背景样式声明的动画速度（`data.speed`，读『晶格』：动画速率只影响图案样式）
 num? _backgroundSpeed(MusicxxPluginRuntime runtime, String pluginId) {
-  final MusicxxPluginUIItem? item = _backgroundItem(runtime, pluginId);
+  final MusicxxPluginUIItem? item = _uiItemOf(runtime, 'plugin.$pluginId.lattice');
   final Object? value = item?.data['speed'];
   return value is num ? value : null;
 }

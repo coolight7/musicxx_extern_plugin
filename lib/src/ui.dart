@@ -148,7 +148,7 @@ abstract final class MusicxxPluginUIType {
 
   /// 播放页控制按钮栏的「收藏」按钮（只替换显示）
   ///
-  /// 对应的官方能力是 `musicxx.playlist.song.favorite`（收藏 / 取消收藏当前歌曲）。
+  /// 对应的官方能力是 `musicxx.songlist.favorite`（收藏 / 取消收藏当前歌曲）。
   /// 视图参数里有 `favorite`（当前歌曲是否已收藏），收藏状态变了主程序会重新取一次视图。
   static const String playingControlBarFavorite =
       'musicxx.ui.playing.controlBar.favorite';

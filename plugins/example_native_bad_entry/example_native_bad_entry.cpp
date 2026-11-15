@@ -26,7 +26,7 @@ const PluginxxInfo kBadEntryInfo{
     PLUGINXX_API_VERSION,
     0,
     BAD_ENTRY_VIEW("example_native_bad_entry"),
-    BAD_ENTRY_VIEW("1.0.0"),
+    BAD_ENTRY_VIEW("2026.1010.1"),
     BAD_ENTRY_VIEW("对照示例: 缺少 start/stop 入口符号; 只用于演示与原生测试"),
 };
 

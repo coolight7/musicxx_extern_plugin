@@ -111,6 +111,6 @@ int32_t failStop(FailCtx &ctx) { return ctx.onStop(); }
 } // namespace
 
 MUSICXX_PLUGIN_EXPORT(
-    FailCtx, "example_native_fail", "1.0.0",
+    FailCtx, "example_native_fail", "2026.1010.1",
     "对照示例: 总是失败的能力处理器 (演示暂停派发); 只用于演示与原生测试",
     failStart, failStop)

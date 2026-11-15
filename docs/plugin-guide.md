@@ -179,7 +179,7 @@ musicxx.capability.register("card", function () {
   最后以「调用插件能力失败」结束；
 - 正确做法：当场要的数据同步读广播缓存（`musicxx.broadcast.read`）；能力的结果异步读回来，
   记进自己的状态，由页面下一次调用时回读（示例：`plugins/example_js` 的 `crossCall`、
-  `plugins/example_js_shader` 的频谱读取）；
+  `plugins/example_js_playing_bg` 的频谱读取）；
 - **长任务不要写在处理器里**：能力调用是异步的（调用方不会因为插件慢而卡住界面），
   但处理器仍然占着 JS 线程 / 框架线程。native 用 `co_await pluginxx::offload(*this, work)`
   把重活交给工作线程池（或返回 `pluginxx::Task<T>` 的服务端协程），

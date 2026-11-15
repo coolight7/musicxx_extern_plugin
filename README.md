@@ -64,11 +64,10 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝加载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
-  example_js_shader/ 示例插件（JS，零编译；只演示播放页背景与动画速率设置，带三种背景样式：晶格 / 光圈 / 插件纹理铺底）
-  playing_bg_image/ 示例插件（JS，零编译；插件显示名『示例封面背景』：三种播放页背景模式 —— 模糊 / 沉浸 / 黑胶 —— + 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：一个插件把背景、前景色、图标槽位与取色能力串起来）
-  example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决）
+  example_js_playing_bg/ 示例插件（JS，零编译；播放页背景合集：六种样式 —— 封面三种『模糊』/『沉浸』/『黑胶』、图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色；一个插件把背景、前景色、图标槽位与取色能力串起来）
+  example_js_playing_slots/ 示例插件（JS，零编译；播放页的位置：插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader））
+  example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决；会真的改拖动目标位置与音量）
   example_js_broadcast/ 示例插件（JS：广播 —— 声明 / 发布自己的频道、订阅官方频道并按需声明订阅频率）
-  example_js_multi_script/ 示例插件（JS：清单 scripts 多脚本按顺序加载）
   example_js_font/  示例插件（JS：全局字体切换 —— 系统字体 / 插件自带字体文件 / 恢复默认，演示"按钮动作立刻返回 + 后台执行"）
   example_js_net/   示例插件（JS：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的客户端与服务端，载入后自动跑一遍本机自检）
   example_js_broken/ 对照示例（JS：脚本语法错误 → 加载失败并回滚）
@@ -636,13 +635,13 @@ musicxx-cli plugin uninstall my_plugin                                          
 [docs/plugin-agent-cli.md](docs/plugin-agent-cli.md)。
 
 参考实现：`plugins/example_native/`（能力/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
-`plugins/example_js_shader/`（只演示播放页背景与动画速率；三种背景样式各一个 bundle：晶格 `bg.frag`、光圈 `ring.frag`、
-插件纹理铺底复用 `bg.frag`）、
-`plugins/playing_bg_image/`（显示名『示例封面背景』：三种播放页背景模式『模糊』/『沉浸』/『黑胶』+ 接管播放页歌曲图 + 自定义封面取色 + 按封面主色与亮暗主题推播放页前景三色（保留主色色相与彩色程度，按当前模式估出的背景亮度保证对比度）：
-背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、`playing.icon` 三种形态里的 `none`、
-`musicxx.media.palette.analyse`、`foregroundColors`（运行期改前景三色）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面）；
+`plugins/example_js_playing_bg/`（显示名『示例播放页背景』：六种播放页背景样式 —— 封面三种『模糊』/『沉浸』/『黑胶』与
+图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色：
+背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、
+`playing.icon` 三种形态里的 `none`、`musicxx.media.palette.analyse`、`foregroundColors`（运行期改前景三色）与
+`image`（插件自己绑定的纹理）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面；六个脚本分工写，也是多脚本示例）、
+`plugins/example_js_playing_slots/`（播放页的位置：插入块 / 控制按钮栏 / 音频动效三个位置各一块，带自己的 `viz.frag`）、
 另外 `plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
-`plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、
 `plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），
 以及下面「对照示例」一组 —— 它们演示插件框架在
 插件写坏时的保护行为，写插件前先看一眼可以少踩坑。

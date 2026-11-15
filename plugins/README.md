@@ -12,26 +12,31 @@
 
 示例分两类：
 
+> 这一版把两个播放页背景示例合并成了 `example_js_playing_bg`（旧 id `playing_bg_image` 与
+> `example_js_shader` 已删除），并删掉了只教多脚本加载的 `example_js_multi_script`。
+> 旧的两个插件选过的背景会回退到内置背景（`MusicWarpBackgroundRegistry_c` 找不到已保存的项时
+> 就用内置样式），重新选一次即可。
+
 | 类型 | 插件 | 说明 |
 |---|---|---|
 | 演示示例 | `example_native` | 动态库插件：能力 / 广播 / 快照频道 / 日志 / UI / 播放页背景 |
 | 演示示例 | `example_native_multi` | 动态库插件：**多目标打包**（一个包里放多个系统/架构分支，运行时按当前系统与 CPU 架构选分支） |
 | 演示示例 | `example_js` | JS插件：与 native 版行为等价（零编译） |
-| 演示示例 | `example_js_shader` | JS插件：播放页背景样式 + 动画速率设置 + 页面内联着色器块 |
-| 演示示例 | `example_js_async` | JS插件：决策型能力返回 Promise（异步裁决：插件框架一直等到结算，结算后裁决生效） |
+| 演示示例 | `example_js_playing_bg` | JS插件：播放页背景合集 —— 六种样式（封面三种：模糊 / 沉浸 / 黑胶；图案三种：晶格 / 光圈 / 插件纹理铺底）+ 歌曲图接管 + 封面取色 + 自动前景色 + 频谱与内联 Shader 页面 |
+| 演示示例 | `example_js_playing_slots` | JS插件：播放页的位置 —— 插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader） |
 | 演示示例 | `example_js_broadcast` | JS插件：广播（声明 / 发布自己的频道、订阅官方值频道并按需声明订阅频率） |
-| 演示示例 | `example_js_multi_script` | JS插件：清单 `scripts` 多脚本按顺序加载（kit 随插件目录分发） |
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
 | 演示示例 | `example_js_net` | JS插件：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的**客户端 + 服务端**（客户端支持 https / wss；载入后自动跑一遍本机自检，含 `fetch` / `download`） |
 | 演示示例 | `example_override_media_source` | JS插件：参与音源解析（覆盖内置 Bili 解析 / 声明自己的音源类型 / 本地文件经静态路由代理） |
 | 演示示例 | `example_ftp_source` | JS插件：**完整的一个自己的音源** —— FTP 账号页 / 歌单「添加歌曲」里的挑歌浮层 / `musicxx.playlist.addSong` 加歌 / 本机 HTTP 转流服务（socket 能力做 TCP 客户端 + 回环监听） |
+| 对照示例 | `example_js_async` | JS插件：决策型能力返回 Promise（异步裁决：插件框架一直等到结算，结算后裁决生效；**会真的改拖动目标位置与音量**） |
 | 对照示例 | `example_js_broken` | JS插件：脚本语法错误 → 演示加载失败与回滚（**永远加载失败**） |
 | 对照示例 | `example_native_fail` | 动态库插件：处理器总是失败 → 演示"失败只记统计"（不暂停、不卸载） |
 | 对照示例 | `example_native_bad_entry` | 动态库插件：缺 `start`/`stop` 入口符号 → 演示加载阶段按约定拒绝（**永远加载失败**） |
 
 > **对照示例是故意做出问题行为的插件**：它们既服务原生测试（`src/tests/test_host.cpp`），
 > 也是「写坏了会怎样」的现成例子。不要把它们装到日常使用的环境里 —— 其中两个插件的脚本/库
-> 本身就是坏的，加载一定失败。
+> 本身就是坏的，加载一定失败；`example_js_async` 装上去会改掉每一次拖动与改音量。
 
 ## 各插件的目录形态
 
@@ -53,10 +58,15 @@ plugins/
 │   ├── pluginxx_ui_kit.js      随插件分发的界面 kit（基础）：由 tools/sync_ui_kit.ps1 复制
 │   ├── musicxx_ui_kit.js       随插件分发的界面 kit（musicxx 扩展）：由 tools/gen_ui_kit.ps1 生成后复制
 │   └── plugin.yaml             清单里 kind: js，scripts 按顺序列出上面三个脚本
-├── example_js_shader/           JS插件 + shader/ 资源目录（资源直接放在插件目录里）
-├── example_js_async/            JS插件（只要 plugin.yaml + plugin.js）
-├── example_js_broadcast/        JS插件（广播：声明 / 发布 / 订阅频率）
-├── example_js_multi_script/     JS插件 + 自己的 kit.js（清单 scripts 里两个脚本）
+├── example_js_playing_bg/        JS插件 + shader/ 资源目录（六种背景样式共用五份片段着色器）
+│   ├── backgrounds.js          六种背景样式的声明与动画速率
+│   ├── palette.js              封面取色钩子 + 自动调整播放页前景色
+│   ├── views.js                说明页 / 设置页 / 频谱页
+│   ├── plugin.js               配置、槽位跟随、能力入口与全部顶层注册
+│   └── shader/                 heat / card / vinyl / bg / ring 五个 bundle（源码 + 打包脚本 + 编译产物）
+├── example_js_playing_slots/     JS插件 + shader/ + resource/svg/（插入块 / 控制栏 / 音频动效）
+├── example_js_async/             JS插件（对照示例：只要 plugin.yaml + plugin.js）
+├── example_js_broadcast/         JS插件（广播：声明 / 发布 / 订阅频率）
 ├── example_js_net/              JS插件：网络能力示例（HTTP / TCP / WebSocket 客户端 + 服务端）
 ├── example_override_media_source/  JS插件：音源解析示例（按来源分流 / 自定义音源地址 / 本地 HTTP 服务）
 ├── example_ftp_source/          JS插件：FTP 音源示例（账号页 / 挑歌浮层 / 加歌 / 本机 HTTP 转流）
@@ -81,7 +91,7 @@ plugins/
   `install(DIRECTORY ...)` 复制过去。
 - **随插件分发的资源**（shader bundle、图标等）放在插件目录里：动态库插件用
   `musicxx_plugin_add_target(... ASSETS <目录>)` 让构建助手复制到产物目录旁，JS 插件直接放进去即可
-  （照抄 `example_js_shader/shader/`）。
+  （照抄 `example_js_playing_bg/shader/`）。
 - **多目标打包**（`example_native_multi`）：一个包里放多个系统/架构分支时，清单只有一份，
   库文件按 `lib/<系统>-<架构>/` 摆放（仿 APK 的 `lib/<abi>/`）。构建助手在传
   `TARGET_TAG auto` 时按当前构建目标推标签、把库放进 `<包目录>/lib/<标签>/`，
@@ -92,8 +102,11 @@ plugins/
   `pwsh tools/sync_ui_kit.ps1` 把基础 kit（库的 `js/pluginxx_ui_kit.js`）与 musicxx 扩展 kit
   （本包 `js/musicxx_ui_kit.js`，由 `pwsh tools/gen_ui_kit.ps1` 生成）复制进插件目录，
   并在清单里写 `scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, plugin.js]` —— 插件框架会在同一个
-  JS 上下文里按这个顺序执行；清单 `scripts` 里没写 kit 的插件（例如只演示多脚本加载的
-  `example_js_multi_script`）不会被同步，C++ 插件不用复制，直接用 SDK 头文件里的 `musicxx::ui::kit`。
+  JS 上下文里按这个顺序执行；清单 `scripts` 里没写 kit 的插件（例如 `example_js_async` 这类对照示例）不会被同步，
+  C++ 插件不用复制，直接用 SDK 头文件里的 `musicxx::ui::kit`。
+- **多脚本怎么摆**：一个插件可以放多个业务脚本（`example_js_playing_bg`、`example_js_playing_slots`、
+  `example_ftp_source` 都是 6 个脚本）。它们共用同一个 JS 上下文，所以顶层 `const` / `let` / `function`
+  名字必须全局唯一；顶层注册与定时器统一放在**最后一个**脚本里，前面的文件只声明常量与函数。
 - 新增插件后跑一次 `pwsh tools/build_examples.ps1`，产物会复制到
   `.native/output/<平台>-<架构>-<配置>/plugins/`（原生测试用的就是这个目录）。
 

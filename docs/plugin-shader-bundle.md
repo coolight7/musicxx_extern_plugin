@@ -10,21 +10,17 @@
 [plugin-ui.md](plugin-ui.md)，JS 与 C++ 的写法见 [plugin-js-api.md](plugin-js-api.md) /
 [plugin-native-api.md](plugin-native-api.md)，整体流程与注意事项见 [plugin-guide.md](plugin-guide.md)。
 
-> 现成可编译的例子：`plugins/example_js_shader/shader/` 与 `plugins/example_native/shader/`
-> —— 「晶格化」背景（随机点最近邻切块，配色用主程序的 4 个绘制色）。`example_js_shader` 里还有
-> 第二个 bundle：**「光圈」背景**（`shaders/ring.frag`：从正上方开始顺时针排 64 个点、一个点一个
-> 频带，尖角向内外凸出、相邻点之间用直线连成一张"蛛网"，不画基线圆），照抄同一份打包脚本即可编译。
+> 现成可编译的例子：`plugins/example_js_playing_bg/shader/` 与 `plugins/example_native/shader/`。
+> `example_js_playing_bg` 一个插件就有五个 bundle，两种用法各有一组：
+> - **封面类**（纹理来自当前歌曲封面）：「模糊」`shaders/heat.frag`、「沉浸」`shaders/card.frag`、
+>   「黑胶」`shaders/vinyl.frag`；
+> - **图案类**（不碰封面纹理）：「晶格」`shaders/bg.frag`（随机点最近邻切块，配色用主程序的 4 个绘制色）、
+>   **「光圈」**`shaders/ring.frag`（从正上方开始顺时针排 64 个点、一个点一个
+>   频带，尖角向内外凸出、相邻点之间用直线连成一张"蛛网"，不画基线圆）。
+> 五个 bundle 共用一份顶点着色器 `shaders/full.vert`，照抄同一份 `build_bundle.ps1` 即可编译。
 > 基线版本 3.47.5 的 Flutter SDK
 > 编译出来的 bundle 可以直接用（`format_version = 2`）。
-> 另一个现成的例子是 `plugins/playing_bg_image/shader/`（插件名「示例封面背景」，**三种背景模式
-> 各自一个 bundle**）：**「模糊」**（`shaders/heat.frag`：封面预模糊后放大铺满屏幕、缓慢四处
-> 漂移、局部偶尔轻微扭曲，模糊程度 0~30 与放大倍数 1~3 由插件的设置页决定）、**「沉浸」**
-> （`shaders/card.frag`：封面主色做渐变底、清晰封面贴着屏幕边缘铺一片（图片占比可调，越大图片越多）、自由边模糊渐隐，
-> 再按主题叠一层亮暗遮罩）与**「黑胶」**（`shaders/vinyl.frag`：封面主色铺底、中间一张黑胶唱片 ——
-> 音轨纹路 + 左上柔光 + 外缘倒角高光，盘心圆裁封面（`cover.square = true`）并按 `speed` 旋转，
-> 右上方一支白亮唱臂（线段距离场画的管身与针杆）、唱针落在盘边；同一个 `player.background` 槽位里
-> 注册三项，用户选哪一项就是哪种模式）。
-> 它同时演示了歌曲图槽位（§5.3）与封面取色能力 —— 见 `plugins/playing_bg_image/plugin.js`。
+> 它同时演示了歌曲图槽位（§5.3）与封面取色能力 —— 见 `plugins/example_js_playing_bg/plugin.js`。
 
 ---
 
@@ -49,9 +45,9 @@
 ├── plugin.yaml
 ├── plugin.js / <插件库文件>
 └── shader/
-    ├── bundle.json           impellerc 的 bundle 描述（晶格背景）
-    ├── bundle_ring.json      第二个 bundle 的描述（光圈背景）
-    ├── shaders/bg.vert       顶点着色器（两个 bundle 共用一个全屏三角形）
+    ├── bundle_lattice.json   impellerc 的 bundle 描述（晶格）
+    ├── bundle_ring.json      第二个 bundle 的描述（光圈）
+    ├── shaders/full.vert     顶点着色器（全屏三角形，五个 bundle 共用）
     ├── shaders/bg.frag       片元着色器（晶格）
     ├── shaders/ring.frag     片元着色器（光圈：64 个频带尖角连成的蛛网，不画基线圆）
     ├── build_bundle.ps1      打包脚本（照抄示例；它按描述文件逐个编译）
@@ -61,16 +57,16 @@
 
 一个插件可以有**多个** bundle（同一个槽位注册多项，或者不同槽位/页面各用一个），
 每个 bundle 一份描述文件 + 一个产物文件即可。
-（`plugins/playing_bg_image/` 是另一种布局：三种背景模式的三个 bundle 共用一份顶点着色器
-`shaders/full.vert`，描述文件是 `bundle.json` → `heat.shaderbundle`、
-`bundle_card.json` → `card.shaderbundle` 与 `bundle_vinyl.json` → `vinyl.shaderbundle`，
+（`example_js_playing_bg` 就是这么排的：五个 bundle 共用一份顶点着色器 `shaders/full.vert`，
+描述文件 `bundle_heat.json` / `bundle_card.json` / `bundle_vinyl.json` / `bundle_lattice.json` /
+`bundle_ring.json` 分别编出 `heat` / `card` / `vinyl` / `bg` / `ring` 五个 `.shaderbundle`，
 同一个 `build_bundle.ps1` 逐个编译。）
 
-`bundle.json`：
+`bundle_lattice.json`：
 
 ```json
 {
-  "MusicxxRenderVertex": { "type": "vertex", "file": "shaders/bg.vert" },
+  "MusicxxRenderVertex": { "type": "vertex", "file": "shaders/full.vert" },
   "MusicxxRenderFragment": { "type": "fragment", "file": "shaders/bg.frag" }
 }
 ```
@@ -222,7 +218,7 @@ void main() {
 
 - 纹理是**等比缩放**的（`square: false` 时宽高比就是原图），拿 `uCoverInfo.xy` 可以算自己的 uv
   —— 例如"铺满画面、超出裁掉"（cover 裁切）的写法见
-  `plugins/example_js_shader/shader/shaders/bg.frag`；
+  `plugins/example_js_playing_bg/shader/shaders/bg.frag`；
 - `uCoverInfo.w = 0` 表示这一帧**没有封面**（还没加载好 / 这首歌没有封面）：主程序仍然会绑定纹理，
   但内容是 1×1 透明占位 —— **不要靠采样到的颜色判断有没有封面**，看这一位；
 - `uCoverInfo.z` 是原图宽高比（`square: true` 时纹理是方的，这一位仍是原图比例）。
@@ -237,17 +233,17 @@ void main() {
   `scale = max(res.x / texSize.x, res.y / texSize.y) * 放大倍数`。写成 `texSize * scale / res`（倒数）
   在屏幕与纹理宽高比不同时会把画面**拉伸变形**（表现为"左右压缩上下拉伸"），叠加的坐标偏移还会被
   `clamp` 到纹理边缘吃掉（看起来完全没有动画）。示例见
-  `plugins/playing_bg_image/shader/shaders/heat.frag`（铺满全屏）与同目录的 `card.frag`
-  （只在卡片里铺满、还要居中裁剪）以及 `plugins/example_js_shader/shader/shaders/bg.frag`；
+  `plugins/example_js_playing_bg/shader/shaders/heat.frag`（铺满全屏）与同目录的 `card.frag`
+  （只在卡片里铺满、还要居中裁剪）以及同目录的 `bg.frag`；
 - 想让画面只显示封面的一部分（"放大"背景），**用一个自己声明的 `args` 成员传倍率**，
   在着色器里按"总体放大倍率"算采样步长：`coverScale = max(fillScale, uZoom.x)`、
   `uvStep = res / (texSize * coverScale)`（`fillScale = max(res.x/texSize.x, res.y/texSize.y)`
-  是铺满所需的最小倍率）—— `plugins/playing_bg_image` 就是这么做的（设置页可切 1× / 1.5× / 2× /
+  是铺满所需的最小倍率）—— `plugins/example_js_playing_bg` 就是这么做的（设置页可切 1× / 1.5× / 2× /
   2.5× / 3×，真机自检里有"倍率越大画面越局部"的回归用例；`card.frag` 是同一个套路的第二种用法：
   卡片尺寸固定、只把纹理在卡片里放大，居中取景）；
 - 要把封面裁成**圆形**（唱片标签、头像那样的圆形封面），声明 `"square": true`（纹理是中心裁剪的
   正方形），再在圆内用 `uv = 圆内坐标 × 0.5 + 0.5` 采样：圆内正好对应纹理的内切圆
-  （`plugins/playing_bg_image` 的『黑胶』盘心就是这么做的，见 `shaders/vinyl.frag`）。
+  （`plugins/example_js_playing_bg` 的『黑胶』盘心就是这么做的，见 `shaders/vinyl.frag`）。
 - 没声明 `cover` 时**零成本**：不解码、不上传、不占显存（一张 512×512 的纹理约 1 MiB）；
   连参数里都没问 `musicxx.env.hasCover` 时，渲染每帧也不会去读"现在有没有封面"；
 - **不保留解码结果**：纹理只活在"正在用它的那个渲染视图"里 —— 视图销毁、用户切回内置样式、
@@ -396,12 +392,12 @@ void main() {
   颜色 / 环境量用 `args` 里的来源按需声明（与背景一致）；
 - 槽位状态广播：`musicxx.state.renderSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
-  例如"背景是自己时才接管歌曲图"这种跟随（`plugins/playing_bg_image` 就是这么做的：它的三种
-  背景模式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
+  例如"背景是自己时才接管歌曲图"这种跟随（`plugins/example_js_playing_bg` 就是这么做的：它的六种
+  背景样式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
 - 失效回退：bundle 预检不过、`view` 取不到内容、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时
   自动回退内置显示，原因写在设置列表的那一行。
 
-完整示例：`plugins/playing_bg_image/`（三种背景模式 + 歌曲图接管 + 封面取色三件事一起做的插件）。
+完整示例：`plugins/example_js_playing_bg/`（六种播放页背景 + 歌曲图接管 + 封面取色三件事一起做的插件）。
 
 ---
 
@@ -496,7 +492,7 @@ void main() {
   `vec2 p = (gl_FragCoord.xy - 0.5 * res) / (0.5 * min(res.x, res.y)); p.y = -p.y;`
   —— 光圈示例就是这么做的（正上方 = 最低频，写反了频率轴会上下颠倒）；
 - 输出写在 `layout(location = 0) out`；
-- 完整效果参考 `plugins/example_js_shader/shader/shaders/bg.frag`（晶格化：Worley 噪声切块 +
+- 完整效果参考 `plugins/example_js_playing_bg/shader/shaders/bg.frag`（晶格化：Worley 噪声切块 +
   4 色双线性混合 + 夜间压暗 + 轻微暗角）与同目录的 `ring.frag`（光圈：从正上方开始顺时针把
   64 个频带摆成一圈，每个点向内外凸出尖角、相邻点与内外沿之间用直线连成蛛网，不画基线圆，
   振幅直接用主程序给的频带值 + 中心光源；**亮背景（浅色主题 / 亮封面）下线条与光晕自动改用墨色压暗**，
@@ -787,7 +783,7 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 - `bundle` 只能是**本插件目录内**的相对路径；`args` / `speed` / `maxFps` / `animate` /
   `resolutionScale` 与背景样式同一套语义（`scrim` 在页面块里没有意义）；
 - 页面不可见（被路由遮挡、进后台）时自动停帧；渲染失败时留空 + 日志（页面块不做背景那套重试）；
-- 完整示例：`plugins/example_js_shader/plugin.js` 的 `settings` 页（内联块 + 一键切换背景）。
+- 完整示例：`plugins/example_js_playing_bg/plugin.js` 的 `settings` 页（内联块 + 一键切换六种背景）。
 
 ---
 
@@ -895,10 +891,10 @@ function applyRate(rate) {
   （不用重新选中：`speed` 每帧现算，着色器里乘上 `uParams.w` 就见效）；
 - `maxFps` / `resolutionScale` / `animate` 这类要改帧调度或分辨率创建的字段，运行期改完需要
   **重新选中该项**才完全生效；
-- 示例插件 `example_js_shader` 就是这么做的：它的设置页有「背景动画速率」（0.5× / 1× / 2×），
-  基准速度定为 1（即 `speed` 1/2/4）；它注册了两种背景样式（晶格 / 光圈），改速率时
-  **两项都要重新声明**（`musicxx.ui.updateEntry` 是整体替换，逐个调用即可）；
-  `example_native` 的 C++ 版声明 `speed: 4`。
+- 示例插件 `example_js_playing_bg` 就是这么做的：它的设置页有「背景动画速率」（0.5× / 1× / 2×），
+  基准速度定为 1（速率 0.5× / 1× / 2× 就是 `speed` 0.5 / 1 / 2）；它注册了六种背景样式，改速率或自动前景色开关时
+  **六项都要重新声明**（`musicxx.ui.updateEntry` 是整体替换，逐个调用即可）；
+  `example_native` 的 C++ 版声明 `speed: 1`。
 
 ---
 

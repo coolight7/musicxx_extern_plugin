@@ -142,9 +142,9 @@ void main() {
     // 回归：声明了 `platforms` 的插件曾被一律判成"当前平台不在清单声明内"，
     // 于是「从压缩包安装」永远失败 —— 示例插件几乎都声明了 platforms。
     final MusicxxPluginInfo? declared = found
-        .where((MusicxxPluginInfo info) => info.id == 'example_js_shader')
+        .where((MusicxxPluginInfo info) => info.id == 'example_js_net')
         .firstOrNull;
-    expect(declared, isNotNull, reason: '扫描结果里应有 example_js_shader');
+    expect(declared, isNotNull, reason: '扫描结果里应有 example_js_net');
     final MusicxxPluginInspect_c declaredByHost = runtime.plugins.inspect(
       declared!.path,
     );
@@ -657,53 +657,17 @@ void main() {
 
     _step('18 JS unload 完成');
 
-    // 播放页背景示例已拆成独立插件 example_js_shader: 它注册背景槽位的 UI 项
-    // (shader bundle 声明), 速率是它自己的设置项。
-    if (Directory('${env.pluginRoot}/example_js_shader').existsSync()) {
-      final MusicxxPluginInfo? shaderPlugin = found2
-          .where((MusicxxPluginInfo info) => info.id == 'example_js_shader')
-          .firstOrNull;
-      expect(shaderPlugin, isNotNull);
-      expect(shaderPlugin!.kind, MusicxxPluginKind.js);
-      runtime.plugins.load('example_js_shader');
-      final MusicxxPluginUIItem background =
-          MusicxxPluginUIItems.byType(
-            runtime.plugins.uiSnapshot(),
-            MusicxxPluginUIType.playingBackground,
-          ).firstWhere(
-            (MusicxxPluginUIItem item) => item.plugin == 'example_js_shader',
-          );
-      expect(
-        (background.data['shader']! as Map<String, Object?>)['bundle'],
-        'shader/bg.shaderbundle',
-        reason: 'bundle 用插件目录内的相对路径',
-      );
-      expect(background.data['speed'], 1, reason: '默认 1× = 基准速度 1');
-      // 设置页能力: 页面由插件给出 (改速率用的是同一个页面)
-      final Object? viewRaw = await runtime.plugins.call(
-        'example_js_shader',
-        'plugin.example_js_shader.settings',
-        const <String, Object?>{},
-      );
-      final Map<String, Object?> shaderView =
-          (viewRaw! as Map<String, Object?>)['view']! as Map<String, Object?>;
-      expect(shaderView['title'], isNotEmpty);
-      expect(shaderView['blocks'], isA<List<Object?>>());
-      runtime.plugins.unload('example_js_shader');
-      _step('18.5 背景示例插件完成');
-    }
-
-    // 新槽位示例 playing_bg_image（示例封面背景）: 同时注册『播放页背景样式』与『播放页歌曲图
-    // 接管项』（`musicxx.ui.playing.icon` 是这一轮新增的 UI 项类型）。它顶层还注册了
-    // `musicxx.media.palette.analyse` 取色钩子 —— 这两条都能挡住"忘了重建插件框架库"
-    // （旧插件框架库会以未知 UI 项类型 / 未知钩子拒绝注册）。
-    if (Directory('${env.pluginRoot}/playing_bg_image').existsSync()) {
+    // 播放页背景示例 example_js_playing_bg（六种背景）+ 播放页歌曲图接管项
+    // （`musicxx.ui.playing.icon`）。它顶层还注册了 `musicxx.media.palette.analyse`
+    // 取色钩子 —— 这两条都能挡住"忘了重建插件框架库"（旧插件框架库会以未知 UI 项类型 /
+    // 未知钩子拒绝注册）。
+    if (Directory('${env.pluginRoot}/example_js_playing_bg').existsSync()) {
       final MusicxxPluginInfo? imagePlugin = found2
-          .where((MusicxxPluginInfo info) => info.id == 'playing_bg_image')
+          .where((MusicxxPluginInfo info) => info.id == 'example_js_playing_bg')
           .firstOrNull;
       expect(imagePlugin, isNotNull);
       expect(imagePlugin!.kind, MusicxxPluginKind.js);
-      runtime.plugins.load('playing_bg_image');
+      runtime.plugins.load('example_js_playing_bg');
       expect(
         runtime.capabilities.refreshNativeHandlerCount(
           MusicxxCapabilityId.mediaPaletteAnalyse,
@@ -712,17 +676,19 @@ void main() {
         reason: '取色钩子的处理器要在插件框架侧登记成功（插件框架库没重建时这里会是 0）',
       );
       final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
-      // 三种模式 = 同一个槽位里的三个候选样式（注册顺序决定设置列表里的先后）
+      // 六种样式 = 同一个槽位里的六个候选（注册顺序决定设置列表里的先后：
+      // 封面三种在前，图案三种在后）
       final List<MusicxxPluginUIItem> backgrounds =
           MusicxxPluginUIItems.byType(
                 items,
                 MusicxxPluginUIType.playingBackground,
               )
               .where(
-                (MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image',
+                (MusicxxPluginUIItem item) =>
+                    item.plugin == 'example_js_playing_bg',
               )
               .toList();
-      expect(backgrounds.length, 3, reason: '三种背景模式各注册一个样式: $backgrounds');
+      expect(backgrounds.length, 6, reason: '六种背景样式各注册一个: $backgrounds');
       expect(
         (backgrounds[0].data['shader']! as Map<String, Object?>)['bundle'],
         'shader/heat.shaderbundle',
@@ -758,13 +724,30 @@ void main() {
         1,
         reason: '『黑胶』的转速由 speed 决定（默认 1×；改转速不用重新选中该样式）',
       );
+      expect(
+        (backgrounds[3].data['shader']! as Map<String, Object?>)['bundle'],
+        'shader/bg.shaderbundle',
+        reason: '第四个是『晶格』（模糊封面铺底 + 晶格图案）',
+      );
+      expect(backgrounds[3].data['speed'], 1, reason: '图案样式默认 1× = 基准速度 1');
+      expect(
+        (backgrounds[4].data['shader']! as Map<String, Object?>)['bundle'],
+        'shader/ring.shaderbundle',
+        reason: '第五个是『光圈』（频谱圆环）',
+      );
+      expect(
+        backgrounds[5].data['image'],
+        isA<Map<String, Object?>>(),
+        reason: '第六个是『插件纹理铺底』：底层用插件绑定的图片（image 声明，不是 cover）',
+      );
       // 歌曲图接管项：mode = none（保留占位、不显示内容）
       final MusicxxPluginUIItem icon =
           MusicxxPluginUIItems.byType(
             items,
             MusicxxPluginUIType.playingIcon,
           ).firstWhere(
-            (MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image',
+            (MusicxxPluginUIItem item) =>
+                item.plugin == 'example_js_playing_bg',
           );
       expect(icon.data['mode'], 'none');
       expect(icon.data['keepSpace'], true);
@@ -796,8 +779,8 @@ void main() {
       );
       // 设置页能力：页面由插件给出（插件框架只做结构校验，渲染在主程序侧）
       final Object? imageViewRaw = await runtime.plugins.call(
-        'playing_bg_image',
-        'plugin.playing_bg_image.settings',
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.settings',
         const <String, Object?>{},
       );
       final Map<String, Object?> imageView =
@@ -826,8 +809,8 @@ void main() {
       );
       // 说明页（主页入口指向的页面）同样由插件绘制
       final Object? imageCardRaw = await runtime.plugins.call(
-        'playing_bg_image',
-        'plugin.playing_bg_image.card',
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.card',
         const <String, Object?>{},
       );
       final Map<String, Object?> imageCard =
@@ -838,8 +821,8 @@ void main() {
       // 设置项：控件把自己的 id 与值交回来（`args.id` / `args.value`），插件写 config.json
       // 并重新登记背景样式；处理器同步返回页面（动作结果由页面自己从快照频道读到）。
       final Object? setOptionRaw = await runtime.plugins.call(
-        'playing_bg_image',
-        'plugin.playing_bg_image.setOption',
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.setOption',
         const <String, Object?>{'id': 'zoom', 'value': 2.5, 'view': 'settings'},
       );
       expect(
@@ -850,38 +833,150 @@ void main() {
       );
       // 改回默认值，别把测试写下的配置留给下一次运行
       await runtime.plugins.call(
-        'playing_bg_image',
-        'plugin.playing_bg_image.setOption',
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.setOption',
         const <String, Object?>{'id': 'zoom', 'value': 2},
       );
       // 『黑胶』的唱片转速：同一个入口，改完重新声明样式 —— 快照里立刻是新速度
       // （转速走 UI 项的 `speed`，运行期不用重新选中该样式）
       await runtime.plugins.call(
-        'playing_bg_image',
-        'plugin.playing_bg_image.setOption',
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.setOption',
         const <String, Object?>{'id': 'spin', 'value': 2, 'view': 'settings'},
       );
-      final MusicxxPluginUIItem vinylAfterSpin =
-          MusicxxPluginUIItems.byType(
-                runtime.plugins.uiSnapshot(),
-                MusicxxPluginUIType.playingBackground,
-              )
-              .where(
-                (MusicxxPluginUIItem item) => item.plugin == 'playing_bg_image',
-              )
-              .last;
+      final MusicxxPluginUIItem vinylAfterSpin = MusicxxPluginUIItems.byType(
+        runtime.plugins.uiSnapshot(),
+        MusicxxPluginUIType.playingBackground,
+      ).firstWhere(
+        (MusicxxPluginUIItem item) =>
+            item.id == 'plugin.example_js_playing_bg.bgVinyl',
+      );
       expect(
         vinylAfterSpin.data['speed'],
         2,
         reason: '改「唱片转速」要重新声明样式（把新速度写进 speed）',
       );
       await runtime.plugins.call(
-        'playing_bg_image',
-        'plugin.playing_bg_image.setOption',
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.setOption',
         const <String, Object?>{'id': 'spin', 'value': 1},
       );
-      runtime.plugins.unload('playing_bg_image');
-      _step('18.7 示例封面背景插件完成');
+      // 图案样式的动画速率是独立开关（bgRate）：改完写进『晶格』的 speed
+      await runtime.plugins.call(
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.setOption',
+        const <String, Object?>{'id': 'bgRate', 'value': 2, 'view': 'settings'},
+      );
+      final MusicxxPluginUIItem latticeAfterRate =
+          MusicxxPluginUIItems.byType(
+            runtime.plugins.uiSnapshot(),
+            MusicxxPluginUIType.playingBackground,
+          ).firstWhere(
+            (MusicxxPluginUIItem item) =>
+                item.id == 'plugin.example_js_playing_bg.lattice',
+          );
+      expect(
+        latticeAfterRate.data['speed'],
+        2,
+        reason: '背景动画速率 2x = 基准速度 1 × 2',
+      );
+      await runtime.plugins.call(
+        'example_js_playing_bg',
+        'plugin.example_js_playing_bg.setOption',
+        const <String, Object?>{'id': 'bgRate', 'value': 1},
+      );
+      runtime.plugins.unload('example_js_playing_bg');
+      _step('18.7 示例播放页背景插件完成');
+    }
+
+    // 播放页插槽示例 example_js_playing_slots: 三类位置各一块（插入块 / 控制栏 / 音频动效）
+    if (Directory('${env.pluginRoot}/example_js_playing_slots').existsSync()) {
+      runtime.plugins.load('example_js_playing_slots');
+      final Object? slotsProbe = await runtime.plugins.call(
+        'example_js_playing_slots',
+        'plugin.example_js_playing_slots.probe',
+        const <String, Object?>{},
+      );
+      expect(slotsProbe, isA<Map<String, Object?>>());
+      final Map<String, Object?> probe = slotsProbe! as Map<String, Object?>;
+      expect(_intOf(probe['uiEntries']), 7,
+          reason: '3 个插入块 + 2 个按钮 + 1 个动效 + 1 个主页入口');
+      expect(_intOf(probe['hasControlBar']), 1);
+      expect(_intOf(probe['visualizer']), 1);
+
+      final List<MusicxxPluginUIItem> slotItems = runtime.plugins
+          .uiSnapshot()
+          .where(
+            (MusicxxPluginUIItem item) =>
+                item.plugin == 'example_js_playing_slots',
+          )
+          .toList();
+      bool hasType(String type) =>
+          slotItems.any((MusicxxPluginUIItem item) => item.type == type);
+      expect(hasType('musicxx.ui.playing.lyric.top'), isTrue,
+          reason: '插入块：页面固定区域');
+      expect(hasType('musicxx.ui.playing.songlist.header'), isTrue,
+          reason: '插入块：列表 header');
+      expect(hasType('musicxx.ui.playing.moreInfo.footer'), isTrue,
+          reason: '插入块：另一页的列表末尾');
+      expect(hasType('musicxx.ui.playing.controlBar.menu'), isTrue,
+          reason: '按钮级替换：菜单');
+      expect(hasType('musicxx.ui.playing.controlBar.favorite'), isTrue,
+          reason: '按钮级替换：收藏');
+      expect(hasType('musicxx.ui.playing.visualizer'), isTrue,
+          reason: '音频动效候选');
+
+      // 整栏替换：开启后多出整栏项，按钮级项保留（主程序会忽略它们）
+      await runtime.plugins.call(
+        'example_js_playing_slots',
+        'plugin.example_js_playing_slots.toggleWholeBar',
+        const <String, Object?>{'view': 'settings'},
+      );
+      await _pumpUntil(
+        () => runtime.plugins.uiSnapshot().any(
+          (MusicxxPluginUIItem item) =>
+              item.plugin == 'example_js_playing_slots' &&
+              item.type == 'musicxx.ui.playing.controlBar',
+        ),
+      );
+      expect(
+        runtime.plugins.uiSnapshot().any(
+          (MusicxxPluginUIItem item) =>
+              item.plugin == 'example_js_playing_slots' &&
+              item.type == 'musicxx.ui.playing.controlBar',
+        ),
+        isTrue,
+        reason: '开启整栏替换后要注册整栏项',
+      );
+
+      // 整栏视图：主程序带状态参数取内容，处理器同步返回块描述
+      final Object? barViewRaw = await runtime.plugins.call(
+        'example_js_playing_slots',
+        'plugin.example_js_playing_slots.controlBar',
+        const <String, Object?>{
+          'slot': 'musicxx.ui.playing.controlBar',
+          'button': '',
+          'playing': true,
+          'favorite': false,
+          'hasSong': true,
+        },
+      );
+      final Map<String, Object?> barView =
+          ((barViewRaw! as Map<String, Object?>)['view']!
+              as Map<String, Object?>);
+      expect(barView['blocks'], isA<List<Object?>>());
+      final List<String> barTexts = <String>[];
+      _collectText(barView, barTexts);
+      expect(barTexts, isNotEmpty);
+
+      // 关回去（config.json 恢复到默认值）
+      await runtime.plugins.call(
+        'example_js_playing_slots',
+        'plugin.example_js_playing_slots.toggleWholeBar',
+        const <String, Object?>{'view': 'settings'},
+      );
+      runtime.plugins.unload('example_js_playing_slots');
+      _step('18.8 播放页插槽示例完成');
     }
 
     // 统计快照可读

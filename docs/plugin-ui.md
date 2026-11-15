@@ -792,7 +792,7 @@ musicxx.capability.register("pickQuality", async function () {
 - **默认值写在插件里**（`getConfig` 的第二个参数），读不到就用默认值 —— 框架不再保存默认值，也没有
   清除「用户改过的值」之外的恢复手段；
 - 值改动后要让界面反映出来：改完再调一次能力返回 `{view: ...}`，主程序就会用新视图刷新（示例见
-  `plugins/example_js_shader/plugin.js` 的 `cycleBackgroundRate`）；
+  `plugins/example_js_playing_bg/plugin.js` 的 `cycleBackgroundRate`）；
 - 私有 KV（JS：`musicxx.storage.get/set/remove/list`，不带 `namespace`）与 `config.json` 是两份数据：
   KV 适合缓存、运行计数这类插件自己的数据，`config.json` 适合「用户看得懂、可能手改」的设置项。
 
@@ -861,6 +861,6 @@ musicxx.capability.register("pickQuality", async function () {
 |---|---|
 | `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 拼装 |
 | `plugins/example_js_font/plugin.js` | 全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认）+ 文字与输入框字体预览；**按钮动作"立刻返回 + 后台执行"的样板**（见 §4.1） |
-| `plugins/example_js_shader/plugin.js` | 播放页背景样式（两种：晶格 / 光圈）+ 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| `plugins/example_js_playing_bg/plugin.js` | 播放页背景六种样式（封面三种 + 图案三种）+ 歌曲图接管 + 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| `plugins/example_js_playing_slots/` | 播放页位置：插入块（歌词页顶部 / 播放列表页头部 / 更多信息页底部）、控制栏按钮级与整栏替换、音频动效（§1.6 / §1.7 与 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4） |
 | `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 拼装内容 |
-| `plugins/example_js_multi_script/` | 清单 `scripts` 多脚本加载：先跑随插件分发的 kit，再跑插件脚本 |

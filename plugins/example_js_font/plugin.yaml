@@ -1,3 +1,9 @@
+# 示例 JS 插件清单：全局字体切换（系统字体 / 字体文件 / 恢复默认）
+#
+# 注意：字体文件（`resource/font/example-font.ttf`，约 4 MB）**不在仓库里**（见根 `.gitignore`），
+# 干净检出时「字体文件」那个模式会失败（插件会在页面上写出原因）。要试这个模式，
+# 自己放一个字体文件到 `resource/font/example-font.ttf`，再用 `pwsh tools/build_examples.ps1` / 
+# `pack_plugin.ps1` 重新安装（脚本会把它带上），或直接放进已安装的插件目录。
 name: example_js_font
 kind: js
 entry: plugin.js
@@ -8,7 +14,7 @@ version: 2026.1010.1
 # JS 接口代次：当前 3、兼容下限 3（2026-11 广播只剩读与订阅后抬的，写 1 / 2 加载会被拒）
 api_version: 3
 author: "coolight"
-description: "字体切换示例插件: 微软雅黑 / 字体文件示例 / 拟声默认"
+description: "字体切换示例插件: 微软雅黑 / 字体文件示例（字体文件不随仓库分发）/ 拟声默认"
 platforms: [windows, linux, macos, android, ios]
 
 permissions:

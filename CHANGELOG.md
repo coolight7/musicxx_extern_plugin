@@ -8,6 +8,23 @@
 
 ## 历史
 
+### 变更（示例插件，未发布）：示例按"一个示例只教一件事"整理
+
+只动 `plugins/` 下的示例与它们的文档、测试，**接口与 ABI 没有变化**。拷示例代码的人会遇到的差异：
+
+- **背景示例合并改名**：`example_js_shader` + `playing_bg_image` → **`example_js_playing_bg`**
+  （显示名『示例播放页背景』）。一个插件注册六种 `player.background` 样式：封面类『模糊』/『沉浸』/
+  『黑胶』，图案类『晶格』/『光圈』/『插件纹理铺底』（后两种共用一个 bundle，区别在底层纹理），
+  另带歌曲图接管（`player.icon`）与封面取色。旧 id 不做兼容：已选中的背景会退回内置（重新选一次即可）。
+- **新增 `example_js_playing_slots`**：播放页位置一个示例讲完 —— 插入块（歌词页顶部 / 播放列表页头部 /
+  更多信息页底部）、控制栏按钮级与整栏替换、音频动效（`player.visualizer`）。
+- **删除 `example_js_multi_script`**：多脚本加载由上面两个插件本身覆盖（它们都是 6 个脚本）。
+- **前后链示例搬到 `example_native`**：`musicxx.lyric.load` 的 `implementBefore` / `implementAfter`
+  改由 `example_native` 演示，**只有载荷里带 `example_native_demo: true` 才改值**（否则原样放过）——
+  装上示例不会再让歌词消失。`example_native_multi` 只留多目标打包。
+- **说法修正**：`example_native_fail` 的失败只累计统计、**不暂停派发也不卸载**；背景 `speed`
+  基准统一成 1（速率档位 0.5× / 1× / 2× 直接对应 `speed` 0.5 / 1 / 2，不再出现"声明 4 当基准"的写法）。
+
 ### 新增（2026.1114.x 内，未发布）：当前歌曲图可以由插件设置与接管
 
 - 新能力 `musicxx.media.cover.set`：把一张图设为**当前正在播放歌曲的图**（播放页大图、通知栏、

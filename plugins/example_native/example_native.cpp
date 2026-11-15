@@ -10,6 +10,9 @@
 /// 5. 注册能力 `plugin.example_native.card`: 返回声明式页面
 ///    (主页入口、歌曲菜单项与 `ext://example_native/card` 都指向它)。
 ///    入口声明的页面必须有**同名能力**, 否则点开只会提示"插件没有提供该能力"。
+/// 6. 在包装点 `musicxx.lyric.load` (歌词加载) 上登记**前链**与**后链**样本:
+///    前链只能改输入或拦下, 后链只能改输出或丢弃。为免误伤真实使用, 只有载荷带
+///    `"example_native_demo":true` 时才改值, 其余调用原样返回。
 ///
 /// 规定: start 事务里只做注册, 不阻塞、不发起网络/大文件操作。
 
@@ -189,6 +192,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
                      });
+    // 固定实现的能力只开放前链 / 后链: 这里再登记一次前链应成功 (覆盖上一次)
     dupImplementRc = implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
                      [](std::string_view, std::string &) -> int32_t {
                        return 0;
@@ -199,6 +203,50 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
       foreignActionRc =
           capabilityCall("plugin.other_plugin.x", "{}", &notify, 1000);
     }
+
+    // 4.1) 阶段示例: 同一个包装点 (`musicxx.lyric.load`) 上的前链与后链
+    //
+    // 能力 id 表示**一次调用**, 参与方式由注册时的阶段表达; 同一个 ownerTag 在不同阶段
+    // 的登记互不覆盖。两段都只有一种职责:
+    // - 前链 (`before`): 串行、**正序**, 只能改输入或拦下。这里 `cancel` 为真 → 拦下
+    //   (这次不执行实现); 否则把请求里的 `limit` 改成 50;
+    // - 后链 (`after`): 串行、**逆序**, 只能改输出或丢弃。这里 `drop` 为真 → 丢弃
+    //   (这次没有结果); 否则把结果换成固定的一份。
+    //
+    // 这是**演示**: 真实插件不要无条件改写别人的结果。所以两段都只在载荷带
+    // `"example_native_demo":true` 时才动手, 其余调用原样返回(返回 0 且不写 out)。
+    // `musicxx.lyric.load` 的结果形状是 `{"lyric":{"content":…}}`(见
+    // `MusicxxLyricLoadPoints_c.parseLyricAnswer`), 写成别的形状会被应用当成"没给",
+    // 装上后会让歌词消失。
+    implementBefore(MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
+                    [](std::string_view input, std::string &out) -> int32_t {
+                      const std::string text{input};
+                      if (text.find("\"example_native_demo\":true") ==
+                          std::string::npos) {
+                        return 0; // 不是演示调用: 不改输入
+                      }
+                      if (text.find("\"cancel\":true") != std::string::npos) {
+                        out = R"({"action":"cancel"})";
+                        return 0;
+                      }
+                      out = R"({"patch":{"limit":50}})";
+                      return 0;
+                    });
+    implementAfter(MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
+                   [](std::string_view input, std::string &out) -> int32_t {
+                     const std::string text{input};
+                     if (text.find("\"example_native_demo\":true") ==
+                         std::string::npos) {
+                       return 0; // 不是演示调用: 不改输出
+                     }
+                     if (text.find("\"drop\":true") != std::string::npos) {
+                       out = R"({"action":"drop"})";
+                       return 0;
+                     }
+                     out =
+                         R"({"value":{"items":3,"by":"example_native"}})";
+                     return 0;
+                   });
 
     // 5) 广播订阅: 快照频道 (musicxx.state.song) + 插件框架发布的测试主题
     badTopicSubscribeRc = subscribeBroadcast("foo.bar", [](std::string_view) {
@@ -270,7 +318,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    **预模糊**后绑定到着色器里的 `uCoverBack`, 并把 (纹理宽, 纹理高, 原图宽高比,
     //    是否有封面) 写进 `uCoverBackInfo` —— 着色器拿它当底层 (模糊封面铺满画面)。
     //    没有封面时这一位是 0; 没声明 cover 的样式插件框架不解码、不上传、不占显存。
-    //    JS 侧的等价声明见 plugins/example_js_shader/plugin.js。
+    //    JS 侧的等价声明见 plugins/example_js_playing_bg/backgrounds.js。
     uiBackgroundRc = uiRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
@@ -287,7 +335,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                                "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
             "cover":{"texture":"uCoverBack","info":"uCoverBackInfo",
                      "size":384,"blur":28},
-            "speed":4,"maxFps":16,
+            "speed":1,"maxFps":16,
             "foregroundStyle":"mask"})",
         20);
 
@@ -312,7 +360,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           }
           std::ostringstream oss;
           // 插件框架按**本插件的形态**报接口代次：动态库插件看到的是 C 接口代次（3），
-          // JS 插件看到的是 JS 接口代次（2）——两套编号独立（见 host_kind.h）
+          // JS 插件看到的是 JS 接口代次（3）——两套编号独立（见 host_kind.h）
           const std::string hostInfo = hostInfoJson();
           std::string hostApiVersion = "0";
           {
@@ -572,6 +620,6 @@ int32_t exampleStop(ExampleCtx &ctx) { return ctx.onStop(); }
 
 } // namespace
 
-MUSICXX_PLUGIN_EXPORT(ExampleCtx, "example_native", "1.0.0",
+MUSICXX_PLUGIN_EXPORT(ExampleCtx, "example_native", "2026.1010.1",
                       "musicxx 外部插件示例 (能力/快照频道/日志)", exampleStart,
                       exampleStop)

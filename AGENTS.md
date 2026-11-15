@@ -156,7 +156,7 @@ my_plugin/
 1. **处理器里绝不等应用实现的能力**（**异步派发**的裁决型能力是例外，见下）。打开插件页面、点按钮、部分能力（同步派发）都是"应用线程同步进插件框架"调用你的代码；
    你在处理器里 `await musicxx.capability.call(...)` 会与调用方互相等，表现是**整个主程序卡住几秒或一直卡**（插件框架侧连超时都没有）。
    正确做法：要"现在这一帧"的数据读带当前值的广播；要能力的结果就**异步读**、把结果记在自己的状态里，由能力（页面）下一次调用时回读
-   （样板：`plugins/example_js` 的 `crossCall`、`example_js_shader` 的 `spectrumProbe`、`example_js_font` 的按钮）。
+   （样板：`plugins/example_js` 的 `crossCall`、`example_js_playing_bg` 的 `spectrumProbe`、`example_js_font` 的按钮）。
    **例外**：异步派发的裁决型能力（`musicxx.player.source.resolve` / `musicxx.player.error` 这类，主程序用 `decideAsync` 派发）
    里 `await musicxx.net.fetch(...)` 一类**应用实现的能力**能正常拿到结果（`plugins/example_override_media_source` 就靠它换播放地址）；
    但仍然**只能等这类能力**：`musicxx.broadcast.*` / 跨插件调用 / `musicxx.capability.*` 要框架线程处理，在处理器里等会一直等到超时。

@@ -28,15 +28,15 @@
   "use strict";
 
   /// 本示例的固定 id（重复跑自检时用同一组，先关再开）
-  var HTTP_ID = "demo-http";
-  var TCP_ID = "demo-tcp";
-  var TCP_CLIENT_ID = "demo-tcp-client";
-  var WS_ID = "demo-ws";
-  var WS_CLIENT_ID = "demo-ws-client";
-  var UDP_RX_ID = "demo-udp-rx";
-  var UDP_TX_ID = "demo-udp-tx";
+  const HTTP_ID = "demo-http";
+  const TCP_ID = "demo-tcp";
+  const TCP_CLIENT_ID = "demo-tcp-client";
+  const WS_ID = "demo-ws";
+  const WS_CLIENT_ID = "demo-ws-client";
+  const UDP_RX_ID = "demo-udp-rx";
+  const UDP_TX_ID = "demo-udp-tx";
 
-  var net = {
+  const net = {
     http: null,
     socketServer: null,
     wsServer: null,
@@ -48,13 +48,16 @@
   };
 
   /// 手写分块响应用: 每条连接只回一次（连接 id → 已回过）
-  var chunkedAnswered = {};
+  let chunkedAnswered = {};
 
   /// 等待中的事件（key → 一次性的处理函数）
-  var waiters = {};
+  ///
+  /// 每个事件名同时只允许一个等待者：自检是一段一段串行跑的，同时等同一个事件
+  /// 只会搞混回包；后一个等待者会得到明确错误，而不是默默顶掉前一个。
+  const waiters = {};
 
   function fireEvent(name, event) {
-    var fn = waiters[name];
+    const fn = waiters[name];
     if (!fn) {
       return;
     }
@@ -63,8 +66,11 @@
   }
 
   function nextEvent(name, timeoutMs) {
+    if (waiters[name]) {
+      return Promise.reject(new Error("同一事件只能有一个等待者: " + name));
+    }
     return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () {
+      const timer = setTimeout(function () {
         if (waiters[name] === handler) {
           waiters[name] = null;
         }
@@ -84,7 +90,7 @@
     if (!result) {
       return "没有结果";
     }
-    var text = String(result.error || "unknown");
+    let text = String(result.error || "unknown");
     if (result.message) {
       text += " - " + result.message;
     }
@@ -119,7 +125,8 @@
     fireEvent("socket.accepted", event);
   });
 
-  musicxx.net.socket.on("data", function (event) {    if (event.serverId === "demo-chunked") {
+  musicxx.net.socket.on("data", function (event) {
+    if (event.serverId === "demo-chunked") {
       // 手写一份分块响应（测试 HTTP 客户端的 chunked 解码）
       if (!chunkedAnswered[event.id]) {
         chunkedAnswered[event.id] = true;
@@ -164,19 +171,19 @@
 
   async function testHttp() {
     musicxx.net.http.stop(HTTP_ID); // 上一次可能没关干净
-    var served = musicxx.net.http.serve({ id: HTTP_ID, port: 0 });
+    let served = musicxx.net.http.serve({ id: HTTP_ID, port: 0 });
     if (!served.ok) {
       throw new Error("http.serve 失败: " + describe(served));
     }
     net.http = served;
 
-    var before = net.httpHandled;
-    var response = await musicxx.net.http.request({
+    const before = net.httpHandled;
+    let response = await musicxx.net.http.request({
       url: served.url + "/hello?name=musicxx",
       timeoutMs: 5000
     });
 
-    var data = {};
+    let data = {};
     try {
       data = JSON.parse(response.body || "{}");
     } catch (e) {
@@ -201,24 +208,24 @@
   /// `musicxx.net.fetch` 只取正文, `musicxx.net.download` 直接落到插件自己的数据目录。
   async function testFetchDownload() {
     musicxx.net.http.stop(HTTP_ID + "-fetch");
-    var served = musicxx.net.http.serve({ id: HTTP_ID + "-fetch", port: 0 });
+    let served = musicxx.net.http.serve({ id: HTTP_ID + "-fetch", port: 0 });
     if (!served.ok) {
       throw new Error("http.serve 失败: " + describe(served));
     }
     try {
-      var fetched = await musicxx.net.fetch({
+      let fetched = await musicxx.net.fetch({
         url: served.url + "/fetch?name=musicxx",
         timeoutMs: 5000
       });
       if (!fetched.ok || fetched.status !== 200) {
         throw new Error("fetch 状态码不对: " + fetched.status);
       }
-      var parsed = {};
+      let parsed = {};
       try { parsed = JSON.parse(fetched.body || "{}"); } catch (e) { parsed = {}; }
       if (parsed.path !== "/fetch") {
         throw new Error("fetch 回包内容不符合预期: " + (fetched.body || ""));
       }
-      var downloaded = await musicxx.net.download({
+      const downloaded = await musicxx.net.download({
         url: served.url + "/download",
         fileName: "selftest.bin",
         timeoutMs: 5000
@@ -245,10 +252,10 @@
   /// "把播放器打不开的东西变成 http 地址"的短路径。`staticOnly: true` 让没命中的请求直接 404，
   /// 不用等插件回答。
   async function testStatic() {
-    var id = HTTP_ID + "-static";
+    const id = HTTP_ID + "-static";
     musicxx.net.http.stop(id);
-    var payload = "#EXTM3U\n#EXT-X-VERSION:3\n";
-    var served = musicxx.net.http.serve({
+    const payload = "#EXTM3U\n#EXT-X-VERSION:3\n";
+    let served = musicxx.net.http.serve({
       id: id,
       port: 0,
       staticOnly: true,
@@ -261,14 +268,14 @@
     if (!served.ok) {
       throw new Error("http.serve(static) 失败: " + describe(served));
     }
-    var url = served.routes[0].url;
+    const url = served.routes[0].url;
     try {
-      var full = await musicxx.net.fetch({ url: url, timeoutMs: 5000 });
+      const full = await musicxx.net.fetch({ url: url, timeoutMs: 5000 });
       if (full.status !== 200 || full.body !== payload) {
         throw new Error("静态内容整段取回不对: " + full.status + " / " +
                         String(full.bodyBytes));
       }
-      var ranged = await musicxx.net.http.request({
+      const ranged = await musicxx.net.http.request({
         url: url,
         headers: { Range: "bytes=0-6" },
         timeoutMs: 5000
@@ -276,7 +283,7 @@
       if (ranged.status !== 206 || ranged.body !== "#EXTM3U") {
         throw new Error("范围请求不对: " + ranged.status + " / " + ranged.body);
       }
-      var beyond = await musicxx.net.http.request({
+      const beyond = await musicxx.net.http.request({
         url: url,
         headers: { Range: "bytes=99999-" },
         timeoutMs: 5000
@@ -286,7 +293,7 @@
       }
 
       // 再挂一条（显式路径）再摘掉：摘掉后同一个地址就是 404
-      var added = musicxx.net.http.route({
+      const added = musicxx.net.http.route({
         serverId: id,
         path: "/extra.bin",
         bytes: "abcd",
@@ -295,26 +302,26 @@
       if (!added.ok) {
         throw new Error("http.route 失败: " + describe(added));
       }
-      var extra = await musicxx.net.fetch({ url: added.url, timeoutMs: 5000 });
+      const extra = await musicxx.net.fetch({ url: added.url, timeoutMs: 5000 });
       if (extra.status !== 200 || extra.body !== "abcd") {
         throw new Error("追加的静态路由取回不对: " + extra.status);
       }
-      var removed = musicxx.net.http.unroute({
+      const removed = musicxx.net.http.unroute({
         serverId: id,
         path: added.path
       });
       if (!removed.ok || removed.removed !== true) {
         throw new Error("http.unroute 失败: " + describe(removed));
       }
-      var gone = await musicxx.net.fetch({ url: added.url, timeoutMs: 5000 });
+      const gone = await musicxx.net.fetch({ url: added.url, timeoutMs: 5000 });
       if (gone.status !== 404) {
         throw new Error("摘掉路由后应当回 404, 实际 " + gone.status);
       }
 
       // 带路径前缀的服务：路由的 path 要带上前缀，拼出来的 URL 不能重复前缀
-      var prefixedId = id + "-prefixed";
+      const prefixedId = id + "-prefixed";
       musicxx.net.http.stop(prefixedId);
-      var prefixedServer = musicxx.net.http.serve({
+      const prefixedServer = musicxx.net.http.serve({
         id: prefixedId,
         port: 0,
         path: "/api",
@@ -323,9 +330,9 @@
       if (!prefixedServer.ok) {
         throw new Error("带前缀的 http.serve 失败: " + describe(prefixedServer));
       }
-      var prefixed = { status: 0, url: "" };
+      const prefixed = { status: 0, url: "" };
       try {
-        var autoRoute = musicxx.net.http.route({
+        const autoRoute = musicxx.net.http.route({
           serverId: prefixedId,
           bytes: "prefixed",
           fileName: "p.txt"
@@ -334,7 +341,7 @@
           throw new Error("自动生成的路径应当带前缀: " + describe(autoRoute));
         }
         prefixed.url = autoRoute.url;
-        var fetchedPrefixed = await musicxx.net.fetch({
+        const fetchedPrefixed = await musicxx.net.fetch({
           url: autoRoute.url,
           timeoutMs: 5000
         });
@@ -364,15 +371,15 @@
 
   async function testSocket() {
     musicxx.net.socket.stop(TCP_ID);
-    var server = musicxx.net.socket.listen({ id: TCP_ID, port: 0 });
+    let server = musicxx.net.socket.listen({ id: TCP_ID, port: 0 });
     if (!server.ok) {
       throw new Error("socket.listen 失败: " + describe(server));
     }
     net.socketServer = server;
 
-    var connected = nextEvent("socket.connected");
-    var accepted = nextEvent("socket.accepted");
-    var client = musicxx.net.socket.connect({
+    const connected = nextEvent("socket.connected");
+    const accepted = nextEvent("socket.accepted");
+    let client = musicxx.net.socket.connect({
       id: TCP_CLIENT_ID,
       host: "127.0.0.1",
       port: server.port,
@@ -381,15 +388,15 @@
     if (!client.ok) {
       throw new Error("socket.connect 失败: " + describe(client));
     }
-    var clientInfo = await connected;
-    var serverInfo = await accepted;
+    const clientInfo = await connected;
+    const serverInfo = await accepted;
 
-    var dataPromise = nextEvent("socket.data");
-    var sent = musicxx.net.socket.send(TCP_CLIENT_ID, "ping");
+    const dataPromise = nextEvent("socket.data");
+    let sent = musicxx.net.socket.send(TCP_CLIENT_ID, "ping");
     if (!sent.ok) {
       throw new Error("socket.send 失败: " + describe(sent));
     }
-    var message = await dataPromise;
+    let message = await dataPromise;
     if (message.text !== "echo:ping") {
       throw new Error("TCP 回包不是 echo:ping: " + (message.text || ""));
     }
@@ -406,11 +413,11 @@
   async function testChunked() {
     musicxx.net.socket.stop("demo-chunked");
     chunkedAnswered = {};
-    var server = musicxx.net.socket.listen({ id: "demo-chunked", port: 0 });
+    let server = musicxx.net.socket.listen({ id: "demo-chunked", port: 0 });
     if (!server.ok) {
       throw new Error("socket.listen 失败: " + describe(server));
     }
-    var response = await musicxx.net.http.request({
+    let response = await musicxx.net.http.request({
       url: "http://127.0.0.1:" + server.port + "/chunked",
       timeoutMs: 5000
     });
@@ -422,28 +429,28 @@
 
   async function testWebSocket() {
     musicxx.net.ws.stop(WS_ID);
-    var server = musicxx.net.ws.listen({ id: WS_ID, port: 0, path: "/chat" });
+    let server = musicxx.net.ws.listen({ id: WS_ID, port: 0, path: "/chat" });
     if (!server.ok) {
       throw new Error("ws.listen 失败: " + describe(server));
     }
     net.wsServer = server;
 
-    var opened = nextEvent("ws.open");
-    var client = musicxx.net.ws.connect(
+    const opened = nextEvent("ws.open");
+    let client = musicxx.net.ws.connect(
       "ws://127.0.0.1:" + server.port + "/chat",
       { id: WS_CLIENT_ID, timeoutMs: 5000 }
     );
     if (!client.ok) {
       throw new Error("ws.connect 失败: " + describe(client));
     }
-    var openEvent = await opened;
+    const openEvent = await opened;
 
-    var messagePromise = nextEvent("ws.message");
-    var sent = musicxx.net.ws.send(WS_CLIENT_ID, "ping");
+    const messagePromise = nextEvent("ws.message");
+    let sent = musicxx.net.ws.send(WS_CLIENT_ID, "ping");
     if (!sent.ok) {
       throw new Error("ws.send 失败: " + describe(sent));
     }
-    var message = await messagePromise;
+    let message = await messagePromise;
     if (message.text !== "echo:ping") {
       throw new Error("WebSocket 回包不是 echo:ping: " + (message.text || ""));
     }
@@ -460,18 +467,18 @@
   /// 广播只校验"能发出去"（`255.255.255.255` 能否回环到本机由系统与网卡决定）；
   /// 组播加/退也不依赖环境是否允许（失败只记结果，不当作自检失败）。
   async function testUdp() {
-    var rx = musicxx.net.udp.open({ id: UDP_RX_ID, host: "127.0.0.1", port: 0 });
+    const rx = musicxx.net.udp.open({ id: UDP_RX_ID, host: "127.0.0.1", port: 0 });
     if (!rx.ok) {
       throw new Error("udp.open(rx) 失败: " + describe(rx));
     }
     try {
-      var tx = musicxx.net.udp.open({ id: UDP_TX_ID, host: "0.0.0.0", port: 0 });
+      const tx = musicxx.net.udp.open({ id: UDP_TX_ID, host: "0.0.0.0", port: 0 });
       if (!tx.ok) {
         throw new Error("udp.open(tx) 失败: " + describe(tx));
       }
 
-      var textWait = nextEvent("udp.message");
-      var sent = musicxx.net.udp.send({
+      const textWait = nextEvent("udp.message");
+      let sent = musicxx.net.udp.send({
         id: UDP_TX_ID,
         host: "127.0.0.1",
         port: rx.port,
@@ -480,26 +487,26 @@
       if (!sent.ok) {
         throw new Error("udp.send 失败: " + describe(sent));
       }
-      var received = await textWait;
+      const received = await textWait;
       if (received.text !== "udp:ping") {
         throw new Error("UDP 收到的内容不对: " + (received.text || ""));
       }
 
       // 二进制包：`dataBase64` 恒有，内容不能被改写
-      var binaryWait = nextEvent("udp.message");
+      const binaryWait = nextEvent("udp.message");
       musicxx.net.udp.send({
         id: UDP_TX_ID,
         host: "127.0.0.1",
         port: rx.port,
         dataBase64: "AAECAw=="
       });
-      var binary = await binaryWait;
+      const binary = await binaryWait;
       if (binary.dataBase64 !== "AAECAw==") {
         throw new Error("UDP 二进制包回读不对: " + (binary.dataBase64 || ""));
       }
 
       // 广播（只验证发送接口，不假设本机会收到自己的广播）
-      var broadcast = musicxx.net.udp.send({
+      const broadcast = musicxx.net.udp.send({
         id: UDP_TX_ID,
         host: "255.255.255.255",
         port: rx.port,
@@ -507,7 +514,7 @@
       });
 
       // 组播加/退（不假设运行环境一定支持组播）
-      var group = musicxx.net.udp.join(UDP_RX_ID, "239.255.42.99");
+      const group = musicxx.net.udp.join(UDP_RX_ID, "239.255.42.99");
       if (group.ok) {
         musicxx.net.udp.leave(UDP_RX_ID, "239.255.42.99");
       }
@@ -542,7 +549,7 @@
   /// 传进来的地址不会被重定向到别的主机也能拿到状态码就证明: TLS 握手 + 证书链校验
   /// (系统根证书) + 主机名校验都过了。
   async function testHttps(url) {
-    var fetched = await musicxx.net.fetch({ url: url, timeoutMs: 20000 });
+    let fetched = await musicxx.net.fetch({ url: url, timeoutMs: 20000 });
     return {
       url: url,
       status: fetched.status,
@@ -554,17 +561,17 @@
 
   async function doSelfTest(options) {
     cleanup();
-    var startedAt = Date.now();
-    var report = { ok: true };
+    const startedAt = Date.now();
+    const report = { ok: true };
     try {
       report.http = await testHttp();
       report.static = await testStatic();
       report.fetch = await testFetchDownload();
       report.socket = await testSocket();
       report.chunked = await testChunked();
-        report.ws = await testWebSocket();
+      report.ws = await testWebSocket();
       report.udp = await testUdp();
-      var httpsUrl = (options && typeof options.httpsUrl === "string") ? options.httpsUrl : "";
+      const httpsUrl = (options && typeof options.httpsUrl === "string") ? options.httpsUrl : "";
       if (httpsUrl) {
         report.https = await testHttps(httpsUrl);
       }
@@ -579,7 +586,7 @@
   }
 
   /// 同一时间只跑一份（自动自检与手动调用会撞上）
-  var running = null;
+  let running = null;
 
   function runSelfTest(options) {
     if (running) {
@@ -592,7 +599,7 @@
       return report;
     }, function (err) {
       running = null;
-      var text = String(err && err.message ? err.message : err);
+      let text = String(err && err.message ? err.message : err);
       net.last = { ok: false, error: text };
       net.error = text;
       return net.last;

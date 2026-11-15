@@ -13,8 +13,8 @@ JS插件是**零编译**形态：一个目录（`plugin.yaml` + `plugin.js`）�
 | 播放页背景（shader bundle 打包与 uniform 约定） | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | 装插件、刷新、看日志（命令行 / MCP，给 AI agent 与自动化） | [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 动态库插件（能力/UI 的写法等价） | [plugin-native-api.md](plugin-native-api.md) |
-| 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_shader/` |
-| 单特性示例（多脚本加载 / 广播 / 异步裁决 / 全局字体 / 音源解析） | `plugins/example_js_multi_script/`、`plugins/example_js_broadcast/`、`plugins/example_js_async/`、`plugins/example_js_font/`、`plugins/example_override_media_source/` |
+| 可运行的完整示例 | `plugins/example_js/`、`plugins/example_js_playing_bg/`、`plugins/example_js_playing_slots/` |
+| 单特性示例（广播 / 异步裁决 / 全局字体 / 音源解析） | `plugins/example_js_broadcast/`、`plugins/example_js_async/`、`plugins/example_js_font/`、`plugins/example_override_media_source/` |
 
 > **本文只写 JS 特有的东西**：目录与清单、生命周期与硬约束、`musicxx` 全局对象的写法、JS 线程、
 > 定时器与工具、调试与坑。**接口本身"做什么、参数是什么、返回什么"在 [plugin-api.md](plugin-api.md)** ——
@@ -726,7 +726,7 @@ const info = await musicxx.capability.call("example_native", "probe", {});
   异步处理器本身没问题（例如等 JS 定时器、等跨插件调用），只是不要等**应用实现的能力**：
   - 要"现在这一帧"的数据（播放状态、频谱、槽位状态等）同步读广播缓存（`musicxx.broadcast.read`）；
   - 要能力的结果就异步读、把结果记在自己的状态里，由能力（页面）下一次调用时回读
-    —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_shader` 的 `spectrumProbe`。
+    —— 见 `plugins/example_js` 的 `crossCall` 与 `plugins/example_js_playing_bg` 的 `spectrumProbe`。
   同一条规则也适用于**同步派发**的能力（`musicxx.player.beforePlaySong` 等调用点就地等待的能力）：
   处理器里等它会一直卡住调用线程。
 - **异步派发的裁决型能力可以等应用实现的能力调完**（`musicxx.player.source.resolve` / `musicxx.player.error` 这类
@@ -1165,9 +1165,10 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | `musicxx.net.fetch` | 走主程序网络栈的请求 |
 | `musicxx.stats.reportMetric` | 自报指标（只展示） |
 
-只看渲染槽位的话读 `plugins/example_js_shader/plugin.js`（背景样式 + 速率设置页 + 页面内联 `Shader` 块）；
+只看渲染槽位的话读 `plugins/example_js_playing_bg/plugin.js`（六种背景样式 + 速率设置页 + 页面内联 `Shader` 块）
+与 `plugins/example_js_playing_slots/`（插入块 / 控制栏替换 / 音频动效三个位置）；
 只关心某一个特性时读对应的单特性示例：`plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
-`plugins/example_js_multi_script/`（清单 `scripts` 多脚本）、`plugins/example_js_async/`（裁决处理器返回 Promise）、
+`plugins/example_js_async/`（裁决处理器返回 Promise）、
 `plugins/example_js_font/`（动态加载字体并设为全局字体）。
 
 动态库侧的对照读：`plugins/example_native/example_native.cpp` 与 `plugins/example_js/plugin.js` **行为等价**

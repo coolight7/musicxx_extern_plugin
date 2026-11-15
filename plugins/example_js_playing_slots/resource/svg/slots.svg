@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- 示例插槽插件的主页入口图标：插件自己带的 svg（resource/svg/slots.svg） -->
+  <rect x="2" y="2" width="44" height="44" rx="13" fill="#2b5f8e"/>
+  <rect x="9" y="9" width="30" height="7" rx="2.4" fill="#ffffff"/>
+  <rect x="9" y="20.5" width="13" height="18" rx="2.4" fill="#9fd0ff"/>
+  <rect x="26" y="20.5" width="13" height="8" rx="2.4" fill="#ffffff"/>
+  <rect x="26" y="31.5" width="13" height="7" rx="2.4" fill="#9fd0ff"/>
+</svg>

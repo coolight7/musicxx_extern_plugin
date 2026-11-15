@@ -1,0 +1,28 @@
+# 示例 JS 插件清单：播放页插槽（插入块 / 控制按钮栏 / 音频动效）
+#
+# 这个插件演示"插件能把界面放到播放页的哪些位置"，一个文件一类：
+#   slots.js       三个插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）
+#                  + 控制按钮栏的按钮级替换与整栏替换
+#   visualizer.js  音频动效（渲染槽位 player.visualizer）：4 根频谱柱 + 底部光晕
+#   views.js       位置上的视图 + 说明页 / 设置页
+#   plugin.js      配置、能力入口与全部顶层注册
+#
+# 位置就是 UI 类型（`musicxx.ui.playing.<页面>.<位置>`）：写错页面或位置名时插件框架
+# 直接拒绝注册，不会静默不显示。整栏替换是"替换"位置：同一个位置只认一项。
+name: example_js_playing_slots
+kind: js
+entry: plugin.js
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, slots.js, visualizer.js, views.js, plugin.js]
+
+version: 2026.1116.1
+# JS 接口代次：当前 3、兼容下限 3（2026-11 广播只剩读与订阅后抬的，写 1 / 2 加载会被拒）
+api_version: 3
+author: "coolight"
+description: "示例播放页插槽插件: 插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader）"
+platforms: [windows, linux, macos, android, ios]
+
+permissions:
+  - musicxx.ui
+  - musicxx.player.control
+  - musicxx.songlist.read
+  - musicxx.storage

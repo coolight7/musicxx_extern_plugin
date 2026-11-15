@@ -68,7 +68,7 @@ function Read-MxPluginVersion([string]$PluginDir) {
 }
 
 # 安装包文件名: <插件 id>-<版本号, 其中的 . 换成 _>.zip
-# 例: example_js_shader (version: 2026.1010.1) → example_js_shader-2026_1010_1.zip
+# 例: my_plugin (version: 2026.1010.1) → my_plugin-2026_1010_1.zip
 # 清单没写 version 时退回 <插件 id>.zip (只是打包脚本的命名, 不影响插件框架怎么读清单)。
 function Get-MxPluginPackageFileName([string]$PluginId, [string]$Version) {
     $tag = $Version.Trim().Trim('"').Trim("'") -replace '\.', '_'

@@ -1,7 +1,7 @@
 #version 460 core
 
 // 全屏三角形：主程序绑定 3 个顶点（覆盖整个裁剪空间），不做任何变换。
-// 本插件的两个 bundle（heat.shaderbundle / card.shaderbundle）共用这一份顶点着色器。
+// 本插件的五个 bundle（heat / card / vinyl / bg / ring）共用这一份顶点着色器。
 layout(location = 0) in vec2 position;
 
 void main() { gl_Position = vec4(position, 0.0, 1.0); }
