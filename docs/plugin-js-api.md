@@ -1182,10 +1182,10 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 
 ```text
 ① 写 plugin.yaml + plugin.js
-② 把整个目录放进用户插件目录（管理页「打开插件目录」），或打包 zip 用「从压缩包安装」
+② 打包 zip 用「从压缩包安装」
 ③ 管理页 →「重新扫描」→ 启用（加载时执行脚本顶层）
 ④ 触发能力 / 订阅广播 / 打开页面看效果；日志看「插件详情 → 日志」
-⑤ 改了 plugin.js：管理页「重载」（或禁用再启用）→ 脚本会重新执行
+⑤ 改了 plugin.js：管理页「重新加载」（或禁用再启用）→ 脚本会重新执行
 ```
 
 不点管理页也可以（AI agent / 自动化常用）：`musicxx-cli plugin install "<zip绝对路径>"`
