@@ -6,6 +6,11 @@
 /// - 图案类：『晶格』（lattice）/『光圈』（ring）/『插件纹理铺底』（bound）—— 画面是着色器画的，
 ///   其中『晶格』与『插件纹理铺底』共用一个 bundle，区别在底层纹理从哪来。
 ///
+/// 每种样式的 `data` 只有 `title` / `depict` / `view` 三个字段：**背景是一棵块树**，
+/// 着色器只是里面的一个 `musicxx.Shader` 块（`bundle` + `args` + 帧率 / 分辨率 / 速度），
+/// 纹理（封面 / 插件绑定的图片）写在块的 `args` 里。播放页前景（三色 + 是否用遮罩外观）
+/// 不写在 UI 项里：样式被选中后由 palette.js 调 `musicxx.ui.playing.foreground.set`。
+///
 /// 这个文件只写"声明"（样式 id、标题、参数与封面纹理），不做任何注册：
 /// 顶层注册统一放在 plugin.js 最后执行，避免"注册时用到的函数还没定义"。
 /// 六个脚本在同一个 JS 上下文里执行，顶层名字必须全局唯一（见插件目录的 README）。
@@ -121,11 +126,9 @@ function styleOfItem(itemId) {
 
 /// 封面纹理参数
 ///
-/// `cover.blur` 是**纹理上的** sigma：纹理铺满屏幕后再放大，屏幕上看到的模糊 ≈
+/// `blur` 是**纹理上的** sigma：纹理铺满屏幕后再放大，屏幕上看到的模糊 ≈
 /// `blur × 纹理→屏幕的放大倍数` —— 512 的纹理在 1280 宽的窗口里大约放大 5 倍，
 /// 所以 30 会糊成一片渐变（只剩色带），14 才能看出封面的大致内容。
-const COVER_TEXTURE = "uCover";
-const COVER_INFO = "uCoverInfo";
 const BLUR_COVER_SIZE = 512;
 const CARD_COVER_SIZE = 768;
 /// 『黑胶』盘心是圆裁的封面：纹理声明成正方形（`square: true`），圆内正好是它的内切圆
@@ -135,8 +138,55 @@ const LATTICE_COVER_SIZE = 384;
 const LATTICE_COVER_BLUR = 28;
 const RING_COVER_SIZE = 512;
 
-/// 插件图像表里的键（渲染项 `image.key` 与动作 `musicxx.media.bindImage` 的 `key` 用它）
+/// 插件图像表里的键（渲染项 `image` 与动作 `musicxx.media.bindImage` 的 `key` 用它）
 const BOUND_IMAGE_KEY = "coverArt";
+
+/// 一张**当前歌曲封面**的纹理声明（写在着色器块的 `args` 里）
+///
+/// `args` 的成员名就是着色器里的 `sampler2D` 名；信息 uniform（纹理宽、纹理高、
+/// 原图宽高比、是否有内容）的成员名缺省是 `<成员名>Info`（本例的着色器就用这个名字）。
+/// `size` / `blur` / `square` 只对封面来源有效：主程序解码、缩放、可选预模糊后上传成
+/// GPU 纹理，插件不搬字节。
+function coverTexture(size, blur, square) {
+    const decl = { kind: "texture", source: "musicxx.cover", size: size };
+    if (blur) {
+        decl.blur = blur;
+    }
+    if (square) {
+        decl.square = true;
+    }
+    return decl;
+}
+
+/// 一张**插件自己绑定的图片**的纹理声明（`musicxx.image.<key>`）
+///
+/// 图片由 `musicxx.media.bindImage`（或 `musicxx.media.cover` 的 `bind` 参数）放进图像表；
+/// 插件还没绑时主程序绑 1×1 透明占位纹理，画面只剩着色器自己画的部分。
+function imageTexture(key) {
+    return { kind: "texture", source: "musicxx.image." + key };
+}
+
+/// 背景的根视图：`Expanded` 包住一个着色器块
+///
+/// 背景是一棵块树，着色器只是里面的一个 `musicxx.Shader` 块。块渲染器把根块放进一个
+/// `Column`，不包 `Expanded` 的话着色器拿到的是无界高度，会按"没有确定尺寸"留空。
+/// [options] 是块上的其余字段：`speed`（时间推进速度，缺省 1）、`maxFps`、
+/// `resolutionScale`、`animate`。
+function backgroundView(bundle, args, options) {
+    const opts = options || {};
+    return {
+        kind: "Expanded",
+        children: [{
+            kind: "musicxx.Shader",
+            bundle: bundle,
+            args: args,
+            speed: (opts.speed !== undefined) ? opts.speed : 1,
+            maxFps: (opts.maxFps !== undefined) ? opts.maxFps : 16,
+            resolutionScale: (opts.resolutionScale !== undefined) ? opts.resolutionScale : 1,
+            animate: (opts.animate !== undefined) ? opts.animate : true,
+        }],
+    };
+}
 
 /// 基准速度与可选倍率（只影响三个图案样式：声明给插件框架的 `speed` = 基准速度 x 倍率）
 ///
@@ -218,20 +268,14 @@ function mappingColors() {
 
 /// 『模糊』的完整声明（封面预模糊铺满、放大漂移、热浪扭曲）
 ///
-/// 封面纹理每帧绑定到 `uCover`，`(纹理宽, 纹理高, 原图宽高比, 是否有封面)` 写进 `uCoverInfo`。
-/// 声明 `cover` 才会有这份成本：没声明就不解码、不上传、不占显存。
+/// `uCover` 是封面纹理每帧绑定到的采样器，`(纹理宽, 纹理高, 原图宽高比, 是否有封面)`
+/// 写进 `uCoverInfo`。声明了纹理才会有这份成本：没声明就不解码、不上传、不占显存。
 function blurBackgroundData() {
     return {
         title: STYLE_TITLES[STYLE_BLUR],
         depict: STYLE_DEPICTS[STYLE_BLUR],
-        shader: { bundle: "shader/heat.shaderbundle" },
-        cover: {
-            texture: COVER_TEXTURE,
-            info: COVER_INFO,
-            size: BLUR_COVER_SIZE,
-            blur: configuredBlur(),
-        },
-        args: {
+        view: backgroundView("shader/heat.shaderbundle", {
+            uCover: coverTexture(BLUR_COVER_SIZE, configuredBlur()),
             uGlow: {
                 kind: "source",
                 name: "musicxx.icon.themeMapping.0",
@@ -246,15 +290,12 @@ function blurBackgroundData() {
             uZoom: { kind: "const", value: configuredZoom() },
             // 热浪扭曲波纹开关（关掉后画面只剩缓慢漂移）
             uRipple: { kind: "const", value: configuredRipple() ? 1 : 0 },
-        },
-        // 自动调整前景色：按封面主色 + 亮暗主题推的播放页三色
-        // （开关关着 / 还不知道昼夜 / 没有取色结果时不声明，插件框架用主题默认色）
-        foregroundColors: foregroundColorsSpec(STYLE_BLUR) || undefined,
-        speed: 1,
-        maxFps: 24,
-        // 模糊画面不需要满分辨率：降采样后由插件框架放大，省一半以上的像素
-        resolutionScale: 0.6,
-        animate: true,
+        }, {
+            speed: 1,
+            maxFps: 24,
+            // 模糊画面不需要满分辨率：降采样后由插件框架放大，省一半以上的像素
+            resolutionScale: 0.6,
+        }),
     };
 }
 
@@ -263,14 +304,9 @@ function cardBackgroundData() {
     return {
         title: STYLE_TITLES[STYLE_CARD],
         depict: STYLE_DEPICTS[STYLE_CARD],
-        shader: { bundle: "shader/card.shaderbundle" },
-        cover: {
-            texture: COVER_TEXTURE,
-            info: COVER_INFO,
-            size: CARD_COVER_SIZE,
-            blur: 0,
-        },
-        args: {
+        view: backgroundView("shader/card.shaderbundle", {
+            // 封面卡片要是原图：不预模糊
+            uCover: coverTexture(CARD_COVER_SIZE, 0),
             // 渐变底：封面主色（亮端）→ 封面暗色（暗端）；convert = 套主程序的昼夜转换
             uBase: {
                 kind: "source",
@@ -294,33 +330,26 @@ function cardBackgroundData() {
             // 图片占比（图片至少占屏幕的这个比例，越大图片越多、渐变底越少）
             uShare: { kind: "const", value: configuredShare() },
             uRipple: { kind: "const", value: configuredRipple() ? 1 : 0 },
-        },
-        foregroundColors: foregroundColorsSpec(STYLE_CARD) || undefined,
-        speed: 1,
-        // 这一种基本是静态画面（只有热浪波纹在动），帧率给低一档就够
-        maxFps: 16,
-        resolutionScale: 1,
-        animate: true,
+        }, {
+            speed: 1,
+            // 这一种基本是静态画面（只有热浪波纹在动），帧率给低一档就够
+            maxFps: 16,
+            resolutionScale: 1,
+        }),
     };
 }
 
 /// 『黑胶』的完整声明（正方形圆裁封面 + 盘心旋转 + 白色唱臂）
 ///
-/// 盘心旋转由 `speed` 决定（写进 `uParams.w`，着色器按它推进封面转角，
+/// 盘心旋转由块的 `speed` 决定（写进 `uParams.w`，着色器按它推进封面转角，
 /// 所以改转速不用重新选中这个样式）。
 function vinylBackgroundData() {
     return {
         title: STYLE_TITLES[STYLE_VINYL],
         depict: STYLE_DEPICTS[STYLE_VINYL],
-        shader: { bundle: "shader/vinyl.shaderbundle" },
-        cover: {
-            texture: COVER_TEXTURE,
-            info: COVER_INFO,
-            size: VINYL_COVER_SIZE,
-            blur: 0,
-            square: true,
-        },
-        args: {
+        view: backgroundView("shader/vinyl.shaderbundle", {
+            // 盘心是圆裁的封面：纹理声明成正方形（圆内正好是它的内切圆）
+            uCover: coverTexture(VINYL_COVER_SIZE, 0, true),
             // 底：封面主色；四周要暗下去，着色器里再往第二个绘制色靠一点
             uBg: {
                 kind: "source",
@@ -334,14 +363,12 @@ function vinylBackgroundData() {
             },
             // 唱臂的颜色（近白；夜间稍微压一点，别在暗底上过曝）
             uArm: { kind: "const", value: "#f2f6fb", night: "#e2eaf4" },
-        },
-        // 黑胶的盘面近黑，估出来的背景偏暗，所以自动前景色通常给浅色字
-        foregroundColors: foregroundColorsSpec(STYLE_VINYL) || undefined,
-        // 转速：着色器里的基准转速（30 秒一圈）再乘这个倍率
-        speed: configuredSpin(),
-        maxFps: 24,
-        resolutionScale: 1,
-        animate: true,
+        }, {
+            // 转速：着色器里的基准转速（30 秒一圈）再乘这个倍率
+            speed: configuredSpin(),
+            maxFps: 24,
+            resolutionScale: 1,
+        }),
     };
 }
 
@@ -354,19 +381,12 @@ function latticeBackgroundData() {
     return {
         title: STYLE_TITLES[STYLE_LATTICE],
         depict: STYLE_DEPICTS[STYLE_LATTICE],
-        shader: { bundle: "shader/bg.shaderbundle" },
-        args: mappingColors(),
-        cover: {
-            texture: "uCoverBack",
-            info: "uCoverBackInfo",
-            size: LATTICE_COVER_SIZE,
-            blur: LATTICE_COVER_BLUR,
-        },
-        speed: bgSpeedOf(configuredBgRate()),
-        maxFps: 16,
-        animate: true,
-        foregroundStyle: "mask",
-        foregroundColors: foregroundColorsSpec(STYLE_LATTICE) || undefined,
+        view: backgroundView("shader/bg.shaderbundle", Object.assign(mappingColors(), {
+            "uCoverBack": coverTexture(LATTICE_COVER_SIZE, LATTICE_COVER_BLUR),
+        }), {
+            speed: bgSpeedOf(configuredBgRate()),
+            maxFps: 16,
+        }),
     };
 }
 
@@ -378,41 +398,37 @@ function ringBackgroundData() {
     return {
         title: STYLE_TITLES[STYLE_RING],
         depict: STYLE_DEPICTS[STYLE_RING],
-        shader: { bundle: "shader/ring.shaderbundle" },
-        args: ringArgs(
+        view: backgroundView("shader/ring.shaderbundle", Object.assign(ringArgs(
             { kind: "source", name: "musicxx.icon.themeMapping.0" },
             { kind: "source", name: "musicxx.icon.themeMapping.1" },
             { kind: "source", name: "musicxx.icon.themeMapping.2" },
             { kind: "source", name: "musicxx.icon.themeMapping.3" }
-        ),
-        // 圆心封面: 中心裁剪成正方形、缩到 512, 不模糊
-        cover: { texture: "uCover", info: "uCoverInfo", size: RING_COVER_SIZE, square: true },
-        speed: bgSpeedOf(configuredBgRate()),
-        maxFps: 16,
-        animate: true,
-        foregroundStyle: "mask",
-        foregroundColors: foregroundColorsSpec(STYLE_RING) || undefined,
+        ), {
+            // 圆心封面: 中心裁剪成正方形、缩到 512, 不模糊
+            "uCover": coverTexture(RING_COVER_SIZE, 0, true),
+        }), {
+            speed: bgSpeedOf(configuredBgRate()),
+            maxFps: 16,
+        }),
     };
 }
 
 /// 『插件纹理铺底』的完整声明: 底层用**插件自己绑定的图片**
 ///
-/// 与『晶格』同一个 bundle，只是把那张"铺底纹理"从插件框架准备的封面（`cover`）
-/// 换成插件绑定的图片（`image`）：`key` 指向图像表里的条目，`texture` 是着色器里的
-/// sampler 名；不写 `info` 时缺省用 `<texture>Info`（正好是 bundle 里已有的成员）。
-/// 插件还没绑定时插件框架绑 1×1 透明占位纹理，画面只剩晶格图案。
+/// 与『晶格』同一个 bundle，只是把那张“铺底纹理”从当前歌曲封面（`musicxx.cover`）
+/// 换成插件绑定的图片（`musicxx.image.<key>`）：`key` 指向图像表里的条目，
+/// `args` 的成员名是着色器里的 sampler 名（与『晶格』同名，着色器不用改）。
+/// 插件还没绑定时主程序绑 1×1 透明占位纹理，画面只剩晶格图案。
 function boundBackgroundData() {
     return {
         title: STYLE_TITLES[STYLE_BOUND],
         depict: STYLE_DEPICTS[STYLE_BOUND],
-        shader: { bundle: "shader/bg.shaderbundle" },
-        args: mappingColors(),
-        image: { key: BOUND_IMAGE_KEY, texture: "uCoverBack" },
-        speed: bgSpeedOf(configuredBgRate()),
-        maxFps: 16,
-        animate: true,
-        foregroundStyle: "mask",
-        foregroundColors: foregroundColorsSpec(STYLE_BOUND) || undefined,
+        view: backgroundView("shader/bg.shaderbundle", Object.assign(mappingColors(), {
+            "uCoverBack": imageTexture(BOUND_IMAGE_KEY),
+        }), {
+            speed: bgSpeedOf(configuredBgRate()),
+            maxFps: 16,
+        }),
     };
 }
 
@@ -437,9 +453,9 @@ function configuredBgRateValue() {
 /// 重新声明六个背景样式（`musicxx.ui.slot.update` 是整体替换，每次都要给完整 data）
 ///
 /// 插件框架收到后会刷新候选；正在使用的样式立即用新参数（封面纹理按新参数重新解码，
-/// 『模糊』改模糊程度时就能当场看到变化；『黑胶』改转速只换 `speed`，下一帧就按新转速转）。
+/// 『模糊』改模糊程度时就能当场看到变化；『黑胶』改转速只换块的 `speed`，下一帧就按新转速转）。
+/// 前景三色不在这里：它由 [pushForeground] 单独调能力交给应用。
 function refreshBackgroundEntries() {
-    lastForegroundSpec = foregroundSpecsSignature();
     musicxx.ui.slot.update(ITEM_NAME_BLUR, blurBackgroundData());
     musicxx.ui.slot.update(ITEM_NAME_CARD, cardBackgroundData());
     musicxx.ui.slot.update(ITEM_NAME_VINYL, vinylBackgroundData());

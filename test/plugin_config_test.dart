@@ -168,12 +168,12 @@ void main() {
     // 背景样式声明本身：类型、bundle 路径、默认速率（1x = 基准速度 1）
     //
     // 第一个样式是封面类『模糊』；动画速率只影响三个图案样式，所以速度读『晶格』。
+    // 背景是一棵块树（`view`），bundle / args / speed 都在里面的着色器块上。
     final MusicxxPluginUIItem? background = _backgroundItem(runtime, pluginId);
     expect(background, isNotNull, reason: '插件应注册播放页背景样式');
     expect(background!.type, MusicxxPluginUIType.playingBackground);
-    final Object? shader = background.data['shader'];
     expect(
-      shader is Map ? shader['bundle'] : null,
+      _shaderBlockOf(background)?['bundle'],
       'shader/heat.shaderbundle',
       reason: 'bundle 用插件目录内的相对路径（第一个样式是『模糊』）',
     );
@@ -188,7 +188,7 @@ void main() {
     expect(ring, isNotNull, reason: '插件应注册『光圈』样式');
     expect(ring!.type, MusicxxPluginUIType.playingBackground);
     expect(
-      (ring.data['shader'] as Map?)?['bundle'],
+      _shaderBlockOf(ring)?['bundle'],
       'shader/ring.shaderbundle',
     );
     final Map<String, Set<String>> ringSources = _argSources(ring);
@@ -204,13 +204,15 @@ void main() {
     }
     expect(
       ringSources.length,
-      22,
+      23,
       reason:
-          '4 个绘制色 + 线条色 + 响度 + 16 组频带（64 个频带）；'
+          '4 个绘制色 + 线条色 + 响度 + 16 组频带（64 个频带）+ 圆心封面的纹理声明；'
           '一帧 256 个频点那种写法有 64 个成员，逐像素按组挑一次会很卡，别改回去',
     );
     // 频谱必须包一层过渡（10 帧/秒的数据直接取会有台阶感）
-    final Object? levelNode = (ring.data['args'] as Map?)?['uLevel'];
+    final Object? levelNode = _shaderBlockOf(ring)?['args'] is Map
+        ? (_shaderBlockOf(ring)!['args'] as Map)['uLevel']
+        : null;
     expect(
       levelNode is Map ? levelNode['kind'] : null,
       'smooth',
@@ -299,10 +301,11 @@ void main() {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
-    /// 推一条播放页背景槽位的状态（主程序侧就是 `musicxx.state.renderSlots`）
+    /// 推一条播放页背景槽位的状态（主程序侧就是 `musicxx.state.uiSlots`）
     ///
     /// 规则：`itemId` = 现在由哪个插件项在画（空 = 没有插件项在画），
     /// `selectedId` = 用户选中的是谁（可能是 `musicxx.*`）。
+    /// `animate` / `maxFps` 不在槽位状态里（它们是每个着色器块自己的字段）。
     void pushSlot({
       required String itemId,
       required String selectedId,
@@ -310,17 +313,15 @@ void main() {
       int width = 0,
       int height = 0,
     }) {
-      runtime.broadcasts.publish('musicxx.state.renderSlots', <String, Object?>{
+      runtime.broadcasts.publish('musicxx.state.uiSlots', <String, Object?>{
         'player.background': <String, Object?>{
           'itemId': itemId,
           'plugin': itemId.isEmpty ? '' : pluginId,
           'selectedId': selectedId,
           'night': false,
           'visible': visible,
-          'animate': true,
           'width': width,
           'height': height,
-          'maxFps': 16,
         },
       });
     }
@@ -376,7 +377,7 @@ void main() {
       width: 1280,
       height: 720,
     );
-    expect(await renderText(), '动画中, 1280x720');
+    expect(await renderText(), '渲染中, 1280x720');
 
     // 切回内置：条目还在（itemId 为空），状态文字要更新，不能一直停在"已请求"
     pushSlot(itemId: '', selectedId: 'musicxx.auto', visible: false);
@@ -833,13 +834,31 @@ MusicxxPluginUIItem? _uiItemOf(MusicxxPluginRuntime runtime, String id) {
   return null;
 }
 
+/// UI 项 `view` 里的着色器块
+///
+/// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `children` 里。
+Map<String, Object?>? _shaderBlockOf(MusicxxPluginUIItem? item) {
+  Object? node = item?.data['view'];
+  for (int depth = 0; depth < 4 && node is Map; ++depth) {
+    if (node['kind'] == 'musicxx.Shader') {
+      return node.cast<String, Object?>();
+    }
+    final Object? children = node['children'];
+    if (children is! List || children.isEmpty) {
+      return null;
+    }
+    node = children.first;
+  }
+  return null;
+}
+
 /// UI 项 `args`（成员名 → 值表达式）里每个成员用到的**具名来源**
 ///
 /// 值表达式可以嵌套（`smooth` / `mul` / `mix` …），要把树走一遍才知道成员实际读的是哪些来源；
 /// 测试只关心"声明里连的是哪个来源"（没有来源的成员给空集合）。
 Map<String, Set<String>> _argSources(MusicxxPluginUIItem item) {
   final Map<String, Set<String>> out = <String, Set<String>>{};
-  final Object? args = item.data['args'];
+  final Object? args = _shaderBlockOf(item)?['args'];
   if (args is Map) {
     for (final MapEntry<Object?, Object?> entry in args.entries) {
       final Set<String> names = <String>{};
@@ -873,10 +892,10 @@ void _collectSourceNames(Object? node, Set<String> out) {
   }
 }
 
-/// 背景样式声明的动画速度（`data.speed`，读『晶格』：动画速率只影响图案样式）
+/// 背景样式声明的动画速度（着色器块的 `speed`，读『晶格』：动画速率只影响图案样式）
 num? _backgroundSpeed(MusicxxPluginRuntime runtime, String pluginId) {
   final MusicxxPluginUIItem? item = _uiItemOf(runtime, 'plugin.$pluginId.lattice');
-  final Object? value = item?.data['speed'];
+  final Object? value = _shaderBlockOf(item)?['speed'];
   return value is num ? value : null;
 }
 

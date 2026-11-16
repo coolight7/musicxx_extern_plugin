@@ -102,6 +102,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiUpdateRc = -100; ///< 更新自己的项: 期望 0
   int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget 动作): 期望 0
   int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
+  int32_t uiBackgroundNoViewRc =
+      -100; ///< 播放页背景只给 shader、没有 view: 期望 -1 (参数非法)
   int32_t uiPageBackgroundRc = -100; ///< 注册普通页面背景: 期望 0
   int32_t uiPageBackgroundBadRoutesRc =
       -100; ///< 普通页面背景的 routes 写法不合法: 期望 -1 (参数非法)
@@ -308,55 +310,60 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
 
     // 7) 播放页背景样式 (musicxx.ui.playing.background):
-    //    插件把一个预编译的 shader bundle 注册成一种"播放页背景样式",
-    //    用户在『设置 → 播放页面背景』里选中后才生效; 未选中时零成本。
-    //    这里注册一个晶格化（随机点最近邻切块）的动态背景, 参数用 `args` 声明:
-    //    只有一种写法 —— **成员名 → 值表达式**（{"kind":"...", ...}，可嵌套），
-    //    这里的节点: `source`（具名来源: 主题色 theme.* / 封面提取色 icon.* /
-    //    封面经主题映射后的 4 色 icon.themeMapping.0..3 / 当前音频频谱 spectrum.*）、
-    //    `smooth`（过渡: 频谱是 10 帧/秒，直接取会有台阶感，快起慢落才顺）。
-    //    频谱来源没有数据时插件框架写 0 (要区分状态用着色器里的 uEnv.z)。
-    //    这里用内置背景实际画的那 4 色 (观感与内置一致), 再叠上频谱律动。
-    //    另外声明了 `cover`（封面纹理）: 插件框架把当前歌曲封面中心裁剪成方形、缩到 384、
-    //    **预模糊**后绑定到着色器里的 `uCoverBack`, 并把 (纹理宽, 纹理高, 原图宽高比,
-    //    是否有封面) 写进 `uCoverBackInfo` —— 着色器拿它当底层 (模糊封面铺满画面)。
-    //    没有封面时这一位是 0; 没声明 cover 的样式插件框架不解码、不上传、不占显存。
+    //    背景是一棵**块树**（data.view），着色器只是里面的一个 `musicxx.Shader` 块；
+    //    用户在『设置 → 播放页面背景』里选中后才生效，未选中时零成本。
+    //    这里注册一个晶格化（随机点最近邻切块）的动态背景，着色器块的 `args` 里：
+    //    - 值表达式（**成员名 → 值表达式**，可嵌套）：`source`（具名来源: 主题色 theme.* /
+    //      封面提取色 icon.* / 封面经主题映射后的 4 色 icon.themeMapping.0..3 /
+    //      当前音频频谱 spectrum.*）、`smooth`（过渡: 频谱是 10 帧/秒，直接取会有台阶感）；
+    //    - 纹理声明 `{"kind":"texture"}`：成员名就是着色器里的 sampler 名。
+    //      这里用 `musicxx.cover`（当前歌曲封面，主程序解码成方形、缩到 384、预模糊后绑定），
+    //      并把（纹理宽, 纹理高, 原图宽高比, 是否有封面）写进 `uCoverBackInfo`；
+    //      没有封面时这一位是 0。没声明纹理的样式不解码、不上传、不占显存。
+    //    块的 `speed` / `maxFps` / `resolutionScale` 是每块自己的（不再挂在 UI 项上）。
     //    JS 侧的等价声明见 plugins/example_js_playing_bg/backgrounds.js。
     uiBackgroundRc = uiSlotRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
-            "shader":{"bundle":"shader/bg.shaderbundle"},
-            "args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},
-                    "uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},
-                    "uColor3":{"kind":"source","name":"musicxx.icon.themeMapping.2"},
-                    "uColor4":{"kind":"source","name":"musicxx.icon.themeMapping.3"},
-                    "uLevel":{"kind":"smooth","attackMs":20,"releaseMs":260,
-                              "of":{"kind":"source","name":"musicxx.spectrum.level"}},
-                    "uBands":{"kind":"smooth","attackMs":20,"releaseMs":260,
-                              "of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},
-                    "uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,
-                               "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
-            "cover":{"texture":"uCoverBack","info":"uCoverBackInfo",
-                     "size":384,"blur":28},
-            "speed":1,"maxFps":16,
-            "foregroundStyle":"mask"})",
+            "view":{"kind":"Expanded","children":[
+              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
+               "args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},
+                       "uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},
+                       "uColor3":{"kind":"source","name":"musicxx.icon.themeMapping.2"},
+                       "uColor4":{"kind":"source","name":"musicxx.icon.themeMapping.3"},
+                       "uCoverBack":{"kind":"texture","source":"musicxx.cover",
+                                      "size":384,"blur":28},
+                       "uLevel":{"kind":"smooth","attackMs":20,"releaseMs":260,
+                                 "of":{"kind":"source","name":"musicxx.spectrum.level"}},
+                       "uBands":{"kind":"smooth","attackMs":20,"releaseMs":260,
+                                 "of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},
+                       "uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,
+                                  "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
+               "speed":1,"maxFps":16}]}})",
         20);
+    // 7.0) 背景是块树: 只给 item 级 `shader`（旧写法）而不给 `view` 时注册要被拒绝。
+    uiBackgroundNoViewRc = uiSlotRegister(
+        "playingBgNoView", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
+        R"({"title":"缺 view 的背景","shader":{"bundle":"shader/bg.shaderbundle"}})",
+        21);
 
     // 7.1) 普通页面背景 (musicxx.ui.page.background):
-    //      与播放页背景同一份 shader 写法，区别是 `routes` 声明适用的页面
+    //      与播放页背景同一份块写法（`view`），区别是 `routes` 声明适用的页面
     //      （不写 / 空数组 = 所有普通页面）。这里只验证插件框架接受这种声明，
     //      `routes` 写成字符串（不是数组）时注册要被拒绝。
     uiPageBackgroundRc = uiSlotRegister(
         "pageBg", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
         R"({"title":"原生示例页面背景",
             "routes":["/songs","/setting/theme"],
-            "shader":{"bundle":"shader/bg.shaderbundle"},
-            "speed":1,"maxFps":8})",
+            "view":{"kind":"Expanded","children":[
+              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
+               "speed":1,"maxFps":8}]}})",
         10);
     uiPageBackgroundBadRoutesRc = uiSlotRegister(
         "pageBgBadRoutes", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
         R"({"title":"坏的页面背景","routes":"/songs",
-            "shader":{"bundle":"shader/bg.shaderbundle"}})",
+            "view":{"kind":"Expanded","children":[
+              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle"}]}})",
         11);
 
     // 8) 能力: 供插件框架/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
@@ -423,6 +430,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiUpdateRc\":" << uiUpdateRc
               << ",\"uiNotifyRc\":" << uiNotifyRc
               << ",\"uiBackgroundRc\":" << uiBackgroundRc
+              << ",\"uiBackgroundNoViewRc\":" << uiBackgroundNoViewRc
               << ",\"uiPageBackgroundRc\":" << uiPageBackgroundRc
               << ",\"uiPageBackgroundBadRoutesRc\":"
               << uiPageBackgroundBadRoutesRc

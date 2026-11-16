@@ -88,11 +88,11 @@ function styleTextOfCurrent() {
     return id === "" ? "无状态" : id;
 }
 
-/// 本插件的渲染状态（尺寸 / 是否有动画）
+/// 本插件的渲染状态（尺寸）
 ///
 /// `itemId` 是本插件时才有渲染可言：`visible:false` 表示主程序停止渲染（播放页被遮挡、
-/// 切到后台，或者播放页当前根本不在页面上），插件可以据此停掉自己的耗时工作；
-/// `animate:false` 表示这个样式只画一帧。
+/// 切到后台，或者播放页当前根本不在页面上），插件可以据此停掉自己的耗时工作。
+/// 槽位状态里不再有 `animate` / `maxFps`：它们是每个着色器块自己的字段。
 function renderStateText() {
     const slot = slotMirrorOf(BACKGROUND_SLOT) || {};
     if (styleOfItem(slot.itemId || "") === "") {
@@ -102,7 +102,7 @@ function renderStateText() {
         return "未在渲染";
     }
     const size = (slot.width && slot.height) ? (slot.width + "x" + slot.height) : "—";
-    return (slot.animate === false ? "静态一帧" : "动画中") + ", " + size;
+    return "渲染中, " + size;
 }
 
 /// 歌曲图槽位的状态文本
@@ -525,9 +525,9 @@ function cardView(args) {
         subtitle: "六种播放页背景 + 歌曲图接管 + 封面取色 + 自动前景色",
         blocks: [
             kit.hint({
-                text: "• 本插件把预编译好的 shader bundle 注册成六种播放页背景样式：" +
+                text: "• 本插件把六种播放页背景样式用块树注册（UI 项的 `view` 里一棵 `musicxx.Shader` 块）：" +
                     "用户在「设置 → 主题 → 播放页面背景」里选中一种后生效（未选中时插件框架不读 bundle、" +
-                    "不分析封面，零成本）。画面由着色器画，插件不写界面代码。",
+                    "不分析封面，零成本）。背景就是一棵块树，想叠文字 / 图片就多放几个块。",
             }, env),
             kit.hint({
                 text: "• 封面类三种 —— 『" + STYLE_TITLES[STYLE_BLUR] + "』：" + STYLE_DEPICTS[STYLE_BLUR] +
@@ -538,8 +538,8 @@ function cardView(args) {
                 text: "• 图案类三种 —— 『" + STYLE_TITLES[STYLE_LATTICE] + "』：" + STYLE_DEPICTS[STYLE_LATTICE] +
                     "；『" + STYLE_TITLES[STYLE_RING] + "』：" + STYLE_DEPICTS[STYLE_RING] +
                     "；『" + STYLE_TITLES[STYLE_BOUND] + "』：" + STYLE_DEPICTS[STYLE_BOUND] +
-                    "。『晶格』与『插件纹理铺底』用同一个 bundle，区别就是底层纹理来自插件框架准备的封面" +
-                    "（`cover`）还是插件自己绑定的图片（`image`）。",
+                    "。『晶格』与『插件纹理铺底』用同一个 bundle，区别就是底层纹理来自当前歌曲封面" +
+                    "（`args` 里的 `musicxx.cover`）还是插件自己绑定的图片（`musicxx.image.<key>`）。",
             }, env),
             kit.hint({
                 text: "• 『光圈』的声明用了频谱来源：`spectrum.level`（响度）与 `spectrum.bands64.0..15`" +
@@ -550,8 +550,8 @@ function cardView(args) {
                 text: "• 『自动调整前景色』（默认开）按封面取色的主色推一套播放页前景：" +
                     "保留主色的色相与彩色程度（文字看着就是主色的深浅版），明度按亮暗主题给倾向；" +
                     "对比度按当前样式估出的背景亮度算，要求逐条放宽 —— 先争取高对比 + 明显的颜色，" +
-                    "不够就依次让一点对比度，最后才让颜色。换歌、换样式与主题切换后重新推，" +
-                    "关掉就用主题默认前景色。",
+                    "不够就依次让一点对比度，最后才让颜色。换歌、换样式与主题切换后用能力 " +
+                    "`musicxx.ui.playing.foreground.set` 交给应用，关掉就交还主题默认前景色。",
             }, env),
             kit.hint({
                 text: "• 封面取色由本插件提供（钩子 musicxx.media.palette.analyse）：把封面缩到 " +

@@ -137,57 +137,61 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// (浮层内容是插件视图, 参数见 docs/plugin-api.md §3.2.4)。
 #define MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY "musicxx.ui.addsong.entry"
 /// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
-/// data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
-///         args? (成员名 → 值表达式), cover? (封面纹理), image? (插件绑定的图片),
-///         speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}
-/// 说明: 着色器参数只有 `args` 一种写法 (旧的 `colors` 与扁平写法都已移除);
-/// 不声明 `args` 时主程序默认给内置背景的 4 个绘制色 (`icon.themeMapping.0..3`);
-/// 声明 `cover` / `image` 时主程序准备纹理并每帧绑定 (见 docs/plugin-shader-bundle.md §5)。
+/// data = {title, depict?, view: "<视图id>" | {块对象} | [块数组]}
+/// 说明: 背景就是一棵**块树**, 着色器写在块 `musicxx.Shader` 上 (bundle / args / speed /
+/// maxFps / animate / resolutionScale); 纹理在 `args` 里声明 (成员名就是采样器名):
+/// {"kind":"texture", "source":"musicxx.cover"} 是当前歌曲封面,
+/// {"kind":"texture", "source":"musicxx.image.<key>"} 是插件自己绑定的图片。
+/// 根块要自己拿到整页尺寸 (用 `Expanded` 包住 `musicxx.Shader`), 否则块拿不到确定高度、留空。
+/// 播放页前景 (三色 + 是否用遮罩外观) 不写在 UI 项里, 由插件调能力
+/// `musicxx.ui.playing.foreground.set`。详见 docs/plugin-ui.md §1.1、plugin-shader-bundle.md §5.1。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND "musicxx.ui.playing.background"
 /// 播放页歌曲图 (渲染槽位 `player.icon`): 接管播放页中间那张歌曲图 / 视频的显示
-/// data = {title, depict?, enabled?, mode?: "none"|"shader"|"view", keepSpace?,
+/// data = {title, depict?, mode?: "none"|"shader"|"view", keepSpace?,
 ///         fill?, shader?:{bundle, vertex?, fragment?}, view?: "<视图id>"|{视图对象},
 ///         cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}
 /// 说明: 三种接管方式 —— none = 不显示内容 (keepSpace 决定是否保留占位),
-/// shader = 插件着色器绘制 (渲染输入与播放页背景完全一致),
+/// shader = 插件着色器绘制 (渲染输入与块 `musicxx.Shader` 完全一致),
 /// view = 插件声明的界面组合; 不写 `mode` 时按字段推断。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON "musicxx.ui.playing.icon"
 /// 播放页音频可视化样式 (渲染槽位 `player.visualizer`): 与内置『音乐动效』的四种样式
 /// 在同一个列表里选, 没安装内置插件时插件样式照样可用
-/// data = {title, depict?, enabled?, mode?: "none"|"shader"|"view",
+/// data = {title, depict?, mode?: "none"|"shader"|"view",
 ///         shader?:{bundle, vertex?, fragment?}, view?: "<视图id>"|{视图对象},
 ///         cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}
 /// 说明: 字段与播放页歌曲图 (`MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON`) 完全一致:
-/// shader = 插件着色器绘制 (渲染输入与背景一致, `musicxx.spectrum.*` 来源现读频谱),
+/// shader = 插件着色器绘制 (渲染输入与块 `musicxx.Shader` 一致, `musicxx.spectrum.*` 来源现读频谱),
 /// view = 插件声明的界面组合, none = 不显示. 渲染区域是播放页的动效区,
 /// 没有点击交互 (原来的封面点击 / 拖动切歌 / 迷你歌词要继续可用).
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
 /// 普通页面背景 (渲染槽位 `page.background`): 给歌单页 / 设置页 / 插件页面这类普通页面铺一层背景。
 /// 弹窗与播放页不包含在内 (播放页背景用 `MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND`)。
-/// data = {title, depict?, enabled?, routes?, shader:{bundle, vertex?, fragment?},
-///         args?, cover?, image?, speed?, resolutionScale?, maxFps?, animate?, scrim?}
+/// data = {title, depict?, routes?, view: "<视图id>" | {块对象} | [块数组]}
 /// 说明: routes 是页面路由 id 的字符串数组 (例如 ["/songs", "/setting/theme"]),
 /// 不写或空数组 = 所有普通页面; 同一个页面命中多项时, 写了这个路由的优先于"所有页面",
-/// 再按 UI 项的 `order` 与注册顺序取第一项. 与播放页背景一样由插件声明即生效 (不需要用户选择),
-/// 不声明 `args` 时默认给主题的 4 个颜色. 详见 docs/plugin-shader-bundle.md §5.5。
+/// 同一优先级里**最新注册的生效** (它没有用户选择, 也不读 `order`)。
+/// 渲染与播放页背景同一份块写法 (`view`); 想不显示就 `musicxx.ui.slot.unregister`。
+/// 详见 docs/plugin-ui.md §1.1、plugin-shader-bundle.md §5.5。
 #define MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND "musicxx.ui.page.background"
 /// 音效: 播放时叠加的一段音频滤镜, 注册后追加在『音效』插件的音效页面里
-/// data = {title, subtitle?（或 depict?）, filters（必填, 字符串数组）, pitch?, cpuCost?, enabled?}
+/// data = {title, subtitle?（或 depict?）, filters（必填, 字符串数组）, pitch?, cpuCost?}
 /// 说明: filters 按顺序拼进 mpv `af`（可以写 `lavfi=[...]` 图语法）, 至少要有一条或者给出 pitch;
 /// pitch 是变调类音效的音调 (0.25~2.0), 选中会把用户自定义音调复位;
-/// cpuCost 是 1~5 的性能负担 (默认 3, 只用于页面提示); enabled=false 保留注册但不出现.
+/// cpuCost 是 1~5 的性能负担 (默认 3, 只用于页面提示)。
+/// 是否可用与当前选中项由应用渲染音效列表时判断, 插件只描述"效果是什么"。
 /// 音效与均衡器 / 自定义音调互斥 (与内置预设同一套规则).
 #define MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT "musicxx.ui.audioEffect"
 /// 播放页底部控制按钮栏: 整栏由插件画
-/// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
-/// 说明: 与播放页子页面的插入块写法一致, 但这里是**替换**不是插入 —— 有插件声明这个类型时,
+/// data = {view: "<视图id>"|{视图对象}|[块数组]}
+/// 说明: 不想要就 `musicxx.ui.slot.unregister` (没有 `enabled` 字段)。
+/// 与播放页子页面的插入块写法一致, 但这里是**替换**不是插入 —— 有插件声明这个类型时,
 /// 内置的五个按钮不再显示, 整栏都由插件那个视图负责 (按钮与动作都自己写).
 /// 同一个类型只认一项: `order` 小的优先, 同 `order` 按注册顺序; 取不到内容时回到内置界面.
 /// 五个按钮也可以单独替换, 见下面五个 `..._CONTROL_BAR_*` 宏。
 /// 详见 docs/plugin-ui.md §1.7。
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR "musicxx.ui.playing.controlBar"
 /// 播放页控制按钮栏的「菜单」按钮 (单独的替换位置)
-/// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
+/// data = {view: "<视图id>"|{视图对象}|[块数组]}
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU "musicxx.ui.playing.controlBar.menu"
 /// 播放页控制按钮栏的「上一曲」按钮 (单独的替换位置)
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS "musicxx.ui.playing.controlBar.previous"
@@ -198,7 +202,7 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// 播放页控制按钮栏的「收藏」按钮 (单独的替换位置)
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE "musicxx.ui.playing.controlBar.favorite"
 /// 播放页子页面插入块：十个位置各有一个类型（类型本身就是位置，不再需要 `slot`）
-/// data = {view: "<视图id>"|{视图对象}|[块数组], enabled?}
+/// data = {view: "<视图id>"|{视图对象}|[块数组]}
 /// 说明: 同一位置可以注册多项, 按 UI 项的 `order` 与注册顺序从上到下排列;
 /// 不需要 `title`. 下面十个宏与 docs/plugin-ui.md §1.6 的位置表一一对应.
 /// `top` / `bottom` 是页面固定区域（不随列表滚动）；`header` / `footer` 在列表的滚动内容里。

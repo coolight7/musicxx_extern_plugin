@@ -54,7 +54,7 @@ function configWholeBar() {
     return slotConfigValue("wholeBar");
 }
 
-/// 歌词页顶部提示是否显示（`enabled`）
+/// 歌词页顶部提示是否显示（控制这一项注册与否）
 function configLyricTip() {
     return slotConfigValue("lyricTip");
 }
@@ -163,7 +163,7 @@ function installSlotCapabilities() {
         return { view: pageView(args) };
     });
 
-    /// 设置页按钮：显示 / 隐藏歌词页顶部那块（改 UI 项的 `enabled`，注册保留）
+    /// 设置页按钮：显示 / 隐藏歌词页顶部那块（开 = 注册，关 = 注销）
     musicxx.capability.register("toggleLyricTip", function (args) {
         const next = !configLyricTip();
         saveSlotConfig("lyricTip", next);

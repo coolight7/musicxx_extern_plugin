@@ -173,7 +173,10 @@ void main() {
         'type': MusicxxPluginUIType.playingBackground,
         'data': <String, Object?>{
           'title': '背景样式',
-          'shader': <String, Object?>{'bundle': 'shader/bg.shaderbundle'},
+          'view': <String, Object?>{
+            'kind': 'musicxx.Shader',
+            'bundle': 'shader/bg.shaderbundle',
+          },
           'action': <String, Object?>{'kind': 'none'},
         },
       },

@@ -7,7 +7,8 @@
 ///    『沉浸』的渐变底与『黑胶』的底色用的就是这套颜色。
 /// 2. **自动调整播放页前景色**（设置页开关，默认开）：按封面取色的主色推一套播放页三色
 ///    （普通色 / 减淡色 / 块状背景色），保留主色的色相与彩色程度，明度按亮暗主题给倾向，
-///    对比度按**当前样式估出的背景亮度**算。三色用 UI 项的 `foregroundColors` 交给插件框架。
+///    对比度按**当前样式估出的背景亮度**算。三色用能力
+///    `musicxx.ui.playing.foreground.set` 交给应用（本插件的背景样式被选中时才接受）。
 ///
 /// 关键约束（沿用原示例的实测结论）：取色钩子的处理器**必须同步返回**。
 /// 命中缓存就当场给颜色，没命中返回 null（应用用它自己的快速取色），真正的计算与写回
@@ -207,8 +208,9 @@ function hslWithChroma(hue, chromaValue, lightness) {
 //
 // 播放页的文本、歌词、进度条与块状背景只用三种颜色（普通色 / 减淡色 / block 背景色）。
 // 本插件的背景都是封面 / 封面主色铺出来的，主题默认的那三色不一定压得住画面，
-// 所以这里按封面取色的**主色**再结合亮暗主题推一套，用 UI 项的 `foregroundColors` 交给
-// 插件框架（插件框架只在本插件的背景样式被选中时用它）。
+// 所以这里按封面取色的**主色**再结合亮暗主题推一套，用能力
+// `musicxx.ui.playing.foreground.set` 交给应用（应用只在本插件的背景样式被选中时接受）；
+// 算不出三色时调 `{clear: true}` 交还主题默认。
 //
 // 三色怎么定：
 //   1. 色相与彩色程度取自封面的**主色**（[accentColorOf]：出现最多的色点，它是灰的就看第二个），
@@ -281,7 +283,7 @@ let foregroundBaseKey = "";
 /// 封面平均色（取色时顺便算出，只用来估背景亮度）；null = 还没有
 let coverAverage = null;
 
-/// 最近一次推给插件框架的前景三色（六个样式一起序列化）：没变就不再重登记
+/// 最近一次推给应用的前景（`<样式>|<三色>`）：没变就不重复调用能力
 let lastForegroundSpec = "";
 
 /// 已经排了一次"稍后重推前景三色"（钩子处理器里不直接调主程序动作）
@@ -398,7 +400,7 @@ function pickForegroundMain(hsl, style) {
 
 /// 算一个样式的前景：普通色 / 减淡色 / 块状背景色，外加挑色时的中间结果
 ///
-/// [hsl] 是色相来源（封面的主色）的 HSL；`colors` 就是交给插件框架的那三色，
+/// [hsl] 是色相来源（封面的主色）的 HSL；`colors` 就是交给应用的那三色，
 /// `dark` / `ratio` 是状态行要报的"深色字还是浅色字 / 对比度多少"。
 function computeForegroundOf(hsl, style) {
     const picked = pickForegroundMain(hsl, style);
@@ -475,23 +477,6 @@ function foregroundColorsSpec(style) {
     return of ? of.colors : null;
 }
 
-/// 六个样式的前景三色一起序列化（判断"要不要重推"用）
-function foregroundSpecsSignature() {
-    const specs = foregroundSpecs();
-    if (!specs) {
-        return "null";
-    }
-    const styles = [
-        STYLE_BLUR, STYLE_CARD, STYLE_VINYL,
-        STYLE_LATTICE, STYLE_RING, STYLE_BOUND,
-    ];
-    const list = [];
-    for (let i = 0; i < styles.length; ++i) {
-        list.push(specs[styles[i]].colors);
-    }
-    return JSON.stringify(list);
-}
-
 /// 当前歌曲的身份（换歌判断用；镜像里没有就是空串）
 function currentSongKey() {
     const song = musicxx.broadcast.read("musicxx.state.song");
@@ -556,18 +541,44 @@ function onCoverMissing(key) {
     return true;
 }
 
-/// 前景三色有变化时重推六个背景样式（没变就不重登记）
+/// 把当前样式的前景三色推给应用（`musicxx.ui.playing.foreground.set`）
+///
+/// 应用只接受“当前生效的播放页背景插件项”的调用，所以没在画时一概不调（调了会回 `not_active`）。
+/// 算不出三色（开关关着 / 还不知道昼夜 / 没有取色结果）时交还主题默认（`clear`）。
+/// 同一个结果只推一次（[lastForegroundSpec]）。
 function applyForegroundIfChanged() {
-    if (foregroundSpecsSignature() === lastForegroundSpec) {
+    const style = styleOfItem(slotItemIdOf(BACKGROUND_SLOT));
+    if (!style) {
+        // 现在不是本插件的背景在画：不碰前景（应用在生效项换人时自己清空）
+        lastForegroundSpec = "";
         return false;
     }
-    refreshBackgroundEntries();
+    const colors = foregroundColorsSpec(style);
+    const key = style + "|" + (colors ? JSON.stringify(colors) : "default");
+    if (key === lastForegroundSpec) {
+        return false;
+    }
+    lastForegroundSpec = key;
+    musicxx.capability.call(
+        "musicxx.ui.playing.foreground.set",
+        colors ? { style: "mask", colors: colors } : { clear: true }
+    ).then(function (result) {
+        if (result && result.ok === true) {
+            return;
+        }
+        // 失败（例如应用侧的生效项还没同步过来）：清掉"已推过"标记，下一次检查重试
+        lastForegroundSpec = "";
+        musicxx.host.log(3, "设置播放页前景失败: " + JSON.stringify(result || {}));
+    }, function (err) {
+        lastForegroundSpec = "";
+        musicxx.host.log(3, "设置播放页前景失败: " + errText(err));
+    });
     return true;
 }
 
-/// 把"重推前景三色"排到本轮之后再执行
+/// 把"推前景"排到本轮之后再执行
 ///
-/// 取色钩子是主程序等着回答的调用点（处理器里直接调 `musicxx.ui.slot.update` 会打断调用方），
+/// 取色钩子是主程序等着回答的调用点（处理器里直接调能力会打断调用方），
 /// 所以统一延后到下一次定时器回调里做。
 function applyForegroundLater() {
     if (foregroundApplyScheduled) {
@@ -582,7 +593,7 @@ function applyForegroundLater() {
 
 /// 快照频道里的渲染槽位状态（同步读，不产生动作往返）
 function slotMirrorOf(slotId) {
-    const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
+    const slots = musicxx.broadcast.read("musicxx.state.uiSlots") || {};
     return slots[slotId] || null;
 }
 
@@ -646,7 +657,9 @@ function refreshForegroundState() {
 /// [force] 写成 `true != force` 判断（不是 `false == force`）：定时器回调不带参数，
 /// 那时的 force 是 undefined，用 `false == force` 会把"没传参数"当成"强制刷新"。
 function refreshForegroundIfDue(force) {
+    // 样式可能刚被切走 / 切回本插件：每次检查都按当前状态推一次（同一结果只推一次）
     if (false == configuredAutoForeground()) {
+        applyForegroundIfChanged();
         return;
     }
     if (null === isNightNow) {
@@ -656,6 +669,7 @@ function refreshForegroundIfDue(force) {
             applyForegroundLater();
         }
     }
+    applyForegroundIfChanged();
     const now = Date.now();
     const interval = backgroundIsMine() ? FG_REFRESH_ACTIVE_MS : FG_REFRESH_IDLE_MS;
     if (true != force && now - foregroundCheckedAt < interval) {

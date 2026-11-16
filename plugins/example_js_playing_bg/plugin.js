@@ -223,7 +223,7 @@ let boundImageState = "未绑定";
 /// 把当前歌曲封面绑成纹理（异步发起，不等待）
 ///
 /// `cover` 动作的 `bind` 参数：插件框架复用这一次解码出来的像素上传成 GPU 纹理，不重复解码。
-/// 绑定后『插件纹理铺底』的 `image` 声明就能采样到它（图像表版本变化，背景下一帧用上新图）。
+/// 绑定后『插件纹理铺底』的 `musicxx.image.<key>` 纹理声明就能采样到它（图像表版本变化，背景下一帧用上新图）。
 /// 绑定是临时资源：插件停用 / 卸载、关闭『拟声++』时插件框架自动摘掉。
 function bindCoverImage() {
     boundImageState = "绑定中…";
@@ -263,8 +263,8 @@ let coverHookBound = true;
 /// 封面变化处理器：插件框架在换歌 / 同一首歌换了封面图时派发一次
 ///
 /// 载荷 = `{srcKey, name, artist, hasCover, kind}`（`kind` = local/cache/content/asset/network），
-/// **没有直链也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里采样就声明
-/// 渲染项的 `cover` / `image`。观察型：返回值忽略，处理器出错也不会影响播放。
+/// **没有直链也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里采样就在
+/// 着色器块的 `args` 里声明纹理（`musicxx.cover` / `musicxx.image.<key>`）。观察型：返回值忽略，处理器出错也不会影响播放。
 /// 这里同时用它预热取色（见 [paletteOnCoverChanged]）。
 function onCoverChanged(payload) {
     const name = (payload && payload.name) ? payload.name : "未知歌曲";

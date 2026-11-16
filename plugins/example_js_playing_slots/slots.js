@@ -79,17 +79,37 @@ function lyricTopEntryData() {
     };
 }
 
+/// 歌词页顶部那块现在有没有注册（注销一个没注册的名字会报错，所以先记着）
+let lyricTipRegistered = false;
+
+/// 显示 / 隐藏歌词页顶部那块：显示 = 注册，隐藏 = 注销
+///
+/// UI 项没有 `enabled` 字段了：不想显示就注销这一项，重新显示再注册回来。
+/// 注销后再注册是新注册（排到最后）；这里只有一个位置项，先后无所谓。
+function applyLyricTip(enabled) {
+    const want = true === enabled;
+    if (want === lyricTipRegistered) {
+        return;
+    }
+    if (want) {
+        musicxx.ui.slot.register({
+            name: SLOT_NAME_LYRIC_TOP,
+            type: SLOT_LYRIC_TOP,
+            order: 10,
+            data: lyricTopEntryData(),
+        });
+    } else {
+        musicxx.ui.slot.unregister(SLOT_NAME_LYRIC_TOP);
+    }
+    lyricTipRegistered = want;
+}
+
 /// 注册三个插入块（固定区域 · 列表 header · 另一页的 footer）
 ///
-/// 同一位置可以注册多项、按 `order` 从上到下排；`enabled: false` 保留注册但不渲染
-/// （设置页的「显示 / 隐藏歌词页顶部提示」就是改这个字段）。
+/// 同一位置可以注册多项、按 `order` 从上到下排；歌词页顶部那块的开关由
+/// [applyLyricTip] 管（开 = 注册，关 = 注销）。
 function registerInsertSlots(lyricTipEnabled) {
-    musicxx.ui.slot.register({
-        name: SLOT_NAME_LYRIC_TOP,
-        type: SLOT_LYRIC_TOP,
-        order: 10,
-        data: Object.assign(lyricTopEntryData(), { enabled: true === lyricTipEnabled }),
-    });
+    applyLyricTip(lyricTipEnabled);
     musicxx.ui.slot.register({
         name: SLOT_NAME_SONGLIST_HEADER,
         type: SLOT_SONGLIST_HEADER,
@@ -103,13 +123,6 @@ function registerInsertSlots(lyricTipEnabled) {
         order: 10,
         data: { view: "moreInfoFooter" },
     });
-}
-
-/// 运行期显示 / 隐藏歌词页顶部那块（`musicxx.ui.slot.update` 是整体替换，要给完整 data）
-function applyLyricTip(enabled) {
-    musicxx.ui.slot.update(
-        SLOT_NAME_LYRIC_TOP,
-        Object.assign(lyricTopEntryData(), { enabled: true === enabled }));
 }
 
 /// 注册按钮级替换（菜单按钮与收藏按钮）

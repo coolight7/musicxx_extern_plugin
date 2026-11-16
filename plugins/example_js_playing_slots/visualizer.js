@@ -65,7 +65,7 @@ function useNoVisualizer() {
 
 /// 动效槽位的状态（快照频道同步读）
 function visualizerSlot() {
-    const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
+    const slots = musicxx.broadcast.read("musicxx.state.uiSlots") || {};
     return slots[VISUALIZER_SLOT_ID] || null;
 }
 

@@ -39,7 +39,7 @@ function wholeBarStateText() {
 
 /// 歌词页顶部提示的状态文本
 function lyricTipStateText() {
-    return configLyricTip() ? "显示" : "已隐藏（注册还在，enabled=false）";
+    return configLyricTip() ? "显示" : "已隐藏（已注销注册）";
 }
 
 /* ==================== 位置上的视图 ==================== */
@@ -195,7 +195,7 @@ function statusRows() {
         }, viewEnv(null)),
         kit.listRow({
             title: "音频动效 (visualizer)",
-            subtitle: "渲染槽位：与内置动效在同一份列表里选（mirror musicxx.state.renderSlots）",
+            subtitle: "渲染槽位：与内置动效在同一份列表里选（mirror musicxx.state.uiSlots）",
             trailing: visualizerStateText(),
         }, viewEnv(null)),
     ];
@@ -247,7 +247,8 @@ function settingsView(args) {
         blocks: [
             kit.hint({
                 text: "• 整栏替换开关：打开后注册整条控制按钮栏（按钮级项保留，主程序会忽略它们），" +
-                    "关掉就注销整栏；歌词页顶部提示用 UI 项的 enabled 开关，注册一直保留。",
+                    "关掉就注销整栏；歌词页顶部提示也是注册 / 注销（开 = 注册，关 = 注销，" +
+                    "没有 enabled 字段）。",
             }, env),
             kit.card({ children: statusRows() }, env),
             kit.listRow({
@@ -262,7 +263,7 @@ function settingsView(args) {
             }, env),
             kit.listRow({
                 title: "歌词页顶部提示",
-                subtitle: "用 musicxx.ui.updateEntry 改 UI 项的 enabled（注册还在，只是不渲染）",
+                subtitle: "开 = 注册这一项，关 = musicxx.ui.slot.unregister",
                 trailing: configLyricTip() ? "显示" : "已隐藏",
             }, env),
             kit.button({

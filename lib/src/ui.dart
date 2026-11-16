@@ -38,24 +38,28 @@ abstract final class MusicxxPluginUIType {
   static const String addSongEntry = 'musicxx.ui.addsong.entry';
 
   /// 播放页背景样式（渲染槽位 `player.background`）：
-  /// `data = {title, depict?, enabled?, shader:{bundle, vertex?, fragment?},
-  ///          args?（成员名 → 值表达式）, cover?（封面纹理，见 docs/plugin-shader-bundle.md §5.1）,
-  ///          speed?, resolutionScale?, maxFps?, animate?, scrim?, foregroundStyle?}`
+  /// `data = {title, depict?, view: "<视图id>" | {块对象} | [块数组]}`
   ///
-  /// 着色器参数只有 `args` 一种写法（旧的 `colors` 已移除）；不写 `args` 时插件框架默认给内置背景的
-  /// 4 个绘制色（`icon.themeMapping.0..3`）。`cover` 由主程序解码 + 缩放（可选预模糊）后上传成
-  /// GPU 纹理、每帧绑定给着色器，插件不搬字节。详见 `docs/plugin-shader-bundle.md`。
+  /// 背景就是一棵**块树**：着色器写在块 `musicxx.Shader` 上（`bundle` / `args` / `speed` /
+  /// `maxFps` / `animate` / `resolutionScale`），纹理在 `args` 里声明（成员名就是采样器名）：
+  /// `{"kind":"texture","source":"musicxx.cover"}` 是当前歌曲封面，
+  /// `{"kind":"texture","source":"musicxx.image.<key>"}` 是插件自己绑定的图片。
+  ///
+  /// 根块要自己拿到整页尺寸（用 `Expanded` 包住 `musicxx.Shader`），否则块拿不到确定高度、留空。
+  /// 播放页前景（三色 + 是否用遮罩外观）不写在 UI 项里，由插件调能力
+  /// `musicxx.ui.playing.foreground.set`。详见 `docs/plugin-ui.md` §1.1 与
+  /// `docs/plugin-shader-bundle.md` §5.1。
   static const String playingBackground = 'musicxx.ui.playing.background';
 
   /// 播放页歌曲图（渲染槽位 `player.icon`）：接管播放页中间那张歌曲图 / 视频的显示
   ///
-  /// `data = {title, depict?, enabled?, mode?: "none"|"shader"|"view", keepSpace?, fill?,
+  /// `data = {title, depict?, mode?: "none"|"shader"|"view", keepSpace?, fill?,
   ///          shader?: {bundle, vertex?, fragment?}, view?: "<视图id>" | {视图对象},
   ///          cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}`
   ///
   /// 三种接管方式（不写 `mode` 时按字段推断：有 `shader.bundle` → `shader`，有 `view` → `view`，
   /// 都没有 → `none`）：
-  /// - `shader`：插件着色器绘制（渲染输入与播放页背景**完全一致**，见
+  /// - `shader`：插件着色器绘制（渲染输入与块 `musicxx.Shader` **完全一致**，见
   ///   docs/plugin-shader-bundle.md：`cover` / `image` / `args` / `speed` / `maxFps` /
   ///   `resolutionScale` / `animate`）；
   /// - `view`：插件用声明式界面组合（`view` 写视图 id 或直接给视图对象），
@@ -75,11 +79,11 @@ abstract final class MusicxxPluginUIType {
   /// 播放页音频可视化样式（渲染槽位 `player.visualizer`）：与内置『音乐动效』的四种样式在同一个
   /// 列表里选，**没安装内置插件时插件样式照样可用**
   ///
-  /// `data = {title, depict?, enabled?, mode?: "none"|"shader"|"view",
+  /// `data = {title, depict?, mode?: "none"|"shader"|"view",
   ///          shader?: {bundle, vertex?, fragment?}, view?: "<视图id>" | {视图对象},
   ///          cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}`
   ///
-  /// 字段与 [playingIcon] 完全一致：`shader` 是插件着色器绘制（渲染输入与播放页背景共用；
+  /// 字段与 [playingIcon] 完全一致：`shader` 是插件着色器绘制（渲染输入与块 `musicxx.Shader` 共用；
   /// 频谱用 `musicxx.spectrum.*` 来源现读），`view` 是插件声明的界面组合（可以配
   /// `musicxx.AnimatedBuilder` 做逐帧动效），`none` 不显示内容。
   ///
@@ -90,21 +94,19 @@ abstract final class MusicxxPluginUIType {
   /// 普通页面背景（渲染槽位 `page.background`）：给歌单页 / 设置页 / 插件自己的页面这类
   /// **普通页面**铺一层背景；弹窗与播放页不在范围内（播放页背景用 [playingBackground]）
   ///
-  /// `data = {title, depict?, enabled?, routes?, shader: {bundle, vertex?, fragment?},
-  ///          args?, cover?, image?, speed?, maxFps?, resolutionScale?, animate?, scrim?}`
+  /// `data = {title, depict?, routes?, view: "<视图id>" | {块对象} | [块数组]}`
   ///
   /// - `routes`：页面路由 id 的字符串数组（例如 `["/songs", "/setting/theme"]`）。
   ///   **不写或空数组 = 所有普通页面**；路由 id 就是主程序 `RouteNames_e` 里的值，
   ///   运行期可以用 `musicxx.state.env` 广播的 `page` 字段读当前路由；
-  /// - 同一个页面命中多项时：写了这个路由的项优先于"所有页面"的项，再按 UI 项的 `order`
-  ///   与注册顺序取第一项；bundle 预检不过或运行期连续失败的那一项会被跳过；
-  /// - **不需要用户选择**：插件声明即生效（与播放页控制栏替换一样）；用户要关就停用插件
-  ///   或关闭『拟声++』；
-  /// - 渲染输入（`args` / `cover` / `image` / `speed` / `maxFps` / `resolutionScale` /
-  ///   `animate` / `scrim`）与播放页背景共用同一份解析。不写 `args` 时默认给主题的 4 个颜色
-  ///   （`uColor1..4` ← `musicxx.theme.primary` / `backgroundCross` / `titleBackground` /
-  ///   `background`），因为普通页面不一定在播放歌曲，封面取色可能不存在；
-  /// - 没有 `view` / `none` 形态：页面背景就是一层铺满页面的画面。
+  /// - 同一个页面命中多项时：写了这个路由的项优先于"所有页面"的项，同一优先级里
+  ///   **最新注册的生效**（它没有用户选择，也不读 `order`）；
+  /// - **不需要用户选择**：插件声明即生效；想不显示就 `musicxx.ui.slot.unregister`，
+  ///   用户要关就停用插件或关闭『拟声++』；
+  /// - 渲染与播放页背景同一份块写法（`view`）：背景铺满页面，块里的 `musicxx.Shader`
+  ///   用 `Expanded` 包住才拿得到确定高度。
+  ///
+  /// 详见 `docs/plugin-shader-bundle.md` §5.5。
   ///
   /// 详见 `docs/plugin-shader-bundle.md` §5.5。
   static const String pageBackground = 'musicxx.ui.page.background';
@@ -112,15 +114,17 @@ abstract final class MusicxxPluginUIType {
   /// 音效（播放时叠加的一段音频滤镜）：注册后追加在『音效』插件的音效页面里，
   /// 与内置预设同一个列表，用户选中才生效
   ///
-  /// `data = {title, subtitle?（或 depict?）, filters（必填，字符串数组）, pitch?, cpuCost?, enabled?}`
+  /// `data = {title, subtitle?（或 depict?）, filters（必填，字符串数组）, pitch?, cpuCost?}`
   ///
   /// 字段说明：
   /// - `filters`：按顺序拼进 mpv `af` 的滤镜串（可以写 `lavfi=[...]` 图语法）。至少要有一条，
   ///   或者给出 `pitch`；
   /// - `pitch`：变调类音效的音调（0.25 ~ 2.0）。选中它会把用户自定义的音调复位，与内置的
   ///   「小风车」这类预设一致；
-  /// - `cpuCost`：1~5 的性能负担（1 最省，默认 3），只用于页面上提示用户；
-  /// - `enabled`：false = 保留注册但不在列表里出现。
+  /// - `cpuCost`：1~5 的性能负担（1 最省，默认 3），只用于页面上提示用户。
+  ///
+  /// 是否可用（『音效』插件有没有启用）、当前选中的是哪一项，都由主程序渲染音效列表时自己判断，
+  /// 插件只描述"效果是什么"；没 `enabled` 字段。
   ///
   /// 音效与均衡器、自定义音调互斥（与内置音效同一套规则）。插件停用 / 卸载后这一项从列表
   /// 消失，如果用户当时选的是它，会回退成「未启用音效」。写法见 `docs/plugin-ui.md` §1.8。
@@ -128,7 +132,7 @@ abstract final class MusicxxPluginUIType {
 
   /// 播放页底部控制按钮栏：**整栏**由插件画（替换，不是插入）
   ///
-  /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
+  /// `data = {view: "<视图id>" | {视图对象} | [块数组]}`
   ///
   /// 有插件声明这个类型时，内置的五个按钮（菜单 / 上一曲 / 播放暂停 / 下一曲 / 收藏）
   /// 不再显示，整栏都由这个视图负责：按钮、图标、点击动作都在视图里写
@@ -142,7 +146,7 @@ abstract final class MusicxxPluginUIType {
 
   /// 播放页控制按钮栏的「菜单」按钮：只替换这一个按钮的显示（内置栏布局不变）
   ///
-  /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
+  /// `data = {view: "<视图id>" | {视图对象} | [块数组]}`
   ///
   /// 内置按钮的行为是打开「更多」菜单，插件可以用官方能力
   /// `musicxx.ui.playing.openMenu` 做同一件事。
@@ -177,7 +181,7 @@ abstract final class MusicxxPluginUIType {
 
   /// 播放页子页面的插入块：**十个位置各一个类型，类型本身就是位置**（没有 `slot` 字段）
   ///
-  /// `data = {view: "<视图id>" | {视图对象} | [块数组], enabled?}`
+  /// `data = {view: "<视图id>" | {视图对象} | [块数组]}`（不想要就 `musicxx.ui.slot.unregister`）
   ///
   /// 页面固定区域（不随列表滚动）：
   /// - [playingLyricTop] / [playingLyricBottom]：歌词页顶部 / 底部；

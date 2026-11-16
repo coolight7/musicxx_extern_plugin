@@ -1765,6 +1765,8 @@ int main(int argc, char **argv) {
             "缺少 title 的声明被拒绝 (-1)");
       check(jsonIntField(probe, "uiPageBackgroundRc") == "0",
             "注册普通页面背景成功 (rc=0)");
+      check(jsonIntField(probe, "uiBackgroundNoViewRc") == "-1",
+            "背景项没有 view（只给 shader）时被拒绝 (-1)");
       check(jsonIntField(probe, "uiPageBackgroundBadRoutesRc") == "-1",
             "页面背景 routes 不是字符串数组时被拒绝 (-1)");
       check(jsonIntField(probe, "uiUpdateRc") == "0",
@@ -1786,7 +1788,7 @@ int main(int argc, char **argv) {
                 snapshot.find("musicxx.ui.playing.background") !=
                     std::string::npos &&
                 snapshot.find("shader/bg.shaderbundle") != std::string::npos,
-            "快照含播放页背景样式 (shader bundle 声明)");
+            "快照含播放页背景样式 (view 里的着色器块)");
       check(snapshot.find("plugin.example_native.pageBg") !=
                     std::string::npos &&
                 snapshot.find("musicxx.ui.page.background") !=

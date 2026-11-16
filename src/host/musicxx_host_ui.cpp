@@ -155,7 +155,7 @@ bool validatePlayingRenderData(std::string_view label, const Json &data,
       return false;
     }
   }
-  // shader 形态: 给出 shader 就必须带可用的 bundle (与播放页背景同一份要求)
+  // shader 形态: 给出 shader 就必须带可用的 bundle (歌曲图 / 动效的接管形态之一)
   if (data.contains("shader")) {
     if (!data["shader"].is_object()) {
       err = prefix + " shader 必须是对象";
@@ -191,19 +191,38 @@ bool validatePlayingRenderData(std::string_view label, const Json &data,
   return true;
 }
 
-/// 校验一条普通页面背景项 (`musicxx.ui.page.background`) 的结构
+/// 校验背景项的内容: 背景是一棵块树, 只能通过 `view` 描述
 ///
-/// 与播放页背景同一份 shader 要求 (必须有 shader.bundle); `routes` 可选,
-/// 写了就必须是非空字符串数组 (不写或空数组 = 所有普通页面).
-bool validatePageBackgroundData(const Json &data, std::string &err) {
-  if (!data.contains("shader") || !data["shader"].is_object()) {
-    err = "页面背景缺少 shader 对象";
+/// `view` 是内联块描述 (对象 / 块数组) 或视图 id (非空字符串)。
+/// 着色器不在这里声明: 它只是块树里的一个 `musicxx.Shader` 块。
+bool validateBackgroundViewData(std::string_view label, const Json &data,
+                                std::string &err) {
+  const std::string prefix{label};
+  if (!data.contains("view")) {
+    err = prefix + " 缺少 view (块描述或视图 id)";
     return false;
   }
-  const Json &shader = data["shader"];
-  if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
-      shader["bundle"].get<std::string>().empty()) {
-    err = "页面背景缺少 shader.bundle (非空字符串)";
+  const Json &view = data["view"];
+  if (view.is_string()) {
+    if (view.get<std::string>().empty()) {
+      err = prefix + " view 不能是空字符串";
+      return false;
+    }
+    return true;
+  }
+  if (view.is_object() || view.is_array()) {
+    return true;
+  }
+  err = prefix + " view 必须是块描述 (对象 / 数组) 或视图 id 字符串";
+  return false;
+}
+
+/// 校验一条普通页面背景项 (`musicxx.ui.page.background`) 的结构
+///
+/// 与播放页背景同一条要求: 必须有 `view`; `routes` 可选, 写了就必须是
+/// 非空字符串数组 (不写或空数组 = 所有普通页面)。
+bool validatePageBackgroundData(const Json &data, std::string &err) {
+  if (!validateBackgroundViewData("页面背景", data, err)) {
     return false;
   }
   if (data.contains("routes")) {
@@ -361,15 +380,8 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
     }
   }
   if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND) {
-    // 播放页背景: 必须有 shader.bundle (插件目录内的相对路径), 插件框架加载时再校验
-    if (!data.contains("shader") || !data["shader"].is_object()) {
-      err = "播放页背景缺少 shader 对象";
-      return false;
-    }
-    const Json &shader = data["shader"];
-    if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
-        shader["bundle"].get<std::string>().empty()) {
-      err = "播放页背景缺少 shader.bundle (非空字符串)";
+    // 播放页背景: 必须有 view (块描述或视图 id); 着色器写在 view 里的块上
+    if (!validateBackgroundViewData("播放页背景", data, err)) {
       return false;
     }
   }

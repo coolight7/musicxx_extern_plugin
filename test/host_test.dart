@@ -689,56 +689,87 @@ void main() {
               )
               .toList();
       expect(backgrounds.length, 6, reason: '六种背景样式各注册一个: $backgrounds');
+      /// 第 [index] 个样式的着色器块（背景的根块是 `Expanded`，着色器在它的 children 里）
+      Map<String, Object?> shaderOf(int index) {
+        final Map<String, Object?> data = backgrounds[index].data;
+        expect(
+          data.containsKey('shader') ||
+              data.containsKey('cover') ||
+              data.containsKey('image'),
+          isFalse,
+          reason: '背景项不再收到 item 级的 shader / cover / image（只有 view）',
+        );
+        final Map<String, Object?>? shader = _shaderBlockOf(data);
+        expect(shader, isNotNull, reason: '第 $index 个样式要在 view 里写着色器块');
+        return shader!;
+      }
+
+      Map<String, Object?> argsOf(int index) {
+        final Object? args = shaderOf(index)['args'];
+        expect(args, isA<Map<String, Object?>>());
+        return args! as Map<String, Object?>;
+      }
+
+      Map<String, Object?> textureOf(int index, String name) {
+        final Object? texture = argsOf(index)[name];
+        expect(
+          texture,
+          isA<Map<String, Object?>>(),
+          reason: '纹理声明就是 args 里的一个成员（成员名 = 采样器名）',
+        );
+        return texture! as Map<String, Object?>;
+      }
+
       expect(
-        (backgrounds[0].data['shader']! as Map<String, Object?>)['bundle'],
+        shaderOf(0)['bundle'],
         'shader/heat.shaderbundle',
         reason: '第一个是『模糊』',
       );
       expect(
-        (backgrounds[0].data['cover']! as Map<String, Object?>)['blur'],
+        textureOf(0, 'uCover')['blur'],
         14,
         reason: '封面纹理的预模糊强度由插件声明（默认 14，设置页可在 0~30 之间调）',
       );
       expect(
-        (backgrounds[1].data['shader']! as Map<String, Object?>)['bundle'],
+        shaderOf(1)['bundle'],
         'shader/card.shaderbundle',
         reason: '第二个是『沉浸』（清晰封面 + 渐变底 + 亮暗遮罩）',
       );
       expect(
-        (backgrounds[1].data['cover']! as Map<String, Object?>)['blur'],
-        0,
-        reason: '『沉浸』的封面卡片要是原图，不做预模糊',
+        textureOf(1, 'uCover').containsKey('blur'),
+        isFalse,
+        reason: '『沉浸』的封面卡片要是原图，不做预模糊（类声明不写 blur）',
       );
       expect(
-        (backgrounds[2].data['shader']! as Map<String, Object?>)['bundle'],
+        shaderOf(2)['bundle'],
         'shader/vinyl.shaderbundle',
         reason: '第三个是『黑胶』（唱盘 + 圆裁封面 + 唱臂）',
       );
       expect(
-        (backgrounds[2].data['cover']! as Map<String, Object?>)['square'],
+        textureOf(2, 'uCover')['square'],
         true,
         reason: '『黑胶』的盘心是圆裁的封面：纹理要中心裁剪成正方形',
       );
       expect(
-        backgrounds[2].data['speed'],
+        shaderOf(2)['speed'],
         1,
-        reason: '『黑胶』的转速由 speed 决定（默认 1×；改转速不用重新选中该样式）',
+        reason: '『黑胶』的转速由块的 speed 决定（默认 1×；改转速不用重新选中该样式）',
       );
       expect(
-        (backgrounds[3].data['shader']! as Map<String, Object?>)['bundle'],
+        shaderOf(3)['bundle'],
         'shader/bg.shaderbundle',
         reason: '第四个是『晶格』（模糊封面铺底 + 晶格图案）',
       );
-      expect(backgrounds[3].data['speed'], 1, reason: '图案样式默认 1× = 基准速度 1');
+      expect(shaderOf(3)['speed'], 1, reason: '图案样式默认 1× = 基准速度 1');
       expect(
-        (backgrounds[4].data['shader']! as Map<String, Object?>)['bundle'],
+        shaderOf(4)['bundle'],
         'shader/ring.shaderbundle',
         reason: '第五个是『光圈』（频谱圆环）',
       );
       expect(
-        backgrounds[5].data['image'],
-        isA<Map<String, Object?>>(),
-        reason: '第六个是『插件纹理铺底』：底层用插件绑定的图片（image 声明，不是 cover）',
+        textureOf(5, 'uCoverBack')['source'],
+        'musicxx.image.coverArt',
+        reason: '第六个是『插件纹理铺底』：底层用插件绑定的图片（musicxx.image.<key>）',
       );
       // 歌曲图接管项：mode = none（保留占位、不显示内容）
       final MusicxxPluginUIItem icon =
@@ -852,9 +883,9 @@ void main() {
             item.id == 'plugin.example_js_playing_bg.bgVinyl',
       );
       expect(
-        vinylAfterSpin.data['speed'],
+        _shaderBlockOf(vinylAfterSpin.data)?['speed'],
         2,
-        reason: '改「唱片转速」要重新声明样式（把新速度写进 speed）',
+        reason: '改「唱片转速」要重新声明样式（把新速度写进块的 speed）',
       );
       await runtime.plugins.call(
         'example_js_playing_bg',
@@ -876,7 +907,7 @@ void main() {
                 item.id == 'plugin.example_js_playing_bg.lattice',
           );
       expect(
-        latticeAfterRate.data['speed'],
+        _shaderBlockOf(latticeAfterRate.data)?['speed'],
         2,
         reason: '背景动画速率 2x = 基准速度 1 × 2',
       );
@@ -1252,6 +1283,25 @@ class _Environment {
 
 /// 取一个数值字段（缺省或类型不符时按 0 处理；读插件的探针结果用）
 int _intOf(Object? value) => value is num ? value.toInt() : 0;
+
+/// UI 项 `view` 里的着色器块
+///
+/// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `children` 里；
+/// 以后换成 `Column` 套 `Expanded` 也能沿这条链找下去。
+Map<String, Object?>? _shaderBlockOf(Object? data) {
+  Object? node = data is Map ? data['view'] : null;
+  for (int depth = 0; depth < 4 && node is Map; ++depth) {
+    if (node['kind'] == 'musicxx.Shader') {
+      return node.cast<String, Object?>();
+    }
+    final Object? children = node['children'];
+    if (children is! List || children.isEmpty) {
+      return null;
+    }
+    node = children.first;
+  }
+  return null;
+}
 
 /// 递归收集界面描述里的文本（断言"这一页里有没有某段文案"用）
 void _collectText(Object? node, List<String> out) {
