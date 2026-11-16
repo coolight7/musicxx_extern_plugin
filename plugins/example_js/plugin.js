@@ -160,7 +160,7 @@ applyHeartbeat(DEFAULT_HEARTBEAT_MS);
 /// 说明: UI 项只做声明 (标题/图标/动作), 渲染由主程序负责; 运行期也能再注册/更新/注销。
 /// 图标是**插件自己带的 svg**: 写一条相对插件目录的路径, 文件在 `resource/svg/example.svg`
 /// (相对路径 + `resource/svg/` 只是推荐位置, 见 docs/plugin-ui.md §1.5)。
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "card",
     type: "home.entry",
     order: 110,
@@ -172,7 +172,7 @@ musicxx.ui.registerEntry({
     },
 });
 
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "songInfo",
     type: "song.action",
     order: 910,
@@ -516,7 +516,7 @@ musicxx.capability.register("probe", function (args) {
         hostUiKind: (ui && ui.kind) ? String(ui.kind) : "",
         hostUiBlocks: (ui && Array.isArray(ui.blocks)) ? ui.blocks.length : -1,
         currentSongName: currentSongName(),
-        uiEntries: musicxx.ui.entries().length,
+        uiEntries: musicxx.ui.slot.entries().length,
         // 自读统计 (只观测不限制; 插件可据此显示自己的用量)
         selfStatsImplementations: selfStats.implementations || 0,
         crossPending: crossCallState.pending,
@@ -633,7 +633,7 @@ function cardView(args) {
             kit.listRow({
                 title: "已注册的 UI 项",
                 subtitle: "主页入口 / 歌曲菜单",
-                trailing: String(musicxx.ui.entries().length),
+                trailing: String(musicxx.ui.slot.entries().length),
             }, env),
             kit.listRow({
                 title: "跨插件调用",

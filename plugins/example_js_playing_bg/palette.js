@@ -567,7 +567,7 @@ function applyForegroundIfChanged() {
 
 /// 把"重推前景三色"排到本轮之后再执行
 ///
-/// 取色钩子是主程序等着回答的调用点（处理器里直接调 `musicxx.ui.updateEntry` 会打断调用方），
+/// 取色钩子是主程序等着回答的调用点（处理器里直接调 `musicxx.ui.slot.update` 会打断调用方），
 /// 所以统一延后到下一次定时器回调里做。
 function applyForegroundLater() {
     if (foregroundApplyScheduled) {

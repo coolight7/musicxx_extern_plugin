@@ -240,12 +240,14 @@ abstract final class MusicxxCapabilityId {
   static const String netFetch = 'musicxx.net.fetch';
   /// musicxx.net.download
   static const String netDownload = 'musicxx.net.download';
-  /// 列出渲染槽位
-  static const String renderList = 'musicxx.render.list';
-  /// 当前渲染项
-  static const String renderCurrent = 'musicxx.render.current';
-  /// 选择渲染项
-  static const String renderSelect = 'musicxx.render.select';
+  /// 列出可选槽位
+  static const String uiSlotList = 'musicxx.ui.slot.list';
+  /// 当前槽位项
+  static const String uiSlotCurrent = 'musicxx.ui.slot.current';
+  /// 选择槽位项
+  static const String uiSlotSelect = 'musicxx.ui.slot.select';
+  /// 设置播放页前景
+  static const String uiPlayingForegroundSet = 'musicxx.ui.playing.foreground.set';
   /// 列出音效
   static const String playerAudioEffectList = 'musicxx.player.audioEffect.list';
   /// 当前音效
@@ -380,9 +382,10 @@ abstract final class MusicxxCapabilityId {
     storageList,
     netFetch,
     netDownload,
-    renderList,
-    renderCurrent,
-    renderSelect,
+    uiSlotList,
+    uiSlotCurrent,
+    uiSlotSelect,
+    uiPlayingForegroundSet,
     playerAudioEffectList,
     playerAudioEffectGet,
     playerAudioEffectSet,
@@ -461,8 +464,8 @@ abstract final class MusicxxBroadcastId {
   static const String stateSonglists = 'musicxx.state.songlists';
   /// 运行环境
   static const String stateEnv = 'musicxx.state.env';
-  /// 渲染槽位状态
-  static const String stateRenderSlots = 'musicxx.state.renderSlots';
+  /// 可选槽位状态
+  static const String stateUiSlots = 'musicxx.state.uiSlots';
   /// 当前频谱
   static const String stateSpectrum = 'musicxx.state.spectrum';
 
@@ -492,7 +495,7 @@ abstract final class MusicxxBroadcastId {
     stateLyric,
     stateSonglists,
     stateEnv,
-    stateRenderSlots,
+    stateUiSlots,
     stateSpectrum,
   ];
 }
@@ -2304,7 +2307,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.render.list',
+      id: 'musicxx.ui.slot.list',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2320,11 +2323,11 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
-      title: '列出渲染槽位',
-      depict: '列出渲染槽位与候选（可以只看一个槽位）',
+      title: '列出可选槽位',
+      depict: '列出多注册者可选的槽位与候选（可以只看一个槽位）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.render.current',
+      id: 'musicxx.ui.slot.current',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2340,11 +2343,11 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
-      title: '当前渲染项',
-      depict: '读某个槽位当前选中的项',
+      title: '当前槽位项',
+      depict: '读某个槽位当前选中的项（缺省槽位是播放页背景）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.render.select',
+      id: 'musicxx.ui.slot.select',
       impls: 'one',
       merge: '',
       phases: <String>['impl'],
@@ -2360,8 +2363,28 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
-      title: '选择渲染项',
+      title: '选择槽位项',
       depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.playing.foreground.set',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '设置播放页前景',
+      depict: '播放页背景插件指定前景样式与三色（只有当前生效的插件项能调）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.player.audioEffect.list',
@@ -3156,7 +3179,7 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
-      id: 'musicxx.state.renderSlots',
+      id: 'musicxx.state.uiSlots',
       cache: 'latest',
       publish: 'owner',
       pushOnSubscribe: true,
@@ -3164,7 +3187,7 @@ abstract final class MusicxxCapabilityCatalogue {
       scope: 'app',
       type: '',
       options: <String>[],
-      title: '渲染槽位状态',
+      title: '可选槽位状态',
       depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(

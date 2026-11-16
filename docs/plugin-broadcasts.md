@@ -51,7 +51,7 @@
 | `musicxx.state.lyric` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.songlists` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.env` | latest | owner | 是 | 允许 | app |
-| `musicxx.state.renderSlots` | latest | owner | 是 | 允许 | app |
+| `musicxx.state.uiSlots` | latest | owner | 是 | 允许 | app |
 | `musicxx.state.spectrum` | latest | owner | 是 | 允许 | app |
 
 ## 官方频道当前值

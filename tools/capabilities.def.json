@@ -1313,10 +1313,10 @@
       "doc": ""
     },
     {
-      "id": "musicxx.render.list",
-      "dart": "renderList",
-      "title": "列出渲染槽位",
-      "depict": "列出渲染槽位与候选（可以只看一个槽位）",
+      "id": "musicxx.ui.slot.list",
+      "dart": "uiSlotList",
+      "title": "列出可选槽位",
+      "depict": "列出多注册者可选的槽位与候选（可以只看一个槽位）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1329,10 +1329,10 @@
       "doc": ""
     },
     {
-      "id": "musicxx.render.current",
-      "dart": "renderCurrent",
-      "title": "当前渲染项",
-      "depict": "读某个槽位当前选中的项",
+      "id": "musicxx.ui.slot.current",
+      "dart": "uiSlotCurrent",
+      "title": "当前槽位项",
+      "depict": "读某个槽位当前选中的项（缺省槽位是播放页背景）",
       "impls": "one",
       "phases": [
         "impl"
@@ -1345,9 +1345,9 @@
       "doc": ""
     },
     {
-      "id": "musicxx.render.select",
-      "dart": "renderSelect",
-      "title": "选择渲染项",
+      "id": "musicxx.ui.slot.select",
+      "dart": "uiSlotSelect",
+      "title": "选择槽位项",
       "depict": "把某个槽位换成指定候选（插件项与内置项同一份列表）",
       "impls": "one",
       "phases": [
@@ -1359,6 +1359,22 @@
       "cli": {},
       "plugin": {},
       "doc": ""
+    },
+    {
+      "id": "musicxx.ui.playing.foreground.set",
+      "dart": "uiPlayingForegroundSet",
+      "title": "设置播放页前景",
+      "depict": "播放页背景插件指定前景样式与三色（只有当前生效的插件项能调）",
+      "impls": "one",
+      "phases": [
+        "impl"
+      ],
+      "dispatch": "async",
+      "timeoutMs": 5000,
+      "cache": "none",
+      "cli": {},
+      "plugin": {},
+      "doc": "参数：style（mask 浅色遮罩样式，默认 / neumorphism 常规轻拟物，未知值按 mask）；colors（对象，main 普通色 / cross 减淡色 / block 块背景色，颜色串 #rrggbb 或 #aarrggbb，缺的用主题默认补齐；给了 colors 就一定用遮罩样式）；clear: true 清空回主题默认。失败码：not_active = 调用方不是当前生效的播放页背景插件；not_selected = 它的背景样式当前没被选中；invalid_argument = 参数非法。生效项换人 / 插件停用 / 卸载时应用会自动清空；同一个插件里切歌、切昼夜不清。"
     },
     {
       "id": "musicxx.player.audioEffect.list",
@@ -2078,9 +2094,9 @@
       "doc": ""
     },
     {
-      "id": "musicxx.state.renderSlots",
-      "dart": "stateRenderSlots",
-      "title": "渲染槽位状态",
+      "id": "musicxx.state.uiSlots",
+      "dart": "stateUiSlots",
+      "title": "可选槽位状态",
       "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",

@@ -156,9 +156,10 @@
 #define MUSICXX_CAPABILITY_STORAGE_LIST "musicxx.storage.list"
 #define MUSICXX_CAPABILITY_NET_FETCH "musicxx.net.fetch"
 #define MUSICXX_CAPABILITY_NET_DOWNLOAD "musicxx.net.download"
-#define MUSICXX_CAPABILITY_RENDER_LIST "musicxx.render.list"
-#define MUSICXX_CAPABILITY_RENDER_CURRENT "musicxx.render.current"
-#define MUSICXX_CAPABILITY_RENDER_SELECT "musicxx.render.select"
+#define MUSICXX_CAPABILITY_UI_SLOT_LIST "musicxx.ui.slot.list"
+#define MUSICXX_CAPABILITY_UI_SLOT_CURRENT "musicxx.ui.slot.current"
+#define MUSICXX_CAPABILITY_UI_SLOT_SELECT "musicxx.ui.slot.select"
+#define MUSICXX_CAPABILITY_UI_PLAYING_FOREGROUND_SET "musicxx.ui.playing.foreground.set"
 #define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_LIST "musicxx.player.audioEffect.list"
 #define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_GET "musicxx.player.audioEffect.get"
 #define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_SET "musicxx.player.audioEffect.set"
@@ -209,7 +210,7 @@
 #define MUSICXX_BROADCAST_STATE_LYRIC "musicxx.state.lyric"
 #define MUSICXX_BROADCAST_STATE_SONGLISTS "musicxx.state.songlists"
 #define MUSICXX_BROADCAST_STATE_ENV "musicxx.state.env"
-#define MUSICXX_BROADCAST_STATE_RENDER_SLOTS "musicxx.state.renderSlots"
+#define MUSICXX_BROADCAST_STATE_UI_SLOTS "musicxx.state.uiSlots"
 #define MUSICXX_BROADCAST_STATE_SPECTRUM "musicxx.state.spectrum"
 
 /* ==================== 已知声明表 ==================== */
@@ -318,9 +319,10 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.storage.list", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.net.fetch", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.net.download", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.render.list", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.render.current", 0, 0, 1u, 1, 5000, 0, 5u},
-    {"musicxx.render.select", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.ui.slot.list", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.ui.slot.current", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.ui.slot.select", 0, 0, 1u, 1, 5000, 0, 5u},
+    {"musicxx.ui.playing.foreground.set", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.audioEffect.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.audioEffect.get", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.audioEffect.set", 0, 0, 1u, 1, 5000, 0, 5u},
@@ -376,7 +378,7 @@ static const MusicxxBroadcastDecl musicxxBroadcastDecls[] = {
     {"musicxx.state.lyric", 1, 0, 1, 1, 0},
     {"musicxx.state.songlists", 1, 0, 1, 1, 0},
     {"musicxx.state.env", 1, 0, 1, 1, 0},
-    {"musicxx.state.renderSlots", 1, 0, 1, 1, 0},
+    {"musicxx.state.uiSlots", 1, 0, 1, 1, 0},
     {"musicxx.state.spectrum", 1, 0, 1, 1, 0},
 };
 

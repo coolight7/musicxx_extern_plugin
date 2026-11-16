@@ -23,7 +23,7 @@ const SLOT_CONTROL_BAR_MENU = "playing.controlBar.menu";
 const SLOT_CONTROL_BAR_FAVORITE = "playing.controlBar.favorite";
 const SLOT_VISUALIZER = "playing.visualizer";
 
-/// 渲染槽位 id（`musicxx.render.select` 的 slot 参数）与内置的"不显示"项
+/// 渲染槽位 id（`musicxx.ui.slot.select` 的 slot 参数）与内置的"不显示"项
 const VISUALIZER_SLOT_ID = "player.visualizer";
 const NONE_VISUALIZER_ID = "musicxx.none";
 
@@ -84,20 +84,20 @@ function lyricTopEntryData() {
 /// 同一位置可以注册多项、按 `order` 从上到下排；`enabled: false` 保留注册但不渲染
 /// （设置页的「显示 / 隐藏歌词页顶部提示」就是改这个字段）。
 function registerInsertSlots(lyricTipEnabled) {
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_LYRIC_TOP,
         type: SLOT_LYRIC_TOP,
         order: 10,
         data: Object.assign(lyricTopEntryData(), { enabled: true === lyricTipEnabled }),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_SONGLIST_HEADER,
         type: SLOT_SONGLIST_HEADER,
         order: 10,
         // 视图 id：主程序调本插件的能力 `songlistHeader` 取内容（能按状态返回不同块）
         data: { view: "songlistHeader" },
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_MORE_INFO_FOOTER,
         type: SLOT_MORE_INFO_FOOTER,
         order: 10,
@@ -105,9 +105,9 @@ function registerInsertSlots(lyricTipEnabled) {
     });
 }
 
-/// 运行期显示 / 隐藏歌词页顶部那块（`updateEntry` 是整体替换，要给完整 data）
+/// 运行期显示 / 隐藏歌词页顶部那块（`musicxx.ui.slot.update` 是整体替换，要给完整 data）
 function applyLyricTip(enabled) {
-    musicxx.ui.updateEntry(
+    musicxx.ui.slot.update(
         SLOT_NAME_LYRIC_TOP,
         Object.assign(lyricTopEntryData(), { enabled: true === enabled }));
 }
@@ -117,7 +117,7 @@ function applyLyricTip(enabled) {
 /// - 菜单按钮用内联视图：只有一个图标 + 官方动作 `musicxx.ui.playing.openMenu`；
 /// - 收藏按钮用视图 id：要按 `args.favorite` 换显示（"状态变了会重新取一次视图"）。
 function registerButtonSlots() {
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_MENU,
         type: SLOT_CONTROL_BAR_MENU,
         order: 10,
@@ -133,7 +133,7 @@ function registerButtonSlots() {
             },
         },
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_FAVORITE,
         type: SLOT_CONTROL_BAR_FAVORITE,
         order: 10,
@@ -146,7 +146,7 @@ function registerButtonSlots() {
 /// 同一个位置**只认一项**：整栏生效时，按钮级的两个项仍然注册着、但不再参与渲染
 /// （页面上会提示这一点，免得以为注销失败）。关掉开关就注销整栏，按钮级替换重新生效。
 function registerWholeBar() {
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_WHOLE_BAR,
         type: SLOT_CONTROL_BAR,
         order: 10,
@@ -155,12 +155,12 @@ function registerWholeBar() {
 }
 
 function unregisterWholeBar() {
-    musicxx.ui.unregisterEntry(SLOT_NAME_WHOLE_BAR);
+    musicxx.ui.slot.unregister(SLOT_NAME_WHOLE_BAR);
 }
 
 /// 注册主页入口（说明页 `ext://<插件 id>/card`）
 function registerHomeEntry() {
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: SLOT_NAME_HOME,
         type: "home.entry",
         order: 140,

@@ -854,7 +854,7 @@ public:
 
     /// 注册一个 UI 项: `itemName` 用短名 (如 "card"), `type` 取 MUSICXX_PLUGIN_UI_TYPE_*,
     /// `dataJson` 是类型相关的声明式内容 (JSON 对象)
-    int32_t uiRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
+    int32_t uiSlotRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
         if (!iface.ui || !iface.ui->register_entry) {
             log.warn("musicxx.ui 表不可用: UI 项未注册 (插件框架版本过旧?)");
             return -1;
@@ -871,14 +871,14 @@ public:
     }
 
     /// 注册一个 UI 项（`data` 用 Json 对象传；与上面那版等价，便于用 Json 拼内容）
-    int32_t uiRegister(const char* itemName, const char* type,
+    int32_t uiSlotRegister(const char* itemName, const char* type,
                        const utilxx_base::Json& data, int32_t order = 0) {
         const std::string json = data.dump();
-        return uiRegister(itemName, type, json.c_str(), order);
+        return uiSlotRegister(itemName, type, json.c_str(), order);
     }
 
     /// 更新一个 UI 项的声明式内容
-    int32_t uiUpdate(const char* itemName, const char* dataJson) {
+    int32_t uiSlotUpdate(const char* itemName, const char* dataJson) {
         if (!iface.ui || !iface.ui->update_entry) {
             return -1;
         }
@@ -888,7 +888,7 @@ public:
     }
 
     /// 注销一个 UI 项
-    int32_t uiUnregister(const char* itemName) {
+    int32_t uiSlotUnregister(const char* itemName) {
         if (!iface.ui || !iface.ui->unregister_entry) {
             return -1;
         }
@@ -897,7 +897,7 @@ public:
     }
 
     /// 本插件已注册的 UI 项 (JSON 数组; 表不可用时返回空数组)
-    std::string uiEntries() const {
+    std::string uiSlotEntries() const {
         if (!iface.ui || !iface.ui->list_entries) {
             return "[]";
         }

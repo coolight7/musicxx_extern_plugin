@@ -110,9 +110,10 @@
 | `musicxx.storage.list` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.net.fetch` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.net.download` | 命令、插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.render.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.render.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.render.select` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.slot.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.slot.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.slot.select` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.playing.foreground.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
@@ -284,6 +285,10 @@
 参数 `{target}`：主题 id 或 `toggle`（按当前明暗互切）。与侧边抽屉按钮、局域网控制的临时切主题是同一语义：走 `theme_s.setCustom`，**会暂停主题跟随**（用户下次手动切模式才恢复）。
 
 它表达的是一次操作、没有当前值，所以只有能力、没有对应广播。回答 `{ok: true, id}`；`target` 既不是主题 id 也不是 `toggle` 时返回失败并说明原因。
+
+### `musicxx.ui.playing.foreground.set` 设置播放页前景
+
+参数：style（mask 浅色遮罩样式，默认 / neumorphism 常规轻拟物，未知值按 mask）；colors（对象，main 普通色 / cross 减淡色 / block 块背景色，颜色串 #rrggbb 或 #aarrggbb，缺的用主题默认补齐；给了 colors 就一定用遮罩样式）；clear: true 清空回主题默认。失败码：not_active = 调用方不是当前生效的播放页背景插件；not_selected = 它的背景样式当前没被选中；invalid_argument = 参数非法。生效项换人 / 插件停用 / 卸载时应用会自动清空；同一个插件里切歌、切昼夜不清。
 
 ### `musicxx.player.audioEffect.list` 列出音效
 

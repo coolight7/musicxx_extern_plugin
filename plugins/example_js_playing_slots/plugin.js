@@ -109,7 +109,7 @@ function installSlotCapabilities() {
     musicxx.capability.register("probe", function () {
         return {
             pluginId: PLUGIN_ID,
-            uiEntries: musicxx.ui.entries().length,
+            uiEntries: musicxx.ui.slot.entries().length,
             // 数字（1 / 0）：原生测试按整数字段读（布尔会被当成 0）
             hasSlotViews: (typeof songlistHeaderView === "function") ? 1 : 0,
             hasControlBar: (typeof controlBarView === "function") ? 1 : 0,
@@ -198,7 +198,7 @@ if (configWholeBar()) {
 }
 
 /// 音频动效候选
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: SLOT_NAME_VISUALIZER,
     type: SLOT_VISUALIZER,
     order: 10,

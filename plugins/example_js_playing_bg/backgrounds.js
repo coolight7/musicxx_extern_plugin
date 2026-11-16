@@ -348,7 +348,7 @@ function vinylBackgroundData() {
 /// 『晶格』的完整声明
 ///
 /// 组成: 封面经中心裁剪 + 预模糊后当铺底（`uCoverBack`），上面叠晶格图案；
-/// 画面只随时间缓慢漂移，不读频谱。`musicxx.ui.updateEntry` 是**整体替换**，
+/// 画面只随时间缓慢漂移，不读频谱。`musicxx.ui.slot.update` 是**整体替换**，
 /// 所以每次都从这一个函数取完整 data。
 function latticeBackgroundData() {
     return {
@@ -434,18 +434,18 @@ function configuredBgRateValue() {
     return normalizeBgRate(configuredBgRate());
 }
 
-/// 重新声明六个背景样式（`updateEntry` 是整体替换，每次都要给完整 data）
+/// 重新声明六个背景样式（`musicxx.ui.slot.update` 是整体替换，每次都要给完整 data）
 ///
 /// 插件框架收到后会刷新候选；正在使用的样式立即用新参数（封面纹理按新参数重新解码，
 /// 『模糊』改模糊程度时就能当场看到变化；『黑胶』改转速只换 `speed`，下一帧就按新转速转）。
 function refreshBackgroundEntries() {
     lastForegroundSpec = foregroundSpecsSignature();
-    musicxx.ui.updateEntry(ITEM_NAME_BLUR, blurBackgroundData());
-    musicxx.ui.updateEntry(ITEM_NAME_CARD, cardBackgroundData());
-    musicxx.ui.updateEntry(ITEM_NAME_VINYL, vinylBackgroundData());
-    musicxx.ui.updateEntry(ITEM_NAME_LATTICE, latticeBackgroundData());
-    musicxx.ui.updateEntry(ITEM_NAME_RING, ringBackgroundData());
-    musicxx.ui.updateEntry(ITEM_NAME_BOUND, boundBackgroundData());
+    musicxx.ui.slot.update(ITEM_NAME_BLUR, blurBackgroundData());
+    musicxx.ui.slot.update(ITEM_NAME_CARD, cardBackgroundData());
+    musicxx.ui.slot.update(ITEM_NAME_VINYL, vinylBackgroundData());
+    musicxx.ui.slot.update(ITEM_NAME_LATTICE, latticeBackgroundData());
+    musicxx.ui.slot.update(ITEM_NAME_RING, ringBackgroundData());
+    musicxx.ui.slot.update(ITEM_NAME_BOUND, boundBackgroundData());
 }
 
 /// 顶层注册六个背景样式 + 歌曲图接管项 + 主页入口（由 plugin.js 在最后调用）
@@ -453,56 +453,56 @@ function refreshBackgroundEntries() {
 /// 注册顺序与 `order` 决定设置列表里的先后（快照按类型 + order 排序）：
 /// 封面三种在前（20~22），图案三种在后（30~32）。
 function registerPluginEntries() {
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_BLUR,
         type: "playing.background",
         order: 20,
         data: blurBackgroundData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_CARD,
         type: "playing.background",
         order: 21,
         data: cardBackgroundData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_VINYL,
         type: "playing.background",
         order: 22,
         data: vinylBackgroundData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_LATTICE,
         type: "playing.background",
         order: 30,
         data: latticeBackgroundData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_RING,
         type: "playing.background",
         order: 31,
         data: ringBackgroundData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_BOUND,
         type: "playing.background",
         order: 32,
         data: boundBackgroundData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_ICON,
         type: "playing.icon",
         order: 40,
         data: iconEntryData(),
     });
-    musicxx.ui.registerEntry({
+    musicxx.ui.slot.register({
         name: ITEM_NAME_HOME,
         type: "home.entry",
         order: 130,
         data: {
             title: PLUGIN_TITLE,
             subtitle: "六种播放页背景（封面三种 + 图案三种）+ 歌曲图接管 + 封面取色 + 自动前景色",
-            // 图标放在 data 里（`registerEntry` 只在没有 data 时才把顶层字段并进去）；
+            // 图标放在 data 里（`musicxx.ui.slot.register` 只在没有 data 时才把顶层字段并进去）；
             // 图标是插件自己带的 svg：相对插件目录的路径（resource/svg/ 只是推荐位置，
             // 插件框架不接受自己的图标名）
             icon: "resource/svg/vinyl.svg",

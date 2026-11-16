@@ -234,18 +234,18 @@ var featurePointImpls = new Map();
     "playing.songlist.footer": "musicxx.ui.playing.songlist.footer"
   };
   function normalizeType(value) {
-    assertName(value, "ui.registerEntry: type");
+    assertName(value, "ui.slot.register: type");
     var text = String(value);
     return UI_TYPES[text] || text;
   }
   function normalizeEntry(spec) {
     if (typeof spec === "string") { spec = { name: spec }; }
-    if (!spec || typeof spec !== "object") { throw new Error("ui.registerEntry: 需要对象参数"); }
+    if (!spec || typeof spec !== "object") { throw new Error("ui.slot.register: 需要对象参数"); }
     var name = (typeof spec.name === "string" && spec.name)
                  ? spec.name
                  : (typeof spec.id === "string" ? spec.id : "");
     name = shortName(name);
-    assertName(name, "ui.registerEntry: name");
+    assertName(name, "ui.slot.register: name");
     spec.type = normalizeType(spec.type);
     var data = spec.data;
     if (data === undefined || data === null) {
@@ -255,7 +255,7 @@ var featurePointImpls = new Map();
         data[key] = spec[key];
       });
     }
-    if (typeof data !== "object" || data === null) { throw new Error("ui.registerEntry: data 必须是对象"); }
+    if (typeof data !== "object" || data === null) { throw new Error("ui.slot.register: data 必须是对象"); }
     return {
       name: name,
       type: String(spec.type),
@@ -1017,14 +1017,23 @@ var featurePointImpls = new Map();
     loadFont: function (options) {
       return appCall("musicxx.ui.loadFont", options || {});
     },
-    registerEntry: function (spec) {
+  };
+
+  // UI 项注册与可选槽位 (musicxx.ui.slot): 注册 / 更新 / 移除本插件的 UI 项,
+  // 读回已注册的项, 以及查询和切换"多注册者可选"槽位 (播放页背景 / 歌曲图 / 音频动效) 的当前项.
+  // - 同名重复 register = 覆盖并保留原排序位置; unregister 后再 register = 新注册 (排到最后);
+  // - 一个位置只取一项时 (单一实现者模式, 例如普通页面背景) 就是"最新注册的生效";
+  // - 未带 slot 时用默认槽位 (当前是 player.background 播放页背景);
+  // - select 只在"该项可用"时成功; 失败返回 { ok:false, error }.
+  musicxx.ui.slot = {
+    register: function (spec) {
       var entry = normalizeEntry(spec);
       uiTable.set(entry.name, { type: entry.type, order: entry.order, data: entry.data });
       ext.uiOp("register", entry.name, entry.type, safeJson(entry.data), entry.order);
       return musicxx;
     },
-    updateEntry: function (name, data) {
-      assertName(name, "ui.updateEntry: 名称");
+    update: function (name, data) {
+      assertName(name, "ui.slot.update: 名称");
       var key = shortName(name);
       var previous = uiTable.get(key);
       var type = previous ? previous.type : "";
@@ -1032,8 +1041,8 @@ var featurePointImpls = new Map();
       ext.uiOp("update", key, type, safeJson(data), 0);
       return musicxx;
     },
-    unregisterEntry: function (name) {
-      assertName(name, "ui.unregisterEntry: 名称");
+    unregister: function (name) {
+      assertName(name, "ui.slot.unregister: 名称");
       var key = shortName(name);
       uiTable.delete(key);
       ext.uiOp("unregister", key, "", "{}", 0);
@@ -1046,23 +1055,17 @@ var featurePointImpls = new Map();
                     type: value.type, order: value.order, data: value.data });
       });
       return list;
-    }
-  };
-
-  // 渲染槽位 (插件渲染的背景等): 查询可用样式 / 切换样式 (允许切到主程序内置样式)
-  // - 未带 slot 时用插件框架默认槽位 (当前是 player.background 播放页背景);
-  // - select 只在"该项可用"时成功; 失败返回 { ok:false, error }.
-  musicxx.render = {
+    },
     list: function (args) {
-      return appCall("musicxx.render.list", { slot: (args && args.slot) ? String(args.slot) : undefined });
+      return appCall("musicxx.ui.slot.list", { slot: (args && args.slot) ? String(args.slot) : undefined });
     },
     current: function (args) {
-      return appCall("musicxx.render.current", { slot: (args && args.slot) ? String(args.slot) : undefined });
+      return appCall("musicxx.ui.slot.current", { slot: (args && args.slot) ? String(args.slot) : undefined });
     },
     select: function (id, args) {
       var req = (args && typeof args === "object") ? args : {};
       req.id = String(id);
-      return appCall("musicxx.render.select", req);
+      return appCall("musicxx.ui.slot.select", req);
     }
   };
 

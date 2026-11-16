@@ -285,23 +285,23 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    注意: UI 项只声明"长什么样、点了做什么", 渲染由主程序 (Dart 侧) 负责。
     //    图标是**插件自己带的 svg**（写相对插件目录的路径；文件在 resource/svg/native.svg，
     //    resource/svg/ 只是推荐位置，随 ASSETS 分发），插件框架不接受自己的图标名。
-    uiHomeRc = uiRegister(
+    uiHomeRc = uiSlotRegister(
         "card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
         R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
                  "action":{"kind":"route","route":"ext://example_native/card"}})",
         100);
-    uiSongRc = uiRegister("songInfo", MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
+    uiSongRc = uiSlotRegister("songInfo", MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
                           R"({"title":"示例插件：查看歌曲信息",
                  "action":{"kind":"dispatch","name":"probe","args":{"ui":"1"}}})",
                           900);
-    uiForeignRc = uiRegister("plugin.other_plugin.card",
+    uiForeignRc = uiSlotRegister("plugin.other_plugin.card",
                              MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
                              R"({"title":"冒充他人"})", 0);
     uiBadTypeRc =
-        uiRegister("bad", "musicxx.ui.unknown", R"({"title":"未知类型"})", 0);
-    uiBadDataRc = uiRegister("nodata", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+        uiSlotRegister("bad", "musicxx.ui.unknown", R"({"title":"未知类型"})", 0);
+    uiBadDataRc = uiSlotRegister("nodata", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
                              R"({"subtitle":"缺少 title"})", 0);
-    uiUpdateRc = uiUpdate(
+    uiUpdateRc = uiSlotUpdate(
         "card",
         R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
                 "action":{"kind":"route","route":"ext://example_native/card"}})");
@@ -322,7 +322,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    是否有封面) 写进 `uCoverBackInfo` —— 着色器拿它当底层 (模糊封面铺满画面)。
     //    没有封面时这一位是 0; 没声明 cover 的样式插件框架不解码、不上传、不占显存。
     //    JS 侧的等价声明见 plugins/example_js_playing_bg/backgrounds.js。
-    uiBackgroundRc = uiRegister(
+    uiBackgroundRc = uiSlotRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
             "shader":{"bundle":"shader/bg.shaderbundle"},
@@ -346,14 +346,14 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //      与播放页背景同一份 shader 写法，区别是 `routes` 声明适用的页面
     //      （不写 / 空数组 = 所有普通页面）。这里只验证插件框架接受这种声明，
     //      `routes` 写成字符串（不是数组）时注册要被拒绝。
-    uiPageBackgroundRc = uiRegister(
+    uiPageBackgroundRc = uiSlotRegister(
         "pageBg", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
         R"({"title":"原生示例页面背景",
             "routes":["/songs","/setting/theme"],
             "shader":{"bundle":"shader/bg.shaderbundle"},
             "speed":1,"maxFps":8})",
         10);
-    uiPageBackgroundBadRoutesRc = uiRegister(
+    uiPageBackgroundBadRoutesRc = uiSlotRegister(
         "pageBgBadRoutes", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
         R"({"title":"坏的页面背景","routes":"/songs",
             "shader":{"bundle":"shader/bg.shaderbundle"}})",
