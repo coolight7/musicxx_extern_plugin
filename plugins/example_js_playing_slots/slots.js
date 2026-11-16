@@ -154,21 +154,35 @@ function registerButtonSlots() {
     });
 }
 
+/// 整栏替换现在有没有注册（注销一个没注册的名字会报错，所以先记着）
+let wholeBarRegistered = false;
+
 /// 整条控制按钮栏的替换项（设置页开关控制注册 / 注销）
 ///
 /// 同一个位置**只认一项**：整栏生效时，按钮级的两个项仍然注册着、但不再参与渲染
 /// （页面上会提示这一点，免得以为注销失败）。关掉开关就注销整栏，按钮级替换重新生效。
+///
+/// 两个方向都按 [wholeBarRegistered] 判断：读配置时会拿默认值与实际值对一次，
+/// 这时"已经是关的"也会走到这里，不判断就会去注销一个从没注册过的项。
 function registerWholeBar() {
+    if (wholeBarRegistered) {
+        return;
+    }
     musicxx.ui.slot.register({
         name: SLOT_NAME_WHOLE_BAR,
         type: SLOT_CONTROL_BAR,
         order: 10,
         data: { view: "controlBar" },
     });
+    wholeBarRegistered = true;
 }
 
 function unregisterWholeBar() {
+    if (!wholeBarRegistered) {
+        return;
+    }
     musicxx.ui.slot.unregister(SLOT_NAME_WHOLE_BAR);
+    wholeBarRegistered = false;
 }
 
 /// 注册主页入口（说明页 `ext://<插件 id>/card`）

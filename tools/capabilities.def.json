@@ -2100,14 +2100,14 @@
     {
       "id": "musicxx.state.uiSlots",
       "dart": "stateUiSlots",
-      "title": "可选槽位状态",
+      "title": "渲染槽位状态",
       "depict": "`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读",
       "cache": "latest",
       "publish": "owner",
       "pushOnSubscribe": true,
       "coalesce": true,
       "scope": "app",
-      "doc": ""
+      "doc": "值是“槽位 id → 这个槽位的状态”，只有发生过选择或挂载点上报的槽位才有键（`player.background` 播放页背景、\n`player.icon` 播放页歌曲图、`player.visualizer` 播放页音频动效；普通页面背景 `page.background` 没有“选中项”，\n不在这里）：\n\n| 字段 | 类型 | 含义 |\n|---|---|---|\n| `itemId` | string | 现在由哪个插件项在画（`plugin.<插件 id>.<项名>`）；内置样式在画时是空串 |\n| `plugin` | string | 生效项所属的插件 id；`itemId` 为空时也是空串 |\n| `selectedId` | string | 用户选中的是谁（内置项也是 `musicxx.*`）；跟 `itemId` 不一样就说明“选了但没生效” |\n| `night` | bool | 当前是不是夜间 |\n| `visible` | bool | 挂载点是否可见（播放页没打开 / 被遮住时为假） |\n| `width` / `height` | int | 渲染目标的像素尺寸（不可见时为 0） |\n\n什么时候重发：选择变化（含切回内置）、挂载点的可见性与尺寸变化、以及昼夜 / 配色变化\n（换主题、换封面取色、插件指定三色都会重算 `night` 再发一次）—— **插件不需要自己轮询**。\n没有 `animate` / `maxFps`：它们是每个着色器块自己的字段。"
     },
     {
       "id": "musicxx.state.spectrum",

@@ -464,7 +464,7 @@ abstract final class MusicxxBroadcastId {
   static const String stateSonglists = 'musicxx.state.songlists';
   /// 运行环境
   static const String stateEnv = 'musicxx.state.env';
-  /// 可选槽位状态
+  /// 渲染槽位状态
   static const String stateUiSlots = 'musicxx.state.uiSlots';
   /// 当前频谱
   static const String stateSpectrum = 'musicxx.state.spectrum';
@@ -3187,7 +3187,7 @@ abstract final class MusicxxCapabilityCatalogue {
       scope: 'app',
       type: '',
       options: <String>[],
-      title: '可选槽位状态',
+      title: '渲染槽位状态',
       depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
