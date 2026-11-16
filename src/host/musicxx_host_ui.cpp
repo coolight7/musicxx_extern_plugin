@@ -49,6 +49,7 @@ const char *const kKnownUiTypes[] = {
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER,
+    MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
     MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
     MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU,
@@ -131,6 +132,7 @@ bool requiresTitle(std::string_view type) {
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND ||
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON ||
          type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER ||
+         type == MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND ||
          type == MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT;
 }
 
@@ -185,6 +187,37 @@ bool validatePlayingRenderData(std::string_view label, const Json &data,
   if (mode == "view" && !data.contains("view")) {
     err = prefix + " 声明 mode=view 时必须给出 view";
     return false;
+  }
+  return true;
+}
+
+/// 校验一条普通页面背景项 (`musicxx.ui.page.background`) 的结构
+///
+/// 与播放页背景同一份 shader 要求 (必须有 shader.bundle); `routes` 可选,
+/// 写了就必须是非空字符串数组 (不写或空数组 = 所有普通页面).
+bool validatePageBackgroundData(const Json &data, std::string &err) {
+  if (!data.contains("shader") || !data["shader"].is_object()) {
+    err = "页面背景缺少 shader 对象";
+    return false;
+  }
+  const Json &shader = data["shader"];
+  if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
+      shader["bundle"].get<std::string>().empty()) {
+    err = "页面背景缺少 shader.bundle (非空字符串)";
+    return false;
+  }
+  if (data.contains("routes")) {
+    const Json &routes = data["routes"];
+    if (!routes.is_array()) {
+      err = "页面背景 routes 必须是页面路由 id 的字符串数组 (不写 = 所有普通页面)";
+      return false;
+    }
+    for (const Json &item : routes) {
+      if (!item.is_string() || item.get<std::string>().empty()) {
+        err = "页面背景 routes 只能写非空的页面路由 id";
+        return false;
+      }
+    }
   }
   return true;
 }
@@ -347,6 +380,11 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
   }
   if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER) {
     if (!validatePlayingRenderData("播放页音频动效", data, err)) {
+      return false;
+    }
+  }
+  if (type == MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND) {
+    if (!validatePageBackgroundData(data, err)) {
       return false;
     }
   }

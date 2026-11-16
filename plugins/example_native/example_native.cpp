@@ -102,6 +102,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiUpdateRc = -100; ///< 更新自己的项: 期望 0
   int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget 动作): 期望 0
   int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
+  int32_t uiPageBackgroundRc = -100; ///< 注册普通页面背景: 期望 0
+  int32_t uiPageBackgroundBadRoutesRc =
+      -100; ///< 普通页面背景的 routes 写法不合法: 期望 -1 (参数非法)
 
   /// 事件订阅自检
   int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (插件框架拒绝)
@@ -339,6 +342,23 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
             "foregroundStyle":"mask"})",
         20);
 
+    // 7.1) 普通页面背景 (musicxx.ui.page.background):
+    //      与播放页背景同一份 shader 写法，区别是 `routes` 声明适用的页面
+    //      （不写 / 空数组 = 所有普通页面）。这里只验证插件框架接受这种声明，
+    //      `routes` 写成字符串（不是数组）时注册要被拒绝。
+    uiPageBackgroundRc = uiRegister(
+        "pageBg", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
+        R"({"title":"原生示例页面背景",
+            "routes":["/songs","/setting/theme"],
+            "shader":{"bundle":"shader/bg.shaderbundle"},
+            "speed":1,"maxFps":8})",
+        10);
+    uiPageBackgroundBadRoutesRc = uiRegister(
+        "pageBgBadRoutes", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
+        R"({"title":"坏的页面背景","routes":"/songs",
+            "shader":{"bundle":"shader/bg.shaderbundle"}})",
+        11);
+
     // 8) 能力: 供插件框架/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
     capability(
         *this, "plugin.example_native.probe",
@@ -403,6 +423,9 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiUpdateRc\":" << uiUpdateRc
               << ",\"uiNotifyRc\":" << uiNotifyRc
               << ",\"uiBackgroundRc\":" << uiBackgroundRc
+              << ",\"uiPageBackgroundRc\":" << uiPageBackgroundRc
+              << ",\"uiPageBackgroundBadRoutesRc\":"
+              << uiPageBackgroundBadRoutesRc
               << ",\"stateLen\":" << readBroadcast("musicxx.state.song").size()
               << ",\"featurePointId\":\"" << featurePointSampleId << "\""
               << ",\"featurePointRc\":" << featurePointSampleRc

@@ -1763,6 +1763,10 @@ int main(int argc, char **argv) {
             "未知 UI 项类型被拒绝 (-4)");
       check(jsonIntField(probe, "uiBadDataRc") == "-1",
             "缺少 title 的声明被拒绝 (-1)");
+      check(jsonIntField(probe, "uiPageBackgroundRc") == "0",
+            "注册普通页面背景成功 (rc=0)");
+      check(jsonIntField(probe, "uiPageBackgroundBadRoutesRc") == "-1",
+            "页面背景 routes 不是字符串数组时被拒绝 (-1)");
       check(jsonIntField(probe, "uiUpdateRc") == "0",
             "更新自己的项成功 (rc=0)");
       check(jsonIntField(probe, "uiNotifyRc") == "0",
@@ -1783,6 +1787,12 @@ int main(int argc, char **argv) {
                     std::string::npos &&
                 snapshot.find("shader/bg.shaderbundle") != std::string::npos,
             "快照含播放页背景样式 (shader bundle 声明)");
+      check(snapshot.find("plugin.example_native.pageBg") !=
+                    std::string::npos &&
+                snapshot.find("musicxx.ui.page.background") !=
+                    std::string::npos &&
+                snapshot.find("/setting/theme") != std::string::npos,
+            "快照含普通页面背景 (routes 声明)");
       check(snapshot.find("musicxx.ui.home.entry") != std::string::npos,
             "快照含官方 UI 项类型");
       check(snapshot.find("plugin") != std::string::npos,

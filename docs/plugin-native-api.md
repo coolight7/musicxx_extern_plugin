@@ -298,6 +298,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 事件 | `subscribeBroadcast(topic, fn)`；发布用 `publishBroadcast(topic, payload)` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
 | 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
 | 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| 普通页面背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND, ...)` | 给歌单页 / 设置页 / 插件页面这类普通页面铺背景，`routes` 声明适用页面（不写 = 所有普通页面）；不需要用户选择，弹窗与播放页不包含（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5） |
 | 播放页控制按钮栏 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
 | 音效 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filters` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.8 |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |

@@ -87,6 +87,28 @@ abstract final class MusicxxPluginUIType {
   /// 迷你歌词要继续可用，所以插件不要假设自己能收到点击。
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
 
+  /// 普通页面背景（渲染槽位 `page.background`）：给歌单页 / 设置页 / 插件自己的页面这类
+  /// **普通页面**铺一层背景；弹窗与播放页不在范围内（播放页背景用 [playingBackground]）
+  ///
+  /// `data = {title, depict?, enabled?, routes?, shader: {bundle, vertex?, fragment?},
+  ///          args?, cover?, image?, speed?, maxFps?, resolutionScale?, animate?, scrim?}`
+  ///
+  /// - `routes`：页面路由 id 的字符串数组（例如 `["/songs", "/setting/theme"]`）。
+  ///   **不写或空数组 = 所有普通页面**；路由 id 就是主程序 `RouteNames_e` 里的值，
+  ///   运行期可以用 `musicxx.state.env` 广播的 `page` 字段读当前路由；
+  /// - 同一个页面命中多项时：写了这个路由的项优先于"所有页面"的项，再按 UI 项的 `order`
+  ///   与注册顺序取第一项；bundle 预检不过或运行期连续失败的那一项会被跳过；
+  /// - **不需要用户选择**：插件声明即生效（与播放页控制栏替换一样）；用户要关就停用插件
+  ///   或关闭『拟声++』；
+  /// - 渲染输入（`args` / `cover` / `image` / `speed` / `maxFps` / `resolutionScale` /
+  ///   `animate` / `scrim`）与播放页背景共用同一份解析。不写 `args` 时默认给主题的 4 个颜色
+  ///   （`uColor1..4` ← `musicxx.theme.primary` / `backgroundCross` / `titleBackground` /
+  ///   `background`），因为普通页面不一定在播放歌曲，封面取色可能不存在；
+  /// - 没有 `view` / `none` 形态：页面背景就是一层铺满页面的画面。
+  ///
+  /// 详见 `docs/plugin-shader-bundle.md` §5.5。
+  static const String pageBackground = 'musicxx.ui.page.background';
+
   /// 音效（播放时叠加的一段音频滤镜）：注册后追加在『音效』插件的音效页面里，
   /// 与内置预设同一个列表，用户选中才生效
   ///

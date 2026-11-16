@@ -842,6 +842,28 @@ musicxx.ui.registerEntry({
 ```
 
 ```js
+// 注册普通页面背景（类型简称 page.background）：给歌单页 / 设置页 / 插件页面这类普通页面铺背景。
+// routes 写页面路由 id 数组（不写或空数组 = 所有普通页面）；同一个页面命中多项时
+// 写了这个路由的优先于“所有页面”，再按 order 与注册顺序取第一项。
+// 不需要用户选择（插件声明即生效）；弹窗与播放页不包含在内。
+musicxx.ui.registerEntry({
+    name: "pageBg",
+    type: "page.background",
+    data: {
+        title: "纸张纹理",
+        depict: "浅色、静态",
+        routes: ["/songs", "/setting/theme"],
+        shader: { bundle: "shader/page.shaderbundle" },
+        speed: 1, maxFps: 8,
+    },
+});
+
+// 当前路由可以在 musicxx.state.env 广播里读到（写 routes 前先用它确认路由 id）
+const page = (musicxx.broadcast.read("musicxx.state.env") || {}).page;
+musicxx.host.log(2, "当前页面: " + page);
+```
+
+```js
 // 注册自己的音效（类型简称 audio.effect）：追加在『音效』插件的音效页面里，与内置预设同一个列表。
 // filters 按顺序拼进 mpv af（可以写 lavfi=[...] 图语法）；与均衡器、自定义音调互斥。
 musicxx.ui.registerEntry({

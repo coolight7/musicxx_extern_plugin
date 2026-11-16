@@ -162,6 +162,15 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// view = 插件声明的界面组合, none = 不显示. 渲染区域是播放页的动效区,
 /// 没有点击交互 (原来的封面点击 / 拖动切歌 / 迷你歌词要继续可用).
 #define MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
+/// 普通页面背景 (渲染槽位 `page.background`): 给歌单页 / 设置页 / 插件页面这类普通页面铺一层背景。
+/// 弹窗与播放页不包含在内 (播放页背景用 `MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND`)。
+/// data = {title, depict?, enabled?, routes?, shader:{bundle, vertex?, fragment?},
+///         args?, cover?, image?, speed?, resolutionScale?, maxFps?, animate?, scrim?}
+/// 说明: routes 是页面路由 id 的字符串数组 (例如 ["/songs", "/setting/theme"]),
+/// 不写或空数组 = 所有普通页面; 同一个页面命中多项时, 写了这个路由的优先于"所有页面",
+/// 再按 UI 项的 `order` 与注册顺序取第一项. 与播放页背景一样由插件声明即生效 (不需要用户选择),
+/// 不声明 `args` 时默认给主题的 4 个颜色. 详见 docs/plugin-shader-bundle.md §5.5。
+#define MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND "musicxx.ui.page.background"
 /// 音效: 播放时叠加的一段音频滤镜, 注册后追加在『音效』插件的音效页面里
 /// data = {title, subtitle?（或 depict?）, filters（必填, 字符串数组）, pitch?, cpuCost?, enabled?}
 /// 说明: filters 按顺序拼进 mpv `af`（可以写 `lavfi=[...]` 图语法）, 至少要有一条或者给出 pitch;

@@ -1,8 +1,9 @@
 # 插件渲染：shader bundle 打包与 uniform 约定
 
-插件可以把**打包期编译好的 shader bundle** 注册成一种主程序渲染样式（当前有三个渲染槽位：
+插件可以把**打包期编译好的 shader bundle** 注册成一种主程序渲染样式（当前有三个**由用户选择**的渲染槽位：
 「播放页背景」`player.background`、「播放页歌曲图」`player.icon`（见 §5.3）与「播放页音频动效」
-`player.visualizer`（见 §5.4）），由用户在设置里选中后生效（命令行 / agent 用
+`player.visualizer`（见 §5.4）；另有一个**按页面路由自动生效**的「普通页面背景」`page.background`
+（见 §5.5）），由用户在设置里选中后生效（命令行 / agent 用
 `musicxx-cli render list|select` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 同一个 bundle 也能画在插件自己的页面里（`Shader` 块）。
 
@@ -32,7 +33,8 @@
 ```text
 ① 写两个着色器：顶点（全屏三角形）+ 片元（声明 uniform 结构体 MusicxxRenderInfo）
 ② 用 impellerc 编译成一个 bg.shaderbundle（五个后端一次编完，一个文件全平台通用）
-③ 在插件里注册一种样式：UI 项 musicxx.ui.playing.background（绑定 bundle + 声明 args）
+③ 在插件里注册一种样式：UI 项 musicxx.ui.playing.background
+   （普通页面背景用 musicxx.ui.page.background，见 §5.5）
 ④ 用户在「设置 → 播放页面背景」里选中它 → 生效（未选中时零成本：不读 bundle、不分析封面）
 ```
 
@@ -449,6 +451,43 @@ void main() {
 
 ---
 
+## 5.5 普通页面背景槽位（`musicxx.ui.page.background`）：给普通页面铺一层背景
+
+歌单页、设置页、插件自己的页面这类**普通页面**也能由插件铺背景。它与播放页背景共用同一份
+着色器与参数解析，区别只有一个：**不需要用户选择**，由声明里的 `routes` 决定哪些页面用它。
+
+```jsonc
+// UI 项 musicxx.ui.page.background（JS 短名 page.background）
+{
+  "title": "纸张纹理",                       // 必填（与播放页背景一致）
+  "depict": "浅色、静态",                    // 可选
+  "enabled": true,                           // 可选；false = 不参与渲染
+  "routes": ["/songs", "/setting/theme"],    // 可选；不写或空数组 = 所有普通页面
+  "shader": {"bundle": "shader/page.shaderbundle"},
+  "args": { ... },                           // 可选；不写时默认给主题的 4 个颜色
+  "speed": 1, "maxFps": 8, "animate": true
+}
+```
+
+- **哪些页面算普通页面**：走主程序页面外壳（`PageBase` / 首页标签页 / 问候页 / 登录页）的页面。
+  **弹窗、底部浮层、提示不包含**；**播放页**（`/musicWarp`）、它的全屏视频
+  （`/musicWarp/fullScreenVideo`）、模拟时钟 / 弹幕浮窗这类悬浮窗口与启动时的数据初始化页也不包含。
+- **路由 id** 就是主程序的路由名：`/`（音乐主页）、`/home/user`、`/search`、`/songs`（歌单页）、
+  `/songs/local`、`/song/history`、`/setting`、`/setting/theme`、`/plugins/manager`、
+  `/plugins/externPlugin/view`（插件自己的页面）…… 完整清单不在这里列（版本之间会变），
+  运行期可以读 `musicxx.state.env` 广播的 `page` 字段拿到当前路由，先打日志确认再写进 `routes`。
+- **同一页面命中多项时的取舍**：写了这个路由的项优先于“所有页面”的项；同组按 UI 项的 `order`
+  升序，再按注册顺序；取第一项 bundle 预检通过的。都不行时这一页用主题自己的背景。
+- 没有 `view` / `none` 形态：页面背景就是一层铺满页面的画面。`scrim` 可用（在背景上叠一层暗化）。
+- **没有“当前选中项”**：`musicxx.render.list/current/select` 不包含这个槽位，也没有设置页；
+  用户要关掉就在插件管理里停用插件或关闭『拟声++』。
+- 失败回退：bundle 预检不过、连续渲染失败 3 次、插件停用 / 卸载 → 这一项被跳过
+  （换下一条或回主题背景），原因在管理页「调试」页签里能看到。
+- 页面被别的路由盖住 / 进后台时由渲染视图自己停帧（与播放页背景同一套规则）。
+- 一个页面外壳只应有一层 `WindowBase`：同一路由里嵌套两层时两层都会尝试渲染（现在的页面没有这种结构）。
+
+---
+
 ## 6. 着色器写法
 
 顶点（主程序绑定 3 个顶点的全屏三角形，覆盖整个裁剪空间，不做任何变换）：
@@ -706,9 +745,10 @@ void main() {
 
 | 字段 | 默认 | 范围 | 说明 |
 |---|---|---|---|
-| `title` | 必填 | — | 设置列表里的样式名 |
+| `title` | 必填 | — | 设置列表里的样式名（普通页面背景只用于调试信息与插件详情） |
 | `depict` | `""` | — | 副标题（写 `subtitle` 也可以，且优先） |
-| `enabled` | `true` | — | false = 不在设置列表里出现 |
+| `enabled` | `true` | — | false = 不参与（不在设置列表 / 页面不用这个背景） |
+| `routes` | 不声明 | 非空字符串数组 | **只对普通页面背景**：适用的页面路由 id；不写或空数组 = 所有普通页面 |
 | `args` | 空 | ≤ 80 个成员 | 着色器参数：成员名 → 值表达式（见 §7）；背景槽位不声明时默认给内置 4 色 |
 | `cover` | 不声明 | 对象 / `true` / 名字 / 数组 | 封面纹理（`texture` / `info` / `size` / `blur` / `square` / `smooth`，见 §5.1）；不声明 = 零成本 |
 | `image` | 不声明 | 对象 / 数组 | 插件绑定的图片纹理（`key` / `texture` / `info` / `smooth`，见 §5.2）；不声明 = 零成本 |
@@ -716,7 +756,7 @@ void main() {
 | `maxFps` | 16 | ≥ 1（不设上限） | 帧率上限（插件自己定，想要 60 / 120 就写上去） |
 | `resolutionScale` | 1.0 | 0.25..1.0 | 降采样后由主程序放大（省 GPU） |
 | `animate` | true | — | false = 只渲染一帧（时间恒为 0） |
-| `scrim` | 0 | 0..0.8 | 背景上叠一层暗化（**只对播放页背景生效**：页面里的 `Shader` 块、歌曲图与音频动效没有这个字段） |
+| `scrim` | 0 | 0..0.8 | 背景上叠一层暗化（**只对播放页背景与普通页面背景生效**：页面里的 `Shader` 块、歌曲图与音频动效没有这个字段） |
 | `foregroundStyle` | `mask` | `mask` / `neumorphism` | 播放页前景（歌曲名/图标）用浅色遮罩还是常规样式（**只对播放页背景生效**）；未知值按 `mask` |
 | `foregroundColors` | 不声明 | 对象（3 个颜色） | 自定义播放页前景的三色（见 §8.1；**只对播放页背景生效**）；不声明 = 用主题默认色 |
 
@@ -791,7 +831,8 @@ bundle 本身（文件不存在 / 版本不符 / 结构体不符）与运行期�
 
 槽位用 `slot` 参数区分（省略 = 默认槽位 `player.background`）：`player.background`（播放页背景）、
 `player.icon`（播放页歌曲图，§5.3）与 `player.visualizer`（播放页音频动效，§5.4）各有自己的候选列表与选择，
-互不影响。
+互不影响。**普通页面背景（`page.background`，§5.5）不在这三条能力里**：它没有用户选择，
+按页面路由自动生效。
 
 ```js
 // 有哪些可选样式（含内置项）
