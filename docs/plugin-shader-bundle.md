@@ -958,15 +958,13 @@ var BG_BASE_SPEED = 1;                 // 本插件的基准速度（= 1×）
 var BG_RATE_OPTIONS = [0.5, 1, 2];     // 可选倍率
 
 function bgView(rate) {
+    // 整个背景就是一栖块：不用包 Expanded / blocks（主程序会给紧约束铺满）
     return {
-        kind: "Expanded",
-        children: [{
-            kind: "musicxx.Shader",
-            bundle: "shader/bg.shaderbundle",
-            args: { /* 成员名 → 值表达式，见 §7 */ },
-            speed: BG_BASE_SPEED * rate,   // 声明给主程序的块速度
-            maxFps: 16
-        }]
+        kind: "musicxx.Shader",
+        bundle: "shader/bg.shaderbundle",
+        args: { /* 成员名 → 值表达式，见 §7 */ },
+        speed: BG_BASE_SPEED * rate,   // 声明给主程序的块速度
+        maxFps: 16
     };
 }
 

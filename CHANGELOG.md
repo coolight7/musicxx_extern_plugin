@@ -20,6 +20,9 @@
   `before` / `impl` / `after`（`impl` 仍只有应用一个实现）。应用里**所有入口**（设置页、动效页、
   歌曲图形状、插件按钮）都走这一条能力，所以插件能收到每一次样式切换（命令行 / MCP 调同一条命令
   时跑的是应用实现，与其它命令一样不跑前后链；观察选择结果用 `musicxx.state.uiSlots`）。
+- **`view` 写法统一**：界面内容可以写**一棵块**（`{kind: "musicxx.Shader", …}`）、块数组或完整的
+  `{title, subtitle, blocks}`，能力返回时包一层 `{view: …}` 也行 —— 主程序用同一个解析入口，
+  以前“一棵块”会被当成空文档（日志里是“插件给的 view 描述无法解析”＋“样式已停用”）。
 - **`musicxx.state.uiSlots` 更及时**：`night` 在换主题 / 换封面取色时也会重发（以前只在选择变化与
   挂载点上报时重发），插件不用自己轮询；字段仍是 `{itemId, plugin, selectedId, night, visible, width, height}`。
 

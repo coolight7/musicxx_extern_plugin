@@ -448,6 +448,18 @@ capability(*this, "plugin.my_plugin.settings",
 }
 ```
 
+`view` 的写法主程序都认（同一个解析入口，不需要插件自己挑）：
+
+| 写法 | 例子 | 什么时候用 |
+|---|---|---|
+| **一棵块** | `{kind: "musicxx.Shader", bundle: …}` | 最常见：整个背景 / 整个插入块就是一栖块 |
+| 块数组 | `[{kind: "Text", …}, {kind: "Divider"}]` | 从上往下的几块，不要标题 |
+| 完整文档 | `{title: "…", subtitle: "…", blocks: [...]}` | 插件页面：要标题 / 副标题 |
+
+能力返回时外面再包一层 `{view: …}` 也可以（`{view:{kind: …}}` 与直接返回视图对象一样）。
+**一棵块不用自己包 `Expanded` 或 `blocks`**：根上是 `musicxx.Shader` / `Stack` /
+`musicxx.AdaptLayout` 时主程序直接拿紧约束铺满。
+
 ### 2.3 块类型（界面描述层的组件）
 
 页面内容是**界面描述层**（`cxx_pluginxx_ui`，插件包里带的是它的子模块）的组件：插件只写一份
