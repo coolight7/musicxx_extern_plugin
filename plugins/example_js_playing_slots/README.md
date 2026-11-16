@@ -10,7 +10,7 @@
 | 插入块 | `musicxx.ui.playing.moreInfo.footer` | 更多信息页列表末尾一块提示（`view` 能力） |
 | 按钮级替换 | `musicxx.ui.playing.controlBar.menu` | 换掉「更多」按钮，点击执行 `musicxx.ui.playing.openMenu` |
 | 按钮级替换 | `musicxx.ui.playing.controlBar.favorite` | 换掉收藏按钮，点击执行 `musicxx.songlist.favorite` |
-| 整栏替换 | `musicxx.ui.playing.controlBar` | 整条控制栏（5 个按钮，按播放状态换图标），默认关闭 |
+| 整栏替换 | `musicxx.ui.playing.controlBar` | 整条控制栏（5 个按钮：切播放模式 / 上一曲 / 播放暂停 / 下一曲 / 收藏，按播放状态与当前模式换图标），默认关闭 |
 | 渲染槽位 | `musicxx.ui.playing.visualizer` | 音频动效：4 根频谱柱 + 底部光晕（`shader/viz.shaderbundle`） |
 
 两类位置的区别：**插入块**是"在页面里加一块"，可以有多个插件同时插入；
@@ -34,6 +34,10 @@ musicxx-cli call probe --plugin example_js_playing_slots
 - 「歌词页顶部提示」：开 = 注册那一项，关 = `musicxx.ui.slot.unregister`（UI 项没有 `enabled` 字段了）；
 - 「音频动效」：「用插件的动效」/「用内置动效」两个按钮切的是渲染槽位 `player.visualizer`
   （内置项 `musicxx.none` = 不显示）。
+
+整栏替换里的第一个按钮是**切播放模式**（`musicxx.player.setLoopMode`）：图标与文字反映当前模式
+（主程序把生效模式放在视图参数 `args.loopMode` 里），点一下在 单曲循环 → 顺序播放 → 真随机播放 →
+单曲循环 之间轮。设置页的按钮用 `variant: "full"`（大号、宽度铺满）：插件设置页里“一行一个”的按钮就用它。
 
 ## 2. 文件怎么分工
 

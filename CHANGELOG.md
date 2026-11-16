@@ -25,6 +25,12 @@
   以前“一棵块”会被当成空文档（日志里是“插件给的 view 描述无法解析”＋“样式已停用”）。
 - **`musicxx.state.uiSlots` 更及时**：`night` 在换主题 / 换封面取色时也会重发（以前只在选择变化与
   挂载点上报时重发），插件不用自己轮询；字段仍是 `{itemId, plugin, selectedId, night, visible, width, height}`。
+- **`Button` 的外观按 `variant` 画**：`ghost` / `link` 是**真的无底色**（以前按钮一律带底色，控制栏里
+  的图标按钮会多出一块方块底）；新增 `variant: "full"` —— 大号主色按钮、宽度默认铺满父块
+  （主程序用 `XXFullBtn` 画），适合插件设置页里“一行一个”的按钮，放进 `Row`（宽度无界）时按内容宽退化。
+- **控制栏位图参数多了 `loopMode`**：`musicxx.ui.playing.controlBar[.<按钮>]` 的视图参数里多了
+  生效中的播放模式（`PlaylistLoopMode_e` 的名字）；模式变了会带新参数重取视图，插件可以据此画
+  “切播放模式”按钮（改它调能力 `musicxx.player.setLoopMode`）。
 
 ### 变更（破坏性，未发布）：自定义背景统一为块（`view`）
 

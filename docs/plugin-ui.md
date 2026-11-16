@@ -323,10 +323,11 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
   | `playing` | 当前是否在播放（布尔） |
   | `favorite` | 当前歌曲是否已在「我喜欢」里（布尔） |
   | `hasSong` | 现在有没有在播的歌（布尔） |
+  | `loopMode` | 生效中的播放模式（`PlaylistLoopMode_e` 的名字：`Order` / `Only` / `RealRand` / `SimulateRand` / `SimulateRandReflush`）。要改它调能力 `musicxx.player.setLoopMode`（参数 `mode`） |
   | `song` | 当前歌曲的只读视图（与广播 `musicxx.song.changed` 载荷里的 `song` 同一份；没有歌时是空对象） |
   | `colors` | 播放页前景三色 `{main, cross, block}`（`#aarrggbb` 字符串，与页面上的文字 / 图标同色） |
 
-- **状态变了会重新取一次视图**：播放 / 暂停、切歌、收藏状态变化、换主题（三色变了）时，主程序会
+- **状态变了会重新取一次视图**：播放 / 暂停、切歌、收藏状态变化、播放模式变化、换主题（三色变了）时，主程序会
   带着新的参数再取一次（旧画面留到新视图回来，不会闪空）。所以"图标跟着播放状态变"最简单的写法就是
   **按 `args.playing` 返回不同的 `view`**；也可以完全不管参数，自己在块里用 `musicxx.AnimatedBuilder` +
   值表达式读广播（见 §2.3.2）。
@@ -472,7 +473,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
-| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。外观由 `variant` 决定：`primary` 是主色底（强调），`secondary` 或不写是带底色的默认按钮，`ghost` / `link` **无底色**（只画文字与图标）—— 控制栏里的图标按钮、列表行里的文字按钮用 `ghost` |
+| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`/`full`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。外观由 `variant` 决定：`primary` 是主色底（强调），`secondary` 或不写是带底色的默认按钮，`ghost` / `link` **无底色**（只画文字与图标）—— 控制栏里的图标按钮、列表行里的文字按钮用 `ghost`；`full` 是**大号主色按钮**，宽度默认铺满父块（设置页里“一行一个”的按钮用它；放进 `Row` 时退化成按内容宽） |
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |

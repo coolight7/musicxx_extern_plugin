@@ -132,19 +132,66 @@ function controlBarButton(icon, command, label) {
     };
 }
 
-/// 整条控制栏的替换视图：五个按钮，动作都调官方能力
+/// 本插件的"切播放模式"按钮只在这三个模式之间循环
+///
+/// 顺序与主程序自己的切换顺序一致：单曲循环 → 顺序播放 → 真随机播放 → 单曲循环。
+const LOOP_MODES = ["Only", "Order", "RealRand"];
+
+/// 每个模式的显示（图标是插件自带的 svg，文字直接给用户看当前是哪种模式）
+const LOOP_MODE_VIEW = {
+    Only: { svg: "resource/svg/playOnly.svg", label: "单曲循环" },
+    Order: { svg: "resource/svg/playOrder.svg", label: "顺序播放" },
+    RealRand: { svg: "resource/svg/playRand.svg", label: "真随机播放" },
+};
+
+/// 主程序给的当前模式（`args.loopMode`）→ 本插件认识的那三个之一
+///
+/// 认不出来（伪随机的两种、旧版主程序没给这个参数）按"顺序播放"算：
+/// 点一下会切到真随机，循环照样成立。
+function currentLoopMode(args) {
+    const mode = (args && args.loopMode) || "";
+    return LOOP_MODE_VIEW[mode] ? mode : "Order";
+}
+
+/// 点一下切到哪个模式（Only → Order → RealRand → Only）
+function nextLoopMode(mode) {
+    const index = LOOP_MODES.indexOf(mode);
+    return LOOP_MODES[(index + 1) % LOOP_MODES.length];
+}
+
+/// 控制栏的"切播放模式"按钮：图标与文字反映当前模式，点一下切到下一个
+///
+/// 动作用 `command`：`musicxx.player.setLoopMode` 的参数是模式名，切完主程序会带着新的
+/// `args.loopMode` 再取一次视图，所以图标不会停在旧模式上。
+function loopModeButton(args) {
+    const mode = currentLoopMode(args);
+    const view = LOOP_MODE_VIEW[mode];
+    return {
+        kind: "Button",
+        label: view.label,
+        variant: "ghost",
+        icon: view.svg,
+        action: {
+            kind: "command",
+            name: "musicxx.player.setLoopMode",
+            args: { mode: nextLoopMode(mode) },
+        },
+    };
+}
+
+/// 整条控制栏的替换视图：五个按钮（切播放模式 / 上一曲 / 播放暂停 / 下一曲 / 收藏）
 ///
 /// **替换，不是插入**：整栏生效时内置的五个按钮与按钮级替换项都不再参与渲染，
 /// 所以两个按钮级项虽然还注册着，页面上的提示会说明这一点。
-/// 主程序给视图参数 `playing` / `favorite` / `hasSong` / `song` / `colors`：
-/// 播放 / 暂停、切歌、收藏、换主题时会带新参数再取一次。
+/// 主程序给视图参数 `playing` / `favorite` / `hasSong` / `loopMode` / `song` / `colors`：
+/// 播放 / 暂停、切歌、收藏、换模式、换主题时会带新参数再取一次。
 function controlBarView(args) {
     const playing = !!(args && args.playing === true);
     const favorite = !!(args && args.favorite === true);
     const hasSong = !(args && args.hasSong === false);
     const colors = (args && typeof args.colors === "object" && args.colors) || null;
     const buttons = [
-        controlBarButton("resource/svg/menu.svg", "musicxx.ui.playing.openMenu", "菜单"),
+        loopModeButton(args),
         controlBarButton("resource/svg/prev.svg", "musicxx.player.prev", "上一曲"),
         controlBarButton(
             playing ? "resource/svg/pause.svg" : "resource/svg/play.svg",
@@ -241,6 +288,9 @@ function cardView(args) {
 }
 
 /// 设置页：两个开关 + 动效选择
+///
+/// 按钮都用 `variant: "full"`：大号主色按钮、宽度默认铺满父块（主程序用 `XXFullBtn` 画），
+/// 适合设置页里"一行一个"的按钮。
 function settingsView(args) {
     const env = viewEnv(args);
     return {
@@ -260,7 +310,7 @@ function settingsView(args) {
             }, env),
             kit.button({
                 label: configWholeBar() ? "关闭『整栏替换』" : "开启『整栏替换』",
-                variant: "primary",
+                variant: "full",
                 action: { kind: "dispatch", name: "toggleWholeBar", args: { view: "settings" } },
             }, env),
             kit.listRow({
@@ -270,6 +320,7 @@ function settingsView(args) {
             }, env),
             kit.button({
                 label: configLyricTip() ? "隐藏歌词页顶部提示" : "显示歌词页顶部提示",
+                variant: "full",
                 action: { kind: "dispatch", name: "toggleLyricTip", args: { view: "settings" } },
             }, env),
             kit.card({
@@ -280,17 +331,19 @@ function settingsView(args) {
                     }, env),
                     kit.button({
                         label: "使用本插件的音频动效",
-                        variant: "primary",
+                        variant: "full",
                         action: { kind: "dispatch", name: "useVisualizer", args: { view: "settings" } },
                     }, env),
                     kit.button({
                         label: "切回不显示",
+                        variant: "full",
                         action: { kind: "dispatch", name: "clearVisualizer", args: { view: "settings" } },
                     }, env),
                 ],
             }, env),
             kit.button({
                 label: "打开说明页",
+                variant: "full",
                 action: { kind: "route", route: "ext://" + PLUGIN_ID + "/" + HOME_VIEW_ID },
             }, env),
         ],
