@@ -194,7 +194,7 @@
 - `net` = 网络与文件（本机文件对外下载在 `musicxx.net.file.*`）；
 - `song` = 当前这一首歌（广播 `musicxx.song.changed`）；
 - **`state` 不是命令域，是广播快照的部分**：`musicxx.state.<对象>` 的对象固定为
-  `app` / `player` / `song` / `playlist` / `songlists` / `lyric` / `env` / `renderSlots` / `spectrum`。
+  `app` / `player` / `song` / `playlist` / `songlists` / `lyric` / `env` / `uiSlots` / `spectrum`。
   它和命令的 `.state` 后缀是一个意思的两种形态：`musicxx.player.state` 是"读一次"，`musicxx.state.player` 是
   "变了就发、带当前值"。
 
@@ -480,7 +480,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 全局字体（3） | `musicxx.ui.setFontFamily` / `getFontFamily` / `loadFont` |
 | 界面开关（4） | `musicxx.ui.setAnimatedLevel` / `setParticleAnimate` / `setSongIconRotate` / `setSongIconWave` |
 | 主题（3） | `musicxx.theme.setCurrent` / `setMode` / `setTempMode` |
-| 渲染槽位（3） | `musicxx.render.list` / `current` / `select` |
+| 渲染槽位（3） | `musicxx.ui.slot.list` / `current` / `select`；播放页前景 `musicxx.ui.playing.foreground.set` |
 | 封面、频谱与内核（7） | `musicxx.media.palette.get` / `cover` / `palette.set` / `spectrum` / `cover.set`（把一张图设为当前歌曲图：`data` / `path` / `url`，`icon96` 可选，只对本次播放有效） / `cover.resolve`（每次歌曲加载决定用哪张图，插件可 `impl` / `before` / `after`） / `kernel`（播放内核信息：版本 / 能写进 `af` 与 `vf` 的过滤器 / 解码器 / 后缀） |
 | mpv 控制（4） | `musicxx.player.mpv.get` / `set` / `command` / `filter`（直接读写 mpv 属性、执行 mpv 命令、加 / 删音视频滤镜槽位；**高危**，见 §4.8） |
 | 功能埋点（2） | `musicxx.feature.point.list` / `call` |
@@ -530,7 +530,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `capability list` / `call` / `subscribers` | `musicxx.capability.list` / `.call` / `.subscribers` |
 | `broadcast list [--prefix]` / `broadcast read <id>` | `musicxx.broadcast.list` / `.read` |
 | `kernel [--refresh]` | `musicxx.media.kernel` |
-| `render list` / `current` / `select <id>` | `musicxx.render.list` / `current` / `select` |
+| `ui-slot list` / `current` / `select <id>` | `musicxx.ui.slot.list` / `current` / `select` |
 | `plugin list` / `install` / `enable` / `disable` / `uninstall` / `reload` / `restart` / `logs` | `musicxx.plugins.list` / `install` / `setEnabled` / `uninstall` / `reload` / `restart` / `musicxx.log.plugin`（`--clear` 用 `musicxx.log.plugin.clear`） |
 | `logs [error\|info]` | `musicxx.log.app` |
 | `commands [status\|install\|uninstall]` | `musicxx.app.commands` |
@@ -788,7 +788,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `musicxx.app.commands` | `musicxx-cli commands [status\|install\|uninstall]` |
 | `musicxx.entry.argv` | 命令行 `musicxx-cli open` / `call`，或 `/cli` 的 `{"argv": […]}` |
 | 歌单 / 播放列表的写入能力（`musicxx.songlist.create` / `addSong` / `removeSong` / `updateSong`、`musicxx.playlist.addSong` / `removeSong` / `updateSong`） | `/cli`（`musicxx-cli call …`）—— 插件里仍然用 `musicxx.capability.call` |
-| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.render.*`、`musicxx.media.palette.*` / `cover` / `spectrum`、`musicxx.source.define` / `undefine`、`musicxx.capability.subscribers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.capability.call`） |
+| `musicxx.lyric.*`（读与写都没有工具）、`musicxx.ui.*`（`openSearch` 除外，它有 `OpenSearch` 工具）、`musicxx.storage.*`、`musicxx.net.*`、`musicxx.ui.slot.*`、`musicxx.media.palette.*` / `cover` / `spectrum`、`musicxx.source.define` / `undefine`、`musicxx.capability.subscribers`、`musicxx.host.*`、`musicxx.stats.*` | 同上（`/cli` 或插件内 `musicxx.capability.call`） |
 
 判断某个命令有没有 MCP 工具，看 `GET /cli/list` 的 `commands[].id` 与 `tools/list` 的工具名：
 工具名与命令 id 不是一回事，只有 §5.2 表里列出的那些能对上。

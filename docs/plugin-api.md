@@ -55,7 +55,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，插
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
 | 调别的插件的能力 | `await musicxx.capability.call(id, "probe", args)` | `co_await capabilityCall(cap, method, args)` | §6 |
 | 声明 / 实现 / 调用功能埋点 | `musicxx.capability.define/provide/call` | `featurePointDefine/Provide/Call` | §7 |
-| 声明界面项 | `musicxx.ui.registerEntry({name, type, data})` | `uiRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, json)` | §9 |
+| 声明界面项 | `musicxx.ui.slot.register({name, type, data})` | `uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, json)` | §9 |
 | 写日志 | `musicxx.host.log(2, "文字")` / `console.log(...)` | `log.info("文字")` | §10 |
 | 读框架信息 | `musicxx.host.info()` | `hostInfoJson()` | §2.5 |
 | 读自己的配置路径 | `musicxx.host.configPath()` | `configPath()` | §3.2.5 |
@@ -126,7 +126,7 @@ const utilxx_base::Json env =
 | `musicxx.state.song` | 当前歌曲只读视图（字段见下） | 切歌 |
 | `musicxx.state.playlist` | `{pid, name, count, songNum, type, index, loopMode, autoPlayMode}` | 歌单 / 播放位置变化 |
 | `musicxx.state.env` | `{isPlaying, page, lanServerOn, userLogged}` | 播放状态、路由、本机服务、登录态变化 |
-| `musicxx.state.renderSlots` | 每个渲染槽位的运行状态（见 §9.2） | 生效项 / 可见性 / 昼夜 / 尺寸变化时按需推 |
+| `musicxx.state.uiSlots` | 每个渲染槽位的运行状态（见 §9.2） | 生效项 / 可见性 / 昼夜 / 尺寸变化时按需推 |
 | `musicxx.state.spectrum` | 当前音频频谱（字段见 §3.2.8） | 播放中约 10 Hz（节流 100 ms）；停止、切歌、拿到/读不到数据时各推一次 |
 | `musicxx.state.lyric` / `musicxx.state.songlists` | 声明里有、当前版本**没有推送** | 读到的永远是空（预留） |
 
@@ -184,8 +184,8 @@ subscribeTopic(MUSICXX_BROADCAST_STATE_SONG, [](std::string_view json) {
 ### 2.4 坑
 
 - **`musicxx.state.app.isNight` 是启动时的值**：运行期切了主题它不会跟着变。要"当前值"就当场问一次：
-  能力 `musicxx.media.palette.get` 或 `musicxx.render.current` 的 `night`；
-  `musicxx.state.renderSlots` 里条目的 `night` 也只在槽位状态变化时刷新，同样不能当当前值用。
+  能力 `musicxx.media.palette.get` 或 `musicxx.ui.slot.current` 的 `night`；
+  `musicxx.state.uiSlots` 里条目的 `night` 也只在槽位状态变化时刷新，同样不能当当前值用。
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌、播放状态变化时刷新（**不是实时值**）。
   要按秒推进度：订阅广播频道 `musicxx.player.position`（不限频，带 `sid` / `positionMs` / `durationMs`，
   订阅时声明 `intervalMs`），或当场 `read` 它。不要以为读这个频道就能拿到实时进度。
@@ -768,7 +768,7 @@ capabilityCall("musicxx.ui.overlay.close", R"({})", &callback, 0);
 
 ```js
 // 页面或入口项里的写法：点了就开一层，由主程序等你关（零代码）
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
   name: "pickSongs",
   type: "addsong.entry",
   data: {
@@ -1194,15 +1194,15 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 一次跑完，载入后自动自检）。旧插件框架没有这套能力：JS 先看 `typeof musicxx.net.http === "object"`，
 动态库插件看 `pluginxx::queryInterface<PluginxxNetIface>(host, PLUGINXX_IFACE_NET)` 是否为 `nullptr`。
 
-#### 3.2.7 渲染槽位（`musicxx.render.*`）
+#### 3.2.7 渲染槽位（`musicxx.ui.slot.*`）
 
 用来查询"有哪些可选样式"、读"现在选中/生效的是谁"、并且**允许插件切样式**（包括切回内置样式）。
 
 | 能力 | 参数 | 返回 |
 |---|---|---|
-| `musicxx.render.list` | `{slot?}` | `{ok:true, slots:[{slot, title, selectedId, items:[...]}]}` |
-| `musicxx.render.current` | `{slot?}` | `{ok:true, slot, id, title, source:"builtin"\|"plugin", plugin, night}`；没有生效项 → `{ok:false,error:"no_item"}` |
-| `musicxx.render.select` | `{id, slot?}` | `{ok:true, slot, id}`；不可用 / 未知 → `{ok:false,error}` |
+| `musicxx.ui.slot.list` | `{slot?}` | `{ok:true, slots:[{slot, title, selectedId, items:[...]}]}` |
+| `musicxx.ui.slot.current` | `{slot?}` | `{ok:true, slot, id, title, source:"builtin"\|"plugin", plugin, night}`；没有生效项 → `{ok:false,error:"no_item"}` |
+| `musicxx.ui.slot.select` | `{id, slot?}` | `{ok:true, slot, id}`；不可用 / 未知 → `{ok:false,error}` |
 
 条目字段：`{id, title, depict?, source, plugin?, available, reason?, selected}`。
 不给 `slot` 时用默认槽位（当前是 `player.background`，播放页背景）；槽位名还有 `player.icon`（播放页歌曲图）
@@ -1210,31 +1210,57 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 槽位与样式声明的完整说明见 [plugin-shader-bundle.md](plugin-shader-bundle.md)。
 
 ```js
-const all = await musicxx.render.list();                        // 默认槽位
-await musicxx.render.select("plugin.my_plugin.bg");             // 切到本插件的样式
-await musicxx.render.select("musicxx.auto", { slot: "player.background" });  // 切回内置
+const all = await musicxx.ui.slot.list();                        // 默认槽位
+await musicxx.ui.slot.select("plugin.my_plugin.bg");             // 切到本插件的样式
+await musicxx.ui.slot.select("musicxx.auto", { slot: "player.background" });  // 切回内置
 
 // 三个槽位的 id 写法同一套：内置项 `musicxx.<名字>`（背景 / 动效用枚举名，歌曲图用短名），
 // 交还控制权用 `musicxx.previous`（恢复 `musicxx.default` 重置掉的值，没有记录时不动），
 // `musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、动效 `musicxx.none`、歌曲图 `musicxx.circle`）
-await musicxx.render.select("musicxx.square", { slot: "player.icon" });
-await musicxx.render.select("musicxx.previous", { slot: "player.icon" });
+await musicxx.ui.slot.select("musicxx.square", { slot: "player.icon" });
+await musicxx.ui.slot.select("musicxx.previous", { slot: "player.icon" });
 ```
 
-**"现在是不是本插件在画"**用广播 `musicxx.state.renderSlots` 同步判断（渲染线程里每帧都会读，不要调能力）：
+**"现在是不是本插件在画"**用广播 `musicxx.state.uiSlots` 同步判断（渲染线程里每帧都会读，不要调能力）：
 
 ```js
-const slots = musicxx.broadcast.read("musicxx.state.renderSlots") || {};
+const slots = musicxx.broadcast.read("musicxx.state.uiSlots") || {};
 const mine = slots["player.background"];
 if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插件在画，而且看得见 */ }
 ```
 
-条目字段：`{itemId, plugin, selectedId, night, visible, animate, width, height, maxFps}`。
+条目字段：`{itemId, plugin, selectedId, night, visible, width, height}`。
 `visible:false` = 现在没渲染（播放页被遮挡 / 切后台），插件可以据此停掉耗时的计算。
+`animate` / `maxFps` 不在广播里（它们是每个着色器块自己的字段，见 plugin-shader-bundle.md §8）。
+
+#### 3.2.7.1 播放页前景（`musicxx.ui.playing.foreground.set`）
+
+播放页的文本 / 歌词 / 进度条 / 块状背景只用三色。**当前生效的播放页背景插件项**可以调它一次，
+把自己的背景配上合适的文字颜色（写在参数里，不再挂在 UI 项上）：
+
+| 参数 | 说明 |
+|---|---|
+| `style?` | `mask`（浅色遮罩样式，缺省）/ `neumorphism`（常规轻拟物）；未知值按 `mask` |
+| `colors?` | 对象：`main` 普通色 / `cross` 减淡色 / `block` block 背景色，`#rrggbb` 或 `#aarrggbb`；缺的用主题默认补齐；**给了 `colors` 就一定用遮罩样式** |
+| `clear?` | `true` = 交还主题默认配色 |
+
+返回：`{ok:true, plugin, itemId, style, colors?, cleared?}`；失败码：`not_active`（调用方不是当前生效的
+播放页背景插件）/ `not_selected`（它没有背景样式、或它的样式当前没被选中）/ `invalid_argument`。
+生效项换人（换插件 / 回内置样式）、插件停用 / 卸载 / 关闭『拟声++』时应用自动清空；
+**同一个插件里切歌、切昼夜、视图重建都不清** —— 需要时插件再调一次覆盖。
+
+```js
+// 切歌后按封面主色推一套三色（只在“背景是我”的时候调）
+await musicxx.capability.call("musicxx.ui.playing.foreground.set", {
+    style: "mask",
+    colors: { main: "#ffe8f0ff", cross: "#80e8f0ff", block: "#1f5a7bb8" },
+});
+```
 
 #### 3.2.8 封面与频谱数据（`musicxx.media.*`）
 
-封面**只作为数据来源**（不参与画面绘制、不推直链）；要在着色器里用封面，声明渲染项的 `cover` / `image`。
+封面**只作为数据来源**（不参与画面绘制、不推直链）；要在着色器里用封面，在着色器块的 `args` 里
+声明纹理（`{"kind":"texture","source":"musicxx.cover"}`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1）。
 
 **`musicxx.media.palette.get`** —— 封面取色结果 + 内置背景实际用的 4 色
 
@@ -1256,8 +1282,8 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插�
   - `size` 16~1024（最长边等比缩放，超出会被钳到范围内）；
   - `format` = `jpeg`（缺省，质量 88）/ `png` / `rgba`（未压缩，字节数必然 ≤ `size × size × 4`，最大一档 4 MiB）；
   - `includePath` = 是否返回本地路径（只有本地 / 缓存来源有路径）；
-  - `bind` = 把这次解码的像素**同时绑成纹理**，用这个键登记进插件图像表（渲染项用 `image` 引用它，
-    复用同一次解码，不重复解码）。绑成功时返回里多 `bound:true` + `bindKey`；绑失败是
+  - `bind` = 把这次解码的像素**同时绑成纹理**，用这个键登记进插件图像表（着色器块的 `args` 用
+    `{"kind":"texture","source":"musicxx.image.<键>"}` 引用它，复用同一次解码，不重复解码）。绑成功时返回里多 `bound:true` + `bindKey`；绑失败是
     `bound:false` + `bindError`（不影响这次拿到的字节）；带 `bind` 的调用**不进结果缓存**
     （插件可能先解绑再重新绑，命中缓存会让它拿不到新纹理）。
 - 返回：`{ok, srcKey, kind:"local"|"cache"|"content"|"asset"|"network", path?, width, height,
@@ -1815,7 +1841,7 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 musicxx.capability.call("musicxx.ui.drive.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
 
 // 在自己插件的主页入口里打开整页浏览（与内置网盘页一模一样）
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "drive", type: "home.entry",
     data: { title: "我的 FTP", icon: "resource/svg/ftp.svg",
             action: { kind: "command", name: "musicxx.ui.drive.browse",
@@ -1881,7 +1907,7 @@ iface.broadcasts->publish_broadcast(host, &channel, &data, nullptr);
 > 插件 `subscribe` 它们**不报错但永远收不到回调**：`musicxx.plugin.log` / `musicxx.plugin.error` /
 > `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.capability.changed` / `musicxx.capability.decision.result`。
 > 要看这些数据用别的办法：能力注册表用能力 `musicxx.capability.subscribers`，自己的 UI 项用 JS 的
-> `musicxx.ui.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
+> `musicxx.ui.slot.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
 > `await dispatchAsync` 的返回值（`musicxx.capability.decision.result` 只是同一份结果的调试回传）。
 
 > 应用的 `musicxx.song.changed` 之类也是**广播**上的频道；**能力**是另一条通道
@@ -2413,13 +2439,13 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 声明式界面：插件只声明"长什么样、点了做什么"，渲染由应用完成。
 
 ```js
-musicxx.ui.registerEntry({                        // 主页入口
+musicxx.ui.slot.register({                        // 主页入口
     name: "card", type: "home.entry", order: 120,
     data: { title: "我的插件", subtitle: "示例入口",
             action: { kind: "route", route: "ext://my_plugin/card" } }
 });
 
-musicxx.ui.registerEntry({                        // 歌曲菜单项（data 字段也可以平铺）
+musicxx.ui.slot.register({                        // 歌曲菜单项（data 字段也可以平铺）
     name: "clear", type: "song.action", order: 900,
     title: "用我的插件处理这首歌",
     action: { kind: "capability", name: "handleSong" }
@@ -2435,11 +2461,11 @@ musicxx.capability.register("card", (args) => ({   // 插件页面：主程序�
 ```
 
 ```cpp
-uiRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
            R"({"title":"我的插件","action":{"kind":"route","route":"ext://my_plugin/card"}})", 120);
-uiRegister("bg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, backgroundJson, 20);
-uiUpdate("card", nextJson);      // 整体替换声明（改一个字段也要传完整 data）
-uiUnregister("card");
+uiSlotRegister("bg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, backgroundJson, 20);
+uiSlotUpdate("card", nextJson);      // 整体替换声明（改一个字段也要传完整 data）
+uiSlotUnregister("card");
 uiNotify(R"({"text":"已刷新"})");
 ```
 
@@ -2467,19 +2493,23 @@ uiNotify(R"({"text":"已刷新"})");
 ### 9.2 渲染槽位与着色器（完整说明见 [plugin-shader-bundle.md](plugin-shader-bundle.md)）
 
 - 播放页背景（`playing.background`）、播放页歌曲图（`playing.icon`）与播放页音频动效
-  （`playing.visualizer`）可以交给插件：`shader`（插件着色器绘制）、`view`（界面视图组合）、
-  `none`（只保留占位 / 不显示）三选一。动效槽位与内置『音乐动效』的四种样式在同一个列表里选，
-  **没安装那个插件时插件样式照样可用**。
+  （`playing.visualizer`）可以交给插件：两个背景只有 `view`（块树），歌曲图 / 动效是 `shader`
+  （插件着色器绘制）/ `view`（界面视图组合）/ `none`（只保留占位 / 不显示）三选一。动效槽位与内置
+  『音乐动效』的四种样式在同一个列表里选，**没安装那个插件时插件样式照样可用**。
+- **普通页面背景**（`page.background`）也是 `view` + `routes`：没有用户选择，同一优先级里最新注册的生效。
 - 页面插入块把界面放进播放页固定位置（歌词页 / 更多信息页 / 播放列表页）：十个位置各一个类型
   （`musicxx.ui.playing.<页面>.<位置>`），字段与规则见 [plugin-ui.md](plugin-ui.md) §1.6。
 - 播放页底部控制按钮栏可以整栏或单个按钮换成插件画的：六个类型，参数（`playing` / `favorite` /
   `song` / `colors` …）与动作写法见 [plugin-ui.md](plugin-ui.md) §1.7。
-- 着色器是**打包期编译好的 shader bundle**（`format_version` 必须与应用使用的 Flutter 版本一致）。
-- 需要封面纹理时在渲染项里声明 `cover` / `image`：应用负责解码、缩放、预模糊、上传纹理，
-  每帧把纹理绑给着色器（插件不搬字节）。
+- 着色器只有一种写法：块 `musicxx.Shader`（`bundle` + `args` + `speed` / `maxFps` / `animate` /
+  `resolutionScale`）；bundle 是**打包期编译好的**（`format_version` 必须与应用使用的 Flutter 版本一致）。
+- 需要封面 / 插件图片纹理时在块的 `args` 里声明（`{"kind":"texture","source":"musicxx.cover"}` /
+  `musicxx.image.<key>`）：应用负责解码、缩放、预模糊、上传纹理，每帧把纹理绑给着色器（插件不搬字节）。
+- **背景的根块要自己拿到整页尺寸**：用 `Expanded` 包住 `musicxx.Shader`，否则块拿不到确定高度、留空。
 - 每帧都会求值的参数用 `args` 声明（成员名 → 值表达式），应用每帧现读现写；
   频谱来源（`musicxx.spectrum.*`）是例外：**没有数据时写 0（静音）**，要看 `uEnv.z` 判断有没有数据。
-- 运行状态（谁在画、是否可见、尺寸、昼夜）读 §3.2.7 的 `musicxx.state.renderSlots`。
+- 运行状态（谁在画、是否可见、尺寸、昼夜）读 §3.2.7 的 `musicxx.state.uiSlots`；
+  **播放页前景（三色 + 遮罩外观）用能力 `musicxx.ui.playing.foreground.set` 改**（§3.2.7.1）。
 
 ---
 

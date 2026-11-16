@@ -8,17 +8,72 @@
 
 ## 历史
 
+### 变更（破坏性，未发布）：自定义背景统一为块（`view`）
+
+背景（播放页背景 `musicxx.ui.playing.background` 与普通页面背景 `musicxx.ui.page.background`）不再收
+item 级的 `shader` / `cover` / `image` / `scrim` / `foregroundStyle` / `foregroundColors` / `enabled`：
+**它就是一栖块树（`view`），着色器只是树里的一个 `musicxx.Shader` 块**。旧写法不会静默失效：
+没有 `view` 的背景项注册时直接被拒（返回 `-1`，日志里写“缺少 view”）。
+
+```jsonc
+// 以前（不再支持）
+{
+  "title": "我的背景",
+  "shader": {"bundle": "shader/bg.shaderbundle"},
+  "cover": {"texture": "uCover", "size": 512, "blur": 14},
+  "args": {"uZoom": {"kind":"const", "value":2}},
+  "speed": 1, "maxFps": 24,
+  "foregroundColors": {"main": "#ffe8f0ff"}
+}
+
+// 现在：`view` 里放一块 `musicxx.Shader`（纹理写在 `args` 里，前景改调能力）
+{
+  "title": "我的背景",
+  "view": {
+    "kind": "Expanded",                    // 根块要自己拿到整页尺寸
+    "children": [{
+      "kind": "musicxx.Shader",
+      "bundle": "shader/bg.shaderbundle",
+      "args": {
+        "uCover": {"kind":"texture", "source":"musicxx.cover", "size":512, "blur":14},
+        "uZoom":  {"kind":"const", "value":2}
+      },
+      "speed": 1, "maxFps": 24
+    }]
+  }
+}
+```
+
+- **纹理写在 `args` 里**：成员名就是采样器名，`{"kind":"texture","source":"musicxx.cover"}` 是当前歌曲封面，
+  `{"kind":"texture","source":"musicxx.image.<key>"}` 是插件自己绑的图；信息成员缺省 `<成员名>Info`，
+  写 `"info": ""` 不要；一个着色器最多 4 张。旧的 item 级 `cover` / `image` / `scrim` 删除，
+  **不再隐式给 4 个绘制色**（要颜色自己声明来源）。
+- **播放页前景改成能力** `musicxx.ui.playing.foreground.set`（`style` / `colors` / `clear`）：
+  只有当前生效的播放页背景插件项能调；生效项换人、插件停用 / 卸载时应用自动清空。
+- **页面背景不再读 `order`**：同一页面命中多项时，写了这个路由的优先于“所有页面”，
+  同一优先级里**最新注册的生效**（注销后重新注册 = 新注册，排到最后）。
+- **所有 UI 类型的 `data.enabled` 取消**（写了也被忽略）：不想显示就 `musicxx.ui.slot.unregister`。
+  音效项的可用性与当前选中由应用判断，插件只描述效果。
+- **接口改名（不留别名）**：能力 `musicxx.render.list/current/select` → `musicxx.ui.slot.list/current/select`；
+  CLI 糖命令 `render` → `ui-slot`；JS `musicxx.ui.registerEntry/updateEntry/unregisterEntry/entries` →
+  `musicxx.ui.slot.register/update/unregister/entries`；C++ `uiRegister` / `uiUpdate` / `uiUnregister` /
+  `uiEntries` → `uiSlotRegister` / `uiSlotUpdate` / `uiSlotUnregister` / `uiSlotEntries`；
+  广播 `musicxx.state.renderSlots` → `musicxx.state.uiSlots`，并去掉 `animate` / `maxFps` 两个键
+  （它们是每个着色器块自己的字段）。
+- **块的 `speed` 缺省值改成 1**（以前背景项缺省 4）：需要旧观感的插件自己写 `speed: 4`。
+- 迁移样板：`plugins/example_js_playing_bg`（六个样式 + 歌曲图接管 + 前景能力）与
+  `plugins/example_native` 的 `playingBg` / `pageBg` 探针；字段表见 `docs/plugin-shader-bundle.md` §5 / §8，
+  两种渲染模式见 `docs/plugin-ui.md` §1.1。
+
 ### 新增（未发布）：普通页面背景（`musicxx.ui.page.background`）
 
-- 插件可以给**普通页面**（歌单页 / 设置页 / 插件自己的页面这类走标准页面外壳的页面）铺一层
-  shader bundle 背景：`data` 与播放页背景同一套写法，多一个可选的 `routes`（页面路由 id 数组，
-  不写或空数组 = 所有普通页面）。同一页面命中多项时写了这个路由的优先于“所有页面”，
-  再按 `order` 与注册顺序取第一项；都不可用时回到主题自己的背景。
+- 插件可以给**普通页面**（歌单页 / 设置页 / 插件自己的页面这类走标准页面外壳的页面）铺一层块背景：
+  `data = {title, depict?, routes?, view}`，`routes` 是页面路由 id 数组（不写或空数组 = 所有普通页面）。
+  同一页面命中多项时写了这个路由的优先于“所有页面”，同一优先级里**最新注册的生效**；都不可用时回到主题自己的背景。
 - **不需要用户选择**（与播放页背景不同），插件声明即生效；用户要关就在插件管理里停用插件或
   关闭『拟声++』。弹窗、底部浮层与播放页（含全屏视频、悬浮窗口、启动页）不包含在内。
-- 不写 `args` 时默认给主题的 4 个颜色（普通页面不一定在播放歌曲，封面取色可能不存在）。
-- `musicxx.render.list/current/select` 不包含这个槽位（没有“当前选中项”）；细节见
-  `docs/plugin-shader-bundle.md` §5.5。
+- `musicxx.ui.slot.list/current/select` 不包含这个槽位（没有“当前选中项”）；块树的写法、纹理声明与
+  根块要自己拿到整页尺寸这几件事见上面的「自定义背景统一为块（`view`）」与 `docs/plugin-shader-bundle.md` §5.5。
 
 ### 变更（示例插件，未发布）：示例按"一个示例只教一件事"整理
 

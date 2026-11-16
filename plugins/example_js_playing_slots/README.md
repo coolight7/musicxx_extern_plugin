@@ -31,6 +31,7 @@ musicxx-cli call probe --plugin example_js_playing_slots
 示例播放页位置 → 设置**页：
 
 - 「用整栏替换」：开关切换 `wholeBar`（开 = 注册整栏项、关 = 注销并回退内置栏）；
+- 「歌词页顶部提示」：开 = 注册那一项，关 = `musicxx.ui.slot.unregister`（UI 项没有 `enabled` 字段了）；
 - 「音频动效」：「用插件的动效」/「用内置动效」两个按钮切的是渲染槽位 `player.visualizer`
   （内置项 `musicxx.none` = 不显示）。
 

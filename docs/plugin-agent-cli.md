@@ -187,15 +187,15 @@ musicxx-cli plugin uninstall my_plugin          # 删插件目录 + 清记录（
 musicxx-cli plugin uninstall my_plugin --keep-data   # 保留 config.json 与存储，方便重装后继续用
 ```
 
-### 5.5 让播放页用上插件背景（render）
+### 5.5 让播放页用上插件背景（ui-slot）
 
 插件注册的 `playing.background` 样式**默认不生效**，要显式选中（与设置页「播放页面背景」同一份状态）：
 
 ```bash
-musicxx-cli render list                          # 谁能画：内置样式 + 各插件样式（含可用性）
-musicxx-cli render current                       # 现在是谁在画
-musicxx-cli render select plugin.my_plugin.bg    # 切到插件样式
-musicxx-cli render select musicxx.auto           # 切回内置样式
+musicxx-cli ui-slot list                          # 谁能画：内置样式 + 各插件样式（含可用性）
+musicxx-cli ui-slot current                       # 现在是谁在画
+musicxx-cli ui-slot select plugin.my_plugin.bg    # 切到插件样式
+musicxx-cli ui-slot select musicxx.auto           # 切回内置样式
 ```
 
 选中的样式失效时（bundle 预检不过、运行期渲染失败、插件被停用/卸载、关闭『拟声++』）会自动
@@ -207,9 +207,9 @@ musicxx-cli render select musicxx.auto           # 切回内置样式
 重置掉的值，没有记录时不动），`musicxx.default` = 重置成该设置项的默认值：
 
 ```bash
-musicxx-cli render list --slot player.icon
-musicxx-cli render select musicxx.square --slot player.icon
-musicxx-cli render select musicxx.previous --slot player.icon
+musicxx-cli ui-slot list --slot player.icon
+musicxx-cli ui-slot select musicxx.square --slot player.icon
+musicxx-cli ui-slot select musicxx.previous --slot player.icon
 ```
 
 ### 5.6 其它顺手命令
@@ -377,7 +377,7 @@ musicxx-cli plugin logs my_plugin --limit 50
 musicxx-cli plugin reload my_plugin
 
 # 5) 背景类插件：切上去看效果
-musicxx-cli render select plugin.my_plugin.bg
+musicxx-cli ui-slot select plugin.my_plugin.bg
 
 # 6) 收尾
 musicxx-cli plugin uninstall my_plugin

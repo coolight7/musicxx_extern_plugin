@@ -282,7 +282,7 @@ const playing = (musicxx.broadcast.read("musicxx.state.env") || {}).isPlaying ==
 
 - `musicxx.broadcast.read` 是**同步**读（读插件框架里缓存的值），没有网络与 IO，可以放在能力处理器、定时器、
   页面能力处理器里；
-- 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`
+- 可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `uiSlots` / `spectrum`
   （`musicxx.state.lyric` / `musicxx.state.songlists` 是预留的，当前版本没有推送，读到的永远是 `null`）；
 - 键名固定（官方 `musicxx.state.*`），写错就是 `null`，不会报错；
 - **播放进度要自己拿**：`musicxx.state.player.position` 只在启动、切歌与播放状态变化时刷新
@@ -376,9 +376,9 @@ const result = await musicxx.capability.call("musicxx.<域>.<名字>", { ...参�
 | `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
-| `musicxx.render` | `list(args?)` `current(args?)` `select(id, args?)` |
+| `musicxx.ui.slot` | `register(spec)` `update(name, data)` `unregister(name)` `entries()`（注册 / 整体替换 / 注销 / 列出本插件的 UI 项） **+** `list(args?)` `current(args?)` `select(id, args?)`（查询与切换渲染槽位） |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
-| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)` `registerEntry(spec)` `updateEntry(name, data)` `unregisterEntry(name)` `entries()`（插件视图浮层用 `musicxx.capability.call("musicxx.ui.overlay.showSheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.capability.call("musicxx.ui.drive.pickSongs" / "musicxx.ui.drive.pickDir" / "musicxx.ui.drive.browse", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
+| `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)`（声明 UI 项用 `musicxx.ui.slot.*`；插件视图浮层用 `musicxx.capability.call("musicxx.ui.overlay.showSheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.capability.call("musicxx.ui.drive.pickSongs" / "musicxx.ui.drive.pickDir" / "musicxx.ui.drive.browse", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
 
 `musicxx` 全局对象上还有两个**不是** `musicxx.capability.call` 封装的名字空间：`musicxx.capability`（能力：
@@ -647,7 +647,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
 > `musicxx.capability.changed` / `musicxx.capability.decision.result` **不在总线上**（它们是插件框架 → 主程序的
 > 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看能力注册表用能力
-> `musicxx.capability.subscribers`，自己的 UI 项用 `musicxx.ui.entries()`。
+> `musicxx.capability.subscribers`，自己的 UI 项用 `musicxx.ui.slot.entries()`。
 
 ---
 
@@ -758,65 +758,70 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
 [plugin-shader-bundle.md](plugin-shader-bundle.md)，本节只说 JS 侧怎么用。
 
-> 渲染槽位的能力（`musicxx.render.*`）与封面 / 频谱能力（`musicxx.media.*`）的**参数、返回与状态含义**
+> 渲染槽位的能力（`musicxx.ui.slot.*`）与封面 / 频谱能力（`musicxx.media.*`）的**参数、返回与状态含义**
 > 在 [plugin-api.md](plugin-api.md) §3.2.7 与 §3.2.8（两种形态共用）；本节是 JS 的声明写法与注意点。
 
 ```js
 // 接管播放页中间的歌曲图（类型简称 playing.icon）：不显示内容、只保留占位
 // 也可以声明 shader（插件着色器绘制）或 view（声明式界面组合）—— 三个字段挑一个
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "icon",
     type: "playing.icon",
     data: { title: "不显示歌曲图", mode: "none", keepSpace: true },
 });
 
 // 注册一种播放页背景样式（类型简称 playing.background，或写全名）
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "bg",
     type: "playing.background",
     order: 20,
     data: {
         title: "流光背景",
         depict: "跟随封面配色的动态背景",
-        shader: { bundle: "shader/bg.shaderbundle" },   // 插件目录内的相对路径
-        // 封面纹理：主程序把当前歌曲封面解码、缩放、按 blur 预模糊后上传成 GPU 纹理，
-        // 每帧绑定到 texture 指定的 sampler2D；信息写在 info 成员
-        // （(纹理宽, 纹理高, 原图宽高比, 是否有封面)，没有封面时最后一位是 0）
-        cover: { texture: "uCover", info: "uCoverInfo", size: 512, blur: 24 },
-        // args：成员名 → 值表达式（可嵌套；这里是来源 + 过渡 + 组合）
-        args: {
-            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
-            uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-            uColor3: { kind: "source", name: "musicxx.theme.primary" },
-            uColor4: { kind: "const", value: "#223344" },
-            uLevel: {
-                kind: "smooth", attackMs: 20, releaseMs: 260,
-                of: { kind: "source", name: "musicxx.spectrum.level" },
-            },
+        // 背景是一棵块树（view）：着色器只是其中的一块 `musicxx.Shader`，
+        // 根块用 Expanded 拿到整页尺寸（不包的话着色器没有确定高度，会留空）
+        view: {
+            kind: "Expanded",
+            children: [{
+                kind: "musicxx.Shader",
+                bundle: "shader/bg.shaderbundle",   // 插件目录内的相对路径
+                // args：成员名 → 值表达式（可嵌套），纹理也写在这里（成员名就是采样器名）：
+                // `musicxx.cover` = 当前歌曲封面（解码 + 缩放 + 可预模糊后上传成 GPU 纹理），
+                // 信息成员缺省 `<成员名>Info` = (纹理宽, 纹理高, 原图宽高比, 是否有封面)
+                args: {
+                    uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 24 },
+                    uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+                    uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                    uColor3: { kind: "source", name: "musicxx.theme.primary" },
+                    uColor4: { kind: "const", value: "#223344" },
+                    uLevel: {
+                        kind: "smooth", attackMs: 20, releaseMs: 260,
+                        of: { kind: "source", name: "musicxx.spectrum.level" },
+                    },
+                },
+                speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
+                maxFps: 16,
+            }],
         },
-        speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
-        maxFps: 16,
-        // 自定义播放页前景的三色（普通色 / 减淡色 / block 背景色）：
-        // 选中本样式后，播放页的文本、歌词、进度条与块状背景都用这三色；
-        // 只写一部分也行，没写的用主程序默认色（见 plugin-shader-bundle.md §8.1）
-        foregroundColors: { main: "#ffe8f0ff", cross: "#80e8f0ff", block: "#1f5a7bb8" },
     },
 });
 ```
 
 ```js
-// 运行期改这三色（不用让用户重新选一次背景）：整体重登记同一项
-musicxx.ui.updateEntry({
-    name: "bg",
-    type: "playing.background",
-    data: { /* 与注册时同一份声明，只改 foregroundColors */ },
+// 播放页前景（三色 + 是否用遮罩外观）不在 UI 项里，而是本插件背景被选中后调能力：
+// 应用只接受“当前生效的播放页背景插件项”的调用（否则回 not_active / not_selected）
+await musicxx.capability.call("musicxx.ui.playing.foreground.set", {
+    style: "mask",              // mask（浅色遮罩，默认）/ neumorphism（常规轻拟物）
+    colors: { main: "#ffe8f0ff", cross: "#80e8f0ff", block: "#1f5a7bb8" },
 });
+// 算不出三色时交还主题默认
+await musicxx.capability.call("musicxx.ui.playing.foreground.set", { clear: true });
 ```
 
 ```js
 // 注册一种播放页音频动效样式（类型简称 playing.visualizer）：与内置『音乐动效』的四种样式
 // 在同一个列表里选；没安装那个插件时插件样式照样可用
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "viz",
     type: "playing.visualizer",
     data: {
@@ -834,7 +839,7 @@ musicxx.ui.registerEntry({
 });
 
 // 也可以用声明式界面画（不写 shader；柱状条用 AnimatedBuilder 逐帧动）
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "vizView",
     type: "playing.visualizer",
     data: { title: "柱状条", view: "visualizerView" },
@@ -844,17 +849,24 @@ musicxx.ui.registerEntry({
 ```js
 // 注册普通页面背景（类型简称 page.background）：给歌单页 / 设置页 / 插件页面这类普通页面铺背景。
 // routes 写页面路由 id 数组（不写或空数组 = 所有普通页面）；同一个页面命中多项时
-// 写了这个路由的优先于“所有页面”，再按 order 与注册顺序取第一项。
+// 写了这个路由的优先于“所有页面”，同一优先级里**最新注册的生效**（不读 order）。
 // 不需要用户选择（插件声明即生效）；弹窗与播放页不包含在内。
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "pageBg",
     type: "page.background",
     data: {
         title: "纸张纹理",
         depict: "浅色、静态",
         routes: ["/songs", "/setting/theme"],
-        shader: { bundle: "shader/page.shaderbundle" },
-        speed: 1, maxFps: 8,
+        view: {
+            kind: "Expanded",
+            children: [{
+                kind: "musicxx.Shader",
+                bundle: "shader/page.shaderbundle",
+                args: { uCover: { kind: "texture", source: "musicxx.cover", size: 256, blur: 18 } },
+                speed: 1, maxFps: 8,
+            }],
+        },
     },
 });
 
@@ -866,7 +878,7 @@ musicxx.host.log(2, "当前页面: " + page);
 ```js
 // 注册自己的音效（类型简称 audio.effect）：追加在『音效』插件的音效页面里，与内置预设同一个列表。
 // filters 按顺序拼进 mpv af（可以写 lavfi=[...] 图语法）；与均衡器、自定义音调互斥。
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "bass",
     type: "audio.effect",
     title: "低音炮",
@@ -882,7 +894,7 @@ musicxx.ui.registerEntry({
 
 ```js
 // 在播放页子页面的固定位置插一块自己的界面（位置就是类型，见 plugin-ui.md §1.6）
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "lyricTip",
     type: "playing.lyric.top",      // 全名 musicxx.ui.playing.lyric.top
     order: 10,
@@ -894,7 +906,7 @@ musicxx.ui.registerEntry({
 
 ```js
 // 播放页底部控制按钮栏：整栏替换，或者只换其中一个按钮（替换关系，见 plugin-ui.md §1.7）
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "brandPlayBtn",
     type: "playing.controlBar.playOrPause",   // 全名 musicxx.ui.playing.controlBar.playOrPause
     data: {
@@ -906,7 +918,7 @@ musicxx.ui.registerEntry({
     },
 });
 
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "miniBar",
     type: "playing.controlBar",               // 整栏都由本插件画（五个按钮级类型不再参与）
     data: { view: "controlBarView" },
@@ -915,20 +927,20 @@ musicxx.ui.registerEntry({
 
 ```js
 // 有哪些可选样式（含主程序内置项：id 形如 musicxx.auto）
-const r = await musicxx.render.list({ slot: "player.background" });
+const r = await musicxx.ui.slot.list({ slot: "player.background" });
 // r = { ok:true, slots:[{ slot, title, selectedId, items:[
 //        { id, title, depict?, source:"builtin"|"plugin", plugin?, available, reason?, selected } ] }] }
 
-await musicxx.render.select("plugin.my_plugin.bg");                  // 省略 slot 用默认槽位
-await musicxx.render.select("musicxx.auto", { slot: "player.background" });   // 也可以切回内置
+await musicxx.ui.slot.select("plugin.my_plugin.bg");                  // 省略 slot 用默认槽位
+await musicxx.ui.slot.select("musicxx.auto", { slot: "player.background" });   // 也可以切回内置
 // 交还控制权用 musicxx.previous（恢复音乐动效 / 歌曲图等被 musicxx.default 重置掉的值，没有记录时不动）；
 // musicxx.default = 写回该设置项的默认值（背景 musicxx.auto、动效 musicxx.none、歌曲图 musicxx.circle）
 // 成功 → { ok:true, slot, id }；不可用 / 未知 → { ok:false, error }
 
-const cur = await musicxx.render.current();     // { ok, slot, id, title, source:"builtin"|"plugin", plugin, night }
+const cur = await musicxx.ui.slot.current();     // { ok, slot, id, title, source:"builtin"|"plugin", plugin, night }
 
 // 「现在是不是本插件在画」：同步读状态广播
-const slot = (musicxx.broadcast.read("musicxx.state.renderSlots") || {})["player.background"];
+const slot = (musicxx.broadcast.read("musicxx.state.uiSlots") || {})["player.background"];
 if (slot && slot.itemId === "plugin.my_plugin.bg") { /* 本插件在画 */ }
 ```
 
@@ -1043,7 +1055,7 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
   封面被清空时各收到一次（同一个封面源被重复设置不会重复派发）。载荷
   `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` /
   `network`）里**没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里
-  采样就声明渲染项的 `cover` / `image`；**可以回退移除**，插件停用 / 卸载时插件框架也会自动摘掉：
+  采样就在着色器块的 `args` 里声明纹理（`musicxx.cover` / `musicxx.image.<key>`）；**可以回退移除**，插件停用 / 卸载时插件框架也会自动摘掉：
 
 ```js
 musicxx.broadcast.subscribe("musicxx.media.cover.changed", (ctx) => {
@@ -1068,8 +1080,9 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
   [plugin-shader-bundle.md](plugin-shader-bundle.md) §7 的公式做（放大 `pow(v/m, k)`、
   缩小 `m*log(1+a*v/m)/log(1+a)`，`m` 是这一帧的最大值，结果留在 0~1）；
 - 想让画面跟着封面配色动，用 `args` 里的来源就够了（`musicxx.icon.*`，每帧现读、零成本）；
-  要用**封面图本身**（铺底、圆盘、像素化…）就在渲染项里声明 `cover`：
-  主程序解码 + 缩放 + 可选预模糊后上传成 GPU 纹理，每帧绑定给着色器，插件不搬字节
+  要用**封面图本身**（铺底、圆盘、像素化…）就在着色器块的 `args` 里声明纹理：
+  `{"kind":"texture","source":"musicxx.cover"}` —— 主程序解码 + 缩放 + 可选预模糊后上传成
+  GPU 纹理，每帧绑定给着色器，插件不搬字节
   （见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1）；
 - `musicxx.media.cover` 这条能力是**读数据**用的（自己分析像素：哈希、取色、外部识别…）：
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
@@ -1086,7 +1099,7 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
 
 ```js
 // 主页入口：点开自己的页面
-musicxx.ui.registerEntry({
+musicxx.ui.slot.register({
     name: "card",
     type: "home.entry",
     order: 120,
@@ -1098,7 +1111,7 @@ musicxx.ui.registerEntry({
 });
 
 // 也可以把 data 的字段平铺在对象上（等价写法）
-musicxx.ui.registerEntry({ name: "clear", type: "song.action", order: 900,
+musicxx.ui.slot.register({ name: "clear", type: "song.action", order: 900,
     title: "用我的插件处理这首歌",
     action: { kind: "capability", name: "handleSong" } });
 
@@ -1123,8 +1136,8 @@ musicxx.capability.register("card", function (args) {
 
 - 能力返回 `{ view: {...} }`（推荐）或直接返回视图对象；返回视图时主程序会用新视图**刷新当前页面**
   （按钮改配置 + 立即刷新就是这么做的）；
-- `musicxx.ui.updateEntry("card", 完整 data)` 是**整体替换**，只想改一个字段也要传完整 data；
-- `musicxx.ui.entries()` 返回本插件已注册项的脚本侧副本（不含框架补的 `id` 前缀，调试用）；
+- `musicxx.ui.slot.update("card", 完整 data)` 是**整体替换**，只想改一个字段也要传完整 data；
+- `musicxx.ui.slot.entries()` 返回本插件已注册项的脚本侧副本（不含框架补的 `id` 前缀，调试用）；
 - UI 项的类型与字段、页面块类型、界面动作四种写法（`route` / `dispatch` / `command` / `none`）、
   按 `host.info().ui` 降级、图标要自带 svg —— 见 [plugin-ui.md](plugin-ui.md) 与
   [plugin-api.md](plugin-api.md) §9.1；本插件页面的路由是 `ext://<自己的插件id>/<视图id>`，
@@ -1180,7 +1193,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | `musicxx.capability.implement("musicxx.player.error")` | 错误裁决（换源建议） |
 | `musicxx.capability.implement("musicxx.player.speed")` | 异步裁决（Promise）的写法 |
 | `musicxx.timer.setInterval` | 后台定时任务（心跳日志） |
-| `musicxx.ui.registerEntry` | 主页入口 + 歌曲菜单项 |
+| `musicxx.ui.slot.register` | 主页入口 + 歌曲菜单项 |
 | `musicxx.capability.register("card"/"settings")` | 功能页与设置页（自绘） |
 | `musicxx.storage.getConfig/setConfig` | 读写 `config.json`（默认值由脚本给） |
 | `musicxx.capability.call` | 跨插件调用（JS ↔ 原生） |

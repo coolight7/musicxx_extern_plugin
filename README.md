@@ -627,7 +627,7 @@ musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip"                  
 musicxx-cli plugin list                                                         # 每个插件的状态与失败原因
 musicxx-cli plugin logs my_plugin --limit 50                                    # 最近日志（新的在前）
 musicxx-cli plugin reload my_plugin                                             # 改完代码重新加载
-musicxx-cli render select plugin.my_plugin.bg                                   # 让播放页用上插件的背景样式
+musicxx-cli ui-slot select plugin.my_plugin.bg                                  # 让播放页用上插件的背景样式
 musicxx-cli plugin uninstall my_plugin                                          # 卸载（--keep-data 保留私有数据）
 ```
 
@@ -637,9 +637,9 @@ musicxx-cli plugin uninstall my_plugin                                          
 参考实现：`plugins/example_native/`（能力/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
 `plugins/example_js_playing_bg/`（显示名『示例播放页背景』：六种播放页背景样式 —— 封面三种『模糊』/『沉浸』/『黑胶』与
 图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色：
-背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `cover` 纹理（含圆裁用的 `square`）、同一个槽位注册多项、
-`playing.icon` 三种形态里的 `none`、`musicxx.media.palette.analyse`、`foregroundColors`（运行期改前景三色）与
-`image`（插件自己绑定的纹理）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面；六个脚本分工写，也是多脚本示例）、
+背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `args` 里的封面纹理（含圆裁用的 `square`）、同一个槽位注册多项、
+`playing.icon` 三种形态里的 `none`、`musicxx.media.palette.analyse`、
+`musicxx.ui.playing.foreground.set`（运行期改前景三色）与 `musicxx.image.<key>`（插件自己绑定的纹理）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面；六个脚本分工写，也是多脚本示例）、
 `plugins/example_js_playing_slots/`（播放页的位置：插入块 / 控制按钮栏 / 音频动效三个位置各一块，带自己的 `viz.frag`）、
 另外 `plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
 `plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），
@@ -818,7 +818,7 @@ final List<MusicxxPluginUIItem> next =
 | 配置 | `musicxx.storage.get` / `.set`（带 `namespace: "config"`；JS 糖是 `getConfig` / `setConfig`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |
 | 内置网络能力 | `musicxx.net.http/socket/ws/udp`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket / UDP 的客户端与**服务端**；客户端支持 `https` / `wss`，**服务端只监听明文**且默认只绑回环；UDP 可广播 / 组播；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |
-| 声明式 UI | `musicxx.ui.registerEntry` / `PluginBase::uiRegister` | 主页入口 / 歌曲菜单 / 歌单菜单 / “添加歌曲”项 / 播放页背景 / 播放页歌曲图（主程序都已有渲染点）；字段见 `docs/plugin-ui.md` |
+| 声明式 UI | `musicxx.ui.slot.register` / `PluginBase::uiSlotRegister` | 主页入口 / 歌曲菜单 / 歌单菜单 / “添加歌曲”项 / 播放页背景 / 播放页歌曲图（主程序都已有渲染点）；字段见 `docs/plugin-ui.md` |
 | 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→动态库投递框架线程、脚本不阻塞；JS 处理器可以同步返回，也可以返回 Promise（插件框架等到结算）；C++ 处理器同步返回 |
 | 插件页面 | `ext://<插件id>/<视图id>` | 主程序调用插件同名能力取视图描述（Text / Divider / Button / Block / 布局块 / Shader 块） |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |

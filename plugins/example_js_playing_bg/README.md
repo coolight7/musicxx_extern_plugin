@@ -15,7 +15,7 @@
 顺带演示同一套代码里的另外三件事：
 
 - **播放页歌曲图槽位**（`player.icon`）：背景是自己时才接管歌曲图，别的样式在画就交还
-  `musicxx.previous`（每秒读一次 `musicxx.state.renderSlots`）；
+  `musicxx.previous`（每秒读一次 `musicxx.state.uiSlots`）；
 - **封面取色能力**（`musicxx.media.palette` 的 `implement`）：命中缓存同步返回，未命中返回 null 并
   在后台算好、用 `musicxx.media.palette.set` 写回（**不要在处理器里 await 应用实现的能力**）；
 - **同一份描述的复用**：说明页 / 设置页 / 频谱页都是声明式视图，用随插件分发的界面 kit 拼装。
@@ -38,6 +38,30 @@ musicxx-cli call probe --plugin example_js_playing_bg
 装好后：**设置 → 主题 → 播放页面背景**里会多出六项（标题都以『示例播放页背景 · 』开头），
 选一项就生效；插件自己的说明页从**音乐主页 → 示例播放页背景**进入。
 
+每个样式项的 `data` 只有三个字段，背景是一棵块树：
+
+```js
+{
+    title: "示例播放页背景 · 模糊",
+    depict: "封面高斯模糊后放大铺满屏幕…",
+    view: {
+        kind: "Expanded",                     // 根块要自己拿到整页尺寸
+        children: [{
+            kind: "musicxx.Shader",
+            bundle: "shader/heat.shaderbundle",
+            args: {
+                uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 14 },
+                uZoom: { kind: "const", value: 2 },
+            },
+            speed: 1, maxFps: 24, resolutionScale: 0.6,
+        }],
+    },
+}
+```
+
+播放页前景（三色 + 是否用遮罩外观）**不在项里**：样式被选中后由 `palette.js` 调
+`musicxx.ui.playing.foreground.set`（应用只接受当前生效的播放页背景插件项）。
+
 ## 2. 文件怎么分工
 
 六个脚本在同一个 JS 上下文里按 `plugin.yaml` 的 `scripts` 顺序执行，
@@ -46,8 +70,8 @@ musicxx-cli call probe --plugin example_js_playing_bg
 | 文件 | 只做什么 |
 |---|---|
 | `pluginxx_ui_kit.js` / `musicxx_ui_kit.js` | 界面 kit（`pwsh tools/sync_ui_kit.ps1` 复制，不要手改） |
-| `backgrounds.js` | 六个样式的声明数据（标题 / 参数 / 封面纹理 / `speed`）、样式与 UI 项 id 的对照表、注册函数 |
-| `palette.js` | 封面取色：六种样式各自的颜色估算、前景色挑选、base64 与图片工具 |
+| `backgrounds.js` | 六个样式的声明数据（`title` / `depict` / `view` 块树，块里的 `args` 带封面纹理与块速度）、样式与 UI 项 id 的对照表、注册函数 |
+| `palette.js` | 封面取色：六种样式各自的颜色估算、前景色挑选、base64 与图片工具；算好的三色用能力 `musicxx.ui.playing.foreground.set` 交给应用（算不出来就 `clear`） |
 | `views.js` | 说明页 / 设置页 / 频谱页的视图，以及频谱动作的异步状态 |
 | `plugin.js` | 配置读写、封面纹理绑定、槽位跟随、能力入口、全部顶层注册 |
 
@@ -71,7 +95,7 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
 | `hideIcon` | 用背景时隐藏歌曲图 | 布尔 | `false` |
 | `autoForeground` | 按封面自动调整播放页前景色 | 布尔 | `true` |
 
-- 改完的值要重新声明受影响的样式项（`musicxx.ui.updateEntry` 是**整体替换**，六个各调一次）；
+- 改完的值要重新声明受影响的样式项（`musicxx.ui.slot.update` 是**整体替换**，六个各调一次）；
   只改 `speed` 这类每帧现算的字段，改动立即生效，不用重新选中。
 - 值调到边界外会被夹到范围内，读到非法值用默认值；异步读回来的旧值不会盖掉用户刚做的选择。
 - `1×` 就是 `speed` 1（基准速度 1），没有"声明 4 当基准"那种偏移。
@@ -82,7 +106,7 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
 |---|---|
 | `probe` | 自检：样式数 / UI 项数 / 三个业务脚本是否执行过 |
 | `card` / `settings` / `spectrumProbe` | 说明页 / 设置页 / 频谱页（页面路由是 `ext://<插件 id>/<视图>`） |
-| `useBackground` | 从插件页面里切某一种样式（内部调 `musicxx.render.select`） |
+| `useBackground` | 从插件页面里切某一种样式（内部调 `musicxx.ui.slot.select`） |
 | `cycleBackgroundRate` | 切动画速率（设置页那一行按钮） |
 | `setOption` | 改上面任意一项数值 / 布尔设置 |
 | `bindCoverTexture` / `unbindCoverTexture` | 把当前封面绑成『插件纹理铺底』的底层纹理 |

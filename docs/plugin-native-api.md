@@ -296,11 +296,11 @@ MUSICXX_PLUGIN_EXPORT(
 | 应用实现的能力（异步） | `capabilityCall(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；能力名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；内部按声明表（`tools/capabilities.def.json` 生成的 `capability_ids.g.h`）判，没声明过的名字直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
 | 自省（异步） | `capabilityCall("musicxx.capability.subscribers", "{\"id\":\"<能力 id>\"}", ...)`、`capabilityCall("musicxx.feature.point.list", ...)` | 前者答"这条能力现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这条能力再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeBroadcast(topic, fn)`；发布用 `publishBroadcast(topic, payload)` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
-| 声明式 UI | `uiRegister/uiUpdate/uiUnregister/uiEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
-| 播放页背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | 需要打包期编译好的 shader bundle（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
-| 普通页面背景 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND, ...)` | 给歌单页 / 设置页 / 插件页面这类普通页面铺背景，`routes` 声明适用页面（不写 = 所有普通页面）；不需要用户选择，弹窗与播放页不包含（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5） |
-| 播放页控制按钮栏 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
-| 音效 | `uiRegister(..., MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filters` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.8 |
+| 声明式 UI | `uiSlotRegister/uiSlotUpdate/uiSlotUnregister/uiSlotEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)） |
+| 播放页背景 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | `data` 只有 `title` / `depict?` / `view`（块树，着色器是里面的 `musicxx.Shader`）；前景（三色）用能力 `musicxx.ui.playing.foreground.set`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1 / §8.1 |
+| 普通页面背景 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND, ...)` | 给歌单页 / 设置页 / 插件页面这类普通页面铺背景：同一套 `title` + `view`，多一个 `routes`（不写 = 所有普通页面）；不需要用户选择，同一页面里最新注册的生效，弹窗与播放页不包含（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5） |
+| 播放页控制按钮栏 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
+| 音效 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filters` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.8 |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
 | 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连插件框架（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（插件框架会拒绝在 IO 线程阻塞等待） |
 | 功能埋点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能埋点、给出实现、或调应用留出的功能埋点（频谱 / 副歌 / 封面取色） |
@@ -372,7 +372,7 @@ capabilityCall("musicxx.ui.overlay.show",
 capabilityCall("musicxx.ui.overlay.close", R"({})", &notify, 0);
 capabilityCall("musicxx.storage.set", R"({"key":"greeting","value":"早上好"})", &notify, 5000);
 capabilityCall("musicxx.net.fetch", R"({"url":"https://example.com/a.json"})", &notify, 30000);
-capabilityCall("musicxx.render.list", "{}", &notify, 5000);
+capabilityCall("musicxx.ui.slot.list", "{}", &notify, 5000);
 capabilityCall("musicxx.media.spectrum", R"({"bandCount":16})", &notify, 5000);
 ```
 
@@ -428,7 +428,7 @@ pluginxx::Task<void> askOther() {                       // 调别的插件：协
     co_return;
 }
 
-uiRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, entryJson, 120);
+uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, entryJson, 120);
 uiNotify(R"({"text":"已刷新"})");
 
 featurePointProvide("plugin.my_plugin.beat", [](std::string_view argsJson) -> std::string {
@@ -533,7 +533,7 @@ const std::string songJson = readBroadcast(MUSICXX_BROADCAST_STATE_SONG);   // �
 ```
 
 - **键、每个键的字段、刷新时机与坑**：[plugin-api.md](plugin-api.md) §2（状态广播那一节）。
-  可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `renderSlots` / `spectrum`；
+  可读的键：`musicxx.state.app` / `player` / `song` / `playlist` / `env` / `uiSlots` / `spectrum`；
   `musicxx.state.lyric` / `musicxx.state.songlists` 是预留的，当前版本没有推送（返回空串）；
 - C++ 常量：生成的 `MUSICXX_BROADCAST_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` /
   `_PLAYLISTS` / `_ENV` / `_RENDER_SLOTS` / `_SPECTRUM`（`capability_ids.g.h`，不要手写键名）；
