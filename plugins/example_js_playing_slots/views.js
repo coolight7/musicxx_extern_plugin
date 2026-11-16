@@ -120,6 +120,8 @@ function favoriteButtonView(args) {
 }
 
 /// 一条控制栏图标按钮（图标是插件自己带的 svg，动作调官方能力）
+///
+/// `ghost` = 无底色：只有图标，与内置控制栏按钮一致（`secondary` 会多出一块方块底）。
 function controlBarButton(icon, command, label) {
     return {
         kind: "Button",

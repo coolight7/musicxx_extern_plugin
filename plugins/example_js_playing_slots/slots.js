@@ -129,6 +129,9 @@ function registerInsertSlots(lyricTipEnabled) {
 ///
 /// - 菜单按钮用内联视图：只有一个图标 + 官方动作 `musicxx.ui.playing.openMenu`；
 /// - 收藏按钮用视图 id：要按 `args.favorite` 换显示（"状态变了会重新取一次视图"）。
+///
+/// 两个都用 `variant: "ghost"`：**无底色**，只有图标（或文字），跟内置控制栏按钮长得一样；
+/// 换成 `secondary` 会多出一块方块底。
 function registerButtonSlots() {
     musicxx.ui.slot.register({
         name: SLOT_NAME_MENU,
