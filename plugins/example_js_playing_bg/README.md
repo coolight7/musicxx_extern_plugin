@@ -45,22 +45,21 @@ musicxx-cli call probe --plugin example_js_playing_bg
     title: "示例播放页背景 · 模糊",
     depict: "封面高斯模糊后放大铺满屏幕…",
     view: {
-        kind: "Expanded",                     // 根块要自己拿到整页尺寸
-        children: [{
-            kind: "musicxx.Shader",
-            bundle: "shader/heat.shaderbundle",
-            args: {
-                uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 14 },
-                uZoom: { kind: "const", value: 2 },
-            },
-            speed: 1, maxFps: 24, resolutionScale: 0.6,
-        }],
+        kind: "musicxx.Shader",               // 根块直接写着色器就铺满整页（不用包 Expanded）
+        bundle: "shader/heat.shaderbundle",
+        args: {
+            uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 14 },
+            uZoom: { kind: "const", value: 2 },
+        },
+        speed: 1, maxFps: 24, resolutionScale: 0.6,
     },
 }
 ```
 
 播放页前景（三色 + 是否用遮罩外观）**不在项里**：样式被选中后由 `palette.js` 调
 `musicxx.ui.playing.foreground.set`（应用只接受当前生效的播放页背景插件项）。
+`palette.js` 靠广播驱动（订阅 `musicxx.state.uiSlots` / `musicxx.theme.current` /
+`musicxx.media.cover.changed`），不轮询。
 
 ## 2. 文件怎么分工
 
@@ -106,7 +105,7 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
 |---|---|
 | `probe` | 自检：样式数 / UI 项数 / 三个业务脚本是否执行过 |
 | `card` / `settings` / `spectrumProbe` | 说明页 / 设置页 / 频谱页（页面路由是 `ext://<插件 id>/<视图>`） |
-| `useBackground` | 从插件页面里切某一种样式（内部调 `musicxx.ui.slot.select`） |
+| `useBackground` | 从插件页面里切某一种样式（内部调 `musicxx.ui.slot.set`） |
 | `cycleBackgroundRate` | 切动画速率（设置页那一行按钮） |
 | `setOption` | 改上面任意一项数值 / 布尔设置 |
 | `bindCoverTexture` / `unbindCoverTexture` | 把当前封面绑成『插件纹理铺底』的底层纹理 |

@@ -50,8 +50,9 @@
 
 - 两种模式的项都只声明“画什么”：`view` 是一棵块树（块类型见 §2.3），着色器写在块
   `musicxx.Shader` 上（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9）；
-- **背景的根块要自己拿到整页尺寸**：用 `{"kind":"Expanded","children":[…]}` 包一层，
-  或顶层写 `Column` 里的 `Expanded`。直接写一个 `musicxx.Shader` 会因为父给的高度无界而不渲染；
+- **背景的根块就是画布**：根上直接写一块 `musicxx.Shader`（或 `Stack`）就会铺满整页 ——
+  渲染层发现根块要铺满时给它紧约束，不用再包 `Expanded`（包了也照样能用，根上的 `Expanded`
+  会被解开）；把着色器放进滚动的 `Column` 里时仍要包 `Expanded`；
 - 多注册者模式的“现在是不是我在画 / 画面多大”看广播 `musicxx.state.uiSlots`，
   或者调能力 `musicxx.ui.slot.current`（见 [plugin-broadcasts.md](plugin-broadcasts.md)）。
 
@@ -729,9 +730,9 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 规则（主程序按这个形状判断，浮层与插件页面都一样）：
 
-- 触发“填满高度”的条件有三种：**顶层直接写 `Expanded`**、**顶层直接写 `musicxx.AdaptLayout`**，
-  或者**顶层只有一个 `Column` 且它里面有 `Expanded` / `musicxx.AdaptLayout`**；其它写法保持
-  “整页一起滚”，不会因为忘了写 `Expanded` 而溢出；
+- 触发“填满高度”的条件：**根块是 `musicxx.Shader` / `Stack` / `musicxx.AdaptLayout` / `Expanded`**，
+  或者**根块是 `Column` 且其中有这些**（`Column` 里的 `musicxx.Shader` / `Stack` / `AdaptLayout` 会被
+  当成 flex 子组件）；其它写法保持“整页一起滚”，不会因为忘了写 `Expanded` 而溢出；
 - 这种描述要求客户端给**有界高度**：插件页面与浮层内容区都给了（浮层建议用
   `size: "full"` 打开，宽高都是可用尺寸的 90%，见 §2.7；高度铺满、宽度随内容就用 `fullHeightAutoWidth`）；
   对话框那种自由高度里客户端会退回普通排布；

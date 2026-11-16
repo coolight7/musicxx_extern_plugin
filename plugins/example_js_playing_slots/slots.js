@@ -23,7 +23,7 @@ const SLOT_CONTROL_BAR_MENU = "playing.controlBar.menu";
 const SLOT_CONTROL_BAR_FAVORITE = "playing.controlBar.favorite";
 const SLOT_VISUALIZER = "playing.visualizer";
 
-/// 渲染槽位 id（`musicxx.ui.slot.select` 的 slot 参数）与内置的"不显示"项
+/// 渲染槽位 id（`musicxx.ui.slot.set` 的 slot 参数）与内置的"不显示"项
 const VISUALIZER_SLOT_ID = "player.visualizer";
 const NONE_VISUALIZER_ID = "musicxx.none";
 

@@ -194,8 +194,8 @@ musicxx-cli plugin uninstall my_plugin --keep-data   # 保留 config.json 与存
 ```bash
 musicxx-cli ui-slot list                          # 谁能画：内置样式 + 各插件样式（含可用性）
 musicxx-cli ui-slot current                       # 现在是谁在画
-musicxx-cli ui-slot select plugin.my_plugin.bg    # 切到插件样式
-musicxx-cli ui-slot select musicxx.auto           # 切回内置样式
+musicxx-cli ui-slot set plugin.my_plugin.bg    # 切到插件样式
+musicxx-cli ui-slot set musicxx.auto           # 切回内置样式
 ```
 
 选中的样式失效时（bundle 预检不过、运行期渲染失败、插件被停用/卸载、关闭『拟声++』）会自动
@@ -208,8 +208,8 @@ musicxx-cli ui-slot select musicxx.auto           # 切回内置样式
 
 ```bash
 musicxx-cli ui-slot list --slot player.icon
-musicxx-cli ui-slot select musicxx.square --slot player.icon
-musicxx-cli ui-slot select musicxx.previous --slot player.icon
+musicxx-cli ui-slot set musicxx.square --slot player.icon
+musicxx-cli ui-slot set musicxx.previous --slot player.icon
 ```
 
 ### 5.6 其它顺手命令
@@ -377,7 +377,7 @@ musicxx-cli plugin logs my_plugin --limit 50
 musicxx-cli plugin reload my_plugin
 
 # 5) 背景类插件：切上去看效果
-musicxx-cli ui-slot select plugin.my_plugin.bg
+musicxx-cli ui-slot set plugin.my_plugin.bg
 
 # 6) 收尾
 musicxx-cli plugin uninstall my_plugin

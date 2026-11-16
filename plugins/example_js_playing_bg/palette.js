@@ -289,6 +289,9 @@ let foregroundApplyScheduled = false;
 /// 已经排了一次"推失败后重试"
 let foregroundRetryScheduled = false;
 
+/// 已经排了一次"变化后重新对前景"
+let foregroundRefreshScheduled = false;
+
 /// 各样式估出的背景亮度：只用来判断"文字压在什么颜色上"，取主要铺满画面的那个颜色
 ///
 /// - 『模糊』：整屏就是（预模糊的）封面本身，夜间着色器再统一压到 0.74；
@@ -667,6 +670,26 @@ function retryForegroundSoon() {
     }, 1000);
 }
 
+/// 把"重新对一次前景"排到定时器里做
+///
+/// 插件框架在**顶层同步注册阶段**不接受动作（能力调用 / 图片绑定），而 `cache: latest` 的广播
+/// 在订阅时会当场回放当前值，所以订阅回调里不能直接调能力。
+/// [reloadPalette] 为真时先问一次"当前昼夜 + 封面主色"，否则只按现有缓存重推。
+function foregroundRefreshLater(reloadPalette) {
+    if (foregroundRefreshScheduled) {
+        return;
+    }
+    foregroundRefreshScheduled = true;
+    musicxx.timer.setTimeout(function () {
+        foregroundRefreshScheduled = false;
+        if (reloadPalette) {
+            refreshForegroundState();
+        } else {
+            applyForegroundIfChanged();
+        }
+    }, 0);
+}
+
 /// 订阅"样式 / 昼夜 / 封面"三类变化，变化时推一次前景
 ///
 /// 为什么不用每秒轮询：
@@ -676,23 +699,21 @@ function retryForegroundSoon() {
 /// 三者都订阅之后，只有"刚切到本插件、还没有取色结果"时才需要当场问一次应用。
 function installForegroundSubscriptions() {
     musicxx.broadcast.subscribe("musicxx.state.uiSlots", function () {
-        if (backgroundIsMine() && true == configuredAutoForeground() && null === foregroundSpecs()) {
-            // 刚切到本插件的样式、或者还没有缓存主色：先问一次应用（查完会自己推）
-            refreshForegroundState();
-            return;
-        }
-        applyForegroundIfChanged();
+        const reload = backgroundIsMine() && true == configuredAutoForeground() &&
+            null === foregroundSpecs();
+        // 刚切到本插件的样式、或者还没有缓存主色：先问一次应用（查完会自己推）
+        foregroundRefreshLater(reload);
     });
     musicxx.broadcast.subscribe("musicxx.theme.current", function () {
         // 换主题（白昼 / 夜间）：三色的明暗倾向与对比度都要重算
-        refreshForegroundState();
+        foregroundRefreshLater(true);
     });
     musicxx.broadcast.subscribe("musicxx.media.cover.changed", function () {
         // 换歌 / 换封面：重新问一次取色，算完由 `applyForegroundLater` 推出去
-        refreshForegroundState();
+        foregroundRefreshLater(true);
     });
-    // 启动（或插件重载）时把当前值对一次：这时 uiSlots 的订阅也会立刻送一份当前值
-    applyForegroundIfChanged();
+    // 启动（或插件重载）时把当前值对一次
+    foregroundRefreshLater(false);
 }
 
 /// 自动前景色的状态文本（设置页 / 说明页的状态行）

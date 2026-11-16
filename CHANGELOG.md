@@ -8,6 +8,21 @@
 
 ## 历史
 
+### 变更（未发布）：单根块渲染、`ui.slot.set`、状态广播更及时
+
+- **插件界面只有一个根块**：`ExternPluginUiView_c(block:)`（多块文档由渲染层合成一个 `Column`）。
+  根上是 `musicxx.Shader` / `Stack` / `musicxx.AdaptLayout` / `Expanded` 时拿紧约束铺满 ——
+  **背景直接写一块 `musicxx.Shader` 就行，不用再包 `Expanded`**（包了也照样能用，根上的
+  `Expanded` 会被解开），`Expanded` 只用在“和别的块混排的 `Column` 里”。`subtitle` 不再由渲染层画。
+- **能力改名并开放前后链**：`musicxx.ui.slot.select` → `musicxx.ui.slot.set`（CLI 子命令
+  `ui-slot select` → `ui-slot set`，JS 封装函数也从 `musicxx.ui.slot.select(id)` 改成
+  `musicxx.ui.slot.set(id)`）；它与 `musicxx.ui.playing.foreground.set` 现在都有
+  `before` / `impl` / `after`（`impl` 仍只有应用一个实现）。应用里**所有入口**（设置页、动效页、
+  歌曲图形状、插件按钮）都走这一条能力，所以插件能收到每一次样式切换（命令行 / MCP 调同一条命令
+  时跑的是应用实现，与其它命令一样不跑前后链；观察选择结果用 `musicxx.state.uiSlots`）。
+- **`musicxx.state.uiSlots` 更及时**：`night` 在换主题 / 换封面取色时也会重发（以前只在选择变化与
+  挂载点上报时重发），插件不用自己轮询；字段仍是 `{itemId, plugin, selectedId, night, visible, width, height}`。
+
 ### 变更（破坏性，未发布）：自定义背景统一为块（`view`）
 
 背景（播放页背景 `musicxx.ui.playing.background` 与普通页面背景 `musicxx.ui.page.background`）不再收
@@ -26,20 +41,17 @@ item 级的 `shader` / `cover` / `image` / `scrim` / `foregroundStyle` / `foregr
   "foregroundColors": {"main": "#ffe8f0ff"}
 }
 
-// 现在：`view` 里放一块 `musicxx.Shader`（纹理写在 `args` 里，前景改调能力）
+// 现在：背景就是一棵块树（`view`），根上直接写着色器就铺满（纹理写在 `args` 里，前景改调能力）
 {
   "title": "我的背景",
   "view": {
-    "kind": "Expanded",                    // 根块要自己拿到整页尺寸
-    "children": [{
-      "kind": "musicxx.Shader",
-      "bundle": "shader/bg.shaderbundle",
-      "args": {
-        "uCover": {"kind":"texture", "source":"musicxx.cover", "size":512, "blur":14},
-        "uZoom":  {"kind":"const", "value":2}
-      },
-      "speed": 1, "maxFps": 24
-    }]
+    "kind": "musicxx.Shader",              // 根块直接写着色器（不用再包 Expanded）
+    "bundle": "shader/bg.shaderbundle",
+    "args": {
+      "uCover": {"kind":"texture", "source":"musicxx.cover", "size":512, "blur":14},
+      "uZoom":  {"kind":"const", "value":2}
+    },
+    "speed": 1, "maxFps": 24
   }
 }
 ```

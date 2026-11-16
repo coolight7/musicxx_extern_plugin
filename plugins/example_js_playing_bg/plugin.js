@@ -308,7 +308,7 @@ let lastLinkNote = "";
 
 /// 最近一次"一键使用"请求的样式 id
 ///
-/// 切换要经过一次动作往返（`musicxx.ui.slot.select`），页面却是先于动作结果画出来的：
+/// 切换要经过一次动作往返（`musicxx.ui.slot.set`），页面却是先于动作结果画出来的：
 /// 这里先记住请求，让页面当场就能看到"点了有反应"；镜像一反映这次请求就把它清掉。
 let lastBackgroundRequest = "";
 
@@ -344,7 +344,7 @@ function requestSlotSelect(slotId, itemId, note, manual) {
         lastBackgroundRequest = itemId;
     }
     lastLinkNote = note;
-    musicxx.ui.slot.select(itemId, { slot: slotId }).then(function (result) {
+    musicxx.ui.slot.set(itemId, { slot: slotId }).then(function (result) {
         if (result && result.ok === true) {
             lastLinkNote = note + "（已生效）";
             musicxx.host.log(2, "槽位切换成功: " + slotId + " → " + itemId);
@@ -439,7 +439,7 @@ function installPluginCapabilities() {
 
     /// 一键使用某个样式（也可以切到内置样式：id 用 `musicxx.auto`）
     ///
-    /// `musicxx.ui.slot.select` 是主程序官方动作：只允许选中**可用**项，选中后立即生效，
+    /// `musicxx.ui.slot.set` 是主程序官方动作：只允许选中**可用**项，选中后立即生效，
     /// 用户在设置里随时能改回来。处理器必须同步返回，所以这里只说明"已请求"，
     /// 实际结果看页面刷新后的状态（或 mirror 里的 `player.background`）。
     musicxx.capability.register("useBackground", function (args) {
@@ -469,7 +469,7 @@ function installPluginCapabilities() {
 
     /// 控件值变化统一入口：控件把自己的 `id` 与当前值带进参数
     ///
-    /// 样式选择走槽位动作（`musicxx.ui.slot.select`，异步）；其余几项写 config.json 并重新
+    /// 样式选择走槽位动作（`musicxx.ui.slot.set`，异步）；其余几项写 config.json 并重新
     /// 声明背景样式（`musicxx.ui.slot.update` 是整体替换）；处理器**同步返回**页面。
     musicxx.capability.register("setOption", function (args) {
         const id = (args && typeof args.id === "string") ? args.id : "";

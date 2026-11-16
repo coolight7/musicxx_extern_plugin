@@ -11,7 +11,7 @@
 /// 注意：
 /// - 动效区**不接手势**（封面点击、拖动切歌、迷你歌词要继续可用），需要交互的功能别放这里；
 /// - 没安装『音乐动效』时插件项仍可选，但频谱全是 0（没有来源）；
-/// - 它只是一个候选：用户没选就不渲染，选中 / 切回"不显示"都走 `musicxx.ui.slot.select`。
+/// - 它只是一个候选：用户没选就不渲染，选中 / 切回"不显示"都走 `musicxx.ui.slot.set`。
 
 /// 频谱来源的"快起慢落"声明（频谱是 10 帧/秒，直接取会有台阶感）
 function smoothSpectrum(name) {
@@ -47,7 +47,7 @@ function visualizerEntryData() {
 
 /// 选中本插件的动效项
 function usePluginVisualizer() {
-    musicxx.ui.slot.select(VISUALIZER_ITEM_ID, { slot: VISUALIZER_SLOT_ID }).then(function (r) {
+    musicxx.ui.slot.set(VISUALIZER_ITEM_ID, { slot: VISUALIZER_SLOT_ID }).then(function (r) {
         musicxx.host.log(2, "选中插件音频动效: " + JSON.stringify(r || {}));
     }, function (err) {
         musicxx.host.log(3, "选中插件音频动效失败: " + errText(err));
@@ -56,7 +56,7 @@ function usePluginVisualizer() {
 
 /// 切回"不显示"（内置动效里的空选项）
 function useNoVisualizer() {
-    musicxx.ui.slot.select(NONE_VISUALIZER_ID, { slot: VISUALIZER_SLOT_ID }).then(function (r) {
+    musicxx.ui.slot.set(NONE_VISUALIZER_ID, { slot: VISUALIZER_SLOT_ID }).then(function (r) {
         musicxx.host.log(2, "切回不显示音频动效: " + JSON.stringify(r || {}));
     }, function (err) {
         musicxx.host.log(3, "切回不显示音频动效失败: " + errText(err));

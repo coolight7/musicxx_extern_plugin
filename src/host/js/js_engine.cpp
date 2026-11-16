@@ -1062,10 +1062,10 @@ var featurePointImpls = new Map();
     current: function (args) {
       return appCall("musicxx.ui.slot.current", { slot: (args && args.slot) ? String(args.slot) : undefined });
     },
-    select: function (id, args) {
+    set: function (id, args) {
       var req = (args && typeof args === "object") ? args : {};
       req.id = String(id);
-      return appCall("musicxx.ui.slot.select", req);
+      return appCall("musicxx.ui.slot.set", req);
     }
   };
 

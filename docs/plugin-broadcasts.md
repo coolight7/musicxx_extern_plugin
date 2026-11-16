@@ -199,3 +199,22 @@
 值：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（枚举 id，不是本地化文案）。模式改了之后发布，订阅即拿到当前值。
 
 **只读**：要改模式调用能力 `musicxx.theme.setMode`（参数 `mode`），它会写进用户的持久设置并立即按新模式切。
+
+### `musicxx.state.uiSlots` 渲染槽位状态
+
+值是“槽位 id → 这个槽位的状态”，只有发生过选择或挂载点上报的槽位才有键（`player.background` 播放页背景、
+`player.icon` 播放页歌曲图、`player.visualizer` 播放页音频动效；普通页面背景 `page.background` 没有“选中项”，
+不在这里）：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `itemId` | string | 现在由哪个插件项在画（`plugin.<插件 id>.<项名>`）；内置样式在画时是空串 |
+| `plugin` | string | 生效项所属的插件 id；`itemId` 为空时也是空串 |
+| `selectedId` | string | 用户选中的是谁（内置项也是 `musicxx.*`）；跟 `itemId` 不一样就说明“选了但没生效” |
+| `night` | bool | 当前是不是夜间 |
+| `visible` | bool | 挂载点是否可见（播放页没打开 / 被遮住时为假） |
+| `width` / `height` | int | 渲染目标的像素尺寸（不可见时为 0） |
+
+什么时候重发：选择变化（含切回内置）、挂载点的可见性与尺寸变化、以及昼夜 / 配色变化
+（换主题、换封面取色、插件指定三色都会重算 `night` 再发一次）—— **插件不需要自己轮询**。
+没有 `animate` / `maxFps`：它们是每个着色器块自己的字段。

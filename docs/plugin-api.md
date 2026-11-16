@@ -1202,7 +1202,17 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 |---|---|---|
 | `musicxx.ui.slot.list` | `{slot?}` | `{ok:true, slots:[{slot, title, selectedId, items:[...]}]}` |
 | `musicxx.ui.slot.current` | `{slot?}` | `{ok:true, slot, id, title, source:"builtin"\|"plugin", plugin, night}`；没有生效项 → `{ok:false,error:"no_item"}` |
-| `musicxx.ui.slot.select` | `{id, slot?}` | `{ok:true, slot, id}`；不可用 / 未知 → `{ok:false,error}` |
+| `musicxx.ui.slot.set` | `{id, slot?}` | `{ok:true, slot, id}`；不可用 / 未知 → `{ok:false,error}` |
+
+**`musicxx.ui.slot.set` 带前后链**（`before` / `impl` / `after`）：`before` 回答
+`{"patch":{"slot":"player.icon","id":"musicxx.square"}}` 换这次的目标，或 `{"action":"cancel"}`
+拦下；`after` 拿到 `{slot, id, ok, error}` 看结果（应用已经换完了，改写不影响结果）。
+`impl` 只有应用一个实现。**应用里所有入口都走这一条**：用户在设置页里手点也走，
+所以插件能收到每一次样式切换。
+
+> 只有“插件调这条能力”会经过前后链（框架按阶段派出）；命令行 / MCP / 链接直接调同一条命令时
+> 走的是应用实现（命令面统一行为，不跑前后链）。只想观察“现在换成了哪个”不用管这个区别：
+> `musicxx.state.uiSlots` 每次选择变化都会重发（见 [plugin-broadcasts.md](plugin-broadcasts.md)）。
 
 条目字段：`{id, title, depict?, source, plugin?, available, reason?, selected}`。
 不给 `slot` 时用默认槽位（当前是 `player.background`，播放页背景）；槽位名还有 `player.icon`（播放页歌曲图）
@@ -1211,14 +1221,14 @@ netSubscribe([](std::string_view event) { /* kind == "http.request" … */ });
 
 ```js
 const all = await musicxx.ui.slot.list();                        // 默认槽位
-await musicxx.ui.slot.select("plugin.my_plugin.bg");             // 切到本插件的样式
-await musicxx.ui.slot.select("musicxx.auto", { slot: "player.background" });  // 切回内置
+await musicxx.ui.slot.set("plugin.my_plugin.bg");             // 切到本插件的样式
+await musicxx.ui.slot.set("musicxx.auto", { slot: "player.background" });  // 切回内置
 
 // 三个槽位的 id 写法同一套：内置项 `musicxx.<名字>`（背景 / 动效用枚举名，歌曲图用短名），
 // 交还控制权用 `musicxx.previous`（恢复 `musicxx.default` 重置掉的值，没有记录时不动），
 // `musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、动效 `musicxx.none`、歌曲图 `musicxx.circle`）
-await musicxx.ui.slot.select("musicxx.square", { slot: "player.icon" });
-await musicxx.ui.slot.select("musicxx.previous", { slot: "player.icon" });
+await musicxx.ui.slot.set("musicxx.square", { slot: "player.icon" });
+await musicxx.ui.slot.set("musicxx.previous", { slot: "player.icon" });
 ```
 
 **"现在是不是本插件在画"**用广播 `musicxx.state.uiSlots` 同步判断（渲染线程里每帧都会读，不要调能力）：
@@ -1230,7 +1240,12 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插�
 ```
 
 条目字段：`{itemId, plugin, selectedId, night, visible, width, height}`。
+- `itemId`：现在生效的**插件**项 id（内置样式时为空串）；`plugin`：生效项所属插件；
+- `selectedId`：用户选中的项（内置项也是 `musicxx.*`）；
+- `night`：当前是不是夜间；`visible`：挂载点是否可见；`width` / `height`：渲染目标像素尺寸。
+
 `visible:false` = 现在没渲染（播放页被遮挡 / 切后台），插件可以据此停掉耗时的计算。
+**`night` 与生效项在换主题 / 换封面取色时也会重发**（2026-11 起），插件不用自己轮询。
 `animate` / `maxFps` 不在广播里（它们是每个着色器块自己的字段，见 plugin-shader-bundle.md §8）。
 
 #### 3.2.7.1 播放页前景（`musicxx.ui.playing.foreground.set`）
@@ -1248,6 +1263,9 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插�
 播放页背景插件）/ `not_selected`（它没有背景样式、或它的样式当前没被选中）/ `invalid_argument`。
 生效项换人（换插件 / 回内置样式）、插件停用 / 卸载 / 关闭『拟声++』时应用自动清空；
 **同一个插件里切歌、切昼夜、视图重建都不清** —— 需要时插件再调一次覆盖。
+
+**带前后链**（`before` / `impl` / `after`）：`before` 可以 `patch.style` / `patch.colors` 改这次的值
+或 `cancel`；`after` 拿到结果看一眼。`impl` 只有应用一个实现。
 
 ```js
 // 切歌后按封面主色推一套三色（只在“背景是我”的时候调）
@@ -2505,7 +2523,9 @@ uiNotify(R"({"text":"已刷新"})");
   `resolutionScale`）；bundle 是**打包期编译好的**（`format_version` 必须与应用使用的 Flutter 版本一致）。
 - 需要封面 / 插件图片纹理时在块的 `args` 里声明（`{"kind":"texture","source":"musicxx.cover"}` /
   `musicxx.image.<key>`）：应用负责解码、缩放、预模糊、上传纹理，每帧把纹理绑给着色器（插件不搬字节）。
-- **背景的根块要自己拿到整页尺寸**：用 `Expanded` 包住 `musicxx.Shader`，否则块拿不到确定高度、留空。
+- **背景的根块就是画布**：根上直接写一块 `musicxx.Shader`（或 `Stack`）就会铺满整页；
+  以前要求的"用 `Expanded` 包一层"现在不需要了（包了也照样能用，根上的 `Expanded` 会被解开）。
+  把着色器放进去滚动的 `Column` 里时仍要包 `Expanded`（不然它拿不到确定高度）。
 - 每帧都会求值的参数用 `args` 声明（成员名 → 值表达式），应用每帧现读现写；
   频谱来源（`musicxx.spectrum.*`）是例外：**没有数据时写 0（静音）**，要看 `uEnv.z` 判断有没有数据。
 - 运行状态（谁在画、是否可见、尺寸、昼夜）读 §3.2.7 的 `musicxx.state.uiSlots`；

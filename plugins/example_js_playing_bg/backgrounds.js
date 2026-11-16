@@ -166,25 +166,22 @@ function imageTexture(key) {
     return { kind: "texture", source: "musicxx.image." + key };
 }
 
-/// 背景的根视图：`Expanded` 包住一个着色器块
+/// 背景的根视图：一块着色器块
 ///
-/// 背景是一棵块树，着色器只是里面的一个 `musicxx.Shader` 块。块渲染器把根块放进一个
-/// `Column`，不包 `Expanded` 的话着色器拿到的是无界高度，会按"没有确定尺寸"留空。
+/// 背景是一棵块树，着色器就是根上的那个 `musicxx.Shader` 块。根块是着色器时渲染层
+/// 会给它紧约束，所以不用再包 `Expanded`（那层包法现在是多余的，包了也能跑）。
 /// [options] 是块上的其余字段：`speed`（时间推进速度，缺省 1）、`maxFps`、
 /// `resolutionScale`、`animate`。
 function backgroundView(bundle, args, options) {
     const opts = options || {};
     return {
-        kind: "Expanded",
-        children: [{
-            kind: "musicxx.Shader",
-            bundle: bundle,
-            args: args,
-            speed: (opts.speed !== undefined) ? opts.speed : 1,
-            maxFps: (opts.maxFps !== undefined) ? opts.maxFps : 16,
-            resolutionScale: (opts.resolutionScale !== undefined) ? opts.resolutionScale : 1,
-            animate: (opts.animate !== undefined) ? opts.animate : true,
-        }],
+        kind: "musicxx.Shader",
+        bundle: bundle,
+        args: args,
+        speed: (opts.speed !== undefined) ? opts.speed : 1,
+        maxFps: (opts.maxFps !== undefined) ? opts.maxFps : 16,
+        resolutionScale: (opts.resolutionScale !== undefined) ? opts.resolutionScale : 1,
+        animate: (opts.animate !== undefined) ? opts.animate : true,
     };
 }
 

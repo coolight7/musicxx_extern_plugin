@@ -4,7 +4,7 @@
 「播放页背景」`player.background`、「播放页歌曲图」`player.icon`（见 §5.3）与「播放页音频动效」
 `player.visualizer`（见 §5.4）；另有一个**按页面路由自动生效**的「普通页面背景」`page.background`
 （见 §5.5）），由用户在设置里选中后生效（命令行 / agent 用
-`musicxx-cli ui-slot list|select` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）。
+`musicxx-cli ui-slot list|set` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）。
 
 **着色器只有一种写法：块 `musicxx.Shader`**（见 §9）。两个背景都只声明一棵块树（UI 项的 `view`），
 着色器块就是树里的一块（`bundle` + `args` + 帧率 / 分辨率 / 速度）；歌曲图 / 动效的 `shader` 形态
@@ -187,15 +187,13 @@ float t = render_info.uParams.z * render_info.uParams.w;   // 速率变了立即
 ```jsonc
 // 背景样式（musicxx.ui.playing.background）的 view：块 musicxx.Shader 的 args 里
 {
-  "kind": "Expanded",                    // 根块要自己拿到整页尺寸，见 §5.5
-  "children": [{
-    "kind": "musicxx.Shader",
-    "bundle": "shader/bg.shaderbundle",
-    "args": {
-      // 成员名就是着色器里的 sampler 名
-      "uCover": {"kind": "texture", "source": "musicxx.cover",
-                 "size": 512, "blur": 0, "square": false, "smooth": true},
-      "uZoom": {"kind": "const", "value": 2}
+  "kind": "musicxx.Shader",            // 根块直接写着色器就铺满整页（见 §5.5）
+  "bundle": "shader/bg.shaderbundle",
+  "args": {
+    // 成员名就是着色器里的 sampler 名
+    "uCover": {"kind": "texture", "source": "musicxx.cover",
+               "size": 512, "blur": 0, "square": false, "smooth": true},
+    "uZoom": {"kind": "const", "value": 2}
     },
     "speed": 1, "maxFps": 24, "animate": true
   }]
@@ -356,7 +354,7 @@ void main() {
 
 除了背景，插件还能接管沉浸式播放页**中间那张歌曲图**（内置显示是"封面图 + 播放状态按钮 / 视频"）。
 它是一个独立的渲染槽位 `player.icon`：用户在「设置 → 主题 → 播放页面歌曲图」里选择，或插件用
-`musicxx.ui.slot.select(id, {slot: "player.icon"})` 切换。
+`musicxx.ui.slot.set(id, {slot: "player.icon"})` 切换。
 
 内置显示也在这份列表里，按形状分成三条候选：`musicxx.circle`（圆形，会跟着旋转与波浪）、
 `musicxx.square`（方形）、`musicxx.adaptive`（按封面比例自适应，不裁剪）。
@@ -482,13 +480,10 @@ void main() {
   "depict": "浅色、静态",                    // 可选，调试信息与插件详情用
   "routes": ["/songs", "/setting/theme"],    // 可选；不写或空数组 = 所有普通页面
   "view": {                                  // 必填：块对象 / 块数组 / 视图 id
-    "kind": "Expanded",
-    "children": [{
-      "kind": "musicxx.Shader",
-      "bundle": "shader/page.shaderbundle",
-      "args": {"uCover": {"kind": "texture", "source": "musicxx.cover", "size": 256, "blur": 18}},
-      "speed": 1, "maxFps": 8
-    }]
+    "kind": "musicxx.Shader",
+    "bundle": "shader/page.shaderbundle",
+    "args": {"uCover": {"kind": "texture", "source": "musicxx.cover", "size": 256, "blur": 18}},
+    "speed": 1, "maxFps": 8
   }
 }
 ```
@@ -502,11 +497,11 @@ void main() {
   运行期可以读 `musicxx.state.env` 广播的 `page` 字段拿到当前路由，先打日志确认再写进 `routes`。
 - **`routes` 的取舍**：写了这个路由的项优先于“所有页面”的项；同一优先级里**注册顺序最靠后**的生效
   （同名重新注册 = 覆盖，保留原位置；注销后重新注册 = 新注册，排到最后）。只画一项，不叠加。
-- **根块要自己拿到整页尺寸**：用 `{"kind":"Expanded","children":[…]}` 包一层，或顶层写 `Column`
-  里的 `Expanded`。直接写一个 `musicxx.Shader` 会因为父给的高度无界而不渲染（背景铺满页面，
-  拿不到高度的块只能留空）。
+- **根块就是画布**：直接写一块 `musicxx.Shader`（或 `Stack`）就铺满整页 —— 渲染层发现根块要铺满时
+  会给它紧约束。以前要求的“用 `Expanded` 包一层”现在不需要（包了也照样能用，根上的 `Expanded` 会被解开）；
+  把着色器放进滚动的 `Column` 里时仍要包 `Expanded`。
 - 想不显示就 `musicxx.ui.slot.unregister`；用户要关就停用插件或关闭『拟声++』。
-- **没有“当前选中项”**：`musicxx.ui.slot.list/current/select` 不包含这个槽位，也没有设置页。
+- **没有“当前选中项”**：`musicxx.ui.slot.list/current/set` 不包含这个槽位，也没有设置页。
 - 失败回退：视图取不到内容 / 解析失败 / 连续渲染失败 3 次、插件停用 / 卸载 → 这一项被跳过
   （换下一条或回主题背景），原因在管理页「调试」页签里能看到。
 - 页面被别的路由盖住 / 进后台时由渲染视图自己停帧（与播放页背景同一套规则）。
@@ -843,17 +838,15 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", { clear: true
 `shader` 形态都用它（字段见 §8）。背景里它就是整页画布：
 
 ```jsonc
-// 播放页背景 / 普通页面背景的 view（根块用 Expanded 拿整页尺寸）
-{"kind": "Expanded", "children": [{
-    "kind": "musicxx.Shader",
+// 播放页背景 / 普通页面背景的 view（根块直接写着色器就铺满整页）
+{"kind": "musicxx.Shader",
     "bundle": "shader/bg.shaderbundle",
     "args": {
       "uCover":  {"kind": "texture", "source": "musicxx.cover", "size": 512, "blur": 16},
       "uColor1": {"kind": "source", "name": "musicxx.theme.primary"},
       "uColor2": {"kind": "source", "name": "musicxx.icon.main", "convert": true, "fallback": "#8899aa"}
     },
-    "speed": 1, "maxFps": 16
-}]}
+    "speed": 1, "maxFps": 16}
 ```
 
 页面里的块（`ext://<插件id>/<视图id>` 的视图描述）：**尺寸由父块决定**：
@@ -868,8 +861,8 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", { clear: true
 
 - **尺寸由父块决定**：不写尺寸就用父块给的空间，所以页面里通常要像上面这样用 `SizedBox`
   （或 `Expanded`、`Row` 里的 `Expanded`）给它确定的高度；父块给不出确定尺寸时这一块**留空**
-  并记一条日志（不崩、也不画占位）。背景挂载点给的是整页区域，所以背景的根块只要 `Expanded`
-  就能拿到整页尺寸（直接写一个 `musicxx.Shader` 会因为父给的高度无界而留空）；
+  并记一条日志（不崩、也不画占位）。背景的**根块就是画布**：直接写一块 `musicxx.Shader`（或 `Stack`）
+  就铺满整页，不用再包 `Expanded`（包了也行，根上的 `Expanded` 会被解开）；
 - `bundle` 只能是**本插件目录内**的相对路径；
 - 背景挂载点让一次失败不至于让整页空掉：那里的着色器连续失败 3 次才停用（页面里的块是 1 次就停用，
   留空 + 日志）；
@@ -893,8 +886,8 @@ const r = await musicxx.ui.slot.list({ slot: "player.background" });
 //     { id, title, depict?, source:"builtin"|"plugin", plugin?, available, reason?, selected } ] }
 
 // 一键使用（也可以切到内置样式）
-await musicxx.capability.call("musicxx.ui.slot.select", { slot: "player.background", id: "plugin.my_plugin.bg" });
-await musicxx.ui.slot.select("musicxx.auto");     // 省略 slot 用默认槽位
+await musicxx.capability.call("musicxx.ui.slot.set", { slot: "player.background", id: "plugin.my_plugin.bg" });
+await musicxx.ui.slot.set("musicxx.auto");     // 省略 slot 用默认槽位
 // 成功 → { ok:true, slot, id }；不可用 / 未知槽位 → { ok:false, error:"<原因>" }
 
 // 现在是谁在画（同步读状态广播）
@@ -907,7 +900,7 @@ const slot = (musicxx.broadcast.read("musicxx.state.uiSlots") || {})["player.bac
   没有记录时不动、重复调用安全），`musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、
   动效 `musicxx.none`、歌曲图 `musicxx.circle`），只在确实想重置用户设置时用；
 - 命令行 / agent 不用写插件也能切：`musicxx-cli ui-slot list` / `ui-slot current` /
-  `ui-slot select plugin.my_plugin.bg`（见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
+  `ui-slot set plugin.my_plugin.bg`（见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 - 广播 `musicxx.state.uiSlots` 每个槽位一个条目，字段：
 
   | 字段 | 含义 |

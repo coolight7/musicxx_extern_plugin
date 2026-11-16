@@ -376,7 +376,7 @@ const result = await musicxx.capability.call("musicxx.<域>.<名字>", { ...参�
 | `musicxx.lyric` | `current.get(args?)` `current.update(args)` `current.updateContent(lrc|args)` `getBySrc(args)` `search(keyword|args, artist?)`（读当前歌词、选云歌词、改偏移、临时设置内容、按歌词源读取、搜索云歌词） |
 | `musicxx.storage` | `get(key, 默认值?)` `set(key, value)` `remove(key)` `list()` `getConfig(key, 默认值?)` `setConfig(key, value)` |
 | `musicxx.net` | `fetch(options)` `download(options)` `info()` `on/onHttpRequest/onSocketEvent/onWsEvent/onUdpEvent(fn)` `http.*` `socket.*` `ws.*` `udp.*`（见 §7.3.1） |
-| `musicxx.ui.slot` | `register(spec)` `update(name, data)` `unregister(name)` `entries()`（注册 / 整体替换 / 注销 / 列出本插件的 UI 项） **+** `list(args?)` `current(args?)` `select(id, args?)`（查询与切换渲染槽位） |
+| `musicxx.ui.slot` | `register(spec)` `update(name, data)` `unregister(name)` `entries()`（注册 / 整体替换 / 注销 / 列出本插件的 UI 项） **+** `list(args?)` `current(args?)` `set(id, args?)`（查询与切换渲染槽位） |
 | `musicxx.media` | `palette(args?)` `setPalette(args)` `cover(args?)` `bindImage(args)` `unbindImage(args)` `spectrum(args?)` `kernel(args?)`（`kernel` = 播放内核信息：mpv / ffmpeg 版本、能写进 `af` / `vf` 的过滤器、解码器、后缀） |
 | `musicxx.ui` | `toast(args)` `dialog(args, timeoutMs?)` `overlay(args, timeoutMs?)` `pick(args, timeoutMs?)`（= `overlay.show` 带 `preset:"picker"`，给一串候选项选一个） `overlayClose(args?)` `openRoute(route, args?)` `setFontFamily(args)` `getFontFamily()` `loadFont(options)`（声明 UI 项用 `musicxx.ui.slot.*`；插件视图浮层用 `musicxx.capability.call("musicxx.ui.overlay.showSheet", …)`；挑歌 / 选目录 / 整页浏览用 `musicxx.capability.call("musicxx.ui.drive.pickSongs" / "musicxx.ui.drive.pickDir" / "musicxx.ui.drive.browse", …)`，都没有单独封装 —— 前两个**要等用户关掉弹窗才完成**，处理器里不要 `await`） |
 | `musicxx.stats` | `getSelf()` `reportMemory(bytes)` `reportMetric(name, value)` |
@@ -778,30 +778,27 @@ musicxx.ui.slot.register({
     data: {
         title: "流光背景",
         depict: "跟随封面配色的动态背景",
-        // 背景是一棵块树（view）：着色器只是其中的一块 `musicxx.Shader`，
-        // 根块用 Expanded 拿到整页尺寸（不包的话着色器没有确定高度，会留空）
+        // 背景是一棵块树（view）：着色器就是根上的这块 `musicxx.Shader`，
+        // 根块直接写着色器就铺满整页（不用再包 Expanded；包了也行，会被解开）
         view: {
-            kind: "Expanded",
-            children: [{
-                kind: "musicxx.Shader",
-                bundle: "shader/bg.shaderbundle",   // 插件目录内的相对路径
-                // args：成员名 → 值表达式（可嵌套），纹理也写在这里（成员名就是采样器名）：
-                // `musicxx.cover` = 当前歌曲封面（解码 + 缩放 + 可预模糊后上传成 GPU 纹理），
-                // 信息成员缺省 `<成员名>Info` = (纹理宽, 纹理高, 原图宽高比, 是否有封面)
-                args: {
-                    uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 24 },
-                    uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
-                    uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                    uColor3: { kind: "source", name: "musicxx.theme.primary" },
-                    uColor4: { kind: "const", value: "#223344" },
-                    uLevel: {
-                        kind: "smooth", attackMs: 20, releaseMs: 260,
-                        of: { kind: "source", name: "musicxx.spectrum.level" },
-                    },
+            kind: "musicxx.Shader",
+            bundle: "shader/bg.shaderbundle",   // 插件目录内的相对路径
+            // args：成员名 → 值表达式（可嵌套），纹理也写在这里（成员名就是采样器名）：
+            // `musicxx.cover` = 当前歌曲封面（解码 + 缩放 + 可预模糊后上传成 GPU 纹理），
+            // 信息成员缺省 `<成员名>Info` = (纹理宽, 纹理高, 原图宽高比, 是否有封面)
+            args: {
+                uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 24 },
+                uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+                uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                uColor3: { kind: "source", name: "musicxx.theme.primary" },
+                uColor4: { kind: "const", value: "#223344" },
+                uLevel: {
+                    kind: "smooth", attackMs: 20, releaseMs: 260,
+                    of: { kind: "source", name: "musicxx.spectrum.level" },
                 },
-                speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
-                maxFps: 16,
-            }],
+            },
+            speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
+            maxFps: 16,
         },
     },
 });
@@ -859,13 +856,10 @@ musicxx.ui.slot.register({
         depict: "浅色、静态",
         routes: ["/songs", "/setting/theme"],
         view: {
-            kind: "Expanded",
-            children: [{
-                kind: "musicxx.Shader",
-                bundle: "shader/page.shaderbundle",
-                args: { uCover: { kind: "texture", source: "musicxx.cover", size: 256, blur: 18 } },
-                speed: 1, maxFps: 8,
-            }],
+            kind: "musicxx.Shader",
+            bundle: "shader/page.shaderbundle",
+            args: { uCover: { kind: "texture", source: "musicxx.cover", size: 256, blur: 18 } },
+            speed: 1, maxFps: 8,
         },
     },
 });
@@ -931,8 +925,8 @@ const r = await musicxx.ui.slot.list({ slot: "player.background" });
 // r = { ok:true, slots:[{ slot, title, selectedId, items:[
 //        { id, title, depict?, source:"builtin"|"plugin", plugin?, available, reason?, selected } ] }] }
 
-await musicxx.ui.slot.select("plugin.my_plugin.bg");                  // 省略 slot 用默认槽位
-await musicxx.ui.slot.select("musicxx.auto", { slot: "player.background" });   // 也可以切回内置
+await musicxx.ui.slot.set("plugin.my_plugin.bg");                  // 省略 slot 用默认槽位
+await musicxx.ui.slot.set("musicxx.auto", { slot: "player.background" });   // 也可以切回内置
 // 交还控制权用 musicxx.previous（恢复音乐动效 / 歌曲图等被 musicxx.default 重置掉的值，没有记录时不动）；
 // musicxx.default = 写回该设置项的默认值（背景 musicxx.auto、动效 musicxx.none、歌曲图 musicxx.circle）
 // 成功 → { ok:true, slot, id }；不可用 / 未知 → { ok:false, error }

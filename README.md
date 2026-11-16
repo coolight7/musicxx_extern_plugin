@@ -627,7 +627,7 @@ musicxx-cli plugin install "D:/work/my_plugin-2026_1010_1.zip"                  
 musicxx-cli plugin list                                                         # 每个插件的状态与失败原因
 musicxx-cli plugin logs my_plugin --limit 50                                    # 最近日志（新的在前）
 musicxx-cli plugin reload my_plugin                                             # 改完代码重新加载
-musicxx-cli ui-slot select plugin.my_plugin.bg                                  # 让播放页用上插件的背景样式
+musicxx-cli ui-slot set plugin.my_plugin.bg                                  # 让播放页用上插件的背景样式
 musicxx-cli plugin uninstall my_plugin                                          # 卸载（--keep-data 保留私有数据）
 ```
 
