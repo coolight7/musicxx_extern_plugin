@@ -244,8 +244,8 @@ abstract final class MusicxxCapabilityId {
   static const String uiSlotList = 'musicxx.ui.slot.list';
   /// 当前槽位项
   static const String uiSlotCurrent = 'musicxx.ui.slot.current';
-  /// 选择槽位项
-  static const String uiSlotSelect = 'musicxx.ui.slot.select';
+  /// 设置槽位项
+  static const String uiSlotSet = 'musicxx.ui.slot.set';
   /// 设置播放页前景
   static const String uiPlayingForegroundSet = 'musicxx.ui.playing.foreground.set';
   /// 列出音效
@@ -384,7 +384,7 @@ abstract final class MusicxxCapabilityId {
     netDownload,
     uiSlotList,
     uiSlotCurrent,
-    uiSlotSelect,
+    uiSlotSet,
     uiPlayingForegroundSet,
     playerAudioEffectList,
     playerAudioEffectGet,
@@ -2347,10 +2347,10 @@ abstract final class MusicxxCapabilityCatalogue {
       depict: '读某个槽位当前选中的项（缺省槽位是播放页背景）',
     ),
     MusicxxCapabilityDecl(
-      id: 'musicxx.ui.slot.select',
+      id: 'musicxx.ui.slot.set',
       impls: 'one',
       merge: '',
-      phases: <String>['impl'],
+      phases: <String>['before', 'impl', 'after'],
       dispatch: 'async',
       timeoutMs: 5000,
       cache: 'none',
@@ -2363,14 +2363,14 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
-      title: '选择槽位项',
-      depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）',
+      title: '设置槽位项',
+      depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）；前后链能改目标或拦下这次切换',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.playing.foreground.set',
       impls: 'one',
       merge: '',
-      phases: <String>['impl'],
+      phases: <String>['before', 'impl', 'after'],
       dispatch: 'async',
       timeoutMs: 5000,
       cache: 'none',

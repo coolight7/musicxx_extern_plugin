@@ -112,8 +112,8 @@
 | `musicxx.net.download` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.ui.slot.select` | 命令、插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.ui.playing.foreground.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.ui.slot.set` | 命令、插件 | before / impl / after | - | async | 5000 ms | - | - |
+| `musicxx.ui.playing.foreground.set` | 命令、插件 | before / impl / after | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.set` | 命令、插件 | impl | - | async | 5000 ms | - | - |
@@ -286,9 +286,13 @@
 
 它表达的是一次操作、没有当前值，所以只有能力、没有对应广播。回答 `{ok: true, id}`；`target` 既不是主题 id 也不是 `toggle` 时返回失败并说明原因。
 
+### `musicxx.ui.slot.set` 设置槽位项
+
+参数：`slot`（槽位 id，缺省是播放页背景 `player.background`；还可以是 `player.icon` / `player.visualizer`）；`id`（候选 id：内置项 `musicxx.*`、插件项 `plugin.<插件id>.<名字>`，以及 `musicxx.default` 写回默认值、`musicxx.previous` 交还控制权）。**切换本身由应用执行（`impl` 只有应用一个实现）**：`before` 回答 `{"patch":{"id":"musicxx.auto","slot":"player.icon"}}` 换这次的目标，`{"action":"cancel"}` = 这次不换；`after` 拿到结果（`{ok, slot, id}`）后可以 `value` 改写或 `drop` 作废。**所有入口都走这一条能力**：设置页 / 动效页 / 插件按钮 / 命令行 / MCP 都是同一个调用点，所以插件把样式切走这件事也能在后面改回来。失败码：`unknown_slot` / `invalid_argument` / `failed`（候选不存在或不可用时 `error` 是原因）。
+
 ### `musicxx.ui.playing.foreground.set` 设置播放页前景
 
-参数：style（mask 浅色遮罩样式，默认 / neumorphism 常规轻拟物，未知值按 mask）；colors（对象，main 普通色 / cross 减淡色 / block 块背景色，颜色串 #rrggbb 或 #aarrggbb，缺的用主题默认补齐；给了 colors 就一定用遮罩样式）；clear: true 清空回主题默认。失败码：not_active = 调用方不是当前生效的播放页背景插件；not_selected = 它的背景样式当前没被选中；invalid_argument = 参数非法。生效项换人 / 插件停用 / 卸载时应用会自动清空；同一个插件里切歌、切昼夜不清。
+参数：style（mask 浅色遮罩样式，默认 / neumorphism 常规轻拟物，未知值按 mask）；colors（对象，main 普通色 / cross 减淡色 / block 块背景色，颜色串 #rrggbb 或 #aarrggbb，缺的用主题默认补齐；给了 colors 就一定用遮罩样式）；clear: true 清空回主题默认。**三色怎么用由应用执行（`impl` 只有应用一个实现）**：`before` 可以 `patch.colors` / `patch.style` 改这次的值或 `cancel`，`after` 拿到结果后可以 `value` 改写或 `drop`。失败码：not_active = 调用方不是当前生效的播放页背景插件；not_selected = 它的背景样式当前没被选中；invalid_argument = 参数非法。生效项换人 / 插件停用 / 卸载时应用会自动清空；同一个插件里切歌、切昼夜不清。
 
 ### `musicxx.player.audioEffect.list` 列出音效
 
