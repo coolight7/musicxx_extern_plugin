@@ -365,14 +365,15 @@ function requestSlotSelect(slotId, itemId, note, manual) {
 ///
 /// 用快照频道判断（同步读，不产生动作往返）：没有"槽位变化事件"，轮询 1 秒足够 ——
 /// 一次读 + 一次字符串比较。用户手动操作后 10 分钟内不自动跟随；同一个目标 30 秒内不重复
-/// 请求（失败时不要每秒重试）。顺带查一次"昼夜 + 封面主色"（自动前景色用）。
+/// 请求（失败时不要每秒重试）。
+///
+/// 前景色不在这里处理：它由 `installForegroundSubscriptions` 订阅变化驱动。
 ///
 /// [force] 为真时跳过暂停与去重（设置页刚改完开关，希望当场看到结果）。
 /// 判断写成 `true != force`：定时器回调不带参数（force = undefined），
 /// 用 `false == force` 会让"没传参数"被当成"强制"，暂停与去重就都失效了。
 function followTick(force) {
     const now = Date.now();
-    refreshForegroundIfDue(force);
     if (true != force && now < followPausedUntil) {
         return;
     }
@@ -552,10 +553,13 @@ musicxx.capability.implement("musicxx.media.palette.analyse", paletteAnalyseVerd
 /// 封面变化（观察型）：换歌时先把颜色算起来，等应用来问时通常已经命中
 musicxx.broadcast.subscribe("musicxx.media.cover.changed", onCoverChanged);
 
+/// 自动前景色：订阅样式 / 昼夜 / 封面三类变化，变化时推一次三色（不轮询）
+installForegroundSubscriptions();
+
 /// 读配置：默认值先按声明用，读到 config.json 后再重新声明一遍
 musicxx.timer.setTimeout(refreshConfig, 200);
 
-/// 每秒检查一次：跟随背景接管 / 交还歌曲图，顺带按期刷新前景色
+/// 每秒检查一次：跟随背景接管 / 交还歌曲图（前景色不靠这里的轮询）
 musicxx.timer.setInterval(followTick, 1000);
 
 /// 启动后预热一次取色：应用启动时可能已经有一首歌在放
