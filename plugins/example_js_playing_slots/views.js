@@ -104,16 +104,22 @@ function moreInfoFooterView(args) {
     };
 }
 
-/// 控制栏「收藏」按钮的替换视图（按 `args.favorite` 换显示）
+/// 收藏按钮的两个图标（实心 = 已收藏，空心 = 未收藏）
+const FAVORITE_ICON_ON = "resource/svg/heart.svg";
+const FAVORITE_ICON_OFF = "resource/svg/heartOutline.svg";
+
+/// 控制栏「收藏」按钮的替换视图（按 `args.favorite` 换图标）
 ///
-/// 主程序在收藏状态变化时会带着新的参数再取一次视图，所以状态跟着走。
+/// 控制栏里的按钮**只放图标**（文字会把整排按钮挤变形，内置那一排也只有图标）：
+/// 已收藏用实心、未收藏用空心。主程序在收藏状态变化时会带着新的参数再取一次视图。
 function favoriteButtonView(args) {
     const favorite = !!(args && args.favorite === true);
     return {
         blocks: [{
             kind: "Button",
-            label: favorite ? "♥ 已收藏" : "♡ 收藏",
+            label: "",
             variant: "ghost",
+            icon: favorite ? FAVORITE_ICON_ON : FAVORITE_ICON_OFF,
             action: { kind: "command", name: "musicxx.songlist.favorite" },
         }],
     };
@@ -121,11 +127,12 @@ function favoriteButtonView(args) {
 
 /// 一条控制栏图标按钮（图标是插件自己带的 svg，动作调官方能力）
 ///
+/// 控制栏按钮**只放图标、不写文字**：内置那一排也是这样，写文字会把整排挤变形。
 /// `ghost` = 无底色：只有图标，与内置控制栏按钮一致（`secondary` 会多出一块方块底）。
-function controlBarButton(icon, command, label) {
+function controlBarButton(icon, command) {
     return {
         kind: "Button",
-        label: label || "",
+        label: "",
         variant: "ghost",
         icon: icon,
         action: { kind: "command", name: command },
@@ -137,11 +144,11 @@ function controlBarButton(icon, command, label) {
 /// 顺序与主程序自己的切换顺序一致：单曲循环 → 顺序播放 → 真随机播放 → 单曲循环。
 const LOOP_MODES = ["Only", "Order", "RealRand"];
 
-/// 每个模式的显示（图标是插件自带的 svg，文字直接给用户看当前是哪种模式）
+/// 每个模式的图标（插件自带的 svg）
 const LOOP_MODE_VIEW = {
-    Only: { svg: "resource/svg/playOnly.svg", label: "单曲循环" },
-    Order: { svg: "resource/svg/playOrder.svg", label: "顺序播放" },
-    RealRand: { svg: "resource/svg/playRand.svg", label: "真随机播放" },
+    Only: { svg: "resource/svg/playOnly.svg" },
+    Order: { svg: "resource/svg/playOrder.svg" },
+    RealRand: { svg: "resource/svg/playRand.svg" },
 };
 
 /// 当前的播放模式（本插件认识的那三个之一）
@@ -160,7 +167,7 @@ function nextLoopMode(mode) {
     return LOOP_MODES[(index + 1) % LOOP_MODES.length];
 }
 
-/// 控制栏的"切播放模式"按钮：图标与文字反映当前模式，点一下切到下一个
+/// 控制栏的"切播放模式"按钮：图标反映当前模式，点一下切到下一个（只画图标）
 ///
 /// 动作用 `dispatch` 交给本插件的能力 `cycleLoopMode`：它调主程序能力换模式，
 /// 并把新模式直接画进返回的视图 —— **不用等主程序重取**，也不需要主程序为控制栏多给一个参数。
@@ -170,7 +177,7 @@ function loopModeButton(args, mode) {
     const view = LOOP_MODE_VIEW[useMode];
     return {
         kind: "Button",
-        label: view.label,
+        label: "",
         variant: "ghost",
         icon: view.svg,
         action: {
@@ -197,16 +204,16 @@ function controlBarView(args, mode) {
     const colors = (args && typeof args.colors === "object" && args.colors) || null;
     const buttons = [
         loopModeButton(args, mode),
-        controlBarButton("resource/svg/prev.svg", "musicxx.player.prev", "上一曲"),
+        controlBarButton("resource/svg/prev.svg", "musicxx.player.prev"),
         controlBarButton(
             playing ? "resource/svg/pause.svg" : "resource/svg/play.svg",
-            "musicxx.player.toggle",
-            playing ? "暂停" : "播放"),
-        controlBarButton("resource/svg/next.svg", "musicxx.player.next", "下一曲"),
+            "musicxx.player.toggle"),
+        controlBarButton("resource/svg/next.svg", "musicxx.player.next"),
         {
             kind: "Button",
-            label: favorite ? "♥" : "♡",
+            label: "",
             variant: "ghost",
+            icon: favorite ? FAVORITE_ICON_ON : FAVORITE_ICON_OFF,
             disabled: false == hasSong,
             action: { kind: "command", name: "musicxx.songlist.favorite" },
         },

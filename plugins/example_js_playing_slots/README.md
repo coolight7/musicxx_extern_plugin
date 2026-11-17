@@ -35,8 +35,10 @@ musicxx-cli call probe --plugin example_js_playing_slots
 - 「音频动效」：「用插件的动效」/「用内置动效」两个按钮切的是渲染槽位 `player.visualizer`
   （内置项 `musicxx.none` = 不显示）。
 
-整栏替换里的第一个按钮是**切播放模式**：图标与文字反映当前模式（读广播快照
+整栏替换里的第一个按钮是**切播放模式**：图标反映当前模式（读广播快照
 `musicxx.state.playlist` 的 `loopMode`），点一下在 单曲循环 → 顺序播放 → 真随机播放 → 单曲循环 之间轮。
+控制栏里的按钮**只画图标、不写字**（与内置那一排一致；写文字会把整排挤变形），
+收藏按钮也是两个图标：空心 = 未收藏，实心 = 已收藏。
 动作走 `dispatch` → 插件自己的能力 `cycleLoopMode`：它先调 `musicxx.player.setLoopMode`（不 await），
 再把新模式画进返回的视图 —— 画面立刻换，**不需要主程序为位置多加一个参数**。
 
