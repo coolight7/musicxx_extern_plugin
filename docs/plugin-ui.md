@@ -318,7 +318,9 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
   `SizedBox` 这类，主程序会给它包一层点击）；动作写 `command` 调官方能力。
 - **尺寸**：主程序只给高度（与内置栏一样，由页面按窗口大小决定），宽度由插件这一块自己占；
   整栏替换时建议用 `Row` + `mainAxisAlignment: "spaceBetween"`（kit 里的 `kit.row` 一样），
-  与内置栏看起来一致。**不接 shader**（`shader` / `none` 这两种形态在这里无效）。
+  与内置栏看起来一致。单个按钮的高低由它自己的 `size` 定（不写就是默认大小）——
+  要做到“中间那个播放 / 暂停更大”，给它 `size: 256`（默认 `128u` 的两倍），整排高度跟着
+  最高的按钮走（`example_js_playing_slots` 就是这么写的）。**不接 shader**（`shader` / `none` 这两种形态在这里无效）。
 - **主程序会给视图参数**（取视图时一起交回去，能力处理器里能读到）：
 
   | 参数 | 含义 |
@@ -496,7 +498,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
-| `Button` | `label`、`variant`（`normal`/`full`/`simple`，默认 `normal`）、`highlight`（默认 `false`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。`variant` 只定**样式与宽度**：`normal` 是带底色的默认按钮（宽度按文字内容），`simple` **无底色**（只画文字与图标，控制栏图标按钮、列表里的文字按钮用它），`full` 是**大号按钮**并**铺满父块宽度**（设置页里“一行一个”的按钮用它）；`highlight` 单独表示**选中态**（主色底，由主题决定；`simple` 平时无底色，选中时同样用主题的选中底色，与控制栏的选中按钮一致），默认不选中。**`full` 的父块必须给得出宽度**（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）：直接放进 `Row` 这类宽度不限的地方会报 `BoxConstraints forces an infinite width`，要横排就每个按钮各包一层 `Expanded`（`kit.actionsRow` 已经这么做） |
+| `Button` | `label`、`variant`（`normal`/`full`/`simple`，默认 `normal`）、`highlight`（默认 `false`）、`icon`、`size`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。`variant` 只定**样式与宽度**：`normal` 是带底色的默认按钮（宽度按文字内容），`simple` **无底色**（只画文字与图标，控制栏图标按钮、列表里的文字按钮用它），`full` 是**大号按钮**并**铺满父块宽度**（设置页里“一行一个”的按钮用它）；`highlight` 单独表示**选中态**（主色底，由主题决定；`simple` 平时无底色，选中时同样用主题的选中底色，与控制栏的选中按钮一致），默认不选中。`size` 是**按钮高度**（u，见下表下方的说明），不写用客户端默认。**`full` 的父块必须给得出宽度**（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）：直接放进 `Row` 这类宽度不限的地方会报 `BoxConstraints forces an infinite width`，要横排就每个按钮各包一层 `Expanded`（`kit.actionsRow` 已经这么做） |
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
@@ -744,6 +746,10 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   有界（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）。塞进 `Row`（宽度不限）会得到
   `BoxConstraints forces an infinite width`；要在横排里用就每个按钮各包一层 `Expanded`
   （`kit.actionsRow` 已经这么做）。其余两种样式按文字宽度画，不需要额外容器。
+- **要改按钮大小就写 `size`**：它是**按钮高度**（单位 `u`），图标跟着缩放到高度的一半。
+  不写就是客户端的默认大小（musicxx 是 `128u`），所以“两倍大”写 `256`。
+  `size` 只对 `normal` / `simple` 生效：`full` 的高度由主题的大号按钮决定（写了也不读）。
+  按钮不读父块尺寸，所以 `size` 写 `percent` 没有参照，按默认大小画。
 - **`musicxx.AdaptLayout` 只能放在页面 / 浮层的最外层**：它按父块给出的宽高分两栏，放进
   `Block` 或行内（尺寸由内容决定）会得到布局断言。要“按窗口宽高比切换两套内容”就把它当页面
   根块用（根块是它时主程序会把它铺满内容区）。

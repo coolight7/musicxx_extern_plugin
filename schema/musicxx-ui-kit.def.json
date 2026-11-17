@@ -79,6 +79,7 @@
         { "name": "variant", "type": "enum:buttonVariant", "default": "normal" },
         { "name": "highlight", "type": "bool", "default": false },
         { "name": "icon", "type": "string" },
+        { "name": "size", "type": "size" },
         { "name": "disabled", "type": "bool", "default": false },
         { "name": "action", "type": "action" }
       ],
@@ -95,6 +96,7 @@
                 "variant": "$variant",
                 "highlight": "$highlight",
                 "icon": "$icon",
+                "size": "$size",
                 "disabled": "$disabled",
                 "action": "$action"
               }

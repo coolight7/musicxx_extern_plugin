@@ -43,7 +43,7 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
         {"divider",
          R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Divider"}]}}],"params":{}})KIT"},
         {"button",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Button","label":"$label","variant":"$variant","highlight":"$highlight","icon":"$icon","disabled":"$disabled","action":"$action"}]}}],"params":{"label":null,"variant":"normal","highlight":false,"icon":null,"disabled":false,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Button","label":"$label","variant":"$variant","highlight":"$highlight","icon":"$icon","size":"$size","disabled":"$disabled","action":"$action"}]}}],"params":{"label":null,"variant":"normal","highlight":false,"icon":null,"size":null,"disabled":false,"action":null}})KIT"},
         {"actionsRow",
          R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"children":{"$map":"buttons","wrap":{"kind":"Expanded","children":["$item"]}}}}],"params":{"buttons":null}})KIT"},
         {"card",
@@ -183,7 +183,7 @@ inline pluginxx::ui::Item divider(
 }
 
 /// 按钮（覆盖基础 kit：自带上下留白）
-/// 参数：label(text, 必填)、variant(enum:buttonVariant, 默认 normal)、highlight(bool, 默认 false)、icon(string)、disabled(bool, 默认 false)、action(action)
+/// 参数：label(text, 必填)、variant(enum:buttonVariant, 默认 normal)、highlight(bool, 默认 false)、icon(string)、size(size)、disabled(bool, 默认 false)、action(action)
 inline pluginxx::ui::Item button(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr

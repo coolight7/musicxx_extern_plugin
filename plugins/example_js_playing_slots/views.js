@@ -121,15 +121,25 @@ function favoriteButtonView(args) {
 ///
 /// 控制栏按钮**只放图标、不写文字**：内置那一排也是这样，写文字会把整排挤变形。
 /// `simple` = 无底色：只有图标，与内置控制栏按钮一致（`normal` 会多出一块方块底）。
-function controlBarButton(icon, command) {
-    return {
+/// [size] 是按钮高度（u）：给了就写进描述，不给用客户端默认大小。
+function controlBarButton(icon, command, size) {
+    const button = {
         kind: "Button",
         label: "",
         variant: "simple",
         icon: icon,
         action: { kind: "command", name: command },
     };
+    if (null != size) {
+        button.size = size;
+    }
+    return button;
 }
+
+/// 控制栏中间那个「播放 / 暂停」按钮的高度（u）
+///
+/// 不写 `size` 时按钮高 128u（客户端默认值，见插件文档的 `Button` 行），这里取它的两倍。
+const PLAY_PAUSE_BUTTON_SIZE = 256;
 
 /// 本插件的"切播放模式"按钮只在这三个模式之间循环
 ///
@@ -199,7 +209,7 @@ function controlBarView(args, mode) {
         controlBarButton("resource/svg/prev.svg", "musicxx.player.prev"),
         controlBarButton(
             playing ? "resource/svg/pause.svg" : "resource/svg/play.svg",
-            "musicxx.player.toggle"),
+            "musicxx.player.toggle", PLAY_PAUSE_BUTTON_SIZE),
         controlBarButton("resource/svg/next.svg", "musicxx.player.next"),
         {
             kind: "Button",

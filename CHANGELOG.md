@@ -37,6 +37,15 @@
 - kit 同步：`kit.button({label, variant, highlight, icon, disabled, action})`；不写 `variant`
   就是 `normal`。旧写法 `variant: "primary"` / `"ghost"` 要改成 `highlight: true` / `variant: "simple"`。
 
+### 变更（未发布）：`Button` 新增 `size`（按钮高度）
+
+- **`Button.size`**：按钮高度，单位 `u`（设计像素），图标跟着缩到高度的一半。不写就是客户端的
+  默认大小（musicxx 是 `128u`），所以“两倍大”写 `256`；与其它尺寸字段一样接受值表达式，
+  `percent` 没有参照（按钮不读父块尺寸），按默认大小画。
+- **`size` 只对 `variant` 为 `normal` / `simple` 的按钮生效**：`full` 的高度由主题的大号按钮定。
+- kit 同步：`kit.button({…, size})`；`example_js_playing_slots` 的控制栏把中间那个播放 / 暂停
+  按钮改成两倍高（其它按钮仍是 `simple` 无底色）。
+
 ### 变更（未发布）：`musicxx.AdaptLayout` 只当根块用、`percent` 尺寸不再被缩放两次
 
 - **`musicxx.AdaptLayout` 没有“父块无界就只画当前那一套”的兜底了**：它按父块给出的宽高分两栏，
