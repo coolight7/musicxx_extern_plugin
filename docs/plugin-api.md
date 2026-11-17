@@ -566,6 +566,9 @@ if (r && r.ok) musicxx.host.log(2, "新增 " + r.added + " 首");
   - `name` / `artist` 是**歌词自身**的名称与歌手，当前歌曲的信息在 `songName` / `songArtist`；
   - `index` 是当前行在 `lines` 里的下标（`rawIndex` 是应用内部的原始行号）；
   - `offsetMs` 是实际生效的偏移（全局 + 这首歌的绑定），`songOffsetMs` / `globalOffsetMs` 拆开给；
+  - `hasTranslate` 是**抽样判断**（行数 > 10 时只看中段最多 9 行）：只在开头或结尾有译文时会是
+    `false`，要精确判断就自己看 `lines` 里的 `translate`；歌词被清空（重选源失败、自动匹配的歌词被撤掉）
+    时它会跟着变回 `false`；
   - `lines` 里**一句 = 一行原文 + 同组的全部译文行**：译文放在 `translate` 数组里，可以有多行；
     `timeMs` 是**毫秒**，没有时间戳的行为 `null`；`word` 是 `[{timeMs, index}]`（字符下标），
     只给**真的带逐字时间戳**的行（按比例模拟出来的逐字时间不算，免得给出并不存在的精细度）。
