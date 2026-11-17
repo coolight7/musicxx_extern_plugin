@@ -509,7 +509,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
 | `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` / `data` 生效（条目带 `data.song` 就按内置的**歌曲行**画：封面 + 歌手），`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
-| `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。不认识的客户端用 `rowBody` |
+| `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。**只用于页面 / 浮层的最外层**：它按父块给出的宽高分两栏，所以要放在给得出尺寸的地方（页面内容区、浮层内容区）；塞进 `Block` / 行内这类尺寸由内容决定的位置会得到布局断言。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 
 规则（解析层规则，与库文档一致）：
@@ -517,7 +517,10 @@ capability(*this, "plugin.my_plugin.settings",
 - 组件名（`kind`）是**首字母大写的驼峰**，解析时**忽略大小写**；
 - 未知组件：有 `fallback` 就显示它，没有就跳过（不会报错）；未知字段忽略；未知枚举值取默认；
 - 尺寸只有一个单位 `u`（允许小数）：图形界面 1u = 1 逻辑像素，终端按客户端的格大小换算；
-  另有 `{"percent": 40}`（占父容器可用空间的比例）与 `"auto"`（内容决定）；
+  另有 `{"percent": 40}`（占父容器可用空间的比例）与 `"auto"`（内容决定）。
+  percent 的基准是**直接父块这一轮拿到的可用空间**，所以父块在那一方向必须给得出尺寸：
+  放在 `Stack`、固定宽高的 `SizedBox` 里算得出来；`Column` 的子块高度与 `Row` 的子块宽度
+  是**无界**的（父块让子块自己决定大小），那里的 percent 没有参照，按内容尺寸画。
 - 边距只写一个字段（`padding` / `margin`），值是数字（四边）、`{"horizontal":20,"vertical":8}` 或单边对象。
 
 ### 2.3.1 值表达式（尺寸 / 进度等字段也能"算"）
@@ -741,6 +744,9 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   有界（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）。塞进 `Row`（宽度不限）会得到
   `BoxConstraints forces an infinite width`；要在横排里用就每个按钮各包一层 `Expanded`
   （`kit.actionsRow` 已经这么做）。其余两种样式按文字宽度画，不需要额外容器。
+- **`musicxx.AdaptLayout` 只能放在页面 / 浮层的最外层**：它按父块给出的宽高分两栏，放进
+  `Block` 或行内（尺寸由内容决定）会得到布局断言。要“按窗口宽高比切换两套内容”就把它当页面
+  根块用（根块是它时主程序会把它铺满内容区）。
 - **行内的开关 / 勾选框要放在有宽度的盒子里**：`Control` 的 `switch` / `checkbox` 落在"宽度不限"
   的位置时行为随客户端实现而异（历史上出现过 `RenderFlex ... unbounded` 的断言）。稳妥写法是给它一个
   **固定宽度的 `SizedBox`**（例如 190 个 `u`，与开关自身宽度相当）；"几选一"优先用一排 `Button` 块

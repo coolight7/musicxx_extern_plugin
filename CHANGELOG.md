@@ -37,6 +37,18 @@
 - kit 同步：`kit.button({label, variant, highlight, icon, disabled, action})`；不写 `variant`
   就是 `normal`。旧写法 `variant: "primary"` / `"ghost"` 要改成 `highlight: true` / `variant: "simple"`。
 
+### 变更（未发布）：`musicxx.AdaptLayout` 只当根块用、`percent` 尺寸不再被缩放两次
+
+- **`musicxx.AdaptLayout` 没有“父块无界就只画当前那一套”的兜底了**：它按父块给出的宽高分两栏，
+  本来就只该当页面 / 浮层的根块用（根块是它时主程序给紧约束）。塞进 `Block` / 行内这类
+  “尺寸由内容决定”的位置会得到布局断言 —— 与 `Button.full` 同一个约定：需要什么尺寸由插件负责给。
+- **`{percent: n}` / `unit: "percent"` 不再被缩放两次**：以前窗口不是设计尺寸时（例如设计
+  1080×1920、实际 540×960）算出来的比例会再被缩一半。现在 percent 的结果直接按逻辑像素用；
+  写 `u` 的尺寸仍然按设计像素换算，两者在同一份描述里可以混用。
+- **写清楚 `percent` 的基准**：它是“直接父块这一轮拿到的可用尺寸”的比例，父块在那一方向必须
+  给得出尺寸（`Stack`、固定宽高的 `SizedBox` 里算得出来）；`Column` 的子块高度与 `Row` 的子块
+  宽度是**无界**的，那里的 percent 没有参照，按内容尺寸画。
+
 ### 变更（未发布）：单根块渲染、`ui.slot.set`、状态广播更及时
 
 - **插件界面只有一个根块**：`ExternPluginUiView_c(block:)`（多块文档由渲染层合成一个 `Column`）。
