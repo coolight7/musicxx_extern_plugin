@@ -100,7 +100,7 @@ function refreshSlotConfig() {
 
 /* ==================== 能力入口 ==================== */
 
-/// 注册本插件的能力（位置上的视图 + 两个页面 + 两个开关 + 动效选择）
+/// 注册本插件的能力（位置上的视图 + 两个页面 + 两个开关 + 动效选择 + 控制栏切播放模式）
 function installSlotCapabilities() {
     /// 自检：确认四个业务脚本都执行过
     ///
@@ -147,6 +147,26 @@ function installSlotCapabilities() {
     /// 整条控制栏的内容（`args` 带 playing / favorite / hasSong / song / colors）
     musicxx.capability.register("controlBar", function (args) {
         return { view: controlBarView(args) };
+    });
+
+    /// 控制栏那个"切播放模式"按钮：换模式，并把新模式画进返回的视图
+    ///
+    /// 两件事分开做：
+    /// 1. 调主程序能力 `musicxx.player.setLoopMode`（异步，不 await —— 主程序处理能力时要回到主线程，
+    ///    在这里等它会卡界面）；失败只在日志里记一条；
+    /// 2. 直接返回按新模式画好的控制栏视图：主程序拿这个 `view` 换掉画面，**不需要为了这个能力
+    ///    给位置多加参数**。主程序改完模式会重推 `musicxx.state.playlist`，下次取视图读到的就是真值。
+    musicxx.capability.register("cycleLoopMode", function (args) {
+        const bar = (args && typeof args === "object") ? args : {};
+        const next = nextLoopMode(currentLoopMode());
+        musicxx.capability.call("musicxx.player.setLoopMode", { mode: next }).then(
+            function () {
+                return null;
+            },
+            function (err) {
+                musicxx.host.log(3, "切换播放模式失败: " + errText(err));
+            });
+        return { view: controlBarView(bar, next) };
     });
 
     /// 设置页按钮：打开 / 关闭整栏替换

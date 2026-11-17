@@ -323,14 +323,19 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
   | `playing` | 当前是否在播放（布尔） |
   | `favorite` | 当前歌曲是否已在「我喜欢」里（布尔） |
   | `hasSong` | 现在有没有在播的歌（布尔） |
-  | `loopMode` | 生效中的播放模式（`PlaylistLoopMode_e` 的名字：`Order` / `Only` / `RealRand` / `SimulateRand` / `SimulateRandReflush`）。要改它调能力 `musicxx.player.setLoopMode`（参数 `mode`） |
   | `song` | 当前歌曲的只读视图（与广播 `musicxx.song.changed` 载荷里的 `song` 同一份；没有歌时是空对象） |
   | `colors` | 播放页前景三色 `{main, cross, block}`（`#aarrggbb` 字符串，与页面上的文字 / 图标同色） |
 
-- **状态变了会重新取一次视图**：播放 / 暂停、切歌、收藏状态变化、播放模式变化、换主题（三色变了）时，主程序会
+- **状态变了会重新取一次视图**：播放 / 暂停、切歌、收藏状态变化、换主题（三色变了）时，主程序会
   带着新的参数再取一次（旧画面留到新视图回来，不会闪空）。所以"图标跟着播放状态变"最简单的写法就是
   **按 `args.playing` 返回不同的 `view`**；也可以完全不管参数，自己在块里用 `musicxx.AnimatedBuilder` +
   值表达式读广播（见 §2.3.2）。
+- **插件自己改的状态不用等主程序重取**：动作处理完直接返回 `{view: …}` 就把画面换掉了（`dispatch` 的
+  能力返回值里带 `view` 就行）。所以主程序**不会**为了每个能力都给位置加参数 —— 参数只有上表这几项；
+  其余状态（播放模式、队列、列表、设置项…）用 `musicxx.broadcast.read("musicxx.state.playlist")`
+  这类同步读拿到，或者用 `musicxx.capability.call(…)` / `musicxx.xxx` 现取。
+  例：切播放模式的按钮就是 `dispatch → 自己调 musicxx.player.setLoopMode` + 返回新视图，
+  控制栏不需要多一个 `loopMode` 参数（`example_js_playing_slots`）。
 - 换主题时 `colors` 会变，插件用它画的按钮不用另做什么就会跟着切；不想跟主题就忽略它、自己写颜色。
 - 插件卸载 / 停用 / 关闭『拟声++』后立刻回到内置界面；用户也可以在插件管理里停用插件来还原。
 

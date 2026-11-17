@@ -144,12 +144,13 @@ const LOOP_MODE_VIEW = {
     RealRand: { svg: "resource/svg/playRand.svg", label: "真随机播放" },
 };
 
-/// 主程序给的当前模式（`args.loopMode`）→ 本插件认识的那三个之一
+/// 当前的播放模式（本插件认识的那三个之一）
 ///
-/// 认不出来（伪随机的两种、旧版主程序没给这个参数）按"顺序播放"算：
-/// 点一下会切到真随机，循环照样成立。
-function currentLoopMode(args) {
-    const mode = (args && args.loopMode) || "";
+/// 读的是状态广播 `musicxx.state.playlist` 里的 `loopMode`（同步读，没有 IO）：主程序在模式变化后
+/// 会重推这份快照，所以这里总是当前值；不是那三个（伪随机的两种）按"顺序播放"算。
+function currentLoopMode() {
+    const snapshot = musicxx.broadcast.read("musicxx.state.playlist") || {};
+    const mode = snapshot.loopMode || "";
     return LOOP_MODE_VIEW[mode] ? mode : "Order";
 }
 
@@ -161,20 +162,22 @@ function nextLoopMode(mode) {
 
 /// 控制栏的"切播放模式"按钮：图标与文字反映当前模式，点一下切到下一个
 ///
-/// 动作用 `command`：`musicxx.player.setLoopMode` 的参数是模式名，切完主程序会带着新的
-/// `args.loopMode` 再取一次视图，所以图标不会停在旧模式上。
-function loopModeButton(args) {
-    const mode = currentLoopMode(args);
-    const view = LOOP_MODE_VIEW[mode];
+/// 动作用 `dispatch` 交给本插件的能力 `cycleLoopMode`：它调主程序能力换模式，
+/// 并把新模式直接画进返回的视图 —— **不用等主程序重取**，也不需要主程序为控制栏多给一个参数。
+/// [mode] 只在"刚点完、要立刻画新模式"时传，平时读广播快照。
+function loopModeButton(args, mode) {
+    const useMode = LOOP_MODE_VIEW[mode] ? mode : currentLoopMode();
+    const view = LOOP_MODE_VIEW[useMode];
     return {
         kind: "Button",
         label: view.label,
         variant: "ghost",
         icon: view.svg,
         action: {
-            kind: "command",
-            name: "musicxx.player.setLoopMode",
-            args: { mode: nextLoopMode(mode) },
+            kind: "dispatch",
+            name: "cycleLoopMode",
+            // 把控制栏的视图参数原样交给能力：它返回的控制栏视图要按同一份上下文画
+            args: args,
         },
     };
 }
@@ -183,15 +186,17 @@ function loopModeButton(args) {
 ///
 /// **替换，不是插入**：整栏生效时内置的五个按钮与按钮级替换项都不再参与渲染，
 /// 所以两个按钮级项虽然还注册着，页面上的提示会说明这一点。
-/// 主程序给视图参数 `playing` / `favorite` / `hasSong` / `loopMode` / `song` / `colors`：
-/// 播放 / 暂停、切歌、收藏、换模式、换主题时会带新参数再取一次。
-function controlBarView(args) {
+/// 主程序给视图参数 `playing` / `favorite` / `hasSong` / `song` / `colors`：
+/// 播放 / 暂停、切歌、收藏、换主题时会带新参数再取一次；播放模式不靠参数 ——
+/// 读广播快照 `musicxx.state.playlist`（见 [currentLoopMode]）。
+/// [mode] 是刚切完的新模式（只有点的瞬间传，平时为空）。
+function controlBarView(args, mode) {
     const playing = !!(args && args.playing === true);
     const favorite = !!(args && args.favorite === true);
     const hasSong = !(args && args.hasSong === false);
     const colors = (args && typeof args.colors === "object" && args.colors) || null;
     const buttons = [
-        loopModeButton(args),
+        loopModeButton(args, mode),
         controlBarButton("resource/svg/prev.svg", "musicxx.player.prev", "上一曲"),
         controlBarButton(
             playing ? "resource/svg/pause.svg" : "resource/svg/play.svg",
