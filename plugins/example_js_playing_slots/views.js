@@ -87,19 +87,11 @@ function moreInfoFooterView(args) {
             kit.hint({
                 text: "这块在「更多信息页」的末尾，随页面一起滚动；按钮调官方能力 musicxx.songlist.favorite。",
             }, env),
-            {
-                kind: "Row",
-                gap: 10,
-                children: [{
-                    kind: "Expanded",
-                    children: [{
-                        kind: "Button",
-                        label: "收藏当前歌曲",
-                        variant: "primary",
-                        action: { kind: "command", name: "musicxx.songlist.favorite" },
-                    }],
-                }],
-            },
+            kit.button({
+                label: "收藏当前歌曲",
+                variant: "full",
+                action: { kind: "command", name: "musicxx.songlist.favorite" },
+            }, env),
         ],
     };
 }
@@ -286,10 +278,10 @@ function cardView(args) {
                     "没安装『音乐动效』时插件项仍可选，但频谱全是 0。",
             }, env),
             kit.card({ children: statusRows() }, env),
-            kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
+            kit.button({ label: "刷新本页", variant: "full", action: "card" }, env),
             kit.button({
                 label: "打开设置页",
-                variant: "primary",
+                variant: "full",
                 action: { kind: "route", route: "ext://" + PLUGIN_ID + "/" + SETTINGS_VIEW_ID },
             }, env),
             kit.hint({
@@ -301,8 +293,8 @@ function cardView(args) {
 
 /// 设置页：两个开关 + 动效选择
 ///
-/// 按钮都用 `variant: "full"`：大号主色按钮、宽度默认铺满父块（主程序用 `XXFullBtn` 画），
-/// 适合设置页里"一行一个"的按钮。
+/// 按钮都用 `variant: "full"`：大号按钮、宽度默认铺满父块（主程序用 `XXFullBtn` 画，
+/// 默认是非选中态，不带主色底），适合设置页里"一行一个"的按钮。
 function settingsView(args) {
     const env = viewEnv(args);
     return {

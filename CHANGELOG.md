@@ -20,6 +20,11 @@
 - **UI 项快照每项多了 `rev`**（重画计数）：`musicxx.ui.changed` 载荷、`uiSlotEntries()` 与
   主程序的项模型都带它；注册 / 覆盖不动它，只有 `update` 让 +1。
 
+### 变更（未发布）：`full` 按钮默认不再用主色底
+
+- `Button` 的 `variant: "full"` 只表示“大号 + 宽度铺满父块”，**默认是非选中态**（之前画成主色底）；
+  要强调仍然写 `variant: "primary"`。不写 `variant`（`secondary`）本来就是非选中态，这次不变。
+
 ### 变更（未发布）：单根块渲染、`ui.slot.set`、状态广播更及时
 
 - **插件界面只有一个根块**：`ExternPluginUiView_c(block:)`（多块文档由渲染层合成一个 `Column`）。

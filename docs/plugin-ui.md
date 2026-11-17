@@ -496,7 +496,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
-| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`/`full`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。外观由 `variant` 决定：`primary` 是主色底（强调），`secondary` 或不写是带底色的默认按钮，`ghost` / `link` **无底色**（只画文字与图标）—— 控制栏里的图标按钮、列表行里的文字按钮用 `ghost`；`full` 是**大号主色按钮**，宽度默认铺满父块（设置页里“一行一个”的按钮用它；放进 `Row` 时退化成按内容宽） |
+| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`/`full`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。外观由 `variant` 决定：`primary` 是主色底（强调 / 选中态），`secondary` 或不写是带底色的默认按钮（**非选中态**），`ghost` / `link` **无底色**（只画文字与图标）—— 控制栏里的图标按钮、列表行里的文字按钮用 `ghost`；`full` 是**大号按钮**，宽度默认铺满父块（设置页里“一行一个”的按钮用它；放进 `Row` 时退化成按内容宽），**默认也是非选中态**（不带主色底，要强调仍写 `primary`） |
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
