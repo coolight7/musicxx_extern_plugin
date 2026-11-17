@@ -2472,7 +2472,7 @@ musicxx.ui.slot.register({                        // 歌曲菜单项（data 字�
 musicxx.capability.register("card", (args) => ({   // 插件页面：主程序调用同名能力取视图描述
     view: { title: "我的插件", blocks: [
         { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。" },
-        { kind: "Button", title: "播放/暂停", style: "primary",
+        { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
           action: { kind: "command", name: "musicxx.player.toggle" } }
     ]}
 }));

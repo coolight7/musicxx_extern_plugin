@@ -279,7 +279,7 @@ musicxx.ui.slot.register({
     type: "playing.controlBar.playOrPause",   // 全名 musicxx.ui.playing.controlBar.playOrPause
     data: {
         view: { blocks: [
-            { kind: "Button", label: "", variant: "ghost", icon: "resource/svg/play.svg",
+            { kind: "Button", label: "", variant: "simple", icon: "resource/svg/play.svg",
               action: { kind: "command", name: "musicxx.player.toggle" } },
         ] },
     },
@@ -298,7 +298,7 @@ musicxx.ui.slot.register({
 ```cpp
 // 只换「收藏」按钮：动作调官方能力 musicxx.songlist.favorite
 uiSlotRegister("favBtn", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
-           R"({"view":{"blocks":[{"kind":"Button","label":"","variant":"ghost","icon":"resource/svg/heart.svg","action":{"kind":"command","name":"musicxx.songlist.favorite"}}]}})",
+           R"({"view":{"blocks":[{"kind":"Button","label":"","variant":"simple","icon":"resource/svg/heart.svg","action":{"kind":"command","name":"musicxx.songlist.favorite"}}]}})",
            0);
 // 整栏替换（视图 id 形态：主程序调插件的能力 `plugin.my_plugin/controlBar` 取内容）
 uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
@@ -496,7 +496,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
-| `Button` | `label`、`variant`（`primary`/`secondary`/`ghost`/`link`/`full`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。外观由 `variant` 决定：`primary` 是主色底（强调 / 选中态），`secondary` 或不写是带底色的默认按钮（**非选中态**），`ghost` / `link` **无底色**（只画文字与图标）—— 控制栏里的图标按钮、列表行里的文字按钮用 `ghost`；`full` 是**大号按钮**，宽度默认铺满父块（设置页里“一行一个”的按钮用它；放进 `Row` 时退化成按内容宽），**默认也是非选中态**（不带主色底，要强调仍写 `primary`） |
+| `Button` | `label`、`variant`（`normal`/`full`/`simple`，默认 `normal`）、`highlight`（默认 `false`）、`icon`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。`variant` 只定**样式与宽度**：`normal` 是带底色的默认按钮（宽度按文字内容），`simple` **无底色**（只画文字与图标，控制栏图标按钮、列表里的文字按钮用它），`full` 是**大号按钮**并**铺满父块宽度**（设置页里“一行一个”的按钮用它）；`highlight` 单独表示**选中态**（主色底，由主题决定；`simple` 平时无底色，选中时同样用主题的选中底色，与控制栏的选中按钮一致），默认不选中。**`full` 的父块必须给得出宽度**（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）：直接放进 `Row` 这类宽度不限的地方会报 `BoxConstraints forces an infinite width`，要横排就每个按钮各包一层 `Expanded`（`kit.actionsRow` 已经这么做） |
 | `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
 | `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
 | `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
@@ -693,7 +693,7 @@ kit.dirListView({ path: "/Music", items: entries, itemAction: "browse", multi: t
 kit.adaptLayout({ columnBody: portrait, rowBody: landscape }, env);
 kit.settingRow({ title: "背景动画速率", depict: "改完立即生效", value: "1x" }, env);
 kit.switchRow({ id: "skipAds", title: "跳过广告曲目", value: true, action: "setSkipAds" }, env);
-kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env);
+kit.button({ label: "刷新本页", variant: "full", highlight: true, action: "card" }, env);
 ```
 
 C++ 插件用头文件里的 kit（命名空间 `musicxx::ui::kit`，由 `plugin_kit.h` 带进来）：
@@ -737,10 +737,14 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   同时把左侧说明挤成一字一行、整页被拉得很长。
 - **按钮文案别写太长**：按钮里的文字不换行，文案超过一行可用宽度时字会顶破按钮
   （同样是 `RenderFlex overflow`）；超过一行放不下就缩短文案，把细节写进旁边的说明文本。
+- **`variant: "full"` 的按钮要放在给得出宽度的地方**：它是“铺满父块宽度”，父块宽度必须
+  有界（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）。塞进 `Row`（宽度不限）会得到
+  `BoxConstraints forces an infinite width`；要在横排里用就每个按钮各包一层 `Expanded`
+  （`kit.actionsRow` 已经这么做）。其余两种样式按文字宽度画，不需要额外容器。
 - **行内的开关 / 勾选框要放在有宽度的盒子里**：`Control` 的 `switch` / `checkbox` 落在"宽度不限"
   的位置时行为随客户端实现而异（历史上出现过 `RenderFlex ... unbounded` 的断言）。稳妥写法是给它一个
   **固定宽度的 `SizedBox`**（例如 190 个 `u`，与开关自身宽度相当）；"几选一"优先用一排 `Button` 块
-  （每个块各自声明 `{id, value}` 参数、当前项用 `variant: "primary"` 高亮），不要用 `Control(buttons)`。
+  （每个块各自声明 `{id, value}` 参数、当前项用 `highlight: true` 高亮），不要用 `Control(buttons)`。
 
 #### 2.5.1 常驻头部 + 自己滚的中间 + 常驻底部（列表项 `custom`）
 

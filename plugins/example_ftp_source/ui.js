@@ -65,7 +65,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     };
   }
 
-  /// 一排"几选一"按钮（当前项用 primary 高亮；比 `Control(buttons)` 稳，窄窗口也不会挤）
+  /// 一排"几选一"按钮（当前项用 highlight 标出；比 `Control(buttons)` 稳，窄窗口也不会挤）
   function choiceRow(params, env) {
     var buttons = [];
     for (var i = 0; i < params.options.length; i++) {
@@ -76,7 +76,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         children: [{
           kind: "Button",
           label: option.label,
-          variant: selected ? "primary" : "secondary",
+          highlight: selected,
           action: {
             kind: "dispatch",
             name: params.capability,
@@ -185,7 +185,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         buttons: [
           k.button({
             label: view.testing ? "正在测试…" : "保存并测试",
-            variant: "primary",
+            highlight: true,
             disabled: !!view.busy,
             action: { kind: "dispatch", name: "accounts", args: { op: "saveTest" } }
           }, env),
@@ -196,7 +196,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
           }, env),
           k.button({
             label: "取消",
-            variant: "ghost",
+            variant: "simple",
             action: { kind: "dispatch", name: "accounts", args: { op: "cancel" } }
           }, env)
         ]
@@ -205,7 +205,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     if (view.stored) {
       blocks.push(k.button({
         label: "清除已保存的账号",
-        variant: "ghost",
+        variant: "simple",
         action: { kind: "dispatch", name: "accounts", args: { op: "clear" } }
       }, env));
     }
@@ -248,7 +248,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         buttons: [
           k.button({
             label: "编辑",
-            variant: "primary",
+            highlight: true,
             action: { kind: "dispatch", name: "accounts", args: { op: "edit" } }
           }, env),
           k.button({

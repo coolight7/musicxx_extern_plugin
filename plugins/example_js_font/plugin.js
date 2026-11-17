@@ -202,17 +202,20 @@ function cardView(args) {
         kit.divider({}, env),
         kit.button({
             label: (currentMode === "yahei" ? "✓ " : "") + "切换为「微软雅黑」",
-            variant: currentMode === "yahei" ? "primary" : "secondary",
+            variant: "full",
+            highlight: currentMode === "yahei",
             action: "selectYahei",
         }, env),
         kit.button({
             label: (currentMode === "file" ? "✓ " : "") + "切换为「字体文件示例」",
-            variant: currentMode === "file" ? "primary" : "secondary",
+            variant: "full",
+            highlight: currentMode === "file",
             action: "selectFile",
         }, env),
         kit.button({
             label: (currentMode === "default" ? "✓ " : "") + "恢复为「拟声默认」",
-            variant: currentMode === "default" ? "primary" : "secondary",
+            variant: "full",
+            highlight: currentMode === "default",
             action: "selectDefault",
         }, env),
         kit.divider({}, env),

@@ -14,7 +14,7 @@
 | `icon` | `name` `glyph` `size` `tone`=normal | 图标（目标不支持 Icon 时退化成 glyph 文本） |
 | `gap` | `size`=gap | 竖直留白（缺省用客户端默认行距） |
 | `divider` | — | 分隔线（覆盖基础 kit：自带上下留白） |
-| `button` | `label`* `variant`=secondary `icon` `disabled`=false `action` | 按钮（覆盖基础 kit：自带上下留白） |
+| `button` | `label`* `variant`=normal `highlight`=false `icon` `disabled`=false `action` | 按钮（覆盖基础 kit：自带上下留白） |
 | `actionsRow` | `buttons`* | 一排等宽按钮（按钮列表里的每一项占一等份） |
 | `card` | `title` `variant`=card `padding`={horizontal: 50, vertical: 50} `margin`={vertical: 50} `children` | 内容块（卡片，覆盖基础 kit：留白在这里声明，框架不再给隐含边距） |
 | `listRow` | `title`* `subtitle` `trailing` `action` | 卡片里的一行（不带底色：卡片里直接按列表排列；右侧状态用说明字号） |

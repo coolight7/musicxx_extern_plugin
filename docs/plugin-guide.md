@@ -104,7 +104,7 @@ musicxx.ui.slot.register({
 musicxx.capability.register("card", function () {
     return { view: { title: "我的插件", blocks: [
         { kind: "Text", text: "你好，插件！" },
-        { kind: "Button", title: "播放/暂停", style: "primary",
+        { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
           action: { kind: "command", name: "musicxx.player.toggle" } },
     ] } };
 });

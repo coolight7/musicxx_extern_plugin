@@ -584,11 +584,13 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
               {"label", "刷新本页"},
-              {"variant", "primary"},
+              {"variant", "full"},
+              {"highlight", true},
               {"action", dispatchAction("card")},
           }))));
           blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
               {"label", "发送一条通知"},
+              {"variant", "full"},
               {"action", commandAction("musicxx.ui.toast",
                                        Json::object({{"text", "来自 "
                                                              "example_native "

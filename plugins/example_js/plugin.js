@@ -321,22 +321,26 @@ function settingsView(args, override) {
             }, env),
             kit.button({
                 label: skipAds ? "关闭『跳过广告曲目』" : "开启『跳过广告曲目』",
-                variant: "primary",
+                variant: "full",
+                highlight: true,
                 action: "toggleSkipAds",
             }, env),
             kit.button({
                 label: speedLimit ? "关闭『限制播放速度』" : "开启『限制播放速度』",
+                variant: "full",
                 action: "toggleSpeedLimit",
             }, env),
             kit.button({
                 label: "切换心跳间隔（10 / 30 / 60 秒）",
+                variant: "full",
                 action: "cycleHeartbeat",
             }, env),
             kit.button({
                 label: "把提示语改回默认值",
+                variant: "full",
                 action: { kind: "dispatch", name: "resetGreeting", args: { value: "example_js 已加载" } },
             }, env),
-            kit.button({ label: "测试网络通道", action: "fetchEcho" }, env),
+            kit.button({ label: "测试网络通道", variant: "full", action: "fetchEcho" }, env),
         ],
     };
 }
@@ -657,14 +661,16 @@ function cardView(args) {
                 trailing: speedLimitEnabled() ? "已开启" : "已关闭",
                 action: { kind: "dispatch", name: "toggleSpeedLimit", args: { view: "card" } },
             }, env),
-            kit.button({ label: "刷新本页", variant: "primary", action: "card" }, env),
+            kit.button({ label: "刷新本页", variant: "full", highlight: true, action: "card" }, env),
             kit.button({
                 label: "调用 example_native 的能力",
+                variant: "full",
                 action: { kind: "dispatch", name: "crossCall", args: { target: "example_native", method: "probe" } },
             }, env),
-            kit.button({ label: "测试主程序网络通道", action: "fetchEcho" }, env),
+            kit.button({ label: "测试主程序网络通道", variant: "full", action: "fetchEcho" }, env),
             kit.button({
                 label: "打开本插件设置页",
+                variant: "full",
                 action: { kind: "route", route: "ext://example_js/settings" },
             }, env),
         ],

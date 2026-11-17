@@ -906,7 +906,7 @@ musicxx.ui.slot.register({
     data: {
         // 视图参数里有 playing / favorite / song / colors：状态变了主程序会重新取一次视图
         view: { blocks: [
-            { kind: "Button", label: "", variant: "ghost", icon: "resource/svg/play.svg",
+            { kind: "Button", label: "", variant: "simple", icon: "resource/svg/play.svg",
               action: { kind: "command", name: "musicxx.player.toggle" } },
         ] },
     },
@@ -1118,9 +1118,9 @@ musicxx.capability.register("card", function (args) {
             blocks: [
                 { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。", style: "cross" },
                 { kind: "Divider" },
-                { kind: "Button", title: "播放/暂停", style: "primary",
+                { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
                   action: { kind: "command", name: "musicxx.player.toggle" } },
-                { kind: "Button", title: "打开本插件设置页",
+                { kind: "Button", label: "打开本插件设置页", variant: "full",
                   action: { kind: "route", route: "ext://my_plugin/settings" } },
             ],
         },

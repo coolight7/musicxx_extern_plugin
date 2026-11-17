@@ -20,10 +20,22 @@
 - **UI 项快照每项多了 `rev`**（重画计数）：`musicxx.ui.changed` 载荷、`uiSlotEntries()` 与
   主程序的项模型都带它；注册 / 覆盖不动它，只有 `update` 让 +1。
 
-### 变更（未发布）：`full` 按钮默认不再用主色底
+### 变更（破坏性，未发布）：`Button` 的 `variant` 改成样式类型，新增 `highlight`
 
-- `Button` 的 `variant: "full"` 只表示“大号 + 宽度铺满父块”，**默认是非选中态**（之前画成主色底）；
-  要强调仍然写 `variant: "primary"`。不写 `variant`（`secondary`）本来就是非选中态，这次不变。
+- `Button.variant` 不再是配色名，只表示**样式与宽度**：`normal`（默认）/ `full` / `simple`。
+  `primary` / `secondary` / `ghost` / `link` 不再认识（按未知枚举处理，回落 `normal`），
+  不做别名与迁移：
+  - `normal`：带底色的默认按钮，**宽度按文字内容**（以前所有按钮都铺满父块）；
+  - `simple`：无底色，只画文字与图标（原来的 `ghost` / `link`，控制栏图标按钮用这个）；
+  - `full`：大号按钮并**铺满父块宽度**（设置页里“一行一个”的按钮用它）。
+- 新增 `highlight`（bool，默认 `false`）表示**选中态**（主题的选中底色；`simple` 平时无底色，
+  选中时同样是主题的选中底色，与控制栏的选中按钮一致）。原来的 `variant: "primary"` 就是 `highlight: true`。
+- **`full` 不再有“放进 `Row` 就退化成按内容宽”的兜底**：它的父块必须给得出宽度
+  （`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）。放进 `Row` 这类宽度不限的地方会得到
+  `BoxConstraints forces an infinite width`；要横排就每个按钮各包一层 `Expanded`
+  （`kit.actionsRow` 已经这么做）。
+- kit 同步：`kit.button({label, variant, highlight, icon, disabled, action})`；不写 `variant`
+  就是 `normal`。旧写法 `variant: "primary"` / `"ghost"` 要改成 `highlight: true` / `variant: "simple"`。
 
 ### 变更（未发布）：单根块渲染、`ui.slot.set`、状态广播更及时
 
@@ -42,9 +54,10 @@
   以前“一棵块”会被当成空文档（日志里是“插件给的 view 描述无法解析”＋“样式已停用”）。
 - **`musicxx.state.uiSlots` 更及时**：`night` 在换主题 / 换封面取色时也会重发（以前只在选择变化与
   挂载点上报时重发），插件不用自己轮询；字段仍是 `{itemId, plugin, selectedId, night, visible, width, height}`。
-- **`Button` 的外观按 `variant` 画**：`ghost` / `link` 是**真的无底色**（以前按钮一律带底色，控制栏里
-  的图标按钮会多出一块方块底）；新增 `variant: "full"` —— 大号主色按钮、宽度默认铺满父块
-  （主程序用 `XXFullBtn` 画），适合插件设置页里“一行一个”的按钮，放进 `Row`（宽度无界）时按内容宽退化。
+- **`Button` 的外观按 `variant` 画**：无底色的样式（`simple`，以前叫 `ghost` / `link`）是真的无底色
+  （以前按钮一律带底色，控制栏里的图标按钮会多出一块方块底）；`full` 是大号按钮、宽度铺满父块
+  （主程序用 `XXFullBtn` 画），适合插件设置页里“一行一个”的按钮。字段含义见上面
+  “`variant` 改成样式类型”一节。
 - **控制栏位图参数没有变**：插件想要的状态（包括播放模式）自己读广播或调能力，**不要指望主程序为每个能力
   都给位置加一个参数**；插件自己改完直接返回 `{view}` 就能刷新画面。另外 `musicxx.state.playlist` 的
   `loopMode` 以前改模式后不重推（插件读到的还是启动时那份），已修成改模式就重推。

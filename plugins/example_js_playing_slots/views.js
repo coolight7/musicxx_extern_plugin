@@ -68,7 +68,7 @@ function songlistHeaderView(args) {
                     {
                         kind: "Button",
                         label: "打开更多菜单",
-                        variant: "ghost",
+                        variant: "simple",
                         action: { kind: "command", name: "musicxx.ui.playing.openMenu" },
                     },
                 ],
@@ -110,7 +110,7 @@ function favoriteButtonView(args) {
         blocks: [{
             kind: "Button",
             label: "",
-            variant: "ghost",
+            variant: "simple",
             icon: favorite ? FAVORITE_ICON_ON : FAVORITE_ICON_OFF,
             action: { kind: "command", name: "musicxx.songlist.favorite" },
         }],
@@ -120,12 +120,12 @@ function favoriteButtonView(args) {
 /// 一条控制栏图标按钮（图标是插件自己带的 svg，动作调官方能力）
 ///
 /// 控制栏按钮**只放图标、不写文字**：内置那一排也是这样，写文字会把整排挤变形。
-/// `ghost` = 无底色：只有图标，与内置控制栏按钮一致（`secondary` 会多出一块方块底）。
+/// `simple` = 无底色：只有图标，与内置控制栏按钮一致（`normal` 会多出一块方块底）。
 function controlBarButton(icon, command) {
     return {
         kind: "Button",
         label: "",
-        variant: "ghost",
+        variant: "simple",
         icon: icon,
         action: { kind: "command", name: command },
     };
@@ -170,7 +170,7 @@ function loopModeButton(args, mode) {
     return {
         kind: "Button",
         label: "",
-        variant: "ghost",
+        variant: "simple",
         icon: view.svg,
         action: {
             kind: "dispatch",
@@ -204,7 +204,7 @@ function controlBarView(args, mode) {
         {
             kind: "Button",
             label: "",
-            variant: "ghost",
+            variant: "simple",
             icon: favorite ? FAVORITE_ICON_ON : FAVORITE_ICON_OFF,
             disabled: false == hasSong,
             action: { kind: "command", name: "musicxx.songlist.favorite" },

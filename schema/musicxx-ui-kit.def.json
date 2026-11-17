@@ -76,7 +76,8 @@
       "doc": "按钮（覆盖基础 kit：自带上下留白）",
       "params": [
         { "name": "label", "type": "text", "required": true },
-        { "name": "variant", "type": "enum:buttonVariant", "default": "secondary" },
+        { "name": "variant", "type": "enum:buttonVariant", "default": "normal" },
+        { "name": "highlight", "type": "bool", "default": false },
         { "name": "icon", "type": "string" },
         { "name": "disabled", "type": "bool", "default": false },
         { "name": "action", "type": "action" }
@@ -92,6 +93,7 @@
                 "kind": "Button",
                 "label": "$label",
                 "variant": "$variant",
+                "highlight": "$highlight",
                 "icon": "$icon",
                 "disabled": "$disabled",
                 "action": "$action"

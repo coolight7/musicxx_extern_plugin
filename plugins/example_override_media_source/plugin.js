@@ -637,14 +637,16 @@ function settingsView(args, override) {
             }, env),
             kit.button({
                 label: "播放示例视频（BV1GJ411x7h7）",
-                variant: "primary",
+                variant: "full",
+                highlight: true,
                 action: "playDemo",
             }, env),
             kit.button({
                 label: "播放自定义音源（plugin_bili）",
+                variant: "full",
                 action: "playCustomSrc",
             }, env),
-            kit.button({label: "刷新本页", action: "settings"}, env),
+            kit.button({label: "刷新本页", variant: "full", action: "settings"}, env),
         ],
     };
 }
