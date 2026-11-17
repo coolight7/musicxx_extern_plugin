@@ -241,7 +241,7 @@ musicxx.capability.register("card", function () {
 - **渲染目标是左上角原点的像素坐标**（`gl_FragCoord.y` 向下增大），上下不对称的效果要自己翻 y；
 - **本地验证**：`impellerc --runtime-stage-gles --gles-language-version=100 …` 打出来的就是后端要编的那份源码；
 - **动画速率由插件自己声明**（`speed`），主程序不做二次缩放；想给用户开关就做成自己设置页里的设置项，
-  改完用 `musicxx.ui.slot.update` 重新登记同一项即可生效；
+  改完用 `musicxx.ui.slot.register` 同名覆盖重新声明同一项即可生效；
 - **渲染失败会自动回退**：预检不过 / 结构体不符 / 运行期异常 / 插件停用，都会退回内置背景；
   运行期失败最多重试 3 次（每次隔 2 秒），连续失败才停用该样式。
 

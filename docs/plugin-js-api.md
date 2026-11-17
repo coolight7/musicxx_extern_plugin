@@ -1130,7 +1130,8 @@ musicxx.capability.register("card", function (args) {
 
 - 能力返回 `{ view: {...} }`（推荐）或直接返回视图对象；返回视图时主程序会用新视图**刷新当前页面**
   （按钮改配置 + 立即刷新就是这么做的）；
-- `musicxx.ui.slot.update("card", 完整 data)` 是**整体替换**，只想改一个字段也要传完整 data；
+- `musicxx.ui.slot.update("card")` **不改声明**：让主程序用当前声明重新取一次视图（重画计数 + 1）；
+  要改声明（换视图 / 改标题 / 改参数）就用 `register` 覆盖同名项，整份 `data` 重给（不是合并）；
 - `musicxx.ui.slot.entries()` 返回本插件已注册项的脚本侧副本（不含框架补的 `id` 前缀，调试用）；
 - UI 项的类型与字段、页面块类型、界面动作四种写法（`route` / `dispatch` / `command` / `none`）、
   按 `host.info().ui` 降级、图标要自带 svg —— 见 [plugin-ui.md](plugin-ui.md) 与

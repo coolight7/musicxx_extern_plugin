@@ -16,6 +16,8 @@ void main() {
           'plugin': 'demo',
           'type': MusicxxPluginUIType.songAction,
           'order': 900,
+          // 重画计数：插件调 `musicxx.ui.slot.update(名字)` 时 +1（声明不变）
+          'rev': 4,
           'data': <String, Object?>{
             'title': '菜单项',
             'action': <String, Object?>{
@@ -61,6 +63,10 @@ void main() {
     expect(songItem.actionKind, MusicxxPluginUIActionKind.dispatch);
     expect(songItem.capabilityName, 'probe');
     expect(songItem.actionArgs['a'], 1);
+    expect(songItem.rev, 4);
+    expect(songItem.order, 900);
+    // 没写 rev 的项按 0（旧快照 / 没被要求重画过）
+    expect(card.rev, 0);
   });
 
   test('动作写法与界面描述层一致：短写/command/未知写法', () {

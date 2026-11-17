@@ -39,6 +39,11 @@ musicxx-cli call probe --plugin example_js_playing_slots
 `musicxx.state.playlist` 的 `loopMode`），点一下在 单曲循环 → 顺序播放 → 真随机播放 → 单曲循环 之间轮。
 动作走 `dispatch` → 插件自己的能力 `cycleLoopMode`：它先调 `musicxx.player.setLoopMode`（不 await），
 再把新模式画进返回的视图 —— 画面立刻换，**不需要主程序为位置多加一个参数**。
+
+别处改的播放模式（歌单页、锁屏、远程控制、命令行）也跟得上：插件订阅 `musicxx.state.playlist`，
+读到 `loopMode` 真的变了就调 `musicxx.ui.slot.update("wholeBar")` —— 声明不变，主程序用当前声明
+重新取一次 `controlBar` 视图（重画计数 `rev` + 1），图标随真实模式换。
+
 设置页的按钮用 `variant: "full"`（大号、宽度铺满）：插件设置页里“一行一个”的按钮就用它。
 
 ## 2. 文件怎么分工

@@ -528,6 +528,9 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   entry.seq = ++uiSeq_;
   if (existing != uiEntries_.end()) {
     entry.seq = existing->second.seq; ///< 覆盖保留原注册顺序
+    /// 重画计数跟着项走: 声明变化由主程序比较 viewId / 内联视图发现,
+    /// 只有 update 会要求"声明没变也重画一次"
+    entry.rev = existing->second.rev;
   }
   uiEntries_[itemId] = std::move(entry);
 
@@ -572,8 +575,7 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
 }
 
 int32_t MusicxxHostManager::updateUiEntry(MusicxxHostInstance *inst,
-                                          std::string_view itemId,
-                                          std::string_view dataJson) {
+                                          std::string_view itemId) {
   if (itemId.empty()) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
@@ -590,13 +592,8 @@ int32_t MusicxxHostManager::updateUiEntry(MusicxxHostInstance *inst,
   if (inst && it->second.pluginId != pluginId) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
-  const std::string data{dataJson};
-  std::string err;
-  if (!validateUiData(it->second.type, data, it->second.pluginId, err)) {
-    XX_LOGW("[musicxx_ext] 更新 UI 项 `{}` 被拒绝: {}", itemId, err);
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  it->second.dataJson = data;
+  // 声明一个字不动: 只把重画计数 +1, 主程序看到它变了就重新取一次视图
+  ++it->second.rev;
 
   Json changed;
   changed["action"] = "update";
@@ -661,6 +658,8 @@ std::string MusicxxHostManager::uiItemsJson(const std::string &pluginId) const {
     item["plugin"] = entry->pluginId;
     item["type"] = entry->type;
     item["order"] = entry->order;
+    // 重画计数: 主程序据它判断"声明没变、但要重新取一次视图"
+    item["rev"] = entry->rev;
     item["data"] = parseJsonSafe(entry->dataJson);
     array.push_back(std::move(item));
   }
@@ -734,26 +733,22 @@ int32_t PLUGINXX_CALL xx_ui_unregister_entry(const PluginxxHost *host,
 }
 
 int32_t PLUGINXX_CALL xx_ui_update_entry(const PluginxxHost *host,
-                                         const PluginxxStringView *itemId,
-                                         const PluginxxStringView *dataJson) {
+                                         const PluginxxStringView *itemId) {
   return pluginxx::guardVtableCall(
       PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
         auto call =
             pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
                 host);
-        if (!call.ok() || !itemId || !itemId->data || !dataJson ||
-            !dataJson->data) {
+        if (!call.ok() || !itemId || !itemId->data) {
           return PLUGINXX_RESULT_ERR_ARG;
         }
         auto mgr = call.manager();
         auto inst = call.instance();
         const std::string_view id{itemId->data,
                                   static_cast<size_t>(itemId->size)};
-        const std::string_view data{dataJson->data,
-                                    static_cast<size_t>(dataJson->size)};
         return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id, data]() -> int32_t {
-              return mgr->updateUiEntry(inst, id, data);
+            call, mgr, [mgr, inst, id]() -> int32_t {
+              return mgr->updateUiEntry(inst, id);
             });
       });
 }

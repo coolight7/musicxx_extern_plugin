@@ -372,7 +372,7 @@ function vinylBackgroundData() {
 /// 『晶格』的完整声明
 ///
 /// 组成: 封面经中心裁剪 + 预模糊后当铺底（`uCoverBack`），上面叠晶格图案；
-/// 画面只随时间缓慢漂移，不读频谱。`musicxx.ui.slot.update` 是**整体替换**，
+/// 画面只随时间缓慢漂移，不读频谱。改参数用 `register` 覆盖同名项（声明整份重给），
 /// 所以每次都从这一个函数取完整 data。
 function latticeBackgroundData() {
     return {
@@ -447,18 +447,34 @@ function configuredBgRateValue() {
     return normalizeBgRate(configuredBgRate());
 }
 
-/// 重新声明六个背景样式（`musicxx.ui.slot.update` 是整体替换，每次都要给完整 data）
+/// 六个背景样式的声明表：`name` + `order` + 取内容的函数
+///
+/// 首次注册与"改了参数重新声明"用的是同一份声明，所以放在一张表里
+/// （`musicxx.ui.slot.register` 同名覆盖就是改声明，位置不变）。
+const BACKGROUND_ENTRIES = [
+    { name: ITEM_NAME_BLUR, order: 20, data: () => blurBackgroundData() },
+    { name: ITEM_NAME_CARD, order: 21, data: () => cardBackgroundData() },
+    { name: ITEM_NAME_VINYL, order: 22, data: () => vinylBackgroundData() },
+    { name: ITEM_NAME_LATTICE, order: 30, data: () => latticeBackgroundData() },
+    { name: ITEM_NAME_RING, order: 31, data: () => ringBackgroundData() },
+    { name: ITEM_NAME_BOUND, order: 32, data: () => boundBackgroundData() },
+];
+
+/// 重新声明六个背景样式（改参数就是改声明：用 `register` 覆盖，位置不变）
 ///
 /// 插件框架收到后会刷新候选；正在使用的样式立即用新参数（封面纹理按新参数重新解码，
 /// 『模糊』改模糊程度时就能当场看到变化；『黑胶』改转速只换块的 `speed`，下一帧就按新转速转）。
 /// 前景三色不在这里：它由 [pushForeground] 单独调能力交给应用。
 function refreshBackgroundEntries() {
-    musicxx.ui.slot.update(ITEM_NAME_BLUR, blurBackgroundData());
-    musicxx.ui.slot.update(ITEM_NAME_CARD, cardBackgroundData());
-    musicxx.ui.slot.update(ITEM_NAME_VINYL, vinylBackgroundData());
-    musicxx.ui.slot.update(ITEM_NAME_LATTICE, latticeBackgroundData());
-    musicxx.ui.slot.update(ITEM_NAME_RING, ringBackgroundData());
-    musicxx.ui.slot.update(ITEM_NAME_BOUND, boundBackgroundData());
+    for (var i = 0; i < BACKGROUND_ENTRIES.length; ++i) {
+        var entry = BACKGROUND_ENTRIES[i];
+        musicxx.ui.slot.register({
+            name: entry.name,
+            type: "playing.background",
+            order: entry.order,
+            data: entry.data(),
+        });
+    }
 }
 
 /// 顶层注册六个背景样式 + 歌曲图接管项 + 主页入口（由 plugin.js 在最后调用）
@@ -466,42 +482,15 @@ function refreshBackgroundEntries() {
 /// 注册顺序与 `order` 决定设置列表里的先后（快照按类型 + order 排序）：
 /// 封面三种在前（20~22），图案三种在后（30~32）。
 function registerPluginEntries() {
-    musicxx.ui.slot.register({
-        name: ITEM_NAME_BLUR,
-        type: "playing.background",
-        order: 20,
-        data: blurBackgroundData(),
-    });
-    musicxx.ui.slot.register({
-        name: ITEM_NAME_CARD,
-        type: "playing.background",
-        order: 21,
-        data: cardBackgroundData(),
-    });
-    musicxx.ui.slot.register({
-        name: ITEM_NAME_VINYL,
-        type: "playing.background",
-        order: 22,
-        data: vinylBackgroundData(),
-    });
-    musicxx.ui.slot.register({
-        name: ITEM_NAME_LATTICE,
-        type: "playing.background",
-        order: 30,
-        data: latticeBackgroundData(),
-    });
-    musicxx.ui.slot.register({
-        name: ITEM_NAME_RING,
-        type: "playing.background",
-        order: 31,
-        data: ringBackgroundData(),
-    });
-    musicxx.ui.slot.register({
-        name: ITEM_NAME_BOUND,
-        type: "playing.background",
-        order: 32,
-        data: boundBackgroundData(),
-    });
+    for (var i = 0; i < BACKGROUND_ENTRIES.length; ++i) {
+        var entry = BACKGROUND_ENTRIES[i];
+        musicxx.ui.slot.register({
+            name: entry.name,
+            type: "playing.background",
+            order: entry.order,
+            data: entry.data(),
+        });
+    }
     musicxx.ui.slot.register({
         name: ITEM_NAME_ICON,
         type: "playing.icon",

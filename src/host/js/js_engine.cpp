@@ -1032,13 +1032,10 @@ var featurePointImpls = new Map();
       ext.uiOp("register", entry.name, entry.type, safeJson(entry.data), entry.order);
       return musicxx;
     },
-    update: function (name, data) {
+    // 让这一项重新取一次视图: 声明一个字不动 (改声明用 register 覆盖)
+    update: function (name) {
       assertName(name, "ui.slot.update: 名称");
-      var key = shortName(name);
-      var previous = uiTable.get(key);
-      var type = previous ? previous.type : "";
-      if (previous) { previous.data = data; }
-      ext.uiOp("update", key, type, safeJson(data), 0);
+      ext.uiOp("update", shortName(name), "", "{}", 0);
       return musicxx;
     },
     unregister: function (name) {
@@ -2976,7 +2973,7 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
       spec.flags = 0;
       rc = mgr_->registerUiEntry(current.get(), spec);
     } else if (op == "update") {
-      rc = mgr_->updateUiEntry(current.get(), name, dataJson);
+      rc = mgr_->updateUiEntry(current.get(), name);
     } else if (op == "unregister") {
       rc = mgr_->unregisterUiEntry(current.get(), name);
     }
@@ -4005,7 +4002,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       spec.flags = 0;
       rc = mgr_->registerUiEntry(inst->hostInst, spec);
     } else if (op.op == "update") {
-      rc = mgr_->updateUiEntry(inst->hostInst, op.name, op.dataJson);
+      rc = mgr_->updateUiEntry(inst->hostInst, op.name);
     } else if (op.op == "unregister") {
       rc = mgr_->unregisterUiEntry(inst->hostInst, op.name);
     }
@@ -4018,9 +4015,9 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       payload["op"] = op.op;
       payload["item"] = op.name;
       payload["code"] = rc;
-      payload["message"] = "UI 项注册被拒绝 (检查类型/命名空间/data 结构)";
+      payload["message"] = "UI 项操作被拒绝 (检查类型/命名空间/data 结构)";
       mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-      XX_LOGW("[musicxx_ext] JS插件 `{}` 注册 UI 项 `{}` 被拒绝 (code={})",
+      XX_LOGW("[musicxx_ext] JS插件 `{}` UI 项操作 `{}` 被拒绝 (code={})",
               inst->id, op.name, rc);
     }
   }

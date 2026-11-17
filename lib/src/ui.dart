@@ -257,6 +257,7 @@ class MusicxxPluginUIItem {
     required this.plugin,
     required this.type,
     this.order = 0,
+    this.rev = 0,
     this.data = const <String, Object?>{},
   });
 
@@ -271,6 +272,12 @@ class MusicxxPluginUIItem {
 
   /// 排序权重（小者靠前；同权重按注册顺序）
   final int order;
+
+  /// 重画计数：插件调 `musicxx.ui.slot.update(名字)` 时 +1
+  ///
+  /// 声明没变、但内容要重新取一次视图时用它（例如插件订阅的状态变了）。
+  /// 注册 / 覆盖注册不会动它：声明真的变了靠 `viewId` / 内联视图的比较就能发现。
+  final int rev;
 
   /// 声明式内容（结构由 [type] 决定）
   final Map<String, Object?> data;
@@ -379,6 +386,7 @@ class MusicxxPluginUIItem {
       plugin: json['plugin'] as String? ?? '',
       type: json['type'] as String? ?? '',
       order: (json['order'] as num?)?.toInt() ?? 0,
+      rev: (json['rev'] as num?)?.toInt() ?? 0,
       data: data is Map
           ? data.cast<String, Object?>()
           : const <String, Object?>{},

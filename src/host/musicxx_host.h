@@ -477,9 +477,8 @@ public:
   /// 注销一个 UI 项 (不存在返回 `ERR_NOT_FOUND`)
   int32_t unregisterUiEntry(MusicxxHostInstance *inst, std::string_view itemId);
 
-  /// 更新一个 UI 项的声明式内容
-  int32_t updateUiEntry(MusicxxHostInstance *inst, std::string_view itemId,
-                        std::string_view dataJson);
+  /// 要求一个 UI 项重新取一次视图 (声明不变; rev + 1)
+  int32_t updateUiEntry(MusicxxHostInstance *inst, std::string_view itemId);
 
   /// 列出某插件已注册的 UI 项 (JSON 数组; `inst` 为空时列出全部)
   int32_t listUiEntries(MusicxxHostInstance *inst, std::string &outJson);
@@ -888,6 +887,12 @@ private:
     std::string dataJson; ///< 声明式内容
     int32_t order = 0;
     uint64_t seq = 0; ///< 注册顺序 (同 order 时稳定排序)
+
+    /// 重画计数 (只有 update 让它 +1; 声明变化不碰它)
+    ///
+    /// 主程序按它判断"这一项被要求重新取一次视图": 声明没变也要重画时插件调
+    /// `musicxx.ui.slot.update(name)`, 声明真的变了用 register 覆盖。
+    int32_t rev = 0;
   };
 
   /// UI 项注册表 (仅框架线程)

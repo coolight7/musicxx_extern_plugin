@@ -99,7 +99,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiForeignRc = -100; ///< 注册他人命名空间的项: 期望 -6 (权限拒绝)
   int32_t uiBadTypeRc = -100; ///< 注册未知类型: 期望 -4 (未知类型)
   int32_t uiBadDataRc = -100; ///< 声明式内容缺少 title: 期望 -1 (参数非法)
-  int32_t uiUpdateRc = -100; ///< 更新自己的项: 期望 0
+  int32_t uiUpdateRc = -100; ///< 刷新自己的项 (声明不变): 期望 0
   int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget 动作): 期望 0
   int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
   int32_t uiBackgroundNoViewRc =
@@ -303,10 +303,6 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         uiSlotRegister("bad", "musicxx.ui.unknown", R"({"title":"未知类型"})", 0);
     uiBadDataRc = uiSlotRegister("nodata", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
                              R"({"subtitle":"缺少 title"})", 0);
-    uiUpdateRc = uiSlotUpdate(
-        "card",
-        R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
-                "action":{"kind":"route","route":"ext://example_native/card"}})");
     uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
 
     // 7) 播放页背景样式 (musicxx.ui.playing.background):
@@ -365,6 +361,11 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
             "view":{"kind":"Expanded","children":[
               {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle"}]}})",
         11);
+
+    // 7.2) 刷新: 声明不变, 只让主程序重新取一次视图 (rev + 1)
+    //      —— 状态变了 (例如跟随的广播值变了) 而声明不必改时用它;
+    //      改声明 (换视图 / 改标题 / 改 order) 用 uiSlotRegister 覆盖。
+    uiUpdateRc = uiSlotUpdate("playingBg");
 
     // 8) 能力: 供插件框架/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
     capability(
@@ -434,6 +435,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiPageBackgroundRc\":" << uiPageBackgroundRc
               << ",\"uiPageBackgroundBadRoutesRc\":"
               << uiPageBackgroundBadRoutesRc
+              << ",\"uiEntries\":" << uiSlotEntries()
               << ",\"stateLen\":" << readBroadcast("musicxx.state.song").size()
               << ",\"featurePointId\":\"" << featurePointSampleId << "\""
               << ",\"featurePointRc\":" << featurePointSampleRc

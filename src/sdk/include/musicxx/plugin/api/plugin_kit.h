@@ -877,14 +877,13 @@ public:
         return uiSlotRegister(itemName, type, json.c_str(), order);
     }
 
-    /// 更新一个 UI 项的声明式内容
-    int32_t uiSlotUpdate(const char* itemName, const char* dataJson) {
+    /// 让一个 UI 项重新取一次视图 (声明不变; 改声明用 uiSlotRegister 覆盖)
+    int32_t uiSlotUpdate(const char* itemName) {
         if (!iface.ui || !iface.ui->update_entry) {
             return -1;
         }
         PluginxxStringView itemView = pluginxxView(itemName ? itemName : "");
-        PluginxxStringView dataView = pluginxxView(dataJson ? dataJson : "");
-        return iface.ui->update_entry(host, &itemView, &dataView);
+        return iface.ui->update_entry(host, &itemView);
     }
 
     /// 注销一个 UI 项

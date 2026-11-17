@@ -104,22 +104,26 @@ musicxx.ui.slot.register({
 规则（插件框架在注册时校验，写错就直接失败，不会等到渲染时才发现）：
 
 - `name` 用**短名**，插件框架补成 `plugin.<插件id>.<短名>`；写全名时也必须属于本插件命名空间（冒充别人返回 `-6`）；
-- 同一个项名再次注册 = **覆盖**（保留原来的排序位置）；
+- 同一个项名再次注册 = **覆盖**（保留原来的排序位置），与首次声明是同一件事：`type` / `data` 照样写全；
 - UI 项数量与单条 `data` 大小都不设上限（早期版本的 64 个 / 64 KiB 已移除）；
 - 类型必须是上表列出的类型之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
-- 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，主程序整批替换）。
+- 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，每项带重画计数 `rev`，主程序整批替换）。
 
 更新与注销：
 
 ```js
-musicxx.ui.slot.update("card", { ...完整 data... });  // 整体替换，不是合并
+musicxx.ui.slot.update("card");            // 重新取一次视图（声明不变）
 musicxx.ui.slot.unregister("card");
-musicxx.ui.slot.entries();                                  // 本插件已注册的项（脚本侧副本）
+musicxx.ui.slot.entries();                  // 本插件已注册的项（脚本侧副本）
 ```
 
-> `musicxx.ui.slot.update` 是**整体替换**：只想改一个字段也要把完整的 `data` 传回去，否则剩下的字段会丢。
+> **两个调用各做一件事**：
+> - 声明要改（换视图、改标题、改 `order`、改块的 `speed` / 颜色参数…）→ 用 `register` 覆盖同名项，**整份 `data` 重给**；
+> - 声明一个字不改，只是状态变了要重画 → `update(名字)`：主程序会用当前声明重新取一次视图
+>   （例如别处改了播放模式，插件订阅到后让整条控制栏重画）。
+>
 > `maxFps` / `resolutionScale` / `animate` 这类影响帧调度或分辨率创建的字段，运行期改完需要用户
-> 重新选中该项才完全生效；`speed`、颜色参数这类每帧现算的字段立即生效。
+> 重新选中该项才完全生效；`speed`、颜色参数这类每帧现算的字段重新声明后立即生效。
 
 ### 1.3 UI 项动作（`data.action`）
 
@@ -244,7 +248,8 @@ uiSlotRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
 - **类型名就是位置**：写错一个字母（拼错页面或位置）时插件框架**直接拒绝注册**（未知 UI 类型，
   和把 `home.entry` 拼错一样），不会静默不显示；
 - 取不到内容（能力没实现、返回的东西解析不出块）→ 这一块不渲染，不影响同一位置的其它项与页面本身；
-  要刷新就在能力里返回新的 `{view: …}`，或重登记这一项（`musicxx.ui.slot.update`，整体替换）。
+  要刷新就在能力里返回新的 `{view: …}`，或让主程序重取一次（`musicxx.ui.slot.update(名字)`）；
+  真要改声明（换视图 / 改标题）就用 `register` 覆盖。
 - 插入块里的逐帧动画用 `musicxx.AnimatedBuilder`（与页面里的写法一样，见 §2.3.2）；播放页的频谱来源
   `musicxx.spectrum.*` 在这些块里也能用。
 
@@ -336,6 +341,19 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
   这类同步读拿到，或者用 `musicxx.capability.call(…)` / `musicxx.xxx` 现取。
   例：切播放模式的按钮就是 `dispatch → 自己调 musicxx.player.setLoopMode` + 返回新视图，
   控制栏不需要多一个 `loopMode` 参数（`example_js_playing_slots`）。
+- **别处改的状态：自己订阅广播 + `musicxx.ui.slot.update(名字)`**。声明不用改，只是让主程序用当前声明
+  重新取一次视图（重画计数 `rev` + 1）；主程序不会闪空，旧画面留到新视图回来。
+
+  ```js
+  musicxx.broadcast.subscribe("musicxx.state.playlist", function (value) {
+      if (value.loopMode !== lastLoopMode) {   // 只在自己关心的字段真变了时刷
+          lastLoopMode = value.loopMode;
+          musicxx.ui.slot.update("miniBar");    // 重新取一次 miniBarView
+      }
+  });
+  ```
+
+  不要为了这个给位置加参数：状态是插件自己订阅的，主程序只提供上面那张表的通用参数。
 - 换主题时 `colors` 会变，插件用它画的按钮不用另做什么就会跟着切；不想跟主题就忽略它、自己写颜色。
 - 插件卸载 / 停用 / 关闭『拟声++』后立刻回到内置界面；用户也可以在插件管理里停用插件来还原。
 

@@ -94,7 +94,7 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
 | `hideIcon` | 用背景时隐藏歌曲图 | 布尔 | `false` |
 | `autoForeground` | 按封面自动调整播放页前景色 | 布尔 | `true` |
 
-- 改完的值要重新声明受影响的样式项（`musicxx.ui.slot.update` 是**整体替换**，六个各调一次）；
+- 改完的值要重新声明受影响的样式项（用 `musicxx.ui.slot.register` 同名覆盖，声明整份重给，六个各一次）；
   只改 `speed` 这类每帧现算的字段，改动立即生效，不用重新选中。
 - 值调到边界外会被夹到范围内，读到非法值用默认值；异步读回来的旧值不会盖掉用户刚做的选择。
 - `1×` 就是 `speed` 1（基准速度 1），没有"声明 4 当基准"那种偏移。

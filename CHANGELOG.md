@@ -8,6 +8,18 @@
 
 ## 历史
 
+### 变更（未发布）：`ui.slot.update` 改成"重新取视图"
+
+- **`musicxx.ui.slot.update(名字)` 不再带 `data`**：它只让主程序用**当前声明**重新取一次视图
+  （事件里的重画计数 `rev` + 1），用来把"别处改了的状态"画上去（插件自己订阅广播，读到变化就调它）。
+  改声明（换视图 / 改标题 / 改 `order` / 改块的 `speed` 等）一律用 `musicxx.ui.slot.register`
+  **同名覆盖**，整份 `data` 重给 —— 覆盖与首次声明是同一件事。
+- **`musicxx.ui` 表第 2 版**：C 接口 `update_entry(host, item_id)` 少了 `data_json` 参数
+  （`uiSlotUpdate(名字)`）；`MUSICXX_PLUGIN_IFACE_UI_VERSION` / `_MIN_VERSION` 1 → 2。
+  旧版插件要重新构建（本次改动随未发布的版本一起走，不留兼容）。
+- **UI 项快照每项多了 `rev`**（重画计数）：`musicxx.ui.changed` 载荷、`uiSlotEntries()` 与
+  主程序的项模型都带它；注册 / 覆盖不动它，只有 `update` 让 +1。
+
 ### 变更（未发布）：单根块渲染、`ui.slot.set`、状态广播更及时
 
 - **插件界面只有一个根块**：`ExternPluginUiView_c(block:)`（多块文档由渲染层合成一个 `Column`）。

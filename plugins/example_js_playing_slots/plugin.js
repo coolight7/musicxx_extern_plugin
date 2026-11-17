@@ -231,6 +231,26 @@ registerHomeEntry();
 /// 能力
 installSlotCapabilities();
 
+/// 别处改了播放模式时，自己把整条控制栏刷新一次
+///
+/// 动作返回的 `{view}` 只管"用户点这一个按钮"那一次；主程序不会为每个状态给位置加参数，
+/// 所以插件自己订阅状态广播：读到播放模式真的变了就调 `musicxx.ui.slot.update` ——
+/// 声明不变，主程序重新取一次 `controlBar` 视图（rev + 1），图标跟上真实模式。
+/// 订阅时会立即收到当前值一次（那次只记下来，不刷新）。
+let lastLoopModeSeen = "";
+musicxx.broadcast.subscribe("musicxx.state.playlist", function (value) {
+    const mode = (value && typeof value === "object" && value.loopMode)
+        ? String(value.loopMode) : "";
+    if (mode === lastLoopModeSeen) {
+        return;
+    }
+    lastLoopModeSeen = mode;
+    // 只有整条控制栏由本插件画时才有"播放模式"按钮；按钮级替换里没有
+    if (wholeBarRegistered) {
+        musicxx.ui.slot.update(SLOT_NAME_WHOLE_BAR);
+    }
+});
+
 /// 读配置：默认值先按声明用，读到 config.json 后再调整注册
 musicxx.timer.setTimeout(refreshSlotConfig, 200);
 

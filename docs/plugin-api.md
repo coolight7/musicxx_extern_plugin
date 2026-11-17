@@ -2482,7 +2482,8 @@ musicxx.capability.register("card", (args) => ({   // 插件页面：主程序�
 uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
            R"({"title":"我的插件","action":{"kind":"route","route":"ext://my_plugin/card"}})", 120);
 uiSlotRegister("bg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, backgroundJson, 20);
-uiSlotUpdate("card", nextJson);      // 整体替换声明（改一个字段也要传完整 data）
+uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, nextJson, 120);  // 改声明：同名覆盖（整份重给）
+uiSlotUpdate("bg");                  // 不改声明，只让主程序重新取一次视图（重画计数 + 1）
 uiSlotUnregister("card");
 uiNotify(R"({"text":"已刷新"})");
 ```

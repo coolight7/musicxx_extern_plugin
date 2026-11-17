@@ -118,9 +118,12 @@ typedef struct MusicxxPluginHostIface {
 #ifdef __cplusplus
 static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI);
 #endif
-#define MUSICXX_PLUGIN_IFACE_UI_VERSION     1
-#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 1
+#define MUSICXX_PLUGIN_IFACE_UI_VERSION     2
+#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 2
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
+/// @note 第 2 版把 `update_entry` 从"改声明"改成"重新取视图", 签名少了一个参数。
+/// 这是改签名而不是追加成员, 所以 `MIN_VERSION` 一起拍到了 2: 旧主程序的 1 版表
+/// 会被插件侧的 `version >= MIN_VERSION` 直接挂掉, 不会静默调到别的函数。
 #define MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE sizeof(MusicxxPluginUIIface)
 
 /* UI 项类型 (官方; 插件注册的项必须取其中之一, 否则注册被拒绝) */
@@ -283,11 +286,14 @@ typedef struct MusicxxPluginUIIface {
         const PluginxxStringView*         item_id
     );
 
-    /// 更新一个 UI 项的声明式内容 (data 校验规则与注册一致)
+    /// 要求这一项重新取一次视图 (声明不变)
+    ///
+    /// 状态变了 (例如别处改了播放模式) 而声明不必改时用这个;
+    /// 声明要改 (换视图 / 改标题 / 改 order) 就用 `register_entry` 覆盖, 两者不要混用。
+    /// - 返回 0 成功; -1 参数非法; -2 状态错误; -4 没有这一项; -6 不是本插件的项
     int32_t(PLUGINXX_CALL* update_entry)(
         const PluginxxHost*               host,
-        const PluginxxStringView*         item_id,
-        const PluginxxStringView*         data_json
+        const PluginxxStringView*         item_id
     );
 
     /// 列出本插件已注册的 UI 项 (JSON 数组)

@@ -1770,9 +1770,19 @@ int main(int argc, char **argv) {
       check(jsonIntField(probe, "uiPageBackgroundBadRoutesRc") == "-1",
             "页面背景 routes 不是字符串数组时被拒绝 (-1)");
       check(jsonIntField(probe, "uiUpdateRc") == "0",
-            "更新自己的项成功 (rc=0)");
+            "刷新自己的项成功 (rc=0)");
       check(jsonIntField(probe, "uiNotifyRc") == "0",
             "通知受理成功 (fire-and-forget)");
+      // 刷新不改声明: 插件自己读到的快照里被刷新的那一项 rev = 1, 其余仍为 0
+      {
+        const std::string entries = jsonRawField(probe, "uiEntries");
+        check(entries.find("\"id\":\"plugin.example_native.playingBg\"") !=
+                      std::string::npos &&
+                  entries.find("\"rev\":1") != std::string::npos,
+              "刷新把该项的重画计数提到 1 (rev=1)");
+        check(entries.find("\"rev\":0") != std::string::npos,
+              "没被刷新的项重画计数仍为 0");
+      }
 
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);

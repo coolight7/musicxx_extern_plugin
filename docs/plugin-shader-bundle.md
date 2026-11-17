@@ -975,9 +975,14 @@ function bgData(rate) {
 musicxx.ui.slot.register({ name: "bg", type: "playing.background", data: bgData(1) });
 
 function applyRate(rate) {
-    // musicxx.ui.slot.update 是**整体替换**：要把完整 data 传回去
-    musicxx.ui.slot.update("bg", bgData(rate));
+    // 改参数就是改声明：用 register 覆盖同名项，整份 data 重给（位置不变）
+    musicxx.ui.slot.register({ name: "bg", type: "playing.background", data: bgData(rate) });
     musicxx.storage.setConfig("bgRate", rate);
+}
+
+function refreshBgView() {
+    // 声明不变、只想重画：让主程序重新取一次视图（这里是 `data.view` 的视图 id 形态才有意义）
+    musicxx.ui.slot.update("bg");
 }
 ```
 
@@ -987,7 +992,7 @@ function applyRate(rate) {
   **重新选中该项**才完全生效；
 - 示例插件 `example_js_playing_bg` 就是这么做的：它的设置页有「背景动画速率」（0.5× / 1× / 2×），
   基准速度定为 1（速率 0.5× / 1× / 2× 就是块的 `speed` 0.5 / 1 / 2）；它注册了六种背景样式，
-  改速率时**六项都要重新声明**（`musicxx.ui.slot.update` 是整体替换，逐个调用即可）；
+  改速率时**六项各 register 覆盖一次**（声明整份重给）；
   `example_native` 的 C++ 版声明 `speed: 1`。
 
 ---
