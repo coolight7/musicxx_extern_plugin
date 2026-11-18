@@ -1,4 +1,4 @@
-# 扩展 kit（musicxx）（v2）
+# 扩展 kit（musicxx）（v3）
 
 > 本文件由 `tools/gen_ui.dart` 生成。定义来源：`schema/ui.def.json` / `schema/kit.def.json`；扩展 kit 定义：`schema/musicxx-ui-kit.def.json`。
 
@@ -9,22 +9,23 @@
 |---|---|---|
 | `title` | `text`* | 标题行（覆盖基础 kit：自带上下留白，框架不再给隐含边距） |
 | `hint` | `text`* | 次要说明行（覆盖基础 kit：自带上下留白，框架不再给隐含边距） |
-| `text` | `text`* `tone`=normal `mono`=false | 正文行（覆盖基础 kit：自带上下留白，框架不再给隐含边距） |
-| `badge` | `text`* `tone`=accent | 状态小标签 |
-| `icon` | `name` `glyph` `size` `tone`=normal | 图标（目标不支持 Icon 时退化成 glyph 文本） |
+| `text` | `text`* `color`=normal `mono`=false | 正文行（覆盖基础 kit：自带上下留白，框架不再给隐含边距） |
+| `badge` | `text`* `color`=accent | 状态小标签 |
+| `icon` | `name` `glyph` `size` `color`=normal | 图标（目标不支持 Icon 时退化成 glyph 文本） |
 | `gap` | `size`=gap | 竖直留白（缺省用客户端默认行距） |
 | `divider` | — | 分隔线（覆盖基础 kit：自带上下留白） |
-| `button` | `label`* `variant`=normal `highlight`=false `icon` `size` `disabled`=false `action` | 按钮（覆盖基础 kit：自带上下留白） |
+| `button` | `label` `variant`=normal `highlight`=false `icon` `glyph` `color` `size` `disabled`=false `action` | 按钮（覆盖基础 kit：自带上下留白） |
+| `themeScope` | `child`* `data`* | 子树样式作用域：包住一块内容，data 由客户端定义（musicxx 用 text / surface / button / mask / shimmer 五组颜色）；客户端不支持时只给内容，样式不生效 |
 | `actionsRow` | `buttons`* | 一排等宽按钮（按钮列表里的每一项占一等份） |
-| `card` | `title` `variant`=card `padding`={horizontal: 50, vertical: 50} `margin`={vertical: 50} `children` | 内容块（卡片，覆盖基础 kit：留白在这里声明，框架不再给隐含边距） |
+| `card` | `title` `variant`=card `padding`={horizontal: 50, vertical: 50} `margin`={vertical: 50} `child` | 内容块（卡片，覆盖基础 kit：留白在这里声明，框架不再给隐含边距） |
 | `listRow` | `title`* `subtitle` `trailing` `action` | 卡片里的一行（不带底色：卡片里直接按列表排列；右侧状态用说明字号） |
 | `section` | `title`* `rows`* | 小节标题 + 若干行 |
 | `kv` | `pairs`* `sep` | 键值块（键列按最长键自适应） |
 | `table` | `columns`* `rows` `header`=true | 表格（未指定的列宽由客户端自动分配） |
 | `tree` | `nodes`* `connector`=true | 层级列表 |
-| `listItem` | `id` `title`* `subtitle` `trailing` `image` `icon` `tone`=normal `selected`=false `action` | 列表项（数据对象，给 ListViewBase / ListView 的 items 用） |
+| `listItem` | `id` `title`* `subtitle` `trailing` `image` `icon` `color`=normal `selected`=false `action` | 列表项（数据对象，给 ListViewBase / ListView 的 items 用） |
 | `menuItem` | `title`* `icon` `action` | 菜单项（数据对象，给 ListView 的 menu / itemMenu 用） |
-| `sparkline` | `data`* `height`=1 `glyphStyle`=block `showLast`=true `tone`=accent | 迷你趋势图 |
+| `sparkline` | `data`* `height`=1 `glyphStyle`=block `showLast`=true `color`=accent | 迷你趋势图 |
 | `progressRow` | `label` `value`* `total`=100 `unit`=% | 一行进度（覆盖基础 kit：musicxx 默认按百分比显示数值） |
 | `dirListView` | `path` `items`* `multi`=false `showPath`=true `pathAction` `itemAction` `selectAction` `refreshAction` `loadMoreAction` `height` `emptyText` | 目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框，可以下拉刷新与滚到底加载更多；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定） |
 | `adaptLayout` | `columnBody`* `rowBody`* `columnSecondBody` `rowSecondBody` `rowBodyRatio`=0.5 `columnBodyRatio`=0.5 `enableAnimations`=false | 按窗口宽高比切换两套内容：竖屏（宽高比 < 1）用 columnBody、横屏用 rowBody；给了第二套就按比例分两栅；不认识它的客户端用 rowBody |
@@ -36,12 +37,12 @@
 | `overlayRow` | `label`* `value` `title` `depict` `blocks`* `textConfirm` | 点击打开浮层的行（零代码：动作就是官方能力 musicxx.ui.overlay.show） |
 | `shaderBlock` | `bundle`* `args` `speed`=1 `maxFps` `animate`=true `resolutionScale`=1 | 插件着色器块（musicxx 专属组件；终端之类不认识它的客户端会跳过） |
 | `coverRow` | `cover`* `title`* `subtitle` `trailing` `size`=40 `action` | 带封面的行：封面 + 标题 + 副标题 + 可选右侧状态（不带底色；取不到图片时显示标题） |
-| `animScope` | `values`* `maxFps` `children`* | 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder） |
-| `fadeTransition` | `value`* `curve` `children`* | 透明度过渡：按 value（0~1，字面量或值表达式）淡入淡出；curve 是简写缓动 |
-| `sizeTransition` | `value`* `axis` `curve` `children`* | 尺寸过渡：按 value（0~1）把子块从 0 撑开 / 收拢（axis 缺省竖直） |
-| `scaleTransition` | `value`* `from` `to` `curve` `children`* | 缩放过渡：按 value（0~1）从 from 缩放到 to（缺省 0 → 1） |
-| `rotationTransition` | `value`* `from` `to` `curve` `children`* | 旋转过渡：按 value（0~1）从 from 转到 to（单位 = 圈数，缺省 0 → 1） |
-| `slideTransition` | `value`* `from` `to` `curve` `children`* | 位移过渡：按 value（0~1）从 from 移到 to（单位 = 自身尺寸的倍数，如 [0, 0.1] → [0, 0]） |
+| `animScope` | `values`* `maxFps` `child`* | 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder） |
+| `fadeTransition` | `value`* `curve` `child`* | 透明度过渡：按 value（0~1，字面量或值表达式）淡入淡出；curve 是简写缓动 |
+| `sizeTransition` | `value`* `axis` `curve` `child`* | 尺寸过渡：按 value（0~1）把子块从 0 撑开 / 收拢（axis 缺省竖直） |
+| `scaleTransition` | `value`* `from` `to` `curve` `child`* | 缩放过渡：按 value（0~1）从 from 缩放到 to（缺省 0 → 1） |
+| `rotationTransition` | `value`* `from` `to` `curve` `child`* | 旋转过渡：按 value（0~1）从 from 转到 to（单位 = 圈数，缺省 0 → 1） |
+| `slideTransition` | `value`* `from` `to` `curve` `child`* | 位移过渡：按 value（0~1）从 from 移到 to（单位 = 自身尺寸的倍数，如 [0, 0.1] → [0, 0]） |
 
 按格换算的辅助函数（用客户端 `cell`，缺省取 `defaults.cell`）：
 

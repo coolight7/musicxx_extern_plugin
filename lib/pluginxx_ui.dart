@@ -13,3 +13,4 @@
 library;
 
 export 'package:pluginxx_ui/pluginxx_ui.dart';
+export 'src/ui_theme.dart';

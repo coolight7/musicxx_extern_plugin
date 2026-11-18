@@ -23,33 +23,35 @@ namespace ui {
 namespace kit {
 
 /// kit 版本
-inline constexpr int kKitVersion = 2;
+inline constexpr int kKitVersion = 3;
 
 /// 组件模板（键 = 组件名，值是 {variants, params} 的 JSON 文本）
 inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
     static const std::map<std::string_view, std::string_view> kTable = {
         {"title",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Text","text":"$text","type":"title"}]}}],"params":{"text":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"child":{"kind":"Text","text":"$text","type":"title"}}}],"params":{"text":null}})KIT"},
         {"hint",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Text","text":"$text","type":"caption","tone":"hint"}]}}],"params":{"text":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"child":{"kind":"Text","text":"$text","type":"caption","color":"hint"}}}],"params":{"text":null}})KIT"},
         {"text",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Text","text":"$text","tone":"$tone","mono":"$mono"}]}}],"params":{"text":null,"tone":"normal","mono":false}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"child":{"kind":"Text","text":"$text","color":"$color","mono":"$mono"}}}],"params":{"text":null,"color":"normal","mono":false}})KIT"},
         {"badge",
-         R"KIT({"variants":[{"template":{"kind":"Badge","text":"$text","tone":"$tone"}}],"params":{"text":null,"tone":"accent"}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Badge","text":"$text","color":"$color"}}],"params":{"text":null,"color":"accent"}})KIT"},
         {"icon",
-         R"KIT({"variants":[{"requires":["Icon"],"template":{"kind":"Icon","name":"$name","glyph":"$glyph","size":"$size","tone":"$tone"}},{"template":{"kind":"Text","text":"$glyph","mono":true,"tone":"$tone"}}],"params":{"name":null,"glyph":null,"size":null,"tone":"normal"}})KIT"},
+         R"KIT({"variants":[{"requires":["Icon"],"template":{"kind":"Icon","name":"$name","glyph":"$glyph","size":"$size","color":"$color"}},{"template":{"kind":"Text","text":"$glyph","mono":true,"color":"$color"}}],"params":{"name":null,"glyph":null,"size":null,"color":"normal"}})KIT"},
         {"gap",
          R"KIT({"variants":[{"template":{"kind":"Gap","size":"$size"}}],"params":{"size":null}})KIT"},
         {"divider",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Divider"}]}}],"params":{}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"child":{"kind":"Divider"}}}],"params":{}})KIT"},
         {"button",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"children":[{"kind":"Button","label":"$label","variant":"$variant","highlight":"$highlight","icon":"$icon","size":"$size","disabled":"$disabled","action":"$action"}]}}],"params":{"label":null,"variant":"normal","highlight":false,"icon":null,"size":null,"disabled":false,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"vertical":15},"child":{"kind":"Button","label":"$label","variant":"$variant","highlight":"$highlight","icon":"$icon","glyph":"$glyph","color":"$color","size":"$size","disabled":"$disabled","action":"$action"}}}],"params":{"label":null,"variant":"normal","highlight":false,"icon":null,"glyph":null,"color":null,"size":null,"disabled":false,"action":null}})KIT"},
+        {"themeScope",
+         R"KIT({"variants":[{"requires":["ThemeScope"],"template":{"kind":"ThemeScope","data":"$data","child":"$child"}},{"template":"$child"}],"params":{"child":null,"data":null}})KIT"},
         {"actionsRow",
-         R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"children":{"$map":"buttons","wrap":{"kind":"Expanded","children":["$item"]}}}}],"params":{"buttons":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"children":{"$map":"buttons","wrap":{"kind":"Expanded","child":"$item"}}}}],"params":{"buttons":null}})KIT"},
         {"card",
-         R"KIT({"variants":[{"template":{"kind":"Block","title":"$title","variant":"$variant","padding":"$padding","margin":"$margin","children":"$children"}}],"params":{"title":null,"variant":"card","padding":{"horizontal":50,"vertical":50},"margin":{"vertical":50},"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","title":"$title","variant":"$variant","padding":"$padding","margin":"$margin","child":"$child"}}],"params":{"title":null,"variant":"card","padding":{"horizontal":50,"vertical":50},"margin":{"vertical":50},"child":null}})KIT"},
         {"listRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","tone":"hint"}]}]},{"$require":"trailing","kind":"Text","text":"$trailing","type":"caption","tone":"hint"}]}]}}],"params":{"title":null,"subtitle":null,"trailing":null,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","child":{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Expanded","child":{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","color":"hint"}]}},{"$require":"trailing","kind":"Text","text":"$trailing","type":"caption","color":"hint"}]}}}],"params":{"title":null,"subtitle":null,"trailing":null,"action":null}})KIT"},
         {"section",
          R"KIT({"variants":[{"template":{"kind":"Column","gap":8,"children":[{"kind":"Text","text":"$title","type":"title"},{"kind":"Column","children":"$rows"}]}}],"params":{"title":null,"rows":null}})KIT"},
         {"kv",
@@ -59,45 +61,45 @@ inline pluginxx::ui::Json kitTemplate(const std::string_view name) {
         {"tree",
          R"KIT({"variants":[{"template":{"kind":"Tree","connector":"$connector","nodes":"$nodes"}}],"params":{"nodes":null,"connector":true}})KIT"},
         {"listItem",
-         R"KIT({"variants":[{"template":{"id":"$id","title":"$title","subtitle":"$subtitle","trailing":"$trailing","image":"$image","icon":"$icon","tone":"$tone","selected":"$selected","action":"$action"}}],"params":{"id":null,"title":null,"subtitle":null,"trailing":null,"image":null,"icon":null,"tone":"normal","selected":false,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"id":"$id","title":"$title","subtitle":"$subtitle","trailing":"$trailing","image":"$image","icon":"$icon","color":"$color","selected":"$selected","action":"$action"}}],"params":{"id":null,"title":null,"subtitle":null,"trailing":null,"image":null,"icon":null,"color":"normal","selected":false,"action":null}})KIT"},
         {"menuItem",
          R"KIT({"variants":[{"template":{"title":"$title","icon":"$icon","action":"$action"}}],"params":{"title":null,"icon":null,"action":null}})KIT"},
         {"sparkline",
-         R"KIT({"variants":[{"template":{"kind":"Sparkline","data":"$data","height":"$height","glyphStyle":"$glyphStyle","showLast":"$showLast","tone":"$tone"}}],"params":{"data":null,"height":1,"glyphStyle":"block","showLast":true,"tone":"accent"}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Sparkline","data":"$data","height":"$height","glyphStyle":"$glyphStyle","showLast":"$showLast","color":"$color"}}],"params":{"data":null,"height":1,"glyphStyle":"block","showLast":true,"color":"accent"}})KIT"},
         {"progressRow",
-         R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"cross":"center","children":[{"$require":"label","kind":"Text","text":"$label"},{"kind":"Expanded","children":[{"kind":"Progress","value":"$value","total":"$total","unit":"$unit"}]}]}}],"params":{"label":null,"value":null,"total":100,"unit":"%"}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Row","gap":12,"cross":"center","children":[{"$require":"label","kind":"Text","text":"$label"},{"kind":"Expanded","child":{"kind":"Progress","value":"$value","total":"$total","unit":"$unit"}}]}}],"params":{"label":null,"value":null,"total":100,"unit":"%"}})KIT"},
         {"dirListView",
          R"KIT({"variants":[{"requires":["musicxx.DirListView"],"template":{"kind":"musicxx.DirListView","path":"$path","items":"$items","multi":"$multi","showPath":"$showPath","pathAction":"$pathAction","itemAction":"$itemAction","selectAction":"$selectAction","refreshAction":"$refreshAction","loadMoreAction":"$loadMoreAction","height":"$height","emptyText":"$emptyText"}},{"template":{"kind":"ListViewBase","id":"dirList","items":"$items","itemAction":"$itemAction","emptyText":"$emptyText"}}],"params":{"path":null,"items":null,"multi":false,"showPath":true,"pathAction":null,"itemAction":null,"selectAction":null,"refreshAction":null,"loadMoreAction":null,"height":null,"emptyText":null}})KIT"},
         {"adaptLayout",
          R"KIT({"variants":[{"requires":["musicxx.AdaptLayout"],"template":{"kind":"musicxx.AdaptLayout","columnBody":"$columnBody","rowBody":"$rowBody","columnSecondBody":"$columnSecondBody","rowSecondBody":"$rowSecondBody","rowBodyRatio":"$rowBodyRatio","columnBodyRatio":"$columnBodyRatio","enableAnimations":"$enableAnimations"}},{"template":{"kind":"Column","children":"$rowBody"}}],"params":{"columnBody":null,"rowBody":null,"columnSecondBody":null,"rowSecondBody":null,"rowBodyRatio":0.5,"columnBodyRatio":0.5,"enableAnimations":false}})KIT"},
         {"settingRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"}]}]},{"$require":"value","kind":"Text","text":"$value","type":"caption","tone":"hint"}]}]}}],"params":{"title":null,"depict":null,"value":null,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","child":{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","child":{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","color":"hint"}]}},{"$require":"value","kind":"Text","text":"$value","type":"caption","color":"hint"}]}}}],"params":{"title":null,"depict":null,"value":null,"action":null}})KIT"},
         {"switchRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"}]}]},{"kind":"Control","control":"switch","id":"$id","value":"$value","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"child":{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","child":{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","color":"hint"}]}},{"kind":"Control","control":"switch","id":"$id","value":"$value","action":"$action"}]}}}],"params":{"id":null,"title":null,"depict":null,"value":null,"action":null}})KIT"},
         {"inputRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"},{"kind":"Control","control":"text","id":"$id","value":"$value","multiline":"$multiline","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"multiline":false,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"child":{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","color":"hint"},{"kind":"Control","control":"text","id":"$id","value":"$value","multiline":"$multiline","action":"$action"}]}}}],"params":{"id":null,"title":null,"depict":null,"value":null,"multiline":false,"action":null}})KIT"},
         {"passwordRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"},{"kind":"Control","control":"password","id":"$id","value":"$value","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"child":{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","color":"hint"},{"kind":"Control","control":"password","id":"$id","value":"$value","action":"$action"}]}}}],"params":{"id":null,"title":null,"depict":null,"value":null,"action":null}})KIT"},
         {"selectRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"children":[{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","tone":"hint"},{"kind":"Control","control":"select","id":"$id","value":"$value","options":"$options","action":"$action"}]}]}}],"params":{"id":null,"title":null,"depict":null,"value":null,"options":null,"action":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"child":{"kind":"Column","gap":6,"children":[{"kind":"Text","text":"$title"},{"$require":"depict","kind":"Text","text":"$depict","type":"caption","color":"hint"},{"kind":"Control","control":"select","id":"$id","value":"$value","options":"$options","action":"$action"}]}}}],"params":{"id":null,"title":null,"depict":null,"value":null,"options":null,"action":null}})KIT"},
         {"overlayRow",
-         R"KIT({"variants":[{"template":{"kind":"Block","variant":"inset","padding":{"horizontal":12,"vertical":8},"action":{"kind":"command","name":"musicxx.ui.overlay.show","args":{"title":"$title","depict":"$depict","blocks":"$blocks","textConfirm":"$textConfirm"}},"children":[{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Text","text":"$label"},{"$require":"value","kind":"Text","text":"$value","type":"caption","tone":"hint"}]}]}]}}],"params":{"label":null,"value":null,"title":null,"depict":null,"blocks":null,"textConfirm":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"Block","variant":"inset","padding":{"horizontal":12,"vertical":8},"action":{"kind":"command","name":"musicxx.ui.overlay.show","args":{"title":"$title","depict":"$depict","blocks":"$blocks","textConfirm":"$textConfirm"}},"child":{"kind":"Row","gap":12,"cross":"center","children":[{"kind":"Expanded","child":{"kind":"Column","children":[{"kind":"Text","text":"$label"},{"$require":"value","kind":"Text","text":"$value","type":"caption","color":"hint"}]}}]}}}],"params":{"label":null,"value":null,"title":null,"depict":null,"blocks":null,"textConfirm":null}})KIT"},
         {"shaderBlock",
-         R"KIT({"variants":[{"requires":["musicxx.Shader"],"template":{"kind":"musicxx.Shader","bundle":"$bundle","args":"$args","speed":"$speed","maxFps":"$maxFps","animate":"$animate","resolutionScale":"$resolutionScale"}},{"template":{"kind":"Text","text":"（这个客户端不支持插件着色器）","type":"caption","tone":"hint"}}],"params":{"bundle":null,"args":null,"speed":1,"maxFps":null,"animate":true,"resolutionScale":1}})KIT"},
+         R"KIT({"variants":[{"requires":["musicxx.Shader"],"template":{"kind":"musicxx.Shader","bundle":"$bundle","args":"$args","speed":"$speed","maxFps":"$maxFps","animate":"$animate","resolutionScale":"$resolutionScale"}},{"template":{"kind":"Text","text":"（这个客户端不支持插件着色器）","type":"caption","color":"hint"}}],"params":{"bundle":null,"args":null,"speed":1,"maxFps":null,"animate":true,"resolutionScale":1}})KIT"},
         {"coverRow",
-         R"KIT({"variants":[{"requires":["Image"],"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Image","source":"file","src":"$cover","width":"$size","height":"$size","radius":4,"alt":"$title"},{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","tone":"hint"}]}]},{"$require":"trailing","kind":"Text","text":"$trailing","type":"caption","tone":"hint"}]}]}},{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","children":[{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Expanded","children":[{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","tone":"hint"}]}]},{"$require":"trailing","kind":"Text","text":"$trailing","type":"caption","tone":"hint"}]}]}}],"params":{"cover":null,"title":null,"subtitle":null,"trailing":null,"size":40,"action":null}})KIT"},
+         R"KIT({"variants":[{"requires":["Image"],"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","child":{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Image","source":"file","src":"$cover","width":"$size","height":"$size","radius":4,"alt":"$title"},{"kind":"Expanded","child":{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","color":"hint"}]}},{"$require":"trailing","kind":"Text","text":"$trailing","type":"caption","color":"hint"}]}}},{"template":{"kind":"Block","variant":"plain","padding":{"horizontal":10,"vertical":6},"action":"$action","child":{"kind":"Row","gap":10,"cross":"center","children":[{"kind":"Expanded","child":{"kind":"Column","gap":2,"children":[{"kind":"Text","text":"$title"},{"$require":"subtitle","kind":"Text","text":"$subtitle","type":"caption","color":"hint"}]}},{"$require":"trailing","kind":"Text","text":"$trailing","type":"caption","color":"hint"}]}}}],"params":{"cover":null,"title":null,"subtitle":null,"trailing":null,"size":40,"action":null}})KIT"},
         {"animScope",
-         R"KIT({"variants":[{"template":{"kind":"musicxx.AnimatedBuilder","values":"$values","children":"$children"}},{"template":{"kind":"musicxx.AnimatedBuilder","values":"$values","$require":"maxFps","maxFps":"$maxFps","children":"$children"}}],"params":{"values":null,"maxFps":null,"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"musicxx.AnimatedBuilder","values":"$values","child":"$child"}},{"template":{"kind":"musicxx.AnimatedBuilder","values":"$values","$require":"maxFps","maxFps":"$maxFps","child":"$child"}}],"params":{"values":null,"maxFps":null,"child":null}})KIT"},
         {"fadeTransition",
-         R"KIT({"variants":[{"template":{"kind":"musicxx.FadeTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.FadeTransition","value":"$value","$require":"curve","curve":"$curve","children":"$children"}}],"params":{"value":null,"curve":null,"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"musicxx.FadeTransition","value":"$value","child":"$child"}},{"template":{"kind":"musicxx.FadeTransition","value":"$value","$require":"curve","curve":"$curve","child":"$child"}}],"params":{"value":null,"curve":null,"child":null}})KIT"},
         {"sizeTransition",
-         R"KIT({"variants":[{"template":{"kind":"musicxx.SizeTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.SizeTransition","value":"$value","$require":"curve","curve":"$curve","children":"$children"}},{"template":{"kind":"musicxx.SizeTransition","value":"$value","$require":"curve","axis":"$axis","curve":"$curve","children":"$children"}}],"params":{"value":null,"axis":null,"curve":null,"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"musicxx.SizeTransition","value":"$value","child":"$child"}},{"template":{"kind":"musicxx.SizeTransition","value":"$value","$require":"curve","curve":"$curve","child":"$child"}},{"template":{"kind":"musicxx.SizeTransition","value":"$value","$require":"curve","axis":"$axis","curve":"$curve","child":"$child"}}],"params":{"value":null,"axis":null,"curve":null,"child":null}})KIT"},
         {"scaleTransition",
-         R"KIT({"variants":[{"template":{"kind":"musicxx.ScaleTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.ScaleTransition","value":"$value","$require":"curve","curve":"$curve","children":"$children"}},{"template":{"kind":"musicxx.ScaleTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","children":"$children"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"musicxx.ScaleTransition","value":"$value","child":"$child"}},{"template":{"kind":"musicxx.ScaleTransition","value":"$value","$require":"curve","curve":"$curve","child":"$child"}},{"template":{"kind":"musicxx.ScaleTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","child":"$child"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"child":null}})KIT"},
         {"rotationTransition",
-         R"KIT({"variants":[{"template":{"kind":"musicxx.RotationTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.RotationTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","children":"$children"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"musicxx.RotationTransition","value":"$value","child":"$child"}},{"template":{"kind":"musicxx.RotationTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","child":"$child"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"child":null}})KIT"},
         {"slideTransition",
-         R"KIT({"variants":[{"template":{"kind":"musicxx.SlideTransition","value":"$value","children":"$children"}},{"template":{"kind":"musicxx.SlideTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","children":"$children"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"children":null}})KIT"},
+         R"KIT({"variants":[{"template":{"kind":"musicxx.SlideTransition","value":"$value","child":"$child"}},{"template":{"kind":"musicxx.SlideTransition","value":"$value","$require":"curve","from":"$from","to":"$to","curve":"$curve","child":"$child"}}],"params":{"value":null,"from":null,"to":null,"curve":null,"child":null}})KIT"},
     };
     const auto it = kTable.find(name);
     if (it == kTable.end()) {
@@ -138,7 +140,7 @@ inline pluginxx::ui::Item hint(
 }
 
 /// 正文行（覆盖基础 kit：自带上下留白，框架不再给隐含边距）
-/// 参数：text(text, 必填)、tone(tone, 默认 normal)、mono(bool, 默认 false)
+/// 参数：text(text, 必填)、color(color, 默认 normal)、mono(bool, 默认 false)
 inline pluginxx::ui::Item text(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -147,7 +149,7 @@ inline pluginxx::ui::Item text(
 }
 
 /// 状态小标签
-/// 参数：text(text, 必填)、tone(tone, 默认 accent)
+/// 参数：text(text, 必填)、color(color, 默认 accent)
 inline pluginxx::ui::Item badge(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -156,7 +158,7 @@ inline pluginxx::ui::Item badge(
 }
 
 /// 图标（目标不支持 Icon 时退化成 glyph 文本）
-/// 参数：name(string)、glyph(string)、size(size)、tone(tone, 默认 normal)
+/// 参数：name(string)、glyph(string)、size(size)、color(color, 默认 normal)
 inline pluginxx::ui::Item icon(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -183,12 +185,21 @@ inline pluginxx::ui::Item divider(
 }
 
 /// 按钮（覆盖基础 kit：自带上下留白）
-/// 参数：label(text, 必填)、variant(enum:buttonVariant, 默认 normal)、highlight(bool, 默认 false)、icon(string)、size(size)、disabled(bool, 默认 false)、action(action)
+/// 参数：label(text)、variant(enum:buttonVariant, 默认 normal)、highlight(bool, 默认 false)、icon(string)、glyph(string)、color(color)、size(size)、disabled(bool, 默认 false)、action(action)
 inline pluginxx::ui::Item button(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
 ) {
     return pluginxx::ui::detail::expandKit("button", params, env, &kitTemplate);
+}
+
+/// 子树样式作用域：包住一块内容，data 由客户端定义（musicxx 用 text / surface / button / mask / shimmer 五组颜色）；客户端不支持时只给内容，样式不生效
+/// 参数：child(item, 必填)、data(json, 必填)
+inline pluginxx::ui::Item themeScope(
+    const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
+    const pluginxx::ui::Capabilities* env = nullptr
+) {
+    return pluginxx::ui::detail::expandKit("themeScope", params, env, &kitTemplate);
 }
 
 /// 一排等宽按钮（按钮列表里的每一项占一等份）
@@ -201,7 +212,7 @@ inline pluginxx::ui::Item actionsRow(
 }
 
 /// 内容块（卡片，覆盖基础 kit：留白在这里声明，框架不再给隐含边距）
-/// 参数：title(text)、variant(enum:blockVariant, 默认 card)、padding(edges, 默认 {horizontal: 50, vertical: 50})、margin(edges, 默认 {vertical: 50})、children(items)
+/// 参数：title(text)、variant(enum:blockVariant, 默认 card)、padding(edges, 默认 {horizontal: 50, vertical: 50})、margin(edges, 默认 {vertical: 50})、child(item)
 inline pluginxx::ui::Item card(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -255,7 +266,7 @@ inline pluginxx::ui::Item tree(
 }
 
 /// 列表项（数据对象，给 ListViewBase / ListView 的 items 用）
-/// 参数：id(string)、title(text, 必填)、subtitle(text)、trailing(text)、image(string)、icon(string)、tone(tone, 默认 normal)、selected(bool, 默认 false)、action(action)
+/// 参数：id(string)、title(text, 必填)、subtitle(text)、trailing(text)、image(string)、icon(string)、color(color, 默认 normal)、selected(bool, 默认 false)、action(action)
 inline utilxx_base::Json listItem(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -273,7 +284,7 @@ inline utilxx_base::Json menuItem(
 }
 
 /// 迷你趋势图
-/// 参数：data(numbers, 必填)、height(int, 默认 1)、glyphStyle(enum:sparkStyle, 默认 block)、showLast(bool, 默认 true)、tone(tone, 默认 accent)
+/// 参数：data(numbers, 必填)、height(int, 默认 1)、glyphStyle(enum:sparkStyle, 默认 block)、showLast(bool, 默认 true)、color(color, 默认 accent)
 inline pluginxx::ui::Item sparkline(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -381,7 +392,7 @@ inline pluginxx::ui::Item coverRow(
 }
 
 /// 动画作用域：声明通道表（名字 → 值表达式）并逐帧驱动子树（musicxx.AnimatedBuilder）
-/// 参数：values(json, 必填)、maxFps(int)、children(items, 必填)
+/// 参数：values(json, 必填)、maxFps(int)、child(item, 必填)
 inline pluginxx::ui::Item animScope(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -390,7 +401,7 @@ inline pluginxx::ui::Item animScope(
 }
 
 /// 透明度过渡：按 value（0~1，字面量或值表达式）淡入淡出；curve 是简写缓动
-/// 参数：value(value, 必填)、curve(enum:ease)、children(items, 必填)
+/// 参数：value(value, 必填)、curve(enum:ease)、child(item, 必填)
 inline pluginxx::ui::Item fadeTransition(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -399,7 +410,7 @@ inline pluginxx::ui::Item fadeTransition(
 }
 
 /// 尺寸过渡：按 value（0~1）把子块从 0 撑开 / 收拢（axis 缺省竖直）
-/// 参数：value(value, 必填)、axis(enum:axis)、curve(enum:ease)、children(items, 必填)
+/// 参数：value(value, 必填)、axis(enum:axis)、curve(enum:ease)、child(item, 必填)
 inline pluginxx::ui::Item sizeTransition(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -408,7 +419,7 @@ inline pluginxx::ui::Item sizeTransition(
 }
 
 /// 缩放过渡：按 value（0~1）从 from 缩放到 to（缺省 0 → 1）
-/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、children(items, 必填)
+/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、child(item, 必填)
 inline pluginxx::ui::Item scaleTransition(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -417,7 +428,7 @@ inline pluginxx::ui::Item scaleTransition(
 }
 
 /// 旋转过渡：按 value（0~1）从 from 转到 to（单位 = 圈数，缺省 0 → 1）
-/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、children(items, 必填)
+/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、child(item, 必填)
 inline pluginxx::ui::Item rotationTransition(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr
@@ -426,7 +437,7 @@ inline pluginxx::ui::Item rotationTransition(
 }
 
 /// 位移过渡：按 value（0~1）从 from 移到 to（单位 = 自身尺寸的倍数，如 [0, 0.1] → [0, 0]）
-/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、children(items, 必填)
+/// 参数：value(value, 必填)、from(value)、to(value)、curve(enum:ease)、child(item, 必填)
 inline pluginxx::ui::Item slideTransition(
     const pluginxx::ui::Json& params = pluginxx::ui::Json::object(),
     const pluginxx::ui::Capabilities* env = nullptr

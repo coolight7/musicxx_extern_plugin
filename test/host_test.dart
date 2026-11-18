@@ -689,7 +689,7 @@ void main() {
               )
               .toList();
       expect(backgrounds.length, 6, reason: '六种背景样式各注册一个: $backgrounds');
-      /// 第 [index] 个样式的着色器块（背景的根块是 `Expanded`，着色器在它的 children 里）
+      /// 第 [index] 个样式的着色器块（背景的根块是 `Expanded`，着色器在它的 child 里）
       Map<String, Object?> shaderOf(int index) {
         final Map<String, Object?> data = backgrounds[index].data;
         expect(
@@ -1288,13 +1288,18 @@ int _intOf(Object? value) => value is num ? value.toInt() : 0;
 
 /// UI 项 `view` 里的着色器块
 ///
-/// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `children` 里；
+/// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `child` 里；
 /// 以后换成 `Column` 套 `Expanded` 也能沿这条链找下去。
 Map<String, Object?>? _shaderBlockOf(Object? data) {
   Object? node = data is Map ? data['view'] : null;
   for (int depth = 0; depth < 4 && node is Map; ++depth) {
     if (node['kind'] == 'musicxx.Shader') {
       return node.cast<String, Object?>();
+    }
+    final Object? child = node['child'];
+    if (child is Map) {
+      node = child;
+      continue;
     }
     final Object? children = node['children'];
     if (children is! List || children.isEmpty) {

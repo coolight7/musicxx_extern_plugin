@@ -321,8 +321,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     uiBackgroundRc = uiSlotRegister(
         "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
-            "view":{"kind":"Expanded","children":[
-              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
+            "view":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
                "args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},
                        "uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},
                        "uColor3":{"kind":"source","name":"musicxx.icon.themeMapping.2"},
@@ -335,7 +334,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                                  "of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},
                        "uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,
                                   "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
-               "speed":1,"maxFps":16}]}})",
+               "speed":1,"maxFps":16}}})",
         20);
     // 7.0) 背景是块树: 只给 item 级 `shader`（旧写法）而不给 `view` 时注册要被拒绝。
     uiBackgroundNoViewRc = uiSlotRegister(
@@ -351,15 +350,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         "pageBg", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
         R"({"title":"原生示例页面背景",
             "routes":["/songs","/setting/theme"],
-            "view":{"kind":"Expanded","children":[
+            "view":{"kind":"Expanded","child":
               {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
-               "speed":1,"maxFps":8}]}})",
+               "speed":1,"maxFps":8}}}",
         10);
     uiPageBackgroundBadRoutesRc = uiSlotRegister(
         "pageBgBadRoutes", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
         R"({"title":"坏的页面背景","routes":"/songs",
-            "view":{"kind":"Expanded","children":[
-              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle"}]}})",
+            "view":{"kind":"Expanded","child":
+              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle"}}})",
         11);
 
     // 7.2) 刷新: 声明不变, 只让主程序重新取一次视图 (rev + 1)

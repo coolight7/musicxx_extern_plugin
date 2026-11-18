@@ -905,11 +905,11 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", { clear: true
 页面里的块（`ext://<插件id>/<视图id>` 的视图描述）：**尺寸由父块决定**：
 
 ```jsonc
-{"kind": "SizedBox", "height": 300, "children": [{
+{"kind": "SizedBox", "height": 300, "child": {
     "kind": "musicxx.Shader",
     "bundle": "shader/ring.shaderbundle",
     "args": { ... }
-}]}
+}}
 ```
 
 - **尺寸由父块决定**：不写尺寸就用父块给的空间，所以页面里通常要像上面这样用 `SizedBox`

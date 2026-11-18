@@ -54,14 +54,14 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     }
     var children = [{ kind: "Text", text: params.title }];
     if (params.depict) {
-      children.push({ kind: "Text", text: params.depict, type: "caption", tone: "hint" });
+      children.push({ kind: "Text", text: params.depict, type: "caption", color: "hint" });
     }
     children.push(control);
     return {
       kind: "Block",
       variant: "plain",
       padding: { horizontal: 10, vertical: 6 },
-      children: [{ kind: "Column", gap: 6, children: children }]
+      child: { kind: "Column", gap: 6, children: children }
     };
   }
 
@@ -73,7 +73,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       var selected = option.value === params.value;
       buttons.push({
         kind: "Expanded",
-        children: [{
+        child: {
           kind: "Button",
           label: option.label,
           highlight: selected,
@@ -82,19 +82,19 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
             name: params.capability,
             args: params.argsOf(option.value)
           }
-        }]
+        }
       });
     }
     var children = [{ kind: "Text", text: params.title }];
     if (params.depict) {
-      children.push({ kind: "Text", text: params.depict, type: "caption", tone: "hint" });
+      children.push({ kind: "Text", text: params.depict, type: "caption", color: "hint" });
     }
     children.push({ kind: "Row", gap: 12, children: buttons });
     return {
       kind: "Block",
       variant: "plain",
       padding: { horizontal: 10, vertical: 6 },
-      children: [{ kind: "Column", gap: 8, children: children }]
+      child: { kind: "Column", gap: 8, children: children }
     };
   }
 
@@ -272,7 +272,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     if (view.message) {
       blocks.push(k.text({
         text: view.message,
-        tone: view.messageTone === "error" ? "error" : "accent"
+        color: view.messageTone === "error" ? "error" : "accent"
       }, env));
     }
     if (view.draft) {

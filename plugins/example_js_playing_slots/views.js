@@ -10,6 +10,11 @@
 /// 界面 kit（基础 kit + musicxx 扩展 kit）
 const kit = pluginxx.ui.kit;
 
+/// 卡片现在只收一块内容：多行先包一层 Column（`kit.card` 的 `child` 是单个块）
+function columnOf(children) {
+    return { kind: "Column", children: children };
+}
+
 /// 客户端能力段（插件框架取页面时会放进参数）
 function viewEnv(args) {
     if (args && typeof args.ui === "object" && args.ui !== null) {
@@ -58,12 +63,12 @@ function songlistHeaderView(args) {
                 children: [
                     {
                         kind: "Expanded",
-                        children: [{
+                        child: {
                             kind: "Text",
                             text: "当前播放：" + currentSongTitle(args) + "（来自插件的列表 header）",
                             type: "caption",
-                            tone: "hint",
-                        }],
+                            color: "hint",
+                        },
                     },
                     {
                         kind: "Button",
@@ -287,7 +292,7 @@ function cardView(args) {
                     "播放页音频动效」里选中后才渲染。动效区不接手势（封面点击、拖动切歌要继续可用）。" +
                     "没安装『音乐动效』时插件项仍可选，但频谱全是 0。",
             }, env),
-            kit.card({ children: statusRows() }, env),
+            kit.card({ child: columnOf(statusRows()) }, env),
             kit.button({ label: "刷新本页", variant: "full", action: "card" }, env),
             kit.button({
                 label: "打开设置页",
@@ -316,7 +321,7 @@ function settingsView(args) {
                     "关掉就注销整栏；歌词页顶部提示也是注册 / 注销（开 = 注册，关 = 注销，" +
                     "没有 enabled 字段）。",
             }, env),
-            kit.card({ children: statusRows() }, env),
+            kit.card({ child: columnOf(statusRows()) }, env),
             kit.listRow({
                 title: "整条控制按钮栏",
                 subtitle: "打开 = 五个按钮都由本插件画；关掉 = 只替换菜单 / 收藏两个按钮",
@@ -339,7 +344,7 @@ function settingsView(args) {
             }, env),
             kit.card({
                 title: "音频动效",
-                children: [
+                child: columnOf([
                     kit.hint({
                         text: "选中后动效区由插件的着色器绘制；「切回不显示」等价于在设置里选『不显示』。",
                     }, env),
@@ -353,7 +358,7 @@ function settingsView(args) {
                         variant: "full",
                         action: { kind: "dispatch", name: "clearVisualizer", args: { view: "settings" } },
                     }, env),
-                ],
+                ]),
             }, env),
             kit.button({
                 label: "打开说明页",

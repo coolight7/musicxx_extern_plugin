@@ -13,6 +13,11 @@
 /// 界面 kit（基础 kit + musicxx 扩展 kit，随插件目录分发）
 const kit = pluginxx.ui.kit;
 
+/// 卡片现在只收一块内容：多行先包一层 Column（`kit.card` 的 `child` 是单个块）
+function columnOf(children) {
+    return { kind: "Column", children: children };
+}
+
 /// 客户端能力段（插件框架取页面时会放进参数）
 function viewEnv(args) {
     if (args && typeof args.ui === "object" && args.ui !== null) {
@@ -135,39 +140,39 @@ function infoRow(title, depict, value) {
     const left = {
         kind: "Expanded",
         flex: 3,
-        children: [{
+        child: {
             kind: "Column",
             gap: 2,
             children: [
                 { kind: "Text", text: title },
-                { kind: "Text", text: depict, type: "caption", tone: "hint" },
+                { kind: "Text", text: depict, type: "caption", color: "hint" },
             ],
-        }],
+        },
     };
     const children = [left];
     if (value) {
         children.push({
             kind: "Expanded",
             flex: 2,
-            children: [{
+            child: {
                 kind: "Text",
                 text: value,
                 type: "caption",
-                tone: "hint",
+                color: "hint",
                 align: "end",
-            }],
+            },
         });
     }
     return {
         kind: "Block",
         variant: "plain",
         padding: { horizontal: 10, vertical: 6 },
-        children: [{
+        child: {
             kind: "Row",
             gap: 10,
             cross: "center",
             children: children,
-        }],
+        },
     };
 }
 
@@ -185,7 +190,7 @@ function switchControl(id, title, depict, value) {
         kind: "Block",
         variant: "plain",
         padding: { horizontal: 10, vertical: 6 },
-        children: [{
+        child: {
             kind: "Row",
             gap: 12,
             cross: "center",
@@ -193,28 +198,28 @@ function switchControl(id, title, depict, value) {
                 {
                     kind: "Expanded",
                     flex: 3,
-                    children: [{
+                    child: {
                         kind: "Column",
                         gap: 2,
                         children: [
                             { kind: "Text", text: title },
-                            { kind: "Text", text: depict, type: "caption", tone: "hint" },
+                            { kind: "Text", text: depict, type: "caption", color: "hint" },
                         ],
-                    }],
+                    },
                 },
                 {
                     kind: "SizedBox",
                     width: SWITCH_BOX_WIDTH,
-                    children: [{
+                    child: {
                         kind: "Control",
                         control: "switch",
                         id: id,
                         value: value,
                         action: { kind: "dispatch", name: "setOption" },
-                    }],
+                    },
                 },
             ],
-        }],
+        },
     };
 }
 
@@ -227,19 +232,19 @@ function choiceControl(title, help, id, current, viewId, options) {
         kind: "Block",
         variant: "plain",
         padding: { horizontal: 10, vertical: 6 },
-        children: [{
+        child: {
             kind: "Column",
             gap: 6,
             children: [
                 { kind: "Text", text: title },
-                { kind: "Text", text: help, type: "caption", tone: "hint" },
+                { kind: "Text", text: help, type: "caption", color: "hint" },
                 {
                     kind: "Row",
                     gap: 12,
                     children: options.map(function (option) {
                         return {
                             kind: "Expanded",
-                            children: [{
+                            child: {
                                 kind: "Button",
                                 label: option.label,
                                 // 当前项用主按钮的样子（与候选项按钮控件的选中态一致）
@@ -253,12 +258,12 @@ function choiceControl(title, help, id, current, viewId, options) {
                                         view: viewId,
                                     },
                                 },
-                            }],
+                            },
                         };
                     }),
                 },
             ],
-        }],
+        },
     };
 }
 
@@ -270,19 +275,19 @@ function modeChoiceControl(viewId) {
     function buttonOfItem(itemId, label) {
         return {
             kind: "Expanded",
-            children: [{
+            child: {
                 kind: "Button",
                 label: label,
                 highlight: styleOfItem(itemId) === style,
                 action: { kind: "dispatch", name: "useBackground", args: { id: itemId, view: viewId } },
-            }],
+            },
         };
     }
     return {
         kind: "Block",
         variant: "plain",
         padding: { horizontal: 10, vertical: 6 },
-        children: [{
+        child: {
             kind: "Column",
             gap: 6,
             children: [
@@ -311,7 +316,7 @@ function modeChoiceControl(viewId) {
                     gap: 12,
                     children: [{
                         kind: "Expanded",
-                        children: [{
+                        child: {
                             kind: "Button",
                             label: "内置背景",
                             highlight: (STYLE_BUILTIN === style),
@@ -320,11 +325,11 @@ function modeChoiceControl(viewId) {
                                 name: "useBackground",
                                 args: { id: BUILTIN_BG_ID, view: viewId },
                             },
-                        }],
+                        },
                     }],
                 },
             ],
-        }],
+        },
     };
 }
 
@@ -406,14 +411,14 @@ function settingsView(args) {
                     STYLE_TITLES[STYLE_BOUND] + "』。它们占同一个槽位 player.background，" +
                     "「设置 → 主题 → 播放页面背景」里同时只能选中一个。",
             }, env),
-            kit.card({ children: statusRows() }, env),
+            kit.card({ child: columnOf(statusRows()) }, env),
             kit.card({
                 title: "样式",
-                children: [modeChoiceControl(SETTINGS_VIEW_ID)],
+                child: columnOf([modeChoiceControl(SETTINGS_VIEW_ID)]),
             }, env),
             kit.card({
                 title: "参数",
-                children: [
+                child: columnOf([
                     choiceControl("模糊档位（『模糊』）", "封面纹理的预模糊强度：越大越糊，14 还能看出封面内容",
                         "blur", configuredBlur(), SETTINGS_VIEW_ID,
                         BLUR_CHOICES.map(function (value) {
@@ -460,11 +465,11 @@ function settingsView(args) {
                             "载荷里没有图片字节）。取色预热也用这条频道",
                         value: coverHookBound ? "已绑定" : "已移除",
                     }, env),
-                ],
+                ]),
             }, env),
             kit.card({
                 title: "开关",
-                children: [
+                child: columnOf([
                     switchControl("ripple", "热浪扭曲波纹",
                         "关掉后『模糊』只剩缓慢漂移、『沉浸』完全静止",
                         configuredRipple()),
@@ -477,11 +482,11 @@ function settingsView(args) {
                         "（白昼偏深、夜间偏浅，保留主色的色相，按当前样式估出的背景亮度" +
                         "保证对比度）；关掉就用主题默认前景色",
                         configuredAutoForeground()),
-                ],
+                ]),
             }, env),
             kit.card({
                 title: "操作",
-                children: [
+                child: columnOf([
                     kit.button({
                         label: "把当前封面绑成纹理",
                         variant: "full",
@@ -517,7 +522,7 @@ function settingsView(args) {
                         variant: "full",
                         action: { kind: "route", route: "ext://" + PLUGIN_ID + "/" + HOME_VIEW_ID },
                     }, env),
-                ],
+                ]),
             }, env),
         ],
     };
@@ -566,10 +571,10 @@ function cardView(args) {
                     PALETTE_COVER_SIZE + "×" + PALETTE_COVER_SIZE + " 读 RGBA，按 4 bit/通道统计出现次数最多的 " +
                     PALETTE_TOP_COLORS + " 个色点。它替代内置的封面颜色分析，内置背景与插件背景都会用上这套颜色。",
             }, env),
-            kit.card({ children: statusRows() }, env),
+            kit.card({ child: columnOf(statusRows()) }, env),
             kit.card({
                 title: "选择样式",
-                children: [modeChoiceControl(HOME_VIEW_ID)],
+                child: columnOf([modeChoiceControl(HOME_VIEW_ID)]),
             }, env),
             kit.button({ label: "刷新本页", variant: "full", highlight: true, action: "card" }, env),
             kit.button({
@@ -693,7 +698,7 @@ function spectrumProbeView(args) {
             // {"kind":"source","name":...} 读它们；插件框架每帧求值并只重建读到值的块。
             kit.card({
                 title: "动画示例",
-                children: [
+                child: columnOf([
                     kit.hint({
                         text: "下面这块由 musicxx.AnimatedBuilder 驱动：高度跟着响度呼吸（smooth + lfo），" +
                             "进场先淡入再撑开（tween 驱动 SizeTransition / FadeTransition）。" +
@@ -731,75 +736,73 @@ function spectrumProbeView(args) {
                                 ],
                             },
                         },
-                        children: [
-                            {
+                        child: {
                                 kind: "musicxx.FadeTransition",
                                 value: { kind: "source", name: "demo.intro" },
-                                children: [
-                                    {
+                                child: {
                                         kind: "musicxx.SizeTransition",
                                         axis: "vertical",
                                         value: { kind: "source", name: "demo.intro" },
-                                        children: [
-                                            {
+                                        child: {
                                                 kind: "SizedBox",
                                                 height: { kind: "source", name: "demo.h" },
-                                                children: [
-                                                    { kind: "Text", text: "跟着音乐呼吸的一块（高度由通道驱动）", type: "caption", tone: "hint" },
-                                                ],
+                                                child: { kind: "Text", text: "跟着音乐呼吸的一块（高度由通道驱动）", type: "caption", color: "hint" },
                                             },
-                                        ],
                                     },
-                                ],
                             },
-                        ],
                     },
                     kit.hint({
                         text: "• 值表达式也能写在普通字段上（尺寸 / 进度 / 文本 / visible）。" +
                             "节点表与来源见 docs/plugin-shader-bundle.md §7。",
                     }, env),
-                ],
+                ]),
             }, env),
             // 页面里也能直接画一块着色器（`musicxx.Shader` 块）：用 `SizedBox` 给它确定的高度
             kit.hint({ text: "• 下面两块是页面内联的 Shader 块：上面是晶格，下面是光圈（跟着频谱起伏）：" }, env),
             kit.card({
-                children: [
+                child: columnOf([
                     {
-                        kind: "SizedBox", height: 300, children: [
-                            kit.shaderBlock({
-                                bundle: "shader/bg.shaderbundle",
-                                speed: 1,
-                                maxFps: 16,
-                                args: {
-                                    // 颜色来源：主题色 + 封面提取色（取不到时用 fallback）
-                                    uColor1: { kind: "source", name: "musicxx.theme.primary" },
-                                    uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                                    uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
-                                    uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
-                                },
-                            }, env),
-                        ]
+                        kind: "SizedBox", height: 300, child: {
+                                                           kind: "Column",
+                                                           children: [
+                                kit.shaderBlock({
+                                    bundle: "shader/bg.shaderbundle",
+                                    speed: 1,
+                                    maxFps: 16,
+                                    args: {
+                                        // 颜色来源：主题色 + 封面提取色（取不到时用 fallback）
+                                        uColor1: { kind: "source", name: "musicxx.theme.primary" },
+                                        uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                        uColor3: { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                        uColor4: { kind: "source", name: "musicxx.icon.themeMapping.3" },
+                                    },
+                                }, env),
+                            ]
+                                                       }
                     },
-                ],
+                ]),
             }, env),
             kit.card({
-                children: [
+                child: columnOf([
                     {
-                        kind: "SizedBox", height: 300, children: [
-                            kit.shaderBlock({
-                                bundle: "shader/ring.shaderbundle",
-                                speed: 1,
-                                maxFps: 16,
-                                args: ringArgs(
-                                    { kind: "source", name: "musicxx.theme.primary" },
-                                    { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                                    { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
-                                    { kind: "source", name: "musicxx.icon.themeMapping.3" }
-                                ),
-                            }, env),
-                        ]
+                        kind: "SizedBox", height: 300, child: {
+                                                           kind: "Column",
+                                                           children: [
+                                kit.shaderBlock({
+                                    bundle: "shader/ring.shaderbundle",
+                                    speed: 1,
+                                    maxFps: 16,
+                                    args: ringArgs(
+                                        { kind: "source", name: "musicxx.theme.primary" },
+                                        { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+                                        { kind: "source", name: "musicxx.icon.dark", fallback: "#223344" },
+                                        { kind: "source", name: "musicxx.icon.themeMapping.3" }
+                                    ),
+                                }, env),
+                            ]
+                                                       }
                     },
-                ],
+                ]),
             }, env),
             kit.button({
                 label: "重新读取（镜像实时 + 发起一次动作读取）",

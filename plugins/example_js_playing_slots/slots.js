@@ -63,12 +63,12 @@ function lyricTopEntryData() {
                     children: [
                         {
                             kind: "Expanded",
-                            children: [{
+                            child: {
                                 kind: "Text",
                                 text: "歌词页顶部这块来自插件（example_js_playing_slots）",
                                 type: "caption",
-                                tone: "hint",
-                            }],
+                                color: "hint",
+                            },
                         },
                         {
                             kind: "Button",

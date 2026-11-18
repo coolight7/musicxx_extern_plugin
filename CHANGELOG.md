@@ -8,6 +8,29 @@
 
 ## 历史
 
+### 变更（破坏性，未发布）：界面词汇调整（`child` / `color`）与 `ThemeScope`
+
+一句话：**单内容容器改叫 `child`（一块），语义色改叫 `color`（是名字不是色值）**，
+另外新增一个只管颜色的样式容器 `ThemeScope`。旧写法一律不再认识，不接别名。
+
+- **12 个单内容容器把 `children` 改成 `child`**（一块）：`Block` / `Expanded` / `SizedBox` /
+  `Padding` / `Align` / `Collapse` / `musicxx.AnimatedBuilder` 与 5 个 `musicxx.*Transition`。
+  模型层因此多了字段类型 `item`：写数组时只取第一块并给一条提示。要放多块先包 `Column`。
+  多块容器不变：`Row` / `Column` / `Stack` / 列表的 `header` / `footer` / 工具条、
+  `musicxx.AdaptLayout` 的两套 body。
+- **`tone` 改名 `color`**：字段、枚举、字段类型（`color` / `colors`）、kit 参数一起改。
+  `color` 只接受**语义名**（`normal` / `hint` / `accent` / `title` / `error` / `warning` / `success`），
+  **不是色值**；要指定具体色值用 `ThemeScope.data`。
+- **`Button.label` 改为可选**，新增 `glyph`（没图标文件时也能显示的纯文本）与 `color`
+  （写了就优先于主题的选中 / 禁用态内容色）。
+- **新增 `ThemeScope`**：`data`（JSON，含义由客户端定义）+ `child`，`adapt` 规则是 `flatten`
+  （不支持的客户端把子块原样展开，内容还在、样式不生效）。musicxx 的 `data` 字段见
+  `docs/plugin-ui.md`（`text` / `surface` / `button` / `mask` / `shimmer` 五组颜色）。
+- 版本：`schemaVersion` 1 → 2、`uiApiVersion` 2 → 3、基础 kit 与 musicxx 扩展 kit 各 +1。
+- kit 同步：`kit.card({child})` 这类模板改成单块（多块先 `columnOf(…)`）；
+  `kit.button({label, variant, highlight, icon, glyph, color, size, disabled, action})`；
+  新增 `kit.themeScope({child, data})`（`data` 是客户端定义的对象，musicxx 的字段见 `docs/plugin-ui.md`）。
+
 ### 变更（未发布）：`ui.slot.update` 改成"重新取视图"
 
 - **`musicxx.ui.slot.update(名字)` 不再带 `data`**：它只让主程序用**当前声明**重新取一次视图

@@ -173,14 +173,14 @@ my_plugin/
 - **`resource/svg/` 只是推荐位置**（示例插件都放这里，便于插件目录一眼看懂），不强制；
 - 只认 svg：写成别的后缀（`logo.png`）按"没有图标"处理；
 - 写法不合法（空路径、绝对路径、`..`、`\`）同样按"没有图标"处理，不会去插件目录外面找
-  文件，也不会报错；
-- **不能引用主程序（musicxx）自己的图标名**：`host.info().ui` 里没有 `icons` 清单（musicxx 不发布），
+  文件，也不会报错；- **不能引用主程序（musicxx）自己的图标名**：`host.info().ui` 里没有 `icons` 清单（musicxx 不发布），
   写主程序的 svg 名字只会在插件目录里找一个同名文件，找不到就按"没有图标"处理 ——
-  主页入口 / 菜单项退回默认图标，页面里的 `Icon` 块退回 `glyph` 文本；**按钮例外**：
-  `Button.icon` 没有回落，文件缺失就是按钮里一个空位（框架只拼路径，不替插件判文件在不在）；
+  主页入口 / 菜单项退回默认图标，页面里的 `Icon` 块退回 `glyph` 文本；`Button` 没写
+  `label` 时用 `glyph` 当文字（终端 / 纯文本客户端也看得到），写了 `icon` 就只留一个图标位
+  （框架只拼路径、不替插件判文件在不在，文件缺失时按钮里就是一个空位）；
 - 路径由**框架**拼接：插件在 JSON 里只写相对路径，客户端拿到内容、构造界面时才拼上自己的插件
   目录（所以插件目录换到别的地方、同一个插件包在哪台机器上装，声明都不用改）；
-- 颜色：主页入口 / 菜单项按 svg 自己的颜色画；页面里的 `Icon` 与 `Button` 会按 `tone`
+- 颜色：主页入口 / 菜单项按 svg 自己的颜色画；页面里的 `Icon` 与 `Button` 会按 `color`
   **单色渲染**（`BlendMode.srcIn`），这两个位置用单色的形状图标（不带渐变、不带多色）更合适；
 - 图标随插件目录一起分发（打包时把图标目录放进插件包；动态库插件在 `CMakeLists.txt` 里把
   资源目录写进 `ASSETS`，见 [plugin-native-api.md](plugin-native-api.md)）。
@@ -214,7 +214,7 @@ musicxx.ui.slot.register({
     order: 10,                     // 同一位置多项时小者靠前
     data: {
         view: { blocks: [
-            { kind: "Text", text: "歌词由插件提供", type: "caption", tone: "hint" },
+            { kind: "Text", text: "歌词由插件提供", type: "caption", color: "hint" },
         ] },
     },
 });
@@ -495,24 +495,38 @@ capability(*this, "plugin.my_plugin.settings",
 
 | 常用 `kind` | 字段 | 说明 |
 |---|---|---|
-| `Text` | `text`、`type`（`body`/`caption`/`title`）、`tone`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `tone`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
+| `Text` | `text`、`type`（`body`/`caption`/`title`）、`color`、`bold`、`dim`、`mono`、`wrap`、`maxLines`、`align`、`action` | 一段文字；层级用 `type`，语义色用 `color`（`normal`/`hint`/`accent`/`error`…）；`bold` 显式加粗（`type: title` 也是加粗） |
 | `Divider` | — | 分隔线 |
 | `Gap` | `size`（u，缺省 = 客户端默认行距） | 竖直留白 |
-| `Button` | `label`、`variant`（`normal`/`full`/`simple`，默认 `normal`）、`highlight`（默认 `false`）、`icon`、`size`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。`variant` 只定**样式与宽度**：`normal` 是带底色的默认按钮（宽度按文字内容），`simple` **无底色**（只画文字与图标，控制栏图标按钮、列表里的文字按钮用它），`full` 是**大号按钮**并**铺满父块宽度**（设置页里“一行一个”的按钮用它）；`highlight` 单独表示**选中态**（主色底，由主题决定；`simple` 平时无底色，选中时同样用主题的选中底色，与控制栏的选中按钮一致），默认不选中。`size` 是**按钮高度**（u，见下表下方的说明），不写用客户端默认。**`full` 的父块必须给得出宽度**（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）：直接放进 `Row` 这类宽度不限的地方会报 `BoxConstraints forces an infinite width`，要横排就每个按钮各包一层 `Expanded`（`kit.actionsRow` 已经这么做） |
-| `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`children` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
-| `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列 |
-| `Expanded` / `Spacer` | `flex`、`children` | 按比例分剩余空间 / 纯占位 |
-| `SizedBox` | `width`、`height`、`aspect`、`children` | 固定尺寸或占位 |
-| `Padding` | `padding`、`children` | 内边距 |
+| `Button` | `label`（可选）、`variant`（`normal`/`full`/`simple`，默认 `normal`）、`highlight`（默认 `false`）、`icon`、`glyph`、`color`、`size`、`disabled`、`action` | 按钮，点击执行自己的 `action`；`icon` 是插件自带的 svg 路径（相对插件目录，见 §1.5）。内容按“文字 → 图标 → glyph”取：有 `label` 就画文字（可带图标），没 `label` 有 `icon` 就是**纯图标按钮**，都没写就用 `glyph` 当文字（终端 / 纯文本客户端靠它）；三者都空时不画按钮。`color` 是语义名（见上），写了就优先于主题的选中 / 禁用态内容色。`variant` 只定**样式与宽度**：`normal` 是带底色的默认按钮（宽度按文字内容），`simple` **无底色**（只画文字与图标，控制栏图标按钮、列表里的文字按钮用它），`full` 是**大号按钮**并**铺满父块宽度**（设置页里“一行一个”的按钮用它）；`highlight` 单独表示**选中态**（主色底，由主题决定；`simple` 平时无底色，选中时同样用主题的选中底色，与控制栏的选中按钮一致），默认不选中。`size` 是**按钮高度**（u，见下表下方的说明），不写用客户端默认。**`full` 的父块必须给得出宽度**（`Column` / `Block` / `Expanded` / 固定宽 `SizedBox`）：直接放进 `Row` 这类宽度不限的地方会报 `BoxConstraints forces an infinite width`，要横排就每个按钮各包一层 `Expanded`（`kit.actionsRow` 已经这么做） |
+| `Block` | `title?`、`variant`（`card`/`inset`/`plain`）、`padding`、`margin`、`action`、`child` | 内容块：`card` 有底色 + 圆角，`inset` 是浅色底（要分组时用），`plain` 只有声明的留白（卡片里的列表行用它，行与行直接按列表排列） |
+| `Row` / `Column` | `gap`、`main`（含 `spaceBetween`）、`cross`、`action`、`children` | 横向 / 纵向排列（多块） |
+| `Expanded` / `Spacer` | `flex`、`child` | 按比例分剩余空间 / 纯占位 |
+| `SizedBox` | `width`、`height`、`aspect`、`child` | 固定尺寸或占位 |
+| `Padding` | `padding`、`child` | 内边距 |
+| `ThemeScope` | `data`、`child` | 子树样式作用域（**只管颜色**）：见 §2.3.4 |
 | `KV` / `Table` / `Tree` | 见库文档 | 键值 / 表格（列宽自动分配）/ 层级列表 |
 | `Badge` / `Progress` | 见库文档 | 状态小标签 / 进度条 |
 | `Control` | `control`（`buttons`/`select`/`checkbox`/`switch`/`text`/`number`/`password`）、`id`、`label`、`help`、`value`、`options`、`multiline`、`disabled`、`action` | 交互控件：**值变化即派发**动作（参数里带 `id` 与当前值）。`text`/`number`/`password` 用应用自己的输入框：**回车或失焦才派发**（不是逐字派发），`password` 默认遮住（右侧有眼睛按钮），纯文本降级固定打码；输入类控件要占满一行，**必须放在有宽度的容器里**（`Column` / `Block` / `Expanded` 等），直接放进 `Row` 会报 `RenderFlex children have non-zero flex but incoming width constraints are unbounded`；`select` 候选项只有一行标题（要“标题 + 多行描述”就用浮层的 `picker`） |
-| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, tone?, selected?, path?, isDir?, data?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
+| `ListViewBase` | `items`（必填）、`layout`、`variant`、`height`、`padding`、`header`、`footer`、`emptyText`、`itemAction` | 真正的列表：列表项 `[{id?, title, subtitle?, trailing?, image?, icon?, color?, selected?, path?, isDir?, data?, custom?, action?}]`；`layout` 是 `auto`（跟应用设置）/`list`/`grid`/`multiList`；不给 `height` 就跟页面一起滚（条目多时给高度让它自己滚）。**只显示，没有工具条**；`custom` 是“整项内容用任意块画”，见 §2.5.1 |
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
-| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` / `data` 生效（条目带 `data.song` 就按内置的**歌曲行**画：封面 + 歌手），`tone` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
+| `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` / `data` 生效（条目带 `data.song` 就按内置的**歌曲行**画：封面 + 歌手），`color` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
 | `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。**只用于页面 / 浮层的最外层**：它按父块给出的宽高分两栏，所以要放在给得出尺寸的地方（页面内容区、浮层内容区）；塞进 `Block` / 行内这类尺寸由内容决定的位置会得到布局断言。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
+
+两个名字先记住（写错不会画错东西，但会白写）：
+
+- **`child` 是一块、`children` 是多块**。只放一块内容的容器用 `child`：`Block` / `Expanded` /
+  `SizedBox` / `Padding` / `Align` / `Collapse` / `ThemeScope` / `musicxx.AnimatedBuilder` /
+  5 个 `musicxx.*Transition`。写成数组也只取第一块（不同客户端行为可能不一致，别这么写）。
+  要放多块先包 `Column`。`Row` / `Column` / `Stack` / 列表的 `header` / `footer` / 工具条、
+  `musicxx.AdaptLayout` 的两套 body 仍然是 `children`。
+- **`color` 是语义名，不是色值**：能写的是 `normal`（默认）/ `hint` / `accent` / `title` /
+  `error` / `warning` / `success`，对应客户端主题里的那几个颜色（跟随主题与昼夜）。
+  想指定具体颜色用 `ThemeScope` 的 `data`（那里才是 `#rrggbb` / `#aarrggbb`），见 §2.3.4。
+  以前叫 `tone`，现在不认了。
+
 
 规则（解析层规则，与库文档一致）：
 
@@ -539,7 +553,7 @@ capability(*this, "plugin.my_plugin.settings",
       { "kind": "smooth", "attackMs": 20, "releaseMs": 260,
         "of": { "kind": "source", "name": "musicxx.spectrum.level" } },
       { "kind": "lfo", "shape": "sine", "periodMs": 2600, "from": 120, "to": 160 } ] },
-  "children": [ { "kind": "Progress", "value": { "kind": "source", "name": "plugin.demo.progress" }, "total": 100 } ] }
+  "child": { "kind": "Progress", "value": { "kind": "source", "name": "plugin.demo.progress" }, "total": 100 } }
 ```
 
 - 求值结果按 `u` 解释；写 `unit: "percent"`（或 `{"kind":"const","value":40,"unit":"percent"}`）
@@ -570,22 +584,22 @@ capability(*this, "plugin.my_plugin.settings",
         { "kind": "lfo", "shape": "sine", "periodMs": 2600, "from": 60, "to": 90 } ] },
     "card.intro": { "kind": "tween", "from": 0, "to": 1, "durationMs": 900, "ease": "outCubic" }
   },
-  "children": [
-    { "kind": "musicxx.FadeTransition", "value": { "kind": "source", "name": "card.intro" },
-      "children": [
-        { "kind": "musicxx.SizeTransition", "axis": "vertical", "value": { "kind": "source", "name": "card.intro" },
-          "children": [ { "kind": "SizedBox", "height": { "kind": "source", "name": "card.h" } } ] } ] }
-  ] }
+  "child": {
+    "kind": "musicxx.FadeTransition", "value": { "kind": "source", "name": "card.intro" },
+      "child": {
+        "kind": "musicxx.SizeTransition", "axis": "vertical", "value": { "kind": "source", "name": "card.intro" },
+          "child": { "kind": "SizedBox", "height": { "kind": "source", "name": "card.h" } } } }
+}
 ```
 
 | 块 | 字段 | 说明 |
 |---|---|---|
-| `musicxx.AnimatedBuilder` | `values`（通道表）、`maxFps`、`children` | 通道作用域 + 每帧重建；没有通道时零成本（不建帧调度） |
-| `musicxx.SizeTransition` | `axis`（`vertical`/`horizontal`）、`axisAlignment`、`value`(0~1)、`curve`、`children` | 按进度把子块从 0 撑开 / 收拢 |
-| `musicxx.FadeTransition` | `value`(0~1)、`curve`、`children` | 透明度 |
-| `musicxx.SlideTransition` | `from`/`to`（`[x,y]`，单位 = 自身尺寸倍数）、`value`、`curve`、`children` | 位移 |
-| `musicxx.ScaleTransition` | `from`/`to`（倍数）、`value`、`curve`、`children` | 缩放 |
-| `musicxx.RotationTransition` | `from`/`to`（圈数）、`value`、`curve`、`children` | 旋转 |
+| `musicxx.AnimatedBuilder` | `values`（通道表）、`maxFps`、`child` | 通道作用域 + 每帧重建；没有通道时零成本（不建帧调度） |
+| `musicxx.SizeTransition` | `axis`（`vertical`/`horizontal`）、`axisAlignment`、`value`(0~1)、`curve`、`child` | 按进度把子块从 0 撑开 / 收拢 |
+| `musicxx.FadeTransition` | `value`(0~1)、`curve`、`child` | 透明度 |
+| `musicxx.SlideTransition` | `from`/`to`（`[x,y]`，单位 = 自身尺寸倍数）、`value`、`curve`、`child` | 位移 |
+| `musicxx.ScaleTransition` | `from`/`to`（倍数）、`value`、`curve`、`child` | 缩放 |
+| `musicxx.RotationTransition` | `from`/`to`（圈数）、`value`、`curve`、`child` | 旋转 |
 
 规则与上限：
 
@@ -599,9 +613,9 @@ capability(*this, "plugin.my_plugin.settings",
 - 状态（`smooth` 的上一帧值）跟着通道表走：同一份声明不被打断，声明变了重新开始；
 - **没有 `AnimatedBuilder` 包裹的字段仍然是"每次重画算一次"**（插件可以用"能力返回新视图"刷新页面，
   但那是跳变，不是动画）。
-- **kit 里有现成的拼装写法**：`kit.animScope({values, maxFps, children})` / `kit.fadeTransition({value, curve, children})` /
-  `kit.sizeTransition({value, axis, curve, children})` / `kit.slideTransition({value, from, to, curve, children})` /
-  `kit.scaleTransition({value, from, to, curve, children})` / `kit.rotationTransition({value, from, to, curve, children})`
+- **kit 里有现成的拼装写法**：`kit.animScope({values, maxFps, child})` / `kit.fadeTransition({value, curve, child})` /
+  `kit.sizeTransition({value, axis, curve, child})` / `kit.slideTransition({value, from, to, curve, child})` /
+  `kit.scaleTransition({value, from, to, curve, child})` / `kit.rotationTransition({value, from, to, curve, child})`
   （参数与生成的说明见 `docs/musicxx-ui-kit.md`）。
 
 ### 2.3.3 列表块（`ListViewBase` / `ListView`）
@@ -610,7 +624,7 @@ capability(*this, "plugin.my_plugin.settings",
 
 ```jsonc
 { "id": "weekly", "title": "每周新歌", "subtitle": "每周一更新", "trailing": "12 首",
-  "image": "cover", "icon": "resource/svg/star.svg", "tone": "hint", "selected": false,
+  "image": "cover", "icon": "resource/svg/star.svg", "color": "hint", "selected": false,
   "action": "openPlaylist" }
 // 自定义整项内容：写了 custom 就不再画 title / subtitle / trailing / 前置图标
 { "id": "row-1", "action": "openRow",
@@ -625,7 +639,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `subtitle` / `trailing` | 副标题（说明字号）/ 右侧状态文字 |
 | `image` | 前置图片：`cover`（当前歌曲封面）或相对插件目录的路径 |
 | `icon` | 前置图标（插件自带的 svg，相对插件目录）；与 `image` 同时给时 `image` 优先 |
-| `tone` | 主标题语义色 |
+| `color` | 主标题语义色 |
 | `selected` | 是否高亮（**只由插件给的数据决定**，客户端不做点击自动高亮） |
 | `path` / `isDir` | 这一项对应的路径 / 身份与“是不是目录项”（目录列表用它，动作参数里原样回带） |
 | `data` | 这一项的附加数据（任意 JSON 对象）：描述层只当原文携带、**不解释内容**，由应用按自己的约定读。musicxx 认其中的 `data.song` = 这一项是一首歌：`{type, src, name?, artist?, fileName?, size?, durationMs?, cover?}`（字段与 `musicxx.playlist.addSong` 的 `songs[]` 同一套），只有目录列表用它 —— 带上以后这一行画成歌曲样式（封面 + 歌手 + 音源标签）。`src` 必填（空 = 不是歌曲）；`type` 不写时用本插件声明的唯一音源类型（声明了多个就得写）；`cover` 是插件目录相对路径或 http 链接 |
@@ -635,7 +649,7 @@ capability(*this, "plugin.my_plugin.settings",
 目录列表块（`musicxx.DirListView`）把这些直接放在参数顶层（`path` / `isDir`），勾选框那个动作另带 `selected`。
 
 > 目录列表的**行样式由应用定**（与内置目录列表一致：前置图标 + 标题 + 第二行 + 行尾文字 / 勾选框），
-> 所以 `tone` / `image` / `custom` 在它里面不生效，`subtitle` 没写时第二行显示 `path`。
+> 所以 `color` / `image` / `custom` 在它里面不生效，`subtitle` 没写时第二行显示 `path`。
 > 写了 `data.song` 的条目按内置列表的**歌曲行**画：前置是封面（`cover`，没有就用默认歌曲图标）、
 > 第二行是歌手（没写 `subtitle` 时），`subtitle` 写了就用 `subtitle`（例如文件大小）。
 > 只是“画成歌曲”而已：点这一行仍照常派发 `itemAction`，加进歌单仍要调 `musicxx.playlist.addSong`。
@@ -682,6 +696,51 @@ capability(*this, "plugin.my_plugin.settings",
 ```
 
 > 条目很多（> 200）时给 `height`：不给高度就跟页面一起滚（一次建出所有项）。
+
+### 2.3.4 子树样式作用域（`ThemeScope`）
+
+`ThemeScope` 包住**一块**内容，子树里的文字 / 图标 / 按钮 / 标签按 `data` 里写的颜色取色。
+描述层只规定“`data` 是一个对象”，**字段含义由客户端定**；下面这一份是 musicxx 的定义（其它客户端
+可能不认识、或者只看一部分 —— 不认识时按 `flatten` 适配，子块照常显示、只是没有样式）。
+
+```jsonc
+{
+  "kind": "ThemeScope",
+  "data": {
+    "text":    { "main": "#ff202124", "cross": "#99202124" },
+    "surface": { "primary": "#ff3a7bd5", "background": "#ffffffff" },
+    "button":  { "content": "#ff202124", "selectContent": "#ffffffff" },
+    "mask":    { "main": "#ffffffff", "cross": "#ccffffff", "block": "#33000000" },
+    "shimmer": { "base": "#80000000" }
+  },
+  "child": { "kind": "Column", "children": [
+    { "kind": "Text", "text": "这一段用插件自己的配色" },
+    { "kind": "Button", "label": "确定", "action": "ok" }
+  ] }
+}
+```
+
+| 组 | 可写的键 | 影响什么 |
+|---|---|---|
+| `text` | `main` / `cross` / `title` / `titleBackground` | 正文色 / 次要文字色（`caption`、`hint`）/ 标题色 / 标题底 |
+| `surface` | `primary` / `background` / `backgroundCross` / `error` / `disable` / `dialog` / `dialogBarrier` | 主色（`accent`、选中态）/ 底色 / 卡片底色 / 错误色 / 禁用色 / 弹层底与遮罩 |
+| `button` | `content` / `simpleContent` / `selectContent` / `disableContent` | 按钮内容色（普通 / `simple` / 选中 / 禁用） |
+| `mask` | `main` / `cross` / `block` | 播放页那三色（普通 / 减淡 / 块底）：**只换颜色**，不会把这块变成遮罩前景排版 |
+| `shimmer` | `base` / `highlight` / `decoration` | 加载占位（骨架屏）的底色 / 高光 / 装饰 |
+
+规则：
+
+- 颜色写法是 `#rrggbb` / `#aarrggbb`（不带 `#` 也认）；**只有 `data` 里写色值**，块字段的
+  `color` 仍然是语义名；
+- **只覆盖写了的角色**，没写的从外层继承（嵌套 `ThemeScope` 时是最近一层，没嵌套时是客户端主题）；
+- 不认识的组 / 键、解析不出来的颜色都跳过（不会让整块失效）；一个可用颜色都没有时按“没声明”处理，
+  内容照常画；
+- 只管颜色：圆角、阴影、渐变、字号、间距不开放；
+- 它是纯样式容器，不接手势（`action` 仍按公共字段语义作用于整块）。
+
+用之前先确认客户端画得出来：看取视图时拿到的能力段（`args.ui.blocks`）里有没有 `ThemeScope`。
+**子块只有一块时不要单独放进 `ThemeScope`**（没意义，直接写那个块）；`kit.themeScope({child, data})`
+是现成写法（`data` 原样交给客户端，所以写的就是上面那几个组）。
 
 ### 2.4 用 kit 拼装（推荐写法）
 
@@ -773,10 +832,10 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 ```jsonc
 { "kind": "Column", "children": [
     { "kind": "Text", "text": "常驻在顶部的内容" },
-    { "kind": "Expanded", "children": [
-        { "kind": "ListViewBase", "items": [
+    { "kind": "Expanded", "child": {
+        "kind": "ListViewBase", "items": [
             { "custom": [ /* 这一段很长，列表自己滚 */ ] },
-            { "custom": [ /* 另一段 */ ] } ] } ] },
+            { "custom": [ /* 另一段 */ ] } ] } },
     { "kind": "Button", "label": "常驻在底部的按钮", "action": "apply" } ] }
 ```
 

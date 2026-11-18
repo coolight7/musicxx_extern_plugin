@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "kitVersion": 2,
+  "schemaVersion": 2,
+  "kitVersion": 3,
   "doc": "musicxx 扩展 kit：应用自己的留白规则 + 设置行/封面行/着色器块等本客户端常用组合（只拼装，不含逻辑）",
   "components": [
     {
@@ -13,7 +13,7 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "vertical": 15 },
-            "children": [{ "kind": "Text", "text": "$text", "type": "title" }]
+            "child": { "kind": "Text", "text": "$text", "type": "title" }
           }
         }
       ]
@@ -28,9 +28,7 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "vertical": 15 },
-            "children": [
-              { "kind": "Text", "text": "$text", "type": "caption", "tone": "hint" }
-            ]
+            "child": { "kind": "Text", "text": "$text", "type": "caption", "color": "hint" }
           }
         }
       ]
@@ -40,7 +38,7 @@
       "doc": "正文行（覆盖基础 kit：自带上下留白，框架不再给隐含边距）",
       "params": [
         { "name": "text", "type": "text", "required": true },
-        { "name": "tone", "type": "tone", "default": "normal" },
+        { "name": "color", "type": "color", "default": "normal" },
         { "name": "mono", "type": "bool", "default": false }
       ],
       "variants": [
@@ -49,9 +47,7 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "vertical": 15 },
-            "children": [
-              { "kind": "Text", "text": "$text", "tone": "$tone", "mono": "$mono" }
-            ]
+            "child": { "kind": "Text", "text": "$text", "color": "$color", "mono": "$mono" }
           }
         }
       ]
@@ -66,7 +62,7 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "vertical": 15 },
-            "children": [{ "kind": "Divider" }]
+            "child": { "kind": "Divider" }
           }
         }
       ]
@@ -75,10 +71,12 @@
       "name": "button",
       "doc": "按钮（覆盖基础 kit：自带上下留白）",
       "params": [
-        { "name": "label", "type": "text", "required": true },
+        { "name": "label", "type": "text" },
         { "name": "variant", "type": "enum:buttonVariant", "default": "normal" },
         { "name": "highlight", "type": "bool", "default": false },
         { "name": "icon", "type": "string" },
+        { "name": "glyph", "type": "string" },
+        { "name": "color", "type": "color" },
         { "name": "size", "type": "size" },
         { "name": "disabled", "type": "bool", "default": false },
         { "name": "action", "type": "action" }
@@ -89,18 +87,18 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "vertical": 15 },
-            "children": [
-              {
-                "kind": "Button",
-                "label": "$label",
-                "variant": "$variant",
-                "highlight": "$highlight",
-                "icon": "$icon",
-                "size": "$size",
-                "disabled": "$disabled",
-                "action": "$action"
-              }
-            ]
+            "child": {
+              "kind": "Button",
+              "label": "$label",
+              "variant": "$variant",
+              "highlight": "$highlight",
+              "icon": "$icon",
+              "glyph": "$glyph",
+              "color": "$color",
+              "size": "$size",
+              "disabled": "$disabled",
+              "action": "$action"
+            }
           }
         }
       ]
@@ -117,7 +115,7 @@
           "default": { "horizontal": 50, "vertical": 50 }
         },
         { "name": "margin", "type": "edges", "default": { "vertical": 50 } },
-        { "name": "children", "type": "items" }
+        { "name": "child", "type": "item" }
       ],
       "variants": [
         {
@@ -127,7 +125,7 @@
             "variant": "$variant",
             "padding": "$padding",
             "margin": "$margin",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
@@ -227,29 +225,25 @@
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
-            "children": [
-              {
-                "kind": "Row",
-                "gap": 10,
-                "cross": "center",
-                "children": [
-                  {
-                    "kind": "Expanded",
+            "child": {
+              "kind": "Row",
+              "gap": 10,
+              "cross": "center",
+              "children": [
+                {
+                  "kind": "Expanded",
+                  "child": {
+                    "kind": "Column",
+                    "gap": 2,
                     "children": [
-                      {
-                        "kind": "Column",
-                        "gap": 2,
-                        "children": [
-                          { "kind": "Text", "text": "$title" },
-                          { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "tone": "hint" }
-                        ]
-                      }
+                      { "kind": "Text", "text": "$title" },
+                      { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "color": "hint" }
                     ]
-                  },
-                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "tone": "hint" }
-                ]
-              }
-            ]
+                  }
+                },
+                { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "color": "hint" }
+              ]
+            }
           }
         }
       ]
@@ -270,29 +264,25 @@
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
-            "children": [
-              {
-                "kind": "Row",
-                "gap": 12,
-                "cross": "center",
-                "children": [
-                  {
-                    "kind": "Expanded",
+            "child": {
+              "kind": "Row",
+              "gap": 12,
+              "cross": "center",
+              "children": [
+                {
+                  "kind": "Expanded",
+                  "child": {
+                    "kind": "Column",
+                    "gap": 2,
                     "children": [
-                      {
-                        "kind": "Column",
-                        "gap": 2,
-                        "children": [
-                          { "kind": "Text", "text": "$title" },
-                          { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" }
-                        ]
-                      }
+                      { "kind": "Text", "text": "$title" },
+                      { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "color": "hint" }
                     ]
-                  },
-                  { "$require": "value", "kind": "Text", "text": "$value", "type": "caption", "tone": "hint" }
-                ]
-              }
-            ]
+                  }
+                },
+                { "$require": "value", "kind": "Text", "text": "$value", "type": "caption", "color": "hint" }
+              ]
+            }
           }
         }
       ]
@@ -313,35 +303,31 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
-            "children": [
-              {
-                "kind": "Row",
-                "gap": 12,
-                "cross": "center",
-                "children": [
-                  {
-                    "kind": "Expanded",
+            "child": {
+              "kind": "Row",
+              "gap": 12,
+              "cross": "center",
+              "children": [
+                {
+                  "kind": "Expanded",
+                  "child": {
+                    "kind": "Column",
+                    "gap": 2,
                     "children": [
-                      {
-                        "kind": "Column",
-                        "gap": 2,
-                        "children": [
-                          { "kind": "Text", "text": "$title" },
-                          { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" }
-                        ]
-                      }
+                      { "kind": "Text", "text": "$title" },
+                      { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "color": "hint" }
                     ]
-                  },
-                  {
-                    "kind": "Control",
-                    "control": "switch",
-                    "id": "$id",
-                    "value": "$value",
-                    "action": "$action"
                   }
-                ]
-              }
-            ]
+                },
+                {
+                  "kind": "Control",
+                  "control": "switch",
+                  "id": "$id",
+                  "value": "$value",
+                  "action": "$action"
+                }
+              ]
+            }
           }
         }
       ]
@@ -363,24 +349,22 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
-            "children": [
-              {
-                "kind": "Column",
-                "gap": 6,
-                "children": [
-                  { "kind": "Text", "text": "$title" },
-                  { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" },
-                  {
-                    "kind": "Control",
-                    "control": "text",
-                    "id": "$id",
-                    "value": "$value",
-                    "multiline": "$multiline",
-                    "action": "$action"
-                  }
-                ]
-              }
-            ]
+            "child": {
+              "kind": "Column",
+              "gap": 6,
+              "children": [
+                { "kind": "Text", "text": "$title" },
+                { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "color": "hint" },
+                {
+                  "kind": "Control",
+                  "control": "text",
+                  "id": "$id",
+                  "value": "$value",
+                  "multiline": "$multiline",
+                  "action": "$action"
+                }
+              ]
+            }
           }
         }
       ]
@@ -401,23 +385,21 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
-            "children": [
-              {
-                "kind": "Column",
-                "gap": 6,
-                "children": [
-                  { "kind": "Text", "text": "$title" },
-                  { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" },
-                  {
-                    "kind": "Control",
-                    "control": "password",
-                    "id": "$id",
-                    "value": "$value",
-                    "action": "$action"
-                  }
-                ]
-              }
-            ]
+            "child": {
+              "kind": "Column",
+              "gap": 6,
+              "children": [
+                { "kind": "Text", "text": "$title" },
+                { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "color": "hint" },
+                {
+                  "kind": "Control",
+                  "control": "password",
+                  "id": "$id",
+                  "value": "$value",
+                  "action": "$action"
+                }
+              ]
+            }
           }
         }
       ]
@@ -439,24 +421,22 @@
             "kind": "Block",
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
-            "children": [
-              {
-                "kind": "Column",
-                "gap": 6,
-                "children": [
-                  { "kind": "Text", "text": "$title" },
-                  { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "tone": "hint" },
-                  {
-                    "kind": "Control",
-                    "control": "select",
-                    "id": "$id",
-                    "value": "$value",
-                    "options": "$options",
-                    "action": "$action"
-                  }
-                ]
-              }
-            ]
+            "child": {
+              "kind": "Column",
+              "gap": 6,
+              "children": [
+                { "kind": "Text", "text": "$title" },
+                { "$require": "depict", "kind": "Text", "text": "$depict", "type": "caption", "color": "hint" },
+                {
+                  "kind": "Control",
+                  "control": "select",
+                  "id": "$id",
+                  "value": "$value",
+                  "options": "$options",
+                  "action": "$action"
+                }
+              ]
+            }
           }
         }
       ]
@@ -488,22 +468,23 @@
                 "textConfirm": "$textConfirm"
               }
             },
-            "children": [
-              {
-                "kind": "Row",
-                "gap": 12,
-                "cross": "center",
-                "children": [
-                  {
-                    "kind": "Expanded",
+            "child": {
+              "kind": "Row",
+              "gap": 12,
+              "cross": "center",
+              "children": [
+                {
+                  "kind": "Expanded",
+                  "child": {
+                    "kind": "Column",
                     "children": [
                       { "kind": "Text", "text": "$label" },
-                      { "$require": "value", "kind": "Text", "text": "$value", "type": "caption", "tone": "hint" }
+                      { "$require": "value", "kind": "Text", "text": "$value", "type": "caption", "color": "hint" }
                     ]
                   }
-                ]
-              }
-            ]
+                }
+              ]
+            }
           }
         }
       ]
@@ -532,7 +513,7 @@
             "resolutionScale": "$resolutionScale"
           }
         },
-        { "template": { "kind": "Text", "text": "（这个客户端不支持插件着色器）", "type": "caption", "tone": "hint" } }
+        { "template": { "kind": "Text", "text": "（这个客户端不支持插件着色器）", "type": "caption", "color": "hint" } }
       ]
     },
     {
@@ -554,30 +535,26 @@
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
-            "children": [
-              {
-                "kind": "Row",
-                "gap": 10,
-                "cross": "center",
-                "children": [
-                  { "kind": "Image", "source": "file", "src": "$cover", "width": "$size", "height": "$size", "radius": 4, "alt": "$title" },
-                  {
-                    "kind": "Expanded",
+            "child": {
+              "kind": "Row",
+              "gap": 10,
+              "cross": "center",
+              "children": [
+                { "kind": "Image", "source": "file", "src": "$cover", "width": "$size", "height": "$size", "radius": 4, "alt": "$title" },
+                {
+                  "kind": "Expanded",
+                  "child": {
+                    "kind": "Column",
+                    "gap": 2,
                     "children": [
-                      {
-                        "kind": "Column",
-                        "gap": 2,
-                        "children": [
-                          { "kind": "Text", "text": "$title" },
-                          { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "tone": "hint" }
-                        ]
-                      }
+                      { "kind": "Text", "text": "$title" },
+                      { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "color": "hint" }
                     ]
-                  },
-                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "tone": "hint" }
-                ]
-              }
-            ]
+                  }
+                },
+                { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "color": "hint" }
+              ]
+            }
           }
         },
         {
@@ -586,29 +563,25 @@
             "variant": "plain",
             "padding": { "horizontal": 10, "vertical": 6 },
             "action": "$action",
-            "children": [
-              {
-                "kind": "Row",
-                "gap": 10,
-                "cross": "center",
-                "children": [
-                  {
-                    "kind": "Expanded",
+            "child": {
+              "kind": "Row",
+              "gap": 10,
+              "cross": "center",
+              "children": [
+                {
+                  "kind": "Expanded",
+                  "child": {
+                    "kind": "Column",
+                    "gap": 2,
                     "children": [
-                      {
-                        "kind": "Column",
-                        "gap": 2,
-                        "children": [
-                          { "kind": "Text", "text": "$title" },
-                          { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "tone": "hint" }
-                        ]
-                      }
+                      { "kind": "Text", "text": "$title" },
+                      { "$require": "subtitle", "kind": "Text", "text": "$subtitle", "type": "caption", "color": "hint" }
                     ]
-                  },
-                  { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "tone": "hint" }
-                ]
-              }
-            ]
+                  }
+                },
+                { "$require": "trailing", "kind": "Text", "text": "$trailing", "type": "caption", "color": "hint" }
+              ]
+            }
           }
         }
       ]
@@ -632,9 +605,7 @@
               { "$require": "label", "kind": "Text", "text": "$label" },
               {
                 "kind": "Expanded",
-                "children": [
-                  { "kind": "Progress", "value": "$value", "total": "$total", "unit": "$unit" }
-                ]
+                "child": { "kind": "Progress", "value": "$value", "total": "$total", "unit": "$unit" }
               }
             ]
           }
@@ -647,14 +618,14 @@
       "params": [
         { "name": "values", "type": "json", "required": true },
         { "name": "maxFps", "type": "int" },
-        { "name": "children", "type": "items", "required": true }
+        { "name": "child", "type": "item", "required": true }
       ],
       "variants": [
         {
           "template": {
             "kind": "musicxx.AnimatedBuilder",
             "values": "$values",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -663,7 +634,7 @@
             "values": "$values",
             "$require": "maxFps",
             "maxFps": "$maxFps",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
@@ -674,14 +645,14 @@
       "params": [
         { "name": "value", "type": "value", "required": true },
         { "name": "curve", "type": "enum:ease" },
-        { "name": "children", "type": "items", "required": true }
+        { "name": "child", "type": "item", "required": true }
       ],
       "variants": [
         {
           "template": {
             "kind": "musicxx.FadeTransition",
             "value": "$value",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -690,7 +661,7 @@
             "value": "$value",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
@@ -702,14 +673,14 @@
         { "name": "value", "type": "value", "required": true },
         { "name": "axis", "type": "enum:axis" },
         { "name": "curve", "type": "enum:ease" },
-        { "name": "children", "type": "items", "required": true }
+        { "name": "child", "type": "item", "required": true }
       ],
       "variants": [
         {
           "template": {
             "kind": "musicxx.SizeTransition",
             "value": "$value",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -718,7 +689,7 @@
             "value": "$value",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -729,7 +700,7 @@
             "axis": "$axis",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
@@ -742,14 +713,14 @@
         { "name": "from", "type": "value" },
         { "name": "to", "type": "value" },
         { "name": "curve", "type": "enum:ease" },
-        { "name": "children", "type": "items", "required": true }
+        { "name": "child", "type": "item", "required": true }
       ],
       "variants": [
         {
           "template": {
             "kind": "musicxx.ScaleTransition",
             "value": "$value",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -758,7 +729,7 @@
             "value": "$value",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -771,7 +742,7 @@
             "to": "$to",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
@@ -784,14 +755,14 @@
         { "name": "from", "type": "value" },
         { "name": "to", "type": "value" },
         { "name": "curve", "type": "enum:ease" },
-        { "name": "children", "type": "items", "required": true }
+        { "name": "child", "type": "item", "required": true }
       ],
       "variants": [
         {
           "template": {
             "kind": "musicxx.RotationTransition",
             "value": "$value",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -804,7 +775,7 @@
             "to": "$to",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
@@ -817,14 +788,14 @@
         { "name": "from", "type": "value" },
         { "name": "to", "type": "value" },
         { "name": "curve", "type": "enum:ease" },
-        { "name": "children", "type": "items", "required": true }
+        { "name": "child", "type": "item", "required": true }
       ],
       "variants": [
         {
           "template": {
             "kind": "musicxx.SlideTransition",
             "value": "$value",
-            "children": "$children"
+            "child": "$child"
           }
         },
         {
@@ -837,7 +808,7 @@
             "to": "$to",
             "$require": "curve",
             "curve": "$curve",
-            "children": "$children"
+            "child": "$child"
           }
         }
       ]
