@@ -23,7 +23,7 @@
 | 演示示例 | `example_native_multi` | 动态库插件：**多目标打包**（一个包里放多个系统/架构分支，运行时按当前系统与 CPU 架构选分支） |
 | 演示示例 | `example_js` | JS插件：与 native 版行为等价（零编译） |
 | 演示示例 | `example_js_playing_bg` | JS插件：播放页背景合集 —— 六种样式（封面三种：模糊 / 沉浸 / 黑胶；图案三种：晶格 / 光圈 / 插件纹理铺底）+ 歌曲图接管 + 封面取色 + 自动前景色 + 频谱与内联 Shader 页面 |
-| 演示示例 | `example_js_playing_slots` | JS插件：播放页的位置 —— 插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader） |
+| 演示示例 | `example_js_playing_slots` | JS插件：插件界面的位置 —— 插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader）+ 歌曲页面背景（歌单封面 shader，用只在歌单页面内可用的纹理来源 `musicxx.songlist.cover`） |
 | 演示示例 | `example_js_broadcast` | JS插件：广播（声明 / 发布自己的频道、订阅官方值频道并按需声明订阅频率） |
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
 | 演示示例 | `example_js_net` | JS插件：插件框架内置网络能力 —— HTTP / TCP / WebSocket 的**客户端 + 服务端**（客户端支持 https / wss；载入后自动跑一遍本机自检，含 `fetch` / `download`） |
@@ -64,7 +64,7 @@ plugins/
 │   ├── views.js                说明页 / 设置页 / 频谱页
 │   ├── plugin.js               配置、槽位跟随、能力入口与全部顶层注册
 │   └── shader/                 heat / card / vinyl / bg / ring 五个 bundle（源码 + 打包脚本 + 编译产物）
-├── example_js_playing_slots/     JS插件 + shader/ + resource/svg/（插入块 / 控制栏 / 音频动效）
+├── example_js_playing_slots/     JS插件 + shader/ + resource/svg/（插入块 / 控制栏 / 音频动效 / 歌曲页面背景）
 ├── example_js_async/             JS插件（对照示例：只要 plugin.yaml + plugin.js）
 ├── example_js_broadcast/         JS插件（广播：声明 / 发布 / 订阅频率）
 ├── example_js_net/              JS插件：网络能力示例（HTTP / TCP / WebSocket 客户端 + 服务端）

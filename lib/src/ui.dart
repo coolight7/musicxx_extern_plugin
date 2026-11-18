@@ -103,12 +103,13 @@ abstract final class MusicxxPluginUIType {
   ///   **最新注册的生效**（它没有用户选择，也不读 `order`）；
   /// - **不需要用户选择**：插件声明即生效；想不显示就 `musicxx.ui.slot.unregister`，
   ///   用户要关就停用插件或关闭『拟声++』；
-  /// - 渲染与播放页背景同一份块写法（`view`）：背景铺满页面，块里的 `musicxx.Shader`
-  ///   用 `Expanded` 包住才拿得到确定高度。
+  /// - 渲染与播放页背景同一份块写法（`view`）：根块直接写一块 `musicxx.Shader`（或 `Stack`）
+  ///   就铺满整页；把着色器放进滚动的 `Column` 里时仍要包 `Expanded`（不然拿不到确定高度）；
+  /// - 想画"当前打开的歌单的封面"就用纹理来源 `musicxx.songlist.cover`：参数与
+  ///   `musicxx.cover` 一样，但**只在歌单页面（`/songs`）内可用** —— 别的页面拿不到封面，
+  ///   绑的是占位纹理（`u<成员名>Info.w` 是 0）。
   ///
-  /// 详见 `docs/plugin-shader-bundle.md` §5.5。
-  ///
-  /// 详见 `docs/plugin-shader-bundle.md` §5.5。
+  /// 详见 `docs/plugin-shader-bundle.md` §5.5 / §5.6。
   static const String pageBackground = 'musicxx.ui.page.background';
 
   /// 音效（播放时叠加的一段音频滤镜）：注册后追加在『音效』插件的音效页面里，

@@ -1,11 +1,13 @@
-/// example_js_playing_slots 的位置声明: 页面插入块 + 控制按钮栏
+/// example_js_playing_slots 的位置声明: 页面插入块 + 控制按钮栏 + 普通页面背景
 ///
-/// 这个插件只演示"插件在播放页的哪些位置能放自己的界面"，分三类：
+/// 这个插件只演示"插件在哪些位置能放自己的界面"，分四类：
 /// 1. **插入块**（`musicxx.ui.playing.<页面>.<位置>`）：在页面固定位置或列表 header/footer
 ///    插一块自己的界面，同一位置可以摆多项；
 /// 2. **替换位置**（`musicxx.ui.playing.controlBar[.<按钮>]`）：换掉整条控制按钮栏，
 ///    或者只换其中一个按钮；
-/// 3. **渲染槽位**（`musicxx.ui.playing.visualizer`）：成为音频动效的一个候选，见 visualizer.js。
+/// 3. **渲染槽位**（`musicxx.ui.playing.visualizer`）：成为音频动效的一个候选，见 visualizer.js；
+/// 4. **普通页面背景**（`musicxx.ui.page.background`）：给某个路由的页面铺一层背景，
+///    按路由自动生效、没有用户选择。这里给歌曲页面（`/songs`）画这张歌单的封面。
 ///
 /// 位置就是 UI 类型：写错页面或位置名时插件框架直接拒绝注册（不会静默不显示）。
 /// 本文件只写"声明"与注册函数，页面内容在 views.js，顶层调用在 plugin.js。
@@ -22,6 +24,7 @@ const SLOT_CONTROL_BAR = "playing.controlBar";
 const SLOT_CONTROL_BAR_MENU = "playing.controlBar.menu";
 const SLOT_CONTROL_BAR_FAVORITE = "playing.controlBar.favorite";
 const SLOT_VISUALIZER = "playing.visualizer";
+const SLOT_PAGE_BACKGROUND = "page.background";
 
 /// 渲染槽位 id（`musicxx.ui.slot.set` 的 slot 参数）与内置的"不显示"项
 const VISUALIZER_SLOT_ID = "player.visualizer";
@@ -35,6 +38,7 @@ const SLOT_NAME_MENU = "menuButton";
 const SLOT_NAME_FAVORITE = "favoriteButton";
 const SLOT_NAME_WHOLE_BAR = "wholeBar";
 const SLOT_NAME_VISUALIZER = "visualizer";
+const SLOT_NAME_PAGE_BACKGROUND = "pageCover";
 const SLOT_NAME_HOME = "home";
 
 /// 主页入口与两个页面的视图 id
@@ -186,6 +190,58 @@ function unregisterWholeBar() {
     }
     musicxx.ui.slot.unregister(SLOT_NAME_WHOLE_BAR);
     wholeBarRegistered = false;
+}
+
+/// 歌曲页面（`/songs`）的页面背景：把这张歌单的封面贴在屏幕边缘占 70%，余下渐变到主色
+///
+/// 普通页面背景（`musicxx.ui.page.background`）与播放页背景同一份块写法，区别是：
+/// - **没有用户选择**：`routes` 声明适用页面，写了这个路由的项优先于“所有页面”的项，
+///   同一优先级里**注册顺序最靠后的**生效（别处也注册了 `/songs` 时可能被顶掉）；
+/// - 纹理来源 `musicxx.songlist.cover` **只在歌单页面内可用**（当前打开的歌单由主程序的
+///   页面子树给出），别的页面拿不到封面，画面只剩渐变底。
+///
+/// `uTint` 是同一张封面的缩小 + 重度模糊版：模糊到位后基本是纯色，采样一次就相当于
+/// 这张图的主色调 —— 插件拿不到像素数据，这是最省的做法，也不需要主程序再提供取色接口。
+function pageCoverEntryData() {
+    return {
+        title: PLUGIN_TITLE + " · 歌曲页面封面背景",
+        depict: "歌单封面贴着屏幕边缘占 70%，其余渐变到这张图的主色调" +
+            "（横屏贴左/上/下，竖屏贴上/左/右）",
+        routes: ["/songs"],
+        view: {
+            kind: "musicxx.Shader",
+            bundle: "shader/page_cover.shaderbundle",
+            args: {
+                uCover: { kind: "texture", source: "musicxx.songlist.cover", size: 768 },
+                uTint: {
+                    kind: "texture",
+                    source: "musicxx.songlist.cover",
+                    size: 128,
+                    blur: 40,
+                    square: true,
+                },
+                // 没有封面（不在歌单页面 / 这张歌单还没有封面）时的底色
+                uFallback: { kind: "source", name: "musicxx.theme.background" },
+                uShare: { kind: "const", value: 0.7 },
+            },
+            // 静态背景：进页面出一帧，换歌单 / 封面后重新准备纹理再出一帧
+            animate: false,
+            resolutionScale: 0.6,
+        },
+    };
+}
+
+/// 注册歌曲页面的页面背景（注册即生效，没有选中状态）
+///
+/// 不想显示就 `musicxx.ui.slot.unregister(SLOT_NAME_PAGE_BACKGROUND)`。
+function registerPageBackground() {
+    musicxx.ui.slot.register({
+        name: SLOT_NAME_PAGE_BACKGROUND,
+        type: SLOT_PAGE_BACKGROUND,
+        // 同一路由命中多项时不用 order 取舍：写了这个路由的项优先，同优先级里最新的生效
+        order: 10,
+        data: pageCoverEntryData(),
+    });
 }
 
 /// 注册主页入口（说明页 `ext://<插件 id>/card`）

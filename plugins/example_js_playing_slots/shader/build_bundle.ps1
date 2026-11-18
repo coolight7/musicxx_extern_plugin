@@ -1,6 +1,7 @@
-# 打包本插件（example_js_playing_slots）的音频动效 shader bundle（Windows 用 pwsh）
+# 打包本插件（example_js_playing_slots）的两个 shader bundle（Windows 用 pwsh）
 #
-#   bundle.json + shaders/full.vert + shaders/viz.frag → viz.shaderbundle（『示例频谱柱』）
+#   bundle.json            + shaders/full.vert + shaders/viz.frag        → viz.shaderbundle（音频动效）
+#   bundle_page_cover.json + shaders/full.vert + shaders/page_cover.frag → page_cover.shaderbundle（歌曲页面背景）
 #
 # 用法：
 #   pwsh -NoProfile -File .\build_bundle.ps1 [-FlutterRoot <Flutter SDK 根目录>]
@@ -10,6 +11,8 @@
 # Linux / macOS 用同样的参数调用对应平台的 impellerc（无 .exe 后缀）：
 #   "$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/impellerc" \
 #     --shader-bundle="$(tr -d '\n' < bundle.json)" --sl=viz.shaderbundle
+#   "$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/impellerc" \
+#     --shader-bundle="$(tr -d '\n' < bundle_page_cover.json)" --sl=page_cover.shaderbundle
 param(
     [string]$FlutterRoot = ""
 )
@@ -36,19 +39,27 @@ if ([string]::IsNullOrEmpty($impellerc)) {
     throw "找不到 impellerc.exe（$engineDir）"
 }
 
-$specPath = Join-Path $here 'bundle.json'
-if (-not (Test-Path $specPath)) {
-    throw "找不到 bundle 描述文件：$specPath"
-}
-# bundle 描述必须以「单行」传给 --shader-bundle：带换行时会被当成多个参数，
-# impellerc 会报 "Target shading language file name was empty"
-$spec = ((Get-Content $specPath -Raw) -replace "`r?`n", ' ').Trim()
-$out = Join-Path $here 'viz.shaderbundle'
+# 要编译的 bundle：描述文件 → 产物文件名
+$targets = @(
+    @{ Spec = 'bundle.json'; Out = 'viz.shaderbundle' },
+    @{ Spec = 'bundle_page_cover.json'; Out = 'page_cover.shaderbundle' }
+)
 
-& $impellerc --shader-bundle="$spec" --sl="$out"
-if ($LASTEXITCODE -ne 0) {
-    throw "impellerc 编译失败（bundle.json，exit=$LASTEXITCODE）"
+foreach ($target in $targets) {
+    $specPath = Join-Path $here $target.Spec
+    if (-not (Test-Path $specPath)) {
+        throw "找不到 bundle 描述文件：$specPath"
+    }
+    # bundle 描述必须以「单行」传给 --shader-bundle：带换行时会被当成多个参数，
+    # impellerc 会报 "Target shading language file name was empty"
+    $spec = ((Get-Content $specPath -Raw) -replace "`r?`n", ' ').Trim()
+    $out = Join-Path $here $target.Out
+
+    & $impellerc --shader-bundle="$spec" --sl="$out"
+    if ($LASTEXITCODE -ne 0) {
+        throw "impellerc 编译失败（$($target.Spec)，exit=$LASTEXITCODE）"
+    }
+    Write-Output "已生成: $out ($((Get-Item $out).Length) 字节)"
 }
-Write-Output "已生成: $out ($((Get-Item $out).Length) 字节)"
 
 Pop-Location

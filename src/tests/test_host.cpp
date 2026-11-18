@@ -2276,8 +2276,9 @@ int main(int argc, char **argv) {
     // ============ 播放页插槽示例 (example_js_playing_slots)
     // ============
     //
-    // 三类位置各验一遍：插入块（歌词页 "/ 播放列表页 "/ 更多信息页）、
-    // 按钮级 / 整栏替换（controlBar）与音频动效（playing.visualizer）。
+    // 三类位置各验一遍：插入块（歌词页 / 播放列表页 / 更多信息页）、
+    // 按钮级 / 整栏替换（controlBar）、音频动效（playing.visualizer）与
+    // 普通页面背景（歌曲页面 /songs 的歌单封面背景）。
     {
       MusicxxExternPluginString loadLog{};
       const auto slotsRc = musicxx_extern_plugin_plugin_load_sync(
@@ -2296,11 +2297,13 @@ int main(int argc, char **argv) {
           host, "example_js_playing_slots", "probe", "{}", 8000);
       check(slotsProbe.acceptRc == PLUGINXX_RESULT_OK && slotsProbe.ok,
             "插槽示例的探针可读");
-      check(jsonIntField(slotsProbe.payload, "uiEntries") == "7",
-            "UI 项 7 个 = 3 个插入块 + 2 个按钮 + 1 个动效 + 1 个主页入口");
+      check(jsonIntField(slotsProbe.payload, "uiEntries") == "8",
+            "UI 项 8 个 = 3 个插入块 + 2 个按钮 + 1 个动效 + 1 个页面背景"
+            " + 1 个主页入口");
       check(jsonIntField(slotsProbe.payload, "hasControlBar") == "1" &&
-                jsonIntField(slotsProbe.payload, "visualizer") == "1",
-            "控制栏视图与动效声明都在 (三个业务脚本都执行过)");
+                jsonIntField(slotsProbe.payload, "visualizer") == "1" &&
+                jsonIntField(slotsProbe.payload, "pageBackground") == "1",
+            "控制栏视图、动效与页面背景声明都在 (四个业务脚本都执行过)");
 
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
@@ -2322,6 +2325,11 @@ int main(int argc, char **argv) {
                     std::string::npos &&
                 snapshot.find("shader/viz.shaderbundle") != std::string::npos,
             "音频动效项进入快照 (含 shader bundle)");
+      check(snapshot.find("musicxx.ui.page.background") != std::string::npos &&
+                snapshot.find("shader/page_cover.shaderbundle") !=
+                    std::string::npos &&
+                snapshot.find("musicxx.songlist.cover") != std::string::npos,
+            "歌曲页面的页面背景进入快照 (含歌单封面纹理声明)");
 
       // 整栏替换：开启后多出 controlBar 项（按钮级项保留，主程序会忽略它们）
       const CapabilityCallOutcome barCall = callCapability(

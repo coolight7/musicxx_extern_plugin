@@ -1,7 +1,8 @@
 /// example_js_playing_slots 的插件脚本: 配置、能力入口与顶层注册
 ///
-/// 这个插件演示"插件在播放页的哪些位置能放自己的界面"：
+/// 这个插件演示"插件在哪些位置能放自己的界面"：
 /// - 插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）与按钮级替换 → slots.js；
+/// - 普通页面背景（歌曲页面的封面背景）→ slots.js 的 [pageCoverEntryData]；
 /// - 音频动效（渲染槽位 `player.visualizer`）→ visualizer.js；
 /// - 位置上的视图与两个页面 → views.js；
 /// - 本文件：配置读写、能力入口，以及**全部顶层注册**（必须同步完成，放在最后）。
@@ -114,6 +115,7 @@ function installSlotCapabilities() {
             hasSlotViews: (typeof songlistHeaderView === "function") ? 1 : 0,
             hasControlBar: (typeof controlBarView === "function") ? 1 : 0,
             visualizer: (typeof visualizerEntryData === "function") ? 1 : 0,
+            pageBackground: (typeof pageCoverEntryData === "function") ? 1 : 0,
             wholeBar: configWholeBar() ? 1 : 0,
             lyricTip: configLyricTip() ? 1 : 0,
         };
@@ -212,6 +214,9 @@ registerInsertSlots(configLyricTip());
 /// 两个按钮级替换（菜单 / 收藏）
 registerButtonSlots();
 
+/// 歌曲页面的页面背景（普通页面背景：按 `routes` 自动生效，没有用户选择）
+registerPageBackground();
+
 /// 整栏替换：配置里开着才注册（同一个位置只认一项，整栏优先于按钮级）
 if (configWholeBar()) {
     registerWholeBar();
@@ -255,4 +260,4 @@ musicxx.broadcast.subscribe("musicxx.state.playlist", function (value) {
 musicxx.timer.setTimeout(refreshSlotConfig, 200);
 
 musicxx.host.log(2, PLUGIN_TITLE + "（" + PLUGIN_ID + "）已加载：插入块 3 处 + " +
-    "控制栏按钮级替换 2 个 + 音频动效 1 项");
+    "控制栏按钮级替换 2 个 + 音频动效 1 项 + 歌曲页面背景 1 项");

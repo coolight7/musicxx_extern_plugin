@@ -785,6 +785,7 @@ musicxx.ui.slot.register({
             bundle: "shader/bg.shaderbundle",   // 插件目录内的相对路径
             // args：成员名 → 值表达式（可嵌套），纹理也写在这里（成员名就是采样器名）：
             // `musicxx.cover` = 当前歌曲封面（解码 + 缩放 + 可预模糊后上传成 GPU 纹理），
+            // `musicxx.songlist.cover` = 当前页面打开的歌单封面（只在歌单页面内可用），
             // 信息成员缺省 `<成员名>Info` = (纹理宽, 纹理高, 原图宽高比, 是否有封面)
             args: {
                 uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 24 },
@@ -1049,7 +1050,8 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
   封面被清空时各收到一次（同一个封面源被重复设置不会重复派发）。载荷
   `{srcKey, name, artist, hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` /
   `network`）里**没有直链、也没有图片字节** —— 要图片自己调 `musicxx.media.cover`，要在着色器里
-  采样就在着色器块的 `args` 里声明纹理（`musicxx.cover` / `musicxx.image.<key>`）；**可以回退移除**，插件停用 / 卸载时插件框架也会自动摘掉：
+  采样就在着色器块的 `args` 里声明纹理（`musicxx.cover` / `musicxx.songlist.cover` /
+  `musicxx.image.<key>`）；**可以回退移除**，插件停用 / 卸载时插件框架也会自动摘掉：
 
 ```js
 musicxx.broadcast.subscribe("musicxx.media.cover.changed", (ctx) => {
@@ -1078,6 +1080,8 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
   `{"kind":"texture","source":"musicxx.cover"}` —— 主程序解码 + 缩放 + 可选预模糊后上传成
   GPU 纹理，每帧绑定给着色器，插件不搬字节
   （见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1）；
+  画**当前打开的歌单的封面**（歌曲页面的页面背景）用 `musicxx.songlist.cover`：
+  参数与封面纹理一样，但只在歌单页面内可用（同文档 §5.6）；
 - `musicxx.media.cover` 这条能力是**读数据**用的（自己分析像素：哈希、取色、外部识别…）：
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；

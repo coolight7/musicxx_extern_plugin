@@ -1282,6 +1282,7 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", {
 
 封面**只作为数据来源**（不参与画面绘制、不推直链）；要在着色器里用封面，在着色器块的 `args` 里
 声明纹理（`{"kind":"texture","source":"musicxx.cover"}`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1）。
+歌曲页面（`/songs`）里还想画这张歌单的封面，用 `musicxx.songlist.cover`（只在歌单页面内可用，§5.6）。
 
 **`musicxx.media.palette.get`** —— 封面取色结果 + 内置背景实际用的 4 色
 
@@ -2526,7 +2527,9 @@ uiNotify(R"({"text":"已刷新"})");
 - 着色器只有一种写法：块 `musicxx.Shader`（`bundle` + `args` + `speed` / `maxFps` / `animate` /
   `resolutionScale`）；bundle 是**打包期编译好的**（`format_version` 必须与应用使用的 Flutter 版本一致）。
 - 需要封面 / 插件图片纹理时在块的 `args` 里声明（`{"kind":"texture","source":"musicxx.cover"}` /
-  `musicxx.image.<key>`）：应用负责解码、缩放、预模糊、上传纹理，每帧把纹理绑给着色器（插件不搬字节）。
+  `musicxx.songlist.cover` / `musicxx.image.<key>`）：应用负责解码、缩放、预模糊、上传纹理，
+  每帧把纹理绑给着色器（插件不搬字节）。`musicxx.songlist.cover` 是**当前打开的歌单的封面**，
+  **只在歌单页面内可用**（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.6）。
 - **背景的根块就是画布**：根上直接写一块 `musicxx.Shader`（或 `Stack`）就会铺满整页；
   以前要求的"用 `Expanded` 包一层"现在不需要了（包了也照样能用，根上的 `Expanded` 会被解开）。
   把着色器放进去滚动的 `Column` 里时仍要包 `Expanded`（不然它拿不到确定高度）。

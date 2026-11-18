@@ -220,7 +220,7 @@ void main() {
 |---|---|---|---|
 | 成员名（= `sampler2D` 名） | — | GLSL 标识符 | `args` 的成员名就是采样器名；插件在自己的着色器里声明同名 `uniform sampler2D` |
 | `kind` | — | `texture` | 固定写 `"texture"`：这一条从参数表里拆出来当纹理声明（剩下的成员才是参数） |
-| `source` | 必填 | `musicxx.cover` / `musicxx.image.<key>` | 纹理来源：当前歌曲封面（§5.1）/ 插件自己绑定的图片（§5.2） |
+| `source` | 必填 | `musicxx.cover` / `musicxx.songlist.cover` / `musicxx.image.<key>` | 纹理来源：当前歌曲封面（§5.1）/ 当前打开的歌单封面（§5.6，只在歌单页面内可用）/ 插件自己绑定的图片（§5.2） |
 | `info` | `<成员名>Info` | GLSL 标识符，或 `""` | 信息成员名；写 `""` 表示不要这个成员；与成员名同名时退回缺省名 |
 | `size` | 512 | 128..1024 | （只对封面）纹理最长边（px）：等比缩放、**不放大** |
 | `blur` | 0 | 0..64 | （只对封面）预模糊强度（sigma，px）；0 = 原图。**注意这是"纹理上的" sigma**：纹理铺满屏幕（还可能被插件再放大）后，屏幕上看到的模糊 ≈ `blur × 纹理→屏幕的放大倍数` —— 512 的纹理铺在 1280 宽的窗口里放大 5 倍左右，`blur: 34` 会糊成一片渐变，`blur: 10~16` 才看得出封面内容 |
@@ -231,6 +231,8 @@ void main() {
 - 写错的一项只丢自己（记一条日志，带原因），不影响同一份 `args` 里的其它成员，也不会让整项不可用；
 - `musicxx.cover` 与 `musicxx.image.<key>` 是同一条声明的两种 `source`：图片项只有 `smooth` 有意义
   （尺寸由插件绑定时决定），写 `size` / `blur` / `square` 也不会报错，只是不起作用。
+- 还有一条 `musicxx.songlist.cover`（歌单页面里的封面，§5.6）：参数与 `musicxx.cover` 完全一致，
+  只是源图换成"当前打开的歌单的封面"，而且**只在歌单页面内可用**。
 
 `uCoverInfo = (纹理宽, 纹理高, 原图宽高比, 是否有封面)`：
 
@@ -507,6 +509,43 @@ void main() {
 - 页面被别的路由盖住 / 进后台时由渲染视图自己停帧（与播放页背景同一套规则）。
 - 背景不接手势：外层包着 `IgnorePointer`，块里的 `Button` / `Control` 不会响应。
 - 一个页面外壳只应有一层 `WindowBase`：同一路由里嵌套两层时两层都会尝试渲染（现在的页面没有这种结构）。
+- 给**歌曲页面**（`/songs`）铺背景时，想画"这张歌单的封面"就用纹理来源 `musicxx.songlist.cover`：
+  它只在这个页面内可用，见 §5.6；`plugins/example_js_playing_slots` 的 `pageCover` 是完整例子。
+
+---
+
+## 5.6 歌单封面纹理（`musicxx.songlist.cover`）：只在歌单页面内可用
+
+歌曲页面（路由 `/songs`）打开的是某一张歌单，它的封面（用户设的图，没设时用第一首歌的图）
+可以由着色器直接采样。参数与 §5.1 的封面纹理**完全一样**（`size` / `blur` / `square` / `smooth` / `info`），
+只是 `source` 换掉：
+
+```jsonc
+// 普通页面背景（page.background，§5.5）的 view 里
+{
+  "kind": "musicxx.Shader",
+  "bundle": "shader/page_cover.shaderbundle",
+  "args": {
+    "uCover": {"kind": "texture", "source": "musicxx.songlist.cover", "size": 768},
+    // 主色调：同一张图缩小 + 重度模糊，采样一次近似"这张图的平均色"
+    "uTint": {"kind": "texture", "source": "musicxx.songlist.cover",
+              "size": 128, "blur": 40, "square": true}
+  },
+  "animate": false,
+  "resolutionScale": 0.6
+}
+```
+
+- **局部可用**：只有**歌曲页面子树里**才拿得到封面。主程序由歌单页面（`SongsPage`）把打开的歌单
+  交给页面背景与页面里的块；别的地方（播放页背景、别的普通页面、插件自己的页面）声明这条来源时
+  拿不到封面 —— 绑的是 1×1 透明占位纹理，`u<成员名>Info.w` 是 0，照 §5.1 的写法回退即可；
+  这种情况下主程序日志里会有一条"歌单封面纹理只在歌单页面内可用"；
+- **封面会变**：换一张歌单、用户改了歌单封面、网络歌单加载完歌曲（封面这时才有）都会重新准备纹理，
+  渲染视图在那之后补一帧；封面还没到时主程序会自己重试几次，不用插件轮询；
+- **只用于画面**：它不影响 `musicxx.media.cover` / `musicxx.media.palette.*` 那套"当前歌曲封面"
+  的能力与取色，两回事；
+- 拿主色调不需要额外的取色接口：像上面那样再声明一条同来源的小纹理（`size: 128, blur: 40`），
+  模糊到位后采样一次就相当于这张图的平均色。
 
 ---
 
