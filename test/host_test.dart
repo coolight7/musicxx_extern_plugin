@@ -930,8 +930,8 @@ void main() {
       );
       expect(slotsProbe, isA<Map<String, Object?>>());
       final Map<String, Object?> probe = slotsProbe! as Map<String, Object?>;
-      expect(_intOf(probe['uiEntries']), 7,
-          reason: '3 个插入块 + 2 个按钮 + 1 个动效 + 1 个主页入口');
+      expect(_intOf(probe['uiEntries']), 8,
+          reason: '3 个插入块 + 2 个按钮 + 1 个动效 + 1 个页面背景 + 1 个主页入口');
       expect(_intOf(probe['hasControlBar']), 1);
       expect(_intOf(probe['visualizer']), 1);
 
@@ -956,6 +956,8 @@ void main() {
           reason: '按钮级替换：收藏');
       expect(hasType('musicxx.ui.playing.visualizer'), isTrue,
           reason: '音频动效候选');
+      expect(hasType('musicxx.ui.page.background'), isTrue,
+          reason: '普通页面背景：歌曲页面');
 
       // 整栏替换：开启后多出整栏项，按钮级项保留（主程序会忽略它们）
       await runtime.plugins.call(

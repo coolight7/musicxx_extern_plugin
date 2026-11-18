@@ -12,7 +12,7 @@
 | 按钮级替换 | `musicxx.ui.playing.controlBar.favorite` | 换掉收藏按钮，点击执行 `musicxx.songlist.favorite` |
 | 整栏替换 | `musicxx.ui.playing.controlBar` | 整条控制栏（5 个按钮：切播放模式 / 上一曲 / 播放暂停 / 下一曲 / 收藏，按播放状态与当前模式换图标），默认关闭 |
 | 渲染槽位 | `musicxx.ui.playing.visualizer` | 音频动效：4 根频谱柱 + 底部光晕（`shader/viz.shaderbundle`） |
-| 普通页面背景 | `musicxx.ui.page.background` | 歌曲页面（`/songs`）的背景：这张歌单的封面贴着屏幕边缘占 70%，其余渐变到这张图的主色调（`shader/page_cover.shaderbundle`） |
+| 普通页面背景 | `musicxx.ui.page.background` | 歌曲页面（`/songs`）的背景：这张歌单的封面贴着屏幕边缘占 70%，其余渐变到这张图的主色调，亮度按主色与主题自动调到文字看得清（`shader/page_cover.shaderbundle`） |
 
 两类位置的区别：**插入块**是"在页面里加一块"，可以有多个插件同时插入；
 **替换位置**（控制栏整栏、按钮级）是"换掉内置的那一块"，同一个位置**只认一项**（`order` 小的优先），
@@ -94,6 +94,10 @@ pwsh -NoProfile -File plugins/example_js_playing_slots/shader/build_bundle.ps1
   画面只剩渐变底 —— 插件不需要处理"拿不到"之外的其它分支；
 - **主色调没有单独的接口**：`uTint` 再声明一条同来源、缩小并重度模糊的小纹理（`size: 128,
   blur: 40`），模糊到位后采样一次就相当于整张图的平均色；
+- **配色与可读性都在着色器里决定**（主程序不参与）：页面上的标题、歌曲名用主程序的文字色
+  （夜间浅色、白昼深色），所以最后一步把整幅画面的亮度收进“与当前主题文字够对比”的区间 ——
+  区间内的像素（大多数渐变底与中间调）原样保留，只有封面的亮部在夜间被压暗、暗部在白昼被提亮，
+  色相与层次都还在。阈值是 `kLumNightMax` / `kLumDayMin` 等常量，改配色先从这里下手；
 - **背景是静态的**（`animate: false`）：进页面出一帧，换歌单 / 歌单封面变化时主程序重新准备纹理
   再补一帧；只想要"一张贴边的背景图 + 渐变"时不要开动画，省 GPU；
 - **同一路由下与别的插件择一**：`example_native` 也注册了 `/songs` 的页面背景（晶格着色器）。
@@ -118,6 +122,9 @@ pwsh -NoProfile -File plugins/example_js_playing_slots/shader/build_bundle.ps1
 - **按钮图标建议用自己的 svg**（`resource/svg/`），`icon` 只接受插件目录内的相对路径；
 - **替换位置只给一块内容**：同一位置注册多项不会叠加，只有 `order` 最小的那一项生效；
 - **普通页面背景不读 `order`**：按路由自动生效，同一页面命中多项时注册顺序最靠后的生效；
+- **页面文字颜色不归插件管**：普通页面没有“插件指定前景色”的接口（只有播放页有
+  `musicxx.ui.playing.foreground.set`），所以想让文字看得清只能让**背景**避让 ——
+  本示例的做法是把画面亮度收进主题文字的可读区间，别指望调主程序的文字色；
 - **动效项与内置样式在同一个列表**：不要自己去开关『音乐动效』插件，插件项照样可选；
   没有频谱数据时 `uEnv.z` 是 0，据此区分"静音"与"没数据"；
 - **能力处理器必须同步返回**（长活儿交给动作或定时器），处理器里不要 `await` 应用实现的能力。
