@@ -203,12 +203,12 @@ function loopModeButton(args, mode) {
 /// 主程序给视图参数 `playing` / `favorite` / `hasSong` / `song` / `colors`：
 /// 播放 / 暂停、切歌、收藏、换主题时会带新参数再取一次；播放模式不靠参数 ——
 /// 读广播快照 `musicxx.state.playlist`（见 [currentLoopMode]）。
+/// **按钮的颜色不用插件管**：没写 `color` 的按钮在播放页上按页面前景三色画（见插件文档 §1.7）。
 /// [mode] 是刚切完的新模式（只有点的瞬间传，平时为空）。
 function controlBarView(args, mode) {
     const playing = !!(args && args.playing === true);
     const favorite = !!(args && args.favorite === true);
     const hasSong = !(args && args.hasSong === false);
-    const colors = (args && typeof args.colors === "object" && args.colors) || null;
     const buttons = [
         loopModeButton(args, mode),
         controlBarButton("resource/svg/prev.svg", "musicxx.player.prev"),

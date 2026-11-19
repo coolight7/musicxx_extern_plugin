@@ -30,6 +30,9 @@
 - kit 同步：`kit.card({child})` 这类模板改成单块（多块先 `columnOf(…)`）；
   `kit.button({label, variant, highlight, icon, glyph, color, size, disabled, action})`；
   新增 `kit.themeScope({child, data})`（`data` 是客户端定义的对象，musicxx 的字段见 `docs/plugin-ui.md`）。
+- **播放页上的按钮跟三色**（musicxx 客户端行为，不改接口）：没写 `color` 的 `Button` 在播放页上按页面前景
+  三色画（内容色 = 普通色、底色 = 块底色、禁用 = 减淡色，选中仍用主题的选中色），与内置控制栏按钮一致，
+  换主题 / 换前景色时跟着变；`ThemeScope` 的 `mask` 组写三色也只影响播放页里的这些按钮。
 
 ### 变更（未发布）：`ui.slot.update` 改成"重新取视图"
 

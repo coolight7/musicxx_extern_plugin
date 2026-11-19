@@ -357,6 +357,10 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
 
   不要为了这个给位置加参数：状态是插件自己订阅的，主程序只提供上面那张表的通用参数。
 - 换主题时 `colors` 会变，插件用它画的按钮不用另做什么就会跟着切；不想跟主题就忽略它、自己写颜色。
+- **控制栏里的 `Button` 自己就是跟三色的**：在播放页上，没写 `color` 的按钮按页面前景三色画
+  （内容色取 `colors.main`、底色取 `colors.block`、禁用取 `colors.cross`），与内置按钮一致，
+  换主题 / 换前景色时跟着变；写了 `color` 的按钮以描述为准。所以只有着色器、自绘块这类需要
+  原始色值的地方才需要读 `colors`。
 - 插件卸载 / 停用 / 关闭『拟声++』后立刻回到内置界面；用户也可以在插件管理里停用插件来还原。
 
 > 整栏替换之后，内置的「更多」菜单（选歌词 / 投屏 / 加入歌单 / 播放模式 / 沉浸模式…）就没有入口了。
@@ -725,7 +729,7 @@ capability(*this, "plugin.my_plugin.settings",
 | `text` | `main` / `cross` / `title` / `titleBackground` | 正文色 / 次要文字色（`caption`、`hint`）/ 标题色 / 标题底 |
 | `surface` | `primary` / `background` / `backgroundCross` / `error` / `disable` / `dialog` / `dialogBarrier` | 主色（`accent`、选中态）/ 底色 / 卡片底色 / 错误色 / 禁用色 / 弹层底与遮罩 |
 | `button` | `content` / `simpleContent` / `selectContent` / `disableContent` | 按钮内容色（普通 / `simple` / 选中 / 禁用） |
-| `mask` | `main` / `cross` / `block` | 播放页那三色（普通 / 减淡 / 块底）：**只换颜色**，不会把这块变成遮罩前景排版 |
+| `mask` | `main` / `cross` / `block` | 播放页那三色（普通 / 减淡 / 块底）：块处在播放页里时，主程序画的按钮按这三色取色；**只换颜色**，不会把这块变成遮罩前景排版 |
 | `shimmer` | `base` / `highlight` / `decoration` | 加载占位（骨架屏）的底色 / 高光 / 装饰 |
 
 规则：
@@ -736,6 +740,8 @@ capability(*this, "plugin.my_plugin.settings",
 - 不认识的组 / 键、解析不出来的颜色都跳过（不会让整块失效）；一个可用颜色都没有时按“没声明”处理，
   内容照常画；
 - 只管颜色：圆角、阴影、渐变、字号、间距不开放；
+- `mask` 只在**播放页**（页面前景就是那三色）里看得到效果：那时这块里的 `Button`（没写 `color`）
+  按它取色（内容色取普通色、底色取块底色、禁用取减淡色）。普通页面里写 `mask` 不会改变这块的外观；
 - 它是纯样式容器，不接手势（`action` 仍按公共字段语义作用于整块）。
 
 用之前先确认客户端画得出来：看取视图时拿到的能力段（`args.ui.blocks`）里有没有 `ThemeScope`。
