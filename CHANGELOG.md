@@ -216,8 +216,9 @@ item 级的 `shader` / `cover` / `image` / `scrim` / `foregroundStyle` / `foregr
 
 - 插件可以注册自己的音效（一段音频滤镜链），追加在『音效』插件的音效页面里，与 21 个内置预设同一个列表，
   用户选中后作为播放音效生效（写进 mpv `af` 的应用音效段）。
-- `data = {title, subtitle?（或 depict?）, filters（字符串数组，必填）, pitch?, cpuCost?, enabled?}`；
-  `filters` 与 `pitch` 至少要有一个，只有 `pitch` 就是纯变调音效。
+- `data = {title, subtitle?（或 depict?）, filter（字符串，必填）, pitch?, cpuCost?, enabled?}`；
+  `filter` 是完整的一段 mpv `af` 串（多条滤镜写成一条 `lavfi=[a,b,c]` 图），
+  `filter` 与 `pitch` 至少要有一个，只有 `pitch` 就是纯变调音效。
 - 与内置音效同一套规则：与均衡器互斥；带 `pitch` 的音效会先把用户自定义音调复位。
   插件停用 / 卸载 / 关闭『拟声++』后这一项从列表消失，当前选择回退成「未启用音效」。
 - SDK：C 头新增 `MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT`，Dart 新增 `MusicxxPluginUIType.audioEffect`，

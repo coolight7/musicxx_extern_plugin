@@ -300,7 +300,7 @@ MUSICXX_PLUGIN_EXPORT(
 | 播放页背景 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | `data` 只有 `title` / `depict?` / `view`（块树，着色器是里面的 `musicxx.Shader`）；前景（三色）用能力 `musicxx.ui.playing.foreground.set`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1 / §8.1 |
 | 普通页面背景 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND, ...)` | 给歌单页 / 设置页 / 插件页面这类普通页面铺背景：同一套 `title` + `view`，多一个 `routes`（不写 = 所有普通页面）；不需要用户选择，同一页面里最新注册的生效，弹窗与播放页不包含（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5） |
 | 播放页控制按钮栏 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
-| 音效 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filters` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.8 |
+| 音效 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filter` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.8 |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
 | 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连插件框架（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（插件框架会拒绝在 IO 线程阻塞等待） |
 | 功能埋点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能埋点、给出实现、或调应用留出的功能埋点（频谱 / 副歌 / 封面取色） |

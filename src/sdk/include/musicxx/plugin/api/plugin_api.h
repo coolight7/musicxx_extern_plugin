@@ -177,8 +177,9 @@ static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI
 /// 详见 docs/plugin-ui.md §1.1、plugin-shader-bundle.md §5.5。
 #define MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND "musicxx.ui.page.background"
 /// 音效: 播放时叠加的一段音频滤镜, 注册后追加在『音效』插件的音效页面里
-/// data = {title, subtitle?（或 depict?）, filters（必填, 字符串数组）, pitch?, cpuCost?}
-/// 说明: filters 按顺序拼进 mpv `af`（可以写 `lavfi=[...]` 图语法）, 至少要有一条或者给出 pitch;
+/// data = {title, subtitle?（或 depict?）, filter（必填, 字符串）, pitch?, cpuCost?}
+/// 说明: filter 是完整的一段 mpv `af` 串, 多条滤镜写成 `lavfi=[a,b,c]` 图语法（mpv 会给 af 里的每一条滤镜
+/// 单独建一个滤镜图, 各起一组「核数」线程）; filter 为空时必须给出 pitch;
 /// pitch 是变调类音效的音调 (0.25~2.0), 选中会把用户自定义音调复位;
 /// cpuCost 是 1~5 的性能负担 (默认 3, 只用于页面提示)。
 /// 是否可用与当前选中项由应用渲染音效列表时判断, 插件只描述"效果是什么"。

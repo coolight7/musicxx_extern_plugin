@@ -872,18 +872,17 @@ musicxx.host.log(2, "当前页面: " + page);
 
 ```js
 // 注册自己的音效（类型简称 audio.effect）：追加在『音效』插件的音效页面里，与内置预设同一个列表。
-// filters 按顺序拼进 mpv af（可以写 lavfi=[...] 图语法）；与均衡器、自定义音调互斥。
+// filter 是完整的一段 mpv af 串，多条滤镜写成一条 lavfi=[...] 图（否则每条滤镜各占一组线程）；
+// 与均衡器、自定义音调互斥。
 musicxx.ui.slot.register({
     name: "bass",
     type: "audio.effect",
     title: "低音炮",
     subtitle: "加强 60~140 Hz",
     cpuCost: 3,
-    filters: [
-        "volume=-3dB",
-        "equalizer=f=80:width_type=q:width=1:g=8",
-        "alimiter=limit=0.89:level=false:latency=false",
-    ],
+    filter:
+        "lavfi=[volume=-3dB,equalizer=f=80:width_type=q:width=1:g=8," +
+        "alimiter=limit=0.89:level=false:latency=false]",
 });
 ```
 

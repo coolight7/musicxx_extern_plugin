@@ -246,25 +246,13 @@ bool validatePageBackgroundData(const Json &data, std::string &err) {
 /// 只做结构校验 (字段类型, 以及至少要有一项内容): 滤镜名是否在这份 ffmpeg / mpv 构建里
 /// 存在由插件自己保证。写错的滤镜串会被 mpv 拒绝, 不会影响应用自己的其它音频段。
 bool validateAudioEffectData(const Json &data, std::string &err) {
-  bool hasFilters = false;
-  if (data.contains("filters")) {
-    const Json &filters = data["filters"];
-    if (filters.is_string()) {
-      hasFilters = !filters.get<std::string>().empty();
-    } else if (filters.is_array()) {
-      for (const Json &item : filters) {
-        if (!item.is_string()) {
-          err = "音效项 filters 必须是字符串数组";
-          return false;
-        }
-        if (!item.get<std::string>().empty()) {
-          hasFilters = true;
-        }
-      }
-    } else {
-      err = "音效项 filters 必须是字符串数组";
+  bool hasFilter = false;
+  if (data.contains("filter")) {
+    if (!data["filter"].is_string()) {
+      err = "音效项 filter 必须是字符串 (完整的一段 af 串)";
       return false;
     }
+    hasFilter = !data["filter"].get<std::string>().empty();
   }
   if (data.contains("pitch") && !data["pitch"].is_number()) {
     err = "音效项 pitch 必须是数字 (0.25~2.0)";
@@ -275,8 +263,8 @@ bool validateAudioEffectData(const Json &data, std::string &err) {
     return false;
   }
   const bool hasPitch = data.contains("pitch") && data["pitch"].is_number();
-  if (!hasFilters && !hasPitch) {
-    err = "音效项至少要给出 filters (字符串数组) 或 pitch (数字)";
+  if (!hasFilter && !hasPitch) {
+    err = "音效项至少要给出 filter (字符串) 或 pitch (数字)";
     return false;
   }
   return true;

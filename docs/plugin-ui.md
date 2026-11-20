@@ -31,7 +31,7 @@
 | `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx.circle` / `musicxx.square` / `musicxx.adaptive`）也在同一份列表里 |
 | `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx.none` / `musicxx.waveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
 | `musicxx.ui.page.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5（`title` 必填、`view` 必填、`routes?`） | 普通页面的背景层（歌单页 / 设置页 / 插件页面这类走标准页面外壳的页面） | **不需要用户选择**：`routes` 声明适用的页面路由 id（不写 / 空数组 = 所有普通页面），按当前路由自动生效；同一页面命中多项时写了这个路由的优先于“所有页面”，同一优先级里**最新注册的生效**（不看 `order`）。**弹窗与播放页不包含在内** |
-| `musicxx.ui.audioEffect` | `title`（必填）、`subtitle?`（或 `depict?`）、`filters`（必填，字符串数组）、`pitch?`、`cpuCost?` | 『音效』插件的音效页面（设置 → 插件 音效；播放页「更多」菜单里的音效行也进同一个页面） | 追加在 21 个内置预设之后；选中后作为播放音效生效，与内置音效同一套互斥规则（均衡器 / 自定义音调）；说明行写「来自插件 <插件id>」。**是否可用与当前选中项由主程序判断**，插件只描述效果。见 §1.8 |
+| `musicxx.ui.audioEffect` | `title`（必填）、`subtitle?`（或 `depict?`）、`filter`（必填，字符串）、`pitch?`、`cpuCost?` | 『音效』插件的音效页面（设置 → 插件 音效；播放页「更多」菜单里的音效行也进同一个页面） | 追加在 21 个内置预设之后；选中后作为播放音效生效，与内置音效同一套互斥规则（均衡器 / 自定义音调）；说明行写「来自插件 <插件id>」。**是否可用与当前选中项由主程序判断**，插件只描述效果。见 §1.8 |
 | `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填） | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreInfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
 | `musicxx.ui.playing.controlBar` 与 `musicxx.ui.playing.controlBar.<按钮>`（六个，见 §1.7） | `view`（必填） | 播放页底部控制按钮栏（整栏或单个按钮） | **替换**内置界面：整栏由插件画，或只换五个按钮里的某几个；同一位置只认一项（`order` 小的优先），取不到内容时回到内置界面 |
 
@@ -376,11 +376,7 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
 {
   "title": "低音炮",
   "subtitle": "加强 60~140 Hz",
-  "filters": [
-    "volume=-3dB",
-    "equalizer=f=80:width_type=q:width=1:g=8",
-    "alimiter=limit=0.89:level=false:latency=false"
-  ],
+  "filter": "lavfi=[volume=-3dB,equalizer=f=80:width_type=q:width=1:g=8,alimiter=limit=0.89:level=false:latency=false]",
   "pitch": 1.0,
   "cpuCost": 3
 }
@@ -390,22 +386,21 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
 |---|---|---|
 | `title` | 是 | 音效名，音效页面与「已启用」提示用；为空时退回 UI 项的短名 |
 | `subtitle` | 否 | 说明（页面第二行）；也接受 `depict`（与渲染槽位一致，同时给时 `depict` 优先） |
-| `filters` | 是 | 滤镜串数组，按顺序拼进 `af`。最后一项常常是 `alimiter=...`；与内置预设一样可以写 `lavfi=[...]` 图语法 |
+| `filter` | 是 | 完整的一段 mpv `af` 串，原样写进播放器。多条滤镜写成一条 `lavfi=[a,b,c]` 图；最后一条常常是 `alimiter=...`。**不写成图的话 mpv 会给每一条滤镜单独建一个滤镜图、各起一组「CPU 核数」的线程（全程空闲）** |
 | `pitch` | 否 | 变调类音效的音调（0.25~2.0）。给了它就等于「小风车」那种音效：选中时会把用户自定义的音调复位 |
 | `cpuCost` | 否 | 1~5 的性能负担（1 最省，默认 3），只用于页面上提示用户 |
 
 没有 `enabled` 字段：音效项只描述“效果是什么”，**是否可用（『音效』插件有没有启用）、当前选中的是
 哪一项，都由主程序渲染音效列表时判断**（与内置预设同一套逻辑）；不想出现在列表里就注销这一项。
 
-`filters` 与 `pitch` 至少要有一个（只有 `pitch` 也可以，那就是纯变调），否则这一项会被跳过。
+`filter` 与 `pitch` 至少要有一个（只有 `pitch` 也可以，那就是纯变调），否则这一项会被跳过。
 
 C++ 插件：
 
 ```cpp
 uiSlotRegister("bass", MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
     R"({"title":"低音炮","subtitle":"加强 60~140 Hz","cpuCost":3,
-        "filters":["volume=-3dB","equalizer=f=80:width_type=q:width=1:g=8",
-                   "alimiter=limit=0.89:level=false:latency=false"]})");
+        "filter":"lavfi=[volume=-3dB,equalizer=f=80:width_type=q:width=1:g=8,alimiter=limit=0.89:level=false:latency=false]"})");
 ```
 
 JS 插件：
@@ -417,11 +412,9 @@ musicxx.ui.slot.register({
   title: "低音炮",
   subtitle: "加强 60~140 Hz",
   cpuCost: 3,
-  filters: [
-    "volume=-3dB",
-    "equalizer=f=80:width_type=q:width=1:g=8",
-    "alimiter=limit=0.89:level=false:latency=false",
-  ],
+  filter:
+    "lavfi=[volume=-3dB,equalizer=f=80:width_type=q:width=1:g=8," +
+    "alimiter=limit=0.89:level=false:latency=false]",
 });
 ```
 
