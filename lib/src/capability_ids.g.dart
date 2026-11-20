@@ -246,6 +246,12 @@ abstract final class MusicxxCapabilityId {
   static const String uiSlotCurrent = 'musicxx.ui.slot.current';
   /// 设置槽位项
   static const String uiSlotSet = 'musicxx.ui.slot.set';
+  /// 界面槽位与内容
+  static const String uiSlotInfo = 'musicxx.ui.slot.info';
+  /// 槽位变量值
+  static const String uiSlotVars = 'musicxx.ui.slot.vars';
+  /// 要求重生成内容
+  static const String uiSlotUpdate = 'musicxx.ui.slot.update';
   /// 设置播放页前景
   static const String uiPlayingForegroundSet = 'musicxx.ui.playing.foreground.set';
   /// 列出音效
@@ -385,6 +391,9 @@ abstract final class MusicxxCapabilityId {
     uiSlotList,
     uiSlotCurrent,
     uiSlotSet,
+    uiSlotInfo,
+    uiSlotVars,
+    uiSlotUpdate,
     uiPlayingForegroundSet,
     playerAudioEffectList,
     playerAudioEffectGet,
@@ -2365,6 +2374,66 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '设置槽位项',
       depict: '把某个槽位换成指定候选（插件项与内置项同一份列表）；前后链能改目标或拦下这次切换',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.slot.info',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'sync',
+      timeoutMs: 0,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '界面槽位与内容',
+      depict: '槽位表（应用的 + 插件声明的）+ 内容注册 + 每条内容的 rev / 最近一次失败 / 字节数',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.slot.vars',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'sync',
+      timeoutMs: 0,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '槽位变量值',
+      depict: '某个槽位上每条内容拿到的变量值（含插件广播频道），排障用',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.ui.slot.update',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: true,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: false,
+      title: '要求重生成内容',
+      depict: '让某个槽位上的内容再生成一次（与插件侧 `musicxx.ui.slot.update` 同义）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.playing.foreground.set',

@@ -159,6 +159,9 @@
 #define MUSICXX_CAPABILITY_UI_SLOT_LIST "musicxx.ui.slot.list"
 #define MUSICXX_CAPABILITY_UI_SLOT_CURRENT "musicxx.ui.slot.current"
 #define MUSICXX_CAPABILITY_UI_SLOT_SET "musicxx.ui.slot.set"
+#define MUSICXX_CAPABILITY_UI_SLOT_INFO "musicxx.ui.slot.info"
+#define MUSICXX_CAPABILITY_UI_SLOT_VARS "musicxx.ui.slot.vars"
+#define MUSICXX_CAPABILITY_UI_SLOT_UPDATE "musicxx.ui.slot.update"
 #define MUSICXX_CAPABILITY_UI_PLAYING_FOREGROUND_SET "musicxx.ui.playing.foreground.set"
 #define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_LIST "musicxx.player.audioEffect.list"
 #define MUSICXX_CAPABILITY_PLAYER_AUDIO_EFFECT_GET "musicxx.player.audioEffect.get"
@@ -322,6 +325,9 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.ui.slot.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.slot.current", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.slot.set", 0, 0, 7u, 1, 5000, 0, 5u},
+    {"musicxx.ui.slot.info", 0, 0, 1u, 0, 0, 0, 5u},
+    {"musicxx.ui.slot.vars", 0, 0, 1u, 0, 0, 0, 5u},
+    {"musicxx.ui.slot.update", 0, 0, 1u, 1, 5000, 0, 1u},
     {"musicxx.ui.playing.foreground.set", 0, 0, 7u, 1, 5000, 0, 5u},
     {"musicxx.player.audioEffect.list", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.player.audioEffect.get", 0, 0, 1u, 1, 5000, 0, 5u},

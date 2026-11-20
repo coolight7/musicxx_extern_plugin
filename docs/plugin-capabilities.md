@@ -113,6 +113,9 @@
 | `musicxx.ui.slot.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.set` | 命令、插件 | before / impl / after | - | async | 5000 ms | - | - |
+| `musicxx.ui.slot.info` | 命令、插件 | impl | - | sync | - | - | - |
+| `musicxx.ui.slot.vars` | 命令、插件 | impl | - | sync | - | - | - |
+| `musicxx.ui.slot.update` | 命令 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.playing.foreground.set` | 命令、插件 | before / impl / after | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.get` | 命令、插件 | impl | - | async | 5000 ms | - | - |
@@ -289,6 +292,18 @@
 ### `musicxx.ui.slot.set` 设置槽位项
 
 参数：`slot`（槽位 id，缺省是播放页背景 `player.background`；还可以是 `player.icon` / `player.visualizer`）；`id`（候选 id：内置项 `musicxx.*`、插件项 `plugin.<插件id>.<名字>`，以及 `musicxx.default` 写回默认值、`musicxx.previous` 交还控制权）。**切换本身由应用执行（`impl` 只有应用一个实现）**：`before` 回答 `{"patch":{"id":"musicxx.auto","slot":"player.icon"}}` 换这次的目标，`{"action":"cancel"}` = 这次不换；`after` 拿到结果（`{ok, slot, id}`）后可以 `value` 改写或 `drop` 作废。**所有入口都走这一条能力**：设置页 / 动效页 / 插件按钮 / 命令行 / MCP 都是同一个调用点，所以插件把样式切走这件事也能在后面改回来。失败码：`unknown_slot` / `invalid_argument` / `failed`（候选不存在或不可用时 `error` 是原因）。
+
+### `musicxx.ui.slot.info` 界面槽位与内容
+
+参数：`slot`（可省：只着这一个槽位）。返回 `{ok, slots, variables}`：`slots` 每一项是 `{slot, kind, owner, label, active, variables, registrations, contents}` —— `kind` 是槽位形态（item / insert / replace / selectable / pageBackground / page / overlay），`owner` 是插件声明的槽位属主（应用预留的是空串），`active` = 现在有没有挂载点，`registrations` 是插件注册的内容（`itemId / plugin / id / deps / order / minIntervalMs`），`contents` 是缓存里真正渲染的那一份（`rev / updatedAt / lastError / bytes / hasContent`；`replace` / `selectable` 只给生效的那一份）。`variables` 是变量清单（含插件广播频道当前有没有人 watch）。只读：请求重生成用 `musicxx.ui.slot.update`。
+
+### `musicxx.ui.slot.vars` 槽位变量值
+
+参数：`slot`（必填）、`id`（可省：只看某一条内容的依赖）。返回 `{ok, slot, active, items}`：`items` 每项是 `{itemId, plugin, id, deps, order, values, missing}` —— `values` 是声明的依赖变量 → 当前值（作用域变量给的是当前挂载点填的那一份；没有挂载点时作用域变量为 null），`missing` 是取不到值的变量 id。只读。
+
+### `musicxx.ui.slot.update` 要求重生成内容
+
+参数：`slot`（必填）、`id`（可省：插件起的短名字，可多次给或给 `ids` 数组）、`plugin`（可省：只看这个插件的内容）。返回 `{ok, slot, ids}`。**总会请求**：不等变量变化、不管上次的上下文是不是一样（与自动刷新区别就在这里）。每条内容最多一个在途请求，执行期间多次调用只保留最后一次。没有挂载点的槽位也会请求（结果进缓存，下一次挂载直接用）。**只能应用内部 / 命令行调**：插件要自己的内容重生成用自己的 `musicxx.ui.slot.update`，不然任何一个插件都能把别的插件的界面拖进重生成循环。
 
 ### `musicxx.ui.playing.foreground.set` 设置播放页前景
 

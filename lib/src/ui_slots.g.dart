@@ -6,22 +6,16 @@
 enum MusicxxUiSlotKind {
   /// 声明项：出现在主程序自己的列表里，不含界面树
   item,
-
   /// 插入：一个位置可以有多份内容，按 order 排
   insert,
-
   /// 替换：只认一份内容，没有内容时画内置界面
   replace,
-
   /// 可选样式：候选声明 + 用户选择
   selectable,
-
   /// 普通页面背景：按路由自动生效
   pageBackground,
-
   /// 插件页面：插件自己发起
   page,
-
   /// 插件浮层：插件自己发起
   overlay,
 }
@@ -41,26 +35,19 @@ class MusicxxUiSlotSpec_c {
   /// 全名（`musicxx.ui.*`）
   final String id;
   final MusicxxUiSlotKind kind;
-
   /// 中文叫法（错误提示与文档用）
   final String label;
-
   /// 所在页面
   final String page;
-
   /// 页面内的位置
   final String position;
-
   /// 内容是否画在列表里（在列表里时页面已经给过边距）
   final bool inList;
-
   /// 一句话说明
   final String doc;
 
   /// 简称（去掉 `musicxx.ui.` 前缀）
-  String get shortName => id.startsWith(kMusicxxUiSlotPrefix)
-      ? id.substring(kMusicxxUiSlotPrefix.length)
-      : id;
+  String get shortName => id.startsWith(kMusicxxUiSlotPrefix) ? id.substring(kMusicxxUiSlotPrefix.length) : id;
 
   @override
   String toString() => 'MusicxxUiSlotSpec_c($id)';
@@ -105,8 +92,7 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
     page: '「添加歌曲」弹窗',
     position: '来源列表',
     inList: true,
-    doc:
-        '「添加歌曲」弹窗里的一个来源。data = {title, subtitle?, icon?, action?}；点击时参数里带当前歌单（pid / name / songNum）。',
+    doc: '「添加歌曲」弹窗里的一个来源。data = {title, subtitle?, icon?, action?}；点击时参数里带当前歌单（pid / name / songNum）。',
   ),
   MusicxxUiSlotSpec_c(
     id: 'musicxx.ui.audioEffect',
@@ -115,8 +101,7 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
     page: '音效页面',
     position: '音效列表',
     inList: true,
-    doc:
-        '一段音频滤镜。data = {title, subtitle?, filter, pitch?, cpuCost?}；pitch 夹在 0.25~2.0，cpuCost 夹在 1~5（取整）。',
+    doc: '一段音频滤镜。data = {title, subtitle?, filter, pitch?, cpuCost?}；pitch 夹在 0.25~2.0，cpuCost 夹在 1~5（取整）。',
   ),
   MusicxxUiSlotSpec_c(
     id: 'musicxx.ui.playing.background',
@@ -188,8 +173,7 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
     page: '播放页',
     position: '控制栏「播放 / 暂停」按钮（替换显示）',
     inList: false,
-    doc:
-        '只替换这一个按钮的显示；对应能力 musicxx.player.toggle；画面要跟播放状态走就用变量 musicxx.player.playing。',
+    doc: '只替换这一个按钮的显示；对应能力 musicxx.player.toggle；画面要跟播放状态走就用变量 musicxx.player.playing。',
   ),
   MusicxxUiSlotSpec_c(
     id: 'musicxx.ui.playing.controlBar.next',
@@ -207,8 +191,7 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
     page: '播放页',
     position: '控制栏「收藏」按钮（替换显示）',
     inList: false,
-    doc:
-        '只替换这一个按钮的显示；对应能力 musicxx.songlist.favorite；收藏状态用变量 musicxx.song.favorite。',
+    doc: '只替换这一个按钮的显示；对应能力 musicxx.songlist.favorite；收藏状态用变量 musicxx.song.favorite。',
   ),
   MusicxxUiSlotSpec_c(
     id: 'musicxx.ui.playing.lyric.top',
@@ -323,106 +306,69 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
 /// 槽位 id → 元信息
 final Map<String, MusicxxUiSlotSpec_c> kMusicxxUiSlotIndex =
     <String, MusicxxUiSlotSpec_c>{
-      for (final MusicxxUiSlotSpec_c slot in kMusicxxUiSlots) slot.id: slot,
-    };
+  for (final MusicxxUiSlotSpec_c slot in kMusicxxUiSlots) slot.id: slot,
+};
 
 /// 简称 → 元信息
 final Map<String, MusicxxUiSlotSpec_c> kMusicxxUiSlotShortIndex =
     <String, MusicxxUiSlotSpec_c>{
-      for (final MusicxxUiSlotSpec_c slot in kMusicxxUiSlots)
-        slot.shortName: slot,
-    };
+  for (final MusicxxUiSlotSpec_c slot in kMusicxxUiSlots) slot.shortName: slot,
+};
 
 /// 主程序预留的槽位常量（插件与主程序都写这些名字，不要手打字符串）
 abstract final class MusicxxUiSlots_c {
   /// 主页入口
   static const String homeEntry = 'musicxx.ui.home.entry';
-
   /// 歌曲菜单项
   static const String songAction = 'musicxx.ui.song.action';
-
   /// 歌单菜单项
   static const String playlistAction = 'musicxx.ui.playlist.action';
-
   /// 添加歌曲来源项
   static const String addsongEntry = 'musicxx.ui.addsong.entry';
-
   /// 音效
   static const String audioEffect = 'musicxx.ui.audioEffect';
-
   /// 播放页背景
   static const String playingBackground = 'musicxx.ui.playing.background';
-
   /// 播放页歌曲图
   static const String playingIcon = 'musicxx.ui.playing.icon';
-
   /// 播放页音频动效
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
-
   /// 普通页面背景
   static const String pageBackground = 'musicxx.ui.page.background';
-
   /// 播放页控制栏
   static const String playingControlBar = 'musicxx.ui.playing.controlBar';
-
   /// 播放页控制栏 · 菜单按钮
-  static const String playingControlBarMenu =
-      'musicxx.ui.playing.controlBar.menu';
-
+  static const String playingControlBarMenu = 'musicxx.ui.playing.controlBar.menu';
   /// 播放页控制栏 · 上一曲按钮
-  static const String playingControlBarPrevious =
-      'musicxx.ui.playing.controlBar.previous';
-
+  static const String playingControlBarPrevious = 'musicxx.ui.playing.controlBar.previous';
   /// 播放页控制栏 · 播放暂停按钮
-  static const String playingControlBarPlayOrPause =
-      'musicxx.ui.playing.controlBar.playOrPause';
-
+  static const String playingControlBarPlayOrPause = 'musicxx.ui.playing.controlBar.playOrPause';
   /// 播放页控制栏 · 下一曲按钮
-  static const String playingControlBarNext =
-      'musicxx.ui.playing.controlBar.next';
-
+  static const String playingControlBarNext = 'musicxx.ui.playing.controlBar.next';
   /// 播放页控制栏 · 收藏按钮
-  static const String playingControlBarFavorite =
-      'musicxx.ui.playing.controlBar.favorite';
-
+  static const String playingControlBarFavorite = 'musicxx.ui.playing.controlBar.favorite';
   /// 歌词页顶部
   static const String playingLyricTop = 'musicxx.ui.playing.lyric.top';
-
   /// 歌词页底部
   static const String playingLyricBottom = 'musicxx.ui.playing.lyric.bottom';
-
   /// 歌词列表内顶部
   static const String playingLyricHeader = 'musicxx.ui.playing.lyric.header';
-
   /// 歌词列表内底部
   static const String playingLyricFooter = 'musicxx.ui.playing.lyric.footer';
-
   /// 更多信息页内容开头
-  static const String playingMoreInfoHeader =
-      'musicxx.ui.playing.moreInfo.header';
-
+  static const String playingMoreInfoHeader = 'musicxx.ui.playing.moreInfo.header';
   /// 更多信息页内容末尾
-  static const String playingMoreInfoFooter =
-      'musicxx.ui.playing.moreInfo.footer';
-
+  static const String playingMoreInfoFooter = 'musicxx.ui.playing.moreInfo.footer';
   /// 播放列表页顶部
   static const String playingSonglistTop = 'musicxx.ui.playing.songlist.top';
-
   /// 播放列表页底部
-  static const String playingSonglistBottom =
-      'musicxx.ui.playing.songlist.bottom';
-
+  static const String playingSonglistBottom = 'musicxx.ui.playing.songlist.bottom';
   /// 播放列表内顶部
-  static const String playingSonglistHeader =
-      'musicxx.ui.playing.songlist.header';
-
+  static const String playingSonglistHeader = 'musicxx.ui.playing.songlist.header';
   /// 播放列表内底部
-  static const String playingSonglistFooter =
-      'musicxx.ui.playing.songlist.footer';
-
+  static const String playingSonglistFooter = 'musicxx.ui.playing.songlist.footer';
   /// 插件页面
   static const String page = 'musicxx.ui.page';
-
   /// 插件浮层
   static const String overlay = 'musicxx.ui.overlay';
 }
