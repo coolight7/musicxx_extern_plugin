@@ -908,7 +908,9 @@ public:
     /// - `generate` 是同步回调: 把主程序给的 `ctx_json` 变成 `{"json":…}` / `{"data":…}`;
     /// - `depsJson` 是变量 id 数组 (插件按这些变量决定结构);
     /// - `title` / `depict` 是给人看的名字与说明: 可选样式槽位要在用户选中之前就列出来,
-    ///   那时候还没有内容, 所以名字只能在这里给。
+    ///   那时候还没有内容, 所以名字只能在这里给;
+    /// - `routesJson` 是适用的页面路由 (JSON 字符串数组, 只对 `pageBackground` 槽位有意义;
+    ///   不写 = 所有普通页面)。
     int32_t uiContentRegister(const char* contentId, const char* slot,
                               const char* depsJson,
                               int32_t (PLUGINXX_CALL* generate)(
@@ -916,7 +918,8 @@ public:
                                   PluginxxString*),
                               int32_t order = 0, int32_t minIntervalMs = 0,
                               const char* title = "",
-                              const char* depict = "") {
+                              const char* depict = "",
+                              const char* routesJson = "[]") {
         if (!iface.ui || !iface.ui->register_content) {
             log.warn("musicxx.ui 表不可用: 内容未注册 (插件框架版本过旧?)");
             return -1;
@@ -928,6 +931,7 @@ public:
         spec.slot            = pluginxxView(slot ? slot : "");
         spec.title           = pluginxxView(title ? title : "");
         spec.depict          = pluginxxView(depict ? depict : "");
+        spec.routes_json     = pluginxxView(routesJson ? routesJson : "[]");
         spec.deps_json       = pluginxxView(depsJson ? depsJson : "[]");
         spec.order           = order;
         spec.min_interval_ms = minIntervalMs;

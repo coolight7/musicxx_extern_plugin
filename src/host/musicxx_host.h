@@ -972,6 +972,7 @@ private:
     std::string slot;     ///< 槽位全名
     std::string title;    ///< 展示名 (空 = 用 id)
     std::string depict;   ///< 一句话说明 (可为空)
+    std::string routesJson; ///< 适用路由 (JSON 数组; 只对 pageBackground 有意义)
     std::string depsJson;
     std::vector<std::string> deps;
     int32_t  order = 0;

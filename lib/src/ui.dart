@@ -251,6 +251,7 @@ class MusicxxPluginUIContent {
     required this.slot,
     this.title = '',
     this.depict = '',
+    this.routes = const <String>[],
     this.order = 0,
     this.minIntervalMs = 0,
     this.deps = const <String>[],
@@ -277,6 +278,9 @@ class MusicxxPluginUIContent {
   /// 一句话说明（可选样式槽位的副标题；可为空）
   final String depict;
 
+  /// 适用的页面路由（只有 `pageBackground` 槽位用；空 = 所有普通页面）
+  final List<String> routes;
+
   /// 排序权重（同一槽位内小者靠前；同权重按注册顺序）
   final int order;
 
@@ -291,6 +295,7 @@ class MusicxxPluginUIContent {
 
   factory MusicxxPluginUIContent.fromJson(Map<String, Object?> json) {
     final Object? deps = json['deps'];
+    final Object? routes = json['routes'];
     return MusicxxPluginUIContent(
       id: json['id'] as String? ?? '',
       shortId: json['shortId'] as String? ?? '',
@@ -298,6 +303,12 @@ class MusicxxPluginUIContent {
       slot: json['slot'] as String? ?? '',
       title: json['title'] as String? ?? '',
       depict: json['depict'] as String? ?? '',
+      routes: routes is List
+          ? <String>[
+              for (final item in routes)
+                if (item is String && item.isNotEmpty) item,
+            ]
+          : const <String>[],
       order: (json['order'] as num?)?.toInt() ?? 0,
       minIntervalMs: (json['minIntervalMs'] as num?)?.toInt() ?? 0,
       deps: deps is List

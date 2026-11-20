@@ -184,6 +184,11 @@ typedef struct MusicxxPluginUIContentSpec {
     PluginxxStringView title;
     /// 一句话说明 (可选样式槽位的副标题; 可为空)
     PluginxxStringView depict;
+    /// 适用的页面路由 (JSON 数组; 只对 `pageBackground` 槽位有意义)
+    ///
+    /// 要在注册时给: 客户端得先按路由挑出"这一页用哪一份", 而那时内容还没生成。
+    /// 不写 / 空数组 = 所有普通页面。
+    PluginxxStringView routes_json;
     PluginxxStringView deps_json; ///< 变量 id 的 JSON 数组 (只订阅这些, 也只把这些放进 context)
     int32_t            order;     ///< 排序权重 (小者靠前)
     int32_t min_interval_ms;      ///< 0 = 不按时间节流 (默认); >0 = 两次生成之间的最短间隔

@@ -481,6 +481,28 @@ int32_t MusicxxHostManager::registerUiContent(
                        ? std::string{spec.depict.data,
                                      static_cast<size_t>(spec.depict.size)}
                        : std::string{};
+  content.routesJson =
+      spec.routes_json.data
+          ? std::string{spec.routes_json.data,
+                        static_cast<size_t>(spec.routes_json.size)}
+          : std::string{"[]"};
+  {
+    // 路由只在注册时给: 客户端要先按路由挑"这一页用哪一份"
+    bool ok = false;
+    Json parsed = parseJsonSafe(content.routesJson, &ok);
+    if (!ok || (!parsed.is_null() && !parsed.is_array())) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 内容 `{}` 的 routes 必须是字符串数组",
+              inst->name, fullId);
+      return PLUGINXX_RESULT_ERR_ARG;
+    }
+    if (parsed.is_array()) {
+      for (const Json &item : parsed) {
+        if (!item.is_string() || item.get<std::string>().empty()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+      }
+    }
+  }
   content.depsJson = depsJson;
   content.deps = std::move(deps);
   content.order = spec.order;
@@ -887,6 +909,9 @@ std::string MusicxxHostManager::uiContentsJson(
     }
     if (!content->depict.empty()) {
       item["depict"] = content->depict;
+    }
+    if (!content->routesJson.empty() && content->routesJson != "[]") {
+      item["routes"] = parseJsonSafe(content->routesJson);
     }
     item["order"] = content->order;
     item["minIntervalMs"] = content->minIntervalMs;

@@ -258,7 +258,7 @@ var featurePointImpls = new Map();
       data: data
     };
   }
-  /// 内容描述: {id, slot, deps?, order?, minIntervalMs?} → 规范化后的对象
+  /// 内容描述: {id, slot, deps?, routes?, order?, minIntervalMs?} → 规范化后的对象
   function normalizeContent(spec, what) {
     if (!spec || typeof spec !== "object") { throw new Error(what + ": 需要对象参数"); }
     var id = shortName((typeof spec.id === "string") ? spec.id
@@ -272,10 +272,23 @@ var featurePointImpls = new Map();
       }
       deps = spec.deps.map(function (item) { return String(item); });
     }
+    // 适用页面（只有 pageBackground 槽位用它）；注册时就要给，内容这时还没生成
+    var routes = [];
+    if (spec.routes !== undefined && spec.routes !== null) {
+      if (Object.prototype.toString.call(spec.routes) !== "[object Array]") {
+        throw new Error(what + ": routes 必须是页面路由数组");
+      }
+      routes = spec.routes.map(function (item) {
+        var route = String(item).trim();
+        if (!route) { throw new Error(what + ": routes 里不能有空路由"); }
+        return route;
+      });
+    }
     return {
       id: id,
       slot: slot,
       deps: deps,
+      routes: routes,
       title: (typeof spec.title === "string") ? spec.title : "",
       depict: (typeof spec.depict === "string") ? spec.depict : "",
       order: Number.isFinite(spec.order) ? Math.trunc(spec.order) : 0,
@@ -1092,11 +1105,11 @@ var featurePointImpls = new Map();
       }
       contentTable.set(content.id, {
         slot: content.slot, deps: content.deps, order: content.order,
-        title: content.title, depict: content.depict,
+        title: content.title, depict: content.depict, routes: content.routes,
         minIntervalMs: content.minIntervalMs, fn: generate
       });
       ext.uiContentOp("register", content.id, safeJson({
-        slot: content.slot, deps: content.deps,
+        slot: content.slot, deps: content.deps, routes: content.routes,
         title: content.title, depict: content.depict,
         order: content.order, minIntervalMs: content.minIntervalMs
       }));
@@ -1119,7 +1132,8 @@ var featurePointImpls = new Map();
       var list = [];
       contentTable.forEach(function (value, id) {
         list.push({ id: "plugin." + musicxx.pluginId + "." + id, shortId: id,
-                    slot: value.slot, deps: value.deps, order: value.order,
+                    slot: value.slot, deps: value.deps, routes: value.routes,
+                    order: value.order,
                     title: value.title, depict: value.depict,
                     minIntervalMs: value.minIntervalMs });
       });
@@ -3261,6 +3275,13 @@ int32_t applyUiOpOnHost(MusicxxHostManager *mgr, MusicxxHostInstance *inst,
           parsed.contains("depict") && parsed["depict"].is_string()
               ? parsed["depict"].get<std::string>()
               : std::string{};
+      std::string routesJson = "[]";
+      if (parsed.contains("routes")) {
+        if (!parsed["routes"].is_array()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        routesJson = parsed["routes"].dump();
+      }
       MusicxxPluginUIContentSpec spec{};
       spec.version = 1;
       spec.struct_size = sizeof(MusicxxPluginUIContentSpec);
@@ -3268,6 +3289,8 @@ int32_t applyUiOpOnHost(MusicxxHostManager *mgr, MusicxxHostInstance *inst,
       spec.slot = PluginxxStringView{slotName.data(), slotName.size()};
       spec.title = PluginxxStringView{title.data(), title.size()};
       spec.depict = PluginxxStringView{depict.data(), depict.size()};
+      spec.routes_json =
+          PluginxxStringView{routesJson.data(), routesJson.size()};
       spec.deps_json = PluginxxStringView{depsJson.data(), depsJson.size()};
       spec.order = parsed.contains("order") && parsed["order"].is_number()
                        ? static_cast<int32_t>(parsed["order"].get<double>())

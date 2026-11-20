@@ -1,9 +1,11 @@
 # 插件界面：UI 项、插件页面与设置页
 
 > **本轮改造（进行中）**：界面改成了"槽位 + 内容"两层，本文下面有些章节还没改写完。
-> 已经按新模型接入的是**十个插入位置**（§1.6）与**控制栏六个替换位置**（§1.7）；
-> 它们不再接受 `data.view`，要注册内容（`musicxx.ui.content.register`）。
-> 插件页面、浮层与三种样式槽位（播放页背景 / 歌曲图 / 动效 / 页面背景）仍在旧写法上，迁移中。
+> 已经按新模型接入的是**十个插入位置**（§1.6）与**控制栏六个替换位置**（§1.7），
+> 以及**三种样式槽位与普通页面背景**（播放页背景 / 歌曲图 / 动效 / 页面背景，见 §1.1 的类型表）：
+> 它们不再接受声明项（`musicxx.ui.item.register` + `data.view`），要往这些槽位
+> **注册内容**（`musicxx.ui.content.register`），候选列表里显示的是内容注册时给的名字。
+> 插件页面与浮层也读内容缓存，地址里的 id 就是内容 id。
 >
 > 新模型要点：
 >
@@ -11,11 +13,12 @@
 >   **内容**（content）是插件为某个槽位生成的一份界面，一个槽位可以有很多份（用内容 id 区分）。
 > - 声明项（`musicxx.ui.item.register`）只给"主程序自己的列表"用：主页入口、歌曲 / 歌单菜单项、
 >   添加歌曲来源、音效、可选样式候选；插入与替换位置用内容。
-> - 内容注册：`musicxx.ui.content.register({id, slot, title?, depict?, deps?, order?, minIntervalMs?}, generate)`；
+> - 内容注册：`musicxx.ui.content.register({id, slot, title?, depict?, routes?, deps?, order?, minIntervalMs?}, generate)`；
 >   `generate(context)` 返回 `{json, data?}`，`json` 就是一棵块树。要重生成时调
 >   `musicxx.ui.slot.update(slot, [ids])`，也可以 `musicxx.ui.content.push(id, {json, data})` 直接推一份。
 >   `title` / `depict` 是给人看的名字与说明：**可选样式槽位要在用户选中之前就列出来**，那时还没有内容，
->   所以名字只能注册时给；不写就显示内容 id。
+>   所以名字只能注册时给；不写就显示内容 id。`routes` 是普通页面背景适用的路由
+>   （JSON 字符串数组，不写 = 所有普通页面），也要注册时给：客户端得先按路由挑“这一页用哪一份”。
 > - 界面 JSON 可以绑变量：`{"var": "musicxx.song.name"}`（整键替换）与 `"第 {musicxx.playlist.index} 首"`
 >   （字符串插值）；变量三类：`musicxx.*`（应用）、`scope:musicxx.*`（当前槽位作用域）、
 >   `plugin.<插件id>.*`（插件广播，可跨插件）。清单见 [ui-variables.md](ui-variables.md)。
@@ -25,8 +28,9 @@
 > - 动作只有 `call` / `route` / `none`：`call.name` 写短名 = 自己的能力，写 `plugin.<别的插件>.<名字>`
 >   = 跨插件调用，写 `musicxx.*` = 应用的能力。**动作不再返回视图**，改画面用 `slot.update` / `content.push`。
 >
-> 下面 §1 的类型表与旧写法（`data.view`、能力返回 `{view}`）在未迁移的位置仍然适用，
-> 但**插入 / 替换位置用 `data.view` 注册会被插件框架拒绝**（返回 -1）。
+> 下面 §1 的类型表与旧写法（`data.view`、能力返回 `{view}`）只对剩下还没迁移的声明项
+> （主页入口 / 歌曲菜单 / 歌单菜单 / 添加歌曲 / 音效）适用；
+> **往插入位置、替换位置与样式槽位用 `data.view` 注册声明项会被插件框架拒绝**（返回 -1）。
 
 插件**不写 Flutter 代码**。界面有两个层次，都只做声明、由 musicxx 渲染：
 
