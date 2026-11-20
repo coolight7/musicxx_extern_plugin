@@ -970,6 +970,8 @@ private:
     std::string id;       ///< 短 id
     std::string fullId;   ///< plugin.<pluginId>.<id>
     std::string slot;     ///< 槽位全名
+    std::string title;    ///< 展示名 (空 = 用 id)
+    std::string depict;   ///< 一句话说明 (可为空)
     std::string depsJson;
     std::vector<std::string> deps;
     int32_t  order = 0;

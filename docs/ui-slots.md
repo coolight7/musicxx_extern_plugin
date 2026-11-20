@@ -53,6 +53,8 @@
 musicxx.ui.content.register({
     id: "row1",
     slot: "playing.songlist.top",       // 简称或全名
+    title: "示例行",                    // 给人看的名字, 可选样式槽位的候选列表用它
+    depict: "插在播放列表顶部",          // 一句话说明 (可省)
     deps: ["musicxx.song.name"],        // 只订阅用到的变量
     order: 10,
 }, function (ctx) {

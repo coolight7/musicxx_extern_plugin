@@ -11,9 +11,11 @@
 >   **内容**（content）是插件为某个槽位生成的一份界面，一个槽位可以有很多份（用内容 id 区分）。
 > - 声明项（`musicxx.ui.item.register`）只给"主程序自己的列表"用：主页入口、歌曲 / 歌单菜单项、
 >   添加歌曲来源、音效、可选样式候选；插入与替换位置用内容。
-> - 内容注册：`musicxx.ui.content.register({id, slot, deps?, order?, minIntervalMs?}, generate)`；
+> - 内容注册：`musicxx.ui.content.register({id, slot, title?, depict?, deps?, order?, minIntervalMs?}, generate)`；
 >   `generate(context)` 返回 `{json, data?}`，`json` 就是一棵块树。要重生成时调
 >   `musicxx.ui.slot.update(slot, [ids])`，也可以 `musicxx.ui.content.push(id, {json, data})` 直接推一份。
+>   `title` / `depict` 是给人看的名字与说明：**可选样式槽位要在用户选中之前就列出来**，那时还没有内容，
+>   所以名字只能注册时给；不写就显示内容 id。
 > - 界面 JSON 可以绑变量：`{"var": "musicxx.song.name"}`（整键替换）与 `"第 {musicxx.playlist.index} 首"`
 >   （字符串插值）；变量三类：`musicxx.*`（应用）、`scope:musicxx.*`（当前槽位作用域）、
 >   `plugin.<插件id>.*`（插件广播，可跨插件）。清单见 [ui-variables.md](ui-variables.md)。

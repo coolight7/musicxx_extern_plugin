@@ -270,6 +270,8 @@ void main() {
             'shortId': 'row1',
             'plugin': 'demo',
             'slot': 'musicxx.ui.playing.songlist.top',
+            'title': '示例行',
+            'depict': '插在播放列表顶部',
             'order': 10,
             'minIntervalMs': 200,
             'deps': <Object?>['musicxx.song.name', 'plugin.other.now'],
@@ -289,13 +291,17 @@ void main() {
     expect(contents.length, 2);
     final MusicxxPluginUIContent row1 = contents.first;
     expect(row1.shortId, 'row1');
+    expect(row1.title, '示例行');
+    expect(row1.depict, '插在播放列表顶部');
     expect(row1.order, 10);
     expect(row1.minIntervalMs, 200);
     expect(row1.deps.length, 2);
     expect(row1.rev, 3);
-    // 没写 deps / minIntervalMs 的内容按空 / 0
+    // 没写 deps / minIntervalMs / title / depict 的内容按空 / 0
     expect(contents.last.deps, isEmpty);
     expect(contents.last.minIntervalMs, 0);
+    expect(contents.last.title, isEmpty);
+    expect(contents.last.depict, isEmpty);
 
     final List<MusicxxPluginUIContent> sameSlot = MusicxxPluginUIItems
         .contentsOf(contents, 'musicxx.ui.playing.songlist.top');

@@ -249,6 +249,8 @@ class MusicxxPluginUIContent {
     required this.shortId,
     required this.plugin,
     required this.slot,
+    this.title = '',
+    this.depict = '',
     this.order = 0,
     this.minIntervalMs = 0,
     this.deps = const <String>[],
@@ -266,6 +268,14 @@ class MusicxxPluginUIContent {
 
   /// 槽位 id（应用预留的，或插件声明的）
   final String slot;
+
+  /// 展示名（可选样式槽位的候选列表用；空 = 用 [shortId]）
+  ///
+  /// 注册时就给了：用户要在**选中之前**就看到名字，那时还没有内容。
+  final String title;
+
+  /// 一句话说明（可选样式槽位的副标题；可为空）
+  final String depict;
 
   /// 排序权重（同一槽位内小者靠前；同权重按注册顺序）
   final int order;
@@ -286,6 +296,8 @@ class MusicxxPluginUIContent {
       shortId: json['shortId'] as String? ?? '',
       plugin: json['plugin'] as String? ?? '',
       slot: json['slot'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      depict: json['depict'] as String? ?? '',
       order: (json['order'] as num?)?.toInt() ?? 0,
       minIntervalMs: (json['minIntervalMs'] as num?)?.toInt() ?? 0,
       deps: deps is List

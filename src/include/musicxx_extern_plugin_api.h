@@ -567,7 +567,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString* log
     );
 
-/// 内容注册表快照 (JSON 数组: id / shortId / plugin / slot / order / deps / minIntervalMs)
+/// 内容注册表快照 (JSON 数组: id / shortId / plugin / slot / title / depict / order / deps / minIntervalMs)
 ///
 /// 变更另有 `musicxx.ui.contents` 事件 (载荷带该插件的全部内容)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

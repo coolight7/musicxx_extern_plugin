@@ -473,6 +473,14 @@ int32_t MusicxxHostManager::registerUiContent(
   content.id = shortId;
   content.fullId = fullId;
   content.slot = slot;
+  content.title = spec.title.data
+                      ? std::string{spec.title.data,
+                                    static_cast<size_t>(spec.title.size)}
+                      : std::string{};
+  content.depict = spec.depict.data
+                       ? std::string{spec.depict.data,
+                                     static_cast<size_t>(spec.depict.size)}
+                       : std::string{};
   content.depsJson = depsJson;
   content.deps = std::move(deps);
   content.order = spec.order;
@@ -873,6 +881,13 @@ std::string MusicxxHostManager::uiContentsJson(
     item["shortId"] = content->id;
     item["plugin"] = content->pluginId;
     item["slot"] = content->slot;
+    // 展示名: 可选样式槽位的候选列表靠它在用户选中前就能列出来
+    if (!content->title.empty()) {
+      item["title"] = content->title;
+    }
+    if (!content->depict.empty()) {
+      item["depict"] = content->depict;
+    }
     item["order"] = content->order;
     item["minIntervalMs"] = content->minIntervalMs;
     item["deps"] = parseJsonSafe(content->depsJson);

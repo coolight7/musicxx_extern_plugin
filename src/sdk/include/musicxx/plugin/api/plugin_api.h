@@ -169,12 +169,21 @@ typedef struct MusicxxPluginUIEntrySpec {
 /// 生成函数把"声明里的变量"变成界面 JSON: 入参是 `context`(JSON 对象, 键是 `deps` 里声明的变量),
 /// 返回 `{"json": <界面 JSON>, "data": <任意 JSON, 第一版只保存>}`。
 /// **必须快**(几毫秒内): 要等网络 / 文件就先返回一个"加载中"的结构, 拿到结果后再 `push_content`。
+///
+/// `title` / `depict` 是给人看的: 可选样式槽位(`musicxx.ui.playing.background` 这类)的候选列表
+/// 要在用户选中之前就列出来, 而那时还没有内容, 所以名字只能在注册时给。
 typedef struct MusicxxPluginUIContentSpec {
     int32_t  version;      ///< == 1
     uint32_t struct_size;  ///< == sizeof(MusicxxPluginUIContentSpec)
 
     PluginxxStringView id;        ///< 短 id (同一插件同一槽位内唯一)
     PluginxxStringView slot;      ///< 槽位全名或简称; 也可以是 plugin.<自己>.ui.<名字>
+    /// 展示名 (可选样式槽位的候选列表用; 空 = 用 id)
+    ///
+    /// 必须在声明里就给: 用户要在**选中之前**就看到名字, 不能等生成。
+    PluginxxStringView title;
+    /// 一句话说明 (可选样式槽位的副标题; 可为空)
+    PluginxxStringView depict;
     PluginxxStringView deps_json; ///< 变量 id 的 JSON 数组 (只订阅这些, 也只把这些放进 context)
     int32_t            order;     ///< 排序权重 (小者靠前)
     int32_t min_interval_ms;      ///< 0 = 不按时间节流 (默认); >0 = 两次生成之间的最短间隔

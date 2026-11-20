@@ -418,14 +418,15 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     uiContentRc = uiContentRegister(
         "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
         R"(["musicxx.song.name","musicxx.player.playing"])",
-        &ExampleCtx::onGenerateRow, 10);
+        &ExampleCtx::onGenerateRow, 10, 0, "原生示例行", "插在播放列表顶部");
     uiContentDupSlotRc = uiContentRegister(
         "row2", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
-        R"(["musicxx.song.name"])", &ExampleCtx::onGenerateRow, 20);
+        R"(["musicxx.song.name"])", &ExampleCtx::onGenerateRow, 20, 0,
+        "原生示例行 2");
     uiContentOverwriteRc = uiContentRegister(
         "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
         R"(["musicxx.song.name","musicxx.player.playing"])",
-        &ExampleCtx::onGenerateRow, 30);
+        &ExampleCtx::onGenerateRow, 30, 0, "原生示例行", "插在播放列表顶部");
     uiContentBadSlotRc = uiContentRegister(
         "badSlot", "musicxx.ui.unknown", "[]", &ExampleCtx::onGenerateRow);
     uiContentBadDepsRc = uiContentRegister(

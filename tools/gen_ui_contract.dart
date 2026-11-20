@@ -468,6 +468,10 @@ String _docSlots(List<Map<String, Object?>> slots) {
   out.writeln('musicxx.ui.content.register({');
   out.writeln('    id: "row1",');
   out.writeln('    slot: "playing.songlist.top",       // 简称或全名');
+  out.writeln(
+    '    title: "示例行",                    // 给人看的名字, 可选样式槽位的候选列表用它',
+  );
+  out.writeln('    depict: "插在播放列表顶部",          // 一句话说明 (可省)');
   out.writeln('    deps: ["musicxx.song.name"],        // 只订阅用到的变量');
   out.writeln('    order: 10,');
   out.writeln('}, function (ctx) {');

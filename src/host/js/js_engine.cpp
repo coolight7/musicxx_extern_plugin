@@ -276,6 +276,8 @@ var featurePointImpls = new Map();
       id: id,
       slot: slot,
       deps: deps,
+      title: (typeof spec.title === "string") ? spec.title : "",
+      depict: (typeof spec.depict === "string") ? spec.depict : "",
       order: Number.isFinite(spec.order) ? Math.trunc(spec.order) : 0,
       minIntervalMs: Number.isFinite(spec.minIntervalMs) ? Math.trunc(spec.minIntervalMs) : 0
     };
@@ -1090,10 +1092,12 @@ var featurePointImpls = new Map();
       }
       contentTable.set(content.id, {
         slot: content.slot, deps: content.deps, order: content.order,
+        title: content.title, depict: content.depict,
         minIntervalMs: content.minIntervalMs, fn: generate
       });
       ext.uiContentOp("register", content.id, safeJson({
         slot: content.slot, deps: content.deps,
+        title: content.title, depict: content.depict,
         order: content.order, minIntervalMs: content.minIntervalMs
       }));
       return musicxx;
@@ -1116,6 +1120,7 @@ var featurePointImpls = new Map();
       contentTable.forEach(function (value, id) {
         list.push({ id: "plugin." + musicxx.pluginId + "." + id, shortId: id,
                     slot: value.slot, deps: value.deps, order: value.order,
+                    title: value.title, depict: value.depict,
                     minIntervalMs: value.minIntervalMs });
       });
       return list;
@@ -3248,11 +3253,21 @@ int32_t applyUiOpOnHost(MusicxxHostManager *mgr, MusicxxHostInstance *inst,
         depsJson = parsed["deps"].dump();
       }
       const std::string slotName = slot.get<std::string>();
+      const std::string title =
+          parsed.contains("title") && parsed["title"].is_string()
+              ? parsed["title"].get<std::string>()
+              : std::string{};
+      const std::string depict =
+          parsed.contains("depict") && parsed["depict"].is_string()
+              ? parsed["depict"].get<std::string>()
+              : std::string{};
       MusicxxPluginUIContentSpec spec{};
       spec.version = 1;
       spec.struct_size = sizeof(MusicxxPluginUIContentSpec);
       spec.id = PluginxxStringView{name.data(), name.size()};
       spec.slot = PluginxxStringView{slotName.data(), slotName.size()};
+      spec.title = PluginxxStringView{title.data(), title.size()};
+      spec.depict = PluginxxStringView{depict.data(), depict.size()};
       spec.deps_json = PluginxxStringView{depsJson.data(), depsJson.size()};
       spec.order = parsed.contains("order") && parsed["order"].is_number()
                        ? static_cast<int32_t>(parsed["order"].get<double>())

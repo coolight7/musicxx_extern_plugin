@@ -1871,6 +1871,12 @@ int main(int argc, char **argv) {
       check(contentsSnapshot.find("plugin.example_native.row1") !=
                 std::string::npos,
             "内容注册表含插件注册的内容");
+      check(contentsSnapshot.find("\"title\":\"原生示例行\"") !=
+                std::string::npos,
+            "内容注册表带注册时给的展示名");
+      check(contentsSnapshot.find("\"depict\":\"插在播放列表顶部\"") !=
+                std::string::npos,
+            "内容注册表带注册时给的一句话说明");
 
       // 槽位表快照
       MusicxxExternPluginString slotsOut{};
