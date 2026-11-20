@@ -1747,43 +1747,90 @@ int main(int argc, char **argv) {
     check(jsonIntField(probe, "hostApiVersion") == "8",
           "动态库插件看到的接口代次是插件 ABI 代次 8");
 
-    // ==================== 声明式 UI 扩展 (动态库插件)
+    // ==================== 声明式界面 (动态库插件): 声明项 / 内容 / 槽位
     // ====================
     //
-    // 插件只做声明 (类型 + JSON 内容), 主程序负责渲染;
-    // 这里校验注册/更新/拒绝/快照/事件。
+    // 插件只做声明 (声明项 + 挂在槽位上的内容), 主程序负责渲染;
+    // 这里校验注册 / 拒绝 / 覆盖 / 推送 / 槽位声明与撤销 / 快照 / 事件。
     {
       check(jsonIntField(probe, "uiHomeRc") == "0",
-            "注册主页入口项成功 (rc=0)");
+            "注册主页入口声明项成功 (rc=0)");
       check(jsonIntField(probe, "uiSongRc") == "0",
             "注册歌曲菜单项成功 (rc=0)");
       check(jsonIntField(probe, "uiForeignRc") == "-6",
             "他人命名空间的项被拒绝 (-6)");
       check(jsonIntField(probe, "uiBadTypeRc") == "-4",
-            "未知 UI 项类型被拒绝 (-4)");
+            "未知槽位 / 声明项被拒绝 (-4)");
       check(jsonIntField(probe, "uiBadDataRc") == "-1",
-            "缺少 title 的声明被拒绝 (-1)");
+            "缺少 title 的声明项被拒绝 (-1)");
       check(jsonIntField(probe, "uiPageBackgroundRc") == "0",
             "注册普通页面背景成功 (rc=0)");
-      check(jsonIntField(probe, "uiBackgroundNoViewRc") == "-1",
-            "背景项没有 view（只给 shader）时被拒绝 (-1)");
       check(jsonIntField(probe, "uiPageBackgroundBadRoutesRc") == "-1",
             "页面背景 routes 不是字符串数组时被拒绝 (-1)");
-      check(jsonIntField(probe, "uiUpdateRc") == "0",
-            "刷新自己的项成功 (rc=0)");
       check(jsonIntField(probe, "uiNotifyRc") == "0",
             "通知受理成功 (fire-and-forget)");
-      // 刷新不改声明: 插件自己读到的快照里被刷新的那一项 rev = 1, 其余仍为 0
+
+      // ---- 内容 ----
+      check(jsonIntField(probe, "uiContentRc") == "0", "注册内容成功 (rc=0)");
+      check(jsonIntField(probe, "uiContentDupSlotRc") == "0",
+            "同一槽位再注册一份内容成功 (多份并存)");
+      check(jsonIntField(probe, "uiContentOverwriteRc") == "0",
+            "同 id 再注册 = 覆盖 (rc=0)");
+      check(jsonIntField(probe, "uiContentBadSlotRc") == "-4",
+            "注册到未知槽位被拒绝 (-4)");
+      check(jsonIntField(probe, "uiContentBadDepsRc") == "-1",
+            "deps 不是字符串数组时被拒绝 (-1)");
+      check(jsonIntField(probe, "uiContentUnregisterRc") == "0",
+            "注销一份内容成功 (rc=0)");
+      check(jsonIntField(probe, "uiContentPushedRc") == "0",
+            "注册一份只从 push 取内容的那份成功 (rc=0)");
       {
         const std::string entries = jsonRawField(probe, "uiEntries");
-        check(entries.find("\"id\":\"plugin.example_native.playingBg\"") !=
-                      std::string::npos &&
-                  entries.find("\"rev\":1") != std::string::npos,
-              "刷新把该项的重画计数提到 1 (rev=1)");
-        check(entries.find("\"rev\":0") != std::string::npos,
-              "没被刷新的项重画计数仍为 0");
+        check(entries.find("plugin.example_native.playingBg") !=
+                  std::string::npos,
+              "声明项表含播放页背景样式");
+
+        const std::string contents = jsonRawField(probe, "uiContents");
+        check(contents.find("plugin.example_native.row1") != std::string::npos,
+              "内容表里有覆盖后的 row1");
+        check(contents.find("\"order\":30") != std::string::npos,
+              "同 id 覆盖后 order 换成新值 (30)");
+        check(contents.find("musicxx.ui.playing.songlist.top") !=
+                  std::string::npos,
+              "内容表带槽位全名");
+        check(contents.find("plugin.example_native.row2") == std::string::npos,
+              "注销后的 row2 不在内容表里");
+        check(contents.find("plugin.example_native.badSlot") ==
+                  std::string::npos,
+              "未知槽位的内容没进表");
+        check(contents.find("plugin.example_native.badDeps") ==
+                  std::string::npos,
+              "deps 非法的内容没进表");
       }
 
+      // ---- 插件声明的槽位 ----
+      check(jsonIntField(probe, "uiSlotDefineRc") == "0",
+            "插件声明自己的槽位成功 (rc=0)");
+      check(jsonIntField(probe, "uiSlotDefineAppRc") == "-6",
+            "声明应用预留的槽位被拒绝 (-6)");
+      check(jsonIntField(probe, "uiSlotDefineBadKindRc") == "-1",
+            "槽位 kind 不合法被拒绝 (-1)");
+      check(jsonIntField(probe, "uiSlotUndefineRc") == "0",
+            "撤销自己声明的槽位成功 (rc=0)");
+      check(jsonIntField(probe, "uiSlotUpdateRc") == "0",
+            "要求重新生成 (按槽位) 受理成功 (rc=0)");
+      {
+        const std::string slots = jsonRawField(probe, "uiSlotList");
+        check(slots.find("musicxx.ui.playing.songlist.top") !=
+                  std::string::npos,
+              "槽位表含应用预留的插入位置");
+        check(slots.find("musicxx.ui.home.entry") != std::string::npos,
+              "槽位表含应用预留的声明项类型");
+        check(slots.find("example_native") == std::string::npos,
+              "撤销后的插件槽位不在槽位表里");
+      }
+
+      // ---- 快照 ----
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
       const std::string snapshot = take(snap);
@@ -1806,16 +1853,55 @@ int main(int argc, char **argv) {
                 snapshot.find("/setting/theme") != std::string::npos,
             "快照含普通页面背景 (routes 声明)");
       check(snapshot.find("musicxx.ui.home.entry") != std::string::npos,
-            "快照含官方 UI 项类型");
+            "快照含官方声明项类型");
       check(snapshot.find("plugin") != std::string::npos,
             "快照项带所属插件 id");
-      check(snapshot.find("示例插件") != std::string::npos,
-            "更新后的声明内容生效");
       check(snapshot.find("plugin.other_plugin.card") == std::string::npos,
             "他人命名空间的项不在快照里");
       check(snapshot.find("musicxx.ui.unknown") == std::string::npos,
             "未知类型不在快照里");
       check(snapshot.find("nodata") == std::string::npos, "非法声明不在快照里");
+
+      // 内容注册表快照
+      MusicxxExternPluginString contentsOut{};
+      const auto contentsRc =
+          musicxx_extern_plugin_ui_contents(host, &contentsOut, &log);
+      check(contentsRc == PLUGINXX_RESULT_OK, "ui_contents 成功");
+      const std::string contentsSnapshot = take(contentsOut);
+      check(contentsSnapshot.find("plugin.example_native.row1") !=
+                std::string::npos,
+            "内容注册表含插件注册的内容");
+
+      // 槽位表快照
+      MusicxxExternPluginString slotsOut{};
+      const auto slotsRc = musicxx_extern_plugin_ui_slots(host, &slotsOut, &log);
+      check(slotsRc == PLUGINXX_RESULT_OK, "ui_slots 成功");
+      const std::string slotsSnapshot = take(slotsOut);
+      check(slotsSnapshot.find("musicxx.ui.playing.lyric.top") !=
+                std::string::npos,
+            "槽位表快照含插入位置");
+    }
+
+    // 内容生成 / 内容注册 / 槽位变化各有自己的事件
+    //
+    // 触发点放在插件里（probe 带 `uiRefresh`）：注册与声明都在 `start` 事务里做完，
+    // 那些事件早就被前面的用例取走了，所以这里让插件再做一遍全部动作。
+    {
+      const CapabilityCallOutcome refresh = callCapability(
+          host, "example_native", "probe", R"({"uiRefresh":1})", 8000);
+      check(refresh.acceptRc == PLUGINXX_RESULT_OK && refresh.ok,
+            "probe 触发一次内容 / 槽位刷新");
+      const std::string uiEvents = pollEvents(host, 500).json;
+      check(uiEvents.find("musicxx.ui.content") != std::string::npos,
+            "内容生成结果推 musicxx.ui.content 事件");
+      check(uiEvents.find("plugin.example_native.row1") != std::string::npos,
+            "事件里带按槽位重新生成的那份内容");
+      check(uiEvents.find("plugin.example_native.pushed") != std::string::npos,
+            "生成函数里 push 的内容也推了事件");
+      check(uiEvents.find("musicxx.ui.contents") != std::string::npos,
+            "内容注册表变化推 musicxx.ui.contents 事件");
+      check(uiEvents.find("musicxx.ui.slots") != std::string::npos,
+            "槽位声明 / 撤销推 musicxx.ui.slots 事件");
     }
 
     // 单框架线程模型: start 事务与能力处理器必须在同一条线程上执行
@@ -2308,19 +2394,22 @@ int main(int argc, char **argv) {
       MusicxxExternPluginString snap{};
       const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
       const std::string snapshot = take(snap);
+      // 插入块与控制栏这些“位置”只能由**内容**填充 (内容模型见步骤 11 的示例迁移):
+      // 插件用 `ui.item.register` 往这些槽位注册声明项会被框架直接拒绝, 所以快照里
+      // 没有它们; 声明项只出现在 item / selectable / pageBackground 三类槽位上。
       check(snapRc == PLUGINXX_RESULT_OK &&
-                snapshot.find("musicxx.ui.playing.lyric.top") !=
+                snapshot.find("musicxx.ui.playing.lyric.top") ==
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.songlist.header") !=
+                snapshot.find("musicxx.ui.playing.songlist.header") ==
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.moreInfo.footer") !=
+                snapshot.find("musicxx.ui.playing.moreInfo.footer") ==
                     std::string::npos,
-            "三个插入块的位置类型进入快照");
-      check(snapshot.find("musicxx.ui.playing.controlBar.menu") !=
+            "插入块不接受声明项 (只能注册内容)");
+      check(snapshot.find("musicxx.ui.playing.controlBar.menu") ==
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.controlBar.favorite") !=
+                snapshot.find("musicxx.ui.playing.controlBar.favorite") ==
                     std::string::npos,
-            "按钮级替换项进入快照 (菜单 / 收藏)");
+            "按钮级替换位置不接受声明项 (只能注册内容)");
       check(snapshot.find("musicxx.ui.playing.visualizer") !=
                     std::string::npos &&
                 snapshot.find("shader/viz.shaderbundle") != std::string::npos,
@@ -2342,12 +2431,10 @@ int main(int argc, char **argv) {
           musicxx_extern_plugin_ui_snapshot(host, &barSnap, &log);
       const std::string barSnapshot = take(barSnap);
       check(barSnapRc == PLUGINXX_RESULT_OK &&
-                barSnapshot.find("\"type\":\"musicxx.ui.playing.controlBar\"") !=
+                barSnapshot.find(
+                    "\"type\":\"musicxx.ui.playing.controlBar\"") ==
                     std::string::npos,
-            "开启后整栏替换项进入快照");
-      check(barSnapshot.find("musicxx.ui.playing.controlBar.menu") !=
-                    std::string::npos,
-            "按钮级项仍然保留 (整栏生效时由主程序忽略)");
+            "整栏替换也是内容位置: 声明项不会进快照");
 
       // 整栏视图能力：主程序带状态参数取内容，处理器同步返回
       const CapabilityCallOutcome barViewCall = callCapability(

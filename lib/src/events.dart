@@ -60,8 +60,20 @@ abstract final class MusicxxPluginEventType {
   /// 应用能力请求被取消 / 超时（Dart 侧应中断在做的工作）
   static const String appCapabilityCancel = 'musicxx.capability.app.cancel';
 
-  /// 插件贡献的 UI 项变化
+  /// 插件贡献的声明项变化
   static const String uiChanged = 'musicxx.ui.changed';
+
+  /// 内容注册表变化（载荷带该插件的全部内容）
+  static const String uiContentsChanged = 'musicxx.ui.contents';
+
+  /// 一份内容生成完了（载荷 `{slot, id, shortId, plugin, rev, json?, data?, error?}`）
+  static const String uiContent = 'musicxx.ui.content';
+
+  /// 槽位表变化（插件声明 / 撤销槽位、插件卸载）
+  static const String uiSlotsChanged = 'musicxx.ui.slots';
+
+  /// 被主程序 watch 的频道发布了新值（`{id, value}`）
+  static const String broadcastChanged = 'musicxx.broadcast.changed';
 
   /// 广播：订阅数变化
   ///

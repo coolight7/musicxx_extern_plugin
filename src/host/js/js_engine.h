@@ -94,15 +94,44 @@ public:
                          bool repeat);
   void bridgeTimerClear(const std::string &instance, int64_t timerId);
 
-  /// UI 项操作 (op = register | update | unregister; 只在 JS 线程调用)
+  /// 声明项操作 (op = register | unregister; 只在 JS 线程调用)
   ///
   /// 脚本顶层登记阶段 (`liveRegistrations == false`) 只把操作记在实例上, 等
   /// [applyRegistrations] 在框架线程回放 (这样注册错误能即刻上报, 也不会出现
   /// "框架线程等 JS、JS 等框架线程" 的互锁);
   /// 运行期则**投递不等待**地交给框架线程。
-  void bridgeUiOp(const std::string &instanceName, const std::string &op,
-                  const std::string &name, const std::string &type,
-                  const std::string &dataJson, int32_t order);
+  void bridgeUiItemOp(const std::string &instanceName, const std::string &op,
+                      const std::string &name, const std::string &type,
+                      const std::string &dataJson, int32_t order);
+
+  /// 内容操作 (op = register | unregister | push; 只在 JS 线程调用)
+  ///
+  /// - `register`: `payloadJson` 是 `{slot, deps, order, minIntervalMs}`;
+  /// - `unregister`: `payloadJson` 空;
+  /// - `push`: `payloadJson` 是这次要给的内容 (`{json, data}`);
+  /// - 与 [bridgeUiItemOp] 同一套"顶层记账 / 运行期投递"规则。
+  void bridgeUiContentOp(const std::string &instanceName, const std::string &op,
+                         const std::string &id,
+                         const std::string &payloadJson);
+
+  /// 槽位操作 (op = define | undefine | update; 只在 JS 线程调用)
+  ///
+  /// - `define`: `payloadJson` 是 `{kind}`;
+  /// - `undefine`: `payloadJson` 空;
+  /// - `update`: `id` 是槽位, `payloadJson` 是 `{"ids":[…]}` (空数组 = 该槽位全部);
+  /// - 同一套"顶层记账 / 运行期投递"规则。
+  void bridgeUiSlotOp(const std::string &instanceName, const std::string &op,
+                      const std::string &id, const std::string &payloadJson);
+
+  /// 让 JS 插件生成一次内容 (**任意线程**; 异步)
+  ///
+  /// 生成函数必须在 JS 线程执行, 而 JS 线程此刻可能正等一个应用能力的结果
+  /// (框架线程在等它就是互锁), 所以这里只投递, 结果交给 `done`:
+  /// `done(json, error)` 在 JS 线程上调用, 调用方自己投递回框架线程。
+  void requestUiContent(const std::string &instanceName,
+                        const std::string &fullId,
+                        const std::string &contextJson,
+                        std::function<void(std::string, std::string)> done);
 
   /// 能力操作 (op = register | unregister; 只在 JS 线程调用)
   ///
@@ -298,12 +327,15 @@ public:
     /// 运行期注册是否已生效 (脚本顶层登记阶段为 false; JS 线程读, 框架线程写)
     std::atomic<bool> liveRegistrations{false};
 
-    /// 脚本顶层登记的 UI 项操作 (JS 线程写, 框架线程在回放时取走)
+    /// 脚本顶层登记的 UI 操作 (JS 线程写, 框架线程在回放时取走)
+    ///
+    /// `kind` 决定投给哪张表: 声明项 / 内容 / 槽位。
     struct PendingUiOp {
-      std::string op; ///< register | update | unregister
-      std::string name;
-      std::string type;
-      std::string dataJson;
+      std::string kind; ///< item | content | slot
+      std::string op;   ///< register | unregister | push | define | undefine | update
+      std::string name; ///< 声明项 id / 内容 id / 槽位 id
+      std::string type; ///< 声明项类型 (内容与槽位不用)
+      std::string dataJson; ///< 声明项 data / 内容或槽位的参数
       int32_t order = 0;
     };
     std::vector<PendingUiOp> pendingUiOps;
@@ -401,9 +433,20 @@ private:
                                    const std::string &ownerTag,
                                    const std::string &phase);
 
-  /// 取回脚本登记的 UI 项操作 (框架线程; 回放后清空实例上的缓存)
+  /// 取回脚本登记的 UI 操作 (框架线程; 回放后清空实例上的缓存)
   std::vector<Instance::PendingUiOp>
   takePendingUiOps(const std::shared_ptr<Instance> &inst);
+
+  /// UI 操作的公共实现: 顶层阶段记账, 运行期投递到框架线程 (JS 线程调用)
+  void bridgeUiOp(const std::string &instanceName, const std::string &kind,
+                  const std::string &op, const std::string &name,
+                  const std::string &type, const std::string &payloadJson,
+                  int32_t order);
+
+  /// 界面操作被拒绝时记一条事件与日志 (框架线程)
+  void reportUiOpError(const std::string &pluginId, const std::string &kind,
+                       const std::string &op, const std::string &name,
+                       int32_t code);
 
   /// 在框架线程上声明一个广播频道 (运行期与注册回放共用)
   int32_t applyBroadcastDeclOnHost(const std::shared_ptr<Instance> &inst,

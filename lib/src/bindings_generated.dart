@@ -1304,6 +1304,150 @@ class MusicxxExternPluginBindings {
             )
           >();
 
+  /// 内容注册表快照 (JSON 数组: id / shortId / plugin / slot / order / deps / minIntervalMs)
+  ///
+  /// 变更另有 `musicxx.ui.contents` 事件 (载荷带该插件的全部内容)。
+  int musicxx_extern_plugin_ui_contents(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginString> out_json,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_ui_contents(h, out_json, log);
+  }
+
+  late final _musicxx_extern_plugin_ui_contentsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginString>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_ui_contents');
+  late final _musicxx_extern_plugin_ui_contents =
+      _musicxx_extern_plugin_ui_contentsPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
+  /// 槽位表快照 (JSON 数组: id / kind / owner; 应用预留的与插件声明的都在)
+  ///
+  /// 变更另有 `musicxx.ui.slots` 事件。
+  int musicxx_extern_plugin_ui_slots(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginString> out_json,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_ui_slots(h, out_json, log);
+  }
+
+  late final _musicxx_extern_plugin_ui_slotsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginString>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_ui_slots');
+  late final _musicxx_extern_plugin_ui_slots =
+      _musicxx_extern_plugin_ui_slotsPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginString>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
+  /// 让插件为一份内容生成一次界面 (Dart → 原生)
+  ///
+  /// - `id`: 内容全名 `plugin.<插件id>.<内容 id>`;
+  /// `context_json`: 声明过的依赖变量 → 当前值 (JSON 对象);
+  /// - 生成在框架线程同步执行 (插件那边必须快), 结果推 `musicxx.ui.content` 事件:
+  /// `{slot, id, shortId, plugin, rev, json, data}` 或 `{…, error}`;
+  /// - 返回 0 = 已生成并推送; -4 = 没有这份内容。
+  int musicxx_extern_plugin_ui_request(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> id,
+    ffi.Pointer<MusicxxExternPluginStringView> context_json,
+    ffi.Pointer<ffi.Int64> out_request_id,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_ui_request(
+      h,
+      id,
+      context_json,
+      out_request_id,
+      log,
+    );
+  }
+
+  late final _musicxx_extern_plugin_ui_requestPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<ffi.Int64>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_ui_request');
+  late final _musicxx_extern_plugin_ui_request =
+      _musicxx_extern_plugin_ui_requestPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<ffi.Int64>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
+  /// 订阅 / 退订一个广播频道的值变化 (Dart → 原生)
+  ///
+  /// 有人订阅时频道值变化会推 `musicxx.broadcast.changed {id, value}` 事件;
+  /// 订阅计数归零就停 (插件停用 / 卸载时框架自己清掉)。
+  int musicxx_extern_plugin_broadcast_watch(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> id,
+    int watch,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_broadcast_watch(h, id, watch, log);
+  }
+
+  late final _musicxx_extern_plugin_broadcast_watchPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Int32,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_broadcast_watch');
+  late final _musicxx_extern_plugin_broadcast_watch =
+      _musicxx_extern_plugin_broadcast_watchPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              int,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
   /// Dart → 原生日志 (统一写入磁盘/转发; level: 0 trace .. 4 error)
   int musicxx_extern_plugin_log(
     ffi.Pointer<MusicxxExternPluginHost> h,

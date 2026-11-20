@@ -151,7 +151,7 @@ musicxx.storage.getConfig(FONT_MODE_KEY, "default").then(function (saved) {
 });
 
 /// 主页入口
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "card",
     type: "home.entry",
     order: 115,

@@ -567,6 +567,54 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString* log
     );
 
+/// 内容注册表快照 (JSON 数组: id / shortId / plugin / slot / order / deps / minIntervalMs)
+///
+/// 变更另有 `musicxx.ui.contents` 事件 (载荷带该插件的全部内容)。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_ui_contents(
+        MusicxxExternPluginHost*    h,
+        MusicxxExternPluginString* out_json,
+        MusicxxExternPluginString* log
+    );
+
+/// 槽位表快照 (JSON 数组: id / kind / owner; 应用预留的与插件声明的都在)
+///
+/// 变更另有 `musicxx.ui.slots` 事件。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_ui_slots(
+        MusicxxExternPluginHost*    h,
+        MusicxxExternPluginString* out_json,
+        MusicxxExternPluginString* log
+    );
+
+/// 让插件为一份内容生成一次界面 (Dart → 原生)
+///
+/// - `id`: 内容全名 `plugin.<插件id>.<内容 id>`;
+///   `context_json`: 声明过的依赖变量 → 当前值 (JSON 对象);
+/// - 生成在框架线程同步执行 (插件那边必须快), 结果推 `musicxx.ui.content` 事件:
+///   `{slot, id, shortId, plugin, rev, json, data}` 或 `{…, error}`;
+/// - 返回 0 = 已生成并推送; -4 = 没有这份内容。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_ui_request(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* id,
+        const MusicxxExternPluginStringView* context_json,
+        int64_t*                             out_request_id,
+        MusicxxExternPluginString*           log
+    );
+
+/// 订阅 / 退订一个广播频道的值变化 (Dart → 原生)
+///
+/// 有人订阅时频道值变化会推 `musicxx.broadcast.changed {id, value}` 事件;
+/// 订阅计数归零就停 (插件停用 / 卸载时框架自己清掉)。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_broadcast_watch(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* id,
+        int32_t                              watch,
+        MusicxxExternPluginString*           log
+    );
+
 /// Dart → 原生日志 (统一写入磁盘/转发; level: 0 trace .. 4 error)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_log(
     MusicxxExternPluginHost*              h,

@@ -27,6 +27,9 @@
 | `menuItem` | `title`* `icon` `action` | 菜单项（数据对象，给 ListView 的 menu / itemMenu 用） |
 | `sparkline` | `data`* `height`=1 `glyphStyle`=block `showLast`=true `color`=accent | 迷你趋势图 |
 | `progressRow` | `label` `value`* `total`=100 `unit`=% | 一行进度（覆盖基础 kit：musicxx 默认按百分比显示数值） |
+| `slot` | `slot`* `args` `fallback` | 在这里渲染一个槽位的内容（应用预留的或插件声明的）；没写 fallback 时不占位 |
+| `textVar` | `text`* `color`=normal | 一段带变量的文本（字符串里的 {变量 id} 由客户端绑定） |
+| `varValue` | `name`* `fallback` `unit` | 把某个变量绑定成值（`{"var": …}`），可用在尺寸 / 进度 / 开关等值位置 |
 | `dirListView` | `path` `items`* `multi`=false `showPath`=true `pathAction` `itemAction` `selectAction` `refreshAction` `loadMoreAction` `height` `emptyText` | 目录列表：一层目录的条目 + 顶部路径栏（栏里的「上一级」按钮）+ 可选的多选勾选框，可以下拉刷新与滚到底加载更多；进入目录与勾选态都由插件自己维护（不认识它的客户端退回普通列表；行样式由客户端定） |
 | `adaptLayout` | `columnBody`* `rowBody`* `columnSecondBody` `rowSecondBody` `rowBodyRatio`=0.5 `columnBodyRatio`=0.5 `enableAnimations`=false | 按窗口宽高比切换两套内容：竖屏（宽高比 < 1）用 columnBody、横屏用 rowBody；给了第二套就按比例分两栅；不认识它的客户端用 rowBody |
 | `settingRow` | `title`* `depict` `value` `action` | 设置行：标题 + 说明 + 右侧当前值（整行可点且不带底色，右侧值用说明字号） |

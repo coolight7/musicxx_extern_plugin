@@ -888,7 +888,7 @@ musicxx.capability.register("drive.info", function (args) {
 /* ==================== UI 项 ==================== */
 
 /// 主页入口：账号页
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "accounts",
     type: "home.entry",
     order: 130,
@@ -904,7 +904,7 @@ musicxx.ui.slot.register({
 ///
 /// 动作是 `command` → `musicxx.ui.drive.browse`（主程序执行：打开这个来源的整页目录列表，
 /// 立即返回，不等用户关页面）。插件自己不用画界面，列表、菜单、搜索都由主程序给。
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "browseDrive",
     type: "home.entry",
     order: 131,
@@ -912,7 +912,7 @@ musicxx.ui.slot.register({
         title: "FTP 文件",
         subtitle: "整页浏览与下载",
         icon: "resource/svg/ftp.svg",
-        action: { kind: "command", name: "musicxx.ui.drive.browse", args: { type: TYPE_ID } }
+        action: { kind: "call", name: "musicxx.ui.drive.browse", args: { type: TYPE_ID } }
     }
 });
 

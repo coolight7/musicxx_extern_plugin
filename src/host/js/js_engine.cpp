@@ -9,6 +9,8 @@
 #include "js_engine.h"
 
 #include "host_json.h"
+#include "musicxx/plugin/api/ui_slots.g.h"
+#include "musicxx/plugin/api/ui_variables.g.h"
 #include "pluginxx/api/iface_meta.h"
 #include "pluginxx/api/tables.h"
 #include "pluginxx/host/abi_util.h"
@@ -169,6 +171,10 @@ constexpr const char *kPrelude = R"JS(
   var implementationTable = new Map();
   var capTable = new Map();
   var uiTable = new Map();
+  /// 内容表 (短 id → {slot, deps, order, minIntervalMs, fn})
+  var contentTable = new Map();
+  /// 本插件自己声明的槽位 (槽位 id → kind)
+  var slotTable = new Map();
   var appCapabilityWaiters = new Map();
   var capabilityWaiters = new Map();
   var timerTable = new Map();
@@ -205,48 +211,37 @@ var featurePointImpls = new Map();
     var prefix = "plugin." + musicxx.pluginId + ".";
     return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
   }
-  /// UI 项类型: 允许写官方全名 (`musicxx.ui.home.entry`) 或简称 (`home.entry`)
-  var UI_TYPES = {
-    "home.entry": "musicxx.ui.home.entry",
-    "song.action": "musicxx.ui.song.action",
-    "playlist.action": "musicxx.ui.playlist.action",
-    "addsong.entry": "musicxx.ui.addsong.entry",
-    "playing.background": "musicxx.ui.playing.background",
-    "playing.icon": "musicxx.ui.playing.icon",
-    "playing.visualizer": "musicxx.ui.playing.visualizer",
-    "page.background": "musicxx.ui.page.background",
-    "audio.effect": "musicxx.ui.audioEffect",
-    "playing.controlBar": "musicxx.ui.playing.controlBar",
-    "playing.controlBar.menu": "musicxx.ui.playing.controlBar.menu",
-    "playing.controlBar.previous": "musicxx.ui.playing.controlBar.previous",
-    "playing.controlBar.playOrPause": "musicxx.ui.playing.controlBar.playOrPause",
-    "playing.controlBar.next": "musicxx.ui.playing.controlBar.next",
-    "playing.controlBar.favorite": "musicxx.ui.playing.controlBar.favorite",
-    "playing.lyric.top": "musicxx.ui.playing.lyric.top",
-    "playing.lyric.bottom": "musicxx.ui.playing.lyric.bottom",
-    "playing.lyric.header": "musicxx.ui.playing.lyric.header",
-    "playing.lyric.footer": "musicxx.ui.playing.lyric.footer",
-    "playing.moreInfo.header": "musicxx.ui.playing.moreInfo.header",
-    "playing.moreInfo.footer": "musicxx.ui.playing.moreInfo.footer",
-    "playing.songlist.top": "musicxx.ui.playing.songlist.top",
-    "playing.songlist.bottom": "musicxx.ui.playing.songlist.bottom",
-    "playing.songlist.header": "musicxx.ui.playing.songlist.header",
-    "playing.songlist.footer": "musicxx.ui.playing.songlist.footer"
-  };
-  function normalizeType(value) {
-    assertName(value, "ui.slot.register: type");
+  /// 槽位与变量清单 (按 tools/ui_slots.def.json、tools/ui_variables.def.json 生成)
+  ///
+  /// 只有一张表: 插件开发文档、C 头里的宏、主程序的槽位常量都由同一份声明生成,
+  /// 这里读的是同一份数据的运行期副本。
+  var uiCatalog = (function () {
+    var parsed = {};
+    try { parsed = JSON.parse(ext.uiCatalog() || "{}"); } catch (e) { parsed = {}; }
+    var slots = parsed.slots || [];
+    var variables = parsed.variables || [];
+    var slotIndex = {};
+    for (var i = 0; i < slots.length; i += 1) { slotIndex[slots[i].id] = slots[i]; }
+    return { slots: slots, variables: variables, slotIndex: slotIndex };
+  })();
+  /// 槽位名规范化: 允许简称 (`playing.songlist.top`)、官方全名、插件自己的槽位
+  function normalizeSlotName(value, what) {
+    assertName(value, what || "ui: 槽位");
     var text = String(value);
-    return UI_TYPES[text] || text;
+    if (text.indexOf("plugin.") === 0) { return text; }
+    if (uiCatalog.slotIndex[text]) { return text; }
+    var full = "musicxx.ui." + text;
+    return uiCatalog.slotIndex[full] ? full : text;
   }
-  function normalizeEntry(spec) {
+  function normalizeItem(spec, what) {
     if (typeof spec === "string") { spec = { name: spec }; }
-    if (!spec || typeof spec !== "object") { throw new Error("ui.slot.register: 需要对象参数"); }
+    if (!spec || typeof spec !== "object") { throw new Error(what + ": 需要对象参数"); }
     var name = (typeof spec.name === "string" && spec.name)
                  ? spec.name
                  : (typeof spec.id === "string" ? spec.id : "");
     name = shortName(name);
-    assertName(name, "ui.slot.register: name");
-    spec.type = normalizeType(spec.type);
+    assertName(name, what + ": name");
+    var type = normalizeSlotName(spec.type, what + ": type");
     var data = spec.data;
     if (data === undefined || data === null) {
       data = {};
@@ -255,12 +250,34 @@ var featurePointImpls = new Map();
         data[key] = spec[key];
       });
     }
-    if (typeof data !== "object" || data === null) { throw new Error("ui.slot.register: data 必须是对象"); }
+    if (typeof data !== "object" || data === null) { throw new Error(what + ": data 必须是对象"); }
     return {
       name: name,
-      type: String(spec.type),
+      type: String(type),
       order: Number.isFinite(spec.order) ? Math.trunc(spec.order) : 0,
       data: data
+    };
+  }
+  /// 内容描述: {id, slot, deps?, order?, minIntervalMs?} → 规范化后的对象
+  function normalizeContent(spec, what) {
+    if (!spec || typeof spec !== "object") { throw new Error(what + ": 需要对象参数"); }
+    var id = shortName((typeof spec.id === "string") ? spec.id
+                        : ((typeof spec.name === "string") ? spec.name : ""));
+    assertName(id, what + ": id");
+    var slot = normalizeSlotName(spec.slot, what + ": slot");
+    var deps = [];
+    if (spec.deps !== undefined && spec.deps !== null) {
+      if (Object.prototype.toString.call(spec.deps) !== "[object Array]") {
+        throw new Error(what + ": deps 必须是变量 id 数组");
+      }
+      deps = spec.deps.map(function (item) { return String(item); });
+    }
+    return {
+      id: id,
+      slot: slot,
+      deps: deps,
+      order: Number.isFinite(spec.order) ? Math.trunc(spec.order) : 0,
+      minIntervalMs: Number.isFinite(spec.minIntervalMs) ? Math.trunc(spec.minIntervalMs) : 0
     };
   }
 
@@ -282,7 +299,18 @@ var featurePointImpls = new Map();
     }
     return text;
   }
-  function implementationKey(id, phase) { return String(id) + "|" + phase; }
+  function implementationKey(id, phase, ownerTag) {
+    return String(id) + "|" + phase + "|" + (ownerTag ? String(ownerTag) : "");
+  }
+  /// 这条能力上有没有登记 (不区分 ownerTag)
+  function hasImplementation(id, phase) {
+    var prefix = String(id) + "|" + phase + "|";
+    var found = false;
+    implementationTable.forEach(function (value, key) {
+      if (!found && key.indexOf(prefix) === 0) { found = true; }
+    });
+    return found;
+  }
 
 
   /// 宿主自己的信息与日志 (不是频道, 所以留在 host 上)
@@ -1019,30 +1047,22 @@ var featurePointImpls = new Map();
     },
   };
 
-  // UI 项注册与可选槽位 (musicxx.ui.slot): 注册 / 更新 / 移除本插件的 UI 项,
-  // 读回已注册的项, 以及查询和切换"多注册者可选"槽位 (播放页背景 / 歌曲图 / 音频动效) 的当前项.
-  // - 同名重复 register = 覆盖并保留原排序位置; unregister 后再 register = 新注册 (排到最后);
-  // - 一个位置只取一项时 (单一实现者模式, 例如普通页面背景) 就是"最新注册的生效";
-  // - 未带 slot 时用默认槽位 (当前是 player.background 播放页背景);
-  // - select 只在"该项可用"时成功; 失败返回 { ok:false, error }.
-  musicxx.ui.slot = {
+  // 声明项 (musicxx.ui.item): 入口 / 菜单项 / 音效 / 可选样式的元信息
+  //
+  // - 只有数据, 没有界面树; 名字重复再注册 = 覆盖并保留原排序位置;
+  // - 会出现在用户列表里的声明项 (入口 / 菜单 / 可选样式) 必须给 `data.title`。
+  musicxx.ui.item = {
     register: function (spec) {
-      var entry = normalizeEntry(spec);
+      var entry = normalizeItem(spec, "ui.item.register");
       uiTable.set(entry.name, { type: entry.type, order: entry.order, data: entry.data });
-      ext.uiOp("register", entry.name, entry.type, safeJson(entry.data), entry.order);
-      return musicxx;
-    },
-    // 让这一项重新取一次视图: 声明一个字不动 (改声明用 register 覆盖)
-    update: function (name) {
-      assertName(name, "ui.slot.update: 名称");
-      ext.uiOp("update", shortName(name), "", "{}", 0);
+      ext.uiItemOp("register", entry.name, entry.type, safeJson(entry.data), entry.order);
       return musicxx;
     },
     unregister: function (name) {
-      assertName(name, "ui.slot.unregister: 名称");
+      assertName(name, "ui.item.unregister: 名称");
       var key = shortName(name);
       uiTable.delete(key);
-      ext.uiOp("unregister", key, "", "{}", 0);
+      ext.uiItemOp("unregister", key, "", "{}", 0);
       return musicxx;
     },
     entries: function () {
@@ -1052,6 +1072,94 @@ var featurePointImpls = new Map();
                     type: value.type, order: value.order, data: value.data });
       });
       return list;
+    }
+  };
+
+  // 内容 (musicxx.ui.content): 挂在槽位上的界面 JSON, 由生成函数按需给出
+  //
+  // - `id` 与声明项同一套命名空间 (短名由框架补 `plugin.<自己>.`);
+  // - 同一个槽位上可以注册多份 (id 不同), 再注册同一个 id = 覆盖这一条;
+  // - 生成函数同步执行、必须快: 只做"把 ctx 变成 JSON"这一件事。要等网络 /
+  //   文件就先返回"加载中", 拿到结果再 `push`;
+  // - 生成函数抛异常 / 返回非对象 → 这次生成失败, 主程序保留上一份内容。
+  musicxx.ui.content = {
+    register: function (spec, generate) {
+      var content = normalizeContent(spec, "ui.content.register");
+      if (typeof generate !== "function") {
+        throw new Error("ui.content.register: 需要生成函数");
+      }
+      contentTable.set(content.id, {
+        slot: content.slot, deps: content.deps, order: content.order,
+        minIntervalMs: content.minIntervalMs, fn: generate
+      });
+      ext.uiContentOp("register", content.id, safeJson({
+        slot: content.slot, deps: content.deps,
+        order: content.order, minIntervalMs: content.minIntervalMs
+      }));
+      return musicxx;
+    },
+    unregister: function (id) {
+      assertName(id, "ui.content.unregister: id");
+      var key = shortName(id);
+      contentTable.delete(key);
+      ext.uiContentOp("unregister", key, "{}");
+      return musicxx;
+    },
+    // 直接给内容 (插件自己等到数据后更新画面): {json, data?}
+    push: function (id, content) {
+      assertName(id, "ui.content.push: id");
+      ext.uiContentOp("push", shortName(id), safeJson(content || {}));
+      return musicxx;
+    },
+    entries: function () {
+      var list = [];
+      contentTable.forEach(function (value, id) {
+        list.push({ id: "plugin." + musicxx.pluginId + "." + id, shortId: id,
+                    slot: value.slot, deps: value.deps, order: value.order,
+                    minIntervalMs: value.minIntervalMs });
+      });
+      return list;
+    }
+  };
+
+  // 槽位 (musicxx.ui.slot)
+  //
+  // - `update` 要求主程序用当前变量再问一次 (不要求槽位已经显示);
+  // - `define` / `undefine` 让插件声明自己的槽位 (`plugin.<自己>.ui.<名字>`,
+  //   kind 只能是 insert / replace), 别的插件可以往里注册内容;
+  // - `list` / `current` / `set` 是应用的可选槽位 (播放页背景 / 歌曲图 / 动效):
+  //   看候选、看当前、选一个。
+  musicxx.ui.slot = {
+    update: function (slot, ids) {
+      var name = normalizeSlotName(slot, "ui.slot.update: 槽位");
+      var target = [];
+      if (ids !== undefined && ids !== null) {
+        if (Object.prototype.toString.call(ids) !== "[object Array]") {
+          throw new Error("ui.slot.update: 第二个参数是内容 id 数组");
+        }
+        target = ids.map(function (item) { return shortName(String(item)); });
+      }
+      ext.uiSlotOp("update", name, safeJson({ ids: target }));
+      return musicxx;
+    },
+    define: function (spec) {
+      if (!spec || typeof spec !== "object") { throw new Error("ui.slot.define: 需要对象参数"); }
+      var id = String(spec.id || "");
+      assertName(id, "ui.slot.define: id");
+      var kind = String(spec.kind || "insert");
+      if (kind !== "insert" && kind !== "replace") {
+        throw new Error("ui.slot.define: kind 只能是 insert / replace");
+      }
+      slotTable.set(id, kind);
+      ext.uiSlotOp("define", id, safeJson({ kind: kind }));
+      return musicxx;
+    },
+    undefine: function (id) {
+      assertName(id, "ui.slot.undefine: id");
+      var key = String(id);
+      slotTable.delete(key);
+      ext.uiSlotOp("undefine", key, "{}");
+      return musicxx;
     },
     list: function (args) {
       return appCall("musicxx.ui.slot.list", { slot: (args && args.slot) ? String(args.slot) : undefined });
@@ -1064,6 +1172,13 @@ var featurePointImpls = new Map();
       req.id = String(id);
       return appCall("musicxx.ui.slot.set", req);
     }
+  };
+
+  // 槽位表 + 变量表 (自查 / 排障): 应用的槽位、本插件声明的槽位、可绑定的变量
+  musicxx.ui.slots = function () {
+    var own = [];
+    slotTable.forEach(function (kind, id) { own.push({ id: id, kind: kind, owner: musicxx.pluginId }); });
+    return { slots: uiCatalog.slots.concat(own), variables: uiCatalog.variables };
   };
 
   // 封面数据 (只作为颜色/数据来源, 不参与画面绘制; 插件框架不推任何直链)
@@ -1188,7 +1303,7 @@ var featurePointImpls = new Map();
         ownerTag: typeof options.ownerTag === "string" ? options.ownerTag : "",
         fn: fn
       };
-      implementationTable.set(implementationKey(entry.id, entry.phase), entry);
+      implementationTable.set(implementationKey(entry.id, entry.phase, entry.ownerTag), entry);
       /// 运行期登记要通知插件框架 (顶层登记由引擎统一回放, 这里只是先记下来)
       ext.implementationOp("register", entry.id, entry.priority, entry.ownerTag, entry.phase);
       return musicxx;
@@ -1215,9 +1330,18 @@ var featurePointImpls = new Map();
       });
       return musicxx;
     },
-    /// 自己有没有在这条能力上登记 (phase 缺省 = impl)
+    /// 自己有没有在这条能力上登记 (phase 缺省 = 任意阶段)
     has: function (id, phase) {
-      return implementationTable.has(implementationKey(String(id), normalizePhase(phase)));
+      var want = (phase === undefined || phase === null || phase === "")
+                   ? "" : normalizePhase(phase);
+      var key = String(id);
+      var found = false;
+      implementationTable.forEach(function (entry) {
+        if (found || entry.id !== key) { return; }
+        if (want && entry.phase !== want) { return; }
+        found = true;
+      });
+      return found;
     },
     /// 读某条能力当前的实现行 (自省: 谁提供、在哪个阶段、排第几)。
     /// 返回 Promise: {capability, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
@@ -1246,8 +1370,8 @@ var featurePointImpls = new Map();
         return appCall(pluginId, appArgs, appBudget);
       }
       assertName(name, "capability.call: 能力名");
-      // 超时是调用方自己的选择: 不传 = 3 秒; 传 0 = 一直等
-      var budget = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 3000;
+      // 超时是调用方自己的选择: 不传 = 不限制 (一直等); 传了才收紧
+      var budget = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 0;
       if (budget < 0) { budget = 0; }
       var text = ext.capabilityCall(String(pluginId), String(name),
                                     safeJson(args === undefined ? {} : args), budget);
@@ -1334,7 +1458,7 @@ var featurePointImpls = new Map();
         assertName(id, "capability.provide: 能力 id");
         featurePointImpls.set(String(id), fn);
       });
-      if (!implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
+      if (!hasImplementation("musicxx.feature.point.call", "impl")) {
         musicxx.capability.implement("musicxx.feature.point.call", {
           priority: Number.isFinite(options.priority) ? Math.trunc(options.priority) : 0,
           ownerTag: ids.map(String).join(",")
@@ -1349,7 +1473,7 @@ var featurePointImpls = new Map();
         return musicxx;
       }
       featurePointImpls.delete(key);
-      if (featurePointImpls.size === 0 && implementationTable.has(implementationKey("musicxx.feature.point.call", "impl"))) {
+      if (featurePointImpls.size === 0 && hasImplementation("musicxx.feature.point.call", "impl")) {
         musicxx.capability.unregister("musicxx.feature.point.call");
       }
       return musicxx;
@@ -1518,12 +1642,48 @@ var featurePointImpls = new Map();
     });
     var broadcasts = [];
     declaredBroadcasts.forEach(function (decl) { broadcasts.push(decl); });
+    var contents = [];
+    contentTable.forEach(function (value, id) {
+      contents.push({ id: id, slot: value.slot, deps: value.deps,
+                      order: value.order, minIntervalMs: value.minIntervalMs });
+    });
+    var slots = [];
+    slotTable.forEach(function (kind, id) { slots.push({ id: id, kind: kind }); });
     return JSON.stringify({
       implementations: implementations,
       capabilities: capabilities,
       subscriptions: subscriptions,
-      broadcasts: broadcasts
+      broadcasts: broadcasts,
+      contents: contents,
+      slots: slots
     });
+  };
+
+  /// 生成一次内容 (插件框架线程投递过来; 返回 `{json, data?}` 或 `{error}`)
+  ///
+  /// - 只在 JS 线程执行, 不阻塞插件框架线程;
+  /// - 生成函数抛异常 / 返回非对象 → 回 `{error}`, 主程序保留上一份内容。
+  ext.generateContent = function (fullId, contextJson) {
+    var id = shortName(fullId);
+    var entry = contentTable.get(id);
+    if (!entry) { return JSON.stringify({ error: "没有这份内容: " + id }); }
+    var ctx = {};
+    if (contextJson) {
+      try { ctx = JSON.parse(contextJson); } catch (e) { ctx = {}; }
+    }
+    var result;
+    try {
+      result = entry.fn(ctx, { id: id, slot: entry.slot, deps: entry.deps });
+    } catch (e) {
+      logError("内容 " + id + " 生成异常: " + (e && e.message ? e.message : String(e)));
+      return JSON.stringify({ error: "生成函数异常: " + (e && e.message ? e.message : String(e)) });
+    }
+    if (result === null || result === undefined) { return "{}"; }
+    if (typeof result !== "object") {
+      return JSON.stringify({ error: "生成函数必须返回对象" });
+    }
+    try { return JSON.stringify(result); }
+    catch (e) { return JSON.stringify({ error: "生成函数返回的内容无法序列化" }); }
   };
 
   /// 调用能力处理器
@@ -1532,8 +1692,11 @@ var featurePointImpls = new Map();
   /// - 处理器返回 Promise 时: 有 `waitId` 就登记等待, 结算后经 `ext.implementationWaitResolve` 交回结果;
   ///   没有 `waitId` 就让 Promise 正常跑完, 结果丢弃 (通知型本来就不看返回值);
   /// - 插件框架不设等待超时: Promise 结算多晚都会被接住。
-  ext.invokeImplementation = function (capabilityId, phase, inputJson, waitId) {
-    var entry = implementationTable.get(implementationKey(capabilityId, phase || "impl"));
+  ext.invokeImplementation = function (capabilityId, phase, inputJson, waitId, ownerTag) {
+    var entry = implementationTable.get(implementationKey(capabilityId, phase || "impl", ownerTag));
+    if (!entry && ownerTag) {
+      entry = implementationTable.get(implementationKey(capabilityId, phase || "impl", ""));
+    }
     if (!entry) { return ""; }
     var ctx = {};
     if (inputJson) { try { ctx = JSON.parse(inputJson); } catch (e) { ctx = {}; } }
@@ -1574,6 +1737,8 @@ var featurePointImpls = new Map();
     implementationTable.clear();
     capTable.clear();
     uiTable.clear();
+    contentTable.clear();
+    slotTable.clear();
     timerTable.clear();
     pendingImplementationWaits.clear();
     pendingCapabilityWaits.clear();
@@ -1759,7 +1924,7 @@ JSValue jsAppCapabilityCall(JSContext *ctx, JSValueConst, int argc,
   }
   const char *name = JS_ToCString(ctx, argv[0]);
   const char *args = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
-  uint32_t timeoutMs = 5000;
+  uint32_t timeoutMs = 0;
   if (argc >= 3) {
     int32_t parsed = 0;
     if (JS_ToInt32(ctx, &parsed, argv[2]) == 0 && parsed > 0) {
@@ -1869,8 +2034,37 @@ JSValue jsEngineVersion(JSContext *ctx, JSValueConst, int /*argc*/,
   return JS_NewString(ctx, MUSICXX_EXTERN_PLUGIN_VERSION);
 }
 
-/// UI 项操作 (register | update | unregister)
-JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+/// 槽位与变量清单 JSON (生成表; 只拼一次, 之后复用)
+///
+/// 插件用它自查"有哪些槽位 / 能绑哪些变量", 与开发文档、C 宏同一份声明。
+const std::string &uiCatalogJson() {
+  static const std::string json = [] {
+    Json slots = Json::array();
+    for (const KnownUiSlot &slot : kKnownUiSlots) {
+      Json item;
+      item["id"] = slot.id;
+      item["kind"] = slot.kind;
+      item["label"] = slot.label;
+      item["inList"] = slot.in_list;
+      slots.push_back(std::move(item));
+    }
+    Json variables = Json::array();
+    for (const KnownUiVariable &variable : kKnownUiVariables) {
+      Json item;
+      item["id"] = variable.id;
+      item["scope"] = variable.scope;
+      variables.push_back(std::move(item));
+    }
+    Json root;
+    root["slots"] = std::move(slots);
+    root["variables"] = std::move(variables);
+    return root.dump();
+  }();
+  return json;
+}
+
+/// 声明项操作 (register | unregister)
+JSValue jsUiItemOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 4) {
     return JS_UNDEFINED;
@@ -1883,8 +2077,8 @@ JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   if (argc >= 5) {
     JS_ToInt32(ctx, &order, argv[4]);
   }
-  inst->engine->bridgeUiOp(inst->name, op ? op : "", name ? name : "",
-                           type ? type : "", data ? data : "{}", order);
+  inst->engine->bridgeUiItemOp(inst->name, op ? op : "", name ? name : "",
+                               type ? type : "", data ? data : "{}", order);
   if (op) {
     JS_FreeCString(ctx, op);
   }
@@ -1898,6 +2092,60 @@ JSValue jsUiOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     JS_FreeCString(ctx, data);
   }
   return JS_UNDEFINED;
+}
+
+/// 内容操作 (register | unregister | push): `ext.uiContentOp(op, id, payloadJson)`
+JSValue jsUiContentOp(JSContext *ctx, JSValueConst, int argc,
+                      JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 2) {
+    return JS_UNDEFINED;
+  }
+  const char *op = JS_ToCString(ctx, argv[0]);
+  const char *id = JS_ToCString(ctx, argv[1]);
+  const char *payload = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
+  inst->engine->bridgeUiContentOp(inst->name, op ? op : "", id ? id : "",
+                                  payload ? payload : "{}");
+  if (op) {
+    JS_FreeCString(ctx, op);
+  }
+  if (id) {
+    JS_FreeCString(ctx, id);
+  }
+  if (payload) {
+    JS_FreeCString(ctx, payload);
+  }
+  return JS_UNDEFINED;
+}
+
+/// 槽位操作 (define | undefine | update): `ext.uiSlotOp(op, id, payloadJson)`
+JSValue jsUiSlotOp(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+  auto *inst = contextInstance(ctx);
+  if (!inst || !inst->engine || argc < 2) {
+    return JS_UNDEFINED;
+  }
+  const char *op = JS_ToCString(ctx, argv[0]);
+  const char *id = JS_ToCString(ctx, argv[1]);
+  const char *payload = (argc >= 3) ? JS_ToCString(ctx, argv[2]) : nullptr;
+  inst->engine->bridgeUiSlotOp(inst->name, op ? op : "", id ? id : "",
+                               payload ? payload : "{}");
+  if (op) {
+    JS_FreeCString(ctx, op);
+  }
+  if (id) {
+    JS_FreeCString(ctx, id);
+  }
+  if (payload) {
+    JS_FreeCString(ctx, payload);
+  }
+  return JS_UNDEFINED;
+}
+
+/// 槽位与变量清单 (`{"slots":[…],"variables":[…]}`; 由生成表拼出, 只读)
+JSValue jsUiCatalog(JSContext *ctx, JSValueConst, int /*argc*/,
+                    JSValueConst * /*argv*/) {
+  const std::string json = uiCatalogJson();
+  return JS_NewStringLen(ctx, json.data(), json.size());
 }
 
 namespace {
@@ -2284,7 +2532,10 @@ JSValue buildBridgeObject(JSContext *ctx) {
       {"capabilityWaitResolve", jsCapabilityWaitResolve, 2},
       {"timerSet", jsTimerSet, 2},
       {"timerClear", jsTimerClear, 1},
-      {"uiOp", jsUiOp, 5},
+      {"uiItemOp", jsUiItemOp, 5},
+      {"uiContentOp", jsUiContentOp, 3},
+      {"uiSlotOp", jsUiSlotOp, 3},
+      {"uiCatalog", jsUiCatalog, 0},
       {"stats", jsStats, 0},
       {"netCall", jsNetCall, 2},
       {"netCancel", jsNetCancel, 1},
@@ -2933,10 +3184,137 @@ void JsEngine::bridgeImplementationWaitResolve(const std::string &waitId,
   slot->set(json);
 }
 
+namespace {
+
+/// JS 插件的内容生成占位: 真正的生成走 [JsEngine::requestUiContent]
+///
+/// 注册时要求 `generate` 非空 (原生插件必须有), JS 插件这里只放一个不会被
+/// 调用的函数: 框架按 `fromJs` 走 JS 桥, 不在框架线程执行插件代码。
+int32_t PLUGINXX_CALL jsUiContentGenerate(const PluginxxHost * /*host*/,
+                                          const PluginxxStringView * /*ctx*/,
+                                          PluginxxString *out) {
+  if (out) {
+    out->data = nullptr;
+    out->size = 0;
+  }
+  return 1;
+}
+
+/// 在框架线程上执行一条 UI 操作 (运行期投递与顶层回放共用)
+///
+/// - `kind`: item (声明项) / content (内容) / slot (槽位);
+/// - `payloadJson`: 声明项的 data、内容的 `{slot, deps, order, minIntervalMs}`、
+///   槽位的 `{kind}` 或 `update` 的 `{ids:[…]}`。
+int32_t applyUiOpOnHost(MusicxxHostManager *mgr, MusicxxHostInstance *inst,
+                        const std::string &kind, const std::string &op,
+                        const std::string &name, const std::string &type,
+                        const std::string &payloadJson, int32_t order) {
+  if (!mgr || !inst) {
+    return PLUGINXX_RESULT_ERR_STATE;
+  }
+  const std::string payload = payloadJson.empty() ? "{}" : payloadJson;
+  if (kind == "item") {
+    if (op == "register") {
+      MusicxxPluginUIEntrySpec spec{};
+      spec.version = 1;
+      spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
+      spec.item_id = PluginxxStringView{name.data(), name.size()};
+      spec.type = PluginxxStringView{type.data(), type.size()};
+      spec.data_json = PluginxxStringView{payload.data(), payload.size()};
+      spec.order = order;
+      spec.flags = 0;
+      return mgr->registerUiEntry(inst, spec);
+    }
+    if (op == "unregister") {
+      return mgr->unregisterUiEntry(inst, name);
+    }
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (kind == "content") {
+    if (op == "register") {
+      const Json parsed = parseJsonSafe(payload);
+      if (!parsed.is_object()) {
+        return PLUGINXX_RESULT_ERR_ARG;
+      }
+      const Json slot = parsed.contains("slot") ? parsed["slot"] : Json{};
+      if (!slot.is_string() || slot.get<std::string>().empty()) {
+        return PLUGINXX_RESULT_ERR_ARG;
+      }
+      std::string depsJson = "[]";
+      if (parsed.contains("deps")) {
+        if (!parsed["deps"].is_array()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        depsJson = parsed["deps"].dump();
+      }
+      const std::string slotName = slot.get<std::string>();
+      MusicxxPluginUIContentSpec spec{};
+      spec.version = 1;
+      spec.struct_size = sizeof(MusicxxPluginUIContentSpec);
+      spec.id = PluginxxStringView{name.data(), name.size()};
+      spec.slot = PluginxxStringView{slotName.data(), slotName.size()};
+      spec.deps_json = PluginxxStringView{depsJson.data(), depsJson.size()};
+      spec.order = parsed.contains("order") && parsed["order"].is_number()
+                       ? static_cast<int32_t>(parsed["order"].get<double>())
+                       : order;
+      spec.min_interval_ms =
+          parsed.contains("minIntervalMs") && parsed["minIntervalMs"].is_number()
+              ? static_cast<int32_t>(parsed["minIntervalMs"].get<double>())
+              : 0;
+      spec.flags = 0;
+      spec.generate = &jsUiContentGenerate;
+      return mgr->registerUiContent(inst, spec, true);
+    }
+    if (op == "unregister") {
+      return mgr->unregisterUiContent(inst, name);
+    }
+    if (op == "push") {
+      return mgr->pushUiContent(inst, name, payload);
+    }
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (kind == "slot") {
+    if (op == "define") {
+      const Json parsed = parseJsonSafe(payload);
+      const Json kindField =
+          parsed.is_object() && parsed.contains("kind") ? parsed["kind"] : Json{};
+      if (!kindField.is_string()) {
+        return PLUGINXX_RESULT_ERR_ARG;
+      }
+      const std::string slotKind = kindField.get<std::string>();
+      MusicxxPluginUISlotSpec spec{};
+      spec.version = 1;
+      spec.struct_size = sizeof(MusicxxPluginUISlotSpec);
+      spec.id = PluginxxStringView{name.data(), name.size()};
+      spec.kind = PluginxxStringView{slotKind.data(), slotKind.size()};
+      spec.flags = 0;
+      return mgr->defineUiSlot(inst, spec);
+    }
+    if (op == "undefine") {
+      return mgr->undefineUiSlot(inst, name);
+    }
+    if (op == "update") {
+      const Json parsed = parseJsonSafe(payload);
+      std::string idsJson = "[]";
+      if (parsed.is_object() && parsed.contains("ids")) {
+        if (!parsed["ids"].is_array()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        idsJson = parsed["ids"].dump();
+      }
+      return mgr->updateUiSlot(inst, name, idsJson);
+    }
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  return PLUGINXX_RESULT_ERR_ARG;
+}
+
+} // namespace
+
 void JsEngine::bridgeUiOp(const std::string &instanceName,
-                          const std::string &op, const std::string &name,
-                          const std::string &type, const std::string &dataJson,
-                          int32_t order) {
+                          const std::string &kind, const std::string &op,
+                          const std::string &name, const std::string &type,
+                          const std::string &payloadJson, int32_t order) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !mgr_ || !mgr_->running()) {
     return;
@@ -2945,49 +3323,106 @@ void JsEngine::bridgeUiOp(const std::string &instanceName,
     /// 脚本顶层登记阶段: 先记下来, 由 applyRegistrations 在框架线程回放
     /// (与能力/能力/订阅同一套做法, 避免"框架线程等 JS、JS 等框架线程")
     Instance::PendingUiOp entry;
+    entry.kind = kind;
     entry.op = op;
     entry.name = name;
     entry.type = type;
-    entry.dataJson = dataJson;
+    entry.dataJson = payloadJson;
     entry.order = order;
     inst->pendingUiOps.push_back(std::move(entry));
     return;
   }
   /// 运行期: 投递不等待; 失败只记日志与事件, 不回传给脚本
   const std::string pluginId = inst->id;
-  asio::post(mgr_->hostExecutor(), [this, pluginId, instanceName, op, name,
-                                    type, dataJson, order] {
+  asio::post(mgr_->hostExecutor(), [this, pluginId, instanceName, kind, op,
+                                    name, type, payloadJson, order] {
     auto current = mgr_->resolveInstance(instanceName);
     if (!current) {
       return;
     }
-    int32_t rc = PLUGINXX_RESULT_ERR_STATE;
-    if (op == "register") {
-      MusicxxPluginUIEntrySpec spec{};
-      spec.version = 1;
-      spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
-      spec.item_id = PluginxxStringView{name.data(), name.size()};
-      spec.type = PluginxxStringView{type.data(), type.size()};
-      spec.data_json = PluginxxStringView{dataJson.data(), dataJson.size()};
-      spec.order = order;
-      spec.flags = 0;
-      rc = mgr_->registerUiEntry(current.get(), spec);
-    } else if (op == "update") {
-      rc = mgr_->updateUiEntry(current.get(), name);
-    } else if (op == "unregister") {
-      rc = mgr_->unregisterUiEntry(current.get(), name);
-    }
+    const int32_t rc = applyUiOpOnHost(mgr_, current.get(), kind, op, name, type,
+                                       payloadJson, order);
     if (rc != PLUGINXX_RESULT_OK) {
-      Json payload;
-      payload["id"] = pluginId;
-      payload["phase"] = "ui";
-      payload["op"] = op;
-      payload["item"] = name;
-      payload["code"] = rc;
-      payload["message"] = "UI 项操作被拒绝 (检查类型/命名空间/data 结构)";
-      mgr_->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
-      XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期 UI 操作 `{}` 失败 (code={})",
-              pluginId, op, rc);
+      reportUiOpError(pluginId, kind, op, name, rc);
+    }
+  });
+}
+
+void JsEngine::bridgeUiItemOp(const std::string &instanceName,
+                              const std::string &op, const std::string &name,
+                              const std::string &type,
+                              const std::string &dataJson, int32_t order) {
+  bridgeUiOp(instanceName, "item", op, name, type, dataJson, order);
+}
+
+void JsEngine::bridgeUiContentOp(const std::string &instanceName,
+                                 const std::string &op, const std::string &id,
+                                 const std::string &payloadJson) {
+  bridgeUiOp(instanceName, "content", op, id, std::string{}, payloadJson, 0);
+}
+
+void JsEngine::bridgeUiSlotOp(const std::string &instanceName,
+                              const std::string &op, const std::string &id,
+                              const std::string &payloadJson) {
+  bridgeUiOp(instanceName, "slot", op, id, std::string{}, payloadJson, 0);
+}
+
+void JsEngine::reportUiOpError(const std::string &pluginId,
+                               const std::string &kind, const std::string &op,
+                               const std::string &name, int32_t code) {
+  Json payload;
+  payload["id"] = pluginId;
+  payload["phase"] = "ui";
+  payload["kind"] = kind;
+  payload["op"] = op;
+  payload["item"] = name;
+  payload["code"] = code;
+  payload["message"] = "界面操作被拒绝 (检查槽位名 / 命名空间 / deps / 数据形状)";
+  if (mgr_ && mgr_->running()) {
+    mgr_->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
+  }
+  XX_LOGW("[musicxx_ext] JS插件 `{}` 界面操作 {}:{} `{}` 失败 (code={})",
+          pluginId, kind, op, name, code);
+}
+
+void JsEngine::requestUiContent(const std::string &instanceName,
+                                const std::string &fullId,
+                                const std::string &contextJson,
+                                std::function<void(std::string, std::string)> done) {
+  auto inst = lookupInstance(instanceName);
+  if (!inst) {
+    if (done) {
+      done(std::string{}, "插件实例不存在");
+    }
+    return;
+  }
+  postTask([inst, fullId, contextJson, done = std::move(done)]() {
+    if (!inst->ctx || !inst->engine) {
+      if (done) {
+        done(std::string{}, "JS 上下文已释放");
+      }
+      return;
+    }
+    std::string out;
+    const bool ok = inst->engine->callBridgeString(
+        inst, "generateContent", {fullId, contextJson}, out);
+    if (!ok) {
+      if (done) {
+        done(std::string{}, "生成函数失败 (脚本异常或没有这份内容)");
+      }
+      return;
+    }
+    /// 脚本用 `{error}` 回报失败时, 当作这次生成失败 (内容保留上一份)
+    const Json parsed = parseJsonSafe(out);
+    if (parsed.is_object() && parsed.contains("error")
+        && parsed["error"].is_string()) {
+      if (done) {
+        done(std::string{}, parsed["error"].get<std::string>());
+      }
+      return;
+    }
+    if (done) {
+      done(std::move(out), std::string{});
     }
   });
 }
@@ -3986,39 +4421,15 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     }
   }
 
-  // ---- UI 声明式扩展项 ----
+  // ---- UI 声明式扩展 (声明项 / 内容 / 槽位) ----
   int32_t uiApplied = 0;
   for (const auto &op : takePendingUiOps(inst)) {
-    int32_t rc = PLUGINXX_RESULT_ERR_ARG;
-    if (op.op == "register") {
-      MusicxxPluginUIEntrySpec spec{};
-      spec.version = 1;
-      spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
-      spec.item_id = PluginxxStringView{op.name.data(), op.name.size()};
-      spec.type = PluginxxStringView{op.type.data(), op.type.size()};
-      spec.data_json =
-          PluginxxStringView{op.dataJson.data(), op.dataJson.size()};
-      spec.order = op.order;
-      spec.flags = 0;
-      rc = mgr_->registerUiEntry(inst->hostInst, spec);
-    } else if (op.op == "update") {
-      rc = mgr_->updateUiEntry(inst->hostInst, op.name);
-    } else if (op.op == "unregister") {
-      rc = mgr_->unregisterUiEntry(inst->hostInst, op.name);
-    }
+    const int32_t rc = applyUiOpOnHost(mgr_, inst->hostInst, op.kind, op.op,
+                                       op.name, op.type, op.dataJson, op.order);
     if (rc == PLUGINXX_RESULT_OK) {
       ++uiApplied;
     } else {
-      Json payload;
-      payload["id"] = inst->id;
-      payload["phase"] = "ui";
-      payload["op"] = op.op;
-      payload["item"] = op.name;
-      payload["code"] = rc;
-      payload["message"] = "UI 项操作被拒绝 (检查类型/命名空间/data 结构)";
-      mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-      XX_LOGW("[musicxx_ext] JS插件 `{}` UI 项操作 `{}` 被拒绝 (code={})",
-              inst->id, op.name, rc);
+      reportUiOpError(inst->id, op.kind, op.op, op.name, rc);
     }
   }
 
@@ -4098,17 +4509,18 @@ int32_t PLUGINXX_CALL JsEngine::implementationRunSync(void *userData,
   const std::string capabilityId = handler->capabilityId;
   const std::string name = handler->instance;
   const std::string phaseName = capabilityPhaseNameOf(handler->phase);
+  const std::string ownerTag = handler->ownerTag;
   const std::string input =
       inputJson ? viewToStr(inputJson) : std::string{"{}"};
   auto slot = std::make_shared<WaitSlot<std::string>>();
   /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.implementationWaitResolve` 交回结果
   const int64_t waitId = engine->beginDispatchWait(name, slot);
-  engine->postTask([engine, name, capabilityId, phaseName, input, slot, waitId] {
+  engine->postTask([engine, name, capabilityId, phaseName, input, ownerTag, slot, waitId] {
     const auto inst = engine->lookupInstance(name);
     std::string result;
     if (!inst || !engine->callBridgeString(
                      inst, "invokeImplementation",
-                     {capabilityId, phaseName, input, std::to_string(waitId)},
+                     {capabilityId, phaseName, input, std::to_string(waitId), ownerTag},
                      result)) {
       engine->finishDispatchWait(waitId);
       slot->set(std::string{});

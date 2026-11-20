@@ -450,7 +450,7 @@ function configuredBgRateValue() {
 /// 六个背景样式的声明表：`name` + `order` + 取内容的函数
 ///
 /// 首次注册与"改了参数重新声明"用的是同一份声明，所以放在一张表里
-/// （`musicxx.ui.slot.register` 同名覆盖就是改声明，位置不变）。
+/// （`musicxx.ui.item.register` 同名覆盖就是改声明，位置不变）。
 const BACKGROUND_ENTRIES = [
     { name: ITEM_NAME_BLUR, order: 20, data: () => blurBackgroundData() },
     { name: ITEM_NAME_CARD, order: 21, data: () => cardBackgroundData() },
@@ -468,7 +468,7 @@ const BACKGROUND_ENTRIES = [
 function refreshBackgroundEntries() {
     for (var i = 0; i < BACKGROUND_ENTRIES.length; ++i) {
         var entry = BACKGROUND_ENTRIES[i];
-        musicxx.ui.slot.register({
+        musicxx.ui.item.register({
             name: entry.name,
             type: "playing.background",
             order: entry.order,
@@ -484,27 +484,27 @@ function refreshBackgroundEntries() {
 function registerPluginEntries() {
     for (var i = 0; i < BACKGROUND_ENTRIES.length; ++i) {
         var entry = BACKGROUND_ENTRIES[i];
-        musicxx.ui.slot.register({
+        musicxx.ui.item.register({
             name: entry.name,
             type: "playing.background",
             order: entry.order,
             data: entry.data(),
         });
     }
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: ITEM_NAME_ICON,
         type: "playing.icon",
         order: 40,
         data: iconEntryData(),
     });
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: ITEM_NAME_HOME,
         type: "home.entry",
         order: 130,
         data: {
             title: PLUGIN_TITLE,
             subtitle: "六种播放页背景（封面三种 + 图案三种）+ 歌曲图接管 + 封面取色 + 自动前景色",
-            // 图标放在 data 里（`musicxx.ui.slot.register` 只在没有 data 时才把顶层字段并进去）；
+            // 图标放在 data 里（`musicxx.ui.item.register` 只在没有 data 时才把顶层字段并进去）；
             // 图标是插件自己带的 svg：相对插件目录的路径（resource/svg/ 只是推荐位置，
             // 插件框架不接受自己的图标名）
             icon: "resource/svg/vinyl.svg",

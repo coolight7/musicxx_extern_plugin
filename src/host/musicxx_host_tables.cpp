@@ -36,6 +36,30 @@ namespace {
 /// 归属判定 (发布事件仍要求 `musicxx.*` 或自己命名空间)。
 using naming::isTopicOwnedBy;
 
+/// 应用给一条能力声明的超时上限 (`tools/capabilities.def.json` 的 `timeout_ms`)
+///
+/// 0 = 不限制; 未声明的 id 也返回 0。
+int32_t declaredTimeoutOf(const std::string &capabilityId) {
+  for (size_t i = 0; i < musicxxCapabilityDeclCount; ++i) {
+    const MusicxxCapabilityDecl &entry = musicxxCapabilityDecls[i];
+    if (entry.id && capabilityId == entry.id) {
+      return entry.timeout_ms;
+    }
+  }
+  return 0;
+}
+
+/// 三处超时取"最小的正数": 0 / 负数都当"这一处不限制"
+int64_t minPositiveTimeout(int64_t a, int64_t b) {
+  if (a <= 0) {
+    return b > 0 ? b : 0;
+  }
+  if (b <= 0) {
+    return a;
+  }
+  return (std::min)(a, b);
+}
+
 /// 阶段编号是否合法 (`impl` / `before` / `after`)
 bool isValidPhase(int32_t phase) {
   return phase >= MUSICXX_CAPABILITY_PHASE_IMPL &&
@@ -1250,9 +1274,10 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
   /// 以免与别的插件撞名。
 
   const int64_t requestId = nextRequestId_++;
-  /// 超时不再限制区间: 传 0 表示不设超时 (一直等 Dart 侧回复); 非 0 时按插件给的值
-  /// 到点终结该 op 并通知 Dart 收尾。
-  const int64_t effectiveTimeoutMs = static_cast<int64_t>(timeoutMs);
+  /// 超时: 调用方与**应用声明**取最小的正数 (0 = 这一处不限制; 都缺省就一直等)。
+  /// 应用内部的调用点不再写死默认值, 确实需要上限的由调用方自己传。
+  const int64_t effectiveTimeoutMs = minPositiveTimeout(
+      static_cast<int64_t>(timeoutMs), declaredTimeoutOf(capabilityName));
   PendingAppCapability pending;
   pending.plugin = inst->name;
   pending.capability = capabilityName;

@@ -409,7 +409,7 @@ function installPluginCapabilities() {
         return {
             pluginId: PLUGIN_ID,
             styles: Object.keys(ITEM_OF_STYLE).length,
-            uiEntries: musicxx.ui.slot.entries().length,
+            uiEntries: musicxx.ui.item.entries().length,
             // 数字（1 / 0）：原生测试按整数字段读（布尔会被当成 0）
             paletteHook: musicxx.capability.has("musicxx.media.palette.analyse") ? 1 : 0,
             hasSettingsView: (typeof settingsView === "function") ? 1 : 0,
@@ -471,7 +471,7 @@ function installPluginCapabilities() {
     /// 控件值变化统一入口：控件把自己的 `id` 与当前值带进参数
     ///
     /// 样式选择走槽位动作（`musicxx.ui.slot.set`，异步）；其余几项写 config.json 并重新
-    /// 声明背景样式（`musicxx.ui.slot.register` 同名覆盖 = 改声明）；处理器**同步返回**页面。
+    /// 声明背景样式（`musicxx.ui.item.register` 同名覆盖 = 改声明）；处理器**同步返回**页面。
     musicxx.capability.register("setOption", function (args) {
         const id = (args && typeof args.id === "string") ? args.id : "";
         const value = args ? args.value : null;

@@ -160,7 +160,7 @@ applyHeartbeat(DEFAULT_HEARTBEAT_MS);
 /// 说明: UI 项只做声明 (标题/图标/动作), 渲染由主程序负责; 运行期也能再注册/更新/注销。
 /// 图标是**插件自己带的 svg**: 写一条相对插件目录的路径, 文件在 `resource/svg/example.svg`
 /// (相对路径 + `resource/svg/` 只是推荐位置, 见 docs/plugin-ui.md §1.5)。
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "card",
     type: "home.entry",
     order: 110,
@@ -172,13 +172,13 @@ musicxx.ui.slot.register({
     },
 });
 
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "songInfo",
     type: "song.action",
     order: 910,
     data: {
         title: "JS 示例插件：查看歌曲信息",
-        action: { kind: "dispatch", name: "probe", args: { from: "ui" } },
+        action: { kind: "call", name: "probe", args: { from: "ui" } },
     },
 });
 
@@ -338,7 +338,7 @@ function settingsView(args, override) {
             kit.button({
                 label: "把提示语改回默认值",
                 variant: "full",
-                action: { kind: "dispatch", name: "resetGreeting", args: { value: "example_js 已加载" } },
+                action: { kind: "call", name: "resetGreeting", args: { value: "example_js 已加载" } },
             }, env),
             kit.button({ label: "测试网络通道", variant: "full", action: "fetchEcho" }, env),
         ],
@@ -520,7 +520,7 @@ musicxx.capability.register("probe", function (args) {
         hostUiKind: (ui && ui.kind) ? String(ui.kind) : "",
         hostUiBlocks: (ui && Array.isArray(ui.blocks)) ? ui.blocks.length : -1,
         currentSongName: currentSongName(),
-        uiEntries: musicxx.ui.slot.entries().length,
+        uiEntries: musicxx.ui.item.entries().length,
         // 自读统计 (只观测不限制; 插件可据此显示自己的用量)
         selfStatsImplementations: selfStats.implementations || 0,
         crossPending: crossCallState.pending,
@@ -637,7 +637,7 @@ function cardView(args) {
             kit.listRow({
                 title: "已注册的 UI 项",
                 subtitle: "主页入口 / 歌曲菜单",
-                trailing: String(musicxx.ui.slot.entries().length),
+                trailing: String(musicxx.ui.item.entries().length),
             }, env),
             kit.listRow({
                 title: "跨插件调用",
@@ -653,19 +653,19 @@ function cardView(args) {
                 title: "跳过广告曲目",
                 subtitle: "点这一条直接切换 (等于设置页里的开关)",
                 trailing: skipAdsEnabled() ? "已开启" : "已关闭",
-                action: { kind: "dispatch", name: "toggleSkipAds", args: { view: "card" } },
+                action: { kind: "call", name: "toggleSkipAds", args: { view: "card" } },
             }, env),
             kit.listRow({
                 title: "限制播放速度",
                 subtitle: "点这一条直接切换 (0.25x~3x 之外的改回合法值)",
                 trailing: speedLimitEnabled() ? "已开启" : "已关闭",
-                action: { kind: "dispatch", name: "toggleSpeedLimit", args: { view: "card" } },
+                action: { kind: "call", name: "toggleSpeedLimit", args: { view: "card" } },
             }, env),
             kit.button({ label: "刷新本页", variant: "full", highlight: true, action: "card" }, env),
             kit.button({
                 label: "调用 example_native 的能力",
                 variant: "full",
-                action: { kind: "dispatch", name: "crossCall", args: { target: "example_native", method: "probe" } },
+                action: { kind: "call", name: "crossCall", args: { target: "example_native", method: "probe" } },
             }, env),
             kit.button({ label: "测试主程序网络通道", variant: "full", action: "fetchEcho" }, env),
             kit.button({

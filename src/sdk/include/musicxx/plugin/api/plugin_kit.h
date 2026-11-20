@@ -850,13 +850,15 @@ public:
         return json;
     }
 
-    /* ---------- 声明式 UI 扩展 (名字用短名, 插件框架自动补前缀) ---------- */
+    /* ---------- 声明式界面 (名字用短名, 插件框架自动补前缀) ---------- */
 
-    /// 注册一个 UI 项: `itemName` 用短名 (如 "card"), `type` 取 MUSICXX_PLUGIN_UI_TYPE_*,
-    /// `dataJson` 是类型相关的声明式内容 (JSON 对象)
-    int32_t uiSlotRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
+    /// 注册一个声明项 (入口 / 菜单项 / 音效 / 可选样式)
+    ///
+    /// `itemName` 用短名 (如 "card"), `type` 取 `MUSICXX_PLUGIN_UI_SLOT_*`,
+    /// `dataJson` 是这种声明项的内容 (JSON 对象)。
+    int32_t uiItemRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
         if (!iface.ui || !iface.ui->register_entry) {
-            log.warn("musicxx.ui 表不可用: UI 项未注册 (插件框架版本过旧?)");
+            log.warn("musicxx.ui 表不可用: 声明项未注册 (插件框架版本过旧?)");
             return -1;
         }
         MusicxxPluginUIEntrySpec spec{};
@@ -870,24 +872,15 @@ public:
         return iface.ui->register_entry(host, &spec);
     }
 
-    /// 注册一个 UI 项（`data` 用 Json 对象传；与上面那版等价，便于用 Json 拼内容）
-    int32_t uiSlotRegister(const char* itemName, const char* type,
+    /// 注册一个声明项 (`data` 用 Json 对象传; 与上面那版等价)
+    int32_t uiItemRegister(const char* itemName, const char* type,
                        const utilxx_base::Json& data, int32_t order = 0) {
         const std::string json = data.dump();
-        return uiSlotRegister(itemName, type, json.c_str(), order);
+        return uiItemRegister(itemName, type, json.c_str(), order);
     }
 
-    /// 让一个 UI 项重新取一次视图 (声明不变; 改声明用 uiSlotRegister 覆盖)
-    int32_t uiSlotUpdate(const char* itemName) {
-        if (!iface.ui || !iface.ui->update_entry) {
-            return -1;
-        }
-        PluginxxStringView itemView = pluginxxView(itemName ? itemName : "");
-        return iface.ui->update_entry(host, &itemView);
-    }
-
-    /// 注销一个 UI 项
-    int32_t uiSlotUnregister(const char* itemName) {
+    /// 注销一个声明项
+    int32_t uiItemUnregister(const char* itemName) {
         if (!iface.ui || !iface.ui->unregister_entry) {
             return -1;
         }
@@ -895,13 +888,121 @@ public:
         return iface.ui->unregister_entry(host, &itemView);
     }
 
-    /// 本插件已注册的 UI 项 (JSON 数组; 表不可用时返回空数组)
-    std::string uiSlotEntries() const {
+    /// 本插件已注册的声明项 (JSON 数组; 表不可用时返回空数组)
+    std::string uiItemEntries() const {
         if (!iface.ui || !iface.ui->list_entries) {
             return "[]";
         }
         PluginxxString out{};
         if (iface.ui->list_entries(host, &out) != 0 || !out.data) {
+            return "[]";
+        }
+        std::string result{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return result;
+    }
+
+    /// 注册一份内容 (挂在某个槽位上的界面 JSON 的生成器)
+    ///
+    /// - `contentId` 用短名; `slot` 可以是简称、全名或本插件声明的槽位;
+    /// - `generate` 是同步回调: 把主程序给的 `ctx_json` 变成 `{"json":…}` / `{"data":…}`;
+    /// - `depsJson` 是变量 id 数组 (插件按这些变量决定结构)。
+    int32_t uiContentRegister(const char* contentId, const char* slot,
+                              const char* depsJson,
+                              int32_t (PLUGINXX_CALL* generate)(
+                                  const PluginxxHost*, const PluginxxStringView*,
+                                  PluginxxString*),
+                              int32_t order = 0, int32_t minIntervalMs = 0) {
+        if (!iface.ui || !iface.ui->register_content) {
+            log.warn("musicxx.ui 表不可用: 内容未注册 (插件框架版本过旧?)");
+            return -1;
+        }
+        MusicxxPluginUIContentSpec spec{};
+        spec.version         = 1;
+        spec.struct_size     = sizeof(MusicxxPluginUIContentSpec);
+        spec.id              = pluginxxView(contentId ? contentId : "");
+        spec.slot            = pluginxxView(slot ? slot : "");
+        spec.deps_json       = pluginxxView(depsJson ? depsJson : "[]");
+        spec.order           = order;
+        spec.min_interval_ms = minIntervalMs;
+        spec.flags           = 0;
+        spec.generate        = generate;
+        return iface.ui->register_content(host, &spec);
+    }
+
+    /// 注销一份内容
+    int32_t uiContentUnregister(const char* contentId) {
+        if (!iface.ui || !iface.ui->unregister_content) {
+            return -1;
+        }
+        PluginxxStringView idView = pluginxxView(contentId ? contentId : "");
+        return iface.ui->unregister_content(host, &idView);
+    }
+
+    /// 直接给一份内容 (不等主程序来问; `contentJson` 形如 `{"json":…}`)
+    int32_t uiContentPush(const char* contentId, const char* contentJson) {
+        if (!iface.ui || !iface.ui->push_content) {
+            return -1;
+        }
+        PluginxxStringView idView = pluginxxView(contentId ? contentId : "");
+        PluginxxStringView jsonView = pluginxxView(contentJson ? contentJson : "{}");
+        return iface.ui->push_content(host, &idView, &jsonView);
+    }
+
+    /// 本插件已注册的内容 (JSON 数组; 表不可用时返回空数组)
+    std::string uiContentEntries() const {
+        if (!iface.ui || !iface.ui->list_contents) {
+            return "[]";
+        }
+        PluginxxString out{};
+        if (iface.ui->list_contents(host, &out) != 0 || !out.data) {
+            return "[]";
+        }
+        std::string result{out.data, static_cast<size_t>(out.size)};
+        hostStringFree(out);
+        return result;
+    }
+
+    /// 要求主程序用当前变量再问一次 (`idsJson` 空 = 这个槽位上本插件的全部内容)
+    int32_t uiSlotUpdate(const char* slot, const char* idsJson = nullptr) {
+        if (!iface.ui || !iface.ui->update_slot) {
+            return -1;
+        }
+        PluginxxStringView slotView = pluginxxView(slot ? slot : "");
+        PluginxxStringView idsView = pluginxxView(idsJson ? idsJson : "");
+        return iface.ui->update_slot(host, &slotView, &idsView);
+    }
+
+    /// 声明自己的槽位 (`plugin.<自己>.ui.<名字>`, kind 只能是 insert / replace)
+    int32_t uiSlotDefine(const char* slot, const char* kind) {
+        if (!iface.ui || !iface.ui->define_slot) {
+            return -1;
+        }
+        MusicxxPluginUISlotSpec spec{};
+        spec.version     = 1;
+        spec.struct_size = sizeof(MusicxxPluginUISlotSpec);
+        spec.id          = pluginxxView(slot ? slot : "");
+        spec.kind        = pluginxxView(kind ? kind : "insert");
+        spec.flags       = 0;
+        return iface.ui->define_slot(host, &spec);
+    }
+
+    /// 撤销自己声明的槽位 (挂在上面的内容一起失效)
+    int32_t uiSlotUndefine(const char* slot) {
+        if (!iface.ui || !iface.ui->undefine_slot) {
+            return -1;
+        }
+        PluginxxStringView slotView = pluginxxView(slot ? slot : "");
+        return iface.ui->undefine_slot(host, &slotView);
+    }
+
+    /// 槽位表 (应用的 + 插件声明的; JSON 数组)
+    std::string uiSlotList() const {
+        if (!iface.ui || !iface.ui->list_slots) {
+            return "[]";
+        }
+        PluginxxString out{};
+        if (iface.ui->list_slots(host, &out) != 0 || !out.data) {
             return "[]";
         }
         std::string result{out.data, static_cast<size_t>(out.size)};

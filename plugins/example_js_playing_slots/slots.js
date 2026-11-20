@@ -96,14 +96,14 @@ function applyLyricTip(enabled) {
         return;
     }
     if (want) {
-        musicxx.ui.slot.register({
+        musicxx.ui.item.register({
             name: SLOT_NAME_LYRIC_TOP,
             type: SLOT_LYRIC_TOP,
             order: 10,
             data: lyricTopEntryData(),
         });
     } else {
-        musicxx.ui.slot.unregister(SLOT_NAME_LYRIC_TOP);
+        musicxx.ui.item.unregister(SLOT_NAME_LYRIC_TOP);
     }
     lyricTipRegistered = want;
 }
@@ -114,14 +114,14 @@ function applyLyricTip(enabled) {
 /// [applyLyricTip] 管（开 = 注册，关 = 注销）。
 function registerInsertSlots(lyricTipEnabled) {
     applyLyricTip(lyricTipEnabled);
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_SONGLIST_HEADER,
         type: SLOT_SONGLIST_HEADER,
         order: 10,
         // 视图 id：主程序调本插件的能力 `songlistHeader` 取内容（能按状态返回不同块）
         data: { view: "songlistHeader" },
     });
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_MORE_INFO_FOOTER,
         type: SLOT_MORE_INFO_FOOTER,
         order: 10,
@@ -137,7 +137,7 @@ function registerInsertSlots(lyricTipEnabled) {
 /// 两个都用 `variant: "simple"`：**无底色**，只有图标（或文字），跟内置控制栏按钮长得一样；
 /// 换成 `normal` 会多出一块方块底。
 function registerButtonSlots() {
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_MENU,
         type: SLOT_CONTROL_BAR_MENU,
         order: 10,
@@ -148,12 +148,12 @@ function registerButtonSlots() {
                     label: "",
                     variant: "simple",
                     icon: "resource/svg/menu.svg",
-                    action: { kind: "command", name: "musicxx.ui.playing.openMenu" },
+                    action: { kind: "call", name: "musicxx.ui.playing.openMenu" },
                 }],
             },
         },
     });
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_FAVORITE,
         type: SLOT_CONTROL_BAR_FAVORITE,
         order: 10,
@@ -175,7 +175,7 @@ function registerWholeBar() {
     if (wholeBarRegistered) {
         return;
     }
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_WHOLE_BAR,
         type: SLOT_CONTROL_BAR,
         order: 10,
@@ -188,7 +188,7 @@ function unregisterWholeBar() {
     if (!wholeBarRegistered) {
         return;
     }
-    musicxx.ui.slot.unregister(SLOT_NAME_WHOLE_BAR);
+    musicxx.ui.item.unregister(SLOT_NAME_WHOLE_BAR);
     wholeBarRegistered = false;
 }
 
@@ -236,9 +236,9 @@ function pageCoverEntryData() {
 
 /// 注册歌曲页面的页面背景（注册即生效，没有选中状态）
 ///
-/// 不想显示就 `musicxx.ui.slot.unregister(SLOT_NAME_PAGE_BACKGROUND)`。
+/// 不想显示就 `musicxx.ui.item.unregister(SLOT_NAME_PAGE_BACKGROUND)`。
 function registerPageBackground() {
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_PAGE_BACKGROUND,
         type: SLOT_PAGE_BACKGROUND,
         // 同一路由命中多项时不用 order 取舍：写了这个路由的项优先，同优先级里最新的生效
@@ -249,7 +249,7 @@ function registerPageBackground() {
 
 /// 注册主页入口（说明页 `ext://<插件 id>/card`）
 function registerHomeEntry() {
-    musicxx.ui.slot.register({
+    musicxx.ui.item.register({
         name: SLOT_NAME_HOME,
         type: "home.entry",
         order: 140,

@@ -74,7 +74,7 @@ function songlistHeaderView(args) {
                         kind: "Button",
                         label: "打开更多菜单",
                         variant: "simple",
-                        action: { kind: "command", name: "musicxx.ui.playing.openMenu" },
+                        action: { kind: "call", name: "musicxx.ui.playing.openMenu" },
                     },
                 ],
             },
@@ -95,7 +95,7 @@ function moreInfoFooterView(args) {
             kit.button({
                 label: "收藏当前歌曲",
                 variant: "full",
-                action: { kind: "command", name: "musicxx.songlist.favorite" },
+                action: { kind: "call", name: "musicxx.songlist.favorite" },
             }, env),
         ],
     };
@@ -117,7 +117,7 @@ function favoriteButtonView(args) {
             label: "",
             variant: "simple",
             icon: favorite ? FAVORITE_ICON_ON : FAVORITE_ICON_OFF,
-            action: { kind: "command", name: "musicxx.songlist.favorite" },
+            action: { kind: "call", name: "musicxx.songlist.favorite" },
         }],
     };
 }
@@ -133,7 +133,7 @@ function controlBarButton(icon, command, size) {
         label: "",
         variant: "simple",
         icon: icon,
-        action: { kind: "command", name: command },
+        action: { kind: "call", name: command },
     };
     if (null != size) {
         button.size = size;
@@ -188,7 +188,7 @@ function loopModeButton(args, mode) {
         variant: "simple",
         icon: view.svg,
         action: {
-            kind: "dispatch",
+            kind: "call",
             name: "cycleLoopMode",
             // 把控制栏的视图参数原样交给能力：它返回的控制栏视图要按同一份上下文画
             args: args,
@@ -222,7 +222,7 @@ function controlBarView(args, mode) {
             variant: "simple",
             icon: favorite ? FAVORITE_ICON_ON : FAVORITE_ICON_OFF,
             disabled: false == hasSong,
-            action: { kind: "command", name: "musicxx.songlist.favorite" },
+            action: { kind: "call", name: "musicxx.songlist.favorite" },
         },
     ];
     return {
@@ -330,17 +330,17 @@ function settingsView(args) {
             kit.button({
                 label: configWholeBar() ? "关闭『整栏替换』" : "开启『整栏替换』",
                 variant: "full",
-                action: { kind: "dispatch", name: "toggleWholeBar", args: { view: "settings" } },
+                action: { kind: "call", name: "toggleWholeBar", args: { view: "settings" } },
             }, env),
             kit.listRow({
                 title: "歌词页顶部提示",
-                subtitle: "开 = 注册这一项，关 = musicxx.ui.slot.unregister",
+                subtitle: "开 = 注册这一项，关 = musicxx.ui.item.unregister",
                 trailing: configLyricTip() ? "显示" : "已隐藏",
             }, env),
             kit.button({
                 label: configLyricTip() ? "隐藏歌词页顶部提示" : "显示歌词页顶部提示",
                 variant: "full",
-                action: { kind: "dispatch", name: "toggleLyricTip", args: { view: "settings" } },
+                action: { kind: "call", name: "toggleLyricTip", args: { view: "settings" } },
             }, env),
             kit.card({
                 title: "音频动效",
@@ -351,12 +351,12 @@ function settingsView(args) {
                     kit.button({
                         label: "使用本插件的音频动效",
                         variant: "full",
-                        action: { kind: "dispatch", name: "useVisualizer", args: { view: "settings" } },
+                        action: { kind: "call", name: "useVisualizer", args: { view: "settings" } },
                     }, env),
                     kit.button({
                         label: "切回不显示",
                         variant: "full",
-                        action: { kind: "dispatch", name: "clearVisualizer", args: { view: "settings" } },
+                        action: { kind: "call", name: "clearVisualizer", args: { view: "settings" } },
                     }, env),
                 ]),
             }, env),

@@ -76,6 +76,11 @@ void PLUGINXX_CALL probeActionDone(void *, int32_t,
                                    const PluginxxStringView *) {}
 
 /// 插件实例上下文 (每个实例一份; 不得使用可变全局状态 —— 多实例规则)
+struct ExampleCtx;
+
+/// 生成函数是静态回调, 需要拿到当前实例来做 push (`g_self` 在 start 里设置)
+thread_local ExampleCtx *g_self = nullptr;
+
 struct ExampleCtx : public musicxx::plugin::PluginBase {
   /// 连续播放错误计数 (仅示例)
   int32_t consecutiveErrors = 0;
@@ -89,8 +94,46 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t dupImplementRc = 0; ///< 覆盖式重复注册: 期望 0
   int32_t fixedImplRc = 0; ///< 给固定实现的能力注册 impl: 期望 -4 (只开放前链 / 后链)
 
-  /// 声明式 UI 扩展自检
-  int32_t uiHomeRc = -100; ///< 注册主页入口项: 期望 0
+  /// 内容生成函数 (插件框架线程同步调用): 把 ctx 变成界面 JSON
+  ///
+  /// - 只做"把 ctx 变成 JSON"这一件事, 必须快;
+  /// - 生成函数里可以直接 push 另一份内容 (框架线程就地执行, 不回调、不等结果)。
+  static int32_t PLUGINXX_CALL onGenerateRow(const PluginxxHost *host,
+                                             const PluginxxStringView *ctxJson,
+                                             PluginxxString *out) {
+    std::string ctx = ctxJson && ctxJson->data
+                          ? std::string{ctxJson->data,
+                                        static_cast<size_t>(ctxJson->size)}
+                          : std::string{"{}"};
+    // 生成函数里 push 另一份内容: 验证"框架线程就地执行, 不重入"这条约定
+    if (g_self != nullptr) {
+      g_self->uiContentPush(
+          "pushed",
+          R"({"json":{"blocks":[{"kind":"Text","text":"生成时推送的内容"}]}})");
+    }
+    const std::string json =
+        R"({"json":{"blocks":[{"kind":"Text","text":"行内容"},)"
+        R"({"kind":"Text","text":")" +
+        ctx + R"("}]}})";
+    PluginBase::hostStringSet(host, out, json);
+    return 0;
+  }
+
+  /// `pushed` 那份内容的生成函数
+  ///
+  /// 内容必须带生成函数 (主程序随时可能来要一份), 所以这里先给一份占位;
+  /// 真正的值由 [onGenerateRow] 里的 `push` 推过来。
+  static int32_t PLUGINXX_CALL onGeneratePushed(const PluginxxHost *host,
+                                               const PluginxxStringView *,
+                                               PluginxxString *out) {
+    PluginBase::hostStringSet(
+        host, out,
+        R"({"json":{"blocks":[{"kind":"Text","text":"等待推送…"}]}})");
+    return 0;
+  }
+
+  /// 声明式界面自检 (声明项 / 内容 / 槽位)
+  int32_t uiHomeRc = -100; ///< 注册主页入口声明项: 期望 0
 
   /// 插件网络能力 (`musicxx.net`) 自检: 表是否可用 / 自省调用返回码
   bool netTableAvailable = false;
@@ -99,14 +142,25 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiForeignRc = -100; ///< 注册他人命名空间的项: 期望 -6 (权限拒绝)
   int32_t uiBadTypeRc = -100; ///< 注册未知类型: 期望 -4 (未知类型)
   int32_t uiBadDataRc = -100; ///< 声明式内容缺少 title: 期望 -1 (参数非法)
-  int32_t uiUpdateRc = -100; ///< 刷新自己的项 (声明不变): 期望 0
-  int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget 动作): 期望 0
+  int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget): 期望 0
   int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
-  int32_t uiBackgroundNoViewRc =
-      -100; ///< 播放页背景只给 shader、没有 view: 期望 -1 (参数非法)
   int32_t uiPageBackgroundRc = -100; ///< 注册普通页面背景: 期望 0
   int32_t uiPageBackgroundBadRoutesRc =
       -100; ///< 普通页面背景的 routes 写法不合法: 期望 -1 (参数非法)
+
+  /// 内容与槽位自检
+  int32_t uiContentRc = -100;     ///< 注册一份内容: 期望 0
+  int32_t uiContentDupSlotRc = -100; ///< 同一槽位再注册一份: 期望 0
+  int32_t uiContentOverwriteRc = -100; ///< 同 id 再注册 (覆盖): 期望 0
+  int32_t uiContentBadSlotRc = -100;   ///< 未知槽位: 期望 -4
+  int32_t uiContentBadDepsRc = -100;   ///< deps 写法不合法: 期望 -1
+  int32_t uiContentUnregisterRc = -100; ///< 注销一份内容: 期望 0
+  int32_t uiContentPushedRc = -100; ///< 注册“只从 push 取内容”的那份: 期望 0
+  int32_t uiSlotDefineRc = -100;   ///< 声明自己的槽位: 期望 0
+  int32_t uiSlotDefineAppRc = -100; ///< 声明应用的槽位: 期望 -6
+  int32_t uiSlotDefineBadKindRc = -100; ///< kind 不合法: 期望 -1
+  int32_t uiSlotUpdateRc = -100;   ///< 要求重新生成 (按槽位): 期望 0
+  int32_t uiSlotUndefineRc = -100; ///< 撤销自己声明的槽位: 期望 0 (放在最后)
 
   /// 事件订阅自检
   int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (插件框架拒绝)
@@ -287,21 +341,22 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //    注意: UI 项只声明"长什么样、点了做什么", 渲染由主程序 (Dart 侧) 负责。
     //    图标是**插件自己带的 svg**（写相对插件目录的路径；文件在 resource/svg/native.svg，
     //    resource/svg/ 只是推荐位置，随 ASSETS 分发），插件框架不接受自己的图标名。
-    uiHomeRc = uiSlotRegister(
-        "card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+    uiHomeRc = uiItemRegister(
+        "card", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
         R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
                  "action":{"kind":"route","route":"ext://example_native/card"}})",
         100);
-    uiSongRc = uiSlotRegister("songInfo", MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
-                          R"({"title":"示例插件：查看歌曲信息",
-                 "action":{"kind":"dispatch","name":"probe","args":{"ui":"1"}}})",
-                          900);
-    uiForeignRc = uiSlotRegister("plugin.other_plugin.card",
-                             MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+    uiSongRc = uiItemRegister(
+        "songInfo", MUSICXX_PLUGIN_UI_SLOT_SONG_ACTION,
+        R"({"title":"示例插件：查看歌曲信息",
+                 "action":{"kind":"call","name":"probe","args":{"ui":"1"}}})",
+        900);
+    uiForeignRc = uiItemRegister("plugin.other_plugin.card",
+                             MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
                              R"({"title":"冒充他人"})", 0);
-    uiBadTypeRc =
-        uiSlotRegister("bad", "musicxx.ui.unknown", R"({"title":"未知类型"})", 0);
-    uiBadDataRc = uiSlotRegister("nodata", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
+    uiBadTypeRc = uiItemRegister("bad", "musicxx.ui.unknown",
+                             R"({"title":"未知类型"})", 0);
+    uiBadDataRc = uiItemRegister("nodata", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
                              R"({"subtitle":"缺少 title"})", 0);
     uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
 
@@ -318,8 +373,8 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //      没有封面时这一位是 0。没声明纹理的样式不解码、不上传、不占显存。
     //    块的 `speed` / `maxFps` / `resolutionScale` 是每块自己的（不再挂在 UI 项上）。
     //    JS 侧的等价声明见 plugins/example_js_playing_bg/backgrounds.js。
-    uiBackgroundRc = uiSlotRegister(
-        "playingBg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
+    uiBackgroundRc = uiItemRegister(
+        "playingBg", MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND,
         R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
             "view":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
                "args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},
@@ -336,35 +391,68 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                                   "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
                "speed":1,"maxFps":16}}})",
         20);
-    // 7.0) 背景是块树: 只给 item 级 `shader`（旧写法）而不给 `view` 时注册要被拒绝。
-    uiBackgroundNoViewRc = uiSlotRegister(
-        "playingBgNoView", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
-        R"({"title":"缺 view 的背景","shader":{"bundle":"shader/bg.shaderbundle"}})",
-        21);
-
-    // 7.1) 普通页面背景 (musicxx.ui.page.background):
-    //      与播放页背景同一份块写法（`view`），区别是 `routes` 声明适用的页面
-    //      （不写 / 空数组 = 所有普通页面）。这里只验证插件框架接受这种声明，
-    //      `routes` 写成字符串（不是数组）时注册要被拒绝。
-    uiPageBackgroundRc = uiSlotRegister(
-        "pageBg", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
+    // 7.0) 普通页面背景 (musicxx.ui.page.background):
+    //      与播放页背景同一份块写法 (`view`), 区别是 `routes` 声明适用的页面
+    //      (不写 / 空数组 = 所有普通页面)。这里验证插件框架接受这种声明,
+    //      `routes` 写成字符串 (不是数组) 时注册要被拒绝。
+    uiPageBackgroundRc = uiItemRegister(
+        "pageBg", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND,
         R"({"title":"原生示例页面背景",
             "routes":["/songs","/setting/theme"],
             "view":{"kind":"Expanded","child":
               {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
-               "speed":1,"maxFps":8}}}",
+               "speed":1,"maxFps":8}}})",
         10);
-    uiPageBackgroundBadRoutesRc = uiSlotRegister(
-        "pageBgBadRoutes", MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
+    uiPageBackgroundBadRoutesRc = uiItemRegister(
+        "pageBgBadRoutes", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND,
         R"({"title":"坏的页面背景","routes":"/songs",
             "view":{"kind":"Expanded","child":
               {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle"}}})",
         11);
 
-    // 7.2) 刷新: 声明不变, 只让主程序重新取一次视图 (rev + 1)
-    //      —— 状态变了 (例如跟随的广播值变了) 而声明不必改时用它;
-    //      改声明 (换视图 / 改标题 / 改 order) 用 uiSlotRegister 覆盖。
-    uiUpdateRc = uiSlotUpdate("playingBg");
+    // 7.1) 内容: 挂在槽位上的界面 JSON, 由生成函数在需要时给出
+    //      - 同一个槽位可以注册多份 (id 不同); 同 id 再注册 = 覆盖;
+    //      - deps 是变量 id 数组, 主程序按这些变量取值并传进 ctx;
+    //      - 生成函数里可以直接 push 另一份内容 (不回调、不等结果)。
+    g_self = this;
+    uiContentRc = uiContentRegister(
+        "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+        R"(["musicxx.song.name","musicxx.player.playing"])",
+        &ExampleCtx::onGenerateRow, 10);
+    uiContentDupSlotRc = uiContentRegister(
+        "row2", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+        R"(["musicxx.song.name"])", &ExampleCtx::onGenerateRow, 20);
+    uiContentOverwriteRc = uiContentRegister(
+        "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+        R"(["musicxx.song.name","musicxx.player.playing"])",
+        &ExampleCtx::onGenerateRow, 30);
+    uiContentBadSlotRc = uiContentRegister(
+        "badSlot", "musicxx.ui.unknown", "[]", &ExampleCtx::onGenerateRow);
+    uiContentBadDepsRc = uiContentRegister(
+        "badDeps", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+        R"("musicxx.song.name")", &ExampleCtx::onGenerateRow);
+
+    // 7.2) 注销一份内容 (只影响这一个 id)
+    uiContentUnregisterRc = uiContentUnregister("row2");
+
+    // 7.2.1) 生成函数里会 push 的"另一份内容": push 只更新**已注册**的内容,
+    //        所以先注册一份 (不给生成函数: 内容只从 push 来)。
+    //        槽位用另一个插入位置, 不和自己的生成互相影响。
+    uiContentPushedRc = uiContentRegister(
+        "pushed", MUSICXX_PLUGIN_UI_SLOT_PLAYING_MORE_INFO_HEADER, "[]",
+        &ExampleCtx::onGeneratePushed, 10);
+
+    // 7.3) 插件声明的槽位: id 必须是 plugin.<自己>.ui.<名字>, kind 只能 insert / replace
+    uiSlotDefineRc = uiSlotDefine("plugin.example_native.ui.toolbar", "insert");
+    uiSlotDefineAppRc = uiSlotDefine("musicxx.ui.home.entry", "insert");
+    uiSlotDefineBadKindRc =
+        uiSlotDefine("plugin.example_native.ui.bad", "pageBackground");
+
+    // 7.4) 要求重新生成: 主程序用当前变量再问一次 (不要求槽位已显示)
+    uiSlotUpdateRc = uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP);
+
+    // 7.5) 撤销自己声明的槽位 (挂在上面的内容一起失效)
+    uiSlotUndefineRc = uiSlotUndefine("plugin.example_native.ui.toolbar");
 
     // 8) 能力: 供插件框架/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
     capability(
@@ -380,6 +468,19 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                           1000);
             log.info("example_native: 已发起应用能力调用 musicxx.ui.toast "
                      "(等待插件框架超时)");
+          }
+          // 带 `uiRefresh` 时跑一次内容 / 槽位刷新自检 (事件用例用):
+          // - `slot.update` 让这段槽位上的内容再生成一次 → `musicxx.ui.content`;
+          // - 注册 + 注销一份内容 → `musicxx.ui.contents`;
+          // - 声明 + 撤销一个槽位 → `musicxx.ui.slots`。
+          if (args.find("uiRefresh") != std::string_view::npos) {
+            uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP);
+            uiContentRegister("row3",
+                              MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP, "[]",
+                              &ExampleCtx::onGenerateRow, 40);
+            uiContentUnregister("row3");
+            uiSlotDefine("plugin.example_native.ui.tmp", "insert");
+            uiSlotUndefine("plugin.example_native.ui.tmp");
           }
           // 带 `streamEndCheck` 时跑一次流结束自检 (广播表 v3)
           if (args.find("streamEndCheck") != std::string_view::npos) {
@@ -427,14 +528,26 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               << ",\"uiForeignRc\":" << uiForeignRc
               << ",\"uiBadTypeRc\":" << uiBadTypeRc
               << ",\"uiBadDataRc\":" << uiBadDataRc
-              << ",\"uiUpdateRc\":" << uiUpdateRc
               << ",\"uiNotifyRc\":" << uiNotifyRc
               << ",\"uiBackgroundRc\":" << uiBackgroundRc
-              << ",\"uiBackgroundNoViewRc\":" << uiBackgroundNoViewRc
               << ",\"uiPageBackgroundRc\":" << uiPageBackgroundRc
               << ",\"uiPageBackgroundBadRoutesRc\":"
               << uiPageBackgroundBadRoutesRc
-              << ",\"uiEntries\":" << uiSlotEntries()
+              << ",\"uiEntries\":" << uiItemEntries()
+              << ",\"uiContentRc\":" << uiContentRc
+              << ",\"uiContentDupSlotRc\":" << uiContentDupSlotRc
+              << ",\"uiContentOverwriteRc\":" << uiContentOverwriteRc
+              << ",\"uiContentBadSlotRc\":" << uiContentBadSlotRc
+              << ",\"uiContentBadDepsRc\":" << uiContentBadDepsRc
+              << ",\"uiContentUnregisterRc\":" << uiContentUnregisterRc
+              << ",\"uiContentPushedRc\":" << uiContentPushedRc
+              << ",\"uiContents\":" << uiContentEntries()
+              << ",\"uiSlotDefineRc\":" << uiSlotDefineRc
+              << ",\"uiSlotDefineAppRc\":" << uiSlotDefineAppRc
+              << ",\"uiSlotDefineBadKindRc\":" << uiSlotDefineBadKindRc
+              << ",\"uiSlotUpdateRc\":" << uiSlotUpdateRc
+              << ",\"uiSlotUndefineRc\":" << uiSlotUndefineRc
+              << ",\"uiSlotList\":" << uiSlotList()
               << ",\"stateLen\":" << readBroadcast("musicxx.state.song").size()
               << ",\"featurePointId\":\"" << featurePointSampleId << "\""
               << ",\"featurePointRc\":" << featurePointSampleRc

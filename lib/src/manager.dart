@@ -440,6 +440,111 @@ class MusicxxPluginManager {
     }
   }
 
+  /// 内容注册表快照（插件挂在槽位上的界面 JSON 的生成器）
+  ///
+  /// 变更会额外推送 `musicxx.ui.contents` 事件（载荷带该插件的全部内容），
+  /// 单条结果用 `musicxx.ui.content` 事件推给主程序的内容缓存。
+  List<MusicxxPluginUIContent> uiContents() {
+    _requireRunning('ui_contents');
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginString> out = arena.outString();
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_contents(
+        _runtime.host,
+        out,
+        log,
+      );
+      _runtime.checkOrThrow(rc, log, 'ui_contents');
+      final String json = takeOutString(out, _runtime.bindings);
+      if (json.isEmpty) {
+        return const <MusicxxPluginUIContent>[];
+      }
+      return MusicxxPluginUIContent.parseList(tryDecodeJson(json));
+    } finally {
+      arena.dispose();
+    }
+  }
+
+  /// 槽位表快照（应用预留的 + 插件声明的）
+  ///
+  /// 插件声明 / 撤销槽位时推 `musicxx.ui.slots` 事件。
+  List<MusicxxPluginUISlot> uiSlots() {
+    _requireRunning('ui_slots');
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginString> out = arena.outString();
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_slots(
+        _runtime.host,
+        out,
+        log,
+      );
+      _runtime.checkOrThrow(rc, log, 'ui_slots');
+      final String json = takeOutString(out, _runtime.bindings);
+      if (json.isEmpty) {
+        return const <MusicxxPluginUISlot>[];
+      }
+      return MusicxxPluginUISlot.parseList(tryDecodeJson(json));
+    } finally {
+      arena.dispose();
+    }
+  }
+
+  /// 让插件为一份内容生成一次界面（结果从 `musicxx.ui.content` 事件回来）
+  ///
+  /// - 生成函数在插件框架线程同步执行（插件那边必须快），所以这个调用会等它完成；
+  /// - `context` 是声明过的依赖变量 → 当前值（JSON 对象）；
+  /// - 返回 0 = 已生成并推送；没有这份内容抛异常。
+  int requestUiContent(String contentId, Map<String, Object?> context) {
+    _requireRunning('ui_request');
+    final String ctxJson = jsonEncode(context);
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginStringView> idView = arena.view(
+        contentId,
+      );
+      final Pointer<MusicxxExternPluginStringView> ctxView = arena.view(
+        ctxJson,
+      );
+      final Pointer<Int64> requestId = arena.mallocInt64();
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_request(
+        _runtime.host,
+        idView,
+        ctxView,
+        requestId,
+        log,
+      );
+      _runtime.checkOrThrow(rc, log, 'ui_request');
+      return requestId.value;
+    } finally {
+      arena.dispose();
+    }
+  }
+
+  /// 订阅 / 退订一个广播频道的值变化
+  ///
+  /// 有人订阅时，频道每次发布都会推一条 `musicxx.broadcast.changed`（`{id, value}`）；
+  /// 计数归零就停。插件自己发布 → 主程序也能收到（变量来源靠它刷新）。
+  void watchBroadcast(String id, {bool watch = true}) {
+    _requireRunning('broadcast_watch');
+    final MusicxxPluginArena arena = MusicxxPluginArena();
+    try {
+      final Pointer<MusicxxExternPluginStringView> idView = arena.view(id);
+      final Pointer<MusicxxExternPluginString> log = arena.outString();
+      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_watch(
+        _runtime.host,
+        idView,
+        watch ? 1 : 0,
+        log,
+      );
+      _runtime.checkOrThrow(rc, log, 'broadcast_watch');
+    } finally {
+      arena.dispose();
+    }
+  }
+
   /// 统计采集配置（`{"enable":false}` 可整体关闭采集）
   void statsConfig(Map<String, Object?> cfg) {
     _requireRunning('stats_config');

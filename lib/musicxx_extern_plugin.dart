@@ -53,8 +53,13 @@ export 'src/runtime.dart'
         MusicxxPluginRuntimeConfig;
 export 'src/ui.dart'
     show
+        MusicxxPluginUIContent,
         MusicxxPluginUIItem,
         MusicxxPluginUIItems,
+        MusicxxPluginUISlot,
         MusicxxPluginUIType,
         MusicxxPluginUIActionKind;
+export 'src/ui_slots.g.dart';
+export 'src/ui_theme.dart';
+export 'src/ui_variables.g.dart';
 export 'src/version.dart' show MusicxxPluginVersion;

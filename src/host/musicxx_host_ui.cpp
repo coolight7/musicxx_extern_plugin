@@ -1,36 +1,32 @@
 /// musicxx 外部插件原生插件框架: 声明式 UI 扩展
 ///
-/// 插件不写 Flutter 代码, 只做**声明**: 注册一个 UI 项 (入口项 / 菜单项 /
-/// 设置页 / 附加信息块) 并给出类型相关的 JSON 内容, 由 Dart 侧渲染 (声明式描述
-/// + 主程序渲染)。
+/// 插件不写 Flutter 代码, 只做**声明**:
+/// - **声明项**(entry): 入口 / 菜单项 / 音效 / 可选样式的元信息 (只有数据, 没有界面树);
+/// - **内容**(content): 挂在某个槽位上的界面 JSON, 由生成函数在需要时生成;
+/// - **槽位**(slot): 插件也可以声明自己的槽位 (`plugin.<自己>.ui.<名字>`), 让别人往里填内容。
 ///
 /// 设计要点:
-/// - **注册表归框架线程独占** (无锁不变式): 注册/更新/摘除/快照都在框架线程;
-///   Dart 线程的 `ui_snapshot` 经 C ABI 侧的 `onHostThread` 投递后读取;
-/// - **命名空间校验**: 项 id 必须是本插件命名空间 (`plugin.<pluginId>.<名>`),
-/// 短名由插件框架补前缀;
-///   动作里的 `route` 允许指向**任意插件**的 `ext://<插件id>/<视图id>` 页面
-///   (页面由被跳转插件自己绘制), `action` 只允许官方 `musicxx.*` 能力;
-/// - **结构校验在注册时做**: data 必须是 JSON 对象且按类型含必需字段 (title
-/// 等),
-///   早报错好过让 Dart 侧渲染时才发现;
-/// - **生命周期**: 项随插件实例 stop/卸载自动摘除 (插件框架在
-/// `clearPluginRegistrations` 里统一清理),
-///   每次变化推送 `musicxx.ui.changed` 事件 (payload 带该插件的全部项, Dart
-///   整批替换);
-/// - **只存声明**: 插件框架不解释 data 的业务含义 (除了动作描述的结构),
-/// 渲染细节留给 Dart 侧。
+/// - **注册表归框架线程独占**: 注册/摘除/快照都在框架线程; Dart 线程的读取经 C ABI 投递后执行;
+/// - **命名空间校验**: 项 / 内容 id 必须是本插件命名空间, 短名由框架补前缀;
+/// - **生成函数同步执行且必须快**: 主程序只在"槽位被激活 / 要求刷新 / 依赖变化"时调用;
+/// - **生命周期**: 项 / 内容 / 槽位随插件实例 stop/卸载自动摘除; 变化推事件
+///   (`musicxx.ui.changed` / `musicxx.ui.contents` / `musicxx.ui.content` / `musicxx.ui.slots`)。
 #include "host_json.h"
 #include "host_naming.h"
+#include "js/js_engine.h"
 #include "musicxx_host.h"
 
 #include "musicxx/plugin/api/plugin_api.h"
+#include "musicxx/plugin/api/ui_variables.g.h"
 #include "pluginxx/host/abi_util.h"
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
 
 #include <algorithm>
+#include <cmath>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace musicxx {
@@ -38,256 +34,15 @@ namespace extern_plugin {
 
 using utilxx_base::Json;
 
-namespace {
-
-/// 官方 UI 项类型 (与 plugin_api.h 的 MUSICXX_PLUGIN_UI_TYPE_* 一一对应)
-const char *const kKnownUiTypes[] = {
-    MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
-    MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION,
-    MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER,
-    MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND,
-    MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PLAY_OR_PAUSE,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_NEXT,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_HEADER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_FOOTER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_HEADER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_FOOTER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_BOTTOM,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_HEADER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_FOOTER,
-};
-
-/// 播放页子页面的插入块类型（十个位置各一个类型，类型本身就是位置）
-const char *const kPlayingPageBlockTypes[] = {
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_HEADER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_FOOTER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_HEADER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_FOOTER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_BOTTOM,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_HEADER,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_FOOTER,
-};
-
-bool isPlayingPageBlockType(std::string_view type) {
-  for (const char *item : kPlayingPageBlockTypes) {
-    if (type == item) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/// 播放页底部控制按钮栏的替换位置（整栏一个类型 + 五个按钮各一个类型）
-///
-/// 与页面插入块的区别: 这些类型是**替换**关系 (插件画的视图取代内置界面),
-/// 所以内容同样必填 (`view`), 但不需要 `title`.
-const char *const kPlayingControlBarTypes[] = {
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PLAY_OR_PAUSE,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_NEXT,
-    MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
-};
-
-bool isPlayingControlBarType(std::string_view type) {
-  for (const char *item : kPlayingControlBarTypes) {
-    if (type == item) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool isKnownUiType(std::string_view type) {
-  for (const char *item : kKnownUiTypes) {
-    if (type == item) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/// 需要 `title` 字段的项类型 (入口项与菜单项都要给用户看到标题)
-bool requiresTitle(std::string_view type) {
-  return type == MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY ||
-         type == MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION ||
-         type == MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER ||
-         type == MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND ||
-         type == MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT;
-}
-
-/// 校验 "接管型" 渲染项 (播放页歌曲图 / 播放页音频动效) 的结构
-///
-/// 两者同一套写法: 三种形态 (none / shader / view), 这里只做结构校验
-/// (字段类型与组合的合法性), 渲染细节留给 Dart 侧。
-/// [label] 是出错信息里的中文叫法。
-bool validatePlayingRenderData(std::string_view label, const Json &data,
-                               std::string &err) {
-  const std::string prefix{label};
-  if (data.contains("mode")) {
-    if (!data["mode"].is_string()) {
-      err = prefix + " mode 必须是字符串 (none / shader / view)";
-      return false;
-    }
-    const std::string mode = data["mode"].get<std::string>();
-    if (mode != "none" && mode != "shader" && mode != "view") {
-      err = prefix + " mode 只支持 none / shader / view";
-      return false;
-    }
-  }
-  // shader 形态: 给出 shader 就必须带可用的 bundle (歌曲图 / 动效的接管形态之一)
-  if (data.contains("shader")) {
-    if (!data["shader"].is_object()) {
-      err = prefix + " shader 必须是对象";
-      return false;
-    }
-    const Json &shader = data["shader"];
-    if (!shader.contains("bundle") || !shader["bundle"].is_string() ||
-        shader["bundle"].get<std::string>().empty()) {
-      err = prefix + " 缺少 shader.bundle (非空字符串)";
-      return false;
-    }
-  }
-  // view 形态: 视图 id 字符串或直接给视图对象 / 数组
-  if (data.contains("view") && !data["view"].is_string() &&
-      !data["view"].is_object() && !data["view"].is_array()) {
-    err = prefix + " view 必须是视图 id 字符串或视图对象";
-    return false;
-  }
-  // 明确声明 shader / view 形态但缺字段时早报错 (none 形态可以什么都不给)
-  const std::string mode =
-      (data.contains("mode") && data["mode"].is_string())
-          ? data["mode"].get<std::string>()
-          : std::string{};
-  if (mode == "shader" &&
-      (!data.contains("shader") || !data["shader"].is_object())) {
-    err = prefix + " 声明 mode=shader 时必须给出 shader.bundle";
-    return false;
-  }
-  if (mode == "view" && !data.contains("view")) {
-    err = prefix + " 声明 mode=view 时必须给出 view";
-    return false;
-  }
-  return true;
-}
-
-/// 校验背景项的内容: 背景是一棵块树, 只能通过 `view` 描述
-///
-/// `view` 是内联块描述 (对象 / 块数组) 或视图 id (非空字符串)。
-/// 着色器不在这里声明: 它只是块树里的一个 `musicxx.Shader` 块。
-bool validateBackgroundViewData(std::string_view label, const Json &data,
-                                std::string &err) {
-  const std::string prefix{label};
-  if (!data.contains("view")) {
-    err = prefix + " 缺少 view (块描述或视图 id)";
-    return false;
-  }
-  const Json &view = data["view"];
-  if (view.is_string()) {
-    if (view.get<std::string>().empty()) {
-      err = prefix + " view 不能是空字符串";
-      return false;
-    }
-    return true;
-  }
-  if (view.is_object() || view.is_array()) {
-    return true;
-  }
-  err = prefix + " view 必须是块描述 (对象 / 数组) 或视图 id 字符串";
-  return false;
-}
-
-/// 校验一条普通页面背景项 (`musicxx.ui.page.background`) 的结构
-///
-/// 与播放页背景同一条要求: 必须有 `view`; `routes` 可选, 写了就必须是
-/// 非空字符串数组 (不写或空数组 = 所有普通页面)。
-bool validatePageBackgroundData(const Json &data, std::string &err) {
-  if (!validateBackgroundViewData("页面背景", data, err)) {
-    return false;
-  }
-  if (data.contains("routes")) {
-    const Json &routes = data["routes"];
-    if (!routes.is_array()) {
-      err = "页面背景 routes 必须是页面路由 id 的字符串数组 (不写 = 所有普通页面)";
-      return false;
-    }
-    for (const Json &item : routes) {
-      if (!item.is_string() || item.get<std::string>().empty()) {
-        err = "页面背景 routes 只能写非空的页面路由 id";
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-/// 校验一条音效项 (`musicxx.ui.audioEffect`) 的结构
-///
-/// 只做结构校验 (字段类型, 以及至少要有一项内容): 滤镜名是否在这份 ffmpeg / mpv 构建里
-/// 存在由插件自己保证。写错的滤镜串会被 mpv 拒绝, 不会影响应用自己的其它音频段。
-bool validateAudioEffectData(const Json &data, std::string &err) {
-  bool hasFilter = false;
-  if (data.contains("filter")) {
-    if (!data["filter"].is_string()) {
-      err = "音效项 filter 必须是字符串 (完整的一段 af 串)";
-      return false;
-    }
-    hasFilter = !data["filter"].get<std::string>().empty();
-  }
-  if (data.contains("pitch") && !data["pitch"].is_number()) {
-    err = "音效项 pitch 必须是数字 (0.25~2.0)";
-    return false;
-  }
-  if (data.contains("cpuCost") && !data["cpuCost"].is_number()) {
-    err = "音效项 cpuCost 必须是数字 (1~5)";
-    return false;
-  }
-  const bool hasPitch = data.contains("pitch") && data["pitch"].is_number();
-  if (!hasFilter && !hasPitch) {
-    err = "音效项至少要给出 filter (字符串) 或 pitch (数字)";
-    return false;
-  }
-  return true;
-}
-
-/// 校验一个动作描述 (data.action)
-///
-/// 允许的形态 (与界面描述层的动作写法一致):
-/// - 字符串短写 `"openSettings"` —— 等于 `{"kind":"dispatch","name":"openSettings"}`;
-/// - `{"kind":"dispatch","name":"<本插件能力短名>","args":{...}}` —— 交回本插件处理;
-/// - `{"kind":"route","route":"ext://<插件id>/<视图id>"}` —— 允许指向任意插件
-///   (含自己): 页面由被跳转插件自己绘制, 发起方只是把它打开;
-/// - `{"kind":"command","name":"musicxx.<域>.<能力>","args":{...}}` —— 主程序能力;
-/// - `{"kind":"none"}`
+/// 校验一个动作描述 (声明项的 data.action; 与界面描述层的写法一致)
 bool validateAction(const Json &action, std::string_view pluginId,
                     std::string &err) {
   if (action.is_null()) {
     return true; ///< 没有动作 = 纯展示项
   }
   if (action.is_string()) {
-    /// 短写形态: 必须给出非空的能力短名
     if (action.get<std::string>().empty()) {
-      err = "短写形态必须给出插件能力的非空短名";
+      err = "短写形态必须给出非空的能力名";
       return false;
     }
     return true;
@@ -312,100 +67,148 @@ bool validateAction(const Json &action, std::string_view pluginId,
     constexpr const char *kPrefix = "ext://";
     constexpr size_t kPrefixLen = 6; ///< sizeof("ext://") - 1
     const std::string hint =
-        "ext://<插件id>/<视图id> (任意插件; 本插件为 ext://" + std::string{pluginId} +
-        "/<视图id>)";
+        "ext://<插件id>/<内容 id> (任意插件; 本插件为 ext://" +
+        std::string{pluginId} + "/<内容 id>)";
     if (route.rfind(kPrefix, 0) != 0) {
       err = "route 必须以 ext:// 开头 (" + hint + ")";
       return false;
     }
     const std::string rest = route.substr(kPrefixLen);
     const size_t slash = rest.find('/');
-    if (slash == std::string::npos || slash == 0 ||
-        slash + 1 >= rest.size()) {
+    if (slash == std::string::npos || slash == 0 || slash + 1 >= rest.size()) {
       err = "route 地址不完整 (" + hint + ")";
       return false;
     }
     return true;
   }
-  if (kind == MUSICXX_PLUGIN_UI_ACTION_DISPATCH) {
+  if (kind == MUSICXX_PLUGIN_UI_ACTION_CALL) {
     if (!action.contains("name") || !action["name"].is_string() ||
         action["name"].get<std::string>().empty()) {
-      err = "dispatch 动作缺少 name 字段";
+      err = "call 动作缺少 name 字段";
+      return false;
+    }
+    const std::string name = action["name"].get<std::string>();
+    if (name.find('.') != std::string::npos &&
+        name.rfind("plugin.", 0) != 0 && !naming::isOfficial(name)) {
+      err = "call 的名字只能是短名、plugin.<插件id>.<名字> 或 musicxx.<域>.<名字>";
       return false;
     }
     return true;
   }
-  if (kind == MUSICXX_PLUGIN_UI_ACTION_COMMAND) {
-    if (!action.contains("name") || !action["name"].is_string()) {
-      err = "command 动作缺少 name 字段";
-      return false;
-    }
-    // 官方能力只能调 `musicxx.*`; 插件自定义能力用默认的 dispatch 形态
-    if (!naming::isOfficial(action["name"].get<std::string>())) {
-      err = "command 必须使用官方能力名称 (musicxx.<域>.<能力>)";
-      return false;
-    }
-    return true;
-  }
-  err = "未知的 action.kind: " + kind;
+  err = "未知的 action.kind: " + kind + " (只能是 call / route / none)";
   return false;
 }
 
-/// 校验并规范化一条 UI 项的内容 (注册与更新共用)
-bool validateUiData(std::string_view type, const std::string &dataJson,
-                    std::string_view pluginId, std::string &err) {
+namespace {
+
+/// 已知槽位 / 声明项 (生成的表; 声明源 tools/ui_slots.def.json)
+const KnownUiSlot *knownSlotById(std::string_view id) {
+  for (const KnownUiSlot &slot : kKnownUiSlots) {
+    if (id == slot.id) {
+      return &slot;
+    }
+  }
+  return nullptr;
+}
+
+/// 简称 → 全名 (`musicxx.ui.` 前缀); 已经是全名、或不是主程序的槽位时原样返回
+std::string slotFullName(std::string_view raw) {
+  std::string text{raw};
+  if (text.empty() || text.rfind("musicxx.ui.", 0) == 0 ||
+      text.rfind("plugin.", 0) == 0) {
+    return text;
+  }
+  const std::string full = "musicxx.ui." + text;
+  return nullptr != knownSlotById(full) ? full : text;
+}
+
+bool isKnownVariable(std::string_view id) {
+  for (const KnownUiVariable &item : kKnownUiVariables) {
+    if (id == item.id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// 变量 id 形状校验: 生成表里的 / `plugin.<插件id>.<名字>`
+bool validDependency(std::string_view id, std::string &err) {
+  if (isKnownVariable(id)) {
+    return true;
+  }
+  if (id.rfind("plugin.", 0) == 0) {
+    const size_t first = id.find('.', 7);
+    if (first != std::string_view::npos && first + 1 < id.size()) {
+      return true;
+    }
+    err = "plugin.* 变量要写成 plugin.<插件id>.<名字>";
+    return false;
+  }
+  err = "未知的变量 `" + std::string{id} + "` (生成表里没有; plugin.* 也可以)";
+  return false;
+}
+
+/// 是否要求 `title` (要出现在用户能看到的列表里)
+bool requiresTitle(std::string_view kind) {
+  return kind == "item" || kind == "selectable" || kind == "pageBackground";
+}
+
+/// 校验并规范化一条声明项的内容
+///
+/// - 入口/菜单/样式候选要有 `title`;
+/// - 音效的 `pitch` / `cpuCost` 越界时**夹到边界** (存进去的就是夹过的值);
+/// - 页面背景的 `routes` 必须是非空字符串数组。
+bool validateEntryData(std::string_view kind, std::string &dataJson,
+                       std::string_view pluginId, std::string &err) {
   bool parseOk = false;
   Json data = parseJsonSafe(dataJson, &parseOk);
   if (!parseOk || !data.is_object()) {
     err = "data 必须是 JSON 对象";
     return false;
   }
-  if (requiresTitle(type)) {
+  if (requiresTitle(kind)) {
     if (!data.contains("title") || !data["title"].is_string() ||
         data["title"].get<std::string>().empty()) {
       err = "缺少 title 字段 (非空字符串)";
       return false;
     }
   }
-  if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND) {
-    // 播放页背景: 必须有 view (块描述或视图 id); 着色器写在 view 里的块上
-    if (!validateBackgroundViewData("播放页背景", data, err)) {
+  if (kind == "pageBackground" && data.contains("routes")) {
+    const Json &routes = data["routes"];
+    if (!routes.is_array()) {
+      err = "页面背景 routes 必须是页面路由 id 的字符串数组 (不写 = 所有普通页面)";
       return false;
+    }
+    for (const Json &item : routes) {
+      if (!item.is_string() || item.get<std::string>().empty()) {
+        err = "页面背景 routes 只能写非空的页面路由 id";
+        return false;
+      }
     }
   }
-  if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON) {
-    if (!validatePlayingRenderData("播放页歌曲图", data, err)) {
-      return false;
+  if (data.contains("filter") && !data["filter"].is_string()) {
+    err = "音效项 filter 必须是字符串 (完整的一段 af 串)";
+    return false;
+  }
+  bool changed = false;
+  if (data.contains("pitch") && data["pitch"].is_number()) {
+    const double pitch = data["pitch"].get<double>();
+    const double clamped = std::clamp(pitch, 0.25, 2.0);
+    if (clamped != pitch) {
+      data["pitch"] = clamped;
+      changed = true;
     }
   }
-  if (type == MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER) {
-    if (!validatePlayingRenderData("播放页音频动效", data, err)) {
-      return false;
+  if (data.contains("cpuCost") && data["cpuCost"].is_number()) {
+    const double raw = data["cpuCost"].get<double>();
+    const double clamped = std::clamp(std::round(raw), 1.0, 5.0);
+    if (clamped != raw) {
+      data["cpuCost"] = clamped;
+      changed = true;
     }
   }
-  if (type == MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND) {
-    if (!validatePageBackgroundData(data, err)) {
-      return false;
-    }
-  }
-  if (type == MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT) {
-    if (!validateAudioEffectData(data, err)) {
-      return false;
-    }
-  }
-  if (isPlayingPageBlockType(type) || isPlayingControlBarType(type)) {
-    // 插入块与控制按钮栏的替换位置都要有内容: "这里画插件给的视图"
-    const std::string label =
-        isPlayingControlBarType(type) ? "控制按钮栏" : "页面插入块";
-    if (!data.contains("view")) {
-      err = label + "缺少 view 字段 (视图 id 或视图内容)";
-      return false;
-    }
-    if (!data["view"].is_string() && !data["view"].is_object() &&
-        !data["view"].is_array()) {
-      err = label + " view 必须是视图 id 字符串或视图对象";
-      return false;
-    }
+  if (changed) {
+    dataJson = data.dump();
   }
   if (data.contains("action")) {
     return validateAction(data["action"], pluginId, err);
@@ -413,8 +216,6 @@ bool validateUiData(std::string_view type, const std::string &dataJson,
   return true;
 }
 
-/// 动作描述里引用的能力名: 允许短名或本插件全名 (插件框架不在这里校验能力是否存在,
-/// 由 Dart 侧调用时按能力表判定)
 std::string normalizeItemId(std::string_view raw, std::string_view pluginId,
                             bool &ok) {
   const std::string text{raw};
@@ -423,7 +224,6 @@ std::string normalizeItemId(std::string_view raw, std::string_view pluginId,
     return {};
   }
   if (text.rfind("plugin.", 0) == 0) {
-    // 全名: 必须属于本插件
     if (!naming::isOwnPlugin(text, pluginId)) {
       return text;
     }
@@ -431,7 +231,6 @@ std::string normalizeItemId(std::string_view raw, std::string_view pluginId,
     return text;
   }
   if (text.find('.') != std::string::npos) {
-    // 带点但不是 `plugin.` 前缀: 当作非法 (避免把 `musicxx.*` 当成自定义项)
     return text;
   }
   ok = true;
@@ -440,11 +239,10 @@ std::string normalizeItemId(std::string_view raw, std::string_view pluginId,
 
 } // namespace
 
-/* ==================== 注册 / 更新 / 注销 ==================== */
+/* ==================== 声明项 ==================== */
 
-int32_t
-MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
-                                    const MusicxxPluginUIEntrySpec &spec) {
+int32_t MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
+                                            const MusicxxPluginUIEntrySpec &spec) {
   if (!inst) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
@@ -453,56 +251,56 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (spec.flags != 0) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项: flags 必须为 0", inst->name);
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册声明项: flags 必须为 0", inst->name);
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项被拒绝: 实例正在关闭或已禁用",
-            inst->name);
     return PLUGINXX_RESULT_ERR_STATE;
   }
   if (!spec.item_id.data || spec.item_id.size == 0 || !spec.type.data ||
       spec.type.size == 0) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-
   const std::string pluginId = pluginIdOf(inst->name);
   const std::string type{spec.type.data, static_cast<size_t>(spec.type.size)};
-  if (!isKnownUiType(type)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册未知 UI 项类型 `{}` 被拒绝",
-            inst->name, type);
+  const std::string typeId = slotFullName(type);
+  const KnownUiSlot *known = knownSlotById(typeId);
+  if (nullptr == known) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册未知槽位/声明项 `{}` 被拒绝", inst->name,
+            type);
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  }
+  const std::string_view kindOf{known->kind};
+  if (kindOf != "item" && kindOf != "selectable" && kindOf != "pageBackground") {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 用 register_entry 注册了槽位 `{}`"
+            " (它是给内容用的)", inst->name, typeId);
+    return PLUGINXX_RESULT_ERR_ARG;
   }
 
   bool idOk = false;
-  const std::string itemId =
-      normalizeItemId(std::string_view{spec.item_id.data,
-                                       static_cast<size_t>(spec.item_id.size)},
-                      pluginId, idOk);
+  const std::string itemId = normalizeItemId(
+      std::string_view{spec.item_id.data, static_cast<size_t>(spec.item_id.size)},
+      pluginId, idOk);
   if (!idOk) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项 `{}` 被拒绝: 命名空间非法",
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册声明项 `{}` 被拒绝: 命名空间非法",
             inst->name, itemId);
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
 
-  const std::string dataJson =
+  std::string dataJson =
       spec.data_json.data
           ? std::string{spec.data_json.data,
                         static_cast<size_t>(spec.data_json.size)}
           : std::string{"{}"};
   std::string err;
-  if (!validateUiData(type, dataJson, pluginId, err)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 UI 项 `{}` 被拒绝: {}", inst->name,
+  if (!validateEntryData(kindOf, dataJson, pluginId, err)) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册声明项 `{}` 被拒绝: {}", inst->name,
             itemId, err);
     return PLUGINXX_RESULT_ERR_ARG;
   }
 
   const auto existing = uiEntries_.find(itemId);
   if (existing != uiEntries_.end() && existing->second.pluginId != pluginId) {
-    // 理论上 normalizeItemId 已经挡掉; 这里再查一次 (防止 id
-    // 规范化逻辑变动引入漏洞)
-    XX_LOGW("[musicxx_ext] 插件 `{}` 试图覆盖他人 UI 项 `{}`", inst->name,
-            itemId);
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
 
@@ -510,14 +308,12 @@ MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   entry.plugin = inst->name;
   entry.pluginId = pluginId;
   entry.id = itemId;
-  entry.type = type;
+  entry.type = typeId;
   entry.dataJson = dataJson;
   entry.order = spec.order;
   entry.seq = ++uiSeq_;
   if (existing != uiEntries_.end()) {
-    entry.seq = existing->second.seq; ///< 覆盖保留原注册顺序
-    /// 重画计数跟着项走: 声明变化由主程序比较 viewId / 内联视图发现,
-    /// 只有 update 会要求"声明没变也重画一次"
+    entry.seq = existing->second.seq;
     entry.rev = existing->second.rev;
   }
   uiEntries_[itemId] = std::move(entry);
@@ -537,7 +333,6 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
   }
   const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
   bool idOk = false;
-  // 短名与全名都接受 (脚本/插件开发者写短名更省事)
   const std::string fullId = normalizeItemId(itemId, pluginId, idOk);
   if (!idOk) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
@@ -547,8 +342,6 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (inst && it->second.pluginId != pluginId) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 试图注销他人 UI 项 `{}`", inst->name,
-            itemId);
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string ownerId = it->second.pluginId;
@@ -559,35 +352,6 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
   changed["id"] = ownerId;
   changed["items"] = parseJsonSafe(uiItemsJson(ownerId));
   pushEvent("musicxx.ui.changed", ownerId, changed.dump());
-  return PLUGINXX_RESULT_OK;
-}
-
-int32_t MusicxxHostManager::updateUiEntry(MusicxxHostInstance *inst,
-                                          std::string_view itemId) {
-  if (itemId.empty()) {
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
-  bool idOk = false;
-  const std::string fullId = normalizeItemId(itemId, pluginId, idOk);
-  if (!idOk) {
-    return PLUGINXX_RESULT_ERR_PERMISSION;
-  }
-  auto it = uiEntries_.find(fullId);
-  if (it == uiEntries_.end()) {
-    return PLUGINXX_RESULT_ERR_NOT_FOUND;
-  }
-  if (inst && it->second.pluginId != pluginId) {
-    return PLUGINXX_RESULT_ERR_PERMISSION;
-  }
-  // 声明一个字不动: 只把重画计数 +1, 主程序看到它变了就重新取一次视图
-  ++it->second.rev;
-
-  Json changed;
-  changed["action"] = "update";
-  changed["id"] = it->second.pluginId;
-  changed["items"] = parseJsonSafe(uiItemsJson(it->second.pluginId));
-  pushEvent("musicxx.ui.changed", it->second.pluginId, changed.dump());
   return PLUGINXX_RESULT_OK;
 }
 
@@ -609,13 +373,442 @@ int32_t MusicxxHostManager::notifyUi(MusicxxHostInstance *inst,
   if (!parseOk || !data.is_object()) {
     return PLUGINXX_RESULT_ERR_JSON;
   }
-  // 轻提示是 fire-and-forget: 走能力请求通道, Dart 侧执行 `musicxx.ui.toast`,
-  // 结果不回传 (回复会落在"未登记的请求"上, 由插件框架按调试日志忽略)
   const std::string pluginId = pluginIdOf(inst->name);
   int64_t effectiveTimeout = 0;
   return pushAppCapabilityRequestEvent(pluginId, allocateRequestId(),
-                                "musicxx.ui.toast", message, 5000,
-                                &effectiveTimeout);
+                                       "musicxx.ui.toast", message, 0,
+                                       &effectiveTimeout);
+}
+
+/* ==================== 内容 ==================== */
+
+int32_t MusicxxHostManager::registerUiContent(
+    MusicxxHostInstance *inst, const MusicxxPluginUIContentSpec &spec,
+    bool fromJs) {
+  if (!inst) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (spec.struct_size != 0 &&
+      spec.struct_size < sizeof(MusicxxPluginUIContentSpec)) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (spec.flags != 0 || spec.min_interval_ms < 0 || !spec.generate) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册内容: flags / min_interval_ms / generate "
+            "不合法", inst->name);
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (inst->unloadRequested || !inst->enabled) {
+    return PLUGINXX_RESULT_ERR_STATE;
+  }
+  if (!spec.id.data || spec.id.size == 0 || !spec.slot.data ||
+      spec.slot.size == 0) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string pluginId = pluginIdOf(inst->name);
+  bool idOk = false;
+  const std::string fullId = normalizeItemId(
+      std::string_view{spec.id.data, static_cast<size_t>(spec.id.size)}, pluginId,
+      idOk);
+  if (!idOk) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册内容 `{}` 被拒绝: 命名空间非法",
+            inst->name, fullId);
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  const std::string ownPrefix = "plugin." + pluginId + ".";
+  const std::string shortId = fullId.rfind(ownPrefix, 0) == 0
+                                  ? fullId.substr(ownPrefix.size())
+                                  : fullId;
+
+  const std::string slot = slotFullName(
+      std::string_view{spec.slot.data, static_cast<size_t>(spec.slot.size)});
+  if (slot.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const KnownUiSlot *known = knownSlotById(slot);
+  const auto pluginSlot = uiPluginSlots_.find(slot);
+  const bool declared = pluginSlot != uiPluginSlots_.end();
+  if (nullptr == known && !declared) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 注册内容到未知槽位 `{}`", inst->name, slot);
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  }
+  if (nullptr != known && std::string_view{known->kind} == "item") {
+    XX_LOGW("[musicxx_ext] 槽位 `{}` 是声明项, 不能挂内容", slot);
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+
+  const std::string depsJson =
+      spec.deps_json.data
+          ? std::string{spec.deps_json.data,
+                        static_cast<size_t>(spec.deps_json.size)}
+          : std::string{"[]"};
+  std::vector<std::string> deps;
+  {
+    bool ok = false;
+    Json parsed = parseJsonSafe(depsJson, &ok);
+    if (!ok || (!parsed.is_null() && !parsed.is_array())) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 内容 `{}` 的 deps 必须是字符串数组",
+              inst->name, fullId);
+      return PLUGINXX_RESULT_ERR_ARG;
+    }
+    if (parsed.is_array()) {
+      for (const Json &item : parsed) {
+        if (!item.is_string()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        std::string err;
+        const std::string dep = item.get<std::string>();
+        if (!validDependency(dep, err)) {
+          XX_LOGW("[musicxx_ext] 插件 `{}` 内容 `{}` 的依赖 `{}` 不合法: {}",
+                  inst->name, fullId, dep, err);
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        deps.push_back(dep);
+      }
+    }
+  }
+
+  UiContent content;
+  content.plugin = inst->name;
+  content.pluginId = pluginId;
+  content.id = shortId;
+  content.fullId = fullId;
+  content.slot = slot;
+  content.depsJson = depsJson;
+  content.deps = std::move(deps);
+  content.order = spec.order;
+  content.minIntervalMs = spec.min_interval_ms;
+  content.fromJs = fromJs;
+  content.spec = spec;
+  const auto existing = uiContents_.find(fullId);
+  if (existing != uiContents_.end()) {
+    if (existing->second.pluginId != pluginId) {
+      return PLUGINXX_RESULT_ERR_PERMISSION;
+    }
+    content.seq = existing->second.seq;
+    content.rev = existing->second.rev;
+  } else {
+    content.seq = ++uiContentSeq_;
+  }
+  uiContents_[fullId] = std::move(content);
+
+  Json changed;
+  changed["action"] = "register";
+  changed["id"] = pluginId;
+  changed["contents"] = parseJsonSafe(uiContentsJson(pluginId));
+  pushEvent("musicxx.ui.contents", pluginId, changed.dump());
+  return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::unregisterUiContent(MusicxxHostInstance *inst,
+                                                std::string_view contentId) {
+  if (contentId.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
+  bool idOk = false;
+  const std::string fullId = normalizeItemId(contentId, pluginId, idOk);
+  if (!idOk) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  auto it = uiContents_.find(fullId);
+  if (it == uiContents_.end()) {
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  }
+  if (inst && it->second.pluginId != pluginId) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  const std::string owner = it->second.pluginId;
+  uiContents_.erase(it);
+
+  Json changed;
+  changed["action"] = "unregister";
+  changed["id"] = owner;
+  changed["contents"] = parseJsonSafe(uiContentsJson(owner));
+  pushEvent("musicxx.ui.contents", owner, changed.dump());
+  return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::pushUiContent(MusicxxHostInstance *inst,
+                                          std::string_view contentId,
+                                          std::string_view contentJson) {
+  if (contentId.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string pluginId = inst ? pluginIdOf(inst->name) : std::string{};
+  bool idOk = false;
+  const std::string fullId = normalizeItemId(contentId, pluginId, idOk);
+  if (!idOk) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  UiContent *content = findUiContent(fullId);
+  if (nullptr == content) {
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  }
+  bool parseOk = false;
+  const std::string text{contentJson};
+  Json json = parseJsonSafe(text, &parseOk);
+  if (!parseOk || !json.is_object()) {
+    return PLUGINXX_RESULT_ERR_JSON;
+  }
+  // 只入队: 不回调插件, 不等结果
+  pushUiContentResult(*content, text, std::string{});
+  return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::listUiContents(MusicxxHostInstance *inst,
+                                           std::string &outJson) {
+  outJson = uiContentsJson(inst ? pluginIdOf(inst->name) : std::string{});
+  return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::updateUiSlot(MusicxxHostInstance *inst,
+                                         std::string_view slot,
+                                         std::string_view idsJson) {
+  if (!inst) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string pluginId = pluginIdOf(inst->name);
+  const std::string slotId = slotFullName(slot);
+  if (slotId.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  std::vector<std::string> wanted;
+  {
+    const std::string text{idsJson};
+    if (!text.empty()) {
+      bool ok = false;
+      Json parsed = parseJsonSafe(text, &ok);
+      if (!ok || !parsed.is_array()) {
+        return PLUGINXX_RESULT_ERR_ARG;
+      }
+      for (const Json &item : parsed) {
+        if (!item.is_string()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        wanted.push_back(item.get<std::string>());
+      }
+    }
+  }
+  int32_t count = 0;
+  Json emptyContext = Json::object();
+  for (auto &[fullId, content] : uiContents_) {
+    (void)fullId;
+    if (content.pluginId != pluginId || content.slot != slotId) {
+      continue;
+    }
+    if (!wanted.empty() &&
+        std::find(wanted.begin(), wanted.end(), content.id) == wanted.end()) {
+      continue;
+    }
+    // 空 context: 主程序会用自己的变量再问一次 (生成函数只看给它的键)
+    runUiContent(content, emptyContext.dump());
+    ++count;
+  }
+  return count > 0 ? PLUGINXX_RESULT_OK : PLUGINXX_RESULT_ERR_NOT_FOUND;
+}
+
+/* ==================== 插件声明的槽位 ==================== */
+
+int32_t MusicxxHostManager::defineUiSlot(MusicxxHostInstance *inst,
+                                         const MusicxxPluginUISlotSpec &spec) {
+  if (!inst) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (spec.struct_size != 0 &&
+      spec.struct_size < sizeof(MusicxxPluginUISlotSpec)) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (spec.flags != 0 || !spec.id.data || spec.id.size == 0 || !spec.kind.data ||
+      spec.kind.size == 0) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string pluginId = pluginIdOf(inst->name);
+  const std::string id{spec.id.data, static_cast<size_t>(spec.id.size)};
+  const std::string kind{spec.kind.data, static_cast<size_t>(spec.kind.size)};
+  if (kind != "insert" && kind != "replace") {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 声明的槽位 `{}` kind 只能是 insert / replace",
+            inst->name, id);
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string prefix = "plugin." + pluginId + ".ui.";
+  if (id.rfind(prefix, 0) != 0 || id.size() == prefix.size()) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 声明的槽位 `{}` 必须写 plugin.{}.ui.<名字>",
+            inst->name, id, pluginId);
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  if (nullptr != knownSlotById(id)) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  const auto existing = uiPluginSlots_.find(id);
+  if (existing != uiPluginSlots_.end() && existing->second.pluginId != pluginId) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  UiPluginSlot slot;
+  slot.plugin = inst->name;
+  slot.pluginId = pluginId;
+  slot.id = id;
+  slot.kind = kind;
+  slot.seq = existing != uiPluginSlots_.end() ? existing->second.seq
+                                              : ++uiPluginSlotSeq_;
+  uiPluginSlots_[id] = std::move(slot);
+
+  Json changed;
+  changed["action"] = "define";
+  changed["id"] = pluginId;
+  changed["slots"] = parseJsonSafe(uiSlotsJson(std::string{}));
+  pushEvent("musicxx.ui.slots", pluginId, changed.dump());
+  return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::undefineUiSlot(MusicxxHostInstance *inst,
+                                           std::string_view slot) {
+  if (!inst || slot.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string pluginId = pluginIdOf(inst->name);
+  auto it = uiPluginSlots_.find(std::string{slot});
+  if (it == uiPluginSlots_.end()) {
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  }
+  if (it->second.pluginId != pluginId) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  const std::string id = it->second.id;
+  uiPluginSlots_.erase(it);
+  // 挂在这个槽位上的内容一起失效
+  for (auto contentIt = uiContents_.begin(); contentIt != uiContents_.end();) {
+    if (contentIt->second.slot == id) {
+      contentIt = uiContents_.erase(contentIt);
+    } else {
+      ++contentIt;
+    }
+  }
+
+  Json changed;
+  changed["action"] = "undefine";
+  changed["id"] = pluginId;
+  changed["slot"] = id;
+  changed["slots"] = parseJsonSafe(uiSlotsJson(std::string{}));
+  pushEvent("musicxx.ui.slots", pluginId, changed.dump());
+  return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::listUiSlots(MusicxxHostInstance *inst,
+                                        std::string &outJson) {
+  (void)inst;
+  outJson = uiSlotsJson(std::string{});
+  return PLUGINXX_RESULT_OK;
+}
+
+/* ==================== 生成与推送 ==================== */
+
+MusicxxHostManager::UiContent *MusicxxHostManager::findUiContent(
+    std::string_view fullId) {
+  auto it = uiContents_.find(std::string{fullId});
+  return it == uiContents_.end() ? nullptr : &it->second;
+}
+
+int32_t MusicxxHostManager::requestUiContent(std::string_view contentId,
+                                             std::string_view contextJson,
+                                             int64_t *outRequestId) {
+  UiContent *content = findUiContent(contentId);
+  if (nullptr == content) {
+    return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  }
+  if (nullptr != outRequestId) {
+    *outRequestId = allocateRequestId();
+  }
+  return runUiContent(*content, contextJson);
+}
+
+int32_t MusicxxHostManager::runUiContent(UiContent &content,
+                                         std::string_view contextJson) {
+  const std::string ctx{contextJson.empty() ? "{}" : contextJson};
+  /// JS 插件的生成函数在 JS 线程执行: 框架线程只投递、不等结果
+  ///
+  /// 为什么不能同步等: JS 线程此刻可能在等一个应用能力的结果 (框架线程又在等它
+  /// 就是互锁), 而生成函数是插件作者写的普通函数, 不能假设它随时可重入。
+  if (content.fromJs) {
+    auto engine = jsEngine();
+    if (!engine) {
+      pushUiContentResult(content, std::string{}, "JS 运行时不可用");
+      return PLUGINXX_RESULT_ERR_STATE;
+    }
+    const std::string fullId = content.fullId;
+    const std::string instanceName = content.plugin;
+    auto self = shared_from_this();
+    engine->requestUiContent(
+        instanceName, fullId, ctx,
+        [self, fullId](std::string json, std::string error) {
+          /// 回到框架线程再写注册表 (推送与 rev 都只在那条线程)而
+          asio::post(self->ctx_->io,
+                     [self, fullId, json = std::move(json),
+                      error = std::move(error)]() {
+                       if (auto *item = self->findUiContent(fullId)) {
+                         self->pushUiContentResult(*item, json, error);
+                       }
+                     });
+        });
+    return PLUGINXX_RESULT_OK;
+  }
+  const PluginxxStringView ctxView{ctx.data(), ctx.size()};
+  PluginxxString out{};
+  const PluginxxHost *host = nullptr;
+  if (auto instance = resolveInstance(content.plugin)) {
+    host = instance->hostView();
+  }
+  const int32_t rc = content.spec.generate(host, &ctxView, &out);
+  std::string text;
+  if (nullptr != out.data) {
+    text.assign(out.data, static_cast<size_t>(out.size));
+    // 插件经框架堆分配 (hostStringSet), 由框架释放
+    if (host && host->vtable && host->vtable->free) {
+      host->vtable->free(out.data);
+    }
+  }
+  if (rc != 0) {
+    pushUiContentResult(content, std::string{}, "生成函数返回失败");
+    return PLUGINXX_RESULT_ERR_INTERNAL;
+  }
+  bool parseOk = false;
+  Json parsed = parseJsonSafe(text, &parseOk);
+  if (!parseOk || !parsed.is_object()) {
+    pushUiContentResult(content, std::string{}, "生成函数返回的不是 JSON 对象");
+    return PLUGINXX_RESULT_ERR_JSON;
+  }
+  pushUiContentResult(content, text, std::string{});
+  return PLUGINXX_RESULT_OK;
+}
+
+void MusicxxHostManager::pushUiContentResult(const UiContent &content,
+                                             const std::string &jsonText,
+                                             const std::string &error) {
+  UiContent *mutableContent = findUiContent(content.fullId);
+  if (nullptr == mutableContent) {
+    return;
+  }
+  ++mutableContent->rev;
+  Json payload;
+  payload["slot"] = mutableContent->slot;
+  payload["id"] = mutableContent->fullId;
+  payload["shortId"] = mutableContent->id;
+  payload["plugin"] = mutableContent->pluginId;
+  payload["rev"] = mutableContent->rev;
+  if (!error.empty()) {
+    payload["error"] = error;
+  } else {
+    // 内容形如 {"json": …, "data": …}; 兼容插件直接给界面 JSON
+    Json body = parseJsonSafe(jsonText);
+    if (body.is_object() && body.contains("json")) {
+      payload["json"] = body["json"];
+      if (body.contains("data")) {
+        payload["data"] = body["data"];
+      }
+    } else {
+      payload["json"] = body;
+    }
+  }
+  pushEvent("musicxx.ui.content", mutableContent->pluginId, payload.dump());
 }
 
 /* ==================== 序列化与摘除 ==================== */
@@ -646,9 +839,66 @@ std::string MusicxxHostManager::uiItemsJson(const std::string &pluginId) const {
     item["plugin"] = entry->pluginId;
     item["type"] = entry->type;
     item["order"] = entry->order;
-    // 重画计数: 主程序据它判断"声明没变、但要重新取一次视图"
     item["rev"] = entry->rev;
     item["data"] = parseJsonSafe(entry->dataJson);
+    array.push_back(std::move(item));
+  }
+  return array.dump();
+}
+
+std::string MusicxxHostManager::uiContentsJson(
+    const std::string &pluginId) const {
+  std::vector<const UiContent *> items;
+  items.reserve(uiContents_.size());
+  for (const auto &[key, content] : uiContents_) {
+    (void)key;
+    if (pluginId.empty() || content.pluginId == pluginId) {
+      items.push_back(&content);
+    }
+  }
+  std::sort(items.begin(), items.end(),
+            [](const UiContent *a, const UiContent *b) {
+              if (a->slot != b->slot) {
+                return a->slot < b->slot;
+              }
+              if (a->order != b->order) {
+                return a->order < b->order;
+              }
+              return a->seq < b->seq;
+            });
+  Json array = Json::array();
+  for (const UiContent *content : items) {
+    Json item;
+    item["id"] = content->fullId;
+    item["shortId"] = content->id;
+    item["plugin"] = content->pluginId;
+    item["slot"] = content->slot;
+    item["order"] = content->order;
+    item["minIntervalMs"] = content->minIntervalMs;
+    item["deps"] = parseJsonSafe(content->depsJson);
+    item["rev"] = content->rev;
+    array.push_back(std::move(item));
+  }
+  return array.dump();
+}
+
+std::string MusicxxHostManager::uiSlotsJson(const std::string &pluginId) const {
+  Json array = Json::array();
+  for (const KnownUiSlot &slot : kKnownUiSlots) {
+    Json item;
+    item["id"] = slot.id;
+    item["kind"] = slot.kind;
+    item["owner"] = "";
+    array.push_back(std::move(item));
+  }
+  for (const auto &[id, slot] : uiPluginSlots_) {
+    if (!pluginId.empty() && slot.pluginId != pluginId) {
+      continue;
+    }
+    Json item;
+    item["id"] = slot.id;
+    item["kind"] = slot.kind;
+    item["owner"] = slot.pluginId;
     array.push_back(std::move(item));
   }
   return array.dump();
@@ -665,14 +915,47 @@ void MusicxxHostManager::detachUiEntries(const std::string &instanceName) {
       ++it;
     }
   }
-  if (!removed) {
-    return;
+  if (removed) {
+    Json changed;
+    changed["action"] = "detach";
+    changed["id"] = pluginId;
+    changed["items"] = parseJsonSafe(uiItemsJson(pluginId));
+    pushEvent("musicxx.ui.changed", pluginId, changed.dump());
   }
-  Json changed;
-  changed["action"] = "detach";
-  changed["id"] = pluginId;
-  changed["items"] = parseJsonSafe(uiItemsJson(pluginId));
-  pushEvent("musicxx.ui.changed", pluginId, changed.dump());
+
+  bool contentsRemoved = false;
+  for (auto it = uiContents_.begin(); it != uiContents_.end();) {
+    if (it->second.plugin == instanceName) {
+      it = uiContents_.erase(it);
+      contentsRemoved = true;
+    } else {
+      ++it;
+    }
+  }
+  if (contentsRemoved) {
+    Json changed;
+    changed["action"] = "detach";
+    changed["id"] = pluginId;
+    changed["contents"] = parseJsonSafe(uiContentsJson(pluginId));
+    pushEvent("musicxx.ui.contents", pluginId, changed.dump());
+  }
+
+  bool slotsRemoved = false;
+  for (auto it = uiPluginSlots_.begin(); it != uiPluginSlots_.end();) {
+    if (it->second.plugin == instanceName) {
+      it = uiPluginSlots_.erase(it);
+      slotsRemoved = true;
+    } else {
+      ++it;
+    }
+  }
+  if (slotsRemoved) {
+    Json changed;
+    changed["action"] = "detach";
+    changed["id"] = pluginId;
+    changed["slots"] = parseJsonSafe(uiSlotsJson(std::string{}));
+    pushEvent("musicxx.ui.slots", pluginId, changed.dump());
+  }
 }
 
 /* ==================== C ABI: musicxx.ui 表 ==================== */
@@ -720,27 +1003,6 @@ int32_t PLUGINXX_CALL xx_ui_unregister_entry(const PluginxxHost *host,
       });
 }
 
-int32_t PLUGINXX_CALL xx_ui_update_entry(const PluginxxHost *host,
-                                         const PluginxxStringView *itemId) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !itemId || !itemId->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view id{itemId->data,
-                                  static_cast<size_t>(itemId->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id]() -> int32_t {
-              return mgr->updateUiEntry(inst, id);
-            });
-      });
-}
-
 int32_t PLUGINXX_CALL xx_ui_list_entries(const PluginxxHost *host,
                                          PluginxxString *outJson) {
   return pluginxx::guardVtableCall(
@@ -760,6 +1022,193 @@ int32_t PLUGINXX_CALL xx_ui_list_entries(const PluginxxHost *host,
         const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
             call, mgr, [mgr, inst, &json]() -> int32_t {
               return mgr->listUiEntries(inst, json);
+            });
+        if (rc != PLUGINXX_RESULT_OK) {
+          return rc;
+        }
+        pluginxx::hostMemorySetString(outJson, json);
+        return PLUGINXX_RESULT_OK;
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_register_content(
+    const PluginxxHost *host, const MusicxxPluginUIContentSpec *spec) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !spec) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const auto specCopy = *spec;
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, specCopy]() -> int32_t {
+              return mgr->registerUiContent(inst, specCopy);
+            });
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_unregister_content(
+    const PluginxxHost *host, const PluginxxStringView *contentId) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !contentId || !contentId->data) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string_view id{contentId->data,
+                                  static_cast<size_t>(contentId->size)};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, id]() -> int32_t {
+              return mgr->unregisterUiContent(inst, id);
+            });
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_push_content(const PluginxxHost *host,
+                                         const PluginxxStringView *contentId,
+                                         const PluginxxStringView *contentJson) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !contentId || !contentId->data) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string_view id{contentId->data,
+                                  static_cast<size_t>(contentId->size)};
+        const std::string_view json{
+            contentJson && contentJson->data ? contentJson->data : "",
+            contentJson ? static_cast<size_t>(contentJson->size) : 0};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, id, json]() -> int32_t {
+              return mgr->pushUiContent(inst, id, json);
+            });
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_list_contents(const PluginxxHost *host,
+                                          PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        if (!outJson) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host, true);
+        if (!call.ok()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        std::string json;
+        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, &json]() -> int32_t {
+              return mgr->listUiContents(inst, json);
+            });
+        if (rc != PLUGINXX_RESULT_OK) {
+          return rc;
+        }
+        pluginxx::hostMemorySetString(outJson, json);
+        return PLUGINXX_RESULT_OK;
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_update_slot(const PluginxxHost *host,
+                                        const PluginxxStringView *slot,
+                                        const PluginxxStringView *idsJson) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !slot || !slot->data) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string_view slotId{slot->data,
+                                      static_cast<size_t>(slot->size)};
+        const std::string_view ids{
+            idsJson && idsJson->data ? idsJson->data : "",
+            idsJson ? static_cast<size_t>(idsJson->size) : 0};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, slotId, ids]() -> int32_t {
+              return mgr->updateUiSlot(inst, slotId, ids);
+            });
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_define_slot(const PluginxxHost *host,
+                                        const MusicxxPluginUISlotSpec *spec) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !spec) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const auto specCopy = *spec;
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, specCopy]() -> int32_t {
+              return mgr->defineUiSlot(inst, specCopy);
+            });
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_undefine_slot(const PluginxxHost *host,
+                                          const PluginxxStringView *slot) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host);
+        if (!call.ok() || !slot || !slot->data) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        const std::string_view id{slot->data, static_cast<size_t>(slot->size)};
+        return pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, id]() -> int32_t {
+              return mgr->undefineUiSlot(inst, id);
+            });
+      });
+}
+
+int32_t PLUGINXX_CALL xx_ui_list_slots(const PluginxxHost *host,
+                                       PluginxxString *outJson) {
+  return pluginxx::guardVtableCall(
+      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
+        if (!outJson) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto call =
+            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+                host, true);
+        if (!call.ok()) {
+          return PLUGINXX_RESULT_ERR_ARG;
+        }
+        auto mgr = call.manager();
+        auto inst = call.instance();
+        std::string json;
+        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
+            call, mgr, [mgr, inst, &json]() -> int32_t {
+              return mgr->listUiSlots(inst, json);
             });
         if (rc != PLUGINXX_RESULT_OK) {
           return rc;
@@ -795,8 +1244,15 @@ const MusicxxPluginUIIface g_ifaceUi = {
     /* struct_size */ sizeof(MusicxxPluginUIIface),
     /* register_entry */ xx_ui_register_entry,
     /* unregister_entry */ xx_ui_unregister_entry,
-    /* update_entry */ xx_ui_update_entry,
     /* list_entries */ xx_ui_list_entries,
+    /* register_content */ xx_ui_register_content,
+    /* unregister_content */ xx_ui_unregister_content,
+    /* push_content */ xx_ui_push_content,
+    /* list_contents */ xx_ui_list_contents,
+    /* update_slot */ xx_ui_update_slot,
+    /* define_slot */ xx_ui_define_slot,
+    /* undefine_slot */ xx_ui_undefine_slot,
+    /* list_slots */ xx_ui_list_slots,
     /* notify */ xx_ui_notify,
 };
 

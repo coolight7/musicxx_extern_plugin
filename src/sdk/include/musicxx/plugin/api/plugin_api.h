@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "musicxx/plugin/api/capability_ids.g.h"
+#include "musicxx/plugin/api/ui_slots.g.h"
 #include "pluginxx/api/abi.h"
 #include "pluginxx/api/net.h"
 #include "pluginxx/api/tables.h"
@@ -114,194 +115,181 @@ typedef struct MusicxxPluginHostIface {
 
 /* ==================== 接口表: musicxx.ui (声明式 UI 扩展) ==================== */
 
+/// 界面分两半:
+/// - **声明项**(entry): 入口 / 菜单项 / 音效 / 可选样式的元信息, 只含数据, 不含界面树;
+/// - **内容**(content): 挂在某个槽位上的界面 JSON, 由生成函数在需要时生成, 结果进主程序的缓存。
+///
+/// 主程序的渲染路径**只读缓存**, 不会在渲染时同步调用插件: 没有内容时插入位置不渲染、
+/// 替换位置画内置界面、`UISlot` 画 `fallback`。
+///
+/// 槽位 id 由生成头 `ui_slots.g.h` 给出(`MUSICXX_PLUGIN_UI_SLOT_*`, 声明源
+/// `tools/ui_slots.def.json`), 写简称(去掉 `musicxx.ui.` 前缀)或全名都可以。
+/// 插件也可以声明自己的槽位(`plugin.<插件id>.ui.<名字>`), 由别的插件往里注册内容。
 #define MUSICXX_PLUGIN_IFACE_UI             "musicxx.ui"
 #ifdef __cplusplus
 static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI);
 #endif
-#define MUSICXX_PLUGIN_IFACE_UI_VERSION     2
-#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 2
+/// v3: 内容 + 槽位 + 声明项分开 (删掉 `update_entry`: 声明没变时要重画就重新生成内容)
+#define MUSICXX_PLUGIN_IFACE_UI_VERSION     3
+#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 3
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
-/// @note 第 2 版把 `update_entry` 从"改声明"改成"重新取视图", 签名少了一个参数。
-/// 这是改签名而不是追加成员, 所以 `MIN_VERSION` 一起拍到了 2: 旧主程序的 1 版表
-/// 会被插件侧的 `version >= MIN_VERSION` 直接挂掉, 不会静默调到别的函数。
 #define MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE sizeof(MusicxxPluginUIIface)
 
-/* UI 项类型 (官方; 插件注册的项必须取其中之一, 否则注册被拒绝) */
-/// 功能主页入口项: data = {title, subtitle?, icon?, action?}
-#define MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY      "musicxx.ui.home.entry"
-/// 歌曲菜单项: data = {title, icon?, action?}
-#define MUSICXX_PLUGIN_UI_TYPE_SONG_ACTION     "musicxx.ui.song.action"
-/// 歌单菜单项: data = {title, icon?, action?}
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYLIST_ACTION "musicxx.ui.playlist.action"
-/// 「添加歌曲」弹窗里的来源项 (歌曲列表页 [+] → 添加歌曲): data = {title, subtitle?, icon?, action?}
-///
-/// 点它时应用会把当前歌单的上下文 (pid / name / songNum) 合进界面动作的参数, 与歌单菜单项一致。
-/// 常见写法是把动作指向能力 `musicxx.ui.overlay.showSheet`, 由应用打开一层浮层并等用户关掉
-/// (浮层内容是插件视图, 参数见 docs/plugin-api.md §3.2.4)。
-#define MUSICXX_PLUGIN_UI_TYPE_ADDSONG_ENTRY "musicxx.ui.addsong.entry"
-/// 播放页背景样式 (渲染槽位 `player.background`), 由用户在设置里选择后生效:
-/// data = {title, depict?, view: "<视图id>" | {块对象} | [块数组]}
-/// 说明: 背景就是一棵**块树**, 着色器写在块 `musicxx.Shader` 上 (bundle / args / speed /
-/// maxFps / animate / resolutionScale); 纹理在 `args` 里声明 (成员名就是采样器名):
-/// {"kind":"texture", "source":"musicxx.cover"} 是当前歌曲封面,
-/// {"kind":"texture", "source":"musicxx.image.<key>"} 是插件自己绑定的图片。
-/// 根块要自己拿到整页尺寸 (用 `Expanded` 包住 `musicxx.Shader`), 否则块拿不到确定高度、留空。
-/// 播放页前景 (三色 + 是否用遮罩外观) 不写在 UI 项里, 由插件调能力
-/// `musicxx.ui.playing.foreground.set`。详见 docs/plugin-ui.md §1.1、plugin-shader-bundle.md §5.1。
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND "musicxx.ui.playing.background"
-/// 播放页歌曲图 (渲染槽位 `player.icon`): 接管播放页中间那张歌曲图 / 视频的显示
-/// data = {title, depict?, mode?: "none"|"shader"|"view", keepSpace?,
-///         fill?, shader?:{bundle, vertex?, fragment?}, view?: "<视图id>"|{视图对象},
-///         cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}
-/// 说明: 三种接管方式 —— none = 不显示内容 (keepSpace 决定是否保留占位),
-/// shader = 插件着色器绘制 (渲染输入与块 `musicxx.Shader` 完全一致),
-/// view = 插件声明的界面组合; 不写 `mode` 时按字段推断。
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON "musicxx.ui.playing.icon"
-/// 播放页音频可视化样式 (渲染槽位 `player.visualizer`): 与内置『音乐动效』的四种样式
-/// 在同一个列表里选, 没安装内置插件时插件样式照样可用
-/// data = {title, depict?, mode?: "none"|"shader"|"view",
-///         shader?:{bundle, vertex?, fragment?}, view?: "<视图id>"|{视图对象},
-///         cover?, image?, args?, speed?, resolutionScale?, maxFps?, animate?}
-/// 说明: 字段与播放页歌曲图 (`MUSICXX_PLUGIN_UI_TYPE_PLAYING_ICON`) 完全一致:
-/// shader = 插件着色器绘制 (渲染输入与块 `musicxx.Shader` 一致, `musicxx.spectrum.*` 来源现读频谱),
-/// view = 插件声明的界面组合, none = 不显示. 渲染区域是播放页的动效区,
-/// 没有点击交互 (原来的封面点击 / 拖动切歌 / 迷你歌词要继续可用).
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
-/// 普通页面背景 (渲染槽位 `page.background`): 给歌单页 / 设置页 / 插件页面这类普通页面铺一层背景。
-/// 弹窗与播放页不包含在内 (播放页背景用 `MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND`)。
-/// data = {title, depict?, routes?, view: "<视图id>" | {块对象} | [块数组]}
-/// 说明: routes 是页面路由 id 的字符串数组 (例如 ["/songs", "/setting/theme"]),
-/// 不写或空数组 = 所有普通页面; 同一个页面命中多项时, 写了这个路由的优先于"所有页面",
-/// 同一优先级里**最新注册的生效** (它没有用户选择, 也不读 `order`)。
-/// 渲染与播放页背景同一份块写法 (`view`); 想不显示就 `musicxx.ui.slot.unregister`。
-/// 详见 docs/plugin-ui.md §1.1、plugin-shader-bundle.md §5.5。
-#define MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND "musicxx.ui.page.background"
-/// 音效: 播放时叠加的一段音频滤镜, 注册后追加在『音效』插件的音效页面里
-/// data = {title, subtitle?（或 depict?）, filter（必填, 字符串）, pitch?, cpuCost?}
-/// 说明: filter 是完整的一段 mpv `af` 串, 多条滤镜写成 `lavfi=[a,b,c]` 图语法（mpv 会给 af 里的每一条滤镜
-/// 单独建一个滤镜图, 各起一组「核数」线程）; filter 为空时必须给出 pitch;
-/// pitch 是变调类音效的音调 (0.25~2.0), 选中会把用户自定义音调复位;
-/// cpuCost 是 1~5 的性能负担 (默认 3, 只用于页面提示)。
-/// 是否可用与当前选中项由应用渲染音效列表时判断, 插件只描述"效果是什么"。
-/// 音效与均衡器 / 自定义音调互斥 (与内置预设同一套规则).
-#define MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT "musicxx.ui.audioEffect"
-/// 播放页底部控制按钮栏: 整栏由插件画
-/// data = {view: "<视图id>"|{视图对象}|[块数组]}
-/// 说明: 不想要就 `musicxx.ui.slot.unregister` (没有 `enabled` 字段)。
-/// 与播放页子页面的插入块写法一致, 但这里是**替换**不是插入 —— 有插件声明这个类型时,
-/// 内置的五个按钮不再显示, 整栏都由插件那个视图负责 (按钮与动作都自己写).
-/// 同一个类型只认一项: `order` 小的优先, 同 `order` 按注册顺序; 取不到内容时回到内置界面.
-/// 五个按钮也可以单独替换, 见下面五个 `..._CONTROL_BAR_*` 宏。
-/// 详见 docs/plugin-ui.md §1.7。
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR "musicxx.ui.playing.controlBar"
-/// 播放页控制按钮栏的「菜单」按钮 (单独的替换位置)
-/// data = {view: "<视图id>"|{视图对象}|[块数组]}
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_MENU "musicxx.ui.playing.controlBar.menu"
-/// 播放页控制按钮栏的「上一曲」按钮 (单独的替换位置)
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PREVIOUS "musicxx.ui.playing.controlBar.previous"
-/// 播放页控制按钮栏的「播放 / 暂停」按钮 (单独的替换位置)
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_PLAY_OR_PAUSE "musicxx.ui.playing.controlBar.playOrPause"
-/// 播放页控制按钮栏的「下一曲」按钮 (单独的替换位置)
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_NEXT "musicxx.ui.playing.controlBar.next"
-/// 播放页控制按钮栏的「收藏」按钮 (单独的替换位置)
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE "musicxx.ui.playing.controlBar.favorite"
-/// 播放页子页面插入块：十个位置各有一个类型（类型本身就是位置，不再需要 `slot`）
-/// data = {view: "<视图id>"|{视图对象}|[块数组]}
-/// 说明: 同一位置可以注册多项, 按 UI 项的 `order` 与注册顺序从上到下排列;
-/// 不需要 `title`. 下面十个宏与 docs/plugin-ui.md §1.6 的位置表一一对应.
-/// `top` / `bottom` 是页面固定区域（不随列表滚动）；`header` / `footer` 在列表的滚动内容里。
-
-/// 歌词页顶部（列表之上，不随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP "musicxx.ui.playing.lyric.top"
-/// 歌词页底部（列表之下，不随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_BOTTOM "musicxx.ui.playing.lyric.bottom"
-/// 歌词列表内顶部（列表的 header，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_HEADER "musicxx.ui.playing.lyric.header"
-/// 歌词列表内底部（列表的 footer，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_FOOTER "musicxx.ui.playing.lyric.footer"
-/// 更多信息页内容开头（整页滚动，这一块在内容的最前面）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_HEADER "musicxx.ui.playing.moreInfo.header"
-/// 更多信息页内容末尾（整页滚动，这一块在内容的最后面）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_MORE_INFO_FOOTER "musicxx.ui.playing.moreInfo.footer"
-/// 播放列表页顶部（列表之上，不随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_TOP "musicxx.ui.playing.songlist.top"
-/// 播放列表页底部（列表之下，不随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_BOTTOM "musicxx.ui.playing.songlist.bottom"
-/// 播放列表内顶部（列表的 header，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_HEADER "musicxx.ui.playing.songlist.header"
-/// 播放列表内底部（列表的 footer，跟随内容滚动）
-#define MUSICXX_PLUGIN_UI_TYPE_PLAYING_SONGLIST_FOOTER "musicxx.ui.playing.songlist.footer"
-
-/// 说明: 入口项与菜单项的 `icon` 写**插件自己带的 svg 路径** (一条相对插件目录的路径,
-/// 可省 `.svg` 后缀, 用 `/` 分隔; 例如 `resource/svg/logo.svg`) —— `resource/svg/` 只是
-/// 推荐位置, 插件可以按自己的目录结构放。主程序不接受自己的 svg 名字: 路径不合法或找不到文件
-/// 就按"没有图标"处理 (入口/菜单退回默认图标, 页面里的 `Icon` 块退回 `glyph`)。
-/// 详见 docs/plugin-ui.md §1.5。
-/// 说明: 框架**没有**插件设置页类型 —— 插件要渲染设置界面, 就把设置画在自己注册的
-/// 页面里 (`ext://<插件id>/<视图id>`, 可从主页入口等入口打开), 框架不管理设置入口。
-
-/* UI 项的界面动作类型 (data.action; 与界面描述层的写法一致) */
-/// 打开声明式插件页面: {"kind":"route","route":"ext://<插件id>/<视图id>"}
+/* UI 项动作类型 (data.action; 与界面描述层的写法一致) */
+/// 打开声明式插件页面: {"kind":"route","route":"ext://<插件id>/<内容 id>"}
 /// (允许指向任意插件: 页面由被跳转插件自己绘制)
 #define MUSICXX_PLUGIN_UI_ACTION_ROUTE      "route"
-/// 调用本插件自己的能力: {"kind":"dispatch","name":"<短名>","args":{...}}
-/// (字符串短写 "动作名" 等价于这一种)
-#define MUSICXX_PLUGIN_UI_ACTION_DISPATCH   "dispatch"
-/// 调应用实现的官方能力: {"kind":"command","name":"musicxx.<域>.<名字>","args":{...}}
-#define MUSICXX_PLUGIN_UI_ACTION_COMMAND    "command"
+/// 调用一个能力: {"kind":"call","name":"<名字>","args":{...},"timeoutMs":?}
+/// 名字按前缀决定交给谁: 短名回自己(`plugin.<自己>.<名字>`)、`plugin.<插件id>.<名字>` 找那个插件、
+/// `musicxx.*` 调应用能力。字符串短写 `"名字"` 等价于这一种。
+#define MUSICXX_PLUGIN_UI_ACTION_CALL       "call"
 /// 无动作 (纯展示项)
 #define MUSICXX_PLUGIN_UI_ACTION_NONE       "none"
 
-/// UI 项注册规格
+/// 声明项注册规格 (入口 / 菜单 / 音效 / 可选样式的元信息)
 ///
-/// `item_id` 可以是本插件的**短名**（插件框架自动补 `plugin.<pluginId>.` 前缀），
-/// 也可以是完整全名 `plugin.<pluginId>.<名>`（必须属于本插件命名空间，否则拒绝注册）。
-/// `data_json` 是类型相关的声明式内容（JSON 对象）。
+/// `item_id` 可以是本插件的**短名**(插件框架自动补 `plugin.<pluginId>.` 前缀),
+/// 也可以是完整全名(必须属于本插件命名空间, 否则拒绝注册)。
+/// `data_json` 是类型相关的声明式数据(JSON 对象); 界面内容不写在这里 ——
+/// 要画界面就注册内容(`register_content`)。
 typedef struct MusicxxPluginUIEntrySpec {
     int32_t  version;      ///< == 1
     uint32_t struct_size;  ///< == sizeof(MusicxxPluginUIEntrySpec)
 
     PluginxxStringView item_id;   ///< 短名 "card" 或全名 "plugin.ad_skipper.card"
-    PluginxxStringView type;      ///< MUSICXX_PLUGIN_UI_TYPE_*
-    PluginxxStringView data_json; ///< 声明式内容 (JSON 对象)
+    PluginxxStringView type;      ///< MUSICXX_PLUGIN_UI_SLOT_*
+    PluginxxStringView data_json; ///< 声明式数据 (JSON 对象)
 
     int32_t order;  ///< 排序权重 (小者靠前; 同权重按注册顺序)
     int32_t flags;  ///< 预留 (必须为 0)
 } MusicxxPluginUIEntrySpec;
 
+/// 一份内容的注册规格
+///
+/// 生成函数把"声明里的变量"变成界面 JSON: 入参是 `context`(JSON 对象, 键是 `deps` 里声明的变量),
+/// 返回 `{"json": <界面 JSON>, "data": <任意 JSON, 第一版只保存>}`。
+/// **必须快**(几毫秒内): 要等网络 / 文件就先返回一个"加载中"的结构, 拿到结果后再 `push_content`。
+typedef struct MusicxxPluginUIContentSpec {
+    int32_t  version;      ///< == 1
+    uint32_t struct_size;  ///< == sizeof(MusicxxPluginUIContentSpec)
+
+    PluginxxStringView id;        ///< 短 id (同一插件同一槽位内唯一)
+    PluginxxStringView slot;      ///< 槽位全名或简称; 也可以是 plugin.<自己>.ui.<名字>
+    PluginxxStringView deps_json; ///< 变量 id 的 JSON 数组 (只订阅这些, 也只把这些放进 context)
+    int32_t            order;     ///< 排序权重 (小者靠前)
+    int32_t min_interval_ms;      ///< 0 = 不按时间节流 (默认); >0 = 两次生成之间的最短间隔
+    int32_t            flags;     ///< 预留 (必须为 0)
+
+    /// 生成函数: ctx_json 是 context (JSON 对象), 返回 {"json":…,"data":…} (JSON 对象)
+    /// - 返回 0 表示成功; 其它值表示失败(主程序保留上一次有效内容并记一条日志)
+    int32_t(PLUGINXX_CALL *generate)(
+        const PluginxxHost*         host,
+        const PluginxxStringView*   ctx_json,
+        PluginxxString*             out_content_json
+    );
+    void* user_data; ///< 生成函数需要的上下文 (可为空)
+} MusicxxPluginUIContentSpec;
+
+/// 插件自己声明一个槽位 (只允许 `insert` / `replace`)
+typedef struct MusicxxPluginUISlotSpec {
+    int32_t  version;      ///< == 1
+    uint32_t struct_size;  ///< == sizeof(MusicxxPluginUISlotSpec)
+
+    PluginxxStringView id;   ///< plugin.<自己>.ui.<名字>
+    PluginxxStringView kind; ///< "insert" / "replace"
+    int32_t            flags; ///< 预留 (必须为 0)
+} MusicxxPluginUISlotSpec;
+
 typedef struct MusicxxPluginUIIface {
     int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_UI_VERSION
     uint32_t struct_size;
 
-    /// 注册/覆盖一个 UI 项
-    /// - 返回 0 成功; -1 参数非法 (含 data 结构不合法);
-    ///   -2 状态错误 (未启动/已禁用); -4 未知类型; -6 命名空间不属于本插件
+    /* ---- 声明项 (入口 / 菜单 / 音效 / 可选样式的元信息) ---- */
+
+    /// 注册/覆盖一个声明项
+    /// - 返回 0 成功; -1 参数非法; -2 状态错误(未启动/已禁用); -4 未知类型;
+    ///   -6 命名空间不属于本插件
     int32_t(PLUGINXX_CALL* register_entry)(
         const PluginxxHost*                host,
         const MusicxxPluginUIEntrySpec*    spec
     );
 
-    /// 注销一个 UI 项 (item_id 必须是本插件的项; 不存在返回 -4)
+    /// 注销一个声明项 (item_id 必须是本插件的项; 不存在返回 -4)
     int32_t(PLUGINXX_CALL* unregister_entry)(
         const PluginxxHost*               host,
         const PluginxxStringView*         item_id
     );
 
-    /// 要求这一项重新取一次视图 (声明不变)
-    ///
-    /// 状态变了 (例如别处改了播放模式) 而声明不必改时用这个;
-    /// 声明要改 (换视图 / 改标题 / 改 order) 就用 `register_entry` 覆盖, 两者不要混用。
-    /// - 返回 0 成功; -1 参数非法; -2 状态错误; -4 没有这一项; -6 不是本插件的项
-    int32_t(PLUGINXX_CALL* update_entry)(
-        const PluginxxHost*               host,
-        const PluginxxStringView*         item_id
-    );
-
-    /// 列出本插件已注册的 UI 项 (JSON 数组)
+    /// 列出本插件已注册的声明项 (JSON 数组)
     int32_t(PLUGINXX_CALL* list_entries)(
         const PluginxxHost*               host,
         PluginxxString*                   out_json
     );
+
+    /* ---- 内容 (挂在槽位上的界面) ---- */
+
+    /// 注册/覆盖一份内容
+    /// - 同一个 (槽位, 短 id) 再注册 = 覆盖这一条 (deps / order / 生成函数一起换);
+    /// - 返回 0 成功; -1 参数非法(含 deps 里变量写错 / 槽位不存在); -2 状态错误;
+    ///   -4 未知槽位; -6 命名空间不属于本插件
+    int32_t(PLUGINXX_CALL* register_content)(
+        const PluginxxHost*                  host,
+        const MusicxxPluginUIContentSpec*    spec
+    );
+
+    /// 注销一份内容 (id 可以是短 id 或全名; 不存在返回 -4)
+    int32_t(PLUGINXX_CALL* unregister_content)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         content_id
+    );
+
+    /// 直接给一份内容 (不等主程序来问): content_json = {"json":…,"data":…}
+    ///
+    /// 框架线程只入队, 不回调插件、不等结果(不重入)。版本号与请求产物同一条递增。
+    int32_t(PLUGINXX_CALL* push_content)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         content_id,
+        const PluginxxStringView*         content_json
+    );
+
+    /// 列出本插件已注册的内容 (JSON 数组: slot / id / deps / order)
+    int32_t(PLUGINXX_CALL* list_contents)(
+        const PluginxxHost*               host,
+        PluginxxString*                   out_json
+    );
+
+    /// 要求主程序用当前变量再生成一次 (不受"槽位没被挂载"限制)
+    ///
+    /// - `slot`: 槽位 id (简称或全名);
+    /// - `ids_json`: 自己的内容短 id 数组; 空串 / `[]` = 这个槽位上本插件的全部内容。
+    /// 结果经 `musicxx.ui.content` 事件交给主程序; 返回 0 表示已受理。
+    int32_t(PLUGINXX_CALL* update_slot)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         slot,
+        const PluginxxStringView*         ids_json
+    );
+
+    /* ---- 插件声明的槽位 ---- */
+
+    /// 声明一个槽位 (id 必须是 plugin.<自己>.ui.<名字>; kind 只允许 insert / replace)
+    int32_t(PLUGINXX_CALL* define_slot)(
+        const PluginxxHost*               host,
+        const MusicxxPluginUISlotSpec*    spec
+    );
+
+    /// 撤销自己声明的槽位 (挂在上面的内容一起失效)
+    int32_t(PLUGINXX_CALL* undefine_slot)(
+        const PluginxxHost*               host,
+        const PluginxxStringView*         slot
+    );
+
+    /// 列出槽位表: 应用预留的 + 插件声明的 (JSON 数组)
+    int32_t(PLUGINXX_CALL* list_slots)(
+        const PluginxxHost*               host,
+        PluginxxString*                   out_json
+    );
+
+    /* ---- 提示 ---- */
 
     /// 提示 (等价于能力 `musicxx.ui.toast`; fire-and-forget, 不等待用户界面)
     int32_t(PLUGINXX_CALL* notify)(

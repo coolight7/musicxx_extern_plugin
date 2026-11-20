@@ -459,7 +459,7 @@
             "variant": "inset",
             "padding": { "horizontal": 12, "vertical": 8 },
             "action": {
-              "kind": "command",
+              "kind": "call",
               "name": "musicxx.ui.overlay.show",
               "args": {
                 "title": "$title",

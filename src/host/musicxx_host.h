@@ -469,7 +469,7 @@ public:
   ///
   /// - `spec.item_id` 可以是短名 (插件框架补 `plugin.<pluginId>.` 前缀)
   /// 或本插件的全名;
-  /// - 类型必须是官方 `MUSICXX_PLUGIN_UI_TYPE_*` 之一, data 结构按类型校验;
+  /// - 类型必须是生成表 (`ui_slots.g.h`) 里的槽位 / 声明项之一, data 结构按类型校验;
   /// - 项数不设上限。
   int32_t registerUiEntry(MusicxxHostInstance *inst,
                           const MusicxxPluginUIEntrySpec &spec);
@@ -477,11 +477,54 @@ public:
   /// 注销一个 UI 项 (不存在返回 `ERR_NOT_FOUND`)
   int32_t unregisterUiEntry(MusicxxHostInstance *inst, std::string_view itemId);
 
-  /// 要求一个 UI 项重新取一次视图 (声明不变; rev + 1)
-  int32_t updateUiEntry(MusicxxHostInstance *inst, std::string_view itemId);
-
   /// 列出某插件已注册的 UI 项 (JSON 数组; `inst` 为空时列出全部)
   int32_t listUiEntries(MusicxxHostInstance *inst, std::string &outJson);
+
+  /* ---------- 内容 (挂在槽位上的界面 JSON) ---------- */
+
+  /// 注册/覆盖一份内容 (`(槽位, 短 id)` 唯一; 再注册 = 覆盖这一条)
+  ///
+  /// - `spec.id` 短名会被补成 `plugin.<pluginId>.<id>`; 写全名必须是本插件的;
+  /// - `spec.slot` 可以是简称或全名, 也可以是 plugin.<自己>.ui.<名字>(已声明的槽位);
+  /// - `spec.deps_json` 里每个变量必须在生成表里(或 `plugin.*` 形状)且对该槽位可用。
+  /// - [fromJs] 只用于日志(JS 插件的生成函数走 JS bridge)。
+  int32_t registerUiContent(MusicxxHostInstance *inst,
+                            const MusicxxPluginUIContentSpec &spec,
+                            bool fromJs = false);
+
+  /// 注销一份内容 (不存在返回 `ERR_NOT_FOUND`)
+  int32_t unregisterUiContent(MusicxxHostInstance *inst,
+                              std::string_view contentId);
+
+  /// 直接给一份内容 (不等主程序来问; 只入队, 不回调插件)
+  int32_t pushUiContent(MusicxxHostInstance *inst, std::string_view contentId,
+                        std::string_view contentJson);
+
+  /// 列出某插件注册的内容 (JSON 数组; `inst` 为空时列出全部)
+  int32_t listUiContents(MusicxxHostInstance *inst, std::string &outJson);
+
+  /// 要求重新生成 (`idsJson` 里的短 id; 空 = 这个槽位上本插件的全部内容)
+  ///
+  /// 主程序不需要先挂号: 结果直接推给 Dart 侧(由它的内容缓存接住)。
+  int32_t updateUiSlot(MusicxxHostInstance *inst, std::string_view slot,
+                       std::string_view idsJson);
+
+  /// 插件声明一个槽位 (只允许 insert / replace)
+  int32_t defineUiSlot(MusicxxHostInstance *inst,
+                       const MusicxxPluginUISlotSpec &spec);
+
+  /// 撤销插件自己声明的槽位 (挂在上面的内容一起失效)
+  int32_t undefineUiSlot(MusicxxHostInstance *inst, std::string_view slot);
+
+  /// 列出槽位表: 应用预留的 + 插件声明的 (JSON 数组)
+  int32_t listUiSlots(MusicxxHostInstance *inst, std::string &outJson);
+
+  /// 主程序侧: 按内容全名生成一次内容, 结果推 `musicxx.ui.content`
+  ///
+  /// 投稿到框架线程执行(生成函数必须快); 返回后结果已推入事件队列。
+  int32_t requestUiContent(std::string_view contentId,
+                           std::string_view contextJson,
+                           int64_t *outRequestId);
 
   /// 提示 (fire-and-forget: 调能力 `musicxx.ui.toast`, 结果不回传插件)
   int32_t notifyUi(MusicxxHostInstance *inst, std::string_view messageJson);
@@ -550,6 +593,16 @@ public:
   int32_t broadcastEndFrom(const std::string &pluginId,
                            const std::string &topic,
                            const std::string &reasonJson);
+
+  /// 订阅 / 退订一个广播频道的值变化 (**任意线程**)
+  ///
+  /// 有人订阅时, 每次发布都会额外推 `musicxx.broadcast.changed {id, value}`;
+  /// 计数归零就停。主程序侧用它把 `plugin.*` 变量接成"有人绑才订阅"的来源,
+  /// 不在应用里另存一份订阅状态。
+  ///
+  /// - 主题形状与发布同一套规则 (`musicxx.*` 或 `plugin.<id>.*`), 不合法返回 `-6`;
+  /// - 未声明的频道也可以先订: 声明与值都来自发布方, 这里只记计数。
+  int32_t watchBroadcast(std::string_view id, bool watch);
 
   /// 取消某实例的全部未完成请求 (**任意线程**): 框架侧登记 + JS 引擎侧登记
   void cancelAppCapabilitiesOfInstance(const std::string &instanceName);
@@ -874,6 +927,17 @@ private:
   std::mutex declaredBroadcastsMutex_;
   std::set<std::string, std::less<>> declaredBroadcasts_;
 
+  /// 被主程序订阅值变化的频道 (频道 id → 订阅计数)
+  ///
+  /// 写入来自框架线程 (C ABI), 读取发生在发布路径上 (框架线程或 JS 线程),
+  /// 所以用互斥量而不是线程局部容器。
+  std::mutex watchedBroadcastsMutex_;
+  std::map<std::string, int32_t, std::less<>> watchedBroadcasts_;
+
+  /// 发布成功后按需推 `musicxx.broadcast.changed` (任意线程)
+  void notifyBroadcastChanged(const std::string &topic,
+                              const std::string &payloadJson);
+
   // 能力处理器注册表 (仅框架线程)
   std::map<std::string, std::vector<CapabilityHandler>, std::less<>> handlers_;
   uint64_t handlerSeq_ = 0;
@@ -899,11 +963,61 @@ private:
   std::map<std::string, UiEntry, std::less<>> uiEntries_;
   uint64_t uiSeq_ = 0;
 
-  /// 摘除某实例的全部 UI 项 (框架线程; 有变化时推送 musicxx.ui.changed)
+  /// 一份内容 (插件挂在槽位上的界面 JSON 的生成器)
+  struct UiContent {
+    std::string plugin;   ///< 实例名
+    std::string pluginId; ///< 插件 id
+    std::string id;       ///< 短 id
+    std::string fullId;   ///< plugin.<pluginId>.<id>
+    std::string slot;     ///< 槽位全名
+    std::string depsJson;
+    std::vector<std::string> deps;
+    int32_t  order = 0;
+    int32_t  minIntervalMs = 0;
+    int32_t  rev = 0;          ///< 结果版本(每次生成 +1)
+    uint64_t seq = 0;          ///< 注册顺序
+    bool     fromJs = false;
+    MusicxxPluginUIContentSpec spec{}; ///< 拷贝(含生成函数)
+  };
+
+  /// 插件声明的一个槽位
+  struct UiPluginSlot {
+    std::string plugin;
+    std::string pluginId;
+    std::string id;
+    std::string kind;
+    uint64_t    seq = 0;
+  };
+
+  /// 内容注册表 (仅框架线程; 键是内容全名)
+  std::map<std::string, UiContent, std::less<>> uiContents_;
+  uint64_t uiContentSeq_ = 0;
+
+  /// 插件声明的槽位 (仅框架线程; 键是槽位全名)
+  std::map<std::string, UiPluginSlot, std::less<>> uiPluginSlots_;
+  uint64_t uiPluginSlotSeq_ = 0;
+
+  /// 摘除某实例的全部 UI 项 / 内容 / 槽位 (框架线程)
   void detachUiEntries(const std::string &instanceName);
 
   /// 序列化 UI 项 (pluginId 为空 = 全部; 按 type/order/seq 排序)
   std::string uiItemsJson(const std::string &pluginId) const;
+
+  /// 序列化内容注册表 (pluginId 为空 = 全部)
+  std::string uiContentsJson(const std::string &pluginId) const;
+
+  /// 序列化槽位表 (应用预留的 + 插件声明的)
+  std::string uiSlotsJson(const std::string &pluginId) const;
+
+  /// 生成一次内容并把结果推给 Dart 侧 (框架线程)
+  int32_t runUiContent(UiContent &content, std::string_view contextJson);
+
+  /// 推一条内容结果 (框架线程; [error] 非空表示这次失败)
+  void pushUiContentResult(const UiContent &content, const std::string &jsonText,
+                           const std::string &error);
+
+  /// 按全名找内容 (框架线程)
+  UiContent *findUiContent(std::string_view fullId);
 
   // 能力调用 (框架线程)
   std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;

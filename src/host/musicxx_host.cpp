@@ -711,6 +711,8 @@ MusicxxHostManager::broadcastPublishFrom(const std::string &pluginId,
   auto self = shared_from_this();
   // 广播计数 (只统计不限制) 放在框架线程做: 实例计数器只在那条线程上改
   asio::post(ctx_->io, [self, topic] { self->accountEventForTopic(topic); });
+  // 被主程序 watch 的频道: 推一次值变化 (变量来源靠它刷新)
+  notifyBroadcastChanged(topic, payload);
   // 调试回传: 仅在调试开关打开时把这次发布告诉 Dart 侧 (默认关闭零开销)
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
     Json debugEvent;
@@ -745,6 +747,47 @@ int32_t MusicxxHostManager::broadcastEndFrom(const std::string &pluginId,
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   return PLUGINXX_RESULT_OK;
+}
+
+int32_t MusicxxHostManager::watchBroadcast(std::string_view id, bool watch) {
+  if (id.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string topic = qualifyEventTopic(id);
+  if (topic.empty()) {
+    return PLUGINXX_RESULT_ERR_PERMISSION;
+  }
+  std::lock_guard<std::mutex> lock{watchedBroadcastsMutex_};
+  const auto it = watchedBroadcasts_.find(topic);
+  if (watch) {
+    if (it == watchedBroadcasts_.end()) {
+      watchedBroadcasts_.emplace(topic, 1);
+    } else {
+      ++it->second;
+    }
+    return PLUGINXX_RESULT_OK;
+  }
+  if (it == watchedBroadcasts_.end()) {
+    return PLUGINXX_RESULT_OK; ///< 没订过: 退订是幂等的
+  }
+  if (--it->second <= 0) {
+    watchedBroadcasts_.erase(it);
+  }
+  return PLUGINXX_RESULT_OK;
+}
+
+void MusicxxHostManager::notifyBroadcastChanged(
+    const std::string &topic, const std::string &payloadJson) {
+  {
+    std::lock_guard<std::mutex> lock{watchedBroadcastsMutex_};
+    if (!watchedBroadcasts_.contains(topic)) {
+      return; ///< 没人订阅: 零开销返回
+    }
+  }
+  Json payload;
+  payload["id"] = topic;
+  payload["value"] = parseJsonSafe(payloadJson);
+  pushEvent("musicxx.broadcast.changed", "", payload.dump());
 }
 
 int32_t MusicxxHostManager::pollEvents(int32_t maxCount, std::string &outJson) {
@@ -2585,6 +2628,11 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   }
   if (id.rfind("plugin.", 0) == 0) {
     decl.owner = naming::pluginIdOfTopic(id);
+    // 插件频道的默认发布者是"任何人": 几个插件可以共用一条频道。
+    // 生成表里显式写 owner 的 (preset != nullptr 且属性为 owner) 保持只属主可发。
+    if (preset == nullptr) {
+      decl.publish = pluginxx::BroadcastPublisher_e::Anyone;
+    }
   }
   std::string error;
   if (!broadcasts()->declare(decl, &error)) {
@@ -2637,6 +2685,8 @@ MusicxxHostManager::publishOnHostThread(const std::string &topic,
   if (rc != PLUGINXX_RESULT_OK) {
     return PLUGINXX_RESULT_ERR_STATE;
   }
+  // 被主程序 watch 的频道: 推一次值变化 (变量来源靠它刷新)
+  notifyBroadcastChanged(fullTopic, payload);
   // 调试回传: 仅在调试开关打开时把这次发布告诉 Dart 侧
   // (默认关闭零开销)
   if ((flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {

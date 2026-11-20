@@ -215,7 +215,7 @@ function switchControl(id, title, depict, value) {
                         control: "switch",
                         id: id,
                         value: value,
-                        action: { kind: "dispatch", name: "setOption" },
+                        action: { kind: "call", name: "setOption" },
                     },
                 },
             ],
@@ -250,7 +250,7 @@ function choiceControl(title, help, id, current, viewId, options) {
                                 // 当前项用主按钮的样子（与候选项按钮控件的选中态一致）
                                 highlight: option.value === current,
                                 action: {
-                                    kind: "dispatch",
+                                    kind: "call",
                                     name: "setOption",
                                     args: {
                                         id: id,
@@ -279,7 +279,7 @@ function modeChoiceControl(viewId) {
                 kind: "Button",
                 label: label,
                 highlight: styleOfItem(itemId) === style,
-                action: { kind: "dispatch", name: "useBackground", args: { id: itemId, view: viewId } },
+                action: { kind: "call", name: "useBackground", args: { id: itemId, view: viewId } },
             },
         };
     }
@@ -321,7 +321,7 @@ function modeChoiceControl(viewId) {
                             label: "内置背景",
                             highlight: (STYLE_BUILTIN === style),
                             action: {
-                                kind: "dispatch",
+                                kind: "call",
                                 name: "useBackground",
                                 args: { id: BUILTIN_BG_ID, view: viewId },
                             },
@@ -452,7 +452,7 @@ function settingsView(args) {
                         label: "切换背景动画速率（0.5x / 1x / 2x）",
                         variant: "full",
                         highlight: true,
-                        action: { kind: "dispatch", name: "cycleBackgroundRate", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "cycleBackgroundRate", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.settingRow({
                         title: "插件纹理",
@@ -490,32 +490,32 @@ function settingsView(args) {
                     kit.button({
                         label: "把当前封面绑成纹理",
                         variant: "full",
-                        action: { kind: "dispatch", name: "bindCoverTexture", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "bindCoverTexture", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.button({
                         label: "释放绑定的纹理",
                         variant: "full",
-                        action: { kind: "dispatch", name: "unbindCoverTexture", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "unbindCoverTexture", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.button({
                         label: coverHookBound ? "移除封面变化处理器" : "绑定封面变化处理器",
                         variant: "full",
-                        action: { kind: "dispatch", name: "toggleCoverHook", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "toggleCoverHook", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.button({
                         label: "手动隐藏歌曲图（10 分钟内不自动跟随）",
                         variant: "full",
-                        action: { kind: "dispatch", name: "takeIcon", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "takeIcon", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.button({
                         label: "交还歌曲图（恢复上一个形状）",
                         variant: "full",
-                        action: { kind: "dispatch", name: "releaseIcon", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "releaseIcon", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.button({
                         label: "清空取色缓存",
                         variant: "full",
-                        action: { kind: "dispatch", name: "clearPaletteCache", args: { view: SETTINGS_VIEW_ID } },
+                        action: { kind: "call", name: "clearPaletteCache", args: { view: SETTINGS_VIEW_ID } },
                     }, env),
                     kit.button({
                         label: "打开说明页",
@@ -580,7 +580,7 @@ function cardView(args) {
             kit.button({
                 label: "读取当前频谱（镜像 + 异步动作）",
                 variant: "full",
-                action: { kind: "dispatch", name: "spectrumProbe", args: { view: "card" } },
+                action: { kind: "call", name: "spectrumProbe", args: { view: "card" } },
             }, env),
             kit.button({
                 label: "打开设置页",
@@ -808,7 +808,7 @@ function spectrumProbeView(args) {
                 label: "重新读取（镜像实时 + 发起一次动作读取）",
                 variant: "full",
                 highlight: true,
-                action: { kind: "dispatch", name: "spectrumProbe", args: { view: "spectrum" } },
+                action: { kind: "call", name: "spectrumProbe", args: { view: "spectrum" } },
             }, env),
             kit.button({
                 label: "返回说明页",

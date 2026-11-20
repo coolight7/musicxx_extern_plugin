@@ -651,7 +651,7 @@ function settingsView(args, override) {
     };
 }
 
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "settings",
     type: "home.entry",
     order: 120,

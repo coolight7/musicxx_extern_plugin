@@ -944,33 +944,28 @@ void main() {
           .toList();
       bool hasType(String type) =>
           slotItems.any((MusicxxPluginUIItem item) => item.type == type);
-      expect(hasType('musicxx.ui.playing.lyric.top'), isTrue,
-          reason: '插入块：页面固定区域');
-      expect(hasType('musicxx.ui.playing.songlist.header'), isTrue,
-          reason: '插入块：列表 header');
-      expect(hasType('musicxx.ui.playing.moreInfo.footer'), isTrue,
-          reason: '插入块：另一页的列表末尾');
-      expect(hasType('musicxx.ui.playing.controlBar.menu'), isTrue,
-          reason: '按钮级替换：菜单');
-      expect(hasType('musicxx.ui.playing.controlBar.favorite'), isTrue,
-          reason: '按钮级替换：收藏');
+      // 插入块与控制栏这些“位置”只能由**内容**填充: 插件用 `item.register` 往这些槽位
+      // 注册声明项会被框架拒绝 (示例迁到内容模型在步骤 11), 所以快照里没有它们。
+      expect(hasType('musicxx.ui.playing.lyric.top'), isFalse,
+          reason: '插入块不接受声明项 (只能注册内容)');
+      expect(hasType('musicxx.ui.playing.songlist.header'), isFalse,
+          reason: '插入块不接受声明项 (只能注册内容)');
+      expect(hasType('musicxx.ui.playing.moreInfo.footer'), isFalse,
+          reason: '插入块不接受声明项 (只能注册内容)');
+      expect(hasType('musicxx.ui.playing.controlBar.menu'), isFalse,
+          reason: '按钮级替换位置不接受声明项 (只能注册内容)');
+      expect(hasType('musicxx.ui.playing.controlBar.favorite'), isFalse,
+          reason: '按钮级替换位置不接受声明项 (只能注册内容)');
       expect(hasType('musicxx.ui.playing.visualizer'), isTrue,
           reason: '音频动效候选');
       expect(hasType('musicxx.ui.page.background'), isTrue,
           reason: '普通页面背景：歌曲页面');
 
-      // 整栏替换：开启后多出整栏项，按钮级项保留（主程序会忽略它们）
+      // 整栏替换也是内容位置: 声明项不会进快照 (能力本身仍可调用)
       await runtime.plugins.call(
         'example_js_playing_slots',
         'plugin.example_js_playing_slots.toggleWholeBar',
         const <String, Object?>{'view': 'settings'},
-      );
-      await _pumpUntil(
-        () => runtime.plugins.uiSnapshot().any(
-          (MusicxxPluginUIItem item) =>
-              item.plugin == 'example_js_playing_slots' &&
-              item.type == 'musicxx.ui.playing.controlBar',
-        ),
       );
       expect(
         runtime.plugins.uiSnapshot().any(
@@ -978,8 +973,8 @@ void main() {
               item.plugin == 'example_js_playing_slots' &&
               item.type == 'musicxx.ui.playing.controlBar',
         ),
-        isTrue,
-        reason: '开启整栏替换后要注册整栏项',
+        isFalse,
+        reason: '整栏替换也是内容位置，声明项不会进快照',
       );
 
       // 整栏视图：主程序带状态参数取内容，处理器同步返回块描述

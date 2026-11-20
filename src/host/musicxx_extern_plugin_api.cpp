@@ -875,6 +875,96 @@ musicxx_extern_plugin_ui_snapshot(MusicxxExternPluginHost *h,
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_ui_contents(MusicxxExternPluginHost *h,
+                                  MusicxxExternPluginString *out_json,
+                                  MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !out_json) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  std::string json;
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->listUiContents(nullptr, json);
+  });
+  if (rc != PLUGINXX_RESULT_OK) {
+    setErr(log, "ui_contents failed");
+    return rc;
+  }
+  setOut(out_json, json);
+  return PLUGINXX_RESULT_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_ui_slots(MusicxxExternPluginHost *h,
+                               MusicxxExternPluginString *out_json,
+                               MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !out_json) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  std::string json;
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->listUiSlots(nullptr, json);
+  });
+  if (rc != PLUGINXX_RESULT_OK) {
+    setErr(log, "ui_slots failed");
+    return rc;
+  }
+  setOut(out_json, json);
+  return PLUGINXX_RESULT_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_ui_request(MusicxxExternPluginHost *h,
+                                 const MusicxxExternPluginStringView *id,
+                                 const MusicxxExternPluginStringView *context_json,
+                                 int64_t *out_request_id,
+                                 MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !id || !id->data) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string contentId = viewToStd(id);
+  const std::string context = viewToStd(context_json);
+  int64_t requestId = 0;
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->requestUiContent(contentId, context, &requestId);
+  });
+  if (out_request_id) {
+    *out_request_id = requestId;
+  }
+  if (rc == PLUGINXX_RESULT_ERR_NOT_FOUND) {
+    setErr(log, "ui_request: 没有这份内容 (" + contentId + ")");
+    return rc;
+  }
+  if (rc != PLUGINXX_RESULT_OK) {
+    setErr(log, "ui_request: 插件生成失败 (" + contentId + ")");
+    return rc;
+  }
+  return PLUGINXX_RESULT_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_broadcast_watch(MusicxxExternPluginHost *h,
+                                      const MusicxxExternPluginStringView *id,
+                                      int32_t watch,
+                                      MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !id || !id->data) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string topic = viewToStd(id);
+  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
+    return handle->manager->watchBroadcast(topic, watch != 0);
+  });
+  if (rc != PLUGINXX_RESULT_OK) {
+    setErr(log, "broadcast_watch: 频道 id 形状不合法 (" + topic + ")");
+    return rc;
+  }
+  return PLUGINXX_RESULT_OK;
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_log(MusicxxExternPluginHost *h, int32_t level,
                           const MusicxxExternPluginStringView *message,
                           MusicxxExternPluginString *log) {

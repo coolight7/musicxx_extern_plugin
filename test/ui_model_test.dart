@@ -21,7 +21,7 @@ void main() {
           'data': <String, Object?>{
             'title': '菜单项',
             'action': <String, Object?>{
-              'kind': 'dispatch',
+              'kind': 'call',
               'name': 'probe',
               'args': <String, Object?>{'a': 1},
             },
@@ -60,8 +60,9 @@ void main() {
     expect(card.viewId, 'detail');
 
     final MusicxxPluginUIItem songItem = items.last;
-    expect(songItem.actionKind, MusicxxPluginUIActionKind.dispatch);
+    expect(songItem.actionKind, MusicxxPluginUIActionKind.call);
     expect(songItem.capabilityName, 'probe');
+    expect(songItem.callsHost, isFalse);
     expect(songItem.actionArgs['a'], 1);
     expect(songItem.rev, 4);
     expect(songItem.order, 900);
@@ -69,7 +70,7 @@ void main() {
     expect(card.rev, 0);
   });
 
-  test('动作写法与界面描述层一致：短写/command/未知写法', () {
+  test('动作写法与界面描述层一致：短写 / call / 未知写法', () {
     MusicxxPluginUIItem itemOf(Object? action) =>
         MusicxxPluginUIItem.fromJson(<String, Object?>{
           'id': 'plugin.demo.songInfo',
@@ -80,29 +81,42 @@ void main() {
 
     // 字符串短写 = 调用本插件能力
     final MusicxxPluginUIItem shortForm = itemOf('probe');
-    expect(shortForm.actionKind, MusicxxPluginUIActionKind.dispatch);
+    expect(shortForm.actionKind, MusicxxPluginUIActionKind.call);
     expect(shortForm.capabilityName, 'probe');
 
-    // 官方动作用 command；命令名只在 command 形态下给出
-    final MusicxxPluginUIItem command = itemOf(<String, Object?>{
-      'kind': 'command',
+    // 调用应用能力：call 的名字写 musicxx.*
+    final MusicxxPluginUIItem host = itemOf(<String, Object?>{
+      'kind': 'call',
       'name': 'musicxx.ui.toast',
       'args': <String, Object?>{'text': 'hi'},
+      'timeoutMs': 1200,
     });
-    expect(command.actionKind, MusicxxPluginUIActionKind.command);
-    expect(command.hostActionName, 'musicxx.ui.toast');
-    expect(command.capabilityName, isNull);
+    expect(host.actionKind, MusicxxPluginUIActionKind.call);
+    expect(host.callsHost, isTrue);
+    expect(host.capabilityName, 'musicxx.ui.toast');
+    expect(host.action?.timeoutMs, 1200);
 
-    // 旧写法（capability / action）不再解析：当成没有动作
+    // 跨插件：名字写 plugin.<别的插件>.<名字>
+    final MusicxxPluginUIItem other = itemOf(<String, Object?>{
+      'kind': 'call',
+      'name': 'plugin.other.refresh',
+    });
+    expect(other.callsHost, isFalse);
+    expect(other.callsOtherPlugin('demo'), isTrue);
+    expect(other.callsOtherPlugin('other'), isFalse);
+
+    // 旧写法（dispatch / command / capability / action）不再解析：当成没有动作
     expect(
-      itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action,
+      itemOf(<String, Object?>{'kind': 'dispatch', 'name': 'probe'}).action,
       isNull,
     );
     expect(
-      itemOf(<String, Object?>{
-        'kind': 'action',
-        'name': 'musicxx.ui.toast',
-      }).action,
+      itemOf(<String, Object?>{'kind': 'command', 'name': 'musicxx.ui.toast'})
+          .action,
+      isNull,
+    );
+    expect(
+      itemOf(<String, Object?>{'kind': 'capability', 'name': 'probe'}).action,
       isNull,
     );
     expect(itemOf(<String, Object?>{'kind': 'unknown'}).action, isNull);
@@ -157,7 +171,7 @@ void main() {
         'data': <String, Object?>{
           'title': '菜单项',
           'action': <String, Object?>{
-            'kind': 'command',
+            'kind': 'call',
             'name': 'musicxx.ui.toast',
           },
         },
@@ -246,5 +260,70 @@ void main() {
       ).single.id,
       'plugin.a.new',
     );
+  });
+
+  test('内容注册表：字段、排序与按槽位筛选', () {
+    final List<MusicxxPluginUIContent> contents =
+        MusicxxPluginUIContent.parseList(<Object?>[
+          <String, Object?>{
+            'id': 'plugin.demo.row1',
+            'shortId': 'row1',
+            'plugin': 'demo',
+            'slot': 'musicxx.ui.playing.songlist.top',
+            'order': 10,
+            'minIntervalMs': 200,
+            'deps': <Object?>['musicxx.song.name', 'plugin.other.now'],
+            'rev': 3,
+          },
+          <String, Object?>{
+            'id': 'plugin.demo.row2',
+            'shortId': 'row2',
+            'plugin': 'demo',
+            'slot': 'musicxx.ui.playing.songlist.top',
+            'order': 20,
+          },
+          <String, Object?>{'id': '', 'slot': 'musicxx.ui.page'}, // 缺 id → 跳过
+          'not-a-map',
+        ]);
+
+    expect(contents.length, 2);
+    final MusicxxPluginUIContent row1 = contents.first;
+    expect(row1.shortId, 'row1');
+    expect(row1.order, 10);
+    expect(row1.minIntervalMs, 200);
+    expect(row1.deps.length, 2);
+    expect(row1.rev, 3);
+    // 没写 deps / minIntervalMs 的内容按空 / 0
+    expect(contents.last.deps, isEmpty);
+    expect(contents.last.minIntervalMs, 0);
+
+    final List<MusicxxPluginUIContent> sameSlot = MusicxxPluginUIItems
+        .contentsOf(contents, 'musicxx.ui.playing.songlist.top');
+    expect(sameSlot.length, 2);
+    expect(MusicxxPluginUIItems.contentsOf(contents, 'musicxx.ui.page'), isEmpty);
+  });
+
+  test('槽位表：应用预留的与插件声明的', () {
+    final List<MusicxxPluginUISlot> slots = MusicxxPluginUISlot.parseList(
+      <Object?>[
+        <String, Object?>{
+          'id': 'musicxx.ui.playing.songlist.top',
+          'kind': 'insert',
+          'owner': '',
+        },
+        <String, Object?>{
+          'id': 'plugin.demo.ui.toolbar',
+          'kind': 'insert',
+          'owner': 'demo',
+        },
+        <String, Object?>{'id': '', 'kind': 'insert'}, // 缺 id → 跳过
+      ],
+    );
+
+    expect(slots.length, 2);
+    expect(slots.first.isPluginDeclared, isFalse);
+    expect(slots.last.isPluginDeclared, isTrue);
+    expect(slots.last.owner, 'demo');
+    expect(slots.last.kind, 'insert');
   });
 }

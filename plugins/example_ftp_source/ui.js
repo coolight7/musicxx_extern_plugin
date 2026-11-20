@@ -78,7 +78,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
           label: option.label,
           highlight: selected,
           action: {
-            kind: "dispatch",
+            kind: "call",
             name: params.capability,
             args: params.argsOf(option.value)
           }
@@ -119,7 +119,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         title: "服务器地址",
         depict: "IP 或域名，例如 192.168.1.20",
         value: draft.host,
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
+        action: { kind: "call", name: "accounts", args: { op: "field" } }
       }, env),
       controlRow({
         id: "port",
@@ -130,7 +130,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         integer: true,
         min: 1,
         max: 65535,
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
+        action: { kind: "call", name: "accounts", args: { op: "field" } }
       }, env),
       controlRow({
         id: "user",
@@ -138,7 +138,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         title: "用户名",
         depict: "留空表示匿名登录（anonymous）",
         value: draft.user,
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
+        action: { kind: "call", name: "accounts", args: { op: "field" } }
       }, env),
       controlRow({
         id: "password",
@@ -146,7 +146,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         title: "密码",
         depict: hasSavedPassword ? "留空表示不修改已保存的密码" : "匿名登录时可以留空",
         value: "",
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
+        action: { kind: "call", name: "accounts", args: { op: "field" } }
       }, env),
       controlRow({
         id: "rootPath",
@@ -154,7 +154,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         title: "根路径",
         depict: "浏览从这里开始，例如 /Music",
         value: draft.rootPath,
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
+        action: { kind: "call", name: "accounts", args: { op: "field" } }
       }, env),
       choiceRow({
         title: "文件名编码",
@@ -178,7 +178,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
         integer: true,
         min: 1,
         max: 120,
-        action: { kind: "dispatch", name: "accounts", args: { op: "field" } }
+        action: { kind: "call", name: "accounts", args: { op: "field" } }
       }, env),
       k.divider({}, env),
       k.actionsRow({
@@ -187,17 +187,17 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
             label: view.testing ? "正在测试…" : "保存并测试",
             highlight: true,
             disabled: !!view.busy,
-            action: { kind: "dispatch", name: "accounts", args: { op: "saveTest" } }
+            action: { kind: "call", name: "accounts", args: { op: "saveTest" } }
           }, env),
           k.button({
             label: "只保存",
             disabled: !!view.busy,
-            action: { kind: "dispatch", name: "accounts", args: { op: "save" } }
+            action: { kind: "call", name: "accounts", args: { op: "save" } }
           }, env),
           k.button({
             label: "取消",
             variant: "simple",
-            action: { kind: "dispatch", name: "accounts", args: { op: "cancel" } }
+            action: { kind: "call", name: "accounts", args: { op: "cancel" } }
           }, env)
         ]
       }, env)
@@ -206,7 +206,7 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
       blocks.push(k.button({
         label: "清除已保存的账号",
         variant: "simple",
-        action: { kind: "dispatch", name: "accounts", args: { op: "clear" } }
+        action: { kind: "call", name: "accounts", args: { op: "clear" } }
       }, env));
     }
     return blocks;
@@ -249,12 +249,12 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
           k.button({
             label: "编辑",
             highlight: true,
-            action: { kind: "dispatch", name: "accounts", args: { op: "edit" } }
+            action: { kind: "call", name: "accounts", args: { op: "edit" } }
           }, env),
           k.button({
             label: view.busy ? "正在测试…" : "测试连接",
             disabled: !!view.busy,
-            action: { kind: "dispatch", name: "accounts", args: { op: "test" } }
+            action: { kind: "call", name: "accounts", args: { op: "test" } }
           }, env)
         ]
       }, env)
