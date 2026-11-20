@@ -1,0 +1,72 @@
+[
+  { "id": "musicxx.app.foreground", "type": "bool", "depict": "应用是否在前台" },
+  { "id": "musicxx.app.lifecycle", "type": "string", "depict": "应用生命周期状态（ground / background 等）" },
+  { "id": "musicxx.app.version", "type": "string", "depict": "应用版本号" },
+  { "id": "musicxx.app.lang", "type": "string", "depict": "界面语言（zh_Hans / en_US …）" },
+  { "id": "musicxx.app.platform", "type": "string", "depict": "运行平台（windows / android / ios / linux / macos）" },
+
+  { "id": "musicxx.theme.night", "type": "bool", "depict": "是否夜间主题" },
+  { "id": "musicxx.theme.mode", "type": "string", "depict": "主题模式（跟随系统 / 亮 / 暗）" },
+  { "id": "musicxx.theme.current", "type": "string", "depict": "当前主题名" },
+
+  { "id": "musicxx.ui.animatedLevel", "type": "string", "depict": "界面动画等级" },
+  { "id": "musicxx.ui.songIconRotate", "type": "bool", "depict": "歌曲图是否旋转" },
+  { "id": "musicxx.ui.songIconWave", "type": "bool", "depict": "歌曲图是否随音频起伏" },
+  { "id": "musicxx.ui.fontFamily", "type": "string", "depict": "界面字体" },
+
+  { "id": "musicxx.player.state", "type": "string", "depict": "播放状态（idle / playing / paused / completed …）" },
+  { "id": "musicxx.player.playing", "type": "bool", "depict": "现在是否在播放" },
+  { "id": "musicxx.player.positionMs", "type": "number", "depict": "当前播放位置（毫秒）" },
+  { "id": "musicxx.player.durationMs", "type": "number", "depict": "当前歌曲总时长（毫秒）" },
+  { "id": "musicxx.player.volume", "type": "number", "depict": "音量（0~100）" },
+  { "id": "musicxx.player.speed", "type": "number", "depict": "播放速度" },
+  { "id": "musicxx.player.pitch", "type": "number", "depict": "音调" },
+
+  { "id": "musicxx.song.hasSong", "type": "bool", "depict": "有没有当前歌曲" },
+  { "id": "musicxx.song.sid", "type": "number", "depict": "当前歌曲的会话 id（每次切歌都会变）" },
+  { "id": "musicxx.song.name", "type": "string", "depict": "当前歌曲名" },
+  { "id": "musicxx.song.artist", "type": "string", "depict": "当前歌曲歌手" },
+  { "id": "musicxx.song.album", "type": "string", "depict": "当前歌曲专辑" },
+  { "id": "musicxx.song.subtitle", "type": "string", "depict": "当前歌曲副标题" },
+  { "id": "musicxx.song.durationMs", "type": "number", "depict": "当前歌曲时长（毫秒）" },
+  { "id": "musicxx.song.srcKey", "type": "string", "depict": "当前歌曲的音源身份" },
+  { "id": "musicxx.song.favorite", "type": "bool", "depict": "当前歌曲是否已收藏" },
+  { "id": "musicxx.song.hasCover", "type": "bool", "depict": "当前歌曲有没有封面" },
+
+  { "id": "musicxx.playlist.length", "type": "number", "depict": "当前播放队列的长度" },
+  { "id": "musicxx.playlist.index", "type": "number", "depict": "当前歌曲在播放队列里的位置（从 0 起）" },
+  { "id": "musicxx.playlist.loopMode", "type": "string", "depict": "循环模式" },
+  { "id": "musicxx.playlist.autoPlayMode", "type": "string", "depict": "自动播放策略" },
+
+  { "id": "musicxx.lyric.hasLyric", "type": "bool", "depict": "当前歌曲有没有歌词" },
+  { "id": "musicxx.lyric.offsetMs", "type": "number", "depict": "歌词偏移（毫秒）" },
+  { "id": "musicxx.lyric.line", "type": "number", "depict": "当前高亮的歌词行下标（没有歌词时为 -1）" },
+
+  { "id": "musicxx.env.windowWidth", "type": "number", "depict": "窗口逻辑宽度" },
+  { "id": "musicxx.env.windowHeight", "type": "number", "depict": "窗口逻辑高度" },
+  { "id": "musicxx.env.dpi", "type": "number", "depict": "窗口所在屏幕的像素比" },
+  { "id": "musicxx.env.isDesktop", "type": "bool", "depict": "是不是桌面平台" },
+  { "id": "musicxx.env.isMobile", "type": "bool", "depict": "是不是移动平台" },
+
+  { "id": "musicxx.spectrum.available", "type": "bool", "depict": "现在有没有频谱数据" },
+  { "id": "musicxx.spectrum.level", "type": "number", "depict": "频谱响度（0~1）" },
+
+  { "id": "scope:musicxx.page.route", "type": "string", "depict": "当前插件页面的地址（ext://<插件id>/<内容 id>）", "slots": ["musicxx.ui.page", "musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.page.args", "type": "json", "depict": "打开插件页面时带的参数", "slots": ["musicxx.ui.page"] },
+  { "id": "scope:musicxx.overlay.id", "type": "string", "depict": "浮层的内容 id", "slots": ["musicxx.ui.overlay"] },
+  { "id": "scope:musicxx.overlay.args", "type": "json", "depict": "打开浮层时带的参数", "slots": ["musicxx.ui.overlay"] },
+
+  { "id": "scope:musicxx.songlist.pid", "type": "string", "depict": "歌单内容页打开的歌单 id", "slots": ["musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.songlist.name", "type": "string", "depict": "歌单内容页打开的歌单名", "slots": ["musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.songlist.songNum", "type": "number", "depict": "歌单的歌曲数", "slots": ["musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.songlist.sort", "type": "string", "depict": "歌单的排序方式", "slots": ["musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.songlist.isLocal", "type": "bool", "depict": "歌单是不是本地歌单", "slots": ["musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.songlist.cover", "type": "string", "depict": "歌单封面路径（没有封面时为空串）", "slots": ["musicxx.ui.page.background"] },
+  { "id": "scope:musicxx.songlist.loading", "type": "bool", "depict": "歌单是否还在加载", "slots": ["musicxx.ui.page.background"] },
+
+  { "id": "scope:musicxx.slot.colorMain", "type": "string", "depict": "播放页前景普通色（#aarrggbb）", "slots": ["musicxx.ui.playing.controlBar", "musicxx.ui.playing.controlBar.menu", "musicxx.ui.playing.controlBar.previous", "musicxx.ui.playing.controlBar.playOrPause", "musicxx.ui.playing.controlBar.next", "musicxx.ui.playing.controlBar.favorite"] },
+  { "id": "scope:musicxx.slot.colorCross", "type": "string", "depict": "播放页前景减淡色（#aarrggbb）", "slots": ["musicxx.ui.playing.controlBar", "musicxx.ui.playing.controlBar.menu", "musicxx.ui.playing.controlBar.previous", "musicxx.ui.playing.controlBar.playOrPause", "musicxx.ui.playing.controlBar.next", "musicxx.ui.playing.controlBar.favorite"] },
+  { "id": "scope:musicxx.slot.colorBlock", "type": "string", "depict": "播放页前景的块底色（#aarrggbb）", "slots": ["musicxx.ui.playing.controlBar", "musicxx.ui.playing.controlBar.menu", "musicxx.ui.playing.controlBar.previous", "musicxx.ui.playing.controlBar.playOrPause", "musicxx.ui.playing.controlBar.next", "musicxx.ui.playing.controlBar.favorite"] },
+
+  { "id": "scope:musicxx.slot.args", "type": "json", "depict": "外层内容通过 UISlot.args 传给这个嵌套槽位的参数", "slots": [] }
+]

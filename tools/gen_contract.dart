@@ -16,6 +16,8 @@
 /// | `docs/plugin-capabilities.md` | 能力（请求 → 结果）作者文档 |
 /// | `docs/plugin-broadcasts.md` | 广播（通知 / 快照）作者文档 |
 ///
+/// 槽位与变量清单由 `tools/gen_ui_contract.dart` 生成（同样是提交物）。
+///
 /// 为什么只有一处：同一个 id 同时出现在"派发、命令面、MCP、链接入口、自省、作者文档"几处，
 /// 靠手写常量对齐迟早会漂。原来还有一份 `tools/hooks.def.json`（只写派发层用到的模式 / 合并策略 /
 /// 阶段 / 是否接入），它与这里的声明逐条重复，已删除：
@@ -28,6 +30,7 @@ library;
 import 'dart:io';
 
 import 'gen_capabilities.dart';
+import 'gen_ui_contract.dart';
 
 /// 去掉空白与"收尾逗号"（`dart format` 只会动这两类字符）
 String _canonical(String text) => text
@@ -37,8 +40,14 @@ String _canonical(String text) => text
 
 void main(List<String> args) {
   final bool check = args.contains('--check');
-  final Map<String, String> files = buildCapabilityContract();
-  stdout.writeln('${check ? '校验' : '生成'}能力与广播约定: 来源 $capabilitiesDefPath');
+  final Map<String, String> files = <String, String>{
+    ...buildCapabilityContract(),
+    ...buildUiContract(),
+  };
+  stdout.writeln(
+    '${check ? '校验' : '生成'}能力 / 广播 / 槽位 / 变量约定: '
+    '来源 $capabilitiesDefPath、tools/ui_slots.def.json、tools/ui_variables.def.json',
+  );
 
   final List<String> drift = <String>[];
   files.forEach((String path, String content) {

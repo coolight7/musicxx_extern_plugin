@@ -1,0 +1,272 @@
+[
+  {
+    "id": "musicxx.ui.home.entry",
+    "kind": "item",
+    "macro": "HOME_ENTRY",
+    "label": "主页入口",
+    "page": "功能主页",
+    "position": "入口列表",
+    "inList": true,
+    "doc": "功能主页上的一个入口。data = {title, subtitle?, icon?, action?}；点它时派发 action。"
+  },
+  {
+    "id": "musicxx.ui.song.action",
+    "kind": "item",
+    "macro": "SONG_ACTION",
+    "label": "歌曲菜单项",
+    "page": "各处歌曲菜单",
+    "position": "菜单项",
+    "inList": true,
+    "doc": "歌曲菜单里的一项。data = {title, icon?, action?}；点它时派发 action。"
+  },
+  {
+    "id": "musicxx.ui.playlist.action",
+    "kind": "item",
+    "macro": "PLAYLIST_ACTION",
+    "label": "歌单菜单项",
+    "page": "歌单菜单",
+    "position": "菜单项",
+    "inList": true,
+    "doc": "歌单菜单里的一项。data = {title, icon?, action?}；点它时派发 action，参数里带当前歌单。"
+  },
+  {
+    "id": "musicxx.ui.addsong.entry",
+    "kind": "item",
+    "macro": "ADDSONG_ENTRY",
+    "label": "添加歌曲来源项",
+    "page": "「添加歌曲」弹窗",
+    "position": "来源列表",
+    "inList": true,
+    "doc": "「添加歌曲」弹窗里的一个来源。data = {title, subtitle?, icon?, action?}；点击时参数里带当前歌单（pid / name / songNum）。"
+  },
+  {
+    "id": "musicxx.ui.audioEffect",
+    "kind": "item",
+    "macro": "AUDIO_EFFECT",
+    "label": "音效",
+    "page": "音效页面",
+    "position": "音效列表",
+    "inList": true,
+    "doc": "一段音频滤镜。data = {title, subtitle?, filter, pitch?, cpuCost?}；pitch 夹在 0.25~2.0，cpuCost 夹在 1~5（取整）。"
+  },
+  {
+    "id": "musicxx.ui.playing.background",
+    "kind": "selectable",
+    "macro": "PLAYING_BACKGROUND",
+    "label": "播放页背景",
+    "page": "播放页",
+    "position": "整页背景（用户选择生效）",
+    "inList": true,
+    "doc": "候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。"
+  },
+  {
+    "id": "musicxx.ui.playing.icon",
+    "kind": "selectable",
+    "macro": "PLAYING_ICON",
+    "label": "播放页歌曲图",
+    "page": "播放页",
+    "position": "歌曲图 / 视频（用户选择生效）",
+    "inList": true,
+    "doc": "候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。"
+  },
+  {
+    "id": "musicxx.ui.playing.visualizer",
+    "kind": "selectable",
+    "macro": "PLAYING_VISUALIZER",
+    "label": "播放页音频动效",
+    "page": "播放页",
+    "position": "动效区（用户选择生效）",
+    "inList": true,
+    "doc": "候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。"
+  },
+  {
+    "id": "musicxx.ui.page.background",
+    "kind": "pageBackground",
+    "macro": "PAGE_BACKGROUND",
+    "label": "普通页面背景",
+    "page": "所有普通页面",
+    "position": "整页背景（按路由自动生效）",
+    "inList": true,
+    "doc": "声明项 data = {title, depict?, routes?}；界面内容注册在同一个槽位上，按 routes 与注册顺序生效。"
+  },
+  {
+    "id": "musicxx.ui.playing.controlBar",
+    "kind": "replace",
+    "macro": "PLAYING_CONTROL_BAR",
+    "label": "播放页控制栏",
+    "page": "播放页",
+    "position": "整栏（替换内置界面）",
+    "inList": false,
+    "doc": "整栏由插件画。同一个槽位只认 order 最小的一份内容，没有内容时画内置控制栏。"
+  },
+  {
+    "id": "musicxx.ui.playing.controlBar.menu",
+    "kind": "replace",
+    "macro": "PLAYING_CONTROL_BAR_MENU",
+    "label": "播放页控制栏 · 菜单按钮",
+    "page": "播放页",
+    "position": "控制栏「菜单」按钮（替换显示）",
+    "inList": false,
+    "doc": "只替换这一个按钮的显示；内置按钮的行为是打开「更多」菜单（musicxx.ui.playing.openMenu）。"
+  },
+  {
+    "id": "musicxx.ui.playing.controlBar.previous",
+    "kind": "replace",
+    "macro": "PLAYING_CONTROL_BAR_PREVIOUS",
+    "label": "播放页控制栏 · 上一曲按钮",
+    "page": "播放页",
+    "position": "控制栏「上一曲」按钮（替换显示）",
+    "inList": false,
+    "doc": "只替换这一个按钮的显示；对应能力 musicxx.player.prev。"
+  },
+  {
+    "id": "musicxx.ui.playing.controlBar.playOrPause",
+    "kind": "replace",
+    "macro": "PLAYING_CONTROL_BAR_PLAY_OR_PAUSE",
+    "label": "播放页控制栏 · 播放暂停按钮",
+    "page": "播放页",
+    "position": "控制栏「播放 / 暂停」按钮（替换显示）",
+    "inList": false,
+    "doc": "只替换这一个按钮的显示；对应能力 musicxx.player.toggle；画面要跟播放状态走就用变量 musicxx.player.playing。"
+  },
+  {
+    "id": "musicxx.ui.playing.controlBar.next",
+    "kind": "replace",
+    "macro": "PLAYING_CONTROL_BAR_NEXT",
+    "label": "播放页控制栏 · 下一曲按钮",
+    "page": "播放页",
+    "position": "控制栏「下一曲」按钮（替换显示）",
+    "inList": false,
+    "doc": "只替换这一个按钮的显示；对应能力 musicxx.player.next。"
+  },
+  {
+    "id": "musicxx.ui.playing.controlBar.favorite",
+    "kind": "replace",
+    "macro": "PLAYING_CONTROL_BAR_FAVORITE",
+    "label": "播放页控制栏 · 收藏按钮",
+    "page": "播放页",
+    "position": "控制栏「收藏」按钮（替换显示）",
+    "inList": false,
+    "doc": "只替换这一个按钮的显示；对应能力 musicxx.songlist.favorite；收藏状态用变量 musicxx.song.favorite。"
+  },
+  {
+    "id": "musicxx.ui.playing.lyric.top",
+    "kind": "insert",
+    "macro": "PLAYING_LYRIC_TOP",
+    "label": "歌词页顶部",
+    "page": "播放页 · 歌词页",
+    "position": "列表之上（不随内容滚动）",
+    "inList": false,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.lyric.bottom",
+    "kind": "insert",
+    "macro": "PLAYING_LYRIC_BOTTOM",
+    "label": "歌词页底部",
+    "page": "播放页 · 歌词页",
+    "position": "列表之下（不随内容滚动）",
+    "inList": false,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.lyric.header",
+    "kind": "insert",
+    "macro": "PLAYING_LYRIC_HEADER",
+    "label": "歌词列表内顶部",
+    "page": "播放页 · 歌词页",
+    "position": "列表的 header（跟随内容滚动）",
+    "inList": true,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.lyric.footer",
+    "kind": "insert",
+    "macro": "PLAYING_LYRIC_FOOTER",
+    "label": "歌词列表内底部",
+    "page": "播放页 · 歌词页",
+    "position": "列表的 footer（跟随内容滚动）",
+    "inList": true,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.moreInfo.header",
+    "kind": "insert",
+    "macro": "PLAYING_MORE_INFO_HEADER",
+    "label": "更多信息页内容开头",
+    "page": "播放页 · 更多信息页",
+    "position": "整页滚动内容的最前面",
+    "inList": true,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.moreInfo.footer",
+    "kind": "insert",
+    "macro": "PLAYING_MORE_INFO_FOOTER",
+    "label": "更多信息页内容末尾",
+    "page": "播放页 · 更多信息页",
+    "position": "整页滚动内容的最后面",
+    "inList": true,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.songlist.top",
+    "kind": "insert",
+    "macro": "PLAYING_SONGLIST_TOP",
+    "label": "播放列表页顶部",
+    "page": "播放页 · 播放列表页",
+    "position": "列表之上（不随内容滚动）",
+    "inList": false,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.songlist.bottom",
+    "kind": "insert",
+    "macro": "PLAYING_SONGLIST_BOTTOM",
+    "label": "播放列表页底部",
+    "page": "播放页 · 播放列表页",
+    "position": "列表之下（不随内容滚动）",
+    "inList": false,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.songlist.header",
+    "kind": "insert",
+    "macro": "PLAYING_SONGLIST_HEADER",
+    "label": "播放列表内顶部",
+    "page": "播放页 · 播放列表页",
+    "position": "列表的 header（跟随内容滚动）",
+    "inList": true,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.playing.songlist.footer",
+    "kind": "insert",
+    "macro": "PLAYING_SONGLIST_FOOTER",
+    "label": "播放列表内底部",
+    "page": "播放页 · 播放列表页",
+    "position": "列表的 footer（跟随内容滚动）",
+    "inList": true,
+    "doc": "同一位置可以有多份内容，按 order 从上到下排列。"
+  },
+  {
+    "id": "musicxx.ui.page",
+    "kind": "page",
+    "macro": "PAGE",
+    "label": "插件页面",
+    "page": "插件页面 ext://<插件id>/<内容 id>",
+    "position": "整页（插件自己发起）",
+    "inList": false,
+    "doc": "内容 id 就是页面地址里的那一段；作用域变量 scope:musicxx.page.*。"
+  },
+  {
+    "id": "musicxx.ui.overlay",
+    "kind": "overlay",
+    "macro": "OVERLAY",
+    "label": "插件浮层",
+    "page": "浮层（musicxx.ui.overlay.show / showSheet）",
+    "position": "整层（插件自己发起）",
+    "inList": false,
+    "doc": "内容 id 就是能力参数里的 id；作用域变量 scope:musicxx.overlay.*。"
+  }
+]
