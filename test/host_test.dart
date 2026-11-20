@@ -392,7 +392,7 @@ void main() {
     expect(card.name, 'card');
     expect(card.title, isNotEmpty);
     expect(card.actionKind, MusicxxPluginUIActionKind.route);
-    expect(card.viewId, 'card');
+    expect(card.contentId, 'card');
     expect(
       songActions.any(
         (MusicxxPluginUIItem item) => item.plugin == 'example_native',
@@ -405,7 +405,7 @@ void main() {
     // 声明式页面：UI 项只声明"打开哪个页面"，页面本身由插件的**同名能力**绘制。
     // 这里断言"声明了 route 入口的插件确实提供了同名能力" —— 只声明入口不实现能力时，
     // 插件框架打开页面只会得到"插件未声明该能力"。
-    final String? nativeViewId = card.viewId;
+    final String? nativeViewId = card.contentId;
     expect(nativeViewId, isNotNull);
     final Object? nativeCardRaw = await runtime.plugins.call(
       'example_native',
@@ -615,11 +615,11 @@ void main() {
     final MusicxxPluginUIItem jsCard = jsHomeEntries.firstWhere(
       (MusicxxPluginUIItem item) => item.plugin == 'example_js',
     );
-    expect(jsCard.viewId, isNotNull);
+    expect(jsCard.contentId, isNotNull);
     final Object? jsCardRaw = await runtime.plugins.call(
       'example_js',
-      'plugin.example_js.${jsCard.viewId}',
-      <String, Object?>{'view': jsCard.viewId},
+      'plugin.example_js.${jsCard.contentId}',
+      <String, Object?>{'view': jsCard.contentId},
     );
     expect(jsCardRaw, isA<Map<String, Object?>>(), reason: 'JS 示例应返回页面视图');
     final Map<String, Object?> jsView =

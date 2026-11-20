@@ -941,8 +941,8 @@
     {
       "id": "musicxx.ui.overlay.show",
       "dart": "uiOverlayShow",
-      "title": "",
-      "depict": "",
+      "title": "打开浮层",
+      "depict": "用自己注册在 musicxx.ui.overlay 上的内容打开一层浮层，等用户关掉；参数 {id, args?, title?, depict?, dismissible?, textConfirm?, textCancel?, size?}",
       "impls": "one",
       "phases": [
         "impl"
@@ -956,23 +956,8 @@
     {
       "id": "musicxx.ui.overlay.close",
       "dart": "uiOverlayClose",
-      "title": "关闭浮层",
+      "depict": "关掉自己在显示的浮层（不给 id 时关当前那个）；可以带 value / reason 一起交给调用方",
       "depict": "关掉自己在显示的浮层（不给 id 时关当前那个）",
-      "impls": "one",
-      "phases": [
-        "impl"
-      ],
-      "dispatch": "async",
-      "timeoutMs": 5000,
-      "cache": "none",
-      "plugin": {},
-      "doc": ""
-    },
-    {
-      "id": "musicxx.ui.overlay.showSheet",
-      "dart": "uiOverlayShowSheet",
-      "title": "",
-      "depict": "",
       "impls": "one",
       "phases": [
         "impl"
@@ -987,7 +972,7 @@
       "id": "musicxx.ui.openRoute",
       "dart": "uiOpenRoute",
       "title": "打开页面",
-      "depict": "跳到官方页面或插件自己的页面（ext://<插件id>/<视图id>）",
+      "depict": "跳到官方页面或插件页面（ext://<插件id>/<内容 id>）",
       "impls": "one",
       "phases": [
         "impl"

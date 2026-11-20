@@ -192,12 +192,10 @@ abstract final class MusicxxCapabilityId {
   static const String uiToast = 'musicxx.ui.toast';
   /// 确认弹窗
   static const String uiDialog = 'musicxx.ui.dialog';
-  /// musicxx.ui.overlay.show
+  /// 打开浮层
   static const String uiOverlayShow = 'musicxx.ui.overlay.show';
-  /// 关闭浮层
+  /// musicxx.ui.overlay.close
   static const String uiOverlayClose = 'musicxx.ui.overlay.close';
-  /// musicxx.ui.overlay.showSheet
-  static const String uiOverlayShowSheet = 'musicxx.ui.overlay.showSheet';
   /// 打开页面
   static const String uiOpenRoute = 'musicxx.ui.openRoute';
   /// 播放页「更多」菜单
@@ -366,7 +364,6 @@ abstract final class MusicxxCapabilityId {
     uiDialog,
     uiOverlayShow,
     uiOverlayClose,
-    uiOverlayShowSheet,
     uiOpenRoute,
     uiPlayingOpenMenu,
     uiDrivePickSongs,
@@ -1852,8 +1849,8 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
-      title: '',
-      depict: '',
+      title: '打开浮层',
+      depict: '用自己注册在 musicxx.ui.overlay 上的内容打开一层浮层，等用户关掉；参数 {id, args?, title?, depict?, dismissible?, textConfirm?, textCancel?, size?}',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.overlay.close',
@@ -1872,28 +1869,8 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpTitle: '',
       mcpDepict: '',
       plugin: true,
-      title: '关闭浮层',
-      depict: '关掉自己在显示的浮层（不给 id 时关当前那个）',
-    ),
-    MusicxxCapabilityDecl(
-      id: 'musicxx.ui.overlay.showSheet',
-      impls: 'one',
-      merge: '',
-      phases: <String>['impl'],
-      dispatch: 'async',
-      timeoutMs: 5000,
-      cache: 'none',
-      cli: false,
-      commandTitle: '',
-      consent: '',
-      mcp: false,
-      mcpName: '',
-      mcpFormat: 'json',
-      mcpTitle: '',
-      mcpDepict: '',
-      plugin: true,
       title: '',
-      depict: '',
+      depict: '关掉自己在显示的浮层（不给 id 时关当前那个）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.openRoute',
@@ -1913,7 +1890,7 @@ abstract final class MusicxxCapabilityCatalogue {
       mcpDepict: '',
       plugin: true,
       title: '打开页面',
-      depict: '跳到官方页面或插件自己的页面（ext://<插件id>/<视图id>）',
+      depict: '跳到官方页面或插件页面（ext://<插件id>/<内容 id>）',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.ui.playing.openMenu',

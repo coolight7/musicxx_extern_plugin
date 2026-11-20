@@ -134,7 +134,6 @@
 #define MUSICXX_CAPABILITY_UI_DIALOG "musicxx.ui.dialog"
 #define MUSICXX_CAPABILITY_UI_OVERLAY_SHOW "musicxx.ui.overlay.show"
 #define MUSICXX_CAPABILITY_UI_OVERLAY_CLOSE "musicxx.ui.overlay.close"
-#define MUSICXX_CAPABILITY_UI_OVERLAY_SHOW_SHEET "musicxx.ui.overlay.showSheet"
 #define MUSICXX_CAPABILITY_UI_OPEN_ROUTE "musicxx.ui.openRoute"
 #define MUSICXX_CAPABILITY_UI_PLAYING_OPEN_MENU "musicxx.ui.playing.openMenu"
 #define MUSICXX_CAPABILITY_UI_DRIVE_PICK_SONGS "musicxx.ui.drive.pickSongs"
@@ -300,7 +299,6 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.ui.dialog", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.overlay.show", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.ui.overlay.close", 0, 0, 1u, 1, 5000, 0, 4u},
-    {"musicxx.ui.overlay.showSheet", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.ui.openRoute", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.playing.openMenu", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.drive.pickSongs", 0, 0, 1u, 1, 5000, 0, 4u},

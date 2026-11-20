@@ -416,7 +416,7 @@ musicxx.capability.call("musicxx.songlist.addSong", { pid: 123, songs: songs }).
 
 > 插件想让用户“选目录 / 选文件 → 加进歌单”，可以在「添加歌曲」弹窗里注册一个
 > `musicxx.ui.addsong.entry` 项（见 §9.1 与 [plugin-ui.md](plugin-ui.md)），
-> 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.overlay.showSheet`），
+> 点击后由主程序打开你自己的挑歌界面（`musicxx.ui.overlay.show`），
 > 选完后调这条能力。
 
 **`musicxx.songlist.removeSong`** —— 从一张歌单里移除歌曲
@@ -644,15 +644,14 @@ if (found.count > 0) {
 |---|---|---|---|
 | `musicxx.ui.toast` | `{text}`；`{kind:"error"}` 走错误样式 | `{ok:true}` | 轻提示，**固定记一条插件日志** |
 | `musicxx.ui.dialog` | `{title?, content?, blocks?, textConfirm?, textCancel?}` | `{ok:true, confirmed:bool}` | 需要用户确认的操作。`content` 是纯文本，`blocks` 是富内容（页面块数组；两个都给时文本在上）。标题不加插件前缀（面向普通用户）；取消 / 关闭一律回 `confirmed:false` |
-| `musicxx.ui.overlay.show` | `{preset?, id?, title?, depict?, blocks?, options?, value?, textConfirm?, textCancel?, size?, dismissible?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。参数与返回见 §3.2.4.1 |
-| `musicxx.ui.overlay.close` | `{id?}` | `{ok:true, closed:bool}` | 关这个插件**最上面那一层**浮层（给了 `id` 就关最上面那个名字对得上的层；没有开着的浮层时 `closed:false`） |
-| `musicxx.ui.overlay.showSheet` | `{route, title?, arguments?}` | `{ok, reason, title?}` | 把**插件视图**打开成一层浮层，等用户关掉它。与 `overlay.show` 的区别：内容是插件视图，浮层里的动作能返回 `{"view": …}` 刷新内容（翻目录 / 改选择）。参数见 §3.2.4.2；入口项里的常见写法也是它 |
+| `musicxx.ui.overlay.show` | `{id, args?, title?, depict?, textConfirm?, textCancel?, size?, dismissible?}` / `{preset:"picker", options, value?}` | `{ok, reason, value?}` / `{ok, selected}` / `{ok, cancelled:true}` | 打开一层浮层（sheet），**等用户关掉它**。内容是插件注册在 `musicxx.ui.overlay` 上的那一份（`id` = 内容 id），主程序只读缓存，不在打开时等插件。参数与返回见 §3.2.4.1 |
+| `musicxx.ui.overlay.close` | `{id?, value?, reason?}` | `{ok:true, closed:bool}` | 关这个插件**最上面那一层**浮层（给了 `id` 就关最上面那个名字对得上的层）；`value` / `reason` 原样交给等结果的调用方 |
 | `musicxx.ui.openRoute` | `{route, arguments?}` | `{ok:true}` 或 `{ok:false,error}` | 打开插件页面或官方页面，规则见下 |
 | `musicxx.ui.playing.openMenu` | 无 | `{ok:true}` | 打开播放页的「更多」菜单（与底部控制栏的菜单按钮、右上角的「更多」快捷功能同一份内容）。打开后立即返回，不等用户关掉 |
 
 `musicxx.ui.openRoute` 允许两类目标（别的地址会被拒绝，错误信息里会列出全部可用别名）：
 
-1. **任意插件的声明式页面**：`ext://<插件id>/<视图id>`（含本插件；跨插件页面由对方插件自己绘制，
+1. **任意插件的声明式页面**：`ext://<插件id>/<内容 id>`（含本插件；跨插件页面由对方插件自己绘制，
    发起方拿不到对方的数据）；
 2. **官方页面白名单**（只认这些别名键，插件不接触应用内部路由名）：
 
@@ -751,43 +750,33 @@ capabilityCall("musicxx.ui.overlay.show", R"({"title":"运行详情","blocks":[]
 capabilityCall("musicxx.ui.overlay.close", R"({})", &callback, 0);
 ```
 
-#### 3.2.4.2 插件视图浮层（`musicxx.ui.overlay.showSheet`）
+#### 3.2.4.2 浮层内容（`musicxx.ui.overlay`）
 
-`overlay.show` 的内容是调用方给的静态 `blocks`；这一条的内容是**插件自己的视图**，
-所以能在浮层里翻页（浮层里的按钮调用返回 `{"view": …}` 就换成新内容）。
-
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| `route` | string | 必填，`ext://<插件id>/<视图id>`（地址规则与 `openRoute` 一致） |
-| `title` | string | 可选，浮层标题；不给就用视图里的 `title`，都没有就是“插件页面” |
-| `arguments` | object | 可选，原样作为插件能力的参数（主程序会再补上 `view` 与 `ui`）；不给时把顶层除 `route` / `title` / `arguments` / `size` / `dismissible` / `textConfirm` / `textCancel` 之外的键当作参数 |
-| `size` / `dismissible` / `textCancel` / `textConfirm` | — | 与 `overlay.show` 同名参数含义一致 |
-
-- 返回：`{ok, reason, title?}`（`reason` 是 `confirmed` / `cancelled` / `closed`）；
-  取不到插件视图时是 `{ok:false, error}`（不会开一个空浮层）；
-- **这次调用在浮层关掉之后才完成**，所以调用方正好能在关闭后刷新自己的列表；
-- 插件在能力处理器里调它时**不要 await**（会与应用实现的能力互相等）；用入口项（`command` 动作）
-  或页面里的按钮（`command`）调都不受这个限制 —— 那是主程序在执行。
+浮层的内容是插件**注册在槽位 `musicxx.ui.overlay` 上的一份内容**（与其它位置同一套写法）：
+声明这份内容时给 `title` / `depict`，生成函数按变量给出块树，主程序在打开浮层时只读缓存。
+打开参数 `{id, args?}` 里的 `id` 就是内容 id，`args` 进 `scope:musicxx.overlay.args`。
 
 ```js
-// 页面或入口项里的写法：点了就开一层，由主程序等你关（零代码）
-musicxx.ui.slot.register({
-  name: "pickSongs",
-  type: "addsong.entry",
-  data: {
-    title: "从我的服务器挑歌",
-    subtitle: "自己画的挑歌界面",
-    action: {
-      kind: "command",
-      name: "musicxx.ui.overlay.showSheet",
-      args: { route: "ext://my_plugin/picker", title: "挑歌" },
-    },
-  },
+// 注册一份浮层内容
+musicxx.ui.content.register({
+  id: "picker",
+  slot: "overlay",
+  title: "挑歌",
+  deps: ["scope:musicxx.overlay.args"],
+}, function (ctx) {
+  return { json: { blocks: [ /* … */ ] } };
 });
+
+// 打开它并等用户关掉
+musicxx.capability.call("musicxx.ui.overlay.show", { id: "picker", args: { pid: "1" } });
 ```
 
-> 能用 `musicxx.source.browse` 让主程序画界面时（§3.3），不要走这一条：自己画要自己处理
-> 列目录 / 勾选 / 加歌 / 刷新，主程序那套还多了搜索、排序、整目录递归与分类切换。
+- 返回：`{ok, reason, value?}`（`reason` 是 `confirmed` / `cancelled` / `closed`）；
+- 浮层里的按钮动作**不会自动关闭**：插件想关就调 `musicxx.ui.overlay.close`，
+  带上 `value` 把选择交回等结果的调用方；
+- **这次调用在浮层关掉之后才完成**，所以调用方正好能在关闭后刷新自己的列表；
+- 插件在能力处理器里调它时**不要 await**（会与应用实现的能力互相等）；用入口项（`call` 动作）
+  或页面里的按钮调都不受这个限制 —— 那是主程序在执行。
 
 #### 3.2.5 插件私有存储与配置（`musicxx.storage.*`）
 
@@ -1875,7 +1864,7 @@ musicxx.ui.slot.register({
   弹窗里没有切换。返回值里的 `view` 是这次浏览的分类；`pickDir` 的 `items` 每条另带
   `{view, path}`（目录的 `path` 只在它自己的分类里有意义）。
 - `pickSongs` / `pickDir` **要等用户关掉弹窗才完成**：在能力处理器里调它们时**不要 await**
-  （会与应用实现的能力互相等，和 `musicxx.ui.overlay.showSheet` 同一个问题）。`browse` 相反：
+  （会与应用实现的能力互相等，和 `musicxx.ui.overlay.show` 同一个问题）。`browse` 相反：
   它打开页面后立即返回 `{ok, reason:"opened", type, view}`，不等用户关页面。
 - 插件调它们只能打开**自己声明**的来源（`type` 必须是自己的）；应用自己调（如菜单里那一行）
   没有这个限制。
@@ -2116,7 +2105,7 @@ pluginxx::Task<void> probeOther() {
 - **处理器里不要等应用实现的能力**：打开插件页面 / 点按钮时主程序在等能力结果，而应用实现的能力要由应用线程执行，
   两边互等会让**整个应用卡住几秒**。要"现在这一帧"的数据读带当前值的广播；要能力的结果就异步读回来、
   记进自己的状态，由页面下一次调用时回读。
-- 插件页面就是能力：主程序打开 `ext://<插件id>/<视图id>` 时调用**同名能力**（见 §9.1）。
+- 插件页面就是能力：主程序打开 `ext://<插件id>/<内容 id>` 时调用**同名能力**（见 §9.1）。
 
 写给谁看：
 
@@ -2507,7 +2496,7 @@ uiNotify(R"({"text":"已刷新"})");
   「插件『<插件id>』没有提供『xxx』」。
 - 动作写法只有四种：`route` / `dispatch` / `command` / `none`。
   入口/菜单项里的 `route` 与能力 `musicxx.ui.openRoute` 走同一套规则：**允许指向任意插件**的页面
-  （`ext://<插件id>/<视图id>`，含自己）。跨插件时页面由**对方插件**自己绘制，发起方拿不到对方的数据，
+  （`ext://<插件id>/<内容 id>`，含自己）。跨插件时页面由**对方插件**自己绘制，发起方拿不到对方的数据，
   所以只该跳"两边都装得上"的公共页面，跳之前用 `musicxx.plugin.list` 之类的办法确认对方在。
 - **组件要按客户端能力降级**：`musicxx.host.info().ui`（`blocks` / `controls` / `kind`）告诉你这个
   客户端支持哪些块与控件；图标要插件**自己带 svg**（写相对插件目录的路径，能力段里没有图标清单）。
@@ -2694,7 +2683,7 @@ JS 插件拿到的是**异常与文字**（Promise 拒绝原因里带名称与�
 | 定时器 / 初始化执行两遍 | 每次启用都会重新执行注册（写成幂等） |
 | 设置项改完重启又变回默认 | 把 `storage.get` 的"值本身"当成了对象外壳（§3.2.5） |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，覆盖了用户刚改的值（加"已经改过就不再覆盖"的保护） |
-| 点入口提示「插件没有提供『xxx』」 | 入口指向的能力没注册（页面视图 id 必须与能力短名一致） |
+| 点入口提示「插件没有提供『xxx』」 | 入口指向的能力没注册（页面内容 id 必须与注册时给的 id 一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 视图没有 `blocks`，或块类型名全部拼错（未识别的块会被静默忽略） |
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再返回一次 `{view:…}`，或重新打开页面 |
 | 切歌 / 换背景样式卡几秒 | 在同步裁决的处理器（取色、频谱提取）里 `await` 了应用实现的能力 → 两边互等（§8.4） |

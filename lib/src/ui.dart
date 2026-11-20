@@ -151,7 +151,7 @@ class MusicxxPluginUIItem {
   }
 
   /// 插件页面的目标插件 id（`route` 动作；地址不合法时返回 `null`）
-  ({String plugin, String view})? get routeTarget {
+  ({String plugin, String content})? get routeTarget {
     final UiAction? value = action;
     if (null == value || value.kind != ActionKind.route) {
       return null;
@@ -167,18 +167,18 @@ class MusicxxPluginUIItem {
       return null;
     }
     final String plugin = rest.substring(0, split).trim();
-    final String view = rest.substring(split + 1).trim();
-    if (plugin.isEmpty || view.isEmpty) {
+    final String content = rest.substring(split + 1).trim();
+    if (plugin.isEmpty || content.isEmpty) {
       return null;
     }
-    return (plugin: plugin, view: view);
+    return (plugin: plugin, content: content);
   }
 
   /// 声明式插件页面的目标插件 id（`route` 动作）
   String? get routePlugin => routeTarget?.plugin;
 
-  /// 声明式插件页面的视图 id（`route` 动作）
-  String? get viewId => routeTarget?.view;
+  /// 声明式插件页面的内容 id（`route` 动作）
+  String? get contentId => routeTarget?.content;
 
   factory MusicxxPluginUIItem.fromJson(Map<String, Object?> json) {
     final data = json['data'];

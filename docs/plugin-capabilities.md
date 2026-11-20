@@ -88,7 +88,6 @@
 | `musicxx.ui.dialog` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.overlay.show` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.overlay.close` | 插件 | impl | - | async | 5000 ms | - | - |
-| `musicxx.ui.overlay.showSheet` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.openRoute` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.playing.openMenu` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.drive.pickSongs` | 插件 | impl | - | async | 5000 ms | - | - |

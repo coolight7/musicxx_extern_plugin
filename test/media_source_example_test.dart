@@ -426,7 +426,7 @@ void main() {
       MusicxxPluginUIType.homeEntry,
     ).where((MusicxxPluginUIItem item) => item.plugin == pluginId).toList();
     expect(entries, hasLength(1));
-    expect(entries.first.viewId, 'settings');
+    expect(entries.first.contentId, 'settings');
 
     final Object? raw = await harness.runtime.plugins.call(
       pluginId,
