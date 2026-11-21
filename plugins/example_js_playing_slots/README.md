@@ -26,7 +26,7 @@
 
 ```powershell
 pwsh -NoProfile -File tools/build_examples.ps1        # 构建（产物在 .native/output/<平台>-<架构>-<配置>/plugins/）
-musicxx-cli plugin install "<绝对路径>/example_js_playing_slots-2026_1116_1.zip"
+musicxx-cli plugin install "<绝对路径>/example_js_playing_slots-2026_1121_1.zip"
 musicxx-cli call probe --plugin example_js_playing_slots
 ```
 

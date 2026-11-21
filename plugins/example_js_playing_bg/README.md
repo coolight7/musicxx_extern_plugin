@@ -29,7 +29,7 @@
 pwsh -NoProfile -File tools/build_examples.ps1
 
 # 装进应用（也可以用管理页「从压缩包安装」）
-musicxx-cli plugin install "<绝对路径>/example_js_playing_bg-2026_1116_1.zip"
+musicxx-cli plugin install "<绝对路径>/example_js_playing_bg-2026_1121_1.zip"
 
 # 自检：六种样式、三个脚本都执行过、页面函数都在
 musicxx-cli call probe --plugin example_js_playing_bg
@@ -128,4 +128,8 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
   频带下标用 `if` 夹到范围内（见 `ring.frag` 的 `clampBandIndex`）；
 - **`uCoverInfo.w` 才是"有没有封面"**，不要去采样纹理颜色猜；
 - **取色处理器必须同步返回**：命中缓存给结果、没命中先回 null 再异步算；
-- **不要在能力处理器里 `await` 应用实现的能力**（会互相等，表现为整个应用卡几秒）。
+- **不要在能力处理器里 `await` 应用实现的能力**（会互相等，表现为整个应用卡几秒）；
+- **异步动作完成后要再刷一次页面**：切换样式 / 绑定纹理这类动作里的能力调用是异步的，
+  处理器里那次 `slot.update` 早于结果，画到的是旧的槽位镜像 —— 页面上会出现“样式已经生效，
+  但选中高亮要下次点击才变”。`plugin.js` 里的 `refreshPageAfter(view)` 就是干这件事，
+  新增异步动作时把发起页面的内容 id 传进去就行（定时器里发起的动作没有页面，不用传）。

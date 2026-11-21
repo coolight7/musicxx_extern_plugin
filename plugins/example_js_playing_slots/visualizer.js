@@ -44,20 +44,27 @@ function visualizerEntryData() {
 }
 
 /// 选中本插件的动效项
-function usePluginVisualizer() {
+///
+/// [view] 是发起那次切换的页面内容 id：槽位镜像要等这次调用回来才更新，
+/// 处理器里那次刷新画到的还是切换前的状态，所以结果回来后再让那一页重出一份。
+function usePluginVisualizer(view) {
     musicxx.ui.slot.set(VISUALIZER_ITEM_ID, { slot: VISUALIZER_SLOT_ID }).then(function (r) {
         musicxx.host.log(2, "选中插件音频动效: " + JSON.stringify(r || {}));
+        refreshPageAfter(view);
     }, function (err) {
         musicxx.host.log(3, "选中插件音频动效失败: " + errText(err));
+        refreshPageAfter(view);
     });
 }
 
-/// 切回"不显示"（内置动效里的空选项）
-function useNoVisualizer() {
+/// 切回"不显示"（内置动效里的空选项；[view] 同 [usePluginVisualizer]）
+function useNoVisualizer(view) {
     musicxx.ui.slot.set(NONE_VISUALIZER_ID, { slot: VISUALIZER_SLOT_ID }).then(function (r) {
         musicxx.host.log(2, "切回不显示音频动效: " + JSON.stringify(r || {}));
+        refreshPageAfter(view);
     }, function (err) {
         musicxx.host.log(3, "切回不显示音频动效失败: " + errText(err));
+        refreshPageAfter(view);
     });
 }
 

@@ -1267,6 +1267,7 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | 点入口提示「插件『<插件id>』没有提供『xxx』」 | 入口指向的是插件能力，而入口的 `action` 里写错了能力名（页面本身应该是 `route` + 已注册的内容） |
 | 页面打开后提示「插件没有提供任何内容块」 | 内容没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略，不报错） |
 | 改了 `config.json` 页面没变 | 内容只在主程序来要时才生成：改完要 `musicxx.ui.slot.update(...)` 让主程序再要一次（或重新打开页面） |
+| 点了按钮，画面变了但页面上的选中高亮 / 状态文字下次点才变 | 动作里的能力调用是**异步**的：处理器里那次 `slot.update` 早于结果，画到的还是旧的槽位镜像。要把 `slot.update` 放到动作返回之后（参考 `plugins/example_js_playing_bg/plugin.js` 的 `refreshPageAfter`） |
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 调用失败 `not_found` / `no_impl` | `not_found` = 名字拼错或没在声明表里；`no_impl` = 声明里有、当前没有人实现（清单见 [plugin-capabilities.md](plugin-capabilities.md)） |

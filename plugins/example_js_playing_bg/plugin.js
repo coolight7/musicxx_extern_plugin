@@ -226,30 +226,37 @@ let boundImageState = "未绑定";
 /// `cover` 动作的 `bind` 参数：插件框架复用这一次解码出来的像素上传成 GPU 纹理，不重复解码。
 /// 绑定后『插件纹理铺底』的 `musicxx.image.<key>` 纹理声明就能采样到它（图像表版本变化，背景下一帧用上新图）。
 /// 绑定是临时资源：插件停用 / 卸载、关闭『拟声++』时插件框架自动摘掉。
-function bindCoverImage() {
+///
+/// [view] 是发起这次绑定的页面内容 id：结果要几秒后才到，到的时候再刷新那一页，
+/// 不然页面上会一直停在"绑定中…"（下次点别的才变）。
+function bindCoverImage(view) {
     boundImageState = "绑定中…";
     musicxx.media.cover({ size: 128, format: "rgba", bind: BOUND_IMAGE_KEY }).then(function (r) {
         if (r && r.ok === true && r.bound === true) {
             boundImageState = "已绑定 " + r.width + "x" + r.height;
             musicxx.host.log(2, "已把封面绑成纹理: " + boundImageState);
-            return;
+        } else {
+            boundImageState = "失败: " + ((r && (r.bindError || r.error)) || "未知原因");
+            musicxx.host.log(3, "绑定封面纹理失败: " + boundImageState);
         }
-        boundImageState = "失败: " + ((r && (r.bindError || r.error)) || "未知原因");
-        musicxx.host.log(3, "绑定封面纹理失败: " + boundImageState);
+        refreshPageAfter(view);
     }, function (err) {
         boundImageState = "失败: " + errText(err);
         musicxx.host.log(3, "绑定封面纹理失败: " + boundImageState);
+        refreshPageAfter(view);
     });
 }
 
-/// 释放绑定的纹理（异步发起，不等待）
-function unbindCoverImage() {
+/// 释放绑定的纹理（异步发起，不等待；[view] 同 [bindCoverImage]）
+function unbindCoverImage(view) {
     musicxx.media.unbindImage({ key: BOUND_IMAGE_KEY }).then(function (r) {
         boundImageState = (r && r.ok === true) ? "未绑定" : "解绑失败";
         musicxx.host.log(2, "释放插件纹理: " + boundImageState);
+        refreshPageAfter(view);
     }, function (err) {
         boundImageState = "解绑失败: " + errText(err);
         musicxx.host.log(3, "释放插件纹理失败: " + boundImageState);
+        refreshPageAfter(view);
     });
 }
 
@@ -311,6 +318,8 @@ let lastLinkNote = "";
 ///
 /// 切换要经过一次动作往返（`musicxx.ui.slot.set`），页面却是先于动作结果画出来的：
 /// 这里先记住请求，让页面当场就能看到"点了有反应"；镜像一反映这次请求就把它清掉。
+/// 动作结束后还会再刷新一次页面（见 [requestSlotSelect] 的 `view` 参数），
+/// 那次画到的就是更新过的镜像。
 let lastBackgroundRequest = "";
 
 /// 现在由哪个**插件项**在画该槽位（空 = 没有插件项在画）
@@ -334,7 +343,12 @@ function backgroundIsMine() {
 ///
 /// [manual] 为真表示这是用户主动点的（页面上的按钮）：之后暂停自动跟随一会儿，
 /// 免得跟随逻辑把用户刚做的选择又改回去。
-function requestSlotSelect(slotId, itemId, note, manual) {
+///
+/// [view] 是发起这次切换的页面内容 id（空 = 没有页面，定时跟随就是这种）。
+/// 动作结束（成功或失败）后会再刷新那一页：镜像 `musicxx.state.uiSlots` 要等这次往返
+/// 走完才更新，处理器里紧接着的那次刷新画到的还是旧的 `selectedId` / `itemId`，
+/// 页面上的选中高亮会停在上一项，直到用户再点一次才会显示成新的。
+function requestSlotSelect(slotId, itemId, note, manual, view) {
     musicxx.host.log(2, "收到槽位切换请求: " + slotId + " → " + itemId);
     lastRequestTarget = itemId;
     lastRequestAt = Date.now();
@@ -355,10 +369,12 @@ function requestSlotSelect(slotId, itemId, note, manual) {
         }
         // 镜像同步更新过了：不再需要"已请求"提示
         lastBackgroundRequest = "";
+        refreshPageAfter(view);
     }, function (err) {
         lastLinkNote = note + "失败：" + errText(err);
         lastBackgroundRequest = "";
         musicxx.host.log(3, "槽位切换失败: " + errText(err));
+        refreshPageAfter(view);
     });
 }
 
@@ -373,7 +389,10 @@ function requestSlotSelect(slotId, itemId, note, manual) {
 /// [force] 为真时跳过暂停与去重（设置页刚改完开关，希望当场看到结果）。
 /// 判断写成 `true != force`：定时器回调不带参数（force = undefined），
 /// 用 `false == force` 会让"没传参数"被当成"强制"，暂停与去重就都失效了。
-function followTick(force) {
+///
+/// [view] 是发起这次检查的页面内容 id：用户点了开关时由设置页传进来，
+/// 切换结果要回到那一页上（定时器调用时不传，没有页面要刷新）。
+function followTick(force, view) {
     const now = Date.now();
     if (true != force && now < followPausedUntil) {
         return;
@@ -395,7 +414,7 @@ function followTick(force) {
     if (true != force && target === lastRequestTarget && now - lastRequestAt < 30000) {
         return;
     }
-    requestSlotSelect(ICON_SLOT, target, note, false);
+    requestSlotSelect(ICON_SLOT, target, note, false, view);
 }
 
 /* ==================== 页面内容 ==================== */
@@ -444,6 +463,19 @@ function refreshPage(args) {
         ? args.view : SETTINGS_VIEW_ID;
     musicxx.ui.slot.update("musicxx.ui.page", [view]);
     return { ok: true };
+}
+
+/// 异步动作结束后刷新发起它的那一页（[view] 为空则什么都不做）
+///
+/// 能力的回答是异步的：处理器里立刻刷新，画到的是动作还没落地时的状态（槽位镜像里的
+/// 选中项、纹理绑定状态都还是旧的），要等下一次刷新才会变。所以处理器发起动作时记下
+/// 自己的页面内容 id，等结果回来（成功或失败）再让那一页重出一份。
+/// 定时器里发起的动作（跟随背景接管歌曲图）没有页面，不传就行。
+function refreshPageAfter(view) {
+    if (typeof view !== "string" || "" === view) {
+        return;
+    }
+    refreshPage({ view: view });
 }
 
 /* ==================== 能力入口 ==================== */
@@ -495,7 +527,8 @@ function installPluginCapabilities() {
             BACKGROUND_SLOT,
             id,
             style ? ("切到" + STYLE_SHORT[style]) : "切换播放页背景",
-            false);
+            false,
+            (args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 
@@ -517,15 +550,18 @@ function installPluginCapabilities() {
     ///
     /// 样式选择走槽位动作（`musicxx.ui.slot.set`，异步）；其余几项写 config.json 并让
     /// 背景内容重出一份（`musicxx.ui.slot.update`），否则画面还停在旧参数上。
+    /// 异步的那几项（切样式 / 跟随歌曲图 / 查封面配色）在动作返回后再刷一次页，
+    /// 处理器里那次刷新早于结果，画到的还是旧状态。
     musicxx.capability.register("setOption", function (args) {
         const id = (args && typeof args.id === "string") ? args.id : "";
         const value = args ? args.value : null;
+        const view = (args && typeof args.view === "string") ? args.view : "";
         if (id === "mode") {
             const style = String(value || "");
             if (ITEM_OF_STYLE[style]) {
-                requestSlotSelect(BACKGROUND_SLOT, ITEM_OF_STYLE[style], "切到" + STYLE_SHORT[style], false);
+                requestSlotSelect(BACKGROUND_SLOT, ITEM_OF_STYLE[style], "切到" + STYLE_SHORT[style], false, view);
             } else if (style === STYLE_BUILTIN) {
-                requestSlotSelect(BACKGROUND_SLOT, BUILTIN_BG_ID, "切回内置背景", false);
+                requestSlotSelect(BACKGROUND_SLOT, BUILTIN_BG_ID, "切回内置背景", false, view);
             }
             return refreshPage(args);
         }
@@ -534,11 +570,13 @@ function installPluginCapabilities() {
             saveConfig(id, value);
             // 关掉「隐藏歌曲图」时立刻交还，不用等下一秒的跟随检查
             if (id === "hideIcon") {
-                followTick(true);
+                followTick(true, view);
             }
             // 打开「自动调整前景色」时立刻查一次封面主色与昼夜，不用等下一次定期检查
             if (id === "autoForeground") {
-                refreshForegroundState();
+                refreshForegroundState().then(function () {
+                    refreshPageAfter(view);
+                });
             }
             refreshBackgroundEntries();
             return refreshPage(args);
@@ -549,13 +587,13 @@ function installPluginCapabilities() {
 
     /// 把当前封面绑成纹理（异步发起，处理器同步返回）
     musicxx.capability.register("bindCoverTexture", function (args) {
-        bindCoverImage();
+        bindCoverImage((args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 
     /// 释放绑定的纹理
     musicxx.capability.register("unbindCoverTexture", function (args) {
-        unbindCoverImage();
+        unbindCoverImage((args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 
@@ -567,13 +605,15 @@ function installPluginCapabilities() {
 
     /// 立即接管歌曲图（手动；之后 10 分钟不自动跟随，免得被跟随逻辑改回去）
     musicxx.capability.register("takeIcon", function (args) {
-        requestSlotSelect(ICON_SLOT, ITEM_ID_ICON, "手动隐藏", true);
+        requestSlotSelect(ICON_SLOT, ITEM_ID_ICON, "手动隐藏", true,
+            (args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 
     /// 交还歌曲图（手动，恢复主程序记下的上一个形状；没有记录时保持用户现在的形状）
     musicxx.capability.register("releaseIcon", function (args) {
-        requestSlotSelect(ICON_SLOT, PREVIOUS_ICON_ID, "手动交还", true);
+        requestSlotSelect(ICON_SLOT, PREVIOUS_ICON_ID, "手动交还", true,
+            (args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 

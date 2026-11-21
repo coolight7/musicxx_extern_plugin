@@ -193,9 +193,9 @@ function nextLoopMode(mode) {
 
 /// 控制栏的"切播放模式"按钮：图标反映当前模式，点一下切到下一个（只画图标）
 ///
-/// 动作用 `dispatch` 交给本插件的能力 `cycleLoopMode`：它调主程序能力换模式，
-/// 并把新模式直接画进返回的视图 —— **不用等主程序重取**，也不需要主程序为控制栏多给一个参数。
-/// [mode] 只在"刚点完、要立刻画新模式"时传，平时读广播快照。
+/// 动作用 `call` 交给本插件的能力 `cycleLoopMode`：它调主程序能力换模式，换完让控制栏
+/// 内容重生成一份（**动作不返回视图**），图标就从广播快照里取到新模式。
+/// [mode] 只在"刚切完、要立刻画新模式"时传，平时读广播快照。
 function loopModeButton(args, mode) {
     const useMode = LOOP_MODE_VIEW[mode] ? mode : currentLoopMode();
     const view = LOOP_MODE_VIEW[useMode];
@@ -386,10 +386,6 @@ function settingsView(args) {
     };
 }
 
-/// 动作从哪个页面发起就刷新哪个页面
-///
-/// 动作不再返回视图：改完状态自己说一声，主程序让那个页面的内容重出一份
-/// （`musicxx.ui.slot.update(slot, [内容 id])`）。
 /// 动作改完状态后让发起的那一页重出一份内容
 ///
 /// 动作不再返回视图：主程序收到 `slot.update` 后自己来要新内容。返回 `{ok: true}`
@@ -398,4 +394,16 @@ function refreshPage(args) {
     const view = (args && args.view === HOME_VIEW_ID) ? HOME_VIEW_ID : SETTINGS_VIEW_ID;
     musicxx.ui.slot.update("musicxx.ui.page", [view]);
     return { ok: true };
+}
+
+/// 异步动作结束后刷新发起它的那一页（[view] 为空则什么都不做）
+///
+/// 处理器里立刻刷新的那一次早于动作结果：槽位镜像（`musicxx.state.uiSlots`）里的
+/// `selectedId` / `itemId` 还是旧的，页面上的选中高亮会停在上一项。动作回来（成功或
+/// 失败）再刷一次，画到的才是新状态。
+function refreshPageAfter(view) {
+    if (typeof view !== "string" || "" === view) {
+        return;
+    }
+    refreshPage({ view: view });
 }

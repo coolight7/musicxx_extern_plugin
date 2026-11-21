@@ -16,7 +16,7 @@ kind: js
 entry: plugin.js
 scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, slots.js, visualizer.js, views.js, plugin.js]
 
-version: 2026.1118.1
+version: 2026.1121.1
 # JS 接口代次：当前 3、兼容下限 3（2026-11 广播只剩读与订阅后抬的，写 1 / 2 加载会被拒）
 api_version: 3
 author: "coolight"

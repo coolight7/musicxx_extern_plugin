@@ -154,17 +154,19 @@ function installSlotCapabilities() {
     /// 两件事分开做：
     /// 1. 调主程序能力 `musicxx.player.setLoopMode`（异步，不 await —— 主程序处理能力时要回到主线程，
     ///    在这里等它会卡界面）；失败只在日志里记一条；
-    /// 2. `musicxx.ui.slot.update` 让控制栏内容重生成：模式变了图标跟着换。动作不返回视图。
+    /// 2. 换完再 `musicxx.ui.slot.update` 让控制栏内容重生成：图标读的是广播快照
+    ///    `musicxx.state.playlist`，主程序改完模式才重推，提前刷新画到的还是旧图标（动作不返回视图）。
     musicxx.capability.register("cycleLoopMode", function () {
         const next = nextLoopMode(currentLoopMode());
         musicxx.capability.call("musicxx.player.setLoopMode", { mode: next }).then(
             function () {
+                musicxx.ui.slot.update(SLOT_CONTROL_BAR, [SLOT_NAME_WHOLE_BAR]);
                 return null;
             },
             function (err) {
                 musicxx.host.log(3, "切换播放模式失败: " + errText(err));
+                return null;
             });
-        musicxx.ui.slot.update(SLOT_CONTROL_BAR, [SLOT_NAME_WHOLE_BAR]);
     });
 
     /// 设置页按钮：打开 / 关闭整栏替换
@@ -191,13 +193,13 @@ function installSlotCapabilities() {
 
     /// 设置页按钮：选中本插件的音频动效
     musicxx.capability.register("useVisualizer", function (args) {
-        usePluginVisualizer();
+        usePluginVisualizer((args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 
     /// 设置页按钮：切回"不显示"
     musicxx.capability.register("clearVisualizer", function (args) {
-        useNoVisualizer();
+        useNoVisualizer((args && typeof args.view === "string") ? args.view : "");
         return refreshPage(args);
     });
 }

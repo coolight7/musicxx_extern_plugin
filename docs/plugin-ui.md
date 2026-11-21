@@ -104,6 +104,10 @@ musicxx.ui.content.push("wholeBar", { json: { blocks: [] } });           // 直�
 
 - `deps` 里的变量变了 → 主程序先重新绑定（界面立刻看到新值），再让生成函数重出一份；
 - 动作改完状态自己说一声（`slot.update`），**动作不返回视图**；
+  **动作里的能力调用是异步的**：处理器里立刻 `slot.update` 画到的是动作还没落地时的状态
+  （槽位镜像 `musicxx.state.uiSlots` 里的 `selectedId` / `itemId` 要等这次往返走完才更新），
+  页面上就会“点了有反应、但高亮下一次点击才变”。要显示切换结果的，等结果（成功或失败）
+  回来再 `slot.update` 一次；定时器 / 钩子里发起的动作没有页面，不用刷；
 - 运行期改影响帧调度 / 分辨率的字段（`maxFps` / `resolutionScale` / `animate`）重新生成一次就生效；
 - 刷新没有时间节流，但同一份内容同时最多一个在途请求，期间的变化只保留最新一次；
   需要节流就写 `minIntervalMs`。
@@ -153,6 +157,7 @@ musicxx.ui.item.entries();       // 本插件已注册的声明项（脚本侧�
 - 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与内容 id；`call` 必须有非空 `name`；
   `musicxx.*` 必须是官方能力名；
 - **动作不返回视图**：改完状态用 `musicxx.ui.slot.update` / `content.push` 刷新；
+  动作里的能力调用是异步的，**要等结果回来再刷新一次**（见 §1.2），否则页面上显示的还是切换前的状态；
 - 动作参数里主程序会补上下文：歌曲菜单补 `sid` / `name` / `artist`，歌单菜单补 `pid` / `name` / `songNum`
   （插件自己写的 `args` 保留，冲突时以主程序补的为准）；
 - `timeoutMs` 只对需要等结果的调用有意义（默认不限制，见 [plugin-capabilities.md](plugin-capabilities.md)）。
