@@ -459,7 +459,9 @@ musicxx.ui.slot.undefine("toolbar");
 ### 2.1 打开过程
 
 1. 用户点入口 / 插件自己调 `musicxx.ui.openRoute("ext://my_plugin/settings")`；
-2. 主程序在槽位 `musicxx.ui.page` 上找内容 id = `settings` 的那一份（地址最后一段就是内容 id）；
+2. 主程序在槽位 `musicxx.ui.page` 上找**你这个插件的**内容 id = `settings` 的那一份（地址最后一段就是内容 id）；
+   内容 id 只用在本插件内部：不同插件可以用同一个短名（框架按 `plugin.<插件id>.<短名>` 存），
+   打开页面时按全名取，不会串到别人的同名页面；
 3. 主程序要一份生成结果：生成函数拿到声明过的 `deps` 变量，返回一棵块树；
 4. 主程序渲染；页面内容里的按钮 / 输入框都走能力，页面本身不需要插件再调任何接口。
 
