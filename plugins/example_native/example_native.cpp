@@ -111,11 +111,22 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
           "pushed",
           R"({"json":{"blocks":[{"kind":"Text","text":"生成时推送的内容"}]}})");
     }
-    const std::string json =
-        R"({"json":{"blocks":[{"kind":"Text","text":"行内容"},)"
-        R"({"kind":"Text","text":")" +
-        ctx + R"("}]}})";
-    PluginBase::hostStringSet(host, out, json);
+    // 用 kit 的 JSON 组装，不要把 ctx 當字符串拼进去：
+    // ctx 本身就是 JSON 文本（例如 `{"musicxx.song.name":"歌名"}`），直接拼会拼出坏 JSON，
+    // 主程序解析不出来，这一份内容会被当成"生成失败"（保留上一份）。
+    pluginxx::ui::Json blocks = pluginxx::ui::Json::array();
+    blocks.push_back(pluginxx::ui::Json::object({
+        {"kind", "Text"},
+        {"text", "行内容"},
+    }));
+    blocks.push_back(pluginxx::ui::Json::object({
+        {"kind", "Text"},
+        {"text", ctx},
+    }));
+    pluginxx::ui::Json doc = pluginxx::ui::Json::object({
+        {"json", pluginxx::ui::Json::object({{"blocks", blocks}})},
+    });
+    PluginBase::hostStringSet(host, out, doc.dump());
     return 0;
   }
 

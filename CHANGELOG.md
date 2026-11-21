@@ -25,6 +25,8 @@
   变量变了先重新绑定、再让生成函数重出一份；清单见 `docs/ui-variables.md`，槽位清单见 `docs/ui-slots.md`。
 - **嵌套槽位**：块 `{"kind":"UISlot","slot":…,"args":…,"fallback":…}`；插件可以 `musicxx.ui.slot.define({id, kind})`
   声明自己的槽位（`plugin.<自己>.ui.<名字>`）；深度上限 4，循环 / 超限画 `fallback`。
+  JS 侧 `define` / `undefine` / `slot.update` **可以写短名**（`{id: "toolbar"}` 自动补成
+  `plugin.<自己>.ui.toolbar`），也可以写自己的全名；以前短名会被原样发下去、按越权拒掉。
 - **值系统**：字面量 / 变量绑定 / 值表达式三种写法不变，实现搬进了 `cxx_pluginxx_ui` 的 `value_runtime.dart`，
   插件侧接口不变（节点表与上限保持不变）。
 - 文档：`docs/plugin-ui.md` 已按新模型重写；新增 `docs/ui-slots.md`、`docs/ui-variables.md`（生成物）；

@@ -450,6 +450,9 @@ musicxx.ui.slot.define({ id: "toolbar", kind: "insert" });   // plugin.<自己>.
 musicxx.ui.slot.undefine("toolbar");
 ```
 
+短名会自动补成 `plugin.<自己>.ui.<名字>`（写自己的全名也行）；只改自己的那一份，
+拿别人的全名去 `define` / `undefine` 会被拒。内容注册时 `slot` 写全名或短名都行。
+
 - `args` 进变量 `scope:musicxx.slot.args`，只在**这个嵌套槽位里**的内容可见（`deps` 要声明它），
   这就是"父内容给子内容传参"的唯一办法；
 - 深度上限 4；自己嵌自己、形成环、超出深度都画 `fallback`；

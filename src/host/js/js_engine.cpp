@@ -211,6 +211,15 @@ var featurePointImpls = new Map();
     var prefix = "plugin." + musicxx.pluginId + ".";
     return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
   }
+  /// 本插件声明的槽位 id: 短名补成 `plugin.<自己>.ui.<名字>`, 全名照原样
+  ///
+  /// 插件框架按前缀判断槽位归属, 短名直接发过去会被当成越权（插件文档里写的是短名）。
+  function ownSlotId(value, what) {
+    assertName(value, what || "ui: 槽位");
+    var text = String(value);
+    if (text.indexOf("plugin.") === 0) { return text; }
+    return "plugin." + musicxx.pluginId + ".ui." + text;
+  }
   /// 槽位与变量清单 (按 tools/ui_slots.def.json、tools/ui_variables.def.json 生成)
   ///
   /// 只有一张表: 插件开发文档、C 头里的宏、主程序的槽位常量都由同一份声明生成,
@@ -231,7 +240,10 @@ var featurePointImpls = new Map();
     if (text.indexOf("plugin.") === 0) { return text; }
     if (uiCatalog.slotIndex[text]) { return text; }
     var full = "musicxx.ui." + text;
-    return uiCatalog.slotIndex[full] ? full : text;
+    if (uiCatalog.slotIndex[full]) { return full; }
+    // 本插件自己声明的槽位：短名也能用（声明时已经存成全名）
+    var own = ownSlotId(text);
+    return slotTable.has(own) ? own : text;
   }
   function normalizeItem(spec, what) {
     if (typeof spec === "string") { spec = { name: spec }; }
@@ -1163,8 +1175,7 @@ var featurePointImpls = new Map();
     },
     define: function (spec) {
       if (!spec || typeof spec !== "object") { throw new Error("ui.slot.define: 需要对象参数"); }
-      var id = String(spec.id || "");
-      assertName(id, "ui.slot.define: id");
+      var id = ownSlotId(spec.id, "ui.slot.define: id");
       var kind = String(spec.kind || "insert");
       if (kind !== "insert" && kind !== "replace") {
         throw new Error("ui.slot.define: kind 只能是 insert / replace");
@@ -1174,8 +1185,7 @@ var featurePointImpls = new Map();
       return musicxx;
     },
     undefine: function (id) {
-      assertName(id, "ui.slot.undefine: id");
-      var key = String(id);
+      var key = ownSlotId(id, "ui.slot.undefine: id");
       slotTable.delete(key);
       ext.uiSlotOp("undefine", key, "{}");
       return musicxx;
