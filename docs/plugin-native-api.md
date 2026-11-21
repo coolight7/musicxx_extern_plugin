@@ -296,11 +296,13 @@ MUSICXX_PLUGIN_EXPORT(
 | 应用实现的能力（异步） | `capabilityCall(action, argsJson, &notify, timeoutMs, &requestId)` | `notify->done` **恰好一次**（SDK 会复制通知，传栈上对象也安全）；能力名与参数见 [plugin-api.md](plugin-api.md) §3（播放控制、歌单、歌词、提示与页面跳转、存储、网络、渲染槽位、封面与频谱、字体、自省…全在那一份）；内部按声明表（`tools/capabilities.def.json` 生成的 `capability_ids.g.h`）判，没声明过的名字直接拒绝；**缺省 5000 ms，传 0 = 不设超时** |
 | 自省（异步） | `capabilityCall("musicxx.capability.subscribers", "{\"id\":\"<能力 id>\"}", ...)`、`capabilityCall("musicxx.feature.point.list", ...)` | 前者答"这条能力现在有谁在提供、谁先执行"（`handlers`，按调用顺序）；后者答"应用留出了哪些扩展点、现在谁在提供"（功能埋点清单）。要"先看清有没有人接这条能力再决定要不要登记"就用它们，别猜 |
 | 事件 | `subscribeBroadcast(topic, fn)`；发布用 `publishBroadcast(topic, payload)` | 频道 id 须 `musicxx.*` 或 `plugin.<自己 id>.*`；订阅别人的 `plugin.*` 是允许的 |
-| 声明式 UI | `uiSlotRegister/uiSlotUpdate/uiSlotUnregister/uiSlotEntries/uiNotify` | 类型取 `MUSICXX_PLUGIN_UI_TYPE_*`，渲染由主程序负责（见 [plugin-ui.md](plugin-ui.md)）；`uiSlotUpdate(名字)` = 不改声明、只让这一项重新取一次视图（C 表 `update_entry`，第 2 版起不再带 `data_json`） |
-| 播放页背景 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, ...)` | `data` 只有 `title` / `depict?` / `view`（块树，着色器是里面的 `musicxx.Shader`）；前景（三色）用能力 `musicxx.ui.playing.foreground.set`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1 / §8.1 |
-| 普通页面背景 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PAGE_BACKGROUND, ...)` | 给歌单页 / 设置页 / 插件页面这类普通页面铺背景：同一套 `title` + `view`，多一个 `routes`（不写 = 所有普通页面）；不需要用户选择，同一页面里最新注册的生效，弹窗与播放页不包含（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5） |
-| 播放页控制按钮栏 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；视图参数与动作见 [plugin-ui.md](plugin-ui.md) §1.7 |
-| 音效 | `uiSlotRegister(..., MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filter` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.8 |
+| 界面声明项 | `uiItemRegister/uiItemUnregister/uiItemEntries/uiNotify` | 只有数据、没有界面树；**只对“用户列表里的条目”有效**（主页入口、歌曲/歌单菜单、「添加歌曲」来源项、音效）。类型取 `MUSICXX_PLUGIN_UI_SLOT_*`，字段见 [plugin-ui.md](plugin-ui.md) §1.3 |
+| 界面内容 | `uiContentRegister/uiContentUnregister/uiContentPush/uiSlotUpdate` | 挂在**槽位**上的界面 JSON，由同步生成函数按需给出：`uiContentRegister(短名, 槽位, depsJson, &生成函数, order, minIntervalMs, title, depict, routesJson)`；`uiSlotUpdate(槽位, idsJson)` = 让主程序按当前变量再问一次（不要求槽位已显示）；槽位清单见包内生成的 [ui-slots.md](ui-slots.md) |
+| 播放页背景 | `uiContentRegister(..., MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND, ...)` | 生成函数给一棵块树（着色器是里面的 `musicxx.Shader`）；`title` / `depict` 在注册时给（用户选中之前就要列在设置里）；前景（三色）用能力 `musicxx.ui.playing.foreground.set`，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1 / §8.1 |
+| 普通页面背景 | `uiContentRegister(..., MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND, ..., routesJson)` | 给歌单页 / 设置页 / 插件页面这类普通页面铺背景：`routesJson` 是适用路由数组（不写 = 所有普通页面），不需要用户选择，同一页面里最新注册的生效，弹窗与播放页不包含（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5） |
+| 播放页控制按钮栏 | `uiContentRegister(..., MUSICXX_PLUGIN_UI_SLOT_CONTROL_BAR, ...)` 或 `..._CONTROL_BAR_MENU` / `_PREVIOUS` / `_PLAY_OR_PAUSE` / `_NEXT` / `_FAVORITE` | 整栏或其中某个按钮换成插件画的（**替换**关系，取不到内容回退内置界面）；生成函数拿到的 ctx 里带依赖变量，写法见 [plugin-ui.md](plugin-ui.md) §1.8 |
+| 插件页面 | `uiContentRegister(短名, MUSICXX_PLUGIN_UI_SLOT_PAGE, ...)` | 页面地址 `ext://<插件id>/<内容短名>`：主程序按内容 id 来要一份块树（插件页面不再走同名能力） |
+| 音效 | `uiItemRegister(..., MUSICXX_PLUGIN_UI_SLOT_AUDIO_EFFECT, ...)` | 一段音频滤镜（`filter` / `pitch` / `cpuCost`），追加在『音效』插件的音效页面里与内置预设同一个列表；字段与规则见 [plugin-ui.md](plugin-ui.md) §1.9 |
 | 能力注册 | `capability(*this, "plugin.<id>.<短名>", fn)` | 处理器可以同步返回，也可以返回 `pluginxx::Task<T>`（异步完成，不占框架线程）；**不要写阻塞处理器**，长任务用 `co_await pluginxx::offload(*this, work)` 或 `pluginxx::sleep` |
 | 跨插件调用 | `co_await capabilityCall(能力全名, method, argsJson)` / `capabilityCall(..., &notify)` | 协程形态直连插件框架（不经应用），回调形态走 `invoke_capability_async`；**没有同步版**（插件框架会拒绝在 IO 线程阻塞等待） |
 | 功能埋点（声明 / 实现 / 调用） | `featurePointDefine` / `featurePointProvide` / `featurePointUnprovide` / `featurePointCall` / `featurePointList` | 见 §6.5：声明自己的功能埋点、给出实现、或调应用留出的功能埋点（频谱 / 副歌 / 封面取色） |
@@ -428,7 +430,10 @@ pluginxx::Task<void> askOther() {                       // 调别的插件：协
     co_return;
 }
 
-uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, entryJson, 120);
+uiItemRegister("card", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY, entryJson, 120);
+uiContentRegister("card", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]", &onGenerateCard,
+                  120, 0, "我的插件", "说明页");
+uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PAGE);   // 改完状态：让主程序再要一份
 uiNotify(R"({"text":"已刷新"})");
 
 featurePointProvide("plugin.my_plugin.beat", [](std::string_view argsJson) -> std::string {
@@ -1011,7 +1016,7 @@ Android 见 §11。
 | 注册能力返回 `-4` | 能力 id 不在约定表里（拼错或用了没声明的能力）；用 `capability_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项返回 `-6` | 项名 / 界面动作的命名空间不属于本插件 |
 | 处理器一直不触发 | 这条能力在 `plugin-capabilities.md` 里标「未接入」（主程序还没有接）；或插件被禁用 / 处理器没注册成功 |
-| 点入口提示「插件『<插件id>』没有提供『xxx』」 | 入口指向的能力没有注册（页面视图 id 必须与能力短名一致） |
+| 点入口提示「插件『<插件id>』没有提供『xxx』」 | 入口的 `action` 写错了能力名（页面应该是 `route` + 已注册的内容） |
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
 | 主程序整体卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。框架线程被卡住时整个 Dart 线程也会停：把耗时工作改成 `offload` + 回调 |
 | 插件加载后主程序启动异常 | 连续两次启动未完成会进入安全模式（不加载任何外部插件），这个状态跨启动保留，要在管理页关掉安全模式才会重新加载；先修好插件再关 |

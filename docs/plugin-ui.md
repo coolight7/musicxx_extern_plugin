@@ -1,193 +1,172 @@
-# 插件界面：UI 项、插件页面与设置页
+# 插件界面：槽位、内容与块
 
-> **本轮改造（进行中）**：界面改成了"槽位 + 内容"两层，本文下面有些章节还没改写完。
-> 已经按新模型接入的是**十个插入位置**（§1.6）与**控制栏六个替换位置**（§1.7），
-> 以及**三种样式槽位与普通页面背景**（播放页背景 / 歌曲图 / 动效 / 页面背景，见 §1.1 的类型表）：
-> 它们不再接受声明项（`musicxx.ui.item.register` + `data.view`），要往这些槽位
-> **注册内容**（`musicxx.ui.content.register`），候选列表里显示的是内容注册时给的名字。
-> 插件页面与浮层也读内容缓存，地址里的 id 就是内容 id。
->
-> 新模型要点：
->
-> - **槽位**（slot）是一个渲染位置，清单见 [ui-slots.md](ui-slots.md)；
->   **内容**（content）是插件为某个槽位生成的一份界面，一个槽位可以有很多份（用内容 id 区分）。
-> - 声明项（`musicxx.ui.item.register`）只给"主程序自己的列表"用：主页入口、歌曲 / 歌单菜单项、
->   添加歌曲来源、音效、可选样式候选；插入与替换位置用内容。
-> - 内容注册：`musicxx.ui.content.register({id, slot, title?, depict?, routes?, deps?, order?, minIntervalMs?}, generate)`；
->   `generate(context)` 返回 `{json, data?}`，`json` 就是一棵块树。要重生成时调
->   `musicxx.ui.slot.update(slot, [ids])`，也可以 `musicxx.ui.content.push(id, {json, data})` 直接推一份。
->   `title` / `depict` 是给人看的名字与说明：**可选样式槽位要在用户选中之前就列出来**，那时还没有内容，
->   所以名字只能注册时给；不写就显示内容 id。`routes` 是普通页面背景适用的路由
->   （JSON 字符串数组，不写 = 所有普通页面），也要注册时给：客户端得先按路由挑“这一页用哪一份”。
-> - 界面 JSON 可以绑变量：`{"var": "musicxx.song.name"}`（整键替换）与 `"第 {musicxx.playlist.index} 首"`
->   （字符串插值）；变量三类：`musicxx.*`（应用）、`scope:musicxx.*`（当前槽位作用域）、
->   `plugin.<插件id>.*`（插件广播，可跨插件）。清单见 [ui-variables.md](ui-variables.md)。
->   只声明到 `deps` 里的变量才会进 `context`，也只有它们变化时会重新生成。
-> - 块里可以**嵌另一个槽位**：`{"kind": "UISlot", "slot": "plugin.other.ui.toolbar", "args": {…}, "fallback": {…}}`
->   （深度上限 4，循环 / 深度超限画 `fallback`）。
-> - 动作只有 `call` / `route` / `none`：`call.name` 写短名 = 自己的能力，写 `plugin.<别的插件>.<名字>`
->   = 跨插件调用，写 `musicxx.*` = 应用的能力。**动作不再返回视图**，改画面用 `slot.update` / `content.push`。
->
-> 下面 §1 的类型表与旧写法（`data.view`、能力返回 `{view}`）只对剩下还没迁移的声明项
-> （主页入口 / 歌曲菜单 / 歌单菜单 / 添加歌曲 / 音效）适用；
-> **往插入位置、替换位置与样式槽位用 `data.view` 注册声明项会被插件框架拒绝**（返回 -1）。
+插件**不写 Flutter 代码**：它声明"在哪个位置放什么"，musicxx 负责画。界面只有三样东西：
 
-插件**不写 Flutter 代码**。界面有两个层次，都只做声明、由 musicxx 渲染：
-
-| 层次 | 插件做什么 | 主程序渲染在哪 |
+| 东西 | 是什么 | 谁决定用它 |
 |---|---|---|
-| **UI 项** | 注册入口 / 菜单项（类型 + JSON 内容） | 主程序自己的界面：音乐主页入口列表、歌曲菜单、设置里的「播放页面背景」列表 |
-| **插件页面** | 注册一个能力，返回视图描述（`{view:{title, blocks}}`） | `ext://<插件id>/<视图id>` 路由页面 |
+| **槽位**（slot） | 一个渲染位置：播放页的某个固定位置、控制栏某个按钮、播放页背景 / 歌曲图 / 动效、普通页面背景、插件页面、浮层……清单见 [ui-slots.md](ui-slots.md) | 主程序（按页面、路由或用户选择） |
+| **内容**（content） | 插件为某个槽位生成的一棵块树（`{title?, blocks}` 或单个块） | 主程序按槽位 / 路由 / 用户选择挑一份，再让插件生成 |
+| **声明项**（item） | 只有数据、没有界面树：主页入口、歌曲 / 歌单菜单项、添加歌曲条目、音效 | 主程序画在自己的列表里 |
 
-两边的写法只有 API 名字不同（C++ 用 `uiSlotRegister`/`capability`，JS 用 `musicxx.ui.slot.register`/`musicxx.capability.register`），
-**字段与块类型完全一致**，所以这份文档对两种插件都适用。语言相关的 API 见
-[plugin-native-api.md](plugin-native-api.md)（C++）与 [plugin-js-api.md](plugin-js-api.md)（JS）。
-第一次写插件、想知道从哪一步开始，先看 [plugin-guide.md](plugin-guide.md)。
+- **一个槽位可以有很多份内容**（用内容 id 区分）：插入位置按 `order` 从上到下排；
+  替换位置与可选样式槽位只认一份（`order` 小的优先，取不到内容就回到内置界面）。
+- **内容在需要时才生成**：注册时只给"名字 + 依赖变量 + 生成函数"；主程序先用上一次的结果，
+  同时按 `deps` 把变量当前值交给插件重出一份（串行，只保留最新一次）。
+- 不想显示某份内容就**注销**它：内容没有 `enabled` 字段。
+- 往插入 / 替换 / 样式槽位注册**声明项**会被插件框架拒绝：那些位置只收内容。
+
+两种插件写法只有 API 名字不同（C++ 用 `uiContentRegister` / `musicxx.capability`，
+JS 用 `musicxx.ui.content.register` / `musicxx.capability.register`），**字段与块类型完全一致**，
+所以本文对两种插件都适用；语言相关见 [plugin-native-api.md](plugin-native-api.md)（C++）与
+[plugin-js-api.md](plugin-js-api.md)（JS）。第一次写插件、想知道从哪一步开始，先看
+[plugin-guide.md](plugin-guide.md)。
 
 ---
 
-> **术语约定**：本文档中的**主程序**指的就是 **musicxx**（Flutter/Dart 业务层）；外置插件的 C++ 框架层称为**插件框架**；插件目前分为**动态库插件**与**JS插件**。
+> **术语约定**：本文里的**主程序**指 musicxx（Flutter/Dart 业务层）；外置插件的 C++ 框架层叫
+> **插件框架**；插件分**动态库插件**与 **JS 插件**。
 
+## 1. 值、内容与刷新
 
-## 1. UI 项
+### 1.1 值：字面量、变量与值表达式
 
-### 1.1 类型一览
+界面的每个**值位置**（文本、尺寸、颜色、进度、开关……）可以写三种东西：
 
-| 类型（全名） | `data` 字段 | 渲染位置 | 当前版本的实际表现 |
-|---|---|---|---|
-| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在主程序内置入口之后，用户可以在主页排序里拖动） | `title` 显示在按钮上、`subtitle` 显示在下一行（小字）；`icon` 写**插件自己带的 svg 路径**（相对插件目录，见 §1.5；不写用默认图标，文件缺失也退回默认图标） |
-| `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 | 显示 `title`；`icon` 同上；副标题位置固定显示 `外部插件：<插件id>` |
-| `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页（歌曲列表页）的列表菜单 | 显示 `title`；动作参数里会带上这张歌单的 `pid` / `name` / `songNum` |
-| `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 歌曲列表页 [+] → 「添加歌曲」弹窗（在**内置来源之后**、“从其他歌单导入”这类工具项之前） | 显示 `title` / `subtitle`；动作参数同样带 `pid` / `name` / `songNum`。常见写法：`call` 动作指向 `musicxx.ui.overlay.show`，把自己的挑歌内容打开成底部浮层（见 [plugin-api.md](plugin-api.md) §3.2.4.2） |
-| `musicxx.ui.playing.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.1（`title` 必填、`view` 必填） | 「设置 → 播放页面背景」的样式列表 | 用户选中后生效；内置样式是 `musicxx.auto` 这类 id（`musicxx.*`）。背景是一棵**块树**（`view`），着色器只是块 `musicxx.Shader`；**播放页前景（三色 + 遮罩外观）不写在项里**，由插件调能力 `musicxx.ui.playing.foreground.set` |
-| `musicxx.ui.playing.icon` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3 | 「设置 → 主题 → 播放页面歌曲图」的接管项 | 选中后由该项接管播放页中间的歌曲图：`shader`（着色器绘制）/ `view`（界面组合）/ `none`（只占位、不显示内容）。内置歌曲图的三种形状（`musicxx.circle` / `musicxx.square` / `musicxx.adaptive`）也在同一份列表里 |
-| `musicxx.ui.playing.visualizer` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4 | 「设置 → 主题 → 播放页音频动效」与『音乐动效』设置页的样式列表 | 选中后由该项接管播放页的音频可视化：`shader` / `view` / `none`；与内置『音乐动效』的四种样式（`musicxx.none` / `musicxx.waveRect` …）在同一个列表里，**没安装那个插件时插件样式照样可用** |
-| `musicxx.ui.page.background` | 见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.5（`title` 必填、`view` 必填、`routes?`） | 普通页面的背景层（歌单页 / 设置页 / 插件页面这类走标准页面外壳的页面） | **不需要用户选择**：`routes` 声明适用的页面路由 id（不写 / 空数组 = 所有普通页面），按当前路由自动生效；同一页面命中多项时写了这个路由的优先于“所有页面”，同一优先级里**最新注册的生效**（不看 `order`）。**弹窗与播放页不包含在内** |
-| `musicxx.ui.audioEffect` | `title`（必填）、`subtitle?`（或 `depict?`）、`filter`（必填，字符串）、`pitch?`、`cpuCost?` | 『音效』插件的音效页面（设置 → 插件 音效；播放页「更多」菜单里的音效行也进同一个页面） | 追加在 21 个内置预设之后；选中后作为播放音效生效，与内置音效同一套互斥规则（均衡器 / 自定义音调）；说明行写「来自插件 <插件id>」。**是否可用与当前选中项由主程序判断**，插件只描述效果。见 §1.8 |
-| `musicxx.ui.playing.<页面>.<位置>`（十个，见 §1.6） | `view`（必填） | 播放页子页面的固定位置（歌词页 / 更多信息页 / 播放列表页） | 类型本身就是位置（`lyric.top` / `lyric.header` / `moreInfo.footer` / `songlist.footer` …）：`top` / `bottom` 是页面固定区域，`header` / `footer` 在列表滚动内容里；同一位置可以注册多项，按 `order` 与注册顺序排列 |
-| `musicxx.ui.playing.controlBar` 与 `musicxx.ui.playing.controlBar.<按钮>`（六个，见 §1.7） | `view`（必填） | 播放页底部控制按钮栏（整栏或单个按钮） | **替换**内置界面：整栏由插件画，或只换五个按钮里的某几个；同一位置只认一项（`order` 小的优先），取不到内容时回到内置界面 |
+| 写法 | 例子 | 说明 |
+|---|---|---|
+| 字面量 | `"标题"` / `40` / `"#ff8800"` / `true` | 直接用 |
+| 变量绑定 | `{"var": "musicxx.song.name"}` / `"第 {musicxx.playlist.index} 首"` | 解析前替换一次；清单见 [ui-variables.md](ui-variables.md) |
+| 值表达式 | `{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.level"}}` | 每帧求值（尺寸 / 颜色 / 进度 / 文本都能"算"），见 §2.3.1 |
 
-**所有类型都没有 `data.enabled`**：不想让某项生效就 `musicxx.ui.slot.unregister`（重新显示再注册回来）。
-写了 `enabled` 会被忽略 —— 早期版本用它“保留注册但不渲染”，现在只剩注册 / 注销两条路。
+变量有三种前缀，**能用在哪里由前缀决定**：
 
-#### 渲染点的两种模式
+| 前缀 | 来源 | 可用范围 |
+|---|---|---|
+| `musicxx.*` | 主程序状态（歌曲、播放、主题、界面、环境量……） | 任何槽位 |
+| `scope:musicxx.*` | 当前槽位的上下文（页面路由 / 参数、浮层参数、歌单信息、播放页前景三色、嵌套槽位参数） | 只有那个槽位（以及嵌在它里面的嵌套槽位） |
+| `plugin.<插件id>.*` | 插件广播频道（可以跨插件） | 任何槽位 |
 
-插件内容放的位置按两种模式决定“用哪个”（位置清单见上表；插入块与按钮栏替换按位置取，
-一个位置一项，不在这个区分里）：
+取不到值时：`{"var":…}` 有 `default` 用 `default`，否则按"这个键没写"处理；字符串里的
+`{…}` 换成空串；两种情况都在日志里记一条 `missing`。
 
-| 模式 | 怎么决定用哪个 | 重复注册 | 例子 |
-|---|---|---|---|
-| **单一实现者** | 没有选择，按页面 / 时机自动生效 | 同一页面命中多项时取**最新注册**的那一项 | 普通页面背景（`musicxx.ui.page.background`） |
-| **多注册者可选** | 用户或插件从候选里选一项（内置项 + 插件项同一份列表） | 同 `name` = 覆盖，不参与“谁生效”的排序 | 播放页背景 / 歌曲图 / 音频动效 |
-
-- 两种模式的项都只声明“画什么”：`view` 是一棵块树（块类型见 §2.3），着色器写在块
-  `musicxx.Shader` 上（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9）；
-- **背景的根块就是画布**：根上直接写一块 `musicxx.Shader`（或 `Stack`）就会铺满整页 ——
-  渲染层发现根块要铺满时给它紧约束，不用再包 `Expanded`（包了也照样能用，根上的 `Expanded`
-  会被解开）；把着色器放进滚动的 `Column` 里时仍要包 `Expanded`；
-- 多注册者模式的“现在是不是我在画 / 画面多大”看广播 `musicxx.state.uiSlots`，
-  或者调能力 `musicxx.ui.slot.current`（见 [plugin-broadcasts.md](plugin-broadcasts.md)）。
-
-三个播放页槽位的**内置项 id 与动作 id 是同一套**：内置项 `musicxx.<名字>`（背景 / 动效用枚举名，
-歌曲图用短名）；`musicxx.previous` = 交还控制权（恢复 `musicxx.default` 重置掉的那个值，没有记录时
-不动、重复调用安全）；`musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、动效 `musicxx.none`、
-歌曲图 `musicxx.circle`）。两个动作 id 不进候选列表，细节见
-[plugin-shader-bundle.md](plugin-shader-bundle.md) §10。
-
-`icon` 写的是**插件自己带的 svg**：一条**相对插件目录**的路径（见 §1.5），**不能**写主程序
-（musicxx）自己的图标名 —— 主程序的 svg 名字不会命中任何文件，等于"没有图标"，各渲染点会按
-各自的规则退回默认图标。
-
-**整页由主程序给，不需要新类型**：声明了可浏览来源（`musicxx.source.browse`，见
-[plugin-api.md](plugin-api.md) §3.3）之后，入口的动作写
-`{kind:"command", name:"musicxx.ui.drive.browse", args:{type, view?}}`，点开就是与内置网盘**完全一样**的
-整页目录列表（路径栏 / 排序 / 搜索 / 勾选 / 整目录递归 / 下载 / 重命名 / 删除 / 条目信息）。
-主页入口、歌单菜单项、插件自己页面里的按钮都能用它；动作立即返回
-`{ok, reason:"opened", type, view}`，不等用户关页面。
-
-一个音源类型可以声明多个分类（`musicxx.source.browse` 的 `view`）：多分类时**页面顶部那排 tab
-由主程序画**，`args.view` 只是「从哪个分类开始」。插件不需要为分类做任何界面工作，
-也不需要“分类入口”——一个类型一个入口，里面的分类用户自己切（同理，「添加歌曲」菜单里
-也是一个类型一行，副标题列出分类）。
-
-### 1.2 注册
-
-```cpp
-// C++：短名 + 类型 + data + order（小者靠前，同 order 按注册顺序）
-uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
-           R"({"title":"我的入口","subtitle":"示例","action":{"kind":"route","route":"ext://my_plugin/card"}})",
-           100);
-```
+### 1.2 内容：注册、生成、刷新
 
 ```js
-// JS：{name, type, order, data}（也可以把 data 的字段平铺在对象上）
-musicxx.ui.slot.register({
-    name: "card",
-    type: "home.entry",              // 简称或全名都可以
-    order: 100,
-    data: {
-        title: "我的入口",
-        subtitle: "示例",
-        action: { kind: "route", route: "ext://my_plugin/card" },
-    },
+// JS：注册一份内容（名字与生成函数）。id 用短名，框架补成 plugin.<自己>.<id>
+musicxx.ui.content.register({
+    id: "songlistHeader",                        // 内容 id（地址 / 更新都用它）
+    slot: "musicxx.ui.playing.songlist.header",  // 槽位（简称 playing.songlist.header 也行）
+    title: "播放列表页顶部",                      // 给人看的名字（可选样式槽位必须给）
+    depict: "一行当前歌曲 + 打开更多菜单",          // 一句话说明（可选）
+    order: 10,                                   // 同一槽位里的排序
+    deps: ["musicxx.song.name"],                 // 用到的变量（变化时重生成）
+    // routes: ["/songs"],                        // 只对普通页面背景有意义（注册时给）
+    minIntervalMs: 0,                             // 重生成的最短间隔（0 = 不限）
+}, function (ctx) {
+    // ctx = 声明过的依赖变量 → 当前值；返回一棵块树
+    return { blocks: [ /* … 块 … */ ] };
 });
 ```
 
-规则（插件框架在注册时校验，写错就直接失败，不会等到渲染时才发现）：
-
-- `name` 用**短名**，插件框架补成 `plugin.<插件id>.<短名>`；写全名时也必须属于本插件命名空间（冒充别人返回 `-6`）；
-- 同一个项名再次注册 = **覆盖**（保留原来的排序位置），与首次声明是同一件事：`type` / `data` 照样写全；
-- UI 项数量与单条 `data` 大小都不设上限（早期版本的 64 个 / 64 KiB 已移除）；
-- 类型必须是上表列出的类型之一（`-4`），`data` 必须是 JSON 对象（`-1`），需要的 `title` 不能为空（`-1`）；
-- 变化会推送 `musicxx.ui.changed` 事件（载荷带该插件的**全部**项，每项带重画计数 `rev`，主程序整批替换）。
-
-更新与注销：
-
-```js
-musicxx.ui.slot.update("card");            // 重新取一次视图（声明不变）
-musicxx.ui.slot.unregister("card");
-musicxx.ui.slot.entries();                  // 本插件已注册的项（脚本侧副本）
+```cpp
+// C++：同一个注册，生成函数是同步回调
+int32_t onGenerateHeader(const PluginxxHost *host, const PluginxxStringView *ctxJson,
+                         PluginxxString *out);
+uiContentRegister("songlistHeader", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_HEADER,
+                  R"(["musicxx.song.name"])", &onGenerateHeader, 10, 0,
+                  "播放列表页顶部", "一行当前歌曲 + 打开更多菜单");
 ```
 
-> **两个调用各做一件事**：
-> - 声明要改（换视图、改标题、改 `order`、改块的 `speed` / 颜色参数…）→ 用 `register` 覆盖同名项，**整份 `data` 重给**；
-> - 声明一个字不改，只是状态变了要重画 → `update(名字)`：主程序会用当前声明重新取一次视图
->   （例如别处改了播放模式，插件订阅到后让整条控制栏重画）。
->
-> `maxFps` / `resolutionScale` / `animate` 这类影响帧调度或分辨率创建的字段，运行期改完需要用户
-> 重新选中该项才完全生效；`speed`、颜色参数这类每帧现算的字段重新声明后立即生效。
+规则（插件框架在注册时校验，写错直接失败，不会等到渲染时才发现）：
 
-### 1.3 UI 项动作（`data.action`）
+- `id` 用**短名**，框架补成 `plugin.<插件id>.<id>`；写全名时必须属于本插件命名空间（冒充别人返回 `-6`）；
+- `slot` 必须是已知槽位或**自己声明的槽位**（`musicxx.ui.slot.define`，见 §1.10），未知槽位返回 `-4`；
+- `deps` 是变量 id 数组（`scope:` 开头的也要写进去），写错返回 `-1`；
+- 同一个 `id` 再注册 = **覆盖**这一份（保留排序位置）；
+- 内容数量与单份内容大小都不设上限；
+- 变化会推 `musicxx.ui.contents` 事件（载荷带该插件的全部内容）。
 
-动作写法与插件页面里的动作**完全一致**（同一套写法与同一个解析器）：
+生成函数的约定：
+
+- **同步、要快**：只做"把 `ctx` 变成 JSON"这一件事。要等网络 / 文件就先返回"加载中"，拿到结果再
+  `musicxx.ui.content.push(id, {json, data})`；
+- 抛异常 / 返回非对象 → 这次生成失败，主程序保留上一份内容；
+- 返回 `{json, data}` 时 `json` 是块树，`data` 是给自己用的附加数据（例如歌曲图槽位的
+  `{"keepSpace": true, "fill": false}`）；直接返回块树也可以。
+
+**什么时候重生成**：
+
+```js
+musicxx.ui.slot.update("musicxx.ui.playing.controlBar", ["wholeBar"]); // 指定内容
+musicxx.ui.slot.update("musicxx.ui.playing.songlist.header");            // 不写 ids = 整个槽位
+musicxx.ui.content.push("wholeBar", { json: { blocks: [] } });           // 直接推一份
+```
+
+- `deps` 里的变量变了 → 主程序先重新绑定（界面立刻看到新值），再让生成函数重出一份；
+- 动作改完状态自己说一声（`slot.update`），**动作不返回视图**；
+- 运行期改影响帧调度 / 分辨率的字段（`maxFps` / `resolutionScale` / `animate`）重新生成一次就生效；
+- 刷新没有时间节流，但同一份内容同时最多一个在途请求，期间的变化只保留最新一次；
+  需要节流就写 `minIntervalMs`。
+
+**列表与选择**：`musicxx.ui.slot.list({slot})` 看某个可选样式槽位的候选，
+`musicxx.ui.slot.current({slot})` 看现在生效的是哪一份，`musicxx.ui.slot.set(id, {slot})`
+换一份（`musicxx.previous` = 交还控制权，`musicxx.default` = 回到默认值）。
+用户选中之前候选列表就要显示名字，所以可选样式槽位的内容**必须给 `title`**。
+
+### 1.3 声明项（item）
+
+声明项只有数据，由主程序画在自己的界面里。**只对这些类型有效**：
+
+| 类型（全名） | `data` 字段 | 渲染位置 |
+|---|---|---|
+| `musicxx.ui.home.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 音乐主页的入口列表（排在内置入口之后，用户可以在主页排序里拖动） |
+| `musicxx.ui.song.action` | `title`（必填）、`icon?`、`action?` | 歌曲列表项的「歌曲菜单」 |
+| `musicxx.ui.playlist.action` | `title`（必填）、`icon?`、`action?` | 歌单页的列表菜单（动作参数带 `pid` / `name` / `songNum`） |
+| `musicxx.ui.addsong.entry` | `title`（必填）、`subtitle?`、`icon?`、`action?` | 「添加歌曲」弹窗（常见写法：`call` 动作指向 `musicxx.ui.overlay.show`） |
+| `musicxx.ui.audioEffect` | `title`（必填）、`subtitle?` / `depict?`、`filter`（必填）、`pitch?`、`cpuCost?` | 音效页面（见 §1.8） |
+
+```js
+musicxx.ui.item.register({
+    name: "card",
+    type: "home.entry",          // 简称或全名都行
+    order: 100,
+    data: { title: "我的入口", subtitle: "示例", action: { kind: "route", route: "ext://my_plugin/card" } },
+});
+musicxx.ui.item.unregister("card");
+musicxx.ui.item.entries();       // 本插件已注册的声明项（脚本侧副本）
+```
+
+`icon` 写**插件自己带的 svg**（相对插件目录的路径，见 §1.6），**不能**写主程序的图标名。
+**没有 `data.enabled`**：不想生效就注销，重新显示再注册。
+
+### 1.4 动作（`data.action` / 块里的 `action`）
+
+动作写法与块里的动作**完全一致**：
 
 | 写法 | 字段 | 行为 |
 |---|---|---|
-| `"openSettings"` | — | **字符串短写**，等于 `dispatch`：调用本插件的能力 |
-| `{"kind":"dispatch"}` | `name: "<短名>"`, `args?` | 调用**本插件**的能力；返回视图描述时直接打开页面（入口与页面可以合并成一次调用） |
-| `{"kind":"route"}` | `route: "ext://<插件id>/<视图id>"` | 打开插件页面，**允许指向任意插件**（含自己）：跨插件时页面由对方插件自己绘制、发起方拿不到对方的数据。与动作 `musicxx.ui.openRoute` 同一套规则 |
-| `{"kind":"command"}` | `name: "musicxx.<域>.<名字>"`, `args?` | 调应用实现的能力（与插件自己调 `musicxx.capability.call` 同一份实现） |
-| `{"kind":"none"}` / 不写 | — | 纯展示项，点了没有动作 |
+| `"openSettings"` | — | **字符串短写**，等于 `call`：调本插件的能力 |
+| `{"kind":"call"}` | `name`、`args?`、`timeoutMs?` | 调能力：短名 = 自己，`plugin.<别的插件>.<名字>` = 跨插件，`musicxx.*` = 应用 |
+| `{"kind":"route"}` | `route: "ext://<插件id>/<内容 id>"` | 打开插件页面（可以指向任意插件） |
+| `{"kind":"none"}` / 不写 | — | 纯展示，点了没有动作 |
 
-- 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与视图 id；`dispatch` 必须有非空 `name`；
-  `command` 的 `name` 必须是官方 `musicxx.*`；
-- **动作指向的能力必须真的注册过**：没注册时主程序提示
-  「插件『<插件id>』没有提供『<能力名>』」，`example_native` / `example_js` 的 `card` 页是可照抄的例子；
-- `dispatch` 动作成功时的表现：返回视图描述就直接打开页面（入口与页面合成一次调用），
-  否则提示「『<入口标题>』执行完成」；
-- 动作参数里主程序会补上当前上下文：歌曲菜单项补 `sid`/`name`/`artist`，歌单菜单项补
-  `pid`/`name`/`songNum`（插件自己写的 `args` 保留，冲突时以主程序补的为准）。
+- 注册时校验：`route` 必须 `ext://` 开头且带插件 id 与内容 id；`call` 必须有非空 `name`；
+  `musicxx.*` 必须是官方能力名；
+- **动作不返回视图**：改完状态用 `musicxx.ui.slot.update` / `content.push` 刷新；
+- 动作参数里主程序会补上下文：歌曲菜单补 `sid` / `name` / `artist`，歌单菜单补 `pid` / `name` / `songNum`
+  （插件自己写的 `args` 保留，冲突时以主程序补的为准）；
+- `timeoutMs` 只对需要等结果的调用有意义（默认不限制，见 [plugin-capabilities.md](plugin-capabilities.md)）。
 
-### 1.4 当前版本的渲染缺口（写插件前先确认）
+### 1.5 声明项的渲染注意（写插件前先确认）
 
 这一版把之前缺的渲染点补齐了：`home.entry` 的 `subtitle` / `icon` 都会画出来、`playlist.action`
 在歌单页的列表菜单里有位置。仍要注意的是：
 
-- 入口与菜单项的图标只能来自插件自己（相对插件目录的路径，见 §1.5），写主程序图标名等于没写；
+- 入口与菜单项的图标只能来自插件自己（相对插件目录的路径，见 §1.6），写主程序图标名等于没写；
 - 主页入口的文字是单行省略（标题、副标题各一行），别写长句；
 - 想确认自己注册了哪些项：`musicxx.ui.slot.entries()`（JS）/ `uiSlotEntries()`（C++）。
 
-### 1.5 图标：插件自己带 svg
+### 1.6 图标：插件自己带 svg
 
 插件要图标（主页入口与菜单项的 `icon`、页面里的 `Button.icon` / `Icon.name`）就写一条
 **相对插件目录**的 svg 路径：
@@ -219,7 +198,7 @@ my_plugin/
 
 ---
 
-### 1.6 页面插入块：在播放页的固定位置放一块自己的界面
+### 1.7 插入位置：在播放页的固定位置放一块自己的界面
 
 播放页的几个子页面留了固定位置，插件可以在那里插一块自己声明的界面（与插件页面同一套块，不写 Flutter 代码）。
 **一个位置就是一个 UI 类型**，类型名统一是 `musicxx.ui.playing.<页面>.<位置>`，注册时把类型写成位置本身，
@@ -239,39 +218,43 @@ my_plugin/
 | `musicxx.ui.playing.songlist.footer` | 播放列表页 | 列表内底部（footer） | **是** |
 
 ```js
-// 在歌词页顶部放一行小字：动作（dispatch / command / route）与页面里的块完全一样
-musicxx.ui.slot.register({
-    name: "lyricTip",
-    type: "playing.lyric.top",      // 全名 musicxx.ui.playing.lyric.top
-    order: 10,                     // 同一位置多项时小者靠前
-    data: {
-        view: { blocks: [
-            { kind: "Text", text: "歌词由插件提供", type: "caption", color: "hint" },
-        ] },
-    },
+// 在歌词页顶部放一行小字：动作（call / route）与页面里的块完全一样
+musicxx.ui.content.register({
+    id: "lyricTip",
+    slot: "musicxx.ui.playing.lyric.top",
+    title: "歌词页顶部提示",
+    order: 10,                     // 同一位置多份内容时小者靠前
+}, function () {
+    return { blocks: [
+        { kind: "Text", text: "歌词由插件提供", type: "caption", color: "hint" },
+    ] };
 });
 
-// 内容多的时候用视图 id：主程序调你同名能力取内容（可以按自己的状态返回不同块）
-musicxx.ui.slot.register({
-    name: "playlistFilter",
-    type: "playing.songlist.header",
-    data: { view: "playlistFilterView" },
+// 要跟着状态换内容的，把变量写进 deps，生成函数里按 ctx 出不同的块
+musicxx.ui.content.register({
+    id: "playlistFilter",
+    slot: "musicxx.ui.playing.songlist.header",
+    title: "播放列表页顶部",
+    deps: ["musicxx.song.name"],
+}, function (ctx) {
+    return { blocks: [
+        { kind: "Text", text: "当前播放：" + (ctx["musicxx.song.name"] || "无") },
+    ] };
 });
 ```
 
 ```cpp
-uiSlotRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
-           R"({"view":{"blocks":[{"kind":"Text","text":"歌词由插件提供"}]}})",
-           10);
+// C++：同一个注册，生成函数返回块树
+uiContentRegister("lyricTip", MUSICXX_PLUGIN_UI_SLOT_PLAYING_LYRIC_TOP, "[]",
+                  &onGenerateLyricTip, 10, 0, "歌词页顶部提示");
 ```
 
 规则：
 
-- `view` 三种写法与 `playing.icon` / `playing.visualizer` 一样：**视图 id 字符串**（调同名能力，返回
-  `{view: …}` 或视图对象）、**视图对象**（`{blocks: […], title?, subtitle?}`）或**裸块数组**；
-- 同一位置可以注册**多项**，按 UI 项的 `order` 与注册顺序从上到下排列（不是替换关系）；
-- 这些类型**不需要 `title`**（它们不画在任何列表里），带 `title` 也不影响渲染；
-- **没有 `enabled`**：不想显示就 `musicxx.ui.slot.unregister`（重新显示再注册回来，会排到最后）；
+- 同一位置可以注册**多份内容**，按内容注册的 `order` 与注册顺序从上到下排列（不是替换关系）；
+- 生成函数返回 `{blocks: […]}`（或单块、或 `{json, data}`）；
+- 插入位置不需要 `title`（不画在任何列表里），给了也不影响渲染；
+- **没有 `enabled`**：不想显示就 `musicxx.ui.content.unregister(id)`（重新显示再注册回来，会排到最后）；
 - **插入块自己带页面留白**：插进去的地方页面已经给过边距，块只画自己的内容，要留白在块里写
   `padding` / `gap`；
 - `top` / `bottom` 是**固定区域**（不随列表滚动）：放一两行、不要放很长的内容（窗口矮时会挤小中间的内容区）；
@@ -287,7 +270,7 @@ uiSlotRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
 
 ---
 
-### 1.7 播放页控制按钮栏：换掉整栏或换掉某一个按钮
+### 1.8 播放页控制按钮栏：换掉整栏或换掉某一个按钮
 
 播放页底部那一排控制按钮默认是「菜单 / 上一曲 / 播放暂停 / 下一曲 / 收藏」。插件可以**替换**它，
 分两层，按需要选一层就够：
@@ -301,105 +284,79 @@ uiSlotRegister("lyricTip", MUSICXX_PLUGIN_UI_TYPE_PLAYING_LYRIC_TOP,
 | `musicxx.ui.playing.controlBar.next` | 只换「下一曲」按钮的显示 | `musicxx.player.next` |
 | `musicxx.ui.playing.controlBar.favorite` | 只换「收藏」按钮的显示 | `musicxx.songlist.favorite` |
 
-`data` 与页面插入块一样，只有 `view`（必填）：没有 `enabled`，想不显示就注销这一项。
+控制栏位置也是一份**内容**：`slot` 写 `musicxx.ui.playing.controlBar`（整栏）或
+`musicxx.ui.playing.controlBar.<按钮>`（单个按钮），生成函数返回那块界面。
 
 ```js
 // 只换「播放 / 暂停」这一个按钮：图标用插件自己的 svg，动作调官方能力
-// （要跟着播放状态换图标：按视图参数 `playing` 返回不同的 `view`，见下面“状态变了会重新取一次视图”）
-musicxx.ui.slot.register({
-    name: "playBtn",
-    type: "playing.controlBar.playOrPause",   // 全名 musicxx.ui.playing.controlBar.playOrPause
-    data: {
-        view: { blocks: [
-            { kind: "Button", label: "", variant: "simple", icon: "resource/svg/play.svg",
-              action: { kind: "command", name: "musicxx.player.toggle" } },
-        ] },
-    },
+// 跟着播放状态换图标 = 声明 deps，播放状态一变主程序就让生成函数重出一份
+musicxx.ui.content.register({
+    id: "playBtn",
+    slot: "musicxx.ui.playing.controlBar.playOrPause",
+    title: "播放暂停按钮",
+    deps: ["musicxx.player.playing"],
+}, function (ctx) {
+    const playing = ctx["musicxx.player.playing"] === true;
+    return { blocks: [
+        { kind: "Button", label: "", variant: "simple",
+          icon: playing ? "resource/svg/pause.svg" : "resource/svg/play.svg",
+          action: { kind: "call", name: "musicxx.player.toggle" } },
+    ] };
 });
 
-// 整栏都由自己画：三个按钮 + 右侧收藏，动作都调官方能力
-musicxx.ui.slot.register({
-    name: "miniBar",
-    type: "playing.controlBar",
-    data: {
-        view: "miniBarView",     // 调插件自己的同名能力取视图（能按状态返回不同内容）
-    },
-});
+// 整栏都由自己画：五个按钮，动作都调官方能力
+musicxx.ui.content.register({
+    id: "miniBar",
+    slot: "musicxx.ui.playing.controlBar",
+    title: "整条控制栏",
+    deps: ["musicxx.player.playing", "musicxx.song.favorite", "musicxx.song.hasSong"],
+}, miniBarView);
 ```
 
 ```cpp
 // 只换「收藏」按钮：动作调官方能力 musicxx.songlist.favorite
-uiSlotRegister("favBtn", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR_FAVORITE,
-           R"({"view":{"blocks":[{"kind":"Button","label":"","variant":"simple","icon":"resource/svg/heart.svg","action":{"kind":"command","name":"musicxx.songlist.favorite"}}]}})",
-           0);
-// 整栏替换（视图 id 形态：主程序调插件的能力 `plugin.my_plugin/controlBar` 取内容）
-uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
-           R"({"view":"controlBar"})", 0);
+uiContentRegister("favBtn", MUSICXX_PLUGIN_UI_SLOT_PLAYING_CONTROL_BAR_FAVORITE,
+                  R"(["musicxx.song.favorite"])", &onGenerateFavButton, 0, 0,
+                  "收藏按钮");
 ```
 
 规则：
 
-- **替换，不是插入**：有插件声明整栏时，内置的五个按钮不再显示，五个按钮级类型也**不再参与渲染**；
-  只有没声明整栏时才按按钮级类型逐个替换（没声明的那几个按钮照旧是内置的）。
-- **同一个位置只认一项**：`order` 小的优先，同 `order` 按注册顺序。多个插件声明同一位置时，
-  只有第一个生效，其余的不报错也不显示。
-- **取不到内容就回退内置界面**：能力没实现、返回的东西解析不出块、插件被停用 —— 这些情况下
-  画回内置按钮，用户仍然能暂停 / 切歌 / 收藏。日志里留一条原因（同一个位置只记一次）。
+- **替换，不是插入**：有插件注册整栏时，内置的五个按钮不再显示，五个按钮级位置也**不再参与渲染**；
+  只有整栏没有内容时才按按钮级位置逐个替换（没注册的那几个按钮照旧是内置的）。
+- **同一个位置只认一份内容**：`order` 小的优先，同 `order` 按注册顺序。多个插件注册同一位置时，
+  只有第一份生效，其余的**不报错也不显示**（插件管理页能看到原因）。
+- **取不到内容就回退内置界面**：生成失败、插件被停用、内容还没到 —— 这些情况下画回内置按钮，
+  用户仍然能暂停 / 切歌 / 收藏。日志里留一条原因（同一个位置只记一次）。
 - **点击由插件自己的块接收**：主程序不在外面再包一层手势（否则一次点击会触发两次）。可点的块有两种：
   `Button`（自带按钮样式，`icon` 写插件自己的 svg），或者任何写了 `action` 的块（`Icon` / `Text` /
-  `SizedBox` 这类，主程序会给它包一层点击）；动作写 `command` 调官方能力。
+  `SizedBox` 这类，主程序会给它包一层点击）；动作写 `call` 调官方能力。
 - **尺寸**：主程序只给高度（与内置栏一样，由页面按窗口大小决定），宽度由插件这一块自己占；
   整栏替换时建议用 `Row` + `mainAxisAlignment: "spaceBetween"`（kit 里的 `kit.row` 一样），
-  与内置栏看起来一致。单个按钮的高低由它自己的 `size` 定（不写就是默认大小）——
-  要做到“中间那个播放 / 暂停更大”，给它 `size: 256`（默认 `128u` 的两倍），整排高度跟着
-  最高的按钮走（`example_js_playing_slots` 就是这么写的）。**不接 shader**（`shader` / `none` 这两种形态在这里无效）。
-- **主程序会给视图参数**（取视图时一起交回去，能力处理器里能读到）：
+  与内置栏看起来一致。单个按钮的高低由它自己的 `size` 定（不写就是默认大小）—— 要做到"中间那个
+  播放 / 暂停更大"，给它 `size: 256`（默认 `128u` 的两倍），整排高度跟着最高的按钮走。
+- **状态用变量读，不要另设参数**：控制栏位置能用这些变量（写进 `deps` 才会重生成）：
 
-  | 参数 | 含义 |
+  | 变量 | 含义 |
   |---|---|
-  | `slot` | 这个视图是哪个位置（`musicxx.ui.playing.controlBar` 或 `musicxx.ui.playing.controlBar.<按钮>`） |
-  | `button` | 按钮名（`menu` / `previous` / `playOrPause` / `next` / `favorite`）；整栏时是空串 |
-  | `playing` | 当前是否在播放（布尔） |
-  | `favorite` | 当前歌曲是否已在「我喜欢」里（布尔） |
-  | `hasSong` | 现在有没有在播的歌（布尔） |
-  | `song` | 当前歌曲的只读视图（与广播 `musicxx.song.changed` 载荷里的 `song` 同一份；没有歌时是空对象） |
-  | `colors` | 播放页前景三色 `{main, cross, block}`（`#aarrggbb` 字符串，与页面上的文字 / 图标同色） |
+  | `musicxx.player.playing` | 当前是否在播放 |
+  | `musicxx.song.favorite` | 当前歌曲是否已在「我喜欢」里 |
+  | `musicxx.song.hasSong` | 现在有没有在播的歌 |
+  | `musicxx.song.name` / `musicxx.song.artist` / … | 当前歌曲的其他字段（见 [ui-variables.md](ui-variables.md)） |
+  | `scope:musicxx.slot.colorMain` / `colorCross` / `colorBlock` | 播放页前景三色（`#aarrggbb`） |
 
-- **状态变了会重新取一次视图**：播放 / 暂停、切歌、收藏状态变化、换主题（三色变了）时，主程序会
-  带着新的参数再取一次（旧画面留到新视图回来，不会闪空）。所以"图标跟着播放状态变"最简单的写法就是
-  **按 `args.playing` 返回不同的 `view`**；也可以完全不管参数，自己在块里用 `musicxx.AnimatedBuilder` +
-  值表达式读广播（见 §2.3.2）。
-- **插件自己改的状态不用等主程序重取**：动作处理完直接返回 `{view: …}` 就把画面换掉了（`dispatch` 的
-  能力返回值里带 `view` 就行）。所以主程序**不会**为了每个能力都给位置加参数 —— 参数只有上表这几项；
-  其余状态（播放模式、队列、列表、设置项…）用 `musicxx.broadcast.read("musicxx.state.playlist")`
-  这类同步读拿到，或者用 `musicxx.capability.call(…)` / `musicxx.xxx` 现取。
-  例：切播放模式的按钮就是 `dispatch → 自己调 musicxx.player.setLoopMode` + 返回新视图，
-  控制栏不需要多一个 `loopMode` 参数（`example_js_playing_slots`）。
-- **别处改的状态：自己订阅广播 + `musicxx.ui.slot.update(名字)`**。声明不用改，只是让主程序用当前声明
-  重新取一次视图（重画计数 `rev` + 1）；主程序不会闪空，旧画面留到新视图回来。
-
-  ```js
-  musicxx.broadcast.subscribe("musicxx.state.playlist", function (value) {
-      if (value.loopMode !== lastLoopMode) {   // 只在自己关心的字段真变了时刷
-          lastLoopMode = value.loopMode;
-          musicxx.ui.slot.update("miniBar");    // 重新取一次 miniBarView
-      }
-  });
-  ```
-
-  不要为了这个给位置加参数：状态是插件自己订阅的，主程序只提供上面那张表的通用参数。
-- 换主题时 `colors` 会变，插件用它画的按钮不用另做什么就会跟着切；不想跟主题就忽略它、自己写颜色。
+  其余状态（播放模式、队列、设置项…）用 `musicxx.broadcast.read("musicxx.state.playlist")` 这类同步读，
+  或者在自己的动作里改完状态后 `musicxx.ui.slot.update(slot, [id])` 让内容重出一份。
 - **控制栏里的 `Button` 自己就是跟三色的**：在播放页上，没写 `color` 的按钮按页面前景三色画
-  （内容色取 `colors.main`、底色取 `colors.block`、禁用取 `colors.cross`），与内置按钮一致，
-  换主题 / 换前景色时跟着变；写了 `color` 的按钮以描述为准。所以只有着色器、自绘块这类需要
-  原始色值的地方才需要读 `colors`。
+  （内容色取普通色、底色取块色、禁用取减淡色），与内置按钮一致，换主题 / 换前景色时跟着变；
+  写了 `color` 的按钮以描述为准。所以只有着色器、自绘块这类需要原始色值的地方才需要读三色变量。
 - 插件卸载 / 停用 / 关闭『拟声++』后立刻回到内置界面；用户也可以在插件管理里停用插件来还原。
 
 > 整栏替换之后，内置的「更多」菜单（选歌词 / 投屏 / 加入歌单 / 播放模式 / 沉浸模式…）就没有入口了。
 > 两个办法：在自己画的栏里放一个按钮调 `musicxx.ui.playing.openMenu`；或者提醒用户把播放页右上角的
 > 快捷功能设成「更多」（在那个按钮上长按 / 桌面右键 → 快捷功能 → 更多），它弹出的菜单与内置菜单按钮完全一样。
 
-### 1.8 音效：把自己的音频滤镜加进音效页面
+### 1.9 音效：把自己的音频滤镜加进音效页面
 
 注册一项 `musicxx.ui.audioEffect`，它就会出现在『音效』插件的音效页面里（排在 21 个内置预设之后）。
 用户选中后，这一段滤镜链与内置音效完全一样地生效：写进 mpv `af` 里应用自己的「音效」段。
@@ -430,7 +387,7 @@ uiSlotRegister("bar", MUSICXX_PLUGIN_UI_TYPE_PLAYING_CONTROL_BAR,
 C++ 插件：
 
 ```cpp
-uiSlotRegister("bass", MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
+uiItemRegister("bass", MUSICXX_PLUGIN_UI_SLOT_AUDIO_EFFECT,
     R"({"title":"低音炮","subtitle":"加强 60~140 Hz","cpuCost":3,
         "filter":"lavfi=[volume=-3dB,equalizer=f=80:width_type=q:width=1:g=8,alimiter=limit=0.89:level=false:latency=false]"})");
 ```
@@ -438,7 +395,7 @@ uiSlotRegister("bass", MUSICXX_PLUGIN_UI_TYPE_AUDIO_EFFECT,
 JS 插件：
 
 ```js
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
   name: "bass",
   type: "audio.effect",          // 也可以写全名 musicxx.ui.audioEffect
   title: "低音炮",
@@ -467,31 +424,66 @@ musicxx.ui.slot.register({
 
 ---
 
-## 2. 插件页面（`ext://<插件id>/<视图id>`）
+### 1.10 嵌套槽位：在自己的内容里再放一个槽位（`UISlot`）
+
+插件可以在界面里**再放一个槽位**，让另一份内容显示在这个位置上：位置既可以是应用已有的，
+也可以是自己声明的。块写法：
+
+```json
+{
+  "kind": "UISlot",
+  "slot": "plugin.other_plugin.ui.toolbar",
+  "args": { "compact": true },
+  "fallback": { "kind": "Text", "text": "对方插件没装", "type": "caption" }
+}
+```
+
+声明自己的槽位（只有 `insert` / `replace` 两种 kind，名字落在自己的命名空间里）：
+
+```js
+musicxx.ui.slot.define({ id: "toolbar", kind: "insert" });   // plugin.<自己>.ui.toolbar
+musicxx.ui.slot.undefine("toolbar");
+```
+
+- `args` 进变量 `scope:musicxx.slot.args`，只在**这个嵌套槽位里**的内容可见（`deps` 要声明它），
+  这就是"父内容给子内容传参"的唯一办法；
+- 深度上限 4；自己嵌自己、形成环、超出深度都画 `fallback`；
+- 槽位被撤销 / 里面没有任何内容 / 内容还没生成 → 画 `fallback`（不写 `fallback` 就留空）；
+- 嵌进来的内容照常绑变量、照常按 `deps` 重生成；它拿不到外层内容的局部动画通道，
+  需要逐帧就自己套 `musicxx.AnimatedBuilder`；
+- 自查：`musicxx.ui.slots()` 返回应用的槽位清单 + 自己声明的槽位 + 可绑定的变量。
+
+两个插件互相嵌套的完整例子见 `plugins/example_js_ui_nested`（声明槽位的 `provider` 与往里面放内容的 `consumer`）。
+## 2. 插件页面（`ext://<插件id>/<内容 id>`）
 
 ### 2.1 打开过程
 
 1. 用户点入口 / 插件自己调 `musicxx.ui.openRoute("ext://my_plugin/settings")`；
-2. 主程序打开路由页面，调用**与被跳转插件同名的能力**：视图 id = 能力短名
-   （`ext://my_plugin/settings` → 能力 `plugin.my_plugin.settings`），参数是
-   `{"view": "<视图id>", "ui": {客户端界面能力段}}`；
-3. 能力返回视图描述：`{"view": {...}}`（推荐）或直接返回视图对象；
-4. 主程序渲染；能力返回的每个块都不需要插件再调用任何接口。
+2. 主程序在槽位 `musicxx.ui.page` 上找内容 id = `settings` 的那一份（地址最后一段就是内容 id）；
+3. 主程序要一份生成结果：生成函数拿到声明过的 `deps` 变量，返回一棵块树；
+4. 主程序渲染；页面内容里的按钮 / 输入框都走能力，页面本身不需要插件再调任何接口。
 
-**能力必须注册**（在 `start` 事务 / 脚本顶层注册），并且**同步返回**：
+页面也是内容，所以**注册方式与插入位置完全一样**：
 
 ```js
-musicxx.capability.register("settings", function (args) {
-    return { view: { title: "我的插件设置", blocks: [ /* ... */ ] } };
+musicxx.ui.content.register({
+    id: "settings",                      // 地址就是 ext://my_plugin/settings
+    slot: "musicxx.ui.page",
+    title: "我的插件设置",
+    deps: ["scope:musicxx.page.args"],   // 要读打开页面时带的参数就声明它
+}, function (ctx) {
+    return { title: "我的插件设置", blocks: [ /* ... */ ] };
 });
 ```
 
 ```cpp
-capability(*this, "plugin.my_plugin.settings",
-           [](std::string_view, std::string_view) -> std::string {
-               return R"({"view":{"title":"我的插件设置","blocks":[ ... ]}})";
-           });
+// C++：同一个注册，生成函数返回页面文档
+uiContentRegister("settings", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]",
+                  &onGenerateSettings, 0, 0, "我的插件设置");
 ```
+
+动作改状态后要页面跟着变，就 `musicxx.ui.slot.update("musicxx.ui.page", ["settings"])`（动作不返回视图）。
+页面参数用变量 `scope:musicxx.page.args`（打开时传的对象）与 `scope:musicxx.page.route`（当前地址）。
 
 ### 2.2 视图结构
 
@@ -511,7 +503,7 @@ capability(*this, "plugin.my_plugin.settings",
 | 块数组 | `[{kind: "Text", …}, {kind: "Divider"}]` | 从上往下的几块，不要标题 |
 | 完整文档 | `{title: "…", subtitle: "…", blocks: [...]}` | 插件页面：要标题 / 副标题 |
 
-能力返回时外面再包一层 `{view: …}` 也可以（`{view:{kind: …}}` 与直接返回视图对象一样）。
+生成函数返回时外面再包一层 `{json: …}` 也行（`{json: {kind: …}}` 与直接返回块一样）。
 **一棵块不用自己包 `Expanded` 或 `blocks`**：根上是 `musicxx.Shader` / `Stack` /
 `musicxx.AdaptLayout` 时主程序直接拿紧约束铺满。
 
@@ -891,12 +883,13 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 
 ### 2.6 页面之间的跳转与刷新
 
-- 跳转：按钮 / 可点块上用 `{"kind":"route","route":"ext://<插件id>/<视图id>"}`（**允许指向任意插件**，
+- 跳转：按钮 / 可点块上用 `{"kind":"route","route":"ext://<插件id>/<内容 id>"}`（**允许指向任意插件**，
   含自己；页面由目标插件绘制，发起方拿不到对方的数据）。要跳**官方页面**
   （`musicxx.settings`、`musicxx.player`、`musicxx.search` 等）只能用动作 `musicxx.ui.openRoute`
   （白名单见 [plugin-api.md](plugin-api.md) §3.2.4）；UI 项与页面里的动作走的是**同一套判定**；
-- 刷新当前页：能力返回新的 `{"view": {...}}`，主程序直接用新视图重画当前页面（不用重新打开）；
-- 每个插件视图是**独立页面**（框架按路由 + 视图 id 区分），从 A 页跳到 B 页后返回能回到 A 页。
+- 刷新当前页：`musicxx.ui.slot.update("musicxx.ui.page", ["<内容 id>"])`（动作不返回视图）；
+- 页面参数用变量 `scope:musicxx.page.args`（打开时传的对象）与 `scope:musicxx.page.route`；
+- 每个插件页面是**独立页面**（框架按路由 + 内容 id 区分），从 A 页跳到 B 页后返回能回到 A 页。
 
 ---
 
@@ -944,7 +937,7 @@ musicxx.capability.register("pickQuality", async function () {
 
 框架**不提供**配置表单、也**不管理**插件的设置入口（没有「插件设置」类型或列表）：
 
-- 设置界面就是插件自己注册的一个普通页面（`ext://<插件id>/<视图id>`）；
+- 设置界面就是插件自己注册的一个普通页面（`ext://<插件id>/<内容 id>`）；
 - 入口由插件自己给：主页入口（`home.entry`）或某个功能页里的按钮（`route` 动作）；
 - 配置值存在插件目录的 `config.json` 里，默认值由插件自己给：
 
@@ -1006,18 +999,17 @@ musicxx.capability.register("pickQuality", async function () {
 - 主程序表现：点一下**整个程序卡几秒**，然后插件收到 `action_timeout` 报"切换失败"，
   可字体其实已经切过去了（能力是在超时之后才轮到应用线程处理的）；
 - 正确写法（可照抄 `plugins/example_js_font/plugin.js`）：
-  1. **立刻返回**：先按新模式画页面，处理器直接返回视图；
+  1. **立刻返回**：处理器只改自己的状态（内容下一次生成时按新状态画），
+     然后调 `musicxx.ui.slot.update("musicxx.ui.page", ["card"])` 让主程序再要一份；
   2. 能力**后台执行**：`musicxx.ui.setFontFamily(...)` 只跟 `.then(...)`，不 `await`；
   3. 成功后把模式写进自己的状态与 `config.json`；失败就回滚显示、异步提示（那时调用早已返回，
-     用 `musicxx.ui.toast` 这类能力是安全的）；
-  4. 应用在 `dispatch` 拿到视图后 **500ms 会再静默取一次页面**，所以后台改好的真实状态会自动显示，
-     插件不需要额外做刷新逻辑（原理见 `ExternPluginViewBody._scheduleQuietReload`）。
+     用 `musicxx.ui.toast` 这类能力是安全的）。
 - 想知道"主程序现在到底是什么字体"：`musicxx.broadcast.read("musicxx.ui.fontFamily")` **同步**读当前值
   （值就是字体名字符串，如 `"SimSun"` / `"default"`），不要为了显示状态再去 `await` 一次能力。
 
 > 这条规则对**所有**"改应用状态"的能力都成立（播放页背景、播放控制、存储写入…）：能力处理器必须
 > 快速返回，长活儿发给动作后在 `.then` 里收尾。处理器返回 Promise 时插件框架会一直等它结算
-> （`plugin_call` 的等待上界是 5 秒，超时就是上面那种"卡几秒 + 失败"）。
+> （等待上界是 5 秒，超时就是上面那种"卡几秒 + 失败"）。
 
 ---
 
@@ -1029,4 +1021,28 @@ musicxx.capability.register("pickQuality", async function () {
 | `plugins/example_js_font/plugin.js` | 全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认）+ 文字与输入框字体预览；**按钮动作"立刻返回 + 后台执行"的样板**（见 §4.1） |
 | `plugins/example_js_playing_bg/plugin.js` | 播放页背景六种样式（封面三种 + 图案三种）+ 歌曲图接管 + 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | `plugins/example_js_playing_slots/` | 播放页位置：插入块（歌词页顶部 / 播放列表页头部 / 更多信息页底部）、控制栏按钮级与整栏替换、音频动效（§1.6 / §1.7 与 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4） |
+| `plugins/example_js_slot_provider` / `plugins/example_js_slot_consumer` | 嵌套槽位：前者用 `musicxx.ui.slot.define` 声明自己的槽位并往里注册内容，后者用 `UISlot` 嵌进去（§1.10） |
 | `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 拼装内容 |
+---
+
+## 6. 从旧写法迁移（一次对照）
+
+| 旧写法（本轮之前的版本） | 现在 |
+|---|---|
+| `musicxx.ui.item.register({name, type: "playing.lyric.top", data: {view: …}})` | `musicxx.ui.content.register({id, slot: "musicxx.ui.playing.lyric.top"}, generate)` |
+| `data: {view: "<能力短名>"}`（主程序调同名能力取视图） | 生成函数；要按状态变就把变量写进 `deps` |
+| 插入位置 / 替换位置 / 样式槽位的声明项 | 一律改成内容（声明项只留给入口 / 菜单 / 音效） |
+| 页面 `ext://<插件>/<视图 id>` 由**同名能力**返回 `{view}` | 页面是 `musicxx.ui.page` 上的内容，`<视图 id>` 就是内容 id |
+| 动作返回 `{view: …}` 刷新当前页 | `musicxx.ui.slot.update(slot, [id])` |
+| `musicxx.ui.slot.update(名字)`（只给名字） | `musicxx.ui.slot.update(slot, [内容 id…])`（不写 ids = 整个槽位） |
+| 样式槽位用 `data.mode` / `data.shader` / `data.args` 描述画面 | 内容里写 **块**：`{"kind":"musicxx.Shader","bundle":…,"args":…}`；歌曲图的占位用 `data.keepSpace` / `data.fill` |
+| 页面背景用 `data.routes` 声明路由 | 内容注册时给 `routes` |
+| `{"kind":"dispatch"}` / `{"kind":"command"}` 动作 | 都是 `{"kind":"call"}`（短名 = 自己、`plugin.<id>.*` = 别的插件、`musicxx.*` = 应用） |
+
+可照抄的例子（`plugins/` 下）：
+
+- `example_js_playing_slots`：插入位置 + 控制栏替换 + 音频动效 + 页面背景 + 两个页面；
+- `example_js_playing_bg`：六种播放页背景 + 歌曲图接管 + 三个页面（一个插件多个脚本）；
+- `example_js_slot_provider` / `example_js_slot_consumer`：插件声明自己的槽位、另一个插件用 `UISlot` 嵌进去；
+- `example_native`：C++ 侧的内容注册 / 槽位声明 / `slot.update` 与 `content.push`；
+- `example_js` / `example_js_font` / `example_override_media_source` / `example_ftp_source`：入口与页面、能力与配置。

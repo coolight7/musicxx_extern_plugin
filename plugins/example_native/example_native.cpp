@@ -7,9 +7,9 @@
 /// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
 /// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
 ///    命名空间校验返回码、处理器调用次数), 供插件框架原生测试读取。
-/// 5. 注册能力 `plugin.example_native.card`: 返回声明式页面
+/// 5. 把页面 `ext://example_native/card` 注册成 `musicxx.ui.page` 上的**内容**
 ///    (主页入口、歌曲菜单项与 `ext://example_native/card` 都指向它)。
-///    入口声明的页面必须有**同名能力**, 否则点开只会提示"插件没有提供该能力"。
+///    页面内容由生成函数给出, 主程序按需来要一份。
 /// 6. 在包装点 `musicxx.lyric.load` (歌词加载) 上登记**前链**与**后链**样本:
 ///    前链只能改输入或拦下, 后链只能改输出或丢弃。为免误伤真实使用, 只有载荷带
 ///    `"example_native_demo":true` 时才改值, 其余调用原样返回。
@@ -132,6 +132,47 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     return 0;
   }
 
+  /// 播放页背景的内容（根上是块树；无依赖变量，每次生成给同一份）
+  static int32_t PLUGINXX_CALL onGenerateBackground(const PluginxxHost *host,
+                                                   const PluginxxStringView *,
+                                                   PluginxxString *out) {
+    PluginBase::hostStringSet(
+        host, out,
+        R"({"json":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",)"
+        R"("args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},)"
+        R"("uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},)"
+        R"("uColor3":{"kind":"source","name":"musicxx.icon.themeMapping.2"},)"
+        R"("uColor4":{"kind":"source","name":"musicxx.icon.themeMapping.3"},)"
+        R"("uCoverBack":{"kind":"texture","source":"musicxx.cover","size":384,"blur":28},)"
+        R"("uLevel":{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.level"}},)"
+        R"("uBands":{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},)"
+        R"("uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},)"
+        R"("speed":1,"maxFps":16}}})");
+    return 0;
+  }
+
+  /// 普通页面背景的内容（无依赖变量；适用页面在注册时给）
+  static int32_t PLUGINXX_CALL onGeneratePageBackground(
+      const PluginxxHost *host, const PluginxxStringView *, PluginxxString *out) {
+    PluginBase::hostStringSet(
+        host, out,
+        R"({"json":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle","speed":1,"maxFps":8}}})");
+    return 0;
+  }
+
+  /// 说明页的内容（根上就是文档 `{title, subtitle, blocks}`）
+  ///
+  /// 生成函数在插件框架线程同步执行, 必须快: 这里只把当前自检数据拼成 JSON,
+  /// 不发起动作、不等任何结果。
+  static int32_t PLUGINXX_CALL onGenerateCard(const PluginxxHost *host,
+                                             const PluginxxStringView *,
+                                             PluginxxString *out) {
+    const std::string doc =
+        g_self != nullptr ? g_self->cardPageDoc() : std::string{"{\"blocks\":[]}"};
+    PluginBase::hostStringSet(host, out, std::string{"{\"json\":"} + doc + "}");
+    return 0;
+  }
+
   /// 声明式界面自检 (声明项 / 内容 / 槽位)
   int32_t uiHomeRc = -100; ///< 注册主页入口声明项: 期望 0
 
@@ -156,6 +197,7 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
   int32_t uiContentBadDepsRc = -100;   ///< deps 写法不合法: 期望 -1
   int32_t uiContentUnregisterRc = -100; ///< 注销一份内容: 期望 0
   int32_t uiContentPushedRc = -100; ///< 注册“只从 push 取内容”的那份: 期望 0
+  int32_t uiPageRc = -100; ///< 把说明页注册成 `musicxx.ui.page` 内容: 期望 0
   int32_t uiSlotDefineRc = -100;   ///< 声明自己的槽位: 期望 0
   int32_t uiSlotDefineAppRc = -100; ///< 声明应用的槽位: 期望 -6
   int32_t uiSlotDefineBadKindRc = -100; ///< kind 不合法: 期望 -1
@@ -373,42 +415,22 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     //      没有封面时这一位是 0。没声明纹理的样式不解码、不上传、不占显存。
     //    块的 `speed` / `maxFps` / `resolutionScale` 是每块自己的（不再挂在 UI 项上）。
     //    JS 侧的等价声明见 plugins/example_js_playing_bg/backgrounds.js。
-    uiBackgroundRc = uiItemRegister(
-        "playingBg", MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND,
-        R"({"title":"原生示例晶格背景","depict":"跟随封面配色与音乐律动的晶格化动态背景",
-            "view":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
-               "args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},
-                       "uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},
-                       "uColor3":{"kind":"source","name":"musicxx.icon.themeMapping.2"},
-                       "uColor4":{"kind":"source","name":"musicxx.icon.themeMapping.3"},
-                       "uCoverBack":{"kind":"texture","source":"musicxx.cover",
-                                      "size":384,"blur":28},
-                       "uLevel":{"kind":"smooth","attackMs":20,"releaseMs":260,
-                                 "of":{"kind":"source","name":"musicxx.spectrum.level"}},
-                       "uBands":{"kind":"smooth","attackMs":20,"releaseMs":260,
-                                 "of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},
-                       "uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,
-                                  "of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},
-               "speed":1,"maxFps":16}}})",
-        20);
+        uiBackgroundRc = uiContentRegister(
+        "playingBg", MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND, "[]",
+        &ExampleCtx::onGenerateBackground, 20, 0, "原生示例晶格背景",
+        "跟随封面配色与音乐律动的晶格化动态背景");
     // 7.0) 普通页面背景 (musicxx.ui.page.background):
     //      与播放页背景同一份块写法 (`view`), 区别是 `routes` 声明适用的页面
     //      (不写 / 空数组 = 所有普通页面)。这里验证插件框架接受这种声明,
     //      `routes` 写成字符串 (不是数组) 时注册要被拒绝。
-    uiPageBackgroundRc = uiItemRegister(
-        "pageBg", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND,
-        R"({"title":"原生示例页面背景",
-            "routes":["/songs","/setting/theme"],
-            "view":{"kind":"Expanded","child":
-              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",
-               "speed":1,"maxFps":8}}})",
-        10);
-    uiPageBackgroundBadRoutesRc = uiItemRegister(
-        "pageBgBadRoutes", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND,
-        R"({"title":"坏的页面背景","routes":"/songs",
-            "view":{"kind":"Expanded","child":
-              {"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle"}}})",
-        11);
+        uiPageBackgroundRc = uiContentRegister(
+        "pageBg", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND, "[]",
+        &ExampleCtx::onGeneratePageBackground, 10, 0, "原生示例页面背景", "",
+        R"(["/songs","/setting/theme"])");
+        uiPageBackgroundBadRoutesRc = uiContentRegister(
+        "pageBgBadRoutes", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND, "[]",
+        &ExampleCtx::onGeneratePageBackground, 11, 0, "坏的页面背景", "",
+        R"("/songs")");
 
     // 7.1) 内容: 挂在槽位上的界面 JSON, 由生成函数在需要时给出
     //      - 同一个槽位可以注册多份 (id 不同); 同 id 再注册 = 覆盖;
@@ -634,92 +656,103 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
                           return R"({"never":true})";
                         });
 
-    // 11) 能力: 声明式页面 `ext://example_native/card`
-    //    主页入口指向这个页面: 主程序打开页面时调用**同名能力**, 插件返回视图描述
-    //    (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
+    // 11) 页面 `ext://example_native/card` 是 `musicxx.ui.page` 上的**内容**
+    //    主程序按内容 id 来要一份块描述 (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
     //    页面内容用 musicxx 扩展 kit 拼装: kit 只写中立的块描述 (不判断渲染目标),
     //    客户端拿到后按自己的能力做降级适配。页面里的按钮可以调用本插件能力
-    //    (返回 {view:...} 时直接刷新当前页), 也可以执行官方动作 (这里演示发提示)。
+    //    (动作改完状态后让主程序重出一份内容), 也可以执行官方动作 (这里演示发提示)。
+    uiPageRc = uiContentRegister(
+        "card", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]", &ExampleCtx::onGenerateCard,
+        10, 0, "示例插件", "原生示例的说明页");
+
+    // 兼容旧客户端的取视图入口 (主程序新版不调它, 页面读 `musicxx.ui.page` 上的内容)
+    // 删除时间: 主程序删掉 `callPluginView` 的那一步。
     capability(
         *this, "plugin.example_native.card",
         [this](std::string_view, std::string_view) -> std::string {
-          namespace kit = musicxx::ui::kit;
-          using pluginxx::ui::Json;
-          const int32_t uiOk = (uiHomeRc == 0 ? 1 : 0) +
-                               (uiSongRc == 0 ? 1 : 0) +
-                               (uiBackgroundRc == 0 ? 1 : 0);
-
-          Json blocks = Json::array();
-          blocks.push_back(pluginxx::ui::dumpItem(kit::hint(Json::object({
-              {"text",
-               "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / "
-               "按钮), 不写界面代码。"},
-          }))));
-          blocks.push_back(pluginxx::ui::dumpItem(pluginxx::ui::build::divider()));
-          blocks.push_back(
-              pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "start 事务线程"},
-                  {"subtitle", "能力与能力处理器都在这一条线程上执行"},
-                  {"trailing", startThread},
-              }))));
-          blocks.push_back(
-              pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "当前调用线程"},
-                  {"subtitle", "与 start 事务线程相同 = 单框架线程"},
-                  {"trailing", threadIdText()},
-              }))));
-          blocks.push_back(
-              pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "连续播放错误"},
-                  {"subtitle", "累计 2 次后建议换源"},
-                  {"trailing", std::to_string(consecutiveErrors)},
-              }))));
-          blocks.push_back(
-              pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "快照频道变化事件"},
-                  {"trailing", std::to_string(stateEvents)},
-              }))));
-          blocks.push_back(
-              pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "musicxx.test.ping 事件"},
-                  {"trailing", std::to_string(pingEvents)},
-              }))));
-          blocks.push_back(
-              pluginxx::ui::dumpItem(kit::listRow(Json::object({
-                  {"title", "已注册的 UI 项"},
-                  {"subtitle", "主页入口 / 歌曲菜单"},
-                  {"trailing", std::to_string(uiOk)},
-              }))));
-          blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "快照频道 musicxx.state.song"},
-              {"subtitle", "主程序推送的最近一份歌曲快照 (字节)"},
-              {"trailing", std::to_string(readBroadcast("musicxx.state.song").size())},
-          }))));
-          blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
-              {"label", "刷新本页"},
-              {"variant", "full"},
-              {"highlight", true},
-              {"action", dispatchAction("card")},
-          }))));
-          blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
-              {"label", "发送一条通知"},
-              {"variant", "full"},
-              {"action", commandAction("musicxx.ui.toast",
-                                       Json::object({{"text", "来自 "
-                                                             "example_native "
-                                                             "的通知"}}))},
-          }))));
-
-          Json doc = Json::object({
-              {"title", "示例插件"},
-              {"subtitle", "页面内容来自能力 plugin.example_native.card"},
-              {"blocks", std::move(blocks)},
-          });
-          Json out = Json::object({{"view", std::move(doc)}});
-          return out.dump();
+          return std::string{"{\"view\":"} + cardPageDoc() + "}";
         });
 
     return 0;
+  }
+
+  /// 说明页的文档 (块树)
+  ///
+  /// 页面内容 (生成函数) 与"兼容旧客户端的取视图入口"共用这一份。
+  std::string cardPageDoc() {
+      namespace kit = musicxx::ui::kit;
+      using pluginxx::ui::Json;
+      const int32_t uiOk = (uiHomeRc == 0 ? 1 : 0) +
+                           (uiSongRc == 0 ? 1 : 0) +
+                           (uiBackgroundRc == 0 ? 1 : 0);
+
+      Json blocks = Json::array();
+      blocks.push_back(pluginxx::ui::dumpItem(kit::hint(Json::object({
+          {"text",
+           "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / "
+           "按钮), 不写界面代码。"},
+      }))));
+      blocks.push_back(pluginxx::ui::dumpItem(pluginxx::ui::build::divider()));
+      blocks.push_back(
+          pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "start 事务线程"},
+              {"subtitle", "能力与能力处理器都在这一条线程上执行"},
+              {"trailing", startThread},
+          }))));
+      blocks.push_back(
+          pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "当前调用线程"},
+              {"subtitle", "与 start 事务线程相同 = 单框架线程"},
+              {"trailing", threadIdText()},
+          }))));
+      blocks.push_back(
+          pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "连续播放错误"},
+              {"subtitle", "累计 2 次后建议换源"},
+              {"trailing", std::to_string(consecutiveErrors)},
+          }))));
+      blocks.push_back(
+          pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "快照频道变化事件"},
+              {"trailing", std::to_string(stateEvents)},
+          }))));
+      blocks.push_back(
+          pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "musicxx.test.ping 事件"},
+              {"trailing", std::to_string(pingEvents)},
+          }))));
+      blocks.push_back(
+          pluginxx::ui::dumpItem(kit::listRow(Json::object({
+              {"title", "已注册的 UI 项"},
+              {"subtitle", "主页入口 / 歌曲菜单"},
+              {"trailing", std::to_string(uiOk)},
+          }))));
+      blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
+          {"title", "快照频道 musicxx.state.song"},
+          {"subtitle", "主程序推送的最近一份歌曲快照 (字节)"},
+          {"trailing", std::to_string(readBroadcast("musicxx.state.song").size())},
+      }))));
+      blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
+          {"label", "刷新本页"},
+          {"variant", "full"},
+          {"highlight", true},
+          {"action", dispatchAction("card")},
+      }))));
+      blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
+          {"label", "发送一条通知"},
+          {"variant", "full"},
+          {"action", commandAction("musicxx.ui.toast",
+                                   Json::object({{"text", "来自 "
+                                                         "example_native "
+                                                         "的通知"}}))},
+      }))));
+
+      Json doc = Json::object({
+          {"title", "示例插件"},
+          {"subtitle", "页面内容来自内容 plugin.example_native.card"},
+          {"blocks", std::move(blocks)},
+      });
+      return doc.dump();
   }
 
   /// 发布本插件命名空间的广播 (id 归属由插件框架校验)

@@ -398,6 +398,54 @@ function followTick(force) {
     requestSlotSelect(ICON_SLOT, target, note, false);
 }
 
+/* ==================== 页面内容 ==================== */
+
+/// 三个页面都是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/<内容 id>`）
+///
+/// 频读页的动作会把结果记到脚本里，生成函数只负责把上一次的结果画出来。
+function registerPages() {
+    musicxx.ui.content.register({
+        id: HOME_VIEW_ID,
+        slot: "musicxx.ui.page",
+        title: PLUGIN_TITLE,
+        depict: "六种背景样式与歌曲图接管的说明",
+    }, function () {
+        return cardView({ view: HOME_VIEW_ID });
+    });
+    musicxx.ui.content.register({
+        id: SETTINGS_VIEW_ID,
+        slot: "musicxx.ui.page",
+        title: PLUGIN_TITLE + " · 设置",
+    }, function () {
+        return settingsView({ view: SETTINGS_VIEW_ID });
+    });
+    musicxx.ui.content.register({
+        id: "spectrumProbe",
+        slot: "musicxx.ui.page",
+        title: PLUGIN_TITLE + " · 频谱读取",
+    }, function () {
+        return spectrumProbeView({ view: "spectrum" });
+    });
+}
+
+/// 兼容旧客户端的取视图入口（主程序新版不调它，页面读 `musicxx.ui.page` 上的内容）
+///
+/// 删除时间：主程序删掉 `callPluginView` 的那一步。
+musicxx.capability.register("card", function (args) {
+    return { view: cardView(args) };
+});
+
+musicxx.capability.register("settings", function (args) {
+    return { view: settingsView(args) };
+});
+/// 动作改完状态后让发起的那一页重出一份内容
+function refreshPage(args) {
+    const view = (args && typeof args.view === "string" && args.view)
+        ? args.view : SETTINGS_VIEW_ID;
+    musicxx.ui.slot.update("musicxx.ui.page", [view]);
+    return { ok: true };
+}
+
 /* ==================== 能力入口 ==================== */
 
 /// 注册本插件的能力（页面 / 按钮都走这里，处理器一律同步返回）
@@ -410,6 +458,7 @@ function installPluginCapabilities() {
             pluginId: PLUGIN_ID,
             styles: Object.keys(ITEM_OF_STYLE).length,
             uiEntries: musicxx.ui.item.entries().length,
+            uiContents: musicxx.ui.content.entries().length,
             // 数字（1 / 0）：原生测试按整数字段读（布尔会被当成 0）
             paletteHook: musicxx.capability.has("musicxx.media.palette.analyse") ? 1 : 0,
             hasSettingsView: (typeof settingsView === "function") ? 1 : 0,
@@ -418,23 +467,19 @@ function installPluginCapabilities() {
         };
     });
 
-    /// 说明页（主页入口指向它）
-    musicxx.capability.register("card", function (args) {
-        return { view: cardView(args) };
-    });
+    /// 说明页 / 设置页不再注册能力：它们已经是 `musicxx.ui.page` 上的内容（见 [registerPages]）
 
-    /// 设置页
-    musicxx.capability.register("settings", function (args) {
-        return { view: settingsView(args) };
-    });
-
-    /// 频谱页：先按上一次读回的结果画页面，再发起新的读取
+    /// 频谱页：先发起新的读取，再让那一页重出一份
     ///
     /// 顺序很重要：反过来的话页面读到的 `pending` 永远是自己刚设的那一次，
     /// 只能一直显示"读取中"。
     musicxx.capability.register("spectrumProbe", function (args) {
+        // 顺序：先按上一次的结果取视图，再发起新的读取（反过来画到的永远是"读取中"）
         const view = spectrumProbeView(args);
         refreshSpectrumAction();
+        refreshPage((args && typeof args.view === "string")
+            ? args : { view: "spectrumProbe" });
+        // 兼容旧客户端：返回值里也带视图
         return { view: view };
     });
 
@@ -451,7 +496,7 @@ function installPluginCapabilities() {
             id,
             style ? ("切到" + STYLE_SHORT[style]) : "切换播放页背景",
             false);
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 循环切换背景动画速率（0.5x → 1x → 2x → 0.5x），改完立即生效
@@ -465,13 +510,13 @@ function installPluginCapabilities() {
         }
         const next = BG_RATE_OPTIONS[(index + 1) % BG_RATE_OPTIONS.length];
         saveConfig("bgRate", next);
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 控件值变化统一入口：控件把自己的 `id` 与当前值带进参数
     ///
-    /// 样式选择走槽位动作（`musicxx.ui.slot.set`，异步）；其余几项写 config.json 并重新
-    /// 声明背景样式（`musicxx.ui.item.register` 同名覆盖 = 改声明）；处理器**同步返回**页面。
+    /// 样式选择走槽位动作（`musicxx.ui.slot.set`，异步）；其余几项写 config.json 并让
+    /// 背景内容重出一份（`musicxx.ui.slot.update`），否则画面还停在旧参数上。
     musicxx.capability.register("setOption", function (args) {
         const id = (args && typeof args.id === "string") ? args.id : "";
         const value = args ? args.value : null;
@@ -482,7 +527,7 @@ function installPluginCapabilities() {
             } else if (style === STYLE_BUILTIN) {
                 requestSlotSelect(BACKGROUND_SLOT, BUILTIN_BG_ID, "切回内置背景", false);
             }
-            return { view: pageView(args) };
+            return refreshPage(args);
         }
         if (id === "blur" || id === "zoom" || id === "share" || id === "spin" ||
             id === "bgRate" || id === "ripple" || id === "hideIcon" || id === "autoForeground") {
@@ -495,40 +540,41 @@ function installPluginCapabilities() {
             if (id === "autoForeground") {
                 refreshForegroundState();
             }
-            return { view: pageView(args) };
+            refreshBackgroundEntries();
+            return refreshPage(args);
         }
         musicxx.host.log(3, "未知的设置项: " + id);
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 把当前封面绑成纹理（异步发起，处理器同步返回）
     musicxx.capability.register("bindCoverTexture", function (args) {
         bindCoverImage();
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 释放绑定的纹理
     musicxx.capability.register("unbindCoverTexture", function (args) {
         unbindCoverImage();
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 绑定 / 解除封面变化处理器（演示运行期退订与重新订阅）
     musicxx.capability.register("toggleCoverHook", function (args) {
         setCoverHookBound(!coverHookBound);
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 立即接管歌曲图（手动；之后 10 分钟不自动跟随，免得被跟随逻辑改回去）
     musicxx.capability.register("takeIcon", function (args) {
         requestSlotSelect(ICON_SLOT, ITEM_ID_ICON, "手动隐藏", true);
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 交还歌曲图（手动，恢复主程序记下的上一个形状；没有记录时保持用户现在的形状）
     musicxx.capability.register("releaseIcon", function (args) {
         requestSlotSelect(ICON_SLOT, PREVIOUS_ICON_ID, "手动交还", true);
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 
     /// 清空取色缓存（下次换歌 / 换背景样式时重新按封面算一遍）
@@ -536,14 +582,17 @@ function installPluginCapabilities() {
         paletteCache = {};
         paletteTasks = {};
         lastLinkNote = "取色缓存已清空";
-        return { view: pageView(args) };
+        return refreshPage(args);
     });
 }
 
 /* ==================== 顶层注册（必须是最后一步，且同步完成） ==================== */
 
-/// 六种背景样式 + 歌曲图接管项 + 主页入口
+/// 六种背景样式 + 歌曲图接管 + 主页入口
 registerPluginEntries();
+
+/// 三个插件页面（`musicxx.ui.page` 上的内容）
+registerPages();
 
 /// 能力：说明页 / 设置页 / 频谱页 / 一键切换 / 设置项 / 纹理与处理器 / 歌曲图
 installPluginCapabilities();

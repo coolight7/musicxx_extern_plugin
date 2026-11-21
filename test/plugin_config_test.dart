@@ -27,6 +27,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 import 'package:path/path.dart' as path;
 
+import 'ui_content_probe.dart';
+
 void main() {
   final _Environment? env = _Environment.detect();
 
@@ -72,15 +74,19 @@ void main() {
     runtime.plugins.scan();
     runtime.plugins.load('example_js');
     expect(runtime.plugins.findLoaded('example_js'), isNotNull);
+    final UiContentProbe probe = UiContentProbe(runtime, seen);
 
     // 等脚本顶层的配置读取（异步动作往返）走完：探针里的配置缓存被填上才算读完
     await _pumpUntil(
       () async => (await _probe(runtime))['configSkipAds'] != null,
       runtime: runtime,
     );
-    // 行的标题就是查找键（列表块已移除，行由布局块组合，见 `_rowOf`）
+    // 行的标题就是查找键（页面是 `musicxx.ui.page` 上的内容，列表块已移除，行由布局块组合，见 `_rowOf`）
     expect(
-      _rowOf(await _callView(runtime, 'settings'), '跳过广告曲目')?['right'],
+      _rowOf(
+        await probe.jsonOf('plugin.example_js.settings'),
+        '跳过广告曲目',
+      )?['right'],
       '已开启',
     );
 
@@ -91,17 +97,20 @@ void main() {
     expect((await _probe(runtime))['configSkipAds'], true);
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
 
-    // 改设置：与用户在设置页点按钮等价
-    final Map<String, Object?> toggled = await _callView(
-      runtime,
-      'toggleSkipAds',
+    // 改设置：与用户在设置页点按钮等价（动作只改状态，页面靠 `slot.update` 重生成）
+    await _callAction(runtime, 'toggleSkipAds');
+    expect(
+      _rowOf(
+        await probe.jsonOf('plugin.example_js.settings'),
+        '跳过广告曲目',
+      )?['right'],
+      '已关闭',
     );
-    expect(_rowOf(toggled, '跳过广告曲目')?['right'], '已关闭');
     await _pumpUntil(() => config.existsSync(), runtime: runtime);
     expect(_readConfig(config)['skipAds'], false);
 
     // 再改另一项（同一个 config.json 的另一个键）：写新键不能丢掉已有的键
-    await _callView(runtime, 'cycleHeartbeat');
+    await _callAction(runtime, 'cycleHeartbeat');
     await _pumpUntil(
       () => _readConfig(config)['heartbeatMs'] == 60000,
       runtime: runtime,
@@ -118,11 +127,17 @@ void main() {
     );
     expect((await _probe(runtime))['configSkipAds'], false, reason: '设置必须持久化');
     expect(
-      _rowOf(await _callView(runtime, 'settings'), '跳过广告曲目')?['right'],
+      _rowOf(
+        await probe.jsonOf('plugin.example_js.settings'),
+        '跳过广告曲目',
+      )?['right'],
       '已关闭',
     );
     expect(
-      _rowOf(await _callView(runtime, 'settings'), '心跳间隔(毫秒)')?['right'],
+      _rowOf(
+        await probe.jsonOf('plugin.example_js.settings'),
+        '心跳间隔(毫秒)',
+      )?['right'],
       '60000',
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
@@ -150,6 +165,11 @@ void main() {
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
     _registerHostActions(runtime, pluginRoot.path);
+    final List<MusicxxPluginEvent> seen = <MusicxxPluginEvent>[];
+    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen(
+      seen.add,
+    );
+    addTearDown(sub.cancel);
 
     runtime.init(
       config: MusicxxPluginRuntimeConfig(
@@ -165,30 +185,32 @@ void main() {
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
-    // 背景样式声明本身：类型、bundle 路径、默认速率（1x = 基准速度 1）
+    // 背景样式是 `musicxx.ui.playing.background` 上的**内容**：候选列表读注册（名字 / 说明 /
+    // 顺序），画面读生成出来的块树。所以这里既看注册表，也向插件要一份内容。
     //
-    // 第一个样式是封面类『模糊』；动画速率只影响三个图案样式，所以速度读『晶格』。
-    // 背景是一棵块树（`view`），bundle / args / speed 都在里面的着色器块上。
-    final MusicxxPluginUIItem? background = _backgroundItem(runtime, pluginId);
-    expect(background, isNotNull, reason: '插件应注册播放页背景样式');
-    expect(background!.type, MusicxxPluginUIType.playingBackground);
+    // 第一个样式是『模糊』；动画速率只影响三个图案样式，所以速度读『晶格』。
+    final UiContentProbe probe = UiContentProbe(runtime, seen);
+    final List<MusicxxPluginUIContent> backgrounds = probe.registrationsOf(
+      pluginId,
+      slot: 'musicxx.ui.playing.background',
+    );
+    expect(backgrounds.length, 6, reason: '六种背景样式各注册一份内容: $backgrounds');
+    expect(backgrounds.first.title, isNotEmpty, reason: '候选列表在选中之前就要有名字');
     expect(
-      _shaderBlockOf(background)?['bundle'],
+      _shaderBlockOf(await probe.jsonOf('plugin.$pluginId.bg'))?['bundle'],
       'shader/heat.shaderbundle',
       reason: 'bundle 用插件目录内的相对路径（第一个样式是『模糊』）',
     );
-    expect(_backgroundSpeed(runtime, pluginId), 1);
+    expect(await _backgroundSpeed(probe, pluginId), 1);
 
     // 第二种样式『光圈』：圆上 64 个点、一个点一个频带，所以数据要用 64 个频带
     // （`spectrum.bands64.0..15`，每项 4 个连续频带），少一项圆上就会缺一段
-    final MusicxxPluginUIItem? ring = _uiItemOf(
-      runtime,
-      'plugin.$pluginId.ring',
+    final Map<String, Object?>? ring = _shaderBlockOf(
+      await probe.jsonOf('plugin.$pluginId.ring'),
     );
     expect(ring, isNotNull, reason: '插件应注册『光圈』样式');
-    expect(ring!.type, MusicxxPluginUIType.playingBackground);
     expect(
-      _shaderBlockOf(ring)?['bundle'],
+      ring!['bundle'],
       'shader/ring.shaderbundle',
     );
     final Map<String, Set<String>> ringSources = _argSources(ring);
@@ -210,8 +232,8 @@ void main() {
           '一帧 256 个频点那种写法有 64 个成员，逐像素按组挑一次会很卡，别改回去',
     );
     // 频谱必须包一层过渡（10 帧/秒的数据直接取会有台阶感）
-    final Object? levelNode = _shaderBlockOf(ring)?['args'] is Map
-        ? (_shaderBlockOf(ring)!['args'] as Map)['uLevel']
+    final Object? levelNode = ring['args'] is Map
+        ? (ring['args'] as Map)['uLevel']
         : null;
     expect(
       levelNode is Map ? levelNode['kind'] : null,
@@ -225,25 +247,25 @@ void main() {
     expect(config.existsSync(), false, reason: '没改过设置就不该写配置文件');
     expect(
       _rowOf(
-        await _callView(runtime, 'settings', plugin: pluginId),
+        await probe.jsonOf('plugin.$pluginId.settings'),
         '背景动画速率',
       )?['right'],
       '1x',
     );
 
-    // 切一档速率（等价于用户在设置页点按钮）：UI 项重新声明 + 写回 config.json
+    // 切一档速率（等价于用户在设置页点按钮）：内容重新注册 + 写回 config.json
     //
-    // 两个条件都要等：UI 项更新走插件框架线程，写配置走 Dart 侧动作请求，
+    // 两个条件都要等：内容刷新走插件框架线程，写配置走 Dart 侧动作请求，
     // 只看其中一个会让"另一半还没被处理"时就开始断言。
-    await _callView(runtime, 'cycleBackgroundRate', plugin: pluginId);
+    await _callAction(runtime, 'cycleBackgroundRate', plugin: pluginId);
     await _pumpUntil(
-      () =>
-          _backgroundSpeed(runtime, pluginId) == 2 &&
+      () async =>
+          await _backgroundSpeed(probe, pluginId) == 2 &&
           _readConfig(config)['bgRate'] == 2,
       runtime: runtime,
     );
     expect(
-      _backgroundSpeed(runtime, pluginId),
+      await _backgroundSpeed(probe, pluginId),
       2,
       reason: '1x 的基准速度是 1，切到 2x 后声明 2',
     );
@@ -255,13 +277,17 @@ void main() {
     await _pumpUntil(
       () async =>
           _rowOf(
-            await _callView(runtime, 'settings', plugin: pluginId),
+            await probe.jsonOf('plugin.$pluginId.settings'),
             '背景动画速率',
           )?['right'] ==
           '2x',
       runtime: runtime,
     );
-    expect(_backgroundSpeed(runtime, pluginId), 2, reason: '速率必须持久化');
+    expect(
+      await _backgroundSpeed(probe, pluginId),
+      2,
+      reason: '速率必须持久化',
+    );
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('example_js_playing_bg：背景状态文字跟着快照频道更新', () async {
@@ -288,6 +314,11 @@ void main() {
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
     _registerHostActions(runtime, pluginRoot.path);
+    final List<MusicxxPluginEvent> seen = <MusicxxPluginEvent>[];
+    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen(
+      seen.add,
+    );
+    addTearDown(sub.cancel);
     runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
@@ -300,6 +331,7 @@ void main() {
     runtime.plugins.scan();
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+    final UiContentProbe probe = UiContentProbe(runtime, seen);
 
     /// 推一条播放页背景槽位的状态（主程序侧就是 `musicxx.state.uiSlots`）
     ///
@@ -327,17 +359,11 @@ void main() {
     }
 
     Future<String?> backgroundText() async =>
-        _rowOf(
-              await _callView(runtime, 'card', plugin: pluginId),
-              '播放页背景',
-            )?['right']
+        _rowOf(await probe.jsonOf('plugin.$pluginId.card'), '播放页背景')?['right']
             as String?;
 
     Future<String?> renderText() async =>
-        _rowOf(
-              await _callView(runtime, 'card', plugin: pluginId),
-              '渲染状态',
-            )?['right']
+        _rowOf(await probe.jsonOf('plugin.$pluginId.card'), '渲染状态')?['right']
             as String?;
 
     // 主程序还没推过这个槽位：只能说"没有状态"，不能猜成"内置背景"
@@ -349,17 +375,15 @@ void main() {
     expect(await renderText(), '未生效');
 
     // 一键使用：动作还在往返，页面当场先显示"已请求"
-    final Object? requested = await runtime.plugins.call(
-      pluginId,
-      'plugin.$pluginId.useBackground',
-      <String, Object?>{'id': itemId, 'view': 'card'},
+    // （动作只改状态、让页面重出一份内容；这里就是要一份新内容看当下的反馈）
+    await _callAction(
+      runtime,
+      'useBackground',
+      plugin: pluginId,
+      args: <String, Object?>{'id': itemId, 'view': 'card'},
     );
-    expect(requested, isA<Map<String, Object?>>());
     expect(
-      _rowOf(
-        (requested! as Map<String, Object?>)['view']! as Map<String, Object?>,
-        '播放页背景',
-      )?['right'],
+      _rowOf(await probe.jsonOf('plugin.$pluginId.card'), '播放页背景')?['right'],
       '已请求',
       reason: '点击后当场要有反馈（镜像还没反映这次请求）',
     );
@@ -416,6 +440,11 @@ void main() {
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
     _registerHostActions(runtime, pluginRoot.path);
+    final List<MusicxxPluginEvent> seen = <MusicxxPluginEvent>[];
+    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen(
+      seen.add,
+    );
+    addTearDown(sub.cancel);
 
     // 频谱动作用一条固定结果回答（真实实现读播放器提取的频谱，这里只验证调用能走通）
     int spectrumCalls = 0;
@@ -450,29 +479,26 @@ void main() {
     runtime.plugins.scan();
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+    final UiContentProbe probe = UiContentProbe(runtime, seen);
 
     // 插件加载时就发起过一次动作读取（脚本顶层的 refreshSpectrumAction）
     await _pumpUntil(() => spectrumCalls >= 1, runtime: runtime);
     expect(spectrumCalls, greaterThanOrEqualTo(1), reason: '插件加载后应异步读一次频谱动作');
 
-    // 能力必须**同步返回**：处理器里等动作的写法会一直卡到插件调用的 5 秒超时
-    // （主程序侧表现是整机卡住几秒 + "调用插件能力失败，未在时限内完成"）
-    // 注：主程序调插件现在是异步受理（结果经事件回填），所以这里量的是"受理 + 处理器
-    // 当场返回"这一段：处理器如果再等一次动作，它会一直卡到插件框架给的时限。
+    // 生成函数必须**同步返回**：在生成里等动作会一直卡到插件框架的时限
+    // （主程序侧表现是整机卡住几秒 + 请求超时）。
     final Stopwatch watch = Stopwatch()..start();
-    Map<String, Object?> view = await _callView(
-      runtime,
-      'spectrumProbe',
-      plugin: pluginId,
+    Map<String, Object?> page = await probe.jsonOf(
+      'plugin.$pluginId.spectrumProbe',
     );
     watch.stop();
     expect(
       watch.elapsedMilliseconds,
       lessThan(1000),
-      reason: '能力处理器不能等动作：这一页必须立刻返回（等动作会卡到超时）',
+      reason: '生成函数不能等动作：这一页必须立刻生成出来（等动作会卡到超时）',
     );
     // 镜像还没推过：镜像那一行只能说"无状态"（动作结果照旧异步读，不影响这一页当场画出来）
-    expect(_rowOf(view, '快照频道')?['right'], '无状态');
+    expect(_rowOf(page, '快照频道')?['right'], '无状态');
 
     // 推一条"有数据"的镜像：镜像那一行按镜像说真话（同步、实时）
     runtime.broadcasts.publish('musicxx.state.spectrum', <String, Object?>{
@@ -484,14 +510,13 @@ void main() {
       'bands': List<double>.filled(16, 0.1),
       'frameHz': 10,
     });
-    view = await _callView(runtime, 'spectrumProbe', plugin: pluginId);
-    expect(_rowOf(view, '快照频道')?['right'], '有数据（响度 42%）');
+    page = await probe.jsonOf('plugin.$pluginId.spectrumProbe');
+    expect(_rowOf(page, '快照频道')?['right'], '有数据（响度 42%）');
 
-    // 动作结果由页面回读：每次取页面都会再发起一次读取，所以这里反复取页面，
-    // 直到某一次读到的就是异步读回的结果（处理器同步返回，每次取都是立即的）
-    Map<String, Object?> page = <String, Object?>{};
+    // 动作结果由页面回读：重新要一份内容就会再发起一次读取，所以这里反复要，
+    // 直到某一次读到的就是异步读回的结果（生成函数同步返回，每次都是立即的）
     await _pumpUntil(() async {
-      page = await _callView(runtime, 'spectrumProbe', plugin: pluginId);
+      page = await probe.jsonOf('plugin.$pluginId.spectrumProbe');
       return _textStartingWith(page, '动作结果: ').contains('bandCount = 8');
     }, runtime: runtime);
     final String detail = _textStartingWith(page, '动作结果: ');
@@ -524,21 +549,11 @@ void main() {
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
     _registerHostActions(runtime, pluginRoot.path);
-
-    /// 取页面视图：能力可以返回 `{view:{...}}`，也可以直接返回视图对象
-    /// （与 `ExternPluginViewBody._applyView` 同一套判定）
-    Future<Map<String, Object?>> viewOf(String method) async {
-      final Object? raw = await runtime.plugins.call(
-        pluginId,
-        'plugin.$pluginId.$method',
-        const <String, Object?>{},
-      );
-      expect(raw, isA<Map<String, Object?>>(), reason: '$method 应返回视图描述');
-      final Map<String, Object?> map = raw! as Map<String, Object?>;
-      final Object? view = map['view'] ?? map;
-      expect(view, isA<Map<String, Object?>>(), reason: '$method 的视图缺失');
-      return view! as Map<String, Object?>;
-    }
+    final List<MusicxxPluginEvent> seen = <MusicxxPluginEvent>[];
+    final StreamSubscription<MusicxxPluginEvent> sub = runtime.events.listen(
+      seen.add,
+    );
+    addTearDown(sub.cancel);
 
     // 字体动作：故意做慢（400ms 同步阻塞，模拟主程序"换字体重建整棵界面"）
     //
@@ -589,18 +604,15 @@ void main() {
     runtime.plugins.scan();
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
+    final UiContentProbe probe = UiContentProbe(runtime, seen);
 
     // 页面：默认模式 + "主程序生效字体"（同步读变量缓存）
-    Map<String, Object?> view = await viewOf('card');
+    Map<String, Object?> view = await probe.jsonOf('plugin.$pluginId.card');
     expect(_rowOf(view, '选择的模式')?['right'], contains('拟声默认'));
 
     // 点『微软雅黑』：能力必须**立刻**返回
     final Stopwatch watch = Stopwatch()..start();
-    final Object? selectRaw = await runtime.plugins.call(
-      pluginId,
-      'plugin.$pluginId.selectYahei',
-      const <String, Object?>{},
-    );
+    await _callAction(runtime, 'selectYahei', plugin: pluginId);
     watch.stop();
     expect(
       watch.elapsedMilliseconds,
@@ -609,12 +621,9 @@ void main() {
           '按钮能力必须立刻返回：处理器里 await 字体动作会与调用方互锁，'
           '一直卡到动作超时（主程序侧表现是整机卡几秒 + 报 action_timeout，但字体其实切成功了）',
     );
-    expect(selectRaw, isA<Map<String, Object?>>());
-    final Object? selectView = (selectRaw! as Map<String, Object?>)['view'];
-    expect(selectView, isA<Map<String, Object?>>());
-    // 当场给反馈：显示新模式（这时动作还没被处理）
+    // 当场给反馈：页面重出一份就显示新模式（这时动作还没被处理）
     expect(
-      _rowOf(selectView! as Map<String, Object?>, '选择的模式')?['right'],
+      _rowOf(await probe.jsonOf('plugin.$pluginId.card'), '选择的模式')?['right'],
       contains('微软雅黑'),
     );
     // 说明：主程序调插件现在是**异步受理**（结果经事件回填），等结果期间事件循环照跑，
@@ -642,34 +651,31 @@ void main() {
     runtime.broadcasts.publish('musicxx.ui.fontFamily', 'Microsoft YaHei');
     await _pumpUntil(
       () async =>
-          _rowOf(await viewOf('card'), '主程序生效字体')?['right'] ==
+          _rowOf(
+            await probe.jsonOf('plugin.$pluginId.card'),
+            '主程序生效字体',
+          )?['right'] ==
           'Microsoft YaHei',
       runtime: runtime,
     );
     expect(
-      _rowOf(await viewOf('card'), '主程序生效字体')?['right'],
+      _rowOf(await probe.jsonOf('plugin.$pluginId.card'), '主程序生效字体')?['right'],
       'Microsoft YaHei',
       reason: '页面用 peek 同步读变量缓存（不做 FFI 往返，也不阻塞能力调用）',
     );
 
     // 动作成功后再取页面：不再显示"切换中"
-    view = await viewOf('card');
+    view = await probe.jsonOf('plugin.$pluginId.card');
     expect(_rowOf(view, '选择的模式')?['right'], contains('微软雅黑'));
     expect(_rowOf(view, '选择的模式')?['right'], isNot(contains('切换中')));
 
     // 『字体文件示例』：同样的写法走 loadFont 分支
     final Stopwatch fileWatch = Stopwatch()..start();
-    final Object? fileRaw = await runtime.plugins.call(
-      pluginId,
-      'plugin.$pluginId.selectFile',
-      const <String, Object?>{},
-    );
+    await _callAction(runtime, 'selectFile', plugin: pluginId);
     fileWatch.stop();
     expect(fileWatch.elapsedMilliseconds, lessThan(1000));
-    expect(fileRaw, isA<Map<String, Object?>>());
-    final Object? fileView = (fileRaw! as Map<String, Object?>)['view'];
     expect(
-      _rowOf(fileView! as Map<String, Object?>, '选择的模式')?['right'],
+      _rowOf(await probe.jsonOf('plugin.$pluginId.card'), '选择的模式')?['right'],
       contains('字体文件示例'),
     );
     await _pumpUntil(
@@ -680,11 +686,7 @@ void main() {
     expect(_readConfig(config)['fontMode'], 'file');
 
     // 『拟声默认』：恢复默认字体
-    await runtime.plugins.call(
-      pluginId,
-      'plugin.$pluginId.selectDefault',
-      const <String, Object?>{},
-    );
+    await _callAction(runtime, 'selectDefault', plugin: pluginId);
     await _pumpUntil(
       () =>
           fontCalls.length == 3 && _readConfig(config)['fontMode'] == 'default',
@@ -694,21 +696,22 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
 
-/// 调用插件能力并取回视图描述（`{view: {...}}`）
-Future<Map<String, Object?>> _callView(
+/// 调一个"只改状态"的插件能力
+///
+/// 动作不再返回视图：改完状态由插件调 `musicxx.ui.slot.update`，主程序让那一页重出一份内容。
+/// 这里只确认动作受理并按约定返回 `{ok: true}`；要看结果就再用 [UiContentProbe] 要一份内容。
+Future<void> _callAction(
   MusicxxPluginRuntime runtime,
   String method, {
   String plugin = 'example_js',
+  Map<String, Object?> args = const <String, Object?>{},
 }) async {
   final Object? raw = await runtime.plugins.call(
     plugin,
     'plugin.$plugin.$method',
-    const <String, Object?>{},
+    args,
   );
-  expect(raw, isA<Map<String, Object?>>(), reason: '$method 应返回视图描述');
-  final Object? view = (raw! as Map<String, Object?>)['view'];
-  expect(view, isA<Map<String, Object?>>(), reason: '$method 的 view 缺失');
-  return view! as Map<String, Object?>;
+  expect(raw, <String, Object?>{'ok': true}, reason: '$method 应返回 ok');
 }
 
 /// 取视图里某一行的排版结果（按行标题找）
@@ -810,38 +813,19 @@ Future<Map<String, Object?>> _probe(MusicxxPluginRuntime runtime) async {
   return raw! as Map<String, Object?>;
 }
 
-/// UI 项快照里的播放页背景样式（`musicxx.ui.playing.background`）
-MusicxxPluginUIItem? _backgroundItem(
-  MusicxxPluginRuntime runtime,
-  String pluginId,
-) {
-  for (final MusicxxPluginUIItem item in runtime.plugins.uiSnapshot()) {
-    if (item.plugin == pluginId &&
-        item.type == MusicxxPluginUIType.playingBackground) {
-      return item;
-    }
-  }
-  return null;
-}
-
-/// UI 项快照里指定 id 的项（id 是全名 `plugin.<插件id>.<短名>`）
-MusicxxPluginUIItem? _uiItemOf(MusicxxPluginRuntime runtime, String id) {
-  for (final MusicxxPluginUIItem item in runtime.plugins.uiSnapshot()) {
-    if (item.id == id) {
-      return item;
-    }
-  }
-  return null;
-}
-
-/// UI 项 `view` 里的着色器块
+/// 块树里的着色器块
 ///
-/// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `children` 里。
-Map<String, Object?>? _shaderBlockOf(MusicxxPluginUIItem? item) {
-  Object? node = item?.data['view'];
+/// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `child`
+/// （或 `children` 的第一项）里。
+Map<String, Object?>? _shaderBlockOf(Object? node) {
   for (int depth = 0; depth < 4 && node is Map; ++depth) {
     if (node['kind'] == 'musicxx.Shader') {
       return node.cast<String, Object?>();
+    }
+    final Object? child = node['child'];
+    if (child is Map) {
+      node = child;
+      continue;
     }
     final Object? children = node['children'];
     if (children is! List || children.isEmpty) {
@@ -852,13 +836,13 @@ Map<String, Object?>? _shaderBlockOf(MusicxxPluginUIItem? item) {
   return null;
 }
 
-/// UI 项 `args`（成员名 → 值表达式）里每个成员用到的**具名来源**
+/// 着色器块 `args`（成员名 → 值表达式）里每个成员用到的**具名来源**
 ///
 /// 值表达式可以嵌套（`smooth` / `mul` / `mix` …），要把树走一遍才知道成员实际读的是哪些来源；
 /// 测试只关心"声明里连的是哪个来源"（没有来源的成员给空集合）。
-Map<String, Set<String>> _argSources(MusicxxPluginUIItem item) {
+Map<String, Set<String>> _argSources(Map<String, Object?>? shader) {
   final Map<String, Set<String>> out = <String, Set<String>>{};
-  final Object? args = _shaderBlockOf(item)?['args'];
+  final Object? args = shader?['args'];
   if (args is Map) {
     for (final MapEntry<Object?, Object?> entry in args.entries) {
       final Set<String> names = <String>{};
@@ -892,10 +876,12 @@ void _collectSourceNames(Object? node, Set<String> out) {
   }
 }
 
-/// 背景样式声明的动画速度（着色器块的 `speed`，读『晶格』：动画速率只影响图案样式）
-num? _backgroundSpeed(MusicxxPluginRuntime runtime, String pluginId) {
-  final MusicxxPluginUIItem? item = _uiItemOf(runtime, 'plugin.$pluginId.lattice');
-  final Object? value = _shaderBlockOf(item)?['speed'];
+/// 背景动画速度（着色器块的 `speed`；动画速率只影响图案样式，所以读『晶格』）
+Future<num?> _backgroundSpeed(UiContentProbe probe, String pluginId) async {
+  final Map<String, Object?> json = await probe.jsonOf(
+    'plugin.$pluginId.lattice',
+  );
+  final Object? value = _shaderBlockOf(json)?['speed'];
   return value is num ? value : null;
 }
 

@@ -23,6 +23,22 @@ function viewEnv(args) {
     return null;
 }
 
+/// 内容生成函数拿到的上下文 → 视图函数认的参数形状
+///
+/// 上下文是“声明过的依赖变量 → 当前值”（键就是变量 id）。视图函数按
+/// `{playing, hasSong, favorite, song}` 读，这里转一次，视图那边不用关心值从哪来。
+/// 没声明依赖时 `ctx` 是空对象：播放状态这些退回读广播快照。
+function contentArgs(ctx) {
+    const c = (ctx && typeof ctx === "object") ? ctx : {};
+    const song = (typeof c["musicxx.song.name"] === "string") ? c["musicxx.song.name"] : "";
+    return {
+        playing: c["musicxx.player.playing"] === true,
+        hasSong: c["musicxx.song.hasSong"] !== false,
+        favorite: c["musicxx.song.favorite"] === true,
+        song: { name: song },
+    };
+}
+
 /* ==================== 状态文字 ==================== */
 
 /// 当前歌曲名（视图参数里有就用，没有就读快照频道）
@@ -108,7 +124,8 @@ const FAVORITE_ICON_OFF = "resource/svg/heartOutline.svg";
 /// 控制栏「收藏」按钮的替换视图（按 `args.favorite` 换图标）
 ///
 /// 控制栏里的按钮**只放图标**（文字会把整排按钮挤变形，内置那一排也只有图标）：
-/// 已收藏用实心、未收藏用空心。主程序在收藏状态变化时会带着新的参数再取一次视图。
+/// 已收藏用实心、未收藏用空心。内容声明了 `musicxx.song.favorite` 作依赖，
+/// 收藏状态一变主程序就重出一份。
 function favoriteButtonView(args) {
     const favorite = !!(args && args.favorite === true);
     return {
@@ -198,11 +215,11 @@ function loopModeButton(args, mode) {
 
 /// 整条控制栏的替换视图：五个按钮（切播放模式 / 上一曲 / 播放暂停 / 下一曲 / 收藏）
 ///
-/// **替换，不是插入**：整栏生效时内置的五个按钮与按钮级替换项都不再参与渲染，
-/// 所以两个按钮级项虽然还注册着，页面上的提示会说明这一点。
-/// 主程序给视图参数 `playing` / `favorite` / `hasSong` / `song` / `colors`：
-/// 播放 / 暂停、切歌、收藏、换主题时会带新参数再取一次；播放模式不靠参数 ——
-/// 读广播快照 `musicxx.state.playlist`（见 [currentLoopMode]）。
+/// **替换，不是插入**：整栏生效时内置的五个按钮与按钮级替换都不再参与渲染，
+/// 所以两个按钮级内容虽然还注册着，页面上的提示会说明这一点。
+/// 生成的上下文里给了 `playing` / `favorite` / `hasSong` / `song`（见 [contentArgs]）：
+/// 声明了对应依赖，所以播放 / 暂停、切歌、收藏变化时会重出一份；
+/// 播放模式不靠变量 —— 读广播快照 `musicxx.state.playlist`（见 [currentLoopMode]）。
 /// **按钮的颜色不用插件管**：没写 `color` 的按钮在播放页上按页面前景三色画（见插件文档 §1.7）。
 /// [mode] 是刚切完的新模式（只有点的瞬间传，平时为空）。
 function controlBarView(args, mode) {
@@ -334,7 +351,7 @@ function settingsView(args) {
             }, env),
             kit.listRow({
                 title: "歌词页顶部提示",
-                subtitle: "开 = 注册这一项，关 = musicxx.ui.item.unregister",
+                subtitle: "开 = 注册这一份内容，关 = musicxx.ui.content.unregister",
                 trailing: configLyricTip() ? "显示" : "已隐藏",
             }, env),
             kit.button({
@@ -369,7 +386,16 @@ function settingsView(args) {
     };
 }
 
-/// 动作从哪个页面发起就返回哪个页面（插件框架用返回值直接刷新当前页）
-function pageView(args) {
-    return (args && args.view === HOME_VIEW_ID) ? cardView(args) : settingsView(args);
+/// 动作从哪个页面发起就刷新哪个页面
+///
+/// 动作不再返回视图：改完状态自己说一声，主程序让那个页面的内容重出一份
+/// （`musicxx.ui.slot.update(slot, [内容 id])`）。
+/// 动作改完状态后让发起的那一页重出一份内容
+///
+/// 动作不再返回视图：主程序收到 `slot.update` 后自己来要新内容。返回 `{ok: true}`
+/// 让调用方（测试 / 旧客户端）知道这次动作做完了。
+function refreshPage(args) {
+    const view = (args && args.view === HOME_VIEW_ID) ? HOME_VIEW_ID : SETTINGS_VIEW_ID;
+    musicxx.ui.slot.update("musicxx.ui.page", [view]);
+    return { ok: true };
 }

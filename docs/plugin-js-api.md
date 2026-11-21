@@ -338,8 +338,8 @@ ui.limits      // 解析规模上限（当前全部为 0 = 不限制）
 
 - **判断"能不能用某个组件"要按 `blocks`/`controls` 判断**，不要按 `kind` 写两套内容；
   `kind` 只用于粗判断（比如终端不给图片、不推着色器）。
-- 取插件页面（`ext://<插件id>/<视图id>` 对应的能力）时，主程序也会把同一份能力段放进能力参数
-  （`{"view":"...","ui":{…}}`）：需要在**生成页面内容的那一刻**就知道目标的插件用这个参数。
+- 取插件页面内容（`ext://<插件id>/<内容 id>`）时，主程序也会把同一份能力段放进生成函数的 ctx
+  （依赖变量 + `ui`）：需要按目标客户端能力决定结构时，可以在生成页面的那一刻读它。
 - 这个字段只在客户端给了能力段时出现；没有时按 `undefined` 处理（当作"什么都能试，老客户端
   会忽略不认识的组件"）。
 
@@ -599,7 +599,7 @@ await musicxx.ui.overlayClose();                              // 自己收起当
 ```
 
 - 弹窗标题会自动带插件来源前缀（`『<插件id>』…`），避免插件伪装成主程序自己的提示；
-- `openRoute` 的地址不完整（缺插件 id 或视图 id）或不在白名单里会被拒绝，错误信息里会列出全部可用别名。
+- `openRoute` 的地址不完整（缺插件 id 或内容 id）或不在白名单里会被拒绝，错误信息里会列出全部可用别名。
 
 ---
 
@@ -746,68 +746,73 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 
 - 跨插件调用失败时 Promise 拒绝，`err.message` 里带原因
   （`plugin_capability_not_found: xxx` / `capability_call_failed` / `跨插件调用超时: ...`）；
-- 插件页面也走能力：主程序打开 `ext://<插件id>/<视图id>` 时调用同名能力（见 §12）。
+- 插件页面是**内容**：主程序打开 `ext://<插件id>/<内容 id>` 时来要一份内容（见 §12）。
 
 ---
 
 ## 11. 渲染槽位与封面数据
 
 插件可以把**预编译的 shader bundle** 注册成主程序的一种渲染样式（当前有两个槽位：「播放页背景」
-`player.background` 与「播放页歌曲图」`player.icon`，后者见
-[plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3），由用户在设置里选中后生效；
-也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
+插件可以把**预编译的 shader bundle** 注册成主程序的一种渲染样式（当前有三个可选槽位：「播放页背景」
+`musicxx.ui.playing.background`、「播放页歌曲图」`musicxx.ui.playing.icon`、「播放页音频动效」
+`musicxx.ui.playing.visualizer`，后者见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3），
+由用户在设置里选中后生效；也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
 [plugin-shader-bundle.md](plugin-shader-bundle.md)，本节只说 JS 侧怎么用。
 
-> 渲染槽位的能力（`musicxx.ui.slot.*`）与封面 / 频谱能力（`musicxx.media.*`）的**参数、返回与状态含义**
-> 在 [plugin-api.md](plugin-api.md) §3.2.7 与 §3.2.8（两种形态共用）；本节是 JS 的声明写法与注意点。
+> 样式 = **槽位上的一份内容**：`title` / `depict` / `order` 在注册时给（用户选中之前就要列出来），
+> 画面由生成函数给一棵块树（着色器是里面的 `musicxx.Shader` 块）。
+> 槽位能力（`musicxx.ui.slot.*`）与封面 / 频谱能力（`musicxx.media.*`）的**参数、返回与状态含义**
+> 在 [plugin-api.md](plugin-api.md) §3.2.7 与 §3.2.8（两种形态共用）；本节是 JS 的写法与注意点。
 
 ```js
-// 接管播放页中间的歌曲图（类型简称 playing.icon）：不显示内容、只保留占位
-// 也可以声明 shader（插件着色器绘制）或 view（声明式界面组合）—— 三个字段挑一个
-musicxx.ui.slot.register({
-    name: "icon",
-    type: "playing.icon",
-    data: { title: "不显示歌曲图", mode: "none", keepSpace: true },
-});
-
-// 注册一种播放页背景样式（类型简称 playing.background，或写全名）
-musicxx.ui.slot.register({
-    name: "bg",
-    type: "playing.background",
-    order: 20,
-    data: {
-        title: "流光背景",
-        depict: "跟随封面配色的动态背景",
-        // 背景是一棵块树（view）：着色器就是根上的这块 `musicxx.Shader`，
-        // 根块直接写着色器就铺满整页（不用再包 Expanded；包了也行，会被解开）
-        view: {
-            kind: "musicxx.Shader",
-            bundle: "shader/bg.shaderbundle",   // 插件目录内的相对路径
-            // args：成员名 → 值表达式（可嵌套），纹理也写在这里（成员名就是采样器名）：
-            // `musicxx.cover` = 当前歌曲封面（解码 + 缩放 + 可预模糊后上传成 GPU 纹理），
-            // `musicxx.songlist.cover` = 当前页面打开的歌单封面（只在歌单页面内可用），
-            // 信息成员缺省 `<成员名>Info` = (纹理宽, 纹理高, 原图宽高比, 是否有封面)
-            args: {
-                uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 24 },
-                uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
-                uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
-                uColor3: { kind: "source", name: "musicxx.theme.primary" },
-                uColor4: { kind: "const", value: "#223344" },
-                uLevel: {
-                    kind: "smooth", attackMs: 20, releaseMs: 260,
-                    of: { kind: "source", name: "musicxx.spectrum.level" },
-                },
-            },
-            speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
-            maxFps: 16,
-        },
-    },
+// 接管播放页中间的歌曲图：不画内容、只保留占位（`data.keepSpace`）
+musicxx.ui.content.register({
+    id: "icon",
+    slot: "musicxx.ui.playing.icon",
+    title: "不显示歌曲图",
+    depict: "保留占位、不画内容",
+}, function () {
+    return { json: { blocks: [] }, data: { keepSpace: true } };
 });
 ```
 
 ```js
-// 播放页前景（三色 + 是否用遮罩外观）不在 UI 项里，而是本插件背景被选中后调能力：
-// 应用只接受“当前生效的播放页背景插件项”的调用（否则回 not_active / not_selected）
+// 注册一种播放页背景样式：生成函数给一棵块树
+musicxx.ui.content.register({
+    id: "bg",
+    slot: "musicxx.ui.playing.background",
+    title: "流光背景",
+    depict: "跟随封面配色的动态背景",
+    order: 20,
+}, function () {
+    return {
+        // 根块直接写着色器就铺满整页（不用再包 Expanded；包了也行，会被解开）
+        kind: "musicxx.Shader",
+        bundle: "shader/bg.shaderbundle",   // 插件目录内的相对路径
+        // args：成员名 → 值表达式（可嵌套），纹理也写在这里（成员名就是采样器名）：
+        // `musicxx.cover` = 当前歌曲封面（解码 + 缩放 + 可预模糊后上传成 GPU 纹理），
+        // `musicxx.songlist.cover` = 当前页面打开的歌单封面（只在歌单页面内可用），
+        // 信息成员缺省 `<成员名>Info` = (纹理宽, 纹理高, 原图宽高比, 是否有封面)
+        args: {
+            uCover: { kind: "texture", source: "musicxx.cover", size: 512, blur: 24 },
+            uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
+            uColor2: { kind: "source", name: "musicxx.icon.main", convert: true, fallback: "#8899aa" },
+            uColor3: { kind: "source", name: "musicxx.theme.primary" },
+            uColor4: { kind: "const", value: "#223344" },
+            uLevel: {
+                kind: "smooth", attackMs: 20, releaseMs: 260,
+                of: { kind: "source", name: "musicxx.spectrum.level" },
+            },
+        },
+        speed: 1,          // 时间推进速度（主程序直接用这个值，不做二次缩放）
+        maxFps: 16,
+    };
+});
+```
+
+```js
+// 播放页前景（三色 + 是否用遮罩外观）不在内容里，而是本插件背景被选中后调能力：
+// 应用只接受“当前生效的播放页背景内容”的调用（否则回 not_active / not_selected）
 await musicxx.capability.call("musicxx.ui.playing.foreground.set", {
     style: "mask",              // mask（浅色遮罩，默认）/ neumorphism（常规轻拟物）
     colors: { main: "#ffe8f0ff", cross: "#80e8f0ff", block: "#1f5a7bb8" },
@@ -817,15 +822,17 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", { clear: true
 ```
 
 ```js
-// 注册一种播放页音频动效样式（类型简称 playing.visualizer）：与内置『音乐动效』的四种样式
-// 在同一个列表里选；没安装那个插件时插件样式照样可用
-musicxx.ui.slot.register({
-    name: "viz",
-    type: "playing.visualizer",
-    data: {
-        title: "我的频谱",
-        depict: "跟随低频起伏",
-        shader: { bundle: "shader/viz.shaderbundle" },
+// 注册一种播放页音频动效样式：与内置『音乐动效』的四种样式在同一个列表里选；
+// 没安装那个插件时插件样式照样可用
+musicxx.ui.content.register({
+    id: "viz",
+    slot: "musicxx.ui.playing.visualizer",
+    title: "我的频谱",
+    depict: "跟随低频起伏",
+}, function () {
+    return {
+        kind: "musicxx.Shader",
+        bundle: "shader/viz.shaderbundle",
         args: {
             uBass: {
                 kind: "smooth", attackMs: 20, releaseMs: 260,
@@ -833,36 +840,35 @@ musicxx.ui.slot.register({
             },
         },
         speed: 1, maxFps: 30,
-    },
+    };
 });
 
-// 也可以用声明式界面画（不写 shader；柱状条用 AnimatedBuilder 逐帧动）
-musicxx.ui.slot.register({
-    name: "vizView",
-    type: "playing.visualizer",
-    data: { title: "柱状条", view: "visualizerView" },
-});
+// 也可以用声明式界面画（不写着色器；柱状条用 AnimatedBuilder 逐帧动）
+musicxx.ui.content.register({
+    id: "vizView",
+    slot: "musicxx.ui.playing.visualizer",
+    title: "柱状条",
+}, function () { return { blocks: [/* … */] }; });
 ```
 
 ```js
-// 注册普通页面背景（类型简称 page.background）：给歌单页 / 设置页 / 插件页面这类普通页面铺背景。
+// 注册普通页面背景：给歌单页 / 设置页 / 插件页面这类普通页面铺背景。
 // routes 写页面路由 id 数组（不写或空数组 = 所有普通页面）；同一个页面命中多项时
 // 写了这个路由的优先于“所有页面”，同一优先级里**最新注册的生效**（不读 order）。
-// 不需要用户选择（插件声明即生效）；弹窗与播放页不包含在内。
-musicxx.ui.slot.register({
-    name: "pageBg",
-    type: "page.background",
-    data: {
-        title: "纸张纹理",
-        depict: "浅色、静态",
-        routes: ["/songs", "/setting/theme"],
-        view: {
-            kind: "musicxx.Shader",
-            bundle: "shader/page.shaderbundle",
-            args: { uCover: { kind: "texture", source: "musicxx.cover", size: 256, blur: 18 } },
-            speed: 1, maxFps: 8,
-        },
-    },
+// 不需要用户选择（注册即生效）；弹窗与播放页不包含在内。
+musicxx.ui.content.register({
+    id: "pageBg",
+    slot: "musicxx.ui.page.background",
+    title: "纸张纹理",
+    depict: "浅色、静态",
+    routes: ["/songs", "/setting/theme"],
+}, function () {
+    return {
+        kind: "musicxx.Shader",
+        bundle: "shader/page.shaderbundle",
+        args: { uCover: { kind: "texture", source: "musicxx.cover", size: 256, blur: 18 } },
+        speed: 1, maxFps: 8,
+    };
 });
 
 // 当前路由可以在 musicxx.state.env 广播里读到（写 routes 前先用它确认路由 id）
@@ -871,12 +877,13 @@ musicxx.host.log(2, "当前页面: " + page);
 ```
 
 ```js
-// 注册自己的音效（类型简称 audio.effect）：追加在『音效』插件的音效页面里，与内置预设同一个列表。
+// 注册自己的音效：追加在『音效』插件的音效页面里，与内置预设同一个列表。
+// 音效是**声明项**（只有数据、没有界面树）。
 // filter 是完整的一段 mpv af 串，多条滤镜写成一条 lavfi=[...] 图（否则每条滤镜各占一组线程）；
 // 与均衡器、自定义音调互斥。
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "bass",
-    type: "audio.effect",
+    type: "audio.effect",        // 全名 musicxx.ui.audioEffect
     title: "低音炮",
     subtitle: "加强 60~140 Hz",
     cpuCost: 3,
@@ -887,36 +894,36 @@ musicxx.ui.slot.register({
 ```
 
 ```js
-// 在播放页子页面的固定位置插一块自己的界面（位置就是类型，见 plugin-ui.md §1.6）
-musicxx.ui.slot.register({
-    name: "lyricTip",
-    type: "playing.lyric.top",      // 全名 musicxx.ui.playing.lyric.top
+// 在播放页子页面的固定位置插一块自己的界面（位置就是槽位，见 plugin-ui.md §1.7）
+musicxx.ui.content.register({
+    id: "lyricTip",
+    slot: "musicxx.ui.playing.lyric.top",   // 全名
+    title: "歌词页顶部提示",
     order: 10,
-    data: {
-        view: { blocks: [{ kind: "Text", text: "歌词由插件提供", type: "caption" }] },
-    },
+}, function () {
+    return { blocks: [{ kind: "Text", text: "歌词由插件提供", type: "caption" }] };
 });
 ```
 
 ```js
-// 播放页底部控制按钮栏：整栏替换，或者只换其中一个按钮（替换关系，见 plugin-ui.md §1.7）
-musicxx.ui.slot.register({
-    name: "brandPlayBtn",
-    type: "playing.controlBar.playOrPause",   // 全名 musicxx.ui.playing.controlBar.playOrPause
-    data: {
-        // 视图参数里有 playing / favorite / song / colors：状态变了主程序会重新取一次视图
-        view: { blocks: [
-            { kind: "Button", label: "", variant: "simple", icon: "resource/svg/play.svg",
-              action: { kind: "command", name: "musicxx.player.toggle" } },
-        ] },
-    },
+// 播放页底部控制按钮栏：整栏替换，或者只换其中一个按钮（替换关系，见 plugin-ui.md §1.8）
+musicxx.ui.content.register({
+    id: "brandPlayBtn",
+    slot: "musicxx.ui.playing.controlBar.playOrPause",
+    title: "自己的播放按钮",
+    deps: ["musicxx.player.playing", "musicxx.song.hasSong"],   // 要按状态变就声明依赖
+}, function (ctx) {
+    return { blocks: [
+        { kind: "Button", label: "", variant: "simple", icon: "resource/svg/play.svg",
+          action: { kind: "call", name: "musicxx.player.toggle" } },
+    ] };
 });
 
-musicxx.ui.slot.register({
-    name: "miniBar",
-    type: "playing.controlBar",               // 整栏都由本插件画（五个按钮级类型不再参与）
-    data: { view: "controlBarView" },
-});
+musicxx.ui.content.register({
+    id: "miniBar",
+    slot: "musicxx.ui.playing.controlBar",   // 整栏都由本插件画（五个按钮级内容不再参与）
+    title: "整条控制栏",
+}, function (ctx) { return { blocks: [/* … */] }; });
 ```
 
 ```js
@@ -1090,15 +1097,23 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
 
 ---
 
-## 12. 界面（UI 项与插件页面）
+## 12. 界面（声明项、内容与槽位）
 
 完整字段、块类型与排版约定见 **[plugin-ui.md](plugin-ui.md)**（C++ 与 JS 共用同一份）。
 
+三件事要分清：
+
+| 概念 | JS API | 用来做什么 |
+|---|---|---|
+| 声明项 | `musicxx.ui.item.register/unregister/entries` | 只有数据、没有界面树：主页入口 / 歌曲菜单 / 歌单菜单 / 「添加歌曲」来源项 / 音效 |
+| 内容 | `musicxx.ui.content.register/unregister/push/entries` | 挂在槽位上的界面 JSON，由生成函数按需给出（页面 / 插入块 / 控制栏 / 背景的候选也是内容） |
+| 槽位 | `musicxx.ui.slot.update/define/undefine/list/current/set` | `update` = 让主程序再要一份；`define` = 插件声明自己的槽位；`list` / `current` / `set` = 看可选样式的候选、看当前、选一个 |
+
 ```js
-// 主页入口：点开自己的页面
-musicxx.ui.slot.register({
+// 主页入口：声明项（点开自己的页面）
+musicxx.ui.item.register({
     name: "card",
-    type: "home.entry",
+    type: "home.entry",          // 简称或全名都行
     order: 120,
     data: {
         title: "我的插件",
@@ -1107,39 +1122,44 @@ musicxx.ui.slot.register({
     },
 });
 
-// 也可以把 data 的字段平铺在对象上（等价写法）
-musicxx.ui.slot.register({ name: "clear", type: "song.action", order: 900,
-    title: "用我的插件处理这首歌",
-    action: { kind: "capability", name: "handleSong" } });
-
-// 插件页面：主程序调用同名能力，脚本返回视图描述
-musicxx.capability.register("card", function (args) {
+// 插件页面：`musicxx.ui.page` 槽位上的内容（地址里的最后一段就是内容 id）
+musicxx.ui.content.register({
+    id: "card",
+    slot: "musicxx.ui.page",
+    title: "我的插件",
+}, function (ctx) {
     return {
-        view: {
-            title: "我的插件",
-            subtitle: "页面内容来自能力 card",
-            blocks: [
-                { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。", style: "cross" },
-                { kind: "Divider" },
-                { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
-                  action: { kind: "command", name: "musicxx.player.toggle" } },
-                { kind: "Button", label: "打开本插件设置页", variant: "full",
-                  action: { kind: "route", route: "ext://my_plugin/settings" } },
-            ],
-        },
+        title: "我的插件",
+        blocks: [
+            { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。", style: "cross" },
+            { kind: "Divider" },
+            { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
+              action: { kind: "call", name: "musicxx.player.toggle" } },
+        ],
     };
+});
+
+// 按钮改完状态：让主程序把这一页再要一次（不返回视图，也不刷新整个应用）
+musicxx.capability.register("toggleMySwitch", function () {
+    mySwitch = !mySwitch;                          // 插件自己的镜像，生成函数读它
+    musicxx.storage.setConfig("mySwitch", mySwitch);
+    musicxx.ui.slot.update("musicxx.ui.page", ["card"]);
+    return { ok: true };
 });
 ```
 
-- 能力返回 `{ view: {...} }`（推荐）或直接返回视图对象；返回视图时主程序会用新视图**刷新当前页面**
-  （按钮改配置 + 立即刷新就是这么做的）；
-- `musicxx.ui.slot.update("card")` **不改声明**：让主程序用当前声明重新取一次视图（重画计数 + 1）；
-  要改声明（换视图 / 改标题 / 改参数）就用 `register` 覆盖同名项，整份 `data` 重给（不是合并）；
-- `musicxx.ui.slot.entries()` 返回本插件已注册项的脚本侧副本（不含框架补的 `id` 前缀，调试用）；
-- UI 项的类型与字段、页面块类型、界面动作四种写法（`route` / `dispatch` / `command` / `none`）、
-  按 `host.info().ui` 降级、图标要自带 svg —— 见 [plugin-ui.md](plugin-ui.md) 与
-  [plugin-api.md](plugin-api.md) §9.1；本插件页面的路由是 `ext://<自己的插件id>/<视图id>`，
-  视图 id 必须与能力短名一致。
+- 生成函数**同步执行、必须快**：只做"把 ctx 变成 JSON"这一件事。要等网络 / 文件就先给一份"加载中"，
+  拿到结果再 `musicxx.ui.content.push(id, {json: …})`；
+- `ctx` 里只有注册时 `deps` 列过的变量（`musicxx.*` / `scope:musicxx.*` / `plugin.<自己>.*`）；
+  变量变化时主程序只重新绑定值，**结构变了才重新调用生成函数**；
+- **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.visualizer`
+  与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
+  （用户选中之前就要在设置里看到名字）；
+- 动作写法：`call`（字符串短写也算 `call`）/ `route` / `none`（`dispatch` / `command` 是旧写法，仍然接受），
+  字段见 [plugin-ui.md](plugin-ui.md) §1.4；
+- UI 项的类型与 `data` 字段、页面块类型、按 `host.info().ui` 降级、图标要自带 svg ——
+  见 [plugin-ui.md](plugin-ui.md) 与 [plugin-api.md](plugin-api.md) §9.1；页面的路由是
+  `ext://<自己的插件id>/<内容 id>`。
 
 ---
 
@@ -1191,8 +1211,8 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | `musicxx.capability.implement("musicxx.player.error")` | 错误裁决（换源建议） |
 | `musicxx.capability.implement("musicxx.player.speed")` | 异步裁决（Promise）的写法 |
 | `musicxx.timer.setInterval` | 后台定时任务（心跳日志） |
-| `musicxx.ui.slot.register` | 主页入口 + 歌曲菜单项 |
-| `musicxx.capability.register("card"/"settings")` | 功能页与设置页（自绘） |
+| `musicxx.ui.item.register` | 主页入口声明项 |
+| `musicxx.ui.content.register` | 功能页与设置页（`musicxx.ui.page` 上的内容） |
 | `musicxx.storage.getConfig/setConfig` | 读写 `config.json`（默认值由脚本给） |
 | `musicxx.capability.call` | 跨插件调用（JS ↔ 原生） |
 | `musicxx.net.fetch` | 走主程序网络栈的请求 |
@@ -1244,9 +1264,9 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| 点入口提示「插件『<插件id>』没有提供『xxx』」 | 入口指向的能力没注册；页面视图 id 必须与能力短名一致 |
-| 页面打开后提示「插件没有提供任何内容块」 | 视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略，不报错） |
-| 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再调一次能力返回 `{view:...}`，或重新打开页面 |
+| 点入口提示「插件『<插件id>』没有提供『xxx』」 | 入口指向的是插件能力，而入口的 `action` 里写错了能力名（页面本身应该是 `route` + 已注册的内容） |
+| 页面打开后提示「插件没有提供任何内容块」 | 内容没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略，不报错） |
+| 改了 `config.json` 页面没变 | 内容只在主程序来要时才生成：改完要 `musicxx.ui.slot.update(...)` 让主程序再要一次（或重新打开页面） |
 | 设置项改完重启又变回默认 | 读取时把「对象外壳」当成了值：`musicxx.storage.get/getConfig` 的应答**就是值本身** |
 | 设置项被"改回去" | 读配置是异步的：读回来的旧值后到，会覆盖用户刚改的值（示例插件用「已经改过就不再覆盖」处理） |
 | 调用失败 `not_found` / `no_impl` | `not_found` = 名字拼错或没在声明表里；`no_impl` = 声明里有、当前没有人实现（清单见 [plugin-capabilities.md](plugin-capabilities.md)） |

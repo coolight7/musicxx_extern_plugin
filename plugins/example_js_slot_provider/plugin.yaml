@@ -1,0 +1,20 @@
+# 示例 JS 插件清单：槽位提供方
+#
+# 这个插件只有一个作用：**声明一个自己的槽位**，并往里面放一份内容，
+# 让别的插件（`example_js_slot_consumer`）用 `UISlot` 块把它嵌进自己的界面。
+#
+# - 槽位 `plugin.example_js_slot_provider.ui.toolbar`（kind = insert）；
+# - 内容 `hint` 读 `scope:musicxx.slot.args`：外层内容通过 `UISlot.args` 传进来的参数。
+name: example_js_slot_provider
+kind: js
+entry: plugin.js
+scripts: [plugin.js]
+
+version: 2026.1118.1
+api_version: 3
+author: "coolight"
+description: "示例：声明自己的界面槽位，供别的插件用 UISlot 嵌入（提供方）"
+platforms: [windows, linux, macos, android, ios]
+
+permissions:
+  - musicxx.ui

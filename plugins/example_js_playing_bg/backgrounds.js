@@ -429,7 +429,7 @@ function boundBackgroundData() {
     };
 }
 
-/// 歌曲图接管项的内容：不显示内容、保留占位
+/// 歌曲图接管项的名字与说明（内容给的是空块树：`iconContentView`）
 ///
 /// 三种封面样式的画面里已经有封面（铺满 / 卡片 / 盘心），播放页中间再放一个封面圆盘
 /// 就重复了。打开「隐藏歌曲图」后本插件才接管，背景切走时自动交还。
@@ -437,8 +437,14 @@ function iconEntryData() {
     return {
         title: "隐藏歌曲图",
         depict: "接管播放页中间的歌曲图：保留占位、不画内容；背景换回其它样式时自动交还",
-        mode: "none",
-        keepSpace: true,
+    };
+}
+
+/// 歌曲图接管项的内容：不画东西、保留占位（`data.keepSpace`）
+function iconContentView() {
+    return {
+        json: { blocks: [] },
+        data: { keepSpace: true },
     };
 }
 
@@ -447,10 +453,10 @@ function configuredBgRateValue() {
     return normalizeBgRate(configuredBgRate());
 }
 
-/// 六个背景样式的声明表：`name` + `order` + 取内容的函数
+/// 六个背景样式的内容声明表：`name` + `order` + 取内容的函数
 ///
-/// 首次注册与"改了参数重新声明"用的是同一份声明，所以放在一张表里
-/// （`musicxx.ui.item.register` 同名覆盖就是改声明，位置不变）。
+/// 首次注册与"改了参数重新生成"用的是同一份声明，所以放在一张表里
+/// （同一个内容 id 重新注册 = 覆盖这一份，位置不变）。
 const BACKGROUND_ENTRIES = [
     { name: ITEM_NAME_BLUR, order: 20, data: () => blurBackgroundData() },
     { name: ITEM_NAME_CARD, order: 21, data: () => cardBackgroundData() },
@@ -460,43 +466,51 @@ const BACKGROUND_ENTRIES = [
     { name: ITEM_NAME_BOUND, order: 32, data: () => boundBackgroundData() },
 ];
 
-/// 重新声明六个背景样式（改参数就是改声明：用 `register` 覆盖，位置不变）
+/// 注册一个背景样式的内容（名字与说明在注册时给：用户选中之前候选列表就要显示它们）
+function registerBackgroundContent(entry) {
+    const data = entry.data();
+    musicxx.ui.content.register({
+        id: entry.name,
+        slot: "musicxx.ui.playing.background",
+        title: data.title || entry.name,
+        depict: data.depict || "",
+        order: entry.order,
+    }, function () {
+        // 每次生成都重新取一遍：改参数（模糊程度 / 转速 / 倍率）之后让内容重出一份即可
+        return entry.data().view;
+    });
+}
+
+/// 重新注册六个背景样式（改参数 = 重新注册内容 + 让已生成的那一份重出一份）
 ///
-/// 插件框架收到后会刷新候选；正在使用的样式立即用新参数（封面纹理按新参数重新解码，
+/// 主程序收到注册后会刷新候选；正在使用的样式立即用新参数（封面纹理按新参数重新解码，
 /// 『模糊』改模糊程度时就能当场看到变化；『黑胶』改转速只换块的 `speed`，下一帧就按新转速转）。
 /// 前景三色不在这里：它由 [pushForeground] 单独调能力交给应用。
 function refreshBackgroundEntries() {
+    const ids = [];
     for (var i = 0; i < BACKGROUND_ENTRIES.length; ++i) {
-        var entry = BACKGROUND_ENTRIES[i];
-        musicxx.ui.item.register({
-            name: entry.name,
-            type: "playing.background",
-            order: entry.order,
-            data: entry.data(),
-        });
+        registerBackgroundContent(BACKGROUND_ENTRIES[i]);
+        ids.push(BACKGROUND_ENTRIES[i].name);
     }
+    musicxx.ui.slot.update("musicxx.ui.playing.background", ids);
 }
 
-/// 顶层注册六个背景样式 + 歌曲图接管项 + 主页入口（由 plugin.js 在最后调用）
+/// 顶层注册六个背景样式 + 歌曲图接管 + 主页入口（由 plugin.js 在最后调用）
 ///
-/// 注册顺序与 `order` 决定设置列表里的先后（快照按类型 + order 排序）：
+/// 注册顺序与 `order` 决定设置列表里的先后（按 order 排序）：
 /// 封面三种在前（20~22），图案三种在后（30~32）。
 function registerPluginEntries() {
     for (var i = 0; i < BACKGROUND_ENTRIES.length; ++i) {
-        var entry = BACKGROUND_ENTRIES[i];
-        musicxx.ui.item.register({
-            name: entry.name,
-            type: "playing.background",
-            order: entry.order,
-            data: entry.data(),
-        });
+        registerBackgroundContent(BACKGROUND_ENTRIES[i]);
     }
-    musicxx.ui.item.register({
-        name: ITEM_NAME_ICON,
-        type: "playing.icon",
+    const icon = iconEntryData();
+    musicxx.ui.content.register({
+        id: ITEM_NAME_ICON,
+        slot: "musicxx.ui.playing.icon",
+        title: icon.title,
+        depict: icon.depict,
         order: 40,
-        data: iconEntryData(),
-    });
+    }, iconContentView);
     musicxx.ui.item.register({
         name: ITEM_NAME_HOME,
         type: "home.entry",

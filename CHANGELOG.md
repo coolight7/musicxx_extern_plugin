@@ -6,6 +6,30 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，未发布）：界面改成"槽位 + 内容"
+
+一句话：**界面不再挂在声明项上，改成挂在槽位上的一份"内容"**；内容由插件按需生成，
+主程序只读缓存渲染。声明项（`ui.item`）只留给入口 / 菜单 / 添加歌曲 / 音效。
+
+- **内容注册**：`musicxx.ui.content.register({id, slot, title?, depict?, routes?, deps?, order?, minIntervalMs?}, generate)`；
+  C++ 是 `uiContentRegister(...)`。`generate(ctx)` 同步返回块树（或 `{json, data}`）。
+- **页面也是内容**：`ext://<插件 id>/<内容 id>` 的最后一段就是内容 id，内容是 `musicxx.ui.page` 上的一份；
+  浮层同理（`musicxx.ui.overlay`）。**不再调"同名能力"取视图**。
+- **插入位置 / 替换位置 / 可选样式槽位只收内容**：`musicxx.ui.playing.*`（十个插入位置、控制栏六个替换位置、
+  背景 / 歌曲图 / 动效三个可选样式）与 `musicxx.ui.page.background` 都用内容；往这些槽位注册声明项会被拒绝（`-1`）。
+- **声明项只对这五类有效**：`home.entry` / `song.action` / `playlist.action` / `addsong.entry` / `audioEffect`。
+- **动作只剩 `call` / `route` / `none`**：`dispatch` 与 `command` 合并成 `call`（短名 = 自己、
+  `plugin.<id>.*` = 别的插件、`musicxx.*` = 应用）；`call` 可选 `timeoutMs`（默认不限制）。
+  **动作不返回视图**：改完状态用 `musicxx.ui.slot.update(slot, [id…])` / `content.push(id, {json, data})`。
+- **变量与依赖**：内容在 `deps` 里声明用到的变量（`musicxx.*` / `scope:musicxx.*` / `plugin.<id>.*`），
+  变量变了先重新绑定、再让生成函数重出一份；清单见 `docs/ui-variables.md`，槽位清单见 `docs/ui-slots.md`。
+- **嵌套槽位**：块 `{"kind":"UISlot","slot":…,"args":…,"fallback":…}`；插件可以 `musicxx.ui.slot.define({id, kind})`
+  声明自己的槽位（`plugin.<自己>.ui.<名字>`）；深度上限 4，循环 / 超限画 `fallback`。
+- **值系统**：字面量 / 变量绑定 / 值表达式三种写法不变，实现搬进了 `cxx_pluginxx_ui` 的 `value_runtime.dart`，
+  插件侧接口不变（节点表与上限保持不变）。
+- 文档：`docs/plugin-ui.md` 已按新模型重写；新增 `docs/ui-slots.md`、`docs/ui-variables.md`（生成物）；
+  迁移对照见 `docs/plugin-ui.md` 最后一节。示例插件已全部改成内容注册。
+
 ## 历史
 
 ### 变更（破坏性，未发布）：界面词汇调整（`child` / `color`）与 `ThemeScope`

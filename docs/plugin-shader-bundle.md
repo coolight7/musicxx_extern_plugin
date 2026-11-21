@@ -371,51 +371,46 @@ void main() {
 三个槽位（背景 / 歌曲图 / 动效）的内置项 id 与两个动作 id 是同一套写法，见下面 §10。
 
 ```jsonc
-// 渲染项（musicxx.ui.playing.icon 的 data）—— 三种形态挑一种
+// 歌曲图接管项 = `musicxx.ui.playing.icon` 槽位上的一份**内容**
+// 生成函数返回：json = 块树（画什么），data = 布局开关（怎么占位）
 {
-  // 1) shader：插件着色器绘制（渲染输入与块 musicxx.Shader 同一份解析）
-  "title": "我的歌曲图", "mode": "shader",
-  "shader": {"bundle": "shader/icon.shaderbundle"},
-  "args": {                       // 纹理与参数都写在 args 里（见 §5.1 / §7）
-    "uCover": {"kind": "texture", "source": "musicxx.cover", "size": 512},
-    "uTint":  {"kind": "source", "name": "musicxx.icon.themeMapping.0"}
+  "json": {                       // 块树：一棵块 / 块数组 / 完整文档（见 §9）
+    "kind": "musicxx.Shader",
+    "bundle": "shader/icon.shaderbundle",
+    "args": {                     // 纹理与参数都写在 args 里（见 §5.1 / §7）
+      "uCover": {"kind": "texture", "source": "musicxx.cover", "size": 512},
+      "uTint":  {"kind": "source", "name": "musicxx.icon.themeMapping.0"}
+    },
+    "speed": 1, "maxFps": 30, "resolutionScale": 1.0, "animate": true
   },
-  "speed": 1, "maxFps": 30, "resolutionScale": 1.0, "animate": true,
-
-  // 2) view：插件用声明式界面组合（`view` 写视图 id，或直接给视图对象）
-  //    "mode": "view",
-  //    "view": "iconView",           // 同名能力取页面描述（快照语义）
-  //    "view": {"blocks": [...]},    // 内联视图
-
-  // 3) none：不显示内容（`keepSpace` 缺省 true = 保留原来的占位尺寸）
-  //    "mode": "none", "keepSpace": true
+  "data": {"fill": false, "keepSpace": true}
 }
+
+// 不画任何东西、只保留占位（“隐藏歌曲图”）：
+// {"json": {"blocks": []}, "data": {"keepSpace": true}}
 ```
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `mode` | 按字段推断 | `shader`（有 `shader.bundle`）/ `view`（有 `view`）/ `none`（都没有）；显式写错的值按推断走并记日志 |
-| `shader` | — | `shader` 形态的 bundle（`{bundle, vertex?, fragment?}`），必填 `bundle` |
-| `view` | — | `view` 形态：视图 id 字符串（调插件同名能力取页面）或内联视图对象 |
-| `keepSpace` | `true` | 只有 `none` 形态用：是否保留占位尺寸（false = 完全不占位，播放页其余元素会跟着上移） |
-| `fill` | `false` | `shader` 形态：false = 在可用宽度里居中画一个方形（边长 = 内置歌曲图的高度），true = 铺满可用区域 |
-| `args` / `speed` / `maxFps` / `resolutionScale` / `animate` | 同块 | 渲染输入与块 `musicxx.Shader` 共用同一份解析（纹理也写在 `args` 里，见 §5.1） |
+| `json` | — | 块树：着色器块 `musicxx.Shader`、声明式界面块，或整棵 `Stack` / `SizedBox` 组合 |
+| `data.fill` | `false` | 是否铺满可用宽度（false = 与内置歌曲图一样，在可用宽度里居中画一个方形） |
+| `data.keepSpace` | `true` | 内容还没到 / 没有内容时是否保留占位（false = 不占位，播放页其余元素会跟着上移） |
 
 约定与代价：
 
 - **接管是"整个显示"**：原来的"点击歌曲图播放 / 暂停"、滑动切歌（`musicxx.ui` 设置里的
-  「滑动切换歌曲」）、视频播放按钮都不再出现。需要这些交互的插件自己在界面里放按钮 ——
-  `view` 形态可以声明动作（`dispatch` 调自己的能力、`command` 调官方能力如
-  `musicxx.player.toggle`）；
-- `shader` 形态的渲染区域就是**内置歌曲图占的那块**：`uParams.xy` 是它的像素尺寸（不是整屏），
+  「滑动切换歌曲」）、视频播放按钮都不再出现。需要这些交互的插件自己在块里放按钮 ——
+  块上的动作可以用 `call` 调自己的能力或官方能力如 `musicxx.player.toggle`；
+- 渲染区域就是**内置歌曲图占的那块**：`uParams.xy` 是它的像素尺寸（不是整屏），
   插件按这个尺寸画；`animate: false` 时只出一帧；
 - 没有额外 uniform 成员：通用成员（`uParams` / `uEnv`）够描述"画在多大的一块里"，
   颜色 / 环境量用 `args` 里的来源按需声明（与块一致）；
+- 候选的名字与说明在**注册时**给（`title` / `depict` / `order`），用户选中之前就要列在设置里；
 - 槽位状态广播：`musicxx.state.uiSlots["player.icon"]`（`itemId` = 现在谁在画、
   `visible` / `width` / `height` 由挂载点上报）。插件可以据此知道"是不是自己在画"，
   例如"背景是自己时才接管歌曲图"这种跟随（`plugins/example_js_playing_bg` 就是这么做的：它的六种
   背景样式共用同一个歌曲图接管项，靠 `itemId` 判断背景是不是自己）；
-- 失效回退：`view` 取不到内容、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时自动回退内置显示，
+- 失效回退：内容生成失败、连续渲染失败、插件停用 / 卸载 / 关闭『拟声++』时自动回退内置显示，
   原因写在设置列表的那一行。
 
 完整示例：`plugins/example_js_playing_bg/`（六种播放页背景 + 歌曲图接管 + 封面取色三件事一起做的插件）。
@@ -425,7 +420,7 @@ void main() {
 ## 5.4 播放页音频动效槽位（`musicxx.ui.playing.visualizer`）：自己画频谱动画
 
 播放页的音频可视化（内置是『音乐动效』的四种样式：方块 / 竖线 / 粒子 / 雾气）也能交给插件：
-注册 UI 项 `musicxx.ui.playing.visualizer`，它与内置四种样式在**同一个列表**里选
+注册 `musicxx.ui.playing.visualizer` 上的**内容**，它与内置四种样式在**同一个列表**里选
 （设置 → 主题 →「播放页音频动效」，『音乐动效』设置页里的样式列表也是同一份）。
 
 **没安装『音乐动效』不影响你的样式**：插件项不靠那个插件的开关，列表里照样可选。频谱数据仍然要有
@@ -433,10 +428,10 @@ void main() {
 就有），否则 `musicxx.spectrum.*` 全是 0（看 `uEnv.z` 区分“静音”与“没数据”）。
 
 ```jsonc
-// 注册项（musicxx.ui.playing.visualizer 的 data）—— 写法与播放页歌曲图完全一致
+// 生成函数返回一棵块树（与播放页歌曲图同一份写法：着色器块 `musicxx.Shader`）
 {
-  "title": "我的频谱", "depict": "低频起伏 + 呼吸光晕",
-  "shader": {"bundle": "shader/viz.shaderbundle"},
+  "kind": "musicxx.Shader",
+  "bundle": "shader/viz.shaderbundle",
   "args": {
     "uCover": {"kind": "texture", "source": "musicxx.cover", "size": 256},
     "uBass":  {"kind": "smooth", "attackMs": 20, "releaseMs": 260,
@@ -446,15 +441,13 @@ void main() {
   "speed": 1, "maxFps": 30, "animate": true
 }
 
-// 或者用声明式界面（不写 shader，块里用 musicxx.AnimatedBuilder 逐帧动）
-// {"title": "柱状条", "view": "visualizerView"}
-// {"title": "不显示", "mode": "none"}
+// 或者用声明式界面（不写着色器：块里用 musicxx.AnimatedBuilder 逐帧动）
+// {"blocks": [{…}]}
 ```
 
 规则：
 
-- 三种形态与播放页歌曲图一致：`shader`（有 `shader.bundle`）/ `view`（有 `view`：视图 id / 视图对象 /
-  裸块数组）/ `none`（不显示）；不写 `mode` 时按字段推断；
+- 写法与播放页歌曲图一致：生成函数返回一棵块树；名字 / 说明 / `order` 在注册时给；
 - 渲染区域是**播放页的动效区**（封面下方那一块，`Positioned.fill` 给到的整个可用区域）：
   `uParams.xy` 就是它的像素尺寸。内置动效自己是在底部留 50 的水平边距、120 高的区域里画；
   插件想跟着这个习惯就在界面 / 着色器里自己留边；
@@ -464,30 +457,29 @@ void main() {
   同一套解析（视觉尺寸 / 颜色自己声明）；播放页前景三色只属于背景（`musicxx.ui.playing.foreground.set`
   只认当前生效的背景样式），动效里写不出来；
 - 槽位状态广播：`musicxx.state.uiSlots["player.visualizer"]`（字段与背景 / 歌曲图相同）；
-- 失效回退：`view` 取不到内容、连续渲染失败 3 次、插件停用 / 卸载 → 自动回退到
+- 失效回退：内容生成失败、连续渲染失败 3 次、插件停用 / 卸载 → 自动回退到
   用户原本的内置选择（或“不显示”），原因写在设置列表那一行。
 
 ---
 
 ## 5.5 普通页面背景槽位（`musicxx.ui.page.background`）：给普通页面铺一层背景
 
-歌单页、设置页、插件自己的页面这类**普通页面**也能由插件铺背景。它和播放页背景一样是
-`title` + `view`（一棵块树），区别只有两点：**不需要用户选择**（由 `routes` 决定哪些页面用它），
+歌单页、设置页、插件自己的页面这类**普通页面**也能由插件铺背景。它也是**内容**：
+生成函数给一棵块树，区别只有两点：**不需要用户选择**（适用页面由注册时的 `routes` 决定），
 以及同一页面命中多项时**最新注册的生效**（它没有选择，所以不读 `order`）。
 
 ```jsonc
-// UI 项 musicxx.ui.page.background（JS 短名 page.background）
+// `musicxx.ui.page.background` 上的一份内容（生成函数返回这棵块树）
 {
-  "title": "纸张纹理",                       // 必填（与播放页背景一致）
-  "depict": "浅色、静态",                    // 可选，调试信息与插件详情用
-  "routes": ["/songs", "/setting/theme"],    // 可选；不写或空数组 = 所有普通页面
-  "view": {                                  // 必填：块对象 / 块数组 / 视图 id
-    "kind": "musicxx.Shader",
-    "bundle": "shader/page.shaderbundle",
-    "args": {"uCover": {"kind": "texture", "source": "musicxx.cover", "size": 256, "blur": 18}},
-    "speed": 1, "maxFps": 8
-  }
+  "kind": "musicxx.Shader",
+  "bundle": "shader/page.shaderbundle",
+  "args": {"uCover": {"kind": "texture", "source": "musicxx.cover", "size": 256, "blur": 18}},
+  "speed": 1, "maxFps": 8
 }
+
+// 注册时给名字与适用页面：
+// musicxx.ui.content.register({ id: "pageBg", slot: "musicxx.ui.page.background",
+//     title: "纸张纹理", depict: "浅色、静态", routes: ["/songs", "/setting/theme"] }, generate);
 ```
 
 - **哪些页面算普通页面**：走主程序页面外壳（`PageBase` / 首页标签页 / 问候页 / 登录页）的页面。
@@ -836,10 +828,10 @@ UI 项（`musicxx.ui.playing.background` / `page.background`）自己是块树�
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `title` | 必填 | 设置列表里的样式名（普通页面背景只用于调试信息与插件详情） |
+| `title` | 必填（注册时给） | 设置列表里的样式名（普通页面背景只用于调试信息与插件详情） |
 | `depict` | `""` | 副标题（写 `subtitle` 也可以，且优先） |
 | `routes` | 不声明 | **只对普通页面背景**：适用的页面路由 id；不写或空数组 = 所有普通页面 |
-| `view` | 必填 | 块对象 / 块数组 / 视图 id（视图由插件同名能力给出） |
+| `json` / 生成函数的返回值 | 必填 | 块树：一棵块 / 块数组 / 完整文档（写着色器就是里面的 `musicxx.Shader` 块） |
 
 渲染目标最长边由主程序限制在 **1280 px**
 （超出的部分按比例缩小，再交给 Flutter 放大）；bundle 体积、路径长度与 UI 项数量都不设上限。
@@ -902,7 +894,7 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", { clear: true
     "speed": 1, "maxFps": 16}
 ```
 
-页面里的块（`ext://<插件id>/<视图id>` 的视图描述）：**尺寸由父块决定**：
+页面里的块（`ext://<插件id>/<内容 id>` 的内容）：**尺寸由父块决定**：
 
 ```jsonc
 {"kind": "SizedBox", "height": 300, "child": {
@@ -1009,43 +1001,45 @@ const live = musicxx.broadcast.read("musicxx.state.spectrum");
 ```js
 var BG_BASE_SPEED = 1;                 // 本插件的基准速度（= 1×）
 var BG_RATE_OPTIONS = [0.5, 1, 2];     // 可选倍率
+var bgRate = 1;                        // 当前倍率（从 config.json 读，缺省 1）
 
-function bgView(rate) {
+function bgView() {
     // 整个背景就是一栖块：不用包 Expanded / blocks（主程序会给紧约束铺满）
     return {
         kind: "musicxx.Shader",
         bundle: "shader/bg.shaderbundle",
         args: { /* 成员名 → 值表达式，见 §7 */ },
-        speed: BG_BASE_SPEED * rate,   // 声明给主程序的块速度
+        speed: BG_BASE_SPEED * bgRate,   // 声明给主程序的块速度
         maxFps: 16
     };
 }
 
-function bgData(rate) {
-    return { title: "流光背景", view: bgView(rate) };
-}
-
-musicxx.ui.slot.register({ name: "bg", type: "playing.background", data: bgData(1) });
+// 背景是 `musicxx.ui.playing.background` 上的一份内容（生成函数每次按当前倍率拼块）
+musicxx.ui.content.register({
+    id: "bg", slot: "musicxx.ui.playing.background",
+    title: "流光背景", depict: "跟随封面配色的动态背景",
+}, bgView);
 
 function applyRate(rate) {
-    // 改参数就是改声明：用 register 覆盖同名项，整份 data 重给（位置不变）
-    musicxx.ui.slot.register({ name: "bg", type: "playing.background", data: bgData(rate) });
+    bgRate = rate;
+    // 画面参数变了：让主程序按当前状态再要一份（内容 id 写在第二个参数里）
+    musicxx.ui.slot.update("musicxx.ui.playing.background", ["bg"]);
     musicxx.storage.setConfig("bgRate", rate);
 }
 
 function refreshBgView() {
-    // 声明不变、只想重画：让主程序重新取一次视图（这里是 `data.view` 的视图 id 形态才有意义）
-    musicxx.ui.slot.update("bg");
+    // 状态没变、只想重画：让主程序重新要一份内容
+    musicxx.ui.slot.update("musicxx.ui.playing.background", ["bg"]);
 }
 ```
 
-- 运行期改 `speed` 会推 `musicxx.ui.changed`，主程序刷新候选后**正在使用的背景立即用新速度**
-  （不用重新选中：`speed` 每帧现算，着色器里乘上 `uParams.w` 就见效）；
+- 运行期改了块参数（`speed` / `args`）后推一次 `musicxx.ui.slot.update`，主程序重新要一份内容，
+  **正在使用的背景立即用新速度**（`speed` 每帧现算，着色器里乘上 `uParams.w` 就见效）；
 - `maxFps` / `resolutionScale` / `animate` 这类要改帧调度或分辨率创建的字段，运行期改完需要
   **重新选中该项**才完全生效；
 - 示例插件 `example_js_playing_bg` 就是这么做的：它的设置页有「背景动画速率」（0.5× / 1× / 2×），
-  基准速度定为 1（速率 0.5× / 1× / 2× 就是块的 `speed` 0.5 / 1 / 2）；它注册了六种背景样式，
-  改速率时**六项各 register 覆盖一次**（声明整份重给）；
+  基准速度定为 1（速率 0.5× / 1× / 2× 就是块的 `speed` 0.5 / 1 / 2）；它注册了六份背景内容，
+  改速率时**六份各自 `slot.update` 一次**（内容重出一道）；
   `example_native` 的 C++ 版声明 `speed: 1`。
 
 ---

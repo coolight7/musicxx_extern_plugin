@@ -179,6 +179,76 @@ PolledEvents pollEvents(MusicxxExternPluginHost *host, int maxCount) {
   return PolledEvents{rc, merged};
 }
 
+/// 让一份内容生成一次, 返回 `musicxx.ui.content` 事件里那一条的 JSON
+///
+/// 参数 `id` 写内容全名 (`plugin.<插件 id>.<内容 id>`); 返回空串 = 没拿到结果
+/// (没有这份内容 / 生成失败时事件里只有 `error`)。
+std::string requestUiContent(MusicxxExternPluginHost *host, const char *id,
+                             const char *contextJson = "{}") {
+  MusicxxExternPluginStringView idView{id, std::strlen(id)};
+  MusicxxExternPluginStringView ctxView{contextJson, std::strlen(contextJson)};
+  int64_t requestId = 0;
+  MusicxxExternPluginString log{};
+  const int32_t rc = musicxx_extern_plugin_ui_request(host, &idView, &ctxView,
+                                                     &requestId, &log);
+  freeStr(log);
+  if (rc != PLUGINXX_RESULT_OK) {
+    return {};
+  }
+  for (int i = 0; i < 20; ++i) {
+    const PolledEvents polled = pollEvents(host, 500);
+    const std::string events = polled.json;
+    const std::string needle = "\"id\":\"" + std::string{id} + "\"";
+    size_t pos = events.find(needle);
+    while (pos != std::string::npos) {
+      // 事件是 JSON 数组, 取包含这条 id 的那个对象 (按花括号配对)
+      const size_t start = events.rfind('{', pos);
+      if (start == std::string::npos) {
+        break;
+      }
+      int depth = 0;
+      bool inString = false;
+      size_t end = std::string::npos;
+      for (size_t at = start; at < events.size(); ++at) {
+        const char c = events[at];
+        if (inString) {
+          if (c == '\\') {
+            ++at;
+          } else if (c == '"') {
+            inString = false;
+          }
+          continue;
+        }
+        if (c == '"') {
+          inString = true;
+        } else if (c == '{') {
+          ++depth;
+        } else if (c == '}') {
+          --depth;
+          if (depth == 0) {
+            end = at;
+            break;
+          }
+        }
+      }
+      if (end == std::string::npos) {
+        break;
+      }
+      const std::string body = events.substr(start, end - start + 1);
+      // 注册表变化的事件也带这条 id (`rev:0`), 但那是"注册了一条内容", 不是生成结果:
+      // 只认带 `json` / `error` 的那一条
+      if (body.find("\"json\"") != std::string::npos ||
+          body.find("\"error\"") != std::string::npos) {
+        return body;
+      }
+      pos = events.find(needle, pos + needle.size());
+    }
+    // 没取到就再等一会儿 (生成是异步投递到插件线程的)
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  return {};
+}
+
 /// 从 JSON 文本里取出某个键的**原始值文本** (对象/数组原样给, 字符串去掉引号)
 ///
 /// 用途: 结果事件载荷里的 `result` 是任意 JSON,
@@ -1786,11 +1856,20 @@ int main(int argc, char **argv) {
             "注册一份只从 push 取内容的那份成功 (rc=0)");
       {
         const std::string entries = jsonRawField(probe, "uiEntries");
-        check(entries.find("plugin.example_native.playingBg") !=
-                  std::string::npos,
-              "声明项表含播放页背景样式");
+        check(entries.find("plugin.example_native.card") != std::string::npos,
+              "声明项表含主页入口");
 
         const std::string contents = jsonRawField(probe, "uiContents");
+        check(contents.find("plugin.example_native.playingBg") !=
+                  std::string::npos,
+              "内容表含播放页背景样式");
+        check(contents.find("musicxx.ui.playing.background") !=
+                  std::string::npos,
+              "播放页背景的槽位是 musicxx.ui.playing.background");
+        check(contents.find("plugin.example_native.pageBg") !=
+                  std::string::npos &&
+              contents.find("/setting/theme") != std::string::npos,
+              "页面背景内容带注册时给的 routes");
         check(contents.find("plugin.example_native.row1") != std::string::npos,
               "内容表里有覆盖后的 row1");
         check(contents.find("\"order\":30") != std::string::npos,
@@ -1840,18 +1919,24 @@ int main(int argc, char **argv) {
       check(snapshot.find("plugin.example_native.songInfo") !=
                 std::string::npos,
             "快照含歌曲菜单项");
-      check(snapshot.find("plugin.example_native.playingBg") !=
+      // 播放页背景 / 页面背景现在都是**内容**（声明项只给入口 / 菜单 / 音效这类列表项），
+      // 所以它们的 id 在内容快照里，不在声明项快照里。
+      MusicxxExternPluginString contentSnap{};
+      const auto contentSnapRc =
+          musicxx_extern_plugin_ui_contents(host, &contentSnap, &log);
+      const std::string contentSnapshot = take(contentSnap);
+      check(contentSnapRc == PLUGINXX_RESULT_OK &&
+                contentSnapshot.find("plugin.example_native.playingBg") !=
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.background") !=
+                contentSnapshot.find("musicxx.ui.playing.background") !=
+                    std::string::npos,
+            "内容快照含播放页背景样式");
+      check(contentSnapshot.find("plugin.example_native.pageBg") !=
                     std::string::npos &&
-                snapshot.find("shader/bg.shaderbundle") != std::string::npos,
-            "快照含播放页背景样式 (view 里的着色器块)");
-      check(snapshot.find("plugin.example_native.pageBg") !=
+                contentSnapshot.find("musicxx.ui.page.background") !=
                     std::string::npos &&
-                snapshot.find("musicxx.ui.page.background") !=
-                    std::string::npos &&
-                snapshot.find("/setting/theme") != std::string::npos,
-            "快照含普通页面背景 (routes 声明)");
+                contentSnapshot.find("/setting/theme") != std::string::npos,
+            "内容快照含普通页面背景（routes 声明）");
       check(snapshot.find("musicxx.ui.home.entry") != std::string::npos,
             "快照含官方声明项类型");
       check(snapshot.find("plugin") != std::string::npos,
@@ -2265,15 +2350,12 @@ int main(int argc, char **argv) {
             "播放页背景示例已拆成独立插件 (example_js 不再注册背景项)");
     }
 
-    // 插件自己的设置界面: 就是插件页面的同名能力
+    // 插件自己的设置界面: 现在是 `musicxx.ui.page` 上的内容
     // (框架不管理设置入口、也不渲染设置控件, 页面内容全部由插件给)
     {
-      const CapabilityCallOutcome settingsCall = callCapability(
-          host, "example_js", "settings", R"({"view":"settings"})", 8000);
-      const std::string view = settingsCall.payload;
-      check(settingsCall.acceptRc == PLUGINXX_RESULT_OK &&
-                settingsCall.ok,
-            "设置界面能力调用成功 (插件自绘页面)");
+      const std::string view =
+          requestUiContent(host, "plugin.example_js.settings");
+      check(!view.empty(), "设置页内容能生成 (插件自绘页面)");
       check(view.find("\"blocks\"") != std::string::npos,
             "设置界面返回声明式块 (由插件给出结构)");
       check(view.find("config.json") != std::string::npos,
@@ -2306,8 +2388,10 @@ int main(int argc, char **argv) {
             "背景示例的多脚本探针可读");
       check(jsonIntField(bgProbe.payload, "styles") == "6",
             "六种背景样式都在 (backgrounds.js 执行过)");
-      check(jsonIntField(bgProbe.payload, "uiEntries") == "8",
-            "UI 项 8 个 = 六种样式 + 歌曲图接管 + 主页入口");
+      check(jsonIntField(bgProbe.payload, "uiEntries") == "1",
+            "声明项只剩主页入口 (样式与歌曲图接管已是内容)");
+      check(jsonIntField(bgProbe.payload, "uiContents") == "10",
+            "内容 10 份 = 六种背景 + 歌曲图接管 + 三个页面");
       check(jsonIntField(bgProbe.payload, "paletteHook") == "1",
             "取色钩子已注册 (palette.js 执行过)");
       check(jsonIntField(bgProbe.payload, "hasSettingsView") == "1" &&
@@ -2315,37 +2399,47 @@ int main(int argc, char **argv) {
             "页面函数都在 (views.js 执行过)");
 
       MusicxxExternPluginString snap{};
-      const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+      const auto snapRc = musicxx_extern_plugin_ui_contents(host, &snap, &log);
       const std::string snapshot = take(snap);
       check(snapRc == PLUGINXX_RESULT_OK &&
                 snapshot.find("plugin.example_js_playing_bg.lattice") !=
                     std::string::npos &&
                 snapshot.find("musicxx.ui.playing.background") !=
+                    std::string::npos,
+            "背景样式作为内容进注册表 (六种都在)");
+      check(snapshot.find("plugin.example_js_playing_bg.settings") !=
                     std::string::npos &&
-                snapshot.find("shader/bg.shaderbundle") != std::string::npos,
-            "背景示例的图案样式进入快照 (含 shader bundle)");
+                snapshot.find("musicxx.ui.page") != std::string::npos,
+            "三个页面都是 musicxx.ui.page 上的内容");
       // 注册名是 `home`（入口打开的页面 id 才是 `card`），快照里的 id 取注册名
-      check(snapshot.find("plugin.example_js_playing_bg.home") !=
-                std::string::npos,
-            "背景示例的主页入口项进入快照");
+      // 主页入口仍是**声明项**，所以它在声明项快照里
+      {
+        MusicxxExternPluginString items{};
+        const auto itemsRc =
+            musicxx_extern_plugin_ui_snapshot(host, &items, &log);
+        const std::string itemSnapshot = take(items);
+        check(itemsRc == PLUGINXX_RESULT_OK &&
+                  itemSnapshot.find("plugin.example_js_playing_bg.home") !=
+                      std::string::npos,
+              "背景示例的主页入口项进入声明项快照");
+      }
 
-      // 速率设置: 页面里能读到, 切一档后显示的值跟着变
+      // 速率设置: 页面现在是 `musicxx.ui.page` 上的内容, 让插件生成一份
       // (设置页的行由布局块组合, 右侧状态按值的形态读: 见 jsonFirstRateText)
-      const CapabilityCallOutcome beforeCall = callCapability(
-          host, "example_js_playing_bg", "settings", "{}", 8000);
-      const std::string beforeView = beforeCall.payload;
-      check(beforeCall.acceptRc == PLUGINXX_RESULT_OK && beforeCall.ok &&
-                beforeView.find("背景动画速率") != std::string::npos,
+      const std::string beforeView =
+          requestUiContent(host, "plugin.example_js_playing_bg.settings");
+      check(beforeView.find("背景动画速率") != std::string::npos,
             "背景示例的设置页含『背景动画速率』设置项");
       const std::string beforeRate = jsonFirstRateText(beforeView);
 
       const CapabilityCallOutcome cycleCall = callCapability(
           host, "example_js_playing_bg", "cycleBackgroundRate",
           R"({"view":"settings"})", 8000);
-      const std::string cycleView = cycleCall.payload;
-      const std::string afterRate = jsonFirstRateText(cycleView);
       check(cycleCall.acceptRc == PLUGINXX_RESULT_OK && cycleCall.ok,
             "切换背景动画速率的能力可调用");
+      const std::string cycleView =
+          requestUiContent(host, "plugin.example_js_playing_bg.settings");
+      const std::string afterRate = jsonFirstRateText(cycleView);
       check(!beforeRate.empty() && !afterRate.empty() &&
                 beforeRate != afterRate,
             "切换后设置页显示的速率随之变化");
@@ -2357,12 +2451,12 @@ int main(int argc, char **argv) {
             "卸载背景示例插件");
       MusicxxExternPluginString after{};
       const auto afterRc =
-          musicxx_extern_plugin_ui_snapshot(host, &after, &log);
+          musicxx_extern_plugin_ui_contents(host, &after, &log);
       const std::string afterSnapshot = take(after);
       check(afterRc == PLUGINXX_RESULT_OK &&
                 afterSnapshot.find("plugin.example_js_playing_bg.lattice") ==
                     std::string::npos,
-            "卸载后背景示例的 UI 项无残留");
+            "卸载后背景示例的内容无残留");
     }
 
     // ============ 播放页插槽示例 (example_js_playing_slots)
@@ -2389,44 +2483,43 @@ int main(int argc, char **argv) {
           host, "example_js_playing_slots", "probe", "{}", 8000);
       check(slotsProbe.acceptRc == PLUGINXX_RESULT_OK && slotsProbe.ok,
             "插槽示例的探针可读");
-      check(jsonIntField(slotsProbe.payload, "uiEntries") == "8",
-            "UI 项 8 个 = 3 个插入块 + 2 个按钮 + 1 个动效 + 1 个页面背景"
-            " + 1 个主页入口");
+      check(jsonIntField(slotsProbe.payload, "uiEntries") == "1",
+            "声明项只剩主页入口 (位置上的界面全是内容)");
+      check(jsonIntField(slotsProbe.payload, "uiContents") == "9",
+            "内容 9 份 = 3 个插入 + 2 个按钮 + 1 个动效 + 1 个页面背景 + 2 个页面");
       check(jsonIntField(slotsProbe.payload, "hasControlBar") == "1" &&
                 jsonIntField(slotsProbe.payload, "visualizer") == "1" &&
                 jsonIntField(slotsProbe.payload, "pageBackground") == "1",
             "控制栏视图、动效与页面背景声明都在 (四个业务脚本都执行过)");
 
       MusicxxExternPluginString snap{};
-      const auto snapRc = musicxx_extern_plugin_ui_snapshot(host, &snap, &log);
+      const auto snapRc = musicxx_extern_plugin_ui_contents(host, &snap, &log);
       const std::string snapshot = take(snap);
-      // 插入块与控制栏这些“位置”只能由**内容**填充 (内容模型见步骤 11 的示例迁移):
-      // 插件用 `ui.item.register` 往这些槽位注册声明项会被框架直接拒绝, 所以快照里
-      // 没有它们; 声明项只出现在 item / selectable / pageBackground 三类槽位上。
+      // 插入位置 / 替换位置 / 可选样式槽位只能由**内容**填充:
+      // 插件用 `ui.item.register` 往这些槽位注册声明项会被框架直接拒绝。
       check(snapRc == PLUGINXX_RESULT_OK &&
-                snapshot.find("musicxx.ui.playing.lyric.top") ==
+                snapshot.find("musicxx.ui.playing.lyric.top") !=
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.songlist.header") ==
+                snapshot.find("musicxx.ui.playing.songlist.header") !=
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.moreInfo.footer") ==
+                snapshot.find("musicxx.ui.playing.moreInfo.footer") !=
                     std::string::npos,
-            "插入块不接受声明项 (只能注册内容)");
-      check(snapshot.find("musicxx.ui.playing.controlBar.menu") ==
+            "三个插入位置都注册了内容");
+      check(snapshot.find("musicxx.ui.playing.controlBar.menu") !=
                     std::string::npos &&
-                snapshot.find("musicxx.ui.playing.controlBar.favorite") ==
+                snapshot.find("musicxx.ui.playing.controlBar.favorite") !=
                     std::string::npos,
-            "按钮级替换位置不接受声明项 (只能注册内容)");
+            "按钮级替换位置注册了内容");
       check(snapshot.find("musicxx.ui.playing.visualizer") !=
-                    std::string::npos &&
-                snapshot.find("shader/viz.shaderbundle") != std::string::npos,
-            "音频动效项进入快照 (含 shader bundle)");
+                    std::string::npos,
+            "音频动效是可选样式槽位上的内容");
       check(snapshot.find("musicxx.ui.page.background") != std::string::npos &&
-                snapshot.find("shader/page_cover.shaderbundle") !=
-                    std::string::npos &&
-                snapshot.find("musicxx.songlist.cover") != std::string::npos,
-            "歌曲页面的页面背景进入快照 (含歌单封面纹理声明)");
+                snapshot.find("/songs") != std::string::npos,
+            "歌曲页面的页面背景带 routes 声明");
+      check(snapshot.find("musicxx.ui.page") != std::string::npos,
+            "两个插件页面是 musicxx.ui.page 上的内容");
 
-      // 整栏替换：开启后多出 controlBar 项（按钮级项保留，主程序会忽略它们）
+      // 整栏替换：开启后多出一份 `wholeBar` 内容（按钮级内容保留，主程序会忽略它们）
       const CapabilityCallOutcome barCall = callCapability(
           host, "example_js_playing_slots", "toggleWholeBar",
           R"({"view":"settings"})", 8000);
@@ -2434,22 +2527,19 @@ int main(int argc, char **argv) {
             "切换整栏替换的能力可调用");
       MusicxxExternPluginString barSnap{};
       const auto barSnapRc =
-          musicxx_extern_plugin_ui_snapshot(host, &barSnap, &log);
+          musicxx_extern_plugin_ui_contents(host, &barSnap, &log);
       const std::string barSnapshot = take(barSnap);
       check(barSnapRc == PLUGINXX_RESULT_OK &&
-                barSnapshot.find(
-                    "\"type\":\"musicxx.ui.playing.controlBar\"") ==
+                barSnapshot.find("plugin.example_js_playing_slots.wholeBar") !=
                     std::string::npos,
-            "整栏替换也是内容位置: 声明项不会进快照");
+            "整栏替换是一份内容 (开启后进注册表)");
 
-      // 整栏视图能力：主程序带状态参数取内容，处理器同步返回
-      const CapabilityCallOutcome barViewCall = callCapability(
-          host, "example_js_playing_slots", "controlBar",
-          R"({"slot":"musicxx.ui.playing.controlBar","button":"","playing":true,"favorite":true,"hasSong":true})",
-          8000);
-      check(barViewCall.acceptRc == PLUGINXX_RESULT_OK && barViewCall.ok &&
-                barViewCall.payload.find("\"blocks\"") != std::string::npos,
-            "整栏视图能力同步返回块描述");
+      // 整栏内容的生成函数：带状态参数生成一棵块树
+      const std::string barView = requestUiContent(
+          host, "plugin.example_js_playing_slots.wholeBar",
+          R"({"musicxx.player.playing":true,"musicxx.song.hasSong":true,"musicxx.song.favorite":true})");
+      check(barView.find("\"blocks\"") != std::string::npos,
+            "整栏内容生成出块描述");
 
       // 关回去：把 config.json 里的整栏开关恢复默认，重复跑同一个构建目录也不会改变计数
       const CapabilityCallOutcome barReset = callCapability(
@@ -2464,12 +2554,12 @@ int main(int argc, char **argv) {
             "卸载插槽示例插件");
       MusicxxExternPluginString afterSlots{};
       const auto afterSlotsRc =
-          musicxx_extern_plugin_ui_snapshot(host, &afterSlots, &log);
+          musicxx_extern_plugin_ui_contents(host, &afterSlots, &log);
       const std::string afterSlotsSnapshot = take(afterSlots);
       check(afterSlotsRc == PLUGINXX_RESULT_OK &&
                 afterSlotsSnapshot.find(
                     "musicxx.ui.playing.lyric.top") == std::string::npos,
-            "卸载后插槽示例的 UI 项无残留");
+            "卸载后插槽示例的内容无残留");
     }
 
     // ============ 网络能力 (example_js_net 的 selftest 跑完整一轮)

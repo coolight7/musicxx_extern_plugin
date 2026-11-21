@@ -264,6 +264,8 @@ set(MUSICXX_EXTERN_PLUGIN_DEMO_JS
   example_js
   example_js_playing_bg
   example_js_playing_slots
+  example_js_slot_provider
+  example_js_slot_consumer
   example_js_broadcast
   example_js_font
   example_js_net

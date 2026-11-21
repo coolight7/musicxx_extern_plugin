@@ -17,6 +17,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 
+import 'ui_content_probe.dart';
+
 void main() {
   final _Environment? env = _Environment.detect();
 
@@ -50,6 +52,7 @@ void main() {
       libraryPath: env.libraryPath,
     );
     _step('1 init 完成');
+    final UiContentProbe contentProbe = UiContentProbe(runtime, seen);
     expect(runtime.isRunning, isTrue);
     expect(runtime.libraryPath, env.libraryPath);
     // 库自报的版本要与 Dart 侧声明一致：不一致说明加载到的插件框架库不是这次构建的产物
@@ -402,25 +405,19 @@ void main() {
     );
 
     _step('11.5 UI 项快照完成: ${uiItems.length} 项');
-    // 声明式页面：UI 项只声明"打开哪个页面"，页面本身由插件的**同名能力**绘制。
-    // 这里断言"声明了 route 入口的插件确实提供了同名能力" —— 只声明入口不实现能力时，
-    // 插件框架打开页面只会得到"插件未声明该能力"。
-    final String? nativeViewId = card.contentId;
-    expect(nativeViewId, isNotNull);
-    final Object? nativeCardRaw = await runtime.plugins.call(
-      'example_native',
-      'plugin.example_native.$nativeViewId',
-      <String, Object?>{'view': nativeViewId},
+    // 页面是 `musicxx.ui.page` 上的内容：入口只声明"打开哪个内容"，页面本身由插件按需生成。
+    // 这里断言"声明了 route 入口的插件确实注册了同名内容"——只声明入口不给内容时，
+    // 主程序打开页面只能拿到一份空内容。
+    final String? nativePageId = card.contentId;
+    expect(nativePageId, isNotNull);
+    final Map<String, Object?> nativeView = await contentProbe.jsonOf(
+      'plugin.example_native.$nativePageId',
     );
-    expect(nativeCardRaw, isA<Map<String, Object?>>(), reason: '原生示例应返回页面视图');
-    final Map<String, Object?> nativeView =
-        (nativeCardRaw! as Map<String, Object?>)['view']!
-            as Map<String, Object?>;
     expect(nativeView['title'], isNotEmpty);
     expect(nativeView['blocks'], isA<List<Object?>>());
     expect((nativeView['blocks']! as List<Object?>).length, greaterThan(1));
 
-    _step('11.6 原生示例的页面能力完成');
+    _step('11.6 原生示例的页面内容完成');
     // 卸载后 UI 项被摘除 (插件框架随实例摘除, Dart 侧不再渲染)
     runtime.plugins.unload('example_native');
     expect(
@@ -605,9 +602,8 @@ void main() {
     expect(jsProbe['songChangedCount'], greaterThan(0));
 
     _step('16 JS 能力调用完成');
-    // JS 示例的主页入口与播放页附加信息块都指向 ext://example_js/card:
-    // 页面由同名能力 `card` 绘制, 这里断言这条路径真的通 (只声明入口不实现能力时,
-    // 插件框架打开页面只会得到"插件未声明该能力")
+    // JS 示例的主页入口指向 ext://example_js/card：页面是 `musicxx.ui.page` 上的内容，
+    // 入口只声明"打开哪个内容"。这里断言这条路径真的通（只声明入口不给内容时，页面是空的）。
     final List<MusicxxPluginUIItem> jsHomeEntries = MusicxxPluginUIItems.byType(
       uiItemsJs,
       MusicxxPluginUIType.homeEntry,
@@ -616,19 +612,14 @@ void main() {
       (MusicxxPluginUIItem item) => item.plugin == 'example_js',
     );
     expect(jsCard.contentId, isNotNull);
-    final Object? jsCardRaw = await runtime.plugins.call(
-      'example_js',
+    final Map<String, Object?> jsView = await contentProbe.jsonOf(
       'plugin.example_js.${jsCard.contentId}',
-      <String, Object?>{'view': jsCard.contentId},
     );
-    expect(jsCardRaw, isA<Map<String, Object?>>(), reason: 'JS 示例应返回页面视图');
-    final Map<String, Object?> jsView =
-        (jsCardRaw! as Map<String, Object?>)['view']! as Map<String, Object?>;
     expect(jsView['title'], isNotEmpty);
     expect(jsView['blocks'], isA<List<Object?>>());
     expect((jsView['blocks']! as List<Object?>).length, greaterThan(1));
 
-    _step('16.5 JS 示例的页面能力完成');
+    _step('16.5 JS 示例的页面内容完成');
     // 禁用/启用: JS 脚本随 stop/start 重跑
     runtime.plugins.disable('example_js');
     expect(
@@ -659,7 +650,7 @@ void main() {
 
     // 播放页背景示例 example_js_playing_bg（六种背景）+ 播放页歌曲图接管项
     // （`musicxx.ui.playing.icon`）。它顶层还注册了 `musicxx.media.palette.analyse`
-    // 取色钩子 —— 这两条都能挡住"忘了重建插件框架库"（旧插件框架库会以未知 UI 项类型 /
+    // 取色钩子 —— 这几条都能挡住"忘了重建插件框架库"（旧插件框架库会以未知槽位 /
     // 未知钩子拒绝注册）。
     if (Directory('${env.pluginRoot}/example_js_playing_bg').existsSync()) {
       final MusicxxPluginInfo? imagePlugin = found2
@@ -675,113 +666,115 @@ void main() {
         1,
         reason: '取色钩子的处理器要在插件框架侧登记成功（插件框架库没重建时这里会是 0）',
       );
-      final List<MusicxxPluginUIItem> items = runtime.plugins.uiSnapshot();
-      // 六种样式 = 同一个槽位里的六个候选（注册顺序决定设置列表里的先后：
-      // 封面三种在前，图案三种在后）
-      final List<MusicxxPluginUIItem> backgrounds =
-          MusicxxPluginUIItems.byType(
-                items,
-                MusicxxPluginUIType.playingBackground,
-              )
-              .where(
-                (MusicxxPluginUIItem item) =>
-                    item.plugin == 'example_js_playing_bg',
-              )
-              .toList();
-      expect(backgrounds.length, 6, reason: '六种背景样式各注册一个: $backgrounds');
-      /// 第 [index] 个样式的着色器块（背景的根块是 `Expanded`，着色器在它的 child 里）
-      Map<String, Object?> shaderOf(int index) {
-        final Map<String, Object?> data = backgrounds[index].data;
-        expect(
-          data.containsKey('shader') ||
-              data.containsKey('cover') ||
-              data.containsKey('image'),
-          isFalse,
-          reason: '背景项不再收到 item 级的 shader / cover / image（只有 view）',
-        );
-        final Map<String, Object?>? shader = _shaderBlockOf(data);
-        expect(shader, isNotNull, reason: '第 $index 个样式要在 view 里写着色器块');
-        return shader!;
-      }
 
-      Map<String, Object?> argsOf(int index) {
-        final Object? args = shaderOf(index)['args'];
-        expect(args, isA<Map<String, Object?>>());
-        return args! as Map<String, Object?>;
-      }
+      // 六种样式 = 同一个槽位里的六份内容：候选列表读注册（名字 / 说明 / 顺序），
+      // 画面读生成出来的块树。注册顺序决定设置列表里的先后：封面三种在前，图案三种在后。
+      final List<MusicxxPluginUIContent> backgrounds = contentProbe.registrationsOf(
+        'example_js_playing_bg',
+        slot: 'musicxx.ui.playing.background',
+      );
+      expect(backgrounds.length, 6, reason: '六种背景样式各注册一份内容: $backgrounds');
+      expect(
+        backgrounds.map((MusicxxPluginUIContent item) => item.shortId).toList(),
+        <String>['bg', 'bgCard', 'bgVinyl', 'lattice', 'ring', 'bound'],
+        reason: '注册顺序：封面三种在前，图案三种在后',
+      );
+      expect(
+        backgrounds.first.title,
+        isNotEmpty,
+        reason: '用户要在选中之前就看到候选名字（注册时就给）',
+      );
 
-      Map<String, Object?> textureOf(int index, String name) {
-        final Object? texture = argsOf(index)[name];
+      /// 样式内容里的着色器块（背景的根块是 `Expanded`，着色器在它的 child 里）
+      Future<Map<String, Object?>?> shaderOf(String shortId) async =>
+          _shaderBlockOf(
+            await contentProbe.jsonOf('plugin.example_js_playing_bg.$shortId'),
+          );
+
+      /// 着色器块里的一个成员（纹理声明 / 值表达式）
+      Future<Map<String, Object?>> memberOf(
+        String shortId,
+        String member,
+      ) async {
+        final Map<String, Object?>? shader = await shaderOf(shortId);
+        final Object? args = shader?['args'];
+        expect(args, isA<Map<String, Object?>>(), reason: '$shortId 缺少 args');
+        final Object? value = (args! as Map<String, Object?>)[member];
         expect(
-          texture,
+          value,
           isA<Map<String, Object?>>(),
-          reason: '纹理声明就是 args 里的一个成员（成员名 = 采样器名）',
+          reason: '$shortId.$member 缺失（成员名 = 采样器名）',
         );
-        return texture! as Map<String, Object?>;
+        return value! as Map<String, Object?>;
       }
 
       expect(
-        shaderOf(0)['bundle'],
+        (await shaderOf('bg'))?['bundle'],
         'shader/heat.shaderbundle',
         reason: '第一个是『模糊』',
       );
       expect(
-        textureOf(0, 'uCover')['blur'],
+        (await memberOf('bg', 'uCover'))['blur'],
         14,
         reason: '封面纹理的预模糊强度由插件声明（默认 14，设置页可在 0~30 之间调）',
       );
       expect(
-        shaderOf(1)['bundle'],
+        (await shaderOf('bgCard'))?['bundle'],
         'shader/card.shaderbundle',
         reason: '第二个是『沉浸』（清晰封面 + 渐变底 + 亮暗遮罩）',
       );
       expect(
-        textureOf(1, 'uCover').containsKey('blur'),
+        (await memberOf('bgCard', 'uCover')).containsKey('blur'),
         isFalse,
         reason: '『沉浸』的封面卡片要是原图，不做预模糊（类声明不写 blur）',
       );
       expect(
-        shaderOf(2)['bundle'],
+        (await shaderOf('bgVinyl'))?['bundle'],
         'shader/vinyl.shaderbundle',
         reason: '第三个是『黑胶』（唱盘 + 圆裁封面 + 唱臂）',
       );
       expect(
-        textureOf(2, 'uCover')['square'],
+        (await memberOf('bgVinyl', 'uCover'))['square'],
         true,
         reason: '『黑胶』的盘心是圆裁的封面：纹理要中心裁剪成正方形',
       );
       expect(
-        shaderOf(2)['speed'],
+        (await shaderOf('bgVinyl'))?['speed'],
         1,
         reason: '『黑胶』的转速由块的 speed 决定（默认 1×；改转速不用重新选中该样式）',
       );
       expect(
-        shaderOf(3)['bundle'],
+        (await shaderOf('lattice'))?['bundle'],
         'shader/bg.shaderbundle',
         reason: '第四个是『晶格』（模糊封面铺底 + 晶格图案）',
       );
-      expect(shaderOf(3)['speed'], 1, reason: '图案样式默认 1× = 基准速度 1');
       expect(
-        shaderOf(4)['bundle'],
+        (await shaderOf('lattice'))?['speed'],
+        1,
+        reason: '图案样式默认 1× = 基准速度 1',
+      );
+      expect(
+        (await shaderOf('ring'))?['bundle'],
         'shader/ring.shaderbundle',
         reason: '第五个是『光圈』（频谱圆环）',
       );
       expect(
-        textureOf(5, 'uCoverBack')['source'],
+        (await memberOf('bound', 'uCoverBack'))['source'],
         'musicxx.image.coverArt',
         reason: '第六个是『插件纹理铺底』：底层用插件绑定的图片（musicxx.image.<key>）',
       );
-      // 歌曲图接管项：mode = none（保留占位、不显示内容）
-      final MusicxxPluginUIItem icon =
-          MusicxxPluginUIItems.byType(
-            items,
-            MusicxxPluginUIType.playingIcon,
-          ).firstWhere(
-            (MusicxxPluginUIItem item) =>
-                item.plugin == 'example_js_playing_bg',
-          );
-      expect(icon.data['mode'], 'none');
-      expect(icon.data['keepSpace'], true);
+
+      // 歌曲图接管项也是内容：不画东西、保留占位（`data.keepSpace`）
+      final UiContentResult icon = await contentProbe.request(
+        'plugin.example_js_playing_bg.icon',
+      );
+      expect(
+        icon.data['keepSpace'],
+        true,
+        reason: '接管歌曲图 = 只留位置不画内容: ${icon.payload}',
+      );
+      expect(icon.json['blocks'], isEmpty, reason: '不画内容：块树是空的');
+
       // 取色钩子的处理器必须**同步**返回（不能在里面 await 主程序动作）：主程序是在需要颜色的
       // 时候等这次裁决的（切换背景样式、切歌、渲染准备都在 await 这条链上），处理器里等动作
       // 会把两边互相拖住 —— 实测表现是"启用插件后切歌 / 换背景样式卡几秒"。
@@ -808,15 +801,11 @@ void main() {
         isNull,
         reason: '没命中取色缓存时返回 null（应用走内置快速取色，算好后用 setPalette 写回）',
       );
-      // 设置页能力：页面由插件给出（插件框架只做结构校验，渲染在主程序侧）
-      final Object? imageViewRaw = await runtime.plugins.call(
-        'example_js_playing_bg',
+
+      // 设置页是 `musicxx.ui.page` 上的内容（生成函数同步给出块树，渲染在主程序侧）
+      final Map<String, Object?> imageView = await contentProbe.jsonOf(
         'plugin.example_js_playing_bg.settings',
-        const <String, Object?>{},
       );
-      final Map<String, Object?> imageView =
-          (imageViewRaw! as Map<String, Object?>)['view']!
-              as Map<String, Object?>;
       expect(imageView['title'], isNotEmpty);
       expect(imageView['blocks'], isA<List<Object?>>());
       // 设置页要有「自动调整前景色」的开关与状态行（插件按封面主色 + 亮暗主题推前景三色）
@@ -838,89 +827,76 @@ void main() {
         isTrue,
         reason: '设置页没有自动前景色的状态文本: $settingsText',
       );
-      // 说明页（主页入口指向的页面）同样由插件绘制
-      final Object? imageCardRaw = await runtime.plugins.call(
-        'example_js_playing_bg',
+      // 说明页（主页入口指向的页面）同样是内容
+      final Map<String, Object?> imageCard = await contentProbe.jsonOf(
         'plugin.example_js_playing_bg.card',
-        const <String, Object?>{},
       );
-      final Map<String, Object?> imageCard =
-          (imageCardRaw! as Map<String, Object?>)['view']!
-              as Map<String, Object?>;
       expect(imageCard['title'], isNotEmpty);
       expect(imageCard['blocks'], isA<List<Object?>>());
+
       // 设置项：控件把自己的 id 与值交回来（`args.id` / `args.value`），插件写 config.json
-      // 并重新登记背景样式；处理器同步返回页面（动作结果由页面自己从快照频道读到）。
-      final Object? setOptionRaw = await runtime.plugins.call(
+      // 并让背景内容重出一份。动作只改状态（不返回视图），生成函数也必须同步返回。
+      await _callAction(
+        runtime,
         'example_js_playing_bg',
-        'plugin.example_js_playing_bg.setOption',
-        const <String, Object?>{'id': 'zoom', 'value': 2.5, 'view': 'settings'},
+        'setOption',
+        <String, Object?>{'id': 'zoom', 'value': 2.5, 'view': 'settings'},
       );
       expect(
-        ((setOptionRaw! as Map<String, Object?>)['view']!
-            as Map<String, Object?>)['blocks'],
+        (await contentProbe.jsonOf('plugin.example_js_playing_bg.settings'))['blocks'],
         isA<List<Object?>>(),
-        reason: '改设置要同步返回页面（不能在这里等异步动作）',
+        reason: '改设置后页面能重新生成（不能在一次请求里等异步动作）',
       );
       // 改回默认值，别把测试写下的配置留给下一次运行
-      await runtime.plugins.call(
+      await _callAction(
+        runtime,
         'example_js_playing_bg',
-        'plugin.example_js_playing_bg.setOption',
-        const <String, Object?>{'id': 'zoom', 'value': 2},
+        'setOption',
+        <String, Object?>{'id': 'zoom', 'value': 2},
       );
-      // 『黑胶』的唱片转速：同一个入口，改完重新声明样式 —— 快照里立刻是新速度
-      // （转速走 UI 项的 `speed`，运行期不用重新选中该样式）
-      await runtime.plugins.call(
+      // 『黑胶』的唱片转速：同一个入口，改完让内容重出一份 —— 新速度立刻生效
+      // （转速走块的 `speed`，运行期不用重新选中该样式）
+      await _callAction(
+        runtime,
         'example_js_playing_bg',
-        'plugin.example_js_playing_bg.setOption',
-        const <String, Object?>{'id': 'spin', 'value': 2, 'view': 'settings'},
-      );
-      final MusicxxPluginUIItem vinylAfterSpin = MusicxxPluginUIItems.byType(
-        runtime.plugins.uiSnapshot(),
-        MusicxxPluginUIType.playingBackground,
-      ).firstWhere(
-        (MusicxxPluginUIItem item) =>
-            item.id == 'plugin.example_js_playing_bg.bgVinyl',
+        'setOption',
+        <String, Object?>{'id': 'spin', 'value': 2, 'view': 'settings'},
       );
       expect(
-        _shaderBlockOf(vinylAfterSpin.data)?['speed'],
+        (await shaderOf('bgVinyl'))?['speed'],
         2,
-        reason: '改「唱片转速」要重新声明样式（把新速度写进块的 speed）',
+        reason: '改「唱片转速」要让内容重出一份（把新速度写进块的 speed）',
       );
-      await runtime.plugins.call(
+      await _callAction(
+        runtime,
         'example_js_playing_bg',
-        'plugin.example_js_playing_bg.setOption',
-        const <String, Object?>{'id': 'spin', 'value': 1},
+        'setOption',
+        <String, Object?>{'id': 'spin', 'value': 1},
       );
       // 图案样式的动画速率是独立开关（bgRate）：改完写进『晶格』的 speed
-      await runtime.plugins.call(
+      await _callAction(
+        runtime,
         'example_js_playing_bg',
-        'plugin.example_js_playing_bg.setOption',
-        const <String, Object?>{'id': 'bgRate', 'value': 2, 'view': 'settings'},
+        'setOption',
+        <String, Object?>{'id': 'bgRate', 'value': 2, 'view': 'settings'},
       );
-      final MusicxxPluginUIItem latticeAfterRate =
-          MusicxxPluginUIItems.byType(
-            runtime.plugins.uiSnapshot(),
-            MusicxxPluginUIType.playingBackground,
-          ).firstWhere(
-            (MusicxxPluginUIItem item) =>
-                item.id == 'plugin.example_js_playing_bg.lattice',
-          );
       expect(
-        _shaderBlockOf(latticeAfterRate.data)?['speed'],
+        (await shaderOf('lattice'))?['speed'],
         2,
         reason: '背景动画速率 2x = 基准速度 1 × 2',
       );
-      await runtime.plugins.call(
+      await _callAction(
+        runtime,
         'example_js_playing_bg',
-        'plugin.example_js_playing_bg.setOption',
-        const <String, Object?>{'id': 'bgRate', 'value': 1},
+        'setOption',
+        <String, Object?>{'id': 'bgRate', 'value': 1},
       );
       runtime.plugins.unload('example_js_playing_bg');
       _step('18.7 示例播放页背景插件完成');
     }
 
-    // 播放页插槽示例 example_js_playing_slots: 三类位置各一块（插入块 / 控制栏 / 音频动效）
+    // 播放页插槽示例 example_js_playing_slots：位置上的界面全是内容
+    // （插入块 / 控制栏 / 音频动效 / 普通页面背景），声明项只剩主页入口。
     if (Directory('${env.pluginRoot}/example_js_playing_slots').existsSync()) {
       runtime.plugins.load('example_js_playing_slots');
       final Object? slotsProbe = await runtime.plugins.call(
@@ -929,12 +905,24 @@ void main() {
         const <String, Object?>{},
       );
       expect(slotsProbe, isA<Map<String, Object?>>());
-      final Map<String, Object?> probe = slotsProbe! as Map<String, Object?>;
-      expect(_intOf(probe['uiEntries']), 8,
-          reason: '3 个插入块 + 2 个按钮 + 1 个动效 + 1 个页面背景 + 1 个主页入口');
-      expect(_intOf(probe['hasControlBar']), 1);
-      expect(_intOf(probe['visualizer']), 1);
+      final Map<String, Object?> slotsInfo =
+          slotsProbe! as Map<String, Object?>;
+      expect(
+        _intOf(slotsInfo['uiEntries']),
+        1,
+        reason: '声明项只剩主页入口（位置上的界面全是内容）',
+      );
+      expect(
+        _intOf(slotsInfo['uiContents']),
+        9,
+        reason: '内容 9 份 = 3 个插入 + 2 个按钮 + 1 个动效 + 1 个页面背景 + 2 个页面',
+      );
+      expect(_intOf(slotsInfo['hasControlBar']), 1);
+      expect(_intOf(slotsInfo['visualizer']), 1);
+      expect(_intOf(slotsInfo['pageBackground']), 1);
 
+      // 位置上的界面只能由内容填充：插件用 `item.register` 往这些槽位注册声明项会被拒绝，
+      // 所以声明项快照里没有它们（主程序也不按声明项画这些位置）。
       final List<MusicxxPluginUIItem> slotItems = runtime.plugins
           .uiSnapshot()
           .where(
@@ -942,70 +930,96 @@ void main() {
                 item.plugin == 'example_js_playing_slots',
           )
           .toList();
-      bool hasType(String type) =>
-          slotItems.any((MusicxxPluginUIItem item) => item.type == type);
-      // 插入块与控制栏这些“位置”只能由**内容**填充: 插件用 `item.register` 往这些槽位
-      // 注册声明项会被框架拒绝 (示例迁到内容模型在步骤 11), 所以快照里没有它们。
-      expect(hasType('musicxx.ui.playing.lyric.top'), isFalse,
-          reason: '插入块不接受声明项 (只能注册内容)');
-      expect(hasType('musicxx.ui.playing.songlist.header'), isFalse,
-          reason: '插入块不接受声明项 (只能注册内容)');
-      expect(hasType('musicxx.ui.playing.moreInfo.footer'), isFalse,
-          reason: '插入块不接受声明项 (只能注册内容)');
-      expect(hasType('musicxx.ui.playing.controlBar.menu'), isFalse,
-          reason: '按钮级替换位置不接受声明项 (只能注册内容)');
-      expect(hasType('musicxx.ui.playing.controlBar.favorite'), isFalse,
-          reason: '按钮级替换位置不接受声明项 (只能注册内容)');
-      expect(hasType('musicxx.ui.playing.visualizer'), isTrue,
-          reason: '音频动效候选');
-      expect(hasType('musicxx.ui.page.background'), isTrue,
-          reason: '普通页面背景：歌曲页面');
+      for (final String type in <String>[
+        'musicxx.ui.playing.lyric.top',
+        'musicxx.ui.playing.songlist.header',
+        'musicxx.ui.playing.moreInfo.footer',
+        'musicxx.ui.playing.controlBar',
+        'musicxx.ui.playing.controlBar.menu',
+        'musicxx.ui.playing.controlBar.favorite',
+        'musicxx.ui.playing.visualizer',
+        'musicxx.ui.page.background',
+      ]) {
+        expect(
+          slotItems.any((MusicxxPluginUIItem item) => item.type == type),
+          isFalse,
+          reason: '$type 只能由内容填充（声明项不进快照）',
+        );
+      }
 
-      // 整栏替换也是内容位置: 声明项不会进快照 (能力本身仍可调用)
-      await runtime.plugins.call(
-        'example_js_playing_slots',
-        'plugin.example_js_playing_slots.toggleWholeBar',
-        const <String, Object?>{'view': 'settings'},
+      // 内容注册表：三个插入位置 / 两个按钮 / 动效 / 页面背景 / 两个页面
+      final List<MusicxxPluginUIContent> registrations = contentProbe
+          .registrationsOf('example_js_playing_slots');
+      final Set<String> registeredSlots = <String>{
+        for (final MusicxxPluginUIContent item in registrations) item.slot,
+      };
+      expect(
+        registeredSlots,
+        containsAll(<String>[
+          'musicxx.ui.playing.lyric.top',
+          'musicxx.ui.playing.songlist.header',
+          'musicxx.ui.playing.moreInfo.footer',
+          'musicxx.ui.playing.controlBar.menu',
+          'musicxx.ui.playing.controlBar.favorite',
+          'musicxx.ui.playing.visualizer',
+          'musicxx.ui.page.background',
+          'musicxx.ui.page',
+        ]),
+        reason: '注册表里的槽位: $registeredSlots',
+      );
+      final MusicxxPluginUIContent pageBackground = registrations.firstWhere(
+        (MusicxxPluginUIContent item) =>
+            item.slot == 'musicxx.ui.page.background',
       );
       expect(
-        runtime.plugins.uiSnapshot().any(
-          (MusicxxPluginUIItem item) =>
-              item.plugin == 'example_js_playing_slots' &&
-              item.type == 'musicxx.ui.playing.controlBar',
-        ),
-        isFalse,
-        reason: '整栏替换也是内容位置，声明项不会进快照',
+        pageBackground.routes,
+        contains('/songs'),
+        reason: '页面背景的适用页面只能注册时给（内容还没生成）',
       );
 
-      // 整栏视图：主程序带状态参数取内容，处理器同步返回块描述
-      final Object? barViewRaw = await runtime.plugins.call(
+      // 整栏替换：开启后多出一份 `wholeBar` 内容（按钮级内容保留，主程序会忽略它们）
+      await _callAction(
+        runtime,
         'example_js_playing_slots',
-        'plugin.example_js_playing_slots.controlBar',
-        const <String, Object?>{
-          'slot': 'musicxx.ui.playing.controlBar',
-          'button': '',
-          'playing': true,
-          'favorite': false,
-          'hasSong': true,
+        'toggleWholeBar',
+        <String, Object?>{'view': 'settings'},
+      );
+      expect(
+        contentProbe
+            .registrationsOf(
+              'example_js_playing_slots',
+              slot: 'musicxx.ui.playing.controlBar',
+            )
+            .map((MusicxxPluginUIContent item) => item.shortId),
+        contains('wholeBar'),
+        reason: '整栏替换是一份内容（开启后进注册表）',
+      );
+
+      // 整栏内容：主程序带着依赖变量来要，生成函数同步给出块描述
+      final Map<String, Object?> barView = await contentProbe.jsonOf(
+        'plugin.example_js_playing_slots.wholeBar',
+        context: <String, Object?>{
+          'musicxx.player.playing': true,
+          'musicxx.song.hasSong': true,
+          'musicxx.song.favorite': true,
         },
       );
-      final Map<String, Object?> barView =
-          ((barViewRaw! as Map<String, Object?>)['view']!
-              as Map<String, Object?>);
       expect(barView['blocks'], isA<List<Object?>>());
       final List<String> barTexts = <String>[];
       _collectText(barView, barTexts);
       expect(barTexts, isNotEmpty);
 
       // 关回去（config.json 恢复到默认值）
-      await runtime.plugins.call(
+      await _callAction(
+        runtime,
         'example_js_playing_slots',
-        'plugin.example_js_playing_slots.toggleWholeBar',
-        const <String, Object?>{'view': 'settings'},
+        'toggleWholeBar',
+        <String, Object?>{'view': 'settings'},
       );
       runtime.plugins.unload('example_js_playing_slots');
       _step('18.8 播放页插槽示例完成');
     }
+
 
     // 统计快照可读
     final Map<String, Object?> stats = runtime.plugins.stats();
@@ -1281,12 +1295,11 @@ class _Environment {
 /// 取一个数值字段（缺省或类型不符时按 0 处理；读插件的探针结果用）
 int _intOf(Object? value) => value is num ? value.toInt() : 0;
 
-/// UI 项 `view` 里的着色器块
+/// 块树里的着色器块
 ///
 /// 背景的根块是 `Expanded`（不包的话着色器拿不到确定高度），着色器块在它的 `child` 里；
 /// 以后换成 `Column` 套 `Expanded` 也能沿这条链找下去。
-Map<String, Object?>? _shaderBlockOf(Object? data) {
-  Object? node = data is Map ? data['view'] : null;
+Map<String, Object?>? _shaderBlockOf(Object? node) {
   for (int depth = 0; depth < 4 && node is Map; ++depth) {
     if (node['kind'] == 'musicxx.Shader') {
       return node.cast<String, Object?>();
@@ -1303,6 +1316,24 @@ Map<String, Object?>? _shaderBlockOf(Object? data) {
     node = children.first;
   }
   return null;
+}
+
+/// 调一个"只改状态"的插件能力
+///
+/// 动作不再返回视图：改完状态由插件调 `musicxx.ui.slot.update`，主程序让那一份内容重出一份。
+/// 这里只确认动作受理并按约定返回 `{ok: true}`；要看结果再用 [UiContentProbe] 要一份内容。
+Future<void> _callAction(
+  MusicxxPluginRuntime runtime,
+  String plugin,
+  String method, [
+  Map<String, Object?> args = const <String, Object?>{},
+]) async {
+  final Object? raw = await runtime.plugins.call(
+    plugin,
+    'plugin.$plugin.$method',
+    args,
+  );
+  expect(raw, <String, Object?>{'ok': true}, reason: '$method 应返回 ok');
 }
 
 /// 递归收集界面描述里的文本（断言"这一页里有没有某段文案"用）

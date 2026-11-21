@@ -55,7 +55,8 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，插
 | 暴露自己的能力 | `musicxx.capability.register("probe", fn)` | `capability(*this, "plugin.<id>.probe", fn)` | §6 |
 | 调别的插件的能力 | `await musicxx.capability.call(id, "probe", args)` | `co_await capabilityCall(cap, method, args)` | §6 |
 | 声明 / 实现 / 调用功能埋点 | `musicxx.capability.define/provide/call` | `featurePointDefine/Provide/Call` | §7 |
-| 声明界面项 | `musicxx.ui.slot.register({name, type, data})` | `uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, json)` | §9 |
+| 声明界面项 | `musicxx.ui.item.register({name, type, data})` | `uiItemRegister("card", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY, json)` | §9 |
+| 挂一份界面内容 | `musicxx.ui.content.register({id, slot, deps, title}, generate)` | `uiContentRegister("card", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]", &generate)` | §9 |
 | 写日志 | `musicxx.host.log(2, "文字")` / `console.log(...)` | `log.info("文字")` | §10 |
 | 读框架信息 | `musicxx.host.info()` | `hostInfoJson()` | §2.5 |
 | 读自己的配置路径 | `musicxx.host.configPath()` | `configPath()` | §3.2.5 |
@@ -674,7 +675,7 @@ await musicxx.ui.openRoute("musicxx.localSongs");
 ```
 
 ```cpp
-// C++ 侧只有声明式提示（fire-and-forget）；弹窗与开页面走同名能力
+// C++ 侧只有声明式提示（fire-and-forget）；弹窗与开页面走能力
 uiNotify(R"({"text":"已刷新"})");
 capabilityCall("musicxx.ui.dialog", R"({"content":"删除缓存？"})", &notify, 0);   // 0 = 一直等用户点
 ```
@@ -1837,7 +1838,7 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
   要等这首歌**播过一次**（应用按音源身份把封面存进图片缓存，键是
   `md5(类型 + 资源 id)`）之后才显示封面。
 - **限制**：整目录递归最多 5 层；`drive.resolveSongs` 返回多少首就收多少（不再有上限）；同一个插件的
-  同名能力应用会串行调用（最多排 2 条），多个分类共用同一个排队队列，不要在处理器里长时间阻塞。
+  同一项能力应用会串行调用（最多排 2 条），多个分类共用同一个排队队列，不要在处理器里长时间阻塞。
 
 宿主提供的界面能力（插件自己的界面里想让应用开挑歌弹窗时用）：
 
@@ -1852,10 +1853,10 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 musicxx.capability.call("musicxx.ui.drive.pickSongs", { type: TYPE_ID, view: "artists" });   // 不要 await
 
 // 在自己插件的主页入口里打开整页浏览（与内置网盘页一模一样）
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "drive", type: "home.entry",
     data: { title: "我的 FTP", icon: "resource/svg/ftp.svg",
-            action: { kind: "command", name: "musicxx.ui.drive.browse",
+            action: { kind: "call", name: "musicxx.ui.drive.browse",
                       args: { type: TYPE_ID, view: "songs" } } }
 });
 ```
@@ -2105,7 +2106,7 @@ pluginxx::Task<void> probeOther() {
 - **处理器里不要等应用实现的能力**：打开插件页面 / 点按钮时主程序在等能力结果，而应用实现的能力要由应用线程执行，
   两边互等会让**整个应用卡住几秒**。要"现在这一帧"的数据读带当前值的广播；要能力的结果就异步读回来、
   记进自己的状态，由页面下一次调用时回读。
-- 插件页面就是能力：主程序打开 `ext://<插件id>/<内容 id>` 时调用**同名能力**（见 §9.1）。
+- 插件页面是**内容**：主程序打开 `ext://<插件id>/<内容 id>` 时来要一份块树（见 §9.1）。
 
 写给谁看：
 
@@ -2447,57 +2448,53 @@ musicxx-cli call musicxx.player.playSrc --args '{"src":"track-123","type":"plugi
 
 ### 9.1 界面（完整字段见 [plugin-ui.md](plugin-ui.md)）
 
-声明式界面：插件只声明"长什么样、点了做什么"，渲染由应用完成。
+声明式界面：插件只声明"长什么样、点了做什么"，渲染由应用完成。三件事要分清：
+
+| 概念 | 干什么 | 接口 |
+|---|---|---|
+| 声明项 | 只有数据、没有界面树：主页入口、歌曲 / 歌单菜单、来源项、音效 | `musicxx.ui.item.*` / `uiItemRegister` |
+| 内容 | 挂在**槽位**上的界面 JSON，由生成函数按需给出 | `musicxx.ui.content.*` / `uiContentRegister` |
+| 槽位 | 应用预留的位置（`item` / `selectable` / `pageBackground` / `insert` / `replace` / `page` / `overlay`），或插件自己声明的 `plugin.<自己>.ui.<名字>`（只能 `insert` / `replace`） | `musicxx.ui.slot.*` / `uiSlotDefine` … |
+
+槽位清单（全名 / 形态 / 要不要出现在用户列表里）见包内生成的 [ui-slots.md](ui-slots.md)，
+可绑定的变量见 [ui-variables.md](ui-variables.md)。
 
 ```js
-musicxx.ui.slot.register({                        // 主页入口
+// 主页入口：声明项（点开自己的页面）
+musicxx.ui.item.register({
     name: "card", type: "home.entry", order: 120,
     data: { title: "我的插件", subtitle: "示例入口",
             action: { kind: "route", route: "ext://my_plugin/card" } }
 });
 
-musicxx.ui.slot.register({                        // 歌曲菜单项（data 字段也可以平铺）
-    name: "clear", type: "song.action", order: 900,
-    title: "用我的插件处理这首歌",
-    action: { kind: "capability", name: "handleSong" }
-});
+// 插件页面：`musicxx.ui.page` 槽位上的内容（地址里的最后一段就是内容 id）
+musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我的插件" },
+    function () { return { title: "我的插件", blocks: [/* … */] }; });
 
-musicxx.capability.register("card", (args) => ({   // 插件页面：主程序调用同名能力取视图描述
-    view: { title: "我的插件", blocks: [
-        { kind: "Text", text: "插件只返回块描述，渲染由主程序完成。" },
-        { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
-          action: { kind: "command", name: "musicxx.player.toggle" } }
-    ]}
-}));
+// 动作改完状态：让主程序把这一页再要一次（不返回视图、也不刷新整个应用）
+musicxx.ui.slot.update("musicxx.ui.page", ["card"]);
 ```
 
 ```cpp
-uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY,
-           R"({"title":"我的插件","action":{"kind":"route","route":"ext://my_plugin/card"}})", 120);
-uiSlotRegister("bg", MUSICXX_PLUGIN_UI_TYPE_PLAYING_BACKGROUND, backgroundJson, 20);
-uiSlotRegister("card", MUSICXX_PLUGIN_UI_TYPE_HOME_ENTRY, nextJson, 120);  // 改声明：同名覆盖（整份重给）
-uiSlotUpdate("bg");                  // 不改声明，只让主程序重新取一次视图（重画计数 + 1）
-uiSlotUnregister("card");
-uiNotify(R"({"text":"已刷新"})");
+// 入口（声明项）
+uiItemRegister("card", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
+               R"({"title":"我的插件","action":{"kind":"route","route":"ext://my_plugin/card"}})", 120);
+// 页面 / 插入块 / 控制栏：内容（生成函数在插件框架线程同步执行，必须快）
+uiContentRegister("card", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]", &onGenerateCard,
+                  120, 0, "我的插件", "说明页");
+// 改完状态：让主程序按当前变量再问一次
+uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PAGE);
 ```
 
-- UI 类型（短名 / 全名）：`home.entry`（主页入口）、`song.action`（歌曲菜单）、`playlist.action`（歌单菜单）、
-  `addsong.entry`（「添加歌曲」弹窗里的来源项）、
-  `playing.background`（播放页背景）、`playing.icon`（播放页歌曲图）、
-  `playing.visualizer`（播放页音频动效）、`playing.controlBar` 与
-  `playing.controlBar.menu` / `.previous` / `.playOrPause` / `.next` / `.favorite`（播放页底部控制按钮栏，
-  **替换**内置栏或其中的一个按钮，见 [plugin-ui.md](plugin-ui.md) §1.7）、以及十个播放页子页面插入块
-  `playing.lyric.top` / `playing.lyric.bottom` / `playing.lyric.header` / `playing.lyric.footer` /
-  `playing.moreInfo.header` / `playing.moreInfo.footer` /
-  `playing.songlist.top` / `playing.songlist.bottom` / `playing.songlist.header` / `playing.songlist.footer`
-  （**类型本身就是位置**，`data` 里不需要 `slot`；`top` / `bottom` 是固定区域，`header` / `footer` 在列表滚动内容里）。
-- **页面内容是打开时取一次的**：改完配置要让能力再返回一次 `{view: …}`（或重新打开页面）。
-- **入口 / 按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示
-  「插件『<插件id>』没有提供『xxx』」。
-- 动作写法只有四种：`route` / `dispatch` / `command` / `none`。
-  入口/菜单项里的 `route` 与能力 `musicxx.ui.openRoute` 走同一套规则：**允许指向任意插件**的页面
-  （`ext://<插件id>/<内容 id>`，含自己）。跨插件时页面由**对方插件**自己绘制，发起方拿不到对方的数据，
-  所以只该跳"两边都装得上"的公共页面，跳之前用 `musicxx.plugin.list` 之类的办法确认对方在。
+- **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.visualizer`
+  与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
+  （用户选中之前就要在设置里看到名字）；`routes` 只有页面背景用，空 = 所有普通页面。
+- **生成函数同步执行、必须快**：只做"把 ctx 变成 JSON"这一件事。要等网络 / 文件就先给一份"加载中"，
+  拿到结果再 `content.push` / `uiContentPush`。
+- **变量变化只重新绑定值**，结构变了才重新调用生成函数；`deps` 里列过的变量才会进 ctx。
+- **动作写法**：`call`（字符串短写也算）、`route`、`none`；`dispatch` / `command` 是旧写法，仍然接受。
+  改完状态用 `slot.update` / `content.push` 刷新，**动作不返回视图**。
+- 入口 / 按钮指向的页面内容必须真的注册（页面是内容，不再走同名能力）。
 - **组件要按客户端能力降级**：`musicxx.host.info().ui`（`blocks` / `controls` / `kind`）告诉你这个
   客户端支持哪些块与控件；图标要插件**自己带 svg**（写相对插件目录的路径，能力段里没有图标清单）。
 - 字重只来自 `bold: true` 或 `type: "title"`；块没有隐含边距，要留白自己写 `margin` / `padding`。
@@ -2505,14 +2502,14 @@ uiNotify(R"({"text":"已刷新"})");
 ### 9.2 渲染槽位与着色器（完整说明见 [plugin-shader-bundle.md](plugin-shader-bundle.md)）
 
 - 播放页背景（`playing.background`）、播放页歌曲图（`playing.icon`）与播放页音频动效
-  （`playing.visualizer`）可以交给插件：两个背景只有 `view`（块树），歌曲图 / 动效是 `shader`
-  （插件着色器绘制）/ `view`（界面视图组合）/ `none`（只保留占位 / 不显示）三选一。动效槽位与内置
+  （`playing.visualizer`）可以交给插件：候选来自内容注册，内容给一棵块树——背景与动效里放
+  `musicxx.Shader` 块，歌曲图可以用 `data.keepSpace` 表示"只留位置、不画内容"。动效槽位与内置
   『音乐动效』的四种样式在同一个列表里选，**没安装那个插件时插件样式照样可用**。
-- **普通页面背景**（`page.background`）也是 `view` + `routes`：没有用户选择，同一优先级里最新注册的生效。
-- 页面插入块把界面放进播放页固定位置（歌词页 / 更多信息页 / 播放列表页）：十个位置各一个类型
-  （`musicxx.ui.playing.<页面>.<位置>`），字段与规则见 [plugin-ui.md](plugin-ui.md) §1.6。
-- 播放页底部控制按钮栏可以整栏或单个按钮换成插件画的：六个类型，参数（`playing` / `favorite` /
-  `song` / `colors` …）与动作写法见 [plugin-ui.md](plugin-ui.md) §1.7。
+- **普通页面背景**（`page.background`）也是内容 + `routes`：没有用户选择，同一优先级里最新注册的生效。
+- 页面插入块把界面放进播放页固定位置（歌词页 / 更多信息页 / 播放列表页）：十个槽位各一个，
+  字段与规则见 [plugin-ui.md](plugin-ui.md) §1.7。
+- 播放页底部控制按钮栏可以整栏或单个按钮换成插件画的：七个槽位，参数（依赖变量）与动作写法见
+  [plugin-ui.md](plugin-ui.md) §1.8。
 - 着色器只有一种写法：块 `musicxx.Shader`（`bundle` + `args` + `speed` / `maxFps` / `animate` /
   `resolutionScale`）；bundle 是**打包期编译好的**（`format_version` 必须与应用使用的 Flutter 版本一致）。
 - 需要封面 / 插件图片纹理时在块的 `args` 里声明（`{"kind":"texture","source":"musicxx.cover"}` /

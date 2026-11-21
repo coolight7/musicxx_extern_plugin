@@ -103,10 +103,10 @@ function applyFontMode(mode) {
     });
 }
 
-/// 页面按钮动作：**立刻返回视图**（后台执行）
+/// 页面按钮动作：**先按新值刷新页面**（后台执行）
 ///
-/// 页面拿到的就是"点完的样子"；动作失败时回滚显示，并异步提示（那时调用早就返回了，
-/// 用提示/通知这类动作是安全的）。
+/// 页面拿到的就是"点完的样子"；动作失败时回滚显示再刷新一次，并异步提示（那时动作
+/// 早就返回了，用提示/通知这类动作是安全的）。
 function selectMode(mode, args) {
     const target = normalizeMode(mode);
     const previous = currentMode;
@@ -133,7 +133,13 @@ function selectMode(mode, args) {
             return null;
         });
     });
-    return { view: cardView(args) };
+    return refreshPage(args);
+}
+
+/// 动作改完状态后让页面重出一份内容
+function refreshPage(args) {
+    musicxx.ui.slot.update("musicxx.ui.page", ["card"]);
+    return { ok: true };
 }
 
 /// 启动时恢复上次选择的模式（后台执行，不影响加载）
@@ -236,8 +242,18 @@ function cardView(args) {
     };
 }
 
-// ==================== 能力（页面 id 同名取视图 + 三个按钮） ====================
+// ==================== 页面内容 + 三个按钮 ====================
 
+/// 说明页是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/card`）
+musicxx.ui.content.register({
+    id: "card",
+    slot: "musicxx.ui.page",
+    title: "字体示例说明页",
+}, function () {
+    return cardView({ view: "card" });
+});
+
+/// 兼容旧客户端的取视图入口（主程序新版不调它）
 musicxx.capability.register("card", function (args) {
     return cardView(args);
 });

@@ -1,12 +1,11 @@
-/// example_js_playing_slots 的音频动效: 渲染槽位 `playing.visualizer`
+/// example_js_playing_slots 的音频动效: 可选样式槽位 `playing.visualizer`
 ///
-/// 播放页的音频动效（内置是『音乐动效』的四种样式）能交给插件：注册 UI 项
-/// `musicxx.ui.playing.visualizer` 后，它与内置样式在**同一份列表**里选
+/// 播放页的音频动效（内置是『音乐动效』的四种样式）能交给插件：往
+/// `musicxx.ui.playing.visualizer` 注册一份内容后，它与内置样式在**同一份列表**里选
 /// （设置 → 主题 →「播放页音频动效」）。
 ///
-/// 三种形态与播放页歌曲图一样：`shader`（本示例）/ `view`（用声明式界面逐帧动）/ `none`。
-/// 本示例用预编译的 `shader/viz.shaderbundle` 画 4 根跟着低频带起伏的柱子 + 底部呼吸光晕，
-/// 频谱用 `musicxx.spectrum.*` 来源现读（没有数据时看着色器里的 `uEnv.z`）。
+/// 内容就是一棵块树：本示例用预编译的 `shader/viz.shaderbundle` 画 4 根跟着低频带起伏的
+/// 柱子 + 底部呼吸光晕，频谱用 `musicxx.spectrum.*` 来源现读（没有数据时看着色器里的 `uEnv.z`）。
 ///
 /// 注意：
 /// - 动效区**不接手势**（封面点击、拖动切歌、迷你歌词要继续可用），需要交互的功能别放这里；
@@ -23,15 +22,14 @@ function smoothSpectrum(name) {
     };
 }
 
-/// 动效项的完整声明
+/// 动效内容（一棵块树：根上的着色器块铺满动效区）
 ///
 /// 渲染输入的写法与背景样式同一套（`args` = 成员名 → 值表达式）；
 /// 与背景不同的是这里**不默认给 4 个绘制色**，要颜色得自己声明。
 function visualizerEntryData() {
     return {
-        title: "示例频谱柱",
-        depict: "4 根柱子跟着低频带起伏，底部光晕随响度呼吸（插件着色器绘制）",
-        shader: { bundle: "shader/viz.shaderbundle" },
+        kind: "musicxx.Shader",
+        bundle: "shader/viz.shaderbundle",
         args: {
             uColor1: { kind: "source", name: "musicxx.icon.themeMapping.0" },
             uColor2: { kind: "source", name: "musicxx.icon.themeMapping.2" },

@@ -20,6 +20,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 import 'package:path/path.dart' as path;
 
+import 'ui_content_probe.dart';
+
 const String pluginId = 'example_override_media_source';
 const String biliType = 'plugin.$pluginId.plugin_bili';
 const String proxyType = 'plugin.$pluginId.plugin_proxy_local';
@@ -207,17 +209,17 @@ void main() {
       () async => (await harness.probe())['configLoaded'] == 3,
     );
 
-    // 与用户在设置页拨开关等价：能力返回刷新后的页面
+    // 与用户在设置页拨开关等价：动作只改状态，页面靠 `slot.update` 重出一份内容
     final Object? raw = await harness.runtime.plugins.call(
       pluginId,
       'plugin.$pluginId.setSwitch',
       <String, Object?>{'id': 'overrideBili', 'value': false},
     );
-    expect(raw, isA<Map<String, Object?>>());
+    expect(raw, <String, Object?>{'ok': true}, reason: '动作约定返回 ok');
     expect(
-      (raw! as Map<String, Object?>)['view'],
+      await harness.page('settings'),
       isA<Map<String, Object?>>(),
-      reason: '改开关要当场返回新页面',
+      reason: '改开关后设置页能重新生成',
     );
 
     final Map<String, Object?>? verdict = await harness.resolveBili(
@@ -420,7 +422,7 @@ void main() {
       () async => (await harness.probe())['configLoaded'] == 3,
     );
 
-    // 主页入口必须指向设置页（只声明入口不实现能力时，页面打开会失败）
+    // 主页入口必须指向设置页：页面是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/settings`）
     final List<MusicxxPluginUIItem> entries = MusicxxPluginUIItems.byType(
       harness.runtime.plugins.uiSnapshot(),
       MusicxxPluginUIType.homeEntry,
@@ -428,14 +430,7 @@ void main() {
     expect(entries, hasLength(1));
     expect(entries.first.contentId, 'settings');
 
-    final Object? raw = await harness.runtime.plugins.call(
-      pluginId,
-      'plugin.$pluginId.settings',
-      const <String, Object?>{},
-    );
-    expect(raw, isA<Map<String, Object?>>());
-    final Map<String, Object?> view =
-        (raw! as Map<String, Object?>)['view']! as Map<String, Object?>;
+    final Map<String, Object?> view = await harness.page('settings');
     expect(view['title'], isNotEmpty);
     final List<String> texts = <String>[];
     _collectText(view, texts);
@@ -496,6 +491,18 @@ class _Harness {
   /// 假的 config.json 内容（`musicxx.storage.get/set` 用）
   final Map<String, Object?> configFile = <String, Object?>{};
 
+  /// 插件框架事件（要读插件内容就得有人听：没人听时框架送来的事件会被丢掉）
+  final List<MusicxxPluginEvent> events = <MusicxxPluginEvent>[];
+
+  StreamSubscription<MusicxxPluginEvent>? _eventsSub;
+
+  /// 取插件内容（页面是 `musicxx.ui.page` 上的内容）
+  late final UiContentProbe contentProbe = UiContentProbe(runtime, events);
+
+  /// 取一份页面内容的 JSON
+  Future<Map<String, Object?>> page(String contentId) =>
+      contentProbe.jsonOf('plugin.$pluginId.$contentId');
+
   Future<void> start() async {
     work = Directory.systemTemp.createTempSync('musicxx_media_source_test');
     pluginRoot = Directory(path.join(work.path, 'plugins'))
@@ -504,6 +511,8 @@ class _Harness {
     await _startFakeBiliApi();
     _copyPluginWithFakeApi();
     _registerHostActions();
+
+    _eventsSub = runtime.events.listen(events.add);
 
     runtime.init(
       config: MusicxxPluginRuntimeConfig(
@@ -578,6 +587,7 @@ class _Harness {
   }
 
   void dispose() {
+    _eventsSub?.cancel();
     runtime.dispose();
     try {
       _server?.close(force: true);

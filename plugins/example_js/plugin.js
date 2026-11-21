@@ -361,9 +361,33 @@ function configuredHeartbeatMs() {
     return (typeof value === "number") ? value : DEFAULT_HEARTBEAT_MS;
 }
 
-musicxx.capability.register("settings", function (args) {
-    return { view: settingsView(args, null) };
-});
+/// 两个页面（`card` / `settings`）都是 `musicxx.ui.page` 上的内容
+///
+/// 地址 `ext://<插件 id>/<内容 id>` 的最后一段就是内容 id。动作不再返回视图：
+/// 改完状态调 [refreshPage]，主程序让那一页的内容重生成一份。
+function registerPages() {
+    musicxx.ui.content.register({
+        id: "card",
+        slot: "musicxx.ui.page",
+        title: "example_js 说明页",
+    }, function () {
+        return cardView({ view: "card" });
+    });
+    musicxx.ui.content.register({
+        id: "settings",
+        slot: "musicxx.ui.page",
+        title: "example_js 设置页",
+    }, function () {
+        return settingsView({ view: "settings" }, null);
+    });
+}
+
+/// 动作改完状态后让发起的那一页重出一份内容
+function refreshPage(args) {
+    const view = (args && args.view === "card") ? "card" : "settings";
+    musicxx.ui.slot.update("musicxx.ui.page", [view]);
+    return { ok: true };
+}
 
 /// 设置页按钮: 切换"跳过广告曲目"
 ///
@@ -373,9 +397,7 @@ musicxx.capability.register("toggleSkipAds", function (args) {
     const next = !skipAdsEnabled();
     saveConfig("skipAds", next);
     musicxx.host.log(2, "设置页: 跳过广告曲目 → " + next);
-    return {
-        view: (args && args.view === "card") ? cardView(args) : settingsView(args, { skipAds: next }),
-    };
+    return refreshPage(args);
 });
 
 /// 设置页按钮: 切换"限制播放速度"
@@ -385,16 +407,14 @@ musicxx.capability.register("toggleSpeedLimit", function (args) {
     const next = !speedLimitEnabled();
     saveConfig("speedLimit", next);
     musicxx.host.log(2, "设置页: 限制播放速度 → " + next);
-    return {
-        view: (args && args.view === "card") ? cardView(args) : settingsView(args, { speedLimit: next }),
-    };
+    return refreshPage(args);
 });
 
 /// 设置页按钮: 把提示语改回默认值
 musicxx.capability.register("resetGreeting", function (args) {
     const value = (args && args.value) ? String(args.value) : "example_js 已加载";
     saveConfig("greeting", value);
-    return { view: settingsView(args, { greeting: value }) };
+    return refreshPage(args);
 });
 
 /// 设置页按钮: 循环切换心跳间隔 (10 → 30 → 60 秒 → 10)
@@ -409,7 +429,7 @@ musicxx.capability.register("cycleHeartbeat", function (args) {
     const next = HEARTBEAT_OPTIONS[(index + 1) % HEARTBEAT_OPTIONS.length];
     saveConfig("heartbeatMs", next);
     applyHeartbeat(next);
-    return { view: settingsView(args, { heartbeatMs: next }) };
+    return refreshPage(args);
 });
 
 /// 广播 (`musicxx.broadcast`)
@@ -677,11 +697,23 @@ function cardView(args) {
     };
 }
 
+/* ==================== 页面内容（`musicxx.ui.page`） ==================== */
+
+/// 注册两个页面（内容 id 就是地址里那一段）
+registerPages();
+
+/// 兼容旧客户端的取视图入口（主程序新版不调它，页面读 `musicxx.ui.page` 上的内容）
+///
+/// 删除时间：主程序删掉 `callPluginView` 的那一步（旧客户端不再存在）。
+musicxx.capability.register("settings", function (args) {
+    return { view: settingsView(args, null) };
+});
+
 musicxx.capability.register("card", function (args) {
     return { view: cardView(args) };
 });
 
-/* ==================== 功能埋点: 声明 + 实现 + 调用（插件互通） ====================
+/* ==================== 功能埋点: 声明 + 实现 + 调用（插件互通） =====================
  *
  * 这一段演示"插件自己定义功能、别的插件与应用都能调它":
 

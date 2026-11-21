@@ -94,20 +94,19 @@ musicxx.broadcast.subscribe("musicxx.song.changed", function (ctx) {
 });
 
 // 主页入口 → 打开插件自己的页面
-musicxx.ui.slot.register({
+musicxx.ui.item.register({
     name: "card",
     type: "home.entry",
     data: { title: "我的插件", action: { kind: "route", route: "ext://my_plugin/card" } },
 });
 
-// 页面内容：主程序调用同名能力取视图描述
-musicxx.capability.register("card", function () {
-    return { view: { title: "我的插件", blocks: [
+// 页面内容：注册在 `musicxx.ui.page` 槽位上，主程序按需来要一份
+musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我的插件" },
+    function () { return { title: "我的插件", blocks: [
         { kind: "Text", text: "你好，插件！" },
         { kind: "Button", label: "播放/暂停", variant: "full", highlight: true,
-          action: { kind: "command", name: "musicxx.player.toggle" } },
-    ] } };
-});
+          action: { kind: "call", name: "musicxx.player.toggle" } },
+    ] }; });
 ```
 
 ### 3.2 C++：SDK + 一个 CMake 助手
@@ -144,9 +143,9 @@ musicxx.capability.register("card", function () {
 | **广播 · 自己的频道** | 插件之间 / 插件与插件框架之间传小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeBroadcast` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
 | **功能埋点（声明 + 实现 + 调用）** | 想让"这个功能谁都能实现"：自己声明一个功能埋点并给出实现，或调用应用留出的功能埋点（频谱 / 副歌 / 封面取色）与别的插件声明的点 | `musicxx.capability.define/provide/call` / `featurePointDefine/Provide/Call` | [plugin-api.md](plugin-api.md) §7 |
-| **UI 项** | 主页入口、歌曲菜单、歌单菜单、播放页背景 / 歌曲图 / 音频动效、音效、页面插入块（歌词页 / 更多信息页 / 播放列表页） | `musicxx.ui.slot.register` / `uiSlotRegister` | [plugin-ui.md](plugin-ui.md) §1 |
+| **界面** | 主页入口、歌曲菜单、歌单菜单、音效是**声明项**；页面 / 插入块 / 控制栏 / 背景是**内容** | `musicxx.ui.item.*` / `musicxx.ui.content.*` / `uiItemRegister` / `uiContentRegister` | [plugin-ui.md](plugin-ui.md) §1 |
 | **插件音效** | 注册一段自己的音频滤镜（音效），追加在『音效』插件的音效页面里供用户选择；与内置音效同一套互斥规则（均衡器 / 自定义音调） | UI 项 `musicxx.ui.audioEffect`（JS 简称 `audio.effect`） | [plugin-ui.md](plugin-ui.md) §1.8 |
-| **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `{ view: … }` + 路由 `ext://<插件id>/<视图id>` | [plugin-ui.md](plugin-ui.md) §2 |
+| **插件页面** | 插件的功能页 / 设置页（框架不提供设置表单，自己画） | `musicxx.ui.content.register`（`musicxx.ui.page` 槽位上的内容）+ 路由 `ext://<插件id>/<内容 id>` | [plugin-ui.md](plugin-ui.md) §2 |
 | **着色器 / 渲染槽位** | 播放页背景、播放页歌曲图（接管中间那张图）、播放页音频动效（音频可视化）、普通页面背景、页面里画一块自己的着色器；纹理（当前歌曲封面 / 插件自己绑定的图片）写在着色器块的 `args` 里 | UI 项 `playing.background` / `page.background` / `playing.icon` / `playing.visualizer` + 块 `musicxx.Shader` | [plugin-shader-bundle.md](plugin-shader-bundle.md) |
 | **封面取色 / 封面变化** | 读 / 写封面取色（`musicxx.media.palette` / `musicxx.media.setPalette`，对应能力 `musicxx.media.palette.get` / `.set`），用能力注册取色实现替代内置分析；也可以订阅封面变化（`musicxx.media.cover.changed`，可随时移除） | 能力 `musicxx.media.palette.get` / `.set` + 能力 `musicxx.media.palette.analyse` + 广播频道 `musicxx.media.cover.changed` | [plugin-api.md](plugin-api.md) §3.2.8 + [plugin-capabilities.md](plugin-capabilities.md) |
 | **频谱提取 / 副歌分析实现** | 用自己的实现替代应用内置的整曲频谱提取与副歌（高潮）识别：进度条波形、播放页动效、`musicxx.media.spectrum` 与广播 `musicxx.state.spectrum` 都用这一份数据；两边都没有实现时这个功能整体不可用 | 能力 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` | [plugin-api.md](plugin-api.md) §7 + [plugin-capabilities.md](plugin-capabilities.md) |
@@ -220,8 +219,8 @@ musicxx.capability.register("card", function () {
   `{view: …}`（或重新打开页面），界面才会更新；
 - **入口/按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示
   「插件『<插件id>』没有提供『xxx』」；
-- **动作写法只有四种**：`route` / `dispatch` / `command` / `none`（`route` 允许跳到任意插件的
-  `ext://<插件id>/<视图id>` 页面）；
+- **动作写法**：`call` / `route` / `none`（`dispatch` / `command` 是旧写法，仍然接受；`route` 允许跳到任意插件的
+  `ext://<插件id>/<内容 id>` 页面）；
 - **组件要按客户端能力降级**：`host.info().ui` 是客户端如实上报的能力段 —— 它支持哪些块、控件
   都在里面；用 `fallback` 或 kit 的变体处理不支持的情况（不要假设所有客户端都支持 `Image`、
   `Icon` 或 `musicxx.Shader`）；
@@ -241,7 +240,7 @@ musicxx.capability.register("card", function () {
 - **渲染目标是左上角原点的像素坐标**（`gl_FragCoord.y` 向下增大），上下不对称的效果要自己翻 y；
 - **本地验证**：`impellerc --runtime-stage-gles --gles-language-version=100 …` 打出来的就是后端要编的那份源码；
 - **动画速率由插件自己声明**（`speed`），主程序不做二次缩放；想给用户开关就做成自己设置页里的设置项，
-  改完用 `musicxx.ui.slot.register` 同名覆盖重新声明同一项即可生效；
+  改完用 `musicxx.ui.content.register` 重新注册同一份内容 + `musicxx.ui.slot.update` 让主程序再要一次；
 - **渲染失败会自动回退**：预检不过 / 结构体不符 / 运行期异常 / 插件停用，都会退回内置背景；
   运行期失败最多重试 3 次（每次隔 2 秒），连续失败才停用该样式。
 

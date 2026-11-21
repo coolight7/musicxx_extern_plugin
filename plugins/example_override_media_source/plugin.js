@@ -663,9 +663,27 @@ musicxx.ui.item.register({
     },
 });
 
+/// 设置页是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/settings`）
+///
+/// 动作不再返回视图：开关与按钮改完状态后调 [refreshPage] 让这一页重生成一份。
+musicxx.ui.content.register({
+    id: "settings",
+    slot: "musicxx.ui.page",
+    title: "音源覆盖示例 · 设置",
+}, function () {
+    return settingsView({ view: "settings" }, null);
+});
+
+/// 兼容旧客户端的取视图入口（主程序新版不调它，页面读 `musicxx.ui.page` 上的内容）
 musicxx.capability.register("settings", function (args) {
     return {view: settingsView(args, null)};
 });
+
+/// 让设置页重出一份内容
+function refreshPage() {
+    musicxx.ui.slot.update("musicxx.ui.page", ["settings"]);
+    return { ok: true };
+}
 
 /// 设置页的开关（`switchRow` 值变化时派发，参数里带 `id` 与 `value`）
 musicxx.capability.register("setSwitch", function (args) {
@@ -675,7 +693,7 @@ musicxx.capability.register("setSwitch", function (args) {
     musicxx.host.log(2, "设置: " + key + " → " + value);
     const override = {};
     override[key] = value;
-    return {view: settingsView(args, override)};
+    return refreshPage();
 });
 
 /// 用统一入口播放一首歌
@@ -699,7 +717,7 @@ function playViaEntry(name, src, type) {
 /// 设置页按钮：用统一入口播放一首 B 站歌曲（BV 号就是歌曲的音源）
 musicxx.capability.register("playDemo", function (args) {
     playViaEntry("Never Gonna Give You Up", "BV1GJ411x7h7", "bili");
-    return {view: settingsView(args, null)};
+    return refreshPage();
 });
 
 /// 设置页按钮：播放一首用本插件音源类型写的歌
@@ -707,7 +725,7 @@ musicxx.capability.register("playDemo", function (args) {
 /// 类型写在 `type` 里，`src` 就是插件自己的资源 id（这里是 BV 号）。
 musicxx.capability.register("playCustomSrc", function (args) {
     playViaEntry("Never Gonna Give You Up", "BV1GJ411x7h7", TYPE_PLUGIN_BILI);
-    return {view: settingsView(args, null)};
+    return refreshPage();
 });
 
 /// 自检能力：把一段文本挂到本地 HTTP 服务

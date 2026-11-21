@@ -818,7 +818,4 @@ function spectrumProbeView(args) {
     };
 }
 
-/// 动作从哪个页面发起就返回哪个页面（插件框架用返回值直接刷新当前页）
-function pageView(args) {
-    return (args && args.view === HOME_VIEW_ID) ? cardView(args) : settingsView(args);
-}
+/// 动作从哪个页面发起就刷新哪个页面（`musicxx.ui.slot.update`，见 plugin.js 的 [refreshPage]）

@@ -405,7 +405,22 @@ musicxx.capability.register("accounts", function (args) {
                 break;
         }
         return accountsAnswer(env);
+    }).then(function (answer) {
+        // 新模型：动作不返回视图，改完账号状态后让账号页重出一份内容
+        // （旧客户端读返回值，新客户端读内容，两边都不影响）
+        musicxx.ui.slot.update("musicxx.ui.page", ["accounts"]);
+        return answer;
     });
+});
+
+/// 账号页是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/accounts`）
+musicxx.ui.content.register({
+    id: "accounts",
+    slot: "musicxx.ui.page",
+    title: "FTP 账号",
+    depict: "保存 / 测试 FTP 账号；测试通过后这个源就能在添加歌曲里用",
+}, function () {
+    return accountsAnswer(FtpSource.viewEnv(null));
 });
 
 /* ==================== 能力：自检 ==================== */
