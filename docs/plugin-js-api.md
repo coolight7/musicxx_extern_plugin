@@ -88,6 +88,7 @@ permissions:                     # 声明式权限：只做展示，运行时不
 3. 决策型能力的**推荐写法是同步返回**裁决对象；需要 `await` 才能决定时可以先同步判断
    "这次要不要裁决"，只在需要的那次返回 Promise（见 §4.3）。返回 Promise 时插件框架会一直等到它结算。
 4. `require`、`fs`、`fetch`、原生模块都**不存在**；框架与主程序能力全部经 `musicxx.*`。
+   读本机文件用能力 `musicxx.fs.stat` / `.list` / `.read`（只读，见 [plugin-capabilities.md](plugin-capabilities.md)）。
 5. 插件之间不做隔离（同一条 JS 线程）；不要依赖全局副作用，状态放插件自己的存储里。
 6. 能力处理器抛异常只记日志与统计（**不会暂停派发、也不会卸载插件**）
    （超时不算失败；统计里看得到 `paused`）。
@@ -116,6 +117,8 @@ permissions:                     # 声明式权限：只做展示，运行时不
 
 脚本里还有一个全局的 `setTimeout` / `setInterval` / `clearTimeout` / `clearInterval`
 （与 `musicxx.timer` 同一实现）。除此之外**没有** `require` / `fs` / `fetch` / `process` 这些 Node 时代的对象。
+要读写本机文件只能走主程序的能力：`musicxx.fs.stat` / `.list` / `.read`（只读，没有写 / 删 / 改名）。
+调用写法与别的能力一样：`musicxx.capability.call("musicxx.fs.list", {path: "C:/Music"})`。
 
 ---
 
@@ -1289,4 +1292,4 @@ musicxx.util.base64Decode({ base64: "YWJj" });                 // {ok, text:"abc
 | 跨插件能力超时 | 缺省 3 s；`<= 0` 时插件框架仍按 3 s 处理（不是"一直等"） |
 | 资源限制 | 插件框架不限制 JS 内存、执行时长与 JS插件数量；死循环会占住共享 JS 线程（没有中断开关） |
 | 定时器精度 | 框架线程按 ≤ 50 ms 粒度轮询，不适合高精度计时 |
-| 与动态库插件的差别 | JS插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`；不能注册原生线程；能力处理器可以是异步的（返回 Promise，插件框架等它结算） |
+| 与动态库插件的差别 | JS插件不能直接调用系统 API（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.fetch`、读本地文件走 `musicxx.fs.*`（只读）；不能注册原生线程；能力处理器可以是异步的（返回 Promise，插件框架等它结算） |

@@ -153,6 +153,9 @@
 #define MUSICXX_CAPABILITY_STORAGE_SET "musicxx.storage.set"
 #define MUSICXX_CAPABILITY_STORAGE_DELETE "musicxx.storage.delete"
 #define MUSICXX_CAPABILITY_STORAGE_LIST "musicxx.storage.list"
+#define MUSICXX_CAPABILITY_FS_STAT "musicxx.fs.stat"
+#define MUSICXX_CAPABILITY_FS_LIST "musicxx.fs.list"
+#define MUSICXX_CAPABILITY_FS_READ "musicxx.fs.read"
 #define MUSICXX_CAPABILITY_NET_FETCH "musicxx.net.fetch"
 #define MUSICXX_CAPABILITY_NET_DOWNLOAD "musicxx.net.download"
 #define MUSICXX_CAPABILITY_UI_SLOT_LIST "musicxx.ui.slot.list"
@@ -318,6 +321,9 @@ static const MusicxxCapabilityDecl musicxxCapabilityDecls[] = {
     {"musicxx.storage.set", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.storage.delete", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.storage.list", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.fs.stat", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.fs.list", 0, 0, 1u, 1, 5000, 0, 4u},
+    {"musicxx.fs.read", 0, 0, 1u, 1, 5000, 0, 4u},
     {"musicxx.net.fetch", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.net.download", 0, 0, 1u, 1, 5000, 0, 5u},
     {"musicxx.ui.slot.list", 0, 0, 1u, 1, 5000, 0, 5u},

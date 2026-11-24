@@ -14,6 +14,8 @@
 | 挑歌弹窗的数据 | 能力 `drive.list` 等（主程序内置网盘那套界面） |
 | 加进歌单 | 主程序负责（插件只给条目） |
 | 播放 | 能力 `musicxx.player.source.resolve` + 本机 HTTP 转流服务 |
+| 搜索页 | 槽位 `musicxx.ui.search.type` 上的一个搜索类型（结果用块 `musicxx.SongListView`） |
+| 手动实测不用另装服务器 | 插件自带一台只读的测试 FTP 服务端（`testserver.js`，读本地目录） |
 | 自检 | 能力 `probe` |
 
 ---
@@ -32,7 +34,11 @@ musicxx-cli plugin logs example_ftp_source --limit 50
 musicxx-cli call probe --plugin example_ftp_source
 ```
 
-本机起一个测试用 FTP 服务器（需要 `pip install pyftpdlib`）：
+本机起一个测试用 FTP 服务器（两种方式，任选一种）：
+
+- **用插件自带的**（推荐，不用装东西）：主页「FTP 音乐」→ 页面下面「测试用 FTP 服务端」→ 填一个本机
+  音乐目录 → 打开「启动测试服务端」→ 点「用这个服务填账号」→ 「只保存」；
+- 用外部服务器（需要 `pip install pyftpdlib`）：
 
 ```powershell
 python -m pyftpdlib -p 2121 -d D:/tmp/ftproot -u test -P 123456
@@ -175,7 +181,50 @@ musicxx.capability.register("drive.list", function (args) {
 - **服务器不支持 `REST`** 时退回 `200` 从头发（播放不受影响，拖动会回到开头）；
   **服务器不支持 `SIZE`** 时不写 `Content-Length`、直接按整段发（也不能拖动）。
 
-## 6. 限制（都是刻意的）
+## 6. 内置测试服务端（手动实测用）
+
+插件自带一台**只读**的 FTP 服务端（`testserver.js`）：在主页「FTP 音乐」页面下面直接开关，把本机一个目录
+当成 FTP 根，不用再装 pyftpdlib 就能把整条链路（列目录 / 加歌单 / 播放 / 拖动）手动走一遍。
+
+| 设置 | 含义 | 缺省 |
+|---|---|---|
+| 启动测试服务端 | 打开就启动，关掉就停（端口同时释放） | 关 |
+| 挂载的目录 | 本机上真实存在的目录，例如 `D:/Music` | 空（必填） |
+| 端口 | 只监听 `127.0.0.1`；`0` = 由系统分配 | `2121` |
+| 用户名 / 密码 | 「用这个服务填账号」会把它们填进账号表单 | `test` / `123456` |
+
+几条要点：
+
+- 它只实现这个示例自己用到的子集：`USER` / `PASS` / `SYST` / `FEAT` / `OPTS` / `TYPE` / `PWD` /
+  `CWD` / `CDUP` / `PASV` / `EPSV` / `LIST` / `NLST` / `MLSD` / `SIZE` / `MDTM` / `REST` / `RETR` / `QUIT`；
+  主动模式（`PORT` / `EPRT`）与写操作一律 `502`（不实现）。
+- **只监听回环**，局域网里的设备连不上；目录树被限制在挂载目录里（`..` 在根上就停住）。
+- 文件内容不是插件自己读的：JS 插件没有文件接口，它走主程序的只读能力
+  `musicxx.fs.stat` / `musicxx.fs.list` / `musicxx.fs.read`（一次 256 KiB，发送队列长了就等）。
+- 开关状态与配置存在插件私有 KV 的 `testServer` 键里；插件停止 / 卸载时框架会关掉它所有的 socket。
+- 用完关掉就行：关掉后端口释放，已经加进歌单的歌不受影响（它们指向的地址本来就用不了时才报错）。
+
+## 7. 搜索页的搜索类型
+
+搜索页顶部那排标签里会多一个「FTP 音乐」：输入关键词、点搜索，插件按**文件名**在 FTP 账号的
+目录里找音频（最多 3 层目录、最多 40 个目录 / 200 首），结果交给主程序的歌曲结果模板块
+`musicxx.SongListView` 画（行样式、点行播放、长按菜单都由主程序给）。
+
+- 注册在槽位 `musicxx.ui.search.type` 上（`search.js`），`deps` 只用
+  `scope:musicxx.search.keyword` / `scope:musicxx.search.request` / `.type`；
+- **打字不触发搜索**，点了搜索才搜；同一个词再点一次也会重搜；
+- 生成函数不等网络：没搜过 / 正在搜时返回一行提示，搜完调 `musicxx.ui.slot.update` 让主程序再问一次；
+- 只认音频后缀（`mp3` / `flac` / `wav` / `m4a` / `ogg` / `opus` …），不会把字幕、封面当歌；
+- 没配账号时标签仍然在，结果区提示先配置账号。
+
+从外部直接打开这个搜索类型：
+
+```text
+musicxx://search/?type=plugin.example_ftp_source.search&keyword=稻香
+musicxx-cli call musicxx.ui.openSearch --args '{"type":"plugin.example_ftp_source.search","keyword":"稻香"}'
+```
+
+## 8. 限制（都是刻意的）
 
 - **只有明文 FTP**：不做 FTPS / SFTP（插件框架的 socket 能力不做 TLS 客户端以外的协议）；
 - **只有一个账号**：示例不演示多账号切换；
@@ -187,7 +236,7 @@ musicxx.capability.register("drive.list", function (args) {
   时间（每个数据片一次 base64 字符串拷贝）。要更快只能让插件框架提供桥接；
 - 目录一次显示 50 项（滚到底由列表自己请求下一批，还有剩余时才给加载更多），一次最多选 200 首。
 
-## 7. 安全
+## 9. 安全
 
 - 账号只在本机的插件存储里；界面不回显已保存的密码；日志只记主机与端口，**不记密码**；
 - 歌曲里只有指纹 + 路径，不含用户名与密码；
@@ -195,7 +244,7 @@ musicxx.capability.register("drive.list", function (args) {
   **不解析路径**（拿到别的 URL 也读不到别的文件）；
 - 只接受本插件自己的音源类型（`ctx.pluginType !== TYPE_ID` 一律不回答），不会替别的插件解析。
 
-## 8. 排障
+## 10. 排障
 
 按这个顺序看：
 
@@ -216,7 +265,7 @@ musicxx.capability.register("drive.list", function (args) {
 | 能列目录、播放报"没有可用的解析实现" | 账号指纹对不上（换过主机 / 端口 / 用户名），从歌单里重新添加一次 |
 | 播放几秒就停 | 服务器限制了并发连接数（转流 + 缓存流会各开一条），看日志里的 FTP 应答码 |
 
-## 9. 目录
+## 11. 目录
 
 | 文件 | 内容 |
 |---|---|
@@ -224,6 +273,8 @@ musicxx.capability.register("drive.list", function (args) {
 | `plugin.js` | 注册（UI 项 / 能力 / 音源类型）、账号状态、浏览状态、加歌与播放 |
 | `ftp.js` | FTP 客户端：控制连接、登录、被动模式、`MLSD` / `LIST` / `SIZE` / `REST` / `RETR`、编码转换 |
 | `proxy.js` | 本机 HTTP 转流服务：请求解析、`Range`、token 表、数据转发与背压 |
-| `ui.js` | 账号页与浏览页的视图拼装（kit） |
+| `testserver.js` | 内置的只读 FTP 测试服务端（被动模式 / 列目录 / 下载，文件走 `musicxx.fs.*`） |
+| `search.js` | 搜索页的「FTP 音乐」搜索类型（按文件名递归搜、结果用 `musicxx.SongListView`） |
+| `ui.js` | 账号页、测试服务端设置与浏览页的视图拼装（kit） |
 | `resource/svg/ftp.svg` | 主页入口与「添加歌曲」项的图标 |
 | `pluginxx_ui_kit.js` / `musicxx_ui_kit.js` | 随插件分发的界面 kit（由 `tools/sync_ui_kit.ps1` 复制，不要手改） |

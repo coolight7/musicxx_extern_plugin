@@ -23,6 +23,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:musicxx_extern_plugin/musicxx_extern_plugin.dart';
 import 'package:path/path.dart' as path;
 
+import 'ui_content_probe.dart';
+
 const String pluginId = 'example_ftp_source';
 const String ftpType = 'plugin.$pluginId.audio';
 
@@ -609,6 +611,259 @@ void main() {
       reason: '插件卸载后本机转流服务应当已关闭',
     );
   }, timeout: const Timeout(Duration(seconds: 120)));
+
+  test('内置测试服务端：自己起 FTP 服务 → 填账号 → 列目录 / 播放', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+
+    // 挂一个临时目录当 FTP 根：两首歌 + 一个子目录
+    final Directory music = Directory(path.join(harness.work.path, 'local'))
+      ..createSync(recursive: true);
+    File(path.join(music.path, 'one.mp3')).writeAsBytesSync(fileB);
+    Directory(path.join(music.path, 'sub')).createSync();
+    File(path.join(music.path, 'sub', 'two.flac')).writeAsBytesSync(fileC);
+
+    await harness.setServerField(
+      'testServerRoot',
+      music.path.replaceAll('\\', '/'),
+    );
+    // 端口 0 = 由系统分配（避免与别的程序撞端口）
+    await harness.setServerField('testServerPort', 0);
+    await harness.accounts(<String, Object?>{
+      'op': 'serverSwitch',
+      'value': true,
+    });
+
+    final Map<Object?, Object?> server =
+        (await harness.probe())['testServer']! as Map<Object?, Object?>;
+    expect(server['running'], true, reason: '开关打开后测试服务端应启动：$server');
+    final int port = (server['port']! as num).toInt();
+    expect(port, greaterThan(0), reason: '应当拿到一个真实端口：$server');
+
+    // 把自己的账号填到这台服务上（账号页上的「用这个服务填账号」）
+    await harness.accounts(const <String, Object?>{'op': 'serverFillAccount'});
+    final Map<String, Object?> saved = await harness.accounts(
+      const <String, Object?>{'op': 'save'},
+    );
+    expect(
+      _textsOf(saved).any((String text) => text.contains('已保存到本机')),
+      isTrue,
+    );
+    final Map<String, Object?> probe = await harness.probe();
+    expect(probe['configured'], isTrue);
+    expect((probe['account']! as Map)['host'], '127.0.0.1');
+    expect((probe['account']! as Map)['port'], port);
+
+    // 测试连接：这一次连的是插件自己起的服务器（文件走主程序的 fs 能力）
+    final Map<String, Object?> tested = await harness.accounts(
+      const <String, Object?>{'op': 'test'},
+    );
+    expect(
+      _textsOf(tested).any((String text) => text.contains('连接成功')),
+      isTrue,
+      reason: '应当能登录到内置测试服务端：${_textsOf(tested)}',
+    );
+
+    // 列目录：一个文件 + 一个目录
+    final Map<String, Object?> listed = await harness.call(
+      'drive.list',
+      <String, Object?>{
+        'type': ftpType,
+        'view': 'dir',
+        'path': '/',
+        'offset': '',
+        'limit': 50,
+      },
+    );
+    expect(listed['ok'], true, reason: '$listed');
+    final List<Object?> entries = listed['entries']! as List<Object?>;
+    final List<String> names = <String>[
+      for (final Object? item in entries) '${(item! as Map)['name']}',
+    ];
+    expect(names, containsAll(<String>['one.mp3', 'sub']));
+
+    // 反复进出目录：客户端每做一件事开一条控制连接、做完 QUIT。
+    // 服务端的连接名额要随着断开还回去 —— 以前 `sessions` 只加不减，累计到
+    // MAX_CONNECTIONS（8）以后新连接全被 421 拒掉（表现就是“进第二个文件夹就报错”）。
+    for (int i = 0; i < 12; i++) {
+      final Map<String, Object?> again = await harness
+          .call('drive.list', <String, Object?>{
+            'type': ftpType,
+            'view': 'dir',
+            'path': i.isEven ? '/' : '/sub',
+            'offset': '',
+            'limit': 50,
+          });
+      expect(again['ok'], true, reason: '第 ${i + 2} 次列目录不该被拒：$again');
+    }
+    final Map<Object?, Object?> afterLists =
+        (await harness.probe())['testServer']! as Map<Object?, Object?>;
+    expect(
+      afterLists['sessions'],
+      0,
+      reason: '做完的会话应当还回去（当前连接数归零）：$afterLists',
+    );
+    expect(
+      (afterLists['totalSessions']! as num).toInt(),
+      greaterThan(8),
+      reason: '累计会话条数照常增长：$afterLists',
+    );
+
+    // 播放：解析到本机 http 地址后读回来的字节就是本地文件
+    final String fingerprint = '${probe['fingerprint']}';
+    final Map<String, Object?>? verdict = await harness.resolve(
+      '$fingerprint/one.mp3',
+    );
+    expect(verdict, isNotNull, reason: '内置测试服务端的文件应当能解析');
+    final HttpClient client = HttpClient();
+    addTearDown(client.close);
+    final _HttpResult got = await harness.httpGet(
+      client,
+      '${verdict!['path']}',
+    );
+    expect(got.status, 200);
+    expect(got.body, fileB, reason: '转流读到的字节应当与本地文件完全一致');
+
+    // 关掉开关：端口释放，账号还在（服务器关掉不影响已保存的歌单条目）
+    await harness.accounts(<String, Object?>{
+      'op': 'serverSwitch',
+      'value': false,
+    });
+    final Map<Object?, Object?> stopped =
+        (await harness.probe())['testServer']! as Map<Object?, Object?>;
+    expect(stopped['running'], false);
+  }, timeout: const Timeout(Duration(seconds: 180)));
+
+  test('搜索类型：注册在 musicxx.ui.search.type，关键词变了才重新搜', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+    final UiContentProbe probe = harness.uiProbe();
+    const String searchId = 'plugin.$pluginId.search';
+
+    // 注册：槽位、名称、依赖的两个作用域变量
+    final List<MusicxxPluginUIContent> registrations = probe.registrationsOf(
+      pluginId,
+      slot: 'musicxx.ui.search.type',
+    );
+    expect(registrations.length, 1, reason: '一份内容 = 一个搜索类型');
+    expect(registrations.single.title, 'FTP 音乐');
+    expect(
+      registrations.single.deps,
+      containsAll(<String>[
+        'scope:musicxx.search.keyword',
+        'scope:musicxx.search.request',
+      ]),
+    );
+
+    Map<String, Object?> context(String keyword, int request) =>
+        <String, Object?>{
+          'scope:musicxx.search.keyword': keyword,
+          'scope:musicxx.search.request': request,
+          'scope:musicxx.search.type': 'search',
+        };
+
+    // 没账号：提示先配置
+    final Map<String, Object?> noAccount = await probe.jsonOf(
+      searchId,
+      context: context('ogg', 1),
+    );
+    expect(_textOf(noAccount), contains('账号'));
+
+    // 配上假 FTP 账号（根 /Music，里面有 sub/c.ogg）
+    await harness.configureAccount();
+
+    // 第一次要：还没搜过 → 正在搜索（生成函数不等网络）
+    final Map<String, Object?> first = await probe.jsonOf(
+      searchId,
+      context: context('ogg', 2),
+    );
+    expect(_textOf(first), contains('正在 FTP 上搜索'));
+
+    // 后台搜完（本地假服务器很快）：再要一次应当是歌曲结果模板块
+    Map<String, Object?> second = first;
+    for (int i = 0; i < 25; i++) {
+      await harness.pumpFor(const Duration(milliseconds: 200));
+      second = await probe.jsonOf(searchId, context: context('ogg', 2));
+      if (_blockOf(second, 'musicxx.SongListView') != null) {
+        break;
+      }
+    }
+    final Map<String, Object?>? block = _blockOf(
+      second,
+      'musicxx.SongListView',
+    );
+    expect(block, isNotNull, reason: '应当给出歌曲结果模板块：$second');
+    final List<Object?> items = block!['items']! as List<Object?>;
+    expect(items.length, 1, reason: '只有 sub/c.ogg 带关键词 ogg：$items');
+    final Map<Object?, Object?> item = items.single! as Map<Object?, Object?>;
+    expect('${item['title']}', 'c.ogg');
+    final Map<Object?, Object?> song =
+        (item['data']! as Map<Object?, Object?>)['song']!
+            as Map<Object?, Object?>;
+    expect(song['type'], ftpType);
+    expect('${song['src']}', endsWith('/Music/sub/c.ogg'));
+  }, timeout: const Timeout(Duration(seconds: 180)));
+
+  test('页面内容：账号页直接给文档（{title, blocks}），不是能力的 {view} 包装', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+    final UiContentProbe probe = harness.uiProbe();
+    final Map<String, Object?> view = await probe.jsonOf(
+      'plugin.$pluginId.accounts',
+    );
+
+    // 形状：生成函数交出去的必须是文档本体
+    // （渲染层只认 `{title, blocks}` 与块数组，包一层 `{view: …}` 会画成"没有内容块"）
+    expect(view['view'], isNull, reason: '不能把能力的 {view: …} 直接交出去：$view');
+    final Object? blocks = view['blocks'];
+    expect(blocks, isA<List<Object?>>(), reason: '$view');
+    expect(blocks! as List<Object?>, isNotEmpty, reason: '$view');
+
+    // 内容：账号表单与「测试服务端」一段都在这一页上
+    final String text = _textOf(view);
+    expect(text, contains('服务器地址'));
+    expect(text, contains('启动测试服务端'));
+  }, timeout: const Timeout(Duration(seconds: 180)));
+
+  test('音源解析：src 是本机路径时不报警告，安静让给后面的实现', () async {
+    if (unsupported()) {
+      return;
+    }
+    final _Harness harness = (await start())!;
+    await harness.configureAccount();
+
+    // 主程序在本地库里认出同一个文件时，会先把这首歌换成本机路径再送来
+    // （`crudeSrc` / `customType` 还是插件音源，所以处理器照样会被问到）。
+    // 这不是资源 id，不归插件解析：只能安静跳过，记成警告会让人以为插件坏了。
+    final Map<String, Object?>? verdict = await harness.resolve(
+      r'C:\0Acoolight\Music\Chinese\9420 - 麦小兜.flac',
+    );
+    expect(verdict, isNull, reason: '不是资源 id，不该给出解析结果：$verdict');
+
+    final List<String> logTexts = <String>[
+      for (final MusicxxPluginEvent event in harness.events)
+        if (event.type == MusicxxPluginEventType.pluginLog) '${event.payload}',
+    ];
+    expect(
+      logTexts.where((String text) => text.contains('资源 id 格式不对')),
+      isEmpty,
+      reason: '本机路径不是错误，不该记警告：$logTexts',
+    );
+
+    final Map<Object?, Object?> counts =
+        (await harness.probe())['counts']! as Map<Object?, Object?>;
+    expect(
+      (counts['resolveSkipped']! as num).toInt(),
+      greaterThan(0),
+      reason: '跳过的那一次要计数：$counts',
+    );
+  }, timeout: const Timeout(Duration(seconds: 120)));
 }
 
 /* ==================== 测试环境 ==================== */
@@ -633,6 +888,9 @@ class _Harness {
   /// 插件发出的 `musicxx.source.browse` 声明
   final List<Map<String, Object?>> browseDeclarations =
       <Map<String, Object?>>[];
+
+  /// 插件框架事件（UI 内容生成结果从这里取）
+  final List<MusicxxPluginEvent> events = <MusicxxPluginEvent>[];
   final List<Map<String, Object?>> addedSongs = <Map<String, Object?>>[];
   int addSongPid = 0;
   int overlayCloseCalls = 0;
@@ -669,6 +927,7 @@ class _Harness {
       ),
       libraryPath: env.libraryPath,
     );
+    runtime.events.listen(events.add);
     runtime.plugins.scan();
     runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull, reason: '插件应能加载');
@@ -699,14 +958,18 @@ class _Harness {
   }
 
   void _registerHostActions() {
-    runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (
+      invocation,
+    ) {
       final String key = '${invocation.args['key']}';
       if (invocation.args['namespace'] == 'config') {
         return null;
       }
       return kv[key];
     });
-    runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (
+      invocation,
+    ) {
       kv['${invocation.args['key']}'] = invocation.args['value'];
       return <String, Object?>{'ok': true};
     });
@@ -776,6 +1039,97 @@ class _Harness {
     });
     runtime.appCapabilities.register(MusicxxCapabilityId.sourceUndefine, (_) {
       return <String, Object?>{'ok': true};
+    });
+    // 内置测试服务端读本地文件用的只读能力（与主程序 `musicxx.fs.*` 同一套形状）
+    runtime.appCapabilities.register(MusicxxCapabilityId.fsStat, (invocation) {
+      final String target = '${invocation.args['path'] ?? ''}';
+      final FileStat stat = FileStat.statSync(target);
+      final bool isDir = stat.type == FileSystemEntityType.directory;
+      final bool isFile = stat.type == FileSystemEntityType.file;
+      return <String, Object?>{
+        'ok': true,
+        'path': target,
+        'name': path.basename(target),
+        'exists': stat.type != FileSystemEntityType.notFound,
+        'isDir': isDir,
+        'isFile': isFile,
+        'size': isFile ? stat.size : 0,
+        'modifiedMs': stat.modified.millisecondsSinceEpoch,
+      };
+    });
+    runtime.appCapabilities.register(MusicxxCapabilityId.fsList, (invocation) {
+      final String target = '${invocation.args['path'] ?? ''}';
+      final bool dirsOnly = invocation.args['dirsOnly'] == true;
+      final int offset = (invocation.args['offset'] as num?)?.toInt() ?? 0;
+      final int limit = (invocation.args['limit'] as num?)?.toInt() ?? 500;
+      final Directory dir = Directory(target);
+      if (!dir.existsSync()) {
+        return <String, Object?>{
+          'ok': false,
+          'error': 'not_found',
+          'message': '目录不存在: $target',
+        };
+      }
+      final List<Map<String, Object?>> all = <Map<String, Object?>>[];
+      for (final FileSystemEntity entity in dir.listSync(followLinks: true)) {
+        final FileStat stat = FileStat.statSync(entity.path);
+        if (stat.type == FileSystemEntityType.notFound) {
+          continue;
+        }
+        final bool isDir = stat.type == FileSystemEntityType.directory;
+        if (dirsOnly && !isDir) {
+          continue;
+        }
+        all.add(<String, Object?>{
+          'name': path.basename(entity.path),
+          'path': entity.path,
+          'isDir': isDir,
+          'size': isDir ? 0 : stat.size,
+          'modifiedMs': stat.modified.millisecondsSinceEpoch,
+        });
+      }
+      all.sort(
+        (Map<String, Object?> a, Map<String, Object?> b) => '${a['name']}'
+            .toLowerCase()
+            .compareTo('${b['name']}'.toLowerCase()),
+      );
+      final List<Map<String, Object?>> page = all
+          .skip(offset)
+          .take(limit)
+          .toList();
+      return <String, Object?>{
+        'ok': true,
+        'path': target,
+        'entries': page,
+        'total': all.length,
+        'hasMore': offset + page.length < all.length,
+      };
+    });
+    runtime.appCapabilities.register(MusicxxCapabilityId.fsRead, (invocation) {
+      final String target = '${invocation.args['path'] ?? ''}';
+      final int offset = (invocation.args['offset'] as num?)?.toInt() ?? 0;
+      final int want = (invocation.args['size'] as num?)?.toInt() ?? 256 * 1024;
+      final File file = File(target);
+      if (!file.existsSync()) {
+        return <String, Object?>{
+          'ok': false,
+          'error': 'not_found',
+          'message': '文件不存在: $target',
+        };
+      }
+      final List<int> bytes = file.readAsBytesSync();
+      final int from = offset.clamp(0, bytes.length);
+      final int to = (from + want).clamp(from, bytes.length);
+      final List<int> part = bytes.sublist(from, to);
+      return <String, Object?>{
+        'ok': true,
+        'path': target,
+        'offset': from,
+        'bytes': part.length,
+        'size': bytes.length,
+        'data': convert.base64Encode(part),
+        'eof': to >= bytes.length,
+      };
     });
   }
 
@@ -907,6 +1261,18 @@ class _Harness {
       await Future<void>.delayed(const Duration(milliseconds: 10));
     }
   }
+
+  /// 取插件内容的工具（向插件要一次，从事件里拿结果）
+  UiContentProbe uiProbe() => UiContentProbe(runtime, events);
+
+  /// 改一个测试服务端字段（与控件派发同一个动作）
+  Future<void> setServerField(String id, Object? value) async {
+    await accounts(<String, Object?>{
+      'op': 'serverField',
+      'id': id,
+      'value': value,
+    });
+  }
 }
 
 /* ==================== 一次 HTTP 请求的结果 ==================== */
@@ -981,6 +1347,37 @@ List<String> _textsOf(Map<String, Object?> view) {
 
   visit(view);
   return out;
+}
+
+/// 视图里拼起来的全部文本（一份内容里的几块文字，断言用）
+String _textOf(Map<String, Object?> view) => _textsOf(view).join(" | ");
+
+/// 按 kind 找第一块（搜索结果的 `musicxx.SongListView` 等）
+Map<String, Object?>? _blockOf(Map<String, Object?> view, String kind) {
+  Map<String, Object?>? found;
+  bool visit(Object? node) {
+    if (node is Map) {
+      if (node['kind'] == kind) {
+        found = node.cast<String, Object?>();
+        return true;
+      }
+      for (final Object? value in node.values) {
+        if (visit(value)) {
+          return true;
+        }
+      }
+    } else if (node is List) {
+      for (final Object? item in node) {
+        if (visit(item)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  visit(view);
+  return found;
 }
 
 /// 网盘能力返回的条目列表（`drive.list` / `drive.search` 的 `entries`、`drive.resolveSongs` 的

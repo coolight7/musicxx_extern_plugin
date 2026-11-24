@@ -9,16 +9,20 @@
 name: example_ftp_source
 kind: js
 entry: plugin.js
-# 脚本按顺序在同一个 JS 上下文里执行：kit → FTP 客户端 → 转流服务 → 界面 → 注册与能力
-scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, ftp.js, proxy.js, ui.js, plugin.js]
-version: 2026.1024.1
+# 脚本按顺序在同一个 JS 上下文里执行：kit → FTP 客户端 → 测试服务端 → 转流服务 → 界面 → 搜索 → 注册与能力
+#
+# `testserver.js` 只用到 `musicxx.net.socket` 与主程序的只读文件能力（`musicxx.fs.*`），
+# `search.js` 只用到 FTP 客户端与 `musicxx.ui.content.register`。
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, ftp.js, testserver.js, proxy.js, ui.js, search.js, plugin.js]
+version: 2026.1124.4
 # JS 接口代次：当前 3、兼容下限 3（2026-11 广播只剩读与订阅后抬的，写 1 / 2 加载会被拒）
 api_version: 3
 author: "musicxx"
-description: "示例插件：FTP 音源（单账号 / 目录浏览 / 加进歌单 / 本机 HTTP 转流）"
+description: "示例插件：FTP 音源（单账号 / 目录浏览 / 加进歌单 / 本机 HTTP 转流 / 内置测试服务端 / 搜索页搜索类型）"
 platforms: [windows, linux, macos, android, ios]
 permissions:
   - musicxx.net
   - musicxx.storage
   - musicxx.ui
   - musicxx.player.control
+  - musicxx.fs.read

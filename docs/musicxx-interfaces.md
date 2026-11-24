@@ -363,14 +363,14 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
   -ContentType 'application/json' -Body '{"cmd":"musicxx.player.state"}'
 ```
 
-## 4. 命令面（当前 98 条 = 应用自己的命令 32 + 能力命令 64 + 广播 2）
+## 4. 命令面（当前 103 条 = 应用自己的命令 32 + 能力命令 69 + 广播 2）
 
 > **条数会随注册表增长，一律以 `musicxx-cli list`（GET `/cli/list` 的 `commandCount`）为准**，
 > 下面各节的数字只是写这份文档时的快照。
 >
-> 能力命令 = 声明表里带 `cli` 块的能力（70 条）：其中 `musicxx.player.playSrc` / `musicxx.songlist.play` /
+> 能力命令 = 声明表里带 `cli` 块的能力（75 条）：其中 `musicxx.player.playSrc` / `musicxx.songlist.play` /
 > `musicxx.media.kernel` / `musicxx.source.list` 这 4 条由应用自己的命令实现（算在 `builtin` 里），
-> `musicxx.net.fetch` / `download` 两条由插件框架直接回答，实际登记为 `action` 的 64 条。只有插件能调的（21 条，声明里只有 `plugin` 块）与
+> `musicxx.net.fetch` / `download` 两条由插件框架直接回答，实际登记为 `action` 的 69 条。只有插件能调的（23 条，声明里只有 `plugin` 块）与
 > 只给模型用的（3 条，只有 `mcp` 块）不在这个数里。
 
 ### 4.1 命令从哪来
@@ -378,7 +378,7 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 来源（`kind`） | 条数 | 谁登记的 | 内容 |
 |---|---|---|---|
 | `builtin` | 32 | `MusicxxAppCommands` + `MusicxxCliCommandsSetup` + `MusicxxEntryCommands` + `MusicxxEntries` + `MusicxxLanCommands` + `MusicxxFileCommands` | 播放状态、歌词文本、歌单播放与同步、播放记录、定时停止、前后台状态、系统命令登记、外部插件管理、日志、能力自省（`musicxx.capability.*`）、音源清单、局域网（`musicxx.lan.*`）、静态文件（`musicxx.net.file.*`）、统一入口的播放音源 / 跳搜索页 / 执行启动参数（`musicxx.entry.argv`） |
-| `action` | 64 | 应用能力表 | 与插件、MCP 共用同一份实现；**命令 id 就是能力名**；声明里没写 `cli` 块的能力不登记 |
+| `action` | 69 | 应用能力表 | 与插件、MCP 共用同一份实现；**命令 id 就是能力名**；声明里没写 `cli` 块的能力不登记 |
 | `broadcast` | 2 | 广播频道 | `musicxx.broadcast.list` / `musicxx.broadcast.read`（写状态调能力） |
 
 命令表**自描述**：`musicxx-cli list --json`（或 GET `/cli/list`）里 `commands[]` 每项是
@@ -488,7 +488,8 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | 宿主（2） | `musicxx.host.openUrl` / `clipboard` |
 | 网络（2，不进命令表） | `musicxx.net.fetch` / `download`：由插件框架收到就地回答，不再转给应用，所以命令行 / 链接调它们只会得到 `not_found` |
 
-> 只有插件能调的能力（声明里只有 `plugin` 块）：`musicxx.storage.*`、`musicxx.stats.*`、
+> 只有插件能调的能力（声明里只有 `plugin` 块）：`musicxx.storage.*`、`musicxx.fs.stat` / `list` / `read`
+> （只读的本地文件访问）、`musicxx.stats.*`、
 > `musicxx.host.getPath`、`musicxx.source.define` / `undefine` / `browse`、`musicxx.media.bindImage` /
 > `unbindImage`、`musicxx.ui.drive.*`、`musicxx.ui.overlay.*`、`musicxx.feature.point.define` /
 > `undefine`、`musicxx.capability.subscribers`。**它们不进命令表**（声明里没有 `cli` 块），

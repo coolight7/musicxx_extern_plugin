@@ -234,6 +234,12 @@ abstract final class MusicxxCapabilityId {
   static const String storageDelete = 'musicxx.storage.delete';
   /// 列出插件存储
   static const String storageList = 'musicxx.storage.list';
+  /// 查看本地路径
+  static const String fsStat = 'musicxx.fs.stat';
+  /// 列出本地目录
+  static const String fsList = 'musicxx.fs.list';
+  /// 读本地文件
+  static const String fsRead = 'musicxx.fs.read';
   /// musicxx.net.fetch
   static const String netFetch = 'musicxx.net.fetch';
   /// musicxx.net.download
@@ -383,6 +389,9 @@ abstract final class MusicxxCapabilityId {
     storageSet,
     storageDelete,
     storageList,
+    fsStat,
+    fsList,
+    fsRead,
     netFetch,
     netDownload,
     uiSlotList,
@@ -2251,6 +2260,66 @@ abstract final class MusicxxCapabilityCatalogue {
       plugin: true,
       title: '列出插件存储',
       depict: '列出插件私有存储里的键（命名空间可省）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.fs.stat',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: false,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '查看本地路径',
+      depict: '看一个本地路径存不存在、是不是目录、多大、什么时候改过',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.fs.list',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: false,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '列出本地目录',
+      depict: '列出一个本地目录下的条目（名称 / 是否目录 / 大小 / 修改时间）',
+    ),
+    MusicxxCapabilityDecl(
+      id: 'musicxx.fs.read',
+      impls: 'one',
+      merge: '',
+      phases: <String>['impl'],
+      dispatch: 'async',
+      timeoutMs: 5000,
+      cache: 'none',
+      cli: false,
+      commandTitle: '',
+      consent: '',
+      mcp: false,
+      mcpName: '',
+      mcpFormat: 'json',
+      mcpTitle: '',
+      mcpDepict: '',
+      plugin: true,
+      title: '读本地文件',
+      depict: '从本地文件读一段字节（base64），给插件做转流 / 预览用',
     ),
     MusicxxCapabilityDecl(
       id: 'musicxx.net.fetch',

@@ -34,7 +34,7 @@
 
 | 形态 | 目录内容 | 适合 | 代价 |
 |---|---|---|---|
-| **JS插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走主程序网络或插件框架自带的 HTTP / TCP / WebSocket | 不能调系统 API，没有 `require` / `fs`；所有 JS 插件共用一条 JS 线程，回调必须快 |
+| **JS插件** | `plugin.yaml` + `plugin.js`（+ 可选 kit / 资源，例如 `resource/svg/` 里的图标 —— 只是推荐位置） | 绝大多数需求：读状态、裁决、自绘页面、定时任务、走主程序网络或插件框架自带的 HTTP / TCP / WebSocket | 不能调系统 API，没有 `require` / `fs`（读本地文件走能力 `musicxx.fs.*`，只读）；所有 JS 插件共用一条 JS 线程，回调必须快 |
 | **动态库插件** | `plugin.yaml` + 库文件（+ 可选 `shader/`、图标目录） | 需要自己起线程、要 CPU 密集计算、要链接自己的库 | 每个系统/架构各构建一次；iOS 只允许应用包内、与主程序同一签名身份的库（用户装的库通常被系统拒绝） |
 | **C++ 多目标包** | `plugin.yaml` + `lib/<系统>-<架构>/库文件` | 一个包同时发布 Windows / Linux / macOS / Android | 打包步骤多一些（分支选择规则见 [plugin-native-api.md](plugin-native-api.md) §1.3） |
 

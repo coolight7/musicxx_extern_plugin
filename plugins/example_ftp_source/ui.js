@@ -262,6 +262,100 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     return blocks;
   }
 
+  /* ==================== 测试服务端 ==================== */
+
+  /// 内置测试 FTP 服务端的设置块
+  ///
+  /// 它拼在账号表单 / 摘要下面：不编辑账号也能直接开关，实测时不用另外装 pyftpdlib。
+  function testServerSection(view, env) {
+    var k = kit();
+    var server = view.testServer;
+    if (!server) {
+      return [];
+    }
+    var status = server.running
+      ? ("正在运行：ftp://127.0.0.1:" + server.port + "（只读，只对本机开放）")
+      : (server.enabled ? "已开启，但没有跑起来" : "没有启动");
+    if (server.running) {
+      status += "；当前 " + server.sessions + " 条连接，累计 " + (server.totalSessions || 0) +
+        " 条 / " + server.transfers + " 次传输";
+    }
+    var blocks = [
+      k.divider({}, env),
+      k.title({ text: "测试用 FTP 服务端" }, env),
+      k.hint({
+        text: "在插件里起一台只读的 FTP 服务器，把下面这个目录当成根：不用另外装服务器，" +
+          "就能把列目录 / 加歌单 / 播放 / 搜索手动走一遍。只监听 127.0.0.1。"
+      }, env)
+    ];
+    if (server.message) {
+      blocks.push(k.text({
+        text: server.message,
+        color: server.messageTone === "error" ? "error" : "accent"
+      }, env));
+    }
+    blocks.push(controlRow({
+      id: "testServerEnabled",
+      control: "switch",
+      title: "启动测试服务端",
+      depict: server.busy ? "正在处理…" : "打开后立即启动；关掉就停（端口也会释放）",
+      value: !!server.running,
+      action: { kind: "call", name: "accounts", args: { op: "serverSwitch" } }
+    }, env));
+    blocks.push(controlRow({
+      id: "testServerRoot",
+      control: "text",
+      title: "挂载的目录",
+      depict: "本机上真实存在的目录，例如 D:/Music",
+      value: server.rootPath,
+      action: { kind: "call", name: "accounts", args: { op: "serverField" } }
+    }, env));
+    blocks.push(controlRow({
+      id: "testServerPort",
+      control: "number",
+      title: "端口",
+      depict: "缺省 2121；被占用时启动会报错，填 0 让系统分配",
+      value: server.port,
+      integer: true,
+      min: 1,
+      max: 65535,
+      action: { kind: "call", name: "accounts", args: { op: "serverField" } }
+    }, env));
+    blocks.push(controlRow({
+      id: "testServerUser",
+      control: "text",
+      title: "用户名",
+      depict: "拉账号时用这个用户名登录",
+      value: server.user,
+      action: { kind: "call", name: "accounts", args: { op: "serverField" } }
+    }, env));
+    blocks.push(controlRow({
+      id: "testServerPassword",
+      control: "password",
+      title: "密码",
+      depict: server.passwordSet ? "已设置（不回显）；留空不改" : "",
+      value: "",
+      action: { kind: "call", name: "accounts", args: { op: "serverField" } }
+    }, env));
+    blocks.push(k.kv({ pairs: [ { k: "状态", v: status } ] }, env));
+    blocks.push(k.actionsRow({
+      buttons: [
+        k.button({
+          label: server.busy ? "处理中…" : "保存并重启",
+          highlight: true,
+          disabled: !!server.busy,
+          action: { kind: "call", name: "accounts", args: { op: "serverRestart" } }
+        }, env),
+        k.button({
+          label: "用这个服务填账号",
+          disabled: !server.running,
+          action: { kind: "call", name: "accounts", args: { op: "serverFillAccount" } }
+        }, env)
+      ]
+    }, env));
+    return blocks;
+  }
+
   /// 账号页（表单或摘要）；`view` 由 plugin.js 组装
   ///
   /// 字段：`{stored, draft, message, messageTone, busy, testing, lastTestAt, lastOk, lastMessage}`
@@ -280,9 +374,10 @@ var FtpSource = globalThis.FtpSource || (globalThis.FtpSource = {});
     } else {
       blocks = blocks.concat(accountSummary(view, env));
     }
+    blocks = blocks.concat(testServerSection(view, env));
     return {
       title: "FTP 音乐",
-      subtitle: "单账号示例：浏览目录、挑选歌曲、播放时转成 http 供播放器读取",
+      subtitle: "单账号示例：浏览目录、挑选歌曲、播放时转成 http 供播放器读取；带一台测试用 FTP 服务端",
       blocks: blocks
     };
   };

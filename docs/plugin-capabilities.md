@@ -107,6 +107,9 @@
 | `musicxx.storage.set` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.storage.delete` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.storage.list` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.fs.stat` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.fs.list` | 插件 | impl | - | async | 5000 ms | - | - |
+| `musicxx.fs.read` | 插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.net.fetch` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.net.download` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
@@ -287,6 +290,18 @@
 参数 `{target}`：主题 id 或 `toggle`（按当前明暗互切）。与侧边抽屉按钮、局域网控制的临时切主题是同一语义：走 `theme_s.setCustom`，**会暂停主题跟随**（用户下次手动切模式才恢复）。
 
 它表达的是一次操作、没有当前值，所以只有能力、没有对应广播。回答 `{ok: true, id}`；`target` 既不是主题 id 也不是 `toggle` 时返回失败并说明原因。
+
+### `musicxx.fs.stat` 查看本地路径
+
+载荷 `{path}`：`path` 可以是绝对路径、`file://` 地址，也可以是以插件目录为基准的相对路径（与 `musicxx.ui.loadFont` 的 `path` 同一套写法）。回答 `{ok, path, name, exists, isDir, isFile, size, modifiedMs}`：路径不存在时 `ok:true` + `exists:false`（不是错误）；`size` / `modifiedMs` 只对文件有意义。只读能力，不改任何东西。插件可以读出本机文件是插件的固有权限（动态库插件与主程序同进程，本来就能读写整台机器），这条能力只是把 JS 插件也放到同一水平；不需要读文件的插件不要调它。
+
+### `musicxx.fs.list` 列出本地目录
+
+载荷 `{path, dirsOnly?, offset?, limit?}`：只列**这一层**，不递归；`dirsOnly` 为真时只返回子目录；`offset` / `limit` 按名称排序后切片（缺省 0 / 500，最多 5000，超过会截断并在 `hasMore` 里告诉还有）。回答 `{ok, path, entries:[{name, path, isDir, size, modifiedMs}], total, hasMore}`；`total` 是这一层读完以后的条目数（给了 `limit` 也是全量），`hasMore` = 还有没给出来的。路径不存在 / 不是目录返回 `ok:false` + `error`。只读能力；符号链接按它指向的目标算（与系统浏览一致）。
+
+### `musicxx.fs.read` 读本地文件
+
+载荷 `{path, offset?, size?}`：从 `offset`（字节，缺省 0）读 `size` 字节（缺省 256 KiB，最多 4 MiB，超过按上限截断）。回答 `{ok, path, offset, bytes, size, data, eof}`：`size` 是整个文件的大小，`bytes` 是这次读到的字节数，`data` 是这部分的 base64，`eof` 表示已经读到文件末尾。`offset` 超过文件大小时 `ok:true` + `bytes:0` + `eof:true`。只读能力；大文件请分多次读（每次都会过一遍 Dart 与 JS，单次不要超过几百 KB）。
 
 ### `musicxx.ui.slot.set` 设置槽位项
 

@@ -67,7 +67,7 @@ C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，插
 |---|---|---|
 | 异步写法 | 返回 Promise（`await`） | 结果经 `PluginxxOperatorNotify::done` 回调，或协程 `pluginxx::Task<T>` |
 | 谁能长时间占线程 | 都不行；JS 共用一条 JS 线程，原生共用一条框架线程 | 同左，但原生可以把重活交给 `pluginxx::offload` 线程池 |
-| 能不能直接用系统 API | 不能（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.*` | 可以（自己起线程、自己联网） |
+| 能不能直接用系统 API | 不能（没有 `require`/`fs`/`fetch`），联网走 `musicxx.net.*`，读本地文件走 `musicxx.fs.*`（只读） | 可以（自己起线程、自己联网） |
 | 定时器 | 内置 `musicxx.timer` / 全局 `setTimeout` | 自己起线程 / 定时器，在 `stop` 里回收；或 `pluginxx::sleep` |
 | 能力处理器可以异步 | 可以（返回 Promise） | 可以（返回 `pluginxx::Task<T>`） |
 | 功能埋点处理器 | **必须同步返回** | **必须同步返回** |

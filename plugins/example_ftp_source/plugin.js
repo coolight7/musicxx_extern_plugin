@@ -33,6 +33,9 @@ const TYPE_ID = "plugin." + PLUGIN_ID + ".audio";
 /// 账号在插件私有 KV 里的键
 const STORAGE_KEY = "account";
 
+/// 内置测试 FTP 服务端的配置在插件私有 KV 里的键
+const TEST_SERVER_KEY = "testServer";
+
 /// 浏览页一次显示多少项；"再显示 N 项"按这个步长加
 const PAGE_SIZE = 50;
 
@@ -45,6 +48,8 @@ const NET_OK = !!(musicxx.net && musicxx.net.socket &&
 const stats = {
     resolveCalls: 0,
     resolveOk: 0,
+    /// 带着本插件的音源类型、但地址不是资源 id（主程序先把歌换成了本机文件）
+    resolveSkipped: 0,
     browseCalls: 0,
     browseOk: 0,
     lastError: ""
@@ -63,6 +68,23 @@ const accountState = {
 
 /// 账号表单草稿（只在编辑时存在；密码放内存里，不进动作参数、不进日志）
 let draft = null;
+
+/// 内置测试 FTP 服务端的配置与状态（账号页上的开关）
+///
+/// 开着时插件自己起一台只读的 FTP 服务器（`testserver.js`），把 `rootPath` 这个本机目录
+/// 当成它的根。这样做只是为了手动实测不用再装一台服务器；实现上它读文件走主程序的
+/// `musicxx.fs.*` 能力（JS 插件自己没有文件接口）。
+const testServerState = {
+    enabled: false,
+    rootPath: "",
+    port: 2121,
+    user: "test",
+    password: "123456",
+    status: null,
+    message: "",
+    messageTone: "",
+    busy: false
+};
 
 /* ==================== 小工具 ==================== */
 
@@ -172,6 +194,162 @@ function persistExtras() {
     return persistAccount(accountState.account);
 }
 
+/* ==================== 测试服务端 ==================== */
+
+/// 当前配置（启动 / 重启时用）
+function testServerConfig() {
+    return {
+        rootPath: testServerState.rootPath,
+        port: testServerState.port,
+        user: testServerState.user,
+        password: testServerState.password
+    };
+}
+
+/// 把配置写进插件 KV（与账号一样：密码只在本机，不进日志、不进歌曲）
+function persistTestServer() {
+    return musicxx.storage.set(TEST_SERVER_KEY, {
+        enabled: !!testServerState.enabled,
+        rootPath: testServerState.rootPath,
+        port: testServerState.port,
+        user: testServerState.user,
+        password: testServerState.password
+    }).then(function () {
+        return null;
+    }, function (err) {
+        noteError("保存测试服务端配置失败：" + err.message);
+        return null;
+    });
+}
+
+/// 停掉服务（幂等）
+function stopTestServer(message) {
+    testServerState.busy = true;
+    return FtpTestServer.stop().then(function () {
+        testServerState.busy = false;
+        testServerState.status = null;
+        testServerState.message = message || "测试服务端已停止";
+        testServerState.messageTone = "accent";
+        return null;
+    }, function (err) {
+        testServerState.busy = false;
+        testServerState.message = "停止失败：" + ((err && err.message) ? err.message : String(err));
+        testServerState.messageTone = "error";
+        return null;
+    });
+}
+
+/// 启动服务：先看一眼挂载目录存不存在，再交给 testserver.js
+function startTestServer() {
+    if (!testServerState.rootPath) {
+        testServerState.message = "先填要挂载的目录（例如 D:/Music）";
+        testServerState.messageTone = "error";
+        return Promise.resolve(null);
+    }
+    testServerState.busy = true;
+    return musicxx.capability.call("musicxx.fs.stat", {
+        path: testServerState.rootPath
+    }).then(function (stat) {
+        if (!stat || stat.ok !== true || stat.exists !== true || stat.isDir !== true) {
+            testServerState.busy = false;
+            testServerState.enabled = false;
+            testServerState.message = "这个目录不存在（或不是目录）：" + testServerState.rootPath;
+            testServerState.messageTone = "error";
+            return null;
+        }
+        return FtpTestServer.start(testServerConfig()).then(function (status) {
+            testServerState.busy = false;
+            testServerState.enabled = true;
+            testServerState.status = status;
+            testServerState.message = "测试服务端已启动：ftp://127.0.0.1:" + status.port +
+                "（只读，只对本机开放）";
+            testServerState.messageTone = "accent";
+            return persistTestServer();
+        });
+    }, function (err) {
+        testServerState.busy = false;
+        testServerState.enabled = false;
+        testServerState.message = "启动失败：" + ((err && err.message) ? err.message : String(err));
+        testServerState.messageTone = "error";
+        return null;
+    });
+}
+
+/// 开关：打开时启动、关闭时停止，两种都写一次配置
+function switchTestServer(on) {
+    if (!on) {
+        testServerState.enabled = false;
+        return stopTestServer("测试服务端已停止").then(function () {
+            return persistTestServer();
+        });
+    }
+    return startTestServer().then(function () {
+        if (!testServerState.enabled || !draft) {
+            return null;
+        }
+        // 正在编辑账号：直接填成本机地址，用户点「只保存」就能用
+        fillDraftFromTestServer();
+        testServerState.message += "；账号已填成本机地址，点「只保存」即可";
+        return null;
+    });
+}
+
+/// 改配置里的一个字段（不立即生效，点「保存并重启」才应用）
+function applyServerField(args) {
+    const id = (args && typeof args.id === "string") ? args.id : "";
+    const value = args ? args.value : undefined;
+    switch (id) {
+        case "testServerRoot":
+            testServerState.rootPath = String(value === undefined || value === null ? "" : value).trim();
+            break;
+        case "testServerPort":
+            testServerState.port = intOf(value, testServerState.port);
+            break;
+        case "testServerUser":
+            testServerState.user = String(value === undefined || value === null ? "" : value);
+            break;
+        case "testServerPassword":
+            testServerState.password = String(value === undefined || value === null ? "" : value);
+            break;
+        default:
+            break;
+    }
+}
+
+/// 把账号草稿填成本机测试服务（主机 / 端口 / 用户名 / 密码）
+function fillDraftFromTestServer() {
+    if (!draft) {
+        draft = draftFromStored();
+    }
+    draft.host = "127.0.0.1";
+    draft.port = (testServerState.status && testServerState.status.port) || testServerState.port;
+    draft.user = testServerState.user;
+    draft.password = testServerState.password;
+    draft.rootPath = "/";
+    draft.encoding = "utf-8";
+}
+
+/// 启动时读一次配置；开着就把服务拉起来（读不到配置不算错）
+function loadTestServer() {
+    return musicxx.storage.get(TEST_SERVER_KEY, null).then(function (raw) {
+        if (!raw || typeof raw !== "object") {
+            return null;
+        }
+        testServerState.rootPath = (typeof raw.rootPath === "string") ? raw.rootPath : "";
+        testServerState.port = intOf(raw.port, 2121);
+        testServerState.user = (typeof raw.user === "string") ? raw.user : "test";
+        testServerState.password = (typeof raw.password === "string") ? raw.password : "123456";
+        if (raw.enabled !== true) {
+            testServerState.enabled = false;
+            return null;
+        }
+        return startTestServer();
+    }, function (err) {
+        noteError("读取测试服务端配置失败：" + err.message);
+        return null;
+    });
+}
+
 /// 表单草稿（密码从空开始：已保存的密码不回显，留空 = 不修改）
 function draftFromStored() {
     const account = accountState.account;
@@ -226,7 +404,23 @@ function accountsAnswer(env) {
             busy: accountState.busy,
             lastTestAt: accountState.extras.lastTestAt || 0,
             lastOk: !!accountState.extras.lastOk,
-            lastMessage: accountState.extras.lastMessage || ""
+            lastMessage: accountState.extras.lastMessage || "",
+            testServer: {
+                enabled: !!testServerState.enabled,
+                running: !!(testServerState.status && testServerState.status.running),
+                port: (testServerState.status && testServerState.status.port) || testServerState.port,
+                rootPath: testServerState.rootPath,
+                user: testServerState.user,
+                passwordSet: !!testServerState.password,
+                busy: !!testServerState.busy,
+                sessions: testServerState.status ? (testServerState.status.sessions || 0) : 0,
+                totalSessions: testServerState.status
+                    ? (testServerState.status.totalSessions || 0)
+                    : 0,
+                transfers: testServerState.status ? (testServerState.status.transfers || 0) : 0,
+                message: testServerState.message,
+                messageTone: testServerState.messageTone
+            }
         })
     };
 }
@@ -322,6 +516,8 @@ function saveDraft() {
     return persistAccount(parsed.account).then(function () {
         accountState.busy = false;
         draft = null;
+        // 换了账号：搜索缓存里的歌旧了（都是旧账号的指纹）
+        FtpSearch.reset();
         accountState.message = "已保存到本机（" + parsed.account.host + ":" +
             parsed.account.port + "）。";
         accountState.messageTone = "accent";
@@ -357,6 +553,36 @@ musicxx.capability.register("accounts", function (args) {
             case "field":
                 applyAccountField(args);
                 break;
+            case "serverField":
+                applyServerField(args);
+                break;
+            case "serverSwitch":
+                return switchTestServer(args && args.value === true).then(function () {
+                    return persistTestServer();
+                }).then(function () {
+                    return accountsAnswer(env);
+                });
+            case "serverRestart":
+                return (testServerState.enabled ? stopTestServer() : Promise.resolve(null))
+                    .then(function () {
+                        return startTestServer();
+                    }).then(function () {
+                        return accountsAnswer(env);
+                    });
+            case "serverFillAccount":
+                if (!testServerState.enabled) {
+                    testServerState.message = "先打开上面的开关，把测试服务端跑起来";
+                    testServerState.messageTone = "error";
+                    break;
+                }
+                if (!draft) {
+                    draft = draftFromStored();
+                }
+                fillDraftFromTestServer();
+                accountState.message = "已把账号填成本机测试服务（127.0.0.1:" +
+                    testServerState.port + "），点「只保存」或「保存并测试」";
+                accountState.messageTone = "accent";
+                break;
             case "save":
                 return saveDraft().then(function () {
                     return accountsAnswer(env);
@@ -383,6 +609,7 @@ musicxx.capability.register("accounts", function (args) {
                     accountState.extras = { lastTestAt: 0, lastOk: false, lastMessage: "" };
                     accountState.busy = false;
                     FtpSource.setAccount(null);
+                    FtpSearch.reset();
                     accountState.message = "已清除本机保存的账号。";
                     accountState.messageTone = "accent";
                     return accountsAnswer(env);
@@ -414,13 +641,16 @@ musicxx.capability.register("accounts", function (args) {
 });
 
 /// 账号页是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/accounts`）
+///
+/// 生成函数要给**文档本体**（`{title, subtitle, blocks}`）：能力的回答外面包了一层
+/// `{view: …}`，那是给老客户端读返回值的形状，直接交给渲染层会被当成"没有内容块"。
 musicxx.ui.content.register({
     id: "accounts",
     slot: "musicxx.ui.page",
     title: "FTP 账号",
     depict: "保存 / 测试 FTP 账号；测试通过后这个源就能在添加歌曲里用",
 }, function () {
-    return accountsAnswer(FtpSource.viewEnv(null));
+    return accountsAnswer(FtpSource.viewEnv(null)).view;
 });
 
 /* ==================== 能力：自检 ==================== */
@@ -454,9 +684,12 @@ musicxx.capability.register("probe", function () {
         counts: {
             resolve: stats.resolveCalls,
             resolveOk: stats.resolveOk,
+            resolveSkipped: stats.resolveSkipped,
             browse: stats.browseCalls,
             browseOk: stats.browseOk
         },
+        testServer: FtpTestServer.status(),
+        search: FtpSearch.stats(),
         lastError: stats.lastError
     };
 });
@@ -477,7 +710,11 @@ musicxx.capability.implement("musicxx.player.source.resolve", {
     stats.resolveCalls += 1;
     const parsed = FtpSource.parseResourceId(ctx.src);
     if (!parsed) {
-        noteError("资源 id 格式不对（要 <8 位指纹>/<路径>）：" + String(ctx.src || "").slice(0, 120));
+        // 不是资源 id：主程序在本地库里认出同一个文件时，会先把这首歌换成本机路径再交过来
+        // （`crudeSrc` / `customType` 还是插件音源，所以这里仍会收到它）。
+        // 这种地址不归我们解析，安静地让给后面的实现 —— 报警告只会让人以为插件坏了。
+        stats.resolveSkipped += 1;
+        musicxx.host.log(2, "跳过不是资源 id 的地址：" + String(ctx.src || "").slice(0, 80));
         return null;
     }
     return ensureAccount().then(function (account) {
@@ -935,6 +1172,15 @@ musicxx.ui.item.register({
 
 /// 顶层只发起读取（动作是异步的，顶层不能 await）
 loadAccount();
+loadTestServer();
+
+/// 搜索页要账号时向这里要（搜索脚本先加载，账号状态以这个文件为准）
+FtpSearch.setAccountProvider(function () {
+    if (!accountState.loaded && !accountState.loading) {
+        loadAccount();
+    }
+    return { loaded: accountState.loaded, account: accountState.account };
+});
 
 if (!NET_OK) {
     noteError("插件框架没有 TCP socket 能力：FTP 例子无法工作（主页入口仍在，页面会说明原因）");
