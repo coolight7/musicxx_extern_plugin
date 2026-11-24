@@ -751,6 +751,36 @@ int32_t MusicxxHostManager::requestUiContent(std::string_view contentId,
   return runUiContent(*content, contextJson);
 }
 
+
+/* ==================== 原生内容生成的完成等待者 ==================== */
+
+namespace {
+
+/// 一次原生内容生成的完成等待者 (插件调用 notify 时释放)
+struct NativeGenerateWaiter {
+  std::atomic<bool> done{false};
+  std::function<void(int32_t, std::string_view)> finish;
+};
+
+void PLUGINXX_CALL nativeGenerateDoneTrampoline(
+    void *ud, int32_t status, const PluginxxStringView *payload) {
+  auto *waiter = static_cast<NativeGenerateWaiter *>(ud);
+  if (!waiter) {
+    return;
+  }
+  if (waiter->done.exchange(true)) {
+    return;
+  }
+  const std::string_view text =
+      (payload && payload->data && payload->size > 0)
+          ? std::string_view{payload->data, static_cast<size_t>(payload->size)}
+          : std::string_view{};
+  waiter->finish(status, text);
+  delete waiter;
+}
+
+} // namespace
+
 int32_t MusicxxHostManager::runUiContent(UiContent &content,
                                          std::string_view contextJson) {
   const std::string ctx{contextJson.empty() ? "{}" : contextJson};
@@ -781,32 +811,53 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
         });
     return PLUGINXX_RESULT_OK;
   }
-  const PluginxxStringView ctxView{ctx.data(), ctx.size()};
-  PluginxxString out{};
+  /// 原生插件的生成函数也是异步操作契约: 参数在这里复制, 插件可以同步完成,
+  /// 也可以先返回、稍后再调 notify (协程里 await 别的东西)。完成一律回到框架线程,
+  /// 只写注册表, 不碰插件状态。
+  const std::string fullId = content.fullId;
   const PluginxxHost *host = nullptr;
   if (auto instance = resolveInstance(content.plugin)) {
     host = instance->hostView();
   }
-  const int32_t rc = content.spec.generate(host, &ctxView, &out);
-  std::string text;
-  if (nullptr != out.data) {
-    text.assign(out.data, static_cast<size_t>(out.size));
-    // 插件经框架堆分配 (hostStringSet), 由框架释放
-    if (host && host->vtable && host->vtable->free) {
-      host->vtable->free(out.data);
+  auto self = shared_from_this();
+  auto context = std::make_shared<std::string>(ctx);
+  auto *waiter = new NativeGenerateWaiter();
+  waiter->finish = [self, fullId](int32_t status, std::string_view payload) {
+    std::string text{payload};
+    std::string error;
+    if (status != PLUGINXX_OPERATOR_OK) {
+      error = text.empty() ? std::string{"生成函数返回失败"} : text;
+      text.clear();
+    } else {
+      bool parseOk = false;
+      Json parsed = parseJsonSafe(text, &parseOk);
+      if (!parseOk || !parsed.is_object()) {
+        error = "生成函数返回的不是 JSON 对象";
+        text.clear();
+      }
     }
+    asio::post(
+        self->ctx_->io,
+        [self, fullId, text = std::move(text), error = std::move(error)]() {
+          if (auto *item = self->findUiContent(fullId)) {
+            self->pushUiContentResult(*item, text, error);
+          }
+        });
+  };
+  PluginxxOperatorNotify notify{&nativeGenerateDoneTrampoline, waiter};
+  const PluginxxStringView ctxView{context->data(), context->size()};
+  PluginxxString errorOut{};
+  auto generate = content.spec.generate;
+  generate(host, &ctxView, content.spec.user_data, &notify, &errorOut);
+  if (errorOut.data) {
+    std::string reason{errorOut.data, static_cast<size_t>(errorOut.size)};
+    if (host && host->vtable && host->vtable->free) {
+      host->vtable->free(errorOut.data);
+    }
+    // 未受理: 插件不会再调 notify, 这里按失败收尾 (waiter 由 trampoline 释放)
+    const PluginxxStringView reasonView{reason.data(), reason.size()};
+    nativeGenerateDoneTrampoline(waiter, PLUGINXX_OPERATOR_FAILED, &reasonView);
   }
-  if (rc != 0) {
-    pushUiContentResult(content, std::string{}, "生成函数返回失败");
-    return PLUGINXX_RESULT_ERR_INTERNAL;
-  }
-  bool parseOk = false;
-  Json parsed = parseJsonSafe(text, &parseOk);
-  if (!parseOk || !parsed.is_object()) {
-    pushUiContentResult(content, std::string{}, "生成函数返回的不是 JSON 对象");
-    return PLUGINXX_RESULT_ERR_JSON;
-  }
-  pushUiContentResult(content, text, std::string{});
   return PLUGINXX_RESULT_OK;
 }
 
@@ -1000,282 +1051,412 @@ void MusicxxHostManager::detachUiEntries(const std::string &instanceName) {
 
 /* ==================== C ABI: musicxx.ui 表 ==================== */
 
+/* ==================== `musicxx.ui` 表的 C ABI 入口 ==================== */
+//
+// 每个成员都是异步操作契约: 参数在这一层复制成自有字符串 (借用视图在排队执行时可能
+// 已经失效), 工作体在框架 IO 线程上跑, 结果经完成回调恰好一次交回。
+
 namespace {
 
-int32_t PLUGINXX_CALL xx_ui_register_entry(
-    const PluginxxHost *host, const MusicxxPluginUIEntrySpec *spec) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !spec) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const auto specCopy = *spec;
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, specCopy]() -> int32_t {
-              return mgr->registerUiEntry(inst, specCopy);
-            });
-      });
+std::string uiViewToString(const PluginxxStringView &view) {
+  if (!view.data || view.size == 0) {
+    return {};
+  }
+  return std::string{view.data, static_cast<size_t>(view.size)};
 }
 
-int32_t PLUGINXX_CALL xx_ui_unregister_entry(const PluginxxHost *host,
-                                             const PluginxxStringView *itemId) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !itemId || !itemId->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view id{itemId->data,
-                                  static_cast<size_t>(itemId->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id]() -> int32_t {
-              return mgr->unregisterUiEntry(inst, id);
-            });
-      });
+PluginxxStringView uiViewOf(const std::string &text) {
+  return PluginxxStringView{text.data(), static_cast<uint64_t>(text.size())};
 }
 
-int32_t PLUGINXX_CALL xx_ui_list_entries(const PluginxxHost *host,
-                                         PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!outJson) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        std::string json;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, &json]() -> int32_t {
-              return mgr->listUiEntries(inst, json);
-            });
+/// 表成员的业务失败原因 (kit 与脚本看到的就是这段文本)
+const char *uiReasonOf(int32_t rc) {
+  switch (rc) {
+  case PLUGINXX_RESULT_ERR_ARG:
+    return "arg";
+  case PLUGINXX_RESULT_ERR_PERMISSION:
+    return "namespace";
+  case PLUGINXX_RESULT_ERR_NOT_DECLARED:
+  case PLUGINXX_RESULT_ERR_NOT_FOUND:
+    return "not_found";
+  case PLUGINXX_RESULT_ERR_NO_VALUE:
+    return "no_value";
+  case PLUGINXX_RESULT_ERR_ENDED:
+    return "ended";
+  default:
+    return "state";
+  }
+}
+
+/// 业务失败统一抛 [pluginxx::TableOpError]: 由 startTableOp 转成 FAILED + 原因
+[[noreturn]] void throwUiFailure(const char *what, int32_t rc) {
+  throw pluginxx::TableOpError(std::string{what} + ": " + uiReasonOf(rc));
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_register_entry(
+    const PluginxxHost *host, const MusicxxPluginUIEntrySpec *spec,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!spec) {
+    pluginxx::detail::setErrorString(errorOut, "register_entry: missing spec");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "register_entry: host is unavailable");
+    return nullptr;
+  }
+  const std::string itemId = uiViewToString(spec->item_id);
+  const std::string type = uiViewToString(spec->type);
+  const std::string data = uiViewToString(spec->data_json);
+  const int32_t order = spec->order;
+  const int32_t flags = spec->flags;
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.register_entry",
+      [call, itemId, type, data, order, flags]() -> std::string {
+        MusicxxPluginUIEntrySpec owned{};
+        owned.version = 1;
+        owned.struct_size = sizeof(MusicxxPluginUIEntrySpec);
+        owned.item_id = uiViewOf(itemId);
+        owned.type = uiViewOf(type);
+        owned.data_json = uiViewOf(data);
+        owned.order = order;
+        owned.flags = flags;
+        const int32_t rc =
+            call.manager()->registerUiEntry(call.instance(), owned);
         if (rc != PLUGINXX_RESULT_OK) {
-          return rc;
+          throwUiFailure("register_entry", rc);
         }
-        pluginxx::hostMemorySetString(outJson, json);
-        return PLUGINXX_RESULT_OK;
+        return std::string{};
       });
 }
 
-int32_t PLUGINXX_CALL xx_ui_register_content(
-    const PluginxxHost *host, const MusicxxPluginUIContentSpec *spec) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !spec) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const auto specCopy = *spec;
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, specCopy]() -> int32_t {
-              return mgr->registerUiContent(inst, specCopy);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_ui_unregister_content(
-    const PluginxxHost *host, const PluginxxStringView *contentId) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !contentId || !contentId->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view id{contentId->data,
-                                  static_cast<size_t>(contentId->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id]() -> int32_t {
-              return mgr->unregisterUiContent(inst, id);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_ui_push_content(const PluginxxHost *host,
-                                         const PluginxxStringView *contentId,
-                                         const PluginxxStringView *contentJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !contentId || !contentId->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view id{contentId->data,
-                                  static_cast<size_t>(contentId->size)};
-        const std::string_view json{
-            contentJson && contentJson->data ? contentJson->data : "",
-            contentJson ? static_cast<size_t>(contentJson->size) : 0};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id, json]() -> int32_t {
-              return mgr->pushUiContent(inst, id, json);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_ui_list_contents(const PluginxxHost *host,
-                                          PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!outJson) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        std::string json;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, &json]() -> int32_t {
-              return mgr->listUiContents(inst, json);
-            });
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_unregister_entry(
+    const PluginxxHost *host, const PluginxxStringView *itemId,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!itemId || !itemId->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "unregister_entry: missing item id");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "unregister_entry: host is unavailable");
+    return nullptr;
+  }
+  const std::string id = uiViewToString(*itemId);
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.unregister_entry",
+      [call, id]() -> std::string {
+        const int32_t rc =
+            call.manager()->unregisterUiEntry(call.instance(), id);
         if (rc != PLUGINXX_RESULT_OK) {
-          return rc;
+          throwUiFailure("unregister_entry", rc);
         }
-        pluginxx::hostMemorySetString(outJson, json);
-        return PLUGINXX_RESULT_OK;
+        return std::string{};
       });
 }
 
-int32_t PLUGINXX_CALL xx_ui_update_slot(const PluginxxHost *host,
-                                        const PluginxxStringView *slot,
-                                        const PluginxxStringView *idsJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !slot || !slot->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view slotId{slot->data,
-                                      static_cast<size_t>(slot->size)};
-        const std::string_view ids{
-            idsJson && idsJson->data ? idsJson->data : "",
-            idsJson ? static_cast<size_t>(idsJson->size) : 0};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, slotId, ids]() -> int32_t {
-              return mgr->updateUiSlot(inst, slotId, ids);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_ui_define_slot(const PluginxxHost *host,
-                                        const MusicxxPluginUISlotSpec *spec) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !spec) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const auto specCopy = *spec;
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, specCopy]() -> int32_t {
-              return mgr->defineUiSlot(inst, specCopy);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_ui_undefine_slot(const PluginxxHost *host,
-                                          const PluginxxStringView *slot) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !slot || !slot->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view id{slot->data, static_cast<size_t>(slot->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, id]() -> int32_t {
-              return mgr->undefineUiSlot(inst, id);
-            });
-      });
-}
-
-int32_t PLUGINXX_CALL xx_ui_list_slots(const PluginxxHost *host,
-                                       PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!outJson) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_list_entries(
+    const PluginxxHost *host, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+          host, /*allowClosing=*/true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "list_entries: host is unavailable");
+    return nullptr;
+  }
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.list_entries",
+      [call]() -> std::string {
         std::string json;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, &json]() -> int32_t {
-              return mgr->listUiSlots(inst, json);
-            });
+        const int32_t rc =
+            call.manager()->listUiEntries(call.instance(), json);
         if (rc != PLUGINXX_RESULT_OK) {
-          return rc;
+          throwUiFailure("list_entries", rc);
         }
-        pluginxx::hostMemorySetString(outJson, json);
-        return PLUGINXX_RESULT_OK;
+        return json;
       });
 }
 
-int32_t PLUGINXX_CALL xx_ui_notify(const PluginxxHost *host,
-                                   const PluginxxStringView *messageJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !messageJson || !messageJson->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_register_content(
+    const PluginxxHost *host, const MusicxxPluginUIContentSpec *spec,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!spec) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "register_content: missing spec");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "register_content: host is unavailable");
+    return nullptr;
+  }
+  const std::string id = uiViewToString(spec->id);
+  const std::string slot = uiViewToString(spec->slot);
+  const std::string title = uiViewToString(spec->title);
+  const std::string depict = uiViewToString(spec->depict);
+  const std::string routes = uiViewToString(spec->routes_json);
+  const std::string deps = uiViewToString(spec->deps_json);
+  const int32_t order = spec->order;
+  const int32_t minIntervalMs = spec->min_interval_ms;
+  const int32_t flags = spec->flags;
+  auto generate = spec->generate;
+  void *userData = spec->user_data;
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.register_content",
+      [call, id, slot, title, depict, routes, deps, order, minIntervalMs, flags,
+       generate, userData]() -> std::string {
+        MusicxxPluginUIContentSpec owned{};
+        owned.version = 1;
+        owned.struct_size = sizeof(MusicxxPluginUIContentSpec);
+        owned.id = uiViewOf(id);
+        owned.slot = uiViewOf(slot);
+        owned.title = uiViewOf(title);
+        owned.depict = uiViewOf(depict);
+        owned.routes_json = uiViewOf(routes);
+        owned.deps_json = uiViewOf(deps);
+        owned.order = order;
+        owned.min_interval_ms = minIntervalMs;
+        owned.flags = flags;
+        owned.generate = generate;
+        owned.user_data = userData;
+        const int32_t rc =
+            call.manager()->registerUiContent(call.instance(), owned);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("register_content", rc);
         }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string_view message{messageJson->data,
-                                       static_cast<size_t>(messageJson->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, message]() -> int32_t {
-              return mgr->notifyUi(inst, message);
-            });
+        return std::string{};
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_unregister_content(
+    const PluginxxHost *host, const PluginxxStringView *contentId,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!contentId || !contentId->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "unregister_content: missing content id");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(
+        errorOut, "unregister_content: host is unavailable");
+    return nullptr;
+  }
+  const std::string id = uiViewToString(*contentId);
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.unregister_content",
+      [call, id]() -> std::string {
+        const int32_t rc =
+            call.manager()->unregisterUiContent(call.instance(), id);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("unregister_content", rc);
+        }
+        return std::string{};
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_push_content(
+    const PluginxxHost *host, const PluginxxStringView *contentId,
+    const PluginxxStringView *contentJson, PluginxxOperatorCallback cb,
+    void *cbUd, PluginxxString *errorOut) {
+  if (!contentId || !contentId->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "push_content: missing content id");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "push_content: host is unavailable");
+    return nullptr;
+  }
+  const std::string id = uiViewToString(*contentId);
+  const std::string json =
+      contentJson ? uiViewToString(*contentJson) : std::string{};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.push_content",
+      [call, id, json]() -> std::string {
+        const int32_t rc =
+            call.manager()->pushUiContent(call.instance(), id, json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("push_content", rc);
+        }
+        return std::string{};
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_list_contents(
+    const PluginxxHost *host, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+          host, /*allowClosing=*/true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "list_contents: host is unavailable");
+    return nullptr;
+  }
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.list_contents",
+      [call]() -> std::string {
+        std::string json;
+        const int32_t rc =
+            call.manager()->listUiContents(call.instance(), json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("list_contents", rc);
+        }
+        return json;
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_update_slot(
+    const PluginxxHost *host, const PluginxxStringView *slot,
+    const PluginxxStringView *idsJson, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  if (!slot || !slot->data) {
+    pluginxx::detail::setErrorString(errorOut, "update_slot: missing slot");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "update_slot: host is unavailable");
+    return nullptr;
+  }
+  const std::string slotId = uiViewToString(*slot);
+  const std::string ids = idsJson ? uiViewToString(*idsJson) : std::string{};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.update_slot",
+      [call, slotId, ids]() -> std::string {
+        const int32_t rc =
+            call.manager()->updateUiSlot(call.instance(), slotId, ids);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("update_slot", rc);
+        }
+        return std::string{};
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_define_slot(
+    const PluginxxHost *host, const MusicxxPluginUISlotSpec *spec,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!spec) {
+    pluginxx::detail::setErrorString(errorOut, "define_slot: missing spec");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "define_slot: host is unavailable");
+    return nullptr;
+  }
+  const std::string id = uiViewToString(spec->id);
+  const std::string kind = uiViewToString(spec->kind);
+  const int32_t flags = spec->flags;
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.define_slot",
+      [call, id, kind, flags]() -> std::string {
+        MusicxxPluginUISlotSpec owned{};
+        owned.version = 1;
+        owned.struct_size = sizeof(MusicxxPluginUISlotSpec);
+        owned.id = uiViewOf(id);
+        owned.kind = uiViewOf(kind);
+        owned.flags = flags;
+        const int32_t rc =
+            call.manager()->defineUiSlot(call.instance(), owned);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("define_slot", rc);
+        }
+        return std::string{};
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_undefine_slot(
+    const PluginxxHost *host, const PluginxxStringView *slot,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!slot || !slot->data) {
+    pluginxx::detail::setErrorString(errorOut, "undefine_slot: missing slot");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "undefine_slot: host is unavailable");
+    return nullptr;
+  }
+  const std::string id = uiViewToString(*slot);
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.undefine_slot",
+      [call, id]() -> std::string {
+        const int32_t rc =
+            call.manager()->undefineUiSlot(call.instance(), id);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("undefine_slot", rc);
+        }
+        return std::string{};
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_list_slots(
+    const PluginxxHost *host, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+          host, /*allowClosing=*/true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "list_slots: host is unavailable");
+    return nullptr;
+  }
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.list_slots",
+      [call]() -> std::string {
+        std::string json;
+        const int32_t rc = call.manager()->listUiSlots(call.instance(), json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("list_slots", rc);
+        }
+        return json;
+      });
+}
+
+PluginxxOperatorHandle *PLUGINXX_CALL xx_ui_notify(
+    const PluginxxHost *host, const PluginxxStringView *messageJson,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!messageJson || !messageJson->data) {
+    pluginxx::detail::setErrorString(errorOut, "notify: missing message");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "notify: host is unavailable");
+    return nullptr;
+  }
+  const std::string message = uiViewToString(*messageJson);
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.ui.notify",
+      [call, message]() -> std::string {
+        const int32_t rc = call.manager()->notifyUi(call.instance(), message);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throwUiFailure("notify", rc);
+        }
+        return std::string{};
       });
 }
 

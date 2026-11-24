@@ -24,6 +24,7 @@
 #include "pluginxx/api/entry.h"
 #include "pluginxx/api/net.h"
 #include "pluginxx/host/lifecycle.h"
+#include "pluginxx/host/table_op.h"
 #include "pluginxx/host/tables_impl.h"
 #include "utilxx/net_hub.h"
 
@@ -139,11 +140,6 @@ class MusicxxHostInstance : public pluginxx::PluginInstanceBase {
 public:
   explicit MusicxxHostInstance(std::string instanceName)
       : pluginxx::PluginInstanceBase(std::move(instanceName)) {}
-
-  /// 本框架插件的 destroy 入口符号名 (与 `MUSICXX_PLUGIN_SYMBOL_DESTROY` 一致)
-  const char *pluginDestroySymbol() const noexcept override {
-    return MUSICXX_PLUGIN_SYMBOL_DESTROY;
-  }
 
   std::string_view logTag() const noexcept override { return "[musicxx_ext] "; }
 

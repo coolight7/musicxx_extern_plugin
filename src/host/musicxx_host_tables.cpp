@@ -1488,60 +1488,53 @@ int32_t MusicxxHostManager::hostInfoJson(std::string &outJson,
 
 namespace {
 
-int32_t PLUGINXX_CALL xx_host_get_info(const PluginxxHost *host,
-                                       PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!outJson) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string name = inst ? inst->name : std::string{};
+PluginxxOperatorHandle *PLUGINXX_CALL xx_host_get_info(
+    const PluginxxHost *host, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host,
+                                                                        true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut, "get_info: host is unavailable");
+    return nullptr;
+  }
+  auto mgr = call.manager();
+  auto inst = call.instance();
+  const std::string name = inst ? inst->name : std::string{};
+  return pluginxx::startTableOp(
+      mgr, cb, cbUd, errorOut, "musicxx.host.get_info",
+      [call, name]() -> std::string {
         std::string json;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, name, &json]() -> int32_t {
-              return mgr->hostInfoJson(json, name);
-            });
+        const int32_t rc = call.manager()->hostInfoJson(json, name);
         if (rc != PLUGINXX_RESULT_OK) {
-          return rc;
+          throw pluginxx::TableOpError("get_info: host info is unavailable");
         }
-        pluginxx::hostMemorySetString(outJson, json);
-        return PLUGINXX_RESULT_OK;
+        return json;
       });
 }
 
-int32_t PLUGINXX_CALL xx_host_config_path(const PluginxxHost *host,
-                                          PluginxxString *outPath) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!outPath) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
+PluginxxOperatorHandle *PLUGINXX_CALL xx_host_config_path(
+    const PluginxxHost *host, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host,
+                                                                        true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "get_plugin_config_path: host is unavailable");
+    return nullptr;
+  }
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.host.get_plugin_config_path",
+      [call]() -> std::string {
         std::string path;
-        const int32_t rc = pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, &path]() -> int32_t {
-              return mgr->pluginConfigPathFor(inst, path);
-            });
+        const int32_t rc =
+            call.manager()->pluginConfigPathFor(call.instance(), path);
         if (rc != PLUGINXX_RESULT_OK) {
-          return rc;
+          throw pluginxx::TableOpError(
+              "get_plugin_config_path: path is unavailable");
         }
-        pluginxx::hostMemorySetString(outPath, path);
-        return PLUGINXX_RESULT_OK;
+        return path;
       });
 }
 
@@ -1560,334 +1553,369 @@ void PLUGINXX_CALL xx_free_fn(void *ptr) { pluginxx::hostMemoryFree(ptr); }
 
 /* ==================== 广播表 (自定义入口: 增加 id 归属校验与频道补齐) ==================== */
 
+/// 订阅句柄的完成载荷形态: 十进制地址文本 (插件原样交回 unsubscribe_broadcast)
+std::string subscriptionPayloadOf(PluginxxSubscription *sub) {
+  return std::to_string(static_cast<uint64_t>(
+      reinterpret_cast<uintptr_t>(sub)));
+}
+
 /// 声明频道 (任意线程; 名字必须是官方或本插件命名空间)
-int32_t PLUGINXX_CALL xx_declare_broadcast(const PluginxxHost *host,
-                                           const PluginxxStringView *declJson,
-                                           PluginxxString *errorOut) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
-        if (!declJson || !declJson->data) {
-          pluginxx::detail::setErrorString(errorOut, "declare_broadcast: missing declaration");
-          return PLUGINXX_RESULT_ERR_ARG;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_declare_broadcast(
+    const PluginxxHost *host, const PluginxxStringView *declJson,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!declJson || !declJson->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "declare_broadcast: missing declaration");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "declare_broadcast: host is unavailable");
+    return nullptr;
+  }
+  const std::string text{declJson->data, static_cast<size_t>(declJson->size)};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.broadcasts.declare",
+      [call, text]() -> std::string {
+        std::string error;
+        const int32_t rc =
+            call.manager()->declareBroadcast(call.instance(), text, &error);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throw pluginxx::TableOpError(
+              error.empty() ? "declare_broadcast: rejected" : error);
         }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string text{
-            declJson->data, static_cast<size_t>(declJson->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, text, errorOut]() -> int32_t {
-              std::string error;
-              const int32_t rc = mgr->declareBroadcast(inst, text, &error);
-              if (rc != PLUGINXX_RESULT_OK) {
-                pluginxx::detail::setErrorString(errorOut, error);
-              }
-              return rc;
-            });
+        return std::string{};
       });
 }
 
 /// 订阅广播的共同实现 (任意线程; 主题形状与归属规则与旧事件表一致)
 ///
 /// `options_json` 是订阅方自己的通知频率 (`{"intervalMs":200,"mode":"delay"}`; 可空)。
-/// 表 v2 的 `subscribe_broadcast` 与 v3 的 `subscribe_broadcast_ex` 只差 `onEnd`:
+/// `subscribe_broadcast` 与 `subscribe_broadcast_ex` 只差 `onEnd`:
 /// 频道被属主结束时用 reason JSON 回调一次, 随后这个订阅被摘掉。
-PluginxxSubscription *subscribeBroadcastFromTable(
+PluginxxOperatorHandle *subscribeBroadcastFromTable(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
     const PluginxxStringView *id,
-    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
+    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payloadJson,
                                  void *ud),
-    void(PLUGINXX_CALL *onEnd)(const PluginxxStringView *reason_json, void *ud),
-    void *ud, const PluginxxStringView *optionsJson,
-    PluginxxString *errorOut) {
-  return pluginxx::guardVtableCall(nullptr, [&]() -> PluginxxSubscription * {
-    auto call =
-        pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-            host);
-    if (!call.ok() || !id || !id->data || !handler) {
-      pluginxx::detail::setErrorString(errorOut,
-                                      "subscribe_broadcast: missing id or handler");
-      return nullptr;
-    }
-    auto mgr = call.manager();
-    auto inst = call.instance();
-    const std::string idText =
-        std::string{id->data, static_cast<size_t>(id->size)};
-    // 订阅只要求 id 形状合法 (可以订阅其它插件或官方频道); 发布才做归属校验
-    if (mgr->qualifyEventTopic(idText).empty()) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 订阅非法广播 `{}` 被拒绝", inst->name,
-              idText);
-      pluginxx::detail::setErrorString(errorOut,
-                                      "subscribe_broadcast: illegal id");
-      return nullptr;
-    }
-    // 应用下发声明之前, 宿主按 id 前缀补一份默认声明
-    mgr->ensureBroadcastChannel(mgr->qualifyEventTopic(idText));
-    // 订阅频率选项是借用视图: 投递前复制成自有的字符串
-    const std::string options =
-        (optionsJson && optionsJson->data)
-            ? std::string{optionsJson->data,
-                          static_cast<size_t>(optionsJson->size)}
-            : std::string{};
-    // 作用域引用里的 id 是借用视图: 投递前复制成自有结构 (与通用表入口同一做法)
-    PluginxxScopeRef scopeCopy{};
-    const bool hasScope = pluginxx_scope_ref_ok(scope) != 0;
-    if (hasScope) {
-      scopeCopy = *scope;
-    }
-    auto *sub = pluginxx::ioCallSyncKeep<PluginxxSubscription *>(
-        call, mgr,
-        [mgr, inst, hasScope, scopeCopy, idText, handler, onEnd, ud, options]() {
-          return mgr->subscribeBroadcast(inst, hasScope ? &scopeCopy : nullptr,
-                                         idText, handler, ud, options, onEnd);
-        });
-    if (!sub) {
-      pluginxx::detail::setErrorString(errorOut,
-                                      "subscribe_broadcast: rejected");
-    }
-    return sub;
-  });
+    void(PLUGINXX_CALL *onEnd)(const PluginxxStringView *reasonJson, void *ud),
+    void *ud, const PluginxxStringView *optionsJson, PluginxxOperatorCallback cb,
+    void *cbUd, PluginxxString *errorOut) {
+  if (!id || !id->data || !handler) {
+    pluginxx::detail::setErrorString(
+        errorOut, "subscribe_broadcast: missing id or handler");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "subscribe_broadcast: host is unavailable");
+    return nullptr;
+  }
+  auto mgr = call.manager();
+  const std::string idText{id->data, static_cast<size_t>(id->size)};
+  // 订阅只要求 id 形状合法 (可以订阅其它插件或官方频道); 发布才做归属校验
+  if (mgr->qualifyEventTopic(idText).empty()) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 订阅非法广播 `{}` 被拒绝",
+            call.instance()->name, idText);
+    pluginxx::detail::setErrorString(errorOut,
+                                     "subscribe_broadcast: illegal id");
+    return nullptr;
+  }
+  const std::string options =
+      (optionsJson && optionsJson->data)
+          ? std::string{optionsJson->data, static_cast<size_t>(optionsJson->size)}
+          : std::string{};
+  // 作用域引用里的 id 是借用视图: 投递前复制成自有结构
+  const bool hasScope = pluginxx_scope_ref_ok(scope) != 0;
+  const PluginxxScopeRef scopeCopy = hasScope ? *scope : PluginxxScopeRef{};
+  return pluginxx::startTableOp(
+      mgr, cb, cbUd, errorOut, "musicxx.broadcasts.subscribe",
+      [call, hasScope, scopeCopy, idText, handler, onEnd, ud, options]()
+          -> std::string {
+        auto *mgr = call.manager();
+        // 应用下发声明之前, 宿主按 id 前缀补一份默认声明
+        mgr->ensureBroadcastChannel(mgr->qualifyEventTopic(idText));
+        auto *sub = mgr->subscribeBroadcast(call.instance(),
+                                            hasScope ? &scopeCopy : nullptr,
+                                            idText, handler, ud, options, onEnd);
+        if (!sub) {
+          throw pluginxx::TableOpError("subscribe_broadcast: rejected");
+        }
+        return subscriptionPayloadOf(sub);
+      });
 }
 
-/// 订阅广播 (任意线程; 主题形状与归属规则与旧事件表一致)
-PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast(
+/// 订阅广播 (任意线程)
+PluginxxOperatorHandle *PLUGINXX_CALL xx_subscribe_broadcast(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
     const PluginxxStringView *id,
-    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
+    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payloadJson,
                                  void *ud),
-    void *ud, const PluginxxStringView *optionsJson,
-    PluginxxString *errorOut) {
+    void *ud, const PluginxxStringView *optionsJson, PluginxxOperatorCallback cb,
+    void *cbUd, PluginxxString *errorOut) {
   return subscribeBroadcastFromTable(host, scope, id, handler, nullptr, ud,
-                                     optionsJson, errorOut);
+                                     optionsJson, cb, cbUd, errorOut);
 }
 
-/// 订阅广播, 并带流结束回调 (表 v3 的追加成员; 任意线程)
-PluginxxSubscription *PLUGINXX_CALL xx_subscribe_broadcast_ex(
+/// 订阅广播, 并带流结束回调 (追加成员; 任意线程)
+PluginxxOperatorHandle *PLUGINXX_CALL xx_subscribe_broadcast_ex(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
     const PluginxxStringView *id,
-    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payload_json,
+    void(PLUGINXX_CALL *handler)(const PluginxxStringView *payloadJson,
                                  void *ud),
-    void(PLUGINXX_CALL *onEnd)(const PluginxxStringView *reason_json,
-                               void *ud),
-    void *ud, const PluginxxStringView *optionsJson,
-    PluginxxString *errorOut) {
+    void(PLUGINXX_CALL *onEnd)(const PluginxxStringView *reasonJson, void *ud),
+    void *ud, const PluginxxStringView *optionsJson, PluginxxOperatorCallback cb,
+    void *cbUd, PluginxxString *errorOut) {
   return subscribeBroadcastFromTable(host, scope, id, handler, onEnd, ud,
-                                     optionsJson, errorOut);
+                                     optionsJson, cb, cbUd, errorOut);
 }
 
 /// 撤销订阅 (幂等; 任意线程)
-void PLUGINXX_CALL xx_unsubscribe_broadcast(PluginxxSubscription *sub) {
-  pluginxx::unsubscribePluginBroadcast(sub);
+PluginxxOperatorHandle *PLUGINXX_CALL xx_unsubscribe_broadcast(
+    const PluginxxHost *host, PluginxxSubscription *sub,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+          host, /*allowClosing=*/true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(
+        errorOut, "unsubscribe_broadcast: host is unavailable");
+    return nullptr;
+  }
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.broadcasts.unsubscribe",
+      [sub]() -> std::string {
+        pluginxx::unsubscribePluginBroadcast(sub);
+        return std::string{};
+      });
 }
 
-/// 结束一条流 (表 v3 的追加成员; 任意线程): 只有频道属主能结束自己的频道
+/// 结束一条流 (任意线程): 只有频道属主能结束自己的频道
 ///
-/// 结束后: 发布返回 `PLUGINXX_RESULT_ERR_ENDED`, 读不到当前值, 全部订阅先用
-/// reason JSON 回调一次再摘掉; 再次声明同一个 id = 开一条新流。
-int32_t PLUGINXX_CALL xx_end_broadcast(const PluginxxHost *host,
-                                       const PluginxxStringView *id,
-                                       const PluginxxStringView *reasonJson,
-                                       PluginxxString *errorOut) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
-        if (!id || !id->data || id->size == 0) {
-          pluginxx::detail::setErrorString(errorOut,
-                                          "end_broadcast: missing id");
-          return PLUGINXX_RESULT_ERR_ARG;
+/// 结束后: 发布按 `ended` 失败, 读不到当前值, 全部订阅先用 reason JSON 回调一次
+/// 再摘掉; 再次声明同一个 id = 开一条新流。
+PluginxxOperatorHandle *PLUGINXX_CALL xx_end_broadcast(
+    const PluginxxHost *host, const PluginxxStringView *id,
+    const PluginxxStringView *reasonJson, PluginxxOperatorCallback cb,
+    void *cbUd, PluginxxString *errorOut) {
+  if (!id || !id->data || id->size == 0) {
+    pluginxx::detail::setErrorString(errorOut, "end_broadcast: missing id");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "end_broadcast: host is unavailable");
+    return nullptr;
+  }
+  const std::string idText{id->data, static_cast<size_t>(id->size)};
+  // 与发布同一条归属规则: 只能结束自己命名空间下的频道
+  const std::string pluginId =
+      MusicxxHostManager::pluginIdOf(call.instance()->name);
+  if (!isTopicOwnedBy(idText, pluginId)) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播被拒绝: id `{}` "
+            "不属于该插件命名空间",
+            pluginId, idText);
+    pluginxx::detail::setErrorString(
+        errorOut, "end_broadcast: id is not in the plugin namespace");
+    return nullptr;
+  }
+  const std::string reason =
+      (reasonJson && reasonJson->data && reasonJson->size > 0)
+          ? std::string{reasonJson->data, static_cast<size_t>(reasonJson->size)}
+          : std::string{"{}"};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.broadcasts.end",
+      [call, idText, reason]() -> std::string {
+        std::string error;
+        const int32_t rc = call.manager()->endBroadcastFrom(
+            call.instance(), idText, reason, &error);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throw pluginxx::TableOpError(
+              error.empty() ? "end_broadcast: rejected" : error);
         }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string idText{id->data, static_cast<size_t>(id->size)};
-        // 与发布同一条归属规则: 只能结束自己命名空间下的频道
-        const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
-        if (!isTopicOwnedBy(idText, pluginId)) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播被拒绝: id `{}` "
-                  "不属于该插件命名空间",
-                  pluginId, idText);
-          pluginxx::detail::setErrorString(
-              errorOut, "end_broadcast: id is not in the plugin namespace");
-          return PLUGINXX_RESULT_ERR_PERMISSION;
-        }
-        const std::string reason =
-            (reasonJson && reasonJson->data && reasonJson->size > 0)
-                ? std::string{reasonJson->data,
-                              static_cast<size_t>(reasonJson->size)}
-                : std::string{"{}"};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, idText, reason, errorOut]() -> int32_t {
-              std::string error;
-              const int32_t rc =
-                  mgr->endBroadcastFrom(inst, idText, reason, &error);
-              if (rc != PLUGINXX_RESULT_OK) {
-                pluginxx::detail::setErrorString(errorOut, error);
-              }
-              return rc;
-            });
+        return std::string{};
       });
 }
 
 /// 发布广播 (任意线程): id 必须是官方 `musicxx.*` 或本插件自己的
 /// `plugin.<id>.*`
-int32_t PLUGINXX_CALL xx_publish_broadcast(const PluginxxHost *host,
-                                           const PluginxxStringView *id,
-                                           const PluginxxStringView *payloadJson,
-                                           PluginxxString *errorOut) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok() || !id || !id->data) {
-          pluginxx::detail::setErrorString(errorOut,
-                                          "publish_broadcast: missing id");
-          return PLUGINXX_RESULT_ERR_ARG;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_publish_broadcast(
+    const PluginxxHost *host, const PluginxxStringView *id,
+    const PluginxxStringView *payloadJson, PluginxxOperatorCallback cb,
+    void *cbUd, PluginxxString *errorOut) {
+  if (!id || !id->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "publish_broadcast: missing id");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "publish_broadcast: host is unavailable");
+    return nullptr;
+  }
+  const std::string idText{id->data, static_cast<size_t>(id->size)};
+  const std::string pluginId =
+      MusicxxHostManager::pluginIdOf(call.instance()->name);
+  if (!isTopicOwnedBy(idText, pluginId)) {
+    XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播被拒绝: id `{}` "
+            "不属于该插件命名空间",
+            pluginId, idText);
+    pluginxx::detail::setErrorString(
+        errorOut, "publish_broadcast: id is not in the plugin namespace");
+    return nullptr;
+  }
+  const std::string payload =
+      (payloadJson && payloadJson->size > 0 && payloadJson->data)
+          ? std::string{payloadJson->data,
+                        static_cast<size_t>(payloadJson->size)}
+          : std::string{"{}"};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.broadcasts.publish",
+      [call, idText, payload, pluginId]() -> std::string {
+        auto *mgr = call.manager();
+        // 事件计数与速率 (只观测不限制): 与 publishOnHostThread 同一份实现
+        mgr->accountEventForTopic(idText);
+        mgr->ensureBroadcastChannel(idText);
+        std::string error;
+        const int32_t rc =
+            mgr->publishBroadcast(idText, payload, pluginId, &error);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throw pluginxx::TableOpError(
+              error.empty() ? "publish_broadcast: rejected" : error);
         }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string idText =
-            std::string{id->data, static_cast<size_t>(id->size)};
-        const std::string pluginId = MusicxxHostManager::pluginIdOf(inst->name);
-        if (!isTopicOwnedBy(idText, pluginId)) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播被拒绝: id `{}` "
-                  "不属于该插件命名空间",
-                  pluginId, idText);
-          pluginxx::detail::setErrorString(
-              errorOut, "publish_broadcast: id is not in the plugin namespace");
-          return PLUGINXX_RESULT_ERR_PERMISSION;
-        }
-        const std::string payload =
-            (payloadJson && payloadJson->size > 0 && payloadJson->data)
-                ? std::string{payloadJson->data,
-                              static_cast<size_t>(payloadJson->size)}
-                : std::string{"{}"};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, idText, payload, pluginId, errorOut]() -> int32_t {
-              // 事件计数与速率 (只观测不限制): 与 publishOnHostThread 同一份实现
-              mgr->accountEventForTopic(idText);
-              mgr->ensureBroadcastChannel(idText);
-              std::string error;
-              const int32_t rc =
-                  mgr->publishBroadcast(idText, payload, pluginId, &error);
-              if (rc != PLUGINXX_RESULT_OK) {
-                pluginxx::detail::setErrorString(errorOut, error);
-              }
-              return rc;
-            });
+        return std::string{};
       });
 }
 
 /// 读当前值 (任意线程; 注册表内部加锁)
-int32_t PLUGINXX_CALL xx_read_broadcast(const PluginxxHost *host,
-                                        const PluginxxStringView *id,
-                                        PluginxxString *outJson) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_ARG, [&]() -> int32_t {
-        if (!id || !id->data || !outJson) {
-          return PLUGINXX_RESULT_ERR_ARG;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_read_broadcast(
+    const PluginxxHost *host, const PluginxxStringView *id,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!id || !id->data) {
+    pluginxx::detail::setErrorString(errorOut, "read_broadcast: missing id");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+          host, /*allowClosing=*/true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "read_broadcast: host is unavailable");
+    return nullptr;
+  }
+  const std::string idText{id->data, static_cast<size_t>(id->size)};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.broadcasts.read",
+      [call, idText]() -> std::string {
+        std::string value;
+        const int32_t rc = call.manager()->readBroadcastText(idText, &value);
+        if (rc == PLUGINXX_RESULT_OK) {
+          return value;
         }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
+        if (rc == PLUGINXX_RESULT_ERR_ENDED) {
+          throw pluginxx::TableOpError("ended");
         }
-        auto mgr = call.manager();
-        const std::string idText{
-            id->data, static_cast<size_t>(id->size)};
-        return mgr->readBroadcast(idText, outJson);
+        if (rc == PLUGINXX_RESULT_ERR_NO_VALUE) {
+          throw pluginxx::TableOpError("no_value");
+        }
+        if (rc == PLUGINXX_RESULT_ERR_NOT_DECLARED) {
+          throw pluginxx::TableOpError("not_declared");
+        }
+        throw pluginxx::TableOpError("read_broadcast: failed");
       });
 }
 
 /* ==================== 接口表: musicxx.kind (插件形态 / 运行器) ==================== */
 
 /// 登记一种插件形态（本插件成为它的运行器）
-int32_t PLUGINXX_CALL xx_kind_register(const PluginxxHost *host,
-                                       const PluginxxStringView *spec_json) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!spec_json || !spec_json->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_kind_register(
+    const PluginxxHost *host, const PluginxxStringView *specJson,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!specJson || !specJson->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "register_kind: missing spec");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "register_kind: host is unavailable");
+    return nullptr;
+  }
+  const std::string specText{specJson->data,
+                             static_cast<size_t>(specJson->size)};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.kind.register",
+      [call, specText]() -> std::string {
+        std::string error;
+        const int32_t rc = call.manager()->registerPluginKind(
+            call.instance()->name, specText, error);
+        if (rc != PLUGINXX_RESULT_OK) {
+          XX_LOGW("[musicxx_ext] 插件 `{}` 登记插件形态失败: {}",
+                  call.instance()->name, error);
+          throw pluginxx::TableOpError(
+              error.empty() ? "register_kind: rejected" : error);
         }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string specText{
-            spec_json->data, static_cast<size_t>(spec_json->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, specText]() -> int32_t {
-              std::string err;
-              const int32_t rc =
-                  mgr->registerPluginKind(inst->name, specText, err);
-              if (rc != PLUGINXX_RESULT_OK) {
-                XX_LOGW("[musicxx_ext] 插件 `{}` 登记插件形态失败: {}",
-                        inst->name, err);
-              }
-              return rc;
-            });
+        return std::string{};
       });
 }
 
 /// 撤销本插件登记的形态
-int32_t PLUGINXX_CALL xx_kind_unregister(const PluginxxHost *host,
-                                         const PluginxxStringView *kind) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!kind || !kind->data) {
-          return PLUGINXX_RESULT_ERR_ARG;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_kind_unregister(
+    const PluginxxHost *host, const PluginxxStringView *kind,
+    PluginxxOperatorCallback cb, void *cbUd, PluginxxString *errorOut) {
+  if (!kind || !kind->data) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "unregister_kind: missing kind");
+    return nullptr;
+  }
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(host);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "unregister_kind: host is unavailable");
+    return nullptr;
+  }
+  const std::string kindText{kind->data, static_cast<size_t>(kind->size)};
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.kind.unregister",
+      [call, kindText]() -> std::string {
+        std::string error;
+        const int32_t rc = call.manager()->unregisterPluginKind(
+            call.instance()->name, kindText, error);
+        if (rc != PLUGINXX_RESULT_OK) {
+          throw pluginxx::TableOpError(
+              error.empty() ? "unregister_kind: rejected" : error);
         }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        auto inst = call.instance();
-        const std::string kindText{kind->data,
-                                   static_cast<size_t>(kind->size)};
-        return pluginxx::ioCallSyncKeep<int32_t>(
-            call, mgr, [mgr, inst, kindText]() -> int32_t {
-              std::string err;
-              return mgr->unregisterPluginKind(inst->name, kindText, err);
-            });
+        return std::string{};
       });
 }
 
 /// 列出全部形态（内置 + 插件登记）
-int32_t PLUGINXX_CALL xx_kind_list(const PluginxxHost *host,
-                                   PluginxxString *out_json) {
-  return pluginxx::guardVtableCall(
-      PLUGINXX_RESULT_ERR_INTERNAL, [&]() -> int32_t {
-        if (!out_json) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto call =
-            pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
-                host, /*allowClosing=*/true);
-        if (!call.ok()) {
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        auto mgr = call.manager();
-        const std::string json = pluginxx::ioCallSyncKeep<std::string>(
-            call, mgr, [mgr]() { return mgr->kindsJson(); });
-        pluginxx::hostMemorySetString(out_json, json);
-        return PLUGINXX_RESULT_OK;
+PluginxxOperatorHandle *PLUGINXX_CALL xx_kind_list(
+    const PluginxxHost *host, PluginxxOperatorCallback cb, void *cbUd,
+    PluginxxString *errorOut) {
+  auto call =
+      pluginxx::enterPluginHost<MusicxxHostInstance, MusicxxHostManager>(
+          host, /*allowClosing=*/true);
+  if (!call.ok()) {
+    pluginxx::detail::setErrorString(errorOut,
+                                     "list_kinds: host is unavailable");
+    return nullptr;
+  }
+  return pluginxx::startTableOp(
+      call.manager(), cb, cbUd, errorOut, "musicxx.kind.list",
+      [call]() -> std::string {
+        return call.manager()->kindsJson();
       });
 }
 

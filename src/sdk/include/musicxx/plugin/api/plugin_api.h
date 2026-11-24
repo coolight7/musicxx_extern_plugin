@@ -33,9 +33,11 @@ extern "C" {
 
 /* ==================== 入口符号名 (框架自定义) ==================== */
 
+/// 入口符号名: 与插件框架的 `PluginEntrySymbols` 一致 —— 只有四个
+/// (`get_info` 可空, 其余三个必需), "开始播放 / 开始工作" 不再单独立一个符号:
+/// `create` 就是"构造 + 注册事务", `stop` 撤销注册, `destroy` 释放对象。
 #define MUSICXX_PLUGIN_SYMBOL_GET_INFO "musicxx_plugin_get_info"
 #define MUSICXX_PLUGIN_SYMBOL_CREATE   "musicxx_plugin_create"
-#define MUSICXX_PLUGIN_SYMBOL_START    "musicxx_plugin_start"
 #define MUSICXX_PLUGIN_SYMBOL_STOP     "musicxx_plugin_stop"
 #define MUSICXX_PLUGIN_SYMBOL_DESTROY  "musicxx_plugin_destroy"
 
@@ -94,8 +96,10 @@ static_assert(std::string_view(PLUGINXX_APP_ID("host")) == MUSICXX_PLUGIN_IFACE_
 #endif
 /// v2: 删掉 `get_state` / `subscribe_state`（读当前值走广播频道）与
 /// `request_action` / `cancel_action`（要应用做事就调能力，走 `musicxx.capabilities`）
-#define MUSICXX_PLUGIN_IFACE_HOST_VERSION     2
-#define MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION 2
+/// v3: 成员改成**异步操作契约**（与插件框架的通用表同一套：返回句柄 = 已受理，
+///     结果经完成回调恰好一次交回，返回 `NULL` = 未受理并写 `error_out`）
+#define MUSICXX_PLUGIN_IFACE_HOST_VERSION     3
+#define MUSICXX_PLUGIN_IFACE_HOST_MIN_VERSION 3
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
 #define MUSICXX_PLUGIN_IFACE_HOST_BASELINE_SIZE sizeof(MusicxxPluginHostIface)
 
@@ -103,13 +107,20 @@ typedef struct MusicxxPluginHostIface {
     int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_HOST_VERSION
     uint32_t struct_size;
 
-    /// 框架信息 (主程序版本/平台/语言/插件目录; JSON 对象)
-    int32_t(PLUGINXX_CALL* get_info)(const PluginxxHost* host, PluginxxString* out_json);
+    /// 框架信息 (主程序版本/平台/语言/插件目录; 结果 JSON 对象)
+    PluginxxOperatorHandle*(PLUGINXX_CALL* get_info)(
+        const PluginxxHost*      host,
+        PluginxxOperatorCallback cb,
+        void*                    cb_ud,
+        PluginxxString*          error_out
+    );
 
     /// 本插件配置路径 (插件框架按插件 id 推导; 供插件读写自己的配置)
-    int32_t(PLUGINXX_CALL* get_plugin_config_path)(
-        const PluginxxHost*               host,
-        PluginxxString*                   out_path
+    PluginxxOperatorHandle*(PLUGINXX_CALL* get_plugin_config_path)(
+        const PluginxxHost*      host,
+        PluginxxOperatorCallback cb,
+        void*                    cb_ud,
+        PluginxxString*          error_out
     );
 } MusicxxPluginHostIface;
 
@@ -130,8 +141,9 @@ typedef struct MusicxxPluginHostIface {
 static_assert(std::string_view(PLUGINXX_APP_ID("ui")) == MUSICXX_PLUGIN_IFACE_UI);
 #endif
 /// v3: 内容 + 槽位 + 声明项分开 (删掉 `update_entry`: 声明没变时要重画就重新生成内容)
-#define MUSICXX_PLUGIN_IFACE_UI_VERSION     3
-#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 3
+/// v4: 成员与生成函数都改成**异步操作契约**（结果经完成回调 / 通知恰好一次交回）
+#define MUSICXX_PLUGIN_IFACE_UI_VERSION     4
+#define MUSICXX_PLUGIN_IFACE_UI_MIN_VERSION 4
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
 #define MUSICXX_PLUGIN_IFACE_UI_BASELINE_SIZE sizeof(MusicxxPluginUIIface)
 
@@ -194,12 +206,22 @@ typedef struct MusicxxPluginUIContentSpec {
     int32_t min_interval_ms;      ///< 0 = 不按时间节流 (默认); >0 = 两次生成之间的最短间隔
     int32_t            flags;     ///< 预留 (必须为 0)
 
-    /// 生成函数: ctx_json 是 context (JSON 对象), 返回 {"json":…,"data":…} (JSON 对象)
-    /// - 返回 0 表示成功; 其它值表示失败(主程序保留上一次有效内容并记一条日志)
-    int32_t(PLUGINXX_CALL *generate)(
-        const PluginxxHost*         host,
-        const PluginxxStringView*   ctx_json,
-        PluginxxString*             out_content_json
+    /// 生成函数: ctx_json 是 context (JSON 对象)，完成后经 `notify` 恰好一次交回结果
+    ///
+    /// - 成功: `notify->done(host_ud, PLUGINXX_OPERATOR_OK, {"json":…,"data":…})`；
+    /// - 可以同步完成，也可以先返回、拿到数据后再完成（协程 / 异步请求都行）；
+    /// - 失败: `notify->done(host_ud, PLUGINXX_OPERATOR_FAILED, "原因")`
+    ///   （主程序保留上一次有效内容并记一条日志）；
+    /// - 生成**必须快**：要等网络 / 文件就先给一个"加载中"的结构，拿到结果后用
+    ///   `push_content` 再发一份。主程序不会为了等它而停下帧。
+    ///
+    /// 完成协议沿用了插件框架的能力处理器：参数顺序 `(host, ctx, user_data, notify, error_out)`。
+    void(PLUGINXX_CALL *generate)(
+        const PluginxxHost*           host,
+        const PluginxxStringView*     ctx_json,
+        void*                         user_data,
+        const PluginxxOperatorNotify* notify,
+        PluginxxString*               error_out
     );
     void* user_data; ///< 生成函数需要的上下文 (可为空)
 } MusicxxPluginUIContentSpec;
@@ -221,94 +243,127 @@ typedef struct MusicxxPluginUIIface {
     /* ---- 声明项 (入口 / 菜单 / 音效 / 可选样式的元信息) ---- */
 
     /// 注册/覆盖一个声明项
-    /// - 返回 0 成功; -1 参数非法; -2 状态错误(未启动/已禁用); -4 未知类型;
-    ///   -6 命名空间不属于本插件
-    int32_t(PLUGINXX_CALL* register_entry)(
+    ///
+    /// 完成时: 成功 `status = OK` (无结果正文); 失败正文是原因 (`arg` / `state` /
+    /// `unknown_type` / `namespace`)。
+    PluginxxOperatorHandle*(PLUGINXX_CALL* register_entry)(
         const PluginxxHost*                host,
-        const MusicxxPluginUIEntrySpec*    spec
+        const MusicxxPluginUIEntrySpec*    spec,
+        PluginxxOperatorCallback           cb,
+        void*                              cb_ud,
+        PluginxxString*                    error_out
     );
 
-    /// 注销一个声明项 (item_id 必须是本插件的项; 不存在返回 -4)
-    int32_t(PLUGINXX_CALL* unregister_entry)(
+    /// 注销一个声明项 (item_id 必须是本插件的项; 不存在按 `not_found` 失败)
+    PluginxxOperatorHandle*(PLUGINXX_CALL* unregister_entry)(
         const PluginxxHost*               host,
-        const PluginxxStringView*         item_id
+        const PluginxxStringView*         item_id,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
-    /// 列出本插件已注册的声明项 (JSON 数组)
-    int32_t(PLUGINXX_CALL* list_entries)(
+    /// 列出本插件已注册的声明项 (结果 JSON 数组)
+    PluginxxOperatorHandle*(PLUGINXX_CALL* list_entries)(
         const PluginxxHost*               host,
-        PluginxxString*                   out_json
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
     /* ---- 内容 (挂在槽位上的界面) ---- */
 
     /// 注册/覆盖一份内容
     /// - 同一个 (槽位, 短 id) 再注册 = 覆盖这一条 (deps / order / 生成函数一起换);
-    /// - 返回 0 成功; -1 参数非法(含 deps 里变量写错 / 槽位不存在); -2 状态错误;
-    ///   -4 未知槽位; -6 命名空间不属于本插件
-    int32_t(PLUGINXX_CALL* register_content)(
+    /// - 完成时: 成功无结果正文; 失败正文是原因 (`arg` / `state` / `unknown_slot` / `namespace`)。
+    PluginxxOperatorHandle*(PLUGINXX_CALL* register_content)(
         const PluginxxHost*                  host,
-        const MusicxxPluginUIContentSpec*    spec
+        const MusicxxPluginUIContentSpec*    spec,
+        PluginxxOperatorCallback             cb,
+        void*                                cb_ud,
+        PluginxxString*                      error_out
     );
 
-    /// 注销一份内容 (id 可以是短 id 或全名; 不存在返回 -4)
-    int32_t(PLUGINXX_CALL* unregister_content)(
+    /// 注销一份内容 (id 可以是短 id 或全名; 不存在按 `not_found` 失败)
+    PluginxxOperatorHandle*(PLUGINXX_CALL* unregister_content)(
         const PluginxxHost*               host,
-        const PluginxxStringView*         content_id
+        const PluginxxStringView*         content_id,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
     /// 直接给一份内容 (不等主程序来问): content_json = {"json":…,"data":…}
     ///
-    /// 框架线程只入队, 不回调插件、不等结果(不重入)。版本号与请求产物同一条递增。
-    int32_t(PLUGINXX_CALL* push_content)(
+    /// 框架只入队, 不回调插件、不等结果 (不重入)。版本号与请求产物同一条递增。
+    PluginxxOperatorHandle*(PLUGINXX_CALL* push_content)(
         const PluginxxHost*               host,
         const PluginxxStringView*         content_id,
-        const PluginxxStringView*         content_json
+        const PluginxxStringView*         content_json,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
-    /// 列出本插件已注册的内容 (JSON 数组: slot / id / deps / order)
-    int32_t(PLUGINXX_CALL* list_contents)(
+    /// 列出本插件已注册的内容 (结果 JSON 数组: slot / id / deps / order)
+    PluginxxOperatorHandle*(PLUGINXX_CALL* list_contents)(
         const PluginxxHost*               host,
-        PluginxxString*                   out_json
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
     /// 要求主程序用当前变量再生成一次 (不受"槽位没被挂载"限制)
     ///
     /// - `slot`: 槽位 id (简称或全名);
     /// - `ids_json`: 自己的内容短 id 数组; 空串 / `[]` = 这个槽位上本插件的全部内容。
-    /// 结果经 `musicxx.ui.content` 事件交给主程序; 返回 0 表示已受理。
-    int32_t(PLUGINXX_CALL* update_slot)(
+    /// 结果经 `musicxx.ui.content` 事件交给主程序。
+    PluginxxOperatorHandle*(PLUGINXX_CALL* update_slot)(
         const PluginxxHost*               host,
         const PluginxxStringView*         slot,
-        const PluginxxStringView*         ids_json
+        const PluginxxStringView*         ids_json,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
     /* ---- 插件声明的槽位 ---- */
 
     /// 声明一个槽位 (id 必须是 plugin.<自己>.ui.<名字>; kind 只允许 insert / replace)
-    int32_t(PLUGINXX_CALL* define_slot)(
+    PluginxxOperatorHandle*(PLUGINXX_CALL* define_slot)(
         const PluginxxHost*               host,
-        const MusicxxPluginUISlotSpec*    spec
+        const MusicxxPluginUISlotSpec*    spec,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
     /// 撤销自己声明的槽位 (挂在上面的内容一起失效)
-    int32_t(PLUGINXX_CALL* undefine_slot)(
+    PluginxxOperatorHandle*(PLUGINXX_CALL* undefine_slot)(
         const PluginxxHost*               host,
-        const PluginxxStringView*         slot
+        const PluginxxStringView*         slot,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
-    /// 列出槽位表: 应用预留的 + 插件声明的 (JSON 数组)
-    int32_t(PLUGINXX_CALL* list_slots)(
+    /// 列出槽位表: 应用预留的 + 插件声明的 (结果 JSON 数组)
+    PluginxxOperatorHandle*(PLUGINXX_CALL* list_slots)(
         const PluginxxHost*               host,
-        PluginxxString*                   out_json
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 
     /* ---- 提示 ---- */
 
     /// 提示 (等价于能力 `musicxx.ui.toast`; fire-and-forget, 不等待用户界面)
-    int32_t(PLUGINXX_CALL* notify)(
+    PluginxxOperatorHandle*(PLUGINXX_CALL* notify)(
         const PluginxxHost*               host,
-        const PluginxxStringView*         message_json
+        const PluginxxStringView*         message_json,
+        PluginxxOperatorCallback          cb,
+        void*                             cb_ud,
+        PluginxxString*                   error_out
     );
 } MusicxxPluginUIIface;
 
@@ -332,8 +387,8 @@ typedef struct MusicxxPluginUIIface {
 #ifdef __cplusplus
 static_assert(std::string_view(PLUGINXX_APP_ID("kind")) == MUSICXX_PLUGIN_IFACE_KIND);
 #endif
-#define MUSICXX_PLUGIN_IFACE_KIND_VERSION     1
-#define MUSICXX_PLUGIN_IFACE_KIND_MIN_VERSION 1
+#define MUSICXX_PLUGIN_IFACE_KIND_VERSION     2
+#define MUSICXX_PLUGIN_IFACE_KIND_MIN_VERSION 2
 /* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
 #define MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE sizeof(MusicxxPluginKindIface)
 
@@ -358,37 +413,41 @@ typedef struct MusicxxPluginKindIface {
     /// - `interfaceVersion` / `minInterfaceVersion`：解释执行的形态自己的**接口代次对**
     ///   （当前代次 / 兼容下限）。清单 `api_version` 的判定是 `>= minInterfaceVersion`；
     ///   插件读 `config().apiVersion` 拿到的是 `interfaceVersion`。只增不改时只抬当前代次，
-    ///   破坏性变更才抬下限；都不写 = 不判（内置 `js` 是 3 / 3）；
+    ///   破坏性变更才抬下限；都不写 = 不判（内置 `js` 是 4 / 4）；
     /// - `loadCapability` / `unloadCapability`：**必须写在本插件的命名空间**
     ///   （`plugin.<插件id>.`）下；缺 `loadCapability` 会被拒绝；
     /// - `validateCapability`（可选，同样要在本插件命名空间下）：加载一个该形态的插件之前
     ///   先问它一次，载荷 `{"action":"validate","kind","id","path","version"}`，回答
-    ///   `{"ok":true}` = 可以跑，`{"ok":false,"error":"..."}` = 拒绝（理由直接给用户）。
-    ///   主程序安装预检也会调它（`plugin_inspect` 的出参里有能力名，见
-    ///   `docs/plugin-native-api.md` §4.3）；
-    /// - `overrideBuiltin`：写 true 表示**接管框架自带的形态**（目前只允许 `js`：把 JS 运行器
-    ///   搬到插件里）。`native` 不能接管（动态库加载与生命周期是插件框架自己的职责）；
-    ///   撤销登记后自动回到内置实现。
+    ///   `{"ok":true}` = 可以跑，`{"ok":false,"error":"..."}` = 拒绝（理由直接给用户）；
+    /// - `overrideBuiltin`：写 true 表示**接管框架自带的形态**（目前只允许 `js`）。
     ///
-    /// 返回 0 成功；-1 参数非法；-2 状态错误；-4 形态已由别的插件提供；-6 命名空间不属于本插件。
-    int32_t(PLUGINXX_CALL* register_kind)(
+    /// 完成时: 成功无结果正文; 失败正文是原因（`arg` / `state` / `taken` / `namespace`）。
+    PluginxxOperatorHandle*(PLUGINXX_CALL* register_kind)(
         const PluginxxHost*       host,
-        const PluginxxStringView* spec_json
+        const PluginxxStringView* spec_json,
+        PluginxxOperatorCallback  cb,
+        void*                     cb_ud,
+        PluginxxString*           error_out
     );
 
-    /// 撤销本插件登记的形态（不是自己登记的返回 -6）
-    int32_t(PLUGINXX_CALL* unregister_kind)(
+    /// 撤销本插件登记的形态（不是自己登记的按 `not_owner` 失败）
+    PluginxxOperatorHandle*(PLUGINXX_CALL* unregister_kind)(
         const PluginxxHost*       host,
-        const PluginxxStringView* kind
+        const PluginxxStringView* kind,
+        PluginxxOperatorCallback  cb,
+        void*                     cb_ud,
+        PluginxxString*           error_out
     );
 
-    /// 列出全部形态（内置 + 插件登记），JSON 数组：
+    /// 列出全部形态（内置 + 插件登记），结果 JSON 数组：
     /// `[{"kind","builtin","requiresPluginAbi","interfaceVersion","minInterfaceVersion",
     ///    "provider","providerId","loadCapability","unloadCapability","validateCapability",
     ///    "describe","overridden","available"}]`
-    int32_t(PLUGINXX_CALL* list_kinds)(
-        const PluginxxHost* host,
-        PluginxxString*     out_json
+    PluginxxOperatorHandle*(PLUGINXX_CALL* list_kinds)(
+        const PluginxxHost*       host,
+        PluginxxOperatorCallback  cb,
+        void*                     cb_ud,
+        PluginxxString*           error_out
     );
 } MusicxxPluginKindIface;
 

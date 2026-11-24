@@ -2672,9 +2672,8 @@ const PluginxxBuiltinInfo *JsEngine::builtinPlugins(uint64_t *count) {
     info.name = PluginxxStringView{slot.name.data(), slot.name.size()};
     info.get_info = &JsEngine::builtinGetInfo;
     info.create = &JsEngine::builtinCreate;
-    info.destroy = &JsEngine::builtinDestroy;
-    info.start = &JsEngine::builtinStart;
     info.stop = &JsEngine::builtinStop;
+    info.destroy = &JsEngine::builtinDestroy;
     table.infos.push_back(info);
   }
   if (count) {
@@ -3219,17 +3218,109 @@ namespace {
 ///
 /// 注册时要求 `generate` 非空 (原生插件必须有), JS 插件这里只放一个不会被
 /// 调用的函数: 框架按 `fromJs` 走 JS 桥, 不在框架线程执行插件代码。
-int32_t PLUGINXX_CALL jsUiContentGenerate(const PluginxxHost * /*host*/,
-                                          const PluginxxStringView * /*ctx*/,
-                                          PluginxxString *out) {
-  if (out) {
-    out->data = nullptr;
-    out->size = 0;
+void PLUGINXX_CALL jsUiContentGenerate(const PluginxxHost * /*host*/,
+                                       const PluginxxStringView * /*ctx*/,
+                                       void * /*userData*/,
+                                       const PluginxxOperatorNotify *notify,
+                                       PluginxxString * /*errorOut*/) {
+  if (notify && notify->done) {
+    static constexpr std::string_view kReason{
+        "js generate is handled by the runtime"};
+    const PluginxxStringView reasonView{kReason.data(), kReason.size()};
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &reasonView);
   }
-  return 1;
 }
 
-/// 在框架线程上执行一条 UI 操作 (运行期投递与顶层回放共用)
+/// 广播表订阅调用的完成回执 (订阅句柄是十进制文本)
+struct SubscribeCapture {
+  PluginxxSubscription *sub = nullptr;
+  std::string error;
+};
+
+void PLUGINXX_CALL subscribeCaptureDone(void *ud, int32_t status,
+                                     const PluginxxStringView *payload) {
+  auto *capture = static_cast<SubscribeCapture *>(ud);
+  if (!capture || capture->sub) {
+    return;
+  }
+  if (status != PLUGINXX_OPERATOR_OK) {
+    if (payload && payload->data && payload->size > 0) {
+      capture->error.assign(payload->data,
+                            static_cast<size_t>(payload->size));
+    }
+    return;
+  }
+  uint64_t value = 0;
+  if (payload && payload->data) {
+    for (uint64_t i = 0; i < payload->size; ++i) {
+      const char c = payload->data[i];
+      if (c < '0' || c > '9') {
+        value = 0;
+        break;
+      }
+      value = value * 10 + static_cast<uint64_t>(c - '0');
+    }
+  }
+  capture->sub =
+      reinterpret_cast<PluginxxSubscription *>(static_cast<uintptr_t>(value));
+}
+
+/// 在框架线程上建立一条广播订阅
+///
+/// **调用方必须已经在框架 IO 线程**: 表成员虽然是异步操作契约, 但受理与工作体
+/// 都在这条线程上内联执行, 完成回调在返回前就已调过, 所以能直接拿回订阅句柄。
+PluginxxSubscription *subscribeBroadcastOnHostThread(
+    const PluginxxHost *host, const std::string &topic,
+    const std::string &optionsJson, void *ud) {
+  const PluginxxStringView iidView{PLUGINXX_IFACE_BROADCASTS,
+                                   std::strlen(PLUGINXX_IFACE_BROADCASTS)};
+  const auto *broadcasts = static_cast<const PluginxxBroadcastsIface *>(
+      host->vtable->query_interface(host, &iidView));
+  if (!broadcasts) {
+    return nullptr;
+  }
+  auto capture = std::make_shared<SubscribeCapture>();
+  // 完成回执的持有者由回调释放 (内联完成时本次调用就会释放)
+  auto *holder = new std::shared_ptr<SubscribeCapture>(capture);
+  const PluginxxStringView topicView{topic.data(), topic.size()};
+  const PluginxxStringView optionsView{optionsJson.data(), optionsJson.size()};
+  const PluginxxStringView *optionsPtr =
+      optionsJson.empty() ? nullptr : &optionsView;
+  PluginxxString errorOut{};
+  const bool hasEnd =
+      pluginxx::ifaceHas<&PluginxxBroadcastsIface::subscribe_broadcast_ex>(
+          broadcasts) &&
+      broadcasts->subscribe_broadcast_ex != nullptr;
+  PluginxxOperatorHandle *op = nullptr;
+  if (hasEnd) {
+    op = broadcasts->subscribe_broadcast_ex(
+        host, nullptr, &topicView, &JsEngine::eventTrampoline,
+        &JsEngine::endTrampoline, ud, optionsPtr, &subscribeCaptureDone, holder,
+        &errorOut);
+  } else {
+    op = broadcasts->subscribe_broadcast(host, nullptr, &topicView,
+                                        &JsEngine::eventTrampoline, ud,
+                                        optionsPtr, &subscribeCaptureDone,
+                                        holder, &errorOut);
+  }
+  if (!op) {
+    delete holder;
+    if (errorOut.data) {
+      pluginxx::hostMemoryFree(errorOut.data);
+    }
+    return nullptr;
+  }
+  if (errorOut.data) {
+    pluginxx::hostMemoryFree(errorOut.data);
+  }
+  if (!capture->sub) {
+    XX_LOGW("[musicxx_ext] JS 订阅 `{}` 未能建立: {}", topic,
+            capture->error.empty() ? "rejected" : capture->error);
+  }
+  return capture->sub;
+}
+
+
 ///
 /// - `kind`: item (声明项) / content (内容) / slot (槽位);
 /// - `payloadJson`: 声明项的 data、内容的 `{slot, deps, order, minIntervalMs}`、
@@ -3533,22 +3624,9 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   holder->weakSelf = holder;
   const PluginxxStringView topicView{holder->topic.data(),
                                      holder->topic.size()};
-  const PluginxxStringView optionsView{holder->options.data(),
-                                       holder->options.size()};
-  const PluginxxStringView *optionsPtr =
-      holder->options.empty() ? nullptr : &optionsView;
-  // 表 v3 才能带流结束回调: 频道被属主结束时回调一次 (与值回调同一个 ud)
-  const bool hasEnd = pluginxx::ifaceHas<
-      &PluginxxBroadcastsIface::subscribe_broadcast_ex>(broadcasts)
-      && broadcasts->subscribe_broadcast_ex != nullptr;
-  auto *sub = hasEnd
-                  ? broadcasts->subscribe_broadcast_ex(
-                        host, nullptr, &topicView, &JsEngine::eventTrampoline,
-                        &JsEngine::endTrampoline, holder.get(), optionsPtr,
-                        nullptr)
-                  : broadcasts->subscribe_broadcast(
-                        host, nullptr, &topicView, &JsEngine::eventTrampoline,
-                        holder.get(), optionsPtr, nullptr);
+  (void)topicView;
+  auto *sub = subscribeBroadcastOnHostThread(
+      host, holder->topic, holder->options, holder.get());
   if (!sub) {
     XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
             topic);
@@ -4443,23 +4521,9 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       }
       const PluginxxStringView topicView{holder->topic.data(),
                                          holder->topic.size()};
-      const PluginxxStringView optionsView{holder->options.data(),
-                                           holder->options.size()};
-      const PluginxxStringView *optionsPtr =
-          holder->options.empty() ? nullptr : &optionsView;
-      const bool hasEnd = pluginxx::ifaceHas<
-          &PluginxxBroadcastsIface::subscribe_broadcast_ex>(broadcasts)
-          && broadcasts->subscribe_broadcast_ex != nullptr;
-      auto *sub = hasEnd
-                      ? broadcasts->subscribe_broadcast_ex(
-                            host, nullptr, &topicView,
-                            &JsEngine::eventTrampoline,
-                            &JsEngine::endTrampoline, holder.get(), optionsPtr,
-                            nullptr)
-                      : broadcasts->subscribe_broadcast(
-                            host, nullptr, &topicView,
-                            &JsEngine::eventTrampoline, holder.get(), optionsPtr,
-                            nullptr);
+      (void)topicView;
+      auto *sub = subscribeBroadcastOnHostThread(
+          host, holder->topic, holder->options, holder.get());
       if (!sub) {
         XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
                 holder->topic);
@@ -4728,10 +4792,12 @@ JsEngine::endTrampoline(const PluginxxStringView *reasonJson, void *userData) {
 
 /* ==================== 内置插件入口 ==================== */
 
-const PluginxxInfo *PLUGINXX_CALL JsEngine::builtinGetInfo() {
+const PluginxxInfo *PLUGINXX_CALL JsEngine::builtinInfo() {
   static const PluginxxInfo info = [] {
     PluginxxInfo value{};
     value.api_version = PLUGINXX_API_VERSION;
+    value.min_api_version = PLUGINXX_MIN_API_VERSION;
+    value.struct_size = sizeof(PluginxxInfo);
     value.name = PluginxxStringView{"js", 2};
     value.version = PluginxxStringView{"1.0.0", 5};
     value.description =
@@ -4741,47 +4807,53 @@ const PluginxxInfo *PLUGINXX_CALL JsEngine::builtinGetInfo() {
   return &info;
 }
 
-int32_t PLUGINXX_CALL JsEngine::builtinCreate(const PluginxxHost *host,
-                                              void **outCtx) {
-  if (!outCtx) {
+int32_t PLUGINXX_CALL JsEngine::builtinGetInfo(PluginxxInfo *out) {
+  if (!out) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string err;
-  auto inst = instanceFromHost(host, err);
-  if (!inst) {
-    XX_LOGE("[musicxx_ext] JS插件实例创建失败: {}", err);
-    return PLUGINXX_RESULT_ERR_STATE;
-  }
-  *outCtx = inst.get();
-  return PLUGINXX_RESULT_OK;
+  *out = *builtinInfo();
+  return 0;
 }
 
-void *PLUGINXX_CALL JsEngine::builtinStart(void *ctx,
-                                           const PluginxxOperatorNotify *notify,
-                                           PluginxxString *errorOut) {
-  auto *inst = static_cast<Instance *>(ctx);
-  int32_t rc = PLUGINXX_RESULT_ERR_STATE;
+void PLUGINXX_CALL JsEngine::builtinCreate(
+    const PluginxxHost *host, void **outCtx,
+    const PluginxxOperatorNotify *notify, PluginxxString *errorOut) {
+  int32_t rc = PLUGINXX_RESULT_ERR_ARG;
   std::string err{"JS 实例上下文无效"};
-  if (inst && inst->engine) {
-    rc = inst->engine->startInstance(inst->engine->lookupInstance(inst->name),
-                                     err);
+  if (outCtx) {
+    if (*outCtx == nullptr) {
+      // 首次: 建上下文 (建不出来就是失败, 没有可销毁的东西)
+      auto inst = instanceFromHost(host, err);
+      if (!inst) {
+        XX_LOGE("[musicxx_ext] JS插件实例创建失败: {}", err);
+        rc = PLUGINXX_RESULT_ERR_STATE;
+      } else {
+        *outCtx = inst.get();
+        rc = PLUGINXX_RESULT_OK;
+      }
+    } else {
+      // 禁用后再启用: 上下文已经有了, 这里只做注册事务
+      auto *inst = static_cast<Instance *>(*outCtx);
+      if (inst && inst->engine) {
+        rc = inst->engine->startInstance(inst->engine->lookupInstance(inst->name),
+                                        err);
+      }
+    }
   }
   if (rc != 0 && errorOut) {
     pluginxx::hostMemorySetString(errorOut, err);
   }
-  /// 插件框架约定: start 事务必须恰好调用一次完成通知 (返回 nullptr = 无异步 op)
   if (notify && notify->done) {
+    const PluginxxStringView errView{err.data(), err.size()};
     notify->done(notify->host_ud,
                  rc == 0 ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,
-                 nullptr);
+                 rc == 0 ? nullptr : &errView);
   }
-  return nullptr;
 }
 
-void *PLUGINXX_CALL JsEngine::builtinStop(void *ctx,
-                                          const PluginxxOperatorNotify *notify,
-                                          PluginxxString * /*errorOut*/
-) {
+void PLUGINXX_CALL JsEngine::builtinStop(
+    void *ctx, const PluginxxOperatorNotify *notify,
+    PluginxxString * /*errorOut*/) {
   auto *inst = static_cast<Instance *>(ctx);
   if (inst && inst->engine) {
     inst->engine->stopInstance(inst->engine->lookupInstance(inst->name));
@@ -4789,13 +4861,17 @@ void *PLUGINXX_CALL JsEngine::builtinStop(void *ctx,
   if (notify && notify->done) {
     notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
   }
-  return nullptr;
 }
 
-void PLUGINXX_CALL JsEngine::builtinDestroy(void *ctx) {
+void PLUGINXX_CALL JsEngine::builtinDestroy(
+    void *ctx, const PluginxxOperatorNotify *notify,
+    PluginxxString * /*errorOut*/) {
   auto *inst = static_cast<Instance *>(ctx);
   if (inst && inst->engine) {
     inst->engine->destroyInstance(inst->engine->lookupInstance(inst->name));
+  }
+  if (notify && notify->done) {
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
   }
 }
 

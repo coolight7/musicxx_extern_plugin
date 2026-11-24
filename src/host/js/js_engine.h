@@ -357,16 +357,21 @@ public:
 
   /* ---------- 插件框架内置插件入口 (C ABI 形态; 插件框架在框架线程调用) ---------- */
 
-  static const PluginxxInfo *PLUGINXX_CALL builtinGetInfo();
-  static int32_t PLUGINXX_CALL builtinCreate(const PluginxxHost *host,
-                                             void **outCtx);
-  static void *PLUGINXX_CALL builtinStart(void *ctx,
-                                          const PluginxxOperatorNotify *notify,
-                                          PluginxxString *errorOut);
-  static void *PLUGINXX_CALL builtinStop(void *ctx,
+  /// 内置插件入口 (C ABI 形态; 插件框架在框架线程调用)
+
+  /// 元信息 (插件框架先填好 api_version / struct_size, 这里只写其余字段)
+  static const PluginxxInfo *builtinInfo();
+  static int32_t PLUGINXX_CALL builtinGetInfo(PluginxxInfo *out);
+  static void PLUGINXX_CALL builtinCreate(const PluginxxHost *host,
+                                         void **outCtx,
                                          const PluginxxOperatorNotify *notify,
                                          PluginxxString *errorOut);
-  static void PLUGINXX_CALL builtinDestroy(void *ctx);
+  static void PLUGINXX_CALL builtinStop(void *ctx,
+                                        const PluginxxOperatorNotify *notify,
+                                        PluginxxString *errorOut);
+  static void PLUGINXX_CALL builtinDestroy(void *ctx,
+                                           const PluginxxOperatorNotify *notify,
+                                           PluginxxString *errorOut);
 
   /// 内置插件描述数组 (插件框架要求地址稳定; 固定容量槽位表, 见 js_engine.cpp)
   static const PluginxxBuiltinInfo *builtinPlugins(uint64_t *count);
