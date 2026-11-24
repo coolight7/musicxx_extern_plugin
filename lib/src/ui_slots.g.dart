@@ -14,6 +14,8 @@ enum MusicxxUiSlotKind {
   selectable,
   /// 普通页面背景：按路由自动生效
   pageBackground,
+  /// 搜索类型：一份内容就是一个类型，用户在页面上现选（不落设置）
+  searchType,
   /// 插件页面：插件自己发起
   page,
   /// 插件浮层：插件自己发起
@@ -284,6 +286,15 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
     doc: '同一位置可以有多份内容，按 order 从上到下排列。',
   ),
   MusicxxUiSlotSpec_c(
+    id: 'musicxx.ui.search.type',
+    kind: MusicxxUiSlotKind.searchType,
+    label: '搜索类型',
+    page: '搜索页',
+    position: '类型标签栏 + 结果区（用户选中哪个就画哪个）',
+    inList: false,
+    doc: '一份内容 = 一个搜索类型：注册时的 title 是标签名、depict 是说明、order 决定标签顺序；插件在 deps 里写上 scope:musicxx.search.keyword / request，用户点搜索时应用把关键词与请求序号写进作用域变量再让生成函数重画。结果列表建议直接用 musicxx.SongListView 模板（只给 items，行样式与点击播放由应用画）。',
+  ),
+  MusicxxUiSlotSpec_c(
     id: 'musicxx.ui.page',
     kind: MusicxxUiSlotKind.page,
     label: '插件页面',
@@ -367,6 +378,8 @@ abstract final class MusicxxUiSlots_c {
   static const String playingSonglistHeader = 'musicxx.ui.playing.songlist.header';
   /// 播放列表内底部
   static const String playingSonglistFooter = 'musicxx.ui.playing.songlist.footer';
+  /// 搜索类型
+  static const String searchType = 'musicxx.ui.search.type';
   /// 插件页面
   static const String page = 'musicxx.ui.page';
   /// 插件浮层

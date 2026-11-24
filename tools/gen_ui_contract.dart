@@ -121,6 +121,8 @@ String _dartSlots(List<Map<String, Object?>> slots) {
   out.writeln('  selectable,');
   out.writeln('  /// 普通页面背景：按路由自动生效');
   out.writeln('  pageBackground,');
+  out.writeln('  /// 搜索类型：一份内容就是一个类型，用户在页面上现选（不落设置）');
+  out.writeln('  searchType,');
   out.writeln('  /// 插件页面：插件自己发起');
   out.writeln('  page,');
   out.writeln('  /// 插件浮层：插件自己发起');
@@ -445,6 +447,9 @@ String _docSlots(List<Map<String, Object?>> slots) {
   out.writeln('| `replace` | 替换：只认一份内容（`order` 最小），没有内容时画内置界面 |');
   out.writeln('| `selectable` | 可选样式：插件声明候选，用户在选择列表里选 |');
   out.writeln('| `pageBackground` | 普通页面背景：按路由自动生效，不用用户选择 |');
+  out.writeln(
+    '| `searchType` | 搜索类型：一份内容就是一个类型（注册里的 `title` 是标签名），用户在页面上现选，不落设置 |',
+  );
   out.writeln('| `page` | 插件页面：地址是 `ext://<插件id>/<内容 id>` |');
   out.writeln(
     '| `overlay` | 插件浮层：`musicxx.ui.overlay.show` / `.showSheet` 打开 |',

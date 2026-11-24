@@ -58,6 +58,8 @@ extern "C" {
 #define MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_HEADER "musicxx.ui.playing.songlist.header"
 /* 播放列表内底部: 播放页 · 播放列表页 / 列表的 footer（跟随内容滚动） */
 #define MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_FOOTER "musicxx.ui.playing.songlist.footer"
+/* 搜索类型: 搜索页 / 类型标签栏 + 结果区（用户选中哪个就画哪个） */
+#define MUSICXX_PLUGIN_UI_SLOT_SEARCH_TYPE "musicxx.ui.search.type"
 /* 插件页面: 插件页面 ext://<插件id>/<内容 id> / 整页（插件自己发起） */
 #define MUSICXX_PLUGIN_UI_SLOT_PAGE "musicxx.ui.page"
 /* 插件浮层: 浮层（musicxx.ui.overlay.show / showSheet） / 整层（插件自己发起） */
@@ -105,6 +107,7 @@ inline constexpr KnownUiSlot kKnownUiSlots[] = {
     {"musicxx.ui.playing.songlist.bottom", "insert", "播放列表页底部", false},
     {"musicxx.ui.playing.songlist.header", "insert", "播放列表内顶部", true},
     {"musicxx.ui.playing.songlist.footer", "insert", "播放列表内底部", true},
+    {"musicxx.ui.search.type", "searchType", "搜索类型", false},
     {"musicxx.ui.page", "page", "插件页面", false},
     {"musicxx.ui.overlay", "overlay", "插件浮层", false},
 };

@@ -325,6 +325,30 @@ const List<MusicxxUiVariableSpec_c> kMusicxxUiVariables = <MusicxxUiVariableSpec
     ],
   ),
   MusicxxUiVariableSpec_c(
+    id: 'scope:musicxx.search.keyword',
+    type: MusicxxUiVariableType.string,
+    depict: '搜索页里已提交的搜索词（没搜过是空串；用户在输入框打字不会改它）',
+    slots: <String>[
+      'musicxx.ui.search.type',
+    ],
+  ),
+  MusicxxUiVariableSpec_c(
+    id: 'scope:musicxx.search.request',
+    type: MusicxxUiVariableType.number,
+    depict: '搜索请求序号，每次点搜索 +1（同一个搜索词再点一次也会变）',
+    slots: <String>[
+      'musicxx.ui.search.type',
+    ],
+  ),
+  MusicxxUiVariableSpec_c(
+    id: 'scope:musicxx.search.type',
+    type: MusicxxUiVariableType.string,
+    depict: '当前搜索类型的内容短 id（一个插件注册多个搜索类型时用来分辨）',
+    slots: <String>[
+      'musicxx.ui.search.type',
+    ],
+  ),
+  MusicxxUiVariableSpec_c(
     id: 'scope:musicxx.songlist.pid',
     type: MusicxxUiVariableType.string,
     depict: '歌单内容页打开的歌单 id',

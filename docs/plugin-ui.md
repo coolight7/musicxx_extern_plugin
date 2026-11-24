@@ -363,7 +363,7 @@ uiContentRegister("favBtn", MUSICXX_PLUGIN_UI_SLOT_PLAYING_CONTROL_BAR_FAVORITE,
 
 ### 1.9 音效：把自己的音频滤镜加进音效页面
 
-注册一项 `musicxx.ui.audioEffect`，它就会出现在『音效』插件的音效页面里（排在 21 个内置预设之后）。
+注册一项 `musicxx.ui.audioEffect`，它就会出现在『音效』插件的音效页面里（排在全部内置预设之后）。
 用户选中后，这一段滤镜链与内置音效完全一样地生效：写进 mpv `af` 里应用自己的「音效」段。
 
 ```json
@@ -421,6 +421,16 @@ musicxx.ui.item.register({
   [plugin-api.md](plugin-api.md) 里列出的可用滤镜，或在应用的「播放内核信息」里查。
 - **不要用 `lavfi-complex`**：那是另一条音频链路，运行期清理它会把音频输出弄坏；音效一律留在 `af` 里
   （需要图语法就写 `lavfi=[...]`，与内置的「人声消减」一样）。
+- **逐帧表达式里的时间要兜住 NaN**：`volume=volume='0.5+0.5*cos(2*PI*0.1*t)':eval=frame` 这种写法，
+  `t` 在**没有时间戳的帧**上是 NaN（音频链刚建立的第一帧就会碰到），ffmpeg 会记一条
+  `Invalid value NaN for volume, setting to 0` 并把那一帧静音。写 `if(isnan(t),0,t)` 代替 `t`
+  （内置的「3D环绕声」就是这么写的）。
+- **延迟用 `aecho`，不要用 `adelay`**：这份 ffmpeg 的 `adelay` 在开头输出的是未初始化样本（实测 19 ms
+  的延迟会出来 1824 个 NaN，后面的限幅器也带不走）；`aecho=in_gain=0:out_gain=1:delays=N:decays=1`
+  是干净的延迟，开头是静音。
+- **逐样本表达式很贵**：一条 `aeval` 的逐样本表达式处理 20 s 音频要 0.4~0.5 s，而
+  `volume=...:eval=frame`（逐帧）只要 0.06 s（纯解码 0.07 s）。慢速、只需要一个增益的 LFO 用逐帧写法，
+  别用 `aeval`。
 - **插件停用 / 卸载 / 关闭『拟声++』后**，这一项从列表消失；如果用户当时选的是它，会回退成「未启用音效」
   （不会把一段已经不存在的滤镜留在播放器上）。重新启用后需要用户再选一次。
 - 一个插件可以注册多个音效，按 UI 项的 `order` 与注册顺序排列；`title` 是用户看到的唯一标识，
@@ -462,6 +472,111 @@ musicxx.ui.slot.undefine("toolbar");
 - 自查：`musicxx.ui.slots()` 返回应用的槽位清单 + 自己声明的槽位 + 可绑定的变量。
 
 两个插件互相嵌套的完整例子见 `plugins/example_js_ui_nested`（声明槽位的 `provider` 与往里面放内容的 `consumer`）。
+
+### 1.11 搜索页的搜索类型（`musicxx.ui.search.type`）
+
+搜索页顶部那排"本地歌曲 / B站 / 网盘……"标签，插件也能往里加：**在这个槽位上注册一份内容，就是一个搜索类型**。
+注册里的 `title` 是标签名，`order` 决定它排在内置类型之后的哪个位置。用户切到这个标签、输入关键词、点搜索，
+主程序把已提交的关键词写进作用域变量，再让插件生成结果界面。
+
+```js
+// JS：一个自己的搜索类型
+musicxx.ui.content.register({
+    id: "cloudSearch",
+    slot: "musicxx.ui.search.type",
+    title: "我的曲库",                  // 标签名
+    depict: "搜索插件自己的曲库",        // 一句话说明（标签栏不画，自省能看到）
+    order: 10,                        // 内置类型之后按它排
+    deps: ["scope:musicxx.search.keyword", "scope:musicxx.search.request"],
+}, function (ctx) {
+    const keyword = ctx["scope:musicxx.search.keyword"] || "";
+    if (!keyword) {
+        return { blocks: [{ kind: "Text", text: "输入关键词后点搜索", type: "hint" }] };
+    }
+    const songs = cloudSearch(keyword);        // 插件自己取数据
+    return { blocks: [{
+        kind: "musicxx.SongListView",
+        emptyText: "没有找到",
+        items: songs.map((s) => ({
+            id: s.id,
+            title: s.title,
+            subtitle: s.artist,
+            data: { song: { type: "plugin.my_plugin.audio", src: s.src,
+                            artist: s.artist, durationMs: s.durationMs } },
+        })),
+    }] };
+});
+```
+
+```cpp
+// C++：同一个注册
+uiContentRegister("cloudSearch", MUSICXX_PLUGIN_UI_SLOT_SEARCH_TYPE,
+                  R"(["scope:musicxx.search.keyword","scope:musicxx.search.request"])",
+                  &onGenerateSearch, 10, 0, "我的曲库", "搜索插件自己的曲库");
+```
+
+三个作用域变量只在这个槽位里可用；`deps` 里写到的才会传进生成函数：
+
+| 变量 | 类型 | 什么时候变 |
+|---|---|---|
+| `scope:musicxx.search.keyword` | 字符串 | 点搜索时写入已提交的关键词；从没搜过是空串 |
+| `scope:musicxx.search.request` | 数字 | 每点一次搜索 +1（同一个词再点一次也会变） |
+| `scope:musicxx.search.type` | 字符串 | 这份内容的短 id（一个插件注册多个类型时用来分辨） |
+
+**什么时候生成内容**
+
+- 用户切到这个标签时生成一次（这时关键词还是空串，正好用来画"请输入关键词"）；
+- 之后只在上面这些变量变化、或插件自己调 `musicxx.ui.slot.update("musicxx.ui.search.type")` 时重生成；
+- **输入框打字不触发**（给的是"点了搜索"的那个词）：插件不用自己做防抖，也不要在生成函数里等网络。
+  数据要慢慢取，就先返回一份"正在搜索"，取到之后再调一次 `slot.update` 重画。
+
+**结果直接写 `musicxx.SongListView`**
+
+条目只要给 `data.song`（音源类型 + 资源 id，写法与 `musicxx.DirListView` 的歌曲项一样）：
+
+```json
+{
+  "kind": "musicxx.SongListView",
+  "emptyText": "没有找到",
+  "items": [
+    { "id": "a1", "title": "稻香", "subtitle": "周杰伦",
+      "data": { "song": { "type": "plugin.my_plugin.audio", "src": "music/稻香.flac",
+                          "artist": "周杰伦", "durationMs": 223000 } } }
+  ],
+  "itemMenu": [ { "title": "加入我的收藏", "action": "addFavorite" } ]
+}
+```
+
+行样式（封面、歌名歌手、时长、当前播放的选中态）、点行播放（整份结果当作播放队列）、长按 / 右键的内置歌曲菜单、
+空列表提示都由主程序画；`itemMenu` 的项排在内置菜单之后，点了派发给插件（参数带 `listId` / `index` / `itemId`）。
+列表上面 / 下面要加"共 N 首""换个关键词"这类内容，用 `Column` 把 `Text` / `Button` 与它包在一起。
+行高与排版用 `layout`（`auto` / `list` / `grid` / `multiList`）、`variant`（`card` / `plain`）、`height`、`padding` 调，
+与内置歌曲列表同一套。
+
+规则与注意：
+
+- **`deps` 要把两个变量都写上**：漏掉 `scope:musicxx.search.keyword` 或 `.request`，点搜索时插件收不到新关键词，
+  界面会一直停在切过去时的那一份；
+- **空关键词是允许的**：插件类型没有"必须先输入"这条限制，空关键词画什么由插件自己定；
+- **标签顺序**：内置类型在前，插件类型按 `order`（同 `order` 按注册顺序）跟在后面；标签栏只有文字，没有图标；
+- **选中状态由主程序记**：用户这次选了插件类型，下次打开搜索页仍停在这个类型上；插件卸载后自动回到内置类型；
+- **插件停用 / 关闭『拟声++』**：标签与结果一起消失，当时选的是它也会回到内置类型；
+- **一份内容 = 一个类型**：`title` 就是标签名；同一个插件要提供多个类型就注册多份，用
+  `scope:musicxx.search.type` 分辨当前是哪一份；
+- **生成失败**（抛异常 / 返回结构不对）时这一份不会出现在标签栏；已经停在上面的用户再点一次搜索会重新请求；
+- 结果区默认跟着页面滚：不给 `height` 时列表按内容高度排（整页滚），给 `height` 就固定高度自己滚；
+  整块区域想占满就把根块写成 `Expanded`（或 `Stack` / `musicxx.Shader` / `musicxx.AdaptLayout`）；
+- 自查：`musicxx.ui.slots()` 里能看到这个槽位与它能读的变量。
+
+从外部打开某个插件类型：命令 / 链接的 `type` 写内容全名。
+
+```text
+musicxx://search/?type=plugin.my_plugin.cloudSearch&keyword=稻香
+musicxx://call/?cmd=musicxx.ui.openSearch&args={"type":"plugin.my_plugin.cloudSearch","keyword":"稻香"}
+```
+
+插件自己也能跳过去：`await musicxx.capability.call("musicxx.ui.openSearch", { type: "plugin.my_plugin.cloudSearch", keyword })`。
+
 ## 2. 插件页面（`ext://<插件id>/<内容 id>`）
 
 ### 2.1 打开过程
@@ -543,6 +658,7 @@ uiContentRegister("settings", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]",
 | `ListView` | 同上 + `toolbar`、`menu`、`itemMenu`、`editAction`、`saveAction`、`addAction`、`removeAction`、`removeCheckedAction`、`removeTipTitle`、`positionAction`、`refreshAction`、`loadMoreAction`、`enableCheck`、`enableDrop`、`showCount` | 带工具条的列表（编辑 / 多选 / 加删 / 定位 / 菜单 / 下拉刷新 / 加载更多）：**只有写了对应字段才出现那一个按钮**，没写的自动不出；详见 §2.3.3 |
 | `Icon` / `Image` / `Stack` / `Markdown` | 见库文档 | 可选组件：客户端不支持时由适配步骤降级（`Icon.glyph`、`Image.alt`）；`Icon.name` 是插件自带的 svg 路径（相对插件目录，见 §1.5） |
 | `musicxx.DirListView` | `path`、`items`（必填，用法同列表，可带 `path`/`isDir`）、`multi`（默认关）、`showPath`、`pathAction`、`itemAction`、`selectAction`、`refreshAction`、`loadMoreAction`、`height`、`padding`、`variant`、`emptyText` | musicxx 专属：目录列表（**直接用应用内置的 `DirList` 画**）—— 一层目录的条目（文件夹/文件图标、标题 + 第二行、行尾文字）+ 左上角条目数 + 顶部路径栏（显示 `path`）+ 路径栏里的「上一级」按钮（给了 `pathAction` 才出现）+ 可选的多选勾选框（`multi` 打开才出现，勾选态取条目的 `selected`，点一下派发取反后的 `selected`）。给了 `refreshAction` / `loadMoreAction` 还能**在列表内下拉刷新 / 滚到底加载更多**（不加任何按钮）。**当前目录与选中态由插件保存**（客户端只派发动作，插件返回新视图）；返回键是“退出页面 / 浮层”（本块不自己进目录，要逐层往上退就给 `pathAction`）。行样式由应用定：`icon` / `subtitle` / `trailing` / `selected` / `data` 生效（条目带 `data.song` 就按内置的**歌曲行**画：封面 + 歌手），`color` / `image` / `custom` 在目录列表里不生效。不认识的客户端退成普通列表文本 |
+| `musicxx.SongListView` | `items`（必填，用法同列表，每项带 `data.song`）、`layout`、`variant`、`height`、`padding`、`emptyText`、`itemMenu` | musicxx 专属：**歌曲结果模板**（搜索 / 浏览结果都行）—— 行样式、点击播放、内置歌曲菜单都由应用画，插件只给数据。条目带 `data.song`（与 `musicxx.DirListView` 的歌曲项同一套写法：`type` / `src` / `artist` / `name` / `fileName` / `size` / `durationMs` / `cover`）就能播；**点一行会把整份结果当作播放队列**并从这一首开始（是否进播放页跟随客户端设置）。没有 `data.song`（或没有 `src`）的条目照样画（标题 / 副标题 / `trailing`），只是点了不播。长按 / 右键出内置歌曲菜单（播放、加入歌单、加入播放列表、下载），`itemMenu` 的项排在后面、点了派发给插件（参数带 `listId` / `index` / `itemId` / `song`）。`emptyText` 画空列表；不给 `height` 就跟页面一起滚。不认识的客户端退成普通列表文本 |
 | `musicxx.AdaptLayout` | `columnBody`（必填）、`rowBody`（必填）、`columnSecondBody`、`rowSecondBody`、`rowBodyRatio`（0.5）、`columnBodyRatio`（0.5）、`enableAnimations` | musicxx 专属：按窗口宽高比切换两套内容（宽高比 < 1 用 `columnBody`，否则 `rowBody`），给了第二套就按比例分两栏；对应应用内置的 `XXAdaptiveLayout`。**只用于页面 / 浮层的最外层**：它按父块给出的宽高分两栏，所以要放在给得出尺寸的地方（页面内容区、浮层内容区）；塞进 `Block` / 行内这类尺寸由内容决定的位置会得到布局断言。不认识的客户端用 `rowBody` |
 | `musicxx.Shader` | `bundle`、`args`、`speed`、`maxFps`、`animate`、`resolutionScale` | musicxx 专属：页面里画一块插件着色器，尺寸由父块决定；见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §9 |
 

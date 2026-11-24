@@ -12,6 +12,7 @@
 | `replace` | 替换：只认一份内容（`order` 最小），没有内容时画内置界面 |
 | `selectable` | 可选样式：插件声明候选，用户在选择列表里选 |
 | `pageBackground` | 普通页面背景：按路由自动生效，不用用户选择 |
+| `searchType` | 搜索类型：一份内容就是一个类型（注册里的 `title` 是标签名），用户在页面上现选，不落设置 |
 | `page` | 插件页面：地址是 `ext://<插件id>/<内容 id>` |
 | `overlay` | 插件浮层：`musicxx.ui.overlay.show` / `.showSheet` 打开 |
 
@@ -44,6 +45,7 @@
 | `musicxx.ui.playing.songlist.bottom` | `insert` | `playing.songlist.bottom` | 播放页 · 播放列表页 · 列表之下（不随内容滚动） | 同一位置可以有多份内容，按 order 从上到下排列。 |
 | `musicxx.ui.playing.songlist.header` | `insert` | `playing.songlist.header` | 播放页 · 播放列表页 · 列表的 header（跟随内容滚动） | 同一位置可以有多份内容，按 order 从上到下排列。 |
 | `musicxx.ui.playing.songlist.footer` | `insert` | `playing.songlist.footer` | 播放页 · 播放列表页 · 列表的 footer（跟随内容滚动） | 同一位置可以有多份内容，按 order 从上到下排列。 |
+| `musicxx.ui.search.type` | `searchType` | `search.type` | 搜索页 · 类型标签栏 + 结果区（用户选中哪个就画哪个） | 一份内容 = 一个搜索类型：注册时的 title 是标签名、depict 是说明、order 决定标签顺序；插件在 deps 里写上 scope:musicxx.search.keyword / request，用户点搜索时应用把关键词与请求序号写进作用域变量再让生成函数重画。结果列表建议直接用 musicxx.SongListView 模板（只给 items，行样式与点击播放由应用画）。 |
 | `musicxx.ui.page` | `page` | `page` | 插件页面 ext://<插件id>/<内容 id> · 整页（插件自己发起） | 内容 id 就是页面地址里的那一段；作用域变量 scope:musicxx.page.*。 |
 | `musicxx.ui.overlay` | `overlay` | `overlay` | 浮层（musicxx.ui.overlay.show / showSheet） · 整层（插件自己发起） | 内容 id 就是能力参数里的 id；作用域变量 scope:musicxx.overlay.*。 |
 

@@ -70,6 +70,9 @@
 | `scope:musicxx.page.args` | `json` | `musicxx.ui.page` | 打开插件页面时带的参数 |
 | `scope:musicxx.overlay.id` | `string` | `musicxx.ui.overlay` | 浮层的内容 id |
 | `scope:musicxx.overlay.args` | `json` | `musicxx.ui.overlay` | 打开浮层时带的参数 |
+| `scope:musicxx.search.keyword` | `string` | `musicxx.ui.search.type` | 搜索页里已提交的搜索词（没搜过是空串；用户在输入框打字不会改它） |
+| `scope:musicxx.search.request` | `number` | `musicxx.ui.search.type` | 搜索请求序号，每次点搜索 +1（同一个搜索词再点一次也会变） |
+| `scope:musicxx.search.type` | `string` | `musicxx.ui.search.type` | 当前搜索类型的内容短 id（一个插件注册多个搜索类型时用来分辨） |
 | `scope:musicxx.songlist.pid` | `string` | `musicxx.ui.page.background` | 歌单内容页打开的歌单 id |
 | `scope:musicxx.songlist.name` | `string` | `musicxx.ui.page.background` | 歌单内容页打开的歌单名 |
 | `scope:musicxx.songlist.songNum` | `number` | `musicxx.ui.page.background` | 歌单的歌曲数 |

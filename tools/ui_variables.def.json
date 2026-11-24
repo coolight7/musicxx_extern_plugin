@@ -56,6 +56,10 @@
   { "id": "scope:musicxx.overlay.id", "type": "string", "depict": "浮层的内容 id", "slots": ["musicxx.ui.overlay"] },
   { "id": "scope:musicxx.overlay.args", "type": "json", "depict": "打开浮层时带的参数", "slots": ["musicxx.ui.overlay"] },
 
+  { "id": "scope:musicxx.search.keyword", "type": "string", "depict": "搜索页里已提交的搜索词（没搜过是空串；用户在输入框打字不会改它）", "slots": ["musicxx.ui.search.type"] },
+  { "id": "scope:musicxx.search.request", "type": "number", "depict": "搜索请求序号，每次点搜索 +1（同一个搜索词再点一次也会变）", "slots": ["musicxx.ui.search.type"] },
+  { "id": "scope:musicxx.search.type", "type": "string", "depict": "当前搜索类型的内容短 id（一个插件注册多个搜索类型时用来分辨）", "slots": ["musicxx.ui.search.type"] },
+
   { "id": "scope:musicxx.songlist.pid", "type": "string", "depict": "歌单内容页打开的歌单 id", "slots": ["musicxx.ui.page.background"] },
   { "id": "scope:musicxx.songlist.name", "type": "string", "depict": "歌单内容页打开的歌单名", "slots": ["musicxx.ui.page.background"] },
   { "id": "scope:musicxx.songlist.songNum", "type": "number", "depict": "歌单的歌曲数", "slots": ["musicxx.ui.page.background"] },
