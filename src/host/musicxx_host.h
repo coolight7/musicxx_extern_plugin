@@ -200,6 +200,8 @@ struct HostContext {
   asio::io_context io;
   asio::executor_work_guard<asio::io_context::executor_type> guard;
   std::unique_ptr<asio::thread_pool> workers;
+  /// 插件代码执行线程 (单线程): 处理器 / 生命周期事务 / 协程驱动都在这里跑
+  std::unique_ptr<asio::thread_pool> pluginThread;
   std::thread thread;
   std::shared_ptr<MusicxxHostManager> manager;
 

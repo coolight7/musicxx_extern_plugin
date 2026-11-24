@@ -166,6 +166,11 @@ HostContext::~HostContext() {
   if (thread.joinable()) {
     thread.join();
   }
+  if (pluginThread) {
+    pluginThread->stop();
+    pluginThread->join();
+    pluginThread.reset();
+  }
   if (workers) {
     workers->stop();
     workers->join();
@@ -292,6 +297,12 @@ int32_t MusicxxHostManager::start(std::string &err) {
       }
     });
   }
+  // 插件代码执行线程: 处理器里可能有同步等待 (JS 应答 / 脚本求值 / 时钟),
+  // 放在 IO 线程上会把整个框架卡住 (插件在处理器里调表还要等这条线程)。
+  if (!ctx_->pluginThread) {
+    ctx_->pluginThread = std::make_unique<asio::thread_pool>(1);
+  }
+  pluginxx::bindPluginExecutor(runtime(), ctx_->pluginThread->get_executor());
   running_.store(true, std::memory_order_release);
   startTime_ = std::chrono::steady_clock::now();
 
@@ -470,6 +481,13 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
     ctx_->workers->stop();
     ctx_->workers->join();
     ctx_->workers.reset();
+  }
+  // 插件执行线程: 插件已全部卸载, 先解绑再收线程 (之后再投递的插件代码直接丢弃)
+  if (ctx_->pluginThread) {
+    pluginxx::bindPluginExecutor(runtime(), asio::any_io_executor{});
+    ctx_->pluginThread->stop();
+    ctx_->pluginThread->join();
+    ctx_->pluginThread.reset();
   }
   ctx_->guard.reset();
   ctx_->io.stop();
