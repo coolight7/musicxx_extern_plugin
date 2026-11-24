@@ -413,7 +413,7 @@ musicxx-cli plugin uninstall my_plugin
 | 装了但没在跑 | 新插件装完是启用的：`plugin list` 看 `loaded` / `error`；以前用 `--disable` 装的用 `plugin enable <id>` 打开 |
 | `loaded: false` 且 `error` 有内容 | 加载失败（脚本顶层报错、缺入口符号、依赖缺失…），`plugin logs <id>` 看明细 |
 | 改了文件没变化 | 没重载、重载失败，或插件处于禁用；`plugin reload <id>` 后看结果里的 `failed` |
-| 主程序整体卡住 | 插件占住了框架线程或 JS 线程：看主程序日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |
+| 主程序界面卡住 / 某次调用一直不返回 | 插件占住了执行线程或 JS 线程：看主程序日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |
 | 找不到 `musicxx-cli` | 看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里写着 CLI 文件路径与可复制的命令 |
 
 ---

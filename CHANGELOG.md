@@ -6,6 +6,32 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，未发布）：业务接口表改成异步操作契约，SDK 全量协程化
+
+一句话：**接口表不再是"调用即返回结果"，改成"受理 + 完成通知"**；原生 SDK 的业务方法一律
+`asio::awaitable`，注册 / 订阅写在 `create` / `stop` 两个协程事务里。插件 ABI 代次 8 → 9
+（清单 `api_version` 写 9，低于它的老插件在加载阶段被拒）。
+
+- **表成员形状**：`musicxx.host` v3 / `musicxx.ui` v4 / `musicxx.kind` v2 / `musicxx.net` v2 的成员统一成
+  `PluginxxOperatorHandle*(host, …, PluginxxOperatorCallback cb, void* cb_ud, PluginxxString* error_out)`：
+  非空句柄 = 已受理，结果经 `cb` 恰好一次交回；返回 `NULL` = 未受理（`cb` 不会被调，原因在 `error_out`）。
+- **失败原因是正文文本**：常用的以 `arg` / `state` / `namespace` / `not_found` / `not_declared` /
+  `no_value` / `ended` 开头（能力登记与调用会带结果分类名，如 `not_declared: …`），后面跟一句人话解释；
+  不再用负数错误码。
+- **入口只有四件**：`musicxx_plugin_{get_info,create,stop,destroy}`；`musicxx_plugin_start` 删掉，
+  注册事务并入 `create`（禁用后再启用 = 只重跑 `create`）。
+- **SDK 全量协程**：`PluginBase` 的业务方法改回 `asio::awaitable`，写 `co_await hostInfoJson()` /
+  `co_await implement(...)` / `co_await uiContentRegister(...)`；取消沿用实例与调用方的取消槽，
+  正在等的那次表调用会被 `op_cancel`。
+- **处理器三种写法**：同步 `int32_t(args, out&)`、同步 `std::string(args)`、协程
+  `asio::awaitable<std::string>(args)`；协程处理器交给后台任务跑，等待期间**不占**插件执行线程。
+- **内容生成可以稍后完成**：`MusicxxPluginUIContentSpec.generate` 改成
+  `void(host, ctx_json, user_data, notify, error_out)`，协程 / 网络请求回来再 `notify->done`。
+- **宿主线程模型**：插件代码（生命周期事务、协程驱动、处理器）统一在一条**插件执行线程**上跑，
+  与框架 IO 线程分开；JS 能力处理器改成异步完成（处理器返回 Promise 时不再占住执行线程）。
+- **禁用时也会真的跑 `stop`**：`plugin_disable` 现在等 `stop` 事务走完才返回（原来只改了状态位），
+  因此 `stop` 里撤销资源的写法从此生效。
+
 ### 变更（破坏性，未发布）：界面改成"槽位 + 内容"
 
 一句话：**界面不再挂在声明项上，改成挂在槽位上的一份"内容"**；内容由插件按需生成，

@@ -773,8 +773,8 @@ final List<MusicxxPluginUIItem> next =
   「主程序是否已接入」列（由 `implemented` 字段生成，其中 `musicxx.feature.point.call` 是插件自定义
   功能埋点的通用通道、由调用方触发），其余注册成功但不会触发；
 - **JS 运行时**：QuickJS 编入插件框架库、共享一条 JS 线程、每个插件独立 `JSRuntime`、
-  `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由框架线程执行；
-  实现可以返回 Promise（插件框架一直等到它结算，结算后结果生效）；
+  `js:<pluginId>` 合成实例、顶层注册统一回放、运行期注册由插件执行线程执行；
+  能力处理器可以返回 Promise（宿主立即返回、结算后补完成，等待期间不占线程）；
 - **声明式 UI**：UI 项（主页入口 / 歌曲菜单 / 歌单菜单 / 播放页背景 / 播放页歌曲图）与插件自绘页面
   （`ext://<插件id>/<视图id>`）都已实现；主程序的主页入口、歌曲菜单、歌单菜单与插件页面都已有渲染点
   （字段与渲染表现见 `docs/plugin-ui.md`）；
@@ -803,7 +803,7 @@ final List<MusicxxPluginUIItem> next =
 | 对照示例 | 演示 / 验证点 |
 |---|---|
 | `plugins/example_native_fail/` | 能力处理器总是失败 → 插件框架只记统计（能力统计里 `failures`，不暂停、不卸载），同插件的其它处理器照常工作 |
-| `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_start`/`stop` → 加载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
+| `plugins/example_native_bad_entry/` | 库文件缺 `musicxx_plugin_create`/`stop` → 加载阶段按约定拒绝（明确失败、有可读原因、无注册残留，对应用例 `test_entry_symbols`） |
 | `plugins/example_js_async/` | 实现返回 Promise → 插件框架一直等到结算，结果生效（`asyncDispatchSettled`） |
 | `plugins/example_js_broken/` | 脚本语法错误 → 加载失败并回滚，插件框架继续可用 |
 
@@ -811,15 +811,15 @@ final List<MusicxxPluginUIItem> next =
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 能力（裁决型） | `MusicxxPlugin::implement` + `musicxx.capabilities`（原生）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；实现可同步返回，也可返回 Promise（JS：插件框架一直等到结算）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
-| 广播 | `subscribeTopic`（原生）/ `musicxx.broadcast.subscribe`（JS） | 属主发布、订阅方收到：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能同步读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
+| 能力（裁决型） | `PluginBase::implement`（原生，`co_await`）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；处理器可以同步返回，也可以写成协程（原生）/ 返回 Promise（JS）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
+| 广播 | `co_await subscribeBroadcast`（原生）/ `musicxx.broadcast.subscribe`（JS） | 属主发布、订阅方收到：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 应用实现的能力 | `musicxx.capability.call` / `PluginBase::capabilityCall` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（应用分派；不做权限校验） |
-| 状态广播 | `musicxx.broadcast.read` / `PluginBase::stateJson` | 只读（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
-| 配置 | `musicxx.storage.get` / `.set`（带 `namespace: "config"`；JS 糖是 `getConfig` / `setConfig`）/ `PluginBase::configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
+| 状态广播 | `musicxx.broadcast.read` / `co_await readBroadcast` | 只读（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
+| 配置 | `musicxx.storage.get` / `.set`（带 `namespace: "config"`；JS 糖是 `getConfig` / `setConfig`）/ `co_await configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |
 | 网络 | `musicxx.net.fetch/download` | 由**插件框架自己**实现（不走主程序）：客户端支持 `http(s)` / `ws(s)`（静态链接 OpenSSL，证书链与主机名校验默认开）；插件框架不限定可访问域名 |
 | 内置网络能力 | `musicxx.net.http/socket/ws/udp`（JS）/ `musicxx.net` 表（C++） | HTTP / TCP / WebSocket / UDP 的客户端与**服务端**；客户端支持 `https` / `wss`，**服务端只监听明文**且默认只绑回环；UDP 可广播 / 组播；事件在 `plugin.<插件id>.net`；示例 `plugins/example_js_net/` |
-| 声明式 UI | `musicxx.ui.slot.register` / `PluginBase::uiSlotRegister` | 主页入口 / 歌曲菜单 / 歌单菜单 / “添加歌曲”项 / 播放页背景 / 播放页歌曲图（主程序都已有渲染点）；字段见 `docs/plugin-ui.md` |
-| 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→动态库投递框架线程、脚本不阻塞；JS 处理器可以同步返回，也可以返回 Promise（插件框架等到结算）；C++ 处理器同步返回 |
+| 声明式 UI | `musicxx.ui.item/content.*` / `co_await uiItemRegister` · `uiContentRegister` | 主页入口 / 歌曲菜单 / 歌单菜单 / “添加歌曲”项 / 播放页背景 / 播放页歌曲图（主程序都已有渲染点）；字段见 `docs/plugin-ui.md` |
+| 能力与跨插件调用 | `musicxx.capability.register/call` | JS↔JS 同线程直调；JS→动态库投递插件执行线程、脚本不阻塞；JS 处理器可以同步返回，也可以返回 Promise；原生处理器可以同步返回，也可以写成协程（`co_await`） |
 | 插件页面 | `ext://<插件id>/<视图id>` | 主程序调用插件同名能力取视图描述（Text / Divider / Button / Block / 布局块 / Shader 块） |
 | 统计自读 | `musicxx.stats.getSelf/reportMemory/reportMetric` | 只观测不限制 |
 

@@ -137,8 +137,8 @@ musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我�
 | 能力 | 什么时候用 | 入口 | 详细 |
 |---|---|---|---|
 | **应用来问插件（决策型能力）** | 想被应用的事件调用（切歌、播放状态、解析音源、播放出错…），或要拦一下（跳过本曲、换源、停止播放）、要在一次调用前后插手（改输入 / 改输出） | `musicxx.capability.implement` / `PluginBase::implement`（带 `phase`） | [plugin-capabilities.md](plugin-capabilities.md) + 写法 [plugin-api.md](plugin-api.md) §8 |
-| **广播 · 带当前值的频道** | 想同步读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.broadcast.read` / `broadcastJson` | [plugin-api.md](plugin-api.md) §2 |
-| **广播 · 官方频道** | 读应用的设置项与状态（动画等级、字体、主题、前后台、播放进度），订它的变化；**要改它调能力** | JS `musicxx.broadcast.read/subscribe` / 原生 `broadcastJson` / `subscribeTopic` | [plugin-api.md](plugin-api.md) §5 + [plugin-broadcasts.md](plugin-broadcasts.md) |
+| **广播 · 带当前值的频道** | 想读当前状态（播放中？当前歌曲？播放列表？频谱？）——这是最快的读法 | `musicxx.broadcast.read` / `co_await readBroadcast` | [plugin-api.md](plugin-api.md) §2 |
+| **广播 · 官方频道** | 读应用的设置项与状态（动画等级、字体、主题、前后台、播放进度），订它的变化；**要改它调能力** | JS `musicxx.broadcast.read/subscribe` / 原生 `readBroadcast` / `subscribeBroadcast` | [plugin-api.md](plugin-api.md) §5 + [plugin-broadcasts.md](plugin-broadcasts.md) |
 | **应用实现的能力** | 要应用做一件事：播放控制、库查询、存储、网络、界面反馈、渲染槽位…（异步，返回结果） | `musicxx.capability.call` / `capabilityCall` | [plugin-api.md](plugin-api.md) §3（全部能力的参数与返回） |
 | **广播 · 自己的频道** | 插件之间 / 插件与插件框架之间传小消息 | `musicxx.broadcast.publish/subscribe` / `subscribeBroadcast` | [plugin-api.md](plugin-api.md) §4 |
 | **能力（跨插件调用）** | 暴露自己的功能给别的插件，或调用别的插件的能力 | `musicxx.capability.*` / `capabilityCall` | [plugin-api.md](plugin-api.md) §6 |
@@ -166,25 +166,23 @@ musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我�
 - **不要有可变全局状态**：同一份库文件可能被创建多个实例（不同 id / 参数），全局量会互相干扰。
 - **JS 插件共用一条 JS 线程**：多个 JS 插件排队执行，处理器要尽快返回；死循环会一直占住这条线程
   （插件框架不打断脚本、也没有中断开关），只能重启主程序。
-- **原生处理器的调用线程就是框架线程**：网络、大文件、编解码、`sleep` 都不要直接在处理器里做，
-  耗时工作放 `offload` + 回调（见 [plugin-native-api.md](plugin-native-api.md) §3）。
+- **原生处理器跑在插件执行线程上**（单条，与框架收发分开）：网络、大文件、编解码、`sleep`
+  都不要直接在处理器里做 —— 卡住只影响这个插件，但它的其它处理器会排队。耗时工作写成协程处理器，
+  或 `co_await pluginxx::asyncOffload(*this, ex, work)` 交给线程池（见 [plugin-native-api.md](plugin-native-api.md) §3）。
 
-### 5.2 不要"等应用实现的能力"（最容易踩的坑）
+### 5.2 处理器里不要久等
 
-打开插件页面、点按钮、调用能力，处理器都在框架一侧执行；而**应用实现的能力要由应用线程执行**。所以：
+插件代码跑在**插件执行线程**（原生）/ 共享 JS 线程上，框架收发与主程序界面不受影响；
+但一个处理器慢，就会让这个插件的其它处理器排队。所以要记住：
 
-- 能力处理器里 `await` 一条应用实现的能力，就会与它执行互相等下去：表现为**整个应用卡住几秒**，
-  最后以「调用插件能力失败」结束；
-- 正确做法：当场要的数据同步读广播缓存（`musicxx.broadcast.read`）；能力的结果异步读回来，
-  记进自己的状态，由页面下一次调用时回读（示例：`plugins/example_js` 的 `crossCall`、
-  `plugins/example_js_playing_bg` 的频谱读取）；
-- **长任务不要写在处理器里**：能力调用是异步的（调用方不会因为插件慢而卡住界面），
-  但处理器仍然占着 JS 线程 / 框架线程。native 用 `co_await pluginxx::offload(*this, work)`
-  把重活交给工作线程池（或返回 `pluginxx::Task<T>` 的服务端协程），
-  JS 返回 Promise 但别在 Promise 里做同步大计算；功能埋点的处理函数必须**同步返回**（通道是同步裁决），
-  长任务请提前算好或做成能力；
-- 排查"应用卡住"：看主程序日志目录下的 `host_call.log`（进插件框架调用的同步轨迹，
-  **最后一行就是没有返回的那次调用**）。
+- **可以等，但要有数**：应用声明的能力都是异步派发的，处理器里 `await` 应用实现的能力不会互相等死；
+  只是等待期间占着这条线程。当场要的数据优先读广播缓存（`musicxx.broadcast.read` /
+  `co_await readBroadcast`），要能力结果又不想卡住就用异步处理器（返回 Promise / 协程处理器）。
+- **功能埋点的处理函数必须同步返回**（通道是同步裁决），长任务请提前算好或做成能力。
+- **JS 里应用声明的能力处理器是“就地等”的**：它跑在插件执行线程被等待的位置，所以别在那里面等
+  要插件执行线程的事（跨插件调用、广播写、能力自省），细节见 [plugin-js-api.md](plugin-js-api.md) §10。
+- 排查“界面卡住 / 某次调用一直不返回”：看主程序日志目录下的 `host_call.log`（同步轨迹，
+  **最后一行就是没有返回的那次调用**），再对照「插件详情 → 日志」。
 
 ### 5.3 应用来问插件（决策型能力）
 
@@ -366,7 +364,7 @@ musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我�
   应用来问插件、界面入口、日志与自省、命名空间 / 超时 / 容量、通用排障
 - [plugin-js-api.md](plugin-js-api.md) —— JS 插件专有：目录与清单、生命周期与硬约束、`musicxx` 全局对象、
   定时器与工具、常见坑（§15）、v1 边界（§16）
-- [plugin-native-api.md](plugin-native-api.md) —— 动态库插件专有：清单与多目标打包、SDK、框架线程、
+- [plugin-native-api.md](plugin-native-api.md) —— 动态库插件专有：清单与多目标打包、SDK、插件执行线程、
   接口表判定、常用接口的 C++ 写法（§4.2）、构建、部署、排障
 - [plugin-capabilities.md](plugin-capabilities.md) —— 能力总表：能不能参与、参与哪一步、载荷与回答（生成物）
 - [plugin-broadcasts.md](plugin-broadcasts.md) —— 广播总表：频道、有没有当前值、谁能发布、载荷与取值域（生成物）

@@ -118,9 +118,9 @@ inline const char* capabilityPhaseName(CapabilityPhase phase) {
 
 /// 网络操作名 (`<应用名>.net` 表的 `op` 参数; 常量定义在 `pluginxx/net/ops.h`)
 ///
-/// 约定: 同步操作的结果 JSON 里带 `ok`; `http.request` 可以"同步受理 + 听事件",
-/// 也可以走 `netCallAsync` 拿完成回调。`http.fetch` / `http.download` 是同一个 HTTP
-/// 实现的另外两个形态, 只走 `netCallAsync`。
+/// 约定: 结果 JSON 里带 `ok`; `http.request` 可以“提交请求 + 听事件”, 也可以
+/// `co_await netCall(...)` 等它完成。`http.fetch` / `http.download` 是同一个 HTTP
+/// 实现的另外两个形态。
 namespace net_op = pluginxx::net_op;
 
 namespace detail {
@@ -354,8 +354,8 @@ public:
 
     /// 一次网络操作 (`op` 用 `pluginxx::net_op::*`), 结果是 JSON 文本
     ///
-    /// 结果 JSON 里带 `ok`; 传输失败也只是一次正常完成。要"提交完就不管"的场景请用
-    /// [startNetRequest] (不登记结果), 不要在这里丢掉返回值当异步用。
+    /// 结果 JSON 里带 `ok`; 传输失败也只是一次正常完成。不想等就把它放进
+    /// `spawn(...)` 起的一条任务里, 不要丢掉返回值当异步用。
     asio::awaitable<std::string> netCall(
         std::string_view op, std::string_view argsJson = "{}") {
         if (!netAvailable()) {
