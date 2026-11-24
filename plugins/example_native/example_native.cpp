@@ -1,22 +1,21 @@
-/// 示例动态库插件: 演示能力注册、快照频道读取、主程序动作请求、能力注册与日志
+/// 示例动态库插件: 演示能力注册、快照频道读取、主程序动作请求、界面内容与日志
 ///
 /// 行为:
-/// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回
-/// skip 裁决;
-/// 2. 注册 `musicxx.song.changed` (observe): 读快照频道里的歌曲名并写日志;
+/// 1. 注册 `musicxx.player.beforePlaySong` (decision): 歌曲名含"广告" → 返回 skip 裁决;
+/// 2. 订阅 `musicxx.song.changed` 广播: 收到推送后读快照频道并写日志;
 /// 3. 注册 `musicxx.player.error` (decision): 连续错误 2 次后建议换源;
 /// 4. 注册能力 `plugin.example_native.probe`: 返回本实例的自检信息 (线程归属、
-///    命名空间校验返回码、处理器调用次数), 供插件框架原生测试读取。
-/// 5. 把页面 `ext://example_native/card` 注册成 `musicxx.ui.page` 上的**内容**
-///    (主页入口、歌曲菜单项与 `ext://example_native/card` 都指向它)。
-///    页面内容由生成函数给出, 主程序按需来要一份。
-/// 6. 在包装点 `musicxx.lyric.load` (歌词加载) 上登记**前链**与**后链**样本:
-///    前链只能改输入或拦下, 后链只能改输出或丢弃。为免误伤真实使用, 只有载荷带
-///    `"example_native_demo":true` 时才改值, 其余调用原样返回。
+///    命名空间校验返回码、处理器调用次数), 供原生测试读取;
+/// 5. 把页面 `ext://example_native/card` 注册成 `musicxx.ui.page` 上的**内容**;
+/// 6. 在包装点 `musicxx.lyric.load` 上登记**前链**与**后链**样本 (只在载荷带
+///    `"example_native_demo":true` 时改值)。
 ///
-/// 规定: start 事务里只做注册, 不阻塞、不发起网络/大文件操作。
+/// 写法: 接口表调用一律 `co_await` (异步操作契约), 注册事务写成协程;
+/// 处理器可以同步返回, 也可以写成 `asio::awaitable` 在等待期间让出框架线程。
 
 #include "musicxx/plugin/api/plugin_kit.h"
+
+#include <asio/awaitable.hpp>
 
 #include <cstdint>
 #include <sstream>
@@ -26,7 +25,7 @@
 
 namespace {
 
-/// 当前线程标识文本 (用于验证"插件代码只在插件框架线程执行")
+/// 当前线程标识文本 (用于验证"插件代码只在插件框架执行线程执行")
 std::string threadIdText() {
   std::ostringstream oss;
   oss << std::this_thread::get_id();
@@ -34,9 +33,6 @@ std::string threadIdText() {
 }
 
 /// 页面里的行：用 musicxx 扩展 kit 拼装（`listRow` = 卡片行：标题 + 说明 + 右侧状态）
-///
-/// kit 返回的是描述层模型（`pluginxx::ui::Item`），序列化成 JSON 块交给客户端；
-/// 排版细节（留白、深浅档位）由 kit 的写法决定，不需要插件作者算尺寸。
 std::string infoRowJson(const std::string &title, const std::string &subtitle,
                         const std::string &right) {
   namespace kit = musicxx::ui::kit;
@@ -54,11 +50,10 @@ std::string infoRowJson(const std::string &title, const std::string &subtitle,
 
 /// 一个动作参数（kit 的 `action` 参数：字符串短写 = dispatch，或完整对象）
 pluginxx::ui::Json dispatchAction(const std::string &name) {
-  pluginxx::ui::Json action = pluginxx::ui::Json::object({
+  return pluginxx::ui::Json::object({
       {"kind", "dispatch"},
       {"name", name},
   });
-  return action;
 }
 
 /// 一个官方动作参数（`kind: command`，只允许 `musicxx.*`）
@@ -71,49 +66,95 @@ pluginxx::ui::Json commandAction(const std::string &name,
   });
 }
 
-/// 能力调用的空完成通知 (示例里只做探测, 不等待完成)
-void PLUGINXX_CALL probeActionDone(void *, int32_t,
-                                   const PluginxxStringView *) {}
-
 /// 插件实例上下文 (每个实例一份; 不得使用可变全局状态 —— 多实例规则)
 struct ExampleCtx;
 
 /// 生成函数是静态回调, 需要拿到当前实例来做 push (`g_self` 在 start 里设置)
 thread_local ExampleCtx *g_self = nullptr;
 
+/// 表调用失败原因 → 自检用的错误码
+///
+/// 插件面向的 ABI 现在只交回原因文本 (`arg` / `namespace` / `not_declared` /
+/// `ended` / `state` …), 示例把文本折回 ABI 的数值码 (见 `pluginxx/api/result.h`),
+/// 让原生测试的断言保持可读。没列出的原因统一给 -1 (`ERR_ARG` 量级)。
+int32_t codeOfFailure(std::string_view what) {
+  if (what.find("namespace") != std::string_view::npos) {
+    return -6;
+  }
+  if (what.find("not_declared") != std::string_view::npos) {
+    return -200;
+  }
+  if (what.find("ended") != std::string_view::npos) {
+    return -202;
+  }
+  if (what.find("no_value") != std::string_view::npos) {
+    return -201;
+  }
+  if (what.find("not_found") != std::string_view::npos ||
+      what.find("unknown") != std::string_view::npos) {
+    return -4;
+  }
+  if (what.find("state") != std::string_view::npos) {
+    return -2;
+  }
+  return -1;
+}
+
+/// 跑一次表调用并把结果折成错误码 (0 = 成功)
+template <typename Fn>
+asio::awaitable<int32_t> tryCall(Fn fn) {
+  try {
+    co_await fn();
+    co_return 0;
+  } catch (const std::exception &e) {
+    co_return codeOfFailure(e.what());
+  } catch (...) {
+    co_return -1;
+  }
+}
+
 struct ExampleCtx : public musicxx::plugin::PluginBase {
   /// 连续播放错误计数 (仅示例)
   int32_t consecutiveErrors = 0;
 
-  /// start 事务所在线程 (与能力/能力处理器比对: 必须相同 = 单框架线程模型)
+  /// create 事务所在线程 (与能力处理器比对: 必须相同 = 单执行线程模型)
   std::string startThread;
 
-  /// 自检结果 (命名空间校验返回码)
-  int32_t unknownCapabilityRc = 0; ///< 应用没声明的官方 id: 期望 -2 (官方命名空间归应用)
-  int32_t foreignActionRc = 0; ///< 发起他人命名空间动作: 期望 -6 (权限拒绝)
-  int32_t dupImplementRc = 0; ///< 覆盖式重复注册: 期望 0
-  int32_t fixedImplRc = 0; ///< 给固定实现的能力注册 impl: 期望 -4 (只开放前链 / 后链)
+  /// 能力注册自检
+  int32_t unknownCapabilityRc = 0; ///< 应用没声明的官方 id: 期望 -200 (not_declared)
+  int32_t foreignActionRc = 0;     ///< 发起他人命名空间动作: 期望 -1 (被拒绝)
+  int32_t dupImplementRc = 0;      ///< 覆盖式重复注册: 期望 0
+  int32_t fixedImplRc = 0;         ///< 给固定实现的能力注册 impl: 期望非 0 (只开放前链 / 后链)
+  int32_t featurePointDefineRc = 0; ///< 功能埋点声明: 主程序在时 0, 原生测试宿主下非 0
 
-  /// 内容生成函数 (插件框架线程同步调用): 把 ctx 变成界面 JSON
-  ///
-  /// - 只做"把 ctx 变成 JSON"这一件事, 必须快;
-  /// - 生成函数里可以直接 push 另一份内容 (框架线程就地执行, 不回调、不等结果)。
-  static int32_t PLUGINXX_CALL onGenerateRow(const PluginxxHost *host,
-                                             const PluginxxStringView *ctxJson,
-                                             PluginxxString *out) {
+  /* ==================== 内容生成函数 ==================== */
+  //
+  // 生成函数是 C 调用约定 (签名见 plugin_api.h): 拿到 context 后经 notify 恰好一次
+  // 交回 `{"json":…,"data":…}`。这里都在同一帧里完成, 需要等网络时可以先返回
+  // 一个"加载中"的结构, 拿到结果再用 `uiContentPush` 补一份。
+
+  static void PLUGINXX_CALL onGenerateRow(const PluginxxHost *host,
+                                          const PluginxxStringView *ctxJson,
+                                          void * /*userData*/,
+                                          const PluginxxOperatorNotify *notify,
+                                          PluginxxString * /*errorOut*/) {
     std::string ctx = ctxJson && ctxJson->data
                           ? std::string{ctxJson->data,
                                         static_cast<size_t>(ctxJson->size)}
                           : std::string{"{}"};
-    // 生成函数里 push 另一份内容: 验证"框架线程就地执行, 不重入"这条约定
+    // 生成函数里 push 另一份内容: 表调用是异步的, 从同步回调里发起就投递出去, 不等结果
     if (g_self != nullptr) {
-      g_self->uiContentPush(
-          "pushed",
-          R"({"json":{"blocks":[{"kind":"Text","text":"生成时推送的内容"}]}})");
+      g_self->spawn([](ExampleCtx &self,
+                       pluginxx::OpCtl &) -> asio::awaitable<void> {
+        try {
+          co_await self.uiContentPush(
+              "pushed",
+              R"({"json":{"blocks":[{"kind":"Text","text":"生成时推送的内容"}]}})");
+        } catch (const std::exception &) {
+          // 推送失败不影响这一份内容
+        }
+      });
     }
-    // 用 kit 的 JSON 组装，不要把 ctx 當字符串拼进去：
-    // ctx 本身就是 JSON 文本（例如 `{"musicxx.song.name":"歌名"}`），直接拼会拼出坏 JSON，
-    // 主程序解析不出来，这一份内容会被当成"生成失败"（保留上一份）。
     pluginxx::ui::Json blocks = pluginxx::ui::Json::array();
     blocks.push_back(pluginxx::ui::Json::object({
         {"kind", "Text"},
@@ -126,29 +167,28 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
     pluginxx::ui::Json doc = pluginxx::ui::Json::object({
         {"json", pluginxx::ui::Json::object({{"blocks", blocks}})},
     });
-    PluginBase::hostStringSet(host, out, doc.dump());
-    return 0;
+    const std::string text = doc.dump();
+    const PluginxxStringView view{text.data(), text.size()};
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
   }
 
-  /// `pushed` 那份内容的生成函数
-  ///
-  /// 内容必须带生成函数 (主程序随时可能来要一份), 所以这里先给一份占位;
-  /// 真正的值由 [onGenerateRow] 里的 `push` 推过来。
-  static int32_t PLUGINXX_CALL onGeneratePushed(const PluginxxHost *host,
-                                               const PluginxxStringView *,
-                                               PluginxxString *out) {
-    PluginBase::hostStringSet(
-        host, out,
-        R"({"json":{"blocks":[{"kind":"Text","text":"等待推送…"}]}})");
-    return 0;
+  /// `pushed` 那份内容的生成函数 (真正的值由 [onGenerateRow] 里的 push 推过来)
+  static void PLUGINXX_CALL onGeneratePushed(
+      const PluginxxHost * /*host*/, const PluginxxStringView * /*ctx*/,
+      void * /*userData*/, const PluginxxOperatorNotify *notify,
+      PluginxxString * /*errorOut*/) {
+    static constexpr std::string_view kJson{
+        R"({"json":{"blocks":[{"kind":"Text","text":"等待推送…"}]}})"};
+    const PluginxxStringView view{kJson.data(), kJson.size()};
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
   }
 
   /// 播放页背景的内容（根上是块树；无依赖变量，每次生成给同一份）
-  static int32_t PLUGINXX_CALL onGenerateBackground(const PluginxxHost *host,
-                                                   const PluginxxStringView *,
-                                                   PluginxxString *out) {
-    PluginBase::hostStringSet(
-        host, out,
+  static void PLUGINXX_CALL onGenerateBackground(
+      const PluginxxHost * /*host*/, const PluginxxStringView * /*ctx*/,
+      void * /*userData*/, const PluginxxOperatorNotify *notify,
+      PluginxxString * /*errorOut*/) {
+    static constexpr std::string_view kJson{
         R"({"json":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle",)"
         R"("args":{"uColor1":{"kind":"source","name":"musicxx.icon.themeMapping.0"},)"
         R"("uColor2":{"kind":"source","name":"musicxx.icon.themeMapping.1"},)"
@@ -158,449 +198,341 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
         R"("uLevel":{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.level"}},)"
         R"("uBands":{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.bands.0"}},)"
         R"("uBands2":{"kind":"smooth","attackMs":20,"releaseMs":260,"of":{"kind":"source","name":"musicxx.spectrum.bands.2"}}},)"
-        R"("speed":1,"maxFps":16}}})");
-    return 0;
+        R"("speed":1,"maxFps":16}}})"};
+    const PluginxxStringView view{kJson.data(), kJson.size()};
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
   }
 
   /// 普通页面背景的内容（无依赖变量；适用页面在注册时给）
-  static int32_t PLUGINXX_CALL onGeneratePageBackground(
-      const PluginxxHost *host, const PluginxxStringView *, PluginxxString *out) {
-    PluginBase::hostStringSet(
-        host, out,
-        R"({"json":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle","speed":1,"maxFps":8}}})");
-    return 0;
+  static void PLUGINXX_CALL onGeneratePageBackground(
+      const PluginxxHost * /*host*/, const PluginxxStringView * /*ctx*/,
+      void * /*userData*/, const PluginxxOperatorNotify *notify,
+      PluginxxString * /*errorOut*/) {
+    static constexpr std::string_view kJson{
+        R"({"json":{"kind":"Expanded","child":{"kind":"musicxx.Shader","bundle":"shader/bg.shaderbundle","speed":1,"maxFps":8}}})"};
+    const PluginxxStringView view{kJson.data(), kJson.size()};
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
   }
 
   /// 说明页的内容（根上就是文档 `{title, subtitle, blocks}`）
-  ///
-  /// 生成函数在插件框架线程同步执行, 必须快: 这里只把当前自检数据拼成 JSON,
-  /// 不发起动作、不等任何结果。
-  static int32_t PLUGINXX_CALL onGenerateCard(const PluginxxHost *host,
-                                             const PluginxxStringView *,
-                                             PluginxxString *out) {
+  static void PLUGINXX_CALL onGenerateCard(const PluginxxHost * /*host*/,
+                                           const PluginxxStringView * /*ctx*/,
+                                           void * /*userData*/,
+                                           const PluginxxOperatorNotify *notify,
+                                           PluginxxString * /*errorOut*/) {
     const std::string doc =
         g_self != nullptr ? g_self->cardPageDoc() : std::string{"{\"blocks\":[]}"};
-    PluginBase::hostStringSet(host, out, std::string{"{\"json\":"} + doc + "}");
-    return 0;
+    const std::string content = std::string{"{\"json\":"} + doc + "}";
+    const PluginxxStringView view{content.data(), content.size()};
+    notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
   }
 
-  /// 声明式界面自检 (声明项 / 内容 / 槽位)
-  int32_t uiHomeRc = -100; ///< 注册主页入口声明项: 期望 0
+  /* ==================== 自检字段 ==================== */
 
-  /// 插件网络能力 (`musicxx.net`) 自检: 表是否可用 / 自省调用返回码
-  bool netTableAvailable = false;
-  int32_t netInfoRc = -100; ///< net.info: 期望 0 (表可用时)
-  int32_t uiSongRc = -100; ///< 注册歌曲菜单项: 期望 0
-  int32_t uiForeignRc = -100; ///< 注册他人命名空间的项: 期望 -6 (权限拒绝)
-  int32_t uiBadTypeRc = -100; ///< 注册未知类型: 期望 -4 (未知类型)
-  int32_t uiBadDataRc = -100; ///< 声明式内容缺少 title: 期望 -1 (参数非法)
-  int32_t uiNotifyRc = -100; ///< 通知 (fire-and-forget): 期望 0
-  int32_t uiBackgroundRc = -100; ///< 注册播放页背景样式: 期望 0
+  int32_t uiHomeRc = -100;           ///< 注册主页入口声明项: 期望 0
+  int32_t uiSongRc = -100;           ///< 注册歌曲菜单项: 期望 0
+  int32_t uiForeignRc = -100;        ///< 注册他人命名空间的项: 期望 -6
+  int32_t uiBadTypeRc = -100;        ///< 注册未知类型: 期望 -4
+  int32_t uiBadDataRc = -100;        ///< 声明式内容缺少 title: 期望 -1
+  int32_t uiNotifyRc = -100;         ///< 通知: 期望 0
+  int32_t uiBackgroundRc = -100;     ///< 注册播放页背景样式: 期望 0
   int32_t uiPageBackgroundRc = -100; ///< 注册普通页面背景: 期望 0
-  int32_t uiPageBackgroundBadRoutesRc =
-      -100; ///< 普通页面背景的 routes 写法不合法: 期望 -1 (参数非法)
+  int32_t uiPageBackgroundBadRoutesRc = -100; ///< routes 写法不合法: 期望 -1
 
-  /// 内容与槽位自检
-  int32_t uiContentRc = -100;     ///< 注册一份内容: 期望 0
-  int32_t uiContentDupSlotRc = -100; ///< 同一槽位再注册一份: 期望 0
-  int32_t uiContentOverwriteRc = -100; ///< 同 id 再注册 (覆盖): 期望 0
-  int32_t uiContentBadSlotRc = -100;   ///< 未知槽位: 期望 -4
-  int32_t uiContentBadDepsRc = -100;   ///< deps 写法不合法: 期望 -1
-  int32_t uiContentUnregisterRc = -100; ///< 注销一份内容: 期望 0
-  int32_t uiContentPushedRc = -100; ///< 注册“只从 push 取内容”的那份: 期望 0
-  int32_t uiPageRc = -100; ///< 把说明页注册成 `musicxx.ui.page` 内容: 期望 0
-  int32_t uiSlotDefineRc = -100;   ///< 声明自己的槽位: 期望 0
-  int32_t uiSlotDefineAppRc = -100; ///< 声明应用的槽位: 期望 -6
-  int32_t uiSlotDefineBadKindRc = -100; ///< kind 不合法: 期望 -1
-  int32_t uiSlotUpdateRc = -100;   ///< 要求重新生成 (按槽位): 期望 0
-  int32_t uiSlotUndefineRc = -100; ///< 撤销自己声明的槽位: 期望 0 (放在最后)
+  int32_t uiContentRc = -100;
+  int32_t uiContentDupSlotRc = -100;
+  int32_t uiContentOverwriteRc = -100;
+  int32_t uiContentBadSlotRc = -100;
+  int32_t uiContentBadDepsRc = -100;
+  int32_t uiContentUnregisterRc = -100;
+  int32_t uiContentPushedRc = -100;
+  int32_t uiPageRc = -100;
+  int32_t uiSlotDefineRc = -100;
+  int32_t uiSlotDefineAppRc = -100;
+  int32_t uiSlotDefineBadKindRc = -100;
+  int32_t uiSlotUpdateRc = -100;
+  int32_t uiSlotUndefineRc = -100;
 
-  /// 事件订阅自检
-  int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1 (插件框架拒绝)
-  int32_t stateEvents = 0;         ///< musicxx.state.song 快照频道收到次数
-  int32_t pingEvents = 0;          ///< musicxx.test.ping 收到次数
-  int32_t ownPublishRc = 0; ///< 发布本插件命名空间事件: 期望 0
-  int32_t foreignPublishRc = 0; ///< 发布他人命名空间事件: 期望非 0 (插件框架拒绝)
+  int32_t badTopicSubscribeRc = 0; ///< 订阅非法主题: 期望 -1
+  int32_t stateEvents = 0;
+  int32_t pingEvents = 0;
+  int32_t ownPublishRc = 0;
+  int32_t foreignPublishRc = 0;
 
-  /// 流结束自检 (广播表 v3: 带结束回调的订阅 + 属主结束自己的流)
-  int32_t streamEndSubRc = -100;       ///< 带结束回调订阅: 期望 0
-  int32_t streamEndValueRc = -100;     ///< 发布一个值: 期望 0
-  int32_t streamEndRc = -100;          ///< 结束这条流: 期望 0
-  int32_t streamEndPublishAfterRc = 0; ///< 结束之后再发布: 期望 -5 (ERR_ENDED)
-  int32_t streamEndValues = 0;         ///< 值回调次数: 期望 1
-  int32_t streamEndEnds = 0;           ///< 结束回调次数: 期望 1
-  bool streamEndReasonOk = false;      ///< 结束回调拿到的 reason 带示例标记
+  int32_t streamEndSubRc = -100;
+  int32_t streamEndValueRc = -100;
+  int32_t streamEndRc = -100;
+  int32_t streamEndPublishAfterRc = 0;
+  int32_t streamEndValues = 0;
+  int32_t streamEndEnds = 0;
+  bool streamEndReasonOk = false;
 
-  /// 动作请求自检
-  int32_t lastActionStatus = -100; ///< 最近一次动作请求终态 (-100 = 从未发起)
+  int32_t lastActionStatus = -100;
   int32_t lastActionPayloadLen = 0;
-  int64_t lastActionRequestId = 0;
 
-  /// 功能埋点自检 (插件自定义功能埋点: 声明 / 实现 / 摘除)
-  std::string featurePointSampleId;     ///< 示例功能埋点 id
-  int32_t featurePointSampleRc = -100;  ///< 登记实现: 期望 0
-  std::string featurePointUnprovidedId; ///< 用来验证摘除的点 id
+  bool netTableAvailable = false;
+  int32_t netInfoRc = -100;
 
-  /// 动作请求完成回调 (插件框架线程调用)
+  std::string featurePointSampleId;
+  int32_t featurePointSampleRc = -100;
+  std::string featurePointUnprovidedId;
+
+  /// 动作请求完成回调由协程自己读结果, 这里只留空实现 (不再用回调形态)
   static void PLUGINXX_CALL onProbeActionDone(
-      void *ud, int32_t status, const PluginxxStringView *payload) noexcept {
-    auto *self = static_cast<ExampleCtx *>(ud);
-    if (!self) {
-      return;
-    }
-    self->lastActionStatus = status;
-    self->lastActionPayloadLen =
-        (payload && payload->data) ? static_cast<int32_t>(payload->size) : 0;
-  }
+      void *, int32_t, const PluginxxStringView *) noexcept {}
 
-  int32_t onStart() {
+  /* ==================== create 事务 ==================== */
+
+  asio::awaitable<void> onCreate() {
     startThread = threadIdText();
 
     // 1) 跳过"广告"曲目 (决定型能力: 返回 {"action":"skip"})
-    implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
-         [this](std::string_view input, std::string &out) -> int32_t {
-           // 载荷: {"sid":"...","song":{"name":"...","artist":"..."},...}
-           if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") !=
-               std::string_view::npos) {
-             out = R"({"action":"skip","reason":"example_native: 广告曲目"})";
-             log.info("example_native: 命中广告曲目, 请求跳过");
-           }
-           return 0;
-         });
+    co_await implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
+                       [this](std::string_view input, std::string &out) -> int32_t {
+                         if (input.find("\xe5\xb9\xbf\xe5\x91\x8a") !=
+                             std::string_view::npos) {
+                           out = R"({"action":"skip","reason":"example_native: 广告曲目"})";
+                           log.info("example_native: 命中广告曲目, 请求跳过");
+                         }
+                         return 0;
+                       });
 
     // 2) 观察切歌: 切歌是广播频道 (`musicxx.song.changed`), 订阅后收推送
-    subscribeBroadcast(MUSICXX_BROADCAST_SONG_CHANGED,
-                   [this](std::string_view) {
-                     const std::string song = readBroadcast("musicxx.state.song");
-                     log.info("example_native: 歌曲变化广播; 快照频道长度=" +
-                              std::to_string(song.size()));
-                   });
+    co_await subscribeBroadcast(MUSICXX_BROADCAST_SONG_CHANGED,
+                                [this](std::string_view) {
+                                  log.info("example_native: 收到歌曲变化广播");
+                                });
 
     // 3) 播放错误: 连续 2 次错误后建议换源 (不改写主程序既有错误策略)
-    implement(MUSICXX_CAPABILITY_PLAYER_ERROR, 0,
-         [this](std::string_view input, std::string &out) -> int32_t {
-           (void)input;
-           ++consecutiveErrors;
-           if (consecutiveErrors >= 2) {
-             out = R"({"action":"continue","patch":{"tryNextSrc":true}})";
-           }
-           return 0;
-         });
+    co_await implement(MUSICXX_CAPABILITY_PLAYER_ERROR, 0,
+                       [this](std::string_view, std::string &out) -> int32_t {
+                         ++consecutiveErrors;
+                         if (consecutiveErrors >= 2) {
+                           out = R"({"action":"continue","patch":{"tryNextSrc":true}})";
+                         }
+                         return 0;
+                       });
 
-    // 4) 命名空间自检: 官方 `musicxx.*` 归应用，应用没声明的 id 不能注册（自定义 id 用 `plugin.<插件 id>.*`）
-    unknownCapabilityRc =
-        implement("musicxx.no.such.capability", 0,
-             [](std::string_view, std::string &) -> int32_t { return 0; });
-    // 同一 (实例, 能力, owner_tag, 阶段) 覆盖式注册: 再注册一次应成功
-    // 用前链: “改音量”的实现固定是应用自己，插件的 `impl` 注册会被拒
-    dupImplementRc = implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
-                     [](std::string_view, std::string &) -> int32_t {
-                       return 0;
-                     });
-    // 固定实现的能力（“改播放值”的四个）不开放 impl 阶段：注册实现会被拒
-    // C 接口直接注册返回 -4 (`PLUGINXX_RESULT_ERR_NOT_FOUND`)；
-    // 走 SDK 这一层（`musicxx.capabilities`）的失败码统一折算成 -1，日志里写着原因
-    fixedImplRc = implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
-                     [](std::string_view, std::string &) -> int32_t {
-                       return 0;
-                     });
-    // 固定实现的能力只开放前链 / 后链: 这里再登记一次前链应成功 (覆盖上一次)
-    dupImplementRc = implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
-                     [](std::string_view, std::string &) -> int32_t {
-                       return 0;
-                     });
-    // 没声明的动作名（能力）一律拒绝（这里只探测返回码, 不会真的发出）
-    {
-      PluginxxOperatorNotify notify{&probeActionDone, nullptr};
-      foreignActionRc =
-          capabilityCall("plugin.other_plugin.x", "{}", &notify, 1000);
-    }
+    // 4) 命名空间自检: 官方 `musicxx.*` 归应用, 应用没声明的 id 不能注册
+    unknownCapabilityRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await implement("musicxx.no.such.capability", 0,
+                         [](std::string_view, std::string &) -> int32_t {
+                           return 0;
+                         });
+    });
+    // 固定实现的能力只开放前链 / 后链: 登记 impl 应被拒, 登记前链应成功
+    fixedImplRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await implement(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+                         [](std::string_view, std::string &) -> int32_t {
+                           return 0;
+                         });
+    });
+    dupImplementRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+                               [](std::string_view, std::string &) -> int32_t {
+                                 return 0;
+                               });
+    });
+
+    // 4.0) 发起他人命名空间的动作: 只要返回码 (不会真的发出)
+    foreignActionRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      (void)co_await capabilityCallWithTimeout("plugin.other_plugin.x", "{}",
+                                               1000);
+    });
 
     // 4.1) 阶段示例: 同一个包装点 (`musicxx.lyric.load`) 上的前链与后链
-    //
-    // 能力 id 表示**一次调用**, 参与方式由注册时的阶段表达; 同一个 ownerTag 在不同阶段
-    // 的登记互不覆盖。两段都只有一种职责:
-    // - 前链 (`before`): 串行、**正序**, 只能改输入或拦下。这里 `cancel` 为真 → 拦下
-    //   (这次不执行实现); 否则把请求里的 `limit` 改成 50;
-    // - 后链 (`after`): 串行、**逆序**, 只能改输出或丢弃。这里 `drop` 为真 → 丢弃
-    //   (这次没有结果); 否则把结果换成固定的一份。
-    //
-    // 这是**演示**: 真实插件不要无条件改写别人的结果。所以两段都只在载荷带
-    // `"example_native_demo":true` 时才动手, 其余调用原样返回(返回 0 且不写 out)。
-    // `musicxx.lyric.load` 的结果形状是 `{"lyric":{"content":…}}`(见
-    // `MusicxxLyricLoadPoints_c.parseLyricAnswer`), 写成别的形状会被应用当成"没给",
-    // 装上后会让歌词消失。
-    implementBefore(MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
-                    [](std::string_view input, std::string &out) -> int32_t {
-                      const std::string text{input};
-                      if (text.find("\"example_native_demo\":true") ==
-                          std::string::npos) {
-                        return 0; // 不是演示调用: 不改输入
-                      }
-                      if (text.find("\"cancel\":true") != std::string::npos) {
-                        out = R"({"action":"cancel"})";
-                        return 0;
-                      }
-                      out = R"({"patch":{"limit":50}})";
-                      return 0;
-                    });
-    implementAfter(MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
-                   [](std::string_view input, std::string &out) -> int32_t {
-                     const std::string text{input};
-                     if (text.find("\"example_native_demo\":true") ==
-                         std::string::npos) {
-                       return 0; // 不是演示调用: 不改输出
-                     }
-                     if (text.find("\"drop\":true") != std::string::npos) {
-                       out = R"({"action":"drop"})";
-                       return 0;
-                     }
-                     out =
-                         R"({"value":{"items":3,"by":"example_native"}})";
-                     return 0;
-                   });
-
-    // 5) 广播订阅: 快照频道 (musicxx.state.song) + 插件框架发布的测试主题
-    badTopicSubscribeRc = subscribeBroadcast("foo.bar", [](std::string_view) {
-      // 非法主题: 插件框架应在订阅时就拒绝 (返回 -1), 该处理器不会被调用
-    });
-    subscribeBroadcast(MUSICXX_BROADCAST_STATE_SONG, [this](std::string_view data) {
-      ++stateEvents;
-      (void)data;
-    });
-    subscribeBroadcast("musicxx.test.ping", [this](std::string_view data) {
-      ++pingEvents;
-      (void)data;
-    });
-    // 事件发布命名空间自检: 自己命名空间可发, 他人命名空间被拒绝
-    ownPublishRc = publishOwnEvent("plugin.example_native.hello",
-                                   "{\"from\":\"example_native\"}");
-    foreignPublishRc = publishOwnEvent("plugin.other_plugin.hello",
-                                       "{\"from\":\"example_native\"}");
-
-    // 5.1) 插件框架内置网络能力 (`musicxx.net`: HTTP / TCP / WebSocket)
-    //      老插件框架库没有这张表: 必须先判 netAvailable() 再调用。
-    //      这里只做可用性与自省调用 (start 事务只做注册, 不起服务、不联网);
-    //      真正起服务/收发事件的做法见 plugins/example_js_net (op 与事件完全一致)。
-    netTableAvailable = netAvailable();
-    if (netTableAvailable) {
-      std::string netInfo;
-      netInfoRc = netCall(musicxx::plugin::net_op::info, "{}", netInfo);
-      // 网络事件走事件表 (主题 plugin.<本插件id>.net); 处理器在框架线程, 不能阻塞。
-      netSubscribe([](std::string_view) {});
-    }
-
-    // 6) 声明式 UI 扩展: 注册主页入口与歌曲菜单项 + 通知
-    //    注意: UI 项只声明"长什么样、点了做什么", 渲染由主程序 (Dart 侧) 负责。
-    //    图标是**插件自己带的 svg**（写相对插件目录的路径；文件在 resource/svg/native.svg，
-    //    resource/svg/ 只是推荐位置，随 ASSETS 分发），插件框架不接受自己的图标名。
-    uiHomeRc = uiItemRegister(
-        "card", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
-        R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
-                 "action":{"kind":"route","route":"ext://example_native/card"}})",
-        100);
-    uiSongRc = uiItemRegister(
-        "songInfo", MUSICXX_PLUGIN_UI_SLOT_SONG_ACTION,
-        R"({"title":"示例插件：查看歌曲信息",
-                 "action":{"kind":"call","name":"probe","args":{"ui":"1"}}})",
-        900);
-    uiForeignRc = uiItemRegister("plugin.other_plugin.card",
-                             MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
-                             R"({"title":"冒充他人"})", 0);
-    uiBadTypeRc = uiItemRegister("bad", "musicxx.ui.unknown",
-                             R"({"title":"未知类型"})", 0);
-    uiBadDataRc = uiItemRegister("nodata", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
-                             R"({"subtitle":"缺少 title"})", 0);
-    uiNotifyRc = uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
-
-    // 7) 播放页背景样式 (musicxx.ui.playing.background):
-    //    背景是一棵**块树**（data.view），着色器只是里面的一个 `musicxx.Shader` 块；
-    //    用户在『设置 → 播放页面背景』里选中后才生效，未选中时零成本。
-    //    这里注册一个晶格化（随机点最近邻切块）的动态背景，着色器块的 `args` 里：
-    //    - 值表达式（**成员名 → 值表达式**，可嵌套）：`source`（具名来源: 主题色 theme.* /
-    //      封面提取色 icon.* / 封面经主题映射后的 4 色 icon.themeMapping.0..3 /
-    //      当前音频频谱 spectrum.*）、`smooth`（过渡: 频谱是 10 帧/秒，直接取会有台阶感）；
-    //    - 纹理声明 `{"kind":"texture"}`：成员名就是着色器里的 sampler 名。
-    //      这里用 `musicxx.cover`（当前歌曲封面，主程序解码成方形、缩到 384、预模糊后绑定），
-    //      并把（纹理宽, 纹理高, 原图宽高比, 是否有封面）写进 `uCoverBackInfo`；
-    //      没有封面时这一位是 0。没声明纹理的样式不解码、不上传、不占显存。
-    //    块的 `speed` / `maxFps` / `resolutionScale` 是每块自己的（不再挂在 UI 项上）。
-    //    JS 侧的等价声明见 plugins/example_js_playing_bg/backgrounds.js。
-        uiBackgroundRc = uiContentRegister(
-        "playingBg", MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND, "[]",
-        &ExampleCtx::onGenerateBackground, 20, 0, "原生示例晶格背景",
-        "跟随封面配色与音乐律动的晶格化动态背景");
-    // 7.0) 普通页面背景 (musicxx.ui.page.background):
-    //      与播放页背景同一份块写法 (`view`), 区别是 `routes` 声明适用的页面
-    //      (不写 / 空数组 = 所有普通页面)。这里验证插件框架接受这种声明,
-    //      `routes` 写成字符串 (不是数组) 时注册要被拒绝。
-        uiPageBackgroundRc = uiContentRegister(
-        "pageBg", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND, "[]",
-        &ExampleCtx::onGeneratePageBackground, 10, 0, "原生示例页面背景", "",
-        R"(["/songs","/setting/theme"])");
-        uiPageBackgroundBadRoutesRc = uiContentRegister(
-        "pageBgBadRoutes", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND, "[]",
-        &ExampleCtx::onGeneratePageBackground, 11, 0, "坏的页面背景", "",
-        R"("/songs")");
-
-    // 7.1) 内容: 挂在槽位上的界面 JSON, 由生成函数在需要时给出
-    //      - 同一个槽位可以注册多份 (id 不同); 同 id 再注册 = 覆盖;
-    //      - deps 是变量 id 数组, 主程序按这些变量取值并传进 ctx;
-    //      - 生成函数里可以直接 push 另一份内容 (不回调、不等结果)。
-    g_self = this;
-    uiContentRc = uiContentRegister(
-        "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
-        R"(["musicxx.song.name","musicxx.player.playing"])",
-        &ExampleCtx::onGenerateRow, 10, 0, "原生示例行", "插在播放列表顶部");
-    uiContentDupSlotRc = uiContentRegister(
-        "row2", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
-        R"(["musicxx.song.name"])", &ExampleCtx::onGenerateRow, 20, 0,
-        "原生示例行 2");
-    uiContentOverwriteRc = uiContentRegister(
-        "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
-        R"(["musicxx.song.name","musicxx.player.playing"])",
-        &ExampleCtx::onGenerateRow, 30, 0, "原生示例行", "插在播放列表顶部");
-    uiContentBadSlotRc = uiContentRegister(
-        "badSlot", "musicxx.ui.unknown", "[]", &ExampleCtx::onGenerateRow);
-    uiContentBadDepsRc = uiContentRegister(
-        "badDeps", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
-        R"("musicxx.song.name")", &ExampleCtx::onGenerateRow);
-
-    // 7.2) 注销一份内容 (只影响这一个 id)
-    uiContentUnregisterRc = uiContentUnregister("row2");
-
-    // 7.2.1) 生成函数里会 push 的"另一份内容": push 只更新**已注册**的内容,
-    //        所以先注册一份 (不给生成函数: 内容只从 push 来)。
-    //        槽位用另一个插入位置, 不和自己的生成互相影响。
-    uiContentPushedRc = uiContentRegister(
-        "pushed", MUSICXX_PLUGIN_UI_SLOT_PLAYING_MORE_INFO_HEADER, "[]",
-        &ExampleCtx::onGeneratePushed, 10);
-
-    // 7.3) 插件声明的槽位: id 必须是 plugin.<自己>.ui.<名字>, kind 只能 insert / replace
-    uiSlotDefineRc = uiSlotDefine("plugin.example_native.ui.toolbar", "insert");
-    uiSlotDefineAppRc = uiSlotDefine("musicxx.ui.home.entry", "insert");
-    uiSlotDefineBadKindRc =
-        uiSlotDefine("plugin.example_native.ui.bad", "pageBackground");
-
-    // 7.4) 要求重新生成: 主程序用当前变量再问一次 (不要求槽位已显示)
-    uiSlotUpdateRc = uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP);
-
-    // 7.5) 撤销自己声明的槽位 (挂在上面的内容一起失效)
-    uiSlotUndefineRc = uiSlotUndefine("plugin.example_native.ui.toolbar");
-
-    // 8) 能力: 供插件框架/测试查询本实例自检信息 (能力名遵循 plugin.<id>.<名>)
-    capability(
-        *this, "plugin.example_native.probe",
-        [this](std::string_view, std::string_view args) -> std::string {
-          // args 里带 appCapabilityCall 时顺带发起一次应用能力调用
-          // (用于验证插件框架超时保护)
-          if (args.find("appCapabilityCall") != std::string_view::npos) {
-            PluginxxOperatorNotify notify{&ExampleCtx::onProbeActionDone, this};
-            lastActionStatus = -2; ///< 发起中
-            capabilityCall("musicxx.ui.toast",
-                          R"({"info":"example_native 超时自检"})", &notify,
-                          1000);
-            log.info("example_native: 已发起应用能力调用 musicxx.ui.toast "
-                     "(等待插件框架超时)");
+    co_await implementBefore(
+        MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
+        [](std::string_view input, std::string &out) -> int32_t {
+          const std::string text{input};
+          if (text.find("\"example_native_demo\":true") == std::string::npos) {
+            return 0;
           }
-          // 带 `uiRefresh` 时跑一次内容 / 槽位刷新自检 (事件用例用):
-          // - `slot.update` 让这段槽位上的内容再生成一次 → `musicxx.ui.content`;
-          // - 注册 + 注销一份内容 → `musicxx.ui.contents`;
-          // - 声明 + 撤销一个槽位 → `musicxx.ui.slots`。
-          if (args.find("uiRefresh") != std::string_view::npos) {
-            uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP);
-            uiContentRegister("row3",
-                              MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP, "[]",
-                              &ExampleCtx::onGenerateRow, 40);
-            uiContentUnregister("row3");
-            uiSlotDefine("plugin.example_native.ui.tmp", "insert");
-            uiSlotUndefine("plugin.example_native.ui.tmp");
+          if (text.find("\"cancel\":true") != std::string::npos) {
+            out = R"({"action":"cancel"})";
+            return 0;
           }
-          // 带 `streamEndCheck` 时跑一次流结束自检 (广播表 v3)
-          if (args.find("streamEndCheck") != std::string_view::npos) {
-            runStreamEndCheck();
+          out = R"({"patch":{"limit":50}})";
+          return 0;
+        });
+    co_await implementAfter(
+        MUSICXX_CAPABILITY_LYRIC_LOAD, 0,
+        [](std::string_view input, std::string &out) -> int32_t {
+          const std::string text{input};
+          if (text.find("\"example_native_demo\":true") == std::string::npos) {
+            return 0;
           }
-          std::ostringstream oss;
-          // 插件框架按**本插件的形态**报接口代次：动态库插件看到的是 C 接口代次（3），
-          // JS 插件看到的是 JS 接口代次（3）——两套编号独立（见 host_kind.h）
-          const std::string hostInfo = hostInfoJson();
-          std::string hostApiVersion = "0";
-          {
-            const std::string key = "\"apiVersion\":";
-            const std::size_t pos = hostInfo.find(key);
-            if (pos != std::string::npos) {
-              const std::size_t begin = pos + key.size();
-              const std::size_t end = hostInfo.find_first_of(",}", begin);
-              if (end != std::string::npos) {
-                hostApiVersion = hostInfo.substr(begin, end - begin);
-              }
-            }
+          if (text.find("\"drop\":true") != std::string::npos) {
+            out = R"({"action":"drop"})";
+            return 0;
           }
-          oss << "{\"hostApiVersion\":" << hostApiVersion
-              << ",\"startThread\":\"" << startThread << "\""
-              << ",\"callThread\":\"" << threadIdText() << "\""
-              << ",\"unknownCapabilityRc\":" << unknownCapabilityRc
-              << ",\"dupImplementRc\":" << dupImplementRc
-              << ",\"fixedImplRc\":" << fixedImplRc
-              << ",\"foreignActionRc\":" << foreignActionRc
-              << ",\"badTopicSubscribeRc\":" << badTopicSubscribeRc
-              << ",\"ownPublishRc\":" << ownPublishRc
-              << ",\"foreignPublishRc\":" << foreignPublishRc
-              << ",\"streamEndSubRc\":" << streamEndSubRc
-              << ",\"streamEndValueRc\":" << streamEndValueRc
-              << ",\"streamEndRc\":" << streamEndRc
-              << ",\"streamEndPublishAfterRc\":" << streamEndPublishAfterRc
-              << ",\"streamEndValues\":" << streamEndValues
-              << ",\"streamEndEnds\":" << streamEndEnds
-              << ",\"streamEndReasonOk\":" << (streamEndReasonOk ? 1 : 0)
-              << ",\"stateEvents\":" << stateEvents
-              << ",\"pingEvents\":" << pingEvents
-              << ",\"lastActionStatus\":" << lastActionStatus
-              << ",\"lastActionPayloadLen\":" << lastActionPayloadLen
-              << ",\"consecutiveErrors\":" << consecutiveErrors
-              << ",\"uiHomeRc\":" << uiHomeRc << ",\"uiSongRc\":" << uiSongRc
-              << ",\"uiForeignRc\":" << uiForeignRc
-              << ",\"uiBadTypeRc\":" << uiBadTypeRc
-              << ",\"uiBadDataRc\":" << uiBadDataRc
-              << ",\"uiNotifyRc\":" << uiNotifyRc
-              << ",\"uiBackgroundRc\":" << uiBackgroundRc
-              << ",\"uiPageBackgroundRc\":" << uiPageBackgroundRc
-              << ",\"uiPageBackgroundBadRoutesRc\":"
-              << uiPageBackgroundBadRoutesRc
-              << ",\"uiEntries\":" << uiItemEntries()
-              << ",\"uiContentRc\":" << uiContentRc
-              << ",\"uiContentDupSlotRc\":" << uiContentDupSlotRc
-              << ",\"uiContentOverwriteRc\":" << uiContentOverwriteRc
-              << ",\"uiContentBadSlotRc\":" << uiContentBadSlotRc
-              << ",\"uiContentBadDepsRc\":" << uiContentBadDepsRc
-              << ",\"uiContentUnregisterRc\":" << uiContentUnregisterRc
-              << ",\"uiContentPushedRc\":" << uiContentPushedRc
-              << ",\"uiContents\":" << uiContentEntries()
-              << ",\"uiSlotDefineRc\":" << uiSlotDefineRc
-              << ",\"uiSlotDefineAppRc\":" << uiSlotDefineAppRc
-              << ",\"uiSlotDefineBadKindRc\":" << uiSlotDefineBadKindRc
-              << ",\"uiSlotUpdateRc\":" << uiSlotUpdateRc
-              << ",\"uiSlotUndefineRc\":" << uiSlotUndefineRc
-              << ",\"uiSlotList\":" << uiSlotList()
-              << ",\"stateLen\":" << readBroadcast("musicxx.state.song").size()
-              << ",\"featurePointId\":\"" << featurePointSampleId << "\""
-              << ",\"featurePointRc\":" << featurePointSampleRc
-              << ",\"featurePointUnprovidedId\":\""
-              << featurePointUnprovidedId << "\""
-              << "}";
-          return oss.str();
+          out = R"({"value":{"items":3,"by":"example_native"}})";
+          return 0;
         });
 
-    // 9) 能力: **异步完成** (协程形态)
+    // 5) 广播订阅: 快照频道 + 插件框架发布的测试主题
+    badTopicSubscribeRc =
+        co_await tryCall([this]() -> asio::awaitable<void> {
+          co_await subscribeBroadcast("foo.bar", [](std::string_view) {});
+        });
+    co_await subscribeBroadcast(MUSICXX_BROADCAST_STATE_SONG,
+                                [this](std::string_view) { ++stateEvents; });
+    co_await subscribeBroadcast("musicxx.test.ping",
+                                [this](std::string_view) { ++pingEvents; });
+
+    ownPublishRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await publishBroadcast("plugin.example_native.hello",
+                                R"({"from":"example_native"})");
+    });
+    foreignPublishRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await publishBroadcast("plugin.other_plugin.hello",
+                                R"({"from":"example_native"})");
+    });
+
+    // 5.1) 内置网络能力: 只做可用性与自省调用 (create 事务不起服务、不联网)
+    netTableAvailable = netAvailable();
+    if (netTableAvailable) {
+      netInfoRc = co_await tryCall([this]() -> asio::awaitable<void> {
+        (void)co_await netCall(musicxx::plugin::net_op::info, "{}");
+      });
+      co_await netSubscribe([](std::string_view) {});
+    }
+
+    // 6) 声明式界面: 主页入口 + 歌曲菜单项 + 通知
+    uiHomeRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiItemRegister(
+          "card", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
+          R"({"title":"示例插件","subtitle":"example_native 提供的入口","icon":"resource/svg/native.svg",
+                 "action":{"kind":"route","route":"ext://example_native/card"}})",
+          100);
+    });
+    uiSongRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiItemRegister(
+          "songInfo", MUSICXX_PLUGIN_UI_SLOT_SONG_ACTION,
+          R"({"title":"示例插件：查看歌曲信息",
+                 "action":{"kind":"call","name":"probe","args":{"ui":"1"}}})",
+          900);
+    });
+    uiForeignRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiItemRegister("plugin.other_plugin.card",
+                              MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
+                              R"({"title":"冒充他人"})", 0);
+    });
+    uiBadTypeRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiItemRegister("bad", "musicxx.ui.unknown",
+                              R"({"title":"未知类型"})", 0);
+    });
+    uiBadDataRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiItemRegister("nodata", MUSICXX_PLUGIN_UI_SLOT_HOME_ENTRY,
+                              R"({"subtitle":"缺少 title"})", 0);
+    });
+    uiNotifyRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiNotify(R"({"text":"example_native 已加载","kind":"info"})");
+    });
+
+    // 7) 播放页背景 / 普通页面背景 (可选样式, 用户在设置里选中后生效)
+    uiBackgroundRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister("playingBg",
+                                 MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND,
+                                 &ExampleCtx::onGenerateBackground,
+                                 "原生示例晶格背景",
+                                 "跟随封面配色与音乐律动的晶格化动态背景", {},
+                                 "[]", 20);
+    });
+    uiPageBackgroundRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister(
+          "pageBg", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND,
+          &ExampleCtx::onGeneratePageBackground, "原生示例页面背景", {},
+          R"(["/songs","/setting/theme"])", "[]", 10);
+    });
+    uiPageBackgroundBadRoutesRc =
+        co_await tryCall([this]() -> asio::awaitable<void> {
+          co_await uiContentRegister(
+              "pageBgBadRoutes", MUSICXX_PLUGIN_UI_SLOT_PAGE_BACKGROUND,
+              &ExampleCtx::onGeneratePageBackground, "坏的页面背景", {},
+              R"("/songs")", "[]", 11);
+        });
+
+    // 7.1) 内容: 挂在槽位上的界面 JSON, 由生成函数在需要时给出
+    g_self = this;
+    uiContentRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister(
+          "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+          &ExampleCtx::onGenerateRow, "原生示例行", "插在播放列表顶部",
+          {}, R"(["musicxx.song.name","musicxx.player.playing"])", 10);
+    });
+    uiContentDupSlotRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister("row2",
+                                 MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+                                 &ExampleCtx::onGenerateRow, "原生示例行 2", {},
+                                 {}, R"(["musicxx.song.name"])", 20);
+    });
+    uiContentOverwriteRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister(
+          "row1", MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+          &ExampleCtx::onGenerateRow, "原生示例行", "插在播放列表顶部",
+          {}, R"(["musicxx.song.name","musicxx.player.playing"])", 30);
+    });
+    uiContentBadSlotRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister("badSlot", "musicxx.ui.unknown",
+                                 &ExampleCtx::onGenerateRow);
+    });
+    uiContentBadDepsRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister("badDeps",
+                                 MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+                                 &ExampleCtx::onGenerateRow, {}, {}, {},
+                                 R"("musicxx.song.name")");
+    });
+
+    // 7.2) 注销一份内容 (只影响这一个 id)
+    uiContentUnregisterRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentUnregister("row2");
+    });
+
+    // 7.2.1) 生成函数里会 push 的"另一份内容"
+    uiContentPushedRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister("pushed",
+                                 MUSICXX_PLUGIN_UI_SLOT_PLAYING_MORE_INFO_HEADER,
+                                 &ExampleCtx::onGeneratePushed, {}, {}, {}, "[]",
+                                 10);
+    });
+
+    // 7.3) 插件声明的槽位: id 必须是 plugin.<自己>.ui.<名字>, kind 只能 insert / replace
+    uiSlotDefineRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiSlotDefine("plugin.example_native.ui.toolbar", "insert");
+    });
+    uiSlotDefineAppRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiSlotDefine("musicxx.ui.home.entry", "insert");
+    });
+    uiSlotDefineBadKindRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiSlotDefine("plugin.example_native.ui.bad", "pageBackground");
+    });
+
+    // 7.4) 要求重新生成 (不要求槽位已显示)
+    uiSlotUpdateRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP);
+    });
+
+    // 7.5) 撤销自己声明的槽位
+    uiSlotUndefineRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiSlotUndefine("plugin.example_native.ui.toolbar");
+    });
+
+    // 8) 能力: 供测试查询本实例自检信息 (协程处理器: 里面可以 co_await 表调用)
+    co_await implement(
+        "plugin.example_native.probe", 0,
+        [this](std::string_view, std::string_view args) -> asio::awaitable<std::string> {
+          co_return co_await probeReport(args);
+        });
+
+    // 9) 能力: **异步完成** (协程形态): 等一段时间再给结果, 等待期间框架线程空闲
     //
-    // 约定: 被调方不许占住插件框架线程 / JS 线程 —— 长任务要异步完成。
-    // 这里 `co_await pluginxx::sleep(...)` 等一段时间再给结果: 等待期间插件框架线程是空闲的
-    // (能处理别的插件、卸载与停机), 调用方也能看到"已受理但结果还没到"这一状态。
-    // `args.waitMs` 控制等多久 (缺省 200 毫秒)。
-    capability(
-        *this, "plugin.example_native.asyncProbe",
+    // `co_await sleepAsync` 期间插件框架执行线程是空闲的: 能处理别的插件、卸载与停机,
+    // 调用方也能看到"已受理但结果还没到"这一状态。`args.waitMs` 控制等多久 (缺省 200 毫秒)。
+    co_await implement(
+        "plugin.example_native.asyncProbe", 0,
         [this](std::string_view, std::string_view args)
-            -> pluginxx::Task<std::string> {
+            -> asio::awaitable<std::string> {
           int64_t waitMs = 200;
           const size_t at = args.find("\"waitMs\":");
           if (at != std::string_view::npos) {
@@ -614,204 +546,312 @@ struct ExampleCtx : public musicxx::plugin::PluginBase {
               waitMs = parsed;
             }
           }
-          co_await pluginxx::sleep(*this, waitMs);
+          co_await pluginxx::sleepAsync(*this, waitMs);
           co_return std::string{R"({"ok":true,"async":true})"};
         });
 
-    // 10) 功能埋点: 声明 + 实现 (native 侧糖)
-    //
-    // 功能埋点 = "这个功能谁都能实现, 应用与别的插件按 id 来调": 声明走动作
-    // `musicxx.feature.point.define`, 实现走**一条固定通道** `musicxx.feature.point.call`
-    // 的处理器 (ownerTag = 点 id)。糖负责三件事: 按 `point` 过滤、`caller` 等于自己时
-    // 不回答、把返回值包成 `{"patch":{"value": …}}`。
-    //
-    // 注意: 功能埋点走的是**同步裁决**通道 (插件框架按 run_sync 同步调用), 所以处理器必须
-    // 同步返回; 长任务用能力 (capability) 或事件。
-    featurePointSampleId = "plugin." + pluginId() + ".sample";
-    featurePointSampleRc = featurePointProvide(
-        featurePointSampleId.c_str(),
-        [](std::string_view, std::string_view argsJson) -> std::string {
-          int64_t a = 0;
-          int64_t b = 0;
-          // 示例只做最小解析: 真实插件用 `utilxx_base::Json::parse(argsJson)` 读参数
-          if (const size_t at = argsJson.find("\"a\":"); at != std::string_view::npos) {
-            size_t pos = at + 4;
-            while (pos < argsJson.size() && argsJson[pos] >= '0' && argsJson[pos] <= '9') {
-              a = a * 10 + (argsJson[pos] - '0');
-              ++pos;
+    // 10) 功能埋点: 声明 + 实现
+    featurePointSampleId = "plugin." + (co_await pluginId()) + ".sample";
+    featurePointSampleRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await featurePointProvide(
+          featurePointSampleId.c_str(),
+          [](std::string_view, std::string_view argsJson) -> std::string {
+            int64_t a = 0;
+            int64_t b = 0;
+            if (const size_t at = argsJson.find("\"a\":");
+                at != std::string_view::npos) {
+              size_t pos = at + 4;
+              while (pos < argsJson.size() && argsJson[pos] >= '0' &&
+                     argsJson[pos] <= '9') {
+                a = a * 10 + (argsJson[pos] - '0');
+                ++pos;
+              }
             }
-          }
-          if (const size_t bt = argsJson.find("\"b\":"); bt != std::string_view::npos) {
-            size_t pos = bt + 4;
-            while (pos < argsJson.size() && argsJson[pos] >= '0' && argsJson[pos] <= '9') {
-              b = b * 10 + (argsJson[pos] - '0');
-              ++pos;
+            if (const size_t bt = argsJson.find("\"b\":");
+                bt != std::string_view::npos) {
+              size_t pos = bt + 4;
+              while (pos < argsJson.size() && argsJson[pos] >= '0' &&
+                     argsJson[pos] <= '9') {
+                b = b * 10 + (argsJson[pos] - '0');
+                ++pos;
+              }
             }
-          }
-          return "{\"sum\":" + std::to_string(a + b) + "}";
-        });
-    // 声明走异步动作 (结果经完成通知回来); 这里只演示调用, 返回值由事件里的应答反映
-    {
-      PluginxxOperatorNotify notify{&probeActionDone, nullptr};
-      featurePointDefine(
+            return "{\"sum\":" + std::to_string(a + b) + "}";
+          });
+    });
+    // 声明信息 (标题 / 说明) 走应用的能力; 主程序不在 (原生测试的宿主) 时会失败,
+    // 埋点本身的实现与调用不受影响
+    featurePointDefineRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await featurePointDefine(
           featurePointSampleId.c_str(),
           MusicxxPluginPointSpec{
               "示例功能埋点", "把两个数相加 (演示插件功能埋点的声明与实现)",
-              "a、b (数字), 缺省 0", "{sum}"},
-          &notify, 5000);
-    }
-    // 第二个实现: 摘除之后不再回答 (验证 unprovide)
-    featurePointUnprovidedId = "plugin." + pluginId() + ".unprovided";
-    featurePointProvide(featurePointUnprovidedId.c_str(),
-                        [](std::string_view, std::string_view) -> std::string {
-                          return R"({"never":true})";
-                        });
+              "a、b (数字), 缺省 0", "{sum}"});
+    });
 
-    // 11) 页面 `ext://example_native/card` 是 `musicxx.ui.page` 上的**内容**
-    //    主程序按内容 id 来要一份块描述 (文本 / 分隔线 / 布局块 / 按钮块), 渲染由客户端完成。
-    //    页面内容用 musicxx 扩展 kit 拼装: kit 只写中立的块描述 (不判断渲染目标),
-    //    客户端拿到后按自己的能力做降级适配。页面里的按钮可以调用本插件能力
-    //    (动作改完状态后让主程序重出一份内容), 也可以执行官方动作 (这里演示发提示)。
-    uiPageRc = uiContentRegister(
-        "card", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]", &ExampleCtx::onGenerateCard,
-        10, 0, "示例插件", "原生示例的说明页");
-
-    // 兼容旧客户端的取视图入口 (主程序新版不调它, 页面读 `musicxx.ui.page` 上的内容)
-    // 删除时间: 主程序删掉 `callPluginView` 的那一步。
-    capability(
-        *this, "plugin.example_native.card",
-        [this](std::string_view, std::string_view) -> std::string {
-          return std::string{"{\"view\":"} + cardPageDoc() + "}";
+    featurePointUnprovidedId = "plugin." + (co_await pluginId()) + ".unprovided";
+    co_await featurePointProvide(
+        featurePointUnprovidedId.c_str(),
+        [](std::string_view, std::string_view) -> std::string {
+          return R"({"never":true})";
         });
 
-    return 0;
+    // 11) 页面 `ext://example_native/card` 是 `musicxx.ui.page` 上的**内容**
+    uiPageRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await uiContentRegister("card", MUSICXX_PLUGIN_UI_SLOT_PAGE,
+                                 &ExampleCtx::onGenerateCard, "示例插件",
+                                 "原生示例的说明页", {}, "[]", 10);
+    });
   }
 
-  /// 说明页的文档 (块树)
-  ///
-  /// 页面内容 (生成函数) 与"兼容旧客户端的取视图入口"共用这一份。
-  std::string cardPageDoc() {
-      namespace kit = musicxx::ui::kit;
-      using pluginxx::ui::Json;
-      const int32_t uiOk = (uiHomeRc == 0 ? 1 : 0) +
-                           (uiSongRc == 0 ? 1 : 0) +
-                           (uiBackgroundRc == 0 ? 1 : 0);
-
-      Json blocks = Json::array();
-      blocks.push_back(pluginxx::ui::dumpItem(kit::hint(Json::object({
-          {"text",
-           "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / "
-           "按钮), 不写界面代码。"},
-      }))));
-      blocks.push_back(pluginxx::ui::dumpItem(pluginxx::ui::build::divider()));
-      blocks.push_back(
-          pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "start 事务线程"},
-              {"subtitle", "能力与能力处理器都在这一条线程上执行"},
-              {"trailing", startThread},
-          }))));
-      blocks.push_back(
-          pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "当前调用线程"},
-              {"subtitle", "与 start 事务线程相同 = 单框架线程"},
-              {"trailing", threadIdText()},
-          }))));
-      blocks.push_back(
-          pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "连续播放错误"},
-              {"subtitle", "累计 2 次后建议换源"},
-              {"trailing", std::to_string(consecutiveErrors)},
-          }))));
-      blocks.push_back(
-          pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "快照频道变化事件"},
-              {"trailing", std::to_string(stateEvents)},
-          }))));
-      blocks.push_back(
-          pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "musicxx.test.ping 事件"},
-              {"trailing", std::to_string(pingEvents)},
-          }))));
-      blocks.push_back(
-          pluginxx::ui::dumpItem(kit::listRow(Json::object({
-              {"title", "已注册的 UI 项"},
-              {"subtitle", "主页入口 / 歌曲菜单"},
-              {"trailing", std::to_string(uiOk)},
-          }))));
-      blocks.push_back(pluginxx::ui::dumpItem(kit::listRow(Json::object({
-          {"title", "快照频道 musicxx.state.song"},
-          {"subtitle", "主程序推送的最近一份歌曲快照 (字节)"},
-          {"trailing", std::to_string(readBroadcast("musicxx.state.song").size())},
-      }))));
-      blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
-          {"label", "刷新本页"},
-          {"variant", "full"},
-          {"highlight", true},
-          {"action", dispatchAction("card")},
-      }))));
-      blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
-          {"label", "发送一条通知"},
-          {"variant", "full"},
-          {"action", commandAction("musicxx.ui.toast",
-                                   Json::object({{"text", "来自 "
-                                                         "example_native "
-                                                         "的通知"}}))},
-      }))));
-
-      Json doc = Json::object({
-          {"title", "示例插件"},
-          {"subtitle", "页面内容来自内容 plugin.example_native.card"},
-          {"blocks", std::move(blocks)},
-      });
-      return doc.dump();
+  asio::awaitable<void> onStop() {
+    // 撤销自管资源 (示例没有线程/定时器; 注册由插件框架在 detach 时统一摘除)
+    consecutiveErrors = 0;
+    co_return;
   }
+
+  /* ==================== 自检能力 ==================== */
 
   /// 发布本插件命名空间的广播 (id 归属由插件框架校验)
-  int32_t publishOwnEvent(const char *topic, const char *payload) {
-    return publishBroadcast(topic, payload);
+  asio::awaitable<int32_t> publishOwnEvent(const char *topic,
+                                          const char *payload) {
+    co_return co_await tryCall([this, topic, payload]() -> asio::awaitable<void> {
+      co_await publishBroadcast(topic, payload);
+    });
   }
 
-  int32_t onStop() {
-    // 撤销自管资源 (示例没有线程/定时器; 能力/能力注册由插件框架在 detach
-    // 时统一摘除)
-    consecutiveErrors = 0;
-    return 0;
-  }
-
-  /// 流结束自检 (广播表 v3): 自己的频道 → 带结束回调订阅 → 发布 → 结束 → 再发布
-  ///
-  /// 期望: 订阅 0 / 发布 0 / 结束 0 / 结束之后再发布 -5 (`PLUGINXX_RESULT_ERR_ENDED`),
-  /// 值回调 1 次、结束回调 1 次。先订阅再发布, 频道由订阅自动补一份默认声明。
-  void runStreamEndCheck() {
+  /// 流结束自检 (广播表 v3): 订阅 → 发布 → 结束 → 再发布
+  asio::awaitable<void> runStreamEndCheck() {
     static constexpr const char *kTopic = "plugin.example_native.stream";
     streamEndValues = 0;
     streamEndEnds = 0;
     streamEndReasonOk = false;
-    streamEndSubRc = subscribeBroadcastWithEnd(
-        kTopic, [this](std::string_view) { ++streamEndValues; },
-        [this](std::string_view reason) {
-          ++streamEndEnds;
-          streamEndReasonOk =
-              reason.find("example_native") != std::string_view::npos;
-        });
-    streamEndValueRc = publishOwnEvent(kTopic, R"({"v":1})");
-    streamEndRc = endBroadcast(kTopic, R"({"reason":"example_native"})");
-    streamEndPublishAfterRc = publishOwnEvent(kTopic, R"({"v":2})");
+    streamEndSubRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await subscribeBroadcastWithEnd(
+          kTopic, [this](std::string_view) { ++streamEndValues; },
+          [this](std::string_view reason) {
+            ++streamEndEnds;
+            streamEndReasonOk =
+                reason.find("example_native") != std::string_view::npos;
+          });
+    });
+    streamEndValueRc = co_await publishOwnEvent(kTopic, R"({"v":1})");
+    streamEndRc = co_await tryCall([this]() -> asio::awaitable<void> {
+      co_await endBroadcast(kTopic, R"({"reason":"example_native"})");
+    });
+    streamEndPublishAfterRc = co_await publishOwnEvent(kTopic, R"({"v":2})");
+  }
+
+  /// 读快照频道当前值 (没有当前值给空串)
+  asio::awaitable<std::string> snapshotOf(const char *topic) {
+    try {
+      co_return co_await readBroadcast(topic);
+    } catch (const std::exception &) {
+      co_return std::string{};
+    }
+  }
+
+  /// 自检报文 (协程: 里面要读广播与自省列表)
+  asio::awaitable<std::string> probeReport(std::string_view args) {
+    // 带 `appCapabilityCall` 时顺带发起一次应用能力调用 (验证超时保护)
+    if (args.find("appCapabilityCall") != std::string_view::npos) {
+      lastActionStatus = -2; ///< 发起中
+      try {
+        (void)co_await capabilityCallWithTimeout(
+            "musicxx.ui.toast", R"({"info":"example_native 超时自检"})", 1000);
+        lastActionStatus = PLUGINXX_OPERATOR_OK;
+      } catch (const std::exception &) {
+        lastActionStatus = PLUGINXX_OPERATOR_CANCELED;
+      }
+    }
+    // 带 `uiRefresh` 时跑一次内容 / 槽位刷新自检
+    if (args.find("uiRefresh") != std::string_view::npos) {
+      (void)co_await tryCall([this]() -> asio::awaitable<void> {
+        co_await uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP);
+      });
+      (void)co_await tryCall([this]() -> asio::awaitable<void> {
+        co_await uiContentRegister("row3",
+                                   MUSICXX_PLUGIN_UI_SLOT_PLAYING_SONGLIST_TOP,
+                                   &ExampleCtx::onGenerateRow, {}, {}, {}, "[]",
+                                   40);
+      });
+      (void)co_await tryCall([this]() -> asio::awaitable<void> {
+        co_await uiContentUnregister("row3");
+      });
+      (void)co_await tryCall([this]() -> asio::awaitable<void> {
+        co_await uiSlotDefine("plugin.example_native.ui.tmp", "insert");
+      });
+      (void)co_await tryCall([this]() -> asio::awaitable<void> {
+        co_await uiSlotUndefine("plugin.example_native.ui.tmp");
+      });
+    }
+    // 带 `streamEndCheck` 时跑一次流结束自检
+    if (args.find("streamEndCheck") != std::string_view::npos) {
+      co_await runStreamEndCheck();
+    }
+
+    // 插件框架按本插件的形态报接口代次
+    const std::string hostInfo = co_await hostInfoJson();
+    std::string hostApiVersion = "0";
+    {
+      const std::string key = "\"apiVersion\":";
+      const std::size_t pos = hostInfo.find(key);
+      if (pos != std::string::npos) {
+        const std::size_t begin = pos + key.size();
+        const std::size_t end = hostInfo.find_first_of(",}", begin);
+        if (end != std::string::npos) {
+          hostApiVersion = hostInfo.substr(begin, end - begin);
+        }
+      }
+    }
+    const std::string entries = co_await uiItemEntries();
+    const std::string contents = co_await uiContentEntries();
+    const std::string slots = co_await uiSlotList();
+    const std::string songSnapshot = co_await snapshotOf("musicxx.state.song");
+
+    std::ostringstream oss;
+    oss << "{\"hostApiVersion\":" << hostApiVersion
+        << ",\"startThread\":\"" << startThread << "\""
+        << ",\"callThread\":\"" << threadIdText() << "\""
+        << ",\"unknownCapabilityRc\":" << unknownCapabilityRc
+        << ",\"dupImplementRc\":" << dupImplementRc
+        << ",\"fixedImplRc\":" << fixedImplRc
+        << ",\"foreignActionRc\":" << foreignActionRc
+        << ",\"badTopicSubscribeRc\":" << badTopicSubscribeRc
+        << ",\"ownPublishRc\":" << ownPublishRc
+        << ",\"foreignPublishRc\":" << foreignPublishRc
+        << ",\"streamEndSubRc\":" << streamEndSubRc
+        << ",\"streamEndValueRc\":" << streamEndValueRc
+        << ",\"streamEndRc\":" << streamEndRc
+        << ",\"streamEndPublishAfterRc\":" << streamEndPublishAfterRc
+        << ",\"streamEndValues\":" << streamEndValues
+        << ",\"streamEndEnds\":" << streamEndEnds
+        << ",\"streamEndReasonOk\":" << (streamEndReasonOk ? 1 : 0)
+        << ",\"stateEvents\":" << stateEvents
+        << ",\"pingEvents\":" << pingEvents
+        << ",\"lastActionStatus\":" << lastActionStatus
+        << ",\"lastActionPayloadLen\":" << lastActionPayloadLen
+        << ",\"consecutiveErrors\":" << consecutiveErrors
+        << ",\"uiHomeRc\":" << uiHomeRc << ",\"uiSongRc\":" << uiSongRc
+        << ",\"uiForeignRc\":" << uiForeignRc
+        << ",\"uiBadTypeRc\":" << uiBadTypeRc
+        << ",\"uiBadDataRc\":" << uiBadDataRc
+        << ",\"uiNotifyRc\":" << uiNotifyRc
+        << ",\"uiBackgroundRc\":" << uiBackgroundRc
+        << ",\"uiPageBackgroundRc\":" << uiPageBackgroundRc
+        << ",\"uiPageBackgroundBadRoutesRc\":" << uiPageBackgroundBadRoutesRc
+        << ",\"uiEntries\":" << entries
+        << ",\"uiContentRc\":" << uiContentRc
+        << ",\"uiContentDupSlotRc\":" << uiContentDupSlotRc
+        << ",\"uiContentOverwriteRc\":" << uiContentOverwriteRc
+        << ",\"uiContentBadSlotRc\":" << uiContentBadSlotRc
+        << ",\"uiContentBadDepsRc\":" << uiContentBadDepsRc
+        << ",\"uiContentUnregisterRc\":" << uiContentUnregisterRc
+        << ",\"uiContentPushedRc\":" << uiContentPushedRc
+        << ",\"uiContents\":" << contents
+        << ",\"uiSlotDefineRc\":" << uiSlotDefineRc
+        << ",\"uiSlotDefineAppRc\":" << uiSlotDefineAppRc
+        << ",\"uiSlotDefineBadKindRc\":" << uiSlotDefineBadKindRc
+        << ",\"uiSlotUpdateRc\":" << uiSlotUpdateRc
+        << ",\"uiSlotUndefineRc\":" << uiSlotUndefineRc
+        << ",\"uiSlotList\":" << slots
+        << ",\"stateLen\":" << songSnapshot.size()
+        << ",\"featurePointId\":\"" << featurePointSampleId << "\""
+        << ",\"featurePointRc\":" << featurePointSampleRc
+        << ",\"featurePointUnprovidedId\":\"" << featurePointUnprovidedId
+        << "\""
+        << "}";
+    co_return oss.str();
+  }
+
+  /* ==================== 说明页 ==================== */
+
+  /// 说明页文档 (块树; 由客户端按自己的能力做降级)
+  std::string cardPageDoc() {
+    namespace kit = musicxx::ui::kit;
+    using Json = pluginxx::ui::Json;
+    int32_t uiOk = 0;
+    if (uiHomeRc == 0) {
+      ++uiOk;
+    }
+    if (uiSongRc == 0) {
+      ++uiOk;
+    }
+    Json blocks = Json::array();
+    blocks.push_back(pluginxx::ui::dumpItem(kit::hint(Json::object({
+        {"text",
+         "这个页面演示插件的声明式页面: 插件只返回块描述 (文本 / 布局 / "
+         "按钮), 不写界面代码。"},
+    }))));
+    blocks.push_back(pluginxx::ui::dumpItem(pluginxx::ui::build::divider()));
+    blocks.push_back(
+        pluginxx::ui::dumpItem(kit::listRow(Json::object({
+            {"title", "create 事务线程"},
+            {"subtitle", "能力处理器在同一条线程上执行"},
+            {"trailing", startThread},
+        }))));
+    blocks.push_back(
+        pluginxx::ui::dumpItem(kit::listRow(Json::object({
+            {"title", "当前调用线程"},
+            {"subtitle", "与 create 事务线程相同 = 单执行线程"},
+            {"trailing", threadIdText()},
+        }))));
+    blocks.push_back(
+        pluginxx::ui::dumpItem(kit::listRow(Json::object({
+            {"title", "连续播放错误"},
+            {"subtitle", "累计 2 次后建议换源"},
+            {"trailing", std::to_string(consecutiveErrors)},
+        }))));
+    blocks.push_back(
+        pluginxx::ui::dumpItem(kit::listRow(Json::object({
+            {"title", "快照频道变化事件"},
+            {"trailing", std::to_string(stateEvents)},
+        }))));
+    blocks.push_back(
+        pluginxx::ui::dumpItem(kit::listRow(Json::object({
+            {"title", "musicxx.test.ping 事件"},
+            {"trailing", std::to_string(pingEvents)},
+        }))));
+    blocks.push_back(
+        pluginxx::ui::dumpItem(kit::listRow(Json::object({
+            {"title", "已注册的 UI 项"},
+            {"subtitle", "主页入口 / 歌曲菜单"},
+            {"trailing", std::to_string(uiOk)},
+        }))));
+    blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
+        {"label", "刷新本页"},
+        {"variant", "full"},
+        {"highlight", true},
+        {"action", dispatchAction("card")},
+    }))));
+    blocks.push_back(pluginxx::ui::dumpItem(kit::button(Json::object({
+        {"label", "发送一条通知"},
+        {"variant", "full"},
+        {"action", commandAction("musicxx.ui.toast",
+                                 Json::object({{"text", "来自 example_native 的通知"}}))},
+    }))));
+
+    Json doc = Json::object({
+        {"title", "示例插件"},
+        {"subtitle", "页面内容来自内容 plugin.example_native.card"},
+        {"blocks", std::move(blocks)},
+    });
+    return doc.dump();
   }
 };
 
-/// start 事务: 只做注册 (禁止阻塞)
-///
-/// 入口约定 (musicxx 插件 SDK): 返回 0 = 事务成功, 非 0 = 失败; SDK
-/// 负责按插件框架约定 调用完成通知 (见 `musicxx/plugin/api/plugin_kit.h` 的
-/// `runLifecycleEntry`)。
-int32_t exampleStart(ExampleCtx &ctx) { return ctx.onStart(); }
+/// create 事务: 只做注册 (协程里可以 co_await 表调用)
+asio::awaitable<void> exampleStart(ExampleCtx &ctx) {
+  co_await ctx.onCreate();
+}
 
 /// stop 事务: 撤销自管资源 (可重复调用)
-int32_t exampleStop(ExampleCtx &ctx) { return ctx.onStop(); }
+asio::awaitable<void> exampleStop(ExampleCtx &ctx) {
+  co_await ctx.onStop();
+}
 
 } // namespace
 
 MUSICXX_PLUGIN_EXPORT(ExampleCtx, "example_native", "2026.1010.1",
-                      "musicxx 外部插件示例 (能力/快照频道/日志)", exampleStart,
+                      "musicxx 外部插件示例 (能力/广播/界面/日志)", exampleStart,
                       exampleStop)

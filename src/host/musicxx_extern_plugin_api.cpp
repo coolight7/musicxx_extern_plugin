@@ -476,9 +476,9 @@ musicxx_extern_plugin_plugin_enable(MusicxxExternPluginHost *h,
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->enablePlugin(viewToStd(id), err);
-  });
+  // enable 内部是协程 (要由框架线程推进): 不能再包 `onHostThread` ——
+  // 那会把同步等待放到框架线程自己身上
+  const auto rc = handle->manager->enablePlugin(viewToStd(id), err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }
@@ -494,9 +494,8 @@ musicxx_extern_plugin_plugin_disable(MusicxxExternPluginHost *h,
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->disablePlugin(viewToStd(id), err);
-  });
+  // disable 内部是协程 (要由框架线程推进): 不能再包 `onHostThread`
+  const auto rc = handle->manager->disablePlugin(viewToStd(id), err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }

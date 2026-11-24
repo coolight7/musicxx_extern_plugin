@@ -1070,7 +1070,7 @@ void MusicxxHostManager::onInstanceEnabledChanged(MusicxxHostInstance &inst,
     capabilityIdList = capabilitiesOfInstance(inst.name);
     clearPluginRegistrations(inst.name);
   } else {
-    /// 启用: start 事务已经跑完 (插件框架在 start 成功之后才回调这里),
+    /// 启用: create 事务已经跑完 (插件框架在 start 成功之后才回调这里),
     /// 列表是新的
     capabilityIdList = capabilitiesOfInstance(inst.name);
   }
@@ -1408,7 +1408,7 @@ MusicxxHostManager::loadNativeDirAsync(
                                              false, resources, interfaces);
   if (!inst) {
     failReason =
-        "插件加载失败 (缺失/无效入口符号, 或 start 事务失败; 详见日志)";
+        "插件加载失败 (缺失/无效入口符号, 或 create 事务失败; 详见日志)";
     co_return nullptr;
   }
   inst->depends = std::move(depends);
@@ -1643,7 +1643,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
             if (auto engine = self->jsEngine()) {
               engine->unregisterBuiltin(pluginId);
             }
-            *failMsg = "JS插件加载失败 (脚本错误或 start 事务失败; "
+            *failMsg = "JS插件加载失败 (脚本错误或 create 事务失败; "
                        "详见日志与调试信息)";
             Json payload;
             payload["id"] = pluginId;
@@ -1678,7 +1678,7 @@ int32_t MusicxxHostManager::loadPlugin(const std::string &idOrPath,
           *failMsg =
               loadFailReason.empty()
                   ? std::string{"插件加载失败 (缺失/无效入口符号, 必选依赖"
-                                "未加载, 或 start 事务失败; 详见日志)"}
+                                "未加载, 或 create 事务失败; 详见日志)"}
                   : loadFailReason;
           Json payload;
           payload["id"] = pluginId;
@@ -1720,6 +1720,11 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
                                          std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_enable: host not started";
+    return PLUGINXX_RESULT_ERR_STATE;
+  }
+  // 下面的工作都是协程, 要由框架线程推进; 调用方在框架线程上时不能同步等 (会把自己等住)
+  if (isIoThread()) {
+    err = "plugin_enable: 不能在框架线程上同步等待 (倒回调用点用异步形态)";
     return PLUGINXX_RESULT_ERR_STATE;
   }
   // 运行器插件托管的插件: 启用 = 让运行器重新把它跑起来
@@ -1767,7 +1772,28 @@ int32_t MusicxxHostManager::enablePlugin(const std::string &id,
     err = "plugin_enable: plugin not loaded: " + id;
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  enable(inst->name);
+  // 启用 = 等 create 事务真的走完 (依赖插件先启用、注册重新声明)
+  auto slot = std::make_shared<WaitSlot<bool>>();
+  auto self = shared_from_this();
+  const std::string instanceName = inst->name;
+  asio::co_spawn(
+      ctx_->io,
+      [self, slot, instanceName]() -> asio::awaitable<void> {
+        // 协程抛了也要给出结果: 否则调用方要等到超时
+        bool ok = false;
+        try {
+          ok = co_await self->enable(instanceName);
+        } catch (...) {
+          ok = false;
+        }
+        slot->set(ok);
+      },
+      asio::detached);
+  bool enabled = false;
+  if (!slot->wait(30000, enabled) || !enabled) {
+    err = "plugin_enable: `" + id + "` 启用未完成 (create 事务失败或超时)";
+    return PLUGINXX_RESULT_ERR_STATE;
+  }
   return PLUGINXX_RESULT_OK;
 }
 
@@ -1775,6 +1801,11 @@ int32_t MusicxxHostManager::disablePlugin(const std::string &id,
                                           std::string &err) {
   if (!running_.load(std::memory_order_acquire)) {
     err = "plugin_disable: host not started";
+    return PLUGINXX_RESULT_ERR_STATE;
+  }
+  // 下面的工作都是协程, 要由框架线程推进; 调用方在框架线程上时不能同步等 (会把自己等住)
+  if (isIoThread()) {
+    err = "plugin_disable: 不能在框架线程上同步等待 (倒回调用点用异步形态)";
     return PLUGINXX_RESULT_ERR_STATE;
   }
   // 运行器插件托管的插件: 停用 = 让运行器把它停掉 (记录保留, 启用时可以再开)
@@ -1814,7 +1845,30 @@ int32_t MusicxxHostManager::disablePlugin(const std::string &id,
     err = "plugin_disable: plugin not loaded: " + id;
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  disable(inst->name);
+  // 停用 = 等 stop 事务真的走完 (注册随之摘除)
+  {
+    auto slot = std::make_shared<WaitSlot<bool>>();
+    auto self = shared_from_this();
+    const std::string instanceName = inst->name;
+    asio::co_spawn(
+        ctx_->io,
+        [self, slot, instanceName]() -> asio::awaitable<void> {
+          // 协程抛了也要给出结果: 否则调用方要等到超时
+          bool ok = false;
+          try {
+            ok = co_await self->disable(instanceName);
+          } catch (...) {
+            ok = false;
+          }
+          slot->set(ok);
+        },
+        asio::detached);
+    bool disabled = false;
+    if (!slot->wait(30000, disabled) || !disabled) {
+      err = "plugin_disable: `" + id + "` 停用未完成 (stop 事务失败或超时)";
+      return PLUGINXX_RESULT_ERR_STATE;
+    }
+  }
   return PLUGINXX_RESULT_OK;
 }
 
@@ -2344,7 +2398,7 @@ int32_t MusicxxHostManager::acceptCapabilityCall(const std::string &id,
   }
   const auto *entry = capabilities()->get(cap);
   if (!entry || !entry->start) {
-    problem = "插件未声明该能力 (需要在 start 事务里注册): " + cap;
+    problem = "插件未声明该能力 (需要在 create 事务里注册): " + cap;
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (entry->provider != inst->name) {

@@ -11,7 +11,7 @@
 /// 三个能力都是"改播放值"的固定实现点（应用自己改值）: 插件只能注册前链 / 后链,
 /// 注册 `impl` 会被拒绝（返回 `PLUGINXX_RESULT_ERR_NOT_FOUND`）。
 ///
-/// 与示例插件同一套约定: `start` 事务里只做注册, 不阻塞、不做 IO。
+/// 与示例插件同一套约定: 注册事务里只做注册, 不阻塞、不做 IO; 需要等表调用就写成协程。
 
 #include "musicxx/plugin/api/plugin_kit.h"
 
@@ -46,9 +46,12 @@ struct FailCtx : public musicxx::plugin::PluginBase {
   }
 
   /// 用 `musicxx.capabilities` 直接注册一个前链处理器（手写能力规格的写法）
-  void registerPitchImplementation() {
+  ///
+  /// 与 `implementBefore` 的区别只有一个: 这里自己拼规格、自己给跨边界入口,
+  /// 方便演示"同步处理器 + 固定实现点只能挂前链"这两条约定。
+  asio::awaitable<void> registerPitchImplementation() {
     if (!iface.capabilities || !iface.capabilities->register_capability) {
-      return;
+      co_return;
     }
     PluginxxCapabilitySpec spec{};
     spec.version = PLUGINXX_API_VERSION;
@@ -62,55 +65,57 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     spec.sync = 1; ///< 前链必须是同步处理器: 要拿到这一步的结果才能跑下一步
     spec.run_start = &FailCtx::pitchStart;
     spec.user_data = this;
-    PluginxxString error{};
-    pitchRegisterRc =
-        iface.capabilities->register_capability(host, nullptr, &spec, &error);
-    if (error.data) {
-      hostStringFree(error);
+
+    const auto result = co_await tableCall(
+        [this, &spec](PluginxxOperatorCallback cb, void *ud, PluginxxString *err) {
+          return iface.capabilities->register_capability(host, nullptr, &spec,
+                                                         cb, ud, err);
+        });
+    pitchRegisterRc = result.ok() ? 0 : -1;
+    if (!result.ok()) {
+      log.warn(std::string{"example_native_fail: pitch 前链注册被拒: "} +
+               std::string{result.accepted() ? result.text() : result.startError});
     }
   }
 
-  int32_t onStart() {
+  asio::awaitable<void> onStart() {
     // 1) 总是失败的前链处理器: 返回非 0 = 处理器失败
-    implementBefore(MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
-         [this](std::string_view, std::string &) -> int32_t {
-           ++failingCalls;
-           return -1; ///< 非 0: 插件框架计入 failures, 每次都照常派发
-         });
+    co_await implementBefore(
+        MUSICXX_CAPABILITY_PLAYER_VOLUME, 0,
+        [this](std::string_view, std::string &) -> int32_t {
+          ++failingCalls;
+          return -1; ///< 非 0: 插件框架计入 failures, 每次都照常派发
+        });
 
     // 2) 始终成功的前链处理器: 用于验证失败统计只算到"单个处理器"
-    implementBefore(MUSICXX_CAPABILITY_PLAYER_SPEED, 0,
-         [this](std::string_view, std::string &) -> int32_t {
-           ++goodCalls;
-           return 0;
-         });
+    co_await implementBefore(
+        MUSICXX_CAPABILITY_PLAYER_SPEED, 0,
+        [this](std::string_view, std::string &) -> int32_t {
+          ++goodCalls;
+          return 0;
+        });
 
-    // 3) 走能力表注册的能力（阶段 2c 的新入口）
-    registerPitchImplementation();
+    // 3) 走能力表注册的能力（手写规格 + 同步处理器）
+    co_await registerPitchImplementation();
 
     // 4) 探针能力: 回报调用次数 (插件框架/测试据此判断处理器是否被执行)
-    capability(*this, "plugin.example_native_fail.probe",
-               [this](std::string_view, std::string_view) -> std::string {
-                 return std::string{"{\"failingCalls\":"} +
-                        std::to_string(failingCalls) +
-                        ",\"goodCalls\":" + std::to_string(goodCalls) +
-                        ",\"pitchCalls\":" + std::to_string(pitchCalls) +
-                        ",\"pitchRegisterRc\":" +
-                        std::to_string(pitchRegisterRc) + "}";
-               });
-    return 0;
+    co_await implement(
+        "plugin.example_native_fail.probe", 0,
+        [this](std::string_view) -> std::string {
+          return std::string{"{\"failingCalls\":"} + std::to_string(failingCalls) +
+                 ",\"goodCalls\":" + std::to_string(goodCalls) +
+                 ",\"pitchCalls\":" + std::to_string(pitchCalls) +
+                 ",\"pitchRegisterRc\":" + std::to_string(pitchRegisterRc) + "}";
+        });
   }
 
-  int32_t onStop() { return 0; }
+  asio::awaitable<void> onStop() { co_return; }
 };
-
-int32_t failStart(FailCtx &ctx) { return ctx.onStart(); }
-
-int32_t failStop(FailCtx &ctx) { return ctx.onStop(); }
 
 } // namespace
 
 MUSICXX_PLUGIN_EXPORT(
     FailCtx, "example_native_fail", "2026.1010.1",
     "对照示例: 总是失败的能力处理器 (演示暂停派发); 只用于演示与原生测试",
-    failStart, failStop)
+    [](FailCtx &ctx) -> asio::awaitable<void> { co_await ctx.onStart(); },
+    [](FailCtx &ctx) -> asio::awaitable<void> { co_await ctx.onStop(); })

@@ -130,10 +130,6 @@ void testIfaceMeta() {
                                          PLUGINXX_IFACE_SCHEDULER_VERSION,
                                          PLUGINXX_IFACE_SCHEDULER_MIN_VERSION,
                                          PLUGINXX_IFACE_SCHEDULER_BASELINE_SIZE);
-  checkIfaceMeta<PluginxxCoroutineRuntimeIface>(
-      "coroutine_runtime", PLUGINXX_IFACE_COROUTINE_RUNTIME_VERSION,
-      PLUGINXX_IFACE_COROUTINE_RUNTIME_MIN_VERSION,
-      PLUGINXX_IFACE_COROUTINE_RUNTIME_BASELINE_SIZE);
   checkIfaceMeta<PluginxxPluginsIface>("plugins", PLUGINXX_IFACE_PLUGINS_VERSION,
                                        PLUGINXX_IFACE_PLUGINS_MIN_VERSION,
                                        PLUGINXX_IFACE_PLUGINS_BASELINE_SIZE);

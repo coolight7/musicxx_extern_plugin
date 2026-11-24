@@ -24,7 +24,9 @@
 #include "pluginxx/ui.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -90,6 +92,11 @@ namespace plugin {
 ///
 /// 后链逆序是刻意的：外置插件**最后**改输出，应用自己的兜底实现不能盖掉插件的改写
 /// （与实现链里"外置优先"同向）。前链 / 后链必须是同步处理器。
+/// 阶段编号 (对外字符串用)
+///
+/// 取值跟 `MUSICXX_CAPABILITY_PHASE_*` (`capability_ids.g.h`, 0/1/2) 一致;
+/// **交给插件框架的接口表时要用 ABI 自己的编号** (1/2/4), 两套不同,
+/// 转换见 [pluginxxPhaseOf]。
 enum class CapabilityPhase : int32_t {
     Impl   = MUSICXX_CAPABILITY_PHASE_IMPL,
     Before = MUSICXX_CAPABILITY_PHASE_BEFORE,
@@ -117,6 +124,40 @@ inline const char* capabilityPhaseName(CapabilityPhase phase) {
 namespace net_op = pluginxx::net_op;
 
 namespace detail {
+
+/// musicxx 的阶段编号 (0/1/2) → 接口表的阶段常量 (1/2/4)
+///
+/// 两套编号不同是历史原因: `capability_ids.g.h` 与 Dart 侧一致用 0/1/2,
+/// 插件框架的 `PluginxxCapabilitySpec::phase` 用位值 1/2/4。写错会让前链 / 后链的
+/// 行被当成 impl 行登记 (数量对不上、派发也不触发)。
+constexpr int32_t pluginxxPhaseOf(int32_t phase) {
+    switch (phase) {
+        case MUSICXX_CAPABILITY_PHASE_BEFORE:
+            return PLUGINXX_CAPABILITY_PHASE_BEFORE;
+        case MUSICXX_CAPABILITY_PHASE_AFTER:
+            return PLUGINXX_CAPABILITY_PHASE_AFTER;
+        case MUSICXX_CAPABILITY_PHASE_IMPL:
+        default:
+            return PLUGINXX_CAPABILITY_PHASE_IMPL;
+    }
+}
+
+/// 处理器是不是协程写法 (决定登记时 `sync` 取值)
+///
+/// 主程序的"前链 / 后链"必须同步给结果 (要拿到这一步的结果才能跑下一步),
+/// 所以只有返回 `asio::awaitable` 的处理器才按异步登记。
+template<typename FnT>
+constexpr bool handlerReturnsAwaitable() {
+    if constexpr (std::is_invocable_v<FnT&, std::string_view, std::string_view>) {
+        return pluginxx::detail::IsPluginAwaitable<
+            std::invoke_result_t<FnT&, std::string_view, std::string_view>>::value;
+    } else if constexpr (std::is_invocable_v<FnT&, std::string_view>) {
+        return pluginxx::detail::IsPluginAwaitable<
+            std::invoke_result_t<FnT&, std::string_view>>::value;
+    } else {
+        return false;
+    }
+}
 
 /* ==================== 功能埋点糖的内部实现 (给 PluginBase 用) ==================== */
 
@@ -260,29 +301,37 @@ public:
     template<typename StartFn>
     asio::awaitable<pluginxx::TableOpResult> tableCall(StartFn start) {
         auto ex = co_await asio::this_coro::executor;
-        auto cs = co_await asio::this_coro::cancellation_state;
-        co_return co_await pluginxx::asyncTableOp(*this, ex, cs.slot(),
-                                                  std::move(start));
+        co_return co_await pluginxx::asyncTableOp(*this, ex, std::move(start));
     }
 
     /// 同上, 成功时给结果正文; 失败抛 `std::runtime_error` (取消抛 `CanceledException`)
+    ///
+    /// [label] 只用于错误文本 (`<label>: <原因>`), 排查时能看出是哪一步失败。
     template<typename StartFn>
-    asio::awaitable<std::string> tableText(StartFn start) {
+    asio::awaitable<std::string> tableText(StartFn start,
+                                           const char* label = nullptr) {
         auto r = co_await tableCall(std::move(start));
+        const auto withLabel = [label](std::string text) {
+            if (!label || !*label) {
+                return text;
+            }
+            return std::string{label} + ": " + text;
+        };
         if (!r.accepted()) {
-            throw std::runtime_error(r.startError);
+            throw std::runtime_error(withLabel(r.startError));
         }
         if (!r.ok()) {
-            throw std::runtime_error(r.text().empty() ? std::string{"table call failed"}
-                                                      : std::string{r.text()});
+            throw std::runtime_error(withLabel(
+                r.text().empty() ? std::string{"table call failed"}
+                                 : std::string{r.text()}));
         }
         co_return std::string{r.text()};
     }
 
     /// 同上, 只关心成败
     template<typename StartFn>
-    asio::awaitable<void> tableVoid(StartFn start) {
-        (void)co_await tableText(std::move(start));
+    asio::awaitable<void> tableVoid(StartFn start, const char* label = nullptr) {
+        (void)co_await tableText(std::move(start), label);
         co_return;
     }
 
@@ -390,6 +439,16 @@ public:
         co_await unimplementWithTag(capabilityId, "");
     }
 
+    /// 在一条共享能力上登记一条带 `ownerTag` 的实现 (同一个 id 上可以留多行)
+    ///
+    /// 典型用法: 功能埋点通道 `musicxx.feature.point.call` (ownerTag = 点 id)。
+    template<typename Fn>
+    asio::awaitable<void> implementWithTag(const char* capabilityId,
+                                           const char* ownerTag,
+                                           int32_t priority, Fn&& fn) {
+        co_await implementOn(capabilityId, ownerTag ? ownerTag : "", priority,
+                             MUSICXX_CAPABILITY_PHASE_IMPL, std::forward<Fn>(fn));
+    }
     /// 撤掉本插件在某条能力上带 `ownerTag` 的那个实现
     asio::awaitable<void> unimplementWithTag(const char* capabilityId,
                                                        const char* ownerTag) {
@@ -404,7 +463,7 @@ public:
             const PluginxxStringView tagView = pluginxxView(tag);
             return iface.capabilities->unregister_capability(host, &idView,
                                                              &tagView, cb, ud, err);
-        });
+        }, "unregister_capability");
     }
 
     /* ==================== 广播 ==================== */
@@ -419,7 +478,8 @@ public:
             [this, id](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
                 const PluginxxStringView idView = pluginxxView(id);
                 return iface.broadcasts->read_broadcast(host, &idView, cb, ud, err);
-            }
+            },
+            "read_broadcast"
         );
     }
 
@@ -435,7 +495,7 @@ public:
                 const PluginxxStringView payloadView = pluginxxView(payload);
                 return iface.broadcasts->publish_broadcast(host, &idView,
                                                            &payloadView, cb, ud, err);
-            });
+            }, "publish_broadcast");
     }
 
     /// 订阅一条频道 (处理器形如 `void(std::string_view payload_json)`)
@@ -471,7 +531,7 @@ public:
                 const PluginxxStringView reasonView = pluginxxView(reason);
                 return iface.broadcasts->end_broadcast(host, &idView,
                                                        &reasonView, cb, ud, err);
-            });
+            }, "end_broadcast");
     }
 
     /* ==================== 宿主信息 ==================== */
@@ -481,7 +541,7 @@ public:
         co_return co_await tableText(
             [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
                 return iface.host->get_info(host, cb, ud, err);
-            });
+            }, "get_info");
     }
 
     /// 本插件配置文件路径
@@ -489,7 +549,7 @@ public:
         co_return co_await tableText(
             [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
                 return iface.host->get_plugin_config_path(host, cb, ud, err);
-            });
+            }, "get_plugin_config_path");
     }
 
     /// 本插件的 id (读一次 `host.info()` 里的 `pluginId` 后缓存)
@@ -526,6 +586,33 @@ public:
                 const PluginxxStringView argsView = pluginxxView(args);
                 return iface.capabilities->invoke_capability(
                     host, nullptr, &capView, &argsView, 0, cb, ud, err);
+            }, cap.c_str());
+    }
+
+    /// 调一条能力 (协程), 并给**这一次调用**一个超时 (毫秒)
+    ///
+    /// - `timeoutMs > 0`: 到点按取消终结, 本协程抛出异常;
+    /// - `timeoutMs <= 0`: 与 [capabilityCall] 相同 (只按声明里的超时)。
+    ///
+    /// 老主程序的能力表没有带超时的成员时退回 [capabilityCall]。
+    asio::awaitable<std::string> capabilityCallWithTimeout(
+        std::string_view capability, std::string_view argsJson,
+        int32_t timeoutMs) {
+        if (timeoutMs <= 0 || !iface.capabilities ||
+            !pluginxx::ifaceHas<&PluginxxCapabilitiesIface::invoke_capability_ex>(
+                iface.capabilities) ||
+            !iface.capabilities->invoke_capability_ex) {
+            co_return co_await capabilityCall(capability, argsJson);
+        }
+        std::string cap{capability};
+        std::string args{argsJson.empty() ? "{}" : argsJson};
+        co_return co_await tableText(
+            [this, cap, args, timeoutMs](PluginxxOperatorCallback cb, void* ud,
+                                         PluginxxString* err) {
+                const PluginxxStringView capView = pluginxxView(cap);
+                const PluginxxStringView argsView = pluginxxView(args);
+                return iface.capabilities->invoke_capability_ex(
+                    host, nullptr, &capView, &argsView, 0, timeoutMs, cb, ud, err);
             });
     }
 
@@ -558,7 +645,10 @@ public:
         (void)co_await capabilityCall("musicxx.feature.point.undefine", payload.dump());
     }
 
-    /// 登记一个功能埋点的实现 (一个点一个处理器, `owner_tag` = 点 id)
+    /// 登记一个功能埋点的实现
+    ///
+    /// 功能埋点共用**一条固定通道** `musicxx.feature.point.call` (点是运行期数据,
+    /// 不可能逐条登记成能力): 处理器登记在这条通道上, `owner_tag` = 点 id。
     ///
     /// 处理器三种写法 (按可调用性自动选一种):
     /// `fn(point, argsJson, caller)` / `fn(point, argsJson)` / `fn(argsJson)`;
@@ -576,12 +666,14 @@ public:
             detail::answerFeaturePoint(selfId, point, fn, argsJson, out);
             return out;
         };
-        co_await implement(pointId, priority, handler);
+        co_await implementWithTag(MUSICXX_CAPABILITY_FEATURE_POINT_CALL, pointId,
+                                  priority, std::move(handler));
     }
 
     /// 撤回某个功能埋点的实现
     asio::awaitable<void> featurePointUnprovide(const char* pointId) {
-        co_await unimplementWithTag(pointId, pointId ? pointId : "");
+        co_await unimplementWithTag(MUSICXX_CAPABILITY_FEATURE_POINT_CALL,
+                                    pointId ? pointId : "");
     }
 
     /// 调一个功能埋点: 结果是被回答的值 (没人回答给 `null`)
@@ -687,8 +779,12 @@ public:
         std::string slotName = slot ? slot : "";
         std::string titleText{title};
         std::string depictText{depict};
-        std::string routes{routesJson};
-        std::string deps{depsJson.empty() ? "[]" : depsJson};
+        // 空串不能当“没给”: 主程序按 `data != nullptr` 判定有没有给值, 空串会被
+        // 当成 "" 去解析 JSON 而失败。routes / deps 缺省都是空数组。
+        std::string routes = routesJson.empty() ? std::string{"[]"}
+                                                : std::string{routesJson};
+        std::string deps = depsJson.empty() ? std::string{"[]"}
+                                            : std::string{depsJson};
         auto generatePtr = +generate;
         co_await tableVoid(
             [this, id, slotName, titleText, depictText, routes, deps, order,
@@ -803,6 +899,34 @@ protected:
 
     /* ==================== 处理器与订阅的持有者 ==================== */
 
+    /// 协程处理器的“已受理”句柄 (交回主程序的那个 `void*`)
+    ///
+    /// 协议要求: 入口返回非空句柄 = 已受理, 完成经 `notify.done` 交回; 返回空且还
+    /// 未通知会被判成协议违约。句柄留在实例里, 主程序迟到的取消只会置一个标记,
+    /// 不会碰到已释放内存。
+    struct AsyncJobHandle final : pluginxx::detail::CancelableProvider {
+        std::shared_ptr<std::atomic<bool>> cancelRequested =
+            std::make_shared<std::atomic<bool>>(false);
+        std::atomic<bool> finished{false};
+
+        void requestCancel() noexcept override {
+            cancelRequested->store(true, std::memory_order_release);
+        }
+    };
+
+    /// 保留一个协程处理器的句柄 (完成之后的句柄下次登记时清掉)
+    void keepAsyncJob(const std::shared_ptr<AsyncJobHandle>& job) {
+        if (!job) {
+            return;
+        }
+        for (auto it = asyncJobs_.begin(); it != asyncJobs_.end();) {
+            const bool finished =
+                *it && (*it)->finished.load(std::memory_order_acquire);
+            it = finished ? asyncJobs_.erase(it) : std::next(it);
+        }
+        asyncJobs_.push_back(job);
+    }
+
     /// 能力处理器基类 (生命周期 = 实例; 注销时只摘登记, 对象留到实例销毁)
     struct HandlerBase {
         virtual ~HandlerBase() = default;
@@ -817,11 +941,75 @@ protected:
             base(owner),
             fn(std::move(f)) {}
 
+        /// 上报同步处理器的结果 (空串 = 这次没意见, 交给下一个实现)
+        static void report(const PluginxxOperatorNotify* notify,
+                           std::string_view body) {
+            if (!notify || !notify->done) {
+                return;
+            }
+            if (body.empty()) {
+                notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+                return;
+            }
+            const PluginxxStringView view{body.data(), body.size()};
+            notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
+        }
+
+        /// 上报失败 (正文写人看得懂的原因)
+        static void reportFailure(const PluginxxOperatorNotify* notify,
+                                  std::string_view reason) {
+            if (!notify || !notify->done) {
+                return;
+            }
+            const PluginxxStringView view{reason.data(), reason.size()};
+            notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+        }
+
+        /// 协程处理器: 交给一条后台任务跑, 算完经 notify 交回
+        ///
+        /// 不走 provider 根: 能力行只需要"算出一个值交回主程序", 而后台任务的生命
+        /// 周期由实例统一管理 (停用 / 卸载 / 实例析构时一起收束)。交回的句柄只是
+        /// "已受理"的凭据 (主程序用它做取消), 协程完成后置位却在实例里留着。
+        template<typename MakeAw>
+        static void* startJob(PluginBase* owner,
+                              const PluginxxOperatorNotify* notify,
+                              MakeAw makeAw) {
+            auto job = std::make_shared<AsyncJobHandle>();
+            owner->keepAsyncJob(job);
+            const PluginxxOperatorNotify notifyCopy = *notify;
+            owner->spawn([job, notifyCopy, makeAw = std::move(makeAw)](
+                             PluginBase&, pluginxx::OpCtl&) mutable
+                             -> asio::awaitable<void> {
+                try {
+                    std::string out = co_await makeAw();
+                    report(&notifyCopy, out);
+                } catch (const pluginxx::CanceledException&) {
+                    if (notifyCopy.done) {
+                        notifyCopy.done(notifyCopy.host_ud,
+                                        PLUGINXX_OPERATOR_CANCELED, nullptr);
+                    }
+                } catch (const std::exception& e) {
+                    reportFailure(&notifyCopy, e.what());
+                } catch (...) {
+                    reportFailure(&notifyCopy, "unknown exception");
+                }
+                job->finished.store(true, std::memory_order_release);
+                co_return;
+            });
+            return job.get();
+        }
+
         /// 能力处理器入口 (插件框架在插件执行线程调用)
+        ///
+        /// 处理器四种写法, 按可调用性选一种:
+        /// - `awaitable<string>(method, args)` / `awaitable<string>(args)`: 协程处理器,
+        ///   等待表调用 / 计时器时让出框架线程;
+        /// - `string(method, args)` / `string(args)`: 同步处理器;
+        /// - 老写法 `int32_t(args, out&)`: 0 = 成功, `out` 空 = 这次没意见。
         static void* PLUGINXX_CALL start(
             void*                         userData,
             const PluginxxHost*           /*callerHost*/,
-            const PluginxxStringView*     /*method*/,
+            const PluginxxStringView*     methodView,
             const PluginxxStringView*     argsJson,
             const PluginxxOperatorNotify* notify,
             PluginxxString*               /*errorOut*/
@@ -830,48 +1018,59 @@ protected:
             if (!self || !notify || !notify->done) {
                 return nullptr;
             }
-            using Ret = std::invoke_result_t<FnT&, std::string_view>;
+            const std::string method{stringViewOf(methodView)};
             const std::string input{stringViewOf(argsJson)};
             try {
-                if constexpr (pluginxx::detail::IsPluginAwaitable<Ret>::value) {
-                    // 协程处理器: 交给实例的驱动桥推进, 完成后回调 notify
-                    const PluginxxOperatorNotify notifyCopy = *notify;
-                    auto inputPtr = std::make_shared<std::string>(input);
-                    auto fnCopy = self->fn;
-                    auto pr = pluginxx::detail::startProviderRoot(
-                        self->base->bridge(),
-                        notifyCopy,
-                        [fnCopy, inputPtr](std::shared_ptr<pluginxx::detail::ProviderRoot>) mutable {
-                            return fnCopy(std::string_view{*inputPtr});
-                        },
-                        [](std::string value) {
-                            return std::make_pair(PLUGINXX_OPERATOR_OK,
-                                                  std::move(value));
-                        },
-                        [](std::exception_ptr) {
-                            return std::make_pair(
-                                PLUGINXX_OPERATOR_FAILED,
-                                std::string{"handler failed"});
-                        });
-                    return pr.get();
-                } else {
-                    const std::string out = self->fn(std::string_view{input});
-                    if (out.empty()) {
-                        notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+                if constexpr (std::is_invocable_v<FnT&, std::string_view,
+                                                  std::string_view>) {
+                    using Ret = std::invoke_result_t<FnT&, std::string_view,
+                                                     std::string_view>;
+                    if constexpr (pluginxx::detail::IsPluginAwaitable<Ret>::value) {
+                        auto fnCopy = self->fn;
+                        const auto methodPtr = std::make_shared<std::string>(method);
+                        const auto inputPtr = std::make_shared<std::string>(input);
+                        return startJob(
+                            self->base, notify,
+                            [fnCopy, methodPtr, inputPtr]() mutable {
+                                return fnCopy(std::string_view{*methodPtr},
+                                              std::string_view{*inputPtr});
+                            });
                     } else {
-                        const PluginxxStringView view = pluginxxView(out);
-                        notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
+                        report(notify, self->fn(std::string_view{method},
+                                               std::string_view{input}));
                     }
-                    return nullptr;
+                } else if constexpr (std::is_invocable_v<FnT&, std::string_view>) {
+                    using Ret = std::invoke_result_t<FnT&, std::string_view>;
+                    if constexpr (pluginxx::detail::IsPluginAwaitable<Ret>::value) {
+                        auto fnCopy = self->fn;
+                        const auto inputPtr = std::make_shared<std::string>(input);
+                        return startJob(self->base, notify,
+                                        [fnCopy, inputPtr]() mutable {
+                                            return fnCopy(std::string_view{*inputPtr});
+                                        });
+                    } else {
+                        report(notify, self->fn(std::string_view{input}));
+                    }
+                } else if constexpr (std::is_invocable_v<FnT&, std::string_view,
+                                                         std::string&>) {
+                    // 老写法: int32_t(input, out&) —— 0 = 成功 (out 空 = 没意见)
+                    std::string out;
+                    const int32_t rc = self->fn(std::string_view{input}, out);
+                    if (rc != 0) {
+                        reportFailure(notify, "handler failed");
+                    } else {
+                        report(notify, out);
+                    }
+                } else {
+                    static_assert(
+                        std::is_invocable_v<FnT&, std::string_view>,
+                        "能力处理器必须能用 (method, args) / (args) / (args, out) 调用");
                 }
+                return nullptr;
             } catch (const std::exception& e) {
-                const std::string_view reason{e.what()};
-                const PluginxxStringView view{reason.data(), reason.size()};
-                notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+                reportFailure(notify, e.what());
             } catch (...) {
-                static constexpr std::string_view kUnknown{"unknown exception"};
-                const PluginxxStringView view{kUnknown.data(), kUnknown.size()};
-                notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+                reportFailure(notify, "unknown exception");
             }
             return nullptr;
         }
@@ -881,6 +1080,7 @@ protected:
             if (!op) {
                 return;
             }
+            // 协程处理器不交回可取消句柄 (由后台任务自己的取消机制收尾)
             static_cast<pluginxx::detail::CancelableProvider*>(op)->requestCancel();
         }
     };
@@ -950,7 +1150,7 @@ protected:
                 return iface.broadcasts->subscribe_broadcast(
                     host, nullptr, &topicView, &eventTrampoline, holder.get(),
                     optionsPtr, cb, ud, err);
-            });
+            }, "subscribe_broadcast");
         uint64_t value = 0;
         for (const char c : handle) {
             if (c < '0' || c > '9') {
@@ -987,20 +1187,25 @@ protected:
                 spec.struct_size = sizeof(PluginxxCapabilitySpec);
                 spec.id = pluginxxView(id);
                 spec.owner_tag = pluginxxView(tag);
-                spec.impls = PLUGINXX_CAPABILITY_IMPLS_MANY;
+                // 自己声明的 id 只保留一条实现 (再注册即覆盖): 合并策略只在
+                // "多个实现共存"时才有意义, 这里不开放 (主程序会拒绝 many + none)
+                spec.impls = PLUGINXX_CAPABILITY_IMPLS_ONE;
                 spec.merge = PLUGINXX_CAPABILITY_MERGE_NONE;
                 spec.phases = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL |
                               PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
                               PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
-                spec.phase = phase;
+                spec.phase = detail::pluginxxPhaseOf(phase);
                 spec.priority = priority;
-                spec.sync = 0;
-                spec.run_start = &HandlerHolder<FnT>::start;
+                // 同步处理器登记成 sync = 1: 前链 / 后链只接受同步处理器
+                spec.sync = detail::handlerReturnsAwaitable<FnT>() ? 0 : 1;
+                // 两形态共用同一个取消入口: 同步处理器不交回句柄 (已经通知过),
+                // 协程处理器交回 [HandlerHolder::AsyncJobHandle]
                 spec.cancel = &HandlerHolder<FnT>::cancel;
                 spec.user_data = raw;
+                spec.run_start = &HandlerHolder<FnT>::start;
                 return iface.capabilities->register_capability(host, nullptr,
                                                                &spec, cb, ud, err);
-            });
+            }, id.c_str());
     }
 
 private:
@@ -1014,8 +1219,9 @@ private:
         s.size = 0;
     }
 
-    std::vector<std::shared_ptr<HandlerBase>> handlers_;
-    std::vector<std::shared_ptr<EventHolder>> events_;
+    std::vector<std::shared_ptr<HandlerBase>>    handlers_;
+    std::vector<std::shared_ptr<EventHolder>>    events_;
+    std::vector<std::shared_ptr<AsyncJobHandle>> asyncJobs_;
     std::string pluginId_{};
     bool        pluginIdLoaded_ = false;
 };
@@ -1067,11 +1273,10 @@ inline void runLifecycleEntry(Ctx&                          ctx,
             if constexpr (pluginxx::detail::IsPluginAwaitable<Ret>::value) {
                 const PluginxxOperatorNotify notifyCopy =
                     notify ? *notify : PluginxxOperatorNotify{nullptr, nullptr};
-                ctx.spawn(ctx,
-                          [fn = FnT(std::forward<Fn>(fn)), notifyCopy, label](
-                              Ctx& owner,
-                              pluginxx::OpCtl&) mutable
-                              -> asio::awaitable<void> {
+                ctx.spawn(
+                    [fn = FnT(std::forward<Fn>(fn)), notifyCopy, label](
+                        Ctx& owner, pluginxx::OpCtl&) mutable
+                        -> asio::awaitable<void> {
                               (void)owner;
                               int32_t     status = PLUGINXX_OPERATOR_OK;
                               std::string message;

@@ -1,7 +1,7 @@
 /// musicxx 外部插件框架原生测试 (不依赖 Dart)
 ///
 /// 覆盖:
-/// - test_host_lifecycle: create/start/stop/destroy 幂等;
+/// - test_host_lifecycle: create/stop/destroy 幂等;
 /// - test_plugin_load: 扫描 + 加载示例插件 + 能力注册生效;
 /// - test_capabilities: decision 能力裁决 (cancel) / 观察能力 /
 /// 未命中时零处理器;
@@ -13,6 +13,7 @@
 
 #include "musicxx_extern_plugin_api.h"
 
+#include "utilxx_base/log.h"
 #include "host_text.h"
 
 #include <cctype>
@@ -1154,8 +1155,26 @@ void testPluginInspect(MusicxxExternPluginHost *host,
 
 } // namespace
 
+/// 把框架内部日志打到 stderr (只在 `MUSICXX_TEST_LOG=1` 时注册)
+class TestStderrLogSink final : public utilxx_base::ThreadedLogSink {
+protected:
+  void onLog(const utilxx_base::LogEntry &entry) override {
+    std::fprintf(stderr, "[%s] %s\n", entry.module.c_str(),
+                 entry.message.c_str());
+  }
+};
+
 int main(int argc, char **argv) {
   setvbuf(stdout, nullptr, _IONBF, 0); // debug: unbuffered stdout
+
+  // 排查加载 / 生命周期问题时看框架内部日志: `MUSICXX_TEST_LOG=1` 时把
+  // utilxx_base 的日志打到 stderr。默认不注册 sink, 框架日志被丢弃。
+  std::shared_ptr<TestStderrLogSink> debugLogSink;
+  if (const char *logFlag = std::getenv("MUSICXX_TEST_LOG");
+      logFlag != nullptr && std::strcmp(logFlag, "1") == 0) {
+    debugLogSink = std::make_shared<TestStderrLogSink>();
+    utilxx_base::LogDispatcher::instance().addSink(debugLogSink);
+  }
   const std::string pluginDir = (argc > 1) ? argv[1] : "";
   std::printf("musicxx_extern_plugin native test (pluginDir=%s)\n",
               pluginDir.c_str());
@@ -1714,7 +1733,7 @@ int main(int argc, char **argv) {
           "stats 含插件条目");
 
     // 事件计数与速率: 插件发布的 plugin.<id>.* 事件归属到该插件
-    // (example_native 的 start 事务里发布过一次 plugin.example_native.hello)
+    // (example_native 的 create 事务里发布过一次 plugin.example_native.hello)
     const auto at = statsJson.find(R"("id":"example_native")");
     const std::string entry =
         (at == std::string::npos) ? std::string{} : statsJson.substr(at, 600);
@@ -1995,7 +2014,7 @@ int main(int argc, char **argv) {
             "槽位声明 / 撤销推 musicxx.ui.slots 事件");
     }
 
-    // 单框架线程模型: start 事务与能力处理器必须在同一条线程上执行
+    // 单框架线程模型: create 事务与能力处理器必须在同一条线程上执行
     const std::string startThread = jsonStringField(probe, "startThread");
     const std::string callThread = jsonStringField(probe, "callThread");
     check(!startThread.empty() && startThread == callThread,
@@ -2005,7 +2024,8 @@ int main(int argc, char **argv) {
     check(jsonIntField(probe, "unknownCapabilityRc") ==
               std::to_string(PLUGINXX_RESULT_ERR_NOT_DECLARED),
           "应用没声明的官方能力注册被拒绝（not_declared）");
-    check(jsonIntField(probe, "foreignActionRc") == "-1",
+    check(jsonIntField(probe, "foreignActionRc") ==
+              std::to_string(PLUGINXX_RESULT_ERR_NOT_DECLARED),
           "没声明过的动作名（能力）被拒绝");
     check(jsonIntField(probe, "dupImplementRc") == "0",
           "同一能力覆盖式重复注册成功");
@@ -3144,16 +3164,16 @@ int main(int argc, char **argv) {
   // ==================== 入口符号约定 (对应用例 test_entry_symbols)
   // ====================
   //
-  // 对照示例 example_native_bad_entry 的库文件导出了 get_info/create/destroy,
-  // 但**没有** start/stop。 约定要求 start/stop 成对存在 (create 只构造, start
-  // 才是注册事务), 插件框架必须在 "查找入口符号"阶段就拒绝加载: 明确失败
+  // 对照示例 example_native_bad_entry 的库文件导出了 get_info/create/stop,
+  // 但**没有** destroy。 约定要求 create/stop/destroy 三个入口都齐 (create 就是
+  // "构造 + 注册事务"), 插件框架必须在 "查找入口符号"阶段就拒绝加载: 明确失败
   // (不是超时)、有可读原因、不留注册残留。
   {
     MusicxxExternPluginString loadLog{};
     const auto rc = musicxx_extern_plugin_plugin_load_sync(
         host, viewCP("example_native_bad_entry"), viewCP("{}"), 5000, &loadLog);
     const std::string errText = take(loadLog);
-    check(rc != PLUGINXX_RESULT_OK, "缺 start/stop 入口的库被拒绝加载");
+    check(rc != PLUGINXX_RESULT_OK, "缺 destroy 入口的库被拒绝加载");
     check(rc != PLUGINXX_RESULT_ERR_TIMEOUT,
           "拒绝是明确失败而非挂住超时");
     check(errText.find("入口符号") != std::string::npos,

@@ -1,8 +1,9 @@
-# 对照示例（动态库插件）：库文件缺少 start/stop 入口符号
+# 对照示例（动态库插件）：库文件缺少 destroy 入口符号
 #
-# 它演示「入口符号约定」：start/stop 必须成对存在（create 只构造实例，start 才是注册事务），
-# 缺任何一个时插件框架在"查找入口符号"阶段就拒绝加载并给出可读原因 —— 不是超时、不会调用
-# create，也不会留下任何注册残留。本插件故意加载失败，只用于演示与原生测试。
+# 它演示「入口符号约定」：create / stop / destroy 三个必需入口都在时才加载
+# （create 就是"构造 + 注册事务"），缺任何一个时插件框架在"查找入口符号"阶段就拒绝加载
+# 并给出可读原因 —— 不是超时、不会调用 create，也不会留下任何注册残留。
+# 本插件故意加载失败，只用于演示与原生测试。
 name: example_native_bad_entry
 # entry 按 Linux 书写（Windows / macOS / iOS 下由插件框架修正扩展名）
 entry: example_native_bad_entry.so
@@ -10,6 +11,6 @@ kind: native
 version: 2026.1010.1
 api_version: 8
 author: "coolight"
-description: "对照示例: 缺少 start/stop 入口符号, 演示加载阶段按约定拒绝"
+description: "对照示例: 缺少 destroy 入口符号, 演示加载阶段按约定拒绝"
 platforms: [windows, linux, macos, android, ios]
 permissions: []

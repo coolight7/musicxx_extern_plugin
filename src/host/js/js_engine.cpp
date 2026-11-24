@@ -3232,15 +3232,25 @@ void PLUGINXX_CALL jsUiContentGenerate(const PluginxxHost * /*host*/,
 }
 
 /// 广播表订阅调用的完成回执 (订阅句柄是十进制文本)
+///
+/// 表成员是异步操作契约: 调用方不在主程序 IO 线程时 (JS 线程就是这种), 工作体被投递
+/// 过去, 完成回执也晚一步到 —— 订阅句柄只能从回执里拿, 所以要等它。
 struct SubscribeCapture {
-  PluginxxSubscription *sub = nullptr;
-  std::string error;
+  WaitSlot<PluginxxSubscription *> slot;
+  std::string                      error;
 };
 
 void PLUGINXX_CALL subscribeCaptureDone(void *ud, int32_t status,
                                      const PluginxxStringView *payload) {
-  auto *capture = static_cast<SubscribeCapture *>(ud);
-  if (!capture || capture->sub) {
+  /// `ud` 是持有一份引用计数的堆对象 (`new shared_ptr<…>`), 回执恰好一次, 就在
+  /// 这里释放
+  auto *holder = static_cast<std::shared_ptr<SubscribeCapture> *>(ud);
+  if (!holder) {
+    return;
+  }
+  const std::shared_ptr<SubscribeCapture> capture = *holder;
+  delete holder;
+  if (!capture) {
     return;
   }
   if (status != PLUGINXX_OPERATOR_OK) {
@@ -3248,6 +3258,7 @@ void PLUGINXX_CALL subscribeCaptureDone(void *ud, int32_t status,
       capture->error.assign(payload->data,
                             static_cast<size_t>(payload->size));
     }
+    capture->slot.set(nullptr);
     return;
   }
   uint64_t value = 0;
@@ -3261,14 +3272,11 @@ void PLUGINXX_CALL subscribeCaptureDone(void *ud, int32_t status,
       value = value * 10 + static_cast<uint64_t>(c - '0');
     }
   }
-  capture->sub =
-      reinterpret_cast<PluginxxSubscription *>(static_cast<uintptr_t>(value));
+  capture->slot.set(
+      reinterpret_cast<PluginxxSubscription *>(static_cast<uintptr_t>(value)));
 }
 
-/// 在框架线程上建立一条广播订阅
-///
-/// **调用方必须已经在框架 IO 线程**: 表成员虽然是异步操作契约, 但受理与工作体
-/// 都在这条线程上内联执行, 完成回调在返回前就已调过, 所以能直接拿回订阅句柄。
+/// 在框架线程上建立一条广播订阅 (任意线程调用; 等主程序把订阅句柄交回)
 PluginxxSubscription *subscribeBroadcastOnHostThread(
     const PluginxxHost *host, const std::string &topic,
     const std::string &optionsJson, void *ud) {
@@ -3313,11 +3321,16 @@ PluginxxSubscription *subscribeBroadcastOnHostThread(
   if (errorOut.data) {
     pluginxx::hostMemoryFree(errorOut.data);
   }
-  if (!capture->sub) {
+  PluginxxSubscription *sub = nullptr;
+  if (!capture->slot.wait(10000, sub)) {
+    XX_LOGW("[musicxx_ext] JS 订阅 `{}` 等主程序回答超时", topic);
+    return nullptr;
+  }
+  if (!sub) {
     XX_LOGW("[musicxx_ext] JS 订阅 `{}` 未能建立: {}", topic,
             capture->error.empty() ? "rejected" : capture->error);
   }
-  return capture->sub;
+  return sub;
 }
 
 
@@ -4828,8 +4841,16 @@ void PLUGINXX_CALL JsEngine::builtinCreate(
         XX_LOGE("[musicxx_ext] JS插件实例创建失败: {}", err);
         rc = PLUGINXX_RESULT_ERR_STATE;
       } else {
-        *outCtx = inst.get();
-        rc = PLUGINXX_RESULT_OK;
+        // 建完上下文就跑脚本、回放注册 (半途失败就整个拆掉, 不留半成品)
+        const int32_t startRc = inst->engine->startInstance(inst, err);
+        if (startRc != PLUGINXX_RESULT_OK) {
+          XX_LOGE("[musicxx_ext] JS插件 `{}` 创建事务失败: {}", inst->name, err);
+          inst->engine->destroyInstance(inst);
+          rc = PLUGINXX_RESULT_ERR_STATE;
+        } else {
+          *outCtx = inst.get();
+          rc = PLUGINXX_RESULT_OK;
+        }
       }
     } else {
       // 禁用后再启用: 上下文已经有了, 这里只做注册事务
