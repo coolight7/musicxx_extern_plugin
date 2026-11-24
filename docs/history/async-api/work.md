@@ -8,7 +8,7 @@
 - [x] 阶段 2：宿主表实现（`musicxx_host_tables.cpp` / `musicxx_host_ui.cpp` / `musicxx_host.cpp` / `musicxx_host.h`）
 - [x] 阶段 2.5：内置 JS 运行器入口与广播订阅跟上新签名（`js/js_engine.*`）
 - [ ] 阶段 3：宿主派发不占 IO 线程（`runCapabilityHandlers`）
-- [ ] 阶段 4：原生 SDK kit 协程化（`plugin_kit.h`）
+- [x] 阶段 4：原生 SDK kit 协程化（`plugin_kit.h`）
 - [ ] 阶段 5：JS 引擎与 JS SDK 异步化
 - [ ] 阶段 6：示例与原生测试
 - [ ] 阶段 7：文档、版本号、CHANGELOG、生成物
@@ -58,16 +58,27 @@ cmake --build .native/build/windows-release/e/host --target musicxx_extern_plugi
 通过（0 error）。**没有**跑完整 `tools/build_native.ps1`：SDK 头 `plugin_kit.h` 与示例 / 原生测试还没迁移，
 它们会失败（见下）。
 
+
+### 阶段 4：原生 SDK kit 协程化（`plugin_kit.h`）
+
+- 新增 `tableCall` / `tableText` / `tableVoid` 三个协程帮助函数（内部走 `pluginxx::asyncTableOp`
+  并把调用方协程的取消槽接上：协程被取消时正好在等的那次表调用会在主程序侧 `op_cancel`）。
+- 全部业务接口改成 `asio::awaitable`：`hostInfoJson` / `configPath` / `pluginId` / `netCall` /
+  `netSubscribe` / `capabilityCall` / 广播 5 个 / `kind` 3 个 / 界面 12 个 / 功能埋点 6 个。
+- 能力登记改成协程形态（`co_await implement(...)`），处理器支持两种写法：
+  `std::string(std::string_view)` 与 `asio::awaitable<std::string>(std::string_view)`。
+  协程处理器用 `pluginxx::detail::startProviderRoot` 起在实例的驱动桥上，取消走
+  `CancelableProvider::requestCancel`。
+- 生命周期事务支持三种写法：同步、协程（`asio::awaitable<void>`）、插件框架原始形参；
+  导出宏 `MUSICXX_PLUGIN_EXPORT` 改成 `create` + `stop` 两件事（不再有 `_start` 符号）。
+- 订阅完成载荷（十进制句柄）在这里解析成 `PluginxxSubscription*`，订阅处理器与流结束回调
+  都通过 `EventHolder` 保活（生命周期 = 实例）。
+
+验证：`tools/build_examples.ps1` 已经能编译到示例插件本体（说明 SDK 头本身通过编译），
+剩下的报错全部来自示例插件仍在用旧写法（`hostStringSet`、同步 generate 等），属于阶段 6。
+
 ## 剩余工作（按顺序）
 
-1. **`plugin_kit.h` 协程化**（阶段 4，核心待办）
-   - 新增 `tableCall` / `tableText` / `tableVoid` 三个协程帮助函数（`pluginxx::asyncTableOp` + 取消槽）；
-   - `hostInfoJson` / `configPath` / `pluginId` / UI 12 个接口 / kind 3 个接口 / 广播 5 个接口 /
-     功能埋点 6 个接口全部改成 `asio::awaitable<…>`；
-   - 能力登记改成协程形态，处理器允许写成 `asio::awaitable<std::string>`（用
-     `pluginxx::detail::startProviderRoot` 起协程，取消经 `CancelableProvider::requestCancel`）；
-   - `MUSICXX_PLUGIN_EXPORT` 的 start/stop 允许 `asio::awaitable<void>`，同步写法保留；
-   - 删掉 `ActionNotifyHolder` / `capabilityCall(notify)` 回调形态（协程形态已够用）。
 2. **宿主派发不占 IO 线程**（阶段 3）
    - `runCapabilityHandlers` 改成"IO 线程取快照 → 工作线程逐个调用并等待 → 回 IO 线程写统计"，
      否则插件协程处理器在等表调用时，IO 线程正被派发占住 → 互锁。

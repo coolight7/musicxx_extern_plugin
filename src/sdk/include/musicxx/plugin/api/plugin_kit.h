@@ -250,92 +250,87 @@ struct MusicxxPluginIfaces : public pluginxx::PluginIfaceCore {
 class PluginBase : public pluginxx::PluginBaseT<MusicxxPluginIfaces> {
 public:
 
-    /* ---------- 网络能力 (musicxx.net; HTTP / TCP / WebSocket) ---------- */
+    /* ==================== 表调用的公共写法 (协程) ==================== */
+    //
+    // 接口表成员一律是"受理 + 完成回调恰好一次": 这里把它包成可以 `co_await` 的协程,
+    // 调用方写顺序逻辑 (读配置 → 注册 → 订阅) 就是一行一行的 `co_await`。
+    // 协程被取消 (实例关闭、业务主动取消) 时, 正在等的那次调用会在主程序侧 `op_cancel` 掉。
 
-    /// 网络表是否可用 (老插件框架库没有这张表)
-    bool netAvailable() const {
-        return iface.net && iface.net->call;
+    /// 提交一次表调用并等结果
+    template<typename StartFn>
+    asio::awaitable<pluginxx::TableOpResult> tableCall(StartFn start) {
+        auto ex = co_await asio::this_coro::executor;
+        auto cs = co_await asio::this_coro::cancellation_state;
+        co_return co_await pluginxx::asyncTableOp(*this, ex, cs.slot(),
+                                                  std::move(start));
     }
 
-    /// 同步网络操作 (`op` 用 `pluginxx::net_op::*`; 结果写进 `outJson`)
+    /// 同上, 成功时给结果正文; 失败抛 `std::runtime_error` (取消抛 `CanceledException`)
+    template<typename StartFn>
+    asio::awaitable<std::string> tableText(StartFn start) {
+        auto r = co_await tableCall(std::move(start));
+        if (!r.accepted()) {
+            throw std::runtime_error(r.startError);
+        }
+        if (!r.ok()) {
+            throw std::runtime_error(r.text().empty() ? std::string{"table call failed"}
+                                                      : std::string{r.text()});
+        }
+        co_return std::string{r.text()};
+    }
+
+    /// 同上, 只关心成败
+    template<typename StartFn>
+    asio::awaitable<void> tableVoid(StartFn start) {
+        (void)co_await tableText(std::move(start));
+        co_return;
+    }
+
+    /// 字符串视图 → C ABI 借用视图 (指向入参内存, 只在本次调用期间有效)
+    static PluginxxStringView pluginxxView(std::string_view text) {
+        return PluginxxStringView{text.data(), static_cast<uint64_t>(text.size())};
+    }
+
+    /// C ABI 借用视图 → string_view (空视图给空)
+    static std::string_view stringViewOf(const PluginxxStringView* view) {
+        if (!view || !view->data) {
+            return {};
+        }
+        return std::string_view{view->data, static_cast<size_t>(view->size)};
+    }
+
+    /* ==================== 网络能力 (musicxx.net) ==================== */
+
+    bool netAvailable() const { return iface.net && iface.net->call; }
+
+    /// 一次网络操作 (`op` 用 `pluginxx::net_op::*`), 结果是 JSON 文本
     ///
-    /// 返回 0 = 操作执行完毕 (业务结论看结果 JSON 的 `ok`); 表不可用时返回 -1。
-    int32_t netCall(const char* op, const char* argsJson, std::string& outJson) {
+    /// 结果 JSON 里带 `ok`; 传输失败也只是一次正常完成。要"提交完就不管"的场景请用
+    /// [startNetRequest] (不登记结果), 不要在这里丢掉返回值当异步用。
+    asio::awaitable<std::string> netCall(
+        std::string_view op, std::string_view argsJson = "{}") {
         if (!netAvailable()) {
-            log.warn("musicxx.net 表不可用: 网络能力未生效 (插件框架版本过旧?)");
-            return -1;
+            throw std::runtime_error("musicxx.net 表不可用: 网络能力未生效");
         }
-        PluginxxStringView opView   = pluginxxView(op ? op : "");
-        PluginxxStringView argsView = pluginxxView(argsJson ? argsJson : "{}");
-        PluginxxString     out{};
-        const int32_t      rc = iface.net->call(host, &opView, &argsView, &out);
-        if (out.data) {
-            outJson.assign(out.data, static_cast<size_t>(out.size));
-            hostStringFree(out);
-        } else {
-            outJson.clear();
-        }
-        return rc;
-    }
-
-    /// 同步网络操作 (参数用 JSON 对象传, 方便拼内容)
-    int32_t netCall(const char* op, const utilxx_base::Json& args, std::string& outJson) {
-        const std::string text = args.dump();
-        return netCall(op, text.c_str(), outJson);
-    }
-
-    /// 异步网络操作 (目前 `net_op::httpRequest`): 结果经 `notify->done` 恰好一次 (框架线程)
-    ///
-    /// `notify` 由 SDK 复制保存, 插件可以传栈上的值。
-    int32_t netCallAsync(
-        const char*                   op,
-        const char*                   argsJson,
-        const PluginxxOperatorNotify* notify,
-        std::string*                  outJson         = nullptr,
-        int64_t*                      outRequestId    = nullptr
-    ) {
-        if (!netAvailable() || !iface.net->call_async) {
-            log.warn("musicxx.net 表不可用: 异步网络能力未生效 (插件框架版本过旧?)");
-            return -1;
-        }
-        if (!notify || !notify->done) {
-            return -1;
-        }
-        auto holder     = std::make_unique<ActionNotifyHolder>();
-        holder->user    = *notify;
-        holder->forward = PluginxxOperatorNotify{
-            &PluginBase::actionNotifyTrampoline,
-            holder.get(),
-        };
-        auto* holderPtr = holder.get();
-        actionNotifies_.push_back(std::move(holder));
-        pruneActionNotifies();
-
-        PluginxxStringView opView   = pluginxxView(op ? op : "");
-        PluginxxStringView argsView = pluginxxView(argsJson ? argsJson : "{}");
-        PluginxxString     out{};
-        const int32_t      rc = iface.net->call_async(
-            host, &opView, &argsView, &holderPtr->forward, &out, outRequestId);
-        if (out.data) {
-            if (outJson) {
-                outJson->assign(out.data, static_cast<size_t>(out.size));
+        std::string opText{op};
+        std::string argsText{argsJson.empty() ? "{}" : argsJson};
+        co_return co_await tableText(
+            [this, opText, argsText](PluginxxOperatorCallback cb, void* ud,
+                                     PluginxxString* err) {
+                const PluginxxStringView opView = pluginxxView(opText);
+                const PluginxxStringView argsView = pluginxxView(argsText);
+                return iface.net->call(host, &opView, &argsView, nullptr, cb, ud, err);
             }
-            hostStringFree(out);
-        }
-        if (rc != 0 && !holderPtr->doneCalled) {
-            /// 受理失败: 回收这张通知持有者 (不会有完成回调了)
-            holderPtr->doneCalled = true;
-        }
-        return rc;
+        );
     }
 
-    /// 取消一个进行中的异步请求
+    /// 取消一个进行中的网络请求
     int32_t netCancel(int64_t requestId, std::string* outJson = nullptr) {
         if (!netAvailable() || !iface.net->cancel) {
             return -1;
         }
         PluginxxString out{};
-        const int32_t  rc = iface.net->cancel(host, requestId, &out);
+        const int32_t rc = iface.net->cancel(host, requestId, &out);
         if (outJson && out.data) {
             outJson->assign(out.data, static_cast<size_t>(out.size));
         }
@@ -346,285 +341,164 @@ public:
     }
 
     /// 订阅本插件的网络事件 (主题 `plugin.<本插件id>.net`)
+    template<typename Fn>
+    asio::awaitable<PluginxxSubscription*> netSubscribe(Fn&& fn) {
+        const std::string topic = "plugin." + (co_await pluginId()) + ".net";
+        co_return co_await subscribeBroadcast(topic, std::forward<Fn>(fn));
+    }
+
+    /* ==================== 能力登记 (处理器可以写成协程) ==================== */
+
+    /// 实现一条能力 (默认 `impl` 阶段)
     ///
-    /// 事件载荷带 `kind` (`http.request` / `http.response` / `socket.data` /
-    /// `ws.message` / `ws.close` 等), 处理器形如 `void(std::string_view event_json)`。
+    /// 处理器写法: `std::string(std::string_view args)` 或
+    /// `asio::awaitable<std::string>(std::string_view args)`。
+    /// 返回空串 = 没意见 (交给下一个实现); 协程处理器在等表调用 / 计时器时不会占住框架线程。
     template<typename Fn>
-    int32_t netSubscribe(Fn&& fn) {
-        const std::string topic = "plugin." + pluginId() + ".net";
-        return subscribeBroadcast(topic.c_str(), std::forward<Fn>(fn));
+    asio::awaitable<void> implement(const char* capabilityId,
+                                              int32_t priority, Fn&& fn) {
+        co_await implementOn(capabilityId, "", priority,
+                             MUSICXX_CAPABILITY_PHASE_IMPL,
+                             std::forward<Fn>(fn));
     }
 
-    /// 实现一条能力（同步处理器；默认是 `impl` 阶段）
-    ///
-    /// `fn` 形如 `int32_t(std::string_view input_json, std::string& out_json)`;
-    /// 返回 0 且 out_json 非空表示给出结果 / 裁决, out_json 为空表示没意见 (交给下一个实现)。
+    /// 实现某条能力的某个阶段 (前链 / 实现链 / 后链)
     template<typename Fn>
-    int32_t implement(const char* capabilityId, int32_t priority, Fn&& fn) {
-        return registerSync(capabilityId, priority, std::forward<Fn>(fn));
+    asio::awaitable<void> implement(const char* capabilityId,
+                                              CapabilityPhase phase,
+                                              int32_t priority, Fn&& fn) {
+        co_await implementOn(capabilityId, "", priority,
+                             static_cast<int32_t>(phase), std::forward<Fn>(fn));
     }
 
-    /// 实现某条能力的某个阶段（前链 / 实现链 / 后链）
-    ///
-    /// 阶段合法性由插件框架按声明校验（拒绝原因会原样回来）；声明里没有该阶段的
-    /// 能力不要登记，登记了也不会被派发。
     template<typename Fn>
-    int32_t implement(const char* capabilityId, CapabilityPhase phase,
-                      int32_t priority, Fn&& fn) {
-        return registerSyncWithTag(
-            capabilityId,
-            "",
-            priority,
-            static_cast<int32_t>(phase),
-            std::forward<Fn>(fn)
-        );
+    asio::awaitable<void> implementBefore(const char* capabilityId,
+                                                    int32_t priority, Fn&& fn) {
+        co_await implement(capabilityId, CapabilityPhase::Before, priority,
+                           std::forward<Fn>(fn));
     }
 
-    /// 实现前链（改输入 / `stop`），等价于 `implement(id, CapabilityPhase::Before, ...)`
     template<typename Fn>
-    int32_t implementBefore(const char* capabilityId, int32_t priority, Fn&& fn) {
-        return implement(capabilityId, CapabilityPhase::Before, priority, std::forward<Fn>(fn));
-    }
-
-    /// 实现后链（改输出 / `drop`），等价于 `implement(id, CapabilityPhase::After, ...)`
-    template<typename Fn>
-    int32_t implementAfter(const char* capabilityId, int32_t priority, Fn&& fn) {
-        return implement(capabilityId, CapabilityPhase::After, priority, std::forward<Fn>(fn));
+    asio::awaitable<void> implementAfter(const char* capabilityId,
+                                                   int32_t priority, Fn&& fn) {
+        co_await implement(capabilityId, CapabilityPhase::After, priority,
+                           std::forward<Fn>(fn));
     }
 
     /// 撤掉本插件在这条能力上的实现 (owner_tag = "")
-    int32_t unimplement(const char* capabilityId) {
-        return unimplementWithTag(capabilityId, "");
+    asio::awaitable<void> unimplement(const char* capabilityId) {
+        co_await unimplementWithTag(capabilityId, "");
     }
 
     /// 撤掉本插件在某条能力上带 `ownerTag` 的那个实现
-    ///
-    /// 处理器按 `(能力 id, owner_tag)` 登记在能力表里, 直接往能力表注销即可。
-    int32_t unimplementWithTag(const char* capabilityId, const char* ownerTag) {
+    asio::awaitable<void> unimplementWithTag(const char* capabilityId,
+                                                       const char* ownerTag) {
+        std::string id = capabilityId ? capabilityId : "";
+        std::string tag = ownerTag ? ownerTag : "";
         if (!iface.capabilities || !iface.capabilities->unregister_capability) {
-            return -1;
+            throw std::runtime_error("musicxx.capabilities 表不可用");
         }
-        const PluginxxStringView capabilityView = pluginxxView(capabilityId);
-        const PluginxxStringView tagView  = pluginxxView(ownerTag ? ownerTag : "");
-        return iface.capabilities->unregister_capability(host, &capabilityView, &tagView);
+        co_await tableVoid([this, id, tag](PluginxxOperatorCallback cb, void* ud,
+                                           PluginxxString* err) {
+            const PluginxxStringView idView = pluginxxView(id);
+            const PluginxxStringView tagView = pluginxxView(tag);
+            return iface.capabilities->unregister_capability(host, &idView,
+                                                             &tagView, cb, ud, err);
+        });
     }
 
-    /// 同步读广播的当前值 (没有当前值时返回空串)
-    ///
-    /// 状态由应用发布在广播频道 `musicxx.state.*`（`cache: latest`，订阅即推）。
-    std::string readBroadcast(const char* key) const {
-        if (!key || !*key) {
-            return {};
-        }
-        if (!iface.broadcasts || !iface.broadcasts->read_broadcast) {
-            return {};
-        }
-        const PluginxxStringView keyView = pluginxxView(key);
-        PluginxxString           out{};
-        if (iface.broadcasts->read_broadcast(host, &keyView, &out) != 0 ||
-            !out.data) {
-            return {};
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
+    /* ==================== 广播 ==================== */
 
-    /// 发布一条广播（只有自己的频道能发）
-    ///
-    /// - 频道必须符合命名空间规则：官方 `musicxx.*` 只能由应用发；插件发
-    ///   `plugin.<本插件id>.*`，自定义频道要先 [declareBroadcast]；
-    /// - `payloadJson` 原样传给每个订阅方（空 = `{}`）；
-    /// - 返回 0 = 已发出；非 0 = 频道不存在 / 不是自己的频道 / 插件框架版本过旧。
-    int32_t publishBroadcast(const char* channel, const char* payloadJson = nullptr) {
-        if (!channel || !*channel) {
-            return -1;
+    /// 读一条频道的当前值 (没有当前值时抛异常, 原因 `no_value` / `not_declared`)
+    asio::awaitable<std::string> readBroadcast(std::string_view key) {
+        if (key.empty()) {
+            throw std::runtime_error("readBroadcast: empty key");
         }
-        if (!iface.broadcasts || !iface.broadcasts->publish_broadcast) {
-            log.warn("<应用名>.broadcasts 表没有 publish_broadcast: 发布未生效 (插件框架版本过旧?)");
-            return -1;
-        }
-        const PluginxxStringView channelView = pluginxxView(channel);
-        const PluginxxStringView payloadView =
-            pluginxxView((payloadJson && *payloadJson) ? payloadJson : "{}");
-        PluginxxString error{};
-        const int32_t rc =
-            iface.broadcasts->publish_broadcast(host, &channelView, &payloadView, &error);
-        if (error.data) {
-            log.warn(std::string{"发布广播失败: "}
-                     + std::string{error.data, static_cast<size_t>(error.size)});
-            hostStringFree(error);
-        }
-        return rc;
-    }
-
-    /// 框架信息 JSON (主程序版本/平台/语言/插件目录)
-    std::string hostInfoJson() const {
-        return readHostString(&MusicxxPluginHostIface::get_info);
-    }
-
-    /// 本插件配置路径 (供插件读写自己的配置)
-    std::string configPath() const {
-        return readHostString(&MusicxxPluginHostIface::get_plugin_config_path);
-    }
-
-    /// 调另一个插件的能力 (**协程形态, 推荐**)
-    ///
-    /// 返回插件框架的 awaiter, 用法:
-    /// ```cpp
-    /// pluginxx::Task<void> demo() {
-    ///     auto result = co_await capabilityCall("plugin.other.probe", "probe", R"({"n":3})");
-    ///     // result 按插件框架约定给出结果 / 失败 (见插件框架 kit 的 invoke_cap 说明)
-    /// }
-    /// ```
-    /// - **直连插件框架**: 不经过应用 (Dart), 调用方就是本插件实例 (目标处理器里的 `callerHost`
-    ///   是本插件); 期间协程由本实例的驱动桥分步推进, 不会占框架 IO 线程;
-    /// - **不要找同步版**: 插件框架的 `invoke_capability_blocking` 在 IO 线程会被直接拒绝
-    ///   (`use co_await invoke_cap instead`), 本 SDK 不暴露它;
-    /// - 长任务请在协程里 `co_await pluginxx::offload(*this, work)` 把重活交给框架工作线程池。
-    auto capabilityCall(
-        std::string_view capability,
-        std::string_view argsJson = "{}"
-    ) {
-        return pluginxx::invoke_cap(*this, capability, argsJson);
-    }
-
-    /// 调另一个插件的能力 (**回调形态**; 给不写协程的场景)
-    /// - 结果经 `notify->done` **恰好一次** (框架 IO 线程) 回调; status == 0 时载荷是结果 JSON;
-    /// - `notify` 由 SDK 复制保存 (与 [capabilityCall] 同一做法), 插件可以传栈上的 notify;
-    /// - `timeoutMs` < 0 = 用能力声明里的超时; >= 0 = 这次调用的超时 (0 = 不设超时,
-    ///   只对应用实现的能力生效; 插件实现的行由它自己决定什么时候完成);
-    /// - 受理失败 (目标没加载 / 没声明该能力) 时返回负值, 并按 `done(status != 0)` 补一次回调。
-    int32_t capabilityCall(
-        std::string_view              capability,
-        std::string_view              argsJson,
-        const PluginxxOperatorNotify* notify,
-        int32_t                       timeoutMs = -1
-    ) {
-        if (!iface.capabilities || !iface.capabilities->invoke_capability) {
-            return -1;
-        }
-        if (!notify || !notify->done) {
-            return -1;
-        }
-        auto holder     = std::make_unique<ActionNotifyHolder>();
-        holder->user    = *notify;
-        holder->forward = PluginxxOperatorNotify{
-            &PluginBase::actionNotifyTrampoline,
-            holder.get(),
-        };
-        auto* holderPtr = holder.get();
-        actionNotifies_.push_back(std::move(holder));
-        pruneActionNotifies();
-
-        PluginxxStringView capView  = pluginxxView(capability);
-        PluginxxStringView argsView = pluginxxView(argsJson.empty() ? "{}" : argsJson);
-        PluginxxString     errorOut{};
-        // 作用域引用: 音乐类主程序没有作用域概念, 传空表示"发起方不在任何作用域上下文"
-        PluginxxOperatorHandle* op = nullptr;
-        if (timeoutMs >= 0 &&
-            pluginxx::ifaceHas<&PluginxxCapabilitiesIface::invoke_capability_ex>(
-                iface.capabilities)) {
-            op = iface.capabilities->invoke_capability_ex(
-                host,
-                nullptr,
-                &capView,
-                &argsView,
-                0, ///< 阶段: 0 = 走完整链 before → impl → after
-                timeoutMs,
-                &actionNotifyTrampoline,
-                holderPtr,
-                &errorOut
-            );
-        } else {
-            op = iface.capabilities->invoke_capability(
-                host,
-                nullptr,
-                &capView,
-                &argsView,
-                0, ///< 阶段: 0 = 走完整链 before → impl → after
-                &actionNotifyTrampoline,
-                holderPtr,
-                &errorOut
-            );
-        }
-        if (errorOut.data) {
-            hostStringFree(errorOut);
-        }
-        if (!op) {
-            /// 未受理: 完成回调不会被调用, 这里补一次 (与 capabilityCall 的约定一致)
-            if (!holderPtr->doneCalled) {
-                holderPtr->doneCalled = true;
-                if (holderPtr->user.done) {
-                    try {
-                        holderPtr->user.done(holderPtr->user.host_ud, -1, nullptr);
-                    } catch (...) {
-                    }
-                }
+        std::string id{key};
+        co_return co_await tableText(
+            [this, id](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                const PluginxxStringView idView = pluginxxView(id);
+                return iface.broadcasts->read_broadcast(host, &idView, cb, ud, err);
             }
-            return -1;
-        }
-        return 0;
+        );
     }
 
-    /// ---------- 功能埋点 (插件自己声明 / 实现 / 调用) ----------
-    ///
-    /// 一个功能埋点 = 三件事：**声明**（`musicxx.feature.point.define`）、**实现**（注册通用
-    /// 通道能力 `musicxx.feature.point.call` 的处理器）、**调用**（能力
-    /// `musicxx.feature.point.call`）。三者都走插件框架，不需要主程序为这个点写任何代码。
-    ///
-    /// 与能力（capability）的分工见包内 `docs/plugin-guide.md`：
-    /// - 能力 = "应用直接调本插件"，参数与结果由插件自己定；
-    /// - 功能埋点 = "这个功能谁都能实现，应用与别的插件按 id 来调"。
-    ///
-    /// 通道写法（框架约定，糖已经照做）：
-    /// 1. 回答**必须包一层 `patch`**（插件框架只在收到 `patch` 时才认为"有人回答了"）；
-    /// 2. 处理器要**按 `point` 过滤**（同一条通道上所有实现都收到同一次调用）；
-    /// 3. **不回答自己发起的调用**（`caller` 等于自己的插件 id 时返回空）。
-
-    /// 功能埋点声明信息（对应能力 `musicxx.feature.point.define` 的可读字段）
-    struct MusicxxPluginPointSpec {
-        const char* title  = ""; ///< 展示名（缺省用 id）
-        const char* depict = ""; ///< 一句话说明
-        const char* args   = ""; ///< 参数说明（文本：有哪些参数、什么类型）
-        const char* result = ""; ///< 结果说明（文本：给出什么形状的结果）
-    };
-
-    /// 声明一个**自己的**功能埋点（`id` 必须形如 `plugin.<自己的插件 id>.<名字>`）
-    ///
-    /// - 走能力调用（`notify->done` 拿到 `{ok, id}` 或 `{ok:false, error}`）；
-    /// - 同一 id 重复声明 = 覆盖；声明跟着插件生命周期走（禁用 / 卸载自动撤销）；
-    /// - 声明之后用 [featurePointProvide] 给出实现，别的插件与应用就能调它。
-    int32_t featurePointDefine(const char* id, const MusicxxPluginPointSpec& spec,
-                               const PluginxxOperatorNotify* notify,
-                               uint32_t timeoutMs = 5000) {
-        utilxx_base::Json payload = utilxx_base::Json::object();
-        payload["id"]     = id ? id : "";
-        payload["title"]  = spec.title ? spec.title : "";
-        payload["depict"] = spec.depict ? spec.depict : "";
-        payload["args"]   = spec.args ? spec.args : "";
-        payload["result"] = spec.result ? spec.result : "";
-        const std::string text = payload.dump();
-        return capabilityCall("musicxx.feature.point.define", text.c_str(), notify, timeoutMs);
+    /// 发布一条广播 (只能发布本插件命名空间下的频道)
+    asio::awaitable<void> publishBroadcast(
+        std::string_view channel, std::string_view payloadJson = "{}") {
+        std::string id{channel};
+        std::string payload{payloadJson.empty() ? "{}" : payloadJson};
+        co_await tableVoid(
+            [this, id, payload](PluginxxOperatorCallback cb, void* ud,
+                                PluginxxString* err) {
+                const PluginxxStringView idView = pluginxxView(id);
+                const PluginxxStringView payloadView = pluginxxView(payload);
+                return iface.broadcasts->publish_broadcast(host, &idView,
+                                                           &payloadView, cb, ud, err);
+            });
     }
 
-    /// 收回自己声明的功能埋点（一般不用调：禁用 / 卸载会自动撤销）
-    int32_t featurePointUndefine(const char* id, const PluginxxOperatorNotify* notify,
-                                 uint32_t timeoutMs = 5000) {
-        utilxx_base::Json payload = utilxx_base::Json::object();
-        payload["id"] = id ? id : "";
-        const std::string text = payload.dump();
-        return capabilityCall("musicxx.feature.point.undefine", text.c_str(), notify, timeoutMs);
+    /// 订阅一条频道 (处理器形如 `void(std::string_view payload_json)`)
+    ///
+    /// 订阅是异步的: 完成时主程序交回订阅句柄 (十进制文本), 这里解析成指针返回。
+    /// 句柄由实例保活 (卸载时一并回收), 插件不需要自己记。
+    template<typename Fn>
+    asio::awaitable<PluginxxSubscription*> subscribeBroadcast(
+        std::string_view topic, Fn&& fn, std::string_view optionsJson = {}) {
+        co_return co_await subscribeBroadcastImpl(topic, std::forward<Fn>(fn),
+                                                  nullptr, optionsJson);
     }
 
-    /// 本插件的 id（读一次 `host.info()` 的 `pluginId` 并缓存；拿不到时空串）
-    ///
-    /// 用途：功能埋点糖要判断"这次的 `caller` 是不是自己"（自己发起的调用不回答）。
-    std::string pluginId() {
+    /// 订阅并接收"流结束"通知 (处理器形如 `void(std::string_view reason_json)`)
+    template<typename Fn, typename EndFn>
+    asio::awaitable<PluginxxSubscription*> subscribeBroadcastWithEnd(
+        std::string_view topic, Fn&& fn, EndFn&& onEnd,
+        std::string_view optionsJson = {}) {
+        co_return co_await subscribeBroadcastImpl(topic, std::forward<Fn>(fn),
+                                                  std::forward<EndFn>(onEnd),
+                                                  optionsJson);
+    }
+
+    /// 结束自己的一条流 (只有频道属主能结束)
+    asio::awaitable<void> endBroadcast(
+        std::string_view topic, std::string_view reasonJson = "{}") {
+        std::string id{topic};
+        std::string reason{reasonJson.empty() ? "{}" : reasonJson};
+        co_await tableVoid(
+            [this, id, reason](PluginxxOperatorCallback cb, void* ud,
+                               PluginxxString* err) {
+                const PluginxxStringView idView = pluginxxView(id);
+                const PluginxxStringView reasonView = pluginxxView(reason);
+                return iface.broadcasts->end_broadcast(host, &idView,
+                                                       &reasonView, cb, ud, err);
+            });
+    }
+
+    /* ==================== 宿主信息 ==================== */
+
+    /// 框架信息 JSON (主程序版本 / 平台 / 语言 / 插件目录 / 本插件 id)
+    asio::awaitable<std::string> hostInfoJson() {
+        co_return co_await tableText(
+            [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                return iface.host->get_info(host, cb, ud, err);
+            });
+    }
+
+    /// 本插件配置文件路径
+    asio::awaitable<std::string> configPath() {
+        co_return co_await tableText(
+            [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                return iface.host->get_plugin_config_path(host, cb, ud, err);
+            });
+    }
+
+    /// 本插件的 id (读一次 `host.info()` 里的 `pluginId` 后缓存)
+    asio::awaitable<std::string> pluginId() {
         if (!pluginIdLoaded_) {
             pluginIdLoaded_ = true;
             try {
-                const utilxx_base::Json info = utilxx_base::Json::parse(hostInfoJson());
+                const utilxx_base::Json info =
+                    utilxx_base::Json::parse(co_await hostInfoJson());
                 if (info.is_object()) {
                     pluginId_ = info.value<std::string>("pluginId", std::string{});
                 }
@@ -632,424 +506,506 @@ public:
                 pluginId_.clear();
             }
         }
-        return pluginId_;
+        co_return pluginId_;
     }
 
-    /// 登记一个功能埋点的实现（**一个点一个处理器**，`owner_tag` = 点 id）
-    ///
-    /// `fn` 有三种写法（按可调用性自动选一种）：
-    /// ```cpp
-    /// featurePointProvide("plugin.my_plugin.beat",
-    ///     [](std::string_view point, std::string_view argsJson) -> std::string {
-    ///         return R"({"bpm":128,"beats":[0,469,938]})";   // 返回的是**值**，糖包 patch
-    ///     });
-    /// ```
-    /// - 形参：`fn(point, argsJson, caller)` / `fn(point, argsJson)` / `fn(argsJson)`；
-    /// - 返回：`utilxx_base::Json` / 任何字符串类型 / 数字 / 布尔。字符串会先按 JSON 解析，
-    ///   解析不了就当 JSON 字符串（`hello` → `"hello"`）；
-    /// - **返回空串 = 这次不回答**（交给同一条通道上的下一个实现）；要回答"结果是空"就返回
-    ///   `"null"` 或 `"{}"`；
-    /// - 糖自动做三件事：按 `point` 过滤、`caller` 等于自己时返回空、
-    ///   把返回值包成 `{"patch":{"value": …}}`；
-    /// - **必须同步返回**：实现链没有异步形态（插件框架按同步回调调用），长任务要么
-    ///   提前算好，要么做成能力（`co_await capabilityCall`）或事件。
-    template<typename Fn>
-    int32_t featurePointProvide(const char* pointId, Fn&& fn, int32_t priority = 0) {
-        const std::string point = pointId ? pointId : "";
-        if (point.empty()) {
-            log.warn("featurePointProvide: 缺少功能埋点 id");
-            return -1;
+    /* ==================== 调别的插件 / 应用的能力 ==================== */
+
+    /// 调一条能力 (协程): 结果 JSON 文本; 业务失败抛异常 (正文是原因)
+    asio::awaitable<std::string> capabilityCall(
+        std::string_view capability, std::string_view argsJson = "{}") {
+        if (!iface.capabilities || !iface.capabilities->invoke_capability) {
+            throw std::runtime_error("musicxx.capabilities 表不可用");
         }
-        const std::string selfId = pluginId();
-        if (selfId.empty()) {
-            log.warn("featurePointProvide: 读不到自己的插件 id (host.info 缺 pluginId)");
-            return -1;
-        }
-        return registerSyncWithTag(
-            MUSICXX_CAPABILITY_FEATURE_POINT_CALL,
-            point.c_str(),
-            priority,
-            MUSICXX_CAPABILITY_PHASE_IMPL,
-            [selfId, point, fn = std::forward<Fn>(fn)](std::string_view input,
-                                                      std::string& out) mutable -> int32_t {
-                return detail::answerFeaturePoint(selfId, point, fn, input, out);
-            }
-        );
+        std::string cap{capability};
+        std::string args{argsJson.empty() ? "{}" : argsJson};
+        co_return co_await tableText(
+            [this, cap, args](PluginxxOperatorCallback cb, void* ud,
+                              PluginxxString* err) {
+                const PluginxxStringView capView = pluginxxView(cap);
+                const PluginxxStringView argsView = pluginxxView(args);
+                return iface.capabilities->invoke_capability(
+                    host, nullptr, &capView, &argsView, 0, cb, ud, err);
+            });
     }
 
-    /// 摘除一个功能埋点的实现（注销 `owner_tag` = 点 id 的那个处理器）
-    int32_t featurePointUnprovide(const char* pointId) {
-        if (!pointId || !*pointId) {
-            return -1;
-        }
-        return unimplementWithTag(MUSICXX_CAPABILITY_FEATURE_POINT_CALL, pointId);
-    }
+    /* ==================== 功能埋点 ==================== */
 
-    /// 调一个功能埋点（**异步形态**；结果经 `notify->done` 回来）
-    ///
-    /// - `id` 既可以是应用留出的埋点（`musicxx.media.spectrum.extract` /
-    ///   `musicxx.media.chorus.analyse` / `musicxx.media.palette.analyse`），
-    ///   也可以是插件自己声明的 `plugin.<插件id>.<名字>`；
-    /// - `argsJson` 是这个功能埋点自己的参数（看清单里的 `callDoc`）；
-    /// - **默认超时 60 秒**：频谱提取要解码整曲，慢就自己加大；
-    /// - **调用零副作用**：不写应用的值仓、不改应用状态；
-    /// - **没有同步版**：框架线程上的就地等待等于死锁（处理器可能正等着你返回），
-    ///   所以要结果就在 `notify->done` 里处理，或者用协程形态自己封一层。
-    int32_t featurePointCall(const char* id, std::string_view argsJson = "{}",
-                             uint32_t timeoutMs = 60000,
-                             const PluginxxOperatorNotify* notify = nullptr,
-                             int64_t* outRequestId = nullptr) {
-        if (!notify || !notify->done) {
-            log.warn("featurePointCall: 异步形态必须给完成通知 (notify->done)");
-            return -1;
-        }
-        utilxx_base::Json payload = utilxx_base::Json::object();
-        payload["id"] = id ? id : "";
-        try {
-            payload["args"] = argsJson.empty() ? utilxx_base::Json::object()
-                                               : utilxx_base::Json::parse(argsJson);
-        } catch (const std::exception& e) {
-            log.warn(std::string{"featurePointCall: args 不是合法 JSON 对象 ("} + e.what() + ")");
-            return -1;
-        }
-        const std::string text = payload.dump();
-        return capabilityCall("musicxx.feature.point.call", text.c_str(), notify,
-                              timeoutMs);
-    }
-
-    /// 当前有哪些功能埋点、谁在实现（行文本；等价能力 `musicxx.feature.point.list`）
-    ///
-    /// 异步调用：结果经 `notify->done` 回来（`payload` 是清单文本）。
-    int32_t featurePointList(const PluginxxOperatorNotify* notify,
-                             uint32_t timeoutMs = 5000) {
-        if (!notify || !notify->done) {
-            return -1;
-        }
-        return capabilityCall("musicxx.feature.point.list", "{}", notify, timeoutMs);
-    }
-
-    /// 调一条应用实现的能力 (异步; 结果经 `notify->done` 恰好一次回调)
-    ///
-    /// 订阅频率选项（每个订阅方自己的属性，互不影响）
-    ///
-    /// - `intervalMs` = 通知间隔（毫秒；`0` / 负数 = 不限频，每次广播都通知）；
-    /// - `mode` = 间隔内怎么处理：`"delay"`（缺省）只留最新一条、到点补发；
-    ///   `"drop"` 直接丢掉。
-    struct SubscribeOptions {
-        int64_t     intervalMs = 0;
-        const char* mode       = "delay";
+    /// 功能埋点声明信息 (可读字段)
+    struct MusicxxPluginPointSpec {
+        const char* title  = ""; ///< 展示名 (缺省用 id)
+        const char* depict = ""; ///< 一句话说明
+        const char* args   = ""; ///< 参数说明
+        const char* result = ""; ///< 结果说明
     };
 
-    /// 订阅广播频道（**框架线程**执行处理器；处理器不得阻塞）
-    /// - 频道必须符合命名空间规则: 官方 `musicxx.*` 或插件自定义
-    ///   `plugin.<本插件id>.*`; 其它前缀会被插件框架拒绝 (返回 -1);
-    /// - 处理器形如 `void(std::string_view payload_json)`; 订阅回调只有这一种形状
-    ///   （广播不分"事件"与"值"两种回调）;
-    /// - `pushOnSubscribe` 的频道在订阅返回前先用当前值回调一次，这次也算第一条通知；
-    /// - `options` 是这个订阅方自己的通知频率（见 [SubscribeOptions]），不传 = 不限频；
-    /// - 订阅句柄由插件框架按实例保活 (随 stop/卸载自动撤销), 插件无需保存;
-    /// - 处理器持有者与能力处理器同一存放位置, 生命周期 = 插件实例。
+    /// 声明一个自己的功能埋点 (`id` 必须形如 `plugin.<自己的插件 id>.<名字>`)
+    asio::awaitable<void> featurePointDefine(
+        const char* id, const MusicxxPluginPointSpec& spec) {
+        utilxx_base::Json payload = utilxx_base::Json::object();
+        payload["id"] = id ? id : "";
+        payload["title"] = spec.title ? spec.title : "";
+        payload["depict"] = spec.depict ? spec.depict : "";
+        payload["args"] = spec.args ? spec.args : "";
+        payload["result"] = spec.result ? spec.result : "";
+        (void)co_await capabilityCall("musicxx.feature.point.define", payload.dump());
+    }
+
+    /// 收回自己声明的功能埋点
+    asio::awaitable<void> featurePointUndefine(const char* id) {
+        utilxx_base::Json payload = utilxx_base::Json::object();
+        payload["id"] = id ? id : "";
+        (void)co_await capabilityCall("musicxx.feature.point.undefine", payload.dump());
+    }
+
+    /// 登记一个功能埋点的实现 (一个点一个处理器, `owner_tag` = 点 id)
+    ///
+    /// 处理器三种写法 (按可调用性自动选一种):
+    /// `fn(point, argsJson, caller)` / `fn(point, argsJson)` / `fn(argsJson)`;
+    /// 返回 `utilxx_base::Json` / 字符串 / 数字 / 布尔, 返回空串 = 这次不回答。
     template<typename Fn>
-    int32_t subscribeBroadcast(const char* topic, Fn&& fn,
-                               const SubscribeOptions& options = {}) {
-        using FnT       = std::decay_t<Fn>;
-        auto  holder    = std::make_unique<EventHolder<FnT>>(std::forward<Fn>(fn));
-        void* holderPtr = holder.get();
-        eventHolders_.push_back(std::move(holder));
-        return subscribeOnTable(topic, &EventHolder<FnT>::invoke, holderPtr, nullptr,
-                               options);
+    asio::awaitable<void> featurePointProvide(const char* pointId,
+                                                        Fn&& fn,
+                                                        int32_t priority = 0) {
+        using FnT = std::decay_t<Fn>;
+        const std::string selfId = co_await pluginId();
+        auto handler = [fn = FnT(std::forward<Fn>(fn)),
+                        point = std::string{pointId ? pointId : ""},
+                        selfId](std::string_view argsJson) mutable -> std::string {
+            std::string out;
+            detail::answerFeaturePoint(selfId, point, fn, argsJson, out);
+            return out;
+        };
+        co_await implement(pointId, priority, handler);
     }
 
-    /// 订阅广播频道，并在**流结束**时收到一次回调
+    /// 撤回某个功能埋点的实现
+    asio::awaitable<void> featurePointUnprovide(const char* pointId) {
+        co_await unimplementWithTag(pointId, pointId ? pointId : "");
+    }
+
+    /// 调一个功能埋点: 结果是被回答的值 (没人回答给 `null`)
+    asio::awaitable<utilxx_base::Json> featurePointCall(
+        const char* id, std::string_view argsJson = "{}") {
+        utilxx_base::Json payload = utilxx_base::Json::object();
+        payload["point"] = id ? id : "";
+        payload["caller"] = co_await pluginId();
+        payload["args"] = utilxx_base::Json::parse(
+            argsJson.empty() ? "{}" : std::string{argsJson});
+        const std::string answer =
+            co_await capabilityCall("musicxx.feature.point.call", payload.dump());
+        utilxx_base::Json parsed = utilxx_base::Json::parse(answer.empty() ? "null" : answer);
+        if (parsed.is_object() && parsed.contains("patch") &&
+            parsed["patch"].is_object() && parsed["patch"].contains("value")) {
+            co_return parsed["patch"]["value"];
+        }
+        co_return utilxx_base::Json(nullptr);
+    }
+
+    /// 列出现存的全部功能埋点 (JSON 文本)
+    asio::awaitable<std::string> featurePointList() {
+        co_return co_await capabilityCall("musicxx.feature.point.list", "{}");
+    }
+
+    /* ==================== 插件形态 (kind) ==================== */
+
+    asio::awaitable<void> kindRegister(std::string_view specJson) {
+        std::string spec{specJson};
+        co_await tableVoid(
+            [this, spec](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                const PluginxxStringView view = pluginxxView(spec);
+                return iface.kind->register_kind(host, &view, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> kindUnregister(std::string_view kind) {
+        std::string name{kind};
+        co_await tableVoid(
+            [this, name](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                const PluginxxStringView view = pluginxxView(name);
+                return iface.kind->unregister_kind(host, &view, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<std::string> kindList() {
+        co_return co_await tableText(
+            [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                return iface.kind->list_kinds(host, cb, ud, err);
+            });
+    }
+
+    /* ==================== 界面 (声明项 / 内容 / 槽位) ==================== */
+
+    asio::awaitable<void> uiItemRegister(
+        const char* itemName, const char* type, const char* dataJson,
+        int32_t order = 0) {
+        std::string name = itemName ? itemName : "";
+        std::string typeText = type ? type : "";
+        std::string data = (dataJson && *dataJson) ? dataJson : "{}";
+        co_await tableVoid(
+            [this, name, typeText, data, order](PluginxxOperatorCallback cb,
+                                                void* ud, PluginxxString* err) {
+                MusicxxPluginUIEntrySpec spec{};
+                spec.version = 1;
+                spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
+                spec.item_id = pluginxxView(name);
+                spec.type = pluginxxView(typeText);
+                spec.data_json = pluginxxView(data);
+                spec.order = order;
+                return iface.ui->register_entry(host, &spec, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> uiItemUnregister(const char* itemName) {
+        std::string name = itemName ? itemName : "";
+        co_await tableVoid(
+            [this, name](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                const PluginxxStringView view = pluginxxView(name);
+                return iface.ui->unregister_entry(host, &view, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<std::string> uiItemEntries() {
+        co_return co_await tableText(
+            [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                return iface.ui->list_entries(host, cb, ud, err);
+            });
+    }
+
+    /// 注册/覆盖一份内容
     ///
-    /// 频道属主结束这条流之后（[endBroadcast]）：`onEnd(reason_json)` 回调一次、订阅随即摘掉；
-    /// 之后发布返回 `PLUGINXX_RESULT_ERR_ENDED`（`-5`），`readBroadcast` 也读不到值。
-    /// 再次声明同一个 id = 开一条新流。
-    ///
-    /// 老插件框架（广播表 v2）没有 `subscribe_broadcast_ex`：按普通订阅降级，订阅本身照常，
-    /// 只是收不到结束通知（记一条日志）。
+    /// `generate` 是 C 函数指针 (签名见 `plugin_api.h`): 拿到 context 后经 `notify`
+    /// 恰好一次交回 `{"json":…,"data":…}`。它可以同步完成, 也可以先返回、稍后再补
+    /// (例如协程里 `co_await` 一次网络请求) —— 主程序不会为了等它停下帧。
+    template<typename GenerateFn>
+    asio::awaitable<void> uiContentRegister(
+        const char* contentId, const char* slot, GenerateFn generate,
+        std::string_view title = {}, std::string_view depict = {},
+        std::string_view routesJson = {}, std::string_view depsJson = "[]",
+        int32_t order = 0, int32_t minIntervalMs = 0) {
+        std::string id = contentId ? contentId : "";
+        std::string slotName = slot ? slot : "";
+        std::string titleText{title};
+        std::string depictText{depict};
+        std::string routes{routesJson};
+        std::string deps{depsJson.empty() ? "[]" : depsJson};
+        auto generatePtr = +generate;
+        co_await tableVoid(
+            [this, id, slotName, titleText, depictText, routes, deps, order,
+             minIntervalMs, generatePtr](PluginxxOperatorCallback cb, void* ud,
+                                          PluginxxString* err) {
+                MusicxxPluginUIContentSpec spec{};
+                spec.version = 1;
+                spec.struct_size = sizeof(MusicxxPluginUIContentSpec);
+                spec.id = pluginxxView(id);
+                spec.slot = pluginxxView(slotName);
+                spec.title = pluginxxView(titleText);
+                spec.depict = pluginxxView(depictText);
+                spec.routes_json = pluginxxView(routes);
+                spec.deps_json = pluginxxView(deps);
+                spec.order = order;
+                spec.min_interval_ms = minIntervalMs;
+                spec.generate = generatePtr;
+                spec.user_data = nullptr;
+                return iface.ui->register_content(host, &spec, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> uiContentUnregister(const char* contentId) {
+        std::string id = contentId ? contentId : "";
+        co_await tableVoid(
+            [this, id](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                const PluginxxStringView view = pluginxxView(id);
+                return iface.ui->unregister_content(host, &view, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> uiContentPush(const char* contentId,
+                                                 std::string_view contentJson) {
+        std::string id = contentId ? contentId : "";
+        std::string json{contentJson};
+        co_await tableVoid(
+            [this, id, json](PluginxxOperatorCallback cb, void* ud,
+                             PluginxxString* err) {
+                const PluginxxStringView idView = pluginxxView(id);
+                const PluginxxStringView jsonView = pluginxxView(json);
+                return iface.ui->push_content(host, &idView, &jsonView, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<std::string> uiContentEntries() {
+        co_return co_await tableText(
+            [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                return iface.ui->list_contents(host, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> uiSlotUpdate(const char* slot,
+                                                std::string_view idsJson = {}) {
+        std::string slotName = slot ? slot : "";
+        std::string ids{idsJson};
+        co_await tableVoid(
+            [this, slotName, ids](PluginxxOperatorCallback cb, void* ud,
+                                  PluginxxString* err) {
+                const PluginxxStringView slotView = pluginxxView(slotName);
+                const PluginxxStringView idsView = pluginxxView(ids);
+                return iface.ui->update_slot(host, &slotView,
+                                             ids.empty() ? nullptr : &idsView,
+                                             cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> uiSlotDefine(const char* slot,
+                                                const char* kind) {
+        std::string slotName = slot ? slot : "";
+        std::string kindText = kind ? kind : "";
+        co_await tableVoid(
+            [this, slotName, kindText](PluginxxOperatorCallback cb, void* ud,
+                                       PluginxxString* err) {
+                MusicxxPluginUISlotSpec spec{};
+                spec.version = 1;
+                spec.struct_size = sizeof(MusicxxPluginUISlotSpec);
+                spec.id = pluginxxView(slotName);
+                spec.kind = pluginxxView(kindText);
+                return iface.ui->define_slot(host, &spec, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<void> uiSlotUndefine(const char* slot) {
+        std::string slotName = slot ? slot : "";
+        co_await tableVoid(
+            [this, slotName](PluginxxOperatorCallback cb, void* ud,
+                             PluginxxString* err) {
+                const PluginxxStringView view = pluginxxView(slotName);
+                return iface.ui->undefine_slot(host, &view, cb, ud, err);
+            });
+    }
+
+    asio::awaitable<std::string> uiSlotList() {
+        co_return co_await tableText(
+            [this](PluginxxOperatorCallback cb, void* ud, PluginxxString* err) {
+                return iface.ui->list_slots(host, cb, ud, err);
+            });
+    }
+
+    /// 提示 (等价于能力 `musicxx.ui.toast`)
+    asio::awaitable<void> uiNotify(std::string_view messageJson) {
+        std::string message{messageJson};
+        co_await tableVoid(
+            [this, message](PluginxxOperatorCallback cb, void* ud,
+                            PluginxxString* err) {
+                const PluginxxStringView view = pluginxxView(message);
+                return iface.ui->notify(host, &view, cb, ud, err);
+            });
+    }
+
+protected:
+
+    /* ==================== 处理器与订阅的持有者 ==================== */
+
+    /// 能力处理器基类 (生命周期 = 实例; 注销时只摘登记, 对象留到实例销毁)
+    struct HandlerBase {
+        virtual ~HandlerBase() = default;
+    };
+
+    template<typename FnT>
+    struct HandlerHolder final : HandlerBase {
+        PluginBase* base = nullptr;
+        FnT         fn;
+
+        HandlerHolder(PluginBase* owner, FnT f) :
+            base(owner),
+            fn(std::move(f)) {}
+
+        /// 能力处理器入口 (插件框架在插件执行线程调用)
+        static void* PLUGINXX_CALL start(
+            void*                         userData,
+            const PluginxxHost*           /*callerHost*/,
+            const PluginxxStringView*     /*method*/,
+            const PluginxxStringView*     argsJson,
+            const PluginxxOperatorNotify* notify,
+            PluginxxString*               /*errorOut*/
+        ) {
+            auto* self = static_cast<HandlerHolder*>(userData);
+            if (!self || !notify || !notify->done) {
+                return nullptr;
+            }
+            using Ret = std::invoke_result_t<FnT&, std::string_view>;
+            const std::string input{stringViewOf(argsJson)};
+            try {
+                if constexpr (pluginxx::detail::IsPluginAwaitable<Ret>::value) {
+                    // 协程处理器: 交给实例的驱动桥推进, 完成后回调 notify
+                    const PluginxxOperatorNotify notifyCopy = *notify;
+                    auto inputPtr = std::make_shared<std::string>(input);
+                    auto fnCopy = self->fn;
+                    auto pr = pluginxx::detail::startProviderRoot(
+                        self->base->bridge(),
+                        notifyCopy,
+                        [fnCopy, inputPtr](std::shared_ptr<pluginxx::detail::ProviderRoot>) mutable {
+                            return fnCopy(std::string_view{*inputPtr});
+                        },
+                        [](std::string value) {
+                            return std::make_pair(PLUGINXX_OPERATOR_OK,
+                                                  std::move(value));
+                        },
+                        [](std::exception_ptr) {
+                            return std::make_pair(
+                                PLUGINXX_OPERATOR_FAILED,
+                                std::string{"handler failed"});
+                        });
+                    return pr.get();
+                } else {
+                    const std::string out = self->fn(std::string_view{input});
+                    if (out.empty()) {
+                        notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+                    } else {
+                        const PluginxxStringView view = pluginxxView(out);
+                        notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, &view);
+                    }
+                    return nullptr;
+                }
+            } catch (const std::exception& e) {
+                const std::string_view reason{e.what()};
+                const PluginxxStringView view{reason.data(), reason.size()};
+                notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+            } catch (...) {
+                static constexpr std::string_view kUnknown{"unknown exception"};
+                const PluginxxStringView view{kUnknown.data(), kUnknown.size()};
+                notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+            }
+            return nullptr;
+        }
+
+        /// 取消一个还在跑的协程处理器 (框架关闭 / 调用方撤销)
+        static void PLUGINXX_CALL cancel(void* /*userData*/, void* op) {
+            if (!op) {
+                return;
+            }
+            static_cast<pluginxx::detail::CancelableProvider*>(op)->requestCancel();
+        }
+    };
+
+    /// 事件订阅的持有者 (生命周期 = 实例)
+    struct EventHolder {
+        std::function<void(std::string_view)> onEvent;
+        std::function<void(std::string_view)> onEnd;
+    };
+
+    static void PLUGINXX_CALL eventTrampoline(
+        const PluginxxStringView* payloadJson, void* ud) {
+        auto* holder = static_cast<EventHolder*>(ud);
+        if (!holder || !holder->onEvent) {
+            return;
+        }
+        try {
+            holder->onEvent(stringViewOf(payloadJson));
+        } catch (...) {
+            // 处理器异常不得穿越 C ABI
+        }
+    }
+
+    static void PLUGINXX_CALL endTrampoline(
+        const PluginxxStringView* reasonJson, void* ud) {
+        auto* holder = static_cast<EventHolder*>(ud);
+        if (!holder || !holder->onEnd) {
+            return;
+        }
+        try {
+            holder->onEnd(stringViewOf(reasonJson));
+        } catch (...) {
+        }
+    }
+
+    /// 订阅的公共实现 (带 / 不带流结束回调)
     template<typename Fn, typename EndFn>
-    int32_t subscribeBroadcastWithEnd(const char* topic, Fn&& fn, EndFn&& onEnd,
-                                      const SubscribeOptions& options = {}) {
-        using HolderT = EventWithEndHolder<std::decay_t<Fn>, std::decay_t<EndFn>>;
-        auto  holder  = std::make_unique<HolderT>(std::forward<Fn>(fn),
-                                                 std::forward<EndFn>(onEnd));
-        void* holderPtr = holder.get();
-        eventHolders_.push_back(std::move(holder));
-        return subscribeOnTable(topic, &HolderT::invoke, holderPtr, &HolderT::invokeEnd,
-                               options);
+    asio::awaitable<PluginxxSubscription*> subscribeBroadcastImpl(
+        std::string_view topic, Fn&& fn, EndFn&& onEnd,
+        std::string_view optionsJson) {
+        if (!iface.broadcasts) {
+            throw std::runtime_error("musicxx.broadcasts 表不可用");
+        }
+        auto holder = std::make_shared<EventHolder>();
+        holder->onEvent = [fn = std::decay_t<Fn>(std::forward<Fn>(fn))](
+                              std::string_view payload) mutable { fn(payload); };
+        if constexpr (!std::is_same_v<std::decay_t<EndFn>, std::nullptr_t>) {
+            holder->onEnd = [end = std::decay_t<EndFn>(std::forward<EndFn>(onEnd))](
+                                std::string_view reason) mutable { end(reason); };
+        }
+        events_.push_back(holder);
+        std::string topicText{topic};
+        std::string options{optionsJson};
+        const std::string handle = co_await tableText(
+            [this, topicText, options, holder](PluginxxOperatorCallback cb,
+                                               void* ud, PluginxxString* err) {
+                const PluginxxStringView topicView = pluginxxView(topicText);
+                const PluginxxStringView optionsView = pluginxxView(options);
+                const PluginxxStringView* optionsPtr =
+                    options.empty() ? nullptr : &optionsView;
+                if (iface.broadcasts->subscribe_broadcast_ex &&
+                    holder->onEnd) {
+                    return iface.broadcasts->subscribe_broadcast_ex(
+                        host, nullptr, &topicView, &eventTrampoline,
+                        &endTrampoline, holder.get(), optionsPtr, cb, ud, err);
+                }
+                return iface.broadcasts->subscribe_broadcast(
+                    host, nullptr, &topicView, &eventTrampoline, holder.get(),
+                    optionsPtr, cb, ud, err);
+            });
+        uint64_t value = 0;
+        for (const char c : handle) {
+            if (c < '0' || c > '9') {
+                value = 0;
+                break;
+            }
+            value = value * 10 + static_cast<uint64_t>(c - '0');
+        }
+        co_return reinterpret_cast<PluginxxSubscription*>(
+            static_cast<uintptr_t>(value));
     }
 
-    /// 结束本插件的一条流（只有频道属主能结束）
-    ///
-    /// - `reasonJson` 原样交给每个订阅方的结束回调（空 = `{}`）；
-    /// - 返回 0 = 已结束（重复结束也算成功）；非 0 = 频道不存在 / 不是自己的频道 /
-    ///   插件框架版本过旧（表里没有 `end_broadcast`）；
-    /// - 结束后这条频道不能再发布、读不到当前值；再次 `declareBroadcast` 同一个 id
-    ///   才开一条新流。
-    int32_t endBroadcast(const char* topic, const char* reasonJson = nullptr) {
-        if (!iface.broadcasts || !iface.broadcasts->end_broadcast) {
-            log.warn("<应用名>.broadcasts 表没有 end_broadcast: 结束流未生效 (插件框架版本过旧?)");
-            return -1;
+    /// 统一的处理器登记路径 (带 owner_tag / 阶段 / 优先级)
+    template<typename Fn>
+    asio::awaitable<void> implementOn(const char* capabilityId,
+                                                const char* ownerTag,
+                                                int32_t priority, int32_t phase,
+                                                Fn&& fn) {
+        if (!iface.capabilities || !iface.capabilities->register_capability) {
+            throw std::runtime_error("musicxx.capabilities 表不可用");
         }
-        PluginxxStringView idView = pluginxxView(topic ? topic : "");
-        PluginxxStringView reasonView =
-            pluginxxView((reasonJson && *reasonJson) ? reasonJson : "{}");
-        PluginxxString error{};
-        const int32_t rc =
-            iface.broadcasts->end_broadcast(host, &idView, &reasonView, &error);
-        if (error.data) {
-            log.warn(std::string{"结束广播失败: "}
-                     + std::string{error.data, static_cast<size_t>(error.size)});
-            hostStringFree(error);
-        }
-        return rc;
+        using FnT = std::decay_t<Fn>;
+        auto holder = std::make_shared<HandlerHolder<FnT>>(
+            this, FnT(std::forward<Fn>(fn)));
+        handlers_.push_back(holder);
+        HandlerHolder<FnT>* raw = holder.get();
+        std::string id = capabilityId ? capabilityId : "";
+        std::string tag = ownerTag ? ownerTag : "";
+        co_await tableVoid(
+            [this, id, tag, priority, phase, raw](PluginxxOperatorCallback cb,
+                                                  void* ud, PluginxxString* err) {
+                PluginxxCapabilitySpec spec{};
+                spec.version = PLUGINXX_API_VERSION;
+                spec.struct_size = sizeof(PluginxxCapabilitySpec);
+                spec.id = pluginxxView(id);
+                spec.owner_tag = pluginxxView(tag);
+                spec.impls = PLUGINXX_CAPABILITY_IMPLS_MANY;
+                spec.merge = PLUGINXX_CAPABILITY_MERGE_NONE;
+                spec.phases = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL |
+                              PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
+                              PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
+                spec.phase = phase;
+                spec.priority = priority;
+                spec.sync = 0;
+                spec.run_start = &HandlerHolder<FnT>::start;
+                spec.cancel = &HandlerHolder<FnT>::cancel;
+                spec.user_data = raw;
+                return iface.capabilities->register_capability(host, nullptr,
+                                                               &spec, cb, ud, err);
+            });
     }
 
-    /* ---------- 插件形态（kind）：把自己做成某种语言 / 格式的运行器 ---------- */
+private:
 
-    /// 登记一种插件形态（本插件成为它的运行器）
-    ///
-    /// `specJson`：
-    /// `{"kind":"python","requiresPluginAbi":false,`
-    /// `"loadCapability":"plugin.<本插件id>.kind_load",`
-    /// `"unloadCapability":"plugin.<本插件id>.kind_unload","describe":"..."}`
-    /// - 登记成功后，`kind: python` 的插件包在扫描/判定/加载时都会问到本插件；
-    /// - 加载 / 卸载由 `loadCapability` / `unloadCapability` 承担（载荷与回答见
-    ///   `plugin_api.h` 的 `MUSICXX_PLUGIN_IFACE_KIND` 说明）；
-    /// - 跟着插件生命周期撤销，不写磁盘；内置形态 `native` / `js` 不能被覆盖。
-    int32_t kindRegister(const char* specJson) {
-        if (!iface.kind || !iface.kind->register_kind) {
-            log.warn("musicxx.kind 表不可用: 插件形态未登记 (插件框架版本过旧?)");
-            return -1;
-        }
-        PluginxxStringView spec = pluginxxView(specJson ? specJson : "");
-        return iface.kind->register_kind(host, &spec);
-    }
-
-    /// 撤销本插件登记的形态
-    int32_t kindUnregister(const char* kind) {
-        if (!iface.kind || !iface.kind->unregister_kind) {
-            return -1;
-        }
-        PluginxxStringView kindView = pluginxxView(kind ? kind : "");
-        return iface.kind->unregister_kind(host, &kindView);
-    }
-
-    /// 列出全部形态（内置 + 插件登记）；返回 JSON 数组，失败返回空串
-    std::string kindList() {
-        if (!iface.kind || !iface.kind->list_kinds) {
-            return {};
-        }
-        PluginxxString out{};
-        if (iface.kind->list_kinds(host, &out) != 0 || !out.data) {
-            return {};
-        }
-        std::string json{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return json;
-    }
-
-    /* ---------- 声明式界面 (名字用短名, 插件框架自动补前缀) ---------- */
-
-    /// 注册一个声明项 (入口 / 菜单项 / 音效 / 可选样式)
-    ///
-    /// `itemName` 用短名 (如 "card"), `type` 取 `MUSICXX_PLUGIN_UI_SLOT_*`,
-    /// `dataJson` 是这种声明项的内容 (JSON 对象)。
-    int32_t uiItemRegister(const char* itemName, const char* type, const char* dataJson, int32_t order = 0) {
-        if (!iface.ui || !iface.ui->register_entry) {
-            log.warn("musicxx.ui 表不可用: 声明项未注册 (插件框架版本过旧?)");
-            return -1;
-        }
-        MusicxxPluginUIEntrySpec spec{};
-        spec.version     = 1;
-        spec.struct_size = sizeof(MusicxxPluginUIEntrySpec);
-        spec.item_id     = pluginxxView(itemName ? itemName : "");
-        spec.type        = pluginxxView(type ? type : "");
-        spec.data_json   = pluginxxView(dataJson ? dataJson : "");
-        spec.order       = order;
-        spec.flags       = 0;
-        return iface.ui->register_entry(host, &spec);
-    }
-
-    /// 注册一个声明项 (`data` 用 Json 对象传; 与上面那版等价)
-    int32_t uiItemRegister(const char* itemName, const char* type,
-                       const utilxx_base::Json& data, int32_t order = 0) {
-        const std::string json = data.dump();
-        return uiItemRegister(itemName, type, json.c_str(), order);
-    }
-
-    /// 注销一个声明项
-    int32_t uiItemUnregister(const char* itemName) {
-        if (!iface.ui || !iface.ui->unregister_entry) {
-            return -1;
-        }
-        PluginxxStringView itemView = pluginxxView(itemName ? itemName : "");
-        return iface.ui->unregister_entry(host, &itemView);
-    }
-
-    /// 本插件已注册的声明项 (JSON 数组; 表不可用时返回空数组)
-    std::string uiItemEntries() const {
-        if (!iface.ui || !iface.ui->list_entries) {
-            return "[]";
-        }
-        PluginxxString out{};
-        if (iface.ui->list_entries(host, &out) != 0 || !out.data) {
-            return "[]";
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
-    /// 注册一份内容 (挂在某个槽位上的界面 JSON 的生成器)
-    ///
-    /// - `contentId` 用短名; `slot` 可以是简称、全名或本插件声明的槽位;
-    /// - `generate` 是同步回调: 把主程序给的 `ctx_json` 变成 `{"json":…}` / `{"data":…}`;
-    /// - `depsJson` 是变量 id 数组 (插件按这些变量决定结构);
-    /// - `title` / `depict` 是给人看的名字与说明: 可选样式槽位要在用户选中之前就列出来,
-    ///   那时候还没有内容, 所以名字只能在这里给;
-    /// - `routesJson` 是适用的页面路由 (JSON 字符串数组, 只对 `pageBackground` 槽位有意义;
-    ///   不写 = 所有普通页面)。
-    int32_t uiContentRegister(const char* contentId, const char* slot,
-                              const char* depsJson,
-                              int32_t (PLUGINXX_CALL* generate)(
-                                  const PluginxxHost*, const PluginxxStringView*,
-                                  PluginxxString*),
-                              int32_t order = 0, int32_t minIntervalMs = 0,
-                              const char* title = "",
-                              const char* depict = "",
-                              const char* routesJson = "[]") {
-        if (!iface.ui || !iface.ui->register_content) {
-            log.warn("musicxx.ui 表不可用: 内容未注册 (插件框架版本过旧?)");
-            return -1;
-        }
-        MusicxxPluginUIContentSpec spec{};
-        spec.version         = 1;
-        spec.struct_size     = sizeof(MusicxxPluginUIContentSpec);
-        spec.id              = pluginxxView(contentId ? contentId : "");
-        spec.slot            = pluginxxView(slot ? slot : "");
-        spec.title           = pluginxxView(title ? title : "");
-        spec.depict          = pluginxxView(depict ? depict : "");
-        spec.routes_json     = pluginxxView(routesJson ? routesJson : "[]");
-        spec.deps_json       = pluginxxView(depsJson ? depsJson : "[]");
-        spec.order           = order;
-        spec.min_interval_ms = minIntervalMs;
-        spec.flags           = 0;
-        spec.generate        = generate;
-        return iface.ui->register_content(host, &spec);
-    }
-
-    /// 注销一份内容
-    int32_t uiContentUnregister(const char* contentId) {
-        if (!iface.ui || !iface.ui->unregister_content) {
-            return -1;
-        }
-        PluginxxStringView idView = pluginxxView(contentId ? contentId : "");
-        return iface.ui->unregister_content(host, &idView);
-    }
-
-    /// 直接给一份内容 (不等主程序来问; `contentJson` 形如 `{"json":…}`)
-    int32_t uiContentPush(const char* contentId, const char* contentJson) {
-        if (!iface.ui || !iface.ui->push_content) {
-            return -1;
-        }
-        PluginxxStringView idView = pluginxxView(contentId ? contentId : "");
-        PluginxxStringView jsonView = pluginxxView(contentJson ? contentJson : "{}");
-        return iface.ui->push_content(host, &idView, &jsonView);
-    }
-
-    /// 本插件已注册的内容 (JSON 数组; 表不可用时返回空数组)
-    std::string uiContentEntries() const {
-        if (!iface.ui || !iface.ui->list_contents) {
-            return "[]";
-        }
-        PluginxxString out{};
-        if (iface.ui->list_contents(host, &out) != 0 || !out.data) {
-            return "[]";
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
-    /// 要求主程序用当前变量再问一次 (`idsJson` 空 = 这个槽位上本插件的全部内容)
-    int32_t uiSlotUpdate(const char* slot, const char* idsJson = nullptr) {
-        if (!iface.ui || !iface.ui->update_slot) {
-            return -1;
-        }
-        PluginxxStringView slotView = pluginxxView(slot ? slot : "");
-        PluginxxStringView idsView = pluginxxView(idsJson ? idsJson : "");
-        return iface.ui->update_slot(host, &slotView, &idsView);
-    }
-
-    /// 声明自己的槽位 (`plugin.<自己>.ui.<名字>`, kind 只能是 insert / replace)
-    int32_t uiSlotDefine(const char* slot, const char* kind) {
-        if (!iface.ui || !iface.ui->define_slot) {
-            return -1;
-        }
-        MusicxxPluginUISlotSpec spec{};
-        spec.version     = 1;
-        spec.struct_size = sizeof(MusicxxPluginUISlotSpec);
-        spec.id          = pluginxxView(slot ? slot : "");
-        spec.kind        = pluginxxView(kind ? kind : "insert");
-        spec.flags       = 0;
-        return iface.ui->define_slot(host, &spec);
-    }
-
-    /// 撤销自己声明的槽位 (挂在上面的内容一起失效)
-    int32_t uiSlotUndefine(const char* slot) {
-        if (!iface.ui || !iface.ui->undefine_slot) {
-            return -1;
-        }
-        PluginxxStringView slotView = pluginxxView(slot ? slot : "");
-        return iface.ui->undefine_slot(host, &slotView);
-    }
-
-    /// 槽位表 (应用的 + 插件声明的; JSON 数组)
-    std::string uiSlotList() const {
-        if (!iface.ui || !iface.ui->list_slots) {
-            return "[]";
-        }
-        PluginxxString out{};
-        if (iface.ui->list_slots(host, &out) != 0 || !out.data) {
-            return "[]";
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
-    /// 提示 (等价能力 `musicxx.ui.toast`, 固定记一条插件日志; fire-and-forget, 不等待用户界面)
-    int32_t uiNotify(const char* messageJson) {
-        if (!iface.ui || !iface.ui->notify) {
-            return -1;
-        }
-        PluginxxStringView messageView = pluginxxView(messageJson ? messageJson : "{}");
-        return iface.ui->notify(host, &messageView);
-    }
-
-    /// 用框架堆把字符串写进跨边界出参 (插件必须用框架分配器, 不得用 CRT malloc)
-    static void hostStringSet(const PluginxxHost* host, PluginxxString* out, std::string_view text) {
-        if (!out) {
-            return;
-        }
-        out->data = nullptr;
-        out->size = 0;
-        if (text.empty() || !host || !host->vtable || !host->vtable->alloc) {
-            return;
-        }
-        auto* p = static_cast<char*>(host->vtable->alloc(text.size() + 1));
-        if (!p) {
-            return;
-        }
-        std::memcpy(p, text.data(), text.size());
-        p[text.size()] = '\0';
-        out->data      = p;
-        out->size      = static_cast<uint64_t>(text.size());
-    }
-
-    /// 释放框架堆字符串 (经框架 vtable; 插件不得用 CRT free)
+    /// 主程序堆字符串 → std::string (并把内存还回去)
     void hostStringFree(PluginxxString& s) const {
         if (s.data && host && host->vtable && host->vtable->free) {
             host->vtable->free(s.data);
@@ -1058,344 +1014,15 @@ public:
         s.size = 0;
     }
 
-protected:
-
-    /// 构造 C ABI 字符串视图 (跨边界只读借用)
-    static PluginxxStringView pluginxxView(std::string_view text) {
-        return PluginxxStringView{text.data(), static_cast<uint64_t>(text.size())};
-    }
-protected:
-
-    /// 同步处理器持有者基类 (类型擦除: 支持任意 lambda)
-    class CapabilityHolderBase {
-    public:
-        virtual ~CapabilityHolderBase() = default;
-    };
-
-    template<typename FnT>
-    struct CapabilityHolder : CapabilityHolderBase {
-        const PluginxxHost* host = nullptr;
-        FnT                 fn;
-
-        CapabilityHolder(const PluginxxHost* h, FnT f) :
-            host(h),
-            fn(std::move(f)) {}
-
-        /// 能力契约的 trampoline (`musicxx.capabilities` 的处理器形态)
-        ///
-        /// 同步处理器: 算完就 `notify->done` 一次, 让宿主这一轮就能拿结果
-        /// (宿主派发是同步的, 异步给结果的处理器不会参与合并)。
-        static void* PLUGINXX_CALL invokeCapability(
-            void*                            user_data,
-            const PluginxxHost*              /*caller_host*/,
-            const PluginxxStringView*        /*method*/,
-            const PluginxxStringView*        args_json,
-            const PluginxxOperatorNotify*    notify,
-            PluginxxString*                  /*error_out*/
-        ) {
-            auto* self = static_cast<CapabilityHolder*>(user_data);
-            if (!self || !notify || !notify->done) {
-                return nullptr;
-            }
-            int32_t     status = PLUGINXX_OPERATOR_OK;
-            std::string out;
-            try {
-                std::string_view input{};
-                if (args_json && args_json->data) {
-                    input = std::string_view{
-                        args_json->data,
-                        static_cast<size_t>(args_json->size)
-                    };
-                }
-                if (self->fn(input, out) != 0) {
-                    status = PLUGINXX_OPERATOR_FAILED;
-                    out.clear();
-                }
-            } catch (const std::exception& e) {
-                status = PLUGINXX_OPERATOR_FAILED;
-                out = e.what();
-            } catch (...) {
-                status = PLUGINXX_OPERATOR_FAILED;
-                out = "unknown exception";
-            }
-            if (status == PLUGINXX_OPERATOR_OK && out.empty()) {
-                notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
-            } else {
-                const PluginxxStringView view{out.data(), out.size()};
-                notify->done(notify->host_ud, status, &view);
-            }
-            return nullptr;
-        }
-    };
-
-    /// 统一的同步处理器注册路径
-    template<typename Fn>
-    int32_t registerSync(const char* capabilityId, int32_t priority, Fn&& fn) {
-        return registerSyncWithTag(capabilityId, "", priority,
-                                   MUSICXX_CAPABILITY_PHASE_IMPL, std::forward<Fn>(fn));
-    }
-
-    /// 统一的同步处理器注册路径（带 `owner_tag`）
-    ///
-    /// 统一的同步处理器注册路径（带 `owner_tag`）
-    ///
-    /// `owner_tag` 是"这个处理器代表着什么"的标签：同一个插件可以在同一个能力上登记多个
-    /// 处理器（靠它区分），自省里也会原样列出；功能埋点的约定是 `owner_tag = 点 id`
-    /// （见 [featurePointProvide]）。
-    ///
-    /// 登记走插件框架的 `musicxx.capabilities`：处理器是能力契约（同步 `notify->done`），
-    /// 派发走不走的顺序（前链正序、后链逆序、层内按优先级）由插件框架按能力声明决定。
-    template<typename Fn>
-    int32_t registerSyncWithTag(const char* capabilityId, const char* ownerTag,
-                                int32_t priority, int32_t phase, Fn&& fn) {
-        if (!iface.capabilities || !iface.capabilities->register_capability) {
-            log.warn("musicxx.capabilities 表不可用: 能力未注册 (插件框架版本过旧?)");
-            return -1;
-        }
-        using FnT       = std::decay_t<Fn>;
-        auto  holder    = std::make_unique<CapabilityHolder<FnT>>(host, std::forward<Fn>(fn));
-        void* holderPtr = holder.get();
-        holders_.push_back(std::move(holder));
-
-        PluginxxCapabilitySpec cap{};
-        cap.version     = PLUGINXX_API_VERSION;
-        cap.struct_size = sizeof(PluginxxCapabilitySpec);
-        cap.id          = pluginxxView(capabilityId);
-        cap.owner_tag   = pluginxxView(ownerTag ? ownerTag : "");
-        cap.impls       = PLUGINXX_CAPABILITY_IMPLS_MANY;
-        cap.merge       = PLUGINXX_CAPABILITY_MERGE_NONE;
-        cap.phases      = PLUGINXX_CAPABILITY_PHASE_MASK_IMPL |
-                          PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE |
-                          PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
-        switch (phase) {
-        case MUSICXX_CAPABILITY_PHASE_BEFORE:
-            cap.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
-            break;
-        case MUSICXX_CAPABILITY_PHASE_AFTER:
-            cap.phase = PLUGINXX_CAPABILITY_PHASE_AFTER;
-            break;
-        default:
-            cap.phase = PLUGINXX_CAPABILITY_PHASE_IMPL;
-            break;
-        }
-        cap.priority  = priority;
-        cap.sync      = 1; ///< 宿主派发是同步的: 只登记同步处理器
-        cap.run_start = &CapabilityHolder<FnT>::invokeCapability;
-        cap.user_data = holderPtr;
-        PluginxxString error{};
-        const int32_t  rc =
-            iface.capabilities->register_capability(host, nullptr, &cap, &error);
-        if (error.data) {
-            log.warn(std::string{"能力登记失败: "} +
-                     std::string{error.data, static_cast<size_t>(error.size)});
-            hostStringFree(error);
-        }
-        return rc;
-    }
-
-private:
-
-    /// 读取 host 表里的字符串型查询 (统一处理出参所有权)
-    template<typename FnT>
-    std::string readHostString(FnT method) const {
-        if (!iface.host || !(iface.host->*method)) {
-            return {};
-        }
-        PluginxxString out{};
-        if ((iface.host->*method)(host, &out) != 0 || !out.data) {
-            return {};
-        }
-        std::string result{out.data, static_cast<size_t>(out.size)};
-        hostStringFree(out);
-        return result;
-    }
-
-    /// 同步处理器持有者 (生命周期与实例相同; start 事务里累积)
-    std::vector<std::unique_ptr<CapabilityHolderBase>> holders_;
-
-    /// 能力调用完成通知的持有者 (应用/框架会长期持有该指针; 见 capabilityCall 说明)
-    struct ActionNotifyHolder {
-        PluginxxOperatorNotify user{};      ///< 插件传入的完成通知 (原样保留)
-        PluginxxOperatorNotify forward{};   ///< 转交给主程序的通知 (地址在堆上, 稳定)
-        bool                   doneCalled = false;
-    };
-
-    /// 完成通知转接 (框架线程调用): 标记完成并转发给插件自己的回调
-    static void PLUGINXX_CALL actionNotifyTrampoline(
-        void*                     ud,
-        int32_t                   status,
-        const PluginxxStringView* payload
-    ) noexcept {
-        auto* holder = static_cast<ActionNotifyHolder*>(ud);
-        if (!holder || holder->doneCalled) {
-            return;
-        }
-        holder->doneCalled = true; ///< 框架保证恰好一次; 这里再兜一层
-        if (holder->user.done) {
-            try {
-                holder->user.done(holder->user.host_ud, status, payload);
-            } catch (...) {
-                // 完成回调异常不得穿越 C ABI
-            }
-        }
-    }
-
-    /// 回收已完成的调用通知 (保留最近若干张作为墓碑, 防止迟到回调命中已释放内存)
-    void pruneActionNotifies() {
-        constexpr size_t kFinishedRetention = 8;
-        size_t           finished           = 0;
-        for (const auto& holder : actionNotifies_) {
-            if (holder && holder->doneCalled) {
-                ++finished;
-            }
-        }
-        while (finished > kFinishedRetention) {
-            const auto it = std::find_if(
-                actionNotifies_.begin(),
-                actionNotifies_.end(),
-                [](const std::unique_ptr<ActionNotifyHolder>& holder) {
-                    return holder && holder->doneCalled;
-                }
-            );
-            if (it == actionNotifies_.end()) {
-                break;
-            }
-            actionNotifies_.erase(it);
-            --finished;
-        }
-    }
-
-    std::vector<std::unique_ptr<ActionNotifyHolder>> actionNotifies_;
-
-    /// 事件订阅处理器持有者 (同上)
-    template<typename FnT>
-    struct EventHolder : CapabilityHolderBase {
-        FnT fn;
-
-        explicit EventHolder(FnT f) :
-            fn(std::move(f)) {}
-
-        /// C ABI 事件处理器 trampoline (框架线程调用; 异常必须就地吞掉)
-        static void PLUGINXX_CALL invoke(const PluginxxStringView* event_json, void* ud) noexcept {
-            auto* self = static_cast<EventHolder*>(ud);
-            if (!self) {
-                return;
-            }
-            try {
-                std::string_view data{};
-                if (event_json && event_json->data) {
-                    data = std::string_view{event_json->data, static_cast<size_t>(event_json->size)};
-                }
-                self->fn(data);
-            } catch (...) {
-                // 事件处理器异常不得穿越 C ABI
-            }
-        }
-    };
-
-    std::vector<std::unique_ptr<CapabilityHolderBase>> eventHolders_;
-
-    /// 事件订阅 + 流结束回调的持有者
-    ///
-    /// 广播表的 `subscribe_broadcast_ex` 只给一个 `ud`，两个回调必须从同一块内存取各自的
-    /// 函数对象，所以放在一个持有者里。
-    template<typename FnT, typename EndFnT>
-    struct EventWithEndHolder : CapabilityHolderBase {
-        FnT    fn;
-        EndFnT endFn;
-
-        EventWithEndHolder(FnT f, EndFnT e) :
-            fn(std::move(f)),
-            endFn(std::move(e)) {}
-
-        /// 值回调 (框架线程调用; 异常必须就地吞掉)
-        static void PLUGINXX_CALL invoke(const PluginxxStringView* event_json, void* ud) noexcept {
-            auto* self = static_cast<EventWithEndHolder*>(ud);
-            if (!self) {
-                return;
-            }
-            try {
-                std::string_view data{};
-                if (event_json && event_json->data) {
-                    data = std::string_view{event_json->data, static_cast<size_t>(event_json->size)};
-                }
-                self->fn(data);
-            } catch (...) {
-                // 回调异常不得穿越 C ABI
-            }
-        }
-
-        /// 流结束回调 (框架线程调用; 同一个 `ud`)
-        static void PLUGINXX_CALL invokeEnd(const PluginxxStringView* reason_json, void* ud) noexcept {
-            auto* self = static_cast<EventWithEndHolder*>(ud);
-            if (!self) {
-                return;
-            }
-            try {
-                std::string_view reason{};
-                if (reason_json && reason_json->data) {
-                    reason = std::string_view{reason_json->data, static_cast<size_t>(reason_json->size)};
-                }
-                self->endFn(reason);
-            } catch (...) {
-                // 回调异常不得穿越 C ABI
-            }
-        }
-    };
-
-    /// 订阅频率选项转成 JSON 文本（空串 = 不限频，不传给插件框架）
-    static std::string subscribeOptionsJson(const SubscribeOptions& options) {
-        if (options.intervalMs <= 0
-            && (!options.mode || std::string_view{options.mode} == "delay")) {
-            return {};
-        }
-        return std::string{"{\"intervalMs\":"}
-               + std::to_string(options.intervalMs > 0 ? options.intervalMs : 0)
-               + ",\"mode\":\""
-               + (options.mode && *options.mode ? options.mode : "delay") + "\"}";
-    }
-
-    /// 订阅的广播表调用（两个订阅入口共用）
-    ///
-    /// 广播表 v3 有 `subscribe_broadcast_ex` 时用它（多一个结束回调），否则退回
-    /// `subscribe_broadcast`。表只给一个 `ud`，值回调与结束回调共用它。
-    int32_t subscribeOnTable(const char* topic,
-                             void(PLUGINXX_CALL* handler)(const PluginxxStringView*, void*),
-                             void* ud,
-                             void(PLUGINXX_CALL* onEnd)(const PluginxxStringView*, void*),
-                             const SubscribeOptions& options) {
-        if (!iface.broadcasts || !iface.broadcasts->subscribe_broadcast) {
-            log.warn("<应用名>.broadcasts 表不可用: 广播订阅未生效 (插件框架版本过旧?)");
-            return -1;
-        }
-        PluginxxStringView topicView = pluginxxView(topic ? topic : "");
-        // 作用域引用: 主程序只有一条主题总线, 传空表示订阅它
-        const std::string optionsJson = subscribeOptionsJson(options);
-        const PluginxxStringView optionsView = pluginxxView(optionsJson.c_str());
-        const PluginxxStringView* optionsPtr =
-            optionsJson.empty() ? nullptr : &optionsView;
-        PluginxxSubscription* sub = nullptr;
-        if (onEnd && iface.broadcasts->subscribe_broadcast_ex) {
-            sub = iface.broadcasts->subscribe_broadcast_ex(
-                host, nullptr, &topicView, handler, onEnd, ud, optionsPtr, nullptr);
-        } else {
-            if (onEnd) {
-                log.warn("<应用名>.broadcasts 表没有 subscribe_broadcast_ex: "
-                         "收不到流结束通知 (插件框架版本过旧?)");
-            }
-            sub = iface.broadcasts->subscribe_broadcast(
-                host, nullptr, &topicView, handler, ud, optionsPtr, nullptr);
-        }
-        return sub ? 0 : -1;
-    }
-
-    /// 本插件 id (从 `host.info().pluginId` 读一次后缓存; 功能埋点糖用它过滤自己发起的调用)
+    std::vector<std::shared_ptr<HandlerBase>> handlers_;
+    std::vector<std::shared_ptr<EventHolder>> events_;
     std::string pluginId_{};
     bool        pluginIdLoaded_ = false;
 };
 
-} // namespace musicxx::plugin
+} // namespace plugin
 } // namespace musicxx
+
 
 /* ==================== 生命周期事务适配 ==================== */
 
@@ -1403,50 +1030,90 @@ namespace musicxx {
 namespace plugin {
 namespace detail {
 
-/// 生命周期事务适配 (导出宏内部使用): 把插件开发者的简单事务函数包装成插件框架入口
+/// 生命周期事务适配 (导出宏内部使用): 把插件开发者的事务函数包装成插件框架入口
 ///
-/// 支持两种写法:
-/// - **简单形式** `int32_t(Ctx&)`: 返回 0 = 事务成功, 非 0 = 失败。SDK 按插件框架约定
-///   为本次事务调用一次完成通知 (`notify->done`), 插件无需关心通知协议;
-/// - **插件框架原始形式** `void*(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`:
-///   由插件自己调用 `notify->done` (进阶写法, 与 cxx_pluginxx 的 kit 一致)。
-///
-/// 为什么必须有完成通知: 插件框架把"返回 NULL 且从未 done"判为协议违约
-/// (`protocol violation: null operation without done/error`), 会拒绝本次事务并回滚加载。
+/// 支持三种写法:
+/// - **同步** `int32_t(Ctx&)` / `void(Ctx&)`: 跑完就通知 (0 = 成功);
+/// - **协程** `asio::awaitable<void>(Ctx&)`: 在实例的驱动桥上跑, 事务里可以 `co_await`
+///   注册 / 订阅 / 读配置, 完成或抛异常时通知恰好一次;
+/// - **插件框架原始形参** `(Ctx&, const PluginxxOperatorNotify*, PluginxxString*)`:
+///   插件自己负责完成通知。
 template<typename Ctx, typename Fn>
-inline void* runLifecycleEntry(
-    Ctx&                          ctx,
-    const PluginxxOperatorNotify* notify,
-    PluginxxString*               error_out,
-    const char*                   label,
-    Fn&&                          fn
-) noexcept {
+inline void runLifecycleEntry(Ctx&                          ctx,
+                              const PluginxxOperatorNotify* notify,
+                              PluginxxString*               error_out,
+                              const char*                   label,
+                              Fn&&                          fn) noexcept {
     using FnT = std::decay_t<Fn>;
-    if constexpr (std::is_invocable_v<FnT&, Ctx&, const PluginxxOperatorNotify*, PluginxxString*>) {
-        // 插件框架原始签名: 完成通知由插件自己负责
-        return fn(ctx, notify, error_out);
+    auto finish = [notify](int32_t status, const std::string& message) {
+        if (!notify || !notify->done) {
+            return;
+        }
+        if (status == PLUGINXX_OPERATOR_OK) {
+            notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+            return;
+        }
+        const PluginxxStringView view{message.data(), message.size()};
+        notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+    };
+
+    if constexpr (std::is_invocable_v<FnT&, Ctx&, const PluginxxOperatorNotify*,
+                                      PluginxxString*>) {
+        fn(ctx, notify, error_out);
+        return;
     } else {
-        int32_t     rc = -1;
-        std::string message;
         try {
-            rc = static_cast<int32_t>(fn(ctx));
-        } catch (const std::exception& e) {
-            message = e.what();
-        } catch (...) {
-            message = "unknown exception";
-        }
-        if (notify && notify->done) {
-            if (rc == 0) {
-                notify->done(notify->host_ud, PLUGINXX_OPERATOR_OK, nullptr);
+            using Ret = std::invoke_result_t<FnT&, Ctx&>;
+            if constexpr (pluginxx::detail::IsPluginAwaitable<Ret>::value) {
+                const PluginxxOperatorNotify notifyCopy =
+                    notify ? *notify : PluginxxOperatorNotify{nullptr, nullptr};
+                ctx.spawn(ctx,
+                          [fn = FnT(std::forward<Fn>(fn)), notifyCopy, label](
+                              Ctx& owner,
+                              pluginxx::OpCtl&) mutable
+                              -> asio::awaitable<void> {
+                              (void)owner;
+                              int32_t     status = PLUGINXX_OPERATOR_OK;
+                              std::string message;
+                              try {
+                                  co_await fn(owner);
+                              } catch (const std::exception& e) {
+                                  status  = PLUGINXX_OPERATOR_FAILED;
+                                  message = e.what();
+                              } catch (...) {
+                                  status  = PLUGINXX_OPERATOR_FAILED;
+                                  message = std::string{label ? label : "lifecycle"} +
+                                            ": unknown exception";
+                              }
+                              if (!notifyCopy.done) {
+                                  co_return;
+                              }
+                              if (status == PLUGINXX_OPERATOR_OK) {
+                                  notifyCopy.done(notifyCopy.host_ud,
+                                                  PLUGINXX_OPERATOR_OK, nullptr);
+                              } else {
+                                  const PluginxxStringView view{message.data(),
+                                                                message.size()};
+                                  notifyCopy.done(notifyCopy.host_ud,
+                                                  PLUGINXX_OPERATOR_FAILED, &view);
+                              }
+                          });
+                return;
+            } else if constexpr (std::is_void_v<Ret>) {
+                fn(ctx);
+                finish(PLUGINXX_OPERATOR_OK, {});
             } else {
-                if (message.empty()) {
-                    message = std::string{label ? label : "lifecycle"} + ": 事务返回失败";
-                }
-                PluginxxStringView view{message.data(), static_cast<uint64_t>(message.size())};
-                notify->done(notify->host_ud, PLUGINXX_OPERATOR_FAILED, &view);
+                const int32_t rc = static_cast<int32_t>(fn(ctx));
+                finish(rc == 0 ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,
+                       rc == 0 ? std::string{}
+                               : std::string{label ? label : "lifecycle"} +
+                                     ": 事务返回失败");
             }
+        } catch (const std::exception& e) {
+            finish(PLUGINXX_OPERATOR_FAILED, e.what());
+        } catch (...) {
+            finish(PLUGINXX_OPERATOR_FAILED, "unknown exception");
         }
-        return nullptr;
     }
 }
 
@@ -1454,40 +1121,42 @@ inline void* runLifecycleEntry(
 } // namespace plugin
 } // namespace musicxx
 
-/// 插件入口导出宏 (生成 `musicxx_plugin_{get_info,create,start,stop,destroy}`)
+/// 插件入口导出宏 (生成 `musicxx_plugin_{get_info,create,stop,destroy}`)
 ///
 /// 用法 (插件开发者只写两个事务函数, 完成通知由 SDK 处理):
 /// ```cpp
 /// struct MyCtx : musicxx::plugin::PluginBase {};
 /// MUSICXX_PLUGIN_EXPORT(MyCtx, "example_native", "1.0.0", "示例插件",
-///                       [](MyCtx& ctx) -> int32_t { ...注册...; return 0; },
-///                       [](MyCtx& ctx) -> int32_t { return 0; });
+///                       [](MyCtx& ctx) -> asio::awaitable<void> {
+///                           co_await ctx.uiItemRegister("card", "home.entry", R"({"title":"卡片"})");
+///                       },
+///                       [](MyCtx& ctx) -> asio::awaitable<void> {
+///                           co_await ctx.uiItemUnregister("card");
+///                       });
 /// ```
-/// 运行时框架经 `entrySymbols()` 交出同一批符号名 (见 `pluginxx/api/entry.h`)。
-#define MUSICXX_PLUGIN_EXPORT(CtxType, Name, Ver, Desc, StartFn, StopFn)                     \
+/// `create` 就是"构造 + 注册事务": 插件框架先建实例, 再调这里的第一个事务;
+/// 禁用后再启用时不会再建实例, 只重跑注册事务。
+#define MUSICXX_PLUGIN_EXPORT(CtxType, Name, Ver, Desc, CreateFn, StopFn)                    \
     PLUGINXX_EXPORT_PLUGIN(                                                                  \
         musicxx_plugin_,                                                                     \
         CtxType,                                                                             \
         Name,                                                                                \
         Ver,                                                                                 \
         Desc,                                                                                \
-        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
-            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin start", StartFn); \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void {       \
+            musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin create", CreateFn); \
         },                                                                                    \
-        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
-            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin stop", StopFn);   \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void {       \
+            musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin stop", StopFn);     \
         }                                                                                     \
     )
 
-/// 只导出 start/stop (供手写 create/destroy 的插件使用)
-#define MUSICXX_PLUGIN_EXPORT_LIFECYCLE(CtxType, StartFn, StopFn)                            \
+/// 只导出 stop (供手写 create/destroy 的插件使用)
+#define MUSICXX_PLUGIN_EXPORT_LIFECYCLE(CtxType, StopFn)                                     \
     PLUGINXX_EXPORT_PLUGIN_LIFECYCLE(                                                        \
         musicxx_plugin_,                                                                     \
         CtxType,                                                                             \
-        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
-            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin start", StartFn); \
-        },                                                                                    \
-        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void* {      \
-            return musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin stop", StopFn);   \
+        +[](CtxType& ctx, const PluginxxOperatorNotify* n, PluginxxString* e) -> void {       \
+            musicxx::plugin::detail::runLifecycleEntry(ctx, n, e, "plugin stop", StopFn);     \
         }                                                                                     \
     )
