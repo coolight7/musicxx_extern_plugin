@@ -3101,16 +3101,44 @@ void JsEngine::clearDispatchWaitsOf(const std::string &instance) {
 
 int64_t JsEngine::beginCapabilityWait(
     const std::string &instance,
-    const std::shared_ptr<WaitSlot<std::string>> &slot) {
+    std::function<void(std::string)> deliver) {
   const int64_t waitId = nextCapabilityWaitId_.fetch_add(1);
   std::lock_guard lock{mutex_};
-  capabilityWaits_[waitId] = DispatchWait{instance, slot};
+  capabilityWaits_[waitId] = CapabilityWait{instance, std::move(deliver)};
   return waitId;
 }
 
 void JsEngine::finishCapabilityWait(int64_t waitId) {
   std::lock_guard lock{mutex_};
   capabilityWaits_.erase(waitId);
+}
+
+void JsEngine::deliverCapabilityWait(int64_t waitId, std::string text) {
+  std::function<void(std::string)> deliver;
+  {
+    std::lock_guard lock{mutex_};
+    const auto it = capabilityWaits_.find(waitId);
+    if (it == capabilityWaits_.end()) {
+      return;
+    }
+    deliver = std::move(it->second.deliver);
+    capabilityWaits_.erase(it);
+  }
+  if (deliver) {
+    deliver(std::move(text));
+  }
+}
+
+void JsEngine::keepCapabilityCall(
+    const std::shared_ptr<CapabilityCall> &call) {
+  if (!call) {
+    return;
+  }
+  std::lock_guard lock{mutex_};
+  std::erase_if(capabilityCalls_, [](const auto &item) {
+    return !item || item->completed.load(std::memory_order_acquire);
+  });
+  capabilityCalls_.push_back(call);
 }
 
 void JsEngine::clearCapabilityWaitsOf(const std::string &instance) {
@@ -3153,21 +3181,8 @@ void JsEngine::bridgeCapabilityWaitResolve(const std::string &waitId,
       return;
     }
   }
-  /// ② 被调用的 JS 能力处理器 (等待槽形态): 交给等着的框架线程
-  std::shared_ptr<WaitSlot<std::string>> slot;
-  {
-    std::lock_guard lock{mutex_};
-    const auto it = capabilityWaits_.find(id);
-    if (it == capabilityWaits_.end()) {
-      return; ///< 不属于本引擎 / 已经完成
-    }
-    slot = it->second.slot;
-    capabilityWaits_.erase(it);
-  }
-  if (!slot) {
-    return;
-  }
-  slot->set(json);
+  /// ② 被调用的 JS 能力处理器: 把结果交给它的收尾回调
+  deliverCapabilityWait(id, json);
 }
 
 void JsEngine::deliverCapabilityResult(const std::string &callerInstance,
@@ -4672,47 +4687,12 @@ int32_t PLUGINXX_CALL JsEngine::implementationRunSync(void *userData,
 
 /* ==================== 能力处理器 ==================== */
 
-void *JsEngine::capabilityStart(void *ctx, const PluginxxHost * /*callerHost*/,
-                                const PluginxxStringView * /*method*/,
-                                const PluginxxStringView *argsJson,
-                                const PluginxxOperatorNotify *notify,
-                                PluginxxString *errorOut) {
-  auto *handler = static_cast<CapabilityHandler *>(ctx);
-  if (!handler || !handler->engine) {
-    return nullptr;
+void JsEngine::finishCapabilityCall(
+    const std::shared_ptr<CapabilityCall> &call,
+    const PluginxxOperatorNotify &notify, std::string text) {
+  if (!call || call->completed.exchange(true, std::memory_order_acq_rel)) {
+    return;
   }
-  JsEngine *engine = handler->engine;
-  const std::string args = argsJson ? viewToStr(argsJson) : std::string{"{}"};
-  const std::string shortName = handler->shortName;
-  auto slot = std::make_shared<WaitSlot<std::string>>();
-  const std::string name = handler->instance;
-  /// 等待槽 id: 处理器返回 Promise 时, JS 侧在结算后经
-  /// `ext.capabilityWaitResolve` 把结果交回来
-  const int64_t waitId = engine->beginCapabilityWait(name, slot);
-  engine->postTask([engine, name, shortName, args, slot, waitId] {
-    const auto inst = engine->lookupInstance(name);
-    std::string text;
-    if (!inst ||
-        !engine->callBridgeString(inst, "invokeCapability",
-                                  {shortName, args, std::to_string(waitId)},
-                                  text)) {
-      engine->finishCapabilityWait(waitId);
-      slot->set(
-          std::string{R"({"ok":false,"error":"capability_invoke_failed"})"});
-      return;
-    }
-    if (text == kCapabilityPendingMarker) {
-      /// 处理器返回 Promise: 不结算, 等 [bridgeCapabilityWaitResolve]
-      return;
-    }
-    engine->finishCapabilityWait(waitId);
-    slot->set(std::move(text));
-  });
-
-  /// 不设等待上界: 能力处理器可以是异步的 (返回 Promise 时会一直等到它结算)
-  std::string text;
-  slot->wait(text);
-
   bool parseOk = false;
   Json result = parseJsonSafe(text, &parseOk);
   const bool ok = parseOk && result.is_object() && result.contains("ok") &&
@@ -4729,21 +4709,64 @@ void *JsEngine::capabilityStart(void *ctx, const PluginxxHost * /*callerHost*/,
             : std::string{"capability_failed"};
     payload = error.dump();
   }
-  if (notify && notify->done) {
-    PluginxxString out{};
-    if (ok) {
-      out = pluginxx::hostMemoryCreateString(std::string_view{payload});
-    }
-    const PluginxxStringView view{out.data, out.size};
-    /// 同步完成: 插件框架支持"插件同步 done" (完成通知仍由插件框架在 IO 线程发布)
-    notify->done(notify->host_ud,
-                 ok ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,
-                 ok ? &view : nullptr);
-    if (out.data) {
-      pluginxx::hostMemoryFree(out.data);
-    }
+  if (!notify.done) {
+    return;
   }
-  return nullptr;
+  PluginxxString out{};
+  if (ok) {
+    out = pluginxx::hostMemoryCreateString(std::string_view{payload});
+  }
+  const PluginxxStringView view{out.data, out.size};
+  notify.done(notify.host_ud,
+              ok ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,
+              ok ? &view : nullptr);
+  if (out.data) {
+    pluginxx::hostMemoryFree(out.data);
+  }
+}
+
+void *JsEngine::capabilityStart(void *ctx, const PluginxxHost * /*callerHost*/,
+                                const PluginxxStringView * /*method*/,
+                                const PluginxxStringView *argsJson,
+                                const PluginxxOperatorNotify *notify,
+                                PluginxxString * /*errorOut*/) {
+  auto *handler = static_cast<CapabilityHandler *>(ctx);
+  if (!handler || !handler->engine || !notify || !notify->done) {
+    return nullptr;
+  }
+  JsEngine *engine = handler->engine;
+  const std::string args = argsJson ? viewToStr(argsJson) : std::string{"{}"};
+  const std::string shortName = handler->shortName;
+  const std::string name = handler->instance;
+  const PluginxxOperatorNotify notifyCopy = *notify;
+  /// 交回主程序的句柄 = "已受理": 不能在 JS 线程上把它们等住, 算完再通知
+  auto call = std::make_shared<CapabilityCall>();
+  engine->keepCapabilityCall(call);
+  /// 等待凭据 id: 处理器返回 Promise 时, JS 侧在结算后经
+  /// `ext.capabilityWaitResolve` 把结果交回同一个收尾
+  const int64_t waitId = engine->beginCapabilityWait(
+      name, [call, notifyCopy](std::string text) {
+        finishCapabilityCall(call, notifyCopy, std::move(text));
+      });
+  engine->postTask([engine, name, shortName, args, waitId] {
+    const auto inst = engine->lookupInstance(name);
+    std::string text;
+    if (!inst ||
+        !engine->callBridgeString(inst, "invokeCapability",
+                                  {shortName, args, std::to_string(waitId)},
+                                  text)) {
+      engine->deliverCapabilityWait(
+          waitId,
+          std::string{R"({"ok":false,"error":"capability_invoke_failed"})"});
+      return;
+    }
+    if (text == kCapabilityPendingMarker) {
+      /// 处理器返回 Promise: 不结算, 等 [bridgeCapabilityWaitResolve]
+      return;
+    }
+    engine->deliverCapabilityWait(waitId, std::move(text));
+  });
+  return call.get();
 }
 
 /* ==================== 事件订阅回调 ==================== */

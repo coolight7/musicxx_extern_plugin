@@ -557,15 +557,40 @@ private:
   /// 实例停止/卸载时清理它的等待条目
   void clearDispatchWaitsOf(const std::string &instance);
 
-  /// 能力处理器的等待槽 (与能力同一套做法; 处理器返回 Promise 时用)
-  std::map<int64_t, DispatchWait> capabilityWaits_;
+  /// 能力处理器的等待凭据 (与能力同一套做法; 处理器返回 Promise 时用)
+  ///
+  /// 与 dispatch 的差别: 这里不存等待槽 (不会阻塞任何线程), 只存一份"结果该怎么
+  /// 交回"的回调。处理器返回 Promise 时, JS 侧结算后经 `ext.capabilityWaitResolve`
+  /// 调它; 同步返回时同样走它 —— 两条路只写一遍收尾。
+  struct CapabilityWait {
+    std::string                      instance;
+    std::function<void(std::string)> deliver;
+  };
+
+  std::map<int64_t, CapabilityWait> capabilityWaits_;
   std::atomic<int64_t> nextCapabilityWaitId_{1};
 
-  int64_t beginCapabilityWait(
-      const std::string &instance,
-      const std::shared_ptr<WaitSlot<std::string>> &slot);
+  int64_t beginCapabilityWait(const std::string &instance,
+                             std::function<void(std::string)> deliver);
   void finishCapabilityWait(int64_t waitId);
+  /// 取走一条等待凭据并把结果交给它 (找不到 = 已经完成 / 已清理)
+  void deliverCapabilityWait(int64_t waitId, std::string text);
   void clearCapabilityWaitsOf(const std::string &instance);
+
+  /// 一次 JS 能力调用的"已受理"凭据 (交回主程序的句柄就是它的地址)
+  struct CapabilityCall {
+    std::atomic<bool> completed{false};
+  };
+
+  /// 保留一份凭据 (已完成的在下次登记时清掉)
+  void keepCapabilityCall(const std::shared_ptr<CapabilityCall> &call);
+
+  /// 把 JS 侧交回的 `{ok, result|error}` 折成主程序结果并完成通知 (恰好一次)
+  static void finishCapabilityCall(const std::shared_ptr<CapabilityCall> &call,
+                                  const PluginxxOperatorNotify &notify,
+                                  std::string text);
+
+  std::vector<std::shared_ptr<CapabilityCall>> capabilityCalls_;
 
   /// "JS插件 → JS插件"的异步能力调用 (key = pendingId)
   ///
