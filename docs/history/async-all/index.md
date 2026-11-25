@@ -1,0 +1,64 @@
+# 任务：插件框架全异步化（删掉同步处理器与 Dart 同步等待）
+
+## 目标
+
+插件框架与主程序之间的调用**只有一种形状**：提交返回 `requestId`，结果经事件交回，
+Dart 侧包成 `Future`。具体删掉两类同步形状：
+
+- 插件侧同步处理器：`PluginxxCapabilitySpec.sync`、`MusicxxPluginCapabilitySpec.run_sync`、
+  JS 的 `JsEngine::implementationRunSync`，以及宿主在框架 IO 线程上就地跑处理器链的做法；
+- Dart 侧同步等待：`plugin_load_sync`、`capability_dispatch` 的 `DISPATCH_SYNC`、
+  `ui_request`，以及全部经 `onHostThread`（`ioCallSync`）等待的查询 / 命令。
+
+理由是插件框架要支持动态库、JS 与以后可能的其它语言，跨语言调用不适合同步；
+两套处理器写法也让插件作者与文档都要多背一份。
+
+## 范围
+
+改：
+
+- 子模块 `src/third_party/cxx_pluginxx`（能力规格删 `sync`、能力表 v9、`AsyncReply`）；
+- 本包 `src/include/musicxx_extern_plugin_api.h`（C ABI 6 → 7）、`src/host/**`、
+  `src/sdk/**`、`src/host/js/**`、`plugins/**`、`src/tests/**`；
+- Dart 包 `lib/src/**`（请求总线、全 `Future`、缓存）；
+- 主程序 `lib/plugin/externPlugin/**` 与 `test/modules/extern_plugin_test.dart`；
+- 文档与版本号。
+
+不改：能力 / 广播的**语义**（前链正序累积、后链逆序替换、merge 规则、`cancel` / `skip` /
+`drop` / `stop`、订阅限频、事件里的 `rev` 与丢弃过期结果）。
+
+## 状态
+
+**方案已确认，待开工**（2026-11-25）。`plan.md` §8 的六条边界已由用户确认：
+
+1. 纯注册表读也走提交，全部异步化；
+2. 无需结果的操作同样支持异步等待（保证顺序 / 确认前置完成）；
+3. 删除全部同步函数，名称不再带 `_async` / `Async`；
+4. 版本号：C ABI 7、插件 ABI 10、能力表 v9、框架 `2026.1125.1`；
+5. 删除 Dart 侧 `capabilities.on/off`；
+6. `initDo` 只等 `host.start` 的结果，插件扫描与加载放后台。
+
+阶段划分与每阶段验证见 [plan.md](plan.md) §5，进度记录见 [work.md](work.md)。
+
+## 关键决策
+
+- **一条规则**：C ABI 的每个操作都只有"提交 + 结果事件"一种形状；返回 `0` = 已受理且一定有
+  一条 `musicxx.request.result`，返回负码 = 未受理且不会有结果。
+- **"没有结果"不等于"不能等待"**：发布、订阅、日志、回复、关机同样回一条确认，
+  要顺序或要确认前置完成时直接 `await`；不关心就 `.ignore()`。不设"通知式入口"这一分类。
+- **只保留两类同步函数**：`host_create` / `host_destroy`（句柄），以及事件通道与纯函数
+  （`poll_events` / `set_wake_callback` / `api_version` / `version` / `result_name` /
+  `feature_bits` / 内存与字符串函数）。`host_start` / `host_shutdown` 走提交。
+- **名称不加 `Async`**：`plugin_load_sync`、`plugin_call_async`、`loadAsync`、`dispatchAsync`
+  这类命名统一去掉；宿主内部返回 `asio::awaitable` 的函数也不加后缀。子模块共用的
+  `sleepAsync` / `asyncOffload` 例外，不改名。
+- **插件代码只在插件执行线程**（JS 在 JS 线程）：框架 IO 线程只做注册表、事件与统计。
+- **Dart 不为读一个值同步调 FFI**：广播当前值、处理器计数/列表、已加载插件都读本地缓存，
+  缓存由事件维护；冷数据用一次提交补。
+- **结果事件不裁剪**：队列满时拒绝受理（`PLUGINXX_RESULT_ERR_FULL`），不替调用方丢结果。
+- **不保留旧写法**：插件 ABI 9 → 10、C ABI 6 → 7、能力表 v8 → v9；旧插件与旧 Dart 包都要重编。
+
+## 结论
+
+待实施后补。需要留意的后续点：`app_ready` 时序（插件加载放后台）、每帧广播值读取的缓存
+完整性、快速连点时结果乱序的调用点保护、日志/发布这类高频操作的事件量。
