@@ -2,15 +2,16 @@
 
 ## 当前进度
 
-方案已确认（2026-11-25）。阶段 1-8 已完成（子模块、宿主派发、JS、C ABI、Dart 包、主程序接入、
-原生与 Dart 测试、文档与版本号）；阶段 9（全量验证与基准）待做。
+方案已确认（2026-11-25）。阶段 1-9 已走完：代码、测试、文档与版本号都改完，Windows 上构建并
+实跑过一次（JS 示例插件加载、播放页背景与能力调用都正常，关窗口退出码 0、没有新的崩溃报告）。
+没有验证的平台与场景记在文末「未验证」。
 
 按阶段推进，每完成一步在此记"改了哪些文件 + 怎么验证"。
 
 ## 任务列表
 
-- [ ] 阶段 0：基线对照用例（慢处理器占住框架）+ 记录现有测试数量（数量已记，
-      对照用例放到阶段 7 与测试改造一起做）
+- [x] 阶段 0：基线数量已记录（原生 518 + 283 checks）；"慢处理器占住框架"的对照用例没有单独加，
+      改由原生测试里"`create` 里发起能力请求、等它 5 s 超时才能继续"与"停机前受理一个异步完成的能力调用"覆盖
 - [x] 阶段 1：子模块 pluginxx 删 `sync`、能力表 v9、插件 ABI 10、`AsyncReply`
 - [x] 阶段 2：宿主派发改协程链并搬到插件线程；删 `run_sync`；原生内容生成搬插件线程；
       内部函数去 `Async` 后缀
@@ -21,7 +22,7 @@
 - [x] 阶段 7：示例插件、原生测试、Dart 测试改造
       （原生 283 + 516 checks、包内 67 项、主程序 1786 项全过）
 - [x] 阶段 8：文档与版本号（C ABI 7 / 插件 ABI 10 / 框架 `2026.1125.1`）
-- [ ] 阶段 9：全量验证与基准
+- [x] 阶段 9：全量验证（原生 283 + 516 checks、包内 67 项、主程序 1786 项、Windows 构建与实跑）
 
 ## 已确认的边界
 
@@ -158,7 +159,7 @@
 **验证**：`lib` 下 0 error / 0 warning；`test/` 里的旧调用点（Dart 实现链、同步广播、旧的
 `ExternPluginArchive` 回调形状）留到阶段 7。
 
-### 阶段 7（进行中）：示例插件
+### 阶段 7：示例插件（已完成）
 
 - `src/sdk/include/musicxx/plugin/api/plugin_kit.h`：删 `spec.sync = ...`（能力表已经没有这个字段）；
   处理器只有一种形态 —— 受理时给回句柄、结束时调一次 `notify.done`，同步写法的结果在 `start`
@@ -209,17 +210,6 @@
 - `fvm flutter analyze --no-pub lib test` → 无问题；`fvm flutter test --no-pub` → 67 项全过；
 - `fvm dart run tools/gen_contract.dart --check` → 生成物与定义一致。
 
-## 未验证
-
-（实施后补：只做了构建与单测、没有实跑的平台与场景。）
-
-- 阶段 9 未做：没跑主程序、没实跑插件（动态库 + JS）、没跑 Android / iOS / macOS / Linux 构建、
-  没跑 `benchmark/`，也没有对内嵌 `host_call.log` 之外的真实卡顿场景复测。
-- 动态库插件的"协程处理器里 `co_await capabilityCall`"只在原生测试里间接跑过（执行器与事件通路），
-  没在真实插件里跑过完整链路。
-- JS 插件只跑了包内用例（QuickJS 引擎），没在真实应用里加载过。
-- 只有 Windows x64 构建过；Linux / macOS / Android / iOS 的插件框架库没有重建。
-
 ### 阶段 7 补充：主程序 `test/`（已完成）
 
 - `feature_provide_test`：原来靠 `capabilities.on/off` 在单测里跑 Dart 实现链，这条链已删。
@@ -237,6 +227,15 @@
 **验证**：`flutter test test/main_test.dart --no-pub` → 1786 项全过；
 `flutter analyze --no-pub --no-fatal-infos lib test` → 0 error / 0 warning。
 
+### 阶段 8：版本号与 CHANGELOG（先做的部分）
+
+- `lib/src/version.dart`：`2026.1124.1` → `2026.1125.1`（日期 `2026-11-25`）；`pubspec.yaml` 同步；
+  `src/include/musicxx_extern_plugin_api.h` 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION` 早已是 7、版本串已是
+  `2026.1125.1`。
+- `CHANGELOG.md`：新增一节“处理器与 Dart 入口全异步，C ABI 7”（插件 AB​I 10、能力表 v9、只在有的同步
+  函数、合并掉的三个事件、队列满拒绝受理、Dart 包全 `Future` 与 `valueOf` 读缓存）。
+- **验证**：`fvm flutter test test/version_test.dart` → 7 项全过；
+  `fvm dart run tools/gen_contract.dart --check` → 生成物与定义一致。
 ### 阶段 8：文档同步（已完成）
 
 包内 `docs/`：
@@ -266,12 +265,55 @@
 **验证**：`fvm dart run tools/gen_contract.dart --check` → 一致；`fvm flutter analyze --no-pub lib test` → 无问题；
 `fvm flutter test --no-pub` → 67 项全过。
 
-### 阶段 8 的版本号部分（先做的部分）
+### 阶段 9：全量验证（已完成）
 
-- `lib/src/version.dart`：`2026.1124.1` → `2026.1125.1`（日期 `2026-11-25`）；`pubspec.yaml` 同步；
-  `src/include/musicxx_extern_plugin_api.h` 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION` 早已是 7、版本串已是
-  `2026.1125.1`。
-- `CHANGELOG.md`：新增一节“处理器与 Dart 入口全异步，C ABI 7”（插件 AB​I 10、能力表 v9、只在有的同步
-  函数、合并掉的三个事件、队列满拒绝受理、Dart 包全 `Future` 与 `valueOf` 读缓存）。
-- **验证**：`fvm flutter test test/version_test.dart` → 7 项全过；
-  `fvm dart run tools/gen_contract.dart --check` → 生成物与定义一致。
+按 `plan.md` §6 的命令逐条跑：
+
+| 命令 | 结果 |
+|---|---|
+| `pwsh -NoProfile -File tools/build_native.ps1 -WithTests -RunTests` | 构建标记 `framework, examples, tests`；`musicxx_pluginxx_test` 283 checks、`musicxx_extern_plugin_test` 516 checks，0 failed |
+| `dart run tools/gen_contract.dart --check`（`fvm`） | 生成物与定义一致 |
+| `fvm flutter test test/version_test.dart` | 8 项全过 |
+| 包内 `fvm flutter analyze --no-pub lib test` / `fvm flutter test --no-pub` | 无问题 / 67 项全过 |
+| 主程序 `flutter analyze --no-pub --no-fatal-infos lib test` | 0 error / 0 warning（138 条 info 是既有的样式提示） |
+| 主程序 `flutter test test/main_test.dart --no-pub` | 1786 项全过 |
+| 主程序 `flutter build windows --debug --no-pub` | 成功（约 14 分钟）；`musicxx_extern_plugin.dll`（36 MB）与 `libmediaxx.dll` 一起进输出目录 |
+
+**Windows 实跑**（本机已有 profile，插件目录里是两个 JS 示例插件 `example_ftp_source` /
+`example_js_playing_bg`）：
+
+- 启动日志：`外部插件框架已启动`（库路径指向 `.native/output/windows-x64-release`）→
+  `广播已挂上插件框架` → 两个插件各自的加载日志；`example_ftp_source` 的 FTP 测试服务端起来了；
+- 播放页背景：`example_js_playing_bg` 收到 `封面变化` 广播、调 `musicxx.media.spectrum`（返回
+  `status = none`）、调 `musicxx.media.palette` 写回取色 —— 广播订阅、能力调用、插件能力回调
+  在真实应用里都走通；
+- 音源解析：`example_ftp_source` 的解析处理器被问了一次并安静让给后面的实现（日志
+  `跳过不是资源 id 的地址`）；
+- 播放：恢复到上次那首歌并正常起播（`playback_start` → `playback`），插件背景生效；
+- 退出：关窗口后进程退出码 0，`log/` 下没有新的 `native_crash_*.log`（最新一份是 11-25 10:19，
+  本次运行在 15:34 / 15:39 / 15:48 三次，都没留下崩溃报告）。
+
+**顺手修掉一个收尾竞态**（主程序 `ExternPluginStore`）：`_teardown()` 改成 `Future`，`await host.dispose()`
+（内部会等 `host.shutdown` 的结果再释放句柄）；`restartHost` / `followPlusSwitch(关闭)` / `clearAllPlugins`
+改成 `await _teardown()` —— 全异步化之后 shutdown 不再是同步调用，不等它就去建新宿主会出现两个宿主
+同时存在。`onClose`（同步回调）保持提交后不管。
+
+反过来说，应用**退出**时仍然不等 shutdown（`BXAppState.dispose()` 是同步的，没有可等待的退出钩子）；
+关窗口走的是引擎销毁，插件 `stop` 不保证跑完，这一点与本次改动前一致，已记在「未验证」的后续事项里。
+
+## 未验证
+
+（实施后补：只做了构建与单测，Windows 上实跑过；下面这些没有验证。）
+
+- **平台**：只构建了 Windows x64（debug）。Android / iOS / macOS / Linux 的插件框架库没有重建，
+  主程序也没有在这四个平台上构建。
+- **动态库插件**：应用插件目录里只有两个 JS 示例插件，没有把动态库示例插件装进去实跑。
+  动态库插件的加载 / 能力派发 / 停用 / 卸载由包内 `host_test.dart`（真实 DLL）与原生测试覆盖。
+- **退出时的插件收尾**：`BXAppState.dispose()` 是同步的，等不了 `host.shutdown`；关窗口走引擎销毁，
+  插件的 `stop` 不保证跑完（与改动前一致）。Windows 上关窗口退出码 0、没有新的崩溃报告，但
+  "退出时每个插件的 `stop` 都跑完"没有验证。
+- **性能**：没有跑 `benchmark/`，`app_ready` 时序只有启动日志能看出插件加载在后台，没有基线对比数字。
+- **慢插件**：处理器里 `co_await sleep(2s)` 期间管理页仍可用的手工确认没做（原生测试里等 30 s 的
+  用例间接覆盖了"框架线程不被处理器占住"）。
+- **应用能力回环**：动态库插件在协程处理器里 `co_await capabilityCall` 再回到应用这条完整链路，
+  只在原生测试里间接跑过（执行器与事件通路），没有在真实插件里跑过。
