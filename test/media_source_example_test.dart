@@ -337,7 +337,7 @@ void main() {
     expect(_srcOf(again!)['path'], url);
 
     // 卸载插件 → 服务跟着关掉，端口不再接受连接
-    harness.runtime.plugins.unload(pluginId);
+    await harness.runtime.plugins.unload(pluginId);
     await expectLater(
       _httpGet(client, url),
       throwsA(isA<SocketException>()),
@@ -424,7 +424,7 @@ void main() {
 
     // 主页入口必须指向设置页：页面是 `musicxx.ui.page` 上的内容（地址 `ext://<插件 id>/settings`）
     final List<MusicxxPluginUIItem> entries = MusicxxPluginUIItems.byType(
-      harness.runtime.plugins.uiSnapshot(),
+      await harness.runtime.plugins.uiSnapshot(),
       MusicxxPluginUIType.homeEntry,
     ).where((MusicxxPluginUIItem item) => item.plugin == pluginId).toList();
     expect(entries, hasLength(1));
@@ -514,7 +514,7 @@ class _Harness {
 
     _eventsSub = runtime.events.listen(events.add);
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -524,13 +524,13 @@ class _Harness {
       ),
       libraryPath: env.libraryPath,
     );
-    runtime.plugins.scan();
-    runtime.plugins.load(pluginId);
+    await runtime.plugins.scan();
+    await runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull, reason: '插件应能加载');
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerSourceResolve,
-      ),
+      ))!.length,
       1,
       reason: '音源解析钩子应登记成功',
     );
@@ -586,9 +586,9 @@ class _Harness {
     }
   }
 
-  void dispose() {
-    _eventsSub?.cancel();
-    runtime.dispose();
+  Future<void> dispose() async {
+    await _eventsSub?.cancel();
+    await runtime.dispose();
     try {
       _server?.close(force: true);
     } catch (_) {
@@ -636,22 +636,19 @@ class _Harness {
     String? pluginType,
   }) {
     final Future<Map<String, Object?>?> future = runtime.capabilities
-        .dispatchAsync(
-          MusicxxCapabilityId.playerSourceResolve,
-          <String, Object?>{
-            'srcKey': 'test-src-key',
-            'type': type,
-            'src': src,
-            'crudeType': type,
-            'crudeSrc': crudeSrc ?? src,
-            'fileName': null,
-            'durationMs': 213000,
-            'quality': quality,
-            'isMediaSrc': true,
-            'pluginType': pluginType,
-            'caller': null,
-          },
-        );
+        .dispatch(MusicxxCapabilityId.playerSourceResolve, <String, Object?>{
+          'srcKey': 'test-src-key',
+          'type': type,
+          'src': src,
+          'crudeType': type,
+          'crudeSrc': crudeSrc ?? src,
+          'fileName': null,
+          'durationMs': 213000,
+          'quality': quality,
+          'isMediaSrc': true,
+          'pluginType': pluginType,
+          'caller': null,
+        });
     return _pumpFuture(runtime, future);
   }
 
@@ -659,7 +656,9 @@ class _Harness {
       _pumpUntil(runtime, condition);
 
   void _registerHostActions() {
-    runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (
+      invocation,
+    ) {
       final String key = '${invocation.args['key']}';
       if (invocation.args['namespace'] == 'config') {
         // 约定：返回**值本身**；键不存在返回 null（插件用自己给的默认值）
@@ -667,7 +666,9 @@ class _Harness {
       }
       return null;
     });
-    runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (
+      invocation,
+    ) {
       final String key = '${invocation.args['key']}';
       if (invocation.args['namespace'] == 'config') {
         configFile[key] = invocation.args['value'] ?? '';

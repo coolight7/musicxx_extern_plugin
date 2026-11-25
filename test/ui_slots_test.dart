@@ -58,6 +58,7 @@ void main() {
             expect(slot.inList, isTrue, reason: slot.id);
           case MusicxxUiSlotKind.insert:
           case MusicxxUiSlotKind.replace:
+          case MusicxxUiSlotKind.searchType:
           case MusicxxUiSlotKind.page:
           case MusicxxUiSlotKind.overlay:
             break;

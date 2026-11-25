@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'bindings_generated.dart';
+import 'version.dart';
 
 /// 原生库定位/加载失败（诊断信息包含所有尝试过的路径）
 class MusicxxPluginLibraryException implements Exception {
@@ -235,7 +236,7 @@ class MusicxxPluginNativeLibrary {
   /// - 加载成功但版本不匹配时抛 [MusicxxPluginApiVersionException]（避免"能加载但行为错乱"）。
   static MusicxxPluginNativeLibrary open({
     String? path,
-    int expectedApiVersion = 6,
+    int expectedApiVersion = MusicxxPluginVersion.apiVersion,
     String? packageRoot,
   }) {
     final List<String> candidates = path != null

@@ -43,7 +43,7 @@ void main() {
     );
     addTearDown(sub.cancel);
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -60,12 +60,11 @@ void main() {
       ),
     );
 
-    runtime.plugins.load(_providerId);
-    runtime.plugins.load(_consumerId);
+    await runtime.plugins.load(_providerId);
+    await runtime.plugins.load(_consumerId);
 
     // 1) 槽位声明成功：短名被补成 `plugin.<自己>.ui.<名字>`，归属是本插件
-    final List<MusicxxPluginUISlot> own = runtime.plugins
-        .uiSlots()
+    final List<MusicxxPluginUISlot> own = (await runtime.plugins.uiSlots())
         .where((MusicxxPluginUISlot slot) => slot.id == _slotId)
         .toList();
     expect(own, hasLength(1), reason: '槽位 $_slotId 没有声明成功');
@@ -75,7 +74,7 @@ void main() {
 
     // 2) 提供方的内容挂在它自己的槽位上
     final UiContentProbe probe = UiContentProbe(runtime, events);
-    final List<MusicxxPluginUIContent> contents = probe.registrationsOf(
+    final List<MusicxxPluginUIContent> contents = await probe.registrationsOf(
       _providerId,
       slot: _slotId,
     );
@@ -89,7 +88,9 @@ void main() {
     expect(hintJson['blocks'], isA<List<Object?>>());
     final Map<String, Object?> compactJson = await probe.jsonOf(
       'plugin.$_providerId.hint',
-      context: <String, Object?>{'scope:musicxx.slot.args': <String, Object?>{'compact': true}},
+      context: <String, Object?>{
+        'scope:musicxx.slot.args': <String, Object?>{'compact': true},
+      },
     );
     expect(
       _textsOf(compactJson).join('|'),
@@ -118,8 +119,8 @@ void main() {
     expect(flags['declared'], 1, reason: '插件自己看不到声明的槽位');
     expect(flags['contents'], 1, reason: '插件自己看不到注册的内容');
 
-    runtime.plugins.unload(_consumerId);
-    runtime.plugins.unload(_providerId);
+    await runtime.plugins.unload(_consumerId);
+    await runtime.plugins.unload(_providerId);
   });
 }
 

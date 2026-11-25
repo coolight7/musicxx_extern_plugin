@@ -61,7 +61,7 @@ void main() {
     );
     addTearDown(sub.cancel);
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -71,8 +71,8 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    runtime.plugins.scan();
-    runtime.plugins.load('example_js');
+    await runtime.plugins.scan();
+    await runtime.plugins.load('example_js');
     expect(runtime.plugins.findLoaded('example_js'), isNotNull);
     final UiContentProbe probe = UiContentProbe(runtime, seen);
 
@@ -119,8 +119,8 @@ void main() {
     expect(_readConfig(config)['skipAds'], false, reason: '写新键不能丢掉已有的键');
 
     // 重新加载（等价于"重启应用后再加载插件"）：设置必须还在
-    runtime.plugins.unload('example_js');
-    runtime.plugins.load('example_js');
+    await runtime.plugins.unload('example_js');
+    await runtime.plugins.load('example_js');
     await _pumpUntil(
       () async => (await _probe(runtime))['configSkipAds'] == false,
       runtime: runtime,
@@ -171,7 +171,7 @@ void main() {
     );
     addTearDown(sub.cancel);
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -181,8 +181,8 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    runtime.plugins.scan();
-    runtime.plugins.load(pluginId);
+    await runtime.plugins.scan();
+    await runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
 
     // 背景样式是 `musicxx.ui.playing.background` 上的**内容**：候选列表读注册（名字 / 说明 /
@@ -190,10 +190,8 @@ void main() {
     //
     // 第一个样式是『模糊』；动画速率只影响三个图案样式，所以速度读『晶格』。
     final UiContentProbe probe = UiContentProbe(runtime, seen);
-    final List<MusicxxPluginUIContent> backgrounds = probe.registrationsOf(
-      pluginId,
-      slot: 'musicxx.ui.playing.background',
-    );
+    final List<MusicxxPluginUIContent> backgrounds = await probe
+        .registrationsOf(pluginId, slot: 'musicxx.ui.playing.background');
     expect(backgrounds.length, 6, reason: '六种背景样式各注册一份内容: $backgrounds');
     expect(backgrounds.first.title, isNotEmpty, reason: '候选列表在选中之前就要有名字');
     expect(
@@ -209,10 +207,7 @@ void main() {
       await probe.jsonOf('plugin.$pluginId.ring'),
     );
     expect(ring, isNotNull, reason: '插件应注册『光圈』样式');
-    expect(
-      ring!['bundle'],
-      'shader/ring.shaderbundle',
-    );
+    expect(ring!['bundle'], 'shader/ring.shaderbundle');
     final Map<String, Set<String>> ringSources = _argSources(ring);
     expect(ringSources.containsKey('uLine'), true, reason: 'uLine 也要声明');
     expect(ringSources['uLine'], isEmpty, reason: '线条色是 const 节点（不读任何来源）');
@@ -272,8 +267,8 @@ void main() {
     expect(_readConfig(config)['bgRate'], 2);
 
     // 重新加载：速率必须还在，设置页显示的也是新值
-    runtime.plugins.unload(pluginId);
-    runtime.plugins.load(pluginId);
+    await runtime.plugins.unload(pluginId);
+    await runtime.plugins.load(pluginId);
     await _pumpUntil(
       () async =>
           _rowOf(
@@ -283,11 +278,7 @@ void main() {
           '2x',
       runtime: runtime,
     );
-    expect(
-      await _backgroundSpeed(probe, pluginId),
-      2,
-      reason: '速率必须持久化',
-    );
+    expect(await _backgroundSpeed(probe, pluginId), 2, reason: '速率必须持久化');
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test('example_js_playing_bg：背景状态文字跟着快照频道更新', () async {
@@ -319,7 +310,7 @@ void main() {
       seen.add,
     );
     addTearDown(sub.cancel);
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -328,8 +319,8 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    runtime.plugins.scan();
-    runtime.plugins.load(pluginId);
+    await runtime.plugins.scan();
+    await runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
     final UiContentProbe probe = UiContentProbe(runtime, seen);
 
@@ -338,24 +329,27 @@ void main() {
     /// 规则：`itemId` = 现在由哪个插件项在画（空 = 没有插件项在画），
     /// `selectedId` = 用户选中的是谁（可能是 `musicxx.*`）。
     /// `animate` / `maxFps` 不在槽位状态里（它们是每个着色器块自己的字段）。
-    void pushSlot({
+    Future<void> pushSlot({
       required String itemId,
       required String selectedId,
       required bool visible,
       int width = 0,
       int height = 0,
-    }) {
-      runtime.broadcasts.publish('musicxx.state.uiSlots', <String, Object?>{
-        'player.background': <String, Object?>{
-          'itemId': itemId,
-          'plugin': itemId.isEmpty ? '' : pluginId,
-          'selectedId': selectedId,
-          'night': false,
-          'visible': visible,
-          'width': width,
-          'height': height,
+    }) async {
+      await runtime.broadcasts.publish(
+        'musicxx.state.uiSlots',
+        <String, Object?>{
+          'player.background': <String, Object?>{
+            'itemId': itemId,
+            'plugin': itemId.isEmpty ? '' : pluginId,
+            'selectedId': selectedId,
+            'night': false,
+            'visible': visible,
+            'width': width,
+            'height': height,
+          },
         },
-      });
+      );
     }
 
     Future<String?> backgroundText() async =>
@@ -370,7 +364,7 @@ void main() {
     expect(await backgroundText(), '无状态');
 
     // 用户选中的是内置样式（条目仍在，itemId 为空）
-    pushSlot(itemId: '', selectedId: 'musicxx.auto', visible: false);
+    await pushSlot(itemId: '', selectedId: 'musicxx.auto', visible: false);
     expect(await backgroundText(), '内置背景');
     expect(await renderText(), '未生效');
 
@@ -389,12 +383,12 @@ void main() {
     );
 
     // 镜像反映这次请求：选中本插件、但播放页没打开（没有挂载点 → 没有渲染）
-    pushSlot(itemId: itemId, selectedId: itemId, visible: false);
+    await pushSlot(itemId: itemId, selectedId: itemId, visible: false);
     expect(await backgroundText(), '生效中');
     expect(await renderText(), '未在渲染');
 
     // 播放页在前台：带上渲染尺寸与是否动态
-    pushSlot(
+    await pushSlot(
       itemId: itemId,
       selectedId: itemId,
       visible: true,
@@ -404,7 +398,7 @@ void main() {
     expect(await renderText(), '渲染中, 1280x720');
 
     // 切回内置：条目还在（itemId 为空），状态文字要更新，不能一直停在"已请求"
-    pushSlot(itemId: '', selectedId: 'musicxx.auto', visible: false);
+    await pushSlot(itemId: '', selectedId: 'musicxx.auto', visible: false);
     await _pumpUntil(
       () async => await backgroundText() == '内置背景',
       runtime: runtime,
@@ -467,7 +461,7 @@ void main() {
       };
     });
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -476,8 +470,8 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    runtime.plugins.scan();
-    runtime.plugins.load(pluginId);
+    await runtime.plugins.scan();
+    await runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
     final UiContentProbe probe = UiContentProbe(runtime, seen);
 
@@ -501,15 +495,16 @@ void main() {
     expect(_rowOf(page, '快照频道')?['right'], '无状态');
 
     // 推一条"有数据"的镜像：镜像那一行按镜像说真话（同步、实时）
-    runtime.broadcasts.publish('musicxx.state.spectrum', <String, Object?>{
-      'status': 'ready',
-      'available': true,
-      'loading': false,
-      'reason': '',
-      'level': 0.42,
-      'bands': List<double>.filled(16, 0.1),
-      'frameHz': 10,
-    });
+    await runtime.broadcasts
+        .publish('musicxx.state.spectrum', <String, Object?>{
+          'status': 'ready',
+          'available': true,
+          'loading': false,
+          'reason': '',
+          'level': 0.42,
+          'bands': List<double>.filled(16, 0.1),
+          'frameHz': 10,
+        });
     page = await probe.jsonOf('plugin.$pluginId.spectrumProbe');
     expect(_rowOf(page, '快照频道')?['right'], '有数据（响度 42%）');
 
@@ -573,7 +568,9 @@ void main() {
         'isCustom': family != 'default',
       };
     });
-    runtime.appCapabilities.register(MusicxxCapabilityId.uiLoadFont, (invocation) {
+    runtime.appCapabilities.register(MusicxxCapabilityId.uiLoadFont, (
+      invocation,
+    ) {
       final String family = '${invocation.args['family']}';
       fontCalls.add('file:$family');
       sleep(fontWork);
@@ -589,7 +586,7 @@ void main() {
       (invocation) => <String, Object?>{'ok': true},
     );
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -600,9 +597,9 @@ void main() {
       libraryPath: env.libraryPath,
     );
     // 官方频道：插件顶层会订阅它（主程序侧就是 MusicxxValueBroadcasts 的 musicxx.ui.fontFamily）
-    runtime.broadcasts.publish('musicxx.ui.fontFamily', 'default');
-    runtime.plugins.scan();
-    runtime.plugins.load(pluginId);
+    await runtime.broadcasts.publish('musicxx.ui.fontFamily', 'default');
+    await runtime.plugins.scan();
+    await runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull);
     final UiContentProbe probe = UiContentProbe(runtime, seen);
 
@@ -648,7 +645,10 @@ void main() {
     expect(_readConfig(config)['fontMode'], 'yahei');
 
     // 主程序推一次官方频道（真实主程序在字体变化时推）：页面用同步 read 读到它
-    runtime.broadcasts.publish('musicxx.ui.fontFamily', 'Microsoft YaHei');
+    await runtime.broadcasts.publish(
+      'musicxx.ui.fontFamily',
+      'Microsoft YaHei',
+    );
     await _pumpUntil(
       () async =>
           _rowOf(
@@ -943,7 +943,9 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     }
   }
 
-  runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (invocation) {
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageGet, (
+    invocation,
+  ) {
     final String key = '${invocation.args['key']}';
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
@@ -952,7 +954,9 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     }
     return kv['$id:$key'];
   });
-  runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (invocation) {
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageSet, (
+    invocation,
+  ) {
     final String key = '${invocation.args['key']}';
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
@@ -979,7 +983,9 @@ void _registerHostActions(MusicxxPluginRuntime runtime, String pluginRoot) {
     kv.remove('$id:$key');
     return <String, Object?>{'ok': true};
   });
-  runtime.appCapabilities.register(MusicxxCapabilityId.storageList, (invocation) {
+  runtime.appCapabilities.register(MusicxxCapabilityId.storageList, (
+    invocation,
+  ) {
     final String id = pluginIdOf(invocation);
     if (invocation.args['namespace'] == 'config') {
       return <String, Object?>{'keys': readConfig(id).keys.toList()..sort()};

@@ -18,7 +18,11 @@ class UiContentResult {
   /// 内容 JSON（块树 / 文档）
   Map<String, Object?> get json {
     final Object? value = payload['json'];
-    expect(value, isA<Map<String, Object?>>(), reason: '内容 $id 没有 json: $payload');
+    expect(
+      value,
+      isA<Map<String, Object?>>(),
+      reason: '内容 $id 没有 json: $payload',
+    );
     return value! as Map<String, Object?>;
   }
 
@@ -35,7 +39,8 @@ class UiContentResult {
   String get id => '${payload['id']}';
 
   /// 生成失败的原因（空 = 成功）
-  String get error => payload['error'] is String ? payload['error']! as String : '';
+  String get error =>
+      payload['error'] is String ? payload['error']! as String : '';
 
   @override
   String toString() => 'UiContentResult($id, error=$error)';
@@ -60,7 +65,7 @@ class UiContentProbe {
     Duration timeout = const Duration(seconds: 5),
   }) async {
     final int start = events.length;
-    runtime.plugins.requestUiContent(contentId, context);
+    await runtime.plugins.requestUiContent(contentId, context);
     final DateTime deadline = DateTime.now().add(timeout);
     while (true) {
       for (int i = start; i < events.length; ++i) {
@@ -95,9 +100,13 @@ class UiContentProbe {
   }) async => (await request(contentId, context: context)).json;
 
   /// 内容注册表快照里属于 [plugin] 的内容（可按槽位过滤）
-  List<MusicxxPluginUIContent> registrationsOf(String plugin, {String? slot}) {
+  Future<List<MusicxxPluginUIContent>> registrationsOf(
+    String plugin, {
+    String? slot,
+  }) async {
     return <MusicxxPluginUIContent>[
-      for (final MusicxxPluginUIContent item in runtime.plugins.uiContents())
+      for (final MusicxxPluginUIContent item
+          in await runtime.plugins.uiContents())
         if (item.plugin == plugin && (slot == null || item.slot == slot)) item,
     ];
   }

@@ -601,7 +601,7 @@ void main() {
     expect((after['counts']! as Map)['resolveOk'], 1);
 
     // 卸载：框架关掉插件的全部 socket，回环端口随即释放
-    harness.runtime.plugins.unload(pluginId);
+    await harness.runtime.plugins.unload(pluginId);
     await harness.pumpFor(const Duration(milliseconds: 200));
     final HttpClient client = HttpClient();
     addTearDown(client.close);
@@ -745,10 +745,8 @@ void main() {
     const String searchId = 'plugin.$pluginId.search';
 
     // 注册：槽位、名称、依赖的两个作用域变量
-    final List<MusicxxPluginUIContent> registrations = probe.registrationsOf(
-      pluginId,
-      slot: 'musicxx.ui.search.type',
-    );
+    final List<MusicxxPluginUIContent> registrations = await probe
+        .registrationsOf(pluginId, slot: 'musicxx.ui.search.type');
     expect(registrations.length, 1, reason: '一份内容 = 一个搜索类型');
     expect(registrations.single.title, 'FTP 音乐');
     expect(
@@ -917,7 +915,7 @@ class _Harness {
     _copyPlugin();
     _registerHostActions();
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -928,13 +926,13 @@ class _Harness {
       libraryPath: env.libraryPath,
     );
     runtime.events.listen(events.add);
-    runtime.plugins.scan();
-    runtime.plugins.load(pluginId);
+    await runtime.plugins.scan();
+    await runtime.plugins.load(pluginId);
     expect(runtime.plugins.findLoaded(pluginId), isNotNull, reason: '插件应能加载');
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerSourceResolve,
-      ),
+      ))!.length,
       1,
       reason: '音源解析钩子应登记成功',
     );
@@ -1133,8 +1131,8 @@ class _Harness {
     });
   }
 
-  void dispose() {
-    runtime.dispose();
+  Future<void> dispose() async {
+    await runtime.dispose();
     try {
       if (work.existsSync()) {
         work.deleteSync(recursive: true);
@@ -1188,22 +1186,20 @@ class _Harness {
   Future<Map<String, Object?>?> resolve(String src) async {
     final Map<String, Object?>? verdict = await _pumpFuture(
       runtime,
-      runtime.capabilities.dispatchAsync(
-        MusicxxCapabilityId.playerSourceResolve,
-        <String, Object?>{
-          'srcKey': 'test-$src',
-          'type': '',
-          'src': src,
-          'crudeType': '',
-          'crudeSrc': src,
-          'fileName': 'a.mp3',
-          'durationMs': 213000,
-          'quality': 'upper',
-          'isMediaSrc': true,
-          'pluginType': ftpType,
-          'caller': null,
-        },
-      ),
+      runtime.capabilities
+          .dispatch(MusicxxCapabilityId.playerSourceResolve, <String, Object?>{
+            'srcKey': 'test-$src',
+            'type': '',
+            'src': src,
+            'crudeType': '',
+            'crudeSrc': src,
+            'fileName': 'a.mp3',
+            'durationMs': 213000,
+            'quality': 'upper',
+            'isMediaSrc': true,
+            'pluginType': ftpType,
+            'caller': null,
+          }),
     );
     if (verdict == null) {
       return null;

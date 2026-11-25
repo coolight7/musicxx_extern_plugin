@@ -95,6 +95,23 @@ void main() {
       );
     });
 
+    test('Dart 声明的 C ABI 代次与 C 头宏一致', () {
+      final String header = _read('src/include/musicxx_extern_plugin_api.h');
+      final Match? match = RegExp(
+        r'#define\s+MUSICXX_EXTERN_PLUGIN_API_VERSION\s+(\d+)',
+      ).firstMatch(header);
+      expect(
+        match,
+        isNotNull,
+        reason: 'C 头里必须有 MUSICXX_EXTERN_PLUGIN_API_VERSION 宏',
+      );
+      expect(
+        int.parse(match!.group(1)!),
+        MusicxxPluginVersion.apiVersion,
+        reason: 'C 头宏与 lib/src/version.dart 的 apiVersion 必须一致（加载库时按它校验）',
+      );
+    });
+
     test('提交号：留空或 7 位以上十六进制（补记流程见 docs/version-history.md）', () {
       const String commit = MusicxxPluginVersion.commit;
       if (commit.isEmpty) {
@@ -116,7 +133,10 @@ void main() {
         MusicxxPluginVersion.repositoryUrl.startsWith('https://github.com/'),
         isTrue,
       );
-      expect(MusicxxPluginVersion.describe, contains(MusicxxPluginVersion.version));
+      expect(
+        MusicxxPluginVersion.describe,
+        contains(MusicxxPluginVersion.version),
+      );
     });
   });
 
@@ -124,11 +144,9 @@ void main() {
     test('每个示例插件都声明了版本号，且用同一套格式', () {
       final Directory plugins = Directory('plugins');
       expect(plugins.existsSync(), isTrue, reason: '找不到 plugins/ 目录');
-      final List<Directory> dirs = plugins
-          .listSync()
-          .whereType<Directory>()
-          .toList()
-        ..sort((Directory a, Directory b) => a.path.compareTo(b.path));
+      final List<Directory> dirs =
+          plugins.listSync().whereType<Directory>().toList()
+            ..sort((Directory a, Directory b) => a.path.compareTo(b.path));
       expect(dirs, isNotEmpty);
       for (final Directory dir in dirs) {
         final String manifestPath = '${dir.path}/plugin.yaml';
@@ -138,11 +156,7 @@ void main() {
         final String version = _manifestVersion(
           File(manifestPath).readAsStringSync(),
         );
-        expect(
-          version,
-          isNotEmpty,
-          reason: '$manifestPath 没有声明 version',
-        );
+        expect(version, isNotEmpty, reason: '$manifestPath 没有声明 version');
         expect(
           _versionFormat.hasMatch(version),
           isTrue,

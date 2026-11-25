@@ -41,7 +41,7 @@ void main() {
     addTearDown(sub.cancel);
 
     expect(runtime.isRunning, isFalse);
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -72,12 +72,12 @@ void main() {
     final MusicxxPluginEvent ready = seen.firstWhere(
       (MusicxxPluginEvent e) => e.type == MusicxxPluginEventType.hostReady,
     );
-    expect(ready.payload['apiVersion'], 6);
+    expect(ready.payload['apiVersion'], MusicxxPluginVersion.apiVersion);
     expect(ready.payload['platform'], MusicxxPluginRuntime.currentPlatform);
 
     _step('2 host.ready 已收到');
     // 扫描：应发现示例插件
-    final List<MusicxxPluginInfo> found = runtime.plugins.scan();
+    final List<MusicxxPluginInfo> found = await runtime.plugins.scan();
     final MusicxxPluginInfo? example = found
         .where((MusicxxPluginInfo info) => info.id == 'example_native')
         .firstOrNull;
@@ -112,7 +112,7 @@ void main() {
       isTrue,
       reason: '选中的分支应属于当前系统 (${MusicxxPluginEnv.currentOs()})',
     );
-    runtime.plugins.load('example_native_multi');
+    await runtime.plugins.load('example_native_multi');
     expect(runtime.plugins.findLoaded('example_native_multi'), isNotNull);
     final Object? which = await runtime.plugins.call(
       'example_native_multi',
@@ -124,10 +124,10 @@ void main() {
       multi.target,
       reason: '加载的应是插件框架选中的那个分支',
     );
-    runtime.plugins.unload('example_native_multi');
+    await runtime.plugins.unload('example_native_multi');
 
     // 安装预检入口（plugin_inspect）：与扫描同源，可指定目标环境
-    final MusicxxPluginInspect_c inspected = runtime.plugins.inspect(
+    final MusicxxPluginInspect_c inspected = await runtime.plugins.inspect(
       multi.path,
       os: MusicxxPluginEnv.currentOs(),
       arch: MusicxxPluginEnv.currentArch(),
@@ -148,7 +148,7 @@ void main() {
         .where((MusicxxPluginInfo info) => info.id == 'example_js_net')
         .firstOrNull;
     expect(declared, isNotNull, reason: '扫描结果里应有 example_js_net');
-    final MusicxxPluginInspect_c declaredByHost = runtime.plugins.inspect(
+    final MusicxxPluginInspect_c declaredByHost = await runtime.plugins.inspect(
       declared!.path,
     );
     expect(declaredByHost.valid, isTrue, reason: declaredByHost.error);
@@ -167,7 +167,7 @@ void main() {
     final String otherOs = MusicxxPluginEnv.currentOs() == 'windows'
         ? 'linux'
         : 'windows';
-    final MusicxxPluginInspect_c mismatched = runtime.plugins.inspect(
+    final MusicxxPluginInspect_c mismatched = await runtime.plugins.inspect(
       multi.path,
       os: otherOs,
       arch: MusicxxPluginEnv.currentArch(),
@@ -176,7 +176,7 @@ void main() {
     expect(mismatched.reason, contains('没有匹配当前系统/架构的分支'));
 
     // 目录不存在：valid=false + 可读原因（不抛异常）
-    final MusicxxPluginInspect_c missing = runtime.plugins.inspect(
+    final MusicxxPluginInspect_c missing = await runtime.plugins.inspect(
       '${multi.path}_missing',
     );
     expect(missing.valid, isFalse);
@@ -184,7 +184,7 @@ void main() {
 
     _step('3 scan 完成: ${found.length} 项');
     // 加载：同步等待 + 事件回报
-    runtime.plugins.load('example_native');
+    await runtime.plugins.load('example_native');
     expect(runtime.plugins.findLoaded('example_native'), isNotNull);
     await _pumpUntil(
       () => seen.any(
@@ -195,9 +195,9 @@ void main() {
     _step('4 load 完成');
     // 原生处理器位图：插件在 start 里注册了 3 个钩子
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerBeforePlaySong,
-      ),
+      ))!.length,
       1,
     );
     expect(
@@ -213,10 +213,10 @@ void main() {
 
     _step('5 hook_count 完成');
     // 快照频道：Dart 发布 → 插件同步可读（探针里回报 stateLen）
-    runtime.broadcasts.publish(MusicxxBroadcastId.stateSong, <String, Object?>{
-      'sid': 's-dart',
-      'name': 'Dart 推送的歌曲',
-    });
+    await runtime.broadcasts.publish(
+      MusicxxBroadcastId.stateSong,
+      <String, Object?>{'sid': 's-dart', 'name': 'Dart 推送的歌曲'},
+    );
 
     _step('6 state 推送完成');
     // 能力调用：读取插件自检信息（线程归属 + 命名空间校验结果）
@@ -237,12 +237,16 @@ void main() {
       -200,
       reason: '应用没声明的官方能力必须被拒绝 (能力表返回 not_declared = -200)',
     );
-    expect(probe['foreignActionRc'], -1, reason: '没声明过的动作名（能力）必须被拒绝');
+    expect(
+      probe['foreignActionRc'],
+      -200,
+      reason: '没声明过的动作名（能力）必须被拒绝 (not_declared)',
+    );
     expect(probe['stateLen'], greaterThan(0), reason: '插件应能同步读到 Dart 推送的快照频道');
 
     _step('7 能力调用完成: $probeRaw');
     // 钩子派发（裁决型）：广告曲目 → cancel
-    final Map<String, Object?>? verdict = runtime.capabilities.dispatch(
+    final Map<String, Object?>? verdict = await runtime.capabilities.dispatch(
       MusicxxCapabilityId.playerBeforePlaySong,
       <String, Object?>{
         'sid': 's-ad',
@@ -253,7 +257,7 @@ void main() {
     expect(verdict!['action'], 'skip');
     // 普通曲目 → 无裁决
     expect(
-      runtime.capabilities.dispatch(
+      await runtime.capabilities.dispatch(
         MusicxxCapabilityId.playerBeforePlaySong,
         <String, Object?>{
           'sid': 's-normal',
@@ -264,43 +268,27 @@ void main() {
     );
 
     _step('8 decide 完成');
-    // Dart 处理器链 + 合并：Dart 侧给 patch，原生侧给 cancel（veto 最保守 → 保留 cancel）
-    Map<String, Object?> dartHandler(MusicxxPluginCapabilityContext context) =>
+    // 应用侧没有实现链: 裁决完全由插件的实现链给出（Dart 只提交请求、等结果）。
+    // 同一条能力再来两次仍各有独立回执：一条命中广告、一条普通曲目。
+    final Map<String, Object?>? repeatVerdict = await runtime.capabilities
+        .dispatch(MusicxxCapabilityId.playerBeforePlaySong, <String, Object?>{
+          'sid': 's-again-ad',
+          'song': <String, Object?>{'name': '广告曲目 2'},
+        });
+    expect(repeatVerdict!['action'], 'skip', reason: '重复派发仍给出同一条裁决');
+    expect(
+      await runtime.capabilities.dispatch(
+        MusicxxCapabilityId.playerBeforePlaySong,
         <String, Object?>{
-          'action': 'continue',
-          'patch': <String, Object?>{'quality': 'hires'},
-        };
-    runtime.capabilities.on(
-      MusicxxCapabilityId.playerBeforePlaySong,
-      dartHandler,
-    );
-    expect(
-      runtime.capabilities.hasDartImplementation(
-        MusicxxCapabilityId.playerBeforePlaySong,
+          'sid': 's-again-normal',
+          'song': <String, Object?>{'name': '普通歌曲'},
+        },
       ),
-      isTrue,
-    );
-    final Map<String, Object?>? merged = runtime.capabilities.dispatch(
-      MusicxxCapabilityId.playerBeforePlaySong,
-      <String, Object?>{
-        'sid': 's-ad2',
-        'song': <String, Object?>{'name': '广告曲目 2'},
-      },
-    );
-    expect(merged!['action'], 'skip', reason: 'veto：skip 不被后续覆盖');
-    runtime.capabilities.off(
-      MusicxxCapabilityId.playerBeforePlaySong,
-      dartHandler,
-    );
-    expect(
-      runtime.capabilities.hasDartImplementation(
-        MusicxxCapabilityId.playerBeforePlaySong,
-      ),
-      isFalse,
+      isNull,
     );
 
-    // 观察型钩子：入队即返回（不等待）
-    runtime.capabilities.notify(
+    // 广播型 id：只跑处理器、不回结果（要顺序就 await，这条确认不影响播放）
+    await runtime.capabilities.notify(
       MusicxxBroadcastId.songChanged,
       <String, Object?>{
         'sid': 's-ad',
@@ -309,56 +297,27 @@ void main() {
     );
     await _pumpUntil(() => runtime.recentEvents.isNotEmpty);
 
-    _step('9 Dart 处理器链完成');
-    // 异步裁决：Dart 线程不等待，结果经 `musicxx.hook.decision.result` 回传后合并
-    final Map<String, Object?>? asyncVerdict = await runtime.capabilities
-        .dispatchAsync(
-          MusicxxCapabilityId.playerBeforePlaySong,
-          <String, Object?>{
-            'sid': 's-async-ad',
-            'song': <String, Object?>{'name': '广告插曲 - 异步'},
-          },
-        );
-    expect(asyncVerdict, isNotNull);
-    expect(asyncVerdict!['action'], 'skip', reason: '异步裁决结果应与同步一致');
-    expect(
-      await runtime.capabilities.dispatchAsync(
-        MusicxxCapabilityId.playerBeforePlaySong,
-        <String, Object?>{
-          'sid': 's-async-normal',
-          'song': <String, Object?>{'name': '普通歌曲'},
-        },
-      ),
-      isNull,
-    );
-    expect(
-      runtime.capabilities.pendingAsyncDispatches,
-      0,
-      reason: '异步裁决不应残留等待中的调用',
-    );
-    expect(runtime.capabilities.asyncDispatchCalls, greaterThan(0));
-
-    _step('9.5 异步裁决完成');
+    _step('9 裁决与通知完成');
     // 禁用 → 原生处理器位图清零；启用 → 恢复
-    runtime.plugins.disable('example_native');
+    await runtime.plugins.disable('example_native');
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerBeforePlaySong,
-      ),
+      ))!.length,
       0,
     );
-    runtime.plugins.enable('example_native');
+    await runtime.plugins.enable('example_native');
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerBeforePlaySong,
-      ),
+      ))!.length,
       1,
     );
 
     _step('10 enable/disable 完成');
     // 卸载：幂等（第二次仍成功），且能力调用失败
-    runtime.plugins.unload('example_native');
-    runtime.plugins.unload('example_native');
+    await runtime.plugins.unload('example_native');
+    await runtime.plugins.unload('example_native');
     expect(runtime.plugins.findLoaded('example_native'), isNull);
     expect(
       () async => await runtime.plugins.call(
@@ -372,8 +331,9 @@ void main() {
 
     // ===== 声明式 UI 扩展 =====
     // 重新加载原生示例插件, 读取 UI 项快照 (入口项 / 菜单项 / 顺序 / 动作描述)
-    runtime.plugins.load('example_native');
-    final List<MusicxxPluginUIItem> uiItems = runtime.plugins.uiSnapshot();
+    await runtime.plugins.load('example_native');
+    final List<MusicxxPluginUIItem> uiItems = await runtime.plugins
+        .uiSnapshot();
     final List<MusicxxPluginUIItem> homeEntries = MusicxxPluginUIItems.byType(
       uiItems,
       MusicxxPluginUIType.homeEntry,
@@ -419,9 +379,9 @@ void main() {
 
     _step('11.6 原生示例的页面内容完成');
     // 卸载后 UI 项被摘除 (插件框架随实例摘除, Dart 侧不再渲染)
-    runtime.plugins.unload('example_native');
+    await runtime.plugins.unload('example_native');
     expect(
-      runtime.plugins.uiSnapshot().any(
+      (await runtime.plugins.uiSnapshot()).any(
         (MusicxxPluginUIItem item) => item.plugin == 'example_native',
       ),
       isFalse,
@@ -445,9 +405,9 @@ void main() {
         } catch (_) {}
       });
       _copyDirectory(Directory('${env.pluginRoot}/example_native'), copyDir);
-      runtime.plugins.load(copyDir.path);
+      await runtime.plugins.load(copyDir.path);
       expect(runtime.plugins.findLoaded('example_native'), isNotNull);
-      runtime.plugins.unload('example_native');
+      await runtime.plugins.unload('example_native');
       expect(runtime.plugins.findLoaded('example_native'), isNull);
       copyDir.deleteSync(recursive: true);
       expect(copyDir.existsSync(), isFalse, reason: '卸载后插件目录应能删除');
@@ -457,7 +417,7 @@ void main() {
 
     // ===== JS 插件 (零编译) =====
     // 扫描结果里应有 JS 示例插件
-    final List<MusicxxPluginInfo> found2 = runtime.plugins.scan();
+    final List<MusicxxPluginInfo> found2 = await runtime.plugins.scan();
     final MusicxxPluginInfo? exampleJs = found2
         .where((MusicxxPluginInfo info) => info.id == 'example_js')
         .firstOrNull;
@@ -476,22 +436,23 @@ void main() {
     ]);
 
     _step('12 scan 发现 JS 插件');
-    runtime.plugins.load('example_js');
+    await runtime.plugins.load('example_js');
     expect(
       runtime.plugins.findLoaded('example_js'),
       isNotNull,
       reason: 'JS 插件实例应已加载',
     );
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerBeforePlaySong,
-      ),
+      ))!.length,
       1,
     );
 
     _step('13 JS 插件加载完成');
     // JS插件的 UI 项 (顶层注册 → 插件框架线程回放) 同样进快照
-    final List<MusicxxPluginUIItem> uiItemsJs = runtime.plugins.uiSnapshot();
+    final List<MusicxxPluginUIItem> uiItemsJs = await runtime.plugins
+        .uiSnapshot();
     expect(
       uiItemsJs.any(
         (MusicxxPluginUIItem item) =>
@@ -502,7 +463,7 @@ void main() {
       reason: '快照: $uiItemsJs',
     );
     // 裁决型钩子 (JS 侧处理器)
-    final Map<String, Object?>? jsVerdict = runtime.capabilities.dispatch(
+    final Map<String, Object?>? jsVerdict = await runtime.capabilities.dispatch(
       MusicxxCapabilityId.playerBeforePlaySong,
       <String, Object?>{
         'sid': 's-js-ad',
@@ -512,7 +473,7 @@ void main() {
     expect(jsVerdict, isNotNull);
     expect(jsVerdict!['action'], 'skip');
     expect(
-      runtime.capabilities.dispatch(
+      await runtime.capabilities.dispatch(
         MusicxxCapabilityId.playerBeforePlaySong,
         <String, Object?>{
           'sid': 's-js-normal',
@@ -525,25 +486,22 @@ void main() {
     _step('14 JS decide 完成');
     // 异步派发同样适用于 JS 处理器（插件框架在自己的线程上等脚本，Dart 线程不阻塞）
     final Map<String, Object?>? jsAsyncVerdict = await runtime.capabilities
-        .dispatchAsync(
-          MusicxxCapabilityId.playerBeforePlaySong,
-          <String, Object?>{
-            'sid': 's-js-async-ad',
-            'song': <String, Object?>{'name': '广告插曲 - JS 异步'},
-          },
-        );
+        .dispatch(MusicxxCapabilityId.playerBeforePlaySong, <String, Object?>{
+          'sid': 's-js-async-ad',
+          'song': <String, Object?>{'name': '广告插曲 - JS 异步'},
+        });
     expect(jsAsyncVerdict, isNotNull);
     expect(jsAsyncVerdict!['action'], 'skip');
 
     _step('14.5 JS 异步裁决完成');
     // JS 前链处理器返回 Promise: 插件框架一直等到脚本结算, 结算后改写生效
     // （“改播放值”的四个能力实现固定, 插件只能注册前链 / 后链）
-    final Map<String, Object?>? jsPromiseVerdict = runtime.capabilities
-        .dispatchAtPhase(
-          MusicxxCapabilityId.playerSpeed,
-          MusicxxCapabilityPhase.before,
-          <String, Object?>{'sid': 's-js-speed', 'from': 1.0, 'to': 8.0},
-        );
+    final Map<String, Object?>? jsPromiseVerdict = await runtime.capabilities
+        .dispatch(MusicxxCapabilityId.playerSpeed, <String, Object?>{
+          'sid': 's-js-speed',
+          'from': 1.0,
+          'to': 8.0,
+        }, MusicxxCapabilityPhase.before);
     expect(jsPromiseVerdict, isNotNull, reason: 'example_js 的异步裁决应生效');
     // 前链的 patch 合进结果对象里（`result.patch.to`）
     final Map<String, Object?> jsPromisePatch =
@@ -553,17 +511,17 @@ void main() {
     expect((jsPromisePatch['to'] as num?)?.toDouble(), 3.0);
     // 同一个处理器在"不需要裁决"的分支上同步返回 null → 没有裁决
     expect(
-      runtime.capabilities.dispatchAtPhase(
+      await runtime.capabilities.dispatch(
         MusicxxCapabilityId.playerSpeed,
-        MusicxxCapabilityPhase.before,
         <String, Object?>{'sid': 's-js-speed-ok', 'from': 1.0, 'to': 1.5},
+        MusicxxCapabilityPhase.before,
       ),
       isNull,
     );
 
     _step('14.6 JS Promise 裁决完成');
     // 观察型通知：现在是广播频道，应用发布、插件订阅（框架 API 2）
-    runtime.broadcasts.publish('musicxx.song.changed', <String, Object?>{
+    await runtime.broadcasts.publish('musicxx.song.changed', <String, Object?>{
       'sid': 's-js',
       'song': <String, Object?>{'name': 'JS 观察目标'},
     });
@@ -621,24 +579,24 @@ void main() {
 
     _step('16.5 JS 示例的页面内容完成');
     // 禁用/启用: JS 脚本随 stop/start 重跑
-    runtime.plugins.disable('example_js');
+    await runtime.plugins.disable('example_js');
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerBeforePlaySong,
-      ),
+      ))!.length,
       0,
     );
-    runtime.plugins.enable('example_js');
+    await runtime.plugins.enable('example_js');
     expect(
-      runtime.capabilities.refreshNativeHandlerCount(
+      (await runtime.capabilities.refreshNativeHandlers(
         MusicxxCapabilityId.playerBeforePlaySong,
-      ),
+      ))!.length,
       1,
     );
 
     _step('17 JS enable/disable 完成');
     // 卸载: JS 实例与注册全部摘除, 槽位保留在插件框架内置表里
-    runtime.plugins.unload('example_js');
+    await runtime.plugins.unload('example_js');
     expect(runtime.plugins.findLoaded('example_js'), isNull);
     expect(
       () async =>
@@ -658,21 +616,22 @@ void main() {
           .firstOrNull;
       expect(imagePlugin, isNotNull);
       expect(imagePlugin!.kind, MusicxxPluginKind.js);
-      runtime.plugins.load('example_js_playing_bg');
+      await runtime.plugins.load('example_js_playing_bg');
       expect(
-        runtime.capabilities.refreshNativeHandlerCount(
+        (await runtime.capabilities.refreshNativeHandlers(
           MusicxxCapabilityId.mediaPaletteAnalyse,
-        ),
+        ))!.length,
         1,
         reason: '取色钩子的处理器要在插件框架侧登记成功（插件框架库没重建时这里会是 0）',
       );
 
       // 六种样式 = 同一个槽位里的六份内容：候选列表读注册（名字 / 说明 / 顺序），
       // 画面读生成出来的块树。注册顺序决定设置列表里的先后：封面三种在前，图案三种在后。
-      final List<MusicxxPluginUIContent> backgrounds = contentProbe.registrationsOf(
-        'example_js_playing_bg',
-        slot: 'musicxx.ui.playing.background',
-      );
+      final List<MusicxxPluginUIContent> backgrounds = await contentProbe
+          .registrationsOf(
+            'example_js_playing_bg',
+            slot: 'musicxx.ui.playing.background',
+          );
       expect(backgrounds.length, 6, reason: '六种背景样式各注册一份内容: $backgrounds');
       expect(
         backgrounds.map((MusicxxPluginUIContent item) => item.shortId).toList(),
@@ -780,16 +739,13 @@ void main() {
       // 会把两边互相拖住 —— 实测表现是"启用插件后切歌 / 换背景样式卡几秒"。
       final Stopwatch paletteWatch = Stopwatch()..start();
       final Map<String, Object?>? paletteVerdict = await runtime.capabilities
-          .dispatchAsync(
-            MusicxxCapabilityId.mediaPaletteAnalyse,
-            <String, Object?>{
-              'srcKey': 'test-key',
-              'name': '测试歌曲',
-              'artist': '测试歌手',
-              'hasCover': true,
-              'night': false,
-            },
-          );
+          .dispatch(MusicxxCapabilityId.mediaPaletteAnalyse, <String, Object?>{
+            'srcKey': 'test-key',
+            'name': '测试歌曲',
+            'artist': '测试歌手',
+            'hasCover': true,
+            'night': false,
+          });
       paletteWatch.stop();
       expect(
         paletteWatch.elapsedMilliseconds,
@@ -843,7 +799,9 @@ void main() {
         <String, Object?>{'id': 'zoom', 'value': 2.5, 'view': 'settings'},
       );
       expect(
-        (await contentProbe.jsonOf('plugin.example_js_playing_bg.settings'))['blocks'],
+        (await contentProbe.jsonOf(
+          'plugin.example_js_playing_bg.settings',
+        ))['blocks'],
         isA<List<Object?>>(),
         reason: '改设置后页面能重新生成（不能在一次请求里等异步动作）',
       );
@@ -891,14 +849,14 @@ void main() {
         'setOption',
         <String, Object?>{'id': 'bgRate', 'value': 1},
       );
-      runtime.plugins.unload('example_js_playing_bg');
+      await runtime.plugins.unload('example_js_playing_bg');
       _step('18.7 示例播放页背景插件完成');
     }
 
     // 播放页插槽示例 example_js_playing_slots：位置上的界面全是内容
     // （插入块 / 控制栏 / 音频动效 / 普通页面背景），声明项只剩主页入口。
     if (Directory('${env.pluginRoot}/example_js_playing_slots').existsSync()) {
-      runtime.plugins.load('example_js_playing_slots');
+      await runtime.plugins.load('example_js_playing_slots');
       final Object? slotsProbe = await runtime.plugins.call(
         'example_js_playing_slots',
         'plugin.example_js_playing_slots.probe',
@@ -923,13 +881,13 @@ void main() {
 
       // 位置上的界面只能由内容填充：插件用 `item.register` 往这些槽位注册声明项会被拒绝，
       // 所以声明项快照里没有它们（主程序也不按声明项画这些位置）。
-      final List<MusicxxPluginUIItem> slotItems = runtime.plugins
-          .uiSnapshot()
-          .where(
-            (MusicxxPluginUIItem item) =>
-                item.plugin == 'example_js_playing_slots',
-          )
-          .toList();
+      final List<MusicxxPluginUIItem> slotItems =
+          (await runtime.plugins.uiSnapshot())
+              .where(
+                (MusicxxPluginUIItem item) =>
+                    item.plugin == 'example_js_playing_slots',
+              )
+              .toList();
       for (final String type in <String>[
         'musicxx.ui.playing.lyric.top',
         'musicxx.ui.playing.songlist.header',
@@ -948,7 +906,7 @@ void main() {
       }
 
       // 内容注册表：三个插入位置 / 两个按钮 / 动效 / 页面背景 / 两个页面
-      final List<MusicxxPluginUIContent> registrations = contentProbe
+      final List<MusicxxPluginUIContent> registrations = await contentProbe
           .registrationsOf('example_js_playing_slots');
       final Set<String> registeredSlots = <String>{
         for (final MusicxxPluginUIContent item in registrations) item.slot,
@@ -985,12 +943,10 @@ void main() {
         <String, Object?>{'view': 'settings'},
       );
       expect(
-        contentProbe
-            .registrationsOf(
-              'example_js_playing_slots',
-              slot: 'musicxx.ui.playing.controlBar',
-            )
-            .map((MusicxxPluginUIContent item) => item.shortId),
+        (await contentProbe.registrationsOf(
+          'example_js_playing_slots',
+          slot: 'musicxx.ui.playing.controlBar',
+        )).map((MusicxxPluginUIContent item) => item.shortId),
         contains('wholeBar'),
         reason: '整栏替换是一份内容（开启后进注册表）',
       );
@@ -1016,13 +972,12 @@ void main() {
         'toggleWholeBar',
         <String, Object?>{'view': 'settings'},
       );
-      runtime.plugins.unload('example_js_playing_slots');
+      await runtime.plugins.unload('example_js_playing_slots');
       _step('18.8 播放页插槽示例完成');
     }
 
-
     // 统计快照可读
-    final Map<String, Object?> stats = runtime.plugins.stats();
+    final Map<String, Object?> stats = await runtime.plugins.stats();
     expect(stats['host'], isA<Map<String, Object?>>());
   }, timeout: const Timeout(Duration(seconds: 60)));
 
@@ -1035,7 +990,7 @@ void main() {
     }
     final MusicxxPluginRuntime runtime = MusicxxPluginRuntime.create();
     addTearDown(runtime.dispose);
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -1044,11 +999,11 @@ void main() {
       ),
       libraryPath: env.libraryPath,
     );
-    runtime.plugins.scan();
-    runtime.plugins.load('example_js');
+    await runtime.plugins.scan();
+    await runtime.plugins.load('example_js');
 
-    // 插件框架库支持异步能力调用（旧库没有 plugin_call_async 这个符号）
-    expect(runtime.plugins.supportsAsyncCall, isTrue);
+    // 现在只有一种调用形态: 提交 + 一条结果事件; 受理本身是同步的判定
+    expect(runtime.requests.pendingCount, 0);
 
     // 1) 正常路径：异步完成的处理器（返回 Promise）也能等到结果
     final Object? slow = await runtime.plugins.call(
@@ -1058,7 +1013,7 @@ void main() {
     );
     expect(slow, isA<Map<String, Object?>>());
     expect((slow! as Map<String, Object?>)['waitedMs'], 120);
-    expect(runtime.plugins.pendingCallCount, 0, reason: '结果回来后不再有等待中的调用');
+    expect(runtime.requests.pendingCount, 0, reason: '结果回来后不再有等待中的调用');
 
     // 2) 调用方自己的超时：到点抛超时错误，晚到的结果丢弃（不悬挂）
     await expectLater(
@@ -1070,7 +1025,7 @@ void main() {
       ),
       throwsA(isA<MusicxxPluginApiException>()),
     );
-    expect(runtime.plugins.pendingCallCount, 0, reason: '超时后清掉等待中的调用');
+    expect(runtime.requests.pendingCount, 0, reason: '超时后清掉等待中的调用');
     // 晚到的结果到达时没有等待方：按丢弃处理（不抛、不串台）
     await _pumpUntil(() => true, timeout: const Duration(seconds: 1));
 
@@ -1086,7 +1041,7 @@ void main() {
       'plugin.example_js.slowProbe',
       const <String, Object?>{'waitMs': 5000},
     );
-    expect(runtime.plugins.pendingCallCount, 1);
+    expect(runtime.requests.pendingCount, 1);
     runtime.dispose();
     await expectLater(
       pending,
@@ -1116,7 +1071,7 @@ void main() {
       subscriberCounts[id] = count;
     };
 
-    runtime.init(
+    await runtime.init(
       config: MusicxxPluginRuntimeConfig(
         appVersion: '0.0.0-test',
         platform: MusicxxPluginRuntime.currentPlatform,
@@ -1131,7 +1086,7 @@ void main() {
     expect(runtime.missingFeatures, isEmpty, reason: runtime.featureHint);
 
     // 1) 加载广播示例（顶层声明自己的频道 + 订阅官方频道）
-    runtime.plugins.load('example_js_broadcast');
+    await runtime.plugins.load('example_js_broadcast');
 
     Map<String, Object?> probeCache = <String, Object?>{};
     Future<void> refreshProbe() async {
@@ -1151,7 +1106,7 @@ void main() {
     expect(probe()['apiVersion'], 3);
 
     // 3) 插件声明的频道进了广播表，声明字段如实
-    final List<Map<String, Object?>> own = runtime.broadcasts.list(
+    final List<Map<String, Object?>> own = await runtime.broadcasts.list(
       prefix: 'plugin.example_js_broadcast',
     );
     final List<Object?> ownIds = own
@@ -1170,7 +1125,7 @@ void main() {
 
     // 声明时就发布过一次初始值：主程序同步读得到
     expect(
-      runtime.broadcasts.read('plugin.example_js_broadcast.tip.start'),
+      await runtime.broadcasts.read('plugin.example_js_broadcast.tip.start'),
       false,
     );
 
@@ -1181,14 +1136,20 @@ void main() {
       <String, Object?>{'value': true},
     );
     expect(
-      runtime.broadcasts.read('plugin.example_js_broadcast.tip.start'),
+      await runtime.broadcasts.read('plugin.example_js_broadcast.tip.start'),
       true,
     );
 
     // 5) 插件订阅了官方频道：主程序发布后被叫到（订阅真的收到了）
-    expect(runtime.broadcasts.publish('musicxx.ui.animatedLevel', 3), isTrue);
+    expect(
+      await runtime.broadcasts.publish('musicxx.ui.animatedLevel', 3),
+      isTrue,
+    );
     // 同一个值再发一次：包层去重，不再发
-    expect(runtime.broadcasts.publish('musicxx.ui.animatedLevel', 3), isFalse);
+    expect(
+      await runtime.broadcasts.publish('musicxx.ui.animatedLevel', 3),
+      isFalse,
+    );
     await _pumpUntil(() async {
       await refreshProbe();
       return _intOf(probe()['changes']) >= 1;
@@ -1212,7 +1173,7 @@ void main() {
 
     // 7) 高频频道按订阅方声明的频率到达（示例给的是 500 ms / delay）
     expect(
-      runtime.broadcasts.publish(
+      await runtime.broadcasts.publish(
         'musicxx.player.position',
         <String, Object?>{'positionMs': 1000, 'durationMs': 200000},
         skipIfUnchanged: false,
@@ -1226,17 +1187,19 @@ void main() {
     expect(_intOf(probe()['positionNotices']), greaterThanOrEqualTo(1));
 
     // 8) 不存在的频道：读不到值（不抛异常，也不返回旧值）
-    expect(runtime.broadcasts.read('musicxx.test.nope'), isNull);
+    expect(await runtime.broadcasts.read('musicxx.test.nope'), isNull);
 
     // 9) 卸载后插件频道随实例摘除
     expect(
-      runtime.broadcasts.list(prefix: 'plugin.example_js_broadcast').isNotEmpty,
+      (await runtime.broadcasts.list(
+        prefix: 'plugin.example_js_broadcast',
+      )).isNotEmpty,
       isTrue,
       reason: '卸载前应当能看到插件频道',
     );
-    runtime.plugins.unload('example_js_broadcast');
+    await runtime.plugins.unload('example_js_broadcast');
     expect(
-      runtime.broadcasts.list(prefix: 'plugin.example_js_broadcast'),
+      await runtime.broadcasts.list(prefix: 'plugin.example_js_broadcast'),
       isEmpty,
     );
   });

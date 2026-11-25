@@ -172,13 +172,12 @@ class MusicxxPluginCapabilities {
               MusicxxPluginArena arena,
               Pointer<Int64> outId,
               Pointer<MusicxxExternPluginString> log,
-            ) => _runtime.bindings
-                .musicxx_extern_plugin_capability_handlers(
-                  _runtime.host,
-                  arena.view(id),
-                  outId,
-                  log,
-                ),
+            ) => _runtime.bindings.musicxx_extern_plugin_capability_handlers(
+              _runtime.host,
+              arena.view(id),
+              outId,
+              log,
+            ),
           )
         : await _runtime.requests.submit(
             'capability.handlers',
@@ -198,10 +197,13 @@ class MusicxxPluginCapabilities {
     if (!result.ok) {
       return null;
     }
+
+    /// 插件框架的回答是 `{capability, count, handlers}`；只给数组时也能用
     final Object? raw = result.data;
+    final Object? listRaw = raw is Map ? raw['handlers'] : raw;
     final List<MusicxxPluginHandlerInfo> list = <MusicxxPluginHandlerInfo>[];
-    if (raw is List) {
-      for (final Object? item in raw) {
+    if (listRaw is List) {
+      for (final Object? item in listRaw) {
         if (item is Map<Object?, Object?>) {
           list.add(
             MusicxxPluginHandlerInfo.fromJson(item.cast<String, Object?>()),
@@ -273,14 +275,13 @@ class MusicxxPluginCapabilities {
               MusicxxPluginArena arena,
               Pointer<Int64> outId,
               Pointer<MusicxxExternPluginString> log,
-            ) => _runtime.bindings
-                .musicxx_extern_plugin_capability_dispatch(
-                  _runtime.host,
-                  arena.view(id),
-                  arena.view(body),
-                  outId,
-                  log,
-                ),
+            ) => _runtime.bindings.musicxx_extern_plugin_capability_dispatch(
+              _runtime.host,
+              arena.view(id),
+              arena.view(body),
+              outId,
+              log,
+            ),
           )
         : await _runtime.requests.submit(
             'capability.dispatch',

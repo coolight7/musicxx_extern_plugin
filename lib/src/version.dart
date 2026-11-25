@@ -16,6 +16,11 @@ abstract final class MusicxxPluginVersion {
   /// 版本号（`<年>.<月日>.<小版本号>`）
   static const String version = '2026.1125.1';
 
+  /// 本包认识的 C ABI 代次（C 头宏 `MUSICXX_EXTERN_PLUGIN_API_VERSION`）
+  ///
+  /// 加载原生库时校验这一对必须相等（不等会让函数签名对不上）。
+  static const int apiVersion = 7;
+
   /// 本版本号首次出现的提交（本包仓库的短提交号；空串 = 还没补记，见
   /// `docs/version-history.md` 的补记流程）
   ///
