@@ -181,3 +181,21 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 ## 未验证
 
 （实施后补：只做了构建、没有实跑的平台与场景。）
+
+- 阶段 9 未做：没跑主程序、没实跑插件（动态库 + JS）、没跑 Android / iOS / macOS / Linux 构建。
+- 阶段 7 未做：原生测试 `test_host.cpp` / `test_pluginxx.cpp`、包内 `test/`、主程序 `test/` 均未改，
+  现在 `flutter analyze lib test` 在 `test/` 会报错（仅测试代码；`lib` 0 error / 0 warning）。
+- 阶段 8 只做了版本号与 `CHANGELOG.md`；包内 `docs/**`（`plugin-api.md` / `plugin-native-api.md` /
+  `musicxx-interfaces.md` / `plugin-capabilities.md` 等）与主程序 `docs/architecture/08,09`、
+  `AGENTS.md` §7.6 里的旧写法（`plugin_load_sync` / `loadAsync` / `dispatchAsync` / `capabilities.on` /
+  同步处理器）还没改。
+
+## 阶段 8（已做的部分）
+
+- `lib/src/version.dart`：`2026.1124.1` → `2026.1125.1`（日期 `2026-11-25`）；`pubspec.yaml` 同步；
+  `src/include/musicxx_extern_plugin_api.h` 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION` 早已是 7、版本串已是
+  `2026.1125.1`。
+- `CHANGELOG.md`：新增一节“处理器与 Dart 入口全异步，C ABI 7”（插件 AB​I 10、能力表 v9、只在有的同步
+  函数、合并掉的三个事件、队列满拒绝受理、Dart 包全 `Future` 与 `valueOf` 读缓存）。
+- **验证**：`fvm flutter test test/version_test.dart` → 7 项全过；
+  `fvm dart run tools/gen_contract.dart --check` → 生成物与定义一致。
