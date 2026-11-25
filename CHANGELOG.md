@@ -6,6 +6,16 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，未发布）：插件网盘移除 `drive.resolveSongs`
+
+一句话：**整目录读歌统一走 `drive.list` 分页，插件不需要再实现一套读歌能力**。
+
+- 声明里的 `capabilities.resolveSongs` 不再被接受（`capabilityKinds` 里已删掉这个键，
+  写了会当成不认识的能力种类）；注册 `drive.resolveSongs` 处理器不会报错，但应用不会再调用它。
+- 勾文件夹「添加到歌单 / 播放队列」由应用逐层读：每个目录按 `drive.list` 的 `next` 一直翻到底
+  （最多 5 层），与内置网盘同一条路。不分页的来源（不给 `next`）只发一次请求。
+- 需要“一次读完很多歌”的插件把 `pageSize` 调大即可（没有上限）；单页条目超过 `limit` 由应用截断。
+
 ### 变更（破坏性，2026.1125.1）：处理器与 Dart 入口全异步，C ABI 7
 
 一句话：**只剩一种操作形状 —— 提交返回 `requestId`，结果经事件 `musicxx.request.result` 交回**；

@@ -166,7 +166,7 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 60)));
 
   test(
-    '网盘：声明可浏览 + drive.list 分页 + drive.search + drive.resolveSongs',
+    '网盘：声明可浏览 + drive.list 分页 + drive.search',
     () async {
       if (unsupported()) {
         return;
@@ -206,7 +206,8 @@ void main() {
           .cast<String, Object?>();
       expect(caps['list'], 'drive.list');
       expect(caps['search'], 'drive.search');
-      expect(caps['resolveSongs'], 'drive.resolveSongs');
+      // 整目录读歌不再有单独的能力（应用逐层用 drive.list 翻到底）
+      expect(caps.containsKey('resolveSongs'), false);
       // 另一个分类：换了自己的能力名，不让下载
       final Map<String, Object?> byName = declarations.firstWhere(
         (Map<String, Object?> item) => item['view'] == 'byname',
@@ -285,25 +286,27 @@ void main() {
         <String>['b.flac'],
       );
 
-      // 4) drive.resolveSongs：递归读完（含子目录），每首歌都带类型与资源 id
-      final Map<String, Object?> resolved = await harness.call(
-        'drive.resolveSongs',
+      // 4) 整目录读歌：应用逐层用 drive.list 翻到底（示例只要分页写对就行）
+      final Map<String, Object?> firstPage = await harness.call(
+        'drive.list',
+        <String, Object?>{'path': '/Music', 'offset': '', 'limit': 2},
+      );
+      expect(firstPage['ok'], true);
+      expect(_driveEntriesOf(firstPage['entries']).length, 2);
+      expect('${firstPage['next']}'.isNotEmpty, true, reason: '还有下一页');
+      final Map<String, Object?> nextPage = await harness.call(
+        'drive.list',
         <String, Object?>{
-          'paths': <String>['/Music'],
+          'path': '/Music',
+          'offset': firstPage['next'],
+          'limit': 2,
         },
       );
-      expect(resolved['ok'], true);
-      final List<Map<String, Object?>> songs = _driveEntriesOf(
-        resolved['songs'],
-      );
-      expect(songs.length, 4, reason: '3 个文件 + 子目录里的 c.ogg（示例不按后缀过滤）');
-      for (final Map<String, Object?> item in songs) {
-        expect(item['type'], ftpType);
-        expect('${item['src']}'.isNotEmpty, true);
-      }
+      expect(nextPage['ok'], true);
       expect(
-        songs.map((Map<String, Object?> item) => item['fileName']).toList(),
-        contains('c.ogg'),
+        _driveEntriesOf(nextPage['entries']).isNotEmpty,
+        true,
+        reason: '按 next 能继续读',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),
@@ -1376,8 +1379,8 @@ Map<String, Object?>? _blockOf(Map<String, Object?> view, String kind) {
   return found;
 }
 
-/// 网盘能力返回的条目列表（`drive.list` / `drive.search` 的 `entries`、`drive.resolveSongs` 的
-/// `songs`）：转成 `List<Map<String, Object?>>`，形状不对当空表
+/// 网盘能力返回的条目列表（`drive.list` / `drive.search` 的 `entries`）：
+/// 转成 `List<Map<String, Object?>>`，形状不对当空表
 List<Map<String, Object?>> _driveEntriesOf(Object? raw) {
   if (raw is! List) {
     return <Map<String, Object?>>[];

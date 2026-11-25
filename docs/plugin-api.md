@@ -1698,7 +1698,7 @@ const TYPE_ID = "plugin.my_ftp.audio";
 musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID, view: "songs", title: "歌曲", order: 10,
     root: "/", search: true,
-    capabilities: { list: "drive.list", search: "drive.search", resolveSongs: "drive.resolveSongs" }
+    capabilities: { list: "drive.list", search: "drive.search" }
 });
 // 「歌手」：字母索引栅，只允许按名称 / 歌曲数排序，不能下载
 musicxx.capability.call("musicxx.source.browse", {
@@ -1746,8 +1746,7 @@ musicxx.capability.call("musicxx.source.browse", {
     search: true,                   // 有搜索按钮
     capabilities: {                  // 出现某个键 = 这个能力实现了（名字可以改成自己的）
         list: "drive.list",
-        search: "drive.search",
-        resolveSongs: "drive.resolveSongs"
+        search: "drive.search"
     }
 });
 
@@ -1772,12 +1771,6 @@ musicxx.capability.register("drive.list", async function (args) {
         })),
         next: page.hasMore ? "2" : ""    // 下一页偏移；空串 = 没有下一页
     };
-});
-
-// 3) （可选，强烈建议）整目录一次读歌：勾了文件夹就能一次拿到里面的歌
-musicxx.capability.register("drive.resolveSongs", async function (args) {
-    // args: {requestId, paths, recursive, maxDepth}
-    return { ok: true, songs: await mySongsUnder(args.paths) };
 });
 ```
 
@@ -1813,7 +1806,6 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
 | 能力 | 什么时候问 | 入参 | 返回 |
 |---|---|---|---|
 | `drive.list` | 加载一个目录（每个分类必需） | `{type, view, path, offset, limit, sort, reverse}` | `{ok:true, entries:[…], next}` |
-| `drive.resolveSongs` | 勾了文件夹要一次读完里面的歌 | `{type, view, paths, recursive, maxDepth}` | `{ok:true, songs:[…], truncated?}` |
 | `drive.search` | 搜索框 | `{type, view, keyword, path, limit, offset}` | `{ok:true, entries:[…], next}` |
 | `drive.mkdir` | 「创建文件夹」 | `{type, view, parent, name}` | `{ok:true, path}` |
 | `drive.rename` | 「重命名」 | `{type, view, path, newName}` | `{ok:true, path}` |
@@ -1830,6 +1822,10 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
   决定（页号、游标、字节偏移都行），应用只回传。单页条目超过 `limit` 会被截断。
   **不分页的来源（例如直接把一个目录读完的 FTP）什么都不用做**：不给 `next` 就是“只有这一页”，
   列表底部不会出现「加载更多」，也不会响应上拉加载。
+- **勾文件夹读歌（整目录加歌）**：应用会把文件夹（含子文件夹，最多 5 层）里**每个目录的所有
+  分页**都读完再算「已选择」，期间给进度提示与「停止」按钮 —— 自己分页的插件不用为这个改代码，
+  应用会按 `next` 一直翻到空串；不分页的插件就只发一次。这条与内置网盘同一套，插件不用实现
+  额外的“一次读完整目录”能力。
 - **排序**：`sort` 的取值见上面的声明列表，`reverse` 是布尔。插件排不了就忽略；应用拿到后仍会
   本地再排一次（与内置网盘一致）。每个分类**各自记住**用户选的排序方式（重启后仍是各自
   的选择），所以「歌手」按名称、「歌曲」按添加时间互不影响。
@@ -1841,14 +1837,14 @@ musicxx.capability.register("drive.resolveSongs", async function (args) {
   目录**的路径；只给 `fileName` 时应用按文件名拆歌名与歌手（与本地扫描同一套规则）。
   **同一首歌从两个分类加进歌单，音源身份是同一个**（缓存、播放记录、封面都不分叉）。
 - **失败**：返回 `{ok:false, error:"人能看懂的一句话", retryable?}`。`drive.list` 失败时
-  列表显示“加载失败，点此重试”；`drive.resolveSongs` 失败时应用退回逐层 `drive.list`。
+  列表显示“加载失败，点此重试”。
 - **写操作**：只有声明了 `write: true` 才出「新建文件夹 / 重命名 / 删除」；`drive.info` 单独
   声明（给了才出「条目信息」）。删除是**应用先弹确认**再调 `drive.remove`。
 - **下载与封面**：能不能下载、能不能放都走 `musicxx.player.source.resolve`（下载同样是"先解析
   成地址再取字节"），所以不实现解析的插件既放不了也下不了。条目没给 `cover` 时，歌单里那一行
   要等这首歌**播过一次**（应用按音源身份把封面存进图片缓存，键是
   `md5(类型 + 资源 id)`）之后才显示封面。
-- **限制**：整目录递归最多 5 层；`drive.resolveSongs` 返回多少首就收多少（不再有上限）；同一个插件的
+- **限制**：整目录递归最多 5 层；同一个插件的
   同一项能力应用会串行调用（最多排 2 条），多个分类共用同一个排队队列，不要在处理器里长时间阻塞。
 
 宿主提供的界面能力（插件自己的界面里想让应用开挑歌弹窗时用）：
@@ -2595,7 +2591,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | `musicxx.media.bindImage` | 键 1~64 位 `[A-Za-z0-9_.-]`；**张数与尺寸都不限制**（`format: "rgba"` 仍要高宽与字节数匹配） |
 | `musicxx.ui.loadFont` | 字体文件 ≤ 100 MiB（超过直接回错误）；`path` 不限范围（绝对路径 / `file://` / `~` / 相对插件目录） |
 | `musicxx.songlist.addSong` | 一次首数与字段长度都**不限制** |
-| 插件网盘声明（`musicxx.source.browse`） | 分类数量、标题 / 根目录 / 图标 / 能力名的长度、页大小（>0 即可）、`resolveSongs` 首数、条目文本长度都**不限制** |
+| 插件网盘声明（`musicxx.source.browse`） | 分类数量、标题 / 根目录 / 图标 / 能力名的长度、页大小（>0 即可）、条目文本长度都**不限制** |
 | 插件浮层（`musicxx.ui.overlay.*`） | **层数不限制**（一个插件可以同时开多层，`overlay.close` 关最上面那层） |
 | 安装包解包 | 大小 / 条目数 / 解包体积都**不限制**；仍拒绝绝对路径 / `..` 逃逸 / 符号链接 / 非普通文件 / 大小写重名 |
 | 界面动画（`musicxx.AnimatedBuilder`） | 通道数量与 `maxFps` 都**不限制**（`maxFps` 缺省 30；`<=0` 用缺省） |

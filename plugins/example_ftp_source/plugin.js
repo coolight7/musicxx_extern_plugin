@@ -772,9 +772,6 @@ musicxx.capability.call("musicxx.source.define", {
 
 /* ==================== 网盘：浏览与挑歌（主程序画界面） ==================== */
 
-/// 一次 `drive.resolveSongs` 最多读多少首（超出截断，界面会提示）
-const MAX_DRIVE_SONGS = 2000;
-
 /// 「按名称」分类向下读几层（示例只演示形状，不对整棵树递归）
 const BY_NAME_MAX_DEPTH = 2;
 
@@ -800,7 +797,6 @@ musicxx.capability.call("musicxx.source.browse", {
     capabilities: {
         list: "drive.list",
         search: "drive.search",
-        resolveSongs: "drive.resolveSongs",
         mkdir: "drive.mkdir",
         rename: "drive.rename",
         remove: "drive.remove",
@@ -971,67 +967,6 @@ musicxx.capability.register("drive.search", function (args) {
         return { ok: true, entries: entries, next: "" };
     }, function (err) {
         return { ok: false, error: (err && err.message) ? err.message : String(err) };
-    });
-});
-
-/// `drive.resolveSongs`：把一个文件夹里的歌一次读完（勾整目录时比逐层列目录快）
-///
-/// 失败时返回 `ok: false`；主程序会退回逐层 `drive.list`，所以这里不用自己重试。
-/// 每个文件都当音频（FTP 上放的一般就是音乐），超过 [MAX_DRIVE_SONGS] 截断。
-musicxx.capability.register("drive.resolveSongs", function (args) {
-    const account = accountState.account;
-    if (!FtpSource.accountReady(account)) {
-        return { ok: false, error: "还没有配置 FTP 账号（打开「FTP 音乐」填服务器）" };
-    }
-    const paths = (args && Array.isArray(args.paths)) ? args.paths : [];
-    const maxDepth = Math.min(Math.max(1, intOf(args && args.maxDepth, 5)), 5);
-    const songs = [];
-    const seen = {};
-    function walk(path, depth) {
-        if (depth > maxDepth || songs.length >= MAX_DRIVE_SONGS) {
-            return Promise.resolve(null);
-        }
-        return FtpSource.list(account, path).then(function (result) {
-            let chain = Promise.resolve(null);
-            for (let i = 0; i < result.entries.length; i += 1) {
-                const entry = result.entries[i];
-                if (entry.isDir) {
-                    chain = chain.then(function () {
-                        return walk(entry.path, depth + 1);
-                    });
-                } else {
-                    const src = FtpSource.resourceIdOf(account, entry.path);
-                    if (!src || seen[src]) {
-                        continue;
-                    }
-                    seen[src] = true;
-                    songs.push({
-                        type: TYPE_ID,
-                        src: src,
-                        fileName: entry.name,
-                        size: entry.size || 0
-                    });
-                }
-            }
-            return chain;
-        }, function () {
-            // 某个子目录读不了就跳过，别让整个文件夹失败
-            return null;
-        });
-    }
-    let chain = Promise.resolve(null);
-    for (let i = 0; i < paths.length; i += 1) {
-        const target = paths[i];
-        chain = chain.then(function () {
-            return walk(FtpSource.normalizePath(target), 1);
-        });
-    }
-    return chain.then(function () {
-        return {
-            ok: true,
-            songs: songs,
-            truncated: songs.length >= MAX_DRIVE_SONGS
-        };
     });
 });
 

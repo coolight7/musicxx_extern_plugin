@@ -96,8 +96,7 @@ src  = <账号指纹>/<FTP 绝对路径去掉开头 />
 musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID, view: "dir", title: "文件夹", order: 10, root: "/",
     icon: "resource/svg/ftp.svg", search: true, write: true,
-    capabilities: { list: "drive.list", search: "drive.search",
-                    resolveSongs: "drive.resolveSongs" }
+    capabilities: { list: "drive.list", search: "drive.search" }
 });
 musicxx.capability.call("musicxx.source.browse", {
     id: TYPE_ID, view: "byname", title: "按名称", order: 20, root: "/",
