@@ -253,7 +253,8 @@ public:
   int32_t start(std::string &err);
 
   /// 同步停止 (幂等): 卸载全部插件 → 停线程池 → 停 io 线程
-  int32_t stop(uint32_t timeoutMs, std::string &err);
+  int32_t stop(uint32_t timeoutMs, std::string &err,
+               int64_t exceptRequestId = 0);
 
   bool running() const { return running_.load(std::memory_order_acquire); }
 
@@ -884,10 +885,17 @@ private:
   };
 
   /// 某个插件身上还没回来的请求按 `plugin_unloaded` 收尾
-  void finishRequestsOf(const std::string &pluginId);
+  ///
+  /// `exceptRequestId` 是"正在做卸载的那条请求"自己: 它也在插件名下, 不能被自己
+  /// 收尾, 否则调用方拿到的是 `plugin_unloaded` 而不是卸载结论。
+  void finishRequestsOf(const std::string &pluginId,
+                        int64_t exceptRequestId = 0);
 
   /// 全部还没回来的请求按 `host_stopped` 收尾
-  void finishAllRequests();
+  ///
+  /// `exceptRequestId` 是正在做停机的那条请求自己 (`host.shutdown`): 它不能被自己
+  /// 收尾, 否则调用方拿到的不是停机结论。
+  void finishAllRequests(int64_t exceptRequestId = 0);
 
   /// `musicxx.capability.changed` 的载荷（注册/注销共用一份写法；返回 JSON 文本）
   ///
@@ -963,7 +971,8 @@ private:
   /// 启用 / 停用 / 卸载的实际工作 (协程; 框架线程)
   asio::awaitable<RequestOutcome> enablePluginWork(const std::string &id);
   asio::awaitable<RequestOutcome> disablePluginWork(const std::string &id);
-  asio::awaitable<RequestOutcome> unloadPluginWork(const std::string &id);
+  asio::awaitable<RequestOutcome> unloadPluginWork(const std::string &id,
+                                                  int64_t requestId);
 
   HostContext *ctx_ = nullptr;
 

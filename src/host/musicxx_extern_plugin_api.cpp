@@ -263,7 +263,8 @@ musicxx_extern_plugin_host_shutdown(MusicxxExternPluginHost *h,
                                /// 关线程必须就地做 (关的就是框架线程, 投递过去会等自己)。
                                /// 结果在两条线程都停好之后才回。
                                std::string err;
-                               const int32_t rc = handle->manager->stop(5000, err);
+                               const int32_t rc =
+                                   handle->manager->stop(5000, err, requestId);
                                handle->manager->completeRequest(
                                    requestId,
                                    rc == PLUGINXX_RESULT_OK

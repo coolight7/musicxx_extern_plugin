@@ -439,7 +439,8 @@ bool MusicxxHostManager::bindIoThread() {
   return true;
 }
 
-int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
+int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err,
+                                   int64_t exceptRequestId) {
   (void)err;
   if (!ctx_ || !running_.load(std::memory_order_acquire)) {
     return PLUGINXX_RESULT_OK;
@@ -450,13 +451,13 @@ int32_t MusicxxHostManager::stop(uint32_t timeoutMs, std::string &err) {
       static_cast<int64_t>((std::max)(timeoutMs, 1000u))};
   asio::co_spawn(
       ctx_->io,
-      [self, slot, budget]() -> asio::awaitable<void> {
+      [self, slot, budget, exceptRequestId]() -> asio::awaitable<void> {
         // 停机收尾**先做**: 还没回来的能力调用按 `host_stopped`
         // 推一条结果事件。 之后的 shutdownAsync 会去终止插件与它们还没结束的
         // op, 那些 op 的失败通知 因为已经没有等待方了 (记账已清) 而被丢弃 ——
         // 不会重复推事件, 调用方也拿到的是"框架停止"这个可读原因,
         // 而不是插件框架收尾时的泛化说法。
-        self->finishAllRequests();
+        self->finishAllRequests(exceptRequestId);
         const bool ok = co_await self->shutdownAsync(budget);
         slot->set(ok);
       },
@@ -684,13 +685,15 @@ int32_t MusicxxHostManager::submitCoroutine(
   return PLUGINXX_RESULT_OK;
 }
 
-void MusicxxHostManager::finishRequestsOf(const std::string &pluginId) {
+void MusicxxHostManager::finishRequestsOf(const std::string &pluginId,
+                                         int64_t exceptRequestId) {
   const std::string plain = pluginIdOf(pluginId);
   std::vector<std::pair<int64_t, PendingRequest>> hits;
   {
     std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
     for (auto it = pendingRequests_.begin(); it != pendingRequests_.end();) {
-      if (!it->second.plugin.empty() && pluginIdOf(it->second.plugin) == plain) {
+      if (it->first != exceptRequestId && !it->second.plugin.empty() &&
+          pluginIdOf(it->second.plugin) == plain) {
         hits.emplace_back(it->first, it->second);
         it = pendingRequests_.erase(it);
       } else {
@@ -706,14 +709,18 @@ void MusicxxHostManager::finishRequestsOf(const std::string &pluginId) {
   }
 }
 
-void MusicxxHostManager::finishAllRequests() {
+void MusicxxHostManager::finishAllRequests(int64_t exceptRequestId) {
   std::vector<std::pair<int64_t, PendingRequest>> hits;
   {
     std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-    for (auto &entry : pendingRequests_) {
-      hits.emplace_back(entry.first, entry.second);
+    for (auto it = pendingRequests_.begin(); it != pendingRequests_.end();) {
+      if (it->first == exceptRequestId) {
+        ++it;
+        continue;
+      }
+      hits.emplace_back(it->first, it->second);
+      it = pendingRequests_.erase(it);
     }
-    pendingRequests_.clear();
   }
   for (const auto &hit : hits) {
     pushRequestResult(hit.first, hit.second.op,
@@ -2112,7 +2119,7 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
   asio::co_spawn(
       ctx_->io,
       [self, requestId, id]() -> asio::awaitable<void> {
-        RequestOutcome outcome = co_await self->unloadPluginWork(id);
+        RequestOutcome outcome = co_await self->unloadPluginWork(id, requestId);
         self->completeRequest(requestId, std::move(outcome));
       },
       asio::detached);
@@ -2123,7 +2130,7 @@ int32_t MusicxxHostManager::unloadPlugin(const std::string &id,
 }
 
 asio::awaitable<RequestOutcome>
-MusicxxHostManager::unloadPluginWork(const std::string &id) {
+MusicxxHostManager::unloadPluginWork(const std::string &id, int64_t requestId) {
   /// 幂等: 未加载视为"已经是未加载状态"; 插件 id 与实例名都接受 (JS插件实例名为 js:<id>)
   /// 运行器插件托管的插件: 让运行器卸掉它, 然后删掉记录
   {
@@ -2144,7 +2151,7 @@ MusicxxHostManager::unloadPluginWork(const std::string &id) {
   }
   /// 卸载前先把目标插件身上还没回来的请求按 `plugin_unloaded` 收尾
   /// (调用方不能一直等; 这里先发更及时)
-  finishRequestsOf(id);
+  finishRequestsOf(id, requestId);
   const bool ok = co_await unloadAsync(
       inst->name, std::chrono::milliseconds{static_cast<int64_t>(30000)});
   if (!ok) {
@@ -2182,7 +2189,7 @@ int32_t MusicxxHostManager::reloadPlugin(const std::string &id,
           options["args"] = inst->args;
           optionsJson = options.dump();
         }
-        RequestOutcome unloaded = co_await self->unloadPluginWork(id);
+        RequestOutcome unloaded = co_await self->unloadPluginWork(id, requestId);
         if (unloaded.code != PLUGINXX_RESULT_OK) {
           self->completeRequest(requestId, std::move(unloaded));
           co_return;
@@ -2731,6 +2738,42 @@ int32_t MusicxxHostManager::pluginCall(const std::string &id,
     return PLUGINXX_RESULT_ERR_ARG;
   }
 
+  /// 受理判定要在框架线程上做 (实例表与能力表都归它), 但它只是几次查表:
+  /// 这里等它给出结论再返回。未声明能力 / 实例不存在 / 归属不对属于"未受理",
+  /// 调用方拿到负码且不会收到结果事件 (与协议一致); 真正执行能力之后才受理。
+  struct AcceptedCall {
+    std::string cap;
+    InstancePtr inst;
+    std::string problem;
+    int32_t code = PLUGINXX_RESULT_ERR_TIMEOUT;
+  };
+  auto accepted = std::make_shared<AcceptedCall>();
+  auto self = shared_from_this();
+  if (isIoThread()) {
+    /// 本来就在框架线程上 (主程序内部发起的跨插件调用): 不能再等投递回来
+    accepted->code =
+        acceptCapabilityCall(id, method, accepted->cap, accepted->inst,
+                             accepted->problem);
+  } else {
+    auto slot = std::make_shared<WaitSlot<bool>>();
+    asio::post(ctx_->io, [self, accepted, slot, id, method]() {
+      accepted->code =
+          self->acceptCapabilityCall(id, method, accepted->cap, accepted->inst,
+                                     accepted->problem);
+      slot->set(true);
+    });
+    bool arrived = false;
+    if (!slot->wait(3000, arrived) || !arrived) {
+      err = "plugin_call: 插件框架线程没有及时响应";
+      return PLUGINXX_RESULT_ERR_TIMEOUT;
+    }
+  }
+  if (accepted->code != PLUGINXX_RESULT_OK) {
+    err = accepted->problem.empty() ? std::string{"plugin_call 未受理"}
+                                    : accepted->problem;
+    return accepted->code;
+  }
+
   int64_t requestId = 0;
   const int32_t acceptRc = acceptRequest("plugin.call", &requestId);
   if (acceptRc != PLUGINXX_RESULT_OK) {
@@ -2739,24 +2782,10 @@ int32_t MusicxxHostManager::pluginCall(const std::string &id,
   }
   markRequestPlugin(requestId, id);
 
-  /// 受理判定要在框架线程上做 (实例表与能力表都归它); 判定本身只是几次查表,
-  /// **不等插件能力执行** —— 发起之后立刻返回, 结果经请求表回给调用方。
-  auto self = shared_from_this();
-  asio::post(ctx_->io, [self, requestId, id, method, argsJson]() {
-    std::string cap;
-    InstancePtr inst;
-    std::string problem;
-    const int32_t rc =
-        self->acceptCapabilityCall(id, method, cap, inst, problem);
-    if (rc != PLUGINXX_RESULT_OK) {
-      self->completeRequest(requestId,
-                            RequestOutcome::fail(rc, problem.empty()
-                                                         ? std::string{"plugin_call failed"}
-                                                         : problem));
-      return;
-    }
+  /// 受理已定: 发起之后立刻返回, 结果经请求表回给调用方
+  asio::post(ctx_->io, [self, accepted, requestId, argsJson]() {
     self->startCapabilityCall(
-        inst.get(), cap, argsJson,
+        accepted->inst.get(), accepted->cap, argsJson,
         [self, requestId](int32_t callRc, const std::string &text) {
           if (callRc == PLUGINXX_RESULT_OK) {
             self->completeRequest(requestId, RequestOutcome::ok(text));
