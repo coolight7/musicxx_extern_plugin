@@ -6,6 +6,32 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，2026.1125.1）：处理器与 Dart 入口全异步，C ABI 7
+
+一句话：**只剩一种操作形状 —— 提交返回 `requestId`，结果经事件 `musicxx.request.result` 交回**；
+处理器只剩一种写法（`run_start` + `notify->done`），Dart 侧所有入口返回 `Future`。
+C ABI 6 → 7、插件 ABI 10（清单 `api_version` 写 10）、能力表 v9。
+
+- **“同步处理器”没了**：`PluginxxCapabilitySpec.sync` 删除；同步写法（直接返回字符串）仍然可以写，
+  它的结果在 `start` 里当场交给 `notify->done` —— 宿主不再区分两种写法。
+- **前链 / 后链也可以用协程**：不再要求“前链必须同步处理器”。
+- **C ABI 全部提交式**：`plugin_load_sync`、`plugin_call_async`、`capability_handler_count(_phase)`、
+  `DISPATCH_SYNC|ASYNC` 删除，`host_stop` → `host_shutdown`；每个入口改成
+  `int32_t f(h, …, int64_t* out_request_id, MusicxxExternPluginString* log)`：
+  返回 0 = 已受理（之后恰好一条结果事件），返回负码 = 未受理（不会推结果）。
+- **只保留两类同步函数**：句柄（`host_create` / `host_destroy`）与事件通道 / 纯函数
+  （`poll_events` / `set_wake_callback` / `api_version` / `version` / `result_name` / `feature_bits` /
+  内存与字符串函数）。
+- **合并掉的事件**：`musicxx.plugin.call.result` 与 `musicxx.capability.decision.result` 不再发，
+  内容并入 `musicxx.request.result`（`op` 区分来源，`code` / `reason` / `message` 在 `error` 里）。
+  领域通知（`musicxx.host.*` / `musicxx.plugin.*` / `musicxx.capability.changed` / `musicxx.ui.*` …）照旧。
+- **没有数据的操作也回一条确认**（发布 / 订阅 / 日志 / 回复 / 关机，`data` 为 `null`）：
+  要保证顺序时可以直接 `await`；不关心就丢掉。
+- **队列满时拒绝受理**（`PLUGINXX_RESULT_ERR_BUSY`），不再丢结果事件。
+- **Dart 包**：所有入口返回 `Future`（`init` / `dispose` / `log` / `debugInfo` / 全部 `plugins.*` /
+  `capabilities.dispatch` / `broadcasts.*`）；删 `loadAsync` / `dispatchAsync` / `capabilities.on|off`；
+  新读法 `broadcasts.valueOf(id)`（Dart 侧缓存，热路径不过 FFI）。
+
 ### 变更（破坏性，未发布）：业务接口表改成异步操作契约，SDK 全量协程化
 
 一句话：**接口表不再是"调用即返回结果"，改成"受理 + 完成通知"**；原生 SDK 的业务方法一律
