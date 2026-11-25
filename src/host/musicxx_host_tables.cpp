@@ -20,8 +20,13 @@
 #include <asio/steady_timer.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <memory>
+#include <mutex>
+#include <utility>
+#include <vector>
 
 namespace musicxx {
 namespace extern_plugin {
@@ -188,20 +193,13 @@ int32_t MusicxxHostManager::registerHandler(
   }
   const std::string capabilityId{spec.capability_id.data,
                                  static_cast<size_t>(spec.capability_id.size)};
-  if (!spec.run_sync && !spec.run_start) {
+  if (!spec.run_start) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   const int32_t phase = spec.phase;
   if (!isValidPhase(phase)) {
     XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 被拒绝: 阶段 {} 不合法",
             inst->name, capabilityId, phase);
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  /// 前链 / 后链必须是同步处理器: 要拿到这一步的结果才能跑下一步
-  if (phase != MUSICXX_CAPABILITY_PHASE_IMPL && !spec.run_sync) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 的 {} 阶段被拒绝: "
-            "阶段处理器必须是同步处理器 (run_start 无法逐步串行)",
-            inst->name, capabilityId, phaseNameOf(phase));
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
@@ -329,18 +327,7 @@ int MusicxxHostManager::onCapabilityRowAdded(
     return PLUGINXX_RESULT_OK;
   }
   std::string reason;
-  // 宿主派发是同步的：异步给结果的处理器这一轮拿不到结果，直接拒绝并说清原因
-  if (spec.sync == 0) {
-    reason = "capability `" + id +
-             "` 的处理器必须同步给结果（登记时 sync = 1）；"
-             "异步能力请用普通能力名，不要挂在应用声明的 id 上";
-    if (error) {
-      *error = reason;
-    }
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册实现被拒绝: {}",
-            inst ? inst->name : "?", reason);
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
+  // 处理器只有一种形态 (结束时调一次 notify->done): 不再区分同步 / 异步
   if (spec.run_start == nullptr) {
     reason = "capability `" + id + "` 缺少处理器（run_start 为空）";
     if (error) {
@@ -612,23 +599,6 @@ int32_t MusicxxHostManager::capabilityInfoJson(std::string_view capabilityId,
   return PLUGINXX_RESULT_OK;
 }
 
-int32_t MusicxxHostManager::handlerCount(const std::string &capabilityId,
-                                      int32_t &outCount) {
-  auto it = handlers_.find(capabilityId);
-  outCount = (it == handlers_.end()) ? 0 : static_cast<int32_t>(it->second.size());
-  return PLUGINXX_RESULT_OK;
-}
-
-int32_t MusicxxHostManager::handlerCountPhase(const std::string &capabilityId,
-                                           int32_t phase, int32_t &outCount) {
-  if (!isValidPhase(phase)) {
-    outCount = 0;
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  outCount = countOnPhase(capabilityId, phase);
-  return PLUGINXX_RESULT_OK;
-}
-
 std::vector<std::string>
 MusicxxHostManager::capabilitiesOfInstance(const std::string &instanceName) const {
   std::vector<std::string> ids;
@@ -811,52 +781,84 @@ std::string actionOf(const Json &j) {
   return {};
 }
 
-} // namespace
-
-namespace {
-
-/// 同步调用一个“能力表”形态的处理器时收集它的结果
+/// 处理器完成通知的转发载体: 把 ABI 的 `notify->done` 变成协程侧的 [AsyncReply]
 ///
-/// `musicxx.capabilities` 的处理器是异步契约（`notify->done` 恰好一次）；宿主派发是同步的，
-/// 所以只接受“在 start 返回之前就 done”的处理器，多出来的回调按第一次算。
-struct CapabilitySyncReply {
-  bool done = false;
-  int32_t status = PLUGINXX_OPERATOR_OK;
-  std::string payload;
+/// 处理器可能在任何线程完成 (网络回调 / JS 线程 / 定时器), 所以这里只把结果交给
+/// `AsyncReply`, 唤醒由它投递回插件执行线程。
+///
+/// 生命周期: 两侧各记一个"我走了", 谁最后走谁释放。等待侧可能先走 (宿主收尾 /
+/// 插件卸载把这条派发取消掉), 之后处理器才结算 —— 那时 `notify` 里的 `host_ud`
+/// 仍然是这里, 所以不能随等待侧一起释放。
+struct HandlerReplyBridge {
+  using Reply = pluginxx::AsyncReply<std::pair<int32_t, std::string>>;
+
+  std::mutex mutex_;
+  std::shared_ptr<Reply> reply;
+  std::atomic<bool> completed{false}; ///< 完成通知只认第一次
+  bool waiterGone = false;
+  bool completerGone = false;
+
+  /// 完成侧取结果槽 (等待侧已经走了给空)
+  std::shared_ptr<Reply> take() {
+    std::lock_guard<std::mutex> lock{mutex_};
+    return reply;
+  }
+
+  /// 等待侧离开: 放掉结果槽, 处理器之后调 `notify->done` 就是空操作
+  void waiterLeave() {
+    bool freeNow = false;
+    {
+      std::lock_guard<std::mutex> lock{mutex_};
+      reply.reset();
+      waiterGone = true;
+      freeNow = completerGone;
+    }
+    if (freeNow) {
+      delete this;
+    }
+  }
+
+  /// 完成侧离开: 等待侧已经走了就立即释放
+  void completerLeave() {
+    bool freeNow = false;
+    {
+      std::lock_guard<std::mutex> lock{mutex_};
+      completerGone = true;
+      freeNow = waiterGone;
+    }
+    if (freeNow) {
+      delete this;
+    }
+  }
 };
 
-void PLUGINXX_CALL capabilitySyncDone(void *ud, int32_t status,
-                                      const PluginxxStringView *payload) {
-  auto *reply = static_cast<CapabilitySyncReply *>(ud);
-  if (!reply || reply->done) {
+/// 处理器的 `notify->done` (任意线程; 只认第一次)
+void PLUGINXX_CALL handlerReplyTrampoline(
+    void *ud, int32_t status, const PluginxxStringView *payload) noexcept {
+  auto *bridge = static_cast<HandlerReplyBridge *>(ud);
+  if (!bridge || bridge->completed.exchange(true, std::memory_order_acq_rel)) {
     return;
   }
-  reply->done = true;
-  reply->status = status;
+  std::pair<int32_t, std::string> answer{status, std::string{}};
   if (payload && payload->data && payload->size > 0) {
-    reply->payload.assign(payload->data, static_cast<size_t>(payload->size));
+    answer.second.assign(payload->data, static_cast<size_t>(payload->size));
   }
+  if (auto reply = bridge->take()) {
+    reply->set(std::move(answer));
+  }
+  bridge->completerLeave();
 }
 
 } // namespace
 
-std::string MusicxxHostManager::runCapabilityHandlers(
-    const std::string &capabilityId, int32_t phase,
-    const std::string &inputJson, DispatchMode mode) {
-  const CapabilityMeta meta = metaOf(capabilityId);
-  auto it = handlers_.find(capabilityId);
-  if (it == handlers_.end() || it->second.empty()) {
-    return R"({"handled":false,"handlers":0})";
-  }
-
-  /// 派发前**快照**本阶段的处理器列表 (派发期间注册表变化不影响本轮遍历)
-  ///
-  /// 插件处理器在框架线程上**就地执行** (`ioCallSyncKeep` 语义), 处理器里调用
-  /// `musicxx.capabilities` 的注册 / 注销会改动 handlers_ 里的同一条 vector:
-  /// 注册会重新分配, 注销最后一个会让整条 vector 失效 —— 直接遍历活表会出现
-  /// 迭代器/引用失效 (漏派发或读到已释放内存)。快照只决定"本轮派发谁被调用",
-  /// 注册表的变化从下一轮起生效; 统计写回按 (实例, ownerTag, 阶段) 重新查活表。
+std::vector<MusicxxHostManager::CapabilityHandler>
+MusicxxHostManager::handlerSnapshot(const std::string &capabilityId,
+                                    int32_t phase) {
   std::vector<CapabilityHandler> handlers;
+  auto it = handlers_.find(capabilityId);
+  if (it == handlers_.end()) {
+    return handlers;
+  }
   handlers.reserve(it->second.size());
   for (const CapabilityHandler &h : it->second) {
     if (h.phase == phase) {
@@ -864,7 +866,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     }
   }
   if (handlers.empty()) {
-    return R"({"handled":false,"handlers":0})";
+    return handlers;
   }
   std::stable_sort(handlers.begin(), handlers.end(),
                    [](const CapabilityHandler &a, const CapabilityHandler &b) {
@@ -879,112 +881,153 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     /// (与实现链里"外置优先"同向)。
     std::reverse(handlers.begin(), handlers.end());
   }
+  return handlers;
+}
 
-  /// 调一个处理器并记账 (统计写回活表; 异常与失败都只记日志, 不影响其它处理器)
-  ///
-  /// [payloadText] 是这一步处理器看到的载荷, [outText] 是它回答的 JSON 文本
-  /// (空 = 没有意见)。异步处理器 (只有实现链允许) 由调用方单独处理。
-  auto invokeSync = [&](const CapabilityHandler &h, const std::string &payloadText,
-                        std::string &outText) {
-    outText.clear();
-    PluginxxString out{};
-    PluginxxString err{};
-    PluginxxStringView capabilityView{h.capabilityId.data(), h.capabilityId.size()};
-    PluginxxStringView inputView{payloadText.data(), payloadText.size()};
-    const auto t0 = std::chrono::steady_clock::now();
-    int32_t rc = -1;
-    try {
-      if (h.rowStart) {
-        // 走 `musicxx.capabilities` 登记的处理器：同步等它 done
-        CapabilitySyncReply reply;
-        PluginxxOperatorNotify notify{&capabilitySyncDone, &reply};
-        PluginxxString capErr{};
-        const PluginxxStringView methodView{h.capabilityId.data(), h.capabilityId.size()};
-        const PluginxxStringView argsView{payloadText.data(),
-                                          payloadText.size()};
-        void *op = nullptr;
-        try {
-          op = h.rowStart(h.rowCtx, nullptr, &methodView, &argsView, &notify,
-                          &capErr);
-        } catch (const std::exception &e) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 能力处理器异常 (`{}`, phase={}): {}",
-                  h.pluginId, capabilityId, phaseNameOf(h.phase), e.what());
-        } catch (...) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 能力处理器未知异常 (`{}`, phase={})",
-                  h.pluginId, capabilityId, phaseNameOf(h.phase));
-        }
-        if (capErr.data) {
-          pluginxx::hostMemoryFree(capErr.data);
-        }
-        if (reply.done) {
-          rc = reply.status == PLUGINXX_OPERATOR_OK ? 0 : -1;
-          if (0 == rc) {
-            outText = reply.payload;
-          }
-        } else if (op && h.rowCancel) {
-          // 异步给结果：注册时已经要求同步，这里只是兜底（撤销这次操作，本轮不给结果）
-          h.rowCancel(h.rowCtx, op);
-          rc = -1;
-        }
-      } else {
-        rc = h.spec.run_sync(h.spec.user_data, &capabilityView, &inputView, &out,
-                              &err);
-      }
-    } catch (const std::exception &e) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 处理器异常 (`{}`, phase={}): {}",
-              h.pluginId, capabilityId, phaseNameOf(h.phase), e.what());
-      rc = -1;
-    } catch (...) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 处理器未知异常 (`{}`, phase={})",
-              h.pluginId, capabilityId, phaseNameOf(h.phase));
-      rc = -1;
-    }
-    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
-                        std::chrono::steady_clock::now() - t0)
-                        .count();
-    /// 说明: `us` 的类型是 chrono 的 rep (libc++/Android 上是 long long, 而 int64_t 是
-    /// long), 直接交给 std::max 会因模板推导出两种类型而编译失败, 统一转成 int64_t 再统计
-    const int64_t usValue = static_cast<int64_t>(us);
-    /// 统计写回**活表**: 回调里插件可能已经把自己的处理器注销掉 (快照里还有),
-    /// 这时丢弃本次统计, 避免统计与注册表不一致
-    CapabilityHandler *live = nullptr;
-    if (auto liveIt = handlers_.find(capabilityId); liveIt != handlers_.end()) {
-      for (auto &candidate : liveIt->second) {
-        if (candidate.plugin == h.plugin && candidate.ownerTag == h.ownerTag &&
-            candidate.phase == h.phase) {
-          live = &candidate;
-          break;
-        }
-      }
-    }
-    if (auto instIt = loaded_.find(h.plugin);
-        instIt != loaded_.end() && instIt->second) {
+void MusicxxHostManager::applyHandlerStats(const std::string &capabilityId,
+                                           const std::vector<HandlerStat> &stats) {
+  for (const HandlerStat &stat : stats) {
+    if (auto instIt = loaded_.find(stat.plugin); instIt != loaded_.end() &&
+                                                  instIt->second) {
       instIt->second->capabilityCalls.fetch_add(1);
     }
-    if (live) {
-      ++live->calls;
-      live->totalUs = live->totalUs + usValue;
-      live->maxUs = (std::max)(live->maxUs, usValue);
-      if (rc != 0) {
-        /// 处理器失败只记统计 (不因为失败次数暂停派发): 日志在上面, 这里只累计次数
-        ++live->failures;
+    /// 统计写回**活表**: 处理器跑的时候插件可能已经把自己的处理器注销掉 (快照里还有),
+    /// 这时丢弃本次统计, 避免统计与注册表不一致
+    auto it = handlers_.find(capabilityId);
+    if (it == handlers_.end()) {
+      continue;
+    }
+    for (auto &candidate : it->second) {
+      if (candidate.plugin != stat.plugin ||
+          candidate.ownerTag != stat.ownerTag ||
+          candidate.phase != stat.phase) {
+        continue;
+      }
+      ++candidate.calls;
+      candidate.totalUs += stat.us;
+      candidate.maxUs = (std::max)(candidate.maxUs, stat.us);
+      if (stat.failed) {
+        ++candidate.failures;
+      }
+      break;
+    }
+  }
+}
+
+asio::awaitable<std::string>
+MusicxxHostManager::invokeHandler(const CapabilityHandler &handler,
+                                  const std::string &payloadText,
+                                  HandlerStat &stat) {
+  stat.plugin = handler.plugin;
+  stat.ownerTag = handler.ownerTag;
+  stat.phase = handler.phase;
+  stat.us = 0;
+  stat.failed = false;
+
+  /// 处理器来源两处: `musicxx.capabilities` 表登记的 (rowStart) 与宿主内部登记的
+  /// (JS 引擎, 走 `spec.run_start`) —— 两者签名相同, 派发只有一条路径
+  PluginxxCapabilityStartFunction start =
+      handler.rowStart ? handler.rowStart : handler.spec.run_start;
+  PluginxxOperatorCancelFunction cancel =
+      handler.rowStart ? handler.rowCancel : handler.spec.run_cancel;
+  void *ctx = handler.rowStart ? handler.rowCtx : handler.spec.user_data;
+  if (!start) {
+    co_return std::string{};
+  }
+
+  const auto executor = co_await asio::this_coro::executor;
+  auto reply =
+      pluginxx::AsyncReply<std::pair<int32_t, std::string>>::create(executor);
+  /// 载体自己管生命周期 (见 [HandlerReplyBridge]): 等待侧离开时由下面的守卫通知它
+  auto *bridge = new HandlerReplyBridge{};
+  bridge->reply = reply;
+  struct BridgeGuard {
+    HandlerReplyBridge *bridge;
+    ~BridgeGuard() {
+      if (bridge) {
+        bridge->waiterLeave();
       }
     }
-    if (out.data) {
-      const std::string_view text{out.data, static_cast<size_t>(out.size)};
-      if (!text.empty() && text != "null") {
-        outText.assign(text.data(), text.size());
-      }
-      pluginxx::hostMemoryFree(out.data);
+  } bridgeGuard{bridge};
+
+  const PluginxxStringView methodView{handler.capabilityId.data(),
+                                      handler.capabilityId.size()};
+  const PluginxxStringView argsView{payloadText.data(), payloadText.size()};
+  const PluginxxOperatorNotify notify{&handlerReplyTrampoline, bridge};
+  PluginxxString err{};
+  void *op = nullptr;
+  std::string failure;
+  const auto t0 = std::chrono::steady_clock::now();
+  try {
+    op = start(ctx, nullptr, &methodView, &argsView, &notify, &err);
+  } catch (const std::exception &e) {
+    failure = e.what();
+  } catch (...) {
+    failure = "unknown exception";
+  }
+  if (err.data) {
+    if (failure.empty()) {
+      failure.assign(err.data, static_cast<size_t>(err.size));
     }
-    if (err.data) {
-      pluginxx::hostMemoryFree(err.data);
+    pluginxx::hostMemoryFree(err.data);
+  }
+  if (!failure.empty()) {
+    /// 处理器起不来: 撤掉它可能留下的句柄, 按"这一步失败"收尾 (不影响其它处理器)
+    if (op && cancel) {
+      cancel(ctx, op);
     }
+    reply->cancel();
+  }
+
+  const auto answer = co_await reply->wait();
+  std::string outText;
+  if (!failure.empty()) {
+    stat.failed = true;
+  } else if (answer.first == PLUGINXX_OPERATOR_OK) {
+    outText = answer.second;
+  } else {
+    /// 失败与取消都只记统计 (不因为失败次数暂停派发): 这一轮按"没有意见"处理
+    stat.failed = true;
+    if (answer.first == PLUGINXX_OPERATOR_FAILED && !answer.second.empty()) {
+      XX_LOGW("[musicxx_ext] 插件 `{}` 的处理器 `{}` 失败: {}", handler.pluginId,
+              handler.capabilityId, answer.second);
+    }
+  }
+
+  const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+                      std::chrono::steady_clock::now() - t0)
+                      .count();
+  /// 说明: `us` 的类型是 chrono 的 rep (libc++/Android 上是 long long, 而 int64_t 是
+  /// long), 直接交给 std::max 会因模板推导出两种类型而编译失败, 统一转成 int64_t
+  stat.us = static_cast<int64_t>(us);
+  co_return outText;
+}
+
+asio::awaitable<std::string> MusicxxHostManager::runCapabilityHandlers(
+    std::vector<CapabilityHandler> handlers, const std::string &capabilityId,
+    int32_t phase, std::string inputJson, bool notifyOnly,
+    std::vector<HandlerStat> &stats) {
+  stats.clear();
+  stats.reserve(handlers.size());
+  if (handlers.empty()) {
+    co_return R"({"handled":false,"handlers":0})";
+  }
+  const CapabilityMeta meta = metaOf(capabilityId);
+
+  /// 调一个处理器并把统计收进本轮结果
+  ///
+  /// 返回它的回答文本 (空 = 没有意见)。处理器按操作契约完成: 可能在返回前调完
+  /// `notify->done`, 也可能稍后在别的线程调 —— 都由 [AsyncReply] 接住。
+  auto step = [&](const CapabilityHandler &h, const std::string &payload,
+                  std::string &outText) -> asio::awaitable<void> {
+    HandlerStat stat;
+    outText = co_await invokeHandler(h, payload, stat);
+    stats.push_back(std::move(stat));
   };
 
   /// 通知型能力派发的调试回传 (仅调试开关打开时回传; 默认关闭 → 零开销)
   auto emitNotifyDebugEvent = [&](int32_t called) {
-    if (mode == DispatchMode::Notify &&
+    if (notifyOnly &&
         (flags_ & MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS) != 0) {
       Json debugEvent;
       debugEvent["capability"] = capabilityId;
@@ -1007,12 +1050,8 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     Json accumulated = Json::object();
     bool canceled = false;
     for (const CapabilityHandler &h : handlers) {
-      if (!h.spec.run_sync && !h.rowStart) {
-        // 前链 / 后链只接受同步处理器 (注册时已拒绝), 这里只防御
-        continue;
-      }
       std::string outText;
-      invokeSync(h, current.dump(), outText);
+      co_await step(h, current.dump(), outText);
       ++called;
       if (outText.empty()) {
         continue;
@@ -1026,14 +1065,13 @@ std::string MusicxxHostManager::runCapabilityHandlers(
         deepMergeInto(current, answer["patch"]);
         deepMergeInto(accumulated, answer["patch"]);
       }
-      const std::string action = actionOf(answer);
-      if (action == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL) {
+      if (actionOf(answer) == MUSICXX_PLUGIN_CAPABILITY_ACTION_CANCEL) {
         canceled = true;
         break;
       }
     }
     Json result;
-    result["handled"] = called > 0 && mode != DispatchMode::Notify;
+    result["handled"] = called > 0 && !notifyOnly;
     result["handlers"] = static_cast<int32_t>(handlers.size());
     result["called"] = called;
     if (canceled || !accumulated.empty()) {
@@ -1047,7 +1085,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       result["result"] = res;
     }
     emitNotifyDebugEvent(called);
-    return result.dump();
+    co_return result.dump();
   }
 
   /* ---------- 后链: 串行、逆序, 值逐步替换 ---------- */
@@ -1059,13 +1097,10 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     Json value = payload.contains("value") ? payload["value"] : Json(nullptr);
     bool dropped = false;
     for (const CapabilityHandler &h : handlers) {
-      if (!h.spec.run_sync && !h.rowStart) {
-        continue;
-      }
-      Json step = payload;
-      step["value"] = value;
+      Json step_payload = payload;
+      step_payload["value"] = value;
       std::string outText;
-      invokeSync(h, step.dump(), outText);
+      co_await step(h, step_payload.dump(), outText);
       ++called;
       if (outText.empty()) {
         continue;
@@ -1084,7 +1119,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
       }
     }
     Json result;
-    result["handled"] = called > 0 && mode != DispatchMode::Notify;
+    result["handled"] = called > 0 && !notifyOnly;
     result["handlers"] = static_cast<int32_t>(handlers.size());
     result["called"] = called;
     Json res = Json::object();
@@ -1094,7 +1129,7 @@ std::string MusicxxHostManager::runCapabilityHandlers(
     }
     result["result"] = res;
     emitNotifyDebugEvent(called);
-    return result.dump();
+    co_return result.dump();
   }
 
   /* ---------- 实现链: 按声明的合并策略处理 (first / veto 可提前结束) ---------- */
@@ -1102,30 +1137,9 @@ std::string MusicxxHostManager::runCapabilityHandlers(
   bool hasPatch = false;
   std::string action;
 
-  for (auto &h : handlers) {
-    if (!h.spec.run_sync && !h.rowStart) {
-      // 异步处理器: 本轮只做通知 (调用 run_start, 结果不参与同步合并)
-      if (h.spec.run_start) {
-        PluginxxString err{};
-        PluginxxStringView capabilityView{h.capabilityId.data(), h.capabilityId.size()};
-        PluginxxStringView inputView{inputJson.data(), inputJson.size()};
-        try {
-          h.spec.run_start(h.spec.user_data, &capabilityView, &inputView, nullptr,
-                            &err);
-        } catch (...) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 异步处理器异常 (`{}`)", h.pluginId,
-                  capabilityId);
-        }
-        if (err.data) {
-          pluginxx::hostMemoryFree(err.data);
-        }
-      }
-      ++called;
-      continue;
-    }
-
+  for (const CapabilityHandler &h : handlers) {
     std::string outText;
-    invokeSync(h, inputJson, outText);
+    co_await step(h, inputJson, outText);
     ++called;
     if (outText.empty()) {
       continue;
@@ -1165,8 +1179,8 @@ std::string MusicxxHostManager::runCapabilityHandlers(
   }
 
   Json result;
-  result["handled"] = called > 0 && mode != DispatchMode::Notify;
-  /// handlers = 本轮快照里的处理器数量 (回调里注册/注销不影响本轮的计数)
+  result["handled"] = called > 0 && !notifyOnly;
+  /// handlers = 本轮快照里的处理器数量 (处理器里注册/注销不影响本轮的计数)
   result["handlers"] = static_cast<int32_t>(handlers.size());
   result["called"] = called;
   if (!action.empty()) {
@@ -1178,21 +1192,20 @@ std::string MusicxxHostManager::runCapabilityHandlers(
 
   /// 调试回传: 通知型能力的派发过程 (仅调试开关打开时回传)
   emitNotifyDebugEvent(called);
-  return result.dump();
+  co_return result.dump();
 }
 
 int32_t MusicxxHostManager::dispatchCapability(const std::string &capabilityId,
                                                const std::string &inputJson,
-                                               bool sync, uint32_t timeoutMs,
-                                               std::string &outJson,
+                                               int64_t *outRequestId,
                                                std::string &err) {
   return dispatchCapabilityPhase(capabilityId, MUSICXX_CAPABILITY_PHASE_IMPL,
-                                 inputJson, sync, timeoutMs, outJson, err);
+                                 inputJson, outRequestId, err);
 }
 
 int32_t MusicxxHostManager::dispatchCapabilityPhase(
     const std::string &capabilityId, int32_t phase, const std::string &inputJson,
-    bool sync, uint32_t /*timeoutMs*/, std::string &outJson, std::string &err) {
+    int64_t *outRequestId, std::string &err) {
   if (capabilityId.empty()) {
     err = "capability dispatch: empty id";
     return PLUGINXX_RESULT_ERR_ARG;
@@ -1205,56 +1218,69 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
     err = "capability dispatch: host not started";
     return PLUGINXX_RESULT_ERR_STATE;
   }
-  const CapabilityMeta meta = metaOf(capabilityId);
-  if (countOnPhase(capabilityId, phase) == 0) {
-    outJson = R"({"handled":false,"handlers":0})";
-    return PLUGINXX_RESULT_OK;
+
+  /// 受理只记账与取声明 (**不碰处理器表** —— 它归框架 IO 线程)
+  int64_t requestId = 0;
+  const int32_t acceptRc = acceptRequest("capability.dispatch", &requestId);
+  if (acceptRc != PLUGINXX_RESULT_OK) {
+    err = "capability dispatch: 事件队列已满, 拒绝受理";
+    return acceptRc;
   }
 
-  /// 实现链的异步派发：不占用 Dart 线程，完成后经
-  /// `musicxx.capability.decision.result` 事件把结果回传（payload 带 callId 供配对）。
-  /// 广播只通知，异步派发不需要结果。
-  const bool asyncDecide = !sync && !meta.notifyOnly;
-  const DispatchMode mode =
-      sync ? DispatchMode::Sync
-           : (asyncDecide ? DispatchMode::AsyncDecide
-                          : DispatchMode::Notify);
-  const int64_t callId =
-      asyncDecide ? nextDispatchCallId_.fetch_add(1, std::memory_order_relaxed) : 0;
-
-  auto slot = std::make_shared<WaitSlot<std::string>>();
+  const bool notifyOnly = metaOf(capabilityId).notifyOnly;
   auto self = shared_from_this();
-  asio::post(ctx_->io, [self, slot, capabilityId, phase, inputJson, mode, callId]() {
-    std::string result = self->runCapabilityHandlers(capabilityId, phase, inputJson, mode);
-    if (mode == DispatchMode::AsyncDecide) {
-      Json payload = parseJsonSafe(result);
-      payload["callId"] = callId;
-      payload["capability"] = capabilityId;
-      payload["phase"] = phaseNameOf(phase);
-      self->pushEvent("musicxx.capability.decision.result", "", payload.dump());
+  asio::post(ctx_->io, [self, requestId, capabilityId, phase, inputJson,
+                        notifyOnly]() {
+    /// 快照在框架线程上取: 派发期间插件注册/注销不影响本轮遍历
+    auto snapshot = self->handlerSnapshot(capabilityId, phase);
+    if (snapshot.empty()) {
+      self->completeRequest(
+          requestId, RequestOutcome::ok(R"({"handled":false,"handlers":0})"));
       return;
     }
-    slot->set(std::move(result));
+    /// 处理器链在**插件执行线程**上跑: 慢处理器只占住插件线程, 框架 IO 线程照常
+    /// 处理注册表 / 事件 / 其它请求
+    auto stats = std::make_shared<std::vector<HandlerStat>>();
+    asio::co_spawn(
+        pluginxx::pluginExecutionExecutor(self->runtime()),
+        [self, requestId, capabilityId, phase, inputJson, notifyOnly, snapshot,
+         stats]() -> asio::awaitable<void> {
+          std::string result;
+          try {
+            result = co_await self->runCapabilityHandlers(
+                snapshot, capabilityId, phase, inputJson, notifyOnly, *stats);
+          } catch (const std::exception &e) {
+            const std::string message = e.what();
+            asio::post(self->hostExecutor(), [self, requestId, message] {
+              self->completeRequest(
+                  requestId, RequestOutcome::fail(PLUGINXX_RESULT_ERR_INTERNAL,
+                                                  message));
+            });
+            co_return;
+          } catch (...) {
+            asio::post(self->hostExecutor(), [self, requestId] {
+              self->completeRequest(requestId,
+                                    RequestOutcome::fail(
+                                        PLUGINXX_RESULT_ERR_INTERNAL,
+                                        "处理器链异常结束"));
+            });
+            co_return;
+          }
+          asio::post(self->hostExecutor(),
+                     [self, requestId, capabilityId, result, stats]() {
+                       self->applyHandlerStats(capabilityId, *stats);
+                       self->completeRequest(requestId,
+                                             RequestOutcome::ok(result));
+                     });
+        },
+        asio::detached);
   });
 
-  if (!sync) {
-    Json ack;
-    ack["handled"] = true;
-    ack["async"] = true;
-    if (asyncDecide) {
-      ack["callId"] = callId;
-    }
-    outJson = ack.dump();
-    return PLUGINXX_RESULT_OK;
+  if (outRequestId) {
+    *outRequestId = requestId;
   }
-  /// 同步派发没有等待超时: 一直等到处理器链结束 (处理器链里包含插件自己的代码,
-  /// 慢就是调用线程一起等。超时参数保留在 C ABI 里但不再使用)。
-  std::string result;
-  slot->wait(result);
-  outJson = std::move(result);
   return PLUGINXX_RESULT_OK;
 }
-
 /* ==================== 能力调用 (插件 → Dart) ==================== */
 
 int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,

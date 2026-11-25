@@ -1,22 +1,23 @@
-/// musicxx 外部插件框架 C ABI 实现 (Dart ⇄ 原生, v1)
+/// musicxx 外部插件框架 C ABI 实现 (Dart ⇄ 原生, v7)
 ///
 /// 约定 (见 src/include/musicxx_extern_plugin_api.h):
 /// - 所有导出函数用 `pluginxx::guardCall` 捕获异常, 绝不把异常带过 C ABI;
 /// - 出参字符串一律经框架堆分配 (musicxx_extern_plugin_string_free 释放);
-/// - 涉及框架线程状态的操作投递到框架线程执行 (ioCallSync);
-///   加载/卸载是异步事务, 在调用线程做有界等待 (不占框架线程)。
+/// - **一次操作只有一种形状**: 受理返回 `requestId`, 结果经事件
+///   `musicxx.request.result` 交回; 受理之后一定有一条结果 (插件卸载 / 框架停机 /
+///   队列满时按失败回), 调用方不会悬挂;
+/// - 受理阶段只做参数检查与记账: 工作体投到框架 IO 线程 (注册表 / 事件) 或插件执行
+///   线程 (插件代码), **调用线程不会被占用**。
 
 #include "musicxx_extern_plugin_api.h"
 #include "host_inspect.h"
 #include "host_json.h"
 #include "musicxx_host.h"
 
-#include "pluginxx/host/abi_util.h"
 #include "pluginxx/kit/guard.h"
 #include "utilxx/net_error.h"
 #include "utilxx_base/json.h"
 
-#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -24,6 +25,7 @@
 
 using musicxx::extern_plugin::HostContext;
 using musicxx::extern_plugin::MusicxxHostManager;
+using musicxx::extern_plugin::RequestOutcome;
 
 namespace {
 
@@ -48,10 +50,6 @@ std::string viewToStd(const MusicxxExternPluginStringView *v) {
   }
   return std::string{v->data, static_cast<size_t>(v->size)};
 }
-
-} // namespace
-
-namespace {
 
 /// 出参写入: 用框架分配器 (malloc) 分配, 由调用方 string_free 释放
 void setOut(MusicxxExternPluginString *out, std::string_view text) {
@@ -80,11 +78,17 @@ void setErr(MusicxxExternPluginString *log, std::string_view text) {
   setOut(log, text);
 }
 
-/// 在框架线程执行并同步取回结果 (调用方非框架线程时投递等待)
-template <typename Fn>
-auto onHostThread(MusicxxHostManager *mgr, Fn &&fn) -> decltype(fn()) {
-  return pluginxx::ioCallSync<decltype(fn())>(
-      mgr, std::function<decltype(fn())()>(std::forward<Fn>(fn)));
+/// 纯文本结果按 JSON 字符串交回 (例如配置路径)
+std::string asJsonString(const std::string &text) {
+  utilxx_base::Json value = text;
+  return value.dump();
+}
+
+/// 受理失败时写 log 并返回 (事件队列满 / 参数错 / 未启动)
+int32_t rejectWith(int32_t rc, MusicxxExternPluginString *log,
+                   std::string_view what) {
+  setErr(log, what);
+  return rc;
 }
 
 } // namespace
@@ -197,41 +201,79 @@ musicxx_extern_plugin_host_create(const MusicxxExternPluginHostConfig *cfg,
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_host_start(MusicxxExternPluginHost *h,
+                                 int64_t *out_request_id,
                                  MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     setErr(log, "host_start: invalid handle");
     return PLUGINXX_RESULT_ERR_ARG;
   }
   return pluginxx::guardCall([log](std::string_view msg) { setErr(log, msg); },
                              PLUGINXX_RESULT_ERR_INTERNAL,
                              [&]() -> int32_t {
-                               std::string err;
-                               const auto rc = handle->manager->start(err);
-                               if (rc != PLUGINXX_RESULT_OK) {
-                                 setErr(log, err);
+                               int64_t requestId = 0;
+                               const int32_t acceptRc =
+                                   handle->manager->acceptRequest("host.start",
+                                                                 &requestId);
+                               if (acceptRc != PLUGINXX_RESULT_OK) {
+                                 return rejectWith(
+                                     acceptRc, log,
+                                     "host_start: 事件队列已满, 拒绝受理");
                                }
-                               return rc;
+                               /// 起线程必须就地做: 框架线程此时还没有跑, 投递过去没人执行。
+                               /// 这一步只是建线程与登记内置提供者, 不加载插件。
+                               std::string err;
+                               const int32_t rc = handle->manager->start(err);
+                               if (rc != PLUGINXX_RESULT_OK) {
+                                 handle->manager->completeRequest(
+                                     requestId,
+                                     RequestOutcome::fail(rc, err.empty()
+                                                                 ? "host_start failed"
+                                                                 : err));
+                                 setErr(log, err);
+                               } else {
+                                 handle->manager->completeRequest(
+                                     requestId, RequestOutcome::ok(R"({"ok":true})"));
+                               }
+                               *out_request_id = requestId;
+                               return PLUGINXX_RESULT_OK;
                              });
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_host_stop(MusicxxExternPluginHost *h, uint32_t timeout_ms,
-                                MusicxxExternPluginString *log) {
+musicxx_extern_plugin_host_shutdown(MusicxxExternPluginHost *h,
+                                    int64_t *out_request_id,
+                                    MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
+    setErr(log, "host_shutdown: invalid handle");
     return PLUGINXX_RESULT_ERR_ARG;
   }
   return pluginxx::guardCall([log](std::string_view msg) { setErr(log, msg); },
                              PLUGINXX_RESULT_ERR_INTERNAL,
                              [&]() -> int32_t {
+                               int64_t requestId = 0;
+                               const int32_t acceptRc = handle->manager->acceptRequest(
+                                   "host.shutdown", &requestId);
+                               if (acceptRc != PLUGINXX_RESULT_OK) {
+                                 return rejectWith(
+                                     acceptRc, log,
+                                     "host_shutdown: 事件队列已满, 拒绝受理");
+                               }
+                               /// 关线程必须就地做 (关的就是框架线程, 投递过去会等自己)。
+                               /// 结果在两条线程都停好之后才回。
                                std::string err;
-                               const auto rc =
-                                   handle->manager->stop(timeout_ms, err);
+                               const int32_t rc = handle->manager->stop(5000, err);
+                               handle->manager->completeRequest(
+                                   requestId,
+                                   rc == PLUGINXX_RESULT_OK
+                                       ? RequestOutcome::ok(R"({"ok":true})")
+                                       : RequestOutcome::fail(rc, err));
                                if (rc != PLUGINXX_RESULT_OK) {
                                  setErr(log, err);
                                }
-                               return rc;
+                               *out_request_id = requestId;
+                               return PLUGINXX_RESULT_OK;
                              });
 }
 
@@ -257,37 +299,50 @@ musicxx_extern_plugin_host_destroy(MusicxxExternPluginHost *h) {
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_set_language(MusicxxExternPluginHost *h,
                                    const MusicxxExternPluginStringView *lang,
+                                   int64_t *out_request_id,
                                    MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     setErr(log, "set_language: invalid handle");
     return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string langText = viewToStd(lang);
-  return onHostThread(handle->manager.get(), [&]() -> int32_t {
-    handle->manager->applyLanguage(langText);
-    return PLUGINXX_RESULT_OK;
-  });
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "host.language",
+      [mgr, langText]() -> RequestOutcome {
+        mgr->applyLanguage(langText);
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_set_config(MusicxxExternPluginHost *h,
                                  const MusicxxExternPluginStringView *json,
+                                 int64_t *out_request_id,
                                  MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     setErr(log, "set_config: invalid handle");
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string err;
-  const std::string text = viewToStd(json);
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->setConfig(text.empty() ? "{}" : text, err);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, err);
+  auto mgr = handle->manager;
+  std::string text = viewToStd(json);
+  if (text.empty()) {
+    text = "{}";
   }
-  return rc;
+  return mgr->submitOnHostThread(
+      "host.config",
+      [mgr, text]() -> RequestOutcome {
+        std::string err;
+        const int32_t rc = mgr->setConfig(text, err);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, err);
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 /* ==================== 事件 ==================== */
@@ -325,54 +380,29 @@ musicxx_extern_plugin_poll_events(MusicxxExternPluginHost *h, int32_t max_count,
   return PLUGINXX_RESULT_OK;
 }
 
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_broadcast_publish(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *topic,
-    const MusicxxExternPluginStringView *payload_json,
-    MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  const std::string topicText = viewToStd(topic);
-  const std::string payload = viewToStd(payload_json);
-  // 发布到**广播注册表** (插件订阅者); 主题命名空间校验在框架内完成。
-  // 注意与 musicxx.host.* / musicxx.plugin.* 事件区分: 那些是插件框架 → Dart
-  // 的事件队列。
-  const auto rc = handle->manager->broadcastPublish(
-      topicText, payload.empty() ? "{}" : payload);
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "broadcast_publish: 主题必须是 musicxx.* 或 plugin.<pluginId>.*");
-  }
-  return rc;
-}
-
 /* ==================== 插件管理 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_scan(MusicxxExternPluginHost *h,
-                                  MusicxxExternPluginString *out_json,
+                                  int64_t *out_request_id,
                                   MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  return pluginxx::guardCall(
-      [log](std::string_view msg) { setErr(log, msg); },
-      PLUGINXX_RESULT_ERR_INTERNAL,
-      [&]() -> int32_t {
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "plugin.scan",
+      [mgr]() -> RequestOutcome {
         std::string json;
         std::string err;
-        const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-          return handle->manager->scanPlugins(json, err);
-        });
+        const int32_t rc = mgr->scanPlugins(json, err);
         if (rc != PLUGINXX_RESULT_OK) {
-          setErr(log, err);
-          return rc;
+          return RequestOutcome::fail(rc, err);
         }
-        setOut(out_json, json);
-        return PLUGINXX_RESULT_OK;
-      });
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
@@ -380,87 +410,71 @@ musicxx_extern_plugin_plugin_inspect(MusicxxExternPluginHost *h,
                                      const MusicxxExternPluginStringView *dir,
                                      const MusicxxExternPluginStringView *os,
                                      const MusicxxExternPluginStringView *arch,
-                                     MusicxxExternPluginString *out_json,
+                                     int64_t *out_request_id,
                                      MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !dir || !out_json) {
+  if (!handle || !handle->manager || !dir || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  // 只读的目录判定: 不经过框架线程 (纯文件系统 + 清单解析), 插件框架未 start 也能用
-  return pluginxx::guardCall(
-      [log](std::string_view msg) { setErr(log, msg); },
-      PLUGINXX_RESULT_ERR_INTERNAL,
-      [&]() -> int32_t {
-        const std::string dirText = viewToStd(dir);
-        if (dirText.empty()) {
-          setErr(log, "plugin_inspect: dir 不能为空");
-          return PLUGINXX_RESULT_ERR_ARG;
-        }
-        // 形态注册表取一份快照：本函数在**调用线程**上跑，而注册 / 撤销在框架线程，
-        // 直接读注册表本体是数据竞争（见 MusicxxHostManager::kindRegistrySnapshot）
+  const std::string dirText = viewToStd(dir);
+  if (dirText.empty()) {
+    setErr(log, "plugin_inspect: dir 不能为空");
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  const std::string osText = viewToStd(os);
+  const std::string archText = viewToStd(arch);
+  auto mgr = handle->manager;
+  /// 只读的目录判定: 占的是框架线程, 但对手是文件系统 —— 不占调用线程就达到目的了
+  return mgr->submitOnHostThread(
+      "plugin.inspect",
+      [mgr, dirText, osText, archText]() -> RequestOutcome {
+        // 形态注册表取一份快照: 注册 / 撤销在框架线程, 这里也读同一线程的本体
         const musicxx::extern_plugin::MusicxxPluginKindRegistry kinds =
-            handle->manager->kindRegistrySnapshot();
+            mgr->kindRegistrySnapshot();
         const musicxx::extern_plugin::MusicxxPluginInspect info =
             musicxx::extern_plugin::inspectPluginDir(
-                std::filesystem::path{dirText}, viewToStd(os), viewToStd(arch),
-                &kinds);
-        setOut(out_json, musicxx::extern_plugin::inspectToJson(info));
-        return PLUGINXX_RESULT_OK;
-      });
+                std::filesystem::path{dirText}, osText, archText, &kinds);
+        return RequestOutcome::ok(
+            musicxx::extern_plugin::inspectToJson(info));
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_list(MusicxxExternPluginHost *h,
-                                  MusicxxExternPluginString *out_json,
+                                  int64_t *out_request_id,
                                   MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->pluginListJson(json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    return rc;
-  }
-  setOut(out_json, json);
   (void)log;
-  return PLUGINXX_RESULT_OK;
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "plugin.list",
+      [mgr]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->pluginListJson(json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "plugin_list failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_load(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id_or_path,
-    const MusicxxExternPluginStringView *options_json,
+    const MusicxxExternPluginStringView *options_json, int64_t *out_request_id,
     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  const auto rc = handle->manager->loadPlugin(viewToStd(id_or_path),
-                                              viewToStd(options_json),
-                                              /*sync=*/false, 0, err);
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, err);
-  }
-  return rc;
-}
-
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_plugin_load_sync(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id_or_path,
-    const MusicxxExternPluginStringView *options_json, uint32_t timeout_ms,
-    MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  std::string err;
-  const auto rc = handle->manager->loadPlugin(viewToStd(id_or_path),
-                                              viewToStd(options_json),
-                                              /*sync=*/true, timeout_ms, err);
+  const int32_t rc = handle->manager->loadPlugin(
+      viewToStd(id_or_path), viewToStd(options_json), out_request_id, err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }
@@ -470,15 +484,15 @@ musicxx_extern_plugin_plugin_load_sync(
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_enable(MusicxxExternPluginHost *h,
                                     const MusicxxExternPluginStringView *id,
+                                    int64_t *out_request_id,
                                     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  // enable 内部是协程 (要由框架线程推进): 不能再包 `onHostThread` ——
-  // 那会把同步等待放到框架线程自己身上
-  const auto rc = handle->manager->enablePlugin(viewToStd(id), err);
+  const int32_t rc =
+      handle->manager->enablePlugin(viewToStd(id), out_request_id, err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }
@@ -488,14 +502,15 @@ musicxx_extern_plugin_plugin_enable(MusicxxExternPluginHost *h,
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_disable(MusicxxExternPluginHost *h,
                                      const MusicxxExternPluginStringView *id,
+                                     int64_t *out_request_id,
                                      MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  // disable 内部是协程 (要由框架线程推进): 不能再包 `onHostThread`
-  const auto rc = handle->manager->disablePlugin(viewToStd(id), err);
+  const int32_t rc =
+      handle->manager->disablePlugin(viewToStd(id), out_request_id, err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }
@@ -505,13 +520,15 @@ musicxx_extern_plugin_plugin_disable(MusicxxExternPluginHost *h,
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_unload(MusicxxExternPluginHost *h,
                                     const MusicxxExternPluginStringView *id,
+                                    int64_t *out_request_id,
                                     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  const auto rc = handle->manager->unloadPlugin(viewToStd(id), 5000, err);
+  const int32_t rc =
+      handle->manager->unloadPlugin(viewToStd(id), out_request_id, err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }
@@ -521,52 +538,15 @@ musicxx_extern_plugin_plugin_unload(MusicxxExternPluginHost *h,
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_plugin_reload(MusicxxExternPluginHost *h,
                                     const MusicxxExternPluginStringView *id,
+                                    int64_t *out_request_id,
                                     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  const std::string pluginId = viewToStd(id);
-  /// 插件参数保存在实例上 (`plugin_set_args`), 卸载后实例就没了: 先把它取出来,
-  /// 重新加载时作为 options 传下去 (否则"设置参数 + 重载"会丢参数)。
-  /// 读实例表必须在框架线程上做 (插件框架的实例表只在框架线程改动) —— 用一次
-  /// onHostThread 投递取值, 不做同步等待以外的操作。
-  std::string optionsJson{"{}"};
-  onHostThread(handle->manager.get(), [&]() -> int32_t {
-    auto inst = handle->manager->resolveInstance(pluginId);
-    if (inst && inst->args.is_object() && false == inst->args.empty()) {
-      utilxx_base::Json options;
-      options["args"] = inst->args;
-      optionsJson = options.dump();
-    }
-    return PLUGINXX_RESULT_OK;
-  });
-  std::string err;
-  if (handle->manager->unloadPlugin(pluginId, 5000, err) !=
-      PLUGINXX_RESULT_OK) {
-    setErr(log, err);
-    return PLUGINXX_RESULT_ERR_STATE;
-  }
-  return handle->manager->loadPlugin(pluginId, optionsJson, true, 10000,
-                                     err) == PLUGINXX_RESULT_OK
-             ? PLUGINXX_RESULT_OK
-             : (setErr(log, err), PLUGINXX_RESULT_ERR_STATE);
-}
-
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_plugin_set_args(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id,
-    const MusicxxExternPluginStringView *args_json,
-    MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string err;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->setPluginArgs(viewToStd(id), viewToStd(args_json),
-                                          err);
-  });
+  const int32_t rc =
+      handle->manager->reloadPlugin(viewToStd(id), out_request_id, err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
   }
@@ -574,28 +554,57 @@ musicxx_extern_plugin_plugin_set_args(
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_plugin_get_config_path(
+musicxx_extern_plugin_plugin_set_args(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id,
-    MusicxxExternPluginString *out, MusicxxExternPluginString *log) {
+    const MusicxxExternPluginStringView *args_json, int64_t *out_request_id,
+    MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string path;
-  std::string err;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->pluginConfigPath(viewToStd(id), path, err);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, err);
-    return rc;
-  }
-  setOut(out, path);
-  return PLUGINXX_RESULT_OK;
+  auto mgr = handle->manager;
+  const std::string idText = viewToStd(id);
+  const std::string argsText = viewToStd(args_json);
+  return mgr->submitOnHostThread(
+      "plugin.setArgs",
+      [mgr, idText, argsText]() -> RequestOutcome {
+        std::string err;
+        const int32_t rc = mgr->setPluginArgs(idText, argsText, err);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, err);
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_plugin_call_async(
+musicxx_extern_plugin_plugin_get_config_path(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id,
+    int64_t *out_request_id, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !out_request_id) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  (void)log;
+  auto mgr = handle->manager;
+  const std::string idText = viewToStd(id);
+  return mgr->submitOnHostThread(
+      "plugin.configPath",
+      [mgr, idText]() -> RequestOutcome {
+        std::string path;
+        std::string err;
+        const int32_t rc = mgr->pluginConfigPath(idText, path, err);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, err);
+        }
+        return RequestOutcome::ok(asJsonString(path));
+      },
+      out_request_id);
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_plugin_call(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *id,
     const MusicxxExternPluginStringView *method,
     const MusicxxExternPluginStringView *args_json, int64_t *out_request_id,
@@ -605,118 +614,91 @@ musicxx_extern_plugin_plugin_call_async(
     setErr(log, "plugin_call: invalid argument");
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  return pluginxx::guardCall([log](std::string_view msg) { setErr(log, msg); },
-                             PLUGINXX_RESULT_ERR_INTERNAL,
-                             [&]() -> int32_t {
-                               std::string err;
-                               int64_t requestId = 0;
-                               const auto rc = handle->manager->pluginCallAsync(
-                                   viewToStd(id), viewToStd(method),
-                                   viewToStd(args_json), requestId, err);
-                               if (rc != PLUGINXX_RESULT_OK) {
-                                 setErr(log, err);
-                                 return rc;
-                               }
-                               *out_request_id = requestId;
-                               return PLUGINXX_RESULT_OK;
-                             });
+  std::string err;
+  const int32_t rc = handle->manager->pluginCall(
+      viewToStd(id), viewToStd(method), viewToStd(args_json), out_request_id,
+      err);
+  if (rc != PLUGINXX_RESULT_OK) {
+    setErr(log, err);
+  }
+  return rc;
 }
 
 /* ==================== 能力派发 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_capability_dispatch(MusicxxExternPluginHost *h,
-                                const MusicxxExternPluginStringView *capability_id,
-                                const MusicxxExternPluginStringView *input_json,
-                                int32_t flags, uint32_t timeout_ms,
-                                MusicxxExternPluginString *out_json,
-                                MusicxxExternPluginString *log) {
+musicxx_extern_plugin_capability_dispatch(
+    MusicxxExternPluginHost *h,
+    const MusicxxExternPluginStringView *capability_id,
+    const MusicxxExternPluginStringView *input_json, int64_t *out_request_id,
+    MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !capability_id || !out_json) {
+  if (!handle || !handle->manager || !capability_id || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  const bool sync = (flags & MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC) != 0;
-  std::string result;
   std::string err;
-  const auto rc = handle->manager->dispatchCapability(
-      viewToStd(capability_id), viewToStd(input_json), sync, timeout_ms, result, err);
+  const int32_t rc = handle->manager->dispatchCapability(
+      viewToStd(capability_id), viewToStd(input_json), out_request_id, err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
-    return rc;
   }
-  setOut(out_json, result);
-  return PLUGINXX_RESULT_OK;
-}
-
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_capability_handler_count(MusicxxExternPluginHost *h,
-                                 const MusicxxExternPluginStringView *capability_id,
-                                 int32_t *out_count,
-                                 MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !capability_id || !out_count) {
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  int32_t count = 0;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->handlerCount(viewToStd(capability_id), count);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "capability handler count failed");
-    return rc;
-  }
-  *out_count = count;
-  return PLUGINXX_RESULT_OK;
+  return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_capability_stats(MusicxxExternPluginHost *h,
-                                 MusicxxExternPluginString *out_json,
-                                 MusicxxExternPluginString *log) {
+                                       int64_t *out_request_id,
+                                       MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->capabilityStatsJson(json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "capability stats failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "capability.stats",
+      [mgr]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->capabilityStatsJson(json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "capability stats failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_capability_handlers(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *capability_id,
-    MusicxxExternPluginString *out_json, MusicxxExternPluginString *log) {
+    int64_t *out_request_id, MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !capability_id || !out_json) {
+  if (!handle || !handle->manager || !capability_id || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->capabilityHandlersJson(viewToStd(capability_id), json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "capability handlers failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  const std::string idText = viewToStd(capability_id);
+  return mgr->submitOnHostThread(
+      "capability.handlers",
+      [mgr, idText]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->capabilityHandlersJson(idText, json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "capability handlers failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_capability_dispatch_phase(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *capability_id,
     int32_t phase, const MusicxxExternPluginStringView *input_json,
-    int32_t flags, uint32_t timeout_ms,
-    MusicxxExternPluginString *out_json, MusicxxExternPluginString *log) {
+    int64_t *out_request_id, MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !capability_id || !out_json) {
+  if (!handle || !handle->manager || !capability_id || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (phase < MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_IMPL ||
@@ -724,82 +706,68 @@ musicxx_extern_plugin_capability_dispatch_phase(
     setErr(log, "capability dispatch: invalid phase");
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  const bool sync = (flags & MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC) != 0;
-  std::string result;
   std::string err;
-  const auto rc = handle->manager->dispatchCapabilityPhase(
-      viewToStd(capability_id), phase, viewToStd(input_json), sync, timeout_ms, result,
+  const int32_t rc = handle->manager->dispatchCapabilityPhase(
+      viewToStd(capability_id), phase, viewToStd(input_json), out_request_id,
       err);
   if (rc != PLUGINXX_RESULT_OK) {
     setErr(log, err);
-    return rc;
   }
-  setOut(out_json, result);
-  return PLUGINXX_RESULT_OK;
-}
-
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_capability_handler_count_phase(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *capability_id,
-    int32_t phase, int32_t *out_count, MusicxxExternPluginString *log) {
-  auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !capability_id || !out_count) {
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  int32_t count = 0;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->handlerCountPhase(viewToStd(capability_id), phase, count);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "capability handler count (phase) failed");
-    return rc;
-  }
-  *out_count = count;
-  return PLUGINXX_RESULT_OK;
+  return rc;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_capability_handlers_phase(
     MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *capability_id,
-    int32_t phase, MusicxxExternPluginString *out_json,
-    MusicxxExternPluginString *log) {
+    int32_t phase, int64_t *out_request_id, MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !capability_id || !out_json) {
+  if (!handle || !handle->manager || !capability_id || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->capabilityHandlersJsonPhase(viewToStd(capability_id), phase,
-                                                 json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "capability handlers (phase) failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  const std::string idText = viewToStd(capability_id);
+  return mgr->submitOnHostThread(
+      "capability.handlers",
+      [mgr, idText, phase]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc =
+            mgr->capabilityHandlersJsonPhase(idText, phase, json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "capability handlers (phase) failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 /* ==================== 能力调用的回应 ==================== */
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_capability_app_respond(
     MusicxxExternPluginHost *h, int64_t request_id, int32_t status,
-    const MusicxxExternPluginStringView *result_json,
+    const MusicxxExternPluginStringView *result_json, int64_t *out_request_id,
     MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
+  (void)log;
+  auto mgr = handle->manager;
   const std::string result = viewToStd(result_json);
-  /// 不能转投 IO 线程再回答: 触发这条回复的处理器自身常常**正占着 IO 线程**等 JS
-  /// (裁决型能力的同步等待, 见 JsEngine::implementationRunSync), 转投就会互相等到超时。
-  /// respondAppCapability 自己负责线程归属: JS 引擎的请求就地回答, 动态库插件的登记表
-  /// 才投到 IO 线程。
-  const auto rc = handle->manager->respondAppCapability(request_id, status, result);
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "capability_app_respond: 未知 requestId");
-  }
-  return rc;
+  /// 处理器链已经搬离框架 IO 线程, 这条回复可以放心排队 (以前不能转投是因为
+  /// 框架线程常常正等 JS 的处理器返回)
+  return mgr->submitOnHostThread(
+      "capability.respond",
+      [mgr, request_id, status, result]() -> RequestOutcome {
+        const int32_t rc =
+            mgr->respondAppCapability(request_id, status, result);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "capability_app_respond: 未知 requestId",
+                                      "not_found");
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 /* ==================== 广播 (只发布 / 读 / 列表) ==================== */
@@ -809,108 +777,131 @@ int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_feature_bits(void) {
          MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS |
          MUSICXX_EXTERN_PLUGIN_FEATURE_UI |
          MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITY_PHASES |
-         MUSICXX_EXTERN_PLUGIN_FEATURE_NET;
+         MUSICXX_EXTERN_PLUGIN_FEATURE_NET |
+         MUSICXX_EXTERN_PLUGIN_FEATURE_REQUESTS;
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_broadcast_read(MusicxxExternPluginHost *h,
                                      const MusicxxExternPluginStringView *id,
-                                     MusicxxExternPluginString *out_json,
+                                     int64_t *out_request_id,
                                      MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !id || !id->data || !out_json) {
+  if (!handle || !handle->manager || !id || !id->data || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
+  (void)log;
+  auto mgr = handle->manager;
   const std::string idText = viewToStd(id);
-  // 读当前值只查广播注册表 (内部加锁), 不需要投递到框架线程
-  std::string value;
-  if (!handle->manager->broadcasts()->read(idText, &value)) {
-    if (!handle->manager->broadcasts()->declares(idText)) {
-      setErr(log, "broadcast_read: 频道未声明 (" + idText + ")");
-      return PLUGINXX_RESULT_ERR_NOT_FOUND;
-    }
-    setErr(log, "broadcast_read: 频道没有当前值 (" + idText + ")");
-    return PLUGINXX_RESULT_ERR_ARG;
-  }
-  setOut(out_json, value);
-  return PLUGINXX_RESULT_OK;
+  return mgr->submitOnHostThread(
+      "broadcast.read",
+      [mgr, idText]() -> RequestOutcome {
+        // 读当前值只查广播注册表 (内部加锁), 不需要投递到框架线程
+        std::string value;
+        if (mgr->broadcasts()->read(idText, &value)) {
+          return RequestOutcome::ok(value);
+        }
+        if (!mgr->broadcasts()->declares(idText)) {
+          return RequestOutcome::fail(PLUGINXX_RESULT_ERR_NOT_FOUND,
+                                      "频道未声明 (" + idText + ")",
+                                      "not_declared");
+        }
+        return RequestOutcome::fail(PLUGINXX_RESULT_ERR_ARG,
+                                    "频道没有当前值 (" + idText + ")",
+                                    "no_value");
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_broadcast_list(MusicxxExternPluginHost *h,
                                      const MusicxxExternPluginStringView *prefix,
-                                     MusicxxExternPluginString *out_json,
+                                     int64_t *out_request_id,
                                      MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  const std::string head = prefix ? viewToStd(prefix) : std::string{};
-  setOut(out_json, handle->manager->broadcasts()->listJson(head));
   (void)log;
-  return PLUGINXX_RESULT_OK;
+  auto mgr = handle->manager;
+  const std::string head = prefix ? viewToStd(prefix) : std::string{};
+  return mgr->submitOnHostThread(
+      "broadcast.list",
+      [mgr, head]() -> RequestOutcome {
+        return RequestOutcome::ok(mgr->broadcasts()->listJson(head));
+      },
+      out_request_id);
 }
 
 /* ==================== UI / 日志 / 调试 / 统计 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_ui_snapshot(MusicxxExternPluginHost *h,
-                                  MusicxxExternPluginString *out_json,
+                                  int64_t *out_request_id,
                                   MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->uiSnapshot(json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "ui_snapshot failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "ui.snapshot",
+      [mgr]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->uiSnapshot(json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "ui_snapshot failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_ui_contents(MusicxxExternPluginHost *h,
-                                  MusicxxExternPluginString *out_json,
+                                  int64_t *out_request_id,
                                   MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->listUiContents(nullptr, json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "ui_contents failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "ui.contents",
+      [mgr]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->listUiContents(nullptr, json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "ui_contents failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_ui_slots(MusicxxExternPluginHost *h,
-                               MusicxxExternPluginString *out_json,
+                               int64_t *out_request_id,
                                MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->listUiSlots(nullptr, json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "ui_slots failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "ui.slots",
+      [mgr]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->listUiSlots(nullptr, json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "ui_slots failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
@@ -920,18 +911,13 @@ musicxx_extern_plugin_ui_request(MusicxxExternPluginHost *h,
                                  int64_t *out_request_id,
                                  MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !id || !id->data) {
+  if (!handle || !handle->manager || !id || !id->data || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string contentId = viewToStd(id);
   const std::string context = viewToStd(context_json);
-  int64_t requestId = 0;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->requestUiContent(contentId, context, &requestId);
-  });
-  if (out_request_id) {
-    *out_request_id = requestId;
-  }
+  const int32_t rc = handle->manager->requestUiContent(contentId, context,
+                                                       out_request_id);
   if (rc == PLUGINXX_RESULT_ERR_NOT_FOUND) {
     setErr(log, "ui_request: 没有这份内容 (" + contentId + ")");
     return rc;
@@ -946,95 +932,122 @@ musicxx_extern_plugin_ui_request(MusicxxExternPluginHost *h,
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_broadcast_watch(MusicxxExternPluginHost *h,
                                       const MusicxxExternPluginStringView *id,
-                                      int32_t watch,
+                                      int32_t watch, int64_t *out_request_id,
                                       MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !id || !id->data) {
+  if (!handle || !handle->manager || !id || !id->data || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
+  (void)log;
+  auto mgr = handle->manager;
   const std::string topic = viewToStd(id);
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->watchBroadcast(topic, watch != 0);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "broadcast_watch: 频道 id 形状不合法 (" + topic + ")");
-    return rc;
-  }
-  return PLUGINXX_RESULT_OK;
+  return mgr->submitOnHostThread(
+      "broadcast.watch",
+      [mgr, topic, watch]() -> RequestOutcome {
+        const int32_t rc = mgr->watchBroadcast(topic, watch != 0);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(
+              rc, "广播频道 id 形状不合法 (" + topic + ")",
+              "invalid_argument");
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_log(MusicxxExternPluginHost *h, int32_t level,
                           const MusicxxExternPluginStringView *message,
+                          int64_t *out_request_id,
                           MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  handle->manager->logMessage(level, viewToStd(message));
   (void)log;
-  return PLUGINXX_RESULT_OK;
+  auto mgr = handle->manager;
+  const std::string text = viewToStd(message);
+  return mgr->submitOnHostThread(
+      "log",
+      [mgr, level, text]() -> RequestOutcome {
+        mgr->logMessage(level, text);
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_debug_info(MusicxxExternPluginHost *h,
-                                 MusicxxExternPluginString *out_json,
+                                 int64_t *out_request_id,
                                  MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string json;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->debugInfo(json);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "debug_info failed");
-    return rc;
-  }
-  setOut(out_json, json);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  return mgr->submitOnHostThread(
+      "debug.info",
+      [mgr]() -> RequestOutcome {
+        std::string json;
+        const int32_t rc = mgr->debugInfo(json);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "debug_info failed");
+        }
+        return RequestOutcome::ok(json);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_stats(MusicxxExternPluginHost *h,
                             const MusicxxExternPluginStringView *scope_json,
-                            MusicxxExternPluginString *out_json,
+                            int64_t *out_request_id,
                             MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager || !out_json) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string scope = viewToStd(scope_json);
-  const std::string json;
-  std::string out;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->statsJson(scope.empty() ? nullptr : &scope, out);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "stats failed");
-    return rc;
-  }
-  setOut(out_json, out);
-  return PLUGINXX_RESULT_OK;
+  (void)log;
+  auto mgr = handle->manager;
+  const std::string scope = viewToStd(scope_json);
+  return mgr->submitOnHostThread(
+      "stats",
+      [mgr, scope]() -> RequestOutcome {
+        std::string out;
+        const int32_t rc =
+            mgr->statsJson(scope.empty() ? nullptr : &scope, out);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, "stats failed");
+        }
+        return RequestOutcome::ok(out);
+      },
+      out_request_id);
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-musicxx_extern_plugin_stats_config(
-    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *cfg_json,
-    MusicxxExternPluginString *log) {
+musicxx_extern_plugin_stats_config(MusicxxExternPluginHost *h,
+                                   const MusicxxExternPluginStringView *cfg_json,
+                                   int64_t *out_request_id,
+                                   MusicxxExternPluginString *log) {
   auto *handle = asHandle(h);
-  if (!handle || !handle->manager) {
+  if (!handle || !handle->manager || !out_request_id) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  std::string err;
-  const auto rc = onHostThread(handle->manager.get(), [&]() -> int32_t {
-    return handle->manager->statsConfig(viewToStd(cfg_json), err);
-  });
-  if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, err);
-  }
-  return rc;
+  (void)log;
+  auto mgr = handle->manager;
+  const std::string cfg = viewToStd(cfg_json);
+  return mgr->submitOnHostThread(
+      "stats.config",
+      [mgr, cfg]() -> RequestOutcome {
+        std::string err;
+        const int32_t rc = mgr->statsConfig(cfg, err);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, err);
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
 }
 
 } // extern "C"

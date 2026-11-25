@@ -1,4 +1,4 @@
-/// musicxx 外部插件框架 C ABI (Dart ⇄ 原生, v1)
+/// musicxx 外部插件框架 C ABI (Dart ⇄ 原生, v7)
 ///
 /// 定位: 本头是 **Dart 侧唯一入口**(ffigen 由此生成绑定), 也是插件框架原生库的导出约定。
 /// 跨边界约定:
@@ -12,8 +12,31 @@
 /// 错误码: 0 成功 / -1 参数非法 / -2 状态错误 / -3 JSON 非法 / -4 未找到 /
 ///         -5 超时 / -6 权限拒绝 / -7 队列满 / -8 内存不足 / -99 内部异常。
 ///
-/// 线程: 除特别注明外任意线程可调用; 标注 `[IO]` 的内部投递到框架线程并等待
-/// (有等待上界); 唤醒回调必须快速返回。
+/// **一次业务操作只有一种形状: 提交 + 结果事件** (v7 起)
+///
+/// ```c
+/// int32_t musicxx_extern_plugin_<操作>(h, /* 入参 */ ..., int64_t* out_request_id,
+///                                      MusicxxExternPluginString* log);
+/// ```
+///
+/// - 返回 `0` = **已受理**, `out_request_id` 有效, 之后**恰好一条**结果事件
+///   `musicxx.request.result` 交回结果;
+/// - 返回负数 = **未受理** (参数错 / 状态错 / 事件队列满), 不会推结果事件, 原因写在 `log`;
+/// - 结果事件 `{"seq":..,"type":"musicxx.request.result","requestId":42,"op":"plugin.load",
+///   "ok":true,"data":{...}}`, 失败时是 `"error":{"code":-4,"reason":"not_found",
+///   "message":"..."}`;
+/// - **没有结果的操作 (发布 / 订阅 / 日志 / 回复 / 关机) 同样回一条确认**, `data` 为
+///   `null`: 要保证顺序 (先发布再读、先订阅再取值) 时直接 `await` 就行;
+/// - 不需要结果的调用方可以不管它, 但**能等**是默认能力。
+///
+/// 允许保留的同步函数只有两类 (不涉及插件代码、也没有可等待的工作): 句柄
+/// ([musicxx_extern_plugin_host_create] / [musicxx_extern_plugin_host_destroy]),
+/// 以及事件通道与纯函数 ([musicxx_extern_plugin_poll_events] /
+/// [musicxx_extern_plugin_set_wake_callback] / 版本号 / 返回码名称 / 内存与字符串函数)。
+///
+/// 线程: 除特别注明外任意线程可调用。提交在调用线程完成 (只记账), 工作体在框架线程
+/// (注册表 / 事件) 或插件执行线程 (插件代码) 上跑, 调用线程**不会被占用**。
+/// 唤醒回调必须快速返回。
 #ifndef MUSICXX_EXTERN_PLUGIN_API_H
 #define MUSICXX_EXTERN_PLUGIN_API_H
 
@@ -44,7 +67,7 @@
 #define MUSICXX_EXTERN_PLUGIN_CALL
 #endif
 
-#define MUSICXX_EXTERN_PLUGIN_API_VERSION 6
+#define MUSICXX_EXTERN_PLUGIN_API_VERSION 7
 
 /// 插件框架版本号：`<年>.<月日>.<小版本号>`（例 `2026.1011.1` = 2026 年 10 月 11 日的第 1 版）
 ///
@@ -53,7 +76,7 @@
 /// Dart 侧同名声明是 `MusicxxPluginVersion.version`（`lib/src/version.dart`），
 /// 两处必须一致（包内 `test/version_test.dart` 校验）；插件清单的 `version` 用同一套格式。
 /// 插件在 `host.info().hostVersion`（JS 是 `musicxx.version`）读到它。
-#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1124.1"
+#define MUSICXX_EXTERN_PLUGIN_VERSION "2026.1125.1"
 
 /* ==================== 返回码 ==================== */
 //
@@ -73,10 +96,8 @@
 #define MUSICXX_EXTERN_PLUGIN_FLAG_NO_JS                0x0004 ///< 跳过 JS 插件
 #define MUSICXX_EXTERN_PLUGIN_FLAG_DEBUG_OBSERVE_EVENTS 0x0008 ///< 回传 observe/console 观测事件
 
-/* ==================== 能力派发标志 ==================== */
-
-#define MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC  1 ///< 等待处理器链结果 (等待期间不设超时)
-#define MUSICXX_EXTERN_PLUGIN_DISPATCH_ASYNC 0 ///< 入队即返回
+/// 结果事件的类型名 (唯一完成通道)
+#define MUSICXX_EXTERN_PLUGIN_REQUEST_RESULT_EVENT "musicxx.request.result"
 
 #ifdef __cplusplus
 extern "C" {
@@ -173,45 +194,58 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// **进程单例**: 同一进程只允许存在一个插件框架实例 (它持有框架线程 / 插件实例 / 事件队列)。
 /// 已存在时返回 NULL 并写明确原因 —— 其它 isolate / 线程请复用已有句柄调用管理类 API。
 /// `host_destroy` 之后可以再次创建 (init → dispose → init 是正常路径)。
+///
+/// 同步返回的理由: 句柄无法经事件交回。它只做构造, 不做任何可等待的工作。
 MUSICXX_EXTERN_PLUGIN_EXPORT MusicxxExternPluginHost* MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_create(
         const MusicxxExternPluginHostConfig* cfg,
         MusicxxExternPluginString*           log
     );
 
-/// 启动插件框架: 起框架线程/工作线程池、注册内置提供者、按配置加载插件
-/// - 就绪后入队 `musicxx.host.ready` 事件
+/// 启动插件框架 (`op = "host.start"`)
+/// - 起框架线程 / 工作线程池 / 插件执行线程、注册内置提供者;
+/// - 受理成功 ⇒ 结果事件在**真的起来之后**才回 (`data = {"ok":true}`),
+///   同时照发领域通知 `musicxx.host.ready`;
+/// - 加载插件不在这一步: 起好之后由调用方提交 `plugin.scan` / `plugin.load`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_host_start(
     MusicxxExternPluginHost*    h,
+    int64_t*                    out_request_id,
     MusicxxExternPluginString* log
 );
 
-/// 同步停止 (幂等); 超时返回 PLUGINXX_RESULT_ERR_TIMEOUT
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_host_stop(
+/// 关闭插件框架 (`op = "host.shutdown"`; 幂等)
+/// - 结果在框架线程与插件执行线程都停好之后才回; 同时照发 `musicxx.host.stopped`;
+/// - 停机时表里还没回来的请求一律按 `host_stopped` 回一条 `ok = false`
+///   (调用方不会悬挂)。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_host_shutdown(
     MusicxxExternPluginHost*    h,
-    uint32_t                    timeout_ms,
+    int64_t*                    out_request_id,
     MusicxxExternPluginString* log
 );
 
-/// 销毁插件框架实例 (未停止会自动停止; NULL 安全)
+/// 销毁插件框架实例 (未关闭会自动关闭; NULL 安全)
+///
+/// 同步的原因与 `host_create` 相同: 它释放句柄。
 MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_destroy(MusicxxExternPluginHost* h);
 
-/// 热更新语言 (插件可读; 插件侧 `musicxx.config` 表 get_language)
+/// 热更新语言 (`op = "host.language"`; 插件可读; 插件侧 `musicxx.config` 表 get_language)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_set_language(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* lang,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 热更新插件框架配置 JSON (插件目录/开关/统计采集等)
+/// 热更新插件框架配置 (`op = "host.config"`; 插件目录/开关/统计采集等)
 /// - 支持字段: pluginDirs[], enableNative, enableJs, safeMode, observeEvents,
 ///   statsEnabled, statsPeriodMs
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_set_config(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
@@ -236,15 +270,15 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /* ==================== 插件管理 ==================== */
 
-/// 扫描插件目录 (用户目录 + 随包目录) + 内置清单 → JSON 数组
+/// 扫描插件目录 (`op = "plugin.scan"`) + 内置清单 → 结果 `data` 是 JSON 数组
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_plugin_scan(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
-/// 检查一个插件目录 (**只读**, 不加载、不改动任何状态) → JSON 对象
+/// 检查一个插件目录 (`op = "plugin.inspect"`; **只读**, 不加载、不改动任何状态)
 ///
 /// 用途: 主程序「从压缩包安装」的预检 —— 把解包出来的临时目录交给插件框架判定
 /// (清单可解析 / 当前系统与架构该用哪个分支 / 库文件或脚本在不在), 装之前就有结论。
@@ -253,7 +287,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 ///
 /// - `dir`: 插件目录 (绝对路径; 压缩包解包后的临时目录同样可以);
 /// - `os` / `arch`: 要判定的目标环境 (规范化名字, 别名都认; 传空 = 用插件框架自己的);
-/// - 出参 JSON: `{valid, error, path, dirName, id, kind, version, description, author,
+/// - 结果 `data`: `{valid, error, path, dirName, id, kind, version, description, author,
 ///   homepage, entry, apiVersion, depends, optionalDepends, permissions, platforms,
 ///   arch, scripts?, targetsDir?, target?, targetEntry?, targets[]?, supported, reason,
 ///   kindKnown, kindRequiresPluginAbi, kindProvider, kindProviderId, kindValidateCapability}`
@@ -261,9 +295,8 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// - `kind*` 几项是**形态事实**（由形态注册表回答）：未登记的形态 `kindKnown=false`；
 ///   `kindRequiresPluginAbi` 决定要不要看 `api_version`（解释执行的形态不看）；
 ///   `kindValidateCapability` 非空时，调用方应在安装前再调一次该能力请运行器判定
-///   （本函数是同步的，问不了插件；参约定见 `docs/plugin-native-api.md` §4.3）；
-/// - 返回 OK 表示"判定完成", 目录不存在/清单非法时 `valid=false` + `error`
-///   (同样返回 OK —— 调用方看 `valid`);
+///   （参约定见 `docs/plugin-native-api.md` §4.3）；
+/// - 目录不存在/清单非法时 `valid=false` + `error` (仍是一次成功的结果);
 /// - 清单 `api_version` 低于 `MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION` 时 `supported=false`
 ///   (+ reason); 声明更高版本不算不支持;
 /// - 不看运行期开关 (JS 运行时是否可用、安全模式、禁用动态库), 那些由 `plugin_scan` 叠加。
@@ -273,95 +306,95 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         const MusicxxExternPluginStringView* dir,
         const MusicxxExternPluginStringView* os,
         const MusicxxExternPluginStringView* arch,
-        MusicxxExternPluginString*           out_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 当前已加载插件状态快照 (JSON 数组)
+/// 当前已加载插件状态快照 (`op = "plugin.list"`; 结果 `data` 是 JSON 数组)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_plugin_list(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
-/// 异步加载 (结果经 `musicxx.plugin.loaded` / `musicxx.plugin.error` 事件回报)
-/// - `id_or_path` 可为插件 id 或插件目录/库文件路径
-/// - `options_json`: {"args":{...},"enabled":true,"tempDir":"...","kind":"native|js|builtin"}
+/// 加载插件 (`op = "plugin.load"`)
+/// - `id_or_path` 可为插件 id 或插件目录/库文件路径;
+/// - `options_json`: {"args":{...},"enabled":true,"tempDir":"...","kind":"native|js|builtin"};
+/// - 结果在加载事务结束时回; 领域通知 `musicxx.plugin.loaded` / `musicxx.plugin.error`
+///   仍照发, **结果事件是权威完成信号**;
+/// - 旧符号 `plugin_load_sync` 已删除: 要等加载完成就 `await` 这一次提交。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_plugin_load(
     MusicxxExternPluginHost*              h,
     const MusicxxExternPluginStringView* id_or_path,
     const MusicxxExternPluginStringView* options_json,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 
-/// 同步加载 (仅管理页/测试的隔离 isolate 使用; 带超时)
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_plugin_load_sync(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* id_or_path,
-        const MusicxxExternPluginStringView* options_json,
-        uint32_t                              timeout_ms,
-        MusicxxExternPluginString*           log
-    );
-
-/// 启用 / 禁用 / 卸载 / 重载 (异步, 事件回报)
+/// 启用 / 禁用 / 卸载 / 重载 (`op = "plugin.enable|disable|unload|reload"`)
+///
+/// - 结果在事务结束时回; 领域事件 (`musicxx.plugin.enabled` 等) 仍照发;
+/// - `plugin.reload` = 按当前参数重载: 卸载完成后再加载, 结果在重新加载结束时回;
+/// - 卸载时该插件身上还没回来的请求按 `plugin_unloaded` 回 `ok = false`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_plugin_enable(
     MusicxxExternPluginHost*              h,
     const MusicxxExternPluginStringView* id,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_plugin_disable(
     MusicxxExternPluginHost*              h,
     const MusicxxExternPluginStringView* id,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_plugin_unload(
     MusicxxExternPluginHost*              h,
     const MusicxxExternPluginStringView* id,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_plugin_reload(
     MusicxxExternPluginHost*              h,
     const MusicxxExternPluginStringView* id,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 
-/// 更新插件参数 (下次 `reload` 生效, 由 Dart 决定何时重载)
+/// 更新插件参数 (`op = "plugin.setArgs"`; 下次 `reload` 生效, 由 Dart 决定何时重载)
 /// - `reload` 会把当前参数带过去, 因此"设置参数 → 重载"不会丢参数
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_plugin_set_args(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* id,
         const MusicxxExternPluginStringView* args_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 插件配置路径 (供管理页/插件读取); 未加载的插件按目录推导
+/// 插件配置路径 (`op = "plugin.configPath"`; 未加载的插件按目录推导)
+/// 结果 `data` 是路径字符串 (JSON 字符串)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_plugin_get_config_path(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* id,
-        MusicxxExternPluginString*           out,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 调用插件能力 (Dart → 插件; **异步, 不占调用线程**)
+/// 调用插件能力 (`op = "plugin.call"`; Dart → 插件)
 ///
 /// - 只受理不等待结果: 成功返回 `PLUGINXX_RESULT_OK` 并写出 `out_request_id`;
-///   结果经事件 `musicxx.plugin.call.result` 回给 Dart
-///   (载荷 `{requestId, id, method, ok, result|error, ms}`);
-/// - 受理失败 (插件没加载 / 没声明该能力 / 归属不对 / 插件框架没在跑) 直接返回负错误码,
-///   **不推结果事件**;
-/// - 语义与旧同步版一致: 能力名补 `plugin.<id>.` 前缀、归属校验、同样的错误码;
+///   结果经 `musicxx.request.result` 交回, `data` 是插件给的 JSON;
+/// - 受理失败 (参数错 / 队列满 / 插件框架没在跑) 直接返回负错误码, **不推结果事件**;
+///   插件没加载 / 没声明该能力 / 归属不对属于**业务失败**, 接一条 `ok = false` 的结果;
 /// - **没有 timeout 参数**: 超时是调用方的事 (它自己不等了, 结果丢弃);
 /// - **受理成功 ⇒ 一定有终局**: 正常结果、执行失败、插件卸载 (`plugin_unloaded`)、
-///   框架停机 (`host_stopped`) 四条路都会推一条结果事件, 调用方不会一直悬挂;
-/// - **不提供同步版**: 旧符号 `musicxx_extern_plugin_plugin_call` 已删除。
-///   换符号名是为了让"插件框架库太旧"能被探测到 —— 同名改签名时混用新旧库会用新参数
-///   去打旧函数 (内存越界), 换名 + 探测式查找能把这件事变成一条可读错误。
+///   框架停机 (`host_stopped`) 四条路都会推一条结果, 调用方不会一直悬挂;
+/// - 旧符号 `plugin_call_async` 已删除 (代价是"库太旧"要靠 C ABI 版本号探测)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_plugin_call_async(
+    musicxx_extern_plugin_plugin_call(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* id,
         const MusicxxExternPluginStringView* method,
@@ -372,34 +405,20 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /* ==================== 能力派发 ==================== */
 
-/// 派发一条能力 (实现链)
-/// - `flags` = MUSICXX_EXTERN_PLUGIN_DISPATCH_SYNC 时等待处理器链结束 (等待期间不设超时) 并输出合并结果;
-///   MUSICXX_EXTERN_PLUGIN_DISPATCH_ASYNC 时入队即返回
-/// - 实现链的 ASYNC 模式是"异步裁决": 立即返回 `{"handled":true,"async":true,"callId":N}`,
-///   处理器链跑完后由事件 `musicxx.capability.decision.result` 回传结果 (payload 含同一个 callId,
-///   以及 result/called/handlers 字段); 广播的 ASYNC 派发不回报结果
-/// - out_json 形如 {"handled":true,"result":{...},"called":1,"handlers":2}
-/// - `timeout_ms` 保留在签名里 (约定固定) 但不再使用: 插件框架不设等待超时, 处理器链慢就是
-///   调用线程一起等
+/// 派发一条能力 (`op = "capability.dispatch"`; 实现链)
+///
+/// - 受理只记账与参数检查; 处理器链在插件执行线程上跑 (逐个等处理器完成),
+///   **不占调用线程**;
+/// - 结果 `data` 形如 `{"handled":true,"result":{...},"called":1,"handlers":2}`;
+/// - 广播型 id: 链跑完只回 `{"handled":false,"called":N,"handlers":M}`, 不做合并;
+/// - 旧的 `flags` (`DISPATCH_SYNC` / `DISPATCH_ASYNC`) 与 `timeout_ms` 已删除:
+///   要不要等结果由调用方决定 (都一样, 结果经事件回), 插件框架不设等待超时。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_capability_dispatch(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* capability_id,
         const MusicxxExternPluginStringView* input_json,
-        int32_t                               flags,
-        uint32_t                              timeout_ms,
-        MusicxxExternPluginString*           out_json,
-        MusicxxExternPluginString*           log
-    );
-
-/// 该条 id 当前的原生/JS 处理器数量 (Dart 快速路径判定; 事件增量更新)
-///
-/// 这是**全部阶段**的总数；要按阶段判定用 `_capability_handler_count_phase`。
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_capability_handler_count(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* capability_id,
-        int32_t*                              out_count,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
@@ -410,40 +429,27 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 #define MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_BEFORE 1
 #define MUSICXX_EXTERN_PLUGIN_CAPABILITY_PHASE_AFTER  2
 
-/// 按阶段派发能力
+/// 按阶段派发能力 (`op = "capability.dispatch"`)
 ///
-/// - `phase` = `impl`：与 `musicxx_extern_plugin_capability_dispatch` 完全一样（同步/异步约定不变）；
+/// - `phase` = `impl`：与 `musicxx_extern_plugin_capability_dispatch` 完全一样；
 /// - `phase` = `before`：串行、**正序**（priority 升序、同优先级按注册顺序），载荷逐步累积；
-///   out_json 回执的 `result.patch` 是累计后的 patch，`result.action` 为 `stop` 时表示整条链被停下；
+///   `result.patch` 是累计后的 patch，`result.action` 为 `stop` 时表示整条链被停下；
 /// - `phase` = `after`：串行、**逆序**（priority 降序、同优先级注册顺序也反），值逐步替换；
-///   out_json 回执的 `result.value` 是最终值，`result.action` 为 `drop` 时表示结果被丢弃；
-/// - 该阶段没有处理器时返回 `{"handled":false,"handlers":0}`；
-/// - `flags` / `timeout_ms` 含义与 `capability_dispatch` 相同。
+///   `result.value` 是最终值，`result.action` 为 `drop` 时表示结果被丢弃；
+/// - 该阶段没有处理器时结果 `data` 是 `{"handled":false,"handlers":0}`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_capability_dispatch_phase(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* capability_id,
         int32_t                               phase,
         const MusicxxExternPluginStringView* input_json,
-        int32_t                               flags,
-        uint32_t                              timeout_ms,
-        MusicxxExternPluginString*           out_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 某条 id 在某个阶段上的处理器数量（阶段没有处理器时为 0）
-MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
-    musicxx_extern_plugin_capability_handler_count_phase(
-        MusicxxExternPluginHost*              h,
-        const MusicxxExternPluginStringView* capability_id,
-        int32_t                               phase,
-        int32_t*                              out_count,
-        MusicxxExternPluginString*           log
-    );
-
-/// 该条 id 当前的处理器列表 (自省用; 按**调用顺序**给出: priority 升序, 同优先级按注册顺序)
+/// 该条 id 当前的处理器列表 (`op = "capability.handlers"`; 自省用)
 ///
-/// out_json 形如:
+/// 按**调用顺序**给出: priority 升序, 同优先级按注册顺序。结果 `data` 形如:
 /// {"capability":"musicxx.media.spectrum.extract","count":2,"handlers":[
 ///   {"plugin":"example_js","instance":"js:example_js","kind":"js","phase":"impl",
 ///    "priority":0,"ownerTag":""},
@@ -451,13 +457,16 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 ///    "phase":"after","priority":10,"ownerTag":""}]}
 ///
 /// 只给出 plugin / instance / kind / phase / priority / ownerTag: 不暴露处理器地址、载荷与内部状态。
-/// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`); 声明表里没有这个 id 时返回 ERR_NOT_FOUND。
+/// `instance` 与插件框架里的实例名一致 (JS 是 `js:<id>`)。
 /// 这是**全部阶段**的列表；只看一个阶段用 `_capability_handlers_phase`。
+///
+/// 计数由 Dart 侧按 `musicxx.capability.changed` 事件与 `plugin.load` 结果里的清单维护,
+/// 需要精确回查时用这一个入口 (旧的 `capability_handler_count(_phase)` 已删除)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_capability_handlers(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* capability_id,
-        MusicxxExternPluginString*           out_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
@@ -467,26 +476,29 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* capability_id,
         int32_t                               phase,
-        MusicxxExternPluginString*           out_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 能力处理器耗时/失败统计 (调试页; 只观测不限制)
+/// 能力处理器耗时/失败统计 (`op = "capability.stats"`; 调试页; 只观测不限制)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_capability_stats(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
 /* ==================== 能力请求 (插件 → Dart) ==================== */
-/// 回复插件发起的能力请求 (status 见错误码; result_json 可为空)
+/// 回复插件发起的能力请求 (`op = "capability.respond"`; status 见错误码; result_json 可为空)
+///
+/// 处理器链已经搬离框架 IO 线程, 这条回复可以放心排队。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_capability_app_respond(
         MusicxxExternPluginHost*              h,
         int64_t                               request_id,
         int32_t                               status,
         const MusicxxExternPluginStringView* result_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
@@ -495,11 +507,10 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// 广播 = 属主发一次, 关心的人读当前值或订阅。
 ///
 /// **只有发布、读当前值、列频道三个入口**:
-/// - 能改应用状态的通道是**能力** (改设置、切主题、跳转进度…), 广播侧没有写入,
-///   也没有读写回执;
-/// - 声明由宿主按生成表 (`capability_ids.g.h`) 补; 插件声明自己的频道走插件接口表;
-/// - 订阅在插件侧 (`<应用名>.broadcasts` 表, 带自己的 `intervalMs` / `mode`);
-///   Dart 侧不订阅插件频道, 只看当前值与订阅数。
+/// - 能改应用状态的通道是**能力** (改设置、切主题、跳转进度…), 广播侧没有写入;
+/// - 声明由宿主按生成表 (`capability_ids.h`) 补; 插件声明自己的频道走插件接口表;
+/// - 订阅在插件侧 (`musicxx.broadcasts` 表, 带自己的 `intervalMs` / `mode`);
+///   Dart 侧订阅走 `broadcast_watch`, 读当前值走本地缓存。
 
 /// 插件框架能力位 (Dart 侧据此判断加载到的插件框架库是不是这次构建的产物)
 ///
@@ -509,91 +520,98 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// 广播 (发布 / 读当前值 / 列频道); 声明与订阅走插件接口表
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_BROADCASTS 0x16
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_UI     0x8
-/// 分阶段派发（`_capability_dispatch_phase` / `_capability_handler_count_phase` /
-/// `_capability_handlers_phase`）
+/// 分阶段派发（`_capability_dispatch_phase` / `_capability_handlers_phase`）
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_CAPABILITY_PHASES 0x20
 /// 插件网络能力 (`musicxx.net` 表: HTTP / TCP / WebSocket)
 #define MUSICXX_EXTERN_PLUGIN_FEATURE_NET 0x40
+/// 提交 + 结果事件 (`musicxx.request.result`) 与同步入口的删除
+#define MUSICXX_EXTERN_PLUGIN_FEATURE_REQUESTS 0x80
 
 /// 插件框架能力位图 (无需框架实例; 任意线程可调用)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_feature_bits(void);
 
-/// 发布一条广播 (Dart → 原生; 任何频道都用它)
+/// 发布一条广播 (`op = "broadcast.publish"`; 任何频道都用它)
 ///
 /// - `topic` 必须是 `musicxx.*` 或 `plugin.<id>.*`;
-/// - 频道未声明时按生成表 (`capability_ids.g.h`) 补一份声明, 表外 id 用默认属性
+/// - 频道未声明时按生成表补一份声明, 表外 id 用默认属性
 ///   (`cache: none` / `publish: owner` / `coalesce: true` / `scope: app`);
-/// - 属主才能发布: 官方频道只有应用能发, 插件频道只有属主能发 (发布失败写 `log`);
-/// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做, 见 `MusicxxPluginBroadcasts.publish`)。
+/// - 属主才能发布: 官方频道只有应用能发, 插件频道只有属主能发 (发布失败是 `ok = false`);
+/// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做);
+/// - 结果 `data` 是 `null`: 要"发布完再看"就 `await` 这一条。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_publish(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* topic,
         const MusicxxExternPluginStringView* payload_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 读一条频道的当前值 (同步; `cache: latest` 且有过值才写 `out_json`)
+/// 读一条频道的当前值 (`op = "broadcast.read"`; 冷读; 热路径读 Dart 侧缓存)
 ///
-/// 返回 `PLUGINXX_RESULT_ERR_NOT_FOUND`: 频道没声明;
-/// 返回 `PLUGINXX_RESULT_ERR_ARG`: 频道没有当前值 (`cache: none` / 还没发过)。
+/// - 成功: `data` 是当前值 JSON;
+/// - 频道没声明: `ok = false` + `reason = not_declared`;
+/// - `cache: none` / 还没发过: `ok = false` + `reason = no_value`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_read(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* id,
-        MusicxxExternPluginString*           out_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// 列出全部频道 (声明 + 当前值 + 订阅数; `prefix` 可空)
+/// 列出全部频道 (`op = "broadcast.list"`; 声明 + 当前值 + 订阅数; `prefix` 可空)
 ///
-/// out_json 形如 `{"broadcasts":[{"id","cache","publish","scope","subscribers","hasValue","value"}]}`。
+/// 结果 `data` 形如 `{"broadcasts":[{"id","cache","publish","scope","subscribers","hasValue","value"}]}`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_list(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* prefix,
-        MusicxxExternPluginString*           out_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
 /* ==================== UI / 日志 / 调试 / 统计 ==================== */
 
-/// 插件贡献的 UI 项快照 (JSON 数组; 变更另有 musicxx.ui.changed 事件)
+/// 插件贡献的 UI 项快照 (`op = "ui.snapshot"`; 结果 `data` 是 JSON 数组)
+/// 变更另有 `musicxx.ui.changed` 事件
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_ui_snapshot(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
-/// 内容注册表快照 (JSON 数组: id / shortId / plugin / slot / title / depict / order / deps / minIntervalMs)
+/// 内容注册表快照 (`op = "ui.contents"`; 结果 `data` 是 JSON 数组:
+/// id / shortId / plugin / slot / title / depict / order / deps / minIntervalMs)
 ///
 /// 变更另有 `musicxx.ui.contents` 事件 (载荷带该插件的全部内容)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_ui_contents(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
-/// 槽位表快照 (JSON 数组: id / kind / owner; 应用预留的与插件声明的都在)
+/// 槽位表快照 (`op = "ui.slots"`; 结果 `data` 是 JSON 数组: id / kind / owner)
 ///
 /// 变更另有 `musicxx.ui.slots` 事件。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_ui_slots(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
-/// 让插件为一份内容生成一次界面 (Dart → 原生)
+/// 让插件为一份内容生成一次界面 (`op = "ui.request"`; Dart → 原生)
 ///
 /// - `id`: 内容全名 `plugin.<插件id>.<内容 id>`;
 ///   `context_json`: 声明过的依赖变量 → 当前值 (JSON 对象);
-/// - 生成在框架线程同步执行 (插件那边必须快), 结果推 `musicxx.ui.content` 事件:
-///   `{slot, id, shortId, plugin, rev, json, data}` 或 `{…, error}`;
-/// - 返回 0 = 已生成并推送; -4 = 没有这份内容。
+/// - 生成在**插件执行线程**上跑 (原生插件) / JS 线程 (JS 插件), 不占框架线程;
+/// - 结果 `data` 是 `{slot, id, shortId, plugin, rev, json, data}` 或带 `error`;
+///   同一份内容照旧推 `musicxx.ui.content` 事件 (界面挂载点读那份);
+/// - 没有这份内容: `ok = false` + `reason = not_found`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_ui_request(
         MusicxxExternPluginHost*              h,
@@ -603,47 +621,54 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 订阅 / 退订一个广播频道的值变化 (Dart → 原生)
+/// 订阅 / 退订一个广播频道的值变化 (`op = "broadcast.watch"`)
 ///
-/// 有人订阅时频道值变化会推 `musicxx.broadcast.changed {id, value}` 事件;
-/// 订阅计数归零就停 (插件停用 / 卸载时框架自己清掉)。
+/// - 订阅成功后宿主**先补发当前值** (`musicxx.broadcast.changed`, 没有值就不发),
+///   再回这一条确认 —— 所以 `await watch` 之后本地缓存里就有当前值了;
+/// - 有人订阅时频道值变化会推 `musicxx.broadcast.changed {id, value}` 事件;
+/// - 订阅计数归零就停 (插件停用 / 卸载时框架自己清掉)。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_broadcast_watch(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* id,
         int32_t                              watch,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 
-/// Dart → 原生日志 (统一写入磁盘/转发; level: 0 trace .. 4 error)
+/// Dart → 原生日志 (`op = "log"`; 统一写入磁盘/转发; level: 0 trace .. 4 error)
+///
+/// 结果 `data` 是 `null`; 不关心就 `.ignore()`。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_log(
     MusicxxExternPluginHost*              h,
     int32_t                               level,
     const MusicxxExternPluginStringView* message,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 
-/// 调试信息 (版本/依赖/平台/插件统计; 支持页复制)
+/// 调试信息 (`op = "debug.info"`; 版本/依赖/平台/插件统计; 支持页复制)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_debug_info(
         MusicxxExternPluginHost*    h,
-        MusicxxExternPluginString* out_json,
+        int64_t*                    out_request_id,
         MusicxxExternPluginString* log
     );
 
-/// 资源与耗时统计快照 (scope_json = NULL 取全部)
+/// 资源与耗时统计快照 (`op = "stats"`; scope_json = NULL 取全部)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_stats(
     MusicxxExternPluginHost*              h,
     const MusicxxExternPluginStringView* scope_json,
-    MusicxxExternPluginString*           out_json,
+    int64_t*                             out_request_id,
     MusicxxExternPluginString*           log
 );
 
-/// 统计采集配置 ({"enable":bool,"jsHeapSampleMs":int,"observeEvents":bool})
+/// 统计采集配置 (`op = "stats.config"`; {"enable":bool,"jsHeapSampleMs":int,"observeEvents":bool})
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_stats_config(
         MusicxxExternPluginHost*              h,
         const MusicxxExternPluginStringView* cfg_json,
+        int64_t*                             out_request_id,
         MusicxxExternPluginString*           log
     );
 

@@ -179,10 +179,10 @@ public:
 
   /// 裁决型能力的异步结算 (只在 JS 线程调用)
   ///
-  /// 裁决处理器返回 Promise 时, 框架线程仍在 [implementationRunSync] 里一直等到它结算;
-  /// Promise 结算后 JS
-  /// 侧调用本接口把结果交给对应的等待槽。**已经超时的调用不再接收结果** (只计入
-  /// "迟到丢弃"统计并打一条日志), 因此不会出现"用了过期裁决"的情况。
+  /// 裁决处理器返回 Promise 时, 宿主不会等任何一个线程: JS 侧在那之前已经拿到
+  /// 一个等待 id, Promise 结算后调用本接口, 结果直接交给这次派发的完成通知
+  /// (`notify->done`)。**找不到等待 id 的结算直接丢弃** (调用已经收尾 / 实例已停),
+  /// 因此不会出现"用了过期裁决"的情况。
   void bridgeImplementationWaitResolve(const std::string &waitId,
                              const std::string &json);
 
@@ -379,11 +379,10 @@ public:
 
   /* ---------- 能力处理器 (框架线程调用; 见 Implementation) ---------- */
 
-  static int32_t PLUGINXX_CALL implementationRunSync(void *userData,
-                                        const PluginxxStringView *capabilityId,
-                                        const PluginxxStringView *inputJson,
-                                        PluginxxString *outJson,
-                                        PluginxxString *errorOut);
+  static void *PLUGINXX_CALL implementationStart(
+      void *ctx, const PluginxxHost *callerHost,
+      const PluginxxStringView *method, const PluginxxStringView *argsJson,
+      const PluginxxOperatorNotify *notify, PluginxxString *errorOut);
 
   /// 能力处理器 (插件框架在框架线程调用; 内部投递到 JS 线程并等待结果)
   static void *PLUGINXX_CALL capabilityStart(
@@ -536,26 +535,27 @@ private:
   std::map<int64_t, PendingAppCapability> pendingAppCapabilities_;
   std::atomic<int64_t> nextRequestId_{1};
 
-  /// 裁决型能力的等待槽 (key = 等待 id)
+  /// 裁决型能力的等待凭据 (key = 等待 id)
   ///
-  /// 框架线程在 [implementationRunSync] 里登记, JS 线程在 Promise
-  /// 结算时取走。超时的条目保留为 "墓碑" (`slot == nullptr`),
-  /// 只为了让迟到的结算能计入统计并打一条日志 —— 结果一律丢弃。
-  struct DispatchWait {
-    std::string instance;                        ///< js:<id> (统计归属)
-    std::shared_ptr<WaitSlot<std::string>> slot; ///< nullptr = 已超时 (墓碑)
+  /// 派发那一侧 (框架线程) 在 [implementationStart] 里登记, 不阻塞任何线程;
+  /// JS 侧的 Promise 结算时取走, 结果直接交给 `notify->done`。
+  struct ImplementationWait {
+    std::string                                   instance; ///< js:<id> (统计归属)
+    std::function<void(const std::string &)>      deliver;  ///< 结果该怎么交回去
   };
 
-  std::map<int64_t, DispatchWait> dispatchWaits_;
-  std::atomic<int64_t> nextDispatchWaitId_{1};
+  std::map<int64_t, ImplementationWait> implementationWaits_;
+  std::atomic<int64_t> nextImplementationWaitId_{1};
 
-  /// 登记等待槽 (框架线程); 返回等待 id
-  int64_t beginDispatchWait(const std::string &instance,
-                        const std::shared_ptr<WaitSlot<std::string>> &slot);
-  /// 正常完成: 移除等待槽 (JS 侧若再结算, 找不到条目即丢弃)
-  void finishDispatchWait(int64_t waitId);
-  /// 实例停止/卸载时清理它的等待条目
-  void clearDispatchWaitsOf(const std::string &instance);
+  /// 登记等待凭据 (任意线程); 返回等待 id
+  int64_t beginImplementationWait(const std::string &instance,
+                                  std::function<void(const std::string &)> deliver);
+  /// 正常完成: 移除等待凭据 (JS 侧若再结算, 找不到条目即丢弃)
+  void finishImplementationWait(int64_t waitId);
+  /// 取走一条等待凭据并把结果交给它 (找不到 = 已经完成 / 已清理)
+  void deliverImplementationWait(int64_t waitId, std::string text);
+  /// 实例停止/卸载时收尾它的等待凭据 (按失败交回去, 派发那边不会一直等)
+  void clearImplementationWaitsOf(const std::string &instance);
 
   /// 能力处理器的等待凭据 (与能力同一套做法; 处理器返回 Promise 时用)
   ///

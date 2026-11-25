@@ -159,9 +159,13 @@ option(MUSICXX_EXTERN_PLUGIN_BUILD_TESTS "构建原生测试" ON)
 # 7 = 广播只保留读与订阅: 广播接口表换成 v2 (`subscribe_broadcast` 多一个 `options_json`,
 #     每个订阅方自己声明通知频率), 声明字段 `writable` 改名 `publish`,
 #     原来的值频道（读 / 写 / 回执 / 变动推送那一整套）删除，广播只剩读与订阅。
+# 8 = 能力注册 / 注销 / 自省改成异步操作契约 (`musicxx.capabilities` 表 v8)。
+# 9 = `PluginxxCapabilitySpec.sync` 删除: 处理器只有一种形态 (受理后给完成通知),
+#     前链 / 后链不再要求同步处理器。
+# 10 = C ABI 改成"提交返回 requestId + 结果事件" (业务接口表 v9)。
 # 改这个值等于改插件 ABI: 要同步示例插件清单的 api_version、
 # Dart 侧 `kExternPluginMinApiVersion` / `ExternPluginStore.hostMinApiVersion` 与文档。
-set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "9" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
+set(MUSICXX_EXTERN_PLUGIN_MIN_API_VERSION "10" CACHE STRING "插件 ABI 代次 (同时下发给 PLUGINXX_API_VERSION 与 PLUGINXX_MIN_API_VERSION)")
 
 # ===== Boost (仅头文件) =====
 # 插件框架与 cxx_utilxx_base 用 find_package(Boost CONFIG) 且只取头文件根 (Boost_INCLUDE_DIRS):

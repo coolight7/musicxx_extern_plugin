@@ -741,14 +741,33 @@ MusicxxHostManager::UiContent *MusicxxHostManager::findUiContent(
 int32_t MusicxxHostManager::requestUiContent(std::string_view contentId,
                                              std::string_view contextJson,
                                              int64_t *outRequestId) {
-  UiContent *content = findUiContent(contentId);
-  if (nullptr == content) {
-    return PLUGINXX_RESULT_ERR_NOT_FOUND;
+  const std::string fullId{contentId};
+  if (fullId.empty()) {
+    return PLUGINXX_RESULT_ERR_ARG;
   }
-  if (nullptr != outRequestId) {
-    *outRequestId = allocateRequestId();
+  int64_t requestId = 0;
+  const int32_t acceptRc = acceptRequest("ui.request", &requestId);
+  if (acceptRc != PLUGINXX_RESULT_OK) {
+    return acceptRc;
   }
-  return runUiContent(*content, contextJson);
+  const std::string ctx{contextJson.empty() ? "{}" : contextJson};
+  auto self = shared_from_this();
+  /// 注册表归框架线程; 生成函数投到插件执行线程 (原生) / JS 线程 (JS)
+  asio::post(ctx_->io, [self, requestId, fullId, ctx]() {
+    auto *content = self->findUiContent(fullId);
+    if (nullptr == content) {
+      self->completeRequest(
+          requestId,
+          RequestOutcome::fail(PLUGINXX_RESULT_ERR_NOT_FOUND,
+                               "没有这份内容 (" + fullId + ")", "not_found"));
+      return;
+    }
+    self->runUiContent(*content, ctx, requestId);
+  });
+  if (outRequestId) {
+    *outRequestId = requestId;
+  }
+  return PLUGINXX_RESULT_OK;
 }
 
 
@@ -782,7 +801,8 @@ void PLUGINXX_CALL nativeGenerateDoneTrampoline(
 } // namespace
 
 int32_t MusicxxHostManager::runUiContent(UiContent &content,
-                                         std::string_view contextJson) {
+                                         std::string_view contextJson,
+                                         int64_t requestId) {
   const std::string ctx{contextJson.empty() ? "{}" : contextJson};
   /// JS 插件的生成函数在 JS 线程执行: 框架线程只投递、不等结果
   ///
@@ -791,7 +811,8 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
   if (content.fromJs) {
     auto engine = jsEngine();
     if (!engine) {
-      pushUiContentResult(content, std::string{}, "JS 运行时不可用");
+      finishUiGeneration(requestId, content.fullId, std::string{},
+                         "JS 运行时不可用");
       return PLUGINXX_RESULT_ERR_STATE;
     }
     const std::string fullId = content.fullId;
@@ -799,14 +820,12 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
     auto self = shared_from_this();
     engine->requestUiContent(
         instanceName, fullId, ctx,
-        [self, fullId](std::string json, std::string error) {
-          /// 回到框架线程再写注册表 (推送与 rev 都只在那条线程)而
+        [self, fullId, requestId](std::string json, std::string error) {
+          /// 回到框架线程再写注册表 (推送与 rev 都只在那条线程)
           asio::post(self->ctx_->io,
-                     [self, fullId, json = std::move(json),
+                     [self, fullId, requestId, json = std::move(json),
                       error = std::move(error)]() {
-                       if (auto *item = self->findUiContent(fullId)) {
-                         self->pushUiContentResult(*item, json, error);
-                       }
+                       self->finishUiGeneration(requestId, fullId, json, error);
                      });
         });
     return PLUGINXX_RESULT_OK;
@@ -822,7 +841,8 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
   auto self = shared_from_this();
   auto context = std::make_shared<std::string>(ctx);
   auto *waiter = new NativeGenerateWaiter();
-  waiter->finish = [self, fullId](int32_t status, std::string_view payload) {
+  waiter->finish = [self, fullId,
+                    requestId](int32_t status, std::string_view payload) {
     std::string text{payload};
     std::string error;
     if (status != PLUGINXX_OPERATOR_OK) {
@@ -838,35 +858,75 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
     }
     asio::post(
         self->ctx_->io,
-        [self, fullId, text = std::move(text), error = std::move(error)]() {
-          if (auto *item = self->findUiContent(fullId)) {
-            self->pushUiContentResult(*item, text, error);
-          }
+        [self, fullId, requestId, text = std::move(text),
+         error = std::move(error)]() {
+          self->finishUiGeneration(requestId, fullId, text, error);
         });
   };
   PluginxxOperatorNotify notify{&nativeGenerateDoneTrampoline, waiter};
-  const PluginxxStringView ctxView{context->data(), context->size()};
-  PluginxxString errorOut{};
   auto generate = content.spec.generate;
-  generate(host, &ctxView, content.spec.user_data, &notify, &errorOut);
-  if (errorOut.data) {
-    std::string reason{errorOut.data, static_cast<size_t>(errorOut.size)};
-    if (host && host->vtable && host->vtable->free) {
-      host->vtable->free(errorOut.data);
-    }
-    // 未受理: 插件不会再调 notify, 这里按失败收尾 (waiter 由 trampoline 释放)
-    const PluginxxStringView reasonView{reason.data(), reason.size()};
-    nativeGenerateDoneTrampoline(waiter, PLUGINXX_OPERATOR_FAILED, &reasonView);
-  }
+  void *userData = content.spec.user_data;
+  /// 生成函数是插件代码: 只在**插件执行线程**上调用, 框架线程投递完就回去处理
+  /// 注册表与事件 (慢的生成函数不会挡住别的请求)
+  asio::post(pluginxx::pluginExecutionExecutor(runtime()),
+             [context, host, generate, userData, notify]() {
+               const PluginxxStringView ctxView{context->data(),
+                                                context->size()};
+               PluginxxString errorOut{};
+               try {
+                 generate(host, &ctxView, userData, &notify, &errorOut);
+               } catch (const std::exception &e) {
+                 if (errorOut.data) {
+                   if (host && host->vtable && host->vtable->free) {
+                     host->vtable->free(errorOut.data);
+                   }
+                   errorOut = PluginxxString{};
+                 }
+                 const std::string reason{e.what()};
+                 const PluginxxStringView reasonView{reason.data(),
+                                                     reason.size()};
+                 nativeGenerateDoneTrampoline(notify.host_ud,
+                                              PLUGINXX_OPERATOR_FAILED,
+                                              &reasonView);
+                 return;
+               } catch (...) {
+                 if (errorOut.data) {
+                   if (host && host->vtable && host->vtable->free) {
+                     host->vtable->free(errorOut.data);
+                   }
+                   errorOut = PluginxxString{};
+                 }
+                 /// 未知异常也必须收尾: 不收就可能没人再调 notify, 请求一直不完成
+                 const std::string reason{"生成函数抛出未知异常"};
+                 const PluginxxStringView reasonView{reason.data(),
+                                                     reason.size()};
+                 nativeGenerateDoneTrampoline(notify.host_ud,
+                                              PLUGINXX_OPERATOR_FAILED,
+                                              &reasonView);
+                 return;
+               }
+               if (errorOut.data) {
+                 std::string reason{errorOut.data,
+                                    static_cast<size_t>(errorOut.size)};
+                 if (host && host->vtable && host->vtable->free) {
+                   host->vtable->free(errorOut.data);
+                 }
+                 // 未受理: 插件不会再调 notify, 这里按失败收尾 (waiter 由 trampoline 释放)
+                 const PluginxxStringView reasonView{reason.data(), reason.size()};
+                 nativeGenerateDoneTrampoline(notify.host_ud,
+                                              PLUGINXX_OPERATOR_FAILED,
+                                              &reasonView);
+               }
+             });
   return PLUGINXX_RESULT_OK;
 }
 
-void MusicxxHostManager::pushUiContentResult(const UiContent &content,
-                                             const std::string &jsonText,
-                                             const std::string &error) {
+std::string MusicxxHostManager::pushUiContentResult(
+    const UiContent &content, const std::string &jsonText,
+    const std::string &error) {
   UiContent *mutableContent = findUiContent(content.fullId);
   if (nullptr == mutableContent) {
-    return;
+    return std::string{};
   }
   ++mutableContent->rev;
   Json payload;
@@ -889,7 +949,37 @@ void MusicxxHostManager::pushUiContentResult(const UiContent &content,
       payload["json"] = body;
     }
   }
-  pushEvent("musicxx.ui.content", mutableContent->pluginId, payload.dump());
+  const std::string text = payload.dump();
+  pushEvent("musicxx.ui.content", mutableContent->pluginId, text);
+  return text;
+}
+
+void MusicxxHostManager::finishUiGeneration(int64_t requestId,
+                                           const std::string &fullId,
+                                           std::string jsonText,
+                                           std::string error) {
+  /// 框架线程: 写注册表 (rev) + 推 `musicxx.ui.content`, 再把同一条载乀
+  /// 当作请求结果交回 (要等生成结果的调用点读它)
+  std::string payloadText;
+  if (auto *item = findUiContent(fullId)) {
+    payloadText = pushUiContentResult(*item, jsonText, error);
+  }
+  if (requestId <= 0) {
+    return;
+  }
+  if (!error.empty()) {
+    completeRequest(requestId, RequestOutcome::fail(
+                                   PLUGINXX_RESULT_ERR_STATE, error, "ui_failed"));
+    return;
+  }
+  if (payloadText.empty()) {
+    completeRequest(
+        requestId,
+        RequestOutcome::fail(PLUGINXX_RESULT_ERR_NOT_FOUND,
+                             "内容已被插件撤销 (" + fullId + ")", "not_found"));
+    return;
+  }
+  completeRequest(requestId, RequestOutcome::ok(payloadText));
 }
 
 /* ==================== 序列化与摘除 ==================== */

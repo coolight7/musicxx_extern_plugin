@@ -2786,7 +2786,7 @@ int32_t JsEngine::startThread(std::string &err) {
     tasks_.clear();
     timers_.clear();
     pendingAppCapabilities_.clear();
-    dispatchWaits_.clear();
+    implementationWaits_.clear();
     instances_.clear();
     stopping_.store(false, std::memory_order_release);
   }
@@ -2837,7 +2837,7 @@ void JsEngine::stop() {
     timers_.clear();
     instances_.clear();
     pendingAppCapabilities_.clear();
-    dispatchWaits_.clear();
+    implementationWaits_.clear();
   }
   XX_LOGI("[musicxx_ext] JS 线程已停止");
 }
@@ -3078,25 +3078,62 @@ void JsEngine::bridgeTimerClear(const std::string &instance, int64_t timerId) {
 
 /* ---- 裁决型能力的 Promise 等待槽 (异步裁决) ---- */
 
-int64_t
-JsEngine::beginDispatchWait(const std::string &instance,
-                        const std::shared_ptr<WaitSlot<std::string>> &slot) {
-  const int64_t waitId = nextDispatchWaitId_.fetch_add(1);
+int64_t JsEngine::beginImplementationWait(
+    const std::string &instance,
+    std::function<void(const std::string &)> deliver) {
+  const int64_t waitId = nextImplementationWaitId_.fetch_add(1);
   std::lock_guard lock{mutex_};
-  dispatchWaits_[waitId] = DispatchWait{instance, slot};
+  implementationWaits_[waitId] =
+      ImplementationWait{instance, std::move(deliver)};
   return waitId;
 }
 
-void JsEngine::finishDispatchWait(int64_t waitId) {
+void JsEngine::finishImplementationWait(int64_t waitId) {
   std::lock_guard lock{mutex_};
-  dispatchWaits_.erase(waitId);
+  implementationWaits_.erase(waitId);
 }
 
-void JsEngine::clearDispatchWaitsOf(const std::string &instance) {
-  std::lock_guard lock{mutex_};
-  std::erase_if(dispatchWaits_, [&](const auto &item) {
-    return item.second.instance == instance;
-  });
+void JsEngine::deliverImplementationWait(int64_t waitId, std::string text) {
+  std::string instance;
+  std::function<void(const std::string &)> deliver;
+  {
+    std::lock_guard lock{mutex_};
+    const auto it = implementationWaits_.find(waitId);
+    if (it == implementationWaits_.end()) {
+      return; ///< 已经收尾 (实例已停 / 重复结算): 结果丢弃
+    }
+    instance = it->second.instance;
+    deliver = std::move(it->second.deliver);
+    implementationWaits_.erase(it);
+  }
+  if (auto inst = lookupInstance(instance)) {
+    ++inst->asyncDispatchSettled;
+  }
+  if (deliver) {
+    deliver(text);
+  }
+}
+
+void JsEngine::clearImplementationWaitsOf(const std::string &instance) {
+  std::vector<std::function<void(const std::string &)>> pending;
+  {
+    std::lock_guard lock{mutex_};
+    for (auto it = implementationWaits_.begin();
+         it != implementationWaits_.end();) {
+      if (it->second.instance != instance) {
+        ++it;
+        continue;
+      }
+      pending.push_back(std::move(it->second.deliver));
+      it = implementationWaits_.erase(it);
+    }
+  }
+  /// 在锁外交回去: 插件已经走了, 这一轮按"没有意见"收尾, 派发那边不会一直等
+  for (auto &deliver : pending) {
+    if (deliver) {
+      deliver(std::string{});
+    }
+  }
 }
 
 int64_t JsEngine::beginCapabilityWait(
@@ -3198,7 +3235,7 @@ void JsEngine::deliverCapabilityResult(const std::string &callerInstance,
 }
 
 void JsEngine::bridgeImplementationWaitResolve(const std::string &waitId,
-                                     const std::string &json) {
+                                               const std::string &json) {
   int64_t id = 0;
   try {
     size_t used = 0;
@@ -3206,25 +3243,7 @@ void JsEngine::bridgeImplementationWaitResolve(const std::string &waitId,
   } catch (const std::exception &) {
     return;
   }
-  std::string instance;
-  std::shared_ptr<WaitSlot<std::string>> slot;
-  {
-    std::lock_guard lock{mutex_};
-    const auto it = dispatchWaits_.find(id);
-    if (it == dispatchWaits_.end()) {
-      return; ///< 不属于本引擎 / 已经完成
-    }
-    instance = it->second.instance;
-    slot = it->second.slot;
-    dispatchWaits_.erase(it);
-  }
-  if (!slot) {
-    return;
-  }
-  if (auto inst = lookupInstance(instance)) {
-    ++inst->asyncDispatchSettled;
-  }
-  slot->set(json);
+  deliverImplementationWait(id, json);
 }
 
 namespace {
@@ -3847,7 +3866,7 @@ void JsEngine::applyImplementationOpOnHost(
                                       handler->ownerTag.size()};
   spec.priority = priority;
   spec.user_data = handler.get();
-  spec.run_sync = &JsEngine::implementationRunSync;
+  spec.run_start = &JsEngine::implementationStart;
   const int32_t rc = mgr_->registerHandler(inst->hostInst, spec);
   if (rc != PLUGINXX_RESULT_OK) {
     Json payload;
@@ -4086,7 +4105,7 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
                              {std::to_string(pendingId), json}, ignored);
     });
   };
-  mgr_->pluginCallAsync(targetId, name, argsJson, std::move(finishCall));
+  mgr_->pluginCall(targetId, name, argsJson, std::move(finishCall));
   return kCallCapabilityPending;
 }
 void JsEngine::logPlugin(const std::string &pluginId, int32_t level,
@@ -4200,7 +4219,7 @@ void JsEngine::stopInstance(const std::shared_ptr<Instance> &inst) {
     return;
   }
   detachRegistrations(inst);
-  clearDispatchWaitsOf(inst->name);
+  clearImplementationWaitsOf(inst->name);
   clearCapabilityWaitsOf(inst->name);
   if ((inst->ctx || inst->rt) && running_.load(std::memory_order_acquire)) {
     auto slot = std::make_shared<WaitSlot<bool>>();
@@ -4449,7 +4468,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
               ? item["priority"].get<int>()
               : 0;
       spec.user_data = handler.get();
-      spec.run_sync = &JsEngine::implementationRunSync;
+      spec.run_start = &JsEngine::implementationStart;
       const int32_t rc = mgr_->registerHandler(inst->hostInst, spec);
       if (rc != PLUGINXX_RESULT_OK) {
         Json payload;
@@ -4631,58 +4650,69 @@ void JsEngine::detachRegistrations(const std::shared_ptr<Instance> &inst) {
 
 /* ==================== 能力处理器 ==================== */
 
-int32_t PLUGINXX_CALL JsEngine::implementationRunSync(void *userData,
-                                         const PluginxxStringView * /*capabilityId*/,
-                                         const PluginxxStringView *inputJson,
-                                         PluginxxString *outJson,
-                                         PluginxxString * /*errorOut*/
+void *PLUGINXX_CALL JsEngine::implementationStart(
+    void *userData, const PluginxxHost * /*callerHost*/,
+    const PluginxxStringView * /*method*/,
+    const PluginxxStringView *inputJson,
+    const PluginxxOperatorNotify *notify,
+    PluginxxString *errorOut
 ) {
   auto *handler = static_cast<Implementation *>(userData);
-  if (!handler || !handler->engine) {
-    return -1;
+  if (!handler || !handler->engine || !notify || !notify->done) {
+    pluginxx::hostMemorySetString(errorOut, "handler_not_ready");
+    return nullptr;
   }
   JsEngine *engine = handler->engine;
   /// 处理器对象的生命周期由实例持有 (卸载/禁用会摘除注册):
-  /// 等待期间它可能已经释放, 因此这里先把要用的字段复制出来, 不在等待之后再读
-  /// handler。
-  const std::string pluginId = handler->pluginId;
-  const std::string capabilityId = handler->capabilityId;
+  /// 调用期间它可能已经释放, 因此这里先把要用的字段复制出来。
   const std::string name = handler->instance;
+  const std::string capabilityId = handler->capabilityId;
   const std::string phaseName = capabilityPhaseNameOf(handler->phase);
   const std::string ownerTag = handler->ownerTag;
   const std::string input =
       inputJson ? viewToStr(inputJson) : std::string{"{}"};
-  auto slot = std::make_shared<WaitSlot<std::string>>();
-  /// 等待槽 id: Promise 结算后由 JS 侧经 `ext.implementationWaitResolve` 交回结果
-  const int64_t waitId = engine->beginDispatchWait(name, slot);
-  engine->postTask([engine, name, capabilityId, phaseName, input, ownerTag, slot, waitId] {
+  /// 完成通知是**任意线程**都要能调的, 而且恰好一次: 存一份, 用原子标记挡住
+  /// 重复与迟到的第二次 (实例清理与 Promise 结算可能先后各调一次)
+  auto notifyCopy = std::make_shared<PluginxxOperatorNotify>(*notify);
+  auto finished = std::make_shared<std::atomic<bool>>(false);
+  auto finish = [notifyCopy, finished](const std::string &text) {
+    if (!notifyCopy->done ||
+        finished->exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
+    if (text.empty() || text == "null") {
+      /// 空 = 这一轮没有意见
+      const PluginxxStringView empty{};
+      notifyCopy->done(notifyCopy->host_ud, PLUGINXX_OPERATOR_OK, &empty);
+      return;
+    }
+    const PluginxxStringView view{text.data(), text.size()};
+    notifyCopy->done(notifyCopy->host_ud, PLUGINXX_OPERATOR_OK, &view);
+  };
+  /// 等待凭据 id: 处理器返回 Promise 时, JS 侧结算后经 `ext.implementationWaitResolve`
+  /// 把结果交回同一个完成通知。宿主不等待任何线程
+  const int64_t waitId = engine->beginImplementationWait(name, finish);
+  /// 投递到 JS 线程执行: 脚本里 `await` 之后回答也算正常结果
+  engine->postTask([engine, name, capabilityId, phaseName, input, ownerTag,
+                    waitId] {
     const auto inst = engine->lookupInstance(name);
     std::string result;
     if (!inst || !engine->callBridgeString(
                      inst, "invokeImplementation",
-                     {capabilityId, phaseName, input, std::to_string(waitId), ownerTag},
+                     {capabilityId, phaseName, input, std::to_string(waitId),
+                      ownerTag},
                      result)) {
-      engine->finishDispatchWait(waitId);
-      slot->set(std::string{});
+      engine->deliverImplementationWait(waitId, std::string{});
       return;
     }
     if (result == kPendingMarker) {
-      /// 处理器返回 Promise: 不结算, 等 [bridgeImplementationWaitResolve] 把结果交回来
+      /// 处理器返回 Promise: 结算后经 `ext.implementationWaitResolve` 回结果
       return;
     }
-    engine->finishDispatchWait(waitId);
-    slot->set(std::move(result));
+    engine->deliverImplementationWait(waitId, std::move(result));
   });
-
-  /// 不设等待上界: 处理器返回 Promise 时一直等到它结算
-  /// (插件框架不因为处理器慢而按"无裁决"继续)
-  std::string result;
-  slot->wait(result);
-  if (result.empty() || result == "null") {
-    return 0;
-  }
-  pluginxx::hostMemorySetString(outJson, result);
-  return 0;
+  /// 交回的句柄只表示"已受理"; JS 侧自己管理 Promise, 没有可取消的对象
+  return nullptr;
 }
 
 /* ==================== 能力处理器 ==================== */
