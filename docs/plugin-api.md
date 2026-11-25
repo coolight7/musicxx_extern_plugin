@@ -225,7 +225,7 @@ const std::string infoJson = co_await hostInfoJson();   // 同一份 JSON
 | `language` | 应用当前语言（如 `zh-cn`） |
 | `dataDir` | **插件数据根目录**（插件私有 KV 在 `<dataDir>/<插件id>/data/kv.json`） |
 | `userPluginDir` / `builtinPluginDir` | 用户插件目录 / 随包插件目录 |
-| `apiVersion` | 插件 API 版本（当前 9；JS 插件是 3）；插件可以据此降级 |
+| `apiVersion` | 插件 API 版本（当前 10；JS 插件是 3）；插件可以据此降级 |
 | `hostVersion` | **插件框架自己的版本**（如 `2026.1011.1`，见 [version-history.md](version-history.md)） |
 | `pluginId` | 本插件 id（**只有插件读时才带这个字段**；主程序读同一份信息时没有它） |
 | `ui` | 客户端界面能力段（只有客户端配置过时才出现，见 [plugin-ui.md](plugin-ui.md)） |

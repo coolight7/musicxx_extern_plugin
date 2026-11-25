@@ -544,7 +544,7 @@ co_await kindRegister(R"({
     插件可以读 `config().apiVersion` 判断能不能用新接口；
   - **破坏性变更才抬下限**：已经发生过一次（2026-11 广播只剩读与订阅），把 `jsMinInterfaceVersion` 抬到了当时的当前代次——老插件（`api_version` 写 1 / 2）
     会被判“跑不了”，理由里带着它能用的最低代次（与 C 接口的 `PLUGINXX_MIN_API_VERSION` 同一套规则）；
-  - **两套编号独立**：JS 的 3 与 C 接口的 9 不能互相比较（插件只看得到自己那一份）。
+  - **两套编号独立**：JS 的 3 与 C 接口的 10 不能互相比较（插件只看得到自己那一份）。
 - **加载 / 卸载**：插件框架把插件目录交给登记的能力（请求
   `{"action":"load","kind","id","path","instance","version"}`），回答 `{"ok":true}` 表示接手；
   卸载同一条能力（`"action":"unload"`），也可以另给 `unloadCapability`。字段与超时见
@@ -946,7 +946,7 @@ cmake --build build
 插件自己静态链入第三方库时，注意不要让符号外泄（默认隐藏已由助手设置）。
 
 **插件 API 契约版本（`PLUGINXX_API_VERSION`）必须与插件框架库一致**：它决定接口表按哪套写法调
-（例如能力怎么登记、广播怎么订阅），两侧不一致时是 ABI 不兼容。当前值是 **9**，由 SDK 的
+（例如能力怎么登记、广播怎么订阅），两侧不一致时是 ABI 不兼容。当前值是 **10**，由 SDK 的
 INTERFACE 目标自动带上（`musicxx_plugin_add_target` 也用它），清单 `api_version` 写同一个数。
 自己手写 CMake 时要补：
 

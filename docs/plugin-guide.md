@@ -335,7 +335,7 @@ musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我�
 清单与打包：
 
 - [ ] `plugin.yaml` 的 `name` = 插件 id = 目录名；`version` 已递增（同名视为同一插件的升级覆盖）；
-- [ ] `api_version`：填**插件所属形态**的当前代次（动态库插件 7、JS 插件 3）；兼容下限是 7 / 3，
+- [ ] `api_version`：填**插件所属形态**的当前代次（动态库插件 10、JS 插件 3）；兼容下限是 10 / 3，
       写低到下限以下会被拒，写高不会被拒；
 - [ ] `platforms` / `arch` 只列真的支持的目标；`depends` / `optional_depends` 写对（缺失会拒绝加载 / 只影响顺序）；
 - [ ] `permissions` 声明齐全（只做展示：安装弹窗与详情页会列给用户看）；
