@@ -142,10 +142,10 @@ constexpr int32_t pluginxxPhaseOf(int32_t phase) {
     }
 }
 
-/// 处理器是不是协程写法 (决定登记时 `sync` 取值)
+/// 处理器是不是协程写法
 ///
-/// 主程序的"前链 / 后链"必须同步给结果 (要拿到这一步的结果才能跑下一步),
-/// 所以只有返回 `asio::awaitable` 的处理器才按异步登记。
+/// 现在两种写法都当"异步完成"处理（同步写法的结果在 `start` 里当场交给
+/// `notify.done`），这个判断只为日志与排障保留。
 template<typename FnT>
 constexpr bool handlerReturnsAwaitable() {
     if constexpr (std::is_invocable_v<FnT&, std::string_view, std::string_view>) {
@@ -1196,8 +1196,8 @@ protected:
                               PLUGINXX_CAPABILITY_PHASE_MASK_AFTER;
                 spec.phase = detail::pluginxxPhaseOf(phase);
                 spec.priority = priority;
-                // 同步处理器登记成 sync = 1: 前链 / 后链只接受同步处理器
-                spec.sync = detail::handlerReturnsAwaitable<FnT>() ? 0 : 1;
+                // 处理器只有一种形态: 受理时给回句柄 (可空), 结束时调一次 `notify.done`
+                // (同步写法的结果由 `start` 当场交回, 不再有 `sync` 标记)
                 // 两形态共用同一个取消入口: 同步处理器不交回句柄 (已经通知过),
                 // 协程处理器交回 [HandlerHolder::AsyncJobHandle]
                 spec.cancel = &HandlerHolder<FnT>::cancel;

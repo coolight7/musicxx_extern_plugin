@@ -19,6 +19,7 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 - [x] 阶段 5：Dart 包请求总线 + 全 `Future` + 本地缓存 + 去掉 `_async` 命名（`lib/` 分析 0 error / 0 warning）
 - [x] 阶段 6：主程序接入（Store / 内容传输 / 广播取值 / 能力调用）（`lib` 分析 0 error / 0 warning）
 - [ ] 阶段 7：示例插件、原生测试、Dart 测试改造
+      （示例插件已改完并构建通过；原生测试 `test_host.cpp`、包内 `test/`、主程序 `test/` 未改）
 - [ ] 阶段 8：文档与版本号（C ABI 7 / 插件 ABI 10 / 框架 `2026.1125.1`）
 - [ ] 阶段 9：全量验证与基准
 
@@ -156,6 +157,26 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 
 **验证**：`lib` 下 0 error / 0 warning；`test/` 里的旧调用点（Dart 实现链、同步广播、旧的
 `ExternPluginArchive` 回调形状）留到阶段 7。
+
+### 阶段 7（进行中）：示例插件
+
+- `src/sdk/include/musicxx/plugin/api/plugin_kit.h`：删 `spec.sync = ...`（能力表已经没有这个字段）；
+  处理器只有一种形态 —— 受理时给回句柄、结束时调一次 `notify.done`，同步写法的结果在 `start`
+  里当场交回。`handlerReturnsAwaitable` 保留（现在只用来区分写法，不再影响登记）。
+- `plugins/example_native_fail`：删 `spec.sync = 1` 与前链"必须是同步处理器"的注释。
+- JS 示例插件不用改：JS 接口形状没变（处理器本来就可以返回 Promise）。
+
+**验证**：`pwsh -NoProfile -File tools/build_native.ps1 -WithExamples` → 通过（插件框架库 + SDK +
+四个示例插件）。
+
+**待办（阶段 7 剩余）**：
+- `src/tests/test_host.cpp`（3716 行、220 处 C ABI 调用）：要改成"提交 + 等 `musicxx.request.result`"，
+  并在顶部加一批同步形态的测试包装（计划 §5 阶段 7 的做法）；`src/tests/test_pluginxx.cpp` 待看；
+- 包内 `test/`（`host_test` / `multi_isolate_test` / `ui_content_probe` / `ui_slot_define_example_test`
+  等）与主程序 `test/`（`feature_provide_test` 里的 Dart 实现链、`broadcast_value_test` 的假 sink、
+  `cli_endpoint_test` 的广播回调、`extern_plugin_test` 的 `dispatchAsync` / `inspectPlugin` 形状）；
+- `feature_provide_test` 原来靠 `capabilities.on/off` 在单测里跑 Dart 实现链，这条链已删：
+  这些用例要改成"假的能力派发源"（覆写 `dispatch` 或直接构造裁决），阶段 7 一起做。
 
 ## 未验证
 

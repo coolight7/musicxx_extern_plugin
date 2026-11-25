@@ -62,7 +62,6 @@ struct FailCtx : public musicxx::plugin::PluginBase {
     spec.merge = PLUGINXX_CAPABILITY_MERGE_NONE;
     spec.phases = PLUGINXX_CAPABILITY_PHASE_MASK_BEFORE;
     spec.phase = PLUGINXX_CAPABILITY_PHASE_BEFORE;
-    spec.sync = 1; ///< 前链必须是同步处理器: 要拿到这一步的结果才能跑下一步
     spec.run_start = &FailCtx::pitchStart;
     spec.user_data = this;
 
