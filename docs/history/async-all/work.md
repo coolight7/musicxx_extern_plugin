@@ -19,7 +19,8 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 - [x] 阶段 5：Dart 包请求总线 + 全 `Future` + 本地缓存 + 去掉 `_async` 命名（`lib/` 分析 0 error / 0 warning）
 - [x] 阶段 6：主程序接入（Store / 内容传输 / 广播取值 / 能力调用）（`lib` 分析 0 error / 0 warning）
 - [ ] 阶段 7：示例插件、原生测试、Dart 测试改造
-      （示例插件已改完并构建通过；原生测试 `test_host.cpp`、包内 `test/`、主程序 `test/` 未改）
+      （示例插件已改完；原生测试 `test_host.cpp` 已改并通过（516 checks）；
+      包内 `test/` 已改并通过（67 项）；主程序 `test/` 待改）
 - [ ] 阶段 8：文档与版本号（C ABI 7 / 插件 ABI 10 / 框架 `2026.1125.1`）
 - [ ] 阶段 9：全量验证与基准
 
@@ -170,21 +171,52 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 四个示例插件）。
 
 **待办（阶段 7 剩余）**：
-- `src/tests/test_host.cpp`（3716 行、220 处 C ABI 调用）：要改成"提交 + 等 `musicxx.request.result`"，
-  并在顶部加一批同步形态的测试包装（计划 §5 阶段 7 的做法）；`src/tests/test_pluginxx.cpp` 待看；
-- 包内 `test/`（`host_test` / `multi_isolate_test` / `ui_content_probe` / `ui_slot_define_example_test`
-  等）与主程序 `test/`（`feature_provide_test` 里的 Dart 实现链、`broadcast_value_test` 的假 sink、
+- 主程序 `test/`（`feature_provide_test` 里的 Dart 实现链、`broadcast_value_test` 的假 sink、
   `cli_endpoint_test` 的广播回调、`extern_plugin_test` 的 `dispatchAsync` / `inspectPlugin` 形状）；
 - `feature_provide_test` 原来靠 `capabilities.on/off` 在单测里跑 Dart 实现链，这条链已删：
-  这些用例要改成"假的能力派发源"（覆写 `dispatch` 或直接构造裁决），阶段 7 一起做。
+  这些用例要改成"假的能力派发源"（覆写 `dispatch` 或直接构造裁决）。
+
+### 阶段 7：原生测试与包内测试（已完成）
+
+- `src/tests/test_host.cpp`：顶部加一层保持旧签名的同步包装（`t_host_start` / `t_plugin_load_sync` /
+  `t_capability_dispatch*` / `t_broadcast_*` / `t_ui_*` / `t_stats*` / `t_debug_info` 等）：提交后等
+  `musicxx.request.result` 按 `requestId` 配对，等到的其它事件攒起来放回（`pollEvents` 合并）。
+  - 等待上限默认 30 s：插件 `create` 里发起的应用能力请求在原生测试宿主下没人回答，要等能力
+    自带的 5 s 超时才能继续；
+  - `waitCapabilityResult` 先从攒下的事件里找目标 `requestId`（等卸载结果时会把能力结果攒起来）；
+  - 代次断言不再写死数字：`plugin_inspect` 报的 `kindInterfaceVersion` / `kindMinInterfaceVersion`
+    两处必须相等，插件探针的 `hostApiVersion` 与它相等；
+  - 旧事件名（`musicxx.plugin.call.result` / `musicxx.capability.decision.result`）的用例改成等
+    `musicxx.request.result`，回执断言改成 "结果直接在回执里、没有 callId / async 标记"。
+- 宿主两处账本修正（测试暴露的真问题）：
+  - `finishRequestsOf` / `finishAllRequests` 支持排除"正在做这件事的那条请求"：卸载与停机以前
+    会把自己那条请求按 `plugin_unloaded` / `host_stopped` 收尾，调用方拿到 -2 而不是卸载结论；
+  - `plugin_call` 在受理阶段校验目标（未声明能力 / 实例不存在 / 归属不对 → 返回负码、不推事件，
+    与协议一致），在框架线程上时直接判定，避免自己等自己。
+- 包内 `test/`：
+  - 现在返回 `Future` 的调用点全部补 `await`（`scan` / `inspect` / `load` / `unload` / `stats` /
+    `uiSnapshot` / `uiSlots` / `registrationsOf` / `dispatch` / `notify` / 广播读写）；
+  - `dispatchAsync` → `dispatch`，`dispatchAtPhase` → `dispatch(id, payload, phase)`；
+  - 删掉 Dart 实现链用例（`capabilities.on` / `off` / `hasDartImplementation`）与异步派发计数；
+  - `multi_isolate_test` 改成"事件队列是进程级共享"：worker 只提交并把 `requestId` 报回来，
+    主 isolate 统一取结果并检查每条请求恰好一条结果；
+  - 修 `capabilities.refreshNativeHandlers`：插件框架回的是 `{capability, count, handlers}`，
+    之前把整个 `data` 当数组，恒为空列表；
+  - `MusicxxPluginVersion.apiVersion = 7` 成为加载库时的默认期望值，`version_test` 加一致性用例。
+
+**验证**：
+- `pwsh -NoProfile -File tools/build_native.ps1 -WithTests -RunTests` → `musicxx_pluginxx_test`
+  283 checks、`musicxx_extern_plugin_test` 516 checks 全绿；
+- `fvm flutter analyze --no-pub lib test` → 无问题；`fvm flutter test --no-pub` → 67 项全过；
+- `fvm dart run tools/gen_contract.dart --check` → 生成物与定义一致。
 
 ## 未验证
 
 （实施后补：只做了构建、没有实跑的平台与场景。）
 
 - 阶段 9 未做：没跑主程序、没实跑插件（动态库 + JS）、没跑 Android / iOS / macOS / Linux 构建。
-- 阶段 7 未做：原生测试 `test_host.cpp` / `test_pluginxx.cpp`、包内 `test/`、主程序 `test/` 均未改，
-  现在 `flutter analyze lib test` 在 `test/` 会报错（仅测试代码；`lib` 0 error / 0 warning）。
+- 主程序 `test/` 未改：`feature_provide_test` 里的 Dart 实现链、`broadcast_value_test` 的假 sink、
+  `cli_endpoint_test` 的广播回调、`extern_plugin_test` 的 `dispatchAsync` / `inspectPlugin` 形状。
 - 阶段 8 只做了版本号与 `CHANGELOG.md`；包内 `docs/**`（`plugin-api.md` / `plugin-native-api.md` /
   `musicxx-interfaces.md` / `plugin-capabilities.md` 等）与主程序 `docs/architecture/08,09`、
   `AGENTS.md` §7.6 里的旧写法（`plugin_load_sync` / `loadAsync` / `dispatchAsync` / `capabilities.on` /
