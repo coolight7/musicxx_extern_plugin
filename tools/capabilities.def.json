@@ -1401,7 +1401,7 @@
       "phases": [
         "impl"
       ],
-      "dispatch": "sync",
+      "dispatch": "async",
       "cache": "none",
       "cli": {},
       "plugin": {},
@@ -1416,7 +1416,7 @@
       "phases": [
         "impl"
       ],
-      "dispatch": "sync",
+      "dispatch": "async",
       "cache": "none",
       "cli": {},
       "plugin": {},

@@ -1926,10 +1926,10 @@ co_await publishBroadcast("plugin.my_plugin.hello", R"({"at":1})");
 
 > **下面这些名字不是总线频道**：它们是插件框架 → 应用的内部事件（与能力派发、UI 项、日志同一条内部队列），
 > 插件 `subscribe` 它们**不报错但永远收不到回调**：`musicxx.plugin.log` / `musicxx.plugin.error` /
-> `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.capability.changed` / `musicxx.capability.decision.result`。
+> `musicxx.plugin.warn` / `musicxx.ui.changed` / `musicxx.capability.changed`。
 > 要看这些数据用别的办法：能力注册表用能力 `musicxx.capability.subscribers`，自己的 UI 项用 JS 的
-> `musicxx.ui.slot.entries()`，写日志用 `musicxx.host.log` / `console.*`；异步裁决的结果就是
-> `await dispatchAsync` 的返回值（`musicxx.capability.decision.result` 只是同一份结果的调试回传）。
+> `musicxx.ui.slot.entries()`，写日志用 `musicxx.host.log` / `console.*`；裁决的结果就是
+> 这次请求的返回值（JS 侧是 `dispatch` 的 Promise，原生侧是结果事件里的 `data`）。
 
 > 应用的 `musicxx.song.changed` 之类也是**广播**上的频道；**能力**是另一条通道
 > （有阶段、有合并策略、可能等裁决）。别把两者混起来：想在切歌时做事，订阅广播频道
@@ -2212,8 +2212,10 @@ const utilxx_base::Json palette = co_await featurePointCall(
 > **通知型的那一批**是一组广播频道，JS 用 `musicxx.broadcast.subscribe`，原生用
 > `co_await subscribeBroadcast`。本节剩下的阶段、裁决对象与载荷语义对两种形态同样有效。
 
-能力 id、模式（`observe` / `decision`）、派发方式（`sync` / `async`）、合并策略，以及**哪些能力已经被应用接入**，
+能力 id、合并策略，以及**哪些能力已经被应用接入**，
 都在生成物 [plugin-capabilities.md](plugin-capabilities.md) 里；本节说"怎么写、为什么这么写"。
+派发方式只有一个：**提交请求 → 结果事件**（调用方拿到的永远是 Future / Promise），
+插件处理器跑在插件自己的线程上，不占用调用线程。
 
 ### 8.1 三个阶段：前链 / 实现链 / 后链
 
@@ -2238,7 +2240,8 @@ extern  ---------->  builtin  ---------->  core
   不能盖掉插件的改写（与实现链里“外置优先”同向）。这一点反直觉，但必须这么做；
 - 同一个插件对同一条能力可以分别注册三个阶段（同一个 `ownerTag` 互不覆盖）；
   `unregister` 按 `(能力 id, ownerTag)` 摘，一个 `ownerTag` 在所有阶段的登记一起摘掉；
-- **前链 / 后链必须是同步处理器**（要拿到这一步的结果才能跑下一步）：用异步处理器注册会被拒绝；
+- 三个阶段的处理器写法一样（普通函数 / 协程 / JS 的同步返回值或 Promise）：框架按
+  (priority, 注册顺序) 等上一步结算再跑下一步，不需要你手动串联；
 - 只能注册能力**声明过的**阶段（生成物 `plugin-capabilities.md` 的「可注册阶段」列）；没声明就注册会被
   拒绝（原生抛异常，原因 `invalid_state` 与一句“does not open phase …”；JS 在后台拒绝并记日志），因为“注册成功但永远不触发”
   比报错更难查；
@@ -2291,7 +2294,7 @@ co_await implement(MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,   // 裁决型
 co_await subscribeBroadcast(MUSICXX_BROADCAST_SONG_CHANGED,   // 通知型（广播频道）
         [](std::string_view input) { /* 载荷 JSON；回调是普通函数，返回值被忽略 */ });
 
-// 阶段: 同一条能力上的前链 / 后链（必须是同步处理器）
+// 阶段: 同一条能力上的前链 / 后链（写法与实现链一样，可以等 IO）
 co_await implement(MUSICXX_CAPABILITY_PLAYER_SEEK, CapabilityPhase::After, 0,
           [](std::string_view input, std::string& out) -> int32_t {
               out = R"({"value":{"action":"continue","patch":{"to":60000}}})";
@@ -2378,11 +2381,12 @@ musicxx.capability.implement("musicxx.player.speed", { phase: "before" }, (ctx) 
 
 - **不要阻塞**：网络、大文件、编解码、`sleep` 都不要直接在处理器里做 ——
   它跑在插件执行线程 / JS 线程上，慢就是业务与其它插件一起等。
-  动态库插件的同步处理器只能“当场给结论”，要等就把处理器写成协程；实在要走阻塞 IO 就用
+  动态库插件的普通函数处理器只能“当场给结论”，要等就把处理器写成协程
+  （`asio::awaitable<std::string>`）；实在要走阻塞 IO 就用
   `co_await pluginxx::asyncOffload(*this, ex, work)`，等待用 `co_await pluginxx::sleepAsync(*this, ms)`。
   JS 用定时器或把工作拆成两段。
-- **不要在同步处理器里等应用实现的能力**：同步处理器是就地调用的，调用点正等你的返回值；
-  而能力调用本身是协程（`co_await capabilityCall`），根本写不进同步处理器 ——
+- **不要在普通函数处理器里等应用实现的能力**：普通函数处理器是就地调用的，当场就要给结论；
+  而能力调用本身是协程（`co_await capabilityCall`），根本写不进普通函数 ——
   要能力的结果就把处理器写成协程，或者提前算好。
 - 必要的长任务提前算好（例如换歌时预热缓存），处理器里只做"查缓存 → 返回或返回空"。
 
@@ -2696,8 +2700,8 @@ JS 插件拿到的是**异常与文字**（Promise 拒绝原因里带名称与�
 | 点入口提示「插件没有提供『xxx』」 | 入口指向的能力没注册（页面内容 id 必须与注册时给的 id 一致） |
 | 页面打开后提示「插件没有提供任何内容块」 | 视图没有 `blocks`，或块类型名全部拼错（未识别的块会被静默忽略） |
 | 改了 `config.json` 页面没变 | 页面是打开时取的能力结果：改完再返回一次 `{view:…}`，或重新打开页面 |
-| 切歌 / 换背景样式卡几秒 | 同步处理器里做了阻塞等待（同步 IO、自建线程 `join`）→ 把等待改成异步（§8.4） |
-| 主程序界面卡住 | 同步处理器里做了阻塞操作 / JS 死循环（框架不打断）；协程卡住不会拖住界面，但会拖住这个插件的其它调用 |
+| 切歌 / 换背景样式卡几秒 | 处理器里做了阻塞等待（同步 IO、自建线程 `join`）→ 把等待改成协程（§8.4） |
+| 主程序界面卡住 | 处理器里做了阻塞操作 / JS 死循环（框架不打断）；协程卡住不会拖住界面，但会拖住这个插件的其它调用 |
 | 颜色 / 频谱"凭空消失" | 有人返回了 `{"action":"cancel"}`（§8.5）；用 `capability.list` 看是谁 |
 | 网络请求拿不到数据 | 看 `status`（非 2xx 也 `ok:true`）与 `truncated`（读满 `maxBytes` 就断开） |
 | 生成的界面在别的客户端样式不对 | 按 `host.info().ui` 的 `blocks` / `controls` 降级，不要按 `kind` 写两套 |

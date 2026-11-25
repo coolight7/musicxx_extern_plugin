@@ -654,7 +654,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 以及其它插件发布的 `plugin.<对方 id>.*`。
 
 > `musicxx.plugin.log` / `musicxx.plugin.error` / `musicxx.plugin.warn` / `musicxx.ui.changed` /
-> `musicxx.capability.changed` / `musicxx.capability.decision.result` **不在总线上**（它们是插件框架 → 主程序的
+> `musicxx.capability.changed` **不在总线上**（它们是插件框架 → 主程序的
 > 内部事件）：`subscribe` 它们不会报错，但永远收不到回调。要看能力注册表用能力
 > `musicxx.capability.subscribers`，自己的 UI 项用 `musicxx.ui.slot.entries()`。
 

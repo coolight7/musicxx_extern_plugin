@@ -1391,7 +1391,10 @@ String _generateCapabilityDoc(CapabilityContract contract) {
       '| `phases` | 能参与哪些阶段：`before`（正序改输入）/ `impl`（给结果）/ '
       '`after`（逆序改输出）。**不含 `impl` = 实现固定由应用提供，插件只能注册 `before` / `after`** |',
     )
-    ..writeln('| `dispatch` | `sync` = 调用方等结果（插件侧只能同步处理器）；`async` = 不占用调用线程 |')
+    ..writeln(
+      '| `dispatch` | 派发方式。**现在全是 `async`**：请求提交后由结果事件回话，'
+      '处理器在插件自己的线程上跑，不占用调用线程 |',
+    )
     ..writeln('| `timeoutMs` | 等实现的上限，超时按"没给"处理；`0` = 不设上限 |')
     ..writeln('| `cache` | `byIdentity` = 同一个请求身份不重复算；`none` = 每次都问实现 |')
     ..writeln(

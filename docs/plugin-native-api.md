@@ -65,7 +65,7 @@ name: my_plugin                    # 插件 id（唯一；同名视为同一插�
 entry: my_plugin.so                # 库文件名（按 Linux 写法填，见下方说明）
 kind: native                       # native = 动态库；js = 脚本插件；缺省按 entry 推导
 version: 2026.1010.1              # 版本号 = `<年>.<月日>.<小版本号>`（例中为 2026-10-10 的第 1 版）；打包脚本用它拼安装包名
-api_version: 9                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 9）；JS 插件写 3（JS 接口当前 3、兼容下限 3，见 §4.3）
+api_version: 9                     # 插件所属形态的接口代次：动态库插件写 C 接口代次（当前 10）；JS 插件写 3（JS 接口当前 3、兼容下限 3，见 §4.3）
 author: "你的名字"
 description: "插件说明"
 platforms: [windows, linux, macos] # 允许加载的平台；不写 = 不限（别名 win32 / osx 也认；多目标包通常不写，见 §1.3）
@@ -92,7 +92,7 @@ permissions:                       # 声明式权限：只做展示，运行时�
 
 插件框架**不校验** `min_app_version`：Dart 侧清单解析会读这个字段，但当前版本没有用它做拦截，
 要表达版本要求请用 `api_version`：它表示"插件按哪一代接口写的"，判定是 `api_version >= 插件所属形态的
-兼容下限`（动态库插件 9、JS 插件 3，见 §4.3）。**每代接口只增不改**时下限不动，只有破坏性变更才抬
+兼容下限`（动态库插件 10、JS 插件 3，见 §4.3）。**每代接口只增不改**时下限不动，只有破坏性变更才抬
 下限；清单写更高不会被拒（插件想表达自己用了新接口时可以写高）。
 
 ### 1.2 安装位置
@@ -199,7 +199,7 @@ struct MyCtx : public musicxx::plugin::PluginBase {
 
     /// create 事务：注册写在协程里 —— 接口表是异步操作契约，注册要 `co_await`
     asio::awaitable<void> onCreate() {
-        // 决策型能力：载荷里出现「广告」就跳过本曲（同步处理器：要当场给结论）
+        // 决策型能力：载荷里出现「广告」就跳过本曲（普通函数处理器，当场给出结论）
         co_await implement(
             MUSICXX_CAPABILITY_PLAYER_BEFORE_PLAY_SONG, 0,
             [this](std::string_view input, std::string &out) -> int32_t {
@@ -241,7 +241,7 @@ struct MyCtx : public musicxx::plugin::PluginBase {
 MUSICXX_PLUGIN_EXPORT(
     MyCtx,
     "my_plugin",
-    "2026.1124.1",              // 插件版本号：`<年>.<月日>.<小版本号>`（见 §1.1）
+    "2026.1125.1",              // 插件版本号：`<年>.<月日>.<小版本号>`（见 §1.1）
     "我的第一个插件",
     [](MyCtx &ctx) -> asio::awaitable<void> { co_await ctx.onCreate(); },
     [](MyCtx &ctx) -> asio::awaitable<void> { co_await ctx.onStop(); })
@@ -261,8 +261,9 @@ MUSICXX_PLUGIN_EXPORT(
 - 失败不是错误码：抛 `std::runtime_error`（取消是 `pluginxx::CanceledException`），`what()` 以原因开头
   （`arg` / `state` / `namespace` / `not_found` / `not_declared` / `no_value` / `ended` …，
   后面跟一句人话解释），详见 §7；
-- 处理器可以同步也可以协程：同步处理器要**当场**给结论（前链 / 后链只收同步的），
-  可能等 IO 的处理器写成协程（`asio::awaitable<std::string>`），等待期间不占插件执行线程；
+- 处理器两种写法：**普通函数**（`std::string(std::string_view)`，当场返回结论）与**协程**
+  （`asio::awaitable<std::string>`，可以 `co_await` 表调用与计时器）。两种都在插件执行线程上跑，
+  也都由框架按“受理 → 完成”把结果交回主程序，主程序不区分写法；
 - `implement` / `subscribeBroadcast` / `readBroadcast` 这些便捷方法都在
   `musicxx::plugin::PluginBase`（头文件 `musicxx/plugin/api/plugin_kit.h`）上；
 - 自己造的能力用 `plugin.<你的插件 id>.*`，不需要事先声明；官方 id 没被应用声明、命名空间非法、
@@ -292,10 +293,11 @@ MUSICXX_PLUGIN_EXPORT(
 - 全部动态库插件代码都在**同一条插件执行线程**上顺序执行：注册表、统计、广播频道都不需要锁，
   **处理器之间按 (priority, 注册顺序) 稳定执行**。它**不是**框架的 IO 线程：插件代码再慢也不会
   拖住框架收发消息、也不会卡住主程序的界面；
-- **处理器可以同步也可以协程**：同步处理器（`std::string(std::string_view)`）必须**当场**给结论，
-  前链 / 后链只收同步的；可能等 IO 的处理器写成 `asio::awaitable<std::string>(std::string_view)`，
-  `co_await` 期间不占插件执行线程，别的插件照常跑；
-- 同步处理器里仍然**不要做阻塞工作**：网络请求、大文件、编解码交给
+- **处理器两种写法**：普通函数 `std::string(std::string_view)`（当场返回结论）与协程
+  `asio::awaitable<std::string>(std::string_view)`（`co_await` 期间不占插件执行线程，
+  别的插件照常跑）。三个阶段都收两种写法，登记时不区分；
+- 处理器里**不要做阻塞工作**：普通函数处理器是就地调用的，卡多久就把这条链上的其它处理器
+  推迟多久；网络请求、大文件、编解码交给
   `co_await pluginxx::asyncOffload(*this, ex, work)`（或直接调调度表的 `offload`），
   要等一会儿用 `co_await pluginxx::sleepAsync(*this, ms)`（挂起协程，不占线程）；
 - 插件**可以**自己起线程或定时器，但要在 `stop` 里回收，并且**调用框架接口一律经接口表**
@@ -309,7 +311,7 @@ MUSICXX_PLUGIN_EXPORT(
 
 | 能力 | API | 说明 |
 |---|---|---|
-| 裁决型能力 | `co_await implement(能力 id, priority, fn)`（`implementBefore` / `implementAfter` 管前链 / 后链） | `fn = int32_t(std::string_view input, std::string& out)` 或 `std::string(std::string_view input)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决。前链 / 后链**只收同步处理器**（登记时按返回类型自动判定） |
+| 裁决型能力 | `co_await implement(能力 id, priority, fn)`（`implementBefore` / `implementAfter` 管前链 / 后链） | `fn = int32_t(std::string_view input, std::string& out)` 或 `std::string(std::string_view input)`；`out` 写 `{"action":...,"patch":{...}}`，留空 = 不裁决。返回类型决定写法：普通函数当场给结论，`asio::awaitable<std::string>` 可以等 IO；前链 / 后链同样收两种 |
 | 收通知（切歌 / 播放状态 / 进度…） | `co_await subscribeBroadcast(频道, fn, optionsJson)` | 就是**广播频道**（`MUSICXX_BROADCAST_*`）；订阅是异步的，`co_await` 完成后拿到订阅句柄（由实例保活，不用自己记）；回调是普通函数，在插件执行线程上跑，要尽快返回 |
 | 注销能力 | `co_await unimplement(能力 id)` | 只注销默认 `owner_tag`；不调用也会在停用/卸载时被框架摘除 |
 | 带当前值的广播 | `co_await readBroadcast("musicxx.state.song")` 等 | 没有当前值时抛异常（原因 `no_value` / `not_declared`）；见 §5 |
@@ -678,7 +680,7 @@ const std::string downloaded = co_await netCall(
   （证书链与主机名校验默认开；参数 `tlsVerify` / `caFile` / `caPem` / `serverName`）。
   **服务端不做 TLS**（`http.serve` / `ws.listen` 只监听明文）。所有平台的插件框架都带 TLS：
   `netCall(net_op::info, ...)` 的 `tls` 恒为 `true`，不会出现没有 `https` / `wss` 的构建。
-- **不要在同步处理器 / 事件回调里直接联网**：`netCall` 是协程，没有阻塞版；
+- **不要在普通函数处理器 / 事件回调里直接联网**：`netCall` 是协程，没有阻塞版；
   在这类地方要么把活交给 `spawn(...)` 起的任务，要么写成协程处理器；
 - **事件回调在插件执行线程**（与能力处理器同一条线程），不能阻塞；
   要在这时调表（如 `httpRespond`）就 `ctx.spawn(...)` 起一条任务。
@@ -757,13 +759,14 @@ co_await implementBefore(MUSICXX_CAPABILITY_PLAYER_SEEK, 0, ...);
 - 前链（`before`）**正序**、只能改输入（`{"patch": {...}}`）或拦下（`{"action":"cancel"}`）；
 - 后链（`after`）**逆序**、只能改输出（`{"value": ...}`）或丢弃（`{"action":"drop"}`）。
   逆序是刻意的：外置插件最后改输出，应用自己的兜底实现不能盖掉插件的改写；
-- 阶段处理器**必须是同步处理器**（能力登记里的 `sync = 1`）：要拿到这一步的结果才能跑下一步；
+- 三个阶段的处理器写法一样（普通函数或协程）：框架按 (priority, 注册顺序) 依次跑，
+  上一步的结果就是下一步的输入；
 - 只能注册能力**声明过的**阶段：应用没声明的官方 id 会被拒（`-2`），声明里没有该阶段的也拒；
   拒绝原因会原样回来，SDK 同时记一条可读日志；
 - 一个 `ownerTag` 可以分别登记三个阶段（覆盖键含阶段）；`unimplement` 会把该 `ownerTag`
   在所有阶段的登记一起摘掉；
-- 低层写法：往能力表登记一条能力 —— `id` = 能力 id、`phase`、`priority`、`sync = 1`、
-  `run_start` 是同步处理器（`musicxx.capability.implement` 的 C++ 侧就是这个调用）。
+- 低层写法：往能力表登记一条能力 —— `id` = 能力 id、`phase`、`priority`，处理器只有
+  `run_start` 一种形态（`musicxx.capability.implement` 的 C++ 侧就是这个调用）。
 
 - 载荷字段与裁决语义见 [plugin-capabilities.md](plugin-capabilities.md) 的「载荷与回答（已接入的能力）」；
 - 载荷里没有直链，只有来源类型与稳定 key（`srcKey` 是音源身份的完整 md5）；
@@ -808,8 +811,8 @@ co_await featurePointUnprovide("plugin.my_plugin.beat"); // 摘除实现（一�
 const std::string points = co_await featurePointList();  // 有哪些功能埋点、谁在实现
 ```
 
-- **处理函数必须同步返回**：糖把处理函数包成同步处理器（`std::string(std::string_view)`），
-  这条通道是同步裁决型；协程处理器在这里拿不到结果。长任务要么提前算好，要么做成**能力**
+- **处理函数要当场给回答**：糖把处理函数包成普通函数处理器（`std::string(std::string_view)`），
+  这条通道是裁决型、回答随这次派发交回；协程处理器在这里编译不过。长任务要么提前算好，要么做成**能力**
   （`co_await capabilityCall`）或事件。
 - 返回 `utilxx_base::Json` / 字符串 / 数字 / 布尔；字符串先按 JSON 解析，解析不了就当 JSON 字符串
   （`hello` → `"hello"`）。**返回空串 = 这次不回答**；要回答"结果是空"就返回 `"null"`。
@@ -1036,19 +1039,19 @@ Android 见 §11。
 |---|---|
 | 管理页显示「动态库插件库文件缺失」 | `entry` 名字/位置不对（记住按 Linux 写法填 `<名字>.so`，扩展名插件框架会按平台修正） |
 | 「缺失/无效入口符号」 | 用了 `MUSICXX_PLUGIN_EXPORT` 之外的写法，或 `create`/`stop` 没导出；核对 §11 的导出面自查 |
-| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 9、JS 插件 3）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（9 / 3），声明更高不会被拒 |
+| 「API 版本过低」 | 清单 `api_version` 低于插件所属形态的兼容下限（动态库插件 10、JS 插件 3）；插件框架上报的 `apiVersion` 是该形态的**当前代次**（10 / 3），声明更高不会被拒 |
 | 扫描显示「当前平台不支持」 | `platforms` / `arch` 没写当前平台，或插件框架禁用了动态库插件 / 处于安全模式 |
 | 注册能力失败，原因 `not_found` | 能力 id 不在约定表里（拼错或用了没声明的能力）；用 `capability_ids.g.h` 里的常量，不要手写字符串 |
 | 注册 UI 项失败，原因 `permission_denied` | 项名 / 界面动作的命名空间不属于本插件 |
 | 处理器一直不触发 | 这条能力在 `plugin-capabilities.md` 里标「未接入」（主程序还没有接）；或插件被禁用 / 处理器没注册成功 |
 | 点入口提示「插件『<插件id>』没有提供『xxx』」 | 入口的 `action` 写错了能力名（页面应该是 `route` + 已注册的内容） |
 | 页面打开后提示「插件没有提供任何内容块」 | 能力返回的视图没有 `blocks`，或块类型名全部拼错（未识别的块会被忽略） |
-| 主程序界面卡住、日志最后一行动不了 | 同步处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。插件代码虽然在独立线程上，但会把调用它的那一次派发卡住：把耗时工作改成协程处理器或交给 `asyncOffload` |
+| 主程序界面卡住、日志最后一行动不了 | 处理器里做了阻塞操作（网络 / 大文件 / 同步等待）。插件代码虽然在独立线程上，但会把这条链与这个插件的其它调用一起卡住：把耗时工作改成协程处理器或交给 `asyncOffload` |
 | 插件加载后主程序启动异常 | 连续两次启动未完成会进入安全模式（不加载任何外部插件），这个状态跨启动保留，要在管理页关掉安全模式才会重新加载；先修好插件再关 |
 | 想知道现在装了什么、某个插件为什么没跑起来 | 命令行 / MCP 一条命令看完：`musicxx-cli plugin list`（每个插件的 `loaded` / `error`）与 `plugin logs <插件id>`，见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 主程序卡住、不知道卡在哪一次调用 | 看主程序日志目录下的 `host_call.log`：它用同步写记录“进入插件框架 / 返回”，卡住后最后一行就是没返回的那次调用（例如「能力派发开始: <id>」） |
 | 设置项改完重启又变回默认 | 把 `musicxx.storage.get` 的应答当成了对象外壳：**应答就是值本身**（见 [plugin-api.md](plugin-api.md) §3.2.5） |
-| 切歌 / 换背景样式卡几秒 | 同步处理器里做了阻塞等待（自建线程 `join`、同步文件 / 网络 IO）。同步处理器是就地调用的，卡多久就把这次派发推迟多久：把等待改成异步（协程处理器 + `co_await`） |
+| 切歌 / 换背景样式卡几秒 | 处理器里做了阻塞等待（自建线程 `join`、同步文件 / 网络 IO）。普通函数处理器是就地调用的，卡多久就把这次派发推迟多久：把等待改成协程（协程处理器 + `co_await`） |
 | 封面取色 / 频谱"凭空消失" | 有处理器返回了 `{"action":"cancel"}`（拦下这次调用）：用能力 `musicxx.feature.point.list` 看是谁拦的（[plugin-api.md](plugin-api.md) §8.5） |
 | 不知道某条能力的参数与返回 | 查 [plugin-api.md](plugin-api.md) §3（那一份是两种形态共用的能力清单）；没有列出的名字当前版本没实现 |
 

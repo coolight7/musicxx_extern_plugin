@@ -2,8 +2,8 @@
 
 ## 当前进度
 
-方案已确认（2026-11-25）。阶段 1-4（子模块、宿主派发、JS、C ABI）已改完并通过插件框架库构建；
-Dart 包（阶段 5）与主程序（阶段 6）进行中。
+方案已确认（2026-11-25）。阶段 1-8 已完成（子模块、宿主派发、JS、C ABI、Dart 包、主程序接入、
+原生与 Dart 测试、文档与版本号）；阶段 9（全量验证与基准）待做。
 
 按阶段推进，每完成一步在此记"改了哪些文件 + 怎么验证"。
 
@@ -18,10 +18,9 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 - [x] 阶段 4：C ABI 7（全部操作提交化，含发布 / 订阅 / 日志 / 回复 / 关机；删 `plugin_load_sync`）
 - [x] 阶段 5：Dart 包请求总线 + 全 `Future` + 本地缓存 + 去掉 `_async` 命名（`lib/` 分析 0 error / 0 warning）
 - [x] 阶段 6：主程序接入（Store / 内容传输 / 广播取值 / 能力调用）（`lib` 分析 0 error / 0 warning）
-- [ ] 阶段 7：示例插件、原生测试、Dart 测试改造
-      （示例插件已改完；原生测试 `test_host.cpp` 已改并通过（516 checks）；
-      包内 `test/` 已改并通过（67 项）；主程序 `test/` 待改）
-- [ ] 阶段 8：文档与版本号（C ABI 7 / 插件 ABI 10 / 框架 `2026.1125.1`）
+- [x] 阶段 7：示例插件、原生测试、Dart 测试改造
+      （原生 283 + 516 checks、包内 67 项、主程序 1786 项全过）
+- [x] 阶段 8：文档与版本号（C ABI 7 / 插件 ABI 10 / 框架 `2026.1125.1`）
 - [ ] 阶段 9：全量验证与基准
 
 ## 已确认的边界
@@ -212,17 +211,62 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 
 ## 未验证
 
-（实施后补：只做了构建、没有实跑的平台与场景。）
+（实施后补：只做了构建与单测、没有实跑的平台与场景。）
 
-- 阶段 9 未做：没跑主程序、没实跑插件（动态库 + JS）、没跑 Android / iOS / macOS / Linux 构建。
-- 主程序 `test/` 未改：`feature_provide_test` 里的 Dart 实现链、`broadcast_value_test` 的假 sink、
-  `cli_endpoint_test` 的广播回调、`extern_plugin_test` 的 `dispatchAsync` / `inspectPlugin` 形状。
-- 阶段 8 只做了版本号与 `CHANGELOG.md`；包内 `docs/**`（`plugin-api.md` / `plugin-native-api.md` /
-  `musicxx-interfaces.md` / `plugin-capabilities.md` 等）与主程序 `docs/architecture/08,09`、
-  `AGENTS.md` §7.6 里的旧写法（`plugin_load_sync` / `loadAsync` / `dispatchAsync` / `capabilities.on` /
-  同步处理器）还没改。
+- 阶段 9 未做：没跑主程序、没实跑插件（动态库 + JS）、没跑 Android / iOS / macOS / Linux 构建、
+  没跑 `benchmark/`，也没有对内嵌 `host_call.log` 之外的真实卡顿场景复测。
+- 动态库插件的"协程处理器里 `co_await capabilityCall`"只在原生测试里间接跑过（执行器与事件通路），
+  没在真实插件里跑过完整链路。
+- JS 插件只跑了包内用例（QuickJS 引擎），没在真实应用里加载过。
+- 只有 Windows x64 构建过；Linux / macOS / Android / iOS 的插件框架库没有重建。
 
-## 阶段 8（已做的部分）
+### 阶段 7 补充：主程序 `test/`（已完成）
+
+- `feature_provide_test`：原来靠 `capabilities.on/off` 在单测里跑 Dart 实现链，这条链已删。
+  新增 `_FakeCapabilities extends MusicxxPluginCapabilities`（`on` / `off` / `active` / `hasHandlers` /
+  `nativeHandlerCount` / `dispatch`），handler 形参改成 `Map<String, Object?>? Function(Map<String, Object?> input)`，
+  用例只验最终裁决（合并规则在 C++ 里）。
+- `broadcast_value_test`：假 sink 的 `publish` / `list` / `read` 改成 `Future`；`host.list()` / `read()` /
+  `debugInfo()` / `debugText()` 补 `await`；`ExternBroadcastHost_c.publish` 对出口的**异步失败**补一条日志
+  （以前是 `.ignore()`，失败无声），同步抛仍然当场返回 `false`。
+- `cli_endpoint_test` / `mpv_control_test`：广播回调改成 `async`。
+- `extern_plugin_test`：`ExternPluginArchive.extract` 的 `inspectPlugin` 回调改成 `Future`（本地 helper 仍收
+  同步假值、内部包一层）；`dispatchAsync` → `dispatch`；快速路径基准改成和"空 `await`"比（`dispatch` 是
+  `Future`，循环里每次 `await` 本身就占 3 µs 上下，`publish` 仍是 0.03 µs）。
+
+**验证**：`flutter test test/main_test.dart --no-pub` → 1786 项全过；
+`flutter analyze --no-pub --no-fatal-infos lib test` → 0 error / 0 warning。
+
+### 阶段 8：文档同步（已完成）
+
+包内 `docs/`：
+
+- `plugin-native-api.md`：删掉"同步处理器 / `sync = 1` / 前链后链只收同步处理器"；改成"普通函数与协程两种
+  写法、任何阶段都收"；排障表两条改成叙述处理器阻塞的后果；`api_version` 与接口代次 `9 → 10`。
+- `plugin-api.md`：派发方式一句改成"只有提交 + 结果事件"；`musicxx.capability.decision.result` 从"内部事件"
+  清单删掉（裁决结果就是这次请求的返回值）；`await dispatchAsync` → `dispatch`。
+- `plugin-guide.md` / `plugin-js-api.md`：前链 / 后链"必须同步处理器"改成"两种写法都收"；
+  `decision.result` 从内部事件清单删掉。
+- `tools/gen_capabilities.dart`：生成文档里 `dispatch` 字段的说明改成"现在全是 async"；
+  `tools/capabilities.def.json` 剩下两条 `"dispatch": "sync"`（`musicxx.ui.slot.info` / `.vars`）改 async；
+  重新生成 `plugin-capabilities.md` / `capability_ids.g.dart` / `capability_ids.g.h`。
+- `version-history.md`：插件 ABI `9 → 10`、C ABI `6 → 7`、native 接口代次对 `9/9 → 10/10`，
+  并加一行 `2026.1125.1`（提交号待补记）。
+
+主程序 `docs/`：
+
+- `docs/architecture/08-extern-plugin.md`：线程一段改成"只有提交与事件两种交互"；能力派发一段删掉
+  `sync` / `dispatchAsync` / `callId` / `decision.result`，改成 `requestId` + `musicxx.request.result`；
+  第 10 条重写成"每个操作只有一种形状：提交 + 结果事件"（受理语义、确认事件、同步入口只剩哪些、
+  `host.shutdown` 收尾、纯注册表读也走提交 + 本地缓存）；两条踩坑记录标注"全异步化后不会再互锁"。
+- `docs/architecture/09-extern-plugin-integration.md`：`await dispatchAsync` → `dispatch`；
+  "回执只服务异步裁决的 callId"与"接入的能力一律走异步派发（sync 的能力没接入）"改成现在的说法。
+- `AGENTS.md` §7.6：`await dispatchAsync` → `await dispatch`；C ABI `6 → 7`、native 接口代次 `8/8 → 10/10`。
+
+**验证**：`fvm dart run tools/gen_contract.dart --check` → 一致；`fvm flutter analyze --no-pub lib test` → 无问题；
+`fvm flutter test --no-pub` → 67 项全过。
+
+### 阶段 8 的版本号部分（先做的部分）
 
 - `lib/src/version.dart`：`2026.1124.1` → `2026.1125.1`（日期 `2026-11-25`）；`pubspec.yaml` 同步；
   `src/include/musicxx_extern_plugin_api.h` 的 `MUSICXX_EXTERN_PLUGIN_API_VERSION` 早已是 7、版本串已是

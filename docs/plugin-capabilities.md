@@ -11,7 +11,7 @@
 | `impls` | `one` = 一个槽位（后登记的覆盖先登记的，跨插件也覆盖）；`many` = 多实现共存，按 (层, priority, 登记顺序) 组成链 |
 | `merge` | 多实现的结果怎么合并：`first` = 第一个合法结果生效；`veto` = 任一实现能否决 |
 | `phases` | 能参与哪些阶段：`before`（正序改输入）/ `impl`（给结果）/ `after`（逆序改输出）。**不含 `impl` = 实现固定由应用提供，插件只能注册 `before` / `after`** |
-| `dispatch` | `sync` = 调用方等结果（插件侧只能同步处理器）；`async` = 不占用调用线程 |
+| `dispatch` | 派发方式。**现在全是 `async`**：请求提交后由结果事件回话，处理器在插件自己的线程上跑，不占用调用线程 |
 | `timeoutMs` | 等实现的上限，超时按"没给"处理；`0` = 不设上限 |
 | `cache` | `byIdentity` = 同一个请求身份不重复算；`none` = 每次都问实现 |
 | `cli` | 命令面能调（命令行 / `/cli` / 链接）。块内可写 `title`（命令标题）、`consent`（从链接调时先问用户的原因） |
@@ -115,8 +115,8 @@
 | `musicxx.ui.slot.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.current` | 命令、插件 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.slot.set` | 命令、插件 | before / impl / after | - | async | 5000 ms | - | - |
-| `musicxx.ui.slot.info` | 命令、插件 | impl | - | sync | - | - | - |
-| `musicxx.ui.slot.vars` | 命令、插件 | impl | - | sync | - | - | - |
+| `musicxx.ui.slot.info` | 命令、插件 | impl | - | async | - | - | - |
+| `musicxx.ui.slot.vars` | 命令、插件 | impl | - | async | - | - | - |
 | `musicxx.ui.slot.update` | 命令 | impl | - | async | 5000 ms | - | - |
 | `musicxx.ui.playing.foreground.set` | 命令、插件 | before / impl / after | - | async | 5000 ms | - | - |
 | `musicxx.player.audioEffect.list` | 命令、插件 | impl | - | async | 5000 ms | - | - |
