@@ -782,6 +782,39 @@ int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_plugin_feature_bits(void) {
 }
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_broadcast_publish(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *topic,
+    const MusicxxExternPluginStringView *payload_json, int64_t *out_request_id,
+    MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !topic || !out_request_id) {
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  (void)log;
+  auto mgr = handle->manager;
+  std::string topicText = viewToStd(topic);
+  std::string payload = viewToStd(payload_json);
+  if (payload.empty()) {
+    payload = "{}";
+  }
+  /// 发布到**广播注册表** (插件订阅者); 主题命名空间校验在框架内完成.
+  /// 注意与 `musicxx.host.*` / `musicxx.plugin.*` 事件区分: 那些是插件框架 → Dart
+  /// 的事件队列.
+  return mgr->submitOnHostThread(
+      "broadcast.publish",
+      [mgr, topicText = std::move(topicText),
+       payload = std::move(payload)]() -> RequestOutcome {
+        const int32_t rc = mgr->broadcastPublish(topicText, payload);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(
+              rc, "broadcast_publish: 主题必须是 musicxx.* 或 plugin.<pluginId>.*");
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
+}
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 musicxx_extern_plugin_broadcast_read(MusicxxExternPluginHost *h,
                                      const MusicxxExternPluginStringView *id,
                                      int64_t *out_request_id,

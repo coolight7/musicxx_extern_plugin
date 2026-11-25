@@ -43,16 +43,14 @@ abstract final class MusicxxPluginEventType {
   /// 广播派发的调试回传（受调试开关控制，默认只在 debug 构建回传）
   static const String capabilityObserve = 'musicxx.capability.observe';
 
-  /// 异步派发完成
-  static const String capabilityDecisionResult =
-      'musicxx.capability.decision.result';
-
-  /// 插件能力调用的结果（受理是异步的：Dart 侧按 `requestId` 回填等待中的 `Future`）
+  /// 一次提交的结果（**唯一的完成通道**）
   ///
-  /// 载荷 `{requestId, id, method, ok, result|error, ms}`。
-  /// **受理成功 ⇒ 一定有终局**：结果、执行失败、插件卸载（`plugin_unloaded`）、
-  /// 插件框架停机（`host_stopped`）四条路都会推一条；受理失败只在返回码上体现，不推事件。
-  static const String pluginCallResult = 'musicxx.plugin.call.result';
+  /// 载荷 `{requestId, op, ok, data?, error?}`：
+  /// - `ok` 为真时 `data` 是这次操作的数据（没有数据的操作是 `null`）；
+  /// - `ok` 为假时 `error = {code, reason, message}`；
+  /// - 受理成功的一定有终局：正常结果、执行失败、插件卸载（`plugin_unloaded`）、
+  ///   插件框架停机（`host_stopped`）四条路都会推一条；受理失败只在返回码上体现。
+  static const String requestResult = 'musicxx.request.result';
 
   /// 插件调用应用实现的能力（Dart 侧执行后必须回执）
   static const String appCapabilityRequest = 'musicxx.capability.app.request';

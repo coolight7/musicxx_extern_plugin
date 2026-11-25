@@ -3,18 +3,19 @@
 /// 主程序只需要接触这一层：
 /// ```dart
 /// final runtime = MusicxxPluginRuntime.instance;
-/// runtime.init(config: MusicxxPluginRuntimeConfig(appVersion: '0.87.0',
+/// await runtime.init(config: MusicxxPluginRuntimeConfig(appVersion: '0.87.0',
 ///     platform: MusicxxPluginRuntime.currentPlatform, userPluginDir: ...));
 /// runtime.events.listen((e) => ...);
-/// final found = runtime.plugins.scan();
-/// runtime.plugins.load('example_native');
-/// final verdict = runtime.capabilities.dispatch(MusicxxCapabilityId.playerBeforePlaySong, payload);
-/// runtime.dispose();
+/// final found = await runtime.plugins.scan();
+/// await runtime.plugins.load('example_native');
+/// final verdict = await runtime.capabilities.dispatch(
+///     MusicxxCapabilityId.playerBeforePlaySong, payload);
+/// await runtime.dispose();
 /// ```
 ///
-/// 线程与 isolate 约束：动态库插件代码一律在原生插件框架线程执行；
-/// Dart 处理器与事件泵必须在 **UI isolate**；阻塞式 API（同步加载/能力调用）在
-/// UI isolate 调用时是"有界等待"（不发起长任务）。
+/// 线程与 isolate 约束：动态库插件代码一律在原生插件框架线程执行，JS 插件在 JS 线程；
+/// Dart 处理器与事件泵必须在 **UI isolate**。所有入口都是提交式的（返回 `Future`），
+/// 不在 Dart 线程上等原生 **。
 library;
 
 export 'src/app_capabilities.dart';
@@ -31,9 +32,7 @@ export 'src/events.dart';
 export 'src/capabilities.dart'
     show
         MusicxxPluginCapabilities,
-        MusicxxPluginCapabilityContext,
         MusicxxPluginHandlerInfo,
-        MusicxxPluginImplementation,
         MusicxxPluginThrottle;
 export 'src/manager.dart' show MusicxxPluginManager;
 export 'src/native_library.dart'

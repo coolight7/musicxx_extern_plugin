@@ -12,6 +12,7 @@ import 'capabilities.dart';
 import 'manager.dart';
 import 'native_library.dart';
 import 'native_strings.dart';
+import 'requests.dart';
 
 /// 插件框架配置（对应 C ABI `MusicxxExternPluginHostConfig`）
 class MusicxxPluginRuntimeConfig {
@@ -176,6 +177,11 @@ class MusicxxPluginRuntime {
   late final MusicxxPluginBroadcasts broadcasts =
       MusicxxPluginBroadcasts.internal(this);
 
+  /// 请求总线：一次提交换一条结果（事件 `musicxx.request.result`）
+  late final MusicxxPluginRequests requests = MusicxxPluginRequests.internal(
+    this,
+  );
+
   /// 原生 → Dart 唤醒回调
   ///
   /// 说明：`NativeCallable.listener` 只支持 void 返回，而 C ABI 的回调签名是
@@ -192,8 +198,14 @@ class MusicxxPluginRuntime {
   /// 事件流（插件框架事件按序推送；未知类型同样转发，见 [MusicxxPluginEventType]）
   Stream<MusicxxPluginEvent> get events => _events.stream;
 
-  /// 是否已启动（`host_start` 成功）
+  /// 是否已启动（`host_start` 的结果回来了）
   bool get isRunning => _running;
+
+  /// 是否已创建宿主（`host_create` 成功、还没 `host_destroy`）
+  ///
+  /// 提交式入口按它判能不能受理：`host.start` / `host.shutdown` 本身就要在
+  /// "还没 running / 还在 running" 的时候发出去。
+  bool get hasHost => _host != nullptr;
 
   /// 原生库是否已加载
   bool get isLoaded => _library != null;
@@ -249,13 +261,13 @@ class MusicxxPluginRuntime {
 
   /// 初始化插件框架（幂等：重复调用直接返回）
   ///
-  /// 步骤：加载原生库 → 校验 C ABI 版本 → `host_create` → 注册唤醒回调 →
-  /// `host_start` → 启动事件泵与 200 ms 定时轮询。
-  void init({
+  /// 步骤：加载原生库 → 校验 C ABI 版本 → `host_create` → 注册唤醒回调 → 启动事件泵
+  /// → 提交 `host.start` 并等它的结果 → 启动 200 ms 定时轮询。
+  Future<void> init({
     required MusicxxPluginRuntimeConfig config,
     String? libraryPath,
     String? packageRoot,
-  }) {
+  }) async {
     if (_running) {
       return;
     }
@@ -297,17 +309,6 @@ class MusicxxPluginRuntime {
             operation: 'host_create',
           );
         }
-        try {
-          _check(
-            bindings.musicxx_extern_plugin_host_start(_host, log),
-            log,
-            'host_start',
-          );
-        } on MusicxxPluginApiException {
-          bindings.musicxx_extern_plugin_host_destroy(_host);
-          _host = nullptr;
-          rethrow;
-        }
       } finally {
         arena.dispose();
       }
@@ -339,43 +340,83 @@ class MusicxxPluginRuntime {
     }
     _pollFallback = Timer.periodic(const Duration(milliseconds: 200), (_) {
       // 唤醒回调可用时事件由原生侧主动推过来，这个定时器只是兜底：只有"有东西在等
-      // 结果"（异步裁决、能力调用的回复）时才需要它；没有未决请求时不排帧、不做 FFI。
+      // 结果"（提交后等结果的请求、插件能力的回复）时才需要它；没有未决请求时不排帧、不做 FFI。
       // 唤醒回调没注册成功时必须每轮都取，否则事件永远拿不到。
       if (false == _shouldPollFallback()) {
         return;
       }
       pumpEvents();
     });
+    // 先开事件泵：`host.start` 的结果要经事件回来
+    pumpEvents();
+    final MusicxxPluginRequestResult started = await requests.submit(
+      'host.start',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => bindings.musicxx_extern_plugin_host_start(_host, outId, log),
+    );
+    if (!started.ok) {
+      _pollFallback?.cancel();
+      _pollFallback = null;
+      _wakeCallable?.close();
+      _wakeCallable = null;
+      bindings.musicxx_extern_plugin_host_destroy(_host);
+      _host = nullptr;
+      throw MusicxxPluginApiException(
+        started.error?.code ?? MusicxxPluginResultCode_c.internal,
+        started.error?.message ?? 'host_start 失败',
+        operation: 'host_start',
+      );
+    }
     _running = true;
-    // 首轮立刻取一次（host.ready 已在队列里）
+    // 首轮事件（host.ready 已在队列里）
     pumpEvents();
   }
 
   /// 停止插件框架并释放原生资源（幂等）
   ///
+  /// 先等 `host.shutdown` 的结果（它要等框架线程与插件线程都停好），再释放句柄；
   /// 收尾后本实例**不能再次 [init]**（见类注释）：要重新启动请 `create()` 一个新实例。
-  void dispose() {
+  Future<void> dispose() async {
     if (_disposed) {
       return;
     }
     _disposed = true;
-    _pollFallback?.cancel();
-    _pollFallback = null;
-    _running = false;
     final MusicxxPluginNativeLibrary? library = _library;
     if (library != null && _host != nullptr) {
+      // 结果事件还在路上：先等它（有上限），再放句柄
+      await requests.submit(
+        'host.shutdown',
+        (
+          MusicxxPluginArena arena,
+          Pointer<Int64> outId,
+          Pointer<MusicxxExternPluginString> log,
+        ) => library.bindings.musicxx_extern_plugin_host_shutdown(
+          _host,
+          outId,
+          log,
+        ),
+        timeout: const Duration(seconds: 12),
+      );
+      // 结果的载荷不关心，剩下的请求由 shutdown 统一按 host_stopped 收尾
+      requests.handleDisposed();
+      pumpEvents();
       final MusicxxPluginArena arena = MusicxxPluginArena();
       try {
-        final Pointer<MusicxxExternPluginString> log = arena.outString();
-        library.bindings.musicxx_extern_plugin_host_stop(_host, 5000, log);
         library.bindings.musicxx_extern_plugin_host_destroy(_host);
       } finally {
         arena.dispose();
       }
       _host = nullptr;
     }
+    _pollFallback?.cancel();
+    _pollFallback = null;
+    _running = false;
     _wakeCallable?.close();
     _wakeCallable = null;
+    requests.handleDisposed();
     if (!_events.isClosed) {
       _events.close();
     }
@@ -427,22 +468,6 @@ class MusicxxPluginRuntime {
     }
   }
 
-  /// 运行一次原生调用：构造 arena → 读错误串 → 释放 → 失败时抛异常
-  T _call<T>(
-    String operation,
-    T Function(MusicxxPluginArena arena, Pointer<MusicxxExternPluginString> log)
-    body,
-  ) {
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final T result = body(arena, log);
-      return result;
-    } finally {
-      arena.dispose();
-    }
-  }
-
   /// 校验返回码；失败时读取 `log` 出参作为原因
   void _check(
     int rc,
@@ -478,17 +503,19 @@ class MusicxxPluginRuntime {
     });
   }
 
-  /// 现在有没有"等插件框架答复"的东西（异步派发的结果、能力调用的回复）
+  /// 现在有没有"等插件框架答复"的东西（提交后等结果的请求、应用能力的回复）
   ///
   /// 只有等结果时才需要兜底轮询：结果就是经事件回传的，没人等的时候事件会由唤醒
   /// 回调即时送达（或等下一次真正的调用再取）。
   bool get hasPendingWork =>
-      capabilities.pendingAsyncDispatches > 0 ||
-      appCapabilities.pendingResponses > 0;
+      requests.pendingCount > 0 || appCapabilities.pendingResponses > 0;
 
   /// 兜底轮询这一轮要不要跑（见 `init` 里对定时器的说明）
+  ///
+  /// 判据是"宿主在不在"而不是"启动完没有"：`host.start` / `host.shutdown` 的结果
+  /// 也要经事件回来。
   bool _shouldPollFallback() {
-    if (!_running || _host == nullptr) {
+    if (_host == nullptr) {
       return false;
     }
     if (null == _wakeCallable) {
@@ -560,19 +587,18 @@ class MusicxxPluginRuntime {
       _eventLog.removeRange(0, _eventLog.length - 512);
     }
 
-    // 内部订阅者（插件框架维护的位图 / 能力分发）先处理，异常隔离后继续广播
+    // 内部订阅者（插件框架维护的位图 / 请求结果）先处理，异常隔离后继续广播
     try {
       switch (event.type) {
+        case MusicxxPluginEventType.requestResult:
+          requests.handleResultEvent(event);
         case MusicxxPluginEventType.capabilityChanged:
           capabilities.handleCapabilityChangedEvent(event);
-        case MusicxxPluginEventType.capabilityDecisionResult:
-          capabilities.handleDecisionResultEvent(event);
-        case MusicxxPluginEventType.pluginCallResult:
-          plugins.handleCallResultEvent(event);
         case MusicxxPluginEventType.pluginLoaded:
         case MusicxxPluginEventType.pluginEnabled:
         case MusicxxPluginEventType.pluginDisabled:
         case MusicxxPluginEventType.pluginUnloaded:
+        case MusicxxPluginEventType.pluginError:
           plugins.handleLifecycleEvent(event);
           capabilities.handlePluginLifecycleEvent(event);
         case MusicxxPluginEventType.appCapabilityRequest:
@@ -604,38 +630,42 @@ class MusicxxPluginRuntime {
   ) => _check(rc, log, operation);
 
   /// 写 Dart → 原生日志（统一写入磁盘/转发策略由原生侧配置）
-  void log(int level, String message) {
+  ///
+  /// 回一条确认，不关心就 `.ignore()`。
+  Future<void> log(int level, String message) async {
     if (_host == nullptr) {
       return;
     }
-    _call<int>('log', (
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> logOut,
-    ) {
-      bindings.musicxx_extern_plugin_log(
+    await requests.submit(
+      'log',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> logOut,
+      ) => bindings.musicxx_extern_plugin_log(
         _host,
         level,
         arena.view(message),
+        outId,
         logOut,
-      );
-      return 0;
-    });
+      ),
+    );
   }
 
   /// 调试信息（版本/平台/目录/加载计数；支持页复制用）
-  Map<String, Object?> debugInfo() {
+  Future<Map<String, Object?>> debugInfo() async {
     if (_host == nullptr) {
       return const <String, Object?>{};
     }
-    return _call<Map<String, Object?>>('debug_info', (arena, log) {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      _check(
-        bindings.musicxx_extern_plugin_debug_info(_host, out, log),
-        log,
-        'debug_info',
-      );
-      return decodeJsonObject(takeOutString(out, bindings));
-    });
+    final MusicxxPluginRequestResult result = await requests.submit(
+      'debug.info',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => bindings.musicxx_extern_plugin_debug_info(_host, outId, log),
+    );
+    return result.dataObject;
   }
 
   /// 解析平台标识（与插件框架 `platform` 字段取值一致）

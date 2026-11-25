@@ -7,21 +7,17 @@ import 'events.dart';
 import 'native_strings.dart';
 import 'plugin_info.dart';
 import 'plugin_inspect.dart';
-import 'ui.dart';
+import 'requests.dart';
 import 'runtime.dart';
-
-/// 原生调用出参读取器（统一的 arena/错误串/JSON 处理）
-typedef _OutCall =
-    int Function(
-      MusicxxExternPluginBindings bindings,
-      Pointer<MusicxxExternPluginString> out,
-      Pointer<MusicxxExternPluginString> log,
-    );
+import 'ui.dart';
 
 /// 插件管理（Dart → 原生插件框架的插件生命周期与查询）
 ///
-/// 全部方法都是**同步 FFI 调用**（有等待上界）：加载/卸载在插件框架线程异步完成，
-/// 这里只做有界等待；耗时的准备工作（例如解压安装包）由调用方放到单独的 isolate 里完成。
+/// 全部方法都是**提交式**的：受理时只交换 `requestId`，结果经事件
+/// `musicxx.request.result` 回到这里。调用方拿到的是 `Future`，要不要等由调用点决定
+/// （命令行与自省里大量"发出去就行"的操作可以 `.ignore()`）。
+///
+/// 失败一律抛 [MusicxxPluginApiException]（`ok == false` 时），方便业务 `try/catch`。
 class MusicxxPluginManager {
   MusicxxPluginManager.internal(this._runtime);
 
@@ -34,26 +30,14 @@ class MusicxxPluginManager {
   /// 最近一次扫描结果
   List<MusicxxPluginInfo> _scanned = const <MusicxxPluginInfo>[];
 
-  /// 等待结果的异步能力调用（`requestId` → 完成器）
-  ///
-  /// 受理成功 ⇒ 一定有终局：正常结果、执行失败、插件卸载、插件框架停机四条路都会把它清掉；
-  /// 调用方自己的超时也会清（晚到的结果按"已经有终局了"丢弃并记日志）。
-  final Map<int, Completer<Object?>> _pendingCalls =
-      <int, Completer<Object?>>{};
-
-  /// 插件框架库有没有 `plugin_call_async` 符号（探测一次就够；false = 库太旧）
-  bool? _asyncCallAvailable;
-
-  /// 插件框架库是否支持异步能力调用（false = 库太旧，能力调用会直接失败）
-  bool get supportsAsyncCall => _asyncCallAvailable ?? true;
-
-  /// 现在有多少次能力调用还在等结果（调试页/自省用）
-  int get pendingCallCount => _pendingCalls.length;
+  /// 生命周期事件触发的刷新：一次在途 + 结束后补跑一次（事件风暴时不排长队）
+  bool _refreshRunning = false;
+  bool _refreshQueued = false;
 
   /// 是否处于安全模式（本次运行不加载外部插件）
   bool get safeMode => _runtime.config?.safeMode ?? false;
 
-  /// 已加载插件（缓存快照；权威结果请调用 [list]）
+  /// 已加载插件（缓存快照；权威结果请 `await` [list]）
   List<MusicxxPluginInfo> get loaded =>
       List<MusicxxPluginInfo>.unmodifiable(_cache);
 
@@ -64,20 +48,26 @@ class MusicxxPluginManager {
   /// 扫描插件目录（用户目录 + 随包目录）
   ///
   /// 返回全部发现的清单（含 `valid/supported/reason`，管理页据此标注"为什么不能用"）。
-  List<MusicxxPluginInfo> scan() {
+  Future<List<MusicxxPluginInfo>> scan() async {
     if (!_runtime.isRunning) {
       return const <MusicxxPluginInfo>[];
     }
-    final List<MusicxxPluginInfo> result = _readList(
-      'plugin_scan',
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.scan',
       (
-        MusicxxExternPluginBindings b,
-        Pointer<MusicxxExternPluginString> out,
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
         Pointer<MusicxxExternPluginString> log,
-      ) => b.musicxx_extern_plugin_plugin_scan(_runtime.host, out, log),
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_scan(
+        _runtime.host,
+        outId,
+        log,
+      ),
     );
-    _scanned = result;
-    return result;
+    _throwIfFailed(result, 'plugin_scan');
+    final List<MusicxxPluginInfo> list = _parsePluginList(result.data);
+    _scanned = list;
+    return list;
   }
 
   /// 检查一个插件目录（**只读**，不加载、不改动任何状态）
@@ -93,223 +83,222 @@ class MusicxxPluginManager {
   /// - 形态（`kind`）的事实也在这里：`kindKnown` / `kindRequiresPluginAbi` /
   ///   `kindProviderId` / `kindValidateCapability`。装之前要不要拦 `api_version`、
   ///   要不要再请运行器校验一遍，都按这几项来判断（不要在调用方写形态名分支）。
-  MusicxxPluginInspect_c inspect(
+  Future<MusicxxPluginInspect_c> inspect(
     String dir, {
     String os = '',
     String arch = '',
-  }) {
+  }) async {
     _requireRunning('plugin_inspect');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_inspect(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.inspect',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_inspect(
         _runtime.host,
         arena.view(dir),
         arena.view(os),
         arena.view(arch),
-        out,
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_inspect');
-      return MusicxxPluginInspect_c.fromJson(
-        decodeJsonObject(takeOutString(out, _runtime.bindings)),
-      );
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'plugin_inspect');
+    return MusicxxPluginInspect_c.fromJson(result.dataObject);
   }
 
   /// 当前已加载插件状态快照
-  List<MusicxxPluginInfo> list() {
+  Future<List<MusicxxPluginInfo>> list() async {
     if (!_runtime.isRunning) {
       return const <MusicxxPluginInfo>[];
     }
-    final List<MusicxxPluginInfo> result = _readList(
-      'plugin_list',
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.list',
       (
-        MusicxxExternPluginBindings b,
-        Pointer<MusicxxExternPluginString> out,
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
         Pointer<MusicxxExternPluginString> log,
-      ) => b.musicxx_extern_plugin_plugin_list(_runtime.host, out, log),
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_list(
+        _runtime.host,
+        outId,
+        log,
+      ),
     );
-    _cache = result;
+    _throwIfFailed(result, 'plugin_list');
+    final List<MusicxxPluginInfo> list = _parsePluginList(result.data);
+    _cache = list;
     _byId
       ..clear()
       ..addEntries(
-        result.map(
+        list.map(
           (MusicxxPluginInfo info) =>
               MapEntry<String, MusicxxPluginInfo>(info.id, info),
         ),
       );
-    return result;
+    return list;
   }
 
   /// 按 id 查已加载插件（缓存）
   MusicxxPluginInfo? findLoaded(String id) => _byId[id];
 
-  /// 加载插件（同步等待，带超时）
+  /// 加载插件（等这次加载事务真的走完）
   ///
   /// - [idOrPath] 传插件 id（扫描结果的 `id`）或插件目录/库文件路径；
   /// - [args] 作为插件参数下发（插件经 `<应用名>.config` 表的 `get_plugin_args` 读取）；
-  /// - 结果事件：`musicxx.plugin.loaded` / `musicxx.plugin.error`。
-  void load(
-    String idOrPath, {
-    Map<String, Object?>? args,
-    Duration timeout = const Duration(seconds: 10),
-  }) {
-    _requireRunning('plugin_load_sync');
-    final String options = _optionsJson(args);
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_load_sync(
-        _runtime.host,
-        arena.view(idOrPath),
-        arena.view(options),
-        timeout.inMilliseconds,
-        log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_load_sync');
-    });
-    list();
-  }
-
-  /// 异步加载（结果只经事件回报；适合批量启动时避免逐个等待）
-  void loadAsync(String idOrPath, {Map<String, Object?>? args}) {
+  /// - 领域事件 `musicxx.plugin.loaded` / `musicxx.plugin.error` 照发；这里的结果是
+  ///   **权威完成信号**（事务失败会抛异常）。
+  Future<void> load(String idOrPath, {Map<String, Object?>? args}) async {
     _requireRunning('plugin_load');
     final String options = _optionsJson(args);
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_load(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.load',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_load(
         _runtime.host,
         arena.view(idOrPath),
         arena.view(options),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_load');
-    });
+      ),
+    );
+    _throwIfFailed(result, 'plugin_load');
+    await list();
   }
 
   /// 启用插件（重新执行插件 `start` 事务，插件借此重新注册能力 / 订阅）
-  void enable(String id) {
+  Future<void> enable(String id) async {
     _requireRunning('plugin_enable');
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_enable(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.enable',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_enable(
         _runtime.host,
         arena.view(id),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_enable');
-    });
-    list();
+      ),
+    );
+    _throwIfFailed(result, 'plugin_enable');
+    await list();
   }
 
   /// 禁用插件（摘除注册并调用插件 `stop`；实例保留在内存，可再 [enable]）
-  void disable(String id) {
+  Future<void> disable(String id) async {
     _requireRunning('plugin_disable');
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_disable(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.disable',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_disable(
         _runtime.host,
         arena.view(id),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_disable');
-    });
-    list();
+      ),
+    );
+    _throwIfFailed(result, 'plugin_disable');
+    await list();
   }
 
   /// 卸载插件（释放实例与动态库；插件框架侧卸载是幂等的）
-  void unload(String id) {
+  Future<void> unload(String id) async {
     _requireRunning('plugin_unload');
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_unload(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.unload',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_unload(
         _runtime.host,
         arena.view(id),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_unload');
-    });
-    list();
+      ),
+    );
+    _throwIfFailed(result, 'plugin_unload');
+    await list();
   }
 
   /// 卸载后按当前配置重新加载
-  void reload(String id) {
+  Future<void> reload(String id) async {
     _requireRunning('plugin_reload');
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_reload(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.reload',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_reload(
         _runtime.host,
         arena.view(id),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_reload');
-    });
-    list();
+      ),
+    );
+    _throwIfFailed(result, 'plugin_reload');
+    await list();
   }
 
-  /// 更新插件参数（下次 `reload` 生效；由调用方决定何时重载）
-  void setArgs(String id, Map<String, Object?> args) {
+  /// 更新插件参数（下次 [reload] 生效；由调用方决定何时重载）
+  Future<void> setArgs(String id, Map<String, Object?> args) async {
     _requireRunning('plugin_set_args');
     final String json = _optionsJson(args);
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_plugin_set_args(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.setArgs',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_set_args(
         _runtime.host,
         arena.view(id),
         arena.view(json),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'plugin_set_args');
-    });
+      ),
+    );
+    _throwIfFailed(result, 'plugin_set_args');
   }
 
   /// 插件配置文件路径（管理页/插件自读配置用）
-  String configPath(String id) {
+  Future<String> configPath(String id) async {
     _requireRunning('plugin_get_config_path');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_plugin_get_config_path(
-            _runtime.host,
-            arena.view(id),
-            out,
-            log,
-          );
-      _runtime.checkOrThrow(rc, log, 'plugin_get_config_path');
-      return takeOutString(out, _runtime.bindings);
-    } finally {
-      arena.dispose();
-    }
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.configPath',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_get_config_path(
+        _runtime.host,
+        arena.view(id),
+        outId,
+        log,
+      ),
+    );
+    _throwIfFailed(result, 'plugin_get_config_path');
+    final Object? data = result.data;
+    return data is String ? data : '';
   }
 
-  /// 调用插件能力（Dart → 插件）：**异步，不占调用线程**
+  /// 调用插件能力（Dart → 插件）
   ///
   /// - native/JS 插件统一用 `plugin.<插件id>.<能力名>`（短名由插件框架补齐；
   ///   能力必须在插件 `start` 事务里声明，归属校验由插件框架完成）；
   /// - 受理成功 ⇒ 一定有终局：结果、执行失败、插件卸载（`plugin_unloaded`）、
   ///   插件框架停机（`host_stopped`）都会给这个 `Future` 一个交代，不会悬挂；
   /// - [timeout] 只是"调用方不再等了"：到点抛出超时错误，晚到的结果**丢弃**并记一条日志
-  ///   （不是取消，目标插件照它自己的节奏跑完）；`null` = 不设（一直等到插件框架给出终局）；
-  /// - 插件框架库没有 `plugin_call_async` 符号 → 立即失败（"插件框架库太旧"），**不退回同步**；
+  ///   （不是取消，目标插件照它自己的节奏跑完）；`null` = 一直等到插件框架给出终局；
   /// - 结果形态与插件给的 JSON 一致（对象按 Map 解码，其余按值）。
   Future<Object?> call(
     String id,
@@ -318,248 +307,184 @@ class MusicxxPluginManager {
     Duration? timeout = const Duration(seconds: 30),
   ]) async {
     _requireRunning('plugin_call');
-    if (false == _asyncCallAvailable) {
-      throw MusicxxPluginApiException(
-        -2,
-        '插件框架库太旧，没有 plugin_call_async（请重新构建插件框架库：tools/build_native.ps1）',
-        operation: 'plugin_call',
-      );
-    }
-    int requestId = 0;
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final Pointer<Int64> outRequestId = arena.mallocInt64();
-      final int rc;
-      try {
-        rc = _runtime.bindings.musicxx_extern_plugin_plugin_call_async(
-          _runtime.host,
-          arena.view(id),
-          arena.view(method),
-          arena.view(_optionsJson(args)),
-          outRequestId,
-          log,
-        );
-      } catch (error) {
-        // 旧插件框架库没有这个符号：探测一次就够，之后一律按"库太旧"处理
-        _asyncCallAvailable = false;
-        throw MusicxxPluginApiException(
-          -2,
-          '插件框架库太旧，没有 plugin_call_async（请重新构建插件框架库：tools/build_native.ps1）',
-          operation: 'plugin_call',
-        );
-      }
-      _asyncCallAvailable = true;
-      _runtime.checkOrThrow(rc, log, 'plugin_call');
-      requestId = outRequestId.value;
-    } finally {
-      arena.dispose();
-    }
-    if (requestId <= 0) {
-      throw MusicxxPluginApiException(
-        -2,
-        '插件框架没有给出 requestId（无法配对结果）',
-        operation: 'plugin_call',
-      );
-    }
-
-    final Completer<Object?> completer = Completer<Object?>();
-    _pendingCalls[requestId] = completer;
-    Timer? timer;
-    if (null != timeout) {
-      timer = Timer(timeout, () {
-        final Completer<Object?>? pending = _pendingCalls.remove(requestId);
-        if (null == pending || pending.isCompleted) {
-          return;
-        }
-        // 到点只是"调用方不再等了"：目标插件照它自己的节奏跑完，结果丢弃（不是取消）
-        _runtime.log(3, '能力调用超时，结果丢弃: $id.$method #$requestId');
-        pending.completeError(
-          MusicxxPluginApiException(
-            -5,
-            '调用插件能力超时: $id.$method',
-            operation: 'plugin_call',
-          ),
-        );
-      });
-    }
-    try {
-      return await completer.future;
-    } finally {
-      timer?.cancel();
-    }
+    final String body = _optionsJson(args);
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'plugin.call',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_plugin_call(
+        _runtime.host,
+        arena.view(id),
+        arena.view(method),
+        arena.view(body),
+        outId,
+        log,
+      ),
+      timeout: timeout,
+    );
+    _throwIfFailed(result, 'plugin_call');
+    return result.data;
   }
 
   /// 资源与耗时统计快照（各阶段耗时 / 能力耗时 / 注册项 / 计数器；只统计不限制）
-  Map<String, Object?> stats({Map<String, Object?>? scope}) {
+  Future<Map<String, Object?>> stats({Map<String, Object?>? scope}) async {
     _requireRunning('stats');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginStringView> scopeView = scope == null
-          ? nullptr
-          : arena.view(_optionsJson(scope));
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_stats(
+    final String body = null == scope || scope.isEmpty ? '' : jsonEncode(scope);
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'stats',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_stats(
         _runtime.host,
-        scopeView,
-        out,
+        body.isEmpty ? nullptr : arena.view(body),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'stats');
-      return decodeJsonObject(takeOutString(out, _runtime.bindings));
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'stats');
+    return result.dataObject;
   }
 
   /// 插件贡献的 UI 项全量快照（声明式 UI 扩展）
   ///
   /// 变更会额外推送 `musicxx.ui.changed` 事件（载荷带该插件的全部项），
-  /// 主程序按插件整批替换即可（见 [MusicxxPluginUIItems.replacePlugin]）。
-  List<MusicxxPluginUIItem> uiSnapshot() {
+  /// 主程序按插件整批替换即可（见 `MusicxxPluginUIItems.replacePlugin`）。
+  Future<List<MusicxxPluginUIItem>> uiSnapshot() async {
     _requireRunning('ui_snapshot');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_snapshot(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'ui.snapshot',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_ui_snapshot(
         _runtime.host,
-        out,
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'ui_snapshot');
-      final String json = takeOutString(out, _runtime.bindings);
-      if (json.isEmpty) {
-        return const <MusicxxPluginUIItem>[];
-      }
-      final decoded = tryDecodeJson(json);
-      return MusicxxPluginUIItem.parseList(decoded);
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'ui_snapshot');
+    return MusicxxPluginUIItem.parseList(result.data);
   }
 
   /// 内容注册表快照（插件挂在槽位上的界面 JSON 的生成器）
   ///
-  /// 变更会额外推送 `musicxx.ui.contents` 事件（载荷带该插件的全部内容），
-  /// 单条结果用 `musicxx.ui.content` 事件推给主程序的内容缓存。
-  List<MusicxxPluginUIContent> uiContents() {
+  /// 变更会额外推送 `musicxx.ui.contents` 事件（载荷带该插件的全部内容）。
+  Future<List<MusicxxPluginUIContent>> uiContents() async {
     _requireRunning('ui_contents');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_contents(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'ui.contents',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_ui_contents(
         _runtime.host,
-        out,
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'ui_contents');
-      final String json = takeOutString(out, _runtime.bindings);
-      if (json.isEmpty) {
-        return const <MusicxxPluginUIContent>[];
-      }
-      return MusicxxPluginUIContent.parseList(tryDecodeJson(json));
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'ui_contents');
+    return MusicxxPluginUIContent.parseList(result.data);
   }
 
   /// 槽位表快照（应用预留的 + 插件声明的）
   ///
   /// 插件声明 / 撤销槽位时推 `musicxx.ui.slots` 事件。
-  List<MusicxxPluginUISlot> uiSlots() {
+  Future<List<MusicxxPluginUISlot>> uiSlots() async {
     _requireRunning('ui_slots');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_slots(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'ui.slots',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_ui_slots(
         _runtime.host,
-        out,
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'ui_slots');
-      final String json = takeOutString(out, _runtime.bindings);
-      if (json.isEmpty) {
-        return const <MusicxxPluginUISlot>[];
-      }
-      return MusicxxPluginUISlot.parseList(tryDecodeJson(json));
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'ui_slots');
+    return MusicxxPluginUISlot.parseList(result.data);
   }
 
-  /// 让插件为一份内容生成一次界面（结果从 `musicxx.ui.content` 事件回来）
+  /// 让插件为一份内容生成一次界面（等这次生成的结果）
   ///
-  /// - 生成函数在插件框架线程同步执行（插件那边必须快），所以这个调用会等它完成；
   /// - `context` 是声明过的依赖变量 → 当前值（JSON 对象）；
-  /// - 返回 0 = 已生成并推送；没有这份内容抛异常。
-  int requestUiContent(String contentId, Map<String, Object?> context) {
+  /// - 结果是那份界面的载荷（`{slot, id, shortId, plugin, rev, json?, data?, error?}`），
+  ///   与 `musicxx.ui.content` 事件同形；
+  /// - 没有这份内容 / 生成函数报错时抛异常。
+  Future<Map<String, Object?>> requestUiContent(
+    String contentId,
+    Map<String, Object?> context,
+  ) async {
     _requireRunning('ui_request');
     final String ctxJson = jsonEncode(context);
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginStringView> idView = arena.view(
-        contentId,
-      );
-      final Pointer<MusicxxExternPluginStringView> ctxView = arena.view(
-        ctxJson,
-      );
-      final Pointer<Int64> requestId = arena.mallocInt64();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_ui_request(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'ui.request',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_ui_request(
         _runtime.host,
-        idView,
-        ctxView,
-        requestId,
+        arena.view(contentId),
+        arena.view(ctxJson),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'ui_request');
-      return requestId.value;
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'ui_request');
+    return result.dataObject;
   }
 
   /// 订阅 / 退订一个广播频道的值变化
   ///
   /// 有人订阅时，频道每次发布都会推一条 `musicxx.broadcast.changed`（`{id, value}`）；
-  /// 计数归零就停。插件自己发布 → 主程序也能收到（变量来源靠它刷新）。
-  void watchBroadcast(String id, {bool watch = true}) {
+  /// 计数归零就停。**订阅成功时插件框架先补发一条当前值**，所以 Dart 侧缓存（
+  /// `broadcasts.valueOf`）不需要单独冷读。
+  Future<void> watchBroadcast(String id, {bool watch = true}) async {
     _requireRunning('broadcast_watch');
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginStringView> idView = arena.view(id);
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings.musicxx_extern_plugin_broadcast_watch(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'broadcast.watch',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_broadcast_watch(
         _runtime.host,
-        idView,
+        arena.view(id),
         watch ? 1 : 0,
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'broadcast_watch');
-    } finally {
-      arena.dispose();
-    }
+      ),
+    );
+    _throwIfFailed(result, 'broadcast_watch');
   }
 
   /// 统计采集配置（`{"enable":false}` 可整体关闭采集）
-  void statsConfig(Map<String, Object?> cfg) {
+  Future<void> statsConfig(Map<String, Object?> cfg) async {
     _requireRunning('stats_config');
     final String json = _optionsJson(cfg);
-    _withArena((
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    ) {
-      final int rc = _runtime.bindings.musicxx_extern_plugin_stats_config(
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'stats.config',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_stats_config(
         _runtime.host,
         arena.view(json),
+        outId,
         log,
-      );
-      _runtime.checkOrThrow(rc, log, 'stats_config');
-    });
+      ),
+    );
+    _throwIfFailed(result, 'stats_config');
   }
 
   /// 某插件的日志流（来自 `musicxx.plugin.log` 事件）
@@ -574,73 +499,55 @@ class MusicxxPluginManager {
   // ==================== 内部 ====================
 
   void handleDisposed() {
-    // 插件框架已经不在：还没回来的能力调用不可能再有结果，按"插件框架已停止"收尾
-    // （不留悬挂的 Future；正常路径下插件框架停机时会先推一条 host_stopped 结果事件）
-    final List<Completer<Object?>> pending = List<Completer<Object?>>.of(
-      _pendingCalls.values,
-    );
-    _pendingCalls.clear();
-    for (final Completer<Object?> completer in pending) {
-      if (!completer.isCompleted) {
-        completer.completeError(
-          MusicxxPluginApiException(
-            -2,
-            '插件框架已停止，能力调用未完成',
-            operation: 'plugin_call',
-          ),
-        );
-      }
-    }
-    _asyncCallAvailable = null;
     _cache = const <MusicxxPluginInfo>[];
     _byId.clear();
     _scanned = const <MusicxxPluginInfo>[];
+    _refreshRunning = false;
+    _refreshQueued = false;
   }
 
-  /// `musicxx.plugin.call.result`：按 `requestId` 给等待中的调用回填结果
-  ///
-  /// 找不到等待方有两种情况，都按"丢弃"处理：调用方已经超时（它自己不等了），
-  /// 或者插件框架重启后 `requestId` 空间从头开始（残留的结果不能串到新的调用上）。
-  void handleCallResultEvent(MusicxxPluginEvent event) {
-    final int? requestId = event.intOf('requestId');
-    if (null == requestId) {
-      return;
-    }
-    final Completer<Object?>? completer = _pendingCalls.remove(requestId);
-    if (null == completer || completer.isCompleted) {
-      _runtime.log(3, '收到没有等待方的能力结果 #$requestId（已超时或插件框架重启），丢弃');
-      return;
-    }
-    final bool ok = event.boolOf('ok') ?? false;
-    if (ok) {
-      completer.complete(event.payload['result']);
-      return;
-    }
-    final String reason = event.stringOf('error') ?? '插件能力执行失败';
-    completer.completeError(
-      MusicxxPluginApiException(
-        MusicxxPluginResultCode_c.internal,
-        reason,
-        operation: 'plugin_call',
-      ),
-    );
-  }
-
-  /// 生命周期事件：只重新查询一次快照（避免事件顺序与快照不一致导致状态错乱）
+  /// 插件卸载 / 加载失败：立刻从缓存里摘掉（不等下一次 `plugin.list`）
   void handleLifecycleEvent(MusicxxPluginEvent event) {
     if (!_runtime.isRunning) {
       return;
     }
     final String id = event.plugin;
     if (id.isNotEmpty &&
-        event.type == MusicxxPluginEventType.pluginUnloaded &&
+        (event.type == MusicxxPluginEventType.pluginUnloaded ||
+            event.type == MusicxxPluginEventType.pluginError) &&
         _byId.containsKey(id)) {
       _byId.remove(id);
       _cache = _cache
           .where((MusicxxPluginInfo info) => info.id != id)
           .toList(growable: false);
     }
-    list();
+    scheduleRefresh();
+  }
+
+  /// 排一次"重新查询已加载插件"
+  ///
+  /// 生命周期事件会连着来（加载时 discovered → loaded → enabled），一次在途 + 结束后
+  /// 补跑一次就够，不必为每条事件排一次提交。
+  void scheduleRefresh() {
+    if (!_runtime.isRunning) {
+      return;
+    }
+    if (_refreshRunning) {
+      _refreshQueued = true;
+      return;
+    }
+    _refreshRunning = true;
+    unawaited(
+      list()
+          .catchError((Object _) => const <MusicxxPluginInfo>[])
+          .whenComplete(() {
+            _refreshRunning = false;
+            if (_refreshQueued) {
+              _refreshQueued = false;
+              scheduleRefresh();
+            }
+          }),
+    );
   }
 
   void _requireRunning(String operation) {
@@ -649,41 +556,35 @@ class MusicxxPluginManager {
     }
   }
 
+  void _throwIfFailed(MusicxxPluginRequestResult result, String operation) {
+    if (result.ok) {
+      return;
+    }
+    final MusicxxPluginRequestError? error = result.error;
+    throw MusicxxPluginApiException(
+      error?.code ?? MusicxxPluginResultCode_c.internal,
+      (error?.message.isNotEmpty ?? false) ? error!.message : '插件框架未给出原因',
+      operation: operation,
+    );
+  }
+
+  static List<MusicxxPluginInfo> _parsePluginList(Object? data) {
+    if (data is! List) {
+      return const <MusicxxPluginInfo>[];
+    }
+    return data
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (Map<Object?, Object?> item) =>
+              MusicxxPluginInfo.fromJson(item.cast<String, Object?>()),
+        )
+        .toList(growable: false);
+  }
+
   static String _optionsJson(Map<String, Object?>? value) {
     if (value == null || value.isEmpty) {
       return '{}';
     }
     return jsonEncode(value);
-  }
-
-  void _withArena(
-    void Function(
-      MusicxxPluginArena arena,
-      Pointer<MusicxxExternPluginString> log,
-    )
-    body,
-  ) {
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      body(arena, log);
-    } finally {
-      arena.dispose();
-    }
-  }
-
-  /// 读取 JSON 数组出参（失败抛异常）
-  List<MusicxxPluginInfo> _readList(String operation, _OutCall call) {
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> out = arena.outString();
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      _runtime.checkOrThrow(call(_runtime.bindings, out, log), log, operation);
-      return decodeJsonArray(
-        takeOutString(out, _runtime.bindings),
-      ).map(MusicxxPluginInfo.fromJson).toList(growable: false);
-    } finally {
-      arena.dispose();
-    }
   }
 }

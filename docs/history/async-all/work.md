@@ -16,8 +16,8 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
       内部函数去 `Async` 后缀
 - [x] 阶段 3：JS 处理器统一异步完成
 - [x] 阶段 4：C ABI 7（全部操作提交化，含发布 / 订阅 / 日志 / 回复 / 关机；删 `plugin_load_sync`）
-- [ ] 阶段 5：Dart 包请求总线 + 全 `Future` + 本地缓存 + 去掉 `_async` 命名
-- [ ] 阶段 6：主程序接入（Store / 内容传输 / 广播取值 / 能力调用）
+- [x] 阶段 5：Dart 包请求总线 + 全 `Future` + 本地缓存 + 去掉 `_async` 命名（`lib/` 分析 0 error / 0 warning）
+- [x] 阶段 6：主程序接入（Store / 内容传输 / 广播取值 / 能力调用）（`lib` 分析 0 error / 0 warning）
 - [ ] 阶段 7：示例插件、原生测试、Dart 测试改造
 - [ ] 阶段 8：文档与版本号（C ABI 7 / 插件 ABI 10 / 框架 `2026.1125.1`）
 - [ ] 阶段 9：全量验证与基准
@@ -105,6 +105,57 @@ Dart 包（阶段 5）与主程序（阶段 6）进行中。
 **与计划不一致的地方**：
 - 计划里的 `PLUGINXX_RESULT_ERR_FULL` 在共用码表里不存在，改用 `PLUGINXX_RESULT_ERR_BUSY`（`-7`，名称 `busy`，
   语义就是"排队已满"）。
+- `capability_stats` 的 C 入口本来就不收作用域参数（`(h, out_request_id, log)`），Dart 侧 `stats()` 因此
+  也没有 `scope` 参数。
+
+### 阶段 5：Dart 包
+
+- 新增 `lib/src/requests.dart`（`MusicxxPluginRequests`）：一次提交 = 一个 `requestId` + 一条
+  `musicxx.request.result`；失败**不抛异常**（放在 `result.error` 里），带可选 `timeout`
+  （到点给超时结果，晚到的丢弃）。
+- `lib/src/runtime.dart`：`init` / `dispose` / `log` / `debugInfo` 全部改成 `Future`；新增
+  `requests` 与 `hasHost`（提交式入口按"宿主在不在"判能不能受理：`host.start` / `host.shutdown`
+  本身就在这个阶段发出去）；事件泵新增 `requestResult` 分支；`_shouldPollFallback` 改看 `hasHost`
+  （启动期间也要能把结果取回来）。
+- `lib/src/manager.dart`：全部方法改 `Future`，走请求总线；`loadAsync` 删除（`load` 就是异步）；
+  `call` 走请求总线（原 `plugin_call_async` 与 `musicxx.plugin.call.result` 删掉）；
+  生命周期事件触发的 `list()` 刷新改成一次在途 + 结束后补跑一次（`scheduleRefresh`）。
+- `lib/src/capabilities.dart`：删 Dart 实现链（`on` / `off` / `MusicxxPluginImplementation` /
+  `MusicxxPluginCapabilityContext`）与 `dispatchAtPhase`；`dispatch(id, [payload, phase])` 返回
+  `Future`，结果取 `data.result`（与旧的可写回 `ExternCapabilityVerdict` 同形）；
+  `notify` 改 `Future<void>`；`refreshNativeHandlers` / `stats` 改 `Future`；删
+  `refreshNativeHandlerCount` / `pendingAsyncDispatches` / `handleDecisionResultEvent`；
+  `handleCapabilityChangedEvent` 按事件载荷里的 `capability` 整条替换（一条事件只带一条能力）。
+- `lib/src/broadcasts.dart`：`publish` / `read` / `list` 改 `Future`；新增 `valueOf(id)` 读 Dart 侧
+  缓存（`musicxx.broadcast.changed` 维护，订阅时插件框架先补发当前值）—— 每帧取值的路径不再过 FFI。
+- `lib/src/app_capabilities.dart`：`respond` 改 `Future`（`capability.respond` 提交），调用点 `.ignore()`。
+- `lib/src/events.dart`：新增 `requestResult`，删 `capabilityDecisionResult` / `pluginCallResult`。
+- 重跑 ffigen 生成 `lib/src/bindings_generated.dart`（新头文件的 `int64_t*` 参数与删掉的入口）。
+
+**验证**：`fvm flutter analyze --no-pub lib` → 0 error / 0 warning（包内 `test/` 留到阶段 7）。
+
+### 阶段 6：主程序接入
+
+- `ExternPluginStore`：`_scanAndLoad` / `_loadPlugin` / `_refreshPlugins` / `rescan` /
+  `_reloadPluginInstance` / `stats` / `capabilityStats` / `debugInfo` / `channelsDebugText` /
+  `refreshUIItems` 改 `Future`；`initDo` 只 `await _startHost()`（`host.start` 的结果），扫描与加载
+  `unawaited(_scanAndLoad())` 放后台，`app_ready` 不再被插件拖慢。`statusInfo()` 里的
+  `capabilityCall` 固定 `async`、`pendingCapabilityCalls` 改名 `pendingRequests`（读请求总线计数）。
+- `ExternPluginArchive.extract`：`inspectPlugin` 改成返回 `Future`，预检 `await`。
+- `ExternBroadcastHost_c`：`ExternBroadcastSink_c` 的 `publish` / `list` / `read` 改 `Future`；
+  `publish` 不等结果（`.ignore()`），`read` / `list` / `debugText` 等结果。
+- `ExternCapabilityCall`：删同步 `dispatch`，`dispatchAsync` 改名 `dispatch`（唯一入口，返回 `Future`）；
+  `refreshHandlers` 改 `Future`。
+- `MusicxxUiContentTransport`：`syncAll` / `requestContent` 改 `Future`；事件驱动的同步改 `unawaited`。
+- `MusicxxUiVariableSources` / `render/PluginRenderArgs`：插件频道的值改读 `broadcasts.valueOf`
+  （每帧路径不过 FFI）；`watchBroadcast` 调用改 `unawaited`。
+- `MusicxxMpvPropertyWatch_c.hostCountsOf` 改 `Future`（权威订阅数对账一次，异步不阻塞）。
+- `MusicxxCliCommandsSetup_c`：广播列表 / 取值两个入口改 `Future`，命令回调改 `async`。
+- 管理页（`ExternPluginPage` 调试页、`ExternPluginDetailPage`）：统计与广播都要等插件框架，改成
+  "进页取一次快照 + `FutureBuilder`"（`刷新统计` 丢掉快照重取），不在 `build` 里发请求。
+
+**验证**：`lib` 下 0 error / 0 warning；`test/` 里的旧调用点（Dart 实现链、同步广播、旧的
+`ExternPluginArchive` 回调形状）留到阶段 7。
 
 ## 未验证
 

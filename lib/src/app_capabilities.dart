@@ -6,7 +6,6 @@ import 'bindings_generated.dart';
 import 'events.dart';
 import 'native_strings.dart';
 import 'runtime.dart';
-
 /// 应用实现的能力的处理器：接收插件参数，返回结果（JSON 可序列化）
 typedef MusicxxPluginAppCapabilityHandler =
     Object? Function(MusicxxPluginAppCapabilityInvocation invocation);
@@ -78,36 +77,36 @@ class MusicxxPluginAppCapabilities {
   ///
   /// [error] 是可读句子，[errorName] 是失败名称（`no_impl` / `failed` …：插件按名称分支，
   /// 句子给人看）。两者一起写成 `{"error": <名称>, "message": <句子>}`。
-  void respond(
+  ///
+  /// 回一条确认，不关心就 `.ignore()`。
+  Future<void> respond(
     int requestId, {
     Object? result,
     int status = 0,
     String? error,
     String errorName = 'failed',
-  }) {
+  }) async {
     if (!_runtime.isRunning) {
       return;
     }
     final String payload = result == null
         ? (error == null ? '' : _errorJson(errorName, error))
         : _encode(result);
-    final MusicxxPluginArena arena = MusicxxPluginArena();
-    try {
-      final Pointer<MusicxxExternPluginString> log = arena.outString();
-      final int rc = _runtime.bindings
-          .musicxx_extern_plugin_capability_app_respond(
-            _runtime.host,
-            requestId,
-            status,
-            arena.view(payload),
-            log,
-          );
-      if (rc != 0) {
-        _runtime.log(3, 'capability_app_respond(#$requestId) 失败(code=$rc)');
-      }
-    } finally {
-      arena.dispose();
-    }
+    await _runtime.requests.submit(
+      'capability.respond',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_capability_app_respond(
+        _runtime.host,
+        requestId,
+        status,
+        arena.view(payload),
+        outId,
+        log,
+      ),
+    );
   }
 
   /// 直接执行一条已注册的应用能力（**主程序 UI 触发**；不经插件 op 通道）
@@ -169,7 +168,7 @@ class MusicxxPluginAppCapabilities {
         status: MusicxxPluginResultCode_c.notFound,
         error: '应用能力没有注册: $capability（看 musicxx.capability.list 里有什么）',
         errorName: 'no_impl',
-      );
+      ).ignore();
       return;
     }
     final MusicxxPluginAppCapabilityInvocation invocation =
@@ -188,7 +187,7 @@ class MusicxxPluginAppCapabilities {
         result.then<void>(
           (Object? value) {
             --_pendingResponses;
-            respond(requestId, result: value);
+            respond(requestId, result: value).ignore();
           },
           onError: (Object error) {
             --_pendingResponses;
@@ -197,29 +196,31 @@ class MusicxxPluginAppCapabilities {
               status: MusicxxPluginResultCode_c.internal,
               error: error.toString(),
               errorName: 'failed',
-            );
+            ).ignore();
           },
         );
         return;
       }
-      respond(requestId, result: result);
+      respond(requestId, result: result).ignore();
     } catch (error) {
       respond(
         requestId,
         status: MusicxxPluginResultCode_c.internal,
         error: error.toString(),
         errorName: 'failed',
-      );
+      ).ignore();
     }
   }
 
   /// `musicxx.capability.app.cancel`（插件取消 / 主程序超时）：通知已注册的处理器
   void handleAppCapabilityCancel(MusicxxPluginEvent event) {
     // v1 只记一条日志；需要中断的处理器的实现可以订阅事件流自行收尾（取消令牌尚未接入）
-    _runtime.log(
-      3,
-      '应用能力请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
-    );
+    _runtime
+        .log(
+          3,
+          '应用能力请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
+        )
+        .ignore();
   }
 
   /// 主程序收尾：没回复完的异步调用不再有人接，计数归零
