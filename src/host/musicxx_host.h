@@ -352,6 +352,10 @@ public:
   ///
   /// **只在框架线程用**：注册 / 撤销发生在那里，其它线程要读请取
   /// [kindRegistrySnapshot] 的快照。
+  ///
+  /// 非 const 重载供共享的通用表实现（`pluginxx/host/tables_impl.h` 的 `kind` 段）
+  /// 登记 / 撤销形态；只读的调用方用 const 重载。
+  MusicxxPluginKindRegistry &kindRegistry() { return kindRegistry_; }
   const MusicxxPluginKindRegistry &kindRegistry() const { return kindRegistry_; }
 
   /// 形态注册表的当前快照（任意线程）
