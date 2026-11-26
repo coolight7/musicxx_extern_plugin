@@ -19,6 +19,7 @@
 #include "pluginxx/host/broadcast_registry.h"
 #include "pluginxx/host/capability_chain.h"
 #include "pluginxx/host/capability_registry.h"
+#include "pluginxx/host/ffi_bridge.h"
 // 事件订阅句柄的撤销入口是内联函数, 实现体在 runtime/instance_base.h
 #include "pluginxx/runtime/instance_base.h"
 // 生成物：能力 / 广播的 id 常量与已知声明表（定义源 tools/capabilities.def.json）
@@ -29,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <stdexcept>
@@ -1074,6 +1076,127 @@ void testCapabilityDeclarations() {
         "只声明为广播的 id 不在能力表里");
 }
 
+/// 边界件（FFI 桥）：事件队列 + 请求记账 + 跨堆字符串
+///
+/// 两个主程序都用这一份实现，所以它自己必须有测试：队列顺序 / 有界与溢出、
+/// 唤醒回调、受理 ⇒ 恰好一条结果、取消幂等、按 owner 与整体结算、别名把结果交给外层。
+void testFfiBridge() {
+  using pluginxx::ffi::EventQueue;
+  using pluginxx::ffi::RequestRegistry;
+
+  // --- 事件队列：先进先出、poll 拼成 JSON 数组 ---
+  {
+    EventQueue queue(4);
+    std::string emptyOut;
+    check(queue.poll(0, emptyOut) == 0 && emptyOut.empty(), "empty queue poll returns 0");
+    check(queue.push(R"({"seq":1})"), "push 第一条");
+    check(queue.push(R"({"seq":2})"), "push 第二条");
+    std::string out;
+    check(queue.poll(0, out) == 2 && out == R"([{"seq":1},{"seq":2}])",
+          "poll 按入队顺序拼成 JSON 数组");
+    check(queue.empty() && queue.size() == 0, "poll 之后队列为空");
+
+    // 有界：push 满了返回 false 且不丢已有事件
+    for (int i = 0; i < 4; ++i) {
+      check(queue.push(R"({"seq":1})"), "预热队列");
+    }
+    check(!queue.push(R"({"seq":9})"), "队列满时 push 返回 false");
+    check(queue.size() == 4, "队列满时 push 不丢已有事件");
+    check(queue.poll(0, out) == 4, "满了之后仍能取走全部");
+
+    // 溢出：丢最旧的一条，补发一条溢出提示，再入队本体
+    for (int i = 0; i < 4; ++i) {
+      queue.push(R"({"seq":1})");
+    }
+    check(!queue.pushWithOverflow(R"({"seq":9})", R"({"type":"overflow"})"),
+          "pushWithOverflow 满队列时返回 false");
+    check(queue.poll(0, out) == 5, "溢出路径入队溢出提示 + 本体");
+    check(out.find(R"({"type":"overflow"})") != std::string::npos,
+          "溢出提示排在队列里");
+    check(queue.dropped() == 1, "丢弃计数 +1");
+  }
+
+  // --- 事件队列：唤醒回调在锁外调用（回调里可以再加锁） ---
+  {
+    EventQueue queue(8);
+    int wakeCount = 0;
+    queue.setWake([&queue, &wakeCount]() {
+      ++wakeCount;
+      (void)queue.size(); // 回调里再加锁不能死锁
+    });
+    queue.push(R"({"seq":1})");
+    check(wakeCount == 1, "入队触发唤醒回调");
+    queue.setWake(nullptr);
+    queue.push(R"({"seq":2})");
+    check(wakeCount == 1, "清掉回调后不再唤醒");
+  }
+
+  // --- 请求记账：受理 ⇒ 恰好一条结果 ---
+  {
+    RequestRegistry registry;
+    const int64_t a = registry.begin("plugin.load", "demo");
+    const int64_t b = registry.begin("plugin.unload", "demo"); 
+    check(a > 0 && b > a, "请求号从 1 开始单调递增");
+    check(registry.size() == 2, "受理后记账有两条");
+
+    pluginxx::ffi::RequestEntry entry;
+    check(registry.settle(a, &entry) && entry.id == a && entry.op == "plugin.load" &&
+              entry.owner == "demo",
+          "settle 交出操作名与归属");
+    check(!registry.settle(a, &entry), "同一个请求第二次 settle 返回 false（恰好一条结果）");
+    check(!registry.cancel(a, &entry), "取消已收尾的请求是幂等的（返回 false）");
+
+    // 取消：立刻结算，晚到的真实结果再也结算不上
+    check(registry.cancel(b, &entry) && entry.id == b, "取消未结算的请求成功");
+    check(!registry.settle(b, &entry), "取消之后真实结果被丢弃");
+
+    // 停机：整体结算 + 不补第二条
+    const int64_t c = registry.begin("capability.dispatch", "demo");
+    const int64_t d = registry.begin("broadcast.publish", "");
+    const auto all = registry.failAll(0);
+    check(all.size() == 2, "failAll 结算全部未完成请求");
+    check(registry.size() == 0, "failAll 之后记账清空");
+    check(!registry.settle(c, &entry) && !registry.settle(d, &entry),
+          "停机已结算的请求不再补结果");
+  }
+
+  // --- 请求记账：按 owner 结算、别名把结果交给外层 ---
+  {
+    RequestRegistry registry;
+    const int64_t inner = registry.begin("plugin.reload.unload", "demo");
+    const int64_t other = registry.begin("plugin.load", "other");
+    const int64_t reload = registry.begin("plugin.reload", "demo");
+    check(registry.alias(inner, reload), "内层请求可以记成外层请求的别名");
+
+    pluginxx::ffi::RequestEntry entry;
+    check(registry.settle(inner, &entry) && entry.id == reload &&
+              entry.op == "plugin.reload",
+          "结算内层请求时交出的是外层请求号与操作名");
+
+    const int64_t pending = registry.begin("capability.dispatch", "demo");
+    const auto hits = registry.failAllOf("demo");
+    check(hits.size() == 1 && hits.front().id == pending,
+          "failAllOf 只结算该 owner 名下的请求");
+    check(registry.contains(other), "别的 owner 的请求不受影响");
+    check(!registry.settle(pending, &entry), "按 owner 结算过的请求不再补结果");
+  }
+
+  // --- 跨堆字符串：用调用方的分配器 ---
+  {
+    PluginxxString text{};
+    check(pluginxx::ffi::strdupTo("hello", &text, [](size_t n) { return std::malloc(n); }) ==
+              PLUGINXX_RESULT_OK,
+          "strdupTo 复制字符串");
+    check(text.data != nullptr && text.size == 5 &&
+              std::strcmp(text.data, "hello") == 0,
+          "strdupTo 结果带上长度与结尾 0");
+    pluginxx::ffi::freeString(&text, [](void *p) { std::free(p); });
+    check(text.data == nullptr && text.size == 0, "freeString 清空字符串");
+    pluginxx::ffi::freeString(nullptr, nullptr);
+    check(true, "freeString 接受空指针");
+  }
+}
+
 } // namespace
 
 int main() {
@@ -1088,6 +1211,7 @@ int main() {
   testBroadcastRegistry();
   testBroadcastRateLimit();
   testCapabilityDeclarations();
+  testFfiBridge();
 
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;

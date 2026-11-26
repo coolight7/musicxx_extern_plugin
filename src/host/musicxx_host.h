@@ -21,6 +21,7 @@
 #include "host_manifest.h"
 #include "musicxx_capability_spec.h"
 #include "musicxx/plugin/api/plugin_api.h"
+#include "pluginxx/host/ffi_bridge.h"
 #include "pluginxx/api/async_reply.h"
 #include "pluginxx/api/entry.h"
 #include "pluginxx/api/net.h"
@@ -88,6 +89,10 @@ template <typename T> struct WaitSlot {
   }
 
   /// 等待完成; 超时返回 false (槽由投递的闭包持有, 超时后仍可安全写入)
+  ///
+  /// **没有不带超时的重载**：被等待的一侧不返回时，调用线程会一直停在这里，
+  /// 同步 FFI 场景下就是整个宿主线程停下。要"一直等"的调用方自己写循环，
+  /// 并在循环里检查取消（参见 AGENTS.md §9.1）。
   bool wait(uint32_t timeoutMs, T &out) {
     std::unique_lock<std::mutex> lock{mutex};
     if (!cv.wait_for(lock, std::chrono::milliseconds{timeoutMs},
@@ -98,18 +103,17 @@ template <typename T> struct WaitSlot {
     return true;
   }
 
-  /// 无上界等待 (插件处理器/脚本/能力没有等待超时时用)
+  /// 无上界等待（**只给"进程退出前必须完成"的内部收尾用**）
   ///
-  /// 只有"调用方自己决定不做超时"时使用: 被等待的一侧不返回时, 调用线程会一直停留
-  /// 在这里 (同步 FFI 场景下就是整个 Dart 线程停下), 因此调用方要清楚这一后果。
-  void wait(T &out) {
+  /// 现在只有 JS 引擎用它等自己的 JS 线程（释放上下文 / 脚本执行）：这两个动作没有可用的
+  /// 上界，超时后继续往下跑反而会造成悬空引用。**不要用它等插件代码或跨边界请求** ——
+  /// 被等待的一侧不返回时调用线程会一直停住（同步 FFI 场景下就是整个宿主线程停下）。
+  void waitForever(T &out) {
     std::unique_lock<std::mutex> lock{mutex};
     cv.wait(lock, [this] { return done; });
     out = value;
   }
 };
-
-/* ==================== 一次请求的完成 ==================== */
 
 /// 一次请求的产物
 ///
@@ -292,6 +296,11 @@ public:
   ///
   /// 用途: `plugin.reload` 内部的卸载 / 重新加载各占一个请求号, 外层只等一个结果。
   void aliasRequest(int64_t innerRequestId, int64_t outerRequestId);
+
+  /// 取消一条已受理的请求（**任意线程**；幂等）
+  ///
+  /// 立刻以 `canceled` 收尾并推结果事件；请求不存在 / 已收尾直接忽略（不补第二条）。
+  void cancelRequest(int64_t requestId);
 
   /// 在框架 IO 线程上执行一次请求 (**任意线程**)
   int32_t submitOnHostThread(std::string_view op,
@@ -874,15 +883,8 @@ private:
   /// 让运行器卸载一个托管插件，并删掉记录（**框架线程**；协程）
   asio::awaitable<void> unloadHostedKind(const std::string &pluginId);
 
-  /// 一次已受理、还没收尾的请求
-  ///
-  /// 作用: **保证每一次受理都有终局** —— 插件卸载、框架停机时, 还没回来的请求
-  /// 按 `plugin_unloaded` / `host_stopped` 收尾, 调用方不能一直等。
-  struct PendingRequest {
-    std::string op;      ///< 操作名 (`plugin.load` / `capability.dispatch` …)
-    std::string plugin;  ///< 所属插件 id (空 = 不限)
-    std::chrono::steady_clock::time_point started{};
-  };
+  /// 一次已受理、还没收尾的请求（= 共享记账里的条目）
+  using PendingRequest = pluginxx::ffi::RequestEntry;
 
   /// 某个插件身上还没回来的请求按 `plugin_unloaded` 收尾
   ///
@@ -985,14 +987,10 @@ private:
   /// 插件框架 IO 线程标识是否已在 start() 里绑定 (见 bindIoThread 的说明)
   std::atomic<bool> ioThreadBound_{false};
 
-  // 事件队列 (多生产者: 框架线程/工作线程池/Dart 线程)
-  mutable std::mutex eventMutex_;
-  std::deque<std::string> events_; ///< 已序列化的事件 JSON
+  // 事件队列 (多生产者: 框架线程/工作线程池/Dart 线程；共享实现见
+  // `pluginxx/host/ffi_bridge.h`)
+  pluginxx::ffi::EventQueue events_;
   int64_t eventSeq_ = 0;
-  int64_t eventDropped_ = 0;
-  size_t eventCapacity_ = 16384;
-  MusicxxExternPluginWakeFn wakeFn_ = nullptr;
-  void *wakeUser_ = nullptr;
 
   // 状态广播 (Dart 线程写, 框架线程读)
   /// 频道声明簿记 (避免每个事件都去查一遍注册表; 只增不减)
@@ -1014,17 +1012,11 @@ private:
   std::map<std::string, std::vector<CapabilityHandler>, std::less<>> handlers_;
   uint64_t handlerSeq_ = 0;
 
-  /// 已受理、还没收尾的请求 (requestId → 记账)
+  /// 已受理、还没收尾的请求（requestId → 记账）
   ///
-  /// 受理在 Dart 线程、完成在任意线程, 所以用互斥量而不是线程局部容器。
-  std::mutex pendingRequestsMutex_;
-  std::map<int64_t, PendingRequest> pendingRequests_;
-
-  /// 请求号分配器 (受理阶段在任意线程取号)
-  std::atomic<int64_t> nextRequestSeq_{1};
-
-  /// 内部请求 → 外层请求 (受 `pendingRequestsMutex_` 保护)
-  std::map<int64_t, int64_t> requestAlias_;
+  /// 受理在 Dart 线程、完成在任意线程，所以记账自带锁；规则（受理 ⇒ 恰好一条结果、
+  /// 取消幂等、停机 / 卸载批量结算）在共享实现里，见 `pluginxx/host/ffi_bridge.h`。
+  pluginxx::ffi::RequestRegistry requests_;
 
   /// 一个已注册的 UI 项 (声明式扩展; 生命周期 = 插件实例)
   struct UiEntry {

@@ -203,6 +203,52 @@ class MusicxxPluginRequests {
     }
   }
 
+  /// 取消一条已受理的请求（**幂等**）
+  ///
+  /// - 原生库支持 `musicxx_extern_plugin_request_cancel` 时，立刻以 `canceled` 结算，
+  ///   晚到的真实结果由 [handleResultEvent] 丢弃（请求已从 `_pending` 里取走）；
+  /// - 旧原生库没有这个符号时，本地按 `canceled` 收尾，保证调用方拿到终局。
+  ///
+  /// 请求不存在 / 已经收尾返回 `false`，不改任何状态。
+  bool cancel(int requestId) {
+    final Completer<MusicxxPluginRequestResult>? pending = _pending.remove(
+      requestId,
+    );
+    if (null == pending || pending.isCompleted) {
+      return false;
+    }
+    bool nativeAccepted = false;
+    try {
+      final int rc = _runtime.bindings.musicxx_extern_plugin_request_cancel(
+        _runtime.host,
+        requestId,
+        nullptr,
+      );
+      nativeAccepted = rc == 0;
+    } catch (_) {
+      // 旧原生库没有这个导出：退化为本地收尾
+      nativeAccepted = false;
+    }
+    if (!nativeAccepted) {
+      pending.complete(
+        MusicxxPluginRequestResult(
+          requestId: requestId,
+          op: '',
+          ok: false,
+          error: const MusicxxPluginRequestError(
+            code: -9,
+            reason: 'canceled',
+            message: 'request canceled by the caller',
+          ),
+        ),
+      );
+      return true;
+    }
+    // 原生已受理：把完成器放回去，等结果事件（原生会立刻推一条 canceled）
+    _pending[requestId] = pending;
+    return true;
+  }
+
   /// `musicxx.request.result`：把结果交给等待中的调用点
   void handleResultEvent(MusicxxPluginEvent event) {
     final int? requestId = event.intOf('requestId');

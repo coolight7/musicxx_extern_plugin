@@ -1043,13 +1043,14 @@ void main() {
     );
     expect(runtime.requests.pendingCount, 1);
     runtime.dispose();
+    // 断言结果码而不是文案：原生消息是英文的框架级诊断，文案会跟着语言改，码不会
     await expectLater(
       pending,
       throwsA(
         isA<MusicxxPluginApiException>().having(
-          (MusicxxPluginApiException e) => e.message,
-          'message',
-          contains('插件框架已停止'),
+          (MusicxxPluginApiException e) => e.code,
+          'code',
+          -2,
         ),
       ),
     );

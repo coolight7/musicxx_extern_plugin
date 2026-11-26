@@ -229,6 +229,22 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL musicxx_extern_p
 MUSICXX_EXTERN_PLUGIN_EXPORT void MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_host_destroy(MusicxxExternPluginHost* h);
 
+/// 取消一条已受理的请求（**幂等**；不推 `musicxx.request.result` 之外的东西）
+///
+/// - 立刻以 `canceled`（`PLUGINXX_RESULT_ERR_CANCELED`，`reason = "canceled"`）收尾，
+///   晚到的真实结果被丢弃（扣不住，因为请求已经结算过）；
+/// - 请求不存在 / 已经收尾过：返回 `0`（OK）且不补第二条结果 —— 调用方可以无脑重试；
+/// - 同步调用（只改请求表）；不涉及插件代码，不会阻塞。
+///
+/// 与“库侧不默认超时”一致：何时放弃等待由调用方决定，超时后调它把这条请求收尾，
+/// 否则插件卡住时宿主的 Future 会一直挂着（只有卸载 / 停机才能结束）。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_request_cancel(
+        MusicxxExternPluginHost* h,
+        int64_t                  request_id,
+        MusicxxExternPluginString* log
+    );
+
 /// 热更新语言 (`op = "host.language"`; 插件可读; 插件侧 `musicxx.config` 表 get_language)
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_set_language(

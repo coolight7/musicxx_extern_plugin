@@ -249,7 +249,7 @@ void MusicxxHostManager::applyConfig(const MusicxxExternPluginHostConfig &cfg) {
   logLevel_ = cfg.log_level;
   flags_ = cfg.flags;
   if (cfg.event_queue_capacity > 0) {
-    eventCapacity_ = cfg.event_queue_capacity;
+    events_.setCapacity(cfg.event_queue_capacity);
   }
   XX_LOGI(
       "[musicxx_ext] host config: app={} platform={} arch={} lang={} flags={}",
@@ -531,22 +531,10 @@ int32_t MusicxxHostManager::acceptRequest(std::string_view op,
   }
   /// 结果事件不参与队列裁剪: 队列满了就**拒绝受理**, 而不是把排不下的结果丢掉
   /// (丢掉结果等于让调用方的 Future 永远悬挂)。高频操作由调用方自己降频。
-  {
-    std::lock_guard<std::mutex> lock{eventMutex_};
-    if (events_.size() >= eventCapacity_) {
-      return PLUGINXX_RESULT_ERR_BUSY;
-    }
+  if (events_.size() >= events_.capacity()) {
+    return PLUGINXX_RESULT_ERR_BUSY;
   }
-  const int64_t requestId =
-      nextRequestSeq_.fetch_add(1, std::memory_order_relaxed);
-  {
-    std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-    PendingRequest record;
-    record.op = std::string{op};
-    record.started = std::chrono::steady_clock::now();
-    pendingRequests_[requestId] = std::move(record);
-  }
-  *outRequestId = requestId;
+  *outRequestId = requests_.begin(op);
   return PLUGINXX_RESULT_OK;
 }
 
@@ -555,11 +543,7 @@ void MusicxxHostManager::markRequestPlugin(int64_t requestId,
   if (requestId <= 0 || pluginId.empty()) {
     return;
   }
-  std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-  auto it = pendingRequests_.find(requestId);
-  if (it != pendingRequests_.end()) {
-    it->second.plugin = pluginId;
-  }
+  requests_.setOwner(requestId, pluginId);
 }
 
 void MusicxxHostManager::aliasRequest(int64_t innerRequestId,
@@ -567,33 +551,26 @@ void MusicxxHostManager::aliasRequest(int64_t innerRequestId,
   if (innerRequestId <= 0 || outerRequestId <= 0) {
     return;
   }
-  std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-  auto it = pendingRequests_.find(innerRequestId);
-  if (it == pendingRequests_.end()) {
-    return;
-  }
-  requestAlias_[innerRequestId] = outerRequestId;
-  it->second.plugin.clear(); ///< 归属跟着外层请求走
+  requests_.alias(innerRequestId, outerRequestId);
 }
 
 void MusicxxHostManager::completeRequest(int64_t requestId,
                                          RequestOutcome outcome) {
-  std::string op;
-  {
-    std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-    if (auto alias = requestAlias_.find(requestId);
-        alias != requestAlias_.end()) {
-      requestId = alias->second;
-      requestAlias_.erase(alias);
-    }
-    auto it = pendingRequests_.find(requestId);
-    if (it == pendingRequests_.end()) {
-      return; ///< 已经有终局 (停机时统一收尾过): 不再补一条
-    }
-    op = it->second.op;
-    pendingRequests_.erase(it);
+  pluginxx::ffi::RequestEntry entry;
+  if (!requests_.settle(requestId, &entry)) {
+    return; ///< 已经有终局 (停机 / 取消时统一收尾过): 不再补一条
   }
-  pushRequestResult(requestId, op, std::move(outcome));
+  pushRequestResult(entry.id, entry.op, std::move(outcome));
+}
+
+void MusicxxHostManager::cancelRequest(int64_t requestId) {
+  pluginxx::ffi::RequestEntry entry;
+  if (!requests_.cancel(requestId, &entry)) {
+    return; ///< 请求不存在 / 已经收尾: 按幂等处理 (不补结果事件)
+  }
+  pushRequestResult(entry.id, entry.op,
+                    RequestOutcome::fail(PLUGINXX_RESULT_ERR_CANCELED,
+                                         "canceled", "canceled"));
 }
 
 void MusicxxHostManager::pushRequestResult(int64_t requestId,
@@ -686,91 +663,59 @@ int32_t MusicxxHostManager::submitCoroutine(
 void MusicxxHostManager::finishRequestsOf(const std::string &pluginId,
                                          int64_t exceptRequestId) {
   const std::string plain = pluginIdOf(pluginId);
-  std::vector<std::pair<int64_t, PendingRequest>> hits;
-  {
-    std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-    for (auto it = pendingRequests_.begin(); it != pendingRequests_.end();) {
-      if (it->first != exceptRequestId && !it->second.plugin.empty() &&
-          pluginIdOf(it->second.plugin) == plain) {
-        hits.emplace_back(it->first, it->second);
-        it = pendingRequests_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
+  const auto hits = requests_.failAllWhere(
+      [&plain](const pluginxx::ffi::RequestEntry &entry) {
+        return !entry.owner.empty() && pluginIdOf(entry.owner) == plain;
+      },
+      exceptRequestId);
   for (const auto &hit : hits) {
-    pushRequestResult(hit.first, hit.second.op,
+    pushRequestResult(hit.id, hit.op,
                       RequestOutcome::fail(PLUGINXX_RESULT_ERR_STATE,
-                                           "插件已卸载: " + pluginId,
+                                           "plugin unloaded: " + pluginId,
                                            "plugin_unloaded"));
   }
 }
 
 void MusicxxHostManager::finishAllRequests(int64_t exceptRequestId) {
-  std::vector<std::pair<int64_t, PendingRequest>> hits;
-  {
-    std::lock_guard<std::mutex> lock{pendingRequestsMutex_};
-    for (auto it = pendingRequests_.begin(); it != pendingRequests_.end();) {
-      if (it->first == exceptRequestId) {
-        ++it;
-        continue;
-      }
-      hits.emplace_back(it->first, it->second);
-      it = pendingRequests_.erase(it);
-    }
-  }
+  const auto hits = requests_.failAll(exceptRequestId);
   for (const auto &hit : hits) {
-    pushRequestResult(hit.first, hit.second.op,
+    pushRequestResult(hit.id, hit.op,
                       RequestOutcome::fail(PLUGINXX_RESULT_ERR_STATE,
-                                           "插件框架已停止", "host_stopped"));
+                                           "plugin host stopped", "host_stopped"));
   }
 }
 
 void MusicxxHostManager::setWake(MusicxxExternPluginWakeFn fn, void *userData) {
-  std::lock_guard<std::mutex> lock{eventMutex_};
-  wakeFn_ = fn;
-  wakeUser_ = userData;
+  if (!fn) {
+    events_.setWake(nullptr);
+    return;
+  }
+  events_.setWake([fn, userData]() { fn(userData); });
 }
 
 void MusicxxHostManager::pushEvent(const std::string &type,
                                    const std::string &plugin,
                                    const std::string &payloadJson) {
-  MusicxxExternPluginWakeFn wake = nullptr;
-  void *wakeUd = nullptr;
-  {
-    std::lock_guard<std::mutex> lock{eventMutex_};
-    Json ev;
-    ev["seq"] = ++eventSeq_;
-    ev["ts"] = nowWallMs();
-    ev["type"] = type;
-    ev["plugin"] = plugin;
-    Json payload =
-        payloadJson.empty() ? Json::object() : parseJsonSafe(payloadJson);
-    ev["payload"] = payload;
+  Json ev;
+  ev["seq"] = ++eventSeq_;
+  ev["ts"] = nowWallMs();
+  ev["type"] = type;
+  ev["plugin"] = plugin;
+  Json payload =
+      payloadJson.empty() ? Json::object() : parseJsonSafe(payloadJson);
+  ev["payload"] = payload;
 
-    if (events_.size() >= eventCapacity_) {
-      // 有界队列: 丢最旧并补发框架错误
-      events_.pop_front();
-      ++eventDropped_;
-      Json overflow;
-      overflow["seq"] = ++eventSeq_;
-      overflow["ts"] = nowWallMs();
-      overflow["type"] = "musicxx.host.error";
-      overflow["plugin"] = "";
-      overflow["payload"] = {
-          {"code", "event_queue_overflow"},
-          {"message", "事件队列已满, 已丢弃最旧事件"},
-          {"dropped", eventDropped_},
-      };
-      events_.push_back(overflow.dump());
-    }
-    events_.push_back(ev.dump());
-    wake = wakeFn_;
-    wakeUd = wakeUser_;
-  }
-  if (wake) {
-    wake(wakeUd);
+  // 有界队列：队列满时丢最旧的一条，并补发一条框架错误（不能静默丢）
+  Json overflow;
+  overflow["seq"] = ++eventSeq_;
+  overflow["ts"] = nowWallMs();
+  overflow["type"] = "musicxx.host.error";
+  overflow["plugin"] = "";
+  overflow["payload"] = {{"code", "event_queue_overflow"},
+                         {"message", "event queue is full, oldest event dropped"}};
+  std::string text = ev.dump();
+  if (!events_.push(text)) {
+    events_.pushWithOverflow(std::move(text), overflow.dump());
   }
 }
 
@@ -1013,25 +958,10 @@ void MusicxxHostManager::notifyBroadcastChanged(
 }
 
 int32_t MusicxxHostManager::pollEvents(int32_t maxCount, std::string &outJson) {
-  std::lock_guard<std::mutex> lock{eventMutex_};
-  if (events_.empty()) {
+  const size_t take = maxCount <= 0 ? 0 : static_cast<size_t>(maxCount);
+  if (events_.poll(take, outJson) == 0) {
     outJson.clear();
-    return PLUGINXX_RESULT_OK;
   }
-  const size_t take =
-      (maxCount <= 0)
-          ? events_.size()
-          : (std::min)(static_cast<size_t>(maxCount), events_.size());
-  std::string joined = "[";
-  for (size_t i = 0; i < take; ++i) {
-    if (i != 0) {
-      joined.push_back(',');
-    }
-    joined += events_.front();
-    events_.pop_front();
-  }
-  joined.push_back(']');
-  outJson = std::move(joined);
   return PLUGINXX_RESULT_OK;
 }
 
@@ -2994,9 +2924,8 @@ int32_t MusicxxHostManager::debugInfo(std::string &outJson) {
   j["loadedCount"] = static_cast<int32_t>(loaded_.size());
   j["capabilityIds"] = static_cast<int32_t>(handlers_.size());
   {
-    std::lock_guard<std::mutex> lock{eventMutex_};
     j["queue"] = {{"size", static_cast<int64_t>(events_.size())},
-                  {"dropped", eventDropped_}};
+                  {"dropped", static_cast<int64_t>(events_.dropped())}};
   }
   // JS 运行时诊断 (是否可用/线程状态/每个 JS插件的注册与错误计数)
   {
@@ -3021,9 +2950,8 @@ int32_t MusicxxHostManager::statsJson(const std::string * /*scopeJson*/,
                       : 0;
   if (statsEnabled_) {
     {
-      std::lock_guard<std::mutex> lock{eventMutex_};
       host["queue"] = {{"size", static_cast<int64_t>(events_.size())},
-                       {"dropped", eventDropped_}};
+                       {"dropped", static_cast<int64_t>(events_.dropped())}};
     }
     Json capabilities = Json::object();
     for (const auto &[capabilityId, handlers] : handlers_) {

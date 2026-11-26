@@ -346,6 +346,26 @@ musicxx_extern_plugin_set_config(MusicxxExternPluginHost *h,
       out_request_id);
 }
 
+/* ==================== 请求 ==================== */
+
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_request_cancel(MusicxxExternPluginHost *h,
+                                     int64_t request_id,
+                                     MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager) {
+    setErr(log, "request_cancel: invalid handle");
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (request_id <= 0) {
+    setErr(log, "request_cancel: invalid request id");
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  /// 幂等: 请求不存在 / 已经收尾过都算取消成功, 只是不会多推一条结果
+  handle->manager->cancelRequest(request_id);
+  return PLUGINXX_RESULT_OK;
+}
+
 /* ==================== 事件 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

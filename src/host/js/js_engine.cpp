@@ -4230,8 +4230,8 @@ void JsEngine::stopInstance(const std::shared_ptr<Instance> &inst) {
       slot->set(true);
     });
     bool ok = false;
-    /// 不设等待上界: 上下文释放要么完成, 要么进程已经退出
-    slot->wait(ok);
+    /// 不设等待上界: 上下文释放要么完成, 要么进程已经退出 (最明确的无上界场景)
+    slot->waitForever(ok);
     (void)ok;
   }
   inst->scriptLoaded = false;
@@ -4337,7 +4337,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
 
   std::string result;
   /// 不设等待上界: 脚本跑多久就等多久 (死循环会占住共享 JS 线程, 由插件开发者自己避免)
-  slot->wait(result);
+  slot->waitForever(result);
   if (!result.empty()) {
     err = result;
     ++inst->errors;
@@ -4422,7 +4422,12 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     slot->set(ok);
   });
   bool ok = false;
-  slot->wait(ok);
+  /// 有上界: 共享 JS 线程可能在跑别的脚本, 不能无限等 (等不到就跳过本次回放并记日志)
+  if (!slot->wait(5000, ok)) {
+    XX_LOGW("[musicxx_ext] JS instance `{}` registration replay timed out",
+            inst->name);
+    return;
+  }
   if (!ok) {
     XX_LOGW("[musicxx_ext] JS 实例 `{}` 注册信息回取失败", inst->name);
     return;
