@@ -26,6 +26,18 @@ JS 用 `musicxx.ui.content.register` / `musicxx.capability.register`），**字�
 > **术语约定**：本文里的**主程序**指 musicxx（Flutter/Dart 业务层）；外置插件的 C++ 框架层叫
 > **插件框架**；插件分**动态库插件**与 **JS 插件**。
 
+### 1.0 契约冻结（下沉到 `cxx_pluginxx` 期间）
+
+这一层的注册表与内容缓存正在从本包搬到子模块 `cxx_pluginxx`（`pluginxx/api/ui.h` +
+`pluginxx/host/ui_content.h` + `pluginxx/host/ui_slots.h`），两个项目共用同一份实现。搬的时候：
+
+- **块树字段、槽位形态、变量 id 一律不改名、不重排**（源头仍是
+  `cxx_pluginxx_ui/schema/ui.def.json`、`tools/ui_slots.def.json`、`tools/ui_variables.def.json`）；
+- 要改的点先写进本文 §7 的清单，一次改完；不允许"搬一半顺手改名"，
+  否则插件作者要按不同版本改两遍；
+- 不变的规则：渲染只读缓存、`rev` 丢弃晚到结果、同一份内容同时最多一个在途生成请求、
+  没有有效内容就画内置界面。宿主线程永不同步等插件线程。
+
 ## 1. 值、内容与刷新
 
 ### 1.1 值：字面量、变量与值表达式
@@ -1175,3 +1187,18 @@ musicxx.capability.register("pickQuality", async function () {
 - `example_js_slot_provider` / `example_js_slot_consumer`：插件声明自己的槽位、另一个插件用 `UISlot` 嵌进去；
 - `example_native`：C++ 侧的内容注册 / 槽位声明 / `slot.update` 与 `content.push`；
 - `example_js` / `example_js_font` / `example_override_media_source` / `example_ftp_source`：入口与页面、能力与配置。
+
+---
+
+## 7. 下沉期间要改的契约（先列清单，一次改完）
+
+这一节只记"**打算改**的字段 / 名字"。没写进来的就按现状冻结（§1.0），下沉时原样搬。
+
+当前清单：**空**（本轮只搬实现，不改块树、槽位名与变量 id）。
+
+要新增或改名时在这里写一行，写清四件事，然后同一次提交里改完两个项目的插件文档、生成物与示例：
+
+| 项 | 旧 | 新 | 影响 |
+|---|---|---|---|
+| （示例）块字段 | `blocks[].kind` | — | — |
+

@@ -441,7 +441,46 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 主程序进了安全模式 | 说明上次启动没走完（插件崩溃 / 死循环）；在管理页恢复，并修掉触发问题 |
 | 跨插件调用失败 | `plugin_capability_not_found` / `capability_call_failed` / 超时（JS→原生默认 3 s；`<= 0` 仍按 3 s 处理） |
 
-## 9. 文档索引
+## 9. 统一口径（与 agentxx 共用）
+
+四条口径由 `docs/history/plugin-framework-compare/plan.md` 定稿，本包与 `D:\0Acoolight\Program\cpp\agentxx`
+按同一份写：改动要两边一起改并互相引用。能共用的实现下沉到子模块 `cxx_pluginxx`（`pluginxx/api/*.h` 与 `pluginxx/host/*.h`），
+不在两个项目里各写一份。
+
+### 9.1 超时与取消
+
+- **库侧默认不设超时**：一次受理的请求可以一直等到终局（成功 / 失败 / 取消 / 卸载 / 停机），
+  "等多久算失败"由调用方决定。Dart 侧 `requests.submit(..., timeout:)` 只是"不再等"，晚到的结果丢弃，
+  库不会因为超时替调用方结算。
+- **通用取消进库**：`musicxx_extern_plugin_request_cancel` 立刻以 `canceled` 结算，晚到的结果丢弃；
+  请求不存在返回 OK（幂等）。插件卸载与框架停机必须给终局（`plugin_unloaded` / `host_stopped`）。
+- 通用边界件（事件队列、请求记账、跨堆字符串）在子模块 `cxx_pluginxx/host/ffi_bridge.h`，
+  **库内不放定时器**：`nextDeadlineMs()` / `popExpired()` 交给调用方用自己的 io_context / 定时器驱动。
+- 不变量：**受理成功 ⇒ 恰好一条结果**；受理失败 ⇒ 不推结果。
+
+### 9.2 界面契约（下沉期间冻结）
+
+- 块树字段、槽位形态与变量 id 沿用现有写法（`tools/ui_slots.def.json`、`tools/ui_variables.def.json`、
+  子模块 `cxx_pluginxx_ui/schema/ui.def.json`），下沉到 `cxx_pluginxx` 时**不改名、不重排**。
+- 确实要改的点先写进 `docs/plugin-ui.md` 的清单，一次改完；不允许"搬一半再顺手改字段"。
+- 界面线程永不等待插件线程：宿主只读缓存，`rev` 丢弃晚到结果，没有有效内容就画内置界面。
+
+### 9.3 形态表（预置形态由谁实现）
+
+- `native` 由框架实现，**不可接管**（代次对跟随插件 ABI）；
+- `js` 默认由框架内置运行器实现，**可被插件接管**（登记同名形态 + validate/load/unload，撤销后回到内置实现）；
+- 其它形态由插件以运行器身份登记，带自己的接口代次对与可选校验能力；
+- "这个包能不能跑"交给运行器（`validateCapability`），框架不按形态名写分支；
+- 框架对外的支持集 = 当前登记过的形态 + 各自的代次对；`plugin_inspect` 对未登记形态给 `kindKnown = false`。
+
+### 9.4 日志语言
+
+- 运行期字符串一律**英文**：日志宏、错误原因串、事件载荷里的 `message` / `reason` / `log`、
+  `plugin_inspect` 的结论文字、示例与测试夹具、构建脚本与命令行提示。
+- 中文只留在**代码注释**与走本地化表的**界面文案**里。
+- 检查：`pwsh -NoProfile -File tools/check_log_language.ps1`，干净树退出码 0，命中非 ASCII 的运行期字符串退出码 1。
+
+## 10. 文档索引
 
 | 要看什么 | 文件 |
 |---|---|
@@ -458,5 +497,6 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 界面 kit 的组件与参数 | `docs/musicxx-ui-kit.md`（生成物） |
 | 版本对照（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）与改版本号的流程 | `docs/version-history.md` |
 | 本包怎么构建、插件框架库怎么随主程序分发、Dart 侧怎么接 | `README.md` |
+| 与 agentxx 共用的四条口径（超时与取消 / 界面契约 / 形态表 / 日志语言） | 本文件 §9；`docs/plugin-native-api.md` §3.1、§4.3；`docs/plugin-ui.md` §1.0 |
 | Android 打包与平台限制 | `android/README.md` |
 | 示例与对照示例清单 | `plugins/README.md` |

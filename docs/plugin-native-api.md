@@ -305,6 +305,20 @@ MUSICXX_PLUGIN_EXPORT(
 - 广播的当前值是**协程**读的（`co_await readBroadcast(...)`），能力调用也是协程的
   （`co_await capabilityCall(action, args)`，失败抛异常）。**没有同步版**，同步上下文里调不了它们。
 
+### 3.1 超时与取消（与 agentxx 共用的口径）
+
+- **库侧默认不设超时**：插件框架不会因为你调用一个能力而替你计时。一次受理的请求可以一直等到终局；
+  "等多久算失败"由调用方决定（`capabilityCallWithTimeout(..., timeoutMs)` 只是加上限，
+  `timeoutMs <= 0` 就是不限）。Dart 侧的 `timeout:` 是"这次不再等"，本地 Future 结束，晚到的结果丢弃。
+- **每个受理的请求恰好一条结果**，终局只有六种：成功 / 失败 / `canceled` / `plugin_unloaded` /
+  `host_stopped` / 超时（由调用方自己的计时器产生，不是库产生的）。受理失败（返回空、参数错）不推结果。
+- **插件卸载与框架停机必须给终局**：卸载时该插件名下未完成的调用按 `plugin_unloaded` 结算，
+  停机时全部未完成请求按 `host_stopped` 结算，然后才发停止事件 —— 宿主不会一直挂着。
+- **取消**：C ABI 侧由 `musicxx_extern_plugin_request_cancel` 完成，立刻以 `canceled` 结算；
+  晚到的应答丢弃；请求不存在返回 OK（幂等）。
+- 这些规则在 `cxx_pluginxx/host/ffi_bridge.h` 有一份共用实现（事件队列 + 请求记账 + 跨堆字符串），
+  库内不放定时器：`nextDeadlineMs()` / `popExpired()` 由宿主用自己的事件循环驱动。
+
 ---
 
 ## 4. 能用的框架与应用能力
@@ -507,6 +521,18 @@ co_await kindRegister(R"({
 })");
 // 配套：co_await kindUnregister("python") / co_await kindList()
 ```
+
+**预置形态的归属**（与 agentxx 共用同一张表，实现在 `cxx_pluginxx/host/kind_registry.h`）：
+
+| 形态 | 谁实现 | 能否被接管 | 接口代次对 |
+|---|---|---|---|
+| `native` | 插件框架 | **不能**（换不了加载 / 卸载） | 跟随插件 ABI |
+| `js` | 框架内置运行器 | **能**（登记同名形态 + 覆盖预置标记） | 由注册方给，撤销后回到内置那一份 |
+| 其它 | 插件 | — | 由注册方给 |
+
+接管只用于**解释执行**的形态；`native` 的加载与卸载不允许换出去。撤销接管后回到预置实现，
+而不是变成"未登记形态"。框架对外的支持集就是当前登记过的形态 + 各自的代次对；
+`plugin_inspect` 对未登记形态给 `kindKnown = false`，不会猜。
 
 登记之后：
 
