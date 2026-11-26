@@ -42,7 +42,7 @@ class MusicxxPluginApiVersionException implements Exception {
 
   @override
   String toString() =>
-      'musicxx_extern_plugin C ABI 版本不匹配: 原生库=$nativeVersion, Dart 侧期望=$expectedVersion';
+      'musicxx_extern_plugin C ABI version mismatch: native=$nativeVersion, expected=$expectedVersion';
 }
 
 /// 已加载的原生插件框架库（`DynamicLibrary` + 生成的绑定）
@@ -265,7 +265,7 @@ class MusicxxPluginNativeLibrary {
       }
     }
     throw MusicxxPluginLibraryException(
-      '无法加载 musicxx_extern_plugin 原生插件框架库$hintForPlatform():',
+      'cannot load the musicxx_extern_plugin native library$hintForPlatform():',
       attempted: attempted,
       causes: causes,
     );
@@ -288,25 +288,27 @@ class MusicxxPluginNativeLibrary {
   static String hintForPlatform() {
     if (Platform.isAndroid) {
       // Android 不允许从应用数据目录加载动态库，插件框架库必须随 APK 分发到 lib/<abi>/
-      return '（Android 需要插件框架库随 APK 分发：重新打包安装即可 —— android/build.gradle 会自动交叉编译'
-          '缺失的 ABI；也可以先手工构建 '
-          'pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>，'
-          '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+      return '(Android needs the native library inside the APK: rebuild and reinstall — '
+          'android/build.gradle builds the missing ABI automatically; you can also build it '
+          'by hand with pwsh -NoProfile -File tools/build_native.ps1 -Android -Abi <abi>, or '
+          'point MUSICXX_EXTERN_PLUGIN_LIBRARY at a path)';
     }
     if (Platform.isIOS) {
       // iOS 只允许加载应用包内、与主程序同签名身份的动态库，插件框架库必须随 .app 分发
-      return '（iOS 需要插件框架库随应用包分发：flutter build ios 会自动构建并把它复制进'
-          ' Runner.app/Frameworks（主程序 ios/tool/embed_extern_plugin_dylib.sh）；'
-          '也可以先手工跑 tools/build_native.sh --ios（模拟器加 --ios-simulator），'
-          '或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+      return '(iOS needs the native library inside the app bundle: flutter build ios builds it and '
+          'copies it into Runner.app/Frameworks (ios/tool/embed_extern_plugin_dylib.sh); you can '
+          'also run tools/build_native.sh --ios (add --ios-simulator for the simulator) or point '
+          'MUSICXX_EXTERN_PLUGIN_LIBRARY at a path)';
     }
     if (Platform.isMacOS || Platform.isLinux) {
-      return '（flutter build 会自动构建插件框架库并放进应用包（构建脚本的自动模式 tools/build_native.sh --auto；'
-          'macOS 由主程序的 macos/Runner 构建阶段复制到 Contents/Frameworks）；'
-          '也可以手工跑 tools/build_native.sh，或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+      return '(flutter build builds the native library and puts it into the app bundle (auto mode '
+          'tools/build_native.sh --auto; on macOS the macos/Runner build phase copies it into '
+          'Contents/Frameworks)); you can also run tools/build_native.sh by hand or point '
+          'MUSICXX_EXTERN_PLUGIN_LIBRARY at a path)';
     }
-    return '（flutter build 会自动构建插件框架库（tools/build_native.ps1 -Auto）；'
-        '也可以手工跑 tools/build_native.ps1，或用 MUSICXX_EXTERN_PLUGIN_LIBRARY 指定路径）';
+    return '(flutter build builds the native library automatically (tools/build_native.ps1 -Auto); '
+        'you can also run tools/build_native.ps1 by hand or point MUSICXX_EXTERN_PLUGIN_LIBRARY '
+        'at a path)';
   }
 
   @override

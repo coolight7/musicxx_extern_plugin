@@ -88,7 +88,7 @@ MusicxxManifestFields readManifestFields(const std::filesystem::path &pluginDir)
     }
     fields.yamlOk = true;
   } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的清单失败: {}",
+    XX_LOGW("[musicxx_ext] failed to read manifest of plugin `{}`: {}",
             pluginDir.string(), e.what());
   }
   return fields;
@@ -109,7 +109,7 @@ void readManifestDepends(const std::filesystem::path &pluginDir,
     readList(node, "depends", depends);
     readList(node, "optional_depends", optionalDepends);
   } catch (const std::exception &e) {
-    XX_LOGW("[musicxx_ext] 读取插件 `{}` 的依赖声明失败: {}",
+    XX_LOGW("[musicxx_ext] failed to read dependency declaration of plugin `{}`: {}",
             pluginDir.string(), e.what());
   }
 }

@@ -39,7 +39,7 @@ abstract final class MusicxxPluginVersion {
   static String get commitUrl =>
       commit.isEmpty ? repositoryUrl : '$repositoryUrl/commit/$commit';
 
-  /// 一行说明（例 `2026.1011.1（2026-10-11 · commit fc9c89a）`）
+  /// 一行说明（例 `2026.1011.1 (2026-10-11, commit fc9c89a)`）
   static String get describe =>
-      commit.isEmpty ? '$version（$date）' : '$version（$date · commit $commit）';
+      commit.isEmpty ? '$version ($date)' : '$version ($date, commit $commit)';
 }

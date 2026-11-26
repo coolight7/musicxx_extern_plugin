@@ -6,6 +6,7 @@ import 'bindings_generated.dart';
 import 'events.dart';
 import 'native_strings.dart';
 import 'runtime.dart';
+
 /// 应用实现的能力的处理器：接收插件参数，返回结果（JSON 可序列化）
 typedef MusicxxPluginAppCapabilityHandler =
     Object? Function(MusicxxPluginAppCapabilityInvocation invocation);
@@ -166,7 +167,8 @@ class MusicxxPluginAppCapabilities {
       respond(
         requestId,
         status: MusicxxPluginResultCode_c.notFound,
-        error: '应用能力没有注册: $capability（看 musicxx.capability.list 里有什么）',
+        error:
+            'app capability is not registered: $capability (see musicxx.capability.list)',
         errorName: 'no_impl',
       ).ignore();
       return;
@@ -218,7 +220,7 @@ class MusicxxPluginAppCapabilities {
     _runtime
         .log(
           3,
-          '应用能力请求被取消: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
+          'app capability request canceled: #${event.intOf('requestId')} (${event.stringOf('reason') ?? ''})',
         )
         .ignore();
   }

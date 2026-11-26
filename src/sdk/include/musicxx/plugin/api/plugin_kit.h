@@ -190,7 +190,7 @@ bool featurePointValueOf(const T& raw, utilxx_base::Json& out) {
     } else {
         static_assert(std::is_convertible_v<RawT, std::string_view> ||
                           std::is_same_v<RawT, utilxx_base::Json>,
-                      "featurePointProvide: 处理函数必须返回 Json, 或字符串/数字/布尔");
+                      "featurePointProvide: the handler must return Json, or a string/number/boolean");
         return false;
     }
 }
@@ -359,7 +359,7 @@ public:
     asio::awaitable<std::string> netCall(
         std::string_view op, std::string_view argsJson = "{}") {
         if (!netAvailable()) {
-            throw std::runtime_error("musicxx.net 表不可用: 网络能力未生效");
+            throw std::runtime_error("musicxx.net table unavailable: network capability is not enabled");
         }
         std::string opText{op};
         std::string argsText{argsJson.empty() ? "{}" : argsJson};
@@ -455,7 +455,7 @@ public:
         std::string id = capabilityId ? capabilityId : "";
         std::string tag = ownerTag ? ownerTag : "";
         if (!iface.capabilities || !iface.capabilities->unregister_capability) {
-            throw std::runtime_error("musicxx.capabilities 表不可用");
+            throw std::runtime_error("musicxx.capabilities table unavailable");
         }
         co_await tableVoid([this, id, tag](PluginxxOperatorCallback cb, void* ud,
                                            PluginxxString* err) {
@@ -575,7 +575,7 @@ public:
     asio::awaitable<std::string> capabilityCall(
         std::string_view capability, std::string_view argsJson = "{}") {
         if (!iface.capabilities || !iface.capabilities->invoke_capability) {
-            throw std::runtime_error("musicxx.capabilities 表不可用");
+            throw std::runtime_error("musicxx.capabilities table unavailable");
         }
         std::string cap{capability};
         std::string args{argsJson.empty() ? "{}" : argsJson};
@@ -1064,7 +1064,7 @@ protected:
                 } else {
                     static_assert(
                         std::is_invocable_v<FnT&, std::string_view>,
-                        "能力处理器必须能用 (method, args) / (args) / (args, out) 调用");
+                        "capability handler must be callable as (method, args) / (args) / (args, out)");
                 }
                 return nullptr;
             } catch (const std::exception& e) {
@@ -1122,7 +1122,7 @@ protected:
         std::string_view topic, Fn&& fn, EndFn&& onEnd,
         std::string_view optionsJson) {
         if (!iface.broadcasts) {
-            throw std::runtime_error("musicxx.broadcasts 表不可用");
+            throw std::runtime_error("musicxx.broadcasts table unavailable");
         }
         auto holder = std::make_shared<EventHolder>();
         holder->onEvent = [fn = std::decay_t<Fn>(std::forward<Fn>(fn))](
@@ -1170,7 +1170,7 @@ protected:
                                                 int32_t priority, int32_t phase,
                                                 Fn&& fn) {
         if (!iface.capabilities || !iface.capabilities->register_capability) {
-            throw std::runtime_error("musicxx.capabilities 表不可用");
+            throw std::runtime_error("musicxx.capabilities table unavailable");
         }
         using FnT = std::decay_t<Fn>;
         auto holder = std::make_shared<HandlerHolder<FnT>>(
@@ -1312,7 +1312,7 @@ inline void runLifecycleEntry(Ctx&                          ctx,
                 finish(rc == 0 ? PLUGINXX_OPERATOR_OK : PLUGINXX_OPERATOR_FAILED,
                        rc == 0 ? std::string{}
                                : std::string{label ? label : "lifecycle"} +
-                                     ": 事务返回失败");
+                                     ": transaction failed");
             }
         } catch (const std::exception& e) {
             finish(PLUGINXX_OPERATOR_FAILED, e.what());

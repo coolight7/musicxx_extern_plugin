@@ -538,21 +538,25 @@ class MusicxxPluginManager {
     }
     _refreshRunning = true;
     unawaited(
-      list()
-          .catchError((Object _) => const <MusicxxPluginInfo>[])
-          .whenComplete(() {
-            _refreshRunning = false;
-            if (_refreshQueued) {
-              _refreshQueued = false;
-              scheduleRefresh();
-            }
-          }),
+      list().catchError((Object _) => const <MusicxxPluginInfo>[]).whenComplete(
+        () {
+          _refreshRunning = false;
+          if (_refreshQueued) {
+            _refreshQueued = false;
+            scheduleRefresh();
+          }
+        },
+      ),
     );
   }
 
   void _requireRunning(String operation) {
     if (!_runtime.isRunning) {
-      throw MusicxxPluginApiException(-2, '插件框架未启动', operation: operation);
+      throw MusicxxPluginApiException(
+        -2,
+        'plugin host is not running',
+        operation: operation,
+      );
     }
   }
 
@@ -563,7 +567,9 @@ class MusicxxPluginManager {
     final MusicxxPluginRequestError? error = result.error;
     throw MusicxxPluginApiException(
       error?.code ?? MusicxxPluginResultCode_c.internal,
-      (error?.message.isNotEmpty ?? false) ? error!.message : '插件框架未给出原因',
+      (error?.message.isNotEmpty ?? false)
+          ? error!.message
+          : 'the plugin host gave no reason',
       operation: operation,
     );
   }

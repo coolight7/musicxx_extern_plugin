@@ -86,7 +86,7 @@ std::string joinText(const std::vector<std::string> &values) {
   std::string text;
   for (const std::string &value : values) {
     if (!text.empty()) {
-      text += "、";
+      text += ", ";
     }
     text += value;
   }
@@ -118,17 +118,17 @@ std::string describeMissingTargets(const pluginxx::PluginxxTargets &targets,
         break;
       }
     }
-    return "分支 `" + branchDir + "` 里没有可加载的库文件";
+    return "no loadable library in branch `" + branchDir + "`";
   }
   std::string tags;
   for (const pluginxx::PluginxxTarget &target : targets.all) {
     if (!tags.empty()) {
-      tags += "、";
+      tags += ", ";
     }
     tags += target.tag;
   }
-  return "包内没有匹配当前系统/架构的分支 (当前 " + targetOs + "/" + targetArch +
-         "，包内分支: " + tags + ")";
+  return "no branch matches the current os/arch (current " + targetOs + "/" +
+         targetArch + ", branches in package: " + tags + ")";
 }
 
 std::string inspectToJson(const MusicxxPluginInspect &info) {  using utilxx_base::Json;
@@ -210,7 +210,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   std::error_code ec;
   if (!fs::is_directory(pluginDir, ec)) {
     info.valid = false;
-    info.error = "插件目录不存在";
+    info.error = "plugin directory does not exist";
     return info;
   }
 
@@ -223,7 +223,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
       pluginDir, name, entry, depends, optionalDepends, nullptr, nullptr);
   if (!manifestOk || name.empty()) {
     info.valid = false;
-    info.error = "plugin.yaml 解析失败 (缺少 name 或 YAML 非法)";
+    info.error = "failed to parse plugin.yaml (missing name or invalid YAML)";
     return info;
   }
   const MusicxxManifestFields fields = readManifestFields(pluginDir);
@@ -291,8 +291,8 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
 
   if (!kindKnown) {
     info.supported = false;
-    info.reason = "没有运行器声明支持插件形态 `" + info.kind +
-                  "` (先安装并启用提供该运行环境的插件)";
+    info.reason = "no runner declares support for plugin kind `" + info.kind +
+                  "` (install and enable a plugin that provides this runtime)";
   }
 
   // 静态可用性（不含运行期开关：JS
@@ -300,20 +300,20 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   if (info.supported && !info.platforms.empty() &&
       !declaresTarget(info.platforms, targetOs, pluginxx::normalizeTargetOs)) {
     info.supported = false;
-    info.reason = "当前平台不在清单声明内 (当前 " + targetOs +
-                  "，清单声明: " + joinText(info.platforms) + ")";
+    info.reason = "current platform is not in the manifest declaration (current " +
+                  targetOs + ", declared: " + joinText(info.platforms) + ")";
   }
   if (info.supported && !info.arch.empty() &&
       !declaresTarget(info.arch, targetArch, pluginxx::normalizeTargetArch)) {
     info.supported = false;
-    info.reason = "当前架构不在清单声明内 (当前 " + targetArch +
-                  "，清单声明: " + joinText(info.arch) + ")";
+    info.reason = "current arch is not in the manifest declaration (current " +
+                  targetArch + ", declared: " + joinText(info.arch) + ")";
   }
   if (info.supported && kindKnown && minInterfaceVersion > 0 &&
       info.apiVersion < minInterfaceVersion) {
     info.supported = false;
-    info.reason = "插件声明的 API 版本低于该运行环境支持的最低版本 (最低 " +
-                  std::to_string(minInterfaceVersion) + ", 插件声明 " +
+    info.reason = "plugin API version is below the minimum of this runtime (minimum " +
+                  std::to_string(minInterfaceVersion) + ", declared " +
                   std::to_string(info.apiVersion) + ")";
   }
   if (info.supported && info.kind == "native" &&
@@ -322,7 +322,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     const std::string missing =
         describeMissingTargets(info.targets, targetOs, targetArch);
     info.reason = missing.empty()
-                      ? ("动态库插件库文件缺失 (entry=" + entry + ")")
+                      ? ("native plugin library is missing (entry=" + entry + ")")
                       : missing;
   }
   if (info.supported && info.kind == "js") {
@@ -335,7 +335,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
     }
     if (!missing.empty()) {
       info.supported = false;
-      info.reason = "JS插件缺少脚本文件: " + missing;
+      info.reason = "JS plugin is missing its scripts: " + missing;
     }
   }
   return info;

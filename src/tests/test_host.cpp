@@ -1306,7 +1306,7 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
     const std::string item = scanPluginItem(host, root.string(), "tgt_multi");
     checkText(item.find("\"supported\":false") != std::string::npos,
               "包内没有匹配分支且根目录也没有库文件时判为不可用");
-    checkText(item.find("包内没有匹配当前系统/架构的分支") != std::string::npos,
+    checkText(item.find("no branch matches the current os/arch") != std::string::npos,
               "不可用原因写明没有匹配的分支, 并列出包内分支");
   }
   removePath(root);
@@ -1352,7 +1352,7 @@ void testPluginTargetLayout(MusicxxExternPluginHost *host,
         scanPluginItem(host, emptyRoot.string(), "tgt_empty");
     checkText(item.find("\"supported\":false") != std::string::npos,
               "分支里没有库文件时判为不可用");
-    checkText(item.find("没有可加载的库文件") != std::string::npos,
+    checkText(item.find("no loadable library in branch") != std::string::npos,
               "不可用原因说明分支里没有库文件");
     removePath(emptyRoot);
   }
@@ -1513,7 +1513,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     const std::string missing = inspect(pkg.string(), missingOs, missingArch);
     checkText(missing.find("\"supported\":false") != std::string::npos,
               "plugin_inspect 对没有匹配分支的环境判为不可用");
-    checkText(missing.find("没有匹配当前系统/架构的分支") != std::string::npos,
+    checkText(missing.find("no branch matches the current os/arch") != std::string::npos,
               "plugin_inspect 给出没有匹配分支的原因");
   }
   removePath(root);
@@ -1552,7 +1552,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     const std::string mismatch = inspect(pkgDir, otherOs, testArch());
     checkText(mismatch.find("\"supported\":false") != std::string::npos,
               "换成别的平台后判为不可用");
-    checkText(mismatch.find("当前平台不在清单声明内") != std::string::npos &&
+    checkText(mismatch.find("current platform is not in the manifest declaration") != std::string::npos &&
                   mismatch.find(otherOs) != std::string::npos,
               "不可用原因写明平台不在声明内，并给出目标环境");
     removePath(declaredRoot);
@@ -1592,8 +1592,8 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     const std::string arm64Info = inspect(armPkg, "android", "arm64");
     checkText(arm64Info.find("\"supported\":false") != std::string::npos,
               "只声明 32 位 ARM 的插件在 arm64 环境判为不可用");
-    checkText(arm64Info.find("当前架构不在清单声明内") != std::string::npos &&
-                  arm64Info.find("当前 arm64") != std::string::npos,
+    checkText(arm64Info.find("current arch is not in the manifest declaration") != std::string::npos &&
+                  arm64Info.find("current arm64") != std::string::npos,
               "架构不匹配的原因写明当前架构与清单声明");
     removePath(armRoot);
   }
@@ -1638,7 +1638,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
         inspect((jsLowRoot / "tgt_js_low").string(), "", "");
     checkText(lowInfo.find("\"supported\":false") != std::string::npos,
               "JS 插件声明 api_version 0 (低于形态下限) 判为不可用");
-    checkText(lowInfo.find("最低 3") != std::string::npos,
+    checkText(lowInfo.find("minimum 3") != std::string::npos,
               "不可用原因给出该运行环境的最低接口代次");
     removePath(jsLowRoot);
   }
@@ -1654,7 +1654,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
               "未登记的形态被标成 kindKnown=false");
     checkText(kindInfo.find("\"supported\":false") != std::string::npos,
               "未登记的形态判为不可用");
-    checkText(kindInfo.find("没有运行器声明支持插件形态") != std::string::npos,
+    checkText(kindInfo.find("no runner declares support for plugin kind") != std::string::npos,
               "未登记的形态说明要先安装提供它的插件");
     removePath(kindRoot);
   }
@@ -1667,7 +1667,7 @@ void testPluginInspect(MusicxxExternPluginHost *host,
     checkText(!missingInfo.empty(), "plugin_inspect 对不存在的目录也有出参");
     checkText(missingInfo.find("\"valid\":false") != std::string::npos,
               "plugin_inspect 对不存在的目录判 valid=false");
-    checkText(missingInfo.find("插件目录不存在") != std::string::npos,
+    checkText(missingInfo.find("plugin directory does not exist") != std::string::npos,
               "plugin_inspect 说明目录不存在");
   }
 
@@ -3677,7 +3677,7 @@ int main(int argc, char **argv) {
     check(rc != PLUGINXX_RESULT_OK, "缺 destroy 入口的库被拒绝加载");
     check(rc != PLUGINXX_RESULT_ERR_TIMEOUT,
           "拒绝是明确失败而非挂住超时");
-    check(errText.find("入口符号") != std::string::npos,
+    check(errText.find("entry symbol") != std::string::npos,
           "失败原因指向缺失的入口符号");
     std::printf("  [info] bad-entry rc=%d log=%s\n", rc, errText.c_str());
 

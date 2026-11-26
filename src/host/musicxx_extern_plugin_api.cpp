@@ -183,8 +183,9 @@ musicxx_extern_plugin_host_create(const MusicxxExternPluginHostConfig *cfg,
       [&]() -> MusicxxExternPluginHost * {
         bool expected = false;
         if (!hostAliveFlag().compare_exchange_strong(expected, true)) {
-          setErr(log, "host_create: 本进程已有插件框架实例 (框架运行时是进程单例) —— "
-                      "其它 isolate / 线程请复用它的句柄");
+          setErr(log, "host_create: this process already has a plugin framework instance "
+                      "(the runtime is a process singleton) - "
+                      "other isolates / threads must reuse its handle");
           return nullptr;
         }
         auto handle = std::make_unique<HostHandle>();
@@ -218,7 +219,7 @@ musicxx_extern_plugin_host_start(MusicxxExternPluginHost *h,
                                if (acceptRc != PLUGINXX_RESULT_OK) {
                                  return rejectWith(
                                      acceptRc, log,
-                                     "host_start: 事件队列已满, 拒绝受理");
+                                     "host_start: event queue is full, request rejected");
                                }
                                /// 起线程必须就地做: 框架线程此时还没有跑, 投递过去没人执行。
                                /// 这一步只是建线程与登记内置提供者, 不加载插件。
@@ -258,7 +259,7 @@ musicxx_extern_plugin_host_shutdown(MusicxxExternPluginHost *h,
                                if (acceptRc != PLUGINXX_RESULT_OK) {
                                  return rejectWith(
                                      acceptRc, log,
-                                     "host_shutdown: 事件队列已满, 拒绝受理");
+                                     "host_shutdown: event queue is full, request rejected");
                                }
                                /// 关线程必须就地做 (关的就是框架线程, 投递过去会等自己)。
                                /// 结果在两条线程都停好之后才回。
@@ -439,7 +440,7 @@ musicxx_extern_plugin_plugin_inspect(MusicxxExternPluginHost *h,
   }
   const std::string dirText = viewToStd(dir);
   if (dirText.empty()) {
-    setErr(log, "plugin_inspect: dir 不能为空");
+    setErr(log, "plugin_inspect: dir must not be empty");
     return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string osText = viewToStd(os);
@@ -783,7 +784,7 @@ musicxx_extern_plugin_capability_app_respond(
         const int32_t rc =
             mgr->respondAppCapability(request_id, status, result);
         if (rc != PLUGINXX_RESULT_OK) {
-          return RequestOutcome::fail(rc, "capability_app_respond: 未知 requestId",
+          return RequestOutcome::fail(rc, "capability_app_respond: unknown requestId",
                                       "not_found");
         }
         return RequestOutcome::ok();
@@ -828,7 +829,7 @@ musicxx_extern_plugin_broadcast_publish(
         const int32_t rc = mgr->broadcastPublish(topicText, payload);
         if (rc != PLUGINXX_RESULT_OK) {
           return RequestOutcome::fail(
-              rc, "broadcast_publish: 主题必须是 musicxx.* 或 plugin.<pluginId>.*");
+              rc, "broadcast_publish: topic must be musicxx.* or plugin.<pluginId>.*");
         }
         return RequestOutcome::ok();
       },
@@ -857,11 +858,11 @@ musicxx_extern_plugin_broadcast_read(MusicxxExternPluginHost *h,
         }
         if (!mgr->broadcasts()->declares(idText)) {
           return RequestOutcome::fail(PLUGINXX_RESULT_ERR_NOT_FOUND,
-                                      "频道未声明 (" + idText + ")",
+                                      "broadcast channel is not declared (" + idText + ")",
                                       "not_declared");
         }
         return RequestOutcome::fail(PLUGINXX_RESULT_ERR_ARG,
-                                    "频道没有当前值 (" + idText + ")",
+                                    "broadcast channel has no current value (" + idText + ")",
                                     "no_value");
       },
       out_request_id);
@@ -973,11 +974,11 @@ musicxx_extern_plugin_ui_request(MusicxxExternPluginHost *h,
   const int32_t rc = handle->manager->requestUiContent(contentId, context,
                                                        out_request_id);
   if (rc == PLUGINXX_RESULT_ERR_NOT_FOUND) {
-    setErr(log, "ui_request: 没有这份内容 (" + contentId + ")");
+    setErr(log, "ui_request: no such content (" + contentId + ")");
     return rc;
   }
   if (rc != PLUGINXX_RESULT_OK) {
-    setErr(log, "ui_request: 插件生成失败 (" + contentId + ")");
+    setErr(log, "ui_request: plugin failed to generate the content (" + contentId + ")");
     return rc;
   }
   return PLUGINXX_RESULT_OK;
@@ -1001,7 +1002,7 @@ musicxx_extern_plugin_broadcast_watch(MusicxxExternPluginHost *h,
         const int32_t rc = mgr->watchBroadcast(topic, watch != 0);
         if (rc != PLUGINXX_RESULT_OK) {
           return RequestOutcome::fail(
-              rc, "广播频道 id 形状不合法 (" + topic + ")",
+              rc, "broadcast channel id has an invalid shape (" + topic + ")",
               "invalid_argument");
         }
         return RequestOutcome::ok();

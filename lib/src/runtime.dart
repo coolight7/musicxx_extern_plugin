@@ -128,7 +128,7 @@ class MusicxxPluginApiException implements Exception {
   @override
   String toString() =>
       'musicxx_extern_plugin ${operation.isEmpty ? '' : '$operation '}'
-      '失败 (code=$code): $message';
+      'failed (code=$code): $message';
 }
 
 /// 外部插件框架运行时
@@ -218,7 +218,7 @@ class MusicxxPluginRuntime {
   int get droppedEvents => _droppedEvents;
 
   /// 原生库诊断信息（路径/库版本）
-  String get libraryPath => _library?.path ?? '(未加载)';
+  String get libraryPath => _library?.path ?? '(not loaded)';
 
   /// 插件框架能力位图（老插件框架库上没有 `feature_bits` 这个符号时为空）
   int? get featureBits => _library?.featureBits;
@@ -230,7 +230,7 @@ class MusicxxPluginRuntime {
   List<String> get missingFeatures {
     final int? bits = featureBits;
     if (bits == null) {
-      return const <String>['feature_bits(插件框架库过旧)'];
+      return const <String>['feature_bits (native library is too old)'];
     }
     final List<String> missing = <String>[];
     const List<(String, int)> known = <(String, int)>[
@@ -254,9 +254,9 @@ class MusicxxPluginRuntime {
     if (missing.isEmpty) {
       return '';
     }
-    return '插件框架库缺少能力: ${missing.join(', ')}；'
-        '请重新构建插件框架库（flutter build 会自动重建，也可以手工跑 '
-        'pwsh tools/build_native.ps1，Linux/macOS 用 tools/build_native.sh）';
+    return 'the native library is missing features: ${missing.join(', ')}; '
+        'rebuild it (flutter build does it automatically, or run '
+        'tools/build_native.ps1 on Windows / tools/build_native.sh on Linux/macOS)';
   }
 
   /// 初始化插件框架（幂等：重复调用直接返回）
@@ -272,7 +272,9 @@ class MusicxxPluginRuntime {
       return;
     }
     if (_disposed) {
-      throw StateError('MusicxxPluginRuntime 已 dispose，不能再次 init');
+      throw StateError(
+        'MusicxxPluginRuntime is disposed; create a new instance before init',
+      );
     }
     _library = MusicxxPluginNativeLibrary.open(
       path: libraryPath,
@@ -366,7 +368,7 @@ class MusicxxPluginRuntime {
       _host = nullptr;
       throw MusicxxPluginApiException(
         started.error?.code ?? MusicxxPluginResultCode_c.internal,
-        started.error?.message ?? 'host_start 失败',
+        started.error?.message ?? 'host_start failed',
         operation: 'host_start',
       );
     }
@@ -431,14 +433,16 @@ class MusicxxPluginRuntime {
   MusicxxExternPluginBindings get bindings {
     final MusicxxPluginNativeLibrary? library = _library;
     if (library == null) {
-      throw StateError('MusicxxPluginRuntime 尚未 init');
+      throw StateError('MusicxxPluginRuntime is not initialized');
     }
     return library.bindings;
   }
 
   Pointer<MusicxxExternPluginHost> get host {
     if (_host == nullptr) {
-      throw StateError('MusicxxPluginRuntime 尚未 init 或已 dispose');
+      throw StateError(
+        'MusicxxPluginRuntime is not initialized or already disposed',
+      );
     }
     return _host;
   }
@@ -480,7 +484,7 @@ class MusicxxPluginRuntime {
     final String message = takeOutString(log, bindings);
     throw MusicxxPluginApiException(
       rc,
-      message.isEmpty ? '插件框架未给出原因' : message,
+      message.isEmpty ? 'the plugin host gave no reason' : message,
       operation: operation,
     );
   }

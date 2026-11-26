@@ -118,7 +118,7 @@ class MusicxxThemeScopeData_c {
     void Function(String message)? warn,
   }) {
     if (json is! Map) {
-      warn?.call('data 不是对象（data 必须是 {组: {键: 颜色}} 的对象）');
+      warn?.call('data is not an object (expected {group: {key: color}})');
       return null;
     }
     final Map<String, int> colors = <String, int>{};
@@ -126,27 +126,31 @@ class MusicxxThemeScopeData_c {
       final String groupName = group.key is String ? group.key! as String : '';
       final List<String>? keys = MusicxxThemeScopeRole_c.groups[groupName];
       if (null == keys) {
-        warn?.call('data 里的 `$groupName` 不是已知的组（可用组：'
-            '${MusicxxThemeScopeRole_c.groups.keys.join(' / ')}）');
+        warn?.call(
+          'unknown group `$groupName` in data (known groups: '
+          '${MusicxxThemeScopeRole_c.groups.keys.join(' / ')})',
+        );
         continue;
       }
       final Object? value = group.value;
       if (value is! Map) {
-        warn?.call('data.$groupName 必须是对象（{键: 颜色}）');
+        warn?.call('data.$groupName must be an object ({key: color})');
         continue;
       }
       for (final MapEntry<Object?, Object?> entry in value.entries) {
         final String key = entry.key is String ? entry.key! as String : '';
         if (!keys.contains(key)) {
-          warn?.call('data.$groupName 里没有 `$key` 这个颜色（可用键：'
-              '${keys.join(' / ')}）');
+          warn?.call(
+            'data.$groupName has no color `$key` (known keys: '
+            '${keys.join(' / ')})',
+          );
           continue;
         }
         final int? color = parseColor(entry.value);
         if (null == color) {
           warn?.call(
-            'data.$groupName.$key 的颜色 `${entry.value}` 解析不出来'
-                '（要 #rrggbb 或 #aarrggbb）',
+            'cannot parse the color `${entry.value}` of data.$groupName.$key'
+            ' (expected #rrggbb or #aarrggbb)',
           );
           continue;
         }

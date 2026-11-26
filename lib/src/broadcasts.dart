@@ -74,10 +74,12 @@ class MusicxxPluginBroadcasts {
       ),
     );
     if (!result.ok) {
-      _runtime.log(
-        3,
-        'broadcast_publish($id) 失败: ${result.error?.message ?? ''}',
-      ).ignore();
+      _runtime
+          .log(
+            3,
+            'broadcast_publish($id) failed: ${result.error?.message ?? ''}',
+          )
+          .ignore();
       return false;
     }
     _lastPushed[id] = json;
@@ -142,10 +144,9 @@ class MusicxxPluginBroadcasts {
       ),
     );
     if (!result.ok) {
-      _runtime.log(
-        3,
-        'broadcast_list 失败: ${result.error?.message ?? ''}',
-      ).ignore();
+      _runtime
+          .log(3, 'broadcast_list failed: ${result.error?.message ?? ''}')
+          .ignore();
       return const <Map<String, Object?>>[];
     }
     final Object? items = result.dataObject['broadcasts'];

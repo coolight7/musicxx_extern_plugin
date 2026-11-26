@@ -134,7 +134,7 @@ class MusicxxPluginRequests {
           error: const MusicxxPluginRequestError(
             code: -2,
             reason: 'invalid_state',
-            message: '插件框架未启动',
+            message: 'plugin host is not running',
           ),
         ),
       );
@@ -168,7 +168,8 @@ class MusicxxPluginRequests {
             error: const MusicxxPluginRequestError(
               code: -2,
               reason: 'invalid_state',
-              message: '插件框架没有给出 requestId（无法配对结果）',
+              message:
+                  'the native host returned no request id (cannot match the result)',
             ),
           ),
         );
@@ -191,7 +192,8 @@ class MusicxxPluginRequests {
               error: const MusicxxPluginRequestError(
                 code: -5,
                 reason: 'timeout',
-                message: '等待插件框架的结果超时（结果晚到丢弃）',
+                message:
+                    'timed out waiting for the plugin host (a late result is dropped)',
               ),
             ),
           );
@@ -290,7 +292,7 @@ class MusicxxPluginRequests {
           reason: error['reason'] is String ? error['reason']! as String : '',
           message: error['message'] is String
               ? error['message']! as String
-              : '插件框架没有给出原因',
+              : 'the plugin host gave no reason',
         ),
       ),
     );
@@ -313,7 +315,7 @@ class MusicxxPluginRequests {
           error: MusicxxPluginRequestError(
             code: -2,
             reason: 'host_stopped',
-            message: '插件框架已停止，请求未完成',
+            message: 'the plugin host stopped before the request finished',
           ),
         ),
       );
@@ -322,7 +324,7 @@ class MusicxxPluginRequests {
 
   String _messageOf(Pointer<MusicxxExternPluginString> log) {
     final String message = takeOutString(log, _runtime.bindings);
-    return message.isEmpty ? '插件框架未给出原因' : message;
+    return message.isEmpty ? 'the plugin host gave no reason' : message;
   }
 
   /// 结果码名称：查原生导出的码表（不在这里另抄一份）

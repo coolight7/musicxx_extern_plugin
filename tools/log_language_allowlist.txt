@@ -7,10 +7,20 @@
 #
 # 收尾方式（按优先级）：先改会被搬到 cxx_pluginxx 的实现（搬过去必须英文），
 # 再改框架核心（src/host/*.cpp），最后改示例插件与测试夹具。
-lib\src\requests.dart
-lib\src\runtime.dart
-lib\src\ui_theme.dart
-lib\src\version.dart
+
+# --- 框架核心：JS 引擎内置的脚本层（整段嵌在一个裸字符串里，逐条改） ---
+src\host\js\js_engine.cpp
+
+# --- 声明式界面层：本任务会整份搬到 cxx_pluginxx，搬过去时一起改成英文 ---
+src\host\musicxx_host_ui.cpp
+
+# --- 管理页展示文案：由主程序页面直接渲染给人看，属于本地化文案而不是日志。
+# 要翻译得先让主程序按语言给文案（`Langs`），否则中文界面里会冒出英文标签。 ---
+lib\src\plugin_info.dart
+lib\src\plugin_inspect.dart
+lib\src\plugin_target.dart
+
+# --- 示例插件与测试夹具（给插件开发者看的 demo，界面文案是中文） ---
 plugins\example_ftp_source\ftp.js
 plugins\example_ftp_source\plugin.js
 plugins\example_ftp_source\proxy.js
@@ -37,19 +47,3 @@ plugins\example_native_bad_entry\example_native_bad_entry.cpp
 plugins\example_native_fail\example_native_fail.cpp
 plugins\example_native_multi\example_native_multi.cpp
 plugins\example_override_media_source\plugin.js
-src\host\host_inspect.cpp
-src\host\host_manifest.cpp
-src\host\js\js_engine.cpp
-src\host\musicxx_extern_plugin_api.cpp
-src\host\musicxx_host.cpp
-src\host\musicxx_host_tables.cpp
-src\host\musicxx_host_ui.cpp
-src\sdk\include\musicxx\plugin\api\plugin_kit.h
-lib\src\app_capabilities.dart
-lib\src\broadcasts.dart
-lib\src\capabilities.dart
-lib\src\manager.dart
-lib\src\native_library.dart
-lib\src\plugin_info.dart
-lib\src\plugin_inspect.dart
-lib\src\plugin_target.dart

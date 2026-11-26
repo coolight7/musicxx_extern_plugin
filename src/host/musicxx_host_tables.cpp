@@ -198,18 +198,18 @@ int32_t MusicxxHostManager::registerHandler(
   }
   const int32_t phase = spec.phase;
   if (!isValidPhase(phase)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 被拒绝: 阶段 {} 不合法",
+    XX_LOGW("[musicxx_ext] registration by plugin `{}` of `{}` rejected: invalid phase {}",
             inst->name, capabilityId, phase);
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册 `{}` 被拒绝: 实例正在关闭或已禁用",
+    XX_LOGW("[musicxx_ext] registration by plugin `{}` of `{}` rejected: instance is unloading or disabled",
             inst->name, capabilityId);
     return PLUGINXX_RESULT_ERR_STATE;
   }
   std::string reason;
   if (!checkRegistrable(capabilityId, phase, &reason)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册被拒绝: {}", inst->name, reason);
+    XX_LOGW("[musicxx_ext] registration by plugin `{}` rejected: {}", inst->name, reason);
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
 
@@ -232,8 +232,8 @@ int32_t MusicxxHostManager::registerHandler(
   h.seq = ++handlerSeq_;
   handlers.push_back(h);
 
-  XX_LOGI("[musicxx_ext] 插件 `{}` 注册 `{}` (phase={}, priority={}, "
-          "当前处理器数={})",
+  XX_LOGI("[musicxx_ext] plugin `{}` registered `{}` (phase={}, priority={}, "
+          "handlers={})",
           inst->name, capabilityId, phaseNameOf(phase), spec.priority,
           handlers.size());
 
@@ -282,8 +282,8 @@ int32_t MusicxxHostManager::registerCapabilityHandler(
   h.spec.priority = priority;
   handlers.push_back(h);
 
-  XX_LOGI("[musicxx_ext] 插件 `{}` 通过能力表注册 `{}` (phase={}, "
-          "priority={}, 当前处理器数={})",
+  XX_LOGI("[musicxx_ext] plugin `{}` registered `{}` via the capability table "
+          "(phase={}, priority={}, handlers={})",
           inst->name, capabilityId, phaseNameOf(phase), priority, handlers.size());
   pushEvent("musicxx.capability.changed", h.pluginId,
             capabilityChangedPayloadJson(capabilityId, "register", h.pluginId));
@@ -329,7 +329,7 @@ int MusicxxHostManager::onCapabilityRowAdded(
   std::string reason;
   // 处理器只有一种形态 (结束时调一次 notify->done): 不再区分同步 / 异步
   if (spec.run_start == nullptr) {
-    reason = "capability `" + id + "` 缺少处理器（run_start 为空）";
+    reason = "capability `" + id + "` has no handler (run_start is null)";
     if (error) {
       *error = reason;
     }
@@ -448,7 +448,7 @@ void MusicxxHostManager::declareAppCapabilities() {
     decl.declaredBy.clear(); ///< 应用声明
     std::string error;
     if (!caps->declare(decl, &error)) {
-      XX_LOGW("[musicxx_ext] 能力 `{}` 声明失败: {}", entry.id, error);
+      XX_LOGW("[musicxx_ext] failed to declare capability `{}`: {}", entry.id, error);
     }
   }
 }
@@ -989,7 +989,7 @@ MusicxxHostManager::invokeHandler(const CapabilityHandler &handler,
     /// 失败与取消都只记统计 (不因为失败次数暂停派发): 这一轮按"没有意见"处理
     stat.failed = true;
     if (answer.first == PLUGINXX_OPERATOR_FAILED && !answer.second.empty()) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 的处理器 `{}` 失败: {}", handler.pluginId,
+      XX_LOGW("[musicxx_ext] handler `{}` for `{}` failed: {}", handler.pluginId,
               handler.capabilityId, answer.second);
     }
   }
@@ -1223,7 +1223,7 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
   int64_t requestId = 0;
   const int32_t acceptRc = acceptRequest("capability.dispatch", &requestId);
   if (acceptRc != PLUGINXX_RESULT_OK) {
-    err = "capability dispatch: 事件队列已满, 拒绝受理";
+    err = "capability dispatch: event queue is full, request rejected";
     return acceptRc;
   }
 
@@ -1262,7 +1262,7 @@ int32_t MusicxxHostManager::dispatchCapabilityPhase(
               self->completeRequest(requestId,
                                     RequestOutcome::fail(
                                         PLUGINXX_RESULT_ERR_INTERNAL,
-                                        "处理器链异常结束"));
+                                        "handler chain ended with an exception"));
             });
             co_return;
           }
@@ -1328,7 +1328,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
         it->second.notify->done(it->second.notify->host_ud,
                                 PLUGINXX_OPERATOR_CANCELED, nullptr);
       }
-      XX_LOGW("[musicxx_ext] 能力调用超时: plugin={} action={} id={}", pluginId,
+      XX_LOGW("[musicxx_ext] capability call timed out: plugin={} action={} id={}", pluginId,
               it->second.capability, requestId);
       Json payload;
       payload["requestId"] = requestId;
@@ -1376,7 +1376,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
           error["ok"] = false;
           error["error"] = "net_call_failed";
           error["message"] =
-              out.empty() ? "插件网络能力不可用" : std::move(out);
+              out.empty() ? "plugin network capability is unavailable" : std::move(out);
           result = error.dump();
         }
         /// 传输失败也按"请求完成"回答 (status 0, 结论在结果 JSON 的 ok 里),
@@ -1645,7 +1645,7 @@ PluginxxOperatorHandle *subscribeBroadcastFromTable(
   const std::string idText{id->data, static_cast<size_t>(id->size)};
   // 订阅只要求 id 形状合法 (可以订阅其它插件或官方频道); 发布才做归属校验
   if (mgr->qualifyEventTopic(idText).empty()) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 订阅非法广播 `{}` 被拒绝",
+    XX_LOGW("[musicxx_ext] subscribe to an illegal broadcast by plugin `{}` rejected: `{}`",
             call.instance()->name, idText);
     pluginxx::detail::setErrorString(errorOut,
                                      "subscribe_broadcast: illegal id");
@@ -1744,8 +1744,8 @@ PluginxxOperatorHandle *PLUGINXX_CALL xx_end_broadcast(
   const std::string pluginId =
       MusicxxHostManager::pluginIdOf(call.instance()->name);
   if (!isTopicOwnedBy(idText, pluginId)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 结束广播被拒绝: id `{}` "
-            "不属于该插件命名空间",
+    XX_LOGW("[musicxx_ext] end-broadcast by plugin `{}` rejected: id `{}` "
+            "is not in the plugin namespace",
             pluginId, idText);
     pluginxx::detail::setErrorString(
         errorOut, "end_broadcast: id is not in the plugin namespace");
@@ -1791,8 +1791,8 @@ PluginxxOperatorHandle *PLUGINXX_CALL xx_publish_broadcast(
   const std::string pluginId =
       MusicxxHostManager::pluginIdOf(call.instance()->name);
   if (!isTopicOwnedBy(idText, pluginId)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 发布广播被拒绝: id `{}` "
-            "不属于该插件命名空间",
+    XX_LOGW("[musicxx_ext] publish-broadcast by plugin `{}` rejected: id `{}` "
+            "is not in the plugin namespace",
             pluginId, idText);
     pluginxx::detail::setErrorString(
         errorOut, "publish_broadcast: id is not in the plugin namespace");
@@ -1886,7 +1886,7 @@ PluginxxOperatorHandle *PLUGINXX_CALL xx_kind_register(
         const int32_t rc = call.manager()->registerPluginKind(
             call.instance()->name, specText, error);
         if (rc != PLUGINXX_RESULT_OK) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 登记插件形态失败: {}",
+          XX_LOGW("[musicxx_ext] failed to register plugin kind for plugin `{}`: {}",
                   call.instance()->name, error);
           throw pluginxx::TableOpError(
               error.empty() ? "register_kind: rejected" : error);

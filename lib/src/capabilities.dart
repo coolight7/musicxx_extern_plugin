@@ -225,7 +225,7 @@ class MusicxxPluginCapabilities {
   /// 不关心什么时候跑完就 `.ignore()`。
   Future<void> notify(String id, [Object? payload]) async {
     if (null == MusicxxCapabilityCatalogue.broadcastOf(id)) {
-      throw ArgumentError('notify 只能用于广播: $id');
+      throw ArgumentError('notify is only valid for broadcasts: $id');
     }
     if (nativeHandlerCount(id) == 0 || !_runtime.isRunning) {
       return;
@@ -258,7 +258,9 @@ class MusicxxPluginCapabilities {
     MusicxxCapabilityPhase phase = MusicxxCapabilityPhase.impl,
   ]) async {
     if (null != MusicxxCapabilityCatalogue.broadcastOf(id)) {
-      throw ArgumentError('dispatch 不能用于广播: $id（广播用 notify）');
+      throw ArgumentError(
+        'dispatch cannot be used for a broadcast: $id (use notify)',
+      );
     }
     if (!active || !_runtime.isRunning) {
       return null;
