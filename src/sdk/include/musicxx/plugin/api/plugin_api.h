@@ -24,6 +24,7 @@
 #include "musicxx/plugin/api/capability_ids.g.h"
 #include "musicxx/plugin/api/ui_slots.g.h"
 #include "pluginxx/api/abi.h"
+#include "pluginxx/api/kinds.h"
 #include "pluginxx/api/net.h"
 #include "pluginxx/api/tables.h"
 
@@ -367,89 +368,24 @@ typedef struct MusicxxPluginUIIface {
     );
 } MusicxxPluginUIIface;
 
-/* ==================== 接口表: musicxx.kind (插件形态 / 运行器) ==================== */
+/* ==================== 接口表: <应用名>.kind (插件形态 / 运行器) ==================== */
 
-/// 插件框架自己只实现**动态库插件**与内置 JS 运行器；其它形态（以后的 Python 等）由
-/// 插件登记：声明"本插件提供 kind=X"，并交出一对能力（load / unload）。插件框架在扫描、
-/// 判定与加载 `kind: X` 的插件时都查这张表：
+/// 表本体在通用侧（子模块 `pluginxx/api/kinds.h`）：IID / 版本 / 基线与成员都只有一份，
+/// 注册表实现在 `pluginxx/host/kind_registry.h`。本头只保留 musicxx 侧的旧宏名与 typedef，
+/// 插件代码继续用 `MUSICXX_PLUGIN_IFACE_KIND*` / `MusicxxPluginKindIface`。
 ///
-/// - **判定**：没有登记的 `kind` 判为"当前跑不了"（用户会看到"先装运行器插件"）；
-/// - **每个形态有自己的接口代次对**（`interfaceVersion` / `minInterfaceVersion`）：清单的
-///   `api_version` 按它判（`>= 下限`）；内置 `native` 是 C 接口那一对（7/7），内置 `js` 是
-///   JS 接口那一对（3/3：删接口后下限一起抬）；
-/// - **校验**：可选的 `validateCapability` —— 加载前（以及主程序安装预检时）先问它
-///   "这个目录能不能作为这个形态跑"，它比框架更清楚这种插件长什么样；
-/// - **加载 / 卸载**：插件框架调登记时给的能力，`{"ok":true}` 表示接手成功。
-///
-/// 登记的形态跟着插件生命周期撤销（停用 / 卸载 / 关闭『拟声++』），不写磁盘。内置形态
-/// `native` / `js` 不能被覆盖。
-#define MUSICXX_PLUGIN_IFACE_KIND             "musicxx.kind"
+/// 语义（登记 / 撤销 / 列表、每个形态自己的接口代次对、可选的 `validateCapability`、
+/// 只能接管解释执行的自带形态）见通用头与 `docs/plugin-native-api.md` §4.3。
+
+#define MUSICXX_PLUGIN_IFACE_KIND               PLUGINXX_IFACE_KIND
 #ifdef __cplusplus
 static_assert(std::string_view(PLUGINXX_APP_ID("kind")) == MUSICXX_PLUGIN_IFACE_KIND);
 #endif
-#define MUSICXX_PLUGIN_IFACE_KIND_VERSION     2
-#define MUSICXX_PLUGIN_IFACE_KIND_MIN_VERSION 2
-/* 基线: 重置时 = 完整布局; 以后追加成员保持不变 (改为第一个追加成员的偏移) */
-#define MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE sizeof(MusicxxPluginKindIface)
+#define MUSICXX_PLUGIN_IFACE_KIND_VERSION       PLUGINXX_IFACE_KIND_VERSION
+#define MUSICXX_PLUGIN_IFACE_KIND_MIN_VERSION   PLUGINXX_IFACE_KIND_MIN_VERSION
+#define MUSICXX_PLUGIN_IFACE_KIND_BASELINE_SIZE PLUGINXX_IFACE_KIND_BASELINE_SIZE
 
-typedef struct MusicxxPluginKindIface {
-    int32_t  version;     ///< 主程序填 MUSICXX_PLUGIN_IFACE_KIND_VERSION
-    uint32_t struct_size;
-
-    /// 登记一种插件形态（本插件成为它的运行器）
-    ///
-    /// `spec_json`：
-    /// ```json
-    /// {"kind":"python","requiresPluginAbi":false,
-    ///  "interfaceVersion":3,"minInterfaceVersion":1,
-    ///  "loadCapability":"plugin.my_runtime.kind_load",
-    ///  "unloadCapability":"plugin.my_runtime.kind_unload",
-    ///  "validateCapability":"plugin.my_runtime.kind_validate",
-    ///  "describe":"Python 运行器"}
-    /// ```
-    /// - `kind`：清单里写的形态名（小写字母、数字、`_` `-` `.`，1~32 字）；
-    /// - `requiresPluginAbi`：该形态的插件是否按 C ABI 编译（缺省 false）。写 true 表示
-    ///   它们会调通用接口表，接口代次对固定用框架的 C 接口那一对（写了自己也不采信）；
-    /// - `interfaceVersion` / `minInterfaceVersion`：解释执行的形态自己的**接口代次对**
-    ///   （当前代次 / 兼容下限）。清单 `api_version` 的判定是 `>= minInterfaceVersion`；
-    ///   插件读 `config().apiVersion` 拿到的是 `interfaceVersion`。只增不改时只抬当前代次，
-    ///   破坏性变更才抬下限；都不写 = 不判（内置 `js` 是 4 / 4）；
-    /// - `loadCapability` / `unloadCapability`：**必须写在本插件的命名空间**
-    ///   （`plugin.<插件id>.`）下；缺 `loadCapability` 会被拒绝；
-    /// - `validateCapability`（可选，同样要在本插件命名空间下）：加载一个该形态的插件之前
-    ///   先问它一次，载荷 `{"action":"validate","kind","id","path","version"}`，回答
-    ///   `{"ok":true}` = 可以跑，`{"ok":false,"error":"..."}` = 拒绝（理由直接给用户）；
-    /// - `overrideBuiltin`：写 true 表示**接管框架自带的形态**（目前只允许 `js`）。
-    ///
-    /// 完成时: 成功无结果正文; 失败正文是原因（`arg` / `state` / `taken` / `namespace`）。
-    PluginxxOperatorHandle*(PLUGINXX_CALL* register_kind)(
-        const PluginxxHost*       host,
-        const PluginxxStringView* spec_json,
-        PluginxxOperatorCallback  cb,
-        void*                     cb_ud,
-        PluginxxString*           error_out
-    );
-
-    /// 撤销本插件登记的形态（不是自己登记的按 `not_owner` 失败）
-    PluginxxOperatorHandle*(PLUGINXX_CALL* unregister_kind)(
-        const PluginxxHost*       host,
-        const PluginxxStringView* kind,
-        PluginxxOperatorCallback  cb,
-        void*                     cb_ud,
-        PluginxxString*           error_out
-    );
-
-    /// 列出全部形态（内置 + 插件登记），结果 JSON 数组：
-    /// `[{"kind","builtin","requiresPluginAbi","interfaceVersion","minInterfaceVersion",
-    ///    "provider","providerId","loadCapability","unloadCapability","validateCapability",
-    ///    "describe","overridden","available"}]`
-    PluginxxOperatorHandle*(PLUGINXX_CALL* list_kinds)(
-        const PluginxxHost*       host,
-        PluginxxOperatorCallback  cb,
-        void*                     cb_ud,
-        PluginxxString*           error_out
-    );
-} MusicxxPluginKindIface;
+typedef PluginxxKindIface MusicxxPluginKindIface;
 
 /// 运行器能力的**载荷与回答**（`loadCapability` / `unloadCapability` 收发的 JSON）
 ///

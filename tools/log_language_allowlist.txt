@@ -1,0 +1,55 @@
+# 运行期字符串「存量中文」清单（`tools/check_log_language.ps1` 读它）
+#
+# 规则见 AGENTS.md §9.4：日志 / 错误原因 / 事件正文 / 预检结论一律英文，中文只留注释与本地化文案。
+# 这份清单是本轮之前的存量：列在这里的文件暂不判失败，但**只许变短**。
+# 把一个文件里的运行期字符串改完，就把那一行删掉；清单空了以后用
+# `pwsh -NoProfile -File tools/check_log_language.ps1 -Strict` 跑一次确认。
+#
+# 收尾方式（按优先级）：先改会被搬到 cxx_pluginxx 的实现（搬过去必须英文），
+# 再改框架核心（src/host/*.cpp），最后改示例插件与测试夹具。
+lib\src\requests.dart
+lib\src\runtime.dart
+lib\src\ui_theme.dart
+lib\src\version.dart
+plugins\example_ftp_source\ftp.js
+plugins\example_ftp_source\plugin.js
+plugins\example_ftp_source\proxy.js
+plugins\example_ftp_source\search.js
+plugins\example_ftp_source\testserver.js
+plugins\example_ftp_source\ui.js
+plugins\example_js\plugin.js
+plugins\example_js_async\plugin.js
+plugins\example_js_broadcast\plugin.js
+plugins\example_js_font\plugin.js
+plugins\example_js_net\plugin.js
+plugins\example_js_playing_bg\backgrounds.js
+plugins\example_js_playing_bg\palette.js
+plugins\example_js_playing_bg\plugin.js
+plugins\example_js_playing_bg\views.js
+plugins\example_js_playing_slots\plugin.js
+plugins\example_js_playing_slots\slots.js
+plugins\example_js_playing_slots\views.js
+plugins\example_js_playing_slots\visualizer.js
+plugins\example_js_slot_consumer\plugin.js
+plugins\example_js_slot_provider\plugin.js
+plugins\example_native\example_native.cpp
+plugins\example_native_bad_entry\example_native_bad_entry.cpp
+plugins\example_native_fail\example_native_fail.cpp
+plugins\example_native_multi\example_native_multi.cpp
+plugins\example_override_media_source\plugin.js
+src\host\host_inspect.cpp
+src\host\host_manifest.cpp
+src\host\js\js_engine.cpp
+src\host\musicxx_extern_plugin_api.cpp
+src\host\musicxx_host.cpp
+src\host\musicxx_host_tables.cpp
+src\host\musicxx_host_ui.cpp
+src\sdk\include\musicxx\plugin\api\plugin_kit.h
+lib\src\app_capabilities.dart
+lib\src\broadcasts.dart
+lib\src\capabilities.dart
+lib\src\manager.dart
+lib\src\native_library.dart
+lib\src\plugin_info.dart
+lib\src\plugin_inspect.dart
+lib\src\plugin_target.dart
