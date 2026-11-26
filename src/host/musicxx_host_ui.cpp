@@ -42,13 +42,13 @@ bool validateAction(const Json &action, std::string_view pluginId,
   }
   if (action.is_string()) {
     if (action.get<std::string>().empty()) {
-      err = "短写形态必须给出非空的能力名";
+      err = "the short form must give a non-empty capability name";
       return false;
     }
     return true;
   }
   if (!action.is_object()) {
-    err = "action 必须是对象或能力短名";
+    err = "action must be an object or a capability short name";
     return false;
   }
   const std::string kind =
@@ -60,23 +60,23 @@ bool validateAction(const Json &action, std::string_view pluginId,
   }
   if (kind == MUSICXX_PLUGIN_UI_ACTION_ROUTE) {
     if (!action.contains("route") || !action["route"].is_string()) {
-      err = "route 动作缺少 route 字段";
+      err = "the route action has no route field";
       return false;
     }
     const std::string route = action["route"].get<std::string>();
     constexpr const char *kPrefix = "ext://";
     constexpr size_t kPrefixLen = 6; ///< sizeof("ext://") - 1
     const std::string hint =
-        "ext://<插件id>/<内容 id> (任意插件; 本插件为 ext://" +
-        std::string{pluginId} + "/<内容 id>)";
+        "ext://<pluginId>/<contentId> (any plugin; for this plugin ext://" +
+        std::string{pluginId} + "/<contentId>)";
     if (route.rfind(kPrefix, 0) != 0) {
-      err = "route 必须以 ext:// 开头 (" + hint + ")";
+      err = "route must start with ext:// (" + hint + ")";
       return false;
     }
     const std::string rest = route.substr(kPrefixLen);
     const size_t slash = rest.find('/');
     if (slash == std::string::npos || slash == 0 || slash + 1 >= rest.size()) {
-      err = "route 地址不完整 (" + hint + ")";
+      err = "route address is incomplete (" + hint + ")";
       return false;
     }
     return true;
@@ -84,51 +84,61 @@ bool validateAction(const Json &action, std::string_view pluginId,
   if (kind == MUSICXX_PLUGIN_UI_ACTION_CALL) {
     if (!action.contains("name") || !action["name"].is_string() ||
         action["name"].get<std::string>().empty()) {
-      err = "call 动作缺少 name 字段";
+      err = "the call action has no name field";
       return false;
     }
     const std::string name = action["name"].get<std::string>();
     if (name.find('.') != std::string::npos &&
         name.rfind("plugin.", 0) != 0 && !naming::isOfficial(name)) {
-      err = "call 的名字只能是短名、plugin.<插件id>.<名字> 或 musicxx.<域>.<名字>";
+      err = "a call name is either a short name, plugin.<pluginId>.<name> or musicxx.<domain>.<name>";
       return false;
     }
     return true;
   }
-  err = "未知的 action.kind: " + kind + " (只能是 call / route / none)";
+  err = "unknown action.kind: " + kind + " (must be call / route / none)";
   return false;
 }
 
 namespace {
 
-/// 已知槽位 / 声明项 (生成的表; 声明源 tools/ui_slots.def.json)
-const KnownUiSlot *knownSlotById(std::string_view id) {
-  for (const KnownUiSlot &slot : kKnownUiSlots) {
-    if (id == slot.id) {
-      return &slot;
+/// 槽位与变量目录：由生成表建一次（声明源 tools/ui_slots.def.json）
+///
+/// 共享目录（`pluginxx/host/ui_slots.h`）只认"前缀 + 全名 + kind 文本"，不认识 musicxx
+/// 的槽位；表本身由这里注入，别的项目换成自己的表即可。
+const pluginxx::host::UiSlotCatalog &catalogOf() {
+  static const pluginxx::host::UiSlotCatalog catalog = [] {
+    std::vector<pluginxx::host::UiSlotDecl> slots;
+    const size_t slotCount = sizeof(kKnownUiSlots) / sizeof(kKnownUiSlots[0]);
+    slots.reserve(slotCount);
+    for (size_t i = 0; i < slotCount; ++i) {
+      slots.push_back(pluginxx::host::UiSlotDecl{kKnownUiSlots[i].id,
+                                                 kKnownUiSlots[i].kind});
     }
-  }
-  return nullptr;
+    std::vector<std::string> variables;
+    const size_t variableCount =
+        sizeof(kKnownUiVariables) / sizeof(kKnownUiVariables[0]);
+    variables.reserve(variableCount);
+    for (size_t i = 0; i < variableCount; ++i) {
+      variables.emplace_back(kKnownUiVariables[i].id);
+    }
+    return pluginxx::host::UiSlotCatalog{"musicxx.ui.", std::move(slots),
+                                         std::move(variables)};
+  }();
+  return catalog;
 }
 
-/// 简称 → 全名 (`musicxx.ui.` 前缀); 已经是全名、或不是主程序的槽位时原样返回
+/// 已知槽位 / 声明项（目录里的一项）
+const pluginxx::host::UiSlotDecl *knownSlotById(std::string_view id) {
+  return catalogOf().find(id);
+}
+
+/// 简称 → 全名（`musicxx.ui.` 前缀）；表里没有的 id 原样返回
 std::string slotFullName(std::string_view raw) {
-  std::string text{raw};
-  if (text.empty() || text.rfind("musicxx.ui.", 0) == 0 ||
-      text.rfind("plugin.", 0) == 0) {
-    return text;
-  }
-  const std::string full = "musicxx.ui." + text;
-  return nullptr != knownSlotById(full) ? full : text;
+  return catalogOf().fullName(raw);
 }
 
 bool isKnownVariable(std::string_view id) {
-  for (const KnownUiVariable &item : kKnownUiVariables) {
-    if (id == item.id) {
-      return true;
-    }
-  }
-  return false;
+  return catalogOf().isKnownVariable(id);
 }
 
 /// 变量 id 形状校验: 生成表里的 / `plugin.<插件id>.<名字>`
@@ -141,10 +151,10 @@ bool validDependency(std::string_view id, std::string &err) {
     if (first != std::string_view::npos && first + 1 < id.size()) {
       return true;
     }
-    err = "plugin.* 变量要写成 plugin.<插件id>.<名字>";
+    err = "a plugin.* variable must be written plugin.<pluginId>.<name>";
     return false;
   }
-  err = "未知的变量 `" + std::string{id} + "` (生成表里没有; plugin.* 也可以)";
+  err = "unknown variable `" + std::string{id} + "` (not in the generated table; plugin.* is accepted too)";
   return false;
 }
 
@@ -163,31 +173,31 @@ bool validateEntryData(std::string_view kind, std::string &dataJson,
   bool parseOk = false;
   Json data = parseJsonSafe(dataJson, &parseOk);
   if (!parseOk || !data.is_object()) {
-    err = "data 必须是 JSON 对象";
+    err = "data must be a JSON object";
     return false;
   }
   if (requiresTitle(kind)) {
     if (!data.contains("title") || !data["title"].is_string() ||
         data["title"].get<std::string>().empty()) {
-      err = "缺少 title 字段 (非空字符串)";
+      err = "the title field is missing (non-empty string)";
       return false;
     }
   }
   if (kind == "pageBackground" && data.contains("routes")) {
     const Json &routes = data["routes"];
     if (!routes.is_array()) {
-      err = "页面背景 routes 必须是页面路由 id 的字符串数组 (不写 = 所有普通页面)";
+      err = "page background routes must be an array of page route ids (missing = every ordinary page)";
       return false;
     }
     for (const Json &item : routes) {
       if (!item.is_string() || item.get<std::string>().empty()) {
-        err = "页面背景 routes 只能写非空的页面路由 id";
+        err = "page background routes must be non-empty page route ids";
         return false;
       }
     }
   }
   if (data.contains("filter") && !data["filter"].is_string()) {
-    err = "音效项 filter 必须是字符串 (完整的一段 af 串)";
+    err = "an audio effect filter must be a string (a complete af fragment)";
     return false;
   }
   bool changed = false;
@@ -251,7 +261,7 @@ int32_t MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (spec.flags != 0) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册声明项: flags 必须为 0", inst->name);
+    XX_LOGW("[musicxx_ext] entry registration by plugin `{}`: flags must be 0", inst->name);
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
@@ -264,16 +274,16 @@ int32_t MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   const std::string pluginId = pluginIdOf(inst->name);
   const std::string type{spec.type.data, static_cast<size_t>(spec.type.size)};
   const std::string typeId = slotFullName(type);
-  const KnownUiSlot *known = knownSlotById(typeId);
+  const pluginxx::host::UiSlotDecl *known = knownSlotById(typeId);
   if (nullptr == known) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册未知槽位/声明项 `{}` 被拒绝", inst->name,
+    XX_LOGW("[musicxx_ext] entry registration by plugin `{}` rejected: unknown slot/entry `{}`", inst->name,
             type);
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  const std::string_view kindOf{known->kind};
+  const std::string_view kindOf{known->kind ? known->kind : ""};
   if (kindOf != "item" && kindOf != "selectable" && kindOf != "pageBackground") {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 用 register_entry 注册了槽位 `{}`"
-            " (它是给内容用的)", inst->name, typeId);
+    XX_LOGW("[musicxx_ext] plugin `{}` registered slot `{}` through register_entry"
+            " (that slot is for content)", inst->name, typeId);
     return PLUGINXX_RESULT_ERR_ARG;
   }
 
@@ -282,7 +292,7 @@ int32_t MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
       std::string_view{spec.item_id.data, static_cast<size_t>(spec.item_id.size)},
       pluginId, idOk);
   if (!idOk) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册声明项 `{}` 被拒绝: 命名空间非法",
+    XX_LOGW("[musicxx_ext] entry registration by plugin `{}` of `{}` rejected: invalid namespace",
             inst->name, itemId);
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
@@ -294,13 +304,13 @@ int32_t MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
           : std::string{"{}"};
   std::string err;
   if (!validateEntryData(kindOf, dataJson, pluginId, err)) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册声明项 `{}` 被拒绝: {}", inst->name,
+    XX_LOGW("[musicxx_ext] entry registration by plugin `{}` of `{}` rejected: {}", inst->name,
             itemId, err);
     return PLUGINXX_RESULT_ERR_ARG;
   }
 
-  const auto existing = uiEntries_.find(itemId);
-  if (existing != uiEntries_.end() && existing->second.pluginId != pluginId) {
+  const auto existing = uiRegistry_.entries().find(itemId);
+  if (existing != uiRegistry_.entries().end() && existing->second.pluginId != pluginId) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
 
@@ -311,12 +321,12 @@ int32_t MusicxxHostManager::registerUiEntry(MusicxxHostInstance *inst,
   entry.type = typeId;
   entry.dataJson = dataJson;
   entry.order = spec.order;
-  entry.seq = ++uiSeq_;
-  if (existing != uiEntries_.end()) {
+  entry.seq = uiRegistry_.nextEntrySeq();
+  if (existing != uiRegistry_.entries().end()) {
     entry.seq = existing->second.seq;
     entry.rev = existing->second.rev;
   }
-  uiEntries_[itemId] = std::move(entry);
+  uiRegistry_.entries()[itemId] = std::move(entry);
 
   Json changed;
   changed["action"] = "register";
@@ -337,15 +347,15 @@ int32_t MusicxxHostManager::unregisterUiEntry(MusicxxHostInstance *inst,
   if (!idOk) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
-  auto it = uiEntries_.find(fullId);
-  if (it == uiEntries_.end()) {
+  auto it = uiRegistry_.entries().find(fullId);
+  if (it == uiRegistry_.entries().end()) {
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (inst && it->second.pluginId != pluginId) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string ownerId = it->second.pluginId;
-  uiEntries_.erase(it);
+  uiRegistry_.entries().erase(it);
 
   Json changed;
   changed["action"] = "unregister";
@@ -393,8 +403,8 @@ int32_t MusicxxHostManager::registerUiContent(
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (spec.flags != 0 || spec.min_interval_ms < 0 || !spec.generate) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册内容: flags / min_interval_ms / generate "
-            "不合法", inst->name);
+    XX_LOGW("[musicxx_ext] content registration by plugin `{}`: flags / min_interval_ms / generate "
+            "is invalid", inst->name);
     return PLUGINXX_RESULT_ERR_ARG;
   }
   if (inst->unloadRequested || !inst->enabled) {
@@ -410,7 +420,7 @@ int32_t MusicxxHostManager::registerUiContent(
       std::string_view{spec.id.data, static_cast<size_t>(spec.id.size)}, pluginId,
       idOk);
   if (!idOk) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册内容 `{}` 被拒绝: 命名空间非法",
+    XX_LOGW("[musicxx_ext] content registration by plugin `{}` of `{}` rejected: invalid namespace",
             inst->name, fullId);
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
@@ -424,15 +434,15 @@ int32_t MusicxxHostManager::registerUiContent(
   if (slot.empty()) {
     return PLUGINXX_RESULT_ERR_ARG;
   }
-  const KnownUiSlot *known = knownSlotById(slot);
-  const auto pluginSlot = uiPluginSlots_.find(slot);
-  const bool declared = pluginSlot != uiPluginSlots_.end();
+  const pluginxx::host::UiSlotDecl *known = knownSlotById(slot);
+  const auto pluginSlot = uiRegistry_.pluginSlots().find(slot);
+  const bool declared = pluginSlot != uiRegistry_.pluginSlots().end();
   if (nullptr == known && !declared) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 注册内容到未知槽位 `{}`", inst->name, slot);
+    XX_LOGW("[musicxx_ext] plugin `{}` registered content on an unknown slot `{}`", inst->name, slot);
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
-  if (nullptr != known && std::string_view{known->kind} == "item") {
-    XX_LOGW("[musicxx_ext] 槽位 `{}` 是声明项, 不能挂内容", slot);
+  if (nullptr != known && std::string_view{known->kind ? known->kind : ""} == "item") {
+    XX_LOGW("[musicxx_ext] slot `{}` is an entry slot, content cannot be attached", slot);
     return PLUGINXX_RESULT_ERR_ARG;
   }
 
@@ -446,8 +456,8 @@ int32_t MusicxxHostManager::registerUiContent(
     bool ok = false;
     Json parsed = parseJsonSafe(depsJson, &ok);
     if (!ok || (!parsed.is_null() && !parsed.is_array())) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 内容 `{}` 的 deps 必须是字符串数组",
-              inst->name, fullId);
+      XX_LOGW("[musicxx_ext] deps of content `{}` from plugin `{}` must be a string array",
+              fullId, inst->name);
       return PLUGINXX_RESULT_ERR_ARG;
     }
     if (parsed.is_array()) {
@@ -458,8 +468,8 @@ int32_t MusicxxHostManager::registerUiContent(
         std::string err;
         const std::string dep = item.get<std::string>();
         if (!validDependency(dep, err)) {
-          XX_LOGW("[musicxx_ext] 插件 `{}` 内容 `{}` 的依赖 `{}` 不合法: {}",
-                  inst->name, fullId, dep, err);
+          XX_LOGW("[musicxx_ext] content `{}` from plugin `{}` has an invalid dependency `{}`: {}",
+                  fullId, inst->name, dep, err);
           return PLUGINXX_RESULT_ERR_ARG;
         }
         deps.push_back(dep);
@@ -491,8 +501,8 @@ int32_t MusicxxHostManager::registerUiContent(
     bool ok = false;
     Json parsed = parseJsonSafe(content.routesJson, &ok);
     if (!ok || (!parsed.is_null() && !parsed.is_array())) {
-      XX_LOGW("[musicxx_ext] 插件 `{}` 内容 `{}` 的 routes 必须是字符串数组",
-              inst->name, fullId);
+      XX_LOGW("[musicxx_ext] routes of content `{}` from plugin `{}` must be a string array",
+              fullId, inst->name);
       return PLUGINXX_RESULT_ERR_ARG;
     }
     if (parsed.is_array()) {
@@ -509,17 +519,17 @@ int32_t MusicxxHostManager::registerUiContent(
   content.minIntervalMs = spec.min_interval_ms;
   content.fromJs = fromJs;
   content.spec = spec;
-  const auto existing = uiContents_.find(fullId);
-  if (existing != uiContents_.end()) {
+  const auto existing = uiRegistry_.contents().find(fullId);
+  if (existing != uiRegistry_.contents().end()) {
     if (existing->second.pluginId != pluginId) {
       return PLUGINXX_RESULT_ERR_PERMISSION;
     }
     content.seq = existing->second.seq;
     content.rev = existing->second.rev;
   } else {
-    content.seq = ++uiContentSeq_;
+    content.seq = uiRegistry_.nextContentSeq();
   }
-  uiContents_[fullId] = std::move(content);
+  uiRegistry_.contents()[fullId] = std::move(content);
 
   Json changed;
   changed["action"] = "register";
@@ -540,15 +550,15 @@ int32_t MusicxxHostManager::unregisterUiContent(MusicxxHostInstance *inst,
   if (!idOk) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
-  auto it = uiContents_.find(fullId);
-  if (it == uiContents_.end()) {
+  auto it = uiRegistry_.contents().find(fullId);
+  if (it == uiRegistry_.contents().end()) {
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (inst && it->second.pluginId != pluginId) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string owner = it->second.pluginId;
-  uiContents_.erase(it);
+  uiRegistry_.contents().erase(it);
 
   Json changed;
   changed["action"] = "unregister";
@@ -621,7 +631,7 @@ int32_t MusicxxHostManager::updateUiSlot(MusicxxHostInstance *inst,
   }
   int32_t count = 0;
   Json emptyContext = Json::object();
-  for (auto &[fullId, content] : uiContents_) {
+  for (auto &[fullId, content] : uiRegistry_.contents()) {
     (void)fullId;
     if (content.pluginId != pluginId || content.slot != slotId) {
       continue;
@@ -656,21 +666,21 @@ int32_t MusicxxHostManager::defineUiSlot(MusicxxHostInstance *inst,
   const std::string id{spec.id.data, static_cast<size_t>(spec.id.size)};
   const std::string kind{spec.kind.data, static_cast<size_t>(spec.kind.size)};
   if (kind != "insert" && kind != "replace") {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 声明的槽位 `{}` kind 只能是 insert / replace",
-            inst->name, id);
+    XX_LOGW("[musicxx_ext] slot `{}` declared by plugin `{}` must be insert / replace",
+            id, inst->name);
     return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string prefix = "plugin." + pluginId + ".ui.";
   if (id.rfind(prefix, 0) != 0 || id.size() == prefix.size()) {
-    XX_LOGW("[musicxx_ext] 插件 `{}` 声明的槽位 `{}` 必须写 plugin.{}.ui.<名字>",
-            inst->name, id, pluginId);
+    XX_LOGW("[musicxx_ext] slot `{}` declared by plugin `{}` must be written plugin.{}.ui.<name>",
+            id, inst->name, pluginId);
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   if (nullptr != knownSlotById(id)) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
-  const auto existing = uiPluginSlots_.find(id);
-  if (existing != uiPluginSlots_.end() && existing->second.pluginId != pluginId) {
+  const auto existing = uiRegistry_.pluginSlots().find(id);
+  if (existing != uiRegistry_.pluginSlots().end() && existing->second.pluginId != pluginId) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   UiPluginSlot slot;
@@ -678,9 +688,9 @@ int32_t MusicxxHostManager::defineUiSlot(MusicxxHostInstance *inst,
   slot.pluginId = pluginId;
   slot.id = id;
   slot.kind = kind;
-  slot.seq = existing != uiPluginSlots_.end() ? existing->second.seq
-                                              : ++uiPluginSlotSeq_;
-  uiPluginSlots_[id] = std::move(slot);
+  slot.seq = existing != uiRegistry_.pluginSlots().end() ? existing->second.seq
+                                              : uiRegistry_.nextSlotSeq();
+  uiRegistry_.pluginSlots()[id] = std::move(slot);
 
   Json changed;
   changed["action"] = "define";
@@ -696,19 +706,19 @@ int32_t MusicxxHostManager::undefineUiSlot(MusicxxHostInstance *inst,
     return PLUGINXX_RESULT_ERR_ARG;
   }
   const std::string pluginId = pluginIdOf(inst->name);
-  auto it = uiPluginSlots_.find(std::string{slot});
-  if (it == uiPluginSlots_.end()) {
+  auto it = uiRegistry_.pluginSlots().find(std::string{slot});
+  if (it == uiRegistry_.pluginSlots().end()) {
     return PLUGINXX_RESULT_ERR_NOT_FOUND;
   }
   if (it->second.pluginId != pluginId) {
     return PLUGINXX_RESULT_ERR_PERMISSION;
   }
   const std::string id = it->second.id;
-  uiPluginSlots_.erase(it);
+  uiRegistry_.pluginSlots().erase(it);
   // 挂在这个槽位上的内容一起失效
-  for (auto contentIt = uiContents_.begin(); contentIt != uiContents_.end();) {
+  for (auto contentIt = uiRegistry_.contents().begin(); contentIt != uiRegistry_.contents().end();) {
     if (contentIt->second.slot == id) {
-      contentIt = uiContents_.erase(contentIt);
+      contentIt = uiRegistry_.contents().erase(contentIt);
     } else {
       ++contentIt;
     }
@@ -734,8 +744,7 @@ int32_t MusicxxHostManager::listUiSlots(MusicxxHostInstance *inst,
 
 MusicxxHostManager::UiContent *MusicxxHostManager::findUiContent(
     std::string_view fullId) {
-  auto it = uiContents_.find(std::string{fullId});
-  return it == uiContents_.end() ? nullptr : &it->second;
+  return uiRegistry_.findContent(fullId);
 }
 
 int32_t MusicxxHostManager::requestUiContent(std::string_view contentId,
@@ -759,7 +768,7 @@ int32_t MusicxxHostManager::requestUiContent(std::string_view contentId,
       self->completeRequest(
           requestId,
           RequestOutcome::fail(PLUGINXX_RESULT_ERR_NOT_FOUND,
-                               "没有这份内容 (" + fullId + ")", "not_found"));
+                               "no such content (" + fullId + ")", "not_found"));
       return;
     }
     self->runUiContent(*content, ctx, requestId);
@@ -812,7 +821,7 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
     auto engine = jsEngine();
     if (!engine) {
       finishUiGeneration(requestId, content.fullId, std::string{},
-                         "JS 运行时不可用");
+                         "the JS runtime is unavailable");
       return PLUGINXX_RESULT_ERR_STATE;
     }
     const std::string fullId = content.fullId;
@@ -846,13 +855,13 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
     std::string text{payload};
     std::string error;
     if (status != PLUGINXX_OPERATOR_OK) {
-      error = text.empty() ? std::string{"生成函数返回失败"} : text;
+      error = text.empty() ? std::string{"the generate function reported a failure"} : text;
       text.clear();
     } else {
       bool parseOk = false;
       Json parsed = parseJsonSafe(text, &parseOk);
       if (!parseOk || !parsed.is_object()) {
-        error = "生成函数返回的不是 JSON 对象";
+        error = "the generate function did not return a JSON object";
         text.clear();
       }
     }
@@ -897,7 +906,7 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
                    errorOut = PluginxxString{};
                  }
                  /// 未知异常也必须收尾: 不收就可能没人再调 notify, 请求一直不完成
-                 const std::string reason{"生成函数抛出未知异常"};
+                 const std::string reason{"the generate function threw an unknown exception"};
                  const PluginxxStringView reasonView{reason.data(),
                                                      reason.size()};
                  nativeGenerateDoneTrampoline(notify.host_ud,
@@ -924,33 +933,16 @@ int32_t MusicxxHostManager::runUiContent(UiContent &content,
 std::string MusicxxHostManager::pushUiContentResult(
     const UiContent &content, const std::string &jsonText,
     const std::string &error) {
-  UiContent *mutableContent = findUiContent(content.fullId);
-  if (nullptr == mutableContent) {
+  UiContent *mutable_content = findUiContent(content.fullId);
+  if (nullptr == mutable_content) {
     return std::string{};
   }
-  ++mutableContent->rev;
-  Json payload;
-  payload["slot"] = mutableContent->slot;
-  payload["id"] = mutableContent->fullId;
-  payload["shortId"] = mutableContent->id;
-  payload["plugin"] = mutableContent->pluginId;
-  payload["rev"] = mutableContent->rev;
-  if (!error.empty()) {
-    payload["error"] = error;
-  } else {
-    // 内容形如 {"json": …, "data": …}; 兼容插件直接给界面 JSON
-    Json body = parseJsonSafe(jsonText);
-    if (body.is_object() && body.contains("json")) {
-      payload["json"] = body["json"];
-      if (body.contains("data")) {
-        payload["data"] = body["data"];
-      }
-    } else {
-      payload["json"] = body;
-    }
+  const std::string text =
+      uiRegistry_.buildContentPayload(mutable_content->fullId, jsonText, error);
+  if (text.empty()) {
+    return std::string{};
   }
-  const std::string text = payload.dump();
-  pushEvent("musicxx.ui.content", mutableContent->pluginId, text);
+  pushEvent("musicxx.ui.content", mutable_content->pluginId, text);
   return text;
 }
 
@@ -976,7 +968,7 @@ void MusicxxHostManager::finishUiGeneration(int64_t requestId,
     completeRequest(
         requestId,
         RequestOutcome::fail(PLUGINXX_RESULT_ERR_NOT_FOUND,
-                             "内容已被插件撤销 (" + fullId + ")", "not_found"));
+                             "the plugin removed this content (" + fullId + ")", "not_found"));
     return;
   }
   completeRequest(requestId, RequestOutcome::ok(payloadText));
@@ -985,152 +977,41 @@ void MusicxxHostManager::finishUiGeneration(int64_t requestId,
 /* ==================== 序列化与摘除 ==================== */
 
 std::string MusicxxHostManager::uiItemsJson(const std::string &pluginId) const {
-  std::vector<const UiEntry *> items;
-  items.reserve(uiEntries_.size());
-  for (const auto &[key, entry] : uiEntries_) {
-    (void)key;
-    if (pluginId.empty() || entry.pluginId == pluginId) {
-      items.push_back(&entry);
-    }
-  }
-  std::sort(items.begin(), items.end(), [](const UiEntry *a, const UiEntry *b) {
-    if (a->type != b->type) {
-      return a->type < b->type;
-    }
-    if (a->order != b->order) {
-      return a->order < b->order;
-    }
-    return a->seq < b->seq;
-  });
-
-  Json array = Json::array();
-  for (const UiEntry *entry : items) {
-    Json item;
-    item["id"] = entry->id;
-    item["plugin"] = entry->pluginId;
-    item["type"] = entry->type;
-    item["order"] = entry->order;
-    item["rev"] = entry->rev;
-    item["data"] = parseJsonSafe(entry->dataJson);
-    array.push_back(std::move(item));
-  }
-  return array.dump();
+  return uiRegistry_.entriesJson(pluginId);
 }
 
 std::string MusicxxHostManager::uiContentsJson(
     const std::string &pluginId) const {
-  std::vector<const UiContent *> items;
-  items.reserve(uiContents_.size());
-  for (const auto &[key, content] : uiContents_) {
-    (void)key;
-    if (pluginId.empty() || content.pluginId == pluginId) {
-      items.push_back(&content);
-    }
-  }
-  std::sort(items.begin(), items.end(),
-            [](const UiContent *a, const UiContent *b) {
-              if (a->slot != b->slot) {
-                return a->slot < b->slot;
-              }
-              if (a->order != b->order) {
-                return a->order < b->order;
-              }
-              return a->seq < b->seq;
-            });
-  Json array = Json::array();
-  for (const UiContent *content : items) {
-    Json item;
-    item["id"] = content->fullId;
-    item["shortId"] = content->id;
-    item["plugin"] = content->pluginId;
-    item["slot"] = content->slot;
-    // 展示名: 可选样式槽位的候选列表靠它在用户选中前就能列出来
-    if (!content->title.empty()) {
-      item["title"] = content->title;
-    }
-    if (!content->depict.empty()) {
-      item["depict"] = content->depict;
-    }
-    if (!content->routesJson.empty() && content->routesJson != "[]") {
-      item["routes"] = parseJsonSafe(content->routesJson);
-    }
-    item["order"] = content->order;
-    item["minIntervalMs"] = content->minIntervalMs;
-    item["deps"] = parseJsonSafe(content->depsJson);
-    item["rev"] = content->rev;
-    array.push_back(std::move(item));
-  }
-  return array.dump();
+  return uiRegistry_.contentsJson(pluginId);
 }
 
 std::string MusicxxHostManager::uiSlotsJson(const std::string &pluginId) const {
-  Json array = Json::array();
-  for (const KnownUiSlot &slot : kKnownUiSlots) {
-    Json item;
-    item["id"] = slot.id;
-    item["kind"] = slot.kind;
-    item["owner"] = "";
-    array.push_back(std::move(item));
-  }
-  for (const auto &[id, slot] : uiPluginSlots_) {
-    if (!pluginId.empty() && slot.pluginId != pluginId) {
-      continue;
-    }
-    Json item;
-    item["id"] = slot.id;
-    item["kind"] = slot.kind;
-    item["owner"] = slot.pluginId;
-    array.push_back(std::move(item));
-  }
-  return array.dump();
+  return uiRegistry_.slotsJson(catalogOf(), pluginId);
+}
+
+const pluginxx::host::UiSlotCatalog &MusicxxHostManager::uiSlotCatalog() const {
+  return catalogOf();
 }
 
 void MusicxxHostManager::detachUiEntries(const std::string &instanceName) {
   const std::string pluginId = pluginIdOf(instanceName);
-  bool removed = false;
-  for (auto it = uiEntries_.begin(); it != uiEntries_.end();) {
-    if (it->second.plugin == instanceName) {
-      it = uiEntries_.erase(it);
-      removed = true;
-    } else {
-      ++it;
-    }
-  }
-  if (removed) {
+  const pluginxx::host::UiDetachResult removed =
+      uiRegistry_.detachOwner(instanceName);
+  if (removed.entries) {
     Json changed;
     changed["action"] = "detach";
     changed["id"] = pluginId;
     changed["items"] = parseJsonSafe(uiItemsJson(pluginId));
     pushEvent("musicxx.ui.changed", pluginId, changed.dump());
   }
-
-  bool contentsRemoved = false;
-  for (auto it = uiContents_.begin(); it != uiContents_.end();) {
-    if (it->second.plugin == instanceName) {
-      it = uiContents_.erase(it);
-      contentsRemoved = true;
-    } else {
-      ++it;
-    }
-  }
-  if (contentsRemoved) {
+  if (removed.contents) {
     Json changed;
     changed["action"] = "detach";
     changed["id"] = pluginId;
     changed["contents"] = parseJsonSafe(uiContentsJson(pluginId));
     pushEvent("musicxx.ui.contents", pluginId, changed.dump());
   }
-
-  bool slotsRemoved = false;
-  for (auto it = uiPluginSlots_.begin(); it != uiPluginSlots_.end();) {
-    if (it->second.plugin == instanceName) {
-      it = uiPluginSlots_.erase(it);
-      slotsRemoved = true;
-    } else {
-      ++it;
-    }
-  }
-  if (slotsRemoved) {
+  if (removed.slots) {
     Json changed;
     changed["action"] = "detach";
     changed["id"] = pluginId;

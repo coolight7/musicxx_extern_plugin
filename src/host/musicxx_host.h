@@ -22,6 +22,8 @@
 #include "musicxx_capability_spec.h"
 #include "musicxx/plugin/api/plugin_api.h"
 #include "pluginxx/host/ffi_bridge.h"
+#include "pluginxx/host/ui_content.h"
+#include "pluginxx/host/ui_slots.h"
 #include "pluginxx/api/async_reply.h"
 #include "pluginxx/api/entry.h"
 #include "pluginxx/api/net.h"
@@ -1018,63 +1020,18 @@ private:
   /// 取消幂等、停机 / 卸载批量结算）在共享实现里，见 `pluginxx/host/ffi_bridge.h`。
   pluginxx::ffi::RequestRegistry requests_;
 
-  /// 一个已注册的 UI 项 (声明式扩展; 生命周期 = 插件实例)
-  struct UiEntry {
-    std::string plugin;   ///< 实例名
-    std::string pluginId; ///< 插件 id (去掉 js: 前缀)
-    std::string id;       ///< 全名 plugin.<pluginId>.<名>
-    std::string type;     ///< MUSICXX_PLUGIN_UI_TYPE_*
-    std::string dataJson; ///< 声明式内容
-    int32_t order = 0;
-    uint64_t seq = 0; ///< 注册顺序 (同 order 时稳定排序)
+  /// 声明项 / 内容 / 插件槽位的存储与快照在共享实现里（`pluginxx/host/ui_content.h`）
+  ///
+  /// 这里只留别名：本文件的 UI 方法直接操作注册表；快照（`uiItemsJson` 这类）由
+  /// 注册表生成，本类只负责把变化推成事件。
+  using UiEntry = pluginxx::host::UiEntry;
+  using UiContent = pluginxx::host::UiContent;
+  using UiPluginSlot = pluginxx::host::UiSlot;
 
-    /// 重画计数 (只有 update 让它 +1; 声明变化不碰它)
-    ///
-    /// 主程序按它判断"这一项被要求重新取一次视图": 声明没变也要重画时插件调
-    /// `musicxx.ui.slot.update(name)`, 声明真的变了用 register 覆盖。
-    int32_t rev = 0;
-  };
+  pluginxx::host::UiRegistry uiRegistry_;
 
-  /// UI 项注册表 (仅框架线程)
-  std::map<std::string, UiEntry, std::less<>> uiEntries_;
-  uint64_t uiSeq_ = 0;
-
-  /// 一份内容 (插件挂在槽位上的界面 JSON 的生成器)
-  struct UiContent {
-    std::string plugin;   ///< 实例名
-    std::string pluginId; ///< 插件 id
-    std::string id;       ///< 短 id
-    std::string fullId;   ///< plugin.<pluginId>.<id>
-    std::string slot;     ///< 槽位全名
-    std::string title;    ///< 展示名 (空 = 用 id)
-    std::string depict;   ///< 一句话说明 (可为空)
-    std::string routesJson; ///< 适用路由 (JSON 数组; 只对 pageBackground 有意义)
-    std::string depsJson;
-    std::vector<std::string> deps;
-    int32_t  order = 0;
-    int32_t  minIntervalMs = 0;
-    int32_t  rev = 0;          ///< 结果版本(每次生成 +1)
-    uint64_t seq = 0;          ///< 注册顺序
-    bool     fromJs = false;
-    MusicxxPluginUIContentSpec spec{}; ///< 拷贝(含生成函数)
-  };
-
-  /// 插件声明的一个槽位
-  struct UiPluginSlot {
-    std::string plugin;
-    std::string pluginId;
-    std::string id;
-    std::string kind;
-    uint64_t    seq = 0;
-  };
-
-  /// 内容注册表 (仅框架线程; 键是内容全名)
-  std::map<std::string, UiContent, std::less<>> uiContents_;
-  uint64_t uiContentSeq_ = 0;
-
-  /// 插件声明的槽位 (仅框架线程; 键是槽位全名)
-  std::map<std::string, UiPluginSlot, std::less<>> uiPluginSlots_;
-  uint64_t uiPluginSlotSeq_ = 0;
+  /// 槽位 / 变量目录（由生成的 `ui_slots.g.h` 建一次，见 musicxx_host_ui.cpp）
+  const pluginxx::host::UiSlotCatalog &uiSlotCatalog() const;
 
   /// 摘除某实例的全部 UI 项 / 内容 / 槽位 (框架线程)
   void detachUiEntries(const std::string &instanceName);
