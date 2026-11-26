@@ -6,6 +6,19 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，未发布）：`<应用名>.ui` 表本体搬到插件框架通用头
+
+一句话：**声明式界面层的表与注册表只有一份**，位于 `pluginxx/api/ui.h` 与
+`pluginxx/host/ui_content.h`；musicxx 侧只留别名。
+
+- `MusicxxPluginUIIface` / `MusicxxPluginUIEntrySpec` / `MusicxxPluginUIContentSpec` /
+  `MusicxxPluginUISlotSpec` 现在是 `PluginxxUiIface` / `PluginxxUiEntrySpec` 等的 typedef，
+  成员、IID（`musicxx.ui`）与版本号（v4）不变，已编译的插件不用改；
+- 宿主把槽位 / 变量目录（`pluginxx/host/ui_slots.h` 的 `UiSlotCatalog`）注入注册表：
+  别的项目用同一套注册表自己的槽位表；
+- 生成派发（线程选择、请求收尾、事件推送）仍由宿主负责，注册表只管存储、`seq` / `rev`、
+  结果缓存与卸载时摘除。
+
 ### 变更（未发布）：框架日志与错误文本统一英文
 
 一句话：**日志、错误原因、事件正文、预检结论都改成英文**，中文只留在代码注释与界面文案里。
