@@ -361,7 +361,13 @@ function configuredHeartbeatMs() {
     return (typeof value === "number") ? value : DEFAULT_HEARTBEAT_MS;
 }
 
-/// 两个页面（`card` / `settings`）都是 `musicxx.ui.page` 上的内容
+/// 慢生成页 `slow` 用到的两个值: 生成函数占住线程多久、已经生成过几次
+///
+/// 只有原生用例用这份页面: 它要证明主程序在生成慢的时候既不卡住、也不清掉上一份内容。
+const SLOW_CONTENT_MS = 300;
+let slowContentRuns = 0;
+
+/// 三个页面（`card` / `settings` / `slow`）都是 `musicxx.ui.page` 上的内容
 ///
 /// 地址 `ext://<插件 id>/<内容 id>` 的最后一段就是内容 id。动作不再返回视图：
 /// 改完状态调 [refreshPage]，主程序让那一页的内容重生成一份。
@@ -379,6 +385,19 @@ function registerPages() {
         title: "example_js 设置页",
     }, function () {
         return settingsView({ view: "settings" }, null);
+    });
+    // 测试用：生成函数占住线程 300 ms，每次交回一份递增的内容
+    musicxx.ui.content.register({
+        id: "slow",
+        slot: "musicxx.ui.page",
+        title: "example_js 慢生成页",
+    }, function () {
+        const end = Date.now() + SLOW_CONTENT_MS;
+        while (Date.now() < end) {
+            // 故意忙等（模拟插件在生成里卡住）
+        }
+        slowContentRuns += 1;
+        return { blocks: [{ kind: "Text", text: "slow run " + slowContentRuns }] };
     });
 }
 

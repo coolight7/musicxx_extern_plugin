@@ -2883,6 +2883,80 @@ int main(int argc, char **argv) {
             "设置界面内容由插件给出 (说明自己的 config.json 用法)");
     }
 
+    // 慢生成: 请求立即返回, 生成期间读到的还是上一份, 新结果稍后到
+    //
+    // `plugin.example_js.slow` 的生成函数占住生成线程 300 ms。主程序不能被它拖住:
+    // `ui_request` 提交即返回, 注册表里的版本号在生成期间不变, 结果到了才涨。
+    {
+      /// 从内容清单里取这份内容的版本号 (-1 = 没找到)
+      const auto revOfSlow = [](const std::string &listing) -> int {
+        const std::string needle = "\"id\":\"plugin.example_js.slow\"";
+        const size_t at = listing.find(needle);
+        if (at == std::string::npos) {
+          return -1;
+        }
+        const size_t revAt = listing.find("\"rev\":", at);
+        if (revAt == std::string::npos) {
+          return -1;
+        }
+        return std::atoi(listing.c_str() + revAt + 6);
+      };
+
+      // 第一次生成: 等它完成 (慢生成 300 ms), 记下版本号
+      check(!requestUiContent(host, "plugin.example_js.slow").empty(),
+            "慢内容: 第一份结果到了");
+      MusicxxExternPluginString snapBefore{};
+      MusicxxExternPluginString snapBeforeLog{};
+      check(t_ui_contents(host, &snapBefore, &snapBeforeLog) ==
+                PLUGINXX_RESULT_OK,
+            "慢内容: 快照可读");
+      const int revBefore = revOfSlow(take(snapBefore));
+      freeStr(snapBeforeLog);
+      check(revBefore >= 1, "慢内容: 第一份结果已记版本号");
+
+      // 第二次请求: 调用本身立即返回 (不等那 300 ms)
+      const char *slowId = "plugin.example_js.slow";
+      const char *slowCtx = "{}";
+      MusicxxExternPluginStringView idView{slowId, std::strlen(slowId)};
+      MusicxxExternPluginStringView ctxView{slowCtx, std::strlen(slowCtx)};
+      int64_t requestId = 0;
+      MusicxxExternPluginString reqLog{};
+      const auto reqBegin = std::chrono::steady_clock::now();
+      const int32_t reqRc = musicxx_extern_plugin_ui_request(
+          host, &idView, &ctxView, &requestId, &reqLog);
+      const auto reqMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::steady_clock::now() - reqBegin)
+                             .count();
+      freeStr(reqLog);
+      check(reqRc == PLUGINXX_RESULT_OK, "慢内容: 再次请求已受理");
+      check(reqMs < 100, "慢内容: 请求没等生成 (生成在插件线程上)");
+
+      // 生成期间界面读到的还是上一份 (版本号没变, 也不阻塞)
+      MusicxxExternPluginString snapDuring{};
+      MusicxxExternPluginString snapDuringLog{};
+      check(t_ui_contents(host, &snapDuring, &snapDuringLog) ==
+                PLUGINXX_RESULT_OK,
+            "慢内容: 生成期间快照可读");
+      const int revDuring = revOfSlow(take(snapDuring));
+      freeStr(snapDuringLog);
+      check(revDuring == revBefore, "慢内容: 生成期间保留上一份结果");
+
+      // 新结果稍后到 (版本号涨了)
+      bool bumped = false;
+      for (int i = 0; i < 40 && !bumped; ++i) {
+        MusicxxExternPluginString listing{};
+        MusicxxExternPluginString listingLog{};
+        if (t_ui_contents(host, &listing, &listingLog) == PLUGINXX_RESULT_OK) {
+          bumped = revOfSlow(take(listing)) > revBefore;
+        }
+        freeStr(listingLog);
+        if (!bumped) {
+          std::this_thread::sleep_for(std::chrono::milliseconds{50});
+        }
+      }
+      check(bumped, "慢内容: 新结果到达 (旧结果保留到它来)");
+    }
+
     // 播放页背景示例 `example_js_playing_bg`: 六种背景样式（封面三种 + 图案三种）
     // + 歌曲图接管 + 封面取色钩子 + 说明页 / 设置页 / 频谱页。
     //
