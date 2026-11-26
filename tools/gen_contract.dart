@@ -38,6 +38,38 @@ String _canonical(String text) => text
     .replaceAll(RegExp(r',(?=[)\]};])'), '')
     .replaceAll(RegExp(r',$'), '');
 
+/// 两份文本第一处不同的说明（用于 `--check` 报出"是哪一条"）
+///
+/// 按行比：报第一处不同的行，两边都给出去掉首尾空白后的内容（过长截断）。
+/// 只差空白或收尾逗号时单独说一句，避免把格式差异当成内容差异。
+String _firstDifference(String existing, String wanted) {
+  final List<String> before = existing.split('\n');
+  final List<String> after = wanted.split('\n');
+  final int shared = before.length < after.length
+      ? before.length
+      : after.length;
+  int index = 0;
+  while (index < shared && before[index] == after[index]) {
+    index += 1;
+  }
+  if (index == shared && before.length == after.length) {
+    return '   （逐行相同，仅空白或收尾逗号不同）';
+  }
+  String clip(String text) {
+    final String flat = text.trim();
+    return flat.length <= 120 ? flat : '${flat.substring(0, 120)}…';
+  }
+
+  final StringBuffer sb = StringBuffer()..writeln('   第一处不同在第 ${index + 1} 行:');
+  if (index < before.length) {
+    sb.writeln('   - ${clip(before[index])}');
+  }
+  if (index < after.length) {
+    sb.writeln('   + ${clip(after[index])}');
+  }
+  return sb.toString().trimRight();
+}
+
 void main(List<String> args) {
   final bool check = args.contains('--check');
   final Map<String, String> files = <String, String>{
@@ -50,6 +82,7 @@ void main(List<String> args) {
   );
 
   final List<String> drift = <String>[];
+  final List<String> details = <String>[];
   files.forEach((String path, String content) {
     final File file = File(path);
     if (check) {
@@ -60,6 +93,7 @@ void main(List<String> args) {
           : existing == content;
       if (!same) {
         drift.add(path);
+        details.add(_firstDifference(existing, content));
       }
       return;
     }
@@ -70,8 +104,9 @@ void main(List<String> args) {
 
   if (check && drift.isNotEmpty) {
     stderr.writeln('生成物与定义不一致（请运行 dart run tools/gen_contract.dart 后提交）:');
-    for (final String path in drift) {
-      stderr.writeln('  $path');
+    for (int i = 0; i < drift.length; i += 1) {
+      stderr.writeln('  ${drift[i]}');
+      stderr.writeln(details[i]);
     }
     exit(1);
   }

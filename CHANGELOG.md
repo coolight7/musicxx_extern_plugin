@@ -6,6 +6,33 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（未发布）：框架日志与错误文本统一英文
+
+一句话：**日志、错误原因、事件正文、预检结论都改成英文**，中文只留在代码注释与界面文案里。
+
+- 影响面：`host_*` / `plugin_*` / `capability_*` 入口的错误原因、加载与派发日志、自省结论都是英文。
+  靠匹配文本做判断的地方请改看结果码（`PLUGINXX_RESULT_ERR_*`）或 `error.reason`
+  （`not_found` / `not_declared` / `no_value` / `canceled` / `timeout` 这类稳定字符串）。
+- Windows 控制台（936 码页）与 UTF-8 终端看日志都不再乱码。
+- 还没改完的部分：JS 引擎内置脚本层的报错文本、`plugins/` 下的示例插件（示例界面文案是中文）。
+
+### 新增（未发布）：C ABI `musicxx_extern_plugin_request_cancel` 与 `PLUGINXX_RESULT_ERR_CANCELED`
+
+- `musicxx_extern_plugin_request_cancel(handle, request_id)`：撤销一次已受理但还没完成的请求（幂等）。
+  撤销后该请求以 `PLUGINXX_RESULT_ERR_CANCELED`（`-9`）收尾，晚到的结果丢弃，不会再推第二条。
+- 结果码表新增 `-9 = canceled`；旧插件框架库没有这个符号，Dart 侧探测不到时退化为本地收尾。
+
+### 变更（破坏性，未发布）：与项目无关的实现搬到插件框架的通用层
+
+一句话：**形态表、多目标解析、FFI 边界桥搬到子模块 `cxx_pluginxx`，musicxx 只留自己的数据**。
+
+- 形态表：`pluginxx/api/kinds.h`（表声明）+ `pluginxx/host/kind_registry.h`（注册表）；
+  `musicxx/plugin/api/plugin_api.h` 里的 `musicxx.kind` 现在是这张通用表的别名，IID 与成员不变。
+- 多目标清单解析：`pluginxx/host/manifest_targets.h`（`normalizeTargetOs` / `normalizeTargetArch` /
+  `parseTargetTag` / `resolvePluginTargets`）；本包删除 `src/host/host_target.*`。
+- FFI 边界：`pluginxx/host/ffi_bridge.h`（有界事件队列、请求记账、跳堆字符串），
+  插件框架库内部改用同一份实现（溢出提示、停机时结算未完成请求的行为不变）。
+
 ### 变更（破坏性，未发布）：插件网盘移除 `drive.resolveSongs`
 
 一句话：**整目录读歌统一走 `drive.list` 分页，插件不需要再实现一套读歌能力**。

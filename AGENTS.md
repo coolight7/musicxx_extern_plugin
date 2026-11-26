@@ -362,6 +362,12 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   （`capability_ids.g.h`）与插件开发文档 `docs/plugin-capabilities.md` / `docs/plugin-broadcasts.md`。
   **派发层直接读这份声明**：没有第二份派发表，也没有 `.before` / `.after` 结尾的独立 id。
   改完必须重新生成并提交生成物（`--check` 可校验）。
+- **契约生成器分两层**：`tools/contract/contract_core.dart` 只认结构字段（id / 阶段 / impls / merge / cache /
+  dispatch / 通道块 / 广播属性）并生成 Dart 与 C++ 的 id 与声明表；`tools/contract/musicxx_docs.dart` 是项目描述层，
+  只写两份作者文档的措辞；`tools/gen_capabilities.dart` 只做装配（产物路径 + 定义文件位置）。
+  另一个项目（agentxx）用同一套声明格式：加字段时先想清楚是不是通用字段，通用的进 core，
+  只有 musicxx 用得到的写法留在项目层。`dart run tools/gen_contract.dart --check` 逐字节比对生成物，
+  不一致时会指出第一处不同的行与两边的取值。
 - **生成物不要手改**：`lib/src/bindings_generated.dart`、`lib/src/capability_ids.g.dart`、
   `src/sdk/include/musicxx/plugin/api/capability_ids.g.h`、`docs/plugin-capabilities.md`、
   `docs/plugin-broadcasts.md`、`docs/musicxx-ui-kit.md`、`js/musicxx_ui_kit.js`，
