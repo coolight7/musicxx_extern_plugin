@@ -1,6 +1,7 @@
 /// 多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：Dart 侧只保留数据模型与环境取值
 ///
-/// 说明：**分支选择规则只在原生插件框架**（`src/host/host_target.{h,cpp}`），Dart 侧不再复制
+/// 说明：**分支选择规则只在原生插件框架**（子模块
+/// `src/third_party/cxx_pluginxx/include/pluginxx/host/manifest_targets.h`），Dart 侧不再复制
 /// 一份实现。规则本身由原生用例 `test_host.cpp::testPluginTargetLayout` 覆盖；对真实插件框架
 /// 的调用（`plugin_inspect` 与 `plugin_scan` 结论一致）见 `test/host_test.dart`。
 ///

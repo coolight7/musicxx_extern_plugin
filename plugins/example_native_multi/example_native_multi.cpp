@@ -12,7 +12,7 @@
 /// ```
 ///
 /// 插件框架扫描与加载时按当前系统/CPU 架构选一个分支（优先级与别名见
-/// `src/host/host_target.h`），选择结果会出现在管理页的插件信息里。
+/// `src/third_party/cxx_pluginxx/include/pluginxx/host/manifest_targets.h`），选择结果会出现在管理页的插件信息里。
 ///
 /// 插件自己也能知道"这次加载的是哪一份构建"：SDK 构建助手在传 `TARGET_TAG` 时会
 /// 注入编译宏 `MUSICXX_PLUGIN_BUILD_TAG`（下面的能力把它报出来，便于确认插件框架

@@ -369,7 +369,8 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   `cxx_pluginxx` 的 `pluginxx/api/tables.h`；SDK 侧再补一处的 `pluginxx::IfaceMeta` 特化（`plugin_kit.h`
   里逐表一条，漏了会退回"整表必须齐全"的默认判定）。往表尾追加成员时 `X_VERSION` +1、基线不动，
   调用点改用 `pluginxx::ifaceHas`；重排成员 / 改签名 / 删成员一律换新 IID（大小不变，门槛挡不住）。
-- **分支选择只在一处**：多目标包选哪个分支由插件框架实现（`src/host/host_inspect.cpp` + `host_target.*` + `host_manifest.*`），
+- **分支选择只在一处**：多目标包选哪个分支由插件框架实现（`src/host/host_inspect.cpp` +
+  子模块的 `pluginxx/host/manifest_targets.h` + `host_manifest.*`），
   Dart 侧只保留模型与环境取值（`lib/src/plugin_target.dart` / `plugin_inspect.dart`），安装预检也走插件框架的 `plugin_inspect`；
   **不要在 Dart 侧复制这套判定**。
 - **界面组件只在一处**：组件 / 字段 / 上限定义在子模块 `src/third_party/cxx_pluginxx_ui/schema/ui.def.json`，

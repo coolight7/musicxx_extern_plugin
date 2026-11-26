@@ -7,12 +7,12 @@
 #include "host_json.h"
 #include "host_manifest.h"
 #include "host_naming.h"
-#include "host_target.h"
 #include "js/js_engine.h"
 
 #include "pluginxx/api/net.h"
 #include "pluginxx/host/abi_util.h"
 #include "pluginxx/host/manifest.h"
+#include "pluginxx/host/manifest_targets.h"
 #include "utilxx_base/json.h"
 #include "utilxx_base/log.h"
 
@@ -140,12 +140,10 @@ void ensureStderrLogSink() {
 
 /// 当前插件框架的规范架构名（编译目标）
 ///
-/// 判定与多目标分支选择共用一份实现（`currentTargetArch()`，见
-/// host_target.cpp）： 上报给插件的架构、清单 `arch`
-/// 声明、分支目录标签比较的必须是同一个名字， 两处各写一份 `#if`
-/// 迟早会对不上（32 位 ARM 上就是"插件框架报 unknown、分支标签是
-/// android-armeabi-v7a，谁都匹配不上"）。
-std::string hostArch() { return currentTargetArch(); }
+/// 判定与多目标分支选择共用一份实现（`pluginxx::currentTargetArch()`，见
+/// `pluginxx/host/manifest_targets.h`）：上报给插件的架构、清单 `arch`
+/// 声明、分支目录标签比较的必须是同一个名字。
+std::string hostArch() { return pluginxx::currentTargetArch(); }
 
 std::string viewToString(const MusicxxExternPluginStringView &v) {
   if (!v.data || v.size == 0) {
@@ -1138,7 +1136,7 @@ MusicxxHostManager::pluginInstanceJson(const MusicxxHostInstance &inst) const {
   j["version"] = inst.version;
   j["description"] = inst.description;
   j["path"] = inst.path;
-  // 选中的平台/架构分支（空 = 用插件根目录的库文件；见 host_target.h）
+  // 选中的平台/架构分支（空 = 用插件根目录的库文件；见 `pluginxx/host/manifest_targets.h`）
   j["target"] = inst.targetTag;
   j["targetEntry"] = inst.targetEntry;
   j["source"] = "loaded"; ///< 已加载项: 与扫描项的 user/builtin 区分
@@ -1459,7 +1457,7 @@ std::string MusicxxHostManager::scanDir(const std::string &dir,
   const int32_t apiVersion = info.apiVersion;
   const std::vector<std::string> &depends = info.depends;
   const std::vector<std::string> &optionalDepends = info.optionalDepends;
-  const MusicxxPluginTargets &targets = info.targets;
+  const pluginxx::PluginxxTargets &targets = info.targets;
   Json permissions = Json::array();
   for (const std::string &item : info.permissions) {
     permissions.push_back(item);
@@ -1599,13 +1597,15 @@ MusicxxHostManager::loadNativeDir(
 
   // 多目标布局（仿 APK 的 lib/<系统>-<架构>/）：选当前系统/架构要用的分支；
   // 没有匹配分支时回退插件根目录的库文件（旧布局）
-  const MusicxxPluginTargets targets =
-      resolvePluginTargets(dir, readManifestFields(dir).targetsDir, entry, name,
-                           platform_, hostArch(), true);
+  const pluginxx::PluginxxTargets targets =
+      pluginxx::resolvePluginTargets(dir, readManifestFields(dir).targetsDir, entry,
+                                     name, platform_, hostArch(), true);
   if (targets.selectedLibPath.empty()) {
-    failReason = targets.note.empty()
+    const std::string missing =
+        describeMissingTargets(targets, platform_, hostArch());
+    failReason = missing.empty()
                      ? ("动态库插件库文件缺失 (entry=" + entry + ")")
-                     : targets.note;
+                     : missing;
     XX_LOGE("[musicxx_ext] 插件 `{}` 加载失败: {}", name, failReason);
     co_return nullptr;
   }

@@ -5,7 +5,7 @@
 /// 判定与扫描、加载在原生侧同源（`inspectPluginDir`），因此不会出现
 /// "预检通过、加载却用另一个分支"。
 ///
-/// 注意：这里**只有数据**，没有分支选择规则（规则在插件框架 `src/host/host_target.h`）。
+/// 注意：这里**只有数据**，没有分支选择规则（规则在插件框架 `src/third_party/cxx_pluginxx/include/pluginxx/host/manifest_targets.h`）。
 library;
 
 import 'plugin_target.dart';

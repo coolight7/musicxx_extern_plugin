@@ -40,7 +40,7 @@ std::vector<std::string> scriptsOf(const MusicxxManifestFields &fields,
   return {"plugin.js"};
 }
 
-/// 名字归一化函数的类型（系统与架构各一张别名表，见 host_target.h）
+/// 名字归一化函数的类型（系统与架构各一张别名表，见 `pluginxx/host/manifest_targets.h`）
 using NameNormalizer = std::string (*)(std::string_view);
 
 /// 目标系统 / 架构名：调用方传空时用插件框架当前环境
@@ -49,17 +49,17 @@ using NameNormalizer = std::string (*)(std::string_view);
 /// （按原样比较，不做猜测）。
 std::string resolveTargetOs(const std::string &os) {
   if (os.empty()) {
-    return currentTargetOs();
+    return pluginxx::currentTargetOs();
   }
-  const std::string normalized = normalizeTargetOs(os);
+  const std::string normalized = pluginxx::normalizeTargetOs(os);
   return normalized.empty() ? os : normalized;
 }
 
 std::string resolveTargetArch(const std::string &arch) {
   if (arch.empty()) {
-    return currentTargetArch();
+    return pluginxx::currentTargetArch();
   }
-  const std::string normalized = normalizeTargetArch(arch);
+  const std::string normalized = pluginxx::normalizeTargetArch(arch);
   return normalized.empty() ? arch : normalized;
 }
 
@@ -104,8 +104,34 @@ utilxx_base::Json toJsonArray(const std::vector<std::string> &values) {
 
 } // namespace
 
-std::string inspectToJson(const MusicxxPluginInspect &info) {
-  using utilxx_base::Json;
+std::string describeMissingTargets(const pluginxx::PluginxxTargets &targets,
+                                   const std::string &targetOs,
+                                   const std::string &targetArch) {
+  if (!targets.hasBranches) {
+    return {};
+  }
+  if (!targets.selectedTag.empty()) {
+    std::string branchDir = targets.selectedTag;
+    for (const pluginxx::PluginxxTarget &target : targets.all) {
+      if (target.selected) {
+        branchDir = target.dir;
+        break;
+      }
+    }
+    return "分支 `" + branchDir + "` 里没有可加载的库文件";
+  }
+  std::string tags;
+  for (const pluginxx::PluginxxTarget &target : targets.all) {
+    if (!tags.empty()) {
+      tags += "、";
+    }
+    tags += target.tag;
+  }
+  return "包内没有匹配当前系统/架构的分支 (当前 " + targetOs + "/" + targetArch +
+         "，包内分支: " + tags + ")";
+}
+
+std::string inspectToJson(const MusicxxPluginInspect &info) {  using utilxx_base::Json;
   Json j;
   j["valid"] = info.valid;
   j["error"] = info.error;
@@ -128,7 +154,7 @@ std::string inspectToJson(const MusicxxPluginInspect &info) {
   if (info.kind == "js") {
     j["scripts"] = toJsonArray(info.scripts);
   }
-  // 多目标布局信息（见 host_target.h）：target 为空串 = 用插件根目录的库文件；
+  // 多目标布局信息（见 `pluginxx/host/manifest_targets.h`）：target 为空串 = 用插件根目录的库文件；
   // targets 含未匹配目标环境的分支
   if (info.kind == "native") {
     j["targetsDir"] = info.targets.dirName;
@@ -259,7 +285,7 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   // 多目标打包（仿 APK 的
   // lib/<系统>-<架构>/）：解析包内分支，选出目标环境要用的库文件
   if (requiresCAbi) {
-    info.targets = resolvePluginTargets(pluginDir, fields.targetsDir, entry,
+    info.targets = pluginxx::resolvePluginTargets(pluginDir, fields.targetsDir, entry,
                                         name, targetOs, targetArch, true);
   }
 
@@ -272,13 +298,13 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   // 静态可用性（不含运行期开关：JS
   // 运行时是否可用、安全模式、禁用动态库由调用方叠加）
   if (info.supported && !info.platforms.empty() &&
-      !declaresTarget(info.platforms, targetOs, normalizeTargetOs)) {
+      !declaresTarget(info.platforms, targetOs, pluginxx::normalizeTargetOs)) {
     info.supported = false;
     info.reason = "当前平台不在清单声明内 (当前 " + targetOs +
                   "，清单声明: " + joinText(info.platforms) + ")";
   }
   if (info.supported && !info.arch.empty() &&
-      !declaresTarget(info.arch, targetArch, normalizeTargetArch)) {
+      !declaresTarget(info.arch, targetArch, pluginxx::normalizeTargetArch)) {
     info.supported = false;
     info.reason = "当前架构不在清单声明内 (当前 " + targetArch +
                   "，清单声明: " + joinText(info.arch) + ")";
@@ -293,9 +319,11 @@ MusicxxPluginInspect inspectPluginDir(const fs::path &pluginDir,
   if (info.supported && info.kind == "native" &&
       info.targets.selectedLib.empty()) {
     info.supported = false;
-    info.reason = info.targets.note.empty()
+    const std::string missing =
+        describeMissingTargets(info.targets, targetOs, targetArch);
+    info.reason = missing.empty()
                       ? ("动态库插件库文件缺失 (entry=" + entry + ")")
-                      : info.targets.note;
+                      : missing;
   }
   if (info.supported && info.kind == "js") {
     std::string missing;

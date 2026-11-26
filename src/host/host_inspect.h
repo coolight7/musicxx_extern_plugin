@@ -7,13 +7,14 @@
 /// - 原生加载：按同一份判定选分支（`loadNativeDirAsync` 复用
 /// `resolvePluginTargets`）。
 ///
-/// 三者共用同一套规则（`host_target.h` 的分支选择 + `host_manifest.h`
+/// 三者共用同一套规则（`pluginxx/host/manifest_targets.h` 的分支选择 + `host_manifest.h`
 /// 的清单字段 + `host_kind.h`
 /// 的形态注册表），因此不会出现"扫描/预检说一套、加载做另一套"。
 #pragma once
 
 #include "host_kind.h"
-#include "host_target.h"
+
+#include "pluginxx/host/manifest_targets.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -54,7 +55,7 @@ struct MusicxxPluginInspect {
   std::vector<std::string> scripts;
 
   /// 多目标打包的分支解析结果（只有动态库插件会填）
-  MusicxxPluginTargets targets;
+  pluginxx::PluginxxTargets targets;
 
   /// 形态（kind）的事实：注册表里有没有这一项、它是不是按 C ABI
   /// 编译、接口代次对、由谁提供
@@ -112,6 +113,19 @@ inspectPluginDir(const std::filesystem::path &pluginDir,
 ///  "kindProviderId":"","kindValidateCapability":""}
 /// ```
 std::string inspectToJson(const MusicxxPluginInspect &info);
+
+/// 多目标分支没法用时的用户可见原因（应用语言）
+///
+/// 共享库（`pluginxx/host/manifest_targets.h`）给出的 `note` 是英文的框架级诊断，进日志用；
+/// 给用户看的原因在这里按应用语言拼，依据的是同一份结构化结论（分支列表 / 选中项 / 当前
+/// 环境），不重复判定规则。
+///
+/// - 选中的分支里没有库文件 → "分支 `lib/x64` 里没有可加载的库文件"；
+/// - 没有匹配当前环境的分支 → "包内没有匹配当前系统/架构的分支 (当前 …，包内分支: …)"；
+/// - 其它（包内没有分支）→ 空串，调用方自己说明"库文件缺失"。
+std::string describeMissingTargets(const pluginxx::PluginxxTargets &targets,
+                                   const std::string &targetOs,
+                                   const std::string &targetArch);
 
 } // namespace extern_plugin
 } // namespace musicxx

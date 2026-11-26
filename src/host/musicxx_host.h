@@ -169,7 +169,7 @@ public:
   /// 插件形态: native | js | builtin
   std::string kind = "native";
 
-  /// 选中的平台/架构分支标签（空 = 用插件根目录的库文件；见 host_target.h）
+  /// 选中的平台/架构分支标签（空 = 用插件根目录的库文件；见 `pluginxx/host/manifest_targets.h`）
   std::string targetTag;
 
   /// 选中的库文件（相对插件目录的路径；供管理页展示）

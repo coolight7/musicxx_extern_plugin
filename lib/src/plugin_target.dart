@@ -1,6 +1,6 @@
 /// 外部插件多目标打包（仿 APK 的 `lib/<系统>-<架构>/`）：Dart 侧只保留**数据模型与环境取值**
 ///
-/// 分支选择规则**只在原生插件框架**一处实现（`src/host/host_target.{h,cpp}`）：
+/// 分支选择规则**只在原生插件框架**一处实现（`src/third_party/cxx_pluginxx/include/pluginxx/host/manifest_targets.h`）：
 /// 扫描（`plugin_scan`）、加载（`loadNativeDirAsync`）与安装预检（`plugin_inspect`）都走
 /// 同一份判定。Dart 侧不再复制别名表与目录遍历，因此不会出现"两边规则漂移"。
 ///

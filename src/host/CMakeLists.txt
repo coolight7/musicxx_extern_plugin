@@ -139,7 +139,6 @@ set(MUSICXX_EXTERN_PLUGIN_HOST_SOURCES
   musicxx_host_ui.cpp
   host_inspect.cpp
   host_manifest.cpp
-  host_target.cpp
   musicxx_extern_plugin_api.cpp
   js/js_engine.cpp
 )
