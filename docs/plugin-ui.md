@@ -279,9 +279,9 @@ uiContentRegister("lyricTip", MUSICXX_PLUGIN_UI_SLOT_PLAYING_LYRIC_TOP, "[]",
   更多信息页的 `header` / `footer` 就是内容的首尾）；
 - **类型名就是位置**：写错一个字母（拼错页面或位置）时插件框架**直接拒绝注册**（未知 UI 类型，
   和把 `home.entry` 拼错一样），不会静默不显示；
-- 取不到内容（能力没实现、返回的东西解析不出块）→ 这一块不渲染，不影响同一位置的其它项与页面本身；
-  要刷新就在能力里返回新的 `{view: …}`，或让主程序重取一次（`musicxx.ui.slot.update(名字)`）；
-  真要改声明（换视图 / 改标题）就用 `register` 覆盖。
+- 取不到内容（不是内容注册、返回的东西解析不出块）→ 这一块不渲染，不影响同一位置的其它项与页面本身；
+  要刷新就推一份新的（`content.push`，或 `slot.update("<槽位>", ["<内容 id>"])`）；
+  真要改声明（换标题 / 换 `order`）就用 `register` 覆盖。
 - 插入块里的逐帧动画用 `musicxx.AnimatedBuilder`（与页面里的写法一样，见 §2.3.2）；播放页的频谱来源
   `musicxx.spectrum.*` 在这些块里也能用。
 
@@ -1039,11 +1039,11 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 **弹层属于“有过程、有结果”的事，所以走动作**（不往页面里加“浮层块”）。两种写法：
 
 ```js
-// 1) 页面里的一行直接打开浮层（零代码）：那一行带 command 动作，参数就是动作参数
-//    {"kind":"command","name":"musicxx.ui.overlay.show","args":{...}}
+// 1) 页面里的一行直接打开浮层（零代码）：那一行带 call 动作，参数就是能力参数
+//    {"kind":"call","name":"musicxx.ui.overlay.show","args":{...}}
 //    kit 的 overlayRow 已经包好这一层
 
-// 2) 插件拿到结果后再改页面：那一行用 dispatch，处理函数里自己调
+// 2) 插件拿到结果后再改页面：那一行用 call 指向自己的能力，处理函数里自己调
 musicxx.capability.register("pickQuality", async function () {
   const r = await musicxx.ui.pick({
     title: "音质",
@@ -1051,7 +1051,8 @@ musicxx.capability.register("pickQuality", async function () {
     options: [{ value: "high", title: "高品质", describe: "文件较大，音质最好" }],
   });
   if (r && !r.cancelled) current = r.selected;
-  return { view: buildView() };      // 返回新视图，页面立刻更新
+  // 动作不返回视图：改完内容让主程序把那一页再要一次
+  musicxx.ui.slot.update("musicxx.ui.page", ["<那一页的内容 id>"]);
 });
 ```
 
@@ -1067,8 +1068,8 @@ musicxx.capability.register("pickQuality", async function () {
 - **等用户操作的动作要把超时设长**：JS 的 `dialog` / `overlay` / `pick` 缺省已给 10 分钟；
 - **层数不限制**：一个插件可以同时开多层（后开的盖在上面），`overlayClose()` 不点名就关最上面那一层，
   点名（`id`）则关最上面那个名字对得上的层；插件卸载 / 插件页面退出会自动关掉它的全部浮层；
-- 浮层里的按钮动作**不会自动关闭浮层**：插件返回 `{"view": …}` 就能在浮层里换内容（做翻页 / 刷新），
-  要关自己调 `overlayClose`；`textConfirm` 那个按钮一定关闭；
+- 浮层里的按钮动作**不会自动关闭浮层**：插件 push 一份新内容（`content.push` / `slot.update("musicxx.ui.overlay", […])`）
+  就能在浮层里换内容（做翻页 / 刷新），要关自己调 `overlayClose`；`textConfirm` 那个按钮一定关闭；
 - `pick` 只做单选；多选就在自己的 `blocks` 里放 `Control(checkbox)` 或列表块；
 - 浮层 / 确认弹窗的外观（圆角、遮罩、尺寸预设、动画等级）跟应用主题走，插件不控样式。
 
@@ -1133,8 +1134,8 @@ musicxx.capability.register("pickQuality", async function () {
 
 ### 4.1 在页面按钮里切换字体：**处理器里不要 `await` 这些能力**
 
-换字体会重建整棵界面、耗时几百毫秒到几秒。页面按钮走的是 `dispatch` →
-`plugin_call`，**应用线程全程阻塞等这次能力调用返回**；处理器里 `await`
+换字体会重建整棵界面、耗时几百毫秒到几秒。页面按钮走的是 `call` →
+能力调用，**应用线程全程阻塞等这次能力调用返回**；处理器里 `await`
 `musicxx.ui.setFontFamily` / `loadFont` 就会与调用方互锁：
 
 - 主程序表现：点一下**整个程序卡几秒**，然后插件收到 `action_timeout` 报"切换失败"，

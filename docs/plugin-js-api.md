@@ -1162,7 +1162,7 @@ musicxx.capability.register("toggleMySwitch", function () {
 - **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.visualizer`
   与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
   （用户选中之前就要在设置里看到名字）；
-- 动作写法：`call`（字符串短写也算 `call`）/ `route` / `none`（`dispatch` / `command` 是旧写法，仍然接受），
+- 动作写法：`call`（字符串短写也算 `call`）/ `route` / `none`，
   字段见 [plugin-ui.md](plugin-ui.md) §1.4；
 - UI 项的类型与 `data` 字段、页面块类型、按 `host.info().ui` 降级、图标要自带 svg ——
   见 [plugin-ui.md](plugin-ui.md) 与 [plugin-api.md](plugin-api.md) §9.1；页面的路由是

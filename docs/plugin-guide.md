@@ -214,11 +214,12 @@ musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我�
 
 ### 5.4 界面
 
-- **页面内容是打开时取一次的**：主程序打开页面时调用一次能力拿到视图；改完配置要让能力再返回一次
-  `{view: …}`（或重新打开页面），界面才会更新；
-- **入口/按钮指向的能力必须真的注册**：只声明入口不实现能力时，打开页面只会提示
+- **页面是内容注册**：用 `musicxx.ui.content.register({id, slot: "musicxx.ui.page", title}, generate)`
+  注册一页，打开页面时主程序读的是缓存里那份内容；改完配置要让这一页重出内容，就调
+  `musicxx.ui.slot.update(slot, [内容 id])`（或 `musicxx.ui.content.push`）；
+- **入口 / 按钮指向的页面内容必须真的注册**：只声明入口、没注册对应内容时，打开页面只会提示
   「插件『<插件id>』没有提供『xxx』」；
-- **动作写法**：`call` / `route` / `none`（`dispatch` / `command` 是旧写法，仍然接受；`route` 允许跳到任意插件的
+- **动作写法**：`call` / `route` / `none`（`call` 的字符串短写也算；`route` 允许跳到任意插件的
   `ext://<插件id>/<内容 id>` 页面）；
 - **组件要按客户端能力降级**：`host.info().ui` 是客户端如实上报的能力段 —— 它支持哪些块、控件
   都在里面；用 `fallback` 或 kit 的变体处理不支持的情况（不要假设所有客户端都支持 `Image`、
