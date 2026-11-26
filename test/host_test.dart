@@ -173,7 +173,10 @@ void main() {
       arch: MusicxxPluginEnv.currentArch(),
     );
     expect(mismatched.supported, isFalse);
-    expect(mismatched.reason, contains('没有匹配当前系统/架构的分支'));
+    expect(
+      mismatched.reason,
+      contains('no branch matches the current os/arch'),
+    );
 
     // 目录不存在：valid=false + 可读原因（不抛异常）
     final MusicxxPluginInspect_c missing = await runtime.plugins.inspect(

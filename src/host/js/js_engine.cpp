@@ -166,7 +166,7 @@ constexpr const char *kPrelude = R"JS(
 (function () {
   "use strict";
   var ext = globalThis.__ext;
-  if (!ext) { throw new Error("musicxx 运行时桥接缺失"); }
+  if (!ext) { throw new Error("the musicxx runtime bridge is missing"); }
 
   var implementationTable = new Map();
   var capTable = new Map();
@@ -199,7 +199,7 @@ var featurePointImpls = new Map();
   }
   function assertName(value, what) {
     if (typeof value !== "string" || value.length === 0) {
-      throw new Error(what + " 必须是非空字符串");
+      throw new Error(what + " must be a non-empty string");
     }
   }
   function safeJson(value) {
@@ -215,7 +215,7 @@ var featurePointImpls = new Map();
   ///
   /// 插件框架按前缀判断槽位归属, 短名直接发过去会被当成越权（插件文档里写的是短名）。
   function ownSlotId(value, what) {
-    assertName(value, what || "ui: 槽位");
+    assertName(value, what || "ui: slot");
     var text = String(value);
     if (text.indexOf("plugin.") === 0) { return text; }
     return "plugin." + musicxx.pluginId + ".ui." + text;
@@ -235,7 +235,7 @@ var featurePointImpls = new Map();
   })();
   /// 槽位名规范化: 允许简称 (`playing.songlist.top`)、官方全名、插件自己的槽位
   function normalizeSlotName(value, what) {
-    assertName(value, what || "ui: 槽位");
+    assertName(value, what || "ui: slot");
     var text = String(value);
     if (text.indexOf("plugin.") === 0) { return text; }
     if (uiCatalog.slotIndex[text]) { return text; }
@@ -247,7 +247,7 @@ var featurePointImpls = new Map();
   }
   function normalizeItem(spec, what) {
     if (typeof spec === "string") { spec = { name: spec }; }
-    if (!spec || typeof spec !== "object") { throw new Error(what + ": 需要对象参数"); }
+    if (!spec || typeof spec !== "object") { throw new Error(what + ": an object argument is required"); }
     var name = (typeof spec.name === "string" && spec.name)
                  ? spec.name
                  : (typeof spec.id === "string" ? spec.id : "");
@@ -262,7 +262,7 @@ var featurePointImpls = new Map();
         data[key] = spec[key];
       });
     }
-    if (typeof data !== "object" || data === null) { throw new Error(what + ": data 必须是对象"); }
+    if (typeof data !== "object" || data === null) { throw new Error(what + ": data must be an object"); }
     return {
       name: name,
       type: String(type),
@@ -272,7 +272,7 @@ var featurePointImpls = new Map();
   }
   /// 内容描述: {id, slot, deps?, routes?, order?, minIntervalMs?} → 规范化后的对象
   function normalizeContent(spec, what) {
-    if (!spec || typeof spec !== "object") { throw new Error(what + ": 需要对象参数"); }
+    if (!spec || typeof spec !== "object") { throw new Error(what + ": an object argument is required"); }
     var id = shortName((typeof spec.id === "string") ? spec.id
                         : ((typeof spec.name === "string") ? spec.name : ""));
     assertName(id, what + ": id");
@@ -280,7 +280,7 @@ var featurePointImpls = new Map();
     var deps = [];
     if (spec.deps !== undefined && spec.deps !== null) {
       if (Object.prototype.toString.call(spec.deps) !== "[object Array]") {
-        throw new Error(what + ": deps 必须是变量 id 数组");
+        throw new Error(what + ": deps must be an array of variable ids");
       }
       deps = spec.deps.map(function (item) { return String(item); });
     }
@@ -288,11 +288,11 @@ var featurePointImpls = new Map();
     var routes = [];
     if (spec.routes !== undefined && spec.routes !== null) {
       if (Object.prototype.toString.call(spec.routes) !== "[object Array]") {
-        throw new Error(what + ": routes 必须是页面路由数组");
+        throw new Error(what + ": routes must be an array of page routes");
       }
       routes = spec.routes.map(function (item) {
         var route = String(item).trim();
-        if (!route) { throw new Error(what + ": routes 里不能有空路由"); }
+        if (!route) { throw new Error(what + ": routes must not contain an empty route"); }
         return route;
       });
     }
@@ -322,7 +322,7 @@ var featurePointImpls = new Map();
     if (value === undefined || value === null || value === "") { return "impl"; }
     var text = String(value);
     if (!PHASES[text]) {
-      throw new Error("implementations: 未知阶段 " + text + " (只能是 before / impl / after)");
+      throw new Error("implementations: unknown phase " + text + " (must be before / impl / after)");
     }
     return text;
   }
@@ -373,7 +373,7 @@ var featurePointImpls = new Map();
     return text.indexOf(prefix) === 0 ? text.slice(prefix.length) : text;
   }
   function broadcastFullKey(key) {
-    assertName(key, "broadcast: 频道");
+    assertName(key, "broadcast: channel");
     var text = String(key);
     if (text.indexOf("musicxx.") === 0 || text.indexOf("plugin.") === 0) { return text; }
     return "plugin." + musicxx.pluginId + "." + text;
@@ -408,7 +408,7 @@ var featurePointImpls = new Map();
     /// - 运行期重复声明同一个 id 会覆盖属性, 当前值仍然保留 (要刷新就用 `publish`)。
     declare: function (spec) {
       if (!spec || typeof spec !== "object") {
-        throw new Error("broadcast.declare: 需要对象参数");
+        throw new Error("broadcast.declare: an object argument is required");
       }
       var full = broadcastFullKey(spec.id === undefined ? "" : spec.id);
       var cache = spec.cache === "latest" ? "latest" : "none";
@@ -448,7 +448,7 @@ var featurePointImpls = new Map();
     /// - `onEnd`（可选）: 频道被属主结束时回调一次 `onEnd(reason, info)`，这个订阅随即失效；
     /// - 返回解绑函数。同一个频道可以用不同频率订阅多次。
     subscribe: function (id, fn, options, onEnd) {
-      if (typeof fn !== "function") { throw new Error("broadcast.subscribe: 缺少回调"); }
+      if (typeof fn !== "function") { throw new Error("broadcast.subscribe: the callback is missing"); }
       var full = broadcastFullKey(id);
       var optionsJson = broadcastOptionsJson(options);
       var list = broadcastSubs.get(full);
@@ -528,13 +528,13 @@ var featurePointImpls = new Map();
   /// 请求当场从 JS 线程推给应用（不投递到框架线程：start 事务期间会互等），
   /// 结果经 `ext.onCapabilityResult` 回来，与本文件里跨插件调用共用一张等待表。
   function appCall(id, args, budget) {
-    assertName(id, "capability.call: 能力 id");
+    assertName(id, "capability.call: capability id");
     return new Promise(function (resolve, reject) {
       var payload = safeJson(args === undefined || args === null ? {} : args);
       var timeout = (typeof budget === "number" && budget > 0) ? Math.trunc(budget) : 5000;
       var requestId = ext.appCapabilityCall(id, payload, timeout);
       if (typeof requestId !== "number" || requestId < 0) {
-        reject(new Error("应用能力调用未被受理: " + id + " (code=" + requestId + ")"));
+        reject(new Error("the app capability call was not accepted: " + id + " (code=" + requestId + ")"));
         return;
       }
       // 键用字符串: 插件框架回调传进来的 id 是字符串
@@ -552,7 +552,7 @@ var featurePointImpls = new Map();
       waiter.resolve(value);
     } else {
       var reason = (value && value.error) ? value.error : ("status=" + status);
-      waiter.reject(new Error("应用能力调用失败: " + reason));
+      waiter.reject(new Error("the app capability call failed: " + reason));
     }
   };
 
@@ -619,13 +619,13 @@ var featurePointImpls = new Map();
       value = fn(args, { point: input.point, caller: input.caller || "" });
     } catch (e) {
       var message = (e && e.message) ? e.message : String(e);
-      musicxx.host.log(3, "feature.provide: 处理器抛异常 (" + input.point + "): " + message);
+      musicxx.host.log(3, "feature.provide: the handler threw (" + input.point + "): " + message);
       return { error: message };
     }
     if (value && typeof value.then === "function") {
       // 功能埋点是同步裁决通道: 异步处理器拿不到结果, 直接按"不回答"处理并说明原因
-      musicxx.host.log(3, "feature.provide: 处理器返回了 Promise (" + input.point +
-                       "); 功能埋点走同步裁决通道, 请提前算好或改成能力调用 (musicxx.capability.call)");
+      musicxx.host.log(3, "feature.provide: the handler returned a Promise (" + input.point +
+                       "); feature points use a synchronous channel, compute the value upfront or switch to a capability call (musicxx.capability.call)");
       return "";
     }
     // 返回**对象**: 能力处理器返回非 null 值会被 `JSON.stringify` 成裁决 JSON,
@@ -712,7 +712,7 @@ var featurePointImpls = new Map();
   var netHttpWaiters = new Map();  // String(requestId) → {resolve, reject}
 
   function netError(event) {
-    var err = new Error((event && (event.message || event.error)) || "网络操作失败");
+    var err = new Error((event && (event.message || event.error)) || "network operation failed");
     if (event && event.error) { err.code = String(event.error); }
     return err;
   }
@@ -721,7 +721,7 @@ var featurePointImpls = new Map();
   function netCall(op, args) {
     if (typeof ext.netCall !== "function") {
       return { ok: false, error: "runtime_unsupported",
-               message: "这个插件框架版本没有网络能力" };
+               message: "this plugin framework has no network capability" };
     }
     try {
       return JSON.parse(ext.netCall(String(op), safeJson(args || {})));
@@ -731,7 +731,7 @@ var featurePointImpls = new Map();
   }
 
   function netSubscribe(prefix, fn) {
-    if (typeof fn !== "function") { throw new Error("net: 缺少处理函数"); }
+    if (typeof fn !== "function") { throw new Error("net: the handler is missing"); }
     netSubs.push({ prefix: String(prefix || ""), fn: fn });
     return musicxx.net;
   }
@@ -772,7 +772,7 @@ var featurePointImpls = new Map();
 
   function netFetchAsync(options) {
     var req = (typeof options === "string") ? { url: options } : (options || {});
-    if (!req.url) { return Promise.reject(new Error("net.fetch: 缺少 url")); }
+    if (!req.url) { return Promise.reject(new Error("net.fetch: url is missing")); }
     var responseType = (req.responseType === "bytes") ? "bytes" : "text";
     return netRequestAsync("http.fetch", req).then(function (event) {
       return netFetchResult(event, responseType);
@@ -781,7 +781,7 @@ var featurePointImpls = new Map();
 
   function netDownloadAsync(options) {
     var req = (typeof options === "string") ? { url: options } : (options || {});
-    if (!req.url) { return Promise.reject(new Error("net.download: 缺少 url")); }
+    if (!req.url) { return Promise.reject(new Error("net.download: url is missing")); }
     return netRequestAsync("http.download", req).then(function (event) {
       return {
         ok: true,
@@ -816,7 +816,7 @@ var featurePointImpls = new Map();
       if (sub.prefix && event.kind.indexOf(sub.prefix) !== 0) { continue; }
       try { sub.fn(event); }
       catch (e) {
-        logError("网络事件处理异常 (" + event.kind + "): " +
+        logError("network event handler failed (" + event.kind + "): " +
                  (e && e.message ? e.message : String(e)));
       }
     }
@@ -1086,7 +1086,7 @@ var featurePointImpls = new Map();
       return musicxx;
     },
     unregister: function (name) {
-      assertName(name, "ui.item.unregister: 名称");
+      assertName(name, "ui.item.unregister: name");
       var key = shortName(name);
       uiTable.delete(key);
       ext.uiItemOp("unregister", key, "", "{}", 0);
@@ -1113,7 +1113,7 @@ var featurePointImpls = new Map();
     register: function (spec, generate) {
       var content = normalizeContent(spec, "ui.content.register");
       if (typeof generate !== "function") {
-        throw new Error("ui.content.register: 需要生成函数");
+        throw new Error("ui.content.register: the generate function is required");
       }
       contentTable.set(content.id, {
         slot: content.slot, deps: content.deps, order: content.order,
@@ -1162,11 +1162,11 @@ var featurePointImpls = new Map();
   //   看候选、看当前、选一个。
   musicxx.ui.slot = {
     update: function (slot, ids) {
-      var name = normalizeSlotName(slot, "ui.slot.update: 槽位");
+      var name = normalizeSlotName(slot, "ui.slot.update: slot");
       var target = [];
       if (ids !== undefined && ids !== null) {
         if (Object.prototype.toString.call(ids) !== "[object Array]") {
-          throw new Error("ui.slot.update: 第二个参数是内容 id 数组");
+          throw new Error("ui.slot.update: the second argument is an array of content ids");
         }
         target = ids.map(function (item) { return shortName(String(item)); });
       }
@@ -1174,11 +1174,11 @@ var featurePointImpls = new Map();
       return musicxx;
     },
     define: function (spec) {
-      if (!spec || typeof spec !== "object") { throw new Error("ui.slot.define: 需要对象参数"); }
+      if (!spec || typeof spec !== "object") { throw new Error("ui.slot.define: an object argument is required"); }
       var id = ownSlotId(spec.id, "ui.slot.define: id");
       var kind = String(spec.kind || "insert");
       if (kind !== "insert" && kind !== "replace") {
-        throw new Error("ui.slot.define: kind 只能是 insert / replace");
+        throw new Error("ui.slot.define: kind must be insert / replace");
       }
       slotTable.set(id, kind);
       ext.uiSlotOp("define", id, safeJson({ kind: kind }));
@@ -1280,7 +1280,7 @@ var featurePointImpls = new Map();
       try {
         snapshot[i].fn(payload, info);
       } catch (e) {
-        logError("广播回调异常 (" + topic + "): " + (e && e.message ? e.message : String(e)));
+        logError("broadcast callback failed (" + topic + "): " + (e && e.message ? e.message : String(e)));
       }
     }
   };
@@ -1305,7 +1305,7 @@ var featurePointImpls = new Map();
       try {
         snapshot[i].onEnd(reason, info);
       } catch (e) {
-        logError("广播结束回调异常 (" + topic + "): " + (e && e.message ? e.message : String(e)));
+        logError("broadcast end callback failed (" + topic + "): " + (e && e.message ? e.message : String(e)));
       }
     }
   };
@@ -1318,13 +1318,13 @@ var featurePointImpls = new Map();
     /// - 观察（`mode: "observe"`）在框架 API 2 之后改用广播订阅：用 `musicxx.broadcast.subscribe`，
     ///   这里再写 `mode: "observe"` 会被拒绝。
     implement: function (id, options, fn) {
-      assertName(id, "capability.implement: 能力 id");
+      assertName(id, "capability.implement: capability id");
       if (typeof options === "function") { fn = options; options = null; }
       options = options || {};
       if (options.mode === "observe") {
-        throw new Error("capability.implement: 观察已改成广播订阅，请用 musicxx.broadcast.subscribe");
+        throw new Error("capability.implement: observation is now a broadcast subscription, use musicxx.broadcast.subscribe");
       }
-      if (typeof fn !== "function") { throw new Error("capability.implement: 缺少处理函数"); }
+      if (typeof fn !== "function") { throw new Error("capability.implement: the handler is missing"); }
       var entry = {
         id: String(id),
         phase: normalizePhase(options.phase),
@@ -1375,14 +1375,14 @@ var featurePointImpls = new Map();
     /// 读某条能力当前的实现行 (自省: 谁提供、在哪个阶段、排第几)。
     /// 返回 Promise: {capability, count, handlers:[{plugin, instance, kind, phase, priority, ownerTag}]}
     handlers: function (id, phase) {
-      assertName(id, "capability.handlers: 能力 id");
+      assertName(id, "capability.handlers: capability id");
       var args = { id: String(id) };
       if (phase !== undefined && phase !== null) { args.phase = normalizePhase(phase); }
       return appCall("musicxx.capability.subscribers", args);
     },
     register: function (name, fn) {
-      assertName(name, "capability.register: 名称");
-      if (typeof fn !== "function") { throw new Error("capability.register: 缺少处理函数"); }
+      assertName(name, "capability.register: name");
+      if (typeof fn !== "function") { throw new Error("capability.register: the handler is missing"); }
       capTable.set(name, fn);
       return undefined;
     },
@@ -1398,7 +1398,7 @@ var featurePointImpls = new Map();
                        : ((typeof timeoutMs === "number") ? timeoutMs : undefined);
         return appCall(pluginId, appArgs, appBudget);
       }
-      assertName(name, "capability.call: 能力名");
+      assertName(name, "capability.call: capability name");
       // 超时是调用方自己的选择: 不传 = 不限制 (一直等); 传了才收紧
       var budget = Number.isFinite(timeoutMs) ? Math.trunc(timeoutMs) : 0;
       if (budget < 0) { budget = 0; }
@@ -1407,7 +1407,7 @@ var featurePointImpls = new Map();
       var info = null;
       try { info = JSON.parse(text || "{}"); } catch (e) { info = null; }
       if (!info || typeof info.status !== "string") {
-        return Promise.reject(new Error("跨插件调用失败: 插件框架返回了非法结果"));
+        return Promise.reject(new Error("cross-plugin call failed: the plugin framework returned an invalid result"));
       }
       if (info.status === "ok") {
         return Promise.resolve(info.result === undefined ? null : info.result);
@@ -1420,14 +1420,14 @@ var featurePointImpls = new Map();
           if (budget > 0) {
             waiter.timer = musicxx.timer.setTimeout(function () {
               if (capabilityWaiters.delete(info.id)) {
-                reject(new Error("跨插件调用超时: " + pluginId + "." + name));
+                reject(new Error("cross-plugin call timed out: " + pluginId + "." + name));
               }
             }, budget + 1000);
           }
           capabilityWaiters.set(info.id, waiter);
         });
       }
-      return Promise.reject(new Error("跨插件调用失败: " + (info.error || "capability_call_failed")));
+      return Promise.reject(new Error("cross-plugin call failed: " + (info.error || "capability_call_failed")));
     },
     /// 能力清单：应用留出了哪些能力、现在谁在实现它（谁生效、谁备选、谁把它关掉了）。
     ///
@@ -1455,8 +1455,8 @@ var featurePointImpls = new Map();
         full = Object.assign({}, spec || {});
         full.id = specOrId;
       }
-      if (!full.id) { throw new Error("capability.define: 缺少能力 id"); }
-      assertName(full.id, "capability.define: 能力 id");
+      if (!full.id) { throw new Error("capability.define: the capability id is missing"); }
+      assertName(full.id, "capability.define: capability id");
       return appCall("musicxx.feature.point.define", {
         id: String(full.id),
         title: full.title === undefined ? "" : String(full.title),
@@ -1467,7 +1467,7 @@ var featurePointImpls = new Map();
     },
     /// 收回自己声明的能力（一般不用调：停用 / 卸载会自动撤销）
     undefine: function (id) {
-      assertName(id, "capability.undefine: 能力 id");
+      assertName(id, "capability.undefine: capability id");
       return appCall("musicxx.feature.point.undefine", { id: String(id) });
     },
     /// 登记自己声明的能力的实现：`provide(id, fn)` / `provide([id1, id2], fn)`
@@ -1478,13 +1478,13 @@ var featurePointImpls = new Map();
     ///   长任务请提前算好，或者改成普通能力实现（`musicxx.capability.implement`）。
     provide: function (idOrIds, fn, options) {
       if (typeof fn !== "function") {
-        throw new Error("capability.provide: 缺少处理函数");
+        throw new Error("capability.provide: the handler is missing");
       }
       options = options || {};
       var ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-      if (ids.length === 0) { throw new Error("capability.provide: 缺少能力 id"); }
+      if (ids.length === 0) { throw new Error("capability.provide: the capability id is missing"); }
       ids.forEach(function (id) {
-        assertName(id, "capability.provide: 能力 id");
+        assertName(id, "capability.provide: capability id");
         featurePointImpls.set(String(id), fn);
       });
       if (!hasImplementation("musicxx.feature.point.call", "impl")) {
@@ -1520,7 +1520,7 @@ var featurePointImpls = new Map();
       waiter.resolve(info.result === undefined ? null : info.result);
     } else {
       var reason = (info && info.error) ? info.error : "capability_call_failed";
-      waiter.reject(new Error("跨插件调用失败: " + reason));
+      waiter.reject(new Error("cross-plugin call failed: " + reason));
     }
   };
   ext.invokeCapability = function (name, argsJson, waitId) {
@@ -1554,7 +1554,7 @@ var featurePointImpls = new Map();
 
   musicxx.timer = {
     _add: function (fn, ms, repeat) {
-      if (typeof fn !== "function") { throw new Error("timer: 缺少处理函数"); }
+      if (typeof fn !== "function") { throw new Error("timer: the handler is missing"); }
       var id = ext.timerSet(Number.isFinite(ms) ? Math.max(0, Math.trunc(ms)) : 0, repeat);
       if (typeof id === "number" && id >= 0) {
         // 定时器表用**字符串键**: 插件框架回调 `onTimerFire` 传进来的 id 是字符串
@@ -1577,7 +1577,7 @@ var featurePointImpls = new Map();
     if (!entry) { return; }
     if (!entry.repeat) { timerTable.delete(String(id)); }
     try { entry.fn(); }
-    catch (e) { logError("定时器异常: " + (e && e.message ? e.message : String(e))); }
+    catch (e) { logError("timer handler failed: " + (e && e.message ? e.message : String(e))); }
   };
 
   function pad2(value) { return value < 10 ? "0" + value : String(value); }
@@ -1695,7 +1695,7 @@ var featurePointImpls = new Map();
   ext.generateContent = function (fullId, contextJson) {
     var id = shortName(fullId);
     var entry = contentTable.get(id);
-    if (!entry) { return JSON.stringify({ error: "没有这份内容: " + id }); }
+    if (!entry) { return JSON.stringify({ error: "no such content: " + id }); }
     var ctx = {};
     if (contextJson) {
       try { ctx = JSON.parse(contextJson); } catch (e) { ctx = {}; }
@@ -1704,15 +1704,15 @@ var featurePointImpls = new Map();
     try {
       result = entry.fn(ctx, { id: id, slot: entry.slot, deps: entry.deps });
     } catch (e) {
-      logError("内容 " + id + " 生成异常: " + (e && e.message ? e.message : String(e)));
-      return JSON.stringify({ error: "生成函数异常: " + (e && e.message ? e.message : String(e)) });
+      logError("content " + id + " failed to generate: " + (e && e.message ? e.message : String(e)));
+      return JSON.stringify({ error: "the generate function failed: " + (e && e.message ? e.message : String(e)) });
     }
     if (result === null || result === undefined) { return "{}"; }
     if (typeof result !== "object") {
-      return JSON.stringify({ error: "生成函数必须返回对象" });
+      return JSON.stringify({ error: "the generate function must return an object" });
     }
     try { return JSON.stringify(result); }
-    catch (e) { return JSON.stringify({ error: "生成函数返回的内容无法序列化" }); }
+    catch (e) { return JSON.stringify({ error: "the content returned by the generate function cannot be serialized" }); }
   };
 
   /// 调用能力处理器
@@ -1732,7 +1732,7 @@ var featurePointImpls = new Map();
     var result;
     try { result = entry.fn(ctx); }
     catch (e) {
-      logError("能力 " + capabilityId + " 异常: " + (e && e.message ? e.message : String(e)));
+      logError("capability " + capabilityId + " failed: " + (e && e.message ? e.message : String(e)));
       return "";
     }
     if (result === null || result === undefined) { return ""; }
@@ -1740,7 +1740,7 @@ var featurePointImpls = new Map();
       var key = (waitId === undefined || waitId === null || waitId === "") ? "" : String(waitId);
       if (!key) {
         Promise.resolve(result).then(function () { return null; }, function (e) {
-          logError("能力 " + capabilityId + " 异步执行异常: " + (e && e.message ? e.message : String(e)));
+          logError("capability " + capabilityId + " async execution failed: " + (e && e.message ? e.message : String(e)));
         });
         return "";
       }
@@ -1753,7 +1753,7 @@ var featurePointImpls = new Map();
       }, function (e) {
         if (!pendingImplementationWaits.has(key)) { return null; }
         pendingImplementationWaits.delete(key);
-        logError("能力 " + capabilityId + " 异步裁决失败: " + (e && e.message ? e.message : String(e)));
+        logError("capability " + capabilityId + " async decision failed: " + (e && e.message ? e.message : String(e)));
         ext.implementationWaitResolve(key, "");
         return null;
       });
@@ -1775,16 +1775,16 @@ var featurePointImpls = new Map();
     broadcastSubs.clear();
     broadcastHostSubs.clear();
     appCapabilityWaiters.forEach(function (waiter) {
-      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+      try { waiter.reject(new Error("the plugin has stopped")); } catch (e) { /* 忽略 */ }
     });
     appCapabilityWaiters.clear();
     capabilityWaiters.forEach(function (waiter) {
-      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+      try { waiter.reject(new Error("the plugin has stopped")); } catch (e) { /* 忽略 */ }
     });
     capabilityWaiters.clear();
     netSubs.length = 0;
     netHttpWaiters.forEach(function (waiter) {
-      try { waiter.reject(new Error("插件已停止")); } catch (e) { /* 忽略 */ }
+      try { waiter.reject(new Error("the plugin has stopped")); } catch (e) { /* 忽略 */ }
     });
     netHttpWaiters.clear();
   };
@@ -1910,7 +1910,7 @@ JSValue jsNetCall(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   if (!inst || !inst->engine) {
     return JS_NewString(
         ctx,
-        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
+        R"({"ok":false,"error":"no_instance","message":"the plugin instance has stopped"})");
   }
   const char *op = (argc >= 1) ? JS_ToCString(ctx, argv[0]) : nullptr;
   const char *args = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
@@ -1931,7 +1931,7 @@ JSValue jsNetCancel(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) 
   if (!inst || !inst->engine) {
     return JS_NewString(
         ctx,
-        R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})");
+        R"({"ok":false,"error":"no_instance","message":"the plugin instance has stopped"})");
   }
   int64_t requestId = 0;
   if (argc >= 1) {
@@ -1977,7 +1977,7 @@ JSValue jsAppCapabilityCall(JSContext *ctx, JSValueConst, int argc,
 JSValue jsPublish(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
-    return JS_NewString(ctx, "参数非法");
+    return JS_NewString(ctx, "invalid argument");
   }
   const char *topic = JS_ToCString(ctx, argv[0]);
   const char *data = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
@@ -1993,11 +1993,11 @@ JSValue jsPublish(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     return JS_NewString(ctx, "");
   }
   if (rc == PLUGINXX_RESULT_ERR_PERMISSION) {
-    return JS_NewString(ctx, "事件发布被拒绝 (只有属主能发布这条频道)");
+    return JS_NewString(ctx, "event publish rejected (only the owner can publish on this channel)");
   }
   // 广播表把"流已结束"与"频道不存在"归到同一个码上 (见 broadcastPublishFrom):
   // 已结束的频道终归发不出去, 文案把两种可能都说清楚
-  return JS_NewString(ctx, "事件发布被拒绝 (频道不存在, 或这条流已经被属主结束)");
+  return JS_NewString(ctx, "event publish rejected (no such channel, or the owner already ended this stream)");
 }
 
 /// 结束本插件的一条流: 返回空串 = 已结束, 否则是给脚本的错误文本
@@ -2005,7 +2005,7 @@ JSValue jsEndBroadcast(JSContext *ctx, JSValueConst, int argc,
                        JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 1) {
-    return JS_NewString(ctx, "参数非法");
+    return JS_NewString(ctx, "invalid argument");
   }
   const char *topic = JS_ToCString(ctx, argv[0]);
   const char *reason = (argc >= 2) ? JS_ToCString(ctx, argv[1]) : nullptr;
@@ -2021,12 +2021,12 @@ JSValue jsEndBroadcast(JSContext *ctx, JSValueConst, int argc,
     return JS_NewString(ctx, "");
   }
   if (rc == PLUGINXX_RESULT_ERR_STATE) {
-    return JS_NewString(ctx, "结束流被拒绝 (插件登记还没完成)");
+    return JS_NewString(ctx, "end stream rejected (the plugin registration is not finished yet)");
   }
   return JS_NewString(
       ctx, rc == PLUGINXX_RESULT_ERR_PERMISSION
-               ? "结束流被拒绝 (不是自己命名空间下的频道)"
-               : "结束流被拒绝 (频道不存在, 或不是它的属主)");
+               ? "end stream rejected (the channel is not in this plugin namespace)"
+               : "end stream rejected (no such channel, or this plugin does not own it)");
 }
 
 JSValue jsTimerSet(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
@@ -2381,7 +2381,7 @@ JSValue jsCapabilityCall(JSContext *ctx, JSValueConst, int argc,
                          JSValueConst *argv) {
   auto *inst = contextInstance(ctx);
   if (!inst || !inst->engine || argc < 3) {
-    return JS_NewString(ctx, R"({"status":"error","error":"参数非法"})");
+    return JS_NewString(ctx, R"({"status":"error","error":"invalid_argument"})");
   }
   const char *pluginId = JS_ToCString(ctx, argv[0]);
   const char *name = JS_ToCString(ctx, argv[1]);
@@ -2706,12 +2706,12 @@ bool JsEngine::registerBuiltin(const std::string &pluginId,
                                const std::vector<std::string> &scriptPaths,
                                const std::string &version, std::string &err) {
   if (pluginId.empty() || scriptPaths.empty()) {
-    err = "registerBuiltin: 插件 id 与脚本路径都不能为空";
+    err = "registerBuiltin: the plugin id and the script path must not be empty";
     return false;
   }
   for (const std::string &script : scriptPaths) {
     if (script.empty()) {
-      err = "registerBuiltin: 脚本路径不能为空";
+      err = "registerBuiltin: the script path must not be empty";
       return false;
     }
   }
@@ -2742,7 +2742,7 @@ bool JsEngine::registerBuiltin(const std::string &pluginId,
   slot->scripts = scriptPaths;
   slot->version = version.empty() ? std::string{"1.0.0"} : version;
   slot->used = true;
-  XX_LOGI("[musicxx_ext] JS插件槽位已登记: {} (脚本 {})", name,
+  XX_LOGI("[musicxx_ext] JS plugin slot registered: {} (script {})", name,
           joinPaths(scriptPaths));
   return true;
 }
@@ -2757,7 +2757,7 @@ void JsEngine::unregisterBuiltin(const std::string &pluginId) {
       slot.name.clear();
       slot.scripts.clear();
       slot.version.clear();
-      XX_LOGI("[musicxx_ext] JS插件槽位已注销: {}", name);
+      XX_LOGI("[musicxx_ext] JS plugin slot unregistered: {}", name);
       return;
     }
   }
@@ -2774,7 +2774,7 @@ int32_t JsEngine::start(std::string &err) {
     return PLUGINXX_RESULT_OK;
   }
   if (!kJsCompiled) {
-    err = "本次构建未包含 JS 运行时 (未编译 QuickJS 子模块)";
+    err = "this build has no JS runtime (the QuickJS submodule was not built)";
     return PLUGINXX_RESULT_ERR_STATE;
   }
   return startThread(err);
@@ -2795,10 +2795,10 @@ int32_t JsEngine::startThread(std::string &err) {
     worker_ = std::thread([this] { runLoop(); });
   } catch (const std::exception &e) {
     running_.store(false, std::memory_order_release);
-    err = std::string{"JS 线程创建失败: "} + e.what();
+    err = std::string{"failed to create the JS thread: "} + e.what();
     return PLUGINXX_RESULT_ERR_INTERNAL;
   }
-  XX_LOGI("[musicxx_ext] JS 线程已启动 (全部 JS插件实例共享这 1 条线程)");
+  XX_LOGI("[musicxx_ext] JS thread started (all JS plugin instances share this one thread)");
   return PLUGINXX_RESULT_OK;
 }
 
@@ -2839,7 +2839,7 @@ void JsEngine::stop() {
     pendingAppCapabilities_.clear();
     implementationWaits_.clear();
   }
-  XX_LOGI("[musicxx_ext] JS 线程已停止");
+  XX_LOGI("[musicxx_ext] JS thread stopped");
 }
 
 void JsEngine::postTask(std::function<void()> fn) {
@@ -2895,9 +2895,9 @@ void JsEngine::runLoop() {
       try {
         task.fn();
       } catch (const std::exception &e) {
-        XX_LOGE("[musicxx_ext] JS 任务异常: {}", e.what());
+        XX_LOGE("[musicxx_ext] JS task failed: {}", e.what());
       } catch (...) {
-        XX_LOGE("[musicxx_ext] JS 任务未知异常");
+        XX_LOGE("[musicxx_ext] JS task failed with an unknown exception");
       }
     }
     fireDueTimers();
@@ -2946,7 +2946,7 @@ void JsEngine::runLoop() {
     }
 #endif
   }
-  XX_LOGI("[musicxx_ext] JS 线程循环退出");
+  XX_LOGI("[musicxx_ext] JS thread loop exited");
 }
 
 void JsEngine::fireDueTimers() {
@@ -2997,7 +2997,7 @@ void JsEngine::expireActions() {
     }
   }
   for (auto &item : expired) {
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 的能力调用超时: {} (id={})",
+    XX_LOGW("[musicxx_ext] capability call of JS plugin `{}` timed out: {} (id={})",
             item.pluginId, item.capability, item.requestId);
     const auto inst = lookupInstance(item.instance);
     if (inst) {
@@ -3357,11 +3357,11 @@ PluginxxSubscription *subscribeBroadcastOnHostThread(
   }
   PluginxxSubscription *sub = nullptr;
   if (!capture->slot.wait(10000, sub)) {
-    XX_LOGW("[musicxx_ext] JS 订阅 `{}` 等主程序回答超时", topic);
+    XX_LOGW("[musicxx_ext] JS subscription `{}` timed out waiting for the host", topic);
     return nullptr;
   }
   if (!sub) {
-    XX_LOGW("[musicxx_ext] JS 订阅 `{}` 未能建立: {}", topic,
+    XX_LOGW("[musicxx_ext] JS subscription `{}` was not established: {}", topic,
             capture->error.empty() ? "rejected" : capture->error);
   }
   return sub;
@@ -3563,11 +3563,11 @@ void JsEngine::reportUiOpError(const std::string &pluginId,
   payload["op"] = op;
   payload["item"] = name;
   payload["code"] = code;
-  payload["message"] = "界面操作被拒绝 (检查槽位名 / 命名空间 / deps / 数据形状)";
+  payload["message"] = "ui operation rejected (check the slot name / namespace / deps / data shape)";
   if (mgr_ && mgr_->running()) {
     mgr_->pushEvent("musicxx.plugin.error", pluginId, payload.dump());
   }
-  XX_LOGW("[musicxx_ext] JS插件 `{}` 界面操作 {}:{} `{}` 失败 (code={})",
+  XX_LOGW("[musicxx_ext] JS plugin `{}` ui operation {}:{} on `{}` failed (code={})",
           pluginId, kind, op, name, code);
 }
 
@@ -3578,14 +3578,14 @@ void JsEngine::requestUiContent(const std::string &instanceName,
   auto inst = lookupInstance(instanceName);
   if (!inst) {
     if (done) {
-      done(std::string{}, "插件实例不存在");
+      done(std::string{}, "the plugin instance does not exist");
     }
     return;
   }
   postTask([inst, fullId, contextJson, done = std::move(done)]() {
     if (!inst->ctx || !inst->engine) {
       if (done) {
-        done(std::string{}, "JS 上下文已释放");
+        done(std::string{}, "the JS context has been released");
       }
       return;
     }
@@ -3594,7 +3594,7 @@ void JsEngine::requestUiContent(const std::string &instanceName,
         inst, "generateContent", {fullId, contextJson}, out);
     if (!ok) {
       if (done) {
-        done(std::string{}, "生成函数失败 (脚本异常或没有这份内容)");
+        done(std::string{}, "the generate function failed (script error or no such content)");
       }
       return;
     }
@@ -3675,12 +3675,12 @@ void JsEngine::ensureSubscriptionOnHost(const std::shared_ptr<Instance> &inst,
   auto *sub = subscribeBroadcastOnHostThread(
       host, holder->topic, holder->options, holder.get());
   if (!sub) {
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 被拒绝", inst->id,
+    XX_LOGW("[musicxx_ext] runtime subscription of JS plugin `{}` to `{}` was rejected", inst->id,
             topic);
     return;
   }
   inst->subscriptions.push_back(holder);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期订阅 `{}` 已生效 (intervalMs={})",
+  XX_LOGI("[musicxx_ext] runtime subscription of JS plugin `{}` to `{}` is active (intervalMs={})",
           inst->id, topic, holder->options);
 }
 
@@ -3732,9 +3732,9 @@ int32_t JsEngine::applyBroadcastDeclOnHost(const std::shared_ptr<Instance> &inst
     payload["phase"] = "broadcast";
     payload["op"] = "declare";
     payload["code"] = rc;
-    payload["message"] = error.empty() ? "广播声明被拒绝" : error;
+    payload["message"] = error.empty() ? "broadcast declaration rejected" : error;
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 声明广播 `{}` 被拒绝 (code={}): {}",
+    XX_LOGW("[musicxx_ext] broadcast declaration by JS plugin `{}` for `{}` rejected (code={}): {}",
             inst->id, declJson, rc, error);
   }
   return rc;
@@ -3875,14 +3875,14 @@ void JsEngine::applyImplementationOpOnHost(
     payload["capability"] = capabilityId;
     payload["code"] = "capability_register_failed";
     payload["message"] =
-        "运行期能力注册被拒绝 (这条 id 没开这个阶段 / 阶段必须用同步处理器)";
+        "runtime capability registration rejected (this id does not open that phase / the phase needs a synchronous handler)";
     mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-    XX_LOGW("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 被拒绝 (code={})",
+    XX_LOGW("[musicxx_ext] runtime capability registration by JS plugin `{}` for `{}` rejected (code={})",
             inst->id, capabilityId, rc);
     return;
   }
   inst->implementations.push_back(handler);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 运行期注册能力 `{}` 已生效 (phase={}, "
+  XX_LOGI("[musicxx_ext] runtime capability registration by JS plugin `{}` for `{}` is active (phase={}, "
           "priority={})",
           inst->id, capabilityId, phase, priority);
 }
@@ -3933,7 +3933,7 @@ std::string JsEngine::bridgeNetCall(const std::string &instanceName,
                                     const std::string &argsJson) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !mgr_) {
-    return R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})";
+    return R"({"ok":false,"error":"no_instance","message":"the plugin instance has stopped"})";
   }
   std::string out;
   const int32_t rc = mgr_->netCall(inst->id, op, argsJson, out);
@@ -3942,7 +3942,7 @@ std::string JsEngine::bridgeNetCall(const std::string &instanceName,
     err["ok"] = false;
     err["error"] = "call_failed";
     err["code"] = rc;
-    err["message"] = "插件框架没有执行这个网络操作";
+    err["message"] = "the plugin framework did not run this network operation";
     return err.dump();
   }
   return out.empty() ? std::string{"{\"ok\":true}"} : out;
@@ -3952,7 +3952,7 @@ std::string JsEngine::bridgeNetCancel(const std::string &instanceName,
                                       int64_t requestId) {
   auto inst = lookupInstance(instanceName);
   if (!inst || !mgr_) {
-    return R"({"ok":false,"error":"no_instance","message":"插件实例已停止"})";
+    return R"({"ok":false,"error":"no_instance","message":"the plugin instance has stopped"})";
   }
   std::string out;
   const int32_t rc = mgr_->netCancel(inst->id, requestId, out);
@@ -4017,21 +4017,21 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
     *outPendingId = 0;
   }
   if (targetId.empty() || name.empty()) {
-    err = "插件 id 与能力名都不能为空";
+    err = "the plugin id and the capability name must not be empty";
     return PLUGINXX_RESULT_ERR_ARG;
   }
   /// JS 目标: 同一 JS 线程上直接调用 (脚本↔脚本零跨线程跳跃)
   auto target = lookupInstance("js:" + targetId);
   if (target) {
     if (!target->scriptLoaded) {
-      err = "目标 JS插件未启用: " + targetId;
+      err = "the target JS plugin is not enabled: " + targetId;
       return PLUGINXX_RESULT_ERR_STATE;
     }
     std::string shortName = name;
     const std::string prefix = "plugin." + targetId + ".";
     if (shortName.rfind("plugin.", 0) == 0) {
       if (shortName.rfind(prefix, 0) != 0) {
-        err = "能力命名空间不属于目标插件";
+        err = "the capability namespace does not belong to the target plugin";
         return PLUGINXX_RESULT_ERR_PERMISSION;
       }
       shortName = shortName.substr(prefix.size());
@@ -4044,7 +4044,7 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
     if (!callBridgeString(target, "invokeCapability",
                           {shortName, argsJson, std::to_string(pendingId)},
                           text)) {
-      err = "目标插件未声明该能力 (需要在 start 事务里注册): " + shortName;
+      err = "the target plugin did not declare this capability (register it in the start transaction): " + shortName;
       return PLUGINXX_RESULT_ERR_NOT_FOUND;
     }
     if (text == kCapabilityPendingMarker) {
@@ -4075,7 +4075,7 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
   /// 处理器, 若在这里同步等待就会互锁); 结果经 `ext.onCapabilityResult` 回到 JS
   /// 线程。
   if (!mgr_) {
-    err = "插件框架不可用";
+    err = "the plugin framework is unavailable";
     return PLUGINXX_RESULT_ERR_STATE;
   }
   const int64_t pendingId = nextCapabilityCallId_.fetch_add(1);
@@ -4130,29 +4130,29 @@ JsEngine::instanceFromHost(const PluginxxHost *host, std::string &err) {
   SlotTable &table = slotTable();
   auto engine = table.engine.load(std::memory_order_acquire);
   if (!engine) {
-    err = "JS 运行时未创建";
+    err = "the JS runtime was not created";
     return nullptr;
   }
   auto control = pluginxx::resolvePluginHostControl(host);
   if (!control) {
-    err = "host 视图无效";
+    err = "the host view is invalid";
     return nullptr;
   }
   auto base = control->instance();
   if (!base) {
-    err = "插件实例已关闭";
+    err = "the plugin instance is closed";
     return nullptr;
   }
   /// 本引擎只在本框架内使用, 实例必然是 [MusicxxHostInstance]
   auto *hostInst = static_cast<MusicxxHostInstance *>(base.get());
   if (hostInst->name.rfind("js:", 0) != 0) {
-    err = "实例名不是 JS 合成实例: " + hostInst->name;
+    err = "the instance name is not a JS synthetic instance: " + hostInst->name;
     return nullptr;
   }
   const std::string pluginId = MusicxxHostManager::pluginIdOf(hostInst->name);
   const std::vector<std::string> scripts = slotScripts(hostInst->name);
   if (scripts.empty()) {
-    err = "JS插件槽位不存在 (未登记或已注销): " + hostInst->name;
+    err = "the JS plugin slot does not exist (not registered or already removed): " + hostInst->name;
     return nullptr;
   }
 
@@ -4170,7 +4170,7 @@ JsEngine::instanceFromHost(const PluginxxHost *host, std::string &err) {
   {
     std::lock_guard lock{engine->mutex_};
     if (engine->instances_.count(inst->name) > 0) {
-      err = "JS 实例已存在: " + inst->name;
+      err = "the JS instance already exists: " + inst->name;
       return nullptr;
     }
     engine->instances_[inst->name] = inst;
@@ -4188,7 +4188,7 @@ JsEngine::lookupInstance(const std::string &name) const {
 int32_t JsEngine::startInstance(const std::shared_ptr<Instance> &inst,
                                 std::string &err) {
   if (!inst) {
-    err = "实例为空";
+    err = "the instance is null";
     return PLUGINXX_RESULT_ERR_ARG;
   }
   std::string info;
@@ -4257,7 +4257,7 @@ void JsEngine::destroyInstance(const std::shared_ptr<Instance> &inst) {
 bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
                                    std::string &err) {
 #if !defined(MUSICXX_EXTERN_PLUGIN_HAS_JS)
-  err = "本次构建未包含 JS 运行时 (未编译 QuickJS 子模块)";
+  err = "this build has no JS runtime (the QuickJS submodule was not built)";
   return false;
 #else
   // 清单里的多个脚本在**同一个 JS 上下文**里按顺序执行：前面（通常是随插件分发的
@@ -4267,7 +4267,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
   for (const std::string &path : inst->scriptPaths) {
     std::string code = readTextFile(fs::path{path});
     if (code.empty()) {
-      err = "脚本读取失败或为空: " + path;
+      err = "the script could not be read or is empty: " + path;
       return false;
     }
     scripts.emplace_back(path, std::move(code));
@@ -4277,7 +4277,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
   postTask([inst, slot, scripts, prelude] {
     JSRuntime *rt = JS_NewRuntime();
     if (!rt) {
-      slot->set("JSRuntime 创建失败");
+      slot->set("failed to create the JSRuntime");
       return;
     }
     /// 栈深度上限 (插件框架自我保护, 避免脚本深递归打爆线程栈;
@@ -4286,7 +4286,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
     JSContext *ctx = JS_NewContext(rt);
     if (!ctx) {
       JS_FreeRuntime(rt);
-      slot->set("JSContext 创建失败");
+      slot->set("failed to create the JSContext");
       return;
     }
     JS_SetContextOpaque(ctx, inst.get());
@@ -4304,7 +4304,7 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
       if (JS_IsException(value)) {
         std::string text = takeException(ctx);
         JS_FreeValue(ctx, value);
-        return text.empty() ? std::string{"脚本执行失败"} : text;
+        return text.empty() ? std::string{"the script failed to execute"} : text;
       }
       JS_FreeValue(ctx, value);
       return {};
@@ -4318,12 +4318,12 @@ bool JsEngine::runScriptOnJsThread(const std::shared_ptr<Instance> &inst,
       error = eval(code, scriptPath.c_str());
       if (!error.empty()) {
         // 带脚本名：多个脚本时能直接看出是哪一个出错
-        error = "脚本 " + scriptPath + ": " + error;
+        error = "script " + scriptPath + ": " + error;
         break;
       }
     }
     if (!error.empty()) {
-      slot->set("脚本错误: " + error);
+      slot->set("script error: " + error);
       return;
     }
     // 清空顶层微任务 (顶层不允许 await, 一般没有)
@@ -4381,7 +4381,7 @@ bool JsEngine::callBridgeString(const std::shared_ptr<Instance> &inst,
                 argv.empty() ? nullptr : argv.data());
     if (JS_IsException(value)) {
       const std::string text = takeException(ctx);
-      XX_LOGW("[musicxx_ext] JS 桥接调用 `{}` 异常: {}", fnName, text);
+      XX_LOGW("[musicxx_ext] JS bridge call `{}` failed: {}", fnName, text);
       ++inst->errors;
     } else {
       if (JS_IsString(value)) {
@@ -4429,14 +4429,14 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
     return;
   }
   if (!ok) {
-    XX_LOGW("[musicxx_ext] JS 实例 `{}` 注册信息回取失败", inst->name);
+    XX_LOGW("[musicxx_ext] failed to read back the registration of JS instance `{}`", inst->name);
     return;
   }
 
   bool parseOk = false;
   Json data = parseJsonSafe(*collected, &parseOk);
   if (!parseOk || !data.is_object()) {
-    XX_LOGW("[musicxx_ext] JS 实例 `{}` 注册信息不是合法 JSON", inst->name);
+    XX_LOGW("[musicxx_ext] the registration of JS instance `{}` is not valid JSON", inst->name);
     return;
   }
 
@@ -4481,9 +4481,9 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
         payload["phase"] = "capability";
         payload["capability"] = handler->capabilityId;
         payload["code"] = "capability_register_failed";
-        payload["message"] = "能力注册被拒绝 (这条 id 没开这个阶段 / 阶段必须用同步处理器)";
+        payload["message"] = "capability registration rejected (this id does not open that phase / the phase needs a synchronous handler)";
         mgr_->pushEvent("musicxx.plugin.error", inst->id, payload.dump());
-        XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 被拒绝 (code={})",
+        XX_LOGW("[musicxx_ext] capability registration by JS plugin `{}` for `{}` rejected (code={})",
                 inst->id, handler->capabilityId, rc);
         continue;
       }
@@ -4519,7 +4519,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       const int32_t rc = mgr_->registerCapability(
           inst->hostInst, nullptr, spec, &registerError);
       if (rc != 0) {
-        XX_LOGW("[musicxx_ext] JS插件 `{}` 注册能力 `{}` 失败 (code={})",
+        XX_LOGW("[musicxx_ext] capability registration by JS plugin `{}` for `{}` failed (code={})",
                 inst->id, handler->fullName, rc);
         continue;
       }
@@ -4567,7 +4567,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
               ? host->vtable->query_interface(host, &iid)
               : nullptr);
       if (!broadcasts || !broadcasts->subscribe_broadcast) {
-        XX_LOGW("[musicxx_ext] 广播表不可用: JS插件 `{}` 的订阅未生效",
+        XX_LOGW("[musicxx_ext] the broadcast table is unavailable: the subscription of JS plugin `{}` is not active",
                 inst->id);
         continue;
       }
@@ -4577,7 +4577,7 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
       auto *sub = subscribeBroadcastOnHostThread(
           host, holder->topic, holder->options, holder.get());
       if (!sub) {
-        XX_LOGW("[musicxx_ext] JS插件 `{}` 订阅主题 `{}` 被拒绝", inst->id,
+        XX_LOGW("[musicxx_ext] subscription of JS plugin `{}` to topic `{}` was rejected", inst->id,
                 holder->topic);
         continue;
       }
@@ -4607,15 +4607,15 @@ void JsEngine::applyRegistrations(const std::shared_ptr<Instance> &inst) {
   for (const auto &[topic, payload] : queued) {
     const int32_t rc = mgr_->broadcastPublishFrom(inst->id, topic, payload);
     if (rc != PLUGINXX_RESULT_OK) {
-      XX_LOGW("[musicxx_ext] JS插件 `{}` 顶层发布 `{}` 被拒绝 (code={})",
+      XX_LOGW("[musicxx_ext] top-level publish by JS plugin `{}` on `{}` rejected (code={})",
               inst->id, topic, rc);
     }
   }
   inst->registrationsApplied = true;
   /// 运行期的 UI/订阅/变量操作改为"投递不等待" (顶层登记阶段已结束)
   inst->liveRegistrations.store(true, std::memory_order_release);
-  XX_LOGI("[musicxx_ext] JS插件 `{}` 注册回放完成 (能力 {} / 能力 {} / 订阅 "
-          "{} / UI {} / 广播 {})",
+  XX_LOGI("[musicxx_ext] registration replay for JS plugin `{}` finished "
+          "(handlers {} / capabilities {} / subscriptions {} / UI {} / broadcasts {})",
           inst->id, inst->implementations.size(), inst->capabilities.size(),
           inst->subscriptions.size(), uiApplied, broadcastsApplied);
 }
@@ -4890,19 +4890,19 @@ void PLUGINXX_CALL JsEngine::builtinCreate(
     const PluginxxHost *host, void **outCtx,
     const PluginxxOperatorNotify *notify, PluginxxString *errorOut) {
   int32_t rc = PLUGINXX_RESULT_ERR_ARG;
-  std::string err{"JS 实例上下文无效"};
+  std::string err{"the JS instance context is invalid"};
   if (outCtx) {
     if (*outCtx == nullptr) {
       // 首次: 建上下文 (建不出来就是失败, 没有可销毁的东西)
       auto inst = instanceFromHost(host, err);
       if (!inst) {
-        XX_LOGE("[musicxx_ext] JS插件实例创建失败: {}", err);
+        XX_LOGE("[musicxx_ext] failed to create the JS plugin instance: {}", err);
         rc = PLUGINXX_RESULT_ERR_STATE;
       } else {
         // 建完上下文就跑脚本、回放注册 (半途失败就整个拆掉, 不留半成品)
         const int32_t startRc = inst->engine->startInstance(inst, err);
         if (startRc != PLUGINXX_RESULT_OK) {
-          XX_LOGE("[musicxx_ext] JS插件 `{}` 创建事务失败: {}", inst->name, err);
+          XX_LOGE("[musicxx_ext] the create transaction of JS plugin `{}` failed: {}", inst->name, err);
           inst->engine->destroyInstance(inst);
           rc = PLUGINXX_RESULT_ERR_STATE;
         } else {

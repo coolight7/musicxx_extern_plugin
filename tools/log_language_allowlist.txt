@@ -8,9 +8,6 @@
 # 收尾方式（按优先级）：先改会被搬到 cxx_pluginxx 的实现（搬过去必须英文），
 # 再改框架核心（src/host/*.cpp），最后改示例插件与测试夹具。
 
-# --- 框架核心：JS 引擎内置的脚本层（整段嵌在一个裸字符串里，逐条改） ---
-src\host\js\js_engine.cpp
-
 # --- 声明式界面层：本任务会整份搬到 cxx_pluginxx，搬过去时一起改成英文 ---
 src\host\musicxx_host_ui.cpp
 

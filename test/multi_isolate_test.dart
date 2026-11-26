@@ -82,7 +82,7 @@ void main() {
     expect(guardResult, isNot('ok'), reason: '同一进程不允许存在第二个插件框架');
     expect(
       guardResult.toString(),
-      contains('进程单例'),
+      contains('process singleton'),
       reason: '拒绝原因必须可读: $guardResult',
     );
 
