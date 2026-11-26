@@ -10,6 +10,8 @@
 /// - 广播登记表 (缓存 / 发布权限 / 订阅即推 / 退订 / 自省);
 /// - 广播订阅限频 (intervalMs / delay / drop / 订阅即推算第一条 / 退订取消补发)。
 /// - 广播订阅句柄的幂等撤销入口。
+/// - 界面内容注册表 (生成结果版本号 / 失败保留上一份正文)；
+/// - 插件形态注册表 (接管预置形态的规则)。
 ///
 /// 运行: musicxx_pluginxx_test (无参数; 由 tools/build_native.ps1 -RunTests 一起跑)
 
@@ -20,6 +22,8 @@
 #include "pluginxx/host/capability_chain.h"
 #include "pluginxx/host/capability_registry.h"
 #include "pluginxx/host/ffi_bridge.h"
+#include "pluginxx/host/kind_registry.h"
+#include "pluginxx/host/ui_content.h"
 // 事件订阅句柄的撤销入口是内联函数, 实现体在 runtime/instance_base.h
 #include "pluginxx/runtime/instance_base.h"
 // 生成物：能力 / 广播的 id 常量与已知声明表（定义源 tools/capabilities.def.json）
@@ -1076,6 +1080,133 @@ void testCapabilityDeclarations() {
         "只声明为广播的 id 不在能力表里");
 }
 
+/// 插件形态注册表：预置形态不能被随便接管，接管不改代次，撤销回到自带实现
+void testKindRegistry() {
+  pluginxx::PluginxxKindSpec nativeSpec;
+  nativeSpec.kind                = "native";
+  nativeSpec.builtin             = true;
+  nativeSpec.requiresPluginAbi   = true;
+  nativeSpec.interfaceVersion    = 7;
+  nativeSpec.minInterfaceVersion = 7;
+
+  pluginxx::PluginxxKindSpec jsSpec;
+  jsSpec.kind              = "js";
+  jsSpec.builtin           = true;
+  jsSpec.requiresPluginAbi = false;
+  jsSpec.interfaceVersion  = 3;
+  jsSpec.minInterfaceVersion = 3;
+
+  pluginxx::PluginxxKindRegistry kinds({nativeSpec, jsSpec}, /*defaultInterfaceVersion=*/7);
+
+  // 未登记的形态: 按动态库处理 (框架不知道它是怎么编的), 也查不到声明
+  check(kinds.find("no_such_kind") == nullptr, "未登记的形态查不到声明");
+  check(kinds.requiresPluginAbi("no_such_kind"), "未登记的形态按动态库处理");
+
+  // 动态库形态不允许插件接管
+  {
+    pluginxx::PluginxxKindSpec take;
+    take.kind           = "native";
+    take.provider       = "alt_runner";
+    take.loadCapability = "plugin.alt_runner.load";
+    std::string err;
+    check(!kinds.registerKind(take, /*overrideBuiltin=*/true, err),
+          "native 形态不能被插件接管");
+    check(err.find("native-library") != std::string::npos,
+          "拒绝理由是动态库形态不能接管");
+  }
+
+  // 不写 overrideBuiltin 时不能接管
+  {
+    pluginxx::PluginxxKindSpec take;
+    take.kind           = "js";
+    take.provider       = "alt_runner";
+    take.loadCapability = "plugin.alt_runner.load";
+    std::string err;
+    check(!kinds.registerKind(take, /*overrideBuiltin=*/false, err),
+          "不带 overrideBuiltin 时不能接管预置形态");
+    check(err.find("overrideBuiltin") != std::string::npos,
+          "拒绝理由提示要写 overrideBuiltin");
+  }
+
+  // 接管后由该插件提供, 接口代次对沿用自带声明 (不让接管者改)
+  {
+    pluginxx::PluginxxKindSpec take;
+    take.kind                = "js";
+    take.provider            = "alt_runner";
+    take.loadCapability      = "plugin.alt_runner.load";
+    take.unloadCapability    = "plugin.alt_runner.unload";
+    take.interfaceVersion    = 99;
+    take.minInterfaceVersion = 99;
+    std::string err;
+    check(kinds.registerKind(take, /*overrideBuiltin=*/true, err), "js 形态可以被接管");
+    const pluginxx::PluginxxKindSpec *taken = kinds.find("js");
+    check(taken != nullptr && taken->provider == "alt_runner",
+          "接管后由接管者提供");
+    check(taken != nullptr && taken->builtin, "接管项仍标成预置形态");
+    check(taken != nullptr && taken->interfaceVersion == 3 &&
+              taken->minInterfaceVersion == 3,
+          "接管不改接口代次 (沿用自带声明)");
+    check(taken != nullptr && !taken->frameworkOwned(),
+          "接管后不再算框架自己实现");
+
+    // 别的插件不能再抢已被接管的形态
+    pluginxx::PluginxxKindSpec other;
+    other.kind           = "js";
+    other.provider       = "other_runner";
+    other.loadCapability = "plugin.other_runner.load";
+    std::string otherErr;
+    check(!kinds.registerKind(other, /*overrideBuiltin=*/true, otherErr),
+          "同一形态只能由一个插件接管");
+  }
+
+  // 撤销后回到自带实现
+  {
+    std::string err;
+    check(kinds.unregisterKind("js", "alt_runner", err), "接管者可以撤销自己的注册");
+    const pluginxx::PluginxxKindSpec *back = kinds.find("js");
+    check(back != nullptr && back->frameworkOwned(), "撤销后回到自带实现");
+    check(back != nullptr && back->interfaceVersion == 3, "撤销后代次回到自带声明");
+  }
+}
+
+/// 界面内容注册表：生成失败只推进版本号，上一份正文保留
+void testUiContentKeepsLastOnFailure() {
+  pluginxx::host::UiRegistry registry;
+  registry.nextContentSeq();
+  pluginxx::host::UiContent content;
+  content.plugin   = "demo";
+  content.pluginId = "demo";
+  content.id       = "card";
+  content.fullId   = "plugin.demo.card";
+  content.slot     = "musicxx.ui.playing.visualizer";
+  registry.contents()[content.fullId] = content;
+
+  // 第一次生成: 记下正文与版本号
+  const std::string first = registry.buildContentPayload(
+      content.fullId, R"({"json":{"title":"v1","blocks":[]}})", {});
+  check(first.find("\"json\"") != std::string::npos, "第一次生成写进正文");
+  check(first.find("\"rev\":1") != std::string::npos, "版本号从 1 开始");
+  const auto *stored = registry.findContent(content.fullId);
+  check(stored != nullptr && stored->hasResult, "生成结果已记下");
+  check(stored != nullptr && stored->lastJson.find("\"title\":\"v1\"") != std::string::npos,
+        "正文是第一次给的那份");
+
+  // 第二次生成失败: 版本号 +1, 正文仍是上一份
+  const std::string failed = registry.buildContentPayload(
+      content.fullId, {}, "generate failed on purpose");
+  check(failed.find("\"rev\":2") != std::string::npos, "失败也推进版本号");
+  check(failed.find("generate failed on purpose") != std::string::npos,
+        "失败原因写在结果里");
+  stored = registry.findContent(content.fullId);
+  check(stored != nullptr && stored->hasResult, "失败不清掉已有结果");
+  check(stored != nullptr && stored->lastJson.find("\"title\":\"v1\"") != std::string::npos,
+        "失败保留上一份正文");
+
+  // 内容不存在时给空串 (调用方按“这份内容已经没了”处理)
+  check(registry.buildContentPayload("plugin.demo.gone", "{}", {}).empty(),
+        "内容不存在时不给结果");
+}
+
 /// 边界件（FFI 桥）：事件队列 + 请求记账 + 跨堆字符串
 ///
 /// 两个主程序都用这一份实现，所以它自己必须有测试：队列顺序 / 有界与溢出、
@@ -1211,6 +1342,8 @@ int main() {
   testBroadcastRegistry();
   testBroadcastRateLimit();
   testCapabilityDeclarations();
+  testKindRegistry();
+  testUiContentKeepsLastOnFailure();
   testFfiBridge();
 
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);

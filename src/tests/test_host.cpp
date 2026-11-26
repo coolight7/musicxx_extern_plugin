@@ -2957,6 +2957,65 @@ int main(int argc, char **argv) {
       check(bumped, "慢内容: 新结果到达 (旧结果保留到它来)");
     }
 
+    // 取消: 幂等 + 晚到的真实结果被丢弃
+    //
+    // 慢生成 (300 ms) 受理后立刻取消: 请求以 canceled 收尾; 300 ms 后插件真算出来的
+    // 结果不再推事件 (请求已经结算过)。再取消一次仍返回 0 —— 调用方可以无脑重试。
+    {
+      const char *slowId = "plugin.example_js.slow";
+      const char *slowCtx = "{}";
+      MusicxxExternPluginStringView idView{slowId, std::strlen(slowId)};
+      MusicxxExternPluginStringView ctxView{slowCtx, std::strlen(slowCtx)};
+      int64_t requestId = 0;
+      MusicxxExternPluginString reqLog{};
+      const int32_t acceptRc = musicxx_extern_plugin_ui_request(
+          host, &idView, &ctxView, &requestId, &reqLog);
+      freeStr(reqLog);
+      check(acceptRc == PLUGINXX_RESULT_OK && requestId > 0,
+            "取消用例: 慢内容请求已受理");
+
+      MusicxxExternPluginString cancelLogA{};
+      check(musicxx_extern_plugin_request_cancel(host, requestId, &cancelLogA) ==
+                PLUGINXX_RESULT_OK,
+            "取消: 第一次返回 0");
+      freeStr(cancelLogA);
+      MusicxxExternPluginString cancelLogB{};
+      check(musicxx_extern_plugin_request_cancel(host, requestId, &cancelLogB) ==
+                PLUGINXX_RESULT_OK,
+            "取消: 第二次也返回 0 (幂等)");
+      freeStr(cancelLogB);
+
+      const RequestReply canceled = waitReply(host, requestId, 8000);
+      check(canceled.got, "取消: 收到一条结果事件");
+      check(!canceled.ok, "取消: 结果不是成功");
+      check(canceled.reason == "canceled", "取消: 结果是 canceled");
+
+      // 晚到的真实结果被丢弃: 同一 requestId 不应再来第二条结果
+      const std::string needle = "\"requestId\":" + std::to_string(requestId);
+      bool second = false;
+      const auto deadline = std::chrono::steady_clock::now() +
+                            std::chrono::milliseconds{900};
+      while (!second && std::chrono::steady_clock::now() < deadline) {
+        MusicxxExternPluginString events{};
+        MusicxxExternPluginString pollLog{};
+        musicxx_extern_plugin_poll_events(host, 16, &events, &pollLog);
+        freeStr(pollLog);
+        const std::string body = stripArray(take(events));
+        if (body.empty()) {
+          std::this_thread::sleep_for(std::chrono::milliseconds{20});
+          continue;
+        }
+        if (body.find("\"type\":\"musicxx.request.result\"") !=
+                std::string::npos &&
+            body.find(needle) != std::string::npos) {
+          second = true;
+        } else {
+          stashedEvents().push_back("[" + body + "]");
+        }
+      }
+      check(!second, "取消: 晚到的真实结果被丢弃 (不再推第二条)");
+    }
+
     // 播放页背景示例 `example_js_playing_bg`: 六种背景样式（封面三种 + 图案三种）
     // + 歌曲图接管 + 封面取色钩子 + 说明页 / 设置页 / 频谱页。
     //
