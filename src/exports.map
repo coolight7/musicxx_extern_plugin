@@ -1,0 +1,69 @@
+# musicxx_extern_plugin 导出符号清单（唯一一份可读清单）
+#
+# 谁在用：
+# - `src/host/CMakeLists.txt`：Linux / Android 用它生成 version script（`global:` 段），
+#   MSVC 的导出靠头文件里的 `MUSICXX_EXTERN_PLUGIN_EXPORT`（`__declspec(dllexport)`）；
+# - `tools/check_exports.ps1`：核对“头文件里声明的导出函数”与“这份清单”完全一致，
+#   缺一个、多一个都失败（构建期就能发现，而不是等宿主 lookup 失败）。
+#
+# 规则：
+# - 一行一个符号，`#` 开头是注释，空行忽略；
+# - 只列 `src/include/musicxx_extern_plugin_api.h` 里带导出宏的函数；
+# - 加/删符号时三处一起改：头文件声明、这份清单、Dart 侧探测（`lib/src/*.dart`）。
+
+# --- 版本 / 自省 / 内存 ---
+musicxx_extern_plugin_api_version
+musicxx_extern_plugin_version
+musicxx_extern_plugin_feature_bits
+musicxx_extern_plugin_result_name
+musicxx_extern_plugin_debug_info
+musicxx_extern_plugin_stats
+musicxx_extern_plugin_stats_config
+musicxx_extern_plugin_set_config
+musicxx_extern_plugin_set_language
+musicxx_extern_plugin_malloc
+musicxx_extern_plugin_free
+musicxx_extern_plugin_strdup_n
+musicxx_extern_plugin_string_free
+musicxx_extern_plugin_log
+
+# --- 宿主生命周期 / 事件 ---
+musicxx_extern_plugin_host_create
+musicxx_extern_plugin_host_start
+musicxx_extern_plugin_host_shutdown
+musicxx_extern_plugin_host_destroy
+musicxx_extern_plugin_poll_events
+musicxx_extern_plugin_set_wake_callback
+
+# --- 插件管理 ---
+musicxx_extern_plugin_plugin_scan
+musicxx_extern_plugin_plugin_inspect
+musicxx_extern_plugin_plugin_list
+musicxx_extern_plugin_plugin_load
+musicxx_extern_plugin_plugin_unload
+musicxx_extern_plugin_plugin_reload
+musicxx_extern_plugin_plugin_enable
+musicxx_extern_plugin_plugin_disable
+musicxx_extern_plugin_plugin_set_args
+musicxx_extern_plugin_plugin_get_config_path
+musicxx_extern_plugin_plugin_call
+
+# --- 能力 ---
+musicxx_extern_plugin_capability_dispatch
+musicxx_extern_plugin_capability_dispatch_phase
+musicxx_extern_plugin_capability_handlers
+musicxx_extern_plugin_capability_handlers_phase
+musicxx_extern_plugin_capability_stats
+musicxx_extern_plugin_capability_app_respond
+
+# --- 广播 ---
+musicxx_extern_plugin_broadcast_publish
+musicxx_extern_plugin_broadcast_watch
+musicxx_extern_plugin_broadcast_read
+musicxx_extern_plugin_broadcast_list
+
+# --- 界面 ---
+musicxx_extern_plugin_ui_request
+musicxx_extern_plugin_ui_snapshot
+musicxx_extern_plugin_ui_contents
+musicxx_extern_plugin_ui_slots

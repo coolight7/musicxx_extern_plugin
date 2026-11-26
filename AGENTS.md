@@ -324,6 +324,8 @@ MCP 客户端用 `musicxx-cli mcp`（stdio ↔ 本机 `/mcp` 的桥），工具�
 flutter pub get
 pwsh -NoProfile -File tools/build_examples.ps1   # 先构建示例插件与原生测试（测试需要它们；已是最新则只重新打包）
 dart run tools/gen_contract.dart --check   # 能力 / 广播 / 派发表的生成物一致（改动后必须重新生成）
+pwsh -NoProfile -File tools/check_exports.ps1   # 头里声明的导出函数 == src/exports.map（加/删 C ABI 后必须跑）
+pwsh -NoProfile -File tools/check_log_language.ps1   # 运行期字符串里没有中文（日志 / 错误原因一律英文）
 dart run ffigen --config ffigen.yaml       # 改过 C ABI 后重新生成 Dart 绑定
 flutter analyze                            # 期望 0 issue
 flutter test                               # 真实原生库上的整套流程（找不到库/示例插件时跳过）；含版本号校验 version_test.dart

@@ -192,18 +192,35 @@ if (NOT MSVC)
   )
 endif ()
 
-# 导出符号只保留 `musicxx_extern_plugin_*`
-# - GNU/Clang (Linux/Android): 用 version script 把其余符号全部本地化 —— 只靠
+# 导出符号只保留 `musicxx_extern_plugin_*`（清单在 `src/exports.map`，一份可读清单）
+# - GNU/Clang (Linux/Android): 用清单生成 version script 把其余符号全部本地化 —— 只靠
 #   `CXX_VISIBILITY_PRESET hidden` 挡不住静态库带进来的 `STB_GNU_UNIQUE` 符号
 #   (实测 Boost.Asio 的 error category 实例会以 GNU unique 符号出现在动态符号表里);
 # - Apple: 不做额外处理 —— hidden visibility 本身就等价于"导出符号表"
 #   (`__attribute__((visibility("default")))` 之外一律不导出), 而 ld64 的
 #   `-exported_symbols_list` 只接受字面量符号名, 无法用通配符表达这里的导出面;
 # - MSVC: 不需要, 导出宏已经限定了导出面。
+#
+# 为什么不用通配符 `musicxx_extern_plugin_*`: 通配符挡不住"头里没声明却真的被导出"的
+# 符号, 也让"到底导出了什么"没有可读答案。清单与头文件的一致性由
+# `tools/check_exports.ps1` 核对 (头里声明 / 清单里缺、清单里多都失败)。
 if (UNIX AND NOT APPLE)
+  set(MUSICXX_EXTERN_PLUGIN_EXPORT_LIST "${CMAKE_CURRENT_SOURCE_DIR}/../exports.map")
+  if (NOT EXISTS "${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}")
+    message(FATAL_ERROR "[musicxx_ext] 缺导出清单: ${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}")
+  endif ()
+  file(STRINGS "${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}" _mx_export_lines)
+  set(_mx_export_globals "")
+  foreach (_mx_line IN LISTS _mx_export_lines)
+    string(STRIP "${_mx_line}" _mx_line)
+    if (_mx_line STREQUAL "" OR _mx_line MATCHES "^#")
+      continue()
+    endif ()
+    string(APPEND _mx_export_globals "    ${_mx_line};\n")
+  endforeach ()
   set(MUSICXX_EXTERN_PLUGIN_EXPORT_MAP "${CMAKE_CURRENT_BINARY_DIR}/musicxx_extern_plugin.map")
   file(WRITE "${MUSICXX_EXTERN_PLUGIN_EXPORT_MAP}"
-    "{\n  global:\n    musicxx_extern_plugin_*;\n  local:\n    *;\n};\n")
+    "{\n  global:\n${_mx_export_globals}  local:\n    *;\n};\n")
   target_link_options(musicxx_extern_plugin PRIVATE
     "-Wl,--version-script=${MUSICXX_EXTERN_PLUGIN_EXPORT_MAP}")
 endif ()
