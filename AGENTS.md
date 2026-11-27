@@ -389,6 +389,10 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
   能力 `args`），解释器留在应用（例如 `lib/plugin/externPlugin/ui/ExternPluginUiItemSong.dart` 读 `data.song`）。
   判据与反例见 `src/third_party/cxx_pluginxx_ui/README.md`「只放通用内容」与它 `docs/integration.md` §6.1。
 - **插件框架库导出面**只允许 `musicxx_extern_plugin_*`（MSVC 导出宏 / GNU version script / Apple 隐藏可见性）；
+  Linux / Android 的 version script 由 `src/host/CMakeLists.txt` 读 `src/exports.map` 生成，
+  读的时候**必须带 `ENCODING UTF-8`**：不写编码时（实测 CMake 4.3.0-rc1）会把清单里的中文注释
+  当成切行点，切出的碎片（`lookup` / `Dart`）被写进 version script，链接期报
+  `; expected, but got /` 直接失败。
   改导出、C ABI 或线程收尾后重新构建并跑原生测试。**改 C 头文件后要重新生成 Dart 绑定**：
   `fvm dart run ffigen --config ffigen.yaml`（Windows 上 LLVM 路径在配置里）。
   新增查询型 ABI 时，Dart 侧要按"**探测式查找**"接：旧插件框架库里没有这个符号，直接查会抛，

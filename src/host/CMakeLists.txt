@@ -209,12 +209,26 @@ if (UNIX AND NOT APPLE)
   if (NOT EXISTS "${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}")
     message(FATAL_ERROR "[musicxx_ext] 缺导出清单: ${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}")
   endif ()
-  file(STRINGS "${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}" _mx_export_lines)
+  # 清单是配置期读进来的: 改清单后自动重新配置, 否则要等别人动 CMakeLists 才会重新生成
+  # version script, 新加的符号会一直不导出。
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}")
+  # `ENCODING UTF-8` 必须显式写: 有的 CMake 版本 (实测 4.3.0-rc1) 在没写编码时会把
+  # 中文注释当成切行点, 切出 `Linux / Android` / `lookup` / `Dart` 这样的碎片; 碎片
+  # 不以 `#` 开头, 于是原样写进 version script, 链接期报
+  # "`;` expected, but got `/`" 直接失败。
+  file(STRINGS "${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}" _mx_export_lines ENCODING UTF-8)
   set(_mx_export_globals "")
   foreach (_mx_line IN LISTS _mx_export_lines)
     string(STRIP "${_mx_line}" _mx_line)
     if (_mx_line STREQUAL "" OR _mx_line MATCHES "^#")
       continue()
+    endif ()
+    # 清单只放符号名 (`*` / `?` 留给 ld 的通配符写法): 注释以外的杂行在这里就报错,
+    # 不要等到链接器给出看不懂的 version script 语法错误。
+    if (NOT _mx_line MATCHES "^[A-Za-z_][A-Za-z0-9_*?]*$")
+      message(FATAL_ERROR
+        "[musicxx_ext] 导出清单里不是符号名的行: `${_mx_line}`\n"
+        "  清单: ${MUSICXX_EXTERN_PLUGIN_EXPORT_LIST}")
     endif ()
     string(APPEND _mx_export_globals "    ${_mx_line};\n")
   endforeach ()
