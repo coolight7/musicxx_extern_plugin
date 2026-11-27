@@ -6,6 +6,16 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，未发布）：页面文档只接受 `blocks` 包装
+
+一句话：**页面文档写成 `{"title": …, "blocks": […]}`，或者直接给一棵块**；早期的 `{"items": […]}` 包装不再认。
+
+- 影响面：`pluginxx::ui::parseDocument` / `parseBlocks`（子模块 `cxx_pluginxx_ui`），也就是
+  `musicxx.ui.content.register` / `push`、浮层 `custom` 的 `blocks`、`musicxx.ui.dialog` 的 `blocks`
+  走的同一个解析器；
+- 块结构内部的 `items`（列表、菜单、中断块）与这件事无关，保持不变；
+- 两个项目的示例与文档早就在用 `blocks`，现有插件不用改；如果有脚本还写 `{"items": […]}`，换成 `{"blocks": […]}` 即可。
+
 ### 变更（破坏性，未发布）：`<应用名>.ui` 表本体搬到插件框架通用头
 
 一句话：**声明式界面层的表与注册表只有一份**，位于 `pluginxx/api/ui.h` 与
