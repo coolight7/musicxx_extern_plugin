@@ -171,7 +171,7 @@ struct PolledEvents {
 /// 测试里唯一的事件出口: 先把等待能力结果期间攒下的放回来, 再 poll 一次
 ///
 /// 为什么需要: 结果事件与别的事件在同一条队列里, 等结果的循环只能一条一条取
-/// (`max_count = 1`) —— 取到的别的必须攒着放回去, 不能悄悄吃掉。
+/// (`max_count = 1`) —— 取到的别的必须攒着放回去, 不能悄悄占用。
 PolledEvents pollEvents(MusicxxExternPluginHost *host, int maxCount) {
   MusicxxExternPluginString events{};
   MusicxxExternPluginString log{};
@@ -276,7 +276,7 @@ std::string requestUiContent(MusicxxExternPluginHost *host, const char *id,
 /// 从 JSON 文本里取出某个键的**原始值文本** (对象/数组原样给, 字符串去掉引号)
 ///
 /// 用途: 结果事件载荷里的 `result` 是任意 JSON,
-/// 不能被"取字符串字段"的写法吃掉。 只做浅扫描: 找到 `"key":`
+/// 不能被"取字符串字段"的写法占用。 只做浅扫描: 找到 `"key":`
 /// 后按括号配对与字符串转义跳过, 不解析整份 JSON。
 std::string jsonRawField(const std::string &json, const std::string &key) {
   const std::string needle = "\"" + key + "\":";
@@ -1949,7 +1949,7 @@ int main(int argc, char **argv) {
   cfg.platform = view(plat);
   cfg.language = view(lang);
   cfg.user_plugin_dir = view(pluginDir);
-  // 插件私有数据目录 (http.download 落盘到 <data_dir>/<插件id>/data/downloads)
+  // 插件私有数据目录 (http.download 写入磁盘到 <data_dir>/<插件id>/data/downloads)
   std::filesystem::path dataRootPath = std::filesystem::temp_directory_path() /
                                        "musicxx-extern-plugin-test-data";
   std::error_code dataRootEc;
@@ -2491,7 +2491,7 @@ int main(int argc, char **argv) {
 
     // ==================== 流结束 (广播表 v3) ====================
     //
-    // 属主结束自己的一条流: 带结束回调的订阅 → 发布一个值 → 结束 → 再发布。
+    // 所有者结束自己的一条流: 带结束回调的订阅 → 发布一个值 → 结束 → 再发布。
     // 期望: 订阅/发布/结束都是 0; 结束回调恰好一次且拿到 reason; 结束之后再发布
     // 返回 `PLUGINXX_RESULT_ERR_ENDED` (-5)。
     {
@@ -3447,7 +3447,7 @@ int main(int argc, char **argv) {
     // 函数在后一个里可见。这条已经由 `example_js_playing_bg` 的探针覆盖
     // （背景示例上面的 `probe`: styles / uiEntries / hasSettingsView 分别来自
     // backgrounds.js、palette.js 与 views.js；清单漏一个脚本就对不上），
-    // 原先那个只教多脚本的示例插件（`example_js_multi_script`）已删除。
+    // 只教多脚本的那个示例插件（`example_js_multi_script`）已删除。
 
     // ============ 插件框架内置网络能力 (example_js_net) ============
     //
@@ -3582,7 +3582,7 @@ int main(int argc, char **argv) {
 
       // JS → JS 目标 + **异步能力处理器** (返回 Promise): 同一条 JS
       // 线程上就地调用, 处理器返回 Promise 时按等待号结算后回执 ——
-      // 这条路以前直接失败
+      // 这条路不能直接失败
       // (`capability_async_without_wait`), 现在与 JS → 原生一样能拿到结果。
       const CapabilityCallOutcome jsToJs = callCapability(
           host, "example_js", "crossCall",

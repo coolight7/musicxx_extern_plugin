@@ -30,7 +30,7 @@ class MusicxxPluginManager {
   /// 最近一次扫描结果
   List<MusicxxPluginInfo> _scanned = const <MusicxxPluginInfo>[];
 
-  /// 生命周期事件触发的刷新：一次在途 + 结束后补跑一次（事件风暴时不排长队）
+  /// 生命周期事件触发的刷新：一次处理中 + 结束后补跑一次（事件风暴时不排长队）
   bool _refreshRunning = false;
   bool _refreshQueued = false;
 
@@ -554,7 +554,7 @@ class MusicxxPluginManager {
 
   /// 排一次"重新查询已加载插件"
   ///
-  /// 生命周期事件会连着来（加载时 discovered → loaded → enabled），一次在途 + 结束后
+  /// 生命周期事件会连着来（加载时 discovered → loaded → enabled），一次处理中 + 结束后
   /// 补跑一次就够，不必为每条事件排一次提交。
   void scheduleRefresh() {
     if (!_runtime.isRunning) {

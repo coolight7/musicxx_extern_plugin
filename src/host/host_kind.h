@@ -29,9 +29,9 @@ namespace extern_plugin {
 
 /// 内置 JS 运行器的接口代次对（与 C 接口代次是**两套独立编号**，不要互相比较）
 ///
-/// - 当前代次 `jsInterfaceVersion = 3`：2026-11 的广播只剩读与订阅（删掉 `musicxx.broadcast.get` /
-///   `write` / `watch` 与 `undeclare`，声明字段 `writable` → `publish`，订阅带 `intervalMs` /
-///   `mode`）—— **删接口**，所以下限一起抬到 3；同一批未发布的破坏性改动还包括
+/// - 当前代次 `jsInterfaceVersion = 3`：广播只剩读与订阅（没有 `musicxx.broadcast.get` /
+///   `write` / `watch` 与 `undeclare`，声明字段是 `publish`，订阅带 `intervalMs` /
+///   `mode`）—— **删接口**，所以下限一起抬到 3；同一批破坏性改动还包括
 ///   `musicxx.ui.slot.update(名字)` 不再带 `data`（参见 `docs/plugin-ui.md` §1.2）；
 /// - 兼容下限 `jsMinInterfaceVersion = 3`：只接受按这一代接口写的 JS 插件。下限与当前代次相同
 ///   = 没有跨代兼容；以后只做新增时再单独抬当前代次（参考 C 接口的 `PLUGINXX_MIN_API_VERSION`）。

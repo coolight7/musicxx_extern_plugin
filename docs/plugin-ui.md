@@ -35,7 +35,7 @@ JS 用 `musicxx.ui.content.register` / `musicxx.capability.register`），**字�
   `cxx_pluginxx_ui/schema/ui.def.json`、`tools/ui_slots.def.json`、`tools/ui_variables.def.json`）；
 - 要改的点先写进本文 §7 的清单，一次改完；不允许"搬一半顺手改名"，
   否则插件作者要按不同版本改两遍；
-- 不变的规则：渲染只读缓存、`rev` 丢弃晚到结果、同一份内容同时最多一个在途生成请求、
+- 不变的规则：渲染只读缓存、`rev` 丢弃晚到结果、同一份内容同时最多一个处理中生成请求、
   没有有效内容就画内置界面。宿主线程永不同步等插件线程。
 
 ## 1. 值、内容与刷新
@@ -121,7 +121,7 @@ musicxx.ui.content.push("wholeBar", { json: { blocks: [] } });           // 直�
   页面上就会“点了有反应、但高亮下一次点击才变”。要显示切换结果的，等结果（成功或失败）
   回来再 `slot.update` 一次；定时器 / 钩子里发起的动作没有页面，不用刷；
 - 运行期改影响帧调度 / 分辨率的字段（`maxFps` / `resolutionScale` / `animate`）重新生成一次就生效；
-- 刷新没有时间节流，但同一份内容同时最多一个在途请求，期间的变化只保留最新一次；
+- 刷新没有时间节流，但同一份内容同时最多一个处理中请求，期间的变化只保留最新一次；
   需要节流就写 `minIntervalMs`。
 
 **列表与选择**：`musicxx.ui.slot.list({slot})` 看某个可选样式槽位的候选，
@@ -176,7 +176,7 @@ musicxx.ui.item.entries();       // 本插件已注册的声明项（脚本侧�
 
 ### 1.5 声明项的渲染注意（写插件前先确认）
 
-这一版把之前缺的渲染点补齐了：`home.entry` 的 `subtitle` / `icon` 都会画出来、`playlist.action`
+可用的渲染点：`home.entry` 的 `subtitle` / `icon` 都会画出来、`playlist.action`
 在歌单页的列表菜单里有位置。仍要注意的是：
 
 - 入口与菜单项的图标只能来自插件自己（相对插件目录的路径，见 §1.6），写主程序图标名等于没写；
@@ -433,7 +433,7 @@ musicxx.ui.item.register({
   [plugin-api.md](plugin-api.md) 里列出的可用滤镜，或在应用的「播放内核信息」里查。
 - **不要用 `lavfi-complex`**：那是另一条音频链路，运行期清理它会把音频输出弄坏；音效一律留在 `af` 里
   （需要图语法就写 `lavfi=[...]`，与内置的「人声消减」一样）。
-- **逐帧表达式里的时间要兜住 NaN**：`volume=volume='0.5+0.5*cos(2*PI*0.1*t)':eval=frame` 这种写法，
+- **逐帧表达式里的时间要挡住 NaN**：`volume=volume='0.5+0.5*cos(2*PI*0.1*t)':eval=frame` 这种写法，
   `t` 在**没有时间戳的帧**上是 NaN（音频链刚建立的第一帧就会碰到），ffmpeg 会记一条
   `Invalid value NaN for volume, setting to 0` 并把那一帧静音。写 `if(isnan(t),0,t)` 代替 `t`
   （内置的「3D环绕声」就是这么写的）。
@@ -687,7 +687,7 @@ uiContentRegister("settings", MUSICXX_PLUGIN_UI_SLOT_PAGE, "[]",
 - **`color` 是语义名，不是色值**：能写的是 `normal`（默认）/ `hint` / `accent` / `title` /
   `error` / `warning` / `success`，对应客户端主题里的那几个颜色（跟随主题与昼夜）。
   想指定具体颜色用 `ThemeScope` 的 `data`（那里才是 `#rrggbb` / `#aarrggbb`），见 §2.3.4。
-  以前叫 `tone`，现在不认了。
+  不要写 `tone` 这个旧名字，写它不认。
 
 
 规则（解析层规则，与库文档一致）：
@@ -977,7 +977,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
   `Block` 或行内（尺寸由内容决定）会得到布局断言。要“按窗口宽高比切换两套内容”就把它当页面
   根块用（根块是它时主程序会把它铺满内容区）。
 - **行内的开关 / 勾选框要放在有宽度的盒子里**：`Control` 的 `switch` / `checkbox` 落在"宽度不限"
-  的位置时行为随客户端实现而异（历史上出现过 `RenderFlex ... unbounded` 的断言）。稳妥写法是给它一个
+  的位置时行为随客户端实现而异（不然会出现 `RenderFlex ... unbounded` 的断言）。稳妥写法是给它一个
   **固定宽度的 `SizedBox`**（例如 190 个 `u`，与开关自身宽度相当）；"几选一"优先用一排 `Button` 块
   （每个块各自声明 `{id, value}` 参数、当前项用 `highlight: true` 高亮），不要用 `Control(buttons)`。
 
@@ -1003,7 +1003,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
     { "kind": "Button", "label": "常驻在底部的按钮", "action": "apply" } ] }
 ```
 
-规则（主程序按这个形状判断，浮层与插件页面都一样）：
+规则（主程序按这个格式判断，浮层与插件页面都一样）：
 
 - 触发“填满高度”的条件：**根块是 `musicxx.Shader` / `Stack` / `musicxx.AdaptLayout` / `Expanded`**，
   或者**根块是 `Column` 且其中有这些**（`Column` 里的 `musicxx.Shader` / `Stack` / `AdaptLayout` 会被
@@ -1017,7 +1017,7 @@ kit 组件一览（基础 kit + musicxx 扩展 kit 合并后）：`title` / `hin
 - `musicxx.AdaptLayout` 靠“按窗口宽高比选一套 + 分两栅”工作，需要客户端给出可用尺寸：顶层直接
   写它时主程序会把它放进 `Expanded`；把它塞进 `Block` / 行内时只画当前该显示的那一套（不报错，
   也不会切换布局）；
-- **固定部分会吃掉窗口高度**：头部与底部不会缩放，窗口很矮（桌面拉到几百像素高）时它们自己就可能
+- **固定部分会占用窗口高度**：头部与底部不会缩放，窗口很矮（桌面拉到几百像素高）时它们自己就可能
   超出内容区（客户端不会自动改回整页滚）。所以头部只放必要的几行；
 - **kit 模板**：`kit.dirListView({path, items, itemAction, refreshAction, loadMoreAction})`、
   `kit.adaptLayout({columnBody, rowBody})`。
@@ -1167,9 +1167,9 @@ musicxx.capability.register("pickQuality", async function () {
 | `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 拼装内容 |
 ---
 
-## 6. 从旧写法迁移（一次对照）
+## 6. 旧写法对照
 
-| 旧写法（本轮之前的版本） | 现在 |
+| 旧写法 | 现在 |
 |---|---|
 | `musicxx.ui.item.register({name, type: "playing.lyric.top", data: {view: …}})` | `musicxx.ui.content.register({id, slot: "musicxx.ui.playing.lyric.top"}, generate)` |
 | `data: {view: "<能力短名>"}`（主程序调同名能力取视图） | 生成函数；要按状态变就把变量写进 `deps` |

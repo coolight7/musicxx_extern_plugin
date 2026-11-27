@@ -103,7 +103,7 @@ class MusicxxExternPluginBindings {
   /// 返回码的名称（`invalid_argument` / `not_found` / `no_value` / …）
   ///
   /// - 覆盖通用段、广播段、生命周期 / 内部段与网络段；
-  /// - 不认识（包括未定义区间与应用 / 插件自定义区间）返回 NULL，由属主自己解释；
+  /// - 不认识（包括未定义区间与应用 / 插件自定义区间）返回 NULL，由所有者自己解释；
   /// - 返回的字符串是静态字面量，不需要释放。
   ffi.Pointer<ffi.Char> musicxx_extern_plugin_result_name(int code) {
     return _musicxx_extern_plugin_result_name(code);
@@ -364,7 +364,8 @@ class MusicxxExternPluginBindings {
   /// `phases` 是 `["before","impl","after"]` 的子集 (缺省 `impl`), `timeoutMs` 是
   /// 声明级超时 (0 = 不上限);
   /// - 只认这五个字段, 其余（标题 / 命令行 / MCP 一类的界面声明）不跨边界;
-  /// - 结果在声明表换好之后才回; 推两次以最后一次为准, 已声明的 id 按新内容覆盖。
+  /// - 结果在声明表换好之后才回; 推两次以最后一次为准, 已声明的 id 按新内容覆盖
+  /// （不再出现在新表里的 id 不会被撤销声明, 插件仍能继续用）。
   int musicxx_extern_plugin_set_app_capabilities(
     ffi.Pointer<MusicxxExternPluginHost> h,
     ffi.Pointer<MusicxxExternPluginStringView> json,
@@ -1180,7 +1181,7 @@ class MusicxxExternPluginBindings {
   /// - `topic` 必须是 `musicxx.*` 或 `plugin.<id>.*`;
   /// - 频道未声明时按生成表补一份声明, 表外 id 用默认属性
   /// (`cache: none` / `publish: owner` / `coalesce: true` / `scope: app`);
-  /// - 属主才能发布: 官方频道只有应用能发, 插件频道只有属主能发 (发布失败是 `ok = false`);
+  /// - 所有者才能发布: 官方频道只有应用能发, 插件频道只有所有者能发 (发布失败是 `ok = false`);
   /// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做);
   /// - 结果 `data` 是 `null`: 要"发布完再看"就 `await` 这一条。
   int musicxx_extern_plugin_broadcast_publish(
@@ -1223,7 +1224,7 @@ class MusicxxExternPluginBindings {
             )
           >();
 
-  /// 读一条频道的当前值 (`op = "broadcast.read"`; 冷读; 热路径读 Dart 侧缓存)
+  /// 读一条频道的当前值 (`op = "broadcast.read"`; 冷读; 频繁执行的路径读 Dart 侧缓存)
   ///
   /// - 成功: `data` 是当前值 JSON;
   /// - 频道没声明: `ok = false` + `reason = not_declared`;

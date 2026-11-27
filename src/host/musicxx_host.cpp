@@ -239,7 +239,7 @@ void MusicxxHostManager::applyConfig(const MusicxxExternPluginHostConfig &cfg) {
   setIfPresent(userPluginDir_, cfg.user_plugin_dir);
   setIfPresent(builtinPluginDir_, cfg.builtin_plugin_dir);
   setIfPresent(dataDir_, cfg.data_dir);
-  // 网络能力的下载落盘位置跟着数据目录走 (要在 start() 之前给)
+  // 网络能力的下载写入磁盘位置跟着数据目录走 (要在 start() 之前给)
   if (netHub_) {
     netHub_->setDataDir(dataDir_);
   }
@@ -2811,7 +2811,7 @@ void MusicxxHostManager::ensureBroadcastChannel(const std::string &id) {
   if (id.rfind("plugin.", 0) == 0) {
     decl.owner = naming::pluginIdOfTopic(id);
     // 插件频道的默认发布者是"任何人": 几个插件可以共用一条频道。
-    // 生成表里显式写 owner 的 (preset != nullptr 且属性为 owner) 保持只属主可发。
+    // 生成表里显式写 owner 的 (preset != nullptr 且属性为 owner) 保持只所有者可发。
     if (preset == nullptr) {
       decl.publish = pluginxx::BroadcastPublisher_e::Anyone;
     }

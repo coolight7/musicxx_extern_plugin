@@ -422,7 +422,7 @@ const result = await musicxx.capability.call("musicxx.<域>.<名字>", { ...参�
 
 ### 7.3 网络（主程序代理通道）
 
-> 参数、限制、返回结构、下载落盘位置与失败语义见 [plugin-api.md](plugin-api.md) §3.2.6。
+> 参数、限制、返回结构、下载写入磁盘位置与失败语义见 [plugin-api.md](plugin-api.md) §3.2.6。
 
 ```js
 const resp = await musicxx.net.fetch({
@@ -485,7 +485,7 @@ musicxx.net.http.info();                                     // 每个服务带 
   没命中且开了 `staticOnly` 就回 404。
 - 老版本的插件框架没有 `http.route`：先看 `typeof musicxx.net.http.route === "function"`，
   没有就自己降级（例如直接返回本地路径 `kind:"file"`）。
-- 这套机制就是"代理"：用 `musicxx.net.fetch / download` 取到的数据也可以先落盘再 `route`（给
+- 这套机制就是"代理"：用 `musicxx.net.fetch / download` 取到的数据也可以先写入磁盘再 `route`（给
   `file`）、小内容直接给 `bytes`，播放器只看到干净的 `http://127.0.0.1:...`。
   完整例子见 `plugins/example_override_media_source`（`plugin_proxy_local` 音源）；要一个
   "整个插件就是一个音源"（账号、目录浏览、加歌、播放全链路）的例子看
@@ -633,17 +633,17 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
   `publish` 收不到值**；要这种顺序（自检、初始值）把 `subscribe` 写在脚本顶层，它在登记回放时就建好。
 - **发布**：只能发布官方主题或**自己命名空间**（`plugin.<自己的插件 id>.*`）的主题；主题非法时
   `publish` 直接抛异常。
-- **结束自己的一条流**：第 4 个参数给结束回调，属主把流收尾时回调一次；之后这条频道不能再发布、
+- **结束自己的一条流**：第 4 个参数给结束回调，所有者把流收尾时回调一次；之后这条频道不能再发布、
   `read` 读不到值；再次 `declare` 同一个 id = 开一条新流。
 
   ```js
   musicxx.broadcast.subscribe("task", function (progress) {
       /* 值 */
   }, null, function (reason) {
-      /* reason 是属主给的 JSON，默认 {} */
+      /* reason 是所有者给的 JSON，默认 {} */
   });
 
-  musicxx.broadcast.end("task", { reason: "done" });   // 只有属主能结束；失败抛错
+  musicxx.broadcast.end("task", { reason: "done" });   // 只有所有者能结束；失败抛错
   ```
 
 - 插件之间做协作时，用「对方的 `plugin.<对方id>.*` 主题」或能力调用（§10）都行：
@@ -660,7 +660,7 @@ musicxx.broadcast.unsubscribe("musicxx.state.song");
 
 ---
 
-## 9. 官方广播频道（应用是属主，插件只能读与订阅）
+## 9. 官方广播频道（应用是所有者，插件只能读与订阅）
 
 > 概念、怎么选（带当前值的广播 / 没有当前值的广播 / 应用实现的能力）、要改它调哪个能力，都在
 > [plugin-api.md](plugin-api.md) §5；完整频道表（类型 / 取值域 / 改它调哪个能力）见
@@ -1041,7 +1041,7 @@ musicxx.capability.implement("musicxx.media.chorus.analyse", function (payload) 
     // 分析同一份数据；只想按文件自己读音频就忽略它（用 payload.path）
     const hit = chorusCache[payload.srcKey];
     if (!hit) return null;
-    // 区段形状：{ start, end, confidence, energy, similarity, repeat }（毫秒，start/end 必需）
+    // 区段字段：{ start, end, confidence, energy, similarity, repeat }（毫秒，start/end 必需）
     // sections 为空数组 = 分析过了、这首歌没有副歌（应用据此显示"没有副歌"）
     return { chorus: { sections: hit, totalDuration: payload.durationMs } };
 });

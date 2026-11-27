@@ -844,7 +844,7 @@ void testBroadcastRateLimit() {
     sleepMs(60);
     runArmed();
     check(seen.size() == 1, "退订后不再补发");
-    // 订阅方走的渠道与 pushOnSubscribe 不同: 这里再确认一次"按属主退订"也会丢掉待补发
+    // 订阅方走的渠道与 pushOnSubscribe 不同: 这里再确认一次"按所有者退订"也会丢掉待补发
     std::vector<std::string> other;
     check(reg.subscribe(
               "musicxx.test.tick", "plugin_cancel2",

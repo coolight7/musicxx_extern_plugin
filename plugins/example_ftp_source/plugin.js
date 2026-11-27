@@ -329,7 +329,7 @@ function fillDraftFromTestServer() {
     draft.encoding = "utf-8";
 }
 
-/// 启动时读一次配置；开着就把服务拉起来（读不到配置不算错）
+/// 启动时读一次配置；开着就把服务启动起来（读不到配置不算错）
 function loadTestServer() {
     return musicxx.storage.get(TEST_SERVER_KEY, null).then(function (raw) {
         if (!raw || typeof raw !== "object") {

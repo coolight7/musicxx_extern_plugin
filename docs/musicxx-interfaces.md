@@ -1,9 +1,9 @@
 # musicxx 的对外接口：链接 / 启动参数 / MCP / 命令行 / 本机 HTTP
 
 > 这篇是 **musicxx（主程序）对外暴露的全部接口**的总表：谁在什么场景用哪条通道、怎么连上、
-> 请求与响应是什么形状、权限边界在哪、出问题从哪里看。
+> 请求与响应是什么格式、权限边界在哪、出问题从哪里看。
 >
-> 先说结论：**七条通道共用同一份实现（命令注册表）和同一套参数名**，一次调用只有一种形状
+> 先说结论：**七条通道共用同一份实现（命令注册表）和同一套参数名**，一次调用只有一种格式
 > `{"cmd": "<入口 id>", "args": {…}}`。链接（applink）与进程启动参数只是"把这次调用说出来"
 > 的两种额外写法，见 §1。
 >
@@ -14,13 +14,13 @@
 
 ## 1. 七条通道，一份实现
 
-**一次外部调用在所有通道里都是同一个形状**：
+**一次外部调用在所有通道里都是同一个格式**：
 
 ```json
 {"cmd": "<入口 id>", "args": {…}}
 ```
 
-结果也只有一个形状：`{ok, cmd?, data? | error?, message?}`。成功给 `data`；失败时
+结果也只有一种格式：`{ok, cmd?, data? | error?, message?}`。成功给 `data`；失败时
 **`error` 是名称**（`not_found` / `invalid_argument` / `not_allowed` / `no_impl` / `busy` /
 `failed` / `not_ready` / `permission_denied`，调用方按它分支），**`message` 是可读句子**
 （给人看：哪一步、怎么办）。数字返回码只存在于插件框架的 C / FFI 边界（码表见
@@ -75,7 +75,7 @@
 | 链接 | 归一成 | 说明 |
 |---|---|---|
 | `musicxx://play/?src=<原样的音源>` | `musicxx.player.playSrc {src}` | 首选写法：音源字符串原样交给 `playSrc`（类型由它自己判断） |
-| `musicxx://play/?media=<拟声音源字符串>` | `musicxx.player.playSrc {src}` | 老写法：音源格式的字符串（歌曲-详情-音源里可长按复制） |
+| `musicxx://play/?media=<拟声音源字符串>` | `musicxx.player.playSrc {src}` | 旧链接写法（仍支持）：音源格式的字符串（歌曲-详情-音源里可长按复制） |
 | `musicxx://play/?filename=<文件名\|路径>` | `musicxx.player.playSrc {src, type:"local"}` | 按本地文件/缓存里的文件名找（不同设备路径不同时省事） |
 | `musicxx://play/?url=<链接>` | `musicxx.player.playSrc {src, type:"link"}` | `https://…`、`file:///…` 或直接路径 |
 | `musicxx://play/?search=<关键词>` | `musicxx.history.play {info, tip:true}` | 在播放记录里模糊找一首并播放，没找到会弹提示 |
@@ -96,7 +96,7 @@
   应用内粘贴的链接与 applink 同一条规则（见 §1.1.1）；
 - **系统能把链接递进来的只有 Windows 与 Android**（`GlobalStore.isSupportAppLink()`）：桌面端由应用在
   注册表里注册 `musicxx` 协议（Windows 是 `HKCU\Software\Classes\musicxx`，打开方式为 `"<程序>" "%1"`），
-  点链接即以这条链接为启动参数拉起应用；Android 的 Deep Link intent filter 声明 `scheme=musicxx`
+  点链接即以这条链接为启动参数启动应用；Android 的 Deep Link intent filter 声明 `scheme=musicxx`
   （**host 不限**）与 `bilibili://search/`，所以新增入口形态不用改 manifest。manifest 里另有一条
   `https://musicxx.bool.run/…` 的 App Link 声明，那是站点跳转用的：应用收到它时按"不认识的链接"
   处理（只记一行日志，不做任何事）；
@@ -225,8 +225,8 @@
 
 **R5 一个词一件事**
 
-对外只有"**能力**"与"**广播**"两个概念。能力 = 发一次请求、等一个结果；广播 = 属主改了东西、通知关心的人。
-"钩子 / 动作 / 状态镜像 / 变量 / 能力导出"这些旧叫法都已退役；`feature` / `export` 两个词从对外 id 与
+对外只有"**能力**"与"**广播**"两个概念。能力 = 发一次请求、等一个结果；广播 = 所有者改了东西、通知关心的人。
+"钩子 / 动作 / 状态镜像 / 变量 / 能力导出"这些叫法不要再用；对外 id 与
 JS 对象里消失（`musicxx.feature.point.*` 是"一个 id 可以有多个实现"的那组**能力**，仍是一条能力）。
 
 **R6 地址空间互不干扰**
@@ -239,9 +239,9 @@ JS 对象里消失（`musicxx.feature.point.*` 是"一个 id 可以有多个实�
 
 | 条件 | 说明 |
 |---|---|
-| 主程序在运行 | MCP / 命令行 / 局域网这几条都由主程序的 HTTP 服务提供（applink 与启动参数本身就能把应用拉起来）。没在运行时命令行退出码 2（加 `--start` 可以先拉起） |
+| 主程序在运行 | MCP / 命令行 / 局域网这几条都由主程序的 HTTP 服务提供（applink 与启动参数本身就能把应用启动）。没在运行时命令行退出码 2（加 `--start` 可以先启动） |
 | HTTP 服务已绑定 | 主程序启动时就绑定（`InternetAddress.anyIPv4`，端口按设置，默认随机）：启动日志里有一行 `[HttpServer] 已启动: http://127.0.0.1:<端口>/` |
-| `/cli` 所有平台都有 | 手机与桌面是同一份命令表（以前 `/cli` 只在桌面端开放）；`/mcp` 与局域网那几条在服务起来后都能用。安卓上也能用链接（§1.1） |
+| `/cli` 所有平台都有 | 手机与桌面是同一份命令表；`/mcp` 与局域网那几条在服务起来后都能用。安卓上也能用链接（§1.1） |
 | 应用已走完启动 | 命令行 / MCP / HTTP 与"应用跑起来之后"进来的链接、启动参数都要等应用就绪：入口调用会先等（默认最多 15 秒），等不到返回 `not_ready`（HTTP 503）。**唯一不等的是启动流程自己**（首次链接、这次启动带的参数）：它们发生在"就绪"置位之前，与旧行为一致立即执行 |
 | 命令行文件 | `musicxx-cli` 与主程序**编译到同一目录**（Windows `musicxx-cli.exe`；Linux 是 bundle 根目录；macOS 在 `Musicxx.app/Contents/MacOS/musicxx-cli`）。找不到时看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里写着当前路径与可复制的命令 |
 
@@ -294,14 +294,14 @@ JS 对象里消失（`musicxx.feature.point.*` 是"一个 id 可以有多个实�
 | `/share/<id>` | 放行 | 链接就是权限（不进鉴权门），但仍要求「局域网服务」开着 |
 
 拿到令牌的两种方便写法：在应用里「共享与控制 → 授权密令」手动加，或者本机跑
-`musicxx-cli auth token --host <ip> --port <端口>`（只打印，不落盘）。通过弹窗授权的那一次请求，
+`musicxx-cli auth token --host <ip> --port <端口>`（只打印，不写入磁盘）。通过弹窗授权的那一次请求，
 响应头会带 `X-Musicxx-Token`，客户端存下来复用即可。
 
 **先看说明**：`GET /help` 不需要任何身份，返回 `text/plain` 的接口说明（地址、密令写法、
-`/cli` 的三种请求体与答复形状、`/mcp` 的四条方法与会话头、其它接口清单），
+`/cli` 的三种请求体与答复格式、`/mcp` 的四条方法与会话头、其它接口清单），
 示例里写的就是你当前访问的端口；手写客户端时先请求它一遍即可。
 
-## 3. `/cli` 的协议形状
+## 3. `/cli` 的协议格式
 
 ```
 GET  /cli   |  /cli/list    自描述：命令、参数、来源、统一入口表、就绪状态
@@ -315,7 +315,7 @@ POST /cli                   {"cmd": "<入口 id>", "args": {…}}         ← �
 `lib/manager/entry/`：`uri` 与 `argv` 只是"把别的通道的形态搬到 HTTP 上"，方便脚本与排障
 （不用真的点一次链接）。一次请求只执行一条调用：`argv` 解析出多条时给 400，请分几次请求。
 
-响应体只有一种形状：`{ok, cmd?, data? | error?, message?}`。失败时 `error` 是名称、`message` 是句子
+响应体只有一种格式：`{ok, cmd?, data? | error?, message?}`。失败时 `error` 是名称、`message` 是句子
 （见 §1）。状态码只表达协议 / 权限 / 时机，**命令本身的失败仍是 200 + `ok:false`**：
 
 | HTTP 状态码 | `error` | 什么时候出现 |
@@ -457,10 +457,10 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 
 | 命令 | 参数 | `data` |
 |---|---|---|
-| `musicxx.broadcast.list` | `prefix?`(string) | `{channels:[…]}`：频道、缓存属性（`cache` / `publish`）、属主、订阅数、当前值（官方频道来自 Dart 注册表，插件频道由插件框架补） |
+| `musicxx.broadcast.list` | `prefix?`(string) | `{channels:[…]}`：频道、缓存属性（`cache` / `publish`）、所有者、订阅数、当前值（官方频道来自 Dart 注册表，插件频道由插件框架补） |
 | `musicxx.broadcast.read` | `id`(必填) | `{id, value}`；没有当前值时命令失败（`error` 为 `no_value`），频道不存在是 `not_found` |
 
-广播是**只读**的：属主发布，别人只能读与订阅；要改应用状态请调对应的能力。
+广播是**只读**的：所有者发布，别人只能读与订阅；要改应用状态请调对应的能力。
 
 ### 4.5 应用实现的能力（命令 id = 能力名，64 条）
 
@@ -537,8 +537,8 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:17001/cli' `
 | `commands [status\|install\|uninstall]` | `musicxx.app.commands` |
 | `call <命令 id> [--args JSON]` | 任意命令（含全部能力名） |
 | `open <musicxx://…>` | 不转发命令：按链接形态请求主进程（与手机点链接、启动参数 `--uri` 同一条解析） |
-| `auth token [--host <ip> --port <端口>]` | 不转发命令：向对方要一把授权密令（只打印，不落盘） |
-| `list` / `doctor` / `ping` / `watch` / `mcp` / `start` / `help` / `version` | 不转发命令：自描述、自检、事件流、stdio 桥、拉起应用 |
+| `auth token [--host <ip> --port <端口>]` | 不转发命令：向对方要一把授权密令（只打印，不写入磁盘） |
+| `list` / `doctor` / `ping` / `watch` / `mcp` / `start` / `help` / `version` | 不转发命令：自描述、自检、事件流、stdio 桥、启动应用 |
 
 CLI 自己的选项与退出码：
 
@@ -550,7 +550,7 @@ CLI 自己的选项与退出码：
 | `--timeout <秒>` | 单次请求超时（默认 30） |
 | `--host <ip>` | 连另一台设备（默认本机回环；跨设备要对方开着「共享与控制」） |
 | `--token <密令>` | 带授权密令（非本机、不同账号时用；本机不需要） |
-| `--start` / `--start-timeout <秒>` / `--app <路径>` | 没在运行时先拉起主程序（默认等 60 秒） |
+| `--start` / `--start-timeout <秒>` / `--app <路径>` | 没在运行时先启动主程序（默认等 60 秒） |
 
 | 退出码 | 含义 |
 |---|---|
@@ -663,7 +663,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 - 服务自报：`serverInfo.name = musicxx-server`、`version = 应用版本`、
   `protocolVersion = 2024-11-05`，并带一段 `instructions`（告诉模型这是什么应用、中文名叫"拟声"）；
 - **每个 session 一个 server 实例**（协议只允许一条 transport），`DELETE` 结束自己的 session；
-- 桥的约定（不会退出、自动拉起应用、主进程重启后重发一次）见
+- 桥的约定（不会退出、自动启动应用、主进程重启后重发一次）见
   [plugin-agent-cli.md](plugin-agent-cli.md) §7；
 - 不经过任何客户端直接验证：`cd cli && dart run tool/mcp_probe.dart`（跑一遍
   initialize → tools/list → tools/call，`--point` 换工具、`--args` 给参数）。
@@ -741,7 +741,7 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
 | `ListLanDevices` | `availableOnly?`、`refresh?`、`limitServerVersion?` | `musicxx.lan.clients` | 本机信息一行 + 每台设备几行（设备 / 应用与地址 / 账号与同账号 / 分享与权限与可控制性 / 最后通信） |
 | `ScanLanDevices` | `reset?`、`wait?`(ms) | `musicxx.lan.scan` | 同上（扫描后重新给一份列表） |
 | `RunCommandOnDevice` | `clientId?` / `addr?`、`cmd?` + `args?`、`action?` / `id?` + `data?`(object)、`token?` | `musicxx.lan.cli` | 「发了哪条指令给哪台设备」+ 这次走的通道（`/cli` 或 `/control`）与对方返回的数据 |
-| `DownloadFile` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`、`sha256?`、`timeoutMs?` | `musicxx.net.file.download` | 落盘路径、字节数、内容类型、sha256、重定向后的地址 |
+| `DownloadFile` | `url`(必填)、`path?`、`dir?`、`fileName?`、`overwrite?`、`sha256?`、`timeoutMs?` | `musicxx.net.file.download` | 写入磁盘路径、字节数、内容类型、sha256、重定向后的地址 |
 | `ShareLocalFile` | `path`(必填)、`id?`、`title?`、`download?`、`ttlSeconds?` | `musicxx.net.file.share.register` | 共享的标题 / 类型 / 路由 / 本机与局域网链接 / 过期时间 |
 | `ListSharedFiles` | `id?` | `musicxx.net.file.share.list` | 每条共享一行（标题 / 类型 / id / 路径 / 访问次数）+ 链接 |
 | `UnshareLocalFile` | `id?` / `all?` | `musicxx.net.file.share.unregister` | `Removed N shared file(s).` |
@@ -852,9 +852,9 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 ### 6.2 `/control`（局域网控制，数字命令 id）
 
 请求体是 `{"id": <数字>, "data": {…}}`（可带 `?sign=` 走权限判定），应答是
-`{"code":2000,"data":…,"tip":""}` 或 `XXResponse_c` 形状的错误：`4001`（权限不足）、
+`{"code":2000,"data":…,"tip":""}` 或 `XXResponse_c` 格式的错误：`4001`（权限不足）、
 `4004`（资源找不到）、`4010`（参数缺失）、`4011`（参数错误）。**做过事就回 2000**
-（播放 / 暂停 / 上下曲 / 进度 / 循环模式曾经误回 4010，已修正）。
+（播放 / 暂停 / 上下曲 / 进度 / 循环模式要回 2000，不要回 4010）。
 
 | id | 名称 | 作用 |
 |---|---|---|
@@ -977,7 +977,7 @@ MCP 给模型的是**文本**（不是 JSON 结构），所以每个工具都有
 
 | 现象 | 处理 |
 |---|---|
-| 命令行退出码 2（"拟声未在运行"） | `musicxx-cli doctor` 看接入点文件与连接；或 `--start` / `musicxx-cli start` 先拉起 |
+| 命令行退出码 2（"拟声未在运行"） | `musicxx-cli doctor` 看接入点文件与连接；或 `--start` / `musicxx-cli start` 先启动 |
 | 接入点文件在但连不上 | 那是上次运行留下的残留（退出不清理），按"没在运行"处理 |
 | 找不到 `musicxx-cli` | 看应用里「设置 → 共享与控制 → 命令行接口（CLI）」；它必须与主程序同目录（`--start` / `mcp` 靠这一点找主程序） |
 | `not_ready`（503） | 应用还在启动收尾，稍后重试（命令行本身会先等 15 秒） |

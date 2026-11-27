@@ -63,7 +63,7 @@
 /// 有当前值：订阅即拿到，也能同步读
 #define MUSICXX_BROADCAST_CACHE_LATEST 1
 
-/// 只有属主能发布
+/// 只有所有者能发布
 #define MUSICXX_BROADCAST_PUBLISH_OWNER  0
 /// 任何人都能发布
 #define MUSICXX_BROADCAST_PUBLISH_ANYONE 1

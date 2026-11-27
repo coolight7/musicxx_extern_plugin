@@ -123,7 +123,7 @@ musicxx.ui.content.register({ id: "card", slot: "musicxx.ui.page", title: "我�
 
 | 方式 | 做法 |
 |---|---|
-| 压缩包安装 | 打包成 `.zip`（**顶层就是插件目录内容**），管理页「从压缩包安装」；**新插件装完默认启用**（同名覆盖安装沿用原来的启用状态） |
+| 压缩包安装 | 打包成 `.zip`（**顶层就是插件目录内容**），管理页「从压缩包安装」；**新插件装完默认启用**（同名覆盖安装沿用已有的启用状态） |
 | 命令行 / AI agent | `musicxx-cli plugin install "<zip绝对路径>"`（非交互、不弹确认框；新插件装完默认启用，`--disable` 才保持停用；之后用 `plugin list` / `plugin logs` / `plugin reload` 控制）。插件包在公网上时用 `plugin install --url <链接>`。见 [plugin-agent-cli.md](plugin-agent-cli.md) |
 | 随包插件 | 放进主程序的随包插件目录，插件框架启动时与用户目录一起扫描 |
 

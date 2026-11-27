@@ -519,7 +519,7 @@ public:
                                                   optionsJson);
     }
 
-    /// 结束自己的一条流 (只有频道属主能结束)
+    /// 结束自己的一条流 (只有频道所有者能结束)
     asio::awaitable<void> endBroadcast(
         std::string_view topic, std::string_view reasonJson = "{}") {
         std::string id{topic};

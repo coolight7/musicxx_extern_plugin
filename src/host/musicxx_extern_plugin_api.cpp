@@ -3,7 +3,7 @@
 /// 约定 (见 src/include/musicxx_extern_plugin_api.h):
 /// - 所有导出函数用 `pluginxx::guardCall` 捕获异常, 绝不把异常带过 C ABI;
 /// - 出参字符串一律经框架堆分配 (musicxx_extern_plugin_string_free 释放);
-/// - **一次操作只有一种形状**: 受理返回 `requestId`, 结果经事件
+/// - **一次操作只有一种格式**: 受理返回 `requestId`, 结果经事件
 ///   `musicxx.request.result` 交回; 受理之后一定有一条结果 (插件卸载 / 框架停机 /
 ///   队列满时按失败回), 调用方不会悬挂;
 /// - 受理阶段只做参数检查与记账: 工作体投到框架 IO 线程 (注册表 / 事件) 或插件执行

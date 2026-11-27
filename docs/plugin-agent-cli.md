@@ -31,7 +31,7 @@
 | 桌面端 | `musicxx-cli` 这个可执行文件是桌面构建的一部分；但**命令入口 `/cli` 现在所有平台都有**（手机与桌面同一份命令表），手机可以通过另一台设备的 `lan.cli` 或 MCP 被调用 |
 | 有 `musicxx-cli` | 正常构建/安装应用时会与主程序**编译到同一目录**（Windows `musicxx-cli.exe`；Linux / macOS `musicxx-cli`，macOS 在 `Musicxx.app/Contents/MacOS/`）。找不到时看应用里「设置 → 共享与控制 → 命令行接口（CLI）」，那里也写着当前路径 |
 | 与主程序同一台机器 | 本机回环直接可用（不需要额外配置）；跨机器使用要开「共享与控制 → 允许远程控制本机」 |
-| 主程序在运行 | 没在运行时命令以退出码 2 结束；加 `--start` 可以先拉起再执行，`musicxx-cli start` 拉起并等它就绪 |
+| 主程序在运行 | 没在运行时命令以退出码 2 结束；加 `--start` 可以先启动再执行，`musicxx-cli start` 启动并等它就绪 |
 | 『拟声++』已开启 | **安装 / 重载 / 重启**要求插件框架正在运行（见 `plugin list` 的 `hostStarted`）；`list` / `enable` / `disable` / `uninstall` / `logs` 没有插件框架也能调用 —— 但**未开启『拟声++』时主程序不会加载插件记录**，它们看到的是"没有插件" |
 
 自检：`musicxx-cli doctor`（接入点文件、连接结果、命令数、插件框架版本、主程序路径），
@@ -235,7 +235,7 @@ musicxx-cli ui-slot set musicxx.previous --slot player.icon
 ### 5.7 取一次应用的功能结果（`capability.call`）
 
 `capability call` 调的是**能力**：应用留出的（频谱提取 / 副歌分析 / 封面取色），或插件自己声明的
-（`plugin.<插件id>.<名字>`）。只有这一条通道 —— 原来那套单独的"导出"命令已经删掉，
+（`plugin.<插件id>.<名字>`）。只有这一条通道 —— 没有单独的"导出"命令，
 文本结论也走同一条能力。
 
 ```bash
@@ -248,12 +248,12 @@ musicxx-cli capability call musicxx.media.chorus.analyse --args '{"path":"D:/a.f
 # 整曲频谱（base64，4 分钟约 820 KB）：重定向到文件，别直接打屏
 musicxx-cli capability call musicxx.media.spectrum.extract --args '{"path":"D:/a.flac"}' --json > spectrum.json
 
-# 调插件自己声明的功能埋点（参数与结果形状看它声明的 args / result）
+# 调插件自己声明的功能埋点（参数与结果格式看它声明的 args / result）
 musicxx-cli capability call plugin.my_plugin.beat --args '{"path":"D:/a.flac"}'
 ```
 
-- **参数与结果形状**一律看 `capability list` 的 `callDoc`（每条能力一段），不要凭猜；
-- 结果形状：`{ok, id, value, by, identity, fromCache, ms}`。`by` 是这次是谁给的
+- **参数与结果格式**一律看 `capability list` 的 `callDoc`（每条能力一段），不要凭猜；
+- 结果格式：`{ok, id, value, by, identity, fromCache, ms}`。`by` 是这次是谁给的
   （`extern:<插件id>` / `builtin:<插件key>:<实现>` / `core:<域>:<实现>`），
   `identity` 是资源身份（音源 md5 / 文件路径），调用方可以据此自己缓存；
 - 失败：`{ok:false, error, message}`，`error` 取 `not_callable`（这条能力没对外开放调用）/
@@ -300,7 +300,7 @@ musicxx://play/?search=%E6%99%B4%E5%A4%A9
 
 ## 6. 给 agent 与脚本的约定
 
-- **`--json`**：stdout 只放那份 JSON（缩进多行；形状 `{ok, cmd, data}` 或 `{ok:false, error}`），
+- **`--json`**：stdout 只放那份 JSON（缩进多行；格式 `{ok, cmd, data}` 或 `{ok:false, error}`），
   人类可读的提示与诊断信息一律走 stderr —— 解析 stdout 不会被污染；
 - **退出码**：`0` 成功 / `1` 参数错误（CLI 自己发现的）/ `2` 应用没在运行 / `3` 等响应超时 /
   `4` 命令执行失败（原因在 stderr）/ `5` 协议不匹配（CLI 与主程序版本差太多）；
@@ -353,14 +353,14 @@ claude mcp add musicxx -- "<安装目录>/musicxx-cli" mcp
   （超过 4 KB 的字符串给 `{"omitted":true,"bytes":N,"head":"<前 256 个字符>"}`）：
   频谱一次 820 KB base64，整块塞进模型上下文既没用又挤掉别的东西 —— 只要可读的频谱文本请用
   `GetAudioSpectrum`（同一条能力，输出排成文本表）；
-- 拟声没在运行时桥**不会退出**：请求返回可读的 JSON-RPC 错误（`-32000`），默认会自动拉起主程序
+- 拟声没在运行时桥**不会退出**：请求返回可读的 JSON-RPC 错误（`-32000`），默认会自动启动主程序
   （`--no-start` 关掉），应用起来后下一次调用自动可用；
 - stdout 只放协议消息，日志都在 stderr；排查用 `musicxx-cli mcp --verbose`。
 
 ## 8. 一个完整的开发循环
 
 ```bash
-# 0) 确认连得上（第一次用可以顺手拉起应用）
+# 0) 确认连得上（第一次用可以顺手启动应用）
 musicxx-cli doctor
 
 # 1) 打包（JS 与动态库插件同一套；顶层就是插件目录内容；包名带清单 version，例 my_plugin-2026_1010_1.zip）
@@ -410,7 +410,7 @@ musicxx-cli plugin uninstall my_plugin
 | 安装失败「插件框架未启动，无法安装插件」 | 未开启『拟声++』、处于安全模式，或插件框架库不可用 —— 看 `plugin list` 的 `hostStarted` / `supportPlus` / `safeMode` / `lastError` |
 | 安装失败提到"必须绝对路径" | 把路径写成绝对路径（例如 `D:/out/my_plugin.zip`）；相对路径会被直接拒绝 |
 | 安装失败提到「当前平台不在清单声明内」/「库文件缺失」 | 清单 `platforms` / `arch` / `entry` 写错，或多目标包少了当前平台/架构的分支（[plugin-native-api.md](plugin-native-api.md) §1.3） |
-| 装了但没在跑 | 新插件装完是启用的：`plugin list` 看 `loaded` / `error`；以前用 `--disable` 装的用 `plugin enable <id>` 打开 |
+| 装了但没在跑 | 新插件装完是启用的：`plugin list` 看 `loaded` / `error`；装的时候带了 `--disable` 的，用 `plugin enable <id>` 打开 |
 | `loaded: false` 且 `error` 有内容 | 加载失败（脚本顶层报错、缺入口符号、依赖缺失…），`plugin logs <id>` 看明细 |
 | 改了文件没变化 | 没重载、重载失败，或插件处于禁用；`plugin reload <id>` 后看结果里的 `failed` |
 | 主程序界面卡住 / 某次调用一直不返回 | 插件占住了执行线程或 JS 线程：看主程序日志目录下 `host_call.log` 的最后一行（[plugin-guide.md](plugin-guide.md) §5.2） |

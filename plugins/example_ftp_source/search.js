@@ -46,7 +46,7 @@ var FtpSearch = globalThis.FtpSearch || (globalThis.FtpSearch = {});
     at: 0
   };
 
-  /// 账号来源由 plugin.js 注入（它才是账号状态的属主）
+  /// 账号来源由 plugin.js 注入（它才是账号状态的所有者）
   var accountProvider = null;
 
   ns.setAccountProvider = function (provider) {

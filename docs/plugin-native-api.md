@@ -176,7 +176,7 @@ musicxx_plugin_add_target(my_plugin
 助手同时会注入编译宏 `MUSICXX_PLUGIN_BUILD_TAG="<标签>"`，插件可以把它写进日志或自检信息，
 便于确认插件框架加载的是哪一份构建（示例见 `plugins/example_native_multi/`）。
 
-不传 `TARGET_TAG` 时行为与以前一致：库文件与清单放在同一层，该目录直接作为插件目录。
+不传 `TARGET_TAG` 时库文件与清单放在同一层，该目录直接作为插件目录。
 
 ---
 
@@ -305,7 +305,7 @@ MUSICXX_PLUGIN_EXPORT(
 - 广播的当前值是**协程**读的（`co_await readBroadcast(...)`），能力调用也是协程的
   （`co_await capabilityCall(action, args)`，失败抛异常）。**没有同步版**，同步上下文里调不了它们。
 
-### 3.1 超时与取消（与 agentxx 共用的口径）
+### 3.1 超时与取消（与 agentxx 共用的判定标准）
 
 - **库侧默认不设超时**：插件框架不会因为你调用一个能力而替你计时。一次受理的请求可以一直等到终局；
   "等多久算失败"由调用方决定（`capabilityCallWithTimeout(..., timeoutMs)` 只是加上限，
@@ -451,12 +451,12 @@ co_await subscribeBroadcast(MUSICXX_BROADCAST_PLAYER_POSITION,
 **结束自己的一条流**（广播表 v3；语义与原因文本见 [plugin-api.md](plugin-api.md) §4.1）：
 
 ```cpp
-// 订阅时给结束回调：属主结束时回调一次
+// 订阅时给结束回调：所有者结束时回调一次
 co_await subscribeBroadcastWithEnd("plugin.my_plugin.task",
                                    [](std::string_view progress) { /* 值 */ },
                                    [](std::string_view reason)   { /* reason JSON */ });
 
-// 只有属主能结束自己的频道；结束后再发布抛异常（原因 `ended`），
+// 只有所有者能结束自己的频道；结束后再发布抛异常（原因 `ended`），
 // 再 declareBroadcast 同一个 id = 开一条新流
 co_await endBroadcast("plugin.my_plugin.task", R"({"reason":"done"})");
 ```
@@ -562,13 +562,13 @@ co_await kindRegister(R"({
 
   | 形态 | 当前代次 | 兼容下限 | 含义 |
   |---|---|---|---|
-  | `native`（内置） | 9 | 9 | C 接口代次（跟 `PLUGINXX_API_VERSION` / `MIN_API_VERSION` 一起抬）；通用表变了就是破坏性变更，下限跟着抬 |
-  | `js`（内置） | **3** | **3** | JS 接口代次；2026-11 广播只剩读与订阅（旧的取值 / 写入 / 监听三个方法删掉）属破坏性变更，下限一起抬到 3 |
+  | `native`（内置） | 10 | 10 | C 接口代次（跟 `PLUGINXX_API_VERSION` / `MIN_API_VERSION` 一起抬）；通用表变了就是破坏性变更，下限跟着抬 |
+  | `js`（内置） | **3** | **3** | JS 接口代次；广播只剩读与订阅（没有取值 / 写入 / 监听三个方法）属于破坏性变更，下限一起抬到 3 |
   | 运行器登记的形态 | 自己写 | 自己写 | `requiresPluginAbi: true` 的用框架的 C 接口那一对；解释执行的自报，不写 = 不判 |
 
   - **只增不改 → 只抬当前代次**：以后 JS 接口只做新增时，只改 `jsInterfaceVersion`，老插件照常加载，
     插件可以读 `config().apiVersion` 判断能不能用新接口；
-  - **破坏性变更才抬下限**：已经发生过一次（2026-11 广播只剩读与订阅），把 `jsMinInterfaceVersion` 抬到了当时的当前代次——老插件（`api_version` 写 1 / 2）
+  - **破坏性变更才抬下限**：广播只剩读与订阅那次属于破坏性变更，`jsMinInterfaceVersion` 抬到了当时的当前代次——老插件（`api_version` 写 1 / 2）
     会被判“跑不了”，理由里带着它能用的最低代次（与 C 接口的 `PLUGINXX_MIN_API_VERSION` 同一套规则）；
   - **两套编号独立**：JS 的 3 与 C 接口的 10 不能互相比较（插件只看得到自己那一份）。
 - **加载 / 卸载**：插件框架把插件目录交给登记的能力（请求
@@ -598,7 +598,7 @@ const std::string songJson = co_await readBroadcast(MUSICXX_BROADCAST_STATE_SONG
   `musicxx.state.lyric` / `musicxx.state.songlists` 是预留的，当前版本没有推送（读取会抛 `no_value`）；
 - C++ 常量：生成的 `MUSICXX_BROADCAST_STATE_APP` / `_PLAYER` / `_SONG` / `_PLAYLIST` / `_LYRIC` /
   `_PLAYLISTS` / `_ENV` / `_RENDER_SLOTS` / `_SPECTRUM`（`capability_ids.g.h`，不要手写键名）；
-- 值必须是合法 JSON（大小不限制，早期版本的 512 KiB 上限已移除）；
+- 值必须是合法 JSON（大小不限制）；
 - 每条状态广播带当前值：订阅哪个就收哪个（订阅时先推一次当前值）
 
   ```cpp
@@ -751,7 +751,7 @@ co_await implement(MUSICXX_CAPABILITY_PLAYER_ERROR, 0,
 //    这四个能力的“改值”由应用自己执行（实现固定）：只能注册前链 / 后链，`impl` 会被拒
 //    前链 `{"patch":{"to":…}}` = 改这次的目标值；`{"action":"cancel"}` = 这次不改
 //    后链改最终值 / `{"action":"drop"}` 作废（后链拦不下已经改过的值，应用仍按前链后的值执行）
-//    下面只演示回答形状：真实插件要按自己的规则判断（用 utilxx_base::Json 读 `to`）
+//    下面只演示回答格式：真实插件要按自己的规则判断（用 utilxx_base::Json 读 `to`）
 co_await implementBefore(MUSICXX_CAPABILITY_PLAYER_SPEED, 0,
      [](std::string_view input, std::string& out) -> int32_t {
          out = R"({"patch":{"to":2.0}})";   // 例：不管用户改成多少，都压到 2 倍速
@@ -846,7 +846,7 @@ const std::string points = co_await featurePointList();  // 有哪些功能埋�
   把返回值包成 `{"patch":{"value": …}}`。已自带 `patch` / `action` 的返回值原样通过。
 - `featurePointCall` 不设超时（主程序最多等到调用方自己的动作超时），返回的是被回答的值：
   没人回答给 `null`。它是协程，返回后直接往下写就行，不用回调。
-- 现在可调的应用功能埋点有三个（`featurePointList` 的 `callDoc` 写着参数与结果形状）：整曲频谱
+- 现在可调的应用功能埋点有三个（`featurePointList` 的 `callDoc` 写着参数与结果格式）：整曲频谱
   `musicxx.media.spectrum.extract`、副歌区段 `musicxx.media.chorus.analyse`、封面取色
   `musicxx.media.palette.analyse`。**调用零副作用**：不写应用的值仓、不改应用状态。
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时 `create` 事务里再声明一遍。
@@ -876,7 +876,7 @@ const std::string points = co_await featurePointList();  // 有哪些功能埋�
 | `not_declared` | 没声明 | 调了没在声明表里的能力 / 广播频道 |
 | `no_value` | 没当前值 | `readBroadcast` 的频道无值（应用自己也没读过一次） |
 | `ended` | 流已结束 | 结束了的频道再发布 |
-| `not_owner` | 不是属主 | 去结束 / 声明别人的频道 |
+| `not_owner` | 不是所有者 | 去结束 / 声明别人的频道 |
 | `not_ready` | 还没准备好 | 框架未就绪 |
 | `internal` | 内部错 | 插件框架内部问题（看日志） |
 
@@ -1094,4 +1094,4 @@ Android 见 §11。
 | 平台 | Windows / Linux / macOS / Android 可以加载动态库插件（Android 受限，见 §11）；iOS 上插件框架库随 `.app` 分发即可用，但用户安装的库通常被系统拒绝（只允许加载应用包内、与主程序同一签名身份的库）；OHOS 只允许 JS 插件 |
 | 资源限制 | 插件框架不限制插件的内存 / 耗时 / 网络 / 数量，只做自我保护：事件队列上限（溢出丢最旧）与能力调用超时（插件自己给的时间）；统计只观测不限制 |
 | 多实例 | 同一份库文件可以被创建多个实例（不同 id / 参数），因此**不要有可变全局状态** |
-| 能力接入 | 能力表与「状态」列只看 [plugin-capabilities.md](plugin-capabilities.md)（由 `tools/capabilities.def.json` 的 `implemented` 字段生成）：标「已接入」的会真的派发，其余注册成功但不会触发（它们打算做什么见 [plugin-api.md](plugin-api.md) §8.7）。曾经预留过的频道 `musicxx.media.wave.ready` / `musicxx.media.chorus.analysed` 已从声明表删除（订阅收不到任何东西），对应能力改用 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` |
+| 能力接入 | 能力表与「状态」列只看 [plugin-capabilities.md](plugin-capabilities.md)（由 `tools/capabilities.def.json` 的 `implemented` 字段生成）：标「已接入」的会真的派发，其余注册成功但不会触发（它们打算做什么见 [plugin-api.md](plugin-api.md) §8.7）。不要订阅 `musicxx.media.wave.ready` / `musicxx.media.chorus.analysed`（已从声明表删除，订阅收不到任何东西），对应能力用 `musicxx.media.spectrum.extract` / `musicxx.media.chorus.analyse` |

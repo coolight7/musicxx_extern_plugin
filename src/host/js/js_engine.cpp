@@ -351,7 +351,7 @@ var featurePointImpls = new Map();
     configPath: function () { return ext.configPath(); }
   };
 
-  /* ---- 广播 (属主发布, 任何人读 / 订阅) ----
+  /* ---- 广播 (所有者发布, 任何人读 / 订阅) ----
    *
    * 广播只做四件事: **声明自己的频道 / 发布 / 读当前值 / 订阅**。
    * 它**没有写入**: 没有"给别人的频道写值"这个操作, 也没有回执;
@@ -360,7 +360,7 @@ var featurePointImpls = new Map();
    * 频道 id: 官方 `musicxx.<域>.<名>` 直接写全名; 自己的频道写短名 (如 `score.total`),
    * 插件框架自动补 `plugin.<本插件id>.` 前缀。
    *
-   * 回调只有一种形状: `fn(payload, info)`, `info.id` 是频道全名。
+   * 回调只有一种格式: `fn(payload, info)`, `info.id` 是频道全名。
    * 高频频道不必自己降频: 订阅时给 `{intervalMs, mode}` 声明你的通知频率。
    */
   var declaredBroadcasts = new Map();  // 短名 → 声明 (declare 记下的; 供 declared() 与回放)
@@ -445,7 +445,7 @@ var featurePointImpls = new Map();
     /// - `intervalMs` = 通知间隔 (毫秒, 0 / 缺省 = 不限频);
     /// - `mode` = `delay`(默认, 间隔内只留最新一条、到点补发)/ `drop`(间隔内直接丢掉);
     /// - 第一条通知立即到达 (`cache: latest` 的频道会先补一次当前值);
-    /// - `onEnd`（可选）: 频道被属主结束时回调一次 `onEnd(reason, info)`，这个订阅随即失效；
+    /// - `onEnd`（可选）: 频道被所有者结束时回调一次 `onEnd(reason, info)`，这个订阅随即失效；
     /// - 返回解绑函数。同一个频道可以用不同频率订阅多次。
     subscribe: function (id, fn, options, onEnd) {
       if (typeof fn !== "function") { throw new Error("broadcast.subscribe: the callback is missing"); }
@@ -474,7 +474,7 @@ var featurePointImpls = new Map();
       if (list.length === 0) { broadcastSubs.delete(full); }
       return true;
     },
-    /// 结束自己的一条流（只有频道属主能结束）
+    /// 结束自己的一条流（只有频道所有者能结束）
     ///
     /// - `reason` 原样交给每个订阅方的结束回调（可空，默认 `{}`）；
     /// - 结束后发布被拒 (抛错)、`read` 读不到值，订阅方的 `onEnd` 各回调一次；
@@ -749,7 +749,7 @@ var featurePointImpls = new Map();
 
   /// `musicxx.net.fetch` / `http.fetch` 的结果整理
   ///
-  /// 形状与以前主程序实现的 fetch 一致:
+  /// 格式与主程序实现的 fetch 一致:
   /// `{ok, status, url, headers, contentType, bodyBytes, receivedBytes, contentLength,
   ///   truncated, body}`; `responseType: "bytes"` 时给 `bodyBase64`。
   /// 非 2xx 也算请求完成 (状态码交给插件判断); 传输/TLS 失败才 reject。
@@ -853,11 +853,11 @@ var featurePointImpls = new Map();
       request: function (options) {
         return netRequestAsync("http.request", options);
       },
-      /// 简化取正文 (Promise): 结果形状同 musicxx.net.fetch
+      /// 简化取正文 (Promise): 结果格式同 musicxx.net.fetch
       fetch: function (options) {
         return netFetchAsync(options);
       },
-      /// 下载到插件自己的数据目录 (Promise): 结果形状同 musicxx.net.download
+      /// 下载到插件自己的数据目录 (Promise): 结果格式同 musicxx.net.download
       download: function (options) {
         return netDownloadAsync(options);
       },
@@ -1432,7 +1432,7 @@ var featurePointImpls = new Map();
     /// 能力清单：应用留出了哪些能力、现在谁在实现它（谁生效、谁备选、谁把它关掉了）。
     ///
     /// `points()` 看全部；`points({id: "..."})` 看一个；`points({provided: true})` 只看有实现的。
-    /// 每条的 `callDoc` 写着“参数与结果形状”（调它之前先看这一行）。
+    /// 每条的 `callDoc` 写着“参数与结果格式”（调它之前先看这一行）。
     points: function (options) {
       options = options || {};
       var args = {};
@@ -4037,7 +4037,7 @@ int32_t JsEngine::callCapability(const std::string &callerInstance,
       shortName = shortName.substr(prefix.size());
     }
     /// 等待号: 处理器的 **同步返回** 当场就有结果; 返回 Promise 时它按这个号
-    /// 在结算后经 `ext.capabilityWaitResolve` 交回来, 这条路以前会直接失败
+    /// 在结算后经 `ext.capabilityWaitResolve` 交回来, 这条路不能直接失败
     /// (`capability_async_without_wait`), 现在与"JS → 原生"一样能拿到结果。
     const int64_t pendingId = nextJsCallWaitId_.fetch_add(1);
     std::string text;

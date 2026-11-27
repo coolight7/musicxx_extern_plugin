@@ -88,7 +88,7 @@ class MusicxxPluginBroadcasts {
 
   /// 读一条频道的当前值（Dart 侧缓存；没有当前值返回 `null`）
   ///
-  /// 这是**热路径**用法（每帧 / 每次取值）：不碰 FFI。缓存由
+  /// 这是**频繁执行的路径**用法（每帧 / 每次取值）：不碰 FFI。缓存由
   /// `musicxx.broadcast.changed` 维护 —— 订阅（[MusicxxPluginManager.watchBroadcast]）
   /// 成功时插件框架会先补发一条当前值。
   Object? valueOf(String id) => _values[id];
@@ -96,7 +96,7 @@ class MusicxxPluginBroadcasts {
   /// 冷读一条频道的当前值（等插件框架答复）
   ///
   /// - 频道没声明过 / 没有当前值（`cache: none` 或还没发布过）都返回 `null`；
-  /// - 这一步只查插件框架里的当前值，不会去问属主。
+  /// - 这一步只查插件框架里的当前值，不会去问所有者。
   Future<Object?> read(String id) async {
     if (!_runtime.isRunning) {
       return null;

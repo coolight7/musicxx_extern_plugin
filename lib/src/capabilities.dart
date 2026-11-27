@@ -86,7 +86,7 @@ class MusicxxPluginHandlerInfo {
 /// 所以 [notify] 走广播、[dispatch] 走能力，用错会抛 [ArgumentError]。
 ///
 /// **处理器数量与列表走 Dart 缓存**（由 `musicxx.capability.changed` 与
-/// [refreshNativeHandlers] 维持）：热路径不为了问一句"有没有处理器"去等一次往返。
+/// [refreshNativeHandlers] 维持）：频繁执行的路径不为了问一句"有没有处理器"去等一次往返。
 class MusicxxPluginCapabilities {
   MusicxxPluginCapabilities.internal(this._runtime);
 
@@ -219,7 +219,7 @@ class MusicxxPluginCapabilities {
   bool get active =>
       _nativeCounts.values.any((int v) => v > 0) || _nativeHandlers.isNotEmpty;
 
-  /// 广播：属主改了东西，通知所有关心的人（回一条确认，需要顺序时可以 `await`）
+  /// 广播：所有者改了东西，通知所有关心的人（回一条确认，需要顺序时可以 `await`）
   ///
   /// 广播型 id 由插件框架按声明处理：只跑处理器、不做结果合并。
   /// 不关心什么时候跑完就 `.ignore()`。

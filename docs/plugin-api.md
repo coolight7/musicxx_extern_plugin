@@ -28,9 +28,9 @@
 
 | | 能力 | 广播 |
 |---|---|---|
-| 形态 | 发一次请求、等一个结果 | 属主改了东西，通知所有关心的人 |
+| 形态 | 发一次请求、等一个结果 | 所有者改了东西，通知所有关心的人 |
 | 有返回值 | 有（可能失败、可能超时） | 没有；不等待、允许丢中间值 |
-| 谁发起 | 调用方（插件、应用、命令行） | 属主发布 |
+| 谁发起 | 调用方（插件、应用、命令行） | 所有者发布 |
 | 典型 | 应用实现的能力 §3、插件服务 §6、功能埋点 §7、应用来问插件 §8 | 带当前值的频道 §2、没有当前值的频道 §4、官方频道 §5 |
 | 声明在 | `tools/capabilities.def.json` 的 `capabilities` → [plugin-capabilities.md](plugin-capabilities.md) | 同一个文件的 `broadcasts` → [plugin-broadcasts.md](plugin-broadcasts.md) |
 
@@ -39,7 +39,7 @@
 C 侧是 `musicxx_extern_plugin_capability_*` 与 SDK 的 `implement(...)`，插件开发文档就是这一份生成的
 `plugin-capabilities.md` / `plugin-broadcasts.md`。
 
-> 只有这两个概念，没有第三个：能写的东西都是广播，值只能由属主发布；
+> 只有这两个概念，没有第三个：能写的东西都是广播，值只能由所有者发布；
 > 要改应用的状态调能力。
 
 **每一次交互都是异步操作契约**（两种形态一样）：调用 = 「受理 → 完成」两段，完成恰好一次。
@@ -888,12 +888,12 @@ OpenSSL 版本。所以 `https` 失败只剩真正的原因：`tls_config`（`ca
   不给 `maxBytes` = 整份读到内存（大文件用 `download`，它边读边写盘）。`responseType` 为 `bytes` 时
   返回前还要 base64 一份，峰值内存约为响应体大小的 2.3 倍。
   > 待办：`fetch` 将来会支持把响应体直接流给插件（不先整个收进内存）；在那之前要处理大文件，
-  > 请用 `download` 落盘再自己读。
+  > 请用 `download` 写入磁盘再自己读。
 - **信任库**：系统根证书（Windows 读系统证书库，Linux/macOS/Android 读常见 bundle 与证书目录）
   始终参与校验；`caFile` / `caPem` 是在此基础上追加。自签名的自建服务要么把它自己的 CA
   通过 `caPem` 给进来，要么 `tlsVerify:false`（生产环境不要这么干）。
 
-`download` 落盘位置固定在插件自己的数据目录里：`<dataDir>/<插件id>/data/downloads/<文件名>`；
+`download` 写入磁盘位置固定在插件自己的数据目录里：`<dataDir>/<插件id>/data/downloads/<文件名>`；
 `fileName` 只能是**纯文件名**（带路径分隔符或 `..` 的会被改写/拒绝），不写就按 URL 推导。
 正文**边读边写**，不进内存，所以大文件也不会把进程吃满。
 
@@ -910,8 +910,8 @@ netCall(net_op::httpFetch, R"({"url":"https://example.com/a.json","timeoutMs":20
 // 也可以完全不用这套, 自己用系统的网络库
 ```
 
-老的能力名 `musicxx.net.fetch` / `musicxx.net.download` 仍然可用（历史上直接调这些名字的插件不会坏）：
-它们由**插件框架直接回答**，走的就是本节这套原生实现，参数与返回形状完全一致，主程序不再
+老的能力名 `musicxx.net.fetch` / `musicxx.net.download` 仍然可用（直接调这些名字的代码照常工作）：
+它们由**插件框架直接回答**，走的就是本节这套原生实现，参数与返回格式完全一致，主程序不再
 另写一份代理。新插件请用本节这套。
 
 ##### 静态内容（`http.serve` 的 `static` / `http.route`）：把文件与内存内容变成 http 地址
@@ -927,7 +927,7 @@ HLS 播放列表与分片、转码产物）交给播放器，就在自己的 HTT
 | `musicxx.net.http.unroute(options)` | `{serverId, path}` | `{ok, serverId, path, removed, routes}` |
 | `musicxx.net.http.info()` | —— | 服务快照；每个服务带 `routes`（`path` / `url` / `size` / `contentType` / `fileName` / `file` / `mtimeMs`） |
 
-一条静态路由（`static` 数组的每一项与 `http.route` 的参数是同一个形状）：
+一条静态路由（`static` 数组的每一项与 `http.route` 的参数是同一个格式）：
 
 | 字段 | 说明 |
 |---|---|
@@ -990,7 +990,7 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
   `typeof musicxx.net.http.route === "function"`，没有就自己降级（例如直接返回本地路径
   `kind:"file"`）。
 - 这是**代理**的一般机制：`musicxx.net.fetch` / `download` 取到的数据 → `route`（小的给 `bytes`、
-  大的落盘给 `file`）→ 播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以
+  大的写入磁盘给 `file`）→ 播放器只看到干净的本地 URL；FTP、私有协议、格式转换、统一鉴权都可以
   这么做。完整示例见 `plugins/example_override_media_source`（本地文件代理）与
   `plugins/example_js_net`（`serve({static})` / `route` / `unroute` 自检）；FTP 这种要自己连服务器、
   边读边转的完整做法见 `plugins/example_ftp_source`（TCP 客户端 + 回环监听 + `socket.pause` 背压）。
@@ -998,7 +998,7 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 ##### 内置网络能力（`musicxx.net.http / socket / ws`，JS 与动态库插件共用）
 
 `musicxx.net.fetch` / `download` 就是 `http.fetch` / `http.download` 的别名（同一个实现、
-结果形状也一样）；`http.request` 是它的原始形态，多给你 `statusText` / `redirects` / `bodyBase64`
+结果格式也一样）；`http.request` 是它的原始形态，多给你 `statusText` / `redirects` / `bodyBase64`
 这些细节。下面这套是同一套 socket 实现里的另外三组：HTTP 客户端与服务端、TCP、WebSocket。
 
 | | `http.fetch` / `http.download` / `http.request` | `socket.*` / `ws.*` |
@@ -1059,7 +1059,7 @@ musicxx.net.http.unroute({ serverId: hls.id, path: hls.routes[0].path });
 下载到本地时还可能是 `no_data_dir`（插件数据目录未就绪）/ `write_failed`（文件建不出来或写失败）。
 
 `message` 里的原因文本**统一是 UTF-8**（含系统给出的部分，例如「目标计算机积极拒绝」）。
-以前的版本在中文 Windows 上把系统错误文本按本机 ANSI 编码直接塞进来，中文会显示成乱码。
+按本机 ANSI 编码把系统错误文本直接塞进来，中文会显示成乱码（中文 Windows 上尤其明显）。
 
 **HTTP 服务端**：`http.serve`（`id?`, `host?`, `port?`, `path?` 前缀, `staticOnly?`,
 `static?` 静态内容清单（见上一节）, `maxBodyBytes?`, `requestTimeoutMs?`, `maxConnections?`）
@@ -1249,7 +1249,7 @@ if (mine && mine.itemId === "plugin.my_plugin.bg" && mine.visible) { /* 本插�
 - `night`：当前是不是夜间；`visible`：挂载点是否可见；`width` / `height`：渲染目标像素尺寸。
 
 `visible:false` = 现在没渲染（播放页被遮挡 / 切后台），插件可以据此停掉耗时的计算。
-**`night` 与生效项在换主题 / 换封面取色时也会重发**（2026-11 起），插件不用自己轮询。
+**`night` 与生效项在换主题 / 换封面取色时也会重发**，插件不用自己轮询。
 `animate` / `maxFps` 不在广播里（它们是每个着色器块自己的字段，见 plugin-shader-bundle.md §8）。
 
 #### 3.2.7.1 播放页前景（`musicxx.ui.playing.foreground.set`）
@@ -1328,7 +1328,7 @@ await musicxx.capability.call("musicxx.ui.playing.foreground.set", {
   `icon` / `icon96` 是 `{kind:"cache"|"local"|"network", type, src}`（没给 96 时 `icon96` 为 null）；
   `bytes` / `width` / `height` 只在 `data` 写法下有意义。
 - 失败：`{ok:false, error, message}`，`error` 取 `no_song`（没有正在播的歌 / 它没有音源身份）、
-  `stale`、`invalid_argument`（形状不对、`path` 不存在 / 不是文件、`url` 不是 http(s)）、
+  `stale`、`invalid_argument`（格式不对、`path` 不存在 / 不是文件、`url` 不是 http(s)）、
   `too_large`（单张超过 16 MiB）、`decode_failed`（字节解不出图片）、`write_failed`（写缓存失败）。
 - **只对本次播放有效**：不写 `song.icon`，也不记“下次还用这张”；切歌后按正常取值链重新取。
   要**持久**换封面用 `musicxx.songlist.updateSong` / `musicxx.playlist.updateSong` 的 `cover`。
@@ -1379,7 +1379,7 @@ await musicxx.media.cover.set({ clear: true });
     `icon` 必给、`icon96` 可选）；
   - `{"action": "cancel"}`：**这次不修改当前图片**（不取图、不刷通知栏与背景色）。它同时就是
     “就用现在这张”的回答：`current` 是缓存图时等于“别提取了”，是你上次给的图时等于“继续用它”；
-  - 不回答 / 形状不对 / 单张超过 16 MiB：这次不提供，应用接着按自己的三段兜底取；
+  - 不回答 / 格式不对 / 单张超过 16 MiB：这次不提供，应用接着按自己的三段兜底取；
   - **后链**（`after`）回答 `{"value": {"cover": {...}}}` 换图（可以只换 `icon96`），或
     `{"action": "drop"}` 让这次没有封面；**前链**（`before`）只认 `{"patch": {"force": true}}` 与
     `{"action": "cancel"}`。
@@ -1535,7 +1535,7 @@ await musicxx.ui.setFontFamily({ fontFamily: "default" });     // 恢复
 | `musicxx.capability.subscribers` | `{id, phase?}` | `{ok:true, capability, phase, count, handlers:[…]}` |
 
 - `points` 一段一个能力：声明（`type` / `depict`）、实现行（外置插件 / 内置插件 / 应用自身）、谁生效、
-  被谁拦下、能不能被外部调用（`callable`）、怎么调（`callDoc`，含参数与结果形状）、被调过几次（`callStat`）；
+  被谁拦下、能不能被外部调用（`callable`）、怎么调（`callDoc`，含参数与结果格式）、被调过几次（`callStat`）；
 - `broadcasts` 是应用内的广播订阅行（只收通知，不参与"谁能提供功能"）；
 - `.call` 是**零副作用**的：只读值缓存、不写值缓存、不改应用状态；`refresh:true` 跳过缓存重算一遍；
 - 要解码整曲的能力（频谱 / 副歌）要给足超时：命令行默认 60 秒，可用 `--timeout` 加长。
@@ -1565,7 +1565,7 @@ musicxx-cli capability call musicxx.media.palette.analyse --args '{"path":"D:/co
   **后链逆序执行**（所以这个列表的最后一行是最先改输出的）。`lastCanceledBy` / `lastDroppedBy` /
   `lastRewrittenBy` 是最近一次调用里"谁拦下 / 谁丢弃 / 谁最后改了输出"，只用于排障。
   概念见 [plugin-api.md](plugin-api.md) §8.1。
-- `callable` / `callDoc` 说明"这个点能不能被主动调用、参数与结果是什么形状"：
+- `callable` / `callDoc` 说明"这个点能不能被主动调用、参数与结果是什么格式"：
   **调之前先看 `callDoc`**。`broadcasts` 是谁订阅了这个埋点的广播通知（只收通知，既不参与实现也不影响结果）；
   `stageReentries`（>0 才带）是后链重入次数，用来发现"后链又改了一次自己的输出"。
 - `musicxx.feature.point.call` 的 `error` 取值：
@@ -1909,7 +1909,7 @@ co_await publishBroadcast("plugin.my_plugin.hello", R"({"at":1})");
   JS 的 `publish` 直接抛异常，原生 `publishBroadcast` 抛异常（原因 `permission_denied`）。
 - 插件之间协作：单向通知用广播，要返回值用能力调用（§6）。
 - **自己的频道不必申报**：广播频道表只是一份**预设**（常用频道带标题 / 属性），表里没有的 id 照样能发、能订，
-  默认属性是「没有当前值、只有属主能发布、允许合并」；网络请求的进度 / 完成约定叫 `plugin.<你的插件 id>.net`。
+  默认属性是「没有当前值、只有所有者能发布、允许合并」；网络请求的进度 / 完成约定叫 `plugin.<你的插件 id>.net`。
   名字只能落在自己的命名空间里，发别的插件或官方频道都会被拒。
 - 订阅回调**要快**：它跑在插件执行线程 / JS 线程上，慢就是别人一起等。
 
@@ -1917,7 +1917,7 @@ co_await publishBroadcast("plugin.my_plugin.hello", R"({"at":1})");
 
 | 频道 | 什么时候来 | 载荷 |
 |---|---|---|
-| `musicxx.broadcast.subscribers` | 某个频道的订阅数变了（插件框架回传，应用用它做自省与 `cache: none` 的闸门） | `{id, subscribers}` |
+| `musicxx.broadcast.subscribers` | 某个频道的订阅数变了（插件框架回传，应用用它做自省与 `cache: none` 的判断） | `{id, subscribers}` |
 | `plugin.<其它插件 id>.*` | 对方插件发布 | 由对方定义 |
 
 > **下面这些名字不是总线频道**：它们是插件框架 → 应用的内部事件（与能力派发、UI 项、日志同一条内部队列），
@@ -1934,20 +1934,20 @@ co_await publishBroadcast("plugin.my_plugin.hello", R"({"at":1})");
 
 ### 4.1 结束一条流（`end`）
 
-频道可以表示一段**有限的东西**（一次任务的结果流、一次会话的通知流）。属主可以把它**结束**：
+频道可以表示一段**有限的东西**（一次任务的结果流、一次会话的通知流）。所有者可以把它**结束**：
 
 - 结束之后：**发布被拒**（原生 `publishBroadcast` 抛异常，原因 `ended`；JS 侧 `publish`
   抛错），`read` 拿不到当前值、全部订阅先用 `reason` 回调一次再摘掉；
 - **再次声明同一个 id = 开一条新流**（清掉结束标记与缓存）；重复结束是幂等成功；
-- 只有属主能结束：别人的频道（含官方 `musicxx.*`）结束不了。
+- 只有所有者能结束：别人的频道（含官方 `musicxx.*`）结束不了。
 
 ```cpp
 // 订阅时多给一个结束回调（动态库插件）
 co_await subscribeBroadcastWithEnd("plugin.my_plugin.task",
                                    [](std::string_view progress) { /* 值 */ },
-                                   [](std::string_view reason)   { /* 属主给的 reason JSON */ });
+                                   [](std::string_view reason)   { /* 所有者给的 reason JSON */ });
 
-// 结束时：只有属主能结束自己的频道
+// 结束时：只有所有者能结束自己的频道
 co_await endBroadcast("plugin.my_plugin.task", R"({"reason":"done"})");
 ```
 
@@ -1956,20 +1956,20 @@ co_await endBroadcast("plugin.my_plugin.task", R"({"reason":"done"})");
 musicxx.broadcast.subscribe("task", function (progress) {
     /* 值 */
 }, null, function (reason) {
-    /* 属主给的 reason JSON */
+    /* 所有者给的 reason JSON */
 });
 
-// 结束时（只有属主能结束）；失败会抛错，错误信息里写着原因
+// 结束时（只有所有者能结束）；失败会抛错，错误信息里写着原因
 musicxx.broadcast.end("task", { reason: "done" });
 ```
 
 动态库侧的失败同样是**原因文本**：`permission_denied` = 不是自己的命名空间，`not_owner` =
-不是这条频道的属主，`not_found` = 频道不存在；重复结束算成功。JS 侧的 `end` 也统一折成抛错，
+不是这条频道的所有者，`not_found` = 频道不存在；重复结束算成功。JS 侧的 `end` 也统一折成抛错，
 脚本里用 `try / catch` 接。
 
 ---
 
-## 5. 官方广播频道（应用是属主，插件只能读与订阅）
+## 5. 官方广播频道（应用是所有者，插件只能读与订阅）
 
 > **这一节讲应用发布的、带当前值的官方频道**：`musicxx.app.lifecycle`、
 > `musicxx.ui.animatedLevel` / `particleAnimate` / `songIconRotate` / `songIconWave` / `fontFamily`、
@@ -1995,7 +1995,7 @@ musicxx.broadcast.end("task", { reason: "done" });
 | 一次性命令（播放、发通知、开页面） | 能力（§3） |
 | 广播"发生了某事"（没有当前值） | `cache: none` 的广播（§4） |
 | **想改应用的状态**（动画等级、主题、字体、播放位置…） | **能力**（§3），改完应用自己会发广播 |
-| 能力处理器 / 热路径里判断当前值 | 带当前值的广播 + `read`（走缓存，没有往返） |
+| 能力处理器 / 频繁执行的路径里判断当前值 | 带当前值的广播 + `read`（走缓存，没有往返） |
 
 ### 5.1 读当前值
 
@@ -2190,7 +2190,7 @@ const utilxx_base::Json palette = co_await featurePointCall(
 - 声明跟着插件生命周期走：禁用 / 卸载会撤销全部声明，重新启用时脚本 / `create` 事务里再声明一遍。
 - 同一个功能埋点 + 同一个调用方的上一次调用没结束时，调用方拿到 `busy`（不排队）。
 
-应用**留出的、可以被主动调用**的功能埋点有三个（`capability.list` 的 `callDoc` 写着参数与结果形状）：
+应用**留出的、可以被主动调用**的功能埋点有三个（`capability.list` 的 `callDoc` 写着参数与结果格式）：
 
 | 功能埋点 id | 作用 | 调用的代价 |
 |---|---|---|
@@ -2221,7 +2221,7 @@ const utilxx_base::Json palette = co_await featurePointCall(
 | 阶段 | 什么时候跑 | 能做什么 | 不能做什么 | 回答格式 | 结束整条链 |
 |---|---|---|---|---|---|
 | `before` | 进入调用之前，串行、**正序** | 改输入（累加）、拦下（这次不执行实现） | 给数据（那是实现链的事） | `{"patch": {...}}` | `{"action":"cancel"}` |
-| `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与以前一样（§8.2） | 按声明的合并策略（`first` 下任一回答都结束本轮遍历）；`cancel` 一律停止 |
+| `impl` | 实现链，串行 | 给结果 / 裁决 | 改输入 / 改输出 | 与 §8.2 相同 | 按声明的合并策略（`first` 下任一回答都结束本轮遍历）；`cancel` 一律停止 |
 | `after` | 拿到结果之后，串行、**逆序** | 改输出（累加）、丢弃（这次没有结果） | 造出本来没有的结果 | `{"value": <新结果>}` | `{"action":"drop"}` |
 
 ```text
@@ -2265,7 +2265,7 @@ extern  ---------->  builtin  ---------->  core
 | `after` | 改最终值 / 把这次的值作废（值已经改过，拦不下） | `{"value":{"patch":{"to":0.5}}}` / `{"action":"drop"}` |
 
 注册它们的 `impl` 会被拒（原生抛异常，原因里的“does not open phase impl”）。
-后链在这四个点上**一定被调用**（以前只在插件给了裁决时才会跑）；`drop` 之后应用按
+后链在这四个点上**一定被调用**（不看插件有没有给裁决）；`drop` 之后应用按
 `before` 之后的目标值执行 —— 不要把它当“取消这次操作”，要取消请用 `before` 的 `cancel`。
 
 ### 8.1.1 注册与注销
@@ -2322,7 +2322,7 @@ co_await unimplement(MUSICXX_CAPABILITY_PLAYER_SEEK);
 
 ### 8.2 裁决对象
 
-实现链（以及普通裁决型能力）的回答与以前一样：
+实现链（以及普通裁决型能力）的回答格式相同：
 
 ```jsonc
 { "action": "continue" | "cancel",
@@ -2525,7 +2525,7 @@ co_await uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PAGE);
   每帧把纹理绑给着色器（插件不搬字节）。`musicxx.songlist.cover` 是**当前打开的歌单的封面**，
   **只在歌单页面内可用**（见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.6）。
 - **背景的根块就是画布**：根上直接写一块 `musicxx.Shader`（或 `Stack`）就会铺满整页；
-  以前要求的"用 `Expanded` 包一层"现在不需要了（包了也照样能用，根上的 `Expanded` 会被解开）。
+  "用 `Expanded` 包一层"不需要了（包了也照样能用，根上的 `Expanded` 会被解开）。
   把着色器放进去滚动的 `Column` 里时仍要包 `Expanded`（不然它拿不到确定高度）。
 - 每帧都会求值的参数用 `args` 声明（成员名 → 值表达式），应用每帧现读现写；
   频谱来源（`musicxx.spectrum.*`）是例外：**没有数据时写 0（静音）**，要看 `uEnv.z` 判断有没有数据。
@@ -2616,8 +2616,8 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 码表的唯一声明：`cxx_pluginxx/include/pluginxx/api/result.h`（通用 / 广播 / 生命周期 / 内部）与
 `cxx_utilxx/include/utilxx/net_error.h`（网络段）。插件只 include 一个头：
-`musicxx_extern_plugin_api.h` 已经把 `pluginxx/api/result.h` 转出来了（**原来那 10 个
-`MUSICXX_EXTERN_PLUGIN_ERR_*` 与网络表的 10 个 `PLUGINXX_NET_ERR_*` 已删除**）。
+`musicxx_extern_plugin_api.h` 已经把 `pluginxx/api/result.h` 转出来了（**那 10 个
+`MUSICXX_EXTERN_PLUGIN_ERR_*` 与网络表的 10 个 `PLUGINXX_NET_ERR_*` 已删除，不要再用**）。
 
 两条纪律：
 
@@ -2636,7 +2636,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | `-3` | `ERR_JSON` | `invalid_json` | JSON 非法：载荷解析失败 |
 | `-4` | `ERR_NOT_FOUND` | `not_found` | 未找到：注册未知能力、未知 UI 类型、注销不存在的项 |
 | `-5` | `ERR_TIMEOUT` | `timeout` | 超时：等宿主线程 / 插件超时 |
-| `-6` | `ERR_PERMISSION` | `permission_denied` | 没有权限：命名空间非法（冒充他人事件主题 / UI 项 id / 广播频道 id）、不是属主、路径越界 |
+| `-6` | `ERR_PERMISSION` | `permission_denied` | 没有权限：命名空间非法（冒充他人事件主题 / UI 项 id / 广播频道 id）、不是所有者、路径越界 |
 | `-7` | `ERR_BUSY` | `busy` | 排队已满（连接 / 请求 / 服务上限） |
 | `-8` | `ERR_NO_MEMORY` | `out_of_memory` | 内存不足（保留） |
 
@@ -2647,7 +2647,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 | `-200` | `ERR_NOT_DECLARED` | `not_declared` | 频道没有声明 |
 | `-201` | `ERR_NO_VALUE` | `no_value` | 没有当前值（`cache: none` 或还没写过） |
 | `-202` | `ERR_ENDED` | `ended` | 流已结束（发布 / 读取 / 订阅都被拒） |
-| `-203` | `ERR_NOT_OWNER` | `not_owner` | 不是这条频道的属主 |
+| `-203` | `ERR_NOT_OWNER` | `not_owner` | 不是这条频道的所有者 |
 
 **生命周期与内部**：`-500` `ERR_NOT_READY`（`not_ready`，宿主未启动 / 加载中）、
 `-999` `ERR_INTERNAL`（`internal`，框架内部错误，看日志）。**内部错误从 `-99` 改成了 `-999`**。
@@ -2659,7 +2659,7 @@ log.trace("…"); log.debug("…"); log.info("…"); log.warn("…"); log.error(
 
 **自定义段**（只约定区间，不定义码）：`-5000`~`-9999` 应用自定义、`-10000`~`-19999` 插件自定义。
 用自有码报错时，`nameOf()` 对这两段返回 NULL、`categoryOf()` 按区间给 `app_custom` /
-`plugin_custom`，名称由属主自己解释；低于 `-20000` 未定义（`unknown`）。
+`plugin_custom`，名称由所有者自己解释；低于 `-20000` 未定义（`unknown`）。
 
 **应用侧另有几个只有名称、没有数字的码**（不跨 C 边界，所以不给数字）：`not_callable`（这条能力没有
 对外开放调用）、`no_impl`（名字对、现在没有实现）、`not_allowed`（这条能力没有对插件开放：声明里

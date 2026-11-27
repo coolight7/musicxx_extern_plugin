@@ -43,7 +43,7 @@ const Map<String, int> _broadcastCacheCodes = <String, int>{
   'latest': 1,
 };
 
-/// 广播的发布权限：`owner`（只有属主能发布）/ `anyone`（任何人都能发布）
+/// 广播的发布权限：`owner`（只有所有者能发布）/ `anyone`（任何人都能发布）
 const Map<String, int> _publishCodes = <String, int>{'owner': 0, 'anyone': 1};
 
 /// 广播值的类型提示（可选；只用于文档与自省，不参与派发）
@@ -690,7 +690,7 @@ String generateDartIds(CapabilityContract contract) {
       '// 自动生成（tools/gen_contract.dart ← tools/capabilities.def.json）—— 请勿手改。',
     )
     ..writeln('//')
-    ..writeln('// 能力 = 调用方发一次请求、等一个结果；广播 = 属主改了东西、通知关心的人。')
+    ..writeln('// 能力 = 调用方发一次请求、等一个结果；广播 = 所有者改了东西、通知关心的人。')
     ..writeln('// id 是跨边界稳定的约定：字符串值一旦发布不得修改，只能新增或标记废弃。')
     ..writeln('// ignore_for_file: type=lint, constant_identifier_names')
     ..writeln()
@@ -788,7 +788,7 @@ String generateDartIds(CapabilityContract contract) {
     ..writeln('  ];')
     ..writeln('}')
     ..writeln()
-    ..writeln('/// 广播 id（属主改了东西、通知关心的人）')
+    ..writeln('/// 广播 id（所有者改了东西、通知关心的人）')
     ..writeln('abstract final class MusicxxBroadcastId {');
 
   for (final BroadcastDeclaration decl in contract.broadcasts) {
@@ -1178,7 +1178,7 @@ String generateCppIds(CapabilityContract contract) {
     ..writeln('/// 有当前值：订阅即拿到，也能同步读')
     ..writeln('#define MUSICXX_BROADCAST_CACHE_LATEST 1')
     ..writeln()
-    ..writeln('/// 只有属主能发布')
+    ..writeln('/// 只有所有者能发布')
     ..writeln('#define MUSICXX_BROADCAST_PUBLISH_OWNER  0')
     ..writeln('/// 任何人都能发布')
     ..writeln('#define MUSICXX_BROADCAST_PUBLISH_ANYONE 1')

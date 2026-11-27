@@ -1428,7 +1428,7 @@ int32_t MusicxxHostManager::requestAppCapability(MusicxxHostInstance *inst,
 
   /// 插件框架自己的网络能力与两条能力同名。这两条按**框架原生实现**回答
   /// (与 JS `musicxx.net.fetch` / 动态库插件的 `iface.net` 同一份实现), 不再转给
-  /// Dart —— 否则同名接口会有两套行为 (代理设置、TLS 选项、下载落盘位置都不一样)。
+  /// Dart —— 否则同名接口会有两套行为 (代理设置、TLS 选项、下载写入磁盘位置都不一样)。
   /// 跑在框架的工作线程上, 不占插件与主程序的线程。
   if (capabilityName == "musicxx.net.fetch" ||
       capabilityName == "musicxx.net.download") {
@@ -1702,7 +1702,7 @@ PluginxxOperatorHandle *PLUGINXX_CALL xx_declare_broadcast(
 ///
 /// `options_json` 是订阅方自己的通知频率 (`{"intervalMs":200,"mode":"delay"}`; 可空)。
 /// `subscribe_broadcast` 与 `subscribe_broadcast_ex` 只差 `onEnd`:
-/// 频道被属主结束时用 reason JSON 回调一次, 随后这个订阅被摘掉。
+/// 频道被所有者结束时用 reason JSON 回调一次, 随后这个订阅被摘掉。
 PluginxxOperatorHandle *subscribeBroadcastFromTable(
     const PluginxxHost *host, const PluginxxScopeRef *scope,
     const PluginxxStringView *id,
@@ -1802,7 +1802,7 @@ PluginxxOperatorHandle *PLUGINXX_CALL xx_unsubscribe_broadcast(
       });
 }
 
-/// 结束一条流 (任意线程): 只有频道属主能结束自己的频道
+/// 结束一条流 (任意线程): 只有频道所有者能结束自己的频道
 ///
 /// 结束后: 发布按 `ended` 失败, 读不到当前值, 全部订阅先用 reason JSON 回调一次
 /// 再摘掉; 再次声明同一个 id = 开一条新流。

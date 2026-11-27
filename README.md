@@ -64,7 +64,7 @@ plugins/            官方插件与示例（**每个子目录一个插件**，�
   example_native_fail/       对照示例（C++：处理器总是失败 → 只记统计、不暂停）
   example_native_bad_entry/  对照示例（C++：缺 start/stop 入口符号 → 拒绝加载）
   example_js/       示例插件（JS，零编译；与 native 版行为等价）
-  example_js_playing_bg/ 示例插件（JS，零编译；播放页背景合集：六种样式 —— 封面三种『模糊』/『沉浸』/『黑胶』、图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色；一个插件把背景、前景色、图标槽位与取色能力串起来）
+  example_js_playing_bg/ 示例插件（JS，零编译；播放页背景合集：六种样式 —— 封面三种『模糊』/『沉浸』/『黑胶』、图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色；一个插件把背景、前景色、图标槽位与取色能力连起来）
   example_js_playing_slots/ 示例插件（JS，零编译；播放页的位置：插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader））
   example_js_async/ 对照示例（JS：裁决处理器返回 Promise 的异步裁决；会真的改拖动目标位置与音量）
   example_js_broadcast/ 示例插件（JS：广播 —— 声明 / 发布自己的频道、订阅官方频道并按需声明订阅频率）
@@ -577,7 +577,7 @@ musicxx_plugin_add_target(my_plugin
 便于确认齐全）；插件框架运行时按当前系统与 CPU 架构选分支（选择顺序、标签别名与规则见
 [docs/plugin-native-api.md](docs/plugin-native-api.md) §1.3，示例插件 `plugins/example_native_multi/`）。
 **分支选择规则只有插件框架一处实现**：扫描、加载与主程序安装预检（C ABI `plugin_inspect`）跑的是同一份
-判定，Dart 侧只解析结果。不传 `TARGET_TAG` 时行为与以前一致（库与清单同一层，直接作为插件目录）。
+判定，Dart 侧只解析结果。不传 `TARGET_TAG` 时库与清单放在同一层，直接作为插件目录。
 
 ### JS插件
 
@@ -637,7 +637,7 @@ musicxx-cli plugin uninstall my_plugin                                          
 参考实现：`plugins/example_native/`（能力/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
 `plugins/example_js_playing_bg/`（显示名『示例播放页背景』：六种播放页背景样式 —— 封面三种『模糊』/『沉浸』/『黑胶』与
 图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色：
-背景、前景色、图标槽位与取色能力在同一个插件里串起来，覆盖 `args` 里的封面纹理（含圆裁用的 `square`）、同一个槽位注册多项、
+背景、前景色、图标槽位与取色能力在同一个插件里连起来，覆盖 `args` 里的封面纹理（含圆裁用的 `square`）、同一个槽位注册多项、
 `playing.icon` 三种形态里的 `none`、`musicxx.media.palette.analyse`、
 `musicxx.ui.playing.foreground.set`（运行期改前景三色）与 `musicxx.image.<key>`（插件自己绑定的纹理）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面；六个脚本分工写，也是多脚本示例）、
 `plugins/example_js_playing_slots/`（播放页的位置：插入块 / 控制按钮栏 / 音频动效三个位置各一块，带自己的 `viz.frag`）、
@@ -812,7 +812,7 @@ final List<MusicxxPluginUIItem> next =
 | 能力 | 入口 | 说明 |
 |---|---|---|
 | 能力（裁决型） | `PluginBase::implement`（原生，`co_await`）/ `musicxx.capability.implement`（JS） | 三个阶段（前链 / 实现链 / 后链）；处理器可以同步返回，也可以写成协程（原生）/ 返回 Promise（JS）；`dispatch: async` 的能力由插件框架异步派发、不占用调用线程。约定与载荷见 `docs/plugin-capabilities.md` |
-| 广播 | `co_await subscribeBroadcast`（原生）/ `musicxx.broadcast.subscribe`（JS） | 属主发布、订阅方收到：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
+| 广播 | `co_await subscribeBroadcast`（原生）/ `musicxx.broadcast.subscribe`（JS） | 所有者发布、订阅方收到：没有返回值、不等待、可能丢中间值；`cache: latest` 的频道还能读当前值。频道与载荷见 `docs/plugin-broadcasts.md` |
 | 应用实现的能力 | `musicxx.capability.call` / `PluginBase::capabilityCall` | 播放 / 歌单与播放列表 / 歌词 / UI / 存储 / 网络 / 渲染 / 杂项（应用分派；不做权限校验） |
 | 状态广播 | `musicxx.broadcast.read` / `co_await readBroadcast` | 只读（不含临时直链/token）；键、字段与推送情况见 `docs/plugin-api.md` §2 |
 | 配置 | `musicxx.storage.get` / `.set`（带 `namespace: "config"`；JS 糖是 `getConfig` / `setConfig`）/ `co_await configPath()` | 读写插件目录的 `config.json`（默认值由插件自己给，框架不提供配置表单） |

@@ -44,8 +44,8 @@
 
 两者**共用同一套约定**：能力、广播、UI 项、插件页面、渲染槽位。学会一套即可迁移。
 
-> **只有两个概念**：**能力** = 发一次请求、等一个结果；**广播** = 属主改了东西、通知所有关心的人（带当前值的频道还能同步读；插件只能读与订阅）。
-> 能写的东西都是广播，值只能由属主发布；要改应用的状态调能力。没有第三个概念。
+> **只有两个概念**：**能力** = 发一次请求、等一个结果；**广播** = 所有者改了东西、通知所有关心的人（带当前值的频道还能同步读；插件只能读与订阅）。
+> 能写的东西都是广播，值只能由所有者发布；要改应用的状态调能力。没有第三个概念。
 
 ## 3. 插件长什么样
 
@@ -450,9 +450,9 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 主程序进了安全模式 | 说明上次启动没走完（插件崩溃 / 死循环）；在管理页恢复，并修掉触发问题 |
 | 跨插件调用失败 | `plugin_capability_not_found` / `capability_call_failed` / 超时（JS→原生默认 3 s；`<= 0` 仍按 3 s 处理） |
 
-## 9. 统一口径（与 agentxx 共用）
+## 9. 统一判定标准（与 agentxx 共用）
 
-四条口径由 `docs/history/plugin-framework-compare/plan.md` 定稿，本包与 `D:\0Acoolight\Program\cpp\agentxx`
+四条判定标准由 `docs/history/plugin-framework-compare/plan.md` 定稿，本包与 `D:\0Acoolight\Program\cpp\agentxx`
 按同一份写：改动要两边一起改并互相引用。能共用的实现下沉到子模块 `cxx_pluginxx`（`pluginxx/api/*.h` 与 `pluginxx/host/*.h`），
 不在两个项目里各写一份。
 
@@ -506,6 +506,6 @@ pwsh -NoProfile -File tools/build_examples.ps1 -PackOut D:/out              # �
 | 界面 kit 的组件与参数 | `docs/musicxx-ui-kit.md`（生成物） |
 | 版本对照（musicxx 版本 ↔ 插件框架版本 / 提交 / 日期）与改版本号的流程 | `docs/version-history.md` |
 | 本包怎么构建、插件框架库怎么随主程序分发、Dart 侧怎么接 | `README.md` |
-| 与 agentxx 共用的四条口径（超时与取消 / 界面契约 / 形态表 / 日志语言） | 本文件 §9；`docs/plugin-native-api.md` §3.1、§4.3；`docs/plugin-ui.md` §1.0 |
+| 与 agentxx 共用的四条判定标准（超时与取消 / 界面契约 / 形态表 / 日志语言） | 本文件 §9；`docs/plugin-native-api.md` §3.1、§4.3；`docs/plugin-ui.md` §1.0 |
 | Android 打包与平台限制 | `android/README.md` |
 | 示例与对照示例清单 | `plugins/README.md` |

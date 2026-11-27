@@ -406,7 +406,7 @@ function ensureProxyServer() {
 /// 为什么要绕一道 HTTP：插件框架的 JS 运行时没有 socket，但**播放器只认 http(s) 与本地文件**。
 /// 有了这一层，插件就能把"播放器不支持的东西"变成普通 HTTP：
 /// - 本地文件（本示例）；
-/// - 插件用 `musicxx.net.fetch / download` 取到的远端数据（先落盘再登记，小内容直接给 `bytes`）；
+/// - 插件用 `musicxx.net.fetch / download` 取到的远端数据（先写入磁盘再登记，小内容直接给 `bytes`）；
 /// - FTP / 自定义协议（插件取流后转发）；
 /// - HLS 播放列表与分片、转码后的小段（用 `bytes` 给）。
 ///

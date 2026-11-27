@@ -2,7 +2,7 @@
 //
 // 覆盖四件事：
 // - 顶层声明自己的频道（`cache: latest` = 有当前值，订阅方先收到一次）；
-// - 发布自己的频道（属主才能发，订阅方当场收到通知）；
+// - 发布自己的频道（所有者才能发，订阅方当场收到通知）；
 // - 声明一个 `publish: anyone` 的共享频道，谁都能往它发布；
 // - 订阅官方频道（官方频道只读：要改应用的状态调能力）。
 //
@@ -73,7 +73,7 @@ musicxx.capability.register("probe", function () {
   };
 });
 
-// 属主改自己的值：publish 一次，订阅方才看得到
+// 所有者改自己的值：publish 一次，订阅方才看得到
 musicxx.capability.register("publishTip", function (args) {
   var next = args ? args.value === true : false;
   musicxx.broadcast.publish("tip.start", next);

@@ -716,8 +716,8 @@ public:
   /// 按生成表 `capability_ids.g.h` 补一份频道声明 (应用还没下发时的默认做法)
   ///
   /// - 表里的 id: 用声明里的 `cache` / `publish` / `pushOnSubscribe` / `coalesce` / `scope`;
-  /// - 表外的 id: 默认属性 (只有事件、属主能发布、允许合并、作用域 `app`);
-  /// - `plugin.<id>.*` 的属主是那个插件 (只有它能发布)。
+  /// - 表外的 id: 默认属性 (只有事件、所有者能发布、允许合并、作用域 `app`);
+  /// - `plugin.<id>.*` 的所有者是那个插件 (只有它能发布)。
   void ensureBroadcastChannel(const std::string &id);
 
 protected:

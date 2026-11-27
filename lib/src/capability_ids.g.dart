@@ -1,6 +1,6 @@
 // 自动生成（tools/gen_contract.dart ← tools/capabilities.def.json）—— 请勿手改。
 //
-// 能力 = 调用方发一次请求、等一个结果；广播 = 属主改了东西、通知关心的人。
+// 能力 = 调用方发一次请求、等一个结果；广播 = 所有者改了东西、通知关心的人。
 // id 是跨边界稳定的约定：字符串值一旦发布不得修改，只能新增或标记废弃。
 // ignore_for_file: type=lint, constant_identifier_names
 
@@ -429,7 +429,7 @@ abstract final class MusicxxCapabilityId {
   ];
 }
 
-/// 广播 id（属主改了东西、通知关心的人）
+/// 广播 id（所有者改了东西、通知关心的人）
 abstract final class MusicxxBroadcastId {
   /// 应用启动
   static const String appStarted = 'musicxx.app.started';
@@ -3219,7 +3219,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '应用状态',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.player',
@@ -3231,7 +3231,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '播放器状态',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.song',
@@ -3243,7 +3243,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '当前歌曲',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.playlist',
@@ -3255,7 +3255,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '当前播放列表',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.lyric',
@@ -3267,7 +3267,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '当前歌词',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.songlists',
@@ -3279,7 +3279,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '歌单列表快照',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.env',
@@ -3291,7 +3291,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '运行环境',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.uiSlots',
@@ -3303,7 +3303,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '渲染槽位状态',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
     MusicxxBroadcastDecl(
       id: 'musicxx.state.spectrum',
@@ -3315,7 +3315,7 @@ abstract final class MusicxxCapabilityCatalogue {
       type: '',
       options: <String>[],
       title: '当前频谱',
-      depict: '`cache: latest` 的广播频道：属主发布，插件订阅即拿到当前值，也可以同步读',
+      depict: '`cache: latest` 的广播频道：所有者发布，插件订阅即拿到当前值，也可以同步读',
     ),
   ];
 

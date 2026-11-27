@@ -12,7 +12,7 @@
 /// 错误码: 0 成功 / -1 参数非法 / -2 状态错误 / -3 JSON 非法 / -4 未找到 /
 ///         -5 超时 / -6 权限拒绝 / -7 队列满 / -8 内存不足 / -99 内部异常。
 ///
-/// **一次业务操作只有一种形状: 提交 + 结果事件** (v7 起)
+/// **一次业务操作只有一种格式: 提交 + 结果事件** (v7 起)
 ///
 /// ```c
 /// int32_t musicxx_extern_plugin_<操作>(h, /* 入参 */ ..., int64_t* out_request_id,
@@ -177,7 +177,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// 返回码的名称（`invalid_argument` / `not_found` / `no_value` / …）
 ///
 /// - 覆盖通用段、广播段、生命周期 / 内部段与网络段；
-/// - 不认识（包括未定义区间与应用 / 插件自定义区间）返回 NULL，由属主自己解释；
+/// - 不认识（包括未定义区间与应用 / 插件自定义区间）返回 NULL，由所有者自己解释；
 /// - 返回的字符串是静态字面量，不需要释放。
 MUSICXX_EXTERN_PLUGIN_EXPORT const char* MUSICXX_EXTERN_PLUGIN_CALL
     musicxx_extern_plugin_result_name(int32_t code);
@@ -541,7 +541,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 
 /* ==================== 广播 (Dart ⇄ 原生; 只发布 / 读 / 列表) ==================== */
 
-/// 广播 = 属主发一次, 关心的人读当前值或订阅。
+/// 广播 = 所有者发一次, 关心的人读当前值或订阅。
 ///
 /// **只有发布、读当前值、列频道三个入口**:
 /// - 能改应用状态的通道是**能力** (改设置、切主题、跳转进度…), 广播侧没有写入;
@@ -573,7 +573,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
 /// - `topic` 必须是 `musicxx.*` 或 `plugin.<id>.*`;
 /// - 频道未声明时按生成表补一份声明, 表外 id 用默认属性
 ///   (`cache: none` / `publish: owner` / `coalesce: true` / `scope: app`);
-/// - 属主才能发布: 官方频道只有应用能发, 插件频道只有属主能发 (发布失败是 `ok = false`);
+/// - 所有者才能发布: 官方频道只有应用能发, 插件频道只有所有者能发 (发布失败是 `ok = false`);
 /// - 同值重复发布默认仍会通知 (去重在 Dart 侧封装里做);
 /// - 结果 `data` 是 `null`: 要"发布完再看"就 `await` 这一条。
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
@@ -585,7 +585,7 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
-/// 读一条频道的当前值 (`op = "broadcast.read"`; 冷读; 热路径读 Dart 侧缓存)
+/// 读一条频道的当前值 (`op = "broadcast.read"`; 冷读; 频繁执行的路径读 Dart 侧缓存)
 ///
 /// - 成功: `data` 是当前值 JSON;
 /// - 频道没声明: `ok = false` + `reason = not_declared`;

@@ -185,23 +185,23 @@
 
 ### `musicxx.lyric.load.musicxx_server` 歌词加载 · 拟声云歌词
 
-载荷与回答形状同 `musicxx.lyric.load`。这一阶段读**拟声云歌词**（自建服务 / 歌曲绑定的那个歌词来源）：用户给这首歌指定过的歌词（按音源身份记在应用里的那条），或歌曲自带的歌词来源（`myId` / 链接 / 云盘 / 媒体库 / 本地文件）。应用自己的实现在这里调自建服务的歌词接口、读绑定的本地歌词文件，命中时 `sourceType` 是 `musicxx_server` 或 `local`。`enable.musicxx_server` 为 false 时主程序不会问这个点（`enableCloudLyric: false` 的调用点是『只从文件读歌词』的场景）。回答 `{"patch": {"lyric": {"disabled": true}}}` 表示这首歌禁用歌词，后续阶段不再执行。
+载荷与回答格式同 `musicxx.lyric.load`。这一阶段读**拟声云歌词**（自建服务 / 歌曲绑定的那个歌词来源）：用户给这首歌指定过的歌词（按音源身份记在应用里的那条），或歌曲自带的歌词来源（`myId` / 链接 / 云盘 / 媒体库 / 本地文件）。应用自己的实现在这里调自建服务的歌词接口、读绑定的本地歌词文件，命中时 `sourceType` 是 `musicxx_server` 或 `local`。`enable.musicxx_server` 为 false 时主程序不会问这个点（`enableCloudLyric: false` 的调用点是『只从文件读歌词』的场景）。回答 `{"patch": {"lyric": {"disabled": true}}}` 表示这首歌禁用歌词，后续阶段不再执行。
 
 ### `musicxx.lyric.load.cache` 歌词加载 · 歌词缓存
 
-载荷与回答形状同 `musicxx.lyric.load`。这一阶段读**歌词缓存**：应用自己保存过的歌词内容（按音源身份、md5、sha1、大小与时长命中）。`enable.cache` 为 false 时不会被询问；命中时 `sourceType` 是 `builtinCache` / `builtoutCache`（这份缓存是上一次读到内置 / 外置歌词时写下的）。插件接管后可以换成自己的歌词库（例如本地收藏的歌词文件索引）。
+载荷与回答格式同 `musicxx.lyric.load`。这一阶段读**歌词缓存**：应用自己保存过的歌词内容（按音源身份、md5、sha1、大小与时长命中）。`enable.cache` 为 false 时不会被询问；命中时 `sourceType` 是 `builtinCache` / `builtoutCache`（这份缓存是上一次读到内置 / 外置歌词时写下的）。插件接管后可以换成自己的歌词库（例如本地收藏的歌词文件索引）。
 
 ### `musicxx.lyric.load.builtin` 歌词加载 · 内置歌词
 
-载荷与回答形状同 `musicxx.lyric.load`。这一阶段读**内置歌词**，两条路合在一起：播放器当前音源**已经读到的元数据标签**（切歌后它比重新解码文件先到，应用最多等 300 ms），以及由媒体解码器**从音频文件 / 缓存流里读出的标签歌词**（`path` 就是那个文件；原来叫 `load_lyric_builtIn`）。会在四种情况下被询问：前链指定了 `position`（只读那个文件）、这一轮允许读缓存且来源类型允许（看播放器元数据）、解析出来的音源是缓存文件 / 链接（不管 `enable.builtin`，原来就是先读一遍它的标签）、或 `enable.builtin` 为 true 且来源类型允许。应用自己的实现还会按来源类型跳过明显没有标签的那些（Bili、asset、缓存 id 等），插件替换实现后不再受这条限制。`sourceType` 缺省 `builtin`（会进歌词缓存），命中后主程序还可能自动上传到自建服务（看 `enable.upload`）。
+载荷与回答格式同 `musicxx.lyric.load`。这一阶段读**内置歌词**，两条路合在一起：播放器当前音源**已经读到的元数据标签**（切歌后它比重新解码文件先到，应用最多等 300 ms），以及由媒体解码器**从音频文件 / 缓存流里读出的标签歌词**（`path` 就是那个文件；原来叫 `load_lyric_builtIn`）。会在四种情况下被询问：前链指定了 `position`（只读那个文件）、这一轮允许读缓存且来源类型允许（看播放器元数据）、解析出来的音源是缓存文件 / 链接（不管 `enable.builtin`，原来就是先读一遍它的标签）、或 `enable.builtin` 为 true 且来源类型允许。应用自己的实现还会按来源类型跳过明显没有标签的那些（Bili、asset、缓存 id 等），插件替换实现后不再受这条限制。`sourceType` 缺省 `builtin`（会进歌词缓存），命中后主程序还可能自动上传到自建服务（看 `enable.upload`）。
 
 ### `musicxx.lyric.load.builtout` 歌词加载 · 外置歌词
 
-载荷与回答形状同 `musicxx.lyric.load`。这一阶段读**外置歌词**：与音频文件同名的 `.lrc`（本地、链接、WebDAV），以及云盘与媒体库各自的同名歌词查找（阿里云盘、百度网盘、115、Subsonic / Jellyfin / Emby 的歌词接口；最后两种的 `path` 是空串，标识在歌曲视图里）。`enable.builtout` 为 true 且来源类型允许、或前链指定了 `position` 时会被询问；应用自己的实现会跳过明显没有同名文件的来源（Bili、`myId`、`myLink`、缓存、asset 等），插件替换实现后不再受这条限制。`sourceType` 缺省 `builtout`（会进歌词缓存）。
+载荷与回答格式同 `musicxx.lyric.load`。这一阶段读**外置歌词**：与音频文件同名的 `.lrc`（本地、链接、WebDAV），以及云盘与媒体库各自的同名歌词查找（阿里云盘、百度网盘、115、Subsonic / Jellyfin / Emby 的歌词接口；最后两种的 `path` 是空串，标识在歌曲视图里）。`enable.builtout` 为 true 且来源类型允许、或前链指定了 `position` 时会被询问；应用自己的实现会跳过明显没有同名文件的来源（Bili、`myId`、`myLink`、缓存、asset 等），插件替换实现后不再受这条限制。`sourceType` 缺省 `builtout`（会进歌词缓存）。
 
 ### `musicxx.lyric.load.match` 歌词加载 · 自动匹配
 
-载荷与回答形状同 `musicxx.lyric.load`。这一阶段做**自动匹配**：前面几个阶段都没拿到歌词时，按歌名 / 歌手 / hash / 大小 / 时长向自建服务要推荐歌词。`enable.match` 为 true 时会被询问（调用方决定；设置里的「自动匹配歌词」开关在主程序那边就并进了这个值）。应用自己的实现还会跳过 15 分钟以上、歌名为空或名字里有『纯音乐 / 伴奏 / instrumental』的歌（插件替换后不再受这条限制）。供参考：`keyword` / `artist` 可以在前链里改写（例如换成自己的搜索串）。`sourceType` 缺省 `match`。插件接管后可以换成自己的匹配方式（歌词站搜索、按音频指纹匹配等）；匹配不到就返回空，主程序按『这首歌没有歌词』处理。
+载荷与回答格式同 `musicxx.lyric.load`。这一阶段做**自动匹配**：前面几个阶段都没拿到歌词时，按歌名 / 歌手 / hash / 大小 / 时长向自建服务要推荐歌词。`enable.match` 为 true 时会被询问（调用方决定；设置里的「自动匹配歌词」开关在主程序那边就并进了这个值）。应用自己的实现还会跳过 15 分钟以上、歌名为空或名字里有『纯音乐 / 伴奏 / instrumental』的歌（插件替换后不再受这条限制）。供参考：`keyword` / `artist` 可以在前链里改写（例如换成自己的搜索串）。`sourceType` 缺省 `match`。插件接管后可以换成自己的匹配方式（歌词站搜索、按音频指纹匹配等）；匹配不到就返回空，主程序按『这首歌没有歌词』处理。
 
 ### `musicxx.media.spectrum.extract`
 
@@ -251,7 +251,7 @@
 
 ### `musicxx.ui.setAnimatedLevel` 设置动画等级
 
-参数 `{level}`：`level` 取 `undefined` / `disable` / `low` / `medium` / `high` / `max`（枚举 id，也接受原来的整数编码 -1/10/20/30/40/50）。走与设置页**完全相同**的写入路径（`theme_s.setEnableAnimatedLevel`），改完发布广播 `musicxx.ui.animatedLevel`。
+参数 `{level}`：`level` 取 `undefined` / `disable` / `low` / `medium` / `high` / `max`（枚举 id，也接受整数编码 -1/10/20/30/40/50）。走与设置页**完全相同**的写入路径（`theme_s.setEnableAnimatedLevel`），改完发布广播 `musicxx.ui.animatedLevel`。
 
 回答 `{ok: true, level}`；取值非法时返回失败并说明原因（`level` 不能识别）。值没变时也算成功（不会重复写库）。
 
@@ -281,7 +281,7 @@
 
 ### `musicxx.theme.setMode` 设置主题模式
 
-参数 `{mode}`：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（也接受原来的整数编码 1~5）。写进用户的持久设置并立即按新模式切（`theme_s.setUseModel`），改完发布广播 `musicxx.theme.mode`（以及 `musicxx.theme.current`、`musicxx.state.app` 里的 `isNight`）。
+参数 `{mode}`：`light` / `night` / `followSystem` / `followTime` / `followScreenBrightness`（也接受整数编码 1~5）。写进用户的持久设置并立即按新模式切（`theme_s.setUseModel`），改完发布广播 `musicxx.theme.mode`（以及 `musicxx.theme.current`、`musicxx.state.app` 里的 `isNight`）。
 
 回答 `{ok: true, mode}`；取值非法时返回失败并说明原因。
 
@@ -309,7 +309,7 @@
 
 ### `musicxx.ui.slot.info` 界面槽位与内容
 
-参数：`slot`（可省：只着这一个槽位）。返回 `{ok, slots, variables}`：`slots` 每一项是 `{slot, kind, owner, label, active, variables, registrations, contents}` —— `kind` 是槽位形态（item / insert / replace / selectable / pageBackground / page / overlay），`owner` 是插件声明的槽位属主（应用预留的是空串），`active` = 现在有没有挂载点，`registrations` 是插件注册的内容（`itemId / plugin / id / deps / order / minIntervalMs`），`contents` 是缓存里真正渲染的那一份（`rev / updatedAt / lastError / bytes / hasContent`；`replace` / `selectable` 只给生效的那一份）。`variables` 是变量清单（含插件广播频道当前有没有人 watch）。只读：请求重生成用 `musicxx.ui.slot.update`。
+参数：`slot`（可省：只着这一个槽位）。返回 `{ok, slots, variables}`：`slots` 每一项是 `{slot, kind, owner, label, active, variables, registrations, contents}` —— `kind` 是槽位形态（item / insert / replace / selectable / pageBackground / page / overlay），`owner` 是插件声明的槽位所有者（应用预留的是空串），`active` = 现在有没有挂载点，`registrations` 是插件注册的内容（`itemId / plugin / id / deps / order / minIntervalMs`），`contents` 是缓存里真正渲染的那一份（`rev / updatedAt / lastError / bytes / hasContent`；`replace` / `selectable` 只给生效的那一份）。`variables` 是变量清单（含插件广播频道当前有没有人 watch）。只读：请求重生成用 `musicxx.ui.slot.update`。
 
 ### `musicxx.ui.slot.vars` 槽位变量值
 
@@ -317,7 +317,7 @@
 
 ### `musicxx.ui.slot.update` 要求重生成内容
 
-参数：`slot`（必填）、`id`（可省：内容全名 `plugin.<插件 id>.<短 id>`，可多次给或给 `ids` 数组；只写短 id 不认）、`plugin`（可省：只看这个插件的内容）。返回 `{ok, slot, ids}`。**总会请求**：不等变量变化、不管上次的上下文是不是一样（与自动刷新区别就在这里）。每条内容最多一个在途请求，执行期间多次调用只保留最后一次。没有挂载点的槽位也会请求（结果进缓存，下一次挂载直接用）。**只能应用内部 / 命令行调**：插件要自己的内容重生成用自己的 `musicxx.ui.slot.update`，不然任何一个插件都能把别的插件的界面拖进重生成循环。
+参数：`slot`（必填）、`id`（可省：内容全名 `plugin.<插件 id>.<短 id>`，可多次给或给 `ids` 数组；只写短 id 不认）、`plugin`（可省：只看这个插件的内容）。返回 `{ok, slot, ids}`。**总会请求**：不等变量变化、不管上次的上下文是不是一样（与自动刷新区别就在这里）。每条内容最多一个处理中请求，执行期间多次调用只保留最后一次。没有挂载点的槽位也会请求（结果进缓存，下一次挂载直接用）。**只能应用内部 / 命令行调**：插件要自己的内容重生成用自己的 `musicxx.ui.slot.update`，不然任何一个插件都能把别的插件的界面拖进重生成循环。
 
 ### `musicxx.ui.playing.foreground.set` 设置播放页前景
 
@@ -337,11 +337,11 @@
 
 ### `musicxx.media.cover.set` 设置当前歌曲图片
 
-把一张图片设为**当前正在播放歌曲的图**：播放页大图、通知栏、锁屏、桌面小组件、封面取色都读这一份，设置后立即生效。参数 `icon` 必给、`icon96` 可选，两者都支持三种写法：`{"data": "<图片字节的 base64>", "format": "png", "width": 0, "height": 0}` / `{"path": "<本地绝对路径>"}` / `{"url": "https://…"}`。`data` 的 `format` 可省（按内容识别）；给原始像素（`format: "rgba"`）时必须一起给 `width` / `height`。`data` 会写进图片缓存（`<音源身份>@cover-<内容键>`，给了 `icon96` 时再写一张 `…_96`），单张上限 16 MiB，解码失败会拒绝；`path` / `url` 原样使用、不复制（文件/地址失效时界面回退默认图）。可选 `sid` = 调用方认为的当前歌曲，与当前不一致返回 `stale`。`{"clear": true}` = 删掉这首歌的插件图并重新取一次封面（同时清掉 `set` 锁，回落应用自己的取值链，这条链仍然可以再问 `musicxx.media.cover.resolve`）。回答 `{ok, sid, srcKey, origin, icon, icon96, bytes, width, height}`：`icon` / `icon96` 是 `{kind, type, src}`（`kind` = `cache` / `local` / `network`；`icon96` 没给时为 null）；`bytes` / `width` / `height` 只在 `data` 形态下有意义（其余为 0）。失败回答 `{ok: false, error: …}`，`error` 取 `no_song`（当前没有正在播放的歌曲或它没有音源身份）/ `stale`（`sid` 与当前歌曲不一致）/ `invalid_argument`（参数形状不对、`path` 不存在 / 不是普通文件、`url` 不是 http(s)）/ `too_large`（单张超过 16 MiB）/ `decode_failed`（字节解不出图片）/ `write_failed`（写缓存失败）。**只对本次播放有效**：不写 `song.icon`、不落盘「下次还用这张」，切歌后按正常取值链重新取（要持久换封面请用 `musicxx.songlist.updateSong` / `musicxx.playlist.updateSong` 的 `cover`）。插件 `set` 过的这首歌本次播放内不再被问 `musicxx.media.cover.resolve`（免得应用自己的提取把刚定的图换掉），直到切歌、`clear` 或这张图本身加载失败。`icon96` 只是省一次解码的缩略图（取色与锁屏在它存在时优先用它），**当前歌曲图一般可以不给**，不给时消费方统一用整图。
+把一张图片设为**当前正在播放歌曲的图**：播放页大图、通知栏、锁屏、桌面小组件、封面取色都读这一份，设置后立即生效。参数 `icon` 必给、`icon96` 可选，两者都支持三种写法：`{"data": "<图片字节的 base64>", "format": "png", "width": 0, "height": 0}` / `{"path": "<本地绝对路径>"}` / `{"url": "https://…"}`。`data` 的 `format` 可省（按内容识别）；给原始像素（`format: "rgba"`）时必须一起给 `width` / `height`。`data` 会写进图片缓存（`<音源身份>@cover-<内容键>`，给了 `icon96` 时再写一张 `…_96`），单张上限 16 MiB，解码失败会拒绝；`path` / `url` 原样使用、不复制（文件/地址失效时界面回退默认图）。可选 `sid` = 调用方认为的当前歌曲，与当前不一致返回 `stale`。`{"clear": true}` = 删掉这首歌的插件图并重新取一次封面（同时清掉 `set` 锁，回落应用自己的取值链，这条链仍然可以再问 `musicxx.media.cover.resolve`）。回答 `{ok, sid, srcKey, origin, icon, icon96, bytes, width, height}`：`icon` / `icon96` 是 `{kind, type, src}`（`kind` = `cache` / `local` / `network`；`icon96` 没给时为 null）；`bytes` / `width` / `height` 只在 `data` 形态下有意义（其余为 0）。失败回答 `{ok: false, error: …}`，`error` 取 `no_song`（当前没有正在播放的歌曲或它没有音源身份）/ `stale`（`sid` 与当前歌曲不一致）/ `invalid_argument`（参数格式不对、`path` 不存在 / 不是普通文件、`url` 不是 http(s)）/ `too_large`（单张超过 16 MiB）/ `decode_failed`（字节解不出图片）/ `write_failed`（写缓存失败）。**只对本次播放有效**：不写 `song.icon`、不写入磁盘「下次还用这张」，切歌后按正常取值链重新取（要持久换封面请用 `musicxx.songlist.updateSong` / `musicxx.playlist.updateSong` 的 `cover`）。插件 `set` 过的这首歌本次播放内不再被问 `musicxx.media.cover.resolve`（免得应用自己的提取把刚定的图换掉），直到切歌、`clear` 或这张图本身加载失败。`icon96` 只是省一次解码的缩略图（取色与锁屏在它存在时优先用它），**当前歌曲图一般可以不给**，不给时消费方统一用整图。
 
 ### `musicxx.media.cover.resolve` 指定当前歌曲图片
 
-主程序要决定**当前这首歌用哪张图**时派发一次。**每一次这首歌加载都会问一次**：切歌、重播、切走再切回来、换音源 / 切音质导致的重新解析、`musicxx.media.cover.set` 的 `clear` 之后、以及当前没有可用封面时的重试，各算一次。读封面的代码（播放页、通知栏、锁屏、桌面小组件、封面取色、`musicxx.media.cover`、着色器块里的封面纹理声明）只读应用保存的那一张，**不会触发这条能力**。载荷 `{sid, srcKey, name, artist, album, durationMs, audio, parsed, path, icon, icon96, cache, current, reason, force, caller}`：`audio` = 本轮音源视图（`type/src/customType/fileName/size/durationMs/quality`）；`parsed` = 实际播放用的那一份（本地缓存文件或临时直链，字段同上 + `kind`）；`path` 只有本地 / 缓存 / `content://` / asset 才有值（网络来源是空串，要直链请走 `musicxx.net`）；`icon` / `icon96` = 歌曲元数据里的封面（`song.icon` / `icon_96`），只报 `{hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`；本地 / 缓存类要求文件存在，网络地址不探远程）；`cache` = `{exists, exists96}`，应用图片缓存里这首歌的图在不在；`current` = **现在实际显示的那张图** `{origin, by, icon, icon96}`（`origin` = `initial`（切歌时的初值：元数据封面 / 缓存 id）/ `builtin`（应用的三段取值给的）/ `plugin`（插件给的）/ `set`（插件 `set` 定的）/ `none`（已经清空）；`by` = 产出方 owner 或插件名，初值为空串；`icon` / `icon96` 只报 `{kind, type, src}`，不给直链）；`reason` = `load`（切歌 / 重播 / 切回来）/ `reparse`（换音源、切音质导致的重新解析，同一首歌的重新加载都算）/ `reload`（封面加载失败且当前没有可用图）/ `clear`（`set clear` 之后重算）；`force` = 真时内置实现跳过「缓存已存在」这条短路、重新提取；`caller` = 谁在问（空串 = 应用自己或命令行）。**回答**：`{"patch": {"cover": {"icon": {"data": "<base64>", "format": "png"}}}}`（图片写法与 `musicxx.media.cover.set` 完全一样，`icon` 必给、`icon96` 可选；**必须用 `patch` 包一层**：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历）；`{"action": "cancel"}` = **这次不修改当前图片**（不取图、不刷通知栏与背景色，界面保持现在显示的那张）。`cancel` 同时就是「就用现在这张」的回答：`current` 显示的是缓存图时它等于「别提取了，就用缓存」，显示的是你上次给的图时它等于「继续用它」。空回答 / 形状不对 / 单张超过 16 MiB = 这次不提供，主程序接着问内置实现（歌曲信息 → 图片缓存 → 媒体内嵌图）。**后链**（`after`）拿到 `value`（`{origin, icon, icon96, width, height}` 的只读摘要，不带图片字节），回答 `{"value": {"cover": {…}}}` 换图（可以只换 `icon96`），或 `{"action": "drop"}` 让这次没有封面。**前链**（`before`）只认 `{"patch": {"force": true}}`（要求内置实现跳过缓存、重新提取）与 `{"action": "cancel"}`（这次不修改）。**三种结果**：有 `cover` = 就用它；前链或实现链 `cancel` = 什么都不做，保持当前图；后链 `drop` 或整条链都没有实现给值（最终为 null）= **清空**（界面回到默认图，没有单独的「没有封面」标记）。**记住结果不阻止下次询问**：这条能力每次加载都会被问到，应用只记住「这一次用了哪张」，用于失败重试与 `set clear`，不会因为记过就不再问你；唯一不重问的情况是插件用 `musicxx.media.cover.set` 定了这首歌的图（本次播放内锁住）。异步派发：最多等 3 s（超时按没给处理），不阻塞起播；插件实现**不受**内置实现那 1 秒延迟影响。处理器里不要再调 `musicxx.media.cover.set`（会多刷一次封面）。常见写法：完全接管用 `impl` 直接回答 `cover`；只在应用取不到时补一张时先看 `icon.hasCover` 与 `cache.exists`，两者都为假才回答；要改写应用已有的封面（加水印、换色、统一风格）用 `after`（它只在实现链拿到值时才会跑，应用本来就没有封面时请走 `impl`）。
+主程序要决定**当前这首歌用哪张图**时派发一次。**每一次这首歌加载都会问一次**：切歌、重播、切走再切回来、换音源 / 切音质导致的重新解析、`musicxx.media.cover.set` 的 `clear` 之后、以及当前没有可用封面时的重试，各算一次。读封面的代码（播放页、通知栏、锁屏、桌面小组件、封面取色、`musicxx.media.cover`、着色器块里的封面纹理声明）只读应用保存的那一张，**不会触发这条能力**。载荷 `{sid, srcKey, name, artist, album, durationMs, audio, parsed, path, icon, icon96, cache, current, reason, force, caller}`：`audio` = 本轮音源视图（`type/src/customType/fileName/size/durationMs/quality`）；`parsed` = 实际播放用的那一份（本地缓存文件或临时直链，字段同上 + `kind`）；`path` 只有本地 / 缓存 / `content://` / asset 才有值（网络来源是空串，要直链请走 `musicxx.net`）；`icon` / `icon96` = 歌曲元数据里的封面（`song.icon` / `icon_96`），只报 `{hasCover, kind}`（`kind` = `local` / `cache` / `content` / `asset` / `network`；本地 / 缓存类要求文件存在，网络地址不探远程）；`cache` = `{exists, exists96}`，应用图片缓存里这首歌的图在不在；`current` = **现在实际显示的那张图** `{origin, by, icon, icon96}`（`origin` = `initial`（切歌时的初值：元数据封面 / 缓存 id）/ `builtin`（应用的三段取值给的）/ `plugin`（插件给的）/ `set`（插件 `set` 定的）/ `none`（已经清空）；`by` = 产出方 owner 或插件名，初值为空串；`icon` / `icon96` 只报 `{kind, type, src}`，不给直链）；`reason` = `load`（切歌 / 重播 / 切回来）/ `reparse`（换音源、切音质导致的重新解析，同一首歌的重新加载都算）/ `reload`（封面加载失败且当前没有可用图）/ `clear`（`set clear` 之后重算）；`force` = 真时内置实现跳过「缓存已存在」这条短路、重新提取；`caller` = 谁在问（空串 = 应用自己或命令行）。**回答**：`{"patch": {"cover": {"icon": {"data": "<base64>", "format": "png"}}}}`（图片写法与 `musicxx.media.cover.set` 完全一样，`icon` 必给、`icon96` 可选；**必须用 `patch` 包一层**：插件框架的 firstNonNull 只在收到 `patch` 或 `action` 时才停止遍历）；`{"action": "cancel"}` = **这次不修改当前图片**（不取图、不刷通知栏与背景色，界面保持现在显示的那张）。`cancel` 同时就是「就用现在这张」的回答：`current` 显示的是缓存图时它等于「别提取了，就用缓存」，显示的是你上次给的图时它等于「继续用它」。空回答 / 格式不对 / 单张超过 16 MiB = 这次不提供，主程序接着问内置实现（歌曲信息 → 图片缓存 → 媒体内嵌图）。**后链**（`after`）拿到 `value`（`{origin, icon, icon96, width, height}` 的只读摘要，不带图片字节），回答 `{"value": {"cover": {…}}}` 换图（可以只换 `icon96`），或 `{"action": "drop"}` 让这次没有封面。**前链**（`before`）只认 `{"patch": {"force": true}}`（要求内置实现跳过缓存、重新提取）与 `{"action": "cancel"}`（这次不修改）。**三种结果**：有 `cover` = 就用它；前链或实现链 `cancel` = 什么都不做，保持当前图；后链 `drop` 或整条链都没有实现给值（最终为 null）= **清空**（界面回到默认图，没有单独的「没有封面」标记）。**记住结果不阻止下次询问**：这条能力每次加载都会被问到，应用只记住「这一次用了哪张」，用于失败重试与 `set clear`，不会因为记过就不再问你；唯一不重问的情况是插件用 `musicxx.media.cover.set` 定了这首歌的图（本次播放内锁住）。异步派发：最多等 3 s（超时按没给处理），不阻塞起播；插件实现**不受**内置实现那 1 秒延迟影响。处理器里不要再调 `musicxx.media.cover.set`（会多刷一次封面）。常见写法：完全接管用 `impl` 直接回答 `cover`；只在应用取不到时补一张时先看 `icon.hasCover` 与 `cache.exists`，两者都为假才回答；要改写应用已有的封面（加水印、换色、统一风格）用 `after`（它只在实现链拿到值时才会跑，应用本来就没有封面时请走 `impl`）。
 
 ### `musicxx.capability.subscribers` 能力订阅 / 实现行
 

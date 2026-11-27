@@ -134,7 +134,7 @@ String generateBroadcastDoc(CapabilityContract contract) {
       '订阅 / 发布的写法见 [plugin-api.md](plugin-api.md) 第 8 节。',
     )
     ..writeln()
-    ..writeln('**广播** = 属主改了东西、通知所有关心的人。它没有返回值、不等待、允许丢中间值；')
+    ..writeln('**广播** = 所有者改了东西、通知所有关心的人。它没有返回值、不等待、允许丢中间值；')
     ..writeln('要不要"当前值"由声明决定：`cache: latest` 的频道订阅时就能拿到当前值，也能同步读；')
     ..writeln('`cache: none` 没有当前值，只能等下一次通知。')
     ..writeln()
@@ -148,7 +148,7 @@ String generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('| 字段 | 含义 |')
     ..writeln('|---|---|')
     ..writeln('| `cache` | `latest` = 有当前值（只保留最后一份）；`none` = 没有当前值，只能等下一次通知 |')
-    ..writeln('| `publish` | `owner` = 只有属主能发布；`anyone` = 任何人都能发布（共享频道） |')
+    ..writeln('| `publish` | `owner` = 只有所有者能发布；`anyone` = 任何人都能发布（共享频道） |')
     ..writeln('| `pushOnSubscribe` | 订阅时立刻收到当前缓存值（仅 `cache: latest`） |')
     ..writeln('| `coalesce` | 允许合并（允许丢中间值）；带当前值的频道一般写 `false`，每次发布都通知 |')
     ..writeln('| `scope` | `app` = 业务频道；`system` = 调试与自省频道（插件不能发布） |')
@@ -245,12 +245,12 @@ String generateBroadcastDoc(CapabilityContract contract) {
     ..writeln('## 结束一条流')
     ..writeln()
     ..writeln(
-      '频道可以表示一段有限的东西（一次任务的结果流、一次会话的通知流）。属主可以把它**结束**：'
+      '频道可以表示一段有限的东西（一次任务的结果流、一次会话的通知流）。所有者可以把它**结束**：'
       '结束之后发布返回 `-5`（`PLUGINXX_RESULT_ERR_ENDED`）、读不到当前值、全部订阅先用 reason JSON '
       '回调一次再摘掉；再次声明同一个 id = 开一条新流（清掉结束标记与缓存）。',
     )
     ..writeln()
-    ..writeln('- 只有属主能结束；结束别人的频道（含应用频道）会被拒绝；')
+    ..writeln('- 只有所有者能结束；结束别人的频道（含应用频道）会被拒绝；')
     ..writeln('- `reason` 是给订阅方看的 JSON（可空，默认 `{}`），原样交给结束回调；')
     ..writeln('- 重复结束是幂等成功；频道不存在 / 不归自己时返回非 0（原因在日志里）；')
     ..writeln(
@@ -268,8 +268,8 @@ String generateBroadcastDoc(CapabilityContract contract) {
     ..writeln()
     ..writeln(
       '这张表只是**预设**：应用与插件都可以用表里没有的 id 发布 / 订阅，不需要事先登记。'
-      '表外 id 的默认属性是「没有当前值（`cache: none`）、只有属主能发布、允许合并、作用域 `app`」；'
-      '属主按 id 前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。',
+      '表外 id 的默认属性是「没有当前值（`cache: none`）、只有所有者能发布、允许合并、作用域 `app`」；'
+      '所有者按 id 前缀判：`plugin.<插件 id>.*` 归那个插件，其它归应用。',
     )
     ..writeln()
     ..writeln(
