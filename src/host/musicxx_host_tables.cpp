@@ -379,6 +379,15 @@ bool MusicxxHostManager::appCapabilityDecl(std::string_view id,
   if (!out || id.empty()) {
     return false;
   }
+  // 应用推过声明就以它为准 (推过来就是全部): 表里没有这个 id = 没声明。
+  if (!appDecls_.empty()) {
+    auto it = appDecls_.find(std::string{id});
+    if (it == appDecls_.end()) {
+      return false;
+    }
+    *out = it->second;
+    return true;
+  }
   const std::string text{id};
   const MusicxxCapabilityDecl *decl = musicxxCapabilityDeclOf(text.c_str());
   if (!decl) {
@@ -411,9 +420,82 @@ bool MusicxxHostManager::appCapabilityDecl(std::string_view id,
   return true;
 }
 
+int32_t MusicxxHostManager::setAppCapabilityDecls(const std::string &json,
+                                                    std::string &error) {
+  Json doc;
+  try {
+    doc = Json::parse(json.empty() ? std::string{"[]"} : json);
+  } catch (const std::exception &e) {
+    error = std::string{"app capabilities: invalid json: "} + e.what();
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  if (!doc.is_array()) {
+    error = "app capabilities: expected a JSON array";
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  std::map<std::string, pluginxx::CapabilityDecl, std::less<>> decls;
+  for (const auto &item : doc) {
+    if (!item.is_object()) {
+      continue;
+    }
+    const std::string id = item.value("id", std::string{});
+    if (id.empty()) {
+      continue;
+    }
+    pluginxx::CapabilityDecl decl;
+    decl.id    = id;
+    decl.impls = item.value("impls", std::string{"one"}) == "many"
+                     ? pluginxx::CapabilityImpls_e::Many
+                     : pluginxx::CapabilityImpls_e::One;
+    const std::string merge = item.value("merge", std::string{});
+    if (merge == "first") {
+      decl.merge = pluginxx::CapabilityMerge_e::First;
+    } else if (merge == "veto") {
+      decl.merge = pluginxx::CapabilityMerge_e::Veto;
+    } else {
+      decl.merge = pluginxx::CapabilityMerge_e::None;
+    }
+    uint32_t phases = 0;
+    if (item.contains("phases") && item["phases"].is_array()) {
+      for (const auto &phase : item["phases"]) {
+        if (!phase.is_string()) {
+          continue;
+        }
+        const std::string name = phase.get<std::string>();
+        if (name == "before") {
+          phases |= pluginxx::kCapabilityPhaseMaskBefore;
+        } else if (name == "impl") {
+          phases |= pluginxx::kCapabilityPhaseMaskImpl;
+        } else if (name == "after") {
+          phases |= pluginxx::kCapabilityPhaseMaskAfter;
+        }
+      }
+    }
+    decl.phases    = phases == 0 ? pluginxx::kCapabilityPhaseMaskImpl : phases;
+    decl.timeoutMs = item.value("timeoutMs", int32_t{0});
+    decls.emplace(id, std::move(decl));
+  }
+  appDecls_ = std::move(decls);
+  XX_LOGI("[musicxx_ext] app capability declarations pushed: {}", appDecls_.size());
+  // 已启动时立刻生效; start() 之前推的由 start 里那次声明带上
+  declareAppCapabilities();
+  return PLUGINXX_RESULT_OK;
+}
+
 void MusicxxHostManager::declareAppCapabilities() {
   auto caps = capabilities();
   if (!caps) {
+    return;
+  }
+  // 应用推过就声明推来的那整份 (推的动作也会调到这里, 所以重推即覆盖);
+  // 没推过时用自带表 (它是应用声明的内置副本)。
+  if (!appDecls_.empty()) {
+    for (const auto &[id, decl] : appDecls_) {
+      std::string error;
+      if (!caps->declare(decl, &error)) {
+        XX_LOGW("[musicxx_ext] failed to declare capability `{}`: {}", id, error);
+      }
+    }
     return;
   }
   for (size_t i = 0; i < musicxxCapabilityDeclCount; ++i) {

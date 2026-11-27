@@ -353,6 +353,54 @@ class MusicxxExternPluginBindings {
             )
           >();
 
+  /// 下发应用自己的能力声明 (`op = "host.capabilities"`; 整份替换)
+  ///
+  /// 应用是声明表的权威来源: 主程序启动时把自己那一份推过来, 之后插件想给
+  /// `<应用名>.*` 的能力提供实现、或问“这条能力开放哪些阶段”, 回答都以推来的为准。
+  /// 没有推过时插件框架按自带的那份 (`capability_ids.g.h`) 回答。
+  ///
+  /// - `json`: 数组, 每项 `{id, impls, merge?, phases, timeoutMs}`: `impls` 取
+  /// `"one"` / `"many"`, `merge` 取 `"none"` / `"first"` / `"veto"` (可省),
+  /// `phases` 是 `["before","impl","after"]` 的子集 (缺省 `impl`), `timeoutMs` 是
+  /// 声明级超时 (0 = 不上限);
+  /// - 只认这五个字段, 其余（标题 / 命令行 / MCP 一类的界面声明）不跨边界;
+  /// - 结果在声明表换好之后才回; 推两次以最后一次为准, 已声明的 id 按新内容覆盖。
+  int musicxx_extern_plugin_set_app_capabilities(
+    ffi.Pointer<MusicxxExternPluginHost> h,
+    ffi.Pointer<MusicxxExternPluginStringView> json,
+    ffi.Pointer<ffi.Int64> out_request_id,
+    ffi.Pointer<MusicxxExternPluginString> log,
+  ) {
+    return _musicxx_extern_plugin_set_app_capabilities(
+      h,
+      json,
+      out_request_id,
+      log,
+    );
+  }
+
+  late final _musicxx_extern_plugin_set_app_capabilitiesPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(
+            ffi.Pointer<MusicxxExternPluginHost>,
+            ffi.Pointer<MusicxxExternPluginStringView>,
+            ffi.Pointer<ffi.Int64>,
+            ffi.Pointer<MusicxxExternPluginString>,
+          )
+        >
+      >('musicxx_extern_plugin_set_app_capabilities');
+  late final _musicxx_extern_plugin_set_app_capabilities =
+      _musicxx_extern_plugin_set_app_capabilitiesPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<MusicxxExternPluginHost>,
+              ffi.Pointer<MusicxxExternPluginStringView>,
+              ffi.Pointer<ffi.Int64>,
+              ffi.Pointer<MusicxxExternPluginString>,
+            )
+          >();
+
   /// 注册唤醒回调 (原生事件入队时调用; 未注册时 Dart 侧退回定时轮询)
   int musicxx_extern_plugin_set_wake_callback(
     ffi.Pointer<MusicxxExternPluginHost> h,

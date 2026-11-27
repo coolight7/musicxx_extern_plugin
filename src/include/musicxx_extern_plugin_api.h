@@ -265,6 +265,27 @@ MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
         MusicxxExternPluginString*           log
     );
 
+/// 下发应用自己的能力声明 (`op = "host.capabilities"`; 整份替换)
+///
+/// 应用是声明表的权威来源: 主程序启动时把自己那一份推过来, 之后插件想给
+/// `<应用名>.*` 的能力提供实现、或问“这条能力开放哪些阶段”, 回答都以推来的为准。
+/// 没有推过时插件框架按自带的那份 (`capability_ids.g.h`) 回答。
+///
+/// - `json`: 数组, 每项 `{id, impls, merge?, phases, timeoutMs}`: `impls` 取
+///   `"one"` / `"many"`, `merge` 取 `"none"` / `"first"` / `"veto"` (可省),
+///   `phases` 是 `["before","impl","after"]` 的子集 (缺省 `impl`), `timeoutMs` 是
+///   声明级超时 (0 = 不上限);
+/// - 只认这五个字段, 其余（标题 / 命令行 / MCP 一类的界面声明）不跨边界;
+/// - 结果在声明表换好之后才回; 推两次以最后一次为准, 已声明的 id 按新内容覆盖
+///   （不再出现在新表里的 id 不会被撤销声明, 插件仍能继续用）。
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+    musicxx_extern_plugin_set_app_capabilities(
+        MusicxxExternPluginHost*              h,
+        const MusicxxExternPluginStringView* json,
+        int64_t*                             out_request_id,
+        MusicxxExternPluginString*           log
+    );
+
 /* ==================== 事件 (原生 → Dart) ==================== */
 
 /// 注册唤醒回调 (原生事件入队时调用; 未注册时 Dart 侧退回定时轮询)

@@ -512,11 +512,23 @@ public:
       std::string &outJson,
       std::string_view instanceName = std::string_view{},
       std::string_view kind = std::string_view{});
-  /// 声明应用的能力（生成表 `capability_ids.g.h`）
+  /// 声明应用的能力
   ///
   /// 在 `start()` 里跑一次（已绑定 IO 线程）：声明之后插件的 `invoke_capability`
   /// 才认识官方 id；应用实现的能力由 [onAppCapabilityStart] 转给 Dart。
+  /// 应用推过声明（[setAppCapabilityDecls]）就用推来的那一份，否则用自带表
+  /// （`capability_ids.g.h` 是应用声明的内置副本）。
   void declareAppCapabilities();
+
+  /// 应用下发自己的能力声明（整份替换；框架线程执行）
+  ///
+  /// 应用是声明表的权威来源：主程序启动时把自己那一份推过来，插件给 `<应用名>.*`
+  /// 提供实现、问“这条能力开放哪些阶段”都以它为准。
+  ///
+  /// - `json` 是数组，每项 `{id, impls, merge?, phases, timeoutMs}`；
+  /// - 解析失败返回 `PLUGINXX_RESULT_ERR_ARG`，原声明不动；
+  /// - 已声明的 id 按新内容覆盖（框架对本应用声明总是允许重声明）。
+  int32_t setAppCapabilityDecls(const std::string &json, std::string &error);
   int32_t pluginConfigPathFor(MusicxxHostInstance *inst, std::string &out);
   int32_t requestAppCapability(MusicxxHostInstance *inst, std::string_view action,
                         std::string_view argsJson, uint32_t timeoutMs,
@@ -774,6 +786,12 @@ private:
 
   /// 应用框架配置 (create() 里调用; 解析路径/开关)
   void applyConfig(const MusicxxExternPluginHostConfig &cfg);
+
+  /// 应用推来的能力声明 (`id` → 声明)
+  ///
+  /// 只在框架线程读写 ([setAppCapabilityDecls] 就在框架线程上跑)。
+  /// 空 = 应用还没推过, 声明与查询走自带的 `capability_ids.g.h`。
+  std::map<std::string, pluginxx::CapabilityDecl, std::less<>> appDecls_;
 
   /// 记录客户端界面能力段 (JSON 文本; 只校验是不是 JSON 对象, 不解释内容)
   void setUiCapabilities(const std::string &capabilitiesJson);

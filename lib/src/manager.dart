@@ -487,6 +487,34 @@ class MusicxxPluginManager {
     _throwIfFailed(result, 'stats_config');
   }
 
+  /// 下发应用自己的能力声明（整份替换）
+  ///
+  /// 应用是能力声明的权威来源：启动后推一份，插件给 `<应用名>.*` 提供实现、
+  /// 问“这条能力开放哪些阶段”都以它为准。没推过时插件框架按自带的那份
+  /// （`capability_ids.g.h`）回答。
+  ///
+  /// 每项只认 `{id, impls, merge?, phases, timeoutMs}`：`impls` 取 `one` / `many`，
+  /// `merge` 取 `none` / `first` / `veto`，`phases` 是 `before` / `impl` / `after`
+  /// 的子集（缺省 `impl`），`timeoutMs` 是声明级超时（0 = 不上限）。
+  Future<void> setAppCapabilities(List<Map<String, Object?>> decls) async {
+    _requireRunning('host_capabilities');
+    final String json = jsonEncode(decls);
+    final MusicxxPluginRequestResult result = await _runtime.requests.submit(
+      'host.capabilities',
+      (
+        MusicxxPluginArena arena,
+        Pointer<Int64> outId,
+        Pointer<MusicxxExternPluginString> log,
+      ) => _runtime.bindings.musicxx_extern_plugin_set_app_capabilities(
+        _runtime.host,
+        arena.view(json),
+        outId,
+        log,
+      ),
+    );
+    _throwIfFailed(result, 'host_capabilities');
+  }
+
   /// 某插件的日志流（来自 `musicxx.plugin.log` 事件）
   Stream<MusicxxPluginLog> logs(String id) => _runtime.events
       .where(

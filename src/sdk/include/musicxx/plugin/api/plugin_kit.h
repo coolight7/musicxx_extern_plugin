@@ -574,35 +574,18 @@ public:
     /// 调一条能力 (协程): 结果 JSON 文本; 业务失败抛异常 (正文是原因)
     asio::awaitable<std::string> capabilityCall(
         std::string_view capability, std::string_view argsJson = "{}") {
-        if (!iface.capabilities || !iface.capabilities->invoke_capability) {
-            throw std::runtime_error("musicxx.capabilities table unavailable");
-        }
-        std::string cap{capability};
-        std::string args{argsJson.empty() ? "{}" : argsJson};
-        co_return co_await tableText(
-            [this, cap, args](PluginxxOperatorCallback cb, void* ud,
-                              PluginxxString* err) {
-                const PluginxxStringView capView = pluginxxView(cap);
-                const PluginxxStringView argsView = pluginxxView(args);
-                return iface.capabilities->invoke_capability(
-                    host, nullptr, &capView, &argsView, 0, cb, ud, err);
-            }, cap.c_str());
+        co_return co_await capabilityCallWithTimeout(capability, argsJson, 0);
     }
 
     /// 调一条能力 (协程), 并给**这一次调用**一个超时 (毫秒)
     ///
     /// - `timeoutMs > 0`: 到点按取消终结, 本协程抛出异常;
-    /// - `timeoutMs <= 0`: 与 [capabilityCall] 相同 (只按声明里的超时)。
-    ///
-    /// 老主程序的能力表没有带超时的成员时退回 [capabilityCall]。
+    /// - `timeoutMs <= 0`: 只按声明里的超时 (一直等)。
     asio::awaitable<std::string> capabilityCallWithTimeout(
         std::string_view capability, std::string_view argsJson,
         int32_t timeoutMs) {
-        if (timeoutMs <= 0 || !iface.capabilities ||
-            !pluginxx::ifaceHas<&PluginxxCapabilitiesIface::invoke_capability_ex>(
-                iface.capabilities) ||
-            !iface.capabilities->invoke_capability_ex) {
-            co_return co_await capabilityCall(capability, argsJson);
+        if (!iface.capabilities || !iface.capabilities->invoke_capability) {
+            throw std::runtime_error("musicxx.capabilities table unavailable");
         }
         std::string cap{capability};
         std::string args{argsJson.empty() ? "{}" : argsJson};
@@ -611,7 +594,7 @@ public:
                                          PluginxxString* err) {
                 const PluginxxStringView capView = pluginxxView(cap);
                 const PluginxxStringView argsView = pluginxxView(args);
-                return iface.capabilities->invoke_capability_ex(
+                return iface.capabilities->invoke_capability(
                     host, nullptr, &capView, &argsView, 0, timeoutMs, cb, ud, err);
             });
     }

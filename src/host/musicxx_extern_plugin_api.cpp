@@ -347,6 +347,33 @@ musicxx_extern_plugin_set_config(MusicxxExternPluginHost *h,
       out_request_id);
 }
 
+MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL
+musicxx_extern_plugin_set_app_capabilities(
+    MusicxxExternPluginHost *h, const MusicxxExternPluginStringView *json,
+    int64_t *out_request_id, MusicxxExternPluginString *log) {
+  auto *handle = asHandle(h);
+  if (!handle || !handle->manager || !out_request_id) {
+    setErr(log, "set_app_capabilities: invalid handle");
+    return PLUGINXX_RESULT_ERR_ARG;
+  }
+  auto mgr = handle->manager;
+  std::string text = viewToStd(json);
+  if (text.empty()) {
+    text = "[]";
+  }
+  return mgr->submitOnHostThread(
+      "host.capabilities",
+      [mgr, text]() -> RequestOutcome {
+        std::string err;
+        const int32_t rc = mgr->setAppCapabilityDecls(text, err);
+        if (rc != PLUGINXX_RESULT_OK) {
+          return RequestOutcome::fail(rc, err);
+        }
+        return RequestOutcome::ok();
+      },
+      out_request_id);
+}
+
 /* ==================== 请求 ==================== */
 
 MUSICXX_EXTERN_PLUGIN_EXPORT int32_t MUSICXX_EXTERN_PLUGIN_CALL

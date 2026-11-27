@@ -668,6 +668,15 @@ int32_t t_set_config(MusicxxExternPluginHost *h,
   return replyLog(reply, log);
 }
 
+int32_t t_set_app_capabilities(MusicxxExternPluginHost *h,
+                                const MusicxxExternPluginStringView *json,
+                                MusicxxExternPluginString *log) {
+  const RequestReply reply = submitAndWait(h, log, [&](int64_t *rid) {
+    return musicxx_extern_plugin_set_app_capabilities(h, json, rid, log);
+  });
+  return replyLog(reply, log);
+}
+
 int32_t t_plugin_scan(MusicxxExternPluginHost *h,
                       MusicxxExternPluginString *out,
                       MusicxxExternPluginString *log) {
@@ -1697,6 +1706,76 @@ int countResultEvents(const std::string &events) {
     ++count;
   }
   return count;
+}
+
+/// 应用推送能力声明 (`host.capabilities`)
+///
+/// 应用是声明表的权威来源: 推过来的表里有什么, 插件就能给什么注册实现。
+/// 这里推一条**本次才声明**的官方 id, 插件 start 自检里给它注册实现就应该从
+/// `not_declared` 变成成功 (probe 的 `unknownCapabilityRc` = 0)。
+void testAppCapabilityDecls(const std::string &pluginDir) {
+  std::printf("\n-- 应用推送能力声明\n");
+  const std::string appV = "0.0.0-test";
+  const std::string plat = testPlatform();
+  const std::string lang = "zh-cn";
+
+  MusicxxExternPluginHostConfig cfg{};
+  cfg.struct_size      = sizeof(MusicxxExternPluginHostConfig);
+  cfg.app_version      = view(appV);
+  cfg.platform         = view(plat);
+  cfg.language         = view(lang);
+  cfg.log_level        = 4; ///< error: 这条用例不关心日志
+  cfg.user_plugin_dir  = view(pluginDir);
+
+  MusicxxExternPluginString createLog{};
+  auto *host = musicxx_extern_plugin_host_create(&cfg, &createLog);
+  const std::string createText = take(createLog);
+  if (host == nullptr) {
+    checkText(false, "声明用例的宿主能建起来: " + createText);
+    return;
+  }
+  MusicxxExternPluginString log{};
+  check(t_host_start(host, &log) == PLUGINXX_RESULT_OK,
+        "声明用例的宿主起得来");
+
+  // 不是数组: 按参数错拒绍, 已有声明不动
+  MusicxxExternPluginString badLog{};
+  const int32_t badRc = t_set_app_capabilities(host, viewCP(R"({"id":1})"), &badLog);
+  const std::string badText = take(badLog);
+  checkText(
+      badRc != PLUGINXX_RESULT_OK && badText.find("array") != std::string::npos,
+      "不是数组时按参数错拒绝: " + badText
+  );
+
+  // 推一条本次才声明的官方 id
+  const int32_t pushRc = t_set_app_capabilities(
+      host,
+      viewCP(R"([{"id":"musicxx.no.such.capability","impls":"one","phases":["impl"],"timeoutMs":0}])"),
+      &log
+  );
+  check(pushRc == PLUGINXX_RESULT_OK, "推送声明成功");
+
+  // 装插件: 它在 start 里给这条 id 注册实现, 有声明就应当成功
+  const std::string            pluginPath = pluginDir + "/example_native";
+  const MusicxxExternPluginStringView pathView = view(pluginPath);
+  const int32_t loadRc =
+      t_plugin_load_sync(host, &pathView, viewCP("{}"), 15000, &log);
+  check(loadRc == PLUGINXX_RESULT_OK, "插件加载成功 (声明用例)");
+
+  const CapabilityCallOutcome probeCall =
+      callCapability(host, "example_native", "probe", "{}", 8000);
+  check(probeCall.acceptRc == PLUGINXX_RESULT_OK && probeCall.ok,
+        "probe 可用 (声明用例)");
+  const std::string probe = probeCall.payload;
+  check(jsonIntField(probe, "unknownCapabilityRc") == "0",
+        "推过来的官方 id 可以注册 (不再是 not_declared)");
+
+  MusicxxExternPluginString stopLog{};
+  check(t_host_stop(host, 1000, &stopLog) == PLUGINXX_RESULT_OK,
+        "声明用例的宿主能停机");
+  freeStr(stopLog);
+  musicxx_extern_plugin_host_destroy(host);
+  freeStr(log);
 }
 
 /// 队列满时请求在受理阶段就被拒绝 (返回 busy)
@@ -4454,9 +4533,11 @@ int main(int argc, char **argv) {
         "host_stop 幂等");
   musicxx_extern_plugin_host_destroy(host);
 
+  // 应用推送能力声明: 单独起一份宿主 (推过的声明只对那份宿主有效)
+  testAppCapabilityDecls(pluginDir);
+
   // 容量 1 的宿主单独起一份: 框架是进程单例, 所以放在主宿主销毁之后
   testHostBusyQueue();
-
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;
 }

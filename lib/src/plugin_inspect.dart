@@ -37,10 +37,10 @@ class MusicxxPluginInspect_c {
     required this.targets,
     required this.supported,
     required this.reason,
-    this.kindKnown = true,
-    this.kindRequiresPluginAbi,
-    this.kindInterfaceVersion,
-    this.kindMinInterfaceVersion,
+    required this.kindKnown,
+    required this.kindRequiresPluginAbi,
+    required this.kindInterfaceVersion,
+    required this.kindMinInterfaceVersion,
     this.kindProvider = '',
     this.kindProviderId = '',
     this.kindValidateCapability = '',
@@ -86,26 +86,22 @@ class MusicxxPluginInspect_c {
 
   /// 形态（[kind]）在插件框架的形态注册表里是否存在
   ///
-  /// false = 没有运行器声明支持它（原因已写进 [reason]）。老版本插件框架库不报这个字段时
-  /// 按 true 算（那时只有内置的两种形态）。
+  /// false = 没有运行器声明支持它（原因已写进 [reason]）。
   final bool kindKnown;
 
   /// 这个形态的插件是否按 C ABI 编译（决定要不要按动态库的样子解析多目标分支）
   ///
   /// 由插件框架按形态注册表回答，主程序**不自己按形态名判断**。
-  /// `null` = 老版本插件框架库没有报这个字段，用 [requiresCAbi] 的兜底值。
-  final bool? kindRequiresPluginAbi;
+  final bool kindRequiresPluginAbi;
 
   /// 这个形态**当前上报的接口代次**（动态库插件与 JS 插件是两套独立编号）
-  ///
-  /// `null` = 老版本插件框架库没有报这个字段。
-  final int? kindInterfaceVersion;
+  final int kindInterfaceVersion;
 
   /// 这个形态能接受的**最低接口代次**（清单 `api_version` 低于它 = 跑不了）
   ///
   /// 判定已经由插件框架做过（结论在 [supported] / [reason] 里）；这里只给管理页与
-  /// 日志看。`null` = 老版本插件框架库没有报这个字段。
-  final int? kindMinInterfaceVersion;
+  /// 日志看。
+  final int kindMinInterfaceVersion;
 
   /// 这个形态的运行器插件（实例名；空 = 插件框架自己跑）
   final String kindProvider;
@@ -119,15 +115,7 @@ class MusicxxPluginInspect_c {
   /// 再看一遍这个目录，由主程序拿这个名字去问（约定见 `docs/plugin-native-api.md` §4.3）。
   final String kindValidateCapability;
 
-  /// 这个形态的插件是不是按 C ABI 编译的动态库
-  ///
-  /// 老插件框架库不报 `kindRequiresPluginAbi` 时按清单的 `kind` 兜底：只有 `native` 是。
-  bool get requiresCAbi => kindRequiresPluginAbi ?? (kind == 'native');
-
-  /// 插件框架是否报了形态的接口代次对（报了 = 判定已经做过，调用方不要再自己判）
-  bool get kindVersionKnown => null != kindMinInterfaceVersion;
-
-  /// 这个形态是不是由某个运行器插件提供的（不是插件框架自己跑）
+  /// 这个形态的插件是不是由某个运行器插件提供的（不是插件框架自己跑）
   bool get kindHosted => kindProvider.isNotEmpty;
 
   static List<String> _stringList(Object? value) {
@@ -163,11 +151,11 @@ class MusicxxPluginInspect_c {
         targets: MusicxxPluginTarget_c.parseList(json['targets']),
         supported: json['supported'] as bool? ?? false,
         reason: json['reason'] as String? ?? '',
-        kindKnown: json['kindKnown'] as bool? ?? true,
-        kindRequiresPluginAbi: json['kindRequiresPluginAbi'] as bool?,
-        kindInterfaceVersion: (json['kindInterfaceVersion'] as num?)?.toInt(),
-        kindMinInterfaceVersion: (json['kindMinInterfaceVersion'] as num?)
-            ?.toInt(),
+        kindKnown: json['kindKnown'] as bool,
+        kindRequiresPluginAbi: json['kindRequiresPluginAbi'] as bool,
+        kindInterfaceVersion: (json['kindInterfaceVersion'] as num).toInt(),
+        kindMinInterfaceVersion: (json['kindMinInterfaceVersion'] as num)
+            .toInt(),
         kindProvider: json['kindProvider'] as String? ?? '',
         kindProviderId: json['kindProviderId'] as String? ?? '',
         kindValidateCapability: json['kindValidateCapability'] as String? ?? '',

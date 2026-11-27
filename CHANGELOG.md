@@ -6,6 +6,33 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 变更（破坏性，未发布）：`pluginxx.capabilities` 表 v10 —— 调用只剩一个入口
+
+一句话：**`invoke_capability_ex` 并回了 `invoke_capability`**，超时是它的参数之一。
+
+- 影响面：`pluginxx/api/tables.h`（表版本 9 → 10，基线随新布局重置）与 `pluginxx/host/tables_impl.h`；
+  SDK 的 `capabilityCall` / `capabilityCallWithTimeout` 签名不变，内部都走同一个入口
+  （`capabilityCall` = `timeoutMs` 0）；
+- 不再有“成员不存在就退回旧签名”这条路：按 v9 头编出来的动态库插件必须重建；
+  agentxx 侧同步改了（JS 引擎与 `agent_plugin_kit.h` 都只剩一个调用成员）。
+
+### 新增（未发布）：C ABI `musicxx_extern_plugin_set_app_capabilities`
+
+一句话：**应用把自己那张能力声明表推给插件框架**，官方 id 的声明以推来的为准。
+
+- 入口：`musicxx_extern_plugin_set_app_capabilities(handle, json, &request_id, log)`（`op = "host.capabilities"`），
+  `json` 是数组，每项 `{id, impls, merge?, phases, timeoutMs}`；
+- 没推过时插件框架按自带的那份（生成物 `capability_ids.g.h`）回答，不接这条通道的接入方行为不变；
+- 推两次以最后一次为准（已声明的 id 按新内容覆盖，不再出现的 id 不会被撤销声明）。
+
+### 变更（未发布）：`plugin_inspect` 的形态事实不再有“字段缺失”的分支
+
+一句话：**`kindKnown` / `kindRequiresPluginAbi` / `kindInterfaceVersion` / `kindMinInterfaceVersion`
+一定会报**，Dart 侧的 `MusicxxPluginInspect_c` 因此改成必填、不再有 `null` 兼容。
+
+- 插件框架库与应用一起发布，正常情况下不会出现“新 Dart + 旧库”；
+- 主程序侧同步删了“老版本库不报形态事实时按清单 `kind` 兵底判 `api_version`”的整段逻辑。
+
 ### 变更（破坏性，未发布）：页面文档只接受 `blocks` 包装
 
 一句话：**页面文档写成 `{"title": …, "blocks": […]}`，或者直接给一棵块**；早期的 `{"items": […]}` 包装不再认。
