@@ -1686,6 +1686,115 @@ protected:
   }
 };
 
+/* ==================== 事件队列满: 请求被拒绝 ==================== */
+
+/// 一段事件文本里有几条结果事件
+int countResultEvents(const std::string &events) {
+  const std::string needle = "\"type\":\"musicxx.request.result\"";
+  int               count  = 0;
+  for (size_t at = events.find(needle); at != std::string::npos;
+       at = events.find(needle, at + needle.size())) {
+    ++count;
+  }
+  return count;
+}
+
+/// 队列满时请求在受理阶段就被拒绝 (返回 busy)
+///
+/// 容量设成 1: `host_start` 就地起线程, 它自己的结果事件在返回前就占满队列,
+/// 之后的提交必然被拒。拒绝发生在调用线程, 不需要等任何事件,
+/// 所以测试不会卡在"队列满、等不来结果"上。
+///
+/// 顺带证明: 拒绝时**不写 requestId、也不补一条结果事件** (与"受理后业务失败"是
+/// 两件事), 队列腾出来之后同一个请求照常受理。
+void testHostBusyQueue() {
+  std::printf("\n-- 事件队列满: 请求被拒绝\n");
+  const std::string appV = "0.0.0-test";
+  const std::string plat = testPlatform();
+  const std::string lang = "zh-cn";
+
+  MusicxxExternPluginHostConfig cfg{};
+  cfg.struct_size          = sizeof(MusicxxExternPluginHostConfig);
+  cfg.app_version          = view(appV);
+  cfg.platform             = view(plat);
+  cfg.language             = view(lang);
+  cfg.log_level            = 4; ///< error: 这条用例不关心日志
+  cfg.event_queue_capacity = 1; ///< 一条事件就满
+
+  MusicxxExternPluginString createLog{};
+  auto *host = musicxx_extern_plugin_host_create(&cfg, &createLog);
+  const std::string createText = take(createLog);
+  if (host == nullptr) {
+    checkText(false, "容量 1 的宿主能建起来: " + createText);
+    return;
+  }
+  check(true, "容量 1 的宿主能建起来");
+
+  // 起线程就地做: 返回时它自己的结果事件已经进队列 (容量 1 → 正好满)
+  int64_t                   startRid = 0;
+  MusicxxExternPluginString startLog{};
+  const int32_t startRc = musicxx_extern_plugin_host_start(host, &startRid, &startLog);
+  freeStr(startLog);
+  check(startRc == PLUGINXX_RESULT_OK, "队列空着时启动请求被受理");
+
+  // 满队列: 受理阶段就拒绝
+  int64_t                   busyRid = 0;
+  MusicxxExternPluginString busyLog{};
+  const int32_t busyRc = musicxx_extern_plugin_plugin_load(
+      host,
+      viewCP("example_native"),
+      viewCP("{}"),
+      &busyRid,
+      &busyLog
+  );
+  const std::string busyText = take(busyLog);
+  check(busyRc == PLUGINXX_RESULT_ERR_BUSY, "队列满时加载请求回 busy");
+  check(busyRid == 0, "拒绝受理时不写 requestId");
+  checkText(
+      busyText.find("event queue is full") != std::string::npos,
+      "拒绝原因写明队列满: " + busyText
+  );
+
+  // 队列里只有启动那一条结果事件, 被拒绝的请求没有补一条
+  const PolledEvents drained = pollEvents(host, 32);
+  const PolledEvents rest    = pollEvents(host, 32);
+  const std::string  events  = drained.json + rest.json;
+  const int          results = countResultEvents(events);
+  checkText(
+      results == 1,
+      "被拒绝的请求没有产生结果事件 (队列里只有启动那一条, 实际 " + std::to_string(results)
+          + " 条)"
+  );
+
+  // 队列腾出来之后同一个调用被受理 (用不存在的插件: 只看受理, 不真的加载)
+  int64_t                   afterRid = 0;
+  MusicxxExternPluginString afterLog{};
+  const int32_t afterRc = musicxx_extern_plugin_plugin_load(
+      host,
+      viewCP("musicxx_no_such_plugin"),
+      viewCP("{}"),
+      &afterRid,
+      &afterLog
+  );
+  freeStr(afterLog);
+  check(afterRc == PLUGINXX_RESULT_OK, "队列腾出来之后同一个请求被受理");
+  const RequestReply reply = waitReply(host, afterRid, 5000);
+  check(reply.got && !reply.ok, "被受理的请求照常回一条失败结果");
+
+  // 停机前清空队列: 容量 1 时留着一条就提交不了
+  for (int i = 0; i < 8; ++i) {
+    const PolledEvents polled = pollEvents(host, 32);
+    if (stripArray(polled.json).empty()) {
+      break;
+    }
+  }
+  MusicxxExternPluginString stopLog{};
+  const int32_t             stopRc = t_host_stop(host, 1000, &stopLog);
+  freeStr(stopLog);
+  check(stopRc == PLUGINXX_RESULT_OK, "容量 1 的宿主能停机");
+  musicxx_extern_plugin_host_destroy(host);
+}
+
 int main(int argc, char **argv) {
   setvbuf(stdout, nullptr, _IONBF, 0); // debug: unbuffered stdout
 
@@ -4344,6 +4453,9 @@ int main(int argc, char **argv) {
             PLUGINXX_RESULT_OK,
         "host_stop 幂等");
   musicxx_extern_plugin_host_destroy(host);
+
+  // 容量 1 的宿主单独起一份: 框架是进程单例, 所以放在主宿主销毁之后
+  testHostBusyQueue();
 
   std::printf("\nchecks=%d failed=%d\n", g_checks, g_failed);
   return g_failed == 0 ? 0 : 1;
