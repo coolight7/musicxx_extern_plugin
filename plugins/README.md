@@ -22,7 +22,7 @@
 | 演示示例 | `example_native` | 动态库插件：能力 / 广播 / 快照频道 / 日志 / UI / 播放页背景 |
 | 演示示例 | `example_native_multi` | 动态库插件：**多目标打包**（一个包里放多个系统/架构分支，运行时按当前系统与 CPU 架构选分支） |
 | 演示示例 | `example_js` | JS插件：与 native 版行为等价（零编译） |
-| 演示示例 | `example_js_playing_bg` | JS插件：播放页背景合集 —— 六种样式（封面三种：模糊 / 沉浸 / 黑胶；图案三种：晶格 / 光圈 / 插件纹理铺底）+ 歌曲图接管 + 封面取色 + 自动前景色 + 频谱与内联 Shader 页面 |
+| 演示示例 | `example_js_playing_bg` | JS插件：播放页背景合集 —— 六种样式（封面三种：模糊 / 沉浸 / 黑胶；图案三种：晶格 / 光圈 / 插件纹理铺底）+ 歌曲图接管 + 歌曲图内容（热浪 / 油画 / 像素，只换图片）+ 封面取色 + 自动前景色 + 频谱与内联 Shader 页面 |
 | 演示示例 | `example_js_playing_slots` | JS插件：插件界面的位置 —— 插入块（歌词页顶部 / 播放列表页 header / 更多信息页 footer）+ 控制按钮栏（按钮级 / 整栏替换）+ 音频动效（频谱柱 shader）+ 歌曲页面背景（歌单封面 shader，用只在歌单页面内可用的纹理来源 `musicxx.songlist.cover`） |
 | 演示示例 | `example_js_broadcast` | JS插件：广播（声明 / 发布自己的频道、订阅官方值频道并按需声明订阅频率） |
 | 演示示例 | `example_js_font` | JS插件：全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认） |
@@ -58,7 +58,7 @@ plugins/
 │   ├── pluginxx_ui_kit.js      随插件分发的界面 kit（基础）：由 tools/sync_ui_kit.ps1 复制
 │   ├── musicxx_ui_kit.js       随插件分发的界面 kit（musicxx 扩展）：由 tools/gen_ui_kit.ps1 生成后复制
 │   └── plugin.yaml             清单里 kind: js，scripts 按顺序列出上面三个脚本
-├── example_js_playing_bg/        JS插件 + shader/ 资源目录（六种背景样式共用五份片段着色器）
+├── example_js_playing_bg/        JS插件 + shader/ 资源目录（六种背景样式五份片段着色器 + 歌曲图内容三份片段着色器）
 │   ├── backgrounds.js          六种背景样式的声明与动画速率
 │   ├── palette.js              封面取色钩子 + 自动调整播放页前景色
 │   ├── views.js                说明页 / 设置页 / 频谱页

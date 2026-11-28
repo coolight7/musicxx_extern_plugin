@@ -6,6 +6,22 @@
 版本按插件框架版本号（格式 `<年>.<月日>.<小版本号>`，见 `lib/src/version.dart`、
 `src/include/musicxx_extern_plugin_api.h` 与 `docs/version-history.md`）与改动日期记。
 
+### 新增（未发布）：播放页歌曲图内容槽位 `musicxx.ui.playing.icon.image`
+
+一句话：**插件只能换歌曲图里的图片内容**，手势（点击播放 / 暂停、拖动切歌）、形状裁剪、
+描边、加载提示与盒子尺寸仍由应用画。
+
+- 渲染槽位 `player.icon.image`，C 宏 `MUSICXX_PLUGIN_UI_SLOT_PLAYING_ICON_IMAGE`；
+  声明只在 `tools/ui_slots.def.json`，生成物（`lib/src/ui_slots.g.dart` /
+  `src/sdk/include/musicxx/plugin/api/ui_slots.g.h` / `docs/ui-slots.md`）一起改；
+- 形态 `selectable`（用户在选择列表里选一项），内置候选只有 `musicxx.original`（原图）：
+  没有 `musicxx.default` / `musicxx.previous` 两个动作 id，回到原图就用 `musicxx.original`；
+- 内容画在内置封面图上面并沿用同一形状裁剪；内容还没生成 / 连续失败 / 插件停用时看到的就是
+  原来的歌曲图。没有 `data.fill` / `data.keepSpace` 这类布局开关（尺寸就是内置歌曲图那块）；
+- **要重建插件框架库**：槽位表是编译进库的，旧库会把新槽位当成未知槽位拒绝注册；
+- 示例：`plugins/example_js_playing_bg`（三种效果：热浪 / 油画 / 像素），写法见
+  `docs/plugin-shader-bundle.md` §5.3.1。
+
 ### 变更（破坏性，未发布）：`pluginxx.capabilities` 表 v10 —— 调用只剩一个入口
 
 一句话：**`invoke_capability_ex` 并回了 `invoke_capability`**，超时是它的参数之一。

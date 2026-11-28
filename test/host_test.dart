@@ -737,6 +737,47 @@ void main() {
       );
       expect(icon.json['blocks'], isEmpty, reason: '不画内容：块树是空的');
 
+      // 歌曲图**内容**槽位（只换图片）: 三种效果各注册一份内容，都用当前歌曲图当纹理
+      final List<MusicxxPluginUIContent> iconImages = await contentProbe
+          .registrationsOf(
+            'example_js_playing_bg',
+            slot: 'musicxx.ui.playing.icon.image',
+          );
+      expect(
+        iconImages.map((MusicxxPluginUIContent item) => item.shortId).toList(),
+        <String>['iconHeat', 'iconOil', 'iconPixel'],
+        reason: '歌曲图内容三种效果（旧插件框架库会以未知槽位拒绝注册，这里就是空列表）',
+      );
+      expect(
+        (await shaderOf('iconHeat'))?['bundle'],
+        'shader/icon_heat.shaderbundle',
+      );
+      expect(
+        (await memberOf('iconHeat', 'uCover'))['square'],
+        true,
+        reason: '歌曲图内容是方形裁剪的，与图标盒子同形',
+      );
+      expect(
+        (await shaderOf('iconOil'))?['bundle'],
+        'shader/icon_oil.shaderbundle',
+      );
+      expect(
+        (await memberOf('iconPixel', 'uCover'))['smooth'],
+        false,
+        reason: '像素风要最近邻取样（线性过滤会把方块糊成过渡）',
+      );
+      final Map<String, Object?> imageProbe =
+          (await runtime.plugins.call(
+                'example_js_playing_bg',
+                'plugin.example_js_playing_bg.probe',
+              ))!
+              as Map<String, Object?>;
+      expect(
+        _intOf(imageProbe['iconImageStyles']),
+        3,
+        reason: '三种歌曲图内容都注册上了（icons.js 执行过）',
+      );
+
       // 取色钩子的处理器必须**同步**返回（不能在里面 await 主程序动作）：主程序是在需要颜色的
       // 时候等这次裁决的（切换背景样式、切歌、渲染准备都在 await 这条链上），处理器里等动作
       // 会把两边互相拖住 —— 实测表现是"启用插件后切歌 / 换背景样式卡几秒"。

@@ -12,10 +12,22 @@
 | 图案类 | 『光圈』 | 只有着色器画（64 个频带尖角连成一圈，跟随频谱律动） | `shader/ring.shaderbundle` |
 | 图案类 | 『插件纹理铺底』 | 同『晶格』的着色器，底层纹理换成插件自己绑定的图 | `shader/bg.shaderbundle`（共用） |
 
-顺带演示同一套代码里的另外三件事：
+另有**歌曲图内容**三种（槽位 `player.icon.image`：只换歌曲图里那张图，手势 / 形状裁剪 /
+描边 / 加载提示仍由应用画）：
+
+| 名称 | 画面 | bundle |
+|---|---|---|
+| 『热浪』 | 当前歌曲图 + 向上升起的热气流扰动与轻微色散 | `shader/icon_heat.shaderbundle` |
+| 『油画』 | 四个方向取色彩最平滑的一块（Kuwahara 式）+ 提彩色 + 压色阶 | `shader/icon_oil.shaderbundle` |
+| 『像素』 | 按短边切成小方块、最近邻取样 + 压色阶 | `shader/icon_pixel.shaderbundle` |
+
+顺带演示同一套代码里的另外四件事：
 
 - **播放页歌曲图槽位**（`player.icon`）：背景是自己时才接管歌曲图，别的样式在画就交还
   `musicxx.previous`（每秒读一次 `musicxx.state.uiSlots`）；
+- **播放页歌曲图内容槽位**（`player.icon.image`）：只换歌曲图里那张图，三种效果——
+  『热浪』（热气流扰动 + 色散）、『油画』（Kuwahara 式色块 + 压色阶）、『像素』（小方块 + 压色阶）；
+  手势、形状裁剪、描边与加载提示仍是应用画；
 - **封面取色能力**（`musicxx.media.palette` 的 `implement`）：命中缓存同步返回，未命中返回 null 并
   在后台算好、用 `musicxx.media.palette.set` 写回（**不要在处理器里 await 应用实现的能力**）；
 - **同一份描述的复用**：说明页 / 设置页 / 频谱页都是声明式视图，用随插件分发的界面 kit 拼装。
@@ -31,7 +43,7 @@ pwsh -NoProfile -File tools/build_examples.ps1
 # 装进应用（也可以用管理页「从压缩包安装」）
 musicxx-cli plugin install "<绝对路径>/example_js_playing_bg-2026_1121_1.zip"
 
-# 自检：六种样式、三个脚本都执行过、页面函数都在
+# 自检：六种样式、三种歌曲图内容、四个脚本都执行过、页面函数都在
 musicxx-cli call probe --plugin example_js_playing_bg
 ```
 
@@ -70,16 +82,21 @@ musicxx-cli call probe --plugin example_js_playing_bg
 |---|---|
 | `pluginxx_ui_kit.js` / `musicxx_ui_kit.js` | 界面 kit（`pwsh tools/sync_ui_kit.ps1` 复制，不要手改） |
 | `backgrounds.js` | 六个样式的声明数据（`title` / `depict` / `view` 块树，块里的 `args` 带封面纹理与块速度）、样式与 UI 项 id 的对照表、注册函数 |
+| `icons.js` | 歌曲图内容的三种效果（`iconHeat` / `iconOil` / `iconPixel`）的声明与注册函数、设置页用的状态文字 |
 | `palette.js` | 封面取色：六种样式各自的颜色估算、前景色挑选、base64 与图片工具；算好的三色用能力 `musicxx.ui.playing.foreground.set` 交给应用（算不出来就 `clear`） |
-| `views.js` | 说明页 / 设置页 / 频谱页的视图，以及频谱动作的异步状态 |
+| `views.js` | 说明页 / 设置页 / 频谱页的视图（含「歌曲图内容」那一栏），以及频谱动作的异步状态 |
 | `plugin.js` | 配置读写、封面纹理绑定、槽位跟随、能力入口、全部顶层注册 |
 
-`shader/` 下五份 `.frag` 共用一份全屏顶点着色器 `shaders/full.vert`，描述文件是 `bundle_<名字>.json`，
+`shader/` 下八份片段着色器共用一份全屏顶点着色器 `shaders/full.vert`，描述文件是 `bundle_<名字>.json`，
 `build_bundle.ps1` 逐个编成 `.shaderbundle`（产物随插件分发）。改了着色器就重跑：
 
 ```powershell
 pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
 ```
+
+歌曲图内容的三份 bundle（`icon_heat` / `icon_oil` / `icon_pixel`）由 `icons.js` 声明引用，
+纹理都是 `musicxx.cover`（当前歌曲图，方形裁剪）；没有封面时它们输出透明像素，
+应用画的默认图会透出来。
 
 ## 3. 设置项（存插件目录的 `config.json`）
 
@@ -98,6 +115,8 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
   只改 `speed` 这类每帧现算的字段，改动立即生效，不用重新选中。
 - 值调到边界外会被夹到范围内，读到非法值用默认值；异步读回来的旧值不会盖掉用户刚做的选择。
 - `1×` 就是 `speed` 1（基准速度 1），没有"声明 4 当基准"那种偏移。
+- 「歌曲图内容」**不是**配置项：设置页上那一栏直接改主程序的渲染槽位选择
+  （`musicxx.ui.slot.set`，槽位 `player.icon.image`），卸载插件后自动回到原图。
 
 ## 4. 用到的能力与槽位
 
@@ -114,8 +133,8 @@ pwsh -NoProfile -File plugins/example_js_playing_bg/shader/build_bundle.ps1
 | `clearPaletteCache` | 清掉插件自己缓存的取色结果 |
 
 - 样式项类型：`musicxx.ui.playing.background`（六项）、歌曲图：`musicxx.ui.playing.icon`、
-  主页入口：`home.entry`；
-- 槽位 id：`player.background` / `player.icon`；选择存主程序的渲染槽位设置，
+  歌曲图内容：`musicxx.ui.playing.icon.image`（三项，只换图片）、主页入口：`home.entry`；
+- 槽位 id：`player.background` / `player.icon` / `player.icon.image`；选择存主程序的渲染槽位设置，
   插件停用 / 卸载后自动回退内置样式；
 - 频谱读的是主程序已有的数据（`musicxx.state.spectrum` 广播 + `musicxx.media.spectrum` 能力），
   插件不另做分析。

@@ -4,7 +4,7 @@
 
 | 东西 | 是什么 | 谁决定用它 |
 |---|---|---|
-| **槽位**（slot） | 一个渲染位置：播放页的某个固定位置、控制栏某个按钮、播放页背景 / 歌曲图 / 动效、普通页面背景、插件页面、浮层……清单见 [ui-slots.md](ui-slots.md) | 主程序（按页面、路由或用户选择） |
+| **槽位**（slot） | 一个渲染位置：播放页的某个固定位置、控制栏某个按钮、播放页背景 / 歌曲图 / 歌曲图内容 / 动效、普通页面背景、插件页面、浮层……清单见 [ui-slots.md](ui-slots.md) | 主程序（按页面、路由或用户选择） |
 | **内容**（content） | 插件为某个槽位生成的一棵块树（`{title?, blocks}` 或单个块） | 主程序按槽位 / 路由 / 用户选择挑一份，再让插件生成 |
 | **声明项**（item） | 只有数据、没有界面树：主页入口、歌曲 / 歌单菜单项、添加歌曲条目、音效 | 主程序画在自己的列表里 |
 
@@ -126,7 +126,8 @@ musicxx.ui.content.push("wholeBar", { json: { blocks: [] } });           // 直�
 
 **列表与选择**：`musicxx.ui.slot.list({slot})` 看某个可选样式槽位的候选，
 `musicxx.ui.slot.current({slot})` 看现在生效的是哪一份，`musicxx.ui.slot.set(id, {slot})`
-换一份（`musicxx.previous` = 交还控制权，`musicxx.default` = 回到默认值）。
+换一份（`musicxx.previous` = 交还控制权，`musicxx.default` = 回到默认值；
+播放页歌曲图内容 `player.icon.image` 没有这两个动作 id，回到原图用 `musicxx.original`）。
 用户选中之前候选列表就要显示名字，所以可选样式槽位的内容**必须给 `title`**。
 
 ### 1.3 声明项（item）
@@ -1161,7 +1162,7 @@ musicxx.capability.register("pickQuality", async function () {
 |---|---|
 | `plugins/example_js/plugin.js` | 主页入口 + 歌曲菜单项；`card` 功能页与 `settings` 设置页；配置读写与页面刷新；页面内容用随插件分发的 kit 拼装 |
 | `plugins/example_js_font/plugin.js` | 全局字体切换（微软雅黑 / 字体文件示例 / 拟声默认）+ 文字与输入框字体预览；**按钮动作"立刻返回 + 后台执行"的样板**（见 §4.1） |
-| `plugins/example_js_playing_bg/plugin.js` | 播放页背景六种样式（封面三种 + 图案三种）+ 歌曲图接管 + 速率设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
+| `plugins/example_js_playing_bg/plugin.js` | 播放页背景六种样式（封面三种 + 图案三种）+ 歌曲图接管 + 歌曲图内容三种效果（热浪 / 油画 / 像素，只换图片）+ 设置页 + 页面里内联的 `musicxx.Shader` 块（见 [plugin-shader-bundle.md](plugin-shader-bundle.md)） |
 | `plugins/example_js_playing_slots/` | 播放页位置：插入块（歌词页顶部 / 播放列表页头部 / 更多信息页底部）、控制栏按钮级与整栏替换、音频动效（§1.6 / §1.7 与 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.4） |
 | `plugins/example_js_slot_provider` / `plugins/example_js_slot_consumer` | 嵌套槽位：前者用 `musicxx.ui.slot.define` 声明自己的槽位并往里注册内容，后者用 `UISlot` 嵌进去（§1.10） |
 | `plugins/example_native/example_native.cpp` | 同样的 UI 能力（C++）：主页入口、歌曲菜单、`card` 页、用 `musicxx::ui::kit` 拼装内容 |
@@ -1184,7 +1185,7 @@ musicxx.capability.register("pickQuality", async function () {
 可照抄的例子（`plugins/` 下）：
 
 - `example_js_playing_slots`：插入位置 + 控制栏替换 + 音频动效 + 页面背景 + 两个页面；
-- `example_js_playing_bg`：六种播放页背景 + 歌曲图接管 + 三个页面（一个插件多个脚本）；
+- `example_js_playing_bg`：六种播放页背景 + 歌曲图接管 + 歌曲图内容（热浪 / 油画 / 像素）+ 三个页面（一个插件多个脚本）；
 - `example_js_slot_provider` / `example_js_slot_consumer`：插件声明自己的槽位、另一个插件用 `UISlot` 嵌进去；
 - `example_native`：C++ 侧的内容注册 / 槽位声明 / `slot.update` 与 `content.push`；
 - `example_js` / `example_js_font` / `example_override_media_source` / `example_ftp_source`：入口与页面、能力与配置。

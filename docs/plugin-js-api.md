@@ -759,10 +759,10 @@ const info = await musicxx.capability.call("example_native", "probe", {});
 
 ## 11. 渲染槽位与封面数据
 
-插件可以把**预编译的 shader bundle** 注册成主程序的一种渲染样式（当前有两个槽位：「播放页背景」
-插件可以把**预编译的 shader bundle** 注册成主程序的一种渲染样式（当前有三个可选槽位：「播放页背景」
-`musicxx.ui.playing.background`、「播放页歌曲图」`musicxx.ui.playing.icon`、「播放页音频动效」
-`musicxx.ui.playing.visualizer`，后者见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3），
+插件可以把**预编译的 shader bundle** 注册成主程序的一种渲染样式（当前有四个可选槽位：「播放页背景」
+`musicxx.ui.playing.background`、「播放页歌曲图」`musicxx.ui.playing.icon`、「播放页歌曲图内容」
+`musicxx.ui.playing.icon.image`（只换图片，见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §5.3.1）、
+「播放页音频动效」`musicxx.ui.playing.visualizer`（见同一文档 §5.4）），
 由用户在设置里选中后生效；也可以拉取封面颜色 / 字节自己算。打包方式、`format_version` 与全部字段见
 [plugin-shader-bundle.md](plugin-shader-bundle.md)，本节只说 JS 侧怎么用。
 
@@ -780,6 +780,24 @@ musicxx.ui.content.register({
     depict: "保留占位、不画内容",
 }, function () {
     return { json: { blocks: [] }, data: { keepSpace: true } };
+});
+
+// 只换歌曲图里的图片（手势 / 形状裁剪 / 描边由应用保留）
+musicxx.ui.content.register({
+    id: "iconHeat",
+    slot: "musicxx.ui.playing.icon.image",
+    title: "歌曲图热浪",
+    depict: "图片被热气流轻微扭曲",
+    order: 50,
+}, function () {
+    return {
+        kind: "musicxx.Shader",
+        bundle: "shader/icon_heat.shaderbundle",
+        args: {
+            uCover: { kind: "texture", source: "musicxx.cover", square: true },
+        },
+        speed: 1, maxFps: 24, resolutionScale: 1,
+    };
 });
 ```
 
@@ -1099,7 +1117,7 @@ musicxx.capability.unregister("musicxx.media.cover.changed");
   返回 base64 字节 / 本地路径，**不参与绘制**，也不推任何直链（网络来源只给 `kind:"network"`，
   本地来源的路径只在 `includePath: true` 时给出）；
 - 槽位状态广播见 [plugin-shader-bundle.md](plugin-shader-bundle.md) §10：`itemId` = 现在由哪个插件项在画
-  （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（内置项 id：三个槽位都是 `musicxx.*`），
+  （为空 = 没有插件项在画），`selectedId` = 用户选中的是谁（内置项 id：四个槽位都是 `musicxx.*`），
   `visible:false` = 主程序当前没有渲染（播放页被遮挡 / 切后台 / 播放页不在页面上），可以据此停掉耗时的绘制工作。
 
 ---
@@ -1159,8 +1177,8 @@ musicxx.capability.register("toggleMySwitch", function () {
   拿到结果再 `musicxx.ui.content.push(id, {json: …})`；
 - `ctx` 里只有注册时 `deps` 列过的变量（`musicxx.*` / `scope:musicxx.*` / `plugin.<自己>.*`）；
   变量变化时主程序只重新绑定值，**结构变了才重新调用生成函数**；
-- **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.visualizer`
-  与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
+- **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.icon.image` /
+  `.visualizer` 与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
   （用户选中之前就要在设置里看到名字）；
 - 动作写法：`call`（字符串短写也算 `call`）/ `route` / `none`，
   字段见 [plugin-ui.md](plugin-ui.md) §1.4；

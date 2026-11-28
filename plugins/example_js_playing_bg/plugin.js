@@ -2,6 +2,7 @@
 ///
 /// 这个插件演示"播放页背景"这一整条路：
 /// - 六种播放页背景样式（封面三种 + 图案三种），见 `backgrounds.js`；
+/// - 歌曲图内容的三种效果（只换图片，手势与形状裁剪仍由主程序画），见 `icons.js`；
 /// - 封面取色钩子与自动调整播放页前景色，见 `palette.js`；
 /// - 说明页 / 设置页 / 频谱页，见 `views.js`；
 /// - 本文件：读写 config.json、跟随背景接管歌曲图、能力入口，以及**全部顶层注册**。
@@ -482,13 +483,15 @@ function refreshPageAfter(view) {
 
 /// 注册本插件的能力（页面 / 按钮都走这里，处理器一律同步返回）
 function installPluginCapabilities() {
-    /// 自检：确认六个脚本都执行过（顶层不报错、样式与页面都在）
+    /// 自检：确认七个脚本都执行过（顶层不报错、样式、歌曲图内容与页面都在）
     ///
-    /// 六个脚本共用一个 JS 上下文：有一个脚本没跑完（报错 / 清单漏了），这里的计数就对不上。
+    /// 七个脚本共用一个 JS 上下文：有一个脚本没跑完（报错 / 清单漏了），这里的计数就对不上。
     musicxx.capability.register("probe", function () {
         return {
             pluginId: PLUGIN_ID,
             styles: Object.keys(ITEM_OF_STYLE).length,
+            // 歌曲图内容（只换图片的那个槽位）的候选数
+            iconImageStyles: ICON_IMAGE_ENTRIES.length,
             uiEntries: musicxx.ui.item.entries().length,
             uiContents: musicxx.ui.content.entries().length,
             // 数字（1 / 0）：原生测试按整数字段读（布尔会被当成 0）
@@ -565,6 +568,18 @@ function installPluginCapabilities() {
             }
             return refreshPage(args);
         }
+        if (id === "iconImage") {
+            // 歌曲图内容：只换歌曲图里的图片，手势与形状裁剪仍由主程序画
+            const style = String(value || "");
+            if (ITEM_OF_ICON_IMAGE[style]) {
+                requestSlotSelect(ICON_IMAGE_SLOT, ITEM_OF_ICON_IMAGE[style],
+                    "歌曲图内容切到" + ICON_IMAGE_SHORT[style], false, view);
+            } else if (style === ICON_IMAGE_BUILTIN) {
+                requestSlotSelect(ICON_IMAGE_SLOT, ICON_IMAGE_ORIGINAL_ID,
+                    "歌曲图内容回到原图", false, view);
+            }
+            return refreshPage(args);
+        }
         if (id === "blur" || id === "zoom" || id === "share" || id === "spin" ||
             id === "bgRate" || id === "ripple" || id === "hideIcon" || id === "autoForeground") {
             saveConfig(id, value);
@@ -628,8 +643,11 @@ function installPluginCapabilities() {
 
 /* ==================== 顶层注册（必须是最后一步，且同步完成） ==================== */
 
-/// 六种背景样式 + 歌曲图接管 + 主页入口
+/// 六种背景样式 + 三种歌曲图内容 + 歌曲图接管 + 主页入口
 registerPluginEntries();
+
+/// 三种歌曲图内容（渲染槽位 player.icon.image）
+registerIconImageEntries();
 
 /// 三个插件页面（`musicxx.ui.page` 上的内容）
 registerPages();
@@ -664,4 +682,4 @@ musicxx.host.log(2, PLUGIN_TITLE + "（" + PLUGIN_ID + "）已加载：六种播
     STYLE_TITLES[STYLE_BLUR] + " / " + STYLE_TITLES[STYLE_CARD] + " / " +
     STYLE_TITLES[STYLE_VINYL] + " / " + STYLE_TITLES[STYLE_LATTICE] + " / " +
     STYLE_TITLES[STYLE_RING] + " / " + STYLE_TITLES[STYLE_BOUND] +
-    "）+ 歌曲图接管 + 封面取色钩子 + 自动调整前景色");
+    "）+ 歌曲图接管 + 歌曲图内容（热浪 / 油画 / 像素）+ 封面取色钩子 + 自动调整前景色");

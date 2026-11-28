@@ -27,6 +27,7 @@
 | `musicxx.ui.audioEffect` | `item` | `audioEffect` | 音效页面 · 音效列表 | 一段音频滤镜。data = {title, subtitle?, filter, pitch?, cpuCost?}；pitch 夹在 0.25~2.0，cpuCost 夹在 1~5（取整）。 |
 | `musicxx.ui.playing.background` | `selectable` | `playing.background` | 播放页 · 整页背景（用户选择生效） | 候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。 |
 | `musicxx.ui.playing.icon` | `selectable` | `playing.icon` | 播放页 · 歌曲图 / 视频（用户选择生效） | 候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。 |
+| `musicxx.ui.playing.icon.image` | `selectable` | `playing.icon.image` | 播放页 · 歌曲图里的图片内容（用户选择生效） | 只替换歌曲图里的图片内容：点击播放 / 暂停、拖动切歌、形状裁剪、描边与加载提示仍由应用画。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。 |
 | `musicxx.ui.playing.visualizer` | `selectable` | `playing.visualizer` | 播放页 · 动效区（用户选择生效） | 候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。 |
 | `musicxx.ui.page.background` | `pageBackground` | `page.background` | 所有普通页面 · 整页背景（按路由自动生效） | 声明项 data = {title, depict?, routes?}；界面内容注册在同一个槽位上，按 routes 与注册顺序生效。 |
 | `musicxx.ui.playing.controlBar` | `replace` | `playing.controlBar` | 播放页 · 整栏（替换内置界面） | 整栏由插件画。同一个槽位只认 order 最小的一份内容，没有内容时画内置控制栏。 |

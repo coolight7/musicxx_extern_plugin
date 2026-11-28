@@ -636,10 +636,12 @@ musicxx-cli plugin uninstall my_plugin                                          
 
 参考实现：`plugins/example_native/`（能力/广播/UI/存储/日志全演示）、`plugins/example_js/`（等价 JS 版）、
 `plugins/example_js_playing_bg/`（显示名『示例播放页背景』：六种播放页背景样式 —— 封面三种『模糊』/『沉浸』/『黑胶』与
-图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 自定义封面取色 + 自动调整播放页前景色：
+图案三种『晶格』/『光圈』/『插件纹理铺底』—— + 接管播放页歌曲图 + 歌曲图内容三种效果（热浪 / 油画 / 像素）+
+自定义封面取色 + 自动调整播放页前景色：
 背景、前景色、图标槽位与取色能力在同一个插件里连起来，覆盖 `args` 里的封面纹理（含圆裁用的 `square`）、同一个槽位注册多项、
-`playing.icon` 三种形态里的 `none`、`musicxx.media.palette.analyse`、
-`musicxx.ui.playing.foreground.set`（运行期改前景三色）与 `musicxx.image.<key>`（插件自己绑定的纹理）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面；六个脚本分工写，也是多脚本示例）、
+`playing.icon` 三种形态里的 `none`、`playing.icon.image` 只换图片内容（`icon_heat` / `icon_oil` / `icon_pixel` 三份 bundle）、
+`musicxx.media.palette.analyse`、
+`musicxx.ui.playing.foreground.set`（运行期改前景三色）与 `musicxx.image.<key>`（插件自己绑定的纹理）；『黑胶』还演示了线段距离场画的唱臂与按 `speed` 旋转的盘心封面；七个脚本分工写，也是多脚本示例）、
 `plugins/example_js_playing_slots/`（播放页的位置：插入块 / 控制按钮栏 / 音频动效三个位置各一块，带自己的 `viz.frag`）、
 另外 `plugins/example_js_broadcast/`（广播：声明 / 发布 / 订阅频率）、
 `plugins/example_js_net/`（插件框架内置网络能力：HTTP / TCP / WebSocket 的客户端 + 服务端），

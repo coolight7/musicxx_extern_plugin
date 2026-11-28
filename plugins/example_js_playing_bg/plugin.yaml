@@ -1,24 +1,26 @@
-# 示例 JS 插件清单：播放页背景合集（六种样式 + 歌曲图接管 + 封面取色 + 自动前景色）
+# 示例 JS 插件清单：播放页背景合集（六种样式 + 歌曲图接管 + 歌曲图内容 + 封面取色 + 自动前景色）
 #
 # 这个插件演示"插件在播放页上能放什么"里最常见的几件事，一个文件一件事，便于照抄：
 #   backgrounds.js  六种背景样式的声明（封面三种：模糊 / 沉浸 / 黑胶；
 #                   图案三种：晶格 / 光圈 / 插件纹理铺底）与动画速率
+#   icons.js        播放页歌曲图内容的三种效果（热浪 / 油画 / 像素）：只换图片，
+#                   手势、形状裁剪与描边仍由主程序画
 #   palette.js      封面取色钩子（musicxx.media.palette.analyse）+ 自动调整播放页前景色
 #   views.js        说明页 / 设置页 / 频谱页（声明式页面，由客户端渲染）
 #   plugin.js       配置读写、跟随背景接管歌曲图、能力入口与全部顶层注册
 #
-# 六个脚本在同一个 JS 上下文里按 scripts 的顺序执行：前面的只声明常量与函数，
+# 七个脚本在同一个 JS 上下文里按 scripts 的顺序执行：前面的只声明常量与函数，
 # 顶层注册统一放在最后一个脚本（plugin.js）里，避免注册时用到的常量还没初始化。
 name: example_js_playing_bg
 kind: js
 entry: plugin.js
-scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, backgrounds.js, palette.js, views.js, plugin.js]
+scripts: [pluginxx_ui_kit.js, musicxx_ui_kit.js, backgrounds.js, icons.js, palette.js, views.js, plugin.js]
 
-version: 2026.1121.1
+version: 2026.1128.1
 # JS 接口代次：当前 3、兼容下限 3（2026-11 广播只剩读与订阅后抬的，写 1 / 2 加载会被拒）
 api_version: 3
 author: "coolight"
-description: "示例播放页背景插件: 六种背景样式（封面三种 + 图案三种）+ 歌曲图接管 + 封面取色 + 自动调整播放页前景色 + 频谱与内联 Shader 页"
+description: "示例播放页背景插件: 六种背景样式（封面三种 + 图案三种）+ 歌曲图接管 + 歌曲图内容（热浪 / 油画 / 像素）+ 封面取色 + 自动调整播放页前景色 + 频谱与内联 Shader 页"
 platforms: [windows, linux, macos, android, ios]
 
 permissions:

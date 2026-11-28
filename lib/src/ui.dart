@@ -43,6 +43,9 @@ abstract final class MusicxxPluginUIType {
   /// 播放页歌曲图（可选样式，用户选择生效）
   static const String playingIcon = 'musicxx.ui.playing.icon';
 
+  /// 播放页歌曲图内容（可选样式：只换图片，手势与形状裁剪由应用保留）
+  static const String playingIconImage = 'musicxx.ui.playing.icon.image';
+
   /// 播放页音频动效（可选样式，用户选择生效）
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
 

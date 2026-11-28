@@ -124,6 +124,15 @@ const List<MusicxxUiSlotSpec_c> kMusicxxUiSlots = <MusicxxUiSlotSpec_c>[
     doc: '候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。',
   ),
   MusicxxUiSlotSpec_c(
+    id: 'musicxx.ui.playing.icon.image',
+    kind: MusicxxUiSlotKind.selectable,
+    label: '播放页歌曲图内容',
+    page: '播放页',
+    position: '歌曲图里的图片内容（用户选择生效）',
+    inList: true,
+    doc: '只替换歌曲图里的图片内容：点击播放 / 暂停、拖动切歌、形状裁剪、描边与加载提示仍由应用画。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。',
+  ),
+  MusicxxUiSlotSpec_c(
     id: 'musicxx.ui.playing.visualizer',
     kind: MusicxxUiSlotKind.selectable,
     label: '播放页音频动效',
@@ -342,6 +351,8 @@ abstract final class MusicxxUiSlots_c {
   static const String playingBackground = 'musicxx.ui.playing.background';
   /// 播放页歌曲图
   static const String playingIcon = 'musicxx.ui.playing.icon';
+  /// 播放页歌曲图内容
+  static const String playingIconImage = 'musicxx.ui.playing.icon.image';
   /// 播放页音频动效
   static const String playingVisualizer = 'musicxx.ui.playing.visualizer';
   /// 普通页面背景

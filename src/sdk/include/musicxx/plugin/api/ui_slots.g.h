@@ -22,6 +22,8 @@ extern "C" {
 #define MUSICXX_PLUGIN_UI_SLOT_PLAYING_BACKGROUND "musicxx.ui.playing.background"
 /* 播放页歌曲图: 播放页 / 歌曲图 / 视频（用户选择生效） */
 #define MUSICXX_PLUGIN_UI_SLOT_PLAYING_ICON "musicxx.ui.playing.icon"
+/* 播放页歌曲图内容: 播放页 / 歌曲图里的图片内容（用户选择生效） */
+#define MUSICXX_PLUGIN_UI_SLOT_PLAYING_ICON_IMAGE "musicxx.ui.playing.icon.image"
 /* 播放页音频动效: 播放页 / 动效区（用户选择生效） */
 #define MUSICXX_PLUGIN_UI_SLOT_PLAYING_VISUALIZER "musicxx.ui.playing.visualizer"
 /* 普通页面背景: 所有普通页面 / 整页背景（按路由自动生效） */
@@ -89,6 +91,7 @@ inline constexpr KnownUiSlot kKnownUiSlots[] = {
     {"musicxx.ui.audioEffect", "item", "音效", true},
     {"musicxx.ui.playing.background", "selectable", "播放页背景", true},
     {"musicxx.ui.playing.icon", "selectable", "播放页歌曲图", true},
+    {"musicxx.ui.playing.icon.image", "selectable", "播放页歌曲图内容", true},
     {"musicxx.ui.playing.visualizer", "selectable", "播放页音频动效", true},
     {"musicxx.ui.page.background", "pageBackground", "普通页面背景", true},
     {"musicxx.ui.playing.controlBar", "replace", "播放页控制栏", false},

@@ -1,7 +1,8 @@
 # 插件渲染：shader bundle 打包与 uniform 约定
 
-插件可以把**打包期编译好的 shader bundle** 画在插件自己的页面里、或者当成主程序的渲染样式（当前有三个**由用户选择**的渲染槽位：
-「播放页背景」`player.background`、「播放页歌曲图」`player.icon`（见 §5.3）与「播放页音频动效」
+插件可以把**打包期编译好的 shader bundle** 画在插件自己的页面里、或者当成主程序的渲染样式（当前有四个**由用户选择**的渲染槽位：
+「播放页背景」`player.background`、「播放页歌曲图」`player.icon`（见 §5.3）、
+「播放页歌曲图内容」`player.icon.image`（见 §5.3.1）与「播放页音频动效」
 `player.visualizer`（见 §5.4）；另有一个**按页面路由自动生效**的「普通页面背景」`page.background`
 （见 §5.5）），由用户在设置里选中后生效（命令行 / agent 用
 `musicxx-cli ui-slot list|set` 切，见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）。
@@ -414,6 +415,55 @@ void main() {
   原因写在设置列表的那一行。
 
 完整示例：`plugins/example_js_playing_bg/`（六种播放页背景 + 歌曲图接管 + 封面取色三件事一起做的插件）。
+
+---
+
+## 5.3.1 播放页歌曲图内容槽位（`musicxx.ui.playing.icon.image`）：只换图片里的内容
+
+有些效果只是“把这张图换一种画法”（热浪扭曲、油画笔触、像素化）：不需要接管播放 / 暂停按钮，
+也不想把滑动切歌、形状裁剪、描边与加载提示重写一遍。这类效果用 `player.icon.image`：
+
+- **只换图片内容**：歌曲图盒子、形状（圆形 / 方形 / 自适应）、描边、加载提示、点击播放 / 暂停、
+  拖动切歌、旋转与波纹动画都还是主程序画；插件内容画在内置封面图**上面**并沿用同一形状裁剪；
+- **尺寸固定**：就是内置歌曲图的那块（`uParams.xy` 是它的像素尺寸），没有 `data.fill` /
+  `data.keepSpace` 这类布局开关；
+- **天然回退**：内容还没生成、半透明或本身没画满时，看到的是主程序画的封面图；连续渲染失败 /
+  解析失败 / 插件停用 / 卸载时这一项变成不可用，直接回到原图；
+- **内置候选只有一项**：`musicxx.original`（原图）。选中它就是清空这个槽位的插件选择，
+  没有 `musicxx.default` / `musicxx.previous` 两个动作 id；
+- **手势不用你接**：挂载点外面包着 `IgnorePointer`，点击与拖动都落到主程序的歌曲图上。
+
+```jsonc
+// 歌曲图内容 = `musicxx.ui.playing.icon.image` 槽位上的一份**内容**
+musicxx.ui.content.register({
+    id: "iconHeat",
+    slot: "musicxx.ui.playing.icon.image",
+    title: "热浪",                 // 候选列表里的名字（用户选中之前就要显示）
+    depict: "图片被热气流轻微扭曲",
+    order: 50,
+}, function () {
+    return {
+        kind: "musicxx.Shader",
+        bundle: "shader/icon_heat.shaderbundle",
+        args: {
+            // 当前歌曲图：方形裁剪，与图标盒子同形；没有封面时着色器输出透明
+            "uCover": {"kind": "texture", "source": "musicxx.cover", "square": true},
+            "uStrength": {"kind": "const", "value": 1}
+        },
+        speed: 1, maxFps: 24, resolutionScale: 1, animate: true,
+    };
+});
+```
+
+约定：
+
+- **输出透明 = 不遮**：没有封面（`uCoverInfo.w == 0`）或插件只想画局部时输出透明像素，
+  主程序画的封面图 / 默认图会透出来（不要输出不透明黑底）；
+- 纹理与参数（`args` / `speed` / `maxFps` / `resolutionScale` / `animate`）与块 `musicxx.Shader`
+  同一套解析（§5.1 / §5.2 / §7）；想用像素风就把纹理声明成 `"smooth": false`（最近邻取样）；
+- 槽位状态广播：`musicxx.state.uiSlots["player.icon.image"]`（字段与其它槽位相同）；
+- 与 §5.3 的 `player.icon` **可以同时生效**：`player.icon` 接管整块显示时本槽位不再挂载
+  （那时没有应用画的歌曲图了）；两者选同一种视觉风格会重复，建议二选一。
 
 ---
 
@@ -940,10 +990,12 @@ const slot = (musicxx.broadcast.read("musicxx.state.uiSlots") || {})["player.bac
 ```
 
 - 内置候选 id 是 `musicxx.<内置样式名>`，例如 `musicxx.auto`（内置换算出来的列表见
-  `musicxx.ui.slot.list` 的返回）；三个槽位统一这套前缀（歌曲图用短名，例如 `musicxx.circle`）；
+  `musicxx.ui.slot.list` 的返回）；四个槽位统一这套前缀（歌曲图用短名，例如 `musicxx.circle`；
+  歌曲图内容只有一个 `musicxx.original`）；
 - 两个动作 id 不进候选列表：`musicxx.previous` = 交还控制权（恢复 `musicxx.default` 重置掉的那个值，
   没有记录时不动、重复调用安全），`musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、
   动效 `musicxx.none`、歌曲图 `musicxx.circle`），只在确实想重置用户设置时用；
+  - `player.icon.image` 没有这两个动作 id：回到原图就用 `musicxx.original`；
 - 命令行 / agent 不用写插件也能切：`musicxx-cli ui-slot list` / `ui-slot current` /
   `ui-slot set plugin.my_plugin.bg`（见 [plugin-agent-cli.md](plugin-agent-cli.md) §5.5）；
 - 广播 `musicxx.state.uiSlots` 每个槽位一个条目，字段：
@@ -952,7 +1004,7 @@ const slot = (musicxx.broadcast.read("musicxx.state.uiSlots") || {})["player.bac
   |---|---|
   | `itemId` | 现在由哪个**插件项**在画（为空 = 没有插件项在画） |
   | `plugin` | 生效项所属插件 |
-  | `selectedId` | 用户选中的是谁（三个槽位的内置项都是 `musicxx.*`） |
+  | `selectedId` | 用户选中的是谁（四个槽位的内置项都是 `musicxx.*`） |
   | `visible` | 主程序当前是否在渲染（播放页被遮挡 / 切后台 / 播放页不在页面上 → false） |
   | `night` | 是否夜间表现 |
   | `width` / `height` | 当前渲染的像素尺寸（不可见时为 0） |
@@ -960,7 +1012,7 @@ const slot = (musicxx.broadcast.read("musicxx.state.uiSlots") || {})["player.bac
   `animate` / `maxFps` 已经不在广播里：它们是**每个着色器块自己的字段**（§8），不同块可以不一样。
 
 - 槽位条目**一直存在**：用户切回内置样式时 `itemId` 为空而 `selectedId` 是内置项 id
-  （三个槽位都是 `musicxx.*`），
+  （四个槽位都是 `musicxx.*`），
   插件据此就能说清「内置背景」而不是猜「没有条目意味着什么」；只有插件框架停止（关闭『拟声++』）
   才清空；
 - 需要更细的颜色数据用 `musicxx.media.palette`（分析结果 + 主程序 4 色），需要封面像素用

@@ -70,6 +70,16 @@
     "doc": "候选样式，靠 content 给出界面。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。"
   },
   {
+    "id": "musicxx.ui.playing.icon.image",
+    "kind": "selectable",
+    "macro": "PLAYING_ICON_IMAGE",
+    "label": "播放页歌曲图内容",
+    "page": "播放页",
+    "position": "歌曲图里的图片内容（用户选择生效）",
+    "inList": true,
+    "doc": "只替换歌曲图里的图片内容：点击播放 / 暂停、拖动切歌、形状裁剪、描边与加载提示仍由应用画。声明项 data = {title, depict?}；界面内容注册在同一个槽位上。"
+  },
+  {
     "id": "musicxx.ui.playing.visualizer",
     "kind": "selectable",
     "macro": "PLAYING_VISUALIZER",

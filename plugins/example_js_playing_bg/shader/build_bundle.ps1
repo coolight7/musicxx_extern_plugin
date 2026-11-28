@@ -1,12 +1,15 @@
-# 打包本插件（example_js_playing_bg）的五个 shader bundle（Windows 用 pwsh）
+# 打包本插件（example_js_playing_bg）的八份 shader bundle（Windows 用 pwsh）
 #
 # 六个背景样式共用五份片段着色器（『晶格』与『插件纹理铺底』是同一个 bundle，
-# 区别在底层纹理的来源）：
-#   bundle_heat.json    + shaders/full.vert + shaders/heat.frag    → heat.shaderbundle   （『模糊』）
-#   bundle_card.json    + shaders/full.vert + shaders/card.frag    → card.shaderbundle   （『沉浸』）
-#   bundle_vinyl.json   + shaders/full.vert + shaders/vinyl.frag   → vinyl.shaderbundle  （『黑胶』）
-#   bundle_lattice.json + shaders/full.vert + shaders/bg.frag      → bg.shaderbundle     （『晶格』『插件纹理铺底』）
-#   bundle_ring.json    + shaders/full.vert + shaders/ring.frag    → ring.shaderbundle   （『光圈』）
+# 区别在底层纹理的来源）；歌曲图内容的三种效果各一份：
+#   bundle_heat.json       + shaders/full.vert + shaders/heat.frag       → heat.shaderbundle        （『模糊』）
+#   bundle_card.json       + shaders/full.vert + shaders/card.frag       → card.shaderbundle        （『沉浸』）
+#   bundle_vinyl.json      + shaders/full.vert + shaders/vinyl.frag      → vinyl.shaderbundle       （『黑胶』）
+#   bundle_lattice.json    + shaders/full.vert + shaders/bg.frag         → bg.shaderbundle          （『晶格』『插件纹理铺底』）
+#   bundle_ring.json       + shaders/full.vert + shaders/ring.frag       → ring.shaderbundle        （『光圈』）
+#   bundle_icon_heat.json  + shaders/full.vert + shaders/icon_heat.frag  → icon_heat.shaderbundle   （歌曲图内容『热浪』）
+#   bundle_icon_oil.json   + shaders/full.vert + shaders/icon_oil.frag   → icon_oil.shaderbundle    （歌曲图内容『油画』）
+#   bundle_icon_pixel.json + shaders/full.vert + shaders/icon_pixel.frag → icon_pixel.shaderbundle  （歌曲图内容『像素』）
 #
 # 用法：
 #   pwsh -NoProfile -File .\build_bundle.ps1 [-FlutterRoot <Flutter SDK 根目录>]
@@ -48,7 +51,10 @@ $targets = @(
     @{ Spec = 'bundle_card.json'; Out = 'card.shaderbundle' },
     @{ Spec = 'bundle_vinyl.json'; Out = 'vinyl.shaderbundle' },
     @{ Spec = 'bundle_lattice.json'; Out = 'bg.shaderbundle' },
-    @{ Spec = 'bundle_ring.json'; Out = 'ring.shaderbundle' }
+    @{ Spec = 'bundle_ring.json'; Out = 'ring.shaderbundle' },
+    @{ Spec = 'bundle_icon_heat.json'; Out = 'icon_heat.shaderbundle' },
+    @{ Spec = 'bundle_icon_oil.json'; Out = 'icon_oil.shaderbundle' },
+    @{ Spec = 'bundle_icon_pixel.json'; Out = 'icon_pixel.shaderbundle' }
 )
 
 foreach ($target in $targets) {

@@ -333,6 +333,22 @@ function modeChoiceControl(viewId) {
     };
 }
 
+/// 歌曲图内容选择（说明页与设置页共用）：原图 + 三种效果
+///
+/// 只换歌曲图里的图片（渲染槽位 `player.icon.image`）：盒子、形状裁剪、描边、加载提示、
+/// 点击播放 / 暂停与拖动切歌都还是主程序画 —— 所以这一行与「样式」那一块不冲突。
+function iconImageChoiceControl(viewId) {
+    return choiceControl("歌曲图内容",
+        "只换歌曲图里那张图（渲染槽位 player.icon.image）：点图播放 / 暂停、拖动切歌、" +
+        "形状裁剪与描边仍由应用画；三种效果都用着色器采样当前歌曲图，没有封面时画的是默认图",
+        "iconImage", currentIconImageStyle(), viewId, [
+            { value: ICON_IMAGE_BUILTIN, label: "原图" },
+            { value: ICON_IMAGE_HEAT, label: ICON_IMAGE_SHORT[ICON_IMAGE_HEAT] },
+            { value: ICON_IMAGE_OIL, label: ICON_IMAGE_SHORT[ICON_IMAGE_OIL] },
+            { value: ICON_IMAGE_PIXEL, label: ICON_IMAGE_SHORT[ICON_IMAGE_PIXEL] },
+        ]);
+}
+
 /// 两个页面共用的状态区（样式 / 渲染 / 歌曲图 / 取色 / 前景色 / 最近一次操作）
 function statusRows() {
     return [
@@ -353,6 +369,10 @@ function statusRows() {
             "播放页歌曲图",
             "渲染槽位 player.icon：接管后保留占位、不画内容",
             iconStateText()),
+        infoRow(
+            "歌曲图内容",
+            "渲染槽位 player.icon.image：只换歌曲图里那张图，手势与形状裁剪仍由应用画",
+            iconImageStateText()),
         infoRow(
             "封面取色",
             "钩子 musicxx.media.palette.analyse：统计封面里出现最多的 4 个色点（" +
@@ -415,6 +435,10 @@ function settingsView(args) {
             kit.card({
                 title: "样式",
                 child: columnOf([modeChoiceControl(SETTINGS_VIEW_ID)]),
+            }, env),
+            kit.card({
+                title: "歌曲图内容",
+                child: columnOf([iconImageChoiceControl(SETTINGS_VIEW_ID)]),
             }, env),
             kit.card({
                 title: "参数",
@@ -560,6 +584,14 @@ function cardView(args) {
                     "只剩圆心光源与底色；要读封面字节（而不是采样）用 `musicxx.media.cover` 动作。",
             }, env),
             kit.hint({
+                text: "• 歌曲图内容（渲染槽位 player.icon.image）：本插件另注册了三种效果——『" +
+                    ICON_IMAGE_TITLES[ICON_IMAGE_HEAT] + "』：" + ICON_IMAGE_DEPICTS[ICON_IMAGE_HEAT] +
+                    "；『" + ICON_IMAGE_TITLES[ICON_IMAGE_OIL] + "』：" + ICON_IMAGE_DEPICTS[ICON_IMAGE_OIL] +
+                    "；『" + ICON_IMAGE_TITLES[ICON_IMAGE_PIXEL] + "』：" + ICON_IMAGE_DEPICTS[ICON_IMAGE_PIXEL] +
+                    "。它们只换歌曲图里那张图：盒子尺寸、形状裁剪、描边、加载提示、点击播放 / 暂停与" +
+                    "拖动切歌都还是主程序画，所以选哪一种都不影响手感。",
+            }, env),
+            kit.hint({
                 text: "• 『自动调整前景色』（默认开）按封面取色的主色推一套播放页前景：" +
                     "保留主色的色相与彩色程度（文字看着就是主色的深浅版），明度按亮暗主题给倾向；" +
                     "对比度按当前样式估出的背景亮度算，要求逐条放宽 —— 先争取高对比 + 明显的颜色，" +
@@ -575,6 +607,10 @@ function cardView(args) {
             kit.card({
                 title: "选择样式",
                 child: columnOf([modeChoiceControl(HOME_VIEW_ID)]),
+            }, env),
+            kit.card({
+                title: "歌曲图内容",
+                child: columnOf([iconImageChoiceControl(HOME_VIEW_ID)]),
             }, env),
             kit.button({ label: "刷新本页", variant: "full", highlight: true, action: "card" }, env),
             kit.button({

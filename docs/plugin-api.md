@@ -1231,6 +1231,7 @@ await musicxx.ui.slot.set("musicxx.auto", { slot: "player.background" });  // �
 // 三个槽位的 id 写法同一套：内置项 `musicxx.<名字>`（背景 / 动效用枚举名，歌曲图用短名），
 // 交还控制权用 `musicxx.previous`（恢复 `musicxx.default` 重置掉的值，没有记录时不动），
 // `musicxx.default` = 写回该设置项的默认值（背景 `musicxx.auto`、动效 `musicxx.none`、歌曲图 `musicxx.circle`）
+// 播放页歌曲图内容（`player.icon.image`）只有内置项 `musicxx.original`，没有这两个动作 id。
 await musicxx.ui.slot.set("musicxx.square", { slot: "player.icon" });
 await musicxx.ui.slot.set("musicxx.previous", { slot: "player.icon" });
 ```
@@ -2494,8 +2495,8 @@ co_await uiContentRegister("card", MUSICXX_PLUGIN_UI_SLOT_PAGE, &onGenerateCard,
 co_await uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PAGE);
 ```
 
-- **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.visualizer`
-  与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
+- **可选样式与页面背景的候选来自内容注册**：`musicxx.ui.playing.background` / `.icon` / `.icon.image` /
+  `.visualizer` 与 `musicxx.ui.page.background` 上注册的内容就是候选，`title` / `depict` / `order` / `routes` 在**注册时**给
   （用户选中之前就要在设置里看到名字）；`routes` 只有页面背景用，空 = 所有普通页面。
 - **生成函数同步执行、必须快**：只做"把 ctx 变成 JSON"这一件事。要等网络 / 文件就先给一份"加载中"，
   拿到结果再 `content.push` / `uiContentPush`。
@@ -2509,9 +2510,11 @@ co_await uiSlotUpdate(MUSICXX_PLUGIN_UI_SLOT_PAGE);
 
 ### 9.2 渲染槽位与着色器（完整说明见 [plugin-shader-bundle.md](plugin-shader-bundle.md)）
 
-- 播放页背景（`playing.background`）、播放页歌曲图（`playing.icon`）与播放页音频动效
-  （`playing.visualizer`）可以交给插件：候选来自内容注册，内容给一棵块树——背景与动效里放
-  `musicxx.Shader` 块，歌曲图可以用 `data.keepSpace` 表示"只留位置、不画内容"。动效槽位与内置
+- 播放页背景（`playing.background`）、播放页歌曲图（`playing.icon`）、播放页歌曲图内容
+  （`playing.icon.image`）与播放页音频动效（`playing.visualizer`）可以交给插件：候选来自内容注册，
+  内容给一棵块树——背景与动效里放 `musicxx.Shader` 块，歌曲图可以用 `data.keepSpace` 表示
+  "只留位置、不画内容"；歌曲图内容只换歌曲图里的那张图，手势、形状裁剪、描边与加载提示
+  仍由应用画，内容画在内置封面图上面并沿用同一形状裁剪。动效槽位与内置
   『音乐动效』的四种样式在同一个列表里选，**没安装那个插件时插件样式照样可用**。
 - **普通页面背景**（`page.background`）也是内容 + `routes`：没有用户选择，同一优先级里最新注册的生效。
 - 页面插入块把界面放进播放页固定位置（歌词页 / 更多信息页 / 播放列表页）：十个槽位各一个，
